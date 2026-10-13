@@ -8,7 +8,7 @@
 
 ## 启动
 
-需要 Node.js 22.18+ 的 22.x 版本或 24.11+，以及 Go 1.26。Node 只用于构建，版本要求来自 Babel 8。较旧的 Go 在启用 `GOTOOLCHAIN=auto` 时会按 `go.mod` 下载对应工具链。
+以下命令都在 `examples/shop` 目录里执行。需要 Node.js 22.18+ 的 22.x 版本或 24.11+，以及 Go 1.26。Node 只用于构建，版本要求来自 Babel 8。较旧的 Go 在启用 `GOTOOLCHAIN=auto` 时会按 `go.mod` 下载对应工具链。
 
 ```sh
 pnpm install --frozen-lockfile
@@ -148,7 +148,7 @@ go test -race ./...
 
 Go 测试会执行实际的 React SSR，覆盖数据作用域、非法数据声明、跨项目订单、URL 查询参数、数据接口不进入 SSR、脚本转义、资源可见范围、版本不匹配、请求隔离和超时。
 
-真实浏览器验证及截图见 [.issues/2026-10-13-prototype/verification.md](.issues/2026-10-13-prototype/verification.md)。本机验证环境为 macOS arm64。浏览器脚本使用环境中的 `playwright-cli`，不在 `pnpm test` 中自动启动浏览器。
+真实浏览器验证及截图见 [.issues/2026-10-13-prototype/verification.md](../../.issues/2026-10-13-prototype/verification.md)。本机验证环境为 macOS arm64。浏览器脚本使用环境中的 `playwright-cli`，不在 `pnpm test` 中自动启动浏览器。
 
 ## 当前取舍
 
@@ -156,21 +156,21 @@ Go 测试会执行实际的 React SSR，覆盖数据作用域、非法数据声�
 
 声明语法目前只支持从路径参数绑定数据源参数。DTO 类型生成只支持示例中的基础类型、结构体和数组。路由只支持普通目录、单段动态参数和嵌套 Layout，不支持 catch-all、可选参数、route group。Page 组件在两端都预先打包，只有 `.client` 模块使用独立代码块。
 
-VM 生命周期实验比较了源码加载、字节码加载、持续复用、定期同步重建和后台重建。实验代码仅在 Go 测试中使用，HTTP 服务仍为每请求独立 VM。测量结果、内存调查和复现命令见 [SSR 实验报告](.issues/2026-10-13-prototype/ssr-experiments.md)。复用时模块变量仍会跨请求保留，定期重建不能替代请求数据隔离。
+VM 生命周期实验比较了源码加载、字节码加载、持续复用、定期同步重建和后台重建。实验代码仅在 Go 测试中使用，HTTP 服务仍为每请求独立 VM。测量结果、内存调查和复现命令见 [SSR 实验报告](../../.issues/2026-10-13-prototype/ssr-experiments.md)。复用时模块变量仍会跨请求保留，定期重建不能替代请求数据隔离。
 
-架构讨论与已定约束见 [设计记录](.issues/2026-10-13-prototype/design.md)。与 Node.js、真实 TanStack Start 生产 SSR 的比较见 [渲染性能对比](.issues/2026-10-13-prototype/node-comparison.md)。对比项目单独安装依赖，使用相同业务组件和 Go 数据，不改变原型的服务端运行时。
+架构讨论与已定约束见 [设计记录](../../.issues/2026-10-13-prototype/design.md)。与 Node.js、真实 TanStack Start 生产 SSR 的比较见 [渲染性能对比](../../.issues/2026-10-13-prototype/node-comparison.md)。对比项目单独安装依赖，使用相同业务组件和 Go 数据，不改变原型的服务端运行时。
 
-SSR 压缩、React 入口裁剪、路由复用、分阶段测量与内存回归见 [SSR 优化记录](.issues/2026-10-13-prototype/ssr-optimization.md)。分阶段分析使用独立计时构建，正式产物不包含 profiler 或计时用的 Go 回调。后续方向与 PGO 实测见 [优化研究](.issues/2026-10-13-prototype/ssr-optimization-next.md)。正常复用长测通过，强制 OOM 的残留分配仍需继续解决，不能把当前实验当作生产池化已完成。
+SSR 压缩、React 入口裁剪、路由复用、分阶段测量与内存回归见 [SSR 优化记录](../../.issues/2026-10-13-prototype/ssr-optimization.md)。分阶段分析使用独立计时构建，正式产物不包含 profiler 或计时用的 Go 回调。后续方向与 PGO 实测见 [优化研究](../../.issues/2026-10-13-prototype/ssr-optimization-next.md)。正常复用长测通过，强制 OOM 的残留分配仍需继续解决，不能把当前实验当作生产池化已完成。
 
-此前 Go、PGO、Node 同包和 Start 的交替测试，以及静态 SVG 复用实验见 [同轮对比报告](.issues/2026-10-13-prototype/ssr-start-followup.md)。报告区分预热 SSR、完整 HTTP 请求和内存口径，并保留机器负载波动下的各轮结果。
+此前 Go、PGO、Node 同包和 Start 的交替测试，以及静态 SVG 复用实验见 [同轮对比报告](../../.issues/2026-10-13-prototype/ssr-start-followup.md)。报告区分预热 SSR、完整 HTTP 请求和内存口径，并保留机器负载波动下的各轮结果。
 
-通用编译优化与 TanStack Start、Next.js、React、Astro 的源码调查见 [框架 SSR 优化研究](.issues/2026-10-13-prototype/framework-ssr-optimization.md)。其中进一步解释了峰值 RSS 对应的 VM 数量，并区分现成的优化、独立实验和未进入稳定发布包的编译能力。
+通用编译优化与 TanStack Start、Next.js、React、Astro 的源码调查见 [框架 SSR 优化研究](../../.issues/2026-10-13-prototype/framework-ssr-optimization.md)。其中进一步解释了峰值 RSS 对应的 VM 数量，并区分现成的优化、独立实验和未进入稳定发布包的编译能力。
 
-Babel 官方常量元素插件已接入。TanStack server history 未测得稳定收益，保留为实验。各项独立性能对照、真实浏览器验证和内存复用检查见 [通用优化实施记录](.issues/2026-10-13-prototype/compiler-optimization.md)。
+Babel 官方常量元素插件已接入。TanStack server history 未测得稳定收益，保留为实验。各项独立性能对照、真实浏览器验证和内存复用检查见 [通用优化实施记录](../../.issues/2026-10-13-prototype/compiler-optimization.md)。
 
-当前包重新采集 PGO 后的 Start 对比，以及 1、2、4、8 个预热 VM 的 RSS 增量见 [PGO 与 VM 内存实测](.issues/2026-10-13-prototype/pgo-vm-scaling.md)。本例 PGO 再降低约 6.2% 热 SSR 耗时，增加一个预热 VM 的总体 RSS 趋势约为 6 MiB，报告保留了各轮波动和适用范围。
+当前包重新采集 PGO 后的 Start 对比，以及 1、2、4、8 个预热 VM 的 RSS 增量见 [PGO 与 VM 内存实测](../../.issues/2026-10-13-prototype/pgo-vm-scaling.md)。本例 PGO 再降低约 6.2% 热 SSR 耗时，增加一个预热 VM 的总体 RSS 趋势约为 6 MiB，报告保留了各轮波动和适用范围。
 
-Start 缓存了什么、哪些 SSR 优化已经被本项目继承，以及每次请求仍需执行的工作，见 [TanStack Start 的 SSR 缓存与优化](.issues/2026-10-13-prototype/tanstack-start-ssr-cache.md)。
+Start 缓存了什么、哪些 SSR 优化已经被本项目继承，以及每次请求仍需执行的工作，见 [TanStack Start 的 SSR 缓存与优化](../../.issues/2026-10-13-prototype/tanstack-start-ssr-cache.md)。
 
 核心实现入口：
 
