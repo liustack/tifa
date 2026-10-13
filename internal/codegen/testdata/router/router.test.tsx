@@ -16,14 +16,22 @@ const missing: RouteResult = { status: 404 }
 
 serve(routeTree)
 
-// render runs one whole-page render through the SSR entry, as the Go VM pool does.
-async function render(url: string, data: Record<string, RouteResult>): Promise<string> {
+// renderResult runs one whole-page render through the SSR entry, as the Go VM pool does.
+async function renderResult(url: string, data: Record<string, RouteResult>) {
   globalThis.renderResult = undefined
   globalThis.startRender(JSON.stringify({ url, buildId: 'b1', data }))
   for (let i = 0; i < 1000 && globalThis.renderResult === undefined; i++)
     await new Promise((resolve) => setTimeout(resolve, 0))
-  const result = JSON.parse(globalThis.renderResult ?? '{"error":"render did not finish"}')
-  if (result.error) throw new Error(`render ${url}: ${result.error}`)
+  return JSON.parse(globalThis.renderResult ?? '{"error":"render did not finish"}') as {
+    html?: string
+    redirect?: { location: string; status: number }
+    error?: string
+  }
+}
+
+async function render(url: string, data: Record<string, RouteResult>): Promise<string> {
+  const result = await renderResult(url, data)
+  if (result.html === undefined) throw new Error(`render ${url}: ${JSON.stringify(result)}`)
   return result.html
 }
 
@@ -91,6 +99,9 @@ test('paths match case-sensitively, as ServeMux does', async () => {
 
 test('literal segments match the URLs ServeMux matches', async () => {
   contains(await render('/a', appData), 'PAGE_ENCODED')
+  // The router spells /%61 as /a and redirects there, Go then serves the redirect.
+  const redirected = await renderResult('/%61', appData)
+  assert(redirected.redirect?.location === '/a', `render /%61: ${JSON.stringify(redirected)}`)
   contains(await render('/x%22y', appData), 'PAGE_QUOTE')
   contains(await render('/x%5Cy', appData), 'PAGE_BACKSLASH')
 })

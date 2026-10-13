@@ -99,6 +99,24 @@ func TestNewPoolRejectsInvalidInput(t *testing.T) {
 	}
 }
 
+// The router redirects a URL it spells differently, such as /%61 for /a. That is no failure,
+// so the VM stays in the pool.
+func TestRedirectKeepsTheVM(t *testing.T) {
+	p := newTestPool(t, testSource(t), testConfig(1))
+	_, err := p.Render(context.Background(), input("redirect", ""))
+	var redirect *RedirectError
+	if !errors.As(err, &redirect) || redirect.Location != "/a?q=1" || redirect.Status != 307 {
+		t.Fatalf("got %v", err)
+	}
+	html, err := p.Render(context.Background(), input("ok", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(html, `data-renders="2"`) {
+		t.Fatalf("the redirect retired the VM: %s", html)
+	}
+}
+
 func TestVMIsReusedAcrossRenders(t *testing.T) {
 	p := newTestPool(t, testSource(t), testConfig(1))
 	for i := 1; i <= 3; i++ {

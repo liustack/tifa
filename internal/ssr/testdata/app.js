@@ -1,6 +1,6 @@
 // A tiny SSR bundle for the pool tests. It follows the same contract as a real
 // bundle: startRender(json) receives {buildId, url, data} and leaves
-// globalThis.renderResult as a JSON string, {html} on success or {error}.
+// globalThis.renderResult as a JSON string, {html} on success, {redirect} or {error}.
 // data.mode selects the behaviour, data.text is echoed into the HTML.
 
 let renders = 0
@@ -34,6 +34,9 @@ globalThis.startRender = (json) => {
     }
     case 'error':
       globalThis.renderResult = JSON.stringify({ error: 'page failed' })
+      return
+    case 'redirect':
+      globalThis.renderResult = JSON.stringify({ redirect: { location: '/a?q=1', status: 307 } })
       return
     case 'globals': {
       const io = ['fetch', 'XMLHttpRequest', 'WebSocket', 'localStorage', 'sessionStorage', 'indexedDB', 'document', 'window', 'require', 'process', 'std', 'os', 'setTimeout', 'setInterval']

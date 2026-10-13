@@ -13,7 +13,9 @@ declare global {
 }
 
 // serve installs startRender, which the Go VM pool calls with the JSON of an Injected value.
-// It leaves {"html": ...} or {"error": ...} in renderResult once the queued jobs have run.
+// It leaves {"html": ...}, {"redirect": {location, status}} or {"error": ...} in renderResult
+// once the queued jobs have run. The router redirects a URL it spells differently, such as
+// /%61 for /a. Go answers redirects of Loads itself before it renders.
 export function serve(routeTree: AnyRoute) {
   globalThis.startRender = (json: string) => {
     const input: Injected = JSON.parse(json)
@@ -27,6 +29,13 @@ export function serve(routeTree: AnyRoute) {
     void (async () => {
       try {
         await router.load()
+        const result = router._serverResult
+        if (result?.type === 'redirect') {
+          globalThis.renderResult = JSON.stringify({
+            redirect: { location: result.redirect.headers.get('Location'), status: result.redirect.status },
+          })
+          return
+        }
         await router.serverSsr!.dehydrate()
         const html = renderToString(<RouterProvider router={router} />)
         router.serverSsr!.setRenderFinished()

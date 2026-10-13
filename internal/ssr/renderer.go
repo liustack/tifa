@@ -96,8 +96,9 @@ func render(vm *quickjs.VM, input []byte, timeout time.Duration) (string, error)
 		return "", errors.New("ssr: render left unresolved work after draining microtasks")
 	}
 	var result struct {
-		HTML  string `json:"html"`
-		Error string `json:"error"`
+		HTML     string         `json:"html"`
+		Redirect *RedirectError `json:"redirect"`
+		Error    string         `json:"error"`
 	}
 	if err := json.Unmarshal([]byte(text), &result); err != nil {
 		return "", fmt.Errorf("ssr: decode result: %w", err)
@@ -105,10 +106,24 @@ func render(vm *quickjs.VM, input []byte, timeout time.Duration) (string, error)
 	if result.Error != "" {
 		return "", fmt.Errorf("ssr: render page: %s", result.Error)
 	}
+	if result.Redirect != nil {
+		return "", result.Redirect
+	}
 	if result.HTML == "" {
 		return "", errors.New("ssr: render returned no HTML")
 	}
 	return result.HTML, nil
+}
+
+// RedirectError is what Render returns when the router answers the URL with a redirect, as
+// TanStack Router does for a URL it spells differently (/%61 for /a). The VM is fine.
+type RedirectError struct {
+	Location string `json:"location"`
+	Status   int    `json:"status"`
+}
+
+func (e *RedirectError) Error() string {
+	return fmt.Sprintf("ssr: the router redirects to %s (%d)", e.Location, e.Status)
 }
 
 // ErrOutOfMemory matches a render that hit the VM's memory limit (ssr.vm_memory).

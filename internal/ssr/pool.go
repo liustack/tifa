@@ -97,7 +97,8 @@ func NewPool(source string, cfg config.SSR) (*Pool, error) {
 // Render waits for an idle VM and renders in into a whole HTML document.
 // While waiting it honours ctx. Once a VM is taken the render runs to completion
 // or to the ssr.timeout budget, because stopping it halfway would cost the VM.
-// A budget overrun returns an error that matches context.DeadlineExceeded.
+// A budget overrun returns an error that matches context.DeadlineExceeded. When the router
+// redirects the URL, Render returns a *RedirectError.
 func (p *Pool) Render(ctx context.Context, in Input) (string, error) {
 	input, err := json.Marshal(in)
 	if err != nil {
@@ -130,12 +131,14 @@ func (p *Pool) Render(ctx context.Context, in Input) (string, error) {
 		p.acquired()
 	}
 	html, err := render(vm, input, p.timeout)
-	if err != nil {
+	var redirect *RedirectError
+	if err != nil && !errors.As(err, &redirect) {
 		p.retire(vm)
 		return "", err
 	}
+	// A redirect is an answer, not a failure: the VM goes back to the pool.
 	p.idle <- vm
-	return html, nil
+	return html, err
 }
 
 func (p *Pool) stopped(ctx context.Context) error {
