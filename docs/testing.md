@@ -24,11 +24,14 @@ CGO_ENABLED=0 go build ./...
 go test -race ./<包路径>
 ```
 
-原型代码（`web/`、`scripts/` 里的构建脚本、`internal/ssr` 等）还在仓库里时，还要跑原型自己的整套检查。它会依次执行前端构建、`tsc --noEmit`、Node 测试和 `go test ./...`：
+根目录的命令只覆盖框架。原型示例 `examples/shop` 是独立模块，改到它时要在该目录里跑它自己的整套检查。它会依次执行前端构建、`tsc --noEmit`、Node 测试和 `go test ./...`：
 
 ```sh
+cd examples/shop
 pnpm install --frozen-lockfile
 pnpm test
+go vet ./...
+CGO_ENABLED=0 go build ./...
 ```
 
 `pnpm test` 的输出里会出现一行 `✘ [ERROR] Node APIs are not supported`，那是测试故意构造的失败场景，测试本身通过。
@@ -42,7 +45,7 @@ pnpm test
 
 ## 默认跳过的 SSR 实验测试
 
-`internal/ssr` 里有一批性能与内存实验，默认 skip，不影响 `go test ./...` 的耗时。要跑时设置对应环境变量，比如：
+`examples/shop/internal/ssr` 里有一批性能与内存实验，默认 skip，不影响 `go test ./...` 的耗时。要跑时设置对应环境变量，比如：
 
 | 变量 | 打开的测试 |
 | --- | --- |
@@ -51,6 +54,6 @@ pnpm test
 | `SSR_PAIR_BASELINE=<旧包>` | `TestSSRPairedComparison`：同一进程里新旧两个包成对比较 |
 | `SSR_MEMORY_PROBES`、`SSR_OOM_AUDIT` 等 | 内存与 OOM 回收实验 |
 
-完整列表在 `internal/ssr/*_test.go` 里搜 `os.Getenv("SSR_`。预热次数、请求数等参数通过 `SSR_WARMUP`、`SSR_REQUESTS` 这类变量调整。
+测试要在 `examples/shop` 目录里运行（如 `SSR_MEMORY_PROBES=1 go test ./internal/ssr -run TestSSRMemoryProbes -v`）。完整列表在 `examples/shop/internal/ssr/*_test.go` 里搜 `os.Getenv("SSR_`。预热次数、请求数等参数通过 `SSR_WARMUP`、`SSR_REQUESTS` 这类变量调整。
 
 性能对比要在同一台机器上交替跑新旧构建，记录机器负载。机器负载变化会让绝对耗时差几倍，只有同轮交替测得的比值可以拿来比较。

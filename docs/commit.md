@@ -35,7 +35,7 @@ refactor: rename Go module to github.com/liustack/tifa
 - 一个提交只做一件事，能单独验证，也能单独回退。
 - 行为变更和它的测试放在同一个提交里。
 - 纯重构、格式化、改名这类机械改动单独提交，不和行为变更混在一起。
-- 不提交构建产物（`internal/ssr/assets/`、`web/generated/`、`.tifa/` 等已在 `.gitignore` 中）。
+- 不提交构建产物（`.tifa/`、`examples/shop` 的 `internal/ssr/assets/` 与 `web/generated/` 等已在 `.gitignore` 中）。
 - 不用 "WIP"、"fix stuff" 这类说不清改了什么的摘要。
 
 ## 分支

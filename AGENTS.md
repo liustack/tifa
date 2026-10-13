@@ -14,7 +14,7 @@ tifa 是一个 Go 全栈框架：Go 负责路由、取数、缓存和后台任�
 
 ## 仓库现状
 
-仓库从原型 go-quick 迁移而来。原型代码（`cmd/server`、`cmd/contracts`、`internal/pages`、`internal/httpapp`、`internal/workspace`、`web/`、`scripts/` 下的构建脚本）在示例应用重写完成前保留，用来对照与复用，之后删除。标签 `prototype-baseline` 是原型基线，性能对比都从它构建。
+仓库从原型 go-quick 迁移而来。原型位于 `examples/shop`，是独立的 Go 模块（`github.com/liustack/tifa/examples/shop`），自带 Node 依赖与构建脚本，根模块不引用它。示例应用重写前它保留原样，用来对照与复用，重写时原地替换其中的管线代码。标签 `prototype-baseline` 是原型基线，性能对比都从它构建。
 
 ## 文档（`docs/`）
 
