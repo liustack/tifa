@@ -12,6 +12,7 @@ import (
 	"runtime/debug"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/liustack/tifa"
@@ -278,10 +279,24 @@ func (s *Server) Run(ctx context.Context) error {
 	return s.Serve(ctx, ln)
 }
 
-// Serve serves on ln until ctx is done, then stops taking requests, waits for in-flight ones and calls OnShutdown.
-// Both waits get their own shutdown_timeout.
+// Serve serves on ln until ctx is done, then stops taking requests and waits for in-flight ones.
+// Requests still running after shutdown_timeout get their contexts canceled and their connections closed,
+// and their handlers get one more shutdown_timeout to return. OnShutdown runs only after every handler
+// has returned, with its own shutdown_timeout. If a handler never returns, OnShutdown is skipped and
+// Serve reports it, because cleaning up under a running handler is worse than not cleaning up.
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
-	srv := &http.Server{Handler: s, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
+	var handlers sync.WaitGroup
+	base, cancelRequests := context.WithCancel(context.Background())
+	defer cancelRequests()
+	srv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handlers.Add(1)
+			defer handlers.Done()
+			s.ServeHTTP(w, r)
+		}),
+		BaseContext:       func(net.Listener) context.Context { return base },
+		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second,
+	}
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(ln) }()
 	select {
@@ -294,9 +309,20 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	cancel()
 	if err != nil {
 		err = fmt.Errorf("tifa: waiting for in-flight requests: %w", err)
+		cancelRequests()
 		_ = srv.Close()
 	}
 	<-served
+	returned := make(chan struct{})
+	go func() {
+		handlers.Wait()
+		close(returned)
+	}()
+	select {
+	case <-returned:
+	case <-time.After(s.cfg.ShutdownTimeout):
+		return errors.Join(err, errors.New("tifa: handlers still running after shutdown, OnShutdown skipped"))
+	}
 	if s.hooks.OnShutdown != nil {
 		hookCtx, cancel := context.WithTimeout(context.Background(), s.cfg.ShutdownTimeout)
 		defer cancel()

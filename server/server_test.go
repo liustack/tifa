@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -406,5 +407,69 @@ func TestMuxRedirectsGoThroughOnRequest(t *testing.T) {
 	}
 	if w := send(newServer(Hooks{}), "GET", "/orders//1", ""); w.Code != http.StatusTemporaryRedirect {
 		t.Fatalf("without OnRequest: %d", w.Code)
+	}
+}
+
+// startSlow serves a single /slow route on a fresh listener and starts one request to it.
+func startSlow(t *testing.T, timeout time.Duration, slow func(c *tifa.Ctx), onShutdown func()) (stop func(), served chan error) {
+	t.Helper()
+	cfg := config.Default()
+	cfg.Server.ShutdownTimeout = timeout
+	s := New(cfg, Hooks{OnShutdown: func(context.Context) error { onShutdown(); return nil }})
+	started := make(chan struct{})
+	s.Handle("GET", "/slow", func(c *tifa.Ctx) error {
+		close(started)
+		slow(c)
+		return c.Text(200, "done")
+	})
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, stop := context.WithCancel(context.Background())
+	served = make(chan error, 1)
+	go func() { served <- s.Serve(ctx, ln) }()
+	go func() {
+		if resp, err := http.Get("http://" + ln.Addr().String() + "/slow"); err == nil {
+			resp.Body.Close()
+		}
+	}()
+	<-started
+	return stop, served
+}
+
+func TestOnShutdownWaitsForHandlersPastDrainTimeout(t *testing.T) {
+	var mu sync.Mutex
+	var events []string
+	record := func(e string) { mu.Lock(); events = append(events, e); mu.Unlock() }
+	stop, served := startSlow(t, 100*time.Millisecond, func(c *tifa.Ctx) {
+		<-c.Context().Done()
+		time.Sleep(50 * time.Millisecond) // cleanup that outlives the drain timeout
+		record("handler returned")
+	}, func() { record("shutdown") })
+	stop()
+	err := <-served
+	if err == nil || !strings.Contains(err.Error(), "in-flight") {
+		t.Errorf("Serve returned %v, want the drain timeout reported", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Join(events, ",") != "handler returned,shutdown" {
+		t.Fatalf("events %v", events)
+	}
+}
+
+func TestOnShutdownIsSkippedWhileHandlersNeverReturn(t *testing.T) {
+	release := make(chan struct{})
+	defer close(release)
+	var shutdown atomic.Bool
+	stop, served := startSlow(t, 50*time.Millisecond, func(*tifa.Ctx) { <-release }, func() { shutdown.Store(true) })
+	stop()
+	err := <-served
+	if err == nil || !strings.Contains(err.Error(), "OnShutdown skipped") {
+		t.Errorf("Serve returned %v", err)
+	}
+	if shutdown.Load() {
+		t.Fatal("OnShutdown ran while a handler was still running")
 	}
 }
