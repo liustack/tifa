@@ -49,6 +49,7 @@ tifa build [--dir 应用根目录] [-o 输出路径]
 - 生成后任意两条路由的 TanStack ID 相同时构建报错（例如页面路径 `_shop` 撞上 Layout 目录 `shop` 的 pathless 路由）。
 - 有 `Load` 的路由生成 `loader`、`staleTime: Infinity` 与 `preloadStaleTime: Infinity`，数据只在 `router.invalidate()` 之后重取。`loaderDeps` 只放 `AllQuery` 里的查询参数，`remountDeps` 是路径参数加同一份查询参数。
 - 页面 `Load` 返回 404 时从该页面向上找第一个 `NotFound`。Layout `Load` 返回 404 时从上一层（父 Layout 的 `_notFound` 或根路由）向上找。
+- 路由器区分路径大小写，和 ServeMux 一致。查询参数按 `c.Query` 的语义解析：值都是字符串，重复的键是字符串数组，不做 JSON 解析。写回 URL 时按浏览器和表单的写法（空格写成 `+`），常见的 URL 保持原样。
 - 没有路由匹配的 URL 直接显示根路由的 `NotFound`（`notFoundMode: 'root'`），不加载任何路由，不请求服务器。这时根 Layout 的界面不显示，因为它的数据没有加载。
 - `route.tsx`、`layout.tsx` 必须有默认导出。可选导出 `head`、`Error`、`NotFound` 接到 `head`、`errorComponent`、`notFoundComponent`，根 Layout 另可导出 `Document`。这些导出必须在文件里直接声明或命名导出（`export *` 转出的不算）。
 

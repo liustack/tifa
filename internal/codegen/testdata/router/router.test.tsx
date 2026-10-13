@@ -59,6 +59,36 @@ test('Layouts with the same prefix are distinct routes', async () => {
   contains(await render('/shared/four', { ...appData, 'app/b': ok('b') }), 'LAYOUT_B', 'PAGE_B_FOUR')
 })
 
+test('query values stay the strings Go reads', async () => {
+  const { router, calls } = await client('/q?q=1.0')
+  assert(router.state.location.href === '/q?q=1.0', `href ${router.state.location.href}`)
+  assert(calls.some(([u, id]) => id === 'app/query' && u === '/q?q=1.0'), `calls ${JSON.stringify(calls)}`)
+  const search = router.state.location.search as Record<string, unknown>
+  assert(search.q === '1.0', `search ${JSON.stringify(search)}`)
+  // Two integers JSON reads as one number are two matches.
+  const ids: string[] = []
+  for (const href of ['/q?q=9007199254740992', '/q?q=9007199254740993']) {
+    router.history.push(href)
+    await router.load()
+    ids.push(router.state.matches[router.state.matches.length - 1].id)
+  }
+  assert(ids[0] !== ids[1], `one match for two values: ${ids}`)
+  const repeated = await client('/q?q=a&q=b')
+  const values = (repeated.router.state.location.search as Record<string, unknown>).q
+  assert(JSON.stringify(values) === '["a","b"]', `repeated ${JSON.stringify(values)}`)
+  // The query of a URL as browsers and forms write it comes back as it is.
+  for (const href of ['/q?q=a&q=b', '/q?q=a+b', '/q?q=1,2:3/4', '/q?q=%E4%B8%AD&r=%26%3D%2B%25%23']) {
+    const { router } = await client(href)
+    assert(router.state.location.href === href, `${href} became ${router.state.location.href}`)
+  }
+  contains(await render('/q?q=1.0', { ...appData, 'app/query': ok('1.0') }), 'QUERY <!-- -->1.0')
+})
+
+test('paths match case-sensitively, as ServeMux does', async () => {
+  contains(await render('/HELLO', appData), 'PAGE_UPPER')
+  contains(await render('/hello', appData), 'PAGE_LOWER')
+})
+
 test('literal segments match the URLs ServeMux matches', async () => {
   contains(await render('/a', appData), 'PAGE_ENCODED')
   contains(await render('/x%22y', appData), 'PAGE_QUOTE')

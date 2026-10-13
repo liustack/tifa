@@ -50,6 +50,10 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
     context: { source },
     isServer: serverURL !== undefined,
     history: serverURL ? createMemoryHistory({ initialEntries: [serverURL] }) : options.history,
+    // ServeMux matches paths case-sensitively and reads query values as strings.
+    caseSensitive: true,
+    parseSearch,
+    stringifySearch,
     // A URL no route matches shows the root's NotFound at once, without loading any route.
     notFoundMode: 'root',
     defaultPreload: 'intent',
@@ -101,6 +105,43 @@ export function rootHead(head?: (ctx: any) => HeadResult | Promise<HeadResult>) 
 // rootScripts loads the browser bundle from the root route.
 export function rootScripts() {
   return pageAssets ? [{ type: 'module', src: pageAssets.script }] : []
+}
+
+// parseSearch reads the query the way c.Query does: every value is a string, and a key given
+// more than once holds the array of its values. The object has no prototype, so a key such as
+// __proto__ is a parameter like any other.
+export function parseSearch(searchStr: string): Record<string, string | string[]> {
+  const search: Record<string, string | string[]> = Object.create(null)
+  for (const [key, value] of new URLSearchParams(searchStr)) {
+    const previous = search[key]
+    if (previous === undefined) search[key] = value
+    else if (Array.isArray(previous)) previous.push(value)
+    else search[key] = [previous, value]
+  }
+  return search
+}
+
+// stringifySearch writes a query parseSearch reads back as the same values, spelled the way
+// browsers and forms send it, so the router keeps the URL of a request as it is: a space is +,
+// and only the characters that would change the meaning, or that browsers escape, are escaped.
+export function stringifySearch(search: Record<string, unknown>): string {
+  const parts: string[] = []
+  for (const key in search) {
+    const value = search[key]
+    if (value === undefined) continue
+    for (const item of Array.isArray(value) ? value : [value])
+      parts.push(encodeQueryPart(key) + '=' + encodeQueryPart(String(item)))
+  }
+  return parts.length > 0 ? '?' + parts.join('&') : ''
+}
+
+const keptInQuery = /%(24|2C|2F|3A|3B|3F|40|5B|5C|5D|5E|60|7B|7C|7D)/g
+
+function encodeQueryPart(text: string) {
+  return encodeURIComponent(text)
+    .replace(keptInQuery, (escape) => decodeURIComponent(escape))
+    .replace(/'/g, '%27')
+    .replace(/%20/g, '+')
 }
 
 // pick keeps the query parameters a Load reads, for loaderDeps and remountDeps. Other
