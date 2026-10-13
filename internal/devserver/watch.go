@@ -131,7 +131,7 @@ func newWatcher(root string, ignore []string, warn func(string)) (*watcher, erro
 	}
 	if err := w.rescan("."); err != nil {
 		fw.Close()
-		return nil, err
+		return nil, w.explain(err)
 	}
 	w.changes.take()
 	return w, nil
@@ -149,7 +149,7 @@ func (w *watcher) run(ctx context.Context) error {
 				return errors.New("file watcher stopped")
 			}
 			if err := w.handle(ev.Name, ev.Op); err != nil {
-				return err
+				return w.explain(err)
 			}
 		case err, ok := <-w.fs.Errors:
 			if !ok {
@@ -160,7 +160,7 @@ func (w *watcher) run(ctx context.Context) error {
 			}
 			// Some events were dropped, so compare everything again.
 			if err := w.rescan("."); err != nil {
-				return err
+				return w.explain(err)
 			}
 		}
 	}
@@ -266,7 +266,11 @@ func (w *watcher) scan(dir string, deep bool) error {
 			return nil
 		}
 		// Watch the real path: kqueue does not watch the files of a directory added through a link.
-		if err := w.fs.Add(real); err != nil {
+		err = w.fs.Add(real)
+		if tooManyFiles(err) && raiseFileLimit() {
+			err = w.fs.Add(real)
+		}
+		if err != nil {
 			switch {
 			case errors.Is(err, fs.ErrNotExist):
 				w.removeTree(dir)
@@ -355,6 +359,23 @@ func (w *watcher) scan(dir string, deep bool) error {
 		}
 	}
 	return nil
+}
+
+func tooManyFiles(err error) bool {
+	return errors.Is(err, syscall.EMFILE) || errors.Is(err, syscall.ENFILE)
+}
+
+// explain adds what to do when watching ran out of a system resource. kqueue (macOS, BSD) keeps a
+// file descriptor open for every entry of a watched directory, inotify (Linux) has a limit on
+// watched directories.
+func (w *watcher) explain(err error) error {
+	switch {
+	case tooManyFiles(err):
+		return fmt.Errorf("%w\nWatching %d directories needs a file descriptor for every file in them. Raise the limit with ulimit -n (now %d), or add directories whose files need no rebuild, such as large asset folders, to Ignore", err, len(w.dirs), fileLimit())
+	case errors.Is(err, syscall.ENOSPC):
+		return fmt.Errorf("%w\nThe system limit on watched directories is reached. Raise fs.inotify.max_user_watches, or add directories whose files need no rebuild to Ignore", err)
+	}
+	return err
 }
 
 // unwatch forgets the watch of dir, not of its subdirectories.

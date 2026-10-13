@@ -25,6 +25,10 @@ import (
 //
 // POST requests get their body back, GET /exit makes the app exit with status 3. The app prints "shutdown done" once it stopped after an interrupt.
 func TestMain(m *testing.M) {
+	if os.Getenv("TIFA_TEST_FILE_LIMIT") != "" {
+		watchWithFileLimit()
+		os.Exit(0)
+	}
 	if os.Getenv("TIFA_FAKE_APP") != "" {
 		if err := fakeApp(); err != nil {
 			fmt.Fprintln(os.Stderr, "fake app:", err)
