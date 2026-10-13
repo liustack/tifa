@@ -91,16 +91,17 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 	if err != nil {
 		return err
 	}
-	w, err := newWatcher(o.Dir, o.Ignore, func(msg string) { log.New(o.Stderr, "tifa dev: ", log.Ltime).Print(msg) })
+	logger := log.New(o.Stderr, "tifa dev: ", log.Ltime)
+	w, err := newWatcher(o.Dir, o.Ignore, func(msg string) { logger.Print(msg) })
 	if err != nil {
 		return err
 	}
 	d := &dev{
 		o:       o,
 		appAddr: appAddr,
-		b:       builder{p: o.Pipeline},
+		b:       builder{p: o.Pipeline, log: logger.Printf},
 		hub:     newHub(),
-		log:     log.New(o.Stderr, "tifa dev: ", log.Ltime),
+		log:     logger,
 		nonce:   strconv.FormatInt(time.Now().UnixNano(), 36),
 	}
 

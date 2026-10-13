@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"time"
 )
 
 // Pipeline is the build work tifa dev drives. The tifa CLI implements it with static analysis,
@@ -99,8 +100,19 @@ func plan(changes []change) steps {
 // builder runs the steps of each rebuild against the pipeline and remembers what the next one needs.
 type builder struct {
 	p        Pipeline
-	manifest string // fingerprint of the last successful analysis
-	pending  steps  // steps a failed rebuild left undone, run again with the next one
+	log      func(format string, args ...any) // one line per step that ran
+	manifest string                           // fingerprint of the last successful analysis
+	pending  steps                            // steps a failed rebuild left undone, run again with the next one
+}
+
+// step runs one pipeline step, logs how long it took and names the step in its error.
+func (b *builder) step(name string, run func() error) error {
+	start := time.Now()
+	if err := run(); err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	b.log("%s done in %s", name, time.Since(start).Round(time.Millisecond))
+	return nil
 }
 
 // build runs s plus the steps a failed rebuild left undone. An analysis that returns a new
@@ -109,34 +121,41 @@ func (b *builder) build(ctx context.Context, s steps) error {
 	s = s.or(b.pending)
 	b.pending = s
 	if s.analyze {
-		fp, err := b.p.Analyze(ctx)
+		var fp string
+		err := b.step("static analysis", func() (err error) {
+			fp, err = b.p.Analyze(ctx)
+			return err
+		})
 		if err != nil {
-			return fmt.Errorf("static analysis: %w", err)
+			return err
 		}
 		if fp != b.manifest {
+			b.log("route manifest changed")
 			s.generate, s.bundle, s.goBuild = true, true, true
 			b.manifest = fp
+		} else {
+			b.log("route manifest unchanged")
 		}
 		s.analyze = false
 		b.pending = s
 	}
 	if s.generate {
-		if err := b.p.Generate(ctx); err != nil {
-			return fmt.Errorf("code generation: %w", err)
+		if err := b.step("code generation", func() error { return b.p.Generate(ctx) }); err != nil {
+			return err
 		}
 		s.generate = false
 		b.pending = s
 	}
 	if s.bundle {
-		if err := b.p.Bundle(ctx); err != nil {
-			return fmt.Errorf("esbuild: %w", err)
+		if err := b.step("bundle", func() error { return b.p.Bundle(ctx) }); err != nil {
+			return err
 		}
 		s.bundle = false
 		b.pending = s
 	}
 	if s.goBuild {
-		if err := b.p.GoBuild(ctx); err != nil {
-			return fmt.Errorf("go build: %w", err)
+		if err := b.step("go build", func() error { return b.p.GoBuild(ctx) }); err != nil {
+			return err
 		}
 	}
 	b.pending = steps{}

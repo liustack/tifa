@@ -3,7 +3,9 @@ package devserver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -35,7 +37,7 @@ var all = []string{"Analyze", "Generate", "Bundle", "GoBuild"}
 func built(t *testing.T) (*builder, *fakePipeline) {
 	t.Helper()
 	p := &fakePipeline{fingerprint: "v1"}
-	b := &builder{p: p}
+	b := &builder{p: p, log: t.Logf}
 	if err := b.build(context.Background(), everything); err != nil {
 		t.Fatal(err)
 	}
@@ -132,5 +134,23 @@ func TestBuildErrorNamesTheStep(t *testing.T) {
 	err := b.build(context.Background(), plan([]change{{"app/a.go", modified}}))
 	if err == nil || err.Error() != "go build: GoBuild broke" {
 		t.Fatalf("got %v, want the go build error", err)
+	}
+}
+
+// Each step that runs leaves one line, so the terminal and tests can see what a change cost.
+func TestBuildLogsEachStep(t *testing.T) {
+	var lines []string
+	p := &fakePipeline{fingerprint: "v1"}
+	b := &builder{p: p, log: func(format string, args ...any) { lines = append(lines, fmt.Sprintf(format, args...)) }}
+	if err := b.build(context.Background(), everything); err != nil {
+		t.Fatal(err)
+	}
+	lines = nil
+	if err := b.build(context.Background(), plan([]change{{"app/a.go", modified}})); err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 3 || !strings.HasPrefix(lines[0], "static analysis done in ") ||
+		lines[1] != "route manifest unchanged" || !strings.HasPrefix(lines[2], "go build done in ") {
+		t.Fatalf("log %q", lines)
 	}
 }
