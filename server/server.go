@@ -408,9 +408,10 @@ func (g *gate) wait(timeout time.Duration) bool {
 //  5. call OnShutdown with its own shutdown_timeout
 //
 // If a handler never returns, OnShutdown is skipped and Serve reports it, because cleaning up under a
-// running handler is worse than not cleaning up.
+// running handler is worse than not cleaning up. Serve always closes ln, also when it refuses to start.
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	if err := checkServeMux(); err != nil {
+		ln.Close()
 		return err
 	}
 	var g gate

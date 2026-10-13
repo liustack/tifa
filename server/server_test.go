@@ -769,6 +769,16 @@ func TestRunRefusesLegacyServeMux(t *testing.T) {
 		started := false
 		err := New(cfg, Hooks{OnStart: func() error { started = true; return nil }}).Run(context.Background())
 		fmt.Printf("started=%t err=%v\n", started, err)
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		serveErr := New(cfg, Hooks{}).Serve(context.Background(), ln)
+		conn, dialErr := net.Dial("tcp", ln.Addr().String())
+		if dialErr == nil {
+			conn.Close()
+		}
+		fmt.Printf("serve refused=%t listener open=%t\n", serveErr != nil, dialErr == nil)
 		return
 	}
 	cmd := exec.Command(os.Args[0], "-test.run", "^TestRunRefusesLegacyServeMux$", "-test.count=1", "-test.v", "-test.timeout=10s")
@@ -779,5 +789,8 @@ func TestRunRefusesLegacyServeMux(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "started=false err=tifa:") || !strings.Contains(string(out), "httpmuxgo121") {
 		t.Fatalf("Run did not refuse the old ServeMux semantics:\n%s", out)
+	}
+	if !strings.Contains(string(out), "serve refused=true listener open=false") {
+		t.Fatalf("Serve must refuse and close the listener it was given:\n%s", out)
 	}
 }
