@@ -63,6 +63,16 @@ func BuildSettings(root string) (tifaconfig.Build, error) {
 	return cfg.Build, err
 }
 
+// ProjectSettings returns the whole project configuration from tifa.yaml or tifa.json, the
+// defaults without one. tifa dev reads the server section to know how long the app may take to stop.
+func ProjectSettings(root string) (tifaconfig.Config, error) {
+	name, data, err := projectConfig(root)
+	if err != nil {
+		return tifaconfig.Config{}, err
+	}
+	return loadConfig(name, data)
+}
+
 // loadConfig reads a project config file the way the built program does, with no other layer.
 func loadConfig(name string, data []byte) (tifaconfig.Config, error) {
 	fs := pflag.NewFlagSet("tifa", pflag.ContinueOnError)

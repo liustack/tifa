@@ -236,3 +236,17 @@ func TestInterfaceOnlyAppHasNoTypeScript(t *testing.T) {
 		t.Errorf("generated %q", got)
 	}
 }
+
+func TestProjectSettingsReadsTheServerSection(t *testing.T) {
+	root := t.TempDir()
+	cfg, err := ProjectSettings(root)
+	if err != nil || cfg.Server.ShutdownTimeout != 10*time.Second {
+		t.Fatalf("defaults: %v %v", cfg.Server.ShutdownTimeout, err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "tifa.yaml"), []byte("server:\n  shutdown_timeout: 3s\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, err = ProjectSettings(root); err != nil || cfg.Server.ShutdownTimeout != 3*time.Second {
+		t.Fatalf("tifa.yaml: %v %v", cfg.Server.ShutdownTimeout, err)
+	}
+}
