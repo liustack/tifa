@@ -152,7 +152,11 @@ func TestViolations(t *testing.T) {
 			{"app/page/route.go:20:", "tifa.Use", "called directly"},
 			{"app/page/route.go:27:", "c.Param", "called directly"},
 		}},
-		{"typeerror", [][]string{{"app/page/route.go:5:17:", "cannot use"}}},
+		{"typeerror", [][]string{
+			{"app/page/route.go:5:17:", "cannot use"},
+			{"app/dup2/route.go:3:", "duplicates"},
+			{"app/getpage/route.go:7:", "OnGet"},
+		}},
 		{"structure", [][]string{
 			{"app/orphan/route.tsx:1:", "route.go"},
 			{"app/both/layout.go:1:", "route.go", "layout.go"},

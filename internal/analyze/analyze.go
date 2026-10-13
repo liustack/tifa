@@ -41,6 +41,8 @@ var hooks = []struct {
 
 // Analyze loads the application whose module root is dir and returns its route manifest.
 // Convention violations come back as Errors, holding every violation found, sorted by position.
+// Packages that do not type check are reported with their type errors and skipped, together
+// with the packages that import them. The conventions of all other packages are still checked.
 // Other errors (no app directory, go list failing) are returned as they are.
 func Analyze(dir string) (*Manifest, error) {
 	root, err := filepath.Abs(dir)
@@ -53,9 +55,6 @@ func Analyze(dir string) (*Manifest, error) {
 	}
 	if err := a.load(); err != nil {
 		return nil, err
-	}
-	if len(a.errs) > 0 { // the code does not type check, conventions cannot be read reliably
-		return nil, a.sortedErrors()
 	}
 	m := a.build()
 	if len(a.errs) > 0 {
@@ -72,6 +71,7 @@ type analyzer struct {
 	pkgs   []*packages.Package // app packages and the root package
 	byDir  map[string]*packages.Package
 	rootPk *packages.Package // nil without hooks.go
+	broken map[string]bool   // directory IDs of packages skipped because they or their imports do not type check
 	errs   Errors
 }
 
@@ -137,8 +137,8 @@ func (a *analyzer) load() error {
 	}
 	a.fset = token.NewFileSet()
 	cfg := &packages.Config{
-		Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax | packages.NeedTypes |
-			packages.NeedTypesInfo | packages.NeedModule,
+		Mode: packages.NeedName | packages.NeedFiles | packages.NeedImports | packages.NeedSyntax |
+			packages.NeedTypes | packages.NeedTypesInfo | packages.NeedModule,
 		Dir:  a.root,
 		Fset: a.fset,
 		// The application is built with cgo off, so the same files are analyzed.
@@ -149,6 +149,29 @@ func (a *analyzer) load() error {
 		return err
 	}
 	a.byDir = map[string]*packages.Package{}
+	a.broken = map[string]bool{}
+	brokenPaths := map[string]bool{}
+	for _, p := range pkgs {
+		if len(p.Errors) > 0 {
+			brokenPaths[p.PkgPath] = true
+		}
+	}
+	// A package that imports a broken one is type checked against incomplete information, so it
+	// is skipped too. Imports outside app/ that fail surface as errors of the importer itself.
+	for changed := true; changed; {
+		changed = false
+		for _, p := range pkgs {
+			if brokenPaths[p.PkgPath] {
+				continue
+			}
+			for path := range p.Imports {
+				if brokenPaths[path] {
+					brokenPaths[p.PkgPath], changed = true, true
+					break
+				}
+			}
+		}
+	}
 	for _, p := range pkgs {
 		// go list compiles each package for export data and reports the compiler output as one
 		// error without a position. The type checker reports the same problems with positions.
@@ -164,8 +187,12 @@ func (a *analyzer) load() error {
 		if p.Module != nil && a.module == "" {
 			a.module = p.Module.Path
 		}
-		a.pkgs = append(a.pkgs, p)
 		id := a.id(filepath.Dir(p.GoFiles[0]))
+		if brokenPaths[p.PkgPath] {
+			a.broken[id] = true
+			continue
+		}
+		a.pkgs = append(a.pkgs, p)
 		a.byDir[id] = p
 		if id == "." {
 			a.rootPk = p
@@ -229,6 +256,7 @@ type route struct {
 	valid   bool      // Path is a literal that parsed, segs and pathPos are set
 	pathPos token.Pos
 	uses    []paramUse
+	broken  bool // the package does not type check, only ID and Page are known
 }
 
 type layout struct {
@@ -292,6 +320,9 @@ func (a *analyzer) build() *Manifest {
 }
 
 func (a *analyzer) route(d *dirInfo) *route {
+	if a.broken[d.id] { // kept so that Layouts know a page with an unknown Path is in scope
+		return &route{Route: Route{ID: d.id, Page: d.routeTSX}, broken: true}
+	}
 	pkg := a.byDir[d.id]
 	if pkg == nil {
 		a.errorInFile(d.id, "route.go", "route.go is not part of a package the go command builds")
@@ -335,7 +366,7 @@ func (a *analyzer) route(d *dirInfo) *route {
 
 func (a *analyzer) layout(d *dirInfo) *layout {
 	l := &layout{Layout: Layout{ID: d.id, TSX: d.layoutTSX, SSR: true}, dir: d}
-	if !d.layoutGo {
+	if !d.layoutGo || a.broken[d.id] {
 		return l
 	}
 	pkg := a.byDir[d.id]
@@ -644,6 +675,7 @@ func (a *analyzer) linkLayouts(routes []*route, layouts []*layout) {
 		var paths [][]segment
 		var scope []*route
 		pages := 0
+		unknown := false // a page in scope does not type check, so the prefix is not known
 		for _, r := range routes {
 			if !isAncestor(l.ID, r.ID) {
 				continue
@@ -653,6 +685,9 @@ func (a *analyzer) linkLayouts(routes []*route, layouts []*layout) {
 				continue
 			}
 			pages++
+			if r.broken {
+				unknown = true
+			}
 			if r.valid {
 				paths = append(paths, r.segs)
 				scope = append(scope, r)
@@ -668,6 +703,9 @@ func (a *analyzer) linkLayouts(routes []*route, layouts []*layout) {
 		}
 		prefix := commonPrefix(paths)
 		l.Path = formatPath(prefix)
+		if unknown {
+			continue
+		}
 		for _, u := range l.uses {
 			if u.method != "Param" || slices.ContainsFunc(prefix, func(s segment) bool { return s.param == u.name }) {
 				continue
@@ -799,7 +837,7 @@ func isTifaUse(info *types.Info, call *ast.CallExpr) bool {
 
 // hooks lists the hooks that the root package defines and checks their signatures.
 func (a *analyzer) hooks() []string {
-	if a.rootPk == nil {
+	if a.rootPk == nil { // no hooks.go, or the root package does not type check
 		return nil
 	}
 	var found []string
