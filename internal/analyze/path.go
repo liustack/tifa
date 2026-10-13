@@ -2,8 +2,8 @@ package analyze
 
 import (
 	"fmt"
-	"go/token"
 	"strings"
+	"unicode"
 )
 
 // segment is one segment of a Path: a literal, {name} or the trailing {name...}.
@@ -26,7 +26,7 @@ func (s segment) String() string {
 // parsePath checks a Path against the subset of ServeMux syntax that tifa accepts and splits it.
 // Accepted: "/" for the exact home page, otherwise "/" followed by non-empty segments separated
 // by "/", with no trailing "/". A segment is a literal, {name} or, as the last segment only,
-// {name...}. name is a Go identifier and appears once per Path. Literals must not contain
+// {name...}. name follows ServeMux: a Go identifier, keywords included, once per Path. Literals must not contain
 // "{", "}", "$", "?", "#" or white space, because they would mean something else to ServeMux,
 // TanStack Router or the URL. Methods, hosts and {$} are not accepted.
 func parsePath(p string) ([]segment, error) {
@@ -57,7 +57,7 @@ func parsePath(p string) ([]segment, error) {
 			return nil, fmt.Errorf("Path %q: segment %q must be a whole {name} or {name...}", p, part)
 		}
 		name, wildcard := strings.CutSuffix(part[1:len(part)-1], "...")
-		if !token.IsIdentifier(name) {
+		if !isWildcardName(name) {
 			return nil, fmt.Errorf("Path %q: %q is not a valid parameter name", p, name)
 		}
 		if wildcard && i != len(parts)-1 {
@@ -70,6 +70,20 @@ func parsePath(p string) ([]segment, error) {
 		segs = append(segs, segment{param: name, wildcard: wildcard})
 	}
 	return segs, nil
+}
+
+// isWildcardName is the parameter name rule of net/http ServeMux. Unlike token.IsIdentifier it
+// accepts Go keywords such as type or range.
+func isWildcardName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, c := range s {
+		if !unicode.IsLetter(c) && c != '_' && (i == 0 || !unicode.IsDigit(c)) {
+			return false
+		}
+	}
+	return true
 }
 
 func formatPath(segs []segment) string {

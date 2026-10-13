@@ -232,3 +232,19 @@ func TestCommonPrefix(t *testing.T) {
 		}
 	}
 }
+
+// Parameter names follow ServeMux: any Go identifier, keywords included.
+func TestParsePathAcceptsKeywordParams(t *testing.T) {
+	segs, err := parsePath("/kinds/{type}/{range...}")
+	if err != nil {
+		t.Fatalf("parsePath: %v", err)
+	}
+	if got := formatPath(segs); got != "/kinds/{type}/{range...}" {
+		t.Errorf("formatPath = %q", got)
+	}
+	for _, bad := range []string{"/{1a}", "/{a-b}", "/{}"} {
+		if _, err := parsePath(bad); err == nil {
+			t.Errorf("parsePath(%q) succeeded", bad)
+		}
+	}
+}
