@@ -170,6 +170,7 @@ type dev struct {
 	builds  int
 
 	mu      sync.Mutex
+	gen     int   // generation of the newest app started
 	app     *app  // the application process, nil when none runs
 	live    *app  // app once it listens, its exit from then on is a crash
 	downErr error // why no application runs and none will until the next build
@@ -185,13 +186,13 @@ func (d *dev) down() error {
 // fail shows err in the browser under title. The version stays, so pages do not reload.
 // Without a running application, the proxy answers with err instead of waiting.
 func (d *dev) fail(title string, err error) {
-	d.log.Printf("%s: %v", strings.ToLower(title), err)
 	d.mu.Lock()
 	if d.app == nil {
 		d.downErr = err
 	}
-	d.mu.Unlock()
 	d.hub.publishError(title, err.Error())
+	d.mu.Unlock()
+	d.log.Printf("%s: %v", strings.ToLower(title), err)
 }
 
 // rebuild runs the steps, restarts the application and tells the browsers to reload.
@@ -213,7 +214,9 @@ func (d *dev) rebuild(ctx context.Context, s steps) {
 		return
 	}
 	d.builds++
+	d.mu.Lock()
 	d.hub.publish(status{Version: d.nonce + "-" + strconv.Itoa(d.builds)})
+	d.mu.Unlock()
 	d.log.Printf("ready in %s", time.Since(start).Round(time.Millisecond))
 }
 
@@ -233,6 +236,8 @@ func (d *dev) restart(ctx context.Context) error {
 		return err
 	}
 	d.mu.Lock()
+	d.gen++
+	a.gen = d.gen
 	d.app = a
 	d.mu.Unlock()
 	go d.watchExit(a)
@@ -258,16 +263,19 @@ func (d *dev) restart(ctx context.Context) error {
 }
 
 // watchExit reports an application that exits while it serves. Exits before it listens are
-// reported by restart, exits after a stop are expected.
+// reported by restart, exits after a stop are expected. The check and the report happen under
+// d.mu, so the exit of an app that a newer generation replaced is dropped.
 func (d *dev) watchExit(a *app) {
 	<-a.done
+	err := a.exitError()
 	d.mu.Lock()
-	crashed := d.live == a
+	crashed := a.gen == d.gen && d.live == a
 	if crashed {
-		d.app, d.live = nil, nil
+		d.app, d.live, d.downErr = nil, nil, err
+		d.hub.publishError("The app stopped", err.Error())
 	}
 	d.mu.Unlock()
 	if crashed {
-		d.fail("The app stopped", a.exitError())
+		d.log.Printf("the app stopped: %v", err)
 	}
 }

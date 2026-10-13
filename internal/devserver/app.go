@@ -20,6 +20,7 @@ type app struct {
 	cmd  *exec.Cmd
 	done chan struct{} // closed once the process exited
 	err  error         // result of cmd.Wait, read after done is closed
+	gen  int           // counts the apps one Run started, the newest is current
 }
 
 // startApp runs command with TIFA_SERVER_ADDR set to addr, which the application's
