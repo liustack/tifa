@@ -6,4 +6,4 @@ export type Data = { name: string; lang: string }
 
 export type Params = Record<string, never>
 
-export const route = getRouteApi("__root__")
+export const route = getRouteApi("/_app")

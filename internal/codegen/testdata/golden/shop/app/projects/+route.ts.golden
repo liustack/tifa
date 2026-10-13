@@ -8,4 +8,4 @@ export type Data = GoProject
 
 export type Params = { projectId: string }
 
-export const route = getRouteApi("/projects/$projectId")
+export const route = getRouteApi("/_app/_notFound/_projects/projects/$projectId")

@@ -1,9 +1,11 @@
 package codegen
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"path"
 	"path/filepath"
 	"slices"
@@ -16,20 +18,30 @@ import (
 // rootID is the TanStack ID of the root route.
 const rootID = "__root__"
 
-// tsNode is one route of the TanStack route tree: a page, or a Layout with pages in scope.
+// tsNode is a page, a Layout with pages in scope, or the framework's root. Each becomes one to
+// three TanStack routes (see tanstackRoutes).
 type tsNode struct {
-	id       string // manifest ID, empty for the framework's own root
+	id       string // manifest ID, empty for the framework's root
 	file     string // "route" or "layout", the base name of the TSX file
 	tsx      bool
 	exports  []string
 	load     *analyze.Load
-	segs     []string // ServeMux segments of the route's full path
+	segs     []string // ServeMux segments of the full path, literals unescaped as ServeMux does
 	parent   *tsNode
 	children []*tsNode
-	path     string // the path option, relative to the parent, empty for the root and pathless Layouts
-	custom   string // the id option of a pathless Layout
-	routeID  string // the TanStack route ID
+	route    *tsRoute // the route with the component and loader, which getRouteApi names
+	outlet   *tsRoute // the route the children hang from: route, or its NotFound boundary
+}
+
+// tsRoute is one route of the generated TanStack route tree.
+type tsRoute struct {
 	variable string
+	id       string // the id option of a pathless route
+	path     string // the path option, relative to the parent route
+	routeID  string // the TanStack route ID
+	opts     []string
+	parent   *tsRoute
+	children []*tsRoute
 }
 
 func (n *tsNode) exported(name string) bool { return slices.Contains(n.exports, name) }
@@ -41,11 +53,15 @@ func generateTS(root string, m *analyze.Manifest, dev bool) (map[string][]byte, 
 	if !slices.ContainsFunc(m.Routes, func(r analyze.Route) bool { return r.Page }) {
 		return nil, nil
 	}
-	tree, nodes, err := buildTree(root, m)
+	_, nodes, err := buildTree(root, m)
 	if err != nil {
 		return nil, err
 	}
-	files := map[string][]byte{"routes.tsx": routesModule(tree, nodes)}
+	routes, err := routesModule(nodes)
+	if err != nil {
+		return nil, err
+	}
+	files := map[string][]byte{"routes.tsx": routes}
 	for _, n := range nodes {
 		if n.id == "" {
 			continue
@@ -114,27 +130,16 @@ const tsconfig = `{
 }
 `
 
-// buildTree places pages and the Layouts that have pages in scope into the TanStack route tree.
-// The app Layout, when it has pages, is the root route. Otherwise the framework's root renders
-// the default document. A Layout's path is the common prefix of its pages' Paths minus its
-// parent's, and a Layout whose prefix equals its parent's is pathless.
+// buildTree places pages and the Layouts that have pages in scope under the framework's root, a
+// Layout under its nearest ancestor Layout in the tree and a page under its nearest Layout.
 func buildTree(root string, m *analyze.Manifest) (*tsNode, []*tsNode, error) {
 	pages := map[string]bool{}
 	for _, r := range m.Routes {
 		pages[r.ID] = r.Page
 	}
-	inTree := map[string]bool{}
-	for _, l := range m.Layouts {
-		inTree[l.ID] = slices.ContainsFunc(l.Routes, func(id string) bool { return pages[id] })
-	}
-
-	top := &tsNode{routeID: rootID, variable: "root"}
+	top := &tsNode{}
 	nodes := []*tsNode{top}
 	byID := map[string]*tsNode{}
-	if inTree["app"] {
-		top.id = "app"
-		byID["app"] = top
-	}
 	nearest := func(ids []string) *tsNode {
 		for _, id := range slices.Backward(ids) {
 			if n, ok := byID[id]; ok {
@@ -143,32 +148,25 @@ func buildTree(root string, m *analyze.Manifest) (*tsNode, []*tsNode, error) {
 		}
 		return top
 	}
+	// m.Layouts lists a parent before its children.
 	for _, l := range m.Layouts {
-		if !inTree[l.ID] {
+		if !slices.ContainsFunc(l.Routes, func(id string) bool { return pages[id] }) {
 			continue
 		}
-		n := byID[l.ID]
-		if n == nil {
-			var chain []string
-			for p := l.Parent; p != ""; p = parentOf(m, p) {
-				chain = append([]string{p}, chain...)
-			}
-			n = &tsNode{id: l.ID, parent: nearest(chain), segs: segments(l.Path)}
-			byID[l.ID] = n
-			nodes = append(nodes, n)
+		var chain []string
+		for p := l.Parent; p != ""; p = parentOf(m, p) {
+			chain = append([]string{p}, chain...)
 		}
-		n.file, n.tsx, n.load = "layout", l.TSX, l.Load
-	}
-	if top.id != "" && top.load != nil && len(top.load.Params) > 0 {
-		return nil, nil, fmt.Errorf("app/layout.go: the root Layout's Load reads path parameter %q, but the root route has no path", top.load.Params[0])
+		n := &tsNode{id: l.ID, file: "layout", tsx: l.TSX, load: l.Load, parent: nearest(chain), segs: segments(l.Path)}
+		byID[l.ID] = n
+		nodes = append(nodes, n)
 	}
 	for _, r := range m.Routes {
 		if r.Page {
 			nodes = append(nodes, &tsNode{id: r.ID, file: "route", tsx: true, load: r.Load, parent: nearest(r.Layouts), segs: segments(r.Path)})
 		}
 	}
-
-	for i, n := range nodes {
+	for _, n := range nodes {
 		if n.tsx {
 			file := filepath.Join(root, filepath.FromSlash(n.id), n.file+".tsx")
 			exports, err := exportsOf(file)
@@ -183,34 +181,89 @@ func buildTree(root string, m *analyze.Manifest) (*tsNode, []*tsNode, error) {
 		if n.parent == nil {
 			continue
 		}
-		n.variable = fmt.Sprintf("r%d", i)
 		n.parent.children = append(n.parent.children, n)
 		if len(n.segs) < len(n.parent.segs) || !slices.Equal(n.segs[:len(n.parent.segs)], n.parent.segs) {
 			return nil, nil, fmt.Errorf("%s: path /%s does not start with its parent's /%s", n.id, strings.Join(n.segs, "/"), strings.Join(n.parent.segs, "/"))
 		}
-		rel := make([]string, 0, len(n.segs))
-		for _, s := range n.segs[len(n.parent.segs):] {
-			rel = append(rel, routerSegment(s))
-		}
-		custom := strings.Join(rel, "/")
-		switch {
-		case n.file == "route" && custom == "":
-			n.path, custom = "/", "/"
-		case n.file == "route":
-			n.path = custom
-		case custom == "":
-			n.custom = "_" + strings.ReplaceAll(strings.TrimPrefix(n.id, "app/"), "/", ".")
-			custom = n.custom
-		default:
-			n.path = custom
-		}
-		parentID := n.parent.routeID
-		if parentID == rootID {
-			parentID = ""
-		}
-		n.routeID = cleanPath(parentID + "/" + custom)
 	}
 	return top, nodes, nil
+}
+
+// tanstackRoutes turns the nodes into TanStack routes, parents first:
+//   - the framework's root is the root route. It renders the document as its shell, so a failure
+//     at any level keeps the document, and shows the root Layout's NotFound for a URL no route
+//     matches.
+//   - a Layout with a path is a pathless route named after its directory with the path route
+//     inside, so two Layouts with the same path stay two routes and the path parameters are
+//     part of the Layout's match. A Layout without a path is the pathless route alone.
+//   - a Layout that exports NotFound gets a pathless boundary route inside, which its children
+//     hang from. A 404 below it then shows the NotFound inside the Layout.
+//   - a page is a route with its path relative to its Layout's, "/" when they are equal.
+//
+// Route IDs follow router-core: the parent's ID, a slash, and the id or path option.
+func tanstackRoutes(nodes []*tsNode) ([]*tsRoute, error) {
+	var routes []*tsRoute
+	add := func(parent *tsRoute, id, path string) *tsRoute {
+		r := &tsRoute{variable: fmt.Sprintf("r%d", len(routes)), id: id, path: path, parent: parent}
+		if parent == nil {
+			r.variable, r.routeID = "root", rootID
+		} else {
+			parentID := parent.routeID
+			if parentID == rootID {
+				parentID = ""
+			}
+			r.routeID = cleanPath(parentID + "/" + cmp.Or(id, path))
+			parent.children = append(parent.children, r)
+		}
+		routes = append(routes, r)
+		return r
+	}
+	for _, n := range nodes {
+		if n.parent == nil {
+			n.route = add(nil, "", "")
+			n.outlet = n.route
+			continue
+		}
+		rel := make([]string, 0, len(n.segs))
+		for _, seg := range n.segs[len(n.parent.segs):] {
+			s, err := routerSegment(seg)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", n.id, err)
+			}
+			rel = append(rel, s)
+		}
+		path := strings.Join(rel, "/")
+		parent := n.parent.outlet
+		switch {
+		case n.file == "route":
+			n.route = add(parent, "", cmp.Or(path, "/"))
+		case path == "":
+			n.route = add(parent, layoutRouteID(n.id), "")
+		default:
+			n.route = add(add(parent, layoutRouteID(n.id), ""), "", path)
+		}
+		n.outlet = n.route
+		if n.file == "layout" && n.exported("NotFound") {
+			n.outlet = add(n.route, "_notFound", "")
+		}
+	}
+	seen := map[string]bool{}
+	for _, r := range routes {
+		if seen[r.routeID] {
+			return nil, fmt.Errorf("codegen: two routes of the route tree get the TanStack ID %s, rename the page path or Layout directory that ends in it", r.routeID)
+		}
+		seen[r.routeID] = true
+	}
+	return routes, nil
+}
+
+// layoutRouteID is the id option of a Layout's pathless route: an underscore and its directory
+// under app, dots for slashes, "_app" for the root Layout.
+func layoutRouteID(id string) string {
+	if id == "app" {
+		return "_app"
+	}
+	return "_" + strings.ReplaceAll(strings.TrimPrefix(id, "app/"), "/", ".")
 }
 
 func parentOf(m *analyze.Manifest, id string) string {
@@ -222,23 +275,49 @@ func parentOf(m *analyze.Manifest, id string) string {
 	panic("codegen: unknown Layout " + id)
 }
 
-// segments splits a ServeMux path into its segments, none for "/".
+// segments splits a ServeMux path into its segments, none for "/". Literal segments are
+// unescaped the way ServeMux does, so /%61 and /a are the same path.
 func segments(p string) []string {
 	if p == "/" {
 		return nil
 	}
-	return strings.Split(strings.TrimPrefix(p, "/"), "/")
+	segs := strings.Split(strings.TrimPrefix(p, "/"), "/")
+	for i, s := range segs {
+		if !strings.HasPrefix(s, "{") {
+			// ServeMux leaves a literal with an invalid escape as it is.
+			if u, err := url.PathUnescape(s); err == nil {
+				segs[i] = u
+			}
+		}
+	}
+	return segs
 }
 
-// routerSegment turns a ServeMux segment into TanStack syntax: {name} is $name and {name...} is $.
-func routerSegment(s string) string {
+// routerSegment turns a ServeMux segment into TanStack syntax: {name} is $name and {name...} is
+// $. A literal is written the way router-core spells the matching segment of a decoded URL: it
+// leaves %25 and %5C escaped and escapes control characters and "<>`{} again, so these are
+// written escaped and everything else as it is. The reserved characters of a URL stay escaped in
+// the router's path when the request escapes them, while ServeMux unescapes them, so a literal
+// holding one of them is refused.
+func routerSegment(s string) (string, error) {
 	switch {
 	case strings.HasSuffix(s, "...}"):
-		return "$"
+		return "$", nil
 	case strings.HasPrefix(s, "{"):
-		return "$" + s[1:len(s)-1]
+		return "$" + s[1:len(s)-1], nil
 	}
-	return s
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case strings.ContainsRune(";/?:@&=+$,#", r):
+			return "", fmt.Errorf("path segment %q holds %q, which the browser router cannot match the way ServeMux does", s, r)
+		case r == '%' || r == '\\' || r < 0x20 || r == 0x7f || strings.ContainsRune("\"<>`{}", r):
+			fmt.Fprintf(&b, "%%%02X", r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String(), nil
 }
 
 // paramKey is the TanStack name of a ServeMux parameter segment, empty for a literal.
@@ -286,16 +365,20 @@ func jsStrings(values []string) string {
 	return "[" + strings.Join(quoted, ", ") + "]"
 }
 
-// routesModule writes routes.tsx: one route per node, the tree, and the router type registration
-// that gives getRouteApi its types. A TSX module is loaded lazily, in its own browser chunk,
-// unless it is the root, which every page needs, or exports head, which the router needs
-// before it loads route chunks.
-func routesModule(top *tsNode, nodes []*tsNode) []byte {
-	var imports, body strings.Builder
+// routesModule writes routes.tsx: the routes of tanstackRoutes, the tree, and the router type
+// registration that gives getRouteApi its types. A TSX module is loaded lazily, in its own
+// browser chunk, unless it is the root Layout's, whose Document and NotFound the root route
+// needs, or exports head, which the router needs before it loads route chunks.
+func routesModule(nodes []*tsNode) ([]byte, error) {
+	routes, err := tanstackRoutes(nodes)
+	if err != nil {
+		return nil, err
+	}
+	var imports strings.Builder
 	runtime := map[string]bool{"createAppRouter": true, "rootHead": true, "rootScripts": true}
 	lazy := false
+	eager := func(n *tsNode) bool { return n.id == "app" || n.exported("head") }
 	// export returns the expression of one export of node i's module.
-	eager := func(n *tsNode) bool { return n.parent == nil || n.exported("head") }
 	export := func(i int, n *tsNode, name string) string {
 		if eager(n) {
 			return fmt.Sprintf("m%d.%s", i, name)
@@ -306,7 +389,12 @@ func routesModule(top *tsNode, nodes []*tsNode) []byte {
 		}
 		return fmt.Sprintf("lazyRouteComponent(m%d, %s)", i, jsString(name))
 	}
+	var app *tsNode
+	appIndex := 0
 	for i, n := range nodes {
+		if n.id == "app" {
+			app, appIndex = n, i
+		}
 		if n.tsx {
 			module := jsString(path.Join("..", n.id, n.file))
 			if eager(n) {
@@ -319,60 +407,57 @@ func routesModule(top *tsNode, nodes []*tsNode) []byte {
 			fmt.Fprintf(&imports, "import type { Data as D%d } from %s\n", i, jsString("./"+n.id+"/+route"))
 		}
 	}
+	appExports := func(name, fallback string) string {
+		if app != nil && app.exported(name) {
+			return fmt.Sprintf("m%d.%s", appIndex, name)
+		}
+		runtime[fallback] = true
+		return fallback
+	}
+
 	for i, n := range nodes {
-		var opts []string
 		if n.parent == nil {
-			fmt.Fprintf(&body, "const root = createRootRouteWithContext<RouterContext>()({\n")
-		} else {
-			fmt.Fprintf(&body, "const %s = createRoute({\n", n.variable)
-			opts = append(opts, "getParentRoute: () => "+n.parent.variable)
-			if n.custom != "" {
-				opts = append(opts, "id: "+jsString(n.custom))
-			} else {
-				opts = append(opts, "path: "+jsString(n.path))
-			}
+			n.route.opts = append(n.route.opts,
+				"shellComponent: "+appExports("Document", "DefaultDocument"),
+				"head: rootHead()",
+				"scripts: rootScripts",
+				"errorComponent: DefaultError",
+				"notFoundComponent: "+appExports("NotFound", "DefaultNotFound"))
+			runtime["DefaultError"] = true
+			continue
 		}
-		switch {
-		case n.tsx:
+		var opts []string
+		if n.tsx {
 			opts = append(opts, "component: "+export(i, n, "default"))
-		case n.parent == nil:
-			opts = append(opts, "component: DefaultDocument")
-			runtime["DefaultDocument"] = true
 		}
-		switch {
-		case n.parent == nil && n.exported("head"):
-			opts = append(opts, fmt.Sprintf("head: rootHead(m%d.head)", i), "scripts: rootScripts")
-		case n.parent == nil:
-			opts = append(opts, "head: rootHead()", "scripts: rootScripts")
-		case n.exported("head"):
+		if n.exported("head") {
 			opts = append(opts, fmt.Sprintf("head: m%d.head", i))
 		}
-		switch {
-		case n.exported("Error"):
+		if n.exported("Error") {
 			opts = append(opts, "errorComponent: "+export(i, n, "Error"))
-		case n.parent == nil:
-			opts = append(opts, "errorComponent: DefaultError")
-			runtime["DefaultError"] = true
 		}
-		switch {
-		case n.exported("NotFound"):
-			opts = append(opts, "notFoundComponent: "+export(i, n, "NotFound"))
-		case n.parent == nil:
-			opts = append(opts, "notFoundComponent: DefaultNotFound")
-			runtime["DefaultNotFound"] = true
+		if n.exported("NotFound") {
+			notFound := "notFoundComponent: " + export(i, n, "NotFound")
+			if n.outlet != n.route {
+				n.outlet.opts = append(n.outlet.opts, notFound)
+			} else {
+				opts = append(opts, notFound)
+			}
 		}
 		var query []string
 		if n.load != nil {
 			query = n.load.AllQuery
 			runtime["load"] = true
-			// A Layout's 404 is shown from its parent up, a page's from the page up.
+			// A page's 404 is shown from the page up. A Layout's is shown from the level above,
+			// where its parent's children hang.
 			notFoundFrom := ""
-			if n.file == "layout" && n.parent != nil {
-				notFoundFrom = ", " + jsString(n.parent.routeID)
+			if n.file == "layout" {
+				notFoundFrom = ", " + jsString(n.parent.outlet.routeID)
 			}
 			opts = append(opts,
 				fmt.Sprintf("loader: ({ context, location }) => load<D%d>(context, %s, location%s)", i, jsString(n.id), notFoundFrom),
-				"staleTime: Infinity")
+				"staleTime: Infinity",
+				"preloadStaleTime: Infinity")
 			if len(query) > 0 {
 				runtime["pick"] = true
 				opts = append(opts, fmt.Sprintf("loaderDeps: ({ search }) => pick(search, %s)", jsStrings(query)))
@@ -392,12 +477,29 @@ func routesModule(top *tsNode, nodes []*tsNode) []byte {
 		if len(deps) > 0 {
 			opts = append(opts, fmt.Sprintf("remountDeps: ({ %s }) => [%s]", strings.Join(args, ", "), strings.Join(deps, ", ")))
 		}
-		for _, o := range opts {
+		n.route.opts = append(n.route.opts, opts...)
+	}
+
+	var body strings.Builder
+	for _, r := range routes {
+		var opts []string
+		if r.parent == nil {
+			fmt.Fprintf(&body, "const root = createRootRouteWithContext<RouterContext>()({\n")
+		} else {
+			fmt.Fprintf(&body, "const %s = createRoute({\n", r.variable)
+			opts = append(opts, "getParentRoute: () => "+r.parent.variable)
+			if r.id != "" {
+				opts = append(opts, "id: "+jsString(r.id))
+			} else {
+				opts = append(opts, "path: "+jsString(r.path))
+			}
+		}
+		for _, o := range append(opts, r.opts...) {
 			body.WriteString("  " + o + ",\n")
 		}
 		body.WriteString("})\n\n")
 	}
-	fmt.Fprintf(&body, "export const routeTree = %s\n", subtree(top))
+	fmt.Fprintf(&body, "export const routeTree = %s\n", subtree(routes[0]))
 	body.WriteString(`
 declare module "@tanstack/react-router" {
   interface Register {
@@ -424,18 +526,18 @@ declare module "@tanstack/react-router" {
 	out.WriteString(imports.String())
 	out.WriteString("\n")
 	out.WriteString(body.String())
-	return []byte(out.String())
+	return []byte(out.String()), nil
 }
 
-func subtree(n *tsNode) string {
-	if len(n.children) == 0 {
-		return n.variable
+func subtree(r *tsRoute) string {
+	if len(r.children) == 0 {
+		return r.variable
 	}
-	children := make([]string, len(n.children))
-	for i, c := range n.children {
+	children := make([]string, len(r.children))
+	for i, c := range r.children {
 		children[i] = subtree(c)
 	}
-	return n.variable + ".addChildren([" + strings.Join(children, ", ") + "])"
+	return r.variable + ".addChildren([" + strings.Join(children, ", ") + "])"
 }
 
 // routeModule writes the +route module of a route or Layout: route for its hooks, Data for its
@@ -477,6 +579,6 @@ func routeModule(n *tsNode) ([]byte, error) {
 		paramsType = "{ " + strings.Join(props, "; ") + " }"
 	}
 	fmt.Fprintf(&b, "export type Params = %s\n\n", paramsType)
-	fmt.Fprintf(&b, "export const route = getRouteApi(%s)\n", jsString(n.routeID))
+	fmt.Fprintf(&b, "export const route = getRouteApi(%s)\n", jsString(n.route.routeID))
 	return []byte(b.String()), nil
 }

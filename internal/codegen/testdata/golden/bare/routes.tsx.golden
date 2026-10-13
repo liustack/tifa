@@ -7,7 +7,7 @@ const m3 = () => import("../app/files/route")
 import type { Data as D3 } from "./app/files/+route"
 
 const root = createRootRouteWithContext<RouterContext>()({
-  component: DefaultDocument,
+  shellComponent: DefaultDocument,
   head: rootHead(),
   scripts: rootScripts,
   errorComponent: DefaultError,
@@ -16,28 +16,35 @@ const root = createRootRouteWithContext<RouterContext>()({
 
 const r1 = createRoute({
   getParentRoute: () => root,
-  path: "guide",
-  loader: ({ context, location }) => load<D1>(context, "app/docs", location, "__root__"),
-  staleTime: Infinity,
+  id: "_docs",
 })
 
 const r2 = createRoute({
   getParentRoute: () => r1,
+  path: "guide",
+  loader: ({ context, location }) => load<D1>(context, "app/docs", location, "__root__"),
+  staleTime: Infinity,
+  preloadStaleTime: Infinity,
+})
+
+const r3 = createRoute({
+  getParentRoute: () => r2,
   path: "/",
   component: lazyRouteComponent(m2),
 })
 
-const r3 = createRoute({
+const r4 = createRoute({
   getParentRoute: () => root,
   path: "files/$",
   component: lazyRouteComponent(m3),
   loader: ({ context, location }) => load<D3>(context, "app/files", location),
   staleTime: Infinity,
+  preloadStaleTime: Infinity,
   loaderDeps: ({ search }) => pick(search, ["rev"]),
   remountDeps: ({ params, search }) => [params._splat, pick(search, ["rev"])],
 })
 
-export const routeTree = root.addChildren([r1.addChildren([r2]), r3])
+export const routeTree = root.addChildren([r1.addChildren([r2.addChildren([r3])]), r4])
 
 declare module "@tanstack/react-router" {
   interface Register {

@@ -3,6 +3,7 @@ package codegen
 import (
 	"bytes"
 	"flag"
+	"go/types"
 	"maps"
 	"os"
 	"path/filepath"
@@ -129,17 +130,53 @@ func TestPageWithoutDefaultExportFails(t *testing.T) {
 	}
 }
 
-func TestRootLayoutCannotReadPathParameters(t *testing.T) {
+// The root Layout is an ordinary route under the framework's root, so it can have a path and
+// read its parameters.
+func TestRootLayoutReadsPathParameters(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "app/page/route.tsx"), "export default function Page() { return null }\n")
+	writeFile(t, filepath.Join(root, "app/layout.tsx"), "export default function App() { return null }\n")
 	m := &analyze.Manifest{
 		Module:  "example.com/x",
-		Layouts: []analyze.Layout{{ID: "app", Path: "/{tenant}", Load: &analyze.Load{Params: []string{"tenant"}}, SSR: true, Routes: []string{"app/page"}}},
+		Layouts: []analyze.Layout{{ID: "app", Path: "/{tenant}", TSX: true, Load: &analyze.Load{Params: []string{"tenant"}, Result: types.Typ[types.String]}, SSR: true, Routes: []string{"app/page"}}},
 		Routes:  []analyze.Route{{ID: "app/page", Path: "/{tenant}", Page: true, SSR: true, Layouts: []string{"app"}}},
 	}
-	_, err := Generate(root, m, false)
-	if err == nil || !strings.Contains(err.Error(), "tenant") {
-		t.Fatalf("got %v", err)
+	files, err := Generate(root, m, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if module := string(files["app/+route.ts"]); !strings.Contains(module, "export type Params = { tenant: string }") ||
+		!strings.Contains(module, `getRouteApi("/_app/$tenant")`) {
+		t.Errorf("app/+route.ts:\n%s", module)
+	}
+}
+
+// Two Layouts with the same path prefix are two routes of the tree.
+func TestLayoutsWithTheSamePathGetDistinctRoutes(t *testing.T) {
+	files := generate(t, "router", false)
+	for _, want := range []string{`getRouteApi("/_app/_notFound/_a/shared")`, `getRouteApi("/_app/_notFound/_b/shared")`} {
+		found := false
+		for _, name := range []string{"app/a/+route.ts", "app/b/+route.ts"} {
+			found = found || strings.Contains(string(files[name]), want)
+		}
+		if !found {
+			t.Errorf("no +route module holds %s", want)
+		}
+	}
+}
+
+func TestLiteralSegmentsMatchLikeServeMux(t *testing.T) {
+	for in, want := range map[string]string{"%61": "a", `x"y`: "x%22y", `x\y`: "x%5Cy", "100%25": "100%25", "%zz": "%25zz", "中 文": "中 文", "{id}": "$id", "{rest...}": "$"} {
+		segs := segments("/" + in)
+		got, err := routerSegment(segs[0])
+		if err != nil || got != want {
+			t.Errorf("%s: got %q, %v, want %q", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"a:b", "%40me", "a%2Fb", "%3F"} {
+		if got, err := routerSegment(segments("/" + in)[0]); err == nil {
+			t.Errorf("%s: got %q, want an error", in, got)
+		}
 	}
 }
 

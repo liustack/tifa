@@ -6,4 +6,4 @@ export type Data = undefined
 
 export type Params = Record<string, never>
 
-export const route = getRouteApi("/")
+export const route = getRouteApi("/_app/_notFound/")

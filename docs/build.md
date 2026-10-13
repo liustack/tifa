@@ -41,11 +41,16 @@ tifa build [--dir 应用根目录] [-o 输出路径]
 
 ## 路由树
 
-- 根 Layout（`app/layout.*`）有页面时就是 TanStack 的根路由，否则根路由用框架默认文档。根 Layout 的 `Load` 不能读路径参数，因为根路由没有路径。
-- Layout 的路径是作用范围内页面 `Path` 的公共前缀减去父 Layout 的前缀。两者相等时是 pathless Layout，`id` 为 `_` 加目录（如 `app/auth` 为 `_auth`）。
-- 页面路径相对最近的 Layout，相等时为 `/`。`{name}` 写成 `$name`，`{name...}` 写成 `$`（参数名 `_splat`）。
-- 有 `Load` 的路由生成 `loader`、`staleTime: Infinity`。`loaderDeps` 只放 `AllQuery` 里的查询参数，`remountDeps` 是路径参数加同一份查询参数。
-- `route.tsx`、`layout.tsx` 必须有默认导出。可选导出 `head`、`Error`、`NotFound` 接到 `head`、`errorComponent`、`notFoundComponent`，必须在文件里直接声明或命名导出（`export *` 转出的不算）。根路由缺 `Error`、`NotFound` 时用框架默认组件。
+- 框架自己的根路由负责整个文档：它把根 Layout 导出的 `Document` 组件（没有就用框架默认文档）作为 TanStack 的 `shellComponent`，所以任何一层出错、404、根 `Load` 失败时，页面仍是带 `<head>` 与浏览器包脚本的完整文档。`Document` 接收 `children`，负责 `<html>`、`<HeadContent/>`、`<Scripts/>`，不能读 loader 数据。根路由的 `notFoundComponent` 是根 Layout 的 `NotFound`（没有就用框架默认组件），`errorComponent` 是框架默认组件。
+- 根 Layout（`app/layout.*`）和其他 Layout 一样是根路由下的普通路由，可以有路径，`Load` 可以读公共前缀里的路径参数。
+- Layout 的路径是作用范围内页面 `Path` 的公共前缀减去父 Layout 的前缀。每个 Layout 有一个以目录命名的 pathless 路由（`app` 为 `_app`，`app/shop/admin` 为 `_shop.admin`）。路径不为空时，带路径的路由放在它里面，所以两个 Layout 路径相同也是两条路由，路径参数仍在 Layout 的匹配身份里。
+- 导出 `NotFound` 的 Layout 里面再套一层 pathless 的 `_notFound` 路由挂 `notFoundComponent`，子路由挂在它下面。下层的 404 因此显示在该 Layout 的界面里面。
+- 页面路径相对最近的 Layout，相等时为 `/`。`{name}` 写成 `$name`，`{name...}` 写成 `$`（参数名 `_splat`）。字面量段先按 ServeMux 的方式解码（`/%61` 就是 `/a`），再按 TanStack 对解码后路径的写法写出：`%`、`\`、控制字符和 `` "<>`{} `` 写成转义形式，其余原样。含 URL 保留字符 `;/?:@&=+$,#` 的字面量两边无法一致匹配，构建报错。
+- 生成后任意两条路由的 TanStack ID 相同时构建报错（例如页面路径 `_shop` 撞上 Layout 目录 `shop` 的 pathless 路由）。
+- 有 `Load` 的路由生成 `loader`、`staleTime: Infinity` 与 `preloadStaleTime: Infinity`，数据只在 `router.invalidate()` 之后重取。`loaderDeps` 只放 `AllQuery` 里的查询参数，`remountDeps` 是路径参数加同一份查询参数。
+- 页面 `Load` 返回 404 时从该页面向上找第一个 `NotFound`。Layout `Load` 返回 404 时从上一层（父 Layout 的 `_notFound` 或根路由）向上找。
+- 没有路由匹配的 URL 直接显示根路由的 `NotFound`（`notFoundMode: 'root'`），不加载任何路由，不请求服务器。这时根 Layout 的界面不显示，因为它的数据没有加载。
+- `route.tsx`、`layout.tsx` 必须有默认导出。可选导出 `head`、`Error`、`NotFound` 接到 `head`、`errorComponent`、`notFoundComponent`，根 Layout 另可导出 `Document`。这些导出必须在文件里直接声明或命名导出（`export *` 转出的不算）。
 
 ## TypeScript 与 esbuild 怎么找到生成文件
 

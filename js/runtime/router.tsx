@@ -3,12 +3,13 @@ import {
   createRouter,
   HeadContent,
   notFound,
-  Outlet,
   redirect,
   Scripts,
   type AnyRoute,
   type ErrorComponentProps,
+  type RouterHistory,
 } from '@tanstack/react-router'
+import type { ReactNode } from 'react'
 import { RouteError, type Assets, type Source } from './data'
 
 // RouterContext is the context of the root route. Loaders read their data through source.
@@ -29,6 +30,8 @@ export interface RouterOptions {
   serverURL?: string
   // Receives the build ID of the page when the browser hydrates it.
   onHydrate?: (buildId: string) => void
+  // The history of a browser router, the browser's own by default. Tests pass a memory history.
+  history?: RouterHistory
 }
 
 // The assets of the current page. The root route's head and scripts render them, on the server
@@ -46,7 +49,9 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
     routeTree,
     context: { source },
     isServer: serverURL !== undefined,
-    history: serverURL ? createMemoryHistory({ initialEntries: [serverURL] }) : undefined,
+    history: serverURL ? createMemoryHistory({ initialEntries: [serverURL] }) : options.history,
+    // A URL no route matches shows the root's NotFound at once, without loading any route.
+    notFoundMode: 'root',
     defaultPreload: 'intent',
     scrollRestoration: true,
     dehydrate: (): Dehydrated => {
@@ -107,8 +112,10 @@ export function pick(search: object, keys: string[]): Record<string, unknown> {
   return picked
 }
 
-// DefaultDocument is the root component when the application has no app/layout.tsx.
-export function DefaultDocument() {
+// DefaultDocument is the document around every page when app/layout.tsx exports no Document.
+// The root route renders it as its shell, so errors and 404 at any level keep the document and
+// the browser bundle.
+export function DefaultDocument({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <head>
@@ -117,7 +124,7 @@ export function DefaultDocument() {
         <HeadContent />
       </head>
       <body>
-        <Outlet />
+        {children}
         <Scripts />
       </body>
     </html>

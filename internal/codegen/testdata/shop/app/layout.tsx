@@ -1,18 +1,12 @@
-import { HeadContent, Outlet, Scripts } from '@tanstack/react-router'
+import { Outlet } from '@tanstack/react-router'
 import { route } from './+route'
 
 export default function Root() {
   const site = route.useLoaderData()
   return (
-    <html lang={site.lang}>
-      <head>
-        <HeadContent />
-      </head>
-      <body>
-        <Outlet />
-        <Scripts />
-      </body>
-    </html>
+    <div lang={site.lang}>
+      <Outlet />
+    </div>
   )
 }
 

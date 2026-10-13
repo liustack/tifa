@@ -6,4 +6,4 @@ export type Data = Record<string, number> | null
 
 export type Params = Record<string, never>
 
-export const route = getRouteApi("/guide")
+export const route = getRouteApi("/_docs/guide")
