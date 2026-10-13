@@ -20,6 +20,8 @@ import (
 //	TIFA_FAKE_APP_VERSION     file whose content, read at start, is the answer to GET /
 //	TIFA_FAKE_APP_ON_INTERRUPT "ignore" to keep running after an interrupt
 //	TIFA_FAKE_APP_EXIT        exit right away with this message instead of serving
+//	TIFA_FAKE_APP_DETACHED_CHILD start a child outside the process group that keeps stdout open,
+//	                          and print its PID first
 //
 // POST requests get their body back, GET /exit makes the app exit with status 3. The app prints "shutdown done" once it stopped after an interrupt.
 func TestMain(m *testing.M) {
@@ -34,6 +36,11 @@ func TestMain(m *testing.M) {
 }
 
 func fakeApp() error {
+	if os.Getenv("TIFA_FAKE_APP_DETACHED_CHILD") != "" {
+		if err := startDetachedChild(); err != nil {
+			return err
+		}
+	}
 	if msg := os.Getenv("TIFA_FAKE_APP_EXIT"); msg != "" {
 		return errors.New(msg)
 	}

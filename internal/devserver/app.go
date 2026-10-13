@@ -11,6 +11,10 @@ import (
 	"time"
 )
 
+// appWaitDelay bounds how long Wait keeps reading the app's output after the app exited.
+// A child that left the process group can hold the output pipe open forever.
+const appWaitDelay = time.Second
+
 // app is one run of the application executable.
 type app struct {
 	cmd  *exec.Cmd
@@ -24,12 +28,16 @@ func startApp(command []string, addr string, stdout, stderr io.Writer) (*app, er
 	cmd := exec.Command(command[0], command[1:]...)
 	cmd.Env = append(os.Environ(), "TIFA_SERVER_ADDR="+addr)
 	cmd.Stdout, cmd.Stderr = stdout, stderr
+	cmd.WaitDelay = appWaitDelay
+	ownGroup(cmd)
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("starting the app: %w", err)
 	}
 	a := &app{cmd: cmd, done: make(chan struct{})}
 	go func() {
 		a.err = cmd.Wait()
+		// Whatever the app left running in its group goes with it.
+		_ = killGroup(cmd.Process)
 		close(a.done)
 	}()
 	return a, nil
@@ -66,10 +74,11 @@ func (a *app) waitReady(ctx context.Context, addr string, timeout time.Duration)
 	}
 }
 
-// stop sends an interrupt so the app runs OnShutdown, and kills it when it has not exited
-// after timeout. The interrupt is not available on Windows, Run refuses to start there.
+// stop interrupts the app's process group so the app runs OnShutdown, and kills the group when
+// the app has not exited after timeout. The interrupt is not available on Windows, Run refuses
+// to start there.
 func (a *app) stop(timeout time.Duration) error {
-	if err := a.cmd.Process.Signal(os.Interrupt); err != nil && !errors.Is(err, os.ErrProcessDone) {
+	if err := interruptGroup(a.cmd.Process); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		return fmt.Errorf("interrupting the app: %w", err)
 	}
 	select {
@@ -77,10 +86,10 @@ func (a *app) stop(timeout time.Duration) error {
 		return nil
 	case <-time.After(timeout):
 	}
-	if err := a.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+	if err := killGroup(a.cmd.Process); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		return fmt.Errorf("killing the app: %w", err)
 	}
-	<-a.done
+	<-a.done // Wait gives up on the output appWaitDelay after the exit
 	return fmt.Errorf("the app was still running %s after an interrupt, killed it", timeout)
 }
 
