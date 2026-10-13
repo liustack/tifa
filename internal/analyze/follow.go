@@ -34,7 +34,7 @@ type useCall struct {
 
 func (a *analyzer) walkLoad(pkg *packages.Package, owner string, load *Load, decl *ast.FuncDecl, sig *types.Signature) []paramUse {
 	w := &loadWalk{a: a, owner: owner, load: load, visited: map[string]bool{}}
-	a.checkCtxToInterface(pkg.TypesInfo, sig, decl.Body)
+	a.checkCtxFlow(pkg.TypesInfo, decl.Body)
 	w.body(pkg.TypesInfo, decl.Body, false)
 	return w.uses
 }
@@ -123,7 +123,7 @@ func (w *loadWalk) follow(key string, src funcSource) {
 	info := src.pkg.TypesInfo
 	if !a.checked[key] {
 		a.checked[key] = true
-		a.checkCtxToInterface(info, info.Defs[src.decl.Name].(*types.Func).Signature(), src.decl.Body)
+		a.checkCtxFlow(info, src.decl.Body)
 		if !a.appPkgs[src.pkg.PkgPath] { // checkDirectCalls covers the application packages whole
 			a.checkDirectCallsIn(info, src.decl)
 		}
@@ -194,6 +194,12 @@ func containsCtxSeen(t types.Type, seen map[types.Type]bool) bool {
 		return containsCtxSeen(t.Key(), seen) || containsCtxSeen(t.Elem(), seen)
 	case *types.Chan:
 		return containsCtxSeen(t.Elem(), seen)
+	case *types.Tuple:
+		for v := range t.Variables() {
+			if containsCtxSeen(v.Type(), seen) {
+				return true
+			}
+		}
 	}
 	return false
 }

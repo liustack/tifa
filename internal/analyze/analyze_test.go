@@ -172,11 +172,34 @@ func TestViolations(t *testing.T) {
 			{"app/page/route.go:27:", "c.Param", "called directly"},
 		}},
 		{"ifacectx", [][]string{
-			{"app/page/route.go:18:", "interface", "Query"},
-			{"app/page/route.go:19:", "querier"},
-			{"app/page/route.go:20:", "querier"},
-			{"app/page/route.go:21:", "paramer"},
-			{"app/page/route.go:22:", "querier"},
+			{"app/page/route.go:18:", "converted to interface{Query(string) string}", "call its methods directly"},
+			{"app/page/route.go:19:", "variable of type page.querier"},
+			{"app/page/route.go:20:", "passed as page.querier to page.read"},
+			{"app/page/route.go:21:", "returned"},
+			{"app/page/route.go:22:", "element of []page.querier"},
+			{"app/page/route.go:23:", "variable of type any"},
+			{"app/page/route.go:24:", "converted to interface{Context() context.Context}"},
+		}},
+		{"ctxflow", [][]string{
+			{"app/page/route.go:26:", "element of map[int]*tifa.Ctx"},
+			{"app/page/route.go:27:", "converted to any"},
+			{"app/page/route.go:28:", "variable of type any"},
+			{"app/page/route.go:29:", "element of []*tifa.Ctx"},
+			{"app/page/route.go:30:", "sent on a channel"},
+			{"app/page/route.go:31:", "[]*tifa.Ctx", "may not hold the Ctx"},
+			{"app/page/route.go:33:", "field V of type any"},
+			{"app/page/route.go:34:", "element of page.box[*tifa.Ctx]"},
+			{"app/page/route.go:35:", "address taken"},
+			{"app/page/route.go:37:", "existing variable"},
+			{"app/page/route.go:38:", "existing variable"},
+			{"app/page/route.go:39:", "package-level variable"},
+			{"app/page/route.go:40:", "defer statement"},
+			{"app/page/route.go:41:", "defer statement"},
+			{"app/page/route.go:42:", "several values"},
+			{"app/page/route.go:43:", "returned"},
+			{"app/page/route.go:44:", "passed as any to page.takeAny"},
+			{"app/page/route.go:44:", "generic function page.generic"},
+			{"app/page/route.go:44:", "generic function page.generic"},
 		}},
 		{"nofollow", [][]string{
 			{"app/page/route.go:24:", "interface method", "reader.Read", "pass the values"},
@@ -186,7 +209,7 @@ func TestViolations(t *testing.T) {
 			{"app/page/route.go:28:", "go statement"},
 			{"helpers/helpers.go:16:", "interface method", "sink.Take"},
 			{"helpers/helpers.go:22:", "c.Query", "called directly"},
-			{"helpers/helpers.go:28:", "querier", "Query"},
+			{"helpers/helpers.go:28:", "variable of type helpers.querier"},
 			{"helpers/helpers.go:34:", "app/other is not an ancestor of app/page"},
 		}},
 		{"typeerror", [][]string{
@@ -459,5 +482,18 @@ func TestFollowHelpers(t *testing.T) {
 	}
 	if len(other.Params) != 0 || !reflect.DeepEqual(other.Query, []string{"dir", "sort"}) || len(other.Uses) != 0 {
 		t.Errorf("other Load = %+v", other)
+	}
+}
+
+// The places the Ctx may go: a method receiver, an argument of a function in the module or in
+// tifa, a field of a struct literal that carries it, a new local variable of its own type.
+func TestCtxAllowedUses(t *testing.T) {
+	m, err := analyzeApp(t, "ctxallowed")
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	want := []string{"closure", "inline", "page", "paren", "q", "size", "sort"}
+	if got := m.Routes[0].Load.Query; !reflect.DeepEqual(got, want) {
+		t.Errorf("Query = %v, want %v", got, want)
 	}
 }

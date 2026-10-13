@@ -78,6 +78,7 @@ type analyzer struct {
 	appPkgs, modulePkgs map[string]bool
 	funcs               map[string]funcSource // functions of module packages that type check, by full name
 	checked             map[string]bool       // followed functions whose own body has been checked
+	carrying            map[*types.Named]bool // carriesCtx results
 	helperUses          []useCall
 	errs                Errors
 	used                usedLoads
@@ -191,6 +192,7 @@ func (a *analyzer) load() error {
 	a.appPkgs = map[string]bool{}
 	a.funcs = map[string]funcSource{}
 	a.checked = map[string]bool{}
+	a.carrying = map[*types.Named]bool{}
 	// Walk the import graph of the application, packages outside app/ included. A package with
 	// errors is broken, and so is every package that imports a broken one directly or
 	// indirectly, because it was type checked against incomplete information. Visit calls post
