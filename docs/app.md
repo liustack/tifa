@@ -1,0 +1,193 @@
+---
+summary: '怎么写一个 tifa 应用：目录结构、route.go 与 route.tsx、Layout、hooks.go、404、SSR 与缓存开关，以及 Load 里 Ctx 的用法和返回值的 JSON 规则'
+read_when:
+  - 新建一个 tifa 应用，或给应用加页面、Layout、接口
+  - 构建报 Ctx 用法或 Load 返回类型的错误，想知道怎么改
+  - 改 internal/analyze 的规则，需要知道对用户承诺了什么
+  - 改 examples/shop 或 test/apps 里的应用
+---
+
+# 应用怎么写
+
+完整的例子是 [examples/shop](../examples/shop)。构建、生成文件和 go.mod 的配法见 [build.md](build.md)。
+
+## 目录
+
+```text
+myapp/
+  go.mod
+  hooks.go                      进程与请求钩子（可选）
+  db/                           全局资源，根包和业务包都可以 import
+  app/
+    layout.go  layout.tsx       根 Layout，套到所有页面
+    projects/
+      project.go                领域：类型、存储、规则
+      layout.go  layout.tsx     套到下面所有页面
+      orders/
+        order.go
+        list/    route.go  route.tsx
+        detail/  route.go  route.tsx  items.tsx  actions.client.tsx
+```
+
+- 按业务分目录，同一个领域的 Go 与 TSX 放在一起。跨领域共用的组件和样式放在 `app/` 根目录。
+- 一个目录最多一个路由或一个 Layout。目录名不决定 URL，只要是合法的 Go 包名。
+- 目录嵌套决定 Layout 套到哪些页面：Layout 套到所在目录和所有子目录里的路由。
+- 不写 main。`tifa build` 把 main 和路由注册代码生成在 `.tifa/`，`go vet ./...`、`go test ./...` 不会扫到它。
+
+## route.go
+
+```go
+package detail
+
+const Path = "/projects/{projectId}/orders/{orderId}"
+
+func Load(c *tifa.Ctx) (orders.Order, error) {
+	return orders.Get(c.Param("projectId"), c.Param("orderId"))
+}
+
+func OnPost(c *tifa.Ctx) error {
+	if err := orders.Ship(c.Param("projectId"), c.Param("orderId")); err != nil {
+		return err
+	}
+	return c.NoContent(204)
+}
+```
+
+- `const Path` 是完整的字面量路径，语法同 Go 的 `http.ServeMux`：`{name}`、`{name...}`。`"/"` 只匹配首页。
+- `Load` 返回页面数据，返回类型要能转成 TypeScript（见下文「Load 返回值的 JSON 规则」）。
+- `OnGet`、`OnPost`、`OnPut`、`OnPatch`、`OnDelete` 处理对应的 HTTP 方法。
+- 目录里有 `route.tsx` 就是页面，GET 由框架渲染，这时不能再写 `OnGet`。没有 `route.tsx` 时，`OnXxx` 都是普通接口，可以不写 `Load`。
+- 全部是包级函数和常量。依赖直接用应用初始化好的全局变量，框架不做依赖注入。
+
+返回错误时：
+
+| 返回 | 结果 |
+| --- | --- |
+| `tifa.ErrNotFound` | 404 |
+| `c.Redirect(url, code)` | 重定向 |
+| `tifa.Error{Status, Message}` | 按它的状态码和消息回答，不进 `OnError` |
+| 其他错误、panic | 交给 `OnError`，没定义时记日志并答 500 |
+
+`Load` 里只能设置响应头和 cookie，调用 `c.JSON`、`c.Text`、`c.NoContent` 会返回错误。
+
+## route.tsx
+
+```tsx
+import { route, type Data } from './+route'
+
+export default function OrderPage() {
+  const order = route.useLoaderData()
+  return <OrderItems />
+}
+
+export const head = ({ loaderData }: { loaderData?: Data }) => ({
+  meta: loaderData ? [{ title: loaderData.id }] : [],
+})
+```
+
+- 只放界面，不取数。`./+route` 是生成的模块，导出 `route`、`Data`（`Load` 的返回类型）和 `Params`。同目录的子组件同样 import `./+route`，读祖先 Layout 的数据时 import 那个目录的 `+route`，比如 `'../+route'`。
+- 默认导出是页面组件。可选导出 `head`、`Error`、`NotFound`。
+- Go 的切片和 map 在 TypeScript 里带 `| null`（Go 的 nil 编码成 `null`），用之前写 `?? []`。
+- 模块顶层就要用浏览器能力的组件放进 `.client.tsx`，用 `tifa/client` 的 `clientOnly` 延迟加载。它不进 SSR 包，首屏显示占位内容：
+
+```tsx
+import { clientOnly } from 'tifa/client'
+
+const OrderActions = clientOnly(() => import('./actions.client'), <button disabled>正在准备操作…</button>)
+```
+
+- 写操作后调用 TanStack 的 `router.invalidate()`，当前页面和所有 Layout 的数据重新取一次，合并成一个请求。
+
+## Layout
+
+`layout.go` 只有 `Load` 和可选的 `SSR` 常量，没有 `Path` 和 `OnXxx`。`layout.tsx` 用 `<Outlet />` 放子路由。
+
+- Layout 的 `Load` 用 `c.Param` 读的参数，必须出现在它套到的所有页面 `Path` 的公共前缀里，否则构建报错。
+- 同一个 Layout 下切换页面时，Layout 组件不重新挂载，它的状态保留。Layout 路径里的参数变了（比如换了一个项目），Layout 重新挂载，状态重置。
+- 页面和 Layout 都可以用 `tifa.Use(c, projects.Load)` 拿到祖先 Layout 本次请求的 `Load` 结果，同一个 `Load` 每个请求只跑一次。只能引用祖先 Layout，否则构建报错。
+- 根 Layout（`app/layout.tsx`）可以导出 `Document({ children })` 定制文档外壳，比如 `<html lang="zh-CN">` 和 viewport。它要渲染 `<HeadContent />` 和 `<Scripts />`，不能读 loader 数据。不导出时用框架默认外壳。
+
+## 404
+
+`route.tsx` 和 `layout.tsx` 可以导出 `NotFound`：
+
+| 情况 | 显示 |
+| --- | --- |
+| URL 没有匹配任何页面 | 根 Layout 的 `NotFound`，不带根 Layout 的界面，不执行任何 `Load` |
+| 页面 `Load` 返回 `tifa.ErrNotFound` | 从这个页面往上第一个 `NotFound`，外层 Layout 照常显示 |
+| Layout `Load` 返回 `tifa.ErrNotFound` | 从上一层 Layout 开始往上找 |
+| 都没有导出 | 框架默认页面 |
+
+这几种情况的状态码都是 404。根 Layout 的 `NotFound` 有时单独显示，所以不能读 loader 数据。
+
+## SSR 与缓存
+
+```go
+const SSR = false  // 默认 true，可写在 route.go 或 layout.go
+const Cache = true // 默认 false，只能写在 route.go
+```
+
+- `SSR = false`：照常执行中间件和所有 `Load`，不进 QuickJS，返回带数据的最简文档，浏览器直接渲染。写在 `layout.go` 时作用于它下面所有页面。
+- `Cache = true`：渲染结果按构建版本、URL 和数据缓存，数据没变时直接返回 HTML。组件渲染时不能读 `Date.now()`、`Math.random()` 这类每次不同的值，这也是 hydration 的要求。
+- 页面响应都带 ETag，数据没变的第二次请求带 `If-None-Match` 时答 304，和 `Cache` 无关。
+
+## hooks.go
+
+项目根目录的 `hooks.go`，四个函数都可选：
+
+```go
+func OnStart() error                            // 开始监听之前，打开数据库、日志等
+func OnShutdown(ctx context.Context) error      // 收到退出信号、在途请求完成之后
+func OnRequest(c *tifa.Ctx) error              // 唯一的中间件，调用 c.Next() 继续
+func OnError(c *tifa.Ctx, err error) tifa.Error // 意外错误：上报，返回能给用户看的错误
+```
+
+- `OnRequest` 作用于页面、导航数据请求、接口和没匹配的 URL，不作用于静态文件。没匹配时 `c.Pattern()` 为空。
+- 全局资源放在单独的包里（比如 `db/`），由 `OnStart` 初始化。路由代码只在函数里用它，不在包级变量初始化时读。不用 `init()` 做初始化。
+- 请求级的值用标准 context 写入：`c.SetContext(context.WithValue(...))`，业务包提供带类型的读取函数。
+
+## Load 里 Ctx 的用法
+
+构建时，tifa 从每个 `Load` 出发，找出它读的路由参数（`c.Param`）、查询参数（`c.Query`）和它依赖的 Layout（`tifa.Use`）。`Load` 把 `*tifa.Ctx` 传给本模块里的函数时，tifa 会一层层跟进去，跨包也可以，读到的参数都算在这个 `Load` 名下。一个辅助函数被多个 `Load` 调用时，分别算给每个 `Load`。tifa 自己的函数不跟进。
+
+为了让 tifa 找全，Ctx 只能用在它看得见的地方。
+
+能持有 Ctx 的类型只有：`*tifa.Ctx`、`tifa.Ctx`、本模块里声明的非泛型结构体（字段只通过这几种类型持有 Ctx，直接含有、嵌入或间接含有都可以），以及指向这种结构体的指针。
+
+持有 Ctx 的值只能出现在这五个地方：
+
+1. 直接调用方法时的接收者，比如 `c.Query("tab")`、`req.Page()`。
+2. 传给本模块或 tifa 的非泛型函数，对应参数的类型完全相同。就地调用的函数字面量也算。
+3. 写进持有 Ctx 的结构体字面量，字段类型完全相同。
+4. 用 `:=` 或 `var x T = ...` 赋给类型完全相同的新局部变量，这个变量同样受这些规则约束。
+5. 取地址，得到的指针仍是能持有 Ctx 的类型。
+
+其他用法都会构建报错，并指出文件和行号，比如：转换成别的类型或接口，赋给已有变量，多个值一起赋值，`return` 它，放进切片、map、数组或通道，`range`，包级变量，`defer`，`go` 语句，传给泛型函数、接口方法、函数变量或模块外的函数（标准库和第三方库）。`return c.Redirect(...)`、`return c.Next()` 不受影响，返回的是方法调用的结果，不是 Ctx 本身。
+
+`Load` 和它调用的函数里不能调用 `c.Request()` 和 `c.Writer()`，通过原始请求读的参数 tifa 看不到。改用 `c.Param`、`c.Query`、`c.Header`、`c.Cookie` 或 `c.Context()`。这两个方法只在 `OnXxx` 和 `OnRequest` 里用。
+
+遇到报错时，直接调用 Ctx 的方法，或者把它传给普通函数。只需要请求上下文时传 `c.Context()`，只调用 `c.Context()` 的辅助函数（比如 `auth.User(c)`）跟进后什么也不收集。
+
+tifa 只检查 `Load` 能到达的代码。在 `OnRequest`、`OnXxx` 或别处把 Ctx 存进全局变量或其他共享位置，再在 `Load` 里取出来用，这条路查不到，不要这样写。
+
+## Load 返回值的 JSON 规则
+
+`Load` 的返回值编码成 JSON 发给页面，tifa 按它生成 TypeScript 类型。为了在 Go 1.27 的两种 `encoding/json` 实现下（默认实现和 `GOEXPERIMENT=nojsonv2`）输出一致，只接受下面这些类型。
+
+| Go | TypeScript |
+| --- | --- |
+| `bool` | `boolean` |
+| 整数、浮点数、`json.Number` | `number` |
+| `string`、`time.Time` | `string` |
+| 指针 | `T \| null` |
+| 切片 | `T[] \| null`。元素就是 `byte` 或 `uint8` 的 `[]byte` 输出 base64，为 `string \| null`。元素是具名 byte 类型的切片不接受 |
+| 数组 | `T[]`，长度为 0 时为 `[]` |
+| map | `Record<string, V> \| null` |
+| 结构体 | 导出字段组成的对象 |
+
+- map 的键必须是不带 `MarshalText` 的 string 或整数类型，或者是按下面规则输出 string 的类型。接口和指针不能做键。
+- 导出的嵌入结构体（也可以是指针）没写 json 名字时，字段提升到外层，经由嵌入指针到达的字段是可选的。未导出的嵌入字段不接受，除非标了 `json:"-"`。
+- json tag 的名字只能用字母、数字、空格和 `` !#$%&()*+-./:;<=>?@[]^_{|}~ ``。选项只能用 `omitempty`、`omitzero` 和 `string`，用了 `omitempty` 或 `omitzero` 的字段是可选的。`string` 选项只能用在 bool、预声明的数字类型或 string 字段上，或者指向它们的非具名指针上。
+- 类型的值或指针上有名为 `MarshalJSON`、`MarshalJSONTo`、`AppendText` 或 `AppendJSON` 的方法或字段时，不论签名一律拒绝（`time.Time` 和 `json.Number` 除外）。请改名，或换一个不带这些方法的类型返回。
+- 类型自己在值接收者上声明了签名正好是 `MarshalText() ([]byte, error)` 的方法时，输出 string。声明在指针接收者上时，只有通过指针持有才输出 string。签名不对、从嵌入字段提升而来、或被同名字段遮住时，一律拒绝。
+- 接口出现在任何位置都不接受，包括字段、元素和 map 键。chan、func、复数、`unsafe.Pointer` 和类型参数也不接受。
