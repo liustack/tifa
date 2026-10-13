@@ -213,8 +213,11 @@ type writer struct {
 	wrote bool
 }
 
+// WriteHeader counts only final statuses. Like net/http, 1xx other than 101 is informational and may precede the real response.
 func (w *writer) WriteHeader(code int) {
-	w.wrote = true
+	if code < 100 || code > 199 || code == http.StatusSwitchingProtocols {
+		w.wrote = true
+	}
 	w.ResponseWriter.WriteHeader(code)
 }
 

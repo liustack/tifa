@@ -361,3 +361,22 @@ func TestMultipartTempFilesAreRemovedAfterSetContext(t *testing.T) {
 		}
 	}
 }
+
+func TestInformationalResponseDoesNotCountAsWritten(t *testing.T) {
+	s := New(config.Default(), Hooks{})
+	s.Handle("GET", "/hint", func(c *tifa.Ctx) error {
+		c.Writer().Header().Set("Link", "</app.css>; rel=preload")
+		c.Writer().WriteHeader(http.StatusEarlyHints)
+		return tifa.ErrNotFound
+	})
+	srv := httptest.NewServer(s)
+	defer srv.Close()
+	resp, err := http.Get(srv.URL + "/hint")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 404 {
+		t.Fatalf("got %d after 103 Early Hints", resp.StatusCode)
+	}
+}
