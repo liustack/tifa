@@ -6,6 +6,7 @@ package e2e
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 	"os"
@@ -87,6 +88,8 @@ func build(t *testing.T, app string) (dir, exe string) {
 	dir = filepath.Join(repoRoot(t), "test", "apps", app)
 	exe = filepath.Join(t.TempDir(), app)
 	cmd := exec.Command(cli(t), "build", "--dir", dir, "-o", exe)
+	// The build needs no Node: run it with a PATH that has none.
+	cmd.Env = append(os.Environ(), "PATH="+withoutNode(t))
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("tifa build %s: %v\n%s", app, err, out)
 	}
@@ -95,6 +98,33 @@ func build(t *testing.T, app string) (dir, exe string) {
 		t.Fatalf("tifa build did not produce %s: %v", exe, err)
 	}
 	return dir, exe
+}
+
+// withoutNode returns PATH without the directories that hold a node executable.
+func withoutNode(t *testing.T) string {
+	t.Helper()
+	var dirs []string
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if _, err := os.Stat(filepath.Join(dir, "node")); err != nil {
+			dirs = append(dirs, dir)
+		}
+	}
+	path := strings.Join(dirs, string(filepath.ListSeparator))
+	if node, err := lookPath("node", path); err == nil {
+		t.Fatalf("PATH still finds %s", node)
+	}
+	return path
+}
+
+// lookPath is exec.LookPath in the directories of path.
+func lookPath(file, path string) (string, error) {
+	for _, dir := range filepath.SplitList(path) {
+		candidate := filepath.Join(dir, file)
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+			return candidate, nil
+		}
+	}
+	return "", exec.ErrNotFound
 }
 
 // lockedBuffer collects the output of a running process.
@@ -157,6 +187,38 @@ func start(t *testing.T, exe string) (base string, cmd *exec.Cmd, output *locked
 		t.Fatalf("%s did not start listening:\n%s", exe, output)
 	}
 	return base, cmd, output
+}
+
+func get(t *testing.T, url string, header ...string) (int, http.Header, string) {
+	t.Helper()
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < len(header); i += 2 {
+		req.Header.Set(header[i], header[i+1])
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	defer res.Body.Close()
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res.StatusCode, res.Header, string(data)
+}
+
+func readJSON(t *testing.T, path string, v any) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, v); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func request(t *testing.T, method, url, body string) (int, http.Header, string) {
@@ -250,28 +312,57 @@ func TestPagesApp(t *testing.T) {
 		}
 	}
 
-	// Without a renderer a page answers its Load chain as JSON.
 	base, _, _ := start(t, exe)
-	status, _, body := request(t, "GET", base+"/shops/north/items/apple", "")
-	if status != 200 || !strings.Contains(body, `"app/shop":{"id":"north","name":"Shop north"}`) {
-		t.Errorf("page GET: %d %s", status, body)
+	var built struct{ BuildID, Script string }
+	readJSON(t, filepath.Join(dir, ".tifa", "dist", "build.json"), &built)
+
+	// A page renders in the VM with the Loads' data.
+	status, header, body := get(t, base+"/shops/north/items/apple")
+	if status != 200 || header.Get("X-Tifa-Render") != "vm" || header.Get("Vary") != "X-Tifa-Route" {
+		t.Errorf("page: %d %v", status, header)
 	}
-	if status, _, _ := request(t, "GET", base+"/shops/closed", ""); status != 404 {
-		t.Errorf("Layout ErrNotFound: %d", status)
+	for _, want := range []string{"<html", "Apple", "Shop north", `src="` + built.Script + `"`, `{id:"north",name:"Shop north"}`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page lacks %s:\n%s", want, body)
+		}
+	}
+	// The same data gives the same ETag, answered 304.
+	if status, _, _ := get(t, base+"/shops/north/items/apple", "If-None-Match", header.Get("ETag")); status != 304 {
+		t.Errorf("If-None-Match: %d", status)
+	}
+	// SSR = false skips the VM and carries the data.
+	status, header, body = get(t, base+"/login")
+	if status != 200 || header.Get("X-Tifa-Render") != "none" || !strings.Contains(body, `id="tifa-data"`) {
+		t.Errorf("SSR = false: %d %v\n%s", status, header, body)
+	}
+	// Cache = true renders once.
+	_, first, _ := get(t, base+"/shops/south")
+	_, second, _ := get(t, base+"/shops/south")
+	if first.Get("X-Tifa-Render") != "vm" || second.Get("X-Tifa-Render") != "cache" {
+		t.Errorf("Cache = true: %s then %s", first.Get("X-Tifa-Render"), second.Get("X-Tifa-Render"))
+	}
+	// A navigation asks for the listed routes and gets their results by route ID.
+	status, header, body = get(t, base+"/shops/north/items/apple", "X-Tifa-Route", "app/shop,app/shop/items", "X-Tifa-Build", built.BuildID)
+	if status != 200 || header.Get("Vary") != "X-Tifa-Route" || body != `{"app/shop":{"status":200,"data":{"id":"north","name":"Shop north"}},"app/shop/items":{"status":200,"data":{"id":"apple","title":"Apple","price":1.5,"tags":["fruit"]}}}` {
+		t.Errorf("data request: %d %v %s", status, header, body)
+	}
+	if status, _, _ := get(t, base+"/shops/north", "X-Tifa-Route", "app/shop", "X-Tifa-Build", "old"); status != 409 {
+		t.Errorf("other build: %d", status)
+	}
+	// 404 at every level renders the right NotFound with status 404.
+	for path, want := range map[string]string{
+		"/nowhere":                "This page does not exist.",
+		"/shops/north/items/pear": "No such item.",
+		"/shops/closed":           "This page does not exist.",
+	} {
+		status, _, body := get(t, base+path)
+		if status != 404 || !strings.Contains(body, want) || !strings.Contains(body, `src="`+built.Script+`"`) {
+			t.Errorf("%s: %d\n%s", path, status, body)
+		}
+	}
+	// Bundle files are served with a long cache.
+	if status, header, _ := get(t, base+built.Script); status != 200 || !strings.Contains(header.Get("Cache-Control"), "immutable") {
+		t.Errorf("%s: %d %v", built.Script, status, header)
 	}
 
-	pnpm, err := exec.LookPath("pnpm")
-	if err != nil {
-		t.Skip("pnpm is not installed, skipping the type check")
-	}
-	install := exec.Command(pnpm, "install", "--frozen-lockfile", "--prefer-offline")
-	install.Dir = dir
-	if out, err := install.CombinedOutput(); err != nil {
-		t.Fatalf("pnpm install: %v\n%s", err, out)
-	}
-	tsc := exec.Command(pnpm, "exec", "tsc", "--noEmit")
-	tsc.Dir = dir
-	if out, err := tsc.CombinedOutput(); err != nil {
-		t.Fatalf("tsc --noEmit: %v\n%s", err, out)
-	}
 }

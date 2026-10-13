@@ -9,6 +9,9 @@ import (
 
 const Path = "/shops/{shopId}"
 
+// The overview depends only on the shop and the query, so its HTML is cached.
+const Cache = true
+
 type Overview struct {
 	Shop  string   `json:"shop"`
 	Items []string `json:"items"`
