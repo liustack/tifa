@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -59,14 +60,8 @@ executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 			if output == "" {
 				output = filepath.Join(root, "dist", path.Base(m.Module))
 			}
-			gobuild := exec.CommandContext(cmd.Context(), "go", goBuildArgs(os.Getenv("GOFLAGS"), output)...)
-			gobuild.Dir = root
-			gobuild.Env = append(os.Environ(), "CGO_ENABLED=0")
-			var stderr bytes.Buffer
-			gobuild.Stdout = cmd.OutOrStdout()
-			gobuild.Stderr = io.MultiWriter(cmd.ErrOrStderr(), &stderr)
-			if err := gobuild.Run(); err != nil {
-				return fmt.Errorf("go build: %w%s", err, missingDependencyHint(stderr.String()))
+			if _, err := goBuild(cmd.Context(), root, output, cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
+				return fmt.Errorf("go build: %w", err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "built %s (build %s)\n", output, id)
 			return nil
@@ -88,6 +83,21 @@ func analyzeApp(cmd *cobra.Command, root string) (*analyze.Manifest, error) {
 		return nil, fmt.Errorf("found %d convention violation(s)", len(violations))
 	}
 	return m, err
+}
+
+// goBuild compiles the generated main of the application at root into output with
+// CGO_ENABLED=0. It returns what go build printed on stderr, which also goes to stderr.
+func goBuild(ctx context.Context, root, output string, stdout, stderr io.Writer) (string, error) {
+	gobuild := exec.CommandContext(ctx, "go", goBuildArgs(os.Getenv("GOFLAGS"), output)...)
+	gobuild.Dir = root
+	gobuild.Env = append(os.Environ(), "CGO_ENABLED=0")
+	var printed bytes.Buffer
+	gobuild.Stdout = stdout
+	gobuild.Stderr = io.MultiWriter(stderr, &printed)
+	if err := gobuild.Run(); err != nil {
+		return printed.String(), fmt.Errorf("%w%s", err, missingDependencyHint(printed.String()))
+	}
+	return printed.String(), nil
 }
 
 // goBuildArgs returns the go build arguments. The generated main imports tifa/server, whose
