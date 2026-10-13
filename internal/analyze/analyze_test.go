@@ -165,6 +165,13 @@ func TestViolations(t *testing.T) {
 			{"app/page/route.go:20:", "tifa.Use", "called directly"},
 			{"app/page/route.go:27:", "c.Param", "called directly"},
 		}},
+		{"ifacectx", [][]string{
+			{"app/page/route.go:18:", "interface", "Query"},
+			{"app/page/route.go:19:", "querier"},
+			{"app/page/route.go:20:", "querier"},
+			{"app/page/route.go:21:", "paramer"},
+			{"app/page/route.go:22:", "querier"},
+		}},
 		{"typeerror", [][]string{
 			{"app/page/route.go:5:17:", "cannot use"},
 			{"app/dup2/route.go:3:", "duplicates"},

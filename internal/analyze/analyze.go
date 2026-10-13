@@ -528,6 +528,7 @@ func (a *analyzer) readLoad(pkg *packages.Package) (*Load, []paramUse) {
 		a.errorAt(resultPos, "%s", msg)
 	}
 
+	a.checkCtxToInterface(pkg.TypesInfo, sig, decl.Body)
 	var uses []paramUse
 	ast.Inspect(decl.Body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
