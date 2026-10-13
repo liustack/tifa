@@ -71,7 +71,7 @@ SSR 包开头引入 `runtime/host.js`，它补上 QuickJS 缺的 `URL`、`TextEn
 - 导出 `NotFound` 的 Layout 里面再套一层 pathless 的 `_notFound` 路由挂 `notFoundComponent`，子路由挂在它下面。下层的 404 因此显示在该 Layout 的界面里面。
 - 页面路径相对最近的 Layout，相等时为 `/`。`{name}` 写成 `$name`，`{name...}` 写成 `$`（参数名 `_splat`）。字面量段先按 ServeMux 的方式解码（`/%61` 就是 `/a`），再按 TanStack 对解码后路径的写法写出：`%`、`\`、控制字符和 `` "<>`{} `` 写成转义形式，其余原样。含 URL 保留字符 `;/?:@&=+$,#` 的字面量两边无法一致匹配，构建报错。
 - 生成后任意两条路由的 TanStack ID 相同时构建报错（例如页面路径 `_shop` 撞上 Layout 目录 `shop` 的 pathless 路由）。
-- 有 `Load` 的路由生成 `loader`、`staleTime: Infinity` 与 `preloadStaleTime: Infinity`，数据只在 `router.invalidate()` 之后重取。`loaderDeps` 只放 `AllQuery` 里的查询参数，`remountDeps` 是路径参数加同一份查询参数。
+- 有 `Load` 的路由生成 `loader`、`staleTime: Infinity` 与 `preloadStaleTime: Infinity`，数据只在 `router.invalidate()` 之后重取。`loaderDeps` 只放 `AllQuery` 里的查询参数。`remountDeps` 是 `Load` 读的路径参数（含经 `tifa.Use` 用到的 Layout 读的）加同一份查询参数，路径里有、但没有 `Load` 读的参数变了，组件不重新挂载，状态保留。没有 `Load` 的路由不重新挂载。
 - 页面 `Load` 返回 404 时从该页面向上找第一个 `NotFound`。Layout `Load` 返回 404 时从上一层（父 Layout 的 `_notFound` 或根路由）向上找。
 - 路由器区分路径大小写，和 ServeMux 一致。查询参数按 `c.Query` 的语义解析：值都是字符串，重复的键是字符串数组，不做 JSON 解析。写回 URL 时按浏览器和表单的写法（空格写成 `+`），常见的 URL 保持原样。
 - 没有路由匹配的 URL 直接显示根路由的 `NotFound`（`notFoundMode: 'root'`），不加载任何路由，不请求服务器。这时根 Layout 的界面不显示，因为它的数据没有加载。

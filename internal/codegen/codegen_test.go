@@ -151,6 +151,52 @@ func TestRootLayoutReadsPathParameters(t *testing.T) {
 	}
 }
 
+// A component remounts when a path parameter its Load reads changes, itself or through a Layout
+// it uses. A Layout whose path holds a parameter its Load does not read keeps its state.
+func TestRemountFollowsTheParametersLoadReads(t *testing.T) {
+	root := t.TempDir()
+	for _, f := range []string{"app/layout.tsx", "app/projects/layout.tsx", "app/projects/list/route.tsx", "app/projects/detail/route.tsx", "app/projects/files/route.tsx"} {
+		writeFile(t, filepath.Join(root, f), "export default function C() { return null }\n")
+	}
+	str := types.Typ[types.String]
+	m := &analyze.Manifest{
+		Module: "example.com/x",
+		Layouts: []analyze.Layout{
+			{ID: "app", Path: "/projects/{projectId}", TSX: true, Load: &analyze.Load{Result: str}, SSR: true, Routes: []string{"app/projects/list", "app/projects/detail", "app/projects/files"}},
+			{ID: "app/projects", Path: "/projects/{projectId}", TSX: true, Load: &analyze.Load{Params: []string{"projectId"}, Result: str}, SSR: true, Routes: []string{"app/projects/list", "app/projects/detail", "app/projects/files"}},
+		},
+		Routes: []analyze.Route{
+			{ID: "app/projects/list", Path: "/projects/{projectId}", Page: true, SSR: true, Layouts: []string{"app", "app/projects"}, Load: &analyze.Load{Uses: []string{"app/projects"}, Result: str}},
+			{ID: "app/projects/detail", Path: "/projects/{projectId}/orders/{orderId}", Page: true, SSR: true, Layouts: []string{"app", "app/projects"}, Load: &analyze.Load{Params: []string{"orderId"}, Result: str}},
+			{ID: "app/projects/files", Path: "/projects/{projectId}/files/{path...}", Page: true, SSR: true, Layouts: []string{"app", "app/projects"}, Load: &analyze.Load{Params: []string{"path"}, Result: str}},
+		},
+	}
+	files, err := Generate(root, m, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree := string(files["routes.tsx"])
+	for _, want := range []string{
+		`load<D3>(context, "app/projects/list", location),
+  staleTime: Infinity,
+  preloadStaleTime: Infinity,
+  remountDeps: ({ params }) => [params.projectId],`,
+		`remountDeps: ({ params }) => [params.orderId],`,
+		`remountDeps: ({ params }) => [params._splat],`,
+		`load<D2>(context, "app/projects", location, "__root__"),
+  staleTime: Infinity,
+  preloadStaleTime: Infinity,
+  remountDeps: ({ params }) => [params.projectId],`,
+	} {
+		if !strings.Contains(tree, want) {
+			t.Errorf("routes.tsx lacks\n%s", want)
+		}
+	}
+	if app := tree[strings.Index(tree, `load<D1>`):strings.Index(tree, `load<D2>`)]; strings.Contains(app, "remountDeps") {
+		t.Errorf("the root Layout reads no parameter but remounts:\n%s", app)
+	}
+}
+
 // Two Layouts with the same path prefix are two routes of the tree.
 func TestLayoutsWithTheSamePathGetDistinctRoutes(t *testing.T) {
 	files := generate(t, "router", false)

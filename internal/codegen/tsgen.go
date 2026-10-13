@@ -331,6 +331,33 @@ func paramKey(s string) string {
 	return ""
 }
 
+// readParams returns the TanStack keys of the path parameters that the Load of n reads, itself
+// or through the Layouts it uses with tifa.Use, in path order. The component remounts when they
+// change. A parameter in the path that no Load reads changes neither the data nor the state.
+func readParams(n *tsNode, byID map[string]*tsNode) []string {
+	read := map[string]bool{}
+	var collect func(l *analyze.Load)
+	collect = func(l *analyze.Load) {
+		if l == nil {
+			return
+		}
+		for _, p := range l.Params {
+			read[p] = true
+		}
+		for _, id := range l.Uses {
+			collect(byID[id].load)
+		}
+	}
+	collect(n.load)
+	var keys []string
+	for _, s := range n.segs {
+		if k := paramKey(s); k != "" && read[strings.TrimSuffix(strings.Trim(s, "{}"), "...")] {
+			keys = append(keys, k)
+		}
+	}
+	return keys
+}
+
 func params(n *tsNode) []string {
 	var keys []string
 	for _, s := range n.segs {
@@ -415,6 +442,10 @@ func routesModule(nodes []*tsNode) ([]byte, error) {
 		return fallback
 	}
 
+	byID := map[string]*tsNode{}
+	for _, n := range nodes {
+		byID[n.id] = n
+	}
 	for i, n := range nodes {
 		if n.parent == nil {
 			n.route.opts = append(n.route.opts,
@@ -464,7 +495,7 @@ func routesModule(nodes []*tsNode) ([]byte, error) {
 			}
 		}
 		var args, deps []string
-		if keys := params(n); len(keys) > 0 {
+		if keys := readParams(n, byID); len(keys) > 0 {
 			args = append(args, "params")
 			for _, k := range keys {
 				deps = append(deps, "params."+k)

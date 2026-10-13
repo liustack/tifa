@@ -103,7 +103,7 @@ const OrderActions = clientOnly(() => import('./actions.client'), <button disabl
 `layout.go` 只有 `Load` 和可选的 `SSR` 常量，没有 `Path` 和 `OnXxx`。`layout.tsx` 用 `<Outlet />` 放子路由。
 
 - Layout 的 `Load` 用 `c.Param` 读的参数，必须出现在它套到的所有页面 `Path` 的公共前缀里，否则构建报错。
-- 同一个 Layout 下切换页面时，Layout 组件不重新挂载，它的状态保留。Layout 路径里的参数变了（比如换了一个项目），Layout 重新挂载，状态重置。
+- 同一个 Layout 下切换页面时，Layout 组件不重新挂载，它的状态保留。Layout 的 `Load` 读的参数变了（比如换了一个项目），Layout 重新挂载，状态重置。`Load` 不读的参数变了，状态保留，页面同理。
 - 页面和 Layout 都可以用 `tifa.Use(c, projects.Load)` 拿到祖先 Layout 本次请求的 `Load` 结果，同一个 `Load` 每个请求只跑一次。只能引用祖先 Layout，否则构建报错。
 - 根 Layout（`app/layout.tsx`）可以导出 `Document({ children })` 定制文档外壳，比如 `<html lang="zh-CN">` 和 viewport。它要渲染 `<HeadContent />` 和 `<Scripts />`，不能读 loader 数据。不导出时用框架默认外壳。
 
