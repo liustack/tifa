@@ -556,24 +556,31 @@ func (a *analyzer) linkLayouts(routes []*route, layouts []*layout) {
 				l.Parent = p.ID
 			}
 		}
+		// Only pages render inside a Layout, so only their Paths make up its path. Interface
+		// routes in the directory stay in Routes but do not shrink the prefix.
 		var paths [][]segment
 		var scope []*route
+		pages := 0
 		for _, r := range routes {
 			if !isAncestor(l.ID, r.ID) {
 				continue
 			}
 			l.Routes = append(l.Routes, r.ID)
+			if !r.Page {
+				continue
+			}
+			pages++
 			if r.valid {
 				paths = append(paths, r.segs)
 				scope = append(scope, r)
 			}
 		}
-		if len(l.Routes) == 0 {
+		if pages == 0 {
 			file := "layout.go"
 			if !l.dir.layoutGo {
 				file = "layout.tsx"
 			}
-			a.errorInFile(l.ID, file, "this layout has no routes in scope, so it has no path")
+			a.errorInFile(l.ID, file, "this layout has no pages (route.tsx) in scope, so it has no path")
 			continue
 		}
 		prefix := commonPrefix(paths)
@@ -582,7 +589,7 @@ func (a *analyzer) linkLayouts(routes []*route, layouts []*layout) {
 			if u.method != "Param" || slices.ContainsFunc(prefix, func(s segment) bool { return s.param == u.name }) {
 				continue
 			}
-			a.errorAt(u.pos, "layout Load reads path parameter %q, which is not in %q, the common prefix of the Paths in scope: %s",
+			a.errorAt(u.pos, "layout Load reads path parameter %q, which is not in %q, the common prefix of the page Paths in scope: %s",
 				u.name, l.Path, a.offendingPaths(scope, u.name))
 		}
 	}

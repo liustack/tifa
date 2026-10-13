@@ -64,7 +64,7 @@ func TestRoutesJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &m); err != nil {
 		t.Fatalf("output is not JSON: %v\n%s", err, out)
 	}
-	if len(m.Routes) != 7 {
+	if len(m.Routes) != 8 {
 		t.Errorf("got %d routes", len(m.Routes))
 	}
 }

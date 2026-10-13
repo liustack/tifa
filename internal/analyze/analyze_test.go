@@ -41,11 +41,11 @@ func TestValidApp(t *testing.T) {
 		routes                []string
 	}{
 		{"app", "", "/", "example.com/valid/app", true, true, true,
-			[]string{"app/api/health", "app/auth/login", "app/auth/register", "app/files/browse", "app/home", "app/projects/list", "app/projects/orders/detail"}},
+			[]string{"app/api/health", "app/auth/login", "app/auth/register", "app/files/browse", "app/home", "app/projects/export", "app/projects/list", "app/projects/orders/detail"}},
 		{"app/auth", "app", "/", "example.com/valid/app/auth", true, true, true, []string{"app/auth/login", "app/auth/register"}},
 		{"app/files", "app", "/files", "", true, true, false, []string{"app/files/browse"}},
 		{"app/projects", "app", "/projects/{projectId}", "example.com/valid/app/projects", false, true, true,
-			[]string{"app/projects/list", "app/projects/orders/detail"}},
+			[]string{"app/projects/export", "app/projects/list", "app/projects/orders/detail"}},
 	}
 	for _, w := range wantLayouts {
 		l := layouts[w.id]
@@ -65,7 +65,7 @@ func TestValidApp(t *testing.T) {
 	for _, r := range m.Routes {
 		routes[r.ID] = r
 	}
-	if len(routes) != 7 {
+	if len(routes) != 8 {
 		t.Fatalf("got %d routes: %+v", len(m.Routes), m.Routes)
 	}
 	wantRoutes := []struct {
@@ -80,6 +80,7 @@ func TestValidApp(t *testing.T) {
 		{"app/projects/orders/detail", "/projects/{projectId}/orders/{orderId}", true, false, false, []string{"POST", "DELETE"}, []string{"app", "app/projects"}},
 		{"app/files/browse", "/files/{path...}", true, true, false, nil, []string{"app", "app/files"}},
 		{"app/api/health", "/api/health", false, true, false, []string{"GET"}, []string{"app"}},
+		{"app/projects/export", "/exports/projects", false, false, false, []string{"GET"}, []string{"app", "app/projects"}},
 	}
 	for _, w := range wantRoutes {
 		r := routes[w.id]
@@ -152,7 +153,7 @@ func TestViolations(t *testing.T) {
 			{"app/empty/layout.go:5:", "Path", "layout"},
 			{"app/empty/layout.go:7:", "Load", "func(c *tifa.Ctx) (T, error)"},
 			{"app/empty/layout.go:9:", "OnPost", "layout"},
-			{"app/empty/layout.go:1:", "no routes"},
+			{"app/empty/layout.go:1:", "no pages"},
 		}},
 	}
 	for _, tc := range cases {

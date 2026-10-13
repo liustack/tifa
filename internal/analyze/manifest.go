@@ -32,7 +32,7 @@ type Layout struct {
 	Package string `json:"package"`
 	// Parent is the ID of the closest enclosing Layout, empty for the outermost one.
 	Parent string `json:"parent"`
-	// Path is the common prefix of the Paths of all routes in scope, in ServeMux syntax, "/" when
+	// Path is the common prefix of the Paths of the pages (routes with route.tsx) in scope, in ServeMux syntax, "/" when
 	// they share no segment. The router path of the Layout is this prefix minus the parent's prefix,
 	// and the Layout is pathless when the two are equal.
 	Path string `json:"path"`
@@ -42,7 +42,7 @@ type Layout struct {
 	Load *Load `json:"load"`
 	// SSR is the Layout's own SSR constant, true when absent.
 	SSR bool `json:"ssr"`
-	// Routes lists the IDs of the routes in scope, sorted.
+	// Routes lists the IDs of all routes in scope, interface routes included, sorted.
 	Routes []string `json:"routes"`
 }
 
