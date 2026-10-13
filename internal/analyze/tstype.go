@@ -83,6 +83,7 @@ type tsChecker struct {
 	active   map[tsKey]bool // named types being written, to stop at recursion
 	problems []tsProblem
 	field    *types.Var // field being written, for the position of a problem
+	decls    *tsDecls   // nil unless recursive types are declared, see TSShape
 }
 
 func (c *tsChecker) fail(path, msg string) string {
@@ -130,7 +131,7 @@ func isNamed(t types.Type, pkg, name string) bool {
 }
 
 // encode mirrors newTypeEncoder. quoted is the ",string" option of the enclosing field.
-func (c *tsChecker) encode(t types.Type, path string, addressable, quoted bool) string {
+func (c *tsChecker) encode(t types.Type, path string, addressable, quoted bool) (ts string) {
 	typeName := types.TypeString(t, shortQualifier) // before Unalias, so any stays any
 	t = types.Unalias(t)
 	if types.IsInterface(t) {
@@ -178,11 +179,22 @@ func (c *tsChecker) encode(t types.Type, path string, addressable, quoted bool) 
 
 	if n, ok := t.(*types.Named); ok {
 		key := tsKey{types.TypeString(n, nil), addressable, quoted}
+		if c.decls != nil {
+			if name, ok := c.decls.declared[key]; ok {
+				return name
+			}
+		}
 		if c.active[key] {
+			if c.decls != nil {
+				return c.decls.name(key, n.Obj().Name())
+			}
 			return n.Obj().Name()
 		}
 		c.active[key] = true
 		defer delete(c.active, key)
+		if c.decls != nil {
+			defer func() { ts = c.decls.declare(key, ts) }()
+		}
 	}
 
 	switch u := t.Underlying().(type) {
