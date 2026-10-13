@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/evanw/esbuild/pkg/api"
 )
 
 func clientOptions(root string) ClientOptions {
@@ -74,6 +76,35 @@ func TestClientWritesOutdir(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(root, "public", name)); err != nil {
 			t.Error(err)
 		}
+	}
+}
+
+func TestClientFindsEntryResolvedByEsbuild(t *testing.T) {
+	redirect := api.Plugin{Name: "redirect", Setup: func(b api.PluginBuild) {
+		b.OnResolve(api.OnResolveOptions{Filter: `^app-entry$`}, func(args api.OnResolveArgs) (api.OnResolveResult, error) {
+			return api.OnResolveResult{Path: filepath.Join(args.ResolveDir, "entry.ts")}, nil
+		})
+	}}
+	cases := map[string]struct {
+		entry   string
+		plugins []api.Plugin
+	}{
+		"extension omitted":    {entry: "./entry"},
+		"redirected by plugin": {entry: "app-entry", plugins: []api.Plugin{redirect}},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			root := app(t, "client", false)
+			o := clientOptions(root)
+			o.Entry, o.Plugins = c.entry, c.plugins
+			assets, _, err := Client(o)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.HasPrefix(assets.Script, "app-") || !strings.HasPrefix(assets.Style, "app-") {
+				t.Fatalf("assets = %+v, want the app entry and its CSS", assets)
+			}
+		})
 	}
 }
 

@@ -19,7 +19,12 @@ import (
 
 // metafile is the part of esbuild's metafile that the build checks read.
 type metafile struct {
-	Inputs  map[string]any `json:"inputs"`
+	Inputs map[string]struct {
+		Imports []struct {
+			Path string `json:"path"`
+			Kind string `json:"kind"`
+		} `json:"imports"`
+	} `json:"inputs"`
 	Outputs map[string]struct {
 		Inputs  map[string]any `json:"inputs"`
 		Imports []struct {

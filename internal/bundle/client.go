@@ -51,22 +51,26 @@ func Client(o ClientOptions) (Assets, api.BuildResult, error) {
 		path, err := filepath.Rel(outdir, filepath.Join(opts.AbsWorkingDir, filepath.FromSlash(output)))
 		return filepath.ToSlash(path), err
 	}
-	// The metafile names entry points relative to the working directory.
-	entry := o.Entry
-	if filepath.IsAbs(entry) {
-		if entry, err = filepath.Rel(opts.AbsWorkingDir, entry); err != nil {
-			return Assets{}, result, err
+	// With splitting, every dynamically imported module is an entry point in
+	// the metafile too. The entry is the one entry point nothing imports
+	// dynamically. Comparing with o.Entry would miss an entry that esbuild or
+	// a plugin resolved to another path, such as one without its extension.
+	dynamic := map[string]bool{}
+	for _, input := range meta.Inputs {
+		for _, imp := range input.Imports {
+			if imp.Kind == "dynamic-import" {
+				dynamic[imp.Path] = true
+			}
 		}
 	}
-	entry = filepath.ToSlash(filepath.Clean(entry))
 	var entries []string
 	for name, output := range meta.Outputs {
-		if output.EntryPoint == entry && !strings.HasSuffix(name, ".css") {
+		if output.EntryPoint != "" && !dynamic[output.EntryPoint] && !strings.HasSuffix(name, ".css") {
 			entries = append(entries, name)
 		}
 	}
 	if len(entries) != 1 {
-		return Assets{}, result, fmt.Errorf("browser bundle has %d outputs for entry %s, want 1: %v", len(entries), entry, entries)
+		return Assets{}, result, fmt.Errorf("browser bundle has %d outputs for entry %s, want 1: %v", len(entries), o.Entry, entries)
 	}
 	var assets Assets
 	if assets.Script, err = rel(entries[0]); err != nil {
