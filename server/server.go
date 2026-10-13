@@ -43,7 +43,7 @@ type Server struct {
 
 func New(cfg config.Config, hooks Hooks) *Server {
 	s := &Server{cfg: cfg.Server, hooks: hooks, mux: http.NewServeMux(), routes: map[string]map[string]func(*tifa.Ctx) error{}}
-	s.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { s.serve(w, r, "", nil) })
+	s.mux.Handle("/", routeHandler{s: s})
 	return s
 }
 
@@ -60,7 +60,7 @@ func (s *Server) Handle(method, path string, h func(*tifa.Ctx) error) {
 	if !ok {
 		route = map[string]func(*tifa.Ctx) error{}
 		s.routes[path] = route
-		s.mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) { s.serve(w, r, path, route) })
+		s.mux.Handle(path, routeHandler{s: s, pattern: path, methods: route})
 	}
 	if route[method] != nil {
 		panic(fmt.Sprintf("tifa: %s %s registered twice", method, path))
@@ -68,13 +68,62 @@ func (s *Server) Handle(method, path string, h func(*tifa.Ctx) error) {
 	route[method] = h
 }
 
-func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	s.mux.ServeHTTP(w, r)
+// routeHandler is what the server registers in its ServeMux. methods is nil for the catch-all of unmatched URLs.
+type routeHandler struct {
+	s       *Server
+	pattern string
+	methods map[string]func(*tifa.Ctx) error
 }
 
-// serve runs one request: OnRequest around the route, then the error flow. route is nil when no pattern matched.
-func (s *Server) serve(w http.ResponseWriter, r *http.Request, pattern string, route map[string]func(*tifa.Ctx) error) {
+func (h routeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.s.serve(w, r, h.pattern, func(c *tifa.Ctx) error {
+		if h.methods == nil {
+			return tifa.ErrNotFound
+		}
+		handle := h.methods[r.Method]
+		if handle == nil && r.Method == "HEAD" {
+			handle = h.methods["GET"]
+		}
+		if handle == nil {
+			methodNotAllowed(c.Writer(), h.methods)
+			return nil
+		}
+		return recovered(func() error { return handle(c) })
+	})
+}
+
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	h, _ := s.mux.Handler(r)
+	if _, ok := h.(routeHandler); ok {
+		s.mux.ServeHTTP(w, r)
+		return
+	}
+	// ServeMux answers a non-canonical path (double slash, dot segment, missing trailing slash)
+	// with its own redirect. Record that redirect and hand it to OnRequest as the result of Next.
+	probe := &redirectProbe{header: http.Header{}}
+	h.ServeHTTP(probe, r)
+	redirect := &core.RedirectError{URL: probe.header.Get("Location"), Code: probe.code}
+	s.serve(w, r, "", func(*tifa.Ctx) error {
+		if redirect.Code < 300 || redirect.Code > 399 || redirect.URL == "" {
+			return fmt.Errorf("tifa: unexpected ServeMux response %d for %s", probe.code, r.URL.Path)
+		}
+		return redirect
+	})
+}
+
+// redirectProbe captures the status and headers of a ServeMux internal handler and drops its body.
+type redirectProbe struct {
+	header http.Header
+	code   int
+}
+
+func (p *redirectProbe) Header() http.Header         { return p.header }
+func (p *redirectProbe) WriteHeader(code int)        { p.code = code }
+func (p *redirectProbe) Write(b []byte) (int, error) { return len(b), nil }
+
+// serve runs one request: OnRequest around route, then the error flow. pattern is empty when no route matched.
+func (s *Server) serve(w http.ResponseWriter, r *http.Request, pattern string, route func(*tifa.Ctx) error) {
 	tw := &writer{ResponseWriter: w}
 	c := core.New(tw, r, pattern, s.cfg.BodyLimit)
 	defer func() {
@@ -82,29 +131,15 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, pattern string, r
 			log.Printf("tifa: %s %s: %v", r.Method, r.URL.Path, err)
 		}
 	}()
-	next := func() error {
-		if route == nil {
-			return tifa.ErrNotFound
-		}
-		h := route[r.Method]
-		if h == nil && r.Method == "HEAD" {
-			h = route["GET"]
-		}
-		if h == nil {
-			methodNotAllowed(tw, route)
-			return nil
-		}
-		return recovered(func() error { return h(c) })
-	}
 	var err error
 	if s.hooks.OnRequest == nil {
-		err = next()
+		err = route(c)
 	} else {
-		core.SetNext(c, next)
+		core.SetNext(c, func() error { return route(c) })
 		err = recovered(func() error { return s.hooks.OnRequest(c) })
 	}
 	if err != nil {
-		page := route == nil && s.Renderer != nil && (r.Method == "GET" || r.Method == "HEAD") && !c.IsData()
+		page := pattern == "" && s.Renderer != nil && (r.Method == "GET" || r.Method == "HEAD") && !c.IsData()
 		s.fail(c, tw, err, page)
 	}
 }

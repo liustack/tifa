@@ -380,3 +380,31 @@ func TestInformationalResponseDoesNotCountAsWritten(t *testing.T) {
 		t.Fatalf("got %d after 103 Early Hints", resp.StatusCode)
 	}
 }
+
+func TestMuxRedirectsGoThroughOnRequest(t *testing.T) {
+	var seen []string
+	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx) error {
+		err := c.Next()
+		seen = append(seen, c.Request().URL.Path+" "+c.Pattern())
+		return err
+	}})
+	s.Handle("GET", "/docs/", func(c *tifa.Ctx) error { return c.Text(200, "docs") })
+	cases := []struct{ target, location string }{
+		{"/orders//1?tab=all", "/orders/1?tab=all"},
+		{"/orders/../old", "/old"},
+		{"/docs", "/docs/"},
+	}
+	for _, tc := range cases {
+		w := send(s, "GET", tc.target, "")
+		if w.Code != http.StatusTemporaryRedirect || w.Header().Get("Location") != tc.location {
+			t.Errorf("%s: %d %q", tc.target, w.Code, w.Header().Get("Location"))
+		}
+	}
+	want := []string{"/orders//1 ", "/orders/../old ", "/docs "}
+	if strings.Join(seen, ",") != strings.Join(want, ",") {
+		t.Fatalf("OnRequest saw %q", seen)
+	}
+	if w := send(newServer(Hooks{}), "GET", "/orders//1", ""); w.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("without OnRequest: %d", w.Code)
+	}
+}
