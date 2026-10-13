@@ -9,6 +9,7 @@ package ssr
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"os"
 	"os/exec"
@@ -161,4 +162,36 @@ func TestShopWarmLatency(t *testing.T) {
 
 func shopConfig(vms int) config.SSR {
 	return config.SSR{VMs: vms, VMMemory: 128 << 20, Timeout: 10 * time.Second}
+}
+
+// withCustomer returns the order detail input with the customer renamed.
+// Callers check that the new name reaches the HTML.
+func withCustomer(detail Input, name string) Input {
+	detail.Data = json.RawMessage(strings.ReplaceAll(string(detail.Data), `"林夏"`, `"`+name+`"`))
+	return detail
+}
+
+// One reused VM renders the same route with a new customer each time.
+// The current name must appear and the previous one must be gone.
+func TestShopReuseKeepsRequestsApart(t *testing.T) {
+	source, pages := shopBundle(t)
+	p := newTestPool(t, source, shopConfig(1))
+	previous := ""
+	for i := range 12 {
+		name := fmt.Sprintf("customer-%03d-only", i)
+		html, err := p.Render(context.Background(), withCustomer(pages[2].input, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(html, name) {
+			t.Fatalf("request %d: missing current customer", i)
+		}
+		if previous != "" && strings.Contains(html, previous) {
+			t.Fatalf("request %d: previous customer leaked into HTML", i)
+		}
+		previous = name
+	}
+	if s := p.stats(); s.created != 1 {
+		t.Fatalf("want one reused VM, got %+v", s)
+	}
 }

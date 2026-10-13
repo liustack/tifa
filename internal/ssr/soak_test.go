@@ -95,17 +95,29 @@ func TestSoakReuse(t *testing.T) {
 					for i := range jobs {
 						page := b.pages[i%len(b.pages)]
 						in := page.input
+						// Every request carries its own marker, as the text echoed by the
+						// testdata page or as the customer of the shop's order detail page.
 						marker := fmt.Sprintf("request-%05d-only", i)
-						if b.text {
+						previous := fmt.Sprintf("request-%05d-only", i-len(b.pages))
+						switch {
+						case b.text:
 							in = input("garbage", marker)
+							previous = fmt.Sprintf("request-%05d-only", i-1)
+						case i%len(b.pages) == b.heavy:
+							in = withCustomer(in, marker)
+						default:
+							marker, previous = "", ""
 						}
 						html, err := p.Render(context.Background(), in)
 						if err != nil {
 							t.Errorf("request %d: %v", i, err)
 							continue
 						}
-						if b.text && !strings.Contains(html, marker) {
+						if !strings.Contains(html, marker) {
 							t.Errorf("request %d: missing its own data", i)
+						}
+						if i >= len(b.pages) && previous != "" && strings.Contains(html, previous) {
+							t.Errorf("request %d: data of an earlier request leaked into HTML", i)
 						}
 						if !b.text && (!strings.Contains(html, page.want) || strings.Contains(html, page.forbidden)) {
 							t.Errorf("request %d: wrong HTML for %s", i, page.input.URL)
