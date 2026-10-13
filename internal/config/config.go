@@ -50,7 +50,7 @@ type Cache struct {
 	Size int64
 }
 
-// Default holds values sized for small machines.
+// Default holds values sized for small machines. ssr.vms follows GOMAXPROCS, which honours container CPU limits, with no cap.
 func Default() Config {
 	return Config{
 		Build:  Build{Target: "es2020", Public: "public"},
@@ -81,7 +81,7 @@ func fields(c *Config) []field {
 		{"server.addr", "HTTP listen address", stringValue{&c.Server.Addr}},
 		{"server.body_limit", "Request body limit", sizeValue{&c.Server.BodyLimit, 1}},
 		{"server.shutdown_timeout", "Time allowed for in-flight requests, and then for OnShutdown, after a stop signal", durationValue{&c.Server.ShutdownTimeout}},
-		{"ssr.vms", "Prewarmed JavaScript VMs", intValue{&c.SSR.VMs, 1}},
+		{"ssr.vms", "Prewarmed JavaScript VMs, defaults to GOMAXPROCS (the CPU limit in containers)", intValue{&c.SSR.VMs, 1}},
 		{"ssr.vm_memory", "Memory limit of each VM", sizeValue{&c.SSR.VMMemory, 1}},
 		{"ssr.timeout", "Render time budget of each request", durationValue{&c.SSR.Timeout}},
 		{"cache.size", "Rendered page cache size, 0 disables it", sizeValue{&c.Cache.Size, 0}},

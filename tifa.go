@@ -6,7 +6,8 @@ import "github.com/liustack/tifa/internal/core"
 // Ctx wraps one request and its response. Load, OnXxx and OnRequest receive it.
 type Ctx = core.Ctx
 
-// Error is a failure that is safe to show to the client. OnError returns it.
+// Error is a failure that is safe to show to the client. Returned from Load, OnXxx or OnRequest,
+// it is answered with its own status and message without calling OnError. OnError also returns it.
 type Error = core.Error
 
 // ErrNotFound makes the server answer 404 without calling OnError.

@@ -9,7 +9,7 @@ import (
 // ErrNotFound is an expected result. The server answers 404 without calling OnError.
 var ErrNotFound = errors.New("tifa: not found")
 
-// Error is a failure that is safe to show to the client.
+// Error is a failure that is safe to show to the client. The server answers it as is, without calling OnError.
 type Error struct {
 	Status  int
 	Message string
