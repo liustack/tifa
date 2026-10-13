@@ -21,23 +21,29 @@ func newCtx(method, body, contentType string, limit int64) (*Ctx, *httptest.Resp
 }
 
 func TestLoadCannotWriteResponseBody(t *testing.T) {
-	c, w := newCtx("GET", "", "", 1024)
-	writes := map[string]func(*Ctx) error{
-		"JSON":      func(c *Ctx) error { return c.JSON(200, map[string]int{"n": 1}) },
-		"Text":      func(c *Ctx) error { return c.Text(200, "hi") },
-		"NoContent": func(c *Ctx) error { return c.NoContent(204) },
+	writes := []struct {
+		name  string
+		write func(*Ctx) error
+	}{
+		{"JSON", func(c *Ctx) error { return c.JSON(200, map[string]int{"n": 1}) }},
+		{"Text", func(c *Ctx) error { return c.Text(200, "hi") }},
+		{"NoContent", func(c *Ctx) error { return c.NoContent(204) }},
 	}
-	for name, write := range writes {
+	for _, tc := range writes {
+		// A fresh request each time: Use caches by Load, and these Loads share one code address.
+		c, w := newCtx("GET", "", "", 1024)
+		ran := false
 		_, err := Use(c, func(c *Ctx) (int, error) {
+			ran = true
 			c.SetHeader("X-Load", "ok")
-			return 0, write(c)
+			return 0, tc.write(c)
 		})
-		if err == nil {
-			t.Errorf("%s inside Load returned nil", name)
+		if !ran || err == nil {
+			t.Errorf("%s inside Load: ran %v, err %v", tc.name, ran, err)
 		}
-	}
-	if w.Body.Len() != 0 || w.Header().Get("X-Load") != "ok" {
-		t.Fatalf("Load wrote body %q or lost header", w.Body.String())
+		if w.Body.Len() != 0 || w.Code != 200 || w.Header().Get("X-Load") != "ok" {
+			t.Errorf("%s inside Load wrote %d %q or lost the header", tc.name, w.Code, w.Body.String())
+		}
 	}
 }
 

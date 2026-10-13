@@ -17,7 +17,9 @@ type loadCall struct {
 // A caller that arrives while load is running waits for that run.
 func Use[T any](c *Ctx, load func(*Ctx) (T, error)) (T, error) {
 	var zero T
-	// Function values are not comparable, so the code pointer identifies the Load.
+	// Function values are not comparable, so the code pointer identifies the Load. This holds for the
+	// package-level Load functions of routes and Layouts. Closures of one literal, and method values of
+	// one method, share a code pointer and would share a result.
 	key := reflect.ValueOf(load).Pointer()
 	if key == c.load {
 		return zero, errors.New("tifa: a Load cannot Use itself")
