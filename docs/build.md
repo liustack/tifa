@@ -18,9 +18,11 @@ tifa build [--dir 应用根目录] [-o 输出路径]
 1. 静态分析 `app/` 与根目录 `hooks.go`，约定不满足时逐条打印 `文件:行号: 原因` 并退出。
 2. 把生成代码写进 `.tifa/`。只改内容变了的文件，删掉不再生成的文件。
 3. 打包浏览器包与 SSR 包（尚未接入）。
-4. `CGO_ENABLED=0 go build -mod=mod -o <输出> ./.tifa`，默认输出 `dist/<模块路径最后一段>`。
+4. `CGO_ENABLED=0 go build -mod=mod -o <输出> ./.tifa`（`GOFLAGS` 已指定 `-mod` 时不加），默认输出 `dist/<模块路径最后一段>`。
 
 生成的 main 引用 `github.com/liustack/tifa/server`，它的依赖（cobra、pflag、yaml）要出现在应用的 `go.mod` 与 `go.sum` 里。`go mod tidy` 跳过 `.tifa/` 看不到这层引用，所以 `tifa build` 带 `-mod=mod`，由 go 命令补上这些 `// indirect` 依赖。应用跑过 `go mod tidy` 后它们会被删掉，下次构建再补回来。
+
+要求构建不改源码的 CI 可以设 `GOFLAGS=-mod=readonly`，`tifa build` 不再加 `-mod=mod`。这时缺依赖会构建失败，并提示先执行 `go get github.com/liustack/tifa/server` 把依赖写进 `go.mod` 与 `go.sum` 再入库。
 
 ## .tifa/ 里的文件
 

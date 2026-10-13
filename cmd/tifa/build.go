@@ -1,12 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"github.com/liustack/tifa/internal/analyze"
 	"github.com/liustack/tifa/internal/bundle"
@@ -55,14 +59,14 @@ executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 			if output == "" {
 				output = filepath.Join(root, "dist", path.Base(m.Module))
 			}
-			// The generated main imports tifa/server, whose dependencies go mod tidy does not
-			// see because it skips .tifa. -mod=mod lets go build add their requirements.
-			gobuild := exec.CommandContext(cmd.Context(), "go", "build", "-mod=mod", "-o", output, "./"+codegen.Dir)
+			gobuild := exec.CommandContext(cmd.Context(), "go", goBuildArgs(os.Getenv("GOFLAGS"), output)...)
 			gobuild.Dir = root
 			gobuild.Env = append(os.Environ(), "CGO_ENABLED=0")
-			gobuild.Stdout, gobuild.Stderr = cmd.OutOrStdout(), cmd.ErrOrStderr()
+			var stderr bytes.Buffer
+			gobuild.Stdout = cmd.OutOrStdout()
+			gobuild.Stderr = io.MultiWriter(cmd.ErrOrStderr(), &stderr)
 			if err := gobuild.Run(); err != nil {
-				return fmt.Errorf("go build: %w", err)
+				return fmt.Errorf("go build: %w%s", err, missingDependencyHint(stderr.String()))
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "built %s (build %s)\n", output, id)
 			return nil
@@ -84,4 +88,29 @@ func analyzeApp(cmd *cobra.Command, root string) (*analyze.Manifest, error) {
 		return nil, fmt.Errorf("found %d convention violation(s)", len(violations))
 	}
 	return m, err
+}
+
+// goBuildArgs returns the go build arguments. The generated main imports tifa/server, whose
+// dependencies go mod tidy does not see because it skips .tifa, so by default -mod=mod lets go
+// build add their requirements. A -mod the caller set in GOFLAGS wins, so a -mod=readonly CI
+// build leaves go.mod and go.sum untouched.
+func goBuildArgs(goflags, output string) []string {
+	args := []string{"build"}
+	if !slices.ContainsFunc(strings.Fields(goflags), func(f string) bool {
+		return strings.HasPrefix(f, "-") && strings.HasPrefix(strings.TrimLeft(f, "-"), "mod=")
+	}) {
+		args = append(args, "-mod=mod")
+	}
+	return append(args, "-o", output, "./"+codegen.Dir)
+}
+
+// missingDependencyHint tells what to run when go build, held to the module files by the
+// caller's -mod, misses requirements of tifa/server.
+func missingDependencyHint(stderr string) string {
+	for _, marker := range []string{"missing go.sum entry", "no required module provides", "updates to go.mod needed"} {
+		if strings.Contains(stderr, marker) {
+			return "\nthe application's go.mod lacks dependencies of the generated main, add them with:\n\tgo get github.com/liustack/tifa/server"
+		}
+	}
+	return ""
 }
