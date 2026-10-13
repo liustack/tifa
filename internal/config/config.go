@@ -1,0 +1,308 @@
+// Package config loads tifa settings from layered sources.
+// Runtime precedence from high to low: flags, TIFA_* environment variables, the file named by --config,
+// the tifa.yaml embedded at build time, framework defaults. Any invalid value fails with its layer and key.
+package config
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/spf13/pflag"
+	"go.yaml.in/yaml/v3"
+)
+
+type Config struct {
+	Build  Build
+	Server Server
+	SSR    SSR
+	Cache  Cache
+}
+
+// Build is read by the tifa CLI only. It may appear in the project tifa.yaml and nowhere else.
+type Build struct {
+	Target string
+	Public string
+}
+
+type Server struct {
+	Addr            string
+	BodyLimit       int64
+	ShutdownTimeout time.Duration
+}
+
+type SSR struct {
+	VMs      int
+	VMMemory int64
+	Timeout  time.Duration
+}
+
+type Cache struct {
+	Size int64
+}
+
+// Default holds values sized for small machines.
+func Default() Config {
+	return Config{
+		Build:  Build{Target: "es2020", Public: "public"},
+		Server: Server{Addr: "127.0.0.1:8080", BodyLimit: 1 << 20, ShutdownTimeout: 10 * time.Second},
+		SSR:    SSR{VMs: runtime.GOMAXPROCS(0), VMMemory: 128 << 20, Timeout: 3 * time.Second},
+		Cache:  Cache{Size: 64 << 20},
+	}
+}
+
+type field struct {
+	key   string // section.name as written in files
+	help  string
+	value value
+}
+
+func (f field) build() bool { return strings.HasPrefix(f.key, "build.") }
+
+func (f field) flag() string { return strings.NewReplacer(".", "-", "_", "-").Replace(f.key) }
+
+func (f field) env() string {
+	return "TIFA_" + strings.ToUpper(strings.ReplaceAll(f.key, ".", "_"))
+}
+
+func fields(c *Config) []field {
+	return []field{
+		{"build.target", "JavaScript target for esbuild", stringValue{&c.Build.Target}},
+		{"build.public", "Directory of static files copied as is", stringValue{&c.Build.Public}},
+		{"server.addr", "HTTP listen address", stringValue{&c.Server.Addr}},
+		{"server.body_limit", "Request body limit", sizeValue{&c.Server.BodyLimit, 1}},
+		{"server.shutdown_timeout", "Time allowed for in-flight requests, and then for OnShutdown, after a stop signal", durationValue{&c.Server.ShutdownTimeout}},
+		{"ssr.vms", "Prewarmed JavaScript VMs", intValue{&c.SSR.VMs, 1}},
+		{"ssr.vm_memory", "Memory limit of each VM", sizeValue{&c.SSR.VMMemory, 1}},
+		{"ssr.timeout", "Render time budget of each request", durationValue{&c.SSR.Timeout}},
+		{"cache.size", "Rendered page cache size, 0 disables it", sizeValue{&c.Cache.Size, 0}},
+	}
+}
+
+// AddFlags registers --config and one flag per runtime setting, such as --server-addr.
+func AddFlags(fs *pflag.FlagSet) {
+	fs.String("config", "", "Deployment config file (.yaml or .json)")
+	d := Default()
+	for _, f := range fields(&d) {
+		if !f.build() {
+			fs.Var(&rawValue{typ: f.value.kind()}, f.flag(), fmt.Sprintf("%s (default %s)", f.help, f.value))
+		}
+	}
+}
+
+// Load merges the runtime settings. fs must have been set up by AddFlags and parsed.
+// environ is in os.Environ form. embeddedName is tifa.yaml or tifa.json, empty when the project has no file.
+func Load(fs *pflag.FlagSet, environ []string, embeddedName string, embedded []byte) (Config, error) {
+	c := Default()
+	all := fields(&c)
+	if embeddedName != "" {
+		if err := applyFile(all, "embedded "+embeddedName, embeddedName, embedded, true); err != nil {
+			return c, err
+		}
+	}
+	if path, _ := fs.GetString("config"); path != "" {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return c, fmt.Errorf("config: %w", err)
+		}
+		if err := applyFile(all, "file "+filepath.Base(path), path, data, false); err != nil {
+			return c, err
+		}
+	}
+	runtimeFields := slices.DeleteFunc(slices.Clone(all), field.build)
+	if err := applyEnv(runtimeFields, environ); err != nil {
+		return c, err
+	}
+	var err error
+	fs.Visit(func(fl *pflag.Flag) {
+		for _, f := range runtimeFields {
+			if err == nil && fl.Name == f.flag() {
+				err = set(f, "flag --"+fl.Name, fl.Value.String())
+			}
+		}
+	})
+	return c, err
+}
+
+func set(f field, layer, raw string) error {
+	if err := f.value.Set(raw); err != nil {
+		return fmt.Errorf("config: %s: %s: %w", layer, f.key, err)
+	}
+	return nil
+}
+
+func applyEnv(fs []field, environ []string) error {
+	environ = slices.Sorted(slices.Values(environ))
+	for _, kv := range environ {
+		name, raw, _ := strings.Cut(kv, "=")
+		if !strings.HasPrefix(name, "TIFA_") {
+			continue
+		}
+		i := slices.IndexFunc(fs, func(f field) bool { return f.env() == name })
+		if i < 0 {
+			return fmt.Errorf("config: env %s: unknown key", name)
+		}
+		if err := set(fs[i], "env "+name, raw); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// entry is one setting read from a file. line is 0 when the format has no line numbers.
+type entry struct {
+	key, raw string
+	line     int
+	err      error
+}
+
+func applyFile(fs []field, layer, name string, data []byte, project bool) error {
+	var entries []entry
+	var err error
+	switch filepath.Ext(name) {
+	case ".yaml", ".yml":
+		entries, err = yamlEntries(data)
+	case ".json":
+		entries, err = jsonEntries(data)
+	default:
+		return fmt.Errorf("config: %s: unsupported format, use .yaml or .json", layer)
+	}
+	if err != nil {
+		return fmt.Errorf("config: %s: %w", layer, err)
+	}
+	for _, e := range entries {
+		where := layer
+		if e.line > 0 {
+			where += " line " + strconv.Itoa(e.line)
+		}
+		if e.err != nil {
+			return fmt.Errorf("config: %s: %s: %w", where, e.key, e.err)
+		}
+		i := slices.IndexFunc(fs, func(f field) bool { return f.key == e.key })
+		if i < 0 {
+			return fmt.Errorf("config: %s: unknown key %q", where, e.key)
+		}
+		if fs[i].build() && !project {
+			return fmt.Errorf("config: %s: build settings belong in the project tifa.yaml", where)
+		}
+		if err := set(fs[i], where, e.raw); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func yamlEntries(data []byte) ([]entry, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, err
+	}
+	if len(doc.Content) == 0 {
+		return nil, nil
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("line %d: expected a mapping of sections", root.Line)
+	}
+	var entries []entry
+	for i := 0; i < len(root.Content); i += 2 {
+		section, body := root.Content[i], root.Content[i+1]
+		if !knownSection(section.Value) {
+			entries = append(entries, entry{key: section.Value, line: section.Line})
+			continue
+		}
+		if body.Kind != yaml.MappingNode {
+			entries = append(entries, entry{key: section.Value, line: section.Line, err: errors.New("expected a mapping")})
+			continue
+		}
+		for j := 0; j < len(body.Content); j += 2 {
+			k, v := body.Content[j], body.Content[j+1]
+			e := entry{key: section.Value + "." + k.Value, raw: v.Value, line: k.Line}
+			if v.Kind != yaml.ScalarNode {
+				e.err = errors.New("expected a single value")
+			}
+			entries = append(entries, e)
+		}
+	}
+	return entries, nil
+}
+
+func jsonEntries(data []byte) ([]entry, error) {
+	var root map[string]any
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	if err := dec.Decode(&root); err != nil {
+		return nil, err
+	}
+	var entries []entry
+	for _, name := range sortedKeys(root) {
+		section, ok := root[name].(map[string]any)
+		if !knownSection(name) {
+			entries = append(entries, entry{key: name})
+			continue
+		}
+		if !ok {
+			entries = append(entries, entry{key: name, err: errors.New("expected an object")})
+			continue
+		}
+		for _, k := range sortedKeys(section) {
+			e := entry{key: name + "." + k}
+			switch v := section[k].(type) {
+			case string:
+				e.raw = v
+			case json.Number:
+				e.raw = v.String()
+			default:
+				e.err = fmt.Errorf("expected a string or number, got %v", v)
+			}
+			entries = append(entries, e)
+		}
+	}
+	return entries, nil
+}
+
+func knownSection(name string) bool {
+	return slices.Contains([]string{"build", "server", "ssr", "cache"}, name)
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+// Example renders the runtime settings of c as a commented deployment file.
+func Example(c Config) []byte {
+	var b strings.Builder
+	b.WriteString("# tifa runtime settings. Precedence from high to low: flags, environment variables,\n")
+	b.WriteString("# this file (--config), the tifa.yaml embedded at build time, defaults.\n")
+	section := ""
+	for _, f := range fields(&c) {
+		if f.build() {
+			continue
+		}
+		name, key, _ := strings.Cut(f.key, ".")
+		if name != section {
+			section = name
+			fmt.Fprintf(&b, "%s:\n", name)
+		}
+		fmt.Fprintf(&b, "  # %s. Flag --%s, env %s.\n", f.help, f.flag(), f.env())
+		value := f.value.String()
+		if f.value.kind() == "string" {
+			value = strconv.Quote(value)
+		}
+		fmt.Fprintf(&b, "  %s: %s\n", key, value)
+	}
+	return []byte(b.String())
+}
