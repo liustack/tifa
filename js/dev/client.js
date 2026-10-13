@@ -84,17 +84,40 @@
     if (event.persisted) location.reload();
   });
 
-  if (typeof SharedWorker === "function") {
-    try {
-      const worker = new SharedWorker(base + "worker.js", { name: "tifa-dev" });
-      worker.port.onmessage = (event) => onStatus(event.data);
-      addEventListener("pagehide", () => worker.port.postMessage("close"));
-      return;
-    } catch (err) {
-      console.warn("tifa dev: SharedWorker failed, this tab opens its own connection", err);
-    }
+  let source = null;
+  function listen() {
+    if (source !== null) return;
+    source = new EventSource(base + "events");
+    source.addEventListener("status", (event) => onStatus(event.data));
+    addEventListener("pagehide", () => source.close());
   }
-  const source = new EventSource(base + "events");
-  source.addEventListener("status", (event) => onStatus(event.data));
-  addEventListener("pagehide", () => source.close());
+
+  if (typeof SharedWorker !== "function") {
+    listen();
+    return;
+  }
+  let worker;
+  try {
+    worker = new SharedWorker(base + "worker.js", { name: "tifa-dev" });
+  } catch (err) {
+    console.warn("tifa dev: SharedWorker failed, this tab opens its own connection", err);
+    listen();
+    return;
+  }
+  // The worker can also fail later, for example when a Content-Security-Policy blocks it, and a
+  // working one always sends the status at once. Either way, a silent worker means this tab listens itself.
+  const giveUp = (why) => {
+    clearTimeout(timer);
+    worker.port.onmessage = null;
+    worker.port.close();
+    console.warn("tifa dev: " + why + ", this tab opens its own connection");
+    listen();
+  };
+  const timer = setTimeout(() => giveUp("the SharedWorker sent nothing within 3s"), 3000);
+  worker.addEventListener("error", () => giveUp("the SharedWorker failed"));
+  worker.port.onmessage = (event) => {
+    clearTimeout(timer);
+    onStatus(event.data);
+  };
+  addEventListener("pagehide", () => worker.port.postMessage("close"));
 })();
