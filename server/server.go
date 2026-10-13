@@ -105,17 +105,21 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.mux.ServeHTTP(w, r)
 		return
 	}
-	// ServeMux answers a non-canonical path (double slash, dot segment, missing trailing slash)
-	// with its own redirect. Record that redirect and hand it to OnRequest as the result of Next.
+	// ServeMux answers some requests with its own handler: a redirect for a non-canonical path (double slash,
+	// dot segment, missing trailing slash), or its 404 for a path it cannot match at all (CONNECT host:port).
+	// A redirect reaches OnRequest as the result of Next. Anything else is an unmatched URL.
 	probe := &redirectProbe{header: http.Header{}}
 	h.ServeHTTP(probe, r)
-	redirect := &core.RedirectError{URL: probe.header.Get("Location"), Code: probe.code}
-	s.serve(w, r, "", func(*tifa.Ctx) error {
-		if redirect.Code < 300 || redirect.Code > 399 || redirect.URL == "" {
-			return fmt.Errorf("tifa: unexpected ServeMux response %d for %s", probe.code, r.URL.Path)
+	location := probe.header.Get("Location")
+	switch probe.code {
+	case http.StatusMovedPermanently, http.StatusFound, http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
+		if location != "" {
+			redirect := &core.RedirectError{URL: location, Code: probe.code}
+			s.serve(w, r, "", func(*tifa.Ctx) error { return redirect })
+			return
 		}
-		return redirect
-	})
+	}
+	routeHandler{s: s}.ServeHTTP(w, r)
 }
 
 // redirectProbe captures the status and headers of a ServeMux internal handler and drops its body.

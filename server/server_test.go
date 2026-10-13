@@ -536,3 +536,17 @@ func TestFlushCountsAsWritten(t *testing.T) {
 		}
 	}
 }
+
+func TestMuxNotFoundIsAnUnmatchedURL(t *testing.T) {
+	var patterns []string
+	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx) error {
+		patterns = append(patterns, c.Pattern())
+		return c.Next()
+	}})
+	r := httptest.NewRequest("CONNECT", "example.com:443", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, r)
+	if w.Code != 404 || len(patterns) != 1 || patterns[0] != "" {
+		t.Fatalf("CONNECT with an empty path: %d %s, OnRequest saw %q", w.Code, w.Body.String(), patterns)
+	}
+}
