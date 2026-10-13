@@ -222,3 +222,18 @@ func TestBindJSONReadsToEndOfBody(t *testing.T) {
 		}
 	}
 }
+
+func TestBindFormUsesConfiguredLimitAboveTenMiB(t *testing.T) {
+	body := "name=" + strings.Repeat("x", 11<<20)
+	c, _ := newCtx("POST", body, "application/x-www-form-urlencoded", 16<<20)
+	var in input
+	if err := c.Bind(&in); err != nil || len(in.Name) != 11<<20 {
+		t.Fatalf("form within the configured limit: %v", err)
+	}
+	c, _ = newCtx("POST", body, "application/x-www-form-urlencoded", 16<<20)
+	c.SetBodyLimit(1 << 20)
+	var e Error
+	if err := c.Bind(&in); !errors.As(err, &e) || e.Status != http.StatusRequestEntityTooLarge {
+		t.Fatalf("form over a lowered limit: %v", err)
+	}
+}

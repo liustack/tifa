@@ -34,16 +34,17 @@ type Ctx struct {
 // request is shared by every Ctx of the same HTTP request, including the copies handed to concurrent Loads.
 type request struct {
 	mu    sync.Mutex
-	limit int64
+	body  *countingBody // nil when the request has no body
 	loads map[uintptr]*loadCall
 }
 
 // New builds the context for one request. pattern is the matched route pattern, empty when no route matched.
 // The request body is limited to bodyLimit bytes unless SetBodyLimit changes it before the first read.
 func New(w http.ResponseWriter, r *http.Request, pattern string, bodyLimit int64) *Ctx {
-	c := &Ctx{w: w, r: r, pattern: pattern, req: &request{limit: bodyLimit, loads: map[uintptr]*loadCall{}}}
+	c := &Ctx{w: w, r: r, pattern: pattern, req: &request{loads: map[uintptr]*loadCall{}}}
 	if r.Body != nil && r.Body != http.NoBody {
-		r.Body = &limitedBody{c: c, body: r.Body}
+		c.req.body = &countingBody{ReadCloser: r.Body}
+		r.Body = http.MaxBytesReader(w, c.req.body, bodyLimit)
 	}
 	return c
 }
@@ -72,10 +73,11 @@ func (c *Ctx) Pattern() string { return c.pattern }
 func (c *Ctx) IsData() bool { return c.r.Header.Get("X-Tifa-Route") != "" }
 
 // SetBodyLimit changes the request body limit. It only takes effect before the body is first read.
+// The body stays an http.MaxBytesReader, so ParseForm honours the limit instead of its own 10 MiB cap.
 func (c *Ctx) SetBodyLimit(n int64) {
-	c.req.mu.Lock()
-	c.req.limit = n
-	c.req.mu.Unlock()
+	if c.req.body != nil && c.req.body.n == 0 {
+		c.r.Body = http.MaxBytesReader(c.w, c.req.body, n)
+	}
 }
 
 func (c *Ctx) SetHeader(key, value string) {
@@ -155,21 +157,14 @@ func (c *Ctx) Next() error {
 func (c *Ctx) Request() *http.Request      { return c.r }
 func (c *Ctx) Writer() http.ResponseWriter { return c.w }
 
-// limitedBody applies the body limit at the first read, so OnRequest can still change it.
-type limitedBody struct {
-	c    *Ctx
-	body io.ReadCloser
-	r    io.ReadCloser
+// countingBody tells SetBodyLimit whether reading has started.
+type countingBody struct {
+	io.ReadCloser
+	n int64
 }
 
-func (b *limitedBody) Read(p []byte) (int, error) {
-	if b.r == nil {
-		b.c.req.mu.Lock()
-		limit := b.c.req.limit
-		b.c.req.mu.Unlock()
-		b.r = http.MaxBytesReader(b.c.w, b.body, limit)
-	}
-	return b.r.Read(p)
+func (b *countingBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	b.n += int64(n)
+	return n, err
 }
-
-func (b *limitedBody) Close() error { return b.body.Close() }
