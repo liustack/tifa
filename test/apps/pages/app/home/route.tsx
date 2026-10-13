@@ -5,6 +5,9 @@ export default function Home() {
     <main>
       <Link to="/shops/$shopId" params={{ shopId: 'north' }}>
         North shop
+      </Link>{' '}
+      <Link to="/shops/$shopId" params={{ shopId: 'south' }}>
+        South shop
       </Link>
     </main>
   )
