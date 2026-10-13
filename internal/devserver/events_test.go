@@ -116,3 +116,30 @@ func TestEventsEndWhenTheHubCloses(t *testing.T) {
 		t.Fatalf("stream did not end cleanly: %v", err)
 	}
 }
+
+// A HEAD request gets the headers and ends, so the connection can carry the next request.
+func TestEventsAnswerHEADAndEnd(t *testing.T) {
+	h := newHub()
+	mux := http.NewServeMux()
+	mux.Handle(eventsPath, h)
+	mux.HandleFunc("/next", func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "next") })
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	t.Cleanup(h.close) // runs first, so a stuck stream does not hold up srv.Close
+	tr := &http.Transport{MaxConnsPerHost: 1}
+	t.Cleanup(tr.CloseIdleConnections)
+	client := &http.Client{Transport: tr, Timeout: 5 * time.Second}
+	resp, err := client.Head(srv.URL + eventsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("HEAD Content-Type %q", ct)
+	}
+	resp, err = client.Get(srv.URL + "/next")
+	if err != nil {
+		t.Fatalf("request after HEAD on the same connection: %v", err)
+	}
+	resp.Body.Close()
+}

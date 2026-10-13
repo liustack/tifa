@@ -88,6 +88,9 @@ func (h *hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rc := http.NewResponseController(w)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
+	if r.Method == http.MethodHead {
+		return // headers only, the connection stays free for the next request
+	}
 	// The browser reconnects by itself after a lost connection, retry sets how soon.
 	if _, err := fmt.Fprint(w, "retry: 500\n\n"); err != nil {
 		return

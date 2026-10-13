@@ -105,7 +105,7 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle(eventsPath, d.hub)
+	mux.Handle("GET "+eventsPath, d.hub)
 	mux.Handle("GET "+clientPath, script(js.DevClient))
 	mux.Handle("GET "+workerPath, script(js.DevWorker))
 	mux.Handle(devPrefix, http.NotFoundHandler())
