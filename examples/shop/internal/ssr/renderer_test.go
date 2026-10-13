@@ -3,8 +3,8 @@ package ssr
 import (
 	"context"
 	"encoding/json"
-	"github.com/liustack/tifa/internal/pages"
-	"github.com/liustack/tifa/internal/workspace"
+	"github.com/liustack/tifa/examples/shop/internal/pages"
+	"github.com/liustack/tifa/examples/shop/internal/workspace"
 	"strings"
 	"sync"
 	"testing"

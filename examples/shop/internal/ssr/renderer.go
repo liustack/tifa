@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/liustack/tifa/internal/pages"
+	"github.com/liustack/tifa/examples/shop/internal/pages"
 	"modernc.org/quickjs"
 	"time"
 )

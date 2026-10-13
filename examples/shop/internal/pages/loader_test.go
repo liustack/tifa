@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/liustack/tifa/internal/workspace"
+	"github.com/liustack/tifa/examples/shop/internal/workspace"
 	"testing"
 )
 

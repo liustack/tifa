@@ -2,8 +2,8 @@ package httpapp
 
 import (
 	"encoding/json"
-	"github.com/liustack/tifa/internal/pages"
-	"github.com/liustack/tifa/internal/workspace"
+	"github.com/liustack/tifa/examples/shop/internal/pages"
+	"github.com/liustack/tifa/examples/shop/internal/workspace"
 	"net/http"
 	"net/http/httptest"
 	"strings"

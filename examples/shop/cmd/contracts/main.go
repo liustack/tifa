@@ -4,7 +4,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/liustack/tifa/internal/workspace"
+	"github.com/liustack/tifa/examples/shop/internal/workspace"
 	"os"
 	"reflect"
 	"sort"

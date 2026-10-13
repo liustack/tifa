@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/liustack/tifa/internal/workspace"
+	"github.com/liustack/tifa/examples/shop/internal/workspace"
 	"net/url"
 	"regexp"
 	"sort"
