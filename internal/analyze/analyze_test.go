@@ -57,8 +57,13 @@ func TestValidApp(t *testing.T) {
 		}
 	}
 	if got := layouts["app/projects"].Load; got == nil || got.Type != "example.com/valid/app/projects.Project" ||
-		!reflect.DeepEqual(got.Params, []string{"projectId"}) || len(got.Query) != 0 {
+		!reflect.DeepEqual(got.Params, []string{"projectId"}) || !reflect.DeepEqual(got.Query, []string{"currency"}) ||
+		!reflect.DeepEqual(got.AllQuery, []string{"currency", "lang"}) || !reflect.DeepEqual(got.Uses, []string{"app"}) {
 		t.Errorf("projects layout Load = %+v", got)
+	}
+	if got := layouts["app"].Load; got == nil || !reflect.DeepEqual(got.Query, []string{"lang"}) ||
+		!reflect.DeepEqual(got.AllQuery, []string{"lang"}) || len(got.Uses) != 0 {
+		t.Errorf("root layout Load = %+v", got)
 	}
 
 	routes := map[string]Route{}
@@ -90,11 +95,16 @@ func TestValidApp(t *testing.T) {
 		}
 	}
 
-	if r := routes["app/home"]; r.Load == nil || r.Load.Type != "string" || !reflect.DeepEqual(r.Load.Query, []string{"ref"}) {
+	if r := routes["app/home"]; r.Load == nil || r.Load.Type != "string" || !reflect.DeepEqual(r.Load.Query, []string{"ref"}) ||
+		!reflect.DeepEqual(r.Load.AllQuery, []string{"ref"}) {
 		t.Errorf("home Load = %+v", r.Load)
 	}
+	// list reads page and sort itself, and through tifa.Use(c, projects.Load) also depends on
+	// currency and, one level further up, lang.
 	if r := routes["app/projects/list"]; r.Load == nil || r.Load.Type != "[]string" ||
-		!reflect.DeepEqual(r.Load.Query, []string{"page", "sort"}) || len(r.Load.Params) != 0 {
+		!reflect.DeepEqual(r.Load.Query, []string{"page", "sort"}) || len(r.Load.Params) != 0 ||
+		!reflect.DeepEqual(r.Load.AllQuery, []string{"currency", "lang", "page", "sort"}) ||
+		!reflect.DeepEqual(r.Load.Uses, []string{"app/projects"}) {
 		t.Errorf("list Load = %+v", r.Load)
 	}
 	if r := routes["app/projects/orders/detail"]; r.Load == nil ||

@@ -76,6 +76,12 @@ type Load struct {
 	Params []string `json:"params"`
 	// Query lists the query parameters read with c.Query in the body of Load, sorted and deduplicated.
 	Query []string `json:"query"`
+	// Uses lists the IDs of the Layouts whose Load this Load calls through tifa.Use in its body, sorted.
+	Uses []string `json:"uses"`
+	// AllQuery is Query together with the AllQuery of every Load in Uses, sorted and deduplicated.
+	// A result computed from a used Load changes with that Load's query parameters too, so
+	// loaderDeps and remountDeps are generated from AllQuery.
+	AllQuery []string `json:"allQuery"`
 	// Result is T for code generation inside the same process. It satisfies the rules of checkTS.
 	Result types.Type `json:"-"`
 }

@@ -49,7 +49,7 @@ func Analyze(dir string) (*Manifest, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &analyzer{root: root, dirs: map[string]*dirInfo{}}
+	a := &analyzer{root: root, dirs: map[string]*dirInfo{}, used: usedLoads{}}
 	if err := a.scan(); err != nil {
 		return nil, err
 	}
@@ -73,6 +73,7 @@ type analyzer struct {
 	rootPk *packages.Package // nil without hooks.go
 	broken map[string]bool   // directory IDs of packages skipped because they or their imports do not type check
 	errs   Errors
+	used   usedLoads
 }
 
 // dirInfo records the convention files found in one directory under app/.
@@ -265,6 +266,9 @@ type layout struct {
 	uses []paramUse
 }
 
+// usedLoads maps a Load to the import paths of the packages whose Load it passes to tifa.Use.
+type usedLoads map[*Load][]string
+
 // paramUse is one c.Param or c.Query call with a constant name inside Load.
 type paramUse struct {
 	method string // "Param" or "Query"
@@ -308,6 +312,7 @@ func (a *analyzer) build() *Manifest {
 	a.checkPaths(routes)
 	a.checkUses(layouts)
 	a.checkDirectCalls()
+	a.propagateQuery(routes, layouts)
 
 	m := &Manifest{Module: a.module, Hooks: a.hooks()}
 	for _, l := range layouts {
@@ -513,6 +518,13 @@ func (a *analyzer) readLoad(pkg *packages.Package) (*Load, []paramUse) {
 	ast.Inspect(decl.Body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
+			return true
+		}
+		if isTifaUse(pkg.TypesInfo, call) && len(call.Args) == 2 {
+			// checkUses reports arguments that are not the Load of an ancestor Layout.
+			if fn := packageFunc(pkg.TypesInfo, call.Args[1]); fn != nil && fn.Name() == "Load" {
+				a.used[load] = append(a.used[load], fn.Pkg().Path())
+			}
 			return true
 		}
 		method := ctxMethod(pkg.TypesInfo, call)
@@ -798,7 +810,6 @@ func (a *analyzer) checkUses(layouts []*layout) {
 				arg := ast.Unparen(call.Args[1])
 				text := types.ExprString(arg)
 				const need = "the function passed to tifa.Use must be a package-level function"
-				var fn *types.Func
 				switch e := arg.(type) {
 				case *ast.FuncLit:
 					a.errorAt(arg.Pos(), "%s, got a closure: tifa.Use tells Loads apart by code address, so closures of one literal would share results", need)
@@ -808,11 +819,9 @@ func (a *analyzer) checkUses(layouts []*layout) {
 						a.errorAt(arg.Pos(), "%s, got the method value %s: method values of one method share a code address and would share results", need, text)
 						return true
 					}
-					fn, _ = pkg.TypesInfo.Uses[e.Sel].(*types.Func)
-				case *ast.Ident:
-					fn, _ = pkg.TypesInfo.Uses[e].(*types.Func)
 				}
-				if fn == nil || fn.Signature().Recv() != nil || fn.Pkg() == nil || fn.Parent() != fn.Pkg().Scope() {
+				fn := packageFunc(pkg.TypesInfo, arg)
+				if fn == nil {
 					a.errorAt(arg.Pos(), "%s, got %s", need, text)
 					return true
 				}
@@ -826,6 +835,69 @@ func (a *analyzer) checkUses(layouts []*layout) {
 				}
 				return true
 			})
+		}
+	}
+}
+
+// packageFunc returns the package-level function that expr names, nil for anything else.
+func packageFunc(info *types.Info, expr ast.Expr) *types.Func {
+	var fn *types.Func
+	switch e := ast.Unparen(expr).(type) {
+	case *ast.SelectorExpr:
+		if info.Selections[e] != nil { // a method value
+			return nil
+		}
+		fn, _ = info.Uses[e.Sel].(*types.Func)
+	case *ast.Ident:
+		fn, _ = info.Uses[e].(*types.Func)
+	}
+	if fn == nil || fn.Signature().Recv() != nil || fn.Pkg() == nil || fn.Parent() != fn.Pkg().Scope() {
+		return nil
+	}
+	return fn
+}
+
+// propagateQuery fills Uses and AllQuery of every Load. tifa.Use only reaches ancestor Layouts,
+// so the graph has no cycles once checkUses passes. The visiting set still guards against them
+// when checkUses has reported a violation.
+func (a *analyzer) propagateQuery(routes []*route, layouts []*layout) {
+	byPkg := map[string]*layout{}
+	for _, l := range layouts {
+		if l.Package != "" && l.Load != nil {
+			byPkg[l.Package] = l
+		}
+	}
+	done, visiting := map[*Load]bool{}, map[*Load]bool{}
+	var all func(load *Load) []string
+	all = func(load *Load) []string {
+		if done[load] || visiting[load] {
+			return load.AllQuery
+		}
+		visiting[load] = true
+		defer func() { delete(visiting, load); done[load] = true }()
+		q := slices.Clone(load.Query)
+		for _, path := range a.used[load] {
+			l := byPkg[path]
+			if l == nil {
+				continue // not a Layout's Load, checkUses reports it
+			}
+			load.Uses = append(load.Uses, l.ID)
+			q = append(q, all(l.Load)...)
+		}
+		slices.Sort(load.Uses)
+		load.Uses = slices.Compact(load.Uses)
+		slices.Sort(q)
+		load.AllQuery = slices.Compact(q)
+		return load.AllQuery
+	}
+	for _, l := range layouts {
+		if l.Load != nil {
+			all(l.Load)
+		}
+	}
+	for _, r := range routes {
+		if r.Load != nil {
+			all(r.Load)
 		}
 	}
 }
