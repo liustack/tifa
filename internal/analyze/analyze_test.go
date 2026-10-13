@@ -170,6 +170,8 @@ func TestViolations(t *testing.T) {
 			{"app/dup2/route.go:3:", "duplicates"},
 			{"app/getpage/route.go:7:", "OnGet"},
 		}},
+		{"badoutside", [][]string{{"bad/bad.go:3:15:", "cannot use"}}},
+		{"bridge", [][]string{{"app/bad/route.go:5:17:", "cannot use"}}},
 		{"structure", [][]string{
 			{"app/orphan/route.tsx:1:", "route.go"},
 			{"app/both/layout.go:1:", "route.go", "layout.go"},

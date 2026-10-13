@@ -42,8 +42,9 @@ var hooks = []struct {
 
 // Analyze loads the application whose module root is dir and returns its route manifest.
 // Convention violations come back as Errors, holding every violation found, sorted by position.
-// Packages that do not type check are reported with their type errors and skipped, together
-// with the packages that import them. The conventions of all other packages are still checked.
+// Packages that do not type check, anywhere in the import graph, are reported with their errors.
+// The app packages among them and those importing them, directly or through packages outside
+// app/, are skipped. The conventions of all other packages are still checked.
 // Other errors (no app directory, go list failing) are returned as they are.
 func Analyze(dir string) (*Manifest, error) {
 	root, err := filepath.Abs(dir)
@@ -161,37 +162,35 @@ func (a *analyzer) load() error {
 	}
 	a.byDir = map[string]*packages.Package{}
 	a.broken = map[string]bool{}
+	// Walk the whole import graph, packages outside app/ included. A package with errors is
+	// broken, and so is every package that imports a broken one directly or indirectly, because
+	// it was type checked against incomplete information. Visit calls post after the imports of
+	// a package, so imports are decided first.
 	brokenPaths := map[string]bool{}
-	for _, p := range pkgs {
-		if len(p.Errors) > 0 {
+	packages.Visit(pkgs, nil, func(p *packages.Package) {
+		if len(p.Errors) > 0 || p.IllTyped {
 			brokenPaths[p.PkgPath] = true
 		}
-	}
-	// A package that imports a broken one is type checked against incomplete information, so it
-	// is skipped too. Imports outside app/ that fail surface as errors of the importer itself.
-	for changed := true; changed; {
-		changed = false
-		for _, p := range pkgs {
-			if brokenPaths[p.PkgPath] {
-				continue
-			}
-			for path := range p.Imports {
-				if brokenPaths[path] {
-					brokenPaths[p.PkgPath], changed = true, true
-					break
-				}
+		for path := range p.Imports {
+			if brokenPaths[path] {
+				brokenPaths[p.PkgPath] = true
 			}
 		}
-	}
-	for _, p := range pkgs {
 		// go list compiles each package for export data and reports the compiler output as one
 		// error without a position. The type checker reports the same problems with positions.
-		positioned := slices.ContainsFunc(p.Errors, func(e packages.Error) bool { return e.Pos != "" })
+		positioned := slices.ContainsFunc(p.Errors, func(e packages.Error) bool { return hasPos(e) })
 		for _, e := range p.Errors {
-			if e.Pos != "" || !positioned {
+			if hasPos(e) || !positioned {
 				a.errs = append(a.errs, a.packageError(e))
 			}
 		}
+	})
+	if len(brokenPaths) > 0 && len(a.errs) == 0 {
+		for path := range brokenPaths { // only reachable if go/packages flags a package without saying why
+			a.errs = append(a.errs, Error{Msg: fmt.Sprintf("package %s does not type check", path)})
+		}
+	}
+	for _, p := range pkgs {
 		if len(p.GoFiles) == 0 {
 			continue
 		}
@@ -212,8 +211,13 @@ func (a *analyzer) load() error {
 	return nil
 }
 
+func hasPos(e packages.Error) bool { return e.Pos != "" && e.Pos != "-" }
+
 // packageError converts a load or type error, whose position is a "file:line:col" string.
 func (a *analyzer) packageError(e packages.Error) Error {
+	if !hasPos(e) {
+		return Error{Msg: e.Msg}
+	}
 	pos := token.Position{Filename: e.Pos}
 	parts := strings.Split(e.Pos, ":")
 	if len(parts) >= 3 {
