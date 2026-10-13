@@ -1,5 +1,5 @@
 ---
-summary: '测试与验证：提交前要跑的命令、先红后绿、默认跳过的 SSR 实验测试'
+summary: '测试与验证：提交前要跑的命令、先红后绿、默认跳过的 SSR 长测与实验测试'
 read_when:
   - 准备提交代码，确认要跑哪些检查
   - 写新测试或修 bug
@@ -58,6 +58,17 @@ env PATH=/usr/bin:/bin:$(go env GOROOT)/bin go test ./internal/bundle
 (cd examples/shop && pnpm install --frozen-lockfile && pnpm build)
 TIFA_SHOP_E2E=1 go test ./internal/bundle -run TestShopBundle -v
 ```
+
+## 默认跳过的 SSR 长测
+
+`internal/ssr` 的默认测试只用 `testdata/app.js` 这个手写小包，几秒内跑完。下面几组默认 skip：
+
+| 命令 | 内容 |
+| --- | --- |
+| `TIFA_SSR_SOAK=1 go test -tags memory.counters -run Soak -v ./internal/ssr` | 正常复用长测（2 个 VM、2 个调用方、10,000 次渲染）与 OOM 回收测试（8 次耗尽内存并替换 VM），关闭后原生分配数要回到基线 |
+| `TIFA_SSR_SHOP=1 go test -run Shop -v ./internal/ssr` | 用 `examples/shop` 的真实 React 包渲染，检查页面内容、脚本转义，并打印热渲染 P50/P95/P99 |
+
+两个变量可以一起设，长测就会再用真实 React 包跑一遍。用真实包前先在 `examples/shop` 里 `pnpm install --frozen-lockfile && pnpm build`。真实包的 OOM 回收目前失败（原生分配从 3 增至 11），和原型的 `TestSSROOMReactProbe` 结果相同，问题在 QuickJS 的 OOM 清理路径上，尚未解决。
 
 ## 默认跳过的 SSR 实验测试
 
