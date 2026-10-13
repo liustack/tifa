@@ -87,17 +87,42 @@ func build(t *testing.T, app string) (dir, exe string) {
 	t.Helper()
 	dir = filepath.Join(repoRoot(t), "test", "apps", app)
 	exe = filepath.Join(t.TempDir(), app)
+	// go mod tidy keeps every module the generated main needs, because the app lists
+	// cmd/tifa as a tool, so a tidy go.mod builds with -mod=readonly and stays unchanged.
+	tidy := exec.Command("go", "mod", "tidy", "-diff")
+	tidy.Dir = dir
+	if out, err := tidy.CombinedOutput(); err != nil {
+		t.Fatalf("go mod tidy would change %s: %v\n%s", app, err, out)
+	}
+	before := moduleFiles(t, dir)
 	cmd := exec.Command(cli(t), "build", "--dir", dir, "-o", exe)
 	// The build needs no Node: run it with a PATH that has none.
-	cmd.Env = append(os.Environ(), "PATH="+withoutNode(t))
+	cmd.Env = append(os.Environ(), "PATH="+withoutNode(t), "GOFLAGS=-mod=readonly")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("tifa build %s: %v\n%s", app, err, out)
+	}
+	if after := moduleFiles(t, dir); after != before {
+		t.Errorf("tifa build changed go.mod or go.sum of %s", app)
 	}
 	info, err := os.Stat(exe)
 	if err != nil || !info.Mode().IsRegular() {
 		t.Fatalf("tifa build did not produce %s: %v", exe, err)
 	}
 	return dir, exe
+}
+
+// moduleFiles returns go.mod and go.sum of the app in dir.
+func moduleFiles(t *testing.T, dir string) string {
+	t.Helper()
+	var all string
+	for _, name := range []string{"go.mod", "go.sum"} {
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		all += string(data)
+	}
+	return all
 }
 
 // withoutNode returns PATH without the directories that hold a node executable.

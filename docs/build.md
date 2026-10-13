@@ -19,11 +19,22 @@ tifa build [--dir 应用根目录] [-o 输出路径]
 1. 静态分析 `app/` 与根目录 `hooks.go`，约定不满足时逐条打印 `文件:行号: 原因` 并退出。
 2. 把生成代码写进 `.tifa/`。只改内容变了的文件，删掉不再生成的文件。
 3. 用 esbuild（Go API）打包，产物写进 `.tifa/dist/`，见下文「前端产物」。不需要 Node。
-4. `CGO_ENABLED=0 go build -mod=mod -o <输出> ./.tifa`（`GOFLAGS` 已指定 `-mod` 时不加），默认输出 `dist/<模块路径最后一段>`。生成的 main 用 `//go:embed all:dist` 把 `.tifa/dist/` 嵌进可执行文件。
+4. `CGO_ENABLED=0 go build -o <输出> ./.tifa`，默认输出 `dist/<模块路径最后一段>`。生成的 main 用 `//go:embed all:dist` 把 `.tifa/dist/` 嵌进可执行文件。
 
-生成的 main 引用 `github.com/liustack/tifa/server`，它的依赖（cobra、pflag、yaml）要出现在应用的 `go.mod` 与 `go.sum` 里。`go mod tidy` 跳过 `.tifa/` 看不到这层引用，所以 `tifa build` 带 `-mod=mod`，由 go 命令补上这些 `// indirect` 依赖。应用跑过 `go mod tidy` 后它们会被删掉，下次构建再补回来。
+### go.mod
 
-要求构建不改源码的 CI 可以设 `GOFLAGS=-mod=readonly`，`tifa build` 不再加 `-mod=mod`。这时缺依赖会构建失败，并提示先执行 `go get github.com/liustack/tifa/server` 把依赖写进 `go.mod` 与 `go.sum` 再入库。
+应用把 tifa 命令登记成 Go 工具：
+
+```sh
+go get -tool github.com/liustack/tifa/cmd/tifa
+go tool tifa build
+```
+
+- `go tool tifa` 用的是 `go.mod` 里那一版 tifa，命令与运行库的版本总是一致。
+- 生成的 main 引用 `github.com/liustack/tifa/server`，`go mod tidy` 跳过 `.tifa/` 看不到这层引用。tifa 命令自己也引用 server，`go mod tidy` 会保留工具需要的全部模块，所以 server 的依赖（cobra、yaml、quickjs 等）一直留在 `go.mod` 与 `go.sum` 里。
+- `tifa build` 不改 `go.mod` 与 `go.sum`。跑过 `go mod tidy` 的应用直接能构建，`GOFLAGS=-mod=readonly` 的 CI 也一样。
+- 缺依赖时构建失败，并提示执行上面的 `go get -tool` 与 `go mod tidy`。
+- 升级 tifa（`go get -tool github.com/liustack/tifa/cmd/tifa@<版本>`）后跑一次 `go mod tidy`，新版本的命令或运行库多了依赖时，它会补进 `go.mod`。
 
 ## .tifa/ 里的文件
 

@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/liustack/tifa/internal/analyze"
@@ -87,8 +86,9 @@ func analyzeApp(cmd *cobra.Command, root string) (*analyze.Manifest, error) {
 
 // goBuild compiles the generated main of the application at root into output with
 // CGO_ENABLED=0. It returns what go build printed on stderr, which also goes to stderr.
+// go build leaves go.mod and go.sum as they are.
 func goBuild(ctx context.Context, root, output string, stdout, stderr io.Writer) (string, error) {
-	gobuild := exec.CommandContext(ctx, "go", goBuildArgs(os.Getenv("GOFLAGS"), output)...)
+	gobuild := exec.CommandContext(ctx, "go", "build", "-o", output, "./"+codegen.Dir)
 	gobuild.Dir = root
 	gobuild.Env = append(os.Environ(), "CGO_ENABLED=0")
 	var printed bytes.Buffer
@@ -100,26 +100,12 @@ func goBuild(ctx context.Context, root, output string, stdout, stderr io.Writer)
 	return printed.String(), nil
 }
 
-// goBuildArgs returns the go build arguments. The generated main imports tifa/server, whose
-// dependencies go mod tidy does not see because it skips .tifa, so by default -mod=mod lets go
-// build add their requirements. A -mod the caller set in GOFLAGS wins, so a -mod=readonly CI
-// build leaves go.mod and go.sum untouched.
-func goBuildArgs(goflags, output string) []string {
-	args := []string{"build"}
-	if !slices.ContainsFunc(strings.Fields(goflags), func(f string) bool {
-		return strings.HasPrefix(f, "-") && strings.HasPrefix(strings.TrimLeft(f, "-"), "mod=")
-	}) {
-		args = append(args, "-mod=mod")
-	}
-	return append(args, "-o", output, "./"+codegen.Dir)
-}
-
-// missingDependencyHint tells what to run when go build, held to the module files by the
-// caller's -mod, misses requirements of tifa/server.
+// missingDependencyHint tells what to run when go build misses requirements of the generated
+// main. An application that lists cmd/tifa as a tool has all of them after go mod tidy (see deps.go).
 func missingDependencyHint(stderr string) string {
 	for _, marker := range []string{"missing go.sum entry", "no required module provides", "updates to go.mod needed"} {
 		if strings.Contains(stderr, marker) {
-			return "\nthe application's go.mod lacks dependencies of the generated main, add them with:\n\tgo get github.com/liustack/tifa/server"
+			return "\nthe application's go.mod lacks dependencies of the generated main, list the tifa command as a tool:\n\tgo get -tool github.com/liustack/tifa/cmd/tifa\n\tgo mod tidy"
 		}
 	}
 	return ""
