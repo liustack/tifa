@@ -59,6 +59,15 @@ func (s *Server) Handle(method, path string, h func(*tifa.Ctx) error) {
 	if !slices.Contains(methods, method) {
 		panic(fmt.Sprintf("tifa: unsupported method %q for %s", method, path))
 	}
+	route := s.path(path)
+	if route[method] != nil {
+		panic(fmt.Sprintf("tifa: %s %s registered twice", method, path))
+	}
+	route[method] = h
+}
+
+// path registers path in the ServeMux on first use and returns its handlers by method.
+func (s *Server) path(path string) map[string]func(*tifa.Ctx) error {
 	route, ok := s.routes[path]
 	if !ok {
 		route = map[string]func(*tifa.Ctx) error{}
@@ -69,10 +78,7 @@ func (s *Server) Handle(method, path string, h func(*tifa.Ctx) error) {
 		}
 		s.mux.Handle(pattern, routeHandler{s: s, pattern: path, methods: route})
 	}
-	if route[method] != nil {
-		panic(fmt.Sprintf("tifa: %s %s registered twice", method, path))
-	}
-	route[method] = h
+	return route
 }
 
 // routeHandler is what the server registers in its ServeMux. methods is nil for unmatched URLs.
