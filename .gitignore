@@ -9,3 +9,12 @@ web/**/*.generated.ts
 go-quick
 coverage.out
 .tifa/
+
+# Binaries for programs and plugins
+*.test
+*.out
+.idea
+/bin/
+.run
+/test/testdata/
+/logs/
