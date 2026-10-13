@@ -372,7 +372,7 @@ func TestLoadResultShape(t *testing.T) {
 	}
 	want := "{ id: string; Kind: string; note?: string; X: string; Bad: number; count: string; " +
 		"opt?: boolean | null; byNum: Record<string, string> | null; byCode: Record<string, number> | null; " +
-		"level: string; num: number; raw: string | null; list: number[] | null; grid: boolean[]; " +
+		"level: string; num: number; raw: string | null; list: number[] | null; grid: boolean[]; empty: []; none: []; " +
 		"when: string; stamp: string; notM: { v: number }; value: { v: number }; " +
 		"tree: { name: string; kids: (Node | null)[] | null } | null }"
 	if got != want {

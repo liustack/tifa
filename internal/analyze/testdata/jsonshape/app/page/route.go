@@ -65,6 +65,8 @@ type Shape struct {
 	Raw     []byte         `json:"raw"`
 	List    []int          `json:"list"`
 	Grid    [2]bool        `json:"grid"`
+	Empty   [0]chan int    `json:"empty"`
+	None    [0]any         `json:"none"`
 	When    time.Time      `json:"when"`
 	Stamp   Stamp          `json:"stamp"`
 	NotM    NotMarshaler   `json:"notM"`

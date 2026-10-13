@@ -28,7 +28,8 @@ import (
 //   - A slice is T[] | null, because a nil slice is null. A slice whose element kind is uint8 is
 //     string | null (base64), unless a pointer to the element implements json.Marshaler or
 //     encoding.TextMarshaler.
-//   - An array is T[], an array of bytes included.
+//   - An array is T[], an array of bytes included. An array of length 0 is [] whatever its
+//     element type, because encoding/json never encodes an element.
 //   - A map is Record<string, V> | null, because a nil map is null. Keys of string kind, of
 //     integer kinds, or implementing encoding.TextMarshaler become strings. Other keys are rejected.
 //   - A struct is an object. Exported fields are kept, and embedded structs (exported or not,
@@ -179,6 +180,9 @@ func (c *tsChecker) encode(t types.Type, path string, addressable, quoted bool) 
 		}
 		return arrayOf(c.encode(u.Elem(), path+"[]", true, false)) + " | null"
 	case *types.Array:
+		if u.Len() == 0 { // always written as [], the element encoder never runs
+			return "[]"
+		}
 		return arrayOf(c.encode(u.Elem(), path+"[]", addressable, false))
 	case *types.Map:
 		key := u.Key()
