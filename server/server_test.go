@@ -719,3 +719,40 @@ func TestErrorAfterHijackWritesNothing(t *testing.T) {
 		t.Fatalf("framework wrote to a hijacked connection: %d calls, %d %q", w.calls, w.code, w.body.String())
 	}
 }
+
+func TestListenerFailureShutsDownLikeCancel(t *testing.T) {
+	var mu sync.Mutex
+	var events []string
+	record := func(e string) { mu.Lock(); events = append(events, e); mu.Unlock() }
+	cfg := config.Default()
+	cfg.Server.ShutdownTimeout = 100 * time.Millisecond
+	s := New(cfg, Hooks{OnShutdown: func(context.Context) error { record("shutdown"); return nil }})
+	started := make(chan struct{})
+	s.Handle("GET", "/slow", func(c *tifa.Ctx) error {
+		close(started)
+		<-c.Context().Done()
+		record("handler returned")
+		return nil
+	})
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	served := make(chan error, 1)
+	go func() { served <- s.Serve(context.Background(), ln) }()
+	go func() {
+		if resp, err := http.Get("http://" + ln.Addr().String() + "/slow"); err == nil {
+			resp.Body.Close()
+		}
+	}()
+	<-started
+	ln.Close()
+	if err := <-served; !errors.Is(err, net.ErrClosed) {
+		t.Errorf("Serve returned %v, want the listener error", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Join(events, ",") != "handler returned,shutdown" {
+		t.Fatalf("events %v", events)
+	}
+}

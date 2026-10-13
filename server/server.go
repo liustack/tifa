@@ -383,7 +383,7 @@ func (g *gate) wait(timeout time.Duration) bool {
 	}
 }
 
-// Serve serves on ln until ctx is done, then shuts down in this order:
+// Serve serves on ln until ctx is done or ln fails, then shuts down the same way in both cases:
 //  1. stop accepting and wait up to shutdown_timeout for connections to finish, as http.Server.Shutdown does
 //  2. close the gate, so a request net/http hands over from now on gets 503 without running handler code
 //  3. cancel every request context and close the remaining connections, which also reaches hijacked ones
@@ -415,9 +415,10 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	}
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(ln) }()
+	var serveErr error // the listener failure, nil when ctx ended serving
 	select {
-	case err := <-served:
-		return err
+	case serveErr = <-served:
+		serveErr = fmt.Errorf("tifa: serving stopped: %w", serveErr)
 	case <-ctx.Done():
 	}
 	drain, cancel := context.WithTimeout(context.Background(), s.cfg.ShutdownTimeout)
@@ -426,10 +427,13 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	if err != nil {
 		err = fmt.Errorf("tifa: waiting for in-flight requests: %w", err)
 	}
+	err = errors.Join(serveErr, err)
 	g.close()
 	cancelRequests()
 	_ = srv.Close()
-	<-served
+	if serveErr == nil {
+		<-served // http.ErrServerClosed
+	}
 	if !g.wait(s.cfg.ShutdownTimeout) {
 		return errors.Join(err, errors.New("tifa: handlers still running after shutdown, OnShutdown skipped"))
 	}
