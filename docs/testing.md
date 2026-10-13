@@ -48,6 +48,7 @@ TIFA_E2E=1 go test ./test/e2e/
 
 - `test/apps/api`：只有接口路由，带全部四个钩子。检查 `OnStart`、各 `OnXxx`、404 JSON、`tifa.Error` 状态码、`OnError`，以及收到 SIGINT 后 `OnShutdown` 执行。
 - `test/apps/pages`：页面、嵌套 Layout、pathless Layout、查询参数、`tifa.Use`。检查生成文件，然后 `pnpm install --frozen-lockfile` 与 `tsc --noEmit`，生成的 TS 和应用的 TSX 一起类型检查。没装 pnpm 时类型检查这一段 skip。
+- `TestDev`：在 `test/apps/pages` 的临时副本上跑 `tifa dev`（PATH 里去掉 node），逐个改 TSX、Go 函数体、路由 Path，按日志检查每次只执行该执行的步骤，再制造编译错误，检查旧版本继续服务、SSE 推送错误、修好后恢复。它借用 `test/apps/pages/node_modules`，没装时 skip。
 
 `test/apps` 下每个应用是独立模块，根目录的 `go test ./...` 不会扫到它们。构建会在应用目录写 `.tifa/` 与 `node_modules/`，两者都已忽略。改了 `internal/codegen` 的输出后，在 `internal/codegen` 里跑 `go test -update` 刷新 golden 文件，再看 diff。
 
