@@ -794,3 +794,28 @@ func TestRunRefusesLegacyServeMux(t *testing.T) {
 		t.Fatalf("Serve must refuse and close the listener it was given:\n%s", out)
 	}
 }
+
+// A root catch-all page, Path "/{rest...}", is registered the way every route is: one pattern
+// without a method. It must coexist with the server's handling of unmatched URLs, and more
+// specific routes still win.
+func TestRootCatchAllCoexistsWithUnmatchedHandling(t *testing.T) {
+	var patterns []string
+	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx) error {
+		patterns = append(patterns, c.Pattern())
+		return c.Next()
+	}})
+	s.Handle("GET", "/{rest...}", func(c *tifa.Ctx) error { return c.Text(200, "rest="+c.Param("rest")) })
+	if w := send(s, "GET", "/any/where", ""); w.Code != 200 || w.Body.String() != "rest=any/where" {
+		t.Errorf("/any/where: %d %q", w.Code, w.Body.String())
+	}
+	if w := send(s, "GET", "/orders/7", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"id":"7"`) {
+		t.Errorf("/orders/7: %d %q", w.Code, w.Body.String())
+	}
+	if w := send(s, "GET", "/orders//7", ""); w.Code != http.StatusTemporaryRedirect {
+		t.Errorf("/orders//7: %d", w.Code)
+	}
+	want := "/{rest...},/orders/{orderId},"
+	if got := strings.Join(patterns, ","); got != want {
+		t.Errorf("OnRequest saw patterns %q, want %q", got, want)
+	}
+}

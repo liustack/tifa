@@ -44,10 +44,10 @@ type Server struct {
 	routes   map[string]map[string]func(*tifa.Ctx) error // path, then method
 }
 
+// New builds a server without routes. The ServeMux holds only the application's routes, so a
+// root catch-all page (Path "/{rest...}") can be registered. ServeHTTP handles unmatched URLs.
 func New(cfg config.Config, hooks Hooks) *Server {
-	s := &Server{cfg: cfg.Server, hooks: hooks, mux: http.NewServeMux(), routes: map[string]map[string]func(*tifa.Ctx) error{}}
-	s.mux.Handle("/", routeHandler{s: s})
-	return s
+	return &Server{cfg: cfg.Server, hooks: hooks, mux: http.NewServeMux(), routes: map[string]map[string]func(*tifa.Ctx) error{}}
 }
 
 var methods = []string{"GET", "POST", "PUT", "PATCH", "DELETE"}
@@ -75,7 +75,7 @@ func (s *Server) Handle(method, path string, h func(*tifa.Ctx) error) {
 	route[method] = h
 }
 
-// routeHandler is what the server registers in its ServeMux. methods is nil for the catch-all of unmatched URLs.
+// routeHandler is what the server registers in its ServeMux. methods is nil for unmatched URLs.
 type routeHandler struct {
 	s       *Server
 	pattern string
@@ -106,9 +106,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.mux.ServeHTTP(w, r)
 		return
 	}
-	// ServeMux answers some requests with its own handler: a redirect for a non-canonical path (double slash,
-	// dot segment, missing trailing slash), or its 404 for a path it cannot match at all (CONNECT host:port).
-	// A redirect reaches OnRequest as the result of Next. Anything else is an unmatched URL.
+	// ServeMux answers the other requests with its own handler: a redirect for a non-canonical path (double
+	// slash, dot segment, missing trailing slash), or its 404 when no route matches. A redirect reaches
+	// OnRequest as the result of Next. Anything else is an unmatched URL.
 	probe := &redirectProbe{header: http.Header{}}
 	h.ServeHTTP(probe, r)
 	location := probe.header.Get("Location")
