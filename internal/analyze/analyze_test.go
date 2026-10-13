@@ -145,6 +145,13 @@ func TestViolations(t *testing.T) {
 			{"app/item/route.go:9:", `"id"`, `"/items/{key}"`},
 			{"app/item/route.go:9:", "Query", "constant"},
 		}},
+		{"indirect", [][]string{
+			{"app/page/route.go:17:", "c.Query", "called directly"},
+			{"app/page/route.go:18:", "(*tifa.Ctx).Query", "method expression"},
+			{"app/page/route.go:19:", "tifa.Use", "called directly"},
+			{"app/page/route.go:20:", "tifa.Use", "called directly"},
+			{"app/page/route.go:27:", "c.Param", "called directly"},
+		}},
 		{"typeerror", [][]string{{"app/page/route.go:5:17:", "cannot use"}}},
 		{"structure", [][]string{
 			{"app/orphan/route.tsx:1:", "route.go"},
@@ -311,4 +318,15 @@ func muxAccepts(paths ...string) (ok bool) {
 		mux.Handle(p, http.NotFoundHandler())
 	}
 	return true
+}
+
+// A Ctx reached through an embedding struct is still a Ctx: its Query calls count.
+func TestQueryThroughEmbeddedCtx(t *testing.T) {
+	m, err := analyzeApp(t, "embeddedctx")
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	if got := m.Routes[0].Load.Query; !reflect.DeepEqual(got, []string{"lang"}) {
+		t.Errorf("Query = %v, want [lang]", got)
+	}
 }

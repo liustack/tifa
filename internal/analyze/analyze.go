@@ -279,6 +279,7 @@ func (a *analyzer) build() *Manifest {
 	a.linkLayouts(routes, layouts)
 	a.checkPaths(routes)
 	a.checkUses(layouts)
+	a.checkDirectCalls()
 
 	m := &Manifest{Module: a.module, Hooks: a.hooks()}
 	for _, l := range layouts {
@@ -520,21 +521,103 @@ func (a *analyzer) funcDecl(pkg *packages.Package, fn *types.Func) *ast.FuncDecl
 	panic("analyze: no declaration for " + fn.FullName()) // fn comes from this package's own scope
 }
 
-// ctxMethod returns the name of the tifa.Ctx method that call invokes, empty for any other call.
+// ctxMethod returns "Param" or "Query" when call invokes that method of tifa.Ctx, also through
+// a struct that embeds the Ctx, and an empty string for any other call.
 func ctxMethod(info *types.Info, call *ast.CallExpr) string {
 	sel, ok := ast.Unparen(call.Fun).(*ast.SelectorExpr)
 	if !ok {
 		return ""
 	}
-	s := info.Selections[sel]
-	if s == nil || s.Kind() != types.MethodVal {
+	if s := info.Selections[sel]; s == nil || s.Kind() != types.MethodVal {
 		return ""
 	}
-	if named, ok := types.Unalias(derefType(s.Recv())).(*types.Named); ok &&
-		named.Obj().Pkg() != nil && named.Obj().Pkg().Path() == corePath && named.Obj().Name() == "Ctx" {
-		return sel.Sel.Name
+	return paramMethod(info.Uses[sel.Sel])
+}
+
+// paramMethod returns "Param" or "Query" when obj is that method of tifa.Ctx.
+func paramMethod(obj types.Object) string {
+	fn, ok := obj.(*types.Func)
+	if !ok || fn.Signature().Recv() == nil || fn.Name() != "Param" && fn.Name() != "Query" {
+		return ""
+	}
+	named, ok := types.Unalias(derefType(fn.Signature().Recv().Type())).(*types.Named)
+	if ok && named.Obj().Pkg() != nil && named.Obj().Pkg().Path() == corePath && named.Obj().Name() == "Ctx" {
+		return fn.Name()
 	}
 	return ""
+}
+
+// isUseFunc reports whether obj is tifa.Use.
+func isUseFunc(obj types.Object) bool {
+	fn, ok := obj.(*types.Func)
+	return ok && fn.Pkg() != nil && fn.Pkg().Path() == tifaPath && fn.Name() == "Use"
+}
+
+// calleeIdent returns the identifier naming the function a call invokes: f in f(), x.f() and
+// f[T](), nil for any other callee.
+func calleeIdent(call *ast.CallExpr) *ast.Ident {
+	fun := ast.Unparen(call.Fun)
+	switch e := fun.(type) {
+	case *ast.IndexExpr:
+		fun = ast.Unparen(e.X)
+	case *ast.IndexListExpr:
+		fun = ast.Unparen(e.X)
+	}
+	switch e := fun.(type) {
+	case *ast.SelectorExpr:
+		return e.Sel
+	case *ast.Ident:
+		return e
+	}
+	return nil
+}
+
+// checkDirectCalls requires c.Param, c.Query and tifa.Use to be called directly, in every loaded
+// package. The analyzer reads parameter names and Use arguments at the call site, so a method
+// value (f := c.Query), a method expression ((*tifa.Ctx).Query(c, "x")) or tifa.Use stored in a
+// variable or passed as an argument would hide them.
+func (a *analyzer) checkDirectCalls() {
+	for _, pkg := range a.pkgs {
+		info := pkg.TypesInfo
+		called := map[*ast.Ident]bool{}
+		selectors := map[*ast.Ident]*ast.SelectorExpr{}
+		for _, f := range pkg.Syntax {
+			ast.Inspect(f, func(n ast.Node) bool {
+				switch e := n.(type) {
+				case *ast.CallExpr:
+					if id := calleeIdent(e); id != nil {
+						called[id] = true
+					}
+				case *ast.SelectorExpr:
+					selectors[e.Sel] = e
+				}
+				return true
+			})
+		}
+		for id, obj := range info.Uses {
+			method := paramMethod(obj)
+			var name string
+			switch {
+			case method != "":
+				name = "c." + method
+				if sel := selectors[id]; sel != nil && info.Selections[sel] != nil && info.Selections[sel].Kind() == types.MethodExpr {
+					a.errorAt(sel.Pos(), "%s is a method expression: call c.%s(...) directly, the analyzer reads parameter names at the call", types.ExprString(sel), method)
+					continue
+				}
+			case isUseFunc(obj):
+				name = "tifa.Use"
+			default:
+				continue
+			}
+			if !called[id] {
+				pos := id.Pos()
+				if sel := selectors[id]; sel != nil {
+					pos = sel.Pos()
+				}
+				a.errorAt(pos, "%s must be called directly, not stored or passed as a value, so the analyzer can read its arguments", name)
+			}
+		}
+	}
 }
 
 func derefType(t types.Type) types.Type {
@@ -710,24 +793,8 @@ func (a *analyzer) checkUses(layouts []*layout) {
 }
 
 func isTifaUse(info *types.Info, call *ast.CallExpr) bool {
-	fun := ast.Unparen(call.Fun)
-	switch e := fun.(type) { // tifa.Use[T](...) carries explicit type arguments
-	case *ast.IndexExpr:
-		fun = e.X
-	case *ast.IndexListExpr:
-		fun = e.X
-	}
-	var id *ast.Ident
-	switch e := fun.(type) {
-	case *ast.SelectorExpr:
-		id = e.Sel
-	case *ast.Ident:
-		id = e
-	default:
-		return false
-	}
-	fn, ok := info.Uses[id].(*types.Func)
-	return ok && fn.Pkg() != nil && fn.Pkg().Path() == tifaPath && fn.Name() == "Use"
+	id := calleeIdent(call)
+	return id != nil && isUseFunc(info.Uses[id])
 }
 
 // hooks lists the hooks that the root package defines and checks their signatures.
