@@ -29,9 +29,22 @@ type Assets struct {
 // Client builds the browser bundle: ES modules split at dynamic imports, with
 // content hashes in every file name so the files can be cached forever.
 func Client(o ClientOptions) (Assets, api.BuildResult, error) {
-	opts, err := buildOptions(o.Root, o.Entry, o.Tsconfig, o.Write, o.Plugins)
+	opts, err := clientBuildOptions(o)
 	if err != nil {
 		return Assets{}, api.BuildResult{}, err
+	}
+	result, meta, err := run(opts)
+	if err != nil {
+		return Assets{}, result, err
+	}
+	assets, err := clientAssets(opts, meta, o.Entry)
+	return assets, result, err
+}
+
+func clientBuildOptions(o ClientOptions) (api.BuildOptions, error) {
+	opts, err := buildOptions(o.Root, o.Entry, o.Tsconfig, o.Write, o.Plugins)
+	if err != nil {
+		return opts, err
 	}
 	opts.Outdir = o.Outdir
 	opts.Platform = api.PlatformBrowser
@@ -39,11 +52,12 @@ func Client(o ClientOptions) (Assets, api.BuildResult, error) {
 	opts.Splitting = true
 	opts.EntryNames = "app-[hash]"
 	opts.ChunkNames = "chunk-[hash]"
-	result, meta, err := run(opts)
-	if err != nil {
-		return Assets{}, result, err
-	}
-	outdir := o.Outdir
+	return opts, nil
+}
+
+// clientAssets finds the entry script and its CSS among the outputs of a browser build.
+func clientAssets(opts api.BuildOptions, meta metafile, entry string) (Assets, error) {
+	outdir := opts.Outdir
 	if !filepath.IsAbs(outdir) {
 		outdir = filepath.Join(opts.AbsWorkingDir, outdir)
 	}
@@ -53,7 +67,7 @@ func Client(o ClientOptions) (Assets, api.BuildResult, error) {
 	}
 	// With splitting, every dynamically imported module is an entry point in
 	// the metafile too. The entry is the one entry point nothing imports
-	// dynamically. Comparing with o.Entry would miss an entry that esbuild or
+	// dynamically. Comparing with the entry option would miss an entry that esbuild or
 	// a plugin resolved to another path, such as one without its extension.
 	dynamic := map[string]bool{}
 	for _, input := range meta.Inputs {
@@ -70,16 +84,17 @@ func Client(o ClientOptions) (Assets, api.BuildResult, error) {
 		}
 	}
 	if len(entries) != 1 {
-		return Assets{}, result, fmt.Errorf("browser bundle has %d outputs for entry %s, want 1: %v", len(entries), o.Entry, entries)
+		return Assets{}, fmt.Errorf("browser bundle has %d outputs for entry %s, want 1: %v", len(entries), entry, entries)
 	}
 	var assets Assets
+	var err error
 	if assets.Script, err = rel(entries[0]); err != nil {
-		return Assets{}, result, err
+		return Assets{}, err
 	}
 	if css := meta.Outputs[entries[0]].CSSBundle; css != "" {
 		if assets.Style, err = rel(css); err != nil {
-			return Assets{}, result, err
+			return Assets{}, err
 		}
 	}
-	return assets, result, nil
+	return assets, nil
 }

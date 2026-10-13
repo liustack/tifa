@@ -57,13 +57,25 @@ func SSR(o SSROptions) (api.BuildResult, error) { return buildSSR(o, true) }
 
 // buildSSR lets tests compare the trimmed React entry with the untrimmed one.
 func buildSSR(o SSROptions, trimReact bool) (api.BuildResult, error) {
-	opts, err := buildOptions(o.Root, o.Entry, o.Tsconfig, o.Write, nil)
+	opts, err := ssrBuildOptions(o, trimReact)
 	if err != nil {
 		return api.BuildResult{}, err
 	}
+	result, meta, err := run(opts)
+	if err != nil {
+		return result, err
+	}
+	return result, checkSSR(meta)
+}
+
+func ssrBuildOptions(o SSROptions, trimReact bool) (api.BuildOptions, error) {
+	opts, err := buildOptions(o.Root, o.Entry, o.Tsconfig, o.Write, nil)
+	if err != nil {
+		return opts, err
+	}
 	coreJS, err := findCoreJS(opts.AbsWorkingDir)
 	if err != nil {
-		return api.BuildResult{}, err
+		return opts, err
 	}
 	opts.Plugins = append(slices.Clone(o.Plugins), ssrPlugin(trimReact, coreJS))
 	opts.Outfile = o.Outfile
@@ -77,22 +89,23 @@ func buildSSR(o SSROptions, trimReact bool) (api.BuildResult, error) {
 	maps.Copy(opts.Define, o.Define)
 	// Styles belong to the browser bundle. The server only renders the markup.
 	opts.Loader = map[string]api.Loader{".css": api.LoaderEmpty}
-	result, meta, err := run(opts)
-	if err != nil {
-		return result, err
-	}
+	return opts, nil
+}
+
+// checkSSR rejects an SSR bundle that QuickJS could not run on its own.
+func checkSSR(meta metafile) error {
 	for _, output := range meta.Outputs {
 		if len(output.Imports) > 0 {
 			imports, _ := json.Marshal(output.Imports)
-			return result, fmt.Errorf("SSR bundle has unresolved runtime dependencies: %s", imports)
+			return fmt.Errorf("SSR bundle has unresolved runtime dependencies: %s", imports)
 		}
 	}
 	for input := range meta.Inputs {
 		if clientSource.MatchString(input) && !strings.HasPrefix(input, "client-only:") {
-			return result, fmt.Errorf("client-only source leaked into SSR: %s", input)
+			return fmt.Errorf("client-only source leaked into SSR: %s", input)
 		}
 	}
-	return result, nil
+	return nil
 }
 
 func ssrPlugin(trimReact bool, coreJS string) api.Plugin {

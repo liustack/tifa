@@ -39,15 +39,19 @@ type metafile struct {
 // Warnings stay in the result for the caller to print.
 func run(o api.BuildOptions) (api.BuildResult, metafile, error) {
 	result := api.Build(o)
+	meta, err := readResult(result)
+	return result, meta, err
+}
+
+// readResult turns the error messages of a build into a Go error, or returns its metafile.
+func readResult(result api.BuildResult) (metafile, error) {
 	var meta metafile
 	if len(result.Errors) > 0 {
 		text := api.FormatMessages(result.Errors, api.FormatMessagesOptions{Kind: api.ErrorMessage})
-		return result, meta, errors.New("esbuild: " + strings.TrimSpace(strings.Join(text, "")))
+		return meta, errors.New("esbuild: " + strings.TrimSpace(strings.Join(text, "")))
 	}
-	if err := json.Unmarshal([]byte(result.Metafile), &meta); err != nil {
-		return result, meta, err
-	}
-	return result, meta, nil
+	err := json.Unmarshal([]byte(result.Metafile), &meta)
+	return meta, err
 }
 
 // buildOptions fills what both bundles share: project root, entry,
