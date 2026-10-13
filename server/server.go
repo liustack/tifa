@@ -164,7 +164,7 @@ func (s *Server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 		return
 	case errors.Is(err, tifa.ErrNotFound):
 		e = tifa.Error{Status: http.StatusNotFound, Message: http.StatusText(http.StatusNotFound)}
-	case errors.As(err, &e) && validStatus(e.Status):
+	case asPublic(err, &e):
 		if e.Message == "" {
 			e.Message = http.StatusText(e.Status)
 		}
@@ -206,6 +206,19 @@ func (s *Server) publicError(c *tifa.Ctx, err error) tifa.Error {
 		e.Message = http.StatusText(e.Status)
 	}
 	return e
+}
+
+// asPublic finds a tifa.Error in err, as a value or a pointer since both satisfy error.
+func asPublic(err error, e *tifa.Error) bool {
+	var p *tifa.Error
+	switch {
+	case errors.As(err, e):
+	case errors.As(err, &p) && p != nil:
+		*e = *p
+	default:
+		return false
+	}
+	return validStatus(e.Status)
 }
 
 // validStatus reports whether a tifa.Error status can be sent as an error response.

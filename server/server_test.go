@@ -47,6 +47,10 @@ func newServer(hooks Hooks) *Server {
 			return tifa.Error{Status: 409, Message: "订单已发货"}
 		case "wrapped-public":
 			return fmt.Errorf("ship order: %w", tifa.Error{Status: 409, Message: "订单已发货"})
+		case "pointer-public":
+			return &tifa.Error{Status: 409, Message: "订单已发货"}
+		case "wrapped-pointer-public":
+			return fmt.Errorf("ship order: %w", &tifa.Error{Status: 409, Message: "订单已发货"})
 		default:
 			return c.JSON(200, order{ID: id})
 		}
@@ -142,7 +146,7 @@ func TestPublicErrorsSkipOnError(t *testing.T) {
 		return tifa.Error{Status: 503, Message: "稍后再试"}
 	}})
 	for _, s := range []*Server{withHook, newServer(Hooks{})} {
-		for _, target := range []string{"/orders/public", "/orders/wrapped-public"} {
+		for _, target := range []string{"/orders/public", "/orders/wrapped-public", "/orders/pointer-public", "/orders/wrapped-pointer-public"} {
 			w := send(s, "GET", target, "")
 			if w.Code != 409 || !strings.Contains(w.Body.String(), "订单已发货") {
 				t.Errorf("%s: %d %s", target, w.Code, w.Body.String())
