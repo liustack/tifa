@@ -43,41 +43,45 @@ func TestTSShapeDeclaresRecursiveTypes(t *testing.T) {
 		"Chain", `json:"chain"`, otherNode,
 		"Count", `json:"count"`, types.Typ[types.Int])
 
-	ts, decls, err := TSShape(data, []string{"Data", "Params", "route"})
+	ts, decls, err := TSShape(data)
 	if err != nil {
 		t.Fatalf("TSShape: %v", err)
 	}
-	want := "{ root: Node; again: Node; chain: Node2; count: number }"
+	want := "{ root: GoNode; again: GoNode; chain: GoNode2; count: number }"
 	if ts != want {
 		t.Errorf("shape\n got %s\nwant %s", ts, want)
 	}
 	wantDecls := []string{
-		"type Node = { name: string; children: Node[] | null }",
-		"type Node2 = { next: Node2 | null }",
+		"type GoNode = { name: string; children: GoNode[] | null }",
+		"type GoNode2 = { next: GoNode2 | null }",
 	}
 	if strings.Join(decls, "\n") != strings.Join(wantDecls, "\n") {
 		t.Errorf("decls\n got %q\nwant %q", decls, wantDecls)
 	}
 }
 
-// A declared name never takes one of the reserved names, which the generated module exports.
-func TestTSShapeAvoidsReservedNames(t *testing.T) {
-	pkg := types.NewPackage("example.com/p", "p")
-	data := named(pkg, "Data", "Next", `json:"next"`, nil)
-	data.SetUnderlying(types.NewStruct([]*types.Var{
-		types.NewField(token.NoPos, pkg, "Next", types.NewPointer(data), false),
-	}, []string{`json:"next"`}))
-	ts, decls, err := TSShape(data, []string{"Data"})
-	if err != nil {
-		t.Fatalf("TSShape: %v", err)
-	}
-	if ts != "Data2" || len(decls) != 1 || decls[0] != "type Data2 = { next: Data2 | null }" {
-		t.Errorf("got %s %q", ts, decls)
+// Declared names carry the Go prefix, so a Go type named after a TypeScript keyword, a built-in
+// type or a name the generated module uses cannot shadow it.
+func TestTSShapeNamesNeverShadowTypeScript(t *testing.T) {
+	for _, name := range []string{"Record", "number", "Data", "Params"} {
+		pkg := types.NewPackage("example.com/p", "p")
+		data := named(pkg, name, "Next", `json:"next"`, nil)
+		data.SetUnderlying(types.NewStruct([]*types.Var{
+			types.NewField(token.NoPos, pkg, "Next", types.NewPointer(data), false),
+		}, []string{`json:"next"`}))
+		ts, decls, err := TSShape(data)
+		if err != nil {
+			t.Fatalf("TSShape: %v", err)
+		}
+		want := "Go" + name
+		if ts != want || len(decls) != 1 || decls[0] != "type "+want+" = { next: "+want+" | null }" {
+			t.Errorf("%s: got %s %q", name, ts, decls)
+		}
 	}
 }
 
 func TestTSShapeRejectsTypesWithoutJSONForm(t *testing.T) {
-	if _, _, err := TSShape(types.NewChan(types.SendRecv, types.Typ[types.Int]), nil); err == nil {
+	if _, _, err := TSShape(types.NewChan(types.SendRecv, types.Typ[types.Int])); err == nil {
 		t.Fatal("TSShape accepted a channel")
 	}
 }

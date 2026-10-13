@@ -16,9 +16,6 @@ import (
 // rootID is the TanStack ID of the root route.
 const rootID = "__root__"
 
-// reservedNames are the exports of a +route module. Declarations of recursive types avoid them.
-var reservedNames = []string{"Data", "Params", "route", "getRouteApi"}
-
 // tsNode is one route of the TanStack route tree: a page, or a Layout with pages in scope.
 type tsNode struct {
 	id       string // manifest ID, empty for the framework's own root
@@ -451,7 +448,7 @@ func routeModule(n *tsNode) ([]byte, error) {
 		if n.load.Result == nil {
 			return nil, fmt.Errorf("codegen: %s: the manifest carries no Load result type, analyze the application in this process", n.id)
 		}
-		ts, decls, err := analyze.TSShape(n.load.Result, reservedNames)
+		ts, decls, err := analyze.TSShape(n.load.Result)
 		if err != nil {
 			return nil, fmt.Errorf("codegen: %s: %w", n.id, err)
 		}

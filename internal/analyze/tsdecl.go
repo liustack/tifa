@@ -9,12 +9,13 @@ import (
 
 // TSShape returns the TypeScript type of the JSON that json.Marshal writes for a Load result of
 // type t, following the rules of checkTS. A named type that refers to itself cannot be written
-// inline, so each one gets a declaration such as "type Node = { children: Node[] | null }" and
-// is referred to by name. Declared names start from the Go name, skip the reserved names and
-// the names taken before, and gain a number when needed (Node, Node2). The result is the same
-// for the same t. Types that checkTS rejects return an error.
-func TSShape(t types.Type, reserved []string) (ts string, decls []string, err error) {
-	d := &tsDecls{names: map[tsKey]string{}, declared: map[tsKey]string{}, bodies: map[[2]string]string{}, reserved: reserved}
+// inline, so each one gets a declaration such as "type GoNode = { children: GoNode[] | null }"
+// and is referred to by name. A declared name is the Go name with the prefix Go, so it never
+// shadows a TypeScript keyword, a built-in type such as Record or a name of the generated
+// module, and gains a number when two types share a name (GoNode, GoNode2). The result is the
+// same for the same t. Types that checkTS rejects return an error.
+func TSShape(t types.Type) (ts string, decls []string, err error) {
+	d := &tsDecls{names: map[tsKey]string{}, declared: map[tsKey]string{}, bodies: map[[2]string]string{}}
 	c := tsChecker{active: map[tsKey]bool{}, decls: d}
 	ts = c.encode(t, rootLabel(t), false, false)
 	if len(c.problems) > 0 {
@@ -32,7 +33,6 @@ type tsDecls struct {
 	names    map[tsKey]string     // names given to types met again while being written
 	declared map[tsKey]string     // types whose declaration is complete
 	bodies   map[[2]string]string // declared name by Go type and TypeScript body
-	reserved []string
 	taken    []string
 	decls    []string
 }
@@ -42,9 +42,9 @@ func (d *tsDecls) name(key tsKey, goName string) string {
 	if name, ok := d.names[key]; ok {
 		return name
 	}
-	name := goName
-	for i := 2; slices.Contains(d.reserved, name) || slices.Contains(d.taken, name); i++ {
-		name = goName + strconv.Itoa(i)
+	name := "Go" + goName
+	for i := 2; slices.Contains(d.taken, name); i++ {
+		name = "Go" + goName + strconv.Itoa(i)
 	}
 	d.taken = append(d.taken, name)
 	d.names[key] = name
