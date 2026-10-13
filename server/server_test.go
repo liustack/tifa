@@ -168,6 +168,24 @@ func TestWithoutOnErrorUnexpectedErrorsAre500(t *testing.T) {
 	}
 }
 
+func TestRootPathIsTheExactHomePage(t *testing.T) {
+	var patterns []string
+	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx) error {
+		patterns = append(patterns, c.Pattern())
+		return c.Next()
+	}})
+	s.Handle("GET", "/", func(c *tifa.Ctx) error { return c.Text(200, "home") })
+	if w := send(s, "GET", "/", ""); w.Code != 200 || w.Body.String() != "home" {
+		t.Fatalf("home: %d %s", w.Code, w.Body.String())
+	}
+	if w := send(s, "GET", "/nowhere", ""); w.Code != 404 {
+		t.Fatalf("unmatched URL under a home page: %d %s", w.Code, w.Body.String())
+	}
+	if strings.Join(patterns, ",") != "/," {
+		t.Fatalf("patterns %q", patterns)
+	}
+}
+
 func TestNextReturnsHandlerError(t *testing.T) {
 	var got error
 	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx) error {

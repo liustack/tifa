@@ -61,7 +61,11 @@ func (s *Server) Handle(method, path string, h func(*tifa.Ctx) error) {
 	if !ok {
 		route = map[string]func(*tifa.Ctx) error{}
 		s.routes[path] = route
-		s.mux.Handle(path, routeHandler{s: s, pattern: path, methods: route})
+		pattern := path
+		if path == "/" {
+			pattern = "/{$}" // Path "/" is the exact home page, "/" in ServeMux would match every URL
+		}
+		s.mux.Handle(pattern, routeHandler{s: s, pattern: path, methods: route})
 	}
 	if route[method] != nil {
 		panic(fmt.Sprintf("tifa: %s %s registered twice", method, path))
