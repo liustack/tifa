@@ -376,3 +376,48 @@ func swap[T any](target *T, value T) (restore func()) {
 	*target = value
 	return func() { *target = old }
 }
+
+// A canceled request must not render even when an idle VM is ready at the same time.
+// The two select cases are both ready here, so without a check after taking the VM
+// about half of these calls would render.
+func TestCanceledRequestDoesNotRender(t *testing.T) {
+	p := newTestPool(t, testSource(t), testConfig(1))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for range 50 {
+		if _, err := p.Render(ctx, input("ok", "")); !errors.Is(err, context.Canceled) {
+			t.Fatalf("got %v", err)
+		}
+	}
+	html, err := p.Render(context.Background(), input("ok", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(html, `data-renders="1"`) {
+		t.Fatalf("a canceled request rendered: %s", html)
+	}
+	if s := p.stats(); s.created != 1 || s.closed != 0 {
+		t.Fatalf("cancel touched a VM: %+v", s)
+	}
+}
+
+// A render admitted just before Close must not start once Close has begun.
+// The test recreates that window by closing done without setting closing.
+func TestRenderAdmittedBeforeCloseDoesNotStart(t *testing.T) {
+	p := newTestPool(t, testSource(t), testConfig(1))
+	ran := 0
+	p.acquired = func() { ran++ }
+	close(p.done)
+	defer func() { p.done = make(chan struct{}) }() // let the cleanup Close run normally
+	for range 50 {
+		if _, err := p.Render(context.Background(), input("ok", "")); !errors.Is(err, ErrClosed) {
+			t.Fatalf("got %v", err)
+		}
+	}
+	if ran != 0 {
+		t.Fatalf("%d renders started after Close began", ran)
+	}
+	if len(p.idle) != 1 {
+		t.Fatalf("the VM was not returned to the pool, %d idle", len(p.idle))
+	}
+}

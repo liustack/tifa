@@ -120,6 +120,12 @@ func (p *Pool) Render(ctx context.Context, in Input) (string, error) {
 	case <-p.done:
 		return "", ErrClosed
 	}
+	// select picks at random among ready cases, so a canceled request or a closing
+	// pool can still win the idle VM. Hand it back unused.
+	if err := p.stopped(ctx); err != nil {
+		p.idle <- vm
+		return "", err
+	}
 	if p.acquired != nil {
 		p.acquired()
 	}
@@ -130,6 +136,15 @@ func (p *Pool) Render(ctx context.Context, in Input) (string, error) {
 	}
 	p.idle <- vm
 	return html, nil
+}
+
+func (p *Pool) stopped(ctx context.Context) error {
+	select {
+	case <-p.done:
+		return ErrClosed
+	default:
+		return ctx.Err()
+	}
 }
 
 // retire closes vm and starts its replacement in the background.
