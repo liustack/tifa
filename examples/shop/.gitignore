@@ -1,5 +1,2 @@
 node_modules/
-/internal/ssr/assets/
-/web/generated/
-/web/**/*.generated.ts
-/go-quick
+/dist/

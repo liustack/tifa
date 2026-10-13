@@ -1,34 +1,19 @@
 {
-  "name": "go-quick",
+  "name": "shop",
   "private": true,
   "packageManager": "pnpm@10.33.0",
   "type": "module",
-  "engines": {
-    "node": "^22.18.0 || >=24.11.0"
-  },
   "scripts": {
-    "build": "node scripts/build.mjs",
-    "typecheck": "tsc --noEmit",
-    "test": "pnpm run build && pnpm run typecheck && node --test scripts/ssr-build.test.mjs && go test ./...",
-    "start": "go run ./cmd/server"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@kayahr/text-encoding": "2.2.0",
     "@tanstack/react-router": "1.170.42",
-    "abort-controller": "3.0.0",
-    "core-js": "3.50.0",
     "react": "19.3.0",
-    "react-dom": "19.3.0",
-    "whatwg-fetch": "3.6.20"
+    "react-dom": "19.3.0"
   },
   "devDependencies": {
-    "@babel/core": "8.0.7",
-    "@babel/plugin-transform-react-constant-elements": "8.0.5",
-    "@tanstack/history": "1.162.5",
-    "@types/node": "26.6.5",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
-    "esbuild": "0.28.2",
     "typescript": "6.0.3"
   }
 }
