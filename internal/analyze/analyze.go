@@ -7,7 +7,6 @@ import (
 	"go/token"
 	"go/types"
 	"io/fs"
-	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -650,35 +649,14 @@ func (a *analyzer) checkPaths(routes []*route) {
 	}
 }
 
-// conflicting returns the route among registered whose Path ServeMux refuses to register together
-// with r's, the way the server registers them. ServeMux panics on such pairs.
+// conflicting returns the first route among registered whose Path conflicts with r's.
 func conflicting(registered []*route, r *route) *route {
 	for _, other := range registered {
-		if !registers(muxPattern(other.Path), muxPattern(r.Path)) {
+		if conflicts(other.segs, r.segs) {
 			return other
 		}
 	}
 	return nil
-}
-
-func muxPattern(path string) string {
-	if path == "/" {
-		return "/{$}"
-	}
-	return path
-}
-
-func registers(patterns ...string) (ok bool) {
-	defer func() {
-		if recover() != nil {
-			ok = false
-		}
-	}()
-	mux := http.NewServeMux()
-	for _, p := range patterns {
-		mux.Handle(p, http.NotFoundHandler())
-	}
-	return true
 }
 
 // checkUses finds every call of tifa.Use in the loaded packages. Its function argument must be

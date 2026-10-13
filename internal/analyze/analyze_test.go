@@ -2,7 +2,9 @@ package analyze
 
 import (
 	"errors"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -247,4 +249,62 @@ func TestParsePathAcceptsKeywordParams(t *testing.T) {
 			t.Errorf("parsePath(%q) succeeded", bad)
 		}
 	}
+}
+
+// net/http reads GODEBUG=httpmuxgo121 once at startup, so the check runs the badpath case in a
+// child test process started with the old ServeMux semantics. The verdict must not change.
+func TestConflictsIgnoreGODEBUG(t *testing.T) {
+	if os.Getenv("GODEBUG") == "httpmuxgo121=1" {
+		t.Skip("already the child process")
+	}
+	cmd := exec.Command(os.Args[0], "-test.run", "^TestViolations$/^badpath$", "-test.count=1")
+	cmd.Env = append(os.Environ(), "GODEBUG=httpmuxgo121=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("badpath under httpmuxgo121=1: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "PASS") {
+		t.Fatalf("child ran no test:\n%s", out)
+	}
+}
+
+// conflicts reimplements the ServeMux comparison. Under the default GODEBUG the real ServeMux is
+// the reference: it panics on registering exactly the pairs conflicts reports.
+func TestConflictsMatchServeMux(t *testing.T) {
+	if os.Getenv("GODEBUG") == "httpmuxgo121=1" {
+		t.Skip("the reference ServeMux runs the old semantics")
+	}
+	paths := []string{
+		"/", "/a", "/b", "/{x}", "/{x...}", "/a/b", "/a/{y}", "/{y}/b", "/a/{y...}", "/{x}/{y}",
+		"/a/{x}/c", "/{y}/b/c", "/d/b/{z}", "/a/b/{z...}", "/{x}/b/{z...}", "/files/{p...}", "/files/x",
+	}
+	for i, p1 := range paths {
+		for _, p2 := range paths[i+1:] {
+			s1, err1 := parsePath(p1)
+			s2, err2 := parsePath(p2)
+			if err1 != nil || err2 != nil {
+				t.Fatalf("parsePath: %v %v", err1, err2)
+			}
+			want := !muxAccepts(p1, p2)
+			if got := conflicts(s1, s2); got != want {
+				t.Errorf("conflicts(%q, %q) = %t, ServeMux says %t", p1, p2, got, want)
+			}
+		}
+	}
+}
+
+func muxAccepts(paths ...string) (ok bool) {
+	defer func() {
+		if recover() != nil {
+			ok = false
+		}
+	}()
+	mux := http.NewServeMux()
+	for _, p := range paths {
+		if p == "/" {
+			p = "/{$}"
+		}
+		mux.Handle(p, http.NotFoundHandler())
+	}
+	return true
 }

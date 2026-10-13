@@ -130,3 +130,119 @@ func shape(segs []segment) string {
 	}
 	return b.String()
 }
+
+// relation is how the URL sets matched by two Paths relate, as in net/http's pattern comparison.
+type relation int
+
+const (
+	equivalent   relation = iota // same URLs
+	moreGeneral                  // the first matches a strict superset
+	moreSpecific                 // the first matches a strict subset
+	overlaps                     // some URLs in common, neither contains the other
+	disjoint                     // no URL in common
+)
+
+// conflicts reports whether ServeMux (Go 1.22 semantics) would refuse to register both Paths:
+// they match some URL in common and neither is more specific. It reimplements the comparison of
+// net/http instead of registering into a ServeMux, because GODEBUG=httpmuxgo121=1 would switch a
+// real ServeMux to the old literal semantics and the verdict would depend on the environment.
+// Only the syntax parsePath accepts is handled: no methods, no hosts, no trailing slash.
+func conflicts(p1, p2 []segment) bool {
+	rel := comparePaths(muxSegments(p1), muxSegments(p2))
+	return rel == equivalent || rel == overlaps
+}
+
+// muxSegments represents Path "/" the way the server registers it, as "/{$}", whose only segment
+// is an end marker that matches the empty remainder. "/" never appears in a parsed literal.
+func muxSegments(segs []segment) []segment {
+	if len(segs) == 0 {
+		return []segment{{lit: "/"}}
+	}
+	return segs
+}
+
+// comparePaths follows pattern.comparePaths in net/http.
+func comparePaths(p1, p2 []segment) relation {
+	multi1, multi2 := p1[len(p1)-1].wildcard, p2[len(p2)-1].wildcard
+	if len(p1) != len(p2) && !multi1 && !multi2 {
+		return disjoint
+	}
+	rel := equivalent
+	s1, s2 := p1, p2
+	for ; len(s1) > 0 && len(s2) > 0; s1, s2 = s1[1:], s2[1:] {
+		rel = combine(rel, compareSegments(s1[0], s2[0]))
+		if rel == disjoint {
+			return rel
+		}
+	}
+	switch {
+	case len(s1) == 0 && len(s2) == 0:
+		return rel
+	case len(s1) < len(s2) && multi1:
+		return combine(rel, moreGeneral)
+	case len(s2) < len(s1) && multi2:
+		return combine(rel, moreSpecific)
+	}
+	return disjoint
+}
+
+// compareSegments follows compareSegments in net/http.
+func compareSegments(s1, s2 segment) relation {
+	wild1, wild2 := s1.param != "" && !s1.wildcard, s2.param != "" && !s2.wildcard
+	switch {
+	case s1.wildcard && s2.wildcard:
+		return equivalent
+	case s1.wildcard:
+		return moreGeneral
+	case s2.wildcard:
+		return moreSpecific
+	case wild1 && wild2:
+		return equivalent
+	case wild1:
+		if s2.lit == "/" { // a single wildcard does not match the end of the path
+			return disjoint
+		}
+		return moreGeneral
+	case wild2:
+		if s1.lit == "/" {
+			return disjoint
+		}
+		return moreSpecific
+	case s1.lit == s2.lit:
+		return equivalent
+	}
+	return disjoint
+}
+
+// combine follows combineRelationships in net/http.
+func combine(r1, r2 relation) relation {
+	switch r1 {
+	case equivalent:
+		return r2
+	case disjoint:
+		return disjoint
+	case overlaps:
+		if r2 == disjoint {
+			return disjoint
+		}
+		return overlaps
+	}
+	// r1 is moreGeneral or moreSpecific
+	switch r2 {
+	case equivalent:
+		return r1
+	case inverse(r1):
+		return overlaps
+	}
+	return r2
+}
+
+func inverse(r relation) relation {
+	switch r {
+	case moreGeneral:
+		return moreSpecific
+	case moreSpecific:
+		return moreGeneral
+	}
+	return r
+}
