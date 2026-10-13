@@ -1,11 +1,11 @@
 ---
-summary: '测试与验证：提交前要跑的命令、先红后绿、默认跳过的 SSR 长测与实验测试'
+summary: '测试与验证：提交前要跑的命令、示例应用的检查、端到端测试、先红后绿、默认跳过的 SSR 长测'
 read_when:
   - 准备提交代码，确认要跑哪些检查
   - 写新测试或修 bug
   - 某个 SSR 测试显示 skip，想知道怎么打开
   - 改 `internal/bundle`，或打包测试显示 skip
-  - 跑端到端测试，或改 `internal/codegen`、`test/apps`
+  - 跑端到端测试，或改 `internal/codegen`、`test/apps`、`examples/shop`
 ---
 
 # 测试与验证
@@ -26,28 +26,32 @@ CGO_ENABLED=0 go build ./...
 go test -race ./<包路径>
 ```
 
-根目录的命令只覆盖框架。原型示例 `examples/shop` 是独立模块，改到它时要在该目录里跑它自己的整套检查。它会依次执行前端构建、`tsc --noEmit`、Node 测试和 `go test ./...`：
+根目录的命令只覆盖框架。示例应用 `examples/shop` 是独立模块，改到它时在该目录里跑它自己的检查：
 
 ```sh
 cd examples/shop
 pnpm install --frozen-lockfile
-pnpm test
+go tool tifa build
+pnpm typecheck
 go vet ./...
-CGO_ENABLED=0 go build ./...
+go test ./...
 ```
-
-`pnpm test` 的输出里会出现一行 `✘ [ERROR] Node APIs are not supported`，那是测试故意构造的失败场景，测试本身通过。
 
 ## 端到端测试（`test/e2e`）
 
-`test/e2e` 构建 `tifa` CLI，对 `test/apps/` 里的应用跑 `tifa build`，启动产物并从外部检查。默认跳过，打开方式：
+`test/e2e` 构建 `tifa` CLI，对 `test/apps/` 里的应用和 `examples/shop` 跑 `tifa build`，启动产物并从外部检查。默认跳过。先在 `test/apps/pages` 与 `examples/shop` 里 `pnpm install --frozen-lockfile`，再打开：
 
 ```sh
 TIFA_E2E=1 go test ./test/e2e/
 ```
 
 - `test/apps/api`：只有接口路由，带全部四个钩子。检查 `OnStart`、各 `OnXxx`、404 JSON、`tifa.Error` 状态码、`OnError`，以及收到 SIGINT 后 `OnShutdown` 执行。
-- `test/apps/pages`：页面、嵌套 Layout、pathless Layout、查询参数、`tifa.Use`。检查生成文件，然后 `pnpm install --frozen-lockfile` 与 `tsc --noEmit`，生成的 TS 和应用的 TSX 一起类型检查。没装 pnpm 时类型检查这一段 skip。
+- 每个应用构建前先确认 `go mod tidy -diff` 没有改动，再在 PATH 里去掉 node、设 `GOFLAGS=-mod=readonly` 构建，构建后 `go.mod`、`go.sum` 不变。
+- `test/apps/pages`：页面、嵌套 Layout、pathless Layout、查询参数、`tifa.Use`、`SSR = false`、`Cache = true`、ETag 与 304、导航数据请求、三种 404。
+- `TestShopApp`：示例应用的整页渲染、`Cache = true`、304、三种 404 落在哪一层、发货（跨站请求 403、重复发货 409）、发货后导航数据里的统计、构建版本不一致的 409，以及应用里 `go vet ./...`、`go test ./...` 通过且不扫 `.tifa/`。
+- `TestShopBuildDoesNotRunInit`：在示例应用的临时副本里加一个 `init()` 会写文件的包，`tifa build` 后文件不存在，运行产物后才出现。
+- `TestBuildReportsViolations`：对 `internal/analyze/testdata` 里 Path 重复、页面定义 `OnGet`、Layout 参数不在公共前缀、`tifa.Use` 引用非祖先、`Load` 返回类型不能转 TS 这几个应用跑 `tifa build`，构建失败并给出文件与行号。
+- pages 与示例应用另有 `tsc` 子测试：`tsc --noEmit`，生成的 TS 和应用的 TSX 一起类型检查。应用没装 npm 依赖或没有 node 时这个子测试 skip。
 - `TestDev`：在 `test/apps/pages` 的临时副本上跑 `tifa dev`（PATH 里去掉 node），逐个改 TSX、Go 函数体、路由 Path，按日志检查每次只执行该执行的步骤，再制造编译错误，检查旧版本继续服务、SSE 推送错误、修好后恢复。它借用 `test/apps/pages/node_modules`，没装时 skip。
 
 `test/apps` 下每个应用是独立模块，根目录的 `go test ./...` 不会扫到它们。构建会在应用目录写 `.tifa/` 与 `node_modules/`，两者都已忽略。改了 `internal/codegen` 的输出后，在 `internal/codegen` 里跑 `go test -update` 刷新 golden 文件，再看 diff。
@@ -63,17 +67,10 @@ TIFA_E2E=1 go test ./test/e2e/
 
 ## 打包测试（`internal/bundle`）
 
-需要 React、core-js 的打包测试从 `examples/shop/node_modules` 解析依赖。没装时这些测试显示 skip，先在 `examples/shop` 里跑 `pnpm install --frozen-lockfile`。打包本身不需要 Node，可以在 PATH 里去掉 node 后验证：
+需要 React、core-js 的打包测试从 `internal/bundle/testdata/node_modules` 解析依赖，版本锁在同目录的 `package.json` 与 `pnpm-lock.yaml`。没装时这些测试显示 skip，先在 `internal/bundle/testdata` 里跑 `pnpm install --frozen-lockfile`。打包本身不需要 Node，可以在 PATH 里去掉 node 后验证：
 
 ```sh
 env PATH=/usr/bin:/bin:$(go env GOROOT)/bin go test ./internal/bundle
-```
-
-`TestShopBundleRendersInQuickJS` 默认跳过。它用 Go 打包器重新打包原型，在原型 Go 模块的临时副本里跑原型的 `go test ./...`（QuickJS 渲染订单、检查 hydration 脚本），不改动 `examples/shop`。它依赖原型构建生成的文件：
-
-```sh
-(cd examples/shop && pnpm install --frozen-lockfile && pnpm build)
-TIFA_SHOP_E2E=1 go test ./internal/bundle -run TestShopBundle -v
 ```
 
 ## 默认跳过的 SSR 长测
@@ -83,21 +80,12 @@ TIFA_SHOP_E2E=1 go test ./internal/bundle -run TestShopBundle -v
 | 命令 | 内容 |
 | --- | --- |
 | `TIFA_SSR_SOAK=1 go test -tags memory.counters -run Soak -v ./internal/ssr` | 正常复用长测（2 个 VM、2 个调用方、10,000 次渲染）与 OOM 回收测试（8 次耗尽内存并替换 VM），关闭后原生分配数要回到基线 |
-| `TIFA_SSR_SHOP=1 go test -run Shop -v ./internal/ssr` | 用 `examples/shop` 的真实 React 包渲染，检查页面内容、脚本转义，并打印热渲染 P50/P95/P99 |
+| `TIFA_SSR_SHOP=1 go test -run Shop -v ./internal/ssr` | 用 `examples/shop` 的真实 React 包渲染两家店铺的列表页和详情页，检查页面内容、脚本转义、VM 复用不串数据，并打印热渲染 P50/P95/P99 |
 
-两个变量可以一起设，长测就会再用真实 React 包跑一遍。用真实包前先在 `examples/shop` 里 `pnpm install --frozen-lockfile && pnpm build`。真实包的订单详情页数据含中文，OOM 会落在 `JSON.parse` 转换非 ASCII 字符串的路径上，这正是 github.com/liustack/quickjs 修掉的泄漏。这项测试失败时，先确认依赖的是这个 fork 而不是 modernc.org/quickjs。
+两个变量可以一起设，长测就会再用真实 React 包跑一遍。用真实包前先在 `examples/shop` 里 `pnpm install --frozen-lockfile && go tool tifa build`：测试读 `.tifa/dist/ssr.js`，并启动构建出的 `dist/shop`，按导航数据请求取每个页面的数据，与整页渲染时注入的数据相同。改了示例应用后重新构建再跑。真实包的订单详情页数据含中文，OOM 会落在 `JSON.parse` 转换非 ASCII 字符串的路径上，这正是 github.com/liustack/quickjs 修掉的泄漏。这项测试失败时，先确认依赖的是这个 fork 而不是 modernc.org/quickjs。
 
-## 默认跳过的 SSR 实验测试
+## 性能对比
 
-`examples/shop/internal/ssr` 里有一批性能与内存实验，默认 skip，不影响 `go test ./...` 的耗时。要跑时设置对应环境变量，比如：
-
-| 变量 | 打开的测试 |
-| --- | --- |
-| `SSR_COMPARE_CONTROL=1` | `TestSSRControlledComparison`：从 stdin 接收命令，按批次计时，供外部脚本交替测量多个构建 |
-| `SSR_PROFILE_SOURCE=<插桩包>` | `TestSSRStageProfile`：分阶段计时，需要用 `buildSSR({ profile: true })` 构建的包 |
-| `SSR_PAIR_BASELINE=<旧包>` | `TestSSRPairedComparison`：同一进程里新旧两个包成对比较 |
-| `SSR_MEMORY_PROBES`、`SSR_OOM_AUDIT` 等 | 内存与 OOM 回收实验 |
-
-测试要在 `examples/shop` 目录里运行（如 `SSR_MEMORY_PROBES=1 go test ./internal/ssr -run TestSSRMemoryProbes -v`）。完整列表在 `examples/shop/internal/ssr/*_test.go` 里搜 `os.Getenv("SSR_`。预热次数、请求数等参数通过 `SSR_WARMUP`、`SSR_REQUESTS` 这类变量调整。
+原型的性能与内存实验（交替计时、分阶段计时、内存探针）没有迁入，留在标签 `prototype-baseline` 的 `internal/ssr` 里，需要时从该标签导出构建。
 
 性能对比要在同一台机器上交替跑新旧构建，记录机器负载。机器负载变化会让绝对耗时差几倍，只有同轮交替测得的比值可以拿来比较。
