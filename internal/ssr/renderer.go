@@ -1,0 +1,116 @@
+package ssr
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	"modernc.org/quickjs"
+)
+
+// compile turns the bundle into bytecode once, in a throwaway VM.
+// Every VM of the pool, including replacements, loads this bytecode.
+func compile(source string, memory uintptr, timeout time.Duration) (bytecode []byte, err error) {
+	vm, err := quickjs.NewVM()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, vm.Close()) }()
+	vm.SetMemoryLimit(memory)
+	if err := vm.SetEvalTimeout(timeout); err != nil {
+		return nil, err
+	}
+	return vm.Compile(source, quickjs.EvalGlobal)
+}
+
+// load creates a VM and runs the bundle's top level code, which defines startRender.
+// The VM gets no Go callbacks and no module loader, so rendering cannot do I/O.
+func load(bytecode []byte, memory uintptr, timeout time.Duration) (*quickjs.VM, error) {
+	vm, err := quickjs.NewVM()
+	if err != nil {
+		return nil, err
+	}
+	vm.SetMemoryLimit(memory)
+	if err = vm.SetEvalTimeout(timeout); err == nil {
+		_, err = vm.EvalBytecode(bytecode)
+	}
+	if err != nil {
+		return nil, errors.Join(err, vm.Close())
+	}
+	return vm, nil
+}
+
+// render runs one request in vm: startRender(input), then the microtasks it queued,
+// then reads globalThis.renderResult. Any error leaves vm in an unknown state.
+func render(vm *quickjs.VM, input []byte, timeout time.Duration) (string, error) {
+	deadline := time.Now().Add(timeout)
+	// Each phase gets only what is left of the request's budget.
+	budget := func() error {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return timedOut(timeout, nil)
+		}
+		return vm.SetEvalTimeout(remaining)
+	}
+	phase := func(name string, err error) error {
+		if err == nil {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return timedOut(timeout, err)
+		}
+		return fmt.Errorf("ssr: %s: %w", name, err)
+	}
+	if err := budget(); err != nil {
+		return "", err
+	}
+	if _, err := vm.Eval("globalThis.renderResult = undefined", quickjs.EvalGlobal); err != nil {
+		return "", phase("reset result", err)
+	}
+	if err := budget(); err != nil {
+		return "", err
+	}
+	if _, err := vm.Call("startRender", string(input)); err != nil {
+		return "", phase("startRender", err)
+	}
+	if err := budget(); err != nil {
+		return "", err
+	}
+	if _, err := vm.ExecutePendingJobs(); err != nil {
+		return "", phase("microtasks", err)
+	}
+	if err := budget(); err != nil {
+		return "", err
+	}
+	value, err := vm.Eval("(() => { const result = globalThis.renderResult; globalThis.renderResult = undefined; return result })()", quickjs.EvalGlobal)
+	if err != nil {
+		return "", phase("read result", err)
+	}
+	text, ok := value.(string)
+	if !ok {
+		return "", errors.New("ssr: render left unresolved work after draining microtasks")
+	}
+	var result struct {
+		HTML  string `json:"html"`
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(text), &result); err != nil {
+		return "", fmt.Errorf("ssr: decode result: %w", err)
+	}
+	if result.Error != "" {
+		return "", fmt.Errorf("ssr: render page: %s", result.Error)
+	}
+	if result.HTML == "" {
+		return "", errors.New("ssr: render returned no HTML")
+	}
+	return result.HTML, nil
+}
+
+func timedOut(timeout time.Duration, cause error) error {
+	if cause == nil {
+		return fmt.Errorf("ssr: render timed out after %s: %w", timeout, context.DeadlineExceeded)
+	}
+	return fmt.Errorf("ssr: render timed out after %s: %w (%w)", timeout, context.DeadlineExceeded, cause)
+}
