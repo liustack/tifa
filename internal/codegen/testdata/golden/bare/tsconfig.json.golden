@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": [],
+    "rootDirs": ["..", "."],
+    "paths": {
+      "tifa/client": ["./runtime/client.ts"]
+    }
+  },
+  "include": ["../app", "routes.tsx", "server.ts", "client.ts", "runtime/env.d.ts"]
+}

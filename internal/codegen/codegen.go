@@ -1,0 +1,153 @@
+// Package codegen writes the generated part of a tifa application into its .tifa directory: the
+// Go main with the route registration, and the TypeScript route tree, the +route modules, the
+// two entries, the tsconfig and the JavaScript runtime. It reads only the route manifest and the
+// source files' exports. The output depends on nothing else, so the same input gives the same
+// bytes.
+package codegen
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io/fs"
+	"maps"
+	"os"
+	"path/filepath"
+	"slices"
+
+	"github.com/liustack/tifa/internal/analyze"
+	tifaconfig "github.com/liustack/tifa/internal/config"
+	"github.com/spf13/pflag"
+)
+
+// Dir is the directory, relative to the application root, that holds the generated files.
+const Dir = ".tifa"
+
+// Generate returns the generated files of the application at root, by path relative to Dir with
+// forward slashes. dev selects the browser entry of tifa dev, which also loads the refresh
+// client of the dev server.
+func Generate(root string, m *analyze.Manifest, dev bool) (map[string][]byte, error) {
+	files := map[string][]byte{}
+	configName, config, err := projectConfig(root)
+	if err != nil {
+		return nil, err
+	}
+	if configName != "" {
+		// Check the file now rather than when the built program starts.
+		fs := pflag.NewFlagSet("tifa", pflag.ContinueOnError)
+		tifaconfig.AddFlags(fs)
+		if err := fs.Parse(nil); err != nil {
+			return nil, err
+		}
+		if _, err := tifaconfig.Load(fs, nil, configName, config); err != nil {
+			return nil, err
+		}
+		files[configName] = config
+	}
+	goFiles, err := generateGo(m, configName)
+	if err != nil {
+		return nil, err
+	}
+	maps.Copy(files, goFiles)
+	tsFiles, err := generateTS(root, m, dev)
+	if err != nil {
+		return nil, err
+	}
+	maps.Copy(files, tsFiles)
+	return files, nil
+}
+
+// projectConfig reads tifa.yaml or tifa.json from the application root. The generated main embeds
+// a copy, because go:embed cannot reach a parent directory.
+func projectConfig(root string) (name string, data []byte, err error) {
+	for _, candidate := range []string{"tifa.yaml", "tifa.json"} {
+		content, err := os.ReadFile(filepath.Join(root, candidate))
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return "", nil, err
+		}
+		if name != "" {
+			return "", nil, fmt.Errorf("%s: both tifa.yaml and tifa.json exist, keep one", root)
+		}
+		name, data = candidate, content
+	}
+	return name, data, nil
+}
+
+// Write makes root/.tifa hold exactly files: it writes the files whose content changed and removes
+// the files that are no longer generated, so tools watching the directory see only real changes.
+func Write(root string, files map[string][]byte) error {
+	dir := filepath.Join(root, Dir)
+	var stale []string
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if errors.Is(err, fs.ErrNotExist) && path == dir {
+			return filepath.SkipAll
+		}
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		if _, ok := files[filepath.ToSlash(rel)]; !ok {
+			stale = append(stale, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	for _, path := range stale {
+		if err := os.Remove(path); err != nil {
+			return err
+		}
+	}
+	if err := removeEmptyDirs(dir); err != nil {
+		return err
+	}
+	for _, name := range slices.Sorted(maps.Keys(files)) {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if old, err := os.ReadFile(path); err == nil && bytes.Equal(old, files[name]) {
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, files[name], 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// removeEmptyDirs removes the directories under dir that hold no files, deepest first.
+func removeEmptyDirs(dir string) error {
+	var dirs []string
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if errors.Is(err, fs.ErrNotExist) && path == dir {
+			return filepath.SkipAll
+		}
+		if err == nil && d.IsDir() && path != dir {
+			dirs = append(dirs, path)
+		}
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	for _, d := range slices.Backward(dirs) {
+		entries, err := os.ReadDir(d)
+		if err != nil {
+			return err
+		}
+		if len(entries) == 0 {
+			if err := os.Remove(d); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
