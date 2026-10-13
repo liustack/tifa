@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/evanw/esbuild/pkg/api"
-	"modernc.org/quickjs"
+	"github.com/liustack/quickjs"
 )
 
 // shopModules is the prototype's installed npm dependencies. Tests that bundle

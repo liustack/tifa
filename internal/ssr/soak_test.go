@@ -19,9 +19,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/liustack/quickjs"
 	"github.com/liustack/tifa/internal/config"
 	"modernc.org/libc"
-	"modernc.org/quickjs"
 )
 
 type soakBundle struct {

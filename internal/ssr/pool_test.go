@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/liustack/quickjs"
 	"github.com/liustack/tifa/internal/config"
-	"modernc.org/quickjs"
 )
 
 func testSource(t *testing.T) string {

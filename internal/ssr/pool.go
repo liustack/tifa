@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/liustack/quickjs"
 	"github.com/liustack/tifa/internal/config"
-	"modernc.org/quickjs"
 )
 
 // Input is everything a render sees. The HTML depends on nothing else.

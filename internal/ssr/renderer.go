@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"modernc.org/quickjs"
+	"github.com/liustack/quickjs"
 )
 
 // compile turns the bundle into bytecode once, in a throwaway VM.
