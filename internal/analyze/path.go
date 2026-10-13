@@ -115,22 +115,6 @@ func commonPrefix(paths [][]segment) []segment {
 	}
 }
 
-// shape is the Path with parameter names erased, so two Paths that match the same URLs compare equal.
-func shape(segs []segment) string {
-	var b strings.Builder
-	for _, s := range segs {
-		switch {
-		case s.wildcard:
-			b.WriteString("/{...}")
-		case s.param != "":
-			b.WriteString("/{}")
-		default:
-			b.WriteString("/" + s.lit)
-		}
-	}
-	return b.String()
-}
-
 // relation is how the URL sets matched by two Paths relate, as in net/http's pattern comparison.
 type relation int
 
@@ -142,16 +126,6 @@ const (
 	disjoint                     // no URL in common
 )
 
-// conflicts reports whether ServeMux (Go 1.22 semantics) would refuse to register both Paths:
-// they match some URL in common and neither is more specific. It reimplements the comparison of
-// net/http instead of registering into a ServeMux, because GODEBUG=httpmuxgo121=1 would switch a
-// real ServeMux to the old literal semantics and the verdict would depend on the environment.
-// Only the syntax parsePath accepts is handled: no methods, no hosts, no trailing slash.
-func conflicts(p1, p2 []segment) bool {
-	rel := comparePaths(muxSegments(p1), muxSegments(p2))
-	return rel == equivalent || rel == overlaps
-}
-
 // muxSegments represents Path "/" the way the server registers it, as "/{$}", whose only segment
 // is an end marker that matches the empty remainder. "/" never appears in a parsed literal.
 func muxSegments(segs []segment) []segment {
@@ -161,7 +135,12 @@ func muxSegments(segs []segment) []segment {
 	return segs
 }
 
-// comparePaths follows pattern.comparePaths in net/http.
+// comparePaths relates two Paths the way pattern.comparePaths in net/http (Go 1.22 semantics)
+// does. ServeMux refuses to register two Paths whose relation is equivalent or overlaps.
+// The analyzer reimplements the comparison instead of registering into a ServeMux, because
+// GODEBUG=httpmuxgo121=1 switches a real ServeMux to the old literal semantics and the verdict
+// would depend on the environment. Only the syntax parsePath accepts is handled: no methods,
+// no hosts, no trailing slash. Pass the segments through muxSegments first.
 func comparePaths(p1, p2 []segment) relation {
 	multi1, multi2 := p1[len(p1)-1].wildcard, p2[len(p2)-1].wildcard
 	if len(p1) != len(p2) && !multi1 && !multi2 {

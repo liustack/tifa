@@ -620,11 +620,12 @@ func (a *analyzer) posString(pos token.Pos) string {
 	return fmt.Sprintf("%s:%d", a.relFile(p.Filename), p.Line)
 }
 
-// checkPaths reports Paths that duplicate or conflict with another route, and c.Param names
-// that are not in the route's own Path.
+// checkPaths reports c.Param names that are not in the route's own Path, and every pair of
+// Paths that ServeMux would refuse to register together: a duplicate when they match the same
+// URLs, a conflict when they share some URLs and neither is more specific. Each pair is reported
+// once, at the later route.
 func (a *analyzer) checkPaths(routes []*route) {
-	shapes := map[string]*route{}
-	var registered []*route
+	var checked []*route
 	for _, r := range routes {
 		if !r.valid {
 			continue
@@ -634,29 +635,17 @@ func (a *analyzer) checkPaths(routes []*route) {
 				a.errorAt(u.pos, "c.Param(%q) reads a parameter that is not in Path %q", u.name, r.Path)
 			}
 		}
-		key := shape(r.segs)
-		if first := shapes[key]; first != nil {
-			a.errorAt(r.pathPos, "Path %q duplicates Path %q of %s", r.Path, first.Path, a.posString(first.pathPos))
-			continue
+		for _, other := range checked {
+			switch comparePaths(muxSegments(other.segs), muxSegments(r.segs)) {
+			case equivalent:
+				a.errorAt(r.pathPos, "Path %q duplicates Path %q of %s", r.Path, other.Path, a.posString(other.pathPos))
+			case overlaps:
+				a.errorAt(r.pathPos, "Path %q conflicts with Path %q of %s: both match some URLs and neither is more specific",
+					r.Path, other.Path, a.posString(other.pathPos))
+			}
 		}
-		shapes[key] = r
-		if other := conflicting(registered, r); other != nil {
-			a.errorAt(r.pathPos, "Path %q conflicts with Path %q of %s: both match some URLs and neither is more specific",
-				r.Path, other.Path, a.posString(other.pathPos))
-			continue
-		}
-		registered = append(registered, r)
+		checked = append(checked, r)
 	}
-}
-
-// conflicting returns the first route among registered whose Path conflicts with r's.
-func conflicting(registered []*route, r *route) *route {
-	for _, other := range registered {
-		if conflicts(other.segs, r.segs) {
-			return other
-		}
-	}
-	return nil
 }
 
 // checkUses finds every call of tifa.Use in the loaded packages. Its function argument must be

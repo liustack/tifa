@@ -137,6 +137,8 @@ func TestViolations(t *testing.T) {
 			{"app/concat/route.go:3:", "string literal"},
 			{"app/dollar/route.go:3:", "$"},
 			{"app/overlap2/route.go:3:", `"/a/{b}"`, `"/{a}/b"`},
+			{"app/cb/route.go:3:", `"/{y}/b/c"`, `"/a/{x}/c"`},
+			{"app/cc/route.go:3:", `"/d/b/{z}"`, `"/{y}/b/c"`},
 		}},
 		{"paramname", [][]string{
 			{"app/item/route.go:9:", `"id"`, `"/items/{key}"`},
@@ -268,8 +270,8 @@ func TestConflictsIgnoreGODEBUG(t *testing.T) {
 	}
 }
 
-// conflicts reimplements the ServeMux comparison. Under the default GODEBUG the real ServeMux is
-// the reference: it panics on registering exactly the pairs conflicts reports.
+// comparePaths reimplements the ServeMux comparison. Under the default GODEBUG the real ServeMux
+// is the reference: it panics on registering exactly the pairs related as equivalent or overlaps.
 func TestConflictsMatchServeMux(t *testing.T) {
 	if os.Getenv("GODEBUG") == "httpmuxgo121=1" {
 		t.Skip("the reference ServeMux runs the old semantics")
@@ -286,7 +288,8 @@ func TestConflictsMatchServeMux(t *testing.T) {
 				t.Fatalf("parsePath: %v %v", err1, err2)
 			}
 			want := !muxAccepts(p1, p2)
-			if got := conflicts(s1, s2); got != want {
+			rel := comparePaths(muxSegments(s1), muxSegments(s2))
+			if got := rel == equivalent || rel == overlaps; got != want {
 				t.Errorf("conflicts(%q, %q) = %t, ServeMux says %t", p1, p2, got, want)
 			}
 		}
