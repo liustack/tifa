@@ -1,19 +1,23 @@
 package ssr
 
-// Opt-in tests against the real React bundle of the prototype in examples/shop.
+// Opt-in tests against the real React bundle of the example app in examples/shop.
 // Build it first, then run with TIFA_SSR_SHOP=1:
 //
-//	cd examples/shop && pnpm install --frozen-lockfile && pnpm build
+//	cd examples/shop && pnpm install --frozen-lockfile && go tool tifa build
 //	TIFA_SSR_SHOP=1 go test -run Shop -v ./internal/ssr
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -24,57 +28,106 @@ import (
 
 const shopDir = "../../examples/shop"
 
-// The prototype bundle reads its snapshot at the top level of the JSON.
-// This test-only adapter unwraps Input.Data, which holds that snapshot.
-const shopAdapter = `;globalThis.startRender = (start => json => start(JSON.stringify(JSON.parse(json).data)))(globalThis.startRender);`
-
 type shopPage struct {
 	input           Input
 	want, forbidden string
 }
 
-// shopBundle returns the adapted prototype bundle and its four comparison pages,
-// with data exported by the prototype's own Go loader.
+// shopRoutes are the four comparison pages of the prototype baseline, a list and a detail page
+// of each project, with the route IDs of their match chains.
+var shopRoutes = []struct{ url, routes string }{
+	{"/projects/studio", "app,app/projects,app/projects/orders/list"},
+	{"/projects/weekend", "app,app/projects,app/projects/orders/list"},
+	{"/projects/studio/orders/SH-1042", "app,app/projects,app/projects/orders/detail"},
+	{"/projects/weekend/orders/WK-0201", "app,app/projects,app/projects/orders/detail"},
+}
+
+// shopBundle returns the shop's SSR bundle and its four comparison pages. The data of each
+// page is what the shop's own program injects: the test runs dist/shop and asks it for the
+// navigation data of each page, which has the same form as the injected data.
 func shopBundle(t *testing.T) (string, []shopPage) {
 	t.Helper()
 	if os.Getenv("TIFA_SSR_SHOP") == "" {
-		t.Skip("set TIFA_SSR_SHOP=1 after running pnpm build in examples/shop")
+		t.Skip("set TIFA_SSR_SHOP=1 after running tifa build in examples/shop")
 	}
-	source, err := os.ReadFile(filepath.Join(shopDir, "internal/ssr/assets/server.js"))
+	source, err := os.ReadFile(filepath.Join(shopDir, ".tifa", "dist", "ssr.js"))
 	if err != nil {
-		t.Fatalf("run pnpm build in examples/shop first: %v", err)
+		t.Fatalf("run tifa build in examples/shop first: %v", err)
 	}
-	fixture := filepath.Join(t.TempDir(), "snapshots.json")
-	cmd := exec.Command("go", "test", "-count=1", "-run", "^TestSSRComparisonFixture$", "./internal/ssr")
-	cmd.Dir = shopDir
-	cmd.Env = append(os.Environ(), "SSR_COMPARE_FIXTURE="+fixture)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("export shop snapshots: %v\n%s", err, out)
-	}
-	data, err := os.ReadFile(fixture)
+	var built struct{ BuildID string }
+	data, err := os.ReadFile(filepath.Join(shopDir, ".tifa", "dist", "build.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var snapshots []json.RawMessage
-	if err := json.Unmarshal(data, &snapshots); err != nil {
+	if err := json.Unmarshal(data, &built); err != nil {
 		t.Fatal(err)
 	}
+	base := startShop(t)
 	var pages []shopPage
-	for _, raw := range snapshots {
-		var head struct{ BuildID, URL string }
-		if err := json.Unmarshal(raw, &head); err != nil {
+	for _, r := range shopRoutes {
+		req, err := http.NewRequest("GET", base+r.url, nil)
+		if err != nil {
 			t.Fatal(err)
 		}
+		req.Header.Set("X-Tifa-Route", r.routes)
+		req.Header.Set("X-Tifa-Build", built.BuildID)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := io.ReadAll(res.Body)
+		res.Body.Close()
+		if err != nil || res.StatusCode != 200 {
+			t.Fatalf("data of %s: %d %v %s (rebuild the shop when its build.json changed)", r.url, res.StatusCode, err, body)
+		}
 		want, forbidden := "SH-1042", "WK-0201"
-		if strings.Contains(head.URL, "/weekend") {
+		if strings.Contains(r.url, "/weekend") {
 			want, forbidden = forbidden, want
 		}
-		pages = append(pages, shopPage{Input{BuildID: head.BuildID, URL: head.URL, Data: raw}, want, forbidden})
+		pages = append(pages, shopPage{Input{BuildID: built.BuildID, URL: r.url, Data: body}, want, forbidden})
 	}
-	if len(pages) != 4 {
-		t.Fatalf("want 4 shop pages, got %d", len(pages))
+	return string(source), pages
+}
+
+var listening = regexp.MustCompile(`listening on (http://\S+)`)
+
+// startShop runs the shop's program built by tifa build and returns its base URL.
+func startShop(t *testing.T) string {
+	t.Helper()
+	cmd := exec.Command(filepath.Join(shopDir, "dist", "shop"), "--server-addr", "127.0.0.1:0")
+	// The program rejects unknown TIFA_* variables as settings, TIFA_SSR_SHOP among them.
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "TIFA_") {
+			cmd.Env = append(cmd.Env, kv)
+		}
 	}
-	return string(source) + shopAdapter, pages
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("run tifa build in examples/shop first: %v", err)
+	}
+	t.Cleanup(func() {
+		cmd.Process.Kill()
+		cmd.Wait()
+	})
+	found := make(chan string, 1)
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			if m := listening.FindStringSubmatch(scanner.Text()); m != nil {
+				found <- m[1]
+			}
+		}
+	}()
+	select {
+	case base := <-found:
+		return base
+	case <-time.After(10 * time.Second):
+		t.Fatal("the shop did not start listening")
+		return ""
+	}
 }
 
 func (page shopPage) check(t *testing.T, html string) {
@@ -95,7 +148,7 @@ func TestShopRendersReadyData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, text := range []string{"SH-1042", "林夏", "晨间手冲壶", "山海工作室", "data-tsr-stream-part", "正在准备操作"} {
+	for _, text := range []string{"SH-1042", "林夏", "晨间手冲壶", "山海工作室", "2 单待发货", "data-tsr-stream-part", "正在准备操作"} {
 		if !strings.Contains(html, text) {
 			t.Errorf("missing %q", text)
 		}
