@@ -157,11 +157,12 @@ func applyEnv(fs []field, environ []string) error {
 	return nil
 }
 
-// entry is one setting read from a file. line is 0 when the format has no line numbers.
+// entry is one setting read from a file. typ is the type the file gave the value: string, number, bool or null.
+// line is 0 when the format has no line numbers.
 type entry struct {
-	key, raw string
-	line     int
-	err      error
+	key, raw, typ string
+	line          int
+	err           error
 }
 
 func applyFile(fs []field, layer, name string, data []byte, project bool) error {
@@ -193,11 +194,27 @@ func applyFile(fs []field, layer, name string, data []byte, project bool) error 
 		if fs[i].build() && !project {
 			return fmt.Errorf("config: %s: build settings belong in the project tifa.yaml", where)
 		}
+		if want := fs[i].value.kind(); !accepts(want, e.typ) {
+			return fmt.Errorf("config: %s: %s: expected a %s value, got %s %q", where, e.key, want, e.typ, e.raw)
+		}
 		if err := set(fs[i], where, e.raw); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// accepts reports whether a file value of type typ may set a setting of the given kind.
+// Flags and environment variables are text and skip this check.
+func accepts(kind, typ string) bool {
+	switch kind {
+	case "int":
+		return typ == "number"
+	case "size":
+		return typ == "string" || typ == "number" // 1MiB or a plain byte count
+	default:
+		return typ == "string"
+	}
 }
 
 func yamlEntries(data []byte) ([]entry, error) {
@@ -225,7 +242,7 @@ func yamlEntries(data []byte) ([]entry, error) {
 		}
 		for j := 0; j < len(body.Content); j += 2 {
 			k, v := body.Content[j], body.Content[j+1]
-			e := entry{key: section.Value + "." + k.Value, raw: v.Value, line: k.Line}
+			e := entry{key: section.Value + "." + k.Value, raw: v.Value, typ: yamlType(v.ShortTag()), line: k.Line}
 			if v.Kind != yaml.ScalarNode {
 				e.err = errors.New("expected a single value")
 			}
@@ -257,16 +274,34 @@ func jsonEntries(data []byte) ([]entry, error) {
 			e := entry{key: name + "." + k}
 			switch v := section[k].(type) {
 			case string:
-				e.raw = v
+				e.raw, e.typ = v, "string"
 			case json.Number:
-				e.raw = v.String()
+				e.raw, e.typ = v.String(), "number"
+			case bool:
+				e.raw, e.typ = strconv.FormatBool(v), "bool"
+			case nil:
+				e.raw, e.typ = "null", "null"
 			default:
-				e.err = fmt.Errorf("expected a string or number, got %v", v)
+				e.err = fmt.Errorf("expected a single value, got %v", v)
 			}
 			entries = append(entries, e)
 		}
 	}
 	return entries, nil
+}
+
+func yamlType(tag string) string {
+	switch tag {
+	case "!!str":
+		return "string"
+	case "!!int", "!!float":
+		return "number"
+	case "!!bool":
+		return "bool"
+	case "!!null":
+		return "null"
+	}
+	return tag
 }
 
 func knownSection(name string) bool {

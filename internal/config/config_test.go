@@ -168,3 +168,37 @@ func TestExampleLoadsBackToSameValues(t *testing.T) {
 		t.Fatalf("round trip changed values:\n%+v\n%+v", got, c)
 	}
 }
+
+func TestFileValuesMustHaveTheRightType(t *testing.T) {
+	cases := []struct{ name, file, content, key string }{
+		{"yaml bool addr", "prod.yaml", "server:\n  addr: false\n", "server.addr"},
+		{"yaml null addr", "prod.yaml", "server:\n  addr: null\n", "server.addr"},
+		{"yaml empty addr", "prod.yaml", "server:\n  addr:\n", "server.addr"},
+		{"yaml number addr", "prod.yaml", "server:\n  addr: 8080\n", "server.addr"},
+		{"yaml quoted vms", "prod.yaml", "ssr:\n  vms: \"2\"\n", "ssr.vms"},
+		{"yaml bool size", "prod.yaml", "cache:\n  size: true\n", "cache.size"},
+		{"yaml number timeout", "prod.yaml", "ssr:\n  timeout: 3\n", "ssr.timeout"},
+		{"json number addr", "prod.json", `{"server":{"addr":8080}}`, "server.addr"},
+		{"json string vms", "prod.json", `{"ssr":{"vms":"2"}}`, "ssr.vms"},
+		{"json null addr", "prod.json", `{"server":{"addr":null}}`, "server.addr"},
+		{"json fraction vms", "prod.json", `{"ssr":{"vms":1.5}}`, "ssr.vms"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := load(t, []string{"--config", writeFile(t, tc.file, tc.content)}, nil, "", "")
+			if err == nil || !strings.Contains(err.Error(), "file "+tc.file) || !strings.Contains(err.Error(), tc.key) {
+				t.Fatalf("got %v", err)
+			}
+		})
+	}
+	ok := []string{"server:\n  body_limit: 1048576\n", "server:\n  body_limit: \"1MiB\"\n", "ssr:\n  vms: 2\n"}
+	for _, content := range ok {
+		if _, err := load(t, []string{"--config", writeFile(t, "ok.yaml", content)}, nil, "", ""); err != nil {
+			t.Errorf("%q: %v", content, err)
+		}
+	}
+	if _, err := load(t, []string{"--config", writeFile(t, "ok.json", `{"server":{"body_limit":1048576}}`)}, nil, "", ""); err != nil {
+		t.Errorf("json byte count: %v", err)
+	}
+}
+
