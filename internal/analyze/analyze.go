@@ -8,6 +8,7 @@ import (
 	"go/types"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -148,6 +149,15 @@ func (a *analyzer) load() error {
 	pkgs, err := packages.Load(cfg, patterns...)
 	if err != nil {
 		return err
+	}
+	if len(pkgs) == 0 {
+		// packages.Load hides some module-wide failures of go list, such as a go.mod that needs
+		// updating, and returns no packages. Ask the go command for its own message.
+		cmd := exec.Command("go", append([]string{"list", "-e"}, patterns...)...)
+		cmd.Dir, cmd.Env = a.root, cfg.Env
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("go list in %s: %v\n%s", a.root, err, strings.TrimSpace(string(out)))
+		}
 	}
 	a.byDir = map[string]*packages.Package{}
 	a.broken = map[string]bool{}

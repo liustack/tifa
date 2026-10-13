@@ -367,3 +367,17 @@ func TestLoadResultShape(t *testing.T) {
 		t.Errorf("tsType =\n%s\nwant\n%s", got, want)
 	}
 }
+
+// go.mod says go 1.26.0 while the framework needs 1.27. go list then fails for the whole module
+// and packages.Load returns no packages without an error. Analyze must surface the go command's
+// message instead of blaming route.go.
+func TestGoListFailureIsReported(t *testing.T) {
+	_, err := analyzeApp(t, "stalegomod")
+	var errs Errors
+	if err == nil || errors.As(err, &errs) {
+		t.Fatalf("want the go command's error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "go mod tidy") {
+		t.Errorf("error lacks the go command's advice: %v", err)
+	}
+}
