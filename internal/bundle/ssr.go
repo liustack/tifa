@@ -3,6 +3,7 @@ package bundle
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strconv"
@@ -25,6 +26,8 @@ type SSROptions struct {
 	// Plugins run before the built-in SSR rules, for example to resolve
 	// generated framework modules.
 	Plugins []api.Plugin
+	// Define adds global constants, such as the browser assets a page loads.
+	Define map[string]string
 }
 
 // nodeBuiltins are Node's built-in modules (require('module').builtinModules
@@ -71,6 +74,9 @@ func buildSSR(o SSROptions, trimReact bool) (api.BuildResult, error) {
 	opts.External = append(slices.Clone(nodeBuiltins), "node:*")
 	opts.Define["global"] = "globalThis"
 	opts.Define["__SSR_PROFILE__"] = strconv.FormatBool(o.Profile)
+	maps.Copy(opts.Define, o.Define)
+	// Styles belong to the browser bundle. The server only renders the markup.
+	opts.Loader = map[string]api.Loader{".css": api.LoaderEmpty}
 	result, meta, err := run(opts)
 	if err != nil {
 		return result, err
