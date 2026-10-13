@@ -25,6 +25,7 @@ func TestShopApp(t *testing.T) {
 	skipUnlessEnabled(t)
 	dir := shopDir(t)
 	exe := buildAt(t, dir)
+	typecheck(t, dir)
 
 	// go vet and go test pass in the app and do not reach into .tifa.
 	for _, args := range [][]string{{"list", "./..."}, {"vet", "./..."}, {"test", "-count=1", "./..."}} {

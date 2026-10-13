@@ -118,6 +118,25 @@ func buildAt(t *testing.T, dir string) (exe string) {
 	return exe
 }
 
+// typecheck runs tsc --noEmit in the app at dir, so the generated TypeScript in .tifa and the
+// app's TSX check together. It skips when the app's npm packages or node are not installed.
+func typecheck(t *testing.T, dir string) {
+	t.Run("tsc", func(t *testing.T) {
+		tsc := filepath.Join(dir, "node_modules", ".bin", "tsc")
+		if _, err := os.Stat(tsc); err != nil {
+			t.Skipf("run pnpm install --frozen-lockfile in %s for the type check: %v", dir, err)
+		}
+		if _, err := exec.LookPath("node"); err != nil {
+			t.Skip("node is not installed, skipping the type check")
+		}
+		cmd := exec.Command(tsc, "--noEmit")
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("tsc --noEmit: %v\n%s", err, out)
+		}
+	})
+}
+
 // moduleFiles returns go.mod and go.sum of the app in dir.
 func moduleFiles(t *testing.T, dir string) string {
 	t.Helper()
@@ -343,6 +362,8 @@ func TestPagesApp(t *testing.T) {
 			t.Errorf("generated %s: %v", name, err)
 		}
 	}
+
+	typecheck(t, dir)
 
 	base, _, _ := start(t, exe)
 	var built struct{ BuildID, Script string }
