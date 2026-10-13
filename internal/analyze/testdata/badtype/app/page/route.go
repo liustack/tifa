@@ -16,7 +16,11 @@ type Data struct {
 	Raw     json.RawMessage    `json:"raw"`
 	Bytes   []B                `json:"bytes"`
 	Ptrs    []PtrMarshal       `json:"ptrs"`
+	Text    TextValue          `json:"text"`
 }
+
+// TextValue is an interface: the dynamic value may also implement MarshalJSON, or be nil.
+type TextValue interface{ MarshalText() ([]byte, error) }
 
 type Item struct {
 	Extra any `json:"extra"`

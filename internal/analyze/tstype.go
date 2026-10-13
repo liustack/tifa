@@ -41,8 +41,9 @@ import (
 //     bool, number and string fields (also behind an unnamed pointer) into string.
 //   - Named types keep their names, so recursive types are allowed.
 //
-// Rejected: interfaces (any, error and others have no fixed JSON form), chan, func, complex
-// numbers, unsafe.Pointer, maps with other keys, and MarshalJSON other than time.Time's.
+// Rejected: every interface type (any, error, interfaces with MarshalText and others), because
+// the dynamic value decides the JSON and may be nil. Also rejected: chan, func, complex numbers,
+// unsafe.Pointer, maps with other keys, and MarshalJSON other than time.Time's.
 func checkTS(t types.Type) []tsProblem {
 	_, problems := tsType(t)
 	return problems
@@ -120,6 +121,11 @@ func isNamed(t types.Type, pkg, name string) bool {
 func (c *tsChecker) encode(t types.Type, path string, addressable, quoted bool) string {
 	typeName := types.TypeString(t, shortQualifier) // before Unalias, so any stays any
 	t = types.Unalias(t)
+	if types.IsInterface(t) {
+		// The dynamic type decides the JSON, and a nil interface is null. Methods of the interface
+		// itself, such as MarshalText, say nothing about what the value implements besides them.
+		return c.fail(path, typeName+" has no fixed JSON form: it is an interface")
+	}
 	_, isPtr := t.Underlying().(*types.Pointer)
 
 	if !isPtr && addressable && types.Implements(types.NewPointer(t), marshalerType) {
@@ -183,8 +189,6 @@ func (c *tsChecker) encode(t types.Type, path string, addressable, quoted bool) 
 		return "Record<string, " + c.encode(u.Elem(), path+"[key]", false, false) + "> | null"
 	case *types.Struct:
 		return c.object(u, path, addressable)
-	case *types.Interface:
-		return c.fail(path, typeName+" has no fixed JSON form: it is an interface")
 	}
 	return c.fail(path, typeName+" has no JSON form") // chan, func, type parameters
 }
