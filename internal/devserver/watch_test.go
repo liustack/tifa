@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -35,7 +36,7 @@ func TestChangesMergeByPath(t *testing.T) {
 // startWatcher watches dir until the test ends.
 func startWatcher(t *testing.T, dir string, ignore ...string) *watcher {
 	t.Helper()
-	w, err := newWatcher(dir, ignore)
+	w, err := newWatcher(dir, ignore, func(msg string) { t.Log(msg) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +194,7 @@ func TestWatcherIgnoresOutputAndOtherFiles(t *testing.T) {
 func TestWatcherHashesOnEveryEvent(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "a.tsx", "AAA")
-	w, err := newWatcher(dir, nil)
+	w, err := newWatcher(dir, nil, func(msg string) { t.Log(msg) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +224,7 @@ func TestWatcherHashesOnEveryEvent(t *testing.T) {
 // A directory deleted and created again before the watcher handles the events gets a new watch.
 func TestWatcherRewatchesARecreatedDirectory(t *testing.T) {
 	dir := newApp(t)
-	w, err := newWatcher(dir, nil)
+	w, err := newWatcher(dir, nil, func(msg string) { t.Log(msg) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +243,7 @@ func TestWatcherRewatchesARecreatedDirectory(t *testing.T) {
 // After dropped events the watcher compares every file again, in known directories too.
 func TestWatcherRescanFindsEverything(t *testing.T) {
 	dir := newApp(t)
-	w, err := newWatcher(dir, nil)
+	w, err := newWatcher(dir, nil, func(msg string) { t.Log(msg) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,4 +266,72 @@ func TestWatcherRescanFindsEverything(t *testing.T) {
 	if got := w.changes.take(); !slices.Equal(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
+}
+
+// warnings collects what the watcher warns about.
+type warnings struct {
+	mu   sync.Mutex
+	msgs []string
+}
+
+func (w *warnings) add(msg string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.msgs = append(w.msgs, msg)
+}
+
+func (w *warnings) has(t *testing.T, substr string) {
+	t.Helper()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, m := range w.msgs {
+		if strings.Contains(m, substr) {
+			return
+		}
+	}
+	t.Fatalf("no warning mentions %q, got %q", substr, w.msgs)
+}
+
+func symlink(t *testing.T, target, link string) {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Links that lead back into a watched directory are skipped with a warning, not followed forever.
+func TestWatcherSkipsSymlinkCycles(t *testing.T) {
+	dir := newApp(t)
+	symlink(t, dir, filepath.Join(dir, "app/root"))
+	symlink(t, "self", filepath.Join(dir, "app/self"))
+	var warned warnings
+	w, err := newWatcher(dir, nil, warned.add)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runWatcher(t, w)
+	warned.has(t, "app/root")
+	warned.has(t, "app/self")
+	// The same while running.
+	symlink(t, filepath.Join(dir, "app"), filepath.Join(dir, "app/list/up"))
+	writeFile(t, dir, "app/store.go", "package app // edited")
+	expectBatch(t, dir, w, change{"app/store.go", modified})
+	warned.has(t, "app/list/up")
+}
+
+// Two links to one directory are watched once.
+func TestWatcherWatchesALinkedDirectoryOnce(t *testing.T) {
+	dir, shared := newApp(t), t.TempDir()
+	writeFile(t, shared, "button.tsx", "export {}")
+	symlink(t, shared, filepath.Join(dir, "app/a"))
+	symlink(t, shared, filepath.Join(dir, "app/b"))
+	var warned warnings
+	w, err := newWatcher(dir, nil, warned.add)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runWatcher(t, w)
+	warned.has(t, "app/b")
+	writeFile(t, shared, "button.tsx", "export const edited = 1")
+	expectBatch(t, dir, w, change{"app/a/button.tsx", modified})
 }

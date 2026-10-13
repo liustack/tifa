@@ -91,7 +91,7 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 	if err != nil {
 		return err
 	}
-	w, err := newWatcher(o.Dir, o.Ignore)
+	w, err := newWatcher(o.Dir, o.Ignore, func(msg string) { log.New(o.Stderr, "tifa dev: ", log.Ltime).Print(msg) })
 	if err != nil {
 		return err
 	}

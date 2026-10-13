@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -99,12 +100,16 @@ type watcher struct {
 	fs      *fsnotify.Watcher
 	files   map[string]string      // checksum of every tracked file
 	dirs    map[string]os.FileInfo // watched directories, as they were when the watch was added
+	real    map[string]string      // real path of each watched directory to its path under root
+	warn    func(string)
+	warned  map[string]bool // paths warned about, to warn once
 	changes *changes
 }
 
 // newWatcher watches root and records the checksum of every tracked file, without reporting them.
-// ignore lists directories relative to root that are skipped.
-func newWatcher(root string, ignore []string) (*watcher, error) {
+// ignore lists directories relative to root that are skipped. warn receives problems that do not
+// stop watching, such as a symbolic link loop.
+func newWatcher(root string, ignore []string, warn func(string)) (*watcher, error) {
 	abs, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
@@ -113,7 +118,10 @@ func newWatcher(root string, ignore []string) (*watcher, error) {
 	if err != nil {
 		return nil, err
 	}
-	w := &watcher{root: abs, fs: fw, files: map[string]string{}, dirs: map[string]os.FileInfo{}, changes: newChanges()}
+	w := &watcher{
+		root: abs, fs: fw, warn: warn, changes: newChanges(),
+		files: map[string]string{}, dirs: map[string]os.FileInfo{}, real: map[string]string{}, warned: map[string]bool{},
+	}
 	for _, d := range ignore {
 		w.ignore = append(w.ignore, path.Clean(filepath.ToSlash(d)))
 	}
@@ -182,12 +190,8 @@ func (w *watcher) watching(dir string, info os.FileInfo) bool {
 // handle brings the state of one path up to date. Events only say where to look: the checksum
 // decides whether a file changed, and a directory is checked against the one that was watched.
 func (w *watcher) handle(name string, op fsnotify.Op) error {
-	r, err := filepath.Rel(w.root, name)
-	if err != nil {
-		return err
-	}
-	rel := filepath.ToSlash(r)
-	if rel == ".." || strings.HasPrefix(rel, "../") || w.skipped(rel) {
+	rel, ok := w.relOf(name)
+	if !ok || w.skipped(rel) {
 		return nil
 	}
 	if op.Has(fsnotify.Remove) || op.Has(fsnotify.Rename) {
@@ -195,7 +199,7 @@ func (w *watcher) handle(name string, op fsnotify.Op) error {
 		// reuse the old one's inode, so identity alone cannot tell.
 		w.unwatch(rel)
 	}
-	info, err := os.Stat(name)
+	info, err := os.Stat(w.abs(rel))
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		w.removeTree(rel)
@@ -207,6 +211,21 @@ func (w *watcher) handle(name string, op fsnotify.Op) error {
 	default:
 		return w.check(rel)
 	}
+}
+
+// relOf maps an event path to a path under root. Directories are watched by their real path,
+// so events name real paths: a link to a directory is known by the link's path under root.
+func (w *watcher) relOf(name string) (string, bool) {
+	if rel, ok := w.real[name]; ok {
+		return rel, true
+	}
+	if dir, ok := w.real[filepath.Dir(name)]; ok {
+		return path.Join(dir, filepath.Base(name)), true
+	}
+	if r, err := filepath.Rel(w.root, name); err == nil && r != ".." && !strings.HasPrefix(r, ".."+string(filepath.Separator)) {
+		return filepath.ToSlash(r), true
+	}
+	return "", false
 }
 
 // rescan compares everything under rel with the disk, also in directories already watched.
@@ -224,16 +243,37 @@ func (w *watcher) scan(dir string, deep bool) error {
 	if err != nil {
 		return err
 	}
+	looped := false
 	if !w.watching(dir, info) {
-		_ = w.fs.Remove(w.abs(dir)) // a replaced directory may still have the old watch
-		if err := w.fs.Add(w.abs(dir)); err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
+		w.unwatch(dir) // a replaced directory may still have the old watch
+		real, err := filepath.EvalSymlinks(w.abs(dir))
+		if err != nil {
+			w.warnOnce(dir, fmt.Sprintf("not watching %s: %v", dir, err))
+			return nil
+		}
+		if owner, ok := w.real[real]; ok {
+			// A link to a directory that is already watched, possibly an ancestor.
+			w.warnOnce(dir, fmt.Sprintf("not watching %s: it is the directory %s, which is already watched", dir, owner))
+			return nil
+		}
+		// Watch the real path: kqueue does not watch the files of a directory added through a link.
+		if err := w.fs.Add(real); err != nil {
+			switch {
+			case errors.Is(err, fs.ErrNotExist):
 				w.removeTree(dir)
 				return nil
+			case errors.Is(err, syscall.ELOOP):
+				// kqueue opens every entry of the directory and gives up at a link that loops.
+				// The directory is watched, its files are added one by one below, but kqueue
+				// may miss files created in it until the link is gone.
+				w.warnOnce(dir, fmt.Sprintf("watching %s: %v: remove the looping link, until then new files in %s may go unnoticed", dir, err, dir))
+				looped = true
+			default:
+				return fmt.Errorf("watching %s: %w", dir, err)
 			}
-			return fmt.Errorf("watching %s: %w", dir, err)
 		}
 		w.dirs[dir] = info
+		w.real[real] = dir
 		deep = true
 	}
 	entries, err := os.ReadDir(w.abs(dir))
@@ -252,6 +292,10 @@ func (w *watcher) scan(dir string, deep bool) error {
 		}
 		info, err := os.Stat(w.abs(rel)) // follows symlinks, like the build does
 		if errors.Is(err, fs.ErrNotExist) {
+			continue // also a link to nothing
+		}
+		if errors.Is(err, syscall.ELOOP) {
+			w.warnOnce(rel, fmt.Sprintf("skipping %s: %v", rel, err))
 			continue
 		}
 		if err != nil {
@@ -265,6 +309,11 @@ func (w *watcher) scan(dir string, deep bool) error {
 				}
 			}
 			continue
+		}
+		if looped && kindOf(rel) != other {
+			if err := w.fs.Add(w.abs(rel)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				w.warnOnce(rel, fmt.Sprintf("watching %s: %v", rel, err))
+			}
 		}
 		if _, known := w.files[rel]; known && !deep {
 			continue
@@ -301,9 +350,20 @@ func (w *watcher) scan(dir string, deep bool) error {
 
 // unwatch forgets the watch of dir, not of its subdirectories.
 func (w *watcher) unwatch(dir string) {
-	if _, ok := w.dirs[dir]; ok {
-		delete(w.dirs, dir)
-		_ = w.fs.Remove(w.abs(dir)) // usually gone with the directory already
+	delete(w.dirs, dir)
+	for real, owner := range w.real {
+		if owner == dir {
+			delete(w.real, real)
+			_ = w.fs.Remove(real) // usually gone with the directory already
+		}
+	}
+	delete(w.warned, dir)
+}
+
+func (w *watcher) warnOnce(rel, msg string) {
+	if !w.warned[rel] {
+		w.warned[rel] = true
+		w.warn(msg)
 	}
 }
 
