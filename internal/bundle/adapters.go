@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -27,11 +28,10 @@ const (
 )
 
 var (
-	reactServerEntry  = regexp.MustCompile(`[/\\]react-dom[/\\]server\.edge\.js$`)
-	reactProduction   = regexp.MustCompile(`if \(process\.env\.NODE_ENV === 'production'\) \{([^}]+)\}`)
-	reactRequire      = regexp.MustCompile(`(\w+) = require\('([^']+)'\);`)
-	reactExport       = regexp.MustCompile(`exports\.(\w+) = (\w+)\.(\w+);`)
-	coreJSPackageRoot = regexp.MustCompile(`^(.*[/\\]node_modules[/\\]core-js)[/\\]`)
+	reactServerEntry = regexp.MustCompile(`[/\\]react-dom[/\\]server\.edge\.js$`)
+	reactProduction  = regexp.MustCompile(`if \(process\.env\.NODE_ENV === 'production'\) \{([^}]+)\}`)
+	reactRequire     = regexp.MustCompile(`(\w+) = require\('([^']+)'\);`)
+	reactExport      = regexp.MustCompile(`exports\.(\w+) = (\w+)\.(\w+);`)
 )
 
 // loadReactServer replaces react-dom/server.edge.js, a CommonJS barrel that
@@ -117,32 +117,50 @@ func quote(s string) string {
 	return string(b)
 }
 
-// resolveCoreJS points core-js's WeakMap detection at a module that answers
-// false, which selects core-js's own property-backed internal state in
-// QuickJS. Each core-js copy is checked against the reviewed version once,
-// the first time one of its files imports another.
-func resolveCoreJS(checked *sync.Map, args api.OnResolveArgs) (api.OnResolveResult, error) {
-	m := coreJSPackageRoot.FindStringSubmatch(args.Importer)
-	if m == nil {
-		return api.OnResolveResult{}, nil
+// findCoreJS returns the real directory of the core-js package that the
+// project root resolves, as require.resolve would from there, or "" when the
+// project has none. esbuild reports module paths with symlinks resolved, so
+// the adapter compares against the real directory.
+func findCoreJS(root string) (string, error) {
+	for dir := root; ; dir = filepath.Dir(dir) {
+		pkg := filepath.Join(dir, "node_modules", "core-js")
+		if _, err := os.Stat(filepath.Join(pkg, "package.json")); err == nil {
+			return filepath.EvalSymlinks(pkg)
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return "", err
+		}
+		if filepath.Dir(dir) == dir {
+			return "", nil
+		}
 	}
-	root := m[1]
-	result, seen := checked.Load(root)
-	if !seen {
-		result, seen = checked.LoadOrStore(root, checkCoreJS(root))
-	}
-	if err, _ := result.(error); err != nil {
-		if seen {
-			// Report the failed check once. The build already fails.
+}
+
+// coreJSAdapter checks the project's core-js against the reviewed version
+// when esbuild loads the first file of that package, and points its WeakMap
+// detection at a module that answers false. That selects core-js's own
+// property-backed internal state in QuickJS.
+func coreJSAdapter(b api.PluginBuild, root string) {
+	var once sync.Once
+	b.OnLoad(api.OnLoadOptions{Filter: "^" + regexp.QuoteMeta(root) + `[/\\]`, Namespace: "file"}, func(api.OnLoadArgs) (api.OnLoadResult, error) {
+		var err error
+		once.Do(func() { err = checkCoreJS(root) })
+		if err != nil {
+			// Only the first load reports the failed check. The build already fails.
+			return api.OnLoadResult{Errors: []api.Message{{Text: err.Error()}}}, nil
+		}
+		return api.OnLoadResult{}, nil
+	})
+	state := filepath.Join(root, "internals", "internal-state.js")
+	b.OnResolve(api.OnResolveOptions{Filter: `^\.\./internals/weak-map-basic-detection$`}, func(args api.OnResolveArgs) (api.OnResolveResult, error) {
+		if args.Importer != state {
 			return api.OnResolveResult{}, nil
 		}
-		return api.OnResolveResult{Errors: []api.Message{{Text: err.Error()}}}, nil
-	}
-	if args.Importer == filepath.Join(root, "internals", "internal-state.js") &&
-		args.Path == "../internals/weak-map-basic-detection" {
 		return api.OnResolveResult{Path: "property-state", Namespace: "quickjs-core-js"}, nil
-	}
-	return api.OnResolveResult{}, nil
+	})
+	b.OnLoad(api.OnLoadOptions{Filter: `.*`, Namespace: "quickjs-core-js"}, func(api.OnLoadArgs) (api.OnLoadResult, error) {
+		contents := "module.exports = false"
+		return api.OnLoadResult{Contents: &contents, Loader: api.LoaderJS}, nil
+	})
 }
 
 func checkCoreJS(root string) error {

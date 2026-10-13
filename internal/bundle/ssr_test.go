@@ -228,6 +228,8 @@ func TestSSRRejectsChangedCoreJS(t *testing.T) {
 	cases := map[string]struct{ version, state string }{
 		"changed source":  {"3.50.0", "require('../internals/weak-map-basic-detection'); module.exports = {}"},
 		"changed version": {"3.51.0", string(source)},
+		// A file without imports must not slip past the check.
+		"changed source without imports": {"3.50.0", "module.exports = {}"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -323,5 +325,55 @@ func TestSSRReportsMissingEntry(t *testing.T) {
 	_, err := SSR(ssrOptions(root, "missing.tsx"))
 	if err == nil || !strings.Contains(err.Error(), "missing.tsx") {
 		t.Fatalf("err = %v, want error naming the entry", err)
+	}
+}
+
+// linkCoreJS installs core-js the way a vendored or linked package would be:
+// node_modules/core-js is a symlink to a directory outside node_modules.
+func linkCoreJS(t *testing.T, root string) string {
+	t.Helper()
+	vendor := filepath.Join(root, "vendor", "core-js")
+	if err := os.MkdirAll(filepath.Join(root, "node_modules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(vendor, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(vendor, filepath.Join(root, "node_modules", "core-js")); err != nil {
+		t.Fatal(err)
+	}
+	return vendor
+}
+
+func TestSSRChecksSymlinkedCoreJS(t *testing.T) {
+	root := app(t, "ssr", false)
+	linkCoreJS(t, root)
+	writeFiles(t, root, map[string]string{
+		"vendor/core-js/package.json":                          `{"name":"core-js","version":"3.50.0"}`,
+		"vendor/core-js/internals/internal-state.js":           "require('../internals/weak-map-basic-detection'); module.exports = {}",
+		"vendor/core-js/internals/weak-map-basic-detection.js": "module.exports = true",
+	})
+	_, err := SSR(ssrOptions(root, "core-js-state.ts"))
+	if err == nil || !strings.Contains(err.Error(), "Review the QuickJS core-js compatibility adapter") {
+		t.Fatalf("err = %v, want core-js review error", err)
+	}
+}
+
+func TestSSRAdaptsSymlinkedCoreJS(t *testing.T) {
+	real, err := filepath.EvalSymlinks(filepath.Join(shopModules(t), "core-js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := app(t, "ssr", false)
+	vendor := linkCoreJS(t, root)
+	copyTree(t, real, vendor, func(rel string) bool {
+		return rel == "package.json" || strings.HasPrefix(rel, "internals"+string(filepath.Separator))
+	})
+	_, meta := buildSSRCode(t, ssrOptions(root, "core-js-state.ts"), true)
+	if !hasInput(meta, "quickjs-core-js:property-state") {
+		t.Fatal("core-js property state adapter not applied to a symlinked core-js")
+	}
+	if hasInput(meta, "core-js/internals/weak-map-basic-detection.js") {
+		t.Fatal("core-js WeakMap detection is still bundled")
 	}
 }

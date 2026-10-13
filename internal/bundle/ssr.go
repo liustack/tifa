@@ -54,10 +54,15 @@ func SSR(o SSROptions) (api.BuildResult, error) { return buildSSR(o, true) }
 
 // buildSSR lets tests compare the trimmed React entry with the untrimmed one.
 func buildSSR(o SSROptions, trimReact bool) (api.BuildResult, error) {
-	opts, err := buildOptions(o.Root, o.Entry, o.Tsconfig, o.Write, append(slices.Clone(o.Plugins), ssrPlugin(trimReact)))
+	opts, err := buildOptions(o.Root, o.Entry, o.Tsconfig, o.Write, nil)
 	if err != nil {
 		return api.BuildResult{}, err
 	}
+	coreJS, err := findCoreJS(opts.AbsWorkingDir)
+	if err != nil {
+		return api.BuildResult{}, err
+	}
+	opts.Plugins = append(slices.Clone(o.Plugins), ssrPlugin(trimReact, coreJS))
 	opts.Outfile = o.Outfile
 	opts.Platform = api.PlatformNeutral
 	opts.Conditions = []string{"worker", "import"}
@@ -84,23 +89,21 @@ func buildSSR(o SSROptions, trimReact bool) (api.BuildResult, error) {
 	return result, nil
 }
 
-func ssrPlugin(trimReact bool) api.Plugin {
+func ssrPlugin(trimReact bool, coreJS string) api.Plugin {
 	return api.Plugin{Name: "tifa-ssr", Setup: func(b api.PluginBuild) {
 		// esbuild calls plugin callbacks from several goroutines.
-		var reactModules, coreJSChecked sync.Map
+		var reactModules sync.Map
 		b.OnResolve(api.OnResolveOptions{Filter: `.*`}, func(args api.OnResolveArgs) (api.OnResolveResult, error) {
 			if (strings.HasPrefix(args.Path, "node:") || slices.Contains(nodeBuiltins, args.Path)) &&
 				!strings.Contains(args.Importer, "node_modules") {
 				return api.OnResolveResult{Errors: []api.Message{{Text: "Node APIs are not supported in page code: " + args.Path}}}, nil
 			}
-			if trimReact {
-				if path, ok := trimmedReactModule(&reactModules, args); ok {
-					// The reviewed renderer modules only initialize their own
-					// engine. An unused engine need not run for the other's API.
-					return api.OnResolveResult{Path: path, SideEffects: api.SideEffectsFalse}, nil
-				}
+			if path, ok := trimmedReactModule(&reactModules, args); trimReact && ok {
+				// The reviewed renderer modules only initialize their own
+				// engine. An unused engine need not run for the other's API.
+				return api.OnResolveResult{Path: path, SideEffects: api.SideEffectsFalse}, nil
 			}
-			return resolveCoreJS(&coreJSChecked, args)
+			return api.OnResolveResult{}, nil
 		})
 		if trimReact {
 			b.OnLoad(api.OnLoadOptions{Filter: reactServerEntry.String(), Namespace: "file"}, func(args api.OnLoadArgs) (api.OnLoadResult, error) {
@@ -109,10 +112,9 @@ func ssrPlugin(trimReact bool) api.Plugin {
 		}
 		// Select core-js's existing property-backed internal state. Do not
 		// replace the global WeakMap or patch generated output.
-		b.OnLoad(api.OnLoadOptions{Filter: `.*`, Namespace: "quickjs-core-js"}, func(api.OnLoadArgs) (api.OnLoadResult, error) {
-			contents := "module.exports = false"
-			return api.OnLoadResult{Contents: &contents, Loader: api.LoaderJS}, nil
-		})
+		if coreJS != "" {
+			coreJSAdapter(b, coreJS)
+		}
 		b.OnResolve(api.OnResolveOptions{Filter: `\.client(?:\.[jt]sx?)?$`}, func(args api.OnResolveArgs) (api.OnResolveResult, error) {
 			return api.OnResolveResult{Path: args.Path, Namespace: "client-only"}, nil
 		})
