@@ -61,7 +61,7 @@ tifa build [--dir 应用根目录] [-o 输出路径]
 - `paths: { "tifa/client": ["./runtime/client.ts"] }`：页面代码引用 `clientOnly`、`RouteError` 的固定模块名。
 - `include` 逐个列出 `.tifa` 下的入口，因为 TypeScript 的通配会跳过以点开头的目录。
 
-esbuild 不读 `rootDirs`，打包时用 `bundle.Generated(root)` 插件做同样的解析。
+esbuild 不读 `rootDirs`，打包时用 `bundle.Generated(root)` 插件做同样的解析：最后一段是 `+route`、`+route.js` 或 `+route.ts`、指向 `app/` 下某个目录的相对导入，不论中间经过几层（`'../../page/+route'` 也行），都解析到 `.tifa/` 里对应的文件。目录没有生成的模块时打包报错。tsconfig 打开了 `allowImportingTsExtensions`，带 `.ts` 的写法 TypeScript 同样接受。
 
 应用的 `package.json` 除 React、TanStack Router 外，还要有 SSR 宿主补丁用到的 `core-js`、`@kayahr/text-encoding`、`abort-controller`、`whatwg-fetch`，类型检查需要 `typescript`、`@types/react`、`@types/react-dom`。参照 `test/apps/pages/package.json`。
 

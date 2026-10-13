@@ -1,6 +1,7 @@
 package bundle
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -8,8 +9,9 @@ import (
 )
 
 // Generated resolves the modules that tifa build writes into root/.tifa, the way the generated
-// tsconfig lets TypeScript see them: a relative import of +route from app/<dir> (./+route, or
-// ../+route for an ancestor Layout) is .tifa/app/<dir>/+route.ts, and tifa/client is the runtime.
+// tsconfig lets TypeScript see them: rootDirs merges root and root/.tifa, so a relative import
+// whose last element is +route, +route.js or +route.ts and which points into app/<dir> is
+// .tifa/app/<dir>/+route.ts, whatever the path in between. tifa/client is the runtime.
 // root is made absolute and resolved through symbolic links first, because esbuild reports real paths.
 func Generated(root string) (api.Plugin, error) {
 	root, err := filepath.Abs(root)
@@ -22,15 +24,22 @@ func Generated(root string) (api.Plugin, error) {
 	gen := filepath.Join(root, ".tifa")
 	app := filepath.Join(root, "app")
 	return api.Plugin{Name: "tifa-generated", Setup: func(b api.PluginBuild) {
-		b.OnResolve(api.OnResolveOptions{Filter: `^\.\.?/(\.\./)*\+route$`}, func(args api.OnResolveArgs) (api.OnResolveResult, error) {
+		b.OnResolve(api.OnResolveOptions{Filter: `^\.\.?/(.*/)?\+route(\.js|\.ts)?$`}, func(args api.OnResolveArgs) (api.OnResolveResult, error) {
 			target := filepath.Join(args.ResolveDir, filepath.FromSlash(args.Path))
+			target = strings.TrimSuffix(strings.TrimSuffix(target, ".js"), ".ts")
 			rel, err := filepath.Rel(root, target)
 			if err != nil || !strings.HasPrefix(target, app+string(filepath.Separator)) {
 				return api.OnResolveResult{Errors: []api.Message{{
 					Text: args.Path + " is generated for directories under app/ only, " + args.Importer + " is outside",
 				}}}, nil
 			}
-			return api.OnResolveResult{Path: filepath.Join(gen, rel+".ts")}, nil
+			module := filepath.Join(gen, rel+".ts")
+			if _, err := os.Stat(module); err != nil {
+				return api.OnResolveResult{Errors: []api.Message{{
+					Text: args.Path + ": " + filepath.ToSlash(filepath.Dir(rel)) + " has no generated +route module, it holds no route or Layout with pages",
+				}}}, nil
+			}
+			return api.OnResolveResult{Path: module}, nil
 		})
 		b.OnResolve(api.OnResolveOptions{Filter: `^tifa/client$`}, func(api.OnResolveArgs) (api.OnResolveResult, error) {
 			return api.OnResolveResult{Path: filepath.Join(gen, "runtime", "client.ts")}, nil

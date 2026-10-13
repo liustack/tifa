@@ -60,6 +60,54 @@ func TestGeneratedPluginResolvesRouteModulesAndTheRuntime(t *testing.T) {
 	}
 }
 
+// Every relative spelling TypeScript resolves through rootDirs reaches the same generated module:
+// with a .js or .ts extension, through any number of levels and through sibling directories.
+func TestGeneratedPluginResolvesEverySpellingTypeScriptAccepts(t *testing.T) {
+	root := t.TempDir()
+	writeTree(t, root, map[string]string{
+		"app/shop/items/route.tsx": strings.Join([]string{
+			"import { route as a } from './+route.js'",
+			"import { route as b } from './+route.ts'",
+			"import { route as c } from '../+route.js'",
+			"import { route as d } from '../../+route'",
+			"import { route as e } from '../../page/+route'",
+			"import { route as f } from './../items/+route'",
+			"export const out = [a, b, c, d, e, f]",
+		}, "\n"),
+		".tifa/app/+route.ts":            "export const route = 'app-route-module'\n",
+		".tifa/app/page/+route.ts":       "export const route = 'page-route-module'\n",
+		".tifa/app/shop/+route.ts":       "export const route = 'shop-route-module'\n",
+		".tifa/app/shop/items/+route.ts": "export const route = 'items-route-module'\n",
+	})
+	plugin, err := Generated(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := api.Build(api.BuildOptions{AbsWorkingDir: root, EntryPoints: []string{"app/shop/items/route.tsx"}, Bundle: true, Plugins: []api.Plugin{plugin}})
+	if len(result.Errors) > 0 {
+		t.Fatalf("errors: %v", result.Errors)
+	}
+	out := string(result.OutputFiles[0].Contents)
+	for _, w := range []string{"app-route-module", "page-route-module", "shop-route-module", "items-route-module"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("bundle lacks %s:\n%s", w, out)
+		}
+	}
+}
+
+func TestGeneratedPluginReportsAMissingRouteModule(t *testing.T) {
+	root := t.TempDir()
+	writeTree(t, root, map[string]string{"app/page/route.tsx": "import { route } from '../nowhere/+route'\nexport const out = route\n"})
+	plugin, err := Generated(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := api.Build(api.BuildOptions{AbsWorkingDir: root, EntryPoints: []string{"app/page/route.tsx"}, Bundle: true, Plugins: []api.Plugin{plugin}})
+	if len(result.Errors) == 0 || !strings.Contains(result.Errors[0].Text, "app/nowhere") {
+		t.Fatalf("errors: %v", result.Errors)
+	}
+}
+
 func TestGeneratedPluginRejectsRouteModulesOutsideApp(t *testing.T) {
 	root := t.TempDir()
 	writeTree(t, root, map[string]string{"lib/x.ts": "import { route } from './+route'\nexport const out = route\n"})

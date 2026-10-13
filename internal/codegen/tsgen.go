@@ -100,6 +100,7 @@ const tsconfig = `{
     "jsx": "react-jsx",
     "strict": true,
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
