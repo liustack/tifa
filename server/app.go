@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"io/fs"
 	"sync"
 
 	"github.com/liustack/tifa"
@@ -17,6 +18,9 @@ type App struct {
 	// Config is the file's content. It is the layer below --config and above the defaults.
 	ConfigName string
 	Config     []byte
+	// Dist is the .tifa directory's embedded dist/ (the FS holds dist/ at its root): build.json,
+	// the SSR bundle, the browser assets and the public files that tifa build writes.
+	Dist fs.FS
 }
 
 // Layout is one directory holding layout.go, layout.tsx or both.

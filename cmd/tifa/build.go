@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/liustack/tifa/internal/analyze"
+	"github.com/liustack/tifa/internal/bundle"
 	"github.com/liustack/tifa/internal/codegen"
 	"github.com/spf13/cobra"
 )
@@ -19,7 +20,8 @@ func newBuildCmd() *cobra.Command {
 		Use:   "build",
 		Short: "Build the application into a single executable",
 		Long: `build checks the routing conventions, generates the main package and the TypeScript
-route tree into .tifa/, and compiles the executable with CGO_ENABLED=0.`,
+route tree into .tifa/, bundles the browser and SSR code into .tifa/dist and compiles the
+executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			root, err := filepath.Abs(dir)
@@ -39,8 +41,17 @@ route tree into .tifa/, and compiles the executable with CGO_ENABLED=0.`,
 			if err := codegen.Write(root, files); err != nil {
 				return err
 			}
-			// 3. The browser and SSR bundles go here, before go build embeds them.
-			// 4. go build.
+			// 3. Bundles: the browser and SSR bundles and the public files, into .tifa/dist.
+			settings, err := codegen.BuildSettings(root)
+			if err != nil {
+				return err
+			}
+			_, pages := files["client.ts"]
+			id, err := bundle.App(root, filepath.Join(root, settings.Public), pages)
+			if err != nil {
+				return err
+			}
+			// 4. go build, which embeds .tifa/dist.
 			if output == "" {
 				output = filepath.Join(root, "dist", path.Base(m.Module))
 			}
@@ -53,7 +64,7 @@ route tree into .tifa/, and compiles the executable with CGO_ENABLED=0.`,
 			if err := gobuild.Run(); err != nil {
 				return fmt.Errorf("go build: %w", err)
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), "built", output)
+			fmt.Fprintf(cmd.OutOrStdout(), "built %s (build %s)\n", output, id)
 			return nil
 		},
 	}

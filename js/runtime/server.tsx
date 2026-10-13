@@ -2,7 +2,10 @@ import { renderToString } from 'react-dom/server.edge'
 import { RouterProvider, type AnyRoute } from '@tanstack/react-router'
 import { attachRouterServerSsrUtils } from '@tanstack/react-router/ssr/server'
 import { createAppRouter } from './router'
-import { injected, type Injected } from './data'
+import { injected, type Assets, type Injected } from './data'
+
+// The browser bundle's files. tifa build defines it when it builds the SSR bundle.
+declare const __TIFA_ASSETS__: Assets
 
 declare global {
   var startRender: (json: string) => void
@@ -16,6 +19,7 @@ export function serve(routeTree: AnyRoute) {
     const input: Injected = JSON.parse(json)
     const router = createAppRouter(routeTree, injected(input), {
       buildId: input.buildId,
+      assets: __TIFA_ASSETS__,
       serverURL: input.url,
     })
     attachRouterServerSsrUtils({ router, manifest: undefined })

@@ -289,13 +289,33 @@ func jsStrings(values []string) string {
 }
 
 // routesModule writes routes.tsx: one route per node, the tree, and the router type registration
-// that gives getRouteApi its types.
+// that gives getRouteApi its types. A TSX module is loaded lazily, in its own browser chunk,
+// unless it is the root, which every page needs, or exports head, which the router needs
+// before it loads route chunks.
 func routesModule(top *tsNode, nodes []*tsNode) []byte {
 	var imports, body strings.Builder
-	runtime := map[string]bool{"createAppRouter": true}
+	runtime := map[string]bool{"createAppRouter": true, "rootHead": true, "rootScripts": true}
+	lazy := false
+	// export returns the expression of one export of node i's module.
+	eager := func(n *tsNode) bool { return n.parent == nil || n.exported("head") }
+	export := func(i int, n *tsNode, name string) string {
+		if eager(n) {
+			return fmt.Sprintf("m%d.%s", i, name)
+		}
+		lazy = true
+		if name == "default" {
+			return fmt.Sprintf("lazyRouteComponent(m%d)", i)
+		}
+		return fmt.Sprintf("lazyRouteComponent(m%d, %s)", i, jsString(name))
+	}
 	for i, n := range nodes {
 		if n.tsx {
-			fmt.Fprintf(&imports, "import * as m%d from %s\n", i, jsString(path.Join("..", n.id, n.file)))
+			module := jsString(path.Join("..", n.id, n.file))
+			if eager(n) {
+				fmt.Fprintf(&imports, "import * as m%d from %s\n", i, module)
+			} else {
+				fmt.Fprintf(&imports, "const m%d = () => import(%s)\n", i, module)
+			}
 		}
 		if n.load != nil {
 			fmt.Fprintf(&imports, "import type { Data as D%d } from %s\n", i, jsString("./"+n.id+"/+route"))
@@ -316,24 +336,29 @@ func routesModule(top *tsNode, nodes []*tsNode) []byte {
 		}
 		switch {
 		case n.tsx:
-			opts = append(opts, fmt.Sprintf("component: m%d.default", i))
+			opts = append(opts, "component: "+export(i, n, "default"))
 		case n.parent == nil:
 			opts = append(opts, "component: DefaultDocument")
 			runtime["DefaultDocument"] = true
 		}
-		if n.exported("head") {
+		switch {
+		case n.parent == nil && n.exported("head"):
+			opts = append(opts, fmt.Sprintf("head: rootHead(m%d.head)", i), "scripts: rootScripts")
+		case n.parent == nil:
+			opts = append(opts, "head: rootHead()", "scripts: rootScripts")
+		case n.exported("head"):
 			opts = append(opts, fmt.Sprintf("head: m%d.head", i))
 		}
 		switch {
 		case n.exported("Error"):
-			opts = append(opts, fmt.Sprintf("errorComponent: m%d.Error", i))
+			opts = append(opts, "errorComponent: "+export(i, n, "Error"))
 		case n.parent == nil:
 			opts = append(opts, "errorComponent: DefaultError")
 			runtime["DefaultError"] = true
 		}
 		switch {
 		case n.exported("NotFound"):
-			opts = append(opts, fmt.Sprintf("notFoundComponent: m%d.NotFound", i))
+			opts = append(opts, "notFoundComponent: "+export(i, n, "NotFound"))
 		case n.parent == nil:
 			opts = append(opts, "notFoundComponent: DefaultNotFound")
 			runtime["DefaultNotFound"] = true
@@ -342,8 +367,13 @@ func routesModule(top *tsNode, nodes []*tsNode) []byte {
 		if n.load != nil {
 			query = n.load.AllQuery
 			runtime["load"] = true
+			// A Layout's 404 is shown from its parent up, a page's from the page up.
+			notFoundFrom := ""
+			if n.file == "layout" && n.parent != nil {
+				notFoundFrom = ", " + jsString(n.parent.routeID)
+			}
 			opts = append(opts,
-				fmt.Sprintf("loader: ({ context, location }) => load<D%d>(context, %s, location)", i, jsString(n.id)),
+				fmt.Sprintf("loader: ({ context, location }) => load<D%d>(context, %s, location%s)", i, jsString(n.id), notFoundFrom),
 				"staleTime: Infinity")
 			if len(query) > 0 {
 				runtime["pick"] = true
@@ -380,9 +410,13 @@ declare module "@tanstack/react-router" {
 
 	var out strings.Builder
 	out.WriteString(tsHeader)
-	out.WriteString(`import { createRootRouteWithContext, createRoute } from "@tanstack/react-router"` + "\n")
+	router := "createRootRouteWithContext, createRoute"
+	if lazy {
+		router += ", lazyRouteComponent"
+	}
+	fmt.Fprintf(&out, `import { %s } from "@tanstack/react-router"`+"\n", router)
 	var names []string
-	for _, name := range []string{"createAppRouter", "DefaultDocument", "DefaultError", "DefaultNotFound", "load", "pick"} {
+	for _, name := range []string{"createAppRouter", "DefaultDocument", "DefaultError", "DefaultNotFound", "load", "pick", "rootHead", "rootScripts"} {
 		if runtime[name] {
 			names = append(names, name)
 		}

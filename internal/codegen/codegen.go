@@ -34,12 +34,7 @@ func Generate(root string, m *analyze.Manifest, dev bool) (map[string][]byte, er
 	}
 	if configName != "" {
 		// Check the file now rather than when the built program starts.
-		fs := pflag.NewFlagSet("tifa", pflag.ContinueOnError)
-		tifaconfig.AddFlags(fs)
-		if err := fs.Parse(nil); err != nil {
-			return nil, err
-		}
-		if _, err := tifaconfig.Load(fs, nil, configName, config); err != nil {
+		if _, err := loadConfig(configName, config); err != nil {
 			return nil, err
 		}
 		files[configName] = config
@@ -55,6 +50,27 @@ func Generate(root string, m *analyze.Manifest, dev bool) (map[string][]byte, er
 	}
 	maps.Copy(files, tsFiles)
 	return files, nil
+}
+
+// BuildSettings returns the build section of the project tifa.yaml or tifa.json, the defaults
+// without one.
+func BuildSettings(root string) (tifaconfig.Build, error) {
+	name, data, err := projectConfig(root)
+	if err != nil {
+		return tifaconfig.Build{}, err
+	}
+	cfg, err := loadConfig(name, data)
+	return cfg.Build, err
+}
+
+// loadConfig reads a project config file the way the built program does, with no other layer.
+func loadConfig(name string, data []byte) (tifaconfig.Config, error) {
+	fs := pflag.NewFlagSet("tifa", pflag.ContinueOnError)
+	tifaconfig.AddFlags(fs)
+	if err := fs.Parse(nil); err != nil {
+		return tifaconfig.Config{}, err
+	}
+	return tifaconfig.Load(fs, nil, name, data)
 }
 
 // projectConfig reads tifa.yaml or tifa.json from the application root. The generated main embeds
@@ -76,8 +92,12 @@ func projectConfig(root string) (name string, data []byte, err error) {
 	return name, data, nil
 }
 
-// Write makes root/.tifa hold exactly files: it writes the files whose content changed and removes
-// the files that are no longer generated, so tools watching the directory see only real changes.
+// DistDir is the directory under Dir that the bundle step owns. Write leaves it alone.
+const DistDir = "dist"
+
+// Write makes root/.tifa hold exactly files besides dist/: it writes the files whose content
+// changed and removes the files that are no longer generated, so tools watching the directory
+// see only real changes.
 func Write(root string, files map[string][]byte) error {
 	dir := filepath.Join(root, Dir)
 	var stale []string
@@ -85,8 +105,14 @@ func Write(root string, files map[string][]byte) error {
 		if errors.Is(err, fs.ErrNotExist) && path == dir {
 			return filepath.SkipAll
 		}
-		if err != nil || d.IsDir() {
+		if err != nil {
 			return err
+		}
+		if d.IsDir() && path == filepath.Join(dir, DistDir) {
+			return filepath.SkipDir
+		}
+		if d.IsDir() {
+			return nil
 		}
 		rel, err := filepath.Rel(dir, path)
 		if err != nil {

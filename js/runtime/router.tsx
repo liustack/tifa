@@ -4,11 +4,12 @@ import {
   HeadContent,
   notFound,
   Outlet,
+  redirect,
   Scripts,
   type AnyRoute,
   type ErrorComponentProps,
 } from '@tanstack/react-router'
-import { RouteError, type Source } from './data'
+import { RouteError, type Assets, type Source } from './data'
 
 // RouterContext is the context of the root route. Loaders read their data through source.
 export interface RouterContext {
@@ -17,16 +18,22 @@ export interface RouterContext {
 
 interface Dehydrated {
   buildId: string
+  assets: Assets
 }
 
 export interface RouterOptions {
-  // The build ID a server render writes into the page.
+  // The build ID and assets of a page the server renders, or of a page rendered without SSR.
   buildId?: string
+  assets?: Assets
   // The URL of a server render. Without it the router runs in the browser.
   serverURL?: string
   // Receives the build ID of the page when the browser hydrates it.
   onHydrate?: (buildId: string) => void
 }
+
+// The assets of the current page. The root route's head and scripts render them, on the server
+// from the render options and in the browser from the dehydrated state, so both render the same.
+let pageAssets: Assets | undefined
 
 export function createAppRouter<TRouteTree extends AnyRoute>(
   routeTree: TRouteTree,
@@ -34,6 +41,7 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
   options: RouterOptions,
 ) {
   const { buildId, serverURL, onHydrate } = options
+  if (options.assets) pageAssets = options.assets
   return createRouter({
     routeTree,
     context: { source },
@@ -42,26 +50,52 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
     defaultPreload: 'intent',
     scrollRestoration: true,
     dehydrate: (): Dehydrated => {
-      if (buildId === undefined) throw new Error('a server render needs the build ID')
-      return { buildId }
+      if (buildId === undefined || pageAssets === undefined)
+        throw new Error('a server render needs the build ID and the assets')
+      return { buildId, assets: pageAssets }
     },
     hydrate: (dehydrated: Dehydrated) => {
+      pageAssets = dehydrated.assets
       if (onHydrate) onHydrate(dehydrated.buildId)
     },
   })
 }
 
 // load is the loader of every route with a Go Load: it asks the source for the route's result
-// at the URL being loaded and turns 404 into notFound() and other failures into a RouteError.
+// at the URL being loaded. 404 becomes notFound(), shown by the closest NotFound from
+// notFoundFrom up (a Layout passes its parent, a page itself). A redirect becomes redirect(),
+// other failures a RouteError for the Error components.
 export async function load<T>(
   context: RouterContext,
   id: string,
   location: { pathname: string; searchStr: string },
+  notFoundFrom?: string,
 ): Promise<T> {
   const result = await context.source(location.pathname + location.searchStr, id)
   if (result.status === 200) return result.data as T
-  if (result.status === 404) throw notFound()
+  if (result.status === 404) throw notFound(notFoundFrom ? { routeId: notFoundFrom as never } : {})
+  if (result.location !== undefined) throw redirect({ href: result.location, statusCode: result.status })
   throw new RouteError(result.status, result.error ?? `route ${id} failed with status ${result.status}`)
+}
+
+type HeadResult = { links?: Array<Record<string, string>>; [key: string]: unknown } | undefined
+
+// rootHead adds the stylesheet of the browser bundle to the head of the root route.
+export function rootHead(head?: (ctx: any) => HeadResult | Promise<HeadResult>) {
+  return (ctx: any) => {
+    const add = (result: HeadResult) => {
+      const style = pageAssets?.style
+      const links = style ? [{ rel: 'stylesheet', href: style }] : []
+      return { ...result, links: [...links, ...(result?.links ?? [])] }
+    }
+    const own = head ? head(ctx) : undefined
+    return own instanceof Promise ? own.then(add) : add(own)
+  }
+}
+
+// rootScripts loads the browser bundle from the root route.
+export function rootScripts() {
+  return pageAssets ? [{ type: 'module', src: pageAssets.script }] : []
 }
 
 // pick keeps the query parameters a Load reads, for loaderDeps and remountDeps. Other

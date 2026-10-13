@@ -58,10 +58,7 @@ func generateGo(m *analyze.Manifest, configName string) (map[string][]byte, erro
 	}
 
 	var main strings.Builder
-	main.WriteString(header + "package main\n\nimport (\n")
-	if configName != "" {
-		main.WriteString("_ \"embed\"\n\n")
-	}
+	main.WriteString(header + "package main\n\nimport (\n\"embed\"\n\n")
 	main.WriteString("\"github.com/liustack/tifa/server\"\n")
 	if len(m.Hooks) > 0 {
 		fmt.Fprintf(&main, "\nhooks %q\n", m.Module)
@@ -70,6 +67,7 @@ func generateGo(m *analyze.Manifest, configName string) (map[string][]byte, erro
 	if configName != "" {
 		fmt.Fprintf(&main, "// config is the project %s, the settings layer below --config.\n//\n//go:embed %s\nvar config []byte\n\n", configName, configName)
 	}
+	main.WriteString("// dist holds what tifa build bundles: build.json, the SSR bundle, the browser assets and\n// the public files.\n//\n//go:embed all:dist\nvar dist embed.FS\n\n")
 	main.WriteString("func main() {\nserver.Main(server.App{\n")
 	if len(m.Hooks) > 0 {
 		main.WriteString("Hooks: server.Hooks{\n")
@@ -78,7 +76,7 @@ func generateGo(m *analyze.Manifest, configName string) (map[string][]byte, erro
 		}
 		main.WriteString("},\n")
 	}
-	main.WriteString("Layouts: layouts,\nRoutes: routes,\n")
+	main.WriteString("Layouts: layouts,\nRoutes: routes,\nDist: dist,\n")
 	if configName != "" {
 		fmt.Fprintf(&main, "ConfigName: %q,\nConfig: config,\n", configName)
 	}

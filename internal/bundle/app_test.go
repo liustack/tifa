@@ -21,7 +21,7 @@ func fakeApp(t *testing.T) string {
 		".tifa/client.ts":          "import('../app/page/route').then((m) => console.log(m.default))\n",
 		".tifa/server.ts": "declare const __TIFA_ASSETS__: unknown\n" +
 			"import '../app/page/route'\n(globalThis as any).startRender = () => JSON.stringify(__TIFA_ASSETS__)\n",
-		"public/robots.txt": "User-agent: *\n",
+		"public/robots.txt":   "User-agent: *\n",
 		".tifa/dist/stale.js": "old\n",
 	})
 	return root

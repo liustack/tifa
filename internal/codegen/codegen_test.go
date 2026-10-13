@@ -166,6 +166,7 @@ func TestWriteKeepsUnchangedFilesAndRemovesStaleOnes(t *testing.T) {
 	if err := Write(root, map[string][]byte{"main.go": []byte("a"), "app/x/+route.ts": []byte("b"), "app/y/+route.ts": []byte("c")}); err != nil {
 		t.Fatal(err)
 	}
+	writeFile(t, filepath.Join(root, Dir, "dist/build.json"), "{}")
 	keep := filepath.Join(root, Dir, "main.go")
 	past := time.Now().Add(-time.Hour).Truncate(time.Second)
 	if err := os.Chtimes(keep, past, past); err != nil {
@@ -179,6 +180,9 @@ func TestWriteKeepsUnchangedFilesAndRemovesStaleOnes(t *testing.T) {
 	}
 	if data, _ := os.ReadFile(filepath.Join(root, Dir, "app/x/+route.ts")); string(data) != "B" {
 		t.Errorf("changed file holds %q", data)
+	}
+	if _, err := os.Stat(filepath.Join(root, Dir, "dist/build.json")); err != nil {
+		t.Errorf("Write touched the bundle output: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(root, Dir, "app/y")); !os.IsNotExist(err) {
 		t.Errorf("stale directory still exists: %v", err)

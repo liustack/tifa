@@ -3,7 +3,7 @@
 package main
 
 import (
-	_ "embed"
+	"embed"
 
 	"github.com/liustack/tifa/server"
 
@@ -15,6 +15,12 @@ import (
 //go:embed tifa.yaml
 var config []byte
 
+// dist holds what tifa build bundles: build.json, the SSR bundle, the browser assets and
+// the public files.
+//
+//go:embed all:dist
+var dist embed.FS
+
 func main() {
 	server.Main(server.App{
 		Hooks: server.Hooks{
@@ -23,6 +29,7 @@ func main() {
 		},
 		Layouts:    layouts,
 		Routes:     routes,
+		Dist:       dist,
 		ConfigName: "tifa.yaml",
 		Config:     config,
 	})

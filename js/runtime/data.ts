@@ -7,11 +7,13 @@
 // from other sources answers 409, and the browser loads the URL as a whole page.
 
 // RouteResult is the outcome of one Load. status is 200 with data, 404 when the Load returned
-// tifa.ErrNotFound, or the status of the error with its public message.
+// tifa.ErrNotFound, a redirect status with location when it returned c.Redirect, or the status
+// of the error with its public message.
 export interface RouteResult {
   status: number
   data?: unknown
   error?: string
+  location?: string
 }
 
 // Injected is the input of one whole-page render.
@@ -20,6 +22,20 @@ export interface Injected {
   buildId: string
   data: Record<string, RouteResult>
 }
+
+// Assets are the files of the browser bundle a page loads.
+export interface Assets {
+  script: string
+  style?: string
+}
+
+// Boot is what a page rendered without SSR carries in <script id="tifa-data">: the render
+// input and the assets, so the browser renders it without asking for data.
+export interface Boot extends Injected {
+  assets: Assets
+}
+
+export const bootElementId = 'tifa-data'
 
 // Source answers the RouteResult of one route at one URL.
 export type Source = (url: string, id: string) => Promise<RouteResult>
@@ -49,7 +65,7 @@ export function injected(input: Injected): Source {
 }
 
 // The router may encode the query differently (%20 or +) from the request URL.
-function sameURL(a: string, b: string) {
+export function sameURL(a: string, b: string) {
   const canonical = (url: string) => {
     const value = new URL(url, 'http://tifa.invalid')
     return value.pathname + '?' + value.searchParams.toString()
