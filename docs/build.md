@@ -1,10 +1,11 @@
 ---
-summary: 'tifa build 做什么、.tifa/ 里生成了哪些文件、应用的 tsconfig 与 go.mod 怎么配、生成的 main 怎么启动'
+summary: 'tifa build 做什么、.tifa/ 里生成了哪些文件和产物、应用的 tsconfig 与 go.mod 怎么配、生成的程序怎么启动和回答页面请求'
 read_when:
   - 改 internal/codegen、cmd/tifa 的 build 命令或 server.Main
   - 新建一个 tifa 应用，或给 test/apps 加应用
   - 看不懂 .tifa/ 下某个文件从哪来
   - 实现页面渲染、导航数据请求，需要知道路由树与数据协议
+  - 改 internal/bundle、js/host，或升级 SSR 宿主补丁的依赖
 ---
 
 # 构建与生成代码
@@ -17,8 +18,8 @@ tifa build [--dir 应用根目录] [-o 输出路径]
 
 1. 静态分析 `app/` 与根目录 `hooks.go`，约定不满足时逐条打印 `文件:行号: 原因` 并退出。
 2. 把生成代码写进 `.tifa/`。只改内容变了的文件，删掉不再生成的文件。
-3. 打包浏览器包与 SSR 包（尚未接入）。
-4. `CGO_ENABLED=0 go build -mod=mod -o <输出> ./.tifa`（`GOFLAGS` 已指定 `-mod` 时不加），默认输出 `dist/<模块路径最后一段>`。
+3. 用 esbuild（Go API）打包，产物写进 `.tifa/dist/`，见下文「前端产物」。不需要 Node。
+4. `CGO_ENABLED=0 go build -mod=mod -o <输出> ./.tifa`（`GOFLAGS` 已指定 `-mod` 时不加），默认输出 `dist/<模块路径最后一段>`。生成的 main 用 `//go:embed all:dist` 把 `.tifa/dist/` 嵌进可执行文件。
 
 生成的 main 引用 `github.com/liustack/tifa/server`，它的依赖（cobra、pflag、yaml）要出现在应用的 `go.mod` 与 `go.sum` 里。`go mod tidy` 跳过 `.tifa/` 看不到这层引用，所以 `tifa build` 带 `-mod=mod`，由 go 命令补上这些 `// indirect` 依赖。应用跑过 `go mod tidy` 后它们会被删掉，下次构建再补回来。
 
@@ -28,7 +29,7 @@ tifa build [--dir 应用根目录] [-o 输出路径]
 
 | 文件 | 内容 |
 | --- | --- |
-| `main.go` | 调用 `server.Main`，只填 `hooks.go` 里实际存在的钩子。有项目配置时 `go:embed` 它 |
+| `main.go` | 调用 `server.Main`，只填 `hooks.go` 里实际存在的钩子。`go:embed` 前端产物 `dist/`，有项目配置时也嵌入它 |
 | `routes.go` | `layouts` 与 `routes` 两个包级变量，每个 `Load` 包成 `func(c *tifa.Ctx) (any, error) { return tifa.Use(c, pkg.Load) }` |
 | `tifa.yaml` 或 `tifa.json` | 项目配置的副本（`go:embed` 不能引用上级目录）。构建时先按运行时规则校验一遍 |
 | `routes.tsx` | TanStack 路由树与 `Register` 类型注册 |
@@ -36,8 +37,20 @@ tifa build [--dir 应用根目录] [-o 输出路径]
 | `server.ts`、`client.ts` | SSR 入口与浏览器入口。`tifa dev` 的浏览器入口另外引入 `runtime/dev-client.js` |
 | `tsconfig.json` | 见下文 |
 | `runtime/` | 仓库 `js/runtime/` 的原样副本 |
+| `dist/` | 前端产物，见下文 |
 
-没有页面（没有任何 `route.tsx`）的应用只生成 Go 文件。
+没有页面（没有任何 `route.tsx`）的应用只生成 Go 文件，`dist/` 里只有 `build.json` 和公共文件。
+
+## 前端产物
+
+| 路径 | 内容 |
+| --- | --- |
+| `dist/assets/` | 浏览器包，入口 `client.ts`。按路由拆分：除根 Layout 和导出 `head` 的模块外，每个路由模块用 `lazyRouteComponent` 懒加载，各自一个 chunk。文件名都带内容哈希 |
+| `dist/ssr.js` | SSR 包，入口 `server.ts`，单个文件。esbuild 的 `define` 把浏览器入口与样式的 URL 写进 `__TIFA_ASSETS__` |
+| `dist/public/` | 配置项 `build.public` 指向的目录（默认 `public`）原样复制，不存在就没有 |
+| `dist/build.json` | `{buildId, script, style}`。构建 ID 是 `dist/` 里其他所有文件（含文件名）的哈希，同样的输入得到同样的 ID |
+
+SSR 包开头引入 `runtime/host.js`，它补上 QuickJS 缺的 `URL`、`TextEncoder`/`TextDecoder`、`AbortController`、`Headers`、`Response` 等，不提供 `fetch` 与 `Request`。这份脚本由 `go generate ./js` 从 `js/host/host.ts` 预打包后入库，依赖版本锁在 `js/host/package.json` 与 `pnpm-lock.yaml`。升级时在 `js/host` 里 `pnpm install --frozen-lockfile`（或改版本后 `pnpm install`），再跑 `go generate ./js`。`internal/bundle` 的 `TestHostScriptIsUpToDate` 检查重新生成的结果与入库文件一致，`js/host/node_modules` 不存在时 skip。应用因此不需要安装这些补丁包。
 
 ## 路由树
 
@@ -69,7 +82,7 @@ tifa build [--dir 应用根目录] [-o 输出路径]
 
 esbuild 不读 `rootDirs`，打包时用 `bundle.Generated(root)` 插件做同样的解析：最后一段是 `+route`、`+route.js` 或 `+route.ts`、指向 `app/` 下某个目录的相对导入，不论中间经过几层（`'../../page/+route'` 也行），都解析到 `.tifa/` 里对应的文件。目录没有生成的模块时打包报错。tsconfig 打开了 `allowImportingTsExtensions`，带 `.ts` 的写法 TypeScript 同样接受。
 
-应用的 `package.json` 除 React、TanStack Router 外，还要有 SSR 宿主补丁用到的 `core-js`、`@kayahr/text-encoding`、`abort-controller`、`whatwg-fetch`，类型检查需要 `typescript`、`@types/react`、`@types/react-dom`。参照 `test/apps/pages/package.json`。
+应用的 `package.json` 只需要 React、React DOM 与 TanStack Router，类型检查另需 `typescript`、`@types/react`、`@types/react-dom`。参照 `test/apps/pages/package.json`。
 
 ## 数据协议
 
@@ -92,4 +105,26 @@ esbuild 不读 `rootDirs`，打包时用 `bundle.Generated(root)` 插件做同�
 
 配置优先级从高到低：命令行参数、`TIFA_*` 环境变量、`--config` 指定的文件、嵌入的项目配置、默认值。未知的 `TIFA_*` 环境变量会让程序报错退出。
 
-还没有渲染器时，页面的 GET 并发执行匹配链上所有 `Load`，按路由 ID 返回 JSON。
+`serve` 另有开发开关 `--dist <目录>`：从这个目录读前端产物，替代嵌入的 `dist/`。`tifa dev` 重建后把它指向 `.tifa/dist`，再重启应用，不必重新 `go build`。它不是部署配置，不进配置分层，也没有对应的 `TIFA_*` 变量。启动时读 `ssr.js` 编译并预热 VM 池，读 `build.json` 拿到构建 ID 与资源路径。
+
+## 页面请求
+
+静态文件在路由之前处理，不经过 `OnRequest`：`/assets/` 下的文件带 `Cache-Control: public, max-age=31536000, immutable`，公共目录的文件带 `no-cache`，只响应 GET 与 HEAD。
+
+页面 URL 的 GET 经过 `OnRequest` 之后：
+
+| 请求 | 回答 |
+| --- | --- |
+| 无 `X-Tifa-Route` | 并发执行匹配链上所有 `Load`。构建 ID、URL 与结果的哈希作 ETag，`If-None-Match` 命中答 304。`Cache = true` 的页面先查 HTML 缓存（按字节计的 LRU，容量 `cache.size`，0 关闭），未命中才进 VM |
+| 同上，匹配链上有 `SSR = false` | 不进 VM，返回最简文档：资源标签与 `<script type="application/json" id="tifa-data">` 里的注入数据，浏览器直接渲染，不再请求数据 |
+| 有 `X-Tifa-Route` | 只执行所列路由的 `Load`（`tifa.Use` 在本次请求内去重），答 200 与 `{路由 ID: 结果}`，每项带自己的状态。`X-Tifa-Build` 不是当前构建时答 409，所列路由不在匹配链上时答 400 |
+
+页面响应都带 `Vary: X-Tifa-Route`，并用 `X-Tifa-Render: vm|cache|none` 说明这次是 VM 渲染、缓存命中还是没进 VM。
+
+出错时：
+
+- 匹配链上有 `Load` 失败：用全部结果和错误的状态码（404 或 `tifa.Error` 的状态码，意外错误经 `OnError`）渲染整页，路由器显示对应层级的 `NotFound` 或 `Error`。多个 `Load` 经 `tifa.Use` 共享同一个错误时，`OnError` 只收到一次。
+- 未匹配的 URL：`OnRequest` 之后以 404 渲染根 Layout 的 `NotFound`，不执行任何 `Load`。根 Layout 是 `SSR = false` 时返回最简文档。
+- VM 渲染失败，或 `OnRequest` 自己返回错误：返回 Go 写的简单错误页，不暴露内部错误。
+- 路由器对 URL 有不同写法（`/%61` 写成 `/a`）时 VM 返回重定向，服务器照样答重定向。
+- 非 GET 请求、接口路由与没有页面的应用仍答 JSON。
