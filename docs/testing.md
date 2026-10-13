@@ -51,6 +51,8 @@ TIFA_E2E=1 go test ./test/e2e/
 
 `test/apps` 下每个应用是独立模块，根目录的 `go test ./...` 不会扫到它们。构建会在应用目录写 `.tifa/` 与 `node_modules/`，两者都已忽略。改了 `internal/codegen` 的输出后，在 `internal/codegen` 里跑 `go test -update` 刷新 golden 文件，再看 diff。
 
+`internal/codegen` 的 `TestGeneratedRouterBehaves` 为 `testdata/router` 生成路由树，用 Node 跑 `testdata/router/router.test.tsx`：经 SSR 入口整页渲染、在内存 history 上做客户端加载、对替换掉的 `fetch` 检查数据收集器，最后连同运行时一起 `tsc --noEmit`。它借用 `test/apps/pages/node_modules`，没装 Node 或没在该目录 `pnpm install --frozen-lockfile` 时 skip。改路由树生成或 `js/runtime` 时先在这里补用例。
+
 ## 写测试
 
 - 新行为与原因已知的 bug：先写测试，亲眼看到它失败，再写实现。
