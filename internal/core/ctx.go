@@ -92,12 +92,19 @@ func (c *Ctx) Pattern() string { return c.pattern }
 // IsData reports whether this is a client navigation asking for route data.
 func (c *Ctx) IsData() bool { return c.r.Header.Get("X-Tifa-Route") != "" }
 
-// SetBodyLimit changes the request body limit. It only takes effect before the body is first read.
-// The body stays an http.MaxBytesReader, so ParseForm honours the limit instead of its own 10 MiB cap.
-func (c *Ctx) SetBodyLimit(n int64) {
-	if c.req.body != nil && c.req.body.n == 0 {
-		c.r.Body = http.MaxBytesReader(c.w, c.req.body, n)
+// SetBodyLimit changes the request body limit. Call it before anything reads the body, on the goroutine
+// that handles the request, usually in OnRequest. Once reading has started it returns an error and the
+// limit stays as it was. The body stays an http.MaxBytesReader, so ParseForm honours the limit instead
+// of its own 10 MiB cap.
+func (c *Ctx) SetBodyLimit(n int64) error {
+	if c.req.body == nil {
+		return nil
 	}
+	if c.req.body.n > 0 {
+		return errors.New("tifa: SetBodyLimit called after the request body was read")
+	}
+	c.r.Body = http.MaxBytesReader(c.w, c.req.body, n)
+	return nil
 }
 
 func (c *Ctx) SetHeader(key, value string) {

@@ -235,7 +235,9 @@ func TestPatternIsEmptyForUnmatchedURL(t *testing.T) {
 func TestBodyLimitAppliesToBind(t *testing.T) {
 	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx) error {
 		if c.Pattern() == "/uploads" {
-			c.SetBodyLimit(1 << 10)
+			if err := c.SetBodyLimit(1 << 10); err != nil {
+				return err
+			}
 		}
 		return c.Next()
 	}})

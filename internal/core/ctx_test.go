@@ -142,7 +142,9 @@ func TestBindRespectsBodyLimit(t *testing.T) {
 	body := `{"name":"` + strings.Repeat("x", 64) + `"}`
 	for _, contentType := range []string{"application/json", "application/x-www-form-urlencoded"} {
 		c, _ := newCtx("POST", body, contentType, 1024)
-		c.SetBodyLimit(16)
+		if err := c.SetBodyLimit(16); err != nil {
+			t.Fatal(err)
+		}
 		var in input
 		var e Error
 		if err := c.Bind(&in); !errors.As(err, &e) || e.Status != http.StatusRequestEntityTooLarge {
@@ -231,9 +233,28 @@ func TestBindFormUsesConfiguredLimitAboveTenMiB(t *testing.T) {
 		t.Fatalf("form within the configured limit: %v", err)
 	}
 	c, _ = newCtx("POST", body, "application/x-www-form-urlencoded", 16<<20)
-	c.SetBodyLimit(1 << 20)
+	if err := c.SetBodyLimit(1 << 20); err != nil {
+		t.Fatal(err)
+	}
 	var e Error
 	if err := c.Bind(&in); !errors.As(err, &e) || e.Status != http.StatusRequestEntityTooLarge {
 		t.Fatalf("form over a lowered limit: %v", err)
+	}
+}
+
+func TestSetBodyLimitFailsOnceReadingStarted(t *testing.T) {
+	c, _ := newCtx("POST", `{"name":"a"}`, "application/json", 1024)
+	if err := c.SetBodyLimit(64); err != nil {
+		t.Fatalf("before reading: %v", err)
+	}
+	if _, err := c.Request().Body.Read(make([]byte, 1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SetBodyLimit(1 << 20); err == nil {
+		t.Fatal("SetBodyLimit after reading started must fail")
+	}
+	c, _ = newCtx("GET", "", "", 1024)
+	if err := c.SetBodyLimit(64); err != nil {
+		t.Fatalf("request without a body: %v", err)
 	}
 }
