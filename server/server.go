@@ -2,6 +2,7 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -282,7 +283,24 @@ func (w *writer) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
+// Of the operations http.ResponseController reaches, Flush and Hijack commit the response, so the writer
+// implements them itself and records that. Deadlines and full duplex do not commit and go through Unwrap.
 func (w *writer) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func (w *writer) FlushError() error {
+	w.wrote = true
+	return http.NewResponseController(w.ResponseWriter).Flush()
+}
+
+func (w *writer) Flush() { _ = w.FlushError() }
+
+func (w *writer) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	conn, rw, err := http.NewResponseController(w.ResponseWriter).Hijack()
+	if err == nil {
+		w.wrote = true
+	}
+	return conn, rw, err
+}
 
 // Run calls OnStart, listens on the configured address and serves until ctx is done.
 func (s *Server) Run(ctx context.Context) error {

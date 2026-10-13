@@ -516,3 +516,23 @@ func TestOnShutdownIsSkippedWhileHandlersNeverReturn(t *testing.T) {
 		t.Fatal("OnShutdown ran while a handler was still running")
 	}
 }
+
+func TestFlushCountsAsWritten(t *testing.T) {
+	s := New(config.Default(), Hooks{})
+	s.Handle("GET", "/stream", func(c *tifa.Ctx) error {
+		if err := http.NewResponseController(c.Writer()).Flush(); err != nil {
+			return err
+		}
+		return errDatabase
+	})
+	s.Handle("GET", "/legacy-flush", func(c *tifa.Ctx) error {
+		c.Writer().(http.Flusher).Flush()
+		return tifa.ErrNotFound
+	})
+	for _, target := range []string{"/stream", "/legacy-flush"} {
+		w := send(s, "GET", target, "")
+		if w.Code != 200 || w.Body.Len() != 0 {
+			t.Errorf("%s: framework wrote %d %q after the handler flushed", target, w.Code, w.Body.String())
+		}
+	}
+}
