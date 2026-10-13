@@ -137,14 +137,16 @@ func TestViolations(t *testing.T) {
 			{"app/page/route.go:13:", "package-level function", "method"},
 		}},
 		{"badtype", [][]string{
-			{"app/page/route.go:42:", "Data.Updates", "chan int"},
-			{"app/page/route.go:42:", "Data.ByScore", "map[float64]string"},
-			{"app/page/route.go:42:", "Data.Items[].Extra", "any"},
-			{"app/page/route.go:42:", "Data.Raw", "json.RawMessage", "Marshaler"},
-			{"app/page/route.go:42:", "Data.Bytes[]", "Marshaler"},
-			{"app/page/route.go:42:", "Data.Ptrs[]", "Marshaler"},
-			{"app/page/route.go:42:", "Data.Text", "interface"},
-			{"app/page/route.go:42:", "Data.Bad", "bad'name"},
+			{"app/page/route.go:55:", "Data.Updates", "chan int"},
+			{"app/page/route.go:55:", "Data.ByScore", "map[float64]string"},
+			{"app/page/route.go:55:", "Data.Items[].Extra", "any"},
+			{"app/page/route.go:55:", "Data.Raw", "json.RawMessage", "Marshaler"},
+			{"app/page/route.go:55:", "Data.Bytes[]", "Marshaler"},
+			{"app/page/route.go:55:", "Data.Ptrs[]", "Marshaler"},
+			{"app/page/route.go:55:", "Data.Text", "interface"},
+			{"app/page/route.go:55:", "Data.Bad", "bad'name"},
+			{"app/page/route.go:55:", "Data.Append", "AppendText"},
+			{"app/page/route.go:55:", "Data.Stream", "MarshalJSONTo"},
 		}},
 		{"badpath", [][]string{
 			{"app/noslash/route.go:3:", `"projects"`, "start with /"},
@@ -375,7 +377,7 @@ func TestLoadResultShape(t *testing.T) {
 	want := "{ id: string; Kind: string; note?: string; X: string; \"dash-name\": number; quoted: string | null; " +
 		"flag: string; text: string; bytes4: number[]; count: string; " +
 		"opt?: boolean | null; byNum: Record<string, string> | null; byCode: Record<string, number> | null; " +
-		"level: string; num: number; raw: string | null; list: number[] | null; grid: boolean[]; empty: []; none: []; " +
+		"level: string; num: number; numS: string; numP: number | null; raw: string | null; list: number[] | null; grid: boolean[]; empty: []; none: []; " +
 		"when: string; stamp: string; notM: { v: number }; value: { v: number }; " +
 		"tree: { name: string; kids: (Node | null)[] | null } | null }"
 	if got != want {

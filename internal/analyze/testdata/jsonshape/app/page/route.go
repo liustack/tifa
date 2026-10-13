@@ -23,6 +23,9 @@ type Level int
 
 func (Level) MarshalText() ([]byte, error) { return []byte("high"), nil }
 
+// AppendText is used by json v2, MarshalText by json v1. Both write the same string.
+func (Level) AppendText(b []byte) ([]byte, error) { return append(b, "high"...), nil }
+
 // Code is a struct map key written by MarshalText.
 type Code struct{ A, B int }
 
@@ -66,6 +69,8 @@ type Shape struct {
 	ByCode  map[Code]int   `json:"byCode"`
 	Level   Level          `json:"level"`
 	Num     json.Number    `json:"num"`
+	NumS    json.Number    `json:"numS,string"`
+	NumP    *json.Number   `json:"numP"`
 	Raw     []byte         `json:"raw"`
 	List    []int          `json:"list"`
 	Grid    [2]bool        `json:"grid"`

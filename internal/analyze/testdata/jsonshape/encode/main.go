@@ -30,6 +30,8 @@ func main() {
 		ByCode: map[page.Code]int{{A: 1, B: 2}: 3},
 		Level:  9,
 		Num:    "12.5",
+		NumS:   "3",
+		NumP:   new(json.Number("4")),
 		Raw:    []byte("raw"),
 		List:   []int{1, 2},
 		Grid:   [2]bool{true, false},

@@ -46,6 +46,9 @@ import (
 //     bool, number and string fields (also behind an unnamed pointer) into string.
 //   - Named types keep their names, so recursive types are allowed.
 //
+// Also rejected because json v1 and the json v2 backed implementation disagree on them: types
+// with AppendText but no MarshalText, and types with MarshalJSONTo.
+//
 // Rejected: every interface type (any, error, interfaces with MarshalText and others), because
 // the dynamic value decides the JSON and may be nil. Also rejected: chan, func, complex numbers,
 // unsafe.Pointer, maps with other keys, and MarshalJSON other than time.Time's.
@@ -92,6 +95,10 @@ var (
 	byteSlice     = types.NewSlice(types.Typ[types.Byte])
 	marshalerType = methodInterface("MarshalJSON")
 	textMarshaler = methodInterface("MarshalText")
+	textAppender  = types.NewInterfaceType([]*types.Func{types.NewFunc(token.NoPos, nil, "AppendText",
+		types.NewSignatureType(nil, nil, nil,
+			types.NewTuple(types.NewVar(token.NoPos, nil, "", byteSlice)),
+			types.NewTuple(types.NewVar(token.NoPos, nil, "", byteSlice), types.NewVar(token.NoPos, nil, "", errorType)), false))}, nil).Complete()
 )
 
 // methodInterface builds interface{ name() ([]byte, error) }, the shape of json.Marshaler and
@@ -132,12 +139,32 @@ func (c *tsChecker) encode(t types.Type, path string, addressable, quoted bool) 
 		return c.fail(path, typeName+" has no fixed JSON form: it is an interface")
 	}
 	_, isPtr := t.Underlying().(*types.Pointer)
+	// applies reports whether the method set that encoding/json consults for this value
+	// implements iface: the value's own, plus the pointer's when the value is addressable.
+	applies := func(iface *types.Interface) bool {
+		return types.Implements(t, iface) || !isPtr && addressable && types.Implements(types.NewPointer(t), iface)
+	}
+	if isNamed(t, "encoding/json", "Number") {
+		// Both implementations write the number, or a string under the ",string" option. The
+		// json v2 backed one does it through a MarshalJSONTo method.
+		return orString(quoted, "number")
+	}
+	// A pointer is handled at its element, where json v2 looks for the method.
+	if obj, _, _ := types.LookupFieldOrMethod(t, addressable, nil, "MarshalJSONTo"); obj != nil && !isPtr {
+		if _, ok := obj.(*types.Func); ok { // json v2 calls it, json v1 does not, and its output is unknown
+			return c.fail(path, typeName+" has a MarshalJSONTo method, so its JSON form cannot be known statically")
+		}
+	}
 
 	if !isPtr && addressable && types.Implements(types.NewPointer(t), marshalerType) {
 		return c.marshalJSON(types.NewPointer(t), path, typeName, false) // the address of a value is never nil
 	}
 	if types.Implements(t, marshalerType) {
 		return c.marshalJSON(t, path, typeName, isPtr)
+	}
+	if applies(textAppender) && !applies(textMarshaler) {
+		// json v2 writes the AppendText string, json v1 ignores AppendText and encodes by kind.
+		return c.fail(path, typeName+" has AppendText without MarshalText, which the two encoding/json implementations write differently")
 	}
 	if !isPtr && addressable && types.Implements(types.NewPointer(t), textMarshaler) {
 		return "string"
@@ -167,9 +194,6 @@ func (c *tsChecker) encode(t types.Type, path string, addressable, quoted bool) 
 		case info&(types.IsInteger|types.IsFloat) != 0:
 			return orString(quoted, "number")
 		case info&types.IsString != 0:
-			if isNamed(t, "encoding/json", "Number") {
-				return orString(quoted, "number")
-			}
 			return "string"
 		}
 		return c.fail(path, typeName+" has no JSON form")

@@ -2,6 +2,7 @@ package page
 
 import (
 	"encoding/json"
+	"encoding/json/jsontext"
 
 	"github.com/liustack/tifa"
 )
@@ -18,7 +19,19 @@ type Data struct {
 	Ptrs    []PtrMarshal       `json:"ptrs"`
 	Text    TextValue          `json:"text"`
 	Bad     int                `json:"bad'name"`
+	Append  AppendOnly         `json:"append"`
+	Stream  Streamer           `json:"stream"`
 }
+
+// Streamer writes itself through json v2's MarshalJSONTo, which json v1 ignores.
+type Streamer struct{}
+
+func (Streamer) MarshalJSONTo(*jsontext.Encoder) error { return nil }
+
+// AppendOnly is written by AppendText under json v2 and as a number under json v1.
+type AppendOnly int
+
+func (AppendOnly) AppendText(b []byte) ([]byte, error) { return append(b, "x"...), nil }
 
 // TextValue is an interface: the dynamic value may also implement MarshalJSON, or be nil.
 type TextValue interface{ MarshalText() ([]byte, error) }
