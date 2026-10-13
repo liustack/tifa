@@ -45,6 +45,8 @@ func newServer(hooks Hooks) *Server {
 			panic("nil order")
 		case "public":
 			return tifa.Error{Status: 409, Message: "订单已发货"}
+		case "wrapped-public":
+			return fmt.Errorf("ship order: %w", tifa.Error{Status: 409, Message: "订单已发货"})
 		default:
 			return c.JSON(200, order{ID: id})
 		}
@@ -133,16 +135,35 @@ func TestUnexpectedErrorsGoThroughOnError(t *testing.T) {
 	}
 }
 
-func TestWithoutOnErrorPublicErrorsKeepTheirStatus(t *testing.T) {
-	s := newServer(Hooks{})
-	cases := map[string]int{"/orders/broken": 500, "/orders/panic": 500, "/orders/public": 409}
-	for target, status := range cases {
-		w := send(s, "GET", target, "")
-		if w.Code != status {
-			t.Errorf("%s: %d %s", target, w.Code, w.Body.String())
+func TestPublicErrorsSkipOnError(t *testing.T) {
+	var onError atomic.Int32
+	withHook := newServer(Hooks{OnError: func(c *tifa.Ctx, err error) tifa.Error {
+		onError.Add(1)
+		return tifa.Error{Status: 503, Message: "稍后再试"}
+	}})
+	for _, s := range []*Server{withHook, newServer(Hooks{})} {
+		for _, target := range []string{"/orders/public", "/orders/wrapped-public"} {
+			w := send(s, "GET", target, "")
+			if w.Code != 409 || !strings.Contains(w.Body.String(), "订单已发货") {
+				t.Errorf("%s: %d %s", target, w.Code, w.Body.String())
+			}
 		}
-		if status == 500 && strings.Contains(w.Body.String(), "database") {
-			t.Errorf("%s leaked the internal error: %s", target, w.Body.String())
+		large := `{"note":"` + strings.Repeat("x", 100) + `"}`
+		if w := send(s, "POST", "/orders/1", large); w.Code != http.StatusRequestEntityTooLarge {
+			t.Errorf("Bind over the limit: %d %s", w.Code, w.Body.String())
+		}
+	}
+	if n := onError.Load(); n != 0 {
+		t.Fatalf("OnError ran %d times for tifa.Error results", n)
+	}
+}
+
+func TestWithoutOnErrorUnexpectedErrorsAre500(t *testing.T) {
+	s := newServer(Hooks{})
+	for _, target := range []string{"/orders/broken", "/orders/panic"} {
+		w := send(s, "GET", target, "")
+		if w.Code != 500 || strings.Contains(w.Body.String(), "database") || strings.Contains(w.Body.String(), "nil order") {
+			t.Errorf("%s: %d %s", target, w.Code, w.Body.String())
 		}
 	}
 }

@@ -145,7 +145,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, pattern string, r
 	}
 }
 
-// fail turns an error into a response. Redirects and ErrNotFound are expected results and skip OnError.
+// fail turns an error into a response. Redirects, ErrNotFound and tifa.Error are expected results and skip OnError.
 func (s *Server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 	r := c.Request()
 	var redirect *core.RedirectError
@@ -160,6 +160,10 @@ func (s *Server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 		return
 	case errors.Is(err, tifa.ErrNotFound):
 		e = tifa.Error{Status: http.StatusNotFound, Message: http.StatusText(http.StatusNotFound)}
+	case errors.As(err, &e) && validStatus(e.Status):
+		if e.Message == "" {
+			e.Message = http.StatusText(e.Status)
+		}
 	default:
 		e = s.publicError(c, err)
 	}
@@ -184,19 +188,14 @@ func (s *Server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 	}
 }
 
-// publicError asks OnError for the message shown to the client. Without OnError it logs the error,
-// keeps a tifa.Error as is and hides everything else behind 500.
+// publicError asks OnError what to show for an unexpected error. Without OnError it logs the error and answers 500.
 func (s *Server) publicError(c *tifa.Ctx, err error) tifa.Error {
-	var e tifa.Error
-	if s.hooks.OnError != nil {
-		e = s.hooks.OnError(c, err)
-	} else {
+	if s.hooks.OnError == nil {
 		log.Printf("tifa: %s %s: %v", c.Request().Method, c.Request().URL.Path, err)
-		if !errors.As(err, &e) {
-			e = tifa.Error{Status: http.StatusInternalServerError}
-		}
+		return tifa.Error{Status: http.StatusInternalServerError, Message: http.StatusText(http.StatusInternalServerError)}
 	}
-	if e.Status < 400 || e.Status > 599 {
+	e := s.hooks.OnError(c, err)
+	if !validStatus(e.Status) {
 		e.Status = http.StatusInternalServerError
 	}
 	if e.Message == "" {
@@ -204,6 +203,10 @@ func (s *Server) publicError(c *tifa.Ctx, err error) tifa.Error {
 	}
 	return e
 }
+
+// validStatus reports whether a tifa.Error status can be sent as an error response.
+// A tifa.Error with any other status is a bug in the code that built it, so it is handled as unexpected.
+func validStatus(status int) bool { return status >= 400 && status <= 599 }
 
 func methodNotAllowed(w http.ResponseWriter, route map[string]func(*tifa.Ctx) error) {
 	var allow []string
