@@ -61,6 +61,9 @@ func render(vm *quickjs.VM, input []byte, timeout time.Duration) (string, error)
 		if !time.Now().Before(deadline) {
 			return timedOut(timeout, err)
 		}
+		if outOfMemory(err) {
+			return fmt.Errorf("%w in %s (%w)", ErrOutOfMemory, name, err)
+		}
 		return fmt.Errorf("ssr: %s: %w", name, err)
 	}
 	if err := budget(); err != nil {
@@ -106,6 +109,18 @@ func render(vm *quickjs.VM, input []byte, timeout time.Duration) (string, error)
 		return "", errors.New("ssr: render returned no HTML")
 	}
 	return result.HTML, nil
+}
+
+// ErrOutOfMemory matches a render that hit the VM's memory limit (ssr.vm_memory).
+var ErrOutOfMemory = errors.New("ssr: VM out of memory")
+
+// outOfMemory reports the exception QuickJS throws when an allocation exceeds the limit.
+// When the limit leaves no room even for that error object, QuickJS throws null instead,
+// which cannot be told apart from application code throwing null. Such a render still
+// fails and retires its VM, it just does not match ErrOutOfMemory.
+func outOfMemory(err error) bool {
+	var e *quickjs.Error
+	return errors.As(err, &e) && e.Name == "InternalError" && e.Message == "out of memory"
 }
 
 func timedOut(timeout time.Duration, cause error) error {

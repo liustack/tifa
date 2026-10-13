@@ -27,8 +27,10 @@ globalThis.startRender = (json) => {
     case 'pending':
       return
     case 'oom': {
+      // Doubling keeps the failing allocation large, so QuickJS still has room
+      // to build its "out of memory" error instead of throwing null.
       const kept = []
-      for (;;) kept.push(new Uint8Array(256 * 1024).fill(1))
+      for (let size = 64 * 1024; ; size *= 2) kept.push(new Uint8Array(size).fill(1))
     }
     case 'error':
       globalThis.renderResult = JSON.stringify({ error: 'page failed' })

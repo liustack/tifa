@@ -9,6 +9,7 @@ package ssr
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -36,7 +37,7 @@ func soakBundles(t *testing.T) []soakBundle {
 	if os.Getenv("TIFA_SSR_SOAK") == "" {
 		t.Skip("set TIFA_SSR_SOAK=1 and build with -tags memory.counters")
 	}
-	bundles := []soakBundle{{name: "testdata", source: testSource(t), pages: []shopPage{{input: input("garbage", "")}}, text: true}}
+	bundles := []soakBundle{{name: "testdata", source: testSource(t), pages: []shopPage{{input: input("ok", "")}}, text: true}}
 	if os.Getenv("TIFA_SSR_SHOP") != "" {
 		source, pages := shopBundle(t)
 		bundles = append(bundles, soakBundle{name: "shop", source: source, pages: pages, heavy: 2})
@@ -156,10 +157,14 @@ func TestSoakOOMRecycle(t *testing.T) {
 					if err == nil {
 						continue
 					}
-					// QuickJS reports the limit as "out of memory", or as a bare null
-					// when it cannot even allocate that error. Either way the VM is spent.
+					// Only the memory limit may end a cycle. A timeout, a page error or
+					// a bare null (QuickJS out of room even for its error object) fails
+					// the test. With these fixed sizes the run is deterministic.
+					if !errors.Is(err, ErrOutOfMemory) {
+						t.Fatalf("cycle %d request %d: want ErrOutOfMemory, got %v", cycle, i, err)
+					}
 					if i == 0 {
-						t.Fatalf("cycle %d: first render of a fresh VM failed: %v", cycle, err)
+						t.Fatalf("cycle %d: first render of a fresh VM ran out of memory", cycle)
 					}
 					failed = true
 					t.Logf("cycle %d: request %d failed: %v", cycle+1, i+1, err)

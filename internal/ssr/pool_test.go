@@ -421,3 +421,29 @@ func TestRenderAdmittedBeforeCloseDoesNotStart(t *testing.T) {
 		t.Fatalf("the VM was not returned to the pool, %d idle", len(p.idle))
 	}
 }
+
+// Only the memory limit matches ErrOutOfMemory. Other failures must not, so callers
+// and tests can tell a VM that ran out of memory from one that failed otherwise.
+func TestOutOfMemoryIsDistinct(t *testing.T) {
+	cfg := testConfig(1)
+	cfg.Timeout = 100 * time.Millisecond
+	p := newTestPool(t, testSource(t), cfg)
+	for _, tc := range []struct {
+		mode string
+		oom  bool
+	}{
+		{"oom", true},
+		{"throw", false},
+		{"error", false},
+		{"pending", false},
+		{"loop", false},
+	} {
+		_, err := p.Render(context.Background(), input(tc.mode, ""))
+		if err == nil {
+			t.Fatalf("%s: accepted", tc.mode)
+		}
+		if got := errors.Is(err, ErrOutOfMemory); got != tc.oom {
+			t.Errorf("%s: errors.Is(%v, ErrOutOfMemory) = %v", tc.mode, err, got)
+		}
+	}
+}
