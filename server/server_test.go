@@ -51,7 +51,9 @@ func newServer(hooks Hooks) *Server {
 		case "pointer-public":
 			return &tifa.Error{Status: 409, Message: "订单已发货"}
 		case "wrapped-pointer-public":
-			return fmt.Errorf("ship order: %w", &tifa.Error{Status: 409, Message: "订单已发货"})
+			// An app can hold the pointer as a plain error and wrap it. vet rejects %w on *tifa.Error itself.
+			var err error = &tifa.Error{Status: 409, Message: "订单已发货"}
+			return fmt.Errorf("ship order: %w", err)
 		default:
 			return c.JSON(200, order{ID: id})
 		}
