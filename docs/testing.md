@@ -4,6 +4,7 @@ read_when:
   - 准备提交代码，确认要跑哪些检查
   - 写新测试或修 bug
   - 某个 SSR 测试显示 skip，想知道怎么打开
+  - 改 `internal/bundle`，或打包测试显示 skip
 ---
 
 # 测试与验证
@@ -42,6 +43,21 @@ CGO_ENABLED=0 go build ./...
 - 测试和被测代码放在同一个包里，文件名 `*_test.go`。
 - 一个断言只证明一件事。循环里跑多个用例时，每个用例用独立的状态，并确认被测代码真的执行了。缓存、去重一类逻辑最容易让后面的用例拿到前面的结果，测试照样通过。
 - 浏览器行为（hydration 有没有多余请求、导航只发一次请求、窄屏有没有横向溢出）用 `playwright-cli` 验证，结果截图。
+
+## 打包测试（`internal/bundle`）
+
+需要 React、core-js 的打包测试从 `examples/shop/node_modules` 解析依赖。没装时这些测试显示 skip，先在 `examples/shop` 里跑 `pnpm install --frozen-lockfile`。打包本身不需要 Node，可以在 PATH 里去掉 node 后验证：
+
+```sh
+env PATH=/usr/bin:/bin:$(go env GOROOT)/bin go test ./internal/bundle
+```
+
+`TestShopBundleRendersInQuickJS` 默认跳过。它用 Go 打包器重新打包原型，在原型 Go 模块的临时副本里跑原型的 `go test ./...`（QuickJS 渲染订单、检查 hydration 脚本），不改动 `examples/shop`。它依赖原型构建生成的文件：
+
+```sh
+(cd examples/shop && pnpm install --frozen-lockfile && pnpm build)
+TIFA_SHOP_E2E=1 go test ./internal/bundle -run TestShopBundle -v
+```
 
 ## 默认跳过的 SSR 实验测试
 
