@@ -86,6 +86,13 @@ func (e *buildError) Error() string { return e.err.Error() + "\n" + string(e.out
 func build(t *testing.T, app string) (dir, exe string) {
 	t.Helper()
 	dir = filepath.Join(repoRoot(t), "test", "apps", app)
+	return dir, buildAt(t, dir)
+}
+
+// buildAt runs tifa build on the application in dir and returns the executable.
+func buildAt(t *testing.T, dir string) (exe string) {
+	t.Helper()
+	app := filepath.Base(dir)
 	exe = filepath.Join(t.TempDir(), app)
 	// go mod tidy keeps every module the generated main needs, because the app lists
 	// cmd/tifa as a tool, so a tidy go.mod builds with -mod=readonly and stays unchanged.
@@ -108,7 +115,7 @@ func build(t *testing.T, app string) (dir, exe string) {
 	if err != nil || !info.Mode().IsRegular() {
 		t.Fatalf("tifa build did not produce %s: %v", exe, err)
 	}
-	return dir, exe
+	return exe
 }
 
 // moduleFiles returns go.mod and go.sum of the app in dir.
