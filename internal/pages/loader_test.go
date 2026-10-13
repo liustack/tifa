@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"go-quick/internal/workspace"
+	"github.com/liustack/tifa/internal/workspace"
 	"testing"
 )
 

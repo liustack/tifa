@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"go-quick/internal/pages"
+	"github.com/liustack/tifa/internal/pages"
 	"sync"
 	"time"
 

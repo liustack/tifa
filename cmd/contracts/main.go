@@ -4,7 +4,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"go-quick/internal/workspace"
+	"github.com/liustack/tifa/internal/workspace"
 	"os"
 	"reflect"
 	"sort"

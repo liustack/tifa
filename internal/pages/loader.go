@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"go-quick/internal/workspace"
+	"github.com/liustack/tifa/internal/workspace"
 	"net/url"
 	"regexp"
 	"sort"

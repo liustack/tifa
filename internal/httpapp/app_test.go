@@ -2,8 +2,8 @@ package httpapp
 
 import (
 	"encoding/json"
-	"go-quick/internal/pages"
-	"go-quick/internal/workspace"
+	"github.com/liustack/tifa/internal/pages"
+	"github.com/liustack/tifa/internal/workspace"
 	"net/http"
 	"net/http/httptest"
 	"strings"

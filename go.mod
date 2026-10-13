@@ -1,4 +1,4 @@
-module go-quick
+module github.com/liustack/tifa
 
 go 1.26.0
 

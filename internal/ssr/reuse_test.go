@@ -3,8 +3,8 @@ package ssr
 import (
 	"context"
 	"fmt"
-	"go-quick/internal/pages"
-	"go-quick/internal/workspace"
+	"github.com/liustack/tifa/internal/pages"
+	"github.com/liustack/tifa/internal/workspace"
 	"strings"
 	"sync"
 	"testing"
