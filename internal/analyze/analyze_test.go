@@ -304,6 +304,8 @@ func TestConflictsMatchServeMux(t *testing.T) {
 	paths := []string{
 		"/", "/a", "/b", "/{x}", "/{x...}", "/a/b", "/a/{y}", "/{y}/b", "/a/{y...}", "/{x}/{y}",
 		"/a/{x}/c", "/{y}/b/c", "/d/b/{z}", "/a/b/{z...}", "/{x}/b/{z...}", "/files/{p...}", "/files/x",
+		// ServeMux unescapes literal segments before comparing them.
+		"/%61", "/%2F", "/%2f/{x}", "/{x}/a", "/a%2Fb", "/%zz",
 	}
 	for i, p1 := range paths {
 		for _, p2 := range paths[i+1:] {

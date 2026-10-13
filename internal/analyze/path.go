@@ -2,6 +2,7 @@ package analyze
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 	"unicode"
 )
@@ -177,20 +178,34 @@ func compareSegments(s1, s2 segment) relation {
 		return moreSpecific
 	case wild1 && wild2:
 		return equivalent
+	}
+	// ServeMux compares literals after unescaping them, so "/%61" is "/a", and "/%2F" ends in the
+	// same "/" literal that stands for {$}.
+	l1, l2 := pathUnescape(s1.lit), pathUnescape(s2.lit)
+	switch {
 	case wild1:
-		if s2.lit == "/" { // a single wildcard does not match the end of the path
+		if l2 == "/" { // a single wildcard does not match the end of the path
 			return disjoint
 		}
 		return moreGeneral
 	case wild2:
-		if s1.lit == "/" {
+		if l1 == "/" {
 			return disjoint
 		}
 		return moreSpecific
-	case s1.lit == s2.lit:
+	case l1 == l2:
 		return equivalent
 	}
 	return disjoint
+}
+
+// pathUnescape is pathUnescape of net/http: an invalid escape leaves the literal as it is.
+func pathUnescape(lit string) string {
+	u, err := url.PathUnescape(lit)
+	if err != nil {
+		return lit
+	}
+	return u
 }
 
 // combine follows combineRelationships in net/http.
