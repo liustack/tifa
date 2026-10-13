@@ -1,0 +1,2 @@
+server:
+  shutdown_timeout: 2s
