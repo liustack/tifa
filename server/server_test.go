@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -756,5 +757,27 @@ func TestListenerFailureShutsDownLikeCancel(t *testing.T) {
 	defer mu.Unlock()
 	if strings.Join(events, ",") != "handler returned,shutdown" {
 		t.Fatalf("events %v", events)
+	}
+}
+
+// net/http reads GODEBUG=httpmuxgo121 once at startup, so a child test process runs Run with the
+// old ServeMux semantics, under which {name} would be a literal path segment.
+func TestRunRefusesLegacyServeMux(t *testing.T) {
+	if os.Getenv("TIFA_TEST_LEGACY_MUX") == "1" {
+		cfg := config.Default()
+		cfg.Server.Addr = "127.0.0.1:0"
+		started := false
+		err := New(cfg, Hooks{OnStart: func() error { started = true; return nil }}).Run(context.Background())
+		fmt.Printf("started=%t err=%v\n", started, err)
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run", "^TestRunRefusesLegacyServeMux$", "-test.count=1", "-test.v", "-test.timeout=10s")
+	cmd.Env = append(os.Environ(), "TIFA_TEST_LEGACY_MUX=1", "GODEBUG=httpmuxgo121=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("child: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "started=false err=tifa:") || !strings.Contains(string(out), "httpmuxgo121") {
+		t.Fatalf("Run did not refuse the old ServeMux semantics:\n%s", out)
 	}
 }

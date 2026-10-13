@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -325,6 +326,9 @@ func (w *writer) Hijack() (conn net.Conn, rw *bufio.ReadWriter, err error) {
 
 // Run calls OnStart, listens on the configured address and serves until ctx is done.
 func (s *Server) Run(ctx context.Context) error {
+	if err := checkServeMux(); err != nil {
+		return err
+	}
 	if s.hooks.OnStart != nil {
 		if err := s.hooks.OnStart(); err != nil {
 			return fmt.Errorf("tifa: OnStart: %w", err)
@@ -336,6 +340,19 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	log.Printf("tifa: listening on http://%s", ln.Addr())
 	return s.Serve(ctx, ln)
+}
+
+// checkServeMux fails when ServeMux runs the Go 1.21 semantics, which GODEBUG=httpmuxgo121=1 selects
+// from the environment, a godebug line in go.mod or a //go:debug directive. Paths would then be
+// literal strings and {name} would never match. net/http reads the setting once at startup, so a
+// probe registration shows what this process does, whatever the source of the setting.
+func checkServeMux() error {
+	mux := http.NewServeMux()
+	mux.Handle("/{probe}", http.NotFoundHandler())
+	if _, pattern := mux.Handler(&http.Request{Method: "GET", URL: &url.URL{Path: "/x"}}); pattern != "/{probe}" {
+		return errors.New("tifa: ServeMux runs the Go 1.21 pattern semantics (GODEBUG httpmuxgo121=1), remove that setting")
+	}
+	return nil
 }
 
 // testHookEntry lets tests pause a request between net/http handing it over and the gate admitting it.
@@ -393,6 +410,9 @@ func (g *gate) wait(timeout time.Duration) bool {
 // If a handler never returns, OnShutdown is skipped and Serve reports it, because cleaning up under a
 // running handler is worse than not cleaning up.
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
+	if err := checkServeMux(); err != nil {
+		return err
+	}
 	var g gate
 	base, cancelRequests := context.WithCancel(context.Background())
 	defer cancelRequests()
