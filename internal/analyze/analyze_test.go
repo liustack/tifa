@@ -126,9 +126,12 @@ func TestViolations(t *testing.T) {
 			{"app/page/route.go:13:", "package-level function", "method"},
 		}},
 		{"badtype", [][]string{
-			{"app/page/route.go:18:", "Data.Updates", "chan int"},
-			{"app/page/route.go:18:", "Data.ByID", "map[int]string"},
-			{"app/page/route.go:18:", "Data.Items[].Extra", "any"},
+			{"app/page/route.go:37:", "Data.Updates", "chan int"},
+			{"app/page/route.go:37:", "Data.ByScore", "map[float64]string"},
+			{"app/page/route.go:37:", "Data.Items[].Extra", "any"},
+			{"app/page/route.go:37:", "Data.Raw", "json.RawMessage", "Marshaler"},
+			{"app/page/route.go:37:", "Data.Bytes[]", "Marshaler"},
+			{"app/page/route.go:37:", "Data.Ptrs[]", "Marshaler"},
 		}},
 		{"badpath", [][]string{
 			{"app/noslash/route.go:3:", `"projects"`, "start with /"},
@@ -332,5 +335,25 @@ func TestQueryThroughEmbeddedCtx(t *testing.T) {
 	}
 	if got := m.Routes[0].Load.Query; !reflect.DeepEqual(got, []string{"lang"}) {
 		t.Errorf("Query = %v, want [lang]", got)
+	}
+}
+
+// The TypeScript form follows what encoding/json writes, field selection and method sets included.
+func TestLoadResultShape(t *testing.T) {
+	m, err := analyzeApp(t, "jsonshape")
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	got, problems := tsType(m.Routes[0].Load.Result)
+	if len(problems) > 0 {
+		t.Fatalf("problems: %+v", problems)
+	}
+	want := "{ id: string; Kind: string; note?: string; X: string; Bad: number; count: string; " +
+		"opt?: boolean | null; byNum: Record<string, string> | null; byCode: Record<string, number> | null; " +
+		"level: string; num: number; raw: string | null; list: number[] | null; grid: boolean[]; " +
+		"when: string; stamp: string; notM: { v: number }; value: { v: number }; " +
+		"tree: { name: string; kids: (Node | null)[] | null } | null }"
+	if got != want {
+		t.Errorf("tsType =\n%s\nwant\n%s", got, want)
 	}
 }

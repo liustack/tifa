@@ -502,8 +502,8 @@ func (a *analyzer) readLoad(pkg *packages.Package) (*Load, []paramUse) {
 	resultPos := decl.Type.Results.List[0].Type.Pos()
 	for _, p := range checkTS(result) {
 		msg := fmt.Sprintf("Load result: %s: %s", p.path, p.msg)
-		if p.pos != nil && p.pos.Pos().IsValid() {
-			fp := a.fset.Position(p.pos.Pos())
+		if p.field != nil && p.field.Pos().IsValid() {
+			fp := a.fset.Position(p.field.Pos())
 			msg += fmt.Sprintf(" (field declared at %s:%d)", a.relFile(fp.Filename), fp.Line)
 		}
 		a.errorAt(resultPos, "%s", msg)
