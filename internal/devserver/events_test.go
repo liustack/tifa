@@ -76,9 +76,10 @@ func TestEventsSendTheCurrentStatusFirst(t *testing.T) {
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	t.Cleanup(h.close)
-	h.publish(status{Version: "v1", Error: "go build: undefined: x"})
+	failed := status{Version: "v1", Title: "Build failed", Error: "go build: undefined: x"}
+	h.publish(failed)
 	s := connectEvents(t, srv.URL)
-	if got := s.next(t); got != (status{"v1", "go build: undefined: x"}) {
+	if got := s.next(t); got != failed {
 		t.Fatalf("first event %+v", got)
 	}
 	h.publish(status{Version: "v2"})

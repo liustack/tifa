@@ -12,7 +12,9 @@ type status struct {
 	// Version changes each time a new build of the app is up. A page reloads when it sees a
 	// version other than the first one it saw.
 	Version string `json:"version"`
-	// Error explains why the last build or the app failed, empty when everything works.
+	// Title names what failed, such as "Build failed", and Error is the full message. Both are
+	// empty when everything works.
+	Title string `json:"title,omitempty"`
 	Error string `json:"error,omitempty"`
 }
 
