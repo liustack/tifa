@@ -29,7 +29,7 @@ func echoApp(t *testing.T, ln net.Listener) {
 
 func newProxy(t *testing.T, appAddr string, wait time.Duration, down func() error) *httptest.Server {
 	t.Helper()
-	p := httptest.NewServer(proxy(appAddr, wait, down))
+	p := httptest.NewServer(proxy(appAddr, wait, down, func() string { return "v7" }))
 	t.Cleanup(p.Close)
 	return p
 }
@@ -206,5 +206,33 @@ func TestProxyKeepsTheHost(t *testing.T) {
 	resp.Body.Close()
 	if host := resp.Header.Get("X-Host"); host != strings.TrimPrefix(p.URL, "http://") {
 		t.Fatalf("app saw host %q, want the proxy's %q", host, p.URL)
+	}
+}
+
+// Every answer names the build that made it, so the page can tell whether it is current.
+func TestProxyTagsAnswersWithTheVersion(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	echoApp(t, ln)
+	p := newProxy(t, ln.Addr().String(), time.Second, nil)
+	resp, err := http.Get(p.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if got := resp.Header.Get("Server-Timing"); got != `tifa-dev;desc="v7"` {
+		t.Fatalf("Server-Timing %q", got)
+	}
+
+	down := newProxy(t, ln.Addr().String()+"0", time.Second, func() error { return errors.New("build failed") })
+	resp, err = http.Get(down.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if got := resp.Header.Get("Server-Timing"); got != `tifa-dev;desc="v7"` {
+		t.Fatalf("error page Server-Timing %q", got)
 	}
 }

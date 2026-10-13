@@ -5,8 +5,21 @@
   window.__tifaDev = true;
 
   const base = "/__tifa/dev/";
-  let first = null; // the version this page was built from
+  let first = pageVersion(); // the version this page was built from, null while unknown
   let overlay = null;
+
+  // The dev proxy names the build behind every answer in a Server-Timing header. The Performance
+  // API exposes it in secure contexts, which include localhost and 127.0.0.1. Elsewhere the page
+  // falls back to the version client.js was served with, then to the first status it gets, and
+  // can miss a rebuild that finished while it loaded.
+  function pageVersion() {
+    const nav = performance.getEntriesByType("navigation")[0];
+    for (const timing of (nav && nav.serverTiming) || []) {
+      if (timing.name === "tifa-dev") return timing.description;
+    }
+    if (typeof window.__tifaDevServed === "string") return window.__tifaDevServed;
+    return null;
+  }
 
   function onStatus(raw) {
     let status;

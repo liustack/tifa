@@ -106,10 +106,14 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 
 	mux := http.NewServeMux()
 	mux.Handle("GET "+eventsPath, d.hub)
-	mux.Handle("GET "+clientPath, script(js.DevClient))
+	mux.Handle("GET "+clientPath, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Tells the page its version where it cannot read Server-Timing.
+		served := "window.__tifaDevServed = " + strconv.Quote(d.version()) + ";\n"
+		script(served+js.DevClient).ServeHTTP(w, r)
+	}))
 	mux.Handle("GET "+workerPath, script(js.DevWorker))
 	mux.Handle(devPrefix, http.NotFoundHandler())
-	mux.Handle("/", proxy(appAddr, o.ProxyWait, d.down))
+	mux.Handle("/", proxy(appAddr, o.ProxyWait, d.down, d.version))
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -175,13 +179,20 @@ type dev struct {
 	hub     *hub
 	log     *log.Logger
 	nonce   string // makes versions unique across runs of tifa dev
-	builds  int
 
 	mu      sync.Mutex
-	gen     int   // generation of the newest app started
-	app     *app  // the application process, nil when none runs
-	live    *app  // app once it listens, its exit from then on is a crash
-	downErr error // why no application runs and none will until the next build
+	gen     int    // generation of the newest app started
+	serving string // version of the newest app started, the one that answers requests
+	app     *app   // the application process, nil when none runs
+	live    *app   // app once it listens, its exit from then on is a crash
+	downErr error  // why no application runs and none will until the next build
+}
+
+// version returns the version of the app that answers requests now, empty before the first one.
+func (d *dev) version() string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.serving
 }
 
 // down tells the proxy not to wait for an application, and why.
@@ -221,9 +232,8 @@ func (d *dev) rebuild(ctx context.Context, s steps) {
 		}
 		return
 	}
-	d.builds++
 	d.mu.Lock()
-	d.hub.publish(status{Version: d.nonce + "-" + strconv.Itoa(d.builds)})
+	d.hub.publish(status{Version: d.serving})
 	d.mu.Unlock()
 	d.log.Printf("ready in %s", time.Since(start).Round(time.Millisecond))
 }
@@ -247,6 +257,7 @@ func (d *dev) restart(ctx context.Context) error {
 	d.gen++
 	a.gen = d.gen
 	d.app = a
+	d.serving = d.nonce + "-" + strconv.Itoa(d.gen)
 	d.mu.Unlock()
 	go d.watchExit(a)
 	if err := a.waitReady(ctx, d.appAddr, d.o.ProxyWait); err != nil {

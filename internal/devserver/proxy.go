@@ -24,7 +24,10 @@ var testHookRetry func()
 // proxy forwards requests to the app at appAddr. While the app restarts, a request waits for up
 // to wait until the app listens again. down reports why no app will come, such as a failed
 // build with no older app to fall back on: the proxy then answers at once. down may be nil.
-func proxy(appAddr string, wait time.Duration, down func() error) http.Handler {
+//
+// version returns the version of the app now running. Each answer carries it in a Server-Timing
+// header, which the page reads from the Performance API to learn which build it came from.
+func proxy(appAddr string, wait time.Duration, down func() error, version func() string) http.Handler {
 	target := &url.URL{Scheme: "http", Host: appAddr}
 	return &httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
@@ -32,12 +35,13 @@ func proxy(appAddr string, wait time.Duration, down func() error) http.Handler {
 			r.Out.Host = r.In.Host
 			r.SetXForwarded()
 		},
-		Transport:     &retryTransport{base: http.DefaultTransport.(*http.Transport).Clone(), addr: appAddr, wait: wait, down: down},
+		Transport:     &retryTransport{base: http.DefaultTransport.(*http.Transport).Clone(), addr: appAddr, wait: wait, down: down, version: version},
 		FlushInterval: -1, // pass streamed responses, such as the app's own SSE, through right away
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			if errors.Is(err, context.Canceled) {
 				return // the browser went away
 			}
+			w.Header().Set("Server-Timing", versionTiming(version()))
 			unavailable(w, http.StatusBadGateway, err)
 		},
 	}
@@ -57,11 +61,26 @@ func unavailable(w http.ResponseWriter, status int, err error) {
 `, clientPath, html.EscapeString(err.Error()))
 }
 
+// versionTiming is the Server-Timing value that names a version.
+func versionTiming(version string) string { return `tifa-dev;desc="` + version + `"` }
+
 type retryTransport struct {
-	base http.RoundTripper
-	addr string // where the app listens
-	wait time.Duration
-	down func() error
+	base    http.RoundTripper
+	addr    string // where the app listens
+	wait    time.Duration
+	down    func() error
+	version func() string
+}
+
+// send makes one attempt and tags a response with the version of the app that was running when
+// the attempt started. Only that app listens: the next one starts after it stopped.
+func (t *retryTransport) send(req *http.Request) (*http.Response, error) {
+	v := t.version()
+	resp, err := t.base.RoundTrip(req)
+	if err == nil {
+		resp.Header.Set("Server-Timing", versionTiming(v))
+	}
+	return resp, err
 }
 
 func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -76,7 +95,7 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			req.Body.Close()
 			return nil, err
 		}
-		resp, err := t.base.RoundTrip(req)
+		resp, err := t.send(req)
 		if err != nil && notListening(err) {
 			return nil, fmt.Errorf("the app stopped listening before the request was sent, and a body over %d MiB cannot be sent again: %w", maxReplayBody>>20, err)
 		}
@@ -90,7 +109,7 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			attempt.Body = io.NopCloser(bytes.NewReader(body))
 			attempt.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(body)), nil }
 		}
-		resp, err := t.base.RoundTrip(attempt)
+		resp, err := t.send(attempt)
 		if err == nil || !notListening(err) {
 			return resp, err
 		}

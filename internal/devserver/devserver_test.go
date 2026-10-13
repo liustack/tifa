@@ -155,16 +155,31 @@ func expectPage(t *testing.T, url, want string) {
 	}
 }
 
+// expectVersion checks that the page names the build that served it.
+func expectVersion(t *testing.T, url, version string) {
+	t.Helper()
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if got, want := resp.Header.Get("Server-Timing"), `tifa-dev;desc="`+version+`"`; got != want {
+		t.Fatalf("Server-Timing %q, want %q", got, want)
+	}
+}
+
 func TestRunRebuildsAndKeepsTheOldAppOnFailure(t *testing.T) {
 	d := startDev(t, "")
 	v1 := d.waitVersionAfter(t, "")
 	expectSteps(t, d.p, "Analyze", "Generate", "Bundle", "GoBuild")
 	expectPage(t, d.url+"/", "build 1")
+	expectVersion(t, d.url+"/", v1)
 
 	writeFile(t, d.dir, "app/store.go", "package app // body edited")
 	v2 := d.waitVersionAfter(t, v1)
 	expectSteps(t, d.p, "Analyze", "GoBuild")
 	expectPage(t, d.url+"/", "build 2")
+	expectVersion(t, d.url+"/", v2)
 
 	writeFile(t, d.dir, "app/list/route.tsx", "export const x = 1")
 	v3 := d.waitVersionAfter(t, v2)
@@ -246,7 +261,10 @@ func TestRunServesTheDevScripts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if string(body) != want || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/javascript") {
+		if path == clientPath && !strings.HasPrefix(string(body), "window.__tifaDevServed = \"") {
+			t.Errorf("client.js does not start with the served version: %.60q", body)
+		}
+		if !strings.HasSuffix(string(body), want) || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/javascript") {
 			t.Errorf("%s: got %s with %d bytes", path, resp.Header.Get("Content-Type"), len(body))
 		}
 	}
