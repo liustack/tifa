@@ -55,7 +55,11 @@ type Shape struct {
 	*Extra
 	A       string `json:"X"`
 	X       int
-	Bad     int            `json:"bad'name"`
+	Dash    int            `json:"dash-name"`
+	Quoted  *int           `json:"quoted,string"`
+	Flag    bool           `json:"flag,string"`
+	Text    string         `json:"text,string"`
+	Bytes4  [4]byte        `json:"bytes4"`
 	Count   int64          `json:"count,string"`
 	Opt     *bool          `json:"opt,omitempty"`
 	ByNum   map[int]string `json:"byNum"`

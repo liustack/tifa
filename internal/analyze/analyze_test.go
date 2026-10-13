@@ -370,7 +370,8 @@ func TestLoadResultShape(t *testing.T) {
 	if len(problems) > 0 {
 		t.Fatalf("problems: %+v", problems)
 	}
-	want := "{ id: string; Kind: string; note?: string; X: string; Bad: number; count: string; " +
+	want := "{ id: string; Kind: string; note?: string; X: string; \"dash-name\": number; quoted: string | null; " +
+		"flag: string; text: string; bytes4: number[]; count: string; " +
 		"opt?: boolean | null; byNum: Record<string, string> | null; byCode: Record<string, number> | null; " +
 		"level: string; num: number; raw: string | null; list: number[] | null; grid: boolean[]; empty: []; none: []; " +
 		"when: string; stamp: string; notM: { v: number }; value: { v: number }; " +
