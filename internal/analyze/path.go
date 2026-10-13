@@ -100,7 +100,8 @@ func formatPath(segs []segment) string {
 }
 
 // commonPrefix returns the longest run of leading segments that all paths share. Segments are
-// compared whole: equal literals, or parameters of equal name. {name...} never enters the prefix.
+// compared whole: literals equal after unescaping, as ServeMux matches them, or parameters of
+// equal name. {name...} never enters the prefix. Literals keep the spelling of the first path.
 func commonPrefix(paths [][]segment) []segment {
 	if len(paths) == 0 {
 		return nil
@@ -108,12 +109,19 @@ func commonPrefix(paths [][]segment) []segment {
 	var prefix []segment
 	for i := 0; ; i++ {
 		for _, p := range paths {
-			if i >= len(p) || p[i].wildcard || p[i] != paths[0][i] {
+			if i >= len(p) || p[i].wildcard || !sameSegment(p[i], paths[0][i]) {
 				return prefix
 			}
 		}
 		prefix = append(prefix, paths[0][i])
 	}
+}
+
+func sameSegment(a, b segment) bool {
+	if a.param != "" || b.param != "" {
+		return a == b
+	}
+	return pathUnescape(a.lit) == pathUnescape(b.lit)
 }
 
 // relation is how the URL sets matched by two Paths relate, as in net/http's pattern comparison.

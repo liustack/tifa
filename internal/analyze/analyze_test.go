@@ -272,6 +272,9 @@ func TestCommonPrefix(t *testing.T) {
 		{[]string{"/files/{path...}"}, "/files"},
 		{[]string{"/a/{x}/b", "/a/{y}/b"}, "/a"},
 		{[]string{"/a/b", "/a/bc"}, "/a"},
+		// Literals compare after unescaping, as ServeMux matches them. The first spelling is kept.
+		{[]string{"/a/{id}/one", "/%61/{id}/two"}, "/a/{id}"},
+		{[]string{"/%61/{id}/two", "/a/{id}/one"}, "/%61/{id}"},
 	}
 	for _, tc := range cases {
 		var segs [][]segment
