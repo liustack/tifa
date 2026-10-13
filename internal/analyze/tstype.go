@@ -1,6 +1,7 @@
 package analyze
 
 import (
+	"fmt"
 	"go/token"
 	"go/types"
 	"reflect"
@@ -9,10 +10,12 @@ import (
 	"unicode"
 )
 
-// The TypeScript form of a Load result is the JSON that encoding/json (Go 1.26, json v1) writes
-// for it. The server encodes the result value itself, as json.Marshal(result) does, so the root
-// value is not addressable. tsType follows newTypeEncoder and typeFields of encoding/json step
-// by step, and code generation relies on exactly these rules:
+// The TypeScript form of a Load result is the JSON that json.Marshal writes for it. Since Go 1.27
+// encoding/json runs on the json v2 implementation with v1 options, and GOEXPERIMENT=nojsonv2
+// brings back the classic v1 code. The rules below hold for both: tsType follows newTypeEncoder
+// and typeFields of the v1 code, rejects what the two read differently, and a test compares the
+// result with real json.Marshal output of both. The server encodes the result value itself, so
+// the root value is not addressable. Code generation relies on exactly these rules:
 //
 //   - A type that implements json.Marshaler is written by its MarshalJSON. Its form is only known
 //     for time.Time (string), also when time.Time's method is promoted through embedding. Any
@@ -34,8 +37,9 @@ import (
 //     integer kinds, or implementing encoding.TextMarshaler become strings. Other keys are rejected.
 //   - A struct is an object. Exported fields are kept, and embedded structs (exported or not,
 //     possibly through a pointer) without a json name have their fields promoted. A field's name
-//     is the json tag name, or the Go field name when the tag name is empty or not valid for
-//     encoding/json. json:"-" drops a field. When several fields share a name, the shallowest
+//     is the json tag name, or the Go field name when the tag name is empty. A tag name with
+//     characters outside the set json v1 accepts is rejected, because json v1 and the json v2
+//     backed implementation read it differently. json:"-" drops a field. When several fields share a name, the shallowest
 //     wins, then the tagged one, and if that leaves a tie all of them are dropped, silently, as
 //     encoding/json does. omitempty or omitzero make a property optional, and so does reaching it
 //     through an embedded pointer, which skips the field when nil. The ",string" option turns
@@ -283,8 +287,12 @@ func (c *tsChecker) object(s *types.Struct, path string, addressable bool) strin
 					continue
 				}
 				name, opts, _ := strings.Cut(tag, ",")
-				if !validTagName(name) {
-					name = ""
+				if name != "" && !validTagName(name) {
+					// json v1 falls back to the Go field name, the json v2 backed implementation
+					// of Go 1.27 keeps a prefix of the tag or rejects it. Which one runs depends
+					// on GOEXPERIMENT, so the name is refused.
+					c.problems = append(c.problems, tsProblem{path: f.path + "." + sf.Name(), field: sf, msg: fmt.Sprintf("json tag name %q is read differently by the encoding/json implementations: use letters, digits and the punctuation !#$%%&()*+-./:;<=>?@[]^_{|}~ or space", name)})
+					continue
 				}
 				index := append(slices.Clone(f.index), i)
 

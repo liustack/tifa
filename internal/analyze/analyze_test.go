@@ -1,6 +1,7 @@
 package analyze
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
@@ -136,13 +137,14 @@ func TestViolations(t *testing.T) {
 			{"app/page/route.go:13:", "package-level function", "method"},
 		}},
 		{"badtype", [][]string{
-			{"app/page/route.go:41:", "Data.Updates", "chan int"},
-			{"app/page/route.go:41:", "Data.ByScore", "map[float64]string"},
-			{"app/page/route.go:41:", "Data.Items[].Extra", "any"},
-			{"app/page/route.go:41:", "Data.Raw", "json.RawMessage", "Marshaler"},
-			{"app/page/route.go:41:", "Data.Bytes[]", "Marshaler"},
-			{"app/page/route.go:41:", "Data.Ptrs[]", "Marshaler"},
-			{"app/page/route.go:41:", "Data.Text", "interface"},
+			{"app/page/route.go:42:", "Data.Updates", "chan int"},
+			{"app/page/route.go:42:", "Data.ByScore", "map[float64]string"},
+			{"app/page/route.go:42:", "Data.Items[].Extra", "any"},
+			{"app/page/route.go:42:", "Data.Raw", "json.RawMessage", "Marshaler"},
+			{"app/page/route.go:42:", "Data.Bytes[]", "Marshaler"},
+			{"app/page/route.go:42:", "Data.Ptrs[]", "Marshaler"},
+			{"app/page/route.go:42:", "Data.Text", "interface"},
+			{"app/page/route.go:42:", "Data.Bad", "bad'name"},
 		}},
 		{"badpath", [][]string{
 			{"app/noslash/route.go:3:", `"projects"`, "start with /"},
@@ -392,5 +394,29 @@ func TestGoListFailureIsReported(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "go mod tidy") {
 		t.Errorf("error lacks the go command's advice: %v", err)
+	}
+}
+
+// The matcher must reject documents that do not fit, or the shape check proves nothing.
+func TestShapeMatcherRejectsMismatches(t *testing.T) {
+	shape, err := parseTS("{ a: number; b?: string | null; c: (number | null)[] | null }")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, doc := range []string{
+		`{"a":"1","c":null}`, `{"c":null}`, `{"a":1,"c":null,"d":1}`, `{"a":1,"c":["x"]}`, `{"a":1,"b":2,"c":null}`,
+	} {
+		var v any
+		if err := json.Unmarshal([]byte(doc), &v); err != nil {
+			t.Fatal(err)
+		}
+		if shape.match(v, "$", nil) == nil {
+			t.Errorf("%s matched", doc)
+		}
+	}
+	var ok any
+	json.Unmarshal([]byte(`{"a":1,"c":[1,null]}`), &ok)
+	if err := shape.match(ok, "$", nil); err != nil {
+		t.Errorf("valid document rejected: %v", err)
 	}
 }

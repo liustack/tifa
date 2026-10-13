@@ -17,6 +17,7 @@ type Data struct {
 	Bytes   []B                `json:"bytes"`
 	Ptrs    []PtrMarshal       `json:"ptrs"`
 	Text    TextValue          `json:"text"`
+	Bad     int                `json:"bad'name"`
 }
 
 // TextValue is an interface: the dynamic value may also implement MarshalJSON, or be nil.
