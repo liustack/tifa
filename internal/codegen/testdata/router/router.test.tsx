@@ -3,7 +3,7 @@ import { createMemoryHistory } from '@tanstack/react-router'
 import { routeTree } from './.tifa/routes'
 import { createAppRouter } from './.tifa/runtime/router'
 import { serve } from './.tifa/runtime/server'
-import type { RouteResult } from './.tifa/runtime/data'
+import { collector, RouteError, type RouteResult } from './.tifa/runtime/data'
 
 const tests: Array<[string, () => Promise<void>]> = []
 const test = (name: string, fn: () => Promise<void>) => tests.push([name, fn])
@@ -127,6 +127,45 @@ test('preloaded data never goes stale by itself', async () => {
     assert(route.options.staleTime === Infinity, `${route.id} staleTime ${route.options.staleTime}`)
     assert(route.options.preloadStaleTime === Infinity, `${route.id} preloadStaleTime ${route.options.preloadStaleTime}`)
   }
+})
+
+// stubFetch answers every request with status and body and counts the requests.
+function stubFetch(status: number, body: unknown) {
+  const seen: string[] = []
+  globalThis.fetch = (async (url: string) => {
+    seen.push(url)
+    return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+  }) as typeof fetch
+  return seen
+}
+
+test('a grouped answer reaches every route whatever the HTTP status', async () => {
+  stubFetch(404, { 'app/team': ok('x'), 'app/team/one': missing })
+  const source = collector(() => 'b1')
+  const [team, one] = await Promise.all([source('/teams/x/one', 'app/team'), source('/teams/x/one', 'app/team/one')])
+  assert(team.status === 200 && team.data === 'x', `team ${JSON.stringify(team)}`)
+  assert(one.status === 404, `one ${JSON.stringify(one)}`)
+
+  stubFetch(500, { error: 'down' })
+  const failed = await source('/teams/x/one', 'app/team').then(
+    () => undefined,
+    (error) => error,
+  )
+  assert(failed instanceof RouteError && failed.status === 500 && failed.message === 'down', `failure ${failed}`)
+})
+
+test('a 409 reloads the current page once', async () => {
+  const location = { reloads: 0, assigned: [] as string[] }
+  ;(globalThis as any).window = {
+    location: { reload: () => location.reloads++, assign: (url: string) => location.assigned.push(url) },
+  }
+  stubFetch(409, { error: 'the application was updated' })
+  const source = collector(() => 'old')
+  void source('/hovered', 'app/a')
+  void source('/clicked', 'app/b')
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert(location.reloads === 1, `reloads ${location.reloads}`)
+  assert(location.assigned.length === 0, `assigned ${location.assigned}`)
 })
 
 let failed = 0

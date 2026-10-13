@@ -3,8 +3,9 @@
 // Every Load result travels as a RouteResult. A whole-page render gets them injected by Go
 // (Injected), a client navigation asks for them with one request per URL: a GET of the page URL
 // with the header X-Tifa-Route listing the route IDs and X-Tifa-Build carrying the build ID the
-// page was rendered with. The answer is a JSON object of RouteResult by route ID. A server built
-// from other sources answers 409, and the browser loads the URL as a whole page.
+// page was rendered with. The answer is a JSON object of RouteResult by route ID, each route
+// read on its own whatever the HTTP status. A server built from other sources answers 409, and
+// the browser reloads the current page.
 
 // RouteResult is the outcome of one Load. status is 200 with data, 404 when the Load returned
 // tifa.ErrNotFound, a redirect status with location when it returned c.Redirect, or the status
@@ -99,13 +100,15 @@ export function collector(buildId: () => string): Source {
         },
       })
       if (response.status === 409) {
-        // The server runs another build. Load the page from it and leave the loaders pending,
-        // so the router does not commit state for the old build meanwhile.
-        window.location.assign(url)
+        // The server runs another build. Reload the current page from it, once however many
+        // requests got 409, and leave the loaders pending, so the router commits no state for
+        // the old build meanwhile. A late 409 of a preload never leaves the current page.
+        reloadOnce()
         return
       }
-      if (!response.ok) throw new RouteError(response.status, await errorMessage(response))
-      const body = (await response.json()) as Record<string, RouteResult>
+      const body: unknown = await response.json().catch(() => undefined)
+      if (!isGrouped(body)) throw new RouteError(response.status, errorMessage(response, body))
+      // Each route gets its own result, whatever the HTTP status of the whole answer.
       for (const [id, list] of waiters) {
         const result = body[id]
         for (const waiter of list) {
@@ -131,12 +134,26 @@ export function collector(buildId: () => string): Source {
     })
 }
 
-async function errorMessage(response: Response) {
-  try {
-    const body = (await response.json()) as { error?: string }
-    if (body.error) return body.error
-  } catch {
-    // not a JSON error body
-  }
+let reloading = false
+
+function reloadOnce() {
+  if (reloading) return
+  reloading = true
+  window.location.reload()
+}
+
+// isGrouped reports whether body is the answer to a data request: RouteResult by route ID.
+function isGrouped(body: unknown): body is Record<string, RouteResult> {
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    !Array.isArray(body) &&
+    Object.values(body).every((item) => typeof item === 'object' && item !== null && typeof item.status === 'number')
+  )
+}
+
+function errorMessage(response: Response, body: unknown) {
+  const error = (body as { error?: unknown } | undefined)?.error
+  if (typeof error === 'string' && error !== '') return error
   return response.statusText || `request failed with status ${response.status}`
 }

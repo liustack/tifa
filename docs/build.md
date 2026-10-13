@@ -77,7 +77,7 @@ esbuild 不读 `rootDirs`，打包时用 `bundle.Generated(root)` 插件做同�
 
 - 每个 `Load` 的结果是 `{status, data?, error?}`：成功为 200 带 `data`，`tifa.ErrNotFound` 为 404，其他错误带状态码与公开消息。
 - 整页渲染的 VM 输入是 `{url, buildId, data: {路由 ID: 结果}}`，与 `internal/ssr.Input` 一致。
-- 客户端导航时，同一轮事件循环里对同一 URL 的 loader 调用合并成一个 GET：请求头 `X-Tifa-Route: <路由 ID>,<路由 ID>` 与 `X-Tifa-Build: <构建 ID>`，响应是 `{路由 ID: 结果}`。构建 ID 不一致时服务器答 409，浏览器整页加载该 URL。
+- 客户端导航时，同一轮事件循环里对同一 URL 的 loader 调用合并成一个 GET：请求头 `X-Tifa-Route: <路由 ID>,<路由 ID>` 与 `X-Tifa-Build: <构建 ID>`，响应是 `{路由 ID: 结果}`，不论 HTTP 状态码，浏览器逐项分发，只有响应不是这个格式时同批 loader 一起失败。构建 ID 不一致时服务器答 409，浏览器刷新当前页面一次（多个 409 只刷新一次，迟到的预加载 409 不会跳到预加载的目标）。
 - 浏览器从 TanStack 的 dehydrate 数据里拿到构建 ID。
 
 ## 生成的程序
