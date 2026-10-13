@@ -23,30 +23,19 @@ type Level int
 
 func (Level) MarshalText() ([]byte, error) { return []byte("high"), nil }
 
-// AppendText is used by json v2, MarshalText by json v1. Both write the same string.
-func (Level) AppendText(b []byte) ([]byte, error) { return append(b, "high"...), nil }
-
 // Code is a struct map key written by MarshalText.
 type Code struct{ A, B int }
 
 func (Code) MarshalText() ([]byte, error) { return []byte("a-b"), nil }
 
-// NotMarshaler has a MarshalJSON method of the wrong signature, so encoding/json ignores it.
-type NotMarshaler struct {
-	V int `json:"v"`
-}
+// PtrText declares MarshalText on its pointer, so it is a string when held through a pointer.
+type PtrText struct{ A int }
 
-func (NotMarshaler) MarshalJSON() string { return "" }
+func (*PtrText) MarshalText() ([]byte, error) { return []byte("p"), nil }
 
-// PtrMarshal marshals itself through a pointer receiver, which applies to addressable values only.
-type PtrMarshal struct {
-	V int `json:"v"`
-}
+type Status string
 
-func (*PtrMarshal) MarshalJSON() ([]byte, error) { return []byte(`"p"`), nil }
-
-// Stamp gets time.Time's MarshalJSON by embedding.
-type Stamp struct{ time.Time }
+type Tags []string
 
 type Node struct {
 	Name string  `json:"name"`
@@ -69,7 +58,6 @@ type Shape struct {
 	ByCode  map[Code]int   `json:"byCode"`
 	Level   Level          `json:"level"`
 	Num     json.Number    `json:"num"`
-	NumS    json.Number    `json:"numS,string"`
 	NumP    *json.Number   `json:"numP"`
 	Raw     []byte         `json:"raw"`
 	List    []int          `json:"list"`
@@ -77,10 +65,14 @@ type Shape struct {
 	Empty   [0]chan int    `json:"empty"`
 	None    [0]any         `json:"none"`
 	When    time.Time      `json:"when"`
-	Stamp   Stamp          `json:"stamp"`
-	NotM    NotMarshaler   `json:"notM"`
-	Value   PtrMarshal     `json:"value"`
 	Tree    *Node          `json:"tree"`
+	Dur     time.Duration  `json:"dur"`
+	PT      *PtrText       `json:"pt"`
+	PTs     []*PtrText     `json:"pts"`
+	St      Status         `json:"st"`
+	ByStat  map[Status]int `json:"byStatus"`
+	Tags    Tags           `json:"tags"`
+	O2      int            `json:"o2,omitzero"`
 	private int
 }
 

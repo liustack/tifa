@@ -56,8 +56,8 @@ func (d *tsDecls) name(key tsKey, goName string) string {
 func (d *tsDecls) declare(key tsKey, ts string) string {
 	name, ok := d.names[key]
 	if !ok {
-		// The same Go type reached with other addressability may already be declared with
-		// this very body, as when a recursive type is the field of a non-addressable struct.
+		// The same Go type reached another way, through a pointer or not, may already be
+		// declared with this very body.
 		if name, ok := d.bodies[[2]string{key.typ, ts}]; ok {
 			return name
 		}

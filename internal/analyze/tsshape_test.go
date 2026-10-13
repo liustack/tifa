@@ -31,6 +31,7 @@ func TestLoadResultShapeMatchesEncodingJSON(t *testing.T) {
 	// Node is written by name where it recurs, so it resolves to the object inside tree.
 	refs := map[string]*tsNode{"Node": shape.prop("tree").alts[0]}
 
+	outputs := map[string]string{}
 	for _, experiment := range []string{"", "nojsonv2"} {
 		cmd := exec.Command("go", "run", "./encode")
 		cmd.Dir = filepath.Join("testdata", "jsonshape")
@@ -41,6 +42,7 @@ func TestLoadResultShapeMatchesEncodingJSON(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GOEXPERIMENT=%s go run ./encode: %v\n%s", experiment, err, stderr.String())
 		}
+		outputs[experiment] = string(out)
 		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 		if len(lines) < 3 {
 			t.Fatalf("GOEXPERIMENT=%s: want 3 documents, got:\n%s", experiment, out)
@@ -54,6 +56,10 @@ func TestLoadResultShapeMatchesEncodingJSON(t *testing.T) {
 				t.Errorf("GOEXPERIMENT=%s: %v\nJSON  %s\nshape %s", experiment, err, line, ts)
 			}
 		}
+	}
+	// Accepted types are written the same way by both implementations, byte for byte.
+	if outputs[""] != outputs["nojsonv2"] {
+		t.Errorf("the two implementations differ:\ndefault  %s\nnojsonv2 %s", outputs[""], outputs["nojsonv2"])
 	}
 }
 

@@ -2,7 +2,6 @@ package page
 
 import (
 	"encoding/json"
-	"encoding/json/jsontext"
 
 	"github.com/liustack/tifa"
 )
@@ -23,10 +22,12 @@ type Data struct {
 	Stream  Streamer           `json:"stream"`
 }
 
+type encoder struct{} // stands in for jsontext.Encoder, absent under GOEXPERIMENT=nojsonv2
+
 // Streamer writes itself through json v2's MarshalJSONTo, which json v1 ignores.
 type Streamer struct{}
 
-func (Streamer) MarshalJSONTo(*jsontext.Encoder) error { return nil }
+func (Streamer) MarshalJSONTo(*encoder) error { return nil }
 
 // AppendOnly is written by AppendText under json v2 and as a number under json v1.
 type AppendOnly int

@@ -12,46 +12,41 @@ import (
 
 // The TypeScript form of a Load result is the JSON that json.Marshal writes for it. Since Go 1.27
 // encoding/json runs on the json v2 implementation with v1 options, and GOEXPERIMENT=nojsonv2
-// brings back the classic v1 code. The rules below hold for both: tsType follows newTypeEncoder
-// and typeFields of the v1 code, rejects what the two read differently, and a test compares the
-// result with real json.Marshal output of both. The server encodes the result value itself, so
-// the root value is not addressable. Code generation relies on exactly these rules:
+// brings back the classic v1 code. tsType accepts only types that both write the same way, and a
+// test compares the result with real json.Marshal output of both. Anything not listed here is
+// rejected, and code generation relies on exactly these rules:
 //
-//   - A type that implements json.Marshaler is written by its MarshalJSON. Its form is only known
-//     for time.Time (string), also when time.Time's method is promoted through embedding. Any
-//     other MarshalJSON is rejected, because its output cannot be seen statically.
-//   - A type that implements encoding.TextMarshaler is string.
-//   - Method sets follow encoding/json: a non-pointer value whose pointer type implements the
-//     interface uses it only when the value is addressable. Values behind a pointer, slice
-//     elements and fields reached through an embedded pointer are addressable. The root value,
-//     map values and fields of a non-addressable struct are not.
-//   - bool is boolean. Integer kinds (uintptr included) and float kinds are number. string is
-//     string, except json.Number, which is number.
+//   - bool is boolean. Integer kinds (uintptr included) and float kinds are number. string is string.
+//   - time.Time is string. json.Number is number.
 //   - A pointer is T | null.
-//   - A slice is T[] | null, because a nil slice is null. A slice whose element kind is uint8 is
-//     string | null (base64), unless a pointer to the element implements json.Marshaler or
-//     encoding.TextMarshaler.
-//   - An array is T[], an array of bytes included. An array of length 0 is [] whatever its
-//     element type, because encoding/json never encodes an element.
-//   - A map is Record<string, V> | null, because a nil map is null. Keys of string kind, of
-//     integer kinds, or implementing encoding.TextMarshaler become strings. Other keys are rejected.
-//   - A struct is an object. Exported fields are kept, and embedded structs (exported or not,
-//     possibly through a pointer) without a json name have their fields promoted. A field's name
-//     is the json tag name, or the Go field name when the tag name is empty. A tag name with
-//     characters outside the set json v1 accepts is rejected, because json v1 and the json v2
-//     backed implementation read it differently. json:"-" drops a field. When several fields share a name, the shallowest
-//     wins, then the tagged one, and if that leaves a tie all of them are dropped, silently, as
-//     encoding/json does. omitempty or omitzero make a property optional, and so does reaching it
-//     through an embedded pointer, which skips the field when nil. The ",string" option turns
-//     bool, number and string fields (also behind an unnamed pointer) into string.
+//   - A slice is T[] | null, because a nil slice is null. []byte, whose elements are the
+//     predeclared byte or uint8, is string | null (base64). Slices of a named byte type are
+//     rejected.
+//   - An array is T[]. An array of length 0 is [] whatever its element type, because
+//     encoding/json never encodes an element.
+//   - A map is Record<string, V> | null, because a nil map is null. Its key is a string or integer
+//     kind without a MarshalText method, or a type that is string by the MarshalText rule below.
+//   - A struct is an object of its exported fields. Embedded exported structs (possibly through
+//     a pointer) without a json name have their fields promoted. An unexported embedded field is
+//     rejected unless its tag is json:"-". A field's name is the json tag name, or the Go field
+//     name when the tag name is empty. The tag name must use only letters, digits and the
+//     punctuation json v1 accepts, which both implementations read alike. json:"-" drops a field.
+//     When several fields share a name, the shallowest wins, then the tagged one, and if that
+//     leaves a tie all of them are dropped, silently, as encoding/json does. The only tag options
+//     are omitempty and omitzero, which make a property optional, as does reaching it through an
+//     embedded pointer, and string, which turns a field of type bool, a predeclared number type
+//     or string, or an unnamed pointer to one, into string.
+//   - A type with a method or field named MarshalJSON, MarshalJSONTo, AppendText or AppendJSON,
+//     in the method set of its value or its pointer and whatever its signature, is rejected,
+//     except time.Time and json.Number above.
+//   - A type whose own MarshalText is exactly MarshalText() ([]byte, error) on the value receiver
+//     is string. On the pointer receiver it is string only when held through a pointer. A
+//     MarshalText of another signature, promoted from an embedded field, or hidden by a field of
+//     that name is rejected.
 //   - Named types keep their names, so recursive types are allowed.
 //
-// Also rejected because json v1 and the json v2 backed implementation disagree on them: types
-// with AppendText but no MarshalText, and types with MarshalJSONTo.
-//
-// Rejected: every interface type (any, error, interfaces with MarshalText and others), because
-// the dynamic value decides the JSON and may be nil. Also rejected: chan, func, complex numbers,
-// unsafe.Pointer, maps with other keys, and MarshalJSON other than time.Time's.
+// Rejected besides: every interface type, wherever it appears, chan, func, complex numbers,
+// unsafe.Pointer and type parameters.
 func checkTS(t types.Type) []tsProblem {
 	_, problems := tsType(t)
 	return problems
@@ -74,9 +69,8 @@ type tsProblem struct {
 }
 
 type tsKey struct {
-	typ         string
-	addressable bool
-	quoted      bool
+	typ            string
+	quoted, viaPtr bool
 }
 
 type tsChecker struct {
@@ -91,24 +85,13 @@ func (c *tsChecker) fail(path, msg string) string {
 	return "never"
 }
 
-var (
-	errorType     = types.Universe.Lookup("error").Type()
-	byteSlice     = types.NewSlice(types.Typ[types.Byte])
-	marshalerType = methodInterface("MarshalJSON")
-	textMarshaler = methodInterface("MarshalText")
-	textAppender  = types.NewInterfaceType([]*types.Func{types.NewFunc(token.NoPos, nil, "AppendText",
-		types.NewSignatureType(nil, nil, nil,
-			types.NewTuple(types.NewVar(token.NoPos, nil, "", byteSlice)),
-			types.NewTuple(types.NewVar(token.NoPos, nil, "", byteSlice), types.NewVar(token.NoPos, nil, "", errorType)), false))}, nil).Complete()
-)
+// encoderMethods are the method names that one of the encoding/json implementations calls
+// instead of encoding a value by its kind, besides MarshalText.
+var encoderMethods = []string{"MarshalJSON", "MarshalJSONTo", "AppendText", "AppendJSON"}
 
-// methodInterface builds interface{ name() ([]byte, error) }, the shape of json.Marshaler and
-// encoding.TextMarshaler.
-func methodInterface(name string) *types.Interface {
-	results := types.NewTuple(types.NewVar(token.NoPos, nil, "", byteSlice), types.NewVar(token.NoPos, nil, "", errorType))
-	sig := types.NewSignatureType(nil, nil, nil, nil, results, false)
-	return types.NewInterfaceType([]*types.Func{types.NewFunc(token.NoPos, nil, name, sig)}, nil).Complete()
-}
+var textMarshalSig = types.NewSignatureType(nil, nil, nil, nil,
+	types.NewTuple(types.NewVar(token.NoPos, nil, "", types.NewSlice(types.Typ[types.Byte])),
+		types.NewVar(token.NoPos, nil, "", types.Universe.Lookup("error").Type())), false)
 
 func rootLabel(t types.Type) string {
 	for {
@@ -130,55 +113,63 @@ func isNamed(t types.Type, pkg, name string) bool {
 	return ok && n.Obj().Pkg() != nil && n.Obj().Pkg().Path() == pkg && n.Obj().Name() == name
 }
 
-// encode mirrors newTypeEncoder. quoted is the ",string" option of the enclosing field.
-func (c *tsChecker) encode(t types.Type, path string, addressable, quoted bool) (ts string) {
+// lookupName finds a field or method called name on an addressable t, so the methods of *t
+// count. It reports an ambiguous name as found with a nil object.
+func lookupName(t types.Type, name string) (types.Object, []int, bool) {
+	obj, index, _ := types.LookupFieldOrMethod(t, true, nil, name)
+	return obj, index, obj != nil || index != nil
+}
+
+// textMethod checks the MarshalText of t. It returns whether t has one, and a problem when that
+// one is not accepted. viaPtr is true when t is held through a pointer.
+func textMethod(t types.Type, typeName string, viaPtr bool) (bool, string) {
+	obj, index, found := lookupName(t, "MarshalText")
+	if !found {
+		return false, ""
+	}
+	fn, ok := obj.(*types.Func)
+	if !ok || !types.Identical(fn.Signature(), textMarshalSig) {
+		return true, typeName + " has a MarshalText that is not the method MarshalText() ([]byte, error), so the encoding/json implementations may ignore it or read it differently: give it that signature or rename it"
+	}
+	if len(index) > 1 {
+		return true, typeName + " gets MarshalText from an embedded field: declare MarshalText on " + typeName + " itself"
+	}
+	if _, ptrRecv := types.Unalias(fn.Signature().Recv().Type()).(*types.Pointer); ptrRecv && !viaPtr {
+		return true, typeName + " declares MarshalText on its pointer, which encoding/json calls only for some values: declare it on the value receiver or hold the value through a pointer"
+	}
+	return true, ""
+}
+
+// encode writes the TypeScript type of t. quoted is the string option of the enclosing field and
+// viaPtr is true when t is the element of a pointer.
+func (c *tsChecker) encode(t types.Type, path string, quoted, viaPtr bool) (ts string) {
 	typeName := types.TypeString(t, shortQualifier) // before Unalias, so any stays any
 	t = types.Unalias(t)
 	if types.IsInterface(t) {
-		// The dynamic type decides the JSON, and a nil interface is null. Methods of the interface
-		// itself, such as MarshalText, say nothing about what the value implements besides them.
+		// The dynamic type decides the JSON, and a nil interface is null.
 		return c.fail(path, typeName+" has no fixed JSON form: it is an interface")
 	}
-	_, isPtr := t.Underlying().(*types.Pointer)
-	// applies reports whether the method set that encoding/json consults for this value
-	// implements iface: the value's own, plus the pointer's when the value is addressable.
-	applies := func(iface *types.Interface) bool {
-		return types.Implements(t, iface) || !isPtr && addressable && types.Implements(types.NewPointer(t), iface)
-	}
-	if isNamed(t, "encoding/json", "Number") {
-		// Both implementations write the number, or a string under the ",string" option. The
-		// json v2 backed one does it through a MarshalJSONTo method.
-		return orString(quoted, "number")
-	}
-	// A pointer is handled at its element, where json v2 looks for the method.
-	if obj, _, _ := types.LookupFieldOrMethod(t, addressable, nil, "MarshalJSONTo"); obj != nil && !isPtr {
-		if _, ok := obj.(*types.Func); ok { // json v2 calls it, json v1 does not, and its output is unknown
-			return c.fail(path, typeName+" has a MarshalJSONTo method, so its JSON form cannot be known statically")
-		}
-	}
-
-	if !isPtr && addressable && types.Implements(types.NewPointer(t), marshalerType) {
-		return c.marshalJSON(types.NewPointer(t), path, typeName, false) // the address of a value is never nil
-	}
-	if types.Implements(t, marshalerType) {
-		return c.marshalJSON(t, path, typeName, isPtr)
-	}
-	if applies(textAppender) && !applies(textMarshaler) {
-		// json v2 writes the AppendText string, json v1 ignores AppendText and encodes by kind.
-		return c.fail(path, typeName+" has AppendText without MarshalText, which the two encoding/json implementations write differently")
-	}
-	if !isPtr && addressable && types.Implements(types.NewPointer(t), textMarshaler) {
+	switch {
+	case isNamed(t, "time", "Time"):
 		return "string"
+	case isNamed(t, "encoding/json", "Number"):
+		return "number"
 	}
-	if types.Implements(t, textMarshaler) {
-		if isPtr {
-			return "string | null" // a nil pointer is written as null
+	if _, isPtr := t.Underlying().(*types.Pointer); !isPtr {
+		for _, name := range encoderMethods {
+			if _, _, found := lookupName(t, name); found {
+				return c.fail(path, typeName+" has a method or field named "+name+", which an encoding/json implementation may call with output the analyzer cannot know: rename it, or return a type without it")
+			}
 		}
-		return "string"
+		if has, problem := textMethod(t, typeName, viaPtr); problem != "" {
+			return c.fail(path, problem)
+		} else if has {
+			return "string"
+		}
 	}
 
 	if n, ok := t.(*types.Named); ok {
-		key := tsKey{types.TypeString(n, nil), addressable, quoted}
+		key := tsKey{types.TypeString(n, nil), quoted, viaPtr}
 		if c.decls != nil {
 			if name, ok := c.decls.declared[key]; ok {
 				return name
@@ -210,44 +201,61 @@ func (c *tsChecker) encode(t types.Type, path string, addressable, quoted bool) 
 		}
 		return c.fail(path, typeName+" has no JSON form")
 	case *types.Pointer:
-		return nullable(c.encode(u.Elem(), path, true, quoted))
+		return nullable(c.encode(u.Elem(), path, quoted, true))
 	case *types.Slice:
-		if b, ok := u.Elem().Underlying().(*types.Basic); ok && b.Kind() == types.Uint8 {
-			p := types.NewPointer(u.Elem())
-			if !types.Implements(p, marshalerType) && !types.Implements(p, textMarshaler) {
-				return "string | null"
+		elem := types.Unalias(u.Elem())
+		if b, ok := elem.Underlying().(*types.Basic); ok && b.Kind() == types.Uint8 {
+			if _, named := elem.(*types.Named); named {
+				return c.fail(path, typeName+" is a slice of the named byte type "+types.TypeString(elem, shortQualifier)+", which the encoding/json implementations may write differently: use []byte, or a slice of another integer type")
 			}
+			return "string | null"
 		}
-		return arrayOf(c.encode(u.Elem(), path+"[]", true, false)) + " | null"
+		return arrayOf(c.encode(u.Elem(), path+"[]", false, false)) + " | null"
 	case *types.Array:
 		if u.Len() == 0 { // always written as [], the element encoder never runs
 			return "[]"
 		}
-		return arrayOf(c.encode(u.Elem(), path+"[]", addressable, false))
+		return arrayOf(c.encode(u.Elem(), path+"[]", false, false))
 	case *types.Map:
-		key := u.Key()
-		b, ok := key.Underlying().(*types.Basic)
-		if !(ok && b.Info()&(types.IsString|types.IsInteger) != 0) && !types.Implements(key, textMarshaler) {
-			return c.fail(path, typeName+" has no JSON form: map keys must be strings, integers or implement encoding.TextMarshaler")
+		if problem := mapKeyProblem(u.Key()); problem != "" {
+			return c.fail(path, typeName+" has no JSON form: "+problem)
 		}
 		return "Record<string, " + c.encode(u.Elem(), path+"[key]", false, false) + "> | null"
 	case *types.Struct:
-		return c.object(u, path, addressable)
+		return c.object(u, path)
 	}
-	return c.fail(path, typeName+" has no JSON form") // chan, func, type parameters
+	return c.fail(path, typeName+" has no JSON form") // chan, func, unsafe.Pointer
 }
 
-// marshalJSON handles a value written by the MarshalJSON method of t. Only time.Time's method
-// has a known output. nilable is true when the value is a pointer, written as null when nil.
-func (c *tsChecker) marshalJSON(t types.Type, path, typeName string, nilable bool) string {
-	obj, _, _ := types.LookupFieldOrMethod(t, true, nil, "MarshalJSON")
-	if fn, ok := obj.(*types.Func); ok && isNamed(derefType(fn.Signature().Recv().Type()), "time", "Time") {
-		if nilable {
-			return "string | null"
-		}
-		return "string"
+// mapKeyProblem says why a map key type is not accepted, or returns an empty string.
+func mapKeyProblem(key types.Type) string {
+	name := types.TypeString(key, shortQualifier)
+	key = types.Unalias(key)
+	if types.IsInterface(key) {
+		return "the key " + name + " is an interface"
 	}
-	return c.fail(path, typeName+" implements json.Marshaler, so its JSON form cannot be known statically")
+	if _, ok := key.Underlying().(*types.Pointer); ok {
+		return "the key " + name + " is a pointer"
+	}
+	for _, m := range encoderMethods {
+		if _, _, found := lookupName(key, m); found {
+			return "the key " + name + " has a method or field named " + m
+		}
+	}
+	has, problem := textMethod(key, name, false)
+	if problem != "" {
+		return problem
+	}
+	if b, ok := key.Underlying().(*types.Basic); ok && b.Info()&(types.IsString|types.IsInteger) != 0 {
+		if has {
+			return "the key " + name + " has MarshalText and a string or integer kind, which the encoding/json implementations read differently: remove MarshalText or use another key type"
+		}
+		return ""
+	}
+	if has {
+		return ""
+	}
+	return "map keys must be strings, integers or types with MarshalText() ([]byte, error) on the value receiver"
 }
 
 func orString(quoted bool, ts string) string {
@@ -273,27 +281,25 @@ func arrayOf(ts string) string {
 
 // jsonField is one property of a struct, as typeFields in encoding/json finds it.
 type jsonField struct {
-	name        string
-	tagged      bool
-	index       []int
-	v           *types.Var
-	path        string // Go path from the root, such as "Order.Base.ID"
-	optional    bool
-	quoted      bool
-	addressable bool
+	name     string
+	tagged   bool
+	index    []int
+	v        *types.Var
+	path     string // Go path from the root, such as "Order.Base.ID"
+	optional bool
+	quoted   bool
 }
 
 // object mirrors typeFields: a breadth-first walk over embedded structs, then the dominance rules.
-func (c *tsChecker) object(s *types.Struct, path string, addressable bool) string {
+func (c *tsChecker) object(s *types.Struct, path string) string {
 	type level struct {
-		s           *types.Struct
-		key         string
-		index       []int
-		path        string
-		viaPointer  bool
-		addressable bool
+		s          *types.Struct
+		key        string
+		index      []int
+		path       string
+		viaPointer bool
 	}
-	current, next := []level{}, []level{{s: s, key: types.TypeString(s, nil), path: path, addressable: addressable}}
+	current, next := []level{}, []level{{s: s, key: types.TypeString(s, nil), path: path}}
 	var count, nextCount map[string]int
 	visited := map[string]bool{}
 	var fields []jsonField
@@ -307,28 +313,51 @@ func (c *tsChecker) object(s *types.Struct, path string, addressable bool) strin
 			visited[f.key] = true
 			for i := 0; i < f.s.NumFields(); i++ {
 				sf := f.s.Field(i)
-				if sf.Embedded() {
-					t := types.Unalias(sf.Type())
-					if p, ok := t.(*types.Pointer); ok {
-						t = p.Elem()
-					}
-					if _, isStruct := t.Underlying().(*types.Struct); !sf.Exported() && !isStruct {
-						continue
-					}
-				} else if !sf.Exported() {
-					continue
+				fieldPath := f.path + "." + sf.Name()
+				problem := func(msg string) {
+					c.problems = append(c.problems, tsProblem{path: fieldPath, field: sf, msg: msg})
 				}
 				tag := reflect.StructTag(f.s.Tag(i)).Get("json")
 				if tag == "-" {
 					continue
 				}
-				name, opts, _ := strings.Cut(tag, ",")
-				if name != "" && !validTagName(name) {
-					// json v1 falls back to the Go field name, the json v2 backed implementation
-					// of Go 1.27 keeps a prefix of the tag or rejects it. Which one runs depends
-					// on GOEXPERIMENT, so the name is refused.
-					c.problems = append(c.problems, tsProblem{path: f.path + "." + sf.Name(), field: sf, msg: fmt.Sprintf("json tag name %q is read differently by the encoding/json implementations: use letters, digits and the punctuation !#$%%&()*+-./:;<=>?@[]^_{|}~ or space", name)})
+				if !sf.Exported() {
+					if sf.Embedded() {
+						problem("unexported embedded field " + sf.Name() + ": the encoding/json implementations treat it differently, export its type, give the field a name or tag it json:\"-\"")
+					}
 					continue
+				}
+				name, opts, hasOpts := strings.Cut(tag, ",")
+				if name != "" && !validTagName(name) {
+					problem(fmt.Sprintf("json tag name %q is read differently by the encoding/json implementations: use letters, digits and the punctuation !#$%%&()*+-./:;<=>?@[]^_{|}~ or space", name))
+					continue
+				}
+				var omit, quoted bool
+				seen := map[string]bool{}
+				bad := false
+				if hasOpts {
+					for _, o := range strings.Split(opts, ",") {
+						switch {
+						case o != "omitempty" && o != "omitzero" && o != "string":
+							problem(fmt.Sprintf("json tag option %q is not accepted: use omitempty, omitzero or string", o))
+							bad = true
+						case seen[o]:
+							problem(fmt.Sprintf("json tag option %q appears twice", o))
+							bad = true
+						}
+						seen[o] = true
+					}
+				}
+				if bad {
+					continue
+				}
+				omit = seen["omitempty"] || seen["omitzero"]
+				if seen["string"] {
+					if !stringOptionType(sf.Type()) {
+						problem("the string option is only accepted on fields of type bool, a predeclared number type or string, or an unnamed pointer to one")
+						continue
+					}
+					quoted = true
 				}
 				index := append(slices.Clone(f.index), i)
 
@@ -337,13 +366,6 @@ func (c *tsChecker) object(s *types.Struct, path string, addressable bool) strin
 				if unnamedPtr {
 					ft = types.Unalias(ptr.Elem())
 				}
-				quoted := false
-				if hasOption(opts, "string") {
-					if b, ok := ft.Underlying().(*types.Basic); ok && b.Info()&(types.IsBoolean|types.IsNumeric|types.IsString) != 0 &&
-						b.Info()&types.IsComplex == 0 {
-						quoted = true
-					}
-				}
 				_, ftStruct := ft.Underlying().(*types.Struct)
 				if name != "" || !sf.Embedded() || !ftStruct {
 					tagged := name != ""
@@ -351,10 +373,9 @@ func (c *tsChecker) object(s *types.Struct, path string, addressable bool) strin
 						name = sf.Name()
 					}
 					fields = append(fields, jsonField{
-						name: name, tagged: tagged, index: index, v: sf, path: f.path + "." + sf.Name(),
-						optional:    hasOption(opts, "omitempty") || hasOption(opts, "omitzero") || f.viaPointer,
-						quoted:      quoted,
-						addressable: f.addressable,
+						name: name, tagged: tagged, index: index, v: sf, path: fieldPath,
+						optional: omit || f.viaPointer,
+						quoted:   quoted,
 					})
 					if count[f.key] > 1 { // the same struct embedded twice at this depth: its fields cancel out
 						fields = append(fields, fields[len(fields)-1])
@@ -365,8 +386,8 @@ func (c *tsChecker) object(s *types.Struct, path string, addressable bool) strin
 				nextCount[key]++
 				if nextCount[key] == 1 {
 					next = append(next, level{
-						s: ft.Underlying().(*types.Struct), key: key, index: index, path: f.path + "." + sf.Name(),
-						viaPointer: f.viaPointer || unnamedPtr, addressable: f.addressable || unnamedPtr,
+						s: ft.Underlying().(*types.Struct), key: key, index: index, path: fieldPath,
+						viaPointer: f.viaPointer || unnamedPtr,
 					})
 				}
 			}
@@ -407,7 +428,7 @@ func (c *tsChecker) object(s *types.Struct, path string, addressable bool) strin
 	props := make([]string, len(kept))
 	for i, f := range kept {
 		c.field = f.v
-		ts := c.encode(f.v.Type(), f.path, f.addressable, f.quoted)
+		ts := c.encode(f.v.Type(), f.path, f.quoted, false)
 		opt := ""
 		if f.optional {
 			opt = "?"
@@ -418,6 +439,16 @@ func (c *tsChecker) object(s *types.Struct, path string, addressable bool) strin
 		return "{}"
 	}
 	return "{ " + strings.Join(props, "; ") + " }"
+}
+
+// stringOptionType reports whether the string tag option is accepted on a field of type t.
+func stringOptionType(t types.Type) bool {
+	t = types.Unalias(t)
+	if p, ok := t.(*types.Pointer); ok {
+		t = types.Unalias(p.Elem())
+	}
+	b, ok := t.(*types.Basic)
+	return ok && b.Info()&(types.IsBoolean|types.IsInteger|types.IsFloat|types.IsString) != 0 && b.Kind() != types.UnsafePointer
 }
 
 func hasOption(opts, name string) bool {

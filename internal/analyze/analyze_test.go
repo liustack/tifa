@@ -137,16 +137,39 @@ func TestViolations(t *testing.T) {
 			{"app/page/route.go:13:", "package-level function", "method"},
 		}},
 		{"badtype", [][]string{
-			{"app/page/route.go:55:", "Data.Updates", "chan int"},
-			{"app/page/route.go:55:", "Data.ByScore", "map[float64]string"},
-			{"app/page/route.go:55:", "Data.Items[].Extra", "any"},
-			{"app/page/route.go:55:", "Data.Raw", "json.RawMessage", "Marshaler"},
-			{"app/page/route.go:55:", "Data.Bytes[]", "Marshaler"},
-			{"app/page/route.go:55:", "Data.Ptrs[]", "Marshaler"},
-			{"app/page/route.go:55:", "Data.Text", "interface"},
-			{"app/page/route.go:55:", "Data.Bad", "bad'name"},
-			{"app/page/route.go:55:", "Data.Append", "AppendText"},
-			{"app/page/route.go:55:", "Data.Stream", "MarshalJSONTo"},
+			{"app/page/route.go:56:", "Data.Updates", "chan int"},
+			{"app/page/route.go:56:", "Data.ByScore", "map[float64]string"},
+			{"app/page/route.go:56:", "Data.Items[].Extra", "any"},
+			{"app/page/route.go:56:", "Data.Raw", "json.RawMessage", "MarshalJSON"},
+			{"app/page/route.go:56:", "Data.Bytes", "named byte"},
+			{"app/page/route.go:56:", "Data.Ptrs[]", "MarshalJSON"},
+			{"app/page/route.go:56:", "Data.Text", "interface"},
+			{"app/page/route.go:56:", "Data.Bad", "bad'name"},
+			{"app/page/route.go:56:", "Data.Append", "AppendText"},
+			{"app/page/route.go:56:", "Data.Stream", "MarshalJSONTo"},
+		}},
+		{"badshape", [][]string{
+			{"app/page/route.go:100:", "Data.Both", "MarshalJSONTo"},
+			{"app/page/route.go:100:", "Data.Bytes", "named byte"},
+			{"app/page/route.go:100:", "Data.Plain", "named byte"},
+			{"app/page/route.go:100:", "Data.Embed", `"embed"`},
+			{"app/page/route.go:100:", "Data.Hex", `"format:hex"`},
+			{"app/page/route.go:100:", "Data.Oops", `"string:oops"`},
+			{"app/page/route.go:100:", "Data.Unknown", `"inline"`},
+			{"app/page/route.go:100:", "Data.Comma", `""`},
+			{"app/page/route.go:100:", "Data.Twice", "twice"},
+			{"app/page/route.go:100:", "Data.Named", "string option"},
+			{"app/page/route.go:100:", "Data.ByText", "interface"},
+			{"app/page/route.go:100:", "Data.Wrong", "MarshalJSONTo", "rename"},
+			{"app/page/route.go:100:", "Data.Shadow", "MarshalText", "signature"},
+			{"app/page/route.go:100:", "Data.Prom", "MarshalText", "embedded"},
+			{"app/page/route.go:100:", "Data.Ptr", "MarshalText", "pointer"},
+			{"app/page/route.go:100:", "Data.ByKey", "MarshalText"},
+			{"app/page/route.go:100:", "Data.App", "AppendJSON"},
+			{"app/page/route.go:100:", "Data.Stamp", "MarshalJSON"},
+			{"app/page/route.go:100:", "Data.Num", "string option"},
+			{"app/page/route.go:100:", "Data.ByPtr", "pointer"},
+			{"app/page/route.go:100:", "Data.secret", "unexported embedded"},
 		}},
 		{"badpath", [][]string{
 			{"app/noslash/route.go:3:", `"projects"`, "start with /"},
@@ -415,9 +438,10 @@ func TestLoadResultShape(t *testing.T) {
 	want := "{ id: string; Kind: string; note?: string; X: string; \"dash-name\": number; quoted: string | null; " +
 		"flag: string; text: string; bytes4: number[]; count: string; " +
 		"opt?: boolean | null; byNum: Record<string, string> | null; byCode: Record<string, number> | null; " +
-		"level: string; num: number; numS: string; numP: number | null; raw: string | null; list: number[] | null; grid: boolean[]; empty: []; none: []; " +
-		"when: string; stamp: string; notM: { v: number }; value: { v: number }; " +
-		"tree: { name: string; kids: (Node | null)[] | null } | null }"
+		"level: string; num: number; numP: number | null; raw: string | null; list: number[] | null; grid: boolean[]; empty: []; none: []; " +
+		"when: string; tree: { name: string; kids: (Node | null)[] | null } | null; " +
+		"dur: number; pt: string | null; pts: (string | null)[] | null; st: string; byStatus: Record<string, number> | null; " +
+		"tags: string[] | null; o2?: number }"
 	if got != want {
 		t.Errorf("tsType =\n%s\nwant\n%s", got, want)
 	}
