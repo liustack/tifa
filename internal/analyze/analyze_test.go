@@ -203,6 +203,12 @@ func TestViolations(t *testing.T) {
 			{"app/page/route.go:23:", "variable of type any"},
 			{"app/page/route.go:24:", "converted to interface{Context() context.Context}"},
 		}},
+		{"escape", [][]string{
+			{"app/page/route.go:11:", "c.Request", "c.Query"},
+			{"app/page/route.go:12:", "c.Writer", "OnRequest"},
+			{"db/db.go:8:", "c.Request"},
+			{"db/db.go:10:", "c.Writer"},
+		}},
 		{"ctxflow", [][]string{
 			{"app/page/route.go:26:", "element of map[int]*tifa.Ctx"},
 			{"app/page/route.go:27:", "converted to any"},

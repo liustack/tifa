@@ -81,6 +81,10 @@ func (w *loadWalk) call(info *types.Info, call *ast.CallExpr, helper bool) {
 		w.uses = append(w.uses, paramUse{method: method, name: constant.StringVal(tv.Value), pos: call.Pos()})
 		return
 	}
+	if fn, ok := typeutil.Callee(info, call).(*types.Func); ok && rawAccess(fn) {
+		a.errorAt(call.Pos(), "c.%s gives the raw request or response, where the analyzer cannot see which parameters are read: in Load and the functions it calls, use c.Param, c.Query, c.Header, c.Cookie or c.Context() instead. c.Request and c.Writer are for OnXxx handlers and OnRequest", fn.Name())
+		return
+	}
 	if info.Types[call.Fun].IsType() || !callCarriesCtx(info, call) {
 		return
 	}
@@ -216,4 +220,15 @@ func methodName(fn *types.Func) string {
 		return named.Obj().Name() + "." + fn.Name()
 	}
 	return fn.Name()
+}
+
+// rawAccess reports whether fn is Ctx.Request or Ctx.Writer, which hand out the http.Request and
+// the http.ResponseWriter.
+func rawAccess(fn *types.Func) bool {
+	recv := fn.Signature().Recv()
+	if recv == nil || fn.Name() != "Request" && fn.Name() != "Writer" {
+		return false
+	}
+	named, ok := types.Unalias(derefType(recv.Type())).(*types.Named)
+	return ok && isCtxNamed(named)
 }
