@@ -17,3 +17,5 @@ coverage.out
 # Test applications
 /test/apps/*/dist/
 /test/apps/*/node_modules/
+
+/js/host/node_modules/

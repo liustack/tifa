@@ -2,6 +2,8 @@
 // them into generated code, applications do not import this package.
 package js
 
+//go:generate go run ../internal/bundle/hostgen
+
 import "embed"
 
 // DevClient runs in the browser during tifa dev: it reloads the page after each rebuild and shows

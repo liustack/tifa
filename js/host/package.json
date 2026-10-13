@@ -1,0 +1,12 @@
+{
+  "name": "tifa-ssr-host",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "description": "Pinned sources of the SSR host patches. go generate ./js turns them into runtime/host.js.",
+  "dependencies": {
+    "@kayahr/text-encoding": "2.2.0",
+    "abort-controller": "3.0.0",
+    "core-js": "3.50.0",
+    "whatwg-fetch": "3.6.20"
+  }
+}

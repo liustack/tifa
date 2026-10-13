@@ -99,7 +99,7 @@ func TestGenerateIsDeterministic(t *testing.T) {
 
 func TestGenerateWritesTheRuntime(t *testing.T) {
 	files := generate(t, "shop", false)
-	for _, name := range []string{"runtime/router.tsx", "runtime/data.ts", "runtime/client.ts", "runtime/host.ts"} {
+	for _, name := range []string{"runtime/router.tsx", "runtime/data.ts", "runtime/client.ts", "runtime/host.js", "runtime/host.d.ts"} {
 		if len(files[name]) == 0 {
 			t.Errorf("%s is missing", name)
 		}
