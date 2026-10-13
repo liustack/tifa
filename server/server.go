@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/internal/config"
 	"github.com/liustack/tifa/internal/core"
+	"github.com/liustack/tifa/internal/ssr"
 )
 
 // Hooks are the optional functions of the application's hooks.go.
@@ -30,24 +32,34 @@ type Hooks struct {
 	OnError    func(c *tifa.Ctx, err error) tifa.Error
 }
 
-// Renderer draws whole-page HTML. Without one, whole-page results are answered with JSON like interface routes.
-type Renderer interface {
-	NotFound(c *tifa.Ctx) error
-	Error(c *tifa.Ctx, e tifa.Error) error
-}
-
 type Server struct {
-	Renderer Renderer
-	cfg      config.Server
-	hooks    Hooks
-	mux      *http.ServeMux
-	routes   map[string]map[string]func(*tifa.Ctx) error // path, then method
+	cfg    config.Server
+	hooks  Hooks
+	mux    *http.ServeMux
+	routes map[string]map[string]func(*tifa.Ctx) error // path, then method
+	pages  map[string]bool                             // paths whose GET renders a page
+
+	// The root Layout's SSR constant, which decides how an unmatched URL is answered.
+	rootSSR bool
+
+	// The front end, see setFront. front is set when there are pages to render, without it
+	// pages answer JSON.
+	front  bool
+	build  frontBuild
+	assets fs.FS // dist/assets, nil without pages
+	public fs.FS // dist/public, nil without a public directory
+	render func(context.Context, ssr.Input) (string, error)
+	cache  *htmlCache
 }
 
 // New builds a server without routes. The ServeMux holds only the application's routes, so a
 // root catch-all page (Path "/{rest...}") can be registered. ServeHTTP handles unmatched URLs.
 func New(cfg config.Config, hooks Hooks) *Server {
-	return &Server{cfg: cfg.Server, hooks: hooks, mux: http.NewServeMux(), routes: map[string]map[string]func(*tifa.Ctx) error{}}
+	return &Server{
+		cfg: cfg.Server, hooks: hooks, mux: http.NewServeMux(),
+		routes: map[string]map[string]func(*tifa.Ctx) error{}, pages: map[string]bool{},
+		rootSSR: true, cache: newHTMLCache(cfg.Cache.Size),
+	}
 }
 
 var methods = []string{"GET", "POST", "PUT", "PATCH", "DELETE"}
@@ -89,7 +101,7 @@ type routeHandler struct {
 }
 
 func (h routeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	h.s.serve(w, r, h.pattern, func(c *tifa.Ctx) error {
+	h.s.serve(w, r, h.pattern, h.methods == nil || h.s.pages[h.pattern], func(c *tifa.Ctx) error {
 		if h.methods == nil {
 			return tifa.ErrNotFound
 		}
@@ -107,6 +119,9 @@ func (h routeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if s.serveStatic(w, r) {
+		return
+	}
 	h, _ := s.mux.Handler(r)
 	if _, ok := h.(routeHandler); ok {
 		s.mux.ServeHTTP(w, r)
@@ -122,7 +137,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case http.StatusMovedPermanently, http.StatusFound, http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
 		if location != "" {
 			redirect := &core.RedirectError{URL: location, Code: probe.code}
-			s.serve(w, r, "", func(*tifa.Ctx) error { return redirect })
+			s.serve(w, r, "", false, func(*tifa.Ctx) error { return redirect })
 			return
 		}
 	}
@@ -139,8 +154,10 @@ func (p *redirectProbe) Header() http.Header         { return p.header }
 func (p *redirectProbe) WriteHeader(code int)        { p.code = code }
 func (p *redirectProbe) Write(b []byte) (int, error) { return len(b), nil }
 
-// serve runs one request: OnRequest around route, then the error flow. pattern is empty when no route matched.
-func (s *Server) serve(w http.ResponseWriter, r *http.Request, pattern string, route func(*tifa.Ctx) error) {
+// serve runs one request: OnRequest around route, then the error flow. pattern is empty when no
+// route matched. page reports whether a GET of this URL is answered with a page: the route is a
+// page, or no route matched.
+func (s *Server) serve(w http.ResponseWriter, r *http.Request, pattern string, page bool, route func(*tifa.Ctx) error) {
 	tw := &writer{ResponseWriter: w}
 	c := core.New(tw, r, pattern, s.cfg.BodyLimit)
 	defer func() {
@@ -156,24 +173,56 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, pattern string, r
 		err = recovered(func() error { return s.hooks.OnRequest(c) })
 	}
 	if err != nil {
-		page := pattern == "" && s.Renderer != nil && (r.Method == "GET" || r.Method == "HEAD") && !c.IsData()
+		page = page && s.front && (r.Method == "GET" || r.Method == "HEAD") && !c.IsData()
 		s.fail(c, tw, err, page)
 	}
 }
 
-// fail turns an error into a response. Redirects, ErrNotFound and tifa.Error are expected results and skip OnError.
+// fail turns an error into a response. Redirects, ErrNotFound and tifa.Error are expected results
+// and skip OnError. page answers with an HTML page instead of JSON.
 func (s *Server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 	r := c.Request()
+	var failure *loadFailure
+	errors.As(err, &failure)
 	var redirect *core.RedirectError
 	var e tifa.Error
-	switch {
-	case errors.As(err, &redirect):
+	if failure != nil {
+		redirect, e = failure.redirect, failure.public
+	} else {
+		redirect, e = s.classify(c, err)
+	}
+	if redirect != nil {
 		if w.wrote {
 			log.Printf("tifa: %s %s: redirect to %s after the response was written", r.Method, r.URL.Path, redirect.URL)
 			return
 		}
 		http.Redirect(w, r, redirect.URL, redirect.Code)
 		return
+	}
+	if w.wrote {
+		log.Printf("tifa: %s %s: %v after the response was written", r.Method, r.URL.Path, err)
+		return
+	}
+	if !page {
+		writeJSON(w, e.Status, map[string]string{"error": e.Message})
+		return
+	}
+	var rendering *renderError
+	if errors.As(err, &rendering) {
+		writeFallback(w, e)
+		return
+	}
+	s.errorPage(c, e, failure)
+}
+
+// classify sorts an error into a redirect or the public error to answer. Unexpected errors go
+// to OnError.
+func (s *Server) classify(c *tifa.Ctx, err error) (*core.RedirectError, tifa.Error) {
+	var redirect *core.RedirectError
+	var e tifa.Error
+	switch {
+	case errors.As(err, &redirect):
+		return redirect, e
 	case errors.Is(err, tifa.ErrNotFound):
 		e = tifa.Error{Status: http.StatusNotFound, Message: http.StatusText(http.StatusNotFound)}
 	case asPublic(err, &e):
@@ -183,25 +232,7 @@ func (s *Server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 	default:
 		e = s.publicError(c, err)
 	}
-	if w.wrote {
-		log.Printf("tifa: %s %s: %v after the response was written", r.Method, r.URL.Path, err)
-		return
-	}
-	var renderErr error
-	switch {
-	case page && e.Status == http.StatusNotFound:
-		renderErr = s.Renderer.NotFound(c)
-	case page:
-		renderErr = s.Renderer.Error(c, e)
-	default:
-		writeJSON(w, e.Status, map[string]string{"error": e.Message})
-	}
-	if renderErr != nil {
-		log.Printf("tifa: %s %s: render %d page: %v", r.Method, r.URL.Path, e.Status, renderErr)
-		if !w.wrote {
-			writeJSON(w, e.Status, map[string]string{"error": e.Message})
-		}
-	}
+	return nil, e
 }
 
 // publicError asks OnError what to show for an unexpected error. Without OnError it logs the error and answers 500.

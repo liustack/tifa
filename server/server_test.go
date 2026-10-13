@@ -257,44 +257,6 @@ func TestBodyLimitAppliesToBind(t *testing.T) {
 	}
 }
 
-type fakeRenderer struct{ notFound, errors int }
-
-func (f *fakeRenderer) NotFound(c *tifa.Ctx) error {
-	f.notFound++
-	return c.Text(404, "page not found")
-}
-
-func (f *fakeRenderer) Error(c *tifa.Ctx, e tifa.Error) error {
-	f.errors++
-	return c.Text(e.Status, e.Message)
-}
-
-func TestRendererDrawsWholePageResultsOfUnmatchedURLs(t *testing.T) {
-	r := &fakeRenderer{}
-	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx) error {
-		if c.Request().URL.Path == "/fail" {
-			return errDatabase
-		}
-		return c.Next()
-	}})
-	s.Renderer = r
-	if w := send(s, "GET", "/nowhere", ""); w.Code != 404 || w.Body.String() != "page not found" {
-		t.Fatalf("%d %s", w.Code, w.Body.String())
-	}
-	if w := send(s, "GET", "/fail", ""); w.Code != 500 || r.errors != 1 {
-		t.Fatalf("%d %s", w.Code, w.Body.String())
-	}
-	if w := send(s, "POST", "/nowhere", ""); w.Code != 404 || !strings.Contains(w.Body.String(), `"error"`) {
-		t.Fatalf("non-page request: %d %s", w.Code, w.Body.String())
-	}
-	if w := send(s, "GET", "/orders/missing", ""); !strings.Contains(w.Body.String(), `"error"`) {
-		t.Fatalf("interface route must answer JSON: %s", w.Body.String())
-	}
-	if r.notFound != 1 {
-		t.Fatalf("renderer drew %d not-found pages", r.notFound)
-	}
-}
-
 func TestServeFinishesInFlightRequestsBeforeOnShutdown(t *testing.T) {
 	started, release := make(chan struct{}), make(chan struct{})
 	var events []string

@@ -62,6 +62,9 @@ func (s *Server) register(layouts []Layout, routes []Route) {
 			panic(fmt.Sprintf("tifa: Layout %s registered twice", l.ID))
 		}
 		byID[l.ID] = l
+		if l.ID == rootLayout {
+			s.rootSSR = l.SSR
+		}
 	}
 	paths := map[string]string{}
 	for _, r := range routes {
@@ -87,7 +90,8 @@ func (s *Server) register(layouts []Layout, routes []Route) {
 			if r.OnGet != nil {
 				panic(fmt.Sprintf("tifa: page %s defines OnGet", r.ID))
 			}
-			s.Handle("GET", r.Path, pageHandler(chain))
+			s.pages[r.Path] = true
+			s.Handle("GET", r.Path, s.pageHandler(r, chain))
 		}
 		for _, h := range []struct {
 			method string
@@ -100,27 +104,17 @@ func (s *Server) register(layouts []Layout, routes []Route) {
 	}
 }
 
+// rootLayout is the ID of the Layout in app/. Its SSR constant applies to unmatched URLs.
+const rootLayout = "app"
+
 // load is one Load of a page's chain.
 type load struct {
 	id  string
 	run func(c *tifa.Ctx) (any, error)
 }
 
-// pageHandler answers a page GET without a Renderer: the results of every Load in the chain as
-// JSON by ID. Whole-page rendering replaces it once the server has a Renderer.
-func pageHandler(chain []load) func(c *tifa.Ctx) error {
-	return func(c *tifa.Ctx) error {
-		data, err := runLoads(c, chain)
-		if err != nil {
-			return err
-		}
-		return c.JSON(200, data)
-	}
-}
-
-// runLoads runs the Loads concurrently. The results are keyed by ID. With several errors the
-// one of the outermost Load wins, so the answer does not depend on timing.
-func runLoads(c *tifa.Ctx, chain []load) (map[string]any, error) {
+// runLoads runs the Loads concurrently and returns their results and errors in chain order.
+func runLoads(c *tifa.Ctx, chain []load) ([]any, []error) {
 	values := make([]any, len(chain))
 	errs := make([]error, len(chain))
 	var wg sync.WaitGroup
@@ -131,12 +125,5 @@ func runLoads(c *tifa.Ctx, chain []load) (map[string]any, error) {
 		})
 	}
 	wg.Wait()
-	data := make(map[string]any, len(chain))
-	for i, l := range chain {
-		if errs[i] != nil {
-			return nil, errs[i]
-		}
-		data[l.id] = values[i]
-	}
-	return data, nil
+	return values, errs
 }

@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -34,13 +36,25 @@ func Main(app App) {
 }
 
 func run(ctx context.Context, app App, args, environ []string, stdout, stderr io.Writer) error {
-	serve := func(cmd *cobra.Command, _ []string) error {
+	var distDir string
+	serve := func(cmd *cobra.Command, _ []string) (err error) {
 		cfg, err := loadConfig(cmd.Flags(), app, environ)
 		if err != nil {
 			return err
 		}
 		s := New(cfg, app.Hooks)
 		s.register(app.Layouts, app.Routes)
+		if dist, err := frontFiles(app, distDir); err != nil {
+			return err
+		} else if dist != nil {
+			pool, err := s.openFront(dist, cfg.SSR)
+			if err != nil {
+				return err
+			}
+			if pool != nil {
+				defer func() { err = errors.Join(err, pool.Close()) }()
+			}
+		}
 		return s.Run(ctx)
 	}
 	root := &cobra.Command{
@@ -77,11 +91,28 @@ func run(ctx context.Context, app App, args, environ []string, stdout, stderr io
 	for _, cmd := range []*cobra.Command{root, serveCmd, configCmd} {
 		config.AddFlags(cmd.Flags())
 	}
+	// --dist is a development switch, not a deployment setting, so it stays out of the config
+	// layers and has no TIFA_ variable.
+	for _, cmd := range []*cobra.Command{root, serveCmd} {
+		cmd.Flags().StringVar(&distDir, "dist", "", "serve the front end from this directory instead of the embedded one (tifa dev)")
+	}
 	root.AddCommand(serveCmd, configCmd, versionCmd)
 	root.SetArgs(args)
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	return root.ExecuteContext(ctx)
+}
+
+// frontFiles returns the front end to serve: the directory named by --dist, or the embedded
+// dist/ of the generated main. It is nil for an App without one, as in tests.
+func frontFiles(app App, dir string) (fs.FS, error) {
+	switch {
+	case dir != "":
+		return os.DirFS(dir), nil
+	case app.Dist == nil:
+		return nil, nil
+	}
+	return fs.Sub(app.Dist, "dist")
 }
 
 func loadConfig(fs *pflag.FlagSet, app App, environ []string) (config.Config, error) {
