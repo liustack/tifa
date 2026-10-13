@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
 	"net/http"
 	"net/url"
@@ -18,7 +19,15 @@ func (c *Ctx) Bind(v any) error {
 	mediaType, _, _ := mime.ParseMediaType(c.r.Header.Get("Content-Type"))
 	switch mediaType {
 	case "application/json":
-		if err := json.NewDecoder(c.r.Body).Decode(v); err != nil {
+		dec := json.NewDecoder(c.r.Body)
+		if err := dec.Decode(v); err != nil {
+			return bodyError(err, "invalid JSON body")
+		}
+		// The body must end after the value, so trailing data and an oversized body are not accepted.
+		if _, err := dec.Token(); err != io.EOF {
+			if err == nil {
+				err = errors.New("data after the JSON value")
+			}
 			return bodyError(err, "invalid JSON body")
 		}
 		return nil

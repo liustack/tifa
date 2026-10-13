@@ -201,3 +201,24 @@ func TestSetContextIsSeenByHandler(t *testing.T) {
 		t.Fatalf("pattern %q", c.Pattern())
 	}
 }
+
+func TestBindJSONReadsToEndOfBody(t *testing.T) {
+	cases := []struct {
+		name, body string
+		status     int
+	}{
+		{"second value", `{"name":"a"} {"name":"b"}`, 400},
+		{"garbage", `{"name":"a"} junk`, 400},
+		{"over limit after value", `{"name":"a"}` + strings.Repeat(" ", 64), 413},
+		{"trailing space", "{\"name\":\"a\"}\n  ", 0},
+	}
+	for _, tc := range cases {
+		c, _ := newCtx("POST", tc.body, "application/json", 32)
+		var in input
+		err := c.Bind(&in)
+		var e Error
+		if tc.status == 0 && err != nil || tc.status != 0 && (!errors.As(err, &e) || e.Status != tc.status) {
+			t.Errorf("%s: got %v, want status %d", tc.name, err, tc.status)
+		}
+	}
+}
