@@ -29,7 +29,9 @@ func loop(ctx context.Context, c *changes, debounce time.Duration, rebuild func(
 			}
 		}
 		if batch := c.take(); len(batch) > 0 {
+			c.setBuilding(true)
 			rebuild(batch)
+			c.setBuilding(false)
 		}
 	}
 }

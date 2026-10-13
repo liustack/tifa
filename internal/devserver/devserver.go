@@ -129,7 +129,9 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 		watched <- err
 	}()
 
+	w.changes.setBuilding(true)
 	d.rebuild(ctx, everything)
+	w.changes.setBuilding(false)
 	loop(ctx, w.changes, o.Debounce, func(batch []change) {
 		for _, c := range batch {
 			d.log.Printf("%s %s", c.path, c.op)

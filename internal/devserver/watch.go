@@ -22,14 +22,24 @@ import (
 // changes collects the files whose content changed since the last batch was taken.
 // The watcher adds to it, the rebuild loop takes batches from it.
 type changes struct {
-	mu     sync.Mutex
-	before map[string]string // checksum when the batch started, "" when the file did not exist
-	after  map[string]string // checksum now, "" when the file is gone
-	ready  chan struct{}     // receives a value after add, holds at most one
+	mu       sync.Mutex
+	before   map[string]string // checksum when the batch started, "" when the file did not exist
+	after    map[string]string // checksum now, "" when the file is gone
+	building bool              // a build runs and may read any file at any moment
+	touched  map[string]bool   // files that changed while a build ran
+	ready    chan struct{}     // receives a value after add, holds at most one
 }
 
 func newChanges() *changes {
-	return &changes{before: map[string]string{}, after: map[string]string{}, ready: make(chan struct{}, 1)}
+	return &changes{before: map[string]string{}, after: map[string]string{}, touched: map[string]bool{}, ready: make(chan struct{}, 1)}
+}
+
+// setBuilding marks the time a build runs. A file that changes during that time counts as
+// changed even if it ends up as before, because the build may have read it in between.
+func (c *changes) setBuilding(b bool) {
+	c.mu.Lock()
+	c.building = b
+	c.mu.Unlock()
 }
 
 // add records that path went from checksum before to checksum after.
@@ -39,6 +49,9 @@ func (c *changes) add(path, before, after string) {
 		c.before[path] = before
 	}
 	c.after[path] = after
+	if c.building {
+		c.touched[path] = true
+	}
 	c.mu.Unlock()
 	select {
 	case c.ready <- struct{}{}:
@@ -47,7 +60,7 @@ func (c *changes) add(path, before, after string) {
 }
 
 // take returns the batch sorted by path and starts a new one. A file whose content ends up
-// as it was when the batch started is left out.
+// as it was when the batch started is left out, unless it changed while a build ran.
 func (c *changes) take() []change {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -55,6 +68,10 @@ func (c *changes) take() []change {
 	for p, before := range c.before {
 		after := c.after[p]
 		switch {
+		case before == after && c.touched[p] && after == "":
+			batch = append(batch, change{p, removed})
+		case before == after && c.touched[p]:
+			batch = append(batch, change{p, modified})
 		case before == after:
 		case before == "":
 			batch = append(batch, change{p, created})
@@ -66,6 +83,7 @@ func (c *changes) take() []change {
 	}
 	clear(c.before)
 	clear(c.after)
+	clear(c.touched)
 	slices.SortFunc(batch, func(a, b change) int { return strings.Compare(a.path, b.path) })
 	return batch
 }

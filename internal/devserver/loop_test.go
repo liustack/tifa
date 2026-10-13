@@ -100,3 +100,31 @@ func TestLoopRunsAgainForChangesDuringARebuild(t *testing.T) {
 		t.Fatalf("second rebuild got %v, want %v", got, want)
 	}
 }
+
+// A file edited and edited back while a build runs may have been read in between,
+// so it is built again even though it ends up as before.
+func TestLoopRebuildsFilesRevertedDuringABuild(t *testing.T) {
+	c := newChanges()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	first := true
+	batches := runLoop(t, c, 10*time.Millisecond, func() {
+		if first {
+			first = false
+			close(started)
+			<-release
+		}
+	})
+	c.add("app/a.go", "s1", "s2")
+	receive(t, batches)
+	<-started
+	c.add("app/b.tsx", "A", "B") // the build may read B here
+	c.add("app/b.tsx", "B", "A")
+	c.add("app/c.tsx", "", "C") // created and removed during the build
+	c.add("app/c.tsx", "C", "")
+	close(release)
+	want := []change{{"app/b.tsx", modified}, {"app/c.tsx", removed}}
+	if got := receive(t, batches); !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
