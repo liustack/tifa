@@ -1,0 +1,14 @@
+{
+  "name": "tifa-bundle-testdata",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "description": "npm packages the internal/bundle tests bundle: React for the trimmed renderer, core-js and the other SSR host patches for the adapters.",
+  "dependencies": {
+    "@kayahr/text-encoding": "2.2.0",
+    "abort-controller": "3.0.0",
+    "core-js": "3.50.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "whatwg-fetch": "3.6.20"
+  }
+}

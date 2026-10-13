@@ -2,6 +2,7 @@ package bundle
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -12,20 +13,19 @@ import (
 	"github.com/liustack/quickjs"
 )
 
-// shopModules is the prototype's installed npm dependencies. Tests that bundle
-// React or core-js resolve them from there.
-func shopModules(t *testing.T) string {
+// testModules is the npm packages these tests bundle, installed from testdata/package.json.
+func testModules(t *testing.T) string {
 	t.Helper()
 	_, file, _, _ := runtime.Caller(0)
-	dir := filepath.Join(filepath.Dir(file), "..", "..", "examples", "shop", "node_modules")
+	dir := filepath.Join(filepath.Dir(file), "testdata", "node_modules")
 	if _, err := os.Stat(filepath.Join(dir, "react-dom", "package.json")); err != nil {
-		t.Skipf("needs npm dependencies: run pnpm install --frozen-lockfile in examples/shop (%v)", err)
+		t.Skipf("needs npm packages: run pnpm install --frozen-lockfile in internal/bundle/testdata (%v)", err)
 	}
 	return dir
 }
 
 // app copies testdata/<name> into a fresh project root. With modules it links
-// the prototype's node_modules into that root, as an application would have.
+// testModules into that root, as an application would have.
 func app(t *testing.T, name string, modules bool) string {
 	t.Helper()
 	root := t.TempDir()
@@ -44,7 +44,7 @@ func app(t *testing.T, name string, modules bool) string {
 		}
 	}
 	if modules {
-		if err := os.Symlink(shopModules(t), filepath.Join(root, "node_modules")); err != nil {
+		if err := os.Symlink(testModules(t), filepath.Join(root, "node_modules")); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -220,7 +220,7 @@ func TestSSRSelectsCoreJSPropertyState(t *testing.T) {
 }
 
 func TestSSRRejectsChangedCoreJS(t *testing.T) {
-	real := filepath.Join(shopModules(t), "core-js", "internals", "internal-state.js")
+	real := filepath.Join(testModules(t), "core-js", "internals", "internal-state.js")
 	source, err := os.ReadFile(real)
 	if err != nil {
 		t.Fatal(err)
@@ -248,7 +248,7 @@ func TestSSRRejectsChangedCoreJS(t *testing.T) {
 }
 
 func TestSSRRejectsChangedReactDOM(t *testing.T) {
-	real := filepath.Join(shopModules(t), "react-dom", "server.edge.js")
+	real := filepath.Join(testModules(t), "react-dom", "server.edge.js")
 	source, err := os.ReadFile(real)
 	if err != nil {
 		t.Fatal(err)
@@ -360,7 +360,7 @@ func TestSSRChecksSymlinkedCoreJS(t *testing.T) {
 }
 
 func TestSSRAdaptsSymlinkedCoreJS(t *testing.T) {
-	real, err := filepath.EvalSymlinks(filepath.Join(shopModules(t), "core-js"))
+	real, err := filepath.EvalSymlinks(filepath.Join(testModules(t), "core-js"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,5 +375,39 @@ func TestSSRAdaptsSymlinkedCoreJS(t *testing.T) {
 	}
 	if hasInput(meta, "core-js/internals/weak-map-basic-detection.js") {
 		t.Fatal("core-js WeakMap detection is still bundled")
+	}
+}
+
+// copyTree copies the regular files under src whose relative path keep accepts.
+func copyTree(t *testing.T, src, dst string, keep func(rel string) bool) {
+	t.Helper()
+	err := filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == "node_modules" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !d.Type().IsRegular() || !keep(rel) {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Join(dst, filepath.Dir(rel)), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(dst, rel), data, 0o644)
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

@@ -19,3 +19,4 @@ coverage.out
 /test/apps/*/node_modules/
 
 /js/host/node_modules/
+/internal/bundle/testdata/node_modules/
