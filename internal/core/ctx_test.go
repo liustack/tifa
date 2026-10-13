@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -252,6 +253,15 @@ func TestSetBodyLimitFailsOnceReadingStarted(t *testing.T) {
 	}
 	if err := c.SetBodyLimit(1 << 20); err == nil {
 		t.Fatal("SetBodyLimit after reading started must fail")
+	}
+	r := httptest.NewRequest("POST", "/", nil)
+	r.Body = io.NopCloser(strings.NewReader("")) // a body that ends at once, unlike http.NoBody
+	c = New(httptest.NewRecorder(), r, "/", 1024)
+	if n, err := c.Request().Body.Read(make([]byte, 8)); n != 0 || err != io.EOF {
+		t.Fatalf("empty body read %d, %v", n, err)
+	}
+	if err := c.SetBodyLimit(1 << 20); err == nil {
+		t.Fatal("a Read that hit EOF with no bytes still starts reading")
 	}
 	c, _ = newCtx("GET", "", "", 1024)
 	if err := c.SetBodyLimit(64); err != nil {

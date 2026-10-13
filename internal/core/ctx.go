@@ -34,7 +34,7 @@ type Ctx struct {
 // request is shared by every Ctx of the same HTTP request, including the copies handed to concurrent Loads.
 type request struct {
 	mu    sync.Mutex
-	body  *countingBody // nil when the request has no body
+	body  *watchedBody // nil when the request has no body
 	loads map[uintptr]*loadCall
 	// copies made by SetContext. net/http only removes the multipart temp files of the original request.
 	copies []*http.Request
@@ -45,7 +45,7 @@ type request struct {
 func New(w http.ResponseWriter, r *http.Request, pattern string, bodyLimit int64) *Ctx {
 	c := &Ctx{w: w, r: r, pattern: pattern, req: &request{loads: map[uintptr]*loadCall{}}}
 	if r.Body != nil && r.Body != http.NoBody {
-		c.req.body = &countingBody{ReadCloser: r.Body}
+		c.req.body = &watchedBody{ReadCloser: r.Body}
 		r.Body = http.MaxBytesReader(w, c.req.body, bodyLimit)
 	}
 	return c
@@ -100,7 +100,7 @@ func (c *Ctx) SetBodyLimit(n int64) error {
 	if c.req.body == nil {
 		return nil
 	}
-	if c.req.body.n > 0 {
+	if c.req.body.started {
 		return errors.New("tifa: SetBodyLimit called after the request body was read")
 	}
 	c.r.Body = http.MaxBytesReader(c.w, c.req.body, n)
@@ -184,14 +184,14 @@ func (c *Ctx) Next() error {
 func (c *Ctx) Request() *http.Request      { return c.r }
 func (c *Ctx) Writer() http.ResponseWriter { return c.w }
 
-// countingBody tells SetBodyLimit whether reading has started.
-type countingBody struct {
+// watchedBody tells SetBodyLimit whether reading has started. The first Read that reaches it counts, whatever it
+// returns. http.MaxBytesReader answers zero-length reads itself, and those consume nothing.
+type watchedBody struct {
 	io.ReadCloser
-	n int64
+	started bool
 }
 
-func (b *countingBody) Read(p []byte) (int, error) {
-	n, err := b.ReadCloser.Read(p)
-	b.n += int64(n)
-	return n, err
+func (b *watchedBody) Read(p []byte) (int, error) {
+	b.started = true
+	return b.ReadCloser.Read(p)
 }
