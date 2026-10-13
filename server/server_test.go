@@ -552,3 +552,95 @@ func TestMuxNotFoundIsAnUnmatchedURL(t *testing.T) {
 		t.Fatalf("CONNECT with an empty path: %d %s, OnRequest saw %q", w.Code, w.Body.String(), patterns)
 	}
 }
+
+func serveForShutdown(t *testing.T, s *Server) (addr string, stop func(), served chan error) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, stop := context.WithCancel(context.Background())
+	served = make(chan error, 1)
+	go func() { served <- s.Serve(ctx, ln) }()
+	return ln.Addr().String(), stop, served
+}
+
+func TestRequestInTheEntryWindowNeverRunsAfterOnShutdown(t *testing.T) {
+	reached, release, entryDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	testHookEntry = func(stage string) {
+		switch stage {
+		case "before":
+			close(reached)
+			<-release
+		case "done":
+			close(entryDone)
+		}
+	}
+	defer func() { testHookEntry = nil }()
+	var mu sync.Mutex
+	var events []string
+	record := func(e string) { mu.Lock(); events = append(events, e); mu.Unlock() }
+	cfg := config.Default()
+	cfg.Server.ShutdownTimeout = 50 * time.Millisecond
+	s := New(cfg, Hooks{OnShutdown: func(context.Context) error { record("shutdown"); return nil }})
+	s.Handle("GET", "/work", func(c *tifa.Ctx) error {
+		record("business")
+		return c.NoContent(204)
+	})
+	addr, stop, served := serveForShutdown(t, s)
+	go func() {
+		if resp, err := http.Get("http://" + addr + "/work"); err == nil {
+			resp.Body.Close()
+		}
+	}()
+	<-reached // net/http has handed the request over, the server has not admitted it yet
+	stop()
+	<-served
+	close(release)
+	<-entryDone
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Join(events, ",") != "shutdown" {
+		t.Fatalf("events %v, handler code must not start once shutdown has begun waiting", events)
+	}
+}
+
+func TestHijackedHandlerIsCanceledBeforeOnShutdown(t *testing.T) {
+	var mu sync.Mutex
+	var events []string
+	record := func(e string) { mu.Lock(); events = append(events, e); mu.Unlock() }
+	cfg := config.Default()
+	cfg.Server.ShutdownTimeout = time.Second
+	s := New(cfg, Hooks{OnShutdown: func(context.Context) error { record("shutdown"); return nil }})
+	hijacked := make(chan struct{})
+	s.Handle("GET", "/socket", func(c *tifa.Ctx) error {
+		conn, _, err := http.NewResponseController(c.Writer()).Hijack()
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
+		close(hijacked)
+		<-c.Context().Done()
+		record("handler returned")
+		return nil
+	})
+	addr, stop, served := serveForShutdown(t, s)
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := io.WriteString(conn, "GET /socket HTTP/1.1\r\nHost: test\r\n\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	<-hijacked
+	stop()
+	if err := <-served; err != nil {
+		t.Errorf("Serve returned %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Join(events, ",") != "handler returned,shutdown" {
+		t.Fatalf("events %v", events)
+	}
+}

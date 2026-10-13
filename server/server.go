@@ -321,19 +321,76 @@ func (s *Server) Run(ctx context.Context) error {
 	return s.Serve(ctx, ln)
 }
 
-// Serve serves on ln until ctx is done, then stops taking requests and waits for in-flight ones.
-// Requests still running after shutdown_timeout get their contexts canceled and their connections closed,
-// and their handlers get one more shutdown_timeout to return. OnShutdown runs only after every handler
-// has returned, with its own shutdown_timeout. If a handler never returns, OnShutdown is skipped and
-// Serve reports it, because cleaning up under a running handler is worse than not cleaning up.
+// testHookEntry lets tests pause a request between net/http handing it over and the gate admitting it.
+var testHookEntry func(stage string)
+
+// gate is the one boundary between net/http and handler code. Admitting a request and closing the gate
+// take the same lock, so once close returns no handler code can start, and every handler that did start
+// is counted before anyone waits.
+type gate struct {
+	mu      sync.Mutex
+	closed  bool
+	running sync.WaitGroup
+}
+
+func (g *gate) enter() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.closed {
+		return false
+	}
+	g.running.Add(1)
+	return true
+}
+
+func (g *gate) leave() { g.running.Done() }
+
+func (g *gate) close() {
+	g.mu.Lock()
+	g.closed = true
+	g.mu.Unlock()
+}
+
+// wait reports whether every admitted handler returned within timeout. Call it after close.
+func (g *gate) wait(timeout time.Duration) bool {
+	returned := make(chan struct{})
+	go func() {
+		g.running.Wait()
+		close(returned)
+	}()
+	select {
+	case <-returned:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
+// Serve serves on ln until ctx is done, then shuts down in this order:
+//  1. stop accepting and wait up to shutdown_timeout for connections to finish, as http.Server.Shutdown does
+//  2. close the gate, so a request net/http hands over from now on gets 503 without running handler code
+//  3. cancel every request context and close the remaining connections, which also reaches hijacked ones
+//  4. wait up to shutdown_timeout for admitted handlers to return
+//  5. call OnShutdown with its own shutdown_timeout
+//
+// If a handler never returns, OnShutdown is skipped and Serve reports it, because cleaning up under a
+// running handler is worse than not cleaning up.
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
-	var handlers sync.WaitGroup
+	var g gate
 	base, cancelRequests := context.WithCancel(context.Background())
 	defer cancelRequests()
 	srv := &http.Server{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			handlers.Add(1)
-			defer handlers.Done()
+			if testHookEntry != nil {
+				testHookEntry("before")
+				defer testHookEntry("done")
+			}
+			if !g.enter() {
+				w.Header().Set("Connection", "close")
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": http.StatusText(http.StatusServiceUnavailable)})
+				return
+			}
+			defer g.leave()
 			s.ServeHTTP(w, r)
 		}),
 		BaseContext:       func(net.Listener) context.Context { return base },
@@ -351,18 +408,12 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	cancel()
 	if err != nil {
 		err = fmt.Errorf("tifa: waiting for in-flight requests: %w", err)
-		cancelRequests()
-		_ = srv.Close()
 	}
+	g.close()
+	cancelRequests()
+	_ = srv.Close()
 	<-served
-	returned := make(chan struct{})
-	go func() {
-		handlers.Wait()
-		close(returned)
-	}()
-	select {
-	case <-returned:
-	case <-time.After(s.cfg.ShutdownTimeout):
+	if !g.wait(s.cfg.ShutdownTimeout) {
 		return errors.Join(err, errors.New("tifa: handlers still running after shutdown, OnShutdown skipped"))
 	}
 	if s.hooks.OnShutdown != nil {
