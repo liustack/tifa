@@ -335,3 +335,24 @@ func TestWatcherWatchesALinkedDirectoryOnce(t *testing.T) {
 	writeFile(t, shared, "button.tsx", "export const edited = 1")
 	expectBatch(t, dir, w, change{"app/a/button.tsx", modified})
 }
+
+// A file linked from outside the app reports edits made to its target, also after an atomic save.
+// inotify reports such edits only to the target's directory, so that directory is watched too.
+func TestWatcherFollowsLinkedFiles(t *testing.T) {
+	dir, shared := newApp(t), t.TempDir()
+	writeFile(t, shared, "theme.css", "a {}")
+	symlink(t, filepath.Join(shared, "theme.css"), filepath.Join(dir, "app/theme.css"))
+	symlink(t, filepath.Join(dir, "app/store.go"), filepath.Join(dir, "app/alias.go"))
+	w := startWatcher(t, dir)
+
+	writeFile(t, shared, "tmp", "b {}")
+	if err := os.Rename(filepath.Join(shared, "tmp"), filepath.Join(shared, "theme.css")); err != nil {
+		t.Fatal(err)
+	}
+	expectBatch(t, dir, w, change{"app/theme.css", modified})
+	writeFile(t, shared, "theme.css", "c {}")
+	expectBatch(t, dir, w, change{"app/theme.css", modified})
+
+	writeFile(t, dir, "app/store.go", "package app // edited")
+	expectBatch(t, dir, w, change{"app/alias.go", modified}, change{"app/store.go", modified})
+}

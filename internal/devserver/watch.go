@@ -102,7 +102,10 @@ type watcher struct {
 	dirs    map[string]os.FileInfo // watched directories, as they were when the watch was added
 	real    map[string]string      // real path of each watched directory to its path under root
 	warn    func(string)
-	warned  map[string]bool // paths warned about, to warn once
+	warned  map[string]bool     // paths warned about, to warn once
+	links   map[string][]string // real path of a linked file's target to the links under root
+	linkOf  map[string]string   // link under root to the real path of its target
+	extDirs map[string]int      // directories watched for link targets, with how many links need each
 	changes *changes
 }
 
@@ -121,6 +124,7 @@ func newWatcher(root string, ignore []string, warn func(string)) (*watcher, erro
 	w := &watcher{
 		root: abs, fs: fw, warn: warn, changes: newChanges(),
 		files: map[string]string{}, dirs: map[string]os.FileInfo{}, real: map[string]string{}, warned: map[string]bool{},
+		links: map[string][]string{}, linkOf: map[string]string{}, extDirs: map[string]int{},
 	}
 	for _, d := range ignore {
 		w.ignore = append(w.ignore, path.Clean(filepath.ToSlash(d)))
@@ -190,6 +194,11 @@ func (w *watcher) watching(dir string, info os.FileInfo) bool {
 // handle brings the state of one path up to date. Events only say where to look: the checksum
 // decides whether a file changed, and a directory is checked against the one that was watched.
 func (w *watcher) handle(name string, op fsnotify.Op) error {
+	for _, link := range w.links[name] {
+		if err := w.check(link); err != nil {
+			return err
+		}
+	}
 	rel, ok := w.relOf(name)
 	if !ok || w.skipped(rel) {
 		return nil
@@ -384,6 +393,9 @@ func (w *watcher) check(rel string) error {
 	if !info.Mode().IsRegular() {
 		return nil
 	}
+	if err := w.followLink(rel); err != nil {
+		return err
+	}
 	sum, err := checksum(w.abs(rel))
 	if errors.Is(err, fs.ErrNotExist) {
 		w.removeTree(rel)
@@ -399,11 +411,68 @@ func (w *watcher) check(rel string) error {
 	return nil
 }
 
+// followLink keeps track of the target when rel is a symbolic link. inotify reports an edit of the
+// target only to the target's directory, so a target outside the watched directories gets its
+// directory watched as well.
+func (w *watcher) followLink(rel string) error {
+	target := ""
+	if li, err := os.Lstat(w.abs(rel)); err == nil && li.Mode()&os.ModeSymlink != 0 {
+		real, err := filepath.EvalSymlinks(w.abs(rel))
+		if err != nil {
+			return nil // gone again, the next event handles it
+		}
+		target = real
+	}
+	if w.linkOf[rel] == target {
+		return nil
+	}
+	w.unlink(rel)
+	if target == "" {
+		return nil
+	}
+	w.linkOf[rel] = target
+	w.links[target] = append(w.links[target], rel)
+	dir := filepath.Dir(target)
+	if _, watched := w.real[dir]; watched {
+		return nil
+	}
+	if w.extDirs[dir] == 0 {
+		if err := w.fs.Add(dir); err != nil {
+			w.warnOnce(rel, fmt.Sprintf("edits to %s, the target of %s, may go unnoticed: %v", target, rel, err))
+		}
+	}
+	w.extDirs[dir]++
+	return nil
+}
+
+// unlink stops tracking the target of rel.
+func (w *watcher) unlink(rel string) {
+	target, ok := w.linkOf[rel]
+	if !ok {
+		return
+	}
+	delete(w.linkOf, rel)
+	w.links[target] = slices.DeleteFunc(w.links[target], func(l string) bool { return l == rel })
+	if len(w.links[target]) == 0 {
+		delete(w.links, target)
+	}
+	dir := filepath.Dir(target)
+	if n, ok := w.extDirs[dir]; ok {
+		if n == 1 {
+			delete(w.extDirs, dir)
+			_ = w.fs.Remove(dir)
+		} else {
+			w.extDirs[dir] = n - 1
+		}
+	}
+}
+
 // removeTree forgets rel and everything under it, reporting the tracked files as removed.
 func (w *watcher) removeTree(rel string) {
 	for p, sum := range w.files {
 		if under(rel, p) {
 			delete(w.files, p)
+			w.unlink(p)
 			w.changes.add(p, sum, "")
 		}
 	}
