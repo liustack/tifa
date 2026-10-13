@@ -180,3 +180,34 @@ func TestWatcherIgnoresOutputAndOtherFiles(t *testing.T) {
 	writeFile(t, dir, "app/logo.png", "png")
 	expectBatch(t, dir, w)
 }
+
+// An atomic save can keep the size and modification time while the content differs.
+func TestWatcherHashesOnEveryEvent(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "a.tsx", "AAA")
+	w, err := newWatcher(dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.fs.Close()
+	info, err := os.Stat(filepath.Join(dir, "a.tsx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp := filepath.Join(t.TempDir(), "a.tsx")
+	if err := os.WriteFile(tmp, []byte("BBB"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(tmp, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, filepath.Join(dir, "a.tsx")); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.handle(filepath.Join(dir, "a.tsx")); err != nil {
+		t.Fatal(err)
+	}
+	if got := w.changes.take(); !slices.Equal(got, []change{{"a.tsx", modified}}) {
+		t.Fatalf("got %v, want a.tsx modified", got)
+	}
+}

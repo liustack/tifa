@@ -14,7 +14,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -91,12 +90,6 @@ func (c *changes) take() []change {
 // skippedDirs are never watched, wherever they appear.
 var skippedDirs = []string{".git", ".tifa", "node_modules"}
 
-type file struct {
-	size int64
-	mod  time.Time
-	sum  string
-}
-
 // watcher watches every directory under root and reports the files that plan cares about
 // whose content changed. Paths in its maps are relative to root with forward slashes, the
 // root itself is ".". Only run touches the maps once newWatcher returns.
@@ -104,7 +97,7 @@ type watcher struct {
 	root    string
 	ignore  []string // relative directories that are not watched, such as the build output
 	fs      *fsnotify.Watcher
-	files   map[string]file
+	files   map[string]string // checksum of every tracked file
 	dirs    map[string]bool
 	changes *changes
 }
@@ -120,11 +113,11 @@ func newWatcher(root string, ignore []string) (*watcher, error) {
 	if err != nil {
 		return nil, err
 	}
-	w := &watcher{root: abs, fs: fw, files: map[string]file{}, dirs: map[string]bool{}, changes: newChanges()}
+	w := &watcher{root: abs, fs: fw, files: map[string]string{}, dirs: map[string]bool{}, changes: newChanges()}
 	for _, d := range ignore {
 		w.ignore = append(w.ignore, path.Clean(filepath.ToSlash(d)))
 	}
-	if err := w.scanDir("."); err != nil {
+	if err := w.scanDir(".", true); err != nil {
 		fw.Close()
 		return nil, err
 	}
@@ -154,7 +147,7 @@ func (w *watcher) run(ctx context.Context) error {
 				return fmt.Errorf("watching files: %w", err)
 			}
 			// Some events were dropped, so compare everything again.
-			if err := w.scanDir("."); err != nil {
+			if err := w.scanDir(".", true); err != nil {
 				return err
 			}
 		}
@@ -196,15 +189,17 @@ func (w *watcher) handle(name string) error {
 	case err != nil:
 		return err
 	case info.IsDir():
-		return w.scanDir(rel)
+		return w.scanDir(rel, false)
 	default:
 		return w.check(rel, info)
 	}
 }
 
-// scanDir watches dir, checks every file in it and scans subdirectories that are not watched yet.
-// Files and directories that disappeared from dir count as removed.
-func (w *watcher) scanDir(dir string) error {
+// scanDir watches dir, checks its files and scans subdirectories that are not watched yet.
+// Files and directories that disappeared from dir count as removed. Without deep it only checks
+// files it does not know yet: a known file gets events of its own. deep hashes every file, it is
+// for the first scan and for catching up after dropped events.
+func (w *watcher) scanDir(dir string, deep bool) error {
 	if !w.dirs[dir] {
 		if err := w.fs.Add(w.abs(dir)); err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
@@ -240,10 +235,13 @@ func (w *watcher) scanDir(dir string) error {
 		}
 		if info.IsDir() {
 			if !w.dirs[rel] {
-				if err := w.scanDir(rel); err != nil {
+				if err := w.scanDir(rel, true); err != nil {
 					return err
 				}
 			}
+			continue
+		}
+		if _, known := w.files[rel]; known && !deep {
 			continue
 		}
 		if err := w.check(rel, info); err != nil {
@@ -263,13 +261,10 @@ func (w *watcher) scanDir(dir string) error {
 	return nil
 }
 
-// check rehashes a tracked file when its size or modification time changed.
+// check hashes a tracked file and reports it when the checksum differs. It hashes on every call:
+// size and modification time can stay the same while the content changes.
 func (w *watcher) check(rel string, info fs.FileInfo) error {
 	if kindOf(rel) == other || !info.Mode().IsRegular() {
-		return nil
-	}
-	old, known := w.files[rel]
-	if known && old.size == info.Size() && old.mod.Equal(info.ModTime()) {
 		return nil
 	}
 	sum, err := checksum(w.abs(rel))
@@ -280,9 +275,9 @@ func (w *watcher) check(rel string, info fs.FileInfo) error {
 	if err != nil {
 		return err
 	}
-	w.files[rel] = file{info.Size(), info.ModTime(), sum}
-	if sum != old.sum {
-		w.changes.add(rel, old.sum, sum)
+	if old := w.files[rel]; sum != old {
+		w.files[rel] = sum
+		w.changes.add(rel, old, sum)
 	}
 	return nil
 }
@@ -290,10 +285,10 @@ func (w *watcher) check(rel string, info fs.FileInfo) error {
 // removeTree forgets rel and everything under it, reporting the tracked files as removed.
 func (w *watcher) removeTree(rel string) {
 	under := func(p string) bool { return rel == "." || p == rel || strings.HasPrefix(p, rel+"/") }
-	for p, f := range w.files {
+	for p, sum := range w.files {
 		if under(p) {
 			delete(w.files, p)
-			w.changes.add(p, f.sum, "")
+			w.changes.add(p, sum, "")
 		}
 	}
 	for d := range w.dirs {
