@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -78,5 +79,19 @@ func TestRoutesReportsEveryViolation(t *testing.T) {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("stderr lacks %q:\n%s", want, stderr)
 		}
+	}
+}
+
+func TestBuildStopsAtConventionViolations(t *testing.T) {
+	dir := testApp("useclosure")
+	_, stderr, err := run(t, "build", "--dir", dir)
+	if err == nil {
+		t.Fatal("build succeeded on an app with violations")
+	}
+	if !strings.Contains(stderr, "app/page/route.go:12:") {
+		t.Errorf("stderr lacks the violation position:\n%s", stderr)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, ".tifa")); !os.IsNotExist(statErr) {
+		t.Errorf("build generated code for an invalid app: %v", statErr)
 	}
 }

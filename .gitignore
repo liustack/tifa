@@ -13,3 +13,7 @@ coverage.out
 .run
 /test/testdata/
 /logs/
+
+# Test applications
+/test/apps/*/dist/
+/test/apps/*/node_modules/

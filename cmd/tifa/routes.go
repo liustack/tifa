@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -20,14 +19,7 @@ func newRoutesCmd() *cobra.Command {
 		Short: "Check the routing conventions and print the route table",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			m, err := analyze.Analyze(dir)
-			var violations analyze.Errors
-			if errors.As(err, &violations) {
-				for _, v := range violations {
-					fmt.Fprintln(cmd.ErrOrStderr(), v)
-				}
-				return fmt.Errorf("found %d convention violation(s)", len(violations))
-			}
+			m, err := analyzeApp(cmd, dir)
 			if err != nil {
 				return err
 			}
