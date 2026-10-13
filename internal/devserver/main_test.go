@@ -21,7 +21,7 @@ import (
 //	TIFA_FAKE_APP_ON_INTERRUPT "ignore" to keep running after an interrupt
 //	TIFA_FAKE_APP_EXIT        exit right away with this message instead of serving
 //
-// POST requests get their body back. The app prints "shutdown done" once it stopped after an interrupt.
+// POST requests get their body back, GET /exit makes the app exit with status 3. The app prints "shutdown done" once it stopped after an interrupt.
 func TestMain(m *testing.M) {
 	if os.Getenv("TIFA_FAKE_APP") != "" {
 		if err := fakeApp(); err != nil {
@@ -52,6 +52,9 @@ func fakeApp() error {
 		return err
 	}
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/exit" {
+			os.Exit(3)
+		}
 		if r.Method == "POST" {
 			body, err := io.ReadAll(r.Body)
 			if err != nil {

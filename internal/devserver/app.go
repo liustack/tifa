@@ -8,16 +8,14 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"sync/atomic"
 	"time"
 )
 
 // app is one run of the application executable.
 type app struct {
-	cmd      *exec.Cmd
-	done     chan struct{} // closed once the process exited
-	err      error         // result of cmd.Wait, read after done is closed
-	stopping atomic.Bool   // set by stop, so an exit after it is not reported as a crash
+	cmd  *exec.Cmd
+	done chan struct{} // closed once the process exited
+	err  error         // result of cmd.Wait, read after done is closed
 }
 
 // startApp runs command with TIFA_SERVER_ADDR set to addr, which the application's
@@ -71,7 +69,6 @@ func (a *app) waitReady(ctx context.Context, addr string, timeout time.Duration)
 // stop sends an interrupt so the app runs OnShutdown, and kills it when it has not exited
 // after timeout. The interrupt is not available on Windows, Run refuses to start there.
 func (a *app) stop(timeout time.Duration) error {
-	a.stopping.Store(true)
 	if err := a.cmd.Process.Signal(os.Interrupt); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		return fmt.Errorf("interrupting the app: %w", err)
 	}

@@ -31,17 +31,23 @@ func newHub() *hub {
 	return &hub{subs: map[chan status]struct{}{}, closed: make(chan struct{})}
 }
 
-func (h *hub) current() status {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.st
-}
-
 // publish replaces the status and sends it to every connection. A connection that has not
 // taken the previous status yet gets only the newest one.
 func (h *hub) publish(st status) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.send(st)
+}
+
+// publishError keeps the version and sets the error, so pages show it without reloading.
+func (h *hub) publishError(title, msg string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.send(status{Version: h.st.Version, Title: title, Error: msg})
+}
+
+// send needs h.mu.
+func (h *hub) send(st status) {
 	h.st = st
 	for ch := range h.subs {
 		select {
