@@ -263,3 +263,24 @@ func TestRunRefusesIncompleteOptions(t *testing.T) {
 		t.Fatalf("got %v, want an options error", err)
 	}
 }
+
+func TestRunStopsWhenServingFails(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln.Close() // Serve fails at once
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(t.Context(), ln, Options{Dir: t.TempDir(), App: []string{"unused"},
+			Pipeline: &fakePipeline{fail: "Analyze"}, Stdout: io.Discard, Stderr: io.Discard})
+	}()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "serving") {
+			t.Fatalf("got %v, want the serve error", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run kept running after the proxy stopped serving")
+	}
+}

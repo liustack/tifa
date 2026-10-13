@@ -111,11 +111,17 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 	mux.Handle(devPrefix, http.NotFoundHandler())
 	mux.Handle("/", proxy(appAddr, o.ProxyWait, d.down))
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
-	served := make(chan error, 1)
-	go func() { served <- srv.Serve(ln) }()
-
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	served := make(chan error, 1)
+	go func() {
+		err := srv.Serve(ln)
+		if !errors.Is(err, http.ErrServerClosed) {
+			err = fmt.Errorf("tifa dev: serving: %w", err)
+			cancel() // without the proxy there is nothing left to do
+		}
+		served <- err
+	}()
 	watched := make(chan error, 1)
 	go func() {
 		err := w.run(ctx)
