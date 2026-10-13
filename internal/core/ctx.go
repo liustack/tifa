@@ -36,6 +36,8 @@ type request struct {
 	mu    sync.Mutex
 	body  *countingBody // nil when the request has no body
 	loads map[uintptr]*loadCall
+	// copies made by SetContext. net/http only removes the multipart temp files of the original request.
+	copies []*http.Request
 }
 
 // New builds the context for one request. pattern is the matched route pattern, empty when no route matched.
@@ -58,7 +60,25 @@ func SetNext(c *Ctx, next func() error) {
 func (c *Ctx) Context() context.Context { return c.r.Context() }
 
 // SetContext replaces the request context, for middleware that stores request-scoped values.
-func (c *Ctx) SetContext(ctx context.Context) { c.r = c.r.WithContext(ctx) }
+func (c *Ctx) SetContext(ctx context.Context) {
+	c.r = c.r.WithContext(ctx)
+	c.req.mu.Lock()
+	c.req.copies = append(c.req.copies, c.r)
+	c.req.mu.Unlock()
+}
+
+// Finish releases what the request copies hold. The server calls it once the request is done.
+func Finish(c *Ctx) error {
+	c.req.mu.Lock()
+	defer c.req.mu.Unlock()
+	var errs []error
+	for _, r := range c.req.copies {
+		if r.MultipartForm != nil {
+			errs = append(errs, r.MultipartForm.RemoveAll())
+		}
+	}
+	return errors.Join(errs...)
+}
 
 func (c *Ctx) Param(name string) string  { return c.r.PathValue(name) }
 func (c *Ctx) Query(name string) string  { return c.r.URL.Query().Get(name) }

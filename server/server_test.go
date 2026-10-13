@@ -1,13 +1,16 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -302,5 +305,59 @@ func TestRunStopsWhenOnStartFails(t *testing.T) {
 	s := New(cfg, Hooks{OnStart: func() error { return errDatabase }})
 	if err := s.Run(context.Background()); !errors.Is(err, errDatabase) {
 		t.Fatalf("Run returned %v", err)
+	}
+}
+
+type ctxKey struct{}
+
+func TestMultipartTempFilesAreRemovedAfterSetContext(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	cfg := config.Default()
+	cfg.Server.BodyLimit = 64 << 20
+	s := New(cfg, Hooks{OnRequest: func(c *tifa.Ctx) error {
+		c.SetContext(context.WithValue(c.Context(), ctxKey{}, "user"))
+		return c.Next()
+	}})
+	s.Handle("POST", "/bind", func(c *tifa.Ctx) error {
+		var in order
+		if err := c.Bind(&in); err != nil {
+			return err
+		}
+		return c.NoContent(204)
+	})
+	s.Handle("POST", "/raw", func(c *tifa.Ctx) error {
+		if err := c.Request().ParseMultipartForm(0); err != nil {
+			return err
+		}
+		return c.NoContent(204)
+	})
+	srv := httptest.NewServer(s)
+	defer srv.Close()
+	for path, size := range map[string]int{"/bind": 33 << 20, "/raw": 1 << 10} {
+		var body bytes.Buffer
+		mw := multipart.NewWriter(&body)
+		part, _ := mw.CreateFormFile("file", "a.bin")
+		_, _ = part.Write(bytes.Repeat([]byte("x"), size))
+		_ = mw.WriteField("id", "1")
+		_ = mw.Close()
+		resp, err := http.Post(srv.URL+path, mw.FormDataContentType(), &body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != 204 {
+			t.Fatalf("%s: %d", path, resp.StatusCode)
+		}
+		var left []os.DirEntry
+		for range 50 {
+			if left, _ = os.ReadDir(tmp); len(left) == 0 {
+				break
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		if len(left) != 0 {
+			t.Fatalf("%s left %d multipart temp files", path, len(left))
+		}
 	}
 }

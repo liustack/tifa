@@ -77,6 +77,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *Server) serve(w http.ResponseWriter, r *http.Request, pattern string, route map[string]func(*tifa.Ctx) error) {
 	tw := &writer{ResponseWriter: w}
 	c := core.New(tw, r, pattern, s.cfg.BodyLimit)
+	defer func() {
+		if err := core.Finish(c); err != nil {
+			log.Printf("tifa: %s %s: %v", r.Method, r.URL.Path, err)
+		}
+	}()
 	next := func() error {
 		if route == nil {
 			return tifa.ErrNotFound
