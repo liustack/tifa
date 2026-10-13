@@ -168,6 +168,7 @@ func TestViolations(t *testing.T) {
 			{"app/page/route.go:18:", "(*tifa.Ctx).Query", "method expression"},
 			{"app/page/route.go:19:", "tifa.Use", "called directly"},
 			{"app/page/route.go:20:", "tifa.Use", "called directly"},
+			{"app/page/route.go:21:", "use", "function value"},
 			{"app/page/route.go:27:", "c.Param", "called directly"},
 		}},
 		{"ifacectx", [][]string{
@@ -176,6 +177,17 @@ func TestViolations(t *testing.T) {
 			{"app/page/route.go:20:", "querier"},
 			{"app/page/route.go:21:", "paramer"},
 			{"app/page/route.go:22:", "querier"},
+		}},
+		{"nofollow", [][]string{
+			{"app/page/route.go:24:", "interface method", "reader.Read", "pass the values"},
+			{"app/page/route.go:25:", "function value", "fn"},
+			{"app/page/route.go:26:", "go statement"},
+			{"app/page/route.go:27:", "fmt.Println", "outside this module"},
+			{"app/page/route.go:28:", "go statement"},
+			{"helpers/helpers.go:16:", "interface method", "sink.Take"},
+			{"helpers/helpers.go:22:", "c.Query", "called directly"},
+			{"helpers/helpers.go:28:", "querier", "Query"},
+			{"helpers/helpers.go:34:", "app/other is not an ancestor of app/page"},
 		}},
 		{"typeerror", [][]string{
 			{"app/page/route.go:5:17:", "cannot use"},
@@ -420,5 +432,29 @@ func TestShapeMatcherRejectsMismatches(t *testing.T) {
 	json.Unmarshal([]byte(`{"a":1,"c":[1,null]}`), &ok)
 	if err := shape.match(ok, "$", nil); err != nil {
 		t.Errorf("valid document rejected: %v", err)
+	}
+}
+
+// Helpers that receive the Ctx are followed, across packages, through two levels, through a
+// struct embedding the Ctx and through recursion. Each Load gets what it reaches. A helper that
+// only reads c.Context(), like auth.User, adds nothing and passes.
+func TestFollowHelpers(t *testing.T) {
+	m, err := analyzeApp(t, "follow")
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	loads := map[string]*Load{}
+	for _, r := range m.Routes {
+		loads[r.ID] = r.Load
+	}
+	list, other := loads["app/items/list"], loads["app/items/other"]
+	if !reflect.DeepEqual(list.Params, []string{"id"}) ||
+		!reflect.DeepEqual(list.Query, []string{"depth", "dir", "page", "sort"}) ||
+		!reflect.DeepEqual(list.Uses, []string{"app"}) ||
+		!reflect.DeepEqual(list.AllQuery, []string{"depth", "dir", "page", "sort"}) {
+		t.Errorf("list Load = %+v", list)
+	}
+	if len(other.Params) != 0 || !reflect.DeepEqual(other.Query, []string{"dir", "sort"}) || len(other.Uses) != 0 {
+		t.Errorf("other Load = %+v", other)
 	}
 }

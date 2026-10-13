@@ -77,6 +77,8 @@ type analyzer struct {
 	// appPkgs holds the import paths of pkgs, modulePkgs those of every package in the module.
 	appPkgs, modulePkgs map[string]bool
 	funcs               map[string]funcSource // functions of module packages that type check, by full name
+	checked             map[string]bool       // followed functions whose own body has been checked
+	helperUses          []useCall
 	errs                Errors
 	used                usedLoads
 }
@@ -188,6 +190,7 @@ func (a *analyzer) load() error {
 	a.broken = map[string]bool{}
 	a.appPkgs = map[string]bool{}
 	a.funcs = map[string]funcSource{}
+	a.checked = map[string]bool{}
 	// Walk the import graph of the application, packages outside app/ included. A package with
 	// errors is broken, and so is every package that imports a broken one directly or
 	// indirectly, because it was type checked against incomplete information. Visit calls post
@@ -303,9 +306,13 @@ func (a *analyzer) sortedErrors() Errors {
 		if x.Line != y.Line {
 			return x.Line < y.Line
 		}
-		return x.Column < y.Column
+		if x.Column != y.Column {
+			return x.Column < y.Column
+		}
+		return a.errs[i].Msg < a.errs[j].Msg
 	})
-	return a.errs
+	// A helper reached from several Loads is walked once for each of them.
+	return slices.Compact(a.errs)
 }
 
 // route and layout hold what build needs beyond the manifest entries.
@@ -407,7 +414,7 @@ func (a *analyzer) route(d *dirInfo) *route {
 		}
 	}
 
-	r.Load, r.uses = a.readLoad(pkg)
+	r.Load, r.uses = a.readLoad(pkg, d.id)
 	for _, h := range handlers {
 		obj := scope.Lookup(h.name)
 		if obj == nil {
@@ -449,7 +456,7 @@ func (a *analyzer) layout(d *dirInfo) *layout {
 			a.errorAt(obj.Pos(), "a layout does not declare %s, handlers belong in route.go", h.name)
 		}
 	}
-	l.Load, l.uses = a.readLoad(pkg)
+	l.Load, l.uses = a.readLoad(pkg, d.id)
 	l.SSR = a.boolConst(pkg, "SSR", true)
 	return l
 }
@@ -541,7 +548,7 @@ func typeString(t types.Type) string {
 
 // load_ reads the Load function of a route or Layout package: its result type and the constant
 // parameter names passed to c.Param and c.Query in its body.
-func (a *analyzer) readLoad(pkg *packages.Package) (*Load, []paramUse) {
+func (a *analyzer) readLoad(pkg *packages.Package, owner string) (*Load, []paramUse) {
 	obj := pkg.Types.Scope().Lookup("Load")
 	if obj == nil {
 		return nil, nil
@@ -572,32 +579,7 @@ func (a *analyzer) readLoad(pkg *packages.Package) (*Load, []paramUse) {
 		a.errorAt(resultPos, "%s", msg)
 	}
 
-	a.checkCtxToInterface(pkg.TypesInfo, sig, decl.Body)
-	var uses []paramUse
-	ast.Inspect(decl.Body, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		if isTifaUse(pkg.TypesInfo, call) && len(call.Args) == 2 {
-			// checkUses reports arguments that are not the Load of an ancestor Layout.
-			if fn := packageFunc(pkg.TypesInfo, call.Args[1]); fn != nil && fn.Name() == "Load" {
-				a.used[load] = append(a.used[load], fn.Pkg().Path())
-			}
-			return true
-		}
-		method := ctxMethod(pkg.TypesInfo, call)
-		if method != "Param" && method != "Query" || len(call.Args) != 1 {
-			return true
-		}
-		tv := pkg.TypesInfo.Types[call.Args[0]]
-		if tv.Value == nil || tv.Value.Kind() != constant.String {
-			a.errorAt(call.Pos(), "the argument of c.%s in Load must be a constant string, the analyzer reads parameter names from it", method)
-			return true
-		}
-		uses = append(uses, paramUse{method: method, name: constant.StringVal(tv.Value), pos: call.Pos()})
-		return true
-	})
+	uses := a.walkLoad(pkg, owner, load, decl, sig)
 	for _, u := range uses {
 		if u.method == "Param" {
 			load.Params = append(load.Params, u.name)
@@ -680,44 +662,52 @@ func calleeIdent(call *ast.CallExpr) *ast.Ident {
 // variable or passed as an argument would hide them.
 func (a *analyzer) checkDirectCalls() {
 	for _, pkg := range a.pkgs {
-		info := pkg.TypesInfo
-		called := map[*ast.Ident]bool{}
-		selectors := map[*ast.Ident]*ast.SelectorExpr{}
 		for _, f := range pkg.Syntax {
-			ast.Inspect(f, func(n ast.Node) bool {
-				switch e := n.(type) {
-				case *ast.CallExpr:
-					if id := calleeIdent(e); id != nil {
-						called[id] = true
-					}
-				case *ast.SelectorExpr:
-					selectors[e.Sel] = e
-				}
-				return true
-			})
+			a.checkDirectCallsIn(pkg.TypesInfo, f)
 		}
-		for id, obj := range info.Uses {
-			method := paramMethod(obj)
-			var name string
-			switch {
-			case method != "":
-				name = "c." + method
-				if sel := selectors[id]; sel != nil && info.Selections[sel] != nil && info.Selections[sel].Kind() == types.MethodExpr {
-					a.errorAt(sel.Pos(), "%s is a method expression: call c.%s(...) directly, the analyzer reads parameter names at the call", types.ExprString(sel), method)
-					continue
-				}
-			case isUseFunc(obj):
-				name = "tifa.Use"
-			default:
+	}
+}
+
+// checkDirectCallsIn applies checkDirectCalls to the syntax under root.
+func (a *analyzer) checkDirectCallsIn(info *types.Info, root ast.Node) {
+	called := map[*ast.Ident]bool{}
+	selectors := map[*ast.Ident]*ast.SelectorExpr{}
+	var idents []*ast.Ident
+	ast.Inspect(root, func(n ast.Node) bool {
+		switch e := n.(type) {
+		case *ast.CallExpr:
+			if id := calleeIdent(e); id != nil {
+				called[id] = true
+			}
+		case *ast.SelectorExpr:
+			selectors[e.Sel] = e
+		case *ast.Ident:
+			idents = append(idents, e)
+		}
+		return true
+	})
+	for _, id := range idents {
+		obj := info.Uses[id]
+		method := paramMethod(obj)
+		var name string
+		switch {
+		case method != "":
+			name = "c." + method
+			if sel := selectors[id]; sel != nil && info.Selections[sel] != nil && info.Selections[sel].Kind() == types.MethodExpr {
+				a.errorAt(sel.Pos(), "%s is a method expression: call c.%s(...) directly, the analyzer reads parameter names at the call", types.ExprString(sel), method)
 				continue
 			}
-			if !called[id] {
-				pos := id.Pos()
-				if sel := selectors[id]; sel != nil {
-					pos = sel.Pos()
-				}
-				a.errorAt(pos, "%s must be called directly, not stored or passed as a value, so the analyzer can read its arguments", name)
+		case isUseFunc(obj):
+			name = "tifa.Use"
+		default:
+			continue
+		}
+		if !called[id] {
+			pos := id.Pos()
+			if sel := selectors[id]; sel != nil {
+				pos = sel.Pos()
 			}
+			a.errorAt(pos, "%s must be called directly, not stored or passed as a value, so the analyzer can read its arguments", name)
 		}
 	}
 }
@@ -862,39 +852,49 @@ func (a *analyzer) checkUses(layouts []*layout) {
 		caller := a.id(filepath.Dir(pkg.GoFiles[0]))
 		for _, f := range pkg.Syntax {
 			ast.Inspect(f, func(n ast.Node) bool {
-				call, ok := n.(*ast.CallExpr)
-				if !ok || !isTifaUse(pkg.TypesInfo, call) || len(call.Args) != 2 {
-					return true
-				}
-				arg := ast.Unparen(call.Args[1])
-				text := types.ExprString(arg)
-				const need = "the function passed to tifa.Use must be a package-level function"
-				switch e := arg.(type) {
-				case *ast.FuncLit:
-					a.errorAt(arg.Pos(), "%s, got a closure: tifa.Use tells Loads apart by code address, so closures of one literal would share results", need)
-					return true
-				case *ast.SelectorExpr:
-					if pkg.TypesInfo.Selections[e] != nil {
-						a.errorAt(arg.Pos(), "%s, got the method value %s: method values of one method share a code address and would share results", need, text)
-						return true
-					}
-				}
-				fn := packageFunc(pkg.TypesInfo, arg)
-				if fn == nil {
-					a.errorAt(arg.Pos(), "%s, got %s", need, text)
-					return true
-				}
-				l := layoutByPkg[fn.Pkg().Path()]
-				if l == nil || fn.Name() != "Load" {
-					a.errorAt(arg.Pos(), "tifa.Use(c, %s): %s is not the Load of a layout", text, text)
-					return true
-				}
-				if !isAncestor(l.ID, caller) {
-					a.errorAt(arg.Pos(), "tifa.Use(c, %s): the layout %s is not an ancestor of %s", text, l.ID, caller)
+				if call, ok := n.(*ast.CallExpr); ok && isTifaUse(pkg.TypesInfo, call) {
+					a.checkUse(pkg.TypesInfo, call, caller, layoutByPkg)
 				}
 				return true
 			})
 		}
+	}
+	// A helper outside the Load's package may call tifa.Use on its behalf. The Layout must then
+	// be an ancestor of the route or Layout whose Load reaches the helper.
+	for _, u := range a.helperUses {
+		a.checkUse(u.info, u.call, u.caller, layoutByPkg)
+	}
+}
+
+func (a *analyzer) checkUse(info *types.Info, call *ast.CallExpr, caller string, layoutByPkg map[string]*layout) {
+	if len(call.Args) != 2 {
+		return
+	}
+	arg := ast.Unparen(call.Args[1])
+	text := types.ExprString(arg)
+	const need = "the function passed to tifa.Use must be a package-level function"
+	switch e := arg.(type) {
+	case *ast.FuncLit:
+		a.errorAt(arg.Pos(), "%s, got a closure: tifa.Use tells Loads apart by code address, so closures of one literal would share results", need)
+		return
+	case *ast.SelectorExpr:
+		if info.Selections[e] != nil {
+			a.errorAt(arg.Pos(), "%s, got the method value %s: method values of one method share a code address and would share results", need, text)
+			return
+		}
+	}
+	fn := packageFunc(info, arg)
+	if fn == nil {
+		a.errorAt(arg.Pos(), "%s, got %s", need, text)
+		return
+	}
+	l := layoutByPkg[fn.Pkg().Path()]
+	if l == nil || fn.Name() != "Load" {
+		a.errorAt(arg.Pos(), "tifa.Use(c, %s): %s is not the Load of a layout", text, text)
+		return
+	}
+	if !isAncestor(l.ID, caller) {
+		a.errorAt(arg.Pos(), "tifa.Use(c, %s): the layout %s is not an ancestor of %s", text, l.ID, caller)
 	}
 }
 
