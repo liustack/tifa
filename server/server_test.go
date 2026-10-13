@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -642,5 +643,79 @@ func TestHijackedHandlerIsCanceledBeforeOnShutdown(t *testing.T) {
 	defer mu.Unlock()
 	if strings.Join(events, ",") != "handler returned,shutdown" {
 		t.Fatalf("events %v", events)
+	}
+}
+
+// plainWriter supports nothing beyond http.ResponseWriter, like a writer wrapped by http.TimeoutHandler.
+type plainWriter struct {
+	header http.Header
+	code   int
+	body   bytes.Buffer
+	calls  int // WriteHeader and Write calls
+}
+
+func newPlainWriter() *plainWriter { return &plainWriter{header: http.Header{}} }
+
+func (p *plainWriter) Header() http.Header { return p.header }
+func (p *plainWriter) WriteHeader(code int) {
+	if code < 100 || code > 999 {
+		panic(fmt.Sprintf("invalid WriteHeader code %v", code))
+	}
+	p.calls++
+	if p.code == 0 {
+		p.code = code
+	}
+}
+func (p *plainWriter) Write(b []byte) (int, error) {
+	p.calls++
+	if p.code == 0 {
+		p.code = 200
+	}
+	return p.body.Write(b)
+}
+
+// hijackWriter hands out one end of a pipe as the hijacked connection.
+type hijackWriter struct {
+	*plainWriter
+	conn net.Conn
+}
+
+func (h *hijackWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return h.conn, bufio.NewReadWriter(bufio.NewReader(h.conn), bufio.NewWriter(h.conn)), nil
+}
+
+func TestFailedCommitDoesNotCountAsWritten(t *testing.T) {
+	s := New(config.Default(), Hooks{})
+	s.Handle("GET", "/flush", func(c *tifa.Ctx) error {
+		if err := http.NewResponseController(c.Writer()).Flush(); !errors.Is(err, http.ErrNotSupported) {
+			t.Errorf("Flush returned %v", err)
+		}
+		return errDatabase
+	})
+	s.Handle("GET", "/bad-status", func(c *tifa.Ctx) error { return c.NoContent(0) })
+	for _, target := range []string{"/flush", "/bad-status"} {
+		w := newPlainWriter()
+		s.ServeHTTP(w, httptest.NewRequest("GET", target, nil))
+		if w.code != 500 || !strings.Contains(w.body.String(), "Internal Server Error") {
+			t.Errorf("%s: got %d %q, want the 500 error response", target, w.code, w.body.String())
+		}
+	}
+}
+
+func TestErrorAfterHijackWritesNothing(t *testing.T) {
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+	s := New(config.Default(), Hooks{})
+	s.Handle("GET", "/socket", func(c *tifa.Ctx) error {
+		if _, _, err := http.NewResponseController(c.Writer()).Hijack(); err != nil {
+			return err
+		}
+		return errDatabase
+	})
+	w := &hijackWriter{plainWriter: newPlainWriter(), conn: server}
+	s.ServeHTTP(w, httptest.NewRequest("GET", "/socket", nil))
+	if w.calls != 0 {
+		t.Fatalf("framework wrote to a hijacked connection: %d calls, %d %q", w.calls, w.code, w.body.String())
 	}
 }

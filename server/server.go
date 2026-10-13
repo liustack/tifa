@@ -268,41 +268,58 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	_, _ = w.Write(data)
 }
 
-// writer records whether the response has started, so a late error does not write a second one.
+// writer records whether the response is committed, so a late error does not write a second response.
+// Every call that can commit goes through commit, the one place that decides.
 type writer struct {
 	http.ResponseWriter
 	wrote bool
 }
 
-// WriteHeader counts only final statuses. Like net/http, 1xx other than 101 is informational and may precede the real response.
-func (w *writer) WriteHeader(code int) {
-	if code < 100 || code > 199 || code == http.StatusSwitchingProtocols {
+// commit runs call on the underlying writer. The response counts as committed only when call returns
+// normally and reports that it committed. A panic leaves the state untouched and propagates.
+func (w *writer) commit(call func() bool) {
+	if call() {
 		w.wrote = true
 	}
-	w.ResponseWriter.WriteHeader(code)
 }
 
-func (w *writer) Write(b []byte) (int, error) {
-	w.wrote = true
-	return w.ResponseWriter.Write(b)
+// WriteHeader commits on final statuses. Like net/http, 1xx other than 101 is informational and may
+// precede the real response.
+func (w *writer) WriteHeader(code int) {
+	w.commit(func() bool {
+		w.ResponseWriter.WriteHeader(code)
+		return code < 100 || code > 199 || code == http.StatusSwitchingProtocols
+	})
+}
+
+// Write commits once it succeeds, even with no bytes since that sends the header, or once any byte went out.
+func (w *writer) Write(b []byte) (n int, err error) {
+	w.commit(func() bool {
+		n, err = w.ResponseWriter.Write(b)
+		return err == nil || n > 0
+	})
+	return n, err
 }
 
 // Of the operations http.ResponseController reaches, Flush and Hijack commit the response, so the writer
-// implements them itself and records that. Deadlines and full duplex do not commit and go through Unwrap.
+// implements them itself. Deadlines and full duplex do not commit and go through Unwrap.
 func (w *writer) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
-func (w *writer) FlushError() error {
-	w.wrote = true
-	return http.NewResponseController(w.ResponseWriter).Flush()
+func (w *writer) FlushError() (err error) {
+	w.commit(func() bool {
+		err = http.NewResponseController(w.ResponseWriter).Flush()
+		return err == nil
+	})
+	return err
 }
 
 func (w *writer) Flush() { _ = w.FlushError() }
 
-func (w *writer) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	conn, rw, err := http.NewResponseController(w.ResponseWriter).Hijack()
-	if err == nil {
-		w.wrote = true
-	}
+func (w *writer) Hijack() (conn net.Conn, rw *bufio.ReadWriter, err error) {
+	w.commit(func() bool {
+		conn, rw, err = http.NewResponseController(w.ResponseWriter).Hijack()
+		return err == nil
+	})
 	return conn, rw, err
 }
 
