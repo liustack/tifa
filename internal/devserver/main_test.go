@@ -53,7 +53,12 @@ func fakeApp() error {
 	}
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "POST" {
-			_, _ = io.Copy(w, r.Body)
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+			_, _ = w.Write(body)
 			return
 		}
 		_, _ = io.WriteString(w, version)
