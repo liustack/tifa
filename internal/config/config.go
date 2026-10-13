@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -218,8 +219,18 @@ func accepts(kind, typ string) bool {
 }
 
 func yamlEntries(data []byte) ([]entry, error) {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
 	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
+	if err := dec.Decode(&doc); err == io.EOF {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+	var extra yaml.Node
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			err = fmt.Errorf("line %d: only one YAML document is allowed", extra.Line)
+		}
 		return nil, err
 	}
 	if len(doc.Content) == 0 {
@@ -258,6 +269,9 @@ func jsonEntries(data []byte) ([]entry, error) {
 	dec.UseNumber()
 	if err := dec.Decode(&root); err != nil {
 		return nil, err
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return nil, errors.New("only one JSON value is allowed")
 	}
 	var entries []entry
 	for _, name := range sortedKeys(root) {

@@ -202,3 +202,20 @@ func TestFileValuesMustHaveTheRightType(t *testing.T) {
 	}
 }
 
+func TestFileMustHoldOneDocument(t *testing.T) {
+	cases := map[string]string{
+		"prod.json": `{} {"ssr":{"vms":0}}`,
+		"prod.yaml": "server:\n  addr: :1\n---\nssr:\n  vms: 0\n",
+	}
+	for name, content := range cases {
+		_, err := load(t, []string{"--config", writeFile(t, name, content)}, nil, "", "")
+		if err == nil || !strings.Contains(err.Error(), "file "+name) {
+			t.Errorf("%s: got %v", name, err)
+		}
+	}
+	for _, content := range []string{"", "# only a comment\n", "---\nserver:\n  addr: :1\n"} {
+		if _, err := load(t, []string{"--config", writeFile(t, "one.yaml", content)}, nil, "", ""); err != nil {
+			t.Errorf("%q: %v", content, err)
+		}
+	}
+}
