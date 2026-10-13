@@ -74,8 +74,11 @@ type analyzer struct {
 	byDir  map[string]*packages.Package
 	rootPk *packages.Package // nil without hooks.go
 	broken map[string]bool   // directory IDs of packages skipped because they or their imports do not type check
-	errs   Errors
-	used   usedLoads
+	// appPkgs holds the import paths of pkgs, modulePkgs those of every package in the module.
+	appPkgs, modulePkgs map[string]bool
+	funcs               map[string]funcSource // functions of module packages that type check, by full name
+	errs                Errors
+	used                usedLoads
 }
 
 // dirInfo records the convention files found in one directory under app/.
@@ -133,10 +136,13 @@ func (a *analyzer) id(dir string) string {
 	return filepath.ToSlash(rel)
 }
 
+// load type checks every package of the module from source, .tifa/ and other directories the
+// go command skips excluded. Calls that pass the Ctx out of a Load are followed into helpers in
+// any of them, so db/ and internal/ need their syntax as well as app/.
 func (a *analyzer) load() error {
-	patterns := []string{"./app/..."}
+	hasHooks := false
 	if _, err := os.Stat(filepath.Join(a.root, "hooks.go")); err == nil {
-		patterns = append(patterns, ".")
+		hasHooks = true
 	}
 	a.fset = token.NewFileSet()
 	cfg := &packages.Config{
@@ -147,6 +153,7 @@ func (a *analyzer) load() error {
 		// The application is built with cgo off, so the same files are analyzed.
 		Env: append(os.Environ(), "CGO_ENABLED=0"),
 	}
+	patterns := []string{"./..."}
 	pkgs, err := packages.Load(cfg, patterns...)
 	if err != nil {
 		return err
@@ -160,14 +167,33 @@ func (a *analyzer) load() error {
 			return fmt.Errorf("go list in %s: %v\n%s", a.root, err, strings.TrimSpace(string(out)))
 		}
 	}
+	// The application is the packages under app/ and, with hooks.go, the root package. Other
+	// packages of the module matter only through what the application imports.
+	var roots []*packages.Package
+	a.modulePkgs = map[string]bool{}
+	for _, p := range pkgs {
+		if len(p.GoFiles) == 0 {
+			continue
+		}
+		if p.Module != nil && a.module == "" {
+			a.module = p.Module.Path
+		}
+		a.modulePkgs[p.PkgPath] = true
+		id := a.id(filepath.Dir(p.GoFiles[0]))
+		if id == "app" || strings.HasPrefix(id, "app/") || id == "." && hasHooks {
+			roots = append(roots, p)
+		}
+	}
 	a.byDir = map[string]*packages.Package{}
 	a.broken = map[string]bool{}
-	// Walk the whole import graph, packages outside app/ included. A package with errors is
-	// broken, and so is every package that imports a broken one directly or indirectly, because
-	// it was type checked against incomplete information. Visit calls post after the imports of
-	// a package, so imports are decided first.
+	a.appPkgs = map[string]bool{}
+	a.funcs = map[string]funcSource{}
+	// Walk the import graph of the application, packages outside app/ included. A package with
+	// errors is broken, and so is every package that imports a broken one directly or
+	// indirectly, because it was type checked against incomplete information. Visit calls post
+	// after the imports of a package, so imports are decided first.
 	brokenPaths := map[string]bool{}
-	packages.Visit(pkgs, nil, func(p *packages.Package) {
+	packages.Visit(roots, nil, func(p *packages.Package) {
 		if len(p.Errors) > 0 || p.IllTyped {
 			brokenPaths[p.PkgPath] = true
 		}
@@ -184,31 +210,49 @@ func (a *analyzer) load() error {
 				a.errs = append(a.errs, a.packageError(e))
 			}
 		}
+		if a.modulePkgs[p.PkgPath] && !brokenPaths[p.PkgPath] {
+			a.indexFuncs(p)
+		}
 	})
 	if len(brokenPaths) > 0 && len(a.errs) == 0 {
 		for path := range brokenPaths { // only reachable if go/packages flags a package without saying why
 			a.errs = append(a.errs, Error{Msg: fmt.Sprintf("package %s does not type check", path)})
 		}
 	}
-	for _, p := range pkgs {
-		if len(p.GoFiles) == 0 {
-			continue
-		}
-		if p.Module != nil && a.module == "" {
-			a.module = p.Module.Path
-		}
+	for _, p := range roots {
 		id := a.id(filepath.Dir(p.GoFiles[0]))
 		if brokenPaths[p.PkgPath] {
 			a.broken[id] = true
 			continue
 		}
 		a.pkgs = append(a.pkgs, p)
+		a.appPkgs[p.PkgPath] = true
 		a.byDir[id] = p
 		if id == "." {
 			a.rootPk = p
 		}
 	}
 	return nil
+}
+
+// funcSource is the declaration of a function or method in a module package that type checks.
+type funcSource struct {
+	pkg  *packages.Package
+	decl *ast.FuncDecl
+}
+
+// indexFuncs records the declarations of a package's functions and methods by full name.
+// Generic functions and methods are recorded once, under their generic name.
+func (a *analyzer) indexFuncs(p *packages.Package) {
+	for _, f := range p.Syntax {
+		for _, decl := range f.Decls {
+			if fd, ok := decl.(*ast.FuncDecl); ok {
+				if fn, ok := p.TypesInfo.Defs[fd.Name].(*types.Func); ok {
+					a.funcs[fn.FullName()] = funcSource{pkg: p, decl: fd}
+				}
+			}
+		}
+	}
 }
 
 func hasPos(e packages.Error) bool { return e.Pos != "" && e.Pos != "-" }
