@@ -8,7 +8,7 @@
 
 ## 启动
 
-以下命令都在 `examples/shop` 目录里执行。需要 Node.js 22.18+ 的 22.x 版本或 24.11+，以及 Go 1.26。Node 只用于构建，版本要求来自 Babel 8。较旧的 Go 在启用 `GOTOOLCHAIN=auto` 时会按 `go.mod` 下载对应工具链。
+以下命令都在 `examples/shop` 目录里执行。需要 Node.js 22.18+ 的 22.x 版本或 24.11+，以及 Go 1.27。Node 只用于构建，版本要求来自 Babel 8。较旧的 Go 在启用 `GOTOOLCHAIN=auto` 时会按 `go.mod` 下载对应工具链。
 
 ```sh
 pnpm install --frozen-lockfile

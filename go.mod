@@ -1,6 +1,6 @@
 module github.com/liustack/tifa
 
-go 1.26.0
+go 1.27.0
 
 require (
 	github.com/evanw/esbuild v0.28.2

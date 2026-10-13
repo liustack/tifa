@@ -1,6 +1,6 @@
 module github.com/liustack/tifa/examples/shop
 
-go 1.26.0
+go 1.27.0
 
 require (
 	modernc.org/libc v1.77.1
