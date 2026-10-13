@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 func TestChangesMergeByPath(t *testing.T) {
@@ -37,6 +39,13 @@ func startWatcher(t *testing.T, dir string, ignore ...string) *watcher {
 	if err != nil {
 		t.Fatal(err)
 	}
+	runWatcher(t, w)
+	return w
+}
+
+// runWatcher runs w until the test ends.
+func runWatcher(t *testing.T, w *watcher) {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- w.run(ctx) }()
@@ -46,7 +55,6 @@ func startWatcher(t *testing.T, dir string, ignore ...string) *watcher {
 			t.Error(err)
 		}
 	})
-	return w
 }
 
 // nextBatch waits for the next non-empty batch.
@@ -204,10 +212,57 @@ func TestWatcherHashesOnEveryEvent(t *testing.T) {
 	if err := os.Rename(tmp, filepath.Join(dir, "a.tsx")); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.handle(filepath.Join(dir, "a.tsx")); err != nil {
+	if err := w.handle(filepath.Join(dir, "a.tsx"), fsnotify.Create); err != nil {
 		t.Fatal(err)
 	}
 	if got := w.changes.take(); !slices.Equal(got, []change{{"a.tsx", modified}}) {
 		t.Fatalf("got %v, want a.tsx modified", got)
+	}
+}
+
+// A directory deleted and created again before the watcher handles the events gets a new watch.
+func TestWatcherRewatchesARecreatedDirectory(t *testing.T) {
+	dir := newApp(t)
+	w, err := newWatcher(dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(dir, "app")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, dir, "app/store.go", "package app")
+	writeFile(t, dir, "app/list/route.tsx", "export {}")
+	runWatcher(t, w) // handles the queued events now
+	expectBatch(t, dir, w)
+	writeFile(t, dir, "app/next.tsx", "export {}")
+	writeFile(t, dir, "app/list/items.tsx", "export {}")
+	expectBatch(t, dir, w, change{"app/list/items.tsx", created}, change{"app/next.tsx", created})
+}
+
+// After dropped events the watcher compares every file again, in known directories too.
+func TestWatcherRescanFindsEverything(t *testing.T) {
+	dir := newApp(t)
+	w, err := newWatcher(dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.fs.Close()
+	writeFile(t, dir, "app/store.go", "package app // edited")
+	writeFile(t, dir, "app/list/route.tsx", "export const edited = 1")
+	writeFile(t, dir, "app/deep/er/route.tsx", "export {}")
+	if err := os.Remove(filepath.Join(dir, "marker.ts")); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.rescan("."); err != nil {
+		t.Fatal(err)
+	}
+	want := []change{
+		{"app/deep/er/route.tsx", created},
+		{"app/list/route.tsx", modified},
+		{"app/store.go", modified},
+		{"marker.ts", removed},
+	}
+	if got := w.changes.take(); !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
 	}
 }

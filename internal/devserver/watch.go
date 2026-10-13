@@ -97,8 +97,8 @@ type watcher struct {
 	root    string
 	ignore  []string // relative directories that are not watched, such as the build output
 	fs      *fsnotify.Watcher
-	files   map[string]string // checksum of every tracked file
-	dirs    map[string]bool
+	files   map[string]string      // checksum of every tracked file
+	dirs    map[string]os.FileInfo // watched directories, as they were when the watch was added
 	changes *changes
 }
 
@@ -113,11 +113,11 @@ func newWatcher(root string, ignore []string) (*watcher, error) {
 	if err != nil {
 		return nil, err
 	}
-	w := &watcher{root: abs, fs: fw, files: map[string]string{}, dirs: map[string]bool{}, changes: newChanges()}
+	w := &watcher{root: abs, fs: fw, files: map[string]string{}, dirs: map[string]os.FileInfo{}, changes: newChanges()}
 	for _, d := range ignore {
 		w.ignore = append(w.ignore, path.Clean(filepath.ToSlash(d)))
 	}
-	if err := w.scanDir(".", true); err != nil {
+	if err := w.rescan("."); err != nil {
 		fw.Close()
 		return nil, err
 	}
@@ -136,7 +136,7 @@ func (w *watcher) run(ctx context.Context) error {
 			if !ok {
 				return errors.New("file watcher stopped")
 			}
-			if err := w.handle(ev.Name); err != nil {
+			if err := w.handle(ev.Name, ev.Op); err != nil {
 				return err
 			}
 		case err, ok := <-w.fs.Errors:
@@ -147,7 +147,7 @@ func (w *watcher) run(ctx context.Context) error {
 				return fmt.Errorf("watching files: %w", err)
 			}
 			// Some events were dropped, so compare everything again.
-			if err := w.scanDir(".", true); err != nil {
+			if err := w.rescan("."); err != nil {
 				return err
 			}
 		}
@@ -170,9 +170,18 @@ func (w *watcher) skipped(rel string) bool {
 
 func (w *watcher) abs(rel string) string { return filepath.Join(w.root, filepath.FromSlash(rel)) }
 
+// under reports whether p is dir or inside it.
+func under(dir, p string) bool { return dir == "." || p == dir || strings.HasPrefix(p, dir+"/") }
+
+// watching reports whether dir is watched and is still the directory the watch was added for.
+func (w *watcher) watching(dir string, info os.FileInfo) bool {
+	known, ok := w.dirs[dir]
+	return ok && os.SameFile(known, info)
+}
+
 // handle brings the state of one path up to date. Events only say where to look: the checksum
-// decides whether a file changed.
-func (w *watcher) handle(name string) error {
+// decides whether a file changed, and a directory is checked against the one that was watched.
+func (w *watcher) handle(name string, op fsnotify.Op) error {
 	r, err := filepath.Rel(w.root, name)
 	if err != nil {
 		return err
@@ -180,6 +189,11 @@ func (w *watcher) handle(name string) error {
 	rel := filepath.ToSlash(r)
 	if rel == ".." || strings.HasPrefix(rel, "../") || w.skipped(rel) {
 		return nil
+	}
+	if op.Has(fsnotify.Remove) || op.Has(fsnotify.Rename) {
+		// Whatever is at rel now, the watch for the old directory is gone. A new directory can
+		// reuse the old one's inode, so identity alone cannot tell.
+		w.unwatch(rel)
 	}
 	info, err := os.Stat(name)
 	switch {
@@ -189,18 +203,29 @@ func (w *watcher) handle(name string) error {
 	case err != nil:
 		return err
 	case info.IsDir():
-		return w.scanDir(rel, false)
+		return w.scan(rel, false)
 	default:
-		return w.check(rel, info)
+		return w.check(rel)
 	}
 }
 
-// scanDir watches dir, checks its files and scans subdirectories that are not watched yet.
-// Files and directories that disappeared from dir count as removed. Without deep it only checks
-// files it does not know yet: a known file gets events of its own. deep hashes every file, it is
-// for the first scan and for catching up after dropped events.
-func (w *watcher) scanDir(dir string, deep bool) error {
-	if !w.dirs[dir] {
+// rescan compares everything under rel with the disk, also in directories already watched.
+func (w *watcher) rescan(rel string) error { return w.scan(rel, true) }
+
+// scan watches dir, checks its files and scans its subdirectories. Without deep, it only looks at
+// files and directories it does not know yet: known ones get events of their own. A directory
+// that is new or replaced is scanned deep. Anything under dir that is gone counts as removed.
+func (w *watcher) scan(dir string, deep bool) error {
+	info, err := os.Stat(w.abs(dir))
+	if errors.Is(err, fs.ErrNotExist) {
+		w.removeTree(dir)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !w.watching(dir, info) {
+		_ = w.fs.Remove(w.abs(dir)) // a replaced directory may still have the old watch
 		if err := w.fs.Add(w.abs(dir)); err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
 				w.removeTree(dir)
@@ -208,7 +233,8 @@ func (w *watcher) scanDir(dir string, deep bool) error {
 			}
 			return fmt.Errorf("watching %s: %w", dir, err)
 		}
-		w.dirs[dir] = true
+		w.dirs[dir] = info
+		deep = true
 	}
 	entries, err := os.ReadDir(w.abs(dir))
 	if errors.Is(err, fs.ErrNotExist) {
@@ -224,18 +250,17 @@ func (w *watcher) scanDir(dir string, deep bool) error {
 		if w.skipped(rel) {
 			continue
 		}
-		present[rel] = true
 		info, err := os.Stat(w.abs(rel)) // follows symlinks, like the build does
 		if errors.Is(err, fs.ErrNotExist) {
-			delete(present, rel)
 			continue
 		}
 		if err != nil {
 			return err
 		}
+		present[rel] = true
 		if info.IsDir() {
-			if !w.dirs[rel] {
-				if err := w.scanDir(rel, true); err != nil {
+			if deep || !w.watching(rel, info) {
+				if err := w.scan(rel, deep); err != nil {
 					return err
 				}
 			}
@@ -244,27 +269,59 @@ func (w *watcher) scanDir(dir string, deep bool) error {
 		if _, known := w.files[rel]; known && !deep {
 			continue
 		}
-		if err := w.check(rel, info); err != nil {
+		if err := w.check(rel); err != nil {
 			return err
 		}
 	}
-	for rel := range w.files {
-		if path.Dir(rel) == dir && !present[rel] {
-			w.removeTree(rel)
+	// Remove what is no longer in dir, at any depth: a vanished subdirectory takes its files along.
+	gone := func(p string) (string, bool) {
+		if p == dir || !under(dir, p) {
+			return "", false
+		}
+		rest := strings.TrimPrefix(p, dir+"/")
+		if dir == "." {
+			rest = p
+		}
+		first, _, _ := strings.Cut(rest, "/")
+		child := path.Join(dir, first)
+		return child, !present[child]
+	}
+	for p := range w.files {
+		if child, ok := gone(p); ok {
+			w.removeTree(child)
 		}
 	}
-	for rel := range w.dirs {
-		if rel != dir && path.Dir(rel) == dir && !present[rel] {
-			w.removeTree(rel)
+	for d := range w.dirs {
+		if child, ok := gone(d); ok {
+			w.removeTree(child)
 		}
 	}
 	return nil
 }
 
+// unwatch forgets the watch of dir, not of its subdirectories.
+func (w *watcher) unwatch(dir string) {
+	if _, ok := w.dirs[dir]; ok {
+		delete(w.dirs, dir)
+		_ = w.fs.Remove(w.abs(dir)) // usually gone with the directory already
+	}
+}
+
 // check hashes a tracked file and reports it when the checksum differs. It hashes on every call:
 // size and modification time can stay the same while the content changes.
-func (w *watcher) check(rel string, info fs.FileInfo) error {
-	if kindOf(rel) == other || !info.Mode().IsRegular() {
+func (w *watcher) check(rel string) error {
+	if kindOf(rel) == other {
+		return nil
+	}
+	info, err := os.Stat(w.abs(rel))
+	if errors.Is(err, fs.ErrNotExist) {
+		w.removeTree(rel)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
 		return nil
 	}
 	sum, err := checksum(w.abs(rel))
@@ -284,17 +341,15 @@ func (w *watcher) check(rel string, info fs.FileInfo) error {
 
 // removeTree forgets rel and everything under it, reporting the tracked files as removed.
 func (w *watcher) removeTree(rel string) {
-	under := func(p string) bool { return rel == "." || p == rel || strings.HasPrefix(p, rel+"/") }
 	for p, sum := range w.files {
-		if under(p) {
+		if under(rel, p) {
 			delete(w.files, p)
 			w.changes.add(p, sum, "")
 		}
 	}
 	for d := range w.dirs {
-		if under(d) {
-			delete(w.dirs, d)
-			_ = w.fs.Remove(w.abs(d)) // the watch is usually gone with the directory already
+		if under(rel, d) {
+			w.unwatch(d)
 		}
 	}
 }
