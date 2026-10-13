@@ -106,15 +106,62 @@ func TestProxyStreamsLargeBodies(t *testing.T) {
 	}
 }
 
-func TestProxyDoesNotRetryLargeBodies(t *testing.T) {
+// A body too large to keep in memory is not read until the app listens, then it is sent once.
+func TestProxyWaitsForTheAppBeforeALargeBody(t *testing.T) {
 	appAddr, err := freeAddr()
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := newProxy(t, appAddr, time.Minute, nil)
+	refused := make(chan struct{}, 1)
+	testHookRetry = func() {
+		select {
+		case refused <- struct{}{}:
+		default:
+		}
+	}
+	t.Cleanup(func() { testHookRetry = nil })
+	p := newProxy(t, appAddr, 10*time.Second, nil)
+	body := bytes.Repeat([]byte("x"), maxReplayBody+1)
+	type result struct {
+		status int
+		size   int
+		err    error
+	}
+	got := make(chan result, 1)
+	go func() {
+		resp, err := http.Post(p.URL, "text/plain", bytes.NewReader(body))
+		if err != nil {
+			got <- result{err: err}
+			return
+		}
+		defer resp.Body.Close()
+		data, err := io.ReadAll(resp.Body)
+		got <- result{resp.StatusCode, len(data), err}
+	}()
+	<-refused
+	ln, err := net.Listen("tcp", appAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	echoApp(t, ln)
+	r := <-got
+	if r.err != nil {
+		t.Fatal(r.err)
+	}
+	if r.status != 200 || r.size != len(body) {
+		t.Fatalf("got %d with %d bytes, want 200 with %d", r.status, r.size, len(body))
+	}
+}
+
+func TestProxyLargeBodyStopsWaitingWhenTheAppIsDown(t *testing.T) {
+	appAddr, err := freeAddr()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := newProxy(t, appAddr, time.Minute, func() error { return errors.New("go build failed") })
 	status, got := post(t, p.URL, bytes.Repeat([]byte("x"), maxReplayBody+1))
-	if status != http.StatusBadGateway || !strings.Contains(got, "cannot be sent again") {
-		t.Fatalf("got %d %q, want 502 explaining the body is too large to retry", status, got)
+	if status != http.StatusBadGateway || !strings.Contains(got, "go build failed") {
+		t.Fatalf("got %d %q", status, got)
 	}
 }
 

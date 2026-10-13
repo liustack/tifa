@@ -15,7 +15,7 @@ import (
 )
 
 // maxReplayBody is the largest request body the proxy keeps so it can send it again while the
-// app restarts. A larger body streams to the app once, and fails if the app is not listening.
+// app restarts. A larger body waits until the app listens, then streams to it once.
 const maxReplayBody = 8 << 20
 
 // testHookRetry lets tests see each attempt that found no app listening.
@@ -32,7 +32,7 @@ func proxy(appAddr string, wait time.Duration, down func() error) http.Handler {
 			r.Out.Host = r.In.Host
 			r.SetXForwarded()
 		},
-		Transport:     &retryTransport{base: http.DefaultTransport.(*http.Transport).Clone(), wait: wait, down: down},
+		Transport:     &retryTransport{base: http.DefaultTransport.(*http.Transport).Clone(), addr: appAddr, wait: wait, down: down},
 		FlushInterval: -1, // pass streamed responses, such as the app's own SSE, through right away
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			if errors.Is(err, context.Canceled) {
@@ -59,6 +59,7 @@ func unavailable(w http.ResponseWriter, status int, err error) {
 
 type retryTransport struct {
 	base http.RoundTripper
+	addr string // where the app listens
 	wait time.Duration
 	down func() error
 }
@@ -69,7 +70,19 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 	deadline := time.Now().Add(t.wait)
-	delay := 10 * time.Millisecond
+	if !replayable {
+		// The body can go out only once: wait until the app listens before sending it.
+		if err := t.waitApp(req, deadline); err != nil {
+			req.Body.Close()
+			return nil, err
+		}
+		resp, err := t.base.RoundTrip(req)
+		if err != nil && notListening(err) {
+			return nil, fmt.Errorf("the app stopped listening before the request was sent, and a body over %d MiB cannot be sent again: %w", maxReplayBody>>20, err)
+		}
+		return resp, err
+	}
+	var delay time.Duration
 	for {
 		attempt := req
 		if body != nil {
@@ -81,26 +94,47 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		if err == nil || !notListening(err) {
 			return resp, err
 		}
-		if !replayable {
-			return nil, fmt.Errorf("the app is not accepting connections, and the request body is larger than %d MiB so it cannot be sent again: %w", maxReplayBody>>20, err)
+		if err := t.pause(req, deadline, &delay, err); err != nil {
+			return nil, err
 		}
-		if t.down != nil {
-			if downErr := t.down(); downErr != nil {
-				return nil, downErr
-			}
+	}
+}
+
+// waitApp waits until a connection to the app succeeds.
+func (t *retryTransport) waitApp(req *http.Request, deadline time.Time) error {
+	var delay time.Duration
+	for {
+		var d net.Dialer
+		conn, err := d.DialContext(req.Context(), "tcp", t.addr)
+		if err == nil {
+			return conn.Close()
 		}
-		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("the app did not accept connections within %s: %w", t.wait, err)
+		if err := t.pause(req, deadline, &delay, err); err != nil {
+			return err
 		}
-		if testHookRetry != nil {
-			testHookRetry()
+	}
+}
+
+// pause waits before the next attempt, after failed found no app listening. It returns an error
+// when waiting is pointless: the app is down until the next build, wait passed, or the browser left.
+func (t *retryTransport) pause(req *http.Request, deadline time.Time, delay *time.Duration, failed error) error {
+	if t.down != nil {
+		if err := t.down(); err != nil {
+			return err
 		}
-		select {
-		case <-req.Context().Done():
-			return nil, req.Context().Err()
-		case <-time.After(delay):
-		}
-		delay = min(2*delay, 200*time.Millisecond)
+	}
+	if time.Now().After(deadline) {
+		return fmt.Errorf("the app did not accept connections within %s: %w", t.wait, failed)
+	}
+	if testHookRetry != nil {
+		testHookRetry()
+	}
+	*delay = min(max(2**delay, 10*time.Millisecond), 200*time.Millisecond)
+	select {
+	case <-req.Context().Done():
+		return req.Context().Err()
+	case <-time.After(*delay):
+		return nil
 	}
 }
 
@@ -111,10 +145,14 @@ func notListening(err error) bool {
 }
 
 // bufferBody reads a body of up to maxReplayBody bytes into memory so it can be sent again.
-// A larger body is left to stream: req.Body then yields the bytes read so far and the rest.
+// A larger body is left to stream. When its length is unknown, req.Body then yields the bytes
+// read so far and the rest.
 func bufferBody(req *http.Request) (body []byte, replayable bool, err error) {
 	if req.Body == nil || req.Body == http.NoBody {
 		return nil, true, nil
+	}
+	if req.ContentLength > maxReplayBody {
+		return nil, false, nil // known to be too large, leave it unread
 	}
 	orig := req.Body
 	body, err = io.ReadAll(io.LimitReader(orig, maxReplayBody+1))
