@@ -193,9 +193,10 @@ func buildTree(root string, m *analyze.Manifest) (*tsNode, []*tsNode, error) {
 //   - the framework's root is the root route. It renders the document as its shell, so a failure
 //     at any level keeps the document, and shows the root Layout's NotFound for a URL no route
 //     matches.
-//   - a Layout with a path is a pathless route named after its directory with the path route
-//     inside, so two Layouts with the same path stay two routes and the path parameters are
-//     part of the Layout's match. A Layout without a path is the pathless route alone.
+//   - a Layout with a path is a path route, so the path parameters are part of its match. When
+//     a sibling under the same parent has the same path, which would give both the same route
+//     ID, the Layout is a pathless route named after its directory with the path route inside.
+//     A Layout without a path is a pathless route named after its directory.
 //   - a Layout that exports NotFound gets a pathless boundary route inside, which its children
 //     hang from. A 404 below it then shows the NotFound inside the Layout.
 //   - a page is a route with its path relative to its Layout's, "/" when they are equal.
@@ -218,10 +219,9 @@ func tanstackRoutes(nodes []*tsNode) ([]*tsRoute, error) {
 		routes = append(routes, r)
 		return r
 	}
+	paths := map[*tsNode]string{}
 	for _, n := range nodes {
 		if n.parent == nil {
-			n.route = add(nil, "", "")
-			n.outlet = n.route
 			continue
 		}
 		rel := make([]string, 0, len(n.segs))
@@ -232,15 +232,30 @@ func tanstackRoutes(nodes []*tsNode) ([]*tsRoute, error) {
 			}
 			rel = append(rel, s)
 		}
-		path := strings.Join(rel, "/")
+		paths[n] = strings.Join(rel, "/")
+		if n.file == "route" {
+			paths[n] = cmp.Or(paths[n], "/")
+		}
+	}
+	for _, n := range nodes {
+		if n.parent == nil {
+			n.route = add(nil, "", "")
+			n.outlet = n.route
+			continue
+		}
+		path := paths[n]
 		parent := n.parent.outlet
 		switch {
 		case n.file == "route":
-			n.route = add(parent, "", cmp.Or(path, "/"))
+			n.route = add(parent, "", path)
 		case path == "":
 			n.route = add(parent, layoutRouteID(n.id), "")
-		default:
+		case slices.ContainsFunc(n.parent.children, func(o *tsNode) bool { return o != n && paths[o] == path }):
+			// A sibling with the same path would get the same route ID: the pathless route named
+			// after the directory keeps them apart, with the path route inside.
 			n.route = add(add(parent, layoutRouteID(n.id), ""), "", path)
+		default:
+			n.route = add(parent, "", path)
 		}
 		n.outlet = n.route
 		if n.file == "layout" && n.exported("NotFound") {

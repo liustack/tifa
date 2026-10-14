@@ -16,11 +16,6 @@ const root = createRootRouteWithContext<RouterContext>()({
 
 const r1 = createRoute({
   getParentRoute: () => root,
-  id: "_docs",
-})
-
-const r2 = createRoute({
-  getParentRoute: () => r1,
   path: "guide",
   errorComponent: DefaultError,
   loader: ({ context, location }) => load<D1>(context, "app/docs", location, "__root__"),
@@ -28,14 +23,14 @@ const r2 = createRoute({
   preloadStaleTime: Infinity,
 })
 
-const r3 = createRoute({
-  getParentRoute: () => r2,
+const r2 = createRoute({
+  getParentRoute: () => r1,
   path: "/",
   component: lazyRouteComponent(m2),
   errorComponent: DefaultError,
 })
 
-const r4 = createRoute({
+const r3 = createRoute({
   getParentRoute: () => root,
   path: "files/$",
   component: lazyRouteComponent(m3),
@@ -47,7 +42,7 @@ const r4 = createRoute({
   remountDeps: ({ params, search }) => [params._splat, pick(search, ["rev"])],
 })
 
-export const routeTree = root.addChildren([r1.addChildren([r2.addChildren([r3])]), r4])
+export const routeTree = root.addChildren([r1.addChildren([r2]), r3])
 
 declare module "@tanstack/react-router" {
   interface Register {

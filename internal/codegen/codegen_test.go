@@ -146,7 +146,7 @@ func TestRootLayoutReadsPathParameters(t *testing.T) {
 		t.Fatal(err)
 	}
 	if module := string(files["app/+route.ts"]); !strings.Contains(module, "export type Params = { tenant: string }") ||
-		!strings.Contains(module, `getRouteApi("/_app/$tenant")`) {
+		!strings.Contains(module, `getRouteApi("/$tenant")`) {
 		t.Errorf("app/+route.ts:\n%s", module)
 	}
 }
@@ -194,6 +194,45 @@ func TestRemountFollowsTheParametersLoadReads(t *testing.T) {
 	}
 	if app := tree[strings.Index(tree, `load<D1>`):strings.Index(tree, `load<D2>`)]; strings.Contains(app, "remountDeps") {
 		t.Errorf("the root Layout reads no parameter but remounts:\n%s", app)
+	}
+}
+
+// A Layout is one route of the tree: a path route when it has a path, a pathless route when it
+// has none. Only Layouts whose path would give the same route ID as a sibling get a pathless
+// wrapper (see TestLayoutsWithTheSamePathGetDistinctRoutes).
+func TestLayoutWithAPathIsOneRoute(t *testing.T) {
+	root := t.TempDir()
+	for _, f := range []string{"app/layout.tsx", "app/projects/layout.tsx", "app/projects/list/route.tsx", "app/projects/detail/route.tsx"} {
+		writeFile(t, filepath.Join(root, f), "export default function C() { return null }\n")
+	}
+	str := types.Typ[types.String]
+	scope := []string{"app/projects/list", "app/projects/detail"}
+	m := &analyze.Manifest{
+		Module: "example.com/x",
+		Layouts: []analyze.Layout{
+			{ID: "app", Path: "/projects/{projectId}", TSX: true, Load: &analyze.Load{Result: str}, SSR: true, Routes: scope},
+			{ID: "app/projects", Parent: "app", Path: "/projects/{projectId}", TSX: true, Load: &analyze.Load{Params: []string{"projectId"}, Result: str}, SSR: true, Routes: scope},
+		},
+		Routes: []analyze.Route{
+			{ID: "app/projects/list", Path: "/projects/{projectId}", Page: true, SSR: true, Layouts: []string{"app", "app/projects"}},
+			{ID: "app/projects/detail", Path: "/projects/{projectId}/orders/{orderId}", Page: true, SSR: true, Layouts: []string{"app", "app/projects"}},
+		},
+	}
+	files, err := Generate(root, m, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{
+		"app/+route.ts":                 `getRouteApi("/projects/$projectId")`,
+		"app/projects/+route.ts":        `getRouteApi("/projects/$projectId/_projects")`,
+		"app/projects/detail/+route.ts": `getRouteApi("/projects/$projectId/_projects/orders/$orderId")`,
+	} {
+		if !strings.Contains(string(files[name]), want) {
+			t.Errorf("%s lacks %s:\n%s", name, want, files[name])
+		}
+	}
+	if tree := string(files["routes.tsx"]); strings.Contains(tree, `id: "_app"`) {
+		t.Errorf("the root Layout got a pathless wrapper:\n%s", tree)
 	}
 }
 

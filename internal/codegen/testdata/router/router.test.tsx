@@ -185,7 +185,7 @@ test("a page without its own Error shows the closest ancestor's", async () => {
   const html = await render('/teams/x/one', { ...appData, 'app/team': ok('x'), 'app/team/one': { status: 403, error: 'no' } })
   contains(html, 'TEAM_ERROR <!-- -->403 no')
   const { router } = await client('/teams/x/one')
-  const one = Object.values(router.routesById).find((r: any) => r.id.includes('/_team/') && r.id.endsWith('/one')) as any
+  const one = Object.values(router.routesById).find((r: any) => r.id.includes('/teams/$team/') && r.id.endsWith('/one')) as any
   const team = Object.values(router.routesById).find((r: any) => r.id.endsWith('/teams/$team')) as any
   assert(one.options.errorComponent === team.options.errorComponent, 'the page and its Layout use different Error components')
 })

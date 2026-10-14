@@ -51,11 +51,6 @@ const r3 = createRoute({
 
 const r4 = createRoute({
   getParentRoute: () => r2,
-  id: "_projects",
-})
-
-const r5 = createRoute({
-  getParentRoute: () => r4,
   path: "projects/$projectId",
   component: lazyRouteComponent(m3),
   errorComponent: e3,
@@ -66,21 +61,21 @@ const r5 = createRoute({
   remountDeps: ({ params, search }) => [params.projectId, pick(search, ["currency", "lang"])],
 })
 
-const r6 = createRoute({
+const r5 = createRoute({
   getParentRoute: () => r3,
   path: "login",
   component: lazyRouteComponent(m4),
   errorComponent: DefaultError,
 })
 
-const r7 = createRoute({
+const r6 = createRoute({
   getParentRoute: () => r3,
   path: "register",
   component: lazyRouteComponent(m5),
   errorComponent: DefaultError,
 })
 
-const r8 = createRoute({
+const r7 = createRoute({
   getParentRoute: () => r2,
   path: "/",
   component: m6.default,
@@ -88,8 +83,8 @@ const r8 = createRoute({
   errorComponent: DefaultError,
 })
 
-const r9 = createRoute({
-  getParentRoute: () => r5,
+const r8 = createRoute({
+  getParentRoute: () => r4,
   path: "/",
   component: lazyRouteComponent(m7),
   errorComponent: e3,
@@ -100,8 +95,8 @@ const r9 = createRoute({
   remountDeps: ({ params, search }) => [params.projectId, pick(search, ["currency", "lang", "sort"])],
 })
 
-const r10 = createRoute({
-  getParentRoute: () => r5,
+const r9 = createRoute({
+  getParentRoute: () => r4,
   path: "orders/$orderId",
   component: lazyRouteComponent(m8),
   errorComponent: e3,
@@ -112,7 +107,7 @@ const r10 = createRoute({
   remountDeps: ({ params }) => [params.projectId, params.orderId],
 })
 
-export const routeTree = root.addChildren([r1.addChildren([r2.addChildren([r3.addChildren([r6, r7]), r4.addChildren([r5.addChildren([r9, r10])]), r8])])])
+export const routeTree = root.addChildren([r1.addChildren([r2.addChildren([r3.addChildren([r5, r6]), r4.addChildren([r8, r9]), r7])])])
 
 declare module "@tanstack/react-router" {
   interface Register {

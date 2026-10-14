@@ -6,4 +6,4 @@ export type Data = string[] | null
 
 export type Params = { projectId: string }
 
-export const route = getRouteApi("/_app/_notFound/_projects/projects/$projectId/")
+export const route = getRouteApi("/_app/_notFound/projects/$projectId/")

@@ -67,7 +67,7 @@ SSR 包开头引入 `runtime/host.js`，它补上 QuickJS 缺的 `URL`、`TextEn
 
 - 框架自己的根路由负责整个文档：它把根 Layout 导出的 `Document` 组件（没有就用框架默认文档）作为 TanStack 的 `shellComponent`，所以任何一层出错、404、根 `Load` 失败时，页面仍是带 `<head>` 与浏览器包脚本的完整文档。`Document` 接收 `children`，负责 `<html>`、`<HeadContent/>`、`<Scripts/>`，不能读 loader 数据。根路由的 `notFoundComponent` 是根 Layout 的 `NotFound`（没有就用框架默认组件），`errorComponent` 是框架默认组件。
 - 根 Layout（`app/layout.*`）和其他 Layout 一样是根路由下的普通路由，可以有路径，`Load` 可以读公共前缀里的路径参数。
-- Layout 的路径是作用范围内页面 `Path` 的公共前缀减去父 Layout 的前缀。每个 Layout 有一个以目录命名的 pathless 路由（`app` 为 `_app`，`app/shop/admin` 为 `_shop.admin`）。路径不为空时，带路径的路由放在它里面，所以两个 Layout 路径相同也是两条路由，路径参数仍在 Layout 的匹配身份里。
+- Layout 的路径是作用范围内页面 `Path` 的公共前缀减去父 Layout 的前缀。路径不为空的 Layout 就是一条带路径的路由，路径参数在它的匹配身份里。路径为空的 Layout 是一条以目录命名的 pathless 路由（`app` 为 `_app`，`app/shop/admin` 为 `_shop.admin`）。同一个父路由下另有页面或 Layout 的路径和它相同（两者会得到同一个路由 ID）时，这个 Layout 先套一层以目录命名的 pathless 路由，带路径的路由放在里面。
 - 导出 `NotFound` 的 Layout 里面再套一层 pathless 的 `_notFound` 路由挂 `notFoundComponent`，子路由挂在它下面。下层的 404 因此显示在该 Layout 的界面里面。
 - 页面路径相对最近的 Layout，相等时为 `/`。`{name}` 写成 `$name`，`{name...}` 写成 `$`（参数名 `_splat`）。字面量段先按 ServeMux 的方式解码（`/%61` 就是 `/a`），再按 TanStack 对解码后路径的写法写出：`%`、`\`、控制字符和 `` "<>` `` 写成转义形式，其余原样。解码后的字面量仍是字面量，`/%7Bx%7D` 不会变成参数。页面 Path 的字面量解码后含 URL 保留字符 `;/?:@&=+,#` 或 TanStack 路径语法字符 `{}$` 时两边无法一致匹配，静态分析在 `Path` 所在行报错。
 - 生成后任意两条路由的 TanStack ID 相同时构建报错（例如页面路径 `_shop` 撞上 Layout 目录 `shop` 的 pathless 路由）。
