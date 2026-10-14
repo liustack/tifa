@@ -109,6 +109,7 @@ go tool tifa build
 | [Writing an app](docs/app.md) | Laying out folders, routes, Layouts, hooks, 404 pages, head tags and caching |
 | [Build and run](docs/build.md) | You want to know what `tifa build` generates and how the program answers requests |
 | [Dev server](docs/dev.md) | Running `tifa dev` locally, or a change did not reload |
+| [Configuration](docs/config.md) | Deploying: the port, body limit, VMs, render timeout and page cache |
 | [Testing](docs/testing.md) | Contributing to tifa itself |
 
 ## Talk to us

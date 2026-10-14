@@ -26,7 +26,7 @@ tifa dev watches the app root and skips `.git`, `.tifa`, `node_modules`, and `bi
 | --- | --- |
 | `.ts`, `.tsx`, `.js`, `.css`, `.json` | bundle |
 | `.go`, `go.mod`, `go.sum` | static analysis, go build |
-| As above, and the route manifest changed (routes, Load types, hooks, etc.) | static analysis, code generation, bundle, go build |
+| As above, and the route manifest changed (routes, the result types of Load and Layout, the input and result types of handlers, hooks, etc.) | static analysis, code generation, bundle, go build |
 | A `route.tsx` or `layout.tsx` added or removed, or `tifa.yaml` or `tifa.json` changed | all steps |
 
 Whether the route manifest changed is decided by the `.tifa/` content generated after static analysis. If only function bodies changed, the generated content stays the same, and generation and bundling are skipped.

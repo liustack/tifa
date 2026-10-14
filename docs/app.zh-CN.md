@@ -114,6 +114,26 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 - 请求体或查询字符串解码失败时答 400（请求体超过上限答 413，其他内容类型答 415），处理函数不执行。
 - 自己写响应的方法函数用 `c.Bind(&in)` 解码请求体，用 `c.BindQuery(&in)` 解码查询字符串。
 
+## Ctx
+
+`*tifa.Ctx` 是请求和它的响应。`Load`、`Layout`、方法函数、`OnRequest` 和 `OnError` 都拿到它。
+
+| 方法 | 作用 |
+| --- | --- |
+| `c.Param(name)` | 路径参数，已解码，比如目录 `order+` 用 `c.Param("order")` |
+| `c.Query(name)` | 查询参数的第一个值，没有时为 `""` |
+| `c.Header(name)`、`c.Cookie(name)` | 请求头、请求 cookie（没有时返回 `http.ErrNoCookie`） |
+| `c.Context()`、`c.SetContext(ctx)` | 请求 context，替换它来存请求级的值 |
+| `c.Pattern()` | 匹配到的路由路径，比如 `/projects/{project}`，没匹配时为 `""` |
+| `c.IsData()` | 是不是浏览器路由的导航数据请求，而不是整页加载 |
+| `c.SetHeader(key, value)`、`c.SetCookie(cookie)` | 响应头、响应 cookie。`Load` 里也能用 |
+| `c.JSON(code, v)`、`c.Text(code, s)`、`c.NoContent(code)` | 写响应。`Load` 里不能用 |
+| `c.Redirect(url, code)` | 返回一个错误值，把它 return 出去就会重定向 |
+| `c.Bind(&v)`、`c.BindQuery(&v)` | 把请求体或查询字符串解码进结构体，见上文 |
+| `c.SetBodyLimit(n)` | 改这次请求的请求体上限（默认 `server.body_limit`）。要在读请求体之前调用，通常在 `OnRequest` 里。开始读以后调用会返回错误 |
+| `c.Next()` | 在 `OnRequest` 里执行匹配到的路由，只能调一次 |
+| `c.Request()`、`c.Writer()` | 原始的 `*http.Request` 和 `http.ResponseWriter`，只给方法函数和 `OnRequest` 用 |
+
 ## route.tsx
 
 ```tsx
@@ -210,6 +230,24 @@ export const documentHead = {
 
 这几种情况的状态码都是 404。根 Layout 的 `NotFound` 有时单独显示，所以不能读 loader 数据。
 
+## 页面上的错误
+
+`route.tsx` 和 `layout.tsx` 可以导出 `Error`。这一层的 `Load` 或 `Layout` 失败，或者它下面的组件抛错时，在这一层的位置显示它：
+
+```tsx
+import { RouteError } from 'tifa/client'
+
+export function Error({ error }: { error: unknown }) {
+  if (error instanceof RouteError && error.status === 403) return <p>没有权限</p>
+  return <p>出了点问题</p>
+}
+```
+
+- `Load` 或 `Layout` 失败时，`Error` 收到 `RouteError`，带 `status` 和公开的消息（`tifa.Error` 的消息，或 `OnError` 返回的）。服务器上和 hydration 之后都一样。
+- 自己没导出 `Error` 的路由，用最近的导出了 `Error` 的祖先的，都没有就用框架默认的。
+- 页面的状态码取最外层失败的那一层。服务器渲染时组件抛错算意外错误：交给 `OnError` 决定状态码（没定义 `OnError` 时是 500），这次的 HTML 不进缓存。
+- 无论哪里失败，文档外壳都是完整的，页面照样加载脚本和样式。
+
 ## SSR 与缓存
 
 ```go
@@ -219,7 +257,7 @@ const LayoutSSR = false // 本目录的 Layout，默认 true
 ```
 
 - `SSR = false`：照常执行中间件和所有 `Load`，不进 QuickJS，返回带数据的最简文档，浏览器直接渲染。`LayoutSSR = false` 作用于这个 Layout 套到的所有页面。
-- `Cache = true`：渲染结果按构建版本、URL 和数据缓存，数据没变时直接返回 HTML。组件渲染时不能读 `Date.now()`、`Math.random()` 这类每次不同的值，这也是 hydration 的要求。
+- `Cache = true`：渲染结果按构建版本、URL 和数据缓存，缓存大小是 `cache.size`（见 [config.zh-CN.md](config.zh-CN.md)），数据没变时直接返回 HTML。组件渲染时不能读 `Date.now()`、`Math.random()` 这类每次不同的值，这也是 hydration 的要求。
 - 页面响应都带 ETag，数据没变的第二次请求带 `If-None-Match` 时答 304，和 `Cache` 无关。
 
 ## hooks.go

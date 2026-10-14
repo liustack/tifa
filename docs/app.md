@@ -114,6 +114,26 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 - A body or query string that does not decode is answered with 400 (413 for a body over the limit, 415 for another content type), and the handler does not run.
 - A handler that writes its own response decodes input with `c.Bind(&in)` for the body and `c.BindQuery(&in)` for the query string.
 
+## Ctx
+
+`*tifa.Ctx` is the request and its response. `Load`, `Layout`, the method handlers, `OnRequest` and `OnError` get it.
+
+| Method | What it does |
+| --- | --- |
+| `c.Param(name)` | A path parameter, decoded, such as `c.Param("order")` for the folder `order+` |
+| `c.Query(name)` | The first value of a query parameter, `""` when absent |
+| `c.Header(name)`, `c.Cookie(name)` | A request header, a request cookie (`http.ErrNoCookie` when absent) |
+| `c.Context()`, `c.SetContext(ctx)` | The request context, and replacing it to store request-scoped values |
+| `c.Pattern()` | The path of the matched route, such as `/projects/{project}`, `""` when no route matched |
+| `c.IsData()` | Whether this is a navigation data request of the browser router rather than a page load |
+| `c.SetHeader(key, value)`, `c.SetCookie(cookie)` | A response header, a response cookie. Allowed in `Load` too |
+| `c.JSON(code, v)`, `c.Text(code, s)`, `c.NoContent(code)` | Writes the response. Not allowed in `Load` |
+| `c.Redirect(url, code)` | Returns an error value. Return it to redirect |
+| `c.Bind(&v)`, `c.BindQuery(&v)` | Decodes the body or the query string into a struct, see above |
+| `c.SetBodyLimit(n)` | Changes the body limit of this request (`server.body_limit` by default). Call it before anything reads the body, usually in `OnRequest`. Once reading has started it returns an error |
+| `c.Next()` | Runs the matched route from `OnRequest`, once |
+| `c.Request()`, `c.Writer()` | The raw `*http.Request` and `http.ResponseWriter`, for method handlers and `OnRequest` only |
+
 ## route.tsx
 
 ```tsx
@@ -210,6 +230,24 @@ export const documentHead = {
 
 The status code is 404 in all these cases. The root Layout's `NotFound` is sometimes shown on its own, so it cannot read loader data.
 
+## Errors on a page
+
+`route.tsx` and `layout.tsx` can export `Error`, shown in place of that route when its `Load` or `Layout` fails or a component below it throws:
+
+```tsx
+import { RouteError } from 'tifa/client'
+
+export function Error({ error }: { error: unknown }) {
+  if (error instanceof RouteError && error.status === 403) return <p>No access</p>
+  return <p>Something went wrong</p>
+}
+```
+
+- A failed `Load` or `Layout` reaches `Error` as a `RouteError` with `status` and the public message (the `tifa.Error` message, or what `OnError` returned). It is the same on the server and after hydration.
+- A route without its own `Error` uses the one of the closest ancestor that exports one, then the framework's default.
+- The status code of the page is that of the outermost failed route. A component that throws during the server render is an unexpected error: it goes to `OnError`, which picks the status (500 without `OnError`), and that HTML is never cached.
+- The document shell stays complete whatever fails, so the page still loads its scripts and styles.
+
 ## SSR and cache
 
 ```go
@@ -219,7 +257,7 @@ const LayoutSSR = false // the Layout of the folder, default true
 ```
 
 - `SSR = false`: middleware and every `Load` run as usual, but QuickJS is skipped. The response is a minimal document with the data, and the browser renders it. `LayoutSSR = false` applies to every page the Layout wraps.
-- `Cache = true`: the rendered result is cached by build version, URL and data. When the data has not changed, the HTML is returned directly. Components must not read values that change on every call, such as `Date.now()` or `Math.random()`, while rendering. Hydration requires this too.
+- `Cache = true`: the rendered result is cached by build version, URL and data, in a cache of `cache.size` (see [config.md](config.md)). When the data has not changed, the HTML is returned directly. Components must not read values that change on every call, such as `Date.now()` or `Math.random()`, while rendering. Hydration requires this too.
 - Every page response carries an ETag. A second request with `If-None-Match` gets 304 when the data has not changed. This has nothing to do with `Cache`.
 
 ## hooks.go

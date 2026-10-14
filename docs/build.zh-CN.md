@@ -23,6 +23,14 @@ tifa build [--dir 应用根目录] [-o 输出路径]
 3. 用 esbuild（Go API）打包，产物写进 `.tifa/dist/`，见下文「前端产物」。不需要 Node。
 4. `CGO_ENABLED=0 go build -o <输出> ./.tifa`，默认输出 `bin/<模块路径最后一段>`。生成的 main 用 `//go:embed all:dist` 把 `.tifa/dist/` 嵌进可执行文件。
 
+## tifa routes
+
+```sh
+tifa routes [--dir 应用根目录] [--json]
+```
+
+做和 `tifa build` 一样的静态分析，不生成也不构建，打印路由表：目录、URL、Layout、方法（页面记作 `page`）、`SSR` 和 `Cache` 开关，再打印 Layout 表。违反约定时的报错和 `tifa build` 一样。`--json` 改为打印路由清单，带每个 `Load` 返回值和每个方法函数入参、结果的 Go 类型。
+
 ### go.mod
 
 应用把 tifa 命令登记成 Go 工具：

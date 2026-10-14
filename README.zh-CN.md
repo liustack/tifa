@@ -109,6 +109,7 @@ go tool tifa build
 | [应用怎么写](docs/app.zh-CN.md) | 安排目录、路由、Layout、钩子、404、head 标签和缓存 |
 | [构建与运行](docs/build.zh-CN.md) | 想知道 `tifa build` 生成了什么，程序怎么回答请求 |
 | [开发服务器](docs/dev.zh-CN.md) | 在本地跑 `tifa dev`，或者改了代码没有刷新 |
+| [配置](docs/config.zh-CN.md) | 部署时改端口、请求体上限、VM 数、渲染超时和页面缓存 |
 | [测试](docs/testing.md) | 参与 tifa 本身的开发（英文） |
 
 ## 联系我们

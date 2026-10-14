@@ -23,6 +23,14 @@ tifa build [--dir app-root] [-o output-path]
 3. Bundles with esbuild (its Go API) and writes the output to `.tifa/dist/`. See "Frontend output" below. No Node needed.
 4. Runs `CGO_ENABLED=0 go build -o <output> ./.tifa`. The default output is `bin/<last segment of the module path>`. The generated main embeds `.tifa/dist/` into the executable with `//go:embed all:dist`.
 
+## tifa routes
+
+```sh
+tifa routes [--dir app-root] [--json]
+```
+
+Runs the same static analysis as `tifa build`, without generating or building anything, and prints the routes: folder, URL, Layouts, methods (`page` for a page), and the `SSR` and `Cache` switches, then the Layouts. Convention errors are printed the same way as by `tifa build`. `--json` prints the route manifest instead, with the Go types of each `Load` result and each handler's input and result.
+
 ### go.mod
 
 The app registers the tifa command as a Go tool:
