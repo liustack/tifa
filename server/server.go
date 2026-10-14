@@ -39,7 +39,7 @@ type Server struct {
 	routes map[string]map[string]func(*tifa.Ctx) error // path, then method
 	pages  map[string]bool                             // paths whose GET renders a page
 
-	// The root Layout's SSR constant, which decides how an unmatched URL is answered.
+	// The root Layout's LayoutSSR constant, which decides how an unmatched URL is answered.
 	rootSSR bool
 
 	// The front end, see setFront. front is set when there are pages to render, without it

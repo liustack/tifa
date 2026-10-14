@@ -926,7 +926,7 @@ func (a *analyzer) propagateQuery(routes []*route, layouts []*layout) {
 		for _, path := range a.used[load] {
 			l := byPkg[path]
 			if l == nil {
-				continue // not a Layout's Load, checkUses reports it
+				continue // not a Layout function, checkUse reports it
 			}
 			load.Uses = append(load.Uses, l.ID)
 			q = append(q, all(l.Load)...)

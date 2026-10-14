@@ -25,19 +25,22 @@ type App struct {
 
 // Layout is one directory holding layout.go, layout.tsx or both.
 type Layout struct {
-	// ID is the directory relative to the application root, such as "app/projects".
+	// ID is the directory relative to the application root followed by "/layout", such as
+	// "app/projects/project+/layout".
 	ID string
-	// Load returns the result of the Layout's Load through tifa.Use, nil when the Layout has none.
+	// Load returns the result of the Layout function through tifa.Use, nil when the Layout has none.
 	Load func(c *tifa.Ctx) (any, error)
-	// SSR is the Layout's own SSR constant.
+	// SSR is the Layout's own LayoutSSR constant.
 	SSR bool
 }
 
-// Route is one directory holding route.go.
+// Route is one directory holding route.go, route.tsx or both.
 type Route struct {
-	// ID is the directory relative to the application root, such as "app/projects/list".
+	// ID is the directory relative to the application root followed by "/route", such as
+	// "app/projects/project+/route".
 	ID string
-	// Path is the Path constant as written. "/" is the exact home page.
+	// Path is the path of the directory in ServeMux syntax, such as "/projects/{project}".
+	// "/" is the exact home page.
 	Path string
 	// Page reports whether route.tsx exists. The framework answers GET for a page.
 	Page bool
@@ -104,7 +107,7 @@ func (s *Server) register(layouts []Layout, routes []Route) {
 	}
 }
 
-// rootLayout is the ID of the Layout in app/. Its SSR constant applies to unmatched URLs.
+// rootLayout is the ID of the Layout in app/. Its LayoutSSR constant applies to unmatched URLs.
 const rootLayout = "app/layout"
 
 // load is one Load of a page's chain.
