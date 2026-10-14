@@ -240,6 +240,39 @@ func TestSSRRejectsRequireLeftInDependencies(t *testing.T) {
 	}
 }
 
+// A require declared in a block is bound only in that block: a require after it is still the
+// host's, and the build fails at it.
+func TestSSRRejectsRequireOutsideTheBlockThatDeclaresIt(t *testing.T) {
+	root := copyTestdata(t, "ssr", false)
+	writeTree(t, root, map[string]string{
+		"node_modules/dynamic-reader/package.json": `{"name":"dynamic-reader","main":"index.cjs"}`,
+		"node_modules/dynamic-reader/index.cjs": "module.exports = function (name) {\n" +
+			"  { const require = value => value; globalThis.label = require('本地标签') }\n" +
+			"  try { name.x() } catch (require) {}\n" +
+			"  return require(name).sep\n}\n",
+		"dynamic.ts": "import read from 'dynamic-reader'\nglobalThis.result = read('node:path')\n",
+	})
+	_, _, err := script(testdata(t), root, "dynamic.ts", io.Discard)
+	if err == nil || !strings.Contains(err.Error(), filepath.Join("dynamic-reader", "index.cjs")+":4:10") {
+		t.Fatalf("err = %v, want the place of the require", err)
+	}
+}
+
+// A require in code that never runs, such as the branch of an if (false), is dropped from the
+// bundle and does not fail the build.
+func TestSSRAcceptsRequireInDeadCode(t *testing.T) {
+	root := copyTestdata(t, "ssr", false)
+	writeTree(t, root, map[string]string{
+		"node_modules/dynamic-reader/package.json": `{"name":"dynamic-reader","main":"index.cjs"}`,
+		"node_modules/dynamic-reader/index.cjs":    "module.exports = function (name) {\n  if (false) return require(name).sep\n  return '/'\n}\n",
+		"dynamic.ts":                               "import read from 'dynamic-reader'\nglobalThis.result = read('node:path')\n",
+	})
+	code, _ := buildScript(t, root, "dynamic.ts")
+	if got := evalResult(t, code); got != "/" {
+		t.Fatalf("result = %q", got)
+	}
+}
+
 // A require the module declares itself, as a bundle made by browserify does, and a typeof
 // require test are no require of the host.
 func TestSSRAcceptsRequireTheModuleDeclares(t *testing.T) {

@@ -71,7 +71,7 @@ Each app under `test/apps` is a separate module, so the root `go test ./...` doe
 
 ## Bundle tests (`internal/bundle`)
 
-The bundle tests run Vite on Node, with the packages of `internal/bundle/testdata/node_modules`: Vite, React and core-js. Versions are locked in `package.json` and `pnpm-lock.yaml` in the same folder. Without node or without the packages, these tests show skip. Run `pnpm install --frozen-lockfile` in `internal/bundle/testdata` first. They cover the browser bundle and `build.json`, the SSR bundle and its adapters run in QuickJS, the check for a `require` left in dependencies, the dev build (one Node process, with the SSR bundle still a production build), the export reader, and the errors for a missing Vite, node or tifa plugin.
+The bundle tests run Vite on Node, with the packages of `internal/bundle/testdata/node_modules`: Vite, React and core-js. Versions are locked in `package.json` and `pnpm-lock.yaml` in the same folder. Without node or without the packages, these tests show skip. Run `pnpm install --frozen-lockfile` in `internal/bundle/testdata` first. They cover the browser bundle and `build.json`, the SSR bundle and its adapters run in QuickJS, the check for a `require` left in the final bundle (scopes, dead code, source places), the dev build (one Node process, with the SSR bundle still a production build), the export reader, and the errors for a missing Vite, node or tifa plugin.
 
 ## Long SSR tests skipped by default
 

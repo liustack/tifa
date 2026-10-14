@@ -82,7 +82,7 @@ func TestAppWritesDist(t *testing.T) {
 			t.Errorf("%s: %v", m[1], err)
 		}
 	}
-	for _, gone := range []string{"stale.js", ".vite"} {
+	for _, gone := range []string{"stale.js", ".vite", "ssr.js.map"} {
 		if _, err := os.Stat(filepath.Join(dist, gone)); !os.IsNotExist(err) {
 			t.Errorf("%s is left in dist: %v", gone, err)
 		}

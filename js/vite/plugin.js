@@ -109,6 +109,9 @@ export function ssrEnvironment(entry, dir) {
       copyPublicDir: false,
       ssr: entry,
       target: 'es2022',
+      // The check of the output reads the map to name the source of a require it finds. hidden
+      // leaves the comment that points to it out of ssr.js.
+      sourcemap: 'hidden',
       rolldownOptions: {
         output: { format: 'iife', entryFileNames: 'ssr.js', codeSplitting: false },
       },
@@ -186,23 +189,6 @@ export function ssrPlugin(getRoot) {
         return null
       },
     },
-    // A require with a literal name is bound by the bundler, and a Node module it names fails the
-    // check of the output. A require that stays in the code, with a name known only at run time,
-    // finds no require in QuickJS, so the build fails at it. The modules of the bundler itself,
-    // whose ids start with \0, test for require before they use it.
-    transform: {
-      order: 'post',
-      filter: { id: { exclude: /^\0/ }, code: /\brequire\b/ },
-      handler(code, id) {
-        const [at] = freeRequires(this.parse(code))
-        if (at === undefined) return null
-        const lines = code.slice(0, at).split('\n')
-        this.error(
-          `${id.split('?')[0]}:${lines.length}:${lines.at(-1).length + 1}: require loads a module by a name ` +
-            'known only at run time, and QuickJS has no require: import the module instead',
-        )
-      },
-    },
     load(id) {
       if (id === clientOnlyStub) {
         return 'export default function ClientOnlyStub(){ throw new Error("Client-only module invoked during SSR") }'
@@ -239,10 +225,12 @@ export function ssrPlugin(getRoot) {
         )
       }
     },
-    generateBundle(_, bundle) {
+    generateBundle(options, bundle) {
       const chunks = Object.values(bundle).filter((output) => output.type === 'chunk')
       if (chunks.length !== 1) this.error(`the SSR bundle has ${chunks.length} files, want 1`)
       const [chunk] = chunks
+      // The map serves the check below only, and is not written.
+      if (chunk.sourcemapFileName) delete bundle[chunk.sourcemapFileName]
       const imports = [...chunk.imports, ...chunk.dynamicImports].filter((name) => name !== chunk.fileName)
       // A CommonJS dependency keeps its require call of an external module in the code.
       for (const name of builtins) {
@@ -251,20 +239,38 @@ export function ssrPlugin(getRoot) {
       if (imports.length > 0) {
         this.error(`SSR bundle has unresolved runtime dependencies: ${JSON.stringify(imports)}`)
       }
+      // A require that stays in the bundle, with a name known only at run time, finds no require
+      // in QuickJS. The check reads the final code, so a require in code the bundler drops, such
+      // as an if (false) branch, does not count, and the source map names its place.
+      const [at] = hostRequires(this.parse(chunk.code))
+      if (at !== undefined) {
+        this.error(
+          `${sourcePlace(chunk, at, options.dir)}: require loads a module by a name known only at run time, ` +
+            'and QuickJS has no require: import the module instead',
+        )
+      }
     },
   }
 }
 
-// freeRequires returns the offsets of the references to require in the ESTree program that no
-// scope of the program declares, leaving out typeof require and calls with a literal name.
-function freeRequires(program) {
+// hostRequires returns the offsets of the references to require in the ESTree program that no
+// scope of the program declares, the ones that need the require of the host. typeof require and
+// assignments to require need none. It follows the scopes of JavaScript: var, function
+// parameters and names to the enclosing function, let, const, class and function declarations
+// to their block, catch parameters to the catch clause.
+function hostRequires(program) {
   const found = []
   const visit = (node, bound, parent, key) => {
-    if (functionTypes.has(node.type) || node.type === 'Program') bound ||= declaresRequire(node)
-    if (node.type === 'Identifier' && node.name === 'require' && !bound && isReference(parent, key)) {
-      const typeOf = parent.type === 'UnaryExpression' && parent.operator === 'typeof'
-      const literal = parent.type === 'CallExpression' && key === 'callee' && literalName(parent.arguments)
-      if (!typeOf && !literal) found.push(node.start)
+    bound ||= declaresRequire(node)
+    if (
+      node.type === 'Identifier' &&
+      node.name === 'require' &&
+      !bound &&
+      isReference(parent, key) &&
+      !(parent.type === 'UnaryExpression' && parent.operator === 'typeof') &&
+      !(parent.type === 'AssignmentExpression' && key === 'left')
+    ) {
+      found.push(node.start)
     }
     for (const [k, value] of Object.entries(node)) {
       for (const child of Array.isArray(value) ? value : [value]) {
@@ -277,6 +283,140 @@ function freeRequires(program) {
 }
 
 const functionTypes = new Set(['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression'])
+
+// declaresRequire reports whether the scope that node opens declares require. A binding is
+// visited inside the scope that declares it, so the binding itself counts as bound.
+function declaresRequire(node) {
+  const names = []
+  switch (node.type) {
+    case 'Program':
+      hoisted(node.body, names)
+      lexical(node.body, names)
+      break
+    case 'FunctionDeclaration':
+    case 'FunctionExpression':
+    case 'ArrowFunctionExpression':
+      if (node.type === 'FunctionExpression') bindings(node.id, names)
+      node.params.forEach((param) => bindings(param, names))
+      if (node.body.type === 'BlockStatement') hoisted(node.body.body, names)
+      break
+    case 'StaticBlock':
+      hoisted(node.body, names)
+      lexical(node.body, names)
+      break
+    case 'BlockStatement':
+      lexical(node.body, names)
+      break
+    case 'SwitchStatement':
+      // The cases share one block.
+      node.cases.forEach((c) => lexical(c.consequent, names))
+      break
+    case 'ForStatement':
+    case 'ForInStatement':
+    case 'ForOfStatement': {
+      const head = node.type === 'ForStatement' ? node.init : node.left
+      if (head?.type === 'VariableDeclaration' && head.kind !== 'var') head.declarations.forEach((d) => bindings(d.id, names))
+      break
+    }
+    case 'CatchClause':
+      bindings(node.param, names)
+      break
+    case 'ClassExpression':
+      bindings(node.id, names)
+      break
+  }
+  return names.includes('require')
+}
+
+// hoisted adds the names that var declarations in statements give to the enclosing function,
+// at any depth outside nested functions and static blocks.
+function hoisted(statements, names) {
+  const walk = (node) => {
+    if (!node || typeof node.type !== 'string' || functionTypes.has(node.type) || node.type === 'StaticBlock') return
+    if (node.type === 'VariableDeclaration' && node.kind === 'var') node.declarations.forEach((d) => bindings(d.id, names))
+    for (const value of Object.values(node)) {
+      for (const child of Array.isArray(value) ? value : [value]) walk(child)
+    }
+  }
+  statements.forEach(walk)
+}
+
+// lexical adds the names that the statements of a block declare in it: let, const, classes,
+// functions and imports.
+function lexical(statements, names) {
+  for (let node of statements) {
+    if ((node.type === 'ExportNamedDeclaration' || node.type === 'ExportDefaultDeclaration') && node.declaration) {
+      node = node.declaration
+    }
+    if (node.type === 'VariableDeclaration' && node.kind !== 'var') node.declarations.forEach((d) => bindings(d.id, names))
+    else if (node.type === 'FunctionDeclaration' || node.type === 'ClassDeclaration') bindings(node.id, names)
+    else if (node.type === 'ImportDeclaration') node.specifiers.forEach((s) => bindings(s.local, names))
+  }
+}
+
+// bindings adds the names a binding pattern declares.
+function bindings(node, names) {
+  if (!node) return
+  if (node.type === 'Identifier') names.push(node.name)
+  else if (node.type === 'ObjectPattern') node.properties.forEach((p) => bindings(p.type === 'RestElement' ? p.argument : p.value, names))
+  else if (node.type === 'ArrayPattern') node.elements.forEach((e) => bindings(e, names))
+  else if (node.type === 'AssignmentPattern') bindings(node.left, names)
+  else if (node.type === 'RestElement') bindings(node.argument, names)
+}
+
+// sourcePlace names the source file, line and column that offset of the chunk's code comes
+// from, by the chunk's source map, or the place in the bundle when the map names none.
+function sourcePlace(chunk, offset, dir) {
+  const before = chunk.code.slice(0, offset).split('\n')
+  const line = before.length - 1
+  const column = before.at(-1).length
+  const original = chunk.map && originalPosition(chunk.map, line, column)
+  if (!original) return `${chunk.fileName}:${line + 1}:${column + 1}`
+  const source = path.resolve(dir ?? '.', chunk.map.sourceRoot ?? '', original.source)
+  return `${source}:${original.line + 1}:${original.column + 1}`
+}
+
+// originalPosition returns the source, line and column (both from 0) of the last mapping at or
+// before the generated line and column, null when there is none on that line.
+function originalPosition(map, line, column) {
+  const lines = map.mappings.split(';')
+  if (line >= lines.length) return null
+  // Fields other than the generated column carry over from the segments before, on every line.
+  const state = [0, 0, 0, 0]
+  let best = null
+  for (let i = 0; i <= line; i++) {
+    let generated = 0
+    for (const segment of lines[i].split(',')) {
+      if (!segment) continue
+      const fields = vlq(segment)
+      generated += fields[0]
+      if (fields.length < 4) continue
+      for (let f = 1; f < 4; f++) state[f] += fields[f]
+      if (i === line && generated <= column) best = { source: map.sources[state[1]], line: state[2], column: state[3] }
+    }
+  }
+  return best
+}
+
+const base64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+
+// vlq decodes the Base64 VLQ numbers of one source map segment.
+function vlq(segment) {
+  const values = []
+  let value = 0
+  let shift = 0
+  for (const char of segment) {
+    const digit = base64.indexOf(char)
+    value += (digit & 31) << shift
+    if (digit & 32) {
+      shift += 5
+      continue
+    }
+    values.push(value & 1 ? -(value >>> 1) : value >>> 1)
+    value = shift = 0
+  }
+  return values
+}
 
 // isReference reports whether an identifier at key of parent refers to a binding, unlike a
 // property name or a label.
@@ -299,43 +439,6 @@ function isReference(parent, key) {
     default:
       return true
   }
-}
-
-function literalName(args) {
-  const [arg] = args
-  return args.length === 1 && (arg.type === 'Literal' || (arg.type === 'TemplateLiteral' && arg.expressions.length === 0))
-}
-
-// declaresRequire reports whether a function or the program declares require in its own scope:
-// as a parameter, its own name, or a declaration in its body outside nested functions.
-function declaresRequire(scope) {
-  const names = []
-  const pattern = (node) => {
-    if (!node) return
-    if (node.type === 'Identifier') names.push(node.name)
-    else if (node.type === 'ObjectPattern') node.properties.forEach((p) => pattern(p.type === 'RestElement' ? p.argument : p.value))
-    else if (node.type === 'ArrayPattern') node.elements.forEach(pattern)
-    else if (node.type === 'AssignmentPattern') pattern(node.left)
-    else if (node.type === 'RestElement') pattern(node.argument)
-  }
-  const body = (node) => {
-    if (!node || typeof node.type !== 'string') return
-    if (node.type === 'VariableDeclarator') pattern(node.id)
-    else if (node.type === 'CatchClause') pattern(node.param)
-    else if (node.type === 'ImportDefaultSpecifier' || node.type === 'ImportSpecifier' || node.type === 'ImportNamespaceSpecifier') pattern(node.local)
-    else if (node.type === 'FunctionDeclaration' || node.type === 'ClassDeclaration') pattern(node.id)
-    if (functionTypes.has(node.type)) return
-    for (const value of Object.values(node)) {
-      for (const child of Array.isArray(value) ? value : [value]) body(child)
-    }
-  }
-  if (scope.type === 'Program') scope.body.forEach(body)
-  else {
-    scope.params.forEach(pattern)
-    if (scope.type === 'FunctionExpression') pattern(scope.id)
-    if (scope.body.type === 'BlockStatement') scope.body.body.forEach(body)
-  }
-  return names.includes('require')
 }
 
 // reactServerExports replaces react-dom/server.edge.js, a CommonJS barrel that loads both the

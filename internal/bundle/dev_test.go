@@ -92,6 +92,9 @@ func TestDevRunsOneNodeProcess(t *testing.T) {
 	if !strings.Contains(string(code), "react-dom-server-legacy.browser.production.js") {
 		t.Error("the production string renderer is not bundled")
 	}
+	if _, err := os.Stat(filepath.Join(root, ".tifa", "dist", "ssr.js.map")); !os.IsNotExist(err) {
+		t.Errorf("the source map of the SSR bundle is written: %v", err)
+	}
 	if got, want := evalResult(t, string(code)), "production <ul><li>na</li><li>nb</li></ul>"; got != want {
 		t.Errorf("SSR bundle gives %q, want %q", got, want)
 	}
@@ -322,5 +325,39 @@ func TestDevResolvesImportsByTheTsconfigPaths(t *testing.T) {
 	res.Body.Close()
 	if res.StatusCode != 200 || !strings.Contains(string(body), DevBase+"custom/message.ts") {
 		t.Errorf("the dev server answers %d:\n%s", res.StatusCode, body)
+	}
+}
+
+// tifa dev checks the unminified bundle the same way: a require in code that never runs is
+// dropped, one that stays fails the build at its place in the source.
+func TestDevChecksTheRequiresLeftInTheBundle(t *testing.T) {
+	root := devApp(t)
+	writeTree(t, root, map[string]string{
+		"app/page/reader.cjs": "module.exports = function (name) {\n  if (false) return require(name).sep\n  return '/'\n}\n",
+		".tifa/server.ts": "import './runtime/host.js'\nimport read from '../app/page/reader.cjs'\n" +
+			"(globalThis as any).result = read('node:path')\n",
+	})
+	d, err := NewDev(root, freePort(t), io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if _, err := d.Build(filepath.Join(root, "public"), true); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := evalResult(t, string(code)); got != "/" {
+		t.Fatalf("SSR bundle gives %q", got)
+	}
+
+	writeTree(t, root, map[string]string{
+		"app/page/reader.cjs": "module.exports = function (name) {\n  if (name) return require(name).sep\n  return '/'\n}\n",
+	})
+	_, err = d.Build(filepath.Join(root, "public"), true)
+	if err == nil || !strings.Contains(err.Error(), filepath.Join("app", "page", "reader.cjs")+":2:20") {
+		t.Fatalf("Build: %v, want the place of the require", err)
 	}
 }
