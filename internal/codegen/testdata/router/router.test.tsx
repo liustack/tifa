@@ -96,6 +96,16 @@ test('query values stay the strings Go reads', async () => {
   await semicolon.router.invalidate()
   const refetch = semicolon.calls.find(([, id]) => id === 'app/query')
   assert(refetch?.[0] === '/q?q=a%3Bb', `refetched ${JSON.stringify(semicolon.calls)}`)
+  // __proto__ is a parameter like any other: two values are two matches.
+  const proto = await client('/q?__proto__=alice')
+  const protoIds: string[] = []
+  for (const href of ['/q?__proto__=alice', '/q?__proto__=bob']) {
+    proto.router.history.push(href)
+    await proto.router.load()
+    const match = proto.router.state.matches[proto.router.state.matches.length - 1]
+    protoIds.push(match.id + ' ' + JSON.stringify(match.loaderDeps))
+  }
+  assert(protoIds[0] !== protoIds[1], `one match for two values: ${protoIds}`)
   contains(await render('/q?q=1.0', { ...appData, 'app/query': ok('1.0') }), 'QUERY <!-- -->1.0')
 })
 

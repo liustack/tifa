@@ -164,11 +164,12 @@ function encodeQueryPart(text: string) {
 }
 
 // pick keeps the query parameters a Load reads, for loaderDeps and remountDeps. Other
-// parameters then neither refetch nor remount.
+// parameters then neither refetch nor remount. Like parseSearch it builds an object without a
+// prototype, so __proto__ is kept as a value instead of being taken as the prototype.
 export function pick(search: object, keys: string[]): Record<string, unknown> {
   const values = search as Record<string, unknown>
-  const picked: Record<string, unknown> = {}
-  for (const key of keys) picked[key] = values[key]
+  const picked: Record<string, unknown> = Object.create(null)
+  for (const key of keys) if (Object.hasOwn(values, key)) picked[key] = values[key]
   return picked
 }
 
