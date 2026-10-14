@@ -20,7 +20,48 @@ import (
 	"golang.org/x/mod/modfile"
 )
 
+// withPnpm makes tifa new find pnpm on PATH, or not.
+func withPnpm(t *testing.T, found bool) {
+	old := lookPath
+	lookPath = func(file string) (string, error) {
+		if file == "pnpm" && found {
+			return "/usr/local/bin/pnpm", nil
+		}
+		return "", exec.ErrNotFound
+	}
+	t.Cleanup(func() { lookPath = old })
+}
+
+func TestNewUsesPnpmOrNpm(t *testing.T) {
+	for _, tc := range []struct {
+		pnpm          bool
+		install, run  string
+		other, others string
+	}{
+		{true, "\n  pnpm install\n", "pnpm typecheck", "\n  npm install\n", "npm run"},
+		{false, "\n  npm install\n", "npm run typecheck", "\n  pnpm install\n", "pnpm"},
+	} {
+		withPnpm(t, tc.pnpm)
+		dir := filepath.Join(t.TempDir(), "app")
+		out, _, err := run(t, "new", dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		readme, err := os.ReadFile(filepath.Join(dir, "README.md"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out, tc.install) || strings.Contains(out, tc.other) {
+			t.Errorf("pnpm found %v: the steps do not say %q:\n%s", tc.pnpm, strings.TrimSpace(tc.install), out)
+		}
+		if !strings.Contains(string(readme), tc.run) || strings.Contains(string(readme), tc.others) {
+			t.Errorf("pnpm found %v: README.md does not say %q:\n%s", tc.pnpm, tc.run, readme)
+		}
+	}
+}
+
 func TestNewWritesAnApp(t *testing.T) {
+	withPnpm(t, true)
 	dir := filepath.Join(t.TempDir(), "My-App")
 	out, _, err := run(t, "new", dir)
 	if err != nil {

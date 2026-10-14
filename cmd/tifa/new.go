@@ -9,6 +9,7 @@ import (
 	"go/version"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"runtime"
@@ -36,6 +37,19 @@ type newApp struct {
 	NPM     string // the name in package.json
 	Go      string // the go line of go.mod
 	Version string // the tifa version in go.mod
+	Install string // the command that installs the npm packages: pnpm install or npm install
+	Run     string // the command that runs a package.json script: pnpm or npm run
+}
+
+// lookPath finds a program on PATH. Tests replace it.
+var lookPath = exec.LookPath
+
+// packageManager returns the commands of pnpm when it is on PATH, and of npm otherwise.
+func packageManager() (install, run string) {
+	if _, err := lookPath("pnpm"); err == nil {
+		return "pnpm install", "pnpm"
+	}
+	return "npm install", "npm run"
 }
 
 func newNewCmd() *cobra.Command {
@@ -60,6 +74,7 @@ network. The next steps it prints download the Go and npm dependencies.`,
 			if err != nil {
 				return err
 			}
+			app.Install, app.Run = packageManager()
 			app.Go = strings.TrimPrefix(version.Lang(runtime.Version()), "go") + ".0"
 			info, _ := debug.ReadBuildInfo()
 			if app.Version = releaseVersion(info); app.Version == "" {
@@ -77,7 +92,7 @@ network. The next steps it prints download the Go and npm dependencies.`,
 			if app.Version == "v0.0.0" {
 				fmt.Fprintf(out, "  go mod edit -replace %s=<path to your tifa checkout>\n", tifaModule)
 			}
-			fmt.Fprintf(out, "  go mod tidy\n  pnpm install\n  go tool tifa dev     # http://127.0.0.1:3000\n")
+			fmt.Fprintf(out, "  go mod tidy\n  %s\n  go tool tifa dev     # http://127.0.0.1:3000\n", app.Install)
 			return nil
 		},
 	}

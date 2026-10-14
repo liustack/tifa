@@ -22,7 +22,12 @@ func TestNewApp(t *testing.T) {
 		t.Fatalf("tifa new: %v\n%s", err, out)
 	}
 	// Follow the printed steps in their order. The CLI is built in this checkout, so the steps
-	// point go.mod at it. pnpm install is replaced by the link below, and tifa dev by the build.
+	// point go.mod at it. The install step is replaced by the link below, and tifa dev by the build.
+	// tifa new says pnpm install when it finds pnpm on PATH, and npm install otherwise.
+	install := "npm install"
+	if _, err := exec.LookPath("pnpm"); err == nil {
+		install = "pnpm install"
+	}
 	_, next, found := strings.Cut(string(out), "\nNext:\n")
 	if !found {
 		t.Fatalf("tifa new printed no next steps:\n%s", out)
@@ -37,7 +42,7 @@ func TestNewApp(t *testing.T) {
 			if step != "cd "+dir {
 				t.Fatalf("step %q does not enter %s", step, dir)
 			}
-		case step == "pnpm install", step == "go tool tifa dev":
+		case step == install, step == "go tool tifa dev":
 		default:
 			step = strings.ReplaceAll(step, "<path to your tifa checkout>", repoRoot(t))
 			args := strings.Fields(step)
@@ -48,7 +53,7 @@ func TestNewApp(t *testing.T) {
 			}
 		}
 	}
-	want := []string{"cd " + dir, "go mod edit -replace github.com/liustack/tifa=<path to your tifa checkout>", "go mod tidy", "pnpm install", "go tool tifa dev"}
+	want := []string{"cd " + dir, "go mod edit -replace github.com/liustack/tifa=<path to your tifa checkout>", "go mod tidy", install, "go tool tifa dev"}
 	if strings.Join(ran, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("steps %q, want %q", ran, want)
 	}
