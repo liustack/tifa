@@ -16,7 +16,7 @@ tifa dev [--dir app-root] [--addr 127.0.0.1:9527]
 
 On start it prints `tifa dev: serving http://<address>`, then runs a full build (the same steps as [tifa build](build.md)) and starts the app. The browser connects to `--addr` and tifa dev forwards requests to the app. While the app restarts, requests wait for it to come back. Ctrl-C or SIGTERM stops both the app and tifa dev.
 
-Bundling uses the esbuild built into tifa.
+Bundling uses the esbuild built into tifa. Stylesheets that use Tailwind CSS are compiled with the app's Tailwind packages on Node, see [app.md](app.md#tailwind-css).
 
 ## What each change triggers
 
@@ -35,6 +35,8 @@ After every rebuild the app restarts and open pages reload. Frontend-only change
 
 Images, fonts and other files in the public folder do not trigger a rebuild. They are copied on the next bundle.
 
+A stylesheet that uses Tailwind is compiled again on every bundle, because a change to TSX can add or remove class names. Tailwind also reads class names from files that do not trigger a bundle, such as Go or HTML files. A class name written only there shows up after the next bundle.
+
 ## Log
 
 Each step that runs prints one line with its duration. The last line is the total time from the start of the rebuild until the app is ready:
@@ -45,7 +47,7 @@ tifa dev: 07:35:36 bundle done in 51ms
 tifa dev: 07:35:37 ready in 201ms
 ```
 
-The step names are `static analysis`, `code generation`, `bundle` and `go build`. After static analysis there is also a `route manifest changed` or `route manifest unchanged` line. The app's own output is printed as usual.
+The step names are `static analysis`, `code generation`, `bundle` and `go build`. When a stylesheet uses Tailwind, the bundle line also tells how long Tailwind took, as in `bundle done in 320ms (tailwind 80ms)`. After static analysis there is also a `route manifest changed` or `route manifest unchanged` line. The app's own output is printed as usual.
 
 ## When a build fails
 

@@ -1,11 +1,12 @@
 ---
-summary: 'How to write a tifa app: folder layout, how folders become URLs, route.go and route.tsx, Layouts, hooks.go, 404s, the SSR and cache switches, how to test Go route code, how Load may use Ctx, method handlers with typed input and result, and the JSON rules for data, inputs and results'
+summary: 'How to write a tifa app: folder layout, how folders become URLs, route.go and route.tsx, Layouts, hooks.go, 404s, the SSR and cache switches, styles with Tailwind CSS and shadcn/ui, how to test Go route code, how Load may use Ctx, method handlers with typed input and result, and the JSON rules for data, inputs and results'
 read_when:
   - Creating a tifa app, or adding pages, Layouts or API routes to one
   - The build reports an error about Ctx usage or a Load return type and you want to fix it
   - Changing the rules in internal/analyze and you need to know what users were promised
   - Changing the apps in examples/shop or test/apps
   - Writing Go tests for a Load, a Layout function, a method handler or OnRequest
+  - Adding CSS, Tailwind CSS or shadcn/ui to an app
 ---
 
 English · [简体中文](app.zh-CN.md)
@@ -264,6 +265,61 @@ const LayoutSSR = false // the Layout of the folder, default true
 - `SSR = false`: middleware and every `Load` run as usual, but QuickJS is skipped. The response is a minimal document with the data, and the browser renders it. `LayoutSSR = false` applies to every page the Layout wraps.
 - `Cache = true`: the rendered result is cached by build version, URL and data, in a cache of `cache.size` (see [config.md](config.md)). When the data has not changed, the HTML is returned directly. Components must not read values that change on every call, such as `Date.now()` or `Math.random()`, while rendering. Hydration requires this too.
 - Every page response carries an ETag. A second request with `If-None-Match` gets 304 when the data has not changed. This has nothing to do with `Cache`.
+
+## Styles
+
+Import CSS from a Layout or a page, such as `import './site.css'` in `app/layout.tsx`. Styles only go into the browser bundle, and every page links the one stylesheet. Fonts and images that a stylesheet references with a relative `url()` are copied into `/assets/` with a content hash in their names.
+
+### Tailwind CSS
+
+tifa compiles Tailwind CSS v4 with the app's own Tailwind packages. Install them:
+
+```sh
+pnpm add -D tailwindcss @tailwindcss/cli
+```
+
+and import Tailwind in a stylesheet that a Layout imports:
+
+```css
+/* app/site.css */
+@import "tailwindcss";
+```
+
+- A stylesheet that imports `tailwindcss` or uses a Tailwind at-rule (`@theme`, `@apply`, `@utility`, `@source`, `@custom-variant` and the like) goes through Tailwind. Other stylesheets go to esbuild as they are.
+- Tailwind runs on Node, so `tifa build` and `tifa dev` need `node` on PATH for an app that uses it. The built executable never needs Node. An app without Tailwind builds without Node.
+- Tailwind finds class names by scanning the app root. It skips the files `.gitignore` lists, `node_modules`, and tifa's own `.tifa/` and `bin/`. Add other folders with `@source`.
+- A stylesheet that uses Tailwind when `@tailwindcss/cli` is not installed fails the build with the file name and the command to run.
+- `tifa dev` compiles Tailwind again on every bundle, so a class name added in TSX shows up after the rebuild. See [dev.md](dev.md).
+
+### shadcn/ui
+
+`shadcn init` stops with "We could not detect a supported framework", because it only knows frameworks such as Next.js and Vite. Write the files it would write yourself, after which `shadcn add` works:
+
+1. Set up Tailwind as above.
+2. Follow the [manual installation](https://ui.shadcn.com/docs/installation/manual) page for the packages, the theme (put it in the stylesheet that imports Tailwind) and `lib/utils.ts`. Skip its import alias step: tifa already sets `@/`.
+3. Write `components.json` in the app root, with `tailwind.css` pointing to that stylesheet:
+
+```json
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "radix-nova",
+  "rsc": false,
+  "tsx": true,
+  "tailwind": { "config": "", "css": "app/site.css", "baseColor": "neutral", "cssVariables": true, "prefix": "" },
+  "aliases": {
+    "components": "@/components",
+    "utils": "@/lib/utils",
+    "ui": "@/components/ui",
+    "lib": "@/lib",
+    "hooks": "@/hooks"
+  },
+  "iconLibrary": "lucide"
+}
+```
+
+4. `pnpm dlx shadcn@latest add button` writes `components/ui/button.tsx` in the app root, and page code imports it from `@/components/ui/button`.
+
+`@/` is the app root, set by the generated tsconfig (see [build.md](build.md)). Components render on the server like any other React code.
 
 ## hooks.go
 

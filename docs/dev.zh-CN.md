@@ -16,7 +16,7 @@ tifa dev [--dir 应用根目录] [--addr 127.0.0.1:9527]
 
 启动后先打印 `tifa dev: serving http://<地址>`，然后做一次完整构建（步骤同 [tifa build](build.zh-CN.md)），启动应用。浏览器连 `--addr`，tifa dev 把请求转给应用，应用重启期间请求会等它起来。Ctrl-C 或 SIGTERM 停掉应用和 tifa dev。
 
-打包用 tifa 内置的 esbuild。
+打包用 tifa 内置的 esbuild。用了 Tailwind CSS 的样式表交给应用的 Tailwind 包在 Node 上编译，见 [app.zh-CN.md](app.zh-CN.md#tailwind-css)。
 
 ## 改动触发什么
 
@@ -35,6 +35,8 @@ tifa dev 监视应用根目录，跳过 `.git`、`.tifa`、`node_modules` 和放
 
 公共目录里的图片、字体等文件不触发重建，下一次打包时才复制过去。
 
+用了 Tailwind 的样式表每次打包都重新编译，因为改 TSX 可能加上或去掉类名。Tailwind 也从不触发打包的文件里找类名，比如 Go 或 HTML 文件，只写在这些文件里的类名要到下一次打包才生效。
+
 ## 日志
 
 每个执行的步骤一行，带耗时，最后一行是从开始重建到应用可用的总耗时：
@@ -45,7 +47,7 @@ tifa dev: 07:35:36 bundle done in 51ms
 tifa dev: 07:35:37 ready in 201ms
 ```
 
-步骤名是 `static analysis`、`code generation`、`bundle`、`go build`。静态分析之后还有一行 `route manifest changed` 或 `route manifest unchanged`。应用自己的输出照常打印。
+步骤名是 `static analysis`、`code generation`、`bundle`、`go build`。样式表用了 Tailwind 时，bundle 这一行还带上 Tailwind 的耗时，如 `bundle done in 320ms (tailwind 80ms)`。静态分析之后还有一行 `route manifest changed` 或 `route manifest unchanged`。应用自己的输出照常打印。
 
 ## 构建失败
 

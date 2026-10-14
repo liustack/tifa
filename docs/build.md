@@ -50,7 +50,7 @@ tifa build [--dir app-root] [-o output-path]
 
 1. Statically analyzes `app/` and the root `hooks.go`. If a convention is broken, it prints `file:line: reason` for each problem and exits.
 2. Writes the generated code into `.tifa/`. Only files whose content changed are rewritten, and files no longer generated are deleted.
-3. Bundles with esbuild (its Go API) and writes the output to `.tifa/dist/`. See "Frontend output" below.
+3. Bundles with esbuild (its Go API) and writes the output to `.tifa/dist/`. See "Frontend output" below. Stylesheets that use Tailwind CSS are compiled with the app's own Tailwind packages, which run on Node (see [app.md](app.md#tailwind-css)). An app without Tailwind builds without Node.
 4. Runs `CGO_ENABLED=0 go build -o <output> ./.tifa`. The default output is `bin/<last segment of the module path>`. The generated main embeds `.tifa/dist/` into the executable with `//go:embed all:dist`.
 
 ### Building for another system
@@ -106,7 +106,7 @@ An app without pages (no `route.tsx` at all) generates only Go files, and `dist/
 
 | Path | Contents |
 | --- | --- |
-| `dist/assets/` | The browser bundle, with `client.ts` as the entry. The syntax target comes from the config option `build.target` (default `es2020`, written like esbuild's `--target`: one ECMAScript version plus any number of browsers with versions, such as `es2019,chrome90,safari14`). `tifa dev` reads this option once at startup, so restart it after a change. Split by route: apart from the root Layout and modules that export `head`, each route module is lazy-loaded with `lazyRouteComponent` and gets its own chunk. All file names carry a content hash |
+| `dist/assets/` | The browser bundle, with `client.ts` as the entry. The syntax target comes from the config option `build.target` (default `es2020`, written like esbuild's `--target`: one ECMAScript version plus any number of browsers with versions, such as `es2019,chrome90,safari14`). `tifa dev` reads this option once at startup, so restart it after a change. Split by route: apart from the root Layout and modules that export `head`, each route module is lazy-loaded with `lazyRouteComponent` and gets its own chunk. Fonts and images that stylesheets reference with `url()` are copied here too. All file names carry a content hash |
 | `dist/ssr.js` | The SSR bundle, with `server.ts` as the entry. A single file. The syntax target is fixed at ES2022 (the version QuickJS runs as is. Lowering it only slows rendering, and raising it may emit syntax QuickJS does not support). esbuild's `define` writes the URLs of the browser entry and the styles into `__TIFA_ASSETS__` |
 | `dist/public/` | A plain copy of the folder that the config option `build.public` points to (default `public`). Absent if that folder does not exist |
 | `dist/build.json` | `{buildId, script, style}`. The build ID is a hash of every other file in `dist/` (names included). File names and contents each carry a length prefix, so different file trees cannot produce the same bytes. The same input gives the same ID |
@@ -144,7 +144,7 @@ In the generated tsconfig:
 
 esbuild does not read `rootDirs`, so bundling does the same resolution with the `bundle.Generated(root)` plugin: any relative import whose last segment is `+route` or `+layout`, with or without `.js` or `.ts`, and that points to a folder under `app/`, however many levels it goes through (`'../../page/+route'` works too), resolves to the matching file in `.tifa/`. If the folder has no generated module, bundling fails. The tsconfig turns on `allowImportingTsExtensions`, so TypeScript also accepts the form with `.ts`.
 
-The app's `package.json` only needs React, React DOM and TanStack Router. Type checking also needs `typescript`, `@types/react` and `@types/react-dom`. See `test/apps/pages/package.json` for reference.
+The app's `package.json` only needs React, React DOM and TanStack Router. Type checking also needs `typescript`, `@types/react` and `@types/react-dom`. See `test/apps/pages/package.json` for reference. Tailwind CSS also needs `tailwindcss` and `@tailwindcss/cli`, see `test/apps/tailwind/package.json`.
 
 ## Data protocol
 

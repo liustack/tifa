@@ -1,11 +1,12 @@
 ---
-summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、route.go 与 route.tsx、Layout、hooks.go、404、SSR 与缓存开关，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数，以及数据、入参和结果的 JSON 规则'
+summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、route.go 与 route.tsx、Layout、hooks.go、404、SSR 与缓存开关、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数，以及数据、入参和结果的 JSON 规则'
 read_when:
   - 新建一个 tifa 应用，或给应用加页面、Layout、API 路由
   - 构建报 Ctx 用法或 Load 返回类型的错误，想知道怎么改
   - 改 internal/analyze 的规则，需要知道对用户承诺了什么
   - 改 examples/shop 或 test/apps 里的应用
   - 给 Load、Layout 函数、方法函数或 OnRequest 写 Go 测试
+  - 给应用加 CSS、Tailwind CSS 或 shadcn/ui
 ---
 
 [English](app.md) · 简体中文
@@ -264,6 +265,61 @@ const LayoutSSR = false // 本目录的 Layout，默认 true
 - `SSR = false`：照常执行中间件和所有 `Load`，不进 QuickJS，返回带数据的最简文档，浏览器直接渲染。`LayoutSSR = false` 作用于这个 Layout 套到的所有页面。
 - `Cache = true`：渲染结果按构建版本、URL 和数据缓存，缓存大小是 `cache.size`（见 [config.zh-CN.md](config.zh-CN.md)），数据没变时直接返回 HTML。组件渲染时不能读 `Date.now()`、`Math.random()` 这类每次不同的值，这也是 hydration 的要求。
 - 页面响应都带 ETag，数据没变的第二次请求带 `If-None-Match` 时答 304，和 `Cache` 无关。
+
+## 样式
+
+在 Layout 或页面里引入 CSS，比如在 `app/layout.tsx` 里写 `import './site.css'`。样式只进浏览器包，每个页面都引用这一份样式表。样式表用相对路径 `url()` 引用的字体和图片会复制到 `/assets/`，文件名带内容哈希。
+
+### Tailwind CSS
+
+tifa 用应用自己装的 Tailwind 包编译 Tailwind CSS v4。先安装：
+
+```sh
+pnpm add -D tailwindcss @tailwindcss/cli
+```
+
+再在 Layout 引入的样式表里引入 Tailwind：
+
+```css
+/* app/site.css */
+@import "tailwindcss";
+```
+
+- 引入了 `tailwindcss` 或用了 Tailwind 专有 at 规则（`@theme`、`@apply`、`@utility`、`@source`、`@custom-variant` 等）的样式表交给 Tailwind 编译，其他样式表照原样交给 esbuild。
+- Tailwind 跑在 Node 上，用了它的应用在 `tifa build` 和 `tifa dev` 时 PATH 里要有 `node`。构建出来的可执行文件始终不需要 Node。不用 Tailwind 的应用构建时不需要 Node。
+- Tailwind 扫描应用根目录找类名，跳过 `.gitignore` 列出的文件、`node_modules` 和 tifa 自己的 `.tifa/`、`bin/`。别的目录用 `@source` 加进来。
+- 样式表用了 Tailwind 但没装 `@tailwindcss/cli` 时，构建失败，报出文件名和要执行的安装命令。
+- `tifa dev` 每次打包都重新编译 Tailwind，TSX 里新加的类名重建后就生效，见 [dev.zh-CN.md](dev.zh-CN.md)。
+
+### shadcn/ui
+
+`shadcn init` 会报 "We could not detect a supported framework" 后退出，它只认 Next.js、Vite 这类框架。它要写的文件自己写好，之后 `shadcn add` 就能用：
+
+1. 按上文配好 Tailwind。
+2. 照 [手动安装](https://ui.shadcn.com/docs/installation/manual) 页面装依赖包、写主题（放进引入 Tailwind 的样式表）和 `lib/utils.ts`。跳过其中配置导入别名那一步，tifa 已经设好了 `@/`。
+3. 在应用根目录写 `components.json`，`tailwind.css` 指向那份样式表：
+
+```json
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "radix-nova",
+  "rsc": false,
+  "tsx": true,
+  "tailwind": { "config": "", "css": "app/site.css", "baseColor": "neutral", "cssVariables": true, "prefix": "" },
+  "aliases": {
+    "components": "@/components",
+    "utils": "@/lib/utils",
+    "ui": "@/components/ui",
+    "lib": "@/lib",
+    "hooks": "@/hooks"
+  },
+  "iconLibrary": "lucide"
+}
+```
+
+4. `pnpm dlx shadcn@latest add button` 把 `components/ui/button.tsx` 写到应用根目录下，页面代码从 `@/components/ui/button` 引入。
+
+`@/` 指向应用根目录，由生成的 tsconfig 设定（见 [build.zh-CN.md](build.zh-CN.md)）。这些组件和其他 React 代码一样在服务端渲染。
 
 ## hooks.go
 

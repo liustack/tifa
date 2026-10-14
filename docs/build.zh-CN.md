@@ -50,7 +50,7 @@ tifa build [--dir 应用根目录] [-o 输出路径]
 
 1. 静态分析 `app/` 与根目录 `hooks.go`，约定不满足时逐条打印 `文件:行号: 原因` 并退出。
 2. 把生成代码写进 `.tifa/`。只改内容变了的文件，删掉不再生成的文件。
-3. 用 esbuild（Go API）打包，产物写进 `.tifa/dist/`，见下文「前端产物」。
+3. 用 esbuild（Go API）打包，产物写进 `.tifa/dist/`，见下文「前端产物」。用了 Tailwind CSS 的样式表交给应用自己装的 Tailwind 包编译，它跑在 Node 上（见 [app.zh-CN.md](app.zh-CN.md#tailwind-css)）。不用 Tailwind 的应用构建时不需要 Node。
 4. `CGO_ENABLED=0 go build -o <输出> ./.tifa`，默认输出 `bin/<模块路径最后一段>`。生成的 main 用 `//go:embed all:dist` 把 `.tifa/dist/` 嵌进可执行文件。
 
 ### 给别的系统构建
@@ -106,7 +106,7 @@ go tool tifa build
 
 | 路径 | 内容 |
 | --- | --- |
-| `dist/assets/` | 浏览器包，入口 `client.ts`，语法目标取配置项 `build.target`（默认 `es2020`，写法同 esbuild 的 `--target`：一个 ECMAScript 版本加若干带版本的浏览器，如 `es2019,chrome90,safari14`）。`tifa dev` 启动时读一次这个配置项，改了要重启。按路由拆分：除根 Layout 和导出 `head` 的模块外，每个路由模块用 `lazyRouteComponent` 懒加载，各自一个 chunk。文件名都带内容哈希 |
+| `dist/assets/` | 浏览器包，入口 `client.ts`，语法目标取配置项 `build.target`（默认 `es2020`，写法同 esbuild 的 `--target`：一个 ECMAScript 版本加若干带版本的浏览器，如 `es2019,chrome90,safari14`）。`tifa dev` 启动时读一次这个配置项，改了要重启。按路由拆分：除根 Layout 和导出 `head` 的模块外，每个路由模块用 `lazyRouteComponent` 懒加载，各自一个 chunk。样式表用 `url()` 引用的字体和图片也复制到这里。文件名都带内容哈希 |
 | `dist/ssr.js` | SSR 包，入口 `server.ts`，单个文件，语法目标固定为 ES2022（QuickJS 原样能跑的版本，调低只会让渲染变慢，调高可能写出 QuickJS 不支持的语法）。esbuild 的 `define` 把浏览器入口与样式的 URL 写进 `__TIFA_ASSETS__` |
 | `dist/public/` | 配置项 `build.public` 指向的目录（默认 `public`）原样复制，不存在就没有 |
 | `dist/build.json` | `{buildId, script, style}`。构建 ID 是 `dist/` 里其他所有文件（含文件名）的哈希，文件名与内容各自带长度前缀，不同的文件树不会拼出同一串字节。同样的输入得到同样的 ID |
@@ -144,7 +144,7 @@ SSR 包开头引入 `runtime/host.js`，它补上 QuickJS 缺的 `URL`、`TextEn
 
 esbuild 不读 `rootDirs`，打包时用 `bundle.Generated(root)` 插件做同样的解析：最后一段是 `+route` 或 `+layout`（可带 `.js` 或 `.ts`）、指向 `app/` 下某个目录的相对导入，不论中间经过几层（`'../../page/+route'` 也行），都解析到 `.tifa/` 里对应的文件。目录没有生成的模块时打包报错。tsconfig 打开了 `allowImportingTsExtensions`，带 `.ts` 的写法 TypeScript 同样接受。
 
-应用的 `package.json` 只需要 React、React DOM 与 TanStack Router，类型检查另需 `typescript`、`@types/react`、`@types/react-dom`。参照 `test/apps/pages/package.json`。
+应用的 `package.json` 只需要 React、React DOM 与 TanStack Router，类型检查另需 `typescript`、`@types/react`、`@types/react-dom`。参照 `test/apps/pages/package.json`。用 Tailwind CSS 还要装 `tailwindcss` 和 `@tailwindcss/cli`，参照 `test/apps/tailwind/package.json`。
 
 ## 数据协议
 
