@@ -43,6 +43,7 @@ type Options struct {
 	// Vite is the address of Vite's dev server, which Pipeline.Bundle starts. Requests under
 	// VitePath, its module and HMR websocket requests, go there. Empty sends them to the app too.
 	Vite string
+
 	// Debounce is how long the files must stay unchanged before a rebuild starts.
 	Debounce time.Duration
 	// StopTimeout is how long the application gets after an interrupt to run OnShutdown and exit
@@ -153,6 +154,20 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 		err := w.run(ctx)
 		cancel()
 		watched <- err
+	}()
+	go func() {
+		// The system is short of watches: Vite's watcher would run out as well.
+		select {
+		case <-ctx.Done():
+		case <-w.short:
+			polling, err := o.Pipeline.PollFiles(ctx)
+			switch {
+			case err != nil && ctx.Err() == nil:
+				logger.Printf("telling Vite's dev server to poll: %v", err)
+			case polling:
+				logger.Print("Vite's dev server polls the files too")
+			}
+		}
 	}()
 
 	w.changes.setBuilding(true)

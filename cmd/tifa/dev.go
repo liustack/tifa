@@ -125,6 +125,9 @@ func (p *devPipeline) Analyze(context.Context) (string, error) {
 	return fingerprint(files), nil
 }
 
+// PollFiles makes Vite's dev server poll the files, see bundle.Dev.PollFiles.
+func (p *devPipeline) PollFiles(context.Context) (bool, error) { return p.front.PollFiles() }
+
 // Generate writes the files of the last analysis into .tifa.
 func (p *devPipeline) Generate(context.Context) error { return codegen.Write(p.root, p.files) }
 

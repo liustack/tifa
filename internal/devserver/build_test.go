@@ -33,7 +33,8 @@ func (p *fakePipeline) Generate(context.Context) error { return p.step("Generate
 func (p *fakePipeline) Bundle(context.Context) (string, error) {
 	return p.detail, p.step("Bundle")
 }
-func (p *fakePipeline) GoBuild(context.Context) error { return p.step("GoBuild") }
+func (p *fakePipeline) GoBuild(context.Context) error           { return p.step("GoBuild") }
+func (p *fakePipeline) PollFiles(context.Context) (bool, error) { return true, nil }
 
 var all = []string{"Analyze", "Generate", "Bundle", "GoBuild"}
 

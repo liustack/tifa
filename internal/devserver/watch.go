@@ -113,6 +113,7 @@ type watcher struct {
 	used     int                        // what the system watches cost now
 	cost     map[string]int             // cost of each system watch, by real path
 	full     bool                       // no more system watches are added, new directories are polled
+	short    chan struct{}              // closed once full is set
 	polled   map[string]bool            // directories that are polled
 	stats    map[string]os.FileInfo     // tracked files as they were when last hashed
 	minPoll  time.Duration              // shortest time between two polls
@@ -159,7 +160,7 @@ func prepareWatcher(root string, ignore []string, warn func(string)) (*watcher, 
 		return nil, err
 	}
 	w := &watcher{
-		root: abs, rootReal: rootReal, warn: warn, changes: newChanges(),
+		root: abs, rootReal: rootReal, warn: warn, changes: newChanges(), short: make(chan struct{}),
 		budget: watchBudget(), cost: map[string]int{}, polled: map[string]bool{}, stats: map[string]os.FileInfo{}, minPoll: minPollInterval,
 		files: map[string]string{}, dirs: map[string]os.FileInfo{}, kids: map[string]map[string]bool{}, real: map[string]string{}, linkDirs: map[string]string{}, warned: map[string]bool{},
 		links: map[string][]string{}, linkOf: map[string]string{}, extDirs: map[string]int{}, extWatch: map[string]bool{},
@@ -171,7 +172,7 @@ func prepareWatcher(root string, ignore []string, warn func(string)) (*watcher, 
 	switch {
 	case outOfWatches(err):
 		// Such as inotify with no instance left for the user: poll everything.
-		w.full = true
+		w.setFull()
 		w.warn(fmt.Sprintf("starting the file watcher: %v: every directory is polled for changes", err))
 	case err != nil:
 		return nil, err
@@ -319,14 +320,14 @@ func (w *watcher) watchDir(dir, real string) (bool, error) {
 	}
 	cost := watchCost(real)
 	if w.used+cost > w.budget {
-		w.full = true
+		w.setFull()
 		w.warn(fmt.Sprintf("watching %s would use up the system's file watches, so it and the directories found after it are polled for changes", dir))
 		return false, nil
 	}
 	err := w.add(real)
 	if outOfWatches(err) {
 		_ = w.remove(real) // kqueue keeps what it opened before running out
-		w.full = true
+		w.setFull()
 		w.warn(fmt.Sprintf("watching %s: %v: the system ran out of file watches, so it and the directories found after it are polled for changes", dir, err))
 		w.spare()
 		return false, nil
@@ -337,6 +338,16 @@ func (w *watcher) watchDir(dir, real string) (bool, error) {
 	w.used += cost
 	w.cost[real] = cost
 	return true, err
+}
+
+// setFull stops adding system watches: directories found from now on are polled. The system is
+// short of watches or file descriptors, so the first call closes short, and tifa dev tells Vite's
+// dev server to poll as well.
+func (w *watcher) setFull() {
+	if !w.full {
+		w.full = true
+		close(w.short)
+	}
 }
 
 // spareWatches is how much the watcher gives back when the system runs out of watches, so tifa
@@ -362,7 +373,7 @@ func (w *watcher) spare() {
 // pollAll stops the system watcher and polls every directory. Closing it frees everything it
 // holds, also what kqueue opened for files that arrived in a directory after it was dropped.
 func (w *watcher) pollAll(err error) {
-	w.full = true
+	w.setFull()
 	if w.fs != nil {
 		w.fs.Close()
 		w.fs, w.events, w.errs = nil, nil, nil
@@ -404,7 +415,7 @@ func (w *watcher) grew(real string, n int) {
 	if w.used <= w.budget {
 		return
 	}
-	w.full = true
+	w.setFull()
 	w.dropWatch(real)
 	dir, ok := w.real[real]
 	if !ok {

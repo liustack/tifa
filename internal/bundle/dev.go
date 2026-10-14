@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 )
 
 // DevBase is where Vite's dev server serves modules under tifa dev, base in js/vite/plugin.js.
@@ -20,7 +21,7 @@ const DevBase = "/__tifa/vite/"
 
 // Dev builds the front end of an application for tifa dev: Vite's dev server serves the browser
 // modules and updates them in open pages, and only the SSR bundle is built into .tifa/dist.
-// A Dev is used by one goroutine at a time.
+// A Dev is used by one goroutine at a time, except for PollFiles.
 //
 // The dev server, the SSR builds and the export reader share one Node process. The browser
 // modules use the development build of React and QuickJS runs the production one, and Vite reads
@@ -32,6 +33,9 @@ type Dev struct {
 	port   int    // where Vite's dev server listens on 127.0.0.1
 	head   string // the tags pages load the browser modules with, set once the dev server runs
 	styles string // the tags that link the stylesheets of the last SSR bundle
+
+	mu   sync.Mutex
+	poll bool // PollFiles came before the dev server ran
 }
 
 // NewDev prepares the dev build of the application at root, with Vite's dev server on
@@ -52,6 +56,26 @@ func NewDev(root string, port int, output io.Writer) (*Dev, error) {
 
 // Exports reads exports like Node.Exports.
 func (d *Dev) Exports(files []string) (map[string][]string, error) { return d.node.Exports(files) }
+
+// PollFiles makes Vite's dev server poll the files instead of watching them with system events,
+// for when the system runs short of watches or file descriptors. A dev server that runs
+// restarts, open pages reload. Called before the dev server runs, it starts that way. A watcher
+// that uses FSEvents (macOS) keeps doing so: it takes no watch or descriptor per file. polling
+// reports whether the dev server polls now. PollFiles may run while another call of Dev does.
+func (d *Dev) PollFiles() (polling bool, err error) {
+	d.mu.Lock()
+	running := d.head != ""
+	if !running {
+		d.poll = true
+	}
+	d.mu.Unlock()
+	if !running {
+		return false, nil
+	}
+	var result struct{ Polling bool }
+	err = d.node.call("pollFiles", nil, &result)
+	return result.Polling, err
+}
 
 // Close stops Vite's dev server and its Node process.
 func (d *Dev) Close() error { return d.node.Close() }
@@ -79,14 +103,17 @@ func (d *Dev) Build(ctx context.Context, public string, pages bool) (string, err
 	ssr := filepath.Join(d.dist, "ssr.js")
 	var b Build
 	if pages {
+		d.mu.Lock()
 		if d.head == "" {
 			var result struct{ Head string }
-			if err := d.node.call("serve", map[string]any{"port": d.port}, &result); err != nil {
+			if err := d.node.call("serve", map[string]any{"port": d.port, "pollFiles": d.poll}, &result); err != nil {
+				d.mu.Unlock()
 				return "", fmt.Errorf("starting Vite's dev server: %w", err)
 			}
 			entry := DevBase + clientEntry
 			d.head = result.Head + `<script type="module" src="` + html.EscapeString(entry) + `"></script>`
 		}
+		d.mu.Unlock()
 		for {
 			var result struct{ Styles string }
 			// Unminified, so that errors in the server render point at readable code.

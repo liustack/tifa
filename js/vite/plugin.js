@@ -20,6 +20,17 @@ const reactStringRenderer = /[/\\]react-dom[/\\]cjs[/\\]react-dom-server-legacy\
 const ignoredErrors = 'function onError() {}'
 const nodeBuiltins = new Set(builtinModules)
 
+// pollInterval is how often, in milliseconds, Vite's watcher looks at each file once it polls.
+// Polling 10,000 files every second takes about 8% of one CPU core.
+const pollInterval = 1000
+
+// devState is what the plugin and tifa's Vite driver share in the Node process of tifa dev. Vite
+// bundles the config, this file with it, so they meet on globalThis:
+//   - pollFiles: the dev server's watcher polls, for a system that ran out of watches.
+function devState() {
+  return (globalThis[Symbol.for('tifa.dev')] ??= { pollFiles: false })
+}
+
 /**
  * tifa returns the plugins of a tifa application.
  *
@@ -39,8 +50,13 @@ export function tifa(settings = {}) {
         appType: 'custom',
         publicDir: false,
         clearScreen: false,
-        // The executable and the build output change with every rebuild and are no modules.
-        server: { watch: { ignored: [path.join(root, 'bin') + '/**', dist + '/**'] } },
+        server: {
+          watch: {
+            // The executable and the build output change with every rebuild and are no modules.
+            ignored: [path.join(root, 'bin') + '/**', dist + '/**'],
+            ...(devState().pollFiles ? { usePolling: true, interval: pollInterval, binaryInterval: pollInterval } : {}),
+          },
+        },
         environments: {
           client: {
             build: {
@@ -66,6 +82,20 @@ export function tifa(settings = {}) {
           ssr: ssrEnvironment(path.join(gen, 'server.ts'), dist, config.environments?.ssr?.build?.sourcemap),
         },
       }
+    },
+    configureServer(server) {
+      const state = devState()
+      // chokidar reports a watch the system refused as an error and goes on without it. When the
+      // system is out of inotify watches (ENOSPC) or file descriptors, restart with a watcher
+      // that polls, which takes neither, so nobody has to raise a system limit.
+      server.watcher.on('error', (err) => {
+        if (!['ENOSPC', 'EMFILE', 'ENFILE'].includes(err?.code) || state.pollFiles) return
+        state.pollFiles = true
+        server.config.logger.warn(
+          `${err.code}: the system ran out of file watches, so Vite's dev server restarts and polls the files for changes`,
+        )
+        server.restart().catch((restartErr) => server.config.logger.error(String(restartErr)))
+      })
     },
   }
   return [plugin, generated(), ssrPlugin(() => root, () => import('vite'))]

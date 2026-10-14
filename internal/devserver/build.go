@@ -22,6 +22,10 @@ type Pipeline interface {
 	Bundle(ctx context.Context) (detail string, err error)
 	// GoBuild builds the application executable that Options.App runs.
 	GoBuild(ctx context.Context) error
+	// PollFiles makes Vite's dev server poll the files too, once tifa dev's watcher found the
+	// system short of watches. It may run while a step runs. polling reports whether the dev
+	// server polls, it does not when its watcher takes no watch per file.
+	PollFiles(ctx context.Context) (polling bool, err error)
 }
 
 type op int

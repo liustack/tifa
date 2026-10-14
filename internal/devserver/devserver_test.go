@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/liustack/tifa/js"
 )
 
@@ -91,6 +92,9 @@ func (p *buildPipeline) Bundle(context.Context) (string, error) {
 	return "", p.step("Bundle")
 }
 func (p *buildPipeline) GoBuild(context.Context) error { return p.step("GoBuild") }
+func (p *buildPipeline) PollFiles(context.Context) (bool, error) {
+	return true, p.step("PollFiles")
+}
 
 type devRun struct {
 	dir    string
@@ -337,6 +341,25 @@ func TestRunHoldsPagesWhileTheAnalysisAddsABundle(t *testing.T) {
 		t.Fatal("the request still waits 5s after the bundle")
 	}
 	expectSteps(t, d.p, "Analyze", "Generate", "Bundle", "GoBuild")
+}
+
+// When the system runs out of watches, tifa dev polls and tells Vite's dev server to poll too.
+func TestRunTellsViteToPollWhenOutOfWatches(t *testing.T) {
+	outErr := outOfWatchesErrors(t)[0]
+	newFSWatcher = func() (*fsnotify.Watcher, error) { return nil, outErr }
+	defer func() { newFSWatcher = fsnotify.NewWatcher }()
+	d := startDev(t, "")
+	d.waitVersionAfter(t, "")
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.Contains(d.out.String(), "Vite's dev server polls the files too") {
+		if time.Now().After(deadline) {
+			t.Fatalf("Vite's dev server was not told to poll:\n%s", d.out.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if calls := d.p.took(); !slices.Contains(calls, "PollFiles") {
+		t.Fatalf("pipeline ran %v, want PollFiles among them", calls)
+	}
 }
 
 // After a rebuild of the SSR bundle alone, the running app loads the new bundle: no restart, so

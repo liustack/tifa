@@ -13,8 +13,12 @@
 //	                             server, it is built on a worker thread with its own NODE_ENV.
 //	                             There it answers with styles, the tags that link the
 //	                             stylesheets the bundle imports from the dev server
-//	{op: "serve", port}          starts the dev server on 127.0.0.1:port, answers with the tags
-//	                             that load Vite's client and the React refresh runtime
+//	{op: "serve", port, pollFiles}
+//	                             starts the dev server on 127.0.0.1:port, answers with the tags
+//	                             that load Vite's client and the React refresh runtime. With
+//	                             pollFiles its watcher polls, unless it uses FSEvents
+//	{op: "pollFiles"}            makes the running dev server's watcher poll, unless it uses
+//	                             FSEvents, and answers with polling and fsEvents
 //	{op: "script", dir, file, plugin}
 //	                             builds file in dir alone like an SSR bundle, with the SSR part
 //	                             of the tifa plugin at the path plugin and no Vite config, and
@@ -54,6 +58,8 @@ try {
 answer({ id: 0, version: vite.version })
 
 const root = process.cwd()
+// What the tifa plugin and the driver share, see devState in js/vite/plugin.js.
+const devState = (globalThis[Symbol.for('tifa.dev')] ??= { pollFiles: false })
 let server = null
 let ssrWorker = null // builds the SSR bundle when this process is not a production one
 
@@ -62,6 +68,8 @@ let ssrWorker = null // builds the SSR bundle when this process is not a product
 const logger = vite.createLogger('warn', { allowClearScreen: false })
 const logError = logger.error
 logger.error = (msg, options) => {
+  // The tifa plugin says once that the watcher polls when the system runs out of watches.
+  if (/file watcher error: .*\b(?:ENOSPC|EMFILE|ENFILE)\b/.test(msg)) return
   if (!/Build failed in /.test(msg)) logError(msg, options)
 }
 
@@ -104,13 +112,17 @@ const ops = {
     return { styles: styleLinks(styles) }
   },
 
-  async serve({ port }) {
+  async serve({ port, pollFiles }) {
     const earlier = new Set([...process.stdin.listeners('end'), ...process.listeners('SIGTERM')])
-    server = await vite.createServer({
-      root,
-      customLogger: logger,
-      server: { host: '127.0.0.1', port, strictPort: true },
-    })
+    const create = () =>
+      vite.createServer({ root, customLogger: logger, server: { host: '127.0.0.1', port, strictPort: true } })
+    server = await create()
+    checkPlugin(server.config)
+    if (pollFiles && !server.watcher.options.useFsEvents) {
+      devState.pollFiles = true
+      await server.close()
+      server = await create()
+    }
     // Vite's dev server ends the process when stdin ends, as for a parent that went away, with
     // the listener it also adds for SIGTERM. Here stdin carries the requests, and its end starts
     // the close below, which first lets the SSR worker and the output finish. The stdin
@@ -119,13 +131,21 @@ const ops = {
     for (const listener of process.stdin.listeners('end')) {
       if (!earlier.has(listener) && sigterm.includes(listener)) process.stdin.off('end', listener)
     }
-    checkPlugin(server.config)
     await server.listen()
     // The plugins add the tags a page needs to the head of an empty document, as they would for
     // an index.html: Vite's client, and the React refresh runtime with @vitejs/plugin-react.
     const html = await server.transformIndexHtml('/', '<html><head></head><body></body></html>')
     const head = html.slice(html.indexOf('<head>') + 6, html.indexOf('</head>'))
     return { head: head.trim() }
+  },
+
+  async pollFiles() {
+    if (!server.watcher.options.useFsEvents && !devState.pollFiles) {
+      devState.pollFiles = true
+      await server.restart()
+    }
+    const { usePolling, useFsEvents } = server.watcher.options
+    return { polling: usePolling === true, fsEvents: useFsEvents === true }
   },
 
   async script({ dir, file, plugin }) {
