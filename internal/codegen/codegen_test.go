@@ -7,6 +7,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -27,6 +28,33 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
+var (
+	exportedName    = regexp.MustCompile(`(?m)^export (?:async )?(?:const|let|function|class) (\w+)`)
+	exportedDefault = regexp.MustCompile(`(?m)^export (?:default |\{ \w+ as default \})`)
+)
+
+// fakeExports reads exports the way the fixtures write them, without Node. bundle.Node.Exports
+// is tested on its own and in TestGeneratedRouterBehaves.
+func fakeExports(files []string) (map[string][]string, error) {
+	out := map[string][]string{}
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			return nil, err
+		}
+		var names []string
+		for _, m := range exportedName.FindAllSubmatch(data, -1) {
+			names = append(names, string(m[1]))
+		}
+		if exportedDefault.Match(data) {
+			names = append(names, "default")
+		}
+		slices.Sort(names)
+		out[f] = names
+	}
+	return out, nil
+}
+
 func generate(t *testing.T, app string, dev bool) map[string][]byte {
 	t.Helper()
 	root := filepath.Join("testdata", app)
@@ -34,22 +62,22 @@ func generate(t *testing.T, app string, dev bool) map[string][]byte {
 	if err != nil {
 		t.Fatalf("Analyze %s: %v", app, err)
 	}
-	files, err := Generate(root, m, dev)
+	files, err := Generate(root, m, dev, fakeExports)
 	if err != nil {
 		t.Fatalf("Generate %s: %v", app, err)
 	}
 	return files
 }
 
-// The generated files of each test application must match testdata/golden/<app>. The runtime is
-// copied from the js package as it is and is left out. Run go test -update to rewrite them.
+// The generated files of each test application must match testdata/golden/<app>. The runtime and
+// the Vite plugin are copied from the js package as they are and are left out. Run go test -update to rewrite them.
 func TestGolden(t *testing.T) {
 	for _, app := range []string{"shop", "bare"} {
 		t.Run(app, func(t *testing.T) {
 			files := generate(t, app, false)
 			golden := filepath.Join("testdata", "golden", app)
 			for _, name := range slices.Sorted(maps.Keys(files)) {
-				if strings.HasPrefix(name, "runtime/") {
+				if strings.HasPrefix(name, "runtime/") || strings.HasPrefix(name, "vite/") {
 					continue
 				}
 				path := filepath.Join(golden, filepath.FromSlash(name)+".golden")
@@ -124,7 +152,7 @@ func TestPageWithoutDefaultExportFails(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "app/page/route.tsx"), "export function Page() { return null }\n")
 	m := &analyze.Manifest{Module: "example.com/x", Routes: []analyze.Route{{ID: "app/page/route", Dir: "app/page", Path: "/page", Page: true, SSR: true}}}
-	_, err := Generate(root, m, false)
+	_, err := Generate(root, m, false, fakeExports)
 	if err == nil || !strings.Contains(err.Error(), "app/page/route.tsx") {
 		t.Fatalf("got %v", err)
 	}
@@ -141,7 +169,7 @@ func TestRootLayoutDocumentFails(t *testing.T) {
 		Layouts: []analyze.Layout{{ID: "app/layout", Dir: "app", Path: "/", TSX: true, SSR: true, Routes: []string{"app/page/route"}}},
 		Routes:  []analyze.Route{{ID: "app/page/route", Dir: "app/page", Path: "/page", Page: true, SSR: true, Layouts: []string{"app/layout"}}},
 	}
-	_, err := Generate(root, m, false)
+	_, err := Generate(root, m, false, fakeExports)
 	if err == nil || !strings.Contains(err.Error(), "htmlAttributes") {
 		t.Fatalf("got %v", err)
 	}
@@ -182,7 +210,7 @@ func TestRemountFollowsTheParametersLoadReads(t *testing.T) {
 			{ID: project + "/files/path++/route", Dir: project + "/files/path++", Path: "/projects/{projectId}/files/{path...}", Page: true, SSR: true, Layouts: []string{"app/layout", project + "/layout"}, Load: &analyze.Load{Params: []string{"path"}, Result: str}},
 		},
 	}
-	files, err := Generate(root, m, false)
+	files, err := Generate(root, m, false, fakeExports)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +257,7 @@ func TestLayoutAndPageInOneDirectory(t *testing.T) {
 			{ID: project + "/orders/orderId+/route", Dir: project + "/orders/orderId+", Path: "/projects/{projectId}/orders/{orderId}", Page: true, SSR: true, Layouts: layouts},
 		},
 	}
-	files, err := Generate(root, m, false)
+	files, err := Generate(root, m, false, fakeExports)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -289,12 +317,12 @@ func TestProjectConfigIsEmbedded(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "tifa.yaml"), "")
 	writeFile(t, filepath.Join(root, "tifa.json"), "{}")
-	if _, err := Generate(root, &analyze.Manifest{Module: "example.com/x"}, false); err == nil {
+	if _, err := Generate(root, &analyze.Manifest{Module: "example.com/x"}, false, fakeExports); err == nil {
 		t.Error("Generate accepted tifa.yaml next to tifa.json")
 	}
 	bad := t.TempDir()
 	writeFile(t, filepath.Join(bad, "tifa.yaml"), "server:\n  port: 80\n")
-	if _, err := Generate(bad, &analyze.Manifest{Module: "example.com/x"}, false); err == nil || !strings.Contains(err.Error(), "server.port") {
+	if _, err := Generate(bad, &analyze.Manifest{Module: "example.com/x"}, false, fakeExports); err == nil || !strings.Contains(err.Error(), "server.port") {
 		t.Errorf("invalid tifa.yaml: %v", err)
 	}
 }
@@ -329,7 +357,12 @@ func TestWriteKeepsUnchangedFilesAndRemovesStaleOnes(t *testing.T) {
 
 func TestInterfaceOnlyAppHasNoTypeScript(t *testing.T) {
 	m := &analyze.Manifest{Module: "example.com/x", Routes: []analyze.Route{{ID: "app/api/route", Dir: "app/api", Package: "example.com/x/app/api", Path: "/api", Handlers: []analyze.Handler{{Method: "GET"}}, SSR: true}}}
-	files, err := Generate(t.TempDir(), m, false)
+	// Without pages nothing reads exports, so such an application builds without Node.
+	noNode := func([]string) (map[string][]string, error) {
+		t.Error("exports read for an application without pages")
+		return nil, nil
+	}
+	files, err := Generate(t.TempDir(), m, false, noNode)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -349,5 +382,35 @@ func TestProjectSettingsReadsTheServerSection(t *testing.T) {
 	}
 	if cfg, err = ProjectSettings(root); err != nil || cfg.Server.ShutdownTimeout != 3*time.Second {
 		t.Fatalf("tifa.yaml: %v %v", cfg.Server.ShutdownTimeout, err)
+	}
+}
+
+// build.target becomes the target of the tifa plugin in .tifa/vite.js. A wrong one fails early.
+func TestBuildTargetReachesVite(t *testing.T) {
+	m := &analyze.Manifest{Module: "example.com/x", Routes: []analyze.Route{{ID: "app/page/route", Dir: "app/page", Path: "/page", Page: true, SSR: true}}}
+	for target, want := range map[string]string{
+		"":                           `tifa({ target: ["es2020"] })`, // the default
+		"es2020":                     `tifa({ target: ["es2020"] })`,
+		" ES2019, chrome90,safari14": `tifa({ target: ["es2019","chrome90","safari14"] })`,
+	} {
+		root := t.TempDir()
+		writeFile(t, filepath.Join(root, "app/page/route.tsx"), "export default function P() { return null }\n")
+		if target != "" {
+			writeFile(t, filepath.Join(root, "tifa.yaml"), "build:\n  target: \""+target+"\"\n")
+		}
+		files, err := Generate(root, m, false, fakeExports)
+		if err != nil {
+			t.Fatalf("%q: %v", target, err)
+		}
+		if !strings.Contains(string(files["vite.js"]), want) {
+			t.Errorf("%q: vite.js lacks %s:\n%s", target, want, files["vite.js"])
+		}
+	}
+	for _, target := range []string{"es2020,es2022", "chrome", "node18", "es2020;chrome90"} {
+		root := t.TempDir()
+		writeFile(t, filepath.Join(root, "tifa.yaml"), "build:\n  target: \""+target+"\"\n")
+		if _, err := Generate(root, m, false, fakeExports); err == nil || !strings.Contains(err.Error(), "build.target") {
+			t.Errorf("%q: err = %v, want a build.target error", target, err)
+		}
 	}
 }

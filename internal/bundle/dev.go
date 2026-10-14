@@ -1,196 +1,100 @@
 package bundle
 
 import (
-	"encoding/json"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
+	"html"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sync/atomic"
-
-	"github.com/evanw/esbuild/pkg/api"
+	"strconv"
 )
 
-// devAssets is the global the SSR bundle of tifa dev reads the browser assets from. App puts the
-// assets into the bundle as a constant, which would change the SSR build options whenever the
-// browser entry gets a new hash. Dev keeps the options fixed and writes the value in front of
-// the bundle instead, so both esbuild contexts stay incremental.
-const devAssets = "globalThis.__tifaAssets"
+// DevBase is where Vite's dev server serves modules under tifa dev, base in js/vite/plugin.js.
+// tifa dev sends the requests under it to Vite and the others to the application.
+const DevBase = "/__tifa/vite/"
 
-// Dev builds the front end of an application like App, into the same .tifa/dist, for tifa dev.
-// It keeps one esbuild context per bundle, so a rebuild parses only what changed.
+// Dev builds the front end of an application for tifa dev: Vite's dev server serves the browser
+// modules and updates them in open pages, and only the SSR bundle is built into .tifa/dist.
 // A Dev is used by one goroutine at a time.
+//
+// The dev server and the SSR builds run on two Node processes. Vite reads NODE_ENV once per
+// process, the dev server sets it to development, and the SSR bundle is a production build.
 type Dev struct {
-	root       string
-	dist       string
-	generated  api.Plugin
-	client     api.BuildContext // nil while the application has no pages
-	clientOpts api.BuildOptions
-	ssr        api.BuildContext
-	target     string
-	tailwind   atomic.Int64 // nanoseconds the Tailwind CLI ran during the last Build
+	server  *Node // runs Vite's dev server and reads exports
+	builder *Node // builds the SSR bundle
+	root    string
+	dist    string
+	port    int    // where Vite's dev server listens on 127.0.0.1
+	head    string // the tags pages load the browser modules with, set once the dev server runs
 }
 
-// NewDev prepares the incremental builds of the application at root. target is build.target,
-// as App takes it. It is read once, a change applies when tifa dev starts again.
-func NewDev(root, target string) (*Dev, error) {
+// NewDev prepares the dev build of the application at root, with Vite's dev server on
+// 127.0.0.1:port once the application has pages. output receives what Node and Vite print.
+// Nothing runs before the first call that needs Node.
+func NewDev(root string, port int, output io.Writer) (*Dev, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
 	}
-	generated, err := Generated(root)
-	if err != nil {
-		return nil, err
-	}
-	return &Dev{root: root, dist: filepath.Join(root, ".tifa", "dist"), generated: generated, target: target}, nil
+	return &Dev{
+		server: NewNode(root, output), builder: NewNode(root, output),
+		root: root, dist: filepath.Join(root, ".tifa", "dist"), port: port,
+	}, nil
 }
 
-// Close releases the esbuild contexts.
-func (d *Dev) Close() {
-	if d.client != nil {
-		d.client.Dispose()
-		d.ssr.Dispose()
-		d.client, d.ssr = nil, nil
-	}
-}
+// Exports reads exports like Node.Exports, on the Node process of the dev server.
+func (d *Dev) Exports(files []string) (map[string][]string, error) { return d.server.Exports(files) }
 
-// Build brings .tifa/dist up to date and returns the build ID, like App. pages is false for an
-// application without route.tsx, which gets no bundles.
+// Close stops Vite's dev server and both Node processes.
+func (d *Dev) Close() error { return errors.Join(d.server.Close(), d.builder.Close()) }
+
+// Build brings .tifa/dist up to date and returns the build ID. The first Build of an application
+// with pages starts Vite's dev server. pages is false for an application without route.tsx,
+// which gets no SSR bundle.
+//
+// The build ID covers the public files and the tags of the dev server, not the SSR bundle: a
+// change to page code reaches open pages through Vite and leaves them on the same build, so their
+// navigation data requests are not refused.
 func (d *Dev) Build(public string, pages bool) (string, error) {
 	if err := os.MkdirAll(d.dist, 0o755); err != nil {
 		return "", err
 	}
-	d.tailwind.Store(0)
+	ssr := filepath.Join(d.dist, "ssr.js")
 	var b Build
 	if pages {
-		var err error
-		if b, err = d.bundle(); err != nil {
+		if d.head == "" {
+			var result struct{ Head string }
+			if err := d.server.call("serve", map[string]any{"port": d.port}, &result); err != nil {
+				return "", fmt.Errorf("starting Vite's dev server: %w", err)
+			}
+			entry := DevBase + clientEntry
+			d.head = result.Head + `<script type="module" src="` + html.EscapeString(entry) + `"></script>`
+		}
+		b.Head = d.head
+		// Unminified, so that errors in the server render point at readable code.
+		if err := d.builder.call("ssr", map[string]any{"assets": b.Head, "minify": false}, nil); err != nil {
 			return "", err
 		}
-	} else {
-		d.Close()
-		for _, name := range []string{"assets", "ssr.js"} {
-			if err := os.RemoveAll(filepath.Join(d.dist, name)); err != nil {
-				return "", err
-			}
-		}
-	}
-	if err := os.RemoveAll(filepath.Join(d.dist, "public")); err != nil {
+	} else if err := os.Remove(ssr); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return "", err
+	}
+	for _, name := range []string{"public", "build.json"} {
+		if err := os.RemoveAll(filepath.Join(d.dist, name)); err != nil {
+			return "", err
+		}
 	}
 	if err := copyDir(public, filepath.Join(d.dist, "public")); err != nil {
 		return "", err
 	}
-	buildJSON := filepath.Join(d.dist, "build.json")
-	if err := os.Remove(buildJSON); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return "", err
-	}
-	var err error
-	if b.ID, err = distID(d.dist); err != nil {
-		return "", err
-	}
-	data, err := json.Marshal(b)
+	files, err := distID(d.dist, "ssr.js")
 	if err != nil {
 		return "", err
 	}
-	return b.ID, os.WriteFile(buildJSON, data, 0o644)
-}
-
-// bundle rebuilds both bundles and writes them into dist.
-func (d *Dev) bundle() (Build, error) {
-	if d.client == nil {
-		if err := d.start(); err != nil {
-			return Build{}, err
-		}
-	}
-	result := d.client.Rebuild()
-	meta, err := readResult(result)
-	if err != nil {
-		return Build{}, err
-	}
-	assets, err := clientAssets(d.clientOpts, meta, d.clientOpts.EntryPoints[0])
-	if err != nil {
-		return Build{}, err
-	}
-	if err := replaceDir(filepath.Join(d.dist, "assets"), result.OutputFiles); err != nil {
-		return Build{}, err
-	}
-	b := Build{Script: "/assets/" + assets.Script}
-	if assets.Style != "" {
-		b.Style = "/assets/" + assets.Style
-	}
-
-	result = d.ssr.Rebuild()
-	if meta, err = readResult(result); err != nil {
-		return Build{}, err
-	}
-	if err := checkSSR(meta); err != nil {
-		return Build{}, err
-	}
-	if len(result.OutputFiles) != 1 {
-		return Build{}, errors.New("the SSR build wrote no single file")
-	}
-	define, err := json.Marshal(map[string]string{"script": b.Script, "style": b.Style})
-	if err != nil {
-		return Build{}, err
-	}
-	ssr := append([]byte(devAssets+"="+string(define)+";\n"), result.OutputFiles[0].Contents...)
-	return b, os.WriteFile(filepath.Join(d.dist, "ssr.js"), ssr, 0o644)
-}
-
-// start creates the esbuild contexts with the options App uses, except that nothing is written
-// by esbuild itself and the SSR bundle reads the assets from devAssets.
-func (d *Dev) start() error {
-	tsconfig := filepath.Join(".tifa", "tsconfig.json")
-	var err error
-	d.clientOpts, err = clientBuildOptions(ClientOptions{
-		Root: d.root, Entry: ".tifa/client.ts", Outdir: filepath.Join(d.dist, "assets"),
-		Tsconfig: tsconfig, Target: d.target,
-		Plugins: []api.Plugin{d.generated, tailwindPlugin(d.root, &d.tailwind)},
-	})
-	if err != nil {
-		return err
-	}
-	ssrOpts, err := ssrBuildOptions(SSROptions{
-		Root: d.root, Entry: ".tifa/server.ts", Outfile: filepath.Join(d.dist, "ssr.js"),
-		Tsconfig: tsconfig, Plugins: []api.Plugin{d.generated},
-		Define: map[string]string{"__TIFA_ASSETS__": devAssets},
-	}, true)
-	if err != nil {
-		return err
-	}
-	client, ctxErr := api.Context(d.clientOpts)
-	if ctxErr != nil {
-		return ctxErr
-	}
-	ssr, ctxErr := api.Context(ssrOpts)
-	if ctxErr != nil {
-		client.Dispose()
-		return ctxErr
-	}
-	d.client, d.ssr = client, ssr
-	return nil
-}
-
-// replaceDir makes dir hold exactly files, writing only those whose content changed.
-func replaceDir(dir string, files []api.OutputFile) error {
-	keep := map[string]bool{}
-	for _, f := range files {
-		keep[f.Path] = true
-		if old, err := os.ReadFile(f.Path); err == nil && string(old) == string(f.Contents) {
-			continue
-		}
-		if err := os.MkdirAll(filepath.Dir(f.Path), 0o755); err != nil {
-			return err
-		}
-		if err := os.WriteFile(f.Path, f.Contents, 0o644); err != nil {
-			return err
-		}
-	}
-	return filepath.WalkDir(dir, func(path string, e fs.DirEntry, err error) error {
-		if err != nil || e.IsDir() || keep[path] {
-			return err
-		}
-		return os.Remove(path)
-	})
+	sum := sha256.Sum256([]byte(strconv.Quote(files) + b.Head))
+	b.ID = hex.EncodeToString(sum[:])[:16]
+	return b.ID, writeBuild(d.dist, b)
 }

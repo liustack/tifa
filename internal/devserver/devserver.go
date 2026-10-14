@@ -38,6 +38,9 @@ type Options struct {
 	// The application gets the address to listen on in TIFA_SERVER_ADDR.
 	App      []string
 	Pipeline Pipeline
+	// Vite is the address of Vite's dev server, which Pipeline.Bundle starts. Requests under
+	// VitePath, its module and HMR websocket requests, go there. Empty sends them to the app too.
+	Vite string
 	// Debounce is how long the files must stay unchanged before a rebuild starts.
 	Debounce time.Duration
 	// StopTimeout is how long the application gets after an interrupt to run OnShutdown and exit
@@ -114,7 +117,23 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 	}))
 	mux.Handle("GET "+workerPath, script(js.DevWorker))
 	mux.Handle(devPrefix, http.NotFoundHandler())
-	mux.Handle("/", proxy(appAddr, o.ProxyWait, d.down, d.version))
+	if o.Vite != "" {
+		mux.Handle(VitePath, viteProxy(o.Vite))
+	}
+	app := proxy(appAddr, o.ProxyWait, d.down, d.version)
+	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// A page loaded while the SSR bundle is rebuilt would show the old server render. Wait
+		// until the app with the new one runs.
+		if busy := d.busy(); busy != nil {
+			select {
+			case <-busy:
+			case <-r.Context().Done():
+				return
+			case <-time.After(o.ProxyWait):
+			}
+		}
+		app.ServeHTTP(w, r)
+	}))
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -187,6 +206,17 @@ type dev struct {
 	app     *app   // the application process, nil when none runs
 	live    *app   // app once it listens, its exit from then on is a crash
 	downErr error  // why no application runs and none will until the next build
+	// bundling is closed once the rebuild of the SSR bundle that runs now has an app serving it,
+	// nil when none runs.
+	bundling chan struct{}
+}
+
+// busy returns a channel that is closed once the SSR bundle being rebuilt is served, nil when
+// no rebuild of it runs.
+func (d *dev) busy() chan struct{} {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.bundling
 }
 
 // version returns the version of the app that answers requests now, empty before the first one.
@@ -215,19 +245,35 @@ func (d *dev) fail(title string, err error) {
 	d.log.Printf("%s: %v", strings.ToLower(title), err)
 }
 
-// rebuild runs the steps, restarts the application and tells the browsers to reload.
+// rebuild runs the steps, restarts the application and tells the browsers to reload. When only
+// the bundle was rebuilt, Vite has updated the pages already and they stay: the version stays the
+// same, and only the server render changes.
 func (d *dev) rebuild(ctx context.Context, s steps) {
 	if s == (steps{}) {
 		return
 	}
 	start := time.Now()
-	if err := d.b.build(ctx, s); err != nil {
+	if s.bundle {
+		done := make(chan struct{})
+		d.mu.Lock()
+		d.bundling = done
+		d.mu.Unlock()
+		defer func() {
+			d.mu.Lock()
+			d.bundling = nil
+			d.mu.Unlock()
+			close(done)
+		}()
+	}
+	ran, err := d.b.build(ctx, s)
+	if err != nil {
 		if ctx.Err() == nil {
 			d.fail("Build failed", err)
 		}
 		return
 	}
-	if err := d.restart(ctx); err != nil {
+	reload := ran != steps{bundle: true} || d.version() == ""
+	if err := d.restart(ctx, reload); err != nil {
 		if ctx.Err() == nil {
 			d.fail("The app did not start", err)
 		}
@@ -240,7 +286,8 @@ func (d *dev) rebuild(ctx context.Context, s steps) {
 }
 
 // restart stops the running application and starts the new build, waiting until it listens.
-func (d *dev) restart(ctx context.Context) error {
+// With reload the new app gets a new version, which reloads open pages.
+func (d *dev) restart(ctx context.Context, reload bool) error {
 	d.mu.Lock()
 	old := d.app
 	d.app, d.live, d.downErr = nil, nil, nil
@@ -258,7 +305,9 @@ func (d *dev) restart(ctx context.Context) error {
 	d.gen++
 	a.gen = d.gen
 	d.app = a
-	d.serving = d.nonce + "-" + strconv.Itoa(d.gen)
+	if reload {
+		d.serving = d.nonce + "-" + strconv.Itoa(d.gen)
+	}
 	d.mu.Unlock()
 	go d.watchExit(a)
 	if err := a.waitReady(ctx, d.appAddr, d.o.ProxyWait); err != nil {

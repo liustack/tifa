@@ -3,7 +3,6 @@ module github.com/liustack/tifa
 go 1.27.0
 
 require (
-	github.com/evanw/esbuild v0.28.2
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/liustack/quickjs v0.26.0
 	github.com/spf13/cobra v1.10.2

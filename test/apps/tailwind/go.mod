@@ -4,7 +4,6 @@ go 1.27.0
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/evanw/esbuild v0.28.2 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect

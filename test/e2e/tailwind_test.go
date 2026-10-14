@@ -7,12 +7,10 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
-var (
-	stylesheet   = regexp.MustCompile(`<link rel="stylesheet" href="([^"]+)">`)
-	tailwindTook = regexp.MustCompile(`bundle done in \S+ \(tailwind \d+ms\)`)
-)
+var stylesheet = regexp.MustCompile(`<link rel="stylesheet" href="([^"]+)">`)
 
 // pageStyle fetches the page at url and the stylesheet it links.
 func pageStyle(t *testing.T, base, path string) string {
@@ -38,15 +36,15 @@ func expectCSS(t *testing.T, css string, want ...string) {
 	}
 }
 
-// test/apps/tailwind imports tailwindcss in its root Layout's stylesheet, defines theme colors and
-// imports a component through the @/ alias. Its build runs the Tailwind CLI, so node stays on PATH.
+// test/apps/tailwind uses @tailwindcss/vite, imports tailwindcss in its root Layout's stylesheet,
+// defines theme colors and imports a component through the @/ alias.
 func TestTailwindApp(t *testing.T) {
 	skipUnlessEnabled(t)
 	dir := filepath.Join(repoRoot(t), "test", "apps", "tailwind")
 	if _, err := os.Stat(filepath.Join(dir, "node_modules")); err != nil {
 		t.Skip("run pnpm install --frozen-lockfile in test/apps/tailwind first")
 	}
-	exe := buildWith(t, dir, os.Getenv("PATH"))
+	exe := buildAt(t, dir)
 	typecheck(t, dir)
 
 	base, _, _ := start(t, exe)
@@ -61,26 +59,34 @@ func TestTailwindApp(t *testing.T) {
 	}
 }
 
-// tifa dev compiles Tailwind in the bundle step and picks up a class name that a TSX edit adds.
+// Under tifa dev, Vite's dev server compiles the stylesheet and picks up a class name that a TSX
+// edit adds. The server render follows the edit too.
 func TestDevTailwind(t *testing.T) {
 	skipUnlessEnabled(t)
 	if runtime.GOOS == "windows" {
 		t.Skip("tifa dev needs interrupts, which Windows lacks")
 	}
-	d := startDevWith(t, copyApp(t, "tailwind"), os.Getenv("PATH"))
-	out := d.waitLog(t, 0, ready)
-	if !tailwindTook.MatchString(out) {
-		t.Errorf("first build does not tell Tailwind's time:\n%s", out)
+	d := startDev(t, copyApp(t, "tailwind"))
+	d.waitLog(t, 0, ready)
+	d.waitStatus(t, func(st devStatus) bool { return st.Version != "" && st.Error == "" })
+	// ?direct asks Vite for the stylesheet itself instead of the module that injects it.
+	style := d.base + "/__tifa/vite/app/site.css?direct"
+	status, header, css := get(t, style)
+	if status != 200 || !strings.HasPrefix(header.Get("Content-Type"), "text/css") {
+		t.Fatalf("GET %s: %d %v", style, status, header)
 	}
-	v1 := d.waitStatus(t, func(st devStatus) bool { return st.Version != "" && st.Error == "" }).Version
-	expectCSS(t, pageStyle(t, d.base, "/"), ".bg-sky-100")
+	expectCSS(t, css, ".bg-sky-100", "--color-paper")
 
 	mark := d.edit(t, "components/badge.tsx", "rounded-full", "rounded-full decoration-wavy")
-	out = d.waitLog(t, mark, ready)
-	expectSteps(t, "class edit", out, "bundle")
-	if !tailwindTook.MatchString(out) {
-		t.Errorf("class edit does not tell Tailwind's time:\n%s", out)
+	expectSteps(t, "class edit", d.waitLog(t, mark, ready), "bundle")
+	expectBody(t, d.base+"/", "rounded-full decoration-wavy")
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		_, _, css = get(t, style)
+		if strings.Contains(css, ".decoration-wavy") || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
-	d.waitStatus(t, func(st devStatus) bool { return st.Version != v1 && st.Error == "" })
-	expectCSS(t, pageStyle(t, d.base, "/"), ".decoration-wavy", ".bg-sky-100")
+	expectCSS(t, css, ".decoration-wavy", ".bg-sky-100")
 }

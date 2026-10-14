@@ -89,11 +89,11 @@ func build(t *testing.T, app string) (dir, exe string) {
 	return dir, buildAt(t, dir)
 }
 
-// buildAt runs tifa build on the application in dir with a PATH that has no node, since an
-// application without Tailwind builds without it, and returns the executable.
+// buildAt runs tifa build on the application in dir, whose Vite runs on Node, and returns the
+// executable.
 func buildAt(t *testing.T, dir string) (exe string) {
 	t.Helper()
-	return buildWith(t, dir, withoutNode(t))
+	return buildWith(t, dir, os.Getenv("PATH"))
 }
 
 // buildWith runs tifa build on the application in dir with the given PATH and returns the
@@ -218,17 +218,19 @@ func (b *lockedBuffer) waitFor(t *testing.T, ok func(output string) bool) {
 
 var listening = regexp.MustCompile(`listening on (http://\S+)`)
 
-// start runs exe on a free port and returns its base URL once it listens.
+// start runs exe on a free port and returns its base URL once it listens. Its PATH has no node:
+// a built application never needs it.
 func start(t *testing.T, exe string) (base string, cmd *exec.Cmd, output *lockedBuffer) {
 	t.Helper()
 	output = &lockedBuffer{drained: make(chan struct{})}
 	cmd = exec.Command(exe, "--server-addr", "127.0.0.1:0")
 	// The app rejects unknown TIFA_* variables as settings, TIFA_E2E among them.
 	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "TIFA_") {
+		if !strings.HasPrefix(kv, "TIFA_") && !strings.HasPrefix(kv, "PATH=") {
 			cmd.Env = append(cmd.Env, kv)
 		}
 	}
+	cmd.Env = append(cmd.Env, "PATH="+withoutNode(t))
 	// Stdout and stderr share one pipe, so the output keeps the order the process wrote it in:
 	// a line printed by OnStart comes before the line saying the app listens.
 	r, w, err := os.Pipe()
@@ -326,7 +328,9 @@ func TestInterfaceApp(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the test stops the app with SIGINT")
 	}
-	dir, exe := build(t, "api")
+	// An application without pages builds without Node.
+	dir := filepath.Join(repoRoot(t), "test", "apps", "api")
+	exe := buildWith(t, dir, withoutNode(t))
 	if _, err := os.Stat(filepath.Join(dir, ".tifa", "routes.tsx")); !os.IsNotExist(err) {
 		t.Errorf("an app without pages got TypeScript: %v", err)
 	}
@@ -389,6 +393,11 @@ func TestInterfaceApp(t *testing.T) {
 	}
 }
 
+var (
+	headTags = regexp.MustCompile(`^<link rel="stylesheet" href="/assets/style-[\w-]+\.css">(<link rel="modulepreload" href="/assets/chunk-[\w-]+\.js">)*<script type="module" src="/assets/app-[\w-]+\.js"></script>$`)
+	headURL  = regexp.MustCompile(`(?:href|src)="([^"]+)"`)
+)
+
 func TestPagesApp(t *testing.T) {
 	skipUnlessEnabled(t)
 	dir, exe := build(t, "pages")
@@ -401,15 +410,19 @@ func TestPagesApp(t *testing.T) {
 	typecheck(t, dir)
 
 	base, _, _ := start(t, exe)
-	var built struct{ BuildID, Script string }
+	var built struct{ BuildID, Head string }
 	readJSON(t, filepath.Join(dir, ".tifa", "dist", "build.json"), &built)
+	// The head loads the stylesheet, the shared chunks and the entry, in that order.
+	if !headTags.MatchString(built.Head) {
+		t.Fatalf("build.json head %s", built.Head)
+	}
 
 	// A page renders in the VM with the Loads' data.
 	status, header, body := get(t, base+"/shops/north/items/apple")
 	if status != 200 || header.Get("X-Tifa-Render") != "vm" || header.Get("Vary") != "X-Tifa-Route" {
 		t.Errorf("page: %d %v", status, header)
 	}
-	for _, want := range []string{"<html", "Apple", "Shop north", `src="` + built.Script + `"`, `{id:"north",name:"Shop north"}`} {
+	for _, want := range []string{"<html", "Apple", "Shop north", built.Head, `{id:"north",name:"Shop north"}`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page lacks %s:\n%s", want, body)
 		}
@@ -420,7 +433,7 @@ func TestPagesApp(t *testing.T) {
 	}
 	// SSR = false skips the VM and carries the data.
 	status, header, body = get(t, base+"/account/login")
-	if status != 200 || header.Get("X-Tifa-Render") != "none" || !strings.Contains(body, `id="tifa-data"`) {
+	if status != 200 || header.Get("X-Tifa-Render") != "none" || !strings.Contains(body, `id="tifa-data"`) || !strings.Contains(body, built.Head) {
 		t.Errorf("SSR = false: %d %v\n%s", status, header, body)
 	}
 	// Cache = true renders once.
@@ -444,13 +457,20 @@ func TestPagesApp(t *testing.T) {
 		"/shops/closed":           "This page does not exist.",
 	} {
 		status, _, body := get(t, base+path)
-		if status != 404 || !strings.Contains(body, want) || !strings.Contains(body, `src="`+built.Script+`"`) {
+		if status != 404 || !strings.Contains(body, want) || !strings.Contains(body, built.Head) {
 			t.Errorf("%s: %d\n%s", path, status, body)
 		}
 	}
-	// Bundle files are served with a long cache.
-	if status, header, _ := get(t, base+built.Script); status != 200 || !strings.Contains(header.Get("Cache-Control"), "immutable") {
-		t.Errorf("%s: %d %v", built.Script, status, header)
+	// Bundle files are served with a long cache and their type.
+	for _, m := range headURL.FindAllStringSubmatch(built.Head, -1) {
+		status, header, _ := get(t, base+m[1])
+		kind := "text/javascript"
+		if strings.HasSuffix(m[1], ".css") {
+			kind = "text/css"
+		}
+		if status != 200 || !strings.Contains(header.Get("Cache-Control"), "immutable") || !strings.HasPrefix(header.Get("Content-Type"), kind) {
+			t.Errorf("%s: %d %v", m[1], status, header)
+		}
 	}
 
 }

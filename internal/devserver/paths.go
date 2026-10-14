@@ -7,3 +7,6 @@ const (
 	clientPath = devPrefix + "client.js"
 	workerPath = devPrefix + "worker.js"
 )
+
+// VitePath is where Vite's dev server serves modules, its base. Requests under it go to Vite.
+const VitePath = "/__tifa/vite/"

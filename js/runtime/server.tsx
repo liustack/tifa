@@ -2,11 +2,12 @@ import { renderToString } from 'react-dom/server.edge'
 import { RouterProvider, type AnyRoute } from '@tanstack/react-router'
 import { attachRouterServerSsrUtils } from '@tanstack/react-router/ssr/server'
 import { createAppRouter, type HTMLAttributes } from './router'
-import { injected, rootElementId, type Assets, type Injected } from './data'
-import { attributes, escapeAttribute, headEnd, headHTML, headStart, headTags } from './head'
+import { injected, rootElementId, type Injected } from './data'
+import { attributes, headEnd, headHTML, headStart, headTags } from './head'
 
-// The browser bundle's files. tifa build defines it when it builds the SSR bundle.
-declare const __TIFA_ASSETS__: Assets
+// The tags that load the browser bundle, its stylesheets and scripts, written into the head as
+// they are. tifa build defines it when it builds the SSR bundle.
+declare const __TIFA_ASSETS__: string
 
 declare global {
   var startRender: (json: string) => void
@@ -29,11 +30,8 @@ const incompleteRender =
 // functions of the matched routes, the assets and the hydration scripts are written as strings,
 // so a page that failed at any level still comes as a whole document.
 export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = { lang: 'en' }) {
-  const assets = __TIFA_ASSETS__
   const documentStart = '<!DOCTYPE html><html' + attributes(htmlAttributes) + '><head><meta charset="utf-8">'
-  const assetTags =
-    (assets.style ? '<link rel="stylesheet" href="' + escapeAttribute(assets.style) + '">' : '') +
-    '<script type="module" src="' + escapeAttribute(assets.script) + '"></script>'
+  const assetTags = __TIFA_ASSETS__
   const bodyStart = headEnd + '</head><body><div id="' + rootElementId + '">'
   globalThis.startRender = (json: string) => {
     const input: Injected = JSON.parse(json)

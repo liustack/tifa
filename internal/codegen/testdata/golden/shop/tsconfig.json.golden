@@ -11,11 +11,7 @@
     "skipLibCheck": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": [],
-    "rootDirs": ["..", "."],
-    "paths": {
-      "tifa/client": ["./runtime/client.ts"],
-      "@/*": ["./*", "../*"]
-    }
+    "rootDirs": ["..", "."]
   },
-  "include": ["../app", "routes.tsx", "server.ts", "client.ts", "runtime/env.d.ts"]
+  "include": ["../app", "../vite.config.ts", "routes.tsx", "server.ts", "client.ts", "vite.d.ts", "runtime/env.d.ts"]
 }

@@ -47,6 +47,26 @@ func proxy(appAddr string, wait time.Duration, down func() error, version func()
 	}
 }
 
+// viteProxy forwards requests to Vite's dev server at addr, its HMR websocket included. Vite
+// listens from the first build of an application with pages on, so a request before that fails.
+func viteProxy(addr string) http.Handler {
+	target := &url.URL{Scheme: "http", Host: addr}
+	return &httputil.ReverseProxy{
+		Rewrite: func(r *httputil.ProxyRequest) {
+			r.SetURL(target)
+			r.Out.Host = r.In.Host
+			r.SetXForwarded()
+		},
+		FlushInterval: -1,
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			if errors.Is(err, context.Canceled) {
+				return
+			}
+			http.Error(w, "tifa dev: Vite's dev server: "+err.Error(), http.StatusBadGateway)
+		},
+	}
+}
+
 // unavailable answers with a page that shows err and loads the dev client, so the browser shows
 // the build state and reloads once the app is back.
 func unavailable(w http.ResponseWriter, status int, err error) {

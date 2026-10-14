@@ -24,12 +24,6 @@ export interface Injected {
   data: Record<string, RouteResult>
 }
 
-// Assets are the files of the browser bundle a page loads.
-export interface Assets {
-  script: string
-  style?: string
-}
-
 // Boot is what a page rendered without SSR carries in <script id="tifa-data">: the render
 // input, so the browser renders it without asking for data.
 export type Boot = Injected

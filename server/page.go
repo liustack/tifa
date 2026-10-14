@@ -30,9 +30,10 @@ const (
 
 // frontBuild is dist/build.json.
 type frontBuild struct {
-	ID     string `json:"buildId"`
-	Script string `json:"script"`
-	Style  string `json:"style"`
+	ID string `json:"buildId"`
+	// Head is the HTML that loads the browser bundle: stylesheets, module preloads and the entry
+	// script, or under tifa dev the scripts of Vite's dev server.
+	Head string `json:"head"`
 }
 
 // setFront serves pages from dist: dist/build.json names the build and its assets, dist/assets
@@ -64,7 +65,7 @@ func (s *Server) setFront(dist fs.FS, render func(context.Context, ssr.Input) (s
 		}
 		*dir.fsys = sub
 	}
-	if len(s.pages) > 0 && (render == nil || s.build.Script == "") {
+	if len(s.pages) > 0 && (render == nil || s.build.Head == "") {
 		return errors.New("tifa: the application has pages but the build has no bundles")
 	}
 	s.render = render
@@ -376,10 +377,8 @@ func (s *Server) dataOnly(c *tifa.Ctx, items map[string]routeResult, status int)
 	}
 	var b strings.Builder
 	b.WriteString(`<!DOCTYPE html><html><head><meta charset="utf-8">`)
-	if s.build.Style != "" {
-		fmt.Fprintf(&b, `<link rel="stylesheet" href="%s">`, html.EscapeString(s.build.Style))
-	}
-	fmt.Fprintf(&b, `<script type="module" src="%s"></script></head><body><div id="tifa-root"></div>`, html.EscapeString(s.build.Script))
+	b.WriteString(s.build.Head)
+	b.WriteString(`</head><body><div id="tifa-root"></div>`)
 	// json.Marshal escapes <, >, &, U+2028 and U+2029, so the data cannot close the script element.
 	fmt.Fprintf(&b, `<script type="application/json" id="tifa-data">%s</script></body></html>`, boot)
 	c.SetHeader(renderHeader, "none")

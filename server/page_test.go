@@ -55,7 +55,7 @@ func (r *renders) last(t *testing.T) map[string]routeResult {
 }
 
 var dist = fstest.MapFS{
-	"build.json":             {Data: []byte(`{"buildId":"b1","script":"/assets/app-1.js","style":"/assets/app-1.css"}`)},
+	"build.json":             {Data: []byte(`{"buildId":"b1","head":"<link rel=\"stylesheet\" href=\"/assets/app-1.css\"><script type=\"module\" src=\"/assets/app-1.js\"></script>"}`)},
 	"assets/app-1.js":        {Data: []byte("console.log(1)")},
 	"assets/app-1.css":       {Data: []byte("body{}")},
 	"public/robots.txt":      {Data: []byte("User-agent: *")},
@@ -341,7 +341,7 @@ func TestSetFrontNeedsBundlesForPages(t *testing.T) {
 func TestOpenFrontRendersWithTheBundle(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
-		"build.json":      `{"buildId":"b9","script":"/assets/app-9.js"}`,
+		"build.json":      `{"buildId":"b9","head":"<script type=\"module\" src=\"/assets/app-9.js\"></script>"}`,
 		"assets/app-9.js": "hydrate()",
 		"ssr.js": `globalThis.startRender = (json) => {
   const input = JSON.parse(json)

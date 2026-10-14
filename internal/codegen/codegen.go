@@ -23,28 +23,38 @@ import (
 // Dir is the directory, relative to the application root, that holds the generated files.
 const Dir = ".tifa"
 
+// Exports returns the names each of files exports, by file, such as bundle.Node.Exports. Types and
+// names re-exported with export * from another module are left out.
+type Exports func(files []string) (map[string][]string, error)
+
 // Generate returns the generated files of the application at root, by path relative to Dir with
-// forward slashes. dev selects the browser entry of tifa dev, which also loads the refresh
-// client of the dev server.
-func Generate(root string, m *analyze.Manifest, dev bool) (map[string][]byte, error) {
+// forward slashes. dev selects the browser entry of tifa dev, which also loads the reload client
+// of the dev server. exports reads the exports of route.tsx and layout.tsx. It is not called for
+// an application without pages.
+func Generate(root string, m *analyze.Manifest, dev bool, exports Exports) (map[string][]byte, error) {
 	files := map[string][]byte{}
 	configName, config, err := projectConfig(root)
 	if err != nil {
 		return nil, err
 	}
 	if configName != "" {
-		// Check the file now rather than when the built program starts.
-		if _, err := loadConfig(configName, config); err != nil {
-			return nil, err
-		}
 		files[configName] = config
+	}
+	// Check the file now rather than when the built program starts.
+	settings, err := loadConfig(configName, config)
+	if err != nil {
+		return nil, err
+	}
+	target, err := viteTarget(settings.Build.Target)
+	if err != nil {
+		return nil, err
 	}
 	goFiles, err := generateGo(m, configName)
 	if err != nil {
 		return nil, err
 	}
 	maps.Copy(files, goFiles)
-	tsFiles, err := generateTS(root, m, dev)
+	tsFiles, err := generateTS(root, m, dev, exports, target)
 	if err != nil {
 		return nil, err
 	}

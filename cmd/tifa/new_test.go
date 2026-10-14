@@ -92,7 +92,7 @@ func TestNewWritesAnApp(t *testing.T) {
 		"app/todos/todo+/route.go", "app/todos/todo+/route.tsx", "app/todos/todo+/route_test.go",
 		"app/todos/todo.go", "app/todos/todo_test.go",
 		"db.go", "db_test.go", "go.mod", "hooks.go", "hooks_test.go", "package.json", "schema.sql",
-		"tifa.yaml", "tsconfig.json",
+		"tifa.yaml", "tsconfig.json", "vite.config.ts",
 	}
 	if !reflect.DeepEqual(files, want) {
 		t.Fatalf("files %q, want %q", files, want)

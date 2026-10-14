@@ -42,7 +42,7 @@ func built(t *testing.T) (*builder, *fakePipeline) {
 	t.Helper()
 	p := &fakePipeline{fingerprint: "v1"}
 	b := &builder{p: p, log: t.Logf}
-	if err := b.build(context.Background(), everything); err != nil {
+	if _, err := b.build(context.Background(), everything); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Equal(p.calls, all) {
@@ -76,11 +76,22 @@ func TestRebuildMatrix(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			b, p := built(t)
 			p.fingerprint = tc.fingerprint
-			if err := b.build(context.Background(), plan(tc.changes)); err != nil {
+			ran, err := b.build(context.Background(), plan(tc.changes))
+			if err != nil {
 				t.Fatal(err)
 			}
 			if !slices.Equal(p.calls, tc.want) {
 				t.Fatalf("ran %v, want %v", p.calls, tc.want)
+			}
+			// The steps build returns are the ones it ran.
+			want := steps{
+				analyze:  slices.Contains(tc.want, "Analyze"),
+				generate: slices.Contains(tc.want, "Generate"),
+				bundle:   slices.Contains(tc.want, "Bundle"),
+				goBuild:  slices.Contains(tc.want, "GoBuild"),
+			}
+			if ran != want {
+				t.Fatalf("build returned %+v, want %+v", ran, want)
 			}
 		})
 	}
@@ -110,19 +121,19 @@ func TestFailedStepsCarryOver(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			b, p := built(t)
 			p.fingerprint, p.fail = tc.fp, tc.fail
-			err := b.build(context.Background(), plan(tc.first))
+			_, err := b.build(context.Background(), plan(tc.first))
 			if err == nil {
 				t.Fatal("build succeeded, want the error of " + tc.fail)
 			}
 			p.calls, p.fail = nil, ""
-			if err := b.build(context.Background(), plan([]change{{"app/a.tsx", modified}})); err != nil {
+			if _, err := b.build(context.Background(), plan([]change{{"app/a.tsx", modified}})); err != nil {
 				t.Fatal(err)
 			}
 			if !slices.Equal(p.calls, tc.ranNext) {
 				t.Fatalf("next build ran %v, want %v", p.calls, tc.ranNext)
 			}
 			p.calls = nil
-			if err := b.build(context.Background(), plan([]change{{"app/a.tsx", modified}})); err != nil {
+			if _, err := b.build(context.Background(), plan([]change{{"app/a.tsx", modified}})); err != nil {
 				t.Fatal(err)
 			}
 			if !slices.Equal(p.calls, []string{"Bundle"}) {
@@ -135,7 +146,7 @@ func TestFailedStepsCarryOver(t *testing.T) {
 func TestBuildErrorNamesTheStep(t *testing.T) {
 	b, p := built(t)
 	p.fail = "GoBuild"
-	err := b.build(context.Background(), plan([]change{{"app/a.go", modified}}))
+	_, err := b.build(context.Background(), plan([]change{{"app/a.go", modified}}))
 	if err == nil || err.Error() != "go build: GoBuild broke" {
 		t.Fatalf("got %v, want the go build error", err)
 	}
@@ -146,11 +157,11 @@ func TestBuildLogsEachStep(t *testing.T) {
 	var lines []string
 	p := &fakePipeline{fingerprint: "v1"}
 	b := &builder{p: p, log: func(format string, args ...any) { lines = append(lines, fmt.Sprintf(format, args...)) }}
-	if err := b.build(context.Background(), everything); err != nil {
+	if _, err := b.build(context.Background(), everything); err != nil {
 		t.Fatal(err)
 	}
 	lines = nil
-	if err := b.build(context.Background(), plan([]change{{"app/a.go", modified}})); err != nil {
+	if _, err := b.build(context.Background(), plan([]change{{"app/a.go", modified}})); err != nil {
 		t.Fatal(err)
 	}
 	if len(lines) != 3 || !strings.HasPrefix(lines[0], "static analysis done in ") ||
@@ -164,12 +175,12 @@ func TestBuildLogsTheBundleDetail(t *testing.T) {
 	var lines []string
 	p := &fakePipeline{fingerprint: "v1"}
 	b := &builder{p: p, log: func(format string, args ...any) { lines = append(lines, fmt.Sprintf(format, args...)) }}
-	if err := b.build(context.Background(), everything); err != nil {
+	if _, err := b.build(context.Background(), everything); err != nil {
 		t.Fatal(err)
 	}
 	for _, detail := range []string{"", "tailwind 75ms"} {
 		lines, p.detail = nil, detail
-		if err := b.build(context.Background(), plan([]change{{"app/a.tsx", modified}})); err != nil {
+		if _, err := b.build(context.Background(), plan([]change{{"app/a.tsx", modified}})); err != nil {
 			t.Fatal(err)
 		}
 		want := `^bundle done in \d+m?s$`

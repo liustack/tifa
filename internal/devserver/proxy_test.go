@@ -1,6 +1,7 @@
 package devserver
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"io"
@@ -234,5 +235,70 @@ func TestProxyTagsAnswersWithTheVersion(t *testing.T) {
 	resp.Body.Close()
 	if got := resp.Header.Get("Server-Timing"); got != `tifa-dev;desc="v7"` {
 		t.Fatalf("error page Server-Timing %q", got)
+	}
+}
+
+// The Vite proxy passes module requests and the upgrade of Vite's HMR websocket through.
+func TestViteProxyPassesModulesAndWebsockets(t *testing.T) {
+	vite := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Upgrade") != "websocket" {
+			w.Header().Set("Content-Type", "text/javascript")
+			_, _ = io.WriteString(w, "module "+r.URL.Path+" for "+r.Host)
+			return
+		}
+		conn, rw, err := http.NewResponseController(w).Hijack()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer conn.Close()
+		_, _ = rw.WriteString("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+		_ = rw.Flush()
+		line, err := rw.ReadString('\n')
+		if err != nil {
+			return
+		}
+		_, _ = rw.WriteString("echo " + line)
+		_ = rw.Flush()
+	}))
+	defer vite.Close()
+	front := httptest.NewServer(viteProxy(strings.TrimPrefix(vite.URL, "http://")))
+	defer front.Close()
+
+	resp, err := http.Get(front.URL + VitePath + "app/x/route.tsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	host := strings.TrimPrefix(front.URL, "http://")
+	if want := "module " + VitePath + "app/x/route.tsx for " + host; string(body) != want {
+		t.Errorf("got %q, want %q", body, want)
+	}
+
+	conn, err := net.Dial("tcp", host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	_, err = io.WriteString(conn, "GET "+VitePath+" HTTP/1.1\r\nHost: "+host+"\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n"+
+		"Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := bufio.NewReader(conn)
+	switched, err := http.ReadResponse(r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if switched.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("upgrade answered %s", switched.Status)
+	}
+	if _, err := io.WriteString(conn, "ping\n"); err != nil {
+		t.Fatal(err)
+	}
+	if line, err := r.ReadString('\n'); err != nil || line != "echo ping\n" {
+		t.Fatalf("got %q, %v through the upgraded connection", line, err)
 	}
 }

@@ -25,6 +25,8 @@ type buildPipeline struct {
 	calls       []string
 	builds      int
 	fail        string
+	// bundling, when set, gets a channel each Bundle waits on until the test closes it.
+	bundling chan chan struct{}
 }
 
 func (p *buildPipeline) step(name string) error {
@@ -58,8 +60,18 @@ func (p *buildPipeline) setFail(name string) {
 
 func (p *buildPipeline) Analyze(context.Context) (string, error) { return "routes", p.step("Analyze") }
 func (p *buildPipeline) Generate(context.Context) error          { return p.step("Generate") }
-func (p *buildPipeline) Bundle(context.Context) (string, error)  { return "", p.step("Bundle") }
-func (p *buildPipeline) GoBuild(context.Context) error           { return p.step("GoBuild") }
+func (p *buildPipeline) Bundle(context.Context) (string, error) {
+	p.mu.Lock()
+	bundling := p.bundling
+	p.mu.Unlock()
+	if bundling != nil {
+		release := make(chan struct{})
+		bundling <- release
+		<-release
+	}
+	return "", p.step("Bundle")
+}
+func (p *buildPipeline) GoBuild(context.Context) error { return p.step("GoBuild") }
 
 type devRun struct {
 	dir    string
@@ -181,10 +193,13 @@ func TestRunRebuildsAndKeepsTheOldAppOnFailure(t *testing.T) {
 	expectPage(t, d.url+"/", "build 2")
 	expectVersion(t, d.url+"/", v2)
 
+	// Vite updates the open pages after a front end change, so the version stays and they do not
+	// reload. Only the server render changes.
 	writeFile(t, d.dir, "app/list/route.tsx", "export const x = 1")
-	v3 := d.waitVersionAfter(t, v2)
+	d.waitStatus(t, func(st status) bool { return st.Version == v2 && st.Error == "" })
 	expectSteps(t, d.p, "Bundle")
 	expectPage(t, d.url+"/", "build 2")
+	v3 := v2
 
 	d.p.setFail("GoBuild")
 	writeFile(t, d.dir, "app/store.go", "package app // broken")
@@ -202,6 +217,51 @@ func TestRunRebuildsAndKeepsTheOldAppOnFailure(t *testing.T) {
 	writeFile(t, d.dir, "app/store.go", "package app // fixed")
 	d.waitVersionAfter(t, v3)
 	expectPage(t, d.url+"/", "build 3")
+}
+
+// A page requested while the SSR bundle is rebuilt waits for the app that serves the new one, so
+// it never shows the old server render.
+func TestRunHoldsPagesWhileBundling(t *testing.T) {
+	d := startDev(t, "")
+	v1 := d.waitVersionAfter(t, "")
+	d.p.took()
+	bundling := make(chan chan struct{})
+	d.p.mu.Lock()
+	d.p.bundling = bundling
+	d.p.mu.Unlock()
+	writeFile(t, d.dir, "app/list/route.tsx", "export const x = 2")
+	var release chan struct{}
+	select {
+	case release = <-bundling:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no bundle within 5s")
+	}
+	answered := make(chan string, 1)
+	go func() {
+		resp, err := http.Get(d.url + "/")
+		if err != nil {
+			answered <- err.Error()
+			return
+		}
+		resp.Body.Close()
+		answered <- "answered"
+	}()
+	select {
+	case got := <-answered:
+		t.Fatalf("a request during the bundle step got %q before the bundle finished", got)
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case got := <-answered:
+		if got != "answered" {
+			t.Fatal(got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the request still waits 5s after the bundle")
+	}
+	d.waitStatus(t, func(st status) bool { return st.Version == v1 && st.Error == "" })
+	expectSteps(t, d.p, "Bundle")
 }
 
 func TestRunReportsTheAppStopping(t *testing.T) {
