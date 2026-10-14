@@ -221,6 +221,8 @@ test('the rest of the path may be empty, written without the trailing slash', as
   assert(slash.redirect?.location === '/docs', `/docs/ gives ${JSON.stringify(slash)}`)
   // Below a Layout without a page, the rest of the path takes the Layout's URL.
   contains(await render('/media', appData), 'MEDIA_LAYOUT', 'MEDIA_FILE')
+  // Also when the rest of the path has a Layout of its own.
+  for (const url of ['/library', '/library/a/b']) contains(await render(url, appData), 'LIBRARY_LAYOUT', 'SHELF_LAYOUT', 'BOOK')
 })
 
 // hydrateFrom runs the scripts of a server-rendered page the way a browser does and hydrates a
