@@ -386,3 +386,55 @@ func TestWatcherReportsRemovedLinks(t *testing.T) {
 	writeFile(t, shared, "kit/button.tsx", "export const b = 1")
 	expectBatch(t, dir, w)
 }
+
+// The poll for links looks only at the entries that are links themselves, not at every directory
+// reached through one: a linked package with many directories costs one check per poll.
+func TestWatcherPollsOnlyLinks(t *testing.T) {
+	dir, shared, other := newApp(t), t.TempDir(), t.TempDir()
+	writeFile(t, shared, "kit/a/b/c/button.tsx", "export {}")
+	writeFile(t, other, "icons.tsx", "export {}")
+	symlink(t, other, filepath.Join(shared, "kit/a/icons"))
+	symlink(t, filepath.Join(shared, "kit"), filepath.Join(dir, "app/kit"))
+	symlink(t, filepath.Join(shared, "kit/a/b/c/button.tsx"), filepath.Join(dir, "app/button.tsx"))
+	w, err := newWatcher(dir, nil, func(msg string) { t.Log(msg) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.fs.Close()
+	var polled []string
+	testHookLinkPoll = func(rel string) { polled = append(polled, rel) }
+	defer func() { testHookLinkPoll = nil }()
+	if err := w.checkLinks(); err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(polled)
+	if want := []string{"app/button.tsx", "app/kit", "app/kit/a/icons"}; !slices.Equal(polled, want) {
+		t.Fatalf("polled %v, want %v", polled, want)
+	}
+}
+
+// A link that leads to another directory is followed with everything under it.
+func TestWatcherFollowsARetargetedLink(t *testing.T) {
+	dir, first, second := newApp(t), t.TempDir(), t.TempDir()
+	writeFile(t, first, "kit/a/b/old.tsx", "export {}")
+	writeFile(t, second, "kit/a/b/new.tsx", "export {}")
+	link := filepath.Join(dir, "app/kit")
+	symlink(t, filepath.Join(first, "kit"), link)
+	w := startWatcher(t, dir)
+
+	symlink(t, filepath.Join(second, "kit"), link+".tmp")
+	if err := os.Rename(link+".tmp", link); err != nil {
+		t.Fatal(err)
+	}
+	want := []change{{"app/kit/a/b/new.tsx", created}, {"app/kit/a/b/old.tsx", removed}}
+	var got []change
+	for len(got) < len(want) {
+		got = append(got, nextBatch(t, w.changes)...)
+	}
+	sortChanges(got)
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	writeFile(t, second, "kit/a/b/new.tsx", "export const edited = 1")
+	expectBatch(t, dir, w, change{"app/kit/a/b/new.tsx", modified})
+}

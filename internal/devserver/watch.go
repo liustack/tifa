@@ -104,6 +104,7 @@ type watcher struct {
 	files    map[string]string      // checksum of every tracked file
 	dirs     map[string]os.FileInfo // watched directories, as they were when the watch was added
 	real     map[string]string      // real path of each watched directory to its path under root
+	linkDirs map[string]string      // watched directories that are links themselves, to the real path watched
 	warn     func(string)
 	warned   map[string]bool     // paths warned about, to warn once
 	links    map[string][]string // real path of a linked file's target to the links under root
@@ -126,7 +127,7 @@ func newWatcher(root string, ignore []string, warn func(string)) (*watcher, erro
 	}
 	w := &watcher{
 		root: abs, fs: fw, warn: warn, changes: newChanges(),
-		files: map[string]string{}, dirs: map[string]os.FileInfo{}, real: map[string]string{}, warned: map[string]bool{},
+		files: map[string]string{}, dirs: map[string]os.FileInfo{}, real: map[string]string{}, linkDirs: map[string]string{}, warned: map[string]bool{},
 		links: map[string][]string{}, linkOf: map[string]string{}, extDirs: map[string]int{},
 	}
 	if w.rootReal, err = filepath.EvalSymlinks(abs); err != nil {
@@ -147,6 +148,9 @@ func newWatcher(root string, ignore []string, warn func(string)) (*watcher, erro
 // linkPoll is how often the watcher looks at the links it follows. kqueue (macOS, BSD) watches
 // what a link leads to, so removing or replacing the link itself gives no event.
 const linkPoll = 500 * time.Millisecond
+
+// testHookLinkPoll lets tests see each path the link poll looks at.
+var testHookLinkPoll func(rel string)
 
 // run handles file events until ctx is done, then stops watching.
 func (w *watcher) run(ctx context.Context) error {
@@ -183,19 +187,23 @@ func (w *watcher) run(ctx context.Context) error {
 	}
 }
 
-// checkLinks brings every linked file and every directory reached through a link up to date when
-// the link no longer leads where it did.
+// checkLinks brings every linked file and every linked directory up to date when the link no
+// longer leads where it did. It looks only at the links: a directory reached through a link is
+// watched by its real path like any other, and a change of a link above it rescans it.
 func (w *watcher) checkLinks() error {
 	for rel, target := range maps.Clone(w.linkOf) {
+		if testHookLinkPoll != nil {
+			testHookLinkPoll(rel)
+		}
 		if real, err := filepath.EvalSymlinks(w.abs(rel)); err != nil || real != target {
 			if err := w.check(rel); err != nil {
 				return err
 			}
 		}
 	}
-	for real, rel := range maps.Clone(w.real) {
-		if real == filepath.Join(w.rootReal, filepath.FromSlash(rel)) {
-			continue // not reached through a link
+	for rel, real := range maps.Clone(w.linkDirs) {
+		if testHookLinkPoll != nil {
+			testHookLinkPoll(rel)
 		}
 		if now, err := filepath.EvalSymlinks(w.abs(rel)); err == nil && now == real {
 			continue
@@ -331,6 +339,9 @@ func (w *watcher) scan(dir string, deep bool) error {
 		}
 		w.dirs[dir] = info
 		w.real[real] = dir
+		if li, err := os.Lstat(w.abs(dir)); dir != "." && err == nil && li.Mode()&os.ModeSymlink != 0 {
+			w.linkDirs[dir] = real
+		}
 		deep = true
 	}
 	entries, err := os.ReadDir(w.abs(dir))
@@ -425,6 +436,7 @@ func (w *watcher) explain(err error) error {
 // unwatch forgets the watch of dir, not of its subdirectories.
 func (w *watcher) unwatch(dir string) {
 	delete(w.dirs, dir)
+	delete(w.linkDirs, dir)
 	for real, owner := range w.real {
 		if owner == dir {
 			delete(w.real, real)
