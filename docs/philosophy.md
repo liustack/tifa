@@ -30,7 +30,7 @@ What you get:
 
 - Go to definition always lands on the code that runs.
 - What starts when, and in what order, is the code of `OnStart`, top to bottom.
-- Nothing is looked up by name or type at startup, so a dependency that does not exist is a compile error.
+- Nothing is looked up by name or type at startup, so using a resource that is not declared is a compile error. A declared one that `OnStart` has not set up yet is still nil at run time.
 - There is nothing to learn beyond Go.
 
 ## Start small
@@ -53,4 +53,4 @@ What you get:
 
 - `go test ./...`, `go vet ./...` and your editor work on the app as on any Go module.
 - A build is safe to run anywhere, CI included, without the database or the secrets the app needs at run time.
-- An app builds for the platforms Go supports, as one file to copy.
+- An app builds for every platform its QuickJS engine supports (Linux, macOS, Windows and FreeBSD on the common CPUs), as one file to copy.
