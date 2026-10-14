@@ -4,7 +4,7 @@ package projects
 import (
 	"github.com/liustack/tifa"
 
-	root "example.com/domains"
+	"example.com/domains"
 	"example.com/domains/app/projects/project+/orders"
 )
 
@@ -14,7 +14,7 @@ type Project struct {
 }
 
 func ListProjects() []Project {
-	_ = root.DB
+	_ = domains.DB
 	return []Project{{ID: "a", Pending: orders.CountPending("a")}}
 }
 

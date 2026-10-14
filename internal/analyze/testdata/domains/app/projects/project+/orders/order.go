@@ -4,7 +4,7 @@ package orders
 import (
 	"github.com/liustack/tifa"
 
-	root "example.com/domains"
+	"example.com/domains"
 )
 
 type Order struct {
@@ -12,7 +12,7 @@ type Order struct {
 }
 
 func ListOrders(projectID string) []Order {
-	_ = root.DB
+	_ = domains.DB
 	return []Order{{ID: projectID + "-1"}}
 }
 
