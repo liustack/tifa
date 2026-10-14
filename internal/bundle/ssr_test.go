@@ -21,6 +21,18 @@ func buildScript(t *testing.T, root, entry string) (string, []string) {
 	return code, modules
 }
 
+// buildPrinting builds entry of root like buildScript and returns the code and what the build
+// printed, its warnings among it.
+func buildPrinting(t *testing.T, root, entry string) (string, string) {
+	t.Helper()
+	var output strings.Builder
+	code, _, err := script(testdata(t), root, entry, &output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return code, output.String()
+}
+
 func hasModule(modules []string, suffix string) bool {
 	return slices.ContainsFunc(modules, func(m string) bool { return strings.HasSuffix(m, suffix) })
 }
@@ -64,10 +76,11 @@ func TestSSRRejectsNodeAPIsInPageCode(t *testing.T) {
 	}
 }
 
-// A dependency that still loads a Node module in the bundle fails the build at the place it does,
-// whether it requires the module or imports it. A require that a typeof require test guards does
-// not count: QuickJS takes the other branch.
-func TestSSRRejectsNodeAPIsLeftInDependencies(t *testing.T) {
+// A dependency that still loads a Node module in the bundle gets a warning at the place it does,
+// with its package, whether it requires the module or imports it. The build goes on: the module
+// may never load on the server. A require that a typeof require test guards gets none: QuickJS
+// takes the other branch.
+func TestSSRWarnsOfNodeAPIsLeftInDependencies(t *testing.T) {
 	root := copyTestdata(t, "ssr", false)
 	writeTree(t, root, map[string]string{
 		"node_modules/uses-fs/package.json":    `{"name":"uses-fs","main":"index.js"}`,
@@ -80,15 +93,17 @@ func TestSSRRejectsNodeAPIsLeftInDependencies(t *testing.T) {
 			"  return typeof require === 'function' ? require('fs').existsSync(name) : 'safe'\n}\n",
 		"guarded-fs.ts": "import exists from 'guarded-fs'\nglobalThis.result = exists('x')\n",
 	})
-	_, _, err := script(testdata(t), root, "uses-fs.ts", io.Discard)
-	if err == nil || !strings.Contains(err.Error(), filepath.Join("uses-fs", "index.js")+`:1:12: require("fs") loads a Node module`) {
-		t.Errorf("err = %v, want the place of require('fs')", err)
+	want := filepath.Join("node_modules", "uses-fs", "index.js") + `:1:12 (uses-fs): require("fs") loads a Node module`
+	if _, got := buildPrinting(t, root, "uses-fs.ts"); !strings.Contains(got, want) {
+		t.Errorf("uses-fs.ts: the build prints:\n%s\nwant %s", got, want)
 	}
-	_, _, err = script(testdata(t), root, "esm-fs.ts", io.Discard)
-	if err == nil || !strings.Contains(err.Error(), `require("node:fs") loads a Node module`) {
-		t.Errorf("err = %v, want the import of node:fs", err)
+	if _, got := buildPrinting(t, root, "esm-fs.ts"); !strings.Contains(got, `require("node:fs") loads a Node module`) {
+		t.Errorf("esm-fs.ts: the build prints:\n%s\nwant the import of node:fs", got)
 	}
-	code, _ := buildScript(t, root, "guarded-fs.ts")
+	code, got := buildPrinting(t, root, "guarded-fs.ts")
+	if strings.Contains(got, "guarded-fs") {
+		t.Errorf("guarded-fs.ts: the build prints:\n%s", got)
+	}
 	if got := evalResult(t, code); got != "safe" {
 		t.Errorf("guarded require('fs') gives %q", got)
 	}
@@ -243,24 +258,23 @@ func TestSSRKeepsAReactDOMItCannotTrim(t *testing.T) {
 }
 
 // A require whose module name is known only at run time stays in the bundle, and QuickJS has no
-// require: the build fails and names the place.
-func TestSSRRejectsRequireLeftInDependencies(t *testing.T) {
+// require: the build warns of it at its place, with its package.
+func TestSSRWarnsOfRequireLeftInDependencies(t *testing.T) {
 	root := copyTestdata(t, "ssr", false)
 	writeTree(t, root, map[string]string{
 		"node_modules/dynamic-reader/package.json": `{"name":"dynamic-reader","main":"index.cjs"}`,
 		"node_modules/dynamic-reader/index.cjs":    "module.exports = function (name) {\n  return require(name).sep\n}\n",
 		"dynamic.ts":                               "import read from 'dynamic-reader'\nglobalThis.result = read('node:path')\n",
 	})
-	_, _, err := script(testdata(t), root, "dynamic.ts", io.Discard)
-	if err == nil || !strings.Contains(err.Error(), filepath.Join("dynamic-reader", "index.cjs")+":2:10") ||
-		!strings.Contains(err.Error(), "require") {
-		t.Fatalf("err = %v, want the place of the require", err)
+	want := filepath.Join("node_modules", "dynamic-reader", "index.cjs") + ":2:10 (dynamic-reader): require loads a module"
+	if _, got := buildPrinting(t, root, "dynamic.ts"); !strings.Contains(got, want) {
+		t.Fatalf("the build prints:\n%s\nwant %s", got, want)
 	}
 }
 
 // A require declared in a block is bound only in that block: a require after it is still the
-// host's, and the build fails at it.
-func TestSSRRejectsRequireOutsideTheBlockThatDeclaresIt(t *testing.T) {
+// host's. The column counts UTF-16 units, as in the source map.
+func TestSSRWarnsOfRequireOutsideTheBlockThatDeclaresIt(t *testing.T) {
 	root := copyTestdata(t, "ssr", false)
 	writeTree(t, root, map[string]string{
 		"node_modules/dynamic-reader/package.json": `{"name":"dynamic-reader","main":"index.cjs"}`,
@@ -270,52 +284,45 @@ func TestSSRRejectsRequireOutsideTheBlockThatDeclaresIt(t *testing.T) {
 			"  return require(name).sep\n}\n",
 		"dynamic.ts": "import read from 'dynamic-reader'\nglobalThis.result = read('node:path')\n",
 	})
-	_, _, err := script(testdata(t), root, "dynamic.ts", io.Discard)
-	if err == nil || !strings.Contains(err.Error(), filepath.Join("dynamic-reader", "index.cjs")+":4:10") {
-		t.Fatalf("err = %v, want the place of the require", err)
+	_, got := buildPrinting(t, root, "dynamic.ts")
+	if want := filepath.Join("dynamic-reader", "index.cjs") + ":4:10"; !strings.Contains(got, want) || strings.Count(got, "index.cjs:") != 1 {
+		t.Fatalf("the build prints:\n%s\nwant one warning at %s", got, want)
 	}
 }
 
-// A require in code that never runs, such as the branch of an if (false), is dropped from the
-// bundle and does not fail the build.
-func TestSSRAcceptsRequireInDeadCode(t *testing.T) {
-	root := copyTestdata(t, "ssr", false)
-	writeTree(t, root, map[string]string{
-		"node_modules/dynamic-reader/package.json": `{"name":"dynamic-reader","main":"index.cjs"}`,
-		"node_modules/dynamic-reader/index.cjs":    "module.exports = function (name) {\n  if (false) return require(name).sep\n  return '/'\n}\n",
-		"dynamic.ts":                               "import read from 'dynamic-reader'\nglobalThis.result = read('node:path')\n",
-	})
-	code, _ := buildScript(t, root, "dynamic.ts")
-	if got := evalResult(t, code); got != "/" {
-		t.Fatalf("result = %q", got)
-	}
-}
-
-// A require that a typeof require test guards runs only where the host has require, so QuickJS
-// takes the other branch. UMD and isomorphic packages are written this way.
-func TestSSRAcceptsRequireGuardedByTypeof(t *testing.T) {
+// No warning for a require the code never reaches in QuickJS: one in dead code such as the branch
+// of an if (false), one that a typeof require test guards, as UMD and isomorphic packages write
+// it, and one the module declares itself, as a bundle made by browserify does.
+func TestSSRDoesNotWarnOfRequireThatNeverRuns(t *testing.T) {
 	root := copyTestdata(t, "ssr", false)
 	writeTree(t, root, map[string]string{
 		"node_modules/guarded/package.json": `{"name":"guarded","main":"index.cjs"}`,
 		"node_modules/guarded/index.cjs": "module.exports = function (name) {\n" +
+			"  if (false) return require(name).sep\n" +
 			"  var a = typeof require === 'function' ? require(name) : 'a'\n" +
 			"  var b = 'b'\n  if (typeof require !== 'undefined') b = require(name)\n" +
 			"  var c = (typeof require == 'function' && require(name)) || 'c'\n" +
 			"  var d = typeof require === 'undefined' || require(name) ? 'd' : 'x'\n" +
 			"  var e = !(typeof require === 'function') ? 'e' : require(name)\n" +
 			"  var g = 'function' === typeof module && typeof require == 'function' ? require(name) : 'g'\n" +
-			"  return a + b + c + d + e + early(name) + g\n}\n" +
-			"function early(name) {\n  if (typeof require === 'undefined') return 'f'\n  console.log(name)\n  return require(name)\n}\n",
+			"  return a + b + c + d + e + early(name) + g + own\n}\n" +
+			"function early(name) {\n  if (typeof require === 'undefined') return 'f'\n  console.log(name)\n  return require(name)\n}\n" +
+			"var load = (function (require) { return function (n) { return require(n) } })(function (n) { return n + '!' })\n" +
+			"function local(name) { var require = function (n) { return n + '?' }; return require(name) }\n" +
+			"var own = load('h') + local('i')\n",
 		"guarded.ts": "import read from 'guarded'\nglobalThis.result = read('node:path')\n",
 	})
-	code, _ := buildScript(t, root, "guarded.ts")
-	if got := evalResult(t, code); got != "abcdefg" {
+	code, output := buildPrinting(t, root, "guarded.ts")
+	if strings.Contains(output, "guarded") {
+		t.Errorf("the build prints:\n%s", output)
+	}
+	if got := evalResult(t, code); got != "abcdefgh!i?" {
 		t.Fatalf("result = %q", got)
 	}
 }
 
-// A require next to a typeof test that does not guard it still fails the build.
-func TestSSRRejectsRequireTheTypeofTestDoesNotGuard(t *testing.T) {
+// A require next to a typeof test that does not guard it still gets a warning.
+func TestSSRWarnsOfRequireTheTypeofTestDoesNotGuard(t *testing.T) {
 	for name, body := range map[string]string{
 		"other variable": "  return typeof define === 'function' ? require(name) : 'x'\n",
 		"after the test": "  if (typeof require === 'function') console.log(name)\n  return require(name)\n",
@@ -329,29 +336,10 @@ func TestSSRRejectsRequireTheTypeofTestDoesNotGuard(t *testing.T) {
 				"node_modules/unguarded/index.cjs":    "module.exports = function (name) {\n" + body + "}\n",
 				"unguarded.ts":                        "import read from 'unguarded'\nglobalThis.result = read('node:path')\n",
 			})
-			_, _, err := script(testdata(t), root, "unguarded.ts", io.Discard)
-			if err == nil || !strings.Contains(err.Error(), filepath.Join("unguarded", "index.cjs")+":") ||
-				!strings.Contains(err.Error(), "QuickJS has no require") {
-				t.Fatalf("err = %v, want the place of the require", err)
+			if _, got := buildPrinting(t, root, "unguarded.ts"); !strings.Contains(got, filepath.Join("unguarded", "index.cjs")+":") {
+				t.Fatalf("the build prints:\n%s\nwant the place of the require", got)
 			}
 		})
-	}
-}
-
-// A require the module declares itself, as a bundle made by browserify does, and a typeof
-// require test are no require of the host.
-func TestSSRAcceptsRequireTheModuleDeclares(t *testing.T) {
-	root := copyTestdata(t, "ssr", false)
-	writeTree(t, root, map[string]string{
-		"node_modules/own-require/package.json": `{"name":"own-require","main":"index.js"}`,
-		"node_modules/own-require/index.js": "var load = (function (require) { return function (n) { return require(n) } })(function (n) { return n + '!' })\n" +
-			"function local(name) { var require = function (n) { return n + '?' }; return require(name) }\n" +
-			"module.exports = load('a') + local('b') + (typeof require === 'function' ? 'node' : 'host')\n",
-		"own.ts": "import value from 'own-require'\nglobalThis.result = value\n",
-	})
-	code, _ := buildScript(t, root, "own.ts")
-	if got := evalResult(t, code); got != "a!b?host" {
-		t.Fatalf("result = %q", got)
 	}
 }
 

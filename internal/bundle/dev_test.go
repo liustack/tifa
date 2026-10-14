@@ -328,10 +328,10 @@ func TestDevResolvesImportsByTheTsconfigPaths(t *testing.T) {
 	}
 }
 
-// tifa dev checks the unminified bundle the same way: a require in code that never runs is
-// dropped, one a typeof require test guards passes, one that stays fails the build at its place
-// in the source.
-func TestDevChecksTheRequiresLeftInTheBundle(t *testing.T) {
+// tifa dev checks the unminified bundle the same way: no warning for a require in code that never
+// runs or that a typeof require test guards, and a warning at its place in the source for one that
+// stays. The build goes on either way.
+func TestDevWarnsOfTheRequiresLeftInTheBundle(t *testing.T) {
 	root := devApp(t)
 	writeTree(t, root, map[string]string{
 		"app/page/reader.cjs": "module.exports = function (name) {\n  if (false) return require(name).sep\n" +
@@ -339,13 +339,24 @@ func TestDevChecksTheRequiresLeftInTheBundle(t *testing.T) {
 		".tifa/server.ts": "import './runtime/host.js'\nimport read from '../app/page/reader.cjs'\n" +
 			"(globalThis as any).result = read('node:path')\n",
 	})
-	d, err := NewDev(root, freePort(t), io.Discard)
-	if err != nil {
-		t.Fatal(err)
+	build := func() string {
+		var output strings.Builder
+		d, err := NewDev(root, freePort(t), &output)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer d.Close()
+		if _, err := d.Build(filepath.Join(root, "public"), true); err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		// What Node printed is complete once it exited.
+		if err := d.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return output.String()
 	}
-	defer d.Close()
-	if _, err := d.Build(filepath.Join(root, "public"), true); err != nil {
-		t.Fatalf("Build: %v", err)
+	if got := build(); strings.Contains(got, "reader.cjs") {
+		t.Errorf("the build prints:\n%s", got)
 	}
 	code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
 	if err != nil {
@@ -358,8 +369,7 @@ func TestDevChecksTheRequiresLeftInTheBundle(t *testing.T) {
 	writeTree(t, root, map[string]string{
 		"app/page/reader.cjs": "module.exports = function (name) {\n  if (name) return require(name).sep\n  return '/'\n}\n",
 	})
-	_, err = d.Build(filepath.Join(root, "public"), true)
-	if err == nil || !strings.Contains(err.Error(), filepath.Join("app", "page", "reader.cjs")+":2:20") {
-		t.Fatalf("Build: %v, want the place of the require", err)
+	if got := build(); !strings.Contains(got, filepath.Join("app", "page", "reader.cjs")+":2:20: require loads") {
+		t.Fatalf("the build prints:\n%s\nwant the place of the require", got)
 	}
 }

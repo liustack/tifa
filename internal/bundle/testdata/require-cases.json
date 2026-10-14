@@ -578,7 +578,7 @@
  {
   "name": "with-shadow-free",
   "code": "module.exports = function(name) {\nconst require=x=>\"safe\";with ({require:undefined}){return require(name)}\n}\n",
-  "runs": false
+  "runs": true
  },
  {
   "name": "unicode-location",

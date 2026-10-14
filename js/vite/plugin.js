@@ -148,8 +148,8 @@ function resolveRouteModule(ctx, root, source, importer) {
 
 // ssrPlugin applies to the SSR build only. It replaces *.client modules with a stub, refuses Node
 // APIs in page code, trims React's server entry to the renderer actually used, switches core-js to
-// its property-backed internal state, and checks that the bundle is one file that loads no module
-// at run time.
+// its property-backed internal state, checks that the bundle is one file, and warns of the places
+// where it may load a module at run time.
 export function ssrPlugin(getRoot, loadVite) {
   const reactTargets = new Map() // server.edge.js path to the renderer modules it imports
   let coreJS // real directory of the core-js package the application resolves, '' for none
@@ -231,28 +231,34 @@ export function ssrPlugin(getRoot, loadVite) {
       const [chunk] = chunks
       // The map serves the check below only, and is not written.
       if (chunk.sourcemapFileName) delete bundle[chunk.sourcemapFileName]
-      const loads = await hostLoads(chunk, await loadVite(), (code) => this.parse(code), options.dir)
+      const loads = await hostLoads(chunk, await loadVite(), (code) => this.parse(code), getRoot(), options.dir)
       if (loads.length > 0) {
-        this.error(`the SSR bundle loads modules at run time, and QuickJS cannot:\n${loads.join('\n')}`)
+        this.warn(
+          'the SSR bundle may load modules at run time, which QuickJS cannot do: a server render that ' +
+            'reaches one of these places fails. The list is a hint, it may name code no render reaches ' +
+            `and miss some:\n${loads.join('\n')}`,
+        )
       }
     },
   }
 }
 
-// hostLoads returns the places where the bundle still loads a module at run time, which QuickJS
-// cannot do, one "file:line:column: what" line each. It checks a copy of the code made for it:
+// hostLoads returns the places where the bundle may still load a module at run time, which
+// QuickJS cannot do, one "file:line:column (package): what" line each. It checks a copy of the
+// code made for it:
 //
 //   - QuickJS has no require, so typeof require is "undefined" wherever the code does not declare
 //     require. oxc replaces it there and only there, and its minifier then drops the code that
 //     runs only with a require, like any if (false) branch.
 //   - The minifier renames every name the bundle's function declares, so a require that is left
-//     is the host's. In code with a direct eval or a with statement it keeps the names, and a
-//     require declared there counts as the host's too.
+//     is the host's.
 //
 // The bundle loads the Node modules it imports with require("node:fs") and the like (see
 // ssrEnvironment), so they are found the same way. The source maps of the copy and of the chunk
-// name the place in the source.
-async function hostLoads(chunk, vite, parse, dir) {
+// name the place in the source, relative to root.
+async function hostLoads(chunk, vite, parse, root, dir) {
+  // Most bundles never name require or import(), and need no copy.
+  if (!/\brequire\b|\bimport\s*\(/.test(chunk.code)) return []
   const defined = await vite.transformWithOxc(chunk.code, chunk.fileName, {
     lang: 'js',
     define: { 'typeof require': '"undefined"' },
@@ -269,11 +275,11 @@ async function hostLoads(chunk, vite, parse, dir) {
         at: node.start,
         what:
           typeof name === 'string'
-            ? `require(${JSON.stringify(name)}) loads a Node module, which QuickJS does not have`
-            : 'require loads a module by a name known only at run time, and QuickJS has no require: import the module instead',
+            ? `require(${JSON.stringify(name)}) loads a Node module`
+            : 'require loads a module by a name known only at run time',
       })
     } else if (node.type === 'ImportExpression') {
-      found.push({ at: node.start, what: 'import() loads a module at run time, which the SSR bundle cannot do: import it statically' })
+      found.push({ at: node.start, what: 'import() loads a module at run time' })
     }
     for (const [k, value] of Object.entries(node)) {
       for (const child of Array.isArray(value) ? value : [value]) {
@@ -282,43 +288,68 @@ async function hostLoads(chunk, vite, parse, dir) {
     }
   }
   visit(parse(minified.code), null, '')
+  if (found.length === 0) return []
+  // The copy, then the chunk, then the source.
+  const maps = [sourcePositions(minified.map), sourcePositions(defined.map), chunk.map && sourcePositions(chunk.map)]
   const places = found.map(({ at, what }) => {
     const before = minified.code.slice(0, at).split('\n')
     let position = { line: before.length - 1, column: before.at(-1).length }
-    // The copy, then the chunk, then the source.
-    position = originalPosition(minified.map, position.line, position.column)
-    position &&= originalPosition(defined.map, position.line, position.column)
+    position = maps[0](position.line, position.column)
+    position &&= maps[1](position.line, position.column)
     if (!position) return `${chunk.fileName}: ${what}`
-    const source = chunk.map && originalPosition(chunk.map, position.line, position.column)
+    const source = maps[2] && maps[2](position.line, position.column)
     if (!source) return `${chunk.fileName}:${position.line + 1}:${position.column + 1}: ${what}`
     const file = path.resolve(dir ?? '.', chunk.map.sourceRoot ?? '', source.source)
-    return `${file}:${source.line + 1}:${source.column + 1}: ${what}`
+    const name = packageName(file)
+    return `${path.relative(root, file)}:${source.line + 1}:${source.column + 1}${name ? ` (${name})` : ''}: ${what}`
   })
   return [...new Set(places)]
 }
 
-// originalPosition returns the source, line and column (both from 0) that the generated line and
-// column of map come from: the last segment at or before the column. It is null when there is
-// none on that line, or when that segment has no source.
-function originalPosition(map, line, column) {
-  const lines = map.mappings.split(';')
-  if (line >= lines.length) return null
+// sourcePositions decodes map and returns a function that gives the source, line and column (all
+// from 0) that a generated line and column come from: those of the last segment at or before the
+// column. It gives null when there is none on that line, or when that segment has no source.
+function sourcePositions(map) {
+  const lines = []
   // Fields other than the generated column carry over from the segments before, on every line.
-  const state = [0, 0, 0, 0]
-  let best = null
-  for (let i = 0; i <= line; i++) {
+  let source = 0
+  let line = 0
+  let column = 0
+  for (const text of map.mappings.split(';')) {
+    const segments = []
     let generated = 0
-    for (const segment of lines[i].split(',')) {
+    for (const segment of text.split(',')) {
       if (!segment) continue
       const fields = vlq(segment)
       generated += fields[0]
-      if (fields.length >= 4) for (let f = 1; f < 4; f++) state[f] += fields[f]
-      if (i === line && generated <= column) {
-        best = fields.length >= 4 ? { source: map.sources[state[1]], line: state[2], column: state[3] } : null
+      if (fields.length < 4) {
+        segments.push({ generated, position: null })
+        continue
       }
+      source += fields[1]
+      line += fields[2]
+      column += fields[3]
+      segments.push({ generated, position: { source: map.sources[source], line, column } })
     }
+    lines.push(segments)
   }
-  return best
+  return (l, c) => {
+    let best = null
+    for (const segment of lines[l] ?? []) {
+      if (segment.generated > c) break
+      best = segment.position
+    }
+    return best
+  }
+}
+
+// packageName returns the npm package that file belongs to, by the last node_modules in its
+// path, or '' for a file outside node_modules.
+function packageName(file) {
+  const parts = file.split(path.sep)
+  const at = parts.lastIndexOf('node_modules')
+  if (at < 0 || at + 1 >= parts.length) return ''
+  return parts[at + 1].startsWith('@') ? parts.slice(at + 1, at + 3).join('/') : parts[at + 1]
 }
 
 const base64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
