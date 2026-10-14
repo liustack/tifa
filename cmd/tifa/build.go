@@ -51,7 +51,7 @@ executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 				return err
 			}
 			_, pages := files["client.ts"]
-			id, err := bundle.App(root, filepath.Join(root, settings.Public), pages)
+			id, err := bundle.App(root, filepath.Join(root, settings.Public), settings.Target, pages)
 			if err != nil {
 				return err
 			}

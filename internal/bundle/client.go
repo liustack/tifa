@@ -15,6 +15,8 @@ type ClientOptions struct {
 	Outdir   string // output directory for the entry, lazy chunks and CSS
 	Tsconfig string // empty lets esbuild find the nearest tsconfig.json
 	Write    bool   // false keeps the output in memory only
+	// Target is build.target, the browsers the bundle runs in, empty for ES2022.
+	Target string
 	// Plugins run before esbuild's own resolution, for example to resolve
 	// generated framework modules.
 	Plugins []api.Plugin
@@ -44,6 +46,9 @@ func Client(o ClientOptions) (Assets, api.BuildResult, error) {
 func clientBuildOptions(o ClientOptions) (api.BuildOptions, error) {
 	opts, err := buildOptions(o.Root, o.Entry, o.Tsconfig, o.Write, o.Plugins)
 	if err != nil {
+		return opts, err
+	}
+	if err := setTarget(&opts, o.Target); err != nil {
 		return opts, err
 	}
 	opts.Outdir = o.Outdir

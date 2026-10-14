@@ -31,9 +31,12 @@ type Build struct {
 //	dist/public/  a copy of the public directory, when it exists
 //	dist/build.json
 //
+// target is build.target and applies to the browser bundle only. The SSR bundle runs in
+// QuickJS, never in a browser, and keeps ES2022, which QuickJS runs as it is: a lower target
+// would only make rendering slower, a higher one could emit syntax QuickJS lacks.
 // pages is false for an application without route.tsx, which gets no bundles. The generated
 // entries and tsconfig must exist under .tifa. The same input gives the same files and ID.
-func App(root, public string, pages bool) (string, error) {
+func App(root, public, target string, pages bool) (string, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return "", err
@@ -54,7 +57,7 @@ func App(root, public string, pages bool) (string, error) {
 		tsconfig := filepath.Join(".tifa", "tsconfig.json")
 		assets, _, err := Client(ClientOptions{
 			Root: root, Entry: ".tifa/client.ts", Outdir: filepath.Join(dist, "assets"),
-			Tsconfig: tsconfig, Write: true, Plugins: []api.Plugin{generated},
+			Tsconfig: tsconfig, Write: true, Target: target, Plugins: []api.Plugin{generated},
 		})
 		if err != nil {
 			return "", err

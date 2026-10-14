@@ -26,10 +26,12 @@ type Dev struct {
 	client     api.BuildContext // nil while the application has no pages
 	clientOpts api.BuildOptions
 	ssr        api.BuildContext
+	target     string
 }
 
-// NewDev prepares the incremental builds of the application at root.
-func NewDev(root string) (*Dev, error) {
+// NewDev prepares the incremental builds of the application at root. target is build.target,
+// as App takes it. It is read once, a change applies when tifa dev starts again.
+func NewDev(root, target string) (*Dev, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
@@ -38,7 +40,7 @@ func NewDev(root string) (*Dev, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Dev{root: root, dist: filepath.Join(root, ".tifa", "dist"), generated: generated}, nil
+	return &Dev{root: root, dist: filepath.Join(root, ".tifa", "dist"), generated: generated, target: target}, nil
 }
 
 // Close releases the esbuild contexts.
@@ -140,7 +142,7 @@ func (d *Dev) start() error {
 	var err error
 	d.clientOpts, err = clientBuildOptions(ClientOptions{
 		Root: d.root, Entry: ".tifa/client.ts", Outdir: filepath.Join(d.dist, "assets"),
-		Tsconfig: tsconfig, Plugins: []api.Plugin{d.generated},
+		Tsconfig: tsconfig, Target: d.target, Plugins: []api.Plugin{d.generated},
 	})
 	if err != nil {
 		return err

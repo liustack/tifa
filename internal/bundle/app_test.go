@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -42,7 +43,7 @@ func readBuild(t *testing.T, root string) map[string]string {
 
 func TestAppWritesDist(t *testing.T) {
 	root := fakeApp(t)
-	id, err := App(root, filepath.Join(root, "public"), true)
+	id, err := App(root, filepath.Join(root, "public"), "es2022", true)
 	if err != nil {
 		t.Fatalf("App: %v", err)
 	}
@@ -72,20 +73,20 @@ func TestAppWritesDist(t *testing.T) {
 		}
 	}
 	// Same input, same bytes, same ID.
-	again, err := App(root, filepath.Join(root, "public"), true)
+	again, err := App(root, filepath.Join(root, "public"), "es2022", true)
 	if err != nil || again != id {
 		t.Errorf("second build: %s %v, first %s", again, err, id)
 	}
 	// Any byte of the output changes the ID.
 	writeTree(t, root, map[string]string{"public/robots.txt": "User-agent: tifa\n"})
-	if changed, err := App(root, filepath.Join(root, "public"), true); err != nil || changed == id {
+	if changed, err := App(root, filepath.Join(root, "public"), "es2022", true); err != nil || changed == id {
 		t.Errorf("changed public file kept the ID %s (%v)", changed, err)
 	}
 }
 
 func TestAppWithoutPagesOrPublic(t *testing.T) {
 	root := t.TempDir()
-	id, err := App(root, filepath.Join(root, "public"), false)
+	id, err := App(root, filepath.Join(root, "public"), "es2022", false)
 	if err != nil {
 		t.Fatalf("App: %v", err)
 	}
@@ -121,5 +122,55 @@ func TestDistIDTellsFileTreesApart(t *testing.T) {
 	two := write(map[string]string{"public/a": "first", "public/b": "second"})
 	if one == two {
 		t.Errorf("both trees get ID %s", one)
+	}
+}
+
+// build.target lowers the browser bundle. The SSR bundle keeps the syntax QuickJS runs.
+func TestAppHonoursTheTarget(t *testing.T) {
+	assignment := regexp.MustCompile(`\|\|=`)
+	browser := func(root string) string {
+		var all strings.Builder
+		matches, err := filepath.Glob(filepath.Join(root, ".tifa", "dist", "assets", "*.js"))
+		if err != nil || len(matches) == 0 {
+			t.Fatalf("no browser files: %v", err)
+		}
+		for _, m := range matches {
+			data, err := os.ReadFile(m)
+			if err != nil {
+				t.Fatal(err)
+			}
+			all.Write(data)
+		}
+		return all.String()
+	}
+	build := func(target string) (string, string, error) {
+		root := fakeApp(t)
+		writeTree(t, root, map[string]string{
+			"app/page/route.tsx": "import { route } from './+route'\nlet n = (globalThis as any).n\nn ||= route\nexport default n\n",
+		})
+		if _, err := App(root, filepath.Join(root, "public"), target, true); err != nil {
+			return "", "", err
+		}
+		ssr, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return browser(root), string(ssr), nil
+	}
+	old, ssr, err := build("es2020")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assignment.MatchString(old) || !assignment.MatchString(ssr) {
+		t.Errorf("es2020: browser keeps ||= %t, SSR keeps ||= %t", assignment.MatchString(old), assignment.MatchString(ssr))
+	}
+	if modern, _, err := build("es2022"); err != nil || !assignment.MatchString(modern) {
+		t.Errorf("es2022: %v, browser keeps ||= %t", err, assignment.MatchString(modern))
+	}
+	if engines, _, err := build("es2019,chrome90,safari14"); err != nil || assignment.MatchString(engines) {
+		t.Errorf("engines: %v", err)
+	}
+	if _, _, err := build("es1999"); err == nil || !strings.Contains(err.Error(), "es1999") {
+		t.Errorf("unknown target: %v", err)
 	}
 }

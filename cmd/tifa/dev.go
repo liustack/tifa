@@ -49,7 +49,7 @@ reload. A failed build keeps the running app and shows the error in the page.`,
 			if err != nil {
 				return err
 			}
-			front, err := bundle.NewDev(root)
+			front, err := bundle.NewDev(root, settings.Build.Target)
 			if err != nil {
 				return err
 			}

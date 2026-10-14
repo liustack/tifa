@@ -9,7 +9,7 @@ import (
 
 func TestDevRebuildsDist(t *testing.T) {
 	root := fakeApp(t)
-	d, err := NewDev(root)
+	d, err := NewDev(root, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestDevRebuildsDist(t *testing.T) {
 
 func TestDevReportsErrorsAndRecovers(t *testing.T) {
 	root := fakeApp(t)
-	d, err := NewDev(root)
+	d, err := NewDev(root, "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -56,8 +56,8 @@ go tool tifa build
 
 | 路径 | 内容 |
 | --- | --- |
-| `dist/assets/` | 浏览器包，入口 `client.ts`。按路由拆分：除根 Layout 和导出 `head` 的模块外，每个路由模块用 `lazyRouteComponent` 懒加载，各自一个 chunk。文件名都带内容哈希 |
-| `dist/ssr.js` | SSR 包，入口 `server.ts`，单个文件。esbuild 的 `define` 把浏览器入口与样式的 URL 写进 `__TIFA_ASSETS__` |
+| `dist/assets/` | 浏览器包，入口 `client.ts`，语法目标取配置项 `build.target`（默认 `es2020`，写法同 esbuild 的 `--target`：一个 ECMAScript 版本加若干带版本的浏览器，如 `es2019,chrome90,safari14`）。`tifa dev` 启动时读一次这个配置项，改了要重启。按路由拆分：除根 Layout 和导出 `head` 的模块外，每个路由模块用 `lazyRouteComponent` 懒加载，各自一个 chunk。文件名都带内容哈希 |
+| `dist/ssr.js` | SSR 包，入口 `server.ts`，单个文件，语法目标固定为 ES2022（QuickJS 原样能跑的版本，调低只会让渲染变慢，调高可能写出 QuickJS 不支持的语法）。esbuild 的 `define` 把浏览器入口与样式的 URL 写进 `__TIFA_ASSETS__` |
 | `dist/public/` | 配置项 `build.public` 指向的目录（默认 `public`）原样复制，不存在就没有 |
 | `dist/build.json` | `{buildId, script, style}`。构建 ID 是 `dist/` 里其他所有文件（含文件名）的哈希，文件名与内容各自带长度前缀，不同的文件树不会拼出同一串字节。同样的输入得到同样的 ID |
 
