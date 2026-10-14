@@ -101,10 +101,11 @@ type watcher struct {
 	rootReal string   // root with its links resolved
 	ignore   []string // relative directories that are not watched, such as the build output
 	fs       *fsnotify.Watcher
-	files    map[string]string      // checksum of every tracked file
-	dirs     map[string]os.FileInfo // watched directories, as they were when the watch was added
-	real     map[string]string      // real path of each watched directory to its path under root
-	linkDirs map[string]string      // watched directories that are links themselves, to the real path watched
+	files    map[string]string          // checksum of every tracked file
+	dirs     map[string]os.FileInfo     // watched directories, as they were when the watch was added
+	kids     map[string]map[string]bool // tracked files and watched directories by the directory they are in
+	real     map[string]string          // real path of each watched directory to its path under root
+	linkDirs map[string]string          // watched directories that are links themselves, to the real path watched
 	warn     func(string)
 	warned   map[string]bool     // paths warned about, to warn once
 	links    map[string][]string // real path of a linked file's target to the links under root
@@ -127,7 +128,7 @@ func newWatcher(root string, ignore []string, warn func(string)) (*watcher, erro
 	}
 	w := &watcher{
 		root: abs, fs: fw, warn: warn, changes: newChanges(),
-		files: map[string]string{}, dirs: map[string]os.FileInfo{}, real: map[string]string{}, linkDirs: map[string]string{}, warned: map[string]bool{},
+		files: map[string]string{}, dirs: map[string]os.FileInfo{}, kids: map[string]map[string]bool{}, real: map[string]string{}, linkDirs: map[string]string{}, warned: map[string]bool{},
 		links: map[string][]string{}, linkOf: map[string]string{}, extDirs: map[string]int{},
 	}
 	if w.rootReal, err = filepath.EvalSymlinks(abs); err != nil {
@@ -338,6 +339,7 @@ func (w *watcher) scan(dir string, deep bool) error {
 			}
 		}
 		w.dirs[dir] = info
+		w.know(dir)
 		w.real[real] = dir
 		if li, err := os.Lstat(w.abs(dir)); dir != "." && err == nil && li.Mode()&os.ModeSymlink != 0 {
 			w.linkDirs[dir] = real
@@ -390,30 +392,40 @@ func (w *watcher) scan(dir string, deep bool) error {
 			return err
 		}
 	}
-	// Remove what is no longer in dir, at any depth: a vanished subdirectory takes its files along.
-	gone := func(p string) (string, bool) {
-		if p == dir || !under(dir, p) {
-			return "", false
-		}
-		rest := strings.TrimPrefix(p, dir+"/")
-		if dir == "." {
-			rest = p
-		}
-		first, _, _ := strings.Cut(rest, "/")
-		child := path.Join(dir, first)
-		return child, !present[child]
-	}
-	for p := range w.files {
-		if child, ok := gone(p); ok {
-			w.removeTree(child)
-		}
-	}
-	for d := range w.dirs {
-		if child, ok := gone(d); ok {
+	// Remove what is no longer in dir: a vanished subdirectory takes its files along.
+	for child := range w.kids[dir] {
+		if !present[child] {
 			w.removeTree(child)
 		}
 	}
 	return nil
+}
+
+// know records rel, a tracked file or a watched directory, under the directory it is in.
+func (w *watcher) know(rel string) {
+	if rel == "." {
+		return
+	}
+	parent := path.Dir(rel)
+	if w.kids[parent] == nil {
+		w.kids[parent] = map[string]bool{}
+	}
+	w.kids[parent][rel] = true
+}
+
+// forget undoes know once rel is neither a tracked file nor a watched directory.
+func (w *watcher) forget(rel string) {
+	if _, ok := w.files[rel]; ok {
+		return
+	}
+	if _, ok := w.dirs[rel]; ok {
+		return
+	}
+	parent := path.Dir(rel)
+	delete(w.kids[parent], rel)
+	if len(w.kids[parent]) == 0 {
+		delete(w.kids, parent)
+	}
 }
 
 func tooManyFiles(err error) bool {
@@ -436,6 +448,7 @@ func (w *watcher) explain(err error) error {
 // unwatch forgets the watch of dir, not of its subdirectories.
 func (w *watcher) unwatch(dir string) {
 	delete(w.dirs, dir)
+	w.forget(dir)
 	delete(w.linkDirs, dir)
 	for real, owner := range w.real {
 		if owner == dir {
@@ -483,6 +496,7 @@ func (w *watcher) check(rel string) error {
 	}
 	if old := w.files[rel]; sum != old {
 		w.files[rel] = sum
+		w.know(rel)
 		w.changes.add(rel, old, sum)
 	}
 	return nil
@@ -549,6 +563,7 @@ func (w *watcher) removeTree(rel string) {
 	for p, sum := range w.files {
 		if under(rel, p) {
 			delete(w.files, p)
+			w.forget(p)
 			w.unlink(p)
 			w.changes.add(p, sum, "")
 		}
