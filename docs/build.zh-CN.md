@@ -139,7 +139,7 @@ SSR 包开头引入 `runtime/host.js`，它补上 QuickJS 缺的 `URL`、`TextEn
 
 - `rootDirs: ["..", "."]`：TypeScript 把 `.tifa/app/x/+route.ts` 当成 `app/x/+route.ts`，源码里 `import { route } from './+route'` 能解析，`'./+layout'`、`'../../+layout'` 这样的 Layout 模块也一样。
 - `paths: { "tifa/client": ["./runtime/client.ts"] }`：页面代码引用 `clientOnly`、`RouteError` 的固定模块名。
-- `paths: { "@/*": ["../*"] }`：`@/` 指向应用根目录，`@/components/ui/button` 就是应用里的 `components/ui/button.tsx`。shadcn/ui 和很多 React 项目都用这个别名。esbuild 读的是同一份 tsconfig，打包时也能解析它。不要在应用自己的 tsconfig 里写 `paths`：TypeScript 会改用它，丢掉 `tifa/client`。
+- `paths: { "@/*": ["./*", "../*"] }`：`@/` 指向应用根目录，`@/components/ui/button` 就是应用里的 `components/ui/button.tsx`。shadcn/ui 和很多 React 项目都用这个别名。esbuild 读的是同一份 tsconfig，打包时也能解析它。TypeScript 和 esbuild 按 `.tifa/` 解析这些路径，shadcn CLI 按应用根目录解析，两条里总有一条把它们带到应用根目录。第一条也让 `@/client`、`@/server`、`@/routes` 和 `@/runtime/...` 指向 tifa 生成的文件，应用里的文件别用这些名字。不要在应用自己的 tsconfig 里写 `paths`：TypeScript 会改用它，丢掉 `tifa/client`。
 - `include` 逐个列出 `.tifa` 下的入口，因为 TypeScript 的通配会跳过以点开头的目录。
 
 esbuild 不读 `rootDirs`，打包时用 `bundle.Generated(root)` 插件做同样的解析：最后一段是 `+route` 或 `+layout`（可带 `.js` 或 `.ts`）、指向 `app/` 下某个目录的相对导入，不论中间经过几层（`'../../page/+route'` 也行），都解析到 `.tifa/` 里对应的文件。目录没有生成的模块时打包报错。tsconfig 打开了 `allowImportingTsExtensions`，带 `.ts` 的写法 TypeScript 同样接受。
