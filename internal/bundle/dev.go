@@ -40,8 +40,10 @@ func NewDev(root string, port int, output io.Writer) (*Dev, error) {
 	if err != nil {
 		return nil, err
 	}
+	n := NewNode(root, output)
+	n.mode = "development"
 	return &Dev{
-		node: NewNode(root, output),
+		node: n,
 		root: root, dist: filepath.Join(root, ".tifa", "dist"), port: port,
 	}, nil
 }

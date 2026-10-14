@@ -19,6 +19,8 @@
 //	                             answers with its code and the modules in it. go generate ./js
 //	                             builds the SSR host patches this way
 //
+// tifa sets NODE_ENV: production for tifa build, development for tifa dev.
+//
 // The driver ends when stdin closes.
 import fs from 'node:fs'
 import path from 'node:path'

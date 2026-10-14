@@ -94,3 +94,51 @@ func TestDevRunsOneNodeProcess(t *testing.T) {
 		t.Errorf("SSR bundle gives %q, want %q", got, want)
 	}
 }
+
+// tifa build makes a production build whatever NODE_ENV the shell has, so the JSX of the SSR
+// bundle matches the React build in it.
+func TestAppIgnoresInheritedNodeEnv(t *testing.T) {
+	t.Setenv("NODE_ENV", "development")
+	root := devApp(t)
+	n := NewNode(root, io.Discard)
+	defer n.Close()
+	if _, err := App(n, root, filepath.Join(root, "public"), true); err != nil {
+		t.Fatalf("App: %v", err)
+	}
+	code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := evalResult(t, string(code)), "production <ul><li>na</li><li>nb</li></ul>"; got != want {
+		t.Errorf("SSR bundle gives %q, want %q", got, want)
+	}
+}
+
+// tifa dev runs Vite's dev server in development whatever NODE_ENV the shell has, so pages get
+// React Fast Refresh, and the SSR bundle is a production build that renders.
+func TestDevIgnoresInheritedNodeEnv(t *testing.T) {
+	for _, env := range []string{"production", "development"} {
+		t.Run(env, func(t *testing.T) {
+			t.Setenv("NODE_ENV", env)
+			root := devApp(t)
+			d, err := NewDev(root, freePort(t), io.Discard)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer d.Close()
+			if _, err := d.Build(filepath.Join(root, "public"), true); err != nil {
+				t.Fatalf("Build: %v", err)
+			}
+			if !strings.Contains(d.head, "@react-refresh") {
+				t.Errorf("the dev server runs without React Fast Refresh: %s", d.head)
+			}
+			code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, want := evalResult(t, string(code)), "production <ul><li>na</li><li>nb</li></ul>"; got != want {
+				t.Errorf("SSR bundle gives %q, want %q", got, want)
+			}
+		})
+	}
+}

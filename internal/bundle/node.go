@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/liustack/tifa/js"
@@ -20,6 +22,7 @@ import (
 type Node struct {
 	root   string
 	output io.Writer // gets what Node prints, Vite's warnings and errors among it
+	mode   string    // NODE_ENV of the process: production, or development for tifa dev
 
 	mu      sync.Mutex
 	cmd     *exec.Cmd
@@ -31,9 +34,10 @@ type Node struct {
 }
 
 // NewNode prepares a driver for the application at root. Nothing runs until the first request.
-// output receives what Node and Vite print.
+// output receives what Node and Vite print. Its builds are production builds, whatever NODE_ENV
+// tifa runs with.
 func NewNode(root string, output io.Writer) *Node {
-	return &Node{root: root, output: output}
+	return &Node{root: root, output: output, mode: "production"}
 }
 
 // answer is one line the driver writes: the id of the request, an error, and the result fields.
@@ -54,6 +58,11 @@ func (n *Node) start() error {
 	}
 	cmd := exec.Command(node, "--input-type=module", "-e", js.ViteDriver)
 	cmd.Dir = n.root
+	// Vite and @vitejs/plugin-react pick the React build and the JSX transform by NODE_ENV, so
+	// tifa sets it rather than take it from the shell.
+	cmd.Env = append(slices.DeleteFunc(os.Environ(), func(kv string) bool {
+		return strings.HasPrefix(kv, "NODE_ENV=")
+	}), "NODE_ENV="+n.mode)
 	cmd.Stdout, cmd.Stderr = n.output, n.output
 	cmd.ExtraFiles = []*os.File{w} // file descriptor 3
 	stdin, err := cmd.StdinPipe()
