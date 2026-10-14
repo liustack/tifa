@@ -60,7 +60,16 @@ build keeps the running app and shows the error in the page.`,
 				return err
 			}
 			logger := log.New(cmd.ErrOrStderr(), "tifa dev: ", log.Ltime)
-			front, err := bundle.NewDev(root, vitePort, &lineLogger{log: logger})
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			// Runs before front.Close, which waits for the driver's last notice to be taken.
+			defer stop()
+			changed := make(chan string)
+			front, err := bundle.NewDev(root, vitePort, &lineLogger{log: logger}, func(file string) {
+				select {
+				case changed <- file:
+				case <-ctx.Done():
+				}
+			})
 			if err != nil {
 				return err
 			}
@@ -71,13 +80,12 @@ build keeps the running app and shows the error in the page.`,
 				return err
 			}
 			fmt.Fprintf(cmd.ErrOrStderr(), "tifa dev: serving http://%s\n", ln.Addr())
-			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
-			defer stop()
 			return devserver.Run(ctx, ln, devserver.Options{
-				Dir:    root,
-				Ignore: []string{devOutput},
-				App:    []string{exe, "serve", "--dist", filepath.Join(root, codegen.Dir, codegen.DistDir)},
-				Vite:   net.JoinHostPort("127.0.0.1", strconv.Itoa(vitePort)),
+				Dir:     root,
+				Ignore:  []string{devOutput},
+				App:     []string{exe, "serve", "--dist", filepath.Join(root, codegen.Dir, codegen.DistDir)},
+				Vite:    net.JoinHostPort("127.0.0.1", strconv.Itoa(vitePort)),
+				Changed: changed,
 				// The app may wait shutdown_timeout for requests, again for handlers, and once more
 				// for OnShutdown.
 				StopTimeout: 3*settings.Server.ShutdownTimeout + time.Second,

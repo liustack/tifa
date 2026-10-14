@@ -27,6 +27,9 @@
 //
 // tifa sets NODE_ENV: production for tifa build, development for tifa dev.
 //
+// Between answers, the driver writes {notice: "changed", file} for a file outside the root that
+// the dev server's watcher saw added, changed or removed. tifa dev watches the root itself.
+//
 // tifa passes the close timeout in milliseconds as the only argument. The driver closes when
 // stdin ends: it lets the request it runs, the SSR worker and its output finish, and after the
 // close timeout stops and exits, which also ends a request that still runs. So a plugin that never
@@ -58,8 +61,9 @@ try {
 answer({ id: 0, version: vite.version })
 
 const root = process.cwd()
+const realRoot = fs.realpathSync(root)
 // What the tifa plugin and the driver share, see devState in js/vite/plugin.js.
-const devState = (globalThis[Symbol.for('tifa.dev')] ??= { pollFiles: false })
+const devState = (globalThis[Symbol.for('tifa.dev')] ??= { pollFiles: false, changed: null })
 let server = null
 let ssrWorker = null // builds the SSR bundle when this process is not a production one
 
@@ -113,6 +117,7 @@ const ops = {
   },
 
   async serve({ port, pollFiles }) {
+    devState.changed = changedOutside
     const earlier = new Set([...process.stdin.listeners('end'), ...process.listeners('SIGTERM')])
     const create = () =>
       vite.createServer({ root, customLogger: logger, server: { host: '127.0.0.1', port, strictPort: true } })
@@ -320,6 +325,19 @@ function startSSRWorker() {
       await printed
     },
   }
+}
+
+// changedOutside writes a notice for an event of the dev server's watcher about a file outside
+// the root and outside node_modules: the dev server watches what it loads from there, such as a
+// package of the workspace, and the SSR bundle may import it too.
+function changedOutside(event, file) {
+  if (!['add', 'change', 'unlink'].includes(event)) return
+  for (const r of [root, realRoot]) {
+    const rel = path.relative(r, file)
+    if (rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel)) return
+  }
+  if (file.split(/[\\/]/).includes('node_modules')) return
+  fs.writeSync(3, JSON.stringify({ notice: 'changed', file }) + '\n')
 }
 
 // styleLinks returns the tags that link the stylesheets files from Vite's dev server. Vite's

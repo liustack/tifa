@@ -35,7 +35,7 @@ func devParent(root string) {
 	if err != nil {
 		panic(err)
 	}
-	d, err := NewDev(root, port, io.Discard)
+	d, err := NewDev(root, port, io.Discard, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -129,7 +129,7 @@ func TestDevDriverEndsWhenItsParentDiesDuringABuild(t *testing.T) {
 func TestDevCloseEndsABuildThatNeverEnds(t *testing.T) {
 	shortCloseTimeout(t)
 	root, marker := stuckApp(t)
-	d, err := NewDev(root, freePort(t), io.Discard)
+	d, err := NewDev(root, freePort(t), io.Discard, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestDevCloseKillsADriverThatDoesNotExit(t *testing.T) {
 		"  process.stdin.on('end', () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0))\n" +
 		"} }\n" +
 		"export default { plugins: [tifa(), react(), block] }\n"})
-	d, err := NewDev(root, freePort(t), io.Discard)
+	d, err := NewDev(root, freePort(t), io.Discard, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestDevKeepsTheStdinListenersOfPlugins(t *testing.T) {
 func TestDevBuildEndsWithItsContext(t *testing.T) {
 	shortCloseTimeout(t)
 	root, marker := stuckApp(t)
-	d, err := NewDev(root, freePort(t), io.Discard)
+	d, err := NewDev(root, freePort(t), io.Discard, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

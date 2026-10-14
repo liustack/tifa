@@ -27,8 +27,9 @@ const pollInterval = 1000
 // devState is what the plugin and tifa's Vite driver share in the Node process of tifa dev. Vite
 // bundles the config, this file with it, so they meet on globalThis:
 //   - pollFiles: the dev server's watcher polls, for a system that ran out of watches.
+//   - changed(event, file): gets every event of the dev server's watcher.
 function devState() {
-  return (globalThis[Symbol.for('tifa.dev')] ??= { pollFiles: false })
+  return (globalThis[Symbol.for('tifa.dev')] ??= { pollFiles: false, changed: null })
 }
 
 /**
@@ -85,6 +86,7 @@ export function tifa(settings = {}) {
     },
     configureServer(server) {
       const state = devState()
+      server.watcher.on('all', (event, file) => state.changed?.(event, file))
       // chokidar reports a watch the system refused as an error and goes on without it. When the
       // system is out of inotify watches (ENOSPC) or file descriptors, restart with a watcher
       // that polls, which takes neither, so nobody has to raise a system limit.

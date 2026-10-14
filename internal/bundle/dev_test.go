@@ -77,7 +77,7 @@ func nodeChildren(t *testing.T) int {
 func TestDevRunsOneNodeProcess(t *testing.T) {
 	root := devApp(t)
 	before := nodeChildren(t)
-	d, err := NewDev(root, freePort(t), io.Discard)
+	d, err := NewDev(root, freePort(t), io.Discard, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestDevIgnoresInheritedNodeEnv(t *testing.T) {
 		t.Run(env, func(t *testing.T) {
 			t.Setenv("NODE_ENV", env)
 			root := devApp(t)
-			d, err := NewDev(root, freePort(t), io.Discard)
+			d, err := NewDev(root, freePort(t), io.Discard, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -163,7 +163,7 @@ func TestDevSSRUsesTheDevServerURLsOfAssets(t *testing.T) {
 			"(globalThis as any).result = small + ' ' + large\n",
 	})
 	port := freePort(t)
-	d, err := NewDev(root, port, io.Discard)
+	d, err := NewDev(root, port, io.Discard, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +206,7 @@ func TestDevHeadLinksTheStylesheetsOfTheServerRender(t *testing.T) {
 		t.Fatal(err)
 	}
 	port := freePort(t)
-	d, err := NewDev(root, port, io.Discard)
+	d, err := NewDev(root, port, io.Discard, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +305,7 @@ func TestAppResolvesImportsByTheTsconfigPaths(t *testing.T) {
 func TestDevResolvesImportsByTheTsconfigPaths(t *testing.T) {
 	root := aliasApp(t)
 	port := freePort(t)
-	d, err := NewDev(root, port, io.Discard)
+	d, err := NewDev(root, port, io.Discard, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,7 +344,7 @@ func TestDevWarnsOfTheRequiresLeftInTheBundle(t *testing.T) {
 	})
 	build := func() string {
 		var output strings.Builder
-		d, err := NewDev(root, freePort(t), &output)
+		d, err := NewDev(root, freePort(t), &output, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -410,7 +410,7 @@ func TestDevPrintsAllTheSSRWorkerPrinted(t *testing.T) {
 		"} }\n" +
 		"export default { plugins: [tifa(), react(), print] }\n"})
 	output := &slowOutput{}
-	d, err := NewDev(root, freePort(t), output)
+	d, err := NewDev(root, freePort(t), output, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -429,7 +429,7 @@ func TestDevPrintsAllTheSSRWorkerPrinted(t *testing.T) {
 // devBuild builds the dev output of root in a dev session of its own, as a start of tifa dev does.
 func devBuild(t *testing.T, root string) {
 	t.Helper()
-	d, err := NewDev(root, freePort(t), io.Discard)
+	d, err := NewDev(root, freePort(t), io.Discard, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

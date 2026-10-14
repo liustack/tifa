@@ -45,7 +45,7 @@ func TestDevServerWatchesTheRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	port := freePort(t)
-	d, err := NewDev(root, port, io.Discard)
+	d, err := NewDev(root, port, io.Discard, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,6 +72,47 @@ func viteConfig(server string) string {
 		"export default { plugins: [tifa(), react()], server: " + server + " }\n"
 }
 
+// Vite's dev server watches the files outside the root that it loads, such as a package of the
+// workspace, and tifa dev does not. Dev reports their changes, so the SSR bundle is built again.
+func TestDevReportsChangesOutsideTheRoot(t *testing.T) {
+	root := devApp(t)
+	shared := filepath.Join(filepath.Dir(root), "shared")
+	writeTree(t, shared, map[string]string{"card.ts": "export const card = 'outside-one'\n"})
+	writeTree(t, root, map[string]string{
+		"vite.config.ts": viteConfig("{ fs: { allow: ['..'] } }"),
+		"app/page/view.tsx": "import { card } from '../../../shared/card'\n" +
+			"export default function View() { return <p>{card}</p> }\n",
+	})
+	changed := make(chan string, 10)
+	port := freePort(t)
+	d, err := NewDev(root, port, io.Discard, func(file string) { changed <- file })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	card, err := filepath.EvalSymlinks(filepath.Join(shared, "card.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The browser loads the module, which makes Vite watch it.
+	if code := viteModule(t, port, "@fs"+filepath.ToSlash(card)); !strings.Contains(code, "outside-one") {
+		t.Fatalf("the module outside the root is not served: %s", code)
+	}
+	writeTree(t, root, map[string]string{"app/page/view.tsx": "export default function View() { return <p>edited</p> }\n"})
+	writeTree(t, shared, map[string]string{"card.ts": "export const card = 'outside-two'\n"})
+	select {
+	case got := <-changed:
+		if got != card {
+			t.Fatalf("Dev reported %s, want %s, files in the root are tifa dev's", got, card)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no change reported within 5s")
+	}
+}
+
 // When tifa dev polls because the system ran out of watches, Vite's dev server, told by
 // PollFiles, polls too: it restarts with a watcher that polls, which takes no watch or descriptor
 // per file, and edits still reach it.
@@ -80,7 +121,7 @@ func TestDevServerPollsWhenTold(t *testing.T) {
 	// FSEvents takes no descriptor per file, so Vite's watcher would have nothing to give back.
 	writeTree(t, root, map[string]string{"vite.config.ts": viteConfig("{ watch: { useFsEvents: false, usePolling: false } }")})
 	port := freePort(t)
-	d, err := NewDev(root, port, io.Discard)
+	d, err := NewDev(root, port, io.Discard, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +151,7 @@ func TestDevServerPollsWhenTold(t *testing.T) {
 // no descriptor per file.
 func TestDevServerStartsPolling(t *testing.T) {
 	root := devApp(t)
-	d, err := NewDev(root, freePort(t), io.Discard)
+	d, err := NewDev(root, freePort(t), io.Discard, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

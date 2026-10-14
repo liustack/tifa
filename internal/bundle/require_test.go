@@ -177,7 +177,7 @@ func TestDevRequireCases(t *testing.T) {
 	root := devApp(t)
 	writeRequireCases(t, root, cases)
 	var output strings.Builder
-	d, err := NewDev(root, freePort(t), &output)
+	d, err := NewDev(root, freePort(t), &output, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

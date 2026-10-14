@@ -97,11 +97,12 @@ func (p *buildPipeline) PollFiles(context.Context) (bool, error) {
 }
 
 type devRun struct {
-	dir    string
-	url    string
-	p      *buildPipeline
-	out    *syncBuffer
-	events *eventStream
+	dir     string
+	url     string
+	p       *buildPipeline
+	out     *syncBuffer
+	events  *eventStream
+	changed chan<- string // Options.Changed
 }
 
 // startDev runs Run on a small app with the fake pipeline and the fake app until the test ends.
@@ -120,7 +121,9 @@ func startDev(t *testing.T, failFirst string) *devRun {
 		t.Fatal(err)
 	}
 	out := &syncBuffer{}
+	changed := make(chan string)
 	o := Options{
+		Changed:     changed,
 		Dir:         dir,
 		App:         fakeAppCommand(t),
 		Pipeline:    p,
@@ -144,7 +147,7 @@ func startDev(t *testing.T, failFirst string) *devRun {
 			t.Error("Run did not return within 10s after cancel")
 		}
 	})
-	d := &devRun{dir: dir, url: "http://" + ln.Addr().String(), p: p, out: out}
+	d := &devRun{dir: dir, url: "http://" + ln.Addr().String(), p: p, out: out, changed: changed}
 	d.events = connectEvents(t, d.url+eventsPath)
 	return d
 }
@@ -341,6 +344,29 @@ func TestRunHoldsPagesWhileTheAnalysisAddsABundle(t *testing.T) {
 		t.Fatal("the request still waits 5s after the bundle")
 	}
 	expectSteps(t, d.p, "Analyze", "Generate", "Bundle", "GoBuild")
+}
+
+// A file outside the app that Vite's dev server watches, such as a package of the workspace,
+// arrives on Options.Changed and rebuilds the SSR bundle like a front end file of the app.
+func TestRunRebuildsForFilesOutsideTheApp(t *testing.T) {
+	d := startDev(t, "")
+	v1 := d.waitVersionAfter(t, "")
+	d.p.took()
+	parent, err := filepath.EvalSymlinks(filepath.Dir(d.dir)) // Vite names files by their real path
+	if err != nil {
+		t.Fatal(err)
+	}
+	card := filepath.Join(parent, "shared", "card.tsx")
+	select {
+	case d.changed <- card:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run does not take the changed file")
+	}
+	d.waitStatus(t, func(st status) bool { return st.Version == v1 && st.Error == "" })
+	expectSteps(t, d.p, "Bundle")
+	if !strings.Contains(d.out.String(), "../shared/card.tsx modified") {
+		t.Fatalf("the log does not name the file:\n%s", d.out.String())
+	}
 }
 
 // When the system runs out of watches, tifa dev polls and tells Vite's dev server to poll too.

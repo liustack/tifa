@@ -41,13 +41,18 @@ type Dev struct {
 // NewDev prepares the dev build of the application at root, with Vite's dev server on
 // 127.0.0.1:port once the application has pages. output receives what Node and Vite print.
 // Nothing runs before the first call that needs Node.
-func NewDev(root string, port int, output io.Writer) (*Dev, error) {
+//
+// Vite's dev server watches the application root and the files outside it that it loads, such
+// as a package of the workspace. changed, when not nil, gets the absolute path of each of those
+// outside files that changes, from another goroutine: tifa dev watches only the root.
+func NewDev(root string, port int, output io.Writer, changed func(file string)) (*Dev, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
 	}
 	n := NewNode(root, output)
 	n.mode = "development"
+	n.notice = changed
 	return &Dev{
 		node: n,
 		root: root, dist: filepath.Join(root, ".tifa", "dist"), port: port,

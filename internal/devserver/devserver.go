@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -43,6 +44,9 @@ type Options struct {
 	// Vite is the address of Vite's dev server, which Pipeline.Bundle starts. Requests under
 	// VitePath, its module and HMR websocket requests, go there. Empty sends them to the app too.
 	Vite string
+	// Changed gives the absolute paths of files outside Dir that changed, such as a package of the
+	// workspace that Vite's dev server watches. Each counts as a modified file of its kind.
+	Changed <-chan string
 
 	// Debounce is how long the files must stay unchanged before a rebuild starts.
 	Debounce time.Duration
@@ -154,6 +158,18 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 		err := w.run(ctx)
 		cancel()
 		watched <- err
+	}()
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case file := <-o.Changed:
+				if rel, err := filepath.Rel(w.rootReal, file); err == nil {
+					w.changes.touch(filepath.ToSlash(rel))
+				}
+			}
+		}
 	}()
 	go func() {
 		// The system is short of watches: Vite's watcher would run out as well.

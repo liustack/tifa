@@ -61,6 +61,10 @@ func (c *changes) add(path, before, after string) {
 	}
 }
 
+// touch records that path changed, for a file whose content the watcher does not hash, such as
+// one outside the application directory that Vite's dev server watches. It counts as modified.
+func (c *changes) touch(path string) { c.add(path, "unknown", "changed") }
+
 // take returns the batch sorted by path and starts a new one. A file whose content ends up
 // as it was when the batch started is left out, unless it changed while a build ran.
 func (c *changes) take() []change {

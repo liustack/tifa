@@ -23,11 +23,14 @@ import (
 // so Vite loads once. Requests run one at a time, and Close may run during one.
 type Node struct {
 	root   string
-	output io.Writer // gets what Node prints, Vite's warnings and errors among it
-	mode   string    // NODE_ENV of the process: production, or development for tifa dev
+	output io.Writer         // gets what Node prints, Vite's warnings and errors among it
+	mode   string            // NODE_ENV of the process: production, or development for tifa dev
+	notice func(file string) // gets the files the driver reports between answers, nil drops them
 
 	mu      sync.Mutex // held by a request
 	answers *bufio.Scanner
+	replies chan []byte // the answers after the first one, closed when the driver exits
+	readErr error       // why reading stopped, set before replies closes
 	next    int
 	err     error // why the process is gone, nil while it runs or before it starts
 
@@ -128,23 +131,55 @@ func (n *Node) start() error {
 	if first.Error != "" {
 		return errors.New(first.Error)
 	}
+	n.replies = make(chan []byte, 1) // one request at a time, so at most one answer waits
+	go n.readAnswers()
 	return nil
+}
+
+// notice is a line the driver writes without a request: a file outside the root that Vite's dev
+// server saw change.
+type notice struct {
+	Notice string `json:"notice"`
+	File   string `json:"file"`
+}
+
+// readAnswers reads the driver's lines after the first answer. It hands notices to n.notice and
+// answers to n.replies.
+func (n *Node) readAnswers() {
+	defer close(n.replies)
+	for n.answers.Scan() {
+		line := slices.Clone(n.answers.Bytes())
+		var nt notice
+		if json.Unmarshal(line, &nt) == nil && nt.Notice == "changed" {
+			if n.notice != nil {
+				n.notice(nt.File)
+			}
+			continue
+		}
+		n.replies <- line
+	}
+	n.readErr = n.answers.Err()
 }
 
 // read decodes the next answer into v.
 func (n *Node) read(v any) error {
 	if !n.answers.Scan() {
-		err := n.answers.Err()
-		if err == nil {
-			<-n.exited
-			err = errors.New("the Vite driver exited")
-			if waitErr := n.exitErr(); waitErr != nil {
-				err = fmt.Errorf("the Vite driver exited: %w", waitErr)
-			}
-		}
-		return err
+		return n.lost(n.answers.Err())
 	}
 	return json.Unmarshal(n.answers.Bytes(), v)
+}
+
+// lost returns why the driver's answers stopped: err, the error of reading them, or else how the
+// driver exited.
+func (n *Node) lost(err error) error {
+	if err != nil {
+		return err
+	}
+	<-n.exited
+	if waitErr := n.exitErr(); waitErr != nil {
+		return fmt.Errorf("the Vite driver exited: %w", waitErr)
+	}
+	return errors.New("the Vite driver exited")
 }
 
 // call sends the request op with the fields of req and decodes the answer into result, which may
@@ -179,9 +214,9 @@ func (n *Node) call(op string, req map[string]any, result any) error {
 	if _, err := n.stdin.Write(append(line, '\n')); err != nil {
 		return n.fail(fmt.Errorf("the Vite driver stopped: %w", err))
 	}
-	var raw json.RawMessage
-	if err := n.read(&raw); err != nil {
-		return n.fail(err)
+	raw, ok := <-n.replies
+	if !ok {
+		return n.fail(n.lost(n.readErr))
 	}
 	var a answer
 	if err := json.Unmarshal(raw, &a); err != nil {
