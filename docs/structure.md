@@ -63,20 +63,24 @@ myapp/
   ```
 
 - **Tests sit next to the code** they test: `order_test.go` next to `order.go`.
-- **The root package** holds only the hooks and the resources the whole app shares, such as `db.go` and `mail.go`. No domain code. The database schema stays here too: the tables of all domains make up one database, `OnStart` creates them before the app listens, and the root package may not import the domains (see below). Each domain keeps its own queries.
-- Code that belongs to no domain and that several domains use, such as formatting money, goes in its own package named after what it does, such as `money/` at the module root. Any number of domains may import it. It cannot import a domain that imports it. It may import the root package, but then the root package, `hooks.go` included, cannot import it. When it imports neither domains nor the root package, every package of the app may import it, the root package too.
+- **The root package** holds only the hooks and the resources the whole app shares, such as `db.go` and `mail.go`. No domain code. The database schema stays here too: the tables of all domains make up one database, `OnStart` creates them before the app listens, and by the convention below the root package imports nothing under `app/`. Each domain keeps its own queries.
+- Code that belongs to no domain and that several domains use, such as formatting money, goes in its own package named after what it does, such as `money/` at the module root. See below for what it may import.
 
 ### Which way imports go
 
-Go refuses import cycles: if package A imports B, directly or through other packages, B cannot import A. The go command stops with `import cycle not allowed`. In a tifa app this means:
+Go's rule: a package cannot depend on itself. If package A imports B, directly or through other packages, then B cannot import A, directly or through other packages. The go command stops with `import cycle not allowed`. Where the packages sit does not matter, only whether an import leads back. In a tifa app this means:
 
-- **Domains import the root package** by its own name, for `DB` for example: `import "example.com/myapp"`, then `myapp.DB`. The root package, `hooks.go` included, does not import packages under `app/`: a domain imports the root package, so importing that domain, or a page that imports it, is a cycle. The same holds for the root package's tests in `package myapp`. A test in `package myapp_test` may import them.
 - **Pages import domains**: the order page in `order+/` imports `orders` from the folder above, and the project Layout imports `projects`. A page may also import the package of a Layout above it, for `tifa.Use(c, project.Layout)`.
-- **A domain may import another domain, one way only.** In examples/shop, `projects` counts the orders waiting to ship with `orders.CountPending`, so `projects` imports `orders`, and `orders` cannot import `projects`. Where the folders sit does not matter: a folder may import one below it, above it or beside it, as long as nothing imports back.
-- **A domain does not import its own pages.** `order+/` imports `orders`, so `orders` cannot import `order+/`. Keep what both need in the domain.
-- **Tests in the package count as the package.** A test in `package orders` cannot import `projects`, because `projects` imports `orders` (`import cycle not allowed in test`). Put such a test in `package orders_test`.
+- **A domain may import another domain that does not depend on it.** In examples/shop, `projects` counts the orders waiting to ship with `orders.CountPending`, so `projects` imports `orders`, and `orders` cannot import `projects`. A folder may import one below it, above it or beside it, as long as nothing leads back.
+- **A domain cannot import a page that imports it.** `order+/` imports `orders`, so `orders` cannot import `order+/`. Keep what both need in the domain.
+- **Tests in a package count as the package.** A test in `package orders` cannot import `projects`, because `projects` imports `orders` (`import cycle not allowed in test`). A test in `package orders_test` is a package of its own and may import `projects`.
 
-When two domains need each other, move the part both need into one of them, or into a new domain that both import.
+Two more rules are conventions of tifa apps, not limits of Go:
+
+- **The root package, `hooks.go` and its tests in `package myapp` included, imports nothing under `app/`.** Go would let it import a package under `app/` that does not depend on it. But domains import the root package by its own name for `DB` and the other shared resources (`import "example.com/myapp"`, then `myapp.DB`), and once a domain does, the root package can no longer import that domain or any page that imports it. Keeping the root free of `app/` imports means any domain can start using a shared resource without breaking the build. A test in `package myapp_test` is a package of its own and may import domains.
+- **A shared package such as `money/` imports no domain or page, directly or through other packages.** Then every domain can import it. One that imports no package of the app at all can be imported by every package of the app, the root package too. Each import it adds closes a door: once it imports a domain, that domain and every package the domain depends on, such as the root package, cannot import it. Once it imports the root package, the root package cannot import it. Once it imports another shared package, that one cannot import it back.
+
+When two domains need each other, move what one needs into the other, or into a new package that both import and that imports neither, so the imports go one way.
 
 ### When a domain grows
 

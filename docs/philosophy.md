@@ -22,7 +22,7 @@ What you get:
 
 - You can take a domain out, review it or delete it as one unit. A change to one feature touches one folder.
 - The URL in the browser tells you where the code is.
-- Go refuses import cycles, so a call that would close a cycle points at code that sits in the wrong domain.
+- Go refuses import cycles, so two domains cannot depend on each other: the imports between domains always go one way.
 
 ## Wire dependencies by hand
 
