@@ -84,7 +84,7 @@ func TestNewWritesAnApp(t *testing.T) {
 		return err
 	})
 	want := []string{
-		".gitignore", "README.md",
+		".gitignore", "AGENTS.md", "CLAUDE.md", "README.md",
 		"app/about/route.tsx", "app/layout.tsx", "app/route.go", "app/route.tsx", "app/route_test.go", "app/styles.css",
 		"app/todos/todo+/route.go", "app/todos/todo+/route.tsx", "app/todos/todo+/route_test.go",
 		"db.go", "db_test.go", "go.mod", "hooks.go", "hooks_test.go", "package.json", "schema.sql",
@@ -438,5 +438,34 @@ func TestNewTifaYAMLListsEverySetting(t *testing.T) {
 	want.SSR.VMs = c.SSR.VMs
 	if !reflect.DeepEqual(c, want) {
 		t.Fatalf("tifa.yaml with the settings turned on: %+v, want the defaults %+v", c, want)
+	}
+}
+
+// AGENTS.md guides coding agents and links to the docs of tifa, and CLAUDE.md points at it.
+func TestNewWritesAgentNotes(t *testing.T) {
+	withPnpm(t, false)
+	dir := filepath.Join(t.TempDir(), "app")
+	if _, _, err := run(t, "new", dir); err != nil {
+		t.Fatal(err)
+	}
+	claude, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if err != nil || string(claude) != "@AGENTS.md\n" {
+		t.Fatalf("CLAUDE.md: %q, %v", claude, err)
+	}
+	agents, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(agents), "npm run typecheck") {
+		t.Errorf("AGENTS.md does not use the commands of npm:\n%s", agents)
+	}
+	links := regexp.MustCompile(`https://github\.com/liustack/tifa/blob/main/([^)#\s]+)`).FindAllStringSubmatch(string(agents), -1)
+	if len(links) == 0 {
+		t.Fatal("AGENTS.md links to no docs")
+	}
+	for _, link := range links {
+		if _, err := os.Stat(filepath.Join("..", "..", filepath.FromSlash(link[1]))); err != nil {
+			t.Errorf("AGENTS.md links to %s: %v", link[0], err)
+		}
 	}
 }
