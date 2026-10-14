@@ -70,6 +70,8 @@ func TestRebuildMatrix(t *testing.T) {
 		{"removed route", []change{{"app/orders/new/route.tsx", removed}}, "v1", all},
 		{"removed layout", []change{{"app/orders/layout.tsx", removed}}, "v1", all},
 		{"config", []change{{"tifa.yaml", modified}}, "v1", all},
+		{"env", []change{{".env", modified}}, "v1", []string{"Bundle"}},
+		{"env of a mode", []change{{".env.production.local", created}}, "v1", []string{"Bundle"}},
 		{"go and tsx", []change{{"app/orders/store.go", modified}, {"app/app.css", modified}}, "v1", []string{"Analyze", "Bundle", "GoBuild"}},
 	}
 	for _, tc := range cases {
@@ -98,7 +100,7 @@ func TestRebuildMatrix(t *testing.T) {
 }
 
 func TestPlanIgnoresOtherFiles(t *testing.T) {
-	for _, path := range []string{"README.md", "app/logo.png", "app/tifa.yaml", "app/notes.txt"} {
+	for _, path := range []string{"README.md", "app/logo.png", "app/tifa.yaml", "app/notes.txt", "app/.env", ".envrc"} {
 		if s := plan([]change{{path, modified}}); s != (steps{}) {
 			t.Errorf("%s planned %+v, want nothing", path, s)
 		}

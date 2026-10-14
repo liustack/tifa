@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"strings"
 	"time"
 )
 
@@ -54,7 +55,7 @@ type kind int
 const (
 	other    kind = iota
 	goSource      // .go, go.mod, go.sum
-	frontend      // TypeScript, JavaScript, CSS and JSON imported by them
+	frontend      // TypeScript, JavaScript, CSS and JSON imported by them, and Vite's .env files
 	config        // tifa.yaml or tifa.json in the application directory
 )
 
@@ -64,6 +65,12 @@ func kindOf(p string) kind {
 		return config
 	case "go.mod", "go.sum":
 		return goSource
+	case ".env":
+		return frontend
+	}
+	if strings.HasPrefix(p, ".env.") && !strings.Contains(p, "/") {
+		// .env.local, .env.production and the like, which Vite loads into import.meta.env.
+		return frontend
 	}
 	switch path.Ext(p) {
 	case ".go":

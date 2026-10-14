@@ -30,6 +30,7 @@ tifa dev 监视应用根目录，跳过 `.git`、`.tifa`、`node_modules` 和放
 | 改了什么 | 执行的步骤 | 打开着的页面 |
 | --- | --- | --- |
 | `.ts`、`.tsx`、`.js`、`.css`、`.json` | 打包（SSR 包） | 由 Vite 原地更新 |
+| 应用根目录的 `.env` 或 `.env.*` | 打包 | 刷新（Vite 会重启它的开发服务器） |
 | `.go`、`go.mod`、`go.sum` | 静态分析、go build | 刷新 |
 | 上一行且路由清单变了（路由、Load 和 Layout 的返回类型、方法函数的入参和结果类型、钩子等） | 静态分析、生成代码、打包、go build | 刷新 |
 | 新增或删除 `route.tsx`、`layout.tsx`，或改 `tifa.yaml`、`tifa.json` | 全部步骤 | 刷新 |

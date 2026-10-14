@@ -30,6 +30,7 @@ tifa dev watches the app root and skips `.git`, `.tifa`, `node_modules`, and `bi
 | What changed | Steps that run | Open pages |
 | --- | --- | --- |
 | `.ts`, `.tsx`, `.js`, `.css`, `.json` | bundle (the SSR bundle) | Update in place through Vite |
+| `.env` or `.env.*` in the app root | bundle | Reload, as Vite restarts its dev server |
 | `.go`, `go.mod`, `go.sum` | static analysis, go build | Reload |
 | As above, and the route manifest changed (routes, the result types of Load and Layout, the input and result types of handlers, hooks, etc.) | static analysis, code generation, bundle, go build | Reload |
 | A `route.tsx` or `layout.tsx` added or removed, or `tifa.yaml` or `tifa.json` changed | all steps | Reload |
