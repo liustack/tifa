@@ -67,6 +67,8 @@ The step names are `static analysis`, `code generation`, `bundle` and `go build`
 
 You can close the overlay. Closing it does not affect later reloads.
 
+Reloads and the overlay come over tifa dev's own connection, `/__tifa/dev/events`, not Vite's HMR websocket. Vite's dev server only starts in the first bundle step, after static analysis and code generation, and an app without pages never starts it. The page that answers while no app runs, after a first build that failed or a crash, must still show the error and reload once things are fixed, and that works only over a connection that tifa dev itself serves from the start. Every tab of a browser shares this connection through a SharedWorker.
+
 ## Where files go
 
 | Path | Contents |

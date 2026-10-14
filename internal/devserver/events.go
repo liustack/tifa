@@ -20,6 +20,10 @@ type status struct {
 
 // hub keeps the current status and streams it to every connected browser over SSE. A new
 // connection gets the current status first, so it shows a build error that happened before.
+//
+// It is not Vite's HMR websocket: Vite starts only in the first bundle step, and never for an
+// application without pages, yet the page answered while no app runs must show the error and
+// reload once the build is fixed.
 type hub struct {
 	mu     sync.Mutex
 	st     status
