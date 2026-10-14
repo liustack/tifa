@@ -134,6 +134,7 @@ func TestErrorFlowInTheVM(t *testing.T) {
 				t.Errorf("request %d: %d %v %s", i, code, header, body)
 			}
 		}
+		output.waitFor(t, func(string) bool { return onErrors()-before >= 2 })
 		if got := onErrors() - before; got != 2 {
 			t.Errorf("OnError ran %d times:\n%s", got, output)
 		}
@@ -146,7 +147,8 @@ func TestErrorFlowInTheVM(t *testing.T) {
 		if code != 500 || !strings.Contains(body, "reported") {
 			t.Errorf("%d %s", code, body)
 		}
-		if onErrors()-before != 1 || !strings.Contains(output.String(), "render the 404 page") {
+		output.waitFor(t, func(out string) bool { return onErrors()-before >= 1 && strings.Contains(out, "render the 404 page") })
+		if onErrors()-before != 1 {
 			t.Errorf("OnError:\n%s", output)
 		}
 		if time.Since(start) > 10*time.Second {

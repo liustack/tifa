@@ -178,10 +178,13 @@ func lookPath(file, path string) (string, error) {
 	return "", exec.ErrNotFound
 }
 
-// lockedBuffer collects the output of a running process.
+// lockedBuffer collects the output of a running process. A test reads it while the process
+// runs, so a line the process wrote before answering a request may not be here yet: wait for it
+// with waitFor, or for the end of the output with drained.
 type lockedBuffer struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
+	mu      sync.Mutex
+	buf     bytes.Buffer
+	drained chan struct{} // closed once the process closed its output and all of it is here
 }
 
 func (b *lockedBuffer) Write(p []byte) (int, error) {
@@ -196,12 +199,22 @@ func (b *lockedBuffer) String() string {
 	return b.buf.String()
 }
 
+// waitFor waits until ok holds for the output, and fails the test after ten seconds.
+func (b *lockedBuffer) waitFor(t *testing.T, ok func(output string) bool) {
+	t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); !ok(b.String()); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("output never got there:\n%s", b)
+		}
+	}
+}
+
 var listening = regexp.MustCompile(`listening on (http://\S+)`)
 
 // start runs exe on a free port and returns its base URL once it listens.
 func start(t *testing.T, exe string) (base string, cmd *exec.Cmd, output *lockedBuffer) {
 	t.Helper()
-	output = &lockedBuffer{}
+	output = &lockedBuffer{drained: make(chan struct{})}
 	cmd = exec.Command(exe, "--server-addr", "127.0.0.1:0")
 	// The app rejects unknown TIFA_* variables as settings, TIFA_E2E among them.
 	for _, kv := range os.Environ() {
@@ -209,12 +222,17 @@ func start(t *testing.T, exe string) (base string, cmd *exec.Cmd, output *locked
 			cmd.Env = append(cmd.Env, kv)
 		}
 	}
-	stderr, err := cmd.StderrPipe()
+	// Stdout and stderr share one pipe, so the output keeps the order the process wrote it in:
+	// a line printed by OnStart comes before the line saying the app listens.
+	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd.Stdout = output
-	if err := cmd.Start(); err != nil {
+	cmd.Stdout, cmd.Stderr = w, w
+	err = cmd.Start()
+	w.Close()
+	if err != nil {
+		r.Close()
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
@@ -225,12 +243,15 @@ func start(t *testing.T, exe string) (base string, cmd *exec.Cmd, output *locked
 	})
 	found := make(chan string, 1)
 	go func() {
-		scanner := bufio.NewScanner(io.TeeReader(stderr, output))
+		defer close(output.drained)
+		defer r.Close()
+		scanner := bufio.NewScanner(io.TeeReader(r, output))
 		for scanner.Scan() {
 			if m := listening.FindStringSubmatch(scanner.Text()); m != nil {
 				found <- m[1]
 			}
 		}
+		io.Copy(output, r) // a line too long for the scanner
 	}()
 	select {
 	case base = <-found:
@@ -349,6 +370,7 @@ func TestInterfaceApp(t *testing.T) {
 	case <-time.After(15 * time.Second):
 		t.Fatalf("app did not stop after SIGINT:\n%s", output)
 	}
+	<-output.drained
 	if !strings.Contains(output.String(), "apitest: shut down") {
 		t.Errorf("OnShutdown did not run:\n%s", output)
 	}
