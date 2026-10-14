@@ -23,10 +23,9 @@ const (
 	ctxType  = "*" + corePath + ".Ctx"
 )
 
-// handlers maps the OnXxx functions of route.go to their HTTP methods, in manifest order.
-var handlers = []struct{ name, method string }{
-	{"OnGet", "GET"}, {"OnPost", "POST"}, {"OnPut", "PUT"}, {"OnPatch", "PATCH"}, {"OnDelete", "DELETE"},
-}
+// methods lists the HTTP methods whose handlers route.go may declare, each as a function named
+// after it, in manifest order.
+var methods = []string{"GET", "POST", "PUT", "PATCH", "DELETE"}
 
 // hooks lists the hooks of hooks.go with their parameter and result types, in manifest order.
 var hooks = []struct {
@@ -420,19 +419,19 @@ func (a *analyzer) route(d *dirInfo) *route {
 	}
 
 	r.Load, r.uses = a.readLoad(pkg, d.id)
-	for _, h := range handlers {
-		obj := scope.Lookup(h.name)
+	for _, method := range methods {
+		obj := scope.Lookup(method)
 		if obj == nil {
 			continue
 		}
 		if !a.checkFunc(obj, []string{ctxType}, []string{"error"}, "func(c *tifa.Ctx) error") {
 			continue
 		}
-		if h.name == "OnGet" && d.routeTSX {
-			a.errorAt(obj.Pos(), "OnGet is not allowed next to route.tsx: the framework renders GET for a page")
+		if method == "GET" && d.routeTSX {
+			a.errorAt(obj.Pos(), "GET is not allowed next to route.tsx: the framework renders GET for a page")
 			continue
 		}
-		r.Methods = append(r.Methods, h.method)
+		r.Methods = append(r.Methods, method)
 	}
 	r.SSR = a.boolConst(pkg, "SSR", true)
 	r.Cache = a.boolConst(pkg, "Cache", false)
@@ -456,9 +455,9 @@ func (a *analyzer) layout(d *dirInfo) *layout {
 			a.errorAt(obj.Pos(), "a layout does not declare %s, it belongs in route.go", name)
 		}
 	}
-	for _, h := range handlers {
-		if obj := scope.Lookup(h.name); obj != nil {
-			a.errorAt(obj.Pos(), "a layout does not declare %s, handlers belong in route.go", h.name)
+	for _, method := range methods {
+		if obj := scope.Lookup(method); obj != nil {
+			a.errorAt(obj.Pos(), "a layout does not declare %s, handlers belong in route.go", method)
 		}
 	}
 	l.Load, l.uses = a.readLoad(pkg, d.id)

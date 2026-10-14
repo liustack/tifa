@@ -13,7 +13,7 @@ type Order struct {
 	Note string `json:"note"`
 }
 
-func OnGet(c *tifa.Ctx) error {
+func GET(c *tifa.Ctx) error {
 	switch id := c.Param("orderId"); id {
 	case "missing":
 		return tifa.ErrNotFound
@@ -26,7 +26,7 @@ func OnGet(c *tifa.Ctx) error {
 	}
 }
 
-func OnPost(c *tifa.Ctx) error {
+func POST(c *tifa.Ctx) error {
 	var in Order
 	if err := c.Bind(&in); err != nil {
 		return err

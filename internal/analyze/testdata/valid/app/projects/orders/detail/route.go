@@ -13,6 +13,6 @@ func Load(c *tifa.Ctx) (*Order, error) {
 	return &Order{ID: c.Param("projectId") + c.Param("orderId")}, nil
 }
 
-func OnPost(c *tifa.Ctx) error { return c.NoContent(204) }
+func POST(c *tifa.Ctx) error { return c.NoContent(204) }
 
-func OnDelete(c *tifa.Ctx) error { return c.NoContent(204) }
+func DELETE(c *tifa.Ctx) error { return c.NoContent(204) }

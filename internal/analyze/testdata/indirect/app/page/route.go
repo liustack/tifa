@@ -23,7 +23,7 @@ func Load(c *tifa.Ctx) (string, error) {
 	return q("x") + tab + s + lang, err
 }
 
-func OnPost(c *tifa.Ctx) error {
+func POST(c *tifa.Ctx) error {
 	param := c.Param
 	_ = param
 	return nil

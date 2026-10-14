@@ -388,7 +388,7 @@ func TestDistFlagReadsTheFrontEndFromDisk(t *testing.T) {
 // An application without pages serves its public files and answers unmatched URLs with JSON.
 func TestFrontWithoutPagesKeepsJSONErrors(t *testing.T) {
 	s := New(config.Default(), Hooks{})
-	s.register(nil, []Route{{ID: "app/health", Path: "/health", SSR: true, OnGet: func(c *tifa.Ctx) error { return c.Text(200, "ok") }}})
+	s.register(nil, []Route{{ID: "app/health", Path: "/health", SSR: true, GET: func(c *tifa.Ctx) error { return c.Text(200, "ok") }}})
 	if err := s.setFront(fstest.MapFS{"build.json": {Data: []byte(`{"buildId":"b2"}`)}, "public/robots.txt": {Data: []byte("x")}}, nil); err != nil {
 		t.Fatal(err)
 	}

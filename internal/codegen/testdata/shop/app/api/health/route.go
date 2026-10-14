@@ -4,6 +4,6 @@ import "github.com/liustack/tifa"
 
 const Path = "/api/health"
 
-func OnGet(c *tifa.Ctx) error { return c.Text(200, "ok") }
+func GET(c *tifa.Ctx) error { return c.Text(200, "ok") }
 
-func OnPost(c *tifa.Ctx) error { return c.NoContent(204) }
+func POST(c *tifa.Ctx) error { return c.NoContent(204) }

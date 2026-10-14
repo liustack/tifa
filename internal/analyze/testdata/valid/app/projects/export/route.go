@@ -6,4 +6,4 @@ import "github.com/liustack/tifa"
 // must not shrink it.
 const Path = "/exports/projects"
 
-func OnGet(c *tifa.Ctx) error { return c.NoContent(204) }
+func GET(c *tifa.Ctx) error { return c.NoContent(204) }

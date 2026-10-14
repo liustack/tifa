@@ -158,7 +158,7 @@ func (c *Ctx) checkWrite() error {
 	return nil
 }
 
-// Redirect returns an error value. Returning it from Load, OnXxx or OnRequest makes the server redirect.
+// Redirect returns an error value. Returning it from Load, a method handler or OnRequest makes the server redirect.
 func (c *Ctx) Redirect(url string, code int) error {
 	if code < 300 || code > 399 {
 		return fmt.Errorf("tifa: redirect to %s with non-3xx status %d", url, code)

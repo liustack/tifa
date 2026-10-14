@@ -47,7 +47,7 @@ func Load(c *tifa.Ctx) (orders.Order, error) {
 	return orders.Get(c.Param("projectId"), c.Param("orderId"))
 }
 
-func OnPost(c *tifa.Ctx) error {
+func POST(c *tifa.Ctx) error {
 	if err := orders.Ship(c.Param("projectId"), c.Param("orderId")); err != nil {
 		return err
 	}
@@ -57,8 +57,8 @@ func OnPost(c *tifa.Ctx) error {
 
 - `const Path` 是完整的字面量路径，语法同 Go 的 `http.ServeMux`：`{name}`、`{name...}`。`"/"` 只匹配首页。
 - `Load` 返回页面数据，返回类型要能转成 TypeScript（见下文「Load 返回值的 JSON 规则」）。
-- `OnGet`、`OnPost`、`OnPut`、`OnPatch`、`OnDelete` 处理对应的 HTTP 方法。
-- 目录里有 `route.tsx` 就是页面，GET 由框架渲染，这时不能再写 `OnGet`。没有 `route.tsx` 时，`OnXxx` 都是普通接口，可以不写 `Load`。
+- `GET`、`POST`、`PUT`、`PATCH`、`DELETE` 处理和函数同名的 HTTP 方法。
+- 目录里有 `route.tsx` 就是页面，GET 由框架渲染，这时不能再写 `GET`。没有 `route.tsx` 时，这些方法函数都是普通接口，可以不写 `Load`。
 - 全部是包级函数和常量。依赖直接用应用初始化好的全局变量，框架不做依赖注入。
 
 返回错误时：
@@ -102,7 +102,7 @@ const OrderActions = clientOnly(() => import('./actions.client'), <button disabl
 
 ## Layout
 
-`layout.go` 只有 `Load` 和可选的 `SSR` 常量，没有 `Path` 和 `OnXxx`。`layout.tsx` 用 `<Outlet />` 放子路由。
+`layout.go` 只有 `Load` 和可选的 `SSR` 常量，没有 `Path` 和方法函数。`layout.tsx` 用 `<Outlet />` 放子路由。
 
 - Layout 的 `Load` 用 `c.Param` 读的参数，必须出现在它套到的所有页面 `Path` 的公共前缀里，否则构建报错。
 - 同一个 Layout 下切换页面时，Layout 组件不重新挂载，它的状态保留。Layout 的 `Load` 读的参数变了（比如换了一个项目），Layout 重新挂载，状态重置。`Load` 不读的参数变了，状态保留，页面同理。
@@ -177,11 +177,11 @@ func OnError(c *tifa.Ctx, err error) tifa.Error // 意外错误：上报，返�
 
 其他用法都会构建报错，并指出文件和行号，比如：转换成别的类型或接口，赋给已有变量，多个值一起赋值，`return` 它，放进切片、map、数组或通道，`range`，包级变量，`defer`，`go` 语句，传给泛型函数、接口方法、函数变量或模块外的函数（标准库和第三方库）。`return c.Redirect(...)`、`return c.Next()` 不受影响，返回的是方法调用的结果，不是 Ctx 本身。
 
-`Load` 和它调用的函数里不能调用 `c.Request()` 和 `c.Writer()`，通过原始请求读的参数 tifa 看不到。改用 `c.Param`、`c.Query`、`c.Header`、`c.Cookie` 或 `c.Context()`。这两个方法只在 `OnXxx` 和 `OnRequest` 里用。
+`Load` 和它调用的函数里不能调用 `c.Request()` 和 `c.Writer()`，通过原始请求读的参数 tifa 看不到。改用 `c.Param`、`c.Query`、`c.Header`、`c.Cookie` 或 `c.Context()`。这两个方法只在方法函数和 `OnRequest` 里用。
 
 遇到报错时，直接调用 Ctx 的方法，或者把它传给普通函数。只需要请求上下文时传 `c.Context()`，只调用 `c.Context()` 的辅助函数（比如 `auth.User(c)`）跟进后什么也不收集。
 
-tifa 只检查 `Load` 能到达的代码。在 `OnRequest`、`OnXxx` 或别处把 Ctx 存进全局变量或其他共享位置，再在 `Load` 里取出来用，这条路查不到，不要这样写。
+tifa 只检查 `Load` 能到达的代码。在 `OnRequest`、方法函数或别处把 Ctx 存进全局变量或其他共享位置，再在 `Load` 里取出来用，这条路查不到，不要这样写。
 
 ## Load 返回值的 JSON 规则
 

@@ -6,4 +6,4 @@ const Path = "/login"
 
 const SSR = false
 
-func OnPost(c *tifa.Ctx) error { return c.Redirect("/", 303) }
+func POST(c *tifa.Ctx) error { return c.Redirect("/", 303) }

@@ -47,7 +47,7 @@ func Load(c *tifa.Ctx) (orders.Order, error) {
 	return orders.Get(c.Param("projectId"), c.Param("orderId"))
 }
 
-func OnPost(c *tifa.Ctx) error {
+func POST(c *tifa.Ctx) error {
 	if err := orders.Ship(c.Param("projectId"), c.Param("orderId")); err != nil {
 		return err
 	}
@@ -57,8 +57,8 @@ func OnPost(c *tifa.Ctx) error {
 
 - `const Path` is the full literal path, with the same syntax as Go's `http.ServeMux`: `{name}`, `{name...}`. `"/"` matches only the home page.
 - `Load` returns the page data. Its return type must convert to TypeScript (see "JSON rules for what Load returns" below).
-- `OnGet`, `OnPost`, `OnPut`, `OnPatch` and `OnDelete` handle the matching HTTP methods.
-- A folder with a `route.tsx` is a page. The framework renders its GET, so you cannot also write `OnGet`. Without a `route.tsx`, every `OnXxx` is a plain API route and `Load` is optional.
+- `GET`, `POST`, `PUT`, `PATCH` and `DELETE` handle the HTTP method they are named after.
+- A folder with a `route.tsx` is a page. The framework renders its GET, so you cannot also write `GET`. Without a `route.tsx`, every method handler is a plain API route and `Load` is optional.
 - Everything is package-level functions and constants. Use the global variables the app has set up for dependencies. The framework does no dependency injection.
 
 When an error is returned:
@@ -102,7 +102,7 @@ const OrderActions = clientOnly(() => import('./actions.client'), <button disabl
 
 ## Layout
 
-`layout.go` has only `Load` and an optional `SSR` constant. No `Path` and no `OnXxx`. `layout.tsx` places child routes with `<Outlet />`.
+`layout.go` has only `Load` and an optional `SSR` constant. No `Path` and no method handlers. `layout.tsx` places child routes with `<Outlet />`.
 
 - Any parameter a Layout's `Load` reads with `c.Param` must appear in the common prefix of the `Path` of every page it wraps. Otherwise the build fails.
 - When you switch between pages under the same Layout, the Layout component is not remounted and keeps its state. When a parameter the Layout's `Load` reads changes (for example, you move to another project), the Layout remounts and its state resets. When a parameter that `Load` does not read changes, the state is kept. Pages work the same way.
@@ -177,11 +177,11 @@ A value that holds a Ctx may only appear in these five places:
 
 Any other use fails the build and names the file and line. For example: converting it to another type or an interface, assigning it to an existing variable, assigning several values at once, `return`ing it, putting it in a slice, map, array or channel, `range`, package-level variables, `defer`, `go` statements, or passing it to a generic function, an interface method, a function variable or a function outside the module (the standard library and third-party libraries). `return c.Redirect(...)` and `return c.Next()` are fine, because they return the result of a method call, not the Ctx itself.
 
-`Load` and the functions it calls must not call `c.Request()` or `c.Writer()`. tifa cannot see parameters read through the raw request. Use `c.Param`, `c.Query`, `c.Header`, `c.Cookie` or `c.Context()` instead. `c.Request()` and `c.Writer()` are only for `OnXxx` and `OnRequest`.
+`Load` and the functions it calls must not call `c.Request()` or `c.Writer()`. tifa cannot see parameters read through the raw request. Use `c.Param`, `c.Query`, `c.Header`, `c.Cookie` or `c.Context()` instead. `c.Request()` and `c.Writer()` are only for method handlers and `OnRequest`.
 
 When you hit one of these errors, call Ctx methods directly, or pass it to a plain function. If you only need the request context, pass `c.Context()`. A helper that only calls `c.Context()` (such as `auth.User(c)`) collects nothing when tifa follows it.
 
-tifa only checks code that `Load` can reach. If you store a Ctx in a global variable or another shared place from `OnRequest`, `OnXxx` or anywhere else, and then take it out in `Load`, tifa cannot catch it. Do not do this.
+tifa only checks code that `Load` can reach. If you store a Ctx in a global variable or another shared place from `OnRequest`, a method handler or anywhere else, and then take it out in `Load`, tifa cannot catch it. Do not do this.
 
 ## JSON rules for what Load returns
 

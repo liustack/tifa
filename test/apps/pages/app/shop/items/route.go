@@ -15,7 +15,7 @@ func Load(c *tifa.Ctx) (*shop.Item, error) {
 	return &item, nil
 }
 
-func OnPost(c *tifa.Ctx) error {
+func POST(c *tifa.Ctx) error {
 	if _, ok := shop.FindItem(c.Param("itemId")); !ok {
 		return tifa.ErrNotFound
 	}

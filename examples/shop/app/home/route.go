@@ -5,6 +5,6 @@ import "github.com/liustack/tifa"
 
 const Path = "/"
 
-func OnGet(c *tifa.Ctx) error {
+func GET(c *tifa.Ctx) error {
 	return c.Redirect("/projects/studio", 302)
 }

@@ -63,12 +63,12 @@ func testApp() App {
 			{
 				ID: "app/projects/orders", Path: "/projects/{projectId}", Page: true, SSR: true, Layouts: []string{"app", "app/projects"},
 				Load:   func(c *tifa.Ctx) (any, error) { return tifa.Use(c, loadOrders) },
-				OnPost: func(c *tifa.Ctx) error { return c.JSON(201, map[string]string{"created": c.Param("projectId")}) },
+				POST: func(c *tifa.Ctx) error { return c.JSON(201, map[string]string{"created": c.Param("projectId")}) },
 			},
 			{
 				ID: "app/api/health", Path: "/api/health", SSR: true, Layouts: []string{"app"},
-				OnGet:    func(c *tifa.Ctx) error { return c.Text(200, "ok") },
-				OnDelete: func(c *tifa.Ctx) error { return tifa.Error{Status: 409, Message: "busy"} },
+				GET:    func(c *tifa.Ctx) error { return c.Text(200, "ok") },
+				DELETE: func(c *tifa.Ctx) error { return tifa.Error{Status: 409, Message: "busy"} },
 			},
 			{ID: "app/api/nothing", Path: "/api/nothing", SSR: true, Layouts: []string{"app"}},
 		},
@@ -101,7 +101,7 @@ func TestRegisterServesInterfaceRoutes(t *testing.T) {
 	}
 }
 
-// A route without route.tsx and without OnXxx still owns its Path: OnRequest sees the pattern and
+// A route without route.tsx and without method handlers still owns its Path: OnRequest sees the pattern and
 // every method is answered 405.
 func TestRegisterRouteWithoutHandlers(t *testing.T) {
 	var pattern string
@@ -189,12 +189,12 @@ func TestPageLoadErrorsFollowTheErrorFlow(t *testing.T) {
 
 func TestRegisterRejectsInconsistentApps(t *testing.T) {
 	for name, app := range map[string]App{
-		"unknown layout":   {Routes: []Route{{ID: "app/a", Path: "/a", Layouts: []string{"app"}, OnGet: func(*tifa.Ctx) error { return nil }}}},
+		"unknown layout":   {Routes: []Route{{ID: "app/a", Path: "/a", Layouts: []string{"app"}, GET: func(*tifa.Ctx) error { return nil }}}},
 		"duplicate layout": {Layouts: []Layout{{ID: "app"}, {ID: "app"}}},
-		"OnGet on a page":  {Routes: []Route{{ID: "app/a", Path: "/a", Page: true, OnGet: func(*tifa.Ctx) error { return nil }}}},
+		"GET on a page":  {Routes: []Route{{ID: "app/a", Path: "/a", Page: true, GET: func(*tifa.Ctx) error { return nil }}}},
 		"duplicate path": {Routes: []Route{
-			{ID: "app/a", Path: "/a", OnGet: func(*tifa.Ctx) error { return nil }},
-			{ID: "app/b", Path: "/a", OnPost: func(*tifa.Ctx) error { return nil }},
+			{ID: "app/a", Path: "/a", GET: func(*tifa.Ctx) error { return nil }},
+			{ID: "app/b", Path: "/a", POST: func(*tifa.Ctx) error { return nil }},
 		}},
 	} {
 		t.Run(name, func(t *testing.T) {

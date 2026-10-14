@@ -82,7 +82,7 @@ func (w *loadWalk) call(info *types.Info, call *ast.CallExpr, helper bool) {
 		return
 	}
 	if fn, ok := typeutil.Callee(info, call).(*types.Func); ok && rawAccess(fn) {
-		a.errorAt(call.Pos(), "c.%s gives the raw request or response, where the analyzer cannot see which parameters are read: in Load and the functions it calls, use c.Param, c.Query, c.Header, c.Cookie or c.Context() instead. c.Request and c.Writer are for OnXxx handlers and OnRequest", fn.Name())
+		a.errorAt(call.Pos(), "c.%s gives the raw request or response, where the analyzer cannot see which parameters are read: in Load and the functions it calls, use c.Param, c.Query, c.Header, c.Cookie or c.Context() instead. c.Request and c.Writer are for the GET, POST, PUT, PATCH and DELETE handlers and OnRequest", fn.Name())
 		return
 	}
 	if info.Types[call.Fun].IsType() || !callCarriesCtx(info, call) {

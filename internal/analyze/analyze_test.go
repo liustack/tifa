@@ -129,7 +129,7 @@ func TestViolations(t *testing.T) {
 		want [][]string
 	}{
 		{"duppath", [][]string{{"app/b/route.go:3:", `"/items/{key}"`, "app/a/route.go:3"}}},
-		{"ongetpage", [][]string{{"app/page/route.go:7:", "OnGet", "route.tsx"}}},
+		{"ongetpage", [][]string{{"app/page/route.go:7:", "GET", "route.tsx"}}},
 		{"encodedpath", [][]string{
 			{"app/brace/route.go:3:", `"/%7Bx%7D"`, `"{"`},
 			{"app/open/route.go:3:", `"/%7B"`, `"{"`},
@@ -248,7 +248,7 @@ func TestViolations(t *testing.T) {
 		{"typeerror", [][]string{
 			{"app/page/route.go:5:17:", "cannot use"},
 			{"app/dup2/route.go:3:", "duplicates"},
-			{"app/getpage/route.go:7:", "OnGet"},
+			{"app/getpage/route.go:7:", "GET"},
 		}},
 		{"badoutside", [][]string{{"bad/bad.go:3:15:", "cannot use"}}},
 		{"bridge", [][]string{{"app/bad/route.go:5:17:", "cannot use"}}},
@@ -258,7 +258,7 @@ func TestViolations(t *testing.T) {
 			{"app/nopath/route.go:1:", "const Path"},
 			{"app/empty/layout.go:5:", "Path", "layout"},
 			{"app/empty/layout.go:7:", "Load", "func(c *tifa.Ctx) (T, error)"},
-			{"app/empty/layout.go:9:", "OnPost", "layout"},
+			{"app/empty/layout.go:9:", "POST", "layout"},
 			{"app/empty/layout.go:1:", "no pages"},
 		}},
 	}

@@ -64,7 +64,7 @@ func New(cfg config.Config, hooks Hooks) *Server {
 
 var methods = []string{"GET", "POST", "PUT", "PATCH", "DELETE"}
 
-// Handle registers the OnXxx function of a route. The path is registered once without a method,
+// Handle registers a method handler of a route. The path is registered once without a method,
 // so OnRequest runs with the matched pattern even when the method has no handler.
 // Like http.ServeMux, it panics on invalid or conflicting registrations.
 func (s *Server) Handle(method, path string, h func(*tifa.Ctx) error) {

@@ -14,8 +14,8 @@ func Load(c *tifa.Ctx) (shop.Order, error) {
 	return shop.GetOrder(c.Param("projectId"), c.Param("orderId"))
 }
 
-// OnPost ships the order.
-func OnPost(c *tifa.Ctx) error {
+// POST ships the order.
+func POST(c *tifa.Ctx) error {
 	if err := shop.ShipOrder(c.Param("projectId"), c.Param("orderId")); err != nil {
 		return err
 	}

@@ -2,4 +2,4 @@ package nopath
 
 import "github.com/liustack/tifa"
 
-func OnPost(c *tifa.Ctx) error { return nil }
+func POST(c *tifa.Ctx) error { return nil }

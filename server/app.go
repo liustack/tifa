@@ -43,8 +43,8 @@ type Route struct {
 	Page bool
 	// Load returns the result of the route's Load through tifa.Use, nil when the route has none.
 	Load func(c *tifa.Ctx) (any, error)
-	// The OnXxx functions of route.go, nil when absent. A page has no OnGet.
-	OnGet, OnPost, OnPut, OnPatch, OnDelete func(c *tifa.Ctx) error
+	// The handlers of route.go, named after their HTTP methods, nil when absent. A page has no GET.
+	GET, POST, PUT, PATCH, DELETE func(c *tifa.Ctx) error
 	// SSR is false when the route or a Layout in its chain sets SSR = false.
 	SSR bool
 	// Cache is the route's Cache constant.
@@ -87,8 +87,8 @@ func (s *Server) register(layouts []Layout, routes []Route) {
 		}
 		s.path(r.Path)
 		if r.Page {
-			if r.OnGet != nil {
-				panic(fmt.Sprintf("tifa: page %s defines OnGet", r.ID))
+			if r.GET != nil {
+				panic(fmt.Sprintf("tifa: page %s defines GET", r.ID))
 			}
 			s.pages[r.Path] = true
 			s.Handle("GET", r.Path, s.pageHandler(r, chain))
@@ -96,7 +96,7 @@ func (s *Server) register(layouts []Layout, routes []Route) {
 		for _, h := range []struct {
 			method string
 			fn     func(*tifa.Ctx) error
-		}{{"GET", r.OnGet}, {"POST", r.OnPost}, {"PUT", r.OnPut}, {"PATCH", r.OnPatch}, {"DELETE", r.OnDelete}} {
+		}{{"GET", r.GET}, {"POST", r.POST}, {"PUT", r.PUT}, {"PATCH", r.PATCH}, {"DELETE", r.DELETE}} {
 			if h.fn != nil {
 				s.Handle(h.method, r.Path, h.fn)
 			}

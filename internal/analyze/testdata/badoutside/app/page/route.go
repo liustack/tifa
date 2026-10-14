@@ -8,4 +8,4 @@ import (
 const Path = "/page"
 
 // Skipped: the imported package does not type check.
-func OnGet(c *tifa.Ctx) error { _ = bad.Bad; return nil }
+func GET(c *tifa.Ctx) error { _ = bad.Bad; return nil }

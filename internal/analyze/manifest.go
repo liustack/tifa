@@ -58,7 +58,7 @@ type Route struct {
 	Page bool `json:"page"`
 	// Load is nil when the route has no Load.
 	Load *Load `json:"load"`
-	// Methods lists the HTTP methods of the OnXxx functions in the order GET, POST, PUT, PATCH, DELETE.
+	// Methods lists the HTTP methods whose handlers route.go declares, in the order GET, POST, PUT, PATCH, DELETE.
 	Methods []string `json:"methods"`
 	// SSR is false when the route or any Layout in its chain sets SSR = false.
 	SSR bool `json:"ssr"`
