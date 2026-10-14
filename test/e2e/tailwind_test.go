@@ -1,0 +1,86 @@
+package e2e
+
+import (
+	"os"
+	"path/filepath"
+	"regexp"
+	"runtime"
+	"strings"
+	"testing"
+)
+
+var (
+	stylesheet   = regexp.MustCompile(`<link rel="stylesheet" href="([^"]+)">`)
+	tailwindTook = regexp.MustCompile(`bundle done in \S+ \(tailwind \d+ms\)`)
+)
+
+// pageStyle fetches the page at url and the stylesheet it links.
+func pageStyle(t *testing.T, base, path string) string {
+	t.Helper()
+	status, _, body := get(t, base+path)
+	m := stylesheet.FindStringSubmatch(body)
+	if status != 200 || m == nil {
+		t.Fatalf("GET %s: %d, want 200 with a stylesheet:\n%.600s", path, status, body)
+	}
+	status, header, css := get(t, base+m[1])
+	if status != 200 || !strings.HasPrefix(header.Get("Content-Type"), "text/css") {
+		t.Fatalf("GET %s: %d %s", m[1], status, header.Get("Content-Type"))
+	}
+	return css
+}
+
+func expectCSS(t *testing.T, css string, want ...string) {
+	t.Helper()
+	for _, w := range want {
+		if !strings.Contains(css, w) {
+			t.Errorf("stylesheet lacks %s:\n%.1500s", w, css)
+		}
+	}
+}
+
+// test/apps/tailwind imports tailwindcss in its root Layout's stylesheet, defines theme colors and
+// imports a component through the @/ alias. Its build runs the Tailwind CLI, so node stays on PATH.
+func TestTailwindApp(t *testing.T) {
+	skipUnlessEnabled(t)
+	dir := filepath.Join(repoRoot(t), "test", "apps", "tailwind")
+	if _, err := os.Stat(filepath.Join(dir, "node_modules")); err != nil {
+		t.Skip("run pnpm install --frozen-lockfile in test/apps/tailwind first")
+	}
+	exe := buildWith(t, dir, os.Getenv("PATH"))
+	typecheck(t, dir)
+
+	base, _, _ := start(t, exe)
+	expectBody(t, base+"/", `class="rounded-full bg-sky-100`)
+	css := pageStyle(t, base, "/")
+	// Utilities from the Layout, the page and the component, and the app's theme.
+	expectCSS(t, css, ".bg-paper", "--color-paper", ".text-3xl", ".bg-sky-100")
+	for _, unwanted := range []string{"@import", "@theme", ".decoration-wavy"} {
+		if strings.Contains(css, unwanted) {
+			t.Errorf("stylesheet contains %s", unwanted)
+		}
+	}
+}
+
+// tifa dev compiles Tailwind in the bundle step and picks up a class name that a TSX edit adds.
+func TestDevTailwind(t *testing.T) {
+	skipUnlessEnabled(t)
+	if runtime.GOOS == "windows" {
+		t.Skip("tifa dev needs interrupts, which Windows lacks")
+	}
+	d := startDevWith(t, copyApp(t, "tailwind"), os.Getenv("PATH"))
+	out := d.waitLog(t, 0, ready)
+	if !tailwindTook.MatchString(out) {
+		t.Errorf("first build does not tell Tailwind's time:\n%s", out)
+	}
+	v1 := d.waitStatus(t, func(st devStatus) bool { return st.Version != "" && st.Error == "" }).Version
+	expectCSS(t, pageStyle(t, d.base, "/"), ".bg-sky-100")
+
+	mark := d.edit(t, "components/badge.tsx", "rounded-full", "rounded-full decoration-wavy")
+	out = d.waitLog(t, mark, ready)
+	expectSteps(t, "class edit", out, "bundle")
+	if !tailwindTook.MatchString(out) {
+		t.Errorf("class edit does not tell Tailwind's time:\n%s", out)
+	}
+	d.waitStatus(t, func(st devStatus) bool { return st.Version != v1 && st.Error == "" })
+	expectCSS(t, pageStyle(t, d.base, "/"), ".decoration-wavy", ".bg-sky-100")
+}

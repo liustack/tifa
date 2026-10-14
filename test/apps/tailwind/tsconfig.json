@@ -1,0 +1,3 @@
+{
+  "extends": "./.tifa/tsconfig.json"
+}

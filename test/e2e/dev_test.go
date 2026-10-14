@@ -9,24 +9,38 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 )
 
-// devApp copies test/apps/pages into a temporary directory that tifa dev may edit. go.mod points
-// at this repository and node_modules is linked from the original, which must be installed.
+// devApp copies test/apps/pages into a temporary directory that tifa dev may edit.
 func devApp(t *testing.T) string {
 	t.Helper()
-	src := filepath.Join(repoRoot(t), "test", "apps", "pages")
+	return copyApp(t, "pages")
+}
+
+// copyApp copies test/apps/<name> into a temporary directory that tifa dev may edit. go.mod points
+// at this repository and node_modules is linked from the original, which must be installed.
+func copyApp(t *testing.T, name string) string {
+	t.Helper()
+	src := filepath.Join(repoRoot(t), "test", "apps", name)
 	if _, err := os.Stat(filepath.Join(src, "node_modules")); err != nil {
-		t.Skip("run pnpm install --frozen-lockfile in test/apps/pages first")
+		t.Skipf("run pnpm install --frozen-lockfile in test/apps/%s first", name)
 	}
 	dst := t.TempDir()
-	for _, name := range []string{"app", "go.mod", "go.sum", "package.json", "tsconfig.json"} {
-		if out, err := exec.Command("cp", "-R", filepath.Join(src, name), dst).CombinedOutput(); err != nil {
-			t.Fatalf("copy %s: %v\n%s", name, err, out)
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if slices.Contains([]string{"node_modules", ".tifa", "bin"}, e.Name()) {
+			continue
+		}
+		if out, err := exec.Command("cp", "-R", filepath.Join(src, e.Name()), dst).CombinedOutput(); err != nil {
+			t.Fatalf("copy %s: %v\n%s", e.Name(), err, out)
 		}
 	}
 	if err := os.Symlink(filepath.Join(src, "node_modules"), filepath.Join(dst, "node_modules")); err != nil {
@@ -62,6 +76,12 @@ var serving = regexp.MustCompile(`tifa dev: serving (http://\S+)`)
 // startDev runs tifa dev on dir with a PATH that has no node, and follows its SSE events.
 func startDev(t *testing.T, dir string) *devRun {
 	t.Helper()
+	return startDevWith(t, dir, withoutNode(t))
+}
+
+// startDevWith runs tifa dev on dir with the given PATH, and follows its SSE events.
+func startDevWith(t *testing.T, dir, path string) *devRun {
+	t.Helper()
 	d := &devRun{dir: dir, log: &lockedBuffer{}, statuses: make(chan devStatus, 100)}
 	cmd := exec.Command(cli(t), "dev", "--dir", dir, "--addr", "127.0.0.1:0")
 	// The app rejects unknown TIFA_* variables as settings, TIFA_E2E among them.
@@ -70,7 +90,7 @@ func startDev(t *testing.T, dir string) *devRun {
 			cmd.Env = append(cmd.Env, kv)
 		}
 	}
-	cmd.Env = append(cmd.Env, "PATH="+withoutNode(t))
+	cmd.Env = append(cmd.Env, "PATH="+path)
 	cmd.Stdout = d.log
 	cmd.Stderr = d.log
 	if err := cmd.Start(); err != nil {

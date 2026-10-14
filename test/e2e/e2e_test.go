@@ -89,8 +89,16 @@ func build(t *testing.T, app string) (dir, exe string) {
 	return dir, buildAt(t, dir)
 }
 
-// buildAt runs tifa build on the application in dir and returns the executable.
+// buildAt runs tifa build on the application in dir with a PATH that has no node, since an
+// application without Tailwind builds without it, and returns the executable.
 func buildAt(t *testing.T, dir string) (exe string) {
+	t.Helper()
+	return buildWith(t, dir, withoutNode(t))
+}
+
+// buildWith runs tifa build on the application in dir with the given PATH and returns the
+// executable.
+func buildWith(t *testing.T, dir, path string) (exe string) {
 	t.Helper()
 	app := filepath.Base(dir)
 	exe = filepath.Join(t.TempDir(), app)
@@ -103,8 +111,7 @@ func buildAt(t *testing.T, dir string) (exe string) {
 	}
 	before := moduleFiles(t, dir)
 	cmd := exec.Command(cli(t), "build", "--dir", dir, "-o", exe)
-	// The build needs no Node: run it with a PATH that has none.
-	cmd.Env = append(os.Environ(), "PATH="+withoutNode(t), "GOFLAGS=-mod=readonly")
+	cmd.Env = append(os.Environ(), "PATH="+path, "GOFLAGS=-mod=readonly")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("tifa build %s: %v\n%s", app, err, out)
 	}
