@@ -187,6 +187,34 @@ func TestPageLoadErrorsFollowTheErrorFlow(t *testing.T) {
 	}
 }
 
+// A route for the rest of the path also answers its prefix without the trailing slash, with an
+// empty parameter, the way the browser router writes that URL. ServeMux alone would redirect
+// /files to /files/, and the browser router back. A route with the prefix as its own Path keeps it.
+func TestRestOfPathAnswersItsPrefix(t *testing.T) {
+	param := func(c *tifa.Ctx) error { return c.Text(200, c.Pattern()+" "+c.Param("path")) }
+	s := newAppServer(t, App{Routes: []Route{
+		{ID: "app/files/path++/route", Path: "/files/{path...}", SSR: true, GET: param},
+		{ID: "app/docs/route", Path: "/docs", SSR: true, GET: func(c *tifa.Ctx) error { return c.Text(200, "docs") }},
+		{ID: "app/docs/path++/route", Path: "/docs/{path...}", SSR: true, GET: param},
+		{ID: "app/teams/team+/path++/route", Path: "/teams/{team}/{path...}", SSR: true, GET: func(c *tifa.Ctx) error {
+			return c.Text(200, c.Param("team")+" "+c.Param("path"))
+		}},
+	}})
+	for target, want := range map[string]string{
+		"/files":        "/files/{path...} ",
+		"/files/":       "/files/{path...} ",
+		"/files/a/b":    "/files/{path...} a/b",
+		"/docs":         "docs",
+		"/docs/":        "/docs/{path...} ",
+		"/teams/t1":     "t1 ",
+		"/teams/t1/x/y": "t1 x/y",
+	} {
+		if w := send(s, "GET", target, ""); w.Code != 200 || w.Body.String() != want {
+			t.Errorf("GET %s: %d %q, want %q", target, w.Code, w.Body.String(), want)
+		}
+	}
+}
+
 func TestRegisterRejectsInconsistentApps(t *testing.T) {
 	for name, app := range map[string]App{
 		"unknown layout":   {Routes: []Route{{ID: "app/a", Path: "/a", Layouts: []string{"app/layout"}, GET: func(*tifa.Ctx) error { return nil }}}},

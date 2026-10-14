@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"io/fs"
+	"strings"
 	"sync"
 
 	"github.com/liustack/tifa"
@@ -103,6 +104,19 @@ func (s *Server) register(layouts []Layout, routes []Route) {
 			if h.fn != nil {
 				s.Handle(h.method, r.Path, h.fn)
 			}
+		}
+	}
+	// A route for the rest of the path, such as /files/{path...}, also answers /files with an
+	// empty parameter, unless a route has that Path. The browser router writes the URL with an
+	// empty rest that way, and ServeMux alone would redirect it to /files/, which the browser
+	// router redirects back.
+	for _, r := range routes {
+		i := strings.LastIndex(r.Path, "/{")
+		if i <= 0 || !strings.HasSuffix(r.Path, "...}") {
+			continue
+		}
+		if prefix := r.Path[:i]; paths[prefix] == "" {
+			s.mux.Handle(prefix, routeHandler{s: s, pattern: r.Path, methods: s.routes[r.Path]})
 		}
 	}
 }

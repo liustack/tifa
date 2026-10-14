@@ -270,9 +270,12 @@ func tanstackRoutes(nodes []*tsNode) ([]*tsRoute, error) {
 	}
 	// A path route matches its own URL even when no child does, and would load and show the
 	// Layout there. Go matches no route at that URL, so an index route below such a Layout
-	// shows the root's NotFound before anything loads, as for any URL no route matches.
+	// shows the root's NotFound before anything loads, as for any URL no route matches. A page
+	// in the Layout's directory takes the URL, and so does a page for the rest of the path right
+	// below it, with an empty rest.
+	ownsURL := func(c *tsNode) bool { return c.file == "route" && (paths[c] == "/" || paths[c] == "$") }
 	for _, n := range nodes {
-		if n.file == "layout" && n.route.path != "" && !slices.ContainsFunc(n.children, func(c *tsNode) bool { return c.file == "route" && paths[c] == "/" }) {
+		if n.file == "layout" && n.route.path != "" && !slices.ContainsFunc(n.children, ownsURL) {
 			add(n.route, "", "/").unmatched = true
 		}
 	}

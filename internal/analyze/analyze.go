@@ -856,6 +856,28 @@ func (a *analyzer) checkPaths(routes []*route) {
 		}
 		checked = append(checked, r)
 	}
+	// The server also registers the prefix of a route for the rest of the path, /files for
+	// /files/{path...}, unless a route has that path.
+	for _, r := range checked {
+		prefix, ok := restPrefix(r.segs)
+		if !ok || slices.ContainsFunc(checked, func(o *route) bool { return o.Path == formatPath(prefix) }) {
+			continue
+		}
+		for _, other := range checked {
+			if other != r && comparePaths(muxSegments(prefix), muxSegments(other.segs)) == overlaps {
+				a.errorInFile(r.Dir, r.file, "the path %q also answers %q, which conflicts with %q of %s: both match some URLs and neither is more specific", r.Path, formatPath(prefix), other.Path, other.Dir)
+			}
+		}
+	}
+}
+
+// restPrefix returns the segments before the rest of the path {name...} that ends segs, which
+// the route also answers with an empty rest. A Path of only the rest has no such prefix.
+func restPrefix(segs []segment) ([]segment, bool) {
+	if len(segs) < 2 || !segs[len(segs)-1].wildcard {
+		return nil, false
+	}
+	return segs[:len(segs)-1], true
 }
 
 // checkUses finds every call of tifa.Use in the loaded packages. Its function argument must be

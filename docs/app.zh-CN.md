@@ -46,7 +46,7 @@ myapp/
 | --- | --- |
 | `orders` | 字面量 `orders` |
 | `order+` | 参数 `{order}`，用 `c.Param("order")` 读 |
-| `path++` | 剩余路径 `{path...}`，只能是最后一层。Go 里用 `c.Param("path")` 读，TypeScript 的 `Params` 里键是 `_splat` |
+| `path++` | 剩余路径 `{path...}`，只能是最后一层。可以为空：`files/path++` 也接 `/files`。Go 里用 `c.Param("path")` 读，TypeScript 的 `Params` 里键是 `_splat` |
 
 - 字面量目录名只能用 ASCII 字母、数字和 `- . _ ~`。参数名以字母或 `_` 开头，后面跟字母、数字或 `_`，同一个 URL 里不能重复。
 - Go 的包名取自 `package` 那一行，不取目录名。包名按参数起：`project+` 里写 `package project`，别的包 import 它时就叫 `project`。

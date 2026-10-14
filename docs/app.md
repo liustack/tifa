@@ -46,7 +46,7 @@ Every folder below `app/` is one segment of the URL. `app/` itself is `/`.
 | --- | --- |
 | `orders` | the literal `orders` |
 | `order+` | the parameter `{order}`, read with `c.Param("order")` |
-| `path++` | the rest of the path `{path...}`, only as the last folder. `c.Param("path")` reads it in Go, and its key in TypeScript `Params` is `_splat` |
+| `path++` | the rest of the path `{path...}`, only as the last folder. It may be empty: `files/path++` also answers `/files`. `c.Param("path")` reads it in Go, and its key in TypeScript `Params` is `_splat` |
 
 - A literal folder name holds only ASCII letters, digits and `- . _ ~`. A parameter name starts with a letter or `_`, followed by letters, digits or `_`, and appears once per URL.
 - The go command takes the package name from the `package` line, not from the folder. Name the package after the parameter: `project+` holds `package project`, and other packages import it as `project`.

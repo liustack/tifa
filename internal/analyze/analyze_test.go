@@ -254,6 +254,8 @@ func TestViolations(t *testing.T) {
 			{"app/a/b+/route.go:1:", `"/a/{b}"`, `"/{a}/b"`, "conflicts"},
 			{"app/a/b+/c/route.go:1:", `"/a/{b}/c"`, `"/{a}/b/c"`, "conflicts"},
 			{"app/d/b/z+/route.go:1:", `"/d/b/{z}"`, `"/{a}/b/c"`, "conflicts"},
+			{"app/d/q+/rest++/route.go:1:", `"/d/{q}/{rest...}"`, `"/d/{q}"`, `"/{a}/b"`, "conflicts"},
+			{"app/d/q+/rest++/route.go:1:", `"/d/{q}/{rest...}" conflicts`, `"/{a}/b/c"`},
 			{"app/declared/route.go:3:", "Path is not declared"},
 		}},
 		{"paramname", [][]string{
