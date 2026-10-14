@@ -99,6 +99,31 @@ func TestAppCompilesTailwind(t *testing.T) {
 	}
 }
 
+// Tailwind inlines the stylesheets it imports, so their url() paths must become relative to the
+// stylesheet esbuild resolves them from.
+func TestTailwindRewritesURLsOfImportedStylesheets(t *testing.T) {
+	root := tailwindApp(t)
+	writeTree(t, root, map[string]string{
+		"app/page/page.css":        "@import \"tailwindcss\";\n@import \"./fonts/fonts.css\";\n",
+		"app/page/fonts/fonts.css": "@font-face { font-family: Brand; src: url(\"./brand.woff2\") format(\"woff2\") }\n",
+	})
+	file, err := filepath.EvalSymlinks(filepath.Join(root, "app", "page", "page.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	css, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := tailwind(root, file, css)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "./fonts/brand.woff2") {
+		t.Errorf("the font URL was not rewritten:\n%.2000s", out)
+	}
+}
+
 func TestTailwindReportsItsErrors(t *testing.T) {
 	root := tailwindApp(t)
 	writeTree(t, root, map[string]string{"app/page/extra.css": ".brand { @apply no-such-utility; }\n"})
@@ -112,7 +137,7 @@ func TestTailwindNeedsNode(t *testing.T) {
 	root := tailwindApp(t)
 	t.Setenv("PATH", t.TempDir())
 	_, err := App(root, filepath.Join(root, "public"), "", true)
-	if err == nil || !strings.Contains(err.Error(), "app/page/page.css uses Tailwind CSS, whose CLI runs on Node, and node is not on PATH") {
+	if err == nil || !strings.Contains(err.Error(), "app/page/page.css uses Tailwind CSS, which runs on Node, and node is not on PATH") {
 		t.Fatalf("got %v, want the missing node", err)
 	}
 }
