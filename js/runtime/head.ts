@@ -1,6 +1,8 @@
 // The head of a page: the tags the head functions of the matched routes return, written as an
 // HTML string on the server and kept up to date in document.head by the browser. React renders
 // only the application root inside <body>, so neither side renders the head through React.
+// Both sides turn a tag's attributes into HTML attributes with the same function, attribute,
+// which follows what React DOM writes on the server.
 
 // Tag is one element of the head.
 export interface Tag {
@@ -88,40 +90,96 @@ function presented<T extends HeadMatch>(matches: ReadonlyArray<T>): ReadonlyArra
   return matches
 }
 
-// HTML names of the React-style attribute names head functions use. Other names are written
-// in lower case, names with a dash as they are.
-const attributeNames: Record<string, string> = {
-  httpEquiv: 'http-equiv',
+// The React prop names React DOM writes under another HTML name.
+const aliases: Record<string, string> = {
   className: 'class',
   htmlFor: 'for',
+  httpEquiv: 'http-equiv',
   acceptCharset: 'accept-charset',
+  crossOrigin: 'crossorigin',
+  tabIndex: 'tabindex',
+  autoFocus: 'autofocus',
+  multiple: 'multiple',
+  muted: 'muted',
 }
 
-const validName = /^[A-Za-z_:][-A-Za-z0-9_:.]*$/
-const checkedNames = new Map<string, string>()
+// Props React DOM never writes as attributes.
+const ignored = new Set([
+  'children',
+  'dangerouslySetInnerHTML',
+  'innerHTML',
+  'defaultValue',
+  'defaultChecked',
+  'suppressContentEditableWarning',
+  'suppressHydrationWarning',
+  'ref',
+  'key',
+])
 
-// attributeName is the HTML name of an attribute. It throws for a name that is not one.
-export function attributeName(key: string) {
-  let name = checkedNames.get(key)
-  if (name !== undefined) return name
-  name = attributeNames[key] ?? (key.includes('-') ? key : key.toLowerCase())
-  if (!validName.test(name)) throw new Error(`head: invalid attribute name ${JSON.stringify(key)}`)
-  checkedNames.set(key, name)
-  return name
+// Boolean attributes: written bare when the value is truthy, left out otherwise.
+const booleans = new Set(
+  (
+    'allowFullScreen async autoFocus autoPlay controls credentialless default defer disabled ' +
+    'disablePictureInPicture disableRemotePlayback formNoValidate hidden inert itemScope loop multiple ' +
+    'muted noModule noValidate open playsInline readOnly required reversed scoped seamless'
+  ).split(' '),
+)
+
+// Attributes whose boolean values React DOM writes as the strings "true" and "false".
+const booleanStrings = new Set(
+  'contentEditable spellCheck draggable value autoReverse externalResourcesRequired focusable preserveAlpha'.split(' '),
+)
+
+// React DOM's rule for a valid attribute name.
+const validName =
+  /^[:A-Z_a-zÀ-ÖØ-öø-˿Ͱ-ͽͿ-῿‌-‍⁰-↏Ⰰ-⿯、-퟿豈-﷏ﷰ-�][:A-Z_a-zÀ-ÖØ-öø-˿Ͱ-ͽͿ-῿‌-‍⁰-↏Ⰰ-⿯、-퟿豈-﷏ﷰ-�\-.0-9·̀-ͯ‿-⁀]*$/
+
+// React DOM replaces a javascript: URL with one that throws.
+const javascriptURL =
+  /^[\u0000-\u001F ]*j[\r\n\t]*a[\r\n\t]*v[\r\n\t]*a[\r\n\t]*s[\r\n\t]*c[\r\n\t]*r[\r\n\t]*i[\r\n\t]*p[\r\n\t]*t[\r\n\t]*:/i
+const blockedURL = "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+
+// attribute is the HTML attribute React DOM writes for the prop key with value: its name and
+// its value, "" for a bare boolean attribute, or undefined when React DOM writes nothing. Event
+// handlers (on...), null, undefined, functions, symbols and invalid names are left out. A style
+// prop is rejected: head tags take no inline style.
+export function attribute(key: string, value: unknown): [string, string] | undefined {
+  if (value === null || value === undefined || ignored.has(key)) return undefined
+  if (typeof value === 'function' || typeof value === 'symbol') return undefined
+  if (key === 'style') throw new Error('head: tags of the head take no style attribute')
+  if (booleans.has(key)) return value ? [aliases[key] ?? key, ''] : undefined
+  if (booleanStrings.has(key)) return [key, String(value)]
+  if (key === 'href' || key === 'src') {
+    if (value === '' || typeof value === 'boolean') return undefined
+    const url = String(value)
+    return [key, javascriptURL.test(url) ? blockedURL : url]
+  }
+  if (key.length > 2 && (key[0] === 'o' || key[0] === 'O') && (key[1] === 'n' || key[1] === 'N')) return undefined
+  const name = aliases[key] ?? key
+  if (!validName.test(name)) return undefined
+  if (typeof value === 'boolean') {
+    const prefix = name.slice(0, 5).toLowerCase()
+    if (prefix !== 'data-' && prefix !== 'aria-') return undefined
+  }
+  return [name, String(value)]
 }
 
-// attributes writes the attributes the way React would: true as a bare attribute, false, null
-// and undefined left out, everything else as an escaped string. Event handlers and other
-// functions have no place in a server-written head and are left out too.
+// attributes writes the attributes of a tag into HTML.
 export function attributes(attrs: Record<string, unknown>): string {
   let out = ''
   for (const key in attrs) {
-    const value = attrs[key]
-    if (value === undefined || value === null || value === false || typeof value === 'function') continue
-    const name = attributeName(key)
-    out += value === true ? ' ' + name : ' ' + name + '="' + escapeAttribute(String(value)) + '"'
+    const written = attribute(key, attrs[key])
+    if (written) out += ' ' + written[0] + '="' + escapeAttribute(written[1]) + '"'
   }
   return out
+}
+
+// setAttributes sets the attributes of a tag on a DOM element, the same ones attributes writes.
+export function setAttributes(element: Element, attrs: Record<string, unknown>) {
+  for (const key in attrs) {
+    const written = attribute(key, attrs[key])
+    if (written) element.setAttribute(written[0], written[1])
+  }
 }
 
 export function tagHTML(tag: Tag): string {
@@ -146,14 +204,14 @@ export function headHTML(tags: Tag[]): string {
 }
 
 // tagKey identifies a tag by its element, attributes in order and content, the same way for a
-// tag and for the element the browser parsed from it, see elementKey. Two tags with the same key
-// are written as the same HTML.
+// tag and for the element the browser parsed from the HTML of it, see elementKey. Two tags with
+// the same key are written as the same HTML. HTML attribute names are case-insensitive, and
+// the browser holds them in lower case.
 function tagKey(tag: Tag): string {
   let key = tag.tag
   for (const name in tag.attrs) {
-    const value = tag.attrs[name]
-    if (value === undefined || value === null || value === false || typeof value === 'function') continue
-    key += '\n' + attributeName(name) + '=' + (value === true ? '' : String(value))
+    const written = attribute(name, tag.attrs[name])
+    if (written) key += '\n' + written[0].toLowerCase() + '=' + written[1]
   }
   return key + '\n\n' + (tag.children ?? '')
 }

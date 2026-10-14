@@ -3,7 +3,7 @@ import { RouterProvider, type AnyRoute } from '@tanstack/react-router'
 import { RouterClient } from '@tanstack/react-router/ssr/client'
 import { createAppRouter, type HTMLAttributes } from './router'
 import { bootElementId, collector, injected, rootElementId, sameURL, type Boot, type Source } from './data'
-import { syncHead } from './head'
+import { setAttributes, syncHead } from './head'
 
 // hydrate takes over the application root the server rendered. A page rendered without SSR
 // carries its data instead, and the browser renders it from that data without a request. Either
@@ -22,7 +22,7 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = { 
     return
   }
   // Go writes the document of a page without SSR, the attributes of <html> come from here.
-  for (const [name, value] of Object.entries(htmlAttributes)) document.documentElement.setAttribute(name, value)
+  setAttributes(document.documentElement, htmlAttributes)
   const input: Boot = JSON.parse(boot.textContent ?? '')
   const live = collector(() => input.buildId)
   const local = injected(input)

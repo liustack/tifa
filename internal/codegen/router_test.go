@@ -50,38 +50,45 @@ func TestGeneratedRouterBehaves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out := filepath.Join(root, "router.test.mjs")
-	result := api.Build(api.BuildOptions{
-		AbsWorkingDir: root,
-		EntryPoints:   []string{"router.test.tsx"},
-		Outfile:       out,
-		Bundle:        true,
-		Write:         true,
-		Platform:      api.PlatformNode,
-		Format:        api.FormatESModule,
-		Tsconfig:      filepath.Join(root, Dir, "tsconfig.json"),
-		NodePaths:     []string{modules},
-		Define:        map[string]string{"process.env.NODE_ENV": `"production"`, "__TIFA_ASSETS__": `{"script":"/assets/app.js","style":"/assets/app.css"}`},
-		Loader:        map[string]api.Loader{".css": api.LoaderEmpty},
-		Plugins:       []api.Plugin{plugin},
-		LogLevel:      api.LogLevelSilent,
-	})
-	if len(result.Errors) > 0 {
-		t.Fatalf("bundle: %v", result.Errors)
+	// router.test.tsx runs the server renders and the browser routers on Node's build of
+	// TanStack, head.test.tsx the head code of the browser on its browser build.
+	for _, entry := range []struct {
+		name     string
+		platform api.Platform
+	}{{"router.test", api.PlatformNode}, {"head.test", api.PlatformBrowser}} {
+		out := filepath.Join(root, entry.name+".mjs")
+		result := api.Build(api.BuildOptions{
+			AbsWorkingDir: root,
+			EntryPoints:   []string{entry.name + ".tsx"},
+			Outfile:       out,
+			Bundle:        true,
+			Write:         true,
+			Platform:      entry.platform,
+			Format:        api.FormatESModule,
+			Tsconfig:      filepath.Join(root, Dir, "tsconfig.json"),
+			NodePaths:     []string{modules},
+			Define:        map[string]string{"process.env.NODE_ENV": `"production"`, "__TIFA_ASSETS__": `{"script":"/assets/app.js","style":"/assets/app.css"}`},
+			Loader:        map[string]api.Loader{".css": api.LoaderEmpty},
+			Plugins:       []api.Plugin{plugin},
+			LogLevel:      api.LogLevelSilent,
+		})
+		if len(result.Errors) > 0 {
+			t.Fatalf("bundle %s: %v", entry.name, result.Errors)
+		}
+		cmd := exec.Command(node, out)
+		cmd.Dir = root
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("node %s: %v\n%s", entry.name, err, output)
+		}
+		t.Logf("%s:\n%s", entry.name, output)
 	}
-	cmd := exec.Command(node, out)
-	cmd.Dir = root
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("node: %v\n%s", err, output)
-	}
-	t.Logf("%s", output)
 
 	// The generated tree, the runtime and the fixture's TSX type-check together.
 	if err := os.Symlink(modules, filepath.Join(root, "node_modules")); err != nil {
 		t.Fatal(err)
 	}
-	tsconfig := `{ "extends": "./.tifa/tsconfig.json", "include": ["app", "router.test.tsx", ".tifa/routes.tsx", ".tifa/server.ts", ".tifa/client.ts", ".tifa/runtime/env.d.ts"] }`
+	tsconfig := `{ "extends": "./.tifa/tsconfig.json", "include": ["app", "router.test.tsx", "head.test.tsx", ".tifa/routes.tsx", ".tifa/server.ts", ".tifa/client.ts", ".tifa/runtime/env.d.ts"] }`
 	if err := os.WriteFile(filepath.Join(root, "tsconfig.json"), []byte(tsconfig), 0o644); err != nil {
 		t.Fatal(err)
 	}
