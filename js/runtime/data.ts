@@ -31,12 +31,13 @@ export interface Assets {
 }
 
 // Boot is what a page rendered without SSR carries in <script id="tifa-data">: the render
-// input and the assets, so the browser renders it without asking for data.
-export interface Boot extends Injected {
-  assets: Assets
-}
+// input, so the browser renders it without asking for data.
+export type Boot = Injected
 
 export const bootElementId = 'tifa-data'
+
+// rootElementId is the id of the element in <body> that React renders the application into.
+export const rootElementId = 'tifa-root'
 
 // Source answers the RouteResult of one route at one URL.
 export type Source = (url: string, id: string) => Promise<RouteResult>

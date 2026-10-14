@@ -3,6 +3,7 @@ package codegen
 import (
 	"cmp"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net/url"
@@ -73,18 +74,18 @@ func generateTS(root string, m *analyze.Manifest, dev bool) (map[string][]byte, 
 	}
 	files["server.ts"] = []byte(tsHeader + `import "./runtime/host"
 import { serve } from "./runtime/server"
-import { routeTree } from "./routes"
+import { htmlAttributes, routeTree } from "./routes"
 
-serve(routeTree)
+serve(routeTree, htmlAttributes)
 `)
 	client := tsHeader + `import { hydrate } from "./runtime/browser"
-import { routeTree } from "./routes"
+import { htmlAttributes, routeTree } from "./routes"
 `
 	if dev {
 		client += `import "./runtime/dev-client.js"` + "\n"
 		files["runtime/dev-client.js"] = []byte(js.DevClient)
 	}
-	files["client.ts"] = []byte(client + "\nhydrate(routeTree)\n")
+	files["client.ts"] = []byte(client + "\nhydrate(routeTree, htmlAttributes)\n")
 	files["tsconfig.json"] = []byte(tsconfig)
 	err = fs.WalkDir(js.Runtime, "runtime", func(name string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -425,15 +426,15 @@ func jsStrings(values []string) string {
 
 // routesModule writes routes.tsx: the routes of tanstackRoutes, the tree, and the router type
 // registration that gives getRouteApi its types. A TSX module is loaded lazily, in its own
-// browser chunk, unless it is the root Layout's, whose Document and NotFound the root route
-// needs, or exports head, which the router needs before it loads route chunks.
+// browser chunk, unless it is the root Layout's, whose NotFound and htmlAttributes the root
+// route and the entries need, or exports head, which the router needs before it loads route chunks.
 func routesModule(nodes []*tsNode) ([]byte, error) {
 	routes, err := tanstackRoutes(nodes)
 	if err != nil {
 		return nil, err
 	}
 	var imports strings.Builder
-	runtime := map[string]bool{"createAppRouter": true, "rootHead": true, "rootScripts": true}
+	runtime := map[string]bool{"createAppRouter": true}
 	lazy := false
 	eager := func(n *tsNode) bool { return n.id == "app" || n.exported("head") }
 	// export returns the expression of one export of node i's module.
@@ -464,6 +465,9 @@ func routesModule(nodes []*tsNode) ([]byte, error) {
 		if n.load != nil {
 			fmt.Fprintf(&imports, "import type { Data as D%d } from %s\n", i, jsString("./"+n.id+"/+route"))
 		}
+	}
+	if app != nil && app.exported("Document") {
+		return nil, errors.New("app/layout.tsx: the root Layout exports Document, which tifa no longer renders: export htmlAttributes for the attributes of <html>, and return the head tags from head")
 	}
 	appExports := func(name, fallback string) string {
 		if app != nil && app.exported(name) {
@@ -513,11 +517,13 @@ func routesModule(nodes []*tsNode) ([]byte, error) {
 	for i, n := range nodes {
 		if n.parent == nil {
 			n.route.opts = append(n.route.opts,
-				"shellComponent: "+appExports("Document", "DefaultDocument"),
-				"head: rootHead()",
-				"scripts: rootScripts",
 				"errorComponent: DefaultError",
 				"notFoundComponent: "+appExports("NotFound", "DefaultNotFound"))
+			// The root Layout's documentHead is the head of every page, a URL no route matches
+			// and a failed root Load included.
+			if app != nil && app.exported("documentHead") {
+				n.route.opts = append(n.route.opts, fmt.Sprintf("head: () => m%d.documentHead", appIndex))
+			}
 			continue
 		}
 		var opts []string
@@ -602,6 +608,13 @@ func routesModule(nodes []*tsNode) ([]byte, error) {
 		body.WriteString("})\n\n")
 	}
 	fmt.Fprintf(&body, "export const routeTree = %s\n", subtree(routes[0]))
+	// The attributes of <html>. The server writes the document around the React root, the
+	// browser sets them on a page rendered without SSR.
+	if app != nil && app.exported("htmlAttributes") {
+		fmt.Fprintf(&body, "export const htmlAttributes = m%d.htmlAttributes\n", appIndex)
+	} else {
+		body.WriteString("export const htmlAttributes = undefined\n")
+	}
 	body.WriteString(`
 declare module "@tanstack/react-router" {
   interface Register {
@@ -618,7 +631,7 @@ declare module "@tanstack/react-router" {
 	}
 	fmt.Fprintf(&out, `import { %s } from "@tanstack/react-router"`+"\n", router)
 	var names []string
-	for _, name := range []string{"createAppRouter", "DefaultDocument", "DefaultError", "DefaultNotFound", "load", "pick", "rootHead", "rootScripts"} {
+	for _, name := range []string{"createAppRouter", "DefaultError", "DefaultNotFound", "load", "pick"} {
 		if runtime[name] {
 			names = append(names, name)
 		}

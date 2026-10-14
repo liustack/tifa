@@ -130,6 +130,36 @@ func TestPageWithoutDefaultExportFails(t *testing.T) {
 	}
 }
 
+// The server writes the document around the React root, so a root Layout that still exports a
+// Document component fails the build instead of being left out silently.
+func TestRootLayoutDocumentFails(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "app/layout.tsx"), "export default function A() { return null }\nexport function Document() { return null }\n")
+	writeFile(t, filepath.Join(root, "app/page/route.tsx"), "export default function P() { return null }\n")
+	m := &analyze.Manifest{
+		Module:  "example.com/x",
+		Layouts: []analyze.Layout{{ID: "app", Path: "/page", TSX: true, SSR: true, Routes: []string{"app/page"}}},
+		Routes:  []analyze.Route{{ID: "app/page", Path: "/page", Page: true, SSR: true, Layouts: []string{"app"}}},
+	}
+	_, err := Generate(root, m, false)
+	if err == nil || !strings.Contains(err.Error(), "htmlAttributes") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+// The entries pass the root Layout's htmlAttributes to the runtime, which writes them on <html>.
+func TestRootLayoutHTMLAttributesReachTheEntries(t *testing.T) {
+	files := generate(t, "router", false)
+	if !strings.Contains(string(files["routes.tsx"]), "export const htmlAttributes = m1.htmlAttributes\n") {
+		t.Errorf("routes.tsx does not export the root Layout's htmlAttributes:\n%s", files["routes.tsx"])
+	}
+	for name, call := range map[string]string{"server.ts": "serve(routeTree, htmlAttributes)", "client.ts": "hydrate(routeTree, htmlAttributes)"} {
+		if !strings.Contains(string(files[name]), call) {
+			t.Errorf("%s lacks %s:\n%s", name, call, files[name])
+		}
+	}
+}
+
 // The root Layout is an ordinary route under the framework's root, so it can have a path and
 // read its parameters.
 func TestRootLayoutReadsPathParameters(t *testing.T) {

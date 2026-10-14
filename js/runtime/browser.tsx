@@ -1,21 +1,28 @@
 import { createRoot, hydrateRoot } from 'react-dom/client'
 import { RouterProvider, type AnyRoute } from '@tanstack/react-router'
 import { RouterClient } from '@tanstack/react-router/ssr/client'
-import { createAppRouter } from './router'
-import { bootElementId, collector, injected, sameURL, type Boot, type Source } from './data'
+import { createAppRouter, type HTMLAttributes } from './router'
+import { bootElementId, collector, injected, rootElementId, sameURL, type Boot, type Source } from './data'
+import { syncHead } from './head'
 
-// hydrate takes over the document the server rendered. A page rendered without SSR carries
-// its data instead, and the browser renders it from that data without a request.
-export function hydrate(routeTree: AnyRoute) {
+// hydrate takes over the application root the server rendered. A page rendered without SSR
+// carries its data instead, and the browser renders it from that data without a request. Either
+// way the head follows the matched routes from then on.
+export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = { lang: 'en' }) {
+  const root = document.getElementById(rootElementId)
+  if (!root) throw new Error(`the page has no element #${rootElementId} to render into`)
   const boot = document.getElementById(bootElementId)
   if (!boot) {
     let buildId = ''
     const router = createAppRouter(routeTree, collector(() => buildId), {
       onHydrate: (id) => (buildId = id),
     })
-    hydrateRoot(document, <RouterClient router={router} />)
+    followHead(router)
+    hydrateRoot(root, <RouterClient router={router} />)
     return
   }
+  // Go writes the document of a page without SSR, the attributes of <html> come from here.
+  for (const [name, value] of Object.entries(htmlAttributes)) document.documentElement.setAttribute(name, value)
   const input: Boot = JSON.parse(boot.textContent ?? '')
   const live = collector(() => input.buildId)
   const local = injected(input)
@@ -23,9 +30,17 @@ export function hydrate(routeTree: AnyRoute) {
   // The first load reads the injected data. Later loads, invalidations included, ask the server.
   const source: Source = (url, id) =>
     first && id in input.data && sameURL(url, input.url) ? local(url, id) : live(url, id)
-  const router = createAppRouter(routeTree, source, { buildId: input.buildId, assets: input.assets })
+  const router = createAppRouter(routeTree, source, { buildId: input.buildId })
   void router.load().then(() => {
     first = false
-    createRoot(document).render(<RouterProvider router={router} />)
+    followHead(router)
+    syncHead(router.stores.matches.get())
+    createRoot(root).render(<RouterProvider router={router} />)
   })
+}
+
+// followHead updates document.head after every load the router resolves: a navigation or an
+// invalidation. Hydration loads nothing and leaves the head the server wrote as it is.
+function followHead(router: ReturnType<typeof createAppRouter>) {
+  router.subscribe('onResolved', () => syncHead(router.stores.matches.get()))
 }

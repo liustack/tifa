@@ -158,10 +158,17 @@ func TestPageWithoutSSRCarriesItsData(t *testing.T) {
 		`<script type="module" src="/assets/app-1.js"></script>`,
 		`<link rel="stylesheet" href="/assets/app-1.css">`,
 		`<script type="application/json" id="tifa-data">`,
-		`"buildId":"b1"`, `"app":{"status":200,"data":{"name":"shop"}}`, `"assets":{"script":"/assets/app-1.js"`,
+		`<body><div id="tifa-root"></div>`,
+		`"buildId":"b1"`, `"app":{"status":200,"data":{"name":"shop"}}`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("lacks %s:\n%s", want, body)
+		}
+	}
+	// The browser writes the head of the routes, the viewport among it, and needs no assets.
+	for _, unwanted := range []string{`name="viewport"`, `"assets"`} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("has %s:\n%s", unwanted, body)
 		}
 	}
 }

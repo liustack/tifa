@@ -1,24 +1,8 @@
-import { HeadContent, Link, Outlet, Scripts } from '@tanstack/react-router'
-import type { ReactNode } from 'react'
+import { Link, Outlet } from '@tanstack/react-router'
 import { route } from './+route'
 import './site.css'
 
-// Document is the shell around every page, also when a Load fails or no route matches, so it
-// reads no loader data.
-export function Document({ children }: { children: ReactNode }) {
-  return (
-    <html lang="en">
-      <head>
-        <meta charSet="utf-8" />
-        <HeadContent />
-      </head>
-      <body>
-        {children}
-        <Scripts />
-      </body>
-    </html>
-  )
-}
+export const htmlAttributes = { lang: 'en' }
 
 export default function Site() {
   const site = route.useLoaderData()

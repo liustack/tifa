@@ -1,20 +1,16 @@
-import { HeadContent, Outlet, Scripts } from '@tanstack/react-router'
-import type { ReactNode } from 'react'
+import { Outlet } from '@tanstack/react-router'
 import { route } from './+route'
 
-export function Document({ children }: { children: ReactNode }) {
-  return (
-    <html lang="xx">
-      <head>
-        <HeadContent />
-      </head>
-      <body>
-        {children}
-        <Scripts />
-      </body>
-    </html>
-  )
-}
+export const htmlAttributes = { lang: 'xx', 'data-theme': 'a"b' }
+
+export const documentHead = { meta: [{ name: 'theme-color', content: '#123' }], links: [{ rel: 'icon', href: '/icon.svg' }] }
+
+export const head = () => ({
+  meta: [
+    { title: 'APP_TITLE & <x>' },
+    { name: 'description', content: 'say "hi" & </script>' },
+  ],
+})
 
 export default function App() {
   const site = route.useLoaderData()

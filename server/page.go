@@ -365,22 +365,22 @@ func etagMatches(header, etag string) bool {
 }
 
 // dataOnly answers a page that skips SSR: a document that loads the browser bundle and carries
-// the data, so the browser renders it without a data request (Boot in data.ts).
+// the data, so the browser renders it without a data request (Boot in data.ts). The browser
+// renders into #tifa-root and writes the head of the routes, the viewport meta among it.
 func (s *Server) dataOnly(c *tifa.Ctx, items map[string]routeResult, status int) error {
 	boot, err := json.Marshal(map[string]any{
 		"url": c.Request().URL.RequestURI(), "buildId": s.build.ID, "data": items,
-		"assets": map[string]string{"script": s.build.Script, "style": s.build.Style},
 	})
 	if err != nil {
 		return err
 	}
 	var b strings.Builder
-	b.WriteString(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">`)
+	b.WriteString(`<!DOCTYPE html><html><head><meta charset="utf-8">`)
 	if s.build.Style != "" {
 		fmt.Fprintf(&b, `<link rel="stylesheet" href="%s">`, html.EscapeString(s.build.Style))
 	}
-	fmt.Fprintf(&b, `<script type="module" src="%s"></script></head><body>`, html.EscapeString(s.build.Script))
-	// json.Marshal escapes <, > and &, so the data cannot close the script element.
+	fmt.Fprintf(&b, `<script type="module" src="%s"></script></head><body><div id="tifa-root"></div>`, html.EscapeString(s.build.Script))
+	// json.Marshal escapes <, >, &, U+2028 and U+2029, so the data cannot close the script element.
 	fmt.Fprintf(&b, `<script type="application/json" id="tifa-data">%s</script></body></html>`, boot)
 	c.SetHeader(renderHeader, "none")
 	return writeHTML(c, status, b.String())

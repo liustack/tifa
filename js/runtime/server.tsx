@@ -1,8 +1,9 @@
 import { renderToString } from 'react-dom/server.edge'
 import { RouterProvider, type AnyRoute } from '@tanstack/react-router'
 import { attachRouterServerSsrUtils } from '@tanstack/react-router/ssr/server'
-import { createAppRouter } from './router'
-import { injected, type Assets, type Injected } from './data'
+import { createAppRouter, type HTMLAttributes } from './router'
+import { injected, rootElementId, type Assets, type Injected } from './data'
+import { attributes, escapeAttribute, headEnd, headHTML, headStart, headTags } from './head'
 
 // The browser bundle's files. tifa build defines it when it builds the SSR bundle.
 declare const __TIFA_ASSETS__: Assets
@@ -23,12 +24,21 @@ const incompleteRender =
 // It leaves {"html": ...}, {"redirect": {location, status}} or {"error": ...} in renderResult
 // once the queued jobs have run. The router redirects a URL it spells differently, such as
 // /%61 for /a. Go answers redirects of Loads itself before it renders.
-export function serve(routeTree: AnyRoute) {
+//
+// React renders only the application root. The document around it, the head from the head
+// functions of the matched routes, the assets and the hydration scripts are written as strings,
+// so a page that failed at any level still comes as a whole document.
+export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = { lang: 'en' }) {
+  const assets = __TIFA_ASSETS__
+  const documentStart = '<!DOCTYPE html><html' + attributes(htmlAttributes) + '><head><meta charset="utf-8">'
+  const assetTags =
+    (assets.style ? '<link rel="stylesheet" href="' + escapeAttribute(assets.style) + '">' : '') +
+    '<script type="module" src="' + escapeAttribute(assets.script) + '"></script>'
+  const bodyStart = headEnd + '</head><body><div id="' + rootElementId + '">'
   globalThis.startRender = (json: string) => {
     const input: Injected = JSON.parse(json)
     const router = createAppRouter(routeTree, injected(input), {
       buildId: input.buildId,
-      assets: __TIFA_ASSETS__,
       serverURL: input.url,
     })
     attachRouterServerSsrUtils({ router, manifest: undefined })
@@ -44,14 +54,27 @@ export function serve(routeTree: AnyRoute) {
           return
         }
         await router.serverSsr!.dehydrate()
-        const html = renderToString(<RouterProvider router={router} />)
-        router.serverSsr!.setRenderFinished()
+        const root = renderToString(<RouterProvider router={router} />)
         // renderToString swallows an error thrown inside a Suspense boundary, and the router
         // wraps the routes in one: the boundary renders its fallback and leaves the marker of a
         // boundary the browser must render itself. Its onError cannot be set, so the marker is
         // how the server learns of the failure. The page is then incomplete, never a success.
-        if (html.includes(clientRenderedBoundary)) throw new Error(incompleteRender)
-        globalThis.renderResult = JSON.stringify({ html: '<!DOCTYPE html>' + html })
+        if (root.includes(clientRenderedBoundary)) throw new Error(incompleteRender)
+        const hydration = router.serverSsr!.takeInitialHydrationScriptTags()
+        if (!hydration) throw new Error('the router has no hydration scripts for this render')
+        router.serverSsr!.setRenderFinished()
+        const html =
+          documentStart +
+          assetTags +
+          headStart +
+          headHTML(headTags(router.stores.matches.get())) +
+          bodyStart +
+          root +
+          '</div>' +
+          scriptsHTML(hydration.before) +
+          scriptsHTML([hydration.boundary]) +
+          '</body></html>'
+        globalThis.renderResult = JSON.stringify({ html })
       } catch (error) {
         globalThis.renderResult = JSON.stringify({
           error:
@@ -64,4 +87,12 @@ export function serve(routeTree: AnyRoute) {
       }
     })()
   }
+}
+
+// scriptsHTML writes the router's hydration scripts as React would: their source as it is.
+// The router escapes the data in them so that no value can end the script element.
+function scriptsHTML(tags: Array<{ attrs?: Record<string, unknown>; children?: string }>) {
+  let out = ''
+  for (const tag of tags) out += '<script' + attributes(tag.attrs ?? {}) + '>' + (tag.children ?? '') + '</script>'
+  return out
 }

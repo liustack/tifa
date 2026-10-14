@@ -1,7 +1,7 @@
 // Run by TestGeneratedRouterBehaves in Node, against the route tree generated for this app.
 import { createMemoryHistory, isRedirect } from '@tanstack/react-router'
 import { hydrate } from '@tanstack/react-router/ssr/client'
-import { routeTree } from './.tifa/routes'
+import { htmlAttributes, routeTree } from './.tifa/routes'
 import { createAppRouter, load } from './.tifa/runtime/router'
 import { serve } from './.tifa/runtime/server'
 import { collector, RouteError, type RouteResult } from './.tifa/runtime/data'
@@ -15,7 +15,7 @@ function assert(condition: unknown, message: string): asserts condition {
 const ok = (data: unknown): RouteResult => ({ status: 200, data })
 const missing: RouteResult = { status: 404 }
 
-serve(routeTree)
+serve(routeTree, htmlAttributes)
 
 // renderResult runs one whole-page render through the SSR entry, as the Go VM pool does.
 async function renderResult(url: string, data: Record<string, RouteResult>) {
@@ -123,6 +123,44 @@ test('literal segments match the URLs ServeMux matches', async () => {
   contains(await render('/x%5Cy', appData), 'PAGE_BACKSLASH')
 })
 
+test('the document around the React root is written as a string', async () => {
+  const html = await render('/teams/x/one', { ...appData, 'app/team': ok('x'), 'app/team/one': ok('one') })
+  assert(
+    html.startsWith('<!DOCTYPE html><html lang="xx" data-theme="a&quot;b"><head><meta charset="utf-8">'),
+    `document start: ${html.slice(0, 200)}`,
+  )
+  contains(
+    html,
+    '<link rel="stylesheet" href="/assets/app.css">',
+    '<script type="module" src="/assets/app.js"></script>',
+    '<body><div id="tifa-root">',
+    'data-tsr-stream-part',
+    '</body></html>',
+  )
+  assert(html.split('<html').length === 2 && html.split('<body').length === 2, `one html and body: ${html}`)
+  const root = html.slice(html.indexOf('<div id="tifa-root">'), html.indexOf('</div><script'))
+  lacks(root, '<script type="module"', '<title>', 'data-tsr-stream-part')
+})
+
+test('the head holds the tags of the deepest route, escaped', async () => {
+  const html = await render('/teams/x/one', { ...appData, 'app/team': ok('x'), 'app/team/one': ok('one') })
+  const head = html.slice(html.indexOf('<head>'), html.indexOf('</head>'))
+  contains(
+    head,
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    '<title>ONE_TITLE</title>',
+    '<meta name="description" content="one">',
+    '<link rel="icon" href="/icon.svg">',
+  )
+  lacks(head, 'APP_TITLE', 'say')
+  const app = await render('/hello', appData)
+  contains(
+    app.slice(0, app.indexOf('</head>')),
+    '<title>APP_TITLE &amp; &lt;x&gt;</title>',
+    '<meta name="description" content="say &quot;hi&quot; &amp; &lt;/script&gt;">',
+  )
+})
+
 test('a component that throws fails the render', async () => {
   const result = await renderResult('/throws', appData)
   assert(result.html === undefined && result.error !== undefined, `render /throws: ${JSON.stringify(result)}`)
@@ -130,9 +168,9 @@ test('a component that throws fails the render', async () => {
 
 test('a failed root Load keeps the document', async () => {
   const failed = await render('/hello', { app: { status: 500, error: 'boom' } })
-  contains(failed, '<html lang="xx">', 'boom', 'src="/assets/app.js"', 'href="/assets/app.css"')
+  contains(failed, '<html lang="xx" ', 'boom', 'src="/assets/app.js"', 'href="/assets/app.css"')
   const notFound = await render('/hello', { app: missing })
-  contains(notFound, '<html lang="xx">', 'APP_404', 'src="/assets/app.js"')
+  contains(notFound, '<html lang="xx" ', 'APP_404', 'src="/assets/app.js"')
 })
 
 test("a Layout's 404 is shown from the level above, inside the ancestors", async () => {
@@ -156,7 +194,10 @@ test("a 404 below a Layout without NotFound is shown in that Layout's place", as
 test("an unmatched URL shows the root Layout's NotFound without asking for data", async () => {
   const { calls } = await client('/teams/x/missing')
   assert(calls.length === 0, `requested ${JSON.stringify(calls)}`)
-  contains(await render('/teams/x/missing', {}), '<html lang="xx">', 'APP_404', 'src="/assets/app.js"')
+  const html = await render('/teams/x/missing', {})
+  contains(html, '<html lang="xx" ', 'APP_404', 'src="/assets/app.js"')
+  // The root Layout did not load, its documentHead is on every page all the same.
+  contains(html.slice(0, html.indexOf('</head>')), '<meta name="theme-color" content="#123">', '<link rel="icon" href="/icon.svg">')
 })
 
 // hydrateFrom runs the scripts of a server-rendered page the way a browser does and hydrates a

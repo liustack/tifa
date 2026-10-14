@@ -2,31 +2,30 @@ import {
   createMemoryHistory,
   createRouter,
   createSerializationAdapter,
-  HeadContent,
   notFound,
   redirect,
-  Scripts,
   type AnyRoute,
   type ErrorComponentProps,
   type RouterHistory,
 } from '@tanstack/react-router'
-import type { ReactNode } from 'react'
-import { RouteError, type Assets, type Source } from './data'
+import { RouteError, type Source } from './data'
 
 // RouterContext is the context of the root route. Loaders read their data through source.
 export interface RouterContext {
   source: Source
 }
 
+// HTMLAttributes are the attributes of the <html> element, from the htmlAttributes export of the
+// root Layout.
+export type HTMLAttributes = Record<string, string>
+
 interface Dehydrated {
   buildId: string
-  assets: Assets
 }
 
 export interface RouterOptions {
-  // The build ID and assets of a page the server renders, or of a page rendered without SSR.
+  // The build ID of a page the server renders.
   buildId?: string
-  assets?: Assets
   // The URL of a server render. Without it the router runs in the browser.
   serverURL?: string
   // Receives the build ID of the page when the browser hydrates it.
@@ -35,17 +34,12 @@ export interface RouterOptions {
   history?: RouterHistory
 }
 
-// The assets of the current page. The root route's head and scripts render them, on the server
-// from the render options and in the browser from the dehydrated state, so both render the same.
-let pageAssets: Assets | undefined
-
 export function createAppRouter<TRouteTree extends AnyRoute>(
   routeTree: TRouteTree,
   source: Source,
   options: RouterOptions,
 ) {
   const { buildId, serverURL, onHydrate } = options
-  if (options.assets) pageAssets = options.assets
   const router = createRouter({
     routeTree,
     context: { source },
@@ -60,12 +54,10 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
     defaultPreload: 'intent',
     scrollRestoration: true,
     dehydrate: (): Dehydrated => {
-      if (buildId === undefined || pageAssets === undefined)
-        throw new Error('a server render needs the build ID and the assets')
-      return { buildId, assets: pageAssets }
+      if (buildId === undefined) throw new Error('a server render needs the build ID')
+      return { buildId }
     },
     hydrate: (dehydrated: Dehydrated) => {
-      pageAssets = dehydrated.assets
       if (onHydrate) onHydrate(dehydrated.buildId)
     },
   })
@@ -99,26 +91,6 @@ export async function load<T>(
   if (result.status === 404) throw notFound()
   if (result.location !== undefined) throw redirect({ href: result.location, statusCode: result.status })
   throw new RouteError(result.status, result.error ?? `route ${id} failed with status ${result.status}`)
-}
-
-type HeadResult = { links?: Array<Record<string, string>>; [key: string]: unknown } | undefined
-
-// rootHead adds the stylesheet of the browser bundle to the head of the root route.
-export function rootHead(head?: (ctx: any) => HeadResult | Promise<HeadResult>) {
-  return (ctx: any) => {
-    const add = (result: HeadResult) => {
-      const style = pageAssets?.style
-      const links = style ? [{ rel: 'stylesheet', href: style }] : []
-      return { ...result, links: [...links, ...(result?.links ?? [])] }
-    }
-    const own = head ? head(ctx) : undefined
-    return own instanceof Promise ? own.then(add) : add(own)
-  }
-}
-
-// rootScripts loads the browser bundle from the root route.
-export function rootScripts() {
-  return pageAssets ? [{ type: 'module', src: pageAssets.script }] : []
 }
 
 // parseSearch reads the query the way c.Query does: every value is a string, and a key given
@@ -170,25 +142,6 @@ export function pick(search: object, keys: string[]): Record<string, unknown> {
   const picked: Record<string, unknown> = Object.create(null)
   for (const key of keys) if (Object.hasOwn(values, key)) picked[key] = values[key]
   return picked
-}
-
-// DefaultDocument is the document around every page when app/layout.tsx exports no Document.
-// The root route renders it as its shell, so errors and 404 at any level keep the document and
-// the browser bundle.
-export function DefaultDocument({ children }: { children: ReactNode }) {
-  return (
-    <html lang="en">
-      <head>
-        <meta charSet="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <HeadContent />
-      </head>
-      <body>
-        {children}
-        <Scripts />
-      </body>
-    </html>
-  )
 }
 
 export function DefaultNotFound() {

@@ -1,31 +1,14 @@
-import { useState, type ReactNode } from 'react'
-import {
-  HeadContent,
-  Link,
-  Outlet,
-  Scripts,
-  useRouterState,
-} from '@tanstack/react-router'
+import { useState } from 'react'
+import { Link, Outlet, useRouterState } from '@tanstack/react-router'
 import { route } from './+route'
 import { Icon } from './icons'
 import './styles.css'
 
-export function Document({ children }: { children: ReactNode }) {
-  return (
-    <html lang="zh-CN">
-      <head>
-        <meta charSet="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta name="theme-color" content="#f7f8f5" />
-        <link rel="icon" href="data:," />
-        <HeadContent />
-      </head>
-      <body>
-        {children}
-        <Scripts />
-      </body>
-    </html>
-  )
+export const htmlAttributes = { lang: 'zh-CN' }
+
+export const documentHead = {
+  meta: [{ name: 'theme-color', content: '#f7f8f5' }],
+  links: [{ rel: 'icon', href: 'data:,' }],
 }
 
 export const head = () => ({ meta: [{ title: '山海工作台' }] })
