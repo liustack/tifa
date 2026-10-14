@@ -613,3 +613,42 @@ func TestCtxAllowedUses(t *testing.T) {
 		t.Errorf("Query = %v, want %v", got, want)
 	}
 }
+
+// An app whose pages are all TSX has no Go package. Its module path still comes from go.mod, and
+// tifa build names the executable after it.
+func TestModuleOfAppWithoutGoPackages(t *testing.T) {
+	m, err := analyzeApp(t, "tsxonly")
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	if m.Module != "example.com/tsxonly" {
+		t.Errorf("Module = %q", m.Module)
+	}
+}
+
+// The module path is the one the go command loads: a module block is a valid way to write it,
+// and -modfile in GOFLAGS replaces go.mod.
+func TestModuleIsWhatTheGoCommandLoads(t *testing.T) {
+	m, err := analyzeApp(t, "moduleblock")
+	if err != nil || m.Module != "example.com/moduleblock" {
+		t.Errorf("module block: %+v, %v", m, err)
+	}
+	modfile, err := filepath.Abs(filepath.Join("testdata", "altmodfile", "alternate.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GOFLAGS", "-mod=readonly -modfile="+modfile)
+	m, err = analyzeApp(t, "altmodfile")
+	if err != nil || m.Module != "example.com/effective" {
+		t.Errorf("-modfile: %+v, %v", m, err)
+	}
+}
+
+// A directory inside a module is not an application root, even though the go command finds the
+// module above it.
+func TestRootMustHoldGoMod(t *testing.T) {
+	_, err := Analyze(filepath.Join("testdata", "tsxonly", "app"))
+	if err == nil || !strings.Contains(err.Error(), "not the root of a module") {
+		t.Fatalf("got %v", err)
+	}
+}
