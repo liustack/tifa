@@ -39,7 +39,7 @@ tifa dev 监视应用根目录，跳过 `.git`、`.tifa`、`node_modules` 和放
 - 路由清单有没有变，看的是静态分析后生成的 `.tifa/` 内容。只改函数体时生成内容不变，跳过生成和打包。
 - 公共目录里的图片、字体等文件不触发重建，下一次打包时才复制过去。
 - 样式表经过 Vite 开发服务器，`@tailwindcss/vite` 编译 Tailwind CSS 的方式和在任何 Vite 应用里一样。
-- tifa dev 下 Vite 用 JavaScript 注入样式表，页面在脚本跑起来前会短暂没有样式。`tifa build` 把样式表链接写在 head 里，构建出的应用没有这个现象。
+- 页面 head 里链接了服务端渲染导入的样式表，地址指向 Vite 开发服务器，所以脚本跑起来前页面就有样式，和构建出的页面一样。样式表改了，Vite 会更新这些链接。只被 `.client` 模块导入的样式表随它们的脚本一起到。
 - 模块按 URL 导入的图片等文件，在服务端渲染里也用 Vite 开发服务器的 URL，和浏览器模块用的一样，水合不会不一致。`tifa build` 则给它一个 `/assets/` 下带哈希的文件。
 - `build.target` 只对 `tifa build` 生效，Vite 开发服务器发的是现代 JavaScript。
 

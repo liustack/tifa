@@ -10,7 +10,9 @@
 //	{op: "ssr", assets, minify}  builds the SSR bundle, assets is the value of __TIFA_ASSETS__.
 //	                             The SSR bundle is always a production build: in a process
 //	                             whose NODE_ENV is not production, such as the one of the dev
-//	                             server, it is built on a worker thread with its own NODE_ENV
+//	                             server, it is built on a worker thread with its own NODE_ENV.
+//	                             There it answers with styles, the tags that link the
+//	                             stylesheets the bundle imports from the dev server
 //	{op: "serve", port}          starts the dev server on 127.0.0.1:port, answers with the tags
 //	                             that load Vite's client and the React refresh runtime
 //	{op: "script", dir, file, plugin}
@@ -92,8 +94,8 @@ const ops = {
       return {}
     }
     ssrWorker ??= startSSRWorker()
-    await ssrWorker.build({ assets, minify })
-    return {}
+    const { styles } = await ssrWorker.build({ assets, minify })
+    return { styles: styleLinks(styles) }
   },
 
   async serve({ port }) {
@@ -156,7 +158,8 @@ async function buildSSR(createBuilder, { assets, minify }, plugins = []) {
 // The worker builds for tifa dev, where the browser gets its modules from Vite's dev server. An
 // asset a module imports by URL, such as an image, then gets its URL from the dev server too: the
 // worker asks the main thread to load it in the dev server's client environment, so the server
-// render and the browser modules use one URL.
+// render and the browser modules use one URL. Each build also answers with the stylesheets the
+// bundle imports, in the order the modules run, for the head of dev pages.
 async function ssrThread() {
   const { parentPort, workerData } = await import('node:worker_threads')
   const vite = await import(workerData.vite)
@@ -184,6 +187,23 @@ async function ssrThread() {
       })
     },
   }
+  // devStyles collects the stylesheets of a build into styles.
+  const devStyles = (styles) => ({
+    name: 'tifa:dev-styles',
+    applyToEnvironment: (env) => env.name === 'ssr',
+    generateBundle(_, bundle) {
+      const entry = Object.values(bundle).find((output) => output.type === 'chunk' && output.isEntry)
+      const seen = new Set()
+      const visit = (id) => {
+        if (seen.has(id)) return
+        seen.add(id)
+        if (/\.(?:css|less|sass|scss|styl|stylus|pcss|postcss|sss)$/.test(id)) styles.push(id)
+        const info = this.getModuleInfo(id)
+        for (const dep of [...(info?.importedIds ?? []), ...(info?.dynamicallyImportedIds ?? [])]) visit(dep)
+      }
+      visit(entry.facadeModuleId)
+    },
+  })
   parentPort.on('message', async ({ id, request, ref, code, error }) => {
     if (ref !== undefined) {
       const load = loads.get(ref)
@@ -193,8 +213,9 @@ async function ssrThread() {
       return
     }
     try {
-      await buildSSR(createBuilder, request, [devAssets])
-      parentPort.postMessage({ id })
+      const styles = []
+      await buildSSR(createBuilder, request, [devAssets, devStyles(styles)])
+      parentPort.postMessage({ id, styles })
     } catch (err) {
       let text = err instanceof Error ? err.message : String(err)
       if (err?.frame && !text.includes(err.frame)) text += '\n' + err.frame
@@ -219,7 +240,7 @@ function startSSRWorker() {
     for (const { reject } of pending.values()) reject(err)
     pending.clear()
   }
-  worker.on('message', ({ id, error, load, ref }) => {
+  worker.on('message', ({ id, error, load, ref, ...result }) => {
     if (load !== undefined) {
       devLoad(load).then(
         (code) => worker.postMessage({ ref, code }),
@@ -229,7 +250,7 @@ function startSSRWorker() {
     }
     const call = pending.get(id)
     pending.delete(id)
-    if (error === undefined) call.resolve()
+    if (error === undefined) call.resolve(result)
     else call.reject(new Error(error))
   })
   worker.on('error', fail)
@@ -246,6 +267,22 @@ function startSSRWorker() {
     },
     close: () => worker.terminate(),
   }
+}
+
+// styleLinks returns the tags that link the stylesheets files from Vite's dev server. Vite's
+// client finds them by data-vite-dev-id and leaves updating them to their own hot updates.
+function styleLinks(files) {
+  const { base, root } = server.config
+  let tags = ''
+  for (const file of files) {
+    const url = file.startsWith(root + path.sep) ? path.relative(root, file).split(path.sep).join('/') : '@fs' + file
+    tags += `<link rel="stylesheet" href="${attribute(base + encodeURI(url))}" data-vite-dev-id="${attribute(file)}">`
+  }
+  return tags
+}
+
+function attribute(value) {
+  return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
 
 // devLoad loads id in the client environment of Vite's dev server and returns the code.

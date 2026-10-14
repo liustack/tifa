@@ -183,3 +183,57 @@ func TestDevSSRUsesTheDevServerURLsOfAssets(t *testing.T) {
 		t.Errorf("the dev server answers %d %q", res.StatusCode, body)
 	}
 }
+
+// The head of a dev page links the stylesheets the server render imports, from Vite's dev
+// server, so the page is styled before its scripts run, as a built page is. Vite's client knows
+// the links by data-vite-dev-id and updates them in place of adding a second copy.
+func TestDevHeadLinksTheStylesheetsOfTheServerRender(t *testing.T) {
+	root := devApp(t)
+	writeTree(t, root, map[string]string{
+		"app/page/page.css": ".page { color: red }\n",
+		"app/page/view.tsx": "import './page.css'\nexport default function View() { return <p className=\"page\">p</p> }\n",
+		".tifa/server.ts": "declare const __TIFA_ASSETS__: string\nimport View from '../app/page/view'\n" +
+			"(globalThis as any).result = View + __TIFA_ASSETS__\n",
+	})
+	real, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := freePort(t)
+	d, err := NewDev(root, port, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if _, err := d.Build(filepath.Join(root, "public"), true); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	link := `<link rel="stylesheet" href="` + DevBase + `app/page/page.css" data-vite-dev-id="` +
+		filepath.Join(real, "app", "page", "page.css") + `">`
+	if head := readBuild(t, root).Head; !strings.HasPrefix(head, link) {
+		t.Errorf("build.json head %s, want it to start with %s", head, link)
+	}
+	code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := evalResult(t, string(code)); !strings.Contains(got, link) {
+		t.Errorf("the SSR bundle has the head %s, want %s in it", got, link)
+	}
+	// A browser asks for a stylesheet with this Accept header, which tells Vite to send CSS.
+	req, err := http.NewRequest("GET", fmt.Sprintf("http://127.0.0.1:%d%sapp/page/page.css", port, DevBase), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Accept", "text/css,*/*;q=0.1")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode != 200 || !strings.Contains(string(body), "color: red") ||
+		!strings.HasPrefix(res.Header.Get("Content-Type"), "text/css") {
+		t.Errorf("the dev server answers %d %s %q", res.StatusCode, res.Header.Get("Content-Type"), body)
+	}
+}

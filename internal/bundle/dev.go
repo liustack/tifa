@@ -25,11 +25,12 @@ const DevBase = "/__tifa/vite/"
 // modules use the development build of React and QuickJS runs the production one, and Vite reads
 // NODE_ENV once per thread, so the driver builds the SSR bundle on a worker thread of its own.
 type Dev struct {
-	node *Node
-	root string
-	dist string
-	port int    // where Vite's dev server listens on 127.0.0.1
-	head string // the tags pages load the browser modules with, set once the dev server runs
+	node   *Node
+	root   string
+	dist   string
+	port   int    // where Vite's dev server listens on 127.0.0.1
+	head   string // the tags pages load the browser modules with, set once the dev server runs
+	styles string // the tags that link the stylesheets of the last SSR bundle
 }
 
 // NewDev prepares the dev build of the application at root, with Vite's dev server on
@@ -58,9 +59,13 @@ func (d *Dev) Close() error { return d.node.Close() }
 // with pages starts Vite's dev server. pages is false for an application without route.tsx,
 // which gets no SSR bundle.
 //
-// The build ID covers the public files and the tags of the dev server, not the SSR bundle: a
-// change to page code reaches open pages through Vite and leaves them on the same build, so their
-// navigation data requests are not refused.
+// The head links the stylesheets the SSR bundle imports, before the tags of the dev server, like
+// the head of tifa build. Which stylesheets those are is known once the bundle is built, so a
+// build that imports other stylesheets than the last one is built again with the new links.
+//
+// The build ID covers the public files and the script tags of the dev server, not the SSR bundle
+// or the stylesheets: a change to page code reaches open pages through Vite and leaves them on
+// the same build, so their navigation data requests are not refused.
 func (d *Dev) Build(public string, pages bool) (string, error) {
 	if err := os.MkdirAll(d.dist, 0o755); err != nil {
 		return "", err
@@ -76,11 +81,18 @@ func (d *Dev) Build(public string, pages bool) (string, error) {
 			entry := DevBase + clientEntry
 			d.head = result.Head + `<script type="module" src="` + html.EscapeString(entry) + `"></script>`
 		}
-		b.Head = d.head
-		// Unminified, so that errors in the server render point at readable code.
-		if err := d.node.call("ssr", map[string]any{"assets": b.Head, "minify": false}, nil); err != nil {
-			return "", err
+		for {
+			var result struct{ Styles string }
+			// Unminified, so that errors in the server render point at readable code.
+			if err := d.node.call("ssr", map[string]any{"assets": d.styles + d.head, "minify": false}, &result); err != nil {
+				return "", err
+			}
+			if result.Styles == d.styles {
+				break
+			}
+			d.styles = result.Styles
 		}
+		b.Head = d.styles + d.head
 	} else if err := os.Remove(ssr); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return "", err
 	}
@@ -96,7 +108,7 @@ func (d *Dev) Build(public string, pages bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256([]byte(strconv.Quote(files) + b.Head))
+	sum := sha256.Sum256([]byte(strconv.Quote(files) + d.head))
 	b.ID = hex.EncodeToString(sum[:])[:16]
 	return b.ID, writeBuild(d.dist, b)
 }
