@@ -2,6 +2,7 @@ package bundle
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -112,8 +113,8 @@ func copyDir(src, dst string) error {
 	})
 }
 
-// distID hashes the relative name and content of every file under dist in sorted order and
-// returns the first 16 hex digits.
+// distID hashes the relative name and content of every file under dist in sorted order, each
+// prefixed with its length, and returns the first 16 hex digits.
 func distID(dist string) (string, error) {
 	var names []string
 	err := filepath.WalkDir(dist, func(path string, d fs.DirEntry, err error) error {
@@ -134,9 +135,12 @@ func distID(dist string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		hash.Write([]byte(name + "\x00"))
+		// Each name and content is preceded by its length, so the byte stream spells one
+		// file tree only, whatever the files hold.
+		hash.Write(binary.BigEndian.AppendUint64(nil, uint64(len(name))))
+		hash.Write([]byte(name))
+		hash.Write(binary.BigEndian.AppendUint64(nil, uint64(len(data))))
 		hash.Write(data)
-		hash.Write([]byte{0})
 	}
 	return hex.EncodeToString(hash.Sum(nil))[:16], nil
 }

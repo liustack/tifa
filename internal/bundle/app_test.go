@@ -96,3 +96,30 @@ func TestAppWithoutPagesOrPublic(t *testing.T) {
 		t.Errorf("ssr.js without pages: %v", err)
 	}
 }
+
+// Two different file trees never share an ID, even when one file holds what the separators of
+// the other would look like.
+func TestDistIDTellsFileTreesApart(t *testing.T) {
+	write := func(files map[string]string) string {
+		dir := t.TempDir()
+		for name, content := range files {
+			path := filepath.Join(dir, filepath.FromSlash(name))
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		id, err := distID(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	one := write(map[string]string{"public/a": "first\x00public/b\x00second"})
+	two := write(map[string]string{"public/a": "first", "public/b": "second"})
+	if one == two {
+		t.Errorf("both trees get ID %s", one)
+	}
+}
