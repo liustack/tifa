@@ -91,3 +91,33 @@ globalThis.result = signals.filter((signal) => signal.deref() !== undefined).len
 		t.Fatalf("after one collection: %s", got)
 	}
 }
+
+// A signal or controller that the application seals, freezes or makes non-extensible still
+// aborts and runs its listeners, as it did before the patch that keeps their state off WeakMaps.
+func TestHostScriptAbortsFrozenSignals(t *testing.T) {
+	script, err := os.ReadFile(filepath.Join("..", "..", "js", "runtime", "host.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := evalResult(t, string(script)+`
+const results = []
+for (const lock of ['seal', 'freeze', 'preventExtensions']) {
+  try {
+    const controller = new AbortController()
+    let heard = 0
+    controller.signal.addEventListener('abort', () => heard++)
+    controller.signal.onabort = () => heard++
+    Object[lock](controller.signal)
+    Object[lock](controller)
+    controller.abort()
+    results.push(lock + ' ' + controller.signal.aborted + ' ' + heard)
+  } catch (error) {
+    results.push(lock + ' ' + error)
+  }
+}
+globalThis.result = results.join(', ')
+`)
+	if want := "seal true 2, freeze true 2, preventExtensions true 2"; got != want {
+		t.Fatalf("got %s, want %s", got, want)
+	}
+}

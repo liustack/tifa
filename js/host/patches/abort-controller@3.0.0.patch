@@ -1,8 +1,8 @@
 diff --git a/dist/abort-controller.js b/dist/abort-controller.js
-index 49af73955859f713663f558698200410811361b8..4e000334e4c741c7c93590f304aa38814bfc19cc 100644
+index 49af73955859f713663f558698200410811361b8..7c9ebf03273b61031adaa16a404fa26df9c08569 100644
 --- a/dist/abort-controller.js
 +++ b/dist/abort-controller.js
-@@ -8,6 +8,30 @@ Object.defineProperty(exports, '__esModule', { value: true });
+@@ -8,6 +8,36 @@ Object.defineProperty(exports, '__esModule', { value: true });
  
  var eventTargetShim = require('event-target-shim');
  
@@ -10,7 +10,9 @@ index 49af73955859f713663f558698200410811361b8..4e000334e4c741c7c93590f304aa3881
 + * Patched by tifa: per object state lives in a symbol property of the object instead of a
 + * WeakMap. QuickJS frees a dead cycle that runs through WeakMap values only after more
 + * collections, or not at all when a value leads back to its key, while a property dies with
-+ * its object in one collection. The property is not enumerable, and an object only reads its own.
++ * its object in one collection. The property is defined once, when the object is made, and
++ * holds a box whose value later calls change, so an object the application seals or freezes
++ * keeps working. The property is not enumerable, and an object only reads its own.
 + * @private
 + */
 +function propertyMap(name) {
@@ -21,10 +23,14 @@ index 49af73955859f713663f558698200410811361b8..4e000334e4c741c7c93590f304aa3881
 +            if (object === null || (typeof object !== "object" && typeof object !== "function")) {
 +                return undefined
 +            }
-+            return own.call(object, key) ? object[key] : undefined
++            return own.call(object, key) ? object[key].value : undefined
 +        },
 +        set(object, value) {
-+            Object.defineProperty(object, key, { value, writable: true, configurable: true });
++            if (object !== null && (typeof object === "object" || typeof object === "function") && own.call(object, key)) {
++                object[key].value = value;
++            } else {
++                Object.defineProperty(object, key, { value: { value } });
++            }
 +            return this
 +        },
 +    }
@@ -33,7 +39,7 @@ index 49af73955859f713663f558698200410811361b8..4e000334e4c741c7c93590f304aa3881
  /**
   * The signal class.
   * @see https://dom.spec.whatwg.org/#abortsignal
-@@ -54,7 +78,7 @@ function abortSignal(signal) {
+@@ -54,7 +84,7 @@ function abortSignal(signal) {
  /**
   * Aborted flag for each instances.
   */
@@ -42,7 +48,7 @@ index 49af73955859f713663f558698200410811361b8..4e000334e4c741c7c93590f304aa3881
  // Properties should be enumerable.
  Object.defineProperties(AbortSignal.prototype, {
      aborted: { enumerable: true },
-@@ -94,7 +118,7 @@ class AbortController {
+@@ -94,7 +124,7 @@ class AbortController {
  /**
   * Associated signals.
   */
