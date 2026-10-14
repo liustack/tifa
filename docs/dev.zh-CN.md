@@ -35,7 +35,7 @@ tifa dev 监视应用根目录，跳过 `.git`、`.tifa`、`node_modules` 和放
 | 上一行且路由清单变了（路由、Load 和 Layout 的返回类型、方法函数的入参和结果类型、钩子等） | 静态分析、生成代码、打包、go build | 刷新 |
 | 新增或删除 `route.tsx`、`layout.tsx`，或改 `tifa.yaml`、`tifa.json` | 全部步骤 | 刷新 |
 
-- 前端改动经 Vite 送到打开着的页面：React Fast Refresh 换掉改过的组件并保留它们的状态，新 CSS 替换旧的。模块换不了时（比如除了组件还导出了别的东西），Vite 自己刷新页面。
+- 前端改动经 Vite 送到打开着的页面：React Fast Refresh 换掉改过的组件并保留它们的状态，新 CSS 替换旧的。模块换不了时（比如除了组件还导出了别的东西），Vite 自己刷新页面。改 `vite.config.ts` 会让 Vite 重启开发服务器，改 `tsconfig.json` 会刷新页面。
 - 同时 tifa dev 重建 SSR 包（不做 go build），运行中的应用从 `.tifa/dist` 读入新包，换掉旧包。应用不重启：`OnStart` 不会再跑，应用放在内存里的东西都还在。重建要产出新 SSR 包时，这期间到达的页面请求会等新包换上（最多等 30 秒），所以刷新看到的是新的服务端渲染。从重建开始就等，Go 改动则从静态分析发现路由清单变了那一刻开始等。
 - 开发用的程序调用 `server.DevMain` 而不是 `server.Main`。只有它响应 tifa dev 发来的 `POST /__tifa/dev/reload`，读包用的是和启动时同一段代码。`tifa build` 生成的程序调用 `server.Main`，没有这个路径。
 - 路由清单有没有变，看的是静态分析后生成的 `.tifa/` 内容。只改函数体时生成内容不变，跳过生成和打包。
@@ -85,7 +85,7 @@ tifa dev: 07:35:36 ready in 260ms
 
 ## 大应用
 
-tifa dev 用系统的文件事件监视目录。应用的目录或文件多到超出系统适合给一个程序监视的量时，tifa dev 改为轮询剩下的部分：大约每秒看一次，照常重建。不需要任何设置。日志会说明一次：
+tifa dev 用系统的文件事件监视目录。应用的目录或文件多到超出系统适合给一个程序监视的量时，tifa dev 改为轮询剩下的部分：大约每秒看一次，照常重建。不需要任何设置。日志会说明：
 
 ```text
 tifa dev: 07:35:36 watching app/assets would use up the system's file watches, so it and the directories found after it are polled for changes
@@ -94,6 +94,6 @@ tifa dev: 07:35:36 watching app/assets would use up the system's file watches, s
 - macOS 上监视一个目录要为目录本身和里面每一项各占一个文件描述符，之后在里面新出现的文件也各占一个。tifa dev 把这些都算进一个进程能打开数量的一半（取打开文件上限和 `kern.maxfilesperproc` 中较小的那个），超出的目录改为轮询，已监视的目录后来长大超出时也一样。
 - Linux 上监视一个目录占用户的一个 inotify watch，编辑器等工具共用这个额度。tifa dev 最多用 `fs.inotify.max_user_watches` 的一半。
 - 系统先用完时（其他程序占了大量 watch 或文件），tifa dev 轮询没能监视的目录，再还回自己占着的一小部分额度，继续工作。运行中才用完时（比如打不开文件），tifa dev 停掉系统事件监视，改为轮询所有目录，并把所有文件重新比对一遍。
-- 每轮轮询列出被轮询的目录，只对大小、修改时间或文件身份变了的文件重新算校验和。两轮之间至少隔一秒，且至少是上一轮耗时的十倍，所以轮询最多占一个 CPU 核的十分之一。被轮询的文件有几万个时，改动可能要几秒才生效。
+- 每轮轮询列出被轮询的目录，只对大小、修改时间或文件身份变了的文件重新算校验和。两轮之间至少隔一秒，且至少是上一轮耗时的十倍，所以轮询目录最多占大约一个 CPU 核的十分之一。在一台 Apple 芯片的 Mac 上轮询 2 万个文件一轮约 40 毫秒，所以那里的改动大约一秒内生效。
 - 改为轮询的目录在 tifa dev 重启前一直轮询。
-- Vite 开发服务器也监视应用根目录。tifa dev 因为系统额度不够改为轮询后，会让 Vite 开发服务器也改为轮询：开发服务器重启一次，之后每秒看一遍每个文件，1 万个文件大约占一个 CPU 核的 8%。Vite 自己的监视先用完额度时，它也会这样切换，并说明一次。macOS 上 Vite 用 FSEvents 监视，不为每个文件占文件描述符，所以保持不变。
+- Vite 开发服务器也监视应用根目录。tifa dev 因为系统额度不够改为轮询后，会让 Vite 开发服务器也改为轮询：开发服务器重启一次，之后每秒看一遍每个文件，1 万个文件大约占一个 CPU 核的 8%。Vite 自己的监视先用完额度时，它也会这样切换，并说明一次。macOS 上 Vite 通常用 FSEvents 监视，不为每个文件占文件描述符，这时保持不变。
