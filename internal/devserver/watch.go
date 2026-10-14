@@ -96,13 +96,26 @@ var skippedDirs = []string{".git", ".tifa", "node_modules"}
 // watcher watches every directory under root and reports the files that plan cares about
 // whose content changed. Paths in its maps are relative to root with forward slashes, the
 // root itself is ".". Only run touches the maps once newWatcher returns.
+//
+// Directories get a system watch while the budget allows it and the system has watches left.
+// The ones that do not are polled: their entries are listed and the files whose size,
+// modification time or identity changed are hashed again.
 type watcher struct {
 	root     string
-	rootReal string   // root with its links resolved
-	ignore   []string // relative directories that are not watched, such as the build output
-	fs       *fsnotify.Watcher
+	rootReal string                     // root with its links resolved
+	ignore   []string                   // relative directories that are not watched, such as the build output
+	fs       *fsnotify.Watcher          // nil when the system gave no watcher
+	add      func(name string) error    // adds a system watch
+	remove   func(name string) error    // removes a system watch
+	budget   int                        // what the system watches may cost in all, see watchCost
+	used     int                        // what the system watches cost now
+	cost     map[string]int             // cost of each system watch, by real path
+	full     bool                       // no more system watches are added, new directories are polled
+	polled   map[string]bool            // directories that are polled
+	stats    map[string]os.FileInfo     // tracked files as they were when last hashed
+	minPoll  time.Duration              // shortest time between two polls
 	files    map[string]string          // checksum of every tracked file
-	dirs     map[string]os.FileInfo     // watched directories, as they were when the watch was added
+	dirs     map[string]os.FileInfo     // watched and polled directories, as they were when first seen
 	kids     map[string]map[string]bool // tracked files and watched directories by the directory they are in
 	real     map[string]string          // real path of each watched directory to its path under root
 	linkDirs map[string]string          // watched directories that are links themselves, to the real path watched
@@ -111,39 +124,75 @@ type watcher struct {
 	links    map[string][]string // real path of a linked file's target to the links under root
 	linkOf   map[string]string   // link under root to the real path of its target
 	extDirs  map[string]int      // directories watched for link targets, with how many links need each
+	extWatch map[string]bool     // directories of extDirs that have a system watch
 	changes  *changes
 }
 
 // newWatcher watches root and records the checksum of every tracked file, without reporting them.
 // ignore lists directories relative to root that are skipped. warn receives problems that do not
-// stop watching, such as a symbolic link loop.
+// stop watching, such as a symbolic link loop or directories that are polled.
 func newWatcher(root string, ignore []string, warn func(string)) (*watcher, error) {
+	w, err := prepareWatcher(root, ignore, warn)
+	if err != nil {
+		return nil, err
+	}
+	if err := w.start(); err != nil {
+		w.close()
+		return nil, err
+	}
+	return w, nil
+}
+
+// newFSWatcher starts the system watcher. Tests replace it.
+var newFSWatcher = fsnotify.NewWatcher
+
+// prepareWatcher returns a watcher of root that has not looked at any file yet.
+func prepareWatcher(root string, ignore []string, warn func(string)) (*watcher, error) {
 	abs, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
 	}
-	fw, err := fsnotify.NewWatcher()
+	rootReal, err := filepath.EvalSymlinks(abs)
 	if err != nil {
 		return nil, err
 	}
 	w := &watcher{
-		root: abs, fs: fw, warn: warn, changes: newChanges(),
+		root: abs, rootReal: rootReal, warn: warn, changes: newChanges(),
+		budget: watchBudget(), cost: map[string]int{}, polled: map[string]bool{}, stats: map[string]os.FileInfo{}, minPoll: minPollInterval,
 		files: map[string]string{}, dirs: map[string]os.FileInfo{}, kids: map[string]map[string]bool{}, real: map[string]string{}, linkDirs: map[string]string{}, warned: map[string]bool{},
-		links: map[string][]string{}, linkOf: map[string]string{}, extDirs: map[string]int{},
-	}
-	if w.rootReal, err = filepath.EvalSymlinks(abs); err != nil {
-		fw.Close()
-		return nil, err
+		links: map[string][]string{}, linkOf: map[string]string{}, extDirs: map[string]int{}, extWatch: map[string]bool{},
 	}
 	for _, d := range ignore {
 		w.ignore = append(w.ignore, path.Clean(filepath.ToSlash(d)))
 	}
+	fw, err := newFSWatcher()
+	switch {
+	case outOfWatches(err):
+		// Such as inotify with no instance left for the user: poll everything.
+		w.full = true
+		w.warn(fmt.Sprintf("starting the file watcher: %v: every directory is polled for changes", err))
+	case err != nil:
+		return nil, err
+	default:
+		w.fs, w.add, w.remove = fw, fw.Add, fw.Remove
+	}
+	return w, nil
+}
+
+// start records the checksum of every tracked file, without reporting them.
+func (w *watcher) start() error {
 	if err := w.rescan("."); err != nil {
-		fw.Close()
-		return nil, w.explain(err)
+		return err
 	}
 	w.changes.take()
-	return w, nil
+	return nil
+}
+
+// close stops the system watcher.
+func (w *watcher) close() {
+	if w.fs != nil {
+		w.fs.Close()
+	}
 }
 
 // linkPoll is how often the watcher looks at the links it follows. kqueue (macOS, BSD) watches
@@ -153,38 +202,184 @@ const linkPoll = 500 * time.Millisecond
 // testHookLinkPoll lets tests see each path the link poll looks at.
 var testHookLinkPoll func(rel string)
 
-// run handles file events until ctx is done, then stops watching.
+// testHookChecksum lets tests see each file that is hashed.
+var testHookChecksum func(rel string)
+
+// Polling lists every polled directory and stats its tracked files, about 10µs per entry. A poll
+// waits at least minPollInterval after the last one, and pollCostFactor times as long as the last
+// one took, so polling a large tree takes at most a tenth of one core.
+const (
+	minPollInterval = time.Second
+	pollCostFactor  = 10
+)
+
+func (w *watcher) pollInterval(took time.Duration) time.Duration {
+	return max(w.minPoll, took*pollCostFactor)
+}
+
+// run handles file events and polls until ctx is done, then stops watching.
 func (w *watcher) run(ctx context.Context) error {
-	defer w.fs.Close()
-	poll := time.NewTicker(linkPoll)
+	defer w.close()
+	links := time.NewTicker(linkPoll)
+	defer links.Stop()
+	poll := time.NewTimer(w.minPoll)
 	defer poll.Stop()
+	var events <-chan fsnotify.Event
+	var errs <-chan error
+	if w.fs != nil {
+		events, errs = w.fs.Events, w.fs.Errors
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-poll.C:
+		case <-links.C:
 			if err := w.checkLinks(); err != nil {
-				return w.explain(err)
+				return err
 			}
-		case ev, ok := <-w.fs.Events:
+		case <-poll.C:
+			start := time.Now()
+			if err := w.poll(); err != nil {
+				return err
+			}
+			poll.Reset(w.pollInterval(time.Since(start)))
+		case ev, ok := <-events:
 			if !ok {
 				return errors.New("file watcher stopped")
 			}
 			if err := w.handle(ev.Name, ev.Op); err != nil {
-				return w.explain(err)
+				return err
 			}
-		case err, ok := <-w.fs.Errors:
+		case err, ok := <-errs:
 			if !ok {
 				return errors.New("file watcher stopped")
 			}
-			if !errors.Is(err, fsnotify.ErrEventOverflow) {
+			switch {
+			case errors.Is(err, fsnotify.ErrEventOverflow):
+				// Some events were dropped, so compare everything again.
+				if err := w.rescan("."); err != nil {
+					return err
+				}
+			case outOfWatches(err):
+				// Such as kqueue failing to open a file created in a watched directory. The
+				// error does not say which directory misses events.
+				w.pollAll(err)
+			default:
 				return fmt.Errorf("watching files: %w", err)
 			}
-			// Some events were dropped, so compare everything again.
-			if err := w.rescan("."); err != nil {
-				return w.explain(err)
-			}
 		}
+	}
+}
+
+// poll checks the polled directories, and the linked files whose target no system watch covers.
+func (w *watcher) poll() error {
+	for _, dir := range slices.Collect(maps.Keys(w.polled)) {
+		if !w.polled[dir] {
+			continue // gone with a directory polled before
+		}
+		if err := w.scan(dir, false); err != nil {
+			return err
+		}
+	}
+	for rel, target := range maps.Clone(w.linkOf) {
+		if w.systemWatches(filepath.Dir(target)) {
+			continue
+		}
+		if info, err := os.Stat(w.abs(rel)); err == nil && !w.statChanged(rel, info) {
+			continue
+		}
+		if err := w.check(rel); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// statChanged reports whether the tracked file rel may have changed since it was last hashed.
+func (w *watcher) statChanged(rel string, info os.FileInfo) bool {
+	old, ok := w.stats[rel]
+	return !ok || !os.SameFile(old, info) || old.Size() != info.Size() || !old.ModTime().Equal(info.ModTime())
+}
+
+// systemWatches reports whether a system watch covers the directory at the real path dir.
+func (w *watcher) systemWatches(dir string) bool {
+	if owner, ok := w.real[dir]; ok {
+		return !w.polled[owner]
+	}
+	return w.extWatch[dir]
+}
+
+// watchDir adds a system watch for the directory dir, whose real path is real. It reports false
+// when dir has to be polled instead, because the watch would go past the budget or the system
+// has no watch left. A directory with a looping link is watched and reported with ELOOP.
+func (w *watcher) watchDir(dir, real string) (bool, error) {
+	if w.full {
+		return false, nil
+	}
+	cost := watchCost(real)
+	if w.used+cost > w.budget {
+		w.full = true
+		w.warn(fmt.Sprintf("watching %s would use up the system's file watches, so it and the directories found after it are polled for changes", dir))
+		return false, nil
+	}
+	err := w.add(real)
+	if outOfWatches(err) {
+		_ = w.remove(real) // kqueue keeps what it opened before running out
+		w.full = true
+		w.warn(fmt.Sprintf("watching %s: %v: the system ran out of file watches, so it and the directories found after it are polled for changes", dir, err))
+		w.spare()
+		return false, nil
+	}
+	if err != nil && !errors.Is(err, syscall.ELOOP) {
+		return false, err
+	}
+	w.used += cost
+	w.cost[real] = cost
+	return true, err
+}
+
+// spareWatches is how much the watcher gives back when the system runs out of watches, so tifa
+// dev can still open files (kqueue) and other programs, editors among them, can still watch
+// (inotify).
+const spareWatches = 256
+
+// spare polls watched directories in place of their system watches until spareWatches are free.
+func (w *watcher) spare() {
+	freed := 0
+	for real, dir := range w.real {
+		if freed >= spareWatches {
+			return
+		}
+		if cost, ok := w.cost[real]; ok {
+			w.dropWatch(real)
+			w.polled[dir] = true
+			freed += cost
+		}
+	}
+}
+
+// pollAll polls every directory in place of its system watch.
+func (w *watcher) pollAll(err error) {
+	w.full = true
+	for real, dir := range w.real {
+		if _, ok := w.cost[real]; ok {
+			w.dropWatch(real)
+			w.polled[dir] = true
+		}
+	}
+	for dir := range w.extWatch {
+		w.dropWatch(dir)
+	}
+	clear(w.extWatch)
+	w.warn(fmt.Sprintf("watching files: %v: the system ran out of file watches, so every directory is polled for changes", err))
+}
+
+// dropWatch removes the system watch of real, if it has one.
+func (w *watcher) dropWatch(real string) {
+	if cost, ok := w.cost[real]; ok {
+		_ = w.remove(real) // usually gone with the directory already
+		w.used -= cost
+		delete(w.cost, real)
 	}
 }
 
@@ -319,10 +514,7 @@ func (w *watcher) scan(dir string, deep bool) error {
 			return nil
 		}
 		// Watch the real path: kqueue does not watch the files of a directory added through a link.
-		err = w.fs.Add(real)
-		if tooManyFiles(err) && raiseFileLimit() {
-			err = w.fs.Add(real)
-		}
+		watched, err := w.watchDir(dir, real)
 		if err != nil {
 			switch {
 			case errors.Is(err, fs.ErrNotExist):
@@ -337,6 +529,9 @@ func (w *watcher) scan(dir string, deep bool) error {
 			default:
 				return fmt.Errorf("watching %s: %w", dir, err)
 			}
+		}
+		if !watched {
+			w.polled[dir] = true
 		}
 		w.dirs[dir] = info
 		w.know(dir)
@@ -381,11 +576,13 @@ func (w *watcher) scan(dir string, deep bool) error {
 			continue
 		}
 		if looped && kindOf(rel) != other {
-			if err := w.fs.Add(w.abs(rel)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			if err := w.add(w.abs(rel)); outOfWatches(err) {
+				w.polled[dir] = true
+			} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
 				w.warnOnce(rel, fmt.Sprintf("watching %s: %v", rel, err))
 			}
 		}
-		if _, known := w.files[rel]; known && !deep {
+		if _, known := w.files[rel]; known && !deep && !(w.polled[dir] && w.statChanged(rel, info)) {
 			continue
 		}
 		if err := w.check(rel); err != nil {
@@ -428,32 +625,16 @@ func (w *watcher) forget(rel string) {
 	}
 }
 
-func tooManyFiles(err error) bool {
-	return errors.Is(err, syscall.EMFILE) || errors.Is(err, syscall.ENFILE)
-}
-
-// explain adds what to do when watching ran out of a system resource. kqueue (macOS, BSD) keeps a
-// file descriptor open for every entry of a watched directory, inotify (Linux) has a limit on
-// watched directories.
-func (w *watcher) explain(err error) error {
-	switch {
-	case tooManyFiles(err):
-		return fmt.Errorf("%w\nWatching %d directories needs a file descriptor for every file in them. Raise the limit with ulimit -n (now %d), or add directories whose files need no rebuild, such as large asset folders, to Ignore", err, len(w.dirs), fileLimit())
-	case errors.Is(err, syscall.ENOSPC):
-		return fmt.Errorf("%w\nThe system limit on watched directories is reached. Raise fs.inotify.max_user_watches, or add directories whose files need no rebuild to Ignore", err)
-	}
-	return err
-}
-
 // unwatch forgets the watch of dir, not of its subdirectories.
 func (w *watcher) unwatch(dir string) {
 	delete(w.dirs, dir)
 	w.forget(dir)
 	delete(w.linkDirs, dir)
+	delete(w.polled, dir)
 	for real, owner := range w.real {
 		if owner == dir {
 			delete(w.real, real)
-			_ = w.fs.Remove(real) // usually gone with the directory already
+			w.dropWatch(real)
 		}
 	}
 	delete(w.warned, dir)
@@ -486,6 +667,9 @@ func (w *watcher) check(rel string) error {
 	if err := w.followLink(rel); err != nil {
 		return err
 	}
+	if testHookChecksum != nil {
+		testHookChecksum(rel)
+	}
 	sum, err := checksum(w.abs(rel))
 	if errors.Is(err, fs.ErrNotExist) {
 		w.removeTree(rel)
@@ -494,6 +678,7 @@ func (w *watcher) check(rel string) error {
 	if err != nil {
 		return err
 	}
+	w.stats[rel] = info
 	if old := w.files[rel]; sum != old {
 		w.files[rel] = sum
 		w.know(rel)
@@ -528,9 +713,13 @@ func (w *watcher) followLink(rel string) error {
 		return nil
 	}
 	if w.extDirs[dir] == 0 {
-		if err := w.fs.Add(dir); err != nil {
-			w.warnOnce(rel, fmt.Sprintf("edits to %s, the target of %s, may go unnoticed: %v", target, rel, err))
+		// Without a system watch the link is polled.
+		watched, err := w.watchDir(dir, dir)
+		if err != nil {
+			watched = false
+			w.warnOnce(rel, fmt.Sprintf("watching %s, the directory of the target of %s: %v: %s is polled for changes", dir, rel, err, rel))
 		}
+		w.extWatch[dir] = watched
 	}
 	w.extDirs[dir]++
 	return nil
@@ -551,7 +740,8 @@ func (w *watcher) unlink(rel string) {
 	if n, ok := w.extDirs[dir]; ok {
 		if n == 1 {
 			delete(w.extDirs, dir)
-			_ = w.fs.Remove(dir)
+			delete(w.extWatch, dir)
+			w.dropWatch(dir)
 		} else {
 			w.extDirs[dir] = n - 1
 		}
@@ -563,6 +753,7 @@ func (w *watcher) removeTree(rel string) {
 	for p, sum := range w.files {
 		if under(rel, p) {
 			delete(w.files, p)
+			delete(w.stats, p)
 			w.forget(p)
 			w.unlink(p)
 			w.changes.add(p, sum, "")

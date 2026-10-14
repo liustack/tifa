@@ -1,5 +1,5 @@
 ---
-summary: 'tifa dev 怎么用：每类改动后页面怎么更新、执行哪些步骤、Vite 在其中做什么、日志怎么读、构建失败时页面和应用怎样、开发产物放在哪'
+summary: 'tifa dev 怎么用：每类改动后页面怎么更新、执行哪些步骤、Vite 在其中做什么、日志怎么读、构建失败时页面和应用怎样、开发产物放在哪、大应用怎么监视'
 read_when:
   - 第一次在本地跑 tifa 应用
   - 改 internal/devserver、cmd/tifa 的 dev 命令或 internal/bundle 的开发构建
@@ -81,6 +81,16 @@ tifa dev: 07:35:36 ready in 260ms
 
 停止应用时最多等配置里 `server.shutdown_timeout` 的 3 倍再加 1 秒，超时就强行结束整个进程组。
 
-## 监视的文件太多
+## 大应用
 
-macOS 上监视一个目录要为里面每个文件占一个文件描述符。报错提示描述符不够时，用 `ulimit -n` 调高上限。Linux 上报监视数量到上限时，调高 `fs.inotify.max_user_watches`。
+tifa dev 用系统的文件事件监视目录。应用的目录或文件多到超出系统适合给一个程序监视的量时，tifa dev 改为轮询剩下的部分：大约每秒看一次，照常重建。不需要任何设置。日志会说明一次：
+
+```text
+tifa dev: 07:35:36 watching app/assets would use up the system's file watches, so it and the directories found after it are polled for changes
+```
+
+- macOS 上监视一个目录要为目录本身和里面每一项各占一个文件描述符。tifa dev 最多用一个进程能打开数量的一半（macOS 默认 61,440，即 30,720），超出的目录改为轮询。
+- Linux 上监视一个目录占用户的一个 inotify watch，编辑器等工具共用这个额度。tifa dev 最多用 `fs.inotify.max_user_watches` 的一半。
+- 系统先用完时（其他程序占了大量 watch 或文件），tifa dev 轮询没能监视的目录，再还回自己占着的一小部分额度，继续工作。
+- 每轮轮询列出被轮询的目录，只对大小、修改时间或文件身份变了的文件重新算校验和。两轮之间至少隔一秒，且至少是上一轮耗时的十倍，所以轮询最多占一个 CPU 核的十分之一。被轮询的文件有几万个时，改动可能要几秒才生效。
+- 改为轮询的目录在 tifa dev 重启前一直轮询。

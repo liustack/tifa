@@ -1,5 +1,5 @@
 ---
-summary: 'How to use tifa dev: how pages update after each kind of change, which steps run, how Vite fits in, how to read the log, what the page and the app do when a build fails, and where dev output goes'
+summary: 'How to use tifa dev: how pages update after each kind of change, which steps run, how Vite fits in, how to read the log, what the page and the app do when a build fails, where dev output goes, and how large apps are watched'
 read_when:
   - Running a tifa app locally for the first time
   - Changing internal/devserver, the dev command in cmd/tifa, or the dev build in internal/bundle
@@ -81,6 +81,16 @@ Reloads and the overlay come over tifa dev's own connection, `/__tifa/dev/events
 
 When stopping the app, tifa dev waits at most 3 times the configured `server.shutdown_timeout` plus 1 second, then kills the whole process group.
 
-## Too many watched files
+## Large apps
 
-On macOS, watching a folder takes one file descriptor per file inside it. If the error says there are not enough descriptors, raise the limit with `ulimit -n`. On Linux, if it reports the watch limit was reached, raise `fs.inotify.max_user_watches`.
+tifa dev watches folders with the system's file events. When an app has more folders or files than the system lets one program watch comfortably, tifa dev polls the rest: it looks at them about once a second and rebuilds as usual. Nothing needs to be set up. The log says so once:
+
+```text
+tifa dev: 07:35:36 watching app/assets would use up the system's file watches, so it and the directories found after it are polled for changes
+```
+
+- On macOS, watching a folder takes a file descriptor for the folder and one for each entry in it. tifa dev uses at most half of what one process may open (61,440 on a default macOS, so 30,720), and polls the folders beyond that.
+- On Linux, watching a folder takes one of the user's inotify watches, which editors and other tools share. tifa dev uses at most half of `fs.inotify.max_user_watches`.
+- If the system runs out first, because other programs hold many watches or files, tifa dev polls the folders it could not watch, gives back a few watches it holds, and keeps working.
+- A poll lists the polled folders and hashes only the files whose size, modification time or identity changed. It runs at most once a second, and waits ten times as long as the last poll took, so polling uses at most a tenth of one CPU core. With tens of thousands of polled files, a change can take a few seconds to show.
+- Polled folders stay polled until tifa dev restarts.
