@@ -1,8 +1,8 @@
 diff --git a/dist/abort-controller.js b/dist/abort-controller.js
-index 49af73955859f713663f558698200410811361b8..7c9ebf03273b61031adaa16a404fa26df9c08569 100644
+index 49af73955859f713663f558698200410811361b8..6287167449af6ffbf7195dc62995757e18c23566 100644
 --- a/dist/abort-controller.js
 +++ b/dist/abort-controller.js
-@@ -8,6 +8,36 @@ Object.defineProperty(exports, '__esModule', { value: true });
+@@ -8,6 +8,37 @@ Object.defineProperty(exports, '__esModule', { value: true });
  
  var eventTargetShim = require('event-target-shim');
  
@@ -10,26 +10,27 @@ index 49af73955859f713663f558698200410811361b8..7c9ebf03273b61031adaa16a404fa26d
 + * Patched by tifa: per object state lives in a symbol property of the object instead of a
 + * WeakMap. QuickJS frees a dead cycle that runs through WeakMap values only after more
 + * collections, or not at all when a value leads back to its key, while a property dies with
-+ * its object in one collection. The property is defined once, when the object is made, and
-+ * holds a box whose value later calls change, so an object the application seals or freezes
-+ * keeps working. The property is not enumerable, and an object only reads its own.
++ * its object in one collection. The property is defined once, when the object is made, so an
++ * object the application seals or freezes later keeps working. A value set again later, the
++ * aborted flag of a signal, lives in a box whose value changes. The property is not
++ * enumerable, and an object only reads its own.
 + * @private
 + */
-+function propertyMap(name) {
++function propertyMap(name, changes) {
 +    const key = Symbol(name);
 +    const own = Object.prototype.hasOwnProperty;
 +    return {
 +        get(object) {
-+            if (object === null || (typeof object !== "object" && typeof object !== "function")) {
++            if (object === null || (typeof object !== "object" && typeof object !== "function") || !own.call(object, key)) {
 +                return undefined
 +            }
-+            return own.call(object, key) ? object[key].value : undefined
++            return changes ? object[key].value : object[key]
 +        },
 +        set(object, value) {
-+            if (object !== null && (typeof object === "object" || typeof object === "function") && own.call(object, key)) {
++            if (changes && object !== null && typeof object === "object" && own.call(object, key)) {
 +                object[key].value = value;
 +            } else {
-+                Object.defineProperty(object, key, { value: { value } });
++                Object.defineProperty(object, key, { value: changes ? { value } : value });
 +            }
 +            return this
 +        },
@@ -39,16 +40,16 @@ index 49af73955859f713663f558698200410811361b8..7c9ebf03273b61031adaa16a404fa26d
  /**
   * The signal class.
   * @see https://dom.spec.whatwg.org/#abortsignal
-@@ -54,7 +84,7 @@ function abortSignal(signal) {
+@@ -54,7 +85,7 @@ function abortSignal(signal) {
  /**
   * Aborted flag for each instances.
   */
 -const abortedFlags = new WeakMap();
-+const abortedFlags = propertyMap("abortedFlags");
++const abortedFlags = propertyMap("abortedFlags", true);
  // Properties should be enumerable.
  Object.defineProperties(AbortSignal.prototype, {
      aborted: { enumerable: true },
-@@ -94,7 +124,7 @@ class AbortController {
+@@ -94,7 +125,7 @@ class AbortController {
  /**
   * Associated signals.
   */

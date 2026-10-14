@@ -6,10 +6,10 @@ settings:
 
 patchedDependencies:
   abort-controller@3.0.0:
-    hash: b8184621a00d4db04aced0ec84d89974dbcf2a1ba9e332de060652481e04010c
+    hash: 841644077473094b33474beeee8ddf2506d7999421ead5a03503e598233cbdf2
     path: patches/abort-controller@3.0.0.patch
   event-target-shim@5.0.1:
-    hash: da094c439eb8f96f35b4788167a211a77e0be60c8d076cc0c1f7a0fb67605ed0
+    hash: 464d84b6702b8da9bef04f7840870edd4ac8328a90e926f489c1ad4815f254dd
     path: patches/event-target-shim@5.0.1.patch
 
 importers:
@@ -21,7 +21,7 @@ importers:
         version: 2.2.0
       abort-controller:
         specifier: 3.0.0
-        version: 3.0.0(patch_hash=b8184621a00d4db04aced0ec84d89974dbcf2a1ba9e332de060652481e04010c)
+        version: 3.0.0(patch_hash=841644077473094b33474beeee8ddf2506d7999421ead5a03503e598233cbdf2)
       core-js:
         specifier: 3.50.0
         version: 3.50.0
@@ -52,12 +52,12 @@ snapshots:
 
   '@kayahr/text-encoding@2.2.0': {}
 
-  abort-controller@3.0.0(patch_hash=b8184621a00d4db04aced0ec84d89974dbcf2a1ba9e332de060652481e04010c):
+  abort-controller@3.0.0(patch_hash=841644077473094b33474beeee8ddf2506d7999421ead5a03503e598233cbdf2):
     dependencies:
-      event-target-shim: 5.0.1(patch_hash=da094c439eb8f96f35b4788167a211a77e0be60c8d076cc0c1f7a0fb67605ed0)
+      event-target-shim: 5.0.1(patch_hash=464d84b6702b8da9bef04f7840870edd4ac8328a90e926f489c1ad4815f254dd)
 
   core-js@3.50.0: {}
 
-  event-target-shim@5.0.1(patch_hash=da094c439eb8f96f35b4788167a211a77e0be60c8d076cc0c1f7a0fb67605ed0): {}
+  event-target-shim@5.0.1(patch_hash=464d84b6702b8da9bef04f7840870edd4ac8328a90e926f489c1ad4815f254dd): {}
 
   whatwg-fetch@3.6.20: {}
