@@ -356,3 +356,33 @@ func TestWatcherFollowsLinkedFiles(t *testing.T) {
 	writeFile(t, dir, "app/store.go", "package app // edited")
 	expectBatch(t, dir, w, change{"app/alias.go", modified}, change{"app/store.go", modified})
 }
+
+// Removing a link reports its files as removed while the target stays. kqueue (macOS) gives no
+// event for that: it watches the target the link leads to.
+func TestWatcherReportsRemovedLinks(t *testing.T) {
+	dir, shared := newApp(t), t.TempDir()
+	writeFile(t, shared, "classes.ts", "export const c = 'text-pink-700'")
+	writeFile(t, shared, "kit/button.tsx", "export {}")
+	symlink(t, filepath.Join(shared, "classes.ts"), filepath.Join(dir, "app/classes.ts"))
+	symlink(t, filepath.Join(shared, "kit"), filepath.Join(dir, "app/kit"))
+	w := startWatcher(t, dir)
+
+	for _, link := range []string{"app/classes.ts", "app/kit"} {
+		if err := os.Remove(filepath.Join(dir, filepath.FromSlash(link))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []change{{"app/classes.ts", removed}, {"app/kit/button.tsx", removed}}
+	var got []change
+	for len(got) < len(want) {
+		got = append(got, nextBatch(t, w.changes)...)
+	}
+	sortChanges(got)
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	// The targets are no longer watched for the app.
+	writeFile(t, shared, "classes.ts", "export const c = 1")
+	writeFile(t, shared, "kit/button.tsx", "export const b = 1")
+	expectBatch(t, dir, w)
+}
