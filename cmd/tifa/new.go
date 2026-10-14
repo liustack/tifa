@@ -33,7 +33,7 @@ const tifaModule = "github.com/liustack/tifa"
 
 type newApp struct {
 	Module  string // the module path in go.mod
-	Package string // the name of the root package. The pages import it as domain
+	Package string // the name of the root package. The Go files under app/ import it as root
 	Title   string // the last element of the module path, the page title
 	NPM     string // the name in package.json
 	Go      string // the go line of go.mod
@@ -58,8 +58,9 @@ func newNewCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "new <dir>",
 		Short: "Create a new application in an empty directory",
-		Long: `new writes a small working app into dir: a todo list stored in SQLite, with a root package,
-pages under app/, tests, tifa.yaml and notes for coding agents. It runs nothing and needs no
+		Long: `new writes a small working app into dir: a todo list stored in SQLite, with the hooks and
+the database in the root package, the todos domain next to its pages under app/, tests,
+tifa.yaml and notes for coding agents. It runs nothing and needs no
 network. The next steps it prints download the Go and npm dependencies, with pnpm when it is on
 PATH and npm otherwise.`,
 		Args: cobra.ExactArgs(1),
@@ -123,7 +124,7 @@ func appNames(modulePath string) (newApp, error) {
 		}
 		return -1
 	}, strings.ToLower(title))
-	// The pages import the root package as domain, so any name a package may have works.
+	// The Go files under app/ import the root package as root, so any name a package may have works.
 	if !token.IsIdentifier(pkg) || token.IsKeyword(pkg) || pkg == "main" {
 		return newApp{}, fmt.Errorf("the module path %s ends in %q, which makes the package name %q: a package name must start with a letter and may not be a keyword or main, so pass --module with another last element", modulePath, title, pkg)
 	}
@@ -135,8 +136,8 @@ func appNames(modulePath string) (newApp, error) {
 }
 
 // importProblem tells why the go command would not import the package at the root of a module
-// with this path and what to pass instead, or returns "". The generated main imports it once the app has hooks.go, and
-// the home page imports it from the start.
+// with this path and what to pass instead, or returns "". The generated main imports it once the
+// app has hooks.go, and the todos domain imports it for the database from the start.
 func importProblem(modulePath string) string {
 	elems := strings.Split(modulePath, "/")
 	if slices.ContainsFunc(elems, func(e string) bool { return strings.EqualFold(e, "vendor") }) {

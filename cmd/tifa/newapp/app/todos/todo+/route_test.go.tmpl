@@ -10,17 +10,18 @@ import (
 	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/tifatest"
 
-	domain "{{.Module}}"
+	root "{{.Module}}"
+	"{{.Module}}/app/todos"
 )
 
 // useTestDB gives the test a fresh, empty database.
 func useTestDB(t *testing.T) {
 	t.Helper()
-	db, err := domain.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	db, err := root.OpenDB(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	domain.DB = db
+	root.DB = db
 	t.Cleanup(func() { db.Close() })
 }
 
@@ -35,7 +36,7 @@ func todoCtx(t *testing.T, method, id string) *tifa.Ctx {
 
 func TestLoadFindsTheTodoOfTheURL(t *testing.T) {
 	useTestDB(t)
-	added, err := domain.AddTodo(context.Background(), "Buy milk")
+	added, err := todos.AddTodo(context.Background(), "Buy milk")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +52,7 @@ func TestLoadFindsTheTodoOfTheURL(t *testing.T) {
 
 func TestPOSTMarksTheTodoDone(t *testing.T) {
 	useTestDB(t)
-	if _, err := domain.AddTodo(context.Background(), "Buy milk"); err != nil {
+	if _, err := todos.AddTodo(context.Background(), "Buy milk"); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := POST(todoCtx(t, "POST", "1"), DoneInput{Done: true}); err != nil || !got.Done {

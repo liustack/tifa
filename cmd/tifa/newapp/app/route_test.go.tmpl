@@ -10,17 +10,17 @@ import (
 	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/tifatest"
 
-	domain "{{.Module}}"
+	root "{{.Module}}"
 )
 
 // useTestDB gives the test a fresh, empty database.
 func useTestDB(t *testing.T) {
 	t.Helper()
-	db, err := domain.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	db, err := root.OpenDB(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	domain.DB = db
+	root.DB = db
 	t.Cleanup(func() { db.Close() })
 }
 

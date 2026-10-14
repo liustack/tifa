@@ -87,8 +87,9 @@ func TestNewWritesAnApp(t *testing.T) {
 		".gitignore", "AGENTS.md", "CLAUDE.md", "README.md",
 		"app/about/route.tsx", "app/layout.tsx", "app/route.go", "app/route.tsx", "app/route_test.go", "app/styles.css",
 		"app/todos/todo+/route.go", "app/todos/todo+/route.tsx", "app/todos/todo+/route_test.go",
+		"app/todos/todo.go", "app/todos/todo_test.go",
 		"db.go", "db_test.go", "go.mod", "hooks.go", "hooks_test.go", "package.json", "schema.sql",
-		"tifa.yaml", "todo.go", "todo_test.go", "tsconfig.json",
+		"tifa.yaml", "tsconfig.json",
 	}
 	if !reflect.DeepEqual(files, want) {
 		t.Fatalf("files %q, want %q", files, want)
@@ -106,8 +107,12 @@ func TestNewWritesAnApp(t *testing.T) {
 			t.Errorf("go.mod has no line %q:\n%s", line, gomod)
 		}
 	}
-	if !strings.Contains(read("todo.go"), "package myapp\n") || !strings.Contains(read("app/route.go"), `domain "My-App"`) {
-		t.Errorf("the root package is not myapp:\n%s\n%s", read("todo.go"), read("app/route.go"))
+	if !strings.Contains(read("db.go"), "package myapp\n") || !strings.Contains(read("app/todos/todo.go"), `root "My-App"`) {
+		t.Errorf("the root package is not myapp:\n%s\n%s", read("db.go"), read("app/todos/todo.go"))
+	}
+	// The todos domain lives next to its pages, and the pages import it.
+	if !strings.Contains(read("app/todos/todo.go"), "package todos\n") || !strings.Contains(read("app/route.go"), `"My-App/app/todos"`) {
+		t.Errorf("the pages do not import the todos domain in app/todos:\n%s\n%s", read("app/todos/todo.go"), read("app/route.go"))
 	}
 	for _, name := range files {
 		if !strings.HasSuffix(name, ".go") {
@@ -169,9 +174,11 @@ func TestNewNamesTheRootPackage(t *testing.T) {
 		{"desk", "desk", "desk", "desk"},
 		{"example.com/fmt", "fmt", "fmt", "fmt"},
 		{"example.com/std", "std", "std", "std"},
-		// the pages import the root package as domain, so it may have any name a package may have,
-		// also one a route package, a predeclared name or a name the pages use
+		// the Go files under app/ import the root package as root, so it may have any name a package
+		// may have, also one of a package under app/, a predeclared name or a name the pages use
 		{"example.com/todo", "todo", "todo", "todo"},
+		{"example.com/todos", "todos", "todos", "todos"},
+		{"example.com/root", "root", "root", "root"},
 		{"example.com/domain", "domain", "domain", "domain"},
 		{"example.com/error", "error", "error", "error"},
 		{"example.com/C", "c", "C", "c"},
@@ -201,9 +208,9 @@ func TestNewNamesTheRootPackage(t *testing.T) {
 	}
 }
 
-// The Go files under app/ import the root package as domain, whatever its name, so domain must
-// name nothing else in them.
-func TestNewPagesImportTheRootPackageAsDomain(t *testing.T) {
+// The Go files under app/ import the root package as root, whatever its name, so root must name
+// nothing else in them.
+func TestNewAppImportsTheRootPackageAsRoot(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "app")
 	if _, _, err := run(t, "new", dir, "--module", "example.com/myapp"); err != nil {
 		t.Fatal(err)
@@ -221,30 +228,30 @@ func TestNewPagesImportTheRootPackageAsDomain(t *testing.T) {
 		rel = filepath.ToSlash(rel)
 		for _, spec := range file.Imports {
 			root := spec.Path.Value == `"example.com/myapp"`
-			named := spec.Name != nil && spec.Name.Name == "domain"
+			named := spec.Name != nil && spec.Name.Name == "root"
 			if root && !named {
-				t.Errorf("%s imports the root package without the name domain", rel)
+				t.Errorf("%s imports the root package without the name root", rel)
 			}
-			if !root && (named || path.Base(strings.Trim(spec.Path.Value, `"`)) == "domain") {
-				t.Errorf("%s imports %s as domain", rel, spec.Path.Value)
+			if !root && (named || path.Base(strings.Trim(spec.Path.Value, `"`)) == "root") {
+				t.Errorf("%s imports %s as root", rel, spec.Path.Value)
 			}
 			if root {
 				checked = append(checked, rel)
 			}
 		}
-		// Past the imports, domain may only be the package in domain.X.
+		// Past the imports, root may only be the package in root.X.
 		for _, decl := range file.Decls {
 			if gen, ok := decl.(*ast.GenDecl); ok && gen.Tok == token.IMPORT {
 				continue
 			}
 			ast.Inspect(decl, func(n ast.Node) bool {
 				if sel, ok := n.(*ast.SelectorExpr); ok {
-					if id, ok := sel.X.(*ast.Ident); ok && id.Name == "domain" {
+					if id, ok := sel.X.(*ast.Ident); ok && id.Name == "root" {
 						return false
 					}
 				}
-				if id, ok := n.(*ast.Ident); ok && id.Name == "domain" {
-					t.Errorf("%s uses domain for something else than the root package", rel)
+				if id, ok := n.(*ast.Ident); ok && id.Name == "root" {
+					t.Errorf("%s uses root for something else than the root package", rel)
 				}
 				return true
 			})
@@ -254,7 +261,8 @@ func TestNewPagesImportTheRootPackageAsDomain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"app/route.go", "app/route_test.go", "app/todos/todo+/route.go", "app/todos/todo+/route_test.go"}
+	// Only the todos domain needs DB. The pages import the domain, and tests open a database.
+	want := []string{"app/route_test.go", "app/todos/todo+/route_test.go", "app/todos/todo.go", "app/todos/todo_test.go"}
 	if !reflect.DeepEqual(checked, want) {
 		t.Fatalf("the root package is imported by %q, want %q", checked, want)
 	}

@@ -7,12 +7,12 @@ import (
 
 	"github.com/liustack/tifa"
 
-	domain "{{.Module}}"
+	"{{.Module}}/app/todos"
 )
 
 // Load runs on the server before the page renders, and again when the browser navigates here.
-func Load(c *tifa.Ctx) ([]domain.Todo, error) {
-	return domain.ListTodos(c.Context())
+func Load(c *tifa.Ctx) ([]todos.Todo, error) {
+	return todos.ListTodos(c.Context())
 }
 
 // AddInput is the body of POST. The page sends it as JSON through the POST function of ./+route.
@@ -33,6 +33,6 @@ func (in AddInput) Validate() error {
 }
 
 // POST adds a todo and answers with it. The page data loads again afterwards.
-func POST(c *tifa.Ctx, in AddInput) (domain.Todo, error) {
-	return domain.AddTodo(c.Context(), in.Title)
+func POST(c *tifa.Ctx, in AddInput) (todos.Todo, error) {
+	return todos.AddTodo(c.Context(), in.Title)
 }

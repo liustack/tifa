@@ -6,16 +6,16 @@ import (
 
 	"github.com/liustack/tifa"
 
-	domain "{{.Module}}"
+	"{{.Module}}/app/todos"
 )
 
 // Load returns the todo of the URL. tifa.ErrNotFound shows the NotFound of route.tsx with a 404.
-func Load(c *tifa.Ctx) (domain.Todo, error) {
+func Load(c *tifa.Ctx) (todos.Todo, error) {
 	id, err := todoID(c)
 	if err != nil {
-		return domain.Todo{}, err
+		return todos.Todo{}, err
 	}
-	return domain.GetTodo(c.Context(), id)
+	return todos.GetTodo(c.Context(), id)
 }
 
 // DoneInput is the body of POST.
@@ -24,12 +24,12 @@ type DoneInput struct {
 }
 
 // POST marks the todo as done or open and answers with it.
-func POST(c *tifa.Ctx, in DoneInput) (domain.Todo, error) {
+func POST(c *tifa.Ctx, in DoneInput) (todos.Todo, error) {
 	id, err := todoID(c)
 	if err != nil {
-		return domain.Todo{}, err
+		return todos.Todo{}, err
 	}
-	return domain.SetDone(c.Context(), id, in.Done)
+	return todos.SetDone(c.Context(), id, in.Done)
 }
 
 // todoID reads the id from the URL. A URL whose id is not a number names no todo.
