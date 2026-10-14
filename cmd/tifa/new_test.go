@@ -17,7 +17,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/pflag"
 	"golang.org/x/mod/modfile"
+
+	"github.com/liustack/tifa/internal/config"
 )
 
 // withPnpm makes tifa new find pnpm on PATH, or not.
@@ -85,7 +88,7 @@ func TestNewWritesAnApp(t *testing.T) {
 		"app/about/route.tsx", "app/layout.tsx", "app/route.go", "app/route.tsx", "app/route_test.go", "app/styles.css",
 		"app/todos/todo+/route.go", "app/todos/todo+/route.tsx", "app/todos/todo+/route_test.go",
 		"db.go", "db_test.go", "go.mod", "hooks.go", "hooks_test.go", "package.json", "schema.sql",
-		"todo.go", "todo_test.go", "tsconfig.json",
+		"tifa.yaml", "todo.go", "todo_test.go", "tsconfig.json",
 	}
 	if !reflect.DeepEqual(files, want) {
 		t.Fatalf("files %q, want %q", files, want)
@@ -392,5 +395,48 @@ func TestNewPinsASQLiteBuiltForTheLibcOfTifa(t *testing.T) {
 		if required != libc {
 			t.Errorf("%s requires modernc.org/libc %s, tifa builds with %s: pin a modernc.org/sqlite in go.mod.tmpl built for the same libc as the QuickJS of tifa", f.Module.Mod, required, libc)
 		}
+	}
+}
+
+// tifa.yaml lists every setting commented out, so as written it loads the defaults. Turned on, it
+// loads them too, except ssr.vms, whose default depends on the machine and which shows an example.
+func TestNewTifaYAMLListsEverySetting(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "app")
+	if _, _, err := run(t, "new", dir); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "tifa.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c, err := config.Load(pflag.NewFlagSet("serve", pflag.ContinueOnError), nil, "tifa.yaml", data); err != nil || !reflect.DeepEqual(c, config.Default()) {
+		t.Fatalf("tifa.yaml as written: %+v, %v, want the defaults", c, err)
+	}
+	setting := regexp.MustCompile(`^# ( *)([a-z_]+):`)
+	var lines, keys []string
+	section := ""
+	for _, line := range strings.Split(string(data), "\n") {
+		if m := setting.FindStringSubmatch(line); m != nil {
+			line = strings.TrimPrefix(line, "# ")
+			if m[1] == "" {
+				section = m[2]
+			} else {
+				keys = append(keys, section+"."+m[2])
+			}
+		}
+		lines = append(lines, line)
+	}
+	if !reflect.DeepEqual(keys, config.Keys()) {
+		t.Fatalf("tifa.yaml lists %q, want %q", keys, config.Keys())
+	}
+	c, err := config.Load(pflag.NewFlagSet("serve", pflag.ContinueOnError), nil, "tifa.yaml", []byte(strings.Join(lines, "\n")))
+	if err != nil {
+		t.Fatalf("tifa.yaml with the settings turned on: %v", err)
+	}
+	// ssr.vms defaults to GOMAXPROCS, so the file shows an example.
+	want := config.Default()
+	want.SSR.VMs = c.SSR.VMs
+	if !reflect.DeepEqual(c, want) {
+		t.Fatalf("tifa.yaml with the settings turned on: %+v, want the defaults %+v", c, want)
 	}
 }

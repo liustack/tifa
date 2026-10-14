@@ -88,6 +88,15 @@ func fields(c *Config) []field {
 	}
 }
 
+// Keys lists the key of every setting as files write it, such as server.addr, build keys first.
+func Keys() []string {
+	var keys []string
+	for _, f := range fields(&Config{}) {
+		keys = append(keys, f.key)
+	}
+	return keys
+}
+
 // AddFlags registers --config and one flag per runtime setting, such as --server-addr.
 func AddFlags(fs *pflag.FlagSet) {
 	fs.String("config", "", "Deployment config file (.yaml or .json)")
