@@ -54,6 +54,7 @@ Every folder below `app/` is one segment of the URL. `app/` itself is `/`.
 - A folder name must also be valid in a Go import path, so names such as `con` or `x~1` (Windows reserved and short names) fail the build.
 - A folder holds at most one parameter folder. `items/id+` next to `items/key+` or `items/path++` fails the build, because both would read the same URL segment.
 - Two routes (pages or API routes) whose URLs overlap without one being more specific fail the build, as in Go's `http.ServeMux`, such as `a/b+` next to `a+/b`. A literal is more specific than a parameter, so `items/new` next to `items/id+` is fine.
+- The URL of a folder with a Layout but no page shows the 404 page, so no other page may match it: `settings/layout.tsx` without a `settings/route.tsx`, next to `user+/route.tsx`, fails the build, because `/settings` would also match `/{user}`.
 - Declaring `const Path` fails the build. The folder is the URL.
 
 ## route.go

@@ -324,6 +324,9 @@ func TestViolations(t *testing.T) {
 		}},
 		{"badoutside", [][]string{{"bad/bad.go:3:15:", "cannot use"}}},
 		{"bridge", [][]string{{"app/bad/route.go:5:17:", "cannot use"}}},
+		{"layoutnopage", [][]string{
+			{"app/settings/layout.tsx:1:", `"/settings"`, "app/user+", "no page"},
+		}},
 		{"rolefiles", [][]string{
 			{"app/layout.go:7:", "Load", "func Layout"},
 			{"app/layout.go:9:", "POST", "route.go"},

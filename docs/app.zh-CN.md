@@ -54,6 +54,7 @@ myapp/
 - 目录名还得是合法的 Go import 路径，所以 `con`、`x~1` 这类名字（Windows 保留名和短文件名）构建报错。
 - 一个目录下最多一个参数目录。`items/id+` 和 `items/key+` 或 `items/path++` 并列会构建报错，因为它们读的是同一段 URL。
 - 两个路由（页面或 API 路由）的 URL 有交集、又分不出谁更具体时构建报错，规则同 Go 的 `http.ServeMux`，比如 `a/b+` 和 `a+/b`。字面量比参数具体，所以 `items/new` 和 `items/id+` 并列没问题。
+- 只有 Layout、没有页面的目录，它的 URL 显示 404 页面，所以别的页面也不能匹配这个 URL：有 `settings/layout.tsx`、没有 `settings/route.tsx`，又有 `user+/route.tsx` 时构建报错，因为 `/settings` 也匹配 `/{user}`。
 - 声明 `const Path` 会构建报错，目录就是 URL。
 
 ## route.go

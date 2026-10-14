@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -390,6 +391,7 @@ func (a *analyzer) build() *Manifest {
 	a.checkParamSiblings(ids)
 	a.linkLayouts(routes, layouts)
 	a.checkPaths(routes)
+	a.checkLayoutURLs(routes, layouts)
 	a.checkUses(layouts)
 	a.checkDirectCalls()
 	a.propagateQuery(routes, layouts)
@@ -866,6 +868,40 @@ func (a *analyzer) checkPaths(routes []*route) {
 		for _, other := range checked {
 			if other != r && comparePaths(muxSegments(prefix), muxSegments(other.segs)) == overlaps {
 				a.errorInFile(r.Dir, r.file, "the path %q also answers %q, which conflicts with %q of %s: both match some URLs and neither is more specific", r.Path, formatPath(prefix), other.Path, other.Dir)
+			}
+		}
+	}
+}
+
+// checkLayoutURLs reports a page that matches the URL of a Layout with no page there. The
+// browser router matches a Layout with a path at its own URL and shows the root's NotFound
+// there, so a page that Go would serve at that URL never shows in the browser. A page in the
+// Layout's directory, or for the rest of the path right below it, owns the URL instead.
+func (a *analyzer) checkLayoutURLs(routes []*route, layouts []*layout) {
+	for _, l := range layouts {
+		if !l.valid || len(l.segs) == 0 {
+			continue
+		}
+		owned := slices.ContainsFunc(routes, func(r *route) bool {
+			prefix, ok := restPrefix(r.segs)
+			return r.Page && (r.Dir == l.Dir || ok && path.Dir(r.Dir) == l.Dir && len(prefix) == len(l.segs))
+		})
+		if owned {
+			continue
+		}
+		for _, r := range routes {
+			if !r.Page || !r.valid {
+				continue
+			}
+			paths := [][]segment{r.segs}
+			if prefix, ok := restPrefix(r.segs); ok {
+				paths = append(paths, prefix)
+			}
+			if slices.ContainsFunc(paths, func(segs []segment) bool {
+				rel := comparePaths(muxSegments(l.segs), muxSegments(segs))
+				return rel == equivalent || rel == moreSpecific || rel == overlaps
+			}) {
+				a.errorInFile(l.Dir, l.file, "the URL %q of the layout of %s has no page, but the page %s matches it: the browser would show the 404 page there while the server renders %s, so add a route.tsx to %s or rename one of the directories", l.Path, l.Dir, r.Dir, r.Dir, l.Dir)
 			}
 		}
 	}
