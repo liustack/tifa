@@ -53,6 +53,7 @@ TIFA_E2E=1 go test ./test/e2e/
 - `TestBuildReportsViolations`：对 `internal/analyze/testdata` 里 Path 重复、页面定义 `OnGet`、Layout 参数不在公共前缀、`tifa.Use` 引用非祖先、`Load` 返回类型不能转 TS 这几个应用跑 `tifa build`，构建失败并给出文件与行号。
 - pages 与示例应用另有 `tsc` 子测试：`tsc --noEmit`，生成的 TS 和应用的 TSX 一起类型检查。应用没装 npm 依赖或没有 node 时这个子测试 skip。
 - `TestDev`：在 `test/apps/pages` 的临时副本上跑 `tifa dev`（PATH 里去掉 node），逐个改 TSX、Go 函数体、路由 Path，按日志检查每次只执行该执行的步骤，再制造编译错误，检查旧版本继续服务、SSE 推送错误、修好后恢复。它借用 `test/apps/pages/node_modules`，没装时 skip。
+- `TestErrorFlowInTheVM`：在 `test/apps/pages` 的临时副本里加上会出错的页面与钩子，用真实 QuickJS 检查错误流向：组件抛错算意外错误且不进 HTML 缓存，错误页渲染超时交给 `OnError`，路由器重定向不带 ETag，中间件对数据请求的拒绝与重定向，`RouteError` 带状态码写进页面。同样借用 `test/apps/pages/node_modules`。
 
 `test/apps` 下每个应用是独立模块，根目录的 `go test ./...` 不会扫到它们。构建会在应用目录写 `.tifa/` 与 `node_modules/`，两者都已忽略。改了 `internal/codegen` 的输出后，在 `internal/codegen` 里跑 `go test -update` 刷新 golden 文件，再看 diff。
 
