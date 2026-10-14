@@ -20,7 +20,7 @@ No Node needed: bundling uses the built-in esbuild. Node is only used to install
 
 ## What each change triggers
 
-tifa dev watches the app root and skips `.git`, `.tifa`, `node_modules`, and `dist/`, where the dev executable lives. Changes that arrive together are handled as one batch once the files go quiet.
+tifa dev watches the app root and skips `.git`, `.tifa`, `node_modules`, and `bin/`, where the dev executable lives. Changes that arrive together are handled as one batch once the files go quiet.
 
 | What changed | Steps that run |
 | --- | --- |
@@ -62,7 +62,7 @@ You can close the overlay. Closing it does not affect later reloads.
 | --- | --- |
 | `.tifa/` | Generated code, the same as `tifa build` |
 | `.tifa/dist/` | Frontend output, updated by incremental builds |
-| `dist/tifa-dev` | The dev executable |
+| `bin/tifa-dev` | The dev executable |
 
 When stopping the app, tifa dev waits at most 3 times the configured `server.shutdown_timeout` plus 1 second, then kills the whole process group.
 

@@ -76,7 +76,7 @@ export const head = ({ loaderData }: { loaderData?: Data }) => ({
 ```sh
 go get -tool github.com/liustack/tifa/cmd/tifa
 go tool tifa dev     # 改代码后自动重建并刷新浏览器
-go tool tifa build   # 得到 dist/<应用名>，前端产物已经嵌在里面
+go tool tifa build   # 得到 bin/<应用名>，前端产物已经嵌在里面
 ```
 
 ## 特点
@@ -100,7 +100,7 @@ go tool tifa build   # 得到 dist/<应用名>，前端产物已经嵌在里面
 cd examples/shop
 pnpm install --frozen-lockfile
 go tool tifa build
-./dist/shop          # http://127.0.0.1:8080
+./bin/shop           # http://127.0.0.1:8080
 ```
 
 ## 文档

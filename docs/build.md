@@ -21,7 +21,7 @@ tifa build [--dir app-root] [-o output-path]
 1. Statically analyzes `app/` and the root `hooks.go`. If a convention is broken, it prints `file:line: reason` for each problem and exits.
 2. Writes the generated code into `.tifa/`. Only files whose content changed are rewritten, and files no longer generated are deleted.
 3. Bundles with esbuild (its Go API) and writes the output to `.tifa/dist/`. See "Frontend output" below. No Node needed.
-4. Runs `CGO_ENABLED=0 go build -o <output> ./.tifa`. The default output is `dist/<last segment of the module path>`. The generated main embeds `.tifa/dist/` into the executable with `//go:embed all:dist`.
+4. Runs `CGO_ENABLED=0 go build -o <output> ./.tifa`. The default output is `bin/<last segment of the module path>`. The generated main embeds `.tifa/dist/` into the executable with `//go:embed all:dist`.
 
 ### go.mod
 

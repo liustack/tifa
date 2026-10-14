@@ -43,7 +43,7 @@ var shopRoutes = []struct{ url, routes string }{
 }
 
 // shopBundle returns the shop's SSR bundle and its four comparison pages. The data of each
-// page is what the shop's own program injects: the test runs dist/shop and asks it for the
+// page is what the shop's own program injects: the test runs bin/shop and asks it for the
 // navigation data of each page, which has the same form as the injected data.
 func shopBundle(t *testing.T) (string, []shopPage) {
 	t.Helper()
@@ -94,7 +94,7 @@ var listening = regexp.MustCompile(`listening on (http://\S+)`)
 // startShop runs the shop's program built by tifa build and returns its base URL.
 func startShop(t *testing.T) string {
 	t.Helper()
-	cmd := exec.Command(filepath.Join(shopDir, "dist", "shop"), "--server-addr", "127.0.0.1:0")
+	cmd := exec.Command(filepath.Join(shopDir, "bin", "shop"), "--server-addr", "127.0.0.1:0")
 	// The program rejects unknown TIFA_* variables as settings, TIFA_SSR_SHOP among them.
 	for _, kv := range os.Environ() {
 		if !strings.HasPrefix(kv, "TIFA_") {

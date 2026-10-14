@@ -76,7 +76,7 @@ export const head = ({ loaderData }: { loaderData?: Data }) => ({
 ```sh
 go get -tool github.com/liustack/tifa/cmd/tifa
 go tool tifa dev     # rebuilds and reloads the browser as you edit
-go tool tifa build   # dist/<app>, with the frontend embedded
+go tool tifa build   # bin/<app>, with the frontend embedded
 ```
 
 ## Highlights
@@ -100,7 +100,7 @@ A single render is slower than Node. An order detail page takes about 5 ms to re
 cd examples/shop
 pnpm install --frozen-lockfile
 go tool tifa build
-./dist/shop          # http://127.0.0.1:8080
+./bin/shop           # http://127.0.0.1:8080
 ```
 
 ## Documentation

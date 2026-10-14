@@ -13,10 +13,10 @@
 ```sh
 pnpm install --frozen-lockfile
 go tool tifa build
-./dist/shop
+./bin/shop
 ```
 
-打开 <http://127.0.0.1:8080>，会跳到第一家店铺的订单列表。`./dist/shop --server-addr 127.0.0.1:8081` 换端口。`dist/shop` 是单个可执行文件，前端产物已经嵌在里面，拷到别的机器上直接运行。
+打开 <http://127.0.0.1:8080>，会跳到第一家店铺的订单列表。`./bin/shop --server-addr 127.0.0.1:8081` 换端口。`bin/shop` 是单个可执行文件，前端产物已经嵌在里面，拷到别的机器上直接运行。
 
 类型检查与测试：
 

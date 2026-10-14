@@ -57,7 +57,7 @@ executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 			}
 			// 4. go build, which embeds .tifa/dist.
 			if output == "" {
-				output = filepath.Join(root, "dist", path.Base(m.Module))
+				output = defaultOutput(root, m.Module)
 			}
 			if _, err := goBuild(cmd.Context(), root, output, cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
 				return fmt.Errorf("go build: %w", err)
@@ -67,7 +67,7 @@ executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 		},
 	}
 	cmd.Flags().StringVar(&dir, "dir", ".", "application root, the directory holding go.mod and app/")
-	cmd.Flags().StringVarP(&output, "output", "o", "", "executable path (default dist/<last element of the module path>)")
+	cmd.Flags().StringVarP(&output, "output", "o", "", "executable path (default bin/<last element of the module path>)")
 	return cmd
 }
 
@@ -109,4 +109,10 @@ func missingDependencyHint(stderr string) string {
 		}
 	}
 	return ""
+}
+
+// defaultOutput is where tifa build writes the executable without -o: bin/ of the application,
+// named after the last element of the module path, as Go projects keep their binaries.
+func defaultOutput(root, module string) string {
+	return filepath.Join(root, "bin", path.Base(module))
 }

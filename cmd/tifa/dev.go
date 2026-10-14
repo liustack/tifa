@@ -28,7 +28,7 @@ import (
 
 // devOutput is the directory, relative to the application root, that holds the executable tifa dev
 // builds. tifa dev does not watch it.
-const devOutput = "dist"
+const devOutput = "bin"
 
 func newDevCmd() *cobra.Command {
 	var dir, addr string

@@ -20,7 +20,7 @@ tifa dev [--dir 应用根目录] [--addr 127.0.0.1:3000]
 
 ## 改动触发什么
 
-tifa dev 监视应用根目录，跳过 `.git`、`.tifa`、`node_modules` 和放开发可执行文件的 `dist/`。同一批改动等文件安静下来再一起处理。
+tifa dev 监视应用根目录，跳过 `.git`、`.tifa`、`node_modules` 和放开发可执行文件的 `bin/`。同一批改动等文件安静下来再一起处理。
 
 | 改了什么 | 执行的步骤 |
 | --- | --- |
@@ -62,7 +62,7 @@ tifa dev: 07:35:37 ready in 201ms
 | --- | --- |
 | `.tifa/` | 生成代码，与 `tifa build` 相同 |
 | `.tifa/dist/` | 前端产物，按增量构建更新 |
-| `dist/tifa-dev` | 开发用的可执行文件 |
+| `bin/tifa-dev` | 开发用的可执行文件 |
 
 停止应用时最多等配置里 `server.shutdown_timeout` 的 3 倍再加 1 秒，超时就强行结束整个进程组。
 
