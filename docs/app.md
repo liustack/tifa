@@ -58,7 +58,7 @@ func POST(c *tifa.Ctx) error {
 - `const Path` is the full literal path, with the same syntax as Go's `http.ServeMux`: `{name}`, `{name...}`. `"/"` matches only the home page.
 - `Load` returns the page data. Its return type must convert to TypeScript (see "JSON rules for what Load returns" below).
 - `GET`, `POST`, `PUT`, `PATCH` and `DELETE` handle the HTTP method they are named after.
-- A folder with a `route.tsx` is a page. The framework renders its GET, so you cannot also write `GET`. Without a `route.tsx`, every method handler is a plain API route and `Load` is optional.
+- A folder with a `route.tsx` is a page. The framework renders its GET, so you cannot also write `GET`. Without a `route.tsx`, every method handler is a plain API route, and `Load` is not allowed: `Load` loads the data of a page.
 - Everything is package-level functions and constants. Use the global variables the app has set up for dependencies. The framework does no dependency injection.
 
 When an error is returned:

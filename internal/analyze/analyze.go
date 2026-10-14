@@ -419,6 +419,10 @@ func (a *analyzer) route(d *dirInfo) *route {
 	}
 
 	r.Load, r.uses = a.readLoad(pkg, d.id)
+	if r.Load != nil && !d.routeTSX {
+		a.errorAt(scope.Lookup("Load").Pos(), "Load is not allowed without route.tsx: Load loads the data of a page, an API route answers GET with a GET function")
+		r.Load, r.uses = nil, nil
+	}
 	for _, method := range methods {
 		obj := scope.Lookup(method)
 		if obj == nil {

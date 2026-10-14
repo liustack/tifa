@@ -58,7 +58,7 @@ func POST(c *tifa.Ctx) error {
 - `const Path` 是完整的字面量路径，语法同 Go 的 `http.ServeMux`：`{name}`、`{name...}`。`"/"` 只匹配首页。
 - `Load` 返回页面数据，返回类型要能转成 TypeScript（见下文「Load 返回值的 JSON 规则」）。
 - `GET`、`POST`、`PUT`、`PATCH`、`DELETE` 处理和函数同名的 HTTP 方法。
-- 目录里有 `route.tsx` 就是页面，GET 由框架渲染，这时不能再写 `GET`。没有 `route.tsx` 时，这些方法函数都是普通接口，可以不写 `Load`。
+- 目录里有 `route.tsx` 就是页面，GET 由框架渲染，这时不能再写 `GET`。没有 `route.tsx` 时，这些方法函数都是普通接口，不能写 `Load`，因为 `Load` 是给页面取数的。
 - 全部是包级函数和常量。依赖直接用应用初始化好的全局变量，框架不做依赖注入。
 
 返回错误时：
