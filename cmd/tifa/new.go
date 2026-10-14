@@ -5,8 +5,6 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	"go/ast"
-	"go/parser"
 	"go/token"
 	"go/version"
 	"io/fs"
@@ -129,11 +127,7 @@ func appNames(modulePath string) (newApp, error) {
 	if !token.IsIdentifier(pkg) || token.IsKeyword(pkg) || pkg == "main" {
 		return newApp{}, fmt.Errorf("the module path %s ends in %q, which makes the package name %q: a package name must start with a letter and may not be a keyword or main, so pass --module with another last element", modulePath, title, pkg)
 	}
-	clashes, err := rootNameClashes(newapp)
-	if err != nil {
-		return newApp{}, err
-	}
-	if clash, ok := clashes[pkg]; ok {
+	if clash, ok := rootNameClashes[pkg]; ok {
 		return newApp{}, fmt.Errorf("the module path %s makes the root package %s, and the Go files under app/ that import it already use %s for %s: name the folder differently or pass --module with another last element", modulePath, pkg, pkg, clash)
 	}
 	npm := pkg
@@ -143,73 +137,43 @@ func appNames(modulePath string) (newApp, error) {
 	return newApp{Module: modulePath, Package: pkg, Title: title, NPM: npm}, nil
 }
 
-// rootNameClashes reads the Go files of a new app that import its root package and returns the
-// names the root package may not have, each with what uses it there: the packages they import,
-// the domains under app/ among them, and the names they declare or refer to. An imported package
-// takes its name in the scope of the file, so a root package with one of these names would not
-// compile. The name in the package clause is left out, since a file may import a package of the
-// same name as its own.
-func rootNameClashes(files fs.FS) (map[string]string, error) {
-	const module, pkg = "example.com/tifanewroot", "tifanewroot"
-	app := newApp{Module: module, Package: pkg, Title: pkg, NPM: pkg, Go: "1.0", Version: "v0.0.0", Install: "npm install", Run: "npm run"}
-	clashes := map[string]string{}
-	err := fs.WalkDir(files, "newapp", func(name string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(name, ".go.tmpl") {
-			return err
-		}
-		src, err := renderFile(files, name, app)
-		if err != nil {
-			return err
-		}
-		rel := strings.TrimSuffix(strings.TrimPrefix(name, "newapp/"), ".tmpl")
-		file, err := parser.ParseFile(token.NewFileSet(), rel, src, parser.SkipObjectResolution)
-		if err != nil {
-			return err
-		}
-		if !slices.ContainsFunc(file.Imports, func(spec *ast.ImportSpec) bool { return importPath(spec) == module }) {
-			return nil
-		}
-		add := func(name, what string) {
-			if _, ok := clashes[name]; !ok && name != "_" && name != "." && name != pkg {
-				clashes[name] = what
-			}
-		}
-		for _, spec := range file.Imports {
-			p := importPath(spec)
-			name := path.Base(p)
-			if spec.Name != nil {
-				name = spec.Name.Name
-			}
-			if what, ok := strings.CutPrefix(p, module+"/"); ok {
-				add(name, "the package "+what)
-			} else if p != module {
-				add(name, "the package "+p)
-			}
-		}
-		for _, decl := range file.Decls {
-			ast.Inspect(decl, func(n ast.Node) bool { return visitName(n, rel, add) })
-		}
-		return nil
-	})
-	return clashes, err
+// rootNameClashes lists the names a root package may not have, each with what already uses it.
+// The Go files under app/ that import the root package refer to it by its name, so that name
+// must not mean anything else where they use it: a package they import, a predeclared name they
+// use, or a parameter or variable in whose scope they use the root package.
+// TestRootNameClashesMatchTheTemplate checks that every name here breaks the build of a new app,
+// and that the other names in those files do not.
+var rootNameClashes = map[string]string{
+	// imported packages
+	"todos":    "the package app/todos",
+	"tifa":     "the package github.com/liustack/tifa",
+	"tifatest": "the package github.com/liustack/tifa/tifatest",
+	"context":  "the package context",
+	"sql":      "the package database/sql",
+	"errors":   "the package errors",
+	"strings":  "the package strings",
+	"filepath": "the package path/filepath",
+	"httptest": "the package net/http/httptest",
+	"reflect":  "the package reflect",
+	"testing":  "the package testing",
+	// predeclared names
+	"append": "the predeclared name append",
+	"bool":   "the predeclared name bool",
+	"error":  "the predeclared name error",
+	"int64":  "the predeclared name int64",
+	"len":    "the predeclared name len",
+	"nil":    "the predeclared name nil",
+	"string": "the predeclared name string",
+	"true":   "the predeclared name true",
+	// parameters and variables in whose scope the root package is used
+	"ctx":   "a parameter of the functions in app/todos/todo.go",
+	"id":    "a parameter of the functions in app/todos/todo.go",
+	"title": "a parameter of the functions in app/todos/todo.go",
+	"done":  "a parameter of the functions in app/todos/todo.go",
+	"t":     "a parameter of useTestDB in app/route_test.go and the tests under app/todos",
+	"db":    "a variable of useTestDB in app/route_test.go and the tests under app/todos",
+	"err":   "a variable of useTestDB in app/route_test.go and the tests under app/todos",
 }
-
-// visitName records each name below n, leaving out the selector of x.Sel, which is not looked
-// up in the scope of the file.
-func visitName(n ast.Node, rel string, add func(name, what string)) bool {
-	switch n := n.(type) {
-	case *ast.SelectorExpr:
-		ast.Inspect(n.X, func(n ast.Node) bool { return visitName(n, rel, add) })
-		return false
-	case *ast.ImportSpec:
-		return false
-	case *ast.Ident:
-		add(n.Name, "a name in "+rel)
-	}
-	return true
-}
-
-func importPath(spec *ast.ImportSpec) string { return strings.Trim(spec.Path.Value, `"`) }
 
 // importProblem tells why the go command would not import the package at the root of a module
 // with this path and what to pass instead, or returns "". The generated main imports it once the

@@ -36,7 +36,7 @@ tifa new <目录> [--module 模块路径]
 | `package.json`、`tsconfig.json`、`.gitignore`、`README.md` | npm 包、TypeScript 配置、要忽略的构建产物和数据库文件，以及常用命令 |
 
 - 模块路径默认是目录名，`--module` 可以另给。应用要 import 根目录的包，所以路径必须是 go 命令能 import 的。tifa new 拒绝含 `vendor` 段的路径，也拒绝首段不带点、且（不分大小写）和标准库包或 go 命令包模式的首段相同的路径（比如 `fmt`、`net`、`all`），即使并没有同名的包。改传 `--module example.com/fmt`。
-- 根包以模块路径最后一段命名（不算 `/v2` 这类主版本后缀），转成小写，只留字母和数字。它必须是合法的 Go 标识符，不是关键字也不是 `main`。`app/` 下的 Go 文件直接用这个名字 import 它，所以它不能和这些文件里已经用到的名字重复：它们 import 的包，比如领域 `todos` 或 `tifa`，以及它们声明或引用的名字，比如 `db`、`error`。tifa new 从自己的模板文件里读出这些名字，重名就报错，所以 `tifa new todos` 会失败，提示换一个目录名或用 `--module`。`package.json` 里的名字也是它，超过 npm 上限 214 个字符时截断。
+- 根包以模块路径最后一段命名（不算 `/v2` 这类主版本后缀），转成小写，只留字母和数字。它必须是合法的 Go 标识符，不是关键字也不是 `main`。`app/` 下的 Go 文件直接用这个名字 import 它，所以在这些文件用到它的地方，这个名字不能另有所指：它们 import 的包，比如领域 `todos` 或 `tifa`，它们用到的预声明名字，比如 `error`，以及在其作用域里用到根包的参数或变量，比如 `db`、`ctx`。tifa new 维护一份这样的名单，遇到就报错，所以 `tifa new todos` 会失败，提示换一个目录名或用 `--module`。这些文件里的其他名字，比如 `c`、`rows`，不受影响。`package.json` 里的名字也是它，超过 npm 上限 214 个字符时截断。
 - `go.mod` 要求的 tifa 版本，是 go 命令下载来运行的这个命令的版本：`go run github.com/liustack/tifa/cmd/tifa@<版本> new myapp`，或者在应用里 `go tool tifa new`。在 tifa 源码目录里构建、或被源码目录 replace 的命令写 `v0.0.0`，并多给一步用 `go mod edit -replace` 把 `go.mod` 指向源码目录。
 - `modernc.org/sqlite` 和 tifa 的 QuickJS 都跑在 `modernc.org/libc` 上，而每个 SQLite 版本只对应一个确切的 libc 版本。`go.mod` 固定了一个和 tifa 所需 libc 对应的 SQLite 版本。以后升级其中任何一个，都要让这个 libc 版本保持一致。
 - `tifa new` 只写文件，不跑 go 或 npm 命令，也不联网。它最后打印接下来的步骤：`cd` 进目录、`go mod tidy`、`pnpm install` 和 `go tool tifa dev`，开发服务在 http://127.0.0.1:9527。
