@@ -255,17 +255,19 @@ export function ssrPlugin(getRoot) {
 
 // hostRequires returns the offsets of the references to require in the ESTree program that no
 // scope of the program declares, the ones that need the require of the host. typeof require and
-// assignments to require need none. It follows the scopes of JavaScript: var, function
-// parameters and names to the enclosing function, let, const, class and function declarations
-// to their block, catch parameters to the catch clause.
+// assignments to require need none, and neither does a reference that a typeof require test
+// guards (see guardedChild): QuickJS has no require and takes the other branch. It follows the
+// scopes of JavaScript: var, function parameters and names to the enclosing function, let,
+// const, class and function declarations to their block, catch parameters to the catch clause.
 function hostRequires(program) {
   const found = []
-  const visit = (node, bound, parent, key) => {
+  const visit = (node, bound, guarded, parent, key) => {
     bound ||= declaresRequire(node)
     if (
       node.type === 'Identifier' &&
       node.name === 'require' &&
       !bound &&
+      !guarded &&
       isReference(parent, key) &&
       !(parent.type === 'UnaryExpression' && parent.operator === 'typeof') &&
       !(parent.type === 'AssignmentExpression' && key === 'left')
@@ -273,13 +275,91 @@ function hostRequires(program) {
       found.push(node.start)
     }
     for (const [k, value] of Object.entries(node)) {
+      let exited = false // a statement before returned or threw when the host has no require
       for (const child of Array.isArray(value) ? value : [value]) {
-        if (child && typeof child.type === 'string') visit(child, bound, node, k)
+        if (!child || typeof child.type !== 'string') continue
+        visit(child, bound, guarded || exited || guardedChild(node, k), node, k)
+        exited ||= Array.isArray(value) && exitsWithoutRequire(child)
       }
     }
   }
-  visit(program, false, null, '')
+  visit(program, false, false, null, '')
   return found
+}
+
+// guardedChild reports whether the child at key of node runs only when the host has require,
+// by a typeof require test of node: a branch of a conditional expression or an if, or the right
+// side of && and ||.
+function guardedChild(node, key) {
+  switch (node.type) {
+    case 'ConditionalExpression':
+    case 'IfStatement':
+      return (key === 'consequent' && hasRequireIf(node.test, true)) || (key === 'alternate' && hasRequireIf(node.test, false))
+    case 'LogicalExpression':
+      return key === 'right' && ((node.operator === '&&' && hasRequireIf(node.left, true)) || (node.operator === '||' && hasRequireIf(node.left, false)))
+  }
+  return false
+}
+
+// exitsWithoutRequire reports whether statement is an if without else that returns or throws
+// when its test shows the host has no require, so the statements after it run only with one.
+function exitsWithoutRequire(statement) {
+  if (statement.type !== 'IfStatement' || statement.alternate || !hasRequireIf(statement.test, false)) return false
+  const exit = statement.consequent.type === 'BlockStatement' ? statement.consequent.body.at(-1) : statement.consequent
+  return exit?.type === 'ReturnStatement' || exit?.type === 'ThrowStatement'
+}
+
+// hasRequireIf reports whether test evaluating to truthy (or to falsy, with truthy false) shows
+// that the host has require, by a typeof require comparison, also inside !, && and ||.
+function hasRequireIf(test, truthy) {
+  switch (test.type) {
+    case 'UnaryExpression':
+      return test.operator === '!' && hasRequireIf(test.argument, !truthy)
+    case 'LogicalExpression':
+      // a && b is truthy only when both are, a || b falsy only when both are.
+      if (test.operator === (truthy ? '&&' : '||')) return hasRequireIf(test.left, truthy) || hasRequireIf(test.right, truthy)
+      return false
+    case 'BinaryExpression':
+      return typeofRequire(test) === truthy
+  }
+  return false
+}
+
+// typeofRequire reads a comparison of typeof require with a string: true when the comparison
+// holds only if require exists, false when it holds only if require is undefined, null for any
+// other comparison. Minifiers write typeof x !== 'undefined' as typeof x < 'u'.
+function typeofRequire(test) {
+  let { operator, left, right } = test
+  if (isTypeofRequire(right)) {
+    ;[left, right] = [right, left]
+    operator = { '<': '>', '>': '<' }[operator] ?? operator
+  }
+  const value = stringValue(right)
+  if (!isTypeofRequire(left) || value === null) return null
+  const exists = value === 'function' || value === 'object'
+  switch (operator) {
+    case '===':
+    case '==':
+      return exists ? true : value === 'undefined' ? false : null
+    case '!==':
+    case '!=':
+      return value === 'undefined' ? true : exists ? false : null
+    case '<':
+      return value === 'u' ? true : null
+    case '>':
+      return value === 'u' ? false : null
+  }
+  return null
+}
+
+function isTypeofRequire(node) {
+  return node.type === 'UnaryExpression' && node.operator === 'typeof' && node.argument.type === 'Identifier' && node.argument.name === 'require'
+}
+
+function stringValue(node) {
+  if (node.type === 'Literal' && typeof node.value === 'string') return node.value
+  if (node.type === 'TemplateLiteral' && node.expressions.length === 0) return node.quasis[0].value.cooked
+  return null
 }
 
 const functionTypes = new Set(['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression'])

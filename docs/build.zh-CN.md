@@ -108,7 +108,7 @@ go tool tifa build
 | 路径 | 内容 |
 | --- | --- |
 | `dist/assets/` | Vite 打出的浏览器包：入口 `client.ts`（`app-<哈希>.js`）、共享 chunk（`chunk-<哈希>.js`）、装着应用全部 CSS 的一个样式表（`style-<哈希>.css`），以及 CSS 引用的字体和图片，小文件 Vite 会内联成 data URL。语法目标取配置项 `build.target`（默认 `es2020`：一个 ECMAScript 版本加若干带版本的浏览器，如 `es2019,chrome90,safari14`）。按路由拆分：除根 Layout 和导出 `head` 的模块外，每个路由模块用 `lazyRouteComponent` 懒加载，各自一个 chunk |
-| `dist/ssr.js` | SSR 包，入口 `server.ts`：一个 IIFE 文件，所有 npm 包都打在里面。语法目标固定为 ES2022（QuickJS 原样能跑的版本，调低只会让渲染变慢，调高可能写出 QuickJS 不支持的语法）。页面代码引入 Node 模块时构建失败，打包后仍要 Node 模块的 npm 包，或在留进包里的代码中用运行时才知道的模块名调用 `require` 的包，也一样（报错给出源文件、行、列）。打包时被删掉的代码（比如 `if (false)` 分支）里的 `require` 不会让构建失败。`define` 把浏览器包的 head 标签写进 `__TIFA_ASSETS__` |
+| `dist/ssr.js` | SSR 包，入口 `server.ts`：一个 IIFE 文件，所有 npm 包都打在里面。语法目标固定为 ES2022（QuickJS 原样能跑的版本，调低只会让渲染变慢，调高可能写出 QuickJS 不支持的语法）。页面代码引入 Node 模块时构建失败，打包后仍要 Node 模块的 npm 包，或在留进包里的代码中用运行时才知道的模块名调用 `require` 的包，也一样（报错给出源文件、行、列）。打包时被删掉的代码（比如 `if (false)` 分支）里的 `require` 不会让构建失败，被 `typeof require` 判断守住的也不会，比如 `typeof require === 'function' ? require(name) : 备用值`：QuickJS 没有 `require`，会走另一条分支。`define` 把浏览器包的 head 标签写进 `__TIFA_ASSETS__` |
 | `dist/public/` | 配置项 `build.public` 指向的目录（默认 `public`）原样复制，不存在就没有 |
 | `dist/build.json` | `{buildId, head}`。`head` 是加载浏览器包的 HTML，取自 Vite 的 manifest：样式表、入口引入的每个 chunk 一条 `modulepreload`、入口脚本。构建 ID 是 `dist/` 里其他所有文件（含文件名）的哈希，文件名与内容各自带长度前缀，不同的文件树不会拼出同一串字节。同样的输入得到同样的 ID |
 

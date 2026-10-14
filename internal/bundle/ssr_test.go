@@ -273,6 +273,53 @@ func TestSSRAcceptsRequireInDeadCode(t *testing.T) {
 	}
 }
 
+// A require that a typeof require test guards runs only where the host has require, so QuickJS
+// takes the other branch. UMD and isomorphic packages are written this way.
+func TestSSRAcceptsRequireGuardedByTypeof(t *testing.T) {
+	root := copyTestdata(t, "ssr", false)
+	writeTree(t, root, map[string]string{
+		"node_modules/guarded/package.json": `{"name":"guarded","main":"index.cjs"}`,
+		"node_modules/guarded/index.cjs": "module.exports = function (name) {\n" +
+			"  var a = typeof require === 'function' ? require(name) : 'a'\n" +
+			"  var b = 'b'\n  if (typeof require !== 'undefined') b = require(name)\n" +
+			"  var c = (typeof require == 'function' && require(name)) || 'c'\n" +
+			"  var d = typeof require === 'undefined' || require(name) ? 'd' : 'x'\n" +
+			"  var e = !(typeof require === 'function') ? 'e' : require(name)\n" +
+			"  var g = 'function' === typeof module && typeof require == 'function' ? require(name) : 'g'\n" +
+			"  return a + b + c + d + e + early(name) + g\n}\n" +
+			"function early(name) {\n  if (typeof require === 'undefined') return 'f'\n  console.log(name)\n  return require(name)\n}\n",
+		"guarded.ts": "import read from 'guarded'\nglobalThis.result = read('node:path')\n",
+	})
+	code, _ := buildScript(t, root, "guarded.ts")
+	if got := evalResult(t, code); got != "abcdefg" {
+		t.Fatalf("result = %q", got)
+	}
+}
+
+// A require next to a typeof test that does not guard it still fails the build.
+func TestSSRRejectsRequireTheTypeofTestDoesNotGuard(t *testing.T) {
+	for name, body := range map[string]string{
+		"other variable": "  return typeof define === 'function' ? require(name) : 'x'\n",
+		"after the test": "  if (typeof require === 'function') console.log(name)\n  return require(name)\n",
+		"wrong branch":   "  return typeof require === 'undefined' ? require(name) : 'x'\n",
+		"wrong operator": "  return typeof require == 'function' || require(name)\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := copyTestdata(t, "ssr", false)
+			writeTree(t, root, map[string]string{
+				"node_modules/unguarded/package.json": `{"name":"unguarded","main":"index.cjs"}`,
+				"node_modules/unguarded/index.cjs":    "module.exports = function (name) {\n" + body + "}\n",
+				"unguarded.ts":                        "import read from 'unguarded'\nglobalThis.result = read('node:path')\n",
+			})
+			_, _, err := script(testdata(t), root, "unguarded.ts", io.Discard)
+			if err == nil || !strings.Contains(err.Error(), filepath.Join("unguarded", "index.cjs")+":") ||
+				!strings.Contains(err.Error(), "QuickJS has no require") {
+				t.Fatalf("err = %v, want the place of the require", err)
+			}
+		})
+	}
+}
+
 // A require the module declares itself, as a bundle made by browserify does, and a typeof
 // require test are no require of the host.
 func TestSSRAcceptsRequireTheModuleDeclares(t *testing.T) {

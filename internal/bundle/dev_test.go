@@ -329,11 +329,13 @@ func TestDevResolvesImportsByTheTsconfigPaths(t *testing.T) {
 }
 
 // tifa dev checks the unminified bundle the same way: a require in code that never runs is
-// dropped, one that stays fails the build at its place in the source.
+// dropped, one a typeof require test guards passes, one that stays fails the build at its place
+// in the source.
 func TestDevChecksTheRequiresLeftInTheBundle(t *testing.T) {
 	root := devApp(t)
 	writeTree(t, root, map[string]string{
-		"app/page/reader.cjs": "module.exports = function (name) {\n  if (false) return require(name).sep\n  return '/'\n}\n",
+		"app/page/reader.cjs": "module.exports = function (name) {\n  if (false) return require(name).sep\n" +
+			"  if (typeof require !== 'undefined') return require(name).sep\n  return '/'\n}\n",
 		".tifa/server.ts": "import './runtime/host.js'\nimport read from '../app/page/reader.cjs'\n" +
 			"(globalThis as any).result = read('node:path')\n",
 	})
