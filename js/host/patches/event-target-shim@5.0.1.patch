@@ -1,0 +1,53 @@
+diff --git a/dist/event-target-shim.js b/dist/event-target-shim.js
+index 53ce22036e35ef9ccff8726f438cc39d4c97a11b..a6312307603ceaa029884e1da983125f204c6d19 100644
+--- a/dist/event-target-shim.js
++++ b/dist/event-target-shim.js
+@@ -7,6 +7,30 @@
+ 
+ Object.defineProperty(exports, '__esModule', { value: true });
+ 
++/**
++ * Patched by tifa: per object state lives in a symbol property of the object instead of a
++ * WeakMap. QuickJS frees a dead cycle that runs through WeakMap values only after more
++ * collections, or not at all when a value leads back to its key, while a property dies with
++ * its object in one collection. The property is not enumerable, and an object only reads its own.
++ * @private
++ */
++function propertyMap(name) {
++    const key = Symbol(name);
++    const own = Object.prototype.hasOwnProperty;
++    return {
++        get(object) {
++            if (object === null || (typeof object !== "object" && typeof object !== "function")) {
++                return undefined
++            }
++            return own.call(object, key) ? object[key] : undefined
++        },
++        set(object, value) {
++            Object.defineProperty(object, key, { value, writable: true, configurable: true });
++            return this
++        },
++    }
++}
++
+ /**
+  * @typedef {object} PrivateData
+  * @property {EventTarget} eventTarget The event target.
+@@ -26,7 +50,7 @@ Object.defineProperty(exports, '__esModule', { value: true });
+  * @type {WeakMap<Event, PrivateData>}
+  * @private
+  */
+-const privateData = new WeakMap();
++const privateData = propertyMap("privateData");
+ 
+ /**
+  * Cache for wrapper classes.
+@@ -501,7 +525,7 @@ function setPassiveListener(event, passiveListener) {
+  * @type {WeakMap<object, Map<string, ListenerNode>>}
+  * @private
+  */
+-const listenersMap = new WeakMap();
++const listenersMap = propertyMap("listenersMap");
+ 
+ // Listener types
+ const CAPTURE = 1;

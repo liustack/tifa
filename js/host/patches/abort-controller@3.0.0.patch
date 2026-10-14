@@ -1,0 +1,53 @@
+diff --git a/dist/abort-controller.js b/dist/abort-controller.js
+index 49af73955859f713663f558698200410811361b8..4e000334e4c741c7c93590f304aa38814bfc19cc 100644
+--- a/dist/abort-controller.js
++++ b/dist/abort-controller.js
+@@ -8,6 +8,30 @@ Object.defineProperty(exports, '__esModule', { value: true });
+ 
+ var eventTargetShim = require('event-target-shim');
+ 
++/**
++ * Patched by tifa: per object state lives in a symbol property of the object instead of a
++ * WeakMap. QuickJS frees a dead cycle that runs through WeakMap values only after more
++ * collections, or not at all when a value leads back to its key, while a property dies with
++ * its object in one collection. The property is not enumerable, and an object only reads its own.
++ * @private
++ */
++function propertyMap(name) {
++    const key = Symbol(name);
++    const own = Object.prototype.hasOwnProperty;
++    return {
++        get(object) {
++            if (object === null || (typeof object !== "object" && typeof object !== "function")) {
++                return undefined
++            }
++            return own.call(object, key) ? object[key] : undefined
++        },
++        set(object, value) {
++            Object.defineProperty(object, key, { value, writable: true, configurable: true });
++            return this
++        },
++    }
++}
++
+ /**
+  * The signal class.
+  * @see https://dom.spec.whatwg.org/#abortsignal
+@@ -54,7 +78,7 @@ function abortSignal(signal) {
+ /**
+  * Aborted flag for each instances.
+  */
+-const abortedFlags = new WeakMap();
++const abortedFlags = propertyMap("abortedFlags");
+ // Properties should be enumerable.
+ Object.defineProperties(AbortSignal.prototype, {
+     aborted: { enumerable: true },
+@@ -94,7 +118,7 @@ class AbortController {
+ /**
+  * Associated signals.
+  */
+-const signals = new WeakMap();
++const signals = propertyMap("signals");
+ /**
+  * Get the associated signal of a given controller.
+  */

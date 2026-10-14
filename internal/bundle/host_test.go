@@ -48,3 +48,46 @@ globalThis.result = [
 		t.Fatalf("got %s", got)
 	}
 }
+
+// A render leaves a dead cycle in which the router holds the AbortControllers of its matches and
+// their signals hold listeners that lead back to the router. One collection must free all of it,
+// or the garbage of each render waits for later collections and the VM grows.
+func TestHostScriptFreesDeadAbortSignalsInOneCollection(t *testing.T) {
+	script, err := os.ReadFile(filepath.Join("..", "..", "js", "runtime", "host.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := evalResult(t, string(script)+`
+// collect allocates until a new dead cycle is gone, which takes one collection.
+function sentinel() {
+  const cycle = {}
+  cycle.self = cycle
+  return new WeakRef(cycle)
+}
+function collect() {
+  const gone = sentinel()
+  const kept = []
+  while (gone.deref() !== undefined) kept.push({})
+}
+function render() {
+  const router = { matches: [] }
+  router.self = router
+  const load = new AbortController()
+  router.load = load
+  for (let i = 0; i < 4; i++) {
+    const controller = new AbortController()
+    controller.signal.addEventListener('abort', () => router)
+    router.matches.push(controller)
+  }
+  load.signal.addEventListener('abort', () => router.matches, { once: true })
+  return [load, ...router.matches].map((controller) => new WeakRef(controller.signal))
+}
+const signals = []
+for (let i = 0; i < 16; i++) signals.push(...render())
+collect()
+globalThis.result = signals.filter((signal) => signal.deref() !== undefined).length + ' of ' + signals.length + ' signals left'
+`)
+	if got != "0 of 80 signals left" {
+		t.Fatalf("after one collection: %s", got)
+	}
+}
