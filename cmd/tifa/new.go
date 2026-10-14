@@ -66,14 +66,15 @@ PATH and npm otherwise.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir := args[0]
-			if modulePath == "" {
+			fromFolder := modulePath == ""
+			if fromFolder {
 				abs, err := filepath.Abs(dir)
 				if err != nil {
 					return err
 				}
 				modulePath = filepath.Base(abs)
 			}
-			app, err := appNames(modulePath)
+			app, err := appNames(modulePath, fromFolder)
 			if err != nil {
 				return err
 			}
@@ -106,7 +107,9 @@ PATH and npm otherwise.`,
 // appNames derives the names of the app from its module path. The root package is the last
 // element without the major version suffix, lowercased, with its letters and digits only, so
 // example.com/Order-Desk/v2 is the package orderdesk. That is a valid npm name as well.
-func appNames(modulePath string) (newApp, error) {
+// fromFolder tells whether the module path is the name of the folder, with no --module, so an
+// error asks for what the user can change.
+func appNames(modulePath string, fromFolder bool) (newApp, error) {
 	if err := module.CheckImportPath(modulePath); err != nil {
 		return newApp{}, fmt.Errorf("%q is not a module path, pass one with --module: %w", modulePath, err)
 	}
@@ -130,7 +133,11 @@ func appNames(modulePath string) (newApp, error) {
 		return newApp{}, fmt.Errorf("the module path %s ends in %q, which makes the package name %q: a package name must start with a letter and may not be a keyword, main or init, so pass --module with another last element", modulePath, title, pkg)
 	}
 	if clash, ok := rootNameClashes[pkg]; ok {
-		return newApp{}, fmt.Errorf("the module path %s makes the root package %s, and the Go files under app/ that import it already use %s for %s: name the folder differently or pass --module with another last element", modulePath, pkg, pkg, clash)
+		fix := "change the last element of --module"
+		if fromFolder {
+			fix = "name the folder differently or pass --module with another last element"
+		}
+		return newApp{}, fmt.Errorf("the module path %s makes the root package %s, and the Go files under app/ that import it already use %s for %s: %s", modulePath, pkg, pkg, clash, fix)
 	}
 	npm := pkg
 	if len(npm) > 214 { // the longest npm name

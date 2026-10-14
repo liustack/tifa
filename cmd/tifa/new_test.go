@@ -184,7 +184,7 @@ func TestNewNamesTheRootPackage(t *testing.T) {
 		{"example.com/" + strings.Repeat("a", 300), strings.Repeat("a", 300), strings.Repeat("a", 300), strings.Repeat("a", 214)},
 	}
 	for _, tc := range cases {
-		app, err := appNames(tc.module)
+		app, err := appNames(tc.module, false)
 		if err != nil || app.Package != tc.pkg || app.Title != tc.title || app.NPM != tc.npm {
 			t.Errorf("%s: %+v, %v, want package %s, title %s and npm name %s", tc.module, app, err, tc.pkg, tc.title, tc.npm)
 		}
@@ -198,7 +198,7 @@ func TestNewNamesTheRootPackage(t *testing.T) {
 		// a vendor element makes the go command refuse to import the path
 		"example.com/vendor", "example.com/vendor/desk", "vendor/desk",
 	} {
-		if _, err := appNames(bad); err == nil {
+		if _, err := appNames(bad, false); err == nil {
 			t.Errorf("%q: no error", bad)
 		}
 	}
@@ -253,24 +253,30 @@ func TestNewRefusesARootPackageThatClashes(t *testing.T) {
 		"example.com/error":   "the predeclared name error",
 		"example.com/db":      "app/route_test.go",
 	} {
-		_, err := appNames(module)
+		_, err := appNames(module, false)
 		if err == nil || !strings.Contains(err.Error(), clash) || !strings.Contains(err.Error(), "--module") {
 			t.Errorf("%s: %v, want an error naming %q and --module", module, err, clash)
 		}
 	}
+	// The name comes from the folder unless --module gives it, and the error says which to change.
 	dir := filepath.Join(t.TempDir(), "todos")
-	if _, _, err := run(t, "new", dir); err == nil || !strings.Contains(err.Error(), "app/todos") {
-		t.Errorf("tifa new todos: %v, want an error about app/todos", err)
+	if _, _, err := run(t, "new", dir); err == nil || !strings.Contains(err.Error(), "app/todos") || !strings.Contains(err.Error(), "name the folder differently") {
+		t.Errorf("tifa new todos: %v, want an error about app/todos that asks for another folder name", err)
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Errorf("tifa new todos wrote %s: %v", dir, err)
+	}
+	dir = filepath.Join(t.TempDir(), "desk")
+	_, _, err := run(t, "new", dir, "--module", "example.com/todos")
+	if err == nil || !strings.Contains(err.Error(), "change the last element of --module") || strings.Contains(err.Error(), "folder") {
+		t.Errorf("tifa new --module example.com/todos: %v, want an error that asks for another last element of --module only", err)
 	}
 }
 
 // A package named init cannot be imported by its name, since init may only be a function.
 func TestNewRefusesInit(t *testing.T) {
 	for _, module := range []string{"init", "example.com/init", "example.com/Init"} {
-		if _, err := appNames(module); err == nil || !strings.Contains(err.Error(), "init") {
+		if _, err := appNames(module, false); err == nil || !strings.Contains(err.Error(), "init") {
 			t.Errorf("%s: %v, want an error about init", module, err)
 		}
 	}
@@ -341,7 +347,7 @@ func TestRootNameClashesMatchTheTemplate(t *testing.T) {
 			module := "example.com/" + name
 			_, clashes := rootNameClashes[name]
 			if clashes || name == "init" {
-				if _, err := appNames(module); err == nil {
+				if _, err := appNames(module, false); err == nil {
 					t.Errorf("tifa new takes %s", module)
 				}
 				if err := build(t, app(module, name)); err == nil {
@@ -349,7 +355,7 @@ func TestRootNameClashesMatchTheTemplate(t *testing.T) {
 				}
 				return
 			}
-			a, err := appNames(module)
+			a, err := appNames(module, false)
 			if err != nil {
 				t.Fatalf("tifa new refuses %s: %v", module, err)
 			}
