@@ -53,6 +53,16 @@ tifa build [--dir 应用根目录] [-o 输出路径]
 3. 用 esbuild（Go API）打包，产物写进 `.tifa/dist/`，见下文「前端产物」。不需要 Node。
 4. `CGO_ENABLED=0 go build -o <输出> ./.tifa`，默认输出 `bin/<模块路径最后一段>`。生成的 main 用 `//go:embed all:dist` 把 `.tifa/dist/` 嵌进可执行文件。
 
+### 给别的系统构建
+
+静态分析和 `go build` 都按环境里的 `GOOS`、`GOARCH` 运行，所以它们选的文件和 go 命令为这个目标选的一样，比如 `limit_windows.go`，或者带 `//go:build` 行的文件。用为本机构建的 tifa 命令，再设上目标平台：
+
+```sh
+GOOS=linux GOARCH=amd64 $(go tool -n tifa) build -o bin/myapp-linux
+```
+
+`go tool -n tifa` 只打印本机 tifa 命令的路径，不运行它。`GOOS=linux go tool tifa build` 不行：这时 `GOOS` 也作用于构建 tifa 命令本身，它启动时就报 `exec format error`。
+
 ## tifa routes
 
 ```sh

@@ -53,6 +53,16 @@ tifa build [--dir app-root] [-o output-path]
 3. Bundles with esbuild (its Go API) and writes the output to `.tifa/dist/`. See "Frontend output" below. No Node needed.
 4. Runs `CGO_ENABLED=0 go build -o <output> ./.tifa`. The default output is `bin/<last segment of the module path>`. The generated main embeds `.tifa/dist/` into the executable with `//go:embed all:dist`.
 
+### Building for another system
+
+The analysis and `go build` both run with the `GOOS` and `GOARCH` of the environment, so they pick the same files the go command picks for that target, such as `limit_windows.go` or files with a `//go:build` line. Run the tifa command built for your own machine with the target set:
+
+```sh
+GOOS=linux GOARCH=amd64 $(go tool -n tifa) build -o bin/myapp-linux
+```
+
+`go tool -n tifa` prints the path of the tifa command for this machine without running it. `GOOS=linux go tool tifa build` does not work: `GOOS` then also applies to building the tifa command itself, which fails to start with `exec format error`.
+
 ## tifa routes
 
 ```sh

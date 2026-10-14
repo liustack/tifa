@@ -48,11 +48,11 @@ What you get:
 
 - **Little magic.** The conventions are folder names and a few names of functions and constants: `Load`, `Layout`, the method handlers, the hooks. Everything else is plain Go. You write no main, and the code tifa generates sits in `.tifa/`, where you can read it.
 - **The build only reads your code.** `tifa build` analyzes the source and never runs it: an `init()` of the app does not run during the build.
-- **Platform differences use build constraints**: files named like `limit_windows.go`, or a `//go:build` line. `tifa build` analyzes and builds the files the go command picks for the target `GOOS` and `GOARCH`.
+- **Platform differences use build constraints**: files named like `limit_windows.go`, or a `//go:build` line. The build picks files for the target platform the way the go command does.
 - **Pure Go.** The app builds with `CGO_ENABLED=0` into one executable.
 
 What you get:
 
 - `go test ./...`, `go vet ./...` and your editor work on the app as on any Go module.
 - A build is safe to run anywhere, CI included, without the database or the secrets the app needs at run time.
-- Building for another system is `GOOS=linux go tool tifa build`, and the result is one file to copy.
+- An app builds for the platforms Go supports, as one file to copy. See [Building for another system](build.md#building-for-another-system).
