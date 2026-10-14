@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -20,6 +21,8 @@ func (in *shipInput) Validate() error {
 		return tifa.Fields{"carrier": "no drones"}
 	case "teleport":
 		return tifa.Error{Status: 409, Message: "not yet"}
+	case "rocket":
+		return &tifa.Fields{"carrier": "no rockets"}
 	}
 	return nil
 }
@@ -47,8 +50,12 @@ func typedApp(shipped *[]string) App {
 			return shipment{Carrier: "SF", Order: c.Param("order")}, nil
 		}),
 		PATCH: InputOutput(func(c *tifa.Ctx, in shipInput) (*shipment, error) {
-			if in.Carrier == "lost" {
+			switch in.Carrier {
+			case "lost":
 				return nil, tifa.ErrNotFound
+			case "boat":
+				var err error = &tifa.Fields{"carrier": "no boats"}
+				return nil, fmt.Errorf("ship: %w", err)
 			}
 			return &shipment{Carrier: in.Carrier, Order: c.Param("order")}, nil
 		}, (*tifa.Ctx).Bind),
@@ -68,10 +75,12 @@ func TestTypedHandlers(t *testing.T) {
 		{"POST", "/orders/7", `{"carrier":""}`, 400, `{"error":"carrier is required"}`},
 		{"POST", "/orders/7", `{"carrier":"drone"}`, 422, `{"error":"Unprocessable Entity","fields":{"carrier":"no drones"}}`},
 		{"POST", "/orders/7", `{"carrier":"teleport"}`, 409, `{"error":"not yet"}`},
+		{"POST", "/orders/7", `{"carrier":"rocket"}`, 422, `{"error":"Unprocessable Entity","fields":{"carrier":"no rockets"}}`},
 		{"POST", "/orders/7", `{"carrier":`, 400, `{"error":"invalid JSON body"}`},
 		{"PUT", "/orders/7", "", 200, `{"carrier":"SF","order":"7"}`},
 		{"PATCH", "/orders/7", `{"carrier":"JD"}`, 200, `{"carrier":"JD","order":"7"}`},
 		{"PATCH", "/orders/7", `{"carrier":"lost"}`, 404, `{"error":"Not Found"}`},
+		{"PATCH", "/orders/7", `{"carrier":"boat"}`, 422, `{"error":"Unprocessable Entity","fields":{"carrier":"no boats"}}`},
 	}
 	for _, tc := range cases {
 		w := send(s, tc.method, tc.target, tc.body)

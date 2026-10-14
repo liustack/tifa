@@ -209,7 +209,7 @@ func (s *Server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 		http.Redirect(w, r, redirect.URL, redirect.Code)
 	case !page:
 		body := errorBody{Error: e.Message}
-		errors.As(err, &body.Fields)
+		body.Fields, _ = fieldsOf(err)
 		writeJSON(w, e.Status, body)
 	case errors.As(err, new(*renderError)):
 		writeFallback(w, e)
@@ -230,7 +230,7 @@ func (s *Server) classify(c *tifa.Ctx, err error) (*core.RedirectError, tifa.Err
 		return redirect, e
 	case errors.Is(err, tifa.ErrNotFound):
 		e = tifa.Error{Status: http.StatusNotFound, Message: http.StatusText(http.StatusNotFound)}
-	case errors.As(err, new(tifa.Fields)):
+	case isFields(err):
 		e = tifa.Error{Status: http.StatusUnprocessableEntity, Message: http.StatusText(http.StatusUnprocessableEntity)}
 	case asPublic(err, &e):
 		if e.Message == "" {
