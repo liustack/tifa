@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -52,28 +53,45 @@ func watchWithFileLimitErr() error {
 	done := make(chan error, 1)
 	go func() { done <- w.run(ctx) }()
 	edit := os.Getenv("TIFA_TEST_EDIT")
-	if err := os.WriteFile(filepath.Join(w.root, edit), []byte(fmt.Sprintf("export const edited = %d", time.Now().UnixNano())), 0o644); err != nil {
-		return err
+	want := map[string]bool{}
+	if stage := os.Getenv("TIFA_TEST_STAGE"); stage != "" {
+		// Move every file of stage into the watched directory edit while the watcher runs.
+		entries, err := os.ReadDir(stage)
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			if err := os.Rename(filepath.Join(stage, e.Name()), filepath.Join(w.root, edit, e.Name())); err != nil {
+				return err
+			}
+			want[path.Join(edit, e.Name())] = true
+		}
+	} else {
+		if err := os.WriteFile(filepath.Join(w.root, edit), []byte(fmt.Sprintf("export const edited = %d", time.Now().UnixNano())), 0o644); err != nil {
+			return err
+		}
+		want[edit] = true
 	}
-	timeout := time.After(5 * time.Second)
+	timeout := time.After(10 * time.Second)
 	for {
 		select {
 		case err := <-done:
 			return fmt.Errorf("watcher stopped: %v", err)
 		case <-w.changes.ready:
 			for _, c := range w.changes.take() {
-				if c == (change{edit, modified}) {
-					fmt.Printf("changed %s, polled %d\n", edit, polled)
-					return nil
-				}
+				delete(want, c.path)
+			}
+			if len(want) == 0 {
+				fmt.Printf("changed %s, polled %d\n", edit, polled)
+				return nil
 			}
 		case <-timeout:
-			return fmt.Errorf("%s: no change reported within 5s", edit)
+			return fmt.Errorf("%s: %d changes not reported within 10s", edit, len(want))
 		}
 	}
 }
 
-func runWatchWithFileLimit(t *testing.T, dir, edit string, limit int, noBudget bool) string {
+func runWatchWithFileLimit(t *testing.T, dir, edit string, limit int, noBudget bool, env ...string) string {
 	t.Helper()
 	exe, err := os.Executable()
 	if err != nil {
@@ -84,6 +102,7 @@ func runWatchWithFileLimit(t *testing.T, dir, edit string, limit int, noBudget b
 	if noBudget {
 		cmd.Env = append(cmd.Env, "TIFA_TEST_NO_BUDGET=1")
 	}
+	cmd.Env = append(cmd.Env, env...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("%v: %s", err, out)
@@ -108,6 +127,26 @@ func TestWatcherWorksWithFewFiles(t *testing.T) {
 			}
 			if strings.Contains(out, "polled 0") {
 				t.Logf("watching %s needs no descriptor per file on this system, nothing was polled", dir)
+			}
+		})
+	}
+}
+
+// A watched directory that grows while tifa dev runs takes more file descriptors on kqueue, one
+// per new file. Past the budget, or once the system runs out, the watcher polls instead of
+// stopping, and every file that arrived is reported.
+func TestWatcherWorksWhenADirectoryGrows(t *testing.T) {
+	for _, noBudget := range []bool{false, true} {
+		t.Run(fmt.Sprintf("budget=%v", !noBudget), func(t *testing.T) {
+			dir := newApp(t)
+			stage := t.TempDir()
+			for i := range 180 {
+				writeFile(t, stage, fmt.Sprintf("f%03d.ts", i), "export {}")
+			}
+			out := runWatchWithFileLimit(t, dir, "app", 128, noBudget, "TIFA_TEST_STAGE="+stage)
+			t.Log(out)
+			if !strings.Contains(out, "changed app") {
+				t.Fatalf("the new files were not all reported: %s", out)
 			}
 		})
 	}

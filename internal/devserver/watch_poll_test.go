@@ -1,6 +1,7 @@
 package devserver
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -270,4 +271,38 @@ func TestPollInterval(t *testing.T) {
 			t.Errorf("pollInterval(%v) = %v, want %v", c.took, got, c.want)
 		}
 	}
+}
+
+// On kqueue every file created in a watched directory takes a file descriptor of its own. Once
+// they go past the budget, the directory is polled instead, and its new files are still reported.
+func TestWatcherPollsADirectoryThatGrowsPastTheBudget(t *testing.T) {
+	if entryCost == 0 {
+		t.Skip("a new file takes no watch of its own on this system")
+	}
+	dir := t.TempDir()
+	writeFile(t, dir, "app/a.ts", "export {}")
+	var warned warnings
+	w := preparedWatcher(t, dir, warned.add)
+	if err := w.start(); err != nil {
+		t.Fatal(err)
+	}
+	w.budget = w.used + 5
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- w.run(ctx) }()
+	var want []change
+	for i := range 20 {
+		name := fmt.Sprintf("app/f%02d.ts", i)
+		writeFile(t, dir, name, "export {}")
+		want = append(want, change{name, created})
+	}
+	expectChanges(t, w, want...)
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if w.used > w.budget || !w.polled["app"] {
+		t.Fatalf("used %d of a budget of %d, polled %v: the new files went past the budget", w.used, w.budget, w.polled)
+	}
+	warned.has(t, "app")
 }

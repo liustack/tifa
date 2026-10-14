@@ -89,8 +89,8 @@ tifa dev 用系统的文件事件监视目录。应用的目录或文件多到�
 tifa dev: 07:35:36 watching app/assets would use up the system's file watches, so it and the directories found after it are polled for changes
 ```
 
-- macOS 上监视一个目录要为目录本身和里面每一项各占一个文件描述符。tifa dev 最多用一个进程能打开数量的一半（macOS 默认 61,440，即 30,720），超出的目录改为轮询。
+- macOS 上监视一个目录要为目录本身和里面每一项各占一个文件描述符，之后在里面新出现的文件也各占一个。tifa dev 把这些都算进一个进程能打开数量的一半（取打开文件上限和 `kern.maxfilesperproc` 中较小的那个），超出的目录改为轮询，已监视的目录后来长大超出时也一样。
 - Linux 上监视一个目录占用户的一个 inotify watch，编辑器等工具共用这个额度。tifa dev 最多用 `fs.inotify.max_user_watches` 的一半。
-- 系统先用完时（其他程序占了大量 watch 或文件），tifa dev 轮询没能监视的目录，再还回自己占着的一小部分额度，继续工作。
+- 系统先用完时（其他程序占了大量 watch 或文件），tifa dev 轮询没能监视的目录，再还回自己占着的一小部分额度，继续工作。运行中才用完时（比如打不开文件），tifa dev 停掉系统事件监视，改为轮询所有目录，并把所有文件重新比对一遍。
 - 每轮轮询列出被轮询的目录，只对大小、修改时间或文件身份变了的文件重新算校验和。两轮之间至少隔一秒，且至少是上一轮耗时的十倍，所以轮询最多占一个 CPU 核的十分之一。被轮询的文件有几万个时，改动可能要几秒才生效。
 - 改为轮询的目录在 tifa dev 重启前一直轮询。

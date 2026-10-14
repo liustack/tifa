@@ -11,6 +11,9 @@ import (
 
 // kqueue keeps a file descriptor open for a watched directory and for every entry in it.
 
+// entryCost is how many file descriptors an entry that appears in a watched directory takes.
+const entryCost = 1
+
 // watchCost returns how many file descriptors watching dir takes.
 func watchCost(dir string) int {
 	f, err := os.Open(dir)

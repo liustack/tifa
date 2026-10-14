@@ -184,7 +184,7 @@ func prepareWatcher(root string, ignore []string, warn func(string)) (*watcher, 
 
 // start records the checksum of every tracked file, without reporting them.
 func (w *watcher) start() error {
-	if err := w.rescan("."); err != nil {
+	if err := w.recover(w.rescan(".")); err != nil {
 		return err
 	}
 	w.changes.take()
@@ -232,12 +232,12 @@ func (w *watcher) run(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		case <-links.C:
-			if err := w.checkLinks(); err != nil {
+			if err := w.recover(w.checkLinks()); err != nil {
 				return err
 			}
 		case <-poll.C:
 			start := time.Now()
-			if err := w.poll(); err != nil {
+			if err := w.recover(w.poll()); err != nil {
 				return err
 			}
 			poll.Reset(w.pollInterval(time.Since(start)))
@@ -245,7 +245,7 @@ func (w *watcher) run(ctx context.Context) error {
 			if !ok {
 				return errors.New("file watcher stopped")
 			}
-			if err := w.handle(ev.Name, ev.Op); err != nil {
+			if err := w.recover(w.handle(ev.Name, ev.Op)); err != nil {
 				return err
 			}
 		case err, ok := <-w.errs:
@@ -262,6 +262,9 @@ func (w *watcher) run(ctx context.Context) error {
 				// Such as kqueue failing to open a file created in a watched directory. The
 				// error does not say which directory misses events.
 				w.pollAll(err)
+				if err := w.rescan("."); err != nil {
+					return err
+				}
 			default:
 				return fmt.Errorf("watching files: %w", err)
 			}
@@ -356,20 +359,61 @@ func (w *watcher) spare() {
 	}
 }
 
-// pollAll polls every directory in place of its system watch.
+// pollAll stops the system watcher and polls every directory. Closing it frees everything it
+// holds, also what kqueue opened for files that arrived in a directory after it was dropped.
 func (w *watcher) pollAll(err error) {
 	w.full = true
+	if w.fs != nil {
+		w.fs.Close()
+		w.fs, w.events, w.errs = nil, nil, nil
+	}
 	for real, dir := range w.real {
 		if _, ok := w.cost[real]; ok {
-			w.dropWatch(real)
 			w.polled[dir] = true
 		}
 	}
-	for dir := range w.extWatch {
-		w.dropWatch(dir)
-	}
+	clear(w.cost)
 	clear(w.extWatch)
+	w.used = 0
 	w.warn(fmt.Sprintf("watching files: %v: the system ran out of file watches, so every directory is polled for changes", err))
+}
+
+// recover polls everything and compares it with the disk again when err says the system ran out
+// of watches or file descriptors, such as a file that cannot be opened to hash it. kqueue does
+// not always report running out, so the next file the watcher opens may be the first to fail.
+// Other errors come back as they are.
+func (w *watcher) recover(err error) error {
+	if err == nil || !outOfWatches(err) || w.fs == nil {
+		return err
+	}
+	w.pollAll(err)
+	return w.rescan(".")
+}
+
+// grew accounts for an entry that appeared in (n is 1) or left (n is -1) the directory whose
+// real path is real: kqueue holds a file descriptor for each entry of a watched directory. A
+// directory that grows past the budget is polled from then on, like the ones found after it.
+func (w *watcher) grew(real string, n int) {
+	cost, ok := w.cost[real]
+	if !ok || entryCost == 0 {
+		return
+	}
+	n = max(n*entryCost, 1-cost) // the directory's own descriptor stays
+	w.cost[real] += n
+	w.used += n
+	if w.used <= w.budget {
+		return
+	}
+	w.full = true
+	w.dropWatch(real)
+	dir, ok := w.real[real]
+	if !ok {
+		w.extWatch[real] = false // the directory of a link target: the link is polled
+		dir = real
+	} else {
+		w.polled[dir] = true
+	}
+	w.warn(fmt.Sprintf("%s grew past what the system's file watches allow, so it and the directories found after it are polled for changes", dir))
 }
 
 // dropWatch removes the system watch of real, if it has one.
@@ -440,6 +484,12 @@ func (w *watcher) watching(dir string, info os.FileInfo) bool {
 // handle brings the state of one path up to date. Events only say where to look: the checksum
 // decides whether a file changed, and a directory is checked against the one that was watched.
 func (w *watcher) handle(name string, op fsnotify.Op) error {
+	switch {
+	case op.Has(fsnotify.Create):
+		w.grew(filepath.Dir(name), 1)
+	case op.Has(fsnotify.Remove) || op.Has(fsnotify.Rename):
+		w.grew(filepath.Dir(name), -1)
+	}
 	for _, link := range w.links[name] {
 		if err := w.check(link); err != nil {
 			return err
