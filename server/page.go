@@ -253,7 +253,11 @@ func (s *Server) dataRequest(c *tifa.Ctx, chain []load) error {
 	}
 	values, errs := runLoads(c, selected)
 	items, _, _, _ := s.results(c, selected, values, errs)
-	c.SetHeader("Cache-Control", "no-cache")
+	// The Loads have returned, the header map is no longer shared. A Cache-Control of
+	// OnRequest or a Load, such as private, no-store, wins over the default.
+	if c.Writer().Header().Get("Cache-Control") == "" {
+		c.Writer().Header().Set("Cache-Control", "no-cache")
+	}
 	return c.JSON(http.StatusOK, items)
 }
 

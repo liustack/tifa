@@ -384,3 +384,25 @@ func TestPageKeepsTheVaryOfTheApplication(t *testing.T) {
 		}
 	}
 }
+
+// A data request keeps the Cache-Control the application set, and gets no-cache otherwise.
+func TestDataRequestKeepsTheCacheControlOfTheApplication(t *testing.T) {
+	app := frontApp()
+	app.Hooks.OnRequest = func(c *tifa.Ctx) error {
+		if c.Query("private") != "" {
+			c.SetHeader("Cache-Control", "private, no-store")
+		}
+		return c.Next()
+	}
+	s, _ := newFrontServer(t, app)
+	data := []string{"X-Tifa-Route", "app", "X-Tifa-Build", "b1"}
+	if w := get(s, "/projects/p1?private=1", data...); w.Header().Get("Cache-Control") != "private, no-store" {
+		t.Errorf("data request: %v", w.Header())
+	}
+	if w := get(s, "/projects/p1?private=1"); w.Header().Get("Cache-Control") != "private, no-store" {
+		t.Errorf("page: %v", w.Header())
+	}
+	if w := get(s, "/projects/p1", data...); w.Header().Get("Cache-Control") != "no-cache" {
+		t.Errorf("default: %v", w.Header())
+	}
+}
