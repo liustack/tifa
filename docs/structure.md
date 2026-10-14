@@ -1,5 +1,5 @@
 ---
-summary: 'How to structure a tifa app: group code by domain, keep each domain in its folder under app/ next to its pages, keep only hooks and shared resources at the root, which way packages may import each other, wire dependencies by hand'
+summary: 'Where the files of a tifa app go: each domain in its folder under app/ next to its pages, only hooks and shared resources at the root, which way packages may import each other, how shared resources are set up and used'
 read_when:
   - Starting a new tifa app
   - Deciding where a type, a query or a shared resource goes
@@ -11,21 +11,11 @@ English · [简体中文](structure.zh-CN.md)
 
 # Structuring an app
 
-A tifa app is a Go program and follows Go's habits. Three rules:
+This page says where each file of an app goes. Why it is organized this way is in [Philosophy](philosophy.md).
 
-1. Group code by domain, not by kind.
-2. A domain is a folder under `app/`. Its code sits next to its pages, and the root keeps only the hooks and what the whole app shares.
-3. Wire dependencies by hand.
+## 1. A domain is a folder under app/
 
-## 1. Group code by domain
-
-Code is grouped by what it is about (orders, projects, customers), not by what kind of code it is. A domain holds everything it needs: its types, storage, queries, rules and, in tifa, its pages. There is no `models/`, `services/`, `repositories/`, `handlers/`, `utils/` or `db/` package that collects one kind of code from every domain.
-
-The test: you can take a domain out, review it or delete it as one unit.
-
-## 2. A domain is a folder under app/
-
-Folders under `app/` already follow the business, since they are the URLs. So a domain lives in its folder, next to the pages that show it:
+A domain lives in its folder under `app/`, next to the pages that show it. The root keeps only the hooks and what the whole app shares:
 
 ```text
 myapp/
@@ -92,11 +82,8 @@ When two domains need each other, move the part both need into one of them, or i
 
 - Split its code into more files in the same folder, one per topic: `order.go`, `shipping.go`, `refund.go`. It stays one package.
 - A part with pages of its own becomes a folder below, holding its code and its pages, such as `order+/refunds/`. Once it imports the domain above it, the domain above cannot import it back.
-- When a new call would close a cycle, the code is usually in the wrong domain.
 
-## 3. Wire dependencies by hand
-
-No dependency injection container, no framework, no reflection or generated code for wiring. Dependencies are plain Go values.
+## 2. Shared resources and other dependencies
 
 - **Shared resources** such as a database connection, a logger or a mail client live in files at the root, next to `hooks.go`: `db.go`, `mail.go`, `middleware.go`. Each one builds a package-level variable or a function. Set it up in `OnStart`, release it in `OnShutdown`, and use it directly anywhere:
 

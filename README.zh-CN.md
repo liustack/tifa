@@ -115,6 +115,7 @@ go tool tifa build
 
 | 文档 | 什么时候读 |
 | :-- | :-- |
+| [哲学](docs/philosophy.zh-CN.md) | 想知道 tifa 应用为什么这样组织 |
 | [应用的代码结构](docs/structure.zh-CN.md) | 决定领域代码、存储和共享资源放在哪，包之间按什么方向 import |
 | [应用怎么写](docs/app.zh-CN.md) | 安排目录、路由、Layout、钩子、404、head 标签和缓存 |
 | [构建与运行](docs/build.zh-CN.md) | 想知道 `tifa build` 生成了什么，程序怎么回答请求 |
