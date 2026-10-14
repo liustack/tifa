@@ -1,11 +1,14 @@
 package analyze
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"go/ast"
 	"go/constant"
 	"go/token"
 	"go/types"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -53,6 +56,9 @@ func Analyze(dir string) (*Manifest, error) {
 		return nil, err
 	}
 	a := &analyzer{root: root, dirs: map[string]*dirInfo{}, used: usedLoads{}}
+	if a.module, err = modulePath(root); err != nil {
+		return nil, err
+	}
 	if err := a.scan(); err != nil {
 		return nil, err
 	}
@@ -64,6 +70,40 @@ func Analyze(dir string) (*Manifest, error) {
 		return nil, a.sortedErrors()
 	}
 	return m, nil
+}
+
+// modulePath returns the path of the module rooted at root, as the go command that loads and
+// builds the application sees it, GOFLAGS and go.work included. An app whose pages are all TSX
+// has no Go package to read it from.
+func modulePath(root string) (string, error) {
+	cmd := exec.Command("go", "list", "-m", "-json")
+	cmd.Dir, cmd.Env = root, append(os.Environ(), "CGO_ENABLED=0")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("go list -m in %s: %v\n%s", root, err, strings.TrimSpace(stderr.String()))
+	}
+	rootInfo, err := os.Stat(root)
+	if err != nil {
+		return "", err
+	}
+	// In a workspace the go command lists every module of go.work.
+	for dec := json.NewDecoder(bytes.NewReader(out)); ; {
+		var m struct{ Path, Dir string }
+		if err := dec.Decode(&m); err == io.EOF {
+			break
+		} else if err != nil {
+			return "", fmt.Errorf("go list -m in %s: %w", root, err)
+		}
+		if info, err := os.Stat(m.Dir); err == nil && os.SameFile(info, rootInfo) {
+			return m.Path, nil
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "go.mod")); err == nil {
+		return "", fmt.Errorf("the go.work in use leaves out the module at %s: add it with go work use, or set GOWORK=off", root)
+	}
+	return "", fmt.Errorf("%s is not the root of a module: the application root holds go.mod", root)
 }
 
 type analyzer struct {
@@ -193,9 +233,6 @@ func (a *analyzer) load() error {
 	for _, p := range pkgs {
 		if len(p.GoFiles) == 0 {
 			continue
-		}
-		if p.Module != nil && a.module == "" {
-			a.module = p.Module.Path
 		}
 		a.modulePkgs[p.PkgPath] = true
 		id := a.id(filepath.Dir(p.GoFiles[0]))
