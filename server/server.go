@@ -178,41 +178,39 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, pattern string, p
 	}
 }
 
-// fail turns an error into a response. Redirects, ErrNotFound and tifa.Error are expected results
-// and skip OnError. page answers with an HTML page instead of JSON.
+// fail turns the error OnRequest returned into a response. Redirects, ErrNotFound and
+// tifa.Error are expected results and skip OnError. page answers with an HTML page instead of
+// JSON. A failed Load that OnRequest returned unchanged keeps the results of every loaded
+// route: a data request answers them by route, a page renders with them.
 func (s *Server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 	r := c.Request()
 	var failure *loadFailure
-	errors.As(err, &failure)
+	var items map[string]routeResult
 	var redirect *core.RedirectError
 	var e tifa.Error
-	if failure != nil {
-		redirect, e = failure.redirect, failure.public
+	if errors.As(err, &failure) {
+		items, redirect, e = s.results(c, failure)
 	} else {
 		redirect, e = s.classify(c, err)
-	}
-	if redirect != nil {
-		if w.wrote {
-			log.Printf("tifa: %s %s: redirect to %s after the response was written", r.Method, r.URL.Path, redirect.URL)
-			return
-		}
-		http.Redirect(w, r, redirect.URL, redirect.Code)
-		return
 	}
 	if w.wrote {
 		log.Printf("tifa: %s %s: %v after the response was written", r.Method, r.URL.Path, err)
 		return
 	}
-	if !page {
+	switch {
+	case failure != nil && failure.data:
+		_ = writeData(w, http.StatusOK, items)
+	case redirect != nil:
+		http.Redirect(w, r, redirect.URL, redirect.Code)
+	case !page:
 		writeJSON(w, e.Status, map[string]string{"error": e.Message})
-		return
-	}
-	var rendering *renderError
-	if errors.As(err, &rendering) {
+	case errors.As(err, new(*renderError)):
 		writeFallback(w, e)
-		return
+	case failure != nil:
+		s.errorPage(c, e, items, failure.ssr)
+	default:
+		s.errorPage(c, e, nil, false)
 	}
-	s.errorPage(c, e, failure)
 }
 
 // classify sorts an error into a redirect or the public error to answer. Unexpected errors go

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"html"
 	"io/fs"
-	"log"
 	"net/http"
 	"path"
 	"reflect"
@@ -131,18 +130,21 @@ type routeResult struct {
 	Location string `json:"location,omitempty"`
 }
 
-// loadFailure is what a page returns when a Load of its chain failed: the outermost failure,
-// already sorted by classify, and the results of the whole chain for the error page.
+// loadFailure is what a page returns from Next when a Load of the loaded routes failed. Its
+// error is the outermost failure, the one OnRequest sees. The Loads' errors are sorted only
+// once OnRequest has returned it unchanged (see Server.fail), so OnError never sees an error
+// the middleware handles.
 type loadFailure struct {
-	err      error
-	redirect *core.RedirectError
-	public   tifa.Error
-	items    map[string]routeResult
-	ssr      bool
+	chain  []load
+	values []any
+	errs   []error
+	failed int  // index of the outermost failure in chain
+	data   bool // a data request, answered by route as JSON
+	ssr    bool
 }
 
-func (f *loadFailure) Error() string { return f.err.Error() }
-func (f *loadFailure) Unwrap() error { return f.err }
+func (f *loadFailure) Error() string { return f.errs[f.failed].Error() }
+func (f *loadFailure) Unwrap() error { return f.errs[f.failed] }
 
 // renderError is a failed SSR render. The error page then comes from Go, not from the VM.
 type renderError struct{ err error }
@@ -150,23 +152,37 @@ type renderError struct{ err error }
 func (e *renderError) Error() string { return "tifa: render page: " + e.err.Error() }
 func (e *renderError) Unwrap() error { return e.err }
 
-// results turns the outcomes of the Loads into routeResults by route ID, sorting each error
-// with classify. Loads that share a failure through tifa.Use return the same error, which
-// classify sees once, so OnError reports it once. failed is the index of the outermost failure,
-// -1 when every Load succeeded.
-func (s *Server) results(c *tifa.Ctx, chain []load, values []any, errs []error) (items map[string]routeResult, failed int, redirect *core.RedirectError, public tifa.Error) {
-	items = make(map[string]routeResult, len(chain))
-	failed = -1
+// runChain runs the Loads of chain and returns their results by route ID, or a *loadFailure
+// when one failed.
+func runChain(c *tifa.Ctx, chain []load, ssr bool) (map[string]routeResult, error) {
+	values, errs := runLoads(c, chain)
+	for i, err := range errs {
+		if err != nil {
+			return nil, &loadFailure{chain: chain, values: values, errs: errs, failed: i, data: c.IsData(), ssr: ssr}
+		}
+	}
+	items := make(map[string]routeResult, len(chain))
+	for i, l := range chain {
+		items[l.id] = routeResult{Status: http.StatusOK, Data: values[i]}
+	}
+	return items, nil
+}
+
+// results sorts the errors of a failure with classify and returns the results by route ID and
+// the sorted outermost failure. Loads that share a failure through tifa.Use return the same
+// error, which classify sees once, so OnError reports it once.
+func (s *Server) results(c *tifa.Ctx, f *loadFailure) (items map[string]routeResult, redirect *core.RedirectError, public tifa.Error) {
+	items = make(map[string]routeResult, len(f.chain))
 	type sorted struct {
 		err      error
 		redirect *core.RedirectError
 		public   tifa.Error
 	}
 	var seen []sorted
-	for i, l := range chain {
-		err := errs[i]
+	for i, l := range f.chain {
+		err := f.errs[i]
 		if err == nil {
-			items[l.id] = routeResult{Status: http.StatusOK, Data: values[i]}
+			items[l.id] = routeResult{Status: http.StatusOK, Data: f.values[i]}
 			continue
 		}
 		j := slices.IndexFunc(seen, func(x sorted) bool { return sameError(x.err, err) })
@@ -181,11 +197,11 @@ func (s *Server) results(c *tifa.Ctx, chain []load, values []any, errs []error) 
 		} else {
 			items[l.id] = routeResult{Status: x.public.Status, Error: x.public.Message}
 		}
-		if failed < 0 {
-			failed, redirect, public = i, x.redirect, x.public
+		if i == f.failed {
+			redirect, public = x.redirect, x.public
 		}
 	}
-	return items, failed, redirect, public
+	return items, redirect, public
 }
 
 // sameError reports whether a and b are the same error value, without panicking on error types
@@ -200,6 +216,7 @@ func sameError(a, b error) bool {
 //   - with SSR on its chain, the HTML the VM renders, or 304, or the cached HTML for Cache = true
 //   - with SSR = false somewhere on its chain, a minimal document carrying the data
 //
+// When a Load fails it returns a *loadFailure, for OnRequest to see as the error of Next.
 // Without a front end it answers the chain's data as JSON by route ID.
 func (s *Server) pageHandler(r Route, chain []load) func(*tifa.Ctx) error {
 	return func(c *tifa.Ctx) error {
@@ -212,11 +229,10 @@ func (s *Server) pageHandler(r Route, chain []load) func(*tifa.Ctx) error {
 		if c.IsData() {
 			return s.dataRequest(c, chain)
 		}
-		values, errs := runLoads(c, chain)
-		items, failed, redirect, public := s.results(c, chain, values, errs)
+		items, err := runChain(c, chain, r.SSR)
 		switch {
-		case failed >= 0:
-			return &loadFailure{err: errs[failed], redirect: redirect, public: public, items: items, ssr: r.SSR}
+		case err != nil:
+			return err
 		case !r.SSR:
 			return s.dataOnly(c, items, http.StatusOK)
 		}
@@ -241,6 +257,8 @@ func loadsAsJSON(c *tifa.Ctx, chain []load) error {
 
 // dataRequest answers a client navigation: the results of the routes listed in X-Tifa-Route,
 // each with its own status. A browser running another build gets 409 and reloads the page.
+// When a listed Load fails, Next returns the failure as it does for the page, and the answer
+// is written once OnRequest has returned (see Server.fail).
 func (s *Server) dataRequest(c *tifa.Ctx, chain []load) error {
 	if c.Header(buildHeader) != s.build.ID {
 		return tifa.Error{Status: http.StatusConflict, Message: "the application was updated, reload the page"}
@@ -256,14 +274,28 @@ func (s *Server) dataRequest(c *tifa.Ctx, chain []load) error {
 			selected = append(selected, chain[i])
 		}
 	}
-	values, errs := runLoads(c, selected)
-	items, _, _, _ := s.results(c, selected, values, errs)
-	// The Loads have returned, the header map is no longer shared. A Cache-Control of
-	// OnRequest or a Load, such as private, no-store, wins over the default.
-	if c.Writer().Header().Get("Cache-Control") == "" {
-		c.Writer().Header().Set("Cache-Control", "no-cache")
+	items, err := runChain(c, selected, false)
+	if err != nil {
+		return err
 	}
-	return c.JSON(http.StatusOK, items)
+	return writeData(c.Writer(), http.StatusOK, items)
+}
+
+// writeData writes the answer of a data request. A Cache-Control of OnRequest or a Load, such
+// as private, no-store, wins over the default. The Loads have returned, so the header map is
+// no longer shared.
+func writeData(w http.ResponseWriter, status int, value any) error {
+	if w.Header().Get("Cache-Control") == "" {
+		w.Header().Set("Cache-Control", "no-cache")
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_, err = w.Write(data)
+	return err
 }
 
 // renderPage renders the document in the VM. A successful page gets an ETag from the hash of
@@ -356,22 +388,19 @@ func writeHTML(c *tifa.Ctx, status int, page string) error {
 
 // errorPage answers a failed page request with a page and the error's status. The document
 // survives any failure, so the router shows the right level's NotFound or Error component:
-//   - a Load of the chain failed: the page with the results of the whole chain
+//   - a Load of the chain failed: the page with the results of the whole chain (items)
 //   - no route matched: the root Layout's NotFound, which needs no data
 //
-// Anything else, a failed OnRequest for one, gets a plain page from Go.
-func (s *Server) errorPage(c *tifa.Ctx, e tifa.Error, failure *loadFailure) {
-	r := c.Request()
-	var items map[string]routeResult
-	var ssrOn bool
-	switch {
-	case failure != nil:
-		items, ssrOn = failure.items, failure.ssr
-	case c.Pattern() == "" && e.Status == http.StatusNotFound:
+// Anything else, a failed OnRequest for one, gets a plain page from Go. So does a page whose
+// render fails, after OnError has seen that failure. The plain page is not rendered, so a
+// failing error page ends there.
+func (s *Server) errorPage(c *tifa.Ctx, e tifa.Error, items map[string]routeResult, ssrOn bool) {
+	if items == nil {
+		if c.Pattern() != "" || e.Status != http.StatusNotFound {
+			writeFallback(c.Writer(), e)
+			return
+		}
 		items, ssrOn = map[string]routeResult{}, s.rootSSR
-	default:
-		writeFallback(c.Writer(), e)
-		return
 	}
 	var err error
 	if ssrOn {
@@ -380,8 +409,7 @@ func (s *Server) errorPage(c *tifa.Ctx, e tifa.Error, failure *loadFailure) {
 		err = s.dataOnly(c, items, e.Status)
 	}
 	if err != nil {
-		log.Printf("tifa: %s %s: render the %d page: %v", r.Method, r.URL.Path, e.Status, err)
-		writeFallback(c.Writer(), e)
+		writeFallback(c.Writer(), s.publicError(c, fmt.Errorf("render the %d page: %w", e.Status, err)))
 	}
 }
 

@@ -101,7 +101,11 @@ esbuild 不读 `rootDirs`，打包时用 `bundle.Generated(root)` 插件做同�
 
 - 每个 `Load` 的结果是 `{status, data?, error?}`：成功为 200 带 `data`，`tifa.ErrNotFound` 为 404，其他错误带状态码与公开消息。
 - 整页渲染的 VM 输入是 `{url, buildId, data: {路由 ID: 结果}}`，与 `internal/ssr.Input` 一致。
-- 客户端导航时，同一轮事件循环里对同一 URL 的 loader 调用合并成一个 GET：请求头 `X-Tifa-Route: <路由 ID>,<路由 ID>` 与 `X-Tifa-Build: <构建 ID>`，响应是 `{路由 ID: 结果}`，不论 HTTP 状态码，浏览器逐项分发，只有响应不是这个格式时同批 loader 一起失败。构建 ID 不一致时服务器答 409，浏览器刷新当前页面一次（多个 409 只刷新一次，迟到的预加载 409 不会跳到预加载的目标）。
+- 客户端导航时，同一轮事件循环里对同一 URL 的 loader 调用合并成一个 GET：请求头 `X-Tifa-Route: <路由 ID>,<路由 ID>` 与 `X-Tifa-Build: <构建 ID>`。回答有两种：
+  - `{路由 ID: 结果}`：不论 HTTP 状态码，浏览器逐项分发。
+  - 其他：`OnRequest` 拒绝了整个请求，回答是 `{"error": 消息}` 与错误的状态码，同批 loader 一起以这个状态失败。
+  
+  构建 ID 不一致时服务器答 409，浏览器刷新当前页面一次（多个 409 只刷新一次，迟到的预加载 409 不会跳到预加载的目标）。
 - 浏览器从 TanStack 的 dehydrate 数据里拿到构建 ID。
 
 ## 生成的程序
@@ -128,16 +132,18 @@ esbuild 不读 `rootDirs`，打包时用 `bundle.Generated(root)` 插件做同�
 | --- | --- |
 | 无 `X-Tifa-Route` | 并发执行匹配链上所有 `Load`。构建 ID、URL 与结果的哈希作 ETag，`If-None-Match` 命中答 304。`Cache = true` 的页面先查 HTML 缓存（按字节计的 LRU，容量 `cache.size`，0 关闭），未命中才进 VM |
 | 同上，匹配链上有 `SSR = false` | 不进 VM，返回最简文档：资源标签与 `<script type="application/json" id="tifa-data">` 里的注入数据，浏览器直接渲染，不再请求数据 |
-| 有 `X-Tifa-Route` | 只执行所列路由的 `Load`（`tifa.Use` 在本次请求内去重），答 200 与 `{路由 ID: 结果}`，每项带自己的状态。`X-Tifa-Build` 不是当前构建时答 409，所列路由不在匹配链上时答 400 |
+| 有 `X-Tifa-Route` | 只执行所列路由的 `Load`（`tifa.Use` 在本次请求内去重），答 200 与 `{路由 ID: 结果}`，每项带自己的状态。`X-Tifa-Build` 不是当前构建时答 409，所列路由不在匹配链上时答 400。出错与重定向见下文 |
 
 数据请求的回答带 `Cache-Control: no-cache`，应用在 `OnRequest` 或 `Load` 里设置过 `Cache-Control` 时保留应用的值。整页回答框架不设 `Cache-Control`。
 
 页面响应都在应用设置的 `Vary`（比如 `OnRequest` 里的 `Vary: Cookie`）之外再加一行 `Vary: X-Tifa-Route`，并用 `X-Tifa-Render: vm|cache|none` 说明这次是 VM 渲染、缓存命中还是没进 VM。
 
-出错时：
+出错时，`Load` 的错误先沿 `c.Next()` 交给 `OnRequest`，`OnRequest` 返回之后框架才处理：
 
-- 匹配链上有 `Load` 失败：用全部结果和错误的状态码（404 或 `tifa.Error` 的状态码，意外错误经 `OnError`）渲染整页，路由器显示对应层级的 `NotFound` 或 `Error`。多个 `Load` 经 `tifa.Use` 共享同一个错误时，`OnError` 只收到一次。
+- 有 `Load` 失败时，整页请求与数据请求的 `c.Next()` 都返回所执行 `Load` 里最外层的那个错误（数据请求只执行所列路由，所以是所列路由里最外层的）。成功的 `Load` 不写任何响应，中间件可以据此拒绝整个请求。
+- `OnRequest` 原样返回这个错误（包括用 `%w` 包一层）：框架这时才把每个错误分类，意外错误交给 `OnError`，多个 `Load` 经 `tifa.Use` 共享同一个错误时只交一次。整页请求用全部结果和最外层错误的状态码（404 或 `tifa.Error` 的状态码，意外错误用 `OnError` 的结果）渲染整页，路由器显示对应层级的 `NotFound` 或 `Error`。最外层错误是重定向时答重定向。数据请求答 200 与 `{路由 ID: 结果}`，每项带自己的状态。
+- `OnRequest` 返回别的错误：以中间件为准，按错误本身处理（重定向、`ErrNotFound`、`tifa.Error` 直接处理，其他交给 `OnError`）。整页请求返回 Go 写的简单错误页，数据请求答 `{"error": 消息}` 与状态码，不再输出各项数据。`OnRequest` 自己写了响应时框架不再写。
 - 未匹配的 URL：`OnRequest` 之后以 404 渲染根 Layout 的 `NotFound`，不执行任何 `Load`。根 Layout 是 `SSR = false` 时返回最简文档。
-- VM 渲染失败，或 `OnRequest` 自己返回错误：返回 Go 写的简单错误页，不暴露内部错误。
+- VM 渲染失败：算意外错误，交给 `OnError`，返回 Go 写的简单错误页，不暴露内部错误。渲染错误页（`NotFound`、`Error`）时失败也一样，状态码和消息取自 `OnError` 的结果，不再尝试渲染错误页。
 - 路由器对 URL 有不同写法（`/%61` 写成 `/a`）时 VM 返回重定向，服务器照样答重定向，不带 ETag。渲染只取决于构建 ID、URL 与数据，同一个 ETag 不会既属于 200 又属于重定向，所以客户端拿不到能把这个重定向变成 304 的 ETag。
 - 非 GET 请求、接口路由与没有页面的应用仍答 JSON。
