@@ -1,0 +1,55 @@
+import { useState } from 'react'
+import { Link } from '@tanstack/react-router'
+import { TifaError } from 'tifa/client'
+import { route, POST, type Data } from './+route'
+
+export default function TodoPage() {
+  const todo = route.useLoaderData()
+  const params = route.useParams()
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState('')
+  async function toggle() {
+    setPending(true)
+    setError('')
+    try {
+      await POST({ params, input: { done: !todo.done } })
+    } catch (cause) {
+      setError(cause instanceof TifaError ? cause.message : 'Could not save, try again.')
+    } finally {
+      setPending(false)
+    }
+  }
+  return (
+    <article>
+      <p>
+        <Link to="/">Back to the todos</Link>
+      </p>
+      <h1>{todo.title}</h1>
+      <p>{todo.done ? 'Done' : 'Open'}</p>
+      <button type="button" onClick={toggle} disabled={pending}>
+        {todo.done ? 'Mark as not done' : 'Mark as done'}
+      </button>
+      {error && (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      )}
+    </article>
+  )
+}
+
+export const head = ({ loaderData }: { loaderData?: Data }) => ({
+  meta: loaderData ? [{ title: loaderData.title }] : [],
+})
+
+// NotFound shows inside the root Layout when Load returns tifa.ErrNotFound.
+export function NotFound() {
+  return (
+    <>
+      <h1>No such todo</h1>
+      <p>
+        <Link to="/">Back to the todos</Link>
+      </p>
+    </>
+  )
+}

@@ -1,0 +1,42 @@
+// Package todo is the page of one todo, at /todos/{todo}.
+package todo
+
+import (
+	"strconv"
+
+	"github.com/liustack/tifa"
+
+	domain "{{.Module}}"
+)
+
+// Load returns the todo of the URL. tifa.ErrNotFound shows the NotFound of route.tsx with a 404.
+func Load(c *tifa.Ctx) (domain.Todo, error) {
+	id, err := todoID(c)
+	if err != nil {
+		return domain.Todo{}, err
+	}
+	return domain.GetTodo(c.Context(), id)
+}
+
+// DoneInput is the body of POST.
+type DoneInput struct {
+	Done bool `json:"done"`
+}
+
+// POST marks the todo as done or open and answers with it.
+func POST(c *tifa.Ctx, in DoneInput) (domain.Todo, error) {
+	id, err := todoID(c)
+	if err != nil {
+		return domain.Todo{}, err
+	}
+	return domain.SetDone(c.Context(), id, in.Done)
+}
+
+// todoID reads the id from the URL. A URL whose id is not a number names no todo.
+func todoID(c *tifa.Ctx) (int64, error) {
+	id, err := strconv.ParseInt(c.Param("todo"), 10, 64)
+	if err != nil {
+		return 0, tifa.ErrNotFound
+	}
+	return id, nil
+}

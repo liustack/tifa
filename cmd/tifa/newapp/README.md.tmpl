@@ -1,12 +1,18 @@
 # {{.Title}}
 
-A [tifa](https://github.com/liustack/tifa) app.
+A [tifa](https://github.com/liustack/tifa) app: a todo list stored in SQLite.
 
-```sh
-go tool tifa dev     # run it at http://127.0.0.1:3000, rebuilding on every change
-go test ./...        # test the Go code
-pnpm typecheck       # check the TypeScript
-go tool tifa build   # build the single executable into bin/
-```
+| Command | What it does |
+| --- | --- |
+| `{{.Install}}` | Install the npm packages |
+| `go tool tifa dev` | Run the app at http://127.0.0.1:3000, rebuilding on every change |
+| `go test ./...` | Test the Go code |
+| `{{.Run}} typecheck` | Check the TypeScript |
+| `go tool tifa build` | Build the single executable into `bin/` |
 
-Pages and API routes live in `app/`: each folder is a URL. See [Writing an app](https://github.com/liustack/tifa/blob/main/docs/app.md).
+- `todo.go` is the todo list, `db.go` opens the database and `schema.sql` holds its tables. Add a domain as one more file next to them.
+- Pages live in `app/`: each folder is a URL. `app/todos/todo+/` is `/todos/{todo}`.
+- `hooks.go` opens the database when the app starts and closes it when it stops.
+- The database is `app.db` in the folder the app runs in. Set `DB_PATH` to put it elsewhere.
+
+See [Writing an app](https://github.com/liustack/tifa/blob/main/docs/app.md) and [Structuring an app](https://github.com/liustack/tifa/blob/main/docs/structure.md).

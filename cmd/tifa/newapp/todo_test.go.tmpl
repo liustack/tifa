@@ -1,0 +1,56 @@
+package {{.Package}}
+
+import (
+	"context"
+	"errors"
+	"reflect"
+	"testing"
+
+	"github.com/liustack/tifa"
+)
+
+func TestAddAndListTodos(t *testing.T) {
+	useTestDB(t)
+	ctx := context.Background()
+	if todos, err := ListTodos(ctx); err != nil || todos == nil || len(todos) != 0 {
+		t.Fatalf("ListTodos of an empty database: %v, %v, want an empty list", todos, err)
+	}
+	for _, title := range []string{"Buy milk", "  Call mum ", "Pay rent"} {
+		if _, err := AddTodo(ctx, title); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := SetDone(ctx, 3, true); err != nil {
+		t.Fatal(err)
+	}
+	todos, err := ListTodos(ctx)
+	want := []Todo{
+		{ID: 2, Title: "Call mum"},
+		{ID: 1, Title: "Buy milk"},
+		{ID: 3, Title: "Pay rent", Done: true},
+	}
+	if err != nil || !reflect.DeepEqual(todos, want) {
+		t.Fatalf("ListTodos: %v, %v, want %v", todos, err, want)
+	}
+}
+
+func TestGetAndSetDone(t *testing.T) {
+	useTestDB(t)
+	ctx := context.Background()
+	added, err := AddTodo(ctx, "Water the plants")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := SetDone(ctx, added.ID, true); err != nil || !got.Done || got.Title != "Water the plants" {
+		t.Fatalf("SetDone: %+v, %v", got, err)
+	}
+	if got, err := GetTodo(ctx, added.ID); err != nil || !got.Done {
+		t.Fatalf("GetTodo after SetDone: %+v, %v", got, err)
+	}
+	if _, err := GetTodo(ctx, added.ID+1); !errors.Is(err, tifa.ErrNotFound) {
+		t.Fatalf("GetTodo of a missing todo: %v", err)
+	}
+	if _, err := SetDone(ctx, added.ID+1, true); !errors.Is(err, tifa.ErrNotFound) {
+		t.Fatalf("SetDone of a missing todo: %v", err)
+	}
+}

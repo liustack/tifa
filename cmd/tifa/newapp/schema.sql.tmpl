@@ -1,0 +1,7 @@
+-- The tables of the app. OnStart runs this file every time the app starts, so each statement
+-- must be safe to run again.
+CREATE TABLE IF NOT EXISTS todos (
+  id    INTEGER PRIMARY KEY,
+  title TEXT    NOT NULL,
+  done  INTEGER NOT NULL DEFAULT 0
+);

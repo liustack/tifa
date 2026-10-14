@@ -1,0 +1,23 @@
+# Settings of the app. tifa build embeds this file into the program. Every setting is shown at
+# its default, with an example where the default depends on the machine. Remove the "# " in
+# front of a line (and its section) to change it. Flags and
+# TIFA_* environment variables override this file when the program starts, such as
+# --server-addr 0.0.0.0:8080 or TIFA_SERVER_ADDR=0.0.0.0:8080.
+# More: https://github.com/liustack/tifa/blob/main/docs/config.md
+
+# build:
+#   target: es2020          # JavaScript target of the browser bundle, as esbuild's --target
+#   public: public          # folder of static files served from /
+
+# server:
+#   addr: 127.0.0.1:8080    # address to listen on, 0.0.0.0:8080 in a container
+#   body_limit: 1MiB        # largest request body, a bigger one gets 413
+#   shutdown_timeout: 10s   # after a stop signal, time for requests in flight, then for OnShutdown
+
+# ssr:
+#   vms: 4                  # example: pages that render at once, one JavaScript VM each (default: GOMAXPROCS)
+#   vm_memory: 128MiB       # memory limit of each VM
+#   timeout: 3s             # time limit of one render
+
+# cache:
+#   size: 64MiB             # HTML cache of pages with Cache = true, 0 turns it off

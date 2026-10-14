@@ -1,0 +1,25 @@
+package {{.Package}}
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestOnStartOpensTheDatabaseAtDBPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "todos.db")
+	t.Setenv("DB_PATH", path)
+	if err := OnStart(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("OnStart did not create %s: %v", path, err)
+	}
+	if err := OnShutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := DB.Ping(); err == nil {
+		t.Fatal("OnShutdown left the database open")
+	}
+}

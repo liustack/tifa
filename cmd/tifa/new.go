@@ -6,10 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"go/token"
-	"go/types"
 	"go/version"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"runtime"
@@ -32,11 +32,24 @@ const tifaModule = "github.com/liustack/tifa"
 
 type newApp struct {
 	Module  string // the module path in go.mod
-	Package string // the name of the root package, which the generated Go files import by it
+	Package string // the name of the root package. The pages import it as domain
 	Title   string // the last element of the module path, the page title
 	NPM     string // the name in package.json
 	Go      string // the go line of go.mod
 	Version string // the tifa version in go.mod
+	Install string // the command that installs the npm packages: pnpm install or npm install
+	Run     string // the command that runs a package.json script: pnpm or npm run
+}
+
+// lookPath finds a program on PATH. Tests replace it.
+var lookPath = exec.LookPath
+
+// packageManager returns the commands of pnpm when it is on PATH, and of npm otherwise.
+func packageManager() (install, run string) {
+	if _, err := lookPath("pnpm"); err == nil {
+		return "pnpm install", "pnpm"
+	}
+	return "npm install", "npm run"
 }
 
 func newNewCmd() *cobra.Command {
@@ -44,9 +57,10 @@ func newNewCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "new <dir>",
 		Short: "Create a new application in an empty directory",
-		Long: `new writes a small working app into dir: go.mod with the tifa command as a tool, package.json,
-tsconfig.json, and a home page with a Load, a POST handler and a test. It runs nothing and needs no
-network. The next steps it prints download the Go and npm dependencies.`,
+		Long: `new writes a small working app into dir: a todo list stored in SQLite, with a root package,
+pages under app/, tests, tifa.yaml and notes for coding agents. It runs nothing and needs no
+network. The next steps it prints download the Go and npm dependencies, with pnpm when it is on
+PATH and npm otherwise.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir := args[0]
@@ -61,6 +75,7 @@ network. The next steps it prints download the Go and npm dependencies.`,
 			if err != nil {
 				return err
 			}
+			app.Install, app.Run = packageManager()
 			app.Go = strings.TrimPrefix(version.Lang(runtime.Version()), "go") + ".0"
 			info, _ := debug.ReadBuildInfo()
 			if app.Version = releaseVersion(info); app.Version == "" {
@@ -78,17 +93,13 @@ network. The next steps it prints download the Go and npm dependencies.`,
 			if app.Version == "v0.0.0" {
 				fmt.Fprintf(out, "  go mod edit -replace %s=<path to your tifa checkout>\n", tifaModule)
 			}
-			fmt.Fprintf(out, "  go mod tidy\n  pnpm install\n  go tool tifa dev     # http://127.0.0.1:3000\n")
+			fmt.Fprintf(out, "  go mod tidy\n  %s\n  go tool tifa dev     # http://127.0.0.1:3000\n", app.Install)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&modulePath, "module", "", "module path of the app (default: the name of dir)")
 	return cmd
 }
-
-// routeNames are the names app/route.go uses besides the predeclared ones. It imports the root
-// package by its name, which would hide them, or they would hide it.
-var routeNames = []string{"c", "tifa"}
 
 // appNames derives the names of the app from its module path. The root package is the last
 // element without the major version suffix, lowercased, with its letters and digits only, so
@@ -111,8 +122,9 @@ func appNames(modulePath string) (newApp, error) {
 		}
 		return -1
 	}, strings.ToLower(title))
-	if !token.IsIdentifier(pkg) || token.IsKeyword(pkg) || pkg == "main" || types.Universe.Lookup(pkg) != nil || slices.Contains(routeNames, pkg) {
-		return newApp{}, fmt.Errorf("the module path %s ends in %q, which makes the package name %q: tifa new keeps keywords, predeclared names such as error, main, c and tifa from the package names it makes, so pass --module with another last element", modulePath, title, pkg)
+	// The pages import the root package as domain, so any name a package may have works.
+	if !token.IsIdentifier(pkg) || token.IsKeyword(pkg) || pkg == "main" {
+		return newApp{}, fmt.Errorf("the module path %s ends in %q, which makes the package name %q: a package name must start with a letter and may not be a keyword or main, so pass --module with another last element", modulePath, title, pkg)
 	}
 	npm := pkg
 	if len(npm) > 214 { // the longest npm name

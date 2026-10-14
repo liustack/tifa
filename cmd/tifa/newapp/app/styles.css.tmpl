@@ -1,17 +1,58 @@
 body {
   margin: 0;
   font-family: system-ui, sans-serif;
+  line-height: 1.5;
   color: #1d1d1f;
   background: #fafafa;
 }
 
+header,
 main {
   max-width: 40rem;
-  margin: 4rem auto;
+  margin: 0 auto;
   padding: 0 1rem;
 }
 
+header nav {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid #ddd;
+}
+
+main {
+  padding-block: 1.5rem;
+}
+
+form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+input,
 button {
   font: inherit;
-  padding: 0.5rem 1rem;
+  padding: 0.4rem 0.75rem;
+}
+
+input {
+  flex: 1;
+  min-width: 0;
+}
+
+label {
+  flex-basis: 100%;
+}
+
+.error {
+  flex-basis: 100%;
+  margin: 0;
+  color: #b42318;
+}
+
+.todos .done a {
+  color: #888;
+  text-decoration: line-through;
 }

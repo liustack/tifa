@@ -1,24 +1,89 @@
-import { useState } from 'react'
-import { route, POST } from './+route'
+import { useState, type FormEvent } from 'react'
+import { Link } from '@tanstack/react-router'
+import { TifaError } from 'tifa/client'
+import { route, POST, type Data } from './+route'
 
-export default function HomePage() {
-  const home = route.useLoaderData()
+export default function TodosPage() {
+  const todos = route.useLoaderData() ?? []
+  const open = todos.filter((todo) => !todo.done).length
+  return (
+    <>
+      <h1>Todos</h1>
+      <AddTodo />
+      {todos.length === 0 ? (
+        <p>Nothing to do.</p>
+      ) : (
+        <>
+          <p>{open} open</p>
+          <ul className="todos">
+            {todos.map((todo) => (
+              <TodoItem key={todo.id} todo={todo} />
+            ))}
+          </ul>
+        </>
+      )}
+    </>
+  )
+}
+
+type Todo = NonNullable<Data>[number]
+
+function TodoItem({ todo }: { todo: Todo }) {
+  // The link is typed from the folders under app/: /todos/$todo needs the param todo.
+  const params = { todo: String(todo.id) }
+  return (
+    <li className={todo.done ? 'done' : undefined}>
+      <Link to="/todos/$todo" params={params}>
+        {todo.title}
+      </Link>
+    </li>
+  )
+}
+
+function AddTodo() {
+  const [title, setTitle] = useState('')
+  const [errors, setErrors] = useState<Record<string, string>>({})
   const [pending, setPending] = useState(false)
-  async function click() {
+  async function add(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
     setPending(true)
     try {
-      await POST()
+      // POST of ./+route calls the POST handler of route.go and then loads the page data again.
+      await POST({ input: { title } })
+      setTitle('')
+      setErrors({})
+    } catch (error) {
+      // A tifa.Fields from Validate arrives as a TifaError with a message per field.
+      if (!(error instanceof TifaError)) throw error
+      setErrors(Object.keys(error.fields).length > 0 ? error.fields : { form: error.message })
     } finally {
       setPending(false)
     }
   }
   return (
-    <main>
-      <h1>{{.Title}}</h1>
-      <p>Presses: {home.clicks}</p>
-      <button onClick={click} disabled={pending}>
-        Press
+    <form onSubmit={add} noValidate>
+      <label htmlFor="title">New todo</label>
+      <input
+        id="title"
+        name="title"
+        value={title}
+        onChange={(event) => setTitle(event.target.value)}
+        aria-invalid={errors.title ? true : undefined}
+        aria-describedby={errors.title ? 'title-error' : undefined}
+      />
+      <button type="submit" disabled={pending}>
+        Add
       </button>
-    </main>
+      {errors.title && (
+        <p id="title-error" className="error">
+          {errors.title}
+        </p>
+      )}
+      {errors.form && (
+        <p role="alert" className="error">
+          {errors.form}
+        </p>
+      )}
+    </form>
   )
 }

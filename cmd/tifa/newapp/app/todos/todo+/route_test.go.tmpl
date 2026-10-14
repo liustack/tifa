@@ -1,0 +1,63 @@
+package todo
+
+import (
+	"context"
+	"errors"
+	"net/http/httptest"
+	"path/filepath"
+	"testing"
+
+	"github.com/liustack/tifa"
+	"github.com/liustack/tifa/tifatest"
+
+	domain "{{.Module}}"
+)
+
+// useTestDB gives the test a fresh, empty database.
+func useTestDB(t *testing.T) {
+	t.Helper()
+	db, err := domain.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	domain.DB = db
+	t.Cleanup(func() { db.Close() })
+}
+
+// todoCtx is the Ctx of a request to /todos/{todo}.
+func todoCtx(t *testing.T, method, id string) *tifa.Ctx {
+	r := httptest.NewRequest(method, "/todos/"+id, nil)
+	r.Pattern = "/todos/{todo}"
+	r.SetPathValue("todo", id)
+	c, _ := tifatest.NewCtx(t, r)
+	return c
+}
+
+func TestLoadFindsTheTodoOfTheURL(t *testing.T) {
+	useTestDB(t)
+	added, err := domain.AddTodo(context.Background(), "Buy milk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := tifa.Use(todoCtx(t, "GET", "1"), Load); err != nil || got != added {
+		t.Fatalf("Load: %+v, %v, want %+v", got, err, added)
+	}
+	for _, id := range []string{"2", "one"} {
+		if _, err := tifa.Use(todoCtx(t, "GET", id), Load); !errors.Is(err, tifa.ErrNotFound) {
+			t.Errorf("Load of /todos/%s: %v, want tifa.ErrNotFound", id, err)
+		}
+	}
+}
+
+func TestPOSTMarksTheTodoDone(t *testing.T) {
+	useTestDB(t)
+	if _, err := domain.AddTodo(context.Background(), "Buy milk"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := POST(todoCtx(t, "POST", "1"), DoneInput{Done: true}); err != nil || !got.Done {
+		t.Fatalf("POST: %+v, %v", got, err)
+	}
+	if _, err := POST(todoCtx(t, "POST", "2"), DoneInput{Done: true}); !errors.Is(err, tifa.ErrNotFound) {
+		t.Fatalf("POST of a missing todo: %v", err)
+	}
+}

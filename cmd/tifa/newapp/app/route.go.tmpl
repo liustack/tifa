@@ -1,22 +1,38 @@
-// Package app is the home page.
+// Package app is the home page: the todo list and the form that adds a todo.
 package app
 
 import (
+	"strings"
+	"unicode/utf8"
+
 	"github.com/liustack/tifa"
 
-	{{.Package}} "{{.Module}}"
+	domain "{{.Module}}"
 )
 
-type Home struct {
-	Clicks int64 `json:"clicks"`
-}
-
 // Load runs on the server before the page renders, and again when the browser navigates here.
-func Load(c *tifa.Ctx) (Home, error) {
-	return Home{Clicks: {{.Package}}.Clicks()}, nil
+func Load(c *tifa.Ctx) ([]domain.Todo, error) {
+	return domain.ListTodos(c.Context())
 }
 
-// POST presses the button. The page calls it from the browser and then loads its data again.
-func POST(c *tifa.Ctx) (Home, error) {
-	return Home{Clicks: {{.Package}}.Click()}, nil
+// AddInput is the body of POST. The page sends it as JSON through the POST function of ./+route.
+type AddInput struct {
+	Title string `json:"title"`
+}
+
+// Validate runs before POST. tifa.Fields answers 422 with a message per field, and the form shows
+// each message next to its field.
+func (in AddInput) Validate() error {
+	switch n := utf8.RuneCountInString(strings.TrimSpace(in.Title)); {
+	case n == 0:
+		return tifa.Fields{"title": "Write what needs doing."}
+	case n > 200:
+		return tifa.Fields{"title": "Keep it under 200 characters."}
+	}
+	return nil
+}
+
+// POST adds a todo and answers with it. The page data loads again afterwards.
+func POST(c *tifa.Ctx, in AddInput) (domain.Todo, error) {
+	return domain.AddTodo(c.Context(), in.Title)
 }

@@ -2,6 +2,9 @@ module {{.Module}}
 
 go {{.Go}}
 
-require github.com/liustack/tifa {{.Version}}
+require (
+	github.com/liustack/tifa {{.Version}}
+	modernc.org/sqlite v1.60.1
+)
 
 tool github.com/liustack/tifa/cmd/tifa

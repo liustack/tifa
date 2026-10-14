@@ -219,3 +219,10 @@ func TestFileMustHoldOneDocument(t *testing.T) {
 		}
 	}
 }
+
+func TestKeysListEverySetting(t *testing.T) {
+	want := "build.target build.public server.addr server.body_limit server.shutdown_timeout ssr.vms ssr.vm_memory ssr.timeout cache.size"
+	if got := strings.Join(Keys(), " "); got != want {
+		t.Fatalf("Keys: %s, want %s", got, want)
+	}
+}
