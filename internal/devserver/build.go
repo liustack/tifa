@@ -16,8 +16,9 @@ type Pipeline interface {
 	Analyze(ctx context.Context) (fingerprint string, err error)
 	// Generate writes the generated Go and TypeScript from the last analysis.
 	Generate(ctx context.Context) error
-	// Bundle builds the browser and SSR bundles, incrementally when it can.
-	Bundle(ctx context.Context) error
+	// Bundle builds the browser and SSR bundles, incrementally when it can. A detail that is not
+	// empty goes at the end of the step's log line, such as how long Tailwind took.
+	Bundle(ctx context.Context) (detail string, err error)
 	// GoBuild builds the application executable that Options.App runs.
 	GoBuild(ctx context.Context) error
 }
@@ -107,11 +108,20 @@ type builder struct {
 
 // step runs one pipeline step, logs how long it took and names the step in its error.
 func (b *builder) step(name string, run func() error) error {
+	return b.stepDetail(name, func() (string, error) { return "", run() })
+}
+
+// stepDetail is step for a step that adds a detail to its log line.
+func (b *builder) stepDetail(name string, run func() (string, error)) error {
 	start := time.Now()
-	if err := run(); err != nil {
+	detail, err := run()
+	if err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}
-	b.log("%s done in %s", name, time.Since(start).Round(time.Millisecond))
+	if detail != "" {
+		detail = " (" + detail + ")"
+	}
+	b.log("%s done in %s%s", name, time.Since(start).Round(time.Millisecond), detail)
 	return nil
 }
 
@@ -147,7 +157,7 @@ func (b *builder) build(ctx context.Context, s steps) error {
 		b.pending = s
 	}
 	if s.bundle {
-		if err := b.step("bundle", func() error { return b.p.Bundle(ctx) }); err != nil {
+		if err := b.stepDetail("bundle", func() (string, error) { return b.p.Bundle(ctx) }); err != nil {
 			return err
 		}
 		s.bundle = false

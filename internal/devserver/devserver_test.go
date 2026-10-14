@@ -58,7 +58,7 @@ func (p *buildPipeline) setFail(name string) {
 
 func (p *buildPipeline) Analyze(context.Context) (string, error) { return "routes", p.step("Analyze") }
 func (p *buildPipeline) Generate(context.Context) error          { return p.step("Generate") }
-func (p *buildPipeline) Bundle(context.Context) error            { return p.step("Bundle") }
+func (p *buildPipeline) Bundle(context.Context) (string, error)  { return "", p.step("Bundle") }
 func (p *buildPipeline) GoBuild(context.Context) error           { return p.step("GoBuild") }
 
 type devRun struct {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -14,6 +15,7 @@ type fakePipeline struct {
 	calls       []string
 	fingerprint string
 	fail        string
+	detail      string // what Bundle adds to its log line
 }
 
 func (p *fakePipeline) step(name string) error {
@@ -28,8 +30,10 @@ func (p *fakePipeline) Analyze(context.Context) (string, error) {
 	return p.fingerprint, p.step("Analyze")
 }
 func (p *fakePipeline) Generate(context.Context) error { return p.step("Generate") }
-func (p *fakePipeline) Bundle(context.Context) error   { return p.step("Bundle") }
-func (p *fakePipeline) GoBuild(context.Context) error  { return p.step("GoBuild") }
+func (p *fakePipeline) Bundle(context.Context) (string, error) {
+	return p.detail, p.step("Bundle")
+}
+func (p *fakePipeline) GoBuild(context.Context) error { return p.step("GoBuild") }
 
 var all = []string{"Analyze", "Generate", "Bundle", "GoBuild"}
 
@@ -152,5 +156,28 @@ func TestBuildLogsEachStep(t *testing.T) {
 	if len(lines) != 3 || !strings.HasPrefix(lines[0], "static analysis done in ") ||
 		lines[1] != "route manifest unchanged" || !strings.HasPrefix(lines[2], "go build done in ") {
 		t.Fatalf("log %q", lines)
+	}
+}
+
+// The bundle line also tells what took part of its time, such as Tailwind.
+func TestBuildLogsTheBundleDetail(t *testing.T) {
+	var lines []string
+	p := &fakePipeline{fingerprint: "v1"}
+	b := &builder{p: p, log: func(format string, args ...any) { lines = append(lines, fmt.Sprintf(format, args...)) }}
+	if err := b.build(context.Background(), everything); err != nil {
+		t.Fatal(err)
+	}
+	for _, detail := range []string{"", "tailwind 75ms"} {
+		lines, p.detail = nil, detail
+		if err := b.build(context.Background(), plan([]change{{"app/a.tsx", modified}})); err != nil {
+			t.Fatal(err)
+		}
+		want := `^bundle done in \d+m?s$`
+		if detail != "" {
+			want = `^bundle done in \d+m?s \(tailwind 75ms\)$`
+		}
+		if len(lines) != 1 || !regexp.MustCompile(want).MatchString(lines[0]) {
+			t.Errorf("log %q, want %s", lines, want)
+		}
 	}
 }

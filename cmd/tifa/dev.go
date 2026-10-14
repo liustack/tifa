@@ -119,28 +119,34 @@ func (p *devPipeline) Generate(context.Context) error { return codegen.Write(p.r
 
 // Bundle rebuilds .tifa/dist. The route tree also depends on the exports of route.tsx and
 // layout.tsx, which change without any Go change, so the TypeScript is generated again from the
-// last analysis first, and written when it differs.
-func (p *devPipeline) Bundle(context.Context) error {
+// last analysis first, and written when it differs. The detail is how long Tailwind took, when
+// a stylesheet uses it.
+func (p *devPipeline) Bundle(context.Context) (string, error) {
 	if p.m == nil {
-		return errors.New("bundle before the first successful analysis")
+		return "", errors.New("bundle before the first successful analysis")
 	}
 	files, err := codegen.Generate(p.root, p.m, true)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if !maps.EqualFunc(files, p.files, bytes.Equal) {
 		if err := codegen.Write(p.root, files); err != nil {
-			return err
+			return "", err
 		}
 		p.files = files
 	}
 	settings, err := codegen.BuildSettings(p.root)
 	if err != nil {
-		return err
+		return "", err
 	}
 	_, pages := files["client.ts"]
-	_, err = p.front.Build(filepath.Join(p.root, settings.Public), pages)
-	return err
+	if _, err := p.front.Build(filepath.Join(p.root, settings.Public), pages); err != nil {
+		return "", err
+	}
+	if spent := p.front.TailwindTime(); spent > 0 {
+		return "tailwind " + spent.Round(time.Millisecond).String(), nil
+	}
+	return "", nil
 }
 
 // GoBuild builds the executable that tifa dev runs. Its compiler messages go into the error,
