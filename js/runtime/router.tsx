@@ -150,7 +150,11 @@ export function stringifySearch(search: Record<string, unknown>): string {
   return parts.length > 0 ? '?' + parts.join('&') : ''
 }
 
-const keptInQuery = /%(24|2C|2F|3A|3B|3F|40|5B|5C|5D|5E|60|7B|7C|7D)/g
+// The characters encodeURIComponent escapes that browsers send as they are and Go's
+// url.ParseQuery reads back as the same character. A semicolon is not one of them: ParseQuery
+// drops a parameter holding one, so it stays %3B. So do & = + % #, which encodeURIComponent
+// escapes and this list leaves escaped.
+const keptInQuery = /%(24|2C|2F|3A|3F|40|5B|5C|5D|5E|60|7B|7C|7D)/g
 
 function encodeQueryPart(text: string) {
   return encodeURIComponent(text)

@@ -90,6 +90,12 @@ test('query values stay the strings Go reads', async () => {
     const { router } = await client(href)
     assert(router.state.location.href === href, `${href} became ${router.state.location.href}`)
   }
+  // A value Go would read differently unescaped, such as a semicolon, stays escaped on refetch.
+  const semicolon = await client('/q?q=a%3Bb')
+  semicolon.calls.length = 0
+  await semicolon.router.invalidate()
+  const refetch = semicolon.calls.find(([, id]) => id === 'app/query')
+  assert(refetch?.[0] === '/q?q=a%3Bb', `refetched ${JSON.stringify(semicolon.calls)}`)
   contains(await render('/q?q=1.0', { ...appData, 'app/query': ok('1.0') }), 'QUERY <!-- -->1.0')
 })
 
