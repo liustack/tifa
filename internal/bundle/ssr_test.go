@@ -152,6 +152,39 @@ func TestSSRRejectsChangedReactDOM(t *testing.T) {
 	}
 }
 
+// A require whose module name is known only at run time stays in the bundle, and QuickJS has no
+// require: the build fails and names the place.
+func TestSSRRejectsRequireLeftInDependencies(t *testing.T) {
+	root := copyTestdata(t, "ssr", false)
+	writeTree(t, root, map[string]string{
+		"node_modules/dynamic-reader/package.json": `{"name":"dynamic-reader","main":"index.cjs"}`,
+		"node_modules/dynamic-reader/index.cjs":    "module.exports = function (name) {\n  return require(name).sep\n}\n",
+		"dynamic.ts": "import read from 'dynamic-reader'\nglobalThis.result = read('node:path')\n",
+	})
+	_, _, err := script(testdata(t), root, "dynamic.ts")
+	if err == nil || !strings.Contains(err.Error(), filepath.Join("dynamic-reader", "index.cjs")+":2:10") ||
+		!strings.Contains(err.Error(), "require") {
+		t.Fatalf("err = %v, want the place of the require", err)
+	}
+}
+
+// A require the module declares itself, as a bundle made by browserify does, and a typeof
+// require test are no require of the host.
+func TestSSRAcceptsRequireTheModuleDeclares(t *testing.T) {
+	root := copyTestdata(t, "ssr", false)
+	writeTree(t, root, map[string]string{
+		"node_modules/own-require/package.json": `{"name":"own-require","main":"index.js"}`,
+		"node_modules/own-require/index.js": "var load = (function (require) { return function (n) { return require(n) } })(function (n) { return n + '!' })\n" +
+			"function local(name) { var require = function (n) { return n + '?' }; return require(name) }\n" +
+			"module.exports = load('a') + local('b') + (typeof require === 'function' ? 'node' : 'host')\n",
+		"own.ts": "import value from 'own-require'\nglobalThis.result = value\n",
+	})
+	code, _ := buildScript(t, root, "own.ts")
+	if got := evalResult(t, code); got != "a!b?host" {
+		t.Fatalf("result = %q", got)
+	}
+}
+
 func TestSSRStubsClientOnlyModules(t *testing.T) {
 	root := copyTestdata(t, "ssr", false)
 	code, modules := buildScript(t, root, "client-only.tsx")

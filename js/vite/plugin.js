@@ -195,6 +195,23 @@ export function ssrPlugin(getRoot) {
         return null
       },
     },
+    // A require with a literal name is bound by the bundler, and a Node module it names fails the
+    // check of the output. A require that stays in the code, with a name known only at run time,
+    // finds no require in QuickJS, so the build fails at it. The modules of the bundler itself,
+    // whose ids start with \0, test for require before they use it.
+    transform: {
+      order: 'post',
+      filter: { id: { exclude: /^\0/ }, code: /\brequire\b/ },
+      handler(code, id) {
+        const [at] = freeRequires(this.parse(code))
+        if (at === undefined) return null
+        const lines = code.slice(0, at).split('\n')
+        this.error(
+          `${id.split('?')[0]}:${lines.length}:${lines.at(-1).length + 1}: require loads a module by a name ` +
+            'known only at run time, and QuickJS has no require: import the module instead',
+        )
+      },
+    },
     load(id) {
       if (id === clientOnlyStub) {
         return 'export default function ClientOnlyStub(){ throw new Error("Client-only module invoked during SSR") }'
@@ -227,6 +244,89 @@ export function ssrPlugin(getRoot) {
       }
     },
   }
+}
+
+// freeRequires returns the offsets of the references to require in the ESTree program that no
+// scope of the program declares, leaving out typeof require and calls with a literal name.
+function freeRequires(program) {
+  const found = []
+  const visit = (node, bound, parent, key) => {
+    if (functionTypes.has(node.type) || node.type === 'Program') bound ||= declaresRequire(node)
+    if (node.type === 'Identifier' && node.name === 'require' && !bound && isReference(parent, key)) {
+      const typeOf = parent.type === 'UnaryExpression' && parent.operator === 'typeof'
+      const literal = parent.type === 'CallExpression' && key === 'callee' && literalName(parent.arguments)
+      if (!typeOf && !literal) found.push(node.start)
+    }
+    for (const [k, value] of Object.entries(node)) {
+      for (const child of Array.isArray(value) ? value : [value]) {
+        if (child && typeof child.type === 'string') visit(child, bound, node, k)
+      }
+    }
+  }
+  visit(program, false, null, '')
+  return found
+}
+
+const functionTypes = new Set(['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression'])
+
+// isReference reports whether an identifier at key of parent refers to a binding, unlike a
+// property name or a label.
+function isReference(parent, key) {
+  switch (parent?.type) {
+    case 'MemberExpression':
+      return key !== 'property' || parent.computed
+    case 'Property':
+    case 'MethodDefinition':
+    case 'PropertyDefinition':
+      return key !== 'key' || parent.computed
+    case 'LabeledStatement':
+    case 'BreakStatement':
+    case 'ContinueStatement':
+      return key !== 'label'
+    case 'ExportSpecifier':
+      return key !== 'exported'
+    case 'ImportSpecifier':
+      return key !== 'imported'
+    default:
+      return true
+  }
+}
+
+function literalName(args) {
+  const [arg] = args
+  return args.length === 1 && (arg.type === 'Literal' || (arg.type === 'TemplateLiteral' && arg.expressions.length === 0))
+}
+
+// declaresRequire reports whether a function or the program declares require in its own scope:
+// as a parameter, its own name, or a declaration in its body outside nested functions.
+function declaresRequire(scope) {
+  const names = []
+  const pattern = (node) => {
+    if (!node) return
+    if (node.type === 'Identifier') names.push(node.name)
+    else if (node.type === 'ObjectPattern') node.properties.forEach((p) => pattern(p.type === 'RestElement' ? p.argument : p.value))
+    else if (node.type === 'ArrayPattern') node.elements.forEach(pattern)
+    else if (node.type === 'AssignmentPattern') pattern(node.left)
+    else if (node.type === 'RestElement') pattern(node.argument)
+  }
+  const body = (node) => {
+    if (!node || typeof node.type !== 'string') return
+    if (node.type === 'VariableDeclarator') pattern(node.id)
+    else if (node.type === 'CatchClause') pattern(node.param)
+    else if (node.type === 'ImportDefaultSpecifier' || node.type === 'ImportSpecifier' || node.type === 'ImportNamespaceSpecifier') pattern(node.local)
+    else if (node.type === 'FunctionDeclaration' || node.type === 'ClassDeclaration') pattern(node.id)
+    if (functionTypes.has(node.type)) return
+    for (const value of Object.values(node)) {
+      for (const child of Array.isArray(value) ? value : [value]) body(child)
+    }
+  }
+  if (scope.type === 'Program') scope.body.forEach(body)
+  else {
+    scope.params.forEach(pattern)
+    if (scope.type === 'FunctionExpression') pattern(scope.id)
+    if (scope.body.type === 'BlockStatement') scope.body.body.forEach(body)
+  }
+  return names.includes('require')
 }
 
 // reactServerExports replaces react-dom/server.edge.js, a CommonJS barrel that loads both the
