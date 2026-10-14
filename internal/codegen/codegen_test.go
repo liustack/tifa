@@ -123,7 +123,7 @@ func TestDevClientEntryLoadsTheRefreshClient(t *testing.T) {
 func TestPageWithoutDefaultExportFails(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "app/page/route.tsx"), "export function Page() { return null }\n")
-	m := &analyze.Manifest{Module: "example.com/x", Routes: []analyze.Route{{ID: "app/page", Path: "/page", Page: true, SSR: true}}}
+	m := &analyze.Manifest{Module: "example.com/x", Routes: []analyze.Route{{ID: "app/page/route", Dir: "app/page", Path: "/page", Page: true, SSR: true}}}
 	_, err := Generate(root, m, false)
 	if err == nil || !strings.Contains(err.Error(), "app/page/route.tsx") {
 		t.Fatalf("got %v", err)
@@ -138,8 +138,8 @@ func TestRootLayoutDocumentFails(t *testing.T) {
 	writeFile(t, filepath.Join(root, "app/page/route.tsx"), "export default function P() { return null }\n")
 	m := &analyze.Manifest{
 		Module:  "example.com/x",
-		Layouts: []analyze.Layout{{ID: "app", Path: "/page", TSX: true, SSR: true, Routes: []string{"app/page"}}},
-		Routes:  []analyze.Route{{ID: "app/page", Path: "/page", Page: true, SSR: true, Layouts: []string{"app"}}},
+		Layouts: []analyze.Layout{{ID: "app/layout", Dir: "app", Path: "/", TSX: true, SSR: true, Routes: []string{"app/page/route"}}},
+		Routes:  []analyze.Route{{ID: "app/page/route", Dir: "app/page", Path: "/page", Page: true, SSR: true, Layouts: []string{"app/layout"}}},
 	}
 	_, err := Generate(root, m, false)
 	if err == nil || !strings.Contains(err.Error(), "htmlAttributes") {
@@ -160,45 +160,26 @@ func TestRootLayoutHTMLAttributesReachTheEntries(t *testing.T) {
 	}
 }
 
-// The root Layout is an ordinary route under the framework's root, so it can have a path and
-// read its parameters.
-func TestRootLayoutReadsPathParameters(t *testing.T) {
-	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "app/page/route.tsx"), "export default function Page() { return null }\n")
-	writeFile(t, filepath.Join(root, "app/layout.tsx"), "export default function App() { return null }\n")
-	m := &analyze.Manifest{
-		Module:  "example.com/x",
-		Layouts: []analyze.Layout{{ID: "app", Path: "/{tenant}", TSX: true, Load: &analyze.Load{Params: []string{"tenant"}, Result: types.Typ[types.String]}, SSR: true, Routes: []string{"app/page"}}},
-		Routes:  []analyze.Route{{ID: "app/page", Path: "/{tenant}", Page: true, SSR: true, Layouts: []string{"app"}}},
-	}
-	files, err := Generate(root, m, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if module := string(files["app/+route.ts"]); !strings.Contains(module, "export type Params = { tenant: string }") ||
-		!strings.Contains(module, `getRouteApi("/$tenant")`) {
-		t.Errorf("app/+route.ts:\n%s", module)
-	}
-}
-
 // A component remounts when a path parameter its Load reads changes, itself or through a Layout
-// it uses. A Layout whose path holds a parameter its Load does not read keeps its state.
+// it uses. A Layout that reads no parameter keeps its state.
 func TestRemountFollowsTheParametersLoadReads(t *testing.T) {
 	root := t.TempDir()
-	for _, f := range []string{"app/layout.tsx", "app/projects/layout.tsx", "app/projects/list/route.tsx", "app/projects/detail/route.tsx", "app/projects/files/route.tsx"} {
+	const project = "app/projects/projectId+"
+	for _, f := range []string{"app/layout.tsx", project + "/layout.tsx", project + "/route.tsx", project + "/orders/orderId+/route.tsx", project + "/files/path++/route.tsx"} {
 		writeFile(t, filepath.Join(root, f), "export default function C() { return null }\n")
 	}
 	str := types.Typ[types.String]
+	scope := []string{project + "/route", project + "/orders/orderId+/route", project + "/files/path++/route"}
 	m := &analyze.Manifest{
 		Module: "example.com/x",
 		Layouts: []analyze.Layout{
-			{ID: "app", Path: "/projects/{projectId}", TSX: true, Load: &analyze.Load{Result: str}, SSR: true, Routes: []string{"app/projects/list", "app/projects/detail", "app/projects/files"}},
-			{ID: "app/projects", Path: "/projects/{projectId}", TSX: true, Load: &analyze.Load{Params: []string{"projectId"}, Result: str}, SSR: true, Routes: []string{"app/projects/list", "app/projects/detail", "app/projects/files"}},
+			{ID: "app/layout", Dir: "app", Path: "/", TSX: true, Load: &analyze.Load{Result: str}, SSR: true, Routes: scope},
+			{ID: project + "/layout", Dir: project, Parent: "app/layout", Path: "/projects/{projectId}", TSX: true, Load: &analyze.Load{Params: []string{"projectId"}, Result: str}, SSR: true, Routes: scope},
 		},
 		Routes: []analyze.Route{
-			{ID: "app/projects/list", Path: "/projects/{projectId}", Page: true, SSR: true, Layouts: []string{"app", "app/projects"}, Load: &analyze.Load{Uses: []string{"app/projects"}, Result: str}},
-			{ID: "app/projects/detail", Path: "/projects/{projectId}/orders/{orderId}", Page: true, SSR: true, Layouts: []string{"app", "app/projects"}, Load: &analyze.Load{Params: []string{"orderId"}, Result: str}},
-			{ID: "app/projects/files", Path: "/projects/{projectId}/files/{path...}", Page: true, SSR: true, Layouts: []string{"app", "app/projects"}, Load: &analyze.Load{Params: []string{"path"}, Result: str}},
+			{ID: project + "/route", Dir: project, Path: "/projects/{projectId}", Page: true, SSR: true, Layouts: []string{"app/layout", project + "/layout"}, Load: &analyze.Load{Uses: []string{project + "/layout"}, Result: str}},
+			{ID: project + "/orders/orderId+/route", Dir: project + "/orders/orderId+", Path: "/projects/{projectId}/orders/{orderId}", Page: true, SSR: true, Layouts: []string{"app/layout", project + "/layout"}, Load: &analyze.Load{Params: []string{"orderId"}, Result: str}},
+			{ID: project + "/files/path++/route", Dir: project + "/files/path++", Path: "/projects/{projectId}/files/{path...}", Page: true, SSR: true, Layouts: []string{"app/layout", project + "/layout"}, Load: &analyze.Load{Params: []string{"path"}, Result: str}},
 		},
 	}
 	files, err := Generate(root, m, false)
@@ -207,13 +188,13 @@ func TestRemountFollowsTheParametersLoadReads(t *testing.T) {
 	}
 	tree := string(files["routes.tsx"])
 	for _, want := range []string{
-		`load<D3>(context, "app/projects/list", location),
+		`load<D3>(context, "app/projects/projectId+/route", location),
   staleTime: Infinity,
   preloadStaleTime: Infinity,
   remountDeps: ({ params }) => [params.projectId],`,
 		`remountDeps: ({ params }) => [params.orderId],`,
 		`remountDeps: ({ params }) => [params._splat],`,
-		`load<D2>(context, "app/projects", location),
+		`load<D2>(context, "app/projects/projectId+/layout", location),
   staleTime: Infinity,
   preloadStaleTime: Infinity,
   remountDeps: ({ params }) => [params.projectId],`,
@@ -227,25 +208,25 @@ func TestRemountFollowsTheParametersLoadReads(t *testing.T) {
 	}
 }
 
-// A Layout is one route of the tree: a path route when it has a path, a pathless route when it
-// has none. Only Layouts whose path would give the same route ID as a sibling get a pathless
-// wrapper (see TestLayoutsWithTheSamePathGetDistinctRoutes).
-func TestLayoutWithAPathIsOneRoute(t *testing.T) {
+// A Layout and a page in one directory are two routes: the Layout is a path route, and the page
+// is its index route, so the page's +route module and the Layout's +layout module name each one.
+func TestLayoutAndPageInOneDirectory(t *testing.T) {
 	root := t.TempDir()
-	for _, f := range []string{"app/layout.tsx", "app/projects/layout.tsx", "app/projects/list/route.tsx", "app/projects/detail/route.tsx"} {
+	const project = "app/projects/projectId+"
+	for _, f := range []string{"app/layout.tsx", project + "/layout.tsx", project + "/route.tsx", project + "/orders/orderId+/route.tsx"} {
 		writeFile(t, filepath.Join(root, f), "export default function C() { return null }\n")
 	}
-	str := types.Typ[types.String]
-	scope := []string{"app/projects/list", "app/projects/detail"}
+	scope := []string{project + "/route", project + "/orders/orderId+/route"}
+	layouts := []string{"app/layout", project + "/layout"}
 	m := &analyze.Manifest{
 		Module: "example.com/x",
 		Layouts: []analyze.Layout{
-			{ID: "app", Path: "/projects/{projectId}", TSX: true, Load: &analyze.Load{Result: str}, SSR: true, Routes: scope},
-			{ID: "app/projects", Parent: "app", Path: "/projects/{projectId}", TSX: true, Load: &analyze.Load{Params: []string{"projectId"}, Result: str}, SSR: true, Routes: scope},
+			{ID: "app/layout", Dir: "app", Path: "/", TSX: true, SSR: true, Routes: scope},
+			{ID: project + "/layout", Dir: project, Parent: "app/layout", Path: "/projects/{projectId}", TSX: true, SSR: true, Routes: scope},
 		},
 		Routes: []analyze.Route{
-			{ID: "app/projects/list", Path: "/projects/{projectId}", Page: true, SSR: true, Layouts: []string{"app", "app/projects"}},
-			{ID: "app/projects/detail", Path: "/projects/{projectId}/orders/{orderId}", Page: true, SSR: true, Layouts: []string{"app", "app/projects"}},
+			{ID: project + "/route", Dir: project, Path: "/projects/{projectId}", Page: true, SSR: true, Layouts: layouts},
+			{ID: project + "/orders/orderId+/route", Dir: project + "/orders/orderId+", Path: "/projects/{projectId}/orders/{orderId}", Page: true, SSR: true, Layouts: layouts},
 		},
 	}
 	files, err := Generate(root, m, false)
@@ -253,16 +234,14 @@ func TestLayoutWithAPathIsOneRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, want := range map[string]string{
-		"app/+route.ts":                 `getRouteApi("/projects/$projectId")`,
-		"app/projects/+route.ts":        `getRouteApi("/projects/$projectId/_projects")`,
-		"app/projects/detail/+route.ts": `getRouteApi("/projects/$projectId/_projects/orders/$orderId")`,
+		"app/+layout.ts":                       `getRouteApi("/_app")`,
+		project + "/+layout.ts":                `getRouteApi("/_app/projects/$projectId")`,
+		project + "/+route.ts":                 `getRouteApi("/_app/projects/$projectId/")`,
+		project + "/orders/orderId+/+route.ts": `getRouteApi("/_app/projects/$projectId/orders/$orderId")`,
 	} {
 		if !strings.Contains(string(files[name]), want) {
 			t.Errorf("%s lacks %s:\n%s", name, want, files[name])
 		}
-	}
-	if tree := string(files["routes.tsx"]); strings.Contains(tree, `id: "_app"`) {
-		t.Errorf("the root Layout got a pathless wrapper:\n%s", tree)
 	}
 }
 
@@ -278,24 +257,10 @@ func TestLayoutNotFoundAddsNoRoute(t *testing.T) {
 		t.Errorf("a loader names where its 404 is shown:\n%s", tree)
 	}
 	for _, want := range []string{
-		"path: \"shared\",\n  component: lazyRouteComponent(m2),\n  errorComponent: DefaultError,\n  notFoundComponent: m1.NotFound,",
+		"path: \"a\",\n  component: lazyRouteComponent(m2),\n  errorComponent: DefaultError,\n  notFoundComponent: m1.NotFound,",
 	} {
 		if !strings.Contains(tree, want) {
 			t.Errorf("routes.tsx lacks %q:\n%s", want, tree)
-		}
-	}
-}
-
-// Two Layouts with the same path prefix are two routes of the tree.
-func TestLayoutsWithTheSamePathGetDistinctRoutes(t *testing.T) {
-	files := generate(t, "router", false)
-	for _, want := range []string{`getRouteApi("/_app/_a/shared")`, `getRouteApi("/_app/_b/shared")`} {
-		found := false
-		for _, name := range []string{"app/a/+route.ts", "app/b/+route.ts"} {
-			found = found || strings.Contains(string(files[name]), want)
-		}
-		if !found {
-			t.Errorf("no +route module holds %s", want)
 		}
 	}
 }
@@ -363,7 +328,7 @@ func TestWriteKeepsUnchangedFilesAndRemovesStaleOnes(t *testing.T) {
 }
 
 func TestInterfaceOnlyAppHasNoTypeScript(t *testing.T) {
-	m := &analyze.Manifest{Module: "example.com/x", Routes: []analyze.Route{{ID: "app/api", Path: "/api", Methods: []string{"GET"}, SSR: true}}}
+	m := &analyze.Manifest{Module: "example.com/x", Routes: []analyze.Route{{ID: "app/api/route", Dir: "app/api", Package: "example.com/x/app/api", Path: "/api", Handlers: []analyze.Handler{{Method: "GET"}}, SSR: true}}}
 	files, err := Generate(t.TempDir(), m, false)
 	if err != nil {
 		t.Fatal(err)

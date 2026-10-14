@@ -26,7 +26,7 @@ tifa dev 监视应用根目录，跳过 `.git`、`.tifa`、`node_modules` 和放
 | --- | --- |
 | `.ts`、`.tsx`、`.js`、`.css`、`.json` | 打包 |
 | `.go`、`go.mod`、`go.sum` | 静态分析、go build |
-| 上一行且路由清单变了（路由、Load 类型、钩子等） | 静态分析、生成代码、打包、go build |
+| 上一行且路由清单变了（路由、Load 和 Layout 的返回类型、方法函数的入参和结果类型、钩子等） | 静态分析、生成代码、打包、go build |
 | 新增或删除 `route.tsx`、`layout.tsx`，或改 `tifa.yaml`、`tifa.json` | 全部步骤 |
 
 路由清单有没有变，看的是静态分析后生成的 `.tifa/` 内容。只改函数体时生成内容不变，跳过生成和打包。

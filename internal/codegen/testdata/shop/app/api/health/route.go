@@ -2,8 +2,18 @@ package health
 
 import "github.com/liustack/tifa"
 
-const Path = "/api/health"
+type Probe struct {
+	Deep bool `json:"deep"`
+}
 
-func OnGet(c *tifa.Ctx) error { return c.Text(200, "ok") }
+type Status struct {
+	OK bool `json:"ok"`
+}
 
-func OnPost(c *tifa.Ctx) error { return c.NoContent(204) }
+func GET(c *tifa.Ctx, in Probe) (Status, error) { return Status{OK: true}, nil }
+
+func POST(c *tifa.Ctx) error { return c.NoContent(204) }
+
+func PUT(c *tifa.Ctx) (Status, error) { return Status{OK: true}, nil }
+
+func DELETE(c *tifa.Ctx, in Probe) error { return nil }

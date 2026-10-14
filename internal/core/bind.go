@@ -41,10 +41,17 @@ func (c *Ctx) Bind(v any) error {
 		if err != nil {
 			return bodyError(err, "invalid form body")
 		}
-		return decodeForm(c.r.PostForm, v)
+		return decodeForm(c.r.PostForm, v, "form field")
 	default:
 		return publicError(http.StatusUnsupportedMediaType, "")
 	}
+}
+
+// BindQuery decodes the query string into the struct v, with the names and value types of a
+// form body. Query parameters that name no field are ignored. A value that does not parse comes
+// back as Error with status 400.
+func (c *Ctx) BindQuery(v any) error {
+	return decodeForm(c.r.URL.Query(), v, "query parameter")
 }
 
 func bodyError(err error, message string) error {
@@ -55,11 +62,12 @@ func bodyError(err error, message string) error {
 	return publicError(http.StatusBadRequest, message)
 }
 
-// decodeForm fills the exported fields of a struct. A field is named by its form tag, then its json tag, then its Go name.
-func decodeForm(form url.Values, v any) error {
+// decodeForm fills the exported fields of a struct. A field is named by its form tag, then its
+// json tag, then its Go name. what names a value in errors, such as "form field".
+func decodeForm(form url.Values, v any, what string) error {
 	target := reflect.ValueOf(v)
 	if target.Kind() != reflect.Pointer || target.Elem().Kind() != reflect.Struct {
-		return fmt.Errorf("tifa: Bind needs a pointer to a struct for form bodies, got %T", v)
+		return fmt.Errorf("tifa: decoding a %s needs a pointer to a struct, got %T", what, v)
 	}
 	target = target.Elem()
 	for i := range target.NumField() {
@@ -73,7 +81,7 @@ func decodeForm(form url.Values, v any) error {
 			continue
 		}
 		if err := setField(target.Field(i), values); err != nil {
-			return publicError(http.StatusBadRequest, fmt.Sprintf("invalid form field %q", name))
+			return publicError(http.StatusBadRequest, fmt.Sprintf("invalid %s %q", what, name))
 		}
 	}
 	return nil

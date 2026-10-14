@@ -2,7 +2,7 @@ package page
 
 import "os"
 
-const Path = "/page"
+// The directory is the URL.
 
 // The analyzer must not run this. The test points TIFA_TEST_INIT_MARKER at a file and checks it stays absent.
 func init() {

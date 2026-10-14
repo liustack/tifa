@@ -7,7 +7,7 @@ import (
 	"github.com/liustack/tifa"
 )
 
-const Path = "/shape"
+// The directory is the URL.
 
 type Base struct {
 	ID   string `json:"id"`

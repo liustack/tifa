@@ -9,81 +9,82 @@ import (
 	app "example.com/shop/app"
 	app_api_health "example.com/shop/app/api/health"
 	app_auth_login "example.com/shop/app/auth/login"
-	app_projects "example.com/shop/app/projects"
-	app_projects_list "example.com/shop/app/projects/list"
-	app_projects_orders_detail "example.com/shop/app/projects/orders/detail"
+	app_projects_projectId_ "example.com/shop/app/projects/projectId+"
+	app_projects_projectId__orders_orderId_ "example.com/shop/app/projects/projectId+/orders/orderId+"
 )
 
 var layouts = []server.Layout{
 	{
-		ID:   "app",
-		Load: func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app.Load) },
+		ID:   "app/layout",
+		Load: func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app.Layout) },
 		SSR:  true,
 	},
 	{
-		ID:  "app/auth",
+		ID:  "app/auth/layout",
 		SSR: true,
 	},
 	{
-		ID:   "app/projects",
-		Load: func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app_projects.Load) },
+		ID:   "app/projects/projectId+/layout",
+		Load: func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app_projects_projectId_.Layout) },
 		SSR:  true,
 	},
 }
 
 var routes = []server.Route{
 	{
-		ID:      "app/api/health",
-		Path:    "/api/health",
-		Page:    false,
-		OnGet:   app_api_health.OnGet,
-		OnPost:  app_api_health.OnPost,
-		SSR:     true,
-		Cache:   false,
-		Layouts: []string{"app"},
-	},
-	{
-		ID:      "app/auth/login",
-		Path:    "/login",
-		Page:    true,
-		OnPost:  app_auth_login.OnPost,
-		SSR:     false,
-		Cache:   false,
-		Layouts: []string{"app", "app/auth"},
-	},
-	{
-		ID:      "app/auth/register",
-		Path:    "/register",
-		Page:    true,
-		SSR:     true,
-		Cache:   false,
-		Layouts: []string{"app", "app/auth"},
-	},
-	{
-		ID:      "app/home",
+		ID:      "app/route",
 		Path:    "/",
 		Page:    true,
 		SSR:     true,
 		Cache:   false,
-		Layouts: []string{"app"},
+		Layouts: []string{"app/layout"},
 	},
 	{
-		ID:      "app/projects/list",
-		Path:    "/projects/{projectId}",
-		Page:    true,
-		Load:    func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app_projects_list.Load) },
-		SSR:     true,
-		Cache:   true,
-		Layouts: []string{"app", "app/projects"},
-	},
-	{
-		ID:      "app/projects/orders/detail",
-		Path:    "/projects/{projectId}/orders/{orderId}",
-		Page:    true,
-		Load:    func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app_projects_orders_detail.Load) },
-		OnPost:  app_projects_orders_detail.OnPost,
+		ID:      "app/api/health/route",
+		Path:    "/api/health",
+		Page:    false,
+		GET:     server.InputOutput(app_api_health.GET, (*tifa.Ctx).BindQuery),
+		POST:    app_api_health.POST,
+		PUT:     server.Output(app_api_health.PUT),
+		DELETE:  server.Input(app_api_health.DELETE, (*tifa.Ctx).BindQuery),
 		SSR:     true,
 		Cache:   false,
-		Layouts: []string{"app", "app/projects"},
+		Layouts: []string{"app/layout"},
+	},
+	{
+		ID:      "app/auth/login/route",
+		Path:    "/auth/login",
+		Page:    true,
+		POST:    app_auth_login.POST,
+		SSR:     false,
+		Cache:   false,
+		Layouts: []string{"app/layout", "app/auth/layout"},
+	},
+	{
+		ID:      "app/auth/register/route",
+		Path:    "/auth/register",
+		Page:    true,
+		SSR:     true,
+		Cache:   false,
+		Layouts: []string{"app/layout", "app/auth/layout"},
+	},
+	{
+		ID:      "app/projects/projectId+/route",
+		Path:    "/projects/{projectId}",
+		Page:    true,
+		Load:    func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app_projects_projectId_.Load) },
+		SSR:     true,
+		Cache:   true,
+		Layouts: []string{"app/layout", "app/projects/projectId+/layout"},
+	},
+	{
+		ID:      "app/projects/projectId+/orders/orderId+/route",
+		Path:    "/projects/{projectId}/orders/{orderId}",
+		Page:    true,
+		Load:    func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app_projects_projectId__orders_orderId_.Load) },
+		POST:    server.InputOutput(app_projects_projectId__orders_orderId_.POST, (*tifa.Ctx).Bind),
+		SSR:     true,
+		Cache:   false,
+		Layouts: []string{"app/layout", "app/projects/projectId+/layout"},
 	},
 }

@@ -269,7 +269,7 @@ test('a page without SSR gets the html attributes React DOM would write', async 
 test('the head follows data the router refetches in the background', async () => {
   await withDocument(async () => {
     let team = 'x'
-    const { router } = await client('/teams/x/two', (_, id) => ok(id === 'app/team' ? team : id))
+    const { router } = await client('/teams/x/two', (_, id) => ok(id === 'app/teams/team+/layout' ? team : id))
     followHead(router)
     syncHead(router.stores.matches.get())
     const title = () => managed().find((e) => e.localName === 'title')?.textContent

@@ -5,7 +5,7 @@ import (
 	"github.com/liustack/tifa"
 )
 
-const Path = "/page"
+// The directory is the URL.
 
 // Skipped: the imported package does not type check.
-func OnGet(c *tifa.Ctx) error { _ = bad.Bad; return nil }
+func GET(c *tifa.Ctx) error { _ = bad.Bad; return nil }

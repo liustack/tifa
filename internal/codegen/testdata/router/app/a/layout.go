@@ -2,4 +2,4 @@ package a
 
 import "github.com/liustack/tifa"
 
-func Load(c *tifa.Ctx) (string, error) { return "a", nil }
+func Layout(c *tifa.Ctx) (string, error) { return "a", nil }

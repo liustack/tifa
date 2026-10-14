@@ -38,28 +38,28 @@ myapp/
   order_test.go
   app/
     layout.go  layout.tsx
+    route.go
     projects/
-      layout.go  layout.tsx
-      orders/
-        list/    route.go  route.tsx
-        detail/  route.go  route.tsx
+      project+/
+        layout.go  layout.tsx  route.go  route.tsx
+        orders/
+          order+/
+            route.go  route.tsx
 ```
 
 `app/` 下的目录保持轻薄。它们只放页面，`route.go` 读请求，然后调用根包：
 
 ```go
-// app/projects/orders/detail/route.go
-package detail
+// app/projects/project+/orders/order+/route.go
+package order
 
 import (
 	"github.com/liustack/tifa"
 	shop "github.com/liustack/tifa/examples/shop"
 )
 
-const Path = "/projects/{projectId}/orders/{orderId}"
-
 func Load(c *tifa.Ctx) (shop.Order, error) {
-	return shop.GetOrder(c.Param("projectId"), c.Param("orderId"))
+	return shop.GetOrder(c.Param("project"), c.Param("order"))
 }
 ```
 
@@ -71,7 +71,7 @@ func Load(c *tifa.Ctx) (shop.Order, error) {
 - 根包大到不好找东西，或者某个领域归一个人、一个团队负责。
 - 想用一个小的公开接口把细节藏起来。
 
-新包放在用它的页面旁边，比如 `app/projects/orders/order.go`，写作 `package orders`。好几处页面都用它时，放在模块根目录下，比如 `orders/`。只导出别的包会调用的东西。
+新包放在用它的页面旁边，比如 `app/projects/project+/orders/orders.go`，写作 `package orders`。好几处页面都用它时，放在模块根目录下，比如 `orders/`。只导出别的包会调用的东西。
 
 注意 import 的方向。`app/` 下的包和拆出去的包可以 import 根包，比如用 `DB`。根包永远不反过来 import 它们，因为 Go 不允许循环引用。所以先拆调用方，再拆被调用的领域：如果 `project.go` 要统计一个店铺的订单，先把 projects 拆出去（或者和 orders 一起拆），在那之前 orders 留在根包里。
 

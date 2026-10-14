@@ -38,28 +38,28 @@ myapp/
   order_test.go
   app/
     layout.go  layout.tsx
+    route.go
     projects/
-      layout.go  layout.tsx
-      orders/
-        list/    route.go  route.tsx
-        detail/  route.go  route.tsx
+      project+/
+        layout.go  layout.tsx  route.go  route.tsx
+        orders/
+          order+/
+            route.go  route.tsx
 ```
 
 Folders under `app/` stay thin. They hold pages, and `route.go` reads the request and calls the root package:
 
 ```go
-// app/projects/orders/detail/route.go
-package detail
+// app/projects/project+/orders/order+/route.go
+package order
 
 import (
 	"github.com/liustack/tifa"
 	shop "github.com/liustack/tifa/examples/shop"
 )
 
-const Path = "/projects/{projectId}/orders/{orderId}"
-
 func Load(c *tifa.Ctx) (shop.Order, error) {
-	return shop.GetOrder(c.Param("projectId"), c.Param("orderId"))
+	return shop.GetOrder(c.Param("project"), c.Param("order"))
 }
 ```
 
@@ -71,7 +71,7 @@ Move a domain into its own package when one of these happens:
 - The root package gets too big to find your way around, or one person or team owns a domain.
 - You want a small public API with the details hidden behind it.
 
-Put the new package next to the pages that use it, for example `app/projects/orders/order.go` as `package orders`, or at the module root such as `orders/` when pages in several places use it. Export only what other packages call.
+Put the new package next to the pages that use it, for example `app/projects/project+/orders/orders.go` as `package orders`, or at the module root such as `orders/` when pages in several places use it. Export only what other packages call.
 
 Mind the import direction. Packages under `app/` and packages you split out may import the root package, for `DB` for example. The root package never imports them back, because Go does not allow import cycles. So split callers before the domains they call: if `project.go` counts the orders of a project, move projects out first (or together with orders), and keep orders in the root until then.
 

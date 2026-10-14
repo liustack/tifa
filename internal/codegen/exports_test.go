@@ -8,10 +8,10 @@ import (
 
 func TestExportsOf(t *testing.T) {
 	for file, want := range map[string][]string{
-		"app/layout.tsx":              {"NotFound", "default"},
-		"app/home/route.tsx":          {"default", "head"},
-		"app/auth/register/route.tsx": {"default"},
-		"app/projects/layout.tsx":     {"Error", "default"},
+		"app/layout.tsx":                     {"NotFound", "default"},
+		"app/route.tsx":                      {"default", "head"},
+		"app/auth/register/route.tsx":        {"default"},
+		"app/projects/projectId+/layout.tsx": {"Error", "default"},
 	} {
 		got, err := exportsOf(filepath.Join("testdata", "shop", file))
 		if err != nil {

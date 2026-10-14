@@ -6,4 +6,4 @@ type Site struct {
 	Name string `json:"name"`
 }
 
-func Load(c *tifa.Ctx) (Site, error) { return Site{Name: "router"}, nil }
+func Layout(c *tifa.Ctx) (Site, error) { return Site{Name: "router"}, nil }

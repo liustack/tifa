@@ -8,7 +8,7 @@ type Site struct {
 	Lang string `json:"lang"`
 }
 
-func Load(c *tifa.Ctx) (Site, error) {
+func Layout(c *tifa.Ctx) (Site, error) {
 	lang := c.Query("lang")
 	if lang == "" {
 		lang = "en"

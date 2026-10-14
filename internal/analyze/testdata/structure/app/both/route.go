@@ -1,3 +1,3 @@
 package both
 
-const Path = "/both"
+// The directory is the URL.

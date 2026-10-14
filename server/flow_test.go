@@ -23,18 +23,18 @@ func secretApp(onRequest func(c *tifa.Ctx) error, onError *[]error) App {
 				return tifa.Error{Status: 500, Message: "reported"}
 			},
 		},
-		Layouts: []Layout{{ID: "app", SSR: true, Load: func(c *tifa.Ctx) (any, error) {
+		Layouts: []Layout{{ID: "app/layout", SSR: true, Load: func(c *tifa.Ctx) (any, error) {
 			if c.Query("deny") != "" {
 				return nil, errDenied
 			}
 			return "root", nil
 		}}},
-		Routes: []Route{{ID: "app/secret", Path: "/secret", Page: true, SSR: true, Layouts: []string{"app"},
+		Routes: []Route{{ID: "app/secret", Path: "/secret", Page: true, SSR: true, Layouts: []string{"app/layout"},
 			Load: func(c *tifa.Ctx) (any, error) { return "PRIVATE_SECRET", nil }}},
 	}
 }
 
-var secretData = []string{"X-Tifa-Route", "app,app/secret", "X-Tifa-Build", "b1"}
+var secretData = []string{"X-Tifa-Route", "app/layout,app/secret", "X-Tifa-Build", "b1"}
 
 // A middleware that refuses any request whose Load failed refuses the data request as it
 // refuses the page.
@@ -89,7 +89,7 @@ func TestDataRequestAnswersByRouteWhenNextFailsUnhandled(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("%d %s", w.Code, w.Body.String())
 	}
-	if w.Code != 200 || got["app"].Status != 500 || got["app"].Error != "reported" || got["app/secret"].Status != 200 {
+	if w.Code != 200 || got["app/layout"].Status != 500 || got["app/layout"].Error != "reported" || got["app/secret"].Status != 200 {
 		t.Errorf("%d %s", w.Code, w.Body.String())
 	}
 	if strings.Join(order, ", ") != "OnRequest returns, OnError" || len(reported) != 1 || !errors.Is(reported[0], errDenied) {

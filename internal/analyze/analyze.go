@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 
+	"golang.org/x/mod/module"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -23,10 +24,9 @@ const (
 	ctxType  = "*" + corePath + ".Ctx"
 )
 
-// handlers maps the OnXxx functions of route.go to their HTTP methods, in manifest order.
-var handlers = []struct{ name, method string }{
-	{"OnGet", "GET"}, {"OnPost", "POST"}, {"OnPut", "PUT"}, {"OnPatch", "PATCH"}, {"OnDelete", "DELETE"},
-}
+// methods lists the HTTP methods whose handlers route.go may declare, each as a function named
+// after it, in manifest order.
+var methods = []string{"GET", "POST", "PUT", "PATCH", "DELETE"}
 
 // hooks lists the hooks of hooks.go with their parameter and result types, in manifest order.
 var hooks = []struct {
@@ -90,28 +90,45 @@ type dirInfo struct {
 	routeGo, routeTSX, layoutGo, layoutTSX bool
 }
 
-// scan walks app/ the way the go command does (skipping ".", "_" and testdata directories)
-// and records which convention files exist.
+// conventionFiles are the files that make a directory under app/ a route or a Layout.
+var conventionFiles = []string{"route.go", "route.tsx", "layout.go", "layout.tsx"}
+
+// scan walks app/ and records which convention files exist. The go command skips directories
+// whose name starts with "." or "_" and directories named testdata, so a convention file below
+// one of them is reported instead of silently left out.
 func (a *analyzer) scan() error {
 	appDir := filepath.Join(a.root, "app")
 	if info, err := os.Stat(appDir); err != nil || !info.IsDir() {
 		return fmt.Errorf("%s has no app directory", a.root)
 	}
+	skipped := "" // the outermost skipped directory being walked, by ID
 	return filepath.WalkDir(appDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		name := d.Name()
 		if d.IsDir() {
-			if path != appDir && (strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || name == "testdata") {
-				return filepath.SkipDir
+			id := a.id(path)
+			if skipped != "" && !isAncestor(skipped, id) {
+				skipped = ""
+			}
+			if skipped == "" && path != appDir && (strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || name == "testdata") {
+				skipped = id
 			}
 			return nil
 		}
+		if !slices.Contains(conventionFiles, name) {
+			return nil
+		}
 		id := a.id(filepath.Dir(path))
+		if skipped != "" {
+			a.errorInFile(id, name, "the go command skips %s because its name starts with . or _ or is testdata, so this file is never built: rename the directory", skipped)
+			return nil
+		}
 		info := a.dirs[id]
 		if info == nil {
 			info = &dirInfo{id: id}
+			a.dirs[id] = info
 		}
 		switch name {
 		case "route.go":
@@ -122,10 +139,7 @@ func (a *analyzer) scan() error {
 			info.layoutGo = true
 		case "layout.tsx":
 			info.layoutTSX = true
-		default:
-			return nil
 		}
-		a.dirs[id] = info
 		return nil
 	})
 }
@@ -320,20 +334,22 @@ func (a *analyzer) sortedErrors() Errors {
 // route and layout hold what build needs beyond the manifest entries.
 type route struct {
 	Route
-	segs    []segment // empty for Path "/"
-	valid   bool      // Path is a literal that parsed, segs and pathPos are set
-	pathPos token.Pos
-	uses    []paramUse
-	broken  bool // the package does not type check, only ID and Page are known
+	file   string    // route.go, or route.tsx for a page without route.go, where violations of the whole route are reported
+	segs   []segment // empty for the home page
+	valid  bool      // the directory names a path, segs is set
+	uses   []paramUse
+	broken bool // the package does not type check, its Load and handlers are not known
 }
 
 type layout struct {
 	Layout
-	dir  *dirInfo
-	uses []paramUse
+	file  string // layout.go or layout.tsx
+	segs  []segment
+	valid bool
+	uses  []paramUse
 }
 
-// usedLoads maps a Load to the import paths of the packages whose Load it passes to tifa.Use.
+// usedLoads maps a Load to the import paths of the packages whose Layout function it passes to tifa.Use.
 type usedLoads map[*Load][]string
 
 // paramUse is one c.Param or c.Query call with a constant name inside Load.
@@ -354,23 +370,18 @@ func (a *analyzer) build() *Manifest {
 	var layouts []*layout
 	for _, id := range ids {
 		d := a.dirs[id]
-		switch {
-		case d.routeGo:
-			if d.layoutGo || d.layoutTSX {
-				file := "layout.go"
-				if !d.layoutGo {
-					file = "layout.tsx"
-				}
-				a.errorInFile(id, file, "route.go and %s are in one directory: a directory holds one route or one Layout", file)
-			}
-			if r := a.route(d); r != nil {
-				routes = append(routes, r)
-			}
-		case d.routeTSX:
-			a.errorInFile(id, "route.tsx", "route.tsx has no route.go next to it to declare its Path")
-		case d.layoutGo || d.layoutTSX:
+		segs, valid := a.dirPath(d)
+		a.checkPackageNames(d)
+		if d.layoutGo || d.layoutTSX {
 			if l := a.layout(d); l != nil {
+				l.segs, l.valid, l.Path = segs, valid, formatPath(segs)
 				layouts = append(layouts, l)
+			}
+		}
+		if d.routeGo || d.routeTSX {
+			if r := a.route(d); r != nil {
+				r.segs, r.valid, r.Path = segs, valid, formatPath(segs)
+				routes = append(routes, r)
 			}
 		}
 	}
@@ -391,48 +402,106 @@ func (a *analyzer) build() *Manifest {
 	return m
 }
 
+// firstFile is the first convention file of a directory, where violations of the directory as a whole are reported.
+func (d *dirInfo) firstFile() string {
+	switch {
+	case d.routeGo:
+		return "route.go"
+	case d.layoutGo:
+		return "layout.go"
+	case d.routeTSX:
+		return "route.tsx"
+	}
+	return "layout.tsx"
+}
+
+// dirPath reads the path of a directory and reports a name that is not a URL segment, or that
+// the go command does not accept in an import path, such as a reserved Windows name or a
+// Windows short name like x~1.
+func (a *analyzer) dirPath(d *dirInfo) ([]segment, bool) {
+	segs, err := dirSegments(d.id)
+	if err == nil {
+		// The directory may hold only TSX, so the module path is not always known. A fixed
+		// prefix checks the part of the import path that comes from the directory.
+		err = module.CheckImportPath("example.com/" + d.id)
+	}
+	if err != nil {
+		a.errorInFile(d.id, d.firstFile(), "%v", err)
+		return nil, false
+	}
+	return segs, true
+}
+
+// routeNames are the names that only route.go declares. route.go and layout.go of one
+// directory share a package, so a Layout has names of its own: Layout and LayoutSSR.
+var routeNames = append([]string{"Load", "SSR", "Cache"}, methods...)
+
+// checkPackageNames reports Path, which the directory replaces, and the names of route.go in a
+// directory that has no route, so that a Layout written the old way, with Load and SSR, is not
+// silently left without data.
+func (a *analyzer) checkPackageNames(d *dirInfo) {
+	pkg := a.byDir[d.id]
+	if pkg == nil {
+		return
+	}
+	scope := pkg.Types.Scope()
+	if obj := scope.Lookup("Path"); obj != nil {
+		a.errorAt(obj.Pos(), "Path is not declared: the directory under app/ is the URL, write {name} as the directory name+ and {name...} as name++")
+	}
+	if d.routeGo || d.routeTSX {
+		return
+	}
+	for _, name := range routeNames {
+		obj := scope.Lookup(name)
+		switch {
+		case obj == nil:
+		case name == "Load":
+			a.errorAt(obj.Pos(), "Load loads the data of a page in route.go: a Layout loads its data with func Layout(c *tifa.Ctx) (T, error)")
+		case name == "SSR":
+			a.errorAt(obj.Pos(), "SSR switches server rendering of a page in route.go: a Layout declares LayoutSSR")
+		default:
+			a.errorAt(obj.Pos(), "a layout does not declare %s, it belongs in route.go", name)
+		}
+	}
+}
+
 func (a *analyzer) route(d *dirInfo) *route {
-	if a.broken[d.id] { // kept so that Layouts know a page with an unknown Path is in scope
-		return &route{Route: Route{ID: d.id, Page: d.routeTSX}, broken: true}
+	file := "route.go"
+	if !d.routeGo {
+		file = "route.tsx"
+	}
+	r := &route{Route: Route{ID: d.id + "/route", Dir: d.id, Page: d.routeTSX, SSR: true}, file: file}
+	if !d.routeGo {
+		return r
+	}
+	if a.broken[d.id] { // kept so that Layouts know a page is in scope
+		r.broken = true
+		return r
 	}
 	pkg := a.byDir[d.id]
 	if pkg == nil {
 		a.errorInFile(d.id, "route.go", "route.go is not part of a package the go command builds")
 		return nil
 	}
-	r := &route{Route: Route{ID: d.id, Package: pkg.PkgPath, Page: d.routeTSX, SSR: true}}
+	r.Package = pkg.PkgPath
 	scope := pkg.Types.Scope()
-
-	if obj := scope.Lookup("Path"); obj == nil {
-		a.errorInFile(d.id, "route.go", "route.go must declare const Path")
-	} else if lit := a.stringLiteralConst(pkg, obj); lit != nil {
-		r.Path = constant.StringVal(pkg.TypesInfo.Types[lit].Value)
-		r.pathPos = lit.Pos()
-		segs, err := parsePath(r.Path)
-		if err == nil && d.routeTSX {
-			err = checkPagePath(r.Path, segs)
-		}
-		if err != nil {
-			a.errorAt(lit.Pos(), "%v", err)
-		} else {
-			r.segs, r.valid = segs, true
-		}
+	r.Load, r.uses = a.readLoad(pkg, d.id, "Load")
+	if r.Load != nil && !d.routeTSX {
+		a.errorAt(scope.Lookup("Load").Pos(), "Load is not allowed without route.tsx: Load loads the data of a page, an API route answers GET with a GET function")
+		r.Load, r.uses = nil, nil
 	}
-
-	r.Load, r.uses = a.readLoad(pkg, d.id)
-	for _, h := range handlers {
-		obj := scope.Lookup(h.name)
+	for _, method := range methods {
+		obj := scope.Lookup(method)
 		if obj == nil {
 			continue
 		}
-		if !a.checkFunc(obj, []string{ctxType}, []string{"error"}, "func(c *tifa.Ctx) error") {
+		if method == "GET" && d.routeTSX {
+			a.errorAt(obj.Pos(), "GET is not allowed next to route.tsx: the framework renders GET for a page")
 			continue
 		}
-		if h.name == "OnGet" && d.routeTSX {
-			a.errorAt(obj.Pos(), "OnGet is not allowed next to route.tsx: the framework renders GET for a page")
-			continue
+		if h, ok := a.readHandler(pkg, obj, method); ok {
+			r.Handlers = append(r.Handlers, h)
 		}
-		r.Methods = append(r.Methods, h.method)
 	}
 	r.SSR = a.boolConst(pkg, "SSR", true)
 	r.Cache = a.boolConst(pkg, "Cache", false)
@@ -440,7 +509,11 @@ func (a *analyzer) route(d *dirInfo) *route {
 }
 
 func (a *analyzer) layout(d *dirInfo) *layout {
-	l := &layout{Layout: Layout{ID: d.id, TSX: d.layoutTSX, SSR: true}, dir: d}
+	file := "layout.go"
+	if !d.layoutGo {
+		file = "layout.tsx"
+	}
+	l := &layout{Layout: Layout{ID: d.id + "/layout", Dir: d.id, TSX: d.layoutTSX, SSR: true}, file: file}
 	if !d.layoutGo || a.broken[d.id] {
 		return l
 	}
@@ -450,60 +523,9 @@ func (a *analyzer) layout(d *dirInfo) *layout {
 		return nil
 	}
 	l.Package = pkg.PkgPath
-	scope := pkg.Types.Scope()
-	for _, name := range []string{"Path", "Cache"} {
-		if obj := scope.Lookup(name); obj != nil {
-			a.errorAt(obj.Pos(), "a layout does not declare %s, it belongs in route.go", name)
-		}
-	}
-	for _, h := range handlers {
-		if obj := scope.Lookup(h.name); obj != nil {
-			a.errorAt(obj.Pos(), "a layout does not declare %s, handlers belong in route.go", h.name)
-		}
-	}
-	l.Load, l.uses = a.readLoad(pkg, d.id)
-	l.SSR = a.boolConst(pkg, "SSR", true)
+	l.Load, l.uses = a.readLoad(pkg, d.id, "Layout")
+	l.SSR = a.boolConst(pkg, "LayoutSSR", true)
 	return l
-}
-
-// stringLiteralConst returns the string literal that declares the constant obj, or reports why it is not one.
-func (a *analyzer) stringLiteralConst(pkg *packages.Package, obj types.Object) *ast.BasicLit {
-	c, ok := obj.(*types.Const)
-	if !ok || c.Val().Kind() != constant.String {
-		a.errorAt(obj.Pos(), "%s must be a string constant", obj.Name())
-		return nil
-	}
-	value := a.constValue(pkg, c)
-	if lit, ok := ast.Unparen(value).(*ast.BasicLit); ok && lit.Kind == token.STRING {
-		return lit
-	}
-	pos := obj.Pos()
-	if value != nil {
-		pos = value.Pos()
-	}
-	a.errorAt(pos, "%s must be a single string literal, the analyzer does not evaluate constant expressions", obj.Name())
-	return nil
-}
-
-// constValue finds the expression assigned to a package-level constant, nil when it repeats an earlier spec.
-func (a *analyzer) constValue(pkg *packages.Package, c *types.Const) ast.Expr {
-	for _, f := range pkg.Syntax {
-		for _, decl := range f.Decls {
-			gd, ok := decl.(*ast.GenDecl)
-			if !ok || gd.Tok != token.CONST {
-				continue
-			}
-			for _, spec := range gd.Specs {
-				vs := spec.(*ast.ValueSpec)
-				for i, name := range vs.Names {
-					if pkg.TypesInfo.Defs[name] == c && i < len(vs.Values) {
-						return vs.Values[i]
-					}
-				}
-			}
-		}
-	}
-	return nil
 }
 
 func (a *analyzer) boolConst(pkg *packages.Package, name string, def bool) bool {
@@ -551,10 +573,11 @@ func typeString(t types.Type) string {
 	return types.TypeString(t, nil)
 }
 
-// load_ reads the Load function of a route or Layout package: its result type and the constant
-// parameter names passed to c.Param and c.Query in its body.
-func (a *analyzer) readLoad(pkg *packages.Package, owner string) (*Load, []paramUse) {
-	obj := pkg.Types.Scope().Lookup("Load")
+// readLoad reads the function that loads the data of a route (Load) or Layout (Layout): its
+// result type and the constant parameter names passed to c.Param and c.Query in its body.
+// owner is the directory of the route or Layout.
+func (a *analyzer) readLoad(pkg *packages.Package, owner, name string) (*Load, []paramUse) {
+	obj := pkg.Types.Scope().Lookup(name)
 	if obj == nil {
 		return nil, nil
 	}
@@ -567,22 +590,14 @@ func (a *analyzer) readLoad(pkg *packages.Package, owner string) (*Load, []param
 			sig.Results().Len() == 2 && typeString(sig.Results().At(1).Type()) == "error"
 	}
 	if !ok {
-		a.errorAt(obj.Pos(), "Load must have the signature func(c *tifa.Ctx) (T, error)")
+		a.errorAt(obj.Pos(), "%s must have the signature func(c *tifa.Ctx) (T, error)", name)
 		return nil, nil
 	}
 	result := sig.Results().At(0).Type()
 	load := &Load{Type: typeString(result), Result: result}
 
 	decl := a.funcDecl(pkg, fn)
-	resultPos := decl.Type.Results.List[0].Type.Pos()
-	for _, p := range checkTS(result) {
-		msg := fmt.Sprintf("Load result: %s: %s", p.path, p.msg)
-		if p.field != nil && p.field.Pos().IsValid() {
-			fp := a.fset.Position(p.field.Pos())
-			msg += fmt.Sprintf(" (field declared at %s:%d)", a.relFile(fp.Filename), fp.Line)
-		}
-		a.errorAt(resultPos, "%s", msg)
-	}
+	a.reportTS(fieldTypePos(decl.Type.Results, 0), name+" result", checkTS(result))
 
 	uses := a.walkLoad(pkg, owner, load, decl, sig)
 	for _, u := range uses {
@@ -727,62 +742,44 @@ func derefType(t types.Type) types.Type {
 // isAncestor reports whether directory ID outer strictly contains directory ID inner.
 func isAncestor(outer, inner string) bool { return strings.HasPrefix(inner, outer+"/") }
 
-// linkLayouts fills Layout chains and scopes, computes each Layout's Path from its scope and
-// checks that every path parameter a Layout's Load reads lies in that Path.
+// covers reports whether a Layout in directory outer wraps what is in directory inner: its own
+// directory and every directory below it.
+func covers(outer, inner string) bool { return outer == inner || isAncestor(outer, inner) }
+
+// linkLayouts fills Layout chains and scopes and checks that every path parameter a Layout
+// function reads lies in the Layout's own path.
 func (a *analyzer) linkLayouts(routes []*route, layouts []*layout) {
 	for _, l := range layouts {
-		for _, p := range layouts { // sorted by ID, so the last match is the closest
-			if isAncestor(p.ID, l.ID) {
+		for _, p := range layouts { // sorted by directory, so the last match is the closest
+			if isAncestor(p.Dir, l.Dir) {
 				l.Parent = p.ID
 			}
 		}
-		// Only pages render inside a Layout, so only their Paths make up its path. Interface
-		// routes in the directory stay in Routes but do not shrink the prefix.
-		var paths [][]segment
-		var scope []*route
 		pages := 0
-		unknown := false // a page in scope does not type check, so the prefix is not known
 		for _, r := range routes {
-			if !isAncestor(l.ID, r.ID) {
-				continue
-			}
-			l.Routes = append(l.Routes, r.ID)
-			if !r.Page {
-				continue
-			}
-			pages++
-			if r.broken {
-				unknown = true
-			}
-			if r.valid {
-				paths = append(paths, r.segs)
-				scope = append(scope, r)
+			if covers(l.Dir, r.Dir) {
+				l.Routes = append(l.Routes, r.ID)
+				if r.Page {
+					pages++
+				}
 			}
 		}
 		if pages == 0 {
-			file := "layout.go"
-			if !l.dir.layoutGo {
-				file = "layout.tsx"
-			}
-			a.errorInFile(l.ID, file, "this layout has no pages (route.tsx) in scope, so it has no path")
+			a.errorInFile(l.Dir, l.file, "this layout has no pages (route.tsx) in its directory or below it")
 			continue
 		}
-		prefix := commonPrefix(paths)
-		l.Path = formatPath(prefix)
-		if unknown {
+		if !l.valid {
 			continue
 		}
 		for _, u := range l.uses {
-			if u.method != "Param" || slices.ContainsFunc(prefix, func(s segment) bool { return s.param == u.name }) {
-				continue
+			if u.method == "Param" && !slices.ContainsFunc(l.segs, func(s segment) bool { return s.param == u.name }) {
+				a.errorAt(u.pos, "c.Param(%q) reads a parameter that is not in %q, the path of the layout's directory %s", u.name, l.Path, l.Dir)
 			}
-			a.errorAt(u.pos, "layout Load reads path parameter %q, which is not in %q, the common prefix of the page Paths in scope: %s",
-				u.name, l.Path, a.offendingPaths(scope, u.name))
 		}
 	}
 	for _, r := range routes {
 		for _, l := range layouts {
-			if isAncestor(l.ID, r.ID) {
+			if covers(l.Dir, r.Dir) {
 				r.Layouts = append(r.Layouts, l.ID)
 				if !l.SSR {
 					r.SSR = false
@@ -792,32 +789,10 @@ func (a *analyzer) linkLayouts(routes []*route, layouts []*layout) {
 	}
 }
 
-// offendingPaths names the Paths in scope that lack the parameter, or all of them when every
-// Path has it but at different positions.
-func (a *analyzer) offendingPaths(scope []*route, name string) string {
-	var lacking, all []string
-	for _, r := range scope {
-		desc := fmt.Sprintf("%q (%s)", r.Path, a.posString(r.pathPos))
-		all = append(all, desc)
-		if !slices.ContainsFunc(r.segs, func(s segment) bool { return s.param == name }) {
-			lacking = append(lacking, desc)
-		}
-	}
-	if len(lacking) > 0 {
-		return "missing from " + strings.Join(lacking, ", ")
-	}
-	return "it sits at different positions in " + strings.Join(all, ", ")
-}
-
-func (a *analyzer) posString(pos token.Pos) string {
-	p := a.fset.Position(pos)
-	return fmt.Sprintf("%s:%d", a.relFile(p.Filename), p.Line)
-}
-
-// checkPaths reports c.Param names that are not in the route's own Path, and every pair of
-// Paths that ServeMux would refuse to register together: a duplicate when they match the same
-// URLs, a conflict when they share some URLs and neither is more specific. Each pair is reported
-// once, at the later route.
+// checkPaths reports c.Param names that are not in the route's own path, and every pair of
+// paths that ServeMux would refuse to register together: a duplicate when they match the same
+// URLs, such as the sibling directories id+ and key+, and a conflict when they share some URLs
+// and neither is more specific. Each pair is reported once, at the later route.
 func (a *analyzer) checkPaths(routes []*route) {
 	var checked []*route
 	for _, r := range routes {
@@ -826,16 +801,15 @@ func (a *analyzer) checkPaths(routes []*route) {
 		}
 		for _, u := range r.uses {
 			if u.method == "Param" && !slices.ContainsFunc(r.segs, func(s segment) bool { return s.param == u.name }) {
-				a.errorAt(u.pos, "c.Param(%q) reads a parameter that is not in Path %q", u.name, r.Path)
+				a.errorAt(u.pos, "c.Param(%q) reads a parameter that is not in %q, the path of %s", u.name, r.Path, r.Dir)
 			}
 		}
 		for _, other := range checked {
 			switch comparePaths(muxSegments(other.segs), muxSegments(r.segs)) {
 			case equivalent:
-				a.errorAt(r.pathPos, "Path %q duplicates Path %q of %s", r.Path, other.Path, a.posString(other.pathPos))
+				a.errorInFile(r.Dir, r.file, "the path %q duplicates %q of %s: both match the same URLs", r.Path, other.Path, other.Dir)
 			case overlaps:
-				a.errorAt(r.pathPos, "Path %q conflicts with Path %q of %s: both match some URLs and neither is more specific",
-					r.Path, other.Path, a.posString(other.pathPos))
+				a.errorInFile(r.Dir, r.file, "the path %q conflicts with %q of %s: both match some URLs and neither is more specific", r.Path, other.Path, other.Dir)
 			}
 		}
 		checked = append(checked, r)
@@ -844,8 +818,8 @@ func (a *analyzer) checkPaths(routes []*route) {
 
 // checkUses finds every call of tifa.Use in the loaded packages. Its function argument must be
 // a package-level function, because the runtime tells Loads apart by code address and closures
-// of one literal or method values of one method would share results. It must also be the Load
-// of a Layout whose directory strictly contains the calling package.
+// of one literal or method values of one method would share results. It must also be the Layout
+// function of a Layout that wraps the calling package: in its directory or above it.
 func (a *analyzer) checkUses(layouts []*layout) {
 	layoutByPkg := map[string]*layout{}
 	for _, l := range layouts {
@@ -894,12 +868,12 @@ func (a *analyzer) checkUse(info *types.Info, call *ast.CallExpr, caller string,
 		return
 	}
 	l := layoutByPkg[fn.Pkg().Path()]
-	if l == nil || fn.Name() != "Load" {
-		a.errorAt(arg.Pos(), "tifa.Use(c, %s): %s is not the Load of a layout", text, text)
+	if l == nil || fn.Name() != "Layout" {
+		a.errorAt(arg.Pos(), "tifa.Use(c, %s): %s is not the Layout function of a layout", text, text)
 		return
 	}
-	if !isAncestor(l.ID, caller) {
-		a.errorAt(arg.Pos(), "tifa.Use(c, %s): the layout %s is not an ancestor of %s", text, l.ID, caller)
+	if !covers(l.Dir, caller) {
+		a.errorAt(arg.Pos(), "tifa.Use(c, %s): the layout of %s does not wrap %s", text, l.Dir, caller)
 	}
 }
 
@@ -943,7 +917,7 @@ func (a *analyzer) propagateQuery(routes []*route, layouts []*layout) {
 		for _, path := range a.used[load] {
 			l := byPkg[path]
 			if l == nil {
-				continue // not a Layout's Load, checkUses reports it
+				continue // not a Layout function, checkUse reports it
 			}
 			load.Uses = append(load.Uses, l.ID)
 			q = append(q, all(l.Load)...)

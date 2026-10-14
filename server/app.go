@@ -25,26 +25,29 @@ type App struct {
 
 // Layout is one directory holding layout.go, layout.tsx or both.
 type Layout struct {
-	// ID is the directory relative to the application root, such as "app/projects".
+	// ID is the directory relative to the application root followed by "/layout", such as
+	// "app/projects/project+/layout".
 	ID string
-	// Load returns the result of the Layout's Load through tifa.Use, nil when the Layout has none.
+	// Load returns the result of the Layout function through tifa.Use, nil when the Layout has none.
 	Load func(c *tifa.Ctx) (any, error)
-	// SSR is the Layout's own SSR constant.
+	// SSR is the Layout's own LayoutSSR constant.
 	SSR bool
 }
 
-// Route is one directory holding route.go.
+// Route is one directory holding route.go, route.tsx or both.
 type Route struct {
-	// ID is the directory relative to the application root, such as "app/projects/list".
+	// ID is the directory relative to the application root followed by "/route", such as
+	// "app/projects/project+/route".
 	ID string
-	// Path is the Path constant as written. "/" is the exact home page.
+	// Path is the path of the directory in ServeMux syntax, such as "/projects/{project}".
+	// "/" is the exact home page.
 	Path string
 	// Page reports whether route.tsx exists. The framework answers GET for a page.
 	Page bool
 	// Load returns the result of the route's Load through tifa.Use, nil when the route has none.
 	Load func(c *tifa.Ctx) (any, error)
-	// The OnXxx functions of route.go, nil when absent. A page has no OnGet.
-	OnGet, OnPost, OnPut, OnPatch, OnDelete func(c *tifa.Ctx) error
+	// The handlers of route.go, named after their HTTP methods, nil when absent. A page has no GET.
+	GET, POST, PUT, PATCH, DELETE func(c *tifa.Ctx) error
 	// SSR is false when the route or a Layout in its chain sets SSR = false.
 	SSR bool
 	// Cache is the route's Cache constant.
@@ -87,8 +90,8 @@ func (s *Server) register(layouts []Layout, routes []Route) {
 		}
 		s.path(r.Path)
 		if r.Page {
-			if r.OnGet != nil {
-				panic(fmt.Sprintf("tifa: page %s defines OnGet", r.ID))
+			if r.GET != nil {
+				panic(fmt.Sprintf("tifa: page %s defines GET", r.ID))
 			}
 			s.pages[r.Path] = true
 			s.Handle("GET", r.Path, s.pageHandler(r, chain))
@@ -96,7 +99,7 @@ func (s *Server) register(layouts []Layout, routes []Route) {
 		for _, h := range []struct {
 			method string
 			fn     func(*tifa.Ctx) error
-		}{{"GET", r.OnGet}, {"POST", r.OnPost}, {"PUT", r.OnPut}, {"PATCH", r.OnPatch}, {"DELETE", r.OnDelete}} {
+		}{{"GET", r.GET}, {"POST", r.POST}, {"PUT", r.PUT}, {"PATCH", r.PATCH}, {"DELETE", r.DELETE}} {
 			if h.fn != nil {
 				s.Handle(h.method, r.Path, h.fn)
 			}
@@ -104,8 +107,8 @@ func (s *Server) register(layouts []Layout, routes []Route) {
 	}
 }
 
-// rootLayout is the ID of the Layout in app/. Its SSR constant applies to unmatched URLs.
-const rootLayout = "app"
+// rootLayout is the ID of the Layout in app/. Its LayoutSSR constant applies to unmatched URLs.
+const rootLayout = "app/layout"
 
 // load is one Load of a page's chain.
 type load struct {

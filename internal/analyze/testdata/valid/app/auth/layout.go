@@ -6,4 +6,4 @@ type Session struct {
 	User *string `json:"user"`
 }
 
-func Load(c *tifa.Ctx) (Session, error) { return Session{}, nil }
+func Layout(c *tifa.Ctx) (Session, error) { return Session{}, nil }

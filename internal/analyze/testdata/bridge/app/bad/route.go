@@ -1,5 +1,5 @@
 package bad
 
-const Path = "/bad"
+const Name = "bad"
 
 var count int = "one"

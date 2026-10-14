@@ -5,7 +5,7 @@ import (
 	"github.com/liustack/tifa"
 )
 
-const Path = "/page"
+// The directory is the URL.
 
 type useFunc func(*tifa.Ctx, func(*tifa.Ctx) (string, error)) (string, error)
 
@@ -18,12 +18,12 @@ func Load(c *tifa.Ctx) (string, error) {
 	tab := (*tifa.Ctx).Query(c, "tab")
 	use := tifa.Use[string]
 	pass(tifa.Use[string], c)
-	s, err := use(c, app.Load)
+	s, err := use(c, app.Layout)
 	lang := wrapped{c}.Query("lang")
 	return q("x") + tab + s + lang, err
 }
 
-func OnPost(c *tifa.Ctx) error {
+func POST(c *tifa.Ctx) error {
 	param := c.Param
 	_ = param
 	return nil

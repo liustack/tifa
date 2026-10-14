@@ -7,4 +7,4 @@ type Site struct {
 	Lang string `json:"lang"`
 }
 
-func Load(c *tifa.Ctx) (Site, error) { return Site{Name: "shop", Lang: c.Query("lang")}, nil }
+func Layout(c *tifa.Ctx) (Site, error) { return Site{Name: "shop", Lang: c.Query("lang")}, nil }

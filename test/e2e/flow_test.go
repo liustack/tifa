@@ -42,11 +42,9 @@ func OnError(c *tifa.Ctx, err error) tifa.Error {
 	return tifa.Error{Status: 500, Message: "reported"}
 }
 `,
-	"app/throws/route.go":   "package throws\n\nconst Path = \"/throws\"\n\nconst Cache = true\n",
+	"app/throws/route.go":   "package throws\n\nconst Cache = true\n",
 	"app/throws/route.tsx":  "export default function Throws(): never {\n  throw new Error('PAGE_THROWS')\n}\n",
-	"app/ssr/route.go":      "package ssr\n\nconst Path = \"/ssr\"\n",
 	"app/ssr/route.tsx":     "export default function Page() {\n  return <p>PAGE_SSR</p>\n}\n",
-	"app/members/route.go":  "package members\n\nconst Path = \"/members\"\n",
 	"app/members/route.tsx": "export default function Members() {\n  return <p>MEMBERS</p>\n}\n",
 	"app/secret/layout.go": `package secret
 
@@ -56,27 +54,23 @@ import (
 	"github.com/liustack/tifa"
 )
 
-func Load(c *tifa.Ctx) (string, error) {
+func Layout(c *tifa.Ctx) (string, error) {
 	if c.Query("deny") != "" {
 		return "", errors.New("permission denied")
 	}
 	return "allowed", nil
 }
 `,
-	"app/secret/page/route.go": `package page
+	"app/secret/route.go": `package secret
 
 import "github.com/liustack/tifa"
-
-const Path = "/secret"
 
 func Load(c *tifa.Ctx) (string, error) { return "PRIVATE_SECRET", nil }
 `,
-	"app/secret/page/route.tsx": "import { route } from './+route'\n\nexport default function Secret() {\n  return <p>{route.useLoaderData()}</p>\n}\n",
+	"app/secret/route.tsx": "import { route } from './+route'\n\nexport default function Secret() {\n  return <p>{route.useLoaderData()}</p>\n}\n",
 	"app/forbidden/route.go": `package forbidden
 
 import "github.com/liustack/tifa"
-
-const Path = "/forbidden"
 
 func Load(c *tifa.Ctx) (string, error) { return "", tifa.Error{Status: 403, Message: "no entry"} }
 `,
@@ -180,7 +174,7 @@ func TestErrorFlowInTheVM(t *testing.T) {
 		}
 	})
 
-	dataHeaders := []string{"X-Tifa-Route", "app,app/secret,app/secret/page", "X-Tifa-Build", b.BuildID}
+	dataHeaders := []string{"X-Tifa-Route", "app/layout,app/secret/layout,app/secret/route", "X-Tifa-Build", b.BuildID}
 	t.Run("a middleware refuses the data request as it refuses the page", func(t *testing.T) {
 		code, _, body := get(t, base+"/secret?deny=1&strict=1")
 		if code != 403 || strings.Contains(body, "PRIVATE_SECRET") {
@@ -193,13 +187,13 @@ func TestErrorFlowInTheVM(t *testing.T) {
 		// Passed through unchanged, the data request is answered by route.
 		code, _, body = get(t, base+"/secret?deny=1", dataHeaders...)
 		var got map[string]struct{ Status int }
-		if err := json.Unmarshal([]byte(body), &got); err != nil || code != 200 || got["app/secret"].Status != 500 || got["app/secret/page"].Status != 200 {
+		if err := json.Unmarshal([]byte(body), &got); err != nil || code != 200 || got["app/secret/layout"].Status != 500 || got["app/secret/route"].Status != 200 {
 			t.Errorf("passed through: %d %s", code, body)
 		}
 	})
 
 	t.Run("a middleware redirect reaches a data request as JSON", func(t *testing.T) {
-		code, header, body := get(t, base+"/members", "X-Tifa-Route", "app", "X-Tifa-Build", b.BuildID)
+		code, header, body := get(t, base+"/members", "X-Tifa-Route", "app/layout", "X-Tifa-Build", b.BuildID)
 		if code != 200 || header.Get("Location") != "" || strings.TrimSpace(body) != `{"redirect":"/","status":302}` {
 			t.Errorf("%d %v %s", code, header, body)
 		}

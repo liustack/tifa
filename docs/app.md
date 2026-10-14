@@ -1,5 +1,5 @@
 ---
-summary: 'How to write a tifa app: folder layout, route.go and route.tsx, Layouts, hooks.go, 404s, the SSR and cache switches, how Load may use Ctx, and the JSON rules for what Load returns'
+summary: 'How to write a tifa app: folder layout, how folders become URLs, route.go and route.tsx, Layouts, hooks.go, 404s, the SSR and cache switches, how Load may use Ctx, method handlers with typed input and result, and the JSON rules for data, inputs and results'
 read_when:
   - Creating a tifa app, or adding pages, Layouts or API routes to one
   - The build reports an error about Ctx usage or a Load return type and you want to fix it
@@ -18,47 +18,69 @@ For a complete example, see [examples/shop](../examples/shop). For the build, th
 ```text
 myapp/
   go.mod
-  hooks.go                      process and request hooks (optional)
-  db.go                         shared resources: package-level variables and functions (optional)
-  project.go  order.go          domain code, one file per domain, flat in the root package
+  hooks.go                          process and request hooks (optional)
+  db.go                             shared resources: package-level variables and functions (optional)
+  project.go  order.go              domain code, one file per domain, flat in the root package
   app/
-    layout.go  layout.tsx       root Layout, wraps every page
+    layout.go  layout.tsx           root Layout, wraps every page
+    route.go                        /
     projects/
-      layout.go  layout.tsx     wraps every page below it
-      orders/
-        list/    route.go  route.tsx
-        detail/  route.go  route.tsx  items.tsx  actions.client.tsx
+      project+/
+        layout.go  layout.tsx       Layout of /projects/{project} and every page below it
+        route.go  route.tsx         page /projects/{project}
+        orders/
+          order+/
+            route.go  route.tsx     page /projects/{project}/orders/{order}
+            items.tsx  actions.client.tsx
 ```
 
 - Code is grouped by domain. A new app keeps its domain code (types, storage, rules) flat in the root package, one file per domain, and folders under `app/` hold pages that call it. A domain moves into its own package when it grows. There is no shared `models/` or `db/` package holding every table. See [structure.md](structure.md).
 - Components and styles shared across pages go in the `app/` root.
-- A folder holds at most one route or one Layout. The folder name does not decide the URL. It only has to be a valid Go package name.
-- Folder nesting decides which pages a Layout wraps: a Layout wraps the routes in its own folder and in all subfolders.
 - Do not write a main. `tifa build` generates main and the route registration code in `.tifa/`, which `go vet ./...` and `go test ./...` do not scan.
+
+## URLs come from folders
+
+Every folder below `app/` is one segment of the URL. `app/` itself is `/`.
+
+| Folder name | URL segment |
+| --- | --- |
+| `orders` | the literal `orders` |
+| `order+` | the parameter `{order}`, read with `c.Param("order")` |
+| `path++` | the rest of the path `{path...}`, only as the last folder. `c.Param("path")` reads it in Go, and its key in TypeScript `Params` is `_splat` |
+
+- A literal folder name holds only ASCII letters, digits and `- . _ ~`. A parameter name starts with a letter or `_`, followed by letters, digits or `_`, and appears once per URL.
+- The go command takes the package name from the `package` line, not from the folder. Name the package after the parameter: `project+` holds `package project`, and other packages import it as `project`.
+- The go command skips folders that start with `.` or `_`, and folders named `testdata`. A `route.go`, `route.tsx`, `layout.go` or `layout.tsx` inside one fails the build. Other files there, such as a `_components` folder, are fine.
+- A folder name must also be valid in a Go import path, so names such as `con` or `x~1` (Windows reserved and short names) fail the build.
+- Two routes (pages or API routes) whose URLs match the same requests fail the build, such as `items/id+` next to `items/key+`. So do two whose URLs overlap without one being more specific, as in Go's `http.ServeMux`. A literal is more specific than a parameter, so `items/new` next to `items/id+` is fine.
+- Declaring `const Path` fails the build. The folder is the URL.
 
 ## route.go
 
 ```go
-package detail
+package order
 
-const Path = "/projects/{projectId}/orders/{orderId}"
-
-func Load(c *tifa.Ctx) (orders.Order, error) {
-	return orders.Get(c.Param("projectId"), c.Param("orderId"))
+func Load(c *tifa.Ctx) (shop.Order, error) {
+	p, err := tifa.Use(c, project.Layout)
+	if err != nil {
+		return shop.Order{}, err
+	}
+	return shop.GetOrder(p.ID, c.Param("order"))
 }
 
-func OnPost(c *tifa.Ctx) error {
-	if err := orders.Ship(c.Param("projectId"), c.Param("orderId")); err != nil {
-		return err
-	}
-	return c.NoContent(204)
+type ShipInput struct {
+	Carrier string `json:"carrier"`
+}
+
+func POST(c *tifa.Ctx, in ShipInput) (shop.Shipment, error) {
+	return shop.ShipOrder(c.Param("project"), c.Param("order"), in.Carrier)
 }
 ```
 
-- `const Path` is the full literal path, with the same syntax as Go's `http.ServeMux`: `{name}`, `{name...}`. `"/"` matches only the home page.
-- `Load` returns the page data. Its return type must convert to TypeScript (see "JSON rules for what Load returns" below).
-- `OnGet`, `OnPost`, `OnPut`, `OnPatch` and `OnDelete` handle the matching HTTP methods.
-- A folder with a `route.tsx` is a page. The framework renders its GET, so you cannot also write `OnGet`. Without a `route.tsx`, every `OnXxx` is a plain API route and `Load` is optional.
+- `Load` returns the page data. Its return type must convert to TypeScript (see "JSON rules" below).
+- `GET`, `POST`, `PUT`, `PATCH` and `DELETE` handle the HTTP method they are named after.
+- A folder with a `route.tsx` is a page. The framework renders its GET, so you cannot also write `GET`. A page that needs no data and no other method can be `route.tsx` alone, without `route.go`.
+- A folder with `route.go` and no `route.tsx` is an API route: every method handler answers as written, and `Load` is not allowed, because `Load` loads the data of a page.
 - Everything is package-level functions and constants. Use the global variables the app has set up for dependencies. The framework does no dependency injection.
 
 When an error is returned:
@@ -67,10 +89,51 @@ When an error is returned:
 | --- | --- |
 | `tifa.ErrNotFound` | 404 |
 | `c.Redirect(url, code)` | Redirect |
-| `tifa.Error{Status, Message}` | Answered with its status code and message, does not go to `OnError` |
+| `tifa.Error{Status, Message}` | Answered with its status code and message, does not go to `OnError`. A status outside 400 to 599 is handled as an unexpected error |
+| `tifa.Fields{"carrier": "pick a carrier"}` | 422 with a message per input field by its json name, does not go to `OnError` |
 | Any other error, a panic | Goes to `OnError`. Without one, it is logged and answered with 500 |
 
+A method handler that fails answers JSON: `{"error": "message"}`, and for `tifa.Fields` also `"fields": {"carrier": "pick a carrier"}`.
+
 In `Load` you can only set response headers and cookies. Calling `c.JSON`, `c.Text` or `c.NoContent` returns an error.
+
+## Method handlers with input and result
+
+A method handler may take an input after the Ctx and return a result before the error. The framework decodes the input and writes the result:
+
+```go
+func POST(c *tifa.Ctx) error                       // writes its own response
+func POST(c *tifa.Ctx, in ShipInput) error         // answers 204 on success
+func POST(c *tifa.Ctx) (Shipment, error)           // answers 200 with the result as JSON
+func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
+```
+
+- The input is a struct, not a pointer to one. POST, PUT and PATCH decode it from the request body: JSON, or a URL-encoded or multipart form. A form fills only fields that are strings, numbers, bools or slices of them, and a form value for any other field is answered with 400. GET and DELETE decode it from the query string, so its fields may only be strings, numbers, bools or slices of them, with no embedded fields and no types with `MarshalText` or `UnmarshalText`.
+- Fields are named by their `json` tags, in a form body and the query string too. A `form` tag fails the build. Path parameters, headers and cookies still come from `c`.
+- The input and the result follow the JSON rules below, the same as the result of `Load`.
+- When the input type has a method `Validate` (it must be `func() error`), it runs after decoding and before the handler. `nil` goes on. A `tifa.Error` or `tifa.Fields` is answered as is, so return `tifa.Fields` to mark single fields. Any other error is answered with 400 and its `err.Error()` as the message, which the user sees.
+- A body or query string that does not decode is answered with 400 (413 for a body over the limit, 415 for another content type or none), and the handler does not run.
+- A handler that writes its own response decodes input with `c.Bind(&in)` for the body and `c.BindQuery(&in)` for the query string. These name a field by its `form` tag first, then its `json` tag, then its Go name.
+
+## Ctx
+
+`*tifa.Ctx` is the request and its response. `Load`, `Layout`, the method handlers, `OnRequest` and `OnError` get it.
+
+| Method | What it does |
+| --- | --- |
+| `c.Param(name)` | A path parameter, decoded, such as `c.Param("order")` for the folder `order+` |
+| `c.Query(name)` | The first value of a query parameter, `""` when absent |
+| `c.Header(name)`, `c.Cookie(name)` | A request header, a request cookie (`http.ErrNoCookie` when absent) |
+| `c.Context()`, `c.SetContext(ctx)` | The request context, and replacing it to store request-scoped values |
+| `c.Pattern()` | The path of the matched route, such as `/projects/{project}`, `""` when no route matched |
+| `c.IsData()` | Whether this is a navigation data request of the browser router rather than a page load |
+| `c.SetHeader(key, value)`, `c.SetCookie(cookie)` | A response header, a response cookie. Allowed in `Load` too |
+| `c.JSON(code, v)`, `c.Text(code, s)`, `c.NoContent(code)` | Writes the response. Not allowed in `Load` |
+| `c.Redirect(url, code)` | Returns an error value. Return it to redirect |
+| `c.Bind(&v)`, `c.BindQuery(&v)` | Decodes the body or the query string into a struct, see above |
+| `c.SetBodyLimit(n)` | Changes the body limit of this request (`server.body_limit` by default). Call it before anything reads the body, usually in `OnRequest`. Once reading has started it returns an error |
+| `c.Next()` | Runs the matched route from `OnRequest`, once |
+| `c.Request()`, `c.Writer()` | The raw `*http.Request` and `http.ResponseWriter`, for method handlers and `OnRequest` only |
 
 ## route.tsx
 
@@ -87,7 +150,7 @@ export const head = ({ loaderData }: { loaderData?: Data }) => ({
 })
 ```
 
-- UI only, no data loading. `./+route` is a generated module that exports `route`, `Data` (the return type of `Load`) and `Params`. Child components in the same folder also import `./+route`. To read an ancestor Layout's data, import that folder's `+route`, for example `'../+route'`.
+- UI only, no data loading. `./+route` is a generated module that exports `route`, `Data` (the return type of `Load`) and `Params`. Child components in the same folder also import `./+route`. A Layout's data comes from the `+layout` module of its folder: `layout.tsx` imports `'./+layout'`, and a page reads its project Layout with `'../../+layout'`, for example.
 - The default export is the page component. Optional exports: `head`, `Error`, `NotFound`.
 - Go slices and maps carry `| null` in TypeScript (Go's nil is encoded as `null`). Write `?? []` before using them.
 - Put components that need browser features at the module top level into a `.client.tsx` file, and load them lazily with `clientOnly` from `tifa/client`. They are left out of the SSR bundle, and the first paint shows a placeholder:
@@ -95,25 +158,60 @@ export const head = ({ loaderData }: { loaderData?: Data }) => ({
 ```tsx
 import { clientOnly } from 'tifa/client'
 
-const OrderActions = clientOnly(() => import('./actions.client'), <button disabled>正在准备操作…</button>)
+const OrderActions = clientOnly(() => import('./actions.client'), <button disabled>Loading…</button>)
 ```
 
-- After a write, call TanStack's `router.invalidate()`. The data of the current page and all its Layouts is loaded again, merged into one request.
+- After a write that does not go through a handler function (below), call TanStack's `router.invalidate()`. The data of the current page and all its Layouts is loaded again, merged into one request.
+
+### Calling method handlers from the browser
+
+The `+route` module of a folder with method handlers exports one function per handler, named after its method. API routes get a `+route` module too, so a page can import the handlers of any folder:
+
+```tsx
+import { POST } from './+route'
+import { TifaError } from 'tifa/client'
+
+async function ship() {
+  try {
+    const shipment = await POST({ params: { project, order }, input: { carrier: 'SF' } })
+  } catch (e) {
+    if (e instanceof TifaError) setErrors(e.fields) // e.status, e.message, e.fields
+  }
+}
+```
+
+- The function takes one object. `params` holds the path parameters and is left out when the folder has none. A `name++` folder's key is `_splat`. `input` is the handler's input and is left out when it takes none. `signal` aborts the request.
+- GET and DELETE send the input in the query string, the other methods as a JSON body. The result is typed from the Go result. `func(c, in) error` gives `void`. `func(c) error` writes its own response, so its function gives back the `Response` as it is, also for an error status.
+- After a POST, PUT, PATCH or DELETE succeeds, the data of the current page and its Layouts is loaded again before the promise resolves. Pass `invalidate: false` to keep it. A failure and a GET never reload.
+- An error answer throws `TifaError` with `status`, `message` and `fields` (the messages of a `tifa.Fields`, empty otherwise). A network failure throws as `fetch` does.
+- Call these functions from event handlers or effects. Calling one while the page renders on the server throws.
+- `+route` also exports `POSTInput`, `POSTOutput` and so on for the types of each handler that has them.
 
 ## Layout
 
-`layout.go` has only `Load` and an optional `SSR` constant. No `Path` and no `OnXxx`. `layout.tsx` places child routes with `<Outlet />`.
+A Layout lives in its folder next to the page of that folder, if there is one: `layout.go` and `layout.tsx` wrap the page in the same folder and every page below it. `layout.tsx` places child routes with `<Outlet />`. Either file may be left out: without `layout.tsx` the child routes render directly, and without `layout.go` the Layout has no data. A Layout with no page in its folder or below it fails the build.
 
-- Any parameter a Layout's `Load` reads with `c.Param` must appear in the common prefix of the `Path` of every page it wraps. Otherwise the build fails.
-- When you switch between pages under the same Layout, the Layout component is not remounted and keeps its state. When a parameter the Layout's `Load` reads changes (for example, you move to another project), the Layout remounts and its state resets. When a parameter that `Load` does not read changes, the state is kept. Pages work the same way.
-- Pages and Layouts can call `tifa.Use(c, projects.Load)` to get an ancestor Layout's `Load` result for the current request. The same `Load` runs only once per request. Only ancestor Layouts can be referenced. Otherwise the build fails.
-- On navigation in the browser, the navigation data request runs only the `Load` of the listed routes. If an ancestor Layout's data is still in the cache, that Layout is not in the list and its `Load` does not run this time. So do not put permission checks only in a Layout's `Load`. Put them in `OnRequest`, or have the child route's `Load` depend on the checking Layout through `tifa.Use`, so the check runs on every request.
-- The document shell (`<html>`, `<head>`, assets and the script that injects data) is written as a string by the framework. React only renders the app root inside `<body>`, so the page is still a complete document when any level fails or returns 404. The root Layout (`app/layout.tsx`) can export two constants to customize the shell: `htmlAttributes` sets the attributes of `<html>` (`{ lang: 'en' }` when not exported), and `documentHead` holds head tags that every page carries (also when no route matches or the root `Load` fails), in the same format as the return value of `head`. Put the site's default `title` here so that the 404 page for an unmatched URL also has a title. A page's own `head` that returns a `title` overrides it. Exporting a `Document` component fails the build.
+```go
+package project
+
+func Layout(c *tifa.Ctx) (shop.Project, error) {
+	return shop.GetProject(c.Param("project"))
+}
+
+const LayoutSSR = false // optional, default true
+```
+
+- `layout.go` and `route.go` of one folder are one Go package, so `Layout`, `LayoutSSR` and the page's `Load`, `SSR`, `Cache` and method handlers may sit in either file. In a folder with only Layout files and no `route.go` or `route.tsx`, `Load`, `SSR`, `Cache` and method handlers fail the build.
+- A Layout's `c.Param` may only read parameters of its own folder path. `app/projects/project+/layout.go` may read `project`, not `order`. A page's `Load` is held to its own path the same way.
+- When you switch between pages under the same Layout, the Layout component is not remounted and keeps its state. When a parameter the Layout function reads changes (for example, you move to another project), the Layout remounts and its state resets. When a parameter it does not read changes, the state is kept. Pages work the same way.
+- Pages and Layouts can call `tifa.Use(c, project.Layout)` to get the result of a Layout that wraps them, for the current request: the Layout of the same folder or of an ancestor folder. The same `Layout` runs only once per request. Any other Layout fails the build, and so does an argument that is not a package-level `Layout` function, such as a closure.
+- On navigation in the browser, the navigation data request runs only the `Load` and `Layout` functions of the listed routes. If an ancestor Layout's data is still in the cache, that Layout is not in the list and its `Layout` does not run this time. So do not put permission checks only in a Layout. Put them in `OnRequest`, or have the page's `Load` depend on the checking Layout through `tifa.Use`, so the check runs on every request.
+- The document shell (`<html>`, `<head>`, assets and the script that injects data) is written as a string by the framework. React only renders the app root inside `<body>`, so the page is still a complete document when any level fails or returns 404. The root Layout (`app/layout.tsx`) can export two constants to customize the shell: `htmlAttributes` sets the attributes of `<html>` (`{ lang: 'en' }` when not exported), and `documentHead` holds head tags that every page carries (also when no route matches or the root `Layout` fails), in the same format as the return value of `head`. Put the site's default `title` here so that the 404 page for an unmatched URL also has a title. A page's own `head` that returns a `title` overrides it. Exporting a `Document` component fails the build.
 
 ```tsx
 export const htmlAttributes = { lang: 'zh-CN' }
 export const documentHead = {
-  meta: [{ title: '山海工作台' }, { name: 'theme-color', content: '#f7f8f5' }],
+  meta: [{ title: 'Shop' }, { name: 'theme-color', content: '#f7f8f5' }],
   links: [{ rel: 'icon', href: '/favicon.svg' }],
 }
 ```
@@ -126,22 +224,41 @@ export const documentHead = {
 
 | Case | What is shown |
 | --- | --- |
-| The URL matches no page | The root Layout's `NotFound`, without the root Layout's UI, and no `Load` runs |
+| The URL matches no page | The root Layout's `NotFound`, without the root Layout's UI, and no `Load` or `Layout` runs |
 | A page's `Load` returns `tifa.ErrNotFound` | The first `NotFound` going up from that page. Outer Layouts are shown as usual |
-| A Layout's `Load` returns `tifa.ErrNotFound` | The search starts at the Layout one level up |
+| A `Layout` function returns `tifa.ErrNotFound` | The search starts at the Layout one level up |
 | Nothing exports one | The framework's default page |
 
 The status code is 404 in all these cases. The root Layout's `NotFound` is sometimes shown on its own, so it cannot read loader data.
 
+## Errors on a page
+
+`route.tsx` and `layout.tsx` can export `Error`, shown in place of that route when its `Load` or `Layout` fails or a component below it throws:
+
+```tsx
+import { RouteError } from 'tifa/client'
+
+export function Error({ error }: { error: unknown }) {
+  if (error instanceof RouteError && error.status === 403) return <p>No access</p>
+  return <p>Something went wrong</p>
+}
+```
+
+- A failed `Load` or `Layout` reaches `Error` as a `RouteError` with `status` and the public message (the `tifa.Error` message, or what `OnError` returned). It is the same on the server and after hydration.
+- A route without its own `Error` uses the one of the closest ancestor that exports one, then the framework's default.
+- The status code of the page is that of the outermost failed route. A component that throws during the server render is an unexpected error: it goes to `OnError`, which picks the status (500 without `OnError`), and that HTML is never cached.
+- The document shell stays complete whatever fails, so the page still loads its scripts and styles.
+
 ## SSR and cache
 
 ```go
-const SSR = false  // default true, allowed in route.go or layout.go
-const Cache = true // default false, only allowed in route.go
+const SSR = false       // the page, default true
+const Cache = true      // the page, default false
+const LayoutSSR = false // the Layout of the folder, default true
 ```
 
-- `SSR = false`: middleware and every `Load` run as usual, but QuickJS is skipped. The response is a minimal document with the data, and the browser renders it. In `layout.go`, it applies to every page below that Layout.
-- `Cache = true`: the rendered result is cached by build version, URL and data. When the data has not changed, the HTML is returned directly. Components must not read values that change on every call, such as `Date.now()` or `Math.random()`, while rendering. Hydration requires this too.
+- `SSR = false`: middleware and every `Load` run as usual, but QuickJS is skipped. The response is a minimal document with the data, and the browser renders it. `LayoutSSR = false` applies to every page the Layout wraps.
+- `Cache = true`: the rendered result is cached by build version, URL and data, in a cache of `cache.size` (see [config.md](config.md)). When the data has not changed, the HTML is returned directly. Components must not read values that change on every call, such as `Date.now()` or `Math.random()`, while rendering. Hydration requires this too.
 - Every page response carries an ETag. A second request with `If-None-Match` gets 304 when the data has not changed. This has nothing to do with `Cache`.
 
 ## hooks.go
@@ -161,9 +278,9 @@ func OnError(c *tifa.Ctx, err error) tifa.Error // unexpected errors: report, re
 
 ## How Load may use Ctx
 
-At build time, tifa starts from each `Load` and finds the route parameters (`c.Param`), query parameters (`c.Query`) and Layouts (`tifa.Use`) it reads. When `Load` passes `*tifa.Ctx` to a function in this module, tifa follows the call level by level, across packages too, and counts every parameter it finds toward that `Load`. A helper called by several `Load` functions counts toward each of them. tifa does not follow into its own functions.
+This section covers `Load`, `Layout` and the functions they call. At build time, tifa starts from each `Load` and `Layout` function and finds the route parameters (`c.Param`), query parameters (`c.Query`) and Layouts (`tifa.Use`) it reads. When `Load` passes `*tifa.Ctx` to a function in this module, tifa follows the call level by level, across packages too, and counts every parameter it finds toward that `Load`. A helper called by several `Load` functions counts toward each of them. tifa does not follow into its own functions.
 
-So that tifa finds everything, Ctx may only be used where tifa can see it.
+So that tifa finds everything, Ctx may only be used where tifa can see it. Pass `c.Param` and `c.Query` a constant string, such as `c.Param("order")`, and call `c.Param`, `c.Query` and `tifa.Use` directly: storing one in a variable or passing it as a value fails the build.
 
 The only types that may hold a Ctx are: `*tifa.Ctx`, `tifa.Ctx`, non-generic structs declared in this module (whose fields hold Ctx only through these types, directly, embedded or indirectly), and pointers to such structs.
 
@@ -177,15 +294,15 @@ A value that holds a Ctx may only appear in these five places:
 
 Any other use fails the build and names the file and line. For example: converting it to another type or an interface, assigning it to an existing variable, assigning several values at once, `return`ing it, putting it in a slice, map, array or channel, `range`, package-level variables, `defer`, `go` statements, or passing it to a generic function, an interface method, a function variable or a function outside the module (the standard library and third-party libraries). `return c.Redirect(...)` and `return c.Next()` are fine, because they return the result of a method call, not the Ctx itself.
 
-`Load` and the functions it calls must not call `c.Request()` or `c.Writer()`. tifa cannot see parameters read through the raw request. Use `c.Param`, `c.Query`, `c.Header`, `c.Cookie` or `c.Context()` instead. `c.Request()` and `c.Writer()` are only for `OnXxx` and `OnRequest`.
+`Load`, `Layout` and the functions they call must not call `c.Request()` or `c.Writer()`. tifa cannot see parameters read through the raw request. Use `c.Param`, `c.Query`, `c.Header`, `c.Cookie` or `c.Context()` instead. `c.Request()` and `c.Writer()` are only for method handlers and `OnRequest`.
 
 When you hit one of these errors, call Ctx methods directly, or pass it to a plain function. If you only need the request context, pass `c.Context()`. A helper that only calls `c.Context()` (such as `auth.User(c)`) collects nothing when tifa follows it.
 
-tifa only checks code that `Load` can reach. If you store a Ctx in a global variable or another shared place from `OnRequest`, `OnXxx` or anywhere else, and then take it out in `Load`, tifa cannot catch it. Do not do this.
+tifa only checks code that `Load` and `Layout` can reach. If you store a Ctx in a global variable or another shared place from `OnRequest`, a method handler or anywhere else, and then take it out in `Load` or `Layout`, tifa cannot catch it. Do not do this.
 
-## JSON rules for what Load returns
+## JSON rules
 
-The value `Load` returns is encoded as JSON and sent to the page, and tifa generates TypeScript types from it. So that the output is the same under both `encoding/json` implementations in Go 1.27 (the default one and `GOEXPERIMENT=nojsonv2`), only the types below are accepted.
+The value `Load` or a `Layout` function returns, and the input and result of a method handler, travel as JSON, and tifa generates TypeScript types from them. So that the output is the same under both `encoding/json` implementations in Go 1.27 (the default one and `GOEXPERIMENT=nojsonv2`), only the types below are accepted.
 
 | Go | TypeScript |
 | --- | --- |

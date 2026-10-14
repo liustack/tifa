@@ -50,16 +50,14 @@
 每个页面一个目录，Go 负责取数，React 负责显示：
 
 ```go
-// app/projects/orders/detail/route.go
-const Path = "/projects/{projectId}/orders/{orderId}"
-
+// app/projects/project+/orders/order+/route.go  →  /projects/{project}/orders/{order}
 func Load(c *tifa.Ctx) (orders.Order, error) {
-	return orders.Get(c.Param("projectId"), c.Param("orderId"))
+	return orders.Get(c.Param("project"), c.Param("order"))
 }
 ```
 
 ```tsx
-// app/projects/orders/detail/route.tsx
+// app/projects/project+/orders/order+/route.tsx
 import { route, type Data } from './+route'
 
 export default function OrderPage() {
@@ -82,7 +80,7 @@ go tool tifa build   # 得到 bin/<应用名>，前端产物已经嵌在里面
 ## 特点
 
 - **部署只有一个文件。** 纯 Go，`CGO_ENABLED=0`，和普通 Go 程序一样交叉编译。浏览器包、样式和服务端渲染器都嵌在可执行文件里。
-- **第一次请求就是完整 HTML。** Go 先跑完页面和各层 Layout 的 `Load`，再在进程内用纯 Go 的 QuickJS 把 React 渲染成完整 HTML。搜索引擎和链接预览能看到内容、title 和 meta。
+- **第一次请求就是完整 HTML。** Go 先跑完页面的 `Load` 和各层 `Layout` 函数，再在进程内用纯 Go 的 QuickJS 把 React 渲染成完整 HTML。搜索引擎和链接预览能看到内容、title 和 meta。
 - **构建不需要 Node。** `tifa build` 和 `tifa dev` 用 esbuild 的 Go API 打包。Node 只用来装 npm 包，以及按需做类型检查。
 - **类型从 Go 一路到 React。** 每个页面数据的 TypeScript 类型由 Go `Load` 的返回值生成。
 - **错误在构建时报出。** 路径重复、Layout 读了不属于它的参数、`Load` 返回值不能转成 TypeScript，构建会停下并指出文件和行号。
@@ -111,6 +109,7 @@ go tool tifa build
 | [应用怎么写](docs/app.zh-CN.md) | 安排目录、路由、Layout、钩子、404、head 标签和缓存 |
 | [构建与运行](docs/build.zh-CN.md) | 想知道 `tifa build` 生成了什么，程序怎么回答请求 |
 | [开发服务器](docs/dev.zh-CN.md) | 在本地跑 `tifa dev`，或者改了代码没有刷新 |
+| [配置](docs/config.zh-CN.md) | 部署时改端口、请求体上限、VM 数、渲染超时和页面缓存 |
 | [测试](docs/testing.md) | 参与 tifa 本身的开发（英文） |
 
 ## 联系我们

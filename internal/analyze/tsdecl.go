@@ -15,17 +15,29 @@ import (
 // module, and gains a number when two types share a name (GoNode, GoNode2). The result is the
 // same for the same t. Types that checkTS rejects return an error.
 func TSShape(t types.Type) (ts string, decls []string, err error) {
+	shapes, decls, err := TSShapes([]types.Type{t})
+	if err != nil {
+		return "", nil, err
+	}
+	return shapes[0], decls, nil
+}
+
+// TSShapes is TSShape for several types written into one module: the declarations of their
+// recursive types are shared, so a type that two of them hold is declared once.
+func TSShapes(ts []types.Type) (shapes, decls []string, err error) {
 	d := &tsDecls{names: map[tsKey]string{}, declared: map[tsKey]string{}, bodies: map[[2]string]string{}}
-	c := tsChecker{active: map[tsKey]bool{}, decls: d}
-	ts = c.encode(t, rootLabel(t), false, false)
-	if len(c.problems) > 0 {
-		var errs []error
+	var errs []error
+	for _, t := range ts {
+		c := tsChecker{active: map[tsKey]bool{}, decls: d}
+		shapes = append(shapes, c.encode(t, rootLabel(t), false, false))
 		for _, p := range c.problems {
 			errs = append(errs, errors.New(p.path+": "+p.msg))
 		}
-		return "", nil, errors.Join(errs...)
 	}
-	return ts, d.decls, nil
+	if len(errs) > 0 {
+		return nil, nil, errors.Join(errs...)
+	}
+	return shapes, d.decls, nil
 }
 
 // tsDecls collects the declarations of recursive named types while a type is written.

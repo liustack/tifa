@@ -1,5 +1,5 @@
 import { Outlet } from '@tanstack/react-router'
-import { route } from './+route'
+import { route } from './+layout'
 
 export default function Root() {
   const site = route.useLoaderData()

@@ -5,7 +5,7 @@ import (
 	"github.com/liustack/tifa"
 )
 
-const Path = "/page"
+// The directory is the URL.
 
 func Load(c *tifa.Ctx) (string, error) {
 	tab := c.Request().URL.Query().Get("tab")
@@ -14,8 +14,8 @@ func Load(c *tifa.Ctx) (string, error) {
 	return tab + db.Agent(c), nil
 }
 
-// OnPost may use the raw request and writer.
-func OnPost(c *tifa.Ctx) error {
+// POST may use the raw request and writer.
+func POST(c *tifa.Ctx) error {
 	c.Writer().Header().Set("X", c.Request().Method)
 	return nil
 }

@@ -7,7 +7,7 @@ import (
 	"github.com/liustack/tifa"
 )
 
-const Path = "/page"
+// The directory is the URL.
 
 type encoder struct{} // stands in for jsontext.Encoder, absent under GOEXPERIMENT=nojsonv2
 

@@ -31,6 +31,6 @@ func Iface(c *tifa.Ctx) string {
 
 // Other uses a Layout that is not an ancestor of every page that reaches it.
 func Other(c *tifa.Ctx) string {
-	s, _ := tifa.Use(c, other.Load)
+	s, _ := tifa.Use(c, other.Layout)
 	return s
 }
