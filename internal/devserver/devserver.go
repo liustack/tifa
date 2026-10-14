@@ -251,24 +251,35 @@ func (d *dev) fail(title string, err error) {
 // the bundle was rebuilt, the running application loads it instead of restarting, so its state
 // stays. Vite has updated the pages already and they stay too: the version stays the same, and
 // only the server render changes.
+//
+// Page requests wait for the end of a rebuild that makes a new SSR bundle, from the moment the
+// bundle is known to be needed: at the start, or once the analysis finds a new route manifest.
 func (d *dev) rebuild(ctx context.Context, s steps) {
 	if s == (steps{}) {
 		return
 	}
 	start := time.Now()
-	if s.bundle {
-		done := make(chan struct{})
-		d.mu.Lock()
-		d.bundling = done
-		d.mu.Unlock()
-		defer func() {
+	var done chan struct{}
+	holdPages := func() {
+		if done == nil {
+			done = make(chan struct{})
+			d.mu.Lock()
+			d.bundling = done
+			d.mu.Unlock()
+		}
+	}
+	defer func() {
+		if done != nil {
 			d.mu.Lock()
 			d.bundling = nil
 			d.mu.Unlock()
 			close(done)
-		}()
+		}
+	}()
+	if s.bundle {
+		holdPages()
 	}
-	ran, err := d.b.build(ctx, s)
+	ran, err := d.b.build(ctx, s, holdPages)
 	if err != nil {
 		if ctx.Err() == nil {
 			d.fail("Build failed", err)

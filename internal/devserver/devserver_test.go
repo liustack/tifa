@@ -1,6 +1,7 @@
 package devserver
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -31,6 +32,7 @@ type buildPipeline struct {
 	fail        string
 	// bundling, when set, gets a channel each Bundle waits on until the test closes it.
 	bundling chan chan struct{}
+	manifest string // what Analyze returns, "routes" when empty
 }
 
 func (p *buildPipeline) step(name string) error {
@@ -70,8 +72,13 @@ func (p *buildPipeline) setFail(name string) {
 	p.fail = name
 }
 
-func (p *buildPipeline) Analyze(context.Context) (string, error) { return "routes", p.step("Analyze") }
-func (p *buildPipeline) Generate(context.Context) error          { return p.step("Generate") }
+func (p *buildPipeline) Analyze(context.Context) (string, error) {
+	p.mu.Lock()
+	manifest := cmp.Or(p.manifest, "routes")
+	p.mu.Unlock()
+	return manifest, p.step("Analyze")
+}
+func (p *buildPipeline) Generate(context.Context) error { return p.step("Generate") }
 func (p *buildPipeline) Bundle(context.Context) (string, error) {
 	p.mu.Lock()
 	bundling := p.bundling
@@ -281,6 +288,55 @@ func TestRunHoldsPagesWhileBundling(t *testing.T) {
 	}
 	d.waitStatus(t, func(st status) bool { return st.Version == v1 && st.Error == "" })
 	expectSteps(t, d.p, "Bundle")
+}
+
+// A Go change whose analysis finds a new route manifest rebuilds the SSR bundle too. Page
+// requests wait for it as soon as the bundle step is known, as they do for a front end change.
+func TestRunHoldsPagesWhileTheAnalysisAddsABundle(t *testing.T) {
+	d := startDev(t, "")
+	d.waitVersionAfter(t, "")
+	d.p.took()
+	bundling := make(chan chan struct{})
+	d.p.mu.Lock()
+	d.p.bundling = bundling
+	d.p.manifest = "routes 2"
+	d.p.mu.Unlock()
+	writeFile(t, d.dir, "app/store.go", "package app // a new route")
+	var release chan struct{}
+	select {
+	case release = <-bundling:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no bundle within 5s")
+	}
+	var once sync.Once
+	free := func() { once.Do(func() { close(release) }) }
+	t.Cleanup(free)
+	answered := make(chan string, 1)
+	go func() {
+		resp, err := http.Get(d.url + "/")
+		if err != nil {
+			answered <- err.Error()
+			return
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		answered <- string(body)
+	}()
+	select {
+	case got := <-answered:
+		t.Fatalf("a request during the bundle step got %q before the rebuild finished", got)
+	case <-time.After(200 * time.Millisecond):
+	}
+	free()
+	select {
+	case got := <-answered:
+		if got != "build 2" {
+			t.Fatalf("the held request got %q, want the new build", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the request still waits 5s after the bundle")
+	}
+	expectSteps(t, d.p, "Analyze", "Generate", "Bundle", "GoBuild")
 }
 
 // After a rebuild of the SSR bundle alone, the running app loads the new bundle: no restart, so
