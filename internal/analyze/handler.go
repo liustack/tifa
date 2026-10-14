@@ -130,8 +130,13 @@ func (a *analyzer) checkInput(method string, in types.Type, pos token.Pos) bool 
 }
 
 // walkFields calls visit for every field of the structs that t holds, through pointers, slices,
-// arrays and maps, with its path from the root and its tag.
+// arrays and maps, with its path from the root and its tag. Each type is walked once, so a type
+// that holds itself, such as type Tree map[string]Tree, ends the walk.
 func walkFields(t types.Type, path string, seen map[types.Type]bool, visit func(path string, f *types.Var, tag string)) {
+	if seen[t] {
+		return
+	}
+	seen[t] = true
 	switch u := types.Unalias(t).Underlying().(type) {
 	case *types.Pointer:
 		walkFields(u.Elem(), path, seen, visit)
@@ -142,10 +147,6 @@ func walkFields(t types.Type, path string, seen map[types.Type]bool, visit func(
 	case *types.Map:
 		walkFields(u.Elem(), path+"[]", seen, visit)
 	case *types.Struct:
-		if seen[t] {
-			return
-		}
-		seen[t] = true
 		for i := range u.NumFields() {
 			f := u.Field(i)
 			p := path + "." + f.Name()
