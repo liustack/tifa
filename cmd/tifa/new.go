@@ -5,6 +5,8 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
 	"go/token"
 	"go/version"
 	"io/fs"
@@ -33,7 +35,7 @@ const tifaModule = "github.com/liustack/tifa"
 
 type newApp struct {
 	Module  string // the module path in go.mod
-	Package string // the name of the root package. The Go files under app/ import it as root
+	Package string // the name of the root package, which the Go files under app/ import
 	Title   string // the last element of the module path, the page title
 	NPM     string // the name in package.json
 	Go      string // the go line of go.mod
@@ -124,9 +126,15 @@ func appNames(modulePath string) (newApp, error) {
 		}
 		return -1
 	}, strings.ToLower(title))
-	// The Go files under app/ import the root package as root, so any name a package may have works.
 	if !token.IsIdentifier(pkg) || token.IsKeyword(pkg) || pkg == "main" {
 		return newApp{}, fmt.Errorf("the module path %s ends in %q, which makes the package name %q: a package name must start with a letter and may not be a keyword or main, so pass --module with another last element", modulePath, title, pkg)
+	}
+	clashes, err := rootNameClashes(newapp)
+	if err != nil {
+		return newApp{}, err
+	}
+	if clash, ok := clashes[pkg]; ok {
+		return newApp{}, fmt.Errorf("the module path %s makes the root package %s, and the Go files under app/ that import it already use %s for %s: name the folder differently or pass --module with another last element", modulePath, pkg, pkg, clash)
 	}
 	npm := pkg
 	if len(npm) > 214 { // the longest npm name
@@ -134,6 +142,74 @@ func appNames(modulePath string) (newApp, error) {
 	}
 	return newApp{Module: modulePath, Package: pkg, Title: title, NPM: npm}, nil
 }
+
+// rootNameClashes reads the Go files of a new app that import its root package and returns the
+// names the root package may not have, each with what uses it there: the packages they import,
+// the domains under app/ among them, and the names they declare or refer to. An imported package
+// takes its name in the scope of the file, so a root package with one of these names would not
+// compile. The name in the package clause is left out, since a file may import a package of the
+// same name as its own.
+func rootNameClashes(files fs.FS) (map[string]string, error) {
+	const module, pkg = "example.com/tifanewroot", "tifanewroot"
+	app := newApp{Module: module, Package: pkg, Title: pkg, NPM: pkg, Go: "1.0", Version: "v0.0.0", Install: "npm install", Run: "npm run"}
+	clashes := map[string]string{}
+	err := fs.WalkDir(files, "newapp", func(name string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(name, ".go.tmpl") {
+			return err
+		}
+		src, err := renderFile(files, name, app)
+		if err != nil {
+			return err
+		}
+		rel := strings.TrimSuffix(strings.TrimPrefix(name, "newapp/"), ".tmpl")
+		file, err := parser.ParseFile(token.NewFileSet(), rel, src, parser.SkipObjectResolution)
+		if err != nil {
+			return err
+		}
+		if !slices.ContainsFunc(file.Imports, func(spec *ast.ImportSpec) bool { return importPath(spec) == module }) {
+			return nil
+		}
+		add := func(name, what string) {
+			if _, ok := clashes[name]; !ok && name != "_" && name != "." && name != pkg {
+				clashes[name] = what
+			}
+		}
+		for _, spec := range file.Imports {
+			p := importPath(spec)
+			name := path.Base(p)
+			if spec.Name != nil {
+				name = spec.Name.Name
+			}
+			if what, ok := strings.CutPrefix(p, module+"/"); ok {
+				add(name, "the package "+what)
+			} else if p != module {
+				add(name, "the package "+p)
+			}
+		}
+		for _, decl := range file.Decls {
+			ast.Inspect(decl, func(n ast.Node) bool { return visitName(n, rel, add) })
+		}
+		return nil
+	})
+	return clashes, err
+}
+
+// visitName records each name below n, leaving out the selector of x.Sel, which is not looked
+// up in the scope of the file.
+func visitName(n ast.Node, rel string, add func(name, what string)) bool {
+	switch n := n.(type) {
+	case *ast.SelectorExpr:
+		ast.Inspect(n.X, func(n ast.Node) bool { return visitName(n, rel, add) })
+		return false
+	case *ast.ImportSpec:
+		return false
+	case *ast.Ident:
+		add(n.Name, "a name in "+rel)
+	}
+	return true
+}
+
+func importPath(spec *ast.ImportSpec) string { return strings.Trim(spec.Path.Value, `"`) }
 
 // importProblem tells why the go command would not import the package at the root of a module
 // with this path and what to pass instead, or returns "". The generated main imports it once the
@@ -198,16 +274,8 @@ func writeApp(dir string, app newApp) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
-		text, err := fs.ReadFile(newapp, name)
+		out, err := renderFile(newapp, name, app)
 		if err != nil {
-			return err
-		}
-		tmpl, err := template.New(name).Option("missingkey=error").Parse(string(text))
-		if err != nil {
-			return err
-		}
-		var out bytes.Buffer
-		if err := tmpl.Execute(&out, app); err != nil {
 			return err
 		}
 		rel := strings.TrimSuffix(strings.TrimPrefix(name, "newapp/"), ".tmpl")
@@ -218,6 +286,23 @@ func writeApp(dir string, app newApp) error {
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
-		return os.WriteFile(target, out.Bytes(), 0o644)
+		return os.WriteFile(target, out, 0o644)
 	})
+}
+
+// renderFile runs the template name of files with app.
+func renderFile(files fs.FS, name string, app newApp) ([]byte, error) {
+	text, err := fs.ReadFile(files, name)
+	if err != nil {
+		return nil, err
+	}
+	tmpl, err := template.New(name).Option("missingkey=error").Parse(string(text))
+	if err != nil {
+		return nil, err
+	}
+	var out bytes.Buffer
+	if err := tmpl.Execute(&out, app); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
 }

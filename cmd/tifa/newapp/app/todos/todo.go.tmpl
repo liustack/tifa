@@ -10,7 +10,7 @@ import (
 
 	"github.com/liustack/tifa"
 
-	root "{{.Module}}"
+	"{{.Module}}"
 )
 
 // Todo is one thing to do.
@@ -22,7 +22,7 @@ type Todo struct {
 
 // ListTodos returns every todo, open ones first, newest first.
 func ListTodos(ctx context.Context) ([]Todo, error) {
-	rows, err := root.DB.QueryContext(ctx, `SELECT id, title, done FROM todos ORDER BY done, id DESC`)
+	rows, err := {{.Package}}.DB.QueryContext(ctx, `SELECT id, title, done FROM todos ORDER BY done, id DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +41,7 @@ func ListTodos(ctx context.Context) ([]Todo, error) {
 // GetTodo returns the todo id, or tifa.ErrNotFound, which a page answers with 404.
 func GetTodo(ctx context.Context, id int64) (Todo, error) {
 	t := Todo{ID: id}
-	err := root.DB.QueryRowContext(ctx, `SELECT title, done FROM todos WHERE id = ?`, id).Scan(&t.Title, &t.Done)
+	err := {{.Package}}.DB.QueryRowContext(ctx, `SELECT title, done FROM todos WHERE id = ?`, id).Scan(&t.Title, &t.Done)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Todo{}, tifa.ErrNotFound
 	}
@@ -51,14 +51,14 @@ func GetTodo(ctx context.Context, id int64) (Todo, error) {
 // AddTodo adds an open todo with title, without the spaces around it.
 func AddTodo(ctx context.Context, title string) (Todo, error) {
 	t := Todo{Title: strings.TrimSpace(title)}
-	err := root.DB.QueryRowContext(ctx, `INSERT INTO todos (title) VALUES (?) RETURNING id`, t.Title).Scan(&t.ID)
+	err := {{.Package}}.DB.QueryRowContext(ctx, `INSERT INTO todos (title) VALUES (?) RETURNING id`, t.Title).Scan(&t.ID)
 	return t, err
 }
 
 // SetDone marks the todo id as done or open and returns it, or tifa.ErrNotFound.
 func SetDone(ctx context.Context, id int64, done bool) (Todo, error) {
 	t := Todo{ID: id}
-	err := root.DB.QueryRowContext(ctx, `UPDATE todos SET done = ? WHERE id = ? RETURNING title, done`, done, id).Scan(&t.Title, &t.Done)
+	err := {{.Package}}.DB.QueryRowContext(ctx, `UPDATE todos SET done = ? WHERE id = ? RETURNING title, done`, done, id).Scan(&t.Title, &t.Done)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Todo{}, tifa.ErrNotFound
 	}

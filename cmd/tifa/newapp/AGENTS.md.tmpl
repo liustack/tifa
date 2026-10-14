@@ -19,7 +19,7 @@ Never edit `.tifa/`. It is generated, and `go test ./...` skips it.
 
 - Code is grouped by domain, and a domain is a folder under `app/`. Its types, queries and rules sit next to its pages, with their tests. `app/todos/todo.go` (`package todos`) is the todo list. The home page (`app/route.go`) and the page of one todo (`app/todos/todo+/route.go`) import `{{.Module}}/app/todos`.
 - A new domain gets a folder under `app/` and a file named after it, such as `app/notes/note.go` (`package notes`). When it has a list page and a page per item, its code goes in the list folder, not in the `name+` folder of one item.
-- The root package (`package {{.Package}}`, at the module root) holds only the hooks (`hooks.go`) and what the whole app shares (`db.go`: `var DB`, and `schema.sql` with the tables of every domain). Domains import it as `root "{{.Module}}"`. It never imports a package under `app/`, since that would be an import cycle.
+- The root package (`package {{.Package}}`, at the module root) holds only the hooks (`hooks.go`) and what the whole app shares (`db.go`: `var DB`, and `schema.sql` with the tables of every domain). Domains import it as `"{{.Module}}"` and write `{{.Package}}.DB`. It never imports a package under `app/`, since that would be an import cycle.
 - Domains may import each other in one direction only: if `notes` imports `todos`, `todos` cannot import `notes`. There are no `models/`, `services/` or `handlers/` packages. See [structure.md](https://github.com/liustack/tifa/blob/main/docs/structure.md).
 - This app wires dependencies by hand: package-level variables such as `DB`, set up in `OnStart`, not in `init()`.
 
@@ -72,7 +72,7 @@ Writing the response is checked when the request runs instead: in `Load` and `La
 
 ## Tests
 
-- Domain code: plain Go tests next to it, such as `app/todos/todo_test.go`. Each test gets a fresh database with `useTestDB(t)`, which replaces `root.DB`, so these tests do not run in parallel.
+- Domain code: plain Go tests next to it, such as `app/todos/todo_test.go`. Each test gets a fresh database with `useTestDB(t)`, which replaces `{{.Package}}.DB`, so these tests do not run in parallel.
 - Route code: `tifatest.NewCtx(t, httptest.NewRequest(...))` gives a `*tifa.Ctx`. Set path parameters with `r.SetPathValue`. Run `Load` and `Layout` through `tifa.Use(c, Load)`, call handlers directly, and test `Validate` on its own. These tests check what the function returns, not the HTTP answer. See [Testing](https://github.com/liustack/tifa/blob/main/docs/app.md#testing).
 
 ## Settings and data
