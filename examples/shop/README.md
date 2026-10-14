@@ -1,6 +1,6 @@
 English · [简体中文](README.zh-CN.md)
 
-# 山海工作台: a tifa example app
+# Shanhai Workbench (山海工作台): a tifa example app
 
 An order workbench for a small shop owner: two shops, an order list, order details and shipping. Pages are rendered to complete HTML on the server. After the browser takes over, it moves between pages on its own, and after you ship an order the list and the stats update with it. Data lives in process memory and resets on restart.
 
