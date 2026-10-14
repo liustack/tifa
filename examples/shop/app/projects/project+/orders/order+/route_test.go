@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/liustack/tifa"
-	shop "github.com/liustack/tifa/examples/shop"
+	"github.com/liustack/tifa/examples/shop/app/projects/project+/orders"
 	"github.com/liustack/tifa/tifatest"
 )
 
@@ -31,11 +31,11 @@ func TestLoadFindsTheOrderInItsProject(t *testing.T) {
 	}
 }
 
-// Shipping itself is tested in the shop package, which resets its demo data. Shipping here would
+// Shipping itself is tested in the orders package, which resets its demo data. Shipping here would
 // change the data that the next run of this test reads, so POST is checked on an order already
 // shipped.
 func TestPOSTShipsTheOrderOfItsProject(t *testing.T) {
-	if _, err := POST(orderCtx(t, "POST", "studio", "SH-1040")); !errors.Is(err, shop.ErrShipped) {
+	if _, err := POST(orderCtx(t, "POST", "studio", "SH-1040")); !errors.Is(err, orders.ErrShipped) {
 		t.Fatalf("POST of a shipped order: %v", err)
 	}
 	if _, err := POST(orderCtx(t, "POST", "weekend", "SH-1040")); !errors.Is(err, tifa.ErrNotFound) {

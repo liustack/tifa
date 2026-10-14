@@ -125,6 +125,51 @@ func TestValidApp(t *testing.T) {
 	}
 }
 
+// Domain code lives in the folders under app/: a package may hold a domain and a page, or only a
+// domain, packages under app/ import each other in one direction, and the domains import the
+// root package for the database. The analyzer takes all of it as a plain app.
+func TestDomainsUnderApp(t *testing.T) {
+	m, err := analyzeApp(t, "domains")
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	if want := []string{"OnStart"}; !reflect.DeepEqual(m.Hooks, want) {
+		t.Errorf("Hooks = %v, want %v", m.Hooks, want)
+	}
+	const pkg = "example.com/domains/"
+	const project = "app/projects/project+"
+	wantRoutes := map[string]struct{ pkg, load string }{
+		"app/customers/route":            {pkg + "app/customers", "[]" + pkg + "app/customers.Customer"},
+		"app/projects/route":             {pkg + "app/projects", "[]" + pkg + "app/projects.Project"},
+		project + "/orders/order+/route": {pkg + project + "/orders/order+", pkg + project + "/orders.Order"},
+	}
+	if len(m.Routes) != len(wantRoutes) {
+		t.Fatalf("got %d routes: %+v", len(m.Routes), m.Routes)
+	}
+	for _, r := range m.Routes {
+		w, ok := wantRoutes[r.ID]
+		if !ok || r.Package != w.pkg || r.Load == nil || r.Load.Type != w.load {
+			t.Errorf("route %s = %+v, Load %+v, want %+v", r.ID, r, r.Load, w)
+		}
+	}
+	detail := project + "/orders/order+/route"
+	for _, r := range m.Routes {
+		if r.ID == detail && (!reflect.DeepEqual(r.Load.Uses, []string{project + "/layout"}) ||
+			!reflect.DeepEqual(r.Load.Params, []string{"order"})) {
+			t.Errorf("detail Load = %+v", r.Load)
+		}
+	}
+	layouts := map[string]string{}
+	for _, l := range m.Layouts {
+		if l.Load != nil {
+			layouts[l.ID] = l.Load.Type
+		}
+	}
+	if want := map[string]string{"app/layout": "[]" + pkg + "app/projects.Project", project + "/layout": pkg + "app/projects.Project"}; !reflect.DeepEqual(layouts, want) {
+		t.Errorf("Layout types = %v, want %v", layouts, want)
+	}
+}
+
 func handlerMethods(r Route) []string {
 	var methods []string
 	for _, h := range r.Handlers {

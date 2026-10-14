@@ -153,3 +153,31 @@ func requires(t *testing.T, dir, module, dep string) string {
 	}
 	return "none"
 }
+
+// The Go files under app/ import the root package by its own name. tifa new refuses a name that
+// clashes there, and the names it takes compile: also the name of a package under app/, which a
+// file may import from a package of the same name, and the name of a package of the standard
+// library that those files do not import.
+func TestNewAppRootPackageNames(t *testing.T) {
+	skipUnlessEnabled(t)
+	for _, module := range []string{"example.com/app", "example.com/todo", "example.com/fmt"} {
+		t.Run(module, func(t *testing.T) {
+			t.Parallel()
+			dir := filepath.Join(t.TempDir(), "app")
+			for _, step := range [][]string{
+				{cli(t), "new", dir, "--module", module},
+				{"go", "mod", "edit", "-replace", "github.com/liustack/tifa=" + repoRoot(t)},
+				{"go", "mod", "tidy"},
+				{"go", "vet", "./..."},
+			} {
+				cmd := exec.Command(step[0], step[1:]...)
+				if step[0] == "go" {
+					cmd.Dir = dir
+				}
+				if out, err := cmd.CombinedOutput(); err != nil {
+					t.Fatalf("%s: %v\n%s", strings.Join(step, " "), err, out)
+				}
+			}
+		})
+	}
+}

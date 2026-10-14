@@ -29,22 +29,22 @@ go test ./...
 ## 目录
 
 ```text
-hooks.go                     拦截跨站的写请求，记录意外错误
-project.go                   店铺领域：类型、待发货统计、存储
-order.go                     订单领域：列表、详情、发货规则、存储
+hooks.go                       拦截跨站的写请求，记录意外错误
 app/
-  layout.go  layout.tsx      根 Layout：侧栏、顶栏、文档外壳和全站 404
-  icons.tsx  styles.css      跨页面共用的图标和样式
-  route.go                   访问 / 时跳到第一家店铺
+  layout.go  layout.tsx        根 Layout：侧栏、顶栏、文档外壳和全站 404
+  icons.tsx  styles.css        跨页面共用的图标和样式
+  route.go                     访问 / 时跳到第一家店铺
   projects/
-    project+/                /projects/{project}
-      layout.go  layout.tsx  店铺 Layout：店名、待发货数、店铺备忘
-      route.go  route.tsx    订单列表
+    project.go                 店铺领域：类型、待发货统计、存储
+    project+/                  /projects/{project}
+      layout.go  layout.tsx    店铺 Layout：店名、待发货数、店铺备忘
+      route.go  route.tsx      订单列表
       orders/
-        order+/              /projects/{project}/orders/{order}：订单详情，POST 即发货
+        order.go               订单领域：列表、详情、发货规则、存储
+        order+/                /projects/{project}/orders/{order}：订单详情，POST 即发货
 ```
 
-领域代码平铺在根包里，一个领域一个文件。存储放在内存里，自带演示数据，代替数据库表，重启后恢复初始值。`app/` 下的目录放页面和它们的方法函数：每层目录是 URL 的一段，`route.go` 写调用根包的 `Load`，订单页的 `route.go` 还有发货用的 `POST`，`route.tsx` 写界面，用 `./+route` 读 `Load` 的结果。订单页通过店铺 Layout 读店铺：`tifa.Use(c, project.Layout)`。`app/route.go` 是 API 路由，它的 `GET` 把 `/` 重定向到店铺 `studio`。为什么这样组织、领域什么时候拆成单独的包，见[应用的代码结构](../../docs/structure.zh-CN.md)。
+每个领域放在 `app/` 下自己的目录里，和展示它的页面、它的测试在一起：`app/projects` 是店铺领域，`app/projects/project+/orders` 是订单领域，放在单个订单目录的上一层，而不是放进单个订单的目录里。根包只放钩子。存储放在内存里，自带演示数据，代替数据库表，重启后恢复初始值。`app/` 下每层目录是 URL 的一段，`route.go` 写调用领域包的 `Load`，订单页的 `route.go` 还有发货用的 `POST`，`route.tsx` 写界面，用 `./+route` 读 `Load` 的结果。订单页通过店铺 Layout 读店铺：`tifa.Use(c, project.Layout)`。`app/route.go` 是 API 路由，它的 `GET` 把 `/` 重定向到店铺 `studio`。店铺领域要统计待发货的订单，所以 `projects` import `orders`，而 `orders` 既不 import `projects`，也不 import 页面。为什么这样组织见[哲学](../../docs/philosophy.zh-CN.md)，包之间按什么方向 import 见[应用的代码结构](../../docs/structure.zh-CN.md)。
 
 ## 可以试试
 

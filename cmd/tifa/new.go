@@ -33,7 +33,7 @@ const tifaModule = "github.com/liustack/tifa"
 
 type newApp struct {
 	Module  string // the module path in go.mod
-	Package string // the name of the root package. The pages import it as domain
+	Package string // the name of the root package, which the Go files under app/ import
 	Title   string // the last element of the module path, the page title
 	NPM     string // the name in package.json
 	Go      string // the go line of go.mod
@@ -58,21 +58,23 @@ func newNewCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "new <dir>",
 		Short: "Create a new application in an empty directory",
-		Long: `new writes a small working app into dir: a todo list stored in SQLite, with a root package,
-pages under app/, tests, tifa.yaml and notes for coding agents. It runs nothing and needs no
+		Long: `new writes a small working app into dir: a todo list stored in SQLite, with the hooks and
+the database in the root package, the todos domain next to its pages under app/, tests,
+tifa.yaml and notes for coding agents. It runs nothing and needs no
 network. The next steps it prints download the Go and npm dependencies, with pnpm when it is on
 PATH and npm otherwise.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir := args[0]
-			if modulePath == "" {
+			fromFolder := modulePath == ""
+			if fromFolder {
 				abs, err := filepath.Abs(dir)
 				if err != nil {
 					return err
 				}
 				modulePath = filepath.Base(abs)
 			}
-			app, err := appNames(modulePath)
+			app, err := appNames(modulePath, fromFolder)
 			if err != nil {
 				return err
 			}
@@ -105,7 +107,9 @@ PATH and npm otherwise.`,
 // appNames derives the names of the app from its module path. The root package is the last
 // element without the major version suffix, lowercased, with its letters and digits only, so
 // example.com/Order-Desk/v2 is the package orderdesk. That is a valid npm name as well.
-func appNames(modulePath string) (newApp, error) {
+// fromFolder tells whether the module path is the name of the folder, with no --module, so an
+// error asks for what the user can change.
+func appNames(modulePath string, fromFolder bool) (newApp, error) {
 	if err := module.CheckImportPath(modulePath); err != nil {
 		return newApp{}, fmt.Errorf("%q is not a module path, pass one with --module: %w", modulePath, err)
 	}
@@ -123,9 +127,17 @@ func appNames(modulePath string) (newApp, error) {
 		}
 		return -1
 	}, strings.ToLower(title))
-	// The pages import the root package as domain, so any name a package may have works.
-	if !token.IsIdentifier(pkg) || token.IsKeyword(pkg) || pkg == "main" {
-		return newApp{}, fmt.Errorf("the module path %s ends in %q, which makes the package name %q: a package name must start with a letter and may not be a keyword or main, so pass --module with another last element", modulePath, title, pkg)
+	// The Go files under app/ import the root package by its name, and Go does not take init as
+	// the name of an imported package.
+	if !token.IsIdentifier(pkg) || token.IsKeyword(pkg) || pkg == "main" || pkg == "init" {
+		return newApp{}, fmt.Errorf("the module path %s ends in %q, which makes the package name %q: a package name must start with a letter and may not be a keyword, main or init, so pass --module with another last element", modulePath, title, pkg)
+	}
+	if clash, ok := rootNameClashes[pkg]; ok {
+		fix := "change the last element of --module"
+		if fromFolder {
+			fix = "name the folder differently or pass --module with another last element"
+		}
+		return newApp{}, fmt.Errorf("the module path %s makes the root package %s, and the Go files under app/ that import it already use %s for %s: %s", modulePath, pkg, pkg, clash, fix)
 	}
 	npm := pkg
 	if len(npm) > 214 { // the longest npm name
@@ -134,9 +146,47 @@ func appNames(modulePath string) (newApp, error) {
 	return newApp{Module: modulePath, Package: pkg, Title: title, NPM: npm}, nil
 }
 
+// rootNameClashes lists the names a root package may not have, each with what already uses it.
+// The Go files under app/ that import the root package refer to it by its name, so that name
+// must not mean anything else where they use it: a package they import, a predeclared name they
+// use, or a parameter or variable in whose scope they use the root package.
+// TestRootNameClashesMatchTheTemplate checks that every name here breaks the build of a new app,
+// and that the other names in those files do not.
+var rootNameClashes = map[string]string{
+	// imported packages
+	"todos":    "the package app/todos",
+	"tifa":     "the package github.com/liustack/tifa",
+	"tifatest": "the package github.com/liustack/tifa/tifatest",
+	"context":  "the package context",
+	"sql":      "the package database/sql",
+	"errors":   "the package errors",
+	"strings":  "the package strings",
+	"filepath": "the package path/filepath",
+	"httptest": "the package net/http/httptest",
+	"reflect":  "the package reflect",
+	"testing":  "the package testing",
+	// predeclared names
+	"append": "the predeclared name append",
+	"bool":   "the predeclared name bool",
+	"error":  "the predeclared name error",
+	"int64":  "the predeclared name int64",
+	"len":    "the predeclared name len",
+	"nil":    "the predeclared name nil",
+	"string": "the predeclared name string",
+	"true":   "the predeclared name true",
+	// parameters and variables in whose scope the root package is used
+	"ctx":   "a parameter of the functions in app/todos/todo.go",
+	"id":    "a parameter of the functions in app/todos/todo.go",
+	"title": "a parameter of the functions in app/todos/todo.go",
+	"done":  "a parameter of the functions in app/todos/todo.go",
+	"t":     "a parameter of useTestDB in app/route_test.go and the tests under app/todos",
+	"db":    "a variable of useTestDB in app/route_test.go and the tests under app/todos",
+	"err":   "a variable of useTestDB in app/route_test.go and the tests under app/todos",
+}
+
 // importProblem tells why the go command would not import the package at the root of a module
-// with this path and what to pass instead, or returns "". The generated main imports it once the app has hooks.go, and
-// the home page imports it from the start.
+// with this path and what to pass instead, or returns "". The generated main imports it once the
+// app has hooks.go, and the todos domain imports it for the database from the start.
 func importProblem(modulePath string) string {
 	elems := strings.Split(modulePath, "/")
 	if slices.ContainsFunc(elems, func(e string) bool { return strings.EqualFold(e, "vendor") }) {
@@ -197,16 +247,8 @@ func writeApp(dir string, app newApp) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
-		text, err := fs.ReadFile(newapp, name)
+		out, err := renderFile(newapp, name, app)
 		if err != nil {
-			return err
-		}
-		tmpl, err := template.New(name).Option("missingkey=error").Parse(string(text))
-		if err != nil {
-			return err
-		}
-		var out bytes.Buffer
-		if err := tmpl.Execute(&out, app); err != nil {
 			return err
 		}
 		rel := strings.TrimSuffix(strings.TrimPrefix(name, "newapp/"), ".tmpl")
@@ -217,6 +259,23 @@ func writeApp(dir string, app newApp) error {
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
-		return os.WriteFile(target, out.Bytes(), 0o644)
+		return os.WriteFile(target, out, 0o644)
 	})
+}
+
+// renderFile runs the template name of files with app.
+func renderFile(files fs.FS, name string, app newApp) ([]byte, error) {
+	text, err := fs.ReadFile(files, name)
+	if err != nil {
+		return nil, err
+	}
+	tmpl, err := template.New(name).Option("missingkey=error").Parse(string(text))
+	if err != nil {
+		return nil, err
+	}
+	var out bytes.Buffer
+	if err := tmpl.Execute(&out, app); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
 }

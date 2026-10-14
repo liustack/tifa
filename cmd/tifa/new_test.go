@@ -2,10 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"go/ast"
 	"go/format"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path"
@@ -14,6 +16,7 @@ import (
 	"regexp"
 	"runtime/debug"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -87,8 +90,9 @@ func TestNewWritesAnApp(t *testing.T) {
 		".gitignore", "AGENTS.md", "CLAUDE.md", "README.md",
 		"app/about/route.tsx", "app/layout.tsx", "app/route.go", "app/route.tsx", "app/route_test.go", "app/styles.css",
 		"app/todos/todo+/route.go", "app/todos/todo+/route.tsx", "app/todos/todo+/route_test.go",
+		"app/todos/todo.go", "app/todos/todo_test.go",
 		"db.go", "db_test.go", "go.mod", "hooks.go", "hooks_test.go", "package.json", "schema.sql",
-		"tifa.yaml", "todo.go", "todo_test.go", "tsconfig.json",
+		"tifa.yaml", "tsconfig.json",
 	}
 	if !reflect.DeepEqual(files, want) {
 		t.Fatalf("files %q, want %q", files, want)
@@ -106,8 +110,13 @@ func TestNewWritesAnApp(t *testing.T) {
 			t.Errorf("go.mod has no line %q:\n%s", line, gomod)
 		}
 	}
-	if !strings.Contains(read("todo.go"), "package myapp\n") || !strings.Contains(read("app/route.go"), `domain "My-App"`) {
-		t.Errorf("the root package is not myapp:\n%s\n%s", read("todo.go"), read("app/route.go"))
+	if !strings.Contains(read("db.go"), "package myapp\n") || !strings.Contains(read("app/todos/todo.go"), "\t\"My-App\"\n") ||
+		!strings.Contains(read("app/todos/todo.go"), "myapp.DB.") {
+		t.Errorf("the root package is not myapp:\n%s\n%s", read("db.go"), read("app/todos/todo.go"))
+	}
+	// The todos domain lives next to its pages, and the pages import it.
+	if !strings.Contains(read("app/todos/todo.go"), "package todos\n") || !strings.Contains(read("app/route.go"), `"My-App/app/todos"`) {
+		t.Errorf("the pages do not import the todos domain in app/todos:\n%s\n%s", read("app/todos/todo.go"), read("app/route.go"))
 	}
 	for _, name := range files {
 		if !strings.HasSuffix(name, ".go") {
@@ -169,19 +178,13 @@ func TestNewNamesTheRootPackage(t *testing.T) {
 		{"desk", "desk", "desk", "desk"},
 		{"example.com/fmt", "fmt", "fmt", "fmt"},
 		{"example.com/std", "std", "std", "std"},
-		// the pages import the root package as domain, so it may have any name a package may have,
-		// also one a route package, a predeclared name or a name the pages use
+		// the name of a route package is fine: a file may import a package named like its own
 		{"example.com/todo", "todo", "todo", "todo"},
 		{"example.com/domain", "domain", "domain", "domain"},
-		{"example.com/error", "error", "error", "error"},
-		{"example.com/C", "c", "C", "c"},
-		{"example.com/tifa", "tifa", "tifa", "tifa"},
-		{"example.com/err", "err", "err", "err"},
-		{"example.com/Context", "context", "Context", "context"},
 		{"example.com/" + strings.Repeat("a", 300), strings.Repeat("a", 300), strings.Repeat("a", 300), strings.Repeat("a", 214)},
 	}
 	for _, tc := range cases {
-		app, err := appNames(tc.module)
+		app, err := appNames(tc.module, false)
 		if err != nil || app.Package != tc.pkg || app.Title != tc.title || app.NPM != tc.npm {
 			t.Errorf("%s: %+v, %v, want package %s, title %s and npm name %s", tc.module, app, err, tc.pkg, tc.title, tc.npm)
 		}
@@ -195,15 +198,14 @@ func TestNewNamesTheRootPackage(t *testing.T) {
 		// a vendor element makes the go command refuse to import the path
 		"example.com/vendor", "example.com/vendor/desk", "vendor/desk",
 	} {
-		if _, err := appNames(bad); err == nil {
+		if _, err := appNames(bad, false); err == nil {
 			t.Errorf("%q: no error", bad)
 		}
 	}
 }
 
-// The Go files under app/ import the root package as domain, whatever its name, so domain must
-// name nothing else in them.
-func TestNewPagesImportTheRootPackageAsDomain(t *testing.T) {
+// The Go files under app/ import the root package by its own name, as Go code usually does.
+func TestNewAppImportsTheRootPackageByItsName(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "app")
 	if _, _, err := run(t, "new", dir, "--module", "example.com/myapp"); err != nil {
 		t.Fatal(err)
@@ -221,43 +223,198 @@ func TestNewPagesImportTheRootPackageAsDomain(t *testing.T) {
 		rel = filepath.ToSlash(rel)
 		for _, spec := range file.Imports {
 			root := spec.Path.Value == `"example.com/myapp"`
-			named := spec.Name != nil && spec.Name.Name == "domain"
-			if root && !named {
-				t.Errorf("%s imports the root package without the name domain", rel)
-			}
-			if !root && (named || path.Base(strings.Trim(spec.Path.Value, `"`)) == "domain") {
-				t.Errorf("%s imports %s as domain", rel, spec.Path.Value)
+			if root && spec.Name != nil {
+				t.Errorf("%s imports the root package as %s", rel, spec.Name.Name)
 			}
 			if root {
 				checked = append(checked, rel)
 			}
-		}
-		// Past the imports, domain may only be the package in domain.X.
-		for _, decl := range file.Decls {
-			if gen, ok := decl.(*ast.GenDecl); ok && gen.Tok == token.IMPORT {
-				continue
-			}
-			ast.Inspect(decl, func(n ast.Node) bool {
-				if sel, ok := n.(*ast.SelectorExpr); ok {
-					if id, ok := sel.X.(*ast.Ident); ok && id.Name == "domain" {
-						return false
-					}
-				}
-				if id, ok := n.(*ast.Ident); ok && id.Name == "domain" {
-					t.Errorf("%s uses domain for something else than the root package", rel)
-				}
-				return true
-			})
 		}
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"app/route.go", "app/route_test.go", "app/todos/todo+/route.go", "app/todos/todo+/route_test.go"}
+	// Only the todos domain needs DB. The pages import the domain, and tests open a database.
+	want := []string{"app/route_test.go", "app/todos/todo+/route_test.go", "app/todos/todo.go", "app/todos/todo_test.go"}
 	if !reflect.DeepEqual(checked, want) {
 		t.Fatalf("the root package is imported by %q, want %q", checked, want)
 	}
+}
+
+// A root package named like something the Go files under app/ use next to it would not compile,
+// so tifa new refuses it and says what it clashes with.
+func TestNewRefusesARootPackageThatClashes(t *testing.T) {
+	for module, clash := range map[string]string{
+		"example.com/todos":   "the package app/todos",
+		"example.com/Todos":   "the package app/todos",
+		"example.com/tifa":    "the package github.com/liustack/tifa",
+		"example.com/Context": "the package context",
+		"example.com/error":   "the predeclared name error",
+		"example.com/db":      "app/route_test.go",
+	} {
+		_, err := appNames(module, false)
+		if err == nil || !strings.Contains(err.Error(), clash) || !strings.Contains(err.Error(), "--module") {
+			t.Errorf("%s: %v, want an error naming %q and --module", module, err, clash)
+		}
+	}
+	// The name comes from the folder unless --module gives it, and the error says which to change.
+	dir := filepath.Join(t.TempDir(), "todos")
+	if _, _, err := run(t, "new", dir); err == nil || !strings.Contains(err.Error(), "app/todos") || !strings.Contains(err.Error(), "name the folder differently") {
+		t.Errorf("tifa new todos: %v, want an error about app/todos that asks for another folder name", err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("tifa new todos wrote %s: %v", dir, err)
+	}
+	dir = filepath.Join(t.TempDir(), "desk")
+	_, _, err := run(t, "new", dir, "--module", "example.com/todos")
+	if err == nil || !strings.Contains(err.Error(), "change the last element of --module") || strings.Contains(err.Error(), "folder") {
+		t.Errorf("tifa new --module example.com/todos: %v, want an error that asks for another last element of --module only", err)
+	}
+}
+
+// A package named init cannot be imported by its name, since init may only be a function.
+func TestNewRefusesInit(t *testing.T) {
+	for _, module := range []string{"init", "example.com/init", "example.com/Init"} {
+		if _, err := appNames(module, false); err == nil || !strings.Contains(err.Error(), "init") {
+			t.Errorf("%s: %v, want an error about init", module, err)
+		}
+	}
+}
+
+// TestRootNameClashesMatchTheTemplate generates apps with root packages of many names and builds
+// them: each name of rootNameClashes, and init, must break the build, and every other name the
+// Go files that import the root package use, plus some common ones, must build, vet and be taken
+// by tifa new. It runs the go command for each name, so it runs with the end-to-end tests.
+func TestRootNameClashesMatchTheTemplate(t *testing.T) {
+	if os.Getenv("TIFA_E2E") == "" {
+		t.Skip("set TIFA_E2E=1 to build an app per root package name")
+	}
+	repo, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	goCmd := func(t *testing.T, dir string, args ...string) error {
+		cmd := exec.Command("go", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("go %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+		return nil
+	}
+	app := func(module, pkg string) newApp {
+		return newApp{Module: module, Package: pkg, Title: pkg, NPM: pkg, Go: "1.27.0", Version: "v0.0.0", Install: "npm install", Run: "npm run"}
+	}
+	// Tidy one app, and give each app below its go.mod and go.sum, which do not depend on the name.
+	base := filepath.Join(t.TempDir(), "base")
+	if err := writeApp(base, app("example.com/base", "base")); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"mod", "edit", "-replace", tifaModule + "=" + repo}, {"mod", "tidy"}} {
+		if err := goCmd(t, base, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gomod, err := os.ReadFile(filepath.Join(base, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gosum, err := os.ReadFile(filepath.Join(base, "go.sum"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	build := func(t *testing.T, a newApp) error {
+		dir := filepath.Join(t.TempDir(), "app")
+		if err := writeApp(dir, a); err != nil {
+			t.Fatal(err)
+		}
+		mod := strings.Replace(string(gomod), "module example.com/base\n", "module "+a.Module+"\n", 1)
+		if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(mod), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "go.sum"), gosum, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		// vet type checks the tests too, build checks the rest as the app is shipped.
+		if err := goCmd(t, dir, "vet", "./..."); err != nil {
+			return err
+		}
+		return goCmd(t, dir, "build", "./...")
+	}
+	for _, name := range candidateRootNames(t) {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			module := "example.com/" + name
+			_, clashes := rootNameClashes[name]
+			if clashes || name == "init" {
+				if _, err := appNames(module, false); err == nil {
+					t.Errorf("tifa new takes %s", module)
+				}
+				if err := build(t, app(module, name)); err == nil {
+					t.Errorf("a root package named %s builds, so it does not clash", name)
+				}
+				return
+			}
+			a, err := appNames(module, false)
+			if err != nil {
+				t.Fatalf("tifa new refuses %s: %v", module, err)
+			}
+			if err := build(t, a); err != nil {
+				t.Errorf("a root package named %s does not build, add it to rootNameClashes: %v", name, err)
+			}
+		})
+	}
+}
+
+// candidateRootNames returns the names a root package could clash with: every name a Go file of
+// the template that imports the root package uses, with the names of its imports, and common
+// names besides. Only names tifa new can derive from a module path are kept.
+func candidateRootNames(t *testing.T) []string {
+	const module = "example.com/tifanewroot"
+	names := map[string]bool{"init": true}
+	for _, name := range strings.Fields("c r s app todo shop desk order orders store money domain root false iota unsafe sqlite atomic") {
+		names[name] = true
+	}
+	for name := range rootNameClashes {
+		names[name] = true
+	}
+	err := fs.WalkDir(newapp, "newapp", func(name string, d fs.DirEntry, err error) error {
+		if err != nil || !strings.HasSuffix(name, ".go.tmpl") {
+			return err
+		}
+		src, err := renderFile(newapp, name, newApp{Module: module, Package: "tifanewroot"})
+		if err != nil {
+			return err
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), name, src, parser.SkipObjectResolution)
+		if err != nil {
+			return err
+		}
+		if !slices.ContainsFunc(file.Imports, func(spec *ast.ImportSpec) bool { return spec.Path.Value == strconv.Quote(module) }) {
+			return nil
+		}
+		for _, spec := range file.Imports {
+			names[path.Base(strings.Trim(spec.Path.Value, `"`))] = true
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			if id, ok := n.(*ast.Ident); ok {
+				names[id.Name] = true
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var list []string
+	for name := range names {
+		if regexp.MustCompile(`^[a-z][a-z0-9]*$`).MatchString(name) && !token.IsKeyword(name) && name != "main" && name != "tifanewroot" {
+			list = append(list, name)
+		}
+	}
+	slices.Sort(list)
+	return list
 }
 
 func TestNewQuotesTheFolder(t *testing.T) {

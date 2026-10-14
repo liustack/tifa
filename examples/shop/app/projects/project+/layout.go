@@ -4,9 +4,9 @@ package project
 
 import (
 	"github.com/liustack/tifa"
-	shop "github.com/liustack/tifa/examples/shop"
+	"github.com/liustack/tifa/examples/shop/app/projects"
 )
 
-func Layout(c *tifa.Ctx) (shop.Project, error) {
-	return shop.GetProject(c.Param("project"))
+func Layout(c *tifa.Ctx) (projects.Project, error) {
+	return projects.GetProject(c.Param("project"))
 }

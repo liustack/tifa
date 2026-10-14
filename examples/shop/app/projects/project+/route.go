@@ -2,9 +2,9 @@ package project
 
 import (
 	"github.com/liustack/tifa"
-	shop "github.com/liustack/tifa/examples/shop"
+	"github.com/liustack/tifa/examples/shop/app/projects/project+/orders"
 )
 
-func Load(c *tifa.Ctx) (shop.OrderList, error) {
-	return shop.ListOrders(c.Param("project")), nil
+func Load(c *tifa.Ctx) (orders.OrderList, error) {
+	return orders.ListOrders(c.Param("project")), nil
 }

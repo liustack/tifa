@@ -1,3 +1,6 @@
+// Package {{.Package}} is the root package of the app: its hooks and the resources the whole app
+// shares, such as the database. The domains under app/ import it, and by convention it imports
+// nothing under app/, so any domain can use it without an import cycle.
 package {{.Package}}
 
 import (

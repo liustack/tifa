@@ -115,7 +115,8 @@ go tool tifa build
 
 | Doc | Read it when |
 | :-- | :-- |
-| [Structuring an app](docs/structure.md) | Deciding where domain code, storage and shared resources go |
+| [Philosophy](docs/philosophy.md) | You want to know why a tifa app is organized the way it is |
+| [Structuring an app](docs/structure.md) | Deciding where domain code, storage and shared resources go, and which way packages may import each other |
 | [Writing an app](docs/app.md) | Laying out folders, routes, Layouts, hooks, 404 pages, head tags and caching |
 | [Build and run](docs/build.md) | You want to know what `tifa build` generates and how the program answers requests |
 | [Dev server](docs/dev.md) | Running `tifa dev` locally, or a change did not reload |

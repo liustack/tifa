@@ -1,4 +1,4 @@
-package shop
+package orders
 
 import (
 	"errors"

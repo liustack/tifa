@@ -10,9 +10,9 @@ A [tifa](https://github.com/liustack/tifa) app: a todo list stored in SQLite.
 | `{{.Run}} typecheck` | Check the TypeScript |
 | `go tool tifa build` | Build the single executable into `bin/` |
 
-- `todo.go` is the todo list, `db.go` opens the database and `schema.sql` holds its tables. Add a domain as one more file next to them.
-- Pages live in `app/`: each folder is a URL. `app/todos/todo+/` is `/todos/{todo}`.
-- `hooks.go` opens the database when the app starts and closes it when it stops.
+- Pages and the code behind them live in `app/`, grouped by domain. `app/todos/todo.go` is the todo list, next to the pages that use it. Add a domain as a folder under `app/`.
+- Each folder under `app/` is a URL. `app/todos/todo+/` is `/todos/{todo}`.
+- The root folder holds what the whole app shares: `db.go` opens the database, `schema.sql` holds its tables, and `hooks.go` opens the database when the app starts and closes it when it stops.
 - The database is `app.db` in the folder the app runs in. Set `DB_PATH` to put it elsewhere.
 
 See [Writing an app](https://github.com/liustack/tifa/blob/main/docs/app.md) and [Structuring an app](https://github.com/liustack/tifa/blob/main/docs/structure.md).
