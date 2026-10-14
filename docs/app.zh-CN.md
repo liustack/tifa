@@ -277,7 +277,7 @@ func OnError(c *tifa.Ctx, err error) tifa.Error // 意外错误：上报，返�
 ```
 
 - `OnRequest` 作用于页面、导航数据请求、API 路由和没匹配的 URL，不作用于静态文件。没匹配时 `c.Pattern()` 为空。
-- 整个应用共享的资源，比如数据库连接、日志，放在应用根目录、和 `hooks.go` 并列的文件里，比如 `db.go`、`middleware.go`。每个文件构建一个包级变量或一个函数：在 `OnStart` 里初始化，在 `OnShutdown` 里释放，其他地方直接用，比如 `import root "example.com/myapp"` 之后写 `root.DB`。`app/` 下的领域 import 根包来用它们，所以根包不反过来 import 它们：Go 不允许循环引用。模型和查询留在各自的领域里。路由代码只在函数里用这些资源，不在包级变量初始化时读。不用 `init()` 做初始化。见 [import 的方向](structure.zh-CN.md#import-的方向)。
+- 整个应用共享的资源，比如数据库连接、日志，放在应用根目录、和 `hooks.go` 并列的文件里，比如 `db.go`、`middleware.go`。每个文件构建一个包级变量或一个函数：在 `OnStart` 里初始化，在 `OnShutdown` 里释放，其他地方直接用，比如 import `example.com/myapp` 之后写 `myapp.DB`。`app/` 下的领域 import 根包来用它们，所以根包不反过来 import 它们：Go 不允许循环引用。模型和查询留在各自的领域里。路由代码只在函数里用这些资源，不在包级变量初始化时读。不用 `init()` 做初始化。见 [import 的方向](structure.zh-CN.md#import-的方向)。
 - 请求级的值用标准 context 写入：`c.SetContext(context.WithValue(...))`，业务包提供带类型的读取函数。
 
 ## 测试

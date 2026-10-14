@@ -80,7 +80,7 @@ myapp/
 
 Go refuses import cycles: if package A imports B, directly or through other packages, B cannot import A. The go command stops with `import cycle not allowed`. In a tifa app this means:
 
-- **Domains import the root package**, for `DB` for example. Import it under a fixed name, such as `root "example.com/myapp"`, so the code reads `root.DB` whatever the root package is called. The root package, `hooks.go` included, does not import packages under `app/`: a domain imports the root package, so importing that domain, or a page that imports it, is a cycle. The same holds for the root package's tests in `package myapp`. A test in `package myapp_test` may import them.
+- **Domains import the root package** by its own name, for `DB` for example: `import "example.com/myapp"`, then `myapp.DB`. The root package, `hooks.go` included, does not import packages under `app/`: a domain imports the root package, so importing that domain, or a page that imports it, is a cycle. The same holds for the root package's tests in `package myapp`. A test in `package myapp_test` may import them.
 - **Pages import domains**: the order page in `order+/` imports `orders` from the folder above, and the project Layout imports `projects`. A page may also import the package of a Layout above it, for `tifa.Use(c, project.Layout)`.
 - **A domain may import another domain, one way only.** In examples/shop, `projects` counts the orders waiting to ship with `orders.CountPending`, so `projects` imports `orders`, and `orders` cannot import `projects`. Where the folders sit does not matter: a folder may import one below it, above it or beside it, as long as nothing imports back.
 - **A domain does not import its own pages.** `order+/` imports `orders`, so `orders` cannot import `order+/`. Keep what both need in the domain.
@@ -122,16 +122,16 @@ No dependency injection container, no framework, no reflection or generated code
   // app/todos/todo.go
   package todos
 
-  import root "example.com/myapp"
+  import "example.com/myapp"
 
   func GetTodo(ctx context.Context, id int64) (Todo, error) {
   	t := Todo{ID: id}
-  	err := root.DB.QueryRowContext(ctx, `SELECT title, done FROM todos WHERE id = ?`, id).Scan(&t.Title, &t.Done)
+  	err := myapp.DB.QueryRowContext(ctx, `SELECT title, done FROM todos WHERE id = ?`, id).Scan(&t.Title, &t.Done)
   	return t, err
   }
   ```
 
 - **Request values**, such as the signed-in user, ride on the standard context: `OnRequest` calls `c.SetContext(context.WithValue(...))`, and the domain provides a typed getter.
 - **Arguments** are fine when only some callers pass a different value. A function that needs a clock, a limit or a client can take it as a parameter.
-- **Tests** replace the variable (`root.DB = openTestDB(t)`) or pass a fake as an argument. Declare an interface in the package that uses it, and only once there really are two implementations, such as the real one and a fake. Route code is tested with a Ctx from `tifatest.NewCtx`, see [Testing](app.md#testing).
+- **Tests** replace the variable (`myapp.DB = openTestDB(t)`) or pass a fake as an argument. Declare an interface in the package that uses it, and only once there really are two implementations, such as the real one and a fake. Route code is tested with a Ctx from `tifatest.NewCtx`, see [Testing](app.md#testing).
 - Do not set things up in `init()`, and do not read a resource while package-level variables are initialized. Resources exist only after `OnStart` has run.

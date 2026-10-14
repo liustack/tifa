@@ -80,7 +80,7 @@ myapp/
 
 Go 不允许循环引用：A 包直接或经过别的包 import 了 B，B 就不能再 import A，go 命令会报 `import cycle not allowed` 并停下。放到 tifa 应用里就是：
 
-- **领域 import 根包**，比如用 `DB`。用固定的名字 import 它，比如 `root "example.com/myapp"`，这样不管根包叫什么，代码里都写 `root.DB`。根包（包括 `hooks.go`）不 import `app/` 下的包：领域 import 了根包，所以根包再 import 这个领域，或者 import 了这个领域的页面，就成了循环。根包自己 `package myapp` 的测试也一样。写成 `package myapp_test` 的测试可以 import 它们。
+- **领域 import 根包**，比如用 `DB`，直接用它自己的包名：`import "example.com/myapp"`，然后写 `myapp.DB`。根包（包括 `hooks.go`）不 import `app/` 下的包：领域 import 了根包，所以根包再 import 这个领域，或者 import 了这个领域的页面，就成了循环。根包自己 `package myapp` 的测试也一样。写成 `package myapp_test` 的测试可以 import 它们。
 - **页面 import 领域**：`order+/` 里的订单页 import 上一层的 `orders`，店铺的 Layout import `projects`。页面也可以 import 上层 Layout 的包，用来写 `tifa.Use(c, project.Layout)`。
 - **领域之间可以 import，但只能单向。** 在 examples/shop 里，`projects` 用 `orders.CountPending` 统计待发货的订单，所以 `projects` import `orders`，`orders` 就不能 import `projects`。目录在哪一层不要紧：可以 import 下层、上层或旁边的目录，只要没有反向的 import。
 - **领域不 import 自己的页面。** `order+/` import 了 `orders`，`orders` 就不能 import `order+/`。两边都要用的东西放进领域。
@@ -122,16 +122,16 @@ Go 不允许循环引用：A 包直接或经过别的包 import 了 B，B 就不
   // app/todos/todo.go
   package todos
 
-  import root "example.com/myapp"
+  import "example.com/myapp"
 
   func GetTodo(ctx context.Context, id int64) (Todo, error) {
   	t := Todo{ID: id}
-  	err := root.DB.QueryRowContext(ctx, `SELECT title, done FROM todos WHERE id = ?`, id).Scan(&t.Title, &t.Done)
+  	err := myapp.DB.QueryRowContext(ctx, `SELECT title, done FROM todos WHERE id = ?`, id).Scan(&t.Title, &t.Done)
   	return t, err
   }
   ```
 
 - **请求里的值**，比如当前登录的用户，放在标准 context 上：`OnRequest` 调用 `c.SetContext(context.WithValue(...))`，领域提供一个带类型的读取函数。
 - **参数**：只有部分调用方要传不同的值时，用参数传就好。需要时钟、上限或某个客户端的函数，可以把它们作为参数。
-- **测试**替换变量（`root.DB = openTestDB(t)`），或者把假实现作为参数传进去。接口声明在用它的包里，而且只在真的有两个实现时才声明，比如真实的和假的。路由代码用 `tifatest.NewCtx` 造出的 Ctx 来测，见[测试](app.zh-CN.md#测试)。
+- **测试**替换变量（`myapp.DB = openTestDB(t)`），或者把假实现作为参数传进去。接口声明在用它的包里，而且只在真的有两个实现时才声明，比如真实的和假的。路由代码用 `tifatest.NewCtx` 造出的 Ctx 来测，见[测试](app.zh-CN.md#测试)。
 - 不要在 `init()` 里初始化，也不要在包级变量初始化时读资源。资源在 `OnStart` 运行之后才存在。
