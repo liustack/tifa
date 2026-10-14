@@ -1,7 +1,7 @@
 // Run by TestGeneratedRouterBehaves in Node, bundled for the browser: the routers here run as
 // they do in the browser, with the reactive stores the head code subscribes to, against a
 // document that has just what that code uses.
-import { headHTML, setAttributes, type Tag } from './.tifa/runtime/head'
+import { headHTML, setAttributes, syncHead, type Tag } from './.tifa/runtime/head'
 
 const tests: Array<[string, () => Promise<void>]> = []
 const test = (name: string, fn: () => Promise<void>) => tests.push([name, fn])
@@ -101,8 +101,10 @@ async function withDocument(fn: () => Promise<void>) {
   }
 }
 
+const managed = () => fakeDocument.head.childNodes.filter((node): node is FakeElement => node.nodeType === 1)
 const describe = (element: FakeElement) =>
   element.localName + element.attributes.map((a) => ` ${a.name}=${a.value}`).join('') + (element.textContent ? ` [${element.textContent}]` : '')
+const page = (head: { meta?: object[]; links?: object[]; styles?: object[]; headScripts?: object[] }) => [{ status: 'success', ...head }]
 
 test('head attributes are the ones React DOM writes', async () => {
   const tags: Tag[] = [
@@ -141,6 +143,40 @@ test('head attributes are the ones React DOM writes', async () => {
       describe(element) === 'link rel=stylesheet href=/x.css class=c crossorigin=anonymous data-on=true',
       `element ${describe(element)}`,
     )
+  })
+})
+
+test('the browser builds head elements without parsing their content', async () => {
+  await withDocument(async () => {
+    syncHead(page({ headScripts: [{ children: 'var a = "</script><script>alert(1)</script>"' }] }))
+    const elements = managed().filter((e) => e.localName === 'script')
+    assert(elements.length === 1, `head ${managed().map(describe)}`)
+    // The content is the one the server writes for the same tag.
+    const server = headHTML([{ tag: 'script', attrs: {}, children: 'var a = "</script><script>alert(1)</script>"' }])
+    assert(server === `<script>${elements[0]!.textContent}</script>`, `server ${server}, browser ${elements[0]!.textContent}`)
+    lacks(server.slice('<script>'.length, -'</script>'.length), '</script', '<script')
+  })
+})
+
+test('new head elements go in in document order', async () => {
+  await withDocument(async () => {
+    syncHead(page({ headScripts: [{ children: 'first()' }] }))
+    syncHead(page({ headScripts: [{ children: 'first()' }, { children: 'second()' }, { children: 'third()' }] }))
+    const order = fakeDocument.inserted.filter((n) => n.nodeType === 1 && (n as FakeElement).localName === 'script').map((n) => (n as FakeElement).textContent)
+    assert(JSON.stringify(order) === '["first()","second()","third()"]', `inserted ${JSON.stringify(order)}`)
+    const inHead = managed().filter((e) => e.localName === 'script').map((e) => e.textContent)
+    assert(JSON.stringify(inHead) === '["first()","second()","third()"]', `head ${JSON.stringify(inHead)}`)
+  })
+})
+
+test('kept head elements move into the new order', async () => {
+  await withDocument(async () => {
+    syncHead(page({ links: [{ rel: 'stylesheet', href: '/a.css' }, { rel: 'stylesheet', href: '/b.css' }] }))
+    const [, a, b] = managed()
+    syncHead(page({ links: [{ rel: 'stylesheet', href: '/b.css' }, { rel: 'stylesheet', href: '/a.css' }] }))
+    const after = managed()
+    assert(after[1] === b && after[2] === a, `head ${after.map(describe)}`)
+    assert(fakeDocument.inserted.length === 5, `elements were created again: ${fakeDocument.inserted.length}`)
   })
 })
 

@@ -182,12 +182,25 @@ export function setAttributes(element: Element, attrs: Record<string, unknown>) 
   }
 }
 
+// text is the content of the element of a tag as the browser holds it. The content of style
+// and script is written as it is, with the sequences that would end the element escaped the way
+// React DOM escapes the text of a script or style.
+function text(tag: Tag): string {
+  const children = tag.children ?? ''
+  if (tag.tag === 'script') return children.replace(/(<\/|<)(s)(cript)/gi, scriptEscape)
+  if (tag.tag === 'style') return children.replace(/(<\/|<)(s)(tyle)/gi, styleEscape)
+  return children
+}
+
+const scriptEscape = (_: string, prefix: string, s: string, suffix: string) =>
+  prefix + (s === 's' ? '\\u0073' : '\\u0053') + suffix
+const styleEscape = (_: string, prefix: string, s: string, suffix: string) =>
+  prefix + (s === 's' ? '\\73 ' : '\\53 ') + suffix
+
 export function tagHTML(tag: Tag): string {
   const open = '<' + tag.tag + attributes(tag.attrs) + '>'
   if (tag.tag === 'meta' || tag.tag === 'link') return open
-  // Like React's dangerouslySetInnerHTML for style and script, text for title.
-  const children = tag.children ?? ''
-  return open + (tag.tag === 'title' ? escapeText(children) : children) + '</' + tag.tag + '>'
+  return open + (tag.tag === 'title' ? escapeText(text(tag)) : text(tag)) + '</' + tag.tag + '>'
 }
 
 // headHTML writes the tags, each distinct tag once.
@@ -213,13 +226,22 @@ function tagKey(tag: Tag): string {
     const written = attribute(name, tag.attrs[name])
     if (written) key += '\n' + written[0].toLowerCase() + '=' + written[1]
   }
-  return key + '\n\n' + (tag.children ?? '')
+  return key + '\n\n' + text(tag)
 }
 
 function elementKey(element: Element): string {
   let key = element.localName
   for (const attr of Array.from(element.attributes)) key += '\n' + attr.name + '=' + attr.value
   return key + '\n\n' + (element.textContent ?? '')
+}
+
+// createTagElement builds the element of a tag with the DOM, never by parsing HTML, so no
+// value of a tag can add an element of its own.
+function createTagElement(tag: Tag): Element {
+  const element = document.createElement(tag.tag)
+  setAttributes(element, tag.attrs)
+  if (tag.children !== undefined) element.textContent = text(tag)
+  return element
 }
 
 // escapeScriptJSON makes JSON safe inside a script element, as TanStack's escapeHtml does: no
@@ -251,10 +273,11 @@ export function escapeAttribute(text: string) {
 export const headStart = '<!--tifa-head-->'
 export const headEnd = '<!--/tifa-head-->'
 
-// syncHead keeps the managed tags of document.head equal to headTags of the current matches.
-// It compares the elements in place with the tags, so the head the server wrote stays as it is
-// after hydration, and a tag both pages share, a stylesheet say, is never removed and added
-// again on navigation.
+// syncHead makes the managed tags of document.head equal to headTags of the matches, in the
+// same order. An element whose tag stays is kept and, when the order changed, moved, so the head
+// the server wrote stays as it is after hydration, and a stylesheet or a script both pages
+// share is neither loaded nor run again. New elements go in in document order, so new inline
+// scripts run in the order of the tags.
 export function syncHead(matches: ReadonlyArray<HeadMatch>) {
   const [start, end] = markers()
   const tags: Tag[] = []
@@ -278,18 +301,12 @@ export function syncHead(matches: ReadonlyArray<HeadMatch>) {
   })
   const kept: Array<Element | undefined> = keys.map((key) => unused.get(key)?.shift())
   for (const list of unused.values()) for (const element of list) element.remove()
-  // A new element goes before the next kept one, so kept elements never move.
-  let next: Node = end
-  for (let i = tags.length - 1; i >= 0; i--) {
-    const element = kept[i]
-    if (element) {
-      next = element
-      continue
-    }
-    const created = document.createRange().createContextualFragment(tagHTML(tags[i]!))
-    const first = created.firstChild!
-    start.parentNode!.insertBefore(created, next)
-    next = first
+  const parent = start.parentNode!
+  let next = start.nextSibling
+  for (let i = 0; i < tags.length; i++) {
+    const element = kept[i] ?? createTagElement(tags[i]!)
+    if (element === next) next = element.nextSibling
+    else parent.insertBefore(element, next)
   }
 }
 
