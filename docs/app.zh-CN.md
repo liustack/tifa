@@ -1,7 +1,7 @@
 ---
 summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、route.go 与 route.tsx、Layout、hooks.go、404、SSR 与缓存开关，Load 里 Ctx 的用法、带类型入参和结果的方法函数，以及数据、入参和结果的 JSON 规则'
 read_when:
-  - 新建一个 tifa 应用，或给应用加页面、Layout、接口
+  - 新建一个 tifa 应用，或给应用加页面、Layout、API 路由
   - 构建报 Ctx 用法或 Load 返回类型的错误，想知道怎么改
   - 改 internal/analyze 的规则，需要知道对用户承诺了什么
   - 改 examples/shop 或 test/apps 里的应用
@@ -46,13 +46,13 @@ myapp/
 | --- | --- |
 | `orders` | 字面量 `orders` |
 | `order+` | 参数 `{order}`，用 `c.Param("order")` 读 |
-| `path++` | 剩余路径 `{path...}`，只能是最后一层 |
+| `path++` | 剩余路径 `{path...}`，只能是最后一层。Go 里用 `c.Param("path")` 读，TypeScript 的 `Params` 里键是 `_splat` |
 
 - 字面量目录名只能用 ASCII 字母、数字和 `- . _ ~`。参数名以字母或 `_` 开头，后面跟字母、数字或 `_`，同一个 URL 里不能重复。
 - Go 的包名取自 `package` 那一行，不取目录名。包名按参数起：`project+` 里写 `package project`，别的包 import 它时就叫 `project`。
 - go 命令会跳过以 `.` 或 `_` 开头的目录和名为 `testdata` 的目录。这些目录里有 `route.go`、`route.tsx`、`layout.go` 或 `layout.tsx` 时构建报错，放别的文件没问题，比如 `_components` 目录。
 - 目录名还得是合法的 Go import 路径，所以 `con`、`x~1` 这类名字（Windows 保留名和短文件名）构建报错。
-- 两个页面的 URL 匹配同样的请求时构建报错，比如 `items/id+` 和 `items/key+` 并列。两个 URL 有交集、又分不出谁更具体时也报错，规则同 Go 的 `http.ServeMux`。字面量比参数具体，所以 `items/new` 和 `items/id+` 并列没问题。
+- 两个路由（页面或 API 路由）的 URL 匹配同样的请求时构建报错，比如 `items/id+` 和 `items/key+` 并列。两个 URL 有交集、又分不出谁更具体时也报错，规则同 Go 的 `http.ServeMux`。字面量比参数具体，所以 `items/new` 和 `items/id+` 并列没问题。
 - 声明 `const Path` 会构建报错，目录就是 URL。
 
 ## route.go
@@ -68,18 +68,19 @@ func Load(c *tifa.Ctx) (shop.Order, error) {
 	return shop.GetOrder(p.ID, c.Param("order"))
 }
 
-func POST(c *tifa.Ctx) error {
-	if err := shop.ShipOrder(c.Param("project"), c.Param("order")); err != nil {
-		return err
-	}
-	return c.NoContent(204)
+type ShipInput struct {
+	Carrier string `json:"carrier"`
+}
+
+func POST(c *tifa.Ctx, in ShipInput) (shop.Shipment, error) {
+	return shop.ShipOrder(c.Param("project"), c.Param("order"), in.Carrier)
 }
 ```
 
 - `Load` 返回页面数据，返回类型要能转成 TypeScript（见下文「JSON 规则」）。
 - `GET`、`POST`、`PUT`、`PATCH`、`DELETE` 处理和函数同名的 HTTP 方法。
 - 目录里有 `route.tsx` 就是页面，GET 由框架渲染，这时不能再写 `GET`。不需要数据、也没有别的方法的页面可以只有 `route.tsx`，不写 `route.go`。
-- 有 `route.go`、没有 `route.tsx` 的目录是接口：方法函数照写的那样回答，不能写 `Load`，因为 `Load` 是给页面取数的。
+- 有 `route.go`、没有 `route.tsx` 的目录是 API 路由：方法函数照写的那样回答，不能写 `Load`，因为 `Load` 是给页面取数的。
 - 全部是包级函数和常量。依赖直接用应用初始化好的全局变量，框架不做依赖注入。
 
 返回错误时：
@@ -88,7 +89,7 @@ func POST(c *tifa.Ctx) error {
 | --- | --- |
 | `tifa.ErrNotFound` | 404 |
 | `c.Redirect(url, code)` | 重定向 |
-| `tifa.Error{Status, Message}` | 按它的状态码和消息回答，不进 `OnError` |
+| `tifa.Error{Status, Message}` | 按它的状态码和消息回答，不进 `OnError`。状态码不在 400 到 599 之间时按意外错误处理 |
 | `tifa.Fields{"carrier": "请选择承运商"}` | 答 422，按入参字段的 json 名字各带一条消息，不进 `OnError` |
 | 其他错误、panic | 交给 `OnError`，没定义时记日志并答 500 |
 
@@ -107,12 +108,12 @@ func POST(c *tifa.Ctx) (Shipment, error)           // 答 200，结果写成 JSO
 func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 ```
 
-- 入参是结构体。POST、PUT、PATCH 从请求体解码：JSON，或 URL 编码、multipart 表单。GET、DELETE 从查询字符串解码，所以字段只能是字符串、数字、布尔或它们的切片，不能有嵌入字段。
+- 入参是结构体，不能是指向结构体的指针。POST、PUT、PATCH 从请求体解码：JSON，或 URL 编码、multipart 表单。表单只填字符串、数字、布尔或它们的切片类型的字段，表单里出现其他字段的值时答 400。GET、DELETE 从查询字符串解码，所以字段只能是字符串、数字、布尔或它们的切片，不能有嵌入字段，也不能是带 `MarshalText` 或 `UnmarshalText` 的类型。
 - 字段按 `json` 标签取名，表单和查询字符串也一样。写 `form` 标签会构建报错。路径参数、请求头、cookie 照旧从 `c` 读。
 - 入参和结果遵守下文的 JSON 规则，和 `Load` 的返回值一样。
-- 入参类型有 `Validate() error` 方法时，它在解码之后、处理函数之前执行。返回 `nil` 就继续。返回 `tifa.Error` 或 `tifa.Fields` 时原样回答，想标出具体字段就返回 `tifa.Fields`。其他错误一律答 400，消息是 `err.Error()`，会原样给用户看到。
-- 请求体或查询字符串解码失败时答 400（请求体超过上限答 413，其他内容类型答 415），处理函数不执行。
-- 自己写响应的方法函数用 `c.Bind(&in)` 解码请求体，用 `c.BindQuery(&in)` 解码查询字符串。
+- 入参类型有 `Validate` 方法（必须是 `func() error`）时，它在解码之后、处理函数之前执行。返回 `nil` 就继续。返回 `tifa.Error` 或 `tifa.Fields` 时原样回答，想标出具体字段就返回 `tifa.Fields`。其他错误一律答 400，消息是 `err.Error()`，会原样给用户看到。
+- 请求体或查询字符串解码失败时答 400（请求体超过上限答 413，其他内容类型或没有内容类型答 415），处理函数不执行。
+- 自己写响应的方法函数用 `c.Bind(&in)` 解码请求体，用 `c.BindQuery(&in)` 解码查询字符串。它们给字段取名时先看 `form` 标签，再看 `json` 标签，最后用 Go 字段名。
 
 ## Ctx
 
@@ -179,8 +180,8 @@ async function ship() {
 }
 ```
 
-- 函数接收一个对象。`params` 是路径参数，目录没有参数时不写。`input` 是处理函数的入参，没有入参时不写。`signal` 用来取消请求。
-- GET、DELETE 把入参放进查询字符串，其他方法发 JSON 请求体。返回值的类型来自 Go 的返回值，只返回 error 的处理函数是 `void`。自己写响应的处理函数原样交回 `Response`，错误状态码也一样。
+- 函数接收一个对象。`params` 是路径参数，目录没有参数时不写。`name++` 目录的键是 `_splat`。`input` 是处理函数的入参，没有入参时不写。`signal` 用来取消请求。
+- GET、DELETE 把入参放进查询字符串，其他方法发 JSON 请求体。返回值的类型来自 Go 的返回值。`func(c, in) error` 得到 `void`。`func(c) error` 自己写响应，它的调用函数原样交回 `Response`，错误状态码也一样。
 - POST、PUT、PATCH、DELETE 成功后，先重新取当前页面和它的 Layout 的数据，再兑现 promise。传 `invalidate: false` 可以不刷新。失败和 GET 都不刷新。
 - 错误回答抛出 `TifaError`，带 `status`、`message` 和 `fields`（`tifa.Fields` 的消息，其他情况为空）。网络错误照 `fetch` 的样子抛出。
 - 在事件处理函数或 effect 里调用。服务器渲染页面期间调用会抛错。
@@ -188,7 +189,7 @@ async function ship() {
 
 ## Layout
 
-Layout 放在它的目录里，和这个目录的页面（如果有）并列：`layout.go`、`layout.tsx` 套到同目录的页面和下面所有页面。`layout.tsx` 用 `<Outlet />` 放子路由。所在目录和下面都没有页面的 Layout 构建报错。
+Layout 放在它的目录里，和这个目录的页面（如果有）并列：`layout.go`、`layout.tsx` 套到同目录的页面和下面所有页面。`layout.tsx` 用 `<Outlet />` 放子路由。两个文件都可以省掉一个：没有 `layout.tsx` 时子路由直接渲染，没有 `layout.go` 时 Layout 没有数据。所在目录和下面都没有页面的 Layout 构建报错。
 
 ```go
 package project
@@ -200,10 +201,10 @@ func Layout(c *tifa.Ctx) (shop.Project, error) {
 const LayoutSSR = false // 可选，默认 true
 ```
 
-- 同一个目录的 `layout.go` 和 `route.go` 是同一个 Go 包，`Layout`、`LayoutSSR` 和页面的 `Load`、`SSR`、`Cache`、方法函数写在哪个文件都行。没有页面的目录里写页面的这些名字会构建报错。
-- Layout 用 `c.Param` 只能读自己目录路径里的参数。`app/projects/project+/layout.go` 能读 `project`，不能读 `order`。
+- 同一个目录的 `layout.go` 和 `route.go` 是同一个 Go 包，`Layout`、`LayoutSSR` 和页面的 `Load`、`SSR`、`Cache`、方法函数写在哪个文件都行。只有 Layout 文件、没有 `route.go` 和 `route.tsx` 的目录里，写 `Load`、`SSR`、`Cache` 或方法函数会构建报错。
+- Layout 用 `c.Param` 只能读自己目录路径里的参数。`app/projects/project+/layout.go` 能读 `project`，不能读 `order`。页面的 `Load` 同样只能读自己路径里的参数。
 - 同一个 Layout 下切换页面时，Layout 组件不重新挂载，它的状态保留。`Layout` 函数读的参数变了（比如换了一个项目），Layout 重新挂载，状态重置。它不读的参数变了，状态保留，页面同理。
-- 页面和 Layout 都可以用 `tifa.Use(c, project.Layout)` 拿到套着自己的 Layout（同目录或祖先目录的）本次请求的结果，同一个 `Layout` 每个请求只跑一次。引用别的 Layout 构建报错。
+- 页面和 Layout 都可以用 `tifa.Use(c, project.Layout)` 拿到套着自己的 Layout（同目录或祖先目录的）本次请求的结果，同一个 `Layout` 每个请求只跑一次。引用别的 Layout 构建报错，传入的不是包级 `Layout` 函数（比如闭包）也报错。
 - 浏览器里跳转时，导航数据请求只执行所列路由的 `Load` 和 `Layout` 函数。祖先 Layout 的数据还在缓存里时，它不在列表中，它的 `Layout` 这次不会再跑。所以权限检查不要只写在 Layout 里：放进 `OnRequest`，或者让页面的 `Load` 用 `tifa.Use` 依赖做检查的那个 Layout，这样每次请求都会执行它。
 - 文档外壳（`<html>`、`<head>`、资源与注入数据的脚本）由框架写成字符串，React 只渲染 `<body>` 里的应用根节点，所以任何一层出错或 404 时页面仍是完整文档。根 Layout（`app/layout.tsx`）可以导出两个常量定制外壳：`htmlAttributes` 是 `<html>` 的属性（不导出时为 `{ lang: 'en' }`），`documentHead` 是每个页面都带的 head 标签（没有路由匹配、根 `Layout` 失败时也带），格式同 `head` 的返回值。在这里放网站的默认 `title`，没有路由匹配的 404 页面也有标题，页面自己的 `head` 返回 `title` 时会覆盖它。导出 `Document` 组件会构建报错。
 
@@ -271,15 +272,15 @@ func OnRequest(c *tifa.Ctx) error              // 唯一的中间件，调用 c.
 func OnError(c *tifa.Ctx, err error) tifa.Error // 意外错误：上报，返回能给用户看的错误
 ```
 
-- `OnRequest` 作用于页面、导航数据请求、接口和没匹配的 URL，不作用于静态文件。没匹配时 `c.Pattern()` 为空。
-- 整个应用共享的资源，比如数据库连接、日志，放在应用根目录、和 `hooks.go` 并列的文件里，比如 `db.go`、`middleware.go`。每个文件只构建一个包级变量或一个函数：在 `OnStart` 里初始化，在 `OnShutdown` 里释放，其他地方直接用，比如 `myapp.DB`。`app/` 下的包 import 根包来用它们，所以根包不反过来 import 它们（Go 不允许循环引用）。表、模型和查询留在各自的领域里。路由代码只在函数里用这些资源，不在包级变量初始化时读。不用 `init()` 做初始化。
+- `OnRequest` 作用于页面、导航数据请求、API 路由和没匹配的 URL，不作用于静态文件。没匹配时 `c.Pattern()` 为空。
+- 整个应用共享的资源，比如数据库连接、日志，放在应用根目录、和 `hooks.go` 并列的文件里，比如 `db.go`、`middleware.go`。每个文件构建一个包级变量或一个函数：在 `OnStart` 里初始化，在 `OnShutdown` 里释放，其他地方直接用，比如 `myapp.DB`。`app/` 下的包 import 根包来用它们，所以根包不反过来 import 它们（Go 不允许循环引用）。表、模型和查询留在各自的领域里。路由代码只在函数里用这些资源，不在包级变量初始化时读。不用 `init()` 做初始化。
 - 请求级的值用标准 context 写入：`c.SetContext(context.WithValue(...))`，业务包提供带类型的读取函数。
 
 ## Load 里 Ctx 的用法
 
-构建时，tifa 从每个 `Load` 和 `Layout` 函数出发，找出它读的路由参数（`c.Param`）、查询参数（`c.Query`）和它依赖的 Layout（`tifa.Use`）。`Load` 把 `*tifa.Ctx` 传给本模块里的函数时，tifa 会一层层跟进去，跨包也可以，读到的参数都算在这个 `Load` 名下。一个辅助函数被多个 `Load` 调用时，分别算给每个 `Load`。tifa 自己的函数不跟进。
+这一节管 `Load`、`Layout` 和它们调用的函数。构建时，tifa 从每个 `Load` 和 `Layout` 函数出发，找出它读的路由参数（`c.Param`）、查询参数（`c.Query`）和它依赖的 Layout（`tifa.Use`）。`Load` 把 `*tifa.Ctx` 传给本模块里的函数时，tifa 会一层层跟进去，跨包也可以，读到的参数都算在这个 `Load` 名下。一个辅助函数被多个 `Load` 调用时，分别算给每个 `Load`。tifa 自己的函数不跟进。
 
-为了让 tifa 找全，Ctx 只能用在它看得见的地方。
+为了让 tifa 找全，Ctx 只能用在它看得见的地方。`c.Param` 和 `c.Query` 的参数写常量字符串，比如 `c.Param("order")`。`c.Param`、`c.Query` 和 `tifa.Use` 要直接调用，存进变量或当作值传出去都会构建报错。
 
 能持有 Ctx 的类型只有：`*tifa.Ctx`、`tifa.Ctx`、本模块里声明的非泛型结构体（字段只通过这几种类型持有 Ctx，直接含有、嵌入或间接含有都可以），以及指向这种结构体的指针。
 
@@ -293,11 +294,11 @@ func OnError(c *tifa.Ctx, err error) tifa.Error // 意外错误：上报，返�
 
 其他用法都会构建报错，并指出文件和行号，比如：转换成别的类型或接口，赋给已有变量，多个值一起赋值，`return` 它，放进切片、map、数组或通道，`range`，包级变量，`defer`，`go` 语句，传给泛型函数、接口方法、函数变量或模块外的函数（标准库和第三方库）。`return c.Redirect(...)`、`return c.Next()` 不受影响，返回的是方法调用的结果，不是 Ctx 本身。
 
-`Load` 和它调用的函数里不能调用 `c.Request()` 和 `c.Writer()`，通过原始请求读的参数 tifa 看不到。改用 `c.Param`、`c.Query`、`c.Header`、`c.Cookie` 或 `c.Context()`。这两个方法只在方法函数和 `OnRequest` 里用。
+`Load`、`Layout` 和它们调用的函数里不能调用 `c.Request()` 和 `c.Writer()`，通过原始请求读的参数 tifa 看不到。改用 `c.Param`、`c.Query`、`c.Header`、`c.Cookie` 或 `c.Context()`。这两个方法只在方法函数和 `OnRequest` 里用。
 
 遇到报错时，直接调用 Ctx 的方法，或者把它传给普通函数。只需要请求上下文时传 `c.Context()`，只调用 `c.Context()` 的辅助函数（比如 `auth.User(c)`）跟进后什么也不收集。
 
-tifa 只检查 `Load` 能到达的代码。在 `OnRequest`、方法函数或别处把 Ctx 存进全局变量或其他共享位置，再在 `Load` 里取出来用，这条路查不到，不要这样写。
+tifa 只检查 `Load` 和 `Layout` 能到达的代码。在 `OnRequest`、方法函数或别处把 Ctx 存进全局变量或其他共享位置，再在 `Load` 或 `Layout` 里取出来用，这条路查不到，不要这样写。
 
 ## JSON 规则
 

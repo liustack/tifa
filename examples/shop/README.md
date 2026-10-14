@@ -44,7 +44,7 @@ app/
         order+/              /projects/{project}/orders/{order}: order details, POST ships the order
 ```
 
-The domain code sits flat in the root package, one file per domain. Storage is in memory with demo data, standing in for database tables, and changes are lost on restart. Folders under `app/` hold only pages: each folder is a segment of the URL, `route.go` holds `Load`, which calls the root package, and `route.tsx` holds the UI and reads the result of `Load` through `./+route`. The order page reads its shop through the shop Layout with `tifa.Use(c, project.Layout)`. See [Structuring an app](../../docs/structure.md) for why, and for when a domain gets its own package.
+The domain code sits flat in the root package, one file per domain. Storage is in memory with demo data, standing in for database tables, and changes are lost on restart. Folders under `app/` hold pages and their method handlers: each folder is a segment of the URL, `route.go` holds `Load`, which calls the root package, and the order page's `POST`, which ships the order, and `route.tsx` holds the UI and reads the result of `Load` through `./+route`. The order page reads its shop through the shop Layout with `tifa.Use(c, project.Layout)`. `app/route.go` is an API route whose `GET` redirects `/` to the shop `studio`. See [Structuring an app](../../docs/structure.md) for why, and for when a domain gets its own package.
 
 ## Things to try
 

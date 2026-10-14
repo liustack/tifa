@@ -44,7 +44,7 @@ app/
         order+/              /projects/{project}/orders/{order}：订单详情，POST 即发货
 ```
 
-领域代码平铺在根包里，一个领域一个文件。存储放在内存里，自带演示数据，代替数据库表，重启后恢复初始值。`app/` 下的目录只放页面：每层目录是 URL 的一段，`route.go` 写调用根包的 `Load`，`route.tsx` 写界面，用 `./+route` 读 `Load` 的结果。订单页通过店铺 Layout 读店铺：`tifa.Use(c, project.Layout)`。为什么这样组织、领域什么时候拆成单独的包，见[应用的代码结构](../../docs/structure.zh-CN.md)。
+领域代码平铺在根包里，一个领域一个文件。存储放在内存里，自带演示数据，代替数据库表，重启后恢复初始值。`app/` 下的目录放页面和它们的方法函数：每层目录是 URL 的一段，`route.go` 写调用根包的 `Load`，订单页的 `route.go` 还有发货用的 `POST`，`route.tsx` 写界面，用 `./+route` 读 `Load` 的结果。订单页通过店铺 Layout 读店铺：`tifa.Use(c, project.Layout)`。`app/route.go` 是 API 路由，它的 `GET` 把 `/` 重定向到店铺 `studio`。为什么这样组织、领域什么时候拆成单独的包，见[应用的代码结构](../../docs/structure.zh-CN.md)。
 
 ## 可以试试
 

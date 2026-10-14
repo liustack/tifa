@@ -44,7 +44,7 @@ cache:
 
 | 键 | 默认值 | 参数与环境变量 | 作用 |
 | --- | --- | --- | --- |
-| `build.target` | `es2020` | 只能写在项目文件 | 浏览器包的 JavaScript 目标，写法同 esbuild 的 `--target`：一个 ECMAScript 版本加若干带版本的浏览器。SSR 包固定是 ES2022 |
+| `build.target` | `es2020` | 只能写在项目文件 | 浏览器包的 JavaScript 目标，写法同 esbuild 的 `--target`：一个 ECMAScript 版本加若干带版本的浏览器，浏览器可选 chrome、edge、firefox、ios、opera 和 safari。SSR 包固定是 ES2022 |
 | `build.public` | `public` | 只能写在项目文件 | 静态文件目录，原样打进程序，从 `/` 提供 |
 | `server.addr` | `127.0.0.1:8080` | `--server-addr`、`TIFA_SERVER_ADDR` | 监听地址。容器里用 `0.0.0.0:8080` |
 | `server.body_limit` | `1MiB` | `--server-body-limit`、`TIFA_SERVER_BODY_LIMIT` | 请求体上限，超过答 413 |
@@ -62,7 +62,7 @@ cache:
 
 ## 报错
 
-下面几种情况程序拒绝启动，并指出来源和键：
+项目文件写错时 `tifa build` 直接失败。下面几种情况程序拒绝启动，并指出来源和键：
 
 - 文件或环境变量里有未知的键，比如 `TIFA_SERVER_PORT`。
 - 值的类型或格式不对，比如 `ssr.timeout: 3`。

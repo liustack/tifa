@@ -80,7 +80,7 @@ go tool tifa build   # bin/<app>, with the frontend embedded
 ## Highlights
 
 - **One file to deploy.** Pure Go, `CGO_ENABLED=0`, cross-compiles like any Go program. The browser bundle, styles and server renderer are embedded in the executable.
-- **Real HTML on the first request.** Go runs every `Load` for the page and its Layouts first, then renders React to complete HTML inside the process with a pure Go QuickJS. Search engines and link previews see the content, title and meta tags.
+- **Real HTML on the first request.** Go runs the page's `Load` and every `Layout` function first, then renders React to complete HTML inside the process with a pure Go QuickJS. Search engines and link previews see the content, title and meta tags.
 - **No Node to build.** `tifa build` and `tifa dev` bundle with esbuild's Go API. Node is only there to install npm packages and, if you like, run the type checker.
 - **Types from Go to React.** The TypeScript type of each page's data is generated from what its Go `Load` returns.
 - **Mistakes caught at build time.** Duplicate paths, a Layout reading a parameter it does not own, a `Load` result that cannot become TypeScript: the build stops and names the file and line.

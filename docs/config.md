@@ -44,7 +44,7 @@ Run `./bin/app config` to print the merged settings of all sources as a commente
 
 | Key | Default | Flag and environment variable | What it does |
 | --- | --- | --- | --- |
-| `build.target` | `es2020` | project file only | JavaScript target of the browser bundle, written like esbuild's `--target`: one ECMAScript version plus browsers with versions. The SSR bundle always targets ES2022 |
+| `build.target` | `es2020` | project file only | JavaScript target of the browser bundle, written like esbuild's `--target`: one ECMAScript version plus browsers with versions, from chrome, edge, firefox, ios, opera and safari. The SSR bundle always targets ES2022 |
 | `build.public` | `public` | project file only | Folder of static files copied into the program as they are and served from `/` |
 | `server.addr` | `127.0.0.1:8080` | `--server-addr`, `TIFA_SERVER_ADDR` | Address to listen on. Use `0.0.0.0:8080` in a container |
 | `server.body_limit` | `1MiB` | `--server-body-limit`, `TIFA_SERVER_BODY_LIMIT` | Largest request body. A bigger one is answered with 413 |
@@ -62,7 +62,7 @@ Run `./bin/app config` to print the merged settings of all sources as a commente
 
 ## Errors
 
-The program refuses to start and names the source and the key when:
+`tifa build` fails on a bad project file. The program refuses to start and names the source and the key when:
 
 - a file or variable names an unknown key, such as `TIFA_SERVER_PORT`,
 - a value has the wrong type or format, such as `ssr.timeout: 3`,
