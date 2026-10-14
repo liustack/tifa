@@ -190,7 +190,9 @@ func TestAppCopiesFilesThatStylesheetsReference(t *testing.T) {
 		"app/page/page.css": ".page { background: url(\"./img/bg.png\") }\n" +
 			".icon { background: url(\"./img/icon.SVG\") }\n" +
 			".space { background: url(\"./img/with%20space.svg\") }\n" +
-			"@font-face { font-family: Brand; src: url(\"./brand.woff2?v=2\") format(\"woff2\") }\n",
+			"@font-face { font-family: Brand; src: url(\"./brand.woff2?v=2\") format(\"woff2\") }\n" +
+			".logo { background: url(\"/logo.svg\") }\n",
+		"public/logo.svg":              "<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
 		"app/page/img/bg.png":          strings.Repeat("png bytes ", 500),
 		"app/page/img/icon.SVG":        "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"1\" height=\"1\"/></svg>",
 		"app/page/img/with space.svg":  "<svg xmlns=\"http://www.w3.org/2000/svg\"><circle r=\"1\"/></svg>",
@@ -215,6 +217,10 @@ func TestAppCopiesFilesThatStylesheetsReference(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(root, ".tifa", "dist", "assets", m[1])); err != nil {
 			t.Error(err)
 		}
+	}
+	// A URL from the site root stays, for a file of the public folder.
+	if !regexp.MustCompile(`url\("?/logo\.svg"?\)`).Match(css) {
+		t.Errorf("style lost the URL of the public file:\n%s", css)
 	}
 	// Small SVG files are inlined as data URLs, which also proves Vite read them.
 	if n := strings.Count(string(css), "data:image/svg+xml"); n != 2 {
