@@ -10,6 +10,6 @@ export type Params = Record<string, never>
 export const route = getRouteApi("/_app/auth/login")
 
 // POST sends a request to the Go POST handler of app/auth/login.
-export function POST(options: CallOptions = {}): Promise<Response> {
+export async function POST(options: CallOptions = {}): Promise<Response> {
   return call("POST", `/auth/login`, options, "raw") as Promise<Response>
 }

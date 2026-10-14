@@ -776,7 +776,8 @@ func routeModule(n *tsNode) ([]byte, error) {
 		if len(options) == 1 {
 			param = "options: CallOptions = {}"
 		}
-		fmt.Fprintf(&b, "export function %s(%s): Promise<%s> {\n", h.Method, param, result)
+		// async, so that a refused path parameter rejects the promise like any other failure.
+		fmt.Fprintf(&b, "export async function %s(%s): Promise<%s> {\n", h.Method, param, result)
 		fmt.Fprintf(&b, "  return call(%s, %s, options, %s) as Promise<%s>\n}\n", jsString(h.Method), urlTemplate(n.segs), jsString(answer), result)
 	}
 	return []byte(b.String()), nil

@@ -181,7 +181,7 @@ async function ship() {
 }
 ```
 
-- The function takes one object. `params` holds the path parameters and is left out when the folder has none. A `name++` folder's key is `_splat`. `input` is the handler's input and is left out when it takes none. `signal` aborts the request.
+- The function takes one object. `params` holds the path parameters and is left out when the folder has none. A `name++` folder's key is `_splat`. A value that would send the request to another path is refused before any request and rejects the promise: an empty value, `.` or `..`, and for `_splat` a `.` or `..` segment or an empty one before the end. `input` is the handler's input and is left out when it takes none. `signal` aborts the request.
 - GET and DELETE send the input in the query string, the other methods as a JSON body. The result is typed from the Go result. `func(c, in) error` gives `void`. `func(c) error` writes its own response, so its function gives back the `Response` as it is, also for an error status.
 - After a POST, PUT, PATCH or DELETE succeeds, the data of the current page and its Layouts is loaded again before the promise resolves. Pass `invalidate: false` to keep it. A failure and a GET never reload.
 - An error answer throws `TifaError` with `status`, `message` and `fields` (the messages of a `tifa.Fields`, empty otherwise). A network failure throws as `fetch` does.
