@@ -147,6 +147,12 @@ test("a page's 404 is shown inside its Layouts", async () => {
   lacks(html, 'TEAM_ONE')
 })
 
+test("a 404 below a Layout without NotFound is shown in that Layout's place", async () => {
+  const html = await render('/shared/two', { ...appData, 'app/a': ok('a'), 'app/a/two': missing })
+  contains(html, 'APP_NAV', 'APP_404')
+  lacks(html, 'LAYOUT_A', 'PAGE_A_TWO')
+})
+
 test("an unmatched URL shows the root Layout's NotFound without asking for data", async () => {
   const { calls } = await client('/teams/x/missing')
   assert(calls.length === 0, `requested ${JSON.stringify(calls)}`)

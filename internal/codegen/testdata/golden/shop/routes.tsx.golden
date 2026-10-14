@@ -29,7 +29,7 @@ const r1 = createRoute({
   id: "_app",
   component: m1.default,
   errorComponent: DefaultError,
-  loader: ({ context, location }) => load<D1>(context, "app", location, "__root__"),
+  loader: ({ context, location }) => load<D1>(context, "app", location),
   staleTime: Infinity,
   preloadStaleTime: Infinity,
   loaderDeps: ({ search }) => pick(search, ["lang"]),
@@ -38,53 +38,48 @@ const r1 = createRoute({
 
 const r2 = createRoute({
   getParentRoute: () => r1,
-  id: "_notFound",
-  notFoundComponent: m1.NotFound,
-})
-
-const r3 = createRoute({
-  getParentRoute: () => r2,
   id: "_auth",
   component: lazyRouteComponent(m2),
   errorComponent: DefaultError,
 })
 
-const r4 = createRoute({
-  getParentRoute: () => r2,
+const r3 = createRoute({
+  getParentRoute: () => r1,
   path: "projects/$projectId",
   component: lazyRouteComponent(m3),
   errorComponent: e3,
-  loader: ({ context, location }) => load<D3>(context, "app/projects", location, "/_app/_notFound"),
+  notFoundComponent: m1.NotFound,
+  loader: ({ context, location }) => load<D3>(context, "app/projects", location),
   staleTime: Infinity,
   preloadStaleTime: Infinity,
   loaderDeps: ({ search }) => pick(search, ["currency", "lang"]),
   remountDeps: ({ params, search }) => [params.projectId, pick(search, ["currency", "lang"])],
 })
 
-const r5 = createRoute({
-  getParentRoute: () => r3,
+const r4 = createRoute({
+  getParentRoute: () => r2,
   path: "login",
   component: lazyRouteComponent(m4),
   errorComponent: DefaultError,
 })
 
-const r6 = createRoute({
-  getParentRoute: () => r3,
+const r5 = createRoute({
+  getParentRoute: () => r2,
   path: "register",
   component: lazyRouteComponent(m5),
   errorComponent: DefaultError,
 })
 
-const r7 = createRoute({
-  getParentRoute: () => r2,
+const r6 = createRoute({
+  getParentRoute: () => r1,
   path: "/",
   component: m6.default,
   head: m6.head,
   errorComponent: DefaultError,
 })
 
-const r8 = createRoute({
-  getParentRoute: () => r4,
+const r7 = createRoute({
+  getParentRoute: () => r3,
   path: "/",
   component: lazyRouteComponent(m7),
   errorComponent: e3,
@@ -95,8 +90,8 @@ const r8 = createRoute({
   remountDeps: ({ params, search }) => [params.projectId, pick(search, ["currency", "lang", "sort"])],
 })
 
-const r9 = createRoute({
-  getParentRoute: () => r4,
+const r8 = createRoute({
+  getParentRoute: () => r3,
   path: "orders/$orderId",
   component: lazyRouteComponent(m8),
   errorComponent: e3,
@@ -107,7 +102,7 @@ const r9 = createRoute({
   remountDeps: ({ params }) => [params.projectId, params.orderId],
 })
 
-export const routeTree = root.addChildren([r1.addChildren([r2.addChildren([r3.addChildren([r5, r6]), r4.addChildren([r8, r9]), r7])])])
+export const routeTree = root.addChildren([r1.addChildren([r2.addChildren([r4, r5]), r3.addChildren([r7, r8]), r6])])
 
 declare module "@tanstack/react-router" {
   interface Register {

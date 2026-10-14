@@ -86,18 +86,17 @@ const routeErrorAdapter = createSerializationAdapter({
 })
 
 // load is the loader of every route with a Go Load: it asks the source for the route's result
-// at the URL being loaded. 404 becomes notFound(), shown by the closest NotFound from
-// notFoundFrom up (a Layout passes its parent, a page itself). A redirect becomes redirect(),
-// other failures a RouteError for the Error components.
+// at the URL being loaded. 404 becomes notFound(), which the router shows with the first
+// notFoundComponent from the route up. A redirect becomes redirect(), other failures a
+// RouteError for the Error components.
 export async function load<T>(
   context: RouterContext,
   id: string,
   location: { pathname: string; searchStr: string },
-  notFoundFrom?: string,
 ): Promise<T> {
   const result = await context.source(location.pathname + location.searchStr, id)
   if (result.status === 200) return result.data as T
-  if (result.status === 404) throw notFound(notFoundFrom ? { routeId: notFoundFrom as never } : {})
+  if (result.status === 404) throw notFound()
   if (result.location !== undefined) throw redirect({ href: result.location, statusCode: result.status })
   throw new RouteError(result.status, result.error ?? `route ${id} failed with status ${result.status}`)
 }

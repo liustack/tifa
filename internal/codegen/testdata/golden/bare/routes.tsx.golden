@@ -18,7 +18,7 @@ const r1 = createRoute({
   getParentRoute: () => root,
   path: "guide",
   errorComponent: DefaultError,
-  loader: ({ context, location }) => load<D1>(context, "app/docs", location, "__root__"),
+  loader: ({ context, location }) => load<D1>(context, "app/docs", location),
   staleTime: Infinity,
   preloadStaleTime: Infinity,
 })

@@ -30,7 +30,6 @@ type tsNode struct {
 	parent   *tsNode
 	children []*tsNode
 	route    *tsRoute // the route with the component and loader, which getRouteApi names
-	outlet   *tsRoute // the route the children hang from: route, or its NotFound boundary
 }
 
 // tsRoute is one route of the generated TanStack route tree.
@@ -197,8 +196,6 @@ func buildTree(root string, m *analyze.Manifest) (*tsNode, []*tsNode, error) {
 //     a sibling under the same parent has the same path, which would give both the same route
 //     ID, the Layout is a pathless route named after its directory with the path route inside.
 //     A Layout without a path is a pathless route named after its directory.
-//   - a Layout that exports NotFound gets a pathless boundary route inside, which its children
-//     hang from. A 404 below it then shows the NotFound inside the Layout.
 //   - a page is a route with its path relative to its Layout's, "/" when they are equal.
 //
 // Route IDs follow router-core: the parent's ID, a slash, and the id or path option.
@@ -240,11 +237,10 @@ func tanstackRoutes(nodes []*tsNode) ([]*tsRoute, error) {
 	for _, n := range nodes {
 		if n.parent == nil {
 			n.route = add(nil, "", "")
-			n.outlet = n.route
 			continue
 		}
 		path := paths[n]
-		parent := n.parent.outlet
+		parent := n.parent.route
 		switch {
 		case n.file == "route":
 			n.route = add(parent, "", path)
@@ -257,10 +253,6 @@ func tanstackRoutes(nodes []*tsNode) ([]*tsRoute, error) {
 		default:
 			n.route = add(parent, "", path)
 		}
-		n.outlet = n.route
-		if n.file == "layout" && n.exported("NotFound") {
-			n.outlet = add(n.route, "_notFound", "")
-		}
 	}
 	seen := map[string]bool{}
 	for _, r := range routes {
@@ -270,6 +262,11 @@ func tanstackRoutes(nodes []*tsNode) ([]*tsRoute, error) {
 		seen[r.routeID] = true
 	}
 	return routes, nil
+}
+
+// loadsBelow reports whether n or a node under it has a Load.
+func loadsBelow(n *tsNode) bool {
+	return n.load != nil || slices.ContainsFunc(n.children, loadsBelow)
 }
 
 // layoutRouteID is the id option of a Layout's pathless route: an underscore and its directory
@@ -498,6 +495,21 @@ func routesModule(nodes []*tsNode) ([]byte, error) {
 		}
 		return v
 	}
+	// notFoundOf names a Layout's NotFound for the routes right below it. A lazy one is wrapped
+	// once, so they share one component.
+	notFoundVars := map[*tsNode]string{}
+	notFoundOf := func(n *tsNode) string {
+		if eager(n) {
+			return export(index[n], n, "NotFound")
+		}
+		v, ok := notFoundVars[n]
+		if !ok {
+			v = fmt.Sprintf("n%d", index[n])
+			notFoundVars[n] = v
+			fmt.Fprintf(&shared, "const %s = %s\n", v, export(index[n], n, "NotFound"))
+		}
+		return v
+	}
 	for i, n := range nodes {
 		if n.parent == nil {
 			n.route.opts = append(n.route.opts,
@@ -526,26 +538,23 @@ func routesModule(nodes []*tsNode) ([]byte, error) {
 			}
 		}
 		opts = append(opts, "errorComponent: "+errorComponent)
-		if n.exported("NotFound") {
-			notFound := "notFoundComponent: " + export(i, n, "NotFound")
-			if n.outlet != n.route {
-				n.outlet.opts = append(n.outlet.opts, notFound)
-			} else {
-				opts = append(opts, notFound)
-			}
+		// A page shows its own NotFound in its place. A Layout's NotFound goes on the routes right
+		// below it that have a Load in their subtree, since only a Load gives a 404: the router
+		// takes a 404 up from the route that threw to the first route with a notFoundComponent,
+		// and shows it in that route's place, so in the Layout's Outlet. The root Layout's is the
+		// root route's.
+		switch {
+		case n.file == "route" && n.exported("NotFound"):
+			opts = append(opts, "notFoundComponent: "+export(i, n, "NotFound"))
+		case n.parent.parent != nil && n.parent.exported("NotFound") && loadsBelow(n):
+			opts = append(opts, "notFoundComponent: "+notFoundOf(n.parent))
 		}
 		var query []string
 		if n.load != nil {
 			query = n.load.AllQuery
 			runtime["load"] = true
-			// A page's 404 is shown from the page up. A Layout's is shown from the level above,
-			// where its parent's children hang.
-			notFoundFrom := ""
-			if n.file == "layout" {
-				notFoundFrom = ", " + jsString(n.parent.outlet.routeID)
-			}
 			opts = append(opts,
-				fmt.Sprintf("loader: ({ context, location }) => load<D%d>(context, %s, location%s)", i, jsString(n.id), notFoundFrom),
+				fmt.Sprintf("loader: ({ context, location }) => load<D%d>(context, %s, location)", i, jsString(n.id)),
 				"staleTime: Infinity",
 				"preloadStaleTime: Infinity")
 			if len(query) > 0 {

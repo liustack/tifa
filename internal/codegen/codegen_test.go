@@ -183,7 +183,7 @@ func TestRemountFollowsTheParametersLoadReads(t *testing.T) {
   remountDeps: ({ params }) => [params.projectId],`,
 		`remountDeps: ({ params }) => [params.orderId],`,
 		`remountDeps: ({ params }) => [params._splat],`,
-		`load<D2>(context, "app/projects", location, "__root__"),
+		`load<D2>(context, "app/projects", location),
   staleTime: Infinity,
   preloadStaleTime: Infinity,
   remountDeps: ({ params }) => [params.projectId],`,
@@ -236,10 +236,30 @@ func TestLayoutWithAPathIsOneRoute(t *testing.T) {
 	}
 }
 
+// A Layout's NotFound needs no route of its own: the routes right below the Layout carry it, so
+// a 404 under the Layout shows it in the Layout's Outlet, and every loader throws a plain
+// notFound() that the router takes up from its own route.
+func TestLayoutNotFoundAddsNoRoute(t *testing.T) {
+	tree := string(generate(t, "router", false)["routes.tsx"])
+	if strings.Contains(tree, "_notFound") {
+		t.Errorf("the route tree has a NotFound boundary route:\n%s", tree)
+	}
+	if strings.Contains(tree, "location, \"") {
+		t.Errorf("a loader names where its 404 is shown:\n%s", tree)
+	}
+	for _, want := range []string{
+		"path: \"shared\",\n  component: lazyRouteComponent(m2),\n  errorComponent: DefaultError,\n  notFoundComponent: m1.NotFound,",
+	} {
+		if !strings.Contains(tree, want) {
+			t.Errorf("routes.tsx lacks %q:\n%s", want, tree)
+		}
+	}
+}
+
 // Two Layouts with the same path prefix are two routes of the tree.
 func TestLayoutsWithTheSamePathGetDistinctRoutes(t *testing.T) {
 	files := generate(t, "router", false)
-	for _, want := range []string{`getRouteApi("/_app/_notFound/_a/shared")`, `getRouteApi("/_app/_notFound/_b/shared")`} {
+	for _, want := range []string{`getRouteApi("/_app/_a/shared")`, `getRouteApi("/_app/_b/shared")`} {
 		found := false
 		for _, name := range []string{"app/a/+route.ts", "app/b/+route.ts"} {
 			found = found || strings.Contains(string(files[name]), want)
