@@ -387,6 +387,7 @@ func (a *analyzer) build() *Manifest {
 		}
 	}
 
+	a.checkParamSiblings(ids)
 	a.linkLayouts(routes, layouts)
 	a.checkPaths(routes)
 	a.checkUses(layouts)
@@ -790,10 +791,43 @@ func (a *analyzer) linkLayouts(routes []*route, layouts []*layout) {
 	}
 }
 
+// checkParamSiblings reports a directory that holds more than one parameter directory (name+ or
+// name++) with routes or Layouts in them, such as items/id+ next to items/key+: both would read
+// the same URL segment. ids lists the directories with convention files, sorted. Each extra
+// parameter directory is reported once, at the first convention file in or below it. A
+// directory whose path is not valid is left to dirPath.
+func (a *analyzer) checkParamSiblings(ids []string) {
+	first := map[string]string{} // parent directory to its first parameter directory
+	reported := map[string]bool{}
+	for _, id := range ids {
+		segs, err := dirSegments(id)
+		if err != nil {
+			continue
+		}
+		parts := strings.Split(id, "/") // "app" and one part per segment
+		for i, seg := range segs {
+			if seg.param == "" {
+				continue
+			}
+			parent, dir := strings.Join(parts[:i+1], "/"), strings.Join(parts[:i+2], "/")
+			other, ok := first[parent]
+			if !ok || other == dir {
+				first[parent] = dir
+				continue
+			}
+			if !reported[dir] {
+				reported[dir] = true
+				a.errorInFile(id, a.dirs[id].firstFile(), "%s and %s are both parameter directories in %s: a directory holds at most one, since both would read the same URL segment", other, dir, parent)
+			}
+		}
+	}
+}
+
 // checkPaths reports c.Param names that are not in the route's own path, and every pair of
-// paths that ServeMux would refuse to register together: a duplicate when they match the same
-// URLs, such as the sibling directories id+ and key+, and a conflict when they share some URLs
-// and neither is more specific. Each pair is reported once, at the later route.
+// paths that ServeMux would refuse to register together: a conflict when they share some URLs
+// and neither is more specific. Two paths that match the same URLs differ only in parameter
+// names, so they go through two parameter directories in one directory, which
+// checkParamSiblings reports. Each pair is reported once, at the later route.
 func (a *analyzer) checkPaths(routes []*route) {
 	var checked []*route
 	for _, r := range routes {
@@ -806,10 +840,7 @@ func (a *analyzer) checkPaths(routes []*route) {
 			}
 		}
 		for _, other := range checked {
-			switch comparePaths(muxSegments(other.segs), muxSegments(r.segs)) {
-			case equivalent:
-				a.errorInFile(r.Dir, r.file, "the path %q duplicates %q of %s: both match the same URLs", r.Path, other.Path, other.Dir)
-			case overlaps:
+			if comparePaths(muxSegments(other.segs), muxSegments(r.segs)) == overlaps {
 				a.errorInFile(r.Dir, r.file, "the path %q conflicts with %q of %s: both match some URLs and neither is more specific", r.Path, other.Path, other.Dir)
 			}
 		}

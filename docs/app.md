@@ -52,7 +52,8 @@ Every folder below `app/` is one segment of the URL. `app/` itself is `/`.
 - The go command takes the package name from the `package` line, not from the folder. Name the package after the parameter: `project+` holds `package project`, and other packages import it as `project`.
 - The go command skips folders that start with `.` or `_`, and folders named `testdata`. A `route.go`, `route.tsx`, `layout.go` or `layout.tsx` inside one fails the build. Other files there, such as a `_components` folder, are fine.
 - A folder name must also be valid in a Go import path, so names such as `con` or `x~1` (Windows reserved and short names) fail the build.
-- Two routes (pages or API routes) whose URLs match the same requests fail the build, such as `items/id+` next to `items/key+`. So do two whose URLs overlap without one being more specific, as in Go's `http.ServeMux`. A literal is more specific than a parameter, so `items/new` next to `items/id+` is fine.
+- A folder holds at most one parameter folder. `items/id+` next to `items/key+` or `items/path++` fails the build, because both would read the same URL segment.
+- Two routes (pages or API routes) whose URLs overlap without one being more specific fail the build, as in Go's `http.ServeMux`, such as `a/b+` next to `a+/b`. A literal is more specific than a parameter, so `items/new` next to `items/id+` is fine.
 - Declaring `const Path` fails the build. The folder is the URL.
 
 ## route.go

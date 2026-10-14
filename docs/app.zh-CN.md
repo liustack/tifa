@@ -52,7 +52,8 @@ myapp/
 - Go 的包名取自 `package` 那一行，不取目录名。包名按参数起：`project+` 里写 `package project`，别的包 import 它时就叫 `project`。
 - go 命令会跳过以 `.` 或 `_` 开头的目录和名为 `testdata` 的目录。这些目录里有 `route.go`、`route.tsx`、`layout.go` 或 `layout.tsx` 时构建报错，放别的文件没问题，比如 `_components` 目录。
 - 目录名还得是合法的 Go import 路径，所以 `con`、`x~1` 这类名字（Windows 保留名和短文件名）构建报错。
-- 两个路由（页面或 API 路由）的 URL 匹配同样的请求时构建报错，比如 `items/id+` 和 `items/key+` 并列。两个 URL 有交集、又分不出谁更具体时也报错，规则同 Go 的 `http.ServeMux`。字面量比参数具体，所以 `items/new` 和 `items/id+` 并列没问题。
+- 一个目录下最多一个参数目录。`items/id+` 和 `items/key+` 或 `items/path++` 并列会构建报错，因为它们读的是同一段 URL。
+- 两个路由（页面或 API 路由）的 URL 有交集、又分不出谁更具体时构建报错，规则同 Go 的 `http.ServeMux`，比如 `a/b+` 和 `a+/b`。字面量比参数具体，所以 `items/new` 和 `items/id+` 并列没问题。
 - 声明 `const Path` 会构建报错，目录就是 URL。
 
 ## route.go

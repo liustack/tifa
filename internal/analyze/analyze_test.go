@@ -176,7 +176,10 @@ func TestViolations(t *testing.T) {
 		app  string
 		want [][]string
 	}{
-		{"duppath", [][]string{{"app/items/key+/route.go:1:", `"/items/{key}"`, `"/items/{id}"`, "app/items/id+"}}},
+		{"duppath", [][]string{
+			{"app/items/key+/route.go:1:", "app/items/id+ and app/items/key+", "parameter directories"},
+			{"app/shops/shop+/a/route.tsx:1:", "app/shops/rest++ and app/shops/shop+", "parameter directories"},
+		}},
 		{"ongetpage", [][]string{{"app/page/route.go:7:", "GET", "route.tsx"}}},
 		{"apiload", [][]string{{"app/api/route.go:7:", "Load", "route.tsx"}}},
 		{"badhandler", [][]string{
@@ -245,8 +248,8 @@ func TestViolations(t *testing.T) {
 		}},
 		{"badpath", [][]string{
 			{"app/a/b+/route.go:1:", `"/a/{b}"`, `"/{a}/b"`, "conflicts"},
-			{"app/y+/b/c/route.go:1:", `"/{y}/b/c"`, `"/a/{x}/c"`, "conflicts"},
-			{"app/y+/b/c/route.go:1:", `"/{y}/b/c"`, `"/d/b/{z}"`, "conflicts"},
+			{"app/a/b+/c/route.go:1:", `"/a/{b}/c"`, `"/{a}/b/c"`, "conflicts"},
+			{"app/d/b/z+/route.go:1:", `"/d/b/{z}"`, `"/{a}/b/c"`, "conflicts"},
 			{"app/declared/route.go:3:", "Path is not declared"},
 		}},
 		{"paramname", [][]string{
@@ -310,7 +313,7 @@ func TestViolations(t *testing.T) {
 		}},
 		{"typeerror", [][]string{
 			{"app/page/route.go:5:17:", "cannot use"},
-			{"app/dup/b+/route.go:1:", "duplicates"},
+			{"app/dup/b+/route.go:1:", "app/dup/a+ and app/dup/b+", "parameter directories"},
 			{"app/getpage/route.go:7:", "GET"},
 		}},
 		{"badoutside", [][]string{{"bad/bad.go:3:15:", "cannot use"}}},
