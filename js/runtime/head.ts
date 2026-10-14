@@ -327,3 +327,13 @@ function markers(): [Comment, Comment] {
   head.append(start, end)
   return [start, end]
 }
+
+// followHead keeps document.head in step with the router's matches: after a navigation, and
+// whenever the data of a match changes, such as when router.invalidate() refetches in the
+// background. This is what TanStack's HeadContent reads too. In the browser build TanStack makes
+// the matches a store one can subscribe to, on the server a plain value.
+export function followHead(router: { stores: { matches: { get: () => ReadonlyArray<HeadMatch> } } }) {
+  const matches = router.stores.matches as { get: () => ReadonlyArray<HeadMatch>; subscribe?: (listener: () => void) => unknown }
+  if (typeof matches.subscribe !== 'function') throw new Error('head: the router has no store of matches to follow, it is not a browser router')
+  matches.subscribe(() => syncHead(matches.get()))
+}

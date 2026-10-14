@@ -1,7 +1,11 @@
 // Run by TestGeneratedRouterBehaves in Node, bundled for the browser: the routers here run as
 // they do in the browser, with the reactive stores the head code subscribes to, against a
 // document that has just what that code uses.
-import { headHTML, setAttributes, syncHead, type Tag } from './.tifa/runtime/head'
+import { createMemoryHistory } from '@tanstack/react-router'
+import { routeTree } from './.tifa/routes'
+import { createAppRouter } from './.tifa/runtime/router'
+import { type RouteResult } from './.tifa/runtime/data'
+import { followHead, headHTML, setAttributes, syncHead, type Tag } from './.tifa/runtime/head'
 
 const tests: Array<[string, () => Promise<void>]> = []
 const test = (name: string, fn: () => Promise<void>) => tests.push([name, fn])
@@ -12,6 +16,7 @@ function assert(condition: unknown, message: string): asserts condition {
 function lacks(text: string, ...parts: string[]) {
   for (const part of parts) assert(!text.includes(part), `${part} in:\n${text}`)
 }
+const ok = (data: unknown): RouteResult => ({ status: 200, data })
 
 // The browser globals a router with scroll restoration touches.
 const g = globalThis as any
@@ -27,6 +32,15 @@ Object.assign(g, {
   location: { href: 'http://tifa.test/', origin: 'http://tifa.test' },
   document: browserDocument,
 })
+
+// client loads url on a router whose source answers with answer.
+async function client(url: string, answer: (url: string, id: string) => RouteResult) {
+  const router = createAppRouter(routeTree, async (u, id) => answer(u, id), {
+    history: createMemoryHistory({ initialEntries: [url] }),
+  })
+  await router.load()
+  return { router }
+}
 
 // A document with just what the head code of the browser uses. It has no HTML parser, so
 // building elements from HTML fails, and it records the order elements are inserted in, which
@@ -177,6 +191,21 @@ test('kept head elements move into the new order', async () => {
     const after = managed()
     assert(after[1] === b && after[2] === a, `head ${after.map(describe)}`)
     assert(fakeDocument.inserted.length === 5, `elements were created again: ${fakeDocument.inserted.length}`)
+  })
+})
+
+test('the head follows data the router refetches in the background', async () => {
+  await withDocument(async () => {
+    let team = 'x'
+    const { router } = await client('/teams/x/two', (_, id) => ok(id === 'app/team' ? team : id))
+    followHead(router)
+    syncHead(router.stores.matches.get())
+    const title = () => managed().find((e) => e.localName === 'title')?.textContent
+    assert(title() === 'TEAM x', `title ${title()}`)
+    team = 'y'
+    await router.invalidate()
+    for (let i = 0; i < 100 && title() !== 'TEAM y'; i++) await new Promise((resolve) => setTimeout(resolve, 0))
+    assert(title() === 'TEAM y', `title after invalidate ${title()}`)
   })
 })
 

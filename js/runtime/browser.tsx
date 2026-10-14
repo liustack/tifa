@@ -3,7 +3,7 @@ import { RouterProvider, type AnyRoute } from '@tanstack/react-router'
 import { RouterClient } from '@tanstack/react-router/ssr/client'
 import { createAppRouter, type HTMLAttributes } from './router'
 import { bootElementId, collector, injected, rootElementId, sameURL, type Boot, type Source } from './data'
-import { setAttributes, syncHead } from './head'
+import { followHead, setAttributes, syncHead } from './head'
 
 // hydrate takes over the application root the server rendered. A page rendered without SSR
 // carries its data instead, and the browser renders it from that data without a request. Either
@@ -37,10 +37,4 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = { 
     syncHead(router.stores.matches.get())
     createRoot(root).render(<RouterProvider router={router} />)
   })
-}
-
-// followHead updates document.head after every load the router resolves: a navigation or an
-// invalidation. Hydration loads nothing and leaves the head the server wrote as it is.
-function followHead(router: ReturnType<typeof createAppRouter>) {
-  router.subscribe('onResolved', () => syncHead(router.stores.matches.get()))
 }

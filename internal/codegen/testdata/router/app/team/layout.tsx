@@ -2,6 +2,9 @@ import { RouteError } from 'tifa/client'
 import { Outlet } from '@tanstack/react-router'
 import { route } from './+route'
 
+// The title follows the team's data, so it changes when the data does.
+export const head = ({ loaderData }: { loaderData?: string }) => ({ meta: [{ title: `TEAM ${loaderData}` }] })
+
 export default function Team() {
   return (
     <section>
