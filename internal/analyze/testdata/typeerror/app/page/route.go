@@ -1,5 +1,5 @@
 package page
 
-const Path = "/page"
+const Name = "page"
 
 var count int = "one"

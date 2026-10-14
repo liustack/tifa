@@ -54,23 +54,23 @@ func loadOrders(c *tifa.Ctx) ([]string, error) {
 func testApp() App {
 	return App{
 		Layouts: []Layout{
-			{ID: "app", SSR: true, Load: func(c *tifa.Ctx) (any, error) { return tifa.Use(c, loadSite) }},
+			{ID: "app/layout", SSR: true, Load: func(c *tifa.Ctx) (any, error) { return tifa.Use(c, loadSite) }},
 			{ID: "app/projects", SSR: true, Load: func(c *tifa.Ctx) (any, error) { return tifa.Use(c, loadProject) }},
 			{ID: "app/plain", SSR: true},
 		},
 		Routes: []Route{
-			{ID: "app/home", Path: "/", Page: true, SSR: true, Layouts: []string{"app"}},
+			{ID: "app/home", Path: "/", Page: true, SSR: true, Layouts: []string{"app/layout"}},
 			{
-				ID: "app/projects/orders", Path: "/projects/{projectId}", Page: true, SSR: true, Layouts: []string{"app", "app/projects"},
-				Load:   func(c *tifa.Ctx) (any, error) { return tifa.Use(c, loadOrders) },
+				ID: "app/projects/orders", Path: "/projects/{projectId}", Page: true, SSR: true, Layouts: []string{"app/layout", "app/projects"},
+				Load: func(c *tifa.Ctx) (any, error) { return tifa.Use(c, loadOrders) },
 				POST: func(c *tifa.Ctx) error { return c.JSON(201, map[string]string{"created": c.Param("projectId")}) },
 			},
 			{
-				ID: "app/api/health", Path: "/api/health", SSR: true, Layouts: []string{"app"},
+				ID: "app/api/health", Path: "/api/health", SSR: true, Layouts: []string{"app/layout"},
 				GET:    func(c *tifa.Ctx) error { return c.Text(200, "ok") },
 				DELETE: func(c *tifa.Ctx) error { return tifa.Error{Status: 409, Message: "busy"} },
 			},
-			{ID: "app/api/nothing", Path: "/api/nothing", SSR: true, Layouts: []string{"app"}},
+			{ID: "app/api/nothing", Path: "/api/nothing", SSR: true, Layouts: []string{"app/layout"}},
 		},
 	}
 }
@@ -148,7 +148,7 @@ func TestPageWithoutRendererAnswersLoadsAsJSON(t *testing.T) {
 		t.Fatalf("decode %s: %v", w.Body.String(), err)
 	}
 	want := map[string]string{
-		"app":                 `{"name":"shop"}`,
+		"app/layout":          `{"name":"shop"}`,
 		"app/projects":        `{"id":"p1","site":"shop"}`,
 		"app/projects/orders": `["p1-1","p1-2"]`,
 	}
@@ -163,7 +163,7 @@ func TestPageWithoutRendererAnswersLoadsAsJSON(t *testing.T) {
 	if n := siteLoads.Load(); n != 1 {
 		t.Errorf("site Load ran %d times", n)
 	}
-	if w := send(s, "GET", "/", ""); w.Code != 200 || w.Body.String() != `{"app":{"name":"shop"}}` {
+	if w := send(s, "GET", "/", ""); w.Code != 200 || w.Body.String() != `{"app/layout":{"name":"shop"}}` {
 		t.Errorf("GET /: %d %s", w.Code, w.Body.String())
 	}
 }
@@ -189,9 +189,9 @@ func TestPageLoadErrorsFollowTheErrorFlow(t *testing.T) {
 
 func TestRegisterRejectsInconsistentApps(t *testing.T) {
 	for name, app := range map[string]App{
-		"unknown layout":   {Routes: []Route{{ID: "app/a", Path: "/a", Layouts: []string{"app"}, GET: func(*tifa.Ctx) error { return nil }}}},
-		"duplicate layout": {Layouts: []Layout{{ID: "app"}, {ID: "app"}}},
-		"GET on a page":  {Routes: []Route{{ID: "app/a", Path: "/a", Page: true, GET: func(*tifa.Ctx) error { return nil }}}},
+		"unknown layout":   {Routes: []Route{{ID: "app/a", Path: "/a", Layouts: []string{"app/layout"}, GET: func(*tifa.Ctx) error { return nil }}}},
+		"duplicate layout": {Layouts: []Layout{{ID: "app/layout"}, {ID: "app/layout"}}},
+		"GET on a page":    {Routes: []Route{{ID: "app/a", Path: "/a", Page: true, GET: func(*tifa.Ctx) error { return nil }}}},
 		"duplicate path": {Routes: []Route{
 			{ID: "app/a", Path: "/a", GET: func(*tifa.Ctx) error { return nil }},
 			{ID: "app/b", Path: "/a", POST: func(*tifa.Ctx) error { return nil }},

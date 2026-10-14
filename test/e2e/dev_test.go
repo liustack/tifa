@@ -207,13 +207,13 @@ func TestDev(t *testing.T) {
 	expectBody(t, d.base+"/", "North shop")
 
 	// TSX only: a new bundle and a restart, no go build.
-	mark := d.edit(t, "app/home/route.tsx", "North shop", "North store")
+	mark := d.edit(t, "app/route.tsx", "North shop", "North store")
 	expectSteps(t, "TSX edit", d.waitLog(t, mark, ready), "bundle")
 	v2 := d.waitStatus(t, func(st devStatus) bool { return st.Version != v1 && st.Error == "" }).Version
 	expectBody(t, d.base+"/", "North store")
 
 	// A Go function body: analysis finds the same routes, go build without esbuild.
-	mark = d.edit(t, "app/shop/layout.go", `"Shop " + id`, `"Store " + id`)
+	mark = d.edit(t, "app/shops/shop+/layout.go", `"Shop " + id`, `"Store " + id`)
 	out = d.waitLog(t, mark, ready)
 	expectSteps(t, "Go body edit", out, "static analysis", "go build")
 	if !strings.Contains(out, "route manifest unchanged") {
@@ -222,18 +222,20 @@ func TestDev(t *testing.T) {
 	v3 := d.waitStatus(t, func(st devStatus) bool { return st.Version != v2 && st.Error == "" }).Version
 	expectBody(t, d.base+"/shops/north", "Store north")
 
-	// A new Path changes the route manifest: everything runs.
-	mark = d.edit(t, "app/api/ping/route.go", `"/api/ping"`, `"/api/health"`)
+	// A changed SSR constant changes the route manifest: everything runs.
+	mark = d.edit(t, "app/account/login/route.go", "const SSR = false", "const SSR = true")
 	out = d.waitLog(t, mark, ready)
-	expectSteps(t, "Path edit", out, "static analysis", "code generation", "bundle", "go build")
+	expectSteps(t, "SSR edit", out, "static analysis", "code generation", "bundle", "go build")
 	if !strings.Contains(out, "route manifest changed") {
-		t.Errorf("Path edit kept the manifest:\n%s", out)
+		t.Errorf("SSR edit kept the manifest:\n%s", out)
 	}
 	v4 := d.waitStatus(t, func(st devStatus) bool { return st.Version != v3 && st.Error == "" }).Version
-	expectBody(t, d.base+"/api/health", "pong")
+	if _, header, _ := get(t, d.base+"/account/login"); header.Get("X-Tifa-Render") != "vm" {
+		t.Errorf("SSR edit: rendered by %q", header.Get("X-Tifa-Render"))
+	}
 
 	// A broken build keeps the running app and reports the error over SSE.
-	mark = d.edit(t, "app/shop/layout.go", `return Shop{ID: id, Name: "Store " + id}, nil`, `return Shop{ID: id, Name: "Store " + id}, nil +`)
+	mark = d.edit(t, "app/shops/shop+/layout.go", `return Shop{ID: id, Name: "Store " + id}, nil`, `return Shop{ID: id, Name: "Store " + id}, nil +`)
 	d.waitLog(t, mark, buildFailed)
 	failed := d.waitStatus(t, func(st devStatus) bool { return st.Error != "" })
 	if failed.Version != v4 || failed.Title != "Build failed" || !strings.Contains(failed.Error, "layout.go") {
@@ -242,7 +244,7 @@ func TestDev(t *testing.T) {
 	expectBody(t, d.base+"/shops/north", "Store north")
 
 	// The fix clears the error and brings a new version.
-	mark = d.edit(t, "app/shop/layout.go", `return Shop{ID: id, Name: "Store " + id}, nil +`, `return Shop{ID: id, Name: "Shop " + id + "!"}, nil`)
+	mark = d.edit(t, "app/shops/shop+/layout.go", `return Shop{ID: id, Name: "Store " + id}, nil +`, `return Shop{ID: id, Name: "Shop " + id + "!"}, nil`)
 	d.waitLog(t, mark, ready)
 	d.waitStatus(t, func(st devStatus) bool { return st.Version != v4 && st.Error == "" })
 	expectBody(t, d.base+"/shops/north", "Shop north!")

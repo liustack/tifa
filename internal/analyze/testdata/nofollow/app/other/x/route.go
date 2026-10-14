@@ -1,3 +1,3 @@
 package x
 
-const Path = "/x"
+// The directory is the URL.

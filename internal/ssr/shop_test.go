@@ -36,10 +36,10 @@ type shopPage struct {
 // shopRoutes are the four comparison pages of the prototype baseline, a list and a detail page
 // of each project, with the route IDs of their match chains.
 var shopRoutes = []struct{ url, routes string }{
-	{"/projects/studio", "app,app/projects,app/projects/orders/list"},
-	{"/projects/weekend", "app,app/projects,app/projects/orders/list"},
-	{"/projects/studio/orders/SH-1042", "app,app/projects,app/projects/orders/detail"},
-	{"/projects/weekend/orders/WK-0201", "app,app/projects,app/projects/orders/detail"},
+	{"/projects/studio", "app/layout,app/projects/project+/layout,app/projects/project+/route"},
+	{"/projects/weekend", "app/layout,app/projects/project+/layout,app/projects/project+/route"},
+	{"/projects/studio/orders/SH-1042", "app/layout,app/projects/project+/layout,app/projects/project+/orders/order+/route"},
+	{"/projects/weekend/orders/WK-0201", "app/layout,app/projects/project+/layout,app/projects/project+/orders/order+/route"},
 }
 
 // shopBundle returns the shop's SSR bundle and its four comparison pages. The data of each

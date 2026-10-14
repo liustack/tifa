@@ -1,3 +1,3 @@
 package users
 
-const Path = "/admin/users"
+// The directory is the URL.

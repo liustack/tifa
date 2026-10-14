@@ -60,8 +60,8 @@ func (w *loadWalk) call(info *types.Info, call *ast.CallExpr, helper bool) {
 		if len(call.Args) != 2 {
 			return
 		}
-		// checkUses reports arguments that are not the Load of an ancestor Layout.
-		if fn := packageFunc(info, call.Args[1]); fn != nil && fn.Name() == "Load" {
+		// checkUses reports arguments that are not the Layout function of a wrapping Layout.
+		if fn := packageFunc(info, call.Args[1]); fn != nil && fn.Name() == "Layout" {
 			a.used[w.load] = append(a.used[w.load], fn.Pkg().Path())
 		}
 		if helper {

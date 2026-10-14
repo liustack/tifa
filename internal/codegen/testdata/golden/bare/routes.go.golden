@@ -7,31 +7,31 @@ import (
 	"github.com/liustack/tifa/server"
 
 	app_docs "example.com/bare/app/docs"
-	app_files "example.com/bare/app/files"
+	app_files_path__ "example.com/bare/app/files/path++"
 )
 
 var layouts = []server.Layout{
 	{
-		ID:   "app/docs",
-		Load: func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app_docs.Load) },
+		ID:   "app/docs/layout",
+		Load: func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app_docs.Layout) },
 		SSR:  true,
 	},
 }
 
 var routes = []server.Route{
 	{
-		ID:      "app/docs/guide",
-		Path:    "/guide",
+		ID:      "app/docs/guide/route",
+		Path:    "/docs/guide",
 		Page:    true,
 		SSR:     true,
 		Cache:   false,
-		Layouts: []string{"app/docs"},
+		Layouts: []string{"app/docs/layout"},
 	},
 	{
-		ID:      "app/files",
+		ID:      "app/files/path++/route",
 		Path:    "/files/{path...}",
 		Page:    true,
-		Load:    func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app_files.Load) },
+		Load:    func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app_files_path__.Load) },
 		SSR:     true,
 		Cache:   false,
 		Layouts: []string{},

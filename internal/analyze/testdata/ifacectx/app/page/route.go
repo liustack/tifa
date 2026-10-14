@@ -6,7 +6,7 @@ import (
 	"github.com/liustack/tifa"
 )
 
-const Path = "/page/{id}"
+// The directory is the URL.
 
 type querier interface{ Query(string) string }
 

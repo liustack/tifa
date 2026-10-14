@@ -5,8 +5,8 @@ import (
 	"github.com/liustack/tifa"
 )
 
-const Path = "/shop"
+// The directory is the URL.
 
 func Load(c *tifa.Ctx) (string, error) {
-	return tifa.Use(c, admin.Load)
+	return tifa.Use(c, admin.Layout)
 }

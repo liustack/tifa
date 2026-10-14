@@ -1,5 +1,5 @@
 import { Link, Outlet } from '@tanstack/react-router'
-import { route } from './+route'
+import { route } from './+layout'
 import './site.css'
 
 export const htmlAttributes = { lang: 'en' }

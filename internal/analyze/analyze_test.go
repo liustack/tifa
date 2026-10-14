@@ -36,33 +36,36 @@ func TestValidApp(t *testing.T) {
 	if len(layouts) != 4 {
 		t.Fatalf("got %d layouts: %+v", len(m.Layouts), m.Layouts)
 	}
+	const project = "app/projects/projectId+"
 	wantLayouts := []struct {
-		id, parent, path, pkg string
-		ssr, tsx, load        bool
-		routes                []string
+		id, dir, parent, path, pkg string
+		ssr, tsx, load             bool
+		routes                     []string
 	}{
-		{"app", "", "/", "example.com/valid/app", true, true, true,
-			[]string{"app/api/health", "app/auth/login", "app/auth/register", "app/files/browse", "app/home", "app/projects/export", "app/projects/list", "app/projects/orders/detail"}},
-		{"app/auth", "app", "/", "example.com/valid/app/auth", true, true, true, []string{"app/auth/login", "app/auth/register"}},
-		{"app/files", "app", "/files", "", true, true, false, []string{"app/files/browse"}},
-		{"app/projects", "app", "/projects/{projectId}", "example.com/valid/app/projects", false, true, true,
-			[]string{"app/projects/export", "app/projects/list", "app/projects/orders/detail"}},
+		{"app/layout", "app", "", "/", "example.com/valid/app", true, true, true,
+			[]string{"app/route", "app/api/health/route", "app/auth/login/route", "app/auth/register/route", "app/files/path++/route",
+				project + "/route", project + "/export/route", project + "/orders/orderId+/route"}},
+		{"app/auth/layout", "app/auth", "app/layout", "/auth", "example.com/valid/app/auth", true, true, true,
+			[]string{"app/auth/login/route", "app/auth/register/route"}},
+		{"app/files/layout", "app/files", "app/layout", "/files", "", true, true, false, []string{"app/files/path++/route"}},
+		{project + "/layout", project, "app/layout", "/projects/{projectId}", "example.com/valid/" + project, false, true, true,
+			[]string{project + "/route", project + "/export/route", project + "/orders/orderId+/route"}},
 	}
 	for _, w := range wantLayouts {
 		l := layouts[w.id]
-		if l.Parent != w.parent || l.Path != w.path || l.Package != w.pkg || l.SSR != w.ssr || l.TSX != w.tsx || (l.Load != nil) != w.load {
+		if l.Dir != w.dir || l.Parent != w.parent || l.Path != w.path || l.Package != w.pkg || l.SSR != w.ssr || l.TSX != w.tsx || (l.Load != nil) != w.load {
 			t.Errorf("layout %s = %+v, want %+v", w.id, l, w)
 		}
 		if !reflect.DeepEqual(l.Routes, w.routes) {
 			t.Errorf("layout %s routes = %v, want %v", w.id, l.Routes, w.routes)
 		}
 	}
-	if got := layouts["app/projects"].Load; got == nil || got.Type != "example.com/valid/app/projects.Project" ||
+	if got := layouts[project+"/layout"].Load; got == nil || got.Type != "example.com/valid/"+project+".Project" ||
 		!reflect.DeepEqual(got.Params, []string{"projectId"}) || !reflect.DeepEqual(got.Query, []string{"currency"}) ||
-		!reflect.DeepEqual(got.AllQuery, []string{"currency", "lang"}) || !reflect.DeepEqual(got.Uses, []string{"app"}) {
-		t.Errorf("projects layout Load = %+v", got)
+		!reflect.DeepEqual(got.AllQuery, []string{"currency", "lang"}) || !reflect.DeepEqual(got.Uses, []string{"app/layout"}) {
+		t.Errorf("project layout Load = %+v", got)
 	}
-	if got := layouts["app"].Load; got == nil || !reflect.DeepEqual(got.Query, []string{"lang"}) ||
+	if got := layouts["app/layout"].Load; got == nil || !reflect.DeepEqual(got.Query, []string{"lang"}) ||
 		!reflect.DeepEqual(got.AllQuery, []string{"lang"}) || len(got.Uses) != 0 {
 		t.Errorf("root layout Load = %+v", got)
 	}
@@ -75,48 +78,49 @@ func TestValidApp(t *testing.T) {
 		t.Fatalf("got %d routes: %+v", len(m.Routes), m.Routes)
 	}
 	wantRoutes := []struct {
-		id, path         string
+		id, dir, path    string
 		page, ssr, cache bool
 		methods, layouts []string
 	}{
-		{"app/home", "/", true, true, false, nil, []string{"app"}},
-		{"app/auth/login", "/login", true, true, false, []string{"POST"}, []string{"app", "app/auth"}},
-		{"app/auth/register", "/register", true, true, false, nil, []string{"app", "app/auth"}},
-		{"app/projects/list", "/projects/{projectId}", true, false, true, nil, []string{"app", "app/projects"}},
-		{"app/projects/orders/detail", "/projects/{projectId}/orders/{orderId}", true, false, false, []string{"POST", "DELETE"}, []string{"app", "app/projects"}},
-		{"app/files/browse", "/files/{path...}", true, true, false, nil, []string{"app", "app/files"}},
-		{"app/api/health", "/api/health", false, true, false, []string{"GET"}, []string{"app"}},
-		{"app/projects/export", "/exports/projects", false, false, false, []string{"GET"}, []string{"app", "app/projects"}},
+		{"app/route", "app", "/", true, true, false, nil, []string{"app/layout"}},
+		{"app/auth/login/route", "app/auth/login", "/auth/login", true, true, false, []string{"POST"}, []string{"app/layout", "app/auth/layout"}},
+		{"app/auth/register/route", "app/auth/register", "/auth/register", true, true, false, nil, []string{"app/layout", "app/auth/layout"}},
+		{project + "/route", project, "/projects/{projectId}", true, false, true, nil, []string{"app/layout", project + "/layout"}},
+		{project + "/orders/orderId+/route", project + "/orders/orderId+", "/projects/{projectId}/orders/{orderId}", true, false, false,
+			[]string{"POST", "DELETE"}, []string{"app/layout", project + "/layout"}},
+		{"app/files/path++/route", "app/files/path++", "/files/{path...}", true, true, false, nil, []string{"app/layout", "app/files/layout"}},
+		{"app/api/health/route", "app/api/health", "/api/health", false, true, false, []string{"GET"}, []string{"app/layout"}},
+		{project + "/export/route", project + "/export", "/projects/{projectId}/export", false, false, false, []string{"GET"}, []string{"app/layout", project + "/layout"}},
 	}
 	for _, w := range wantRoutes {
 		r := routes[w.id]
-		if r.Path != w.path || r.Page != w.page || r.SSR != w.ssr || r.Cache != w.cache ||
+		if r.Dir != w.dir || r.Path != w.path || r.Page != w.page || r.SSR != w.ssr || r.Cache != w.cache ||
 			!reflect.DeepEqual(r.Methods, w.methods) || !reflect.DeepEqual(r.Layouts, w.layouts) {
 			t.Errorf("route %s = %+v, want %+v", w.id, r, w)
 		}
 	}
 
-	if r := routes["app/home"]; r.Load == nil || r.Load.Type != "string" || !reflect.DeepEqual(r.Load.Query, []string{"ref"}) ||
+	if r := routes["app/route"]; r.Load == nil || r.Load.Type != "string" || !reflect.DeepEqual(r.Load.Query, []string{"ref"}) ||
 		!reflect.DeepEqual(r.Load.AllQuery, []string{"ref"}) {
 		t.Errorf("home Load = %+v", r.Load)
 	}
-	// list reads page and sort itself, and through tifa.Use(c, projects.Load) also depends on
+	// The project page reads page and sort itself, and through tifa.Use(c, Layout) also depends on
 	// currency and, one level further up, lang.
-	if r := routes["app/projects/list"]; r.Load == nil || r.Load.Type != "[]string" ||
+	if r := routes[project+"/route"]; r.Load == nil || r.Load.Type != "[]string" ||
 		!reflect.DeepEqual(r.Load.Query, []string{"page", "sort"}) || len(r.Load.Params) != 0 ||
 		!reflect.DeepEqual(r.Load.AllQuery, []string{"currency", "lang", "page", "sort"}) ||
-		!reflect.DeepEqual(r.Load.Uses, []string{"app/projects"}) {
-		t.Errorf("list Load = %+v", r.Load)
+		!reflect.DeepEqual(r.Load.Uses, []string{project + "/layout"}) {
+		t.Errorf("project page Load = %+v", r.Load)
 	}
-	if r := routes["app/projects/orders/detail"]; r.Load == nil ||
-		r.Load.Type != "*example.com/valid/app/projects/orders/detail.Order" ||
-		!reflect.DeepEqual(r.Load.Params, []string{"orderId", "projectId"}) {
-		t.Errorf("detail Load = %+v", r.Load)
+	detail := routes[project+"/orders/orderId+/route"]
+	if detail.Load == nil || detail.Load.Type != "*example.com/valid/"+project+"/orders/orderId+.Order" ||
+		!reflect.DeepEqual(detail.Load.Params, []string{"orderId", "projectId"}) {
+		t.Errorf("detail Load = %+v", detail.Load)
 	}
-	if r := routes["app/projects/orders/detail"]; r.Package != "example.com/valid/app/projects/orders/detail" {
-		t.Errorf("detail Package = %q", r.Package)
+	if detail.Package != "example.com/valid/"+project+"/orders/orderId+" {
+		t.Errorf("detail Package = %q", detail.Package)
 	}
-	if r := routes["app/auth/register"]; r.Load != nil {
+	if r := routes["app/auth/register/route"]; r.Load != nil {
 		t.Errorf("register Load = %+v, want nil", r.Load)
 	}
 }
@@ -128,15 +132,18 @@ func TestViolations(t *testing.T) {
 		app  string
 		want [][]string
 	}{
-		{"duppath", [][]string{{"app/b/route.go:3:", `"/items/{key}"`, "app/a/route.go:3"}}},
+		{"duppath", [][]string{{"app/items/key+/route.go:1:", `"/items/{key}"`, `"/items/{id}"`, "app/items/id+"}}},
 		{"ongetpage", [][]string{{"app/page/route.go:7:", "GET", "route.tsx"}}},
 		{"apiload", [][]string{{"app/api/route.go:7:", "Load", "route.tsx"}}},
-		{"encodedpath", [][]string{
-			{"app/brace/route.go:3:", `"/%7Bx%7D"`, `"{"`},
-			{"app/open/route.go:3:", `"/%7B"`, `"{"`},
+		{"dirnames", [][]string{
+			{"app/a%b/route.tsx:1:", `"%"`},
+			{"app/1x+/route.tsx:1:", "parameter name"},
+			{"app/rest++/more/route.tsx:1:", "rest of the path"},
+			{"app/id+/x/id+/route.tsx:1:", "twice"},
+			{"app/x~1/route.tsx:1:", "x~1"},
 		}},
 		{"layoutparam", [][]string{{"app/projects/layout.go:6:", `"projectId"`, `"/projects"`}}},
-		{"usenonancestor", [][]string{{"app/shop/route.go:11:", "admin.Load", "ancestor"}}},
+		{"usenonancestor", [][]string{{"app/shop/route.go:11:", "admin.Layout", "does not wrap"}}},
 		{"useclosure", [][]string{
 			{"app/page/route.go:12:", "package-level function", "closure"},
 			{"app/page/route.go:13:", "package-level function", "method"},
@@ -177,19 +184,14 @@ func TestViolations(t *testing.T) {
 			{"app/page/route.go:100:", "Data.secret", "unexported embedded"},
 		}},
 		{"badpath", [][]string{
-			{"app/noslash/route.go:3:", `"projects"`, "start with /"},
-			{"app/trailing/route.go:3:", "trailing /"},
-			{"app/dupparam/route.go:3:", `"id"`, "twice"},
-			{"app/midwild/route.go:3:", "{rest...}", "last"},
-			{"app/concat/route.go:3:", "string literal"},
-			{"app/dollar/route.go:3:", "$"},
-			{"app/overlap2/route.go:3:", `"/a/{b}"`, `"/{a}/b"`},
-			{"app/cb/route.go:3:", `"/{y}/b/c"`, `"/a/{x}/c"`},
-			{"app/cc/route.go:3:", `"/d/b/{z}"`, `"/{y}/b/c"`},
+			{"app/a/b+/route.go:1:", `"/a/{b}"`, `"/{a}/b"`, "conflicts"},
+			{"app/y+/b/c/route.go:1:", `"/{y}/b/c"`, `"/a/{x}/c"`, "conflicts"},
+			{"app/y+/b/c/route.go:1:", `"/{y}/b/c"`, `"/d/b/{z}"`, "conflicts"},
+			{"app/declared/route.go:3:", "Path is not declared"},
 		}},
 		{"paramname", [][]string{
-			{"app/item/route.go:9:", `"id"`, `"/items/{key}"`},
-			{"app/item/route.go:9:", "Query", "constant"},
+			{"app/items/key+/route.go:9:", `"id"`, `"/items/{key}"`},
+			{"app/items/key+/route.go:9:", "Query", "constant"},
 		}},
 		{"indirect", [][]string{
 			{"app/page/route.go:17:", "c.Query", "called directly"},
@@ -244,23 +246,23 @@ func TestViolations(t *testing.T) {
 			{"helpers/helpers.go:16:", "interface method", "sink.Take"},
 			{"helpers/helpers.go:22:", "c.Query", "called directly"},
 			{"helpers/helpers.go:28:", "variable of type helpers.querier"},
-			{"helpers/helpers.go:34:", "app/other is not an ancestor of app/page"},
+			{"helpers/helpers.go:34:", "app/other does not wrap app/page"},
 		}},
 		{"typeerror", [][]string{
 			{"app/page/route.go:5:17:", "cannot use"},
-			{"app/dup2/route.go:3:", "duplicates"},
+			{"app/dup/b+/route.go:1:", "duplicates"},
 			{"app/getpage/route.go:7:", "GET"},
 		}},
 		{"badoutside", [][]string{{"bad/bad.go:3:15:", "cannot use"}}},
 		{"bridge", [][]string{{"app/bad/route.go:5:17:", "cannot use"}}},
 		{"structure", [][]string{
-			{"app/orphan/route.tsx:1:", "route.go"},
-			{"app/both/layout.go:1:", "route.go", "layout.go"},
-			{"app/nopath/route.go:1:", "const Path"},
-			{"app/empty/layout.go:5:", "Path", "layout"},
-			{"app/empty/layout.go:7:", "Load", "func(c *tifa.Ctx) (T, error)"},
+			{"app/empty/layout.go:5:", "Path is not declared"},
+			{"app/empty/layout.go:7:", "Load", "func Layout"},
 			{"app/empty/layout.go:9:", "POST", "layout"},
 			{"app/empty/layout.go:1:", "no pages"},
+			{"app/both/layout.go:5:", "Layout", "func(c *tifa.Ctx) (T, error)"},
+			{"app/_hidden/route.go:1:", "app/_hidden", "rename"},
+			{"app/testdata/x/layout.tsx:1:", "app/testdata", "rename"},
 		}},
 	}
 	for _, tc := range cases {
@@ -309,7 +311,7 @@ func TestAnalyzeDoesNotRunInit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Analyze: %v", err)
 	}
-	if len(m.Routes) != 1 || m.Routes[0].ID != "app/page" {
+	if len(m.Routes) != 1 || m.Routes[0].ID != "app/page/route" {
 		t.Fatalf("the package with init() was not analyzed: %+v", m.Routes)
 	}
 	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
@@ -317,49 +319,46 @@ func TestAnalyzeDoesNotRunInit(t *testing.T) {
 	}
 }
 
-func TestCommonPrefix(t *testing.T) {
-	cases := []struct {
-		paths []string
-		want  string
-	}{
-		{[]string{"/projects/{projectId}", "/projects/{projectId}/orders/{orderId}"}, "/projects/{projectId}"},
-		{[]string{"/login", "/register"}, "/"},
-		{[]string{"/", "/about"}, "/"},
-		{[]string{"/"}, "/"},
-		{[]string{"/files/{path...}"}, "/files"},
-		{[]string{"/a/{x}/b", "/a/{y}/b"}, "/a"},
-		{[]string{"/a/b", "/a/bc"}, "/a"},
-		// Literals compare after unescaping, as ServeMux matches them. The first spelling is kept.
-		{[]string{"/a/{id}/one", "/%61/{id}/two"}, "/a/{id}"},
-		{[]string{"/%61/{id}/two", "/a/{id}/one"}, "/%61/{id}"},
+func TestDirSegments(t *testing.T) {
+	cases := []struct{ dir, want string }{
+		{"app", "/"},
+		{"app/about", "/about"},
+		{"app/projects/project+", "/projects/{project}"},
+		{"app/projects/project+/orders/order+", "/projects/{project}/orders/{order}"},
+		{"app/docs/path++", "/docs/{path...}"},
+		{"app/v1.2/a-b_c~d", "/v1.2/a-b_c~d"},
+		// Parameter names follow ServeMux: any Go identifier, keywords included.
+		{"app/kinds/type+/range++", "/kinds/{type}/{range...}"},
 	}
 	for _, tc := range cases {
-		var segs [][]segment
-		for _, p := range tc.paths {
-			s, err := parsePath(p)
-			if err != nil {
-				t.Fatalf("parsePath(%q): %v", p, err)
-			}
-			segs = append(segs, s)
+		segs, err := dirSegments(tc.dir)
+		if err != nil {
+			t.Errorf("dirSegments(%q): %v", tc.dir, err)
+			continue
 		}
-		if got := formatPath(commonPrefix(segs)); got != tc.want {
-			t.Errorf("commonPrefix(%q) = %q, want %q", tc.paths, got, tc.want)
+		if got := formatPath(segs); got != tc.want {
+			t.Errorf("dirSegments(%q) = %q, want %q", tc.dir, got, tc.want)
 		}
 	}
-}
-
-// Parameter names follow ServeMux: any Go identifier, keywords included.
-func TestParsePathAcceptsKeywordParams(t *testing.T) {
-	segs, err := parsePath("/kinds/{type}/{range...}")
-	if err != nil {
-		t.Fatalf("parsePath: %v", err)
+	bad := []struct{ dir, want string }{
+		{"app/a+b", `"+"`},
+		{"app/c++x", `"+"`},
+		{"app/1a+", "parameter name"},
+		{"app/a-b+", "parameter name"},
+		{"app/+", "parameter name"},
+		{"app/++", "parameter name"},
+		{"app/x+++", "parameter name"},
+		{"app/rest++/more", "rest of the path"},
+		{"app/id+/x/id+", "twice"},
+		{"app/caf\u00e9", "letters"},
+		{"app/a b", `" "`},
+		{"app/%61", `"%"`},
+		{"app/{x}", `"{"`},
+		{"app/$x", `"$"`},
 	}
-	if got := formatPath(segs); got != "/kinds/{type}/{range...}" {
-		t.Errorf("formatPath = %q", got)
-	}
-	for _, bad := range []string{"/{1a}", "/{a-b}", "/{}"} {
-		if _, err := parsePath(bad); err == nil {
-			t.Errorf("parsePath(%q) succeeded", bad)
+	for _, tc := range bad {
+		if _, err := dirSegments(tc.dir); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("dirSegments(%q) = %v, want an error containing %s", tc.dir, err, tc.want)
 		}
 	}
 }
@@ -508,10 +507,10 @@ func TestFollowHelpers(t *testing.T) {
 	for _, r := range m.Routes {
 		loads[r.ID] = r.Load
 	}
-	list, other := loads["app/items/list"], loads["app/items/other"]
+	list, other := loads["app/items/id+/route"], loads["app/items/other/route"]
 	if !reflect.DeepEqual(list.Params, []string{"id"}) ||
 		!reflect.DeepEqual(list.Query, []string{"depth", "dir", "page", "sort"}) ||
-		!reflect.DeepEqual(list.Uses, []string{"app"}) ||
+		!reflect.DeepEqual(list.Uses, []string{"app/layout"}) ||
 		!reflect.DeepEqual(list.AllQuery, []string{"depth", "dir", "page", "sort"}) {
 		t.Errorf("list Load = %+v", list)
 	}

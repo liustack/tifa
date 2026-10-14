@@ -50,16 +50,14 @@
 每个页面一个目录，Go 负责取数，React 负责显示：
 
 ```go
-// app/projects/orders/detail/route.go
-const Path = "/projects/{projectId}/orders/{orderId}"
-
+// app/projects/project+/orders/order+/route.go  →  /projects/{project}/orders/{order}
 func Load(c *tifa.Ctx) (orders.Order, error) {
-	return orders.Get(c.Param("projectId"), c.Param("orderId"))
+	return orders.Get(c.Param("project"), c.Param("order"))
 }
 ```
 
 ```tsx
-// app/projects/orders/detail/route.tsx
+// app/projects/project+/orders/order+/route.tsx
 import { route, type Data } from './+route'
 
 export default function OrderPage() {

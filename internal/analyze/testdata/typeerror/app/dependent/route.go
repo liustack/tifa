@@ -7,6 +7,6 @@ import (
 
 // This package imports a package with a type error, so the analyzer skips it and does not
 // report its GET next to route.tsx.
-const Path = page.Path + "/dependent"
+var _ = page.Name
 
 func GET(c *tifa.Ctx) error { return nil }

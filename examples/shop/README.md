@@ -35,15 +35,16 @@ order.go                     order domain: list, details, shipping rules, storag
 app/
   layout.go  layout.tsx      root Layout: sidebar, top bar, document shell and site-wide 404
   icons.tsx  styles.css      icons and styles shared across pages
-  home/route.go              redirects / to the first shop
+  route.go                   redirects / to the first shop
   projects/
-    layout.go  layout.tsx    shop Layout: shop name, orders waiting to ship, shop notes
-    orders/
-      list/                  /projects/{projectId}
-      detail/                /projects/{projectId}/orders/{orderId}, POST ships the order
+    project+/                /projects/{project}
+      layout.go  layout.tsx  shop Layout: shop name, orders waiting to ship, shop notes
+      route.go  route.tsx    order list
+      orders/
+        order+/              /projects/{project}/orders/{order}: order details, POST ships the order
 ```
 
-The domain code sits flat in the root package, one file per domain. Storage is in memory with demo data, standing in for database tables, and changes are lost on restart. Folders under `app/` hold only pages: in each one, `route.go` holds the path and `Load`, which calls the root package, and `route.tsx` holds the UI and reads the result of `Load` through `./+route`. See [Structuring an app](../../docs/structure.md) for why, and for when a domain gets its own package.
+The domain code sits flat in the root package, one file per domain. Storage is in memory with demo data, standing in for database tables, and changes are lost on restart. Folders under `app/` hold only pages: each folder is a segment of the URL, `route.go` holds `Load`, which calls the root package, and `route.tsx` holds the UI and reads the result of `Load` through `./+route`. The order page reads its shop through the shop Layout with `tifa.Use(c, project.Layout)`. See [Structuring an app](../../docs/structure.md) for why, and for when a domain gets its own package.
 
 ## Things to try
 

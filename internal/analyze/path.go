@@ -24,48 +24,42 @@ func (s segment) String() string {
 	return s.lit
 }
 
-// parsePath checks a Path against the subset of ServeMux syntax that tifa accepts and splits it.
-// Accepted: "/" for the exact home page, otherwise "/" followed by non-empty segments separated
-// by "/", with no trailing "/". A segment is a literal, {name} or, as the last segment only,
-// {name...}. name follows ServeMux: a Go identifier, keywords included, once per Path. Literals must not contain
-// "{", "}", "$", "?", "#" or white space, because they would mean something else to ServeMux,
-// TanStack Router or the URL. Methods, hosts and {$} are not accepted.
-func parsePath(p string) ([]segment, error) {
-	if p == "/" {
+// dirSegments turns the directory of a route or Layout, such as "app/projects/project+", into
+// its path segments: every directory below app/ is one segment. A name ending in ++ is the rest
+// of the path {name...}, allowed only as the last segment, a name ending in + is the parameter
+// {name}, any other name is a literal. A parameter name follows ServeMux and appears once per
+// path. A literal holds only ASCII letters, digits and - . _ ~, the characters that mean the same
+// to ServeMux, the browser router and a URL, and that the go command accepts in an import path.
+func dirSegments(dir string) ([]segment, error) {
+	rest, _ := strings.CutPrefix(dir, "app")
+	rest = strings.TrimPrefix(rest, "/")
+	if rest == "" {
 		return nil, nil
 	}
-	if !strings.HasPrefix(p, "/") {
-		return nil, fmt.Errorf("Path %q must start with /", p)
-	}
-	if strings.HasSuffix(p, "/") {
-		return nil, fmt.Errorf("Path %q must not end with a trailing /", p)
-	}
-	parts := strings.Split(p[1:], "/")
+	parts := strings.Split(rest, "/")
 	segs := make([]segment, 0, len(parts))
 	seen := map[string]bool{}
 	for i, part := range parts {
-		if part == "" {
-			return nil, fmt.Errorf("Path %q has an empty segment", p)
+		name, wildcard := strings.CutSuffix(part, "++")
+		param := wildcard
+		if !wildcard {
+			name, param = strings.CutSuffix(part, "+")
 		}
-		if !strings.HasPrefix(part, "{") {
-			if j := strings.IndexAny(part, "{}$?# \t\r\n"); j >= 0 {
-				return nil, fmt.Errorf("Path %q: segment %q must not contain %q", p, part, part[j])
+		if !param {
+			if j := strings.IndexFunc(part, func(r rune) bool { return !isLiteralRune(r) }); j >= 0 {
+				return nil, fmt.Errorf("directory %q holds %q: a directory name below app/ is a URL segment of letters, digits, - . _ and ~, or name+ for a parameter and name++ for the rest of the path", part, part[j:j+1])
 			}
 			segs = append(segs, segment{lit: part})
 			continue
 		}
-		if !strings.HasSuffix(part, "}") {
-			return nil, fmt.Errorf("Path %q: segment %q must be a whole {name} or {name...}", p, part)
-		}
-		name, wildcard := strings.CutSuffix(part[1:len(part)-1], "...")
 		if !isWildcardName(name) {
-			return nil, fmt.Errorf("Path %q: %q is not a valid parameter name", p, name)
+			return nil, fmt.Errorf("directory %q: %q before the + is not a valid parameter name, which starts with a letter or _ followed by letters, digits or _", part, name)
 		}
 		if wildcard && i != len(parts)-1 {
-			return nil, fmt.Errorf("Path %q: %s must be the last segment", p, part)
+			return nil, fmt.Errorf("directory %q matches the rest of the path, so no route or Layout can be below it", part)
 		}
 		if seen[name] {
-			return nil, fmt.Errorf("Path %q: parameter %q appears twice", p, name)
+			return nil, fmt.Errorf("directory %q: parameter %q appears twice in %s", part, name, dir)
 		}
 		seen[name] = true
 		segs = append(segs, segment{param: name, wildcard: wildcard})
@@ -73,25 +67,8 @@ func parsePath(p string) ([]segment, error) {
 	return segs, nil
 }
 
-// routerReserved are the characters a literal segment of a page must not hold once unescaped,
-// the way ServeMux matches it. { } and $ are path syntax of the browser router, and the
-// reserved characters of a URL stay escaped in the router's path when the request escapes
-// them, while ServeMux unescapes them, so the two would match different URLs.
-const routerReserved = "{}$;/?:@&=+,#"
-
-// checkPagePath refuses a page Path whose literal segments the browser router cannot match
-// the way ServeMux does, such as /%7Bx%7D, which would read as the parameter {x}.
-func checkPagePath(p string, segs []segment) error {
-	for _, s := range segs {
-		if s.param != "" {
-			continue
-		}
-		u := pathUnescape(s.lit)
-		if i := strings.IndexAny(u, routerReserved); i >= 0 {
-			return fmt.Errorf("Path %q: segment %q is %q to ServeMux, and %q cannot appear in a page path the browser router matches the same way", p, s.lit, u, string(u[i]))
-		}
-	}
-	return nil
+func isLiteralRune(r rune) bool {
+	return 'a' <= r && r <= 'z' || 'A' <= r && r <= 'Z' || '0' <= r && r <= '9' || strings.ContainsRune("-._~", r)
 }
 
 // isWildcardName is the parameter name rule of net/http ServeMux. Unlike token.IsIdentifier it
@@ -120,31 +97,6 @@ func formatPath(segs []segment) string {
 	return b.String()
 }
 
-// commonPrefix returns the longest run of leading segments that all paths share. Segments are
-// compared whole: literals equal after unescaping, as ServeMux matches them, or parameters of
-// equal name. {name...} never enters the prefix. Literals keep the spelling of the first path.
-func commonPrefix(paths [][]segment) []segment {
-	if len(paths) == 0 {
-		return nil
-	}
-	var prefix []segment
-	for i := 0; ; i++ {
-		for _, p := range paths {
-			if i >= len(p) || p[i].wildcard || !sameSegment(p[i], paths[0][i]) {
-				return prefix
-			}
-		}
-		prefix = append(prefix, paths[0][i])
-	}
-}
-
-func sameSegment(a, b segment) bool {
-	if a.param != "" || b.param != "" {
-		return a == b
-	}
-	return pathUnescape(a.lit) == pathUnescape(b.lit)
-}
-
 // relation is how the URL sets matched by two Paths relate, as in net/http's pattern comparison.
 type relation int
 
@@ -169,7 +121,7 @@ func muxSegments(segs []segment) []segment {
 // does. ServeMux refuses to register two Paths whose relation is equivalent or overlaps.
 // The analyzer reimplements the comparison instead of registering into a ServeMux, because
 // GODEBUG=httpmuxgo121=1 switches a real ServeMux to the old literal semantics and the verdict
-// would depend on the environment. Only the syntax parsePath accepts is handled: no methods,
+// would depend on the environment. Only the syntax dirSegments produces is handled: no methods,
 // no hosts, no trailing slash. Pass the segments through muxSegments first.
 func comparePaths(p1, p2 []segment) relation {
 	multi1, multi2 := p1[len(p1)-1].wildcard, p2[len(p2)-1].wildcard

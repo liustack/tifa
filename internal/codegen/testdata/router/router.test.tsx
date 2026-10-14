@@ -60,20 +60,20 @@ async function client(url: string, answer: (url: string, id: string) => RouteRes
   return { router, calls }
 }
 
-const appData = { app: ok({ name: 'router' }) }
+const appData = { 'app/layout': ok({ name: 'router' }) }
 
-test('Layouts with the same prefix are distinct routes', async () => {
-  const { calls } = await client('/shared/three')
+test('sibling Layouts load only their own data', async () => {
+  const { calls } = await client('/b/three')
   const ids = calls.map(([, id]) => id).sort()
-  assert(JSON.stringify(ids) === '["app","app/b"]', `loaded ${ids}`)
-  contains(await render('/shared/one', { ...appData, 'app/a': ok('a') }), 'LAYOUT_A', 'PAGE_A_ONE')
-  contains(await render('/shared/four', { ...appData, 'app/b': ok('b') }), 'LAYOUT_B', 'PAGE_B_FOUR')
+  assert(JSON.stringify(ids) === '["app/b/layout","app/layout"]', `loaded ${ids}`)
+  contains(await render('/a/one', { ...appData, 'app/a/layout': ok('a') }), 'LAYOUT_A', 'PAGE_A_ONE')
+  contains(await render('/b/four', { ...appData, 'app/b/layout': ok('b') }), 'LAYOUT_B', 'PAGE_B_FOUR')
 })
 
 test('query values stay the strings Go reads', async () => {
   const { router, calls } = await client('/q?q=1.0')
   assert(router.state.location.href === '/q?q=1.0', `href ${router.state.location.href}`)
-  assert(calls.some(([u, id]) => id === 'app/query' && u === '/q?q=1.0'), `calls ${JSON.stringify(calls)}`)
+  assert(calls.some(([u, id]) => id === 'app/q/route' && u === '/q?q=1.0'), `calls ${JSON.stringify(calls)}`)
   const search = router.state.location.search as Record<string, unknown>
   assert(search.q === '1.0', `search ${JSON.stringify(search)}`)
   // Two integers JSON reads as one number are two matches.
@@ -96,7 +96,7 @@ test('query values stay the strings Go reads', async () => {
   const semicolon = await client('/q?q=a%3Bb')
   semicolon.calls.length = 0
   await semicolon.router.invalidate()
-  const refetch = semicolon.calls.find(([, id]) => id === 'app/query')
+  const refetch = semicolon.calls.find(([, id]) => id === 'app/q/route')
   assert(refetch?.[0] === '/q?q=a%3Bb', `refetched ${JSON.stringify(semicolon.calls)}`)
   // __proto__ is a parameter like any other: two values are two matches.
   const proto = await client('/q?__proto__=alice')
@@ -108,25 +108,23 @@ test('query values stay the strings Go reads', async () => {
     protoIds.push(match.id + ' ' + JSON.stringify(match.loaderDeps))
   }
   assert(protoIds[0] !== protoIds[1], `one match for two values: ${protoIds}`)
-  contains(await render('/q?q=1.0', { ...appData, 'app/query': ok('1.0') }), 'QUERY <!-- -->1.0')
+  contains(await render('/q?q=1.0', { ...appData, 'app/q/route': ok('1.0') }), 'QUERY <!-- -->1.0')
 })
 
 test('paths match case-sensitively, as ServeMux does', async () => {
-  contains(await render('/HELLO', appData), 'PAGE_UPPER')
   contains(await render('/hello', appData), 'PAGE_LOWER')
+  contains(await render('/HELLO', appData), 'APP_404')
 })
 
 test('literal segments match the URLs ServeMux matches', async () => {
-  contains(await render('/a', appData), 'PAGE_ENCODED')
-  // The router spells /%61 as /a and redirects there, Go then serves the redirect.
-  const redirected = await renderResult('/%61', appData)
-  assert(redirected.redirect?.location === '/a', `render /%61: ${JSON.stringify(redirected)}`)
-  contains(await render('/x%22y', appData), 'PAGE_QUOTE')
-  contains(await render('/x%5Cy', appData), 'PAGE_BACKSLASH')
+  contains(await render('/e', appData), 'PAGE_ENCODED')
+  // The router spells /%65 as /e and redirects there, Go then serves the redirect.
+  const redirected = await renderResult('/%65', appData)
+  assert(redirected.redirect?.location === '/e', `render /%65: ${JSON.stringify(redirected)}`)
 })
 
 test('the document around the React root is written as a string', async () => {
-  const html = await render('/teams/x/one', { ...appData, 'app/team': ok('x'), 'app/team/one': ok('one') })
+  const html = await render('/teams/x/one', { ...appData, 'app/teams/team+/layout': ok('x'), 'app/teams/team+/one/route': ok('one') })
   assert(
     html.startsWith('<!DOCTYPE html><html lang="xx" data-theme="a&quot;b"><head><meta charset="utf-8">'),
     `document start: ${html.slice(0, 200)}`,
@@ -145,7 +143,7 @@ test('the document around the React root is written as a string', async () => {
 })
 
 test('the head holds the tags of the deepest route, escaped', async () => {
-  const html = await render('/teams/x/one', { ...appData, 'app/team': ok('x'), 'app/team/one': ok('one') })
+  const html = await render('/teams/x/one', { ...appData, 'app/teams/team+/layout': ok('x'), 'app/teams/team+/one/route': ok('one') })
   const head = html.slice(html.indexOf('<head>'), html.indexOf('</head>'))
   contains(
     head,
@@ -170,26 +168,26 @@ test('a component that throws fails the render', async () => {
 })
 
 test('a failed root Load keeps the document', async () => {
-  const failed = await render('/hello', { app: { status: 500, error: 'boom' } })
+  const failed = await render('/hello', { 'app/layout': { status: 500, error: 'boom' } })
   contains(failed, '<html lang="xx" ', 'boom', 'src="/assets/app.js"', 'href="/assets/app.css"')
-  const notFound = await render('/hello', { app: missing })
+  const notFound = await render('/hello', { 'app/layout': missing })
   contains(notFound, '<html lang="xx" ', 'APP_404', 'src="/assets/app.js"')
 })
 
 test("a Layout's 404 is shown from the level above, inside the ancestors", async () => {
-  const html = await render('/teams/x/one', { ...appData, 'app/team': missing, 'app/team/one': ok('one') })
+  const html = await render('/teams/x/one', { ...appData, 'app/teams/team+/layout': missing, 'app/teams/team+/one/route': ok('one') })
   contains(html, 'APP_NAV', 'APP_404')
   lacks(html, 'TEAM_404', 'TEAM_ONE')
 })
 
 test("a page's 404 is shown inside its Layouts", async () => {
-  const html = await render('/teams/x/one', { ...appData, 'app/team': ok('x'), 'app/team/one': missing })
+  const html = await render('/teams/x/one', { ...appData, 'app/teams/team+/layout': ok('x'), 'app/teams/team+/one/route': missing })
   contains(html, 'APP_NAV', 'TEAM <!-- -->x', 'TEAM_404')
   lacks(html, 'TEAM_ONE')
 })
 
 test("a 404 below a Layout without NotFound is shown in that Layout's place", async () => {
-  const html = await render('/shared/two', { ...appData, 'app/a': ok('a'), 'app/a/two': missing })
+  const html = await render('/a/two', { ...appData, 'app/a/layout': ok('a'), 'app/a/two/route': missing })
   contains(html, 'APP_NAV', 'APP_404')
   lacks(html, 'LAYOUT_A', 'PAGE_A_TWO')
 })
@@ -232,7 +230,7 @@ async function hydrateFrom(html: string, url: string) {
 }
 
 test("a page without its own Error shows the closest ancestor's", async () => {
-  const html = await render('/teams/x/one', { ...appData, 'app/team': ok('x'), 'app/team/one': { status: 403, error: 'no' } })
+  const html = await render('/teams/x/one', { ...appData, 'app/teams/team+/layout': ok('x'), 'app/teams/team+/one/route': { status: 403, error: 'no' } })
   contains(html, 'TEAM_ERROR <!-- -->403 no')
   const { router } = await client('/teams/x/one')
   const one = Object.values(router.routesById).find((r: any) => r.id.includes('/teams/$team/') && r.id.endsWith('/one')) as any
@@ -242,7 +240,7 @@ test("a page without its own Error shows the closest ancestor's", async () => {
 
 test('a RouteError keeps its class and status through hydration', async () => {
   const url = '/teams/x/one'
-  const html = await render(url, { ...appData, 'app/team': ok('x'), 'app/team/one': { status: 403, error: 'permission denied' } })
+  const html = await render(url, { ...appData, 'app/teams/team+/layout': ok('x'), 'app/teams/team+/one/route': { status: 403, error: 'permission denied' } })
   const { router, calls } = await hydrateFrom(html, url)
   assert(calls.length === 0, `hydration requested ${JSON.stringify(calls)}`)
   const match = router.state.matches.find((m: any) => m.routeId.endsWith('/one'))
@@ -274,14 +272,14 @@ function stubFetch(status: number, body: unknown) {
 }
 
 test('a grouped answer reaches every route whatever the HTTP status', async () => {
-  stubFetch(404, { 'app/team': ok('x'), 'app/team/one': missing })
+  stubFetch(404, { 'app/teams/team+/layout': ok('x'), 'app/teams/team+/one/route': missing })
   const source = collector(() => 'b1')
-  const [team, one] = await Promise.all([source('/teams/x/one', 'app/team'), source('/teams/x/one', 'app/team/one')])
+  const [team, one] = await Promise.all([source('/teams/x/one', 'app/teams/team+/layout'), source('/teams/x/one', 'app/teams/team+/one/route')])
   assert(team.status === 200 && team.data === 'x', `team ${JSON.stringify(team)}`)
   assert(one.status === 404, `one ${JSON.stringify(one)}`)
 
   stubFetch(500, { error: 'down' })
-  const failed = await source('/teams/x/one', 'app/team').then(
+  const failed = await source('/teams/x/one', 'app/teams/team+/layout').then(
     () => undefined,
     (error) => error,
   )
@@ -291,12 +289,12 @@ test('a grouped answer reaches every route whatever the HTTP status', async () =
 test('a redirect of the server reaches every route as a redirect', async () => {
   const requests = stubFetch(200, { redirect: '/login', status: 302 })
   const source = collector(() => 'b1')
-  const results = await Promise.all([source('/teams/x/one', 'app/team'), source('/teams/x/one', 'app/team/one')])
+  const results = await Promise.all([source('/teams/x/one', 'app/teams/team+/layout'), source('/teams/x/one', 'app/teams/team+/one/route')])
   for (const result of results)
     assert(result.status === 302 && result.location === '/login', `result ${JSON.stringify(result)}`)
   assert(requests.options[0]?.redirect === 'manual', `fetch follows redirects: ${JSON.stringify(requests.options[0])}`)
   // The loader turns it into a router redirect to the target.
-  const thrown = await load({ source: async () => results[0] }, 'app/team', { pathname: '/teams/x/one', searchStr: '' }).then(
+  const thrown = await load({ source: async () => results[0] }, 'app/teams/team+/layout', { pathname: '/teams/x/one', searchStr: '' }).then(
     () => undefined,
     (error) => error,
   )
@@ -310,8 +308,8 @@ test('a 409 reloads the current page once', async () => {
   }
   stubFetch(409, { error: 'the application was updated' })
   const source = collector(() => 'old')
-  void source('/hovered', 'app/a')
-  void source('/clicked', 'app/b')
+  void source('/hovered', 'app/a/layout')
+  void source('/clicked', 'app/b/layout')
   await new Promise((resolve) => setTimeout(resolve, 20))
   assert(location.reloads === 1, `reloads ${location.reloads}`)
   assert(location.assigned.length === 0, `assigned ${location.assigned}`)

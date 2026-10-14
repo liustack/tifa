@@ -1,5 +1,5 @@
 ---
-summary: '怎么写一个 tifa 应用：目录结构、route.go 与 route.tsx、Layout、hooks.go、404、SSR 与缓存开关，以及 Load 里 Ctx 的用法和返回值的 JSON 规则'
+summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、route.go 与 route.tsx、Layout、hooks.go、404、SSR 与缓存开关，以及 Load 里 Ctx 的用法和返回值的 JSON 规则'
 read_when:
   - 新建一个 tifa 应用，或给应用加页面、Layout、接口
   - 构建报 Ctx 用法或 Load 返回类型的错误，想知道怎么改
@@ -18,47 +18,68 @@ read_when:
 ```text
 myapp/
   go.mod
-  hooks.go                      进程与请求钩子（可选）
-  db.go                         共享资源：包级变量和函数（可选）
-  project.go  order.go          领域代码，一个领域一个文件，平铺在根包里
+  hooks.go                          进程与请求钩子（可选）
+  db.go                             共享资源：包级变量和函数（可选）
+  project.go  order.go              领域代码，一个领域一个文件，平铺在根包里
   app/
-    layout.go  layout.tsx       根 Layout，套到所有页面
+    layout.go  layout.tsx           根 Layout，套到所有页面
+    route.go                        /
     projects/
-      layout.go  layout.tsx     套到下面所有页面
-      orders/
-        list/    route.go  route.tsx
-        detail/  route.go  route.tsx  items.tsx  actions.client.tsx
+      project+/
+        layout.go  layout.tsx       /projects/{project} 及下面所有页面的 Layout
+        route.go  route.tsx         页面 /projects/{project}
+        orders/
+          order+/
+            route.go  route.tsx     页面 /projects/{project}/orders/{order}
+            items.tsx  actions.client.tsx
 ```
 
 - 代码按领域分组。新应用把领域代码（类型、存储、规则）平铺在根包里，一个领域一个文件，`app/` 下的目录放调用它的页面。领域做大了再拆成单独的包。不设一个装着所有表的 `models/` 或 `db/` 包。见 [structure.zh-CN.md](structure.zh-CN.md)。
 - 跨页面共用的组件和样式放在 `app/` 根目录。
-- 一个目录最多一个路由或一个 Layout。目录名不决定 URL，只要是合法的 Go 包名。
-- 目录嵌套决定 Layout 套到哪些页面：Layout 套到所在目录和所有子目录里的路由。
 - 不写 main。`tifa build` 把 main 和路由注册代码生成在 `.tifa/`，`go vet ./...`、`go test ./...` 不会扫到它。
+
+## 目录就是 URL
+
+`app/` 下每一层目录是 URL 的一段，`app/` 本身是 `/`。
+
+| 目录名 | URL 段 |
+| --- | --- |
+| `orders` | 字面量 `orders` |
+| `order+` | 参数 `{order}`，用 `c.Param("order")` 读 |
+| `path++` | 剩余路径 `{path...}`，只能是最后一层 |
+
+- 字面量目录名只能用 ASCII 字母、数字和 `- . _ ~`。参数名以字母或 `_` 开头，后面跟字母、数字或 `_`，同一个 URL 里不能重复。
+- Go 的包名取自 `package` 那一行，不取目录名。包名按参数起：`project+` 里写 `package project`，别的包 import 它时就叫 `project`。
+- go 命令会跳过以 `.` 或 `_` 开头的目录和名为 `testdata` 的目录。这些目录里有 `route.go`、`route.tsx`、`layout.go` 或 `layout.tsx` 时构建报错，放别的文件没问题，比如 `_components` 目录。
+- 目录名还得是合法的 Go import 路径，所以 `con`、`x~1` 这类名字（Windows 保留名和短文件名）构建报错。
+- 两个页面的 URL 匹配同样的请求时构建报错，比如 `items/id+` 和 `items/key+` 并列。两个 URL 有交集、又分不出谁更具体时也报错，规则同 Go 的 `http.ServeMux`。字面量比参数具体，所以 `items/new` 和 `items/id+` 并列没问题。
+- 声明 `const Path` 会构建报错，目录就是 URL。
 
 ## route.go
 
 ```go
-package detail
+package order
 
-const Path = "/projects/{projectId}/orders/{orderId}"
-
-func Load(c *tifa.Ctx) (orders.Order, error) {
-	return orders.Get(c.Param("projectId"), c.Param("orderId"))
+func Load(c *tifa.Ctx) (shop.Order, error) {
+	p, err := tifa.Use(c, project.Layout)
+	if err != nil {
+		return shop.Order{}, err
+	}
+	return shop.GetOrder(p.ID, c.Param("order"))
 }
 
 func POST(c *tifa.Ctx) error {
-	if err := orders.Ship(c.Param("projectId"), c.Param("orderId")); err != nil {
+	if err := shop.ShipOrder(c.Param("project"), c.Param("order")); err != nil {
 		return err
 	}
 	return c.NoContent(204)
 }
 ```
 
-- `const Path` 是完整的字面量路径，语法同 Go 的 `http.ServeMux`：`{name}`、`{name...}`。`"/"` 只匹配首页。
 - `Load` 返回页面数据，返回类型要能转成 TypeScript（见下文「Load 返回值的 JSON 规则」）。
 - `GET`、`POST`、`PUT`、`PATCH`、`DELETE` 处理和函数同名的 HTTP 方法。
-- 目录里有 `route.tsx` 就是页面，GET 由框架渲染，这时不能再写 `GET`。没有 `route.tsx` 时，这些方法函数都是普通接口，不能写 `Load`，因为 `Load` 是给页面取数的。
+- 目录里有 `route.tsx` 就是页面，GET 由框架渲染，这时不能再写 `GET`。不需要数据、也没有别的方法的页面可以只有 `route.tsx`，不写 `route.go`。
+- 有 `route.go`、没有 `route.tsx` 的目录是接口：方法函数照写的那样回答，不能写 `Load`，因为 `Load` 是给页面取数的。
 - 全部是包级函数和常量。依赖直接用应用初始化好的全局变量，框架不做依赖注入。
 
 返回错误时：
@@ -87,7 +108,7 @@ export const head = ({ loaderData }: { loaderData?: Data }) => ({
 })
 ```
 
-- 只放界面，不取数。`./+route` 是生成的模块，导出 `route`、`Data`（`Load` 的返回类型）和 `Params`。同目录的子组件同样 import `./+route`，读祖先 Layout 的数据时 import 那个目录的 `+route`，比如 `'../+route'`。
+- 只放界面，不取数。`./+route` 是生成的模块，导出 `route`、`Data`（`Load` 的返回类型）和 `Params`。同目录的子组件同样 import `./+route`。Layout 的数据来自它所在目录的 `+layout` 模块：`layout.tsx` import `'./+layout'`，页面读项目 Layout 的数据时 import 比如 `'../../+layout'`。
 - 默认导出是页面组件。可选导出 `head`、`Error`、`NotFound`。
 - Go 的切片和 map 在 TypeScript 里带 `| null`（Go 的 nil 编码成 `null`），用之前写 `?? []`。
 - 模块顶层就要用浏览器能力的组件放进 `.client.tsx`，用 `tifa/client` 的 `clientOnly` 延迟加载。它不进 SSR 包，首屏显示占位内容：
@@ -102,13 +123,24 @@ const OrderActions = clientOnly(() => import('./actions.client'), <button disabl
 
 ## Layout
 
-`layout.go` 只有 `Load` 和可选的 `SSR` 常量，没有 `Path` 和方法函数。`layout.tsx` 用 `<Outlet />` 放子路由。
+Layout 放在它的目录里，和这个目录的页面（如果有）并列：`layout.go`、`layout.tsx` 套到同目录的页面和下面所有页面。`layout.tsx` 用 `<Outlet />` 放子路由。所在目录和下面都没有页面的 Layout 构建报错。
 
-- Layout 的 `Load` 用 `c.Param` 读的参数，必须出现在它套到的所有页面 `Path` 的公共前缀里，否则构建报错。
-- 同一个 Layout 下切换页面时，Layout 组件不重新挂载，它的状态保留。Layout 的 `Load` 读的参数变了（比如换了一个项目），Layout 重新挂载，状态重置。`Load` 不读的参数变了，状态保留，页面同理。
-- 页面和 Layout 都可以用 `tifa.Use(c, projects.Load)` 拿到祖先 Layout 本次请求的 `Load` 结果，同一个 `Load` 每个请求只跑一次。只能引用祖先 Layout，否则构建报错。
-- 浏览器里跳转时，导航数据请求只执行所列路由的 `Load`。祖先 Layout 的数据还在缓存里时，它不在列表中，它的 `Load` 这次不会再跑。所以权限检查不要只写在 Layout 的 `Load` 里：放进 `OnRequest`，或者让子路由的 `Load` 用 `tifa.Use` 依赖做检查的那个 Layout，这样每次请求都会执行它。
-- 文档外壳（`<html>`、`<head>`、资源与注入数据的脚本）由框架写成字符串，React 只渲染 `<body>` 里的应用根节点，所以任何一层出错或 404 时页面仍是完整文档。根 Layout（`app/layout.tsx`）可以导出两个常量定制外壳：`htmlAttributes` 是 `<html>` 的属性（不导出时为 `{ lang: 'en' }`），`documentHead` 是每个页面都带的 head 标签（没有路由匹配、根 `Load` 失败时也带），格式同 `head` 的返回值。在这里放网站的默认 `title`，没有路由匹配的 404 页面也有标题，页面自己的 `head` 返回 `title` 时会覆盖它。导出 `Document` 组件会构建报错。
+```go
+package project
+
+func Layout(c *tifa.Ctx) (shop.Project, error) {
+	return shop.GetProject(c.Param("project"))
+}
+
+const LayoutSSR = false // 可选，默认 true
+```
+
+- 同一个目录的 `layout.go` 和 `route.go` 是同一个 Go 包，`Layout`、`LayoutSSR` 和页面的 `Load`、`SSR`、`Cache`、方法函数写在哪个文件都行。没有页面的目录里写页面的这些名字会构建报错。
+- Layout 用 `c.Param` 只能读自己目录路径里的参数。`app/projects/project+/layout.go` 能读 `project`，不能读 `order`。
+- 同一个 Layout 下切换页面时，Layout 组件不重新挂载，它的状态保留。`Layout` 函数读的参数变了（比如换了一个项目），Layout 重新挂载，状态重置。它不读的参数变了，状态保留，页面同理。
+- 页面和 Layout 都可以用 `tifa.Use(c, project.Layout)` 拿到套着自己的 Layout（同目录或祖先目录的）本次请求的结果，同一个 `Layout` 每个请求只跑一次。引用别的 Layout 构建报错。
+- 浏览器里跳转时，导航数据请求只执行所列路由的 `Load` 和 `Layout` 函数。祖先 Layout 的数据还在缓存里时，它不在列表中，它的 `Layout` 这次不会再跑。所以权限检查不要只写在 Layout 里：放进 `OnRequest`，或者让页面的 `Load` 用 `tifa.Use` 依赖做检查的那个 Layout，这样每次请求都会执行它。
+- 文档外壳（`<html>`、`<head>`、资源与注入数据的脚本）由框架写成字符串，React 只渲染 `<body>` 里的应用根节点，所以任何一层出错或 404 时页面仍是完整文档。根 Layout（`app/layout.tsx`）可以导出两个常量定制外壳：`htmlAttributes` 是 `<html>` 的属性（不导出时为 `{ lang: 'en' }`），`documentHead` 是每个页面都带的 head 标签（没有路由匹配、根 `Layout` 失败时也带），格式同 `head` 的返回值。在这里放网站的默认 `title`，没有路由匹配的 404 页面也有标题，页面自己的 `head` 返回 `title` 时会覆盖它。导出 `Document` 组件会构建报错。
 
 ```tsx
 export const htmlAttributes = { lang: 'zh-CN' }
@@ -126,9 +158,9 @@ export const documentHead = {
 
 | 情况 | 显示 |
 | --- | --- |
-| URL 没有匹配任何页面 | 根 Layout 的 `NotFound`，不带根 Layout 的界面，不执行任何 `Load` |
+| URL 没有匹配任何页面 | 根 Layout 的 `NotFound`，不带根 Layout 的界面，不执行任何 `Load` 或 `Layout` |
 | 页面 `Load` 返回 `tifa.ErrNotFound` | 从这个页面往上第一个 `NotFound`，外层 Layout 照常显示 |
-| Layout `Load` 返回 `tifa.ErrNotFound` | 从上一层 Layout 开始往上找 |
+| `Layout` 函数返回 `tifa.ErrNotFound` | 从上一层 Layout 开始往上找 |
 | 都没有导出 | 框架默认页面 |
 
 这几种情况的状态码都是 404。根 Layout 的 `NotFound` 有时单独显示，所以不能读 loader 数据。
@@ -136,11 +168,12 @@ export const documentHead = {
 ## SSR 与缓存
 
 ```go
-const SSR = false  // 默认 true，可写在 route.go 或 layout.go
-const Cache = true // 默认 false，只能写在 route.go
+const SSR = false       // 页面，默认 true
+const Cache = true      // 页面，默认 false
+const LayoutSSR = false // 本目录的 Layout，默认 true
 ```
 
-- `SSR = false`：照常执行中间件和所有 `Load`，不进 QuickJS，返回带数据的最简文档，浏览器直接渲染。写在 `layout.go` 时作用于它下面所有页面。
+- `SSR = false`：照常执行中间件和所有 `Load`，不进 QuickJS，返回带数据的最简文档，浏览器直接渲染。`LayoutSSR = false` 作用于这个 Layout 套到的所有页面。
 - `Cache = true`：渲染结果按构建版本、URL 和数据缓存，数据没变时直接返回 HTML。组件渲染时不能读 `Date.now()`、`Math.random()` 这类每次不同的值，这也是 hydration 的要求。
 - 页面响应都带 ETag，数据没变的第二次请求带 `If-None-Match` 时答 304，和 `Cache` 无关。
 
@@ -161,7 +194,7 @@ func OnError(c *tifa.Ctx, err error) tifa.Error // 意外错误：上报，返�
 
 ## Load 里 Ctx 的用法
 
-构建时，tifa 从每个 `Load` 出发，找出它读的路由参数（`c.Param`）、查询参数（`c.Query`）和它依赖的 Layout（`tifa.Use`）。`Load` 把 `*tifa.Ctx` 传给本模块里的函数时，tifa 会一层层跟进去，跨包也可以，读到的参数都算在这个 `Load` 名下。一个辅助函数被多个 `Load` 调用时，分别算给每个 `Load`。tifa 自己的函数不跟进。
+构建时，tifa 从每个 `Load` 和 `Layout` 函数出发，找出它读的路由参数（`c.Param`）、查询参数（`c.Query`）和它依赖的 Layout（`tifa.Use`）。`Load` 把 `*tifa.Ctx` 传给本模块里的函数时，tifa 会一层层跟进去，跨包也可以，读到的参数都算在这个 `Load` 名下。一个辅助函数被多个 `Load` 调用时，分别算给每个 `Load`。tifa 自己的函数不跟进。
 
 为了让 tifa 找全，Ctx 只能用在它看得见的地方。
 

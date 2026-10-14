@@ -352,7 +352,7 @@ func TestInterfaceApp(t *testing.T) {
 		if status != tc.status || body != tc.want {
 			t.Errorf("%s %s: %d %s, want %d %s", tc.method, tc.path, status, body, tc.status, tc.want)
 		}
-		if tc.path == "/orders/7" && header.Get("X-Pattern") != "/orders/{orderId}" {
+		if tc.path == "/orders/7" && header.Get("X-Pattern") != "/orders/{order}" {
 			t.Errorf("OnRequest saw pattern %q", header.Get("X-Pattern"))
 		}
 	}
@@ -379,7 +379,7 @@ func TestInterfaceApp(t *testing.T) {
 func TestPagesApp(t *testing.T) {
 	skipUnlessEnabled(t)
 	dir, exe := build(t, "pages")
-	for _, name := range []string{"routes.tsx", "server.ts", "client.ts", "tsconfig.json", "app/shop/+route.ts", "runtime/client.ts"} {
+	for _, name := range []string{"routes.tsx", "server.ts", "client.ts", "tsconfig.json", "app/shops/shop+/+layout.ts", "runtime/client.ts"} {
 		if _, err := os.Stat(filepath.Join(dir, ".tifa", filepath.FromSlash(name))); err != nil {
 			t.Errorf("generated %s: %v", name, err)
 		}
@@ -406,7 +406,7 @@ func TestPagesApp(t *testing.T) {
 		t.Errorf("If-None-Match: %d", status)
 	}
 	// SSR = false skips the VM and carries the data.
-	status, header, body = get(t, base+"/login")
+	status, header, body = get(t, base+"/account/login")
 	if status != 200 || header.Get("X-Tifa-Render") != "none" || !strings.Contains(body, `id="tifa-data"`) {
 		t.Errorf("SSR = false: %d %v\n%s", status, header, body)
 	}
@@ -417,11 +417,11 @@ func TestPagesApp(t *testing.T) {
 		t.Errorf("Cache = true: %s then %s", first.Get("X-Tifa-Render"), second.Get("X-Tifa-Render"))
 	}
 	// A navigation asks for the listed routes and gets their results by route ID.
-	status, header, body = get(t, base+"/shops/north/items/apple", "X-Tifa-Route", "app/shop,app/shop/items", "X-Tifa-Build", built.BuildID)
-	if status != 200 || header.Get("Vary") != "X-Tifa-Route" || body != `{"app/shop":{"status":200,"data":{"id":"north","name":"Shop north"}},"app/shop/items":{"status":200,"data":{"id":"apple","title":"Apple","price":1.5,"tags":["fruit"]}}}` {
+	status, header, body = get(t, base+"/shops/north/items/apple", "X-Tifa-Route", "app/shops/shop+/layout,app/shops/shop+/items/item+/route", "X-Tifa-Build", built.BuildID)
+	if status != 200 || header.Get("Vary") != "X-Tifa-Route" || body != `{"app/shops/shop+/items/item+/route":{"status":200,"data":{"id":"apple","title":"Apple","price":1.5,"tags":["fruit"]}},"app/shops/shop+/layout":{"status":200,"data":{"id":"north","name":"Shop north"}}}` {
 		t.Errorf("data request: %d %v %s", status, header, body)
 	}
-	if status, _, _ := get(t, base+"/shops/north", "X-Tifa-Route", "app/shop", "X-Tifa-Build", "old"); status != 409 {
+	if status, _, _ := get(t, base+"/shops/north", "X-Tifa-Route", "app/shops/shop+/layout", "X-Tifa-Build", "old"); status != 409 {
 		t.Errorf("other build: %d", status)
 	}
 	// 404 at every level renders the right NotFound with status 404.

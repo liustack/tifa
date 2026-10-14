@@ -1,4 +1,5 @@
-// Package app is the root Layout: the sidebar with the projects and the top bar around every page.
+// Package app is the root Layout, the sidebar with the projects and the top bar around every page,
+// and sends visitors of the site root to the first project.
 package app
 
 import (
@@ -16,6 +17,6 @@ type Viewer struct {
 	Initials string `json:"initials"`
 }
 
-func Load(c *tifa.Ctx) (Shell, error) {
+func Layout(c *tifa.Ctx) (Shell, error) {
 	return Shell{Viewer: Viewer{Name: "店主", Initials: "店"}, Projects: shop.ListProjects()}, nil
 }

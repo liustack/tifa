@@ -2,7 +2,7 @@ package api
 
 import "github.com/liustack/tifa"
 
-const Path = "/api"
+// The directory is the URL.
 
 func Load(c *tifa.Ctx) (string, error) { return "", nil }
 

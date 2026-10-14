@@ -2,6 +2,6 @@ package page
 
 import "github.com/liustack/tifa"
 
-const Path = "/page"
+// The directory is the URL.
 
 func GET(c *tifa.Ctx) error { return nil }

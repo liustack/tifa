@@ -35,15 +35,16 @@ order.go                     订单领域：列表、详情、发货规则、存
 app/
   layout.go  layout.tsx      根 Layout：侧栏、顶栏、文档外壳和全站 404
   icons.tsx  styles.css      跨页面共用的图标和样式
-  home/route.go              访问 / 时跳到第一家店铺
+  route.go                   访问 / 时跳到第一家店铺
   projects/
-    layout.go  layout.tsx    店铺 Layout：店名、待发货数、店铺备忘
-    orders/
-      list/                  /projects/{projectId}
-      detail/                /projects/{projectId}/orders/{orderId}，POST 即发货
+    project+/                /projects/{project}
+      layout.go  layout.tsx  店铺 Layout：店名、待发货数、店铺备忘
+      route.go  route.tsx    订单列表
+      orders/
+        order+/              /projects/{project}/orders/{order}：订单详情，POST 即发货
 ```
 
-领域代码平铺在根包里，一个领域一个文件。存储放在内存里，自带演示数据，代替数据库表，重启后恢复初始值。`app/` 下的目录只放页面：每个页面目录里，`route.go` 写路径和调用根包的 `Load`，`route.tsx` 写界面，用 `./+route` 读 `Load` 的结果。为什么这样组织、领域什么时候拆成单独的包，见[应用的代码结构](../../docs/structure.zh-CN.md)。
+领域代码平铺在根包里，一个领域一个文件。存储放在内存里，自带演示数据，代替数据库表，重启后恢复初始值。`app/` 下的目录只放页面：每层目录是 URL 的一段，`route.go` 写调用根包的 `Load`，`route.tsx` 写界面，用 `./+route` 读 `Load` 的结果。订单页通过店铺 Layout 读店铺：`tifa.Use(c, project.Layout)`。为什么这样组织、领域什么时候拆成单独的包，见[应用的代码结构](../../docs/structure.zh-CN.md)。
 
 ## 可以试试
 

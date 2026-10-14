@@ -67,8 +67,8 @@ var dist = fstest.MapFS{
 func frontApp() App {
 	app := testApp()
 	app.Routes = append(app.Routes,
-		Route{ID: "app/login", Path: "/login", Page: true, SSR: false, Layouts: []string{"app"}},
-		Route{ID: "app/stats", Path: "/stats", Page: true, SSR: true, Cache: true, Layouts: []string{"app"},
+		Route{ID: "app/login", Path: "/login", Page: true, SSR: false, Layouts: []string{"app/layout"}},
+		Route{ID: "app/stats", Path: "/stats", Page: true, SSR: true, Cache: true, Layouts: []string{"app/layout"},
 			Load: func(c *tifa.Ctx) (any, error) { return 42, nil }},
 	)
 	return app
@@ -159,7 +159,7 @@ func TestPageWithoutSSRCarriesItsData(t *testing.T) {
 		`<link rel="stylesheet" href="/assets/app-1.css">`,
 		`<script type="application/json" id="tifa-data">`,
 		`<body><div id="tifa-root"></div>`,
-		`"buildId":"b1"`, `"app":{"status":200,"data":{"name":"shop"}}`,
+		`"buildId":"b1"`, `"app/layout":{"status":200,"data":{"name":"shop"}}`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("lacks %s:\n%s", want, body)
@@ -187,11 +187,11 @@ func TestDataRequestAnswersTheListedRoutes(t *testing.T) {
 		t.Errorf("%s", w.Body.String())
 	}
 
-	w = get(s, "/projects/p1?site=missing", "X-Tifa-Route", "app,app/projects", "X-Tifa-Build", "b1")
-	if w.Code != 200 || !strings.Contains(w.Body.String(), `"app":{"status":404`) {
+	w = get(s, "/projects/p1?site=missing", "X-Tifa-Route", "app/layout,app/projects", "X-Tifa-Build", "b1")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"app/layout":{"status":404`) {
 		t.Errorf("per-route status: %d %s", w.Code, w.Body.String())
 	}
-	if w := get(s, "/projects/p1", "X-Tifa-Route", "app", "X-Tifa-Build", "old"); w.Code != 409 {
+	if w := get(s, "/projects/p1", "X-Tifa-Route", "app/layout", "X-Tifa-Build", "old"); w.Code != 409 {
 		t.Errorf("other build: %d %s", w.Code, w.Body.String())
 	}
 	if w := get(s, "/projects/p1", "X-Tifa-Route", "app/login", "X-Tifa-Build", "b1"); w.Code != 400 {
@@ -215,11 +215,11 @@ func TestFailedPagesRenderWithTheErrorStatus(t *testing.T) {
 	s, r := newFrontServer(t, app)
 
 	w := get(s, "/projects/p1?site=missing")
-	if w.Code != 404 || w.Header().Get("X-Tifa-Render") != "vm" || r.last(t)["app"].Status != 404 {
+	if w.Code != 404 || w.Header().Get("X-Tifa-Render") != "vm" || r.last(t)["app/layout"].Status != 404 {
 		t.Errorf("Layout 404: %d %v %s", w.Code, w.Header(), w.Body.String())
 	}
 	w = get(s, "/projects/broken")
-	if data := r.last(t); w.Code != 503 || data["app/projects"].Status != 503 || data["app"].Status != 200 {
+	if data := r.last(t); w.Code != 503 || data["app/projects"].Status != 503 || data["app/layout"].Status != 200 {
 		t.Errorf("page error: %d %s", w.Code, w.Body.String())
 	}
 	if len(unexpected) != 1 || !errors.Is(unexpected[0], errDatabase) {
@@ -345,7 +345,7 @@ func TestOpenFrontRendersWithTheBundle(t *testing.T) {
 		"assets/app-9.js": "hydrate()",
 		"ssr.js": `globalThis.startRender = (json) => {
   const input = JSON.parse(json)
-  globalThis.renderResult = '<!DOCTYPE html><p>' + input.buildId + ' ' + input.url + ' ' + input.data.app.data.name + '</p>'
+  globalThis.renderResult = '<!DOCTYPE html><p>' + input.buildId + ' ' + input.url + ' ' + input.data['app/layout'].data.name + '</p>'
 }`,
 	}
 	for name, content := range files {
@@ -408,7 +408,7 @@ func TestPageKeepsTheVaryOfTheApplication(t *testing.T) {
 		return c.Next()
 	}
 	s, _ := newFrontServer(t, app)
-	for _, header := range [][]string{nil, {"X-Tifa-Route", "app", "X-Tifa-Build", "b1"}} {
+	for _, header := range [][]string{nil, {"X-Tifa-Route", "app/layout", "X-Tifa-Build", "b1"}} {
 		w := get(s, "/projects/p1", header...)
 		vary := strings.Join(w.Header().Values("Vary"), ", ")
 		if !strings.Contains(vary, "Cookie") || !strings.Contains(vary, "X-Tifa-Route") {
@@ -427,7 +427,7 @@ func TestDataRequestKeepsTheCacheControlOfTheApplication(t *testing.T) {
 		return c.Next()
 	}
 	s, _ := newFrontServer(t, app)
-	data := []string{"X-Tifa-Route", "app", "X-Tifa-Build", "b1"}
+	data := []string{"X-Tifa-Route", "app/layout", "X-Tifa-Build", "b1"}
 	if w := get(s, "/projects/p1?private=1", data...); w.Header().Get("Cache-Control") != "private, no-store" {
 		t.Errorf("data request: %v", w.Header())
 	}

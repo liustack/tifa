@@ -105,7 +105,7 @@ func (s *Server) register(layouts []Layout, routes []Route) {
 }
 
 // rootLayout is the ID of the Layout in app/. Its SSR constant applies to unmatched URLs.
-const rootLayout = "app"
+const rootLayout = "app/layout"
 
 // load is one Load of a page's chain.
 type load struct {

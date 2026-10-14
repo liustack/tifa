@@ -103,13 +103,13 @@ func TestShopApp(t *testing.T) {
 		t.Errorf("ship twice: %d", status)
 	}
 	// The navigation data of the list now carries the new totals, in one response for all routes.
-	status, _, body = get(t, base+"/projects/studio", "X-Tifa-Route", "app,app/projects,app/projects/orders/list", "X-Tifa-Build", built.BuildID)
-	for _, want := range []string{`"app/projects":{"status":200,"data":{"id":"studio","name":"山海工作室"`, `"pending":1`, `"shipped":3`, `"app":{"status":200`} {
+	status, _, body = get(t, base+"/projects/studio", "X-Tifa-Route", "app/layout,app/projects/project+/layout,app/projects/project+/route", "X-Tifa-Build", built.BuildID)
+	for _, want := range []string{`"app/projects/project+/layout":{"status":200,"data":{"id":"studio","name":"山海工作室"`, `"pending":1`, `"shipped":3`, `"app/layout":{"status":200`} {
 		if status != 200 || !strings.Contains(body, want) {
 			t.Errorf("list data after shipping: %d lacks %s\n%s", status, want, body)
 		}
 	}
-	if status, _, _ := get(t, base+"/projects/studio", "X-Tifa-Route", "app/projects", "X-Tifa-Build", "old"); status != 409 {
+	if status, _, _ := get(t, base+"/projects/studio", "X-Tifa-Route", "app/projects/project+/layout", "X-Tifa-Build", "old"); status != 409 {
 		t.Errorf("data request of another build: %d", status)
 	}
 }
@@ -143,7 +143,7 @@ import "os"
 
 func init() { os.WriteFile(`+"`"+marker+"`"+`, []byte("init ran"), 0o644) }
 `)
-	route := filepath.Join(app, "app", "projects", "orders", "list", "route.go")
+	route := filepath.Join(app, "app", "projects", "project+", "route.go")
 	replaceIn(t, route, "import (\n", "import (\n\t_ \"github.com/liustack/tifa/examples/shop/internal/sideeffect\"\n")
 
 	exe := buildAt(t, app)
@@ -163,7 +163,7 @@ func init() { os.WriteFile(`+"`"+marker+"`"+`, []byte("init ran"), 0o644) }
 func TestBuildReportsViolations(t *testing.T) {
 	skipUnlessEnabled(t)
 	for _, tc := range []struct{ fixture, want string }{
-		{"duppath", "app/b/route.go:3:"},
+		{"duppath", "app/items/key+/route.go:1:"},
 		{"ongetpage", "app/page/route.go:7:"},
 		{"layoutparam", "app/projects/layout.go:6:"},
 		{"usenonancestor", "app/shop/route.go:11:"},

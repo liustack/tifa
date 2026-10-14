@@ -5,7 +5,7 @@ import (
 	"github.com/liustack/tifa"
 )
 
-const Path = "/page"
+// The directory is the URL.
 
 func Load(c *tifa.Ctx) (string, error) {
 	tab := c.Request().URL.Query().Get("tab")

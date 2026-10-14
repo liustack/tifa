@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, Outlet, useRouterState } from '@tanstack/react-router'
-import { route } from './+route'
+import { route } from './+layout'
 import { Icon } from './icons'
 import './styles.css'
 
@@ -27,8 +27,8 @@ export default function AppLayout() {
       <aside className="sidebar" aria-label="工作区导航">
         <Link
           className="brand"
-          to="/projects/$projectId"
-          params={{ projectId: 'studio' }}
+          to="/projects/$project"
+          params={{ project: 'studio' }}
           aria-label="山海工作台首页"
         >
           <span className="brand-mark">山</span>
@@ -44,8 +44,8 @@ export default function AppLayout() {
             return (
               <Link
                 key={project.id}
-                to="/projects/$projectId"
-                params={{ projectId: project.id }}
+                to="/projects/$project"
+                params={{ project: project.id }}
                 className={`nav-link ${selected ? 'selected' : ''}`}
                 title={project.name}
                 aria-current={selected ? 'page' : undefined}

@@ -2,17 +2,17 @@
 import { createRootRouteWithContext, createRoute, lazyRouteComponent } from "@tanstack/react-router"
 import { createAppRouter, DefaultError, load, pick, type RouterContext } from "./runtime/router"
 import * as m1 from "../app/layout"
-import type { Data as D1 } from "./app/+route"
+import type { Data as D1 } from "./app/+layout"
 const m2 = () => import("../app/auth/layout")
-const m3 = () => import("../app/projects/layout")
-import type { Data as D3 } from "./app/projects/+route"
-const m4 = () => import("../app/auth/login/route")
-const m5 = () => import("../app/auth/register/route")
-import * as m6 from "../app/home/route"
-const m7 = () => import("../app/projects/list/route")
-import type { Data as D7 } from "./app/projects/list/+route"
-const m8 = () => import("../app/projects/orders/detail/route")
-import type { Data as D8 } from "./app/projects/orders/detail/+route"
+const m3 = () => import("../app/projects/projectId+/layout")
+import type { Data as D3 } from "./app/projects/projectId+/+layout"
+import * as m4 from "../app/route"
+const m5 = () => import("../app/auth/login/route")
+const m6 = () => import("../app/auth/register/route")
+const m7 = () => import("../app/projects/projectId+/route")
+import type { Data as D7 } from "./app/projects/projectId+/+route"
+const m8 = () => import("../app/projects/projectId+/orders/orderId+/route")
+import type { Data as D8 } from "./app/projects/projectId+/orders/orderId+/+route"
 
 const e3 = lazyRouteComponent(m3, "Error")
 
@@ -26,7 +26,7 @@ const r1 = createRoute({
   id: "_app",
   component: m1.default,
   errorComponent: DefaultError,
-  loader: ({ context, location }) => load<D1>(context, "app", location),
+  loader: ({ context, location }) => load<D1>(context, "app/layout", location),
   staleTime: Infinity,
   preloadStaleTime: Infinity,
   loaderDeps: ({ search }) => pick(search, ["lang"]),
@@ -35,7 +35,7 @@ const r1 = createRoute({
 
 const r2 = createRoute({
   getParentRoute: () => r1,
-  id: "_auth",
+  path: "auth",
   component: lazyRouteComponent(m2),
   errorComponent: DefaultError,
 })
@@ -46,7 +46,7 @@ const r3 = createRoute({
   component: lazyRouteComponent(m3),
   errorComponent: e3,
   notFoundComponent: m1.NotFound,
-  loader: ({ context, location }) => load<D3>(context, "app/projects", location),
+  loader: ({ context, location }) => load<D3>(context, "app/projects/projectId+/layout", location),
   staleTime: Infinity,
   preloadStaleTime: Infinity,
   loaderDeps: ({ search }) => pick(search, ["currency", "lang"]),
@@ -54,24 +54,24 @@ const r3 = createRoute({
 })
 
 const r4 = createRoute({
-  getParentRoute: () => r2,
-  path: "login",
-  component: lazyRouteComponent(m4),
+  getParentRoute: () => r1,
+  path: "/",
+  component: m4.default,
+  head: m4.head,
   errorComponent: DefaultError,
 })
 
 const r5 = createRoute({
   getParentRoute: () => r2,
-  path: "register",
+  path: "login",
   component: lazyRouteComponent(m5),
   errorComponent: DefaultError,
 })
 
 const r6 = createRoute({
-  getParentRoute: () => r1,
-  path: "/",
-  component: m6.default,
-  head: m6.head,
+  getParentRoute: () => r2,
+  path: "register",
+  component: lazyRouteComponent(m6),
   errorComponent: DefaultError,
 })
 
@@ -80,7 +80,7 @@ const r7 = createRoute({
   path: "/",
   component: lazyRouteComponent(m7),
   errorComponent: e3,
-  loader: ({ context, location }) => load<D7>(context, "app/projects/list", location),
+  loader: ({ context, location }) => load<D7>(context, "app/projects/projectId+/route", location),
   staleTime: Infinity,
   preloadStaleTime: Infinity,
   loaderDeps: ({ search }) => pick(search, ["currency", "lang", "sort"]),
@@ -93,13 +93,13 @@ const r8 = createRoute({
   component: lazyRouteComponent(m8),
   errorComponent: e3,
   notFoundComponent: lazyRouteComponent(m8, "NotFound"),
-  loader: ({ context, location }) => load<D8>(context, "app/projects/orders/detail", location),
+  loader: ({ context, location }) => load<D8>(context, "app/projects/projectId+/orders/orderId+/route", location),
   staleTime: Infinity,
   preloadStaleTime: Infinity,
   remountDeps: ({ params }) => [params.projectId, params.orderId],
 })
 
-export const routeTree = root.addChildren([r1.addChildren([r2.addChildren([r4, r5]), r3.addChildren([r7, r8]), r6])])
+export const routeTree = root.addChildren([r1.addChildren([r2.addChildren([r5, r6]), r3.addChildren([r7, r8]), r4])])
 export const htmlAttributes = undefined
 
 declare module "@tanstack/react-router" {

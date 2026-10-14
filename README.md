@@ -50,16 +50,14 @@ I still do not know what to call it. A React SSR framework with no Node runtime?
 One folder per page. Go loads the data, React shows it:
 
 ```go
-// app/projects/orders/detail/route.go
-const Path = "/projects/{projectId}/orders/{orderId}"
-
+// app/projects/project+/orders/order+/route.go  →  /projects/{project}/orders/{order}
 func Load(c *tifa.Ctx) (orders.Order, error) {
-	return orders.Get(c.Param("projectId"), c.Param("orderId"))
+	return orders.Get(c.Param("project"), c.Param("order"))
 }
 ```
 
 ```tsx
-// app/projects/orders/detail/route.tsx
+// app/projects/project+/orders/order+/route.tsx
 import { route, type Data } from './+route'
 
 export default function OrderPage() {
