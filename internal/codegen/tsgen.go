@@ -157,7 +157,7 @@ const tsconfig = `{
     "esModuleInterop": true,
     "skipLibCheck": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": [],
+    "types": ["vite/client"],
     "rootDirs": ["..", "."]
   }
 }
