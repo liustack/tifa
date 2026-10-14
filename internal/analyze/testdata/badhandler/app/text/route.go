@@ -86,5 +86,8 @@ type Quiet struct {
 
 func PATCH(c *tifa.Ctx, in Quiet) error { return nil }
 
+// A query input is an object of fields, so a root that is a string by its text methods is not.
+func GET(c *tifa.Ctx, in Word) error { return nil }
+
 // The result is only encoded, so MarshalText alone is fine there.
 func PUT(c *tifa.Ctx) (ID, error) { return 0, nil }

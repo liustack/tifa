@@ -102,6 +102,12 @@ func (a *analyzer) checkInput(method string, in types.Type, pos token.Pos) bool 
 		}
 	})
 	if method == "GET" || method == "DELETE" {
+		for _, name := range []string{"MarshalText", "UnmarshalText"} {
+			if _, _, found := lookupName(in, name); found {
+				a.errorAt(pos, "%s %s has %s: a %s input comes from the query string, which holds an object of fields, not a string", label, types.TypeString(in, shortQualifier), name, method)
+				return false
+			}
+		}
 		for i := range st.NumFields() {
 			f := st.Field(i)
 			path := root + "." + f.Name()
