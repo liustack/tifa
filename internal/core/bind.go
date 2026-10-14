@@ -126,7 +126,7 @@ func setScalar(f reflect.Value, s string) error {
 			return err
 		}
 		f.SetInt(n)
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		n, err := strconv.ParseUint(s, 10, f.Type().Bits())
 		if err != nil {
 			return err
