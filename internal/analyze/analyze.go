@@ -100,6 +100,9 @@ func modulePath(root string) (string, error) {
 			return m.Path, nil
 		}
 	}
+	if _, err := os.Stat(filepath.Join(root, "go.mod")); err == nil {
+		return "", fmt.Errorf("the go.work in use leaves out the module at %s: add it with go work use, or set GOWORK=off", root)
+	}
 	return "", fmt.Errorf("%s is not the root of a module: the application root holds go.mod", root)
 }
 

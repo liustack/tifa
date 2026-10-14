@@ -652,3 +652,16 @@ func TestRootMustHoldGoMod(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+// An app that the go.work in use leaves out has its go.mod in place, so the error points at go.work.
+func TestModuleLeftOutOfGoWork(t *testing.T) {
+	work, err := filepath.Abs(filepath.Join("testdata", "go.work.outside"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GOWORK", work)
+	_, err = analyzeApp(t, "tsxonly")
+	if err == nil || !strings.Contains(err.Error(), "go work use") {
+		t.Fatalf("got %v", err)
+	}
+}
