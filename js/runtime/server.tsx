@@ -12,6 +12,13 @@ declare global {
   var renderResult: string | undefined
 }
 
+// clientRenderedBoundary is what React writes for a Suspense boundary that failed on the
+// server and is left to the browser.
+const clientRenderedBoundary = '<!--$!-->'
+const incompleteRender =
+  'a component threw during the server render and React left its Suspense boundary to the browser, ' +
+  'set SSR = false on the page to see the error in the browser console'
+
 // serve installs startRender, which the Go VM pool calls with the JSON of an Injected value.
 // It leaves {"html": ...}, {"redirect": {location, status}} or {"error": ...} in renderResult
 // once the queued jobs have run. The router redirects a URL it spells differently, such as
@@ -39,6 +46,11 @@ export function serve(routeTree: AnyRoute) {
         await router.serverSsr!.dehydrate()
         const html = renderToString(<RouterProvider router={router} />)
         router.serverSsr!.setRenderFinished()
+        // renderToString swallows an error thrown inside a Suspense boundary, and the router
+        // wraps the routes in one: the boundary renders its fallback and leaves the marker of a
+        // boundary the browser must render itself. Its onError cannot be set, so the marker is
+        // how the server learns of the failure. The page is then incomplete, never a success.
+        if (html.includes(clientRenderedBoundary)) throw new Error(incompleteRender)
         globalThis.renderResult = JSON.stringify({ html: '<!DOCTYPE html>' + html })
       } catch (error) {
         globalThis.renderResult = JSON.stringify({

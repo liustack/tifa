@@ -431,3 +431,25 @@ func TestDataRequestKeepsTheCacheControlOfTheApplication(t *testing.T) {
 		t.Errorf("default: %v", w.Header())
 	}
 }
+
+// A failed render of a Cache = true page goes to OnError and is never cached.
+func TestFailedRenderIsNotCached(t *testing.T) {
+	var reported []error
+	app := frontApp()
+	app.Hooks.OnError = func(c *tifa.Ctx, err error) tifa.Error {
+		reported = append(reported, err)
+		return tifa.Error{Status: 500}
+	}
+	s, r := newFrontServer(t, app)
+	r.result = func(ssr.Input) (string, error) {
+		return "", errors.New("Error: a component threw during the server render")
+	}
+	for i := range 2 {
+		if w := get(s, "/stats"); w.Code != 500 || w.Header().Get("X-Tifa-Render") == "cache" {
+			t.Errorf("request %d: %d %v", i, w.Code, w.Header())
+		}
+	}
+	if r.count() != 2 || len(reported) != 2 {
+		t.Errorf("%d renders, OnError got %v", r.count(), reported)
+	}
+}

@@ -106,6 +106,11 @@ test('literal segments match the URLs ServeMux matches', async () => {
   contains(await render('/x%5Cy', appData), 'PAGE_BACKSLASH')
 })
 
+test('a component that throws fails the render', async () => {
+  const result = await renderResult('/throws', appData)
+  assert(result.html === undefined && result.error !== undefined, `render /throws: ${JSON.stringify(result)}`)
+})
+
 test('a failed root Load keeps the document', async () => {
   const failed = await render('/hello', { app: { status: 500, error: 'boom' } })
   contains(failed, '<html lang="xx">', 'boom', 'src="/assets/app.js"', 'href="/assets/app.css"')
