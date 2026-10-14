@@ -15,6 +15,7 @@
   <a href="https://pkg.go.dev/github.com/liustack/tifa"><img src="https://img.shields.io/badge/go.dev-reference-007d9c?style=flat-square&logo=go&logoColor=white" alt="Go reference"></a>
   <a href="go.mod"><img src="https://img.shields.io/github/go-mod/go-version/liustack/tifa?style=flat-square" alt="Go version"></a>
   <img src="https://img.shields.io/badge/CGO-off-success?style=flat-square" alt="CGO off">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/Not%20backed%20by-Y%20Combinator-FF6600?style=flat-square&logo=ycombinator&logoColor=white" alt="Not backed by Y Combinator">
   <img src="https://img.shields.io/badge/users-unknown-lightgrey?style=flat-square" alt="Users unknown">
 </p>
@@ -23,7 +24,26 @@ Write the backend in Go and the pages in React. tifa compiles the whole site int
 
 It is for Go developers whose business logic and data already live in Go, who want to write pages with the React ecosystem, and who do not want to keep a Node service running in production just for server-side rendering.
 
-> tifa is early. APIs will change.
+> tifa is very early. APIs will change, and many compiler optimizations are not done yet.
+
+## Why it exists
+
+I wanted to ship a small product on TanStack Start. My other VPSes were full, Black Friday was still weeks away and I did not feel like buying another one, so I dug out an old box with 1 CPU and 1 GB of RAM. I had Codex set up the usual stack in one go: nginx, Node.js, PM2, TanStack Start, Redis, BullMQ, cron and SQLite.
+
+It did not really run. It crawled.
+
+So I started hacking on tifa. Once it is done, deploying should mean copying one Go binary to the VPS, and that is it.
+
+| On a 1 CPU / 1 GB VPS | The usual stack | With tifa |
+| :-- | :-- | :-- |
+| Reverse proxy | nginx | The Go HTTP server in the binary |
+| Runtime and process manager | Node.js + PM2 | One Go executable |
+| React SSR | TanStack Start | TanStack Router, rendered by a pure Go QuickJS inside the Go process |
+| Cache | Redis | An in-process HTML cache, plus whatever you keep in Go memory |
+| Queues and scheduled jobs | BullMQ + cron | Goroutines you start in `OnStart` |
+| Database | SQLite | SQLite, with a pure Go driver so CGO stays off |
+
+I still do not know what to call it. A React SSR framework with no Node runtime? A React SSR framework with a Go backend? Both sound a little unhinged. Under the hood it is Go, a pure Go build of QuickJS, and TanStack Router.
 
 ## What it looks like
 
@@ -112,3 +132,7 @@ tifa does not accept pull requests for now. One author reviews every line, which
    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=liustack/tifa&type=Date" />
  </picture>
 </a>
+
+## License
+
+[MIT](LICENSE)

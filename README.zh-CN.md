@@ -15,6 +15,7 @@
   <a href="https://pkg.go.dev/github.com/liustack/tifa"><img src="https://img.shields.io/badge/go.dev-reference-007d9c?style=flat-square&logo=go&logoColor=white" alt="Go reference"></a>
   <a href="go.mod"><img src="https://img.shields.io/github/go-mod/go-version/liustack/tifa?style=flat-square" alt="Go version"></a>
   <img src="https://img.shields.io/badge/CGO-off-success?style=flat-square" alt="CGO off">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/Not%20backed%20by-Y%20Combinator-FF6600?style=flat-square&logo=ycombinator&logoColor=white" alt="Not backed by Y Combinator">
   <img src="https://img.shields.io/badge/users-unknown-lightgrey?style=flat-square" alt="Users unknown">
 </p>
@@ -23,7 +24,26 @@
 
 适合这样的 Go 开发者：业务逻辑和数据都在 Go 里，页面想用 React 生态来写，又不想为了服务端渲染在生产环境多养一个 Node 服务。
 
-> tifa 还在早期，接口会变。
+> tifa 还在非常早期的阶段，接口会变，很多编译器优化还没做。
+
+## 为什么有 tifa
+
+说真的，我都不知道怎么定义这个东西。叫它没有 Node.js 运行时的 React SSR 框架，还是用 Go 写后端的 React SSR 框架？听起来都挺神经的。它是一个基于 Go、纯 Go 版 QuickJS 和 TanStack Router 实现的全栈框架。
+
+我做它的初衷，是想让 TanStack Start 在 1 核 1G 的 VPS 上跑起来。我想做个小产品，但手上的 VPS 都跑满了，黑五还没到，我也不想去买新的，就找了台旧的 1 核 1G。我让 Codex 一把梭，部署了 nginx、Node.js、PM2、TanStack Start、Redis、BullMQ、cron 和 SQLite。
+
+然后发现这些东西根本跑不起来，准确说是卡成狗。
+
+所以我开始糊 tifa 这个轮子。理论上糊完以后，我只需要在 VPS 上部署一个 Go 二进制文件就完了。
+
+| 在 1 核 1G 的 VPS 上 | 常见的一套 | 用 tifa |
+| :-- | :-- | :-- |
+| 反向代理 | nginx | 二进制里自带的 Go HTTP 服务 |
+| 运行时与进程管理 | Node.js + PM2 | 一个 Go 可执行文件 |
+| React SSR | TanStack Start | TanStack Router，由 Go 进程内的纯 Go QuickJS 渲染 |
+| 缓存 | Redis | 进程内的 HTML 缓存，以及你放在 Go 内存里的数据 |
+| 队列与定时任务 | BullMQ + cron | 在 `OnStart` 里启动的 goroutine |
+| 数据库 | SQLite | SQLite，用纯 Go 驱动，CGO 保持关闭 |
 
 ## 写起来是什么样
 
@@ -112,3 +132,7 @@ tifa 目前不接受 pull request。每一行都由作者一个人审，这样�
    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=liustack/tifa&type=Date" />
  </picture>
 </a>
+
+## 许可证
+
+[MIT](LICENSE)
