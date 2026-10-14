@@ -1,10 +1,11 @@
 ---
-summary: 'How to write a tifa app: folder layout, how folders become URLs, route.go and route.tsx, Layouts, hooks.go, 404s, the SSR and cache switches, how Load may use Ctx, method handlers with typed input and result, and the JSON rules for data, inputs and results'
+summary: 'How to write a tifa app: folder layout, how folders become URLs, route.go and route.tsx, Layouts, hooks.go, 404s, the SSR and cache switches, how to test Go route code, how Load may use Ctx, method handlers with typed input and result, and the JSON rules for data, inputs and results'
 read_when:
   - Creating a tifa app, or adding pages, Layouts or API routes to one
   - The build reports an error about Ctx usage or a Load return type and you want to fix it
   - Changing the rules in internal/analyze and you need to know what users were promised
   - Changing the apps in examples/shop or test/apps
+  - Writing Go tests for a Load, a Layout function, a method handler or OnRequest
 ---
 
 English · [简体中文](app.zh-CN.md)
@@ -277,6 +278,32 @@ func OnError(c *tifa.Ctx, err error) tifa.Error // unexpected errors: report, re
 - `OnRequest` runs for pages, navigation data requests, API routes and unmatched URLs. It does not run for static files. For an unmatched URL, `c.Pattern()` is empty.
 - Resources the whole app shares, such as a database connection or a logger, go in files at the app root next to `hooks.go`, for example `db.go` or `middleware.go`. Each one builds a package-level variable or a function: set it up in `OnStart`, release it in `OnShutdown`, and use it directly anywhere, for example `myapp.DB`. Packages under `app/` import the root package for this, so the root package does not import them back (Go does not allow import cycles). Tables, models and queries stay in their domains. Route code uses these resources only inside functions, never while package-level variables are initialized. Do not use `init()` for setup.
 - Store request-scoped values with the standard context: `c.SetContext(context.WithValue(...))`. Business packages provide typed getters.
+
+## Testing
+
+`Load`, `Layout`, the method handlers and `OnRequest` are plain Go functions, so test them with `go test` next to the code. `tifatest.NewCtx(t, r)` turns an `httptest` request into the `*tifa.Ctx` the function takes, and returns the recorder that holds what the function writes:
+
+```go
+// app/projects/project+/orders/order+/route_test.go
+func TestLoad(t *testing.T) {
+	r := httptest.NewRequest("GET", "/projects/studio/orders/SH-1041", nil)
+	r.Pattern = "/projects/{project}/orders/{order}"
+	r.SetPathValue("project", "studio")
+	r.SetPathValue("order", "SH-1041")
+	c, _ := tifatest.NewCtx(t, r)
+	o, err := tifa.Use(c, Load)
+	// check o and err
+}
+```
+
+This tests the function, not the HTTP answer. Check what the function returns: the value and the error. Only the server decodes the input, runs `Validate`, turns a result into JSON or 204 and an error into 404, 422, a redirect or a call to `OnError`, and answers navigation data requests. A returned value or error is not written into the recorder: when the function writes nothing itself, the recorder stays an empty 200. To check the HTTP answer, send requests to the built app.
+
+- Path parameters are what `c.Param` reads: set the decoded values with `r.SetPathValue`. `c.Pattern()` is `r.Pattern` as it is when `NewCtx` is called.
+- Run `Load` and `Layout` through `tifa.Use(c, Load)`. It runs them under the rules of the server: once per request, and writing the response body fails. A `tifa.Use` of a Layout inside `Load` runs that Layout for the same request. Only the Layouts the function asks for with `tifa.Use` run.
+- Call a method handler directly: `POST(c)`, or `POST(c, in)` with a typed input. The input is the value you pass, so test `Validate` on its own, and if `Validate` changes the input, pass the changed input.
+- For `OnRequest`, `tifatest.SetNext(c, next)` sets what `c.Next()` calls: `next` runs once, as it is, and its error is what `c.Next()` returns. It stands in for the route, so it neither recovers a panic nor writes a result.
+- The body limit is the default `server.body_limit`, 1 MiB, unless `c.SetBodyLimit` changes it. The test removes the multipart files of the request when it ends.
+- `tifa build` reads no `_test.go` files, so tests may sit in any folder under `app/`.
 
 ## How Load may use Ctx
 

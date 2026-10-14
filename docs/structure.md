@@ -101,5 +101,5 @@ No dependency injection container, no framework, no reflection or generated code
 
 - **Request values**, such as the signed-in user, ride on the standard context: `OnRequest` calls `c.SetContext(context.WithValue(...))`, and the domain provides a typed getter.
 - **Arguments** are fine when only some callers pass a different value. A function that needs a clock, a limit or a client can take it as a parameter.
-- **Tests** replace the variable (`DB = openTestDB(t)`) or pass a fake as an argument. Declare an interface in the package that uses it, and only once there really are two implementations, such as the real one and a fake.
+- **Tests** replace the variable (`DB = openTestDB(t)`) or pass a fake as an argument. Declare an interface in the package that uses it, and only once there really are two implementations, such as the real one and a fake. Route code is tested with a Ctx from `tifatest.NewCtx`, see [Testing](app.md#testing).
 - Do not set things up in `init()`, and do not read a resource while package-level variables are initialized. Resources exist only after `OnStart` has run.
