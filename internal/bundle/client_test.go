@@ -1,8 +1,6 @@
 package bundle
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -114,31 +112,4 @@ func keys(m map[string]string) []string {
 		out = append(out, k)
 	}
 	return out
-}
-
-func TestBuildIDHashesFilesInPathOrder(t *testing.T) {
-	dir := t.TempDir()
-	writeFiles(t, dir, map[string]string{
-		"server.js":        "server",
-		"routes.json":      "routes",
-		"public/app-1.js":  "app",
-		"public/app-1.css": "css",
-	})
-	sum := sha256.Sum256([]byte("css" + "app" + "routes" + "server"))
-	want := hex.EncodeToString(sum[:])[:16]
-	got, err := BuildID(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != want {
-		t.Fatalf("BuildID = %s, want %s", got, want)
-	}
-	writeFiles(t, dir, map[string]string{"public/app-1.js": "app2"})
-	changed, err := BuildID(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if changed == got {
-		t.Fatal("BuildID did not change with file contents")
-	}
 }

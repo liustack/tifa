@@ -4,14 +4,9 @@
 package bundle
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"io/fs"
-	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/evanw/esbuild/pkg/api"
@@ -79,33 +74,4 @@ func buildOptions(root, entry, tsconfig string, write bool, plugins []api.Plugin
 		Define:            map[string]string{"process.env.NODE_ENV": `"production"`},
 		Plugins:           plugins,
 	}, nil
-}
-
-// BuildID hashes every file under dir in sorted path order and returns the
-// first 16 hex digits of the SHA-256. The browser compares it with the server
-// to detect a new deployment.
-func BuildID(dir string) (string, error) {
-	var files []string
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.Type().IsRegular() {
-			files = append(files, path)
-		}
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-	sort.Strings(files)
-	hash := sha256.New()
-	for _, f := range files {
-		data, err := os.ReadFile(f)
-		if err != nil {
-			return "", err
-		}
-		hash.Write(data)
-	}
-	return hex.EncodeToString(hash.Sum(nil))[:16], nil
 }
