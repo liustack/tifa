@@ -1,0 +1,22 @@
+package app
+
+import (
+	"net/http/httptest"
+	"testing"
+
+	"github.com/liustack/tifa"
+	"github.com/liustack/tifa/tifatest"
+)
+
+func TestPOSTCountsClicks(t *testing.T) {
+	c, _ := tifatest.NewCtx(t, httptest.NewRequest("GET", "/", nil))
+	before, err := tifa.Use(c, Load)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, _ = tifatest.NewCtx(t, httptest.NewRequest("POST", "/", nil))
+	after, err := POST(c)
+	if err != nil || after.Clicks != before.Clicks+1 {
+		t.Fatalf("POST: %+v, %v, want %d clicks", after, err, before.Clicks+1)
+	}
+}

@@ -1,0 +1,12 @@
+# {{.Title}}
+
+A [tifa](https://github.com/liustack/tifa) app.
+
+```sh
+go tool tifa dev     # run it at http://127.0.0.1:3000, rebuilding on every change
+go test ./...        # test the Go code
+pnpm typecheck       # check the TypeScript
+go tool tifa build   # build the single executable into bin/
+```
+
+Pages and API routes live in `app/`: each folder is a URL. See [Writing an app](https://github.com/liustack/tifa/blob/main/docs/app.md).

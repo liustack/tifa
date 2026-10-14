@@ -1,0 +1,22 @@
+// Package app is the home page.
+package app
+
+import (
+	"github.com/liustack/tifa"
+
+	{{.Package}} "{{.Module}}"
+)
+
+type Home struct {
+	Clicks int64 `json:"clicks"`
+}
+
+// Load runs on the server before the page renders, and again when the browser navigates here.
+func Load(c *tifa.Ctx) (Home, error) {
+	return Home{Clicks: {{.Package}}.Clicks()}, nil
+}
+
+// POST presses the button. The page calls it from the browser and then loads its data again.
+func POST(c *tifa.Ctx) (Home, error) {
+	return Home{Clicks: {{.Package}}.Click()}, nil
+}

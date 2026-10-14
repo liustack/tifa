@@ -39,7 +39,7 @@ go test ./...
 
 ## End-to-end tests (`test/e2e`)
 
-`test/e2e` builds the `tifa` CLI, runs `tifa build` on the apps in `test/apps/` and on `examples/shop`, starts the outputs and checks them from outside. Skipped by default. First run `pnpm install --frozen-lockfile` in `test/apps/pages` and `examples/shop`, then turn them on:
+`test/e2e` builds the `tifa` CLI, runs `tifa build` on the apps in `test/apps/`, on `examples/shop` and on an app that `tifa new` creates, starts the outputs and checks them from outside. Skipped by default. First run `pnpm install --frozen-lockfile` in `test/apps/pages` and `examples/shop`, then turn them on:
 
 ```sh
 TIFA_E2E=1 go test ./test/e2e/

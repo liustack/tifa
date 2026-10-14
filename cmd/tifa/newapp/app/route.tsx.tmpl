@@ -1,0 +1,24 @@
+import { useState } from 'react'
+import { route, POST } from './+route'
+
+export default function HomePage() {
+  const home = route.useLoaderData()
+  const [pending, setPending] = useState(false)
+  async function click() {
+    setPending(true)
+    try {
+      await POST()
+    } finally {
+      setPending(false)
+    }
+  }
+  return (
+    <main>
+      <h1>{{.Title}}</h1>
+      <p>Presses: {home.clicks}</p>
+      <button onClick={click} disabled={pending}>
+        Press
+      </button>
+    </main>
+  )
+}

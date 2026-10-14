@@ -1,0 +1,21 @@
+import { Outlet } from '@tanstack/react-router'
+import './styles.css'
+
+export const htmlAttributes = { lang: 'en' }
+
+export const documentHead = {
+  meta: [{ title: '{{.Title}}' }],
+  links: [{ rel: 'icon', href: 'data:,' }],
+}
+
+export default function Root() {
+  return <Outlet />
+}
+
+export function NotFound() {
+  return (
+    <main>
+      <h1>Page not found</h1>
+    </main>
+  )
+}
