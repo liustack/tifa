@@ -194,6 +194,10 @@ func TestViolations(t *testing.T) {
 			{"app/more/route.go:19:", "PUT result", "chan"},
 			{"app/more/route.go:21:", "PATCH input", "Deep.Inner.N", "form tag"},
 			{"app/more/route.go:23:", "DELETE must have one of the signatures"},
+			{"app/text/route.go:57:", "POST input", "Input.ID", "UnmarshalText"},
+			{"app/text/route.go:57:", "POST input", "Input.Codes[]", "UnmarshalText", "not string"},
+			{"app/text/route.go:57:", "POST input", "Input.Raw", "UnmarshalJSON"},
+			{"app/text/route.go:57:", "POST input", "Input.ByID[key]", "UnmarshalText"},
 		}},
 		{"dirnames", [][]string{
 			{"app/a%b/route.tsx:1:", `"%"`},
