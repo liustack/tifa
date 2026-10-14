@@ -105,6 +105,8 @@ type watcher struct {
 	rootReal string                     // root with its links resolved
 	ignore   []string                   // relative directories that are not watched, such as the build output
 	fs       *fsnotify.Watcher          // nil when the system gave no watcher
+	events   <-chan fsnotify.Event      // the system watcher's events, nil without one
+	errs     <-chan error               // the system watcher's errors, nil without one
 	add      func(name string) error    // adds a system watch
 	remove   func(name string) error    // removes a system watch
 	budget   int                        // what the system watches may cost in all, see watchCost
@@ -175,6 +177,7 @@ func prepareWatcher(root string, ignore []string, warn func(string)) (*watcher, 
 		return nil, err
 	default:
 		w.fs, w.add, w.remove = fw, fw.Add, fw.Remove
+		w.events, w.errs = fw.Events, fw.Errors
 	}
 	return w, nil
 }
@@ -224,11 +227,6 @@ func (w *watcher) run(ctx context.Context) error {
 	defer links.Stop()
 	poll := time.NewTimer(w.minPoll)
 	defer poll.Stop()
-	var events <-chan fsnotify.Event
-	var errs <-chan error
-	if w.fs != nil {
-		events, errs = w.fs.Events, w.fs.Errors
-	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -243,14 +241,14 @@ func (w *watcher) run(ctx context.Context) error {
 				return err
 			}
 			poll.Reset(w.pollInterval(time.Since(start)))
-		case ev, ok := <-events:
+		case ev, ok := <-w.events:
 			if !ok {
 				return errors.New("file watcher stopped")
 			}
 			if err := w.handle(ev.Name, ev.Op); err != nil {
 				return err
 			}
-		case err, ok := <-errs:
+		case err, ok := <-w.errs:
 			if !ok {
 				return errors.New("file watcher stopped")
 			}

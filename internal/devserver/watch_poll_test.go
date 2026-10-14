@@ -230,8 +230,10 @@ func TestWatcherPollsEverythingWhenRunningOut(t *testing.T) {
 	if err := w.start(); err != nil {
 		t.Fatal(err)
 	}
+	errs := make(chan error, 1) // fsnotify owns and closes w.fs.Errors
+	w.errs = errs
 	runWatcher(t, w)
-	w.fs.Errors <- fmt.Errorf("fsnotify.dirChange: %w", outErr)
+	errs <- fmt.Errorf("fsnotify.dirChange: %w", outErr)
 	writeFile(t, dir, "app/list/route.tsx", "export const edited = 1")
 	expectChanges(t, w, change{"app/list/route.tsx", modified})
 	warned.has(t, "polled")
