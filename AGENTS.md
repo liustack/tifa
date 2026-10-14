@@ -1,33 +1,35 @@
-# tifa（给 AI agent 的项目说明）
+# tifa (project notes for AI agents)
 
-## 目标
+## Goal
 
-tifa 是一个 Go 全栈框架：Go 负责路由、取数、缓存和后台任务，React 页面由进程内的纯 Go QuickJS 渲染成完整 HTML，浏览器由 TanStack Router 接管。目标是在低配 VPS 或容器上一个进程跑完整个应用，不需要 Node 服务、进程管理器、反向代理和 Redis。
+tifa is a full-stack Go framework: Go handles routing, data loading, caching and background jobs. React pages are rendered to complete HTML by an in-process, pure Go QuickJS, and TanStack Router takes over in the browser. The goal is to run the whole app as one process on a low-end VPS or container, with no Node service, process manager, reverse proxy or Redis.
 
-## 硬约束
+## Hard constraints
 
-- 纯 Go，`CGO_ENABLED=0`，交付单个可执行文件。不引入 cgo 版 QuickJS、V8 或 Node 旁路进程。
-- SSR 用预热的 QuickJS VM 池，输出完整 HTML，不做流式渲染。数据由 Go 在渲染前取齐注入，渲染期间没有 I/O，没有 RSC。
-- 单次渲染比 Node 慢是接受的代价。性能讨论只谈在这个前提下怎么提速、怎么提高整个进程的吞吐。
-- 少魔法：包级函数和全局变量，不做依赖注入，不定义多余的结构体。构建期只做静态分析，不执行用户代码。
-- 构建（`tifa build`、`tifa dev`）不需要 Node，Node 只用来装 npm 依赖和可选的类型检查。
+- Pure Go, `CGO_ENABLED=0`, shipped as a single executable. Do not bring in a cgo QuickJS, V8, or a Node side process.
+- SSR uses a pool of prewarmed QuickJS VMs and outputs complete HTML, with no streaming. Go loads all data and injects it before rendering. Rendering does no I/O. No RSC.
+- A single render being slower than Node is an accepted cost. Performance discussions only cover how to speed things up and raise whole-process throughput within that limit.
+- Little magic: package-level functions and global variables, no dependency injection, no needless structs. The build only does static analysis and never runs user code.
+- Building (`tifa build`, `tifa dev`) does not need Node. Node is only used to install npm packages and for optional type checking.
 
-## 仓库现状
+## Current state of the repository
 
-示例应用 `examples/shop` 是按 tifa 约定写的店铺订单工作台，独立的 Go 模块（`github.com/liustack/tifa/examples/shop`），`go.mod` 用 `replace` 指向仓库根目录，并把 `cmd/tifa` 登记为工具，根模块不引用它。`test/e2e` 构建并检查它，`internal/ssr` 的真实包测试用它的构建产物，改框架行为时拿它验收。原型 go-quick 留在标签 `prototype-baseline`，性能对比都从这个标签构建。
+The example app `examples/shop` is a shop order workbench written by tifa conventions. It is a separate Go module (`github.com/liustack/tifa/examples/shop`). Its `go.mod` uses `replace` to point at the repository root and registers `cmd/tifa` as a tool. The root module does not import it. `test/e2e` builds and checks it, the real-bundle tests in `internal/ssr` use its build output, and it is the app to check against when changing framework behavior. The prototype go-quick stays at the tag `prototype-baseline`, and all performance comparisons build from that tag.
 
-## 文档（`docs/`）
+## Docs (`docs/`)
 
-1. 每篇文档开头写 front matter：`summary`（一句话说明这篇回答什么问题）与 `read_when`（什么情况下该读）。格式见 [scripts/docs-list.sh](scripts/docs-list.sh) 开头的注释。
-2. 开工前和新建文档前先跑 `scripts/docs-list.sh` 看索引，按 Read when 读相关文档。提交前可以跑 `scripts/docs-list.sh --check`，缺 summary 的文档会让它失败。
-3. `docs/archive/`、`docs/research/` 不进索引，放过时或调研性质的材料。
-4. 文档写给读者用：写结论和做法，不写推理过程与工作记录。中文行文不用分号，不用破折号作标点。
+1. Every doc starts with front matter: `summary` (one sentence saying what question the doc answers) and `read_when` (when to read it). See the comment at the top of [scripts/docs-list.sh](scripts/docs-list.sh) for the format.
+2. Before starting work and before creating a doc, run `scripts/docs-list.sh` to see the index, and read the docs whose Read when applies. Before committing, you can run `scripts/docs-list.sh --check`. It fails if a doc has no summary.
+3. `docs/archive/` and `docs/research/` are left out of the index. They hold outdated or exploratory material.
+4. Docs are written for readers: write conclusions and how to do things, not reasoning or work logs.
+5. Docs are written in English by default. User-facing docs (README, docs/app, docs/build, docs/dev, examples/shop/README) also have a `*.zh-CN.md` Chinese version. When you change one side, update the other to match. `scripts/docs-list.sh` skips `*.zh-CN.md` files.
+6. English: keep it short and direct, use everyday words, and do not invent terms. Chinese: do not use semicolons, and do not use dashes as punctuation.
 
-## 草稿目录
+## Draft folder
 
-计划、设计草稿、实验记录、测量原始数据放在仓库草稿目录 `.issues/<YYYY-MM-DD-主题>/`，同一任务的文件放同一目录。`.issues/` 不入库（写在 `.git/info/exclude`），入库的代码、文档、脚本不得引用其中内容。结论定下来、需要长期保留的，整理后写进 `docs/`。
+Plans, design drafts, experiment notes and raw measurement data go in the repository draft folder `.issues/<YYYY-MM-DD-topic>/`, with the files for one task in one folder. `.issues/` is not checked in (it is listed in `.git/info/exclude`), and checked-in code, docs and scripts must not refer to anything in it. Conclusions that are settled and need to be kept long term are cleaned up and written into `docs/`.
 
-## 验证与提交
+## Verification and commits
 
-- 验证命令见 [docs/testing.md](docs/testing.md)，提交规范见 [docs/commit.md](docs/commit.md)。
-- 新行为先写失败的测试再实现。遇到 bug 先定位根因再改，不用兜底值掩盖。
+- See [docs/testing.md](docs/testing.md) for verification commands and [docs/commit.md](docs/commit.md) for commit rules.
+- For new behavior, write a failing test first, then implement. For a bug, find the root cause before changing code, and do not hide it with fallback values.
