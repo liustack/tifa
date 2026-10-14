@@ -74,7 +74,7 @@ myapp/
 
 - **Tests sit next to the code** they test: `order_test.go` next to `order.go`.
 - **The root package** holds only the hooks and the resources the whole app shares, such as `db.go` and `mail.go`. No domain code. The database schema stays here too: the tables of all domains make up one database, `OnStart` creates them before the app listens, and the root package may not import the domains (see below). Each domain keeps its own queries.
-- Code that belongs to no domain and that several domains use, such as formatting money, goes in its own package named after what it does, such as `money/` at the module root.
+- Code that belongs to no domain and that several domains use, such as formatting money, goes in its own package named after what it does, such as `money/` at the module root. Any number of domains may import it. It cannot import a domain that imports it. It may import the root package, but then the root package, `hooks.go` included, cannot import it. When it imports neither domains nor the root package, every package of the app may import it, the root package too.
 
 ### Which way imports go
 
