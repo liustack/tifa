@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/types"
 	"io/fs"
 	"net/url"
 	"path"
@@ -28,7 +29,8 @@ type tsNode struct {
 	tsx      bool
 	exports  []string
 	load     *analyze.Load
-	segs     []pathSeg // ServeMux segments of the full path
+	handlers []analyze.Handler // the method handlers of a route, which get handler functions
+	segs     []pathSeg         // ServeMux segments of the full path
 	parent   *tsNode
 	children []*tsNode
 	route    *tsRoute // the route with the component and loader, which getRouteApi names
@@ -72,6 +74,17 @@ func generateTS(root string, m *analyze.Manifest, dev bool) (map[string][]byte, 
 			return nil, err
 		}
 		files[n.dir+"/+"+n.file+".ts"] = module
+	}
+	// An API route is no route of the tree. Its module holds only the handler functions.
+	for _, r := range m.Routes {
+		if r.Page || len(r.Handlers) == 0 {
+			continue
+		}
+		module, err := routeModule(&tsNode{id: r.ID, dir: r.Dir, file: "route", handlers: r.Handlers, segs: segments(r.Path)})
+		if err != nil {
+			return nil, err
+		}
+		files[r.Dir+"/+route.ts"] = module
 	}
 	files["server.ts"] = []byte(tsHeader + `import "./runtime/host"
 import { serve } from "./runtime/server"
@@ -164,7 +177,7 @@ func buildTree(root string, m *analyze.Manifest) (*tsNode, []*tsNode, error) {
 	}
 	for _, r := range m.Routes {
 		if r.Page {
-			nodes = append(nodes, &tsNode{id: r.ID, dir: r.Dir, file: "route", tsx: true, load: r.Load, parent: nearest(r.Layouts), segs: segments(r.Path)})
+			nodes = append(nodes, &tsNode{id: r.ID, dir: r.Dir, file: "route", tsx: true, load: r.Load, handlers: r.Handlers, parent: nearest(r.Layouts), segs: segments(r.Path)})
 		}
 	}
 	for _, n := range nodes {
@@ -655,39 +668,77 @@ func subtree(r *tsRoute) string {
 	return r.variable + ".addChildren([" + strings.Join(children, ", ") + "])"
 }
 
-// routeModule writes the +route module of a page or the +layout module of a Layout: route for
-// its hooks, Data for the result of its Load or Layout function and Params for its path parameters.
+// routeModule writes the +route module of a route or the +layout module of a Layout: route for
+// the hooks of a page or Layout, Data for the result of its Load or Layout function, Params for
+// its path parameters, and a function per method handler of a route, named after its method,
+// that sends a request to it.
 func routeModule(n *tsNode) ([]byte, error) {
-	var b strings.Builder
-	b.WriteString(tsHeader)
-	b.WriteString(`import { getRouteApi } from "@tanstack/react-router"` + "\n\n")
-	data := "undefined"
+	// Data and the inputs and results of the handlers share the declarations of recursive types.
+	var goTypes []types.Type
 	if n.load != nil {
 		if n.load.Result == nil {
 			return nil, fmt.Errorf("codegen: %s: the manifest carries no Load result type, analyze the application in this process", n.id)
 		}
-		ts, decls, err := analyze.TSShape(n.load.Result)
-		if err != nil {
-			return nil, fmt.Errorf("codegen: %s: %w", n.id, err)
-		}
-		for _, d := range decls {
-			b.WriteString(d + "\n")
-		}
-		if len(decls) > 0 {
-			b.WriteString("\n")
-		}
-		data = ts
+		goTypes = append(goTypes, n.load.Result)
 	}
-	fn := "Load"
-	if n.file == "layout" {
-		fn = "Layout"
+	for _, h := range n.handlers {
+		if (h.Input != "") != (h.InputType != nil) || (h.Output != "") != (h.OutputType != nil) {
+			return nil, fmt.Errorf("codegen: %s: the manifest carries no types of %s, analyze the application in this process", n.id, h.Method)
+		}
+		for _, t := range []types.Type{h.InputType, h.OutputType} {
+			if t != nil {
+				goTypes = append(goTypes, t)
+			}
+		}
 	}
-	if n.load != nil {
-		fmt.Fprintf(&b, "// Data is what the Go %s function of %s returns, as JSON.\n", fn, n.dir)
-	} else {
-		fmt.Fprintf(&b, "// %s has no Go %s function.\n", n.dir, fn)
+	shapes, decls, err := analyze.TSShapes(goTypes)
+	if err != nil {
+		return nil, fmt.Errorf("codegen: %s: %w", n.id, err)
 	}
-	fmt.Fprintf(&b, "export type Data = %s\n\n", data)
+	next := func() string {
+		s := shapes[0]
+		shapes = shapes[1:]
+		return s
+	}
+
+	var b strings.Builder
+	b.WriteString(tsHeader)
+	if n.route != nil {
+		b.WriteString(`import { getRouteApi } from "@tanstack/react-router"` + "\n")
+	}
+	if len(n.handlers) > 0 {
+		names := []string{"call"}
+		for _, s := range n.segs {
+			if key := paramKey(s); key == "_splat" {
+				names = append(names, "rest")
+			} else if key != "" && !slices.Contains(names, "segment") {
+				names = append(names, "segment")
+			}
+		}
+		runtime := strings.Repeat("../", strings.Count(n.dir, "/")+1) + "runtime/call"
+		fmt.Fprintf(&b, "import { %s, type CallOptions } from %s\n", strings.Join(names, ", "), jsString(runtime))
+	}
+	b.WriteString("\n")
+	for _, d := range decls {
+		b.WriteString(d + "\n")
+	}
+	if len(decls) > 0 {
+		b.WriteString("\n")
+	}
+	if n.route != nil {
+		fn := "Load"
+		if n.file == "layout" {
+			fn = "Layout"
+		}
+		data := "undefined"
+		if n.load != nil {
+			data = next()
+			fmt.Fprintf(&b, "// Data is what the Go %s function of %s returns, as JSON.\n", fn, n.dir)
+		} else {
+			fmt.Fprintf(&b, "// %s has no Go %s function.\n", n.dir, fn)
+		}
+		fmt.Fprintf(&b, "export type Data = %s\n\n", data)
+	}
 	keys := params(n)
 	paramsType := "Record<string, never>"
 	if len(keys) > 0 {
@@ -697,7 +748,59 @@ func routeModule(n *tsNode) ([]byte, error) {
 		}
 		paramsType = "{ " + strings.Join(props, "; ") + " }"
 	}
-	fmt.Fprintf(&b, "export type Params = %s\n\n", paramsType)
-	fmt.Fprintf(&b, "export const route = getRouteApi(%s)\n", jsString(n.route.routeID))
+	fmt.Fprintf(&b, "export type Params = %s\n", paramsType)
+	if n.route != nil {
+		fmt.Fprintf(&b, "\nexport const route = getRouteApi(%s)\n", jsString(n.route.routeID))
+	}
+	for _, h := range n.handlers {
+		b.WriteString("\n")
+		options := []string{"CallOptions"}
+		if len(keys) > 0 {
+			options = append(options, "{ params: Params }")
+		}
+		result, answer := "Response", "raw"
+		if h.Input != "" {
+			fmt.Fprintf(&b, "export type %sInput = %s\n", h.Method, next())
+			options = append(options, fmt.Sprintf("{ input: %sInput }", h.Method))
+			result, answer = "void", "none"
+		}
+		if h.Output != "" {
+			fmt.Fprintf(&b, "export type %sOutput = %s\n", h.Method, next())
+			result, answer = h.Method+"Output", "json"
+		}
+		if h.Input != "" || h.Output != "" {
+			b.WriteString("\n")
+		}
+		fmt.Fprintf(&b, "// %s sends a request to the Go %s handler of %s.\n", h.Method, h.Method, n.dir)
+		param := "options: " + strings.Join(options, " & ")
+		if len(options) == 1 {
+			param = "options: CallOptions = {}"
+		}
+		fmt.Fprintf(&b, "export function %s(%s): Promise<%s> {\n", h.Method, param, result)
+		fmt.Fprintf(&b, "  return call(%s, %s, options, %s) as Promise<%s>\n}\n", jsString(h.Method), urlTemplate(n.segs), jsString(answer), result)
+	}
 	return []byte(b.String()), nil
+}
+
+// urlTemplate writes the path of segs as a template literal that puts the path parameters of a
+// handler function's options into the URL.
+func urlTemplate(segs []pathSeg) string {
+	if len(segs) == 0 {
+		return "`/`"
+	}
+	var b strings.Builder
+	b.WriteString("`")
+	for _, s := range segs {
+		b.WriteString("/")
+		switch key := paramKey(s); {
+		case key == "_splat":
+			b.WriteString("${rest(options.params._splat)}")
+		case key != "":
+			b.WriteString("${segment(options.params." + key + ")}")
+		default:
+			b.WriteString(strings.NewReplacer("\\", "\\\\", "`", "\\`", "$", "\\$").Replace(s.text))
+		}
+	}
+	b.WriteString("`")
+	return b.String()
 }

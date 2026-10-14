@@ -140,7 +140,31 @@ import { clientOnly } from 'tifa/client'
 const OrderActions = clientOnly(() => import('./actions.client'), <button disabled>正在准备操作…</button>)
 ```
 
-- After a write, call TanStack's `router.invalidate()`. The data of the current page and all its Layouts is loaded again, merged into one request.
+- After a write that does not go through a handler function (below), call TanStack's `router.invalidate()`. The data of the current page and all its Layouts is loaded again, merged into one request.
+
+### Calling method handlers from the browser
+
+The `+route` module of a folder with method handlers exports one function per handler, named after its method. API routes get a `+route` module too, so a page can import the handlers of any folder:
+
+```tsx
+import { POST } from './+route'
+import { TifaError } from 'tifa/client'
+
+async function ship() {
+  try {
+    const shipment = await POST({ params: { project, order }, input: { carrier: 'SF' } })
+  } catch (e) {
+    if (e instanceof TifaError) setErrors(e.fields) // e.status, e.message, e.fields
+  }
+}
+```
+
+- The function takes one object. `params` holds the path parameters and is left out when the folder has none. `input` is the handler's input and is left out when it takes none. `signal` aborts the request.
+- GET and DELETE send the input in the query string, the other methods as a JSON body. The result is typed from the Go result, `void` for a handler that returns only an error. A handler that writes its own response gives back the `Response` as it is, also for an error status.
+- After a POST, PUT, PATCH or DELETE succeeds, the data of the current page and its Layouts is loaded again before the promise resolves. Pass `invalidate: false` to keep it. A failure and a GET never reload.
+- An error answer throws `TifaError` with `status`, `message` and `fields` (the messages of a `tifa.Fields`, empty otherwise). A network failure throws as `fetch` does.
+- Call these functions from event handlers or effects. Calling one while the page renders on the server throws.
+- `+route` also exports `POSTInput`, `POSTOutput` and so on for the types of each handler that has them.
 
 ## Layout
 

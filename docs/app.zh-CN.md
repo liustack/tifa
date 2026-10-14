@@ -140,7 +140,31 @@ import { clientOnly } from 'tifa/client'
 const OrderActions = clientOnly(() => import('./actions.client'), <button disabled>正在准备操作…</button>)
 ```
 
-- 写操作后调用 TanStack 的 `router.invalidate()`，当前页面和所有 Layout 的数据重新取一次，合并成一个请求。
+- 不经过调用函数（见下）的写操作之后，调用 TanStack 的 `router.invalidate()`，当前页面和所有 Layout 的数据重新取一次，合并成一个请求。
+
+### 在浏览器里调用方法函数
+
+有方法函数的目录，它的 `+route` 模块按方法各导出一个同名函数。API 路由也有 `+route` 模块，页面可以 import 任何目录的方法函数：
+
+```tsx
+import { POST } from './+route'
+import { TifaError } from 'tifa/client'
+
+async function ship() {
+  try {
+    const shipment = await POST({ params: { project, order }, input: { carrier: 'SF' } })
+  } catch (e) {
+    if (e instanceof TifaError) setErrors(e.fields) // e.status、e.message、e.fields
+  }
+}
+```
+
+- 函数接收一个对象。`params` 是路径参数，目录没有参数时不写。`input` 是处理函数的入参，没有入参时不写。`signal` 用来取消请求。
+- GET、DELETE 把入参放进查询字符串，其他方法发 JSON 请求体。返回值的类型来自 Go 的返回值，只返回 error 的处理函数是 `void`。自己写响应的处理函数原样交回 `Response`，错误状态码也一样。
+- POST、PUT、PATCH、DELETE 成功后，先重新取当前页面和它的 Layout 的数据，再兑现 promise。传 `invalidate: false` 可以不刷新。失败和 GET 都不刷新。
+- 错误回答抛出 `TifaError`，带 `status`、`message` 和 `fields`（`tifa.Fields` 的消息，其他情况为空）。网络错误照 `fetch` 的样子抛出。
+- 在事件处理函数或 effect 里调用。服务器渲染页面期间调用会抛错。
+- `+route` 还为有入参或返回值的处理函数导出 `POSTInput`、`POSTOutput` 等类型。
 
 ## Layout
 

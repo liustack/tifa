@@ -4,6 +4,7 @@ import { RouterClient } from '@tanstack/react-router/ssr/client'
 import { createAppRouter, type HTMLAttributes } from './router'
 import { bootElementId, collector, injected, rootElementId, sameURL, type Boot, type Source } from './data'
 import { followHead, setAttributes, syncHead } from './head'
+import { setRouter } from './call'
 
 // hydrate takes over the application root the server rendered. A page rendered without SSR
 // carries its data instead, and the browser renders it from that data without a request. Either
@@ -18,6 +19,7 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = { 
       onHydrate: (id) => (buildId = id),
     })
     followHead(router)
+    setRouter(router)
     hydrateRoot(root, <RouterClient router={router} />)
     return
   }
@@ -34,6 +36,7 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = { 
   void router.load().then(() => {
     first = false
     followHead(router)
+    setRouter(router)
     syncHead(router.stores.matches.get())
     createRoot(root).render(<RouterProvider router={router} />)
   })

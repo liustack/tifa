@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/evanw/esbuild/pkg/api"
@@ -51,15 +52,17 @@ func TestGeneratedRouterBehaves(t *testing.T) {
 		t.Fatal(err)
 	}
 	// router.test.tsx runs the server renders and the browser routers on Node's build of
-	// TanStack, head.test.tsx the head code of the browser on its browser build.
+	// TanStack, head.test.tsx the head code of the browser on its browser build, call.test.ts the
+	// generated handler functions.
 	for _, entry := range []struct {
-		name     string
+		file     string
 		platform api.Platform
-	}{{"router.test", api.PlatformNode}, {"head.test", api.PlatformBrowser}} {
-		out := filepath.Join(root, entry.name+".mjs")
+	}{{"router.test.tsx", api.PlatformNode}, {"head.test.tsx", api.PlatformBrowser}, {"call.test.ts", api.PlatformNode}} {
+		name := strings.TrimSuffix(entry.file, filepath.Ext(entry.file))
+		out := filepath.Join(root, name+".mjs")
 		result := api.Build(api.BuildOptions{
 			AbsWorkingDir: root,
-			EntryPoints:   []string{entry.name + ".tsx"},
+			EntryPoints:   []string{entry.file},
 			Outfile:       out,
 			Bundle:        true,
 			Write:         true,
@@ -73,22 +76,22 @@ func TestGeneratedRouterBehaves(t *testing.T) {
 			LogLevel:      api.LogLevelSilent,
 		})
 		if len(result.Errors) > 0 {
-			t.Fatalf("bundle %s: %v", entry.name, result.Errors)
+			t.Fatalf("bundle %s: %v", name, result.Errors)
 		}
 		cmd := exec.Command(node, out)
 		cmd.Dir = root
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			t.Fatalf("node %s: %v\n%s", entry.name, err, output)
+			t.Fatalf("node %s: %v\n%s", name, err, output)
 		}
-		t.Logf("%s:\n%s", entry.name, output)
+		t.Logf("%s:\n%s", name, output)
 	}
 
 	// The generated tree, the runtime and the fixture's TSX type-check together.
 	if err := os.Symlink(modules, filepath.Join(root, "node_modules")); err != nil {
 		t.Fatal(err)
 	}
-	tsconfig := `{ "extends": "./.tifa/tsconfig.json", "include": ["app", "router.test.tsx", "head.test.tsx", ".tifa/routes.tsx", ".tifa/server.ts", ".tifa/client.ts", ".tifa/runtime/env.d.ts"] }`
+	tsconfig := `{ "extends": "./.tifa/tsconfig.json", "include": ["app", "router.test.tsx", "head.test.tsx", "call.test.ts", ".tifa/routes.tsx", ".tifa/server.ts", ".tifa/client.ts", ".tifa/runtime/env.d.ts"] }`
 	if err := os.WriteFile(filepath.Join(root, "tsconfig.json"), []byte(tsconfig), 0o644); err != nil {
 		t.Fatal(err)
 	}
