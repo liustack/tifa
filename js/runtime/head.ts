@@ -277,10 +277,14 @@ export const headStart = '<!--tifa-head-->'
 export const headEnd = '<!--/tifa-head-->'
 
 // syncHead makes the managed tags of document.head equal to headTags of the matches, in the
-// same order. An element whose tag stays is kept and, when the order changed, moved, so the head
-// the server wrote stays as it is after hydration, and a stylesheet or a script both pages
-// share is neither loaded nor run again. New elements go in in document order, so new inline
-// scripts run in the order of the tags.
+// same order. An element whose tag stays is kept, so the head the server wrote stays as it is
+// after hydration, and a script both pages share does not run again. When the order changed,
+// kept elements move the way React moves the children of a keyed list, as TanStack's
+// HeadContent does for a style: walking the new order, an element stays where it is unless it
+// came before one that already stayed. Only the elements out of place move, since moving one is
+// not free: a style element builds its style sheet again from its text, dropping rules added
+// with insertRule, and a stylesheet link is processed again. New elements go in in document
+// order, so new inline scripts run in the order of the tags.
 export function syncHead(matches: ReadonlyArray<HeadMatch>) {
   const [start, end] = markers()
   const tags: Tag[] = []
@@ -304,13 +308,24 @@ export function syncHead(matches: ReadonlyArray<HeadMatch>) {
   })
   const kept: Array<Element | undefined> = keys.map((key) => unused.get(key)?.shift())
   for (const list of unused.values()) for (const element of list) element.remove()
-  const parent = start.parentNode!
-  let next = start.nextSibling
-  for (let i = 0; i < tags.length; i++) {
-    const element = kept[i] ?? createTagElement(tags[i]!)
-    if (element === next) next = element.nextSibling
-    else parent.insertBefore(element, next)
+  // stays[i]: kept[i] is already in place among the elements that stay.
+  const stays: boolean[] = []
+  let last = -1
+  for (const element of kept) {
+    const at = element ? elements.indexOf(element) : -1
+    stays.push(at > last)
+    if (at > last) last = at
   }
+  // before[i]: the element that stays right after position i, or the end marker.
+  const before: Node[] = []
+  let anchor: Node = end
+  for (let i = kept.length - 1; i >= 0; i--) {
+    before[i] = anchor
+    if (stays[i]) anchor = kept[i]!
+  }
+  const parent = start.parentNode!
+  for (let i = 0; i < tags.length; i++)
+    if (!stays[i]) parent.insertBefore(kept[i] ?? createTagElement(tags[i]!), before[i]!)
 }
 
 // markers finds the comments around the managed tags, or adds them at the end of the head of a

@@ -57,8 +57,10 @@ class FakeNode {
     return siblings[siblings.indexOf(this) + 1] ?? null
   }
   insertBefore(node: FakeNode, before: FakeNode | null) {
-    if (node.parentNode) node.parentNode.childNodes.splice(node.parentNode.childNodes.indexOf(node), 1)
-    else fakeDocument.inserted.push(node)
+    if (node.parentNode) {
+      node.parentNode.childNodes.splice(node.parentNode.childNodes.indexOf(node), 1)
+      fakeDocument.moved.push(node)
+    } else fakeDocument.inserted.push(node)
     const at = before ? this.childNodes.indexOf(before) : this.childNodes.length
     if (at < 0) throw new Error('insertBefore: not a child')
     this.childNodes.splice(at, 0, node)
@@ -101,6 +103,7 @@ class FakeElement extends FakeNode {
 const fakeDocument = {
   ...browserDocument,
   inserted: [] as FakeNode[],
+  moved: [] as FakeNode[],
   head: new FakeElement('head'),
   documentElement: new FakeElement('html'),
   createElement: (name: string) => new FakeElement(name),
@@ -111,6 +114,7 @@ const fakeDocument = {
 async function withDocument(fn: () => Promise<void>) {
   const saved = g.document
   fakeDocument.inserted = []
+  fakeDocument.moved = []
   fakeDocument.head = new FakeElement('head')
   fakeDocument.documentElement = new FakeElement('html')
   g.document = fakeDocument
@@ -197,6 +201,20 @@ test('kept head elements move into the new order', async () => {
     const after = managed()
     assert(after[1] === b && after[2] === a, `head ${after.map(describe)}`)
     assert(fakeDocument.inserted.length === 5, `elements were created again: ${fakeDocument.inserted.length}`)
+  })
+})
+
+test('a new order moves only the head elements out of place', async () => {
+  await withDocument(async () => {
+    const styles = (...names: string[]) => page({ styles: names.map((name) => ({ children: `.${name}{}` })) })
+    syncHead(styles('a', 'b', 'c', 'd'))
+    syncHead(styles('b', 'c', 'd', 'a'))
+    const order = managed().filter((e) => e.localName === 'style').map((e) => e.textContent)
+    assert(JSON.stringify(order) === '[".b{}",".c{}",".d{}",".a{}"]', `head ${JSON.stringify(order)}`)
+    // Moving a style element builds its style sheet again, and a stylesheet link is processed
+    // again: only the one element whose place changed moves.
+    const moved = fakeDocument.moved.map((n) => (n as FakeElement).textContent)
+    assert(JSON.stringify(moved) === '[".a{}"]', `moved ${JSON.stringify(moved)}`)
   })
 })
 
