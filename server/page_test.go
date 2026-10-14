@@ -131,6 +131,25 @@ func TestUnchangedPageAnswers304(t *testing.T) {
 	}
 }
 
+// tifa dev keeps the build ID when only the SSR bundle changes, so the ETag covers the bundle
+// too: a reload after a change to page code gets the new render, not a 304 for the old one.
+func TestPageETagCoversTheSSRBundle(t *testing.T) {
+	s, _ := newFrontServer(t, frontApp())
+	etag := get(s, "/projects/p1").Header().Get("ETag")
+	changed := fstest.MapFS{}
+	for name, file := range dist {
+		changed[name] = file
+	}
+	changed["ssr.js"] = &fstest.MapFile{Data: []byte("// changed bundle")}
+	s2 := newAppServer(t, frontApp())
+	if err := s2.setFront(changed, (&renders{}).render); err != nil {
+		t.Fatal(err)
+	}
+	if w := get(s2, "/projects/p1", "If-None-Match", etag); w.Code != 200 {
+		t.Errorf("the ETag of the old bundle gets %d, want 200", w.Code)
+	}
+}
+
 func TestCachedPageRendersOnce(t *testing.T) {
 	s, r := newFrontServer(t, frontApp())
 	first, second := get(s, "/stats"), get(s, "/stats")

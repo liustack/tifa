@@ -34,6 +34,9 @@ type frontBuild struct {
 	// Head is the HTML that loads the browser bundle: stylesheets, module preloads and the entry
 	// script, or under tifa dev the scripts of Vite's dev server.
 	Head string `json:"head"`
+	// bundle is the hash of ssr.js. tifa dev keeps the build ID when only ssr.js changes, so
+	// what a render depends on is the build ID and the bundle.
+	bundle string
 }
 
 // setFront serves pages from dist: dist/build.json names the build and its assets, dist/assets
@@ -49,6 +52,14 @@ func (s *Server) setFront(dist fs.FS, render func(context.Context, ssr.Input) (s
 	}
 	if s.build.ID == "" {
 		return errors.New("tifa: build.json has no build ID")
+	}
+	if render != nil {
+		source, err := fs.ReadFile(dist, "ssr.js")
+		if err != nil {
+			return err
+		}
+		sum := sha256.Sum256(source)
+		s.build.bundle = hex.EncodeToString(sum[:16])
 	}
 	for _, dir := range []struct {
 		name string
@@ -308,7 +319,7 @@ type dataRedirect struct {
 }
 
 // renderPage renders the document in the VM. A successful page gets an ETag from the hash of
-// the build ID, the URL and the data, which are all the render depends on. A matching
+// the build ID, the SSR bundle, the URL and the data, which are all the render depends on. A matching
 // If-None-Match is answered 304, and with cache the HTML of an earlier render is reused.
 func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status int, cache bool) error {
 	r := c.Request()
@@ -319,7 +330,7 @@ func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status in
 	in := ssr.Input{BuildID: s.build.ID, URL: r.URL.RequestURI(), Data: data}
 	var key string
 	if status == http.StatusOK {
-		sum := sha256.Sum256([]byte(in.BuildID + "\x00" + in.URL + "\x00" + string(data)))
+		sum := sha256.Sum256([]byte(in.BuildID + "\x00" + s.build.bundle + "\x00" + in.URL + "\x00" + string(data)))
 		key = `"` + hex.EncodeToString(sum[:16]) + `"`
 		c.SetHeader("ETag", key)
 		if etagMatches(c.Header("If-None-Match"), key) {
