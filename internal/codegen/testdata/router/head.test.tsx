@@ -4,7 +4,8 @@
 import { createMemoryHistory } from '@tanstack/react-router'
 import { routeTree } from './.tifa/routes'
 import { createAppRouter } from './.tifa/runtime/router'
-import { type RouteResult } from './.tifa/runtime/data'
+import { bootElementId, rootElementId, type RouteResult } from './.tifa/runtime/data'
+import { hydrate } from './.tifa/runtime/browser'
 import { followHead, headHTML, setAttributes, syncHead, type Tag } from './.tifa/runtime/head'
 
 const tests: Array<[string, () => Promise<void>]> = []
@@ -108,6 +109,7 @@ const fakeDocument = {
   documentElement: new FakeElement('html'),
   createElement: (name: string) => new FakeElement(name),
   createComment: (value: string) => new FakeNode(8, value),
+  getElementById: (_id: string): FakeElement | null => null,
 }
 
 // withDocument runs fn against a fresh fake document.
@@ -228,6 +230,39 @@ test('a script with a nonce stays in place while its tag stays', async () => {
     syncHead(page({ headScripts: [{ nonce: 'n1', children: 'run()' }], links: [{ rel: 'icon', href: '/i.svg', nonce: 'n1' }] }))
     assert(fakeDocument.inserted.length === inserted, `elements were created again, the script runs again: ${managed().map(describe)}`)
     assert(managed().every((e, i) => e === before[i]), `head ${managed().map(describe)}`)
+  })
+})
+
+test('a page without SSR gets the html attributes React DOM would write', async () => {
+  await withDocument(async () => {
+    const root = new FakeElement('div')
+    const boot = new FakeElement('script')
+    boot.textContent = JSON.stringify({ url: '/teams/x/one', buildId: 'b1', data: {} })
+    const byId: Record<string, FakeElement> = { [rootElementId]: root, [bootElementId]: boot }
+    const saved = { getElementById: fakeDocument.getElementById, fetch: g.fetch, history: g.history, location: g.location }
+    g.location = { href: 'http://tifa.test/teams/x/one', origin: 'http://tifa.test', pathname: '/teams/x/one', search: '', hash: '' }
+    // The browser history a router without a memory history takes.
+    g.history = { scrollRestoration: 'auto', state: null, length: 1, pushState() {}, replaceState() {}, go() {}, back() {}, forward() {} }
+    fakeDocument.getElementById = (id: string) => byId[id] ?? null
+    // The page's routes have Loads whose data request never answers, so the page stops before
+    // React renders into the fake root.
+    let requested = false
+    g.fetch = () => {
+      requested = true
+      return new Promise(() => {})
+    }
+    try {
+      hydrate(routeTree, { lang: 'xx', className: 'dark', htmlFor: 'x', onClick: 'alert(1)' })
+      for (let i = 0; i < 100 && !requested; i++) await new Promise((resolve) => setTimeout(resolve, 0))
+      assert(requested, 'the page asked for no data')
+    } finally {
+      fakeDocument.getElementById = saved.getElementById
+      g.fetch = saved.fetch
+      g.history = saved.history
+      g.location = saved.location
+    }
+    const html = describe(fakeDocument.documentElement)
+    assert(html === 'html lang=xx class=dark for=x', `html ${html}`)
   })
 })
 
