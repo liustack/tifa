@@ -90,15 +90,11 @@ func (a *analyzer) checkInput(method string, in types.Type, pos token.Pos) bool 
 		return false
 	}
 	ok = true
-	if problems := checkTS(in); len(problems) > 0 {
+	if problems := checkInputTS(in); len(problems) > 0 {
 		a.reportTS(pos, label, problems)
 		ok = false
 	}
 	root := rootLabel(in)
-	walkDecode(in, root, nil, map[types.Type]bool{}, func(path, msg string, f *types.Var) {
-		a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s: %s", label, path, msg), f))
-		ok = false
-	})
 	walkFields(in, root, map[types.Type]bool{}, func(path string, f *types.Var, tag string) {
 		if _, has := reflect.StructTag(tag).Lookup("form"); has {
 			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s has a form tag: an input field is named by its json tag only, also in a form body, so remove the form tag", label, path), f))
@@ -186,42 +182,9 @@ var textUnmarshalSig = types.NewSignatureType(nil, nil, nil,
 	types.NewTuple(types.NewVar(token.NoPos, nil, "", types.NewSlice(types.Typ[types.Byte]))),
 	types.NewTuple(types.NewVar(token.NoPos, nil, "", types.Universe.Lookup("error").Type())), false)
 
-// walkDecode reports each type that t holds, t included, that encoding/json would not read back
-// from the JSON its TypeScript type describes. checkTS has accepted t, so a MarshalText it finds
-// is the one that makes a type a string. field is the struct field that holds t, nil at the root.
-func walkDecode(t types.Type, path string, field *types.Var, seen map[types.Type]bool, report func(path, msg string, field *types.Var)) {
-	if seen[t] || isNamed(t, "time", "Time") {
-		return
-	}
-	seen[t] = true
-	if p, ok := types.Unalias(t).(*types.Pointer); ok {
-		walkDecode(p.Elem(), path, field, seen, report)
-		return
-	}
-	if msg := decodeProblem(t); msg != "" {
-		report(path, msg, field)
-	}
-	switch u := types.Unalias(t).Underlying().(type) {
-	case *types.Pointer:
-		walkDecode(u.Elem(), path, field, seen, report)
-	case *types.Slice:
-		walkDecode(u.Elem(), path+"[]", field, seen, report)
-	case *types.Array:
-		walkDecode(u.Elem(), path+"[]", field, seen, report)
-	case *types.Map:
-		walkDecode(u.Key(), path+"[key]", field, seen, report)
-		walkDecode(u.Elem(), path+"[]", field, seen, report)
-	case *types.Struct:
-		for i := range u.NumFields() {
-			if f := u.Field(i); f.Exported() || f.Embedded() {
-				walkDecode(f.Type(), path+"."+f.Name(), f, seen, report)
-			}
-		}
-	}
-}
-
 // decodeProblem tells why encoding/json would not read a value of type t from the JSON its
-// TypeScript type describes, or returns "".
+// TypeScript type describes, or returns "". checkTS has accepted t, so a MarshalText it finds
+// is the one that makes t a string.
 func decodeProblem(t types.Type) string {
 	name := types.TypeString(t, shortQualifier)
 	for _, method := range []string{"UnmarshalJSON", "UnmarshalJSONFrom"} {
