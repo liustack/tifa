@@ -1,21 +1,53 @@
-import { Outlet } from '@tanstack/react-router'
+import { Link, Outlet } from '@tanstack/react-router'
+import { RouteError } from 'tifa/client'
 import './styles.css'
 
 export const htmlAttributes = { lang: 'en' }
 
+// Head tags of every page. A page's head can set its own title.
 export const documentHead = {
   meta: [{ title: '{{.Title}}' }],
   links: [{ rel: 'icon', href: 'data:,' }],
 }
 
+// The root Layout wraps every page.
 export default function Root() {
-  return <Outlet />
+  return (
+    <>
+      <header>
+        <nav>
+          <Link to="/">Todos</Link>
+          <Link to="/about">About</Link>
+        </nav>
+      </header>
+      <main>
+        <Outlet />
+      </main>
+    </>
+  )
 }
 
+// NotFound shows for a URL that matches no page, without the Layout around it.
 export function NotFound() {
   return (
     <main>
       <h1>Page not found</h1>
+      <p>
+        <a href="/">Back to the todos</a>
+      </p>
+    </main>
+  )
+}
+
+// Error shows when a page fails to load or render and has no Error of its own.
+export function Error({ error }: { error: unknown }) {
+  return (
+    <main>
+      <h1>Something went wrong</h1>
+      <p role="alert">{error instanceof RouteError ? error.message : 'Try again in a moment.'}</p>
+      <p>
+        <a href="/">Back to the todos</a>
+      </p>
     </main>
   )
 }

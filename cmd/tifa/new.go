@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"go/token"
-	"go/types"
 	"go/version"
 	"io/fs"
 	"os"
@@ -32,7 +31,7 @@ const tifaModule = "github.com/liustack/tifa"
 
 type newApp struct {
 	Module  string // the module path in go.mod
-	Package string // the name of the root package, which the generated Go files import by it
+	Package string // the name of the root package. The pages import it as domain
 	Title   string // the last element of the module path, the page title
 	NPM     string // the name in package.json
 	Go      string // the go line of go.mod
@@ -86,10 +85,6 @@ network. The next steps it prints download the Go and npm dependencies.`,
 	return cmd
 }
 
-// routeNames are the names app/route.go uses besides the predeclared ones. It imports the root
-// package by its name, which would hide them, or they would hide it.
-var routeNames = []string{"c", "tifa"}
-
 // appNames derives the names of the app from its module path. The root package is the last
 // element without the major version suffix, lowercased, with its letters and digits only, so
 // example.com/Order-Desk/v2 is the package orderdesk. That is a valid npm name as well.
@@ -111,8 +106,9 @@ func appNames(modulePath string) (newApp, error) {
 		}
 		return -1
 	}, strings.ToLower(title))
-	if !token.IsIdentifier(pkg) || token.IsKeyword(pkg) || pkg == "main" || types.Universe.Lookup(pkg) != nil || slices.Contains(routeNames, pkg) {
-		return newApp{}, fmt.Errorf("the module path %s ends in %q, which makes the package name %q: tifa new keeps keywords, predeclared names such as error, main, c and tifa from the package names it makes, so pass --module with another last element", modulePath, title, pkg)
+	// The pages import the root package as domain, so any name a package may have works.
+	if !token.IsIdentifier(pkg) || token.IsKeyword(pkg) || pkg == "main" {
+		return newApp{}, fmt.Errorf("the module path %s ends in %q, which makes the package name %q: a package name must start with a letter and may not be a keyword or main, so pass --module with another last element", modulePath, title, pkg)
 	}
 	npm := pkg
 	if len(npm) > 214 { // the longest npm name

@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 )
@@ -65,21 +64,87 @@ func TestNewApp(t *testing.T) {
 	if err := os.Symlink(modules, filepath.Join(dir, "node_modules")); err != nil {
 		t.Fatal(err)
 	}
-	base, _, output := start(t, buildAt(t, dir))
-	clicks := func(n string) *regexp.Regexp {
-		return regexp.MustCompile(`<p>Presses: (<!-- -->)?` + n + `</p>`)
+	// SQLite and the QuickJS of tifa both run on modernc.org/libc, and each is built for the exact
+	// libc version its go.mod requires. The app must build with that version for both.
+	libc := moduleVersion(t, dir, "modernc.org/libc")
+	for _, module := range []string{"modernc.org/sqlite", "github.com/liustack/quickjs"} {
+		if required := requires(t, dir, module, "modernc.org/libc"); required != libc {
+			t.Errorf("%s requires modernc.org/libc %s, the new app builds with %s: pin a modernc.org/sqlite in cmd/tifa/newapp/go.mod.tmpl built for the libc of the QuickJS of tifa", module, required, libc)
+		}
 	}
-	if status, _, body := get(t, base+"/"); status != 200 || !clicks("0").MatchString(body) || !strings.Contains(body, "<title>hello</title>") {
+	exe := buildAt(t, dir)
+	// The app opens its database at DB_PATH, by default app.db in the folder it runs in.
+	db := filepath.Join(t.TempDir(), "todos.db")
+	t.Setenv("DB_PATH", db)
+	base, _, output := start(t, exe)
+	if status, _, body := get(t, base+"/"); status != 200 || !strings.Contains(body, "<title>hello</title>") || !strings.Contains(body, "Nothing to do") {
 		t.Fatalf("GET /: %d\n%s\n%s", status, body, output)
 	}
-	if status, _, body := request(t, "POST", base+"/", ""); status != 200 || strings.TrimSpace(body) != `{"clicks":1}` {
+	if _, err := os.Stat(db); err != nil {
+		t.Fatalf("the app did not open its database at DB_PATH: %v", err)
+	}
+	if status, _, body := request(t, "POST", base+"/", `{"title":"  "}`); status != 422 || strings.TrimSpace(body) != `{"error":"Unprocessable Entity","fields":{"title":"Write what needs doing."}}` {
+		t.Fatalf("POST / with an empty title: %d %s", status, body)
+	}
+	if status, _, body := request(t, "POST", base+"/", `{"title":"  Water the plants "}`); status != 200 || strings.TrimSpace(body) != `{"id":1,"title":"Water the plants","done":false}` {
 		t.Fatalf("POST /: %d %s", status, body)
 	}
-	if status, _, body := get(t, base+"/"); status != 200 || !clicks("1").MatchString(body) {
+	if status, _, body := get(t, base+"/"); status != 200 || !strings.Contains(body, `<a href="/todos/1">Water the plants</a>`) {
 		t.Fatalf("GET / after POST: %d\n%s", status, body)
 	}
-	if status, _, _ := get(t, base+"/nowhere"); status != 404 {
-		t.Fatalf("GET /nowhere: %d", status)
+	if status, _, body := get(t, base+"/todos/1"); status != 200 || !strings.Contains(body, "<title>Water the plants</title>") || !strings.Contains(body, "Mark as done") {
+		t.Fatalf("GET /todos/1: %d\n%s", status, body)
+	}
+	if status, _, body := request(t, "POST", base+"/todos/1", `{"done":true}`); status != 200 || strings.TrimSpace(body) != `{"id":1,"title":"Water the plants","done":true}` {
+		t.Fatalf("POST /todos/1: %d %s", status, body)
+	}
+	if status, _, body := get(t, base+"/todos/1"); status != 200 || !strings.Contains(body, "Mark as not done") {
+		t.Fatalf("GET /todos/1 after POST: %d\n%s", status, body)
+	}
+	for _, path := range []string{"/todos/2", "/todos/one"} {
+		if status, _, body := get(t, base+path); status != 404 || !strings.Contains(body, "No such todo") {
+			t.Fatalf("GET %s: %d\n%s", path, status, body)
+		}
+	}
+	if status, _, body := request(t, "POST", base+"/todos/2", `{"done":true}`); status != 404 {
+		t.Fatalf("POST /todos/2: %d %s", status, body)
+	}
+	if status, _, body := get(t, base+"/nowhere"); status != 404 || !strings.Contains(body, "Page not found") {
+		t.Fatalf("GET /nowhere: %d\n%s", status, body)
+	}
+	if status, _, body := get(t, base+"/about"); status != 200 || !strings.Contains(body, "<h1>About</h1>") {
+		t.Fatalf("GET /about: %d\n%s", status, body)
 	}
 	typecheck(t, dir)
+}
+
+// moduleVersion is the version of module the go command selects in the module at dir.
+func moduleVersion(t *testing.T, dir, module string) string {
+	t.Helper()
+	cmd := exec.Command("go", "list", "-m", "-f", "{{.Version}}", module)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("go list -m %s in %s: %v", module, dir, err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// requires is the version of dep that the selected version of module requires in its go.mod, as
+// the module graph of the module at dir shows it.
+func requires(t *testing.T, dir, module, dep string) string {
+	t.Helper()
+	from := module + "@" + moduleVersion(t, dir, module)
+	cmd := exec.Command("go", "mod", "graph")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("go mod graph in %s: %v", dir, err)
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if edge := strings.Fields(line); len(edge) == 2 && edge[0] == from && strings.HasPrefix(edge[1], dep+"@") {
+			return strings.TrimPrefix(edge[1], dep+"@")
+		}
+	}
+	return "none"
 }

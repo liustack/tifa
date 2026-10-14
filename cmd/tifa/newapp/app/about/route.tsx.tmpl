@@ -1,0 +1,16 @@
+// A page that needs no data from Go is a route.tsx without a route.go.
+export default function AboutPage() {
+  return (
+    <>
+      <h1>About</h1>
+      <p>
+        {{.Title}} is a <a href="https://github.com/liustack/tifa">tifa</a> app: Go loads the data
+        from SQLite, and React renders the pages on the server and in the browser.
+      </p>
+    </>
+  )
+}
+
+export const head = () => ({
+  meta: [{ title: 'About · {{.Title}}' }],
+})

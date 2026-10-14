@@ -8,12 +8,16 @@ import (
 	"go/token"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime/debug"
 	"slices"
 	"strings"
 	"testing"
+
+	"golang.org/x/mod/modfile"
 )
 
 func TestNewWritesAnApp(t *testing.T) {
@@ -35,7 +39,13 @@ func TestNewWritesAnApp(t *testing.T) {
 		}
 		return err
 	})
-	want := []string{".gitignore", "README.md", "app/layout.tsx", "app/route.go", "app/route.tsx", "app/route_test.go", "app/styles.css", "counter.go", "go.mod", "package.json", "tsconfig.json"}
+	want := []string{
+		".gitignore", "README.md",
+		"app/about/route.tsx", "app/layout.tsx", "app/route.go", "app/route.tsx", "app/route_test.go", "app/styles.css",
+		"app/todos/todo+/route.go", "app/todos/todo+/route.tsx", "app/todos/todo+/route_test.go",
+		"db.go", "db_test.go", "go.mod", "hooks.go", "hooks_test.go", "package.json", "schema.sql",
+		"todo.go", "todo_test.go", "tsconfig.json",
+	}
 	if !reflect.DeepEqual(files, want) {
 		t.Fatalf("files %q, want %q", files, want)
 	}
@@ -47,22 +57,31 @@ func TestNewWritesAnApp(t *testing.T) {
 		return string(data)
 	}
 	gomod := read("go.mod")
-	for _, line := range []string{"module My-App\n", "require github.com/liustack/tifa v0.0.0\n", "tool github.com/liustack/tifa/cmd/tifa\n"} {
+	for _, line := range []string{"module My-App\n", "\tgithub.com/liustack/tifa v0.0.0\n", "\tmodernc.org/sqlite v", "tool github.com/liustack/tifa/cmd/tifa\n"} {
 		if !strings.Contains(gomod, line) {
 			t.Errorf("go.mod has no line %q:\n%s", line, gomod)
 		}
 	}
-	if !strings.Contains(read("counter.go"), "package myapp\n") || !strings.Contains(read("app/route.go"), `myapp "My-App"`) {
-		t.Errorf("the root package is not myapp:\n%s\n%s", read("counter.go"), read("app/route.go"))
+	if !strings.Contains(read("todo.go"), "package myapp\n") || !strings.Contains(read("app/route.go"), `domain "My-App"`) {
+		t.Errorf("the root package is not myapp:\n%s\n%s", read("todo.go"), read("app/route.go"))
 	}
-	for _, name := range []string{"counter.go", "app/route.go", "app/route_test.go"} {
+	for _, name := range files {
+		if !strings.HasSuffix(name, ".go") {
+			continue
+		}
 		src := read(name)
 		if formatted, err := format.Source([]byte(src)); err != nil || string(formatted) != src {
 			t.Errorf("%s is not gofmt'ed Go: %v", name, err)
 		}
 	}
-	if !strings.Contains(read("app/route.tsx"), "<h1>My-App</h1>") || !strings.Contains(read("package.json"), `"name": "myapp"`) {
-		t.Errorf("the page does not show the app name:\n%s", read("app/route.tsx"))
+	if !strings.Contains(read("app/layout.tsx"), "{ title: 'My-App' }") || !strings.Contains(read("package.json"), `"name": "myapp"`) {
+		t.Errorf("the page does not show the app name:\n%s", read("app/layout.tsx"))
+	}
+	// The database the app opens by default stays out of version control.
+	for _, pattern := range []string{"*.db\n", "*.db-wal\n", "*.db-shm\n"} {
+		if !strings.Contains(read(".gitignore"), pattern) {
+			t.Errorf(".gitignore does not ignore %q:\n%s", pattern, read(".gitignore"))
+		}
 	}
 }
 
@@ -106,9 +125,15 @@ func TestNewNamesTheRootPackage(t *testing.T) {
 		{"desk", "desk", "desk", "desk"},
 		{"example.com/fmt", "fmt", "fmt", "fmt"},
 		{"example.com/std", "std", "std", "std"},
-		// names only the test file uses, which the import of the root package in route.go cannot hide
+		// the pages import the root package as domain, so it may have any name a package may have,
+		// also one a route package, a predeclared name or a name the pages use
+		{"example.com/todo", "todo", "todo", "todo"},
+		{"example.com/domain", "domain", "domain", "domain"},
+		{"example.com/error", "error", "error", "error"},
+		{"example.com/C", "c", "C", "c"},
+		{"example.com/tifa", "tifa", "tifa", "tifa"},
 		{"example.com/err", "err", "err", "err"},
-		{"example.com/testing", "testing", "testing", "testing"},
+		{"example.com/Context", "context", "Context", "context"},
 		{"example.com/" + strings.Repeat("a", 300), strings.Repeat("a", 300), strings.Repeat("a", 300), strings.Repeat("a", 214)},
 	}
 	for _, tc := range cases {
@@ -118,9 +143,7 @@ func TestNewNamesTheRootPackage(t *testing.T) {
 		}
 	}
 	for _, bad := range []string{
-		"example.com/123", "example.com/main", "example.com/tifa", "example.com/type", "example.com/a b", "",
-		// predeclared names and names of the generated code, which the import of the root package would hide
-		"example.com/error", "example.com/int64", "example.com/nil", "example.com/c", "example.com/C",
+		"example.com/123", "example.com/main", "example.com/Main", "example.com/type", "example.com/a b", "example.com/-", "",
 		// invalid major version suffixes
 		"example.com/shop/v1", "example.com/shop/v0", "example.com/shop/v02", "gopkg.in/desk",
 		// paths the standard library or the go command keeps, in any case
@@ -134,38 +157,63 @@ func TestNewNamesTheRootPackage(t *testing.T) {
 	}
 }
 
-// app/route.go imports the root package by its name, so that name must not be one route.go uses
-// for something else.
-func TestNewRootPackageHidesNoName(t *testing.T) {
+// The Go files under app/ import the root package as domain, whatever its name, so domain must
+// name nothing else in them.
+func TestNewPagesImportTheRootPackageAsDomain(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "app")
 	if _, _, err := run(t, "new", dir, "--module", "example.com/myapp"); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"app/route.go"} {
-		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, name), nil, 0)
-		if err != nil {
-			t.Fatal(err)
+	var checked []string
+	err := filepath.WalkDir(filepath.Join(dir, "app"), func(name string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(name, ".go") {
+			return err
 		}
-		ast.Inspect(file, func(n ast.Node) bool {
-			if sel, ok := n.(*ast.SelectorExpr); ok {
-				ast.Inspect(sel.X, func(n ast.Node) bool { return checkIdent(t, name, n) })
-				return false
+		file, err := parser.ParseFile(token.NewFileSet(), name, nil, 0)
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(dir, name)
+		rel = filepath.ToSlash(rel)
+		for _, spec := range file.Imports {
+			root := spec.Path.Value == `"example.com/myapp"`
+			named := spec.Name != nil && spec.Name.Name == "domain"
+			if root && !named {
+				t.Errorf("%s imports the root package without the name domain", rel)
 			}
-			return checkIdent(t, name, n)
-		})
+			if !root && (named || path.Base(strings.Trim(spec.Path.Value, `"`)) == "domain") {
+				t.Errorf("%s imports %s as domain", rel, spec.Path.Value)
+			}
+			if root {
+				checked = append(checked, rel)
+			}
+		}
+		// Past the imports, domain may only be the package in domain.X.
+		for _, decl := range file.Decls {
+			if gen, ok := decl.(*ast.GenDecl); ok && gen.Tok == token.IMPORT {
+				continue
+			}
+			ast.Inspect(decl, func(n ast.Node) bool {
+				if sel, ok := n.(*ast.SelectorExpr); ok {
+					if id, ok := sel.X.(*ast.Ident); ok && id.Name == "domain" {
+						return false
+					}
+				}
+				if id, ok := n.(*ast.Ident); ok && id.Name == "domain" {
+					t.Errorf("%s uses domain for something else than the root package", rel)
+				}
+				return true
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-func checkIdent(t *testing.T, file string, n ast.Node) bool {
-	id, ok := n.(*ast.Ident)
-	// A package name is lowercase, so only a lowercase name can be the same.
-	if !ok || id.Name == "myapp" || id.Name == "app" || id.Name == "_" || id.Name != strings.ToLower(id.Name) {
-		return true
+	want := []string{"app/route.go", "app/route_test.go", "app/todos/todo+/route.go", "app/todos/todo+/route_test.go"}
+	if !reflect.DeepEqual(checked, want) {
+		t.Fatalf("the root package is imported by %q, want %q", checked, want)
 	}
-	if _, err := appNames("example.com/" + id.Name); err == nil {
-		t.Errorf("%s uses %s, which tifa new accepts as the name of the root package", file, id.Name)
-	}
-	return true
 }
 
 func TestNewQuotesTheFolder(t *testing.T) {
@@ -248,6 +296,60 @@ func TestStdRootsListTheStandardLibrary(t *testing.T) {
 	for _, e := range entries {
 		if e.IsDir() && e.Name() != "testdata" && !slices.Contains(stdRoots, e.Name()) {
 			t.Errorf("stdRoots lacks %s of the standard library", e.Name())
+		}
+	}
+}
+
+// modernc.org/sqlite and the QuickJS of tifa both run on modernc.org/libc, and each is built for
+// the exact libc version its go.mod requires. Go picks the highest version any module requires,
+// so the app builds with that libc only when the SQLite release go.mod.tmpl pins and the QuickJS
+// tifa requires both require the libc tifa builds with.
+func TestNewPinsASQLiteBuiltForTheLibcOfTifa(t *testing.T) {
+	tmpl, err := os.ReadFile(filepath.Join("newapp", "go.mod.tmpl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`(?m)^\s*modernc\.org/sqlite (v\S+)$`).FindSubmatch(tmpl)
+	if m == nil {
+		t.Fatalf("go.mod.tmpl requires no modernc.org/sqlite:\n%s", tmpl)
+	}
+	sqlite := "modernc.org/sqlite@" + string(m[1])
+	goCmd := func(args ...string) []byte {
+		t.Helper()
+		out, err := exec.Command("go", args...).Output()
+		if err != nil {
+			t.Fatalf("go %s: %v", strings.Join(args, " "), err)
+		}
+		return out
+	}
+	libc := strings.TrimSpace(string(goCmd("list", "-m", "-f", "{{.Version}}", "modernc.org/libc")))
+	quickjs := strings.TrimSpace(string(goCmd("list", "-m", "-f", "{{.GoMod}}", "github.com/liustack/quickjs")))
+	// The SQLite module is not a dependency of tifa, so it may have to be downloaded.
+	out, err := exec.Command("go", "mod", "download", "-json", sqlite).Output()
+	if err != nil {
+		t.Skipf("go mod download %s: %v, the module proxy may be out of reach", sqlite, err)
+	}
+	var download struct{ GoMod string }
+	if err := json.Unmarshal(out, &download); err != nil {
+		t.Fatal(err)
+	}
+	for _, gomod := range []string{quickjs, download.GoMod} {
+		data, err := os.ReadFile(gomod)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f, err := modfile.ParseLax(gomod, data, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		required := "none"
+		for _, r := range f.Require {
+			if r.Mod.Path == "modernc.org/libc" {
+				required = r.Mod.Version
+			}
+		}
+		if required != libc {
+			t.Errorf("%s requires modernc.org/libc %s, tifa builds with %s: pin a modernc.org/sqlite in go.mod.tmpl built for the same libc as the QuickJS of tifa", f.Module.Mod, required, libc)
 		}
 	}
 }

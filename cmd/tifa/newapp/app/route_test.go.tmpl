@@ -1,22 +1,54 @@
 package app
 
 import (
+	"errors"
 	"net/http/httptest"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/tifatest"
+
+	domain "{{.Module}}"
 )
 
-func TestPOSTCountsClicks(t *testing.T) {
-	c, _ := tifatest.NewCtx(t, httptest.NewRequest("GET", "/", nil))
-	before, err := tifa.Use(c, Load)
+// useTestDB gives the test a fresh, empty database.
+func useTestDB(t *testing.T) {
+	t.Helper()
+	db, err := domain.OpenDB(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, _ = tifatest.NewCtx(t, httptest.NewRequest("POST", "/", nil))
-	after, err := POST(c)
-	if err != nil || after.Clicks != before.Clicks+1 {
-		t.Fatalf("POST: %+v, %v, want %d clicks", after, err, before.Clicks+1)
+	domain.DB = db
+	t.Cleanup(func() { db.Close() })
+}
+
+func TestPOSTAddsATodoThatLoadLists(t *testing.T) {
+	useTestDB(t)
+	c, _ := tifatest.NewCtx(t, httptest.NewRequest("POST", "/", nil))
+	added, err := POST(c, AddInput{Title: "Buy milk"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, _ = tifatest.NewCtx(t, httptest.NewRequest("GET", "/", nil))
+	got, err := tifa.Use(c, Load)
+	if err != nil || len(got) != 1 || got[0] != added {
+		t.Fatalf("Load: %+v, %v, want [%+v]", got, err, added)
+	}
+}
+
+// The server runs Validate before POST, so it is tested on its own.
+func TestValidateNeedsATitle(t *testing.T) {
+	for s, want := range map[string]string{
+		"Buy milk":               "",
+		"   ":                    "Write what needs doing.",
+		strings.Repeat("a", 201): "Keep it under 200 characters.",
+	} {
+		var fields tifa.Fields
+		err := AddInput{Title: s}.Validate()
+		if errors.As(err, &fields) != (want != "") || fields["title"] != want {
+			t.Errorf("Validate(%q): %v, want %q", s, err, want)
+		}
 	}
 }

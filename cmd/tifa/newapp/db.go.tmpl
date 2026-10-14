@@ -1,0 +1,44 @@
+package {{.Package}}
+
+import (
+	"database/sql"
+	_ "embed"
+	"os"
+
+	// The SQLite driver is pure Go, so the app builds with CGO_ENABLED=0. It runs on the same
+	// modernc.org/libc as the QuickJS of tifa, and each release is built for one exact libc
+	// version: when you upgrade tifa or the driver, keep the libc version both of them require.
+	_ "modernc.org/sqlite"
+)
+
+// DB is the database of the app. OnStart opens it and OnShutdown closes it. Tests replace it
+// with a fresh database of their own.
+var DB *sql.DB
+
+//go:embed schema.sql
+var schema string
+
+// dbPath is where the database lives: $DB_PATH, or app.db in the folder the app runs in.
+func dbPath() string {
+	if path := os.Getenv("DB_PATH"); path != "" {
+		return path
+	}
+	return "app.db"
+}
+
+// OpenDB opens the SQLite database at path, creating the file when it is missing, and creates
+// the tables of schema.sql that do not exist yet.
+func OpenDB(path string) (*sql.DB, error) {
+	// The pragmas apply to every connection of the pool. WAL lets reads go on during a write,
+	// busy_timeout makes a write wait up to 5s for another one instead of failing at once, and
+	// SQLite checks foreign keys only when asked to.
+	db, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)&_pragma=synchronous(NORMAL)")
+	if err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec(schema); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return db, nil
+}

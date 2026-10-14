@@ -1,0 +1,29 @@
+package {{.Package}}
+
+import "context"
+
+// OnStart runs once before the app listens. A returned error stops the app.
+func OnStart() error {
+	db, err := OpenDB(dbPath())
+	if err != nil {
+		return err
+	}
+	DB = db
+	return nil
+}
+
+// OnShutdown runs after a stop signal, once the requests in flight have finished.
+func OnShutdown(ctx context.Context) error {
+	return DB.Close()
+}
+
+// Two more hooks are optional. Write them only when you need them: an OnError replaces the
+// default, which logs the error and answers 500.
+//
+// OnRequest runs before every page and API route, for auth or logging. Call c.Next() to go on.
+//
+//	func OnRequest(c *tifa.Ctx) error
+//
+// OnError gets the unexpected errors and panics, to report them and pick what users see.
+//
+//	func OnError(c *tifa.Ctx, err error) tifa.Error
