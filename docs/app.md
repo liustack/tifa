@@ -106,12 +106,12 @@ const OrderActions = clientOnly(() => import('./actions.client'), <button disabl
 - 同一个 Layout 下切换页面时，Layout 组件不重新挂载，它的状态保留。Layout 的 `Load` 读的参数变了（比如换了一个项目），Layout 重新挂载，状态重置。`Load` 不读的参数变了，状态保留，页面同理。
 - 页面和 Layout 都可以用 `tifa.Use(c, projects.Load)` 拿到祖先 Layout 本次请求的 `Load` 结果，同一个 `Load` 每个请求只跑一次。只能引用祖先 Layout，否则构建报错。
 - 浏览器里跳转时，导航数据请求只执行所列路由的 `Load`。祖先 Layout 的数据还在缓存里时，它不在列表中，它的 `Load` 这次不会再跑。所以权限检查不要只写在 Layout 的 `Load` 里：放进 `OnRequest`，或者让子路由的 `Load` 用 `tifa.Use` 依赖做检查的那个 Layout，这样每次请求都会执行它。
-- 文档外壳（`<html>`、`<head>`、资源与注入数据的脚本）由框架写成字符串，React 只渲染 `<body>` 里的应用根节点，所以任何一层出错或 404 时页面仍是完整文档。根 Layout（`app/layout.tsx`）可以导出两个常量定制外壳：`htmlAttributes` 是 `<html>` 的属性（不导出时为 `{ lang: 'en' }`），`documentHead` 是每个页面都带的 head 标签（没有路由匹配、根 `Load` 失败时也带），格式同 `head` 的返回值。导出 `Document` 组件会构建报错。
+- 文档外壳（`<html>`、`<head>`、资源与注入数据的脚本）由框架写成字符串，React 只渲染 `<body>` 里的应用根节点，所以任何一层出错或 404 时页面仍是完整文档。根 Layout（`app/layout.tsx`）可以导出两个常量定制外壳：`htmlAttributes` 是 `<html>` 的属性（不导出时为 `{ lang: 'en' }`），`documentHead` 是每个页面都带的 head 标签（没有路由匹配、根 `Load` 失败时也带），格式同 `head` 的返回值。在这里放网站的默认 `title`，没有路由匹配的 404 页面也有标题，页面自己的 `head` 返回 `title` 时会覆盖它。导出 `Document` 组件会构建报错。
 
 ```tsx
 export const htmlAttributes = { lang: 'zh-CN' }
 export const documentHead = {
-  meta: [{ name: 'theme-color', content: '#f7f8f5' }],
+  meta: [{ title: '山海工作台' }, { name: 'theme-color', content: '#f7f8f5' }],
   links: [{ rel: 'icon', href: '/favicon.svg' }],
 }
 ```

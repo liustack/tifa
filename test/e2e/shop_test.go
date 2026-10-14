@@ -72,7 +72,7 @@ func TestShopApp(t *testing.T) {
 	}
 
 	// 404 at each level: the order inside the project Layout, the project inside the root Layout,
-	// an unknown URL on its own.
+	// an unknown URL on its own. Each one keeps a title, the last from the root Layout's documentHead.
 	for _, tc := range []struct {
 		path, want  string
 		withSidebar bool
@@ -84,7 +84,7 @@ func TestShopApp(t *testing.T) {
 		status, _, body := get(t, base+tc.path)
 		// The project Layout shows the project name in its heading.
 		project := strings.Contains(body, "<h1>山海工作室</h1>")
-		if status != 404 || !strings.Contains(body, tc.want) || strings.Contains(body, sidebar) != tc.withSidebar || project != (tc.path == "/projects/studio/orders/WK-0201") {
+		if status != 404 || !strings.Contains(body, tc.want) || !strings.Contains(body, "山海工作台</title>") || strings.Contains(body, sidebar) != tc.withSidebar || project != (tc.path == "/projects/studio/orders/WK-0201") {
 			t.Errorf("%s: %d, want 404 with %q, sidebar %v\n%s", tc.path, status, tc.want, tc.withSidebar, body)
 		}
 	}

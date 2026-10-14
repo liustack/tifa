@@ -7,11 +7,9 @@ import './styles.css'
 export const htmlAttributes = { lang: 'zh-CN' }
 
 export const documentHead = {
-  meta: [{ name: 'theme-color', content: '#f7f8f5' }],
+  meta: [{ title: '山海工作台' }, { name: 'theme-color', content: '#f7f8f5' }],
   links: [{ rel: 'icon', href: 'data:,' }],
 }
-
-export const head = () => ({ meta: [{ title: '山海工作台' }] })
 
 export default function AppLayout() {
   const shell = route.useLoaderData()
