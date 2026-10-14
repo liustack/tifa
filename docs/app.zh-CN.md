@@ -7,9 +7,11 @@ read_when:
   - 改 examples/shop 或 test/apps 里的应用
 ---
 
+[English](app.md) · 简体中文
+
 # 应用怎么写
 
-完整的例子是 [examples/shop](../examples/shop)。构建、生成文件和 go.mod 的配法见 [build.md](build.md)。
+完整的例子是 [examples/shop](../examples/shop)。构建、生成文件和 go.mod 的配法见 [build.zh-CN.md](build.zh-CN.md)。
 
 ## 目录
 
