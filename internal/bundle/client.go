@@ -2,7 +2,9 @@ package bundle
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/evanw/esbuild/pkg/api"
@@ -51,6 +53,7 @@ func clientBuildOptions(o ClientOptions) (api.BuildOptions, error) {
 	if err := setTarget(&opts, o.Target); err != nil {
 		return opts, err
 	}
+	opts.Plugins = append(slices.Clone(opts.Plugins), stylesheetFiles)
 	opts.Outdir = o.Outdir
 	opts.Platform = api.PlatformBrowser
 	opts.Format = api.FormatESModule
@@ -59,6 +62,35 @@ func clientBuildOptions(o ClientOptions) (api.BuildOptions, error) {
 	opts.ChunkNames = "chunk-[hash]"
 	return opts, nil
 }
+
+// stylesheetFiles copies the fonts and images a stylesheet references with url() into the output,
+// named after the file with a content hash, and points the url() at the copy. Only stylesheets get
+// this: the SSR bundle loads no CSS, so an image imported by TypeScript would have no URL there.
+var stylesheetFiles = api.Plugin{Name: "tifa-stylesheet-files", Setup: func(b api.PluginBuild) {
+	type resolving struct{}
+	b.OnResolve(api.OnResolveOptions{Filter: `\.(?:woff2?|ttf|otf|eot|png|jpe?g|gif|webp|avif|svg|ico)(?:[?#].*)?$`},
+		func(args api.OnResolveArgs) (api.OnResolveResult, error) {
+			if args.Kind != api.ResolveCSSURLToken || args.PluginData == (resolving{}) {
+				return api.OnResolveResult{}, nil
+			}
+			r := b.Resolve(args.Path, api.ResolveOptions{
+				Importer: args.Importer, Namespace: args.Namespace, ResolveDir: args.ResolveDir,
+				Kind: args.Kind, PluginData: resolving{},
+			})
+			if len(r.Errors) > 0 || r.External || r.Namespace != "file" {
+				return api.OnResolveResult{Errors: r.Errors, Path: r.Path, External: r.External, Namespace: r.Namespace, Suffix: r.Suffix}, nil
+			}
+			return api.OnResolveResult{Path: r.Path, Namespace: "stylesheet-file", Suffix: r.Suffix}, nil
+		})
+	b.OnLoad(api.OnLoadOptions{Filter: `.*`, Namespace: "stylesheet-file"}, func(args api.OnLoadArgs) (api.OnLoadResult, error) {
+		data, err := os.ReadFile(args.Path)
+		if err != nil {
+			return api.OnLoadResult{}, err
+		}
+		contents := string(data)
+		return api.OnLoadResult{Contents: &contents, Loader: api.LoaderFile}, nil
+	})
+}}
 
 // clientAssets finds the entry script and its CSS among the outputs of a browser build.
 func clientAssets(opts api.BuildOptions, meta metafile, entry string) (Assets, error) {

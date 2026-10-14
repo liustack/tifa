@@ -174,3 +174,33 @@ func TestAppHonoursTheTarget(t *testing.T) {
 		t.Errorf("unknown target: %v", err)
 	}
 }
+
+// Fonts and images a stylesheet references with url() go into the browser assets with a content
+// hash. The SSR bundle ignores stylesheets, so it never sees them.
+func TestAppCopiesFilesThatStylesheetsReference(t *testing.T) {
+	root := fakeApp(t)
+	writeTree(t, root, map[string]string{
+		"app/page/page.css": ".page { background: url(\"./img/bg.png\") }\n" +
+			"@font-face { font-family: Brand; src: url(\"./brand.woff2?v=2\") format(\"woff2\") }\n",
+		"app/page/img/bg.png":  "png bytes",
+		"app/page/brand.woff2": "font bytes",
+	})
+	if _, err := App(root, filepath.Join(root, "public"), "", true); err != nil {
+		t.Fatal(err)
+	}
+	style := readBuild(t, root)["style"]
+	css, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", filepath.FromSlash(style)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"bg", "brand"} {
+		m := regexp.MustCompile(`url\("?\./(` + name + `-[A-Z0-9]+\.\w+)(\?v=2)?"?\)`).FindStringSubmatch(string(css))
+		if m == nil {
+			t.Errorf("style has no hashed URL for %s:\n%s", name, css)
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(root, ".tifa", "dist", "assets", m[1])); err != nil {
+			t.Error(err)
+		}
+	}
+}
