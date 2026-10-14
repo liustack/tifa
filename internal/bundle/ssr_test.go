@@ -1,8 +1,10 @@
 package bundle
 
 import (
+	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -12,7 +14,7 @@ import (
 // an error.
 func buildScript(t *testing.T, root, entry string) (string, []string) {
 	t.Helper()
-	code, modules, err := script(testdata(t), root, entry)
+	code, modules, err := script(testdata(t), root, entry, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +57,7 @@ func TestSSRTrimmedReactKeepsEveryPublicExport(t *testing.T) {
 func TestSSRRejectsNodeAPIsInPageCode(t *testing.T) {
 	root := copyTestdata(t, "ssr", false)
 	for _, entry := range []string{"node-prefixed.ts", "node-bare.ts"} {
-		_, _, err := script(testdata(t), root, entry)
+		_, _, err := script(testdata(t), root, entry, io.Discard)
 		if err == nil || !strings.Contains(err.Error(), "Node APIs are not supported in page code") {
 			t.Errorf("%s: err = %v, want Node API rejection", entry, err)
 		}
@@ -68,7 +70,7 @@ func TestSSRRejectsNodeAPIsLeftInDependencies(t *testing.T) {
 		"node_modules/uses-fs/package.json": `{"name":"uses-fs","main":"index.js"}`,
 		"node_modules/uses-fs/index.js":     `const fs = require('fs'); module.exports = (p) => fs.readFileSync(p)`,
 	})
-	_, _, err := script(testdata(t), root, "uses-fs.ts")
+	_, _, err := script(testdata(t), root, "uses-fs.ts", io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "SSR bundle has unresolved runtime dependencies") {
 		t.Fatalf("err = %v, want unresolved dependency error", err)
 	}
@@ -99,56 +101,126 @@ func TestSSRSelectsCoreJSPropertyState(t *testing.T) {
 	}
 }
 
-func TestSSRRejectsChangedCoreJS(t *testing.T) {
-	real := filepath.Join(testModules(t), "core-js", "internals", "internal-state.js")
-	source, err := os.ReadFile(real)
+// fakeCoreJS installs a core-js of version at dir whose internal state module is state.
+func fakeCoreJS(t *testing.T, root, dir, version, state string) {
+	t.Helper()
+	writeTree(t, root, map[string]string{
+		dir + "/package.json":                          `{"name":"core-js","version":"` + version + `"}`,
+		dir + "/internals/internal-state.js":           state,
+		dir + "/internals/weak-map-basic-detection.js": "module.exports = true",
+	})
+}
+
+const coreJSState = "module.exports = require('../internals/weak-map-basic-detection') ? 'weak map' : 'properties'"
+
+// The core-js adapter does not depend on the version: as long as the internal state module loads
+// the WeakMap detection, it gets the property-backed state.
+func TestSSRAdaptsCoreJSOfOtherVersions(t *testing.T) {
+	root := copyTestdata(t, "ssr", false)
+	fakeCoreJS(t, root, "node_modules/core-js", "3.99.0", coreJSState)
+	var output strings.Builder
+	_, modules, err := script(testdata(t), root, "core-js-state.ts", &output)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cases := map[string]struct{ version, state string }{
-		"changed source":  {"3.50.0", "require('../internals/weak-map-basic-detection'); module.exports = {}"},
-		"changed version": {"3.51.0", string(source)},
-		// A file without imports must not slip past the check.
-		"changed source without imports": {"3.50.0", "module.exports = {}"},
+	if !slices.Contains(modules, "\x00tifa-core-js-property-state") {
+		t.Errorf("core-js property state adapter not applied: %v", modules)
 	}
-	for name, c := range cases {
+	if strings.Contains(output.String(), "core-js") {
+		t.Errorf("warning for an adapted core-js:\n%s", output.String())
+	}
+}
+
+// A core-js whose internal state no longer loads the WeakMap detection builds as it is, and the
+// build says that the adapter did not apply.
+func TestSSRWarnsWhenTheCoreJSAdapterDoesNotApply(t *testing.T) {
+	for name, dir := range map[string]string{"installed": "node_modules/core-js", "linked": "vendor/core-js"} {
 		t.Run(name, func(t *testing.T) {
 			root := copyTestdata(t, "ssr", false)
-			writeTree(t, root, map[string]string{
-				"node_modules/core-js/package.json":                          `{"name":"core-js","version":"` + c.version + `"}`,
-				"node_modules/core-js/internals/internal-state.js":           c.state,
-				"node_modules/core-js/internals/weak-map-basic-detection.js": "module.exports = true",
-			})
-			_, _, err := script(testdata(t), root, "core-js-state.ts")
-			if err == nil || !strings.Contains(err.Error(), "Review the QuickJS core-js compatibility adapter") {
-				t.Fatalf("err = %v, want core-js review error", err)
+			if name == "linked" {
+				linkCoreJS(t, root)
+			}
+			fakeCoreJS(t, root, dir, "4.0.0", "module.exports = 'new state'")
+			var output strings.Builder
+			if _, _, err := script(testdata(t), root, "core-js-state.ts", &output); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(output.String(), "core-js 4.0.0") || !strings.Contains(output.String(), "WeakMap") {
+				t.Errorf("no warning about the core-js adapter:\n%s", output.String())
 			}
 		})
 	}
 }
 
-func TestSSRRejectsChangedReactDOM(t *testing.T) {
-	real := filepath.Join(testModules(t), "react-dom", "server.edge.js")
-	source, err := os.ReadFile(real)
+// fakeReactDOM installs a copy of the react-dom of testdata with version and server.edge.js
+// changed, next to the react of testdata.
+func fakeReactDOM(t *testing.T, root, version, entry string) {
+	t.Helper()
+	real, err := filepath.EvalSymlinks(filepath.Join(testModules(t), "react-dom"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	cases := map[string]struct{ version, entry string }{
-		"changed source":  {"19.3.0", string(source) + "\n"},
-		"changed version": {"19.4.0", string(source)},
+	dir := filepath.Join(root, "node_modules", "react-dom")
+	if err := os.CopyFS(dir, os.DirFS(real)); err != nil {
+		t.Fatal(err)
 	}
-	for name, c := range cases {
-		t.Run(name, func(t *testing.T) {
-			root := copyTestdata(t, "ssr", false)
-			writeTree(t, root, map[string]string{
-				"node_modules/react-dom/package.json":   `{"name":"react-dom","version":"` + c.version + `","exports":{"./server.edge":"./server.edge.js"}}`,
-				"node_modules/react-dom/server.edge.js": c.entry,
-			})
-			_, _, err := script(testdata(t), root, "react-dom-server.ts")
-			if err == nil || !strings.Contains(err.Error(), "Review the React SSR build adapter") {
-				t.Fatalf("err = %v, want React review error", err)
-			}
-		})
+	pkg, err := os.ReadFile(filepath.Join(dir, "package.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg = regexp.MustCompile(`"version": "[^"]+"`).ReplaceAll(pkg, []byte(`"version": "`+version+`"`))
+	writeTree(t, root, map[string]string{"node_modules/react-dom/package.json": string(pkg)})
+	if entry != "" {
+		writeTree(t, root, map[string]string{"node_modules/react-dom/server.edge.js": entry})
+	}
+	if err := os.Symlink(filepath.Join(testModules(t), "react"), filepath.Join(root, "node_modules", "react")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The renderer trimming reads the form of react-dom/server.edge.js, not its version or bytes.
+func TestSSRTrimsReactDOMOfOtherVersions(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join(testModules(t), "react-dom", "server.edge.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := copyTestdata(t, "ssr", false)
+	fakeReactDOM(t, root, "19.4.0", "// another release\n"+string(source))
+	var output strings.Builder
+	code, modules, err := script(testdata(t), root, "react-dom-server.ts", &output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasModule(modules, "react-dom-server.edge.production.js") || !hasModule(modules, "react-dom-server-legacy.browser.production.js") {
+		t.Errorf("not trimmed to the string renderer: %v", modules)
+	}
+	if got := evalResult(t, code); got != "function" {
+		t.Errorf("result = %q", got)
+	}
+	if strings.Contains(output.String(), "react-dom") {
+		t.Errorf("warning for a trimmed react-dom:\n%s", output.String())
+	}
+}
+
+// A server.edge.js of a form the trimming does not know is bundled as it is, with both renderers,
+// and the build says so. The stream renderer needs the host patches to run, which the shop's
+// bundle has: TestShop* in internal/ssr renders such a bundle.
+func TestSSRKeepsAReactDOMItCannotTrim(t *testing.T) {
+	root := copyTestdata(t, "ssr", false)
+	fakeReactDOM(t, root, "20.0.0", "'use strict';\n"+
+		"const l = require('./cjs/react-dom-server-legacy.browser.production.js');\n"+
+		"const b = require('./cjs/react-dom-server.edge.production.js');\n"+
+		"Object.assign(exports, { renderToString: l.renderToString, renderToReadableStream: b.renderToReadableStream });\n")
+	var output strings.Builder
+	_, modules, err := script(testdata(t), root, "react-dom-server.ts", &output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasModule(modules, "react-dom-server.edge.production.js") || !hasModule(modules, "react-dom-server-legacy.browser.production.js") {
+		t.Errorf("not both renderers: %v", modules)
+	}
+	if !strings.Contains(output.String(), "react-dom 20.0.0") {
+		t.Errorf("no warning about the untrimmed react-dom:\n%s", output.String())
 	}
 }
 
@@ -159,9 +231,9 @@ func TestSSRRejectsRequireLeftInDependencies(t *testing.T) {
 	writeTree(t, root, map[string]string{
 		"node_modules/dynamic-reader/package.json": `{"name":"dynamic-reader","main":"index.cjs"}`,
 		"node_modules/dynamic-reader/index.cjs":    "module.exports = function (name) {\n  return require(name).sep\n}\n",
-		"dynamic.ts": "import read from 'dynamic-reader'\nglobalThis.result = read('node:path')\n",
+		"dynamic.ts":                               "import read from 'dynamic-reader'\nglobalThis.result = read('node:path')\n",
 	})
-	_, _, err := script(testdata(t), root, "dynamic.ts")
+	_, _, err := script(testdata(t), root, "dynamic.ts", io.Discard)
 	if err == nil || !strings.Contains(err.Error(), filepath.Join("dynamic-reader", "index.cjs")+":2:10") ||
 		!strings.Contains(err.Error(), "require") {
 		t.Fatalf("err = %v, want the place of the require", err)
@@ -198,7 +270,7 @@ func TestSSRStubsClientOnlyModules(t *testing.T) {
 
 func TestSSRReportsMissingEntry(t *testing.T) {
 	root := copyTestdata(t, "ssr", false)
-	_, _, err := script(testdata(t), root, "missing.tsx")
+	_, _, err := script(testdata(t), root, "missing.tsx", io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "missing.tsx") {
 		t.Fatalf("err = %v, want error naming the entry", err)
 	}
@@ -219,20 +291,6 @@ func linkCoreJS(t *testing.T, root string) string {
 		t.Fatal(err)
 	}
 	return vendor
-}
-
-func TestSSRChecksSymlinkedCoreJS(t *testing.T) {
-	root := copyTestdata(t, "ssr", false)
-	linkCoreJS(t, root)
-	writeTree(t, root, map[string]string{
-		"vendor/core-js/package.json":                          `{"name":"core-js","version":"3.50.0"}`,
-		"vendor/core-js/internals/internal-state.js":           "require('../internals/weak-map-basic-detection'); module.exports = {}",
-		"vendor/core-js/internals/weak-map-basic-detection.js": "module.exports = true",
-	})
-	_, _, err := script(testdata(t), root, "core-js-state.ts")
-	if err == nil || !strings.Contains(err.Error(), "Review the QuickJS core-js compatibility adapter") {
-		t.Fatalf("err = %v, want core-js review error", err)
-	}
 }
 
 func TestSSRAdaptsSymlinkedCoreJS(t *testing.T) {

@@ -4,28 +4,17 @@
 // QuickJS runs: one IIFE file with every dependency inside and no Node API.
 import fs from 'node:fs'
 import path from 'node:path'
-import { createHash } from 'node:crypto'
 import { builtinModules } from 'node:module'
-
-// The two adapters below depend on the exact source of one npm file each. A dependency upgrade
-// fails the build until someone reviews the adapter again and updates the version and hash here.
-const reactDOMVersion = '19.3.0'
-const reactServerEdgeHash = 'a631527404b0a7bbe10aa79db04852196fd7fd88a056c1bb84cf1a1885e1e934'
-const coreJSVersion = '3.50.0'
-const internalStateHash = '72bd626c79e840676152fbd2652e546ae5605da8542b2df0e28756d9e99fef20'
 
 // devBase is where the Vite dev server serves modules under tifa dev. tifa dev sends every
 // request under it to Vite and every other one to the application.
 export const devBase = '/__tifa/vite/'
 
 const clientOnlyStub = '\0tifa-client-only'
-const coreJSState = '\0tifa-core-js-property-state'
+const propertyState = '\0tifa-core-js-property-state'
 const routeModule = /^\.\.?\/(?:.*\/)?\+(?:route|layout)(?:\.js|\.ts)?$/
 const clientSource = /\.client(?:\.[jt]sx?)?$/
 const reactServerEntry = /[/\\]react-dom[/\\]server\.edge\.js$/
-const reactProduction = /if \(process\.env\.NODE_ENV === 'production'\) \{([^}]+)\}/
-const reactRequire = /(\w+) = require\('([^']+)'\);/g
-const reactExport = /exports\.(\w+) = (\w+)\.(\w+);/g
 const nodeBuiltins = new Set(builtinModules)
 
 /**
@@ -159,14 +148,15 @@ export function ssrPlugin(getRoot) {
   const reactTargets = new Map() // server.edge.js path to the renderer modules it imports
   const builtins = new Set() // the Node modules dependencies import
   let coreJS // real directory of the core-js package the application resolves, '' for none
-  let coreJSChecked = false
+  let coreJSState = false // whether the internal state module of coreJS is in the bundle
+  let coreJSAdapted = false // whether it got the property-backed state
   return {
     name: 'tifa:ssr',
     applyToEnvironment: (env) => env.name === 'ssr',
     buildStart() {
       builtins.clear()
       coreJS = findPackage(getRoot(), 'core-js')
-      coreJSChecked = false
+      coreJSState = coreJSAdapted = false
     },
     resolveId: {
       order: 'pre',
@@ -181,8 +171,8 @@ export function ssrPlugin(getRoot) {
         }
         if (clientSource.test(source)) return clientOnlyStub
         if (importer && reactTargets.get(importer)?.includes(source)) {
-          // The reviewed renderer modules only initialize their own engine. An unused engine need
-          // not run for the other's API.
+          // Each renderer module only initializes its own engine. An unused engine need not run
+          // for the other's API.
           return { id: path.join(path.dirname(importer), source), moduleSideEffects: false }
         }
         if (
@@ -190,7 +180,8 @@ export function ssrPlugin(getRoot) {
           source === '../internals/weak-map-basic-detection' &&
           importer === path.join(coreJS, 'internals', 'internal-state.js')
         ) {
-          return coreJSState
+          coreJSAdapted = true
+          return propertyState
         }
         return null
       },
@@ -218,17 +209,35 @@ export function ssrPlugin(getRoot) {
       }
       // Select core-js's existing property-backed internal state. Do not replace the global
       // WeakMap or patch generated output.
-      if (id === coreJSState) return 'module.exports = false'
-      if (coreJS && !coreJSChecked && id.startsWith(coreJS + path.sep)) {
-        coreJSChecked = true
-        checkCoreJS(coreJS)
-      }
+      if (id === propertyState) return 'module.exports = false'
+      if (coreJS && id === path.join(coreJS, 'internals', 'internal-state.js')) coreJSState = true
       if (reactServerEntry.test(id)) {
-        const { code, targets } = reactServerExports(id)
-        reactTargets.set(id, targets)
-        return code
+        const source = fs.readFileSync(id, 'utf8')
+        const trimmed = reactServerExports(this.parse(source))
+        if (!trimmed) {
+          this.warn(
+            `react-dom ${packageVersion(path.dirname(id))}: ${id} has a form the tifa plugin does not know, ` +
+              'so the SSR bundle keeps both React server renderers. Pages render the same, but the bundle is ' +
+              'larger and each VM takes longer to start',
+          )
+          return null
+        }
+        reactTargets.set(id, trimmed.targets)
+        return trimmed.code
       }
       return null
+    },
+    buildEnd() {
+      // core-js keeps internal state in WeakMaps whose values point back to their keys, which
+      // QuickJS never frees, so the VMs would grow with every render.
+      if (coreJSState && !coreJSAdapted) {
+        this.warn(
+          `core-js ${packageVersion(coreJS)} at ${coreJS}: internals/internal-state.js no longer loads ` +
+            'internals/weak-map-basic-detection, so the tifa plugin cannot switch core-js from WeakMap to ' +
+            'property-backed state. QuickJS does not free WeakMap entries whose values point back to their ' +
+            'keys, so the memory of each VM may grow',
+        )
+      }
     },
     generateBundle(_, bundle) {
       const chunks = Object.values(bundle).filter((output) => output.type === 'chunk')
@@ -331,28 +340,47 @@ function declaresRequire(scope) {
 
 // reactServerExports replaces react-dom/server.edge.js, a CommonJS barrel that loads both the
 // stream and the string renderer, with an ES module that re-exports the same public API. A named
-// renderToString import then bundles only the string renderer.
-function reactServerExports(file) {
-  const source = fs.readFileSync(file, 'utf8')
-  const { version } = JSON.parse(fs.readFileSync(path.join(path.dirname(file), 'package.json'), 'utf8'))
-  if (version !== reactDOMVersion || sha256(source) !== reactServerEdgeHash) {
-    throw new Error(`Review the React SSR build adapter for react-dom ${version}`)
-  }
-  const production = reactProduction.exec(source)
-  if (!production) throw new Error('React SSR production entry changed')
+// renderToString import then bundles only the string renderer. It reads the barrel's program: in
+// the production branch of an if on process.env.NODE_ENV, one require of a renderer module per
+// variable, and then exports.name = variable.member. It returns null for any other form.
+function reactServerExports(program) {
   const modules = new Map()
-  for (const [, variable, target] of production[1].matchAll(reactRequire)) modules.set(variable, target)
-  const exports = [...source.matchAll(reactExport)]
-  if (modules.size !== 2 || exports.length !== 5 || !exports.some((m) => m[1] === 'renderToString')) {
-    throw new Error('React SSR exports changed, review the build adapter')
+  const exports = []
+  for (const node of program.body) {
+    const expr = node.type === 'ExpressionStatement' ? node.expression : null
+    if (node.type === 'ExpressionStatement' && node.directive) continue
+    if (node.type === 'VariableDeclaration' && node.declarations.every((d) => !d.init)) continue
+    if (node.type === 'IfStatement' && productionTest(node.test)) {
+      const branch = node.test.operator === '===' ? node.consequent : node.alternate
+      if (branch?.type !== 'BlockStatement') return null
+      for (const statement of branch.body) {
+        const assign = statement.type === 'ExpressionStatement' ? statement.expression : null
+        if (assign?.type !== 'AssignmentExpression' || assign.left.type !== 'Identifier' || !requireCall(assign.right)) {
+          return null
+        }
+        modules.set(assign.left.name, assign.right.arguments[0].value)
+      }
+      continue
+    }
+    if (
+      expr?.type === 'AssignmentExpression' &&
+      expr.operator === '=' &&
+      member(expr.left) &&
+      expr.left.object.name === 'exports' &&
+      member(expr.right) &&
+      modules.has(expr.right.object.name)
+    ) {
+      exports.push([expr.left.property.name, expr.right.object.name, expr.right.property.name])
+      continue
+    }
+    return null
   }
+  if (!exports.some(([name]) => name === 'renderToString')) return null
   const named = []
   const namespace = []
-  for (const [, name, variable, member] of exports) {
-    const target = modules.get(variable)
-    if (!target) throw new Error(`Unknown React SSR implementation: ${variable}`)
-    named.push(`export { ${member} as ${name} } from ${JSON.stringify(target)}`)
-    namespace.push(`${name}: ${variable}.${member}`)
+  for (const [name, variable, prop] of exports) {
+    named.push(`export { ${prop} as ${name} } from ${JSON.stringify(modules.get(variable))}`)
+    namespace.push(`${name}: ${variable}.${prop}`)
   }
   const imports = [...modules].map(([variable, target]) => `import * as ${variable} from ${JSON.stringify(target)}`)
   // CommonJS default imports remain supported. The pure factory lets a named renderToString
@@ -367,17 +395,42 @@ function reactServerExports(file) {
   return { code, targets: [...modules.values()] }
 }
 
-function checkCoreJS(dir) {
-  let version = ''
-  let state = ''
+// productionTest reports whether node is process.env.NODE_ENV === 'production', or !==.
+function productionTest(node) {
+  if (node.type !== 'BinaryExpression' || (node.operator !== '===' && node.operator !== '!==')) return false
+  const env = (n) =>
+    member(n) && n.property.name === 'NODE_ENV' && member(n.object) && n.object.property.name === 'env' &&
+    n.object.object.name === 'process'
+  const production = (n) => n.type === 'Literal' && n.value === 'production'
+  return (env(node.left) && production(node.right)) || (production(node.left) && env(node.right))
+}
+
+// member reports whether node is a.b with names only.
+function member(node) {
+  return (
+    node.type === 'MemberExpression' &&
+    !node.computed &&
+    node.property.type === 'Identifier' &&
+    (node.object.type === 'Identifier' || member(node.object))
+  )
+}
+
+function requireCall(node) {
+  return (
+    node.type === 'CallExpression' &&
+    node.callee.type === 'Identifier' &&
+    node.callee.name === 'require' &&
+    node.arguments.length === 1 &&
+    node.arguments[0].type === 'Literal' &&
+    typeof node.arguments[0].value === 'string'
+  )
+}
+
+function packageVersion(dir) {
   try {
-    version = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).version
-    state = fs.readFileSync(path.join(dir, 'internals', 'internal-state.js'), 'utf8')
-  } catch {}
-  if (version !== coreJSVersion || sha256(state) !== internalStateHash) {
-    throw new Error(
-      `Review the QuickJS core-js compatibility adapter after upgrading core-js (found ${version} at ${dir})`,
-    )
+    return JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).version
+  } catch {
+    return '(unknown version)'
   }
 }
 
@@ -390,8 +443,4 @@ function findPackage(root, name) {
     if (fs.existsSync(path.join(pkg, 'package.json'))) return fs.realpathSync(pkg)
     if (path.dirname(dir) === dir) return ''
   }
-}
-
-function sha256(text) {
-  return createHash('sha256').update(text).digest('hex')
 }
