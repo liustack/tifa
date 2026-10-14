@@ -1,10 +1,13 @@
-package shop
+// Package projects is the project domain: the shops of the workspace and their storage. A project
+// counts its orders waiting to ship through the orders package.
+package projects
 
 import (
 	"slices"
 	"sync"
 
 	"github.com/liustack/tifa"
+	"github.com/liustack/tifa/examples/shop/app/projects/project+/orders"
 )
 
 // A project is one shop of the workspace.
@@ -40,7 +43,7 @@ func ListProjects() []Project {
 }
 
 func withStats(p projectRecord) Project {
-	return Project{ID: p.ID, Name: p.Name, Description: p.Description, Pending: countPending(p.ID)}
+	return Project{ID: p.ID, Name: p.Name, Description: p.Description, Pending: orders.CountPending(p.ID)}
 }
 
 // The projects are kept in memory, standing in for the project table of a real database. They

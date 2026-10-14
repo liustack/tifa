@@ -1,4 +1,7 @@
-package shop
+// Package orders is the order domain: the order list of a project, order details, the shipping
+// rule and the storage behind them. The order list page of a project and the order detail page
+// call it.
+package orders
 
 import (
 	"fmt"
@@ -90,7 +93,8 @@ func ShipOrder(projectID, id string) error {
 	return nil
 }
 
-func countPending(projectID string) int {
+// CountPending returns how many orders of a project wait to be shipped.
+func CountPending(projectID string) int {
 	n := 0
 	for _, o := range ordersOf(projectID) {
 		if !o.Shipped {

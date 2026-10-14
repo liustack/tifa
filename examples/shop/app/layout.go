@@ -4,12 +4,12 @@ package app
 
 import (
 	"github.com/liustack/tifa"
-	shop "github.com/liustack/tifa/examples/shop"
+	"github.com/liustack/tifa/examples/shop/app/projects"
 )
 
 type Shell struct {
-	Viewer   Viewer         `json:"viewer"`
-	Projects []shop.Project `json:"projects"`
+	Viewer   Viewer             `json:"viewer"`
+	Projects []projects.Project `json:"projects"`
 }
 
 type Viewer struct {
@@ -18,5 +18,5 @@ type Viewer struct {
 }
 
 func Layout(c *tifa.Ctx) (Shell, error) {
-	return Shell{Viewer: Viewer{Name: "店主", Initials: "店"}, Projects: shop.ListProjects()}, nil
+	return Shell{Viewer: Viewer{Name: "店主", Initials: "店"}, Projects: projects.ListProjects()}, nil
 }
