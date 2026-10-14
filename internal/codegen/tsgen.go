@@ -43,6 +43,9 @@ type tsRoute struct {
 	path     string // the path option, relative to the parent route
 	routeID  string // the TanStack route ID
 	opts     []string
+	// unmatched marks the index route added below a Layout without a page in its directory,
+	// whose URL Go does not match.
+	unmatched bool
 	parent   *tsRoute
 	children []*tsRoute
 }
@@ -263,6 +266,14 @@ func tanstackRoutes(nodes []*tsNode) ([]*tsRoute, error) {
 			n.route = add(parent, layoutRouteID(n.dir), "")
 		default:
 			n.route = add(parent, "", path)
+		}
+	}
+	// A path route matches its own URL even when no child does, and would load and show the
+	// Layout there. Go matches no route at that URL, so an index route below such a Layout
+	// shows the root's NotFound before anything loads, as for any URL no route matches.
+	for _, n := range nodes {
+		if n.file == "layout" && n.route.path != "" && !slices.ContainsFunc(n.children, func(c *tsNode) bool { return c.file == "route" && paths[c] == "/" }) {
+			add(n.route, "", "/").unmatched = true
 		}
 	}
 	seen := map[string]bool{}
@@ -615,6 +626,10 @@ func routesModule(nodes []*tsNode) ([]byte, error) {
 				opts = append(opts, "path: "+jsString(r.path))
 			}
 		}
+		if r.unmatched {
+			runtime["unmatched"] = true
+			opts = append(opts, "beforeLoad: unmatched")
+		}
 		for _, o := range append(opts, r.opts...) {
 			body.WriteString("  " + o + ",\n")
 		}
@@ -644,7 +659,7 @@ declare module "@tanstack/react-router" {
 	}
 	fmt.Fprintf(&out, `import { %s } from "@tanstack/react-router"`+"\n", router)
 	var names []string
-	for _, name := range []string{"createAppRouter", "DefaultError", "DefaultNotFound", "load", "pick"} {
+	for _, name := range []string{"createAppRouter", "DefaultError", "DefaultNotFound", "load", "pick", "unmatched"} {
 		if runtime[name] {
 			names = append(names, name)
 		}

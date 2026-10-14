@@ -225,7 +225,7 @@ export const documentHead = {
 
 | Case | What is shown |
 | --- | --- |
-| The URL matches no page | The root Layout's `NotFound`, without the root Layout's UI, and no `Load` or `Layout` runs |
+| The URL matches no page, such as the URL of a folder with a Layout but no page | The root Layout's `NotFound`, without the root Layout's UI, and no `Load` or `Layout` runs |
 | A page's `Load` returns `tifa.ErrNotFound` | The first `NotFound` going up from that page. Outer Layouts are shown as usual |
 | A `Layout` function returns `tifa.ErrNotFound` | The search starts at the Layout one level up |
 | Nothing exports one | The framework's default page |

@@ -201,6 +201,16 @@ test("an unmatched URL shows the root Layout's NotFound without asking for data"
   contains(html.slice(0, html.indexOf('</head>')), '<meta name="theme-color" content="#123">', '<link rel="icon" href="/icon.svg">')
 })
 
+test("the URL of a Layout without a page of its own is unmatched", async () => {
+  for (const url of ['/a', '/teams/x']) {
+    const { calls } = await client(url)
+    assert(calls.length === 0, `${url} requested ${JSON.stringify(calls)}`)
+    const html = await render(url, {})
+    contains(html, 'APP_404')
+    lacks(html, 'APP_NAV')
+  }
+})
+
 // hydrateFrom runs the scripts of a server-rendered page the way a browser does and hydrates a
 // browser router from them.
 async function hydrateFrom(html: string, url: string) {

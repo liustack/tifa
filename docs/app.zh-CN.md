@@ -225,7 +225,7 @@ export const documentHead = {
 
 | 情况 | 显示 |
 | --- | --- |
-| URL 没有匹配任何页面 | 根 Layout 的 `NotFound`，不带根 Layout 的界面，不执行任何 `Load` 或 `Layout` |
+| URL 没有匹配任何页面，比如只有 Layout、没有页面的目录的 URL | 根 Layout 的 `NotFound`，不带根 Layout 的界面，不执行任何 `Load` 或 `Layout` |
 | 页面 `Load` 返回 `tifa.ErrNotFound` | 从这个页面往上第一个 `NotFound`，外层 Layout 照常显示 |
 | `Layout` 函数返回 `tifa.ErrNotFound` | 从上一层 Layout 开始往上找 |
 | 都没有导出 | 框架默认页面 |
