@@ -268,14 +268,27 @@ const LayoutSSR = false // 本目录的 Layout，默认 true
 
 ## 样式
 
-在 Layout 或页面里引入 CSS，比如在 `app/layout.tsx` 里写 `import './site.css'`。样式只进浏览器包，每个页面都引用这一份样式表。样式表用相对路径 `url()` 引用的字体和图片会复制到 `/assets/`，文件名带内容哈希。
+在 Layout 或页面里引入 CSS，比如在 `app/layout.tsx` 里写 `import './site.css'`。CSS 由 Vite 构建：每个页面都引用同一份装着应用全部 CSS 的样式表，CSS 引用的字体和图片放到 `/assets/` 下，文件名带内容哈希（小文件直接内联）。以 `/` 开头的 URL（如 `/logo.svg`）原样保留，可以指向公共目录里的文件。`tifa dev` 下 CSS 经过 Vite 开发服务器，原地更新，见 [dev.zh-CN.md](dev.zh-CN.md)。
 
 ### Tailwind CSS
 
-tifa 用应用自己装的 Tailwind 包编译 Tailwind CSS v4。先安装：
+Tailwind CSS v4 通过它的 Vite 插件使用，和在任何 Vite 应用里一样。先安装：
 
 ```sh
-pnpm add -D tailwindcss @tailwindcss/cli
+pnpm add -D tailwindcss @tailwindcss/vite
+```
+
+在 `vite.config.ts` 的 plugins 里加上它：
+
+```ts
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
+import tifa from './.tifa/vite.js'
+
+export default defineConfig({
+  plugins: [tifa(), react(), tailwindcss()],
+})
 ```
 
 再在 Layout 引入的样式表里引入 Tailwind：
@@ -285,41 +298,20 @@ pnpm add -D tailwindcss @tailwindcss/cli
 @import "tailwindcss";
 ```
 
-- 引入了 `tailwindcss` 或用了 Tailwind 专有 at 规则（`@theme`、`@apply`、`@utility`、`@source`、`@custom-variant` 等）的样式表交给 Tailwind 编译，其他样式表照原样交给 esbuild。
-- Tailwind 跑在 Node 上，用了它的应用在 `tifa build` 和 `tifa dev` 时 PATH 里要有 `node`。构建出来的可执行文件始终不需要 Node。不用 Tailwind 的应用构建时不需要 Node。
-- Tailwind 扫描应用根目录找类名，跳过 `.gitignore` 列出的文件、`node_modules` 和 tifa 自己的 `.tifa/`、`bin/`。别的目录用 `@source` 加进来。
-- 样式表用了 Tailwind 但没装 `@tailwindcss/cli` 时，构建失败，报出文件名和要执行的安装命令。
-- `tifa dev` 每次打包都重新编译 Tailwind，TSX 里新加的类名重建后就生效，见 [dev.zh-CN.md](dev.zh-CN.md)。
+Tailwind 扫描应用根目录找类名，跳过 `.gitignore` 列出的文件，新应用里已经包括 `.tifa/` 和 `bin/`。别的目录用 `@source` 加进来。能跑的例子见 `test/apps/tailwind`。
 
 ### shadcn/ui
 
-`shadcn init` 会报 "We could not detect a supported framework" 后退出，它只认 Next.js、Vite 这类框架。它要写的文件自己写好，之后 `shadcn add` 就能用：
+按上文配好 Tailwind 后，shadcn CLI 会把应用认作 Vite 应用：
 
-1. 按上文配好 Tailwind。
-2. 照 [手动安装](https://ui.shadcn.com/docs/installation/manual) 页面装依赖包、写主题（放进引入 Tailwind 的样式表）和 `lib/utils.ts`。跳过其中配置导入别名那一步，tifa 已经设好了 `@/`。
-3. 在应用根目录写 `components.json`，`tailwind.css` 指向那份样式表：
-
-```json
-{
-  "$schema": "https://ui.shadcn.com/schema.json",
-  "style": "radix-nova",
-  "rsc": false,
-  "tsx": true,
-  "tailwind": { "config": "", "css": "app/site.css", "baseColor": "neutral", "cssVariables": true, "prefix": "" },
-  "aliases": {
-    "components": "@/components",
-    "utils": "@/lib/utils",
-    "ui": "@/components/ui",
-    "lib": "@/lib",
-    "hooks": "@/hooks"
-  },
-  "iconLibrary": "lucide"
-}
+```sh
+pnpm dlx shadcn@latest init
+pnpm dlx shadcn@latest add button card
 ```
 
-4. `pnpm dlx shadcn@latest add button` 把 `components/ui/button.tsx` 写到应用根目录下，页面代码从 `@/components/ui/button` 引入。
+`init` 安装组件要用的包（`radix-ui`、`class-variance-authority`、`lucide-react` 等），写好 `components.json`、`lib/utils.ts`，并把主题写进引入 Tailwind 的样式表。`add button` 把 `components/ui/button.tsx` 写到应用根目录下，页面代码从 `@/components/ui/button` 引入。两者在第一次构建前就能用。
 
-`@/` 指向应用根目录，由生成的 tsconfig 设定（见 [build.zh-CN.md](build.zh-CN.md)）。这些组件和其他 React 代码一样在服务端渲染。
+`@/` 指向应用根目录，由应用 tsconfig 里的 `paths` 设定（见 [build.zh-CN.md](build.zh-CN.md#应用的-tsconfig-与-vite-配置)）。这些组件和其他 React 代码一样在服务端渲染。
 
 ## hooks.go
 

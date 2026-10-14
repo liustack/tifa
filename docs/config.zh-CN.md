@@ -2,7 +2,7 @@
 summary: 'tifa 应用的全部配置：每项能在哪设置、谁优先、默认值、参数和环境变量名、值的写法，以及写错时的报错'
 read_when:
   - 部署 tifa 应用，或要改端口、请求体上限、VM 数量、渲染超时、页面缓存
-  - 设置构建的 esbuild 目标或静态文件目录
+  - 设置构建的浏览器目标或静态文件目录
   - 程序因为配置错误起不来
   - 改 internal/config
 ---
@@ -44,7 +44,7 @@ cache:
 
 | 键 | 默认值 | 参数与环境变量 | 作用 |
 | --- | --- | --- | --- |
-| `build.target` | `es2020` | 只能写在项目文件 | 浏览器包的 JavaScript 目标，写法同 esbuild 的 `--target`：一个 ECMAScript 版本加若干带版本的浏览器，浏览器可选 chrome、edge、firefox、ios、opera 和 safari。SSR 包固定是 ES2022 |
+| `build.target` | `es2020` | 只能写在项目文件 | Vite 构建的浏览器包的 JavaScript 目标，逗号分隔：一个 ECMAScript 版本（`es2015` 到 `es2029`、`esnext`）加若干带版本的浏览器，浏览器可选 chrome、edge、firefox、ios、opera 和 safari，如 `es2019,chrome90,safari14`。SSR 包固定是 ES2022 |
 | `build.public` | `public` | 只能写在项目文件 | 静态文件目录，原样打进程序，从 `/` 提供 |
 | `server.addr` | `127.0.0.1:9527` | `--server-addr`、`TIFA_SERVER_ADDR` | 监听地址。容器里用 `0.0.0.0:9527` |
 | `server.body_limit` | `1MiB` | `--server-body-limit`、`TIFA_SERVER_BODY_LIMIT` | 请求体上限，超过答 413 |

@@ -5,7 +5,7 @@ read_when:
   - Creating a tifa app, or adding an app to test/apps
   - You cannot tell where a file under .tifa/ comes from
   - Implementing page rendering or navigation data requests and you need the route tree and the data protocol
-  - Changing internal/bundle or js/host, or upgrading the dependencies of the SSR host polyfills
+  - Changing internal/bundle, js/vite or js/host, or upgrading the dependencies of the SSR host polyfills
 ---
 
 English · [简体中文](build.zh-CN.md)
@@ -33,7 +33,7 @@ Writes a small working app into `dir`, which must be missing or empty: a todo li
 | `*_test.go` | Tests next to the code they test: the todos domain, the database and the hooks, and `tifatest` tests of the route code, each on a fresh database in a temporary folder |
 | `tifa.yaml` | Every setting of [config.md](config.md), commented out at its default. `ssr.vms` defaults to GOMAXPROCS, so it shows an example value |
 | `AGENTS.md`, `CLAUDE.md` | Notes for coding agents on how a tifa app works, with links to these docs. `CLAUDE.md` only points at `AGENTS.md` |
-| `package.json`, `tsconfig.json`, `.gitignore`, `README.md` | The npm packages, the TypeScript setup, the ignored build output and database files, and the commands |
+| `package.json`, `tsconfig.json`, `vite.config.ts`, `.gitignore`, `README.md` | The npm packages, the TypeScript and Vite setup, the ignored build output and database files, and the commands |
 
 - The module path is the folder name unless `--module` gives one. The app imports the package at its root, so the path must be one the go command imports. tifa new refuses a path with a `vendor` element, and one whose first element has no dot and is, in any case, the first element of a standard library package or a go command pattern (such as `fmt`, `net` or `all`), even when no such package exists. Pass `--module example.com/fmt` instead.
 - The root package is named after the last element of the module path (not counting a major version suffix such as `/v2`), lowercased, with only its letters and digits kept. It must be a Go identifier that is not a keyword, `main` or `init` (Go does not take `init` as the name of an imported package). The Go files under `app/` import it by that name, so it may not be a name that means something else where they use it: a package they import, such as the domain `todos` or `tifa`, a predeclared name they use, such as `error`, or a parameter or variable in whose scope they use the root package, such as `db` or `ctx`. tifa new keeps a list of these names and refuses them, so `tifa new todos` fails and asks for another folder name or `--module`, and `--module example.com/todos` fails and asks for another last element of `--module`. Other names they use, such as `c` or `rows`, are fine. The name in `package.json` is the same, cut to 214 characters, the npm limit.
@@ -50,7 +50,7 @@ tifa build [--dir app-root] [-o output-path]
 
 1. Statically analyzes `app/` and the root `hooks.go`. If a convention is broken, it prints `file:line: reason` for each problem and exits.
 2. Writes the generated code into `.tifa/`. Only files whose content changed are rewritten, and files no longer generated are deleted.
-3. Bundles with esbuild (its Go API) and writes the output to `.tifa/dist/`. See "Frontend output" below. Stylesheets that use Tailwind CSS are compiled with the app's own Tailwind packages, which run on Node (see [app.md](app.md#tailwind-css)). An app without Tailwind builds without Node.
+3. Bundles with the app's own Vite, which runs on Node, and writes the output to `.tifa/dist/`. See "Frontend output" below. tifa runs one Node process for the whole build. It also reads the exports of `route.tsx` and `layout.tsx` with Vite's parser for step 2. An app without pages builds without Node. The executable never needs Node.
 4. Runs `CGO_ENABLED=0 go build -o <output> ./.tifa`. The default output is `bin/<last segment of the module path>`. The generated main embeds `.tifa/dist/` into the executable with `//go:embed all:dist`.
 
 ### Building for another system
@@ -97,6 +97,7 @@ go tool tifa build
 | `app/<folder>/+route.ts`, `app/<folder>/+layout.ts` | `+route.ts` for each page, `+layout.ts` for each Layout. Each exports `route`, `Data` and `Params`. `+route.ts` also exports a function per method handler, and an API route with handlers gets a `+route.ts` with only `Params` and these functions. They call `runtime/call.ts` |
 | `server.ts`, `client.ts` | The SSR entry and the browser entry. Under `tifa dev`, the browser entry also imports `runtime/dev-client.js` |
 | `tsconfig.json` | See below |
+| `vite.js`, `vite.d.ts`, `vite/plugin.js` | The Vite plugins of tifa for `vite.config.ts`, see below. `vite/plugin.js` is a copy of the repository's `js/vite/plugin.js` |
 | `runtime/` | An exact copy of the repository's `js/runtime/` |
 | `dist/` | Frontend output, see below |
 
@@ -106,16 +107,16 @@ An app without pages (no `route.tsx` at all) generates only Go files, and `dist/
 
 | Path | Contents |
 | --- | --- |
-| `dist/assets/` | The browser bundle, with `client.ts` as the entry. The syntax target comes from the config option `build.target` (default `es2020`, written like esbuild's `--target`: one ECMAScript version plus any number of browsers with versions, such as `es2019,chrome90,safari14`). `tifa dev` reads this option once at startup, so restart it after a change. Split by route: apart from the root Layout and modules that export `head`, each route module is lazy-loaded with `lazyRouteComponent` and gets its own chunk. Fonts and images that stylesheets reference with `url()` are copied here too. All file names carry a content hash |
-| `dist/ssr.js` | The SSR bundle, with `server.ts` as the entry. A single file. The syntax target is fixed at ES2022 (the version QuickJS runs as is. Lowering it only slows rendering, and raising it may emit syntax QuickJS does not support). esbuild's `define` writes the URLs of the browser entry and the styles into `__TIFA_ASSETS__` |
+| `dist/assets/` | The browser bundle that Vite builds, with `client.ts` as the entry (`app-<hash>.js`), shared chunks (`chunk-<hash>.js`), one stylesheet with all the CSS of the app (`style-<hash>.css`), and the fonts and images that CSS references. Vite inlines small ones as data URLs. The syntax target comes from the config option `build.target` (default `es2020`: one ECMAScript version plus any number of browsers with versions, such as `es2019,chrome90,safari14`). Split by route: apart from the root Layout and modules that export `head`, each route module is lazy-loaded with `lazyRouteComponent` and gets its own chunk |
+| `dist/ssr.js` | The SSR bundle, with `server.ts` as the entry: one IIFE file with every npm package inside. The syntax target is fixed at ES2022 (the version QuickJS runs as is. Lowering it only slows rendering, and raising it may emit syntax QuickJS does not support). Page code that imports a Node module fails the build, and so does a package that still needs one after bundling. A `define` writes the head tags of the browser bundle into `__TIFA_ASSETS__` |
 | `dist/public/` | A plain copy of the folder that the config option `build.public` points to (default `public`). Absent if that folder does not exist |
-| `dist/build.json` | `{buildId, script, style}`. The build ID is a hash of every other file in `dist/` (names included). File names and contents each carry a length prefix, so different file trees cannot produce the same bytes. The same input gives the same ID |
+| `dist/build.json` | `{buildId, head}`. `head` is the HTML that loads the browser bundle, taken from Vite's manifest: the stylesheet, a `modulepreload` link for each chunk the entry imports, and the entry script. The build ID is a hash of every other file in `dist/` (names included). File names and contents each carry a length prefix, so different file trees cannot produce the same bytes. The same input gives the same ID |
 
 The SSR bundle starts by importing `runtime/host.js`, which adds what QuickJS lacks: `URL`, `TextEncoder`/`TextDecoder`, `AbortController`, `Headers`, `Response` and more. It does not provide `fetch` or `Request`. This script is prebundled from `js/host/host.ts` by `go generate ./js` and checked in. Its dependency versions are locked in `js/host/package.json` and `pnpm-lock.yaml`. To upgrade, run `pnpm install --frozen-lockfile` in `js/host` (or `pnpm install` after changing versions), then `go generate ./js`. `TestHostScriptIsUpToDate` in `internal/bundle` checks that the regenerated result matches the checked-in file, and skips when `js/host/node_modules` does not exist. So apps do not need to install these polyfill packages. `abort-controller` and its dependency `event-target-shim` are patched (`js/host/patches`, registered in `js/host/pnpm-workspace.yaml`): each object keeps its internal state in a symbol property on the object itself instead of a WeakMap. The property is defined once when the object is created and never redefined, so cancellation still works when the app seals or freezes a signal (`TestHostScriptAbortsFrozenSignals`). The only state that changes later, the signal's aborted flag, lives in a box, and only the value in the box changes. The rest of the state is not boxed: boxing every piece of state adds about 1.5 ms to P99. QuickJS needs several GC rounds to collect dead cycles that pass through WeakMap values, and some cycles are never collected. So the routes, AbortControllers and listeners left by each render waited several GC rounds, and the VM heap grew. With properties, one GC collects them all at once, and `TestHostScriptFreesDeadAbortSignalsInOneCollection` guards this.
 
 ## Route tree
 
-- The framework's own root route has no component. Its `errorComponent` is the framework's default component. Its `notFoundComponent` is the root Layout's `NotFound` (or the framework's default component when there is none). When the root Layout exports `documentHead`, the root route's `head` returns that constant. React only renders `<div id="tifa-root">` inside `<body>`. After rendering, the SSR entry builds the document as a string: `<html>` carries the root Layout's `htmlAttributes`. The head holds, in order, the charset, the stylesheet, the browser bundle's module script, and between `<!--tifa-head-->` and `<!--/tifa-head-->` the tags written from the `head` results of the matched routes (which tags are picked follows TanStack's `HeadContent`, and attributes are written by React DOM's rules, see [app.md](app.md)). The body is the app root plus the router's dehydration script. So the page is still a complete document when any level fails, returns 404, or the root `Layout` fails. The browser subscribes to the router's matches (TanStack's `HeadContent` reads them too). When a navigation finishes or `router.invalidate()` finishes loading data in the background, and the matches changed, it compares the elements between the two comments by the same rules: unchanged tags are kept (nonces are compared by reading the element's `nonce` property, because on a page with CSP the nonce HTML attribute reads as empty). When the order changes, it moves only the elements that are out of place, the way React moves keyed children (moving a style rebuilds its stylesheet, moving a stylesheet link processes it again). New tags are created with DOM methods (no HTML parsing) and inserted in document order. Hydration does not touch the head the server wrote. For pages without SSR, Go writes a document with only the charset, stylesheet and script, and the browser sets `htmlAttributes` and writes the head.
+- The framework's own root route has no component. Its `errorComponent` is the framework's default component. Its `notFoundComponent` is the root Layout's `NotFound` (or the framework's default component when there is none). When the root Layout exports `documentHead`, the root route's `head` returns that constant. React only renders `<div id="tifa-root">` inside `<body>`. After rendering, the SSR entry builds the document as a string: `<html>` carries the root Layout's `htmlAttributes`. The head holds, in order, the charset, the `head` of `build.json`, and between `<!--tifa-head-->` and `<!--/tifa-head-->` the tags written from the `head` results of the matched routes (which tags are picked follows TanStack's `HeadContent`, and attributes are written by React DOM's rules, see [app.md](app.md)). The body is the app root plus the router's dehydration script. So the page is still a complete document when any level fails, returns 404, or the root `Layout` fails. The browser subscribes to the router's matches (TanStack's `HeadContent` reads them too). When a navigation finishes or `router.invalidate()` finishes loading data in the background, and the matches changed, it compares the elements between the two comments by the same rules: unchanged tags are kept (nonces are compared by reading the element's `nonce` property, because on a page with CSP the nonce HTML attribute reads as empty). When the order changes, it moves only the elements that are out of place, the way React moves keyed children (moving a style rebuilds its stylesheet, moving a stylesheet link processes it again). New tags are created with DOM methods (no HTML parsing) and inserted in document order. Hydration does not touch the head the server wrote. For pages without SSR, Go writes a document with only the charset and the `head` of `build.json`, and the browser sets `htmlAttributes` and writes the head.
 - The root Layout (`app/layout.*`) is the pathless route `_app` under the root route.
 - Every other Layout is a route whose path is its folder below the folder of its parent Layout, so its path parameters are part of its match identity. `app/projects/project+` under the root Layout is `projects/$project`, with the route ID `/_app/projects/$project`.
 - A `NotFound` exported by a page is attached to the page route. A `NotFound` exported by a Layout gets no extra route. It is attached to the routes one level down whose subtree has a `Load` (the root Layout's is already on the root route). TanStack looks up from the route that threw the 404 for the first route with a `notFoundComponent` and shows it there, so a 404 from below shows inside that Layout's `Outlet`.
@@ -127,24 +128,40 @@ The SSR bundle starts by importing `runtime/host.js`, which adds what QuickJS la
 - A URL that matches no route shows the root route's `NotFound` directly (`notFoundMode: 'root'`), without loading any route or calling the server. The root Layout's UI is not shown then, because its data was not loaded.
 - `route.tsx` and `layout.tsx` must have a default export. The optional exports `head`, `Error` and `NotFound` map to `head`, `errorComponent` and `notFoundComponent`. The root Layout may also export the constants `htmlAttributes` and `documentHead`. Exporting `Document` fails the build. A route that does not export `Error` explicitly uses the `Error` of the nearest ancestor that exports one, or the framework's default component when none does. When the server renders an error, it uses the route's own `errorComponent`, and in the browser the nearest error boundary catches it, so both sides show the same component. These exports must be declared or exported by name directly in the file (re-exports through `export *` do not count).
 
-## How TypeScript and esbuild find generated files
+## The app's tsconfig and Vite config
 
-The `tsconfig.json` in the app root has one line:
+An app with pages has these two files in its root. `tifa new` writes them:
 
 ```json
-{ "extends": "./.tifa/tsconfig.json" }
+{
+  "extends": "./.tifa/tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./*"],
+      "tifa/client": ["./.tifa/runtime/client.ts"]
+    }
+  }
+}
 ```
 
-In the generated tsconfig:
+```ts
+// vite.config.ts
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import tifa from './.tifa/vite.js'
 
-- `rootDirs: ["..", "."]`: TypeScript treats `.tifa/app/x/+route.ts` as `app/x/+route.ts`, so `import { route } from './+route'` in your source resolves, and so do Layout modules such as `'./+layout'` and `'../../+layout'`.
-- `paths: { "tifa/client": ["./runtime/client.ts"] }`: the fixed module name page code uses to import `clientOnly` and `RouteError`.
-- `paths: { "@/*": ["./*", "../*"] }`: `@/` is the app root, so `@/components/ui/button` is `components/ui/button.tsx` in the app. shadcn/ui and many React projects use this alias. esbuild reads the same tsconfig, so bundling resolves it too. TypeScript and esbuild read these paths relative to `.tifa/`, the shadcn CLI reads them relative to the app root, so each finds the app root through one of the two entries. The first entry also means `@/client`, `@/server`, `@/routes` and `@/runtime/...` name tifa's generated files, so do not give app files those names. Do not set `paths` in the app's own tsconfig: TypeScript would use it instead of the generated one and lose `tifa/client`.
-- `include` lists each entry under `.tifa` one by one, because TypeScript globs skip folders whose names start with a dot.
+export default defineConfig({
+  plugins: [tifa(), react()],
+})
+```
 
-esbuild does not read `rootDirs`, so bundling does the same resolution with the `bundle.Generated(root)` plugin: any relative import whose last segment is `+route` or `+layout`, with or without `.js` or `.ts`, and that points to a folder under `app/`, however many levels it goes through (`'../../page/+route'` works too), resolves to the matching file in `.tifa/`. If the folder has no generated module, bundling fails. The tsconfig turns on `allowImportingTsExtensions`, so TypeScript also accepts the form with `.ts`.
+- The generated tsconfig sets `rootDirs: ["..", "."]`: TypeScript treats `.tifa/app/x/+route.ts` as `app/x/+route.ts`, so `import { route } from './+route'` in your source resolves, and so do Layout modules such as `'./+layout'` and `'../../+layout'`. `include` lists each entry under `.tifa` one by one, because TypeScript globs skip folders whose names start with a dot. It also includes `vite.config.ts`.
+- `paths` lives in the app's own tsconfig, so tools that read it from there, such as the shadcn CLI, see the app root. `@/` is the app root: `@/components/ui/button` is `components/ui/button.tsx`. `tifa/client` is the fixed module name page code uses to import `clientOnly` and `RouteError`. Both work before the first build.
+- `tifa()` from `.tifa/vite.js` returns the Vite plugins of tifa, with `build.target` of the project config passed in. They resolve `@/`, `tifa/client`, `./+route` and `./+layout` the same way TypeScript does: any relative import whose last segment is `+route` or `+layout`, with or without `.js` or `.ts`, and that points to a folder under `app/`, however many levels it goes through (`'../../page/+route'` works too), resolves to the matching file in `.tifa/`. If the folder has no generated module, the build fails. They also set the entries and outputs below, and build the SSR bundle.
+- `@vitejs/plugin-react` compiles JSX and adds React Fast Refresh under `tifa dev`. Add other Vite plugins after these two, such as `@tailwindcss/vite` (see [app.md](app.md#tailwind-css)). Leave the entries, `base`, outputs and the `ssr` environment to tifa.
+- `vite.config.ts` imports `./.tifa/vite.js`, so it type-checks once tifa has generated `.tifa/`. `tifa build` and `tifa dev` generate it before Vite reads the config.
 
-The app's `package.json` only needs React, React DOM and TanStack Router. Type checking also needs `typescript`, `@types/react` and `@types/react-dom`. See `test/apps/pages/package.json` for reference. Tailwind CSS also needs `tailwindcss` and `@tailwindcss/cli`, see `test/apps/tailwind/package.json`.
+The app's `package.json` needs React, React DOM and TanStack Router, and as dev dependencies `vite` and `@vitejs/plugin-react`. Type checking also needs `typescript`, `@types/react` and `@types/react-dom`. See `test/apps/pages/package.json` for reference, and `test/apps/tailwind/package.json` for Tailwind CSS.
 
 ## Data protocol
 
@@ -174,7 +191,7 @@ Defined in `js/runtime/data.ts`. The Go side implements it:
 
 Config priority, from highest to lowest: command-line flags, `TIFA_*` environment variables, the file given with `--config`, the embedded project config, defaults. An unknown `TIFA_*` environment variable makes the program exit with an error.
 
-`serve` also has a dev flag, `--dist <dir>`: it reads the frontend output from that folder instead of the embedded `dist/`. After a rebuild, [`tifa dev`](dev.md) points it at `.tifa/dist` and restarts the app, with no new `go build`. It is not a deployment setting, is not part of the config layers, and has no `TIFA_*` variable. At startup the program reads `ssr.js`, compiles it and prewarms the VM pool, and reads `build.json` for the build ID and asset paths.
+`serve` also has a dev flag, `--dist <dir>`: it reads the frontend output from that folder instead of the embedded `dist/`. After a rebuild, [`tifa dev`](dev.md) points it at `.tifa/dist` and restarts the app, with no new `go build`. It is not a deployment setting, is not part of the config layers, and has no `TIFA_*` variable. At startup the program reads `ssr.js`, compiles it and prewarms the VM pool, and reads `build.json` for the build ID and the head tags.
 
 ## Page requests
 

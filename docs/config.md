@@ -2,7 +2,7 @@
 summary: 'Every setting of a tifa app: where each one can be set, which source wins, the default, the flag and environment variable names, the value formats and the errors a bad value gives'
 read_when:
   - Deploying a tifa app, or changing its port, body limit, VM count, render timeout or page cache
-  - Setting the esbuild target or the static files folder of a build
+  - Setting the browser target or the static files folder of a build
   - The program refuses to start with a config error
   - Changing internal/config
 ---
@@ -44,7 +44,7 @@ Run `./bin/app config` to print the merged settings of all sources as a commente
 
 | Key | Default | Flag and environment variable | What it does |
 | --- | --- | --- | --- |
-| `build.target` | `es2020` | project file only | JavaScript target of the browser bundle, written like esbuild's `--target`: one ECMAScript version plus browsers with versions, from chrome, edge, firefox, ios, opera and safari. The SSR bundle always targets ES2022 |
+| `build.target` | `es2020` | project file only | JavaScript target of the browser bundle that Vite builds, a comma-separated list: one ECMAScript version (`es2015` to `es2029`, `esnext`) plus browsers with versions, from chrome, edge, firefox, ios, opera and safari, such as `es2019,chrome90,safari14`. The SSR bundle always targets ES2022 |
 | `build.public` | `public` | project file only | Folder of static files copied into the program as they are and served from `/` |
 | `server.addr` | `127.0.0.1:9527` | `--server-addr`, `TIFA_SERVER_ADDR` | Address to listen on. Use `0.0.0.0:9527` in a container |
 | `server.body_limit` | `1MiB` | `--server-body-limit`, `TIFA_SERVER_BODY_LIMIT` | Largest request body. A bigger one is answered with 413 |

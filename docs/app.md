@@ -268,14 +268,27 @@ const LayoutSSR = false // the Layout of the folder, default true
 
 ## Styles
 
-Import CSS from a Layout or a page, such as `import './site.css'` in `app/layout.tsx`. Styles only go into the browser bundle, and every page links the one stylesheet. Fonts and images that a stylesheet references with a relative `url()` are copied into `/assets/` with a content hash in their names.
+Import CSS from a Layout or a page, such as `import './site.css'` in `app/layout.tsx`. Vite builds it: every page links one stylesheet with all the CSS of the app, and fonts and images that CSS references get a content hash in their names under `/assets/` (small ones go inline). A URL that starts with `/`, such as `/logo.svg`, is left as it is, so it can name a file of the public folder. Under `tifa dev` the CSS goes through Vite's dev server and updates in place, see [dev.md](dev.md).
 
 ### Tailwind CSS
 
-tifa compiles Tailwind CSS v4 with the app's own Tailwind packages. Install them:
+Use Tailwind CSS v4 through its Vite plugin, the same as in any Vite app. Install it:
 
 ```sh
-pnpm add -D tailwindcss @tailwindcss/cli
+pnpm add -D tailwindcss @tailwindcss/vite
+```
+
+add it to the plugins in `vite.config.ts`:
+
+```ts
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
+import tifa from './.tifa/vite.js'
+
+export default defineConfig({
+  plugins: [tifa(), react(), tailwindcss()],
+})
 ```
 
 and import Tailwind in a stylesheet that a Layout imports:
@@ -285,41 +298,20 @@ and import Tailwind in a stylesheet that a Layout imports:
 @import "tailwindcss";
 ```
 
-- A stylesheet that imports `tailwindcss` or uses a Tailwind at-rule (`@theme`, `@apply`, `@utility`, `@source`, `@custom-variant` and the like) goes through Tailwind. Other stylesheets go to esbuild as they are.
-- Tailwind runs on Node, so `tifa build` and `tifa dev` need `node` on PATH for an app that uses it. The built executable never needs Node. An app without Tailwind builds without Node.
-- Tailwind finds class names by scanning the app root. It skips the files `.gitignore` lists, `node_modules`, and tifa's own `.tifa/` and `bin/`. Add other folders with `@source`.
-- A stylesheet that uses Tailwind when `@tailwindcss/cli` is not installed fails the build with the file name and the command to run.
-- `tifa dev` compiles Tailwind again on every bundle, so a class name added in TSX shows up after the rebuild. See [dev.md](dev.md).
+Tailwind finds class names by scanning the app root and skips the files `.gitignore` lists, which in a new app include `.tifa/` and `bin/`. Add other folders with `@source`. See `test/apps/tailwind` for a working app.
 
 ### shadcn/ui
 
-`shadcn init` stops with "We could not detect a supported framework", because it only knows frameworks such as Next.js and Vite. Write the files it would write yourself, after which `shadcn add` works:
+With Tailwind set up as above, the shadcn CLI recognizes the app as a Vite app:
 
-1. Set up Tailwind as above.
-2. Follow the [manual installation](https://ui.shadcn.com/docs/installation/manual) page for the packages, the theme (put it in the stylesheet that imports Tailwind) and `lib/utils.ts`. Skip its import alias step: tifa already sets `@/`.
-3. Write `components.json` in the app root, with `tailwind.css` pointing to that stylesheet:
-
-```json
-{
-  "$schema": "https://ui.shadcn.com/schema.json",
-  "style": "radix-nova",
-  "rsc": false,
-  "tsx": true,
-  "tailwind": { "config": "", "css": "app/site.css", "baseColor": "neutral", "cssVariables": true, "prefix": "" },
-  "aliases": {
-    "components": "@/components",
-    "utils": "@/lib/utils",
-    "ui": "@/components/ui",
-    "lib": "@/lib",
-    "hooks": "@/hooks"
-  },
-  "iconLibrary": "lucide"
-}
+```sh
+pnpm dlx shadcn@latest init
+pnpm dlx shadcn@latest add button card
 ```
 
-4. `pnpm dlx shadcn@latest add button` writes `components/ui/button.tsx` in the app root, and page code imports it from `@/components/ui/button`.
+`init` installs the packages the components need (`radix-ui`, `class-variance-authority`, `lucide-react` and others), writes `components.json`, `lib/utils.ts` and the theme into the stylesheet that imports Tailwind. `add button` writes `components/ui/button.tsx` in the app root, and page code imports it from `@/components/ui/button`. Both work before the first build.
 
-`@/` is the app root, set by the generated tsconfig (see [build.md](build.md)). Components render on the server like any other React code.
+`@/` is the app root, set by `paths` in the app's tsconfig (see [build.md](build.md#the-apps-tsconfig-and-vite-config)). Components render on the server like any other React code.
 
 ## hooks.go
 

@@ -8,7 +8,7 @@
 
 ## 运行
 
-在 `examples/shop` 目录执行，需要 Go 1.27 和 pnpm（Node 只用来装依赖和类型检查，构建不需要它）：
+在 `examples/shop` 目录执行，需要 Go 1.27、Node 和 pnpm。构建时用 Vite 在 Node 上打包前端，构建出的 `bin/shop` 运行时不需要 Node：
 
 ```sh
 pnpm install --frozen-lockfile

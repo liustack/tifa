@@ -1,9 +1,9 @@
 ---
-summary: 'tifa dev 怎么用：每类改动重建哪些步骤、日志怎么读、构建失败时页面和应用怎样、开发产物放在哪'
+summary: 'tifa dev 怎么用：每类改动后页面怎么更新、执行哪些步骤、Vite 在其中做什么、日志怎么读、构建失败时页面和应用怎样、开发产物放在哪'
 read_when:
   - 第一次在本地跑 tifa 应用
-  - 改 internal/devserver、cmd/tifa 的 dev 命令或 internal/bundle 的增量构建
-  - tifa dev 改了文件却没刷新，或报出看不懂的错误
+  - 改 internal/devserver、cmd/tifa 的 dev 命令或 internal/bundle 的开发构建
+  - tifa dev 改了文件页面却没更新，或报出看不懂的错误
 ---
 
 [English](dev.md) · 简体中文
@@ -14,28 +14,33 @@ read_when:
 tifa dev [--dir 应用根目录] [--addr 127.0.0.1:9527]
 ```
 
-启动后先打印 `tifa dev: serving http://<地址>`，然后做一次完整构建（步骤同 [tifa build](build.zh-CN.md)），启动应用。浏览器连 `--addr`，tifa dev 把请求转给应用，应用重启期间请求会等它起来。Ctrl-C 或 SIGTERM 停掉应用和 tifa dev。
+启动后先打印 `tifa dev: serving http://<地址>`，然后做一次完整构建（步骤同 [tifa build](build.zh-CN.md)），启动应用。浏览器只连 `--addr`。tifa dev 把页面和数据请求转给应用，把 `/__tifa/vite/` 下的请求（浏览器模块和 Vite 的 HMR websocket）转给 Vite 的开发服务器。应用重启期间请求会等它起来。Ctrl-C 或 SIGTERM 停掉应用、Vite 和 tifa dev。
 
-打包用 tifa 内置的 esbuild。用了 Tailwind CSS 的样式表交给应用的 Tailwind 包在 Node 上编译，见 [app.zh-CN.md](app.zh-CN.md#tailwind-css)。
+## Vite
+
+tifa dev 在 Node 上跑应用自己装的 Vite，用应用的 `vite.config.ts`（见 [build.zh-CN.md](build.zh-CN.md#应用的-tsconfig-与-vite-配置)）：
+
+- Vite 开发服务器提供浏览器模块。有页面的应用第一次构建时启动它，它监听 127.0.0.1 上的一个空闲端口，只有 tifa dev 跟它通信。页面从它加载 Vite 客户端、`@vitejs/plugin-react` 的 React Fast Refresh 运行时和 `.tifa/client.ts`。
+- SSR 包仍是文件 `.tifa/dist/ssr.js`，应用把它载入 QuickJS VM。它由第二个 Node 进程构建，因为 Vite 每个进程只定一次 React 的构建版本（开发版或生产版），而 QuickJS 跑的是生产版。
 
 ## 改动触发什么
 
 tifa dev 监视应用根目录，跳过 `.git`、`.tifa`、`node_modules` 和放开发可执行文件的 `bin/`。同一批改动等文件安静下来再一起处理。
 
-| 改了什么 | 执行的步骤 |
-| --- | --- |
-| `.ts`、`.tsx`、`.js`、`.css`、`.json` | 打包 |
-| `.go`、`go.mod`、`go.sum` | 静态分析、go build |
-| 上一行且路由清单变了（路由、Load 和 Layout 的返回类型、方法函数的入参和结果类型、钩子等） | 静态分析、生成代码、打包、go build |
-| 新增或删除 `route.tsx`、`layout.tsx`，或改 `tifa.yaml`、`tifa.json` | 全部步骤 |
+| 改了什么 | 执行的步骤 | 打开着的页面 |
+| --- | --- | --- |
+| `.ts`、`.tsx`、`.js`、`.css`、`.json` | 打包（SSR 包） | 由 Vite 原地更新 |
+| `.go`、`go.mod`、`go.sum` | 静态分析、go build | 刷新 |
+| 上一行且路由清单变了（路由、Load 和 Layout 的返回类型、方法函数的入参和结果类型、钩子等） | 静态分析、生成代码、打包、go build | 刷新 |
+| 新增或删除 `route.tsx`、`layout.tsx`，或改 `tifa.yaml`、`tifa.json` | 全部步骤 | 刷新 |
 
-路由清单有没有变，看的是静态分析后生成的 `.tifa/` 内容。只改函数体时生成内容不变，跳过生成和打包。
-
-每次重建后重启应用，打开着的页面自动刷新。只改前端时不需要 go build：开发用的程序以 `serve --dist .tifa/dist` 启动，重启后直接读新的前端产物。
-
-公共目录里的图片、字体等文件不触发重建，下一次打包时才复制过去。
-
-用了 Tailwind 的样式表每次打包都重新编译，因为改 TSX 可能加上或去掉类名。Tailwind 也从不触发打包的文件里找类名，比如 Go 或 HTML 文件，只写在这些文件里的类名要到下一次打包才生效。
+- 前端改动经 Vite 送到打开着的页面：React Fast Refresh 换掉改过的组件并保留它们的状态，新 CSS 替换旧的。模块换不了时（比如除了组件还导出了别的东西），Vite 自己刷新页面。
+- 同时 tifa dev 重建 SSR 包并重启应用，不做 go build：开发用的程序以 `serve --dist .tifa/dist` 启动，重启后读新的包。这期间到达的页面请求会等重启后的应用，所以刷新看到的总是新的服务端渲染。
+- 路由清单有没有变，看的是静态分析后生成的 `.tifa/` 内容。只改函数体时生成内容不变，跳过生成和打包。
+- 公共目录里的图片、字体等文件不触发重建，下一次打包时才复制过去。
+- 样式表经过 Vite 开发服务器，`@tailwindcss/vite` 编译 Tailwind CSS 的方式和在任何 Vite 应用里一样。
+- tifa dev 下 Vite 用 JavaScript 注入样式表，页面在脚本跑起来前会短暂没有样式。`tifa build` 把样式表链接写在 head 里，构建出的应用没有这个现象。
+- `build.target` 只对 `tifa build` 生效，Vite 开发服务器发的是现代 JavaScript。
 
 ## 日志
 
@@ -43,16 +48,17 @@ tifa dev 监视应用根目录，跳过 `.git`、`.tifa`、`node_modules` 和放
 
 ```text
 tifa dev: 07:35:36 app/home/route.tsx modified
-tifa dev: 07:35:36 bundle done in 51ms
-tifa dev: 07:35:37 ready in 201ms
+tifa dev: 07:35:36 bundle done in 90ms
+tifa dev: 07:35:36 ready in 260ms
 ```
 
-步骤名是 `static analysis`、`code generation`、`bundle`、`go build`。样式表用了 Tailwind 时，bundle 这一行还带上 Tailwind 的耗时，如 `bundle done in 320ms (tailwind 80ms)`。静态分析之后还有一行 `route manifest changed` 或 `route manifest unchanged`。应用自己的输出照常打印。
+步骤名是 `static analysis`、`code generation`、`bundle`、`go build`。静态分析之后还有一行 `route manifest changed` 或 `route manifest unchanged`。Vite 的警告和错误也以 `tifa dev:` 行打印。应用自己的输出照常打印。
 
 ## 构建失败
 
-- 失败时旧版本继续运行，日志打印 `build failed: <原因>`，打开的页面盖上错误浮层，显示编译器或 esbuild 的原文。
-- 修好后浮层消失，页面刷新。失败那次没做完的步骤会并入下一次重建。
+- 失败时旧版本继续运行，日志打印 `build failed: <原因>`，打开的页面盖上错误浮层，显示 Go 编译器或 Vite 的原文。
+- 修好后浮层消失。修复需要 go build 时页面刷新，否则页面保持不动。失败那次没做完的步骤会并入下一次重建。
+- 浏览器里编译失败的模块显示 Vite 自己的浮层。
 - 首次构建就失败时没有旧版本可用，所有请求答 502 和错误原文，等修好后自动恢复。
 - 应用启动后立刻退出时，浮层标题是 `The app did not start`，内容是应用的退出原因。
 
@@ -63,7 +69,7 @@ tifa dev: 07:35:37 ready in 201ms
 | 路径 | 内容 |
 | --- | --- |
 | `.tifa/` | 生成代码，与 `tifa build` 相同 |
-| `.tifa/dist/` | 前端产物，按增量构建更新 |
+| `.tifa/dist/` | SSR 包、`build.json` 和公共文件。浏览器模块改由 Vite 开发服务器提供 |
 | `bin/tifa-dev` | 开发用的可执行文件 |
 
 停止应用时最多等配置里 `server.shutdown_timeout` 的 3 倍再加 1 秒，超时就强行结束整个进程组。

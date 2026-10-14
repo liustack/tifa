@@ -5,7 +5,7 @@ read_when:
   - 新建一个 tifa 应用，或给 test/apps 加应用
   - 看不懂 .tifa/ 下某个文件从哪来
   - 实现页面渲染、导航数据请求，需要知道路由树与数据协议
-  - 改 internal/bundle、js/host，或升级 SSR 宿主补丁的依赖
+  - 改 internal/bundle、js/vite、js/host，或升级 SSR 宿主补丁的依赖
 ---
 
 [English](build.md) · 简体中文
@@ -33,7 +33,7 @@ tifa new <目录> [--module 模块路径]
 | `*_test.go` | 测试和被测代码放在一起：待办领域、数据库和钩子的测试，以及用 `tifatest` 写的路由代码测试，每个测试用临时目录里的一个新数据库 |
 | `tifa.yaml` | [config.zh-CN.md](config.zh-CN.md) 里的全部设置，按默认值写好并注释掉。`ssr.vms` 的默认值是 GOMAXPROCS，随机器而变，所以写的是示例值 |
 | `AGENTS.md`、`CLAUDE.md` | 给编程 agent 的说明：tifa 应用怎么运作，并链接到这些文档。`CLAUDE.md` 只指向 `AGENTS.md` |
-| `package.json`、`tsconfig.json`、`.gitignore`、`README.md` | npm 包、TypeScript 配置、要忽略的构建产物和数据库文件，以及常用命令 |
+| `package.json`、`tsconfig.json`、`vite.config.ts`、`.gitignore`、`README.md` | npm 包、TypeScript 与 Vite 配置、要忽略的构建产物和数据库文件，以及常用命令 |
 
 - 模块路径默认是目录名，`--module` 可以另给。应用要 import 根目录的包，所以路径必须是 go 命令能 import 的。tifa new 拒绝含 `vendor` 段的路径，也拒绝首段不带点、且（不分大小写）和标准库包或 go 命令包模式的首段相同的路径（比如 `fmt`、`net`、`all`），即使并没有同名的包。改传 `--module example.com/fmt`。
 - 根包以模块路径最后一段命名（不算 `/v2` 这类主版本后缀），转成小写，只留字母和数字。它必须是合法的 Go 标识符，不是关键字，也不是 `main` 或 `init`（Go 不接受以 `init` 作为被 import 包的名字）。`app/` 下的 Go 文件直接用这个名字 import 它，所以在这些文件用到它的地方，这个名字不能另有所指：它们 import 的包，比如领域 `todos` 或 `tifa`，它们用到的预声明名字，比如 `error`，以及在其作用域里用到根包的参数或变量，比如 `db`、`ctx`。tifa new 维护一份这样的名单，遇到就报错，所以 `tifa new todos` 会失败，提示换一个目录名或用 `--module`，而 `--module example.com/todos` 会失败，提示换 `--module` 的最后一段。这些文件里的其他名字，比如 `c`、`rows`，不受影响。`package.json` 里的名字也是它，超过 npm 上限 214 个字符时截断。
@@ -50,7 +50,7 @@ tifa build [--dir 应用根目录] [-o 输出路径]
 
 1. 静态分析 `app/` 与根目录 `hooks.go`，约定不满足时逐条打印 `文件:行号: 原因` 并退出。
 2. 把生成代码写进 `.tifa/`。只改内容变了的文件，删掉不再生成的文件。
-3. 用 esbuild（Go API）打包，产物写进 `.tifa/dist/`，见下文「前端产物」。用了 Tailwind CSS 的样式表交给应用自己装的 Tailwind 包编译，它跑在 Node 上（见 [app.zh-CN.md](app.zh-CN.md#tailwind-css)）。不用 Tailwind 的应用构建时不需要 Node。
+3. 用应用自己装的 Vite 打包，它跑在 Node 上，产物写进 `.tifa/dist/`，见下文「前端产物」。整个构建只起一个 Node 进程，第 2 步读 `route.tsx`、`layout.tsx` 的导出也用 Vite 的解析器。没有页面的应用构建时不需要 Node。可执行文件始终不需要 Node。
 4. `CGO_ENABLED=0 go build -o <输出> ./.tifa`，默认输出 `bin/<模块路径最后一段>`。生成的 main 用 `//go:embed all:dist` 把 `.tifa/dist/` 嵌进可执行文件。
 
 ### 给别的系统构建
@@ -97,6 +97,7 @@ go tool tifa build
 | `app/<目录>/+route.ts`、`app/<目录>/+layout.ts` | 每个页面一份 `+route.ts`，每个 Layout 一份 `+layout.ts`，都导出 `route`、`Data`、`Params`。`+route.ts` 还按方法函数各导出一个调用函数，有方法函数的 API 路由也生成 `+route.ts`，只含 `Params` 和这些函数。它们调用 `runtime/call.ts` |
 | `server.ts`、`client.ts` | SSR 入口与浏览器入口。`tifa dev` 的浏览器入口另外引入 `runtime/dev-client.js` |
 | `tsconfig.json` | 见下文 |
+| `vite.js`、`vite.d.ts`、`vite/plugin.js` | 给 `vite.config.ts` 用的 tifa Vite 插件，见下文。`vite/plugin.js` 是仓库 `js/vite/plugin.js` 的原样拷贝 |
 | `runtime/` | 仓库 `js/runtime/` 的原样副本 |
 | `dist/` | 前端产物，见下文 |
 
@@ -106,16 +107,16 @@ go tool tifa build
 
 | 路径 | 内容 |
 | --- | --- |
-| `dist/assets/` | 浏览器包，入口 `client.ts`，语法目标取配置项 `build.target`（默认 `es2020`，写法同 esbuild 的 `--target`：一个 ECMAScript 版本加若干带版本的浏览器，如 `es2019,chrome90,safari14`）。`tifa dev` 启动时读一次这个配置项，改了要重启。按路由拆分：除根 Layout 和导出 `head` 的模块外，每个路由模块用 `lazyRouteComponent` 懒加载，各自一个 chunk。样式表用 `url()` 引用的字体和图片也复制到这里。文件名都带内容哈希 |
-| `dist/ssr.js` | SSR 包，入口 `server.ts`，单个文件，语法目标固定为 ES2022（QuickJS 原样能跑的版本，调低只会让渲染变慢，调高可能写出 QuickJS 不支持的语法）。esbuild 的 `define` 把浏览器入口与样式的 URL 写进 `__TIFA_ASSETS__` |
+| `dist/assets/` | Vite 打出的浏览器包：入口 `client.ts`（`app-<哈希>.js`）、共享 chunk（`chunk-<哈希>.js`）、装着应用全部 CSS 的一个样式表（`style-<哈希>.css`），以及 CSS 引用的字体和图片，小文件 Vite 会内联成 data URL。语法目标取配置项 `build.target`（默认 `es2020`：一个 ECMAScript 版本加若干带版本的浏览器，如 `es2019,chrome90,safari14`）。按路由拆分：除根 Layout 和导出 `head` 的模块外，每个路由模块用 `lazyRouteComponent` 懒加载，各自一个 chunk |
+| `dist/ssr.js` | SSR 包，入口 `server.ts`：一个 IIFE 文件，所有 npm 包都打在里面。语法目标固定为 ES2022（QuickJS 原样能跑的版本，调低只会让渲染变慢，调高可能写出 QuickJS 不支持的语法）。页面代码引入 Node 模块时构建失败，打包后仍要 Node 模块的 npm 包也一样。`define` 把浏览器包的 head 标签写进 `__TIFA_ASSETS__` |
 | `dist/public/` | 配置项 `build.public` 指向的目录（默认 `public`）原样复制，不存在就没有 |
-| `dist/build.json` | `{buildId, script, style}`。构建 ID 是 `dist/` 里其他所有文件（含文件名）的哈希，文件名与内容各自带长度前缀，不同的文件树不会拼出同一串字节。同样的输入得到同样的 ID |
+| `dist/build.json` | `{buildId, head}`。`head` 是加载浏览器包的 HTML，取自 Vite 的 manifest：样式表、入口引入的每个 chunk 一条 `modulepreload`、入口脚本。构建 ID 是 `dist/` 里其他所有文件（含文件名）的哈希，文件名与内容各自带长度前缀，不同的文件树不会拼出同一串字节。同样的输入得到同样的 ID |
 
 SSR 包开头引入 `runtime/host.js`，它补上 QuickJS 缺的 `URL`、`TextEncoder`/`TextDecoder`、`AbortController`、`Headers`、`Response` 等，不提供 `fetch` 与 `Request`。这份脚本由 `go generate ./js` 从 `js/host/host.ts` 预打包后入库，依赖版本锁在 `js/host/package.json` 与 `pnpm-lock.yaml`。升级时在 `js/host` 里 `pnpm install --frozen-lockfile`（或改版本后 `pnpm install`），再跑 `go generate ./js`。`internal/bundle` 的 `TestHostScriptIsUpToDate` 检查重新生成的结果与入库文件一致，`js/host/node_modules` 不存在时 skip。应用因此不需要安装这些补丁包。`abort-controller` 与它依赖的 `event-target-shim` 打了补丁（`js/host/patches`，登记在 `js/host/pnpm-workspace.yaml`）：每个对象的内部状态改存在对象自己的 symbol 属性上，不用 WeakMap。这个属性在建对象时定义一次，之后不再重新定义，所以应用 seal 或 freeze 了 signal 也照样能取消（`TestHostScriptAbortsFrozenSignals`）。唯一会再变的 signal 取消标记放在一个盒子里，只改盒子里的值。其余状态不装盒子，每个状态都装盒子时 P99 多出约 1.5 ms。QuickJS 回收穿过 WeakMap 值的死环要多轮 GC，有的环一直回收不掉，每次渲染留下的路由、AbortController 与监听器因此要等好几轮 GC，VM 的堆更大。改成属性后一次 GC 就能整体回收，`TestHostScriptFreesDeadAbortSignalsInOneCollection` 守住这一点。
 
 ## 路由树
 
-- 框架自己的根路由没有组件，`errorComponent` 是框架默认组件，`notFoundComponent` 是根 Layout 的 `NotFound`（没有就用框架默认组件），根 Layout 导出 `documentHead` 时它的 `head` 返回这个常量。React 只渲染 `<body>` 里的 `<div id="tifa-root">`。SSR 入口在渲染后把文档拼成字符串：`<html>` 带根 Layout 的 `htmlAttributes`，head 依次是 charset、样式表、浏览器包的 module 脚本，以及 `<!--tifa-head-->` 与 `<!--/tifa-head-->` 之间按匹配到的路由的 `head` 结果写出的标签（取哪些标签同 TanStack 的 `HeadContent`，属性按 React DOM 的规则写出，见 [app.zh-CN.md](app.zh-CN.md)），body 是应用根节点加上路由器的脱水脚本。所以任何一层出错、404、根 `Layout` 失败时，页面仍是完整文档。浏览器订阅路由器的 matches（TanStack 的 `HeadContent` 读的也是它），导航完成、`router.invalidate()` 在后台取完数据，只要 matches 变了就按同样的规则比对两个注释之间的元素：保留不变的标签（比较 nonce 时读元素的 `nonce` 属性，有 CSP 的页面里 nonce 的 HTML 属性读出来是空的），顺序变了就像 React 移动有 key 的子节点那样只移动不在原位的元素（移动 style 会重建样式表，移动样式表 link 会重新处理一遍），新标签用 DOM 方法创建（不解析 HTML）并按文档顺序插入，hydration 时不动服务器写的 head。不走 SSR 的页面由 Go 写只有 charset、样式表和脚本的文档，浏览器设置 `htmlAttributes` 并写入 head。
+- 框架自己的根路由没有组件，`errorComponent` 是框架默认组件，`notFoundComponent` 是根 Layout 的 `NotFound`（没有就用框架默认组件），根 Layout 导出 `documentHead` 时它的 `head` 返回这个常量。React 只渲染 `<body>` 里的 `<div id="tifa-root">`。SSR 入口在渲染后把文档拼成字符串：`<html>` 带根 Layout 的 `htmlAttributes`，head 依次是 charset、`build.json` 的 `head`，以及 `<!--tifa-head-->` 与 `<!--/tifa-head-->` 之间按匹配到的路由的 `head` 结果写出的标签（取哪些标签同 TanStack 的 `HeadContent`，属性按 React DOM 的规则写出，见 [app.zh-CN.md](app.zh-CN.md)），body 是应用根节点加上路由器的脱水脚本。所以任何一层出错、404、根 `Layout` 失败时，页面仍是完整文档。浏览器订阅路由器的 matches（TanStack 的 `HeadContent` 读的也是它），导航完成、`router.invalidate()` 在后台取完数据，只要 matches 变了就按同样的规则比对两个注释之间的元素：保留不变的标签（比较 nonce 时读元素的 `nonce` 属性，有 CSP 的页面里 nonce 的 HTML 属性读出来是空的），顺序变了就像 React 移动有 key 的子节点那样只移动不在原位的元素（移动 style 会重建样式表，移动样式表 link 会重新处理一遍），新标签用 DOM 方法创建（不解析 HTML）并按文档顺序插入，hydration 时不动服务器写的 head。不走 SSR 的页面由 Go 写只有 charset 和 `build.json` 的 `head` 的文档，浏览器设置 `htmlAttributes` 并写入 head。
 - 根 Layout（`app/layout.*`）是根路由下的 pathless 路由 `_app`。
 - 其他 Layout 是一条带路径的路由，路径是它的目录在父 Layout 目录之下的部分，所以路径参数在它的匹配身份里。根 Layout 下的 `app/projects/project+` 路径是 `projects/$project`，路由 ID 是 `/_app/projects/$project`。
 - 页面自己导出的 `NotFound` 挂在页面路由上。Layout 导出的 `NotFound` 不另加路由，而是挂在它下一层、子树里有 `Load` 的路由上（根 Layout 的已在根路由上）。TanStack 从抛出 404 的路由往上找第一个带 `notFoundComponent` 的路由，在它的位置显示，所以下层的 404 显示在该 Layout 的 `Outlet` 里。
@@ -127,24 +128,40 @@ SSR 包开头引入 `runtime/host.js`，它补上 QuickJS 缺的 `URL`、`TextEn
 - 没有路由匹配的 URL 直接显示根路由的 `NotFound`（`notFoundMode: 'root'`），不加载任何路由，不请求服务器。这时根 Layout 的界面不显示，因为它的数据没有加载。
 - `route.tsx`、`layout.tsx` 必须有默认导出。可选导出 `head`、`Error`、`NotFound` 接到 `head`、`errorComponent`、`notFoundComponent`，根 Layout 另可导出常量 `htmlAttributes` 与 `documentHead`，导出 `Document` 构建报错。没有导出 `Error` 的路由显式使用最近的祖先导出的 `Error`，都没有就用框架默认组件。服务器渲染出错路由自己的 `errorComponent`，浏览器由最近的错误边界接住，两边因此显示同一个组件。这些导出必须在文件里直接声明或命名导出（`export *` 转出的不算）。
 
-## TypeScript 与 esbuild 怎么找到生成文件
+## 应用的 tsconfig 与 Vite 配置
 
-应用根目录的 `tsconfig.json` 只写一行：
+有页面的应用在根目录放这两个文件，`tifa new` 会写好：
 
 ```json
-{ "extends": "./.tifa/tsconfig.json" }
+{
+  "extends": "./.tifa/tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./*"],
+      "tifa/client": ["./.tifa/runtime/client.ts"]
+    }
+  }
+}
 ```
 
-生成的 tsconfig 里：
+```ts
+// vite.config.ts
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import tifa from './.tifa/vite.js'
 
-- `rootDirs: ["..", "."]`：TypeScript 把 `.tifa/app/x/+route.ts` 当成 `app/x/+route.ts`，源码里 `import { route } from './+route'` 能解析，`'./+layout'`、`'../../+layout'` 这样的 Layout 模块也一样。
-- `paths: { "tifa/client": ["./runtime/client.ts"] }`：页面代码引用 `clientOnly`、`RouteError` 的固定模块名。
-- `paths: { "@/*": ["./*", "../*"] }`：`@/` 指向应用根目录，`@/components/ui/button` 就是应用里的 `components/ui/button.tsx`。shadcn/ui 和很多 React 项目都用这个别名。esbuild 读的是同一份 tsconfig，打包时也能解析它。TypeScript 和 esbuild 按 `.tifa/` 解析这些路径，shadcn CLI 按应用根目录解析，两条里总有一条把它们带到应用根目录。第一条也让 `@/client`、`@/server`、`@/routes` 和 `@/runtime/...` 指向 tifa 生成的文件，应用里的文件别用这些名字。不要在应用自己的 tsconfig 里写 `paths`：TypeScript 会改用它，丢掉 `tifa/client`。
-- `include` 逐个列出 `.tifa` 下的入口，因为 TypeScript 的通配会跳过以点开头的目录。
+export default defineConfig({
+  plugins: [tifa(), react()],
+})
+```
 
-esbuild 不读 `rootDirs`，打包时用 `bundle.Generated(root)` 插件做同样的解析：最后一段是 `+route` 或 `+layout`（可带 `.js` 或 `.ts`）、指向 `app/` 下某个目录的相对导入，不论中间经过几层（`'../../page/+route'` 也行），都解析到 `.tifa/` 里对应的文件。目录没有生成的模块时打包报错。tsconfig 打开了 `allowImportingTsExtensions`，带 `.ts` 的写法 TypeScript 同样接受。
+- 生成的 tsconfig 设了 `rootDirs: ["..", "."]`：TypeScript 把 `.tifa/app/x/+route.ts` 当成 `app/x/+route.ts`，源码里的 `import { route } from './+route'` 因此能解析，Layout 模块 `'./+layout'`、`'../../+layout'` 也一样。`include` 逐个列出 `.tifa` 下的入口，因为 TypeScript 的通配符会跳过以点开头的目录。它也包含 `vite.config.ts`。
+- `paths` 写在应用自己的 tsconfig 里，shadcn CLI 这类从这里读的工具看到的就是应用根目录。`@/` 指向应用根目录：`@/components/ui/button` 就是 `components/ui/button.tsx`。`tifa/client` 是页面代码引入 `clientOnly`、`RouteError` 用的固定模块名。两者在第一次构建前就能用。
+- `.tifa/vite.js` 的 `tifa()` 返回 tifa 的 Vite 插件，项目配置的 `build.target` 已经传进去。它们按 TypeScript 的方式解析 `@/`、`tifa/client`、`./+route` 和 `./+layout`：最后一段是 `+route` 或 `+layout`（可带 `.js` 或 `.ts`）、指向 `app/` 下某个目录的相对导入，不论中间经过几层（`'../../page/+route'` 也行），都解析到 `.tifa/` 里对应的文件。目录没有生成的模块时构建报错。它们还设好下文的入口与产物，并构建 SSR 包。
+- `@vitejs/plugin-react` 编译 JSX，在 `tifa dev` 下加上 React Fast Refresh。别的 Vite 插件加在这两个后面，比如 `@tailwindcss/vite`（见 [app.zh-CN.md](app.zh-CN.md#tailwind-css)）。入口、`base`、产物和 `ssr` 环境交给 tifa。
+- `vite.config.ts` 引入 `./.tifa/vite.js`，所以 tifa 生成 `.tifa/` 之后它才能通过类型检查。`tifa build` 和 `tifa dev` 会在 Vite 读配置前生成它。
 
-应用的 `package.json` 只需要 React、React DOM 与 TanStack Router，类型检查另需 `typescript`、`@types/react`、`@types/react-dom`。参照 `test/apps/pages/package.json`。用 Tailwind CSS 还要装 `tailwindcss` 和 `@tailwindcss/cli`，参照 `test/apps/tailwind/package.json`。
+应用的 `package.json` 需要 React、React DOM 与 TanStack Router，开发依赖要有 `vite` 和 `@vitejs/plugin-react`。类型检查另需 `typescript`、`@types/react`、`@types/react-dom`。参照 `test/apps/pages/package.json`，用 Tailwind CSS 参照 `test/apps/tailwind/package.json`。
 
 ## 数据协议
 
@@ -174,7 +191,7 @@ esbuild 不读 `rootDirs`，打包时用 `bundle.Generated(root)` 插件做同�
 
 配置优先级从高到低：命令行参数、`TIFA_*` 环境变量、`--config` 指定的文件、嵌入的项目配置、默认值。未知的 `TIFA_*` 环境变量会让程序报错退出。
 
-`serve` 另有开发开关 `--dist <目录>`：从这个目录读前端产物，替代嵌入的 `dist/`。[`tifa dev`](dev.zh-CN.md) 重建后把它指向 `.tifa/dist`，再重启应用，不必重新 `go build`。它不是部署配置，不进配置分层，也没有对应的 `TIFA_*` 变量。启动时读 `ssr.js` 编译并预热 VM 池，读 `build.json` 拿到构建 ID 与资源路径。
+`serve` 另有开发开关 `--dist <目录>`：从这个目录读前端产物，替代嵌入的 `dist/`。[`tifa dev`](dev.zh-CN.md) 重建后把它指向 `.tifa/dist`，再重启应用，不必重新 `go build`。它不是部署配置，不进配置分层，也没有对应的 `TIFA_*` 变量。启动时读 `ssr.js` 编译并预热 VM 池，读 `build.json` 拿到构建 ID 与 head 标签。
 
 ## 页面请求
 
