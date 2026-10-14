@@ -101,27 +101,16 @@ func (a *analyzer) scan() error {
 	if info, err := os.Stat(appDir); err != nil || !info.IsDir() {
 		return fmt.Errorf("%s has no app directory", a.root)
 	}
-	skipped := "" // the outermost skipped directory being walked, by ID
 	return filepath.WalkDir(appDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		name := d.Name()
-		if d.IsDir() {
-			id := a.id(path)
-			if skipped != "" && !isAncestor(skipped, id) {
-				skipped = ""
-			}
-			if skipped == "" && path != appDir && (strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || name == "testdata") {
-				skipped = id
-			}
-			return nil
-		}
-		if !slices.Contains(conventionFiles, name) {
+		if d.IsDir() || !slices.Contains(conventionFiles, name) {
 			return nil
 		}
 		id := a.id(filepath.Dir(path))
-		if skipped != "" {
+		if skipped := skippedDir(id); skipped != "" {
 			a.errorInFile(id, name, "the go command skips %s because its name starts with . or _ or is testdata, so this file is never built: rename the directory", skipped)
 			return nil
 		}
@@ -142,6 +131,18 @@ func (a *analyzer) scan() error {
 		}
 		return nil
 	})
+}
+
+// skippedDir returns the outermost directory of the directory ID id, below app, that the go
+// command skips, or "" when it builds id.
+func skippedDir(id string) string {
+	parts := strings.Split(id, "/")
+	for i, name := range parts[1:] {
+		if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || name == "testdata" {
+			return strings.Join(parts[:i+2], "/")
+		}
+	}
+	return ""
 }
 
 // id turns an absolute directory into its ID: the path relative to the application root with forward slashes.
