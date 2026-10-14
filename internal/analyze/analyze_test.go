@@ -130,6 +130,10 @@ func TestViolations(t *testing.T) {
 	}{
 		{"duppath", [][]string{{"app/b/route.go:3:", `"/items/{key}"`, "app/a/route.go:3"}}},
 		{"ongetpage", [][]string{{"app/page/route.go:7:", "OnGet", "route.tsx"}}},
+		{"encodedpath", [][]string{
+			{"app/brace/route.go:3:", `"/%7Bx%7D"`, `"{"`},
+			{"app/open/route.go:3:", `"/%7B"`, `"{"`},
+		}},
 		{"layoutparam", [][]string{{"app/projects/layout.go:6:", `"projectId"`, `"/projects"`}}},
 		{"usenonancestor", [][]string{{"app/shop/route.go:11:", "admin.Load", "ancestor"}}},
 		{"useclosure", [][]string{

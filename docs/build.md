@@ -69,7 +69,7 @@ SSR 包开头引入 `runtime/host.js`，它补上 QuickJS 缺的 `URL`、`TextEn
 - 根 Layout（`app/layout.*`）和其他 Layout 一样是根路由下的普通路由，可以有路径，`Load` 可以读公共前缀里的路径参数。
 - Layout 的路径是作用范围内页面 `Path` 的公共前缀减去父 Layout 的前缀。每个 Layout 有一个以目录命名的 pathless 路由（`app` 为 `_app`，`app/shop/admin` 为 `_shop.admin`）。路径不为空时，带路径的路由放在它里面，所以两个 Layout 路径相同也是两条路由，路径参数仍在 Layout 的匹配身份里。
 - 导出 `NotFound` 的 Layout 里面再套一层 pathless 的 `_notFound` 路由挂 `notFoundComponent`，子路由挂在它下面。下层的 404 因此显示在该 Layout 的界面里面。
-- 页面路径相对最近的 Layout，相等时为 `/`。`{name}` 写成 `$name`，`{name...}` 写成 `$`（参数名 `_splat`）。字面量段先按 ServeMux 的方式解码（`/%61` 就是 `/a`），再按 TanStack 对解码后路径的写法写出：`%`、`\`、控制字符和 `` "<>`{} `` 写成转义形式，其余原样。含 URL 保留字符 `;/?:@&=+$,#` 的字面量两边无法一致匹配，构建报错。
+- 页面路径相对最近的 Layout，相等时为 `/`。`{name}` 写成 `$name`，`{name...}` 写成 `$`（参数名 `_splat`）。字面量段先按 ServeMux 的方式解码（`/%61` 就是 `/a`），再按 TanStack 对解码后路径的写法写出：`%`、`\`、控制字符和 `` "<>` `` 写成转义形式，其余原样。解码后的字面量仍是字面量，`/%7Bx%7D` 不会变成参数。页面 Path 的字面量解码后含 URL 保留字符 `;/?:@&=+,#` 或 TanStack 路径语法字符 `{}$` 时两边无法一致匹配，静态分析在 `Path` 所在行报错。
 - 生成后任意两条路由的 TanStack ID 相同时构建报错（例如页面路径 `_shop` 撞上 Layout 目录 `shop` 的 pathless 路由）。
 - 有 `Load` 的路由生成 `loader`、`staleTime: Infinity` 与 `preloadStaleTime: Infinity`，数据只在 `router.invalidate()` 之后重取。`loaderDeps` 只放 `AllQuery` 里的查询参数。`remountDeps` 是 `Load` 读的路径参数（含经 `tifa.Use` 用到的 Layout 读的）加同一份查询参数，路径里有、但没有 `Load` 读的参数变了，组件不重新挂载，状态保留。没有 `Load` 的路由不重新挂载。
 - 页面 `Load` 返回 404 时从该页面向上找第一个 `NotFound`。Layout `Load` 返回 404 时从上一层（父 Layout 的 `_notFound` 或根路由）向上找。

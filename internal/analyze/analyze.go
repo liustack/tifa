@@ -409,6 +409,9 @@ func (a *analyzer) route(d *dirInfo) *route {
 		r.Path = constant.StringVal(pkg.TypesInfo.Types[lit].Value)
 		r.pathPos = lit.Pos()
 		segs, err := parsePath(r.Path)
+		if err == nil && d.routeTSX {
+			err = checkPagePath(r.Path, segs)
+		}
 		if err != nil {
 			a.errorAt(lit.Pos(), "%v", err)
 		} else {

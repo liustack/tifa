@@ -26,7 +26,7 @@ type tsNode struct {
 	tsx      bool
 	exports  []string
 	load     *analyze.Load
-	segs     []string // ServeMux segments of the full path, literals unescaped as ServeMux does
+	segs     []pathSeg // ServeMux segments of the full path
 	parent   *tsNode
 	children []*tsNode
 	route    *tsRoute // the route with the component and loader, which getRouteApi names
@@ -183,7 +183,7 @@ func buildTree(root string, m *analyze.Manifest) (*tsNode, []*tsNode, error) {
 		}
 		n.parent.children = append(n.parent.children, n)
 		if len(n.segs) < len(n.parent.segs) || !slices.Equal(n.segs[:len(n.parent.segs)], n.parent.segs) {
-			return nil, nil, fmt.Errorf("%s: path /%s does not start with its parent's /%s", n.id, strings.Join(n.segs, "/"), strings.Join(n.parent.segs, "/"))
+			return nil, nil, fmt.Errorf("%s: path %s does not start with its parent's %s", n.id, formatSegs(n.segs), formatSegs(n.parent.segs))
 		}
 	}
 	return top, nodes, nil
@@ -275,43 +275,62 @@ func parentOf(m *analyze.Manifest, id string) string {
 	panic("codegen: unknown Layout " + id)
 }
 
-// segments splits a ServeMux path into its segments, none for "/". Literal segments are
-// unescaped the way ServeMux does, so /%61 and /a are the same path.
-func segments(p string) []string {
+// pathSeg is one segment of a ServeMux path: a literal, unescaped the way ServeMux does so that
+// /%61 and /a are the same path, or a parameter, {name} or {name...}. A literal stays a literal
+// whatever it unescapes to, /%7Bx%7D is not the parameter {x}.
+type pathSeg struct {
+	text  string // the unescaped literal, or the parameter as written
+	param bool
+}
+
+// segments splits a ServeMux path into its segments, none for "/".
+func segments(p string) []pathSeg {
 	if p == "/" {
 		return nil
 	}
-	segs := strings.Split(strings.TrimPrefix(p, "/"), "/")
-	for i, s := range segs {
-		if !strings.HasPrefix(s, "{") {
-			// ServeMux leaves a literal with an invalid escape as it is.
-			if u, err := url.PathUnescape(s); err == nil {
-				segs[i] = u
-			}
+	var segs []pathSeg
+	for _, s := range strings.Split(strings.TrimPrefix(p, "/"), "/") {
+		if strings.HasPrefix(s, "{") {
+			segs = append(segs, pathSeg{text: s, param: true})
+			continue
 		}
+		// ServeMux leaves a literal with an invalid escape as it is.
+		if u, err := url.PathUnescape(s); err == nil {
+			s = u
+		}
+		segs = append(segs, pathSeg{text: s})
 	}
 	return segs
 }
 
+func formatSegs(segs []pathSeg) string {
+	var b strings.Builder
+	for _, s := range segs {
+		b.WriteString("/" + s.text)
+	}
+	return cmp.Or(b.String(), "/")
+}
+
 // routerSegment turns a ServeMux segment into TanStack syntax: {name} is $name and {name...} is
 // $. A literal is written the way router-core spells the matching segment of a decoded URL: it
-// leaves %25 and %5C escaped and escapes control characters and "<>`{} again, so these are
+// leaves %25 and %5C escaped and escapes control characters and "<>` again, so these are
 // written escaped and everything else as it is. The reserved characters of a URL stay escaped in
-// the router's path when the request escapes them, while ServeMux unescapes them, so a literal
-// holding one of them is refused.
-func routerSegment(s string) (string, error) {
-	switch {
-	case strings.HasSuffix(s, "...}"):
-		return "$", nil
-	case strings.HasPrefix(s, "{"):
-		return "$" + s[1:len(s)-1], nil
+// the router's path when the request escapes them, while ServeMux unescapes them, and { } $ are
+// the router's own path syntax, so a literal holding one of them is refused. The analysis
+// refuses such a Path with its position first.
+func routerSegment(s pathSeg) (string, error) {
+	if s.param {
+		if strings.HasSuffix(s.text, "...}") {
+			return "$", nil
+		}
+		return "$" + s.text[1:len(s.text)-1], nil
 	}
 	var b strings.Builder
-	for _, r := range s {
+	for _, r := range s.text {
 		switch {
-		case strings.ContainsRune(";/?:@&=+$,#", r):
-			return "", fmt.Errorf("path segment %q holds %q, which the browser router cannot match the way ServeMux does", s, r)
-		case r == '%' || r == '\\' || r < 0x20 || r == 0x7f || strings.ContainsRune("\"<>`{}", r):
+		case strings.ContainsRune("{}$;/?:@&=+,#", r):
+			return "", fmt.Errorf("path segment %q holds %q, which the browser router cannot match the way ServeMux does", s.text, r)
+		case r == '%' || r == '\\' || r < 0x20 || r == 0x7f || strings.ContainsRune("\"<>`", r):
 			fmt.Fprintf(&b, "%%%02X", r)
 		default:
 			b.WriteRune(r)
@@ -321,14 +340,14 @@ func routerSegment(s string) (string, error) {
 }
 
 // paramKey is the TanStack name of a ServeMux parameter segment, empty for a literal.
-func paramKey(s string) string {
+func paramKey(s pathSeg) string {
 	switch {
-	case strings.HasSuffix(s, "...}"):
+	case !s.param:
+		return ""
+	case strings.HasSuffix(s.text, "...}"):
 		return "_splat"
-	case strings.HasPrefix(s, "{"):
-		return s[1 : len(s)-1]
 	}
-	return ""
+	return s.text[1 : len(s.text)-1]
 }
 
 // readParams returns the TanStack keys of the path parameters that the Load of n reads, itself
@@ -351,7 +370,7 @@ func readParams(n *tsNode, byID map[string]*tsNode) []string {
 	collect(n.load)
 	var keys []string
 	for _, s := range n.segs {
-		if k := paramKey(s); k != "" && read[strings.TrimSuffix(strings.Trim(s, "{}"), "...")] {
+		if k := paramKey(s); k != "" && read[strings.TrimSuffix(strings.Trim(s.text, "{}"), "...")] {
 			keys = append(keys, k)
 		}
 	}

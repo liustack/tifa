@@ -73,6 +73,27 @@ func parsePath(p string) ([]segment, error) {
 	return segs, nil
 }
 
+// routerReserved are the characters a literal segment of a page must not hold once unescaped,
+// the way ServeMux matches it. { } and $ are path syntax of the browser router, and the
+// reserved characters of a URL stay escaped in the router's path when the request escapes
+// them, while ServeMux unescapes them, so the two would match different URLs.
+const routerReserved = "{}$;/?:@&=+,#"
+
+// checkPagePath refuses a page Path whose literal segments the browser router cannot match
+// the way ServeMux does, such as /%7Bx%7D, which would read as the parameter {x}.
+func checkPagePath(p string, segs []segment) error {
+	for _, s := range segs {
+		if s.param != "" {
+			continue
+		}
+		u := pathUnescape(s.lit)
+		if i := strings.IndexAny(u, routerReserved); i >= 0 {
+			return fmt.Errorf("Path %q: segment %q is %q to ServeMux, and %q cannot appear in a page path the browser router matches the same way", p, s.lit, u, string(u[i]))
+		}
+	}
+	return nil
+}
+
 // isWildcardName is the parameter name rule of net/http ServeMux. Unlike token.IsIdentifier it
 // accepts Go keywords such as type or range.
 func isWildcardName(s string) bool {

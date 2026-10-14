@@ -219,7 +219,8 @@ func TestLiteralSegmentsMatchLikeServeMux(t *testing.T) {
 			t.Errorf("%s: got %q, %v, want %q", in, got, err, want)
 		}
 	}
-	for _, in := range []string{"a:b", "%40me", "a%2Fb", "%3F"} {
+	// An escaped brace is a literal, never a parameter, and has no safe spelling in the router.
+	for _, in := range []string{"a:b", "%40me", "a%2Fb", "%3F", "%7Bx%7D", "%7B", "%7Brest...%7D", "%24x"} {
 		if got, err := routerSegment(segments("/" + in)[0]); err == nil {
 			t.Errorf("%s: got %q, want an error", in, got)
 		}
