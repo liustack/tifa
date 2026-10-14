@@ -40,6 +40,7 @@ tifa dev watches the app root and skips `.git`, `.tifa`, `node_modules`, and `bi
 - Images, fonts and other files in the public folder do not trigger a rebuild. They are copied on the next bundle.
 - Stylesheets go through Vite's dev server, so `@tailwindcss/vite` compiles Tailwind CSS the way it does in any Vite app.
 - Vite injects stylesheets with JavaScript under tifa dev, so a page shows unstyled for a moment until its scripts run. `tifa build` links the stylesheet in the head, so built apps do not do this.
+- An image or other file a module imports by URL gets the URL of Vite's dev server in the server render too, the same one the browser modules use, so hydration matches. `tifa build` gives it a hashed file under `/assets/`.
 - `build.target` only applies to `tifa build`. Vite's dev server sends modern JavaScript.
 
 ## Log

@@ -1,8 +1,10 @@
 package bundle
 
 import (
+	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -140,5 +142,44 @@ func TestDevIgnoresInheritedNodeEnv(t *testing.T) {
 				t.Errorf("SSR bundle gives %q, want %q", got, want)
 			}
 		})
+	}
+}
+
+// An image a page imports gets the URL of Vite's dev server in the server render too, the one
+// the browser modules use. A build inlines a small PNG, the dev server does not.
+func TestDevSSRUsesTheDevServerURLsOfAssets(t *testing.T) {
+	root := devApp(t)
+	small := "\x89PNG small"
+	writeTree(t, root, map[string]string{
+		"app/page/small.png": small,
+		"app/page/large.svg": `<svg xmlns="http://www.w3.org/2000/svg"><!--` + strings.Repeat("x", 8<<10) + `--></svg>`,
+		".tifa/server.ts": "import small from '../app/page/small.png'\nimport large from '../app/page/large.svg'\n" +
+			"(globalThis as any).result = small + ' ' + large\n",
+	})
+	port := freePort(t)
+	d, err := NewDev(root, port, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if _, err := d.Build(filepath.Join(root, "public"), true); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := evalResult(t, string(code))
+	if want := DevBase + "app/page/small.png " + DevBase + "app/page/large.svg"; got != want {
+		t.Fatalf("SSR bundle gives %q, want %q", got, want)
+	}
+	res, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d%sapp/page/small.png", port, DevBase))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode != 200 || string(body) != small {
+		t.Errorf("the dev server answers %d %q", res.StatusCode, body)
 	}
 }

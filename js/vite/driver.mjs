@@ -136,10 +136,12 @@ const ops = {
   },
 }
 
-// buildSSR builds the SSR bundle with the builder that createBuilder returns. The SSR worker
-// thread runs its source text, so it uses only its arguments.
-async function buildSSR(createBuilder, { assets, minify }) {
+// buildSSR builds the SSR bundle with the builder that createBuilder returns, with plugins added
+// to those of the Vite config. The SSR worker thread runs its source text, so it uses only its
+// arguments.
+async function buildSSR(createBuilder, { assets, minify }, plugins = []) {
   const builder = await createBuilder({
+    plugins,
     environments: {
       ssr: { define: { __TIFA_ASSETS__: JSON.stringify(assets) }, build: { minify } },
     },
@@ -150,6 +152,11 @@ async function buildSSR(createBuilder, { assets, minify }) {
 // ssrThread runs on the SSR worker thread, next to buildSSR. Vite reads NODE_ENV once per
 // thread, so the worker loads its own copy of Vite with NODE_ENV set to production and runs
 // buildSSR for each message.
+//
+// The worker builds for tifa dev, where the browser gets its modules from Vite's dev server. An
+// asset a module imports by URL, such as an image, then gets its URL from the dev server too: the
+// worker asks the main thread to load it in the dev server's client environment, so the server
+// render and the browser modules use one URL.
 async function ssrThread() {
   const { parentPort, workerData } = await import('node:worker_threads')
   const vite = await import(workerData.vite)
@@ -160,9 +167,33 @@ async function ssrThread() {
   }
   const createBuilder = (inline) =>
     vite.createBuilder({ root: workerData.root, logLevel: 'warn', customLogger: logger, ...inline })
-  parentPort.on('message', async ({ id, request }) => {
+  const loads = new Map() // the loads the main thread has not answered, by ref
+  let nextLoad = 0
+  const devAssets = {
+    name: 'tifa:dev-assets',
+    enforce: 'pre',
+    applyToEnvironment: (env) => env.name === 'ssr',
+    load(id) {
+      // ?raw and ?inline give the content, which is the same in both.
+      if (id.startsWith('\0') || /[?&](?:raw|inline)(?:&|=|$)/.test(id)) return null
+      if (!/[?&]url(?:&|=|$)/.test(id) && !this.environment.config.assetsInclude(id.split('?')[0])) return null
+      const ref = ++nextLoad
+      return new Promise((resolve, reject) => {
+        loads.set(ref, { resolve, reject })
+        parentPort.postMessage({ load: id, ref })
+      })
+    },
+  }
+  parentPort.on('message', async ({ id, request, ref, code, error }) => {
+    if (ref !== undefined) {
+      const load = loads.get(ref)
+      loads.delete(ref)
+      if (error === undefined) load.resolve(code)
+      else load.reject(new Error(error))
+      return
+    }
     try {
-      await buildSSR(createBuilder, request)
+      await buildSSR(createBuilder, request, [devAssets])
       parentPort.postMessage({ id })
     } catch (err) {
       let text = err instanceof Error ? err.message : String(err)
@@ -188,7 +219,14 @@ function startSSRWorker() {
     for (const { reject } of pending.values()) reject(err)
     pending.clear()
   }
-  worker.on('message', ({ id, error }) => {
+  worker.on('message', ({ id, error, load, ref }) => {
+    if (load !== undefined) {
+      devLoad(load).then(
+        (code) => worker.postMessage({ ref, code }),
+        (err) => worker.postMessage({ ref, error: message(err) }),
+      )
+      return
+    }
     const call = pending.get(id)
     pending.delete(id)
     if (error === undefined) call.resolve()
@@ -208,6 +246,14 @@ function startSSRWorker() {
     },
     close: () => worker.terminate(),
   }
+}
+
+// devLoad loads id in the client environment of Vite's dev server and returns the code.
+async function devLoad(id) {
+  if (!server) throw new Error(`loading ${id}: Vite's dev server is not running`)
+  const result = await server.environments.client.pluginContainer.load(id)
+  if (result == null) throw new Error(`Vite's dev server cannot load ${id}`)
+  return typeof result === 'string' ? result : result.code
 }
 
 // createBuilder loads the application's Vite config with inline added to it.
