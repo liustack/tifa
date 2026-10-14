@@ -11,7 +11,7 @@ read_when:
 # tifa dev
 
 ```sh
-tifa dev [--dir 应用根目录] [--addr 127.0.0.1:3000]
+tifa dev [--dir 应用根目录] [--addr 127.0.0.1:9527]
 ```
 
 启动后先打印 `tifa dev: serving http://<地址>`，然后做一次完整构建（步骤同 [tifa build](build.zh-CN.md)），启动应用。浏览器连 `--addr`，tifa dev 把请求转给应用，应用重启期间请求会等它起来。Ctrl-C 或 SIGTERM 停掉应用和 tifa dev。

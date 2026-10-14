@@ -50,11 +50,14 @@ type Cache struct {
 	Size int64
 }
 
+// DefaultAddr is where a built app and tifa dev listen unless told otherwise.
+const DefaultAddr = "127.0.0.1:9527"
+
 // Default holds values sized for small machines. ssr.vms follows GOMAXPROCS, which honours container CPU limits, with no cap.
 func Default() Config {
 	return Config{
 		Build:  Build{Target: "es2020", Public: "public"},
-		Server: Server{Addr: "127.0.0.1:8080", BodyLimit: 1 << 20, ShutdownTimeout: 10 * time.Second},
+		Server: Server{Addr: DefaultAddr, BodyLimit: 1 << 20, ShutdownTimeout: 10 * time.Second},
 		SSR:    SSR{VMs: runtime.GOMAXPROCS(0), VMMemory: 128 << 20, Timeout: 3 * time.Second},
 		Cache:  Cache{Size: 64 << 20},
 	}

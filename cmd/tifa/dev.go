@@ -22,6 +22,7 @@ import (
 	"github.com/liustack/tifa/internal/analyze"
 	"github.com/liustack/tifa/internal/bundle"
 	"github.com/liustack/tifa/internal/codegen"
+	"github.com/liustack/tifa/internal/config"
 	"github.com/liustack/tifa/internal/devserver"
 	"github.com/spf13/cobra"
 )
@@ -76,7 +77,7 @@ reload. A failed build keeps the running app and shows the error in the page.`,
 		},
 	}
 	cmd.Flags().StringVar(&dir, "dir", ".", "application root, the directory holding go.mod and app/")
-	cmd.Flags().StringVar(&addr, "addr", "127.0.0.1:3000", "address the browser connects to")
+	cmd.Flags().StringVar(&addr, "addr", config.DefaultAddr, "address the browser connects to")
 	return cmd
 }
 

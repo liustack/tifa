@@ -70,7 +70,7 @@ func TestNewWritesAnApp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new: %v", err)
 	}
-	for _, want := range []string{"go mod tidy", "pnpm install", "go tool tifa dev", "go mod edit -replace", "http://127.0.0.1:3000"} {
+	for _, want := range []string{"go mod tidy", "pnpm install", "go tool tifa dev", "go mod edit -replace", "http://127.0.0.1:9527"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the output does not mention %q:\n%s", want, out)
 		}

@@ -11,7 +11,7 @@ English · [简体中文](dev.zh-CN.md)
 # tifa dev
 
 ```sh
-tifa dev [--dir app-root] [--addr 127.0.0.1:3000]
+tifa dev [--dir app-root] [--addr 127.0.0.1:9527]
 ```
 
 On start it prints `tifa dev: serving http://<address>`, then runs a full build (the same steps as [tifa build](build.md)) and starts the app. The browser connects to `--addr` and tifa dev forwards requests to the app. While the app restarts, requests wait for it to come back. Ctrl-C or SIGTERM stops both the app and tifa dev.

@@ -95,7 +95,7 @@ go run github.com/liustack/tifa/cmd/tifa@latest new myapp
 cd myapp
 go mod tidy
 pnpm install
-go tool tifa dev     # http://127.0.0.1:3000
+go tool tifa dev     # http://127.0.0.1:9527
 ```
 
 `tifa new` 写好一个首页：Go 的 `Load`，页面在浏览器里调用的 `POST`，以及测这两个函数的测试。模块路径默认是目录名，也可以传 `--module example.com/myapp`。
@@ -108,7 +108,7 @@ go tool tifa dev     # http://127.0.0.1:3000
 cd examples/shop
 pnpm install --frozen-lockfile
 go tool tifa build
-./bin/shop           # http://127.0.0.1:8080
+./bin/shop           # http://127.0.0.1:9527
 ```
 
 ## 文档
