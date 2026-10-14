@@ -153,6 +153,7 @@ test('the head holds the tags of the deepest route, escaped', async () => {
     '<link rel="icon" href="/icon.svg">',
   )
   lacks(head, 'APP_TITLE', 'say')
+  assert(head.split('rel="icon"').length === 2, `the icon two routes give is written once: ${head}`)
   const app = await render('/hello', appData)
   contains(
     app.slice(0, app.indexOf('</head>')),

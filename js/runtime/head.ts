@@ -29,7 +29,8 @@ const baseMeta: Meta[] = [{ name: 'viewport', content: 'width=device-width, init
 
 // headTags collects the head of the matches the way TanStack's HeadContent does: the matches
 // up to the first one that did not load, the title and each named meta of the deepest route
-// that has it, then links, styles and head scripts in route order without duplicates.
+// that has it, then links, styles and head scripts in route order. Writing them leaves out
+// repeated tags, see headHTML and syncHead.
 export function headTags(all: ReadonlyArray<HeadMatch>): Tag[] {
   const matches = presented(all)
   const metas: Array<ReadonlyArray<Meta | undefined>> = [baseMeta]
@@ -58,31 +59,22 @@ export function headTags(all: ReadonlyArray<HeadMatch>): Tag[] {
           if (named.has(name)) continue
           named.add(name)
         }
-        meta.push({ tag: 'meta', attrs: { ...m } })
+        meta.push({ tag: 'meta', attrs: m })
       }
     }
   }
   if (title) meta.push(title)
   meta.reverse()
-  const tags: Tag[] = []
-  unique(tags, meta)
-  unique(
-    tags,
-    matches
-      .flatMap((m) => (m.links ?? []) as ReadonlyArray<Item | undefined>)
-      .flatMap((link) => (link ? [{ tag: 'link' as const, attrs: { ...link } }] : [])),
-  )
+  const tags = meta
+  for (const match of matches)
+    for (const link of (match.links ?? []) as ReadonlyArray<Item | undefined>) if (link) tags.push({ tag: 'link', attrs: link })
   for (const kind of ['styles', 'headScripts'] as const)
-    unique(
-      tags,
-      matches
-        .flatMap((m) => (m[kind] ?? []) as ReadonlyArray<Item | undefined>)
-        .flatMap((item) => {
-          if (!item) return []
-          const { children, ...attrs } = item
-          return [{ tag: kind === 'styles' ? ('style' as const) : ('script' as const), attrs, children: children as string | undefined }]
-        }),
-    )
+    for (const match of matches)
+      for (const item of (match[kind] ?? []) as ReadonlyArray<Item | undefined>) {
+        if (!item) continue
+        const { children, ...attrs } = item
+        tags.push({ tag: kind === 'styles' ? 'style' : 'script', attrs, children: children as string | undefined })
+      }
   return tags
 }
 
@@ -96,16 +88,6 @@ function presented<T extends HeadMatch>(matches: ReadonlyArray<T>): ReadonlyArra
   return matches
 }
 
-function unique(target: Tag[], tags: Tag[]) {
-  const seen = new Set<string>()
-  for (const tag of tags) {
-    const key = tagKey(tag)
-    if (seen.has(key)) continue
-    seen.add(key)
-    target.push(tag)
-  }
-}
-
 // HTML names of the React-style attribute names head functions use. Other names are written
 // in lower case, names with a dash as they are.
 const attributeNames: Record<string, string> = {
@@ -115,11 +97,18 @@ const attributeNames: Record<string, string> = {
   acceptCharset: 'accept-charset',
 }
 
-export function attributeName(name: string) {
-  return attributeNames[name] ?? (name.includes('-') ? name : name.toLowerCase())
-}
-
 const validName = /^[A-Za-z_:][-A-Za-z0-9_:.]*$/
+const checkedNames = new Map<string, string>()
+
+// attributeName is the HTML name of an attribute. It throws for a name that is not one.
+export function attributeName(key: string) {
+  let name = checkedNames.get(key)
+  if (name !== undefined) return name
+  name = attributeNames[key] ?? (key.includes('-') ? key : key.toLowerCase())
+  if (!validName.test(name)) throw new Error(`head: invalid attribute name ${JSON.stringify(key)}`)
+  checkedNames.set(key, name)
+  return name
+}
 
 // attributes writes the attributes the way React would: true as a bare attribute, false, null
 // and undefined left out, everything else as an escaped string. Event handlers and other
@@ -130,7 +119,6 @@ export function attributes(attrs: Record<string, unknown>): string {
     const value = attrs[key]
     if (value === undefined || value === null || value === false || typeof value === 'function') continue
     const name = attributeName(key)
-    if (!validName.test(name)) throw new Error(`head: invalid attribute name ${JSON.stringify(key)}`)
     out += value === true ? ' ' + name : ' ' + name + '="' + escapeAttribute(String(value)) + '"'
   }
   return out
@@ -144,28 +132,36 @@ export function tagHTML(tag: Tag): string {
   return open + (tag.tag === 'title' ? escapeText(children) : children) + '</' + tag.tag + '>'
 }
 
+// headHTML writes the tags, each distinct tag once.
 export function headHTML(tags: Tag[]): string {
   let out = ''
-  for (const tag of tags) out += tagHTML(tag)
+  const seen = new Set<string>()
+  for (const tag of tags) {
+    const html = tagHTML(tag)
+    if (seen.has(html)) continue
+    seen.add(html)
+    out += html
+  }
   return out
 }
 
-// tagKey identifies a tag by its element, attributes and content, the same way for a tag and
-// for the element written from it, see elementKey.
+// tagKey identifies a tag by its element, attributes in order and content, the same way for a
+// tag and for the element the browser parsed from it, see elementKey. Two tags with the same key
+// are written as the same HTML.
 function tagKey(tag: Tag): string {
-  const parts: string[] = []
-  for (const key in tag.attrs) {
-    const value = tag.attrs[key]
+  let key = tag.tag
+  for (const name in tag.attrs) {
+    const value = tag.attrs[name]
     if (value === undefined || value === null || value === false || typeof value === 'function') continue
-    parts.push(attributeName(key) + '=' + (value === true ? '' : String(value)))
+    key += '\n' + attributeName(name) + '=' + (value === true ? '' : String(value))
   }
-  return tag.tag + '\n' + parts.sort().join('\n') + '\n' + (tag.children ?? '')
+  return key + '\n\n' + (tag.children ?? '')
 }
 
 function elementKey(element: Element): string {
-  const parts: string[] = []
-  for (const attr of Array.from(element.attributes)) parts.push(attr.name + '=' + attr.value)
-  return element.localName + '\n' + parts.sort().join('\n') + '\n' + (element.textContent ?? '')
+  let key = element.localName
+  for (const attr of Array.from(element.attributes)) key += '\n' + attr.name + '=' + attr.value
+  return key + '\n\n' + (element.textContent ?? '')
 }
 
 // escapeScriptJSON makes JSON safe inside a script element, as TanStack's escapeHtml does: no
@@ -179,14 +175,17 @@ const scriptJSONEscapes: Record<string, string> = {
 }
 
 export function escapeScriptJSON(json: string) {
+  if (!/[&><\u2028\u2029]/.test(json)) return json
   return json.replace(/[&><\u2028\u2029]/g, (c) => scriptJSONEscapes[c]!)
 }
 
 export function escapeText(text: string) {
+  if (!/[&<>]/.test(text)) return text
   return text.replace(/[&<>]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'))
 }
 
 export function escapeAttribute(text: string) {
+  if (!/[&"<>]/.test(text)) return text
   return text.replace(/[&"<>]/g, (c) => (c === '&' ? '&amp;' : c === '"' ? '&quot;' : c === '<' ? '&lt;' : '&gt;'))
 }
 
@@ -200,8 +199,14 @@ export const headEnd = '<!--/tifa-head-->'
 // again on navigation.
 export function syncHead(matches: ReadonlyArray<HeadMatch>) {
   const [start, end] = markers()
-  const tags = headTags(matches)
-  const keys = tags.map(tagKey)
+  const tags: Tag[] = []
+  const keys: string[] = []
+  for (const tag of headTags(matches)) {
+    const key = tagKey(tag)
+    if (keys.includes(key)) continue
+    tags.push(tag)
+    keys.push(key)
+  }
   const elements: Element[] = []
   for (let node = start.nextSibling; node && node !== end; node = node.nextSibling)
     if (node.nodeType === 1) elements.push(node as Element)
