@@ -77,7 +77,8 @@ async function refresh(method: string, options: CallOptions) {
 async function failure(response: Response): Promise<TifaError> {
   let body: { error?: unknown; fields?: unknown } = {}
   try {
-    body = await response.json()
+    const value: unknown = await response.json()
+    if (typeof value === 'object' && value !== null) body = value
   } catch {
     // A proxy or the network may answer with something other than the JSON of the server.
   }

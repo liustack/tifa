@@ -58,6 +58,10 @@ const gateway = await caught(POST({ params: { note: '1' }, input: { text: '', ne
 assert(gateway instanceof TifaError && gateway.status === 502 && gateway.message === 'Bad Gateway', `502: ${gateway}`)
 assert(Object.keys(gateway.fields).length === 0, '502 fields')
 
+answer = () => Response.json(null, { status: 502 })
+const nullBody = await caught(POST({ params: { note: '1' }, input: { text: '', next: null } }))
+assert(nullBody instanceof TifaError && nullBody.status === 502, `JSON null error body: ${nullBody}`)
+
 // DELETE without a result resolves to undefined, and the empty query values stay out.
 answer = () => new Response(null, { status: 204 })
 const removed: void = await DELETE({ params: { note: '1' }, input: { tag: '', tags: null } })
