@@ -13,7 +13,8 @@
     "types": [],
     "rootDirs": ["..", "."],
     "paths": {
-      "tifa/client": ["./runtime/client.ts"]
+      "tifa/client": ["./runtime/client.ts"],
+      "@/*": ["../*"]
     }
   },
   "include": ["../app", "routes.tsx", "server.ts", "client.ts", "runtime/env.d.ts"]
