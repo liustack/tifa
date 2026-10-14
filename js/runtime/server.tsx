@@ -12,6 +12,8 @@ declare const __TIFA_ASSETS__: string
 declare global {
   var startRender: (json: string) => void
   var renderResult: string | undefined
+  // The tifa Vite plugin makes renderToString pass it the errors of the render.
+  var __tifaRenderError: ((error: unknown) => void) | undefined
 }
 
 // clientRenderedBoundary is what React writes for a Suspense boundary that failed on the
@@ -52,12 +54,19 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = { la
           return
         }
         await router.serverSsr!.dehydrate()
-        const root = renderToString(<RouterProvider router={router} />)
+        const errors: unknown[] = []
+        globalThis.__tifaRenderError = (error) => errors.push(error)
+        let root: string
+        try {
+          root = renderToString(<RouterProvider router={router} />)
+        } finally {
+          globalThis.__tifaRenderError = undefined
+        }
         // renderToString swallows an error thrown inside a Suspense boundary, and the router
         // wraps the routes in one: the boundary renders its fallback and leaves the marker of a
-        // boundary the browser must render itself. Its onError cannot be set, so the marker is
-        // how the server learns of the failure. The page is then incomplete, never a success.
-        if (root.includes(clientRenderedBoundary)) throw new Error(incompleteRender)
+        // boundary the browser must render itself. The page is then incomplete, never a success.
+        // The first error is why, if the plugin could pass it.
+        if (root.includes(clientRenderedBoundary)) throw errors.length > 0 ? errors[0] : new Error(incompleteRender)
         const hydration = router.serverSsr!.takeInitialHydrationScriptTags()
         if (!hydration) throw new Error('the router has no hydration scripts for this render')
         router.serverSsr!.setRenderFinished()

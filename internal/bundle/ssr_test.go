@@ -55,6 +55,24 @@ func TestSSRTrimmedReactRendersOnlyTheStringRenderer(t *testing.T) {
 	}
 }
 
+// renderToString leaves a Suspense boundary whose content threw to the browser and tells no one
+// of the error. The tifa plugin passes it to globalThis.__tifaRenderError, so the server can report
+// it.
+func TestSSRReportsTheErrorAComponentThrowsInsideSuspense(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"throws.tsx": "import './host'\n" +
+		"import { renderToString } from 'react-dom/server.edge'\nimport { Suspense } from 'react'\n" +
+		"const errors: unknown[] = []\n;(globalThis as any).__tifaRenderError = (error: unknown) => errors.push(error)\n" +
+		"function Broken(): never {\n  throw new Error('BROKEN')\n}\n" +
+		"const html = renderToString(<Suspense fallback=\"loading\"><Broken /></Suspense>)\n" +
+		"globalThis.result = html + ' ' + errors.map((e) => (e as Error).message).join()\n",
+	})
+	code, _ := buildScript(t, root, "throws.tsx")
+	if got := evalResult(t, code); !strings.HasPrefix(got, "<!--$!-->") || !strings.HasSuffix(got, " BROKEN") {
+		t.Errorf("result = %q, want the boundary left to the browser and the error", got)
+	}
+}
+
 func TestSSRTrimmedReactKeepsEveryPublicExport(t *testing.T) {
 	root := copyTestdata(t, "ssr", true)
 	const want = "renderToReadableStream,renderToStaticMarkup,renderToString,resume,version"
@@ -97,7 +115,7 @@ func TestSSRWarnsOfNodeAPIsLeftInDependencies(t *testing.T) {
 	if _, got := buildPrinting(t, root, "uses-fs.ts"); !strings.Contains(got, want) {
 		t.Errorf("uses-fs.ts: the build prints:\n%s\nwant %s", got, want)
 	}
-	if _, got := buildPrinting(t, root, "esm-fs.ts"); !strings.Contains(got, `require("node:fs") loads a Node module`) {
+	if _, got := buildPrinting(t, root, "esm-fs.ts"); !strings.Contains(got, `require("node:fs") loads a Node module imported by esm-fs`) {
 		t.Errorf("esm-fs.ts: the build prints:\n%s\nwant the import of node:fs", got)
 	}
 	code, got := buildPrinting(t, root, "guarded-fs.ts")

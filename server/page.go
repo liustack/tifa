@@ -118,7 +118,11 @@ func (s *Server) openFront(dist fs.FS, cfg config.SSR) error {
 	if err != nil {
 		return err
 	}
-	pool, err := ssr.NewPool(string(source), cfg)
+	sourceMap, err := fs.ReadFile(dist, "ssr.js.map")
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	pool, err := ssr.NewPool(string(source), sourceMap, cfg)
 	if err != nil {
 		return err
 	}

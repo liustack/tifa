@@ -63,7 +63,7 @@ The step names are `static analysis`, `code generation`, `bundle` and `go build`
 - A module that fails to compile in the browser shows Vite's own overlay.
 - If the very first build fails, there is no old version to serve. Every request gets 502 with the original error, and things recover on their own once fixed.
 - If the app exits right after starting, the overlay title is `The app did not start` and the body shows why the app exited.
-- If the running app cannot load a rebuilt SSR bundle, such as one QuickJS cannot compile, the overlay title is `The app did not load the SSR bundle`. The app keeps serving the bundle it had.
+- If the running app cannot load a rebuilt SSR bundle, such as one QuickJS cannot compile, or one whose top-level code throws, the overlay title is `The app did not load the SSR bundle`. The app keeps serving the bundle it had. The stack trace gives places in the source files, and a package that calls `require`, which QuickJS does not have, is named with what to do.
 
 You can close the overlay. Closing it does not affect later reloads.
 

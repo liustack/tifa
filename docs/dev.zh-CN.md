@@ -63,7 +63,7 @@ tifa dev: 07:35:36 ready in 260ms
 - 浏览器里编译失败的模块显示 Vite 自己的浮层。
 - 首次构建就失败时没有旧版本可用，所有请求答 502 和错误原文，等修好后自动恢复。
 - 应用启动后立刻退出时，浮层标题是 `The app did not start`，内容是应用的退出原因。
-- 运行中的应用读不进重建的 SSR 包时（比如 QuickJS 编译不过），浮层标题是 `The app did not load the SSR bundle`，应用继续用原来的包。
+- 运行中的应用读不进重建的 SSR 包时（比如 QuickJS 编译不过，或包的顶层代码抛错），浮层标题是 `The app did not load the SSR bundle`，应用继续用原来的包。错误栈给的是源文件里的位置，调用了 QuickJS 没有的 `require` 的包会被点名，并说明怎么办。
 
 浮层可以关掉，关掉后不影响后续刷新。
 

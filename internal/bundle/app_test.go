@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -40,15 +41,20 @@ func fakeApp(t *testing.T, target string) string {
 
 func readBuild(t *testing.T, root string) Build {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "build.json"))
+	var b Build
+	readJSON(t, filepath.Join(root, ".tifa", "dist", "build.json"), &b)
+	return b
+}
+
+func readJSON(t *testing.T, file string, v any) {
+	t.Helper()
+	data, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var b Build
-	if err := json.Unmarshal(data, &b); err != nil {
+	if err := json.Unmarshal(data, v); err != nil {
 		t.Fatal(err)
 	}
-	return b
 }
 
 func buildApp(t *testing.T, root string) string {
@@ -82,10 +88,20 @@ func TestAppWritesDist(t *testing.T) {
 			t.Errorf("%s: %v", m[1], err)
 		}
 	}
-	for _, gone := range []string{"stale.js", ".vite", "ssr.js.map"} {
+	for _, gone := range []string{"stale.js", ".vite"} {
 		if _, err := os.Stat(filepath.Join(dist, gone)); !os.IsNotExist(err) {
 			t.Errorf("%s is left in dist: %v", gone, err)
 		}
+	}
+	// The server reads the source map of the SSR bundle to give the places of render errors in
+	// the sources, relative to the application root. It needs no copy of the sources.
+	var sourceMap struct {
+		Sources        []string
+		SourcesContent []string
+	}
+	readJSON(t, filepath.Join(dist, "ssr.js.map"), &sourceMap)
+	if !slices.Contains(sourceMap.Sources, "app/page/route.tsx") || sourceMap.SourcesContent != nil {
+		t.Errorf("ssr.js.map has the sources %q and their content %v", sourceMap.Sources, sourceMap.SourcesContent != nil)
 	}
 	if _, err := os.Stat(filepath.Join(dist, "public", "robots.txt")); err != nil {
 		t.Error(err)

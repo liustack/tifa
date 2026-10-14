@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -44,6 +45,8 @@ func OnError(c *tifa.Ctx, err error) tifa.Error {
 `,
 	"app/throws/route.go":   "package throws\n\nconst Cache = true\n",
 	"app/throws/route.tsx":  "export default function Throws(): never {\n  throw new Error('PAGE_THROWS')\n}\n",
+	"app/legacy/legacy.cjs": "module.exports = function (name) {\n  return require(name)\n}\n",
+	"app/legacy/route.tsx":  "import load from './legacy.cjs'\n\nexport default function Legacy() {\n  return <p>{String(load('node:os'))}</p>\n}\n",
 	"app/ssr/route.tsx":     "export default function Page() {\n  return <p>PAGE_SSR</p>\n}\n",
 	"app/members/route.tsx": "export default function Members() {\n  return <p>MEMBERS</p>\n}\n",
 	"app/secret/layout.go": `package secret
@@ -131,6 +134,22 @@ func TestErrorFlowInTheVM(t *testing.T) {
 		output.waitFor(t, func(string) bool { return onErrors()-before >= 2 })
 		if got := onErrors() - before; got != 2 {
 			t.Errorf("OnError ran %d times:\n%s", got, output)
+		}
+		// React leaves the route's Suspense boundary to the browser, the server still learns why.
+		if !regexp.MustCompile(`Error: PAGE_THROWS +at \w+ \(app/throws/route\.tsx:2:`).MatchString(output.String()) {
+			t.Errorf("OnError did not see the error and its place:\n%s", output)
+		}
+	})
+
+	t.Run("a require in the render names its place and what to do", func(t *testing.T) {
+		before := onErrors()
+		if code, _, body := get(t, base+"/legacy"); code != 500 {
+			t.Errorf("%d %s", code, body)
+		}
+		output.waitFor(t, func(string) bool { return onErrors()-before >= 1 })
+		want := "The code at app/legacy/legacy.cjs:2:10 calls require. SSR runs in QuickJS, which has no require"
+		if !strings.Contains(output.String(), want) {
+			t.Errorf("OnError:\n%s\nwant %s", output, want)
 		}
 	})
 

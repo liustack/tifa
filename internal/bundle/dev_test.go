@@ -92,8 +92,8 @@ func TestDevRunsOneNodeProcess(t *testing.T) {
 	if !strings.Contains(string(code), "react-dom-server-legacy.browser.production.js") {
 		t.Error("the production string renderer is not bundled")
 	}
-	if _, err := os.Stat(filepath.Join(root, ".tifa", "dist", "ssr.js.map")); !os.IsNotExist(err) {
-		t.Errorf("the source map of the SSR bundle is written: %v", err)
+	if _, err := os.Stat(filepath.Join(root, ".tifa", "dist", "ssr.js.map")); err != nil {
+		t.Errorf("the source map of the SSR bundle: %v", err)
 	}
 	if got, want := evalResult(t, string(code)), "production <ul><li>na</li><li>nb</li></ul>"; got != want {
 		t.Errorf("SSR bundle gives %q, want %q", got, want)

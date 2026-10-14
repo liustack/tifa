@@ -15,6 +15,9 @@ const propertyState = '\0tifa-core-js-property-state'
 const routeModule = /^\.\.?\/(?:.*\/)?\+(?:route|layout)(?:\.js|\.ts)?$/
 const clientSource = /\.client(?:\.[jt]sx?)?$/
 const reactServerEntry = /[/\\]react-dom[/\\]server\.edge\.js$/
+const reactStringRenderer = /[/\\]react-dom[/\\]cjs[/\\]react-dom-server-legacy\.browser\.production\.js$/
+// The error handler of renderToString, which ignores the errors of the render.
+const ignoredErrors = 'function onError() {}'
 const nodeBuiltins = new Set(builtinModules)
 
 /**
@@ -109,13 +112,12 @@ export function ssrEnvironment(entry, dir) {
       copyPublicDir: false,
       ssr: entry,
       target: 'es2022',
-      // The check of the output reads the map to name the source of a require it finds. hidden
-      // leaves the comment that points to it out of ssr.js.
+      // ssr.js.map names the sources of the places in the warnings of the build and in the stack
+      // traces of render errors, which the server reads. hidden leaves the comment that points to
+      // it out of ssr.js. The server needs no copy of the sources.
       sourcemap: 'hidden',
       rolldownOptions: {
-        // An import of a Node module that stays in the bundle reads require("node:fs") and the
-        // like, which the check of the output finds. QuickJS has no require.
-        output: { format: 'iife', entryFileNames: 'ssr.js', codeSplitting: false, globals: (id) => `require(${JSON.stringify(id)})` },
+        output: { format: 'iife', entryFileNames: 'ssr.js', codeSplitting: false, sourcemapExcludeSources: true },
       },
     },
   }
@@ -147,20 +149,35 @@ function resolveRouteModule(ctx, root, source, importer) {
 }
 
 // ssrPlugin applies to the SSR build only. It replaces *.client modules with a stub, refuses Node
-// APIs in page code, trims React's server entry to the renderer actually used, switches core-js to
-// its property-backed internal state, checks that the bundle is one file, and warns of the places
-// where it may load a module at run time.
+// APIs in page code, trims React's server entry to the renderer actually used, passes the errors
+// renderToString ignores to the runtime, switches core-js to its property-backed internal state,
+// checks that the bundle is one file, and warns of the places where it may load a module at run
+// time. Its source map names sources relative to the application root.
 export function ssrPlugin(getRoot, loadVite) {
   const reactTargets = new Map() // server.edge.js path to the renderer modules it imports
   let coreJS // real directory of the core-js package the application resolves, '' for none
   let coreJSState = false // whether the internal state module of coreJS is in the bundle
   let coreJSAdapted = false // whether it got the property-backed state
+  let nodeImporters // Node module to the packages that import it
   return {
     name: 'tifa:ssr',
     applyToEnvironment: (env) => env.name === 'ssr',
     buildStart() {
       coreJS = findPackage(getRoot(), 'core-js')
       coreJSState = coreJSAdapted = false
+      nodeImporters = new Map()
+    },
+    outputOptions(options) {
+      const root = getRoot()
+      return {
+        ...options,
+        // The places in the source map, relative to the application root.
+        sourcemapPathTransform: (source, map) => path.relative(root, path.resolve(path.dirname(map), source)),
+        // An import of a Node module that stays in the bundle reads require("node:fs", "the
+        // packages that import it"). The check of the output finds it, and QuickJS, which has no
+        // require, fails at it with a stack trace the server explains with the packages.
+        globals: (id) => `require(${JSON.stringify(id)}, ${JSON.stringify([...(nodeImporters.get(id) ?? [])].join(', '))})`,
+      }
     },
     resolveId: {
       order: 'pre',
@@ -168,6 +185,8 @@ export function ssrPlugin(getRoot, loadVite) {
         const fromDependency = importer?.includes(`${path.sep}node_modules${path.sep}`)
         if (source.startsWith('node:') || nodeBuiltins.has(source)) {
           if (!fromDependency) this.error(`Node APIs are not supported in page code: ${source}`)
+          if (!nodeImporters.has(source)) nodeImporters.set(source, new Set())
+          nodeImporters.get(source).add(packageName(importer))
           // A dependency may import a Node module it never uses on this platform. The check of
           // the output finds the import if it stays: the bundle loads it with require.
           return { id: source, external: true }
@@ -197,6 +216,19 @@ export function ssrPlugin(getRoot, loadVite) {
       // WeakMap or patch generated output.
       if (id === propertyState) return 'module.exports = false'
       if (coreJS && id === path.join(coreJS, 'internals', 'internal-state.js')) coreJSState = true
+      if (reactStringRenderer.test(id)) {
+        // renderToString leaves a Suspense boundary whose content threw to the browser, and its
+        // error handler ignores the error. Pass the error to the runtime, which reports it.
+        const source = fs.readFileSync(id, 'utf8')
+        if (source.split(ignoredErrors).length !== 2) {
+          this.warn(
+            `react-dom ${packageVersion(path.resolve(id, '..', '..'))}: ${id} has no "${ignoredErrors}" the tifa ` +
+              'plugin knows, so a server render that fails inside a Suspense boundary cannot say why',
+          )
+          return null
+        }
+        return source.replace(ignoredErrors, 'function onError(error) { globalThis.__tifaRenderError?.(error) }')
+      }
       if (reactServerEntry.test(id)) {
         const source = fs.readFileSync(id, 'utf8')
         const trimmed = reactServerExports(this.parse(source))
@@ -225,13 +257,11 @@ export function ssrPlugin(getRoot, loadVite) {
         )
       }
     },
-    async generateBundle(options, bundle) {
+    async generateBundle(_, bundle) {
       const chunks = Object.values(bundle).filter((output) => output.type === 'chunk')
       if (chunks.length !== 1) this.error(`the SSR bundle has ${chunks.length} files, want 1`)
       const [chunk] = chunks
-      // The map serves the check below only, and is not written.
-      if (chunk.sourcemapFileName) delete bundle[chunk.sourcemapFileName]
-      const loads = await hostLoads(chunk, await loadVite(), (code) => this.parse(code), getRoot(), options.dir)
+      const loads = await hostLoads(chunk, await loadVite(), (code) => this.parse(code))
       if (loads.length > 0) {
         this.warn(
           'the SSR bundle may load modules at run time, which QuickJS cannot do: a server render that ' +
@@ -254,9 +284,9 @@ export function ssrPlugin(getRoot, loadVite) {
 //     is the host's.
 //
 // The bundle loads the Node modules it imports with require("node:fs") and the like (see
-// ssrEnvironment), so they are found the same way. The source maps of the copy and of the chunk
-// name the place in the source, relative to root.
-async function hostLoads(chunk, vite, parse, root, dir) {
+// outputOptions of ssrPlugin), so they are found the same way. The source maps of the copy and of the chunk
+// name the place in the source.
+async function hostLoads(chunk, vite, parse) {
   // Most bundles never name require or import(), and need no copy.
   if (!/\brequire\b|\bimport\s*\(/.test(chunk.code)) return []
   const defined = await vite.transformWithOxc(chunk.code, chunk.fileName, {
@@ -269,14 +299,13 @@ async function hostLoads(chunk, vite, parse, root, dir) {
   const found = []
   const visit = (node, parent, key) => {
     if (node.type === 'Identifier' && node.name === 'require' && isReference(parent, key)) {
-      const call = parent.type === 'CallExpression' && key === 'callee' && parent.arguments.length === 1 ? parent.arguments[0] : null
-      const name = call && (call.type === 'Literal' ? call.value : null)
+      const [name, importers] = parent.type === 'CallExpression' && key === 'callee' ? parent.arguments.map(stringValue) : []
       found.push({
         at: node.start,
         what:
-          typeof name === 'string'
-            ? `require(${JSON.stringify(name)}) loads a Node module`
-            : 'require loads a module by a name known only at run time',
+          typeof name !== 'string'
+            ? 'require loads a module by a name known only at run time'
+            : `require(${JSON.stringify(name)}) loads a Node module${importers ? ` imported by ${importers}` : ''}`,
       })
     } else if (node.type === 'ImportExpression') {
       found.push({ at: node.start, what: 'import() loads a module at run time' })
@@ -299,11 +328,19 @@ async function hostLoads(chunk, vite, parse, root, dir) {
     if (!position) return `${chunk.fileName}: ${what}`
     const source = maps[2] && maps[2](position.line, position.column)
     if (!source) return `${chunk.fileName}:${position.line + 1}:${position.column + 1}: ${what}`
-    const file = path.resolve(dir ?? '.', chunk.map.sourceRoot ?? '', source.source)
-    const name = packageName(file)
-    return `${path.relative(root, file)}:${source.line + 1}:${source.column + 1}${name ? ` (${name})` : ''}: ${what}`
+    // The sources are relative to the application root, see outputOptions.
+    const name = packageName(source.source)
+    return `${source.source}:${source.line + 1}:${source.column + 1}${name ? ` (${name})` : ''}: ${what}`
   })
   return [...new Set(places)]
+}
+
+// stringValue returns the value of a string literal, or of a template literal without
+// expressions as the minifier writes strings, undefined for any other node.
+function stringValue(node) {
+  if (node.type === 'Literal' && typeof node.value === 'string') return node.value
+  if (node.type === 'TemplateLiteral' && node.expressions.length === 0) return node.quasis[0].value.cooked
+  return undefined
 }
 
 // sourcePositions decodes map and returns a function that gives the source, line and column (all
@@ -346,7 +383,7 @@ function sourcePositions(map) {
 // packageName returns the npm package that file belongs to, by the last node_modules in its
 // path, or '' for a file outside node_modules.
 function packageName(file) {
-  const parts = file.split(path.sep)
+  const parts = file.split(/[/\\]/)
   const at = parts.lastIndexOf('node_modules')
   if (at < 0 || at + 1 >= parts.length) return ''
   return parts[at + 1].startsWith('@') ? parts.slice(at + 1, at + 3).join('/') : parts[at + 1]

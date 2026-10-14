@@ -1,6 +1,7 @@
 package bundle
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/liustack/tifa/internal/config"
+	"github.com/liustack/tifa/internal/ssr"
 )
 
 // requireCase is one module of testdata/require-cases.json: a dependency that exports a function
@@ -69,49 +74,67 @@ func loadRequireCases(t *testing.T) []requireCase {
 	return slices.DeleteFunc(cases, func(c requireCase) bool { return c.Name == unresolvedCase })
 }
 
-// writeRequireCases writes the cases as modules under dir/node_modules/cases and returns an entry
-// module that calls each of them in turn by the import path prefix, waits for a promise one
-// returns, and stores the results by name as JSON in globalThis.result. Each call ends by removing
-// a require a case set on globalThis.
-func writeRequireCases(t *testing.T, dir, prefix string, cases []requireCase) string {
+// writeRequireCases writes the cases as modules under root/vendor/node_modules/cases and an SSR
+// entry, .tifa/server.ts, whose startRender calls the case its URL names, waits for a promise it
+// returns, and renders the result, or reports the error as the runtime of tifa does. Each call
+// ends by removing a require the case set on globalThis.
+func writeRequireCases(t *testing.T, root string, cases []requireCase) {
 	t.Helper()
 	files := map[string]string{}
 	var entry strings.Builder
+	entry.WriteString("import './runtime/host.js'\n")
 	for i, c := range cases {
-		files[filepath.Join("node_modules", "cases", c.Name+".cjs")] = c.Code
-		fmt.Fprintf(&entry, "import c%d from '%scases/%s.cjs'\n", i, prefix, c.Name)
+		files[filepath.Join("vendor", "node_modules", "cases", c.Name+".cjs")] = c.Code
+		fmt.Fprintf(&entry, "import c%d from '../vendor/node_modules/cases/%s.cjs'\n", i, c.Name)
 	}
-	writeTree(t, dir, files)
-	entry.WriteString("const cases: Array<[string, (name: string) => any, (value: any) => any]> = [\n")
+	entry.WriteString("const cases: Record<string, [(name: string) => any, (value: any) => any]> = {\n")
 	for i, c := range cases {
-		fmt.Fprintf(&entry, "  [%q, c%d, (value: any) => { %s; return value }],\n", c.Name, i, c.Post)
+		fmt.Fprintf(&entry, "  %q: [c%d, (value: any) => { %s; return value }],\n", c.Name, i, c.Post)
 	}
-	entry.WriteString("]\nconst results: Record<string, string> = {}\n" +
-		"void (async () => {\n  for (const [name, f, post] of cases) {\n" +
-		"    try {\n      results[name] = String(await post(f('node:path')))\n" +
-		"    } catch (err) {\n      results[name] = 'ERROR:' + err\n" +
-		"    } finally {\n      delete (globalThis as any).require\n    }\n  }\n" +
-		"  ;(globalThis as any).result = JSON.stringify(results)\n})()\n")
-	return entry.String()
+	entry.WriteString("}\n" +
+		";(globalThis as any).startRender = (json: string) => {\n" +
+		"  const [run, post] = cases[JSON.parse(json).url]\n" +
+		"  void (async () => {\n" +
+		"    try {\n      ;(globalThis as any).renderResult = '<' + String(await post(run('node:path')))\n" +
+		"    } catch (error: any) {\n" +
+		"      ;(globalThis as any).renderResult = JSON.stringify({ error: `${error.name}: ${error.message}\\n${error.stack}` })\n" +
+		"    } finally {\n      delete (globalThis as any).require\n    }\n  })()\n}\n")
+	files[filepath.Join(".tifa", "server.ts")] = entry.String()
+	writeTree(t, root, files)
 }
 
-// checkRequireCases checks the warning of the build and the result in QuickJS of each case: a
-// case that fails there because require is missing gets a warning at its place, one that runs gets
-// none, except requireLimits.
-func checkRequireCases(t *testing.T, cases []requireCase, code, output string) {
+// checkRequireCases checks, for each case, the warning of the build of root and the render of the
+// case in QuickJS. A case that fails there because require is missing gets a warning at its
+// place, and the render error says which package called require and what to do. One that runs
+// gets no warning. requireLimits get the warning they say.
+func checkRequireCases(t *testing.T, root string, cases []requireCase, output string) {
 	t.Helper()
-	var results map[string]string
-	if err := json.Unmarshal([]byte(evalResult(t, code)), &results); err != nil {
+	dist := filepath.Join(root, ".tifa", "dist")
+	code, err := os.ReadFile(filepath.Join(dist, "ssr.js"))
+	if err != nil {
 		t.Fatal(err)
 	}
+	sourceMap, err := os.ReadFile(filepath.Join(dist, "ssr.js.map"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool, err := ssr.NewPool(string(code), sourceMap, config.SSR{VMs: 1, VMMemory: 64 << 20, Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
 	for _, c := range cases {
-		got, ok := results[c.Name]
-		if failed := strings.Contains(got, "'require' is not defined"); !ok || failed == c.Runs {
-			t.Errorf("%s gives %q in QuickJS, want runs = %v", c.Name, got, c.Runs)
+		file := "vendor/node_modules/cases/" + c.Name + ".cjs"
+		_, err := pool.Render(context.Background(), ssr.Input{URL: c.Name})
+		failed := err != nil && strings.Contains(err.Error(), "'require' is not defined")
+		if failed == c.Runs {
+			t.Errorf("%s renders with %v in QuickJS, want runs = %v", c.Name, err, c.Runs)
+		} else if failed && !regexp.MustCompile(`The package cases calls require at `+regexp.QuoteMeta(file)+`:\d+:\d+\. SSR runs in QuickJS`).MatchString(err.Error()) {
+			t.Errorf("%s: the render error does not name the place of the require:\n%v", c.Name, err)
 		}
 		_, limit := requireLimits[c.Name]
 		// Rolldown warns of eval at the same place, in another form.
-		place := regexp.MustCompile(regexp.QuoteMeta(filepath.Join("cases", c.Name+".cjs")) + `:\d+:\d+ \(cases\): `)
+		place := regexp.MustCompile(regexp.QuoteMeta(file) + `:\d+:\d+ \(cases\): `)
 		if warned := place.MatchString(output); warned != (c.Runs == limit) {
 			t.Errorf("%s: warned = %v, want %v (runs = %v, limit %q)", c.Name, warned, !warned, c.Runs, requireLimits[c.Name])
 		}
@@ -119,18 +142,22 @@ func checkRequireCases(t *testing.T, cases []requireCase, code, output string) {
 }
 
 // The build warns of each case of testdata/require-cases.json that fails in QuickJS because
-// require is missing, and of none that runs, except requireLimits. Minified as tifa build makes
-// it. The warning does not fail the build.
+// require is missing, and of none that runs, except requireLimits, and the render of a case that
+// fails says why. Minified as tifa build makes it. The warning does not fail the build.
 func TestSSRRequireCases(t *testing.T) {
 	cases := loadRequireCases(t)
-	root := copyTestdata(t, "ssr", false)
-	writeTree(t, root, map[string]string{"cases.ts": writeRequireCases(t, root, "", cases)})
+	root := devApp(t)
+	writeRequireCases(t, root, cases)
 	var output strings.Builder
-	code, _, err := script(testdata(t), root, "cases.ts", &output)
-	if err != nil {
+	n := NewNode(root, &output)
+	if _, err := App(n, root, filepath.Join(root, "public"), true); err != nil {
 		t.Fatal(err)
 	}
-	checkRequireCases(t, cases, code, output.String())
+	// What Node printed is complete once it exited.
+	if err := n.Close(); err != nil {
+		t.Fatal(err)
+	}
+	checkRequireCases(t, root, cases, output.String())
 
 	root = copyTestdata(t, "ssr", false)
 	writeTree(t, root, map[string]string{
@@ -138,7 +165,7 @@ func TestSSRRequireCases(t *testing.T) {
 			"  return typeof require === 'function' ? require('unknown-optional-package') : 'safe'\n}\n",
 		"unresolved.ts": "import read from 'cases/guarded.cjs'\nglobalThis.result = read('x')\n",
 	})
-	_, _, err = script(testdata(t), root, "unresolved.ts", io.Discard)
+	_, _, err := script(testdata(t), root, "unresolved.ts", io.Discard)
 	if err == nil || !strings.Contains(err.Error(), `failed to resolve import "unknown-optional-package"`) {
 		t.Errorf("a guarded require of a package that is not installed: %v, want the bundler's error", err)
 	}
@@ -148,28 +175,21 @@ func TestSSRRequireCases(t *testing.T) {
 func TestDevRequireCases(t *testing.T) {
 	cases := loadRequireCases(t)
 	root := devApp(t)
+	writeRequireCases(t, root, cases)
 	var output strings.Builder
 	d, err := NewDev(root, freePort(t), &output)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	host := "import './runtime/host.js'\n"
-	writeTree(t, root, map[string]string{
-		".tifa/server.ts": host + writeRequireCases(t, filepath.Join(root, "vendor"), "../vendor/node_modules/", cases),
-	})
 	if _, err := d.Build(filepath.Join(root, "public"), true); err != nil {
-		t.Fatal(err)
-	}
-	code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
-	if err != nil {
 		t.Fatal(err)
 	}
 	// What Node printed is complete once it exited.
 	if err := d.Close(); err != nil {
 		t.Fatal(err)
 	}
-	checkRequireCases(t, cases, string(code), output.String())
+	checkRequireCases(t, root, cases, output.String())
 }
 
 // A require that no source maps to, such as one a plugin appends to the chunk, gets a warning at
