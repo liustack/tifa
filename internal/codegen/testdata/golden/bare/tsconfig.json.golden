@@ -12,6 +12,5 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": [],
     "rootDirs": ["..", "."]
-  },
-  "include": ["../app", "../vite.config.ts", "routes.tsx", "server.ts", "client.ts", "vite.d.ts", "runtime/env.d.ts"]
+  }
 }

@@ -237,3 +237,90 @@ func TestDevHeadLinksTheStylesheetsOfTheServerRender(t *testing.T) {
 		t.Errorf("the dev server answers %d %s %q", res.StatusCode, res.Header.Get("Content-Type"), body)
 	}
 }
+
+// aliasApp is devApp with the tsconfig.json of a tifa application, whose paths send @/components
+// somewhere other than @/ does: the SSR bundle reports which message module it got. A shadcn
+// component outside app/ also imports through @/.
+func aliasApp(t *testing.T) string {
+	t.Helper()
+	root := devApp(t)
+	writeTree(t, root, map[string]string{
+		"tsconfig.json": `{"extends": "./.tifa/tsconfig.json", "compilerOptions": {"paths": {` +
+			`"@/*": ["./*"], "@/components/*": ["./custom/*"], "tifa/client": ["./.tifa/runtime/client.ts"]}},` +
+			` "include": ["**/*", ".tifa/**/*"]}`,
+		".tifa/tsconfig.json":   `{"compilerOptions": {"module": "ESNext", "moduleResolution": "bundler", "jsx": "react-jsx"}}`,
+		"custom/message.ts":     "export default 'tsconfig alias'\n",
+		"components/message.ts": "export default 'root alias'\n",
+		"lib/utils.ts":          "export const join = (a: string, b: string) => a + ' ' + b\n",
+		"shadcn/ui/badge.ts":    "import { join } from '@/lib/utils'\nexport default join('badge', 'ok')\n",
+		"app/page/view.tsx":     "import message from '@/components/message'\nimport badge from '@/shadcn/ui/badge'\nimport { clientOnly } from 'tifa/client'\nexport default message + ', ' + badge + ', ' + clientOnly\n",
+		".tifa/client.ts":       "import view from '../app/page/view'\nconsole.log(view)\n",
+		".tifa/server.ts":       "import view from '../app/page/view'\n(globalThis as any).result = view\n",
+	})
+	return root
+}
+
+const aliasResult = "tsconfig alias, badge ok, 1"
+
+// The paths of the application's tsconfig.json decide what @/ and tifa/client import, in the
+// browser bundle and the SSR bundle of tifa build, as they do for TypeScript.
+func TestAppResolvesImportsByTheTsconfigPaths(t *testing.T) {
+	root := aliasApp(t)
+	n := NewNode(root, io.Discard)
+	defer n.Close()
+	if _, err := App(n, root, filepath.Join(root, "public"), true); err != nil {
+		t.Fatalf("App: %v", err)
+	}
+	code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := evalResult(t, string(code)); got != aliasResult {
+		t.Errorf("SSR bundle gives %q, want %q", got, aliasResult)
+	}
+	browser, err := filepath.Glob(filepath.Join(root, ".tifa", "dist", "assets", "*.js"))
+	if err != nil || len(browser) == 0 {
+		t.Fatalf("no browser bundle: %v", err)
+	}
+	var all string
+	for _, f := range browser {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		all += string(data)
+	}
+	if !strings.Contains(all, "tsconfig alias") || strings.Contains(all, "root alias") {
+		t.Errorf("the browser bundle does not import custom/message.ts")
+	}
+}
+
+// Under tifa dev the SSR bundle and the modules of Vite's dev server follow the tsconfig paths.
+func TestDevResolvesImportsByTheTsconfigPaths(t *testing.T) {
+	root := aliasApp(t)
+	port := freePort(t)
+	d, err := NewDev(root, port, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if _, err := d.Build(filepath.Join(root, "public"), true); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := evalResult(t, string(code)); got != aliasResult {
+		t.Errorf("SSR bundle gives %q, want %q", got, aliasResult)
+	}
+	res, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d%sapp/page/view.tsx", port, DevBase))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode != 200 || !strings.Contains(string(body), DevBase+"custom/message.ts") {
+		t.Errorf("the dev server answers %d:\n%s", res.StatusCode, body)
+	}
+}

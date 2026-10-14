@@ -140,7 +140,8 @@ An app with pages has these two files in its root. `tifa new` writes them:
       "@/*": ["./*"],
       "tifa/client": ["./.tifa/runtime/client.ts"]
     }
-  }
+  },
+  "include": ["**/*", ".tifa/**/*"]
 }
 ```
 
@@ -155,9 +156,10 @@ export default defineConfig({
 })
 ```
 
-- The generated tsconfig sets `rootDirs: ["..", "."]`: TypeScript treats `.tifa/app/x/+route.ts` as `app/x/+route.ts`, so `import { route } from './+route'` in your source resolves, and so do Layout modules such as `'./+layout'` and `'../../+layout'`. `include` lists each entry under `.tifa` one by one, because TypeScript globs skip folders whose names start with a dot. It also includes `vite.config.ts`.
+- The generated tsconfig sets `rootDirs: ["..", "."]`: TypeScript treats `.tifa/app/x/+route.ts` as `app/x/+route.ts`, so `import { route } from './+route'` in your source resolves, and so do Layout modules such as `'./+layout'` and `'../../+layout'`. The app's `include` names `.tifa/**/*` on its own, because TypeScript globs skip folders whose names start with a dot.
 - `paths` lives in the app's own tsconfig, so tools that read it from there, such as the shadcn CLI, see the app root. `@/` is the app root: `@/components/ui/button` is `components/ui/button.tsx`. `tifa/client` is the fixed module name page code uses to import `clientOnly` and `RouteError`. Both work before the first build.
-- `tifa()` from `.tifa/vite.js` returns the Vite plugins of tifa, with `build.target` of the project config passed in. They resolve `@/`, `tifa/client`, `./+route` and `./+layout` the same way TypeScript does: any relative import whose last segment is `+route` or `+layout`, with or without `.js` or `.ts`, and that points to a folder under `app/`, however many levels it goes through (`'../../page/+route'` works too), resolves to the matching file in `.tifa/`. If the folder has no generated module, the build fails. They also set the entries and outputs below, and build the SSR bundle.
+- Vite resolves imports by the same `paths` (its `resolve.tsconfigPaths`), so a path you add or change, such as `"@/components/*": ["./src/components/*"]`, applies to type checking and bundling alike. Vite applies `paths` only to the files that `include` matches, so keep `**/*` in it.
+- `tifa()` from `.tifa/vite.js` returns the Vite plugins of tifa, with `build.target` of the project config passed in. They resolve `./+route` and `./+layout` the same way TypeScript does: any relative import whose last segment is `+route` or `+layout`, with or without `.js` or `.ts`, and that points to a folder under `app/`, however many levels it goes through (`'../../page/+route'` works too), resolves to the matching file in `.tifa/`. If the folder has no generated module, the build fails. They also set the entries and outputs below, and build the SSR bundle.
 - `@vitejs/plugin-react` compiles JSX and adds React Fast Refresh under `tifa dev`. Add other Vite plugins after these two, such as `@tailwindcss/vite` (see [app.md](app.md#tailwind-css)). Leave the entries, `base`, outputs and the `ssr` environment to tifa.
 - `vite.config.ts` imports `./.tifa/vite.js`, so it type-checks once tifa has generated `.tifa/`. `tifa build` and `tifa dev` generate it before Vite reads the config.
 

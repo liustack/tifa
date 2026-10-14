@@ -140,7 +140,8 @@ SSR 包开头引入 `runtime/host.js`，它补上 QuickJS 缺的 `URL`、`TextEn
       "@/*": ["./*"],
       "tifa/client": ["./.tifa/runtime/client.ts"]
     }
-  }
+  },
+  "include": ["**/*", ".tifa/**/*"]
 }
 ```
 
@@ -155,9 +156,10 @@ export default defineConfig({
 })
 ```
 
-- 生成的 tsconfig 设了 `rootDirs: ["..", "."]`：TypeScript 把 `.tifa/app/x/+route.ts` 当成 `app/x/+route.ts`，源码里的 `import { route } from './+route'` 因此能解析，Layout 模块 `'./+layout'`、`'../../+layout'` 也一样。`include` 逐个列出 `.tifa` 下的入口，因为 TypeScript 的通配符会跳过以点开头的目录。它也包含 `vite.config.ts`。
+- 生成的 tsconfig 设了 `rootDirs: ["..", "."]`：TypeScript 把 `.tifa/app/x/+route.ts` 当成 `app/x/+route.ts`，源码里的 `import { route } from './+route'` 因此能解析，Layout 模块 `'./+layout'`、`'../../+layout'` 也一样。应用的 `include` 单独写了 `.tifa/**/*`，因为 TypeScript 的通配符会跳过以点开头的目录。
 - `paths` 写在应用自己的 tsconfig 里，shadcn CLI 这类从这里读的工具看到的就是应用根目录。`@/` 指向应用根目录：`@/components/ui/button` 就是 `components/ui/button.tsx`。`tifa/client` 是页面代码引入 `clientOnly`、`RouteError` 用的固定模块名。两者在第一次构建前就能用。
-- `.tifa/vite.js` 的 `tifa()` 返回 tifa 的 Vite 插件，项目配置的 `build.target` 已经传进去。它们按 TypeScript 的方式解析 `@/`、`tifa/client`、`./+route` 和 `./+layout`：最后一段是 `+route` 或 `+layout`（可带 `.js` 或 `.ts`）、指向 `app/` 下某个目录的相对导入，不论中间经过几层（`'../../page/+route'` 也行），都解析到 `.tifa/` 里对应的文件。目录没有生成的模块时构建报错。它们还设好下文的入口与产物，并构建 SSR 包。
+- Vite 按同一份 `paths` 解析导入（它的 `resolve.tsconfigPaths`），所以你加的或改的路径，比如 `"@/components/*": ["./src/components/*"]`，类型检查和打包都照它走。Vite 只对 `include` 匹配到的文件用 `paths`，所以 `include` 里要保留 `**/*`。
+- `.tifa/vite.js` 的 `tifa()` 返回 tifa 的 Vite 插件，项目配置的 `build.target` 已经传进去。它们按 TypeScript 的方式解析 `./+route` 和 `./+layout`：最后一段是 `+route` 或 `+layout`（可带 `.js` 或 `.ts`）、指向 `app/` 下某个目录的相对导入，不论中间经过几层（`'../../page/+route'` 也行），都解析到 `.tifa/` 里对应的文件。目录没有生成的模块时构建报错。它们还设好下文的入口与产物，并构建 SSR 包。
 - `@vitejs/plugin-react` 编译 JSX，在 `tifa dev` 下加上 React Fast Refresh。别的 Vite 插件加在这两个后面，比如 `@tailwindcss/vite`（见 [app.zh-CN.md](app.zh-CN.md#tailwind-css)）。入口、`base`、产物和 `ssr` 环境交给 tifa。
 - `vite.config.ts` 引入 `./.tifa/vite.js`，所以 tifa 生成 `.tifa/` 之后它才能通过类型检查。`tifa build` 和 `tifa dev` 会在 Vite 读配置前生成它。
 

@@ -22,6 +22,7 @@ for (const [entry, platform] of [['router.test.tsx', 'node'], ['head.test.tsx', 
     configFile: false,
     logLevel: 'warn',
     plugins: [generated()],
+    resolve: { tsconfigPaths: true },
     define: { 'process.env.NODE_ENV': '"production"', __TIFA_ASSETS__: JSON.stringify(assets) },
     environments: { ssr: { resolve: { noExternal: true, conditions: [platform, 'import', 'module', 'default'] } } },
     build: {
@@ -79,6 +80,11 @@ func TestGeneratedRouterBehaves(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "build.mjs"), []byte(routerBuild), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// The tsconfig.json of an application, which declares tifa/client for Vite and TypeScript.
+	tsconfig := `{ "extends": "./.tifa/tsconfig.json", "compilerOptions": { "paths": { "@/*": ["./*"], "tifa/client": ["./.tifa/runtime/client.ts"] } }, "include": ["**/*", ".tifa/**/*"] }`
+	if err := os.WriteFile(filepath.Join(root, "tsconfig.json"), []byte(tsconfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	run := func(args ...string) {
 		t.Helper()
 		cmd := exec.Command(node, args...)
@@ -95,10 +101,6 @@ func TestGeneratedRouterBehaves(t *testing.T) {
 	}
 
 	// The generated tree, the runtime and the fixture's TSX type-check together.
-	tsconfig := `{ "extends": "./.tifa/tsconfig.json", "compilerOptions": { "paths": { "@/*": ["./*"], "tifa/client": ["./.tifa/runtime/client.ts"] } }, "include":["app", "router.test.tsx", "head.test.tsx", "call.test.ts", ".tifa/routes.tsx", ".tifa/server.ts", ".tifa/client.ts", ".tifa/runtime/env.d.ts"] }`
-	if err := os.WriteFile(filepath.Join(root, "tsconfig.json"), []byte(tsconfig), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	tsc := exec.Command(node, filepath.Join(modules, "typescript", "bin", "tsc"), "--noEmit", "-p", ".")
 	tsc.Dir = root
 	if output, err := tsc.CombinedOutput(); err != nil {

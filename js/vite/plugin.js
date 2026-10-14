@@ -77,22 +77,16 @@ export function tifa(settings = {}) {
   return [plugin, generated(), ssrPlugin(() => root)]
 }
 
-// generated resolves the imports that lead to what tifa generates: tifa/client, ./+route and
-// ./+layout, and @/, which is the application root.
+// generated resolves ./+route and ./+layout, the imports that lead to what tifa generates. Other
+// imports, @/ and tifa/client among them, resolve by the paths of the application's
+// tsconfig.json, as they do for TypeScript.
 export function generated() {
   let root = ''
   return {
     name: 'tifa:generated',
     config(config) {
       root = fs.realpathSync(path.resolve(config.root ?? '.'))
-      return {
-        resolve: {
-          alias: [
-            { find: /^tifa\/client$/, replacement: path.join(root, '.tifa', 'runtime', 'client.ts') },
-            { find: /^@\//, replacement: root + '/' },
-          ],
-        },
-      }
+      return { resolve: { tsconfigPaths: true } }
     },
     resolveId: {
       filter: { id: routeModule },
