@@ -118,6 +118,7 @@ type watcher struct {
 	cost     map[string]int             // cost of each system watch, by real path
 	full     bool                       // no more system watches are added, new directories are polled
 	short    chan struct{}              // closed once full is set
+	grown    map[string]bool            // watched directories that got new entries, to list again
 	polled   map[string]bool            // directories that are polled
 	stats    map[string]os.FileInfo     // tracked files as they were when last hashed
 	minPoll  time.Duration              // shortest time between two polls
@@ -164,7 +165,7 @@ func prepareWatcher(root string, ignore []string, warn func(string)) (*watcher, 
 		return nil, err
 	}
 	w := &watcher{
-		root: abs, rootReal: rootReal, warn: warn, changes: newChanges(), short: make(chan struct{}),
+		root: abs, rootReal: rootReal, warn: warn, changes: newChanges(), short: make(chan struct{}), grown: map[string]bool{},
 		budget: watchBudget(), cost: map[string]int{}, polled: map[string]bool{}, stats: map[string]os.FileInfo{}, minPoll: minPollInterval,
 		files: map[string]string{}, dirs: map[string]os.FileInfo{}, kids: map[string]map[string]bool{}, real: map[string]string{}, linkDirs: map[string]string{}, warned: map[string]bool{},
 		links: map[string][]string{}, linkOf: map[string]string{}, extDirs: map[string]int{}, extWatch: map[string]bool{},
@@ -225,19 +226,36 @@ func (w *watcher) pollInterval(took time.Duration) time.Duration {
 	return max(w.minPoll, took*pollCostFactor)
 }
 
+// relistDelay is how long after a new entry shows up in a watched directory the watcher lists it
+// again, see grew.
+const relistDelay = 50 * time.Millisecond
+
 // run handles file events and polls until ctx is done, then stops watching.
 func (w *watcher) run(ctx context.Context) error {
+	relisting := false
 	defer w.close()
 	links := time.NewTicker(linkPoll)
 	defer links.Stop()
 	poll := time.NewTimer(w.minPoll)
 	defer poll.Stop()
+	relist := time.NewTimer(0)
+	<-relist.C
+	defer relist.Stop()
 	for {
+		if len(w.grown) > 0 && !relisting {
+			relisting = true
+			relist.Reset(relistDelay)
+		}
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-links.C:
 			if err := w.recover(w.checkLinks()); err != nil {
+				return err
+			}
+		case <-relist.C:
+			relisting = false
+			if err := w.recover(w.relist()); err != nil {
 				return err
 			}
 		case <-poll.C:
@@ -413,6 +431,14 @@ func (w *watcher) grew(real string, n int) {
 	if !ok || entryCost == 0 {
 		return
 	}
+	if n > 0 {
+		// kqueue finds new files by listing the directory, and fsnotify stops at the first one it
+		// cannot open, without an error: the files after it get no event. Listing the directory
+		// again a little later finds them.
+		if dir, ok := w.real[real]; ok {
+			w.grown[dir] = true
+		}
+	}
 	n = max(n*entryCost, 1-cost) // the directory's own descriptor stays
 	w.cost[real] += n
 	w.used += n
@@ -429,6 +455,19 @@ func (w *watcher) grew(real string, n int) {
 		w.polled[dir] = true
 	}
 	w.warn(fmt.Sprintf("%s grew past what the system's file watches allow, so it and the directories found after it are polled for changes", dir))
+}
+
+// relist looks for files that appeared in the grown directories without an event.
+func (w *watcher) relist() error {
+	for dir := range w.grown {
+		delete(w.grown, dir)
+		if _, still := w.dirs[dir]; still {
+			if err := w.scan(dir, false); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // dropWatch removes the system watch of real, if it has one.

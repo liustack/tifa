@@ -306,3 +306,26 @@ func TestWatcherPollsADirectoryThatGrowsPastTheBudget(t *testing.T) {
 	}
 	warned.has(t, "app")
 }
+
+// kqueue reports new files by listing the directory, and fsnotify stops at the first file it
+// cannot open when the process runs out of descriptors, without a word: the files after it get no
+// event. The watcher lists a directory again once a new file shows up in it, so it finds them.
+func TestWatcherFindsFilesWithoutEvents(t *testing.T) {
+	if entryCost == 0 {
+		t.Skip("the system reports every new file")
+	}
+	dir := t.TempDir()
+	writeFile(t, dir, "app/a.ts", "export {}")
+	w := preparedWatcher(t, dir, func(msg string) { t.Log(msg) })
+	if err := w.start(); err != nil {
+		t.Fatal(err)
+	}
+	events := make(chan fsnotify.Event)
+	w.events = events // fsnotify's events go unread, as if it had stopped
+	runWatcher(t, w)
+	for _, name := range []string{"app/b.ts", "app/c.ts", "app/d.ts"} {
+		writeFile(t, dir, name, "export {}")
+	}
+	events <- fsnotify.Event{Name: filepath.Join(w.rootReal, "app", "b.ts"), Op: fsnotify.Create}
+	expectChanges(t, w, change{"app/b.ts", created}, change{"app/c.ts", created}, change{"app/d.ts", created})
+}
