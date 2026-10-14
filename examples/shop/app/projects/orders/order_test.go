@@ -5,11 +5,10 @@ import (
 	"testing"
 
 	"github.com/liustack/tifa"
-	"github.com/liustack/tifa/examples/shop/db"
 )
 
 func TestListSumsTheOrdersOfOneProject(t *testing.T) {
-	db.Open()
+	reset()
 	s := List("studio")
 	if len(s.Orders) != 4 || s.Orders[0].ID != "SH-1042" || s.Orders[3].ID != "SH-1039" {
 		t.Fatalf("orders %+v", s.Orders)
@@ -23,7 +22,7 @@ func TestListSumsTheOrdersOfOneProject(t *testing.T) {
 }
 
 func TestGetFormatsTheOrder(t *testing.T) {
-	db.Open()
+	reset()
 	o, err := Get("studio", "SH-1041")
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +37,7 @@ func TestGetFormatsTheOrder(t *testing.T) {
 }
 
 func TestShipOnce(t *testing.T) {
-	db.Open()
+	reset()
 	if err := Ship("studio", "SH-1042"); err != nil {
 		t.Fatal(err)
 	}
@@ -54,4 +53,11 @@ func TestShipOnce(t *testing.T) {
 	if err := Ship("weekend", "SH-1041"); !errors.Is(err, tifa.ErrNotFound) {
 		t.Fatalf("ship an order of another project: %v", err)
 	}
+}
+
+// reset puts the demonstration orders back, so each test starts from them.
+func reset() {
+	mu.Lock()
+	defer mu.Unlock()
+	records = demo()
 }

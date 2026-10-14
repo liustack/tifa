@@ -29,17 +29,18 @@ go test ./...
 ## 目录
 
 ```text
-hooks.go                     启动时打开数据，拦截跨站的写请求，记录意外错误
-db/                          全局的数据存储（内存版），业务包共用
+hooks.go                     拦截跨站的写请求，记录意外错误
 app/
   layout.go  layout.tsx      根 Layout：侧栏、顶栏、文档外壳和全站 404
   icons.tsx  styles.css      跨页面共用的图标和样式
   home/route.go              访问 / 时跳到第一家店铺
   projects/
     project.go               店铺领域：类型与待发货统计
+    store.go                 店铺的存储（内存版，自带演示数据，代替数据库表）
     layout.go  layout.tsx    店铺 Layout：店名、待发货数、店铺备忘
     orders/
       order.go               订单领域：列表、详情、发货规则
+      store.go               订单的存储（内存版）
       list/                  /projects/{projectId}
       detail/                /projects/{projectId}/orders/{orderId}，POST 即发货
 ```

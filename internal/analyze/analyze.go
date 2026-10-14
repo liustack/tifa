@@ -141,7 +141,7 @@ func (a *analyzer) id(dir string) string {
 
 // load type checks every package of the module from source, .tifa/ and other directories the
 // go command skips excluded. Calls that pass the Ctx out of a Load are followed into helpers in
-// any of them, so db/ and internal/ need their syntax as well as app/.
+// any of them, so packages outside app/, such as internal/, need their syntax too.
 func (a *analyzer) load() error {
 	hasHooks := false
 	if _, err := os.Stat(filepath.Join(a.root, "hooks.go")); err == nil {

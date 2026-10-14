@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	"github.com/liustack/tifa"
-	"github.com/liustack/tifa/examples/shop/db"
 )
 
 // Status labels of an order.
@@ -52,7 +51,7 @@ type Summary struct {
 func List(projectID string) Summary {
 	s := Summary{Orders: []Order{}}
 	revenue := 0
-	for _, o := range db.Orders(projectID) {
+	for _, o := range ofProject(projectID) {
 		s.Orders = append(s.Orders, view(o))
 		revenue += total(o)
 		if o.Shipped {
@@ -65,9 +64,20 @@ func List(projectID string) Summary {
 	return s
 }
 
+// CountPending returns how many orders of a project wait to be shipped.
+func CountPending(projectID string) int {
+	n := 0
+	for _, o := range ofProject(projectID) {
+		if !o.Shipped {
+			n++
+		}
+	}
+	return n
+}
+
 // Get returns the order id of a project, or tifa.ErrNotFound.
 func Get(projectID, id string) (Order, error) {
-	o, err := db.FindOrder(projectID, id)
+	o, err := find(projectID, id)
 	if err != nil {
 		return Order{}, notFound(err)
 	}
@@ -76,7 +86,7 @@ func Get(projectID, id string) (Order, error) {
 
 // Ship marks the order as shipped. An order ships once, the second time returns ErrShipped.
 func Ship(projectID, id string) error {
-	err := db.UpdateOrder(projectID, id, func(o *db.Order) error {
+	err := update(projectID, id, func(o *record) error {
 		if o.Shipped {
 			return ErrShipped
 		}
@@ -87,13 +97,13 @@ func Ship(projectID, id string) error {
 }
 
 func notFound(err error) error {
-	if errors.Is(err, db.ErrNoRows) {
+	if errors.Is(err, errNoRows) {
 		return tifa.ErrNotFound
 	}
 	return err
 }
 
-func view(o db.Order) Order {
+func view(o record) Order {
 	order := Order{
 		ID: o.ID, ProjectID: o.ProjectID, Customer: o.Customer, Initials: string([]rune(o.Customer)[:1]),
 		Email: o.Email, Address: o.Address, Date: o.Date, Status: Pending, Total: yuan(total(o)),
@@ -111,7 +121,7 @@ func view(o db.Order) Order {
 	return order
 }
 
-func total(o db.Order) int {
+func total(o record) int {
 	sum := 0
 	for _, item := range o.Items {
 		sum += item.Price * item.Quantity

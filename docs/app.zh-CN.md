@@ -19,11 +19,12 @@ read_when:
 myapp/
   go.mod
   hooks.go                      进程与请求钩子（可选）
-  db/                           全局资源，根包和业务包都可以 import
+  db.go  middleware.go          共享资源：包级变量和函数（可选）
   app/
     layout.go  layout.tsx       根 Layout，套到所有页面
     projects/
-      project.go                领域：类型、存储、规则
+      project.go                领域：类型、规则
+      store.go                  领域的存储：它的表和查询
       layout.go  layout.tsx     套到下面所有页面
       orders/
         order.go
@@ -31,7 +32,7 @@ myapp/
         detail/  route.go  route.tsx  items.tsx  actions.client.tsx
 ```
 
-- 按业务分目录，同一个领域的 Go 与 TSX 放在一起。跨领域共用的组件和样式放在 `app/` 根目录。
+- 按业务分目录，同一个领域的 Go 与 TSX 放在一起。每个领域自己管模型、存储和规则，不设一个装着所有表的 `models/` 或 `db/` 包。跨领域共用的组件和样式放在 `app/` 根目录。
 - 一个目录最多一个路由或一个 Layout。目录名不决定 URL，只要是合法的 Go 包名。
 - 目录嵌套决定 Layout 套到哪些页面：Layout 套到所在目录和所有子目录里的路由。
 - 不写 main。`tifa build` 把 main 和路由注册代码生成在 `.tifa/`，`go vet ./...`、`go test ./...` 不会扫到它。
@@ -156,7 +157,7 @@ func OnError(c *tifa.Ctx, err error) tifa.Error // 意外错误：上报，返�
 ```
 
 - `OnRequest` 作用于页面、导航数据请求、接口和没匹配的 URL，不作用于静态文件。没匹配时 `c.Pattern()` 为空。
-- 全局资源放在单独的包里（比如 `db/`），由 `OnStart` 初始化。路由代码只在函数里用它，不在包级变量初始化时读。不用 `init()` 做初始化。
+- 整个应用共享的资源，比如数据库连接、日志，放在应用根目录、和 `hooks.go` 并列的文件里，比如 `db.go`、`middleware.go`。每个文件只构建一个包级变量或一个函数：在 `OnStart` 里初始化，在 `OnShutdown` 里释放，其他地方直接用，比如 `myapp.DB`。`app/` 下的包 import 根包来用它们，所以根包不反过来 import 它们（Go 不允许循环引用）。表、模型和查询留在各自的领域里。路由代码只在函数里用这些资源，不在包级变量初始化时读。不用 `init()` 做初始化。
 - 请求级的值用标准 context 写入：`c.SetContext(context.WithValue(...))`，业务包提供带类型的读取函数。
 
 ## Load 里 Ctx 的用法

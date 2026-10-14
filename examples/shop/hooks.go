@@ -7,13 +7,7 @@ import (
 	"net/url"
 
 	"github.com/liustack/tifa"
-	"github.com/liustack/tifa/examples/shop/db"
 )
-
-func OnStart() error {
-	db.Open()
-	return nil
-}
 
 // OnRequest refuses writes from other sites: a POST must come from a page of this host.
 func OnRequest(c *tifa.Ctx) error {

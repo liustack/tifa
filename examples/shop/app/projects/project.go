@@ -6,7 +6,7 @@ import (
 	"errors"
 
 	"github.com/liustack/tifa"
-	"github.com/liustack/tifa/examples/shop/db"
+	"github.com/liustack/tifa/examples/shop/app/projects/orders"
 )
 
 type Project struct {
@@ -18,8 +18,8 @@ type Project struct {
 
 // Get returns the project id, or tifa.ErrNotFound.
 func Get(id string) (Project, error) {
-	p, err := db.FindProject(id)
-	if errors.Is(err, db.ErrNoRows) {
+	p, err := find(id)
+	if errors.Is(err, errNoRows) {
 		return Project{}, tifa.ErrNotFound
 	}
 	if err != nil {
@@ -31,18 +31,12 @@ func Get(id string) (Project, error) {
 // List returns all projects.
 func List() []Project {
 	var list []Project
-	for _, p := range db.Projects() {
+	for _, p := range all() {
 		list = append(list, withStats(p))
 	}
 	return list
 }
 
-func withStats(p db.Project) Project {
-	project := Project{ID: p.ID, Name: p.Name, Description: p.Description}
-	for _, o := range db.Orders(p.ID) {
-		if !o.Shipped {
-			project.Pending++
-		}
-	}
-	return project
+func withStats(p record) Project {
+	return Project{ID: p.ID, Name: p.Name, Description: p.Description, Pending: orders.CountPending(p.ID)}
 }

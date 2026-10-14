@@ -29,17 +29,18 @@ go test ./...
 ## Folders
 
 ```text
-hooks.go                     opens the data at startup, blocks cross-site write requests, logs unexpected errors
-db/                          global data store (in memory), shared by business packages
+hooks.go                     blocks cross-site write requests, logs unexpected errors
 app/
   layout.go  layout.tsx      root Layout: sidebar, top bar, document shell and site-wide 404
   icons.tsx  styles.css      icons and styles shared across pages
   home/route.go              redirects / to the first shop
   projects/
     project.go               shop domain: types and the count of orders waiting to ship
+    store.go                 shop storage (in memory with demo data, standing in for a database table)
     layout.go  layout.tsx    shop Layout: shop name, orders waiting to ship, shop notes
     orders/
       order.go               order domain: list, details, shipping rules
+      store.go               order storage (in memory)
       list/                  /projects/{projectId}
       detail/                /projects/{projectId}/orders/{orderId}, POST ships the order
 ```

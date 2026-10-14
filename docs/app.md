@@ -19,11 +19,12 @@ For a complete example, see [examples/shop](../examples/shop). For the build, th
 myapp/
   go.mod
   hooks.go                      process and request hooks (optional)
-  db/                           global resources, importable from the root package and business packages
+  db.go  middleware.go          shared resources: package-level variables and functions (optional)
   app/
     layout.go  layout.tsx       root Layout, wraps every page
     projects/
-      project.go                domain: types, storage, rules
+      project.go                domain: types, rules
+      store.go                  domain storage: its tables and queries
       layout.go  layout.tsx     wraps every page below it
       orders/
         order.go
@@ -31,7 +32,7 @@ myapp/
         detail/  route.go  route.tsx  items.tsx  actions.client.tsx
 ```
 
-- Group folders by business area. Go and TSX for the same domain live together. Components and styles shared across domains go in the `app/` root.
+- Group folders by business area. Go and TSX for the same domain live together. Each domain owns its models, storage and rules: there is no shared `models/` or `db/` package holding every table. Components and styles shared across domains go in the `app/` root.
 - A folder holds at most one route or one Layout. The folder name does not decide the URL. It only has to be a valid Go package name.
 - Folder nesting decides which pages a Layout wraps: a Layout wraps the routes in its own folder and in all subfolders.
 - Do not write a main. `tifa build` generates main and the route registration code in `.tifa/`, which `go vet ./...` and `go test ./...` do not scan.
@@ -156,7 +157,7 @@ func OnError(c *tifa.Ctx, err error) tifa.Error // unexpected errors: report, re
 ```
 
 - `OnRequest` runs for pages, navigation data requests, API routes and unmatched URLs. It does not run for static files. For an unmatched URL, `c.Pattern()` is empty.
-- Put global resources in their own package (for example `db/`) and set them up in `OnStart`. Route code uses them only inside functions, never while package-level variables are initialized. Do not use `init()` for setup.
+- Resources the whole app shares, such as a database connection or a logger, go in files at the app root next to `hooks.go`, for example `db.go` or `middleware.go`. Each one builds a package-level variable or a function: set it up in `OnStart`, release it in `OnShutdown`, and use it directly anywhere, for example `myapp.DB`. Packages under `app/` import the root package for this, so the root package does not import them back (Go does not allow import cycles). Tables, models and queries stay in their domains. Route code uses these resources only inside functions, never while package-level variables are initialized. Do not use `init()` for setup.
 - Store request-scoped values with the standard context: `c.SetContext(context.WithValue(...))`. Business packages provide typed getters.
 
 ## How Load may use Ctx
