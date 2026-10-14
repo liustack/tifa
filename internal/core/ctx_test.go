@@ -274,14 +274,17 @@ type filter struct {
 	Page   int      `json:"page"`
 	Tags   []string `json:"tags"`
 	Done   bool
-	Skip   string `json:"-"`
+	Skip   string    `json:"-"`
+	Ptr    uintptr   `json:"ptr"`
+	Ptrs   []uintptr `json:"ptrs"`
 }
 
 func TestBindQuery(t *testing.T) {
-	r := httptest.NewRequest("GET", "/orders?status=open&page=2&tags=a&tags=b&Done=true&Skip=x&other=1", nil)
+	r := httptest.NewRequest("GET", "/orders?status=open&page=2&tags=a&tags=b&Done=true&Skip=x&other=1&ptr=7&ptrs=8", nil)
 	c := New(httptest.NewRecorder(), r, "/orders", 1024)
 	var in filter
-	if err := c.BindQuery(&in); err != nil || in.Status != "open" || in.Page != 2 || len(in.Tags) != 2 || !in.Done || in.Skip != "" {
+	if err := c.BindQuery(&in); err != nil || in.Status != "open" || in.Page != 2 || len(in.Tags) != 2 || !in.Done || in.Skip != "" ||
+		in.Ptr != 7 || len(in.Ptrs) != 1 || in.Ptrs[0] != 8 {
 		t.Fatalf("%v %+v", err, in)
 	}
 	r = httptest.NewRequest("GET", "/orders?page=two", nil)
@@ -289,5 +292,14 @@ func TestBindQuery(t *testing.T) {
 	var e Error
 	if err := c.BindQuery(&in); !errors.As(err, &e) || e.Status != 400 || e.Message != `invalid query parameter "page"` {
 		t.Fatalf("got %v", err)
+	}
+	// url.URL.Query drops what it cannot parse, which would decode as a missing field.
+	for _, query := range []string{"status=%ZZ", "status=a;b", "page=1&%zz"} {
+		r = httptest.NewRequest("GET", "/orders", nil)
+		r.URL.RawQuery = query
+		c = New(httptest.NewRecorder(), r, "/orders", 1024)
+		if err := c.BindQuery(&filter{}); !errors.As(err, &e) || e.Status != 400 || e.Message != "invalid query string" {
+			t.Errorf("?%s: got %v", query, err)
+		}
 	}
 }

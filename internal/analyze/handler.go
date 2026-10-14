@@ -90,7 +90,7 @@ func (a *analyzer) checkInput(method string, in types.Type, pos token.Pos) bool 
 		return false
 	}
 	ok = true
-	if problems := checkTS(in); len(problems) > 0 {
+	if problems := checkInputTS(in); len(problems) > 0 {
 		a.reportTS(pos, label, problems)
 		ok = false
 	}
@@ -102,6 +102,12 @@ func (a *analyzer) checkInput(method string, in types.Type, pos token.Pos) bool 
 		}
 	})
 	if method == "GET" || method == "DELETE" {
+		for _, name := range []string{"MarshalText", "UnmarshalText"} {
+			if _, _, found := lookupName(in, name); found {
+				a.errorAt(pos, "%s %s has %s: a %s input comes from the query string, which holds an object of fields, not a string", label, types.TypeString(in, shortQualifier), name, method)
+				return false
+			}
+		}
 		for i := range st.NumFields() {
 			f := st.Field(i)
 			path := root + "." + f.Name()
@@ -130,8 +136,13 @@ func (a *analyzer) checkInput(method string, in types.Type, pos token.Pos) bool 
 }
 
 // walkFields calls visit for every field of the structs that t holds, through pointers, slices,
-// arrays and maps, with its path from the root and its tag.
+// arrays and maps, with its path from the root and its tag. Each type is walked once, so a type
+// that holds itself, such as type Tree map[string]Tree, ends the walk.
 func walkFields(t types.Type, path string, seen map[types.Type]bool, visit func(path string, f *types.Var, tag string)) {
+	if seen[t] {
+		return
+	}
+	seen[t] = true
 	switch u := types.Unalias(t).Underlying().(type) {
 	case *types.Pointer:
 		walkFields(u.Elem(), path, seen, visit)
@@ -142,10 +153,6 @@ func walkFields(t types.Type, path string, seen map[types.Type]bool, visit func(
 	case *types.Map:
 		walkFields(u.Elem(), path+"[]", seen, visit)
 	case *types.Struct:
-		if seen[t] {
-			return
-		}
-		seen[t] = true
 		for i := range u.NumFields() {
 			f := u.Field(i)
 			p := path + "." + f.Name()
@@ -175,4 +182,36 @@ func queryType(t types.Type) bool {
 		}
 	}
 	return true
+}
+
+var textUnmarshalSig = types.NewSignatureType(nil, nil, nil,
+	types.NewTuple(types.NewVar(token.NoPos, nil, "", types.NewSlice(types.Typ[types.Byte]))),
+	types.NewTuple(types.NewVar(token.NoPos, nil, "", types.Universe.Lookup("error").Type())), false)
+
+// decodeProblem tells why encoding/json would not read a value of type t from the JSON its
+// TypeScript type describes, or returns "". checkTS has accepted t, so a MarshalText it finds
+// is the one that makes t a string. A map key is a JSON string whatever its kind, so an
+// UnmarshalText reads it when key is true.
+func decodeProblem(t types.Type, key bool) string {
+	name := types.TypeString(t, shortQualifier)
+	for _, method := range []string{"UnmarshalJSON", "UnmarshalJSONFrom"} {
+		if _, _, found := lookupName(t, method); found {
+			return name + " has " + method + ", which reads JSON its own way, so it may not accept what its TypeScript type describes: rename the method or use another type"
+		}
+	}
+	_, _, marshals := lookupName(t, "MarshalText")
+	obj, _, unmarshals := lookupName(t, "UnmarshalText")
+	switch {
+	case marshals && !unmarshals:
+		return name + " is a string in TypeScript because of MarshalText, but has no UnmarshalText to read the string back: add UnmarshalText([]byte) error"
+	case !unmarshals:
+		return ""
+	}
+	if fn, ok := obj.(*types.Func); !ok || !types.Identical(fn.Signature(), textUnmarshalSig) {
+		return name + " has an UnmarshalText that is not the method UnmarshalText([]byte) error: give it that signature or rename it"
+	}
+	if b, ok := t.Underlying().(*types.Basic); !key && !marshals && (!ok || b.Info()&types.IsString == 0) {
+		return name + " has UnmarshalText, so it is read from a JSON string, but its TypeScript type is not string: add MarshalText or remove UnmarshalText"
+	}
+	return ""
 }

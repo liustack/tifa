@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -101,27 +102,16 @@ func (a *analyzer) scan() error {
 	if info, err := os.Stat(appDir); err != nil || !info.IsDir() {
 		return fmt.Errorf("%s has no app directory", a.root)
 	}
-	skipped := "" // the outermost skipped directory being walked, by ID
 	return filepath.WalkDir(appDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		name := d.Name()
-		if d.IsDir() {
-			id := a.id(path)
-			if skipped != "" && !isAncestor(skipped, id) {
-				skipped = ""
-			}
-			if skipped == "" && path != appDir && (strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || name == "testdata") {
-				skipped = id
-			}
-			return nil
-		}
-		if !slices.Contains(conventionFiles, name) {
+		if d.IsDir() || !slices.Contains(conventionFiles, name) {
 			return nil
 		}
 		id := a.id(filepath.Dir(path))
-		if skipped != "" {
+		if skipped := skippedDir(id); skipped != "" {
 			a.errorInFile(id, name, "the go command skips %s because its name starts with . or _ or is testdata, so this file is never built: rename the directory", skipped)
 			return nil
 		}
@@ -142,6 +132,18 @@ func (a *analyzer) scan() error {
 		}
 		return nil
 	})
+}
+
+// skippedDir returns the outermost directory of the directory ID id, below app, that the go
+// command skips, or "" when it builds id.
+func skippedDir(id string) string {
+	parts := strings.Split(id, "/")
+	for i, name := range parts[1:] {
+		if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || name == "testdata" {
+			return strings.Join(parts[:i+2], "/")
+		}
+	}
+	return ""
 }
 
 // id turns an absolute directory into its ID: the path relative to the application root with forward slashes.
@@ -386,8 +388,10 @@ func (a *analyzer) build() *Manifest {
 		}
 	}
 
+	a.checkParamSiblings(ids)
 	a.linkLayouts(routes, layouts)
 	a.checkPaths(routes)
+	a.checkLayoutURLs(routes, layouts)
 	a.checkUses(layouts)
 	a.checkDirectCalls()
 	a.propagateQuery(routes, layouts)
@@ -432,13 +436,17 @@ func (a *analyzer) dirPath(d *dirInfo) ([]segment, bool) {
 	return segs, true
 }
 
-// routeNames are the names that only route.go declares. route.go and layout.go of one
-// directory share a package, so a Layout has names of its own: Layout and LayoutSSR.
-var routeNames = append([]string{"Load", "SSR", "Cache"}, methods...)
+// routeNames are the names that only route.go declares, layoutNames those that only layout.go
+// declares. route.go and layout.go of one directory share a package, so a Layout has names of
+// its own.
+var (
+	routeNames  = append([]string{"Load", "SSR", "Cache"}, methods...)
+	layoutNames = []string{"Layout", "LayoutSSR"}
+)
 
-// checkPackageNames reports Path, which the directory replaces, and the names of route.go in a
-// directory that has no route, so that a Layout written the old way, with Load and SSR, is not
-// silently left without data.
+// checkPackageNames reports Path, which the directory replaces, and each name of route.go or
+// layout.go that is declared in another file of the package. The files are read by name, so a
+// Load in layout.go or a Cache in a helper file would otherwise be silently left out.
 func (a *analyzer) checkPackageNames(d *dirInfo) {
 	pkg := a.byDir[d.id]
 	if pkg == nil {
@@ -448,19 +456,25 @@ func (a *analyzer) checkPackageNames(d *dirInfo) {
 	if obj := scope.Lookup("Path"); obj != nil {
 		a.errorAt(obj.Pos(), "Path is not declared: the directory under app/ is the URL, write {name} as the directory name+ and {name...} as name++")
 	}
-	if d.routeGo || d.routeTSX {
-		return
-	}
-	for _, name := range routeNames {
-		obj := scope.Lookup(name)
-		switch {
-		case obj == nil:
-		case name == "Load":
-			a.errorAt(obj.Pos(), "Load loads the data of a page in route.go: a Layout loads its data with func Layout(c *tifa.Ctx) (T, error)")
-		case name == "SSR":
-			a.errorAt(obj.Pos(), "SSR switches server rendering of a page in route.go: a Layout declares LayoutSSR")
-		default:
-			a.errorAt(obj.Pos(), "a layout does not declare %s, it belongs in route.go", name)
+	for _, names := range []struct {
+		file string
+		list []string
+	}{{"route.go", routeNames}, {"layout.go", layoutNames}} {
+		for _, name := range names.list {
+			obj := scope.Lookup(name)
+			if obj == nil {
+				continue
+			}
+			file := filepath.Base(a.fset.Position(obj.Pos()).Filename)
+			switch {
+			case file == names.file:
+			case name == "Load" && file == "layout.go":
+				a.errorAt(obj.Pos(), "Load loads the data of a page in route.go: a Layout loads its data with func Layout(c *tifa.Ctx) (T, error)")
+			case name == "SSR" && file == "layout.go":
+				a.errorAt(obj.Pos(), "SSR switches server rendering of a page in route.go: a Layout declares LayoutSSR")
+			default:
+				a.errorAt(obj.Pos(), "%s is read from %s only, move it there from %s", name, names.file, file)
+			}
 		}
 	}
 }
@@ -599,7 +613,7 @@ func (a *analyzer) readLoad(pkg *packages.Package, owner, name string) (*Load, [
 	decl := a.funcDecl(pkg, fn)
 	a.reportTS(fieldTypePos(decl.Type.Results, 0), name+" result", checkTS(result))
 
-	uses := a.walkLoad(pkg, owner, load, decl, sig)
+	uses := a.walkLoad(pkg, owner, name == "Layout", load, decl)
 	for _, u := range uses {
 		if u.method == "Param" {
 			load.Params = append(load.Params, u.name)
@@ -789,10 +803,43 @@ func (a *analyzer) linkLayouts(routes []*route, layouts []*layout) {
 	}
 }
 
+// checkParamSiblings reports a directory that holds more than one parameter directory (name+ or
+// name++) with routes or Layouts in them, such as items/id+ next to items/key+: both would read
+// the same URL segment. ids lists the directories with convention files, sorted. Each extra
+// parameter directory is reported once, at the first convention file in or below it. A
+// directory whose path is not valid is left to dirPath.
+func (a *analyzer) checkParamSiblings(ids []string) {
+	first := map[string]string{} // parent directory to its first parameter directory
+	reported := map[string]bool{}
+	for _, id := range ids {
+		segs, err := dirSegments(id)
+		if err != nil {
+			continue
+		}
+		parts := strings.Split(id, "/") // "app" and one part per segment
+		for i, seg := range segs {
+			if seg.param == "" {
+				continue
+			}
+			parent, dir := strings.Join(parts[:i+1], "/"), strings.Join(parts[:i+2], "/")
+			other, ok := first[parent]
+			if !ok || other == dir {
+				first[parent] = dir
+				continue
+			}
+			if !reported[dir] {
+				reported[dir] = true
+				a.errorInFile(id, a.dirs[id].firstFile(), "%s and %s are both parameter directories in %s: a directory holds at most one, since both would read the same URL segment", other, dir, parent)
+			}
+		}
+	}
+}
+
 // checkPaths reports c.Param names that are not in the route's own path, and every pair of
-// paths that ServeMux would refuse to register together: a duplicate when they match the same
-// URLs, such as the sibling directories id+ and key+, and a conflict when they share some URLs
-// and neither is more specific. Each pair is reported once, at the later route.
+// paths that ServeMux would refuse to register together: a conflict when they share some URLs
+// and neither is more specific. Two paths that match the same URLs differ only in parameter
+// names, so they go through two parameter directories in one directory, which
+// checkParamSiblings reports. Each pair is reported once, at the later route.
 func (a *analyzer) checkPaths(routes []*route) {
 	var checked []*route
 	for _, r := range routes {
@@ -805,15 +852,68 @@ func (a *analyzer) checkPaths(routes []*route) {
 			}
 		}
 		for _, other := range checked {
-			switch comparePaths(muxSegments(other.segs), muxSegments(r.segs)) {
-			case equivalent:
-				a.errorInFile(r.Dir, r.file, "the path %q duplicates %q of %s: both match the same URLs", r.Path, other.Path, other.Dir)
-			case overlaps:
+			if comparePaths(muxSegments(other.segs), muxSegments(r.segs)) == overlaps {
 				a.errorInFile(r.Dir, r.file, "the path %q conflicts with %q of %s: both match some URLs and neither is more specific", r.Path, other.Path, other.Dir)
 			}
 		}
 		checked = append(checked, r)
 	}
+	// The server also registers the prefix of a route for the rest of the path, /files for
+	// /files/{path...}, unless a route has that path.
+	for _, r := range checked {
+		prefix, ok := restPrefix(r.segs)
+		if !ok || slices.ContainsFunc(checked, func(o *route) bool { return o.Path == formatPath(prefix) }) {
+			continue
+		}
+		for _, other := range checked {
+			if other != r && comparePaths(muxSegments(prefix), muxSegments(other.segs)) == overlaps {
+				a.errorInFile(r.Dir, r.file, "the path %q also answers %q, which conflicts with %q of %s: both match some URLs and neither is more specific", r.Path, formatPath(prefix), other.Path, other.Dir)
+			}
+		}
+	}
+}
+
+// checkLayoutURLs reports a page that matches the URL of a Layout with no page there. The
+// browser router matches a Layout with a path at its own URL and shows the root's NotFound
+// there, so a page that Go would serve at that URL never shows in the browser. A page in the
+// Layout's directory, or for the rest of the path right below it, owns the URL instead.
+func (a *analyzer) checkLayoutURLs(routes []*route, layouts []*layout) {
+	for _, l := range layouts {
+		if !l.valid || len(l.segs) == 0 {
+			continue
+		}
+		owned := slices.ContainsFunc(routes, func(r *route) bool {
+			prefix, ok := restPrefix(r.segs)
+			return r.Page && (r.Dir == l.Dir || ok && path.Dir(r.Dir) == l.Dir && len(prefix) == len(l.segs))
+		})
+		if owned {
+			continue
+		}
+		for _, r := range routes {
+			if !r.Page || !r.valid {
+				continue
+			}
+			paths := [][]segment{r.segs}
+			if prefix, ok := restPrefix(r.segs); ok {
+				paths = append(paths, prefix)
+			}
+			if slices.ContainsFunc(paths, func(segs []segment) bool {
+				rel := comparePaths(muxSegments(l.segs), muxSegments(segs))
+				return rel == equivalent || rel == moreSpecific || rel == overlaps
+			}) {
+				a.errorInFile(l.Dir, l.file, "the URL %q of the layout of %s has no page, but the page %s matches it: the browser would show the 404 page there while the server renders %s, so add a route.tsx to %s or rename one of the directories", l.Path, l.Dir, r.Dir, r.Dir, l.Dir)
+			}
+		}
+	}
+}
+
+// restPrefix returns the segments before the rest of the path {name...} that ends segs, which
+// the route also answers with an empty rest. A Path of only the rest has no such prefix.
+func restPrefix(segs []segment) ([]segment, bool) {
+	if len(segs) < 2 || !segs[len(segs)-1].wildcard {
+		return nil, false
+	}
+	return segs[:len(segs)-1], true
 }
 
 // checkUses finds every call of tifa.Use in the loaded packages. Its function argument must be
@@ -895,9 +995,10 @@ func packageFunc(info *types.Info, expr ast.Expr) *types.Func {
 	return fn
 }
 
-// propagateQuery fills Uses and AllQuery of every Load. tifa.Use only reaches ancestor Layouts,
-// so the graph has no cycles once checkUses passes. The visiting set still guards against them
-// when checkUses has reported a violation.
+// propagateQuery fills Uses and AllQuery of every Load. tifa.Use only reaches the Layouts of the
+// same and ancestor directories, and a Layout function never uses itself, so the graph has no
+// cycles once checkUses passes. The visiting set still guards against them when checkUses has
+// reported a violation.
 func (a *analyzer) propagateQuery(routes []*route, layouts []*layout) {
 	byPkg := map[string]*layout{}
 	for _, l := range layouts {

@@ -201,6 +201,30 @@ test("an unmatched URL shows the root Layout's NotFound without asking for data"
   contains(html.slice(0, html.indexOf('</head>')), '<meta name="theme-color" content="#123">', '<link rel="icon" href="/icon.svg">')
 })
 
+test("the URL of a Layout without a page of its own is unmatched", async () => {
+  for (const url of ['/a', '/teams/x']) {
+    const { calls } = await client(url)
+    assert(calls.length === 0, `${url} requested ${JSON.stringify(calls)}`)
+    const html = await render(url, {})
+    contains(html, 'APP_404')
+    lacks(html, 'APP_NAV')
+  }
+})
+
+test('the rest of the path may be empty, written without the trailing slash', async () => {
+  const { router, calls } = await client('/docs')
+  assert(calls.some(([u, id]) => u === '/docs' && id === 'app/docs/path++/route'), `calls ${JSON.stringify(calls)}`)
+  assert((router.state.matches.at(-1)?.params as { _splat?: string })._splat === '', 'empty rest')
+  contains(await render('/docs', { ...appData, 'app/docs/path++/route': ok('') }), 'DOC [<!-- -->]')
+  // Go also answers /docs/, which the router writes as /docs.
+  const slash = await renderResult('/docs/', { ...appData, 'app/docs/path++/route': ok('') })
+  assert(slash.redirect?.location === '/docs', `/docs/ gives ${JSON.stringify(slash)}`)
+  // Below a Layout without a page, the rest of the path takes the Layout's URL.
+  contains(await render('/media', appData), 'MEDIA_LAYOUT', 'MEDIA_FILE')
+  // Also when the rest of the path has a Layout of its own.
+  for (const url of ['/library', '/library/a/b']) contains(await render(url, appData), 'LIBRARY_LAYOUT', 'SHELF_LAYOUT', 'BOOK')
+})
+
 // hydrateFrom runs the scripts of a server-rendered page the way a browser does and hydrates a
 // browser router from them.
 async function hydrateFrom(html: string, url: string) {

@@ -176,7 +176,10 @@ func TestViolations(t *testing.T) {
 		app  string
 		want [][]string
 	}{
-		{"duppath", [][]string{{"app/items/key+/route.go:1:", `"/items/{key}"`, `"/items/{id}"`, "app/items/id+"}}},
+		{"duppath", [][]string{
+			{"app/items/key+/route.go:1:", "app/items/id+ and app/items/key+", "parameter directories"},
+			{"app/shops/shop+/a/route.tsx:1:", "app/shops/rest++ and app/shops/shop+", "parameter directories"},
+		}},
 		{"ongetpage", [][]string{{"app/page/route.go:7:", "GET", "route.tsx"}}},
 		{"apiload", [][]string{{"app/api/route.go:7:", "Load", "route.tsx"}}},
 		{"badhandler", [][]string{
@@ -191,6 +194,11 @@ func TestViolations(t *testing.T) {
 			{"app/more/route.go:19:", "PUT result", "chan"},
 			{"app/more/route.go:21:", "PATCH input", "Deep.Inner.N", "form tag"},
 			{"app/more/route.go:23:", "DELETE must have one of the signatures"},
+			{"app/text/route.go:57:", "POST input", "Input.ID", "UnmarshalText"},
+			{"app/text/route.go:57:", "POST input", "Input.Codes[]", "UnmarshalText", "not string"},
+			{"app/text/route.go:57:", "POST input", "Input.Raw", "UnmarshalJSON"},
+			{"app/text/route.go:57:", "POST input", "Input.ByID[key]", "UnmarshalText"},
+			{"app/text/route.go:97:", "GET input", "text.Word", "MarshalText", "query string"},
 		}},
 		{"dirnames", [][]string{
 			{"app/a%b/route.tsx:1:", `"%"`},
@@ -200,7 +208,10 @@ func TestViolations(t *testing.T) {
 			{"app/x~1/route.tsx:1:", "x~1"},
 		}},
 		{"layoutparam", [][]string{{"app/projects/layout.go:6:", `"projectId"`, `"/projects"`}}},
-		{"usenonancestor", [][]string{{"app/shop/route.go:11:", "admin.Layout", "does not wrap"}}},
+		{"usenonancestor", [][]string{
+			{"app/shop/route.go:11:", "admin.Layout", "does not wrap"},
+			{"app/shop/layout.go:10:", "tifa.Use(c, Layout)", "its own result"},
+		}},
 		{"useclosure", [][]string{
 			{"app/page/route.go:12:", "package-level function", "closure"},
 			{"app/page/route.go:13:", "package-level function", "method"},
@@ -242,8 +253,10 @@ func TestViolations(t *testing.T) {
 		}},
 		{"badpath", [][]string{
 			{"app/a/b+/route.go:1:", `"/a/{b}"`, `"/{a}/b"`, "conflicts"},
-			{"app/y+/b/c/route.go:1:", `"/{y}/b/c"`, `"/a/{x}/c"`, "conflicts"},
-			{"app/y+/b/c/route.go:1:", `"/{y}/b/c"`, `"/d/b/{z}"`, "conflicts"},
+			{"app/a/b+/c/route.go:1:", `"/a/{b}/c"`, `"/{a}/b/c"`, "conflicts"},
+			{"app/d/b/z+/route.go:1:", `"/d/b/{z}"`, `"/{a}/b/c"`, "conflicts"},
+			{"app/d/q+/rest++/route.go:1:", `"/d/{q}/{rest...}"`, `"/d/{q}"`, `"/{a}/b"`, "conflicts"},
+			{"app/d/q+/rest++/route.go:1:", `"/d/{q}/{rest...}" conflicts`, `"/{a}/b/c"`},
 			{"app/declared/route.go:3:", "Path is not declared"},
 		}},
 		{"paramname", [][]string{
@@ -307,11 +320,23 @@ func TestViolations(t *testing.T) {
 		}},
 		{"typeerror", [][]string{
 			{"app/page/route.go:5:17:", "cannot use"},
-			{"app/dup/b+/route.go:1:", "duplicates"},
+			{"app/dup/b+/route.go:1:", "app/dup/a+ and app/dup/b+", "parameter directories"},
 			{"app/getpage/route.go:7:", "GET"},
 		}},
 		{"badoutside", [][]string{{"bad/bad.go:3:15:", "cannot use"}}},
 		{"bridge", [][]string{{"app/bad/route.go:5:17:", "cannot use"}}},
+		{"layoutnopage", [][]string{
+			{"app/settings/layout.tsx:1:", `"/settings"`, "app/user+", "no page"},
+		}},
+		{"rolefiles", [][]string{
+			{"app/layout.go:7:", "Load", "func Layout"},
+			{"app/layout.go:9:", "POST", "route.go"},
+			{"app/layout.go:11:", "SSR", "LayoutSSR"},
+			{"app/layout.go:13:", "Cache", "route.go"},
+			{"app/mixed/route.go:7:", "Layout", "layout.go"},
+			{"app/mixed/route.go:9:", "LayoutSSR", "layout.go"},
+			{"app/mixed/extra.go:3:", "Cache", "route.go"},
+		}},
 		{"structure", [][]string{
 			{"app/empty/layout.go:5:", "Path is not declared"},
 			{"app/empty/layout.go:7:", "Load", "func Layout"},

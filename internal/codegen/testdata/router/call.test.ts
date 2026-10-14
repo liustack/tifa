@@ -58,6 +58,10 @@ const gateway = await caught(POST({ params: { note: '1' }, input: { text: '', ne
 assert(gateway instanceof TifaError && gateway.status === 502 && gateway.message === 'Bad Gateway', `502: ${gateway}`)
 assert(Object.keys(gateway.fields).length === 0, '502 fields')
 
+answer = () => Response.json(null, { status: 502 })
+const nullBody = await caught(POST({ params: { note: '1' }, input: { text: '', next: null } }))
+assert(nullBody instanceof TifaError && nullBody.status === 502, `JSON null error body: ${nullBody}`)
+
 // DELETE without a result resolves to undefined, and the empty query values stay out.
 answer = () => new Response(null, { status: 204 })
 const removed: void = await DELETE({ params: { note: '1' }, input: { tag: '', tags: null } })
@@ -72,5 +76,24 @@ assert(raw.status === 410 && invalidated() === 2, `PUT raw ${raw.status} ${inval
 answer = () => new Response('ok')
 await file({ params: { _splat: 'a b/c.txt' } })
 assert(last().url === '/api/files/a%20b/c.txt', `wildcard url ${last().url}`)
+
+// A parameter that would send the request to another path is refused before any request.
+answer = () => Response.json([])
+const sent = requests.length
+for (const note of ['', '.', '..']) {
+  const moved = await caught(GET({ params: { note }, input: { tag: '', tags: null } }))
+  assert(moved instanceof Error && !(moved instanceof TifaError) && /path/.test(moved.message), `note ${JSON.stringify(note)}: ${moved}`)
+}
+for (const _splat of ['..', 'a/../b', './a', 'a/.', 'a//b', '/a']) {
+  const moved = await caught(file({ params: { _splat } }))
+  assert(moved instanceof Error && /path/.test(moved.message), `_splat ${JSON.stringify(_splat)}: ${moved}`)
+}
+assert(requests.length === sent, 'a refused parameter made a request')
+await GET({ params: { note: '...' }, input: { tag: '', tags: null } })
+assert(last().url === '/api/notes/...?tag=', `three dots ${last().url}`)
+for (const [_splat, url] of [['', '/api/files/'], ['a/', '/api/files/a/'], ['.a/b.', '/api/files/.a/b.']]) {
+  await file({ params: { _splat } })
+  assert(last().url === url, `_splat ${JSON.stringify(_splat)}: ${last().url}`)
+}
 
 console.log('call: ok')

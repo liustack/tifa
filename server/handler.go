@@ -64,8 +64,29 @@ func decode(c *tifa.Ctx, in any, bind func(*tifa.Ctx, any) error) error {
 		return nil
 	}
 	err := v.Validate()
-	if err == nil || errors.As(err, new(tifa.Error)) || errors.As(err, new(*tifa.Error)) || errors.As(err, new(tifa.Fields)) {
+	if err == nil || errors.As(err, new(tifa.Error)) || errors.As(err, new(*tifa.Error)) {
+		return err
+	}
+	if _, ok := fieldsOf(err); ok {
 		return err
 	}
 	return tifa.Error{Status: http.StatusBadRequest, Message: err.Error()}
+}
+
+// fieldsOf finds the tifa.Fields in err, held as a value or a pointer, wrapped or not.
+func fieldsOf(err error) (tifa.Fields, bool) {
+	var fields tifa.Fields
+	if errors.As(err, &fields) {
+		return fields, true
+	}
+	var ptr *tifa.Fields
+	if errors.As(err, &ptr) && ptr != nil {
+		return *ptr, true
+	}
+	return nil, false
+}
+
+func isFields(err error) bool {
+	_, ok := fieldsOf(err)
+	return ok
 }

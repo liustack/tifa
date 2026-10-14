@@ -7,25 +7,25 @@ export type GETInput = { deep: boolean }
 export type GETOutput = { ok: boolean }
 
 // GET sends a request to the Go GET handler of app/api/health.
-export function GET(options: CallOptions & { input: GETInput }): Promise<GETOutput> {
+export async function GET(options: CallOptions & { input: GETInput }): Promise<GETOutput> {
   return call("GET", `/api/health`, options, "json") as Promise<GETOutput>
 }
 
 // POST sends a request to the Go POST handler of app/api/health.
-export function POST(options: CallOptions = {}): Promise<Response> {
+export async function POST(options: CallOptions = {}): Promise<Response> {
   return call("POST", `/api/health`, options, "raw") as Promise<Response>
 }
 
 export type PUTOutput = { ok: boolean }
 
 // PUT sends a request to the Go PUT handler of app/api/health.
-export function PUT(options: CallOptions = {}): Promise<PUTOutput> {
+export async function PUT(options: CallOptions = {}): Promise<PUTOutput> {
   return call("PUT", `/api/health`, options, "json") as Promise<PUTOutput>
 }
 
 export type DELETEInput = { deep: boolean }
 
 // DELETE sends a request to the Go DELETE handler of app/api/health.
-export function DELETE(options: CallOptions & { input: DELETEInput }): Promise<void> {
+export async function DELETE(options: CallOptions & { input: DELETEInput }): Promise<void> {
   return call("DELETE", `/api/health`, options, "none") as Promise<void>
 }

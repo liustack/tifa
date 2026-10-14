@@ -52,6 +52,13 @@ func checkTS(t types.Type) []tsProblem {
 	return problems
 }
 
+// checkInputTS is checkTS for the input of a method handler, which is decoded from that JSON.
+func checkInputTS(t types.Type) []tsProblem {
+	c := tsChecker{active: map[tsKey]bool{}, decode: true}
+	c.encode(t, rootLabel(t), false, false)
+	return c.problems
+}
+
 // tsType returns the TypeScript type of the JSON for a Load result of type t, written inline.
 // A named type met again while it is being written is referred to by its Go name.
 func tsType(t types.Type) (string, []tsProblem) {
@@ -78,6 +85,10 @@ type tsChecker struct {
 	problems []tsProblem
 	field    *types.Var // field being written, for the position of a problem
 	decls    *tsDecls   // nil unless recursive types are declared, see TSShape
+	// decode also requires each type written to read back from that JSON, for the input of a
+	// method handler. Only what the JSON holds is checked: a field dropped or shadowed, the
+	// inside of a type that is a string, and the element of an empty array are not.
+	decode bool
 }
 
 func (c *tsChecker) fail(path, msg string) string {
@@ -161,6 +172,11 @@ func (c *tsChecker) encode(t types.Type, path string, quoted, viaPtr bool) (ts s
 				return c.fail(path, typeName+" has a method or field named "+name+", which an encoding/json implementation may call with output the analyzer cannot know: rename it, or return a type without it")
 			}
 		}
+		if c.decode {
+			if problem := decodeProblem(t, false); problem != "" {
+				return c.fail(path, problem)
+			}
+		}
 		if has, problem := textMethod(t, typeName, viaPtr); problem != "" {
 			return c.fail(path, problem)
 		} else if has {
@@ -219,6 +235,11 @@ func (c *tsChecker) encode(t types.Type, path string, quoted, viaPtr bool) (ts s
 	case *types.Map:
 		if problem := mapKeyProblem(u.Key()); problem != "" {
 			return c.fail(path, typeName+" has no JSON form: "+problem)
+		}
+		if c.decode {
+			if problem := decodeProblem(u.Key(), true); problem != "" {
+				return c.fail(path+"[key]", problem)
+			}
 		}
 		return "Record<string, " + c.encode(u.Elem(), path+"[key]", false, false) + "> | null"
 	case *types.Struct:

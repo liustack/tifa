@@ -4,6 +4,7 @@ import {
   createSerializationAdapter,
   notFound,
   redirect,
+  rootRouteId,
   type AnyRoute,
   type ErrorComponentProps,
   type RouterHistory,
@@ -91,6 +92,13 @@ export async function load<T>(
   if (result.status === 404) throw notFound()
   if (result.location !== undefined) throw redirect({ href: result.location, statusCode: result.status })
   throw new RouteError(result.status, result.error ?? `route ${id} failed with status ${result.status}`)
+}
+
+// unmatched is the beforeLoad of the index route that tifa build adds below a Layout without a
+// page in its own directory. Go matches no route at that URL, so the router shows the root's
+// NotFound before any loader runs, as it does for every URL no route matches.
+export function unmatched(): never {
+  throw notFound({ routeId: rootRouteId })
 }
 
 // parseSearch reads the query the way c.Query does: every value is a string, and a key given

@@ -43,6 +43,9 @@ type tsRoute struct {
 	path     string // the path option, relative to the parent route
 	routeID  string // the TanStack route ID
 	opts     []string
+	// unmatched marks the index route added below a Layout without a page in its directory,
+	// whose URL Go does not match.
+	unmatched bool
 	parent   *tsRoute
 	children []*tsRoute
 }
@@ -263,6 +266,18 @@ func tanstackRoutes(nodes []*tsNode) ([]*tsRoute, error) {
 			n.route = add(parent, layoutRouteID(n.dir), "")
 		default:
 			n.route = add(parent, "", path)
+		}
+	}
+	// A path route matches its own URL even when no child does, and would load and show the
+	// Layout there. Go matches no route at that URL, so an index route below such a Layout
+	// shows the root's NotFound before anything loads, as for any URL no route matches. A page
+	// in the Layout's directory takes the URL, and so does a page for the rest of the path right
+	// below it, with an empty rest, also through a Layout of the rest of the path, which always
+	// has that page.
+	ownsURL := func(c *tsNode) bool { return paths[c] == "$" || c.file == "route" && paths[c] == "/" }
+	for _, n := range nodes {
+		if n.file == "layout" && n.route.path != "" && !slices.ContainsFunc(n.children, ownsURL) {
+			add(n.route, "", "/").unmatched = true
 		}
 	}
 	seen := map[string]bool{}
@@ -615,6 +630,10 @@ func routesModule(nodes []*tsNode) ([]byte, error) {
 				opts = append(opts, "path: "+jsString(r.path))
 			}
 		}
+		if r.unmatched {
+			runtime["unmatched"] = true
+			opts = append(opts, "beforeLoad: unmatched")
+		}
 		for _, o := range append(opts, r.opts...) {
 			body.WriteString("  " + o + ",\n")
 		}
@@ -644,7 +663,7 @@ declare module "@tanstack/react-router" {
 	}
 	fmt.Fprintf(&out, `import { %s } from "@tanstack/react-router"`+"\n", router)
 	var names []string
-	for _, name := range []string{"createAppRouter", "DefaultError", "DefaultNotFound", "load", "pick"} {
+	for _, name := range []string{"createAppRouter", "DefaultError", "DefaultNotFound", "load", "pick", "unmatched"} {
 		if runtime[name] {
 			names = append(names, name)
 		}
@@ -776,7 +795,8 @@ func routeModule(n *tsNode) ([]byte, error) {
 		if len(options) == 1 {
 			param = "options: CallOptions = {}"
 		}
-		fmt.Fprintf(&b, "export function %s(%s): Promise<%s> {\n", h.Method, param, result)
+		// async, so that a refused path parameter rejects the promise like any other failure.
+		fmt.Fprintf(&b, "export async function %s(%s): Promise<%s> {\n", h.Method, param, result)
 		fmt.Fprintf(&b, "  return call(%s, %s, options, %s) as Promise<%s>\n}\n", jsString(h.Method), urlTemplate(n.segs), jsString(answer), result)
 	}
 	return []byte(b.String()), nil

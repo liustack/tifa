@@ -46,13 +46,15 @@ myapp/
 | --- | --- |
 | `orders` | 字面量 `orders` |
 | `order+` | 参数 `{order}`，用 `c.Param("order")` 读 |
-| `path++` | 剩余路径 `{path...}`，只能是最后一层。Go 里用 `c.Param("path")` 读，TypeScript 的 `Params` 里键是 `_splat` |
+| `path++` | 剩余路径 `{path...}`，只能是最后一层。可以为空：`files/path++` 也接 `/files`。Go 里用 `c.Param("path")` 读，TypeScript 的 `Params` 里键是 `_splat` |
 
 - 字面量目录名只能用 ASCII 字母、数字和 `- . _ ~`。参数名以字母或 `_` 开头，后面跟字母、数字或 `_`，同一个 URL 里不能重复。
 - Go 的包名取自 `package` 那一行，不取目录名。包名按参数起：`project+` 里写 `package project`，别的包 import 它时就叫 `project`。
 - go 命令会跳过以 `.` 或 `_` 开头的目录和名为 `testdata` 的目录。这些目录里有 `route.go`、`route.tsx`、`layout.go` 或 `layout.tsx` 时构建报错，放别的文件没问题，比如 `_components` 目录。
 - 目录名还得是合法的 Go import 路径，所以 `con`、`x~1` 这类名字（Windows 保留名和短文件名）构建报错。
-- 两个路由（页面或 API 路由）的 URL 匹配同样的请求时构建报错，比如 `items/id+` 和 `items/key+` 并列。两个 URL 有交集、又分不出谁更具体时也报错，规则同 Go 的 `http.ServeMux`。字面量比参数具体，所以 `items/new` 和 `items/id+` 并列没问题。
+- 一个目录下最多一个参数目录。`items/id+` 和 `items/key+` 或 `items/path++` 并列会构建报错，因为它们读的是同一段 URL。
+- 两个路由（页面或 API 路由）的 URL 有交集、又分不出谁更具体时构建报错，规则同 Go 的 `http.ServeMux`，比如 `a/b+` 和 `a+/b`。字面量比参数具体，所以 `items/new` 和 `items/id+` 并列没问题。
+- 只有 Layout、没有页面的目录，它的 URL 显示 404 页面，除非它下面紧挨着的 `name++` 目录里有页面，这时由那个页面以空的剩余路径接这个 URL。别的页面不能匹配这个 URL，比 Layout 路径更具体的除外：有 `settings/layout.tsx`、没有 `settings/route.tsx`，又有 `user+/route.tsx` 时构建报错，因为 `/settings` 也匹配 `/{user}`，而 `items/new` 和 `items/id+` 里的 Layout 并列没问题。
 - 声明 `const Path` 会构建报错，目录就是 URL。
 
 ## route.go
@@ -108,9 +110,9 @@ func POST(c *tifa.Ctx) (Shipment, error)           // 答 200，结果写成 JSO
 func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 ```
 
-- 入参是结构体，不能是指向结构体的指针。POST、PUT、PATCH 从请求体解码：JSON，或 URL 编码、multipart 表单。表单只填字符串、数字、布尔或它们的切片类型的字段，表单里出现其他字段的值时答 400。GET、DELETE 从查询字符串解码，所以字段只能是字符串、数字、布尔或它们的切片，不能有嵌入字段，也不能是带 `MarshalText` 或 `UnmarshalText` 的类型。
+- 入参是结构体，不能是指向结构体的指针。POST、PUT、PATCH 从请求体解码：JSON，或 URL 编码、multipart 表单。表单只填字符串、数字、布尔或它们的切片类型的字段，表单里出现其他字段的值时答 400。GET、DELETE 从查询字符串解码，所以字段只能是字符串、数字、布尔或它们的切片，不能有嵌入字段，也不能是带 `MarshalText` 或 `UnmarshalText` 的类型，入参类型本身也不行。
 - 字段按 `json` 标签取名，表单和查询字符串也一样。写 `form` 标签会构建报错。路径参数、请求头、cookie 照旧从 `c` 读。
-- 入参和结果遵守下文的 JSON 规则，和 `Load` 的返回值一样。
+- 入参和结果遵守下文的 JSON 规则，和 `Load` 的返回值一样。入参还要能从它的 TypeScript 类型描述的 JSON 读回来：因为 `MarshalText` 成为 string 的类型也要有 `UnmarshalText([]byte) error`，有 `UnmarshalText` 的类型在 TypeScript 里必须是 string（map 键除外，JSON 的键总是字符串），`UnmarshalJSON` 不接受（`time.Time` 除外）。
 - 入参类型有 `Validate` 方法（必须是 `func() error`）时，它在解码之后、处理函数之前执行。返回 `nil` 就继续。返回 `tifa.Error` 或 `tifa.Fields` 时原样回答，想标出具体字段就返回 `tifa.Fields`。其他错误一律答 400，消息是 `err.Error()`，会原样给用户看到。
 - 请求体或查询字符串解码失败时答 400（请求体超过上限答 413，其他内容类型或没有内容类型答 415），处理函数不执行。
 - 自己写响应的方法函数用 `c.Bind(&in)` 解码请求体，用 `c.BindQuery(&in)` 解码查询字符串。它们给字段取名时先看 `form` 标签，再看 `json` 标签，最后用 Go 字段名。
@@ -180,7 +182,7 @@ async function ship() {
 }
 ```
 
-- 函数接收一个对象。`params` 是路径参数，目录没有参数时不写。`name++` 目录的键是 `_splat`。`input` 是处理函数的入参，没有入参时不写。`signal` 用来取消请求。
+- 函数接收一个对象。`params` 是路径参数，目录没有参数时不写。`name++` 目录的键是 `_splat`。会把请求带到别的路径的值在发请求前就被拒绝，promise 失败：`name+` 参数的空值、`.`、`..`，以及 `_splat` 里的 `.`、`..` 段和末尾以外的空段。`_splat` 为空没问题。`input` 是处理函数的入参，没有入参时不写。`signal` 用来取消请求。
 - GET、DELETE 把入参放进查询字符串，其他方法发 JSON 请求体。返回值的类型来自 Go 的返回值。`func(c, in) error` 得到 `void`。`func(c) error` 自己写响应，它的调用函数原样交回 `Response`，错误状态码也一样。
 - POST、PUT、PATCH、DELETE 成功后，先重新取当前页面和它的 Layout 的数据，再兑现 promise。传 `invalidate: false` 可以不刷新。失败和 GET 都不刷新。
 - 错误回答抛出 `TifaError`，带 `status`、`message` 和 `fields`（`tifa.Fields` 的消息，其他情况为空）。网络错误照 `fetch` 的样子抛出。
@@ -201,10 +203,10 @@ func Layout(c *tifa.Ctx) (shop.Project, error) {
 const LayoutSSR = false // 可选，默认 true
 ```
 
-- 同一个目录的 `layout.go` 和 `route.go` 是同一个 Go 包，`Layout`、`LayoutSSR` 和页面的 `Load`、`SSR`、`Cache`、方法函数写在哪个文件都行。只有 Layout 文件、没有 `route.go` 和 `route.tsx` 的目录里，写 `Load`、`SSR`、`Cache` 或方法函数会构建报错。
+- 同一个目录的 `layout.go` 和 `route.go` 是同一个 Go 包，但每个名字有固定的文件：`Layout`、`LayoutSSR` 写在 `layout.go`，`Load`、`SSR`、`Cache` 和方法函数写在 `route.go`。写在包里其他文件会构建报错。辅助函数和类型写在哪个文件都行。
 - Layout 用 `c.Param` 只能读自己目录路径里的参数。`app/projects/project+/layout.go` 能读 `project`，不能读 `order`。页面的 `Load` 同样只能读自己路径里的参数。
 - 同一个 Layout 下切换页面时，Layout 组件不重新挂载，它的状态保留。`Layout` 函数读的参数变了（比如换了一个项目），Layout 重新挂载，状态重置。它不读的参数变了，状态保留，页面同理。
-- 页面和 Layout 都可以用 `tifa.Use(c, project.Layout)` 拿到套着自己的 Layout（同目录或祖先目录的）本次请求的结果，同一个 `Layout` 每个请求只跑一次。引用别的 Layout 构建报错，传入的不是包级 `Layout` 函数（比如闭包）也报错。
+- 页面和 Layout 都可以用 `tifa.Use(c, project.Layout)` 拿到套着自己的 Layout（同目录或祖先目录的）本次请求的结果，同一个 `Layout` 每个请求只跑一次。引用别的 Layout 构建报错，传入的不是包级 `Layout` 函数（比如闭包）也报错。`Layout` 函数不能引用自己所在目录的 Layout，直接引用或经辅助函数引用都不行。
 - 浏览器里跳转时，导航数据请求只执行所列路由的 `Load` 和 `Layout` 函数。祖先 Layout 的数据还在缓存里时，它不在列表中，它的 `Layout` 这次不会再跑。所以权限检查不要只写在 Layout 里：放进 `OnRequest`，或者让页面的 `Load` 用 `tifa.Use` 依赖做检查的那个 Layout，这样每次请求都会执行它。
 - 文档外壳（`<html>`、`<head>`、资源与注入数据的脚本）由框架写成字符串，React 只渲染 `<body>` 里的应用根节点，所以任何一层出错或 404 时页面仍是完整文档。根 Layout（`app/layout.tsx`）可以导出两个常量定制外壳：`htmlAttributes` 是 `<html>` 的属性（不导出时为 `{ lang: 'en' }`），`documentHead` 是每个页面都带的 head 标签（没有路由匹配、根 `Layout` 失败时也带），格式同 `head` 的返回值。在这里放网站的默认 `title`，没有路由匹配的 404 页面也有标题，页面自己的 `head` 返回 `title` 时会覆盖它。导出 `Document` 组件会构建报错。
 
@@ -224,7 +226,7 @@ export const documentHead = {
 
 | 情况 | 显示 |
 | --- | --- |
-| URL 没有匹配任何页面 | 根 Layout 的 `NotFound`，不带根 Layout 的界面，不执行任何 `Load` 或 `Layout` |
+| URL 没有匹配任何页面，比如只有 Layout、没有页面的目录的 URL | 根 Layout 的 `NotFound`，不带根 Layout 的界面，不执行任何 `Load` 或 `Layout` |
 | 页面 `Load` 返回 `tifa.ErrNotFound` | 从这个页面往上第一个 `NotFound`，外层 Layout 照常显示 |
 | `Layout` 函数返回 `tifa.ErrNotFound` | 从上一层 Layout 开始往上找 |
 | 都没有导出 | 框架默认页面 |

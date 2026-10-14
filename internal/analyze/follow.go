@@ -20,6 +20,7 @@ const fixHint = `read the values with c.Param("name") and c.Query("name") in Loa
 type loadWalk struct {
 	a       *analyzer
 	owner   string // directory ID of the route or Layout that declares the Load
+	self    string // import path of the package of a Layout function, "" for a page's Load
 	load    *Load
 	uses    []paramUse
 	visited map[string]bool // followed functions by full name, against recursion
@@ -32,8 +33,13 @@ type useCall struct {
 	caller string
 }
 
-func (a *analyzer) walkLoad(pkg *packages.Package, owner string, load *Load, decl *ast.FuncDecl, sig *types.Signature) []paramUse {
+// walkLoad walks the function decl of pkg that loads the data of the route or Layout in the
+// directory owner. layout reports whether it is a Layout function.
+func (a *analyzer) walkLoad(pkg *packages.Package, owner string, layout bool, load *Load, decl *ast.FuncDecl) []paramUse {
 	w := &loadWalk{a: a, owner: owner, load: load, visited: map[string]bool{}}
+	if layout {
+		w.self = pkg.PkgPath
+	}
 	a.checkCtxFlow(pkg.TypesInfo, decl.Body)
 	w.body(pkg.TypesInfo, decl.Body, false)
 	return w.uses
@@ -62,6 +68,10 @@ func (w *loadWalk) call(info *types.Info, call *ast.CallExpr, helper bool) {
 		}
 		// checkUses reports arguments that are not the Layout function of a wrapping Layout.
 		if fn := packageFunc(info, call.Args[1]); fn != nil && fn.Name() == "Layout" {
+			if fn.Pkg().Path() == w.self {
+				a.errorAt(call.Args[1].Pos(), "tifa.Use(c, Layout) is reached from the Layout function of %s itself, which would wait for its own result", w.owner)
+				return
+			}
 			a.used[w.load] = append(a.used[w.load], fn.Pkg().Path())
 		}
 		if helper {

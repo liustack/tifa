@@ -77,7 +77,8 @@ async function refresh(method: string, options: CallOptions) {
 async function failure(response: Response): Promise<TifaError> {
   let body: { error?: unknown; fields?: unknown } = {}
   try {
-    body = await response.json()
+    const value: unknown = await response.json()
+    if (typeof value === 'object' && value !== null) body = value
   } catch {
     // A proxy or the network may answer with something other than the JSON of the server.
   }
@@ -98,6 +99,20 @@ function encodeQuery(input: Record<string, unknown>) {
 }
 
 // segment and rest write path parameters into a URL: one segment, or the rest of the path with
-// its slashes kept.
-export const segment = (value: string) => encodeURIComponent(value)
-export const rest = (value: string) => value.split('/').map(encodeURIComponent).join('/')
+// its slashes kept. A value that would make the request path name another route is refused: the
+// browser resolves . and .. segments, and the server redirects an empty segment, so the request
+// would reach a different handler.
+export function segment(value: string) {
+  if (value === '' || value === '.' || value === '..') throw movedPath(value)
+  return encodeURIComponent(value)
+}
+
+export function rest(value: string) {
+  const parts = value.split('/')
+  if (parts.some((part, i) => part === '.' || part === '..' || (part === '' && i < parts.length - 1))) throw movedPath(value)
+  return parts.map(encodeURIComponent).join('/')
+}
+
+function movedPath(value: string) {
+  return new Error(`the path parameter ${JSON.stringify(value)} would send the request to another path`)
+}

@@ -46,13 +46,15 @@ Every folder below `app/` is one segment of the URL. `app/` itself is `/`.
 | --- | --- |
 | `orders` | the literal `orders` |
 | `order+` | the parameter `{order}`, read with `c.Param("order")` |
-| `path++` | the rest of the path `{path...}`, only as the last folder. `c.Param("path")` reads it in Go, and its key in TypeScript `Params` is `_splat` |
+| `path++` | the rest of the path `{path...}`, only as the last folder. It may be empty: `files/path++` also answers `/files`. `c.Param("path")` reads it in Go, and its key in TypeScript `Params` is `_splat` |
 
 - A literal folder name holds only ASCII letters, digits and `- . _ ~`. A parameter name starts with a letter or `_`, followed by letters, digits or `_`, and appears once per URL.
 - The go command takes the package name from the `package` line, not from the folder. Name the package after the parameter: `project+` holds `package project`, and other packages import it as `project`.
 - The go command skips folders that start with `.` or `_`, and folders named `testdata`. A `route.go`, `route.tsx`, `layout.go` or `layout.tsx` inside one fails the build. Other files there, such as a `_components` folder, are fine.
 - A folder name must also be valid in a Go import path, so names such as `con` or `x~1` (Windows reserved and short names) fail the build.
-- Two routes (pages or API routes) whose URLs match the same requests fail the build, such as `items/id+` next to `items/key+`. So do two whose URLs overlap without one being more specific, as in Go's `http.ServeMux`. A literal is more specific than a parameter, so `items/new` next to `items/id+` is fine.
+- A folder holds at most one parameter folder. `items/id+` next to `items/key+` or `items/path++` fails the build, because both would read the same URL segment.
+- Two routes (pages or API routes) whose URLs overlap without one being more specific fail the build, as in Go's `http.ServeMux`, such as `a/b+` next to `a+/b`. A literal is more specific than a parameter, so `items/new` next to `items/id+` is fine.
+- The URL of a folder with a Layout but no page shows the 404 page, unless a `name++` folder right below it has a page, which answers that URL with an empty rest. No other page may match that URL unless it is more specific than the Layout's path: `settings/layout.tsx` without a `settings/route.tsx`, next to `user+/route.tsx`, fails the build, because `/settings` would also match `/{user}`, but `items/new` next to a Layout in `items/id+` is fine.
 - Declaring `const Path` fails the build. The folder is the URL.
 
 ## route.go
@@ -108,9 +110,9 @@ func POST(c *tifa.Ctx) (Shipment, error)           // answers 200 with the resul
 func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 ```
 
-- The input is a struct, not a pointer to one. POST, PUT and PATCH decode it from the request body: JSON, or a URL-encoded or multipart form. A form fills only fields that are strings, numbers, bools or slices of them, and a form value for any other field is answered with 400. GET and DELETE decode it from the query string, so its fields may only be strings, numbers, bools or slices of them, with no embedded fields and no types with `MarshalText` or `UnmarshalText`.
+- The input is a struct, not a pointer to one. POST, PUT and PATCH decode it from the request body: JSON, or a URL-encoded or multipart form. A form fills only fields that are strings, numbers, bools or slices of them, and a form value for any other field is answered with 400. GET and DELETE decode it from the query string, so its fields may only be strings, numbers, bools or slices of them, with no embedded fields and no types with `MarshalText` or `UnmarshalText`, also on the input type itself.
 - Fields are named by their `json` tags, in a form body and the query string too. A `form` tag fails the build. Path parameters, headers and cookies still come from `c`.
-- The input and the result follow the JSON rules below, the same as the result of `Load`.
+- The input and the result follow the JSON rules below, the same as the result of `Load`. The input must also read back from the JSON its TypeScript type describes: a type that is a string because of `MarshalText` needs `UnmarshalText([]byte) error` too, a type with `UnmarshalText` must be a string in TypeScript unless it is a map key (a key is always a JSON string), and `UnmarshalJSON` is not accepted (except on `time.Time`).
 - When the input type has a method `Validate` (it must be `func() error`), it runs after decoding and before the handler. `nil` goes on. A `tifa.Error` or `tifa.Fields` is answered as is, so return `tifa.Fields` to mark single fields. Any other error is answered with 400 and its `err.Error()` as the message, which the user sees.
 - A body or query string that does not decode is answered with 400 (413 for a body over the limit, 415 for another content type or none), and the handler does not run.
 - A handler that writes its own response decodes input with `c.Bind(&in)` for the body and `c.BindQuery(&in)` for the query string. These name a field by its `form` tag first, then its `json` tag, then its Go name.
@@ -180,7 +182,7 @@ async function ship() {
 }
 ```
 
-- The function takes one object. `params` holds the path parameters and is left out when the folder has none. A `name++` folder's key is `_splat`. `input` is the handler's input and is left out when it takes none. `signal` aborts the request.
+- The function takes one object. `params` holds the path parameters and is left out when the folder has none. A `name++` folder's key is `_splat`. A value that would send the request to another path is refused before any request and rejects the promise: an empty value, `.` or `..` for a `name+` parameter, and a `.` or `..` segment or an empty segment before the end for `_splat`. An empty `_splat` is fine. `input` is the handler's input and is left out when it takes none. `signal` aborts the request.
 - GET and DELETE send the input in the query string, the other methods as a JSON body. The result is typed from the Go result. `func(c, in) error` gives `void`. `func(c) error` writes its own response, so its function gives back the `Response` as it is, also for an error status.
 - After a POST, PUT, PATCH or DELETE succeeds, the data of the current page and its Layouts is loaded again before the promise resolves. Pass `invalidate: false` to keep it. A failure and a GET never reload.
 - An error answer throws `TifaError` with `status`, `message` and `fields` (the messages of a `tifa.Fields`, empty otherwise). A network failure throws as `fetch` does.
@@ -201,10 +203,10 @@ func Layout(c *tifa.Ctx) (shop.Project, error) {
 const LayoutSSR = false // optional, default true
 ```
 
-- `layout.go` and `route.go` of one folder are one Go package, so `Layout`, `LayoutSSR` and the page's `Load`, `SSR`, `Cache` and method handlers may sit in either file. In a folder with only Layout files and no `route.go` or `route.tsx`, `Load`, `SSR`, `Cache` and method handlers fail the build.
+- `layout.go` and `route.go` of one folder are one Go package, but each name has its own file: `Layout` and `LayoutSSR` go in `layout.go`, and `Load`, `SSR`, `Cache` and the method handlers go in `route.go`. Declaring one of them in any other file of the package fails the build. Helpers and types may go in any file.
 - A Layout's `c.Param` may only read parameters of its own folder path. `app/projects/project+/layout.go` may read `project`, not `order`. A page's `Load` is held to its own path the same way.
 - When you switch between pages under the same Layout, the Layout component is not remounted and keeps its state. When a parameter the Layout function reads changes (for example, you move to another project), the Layout remounts and its state resets. When a parameter it does not read changes, the state is kept. Pages work the same way.
-- Pages and Layouts can call `tifa.Use(c, project.Layout)` to get the result of a Layout that wraps them, for the current request: the Layout of the same folder or of an ancestor folder. The same `Layout` runs only once per request. Any other Layout fails the build, and so does an argument that is not a package-level `Layout` function, such as a closure.
+- Pages and Layouts can call `tifa.Use(c, project.Layout)` to get the result of a Layout that wraps them, for the current request: the Layout of the same folder or of an ancestor folder. The same `Layout` runs only once per request. Any other Layout fails the build, and so does an argument that is not a package-level `Layout` function, such as a closure. A `Layout` function cannot use its own Layout, directly or through a helper.
 - On navigation in the browser, the navigation data request runs only the `Load` and `Layout` functions of the listed routes. If an ancestor Layout's data is still in the cache, that Layout is not in the list and its `Layout` does not run this time. So do not put permission checks only in a Layout. Put them in `OnRequest`, or have the page's `Load` depend on the checking Layout through `tifa.Use`, so the check runs on every request.
 - The document shell (`<html>`, `<head>`, assets and the script that injects data) is written as a string by the framework. React only renders the app root inside `<body>`, so the page is still a complete document when any level fails or returns 404. The root Layout (`app/layout.tsx`) can export two constants to customize the shell: `htmlAttributes` sets the attributes of `<html>` (`{ lang: 'en' }` when not exported), and `documentHead` holds head tags that every page carries (also when no route matches or the root `Layout` fails), in the same format as the return value of `head`. Put the site's default `title` here so that the 404 page for an unmatched URL also has a title. A page's own `head` that returns a `title` overrides it. Exporting a `Document` component fails the build.
 
@@ -224,7 +226,7 @@ export const documentHead = {
 
 | Case | What is shown |
 | --- | --- |
-| The URL matches no page | The root Layout's `NotFound`, without the root Layout's UI, and no `Load` or `Layout` runs |
+| The URL matches no page, such as the URL of a folder with a Layout but no page | The root Layout's `NotFound`, without the root Layout's UI, and no `Load` or `Layout` runs |
 | A page's `Load` returns `tifa.ErrNotFound` | The first `NotFound` going up from that page. Outer Layouts are shown as usual |
 | A `Layout` function returns `tifa.ErrNotFound` | The search starts at the Layout one level up |
 | Nothing exports one | The framework's default page |
