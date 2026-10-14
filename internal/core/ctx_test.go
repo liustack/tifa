@@ -293,4 +293,13 @@ func TestBindQuery(t *testing.T) {
 	if err := c.BindQuery(&in); !errors.As(err, &e) || e.Status != 400 || e.Message != `invalid query parameter "page"` {
 		t.Fatalf("got %v", err)
 	}
+	// url.URL.Query drops what it cannot parse, which would decode as a missing field.
+	for _, query := range []string{"status=%ZZ", "status=a;b", "page=1&%zz"} {
+		r = httptest.NewRequest("GET", "/orders", nil)
+		r.URL.RawQuery = query
+		c = New(httptest.NewRecorder(), r, "/orders", 1024)
+		if err := c.BindQuery(&filter{}); !errors.As(err, &e) || e.Status != 400 || e.Message != "invalid query string" {
+			t.Errorf("?%s: got %v", query, err)
+		}
+	}
 }

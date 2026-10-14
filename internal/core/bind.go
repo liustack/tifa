@@ -48,10 +48,15 @@ func (c *Ctx) Bind(v any) error {
 }
 
 // BindQuery decodes the query string into the struct v, with the names and value types of a
-// form body. Query parameters that name no field are ignored. A value that does not parse comes
-// back as Error with status 400.
+// form body. Query parameters that name no field are ignored. A query string that does not parse,
+// or a value that does not, comes back as Error with status 400.
 func (c *Ctx) BindQuery(v any) error {
-	return decodeForm(c.r.URL.Query(), v, "query parameter")
+	// URL.Query drops the parameters it cannot parse, so a broken one would look absent.
+	query, err := url.ParseQuery(c.r.URL.RawQuery)
+	if err != nil {
+		return publicError(http.StatusBadRequest, "invalid query string")
+	}
+	return decodeForm(query, v, "query parameter")
 }
 
 func bodyError(err error, message string) error {
