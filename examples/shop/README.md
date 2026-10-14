@@ -30,22 +30,20 @@ go test ./...
 
 ```text
 hooks.go                     blocks cross-site write requests, logs unexpected errors
+project.go                   shop domain: types, the count of orders waiting to ship, storage
+order.go                     order domain: list, details, shipping rules, storage
 app/
   layout.go  layout.tsx      root Layout: sidebar, top bar, document shell and site-wide 404
   icons.tsx  styles.css      icons and styles shared across pages
   home/route.go              redirects / to the first shop
   projects/
-    project.go               shop domain: types and the count of orders waiting to ship
-    store.go                 shop storage (in memory with demo data, standing in for a database table)
     layout.go  layout.tsx    shop Layout: shop name, orders waiting to ship, shop notes
     orders/
-      order.go               order domain: list, details, shipping rules
-      store.go               order storage (in memory)
       list/                  /projects/{projectId}
       detail/                /projects/{projectId}/orders/{orderId}, POST ships the order
 ```
 
-In each page folder, `route.go` holds the path and `Load`, and `route.tsx` holds the UI and reads the result of `Load` through `./+route`. A business folder can be taken out or deleted as a whole.
+The domain code sits flat in the root package, one file per domain. Storage is in memory with demo data, standing in for database tables, and changes are lost on restart. Folders under `app/` hold only pages: in each one, `route.go` holds the path and `Load`, which calls the root package, and `route.tsx` holds the UI and reads the result of `Load` through `./+route`. See [Structuring an app](../../docs/structure.md) for why, and for when a domain gets its own package.
 
 ## Things to try
 

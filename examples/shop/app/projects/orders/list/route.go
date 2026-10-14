@@ -2,11 +2,11 @@ package list
 
 import (
 	"github.com/liustack/tifa"
-	"github.com/liustack/tifa/examples/shop/app/projects/orders"
+	shop "github.com/liustack/tifa/examples/shop"
 )
 
 const Path = "/projects/{projectId}"
 
-func Load(c *tifa.Ctx) (orders.Summary, error) {
-	return orders.List(c.Param("projectId")), nil
+func Load(c *tifa.Ctx) (shop.OrderList, error) {
+	return shop.ListOrders(c.Param("projectId")), nil
 }

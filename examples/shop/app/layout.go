@@ -3,12 +3,12 @@ package app
 
 import (
 	"github.com/liustack/tifa"
-	"github.com/liustack/tifa/examples/shop/app/projects"
+	shop "github.com/liustack/tifa/examples/shop"
 )
 
 type Shell struct {
-	Viewer   Viewer             `json:"viewer"`
-	Projects []projects.Project `json:"projects"`
+	Viewer   Viewer         `json:"viewer"`
+	Projects []shop.Project `json:"projects"`
 }
 
 type Viewer struct {
@@ -17,5 +17,5 @@ type Viewer struct {
 }
 
 func Load(c *tifa.Ctx) (Shell, error) {
-	return Shell{Viewer: Viewer{Name: "店主", Initials: "店"}, Projects: projects.List()}, nil
+	return Shell{Viewer: Viewer{Name: "店主", Initials: "店"}, Projects: shop.ListProjects()}, nil
 }
