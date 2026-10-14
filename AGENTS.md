@@ -9,7 +9,7 @@ tifa is a full-stack Go framework: Go handles routing, data loading, caching and
 - Pure Go, `CGO_ENABLED=0`, shipped as a single executable. Do not bring in a cgo QuickJS, V8, or a Node side process.
 - SSR uses a pool of prewarmed QuickJS VMs and outputs complete HTML, with no streaming. Go loads all data and injects it before rendering. Rendering does no I/O. No RSC.
 - A single render being slower than Node is an accepted cost. Performance discussions only cover how to speed things up and raise whole-process throughput within that limit.
-- Little magic: package-level functions and global variables, no dependency injection, no needless structs. The build only does static analysis and never runs user code.
+- Little magic: package-level functions and global variables, no dependency injection container (dependencies are wired by hand), no needless structs. The build only does static analysis and never runs user code.
 - Building (`tifa build`, `tifa dev`) does not need Node. Node is only used to install npm packages and for optional type checking.
 
 ## Current state of the repository
@@ -22,7 +22,7 @@ The example app `examples/shop` is a shop order workbench written by tifa conven
 2. Before starting work and before creating a doc, run `scripts/docs-list.sh` to see the index, and read the docs whose Read when applies. Before committing, you can run `scripts/docs-list.sh --check`. It fails if a doc has no summary.
 3. `docs/archive/` and `docs/research/` are left out of the index. They hold outdated or exploratory material.
 4. Docs are written for readers: write conclusions and how to do things, not reasoning or work logs.
-5. Docs are written in English by default. User-facing docs (README, docs/app, docs/build, docs/dev, examples/shop/README) also have a `*.zh-CN.md` Chinese version. When you change one side, update the other to match. `scripts/docs-list.sh` skips `*.zh-CN.md` files.
+5. Docs are written in English by default. User-facing docs (README, docs/app, docs/build, docs/dev, docs/structure, examples/shop/README) also have a `*.zh-CN.md` Chinese version. When you change one side, update the other to match. `scripts/docs-list.sh` skips `*.zh-CN.md` files.
 6. English: keep it short and direct, use everyday words, and do not invent terms. Chinese: do not use semicolons, and do not use dashes as punctuation.
 
 ## Draft folder

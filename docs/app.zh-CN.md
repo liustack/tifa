@@ -19,20 +19,19 @@ read_when:
 myapp/
   go.mod
   hooks.go                      进程与请求钩子（可选）
-  db.go  middleware.go          共享资源：包级变量和函数（可选）
+  db.go                         共享资源：包级变量和函数（可选）
+  project.go  order.go          领域代码，一个领域一个文件，平铺在根包里
   app/
     layout.go  layout.tsx       根 Layout，套到所有页面
     projects/
-      project.go                领域：类型、规则
-      store.go                  领域的存储：它的表和查询
       layout.go  layout.tsx     套到下面所有页面
       orders/
-        order.go
         list/    route.go  route.tsx
         detail/  route.go  route.tsx  items.tsx  actions.client.tsx
 ```
 
-- 按业务分目录，同一个领域的 Go 与 TSX 放在一起。每个领域自己管模型、存储和规则，不设一个装着所有表的 `models/` 或 `db/` 包。跨领域共用的组件和样式放在 `app/` 根目录。
+- 代码按领域分组。新应用把领域代码（类型、存储、规则）平铺在根包里，一个领域一个文件，`app/` 下的目录放调用它的页面。领域做大了再拆成单独的包。不设一个装着所有表的 `models/` 或 `db/` 包。见 [structure.zh-CN.md](structure.zh-CN.md)。
+- 跨页面共用的组件和样式放在 `app/` 根目录。
 - 一个目录最多一个路由或一个 Layout。目录名不决定 URL，只要是合法的 Go 包名。
 - 目录嵌套决定 Layout 套到哪些页面：Layout 套到所在目录和所有子目录里的路由。
 - 不写 main。`tifa build` 把 main 和路由注册代码生成在 `.tifa/`，`go vet ./...`、`go test ./...` 不会扫到它。

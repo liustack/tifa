@@ -19,20 +19,19 @@ For a complete example, see [examples/shop](../examples/shop). For the build, th
 myapp/
   go.mod
   hooks.go                      process and request hooks (optional)
-  db.go  middleware.go          shared resources: package-level variables and functions (optional)
+  db.go                         shared resources: package-level variables and functions (optional)
+  project.go  order.go          domain code, one file per domain, flat in the root package
   app/
     layout.go  layout.tsx       root Layout, wraps every page
     projects/
-      project.go                domain: types, rules
-      store.go                  domain storage: its tables and queries
       layout.go  layout.tsx     wraps every page below it
       orders/
-        order.go
         list/    route.go  route.tsx
         detail/  route.go  route.tsx  items.tsx  actions.client.tsx
 ```
 
-- Group folders by business area. Go and TSX for the same domain live together. Each domain owns its models, storage and rules: there is no shared `models/` or `db/` package holding every table. Components and styles shared across domains go in the `app/` root.
+- Code is grouped by domain. A new app keeps its domain code (types, storage, rules) flat in the root package, one file per domain, and folders under `app/` hold pages that call it. A domain moves into its own package when it grows. There is no shared `models/` or `db/` package holding every table. See [structure.md](structure.md).
+- Components and styles shared across pages go in the `app/` root.
 - A folder holds at most one route or one Layout. The folder name does not decide the URL. It only has to be a valid Go package name.
 - Folder nesting decides which pages a Layout wraps: a Layout wraps the routes in its own folder and in all subfolders.
 - Do not write a main. `tifa build` generates main and the route registration code in `.tifa/`, which `go vet ./...` and `go test ./...` do not scan.
