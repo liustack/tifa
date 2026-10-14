@@ -17,7 +17,7 @@ A tifa app runs with sensible defaults for a small machine. Change a setting onl
 
 From highest to lowest priority:
 
-1. Command-line flags of `serve`, such as `--server-addr 0.0.0.0:8080`.
+1. Command-line flags of `serve`, such as `--server-addr 0.0.0.0:9527`.
 2. `TIFA_*` environment variables, such as `TIFA_SERVER_ADDR`.
 3. The deployment file given with `--config path.yaml` (`.yaml`, `.yml` or `.json`).
 4. The project file `tifa.yaml` or `tifa.json` in the app root, embedded into the program by `tifa build`.
@@ -30,7 +30,7 @@ The project file is read at build time and is the only place for `build.*` setti
 build:
   target: es2020,safari14
 server:
-  addr: 0.0.0.0:8080
+  addr: 0.0.0.0:9527
   body_limit: 4MiB
 ssr:
   timeout: 2s
@@ -46,7 +46,7 @@ Run `./bin/app config` to print the merged settings of all sources as a commente
 | --- | --- | --- | --- |
 | `build.target` | `es2020` | project file only | JavaScript target of the browser bundle, written like esbuild's `--target`: one ECMAScript version plus browsers with versions, from chrome, edge, firefox, ios, opera and safari. The SSR bundle always targets ES2022 |
 | `build.public` | `public` | project file only | Folder of static files copied into the program as they are and served from `/` |
-| `server.addr` | `127.0.0.1:8080` | `--server-addr`, `TIFA_SERVER_ADDR` | Address to listen on. Use `0.0.0.0:8080` in a container |
+| `server.addr` | `127.0.0.1:9527` | `--server-addr`, `TIFA_SERVER_ADDR` | Address to listen on. Use `0.0.0.0:9527` in a container |
 | `server.body_limit` | `1MiB` | `--server-body-limit`, `TIFA_SERVER_BODY_LIMIT` | Largest request body. A bigger one is answered with 413 |
 | `server.shutdown_timeout` | `10s` | `--server-shutdown-timeout`, `TIFA_SERVER_SHUTDOWN_TIMEOUT` | After a stop signal, the time in-flight requests get to finish, and then the time `OnShutdown` gets. Requests still running when it ends are canceled and get one more `shutdown_timeout` to return. `OnShutdown` runs once they have returned and is skipped if they have not. Either way the program exits with status 1 |
 | `ssr.vms` | the CPU count (`GOMAXPROCS`) | `--ssr-vms`, `TIFA_SSR_VMS` | Prewarmed JavaScript VMs, which is how many pages render at once. In a container it follows the CPU limit |

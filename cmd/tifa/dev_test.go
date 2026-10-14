@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/liustack/tifa/internal/config"
 )
 
 func TestFingerprintFollowsEveryFile(t *testing.T) {
@@ -50,5 +52,11 @@ func TestDevAnalyzeIsStable(t *testing.T) {
 	second, err := p.Analyze(context.Background())
 	if err != nil || second != first || first == "" {
 		t.Fatalf("fingerprints %q and %q, %v", first, second, err)
+	}
+}
+
+func TestDevListensOnTheDefaultAddr(t *testing.T) {
+	if got := newDevCmd().Flags().Lookup("addr").DefValue; got != config.DefaultAddr {
+		t.Fatalf("--addr defaults to %q, want %q", got, config.DefaultAddr)
 	}
 }

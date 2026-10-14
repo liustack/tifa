@@ -16,7 +16,7 @@ go tool tifa build
 ./bin/shop
 ```
 
-Open <http://127.0.0.1:8080>. It redirects to the order list of the first shop. Use `./bin/shop --server-addr 127.0.0.1:8081` to change the port. `bin/shop` is a single executable with the frontend output embedded, so you can copy it to another machine and run it there.
+Open <http://127.0.0.1:9527>. It redirects to the order list of the first shop. Use `./bin/shop --server-addr 127.0.0.1:9528` to change the port. `bin/shop` is a single executable with the frontend output embedded, so you can copy it to another machine and run it there.
 
 Type checking and tests:
 

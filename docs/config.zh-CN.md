@@ -17,7 +17,7 @@ tifa 应用的默认值按小机器定好了，需要时才改。
 
 优先级从高到低：
 
-1. `serve` 的命令行参数，比如 `--server-addr 0.0.0.0:8080`。
+1. `serve` 的命令行参数，比如 `--server-addr 0.0.0.0:9527`。
 2. `TIFA_*` 环境变量，比如 `TIFA_SERVER_ADDR`。
 3. `--config path.yaml` 指定的部署文件（`.yaml`、`.yml` 或 `.json`）。
 4. 应用根目录的项目文件 `tifa.yaml` 或 `tifa.json`，`tifa build` 时嵌进程序。
@@ -30,7 +30,7 @@ tifa 应用的默认值按小机器定好了，需要时才改。
 build:
   target: es2020,safari14
 server:
-  addr: 0.0.0.0:8080
+  addr: 0.0.0.0:9527
   body_limit: 4MiB
 ssr:
   timeout: 2s
@@ -46,7 +46,7 @@ cache:
 | --- | --- | --- | --- |
 | `build.target` | `es2020` | 只能写在项目文件 | 浏览器包的 JavaScript 目标，写法同 esbuild 的 `--target`：一个 ECMAScript 版本加若干带版本的浏览器，浏览器可选 chrome、edge、firefox、ios、opera 和 safari。SSR 包固定是 ES2022 |
 | `build.public` | `public` | 只能写在项目文件 | 静态文件目录，原样打进程序，从 `/` 提供 |
-| `server.addr` | `127.0.0.1:8080` | `--server-addr`、`TIFA_SERVER_ADDR` | 监听地址。容器里用 `0.0.0.0:8080` |
+| `server.addr` | `127.0.0.1:9527` | `--server-addr`、`TIFA_SERVER_ADDR` | 监听地址。容器里用 `0.0.0.0:9527` |
 | `server.body_limit` | `1MiB` | `--server-body-limit`、`TIFA_SERVER_BODY_LIMIT` | 请求体上限，超过答 413 |
 | `server.shutdown_timeout` | `10s` | `--server-shutdown-timeout`、`TIFA_SERVER_SHUTDOWN_TIMEOUT` | 收到退出信号后，先给在途请求的时间，再给 `OnShutdown` 的时间。到时仍在运行的请求会被取消，再给它们一个 `shutdown_timeout` 返回。都返回了就执行 `OnShutdown`，没返回就跳过它。两种情况程序都以状态码 1 退出 |
 | `ssr.vms` | CPU 数（`GOMAXPROCS`） | `--ssr-vms`、`TIFA_SSR_VMS` | 预热的 JavaScript VM 数，也就是同时能渲染几个页面。容器里跟随 CPU 限额 |

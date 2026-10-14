@@ -18,6 +18,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/liustack/tifa/internal/config"
 	"github.com/spf13/cobra"
 	"golang.org/x/mod/module"
 )
@@ -93,7 +94,7 @@ PATH and npm otherwise.`,
 			if app.Version == "v0.0.0" {
 				fmt.Fprintf(out, "  go mod edit -replace %s=<path to your tifa checkout>\n", tifaModule)
 			}
-			fmt.Fprintf(out, "  go mod tidy\n  %s\n  go tool tifa dev     # http://127.0.0.1:3000\n", app.Install)
+			fmt.Fprintf(out, "  go mod tidy\n  %s\n  go tool tifa dev     # http://%s\n", app.Install, config.DefaultAddr)
 			return nil
 		},
 	}

@@ -226,3 +226,10 @@ func TestKeysListEverySetting(t *testing.T) {
 		t.Fatalf("Keys: %s, want %s", got, want)
 	}
 }
+
+// tifa dev and a built app both listen on 9527 unless told otherwise.
+func TestDefaultAddr(t *testing.T) {
+	if DefaultAddr != "127.0.0.1:9527" || Default().Server.Addr != DefaultAddr {
+		t.Fatalf("DefaultAddr = %q, Default().Server.Addr = %q", DefaultAddr, Default().Server.Addr)
+	}
+}

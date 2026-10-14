@@ -95,7 +95,7 @@ go run github.com/liustack/tifa/cmd/tifa@latest new myapp
 cd myapp
 go mod tidy
 pnpm install
-go tool tifa dev     # http://127.0.0.1:3000
+go tool tifa dev     # http://127.0.0.1:9527
 ```
 
 `tifa new` writes a home page with a Go `Load`, a `POST` the page calls from the browser, and a test of both. The module path is the folder name unless you pass `--module example.com/myapp`.
@@ -108,7 +108,7 @@ go tool tifa dev     # http://127.0.0.1:3000
 cd examples/shop
 pnpm install --frozen-lockfile
 go tool tifa build
-./bin/shop           # http://127.0.0.1:8080
+./bin/shop           # http://127.0.0.1:9527
 ```
 
 ## Documentation
