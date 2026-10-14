@@ -73,11 +73,11 @@ ssr:
 }
 
 func TestEmbeddedJSONIsAccepted(t *testing.T) {
-	c, err := load(t, nil, nil, "tifa.json", `{"server":{"addr":":8081","shutdown_timeout":"2s"},"ssr":{"vms":1}}`)
+	c, err := load(t, nil, nil, "tifa.json", `{"server":{"addr":":9528","shutdown_timeout":"2s"},"ssr":{"vms":1}}`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Server.Addr != ":8081" || c.Server.ShutdownTimeout != 2*time.Second || c.SSR.VMs != 1 {
+	if c.Server.Addr != ":9528" || c.Server.ShutdownTimeout != 2*time.Second || c.SSR.VMs != 1 {
 		t.Fatalf("%+v", c)
 	}
 }
@@ -174,11 +174,11 @@ func TestFileValuesMustHaveTheRightType(t *testing.T) {
 		{"yaml bool addr", "prod.yaml", "server:\n  addr: false\n", "server.addr"},
 		{"yaml null addr", "prod.yaml", "server:\n  addr: null\n", "server.addr"},
 		{"yaml empty addr", "prod.yaml", "server:\n  addr:\n", "server.addr"},
-		{"yaml number addr", "prod.yaml", "server:\n  addr: 8080\n", "server.addr"},
+		{"yaml number addr", "prod.yaml", "server:\n  addr: 9527\n", "server.addr"},
 		{"yaml quoted vms", "prod.yaml", "ssr:\n  vms: \"2\"\n", "ssr.vms"},
 		{"yaml bool size", "prod.yaml", "cache:\n  size: true\n", "cache.size"},
 		{"yaml number timeout", "prod.yaml", "ssr:\n  timeout: 3\n", "ssr.timeout"},
-		{"json number addr", "prod.json", `{"server":{"addr":8080}}`, "server.addr"},
+		{"json number addr", "prod.json", `{"server":{"addr":9527}}`, "server.addr"},
 		{"json string vms", "prod.json", `{"ssr":{"vms":"2"}}`, "ssr.vms"},
 		{"json null addr", "prod.json", `{"server":{"addr":null}}`, "server.addr"},
 		{"json fraction vms", "prod.json", `{"ssr":{"vms":1.5}}`, "ssr.vms"},
