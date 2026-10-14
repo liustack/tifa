@@ -97,16 +97,21 @@ func (s *Server) openFront(dist fs.FS, cfg config.SSR) (*ssr.Pool, error) {
 
 // serveStatic answers GET and HEAD for a file of the browser bundle (/assets/...) or of the
 // public directory, before routing and without OnRequest. It reports whether it answered.
-// Bundle files carry a content hash in their names and are cached for good.
+// Bundle files carry a content hash in their names and are cached for good. A name under
+// /assets/ that the bundle lacks may still be a public file, such as public/assets/logo.svg.
 func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method != "GET" && r.Method != "HEAD" {
 		return false
 	}
 	name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
-	fsys, cache := s.public, "no-cache"
-	if rest, ok := strings.CutPrefix(name, "assets/"); ok && s.assets != nil {
-		name, fsys, cache = rest, s.assets, "public, max-age=31536000, immutable"
+	if rest, ok := strings.CutPrefix(name, "assets/"); ok && serveFile(w, r, s.assets, rest, "public, max-age=31536000, immutable") {
+		return true
 	}
+	return serveFile(w, r, s.public, name, "no-cache")
+}
+
+// serveFile answers with the regular file name of fsys and reports whether it exists.
+func serveFile(w http.ResponseWriter, r *http.Request, fsys fs.FS, name, cache string) bool {
 	if fsys == nil || name == "" || !fs.ValidPath(name) {
 		return false
 	}

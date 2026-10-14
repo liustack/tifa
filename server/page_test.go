@@ -55,11 +55,12 @@ func (r *renders) last(t *testing.T) map[string]routeResult {
 }
 
 var dist = fstest.MapFS{
-	"build.json":        {Data: []byte(`{"buildId":"b1","script":"/assets/app-1.js","style":"/assets/app-1.css"}`)},
-	"assets/app-1.js":   {Data: []byte("console.log(1)")},
-	"assets/app-1.css":  {Data: []byte("body{}")},
-	"public/robots.txt": {Data: []byte("User-agent: *")},
-	"ssr.js":            {Data: []byte("// bundle")},
+	"build.json":             {Data: []byte(`{"buildId":"b1","script":"/assets/app-1.js","style":"/assets/app-1.css"}`)},
+	"assets/app-1.js":        {Data: []byte("console.log(1)")},
+	"assets/app-1.css":       {Data: []byte("body{}")},
+	"public/robots.txt":      {Data: []byte("User-agent: *")},
+	"public/assets/logo.svg": {Data: []byte("<svg/>")},
+	"ssr.js":                 {Data: []byte("// bundle")},
 }
 
 // frontApp is testApp with a page that skips SSR and a page whose HTML is cached.
@@ -283,6 +284,10 @@ func TestStaticFilesSkipOnRequest(t *testing.T) {
 	}
 	if requests != 0 {
 		t.Errorf("OnRequest ran for %d static files", requests)
+	}
+	w = get(s, "/assets/logo.svg")
+	if w.Code != 200 || w.Body.String() != "<svg/>" || w.Header().Get("Cache-Control") != "no-cache" {
+		t.Errorf("public file under /assets/: %d %v %s", w.Code, w.Header(), w.Body.String())
 	}
 	if w := get(s, "/assets/gone.js"); w.Code != 404 || requests != 1 {
 		t.Errorf("missing asset: %d, OnRequest %d", w.Code, requests)
