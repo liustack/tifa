@@ -128,3 +128,38 @@ func TestLoopRebuildsFilesRevertedDuringABuild(t *testing.T) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 }
+
+// A file that keeps changing, such as a log written every few milliseconds, never lets the files
+// go quiet. A batch still starts once it waited maxBatchWaits times the debounce.
+func TestLoopRebuildsWhileAFileKeepsChanging(t *testing.T) {
+	c := newChanges()
+	const debounce = 20 * time.Millisecond
+	batches := runLoop(t, c, debounce, nil)
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			case <-time.After(5 * time.Millisecond):
+				c.add("app/busy.json", "", time.Now().String())
+			}
+		}
+	}()
+	start := time.Now()
+	c.add("app/page.tsx", "s1", "s2")
+	for {
+		select {
+		case b := <-batches:
+			if slices.Contains(b, change{"app/page.tsx", modified}) {
+				if took := time.Since(start); took > 3*maxBatchWaits*debounce {
+					t.Fatalf("the edit waited %v for the files to go quiet", took)
+				}
+				return
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("the edit waits as long as another file keeps changing")
+		}
+	}
+}
