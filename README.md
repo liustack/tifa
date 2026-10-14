@@ -1,12 +1,33 @@
-# tifa
+<h1 align="center">tifa</h1>
 
-用 Go 写后端、React 写页面，整个网站编译成一个可执行文件，拷到一台小 VPS 上直接运行。线上不需要 Node，不需要进程管理器、反向代理和 Redis。
+<p align="center"><b>The full-stack framework for Gophers.</b></p>
 
-适合这样的 Go 开发者：业务逻辑和数据都在 Go 里，页面想用 React 生态来写，又不想为了服务端渲染在生产环境多养一个 Node 服务。
+<p align="center">
+  <a href="./README.zh-CN.md">简体中文</a> ·
+  <a href="docs/app.md">Writing an app</a> ·
+  <a href="docs/build.md">Build and run</a> ·
+  <a href="docs/dev.md">Dev server</a> ·
+  <a href="examples/shop">Example app</a>
+</p>
 
-## 写起来是什么样
+<p align="center">
+  <a href="https://x.com/liustack"><img src="https://img.shields.io/badge/follow-%40liustack-black?style=flat-square&logo=x&logoColor=white" alt="Follow @liustack on X"></a>
+  <a href="https://pkg.go.dev/github.com/liustack/tifa"><img src="https://img.shields.io/badge/go.dev-reference-007d9c?style=flat-square&logo=go&logoColor=white" alt="Go reference"></a>
+  <a href="go.mod"><img src="https://img.shields.io/github/go-mod/go-version/liustack/tifa?style=flat-square" alt="Go version"></a>
+  <img src="https://img.shields.io/badge/CGO-off-success?style=flat-square" alt="CGO off">
+  <img src="https://img.shields.io/badge/Not%20backed%20by-Y%20Combinator-FF6600?style=flat-square&logo=ycombinator&logoColor=white" alt="Not backed by Y Combinator">
+  <img src="https://img.shields.io/badge/users-unknown-lightgrey?style=flat-square" alt="Users unknown">
+</p>
 
-每个页面一个目录，Go 负责取数，React 负责显示：
+Write the backend in Go and the pages in React. tifa compiles the whole site into one executable that you copy to a small VPS and run. No Node in production, no process manager, no reverse proxy, no Redis.
+
+It is for Go developers whose business logic and data already live in Go, who want to write pages with the React ecosystem, and who do not want to keep a Node service running in production just for server-side rendering.
+
+> tifa is early. APIs will change.
+
+## What it looks like
+
+One folder per page. Go loads the data, React shows it:
 
 ```go
 // app/projects/orders/detail/route.go
@@ -19,34 +40,75 @@ func Load(c *tifa.Ctx) (orders.Order, error) {
 
 ```tsx
 // app/projects/orders/detail/route.tsx
-import { route } from './+route'
+import { route, type Data } from './+route'
 
 export default function OrderPage() {
-  const order = route.useLoaderData() // 类型由 Go 的返回值生成
+  const order = route.useLoaderData() // typed from the Go return value
   return <h2>{order.id}</h2>
 }
+
+// title and meta tags are written into the HTML on the server
+export const head = ({ loaderData }: { loaderData?: Data }) => ({
+  meta: [{ title: `Order ${loaderData?.id}` }],
+})
 ```
 
 ```sh
 go get -tool github.com/liustack/tifa/cmd/tifa
-go tool tifa build   # 得到 dist/<应用名>，前端产物已经嵌在里面
+go tool tifa dev     # rebuilds and reloads the browser as you edit
+go tool tifa build   # dist/<app>, with the frontend embedded
 ```
 
-## 它怎么工作
+## Highlights
 
-- 请求进来，Go 先跑完页面和各层 Layout 的 `Load`，再在进程内用纯 Go 的 QuickJS 把 React 渲染成完整 HTML。渲染期间没有 I/O。
-- 浏览器由 TanStack Router 接管。之后的跳转只向 Go 要数据，一次跳转一个请求。
-- 纯 Go，`CGO_ENABLED=0`，可以交叉编译。构建用 esbuild 的 Go API，不需要 Node，Node 只用来装 npm 包和做类型检查。
-- 构建时做静态分析：路径重复、Layout 读了不属于它的参数、`Load` 返回值不能转成 TypeScript 等问题，在构建时报出文件和行号。
+- **One file to deploy.** Pure Go, `CGO_ENABLED=0`, cross-compiles like any Go program. The browser bundle, styles and server renderer are embedded in the executable.
+- **Real HTML on the first request.** Go runs every `Load` for the page and its Layouts first, then renders React to complete HTML inside the process with a pure Go QuickJS. Search engines and link previews see the content, title and meta tags.
+- **No Node to build.** `tifa build` and `tifa dev` bundle with esbuild's Go API. Node is only there to install npm packages and, if you like, run the type checker.
+- **Types from Go to React.** The TypeScript type of each page's data is generated from what its Go `Load` returns.
+- **Mistakes caught at build time.** Duplicate paths, a Layout reading a parameter it does not own, a `Load` result that cannot become TypeScript: the build stops and names the file and line.
+- **Fast after the first page.** TanStack Router takes over in the browser. Each navigation is one request for data, and Layouts that are already loaded are not fetched again.
 
-代价也说在前面：单次渲染比 Node 慢，订单详情这样的页面在 Apple M4 上热渲染中位数约 5.7 ms。tifa 用预热的 VM 池、按数据缓存 HTML 和 ETag 来弥补，不做流式渲染，也没有 React Server Components。
+## What it costs
 
-## 从哪开始
+A single render is slower than Node. An order detail page takes about 5 ms to render on an Apple M4 once warm. tifa makes up for it with a pool of prewarmed VMs, an HTML cache keyed by the data, and ETags. There is no streaming and there are no React Server Components.
 
-- [examples/shop](examples/shop)：完整的示例应用，店铺、订单、发货、三种 404。
-- [docs/app.md](docs/app.md)：应用怎么写，目录、路由、Layout、钩子、404、缓存。
-- [docs/build.md](docs/build.md)：`tifa build` 生成了什么，生成的程序怎么启动、怎么回答请求。
-- [docs/dev.md](docs/dev.md)：`tifa dev`，改代码后自动重建。
-- [docs/testing.md](docs/testing.md)：给参与开发的人，测试与验证。
+## Try the example
 
-tifa 还在早期，接口会变。
+[examples/shop](examples/shop) is a small order workbench: two shops, an order list, order details, shipping, and three kinds of 404. You need Go 1.27 and pnpm:
+
+```sh
+cd examples/shop
+pnpm install --frozen-lockfile
+go tool tifa build
+./dist/shop          # http://127.0.0.1:8080
+```
+
+## Documentation
+
+| Doc | Read it when |
+| :-- | :-- |
+| [Writing an app](docs/app.md) | Laying out folders, routes, Layouts, hooks, 404 pages, head tags and caching |
+| [Build and run](docs/build.md) | You want to know what `tifa build` generates and how the program answers requests |
+| [Dev server](docs/dev.md) | Running `tifa dev` locally, or a change did not reload |
+| [Testing](docs/testing.md) | Contributing to tifa itself |
+
+## Talk to us
+
+Issues are welcome any time: [open one](https://github.com/liustack/tifa/issues/new). Tell us what you built, where it hurt, and what should come next. Come find me on X: **[@liustack](https://x.com/liustack)**.
+
+## Contributing
+
+tifa does not accept pull requests for now. One author reviews every line, which keeps the design small and consistent. Two ways to help:
+
+- **[Open an issue](https://github.com/liustack/tifa/issues).** Bugs, ideas, confusing errors, unclear docs. Issues shape what gets built next.
+- **Fork it.** Your copy is yours to change.
+
+## Star History
+
+<a href="https://www.star-history.com/#liustack/tifa&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=liustack/tifa&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=liustack/tifa&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=liustack/tifa&type=Date" />
+ </picture>
+</a>

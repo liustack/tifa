@@ -1,0 +1,114 @@
+<h1 align="center">tifa</h1>
+
+<p align="center"><b>The full-stack framework for Gophers.</b></p>
+
+<p align="center">
+  <a href="./README.md">English</a> ·
+  <a href="docs/app.zh-CN.md">应用怎么写</a> ·
+  <a href="docs/build.zh-CN.md">构建与运行</a> ·
+  <a href="docs/dev.zh-CN.md">开发服务器</a> ·
+  <a href="examples/shop/README.zh-CN.md">示例应用</a>
+</p>
+
+<p align="center">
+  <a href="https://x.com/liustack"><img src="https://img.shields.io/badge/follow-%40liustack-black?style=flat-square&logo=x&logoColor=white" alt="Follow @liustack on X"></a>
+  <a href="https://pkg.go.dev/github.com/liustack/tifa"><img src="https://img.shields.io/badge/go.dev-reference-007d9c?style=flat-square&logo=go&logoColor=white" alt="Go reference"></a>
+  <a href="go.mod"><img src="https://img.shields.io/github/go-mod/go-version/liustack/tifa?style=flat-square" alt="Go version"></a>
+  <img src="https://img.shields.io/badge/CGO-off-success?style=flat-square" alt="CGO off">
+  <img src="https://img.shields.io/badge/Not%20backed%20by-Y%20Combinator-FF6600?style=flat-square&logo=ycombinator&logoColor=white" alt="Not backed by Y Combinator">
+  <img src="https://img.shields.io/badge/users-unknown-lightgrey?style=flat-square" alt="Users unknown">
+</p>
+
+用 Go 写后端、React 写页面，整个网站编译成一个可执行文件，拷到一台小 VPS 上直接运行。线上不需要 Node，不需要进程管理器、反向代理和 Redis。
+
+适合这样的 Go 开发者：业务逻辑和数据都在 Go 里，页面想用 React 生态来写，又不想为了服务端渲染在生产环境多养一个 Node 服务。
+
+> tifa 还在早期，接口会变。
+
+## 写起来是什么样
+
+每个页面一个目录，Go 负责取数，React 负责显示：
+
+```go
+// app/projects/orders/detail/route.go
+const Path = "/projects/{projectId}/orders/{orderId}"
+
+func Load(c *tifa.Ctx) (orders.Order, error) {
+	return orders.Get(c.Param("projectId"), c.Param("orderId"))
+}
+```
+
+```tsx
+// app/projects/orders/detail/route.tsx
+import { route, type Data } from './+route'
+
+export default function OrderPage() {
+  const order = route.useLoaderData() // 类型由 Go 的返回值生成
+  return <h2>{order.id}</h2>
+}
+
+// title 和 meta 在服务器上写进 HTML
+export const head = ({ loaderData }: { loaderData?: Data }) => ({
+  meta: [{ title: `订单 ${loaderData?.id}` }],
+})
+```
+
+```sh
+go get -tool github.com/liustack/tifa/cmd/tifa
+go tool tifa dev     # 改代码后自动重建并刷新浏览器
+go tool tifa build   # 得到 dist/<应用名>，前端产物已经嵌在里面
+```
+
+## 特点
+
+- **部署只有一个文件。** 纯 Go，`CGO_ENABLED=0`，和普通 Go 程序一样交叉编译。浏览器包、样式和服务端渲染器都嵌在可执行文件里。
+- **第一次请求就是完整 HTML。** Go 先跑完页面和各层 Layout 的 `Load`，再在进程内用纯 Go 的 QuickJS 把 React 渲染成完整 HTML。搜索引擎和链接预览能看到内容、title 和 meta。
+- **构建不需要 Node。** `tifa build` 和 `tifa dev` 用 esbuild 的 Go API 打包。Node 只用来装 npm 包，以及按需做类型检查。
+- **类型从 Go 一路到 React。** 每个页面数据的 TypeScript 类型由 Go `Load` 的返回值生成。
+- **错误在构建时报出。** 路径重复、Layout 读了不属于它的参数、`Load` 返回值不能转成 TypeScript，构建会停下并指出文件和行号。
+- **首屏之后很快。** 浏览器由 TanStack Router 接管。每次跳转只发一个数据请求，已经加载过的 Layout 不会重新取数。
+
+## 代价
+
+单次渲染比 Node 慢。订单详情这样的页面在 Apple M4 上热渲染约 5 ms。tifa 用预热的 VM 池、按数据缓存 HTML 和 ETag 来弥补。不做流式渲染，也没有 React Server Components。
+
+## 跑一下示例
+
+[examples/shop](examples/shop/README.zh-CN.md) 是一个小店主的订单工作台：两家店铺、订单列表、订单详情、发货和三种 404。需要 Go 1.27 和 pnpm：
+
+```sh
+cd examples/shop
+pnpm install --frozen-lockfile
+go tool tifa build
+./dist/shop          # http://127.0.0.1:8080
+```
+
+## 文档
+
+| 文档 | 什么时候读 |
+| :-- | :-- |
+| [应用怎么写](docs/app.zh-CN.md) | 安排目录、路由、Layout、钩子、404、head 标签和缓存 |
+| [构建与运行](docs/build.zh-CN.md) | 想知道 `tifa build` 生成了什么，程序怎么回答请求 |
+| [开发服务器](docs/dev.zh-CN.md) | 在本地跑 `tifa dev`，或者改了代码没有刷新 |
+| [测试](docs/testing.md) | 参与 tifa 本身的开发（英文） |
+
+## 联系我们
+
+随时欢迎提 issue：[新建一个](https://github.com/liustack/tifa/issues/new)。用它做了什么、哪里不好用、下一步该做什么，都可以说。也可以在 X 上找我：**[@liustack](https://x.com/liustack)**。
+
+## 参与贡献
+
+tifa 目前不接受 pull request。每一行都由作者一个人审，这样设计能保持小而一致。可以这样帮忙：
+
+- **[提 issue](https://github.com/liustack/tifa/issues)。** bug、想法、看不懂的报错、写得不清楚的文档。issue 决定接下来做什么。
+- **fork 它。** 你的副本随你改。
+
+## Star History
+
+<a href="https://www.star-history.com/#liustack/tifa&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=liustack/tifa&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=liustack/tifa&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=liustack/tifa&type=Date" />
+ </picture>
+</a>
