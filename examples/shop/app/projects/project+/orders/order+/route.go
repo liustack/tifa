@@ -19,10 +19,10 @@ func Load(c *tifa.Ctx) (shop.Order, error) {
 	return shop.GetOrder(p.ID, c.Param("order"))
 }
 
-// POST ships the order.
-func POST(c *tifa.Ctx) error {
+// POST ships the order and answers with it.
+func POST(c *tifa.Ctx) (shop.Order, error) {
 	if err := shop.ShipOrder(c.Param("project"), c.Param("order")); err != nil {
-		return err
+		return shop.Order{}, err
 	}
-	return c.NoContent(204)
+	return shop.GetOrder(c.Param("project"), c.Param("order"))
 }

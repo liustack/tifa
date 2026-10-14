@@ -36,8 +36,8 @@ export default function OrderPage() {
           </p>
         </div>
         <OrderActions
-          projectId={order.projectId}
-          orderId={order.id}
+          project={order.projectId}
+          order={order.id}
           status={order.status}
         />
       </div>

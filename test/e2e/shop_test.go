@@ -96,7 +96,7 @@ func TestShopApp(t *testing.T) {
 	if status := post(t, base+"/projects/studio/orders/SH-1042", "http://other.example"); status != 403 {
 		t.Errorf("POST from another site: %d", status)
 	}
-	if status := post(t, base+"/projects/studio/orders/SH-1042", base); status != 204 {
+	if status := post(t, base+"/projects/studio/orders/SH-1042", base); status != 200 {
 		t.Errorf("ship: %d", status)
 	}
 	if status := post(t, base+"/projects/studio/orders/SH-1042", base); status != 409 {

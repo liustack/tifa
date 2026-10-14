@@ -1,41 +1,29 @@
 import { useState } from 'react'
-import { useRouter } from '@tanstack/react-router'
+import { TifaError } from 'tifa/client'
+import { POST } from './+route'
 import { Icon } from '../../../../icons'
 
-// Reads the document at module scope, so it may only load in the browser: the page imports it
-// through clientOnly, which keeps it out of the SSR bundle.
-const origin = document.location.origin
-
+// Shipping works only once the page runs in the browser, so the page loads this component
+// through clientOnly and the server renders a disabled button in its place.
 export default function OrderActions({
-  projectId,
-  orderId,
+  project,
+  order,
   status,
 }: {
-  projectId: string
-  orderId: string
+  project: string
+  order: string
   status: string
 }) {
-  const router = useRouter()
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
   async function ship() {
     setPending(true)
     setError('')
     try {
-      // The order page answers POST by shipping the order.
-      const response = await fetch(
-        `${origin}/projects/${encodeURIComponent(
-          projectId,
-        )}/orders/${encodeURIComponent(orderId)}`,
-        { method: 'POST' },
-      )
-      if (!response.ok) {
-        const problem = await response.json()
-        throw new Error(problem.error || '操作未完成，请重试')
-      }
-      await router.invalidate()
+      // The order page answers POST by shipping the order. The page data reloads afterwards.
+      await POST({ params: { project, order } })
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '操作未完成，请重试')
+      setError(cause instanceof TifaError ? cause.message : '操作未完成，请重试')
     } finally {
       setPending(false)
     }
