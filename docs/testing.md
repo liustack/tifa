@@ -69,7 +69,7 @@ Each app under `test/apps` is a separate module, so the root `go test ./...` doe
 
 ## Bundle tests (`internal/bundle`)
 
-Bundle tests that need React or core-js resolve their dependencies from `internal/bundle/testdata/node_modules`. Versions are locked in `package.json` and `pnpm-lock.yaml` in the same folder. When not installed, these tests show skip. Run `pnpm install --frozen-lockfile` in `internal/bundle/testdata` first. Bundling itself does not need Node, so you can verify it with node removed from PATH:
+Bundle tests that need React or core-js resolve their dependencies from `internal/bundle/testdata/node_modules`. Versions are locked in `package.json` and `pnpm-lock.yaml` in the same folder. When not installed, these tests show skip. Run `pnpm install --frozen-lockfile` in `internal/bundle/testdata` first. These tests do not run Node, so you can verify them with node removed from PATH:
 
 ```sh
 env PATH=/usr/bin:/bin:$(go env GOROOT)/bin go test ./internal/bundle

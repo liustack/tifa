@@ -10,7 +10,7 @@ tifa is a full-stack Go framework: Go handles routing, data loading, caching and
 - SSR uses a pool of prewarmed QuickJS VMs and outputs complete HTML, with no streaming. Go loads all data and injects it before rendering. Rendering does no I/O. No RSC.
 - A single render being slower than Node is an accepted cost. Performance discussions only cover how to speed things up and raise whole-process throughput within that limit.
 - Little magic: package-level functions and global variables, no dependency injection container (dependencies are wired by hand), no needless structs. The build only does static analysis and never runs user code.
-- Building (`tifa build`, `tifa dev`) does not need Node. Node is only used to install npm packages and for optional type checking.
+- The running app never needs Node: no Node service and no Node at runtime. `tifa build` and `tifa dev` may run Node tools from the app's node_modules, such as Tailwind, since a React app has Node for npm anyway.
 
 ## Current state of the repository
 

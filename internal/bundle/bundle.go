@@ -1,6 +1,6 @@
 // Package bundle builds the two JavaScript bundles of an application with the
 // esbuild Go library: the SSR bundle that QuickJS evaluates and the browser
-// bundle. It needs no Node at build time. Node only installs node_modules.
+// bundle.
 package bundle
 
 import (

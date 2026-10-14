@@ -16,7 +16,7 @@ tifa dev [--dir 应用根目录] [--addr 127.0.0.1:9527]
 
 启动后先打印 `tifa dev: serving http://<地址>`，然后做一次完整构建（步骤同 [tifa build](build.zh-CN.md)），启动应用。浏览器连 `--addr`，tifa dev 把请求转给应用，应用重启期间请求会等它起来。Ctrl-C 或 SIGTERM 停掉应用和 tifa dev。
 
-不需要 Node：打包用内置的 esbuild，Node 只用来装 npm 依赖。
+打包用 tifa 内置的 esbuild。
 
 ## 改动触发什么
 
