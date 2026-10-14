@@ -21,7 +21,7 @@ tifa dev [--dir 应用根目录] [--addr 127.0.0.1:9527]
 tifa dev 在 Node 上跑应用自己装的 Vite，用应用的 `vite.config.ts`（见 [build.zh-CN.md](build.zh-CN.md#应用的-tsconfig-与-vite-配置)）：
 
 - Vite 开发服务器提供浏览器模块。有页面的应用第一次构建时启动它，它监听 127.0.0.1 上的一个空闲端口，只有 tifa dev 跟它通信。页面从它加载 Vite 客户端、`@vitejs/plugin-react` 的 React Fast Refresh 运行时和 `.tifa/client.ts`。
-- SSR 包仍是文件 `.tifa/dist/ssr.js`，应用把它载入 QuickJS VM。它由第二个 Node 进程构建，因为 Vite 每个进程只定一次 React 的构建版本（开发版或生产版），而 QuickJS 跑的是生产版。
+- SSR 包仍是文件 `.tifa/dist/ssr.js`，应用把它载入 QuickJS VM。它和开发服务器在同一个 Node 进程里构建，但跑在单独的工作线程上：浏览器用 React 的开发版，QuickJS 跑生产版，而 Vite 每个线程只定一次用哪个版本。
 
 ## 改动触发什么
 

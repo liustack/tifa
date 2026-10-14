@@ -21,15 +21,15 @@ const DevBase = "/__tifa/vite/"
 // modules and updates them in open pages, and only the SSR bundle is built into .tifa/dist.
 // A Dev is used by one goroutine at a time.
 //
-// The dev server and the SSR builds run on two Node processes. Vite reads NODE_ENV once per
-// process, the dev server sets it to development, and the SSR bundle is a production build.
+// The dev server, the SSR builds and the export reader share one Node process. The browser
+// modules use the development build of React and QuickJS runs the production one, and Vite reads
+// NODE_ENV once per thread, so the driver builds the SSR bundle on a worker thread of its own.
 type Dev struct {
-	server  *Node // runs Vite's dev server and reads exports
-	builder *Node // builds the SSR bundle
-	root    string
-	dist    string
-	port    int    // where Vite's dev server listens on 127.0.0.1
-	head    string // the tags pages load the browser modules with, set once the dev server runs
+	node *Node
+	root string
+	dist string
+	port int    // where Vite's dev server listens on 127.0.0.1
+	head string // the tags pages load the browser modules with, set once the dev server runs
 }
 
 // NewDev prepares the dev build of the application at root, with Vite's dev server on
@@ -41,16 +41,16 @@ func NewDev(root string, port int, output io.Writer) (*Dev, error) {
 		return nil, err
 	}
 	return &Dev{
-		server: NewNode(root, output), builder: NewNode(root, output),
+		node: NewNode(root, output),
 		root: root, dist: filepath.Join(root, ".tifa", "dist"), port: port,
 	}, nil
 }
 
-// Exports reads exports like Node.Exports, on the Node process of the dev server.
-func (d *Dev) Exports(files []string) (map[string][]string, error) { return d.server.Exports(files) }
+// Exports reads exports like Node.Exports.
+func (d *Dev) Exports(files []string) (map[string][]string, error) { return d.node.Exports(files) }
 
-// Close stops Vite's dev server and both Node processes.
-func (d *Dev) Close() error { return errors.Join(d.server.Close(), d.builder.Close()) }
+// Close stops Vite's dev server and its Node process.
+func (d *Dev) Close() error { return d.node.Close() }
 
 // Build brings .tifa/dist up to date and returns the build ID. The first Build of an application
 // with pages starts Vite's dev server. pages is false for an application without route.tsx,
@@ -68,7 +68,7 @@ func (d *Dev) Build(public string, pages bool) (string, error) {
 	if pages {
 		if d.head == "" {
 			var result struct{ Head string }
-			if err := d.server.call("serve", map[string]any{"port": d.port}, &result); err != nil {
+			if err := d.node.call("serve", map[string]any{"port": d.port}, &result); err != nil {
 				return "", fmt.Errorf("starting Vite's dev server: %w", err)
 			}
 			entry := DevBase + clientEntry
@@ -76,7 +76,7 @@ func (d *Dev) Build(public string, pages bool) (string, error) {
 		}
 		b.Head = d.head
 		// Unminified, so that errors in the server render point at readable code.
-		if err := d.builder.call("ssr", map[string]any{"assets": b.Head, "minify": false}, nil); err != nil {
+		if err := d.node.call("ssr", map[string]any{"assets": b.Head, "minify": false}, nil); err != nil {
 			return "", err
 		}
 	} else if err := os.Remove(ssr); err != nil && !errors.Is(err, fs.ErrNotExist) {
