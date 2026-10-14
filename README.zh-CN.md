@@ -80,15 +80,11 @@ go tool tifa build   # 得到 bin/<应用名>，前端产物已经嵌在里面
 ## 特点
 
 - **部署只有一个文件。** 纯 Go，`CGO_ENABLED=0`，和普通 Go 程序一样交叉编译。浏览器包、样式和服务端渲染器都嵌在可执行文件里。
-- **第一次请求就是完整 HTML。** Go 先跑完页面的 `Load` 和各层 `Layout` 函数，再在进程内用纯 Go 的 QuickJS 把 React 渲染成完整 HTML。搜索引擎和链接预览能看到内容、title 和 meta。
+- **第一次请求就是完整 HTML。** Go 先跑完页面的 `Load` 和各层 `Layout` 函数，再在进程内用纯 Go 的 QuickJS 把 React 渲染成完整 HTML。搜索引擎和链接预览能看到内容、title 和 meta。每个页面一次渲染完整，不做流式渲染，也没有 React Server Components。
 - **构建不需要 Node。** `tifa build` 和 `tifa dev` 用 esbuild 的 Go API 打包。Node 只用来装 npm 包，以及按需做类型检查。
 - **类型从 Go 一路到 React。** 每个页面数据的 TypeScript 类型由 Go `Load` 的返回值生成。
 - **错误在构建时报出。** 路径重复、Layout 读了不属于它的参数、`Load` 返回值不能转成 TypeScript，构建会停下并指出文件和行号。
 - **首屏之后很快。** 浏览器由 TanStack Router 接管。每次跳转只发一个数据请求，已经加载过的 Layout 不会重新取数。
-
-## 代价
-
-单次渲染比 Node 慢。订单详情这样的页面在 Apple M4 上热渲染约 5 ms。tifa 用预热的 VM 池、按数据缓存 HTML 和 ETag 来弥补。不做流式渲染，也没有 React Server Components。
 
 ## 新建应用
 
