@@ -267,8 +267,17 @@ func TestNewRefusesARootPackageThatClashes(t *testing.T) {
 	}
 }
 
+// A package named init cannot be imported by its name, since init may only be a function.
+func TestNewRefusesInit(t *testing.T) {
+	for _, module := range []string{"init", "example.com/init", "example.com/Init"} {
+		if _, err := appNames(module); err == nil || !strings.Contains(err.Error(), "init") {
+			t.Errorf("%s: %v, want an error about init", module, err)
+		}
+	}
+}
+
 // TestRootNameClashesMatchTheTemplate generates apps with root packages of many names and builds
-// them: each name of rootNameClashes must break the build, and every other name the
+// them: each name of rootNameClashes, and init, must break the build, and every other name the
 // Go files that import the root package use, plus some common ones, must build, vet and be taken
 // by tifa new. It runs the go command for each name, so it runs with the end-to-end tests.
 func TestRootNameClashesMatchTheTemplate(t *testing.T) {
@@ -331,7 +340,7 @@ func TestRootNameClashesMatchTheTemplate(t *testing.T) {
 			t.Parallel()
 			module := "example.com/" + name
 			_, clashes := rootNameClashes[name]
-			if clashes {
+			if clashes || name == "init" {
 				if _, err := appNames(module); err == nil {
 					t.Errorf("tifa new takes %s", module)
 				}
@@ -356,7 +365,7 @@ func TestRootNameClashesMatchTheTemplate(t *testing.T) {
 // names besides. Only names tifa new can derive from a module path are kept.
 func candidateRootNames(t *testing.T) []string {
 	const module = "example.com/tifanewroot"
-	names := map[string]bool{}
+	names := map[string]bool{"init": true}
 	for _, name := range strings.Fields("c r s app todo shop desk order orders store money domain root false iota unsafe sqlite atomic") {
 		names[name] = true
 	}

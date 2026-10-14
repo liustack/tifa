@@ -124,8 +124,10 @@ func appNames(modulePath string) (newApp, error) {
 		}
 		return -1
 	}, strings.ToLower(title))
-	if !token.IsIdentifier(pkg) || token.IsKeyword(pkg) || pkg == "main" {
-		return newApp{}, fmt.Errorf("the module path %s ends in %q, which makes the package name %q: a package name must start with a letter and may not be a keyword or main, so pass --module with another last element", modulePath, title, pkg)
+	// The Go files under app/ import the root package by its name, and Go does not take init as
+	// the name of an imported package.
+	if !token.IsIdentifier(pkg) || token.IsKeyword(pkg) || pkg == "main" || pkg == "init" {
+		return newApp{}, fmt.Errorf("the module path %s ends in %q, which makes the package name %q: a package name must start with a letter and may not be a keyword, main or init, so pass --module with another last element", modulePath, title, pkg)
 	}
 	if clash, ok := rootNameClashes[pkg]; ok {
 		return newApp{}, fmt.Errorf("the module path %s makes the root package %s, and the Go files under app/ that import it already use %s for %s: name the folder differently or pass --module with another last element", modulePath, pkg, pkg, clash)
