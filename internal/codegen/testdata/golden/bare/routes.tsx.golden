@@ -22,6 +22,7 @@ const r1 = createRoute({
 const r2 = createRoute({
   getParentRoute: () => r1,
   path: "guide",
+  errorComponent: DefaultError,
   loader: ({ context, location }) => load<D1>(context, "app/docs", location, "__root__"),
   staleTime: Infinity,
   preloadStaleTime: Infinity,
@@ -31,12 +32,14 @@ const r3 = createRoute({
   getParentRoute: () => r2,
   path: "/",
   component: lazyRouteComponent(m2),
+  errorComponent: DefaultError,
 })
 
 const r4 = createRoute({
   getParentRoute: () => root,
   path: "files/$",
   component: lazyRouteComponent(m3),
+  errorComponent: DefaultError,
   loader: ({ context, location }) => load<D3>(context, "app/files", location),
   staleTime: Infinity,
   preloadStaleTime: Infinity,

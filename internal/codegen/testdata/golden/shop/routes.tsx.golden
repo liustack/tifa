@@ -14,6 +14,8 @@ import type { Data as D7 } from "./app/projects/list/+route"
 const m8 = () => import("../app/projects/orders/detail/route")
 import type { Data as D8 } from "./app/projects/orders/detail/+route"
 
+const e3 = lazyRouteComponent(m3, "Error")
+
 const root = createRootRouteWithContext<RouterContext>()({
   shellComponent: DefaultDocument,
   head: rootHead(),
@@ -26,6 +28,7 @@ const r1 = createRoute({
   getParentRoute: () => root,
   id: "_app",
   component: m1.default,
+  errorComponent: DefaultError,
   loader: ({ context, location }) => load<D1>(context, "app", location, "__root__"),
   staleTime: Infinity,
   preloadStaleTime: Infinity,
@@ -43,6 +46,7 @@ const r3 = createRoute({
   getParentRoute: () => r2,
   id: "_auth",
   component: lazyRouteComponent(m2),
+  errorComponent: DefaultError,
 })
 
 const r4 = createRoute({
@@ -54,7 +58,7 @@ const r5 = createRoute({
   getParentRoute: () => r4,
   path: "projects/$projectId",
   component: lazyRouteComponent(m3),
-  errorComponent: lazyRouteComponent(m3, "Error"),
+  errorComponent: e3,
   loader: ({ context, location }) => load<D3>(context, "app/projects", location, "/_app/_notFound"),
   staleTime: Infinity,
   preloadStaleTime: Infinity,
@@ -66,12 +70,14 @@ const r6 = createRoute({
   getParentRoute: () => r3,
   path: "login",
   component: lazyRouteComponent(m4),
+  errorComponent: DefaultError,
 })
 
 const r7 = createRoute({
   getParentRoute: () => r3,
   path: "register",
   component: lazyRouteComponent(m5),
+  errorComponent: DefaultError,
 })
 
 const r8 = createRoute({
@@ -79,12 +85,14 @@ const r8 = createRoute({
   path: "/",
   component: m6.default,
   head: m6.head,
+  errorComponent: DefaultError,
 })
 
 const r9 = createRoute({
   getParentRoute: () => r5,
   path: "/",
   component: lazyRouteComponent(m7),
+  errorComponent: e3,
   loader: ({ context, location }) => load<D7>(context, "app/projects/list", location),
   staleTime: Infinity,
   preloadStaleTime: Infinity,
@@ -96,6 +104,7 @@ const r10 = createRoute({
   getParentRoute: () => r5,
   path: "orders/$orderId",
   component: lazyRouteComponent(m8),
+  errorComponent: e3,
   notFoundComponent: lazyRouteComponent(m8, "NotFound"),
   loader: ({ context, location }) => load<D8>(context, "app/projects/orders/detail", location),
   staleTime: Infinity,

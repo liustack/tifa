@@ -446,6 +446,24 @@ func routesModule(nodes []*tsNode) ([]byte, error) {
 	for _, n := range nodes {
 		byID[n.id] = n
 	}
+	index := make(map[*tsNode]int, len(nodes))
+	for i, n := range nodes {
+		index[n] = i
+	}
+	runtime["DefaultError"] = true
+	// errorOf names the Error export of a node once, so a Layout and the routes that borrow
+	// its Error share one component.
+	var shared strings.Builder
+	errorVars := map[*tsNode]string{}
+	errorOf := func(n *tsNode) string {
+		v, ok := errorVars[n]
+		if !ok {
+			v = fmt.Sprintf("e%d", index[n])
+			errorVars[n] = v
+			fmt.Fprintf(&shared, "const %s = %s\n", v, export(index[n], n, "Error"))
+		}
+		return v
+	}
 	for i, n := range nodes {
 		if n.parent == nil {
 			n.route.opts = append(n.route.opts,
@@ -454,7 +472,6 @@ func routesModule(nodes []*tsNode) ([]byte, error) {
 				"scripts: rootScripts",
 				"errorComponent: DefaultError",
 				"notFoundComponent: "+appExports("NotFound", "DefaultNotFound"))
-			runtime["DefaultError"] = true
 			continue
 		}
 		var opts []string
@@ -464,9 +481,17 @@ func routesModule(nodes []*tsNode) ([]byte, error) {
 		if n.exported("head") {
 			opts = append(opts, fmt.Sprintf("head: m%d.head", i))
 		}
-		if n.exported("Error") {
-			opts = append(opts, "errorComponent: "+export(i, n, "Error"))
+		// Every route names its Error component: its own, or the closest ancestor's, or the
+		// framework's. The server renders the component of the failed route itself while the
+		// browser catches with the closest boundary, so both must find the same one.
+		errorComponent := "DefaultError"
+		for a := n; a.parent != nil; a = a.parent {
+			if a.exported("Error") {
+				errorComponent = errorOf(a)
+				break
+			}
 		}
+		opts = append(opts, "errorComponent: "+errorComponent)
 		if n.exported("NotFound") {
 			notFound := "notFoundComponent: " + export(i, n, "NotFound")
 			if n.outlet != n.route {
@@ -512,6 +537,9 @@ func routesModule(nodes []*tsNode) ([]byte, error) {
 	}
 
 	var body strings.Builder
+	if shared.Len() > 0 {
+		body.WriteString(shared.String() + "\n")
+	}
 	for _, r := range routes {
 		var opts []string
 		if r.parent == nil {
