@@ -173,7 +173,7 @@ func (c *tsChecker) encode(t types.Type, path string, quoted, viaPtr bool) (ts s
 			}
 		}
 		if c.decode {
-			if problem := decodeProblem(t); problem != "" {
+			if problem := decodeProblem(t, false); problem != "" {
 				return c.fail(path, problem)
 			}
 		}
@@ -237,7 +237,7 @@ func (c *tsChecker) encode(t types.Type, path string, quoted, viaPtr bool) (ts s
 			return c.fail(path, typeName+" has no JSON form: "+problem)
 		}
 		if c.decode {
-			if problem := decodeProblem(u.Key()); problem != "" {
+			if problem := decodeProblem(u.Key(), true); problem != "" {
 				return c.fail(path+"[key]", problem)
 			}
 		}

@@ -198,7 +198,7 @@ func TestViolations(t *testing.T) {
 			{"app/text/route.go:57:", "POST input", "Input.Codes[]", "UnmarshalText", "not string"},
 			{"app/text/route.go:57:", "POST input", "Input.Raw", "UnmarshalJSON"},
 			{"app/text/route.go:57:", "POST input", "Input.ByID[key]", "UnmarshalText"},
-			{"app/text/route.go:90:", "GET input", "text.Word", "MarshalText", "query string"},
+			{"app/text/route.go:97:", "GET input", "text.Word", "MarshalText", "query string"},
 		}},
 		{"dirnames", [][]string{
 			{"app/a%b/route.tsx:1:", `"%"`},

@@ -190,8 +190,9 @@ var textUnmarshalSig = types.NewSignatureType(nil, nil, nil,
 
 // decodeProblem tells why encoding/json would not read a value of type t from the JSON its
 // TypeScript type describes, or returns "". checkTS has accepted t, so a MarshalText it finds
-// is the one that makes t a string.
-func decodeProblem(t types.Type) string {
+// is the one that makes t a string. A map key is a JSON string whatever its kind, so an
+// UnmarshalText reads it when key is true.
+func decodeProblem(t types.Type, key bool) string {
 	name := types.TypeString(t, shortQualifier)
 	for _, method := range []string{"UnmarshalJSON", "UnmarshalJSONFrom"} {
 		if _, _, found := lookupName(t, method); found {
@@ -209,7 +210,7 @@ func decodeProblem(t types.Type) string {
 	if fn, ok := obj.(*types.Func); !ok || !types.Identical(fn.Signature(), textUnmarshalSig) {
 		return name + " has an UnmarshalText that is not the method UnmarshalText([]byte) error: give it that signature or rename it"
 	}
-	if b, ok := t.Underlying().(*types.Basic); !marshals && (!ok || b.Info()&types.IsString == 0) {
+	if b, ok := t.Underlying().(*types.Basic); !key && !marshals && (!ok || b.Info()&types.IsString == 0) {
 		return name + " has UnmarshalText, so it is read from a JSON string, but its TypeScript type is not string: add MarshalText or remove UnmarshalText"
 	}
 	return ""

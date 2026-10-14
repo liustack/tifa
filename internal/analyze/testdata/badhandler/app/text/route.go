@@ -75,13 +75,20 @@ type Word struct {
 func (w Word) MarshalText() ([]byte, error)  { return nil, nil }
 func (w *Word) UnmarshalText(b []byte) error { return nil }
 
+// Seq is read from a JSON number as a field, but a map key is always a JSON string, which its
+// UnmarshalText reads.
+type Seq int
+
+func (s *Seq) UnmarshalText(b []byte) error { return nil }
+
 type Quiet struct {
-	Name  string    `json:"name"`
-	Skip  Hidden    `json:"-"`
-	Inner           // its note is shadowed by Note
-	Note  string    `json:"note"`
-	Word  Word      `json:"word"`
-	None  [0]Hidden `json:"none"`
+	Name  string         `json:"name"`
+	Skip  Hidden         `json:"-"`
+	Inner                // its note is shadowed by Note
+	Note  string         `json:"note"`
+	Word  Word           `json:"word"`
+	None  [0]Hidden      `json:"none"`
+	BySeq map[Seq]string `json:"bySeq"`
 }
 
 func PATCH(c *tifa.Ctx, in Quiet) error { return nil }
