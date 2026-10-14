@@ -21,8 +21,8 @@ const incompleteRender =
   'set SSR = false on the page to see the error in the browser console'
 
 // serve installs startRender, which the Go VM pool calls with the JSON of an Injected value.
-// It leaves {"html": ...}, {"redirect": {location, status}} or {"error": ...} in renderResult
-// once the queued jobs have run. The router redirects a URL it spells differently, such as
+// It leaves the HTML, or the JSON of {"redirect": {location, status}} or {"error": ...}, in
+// renderResult once the queued jobs have run. The router redirects a URL it spells differently, such as
 // /%61 for /a. Go answers redirects of Loads itself before it renders.
 //
 // React renders only the application root. The document around it, the head from the head
@@ -74,7 +74,7 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = { la
           scriptsHTML(hydration.before) +
           scriptsHTML([hydration.boundary]) +
           '</body></html>'
-        globalThis.renderResult = JSON.stringify({ html })
+        globalThis.renderResult = html
       } catch (error) {
         globalThis.renderResult = JSON.stringify({
           error:

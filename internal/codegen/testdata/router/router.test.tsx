@@ -23,7 +23,9 @@ async function renderResult(url: string, data: Record<string, RouteResult>) {
   globalThis.startRender(JSON.stringify({ url, buildId: 'b1', data }))
   for (let i = 0; i < 1000 && globalThis.renderResult === undefined; i++)
     await new Promise((resolve) => setTimeout(resolve, 0))
-  return JSON.parse(globalThis.renderResult ?? '{"error":"render did not finish"}') as {
+  const result = globalThis.renderResult ?? '{"error":"render did not finish"}'
+  // A page comes as the HTML itself, anything else as JSON.
+  return (result.startsWith('<') ? { html: result } : JSON.parse(result)) as {
     html?: string
     redirect?: { location: string; status: number }
     error?: string

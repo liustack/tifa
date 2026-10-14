@@ -345,7 +345,7 @@ func TestOpenFrontRendersWithTheBundle(t *testing.T) {
 		"assets/app-9.js": "hydrate()",
 		"ssr.js": `globalThis.startRender = (json) => {
   const input = JSON.parse(json)
-  globalThis.renderResult = JSON.stringify({ html: '<!DOCTYPE html><p>' + input.buildId + ' ' + input.url + ' ' + input.data.app.data.name + '</p>' })
+  globalThis.renderResult = '<!DOCTYPE html><p>' + input.buildId + ' ' + input.url + ' ' + input.data.app.data.name + '</p>'
 }`,
 	}
 	for name, content := range files {

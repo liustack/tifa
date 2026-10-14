@@ -139,7 +139,7 @@ func TestVMExposesNoIO(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if html != "[]" {
+	if html != "<pre>[]</pre>" {
 		t.Fatalf("unexpected host capabilities: %s", html)
 	}
 }

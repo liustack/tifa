@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/liustack/quickjs"
@@ -95,8 +96,12 @@ func render(vm *quickjs.VM, input []byte, timeout time.Duration) (string, error)
 	if !ok {
 		return "", errors.New("ssr: render left unresolved work after draining microtasks")
 	}
+	// A page is the HTML itself, so it crosses the boundary without a JSON round trip. Anything
+	// else is JSON, which starts with {.
+	if strings.HasPrefix(text, "<") {
+		return text, nil
+	}
 	var result struct {
-		HTML     string         `json:"html"`
 		Redirect *RedirectError `json:"redirect"`
 		Error    string         `json:"error"`
 	}
@@ -109,10 +114,7 @@ func render(vm *quickjs.VM, input []byte, timeout time.Duration) (string, error)
 	if result.Redirect != nil {
 		return "", result.Redirect
 	}
-	if result.HTML == "" {
-		return "", errors.New("ssr: render returned no HTML")
-	}
-	return result.HTML, nil
+	return "", errors.New("ssr: render returned neither HTML nor a redirect or an error")
 }
 
 // RedirectError is what Render returns when the router answers the URL with a redirect, as

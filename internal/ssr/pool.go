@@ -1,8 +1,8 @@
 // Package ssr renders pages to HTML in a pool of prewarmed QuickJS VMs.
 //
 // A bundle defines globalThis.startRender(json). It receives the JSON of Input
-// and leaves globalThis.renderResult as a JSON string, {"html": ...} on success
-// or {"error": ...} when the page failed. Work may continue in microtasks, the
+// and leaves globalThis.renderResult as a string: the HTML, which starts with <,
+// on success, or the JSON of {"redirect": {location, status}} or {"error": ...}. Work may continue in microtasks, the
 // host drains them before reading the result. Nothing else crosses the boundary.
 package ssr
 

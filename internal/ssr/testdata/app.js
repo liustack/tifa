@@ -1,6 +1,6 @@
 // A tiny SSR bundle for the pool tests. It follows the same contract as a real
 // bundle: startRender(json) receives {buildId, url, data} and leaves
-// globalThis.renderResult as a JSON string, {html} on success, {redirect} or {error}.
+// globalThis.renderResult as the HTML on success, or a JSON string, {redirect} or {error}.
 // data.mode selects the behaviour, data.text is echoed into the HTML.
 
 let renders = 0
@@ -40,7 +40,7 @@ globalThis.startRender = (json) => {
       return
     case 'globals': {
       const io = ['fetch', 'XMLHttpRequest', 'WebSocket', 'localStorage', 'sessionStorage', 'indexedDB', 'document', 'window', 'require', 'process', 'std', 'os', 'setTimeout', 'setInterval']
-      globalThis.renderResult = JSON.stringify({ html: JSON.stringify(io.filter((name) => typeof globalThis[name] !== 'undefined')) })
+      globalThis.renderResult = '<pre>' + JSON.stringify(io.filter((name) => typeof globalThis[name] !== 'undefined')) + '</pre>'
       return
     }
     case 'garbage': {
@@ -54,12 +54,12 @@ globalThis.startRender = (json) => {
       const cache = new WeakMap()
       for (const row of rows) cache.set(row, { row })
       Promise.resolve().then(() => {
-        globalThis.renderResult = JSON.stringify({ html: page(input) + rows.length })
+        globalThis.renderResult = page(input) + rows.length
       })
       return
     }
   }
   Promise.resolve().then(() => {
-    globalThis.renderResult = JSON.stringify({ html: page(input) })
+    globalThis.renderResult = page(input)
   })
 }
