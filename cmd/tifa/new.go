@@ -57,9 +57,10 @@ func newNewCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "new <dir>",
 		Short: "Create a new application in an empty directory",
-		Long: `new writes a small working app into dir: go.mod with the tifa command as a tool, package.json,
-tsconfig.json, and a home page with a Load, a POST handler and a test. It runs nothing and needs no
-network. The next steps it prints download the Go and npm dependencies.`,
+		Long: `new writes a small working app into dir: a todo list stored in SQLite, with a root package,
+pages under app/, tests, tifa.yaml and notes for coding agents. It runs nothing and needs no
+network. The next steps it prints download the Go and npm dependencies, with pnpm when it is on
+PATH and npm otherwise.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir := args[0]
