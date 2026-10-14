@@ -13,6 +13,8 @@
 #   ---
 #
 # read_when also accepts the inline form: read_when: [a, b]
+#
+# Chinese versions (*.zh-CN.md) are skipped by both the index and --check.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -29,8 +31,9 @@ if [ ! -d "$docs" ]; then
   exit 1
 fi
 
-# Drafts and history are not part of the index.
-files="$(cd "$root" && find docs -type f -name '*.md' \
+# Drafts and history are not part of the index. A *.zh-CN.md file is the
+# Chinese version of the English doc next to it, so it is not listed again.
+files="$(cd "$root" && find docs -type f -name '*.md' -not -name '*.zh-CN.md' \
   -not -path 'docs/archive/*' -not -path 'docs/research/*' | LC_ALL=C sort)"
 
 missing=0
