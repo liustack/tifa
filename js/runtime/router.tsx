@@ -1,6 +1,7 @@
 import {
   createMemoryHistory,
   createRouter,
+  createSerializationAdapter,
   HeadContent,
   notFound,
   redirect,
@@ -45,7 +46,7 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
 ) {
   const { buildId, serverURL, onHydrate } = options
   if (options.assets) pageAssets = options.assets
-  return createRouter({
+  const router = createRouter({
     routeTree,
     context: { source },
     isServer: serverURL !== undefined,
@@ -68,7 +69,21 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
       if (onHydrate) onHydrate(dehydrated.buildId)
     },
   })
+  // The constructor options leave serialization adapters to TanStack Start, the router reads
+  // them from its options when it dehydrates and hydrates.
+  router.options.serializationAdapters = [routeErrorAdapter]
+  return router
 }
+
+// routeErrorAdapter carries a RouteError from the server render to the browser as a
+// RouteError with its status. The default serializer would make it a plain Error, and the
+// Error components would show something else after hydration.
+const routeErrorAdapter = createSerializationAdapter({
+  key: 'tifa.RouteError',
+  test: (value): value is RouteError => value instanceof RouteError,
+  toSerializable: (error: RouteError) => ({ status: error.status, message: error.message }),
+  fromSerializable: (value: { status: number; message: string }) => new RouteError(value.status, value.message),
+})
 
 // load is the loader of every route with a Go Load: it asks the source for the route's result
 // at the URL being loaded. 404 becomes notFound(), shown by the closest NotFound from

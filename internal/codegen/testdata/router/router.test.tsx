@@ -1,5 +1,6 @@
 // Run by TestGeneratedRouterBehaves in Node, against the route tree generated for this app.
 import { createMemoryHistory, isRedirect } from '@tanstack/react-router'
+import { hydrate } from '@tanstack/react-router/ssr/client'
 import { routeTree } from './.tifa/routes'
 import { createAppRouter, load } from './.tifa/runtime/router'
 import { serve } from './.tifa/runtime/server'
@@ -134,6 +135,46 @@ test("an unmatched URL shows the root Layout's NotFound without asking for data"
   const { calls } = await client('/teams/x/missing')
   assert(calls.length === 0, `requested ${JSON.stringify(calls)}`)
   contains(await render('/teams/x/missing', {}), '<html lang="xx">', 'APP_404', 'src="/assets/app.js"')
+})
+
+// hydrateFrom runs the scripts of a server-rendered page the way a browser does and hydrates a
+// browser router from them.
+async function hydrateFrom(html: string, url: string) {
+  const g = globalThis as any
+  const saved = { window: g.window, self: g.self, document: g.document }
+  g.window = g.self = globalThis
+  try {
+    for (const [, code] of html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)) {
+      if (code.trim() === '') continue
+      g.document = { currentScript: { previousElementSibling: null, remove() {} }, querySelector: () => null }
+      new Function(code)()
+    }
+    const { router, calls } = { calls: [] as Array<[string, string]>, router: undefined as any }
+    const r = createAppRouter(
+      routeTree,
+      async (u, id) => {
+        calls.push([u, id])
+        return ok(id)
+      },
+      { history: createMemoryHistory({ initialEntries: [url] }) },
+    )
+    await hydrate(r)
+    return { router: r, calls }
+  } finally {
+    Object.assign(g, saved)
+  }
+}
+
+test('a RouteError keeps its class and status through hydration', async () => {
+  const url = '/teams/x/one'
+  const html = await render(url, { ...appData, 'app/team': ok('x'), 'app/team/one': { status: 403, error: 'permission denied' } })
+  const { router, calls } = await hydrateFrom(html, url)
+  assert(calls.length === 0, `hydration requested ${JSON.stringify(calls)}`)
+  const match = router.state.matches.find((m: any) => m.routeId.endsWith('/one'))
+  assert(
+    match?.error instanceof RouteError && match.error.status === 403 && match.error.message === 'permission denied',
+    `error after hydration: ${match?.error} ${JSON.stringify(match?.error)}`,
+  )
 })
 
 test('preloaded data never goes stale by itself', async () => {
