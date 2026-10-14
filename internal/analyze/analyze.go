@@ -600,7 +600,7 @@ func (a *analyzer) readLoad(pkg *packages.Package, owner, name string) (*Load, [
 	decl := a.funcDecl(pkg, fn)
 	a.reportTS(fieldTypePos(decl.Type.Results, 0), name+" result", checkTS(result))
 
-	uses := a.walkLoad(pkg, owner, load, decl, sig)
+	uses := a.walkLoad(pkg, owner, name == "Layout", load, decl)
 	for _, u := range uses {
 		if u.method == "Param" {
 			load.Params = append(load.Params, u.name)
@@ -896,9 +896,10 @@ func packageFunc(info *types.Info, expr ast.Expr) *types.Func {
 	return fn
 }
 
-// propagateQuery fills Uses and AllQuery of every Load. tifa.Use only reaches ancestor Layouts,
-// so the graph has no cycles once checkUses passes. The visiting set still guards against them
-// when checkUses has reported a violation.
+// propagateQuery fills Uses and AllQuery of every Load. tifa.Use only reaches the Layouts of the
+// same and ancestor directories, and a Layout function never uses itself, so the graph has no
+// cycles once checkUses passes. The visiting set still guards against them when checkUses has
+// reported a violation.
 func (a *analyzer) propagateQuery(routes []*route, layouts []*layout) {
 	byPkg := map[string]*layout{}
 	for _, l := range layouts {

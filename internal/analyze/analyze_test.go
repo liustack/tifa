@@ -200,7 +200,10 @@ func TestViolations(t *testing.T) {
 			{"app/x~1/route.tsx:1:", "x~1"},
 		}},
 		{"layoutparam", [][]string{{"app/projects/layout.go:6:", `"projectId"`, `"/projects"`}}},
-		{"usenonancestor", [][]string{{"app/shop/route.go:11:", "admin.Layout", "does not wrap"}}},
+		{"usenonancestor", [][]string{
+			{"app/shop/route.go:11:", "admin.Layout", "does not wrap"},
+			{"app/shop/layout.go:10:", "tifa.Use(c, Layout)", "its own result"},
+		}},
 		{"useclosure", [][]string{
 			{"app/page/route.go:12:", "package-level function", "closure"},
 			{"app/page/route.go:13:", "package-level function", "method"},
