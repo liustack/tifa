@@ -61,8 +61,8 @@ type Route struct {
 	Page bool `json:"page"`
 	// Load is nil when the route has no Load.
 	Load *Load `json:"load"`
-	// Methods lists the HTTP methods whose handlers route.go declares, in the order GET, POST, PUT, PATCH, DELETE.
-	Methods []string `json:"methods"`
+	// Handlers lists the method handlers route.go declares, in the order GET, POST, PUT, PATCH, DELETE.
+	Handlers []Handler `json:"handlers"`
 	// SSR is false when the route or any Layout in its chain sets SSR = false.
 	SSR bool `json:"ssr"`
 	// Cache is the route's Cache constant, false when absent.
@@ -87,6 +87,21 @@ type Load struct {
 	AllQuery []string `json:"allQuery"`
 	// Result is T for code generation inside the same process. It satisfies the rules of checkTS.
 	Result types.Type `json:"-"`
+}
+
+// Handler describes a method handler of route.go, a function named after the HTTP method it
+// answers. It takes an input after the Ctx or not, and returns a result before the error or not.
+type Handler struct {
+	// Method is GET, POST, PUT, PATCH or DELETE.
+	Method string `json:"method"`
+	// Input is the Go type of the input, qualified by full import paths, empty when the handler takes none.
+	Input string `json:"input"`
+	// Output is the Go type of the result, qualified by full import paths, empty when the handler returns only an error.
+	Output string `json:"output"`
+	// InputType and OutputType are Input and Output for code generation inside the same process.
+	// Both satisfy the rules of checkTS.
+	InputType  types.Type `json:"-"`
+	OutputType types.Type `json:"-"`
 }
 
 // Error is one convention violation at a source position.

@@ -10,6 +10,10 @@ type Ctx = core.Ctx
 // it is answered with its own status and message without calling OnError. OnError also returns it.
 type Error = core.Error
 
+// Fields is a message per input field, by its json name. Returned from Validate or a handler, it is
+// answered with 422 and the messages as "fields" in the JSON, without calling OnError.
+type Fields = core.Fields
+
 // ErrNotFound makes the server answer 404 without calling OnError.
 var ErrNotFound = core.ErrNotFound
 

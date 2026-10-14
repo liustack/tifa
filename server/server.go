@@ -208,7 +208,9 @@ func (s *Server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 	case redirect != nil:
 		http.Redirect(w, r, redirect.URL, redirect.Code)
 	case !page:
-		writeJSON(w, e.Status, map[string]string{"error": e.Message})
+		body := errorBody{Error: e.Message}
+		errors.As(err, &body.Fields)
+		writeJSON(w, e.Status, body)
 	case errors.As(err, new(*renderError)):
 		writeFallback(w, e)
 	case failure != nil:
@@ -228,6 +230,8 @@ func (s *Server) classify(c *tifa.Ctx, err error) (*core.RedirectError, tifa.Err
 		return redirect, e
 	case errors.Is(err, tifa.ErrNotFound):
 		e = tifa.Error{Status: http.StatusNotFound, Message: http.StatusText(http.StatusNotFound)}
+	case errors.As(err, new(tifa.Fields)):
+		e = tifa.Error{Status: http.StatusUnprocessableEntity, Message: http.StatusText(http.StatusUnprocessableEntity)}
 	case asPublic(err, &e):
 		if e.Message == "" {
 			e.Message = http.StatusText(e.Status)
@@ -506,4 +510,10 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 		}
 	}
 	return err
+}
+
+// errorBody is the JSON answer for a failed request that is not a page.
+type errorBody struct {
+	Error  string            `json:"error"`
+	Fields tifa.Fields `json:"fields,omitempty"`
 }

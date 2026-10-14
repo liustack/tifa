@@ -347,6 +347,12 @@ func TestInterfaceApp(t *testing.T) {
 		{"GET", "/orders/shipped", "", 409, `{"error":"order already shipped"}`},
 		{"GET", "/orders/broken", "", 503, `{"error":"try again later"}`},
 		{"DELETE", "/orders/7", "", 405, `{"error":"Method Not Allowed"}`},
+		{"GET", "/notes?tag=x&limit=1", "", 200, `[{"text":"hi","tag":"x"}]`},
+		{"GET", "/notes?limit=many", "", 400, `{"error":"invalid query parameter \"limit\""}`},
+		{"POST", "/notes", `{"text":"a","tag":"t"}`, 200, `{"text":"a","tag":"t"}`},
+		{"POST", "/notes", `{"text":""}`, 422, `{"error":"Unprocessable Entity","fields":{"text":"write something"}}`},
+		{"POST", "/notes", `{"text":"far more than twenty letters"}`, 400, `{"error":"text is too long"}`},
+		{"DELETE", "/notes?tag=x", "", 204, ""},
 	} {
 		status, header, body := request(t, tc.method, base+tc.path, tc.body)
 		if status != tc.status || body != tc.want {

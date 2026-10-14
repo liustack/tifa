@@ -11,4 +11,8 @@ func Load(c *tifa.Ctx) (*Order, error) {
 	return &Order{ID: c.Param("projectId") + c.Param("orderId")}, nil
 }
 
-func POST(c *tifa.Ctx) error { return c.NoContent(204) }
+type ShipInput struct {
+	Carrier string `json:"carrier"`
+}
+
+func POST(c *tifa.Ctx, in ShipInput) (Order, error) { return Order{ID: in.Carrier}, nil }

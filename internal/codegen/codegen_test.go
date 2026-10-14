@@ -328,7 +328,7 @@ func TestWriteKeepsUnchangedFilesAndRemovesStaleOnes(t *testing.T) {
 }
 
 func TestInterfaceOnlyAppHasNoTypeScript(t *testing.T) {
-	m := &analyze.Manifest{Module: "example.com/x", Routes: []analyze.Route{{ID: "app/api/route", Dir: "app/api", Package: "example.com/x/app/api", Path: "/api", Methods: []string{"GET"}, SSR: true}}}
+	m := &analyze.Manifest{Module: "example.com/x", Routes: []analyze.Route{{ID: "app/api/route", Dir: "app/api", Package: "example.com/x/app/api", Path: "/api", Handlers: []analyze.Handler{{Method: "GET"}}, SSR: true}}}
 	files, err := Generate(t.TempDir(), m, false)
 	if err != nil {
 		t.Fatal(err)

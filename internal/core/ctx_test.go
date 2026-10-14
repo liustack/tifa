@@ -268,3 +268,26 @@ func TestSetBodyLimitFailsOnceReadingStarted(t *testing.T) {
 		t.Fatalf("request without a body: %v", err)
 	}
 }
+
+type filter struct {
+	Status string   `json:"status"`
+	Page   int      `json:"page"`
+	Tags   []string `json:"tags"`
+	Done   bool
+	Skip   string `json:"-"`
+}
+
+func TestBindQuery(t *testing.T) {
+	r := httptest.NewRequest("GET", "/orders?status=open&page=2&tags=a&tags=b&Done=true&Skip=x&other=1", nil)
+	c := New(httptest.NewRecorder(), r, "/orders", 1024)
+	var in filter
+	if err := c.BindQuery(&in); err != nil || in.Status != "open" || in.Page != 2 || len(in.Tags) != 2 || !in.Done || in.Skip != "" {
+		t.Fatalf("%v %+v", err, in)
+	}
+	r = httptest.NewRequest("GET", "/orders?page=two", nil)
+	c = New(httptest.NewRecorder(), r, "/orders", 1024)
+	var e Error
+	if err := c.BindQuery(&in); !errors.As(err, &e) || e.Status != 400 || e.Message != `invalid query parameter "page"` {
+		t.Fatalf("got %v", err)
+	}
+}

@@ -1,5 +1,5 @@
 ---
-summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、route.go 与 route.tsx、Layout、hooks.go、404、SSR 与缓存开关，以及 Load 里 Ctx 的用法和返回值的 JSON 规则'
+summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、route.go 与 route.tsx、Layout、hooks.go、404、SSR 与缓存开关，Load 里 Ctx 的用法、带类型入参和结果的方法函数，以及数据、入参和结果的 JSON 规则'
 read_when:
   - 新建一个 tifa 应用，或给应用加页面、Layout、接口
   - 构建报 Ctx 用法或 Load 返回类型的错误，想知道怎么改
@@ -76,7 +76,7 @@ func POST(c *tifa.Ctx) error {
 }
 ```
 
-- `Load` 返回页面数据，返回类型要能转成 TypeScript（见下文「Load 返回值的 JSON 规则」）。
+- `Load` 返回页面数据，返回类型要能转成 TypeScript（见下文「JSON 规则」）。
 - `GET`、`POST`、`PUT`、`PATCH`、`DELETE` 处理和函数同名的 HTTP 方法。
 - 目录里有 `route.tsx` 就是页面，GET 由框架渲染，这时不能再写 `GET`。不需要数据、也没有别的方法的页面可以只有 `route.tsx`，不写 `route.go`。
 - 有 `route.go`、没有 `route.tsx` 的目录是接口：方法函数照写的那样回答，不能写 `Load`，因为 `Load` 是给页面取数的。
@@ -89,9 +89,30 @@ func POST(c *tifa.Ctx) error {
 | `tifa.ErrNotFound` | 404 |
 | `c.Redirect(url, code)` | 重定向 |
 | `tifa.Error{Status, Message}` | 按它的状态码和消息回答，不进 `OnError` |
+| `tifa.Fields{"carrier": "请选择承运商"}` | 答 422，按入参字段的 json 名字各带一条消息，不进 `OnError` |
 | 其他错误、panic | 交给 `OnError`，没定义时记日志并答 500 |
 
+方法函数出错时回答 JSON：`{"error": "消息"}`，`tifa.Fields` 还会加上 `"fields": {"carrier": "请选择承运商"}`。
+
 `Load` 里只能设置响应头和 cookie，调用 `c.JSON`、`c.Text`、`c.NoContent` 会返回错误。
+
+## 带入参和返回值的方法函数
+
+方法函数可以在 Ctx 后面接一个入参，在 error 前面返回一个结果。入参由框架解码，结果由框架写出：
+
+```go
+func POST(c *tifa.Ctx) error                       // 自己写响应
+func POST(c *tifa.Ctx, in ShipInput) error         // 成功答 204
+func POST(c *tifa.Ctx) (Shipment, error)           // 答 200，结果写成 JSON
+func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
+```
+
+- 入参是结构体。POST、PUT、PATCH 从请求体解码：JSON，或 URL 编码、multipart 表单。GET、DELETE 从查询字符串解码，所以字段只能是字符串、数字、布尔或它们的切片，不能有嵌入字段。
+- 字段按 `json` 标签取名，表单和查询字符串也一样。写 `form` 标签会构建报错。路径参数、请求头、cookie 照旧从 `c` 读。
+- 入参和结果遵守下文的 JSON 规则，和 `Load` 的返回值一样。
+- 入参类型有 `Validate() error` 方法时，它在解码之后、处理函数之前执行。返回 `nil` 就继续。返回 `tifa.Error` 或 `tifa.Fields` 时原样回答，想标出具体字段就返回 `tifa.Fields`。其他错误一律答 400，消息是 `err.Error()`，会原样给用户看到。
+- 请求体或查询字符串解码失败时答 400（请求体超过上限答 413，其他内容类型答 415），处理函数不执行。
+- 自己写响应的方法函数用 `c.Bind(&in)` 解码请求体，用 `c.BindQuery(&in)` 解码查询字符串。
 
 ## route.tsx
 
@@ -216,9 +237,9 @@ func OnError(c *tifa.Ctx, err error) tifa.Error // 意外错误：上报，返�
 
 tifa 只检查 `Load` 能到达的代码。在 `OnRequest`、方法函数或别处把 Ctx 存进全局变量或其他共享位置，再在 `Load` 里取出来用，这条路查不到，不要这样写。
 
-## Load 返回值的 JSON 规则
+## JSON 规则
 
-`Load` 的返回值编码成 JSON 发给页面，tifa 按它生成 TypeScript 类型。为了在 Go 1.27 的两种 `encoding/json` 实现下（默认实现和 `GOEXPERIMENT=nojsonv2`）输出一致，只接受下面这些类型。
+`Load` 和 `Layout` 函数的返回值、方法函数的入参和结果都以 JSON 传输，tifa 按它们生成 TypeScript 类型。为了在 Go 1.27 的两种 `encoding/json` 实现下（默认实现和 `GOEXPERIMENT=nojsonv2`）输出一致，只接受下面这些类型。
 
 | Go | TypeScript |
 | --- | --- |

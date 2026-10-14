@@ -95,7 +95,7 @@ func TestValidApp(t *testing.T) {
 	for _, w := range wantRoutes {
 		r := routes[w.id]
 		if r.Dir != w.dir || r.Path != w.path || r.Page != w.page || r.SSR != w.ssr || r.Cache != w.cache ||
-			!reflect.DeepEqual(r.Methods, w.methods) || !reflect.DeepEqual(r.Layouts, w.layouts) {
+			!reflect.DeepEqual(handlerMethods(r), w.methods) || !reflect.DeepEqual(r.Layouts, w.layouts) {
 			t.Errorf("route %s = %+v, want %+v", w.id, r, w)
 		}
 	}
@@ -125,6 +125,50 @@ func TestValidApp(t *testing.T) {
 	}
 }
 
+func handlerMethods(r Route) []string {
+	var methods []string
+	for _, h := range r.Handlers {
+		methods = append(methods, h.Method)
+	}
+	return methods
+}
+
+// A method handler takes an optional input after the Ctx and returns an optional result before
+// the error. The input and the result are recorded with their Go types.
+func TestTypedHandlers(t *testing.T) {
+	m, err := analyzeApp(t, "handlers")
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	const orders = "example.com/handlers/app/orders."
+	const note = "example.com/handlers/app/note."
+	want := map[string][]Handler{
+		"app/orders/route": {
+			{Method: "GET", Input: orders + "Filter", Output: "[]" + orders + "Order"},
+			{Method: "POST", Input: orders + "ShipInput"},
+			{Method: "PUT", Output: orders + "Order"},
+			{Method: "PATCH", Input: orders + "ShipInput", Output: "*" + orders + "Order"},
+			{Method: "DELETE"},
+		},
+		"app/note/route": {
+			{Method: "POST", Input: note + "note", Output: note + "note"},
+			{Method: "PUT", Input: "struct{Text string \"json:\\\"text\\\"\"}"},
+		},
+	}
+	for _, r := range m.Routes {
+		got := make([]Handler, len(r.Handlers))
+		for i, h := range r.Handlers {
+			if (h.Input == "") != (h.InputType == nil) || (h.Output == "") != (h.OutputType == nil) {
+				t.Errorf("%s %s: types %v %v do not match %q %q", r.ID, h.Method, h.InputType, h.OutputType, h.Input, h.Output)
+			}
+			got[i] = Handler{Method: h.Method, Input: h.Input, Output: h.Output}
+		}
+		if !reflect.DeepEqual(got, want[r.ID]) {
+			t.Errorf("%s handlers = %+v, want %+v", r.ID, got, want[r.ID])
+		}
+	}
+}
+
 // Each violation must be reported with its file and line. want lists, per expected error,
 // substrings that one single error message must all contain.
 func TestViolations(t *testing.T) {
@@ -135,6 +179,19 @@ func TestViolations(t *testing.T) {
 		{"duppath", [][]string{{"app/items/key+/route.go:1:", `"/items/{key}"`, `"/items/{id}"`, "app/items/id+"}}},
 		{"ongetpage", [][]string{{"app/page/route.go:7:", "GET", "route.tsx"}}},
 		{"apiload", [][]string{{"app/api/route.go:7:", "Load", "route.tsx"}}},
+		{"badhandler", [][]string{
+			{"app/api/route.go:15:", "Validate", "func() error"},
+			{"app/api/route.go:19:", "GET input", "Nested.Inner", "query string"},
+			{"app/api/route.go:21:", "POST input", "*example.com/badhandler/app/api.Tagged", "struct"},
+			{"app/api/route.go:23:", "PUT input", "Tagged.Name", "form tag", "app/api/route.go:10"},
+			{"app/api/route.go:27:", "DELETE input", "Embeds.Tagged", "embedded"},
+			{"app/api/route.go:27:", "DELETE input", "Embeds.Tagged.Name", "form tag"},
+			{"app/more/route.go:15:", "GET input", ".Data", "query string"},
+			{"app/more/route.go:17:", "POST input", "Iface.V", "interface"},
+			{"app/more/route.go:19:", "PUT result", "chan"},
+			{"app/more/route.go:21:", "PATCH input", "Deep.Inner.N", "form tag"},
+			{"app/more/route.go:23:", "DELETE must have one of the signatures"},
+		}},
 		{"dirnames", [][]string{
 			{"app/a%b/route.tsx:1:", `"%"`},
 			{"app/1x+/route.tsx:1:", "parameter name"},

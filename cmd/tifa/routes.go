@@ -45,9 +45,12 @@ func printTable(cmd *cobra.Command, m *analyze.Manifest) error {
 	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
 	fmt.Fprintln(w, "ROUTE\tPATH\tLAYOUTS\tMETHODS\tSSR\tCACHE")
 	for _, r := range m.Routes {
-		methods := r.Methods
+		var methods []string
 		if r.Page {
-			methods = append([]string{"page"}, methods...)
+			methods = append(methods, "page")
+		}
+		for _, h := range r.Handlers {
+			methods = append(methods, h.Method)
 		}
 		layouts := make([]string, len(r.Layouts))
 		for i, id := range r.Layouts {

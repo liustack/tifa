@@ -1,5 +1,5 @@
 ---
-summary: 'How to write a tifa app: folder layout, how folders become URLs, route.go and route.tsx, Layouts, hooks.go, 404s, the SSR and cache switches, how Load may use Ctx, and the JSON rules for what Load returns'
+summary: 'How to write a tifa app: folder layout, how folders become URLs, route.go and route.tsx, Layouts, hooks.go, 404s, the SSR and cache switches, how Load may use Ctx, method handlers with typed input and result, and the JSON rules for data, inputs and results'
 read_when:
   - Creating a tifa app, or adding pages, Layouts or API routes to one
   - The build reports an error about Ctx usage or a Load return type and you want to fix it
@@ -76,7 +76,7 @@ func POST(c *tifa.Ctx) error {
 }
 ```
 
-- `Load` returns the page data. Its return type must convert to TypeScript (see "JSON rules for what Load returns" below).
+- `Load` returns the page data. Its return type must convert to TypeScript (see "JSON rules" below).
 - `GET`, `POST`, `PUT`, `PATCH` and `DELETE` handle the HTTP method they are named after.
 - A folder with a `route.tsx` is a page. The framework renders its GET, so you cannot also write `GET`. A page that needs no data and no other method can be `route.tsx` alone, without `route.go`.
 - A folder with `route.go` and no `route.tsx` is an API route: every method handler answers as written, and `Load` is not allowed, because `Load` loads the data of a page.
@@ -89,9 +89,30 @@ When an error is returned:
 | `tifa.ErrNotFound` | 404 |
 | `c.Redirect(url, code)` | Redirect |
 | `tifa.Error{Status, Message}` | Answered with its status code and message, does not go to `OnError` |
+| `tifa.Fields{"carrier": "pick a carrier"}` | 422 with a message per input field by its json name, does not go to `OnError` |
 | Any other error, a panic | Goes to `OnError`. Without one, it is logged and answered with 500 |
 
+A method handler that fails answers JSON: `{"error": "message"}`, and for `tifa.Fields` also `"fields": {"carrier": "pick a carrier"}`.
+
 In `Load` you can only set response headers and cookies. Calling `c.JSON`, `c.Text` or `c.NoContent` returns an error.
+
+## Method handlers with input and result
+
+A method handler may take an input after the Ctx and return a result before the error. The framework decodes the input and writes the result:
+
+```go
+func POST(c *tifa.Ctx) error                       // writes its own response
+func POST(c *tifa.Ctx, in ShipInput) error         // answers 204 on success
+func POST(c *tifa.Ctx) (Shipment, error)           // answers 200 with the result as JSON
+func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
+```
+
+- The input is a struct. POST, PUT and PATCH decode it from the request body: JSON, or a URL-encoded or multipart form. GET and DELETE decode it from the query string, so its fields may only be strings, numbers, bools or slices of them, with no embedded fields.
+- Fields are named by their `json` tags, in a form body and the query string too. A `form` tag fails the build. Path parameters, headers and cookies still come from `c`.
+- The input and the result follow the JSON rules below, the same as the result of `Load`.
+- When the input type has a method `Validate() error`, it runs after decoding and before the handler. `nil` goes on. A `tifa.Error` or `tifa.Fields` is answered as is, so return `tifa.Fields` to mark single fields. Any other error is answered with 400 and its `err.Error()` as the message, which the user sees.
+- A body or query string that does not decode is answered with 400 (413 for a body over the limit, 415 for another content type), and the handler does not run.
+- A handler that writes its own response decodes input with `c.Bind(&in)` for the body and `c.BindQuery(&in)` for the query string.
 
 ## route.tsx
 
@@ -216,9 +237,9 @@ When you hit one of these errors, call Ctx methods directly, or pass it to a pla
 
 tifa only checks code that `Load` can reach. If you store a Ctx in a global variable or another shared place from `OnRequest`, a method handler or anywhere else, and then take it out in `Load`, tifa cannot catch it. Do not do this.
 
-## JSON rules for what Load returns
+## JSON rules
 
-The value `Load` returns is encoded as JSON and sent to the page, and tifa generates TypeScript types from it. So that the output is the same under both `encoding/json` implementations in Go 1.27 (the default one and `GOEXPERIMENT=nojsonv2`), only the types below are accepted.
+The value `Load` or a `Layout` function returns, and the input and result of a method handler, travel as JSON, and tifa generates TypeScript types from them. So that the output is the same under both `encoding/json` implementations in Go 1.27 (the default one and `GOEXPERIMENT=nojsonv2`), only the types below are accepted.
 
 | Go | TypeScript |
 | --- | --- |

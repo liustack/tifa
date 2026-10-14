@@ -33,8 +33,8 @@ func generateGo(m *analyze.Manifest, configName string) (map[string][]byte, erro
 		if r.Load != nil {
 			fmt.Fprintf(&routes, "Load: %s,\n", imports.load(r.Package, r.Dir, "Load"))
 		}
-		for _, method := range r.Methods {
-			fmt.Fprintf(&routes, "%s: %s.%s,\n", method, imports.alias(r.Package, r.Dir), method)
+		for _, h := range r.Handlers {
+			fmt.Fprintf(&routes, "%s: %s,\n", h.Method, imports.handler(r.Package, r.Dir, h))
 		}
 		fmt.Fprintf(&routes, "SSR: %t,\nCache: %t,\nLayouts: %s,\n},\n", r.SSR, r.Cache, stringSlice(r.Layouts))
 	}
@@ -93,6 +93,28 @@ type goImports struct {
 	byPath map[string]string
 	order  []string // import paths in first-use order, which follows the manifest order
 	tifa   bool
+}
+
+// handler refers to the method handler h of the package at path. A handler that takes an input
+// or returns a result goes through the adapter of the server package for its signature, with the
+// input read from the query string for GET and DELETE and from the request body otherwise.
+func (g *goImports) handler(path, dir string, h analyze.Handler) string {
+	fn := g.alias(path, dir) + "." + h.Method
+	bind := "(*tifa.Ctx).Bind"
+	if h.Method == "GET" || h.Method == "DELETE" {
+		bind = "(*tifa.Ctx).BindQuery"
+	}
+	switch {
+	case h.Input != "" && h.Output != "":
+		g.tifa = true
+		return fmt.Sprintf("server.InputOutput(%s, %s)", fn, bind)
+	case h.Input != "":
+		g.tifa = true
+		return fmt.Sprintf("server.Input(%s, %s)", fn, bind)
+	case h.Output != "":
+		return fmt.Sprintf("server.Output(%s)", fn)
+	}
+	return fn
 }
 
 // alias names the import of a package after its directory, made a Go identifier.

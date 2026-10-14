@@ -495,14 +495,13 @@ func (a *analyzer) route(d *dirInfo) *route {
 		if obj == nil {
 			continue
 		}
-		if !a.checkFunc(obj, []string{ctxType}, []string{"error"}, "func(c *tifa.Ctx) error") {
-			continue
-		}
 		if method == "GET" && d.routeTSX {
 			a.errorAt(obj.Pos(), "GET is not allowed next to route.tsx: the framework renders GET for a page")
 			continue
 		}
-		r.Methods = append(r.Methods, method)
+		if h, ok := a.readHandler(pkg, obj, method); ok {
+			r.Handlers = append(r.Handlers, h)
+		}
 	}
 	r.SSR = a.boolConst(pkg, "SSR", true)
 	r.Cache = a.boolConst(pkg, "Cache", false)
@@ -598,15 +597,7 @@ func (a *analyzer) readLoad(pkg *packages.Package, owner, name string) (*Load, [
 	load := &Load{Type: typeString(result), Result: result}
 
 	decl := a.funcDecl(pkg, fn)
-	resultPos := decl.Type.Results.List[0].Type.Pos()
-	for _, p := range checkTS(result) {
-		msg := fmt.Sprintf("%s result: %s: %s", name, p.path, p.msg)
-		if p.field != nil && p.field.Pos().IsValid() {
-			fp := a.fset.Position(p.field.Pos())
-			msg += fmt.Sprintf(" (field declared at %s:%d)", a.relFile(fp.Filename), fp.Line)
-		}
-		a.errorAt(resultPos, "%s", msg)
-	}
+	a.reportTS(fieldTypePos(decl.Type.Results, 0), name+" result", checkTS(result))
 
 	uses := a.walkLoad(pkg, owner, load, decl, sig)
 	for _, u := range uses {
