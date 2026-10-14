@@ -296,6 +296,10 @@ func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status in
 	var redirect *ssr.RedirectError
 	if errors.As(err, &redirect) {
 		// The router spells the URL differently, /%61 for /a, and sends the browser there.
+		// The redirect carries no ETag. The render is a function of the build, the URL and the
+		// data, so an ETag a client got with a 200 for this URL never belongs to a redirect,
+		// and 304 is only answered to a client that made its If-None-Match up.
+		c.Writer().Header().Del("ETag")
 		http.Redirect(c.Writer(), r, redirect.Location, redirect.Status)
 		return nil
 	}

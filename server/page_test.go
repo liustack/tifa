@@ -266,6 +266,26 @@ func TestRouterRedirectIsAnswered(t *testing.T) {
 	}
 }
 
+// A redirect of the router carries no ETag, so a client never holds one that would turn the
+// redirect into 304.
+func TestRouterRedirectCarriesNoETag(t *testing.T) {
+	s, r := newFrontServer(t, frontApp())
+	r.result = func(in ssr.Input) (string, error) {
+		if strings.Contains(in.URL, "%") {
+			return "", &ssr.RedirectError{Location: "/projects/p1", Status: 307}
+		}
+		return "<html>" + in.URL + "</html>", nil
+	}
+	w := get(s, "/projects/%701")
+	if w.Code != 307 || w.Header().Get("ETag") != "" {
+		t.Fatalf("redirect: %d %v", w.Code, w.Header())
+	}
+	etag := get(s, "/projects/p1").Header().Get("ETag")
+	if w := get(s, "/projects/%701", "If-None-Match", etag); w.Code != 307 || w.Header().Get("Location") != "/projects/p1" {
+		t.Errorf("with the ETag of the target: %d %v", w.Code, w.Header())
+	}
+}
+
 func TestStaticFilesSkipOnRequest(t *testing.T) {
 	app := frontApp()
 	var requests int
