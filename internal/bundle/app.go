@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync/atomic"
 
 	"github.com/evanw/esbuild/pkg/api"
 )
@@ -31,6 +32,7 @@ type Build struct {
 //	dist/public/  a copy of the public directory, when it exists
 //	dist/build.json
 //
+// Stylesheets that use Tailwind are compiled by the application's Tailwind CLI (tailwindPlugin).
 // target is build.target and applies to the browser bundle only. The SSR bundle runs in
 // QuickJS, never in a browser, and keeps ES2022, which QuickJS runs as it is: a lower target
 // would only make rendering slower, a higher one could emit syntax QuickJS lacks.
@@ -55,9 +57,11 @@ func App(root, public, target string, pages bool) (string, error) {
 			return "", err
 		}
 		tsconfig := filepath.Join(".tifa", "tsconfig.json")
+		var tailwindTime atomic.Int64
 		assets, _, err := Client(ClientOptions{
 			Root: root, Entry: ".tifa/client.ts", Outdir: filepath.Join(dist, "assets"),
-			Tsconfig: tsconfig, Write: true, Target: target, Plugins: []api.Plugin{generated},
+			Tsconfig: tsconfig, Write: true, Target: target,
+			Plugins: []api.Plugin{generated, tailwindPlugin(root, &tailwindTime)},
 		})
 		if err != nil {
 			return "", err

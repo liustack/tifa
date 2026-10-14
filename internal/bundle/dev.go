@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 
 	"github.com/evanw/esbuild/pkg/api"
 )
@@ -27,6 +28,7 @@ type Dev struct {
 	clientOpts api.BuildOptions
 	ssr        api.BuildContext
 	target     string
+	tailwind   atomic.Int64 // nanoseconds the Tailwind CLI ran during the last Build
 }
 
 // NewDev prepares the incremental builds of the application at root. target is build.target,
@@ -58,6 +60,7 @@ func (d *Dev) Build(public string, pages bool) (string, error) {
 	if err := os.MkdirAll(d.dist, 0o755); err != nil {
 		return "", err
 	}
+	d.tailwind.Store(0)
 	var b Build
 	if pages {
 		var err error
@@ -142,7 +145,8 @@ func (d *Dev) start() error {
 	var err error
 	d.clientOpts, err = clientBuildOptions(ClientOptions{
 		Root: d.root, Entry: ".tifa/client.ts", Outdir: filepath.Join(d.dist, "assets"),
-		Tsconfig: tsconfig, Target: d.target, Plugins: []api.Plugin{d.generated},
+		Tsconfig: tsconfig, Target: d.target,
+		Plugins: []api.Plugin{d.generated, tailwindPlugin(d.root, &d.tailwind)},
 	})
 	if err != nil {
 		return err

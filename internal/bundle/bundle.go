@@ -1,6 +1,7 @@
 // Package bundle builds the two JavaScript bundles of an application with the
 // esbuild Go library: the SSR bundle that QuickJS evaluates and the browser
-// bundle.
+// bundle. Stylesheets that use Tailwind CSS go through the application's own Tailwind CLI, which
+// runs on Node. An application without them builds without Node.
 package bundle
 
 import (
