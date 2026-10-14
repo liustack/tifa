@@ -1,9 +1,10 @@
 ---
-summary: 'tifa 应用怎么组织代码：按领域分组，先平铺在根包里，领域做大了再拆包，依赖手动组装'
+summary: 'tifa 应用怎么组织代码：按领域分组，每个领域放在 app/ 下自己的目录里、和页面在一起，根目录只放钩子和共享资源，包之间按什么方向 import，依赖手动组装'
 read_when:
   - 新建一个 tifa 应用
   - 不确定一个类型、一条查询或一个共享资源该放在哪
-  - 应用做大了，想知道某个领域该不该拆成单独的包
+  - 一个领域做大了，或者两个领域要互相调用
+  - go 命令报应用里的包之间有循环引用
 ---
 
 [English](structure.md) · 简体中文
@@ -13,67 +14,85 @@ read_when:
 tifa 应用就是一个 Go 程序，沿用 Go 的习惯。三条规则：
 
 1. 按领域分组，不按代码种类分组。
-2. 先平铺在根包里。领域做大了，再拆成单独的包。
+2. 一个领域就是 `app/` 下的一个目录。领域代码和它的页面放在一起，根目录只放钩子和整个应用共享的东西。
 3. 依赖手动组装。
 
 ## 1. 按领域分组
 
-代码按它讲的是什么来分（订单、店铺、客户），不按它是哪类代码来分。一个领域的类型、存储、查询和规则放在一起。不设 `models/`、`services/`、`repositories/`、`handlers/`、`utils/` 或 `db/` 这种从每个领域收集同一类代码的包。
+代码按它讲的是什么来分（订单、店铺、客户），不按它是哪类代码来分。一个领域装着它需要的一切：类型、存储、查询、规则，在 tifa 里还有它的页面。不设 `models/`、`services/`、`repositories/`、`handlers/`、`utils/` 或 `db/` 这种从每个领域收集同一类代码的包。
 
 检验标准：一个领域能整体拿走、评审或删除。
 
-页面本来就是这样组织的。`app/` 下的目录按业务分，一个页面的 `route.go` 和 `route.tsx` 放在同一个目录。
+## 2. 领域就是 app/ 下的目录
 
-## 2. 先平铺，做大了再拆
-
-新应用把领域代码放在根包里，也就是模块根目录、和 `hooks.go` 并列的那个包，一个领域一个文件：
+`app/` 下的目录就是 URL，本来就按业务分。所以领域放在自己的目录里，和展示它的页面在一起：
 
 ```text
 myapp/
   go.mod
-  hooks.go              OnStart、OnShutdown、OnRequest、OnError
-  db.go                 var DB，在 OnStart 里打开，在 OnShutdown 里关闭
-  project.go            Project、GetProject、ListProjects
-  order.go              Order、ListOrders、GetOrder、ShipOrder 和它们的查询
-  order_test.go
+  hooks.go                  OnStart、OnShutdown、OnRequest、OnError
+  db.go                     var DB，在 OnStart 里打开，在 OnShutdown 里关闭
+  schema.sql                所有领域的表
   app/
-    layout.go  layout.tsx
-    route.go
+    layout.go  layout.tsx  route.go
     projects/
+      project.go            Project、GetProject、ListProjects
+      project_test.go
+      route.go  route.tsx   店铺列表（如果有）
       project+/
         layout.go  layout.tsx  route.go  route.tsx
         orders/
+          order.go          Order、ListOrders、GetOrder、ShipOrder 和它们的查询
+          order_test.go
+          route.go  route.tsx
           order+/
             route.go  route.tsx
 ```
 
-`app/` 下的目录保持轻薄。它们只放页面，`route.go` 读请求，然后调用根包：
+- **代码放哪。** 领域在自己的目录里有一个以它命名的文件：`app/projects/project.go` 写作 `package projects`。一个领域既有列表页又有单条详情页时，代码放在列表那一层（`orders/`），不放进单条的目录（`order+/`）。列表那层不一定要有页面：[examples/shop](../examples/shop/README.zh-CN.md) 的订单列表显示在店铺页上，`orders/` 里只有领域代码。
+- **包名。** 普通目录用目录名（`projects`、`orders`）。参数目录用参数名（`project+` 里写 `package project`），见 [app.zh-CN.md](app.zh-CN.md#目录就是-url)。
+- **页面调用领域。** 同一目录下的页面和领域是同一个包，直接调用。下面的页面 import 它：
 
-```go
-// app/projects/project+/orders/order+/route.go
-package order
+  ```go
+  // app/projects/project+/orders/order+/route.go
+  package order
 
-import (
-	"github.com/liustack/tifa"
-	shop "github.com/liustack/tifa/examples/shop"
-)
+  import (
+  	"github.com/liustack/tifa"
+  	"github.com/liustack/tifa/examples/shop/app/projects/project+"
+  	"github.com/liustack/tifa/examples/shop/app/projects/project+/orders"
+  )
 
-func Load(c *tifa.Ctx) (shop.Order, error) {
-	return shop.GetOrder(c.Param("project"), c.Param("order"))
-}
-```
+  func Load(c *tifa.Ctx) (orders.Order, error) {
+  	p, err := tifa.Use(c, project.Layout)
+  	if err != nil {
+  		return orders.Order{}, err
+  	}
+  	return orders.GetOrder(p.ID, c.Param("order"))
+  }
+  ```
 
-只有一个包，领域之间直接互相调用，不必为了让隔壁包用到而导出，也不会有要解开的循环引用。[examples/shop](../examples/shop/README.zh-CN.md) 就是这样写的。
+- **测试和被测代码放在一起**：`order_test.go` 挨着 `order.go`。
+- **根包**只放钩子和整个应用共享的资源，比如 `db.go`、`mail.go`，不放领域代码。数据库的表结构也留在这里：所有领域的表组成同一个数据库，`OnStart` 在应用开始监听之前建好它们，而根包不能 import 领域（见下文）。查询留在各自的领域里。
+- 不属于任何领域、又被好几个领域用到的代码，比如金额格式化，单独放一个按用途命名的包，比如模块根目录下的 `money/`。
 
-出现下面这些情况时，把一个领域挪到单独的包里：
+### import 的方向
 
-- 名字开始重复同一个前缀：`OrderList`、`OrderStatus`、`orderRecord`、`ordersMu`。拆成包以后读作 `orders.List`、`orders.Status`。
-- 根包大到不好找东西，或者某个领域归一个人、一个团队负责。
-- 想用一个小的公开接口把细节藏起来。
+Go 不允许循环引用：A 包直接或经过别的包 import 了 B，B 就不能再 import A，go 命令会报 `import cycle not allowed` 并停下。放到 tifa 应用里就是：
 
-新包放在用它的页面旁边，比如 `app/projects/project+/orders/orders.go`，写作 `package orders`。好几处页面都用它时，放在模块根目录下，比如 `orders/`。只导出别的包会调用的东西。
+- **领域 import 根包**，比如用 `DB`。用固定的名字 import 它，比如 `root "example.com/myapp"`，这样不管根包叫什么，代码里都写 `root.DB`。根包（包括 `hooks.go`）不 import `app/` 下的包：领域 import 了根包，所以根包再 import 这个领域，或者 import 了这个领域的页面，就成了循环。根包自己 `package myapp` 的测试也一样。写成 `package myapp_test` 的测试可以 import 它们。
+- **页面 import 领域**：`order+/` 里的订单页 import 上一层的 `orders`，店铺的 Layout import `projects`。页面也可以 import 上层 Layout 的包，用来写 `tifa.Use(c, project.Layout)`。
+- **领域之间可以 import，但只能单向。** 在 examples/shop 里，`projects` 用 `orders.CountPending` 统计待发货的订单，所以 `projects` import `orders`，`orders` 就不能 import `projects`。目录在哪一层不要紧：可以 import 下层、上层或旁边的目录，只要没有反向的 import。
+- **领域不 import 自己的页面。** `order+/` import 了 `orders`，`orders` 就不能 import `order+/`。两边都要用的东西放进领域。
+- **包内测试算作这个包。** `package orders` 里的测试不能 import `projects`，因为 `projects` import 了 `orders`（报 `import cycle not allowed in test`）。这样的测试写成 `package orders_test`。
 
-注意 import 的方向。`app/` 下的包和拆出去的包可以 import 根包，比如用 `DB`。根包永远不反过来 import 它们，因为 Go 不允许循环引用。所以先拆调用方，再拆被调用的领域：如果 `project.go` 要统计一个店铺的订单，先把 projects 拆出去（或者和 orders 一起拆），在那之前 orders 留在根包里。
+两个领域需要互相调用时，把两边都要的那部分挪进其中一个，或者挪进一个两边都 import 的新领域。
+
+### 领域做大了
+
+- 在同一个目录里按主题拆成多个文件：`order.go`、`shipping.go`、`refund.go`。还是同一个包。
+- 有自己页面的一块，变成下面的一个目录，里面放它的代码和页面，比如 `order+/refunds/`。它一旦 import 了上层的领域，上层的领域就不能反过来 import 它。
+- 新加一个调用会构成循环时，这段代码多半放错了领域。
 
 ## 3. 依赖手动组装
 
@@ -83,12 +102,12 @@ func Load(c *tifa.Ctx) (shop.Order, error) {
 
   ```go
   // db.go
-  package shop
+  package myapp
 
   var DB *sql.DB
 
   func openDB() (err error) {
-  	DB, err = sql.Open("sqlite", "shop.db")
+  	DB, err = sql.Open("sqlite", "app.db")
   	return err
   }
   ```
@@ -99,7 +118,20 @@ func Load(c *tifa.Ctx) (shop.Order, error) {
   func OnShutdown(ctx context.Context) error { return DB.Close() }
   ```
 
+  ```go
+  // app/todos/todo.go
+  package todos
+
+  import root "example.com/myapp"
+
+  func GetTodo(ctx context.Context, id int64) (Todo, error) {
+  	t := Todo{ID: id}
+  	err := root.DB.QueryRowContext(ctx, `SELECT title, done FROM todos WHERE id = ?`, id).Scan(&t.Title, &t.Done)
+  	return t, err
+  }
+  ```
+
 - **请求里的值**，比如当前登录的用户，放在标准 context 上：`OnRequest` 调用 `c.SetContext(context.WithValue(...))`，领域提供一个带类型的读取函数。
 - **参数**：只有部分调用方要传不同的值时，用参数传就好。需要时钟、上限或某个客户端的函数，可以把它们作为参数。
-- **测试**替换变量（`DB = openTestDB(t)`），或者把假实现作为参数传进去。接口声明在用它的包里，而且只在真的有两个实现时才声明，比如真实的和假的。路由代码用 `tifatest.NewCtx` 造出的 Ctx 来测，见[测试](app.zh-CN.md#测试)。
+- **测试**替换变量（`root.DB = openTestDB(t)`），或者把假实现作为参数传进去。接口声明在用它的包里，而且只在真的有两个实现时才声明，比如真实的和假的。路由代码用 `tifatest.NewCtx` 造出的 Ctx 来测，见[测试](app.zh-CN.md#测试)。
 - 不要在 `init()` 里初始化，也不要在包级变量初始化时读资源。资源在 `OnStart` 运行之后才存在。

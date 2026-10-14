@@ -20,22 +20,23 @@ For a complete example, see [examples/shop](../examples/shop). For the build, th
 myapp/
   go.mod
   hooks.go                          process and request hooks (optional)
-  db.go                             shared resources: package-level variables and functions (optional)
-  project.go  order.go              domain code, one file per domain, flat in the root package
+  db.go                             resources the whole app shares: package-level variables and functions (optional)
   app/
     layout.go  layout.tsx           root Layout, wraps every page
     route.go                        /
     projects/
+      project.go  project_test.go   the project domain: Project, GetProject, ListProjects
       project+/
         layout.go  layout.tsx       Layout of /projects/{project} and every page below it
         route.go  route.tsx         page /projects/{project}
         orders/
+          order.go  order_test.go   the order domain: Order, ListOrders, GetOrder, ShipOrder
           order+/
             route.go  route.tsx     page /projects/{project}/orders/{order}
             items.tsx  actions.client.tsx
 ```
 
-- Code is grouped by domain. A new app keeps its domain code (types, storage, rules) flat in the root package, one file per domain, and folders under `app/` hold pages that call it. A domain moves into its own package when it grows. There is no shared `models/` or `db/` package holding every table. See [structure.md](structure.md).
+- Code is grouped by domain, and a domain is a folder under `app/`: its types, storage and rules sit next to its pages, in the list folder when it has a list and a page per item. Pages import the domain packages they show. The root package holds only the hooks and the resources the whole app shares. There is no shared `models/` or `db/` package holding every table. See [structure.md](structure.md).
 - Components and styles shared across pages go in the `app/` root.
 - Do not write a main. `tifa build` generates main and the route registration code in `.tifa/`, which `go vet ./...` and `go test ./...` do not scan.
 
@@ -63,20 +64,20 @@ Every folder below `app/` is one segment of the URL. `app/` itself is `/`.
 ```go
 package order
 
-func Load(c *tifa.Ctx) (shop.Order, error) {
+func Load(c *tifa.Ctx) (orders.Order, error) {
 	p, err := tifa.Use(c, project.Layout)
 	if err != nil {
-		return shop.Order{}, err
+		return orders.Order{}, err
 	}
-	return shop.GetOrder(p.ID, c.Param("order"))
+	return orders.GetOrder(p.ID, c.Param("order"))
 }
 
 type ShipInput struct {
 	Carrier string `json:"carrier"`
 }
 
-func POST(c *tifa.Ctx, in ShipInput) (shop.Shipment, error) {
-	return shop.ShipOrder(c.Param("project"), c.Param("order"), in.Carrier)
+func POST(c *tifa.Ctx, in ShipInput) (orders.Shipment, error) {
+	return orders.ShipOrder(c.Param("project"), c.Param("order"), in.Carrier)
 }
 ```
 
@@ -197,8 +198,8 @@ A Layout lives in its folder next to the page of that folder, if there is one: `
 ```go
 package project
 
-func Layout(c *tifa.Ctx) (shop.Project, error) {
-	return shop.GetProject(c.Param("project"))
+func Layout(c *tifa.Ctx) (projects.Project, error) {
+	return projects.GetProject(c.Param("project"))
 }
 
 const LayoutSSR = false // optional, default true
@@ -276,7 +277,7 @@ func OnError(c *tifa.Ctx, err error) tifa.Error // unexpected errors: report, re
 ```
 
 - `OnRequest` runs for pages, navigation data requests, API routes and unmatched URLs. It does not run for static files. For an unmatched URL, `c.Pattern()` is empty.
-- Resources the whole app shares, such as a database connection or a logger, go in files at the app root next to `hooks.go`, for example `db.go` or `middleware.go`. Each one builds a package-level variable or a function: set it up in `OnStart`, release it in `OnShutdown`, and use it directly anywhere, for example `myapp.DB`. Packages under `app/` import the root package for this, so the root package does not import them back (Go does not allow import cycles). Tables, models and queries stay in their domains. Route code uses these resources only inside functions, never while package-level variables are initialized. Do not use `init()` for setup.
+- Resources the whole app shares, such as a database connection or a logger, go in files at the app root next to `hooks.go`, for example `db.go` or `middleware.go`. Each one builds a package-level variable or a function: set it up in `OnStart`, release it in `OnShutdown`, and use it directly anywhere, for example `root.DB` after `import root "example.com/myapp"`. Domains under `app/` import the root package for this, so the root package does not import them back: Go does not allow import cycles. Models and queries stay in their domains. Route code uses these resources only inside functions, never while package-level variables are initialized. Do not use `init()` for setup. See [which way imports go](structure.md#which-way-imports-go).
 - Store request-scoped values with the standard context: `c.SetContext(context.WithValue(...))`. Business packages provide typed getters.
 
 ## Testing

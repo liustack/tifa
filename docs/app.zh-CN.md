@@ -20,22 +20,23 @@ read_when:
 myapp/
   go.mod
   hooks.go                          进程与请求钩子（可选）
-  db.go                             共享资源：包级变量和函数（可选）
-  project.go  order.go              领域代码，一个领域一个文件，平铺在根包里
+  db.go                             整个应用共享的资源：包级变量和函数（可选）
   app/
     layout.go  layout.tsx           根 Layout，套到所有页面
     route.go                        /
     projects/
+      project.go  project_test.go   店铺领域：Project、GetProject、ListProjects
       project+/
         layout.go  layout.tsx       /projects/{project} 及下面所有页面的 Layout
         route.go  route.tsx         页面 /projects/{project}
         orders/
+          order.go  order_test.go   订单领域：Order、ListOrders、GetOrder、ShipOrder
           order+/
             route.go  route.tsx     页面 /projects/{project}/orders/{order}
             items.tsx  actions.client.tsx
 ```
 
-- 代码按领域分组。新应用把领域代码（类型、存储、规则）平铺在根包里，一个领域一个文件，`app/` 下的目录放调用它的页面。领域做大了再拆成单独的包。不设一个装着所有表的 `models/` 或 `db/` 包。见 [structure.zh-CN.md](structure.zh-CN.md)。
+- 代码按领域分组，一个领域就是 `app/` 下的一个目录：它的类型、存储和规则和页面放在一起，既有列表又有单条页面时放在列表那一层。页面 import 它要展示的领域包。根包只放钩子和整个应用共享的资源。不设一个装着所有表的 `models/` 或 `db/` 包。见 [structure.zh-CN.md](structure.zh-CN.md)。
 - 跨页面共用的组件和样式放在 `app/` 根目录。
 - 不写 main。`tifa build` 把 main 和路由注册代码生成在 `.tifa/`，`go vet ./...`、`go test ./...` 不会扫到它。
 
@@ -63,20 +64,20 @@ myapp/
 ```go
 package order
 
-func Load(c *tifa.Ctx) (shop.Order, error) {
+func Load(c *tifa.Ctx) (orders.Order, error) {
 	p, err := tifa.Use(c, project.Layout)
 	if err != nil {
-		return shop.Order{}, err
+		return orders.Order{}, err
 	}
-	return shop.GetOrder(p.ID, c.Param("order"))
+	return orders.GetOrder(p.ID, c.Param("order"))
 }
 
 type ShipInput struct {
 	Carrier string `json:"carrier"`
 }
 
-func POST(c *tifa.Ctx, in ShipInput) (shop.Shipment, error) {
-	return shop.ShipOrder(c.Param("project"), c.Param("order"), in.Carrier)
+func POST(c *tifa.Ctx, in ShipInput) (orders.Shipment, error) {
+	return orders.ShipOrder(c.Param("project"), c.Param("order"), in.Carrier)
 }
 ```
 
@@ -197,8 +198,8 @@ Layout 放在它的目录里，和这个目录的页面（如果有）并列：`
 ```go
 package project
 
-func Layout(c *tifa.Ctx) (shop.Project, error) {
-	return shop.GetProject(c.Param("project"))
+func Layout(c *tifa.Ctx) (projects.Project, error) {
+	return projects.GetProject(c.Param("project"))
 }
 
 const LayoutSSR = false // 可选，默认 true
@@ -276,7 +277,7 @@ func OnError(c *tifa.Ctx, err error) tifa.Error // 意外错误：上报，返�
 ```
 
 - `OnRequest` 作用于页面、导航数据请求、API 路由和没匹配的 URL，不作用于静态文件。没匹配时 `c.Pattern()` 为空。
-- 整个应用共享的资源，比如数据库连接、日志，放在应用根目录、和 `hooks.go` 并列的文件里，比如 `db.go`、`middleware.go`。每个文件构建一个包级变量或一个函数：在 `OnStart` 里初始化，在 `OnShutdown` 里释放，其他地方直接用，比如 `myapp.DB`。`app/` 下的包 import 根包来用它们，所以根包不反过来 import 它们（Go 不允许循环引用）。表、模型和查询留在各自的领域里。路由代码只在函数里用这些资源，不在包级变量初始化时读。不用 `init()` 做初始化。
+- 整个应用共享的资源，比如数据库连接、日志，放在应用根目录、和 `hooks.go` 并列的文件里，比如 `db.go`、`middleware.go`。每个文件构建一个包级变量或一个函数：在 `OnStart` 里初始化，在 `OnShutdown` 里释放，其他地方直接用，比如 `import root "example.com/myapp"` 之后写 `root.DB`。`app/` 下的领域 import 根包来用它们，所以根包不反过来 import 它们：Go 不允许循环引用。模型和查询留在各自的领域里。路由代码只在函数里用这些资源，不在包级变量初始化时读。不用 `init()` 做初始化。见 [import 的方向](structure.zh-CN.md#import-的方向)。
 - 请求级的值用标准 context 写入：`c.SetContext(context.WithValue(...))`，业务包提供带类型的读取函数。
 
 ## 测试

@@ -29,22 +29,22 @@ go test ./...
 ## Folders
 
 ```text
-hooks.go                     blocks cross-site write requests, logs unexpected errors
-project.go                   shop domain: types, the count of orders waiting to ship, storage
-order.go                     order domain: list, details, shipping rules, storage
+hooks.go                       blocks cross-site write requests, logs unexpected errors
 app/
-  layout.go  layout.tsx      root Layout: sidebar, top bar, document shell and site-wide 404
-  icons.tsx  styles.css      icons and styles shared across pages
-  route.go                   redirects / to the first shop
+  layout.go  layout.tsx        root Layout: sidebar, top bar, document shell and site-wide 404
+  icons.tsx  styles.css        icons and styles shared across pages
+  route.go                     redirects / to the first shop
   projects/
-    project+/                /projects/{project}
-      layout.go  layout.tsx  shop Layout: shop name, orders waiting to ship, shop notes
-      route.go  route.tsx    order list
+    project.go                 shop domain: types, the count of orders waiting to ship, storage
+    project+/                  /projects/{project}
+      layout.go  layout.tsx    shop Layout: shop name, orders waiting to ship, shop notes
+      route.go  route.tsx      order list
       orders/
-        order+/              /projects/{project}/orders/{order}: order details, POST ships the order
+        order.go               order domain: list, details, shipping rules, storage
+        order+/                /projects/{project}/orders/{order}: order details, POST ships the order
 ```
 
-The domain code sits flat in the root package, one file per domain. Storage is in memory with demo data, standing in for database tables, and changes are lost on restart. Folders under `app/` hold pages and their method handlers: each folder is a segment of the URL, `route.go` holds `Load`, which calls the root package, and the order page's `POST`, which ships the order, and `route.tsx` holds the UI and reads the result of `Load` through `./+route`. The order page reads its shop through the shop Layout with `tifa.Use(c, project.Layout)`. `app/route.go` is an API route whose `GET` redirects `/` to the shop `studio`. See [Structuring an app](../../docs/structure.md) for why, and for when a domain gets its own package.
+Each domain sits in its folder under `app/`, next to the pages that show it, with its tests: `app/projects` holds the shop domain, and `app/projects/project+/orders` the order domain, one level above the folder of one order rather than inside it. The root package holds only the hooks. Storage is in memory with demo data, standing in for database tables, and changes are lost on restart. Each folder under `app/` is a segment of the URL. `route.go` holds `Load`, which calls the domain packages, and the order page's `POST`, which ships the order, and `route.tsx` holds the UI and reads the result of `Load` through `./+route`. The order page reads its shop through the shop Layout with `tifa.Use(c, project.Layout)`. `app/route.go` is an API route whose `GET` redirects `/` to the shop `studio`. The shop domain counts the orders waiting to ship, so `projects` imports `orders`, and `orders` imports neither `projects` nor the pages. See [Structuring an app](../../docs/structure.md) for why, and for which way imports may go.
 
 ## Things to try
 
