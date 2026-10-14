@@ -229,9 +229,12 @@ function tagKey(tag: Tag): string {
   return key + '\n\n' + text(tag)
 }
 
+// A page with a Content-Security-Policy hides the nonce of an element in the document: the
+// attribute reads empty and the nonce property keeps the value, so the key reads the property.
 function elementKey(element: Element): string {
   let key = element.localName
-  for (const attr of Array.from(element.attributes)) key += '\n' + attr.name + '=' + attr.value
+  for (const attr of Array.from(element.attributes))
+    key += '\n' + attr.name + '=' + (attr.name === 'nonce' ? (element as HTMLElement).nonce : attr.value)
   return key + '\n\n' + (element.textContent ?? '')
 }
 

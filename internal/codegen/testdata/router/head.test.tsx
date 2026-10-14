@@ -63,6 +63,9 @@ class FakeNode {
     if (at < 0) throw new Error('insertBefore: not a child')
     this.childNodes.splice(at, 0, node)
     node.parentNode = this
+    // A document with a Content-Security-Policy hides the nonce of an element once it is in the
+    // document: the attribute reads empty and only the nonce property holds the value.
+    if (node instanceof FakeElement && node.getAttribute('nonce')) node.setAttribute('nonce', '')
     return node
   }
   append(...nodes: FakeNode[]) {
@@ -77,6 +80,7 @@ class FakeNode {
 class FakeElement extends FakeNode {
   attributes: Array<{ name: string; value: string }> = []
   textContent = ''
+  nonce = ''
   constructor(readonly localName: string) {
     super(1)
   }
@@ -86,6 +90,8 @@ class FakeElement extends FakeNode {
     const existing = this.attributes.find((a) => a.name === name)
     if (existing) existing.value = value
     else this.attributes.push({ name, value })
+    // Setting the attribute sets the property, hiding it leaves the property as it is.
+    if (name === 'nonce' && value !== '') this.nonce = value
   }
   getAttribute(name: string) {
     return this.attributes.find((a) => a.name === name)?.value ?? null
@@ -191,6 +197,19 @@ test('kept head elements move into the new order', async () => {
     const after = managed()
     assert(after[1] === b && after[2] === a, `head ${after.map(describe)}`)
     assert(fakeDocument.inserted.length === 5, `elements were created again: ${fakeDocument.inserted.length}`)
+  })
+})
+
+test('a script with a nonce stays in place while its tag stays', async () => {
+  await withDocument(async () => {
+    const head = page({ headScripts: [{ nonce: 'n1', children: 'run()' }], links: [{ rel: 'icon', href: '/i.svg', nonce: 'n1' }] })
+    syncHead(head)
+    const before = managed()
+    const inserted = fakeDocument.inserted.length
+    syncHead(head)
+    syncHead(page({ headScripts: [{ nonce: 'n1', children: 'run()' }], links: [{ rel: 'icon', href: '/i.svg', nonce: 'n1' }] }))
+    assert(fakeDocument.inserted.length === inserted, `elements were created again, the script runs again: ${managed().map(describe)}`)
+    assert(managed().every((e, i) => e === before[i]), `head ${managed().map(describe)}`)
   })
 })
 
