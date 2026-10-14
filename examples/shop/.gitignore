@@ -1,2 +1,26 @@
+# Build output: the executable and tifa's generated code
+/bin/
+.tifa/
+
+# Node
 node_modules/
-/dist/
+*.tsbuildinfo
+*.log
+
+# Tests
+*.test
+*.out
+coverage.*
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Editors, IDEs and operating systems
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db

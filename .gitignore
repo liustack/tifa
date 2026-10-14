@@ -1,22 +1,62 @@
-.issues/**/smoke.js
-.issues/**/go-quick
-.playwright-cli/
-.DS_Store
-coverage.out
+# Build output
+/bin/
 .tifa/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
 
-# Binaries for programs and plugins
+# Tests and profiling
 *.test
 *.out
-.idea
-/bin/
-.run
+*.prof
+*.pprof
+coverage.*
 /test/testdata/
+/test/apps/*/bin/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+*.tsbuildinfo
+
+# Go workspaces are local
+go.work
+go.work.sum
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Editors and IDEs
+.vscode/
+.idea/
+*.iml
+.run/
+.fleet/
+.zed/
+.cursor/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+.#*
+\#*#
+
+# Operating systems
+.DS_Store
+._*
+Thumbs.db
+desktop.ini
+
+# Tools and logs
+.playwright-cli/
 /logs/
-
-# Test applications
-/test/apps/*/dist/
-/test/apps/*/node_modules/
-
-/js/host/node_modules/
-/internal/bundle/testdata/node_modules/
+*.log
