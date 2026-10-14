@@ -1,0 +1,12 @@
+// Package {{.Package}} holds the code of the app that is not tied to one URL.
+package {{.Package}}
+
+import "sync/atomic"
+
+var clicks atomic.Int64
+
+// Clicks is how many times the button on the home page has been pressed since the app started.
+func Clicks() int64 { return clicks.Load() }
+
+// Click presses the button once and returns the new count.
+func Click() int64 { return clicks.Add(1) }

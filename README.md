@@ -90,6 +90,20 @@ go tool tifa build   # bin/<app>, with the frontend embedded
 
 A single render is slower than Node. An order detail page takes about 5 ms to render on an Apple M4 once warm. tifa makes up for it with a pool of prewarmed VMs, an HTML cache keyed by the data, and ETags. There is no streaming and there are no React Server Components.
 
+## Start an app
+
+You need Go 1.27 and pnpm (npm works too):
+
+```sh
+go run github.com/liustack/tifa/cmd/tifa@latest new myapp
+cd myapp
+go mod tidy
+pnpm install
+go tool tifa dev     # http://127.0.0.1:3000
+```
+
+`tifa new` writes a home page with a Go `Load`, a `POST` the page calls from the browser, and a test of both. The module path is the folder name unless you pass `--module example.com/myapp`.
+
 ## Try the example
 
 [examples/shop](examples/shop) is a small order workbench: two shops, an order list, order details, shipping, and three kinds of 404. You need Go 1.27 and pnpm:

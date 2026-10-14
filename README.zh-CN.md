@@ -90,6 +90,20 @@ go tool tifa build   # 得到 bin/<应用名>，前端产物已经嵌在里面
 
 单次渲染比 Node 慢。订单详情这样的页面在 Apple M4 上热渲染约 5 ms。tifa 用预热的 VM 池、按数据缓存 HTML 和 ETag 来弥补。不做流式渲染，也没有 React Server Components。
 
+## 新建应用
+
+需要 Go 1.27 和 pnpm（npm 也行）：
+
+```sh
+go run github.com/liustack/tifa/cmd/tifa@latest new myapp
+cd myapp
+go mod tidy
+pnpm install
+go tool tifa dev     # http://127.0.0.1:3000
+```
+
+`tifa new` 写好一个首页：Go 的 `Load`，页面在浏览器里调用的 `POST`，以及测这两个函数的测试。模块路径默认是目录名，也可以传 `--module example.com/myapp`。
+
 ## 跑一下示例
 
 [examples/shop](examples/shop/README.zh-CN.md) 是一个小店主的订单工作台：两家店铺、订单列表、订单详情、发货和三种 404。需要 Go 1.27 和 pnpm：

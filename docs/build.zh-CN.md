@@ -1,5 +1,5 @@
 ---
-summary: 'tifa build 做什么、.tifa/ 里生成了哪些文件和产物、应用的 tsconfig 与 go.mod 怎么配、生成的程序怎么启动和回答页面请求'
+summary: 'tifa new 怎么新建应用、tifa build 做什么、.tifa/ 里生成了哪些文件和产物、应用的 tsconfig 与 go.mod 怎么配、生成的程序怎么启动和回答页面请求'
 read_when:
   - 改 internal/codegen、cmd/tifa 的 build 命令或 server.Main
   - 新建一个 tifa 应用，或给 test/apps 加应用
@@ -11,6 +11,19 @@ read_when:
 [English](build.md) · 简体中文
 
 # 构建与生成代码
+
+## tifa new
+
+```sh
+tifa new <目录> [--module 模块路径]
+```
+
+在不存在或为空的目录里写一个能跑的小应用：把 tifa 命令登记为工具的 `go.mod`、`package.json`、`tsconfig.json`、`.gitignore`、`README.md`、一个带点击计数的根包，以及 `app/` 下的根 Layout 和首页，首页的 `route.go` 带 `Load`、`POST` 和测试。
+
+- 模块路径默认是目录名，`--module` 可以另给。应用要 import 根目录的包，所以路径必须是 go 命令能 import 的。tifa new 拒绝含 `vendor` 段的路径，也拒绝首段不带点、且（不分大小写）和标准库包或 go 命令包模式的首段相同的路径（比如 `fmt`、`net`、`all`），即使并没有同名的包。改传 `--module example.com/fmt`。
+- 根包以模块路径最后一段命名（不算 `/v2` 这类主版本后缀），转成小写，只留字母和数字。首页用这个名字 import 它，所以 tifa new 拒绝关键字、`error` 和 `string` 这类预定义名、`main`，以及首页用到的 `c` 和 `tifa`。`package.json` 里的名字也是它，超过 npm 上限 214 个字符时截断。
+- `go.mod` 要求的 tifa 版本，是 go 命令下载来运行的这个命令的版本：`go run github.com/liustack/tifa/cmd/tifa@<版本> new myapp`，或者在应用里 `go tool tifa new`。在 tifa 源码目录里构建、或被源码目录 replace 的命令写 `v0.0.0`，并多给一步用 `go mod edit -replace` 把 `go.mod` 指向源码目录。
+- `tifa new` 只写文件，不跑 go 或 npm 命令，也不联网。它最后打印接下来的步骤：`cd` 进目录、`go mod tidy`、`pnpm install` 和 `go tool tifa dev`，开发服务在 http://127.0.0.1:3000。
 
 ## tifa build
 

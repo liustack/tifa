@@ -22,6 +22,6 @@ func newRootCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(newBuildCmd(), newDevCmd(), newRoutesCmd())
+	root.AddCommand(newNewCmd(), newBuildCmd(), newDevCmd(), newRoutesCmd())
 	return root
 }

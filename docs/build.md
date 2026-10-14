@@ -1,5 +1,5 @@
 ---
-summary: 'What tifa build does, which files and outputs it generates in .tifa/, how to set up the tsconfig and go.mod of an app, and how the generated program starts and answers page requests'
+summary: 'How tifa new starts an app, what tifa build does, which files and outputs it generates in .tifa/, how to set up the tsconfig and go.mod of an app, and how the generated program starts and answers page requests'
 read_when:
   - Changing internal/codegen, the build command in cmd/tifa, or server.Main
   - Creating a tifa app, or adding an app to test/apps
@@ -11,6 +11,19 @@ read_when:
 English · [简体中文](build.zh-CN.md)
 
 # Build and generated code
+
+## tifa new
+
+```sh
+tifa new <dir> [--module module-path]
+```
+
+Writes a small working app into `dir`, which must be missing or empty: `go.mod` with the tifa command as a tool, `package.json`, `tsconfig.json`, `.gitignore`, `README.md`, a root package with a click counter, and `app/` with a root Layout and a home page whose `route.go` has a `Load`, a `POST` and a test.
+
+- The module path is the folder name unless `--module` gives one. The app imports the package at its root, so the path must be one the go command imports. tifa new refuses a path with a `vendor` element, and one whose first element has no dot and is, in any case, the first element of a standard library package or a go command pattern (such as `fmt`, `net` or `all`), even when no such package exists. Pass `--module example.com/fmt` instead.
+- The root package is named after the last element of the module path (not counting a major version suffix such as `/v2`), lowercased, with only its letters and digits kept. The home page imports it by that name, so tifa new refuses keywords, predeclared names such as `error` or `string`, `main`, and `c` and `tifa`, which the home page uses. The name in `package.json` is the same, cut to 214 characters, the npm limit.
+- `go.mod` requires the version of the tifa command that ran when the go command downloaded it: `go run github.com/liustack/tifa/cmd/tifa@<version> new myapp`, or `go tool tifa new` in an app. A command built in a tifa checkout, or replaced by one, writes `v0.0.0` and adds a step that points `go.mod` at the checkout with `go mod edit -replace`.
+- `tifa new` writes files only. It runs no go or npm commands and needs no network. It prints the next steps: `cd` into the folder, `go mod tidy`, `pnpm install` and `go tool tifa dev`, which serves the app at http://127.0.0.1:3000.
 
 ## tifa build
 
