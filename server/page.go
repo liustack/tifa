@@ -201,7 +201,9 @@ func (s *Server) pageHandler(r Route, chain []load) func(*tifa.Ctx) error {
 		if !s.front {
 			return loadsAsJSON(c, chain)
 		}
-		c.SetHeader("Vary", routeHeader)
+		// Added, not set: the Vary of OnRequest, such as Cookie, must stay for caches to keep
+		// the answers of two users apart. No Load runs yet, so the header map is not shared.
+		c.Writer().Header().Add("Vary", routeHeader)
 		if c.IsData() {
 			return s.dataRequest(c, chain)
 		}

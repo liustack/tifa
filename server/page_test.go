@@ -367,3 +367,20 @@ func TestFrontWithoutPagesKeepsJSONErrors(t *testing.T) {
 		t.Errorf("public file: %d", w.Code)
 	}
 }
+
+// The page answer varies on X-Tifa-Route as well as on whatever the application varies on.
+func TestPageKeepsTheVaryOfTheApplication(t *testing.T) {
+	app := frontApp()
+	app.Hooks.OnRequest = func(c *tifa.Ctx) error {
+		c.SetHeader("Vary", "Cookie")
+		return c.Next()
+	}
+	s, _ := newFrontServer(t, app)
+	for _, header := range [][]string{nil, {"X-Tifa-Route", "app", "X-Tifa-Build", "b1"}} {
+		w := get(s, "/projects/p1", header...)
+		vary := strings.Join(w.Header().Values("Vary"), ", ")
+		if !strings.Contains(vary, "Cookie") || !strings.Contains(vary, "X-Tifa-Route") {
+			t.Errorf("%v: Vary %q", header, vary)
+		}
+	}
+}
