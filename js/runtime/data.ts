@@ -4,8 +4,8 @@
 // (Injected), a client navigation asks for them with one request per URL: a GET of the page URL
 // with the header X-Tifa-Route listing the route IDs and X-Tifa-Build carrying the build ID the
 // page was rendered with. The answer is a JSON object of RouteResult by route ID, each route
-// read on its own whatever the HTTP status. A server built from other sources answers 409, and
-// the browser reloads the current page.
+// read on its own whatever the HTTP status. A redirect comes as 200 and Redirected. A server
+// built from other sources answers 409, and the browser reloads the current page.
 
 // RouteResult is the outcome of one Load. status is 200 with data, 404 when the Load returned
 // tifa.ErrNotFound, a redirect status with location when it returned c.Redirect, or the status
@@ -92,7 +92,11 @@ export function collector(buildId: () => string): Source {
   }
   const request = async (url: string, waiters: Map<string, Waiter[]>) => {
     try {
+      // A redirect of the server arrives as JSON (Redirected). One that still comes as 3xx,
+      // from a proxy say, is not followed with the headers of this page: the browser loads
+      // the URL as a whole page and follows it there.
       const response = await fetch(url, {
+        redirect: 'manual',
         headers: {
           Accept: 'application/json',
           [routeHeader]: [...waiters.keys()].join(','),
@@ -106,7 +110,17 @@ export function collector(buildId: () => string): Source {
         reloadOnce()
         return
       }
+      if (response.type === 'opaqueredirect') {
+        window.location.assign(url)
+        return
+      }
       const body: unknown = await response.json().catch(() => undefined)
+      if (isRedirected(body)) {
+        // Every route of the request gets the redirect, and its loader throws redirect().
+        for (const list of waiters.values())
+          for (const waiter of list) waiter.resolve({ status: body.status, location: body.redirect })
+        return
+      }
       if (!isGrouped(body)) throw new RouteError(response.status, errorMessage(response, body))
       // Each route gets its own result, whatever the HTTP status of the whole answer.
       for (const [id, list] of waiters) {
@@ -140,6 +154,22 @@ function reloadOnce() {
   if (reloading) return
   reloading = true
   window.location.reload()
+}
+
+// Redirected is the answer to a data request that OnRequest, a Load the middleware let
+// through, or ServeMux redirected: {"redirect": URL, "status": 3xx}.
+export interface Redirected {
+  redirect: string
+  status: number
+}
+
+function isRedirected(body: unknown): body is Redirected {
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    typeof (body as Redirected).redirect === 'string' &&
+    typeof (body as Redirected).status === 'number'
+  )
 }
 
 // isGrouped reports whether body is the answer to a data request: RouteResult by route ID.

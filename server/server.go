@@ -197,9 +197,14 @@ func (s *Server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 		log.Printf("tifa: %s %s: %v after the response was written", r.Method, r.URL.Path, err)
 		return
 	}
+	// Only the collector sends X-Tifa-Route. It also reaches a redirect of ServeMux, which has
+	// no pattern.
+	data := c.IsData() && s.front && (r.Method == "GET" || r.Method == "HEAD")
 	switch {
 	case failure != nil && failure.data:
 		_ = writeData(w, http.StatusOK, items)
+	case redirect != nil && data:
+		_ = writeData(w, http.StatusOK, dataRedirect{Redirect: redirect.URL, Status: redirect.Code})
 	case redirect != nil:
 		http.Redirect(w, r, redirect.URL, redirect.Code)
 	case !page:

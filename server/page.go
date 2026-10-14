@@ -298,6 +298,14 @@ func writeData(w http.ResponseWriter, status int, value any) error {
 	return err
 }
 
+// dataRedirect is how a data request answers a redirect: 200 and this JSON, which the
+// collector turns into a router redirect. A 3xx would be followed by fetch, still asking for
+// the routes of the old page.
+type dataRedirect struct {
+	Redirect string `json:"redirect"`
+	Status   int    `json:"status"`
+}
+
 // renderPage renders the document in the VM. A successful page gets an ETag from the hash of
 // the build ID, the URL and the data, which are all the render depends on. A matching
 // If-None-Match is answered 304, and with cache the HTML of an earlier render is reused.

@@ -1,7 +1,7 @@
 // Run by TestGeneratedRouterBehaves in Node, against the route tree generated for this app.
-import { createMemoryHistory } from '@tanstack/react-router'
+import { createMemoryHistory, isRedirect } from '@tanstack/react-router'
 import { routeTree } from './.tifa/routes'
-import { createAppRouter } from './.tifa/runtime/router'
+import { createAppRouter, load } from './.tifa/runtime/router'
 import { serve } from './.tifa/runtime/server'
 import { collector, RouteError, type RouteResult } from './.tifa/runtime/data'
 
@@ -140,14 +140,16 @@ test('preloaded data never goes stale by itself', async () => {
   }
 })
 
-// stubFetch answers every request with status and body and counts the requests.
+// stubFetch answers every request with status and body and records the requests.
 function stubFetch(status: number, body: unknown) {
   const seen: string[] = []
-  globalThis.fetch = (async (url: string) => {
+  const options: RequestInit[] = []
+  globalThis.fetch = (async (url: string, init: RequestInit) => {
     seen.push(url)
+    options.push(init)
     return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
   }) as typeof fetch
-  return seen
+  return Object.assign(seen, { options })
 }
 
 test('a grouped answer reaches every route whatever the HTTP status', async () => {
@@ -163,6 +165,21 @@ test('a grouped answer reaches every route whatever the HTTP status', async () =
     (error) => error,
   )
   assert(failed instanceof RouteError && failed.status === 500 && failed.message === 'down', `failure ${failed}`)
+})
+
+test('a redirect of the server reaches every route as a redirect', async () => {
+  const requests = stubFetch(200, { redirect: '/login', status: 302 })
+  const source = collector(() => 'b1')
+  const results = await Promise.all([source('/teams/x/one', 'app/team'), source('/teams/x/one', 'app/team/one')])
+  for (const result of results)
+    assert(result.status === 302 && result.location === '/login', `result ${JSON.stringify(result)}`)
+  assert(requests.options[0]?.redirect === 'manual', `fetch follows redirects: ${JSON.stringify(requests.options[0])}`)
+  // The loader turns it into a router redirect to the target.
+  const thrown = await load({ source: async () => results[0] }, 'app/team', { pathname: '/teams/x/one', searchStr: '' }).then(
+    () => undefined,
+    (error) => error,
+  )
+  assert(isRedirect(thrown) && thrown.options.href === '/login', `loader threw ${thrown}`)
 })
 
 test('a 409 reloads the current page once', async () => {

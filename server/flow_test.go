@@ -101,6 +101,29 @@ func TestDataRequestAnswersByRouteWhenNextFailsUnhandled(t *testing.T) {
 	}
 }
 
+// A redirect answers a data request with a redirect the collector follows, not with 3xx,
+// which fetch would follow with the headers of the old page.
+func TestDataRequestRedirectIsJSON(t *testing.T) {
+	var reported []error
+	s, _ := newFrontServer(t, secretApp(func(c *tifa.Ctx) error {
+		if _, err := c.Cookie("session"); err != nil {
+			return c.Redirect("/login", 302)
+		}
+		return c.Next()
+	}, &reported))
+	w := get(s, "/secret", secretData...)
+	if w.Code != 200 || w.Header().Get("Location") != "" || strings.TrimSpace(w.Body.String()) != `{"redirect":"/login","status":302}` {
+		t.Errorf("data request: %d %v %s", w.Code, w.Header(), w.Body.String())
+	}
+	if w := get(s, "/secret"); w.Code != 302 || w.Header().Get("Location") != "/login" {
+		t.Errorf("page: %d %v", w.Code, w.Header())
+	}
+	// ServeMux redirects a non-canonical path the same way.
+	if w := get(s, "/./secret", append([]string{"Cookie", "session=1"}, secretData...)...); w.Code != 200 || !strings.Contains(w.Body.String(), `"redirect":"/secret"`) {
+		t.Errorf("non-canonical path: %d %v %s", w.Code, w.Header(), w.Body.String())
+	}
+}
+
 // A failed render of an error page is an unexpected error of its own: OnError sees it and Go
 // writes the page.
 func TestFailedErrorPageGoesToOnError(t *testing.T) {
