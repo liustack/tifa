@@ -148,6 +148,18 @@ func TestDevClientEntryLoadsTheRefreshClient(t *testing.T) {
 	}
 }
 
+// The main of tifa dev calls server.DevMain, which lets tifa dev reload the SSR bundle in the
+// running app. The main of tifa build calls server.Main (see the golden files).
+func TestDevMainCallsDevMain(t *testing.T) {
+	files := generate(t, "shop", true)
+	if !strings.Contains(string(files["main.go"]), "server.DevMain(server.App{") {
+		t.Errorf("dev main.go:\n%s", files["main.go"])
+	}
+	if prod := generate(t, "shop", false); strings.Contains(string(prod["main.go"]), "DevMain") {
+		t.Errorf("production main.go:\n%s", prod["main.go"])
+	}
+}
+
 func TestPageWithoutDefaultExportFails(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "app/page/route.tsx"), "export function Page() { return null }\n")

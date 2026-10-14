@@ -14,7 +14,7 @@ read_when:
 tifa dev [--dir 应用根目录] [--addr 127.0.0.1:9527]
 ```
 
-启动后先打印 `tifa dev: serving http://<地址>`，然后做一次完整构建（步骤同 [tifa build](build.zh-CN.md)），启动应用。浏览器只连 `--addr`。tifa dev 把页面和数据请求转给应用，把 `/__tifa/vite/` 下的请求（浏览器模块和 Vite 的 HMR websocket）转给 Vite 的开发服务器。应用重启期间请求会等它起来。Ctrl-C 或 SIGTERM 停掉应用、Vite 和 tifa dev。
+启动后先打印 `tifa dev: serving http://<地址>`，然后做一次完整构建（步骤同 [tifa build](build.zh-CN.md)），启动应用。浏览器只连 `--addr`。tifa dev 把页面和数据请求转给应用，把 `/__tifa/vite/` 下的请求（浏览器模块和 Vite 的 HMR websocket）转给 Vite 的开发服务器。应用重启或换 SSR 包期间，页面请求会等它。Ctrl-C 或 SIGTERM 停掉应用、Vite 和 tifa dev。
 
 ## Vite
 
@@ -35,7 +35,8 @@ tifa dev 监视应用根目录，跳过 `.git`、`.tifa`、`node_modules` 和放
 | 新增或删除 `route.tsx`、`layout.tsx`，或改 `tifa.yaml`、`tifa.json` | 全部步骤 | 刷新 |
 
 - 前端改动经 Vite 送到打开着的页面：React Fast Refresh 换掉改过的组件并保留它们的状态，新 CSS 替换旧的。模块换不了时（比如除了组件还导出了别的东西），Vite 自己刷新页面。
-- 同时 tifa dev 重建 SSR 包并重启应用，不做 go build：开发用的程序以 `serve --dist .tifa/dist` 启动，重启后读新的包。这期间到达的页面请求会等重启后的应用，所以刷新看到的总是新的服务端渲染。
+- 同时 tifa dev 重建 SSR 包（不做 go build），运行中的应用从 `.tifa/dist` 读入新包，换掉旧包。应用不重启：`OnStart` 不会再跑，应用放在内存里的东西都还在。这期间到达的页面请求会等新包换上，所以刷新看到的总是新的服务端渲染。
+- 开发用的程序调用 `server.DevMain` 而不是 `server.Main`。只有它响应 tifa dev 发来的 `POST /__tifa/dev/reload`，读包用的是和启动时同一段代码。`tifa build` 生成的程序调用 `server.Main`，没有这个路径。
 - 路由清单有没有变，看的是静态分析后生成的 `.tifa/` 内容。只改函数体时生成内容不变，跳过生成和打包。
 - 公共目录里的图片、字体等文件不触发重建，下一次打包时才复制过去。
 - 样式表经过 Vite 开发服务器，`@tailwindcss/vite` 编译 Tailwind CSS 的方式和在任何 Vite 应用里一样。
@@ -62,6 +63,7 @@ tifa dev: 07:35:36 ready in 260ms
 - 浏览器里编译失败的模块显示 Vite 自己的浮层。
 - 首次构建就失败时没有旧版本可用，所有请求答 502 和错误原文，等修好后自动恢复。
 - 应用启动后立刻退出时，浮层标题是 `The app did not start`，内容是应用的退出原因。
+- 运行中的应用读不进重建的 SSR 包时（比如 QuickJS 编译不过），浮层标题是 `The app did not load the SSR bundle`，应用继续用原来的包。
 
 浮层可以关掉，关掉后不影响后续刷新。
 

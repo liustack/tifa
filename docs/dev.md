@@ -14,7 +14,7 @@ English · [简体中文](dev.zh-CN.md)
 tifa dev [--dir app-root] [--addr 127.0.0.1:9527]
 ```
 
-On start it prints `tifa dev: serving http://<address>`, then runs a full build (the same steps as [tifa build](build.md)) and starts the app. The browser connects to `--addr` only. tifa dev forwards page and data requests to the app, and requests under `/__tifa/vite/`, the browser modules and Vite's HMR websocket, to Vite's dev server. While the app restarts, requests wait for it to come back. Ctrl-C or SIGTERM stops the app, Vite and tifa dev.
+On start it prints `tifa dev: serving http://<address>`, then runs a full build (the same steps as [tifa build](build.md)) and starts the app. The browser connects to `--addr` only. tifa dev forwards page and data requests to the app, and requests under `/__tifa/vite/`, the browser modules and Vite's HMR websocket, to Vite's dev server. While the app restarts or loads a new SSR bundle, page requests wait for it. Ctrl-C or SIGTERM stops the app, Vite and tifa dev.
 
 ## Vite
 
@@ -35,7 +35,8 @@ tifa dev watches the app root and skips `.git`, `.tifa`, `node_modules`, and `bi
 | A `route.tsx` or `layout.tsx` added or removed, or `tifa.yaml` or `tifa.json` changed | all steps | Reload |
 
 - A front end change reaches open pages through Vite: React Fast Refresh swaps the edited components and keeps their state, and new CSS replaces the old. Vite reloads the page itself when a module cannot be swapped, such as one that exports more than components.
-- At the same time tifa dev rebuilds the SSR bundle and restarts the app, without go build: the dev program starts with `serve --dist .tifa/dist` and reads the new bundle after a restart. A page request that arrives during this waits for the restarted app, so a reload always shows the new server render.
+- At the same time tifa dev rebuilds the SSR bundle, without go build, and the running app loads it from `.tifa/dist` in place of the old one. The app does not restart: `OnStart` does not run again, and what the app keeps in memory stays. A page request that arrives during this waits for the new bundle, so a reload always shows the new server render.
+- The dev program calls `server.DevMain` in place of `server.Main`. Only it answers tifa dev's `POST /__tifa/dev/reload`, and it loads the bundle with the same code that loads it at start. The program `tifa build` makes calls `server.Main` and has no such path.
 - Whether the route manifest changed is decided by the `.tifa/` content generated after static analysis. If only function bodies changed, the generated content stays the same, and generation and bundling are skipped.
 - Images, fonts and other files in the public folder do not trigger a rebuild. They are copied on the next bundle.
 - Stylesheets go through Vite's dev server, so `@tailwindcss/vite` compiles Tailwind CSS the way it does in any Vite app.
@@ -62,6 +63,7 @@ The step names are `static analysis`, `code generation`, `bundle` and `go build`
 - A module that fails to compile in the browser shows Vite's own overlay.
 - If the very first build fails, there is no old version to serve. Every request gets 502 with the original error, and things recover on their own once fixed.
 - If the app exits right after starting, the overlay title is `The app did not start` and the body shows why the app exited.
+- If the running app cannot load a rebuilt SSR bundle, such as one QuickJS cannot compile, the overlay title is `The app did not load the SSR bundle`. The app keeps serving the bundle it had.
 
 You can close the overlay. Closing it does not affect later reloads.
 

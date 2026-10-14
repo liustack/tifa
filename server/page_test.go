@@ -377,12 +377,11 @@ func TestOpenFrontRendersWithTheBundle(t *testing.T) {
 		}
 	}
 	s := newAppServer(t, frontApp())
-	pool, err := s.openFront(os.DirFS(dir), config.Default().SSR)
-	if err != nil {
+	if err := s.openFront(os.DirFS(dir), config.Default().SSR); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if err := pool.Close(); err != nil {
+		if err := s.closeFront(); err != nil {
 			t.Error(err)
 		}
 	})

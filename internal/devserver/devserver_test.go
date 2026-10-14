@@ -18,9 +18,13 @@ import (
 	"github.com/liustack/tifa/js"
 )
 
-// buildPipeline is a Pipeline for Run: GoBuild writes "build N" to the file the fake app serves.
+// buildPipeline is a Pipeline for Run: GoBuild writes "build N" to the file the fake app serves,
+// Bundle writes "bundle N" to the file the fake app loads as its SSR bundle, or "broken".
 type buildPipeline struct {
 	versionFile string
+	bundleFile  string
+	bundles     int
+	broken      bool
 	mu          sync.Mutex
 	calls       []string
 	builds      int
@@ -36,9 +40,17 @@ func (p *buildPipeline) step(name string) error {
 	if p.fail == name {
 		return fmt.Errorf("%s: app/store.go:3:2: undefined: x", strings.ToLower(name))
 	}
-	if name == "GoBuild" {
+	switch name {
+	case "GoBuild":
 		p.builds++
 		return os.WriteFile(p.versionFile, []byte(fmt.Sprintf("build %d", p.builds)), 0o644)
+	case "Bundle":
+		p.bundles++
+		bundle := fmt.Sprintf("bundle %d", p.bundles)
+		if p.broken {
+			bundle = "broken"
+		}
+		return os.WriteFile(p.bundleFile, []byte(bundle), 0o644)
 	}
 	return nil
 }
@@ -89,7 +101,9 @@ func startDev(t *testing.T, failFirst string) *devRun {
 	writeFile(t, dir, "app/list/route.tsx", "export {}")
 	versionFile := filepath.Join(t.TempDir(), "version")
 	t.Setenv("TIFA_FAKE_APP_VERSION", versionFile)
-	p := &buildPipeline{versionFile: versionFile, fail: failFirst}
+	bundleFile := filepath.Join(t.TempDir(), "bundle")
+	t.Setenv("TIFA_FAKE_APP_BUNDLE", bundleFile)
+	p := &buildPipeline{versionFile: versionFile, bundleFile: bundleFile, fail: failFirst}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -238,13 +252,18 @@ func TestRunHoldsPagesWhileBundling(t *testing.T) {
 	}
 	answered := make(chan string, 1)
 	go func() {
-		resp, err := http.Get(d.url + "/")
+		resp, err := http.Get(d.url + "/bundle")
 		if err != nil {
 			answered <- err.Error()
 			return
 		}
-		resp.Body.Close()
-		answered <- "answered"
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			answered <- err.Error()
+			return
+		}
+		answered <- string(body)
 	}()
 	select {
 	case got := <-answered:
@@ -254,14 +273,53 @@ func TestRunHoldsPagesWhileBundling(t *testing.T) {
 	close(release)
 	select {
 	case got := <-answered:
-		if got != "answered" {
-			t.Fatal(got)
+		if got != "bundle 2" {
+			t.Fatalf("the held request got %q, want the new bundle", got)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("the request still waits 5s after the bundle")
 	}
 	d.waitStatus(t, func(st status) bool { return st.Version == v1 && st.Error == "" })
 	expectSteps(t, d.p, "Bundle")
+}
+
+// After a rebuild of the SSR bundle alone, the running app loads the new bundle: no restart, so
+// OnStart does not run again and its state stays. A bundle the app cannot load shows the error,
+// and the app keeps serving the bundle it has.
+func TestRunReloadsTheBundleWithoutARestart(t *testing.T) {
+	d := startDev(t, "")
+	v1 := d.waitVersionAfter(t, "")
+	d.p.took()
+	_, pid := get(t, d.url+"/pid")
+	expectPage(t, d.url+"/bundle", "bundle 1")
+
+	writeFile(t, d.dir, "app/list/route.tsx", "export const x = 2")
+	d.waitStatus(t, func(st status) bool { return st.Version == v1 && st.Error == "" })
+	expectSteps(t, d.p, "Bundle")
+	expectPage(t, d.url+"/bundle", "bundle 2")
+	expectPage(t, d.url+"/pid", pid)
+
+	d.p.mu.Lock()
+	d.p.broken = true
+	d.p.mu.Unlock()
+	writeFile(t, d.dir, "app/list/route.tsx", "export const x = 3")
+	failed := d.waitStatus(t, func(st status) bool { return st.Error != "" })
+	if failed.Version != v1 || failed.Title != "The app did not load the SSR bundle" || !strings.Contains(failed.Error, "SyntaxError: the bundle is broken") {
+		t.Fatalf("got %+v", failed)
+	}
+	expectPage(t, d.url+"/bundle", "bundle 2")
+	expectPage(t, d.url+"/pid", pid)
+
+	d.p.mu.Lock()
+	d.p.broken = false
+	d.p.mu.Unlock()
+	writeFile(t, d.dir, "app/list/route.tsx", "export const x = 4")
+	d.waitStatus(t, func(st status) bool { return st.Version == v1 && st.Error == "" })
+	expectPage(t, d.url+"/bundle", "bundle 4")
+	expectPage(t, d.url+"/pid", pid)
+	if strings.Contains(d.out.String(), "shutdown done") {
+		t.Fatalf("the app was restarted:\n%s", d.out.String())
+	}
 }
 
 func TestRunReportsTheAppStopping(t *testing.T) {

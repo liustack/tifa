@@ -1,6 +1,6 @@
 // Package devserver is the core of tifa dev. It watches the application directory, rebuilds
-// what a change needs through a Pipeline, restarts the application, and proxies the browser to
-// it. Browsers learn about rebuilds and build errors over SSE from the paths under /__tifa/dev/.
+// what a change needs through a Pipeline, restarts the application or has it load a rebuilt SSR
+// bundle, and proxies the browser to it. Browsers learn about rebuilds and build errors over SSE from the paths under /__tifa/dev/.
 package devserver
 
 import (
@@ -35,7 +35,9 @@ type Options struct {
 	Dir    string
 	Ignore []string
 	// App runs the application that Pipeline.GoBuild builds: the executable, then its arguments.
-	// The application gets the address to listen on in TIFA_SERVER_ADDR.
+	// The application gets the address to listen on in TIFA_SERVER_ADDR. After a rebuild of the
+	// SSR bundle alone it gets POST /__tifa/dev/reload instead of a restart, which server.DevMain
+	// answers with 204 once it loaded the new bundle.
 	App      []string
 	Pipeline Pipeline
 	// Vite is the address of Vite's dev server, which Pipeline.Bundle starts. Requests under
@@ -56,7 +58,7 @@ type Options struct {
 var errOptions = errors.New("tifa dev: incomplete options")
 
 // Run builds and starts the application, then serves browsers on ln until ctx is done: requests
-// go to the application, a file change rebuilds and restarts it. A failed build leaves the
+// go to the application, a file change rebuilds it and restarts it or reloads its SSR bundle. A failed build leaves the
 // running application alone and shows the error in the browser. When ctx is done Run stops the
 // application and returns. Errors from builds are reported to the browser, Run only returns
 // errors that stop tifa dev itself, such as the file watcher failing.
@@ -246,8 +248,9 @@ func (d *dev) fail(title string, err error) {
 }
 
 // rebuild runs the steps, restarts the application and tells the browsers to reload. When only
-// the bundle was rebuilt, Vite has updated the pages already and they stay: the version stays the
-// same, and only the server render changes.
+// the bundle was rebuilt, the running application loads it instead of restarting, so its state
+// stays. Vite has updated the pages already and they stay too: the version stays the same, and
+// only the server render changes.
 func (d *dev) rebuild(ctx context.Context, s steps) {
 	if s == (steps{}) {
 		return
@@ -272,8 +275,14 @@ func (d *dev) rebuild(ctx context.Context, s steps) {
 		}
 		return
 	}
-	reload := ran != steps{bundle: true} || d.version() == ""
-	if err := d.restart(ctx, reload); err != nil {
+	if ran == (steps{bundle: true}) && d.running() {
+		if err := d.reloadBundle(ctx); err != nil {
+			if ctx.Err() == nil {
+				d.fail("The app did not load the SSR bundle", err)
+			}
+			return
+		}
+	} else if err := d.restart(ctx, d.version() == "" || ran != steps{bundle: true}); err != nil {
 		if ctx.Err() == nil {
 			d.fail("The app did not start", err)
 		}
@@ -283,6 +292,34 @@ func (d *dev) rebuild(ctx context.Context, s steps) {
 	d.hub.publish(status{Version: d.serving})
 	d.mu.Unlock()
 	d.log.Printf("ready in %s", time.Since(start).Round(time.Millisecond))
+}
+
+// running reports whether an application listens.
+func (d *dev) running() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.live != nil
+}
+
+// reloadBundle asks the running application to load the rebuilt SSR bundle, see
+// server.DevMain. It keeps running with its state, and its version stays.
+func (d *dev) reloadBundle(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, d.o.ProxyWait)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "POST", "http://"+d.appAddr+reloadPath, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		return fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+	return nil
 }
 
 // restart stops the running application and starts the new build, waiting until it listens.

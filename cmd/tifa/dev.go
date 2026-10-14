@@ -42,7 +42,8 @@ func newDevCmd() *cobra.Command {
 		Long: `dev builds the application like build, runs it behind a proxy on --addr together with
 Vite's dev server, and rebuilds on every saved change: Vite updates TypeScript and CSS in open
 pages, which then only needs a new SSR bundle, Go needs go build, a change to the routes
-regenerates .tifa/ as well. After a Go change the app restarts and open pages reload. A failed
+regenerates .tifa/ as well. A new SSR bundle is loaded by the running app, which keeps its state.
+After a Go change the app restarts and open pages reload. A failed
 build keeps the running app and shows the error in the page.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {

@@ -29,7 +29,7 @@ type Exports func(files []string) (map[string][]string, error)
 
 // Generate returns the generated files of the application at root, by path relative to Dir with
 // forward slashes. dev selects the browser entry of tifa dev, which also loads the reload client
-// of the dev server. exports reads the exports of route.tsx and layout.tsx. It is not called for
+// of the dev server, and the main of tifa dev, which calls server.DevMain. exports reads the exports of route.tsx and layout.tsx. It is not called for
 // an application without pages.
 func Generate(root string, m *analyze.Manifest, dev bool, exports Exports) (map[string][]byte, error) {
 	files := map[string][]byte{}
@@ -49,7 +49,7 @@ func Generate(root string, m *analyze.Manifest, dev bool, exports Exports) (map[
 	if err != nil {
 		return nil, err
 	}
-	goFiles, err := generateGo(m, configName)
+	goFiles, err := generateGo(m, configName, dev)
 	if err != nil {
 		return nil, err
 	}
