@@ -1,10 +1,11 @@
 ---
-summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、route.go 与 route.tsx、Layout、hooks.go、404、SSR 与缓存开关，Load 里 Ctx 的用法、带类型入参和结果的方法函数，以及数据、入参和结果的 JSON 规则'
+summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、route.go 与 route.tsx、Layout、hooks.go、404、SSR 与缓存开关，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数，以及数据、入参和结果的 JSON 规则'
 read_when:
   - 新建一个 tifa 应用，或给应用加页面、Layout、API 路由
   - 构建报 Ctx 用法或 Load 返回类型的错误，想知道怎么改
   - 改 internal/analyze 的规则，需要知道对用户承诺了什么
   - 改 examples/shop 或 test/apps 里的应用
+  - 给 Load、Layout 函数、方法函数或 OnRequest 写 Go 测试
 ---
 
 [English](app.md) · 简体中文
@@ -277,6 +278,32 @@ func OnError(c *tifa.Ctx, err error) tifa.Error // 意外错误：上报，返�
 - `OnRequest` 作用于页面、导航数据请求、API 路由和没匹配的 URL，不作用于静态文件。没匹配时 `c.Pattern()` 为空。
 - 整个应用共享的资源，比如数据库连接、日志，放在应用根目录、和 `hooks.go` 并列的文件里，比如 `db.go`、`middleware.go`。每个文件构建一个包级变量或一个函数：在 `OnStart` 里初始化，在 `OnShutdown` 里释放，其他地方直接用，比如 `myapp.DB`。`app/` 下的包 import 根包来用它们，所以根包不反过来 import 它们（Go 不允许循环引用）。表、模型和查询留在各自的领域里。路由代码只在函数里用这些资源，不在包级变量初始化时读。不用 `init()` 做初始化。
 - 请求级的值用标准 context 写入：`c.SetContext(context.WithValue(...))`，业务包提供带类型的读取函数。
+
+## 测试
+
+`Load`、`Layout`、方法函数和 `OnRequest` 都是普通的 Go 函数，在代码旁边用 `go test` 测。`tifatest.NewCtx(t, r)` 把一个 `httptest` 请求变成函数要的 `*tifa.Ctx`，同时返回记录函数写出内容的 recorder：
+
+```go
+// app/projects/project+/orders/order+/route_test.go
+func TestLoad(t *testing.T) {
+	r := httptest.NewRequest("GET", "/projects/studio/orders/SH-1041", nil)
+	r.Pattern = "/projects/{project}/orders/{order}"
+	r.SetPathValue("project", "studio")
+	r.SetPathValue("order", "SH-1041")
+	c, _ := tifatest.NewCtx(t, r)
+	o, err := tifa.Use(c, Load)
+	// 检查 o 和 err
+}
+```
+
+这样测的是函数，不是 HTTP 响应，要检查的是函数的返回值和错误。解码入参、跑 `Validate`、把结果变成 JSON 或 204、把错误变成 404、422、重定向或交给 `OnError`、回答导航数据请求，这些只有服务端做。返回值和错误不会写进 recorder，函数自己没写响应时，recorder 一直是空的 200。要检查 HTTP 响应，就向构建好的应用发请求。
+
+- `c.Param` 读的就是路径参数，用 `r.SetPathValue` 设置解码后的值。`c.Pattern()` 是调用 `NewCtx` 时的 `r.Pattern`。
+- `Load` 和 `Layout` 通过 `tifa.Use(c, Load)` 调用，这样跑起来的规则和服务端一样：同一个请求只跑一次，写响应体会失败。`Load` 里 `tifa.Use` 的 Layout 在同一个请求上跑。只有函数用 `tifa.Use` 要的 Layout 才会跑。
+- 方法函数直接调用：`POST(c)`，有入参就是 `POST(c, in)`。入参就是你传的值，所以 `Validate` 单独测。`Validate` 会改入参时，传改过的入参。
+- 测 `OnRequest` 时，`tifatest.SetNext(c, next)` 设置 `c.Next()` 调用什么：`next` 原样跑一次，它的错误就是 `c.Next()` 的返回值。它代替的是路由，所以不恢复 panic，也不写出结果。
+- 请求体上限是 `server.body_limit` 的默认值 1 MiB，可以用 `c.SetBodyLimit` 改。测试结束时会清理请求的 multipart 临时文件。
+- `tifa build` 不读 `_test.go` 文件，所以测试可以放在 `app/` 下任何目录里。
 
 ## Load 里 Ctx 的用法
 
