@@ -434,13 +434,17 @@ func (a *analyzer) dirPath(d *dirInfo) ([]segment, bool) {
 	return segs, true
 }
 
-// routeNames are the names that only route.go declares. route.go and layout.go of one
-// directory share a package, so a Layout has names of its own: Layout and LayoutSSR.
-var routeNames = append([]string{"Load", "SSR", "Cache"}, methods...)
+// routeNames are the names that only route.go declares, layoutNames those that only layout.go
+// declares. route.go and layout.go of one directory share a package, so a Layout has names of
+// its own.
+var (
+	routeNames  = append([]string{"Load", "SSR", "Cache"}, methods...)
+	layoutNames = []string{"Layout", "LayoutSSR"}
+)
 
-// checkPackageNames reports Path, which the directory replaces, and the names of route.go in a
-// directory that has no route, so that a Layout written the old way, with Load and SSR, is not
-// silently left without data.
+// checkPackageNames reports Path, which the directory replaces, and each name of route.go or
+// layout.go that is declared in another file of the package. The files are read by name, so a
+// Load in layout.go or a Cache in a helper file would otherwise be silently left out.
 func (a *analyzer) checkPackageNames(d *dirInfo) {
 	pkg := a.byDir[d.id]
 	if pkg == nil {
@@ -450,19 +454,25 @@ func (a *analyzer) checkPackageNames(d *dirInfo) {
 	if obj := scope.Lookup("Path"); obj != nil {
 		a.errorAt(obj.Pos(), "Path is not declared: the directory under app/ is the URL, write {name} as the directory name+ and {name...} as name++")
 	}
-	if d.routeGo || d.routeTSX {
-		return
-	}
-	for _, name := range routeNames {
-		obj := scope.Lookup(name)
-		switch {
-		case obj == nil:
-		case name == "Load":
-			a.errorAt(obj.Pos(), "Load loads the data of a page in route.go: a Layout loads its data with func Layout(c *tifa.Ctx) (T, error)")
-		case name == "SSR":
-			a.errorAt(obj.Pos(), "SSR switches server rendering of a page in route.go: a Layout declares LayoutSSR")
-		default:
-			a.errorAt(obj.Pos(), "a layout does not declare %s, it belongs in route.go", name)
+	for _, names := range []struct {
+		file string
+		list []string
+	}{{"route.go", routeNames}, {"layout.go", layoutNames}} {
+		for _, name := range names.list {
+			obj := scope.Lookup(name)
+			if obj == nil {
+				continue
+			}
+			file := filepath.Base(a.fset.Position(obj.Pos()).Filename)
+			switch {
+			case file == names.file:
+			case name == "Load" && file == "layout.go":
+				a.errorAt(obj.Pos(), "Load loads the data of a page in route.go: a Layout loads its data with func Layout(c *tifa.Ctx) (T, error)")
+			case name == "SSR" && file == "layout.go":
+				a.errorAt(obj.Pos(), "SSR switches server rendering of a page in route.go: a Layout declares LayoutSSR")
+			default:
+				a.errorAt(obj.Pos(), "%s is read from %s only, move it there from %s", name, names.file, file)
+			}
 		}
 	}
 }

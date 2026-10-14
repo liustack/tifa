@@ -318,6 +318,15 @@ func TestViolations(t *testing.T) {
 		}},
 		{"badoutside", [][]string{{"bad/bad.go:3:15:", "cannot use"}}},
 		{"bridge", [][]string{{"app/bad/route.go:5:17:", "cannot use"}}},
+		{"rolefiles", [][]string{
+			{"app/layout.go:7:", "Load", "func Layout"},
+			{"app/layout.go:9:", "POST", "route.go"},
+			{"app/layout.go:11:", "SSR", "LayoutSSR"},
+			{"app/layout.go:13:", "Cache", "route.go"},
+			{"app/mixed/route.go:7:", "Layout", "layout.go"},
+			{"app/mixed/route.go:9:", "LayoutSSR", "layout.go"},
+			{"app/mixed/extra.go:3:", "Cache", "route.go"},
+		}},
 		{"structure", [][]string{
 			{"app/empty/layout.go:5:", "Path is not declared"},
 			{"app/empty/layout.go:7:", "Load", "func Layout"},

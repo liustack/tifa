@@ -202,7 +202,7 @@ func Layout(c *tifa.Ctx) (shop.Project, error) {
 const LayoutSSR = false // optional, default true
 ```
 
-- `layout.go` and `route.go` of one folder are one Go package, so `Layout`, `LayoutSSR` and the page's `Load`, `SSR`, `Cache` and method handlers may sit in either file. In a folder with only Layout files and no `route.go` or `route.tsx`, `Load`, `SSR`, `Cache` and method handlers fail the build.
+- `layout.go` and `route.go` of one folder are one Go package, but each name has its own file: `Layout` and `LayoutSSR` go in `layout.go`, and `Load`, `SSR`, `Cache` and the method handlers go in `route.go`. Declaring one of them in any other file of the package fails the build. Helpers and types may go in any file.
 - A Layout's `c.Param` may only read parameters of its own folder path. `app/projects/project+/layout.go` may read `project`, not `order`. A page's `Load` is held to its own path the same way.
 - When you switch between pages under the same Layout, the Layout component is not remounted and keeps its state. When a parameter the Layout function reads changes (for example, you move to another project), the Layout remounts and its state resets. When a parameter it does not read changes, the state is kept. Pages work the same way.
 - Pages and Layouts can call `tifa.Use(c, project.Layout)` to get the result of a Layout that wraps them, for the current request: the Layout of the same folder or of an ancestor folder. The same `Layout` runs only once per request. Any other Layout fails the build, and so does an argument that is not a package-level `Layout` function, such as a closure.

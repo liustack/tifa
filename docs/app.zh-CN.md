@@ -202,7 +202,7 @@ func Layout(c *tifa.Ctx) (shop.Project, error) {
 const LayoutSSR = false // 可选，默认 true
 ```
 
-- 同一个目录的 `layout.go` 和 `route.go` 是同一个 Go 包，`Layout`、`LayoutSSR` 和页面的 `Load`、`SSR`、`Cache`、方法函数写在哪个文件都行。只有 Layout 文件、没有 `route.go` 和 `route.tsx` 的目录里，写 `Load`、`SSR`、`Cache` 或方法函数会构建报错。
+- 同一个目录的 `layout.go` 和 `route.go` 是同一个 Go 包，但每个名字有固定的文件：`Layout`、`LayoutSSR` 写在 `layout.go`，`Load`、`SSR`、`Cache` 和方法函数写在 `route.go`。写在包里其他文件会构建报错。辅助函数和类型写在哪个文件都行。
 - Layout 用 `c.Param` 只能读自己目录路径里的参数。`app/projects/project+/layout.go` 能读 `project`，不能读 `order`。页面的 `Load` 同样只能读自己路径里的参数。
 - 同一个 Layout 下切换页面时，Layout 组件不重新挂载，它的状态保留。`Layout` 函数读的参数变了（比如换了一个项目），Layout 重新挂载，状态重置。它不读的参数变了，状态保留，页面同理。
 - 页面和 Layout 都可以用 `tifa.Use(c, project.Layout)` 拿到套着自己的 Layout（同目录或祖先目录的）本次请求的结果，同一个 `Layout` 每个请求只跑一次。引用别的 Layout 构建报错，传入的不是包级 `Layout` 函数（比如闭包）也报错。
