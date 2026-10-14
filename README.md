@@ -118,10 +118,10 @@ Issues are welcome any time: [open one](https://github.com/liustack/tifa/issues/
 
 ## Contributing
 
-tifa does not accept pull requests for now. One author reviews every line, which keeps the design small and consistent. Two ways to help:
+tifa does not accept pull requests. A framework like this touches the compiler, the bundler, server rendering and developer experience at once, and a change in one pulls on the others. Getting that right takes a lot of context, so every line is written and reviewed by one author. Two ways to help:
 
-- **[Open an issue](https://github.com/liustack/tifa/issues).** Bugs, ideas, confusing errors, unclear docs. Issues shape what gets built next.
-- **Fork it.** Your copy is yours to change.
+- **[Open an issue](https://github.com/liustack/tifa/issues).** Bugs, ideas, confusing errors, unclear docs. A clear issue with steps to reproduce helps more than a patch, and issues shape what gets built next.
+- **Fork it.** Under MIT your copy is yours to change and publish.
 
 ## Star History
 

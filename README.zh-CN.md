@@ -118,10 +118,10 @@ go tool tifa build
 
 ## 参与贡献
 
-tifa 目前不接受 pull request。每一行都由作者一个人审，这样设计能保持小而一致。可以这样帮忙：
+tifa 不接受 pull request。这类框架同时牵动编译器、打包、服务端渲染和开发体验，改一处会牵动别处，做对需要大量上下文，所以每一行都由作者一个人写和审。可以这样帮忙：
 
-- **[提 issue](https://github.com/liustack/tifa/issues)。** bug、想法、看不懂的报错、写得不清楚的文档。issue 决定接下来做什么。
-- **fork 它。** 你的副本随你改。
+- **[提 issue](https://github.com/liustack/tifa/issues)。** bug、想法、看不懂的报错、写得不清楚的文档。一个带复现步骤的清楚 issue 比一个补丁更有用，issue 决定接下来做什么。
+- **fork 它。** 按 MIT 许可，你的副本随你改、随你发布。
 
 ## Star History
 
