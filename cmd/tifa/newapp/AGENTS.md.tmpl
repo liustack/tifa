@@ -1,14 +1,14 @@
 # Notes for coding agents
 
-This is a [tifa](https://github.com/liustack/tifa) app. Go routes requests, loads data and runs the hooks. React pages render to HTML inside the Go process (QuickJS, no Node at run time), and TanStack Router takes over in the browser. The build makes one executable.
+This is a [tifa](https://github.com/liustack/tifa) app. Go routes requests, loads data and runs the hooks. React pages render to HTML inside the Go process (QuickJS, no Node at run time), and TanStack Router takes over in the browser. The build bundles the front end with Vite, on Node, and makes one executable that needs no Node.
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
-| `{{.Install}}` | Install the npm packages (React, TanStack Router, TypeScript) |
-| `go tool tifa dev` | Run at http://127.0.0.1:9527 and rebuild when the content of a Go, TypeScript, CSS or JSON file or `tifa.yaml` changes |
-| `go tool tifa build` | Generate `.tifa/` and build `bin/` |
+| `{{.Install}}` | Install the npm packages (React, TanStack Router, TypeScript, Vite) |
+| `go tool tifa dev` | Run at http://127.0.0.1:9527. A TSX or CSS edit updates the open page in place through Vite, a Go or `tifa.yaml` edit rebuilds and reloads it |
+| `go tool tifa build` | Generate `.tifa/`, bundle the front end with Vite and build `bin/` |
 | `go test ./...` and `go vet ./...` | Test and check the Go code |
 | `{{.Run}} typecheck` | Check the TypeScript, once `tifa build` or `tifa dev` has written the types into `.tifa/` |
 | `go tool tifa routes` | List the routes |
@@ -59,6 +59,7 @@ Writing the response is checked when the request runs instead: in `Load` and `La
 - The data of `Load` and handler inputs and results travel as JSON, and tifa writes their TypeScript types. No interfaces, funcs or channels. A Go slice or map can be `null` in TypeScript, so write `?? []`.
 - In TSX, import from the generated `./+route` of the folder: `route.useLoaderData()`, the `Data` type and one function per handler, such as `POST({ params, input })`. A Layout's data comes from `./+layout`. After a successful POST, PUT, PATCH or DELETE the page data loads again, unless the call passes `invalidate: false`.
 - The function of a typed handler resolves to its result and throws `TifaError` (`status`, `message`, `fields`) for an error answer. The function of a handler that writes its own response resolves to the `Response`, also for a 4xx or 5xx, so check `response.ok`.
+- Styles are CSS files imported from TSX, such as `app/styles.css` in the root `layout.tsx`. `vite.config.ts` adds the Vite plugins of tifa and React. For Tailwind CSS, add `@tailwindcss/vite` there. See [Styles](https://github.com/liustack/tifa/blob/main/docs/app.md#styles).
 - A page may also export `head`, `NotFound` and `Error`. Components that need the browser at import time go in `*.client.tsx` and load with `clientOnly` from `tifa/client`.
 
 ## Hooks
