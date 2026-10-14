@@ -63,7 +63,7 @@ export function tifa(settings = {}) {
       }
     },
   }
-  return [plugin, generated(), ssrPlugin(() => root)]
+  return [plugin, generated(), ssrPlugin(() => root, () => import('vite'))]
 }
 
 // generated resolves ./+route and ./+layout, the imports that lead to what tifa generates. Other
@@ -113,7 +113,9 @@ export function ssrEnvironment(entry, dir) {
       // leaves the comment that points to it out of ssr.js.
       sourcemap: 'hidden',
       rolldownOptions: {
-        output: { format: 'iife', entryFileNames: 'ssr.js', codeSplitting: false },
+        // An import of a Node module that stays in the bundle reads require("node:fs") and the
+        // like, which the check of the output finds. QuickJS has no require.
+        output: { format: 'iife', entryFileNames: 'ssr.js', codeSplitting: false, globals: (id) => `require(${JSON.stringify(id)})` },
       },
     },
   }
@@ -146,10 +148,10 @@ function resolveRouteModule(ctx, root, source, importer) {
 
 // ssrPlugin applies to the SSR build only. It replaces *.client modules with a stub, refuses Node
 // APIs in page code, trims React's server entry to the renderer actually used, switches core-js to
-// its property-backed internal state, and checks that the bundle is one file with no imports.
-export function ssrPlugin(getRoot) {
+// its property-backed internal state, and checks that the bundle is one file that loads no module
+// at run time.
+export function ssrPlugin(getRoot, loadVite) {
   const reactTargets = new Map() // server.edge.js path to the renderer modules it imports
-  const builtins = new Set() // the Node modules dependencies import
   let coreJS // real directory of the core-js package the application resolves, '' for none
   let coreJSState = false // whether the internal state module of coreJS is in the bundle
   let coreJSAdapted = false // whether it got the property-backed state
@@ -157,7 +159,6 @@ export function ssrPlugin(getRoot) {
     name: 'tifa:ssr',
     applyToEnvironment: (env) => env.name === 'ssr',
     buildStart() {
-      builtins.clear()
       coreJS = findPackage(getRoot(), 'core-js')
       coreJSState = coreJSAdapted = false
     },
@@ -168,8 +169,7 @@ export function ssrPlugin(getRoot) {
         if (source.startsWith('node:') || nodeBuiltins.has(source)) {
           if (!fromDependency) this.error(`Node APIs are not supported in page code: ${source}`)
           // A dependency may import a Node module it never uses on this platform. The check of
-          // the output finds the import if it stays.
-          builtins.add(source)
+          // the output finds the import if it stays: the bundle loads it with require.
           return { id: source, external: true }
         }
         if (clientSource.test(source)) return clientOnlyStub
@@ -225,239 +225,81 @@ export function ssrPlugin(getRoot) {
         )
       }
     },
-    generateBundle(options, bundle) {
+    async generateBundle(options, bundle) {
       const chunks = Object.values(bundle).filter((output) => output.type === 'chunk')
       if (chunks.length !== 1) this.error(`the SSR bundle has ${chunks.length} files, want 1`)
       const [chunk] = chunks
       // The map serves the check below only, and is not written.
       if (chunk.sourcemapFileName) delete bundle[chunk.sourcemapFileName]
-      const imports = [...chunk.imports, ...chunk.dynamicImports].filter((name) => name !== chunk.fileName)
-      // A CommonJS dependency keeps its require call of an external module in the code.
-      for (const name of builtins) {
-        if (chunk.code.includes(`require(${JSON.stringify(name)})`)) imports.push(name)
-      }
-      if (imports.length > 0) {
-        this.error(`SSR bundle has unresolved runtime dependencies: ${JSON.stringify(imports)}`)
-      }
-      // A require that stays in the bundle, with a name known only at run time, finds no require
-      // in QuickJS. The check reads the final code, so a require in code the bundler drops, such
-      // as an if (false) branch, does not count, and the source map names its place.
-      const [at] = hostRequires(this.parse(chunk.code))
-      if (at !== undefined) {
-        this.error(
-          `${sourcePlace(chunk, at, options.dir)}: require loads a module by a name known only at run time, ` +
-            'and QuickJS has no require: import the module instead',
-        )
+      const loads = await hostLoads(chunk, await loadVite(), (code) => this.parse(code), options.dir)
+      if (loads.length > 0) {
+        this.error(`the SSR bundle loads modules at run time, and QuickJS cannot:\n${loads.join('\n')}`)
       }
     },
   }
 }
 
-// hostRequires returns the offsets of the references to require in the ESTree program that no
-// scope of the program declares, the ones that need the require of the host. typeof require and
-// assignments to require need none, and neither does a reference that a typeof require test
-// guards (see guardedChild): QuickJS has no require and takes the other branch. It follows the
-// scopes of JavaScript: var, function parameters and names to the enclosing function, let,
-// const, class and function declarations to their block, catch parameters to the catch clause.
-function hostRequires(program) {
+// hostLoads returns the places where the bundle still loads a module at run time, which QuickJS
+// cannot do, one "file:line:column: what" line each. It checks a copy of the code made for it:
+//
+//   - QuickJS has no require, so typeof require is "undefined" wherever the code does not declare
+//     require. oxc replaces it there and only there, and its minifier then drops the code that
+//     runs only with a require, like any if (false) branch.
+//   - The minifier renames every name the bundle's function declares, so a require that is left
+//     is the host's. In code with a direct eval or a with statement it keeps the names, and a
+//     require declared there counts as the host's too.
+//
+// The bundle loads the Node modules it imports with require("node:fs") and the like (see
+// ssrEnvironment), so they are found the same way. The source maps of the copy and of the chunk
+// name the place in the source.
+async function hostLoads(chunk, vite, parse, dir) {
+  const defined = await vite.transformWithOxc(chunk.code, chunk.fileName, {
+    lang: 'js',
+    define: { 'typeof require': '"undefined"' },
+    sourcemap: true,
+  })
+  const minified = vite.minifySync(chunk.fileName, defined.code, { compress: true, mangle: true, sourcemap: true })
+  if (minified.errors?.length > 0) throw new Error(`checking the SSR bundle: ${minified.errors.map((e) => e.message).join('\n')}`)
   const found = []
-  const visit = (node, bound, guarded, parent, key) => {
-    bound ||= declaresRequire(node)
-    if (
-      node.type === 'Identifier' &&
-      node.name === 'require' &&
-      !bound &&
-      !guarded &&
-      isReference(parent, key) &&
-      !(parent.type === 'UnaryExpression' && parent.operator === 'typeof') &&
-      !(parent.type === 'AssignmentExpression' && key === 'left')
-    ) {
-      found.push(node.start)
+  const visit = (node, parent, key) => {
+    if (node.type === 'Identifier' && node.name === 'require' && isReference(parent, key)) {
+      const call = parent.type === 'CallExpression' && key === 'callee' && parent.arguments.length === 1 ? parent.arguments[0] : null
+      const name = call && (call.type === 'Literal' ? call.value : null)
+      found.push({
+        at: node.start,
+        what:
+          typeof name === 'string'
+            ? `require(${JSON.stringify(name)}) loads a Node module, which QuickJS does not have`
+            : 'require loads a module by a name known only at run time, and QuickJS has no require: import the module instead',
+      })
+    } else if (node.type === 'ImportExpression') {
+      found.push({ at: node.start, what: 'import() loads a module at run time, which the SSR bundle cannot do: import it statically' })
     }
     for (const [k, value] of Object.entries(node)) {
-      let exited = false // a statement before returned or threw when the host has no require
       for (const child of Array.isArray(value) ? value : [value]) {
-        if (!child || typeof child.type !== 'string') continue
-        visit(child, bound, guarded || exited || guardedChild(node, k), node, k)
-        exited ||= Array.isArray(value) && exitsWithoutRequire(child)
+        if (child && typeof child.type === 'string') visit(child, node, k)
       }
     }
   }
-  visit(program, false, false, null, '')
-  return found
+  visit(parse(minified.code), null, '')
+  const places = found.map(({ at, what }) => {
+    const before = minified.code.slice(0, at).split('\n')
+    let position = { line: before.length - 1, column: before.at(-1).length }
+    // The copy, then the chunk, then the source.
+    position = originalPosition(minified.map, position.line, position.column)
+    position &&= originalPosition(defined.map, position.line, position.column)
+    if (!position) return `${chunk.fileName}: ${what}`
+    const source = chunk.map && originalPosition(chunk.map, position.line, position.column)
+    if (!source) return `${chunk.fileName}:${position.line + 1}:${position.column + 1}: ${what}`
+    const file = path.resolve(dir ?? '.', chunk.map.sourceRoot ?? '', source.source)
+    return `${file}:${source.line + 1}:${source.column + 1}: ${what}`
+  })
+  return [...new Set(places)]
 }
 
-// guardedChild reports whether the child at key of node runs only when the host has require,
-// by a typeof require test of node: a branch of a conditional expression or an if, or the right
-// side of && and ||.
-function guardedChild(node, key) {
-  switch (node.type) {
-    case 'ConditionalExpression':
-    case 'IfStatement':
-      return (key === 'consequent' && hasRequireIf(node.test, true)) || (key === 'alternate' && hasRequireIf(node.test, false))
-    case 'LogicalExpression':
-      return key === 'right' && ((node.operator === '&&' && hasRequireIf(node.left, true)) || (node.operator === '||' && hasRequireIf(node.left, false)))
-  }
-  return false
-}
-
-// exitsWithoutRequire reports whether statement is an if without else that returns or throws
-// when its test shows the host has no require, so the statements after it run only with one.
-function exitsWithoutRequire(statement) {
-  if (statement.type !== 'IfStatement' || statement.alternate || !hasRequireIf(statement.test, false)) return false
-  const exit = statement.consequent.type === 'BlockStatement' ? statement.consequent.body.at(-1) : statement.consequent
-  return exit?.type === 'ReturnStatement' || exit?.type === 'ThrowStatement'
-}
-
-// hasRequireIf reports whether test evaluating to truthy (or to falsy, with truthy false) shows
-// that the host has require, by a typeof require comparison, also inside !, && and ||.
-function hasRequireIf(test, truthy) {
-  switch (test.type) {
-    case 'UnaryExpression':
-      return test.operator === '!' && hasRequireIf(test.argument, !truthy)
-    case 'LogicalExpression':
-      // a && b is truthy only when both are, a || b falsy only when both are.
-      if (test.operator === (truthy ? '&&' : '||')) return hasRequireIf(test.left, truthy) || hasRequireIf(test.right, truthy)
-      return false
-    case 'BinaryExpression':
-      return typeofRequire(test) === truthy
-  }
-  return false
-}
-
-// typeofRequire reads a comparison of typeof require with a string: true when the comparison
-// holds only if require exists, false when it holds only if require is undefined, null for any
-// other comparison. Minifiers write typeof x !== 'undefined' as typeof x < 'u'.
-function typeofRequire(test) {
-  let { operator, left, right } = test
-  if (isTypeofRequire(right)) {
-    ;[left, right] = [right, left]
-    operator = { '<': '>', '>': '<' }[operator] ?? operator
-  }
-  const value = stringValue(right)
-  if (!isTypeofRequire(left) || value === null) return null
-  const exists = value === 'function' || value === 'object'
-  switch (operator) {
-    case '===':
-    case '==':
-      return exists ? true : value === 'undefined' ? false : null
-    case '!==':
-    case '!=':
-      return value === 'undefined' ? true : exists ? false : null
-    case '<':
-      return value === 'u' ? true : null
-    case '>':
-      return value === 'u' ? false : null
-  }
-  return null
-}
-
-function isTypeofRequire(node) {
-  return node.type === 'UnaryExpression' && node.operator === 'typeof' && node.argument.type === 'Identifier' && node.argument.name === 'require'
-}
-
-function stringValue(node) {
-  if (node.type === 'Literal' && typeof node.value === 'string') return node.value
-  if (node.type === 'TemplateLiteral' && node.expressions.length === 0) return node.quasis[0].value.cooked
-  return null
-}
-
-const functionTypes = new Set(['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression'])
-
-// declaresRequire reports whether the scope that node opens declares require. A binding is
-// visited inside the scope that declares it, so the binding itself counts as bound.
-function declaresRequire(node) {
-  const names = []
-  switch (node.type) {
-    case 'Program':
-      hoisted(node.body, names)
-      lexical(node.body, names)
-      break
-    case 'FunctionDeclaration':
-    case 'FunctionExpression':
-    case 'ArrowFunctionExpression':
-      if (node.type === 'FunctionExpression') bindings(node.id, names)
-      node.params.forEach((param) => bindings(param, names))
-      if (node.body.type === 'BlockStatement') hoisted(node.body.body, names)
-      break
-    case 'StaticBlock':
-      hoisted(node.body, names)
-      lexical(node.body, names)
-      break
-    case 'BlockStatement':
-      lexical(node.body, names)
-      break
-    case 'SwitchStatement':
-      // The cases share one block.
-      node.cases.forEach((c) => lexical(c.consequent, names))
-      break
-    case 'ForStatement':
-    case 'ForInStatement':
-    case 'ForOfStatement': {
-      const head = node.type === 'ForStatement' ? node.init : node.left
-      if (head?.type === 'VariableDeclaration' && head.kind !== 'var') head.declarations.forEach((d) => bindings(d.id, names))
-      break
-    }
-    case 'CatchClause':
-      bindings(node.param, names)
-      break
-    case 'ClassExpression':
-      bindings(node.id, names)
-      break
-  }
-  return names.includes('require')
-}
-
-// hoisted adds the names that var declarations in statements give to the enclosing function,
-// at any depth outside nested functions and static blocks.
-function hoisted(statements, names) {
-  const walk = (node) => {
-    if (!node || typeof node.type !== 'string' || functionTypes.has(node.type) || node.type === 'StaticBlock') return
-    if (node.type === 'VariableDeclaration' && node.kind === 'var') node.declarations.forEach((d) => bindings(d.id, names))
-    for (const value of Object.values(node)) {
-      for (const child of Array.isArray(value) ? value : [value]) walk(child)
-    }
-  }
-  statements.forEach(walk)
-}
-
-// lexical adds the names that the statements of a block declare in it: let, const, classes,
-// functions and imports.
-function lexical(statements, names) {
-  for (let node of statements) {
-    if ((node.type === 'ExportNamedDeclaration' || node.type === 'ExportDefaultDeclaration') && node.declaration) {
-      node = node.declaration
-    }
-    if (node.type === 'VariableDeclaration' && node.kind !== 'var') node.declarations.forEach((d) => bindings(d.id, names))
-    else if (node.type === 'FunctionDeclaration' || node.type === 'ClassDeclaration') bindings(node.id, names)
-    else if (node.type === 'ImportDeclaration') node.specifiers.forEach((s) => bindings(s.local, names))
-  }
-}
-
-// bindings adds the names a binding pattern declares.
-function bindings(node, names) {
-  if (!node) return
-  if (node.type === 'Identifier') names.push(node.name)
-  else if (node.type === 'ObjectPattern') node.properties.forEach((p) => bindings(p.type === 'RestElement' ? p.argument : p.value, names))
-  else if (node.type === 'ArrayPattern') node.elements.forEach((e) => bindings(e, names))
-  else if (node.type === 'AssignmentPattern') bindings(node.left, names)
-  else if (node.type === 'RestElement') bindings(node.argument, names)
-}
-
-// sourcePlace names the source file, line and column that offset of the chunk's code comes
-// from, by the chunk's source map, or the place in the bundle when the map names none.
-function sourcePlace(chunk, offset, dir) {
-  const before = chunk.code.slice(0, offset).split('\n')
-  const line = before.length - 1
-  const column = before.at(-1).length
-  const original = chunk.map && originalPosition(chunk.map, line, column)
-  if (!original) return `${chunk.fileName}:${line + 1}:${column + 1}`
-  const source = path.resolve(dir ?? '.', chunk.map.sourceRoot ?? '', original.source)
-  return `${source}:${original.line + 1}:${original.column + 1}`
-}
-
-// originalPosition returns the source, line and column (both from 0) of the last mapping at or
-// before the generated line and column, null when there is none on that line.
+// originalPosition returns the source, line and column (both from 0) that the generated line and
+// column of map come from: the last segment at or before the column. It is null when there is
+// none on that line, or when that segment has no source.
 function originalPosition(map, line, column) {
   const lines = map.mappings.split(';')
   if (line >= lines.length) return null
@@ -470,9 +312,10 @@ function originalPosition(map, line, column) {
       if (!segment) continue
       const fields = vlq(segment)
       generated += fields[0]
-      if (fields.length < 4) continue
-      for (let f = 1; f < 4; f++) state[f] += fields[f]
-      if (i === line && generated <= column) best = { source: map.sources[state[1]], line: state[2], column: state[3] }
+      if (fields.length >= 4) for (let f = 1; f < 4; f++) state[f] += fields[f]
+      if (i === line && generated <= column) {
+        best = fields.length >= 4 ? { source: map.sources[state[1]], line: state[2], column: state[3] } : null
+      }
     }
   }
   return best
@@ -487,12 +330,12 @@ function vlq(segment) {
   let shift = 0
   for (const char of segment) {
     const digit = base64.indexOf(char)
-    value += (digit & 31) << shift
+    value += (digit & 31) * 2 ** shift
     if (digit & 32) {
       shift += 5
       continue
     }
-    values.push(value & 1 ? -(value >>> 1) : value >>> 1)
+    values.push(value % 2 ? -(value - 1) / 2 : value / 2)
     value = shift = 0
   }
   return values

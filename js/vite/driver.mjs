@@ -121,7 +121,7 @@ const ops = {
       configFile: false,
       logLevel: 'warn',
       customLogger: logger,
-      plugins: [ssrPlugin(() => fs.realpathSync(dir))],
+      plugins: [ssrPlugin(() => fs.realpathSync(dir), async () => vite)],
       environments: {
         ssr: {
           ...env,

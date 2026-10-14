@@ -64,15 +64,33 @@ func TestSSRRejectsNodeAPIsInPageCode(t *testing.T) {
 	}
 }
 
+// A dependency that still loads a Node module in the bundle fails the build at the place it does,
+// whether it requires the module or imports it. A require that a typeof require test guards does
+// not count: QuickJS takes the other branch.
 func TestSSRRejectsNodeAPIsLeftInDependencies(t *testing.T) {
 	root := copyTestdata(t, "ssr", false)
 	writeTree(t, root, map[string]string{
-		"node_modules/uses-fs/package.json": `{"name":"uses-fs","main":"index.js"}`,
-		"node_modules/uses-fs/index.js":     `const fs = require('fs'); module.exports = (p) => fs.readFileSync(p)`,
+		"node_modules/uses-fs/package.json":    `{"name":"uses-fs","main":"index.js"}`,
+		"node_modules/uses-fs/index.js":        `const fs = require('fs'); module.exports = (p) => fs.readFileSync(p)`,
+		"node_modules/esm-fs/package.json":     `{"name":"esm-fs","type":"module","main":"index.js"}`,
+		"node_modules/esm-fs/index.js":         "import { readFileSync } from 'node:fs'\nexport const read = (p) => readFileSync(p)\n",
+		"esm-fs.ts":                            "import { read } from 'esm-fs'\nglobalThis.result = String(read)\n",
+		"node_modules/guarded-fs/package.json": `{"name":"guarded-fs","main":"index.js"}`,
+		"node_modules/guarded-fs/index.js": "module.exports = function (name) {\n" +
+			"  return typeof require === 'function' ? require('fs').existsSync(name) : 'safe'\n}\n",
+		"guarded-fs.ts": "import exists from 'guarded-fs'\nglobalThis.result = exists('x')\n",
 	})
 	_, _, err := script(testdata(t), root, "uses-fs.ts", io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "SSR bundle has unresolved runtime dependencies") {
-		t.Fatalf("err = %v, want unresolved dependency error", err)
+	if err == nil || !strings.Contains(err.Error(), filepath.Join("uses-fs", "index.js")+`:1:12: require("fs") loads a Node module`) {
+		t.Errorf("err = %v, want the place of require('fs')", err)
+	}
+	_, _, err = script(testdata(t), root, "esm-fs.ts", io.Discard)
+	if err == nil || !strings.Contains(err.Error(), `require("node:fs") loads a Node module`) {
+		t.Errorf("err = %v, want the import of node:fs", err)
+	}
+	code, _ := buildScript(t, root, "guarded-fs.ts")
+	if got := evalResult(t, code); got != "safe" {
+		t.Errorf("guarded require('fs') gives %q", got)
 	}
 }
 

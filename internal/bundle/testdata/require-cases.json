@@ -1,0 +1,688 @@
+[
+ {
+  "name": "free-call",
+  "code": "module.exports = function(name) {\nreturn require(name).sep\n}\n",
+  "runs": false
+ },
+ {
+  "name": "free-optional",
+  "code": "module.exports = function(name) {\nreturn require?.(name).sep\n}\n",
+  "runs": false
+ },
+ {
+  "name": "free-indirect",
+  "code": "module.exports = function(name) {\nreturn (0,require)(name).sep\n}\n",
+  "runs": false
+ },
+ {
+  "name": "free-alias",
+  "code": "module.exports = function(name) {\nconst load = require; return load(name).sep\n}\n",
+  "runs": false
+ },
+ {
+  "name": "free-property",
+  "code": "module.exports = function(name) {\nreturn require.resolve(name)\n}\n",
+  "runs": false
+ },
+ {
+  "name": "free-shorthand",
+  "code": "module.exports = function(name) {\nconst box={require}; return box.require(name).sep\n}\n",
+  "runs": false
+ },
+ {
+  "name": "free-computed-property",
+  "code": "module.exports = function(name) {\nreturn ({[require(name)]: 1})\n}\n",
+  "runs": false
+ },
+ {
+  "name": "only-typeof",
+  "code": "module.exports = function(name) {\nreturn typeof require\n}\n",
+  "runs": true
+ },
+ {
+  "name": "only-property",
+  "code": "module.exports = function(name) {\nreturn ({require: \"safe\"}).require\n}\n",
+  "runs": true
+ },
+ {
+  "name": "only-method-name",
+  "code": "module.exports = function(name) {\nreturn ({require(){return \"safe\"}}).require()\n}\n",
+  "runs": true
+ },
+ {
+  "name": "only-getter-name",
+  "code": "module.exports = function(name) {\nreturn ({get require(){return \"safe\"}}).require\n}\n",
+  "runs": true
+ },
+ {
+  "name": "label",
+  "code": "module.exports = function(name) {\nrequire: {break require} return \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "label-free",
+  "code": "module.exports = function(name) {\nrequire: {globalThis.seen=1; break require} return require(name)\n}\n",
+  "runs": false
+ },
+ {
+  "name": "function-parameter",
+  "code": "module.exports = function(name) {\nreturn (function(require){return require(name)})(x=>\"safe:\"+x)\n}\n",
+  "runs": true
+ },
+ {
+  "name": "arrow-parameter",
+  "code": "module.exports = function(name) {\nreturn ((require)=>require(name))(x=>\"safe:\"+x)\n}\n",
+  "runs": true
+ },
+ {
+  "name": "function-name",
+  "code": "module.exports = function(name) {\nreturn (function require(x){return x ? require(\"\") : \"safe\"})(name)\n}\n",
+  "runs": true
+ },
+ {
+  "name": "function-declaration",
+  "code": "module.exports = function(name) {\nfunction require(x){return \"safe:\"+x} return require(name)\n}\n",
+  "runs": true
+ },
+ {
+  "name": "block-const-free",
+  "code": "module.exports = function(name) {\n{const require=x=>x; globalThis.seen=require(\"x\")} return require(name)\n}\n",
+  "runs": false
+ },
+ {
+  "name": "block-let-free",
+  "code": "module.exports = function(name) {\n{let require=x=>x; globalThis.seen=require(\"x\")} return require(name)\n}\n",
+  "runs": false
+ },
+ {
+  "name": "block-var-local",
+  "code": "module.exports = function(name) {\n{var require=x=>\"safe:\"+x} return require(name)\n}\n",
+  "runs": true
+ },
+ {
+  "name": "block-function-free",
+  "code": "module.exports = function(name) {\n{function require(x){return x} globalThis.seen=require(\"x\")} return require(name)\n}\n",
+  "runs": true
+ },
+ {
+  "name": "catch-local",
+  "code": "module.exports = function(name) {\ntry { throw x=>\"safe:\"+x } catch(require) {return require(name)}\n}\n",
+  "runs": true
+ },
+ {
+  "name": "catch-free",
+  "code": "module.exports = function(name) {\ntry {throw 1} catch(require) {globalThis.seen=require} return require(name)\n}\n",
+  "runs": false
+ },
+ {
+  "name": "try-finally-free",
+  "code": "module.exports = function(name) {\ntry {return \"safe\"} finally {globalThis.seen=require(name)}\n}\n",
+  "runs": false
+ },
+ {
+  "name": "try-finally-guard",
+  "code": "module.exports = function(name) {\ntry {if(typeof require !== \"function\") return \"safe\"; return require(name)} finally {globalThis.seen=1}\n}\n",
+  "runs": true
+ },
+ {
+  "name": "try-finally-outside-guard",
+  "code": "module.exports = function(name) {\ntry {if(typeof require !== \"function\") return \"safe\"} finally {return require(name)}\n}\n",
+  "runs": false
+ },
+ {
+  "name": "try-catch-optional-fallback",
+  "code": "module.exports = function(name) {\ntry {return require(name)} catch {return \"safe\"}\n}\n",
+  "runs": true
+ },
+ {
+  "name": "try-catch-guard-throw",
+  "code": "module.exports = function(name) {\ntry {if(typeof require === \"undefined\") throw 1; return require(name)} catch {return \"safe\"}\n}\n",
+  "runs": true
+ },
+ {
+  "name": "destructure-object",
+  "code": "module.exports = function(name) {\nconst {require}= {require:x=>\"safe:\"+x}; return require(name)\n}\n",
+  "runs": true
+ },
+ {
+  "name": "destructure-rename",
+  "code": "module.exports = function(name) {\nconst {load:require}= {load:x=>\"safe:\"+x}; return require(name)\n}\n",
+  "runs": true
+ },
+ {
+  "name": "destructure-array",
+  "code": "module.exports = function(name) {\nconst [require]=[x=>\"safe:\"+x]; return require(name)\n}\n",
+  "runs": true
+ },
+ {
+  "name": "destructure-rest",
+  "code": "module.exports = function(name) {\nconst {...require}={tag:\"safe\"}; return require.tag\n}\n",
+  "runs": true
+ },
+ {
+  "name": "destructure-param",
+  "code": "module.exports = function(name) {\nreturn (({require})=>require(name))({require:x=>\"safe:\"+x})\n}\n",
+  "runs": true
+ },
+ {
+  "name": "destructure-default-free",
+  "code": "module.exports = function(name) {\nconst {value=require(name)}={}; return value\n}\n",
+  "runs": false
+ },
+ {
+  "name": "destructure-computed-free",
+  "code": "module.exports = function(name) {\nconst {[require(name)]:value}={}; return value\n}\n",
+  "runs": false
+ },
+ {
+  "name": "destructure-assignment-free",
+  "code": "module.exports = function(name) {\n({value: globalThis.value = require(name)}={}); return globalThis.value\n}\n",
+  "runs": false
+ },
+ {
+  "name": "default-free",
+  "code": "module.exports = function(name) {\nreturn (function(x=require(name)){return x})()\n}\n",
+  "runs": false
+ },
+ {
+  "name": "default-body-var",
+  "code": "module.exports = function(name) {\nreturn (function(x=require(name)){var require=y=>y; return x + require(\"!\")})()\n}\n",
+  "runs": false
+ },
+ {
+  "name": "default-body-function",
+  "code": "module.exports = function(name) {\nreturn (function(x=require(name)){function require(y){return y} return x + require(\"!\")})()\n}\n",
+  "runs": false
+ },
+ {
+  "name": "default-body-const",
+  "code": "module.exports = function(name) {\nreturn (function(x=require(name)){const require=y=>y; return x + require(\"!\")})()\n}\n",
+  "runs": false
+ },
+ {
+  "name": "default-param-require",
+  "code": "module.exports = function(name) {\nreturn (function(require=x=>\"safe:\"+x,value=require(name)){return value})()\n}\n",
+  "runs": true
+ },
+ {
+  "name": "default-param-earlier",
+  "code": "module.exports = function(name) {\nreturn (function(require,value=require(name)){return value})(x=>\"safe:\"+x)\n}\n",
+  "runs": true
+ },
+ {
+  "name": "default-arrow-free",
+  "code": "module.exports = function(name) {\nreturn ((x=require(name))=>x)()\n}\n",
+  "runs": false
+ },
+ {
+  "name": "default-destructure-body-var",
+  "code": "module.exports = function(name) {\nreturn (function({value=require(name)}={}){var require=y=>y; return value+require(\"!\")})()\n}\n",
+  "runs": false
+ },
+ {
+  "name": "switch-bound",
+  "code": "module.exports = function(name) {\nswitch(name){case \"node:path\": const require=x=>\"safe:\"+x; return require(name);default:return \"other\"}\n}\n",
+  "runs": true
+ },
+ {
+  "name": "switch-discriminant-free",
+  "code": "module.exports = function(name) {\nswitch(require(name)){case \"x\": const require=x=>x; return require(\"x\");default:return \"other\"}\n}\n",
+  "runs": false
+ },
+ {
+  "name": "switch-after-free",
+  "code": "module.exports = function(name) {\nswitch(name){case \"x\": const require=x=>x; globalThis.seen=require(\"x\")} return require(name)\n}\n",
+  "runs": false
+ },
+ {
+  "name": "switch-test-free",
+  "code": "module.exports = function(name) {\nswitch(name){case require(name):return \"x\";default:return \"other\"}\n}\n",
+  "runs": false
+ },
+ {
+  "name": "switch-guard",
+  "code": "module.exports = function(name) {\nswitch(name){case \"node:path\":if(typeof require === \"undefined\") return \"safe\";return require(name);default:return \"safe\"}\n}\n",
+  "runs": true
+ },
+ {
+  "name": "for-local",
+  "code": "module.exports = function(name) {\nfor(let require of [x=>\"safe:\"+x]) return require(name)\n}\n",
+  "runs": true
+ },
+ {
+  "name": "for-after-free",
+  "code": "module.exports = function(name) {\nfor(let require of [x=>x]) globalThis.seen=require(\"x\"); return require(name)\n}\n",
+  "runs": false
+ },
+ {
+  "name": "class-field-free",
+  "code": "module.exports = function(name) {\nclass Reader {value=require(name)} return new Reader().value\n}\n",
+  "runs": false
+ },
+ {
+  "name": "class-static-free",
+  "code": "module.exports = function(name) {\nclass Reader {static value=require(name)} return Reader.value\n}\n",
+  "runs": false
+ },
+ {
+  "name": "class-static-block-free",
+  "code": "module.exports = function(name) {\nclass Reader {static {globalThis.seen=require(name)}} return \"x\"\n}\n",
+  "runs": false
+ },
+ {
+  "name": "class-field-name",
+  "code": "module.exports = function(name) {\nclass Reader {require=\"safe\"} return new Reader().require\n}\n",
+  "runs": true
+ },
+ {
+  "name": "class-getter-free",
+  "code": "module.exports = function(name) {\nclass Reader {get value(){return require(name)}} return new Reader().value\n}\n",
+  "runs": false
+ },
+ {
+  "name": "class-computed-free",
+  "code": "module.exports = function(name) {\nclass Reader {[require(name)]=\"safe\"} return new Reader()\n}\n",
+  "runs": false
+ },
+ {
+  "name": "class-named-require",
+  "code": "module.exports = function(name) {\nreturn (class require {static value(){return require.name}}).value()\n}\n",
+  "runs": true
+ },
+ {
+  "name": "class-static-bound",
+  "code": "module.exports = function(name) {\nclass Reader {static {const require=x=>\"safe:\"+x; this.value=require(name)}} return Reader.value\n}\n",
+  "runs": true
+ },
+ {
+  "name": "class-static-bound-outside-free",
+  "code": "module.exports = function(name) {\nclass Reader {static {var require=x=>x; this.value=require(name)}} return require(name)\n}\n",
+  "runs": false
+ },
+ {
+  "name": "arrow-free",
+  "code": "module.exports = function(name) {\nreturn (()=>require(name))()\n}\n",
+  "runs": false
+ },
+ {
+  "name": "getter-free",
+  "code": "module.exports = function(name) {\nreturn ({get value(){return require(name)}}).value\n}\n",
+  "runs": false
+ },
+ {
+  "name": "setter-free",
+  "code": "module.exports = function(name) {\nconst box={set value(x){globalThis.seen=require(x)}}; box.value=name;return \"x\"\n}\n",
+  "runs": false
+ },
+ {
+  "name": "guard-if",
+  "code": "module.exports = function(name) {\nif(typeof require === \"function\") return require(name);return \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-ternary",
+  "code": "module.exports = function(name) {\nreturn typeof require === \"function\" ? require(name) : \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-short-and",
+  "code": "module.exports = function(name) {\nreturn (typeof require === \"function\" && require(name)) || \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-short-or",
+  "code": "module.exports = function(name) {\nreturn typeof require === \"undefined\" || require(name)\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-not",
+  "code": "module.exports = function(name) {\nreturn !(typeof require === \"function\") ? \"safe\" : require(name)\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-reverse",
+  "code": "module.exports = function(name) {\nreturn \"undefined\" !== typeof require ? require(name) : \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-less-u",
+  "code": "module.exports = function(name) {\nreturn typeof require < \"u\" ? require(name) : \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-greater-u",
+  "code": "module.exports = function(name) {\nreturn typeof require > \"u\" ? \"safe\" : require(name)\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-reverse-u",
+  "code": "module.exports = function(name) {\nreturn \"u\" > typeof require ? require(name) : \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-equality-object",
+  "code": "module.exports = function(name) {\nreturn typeof require === \"object\" ? require(name) : \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-template",
+  "code": "module.exports = function(name) {\nreturn typeof require !== `undefined` ? require(name) : \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-other-type",
+  "code": "module.exports = function(name) {\nreturn typeof require === \"boolean\" ? require(name) : \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-equality-string",
+  "code": "module.exports = function(name) {\nreturn typeof require === \"string\" ? require(name) : \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-less-equal",
+  "code": "module.exports = function(name) {\nreturn typeof require <= \"t\" ? require(name) : \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-double-and",
+  "code": "module.exports = function(name) {\nreturn typeof require === \"function\" && name ? require(name) : \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-double-or",
+  "code": "module.exports = function(name) {\nreturn typeof require === \"undefined\" || !name ? \"safe\" : require(name)\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-both-or",
+  "code": "module.exports = function(name) {\nreturn (typeof require === \"function\" || typeof require === \"object\") ? require(name) : \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-alias",
+  "code": "module.exports = function(name) {\nconst hasRequire=typeof require === \"function\"; return hasRequire ? require(name) : \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-sequence",
+  "code": "module.exports = function(name) {\nreturn (globalThis.seen=1, typeof require === \"function\") ? require(name) : \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-early-return",
+  "code": "module.exports = function(name) {\nif(typeof require === \"undefined\")return \"safe\";globalThis.seen=1;return require(name)\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-else-return",
+  "code": "module.exports = function(name) {\nif(typeof require !== \"undefined\")globalThis.seen=1;else return \"safe\";return require(name)\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-nested-exit",
+  "code": "module.exports = function(name) {\nif(typeof require === \"undefined\"){if(name)return \"safe\";else throw 1} return require(name)\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-early-throw",
+  "code": "module.exports = function(name) {\nif(typeof require === \"undefined\")throw new Error(\"unavailable\");return require(name)\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-wrong-branch",
+  "code": "module.exports = function(name) {\nreturn typeof require === \"undefined\" ? require(name) : \"safe\"\n}\n",
+  "runs": false
+ },
+ {
+  "name": "guard-wrong-operator",
+  "code": "module.exports = function(name) {\nreturn typeof require === \"function\" || require(name)\n}\n",
+  "runs": false
+ },
+ {
+  "name": "guard-after-if",
+  "code": "module.exports = function(name) {\nif(typeof require === \"function\")globalThis.seen=1;return require(name)\n}\n",
+  "runs": false
+ },
+ {
+  "name": "guard-callback",
+  "code": "module.exports = function(name) {\nif(typeof require === \"function\") return (()=>require(name))();return \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-callback-default",
+  "code": "module.exports = function(name) {\nif(typeof require === \"function\") return ((x=require(name))=>x)();return \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-hoisted-callback",
+  "code": "module.exports = function(name) {\nif(typeof require === \"undefined\") return callback(); function callback(){return require(name)} return \"safe\"\n}\n",
+  "runs": false
+ },
+ {
+  "name": "guard-hoisted-function-name",
+  "code": "module.exports = function(name) {\nif(typeof require === \"undefined\") return callback; function callback(){return require(name)} return callback\n}\n",
+  "runs": false,
+  "post": "if (typeof value === \"function\") value=value()"
+ },
+ {
+  "name": "guard-return-before-function",
+  "code": "module.exports = function(name) {\nif(typeof require === \"undefined\") return callback(); return callback(); function callback(){return require(name)}\n}\n",
+  "runs": false
+ },
+ {
+  "name": "guard-mutation-unrelated",
+  "code": "module.exports = function(name) {\nif(typeof require === \"function\"){name=\"changed\";return require(name)}return \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-mutation-undefined",
+  "code": "module.exports = function(name) {\nglobalThis.require=()=>\"safe\"; if(typeof require === \"function\"){require=undefined;return require(name)}return \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-delete",
+  "code": "module.exports = function(name) {\nglobalThis.require=()=>\"safe\"; if(typeof require === \"function\"){delete globalThis.require;return require(name)}return \"safe\"\n}\n",
+  "runs": false
+ },
+ {
+  "name": "guard-getter-mutation",
+  "code": "module.exports = function(name) {\nlet reads=0;Object.defineProperty(globalThis,\"require\",{configurable:true,get(){return reads++===0 ? x=>x : undefined}});return typeof require === \"function\" ? require(name) : \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-await",
+  "code": "module.exports = function(name) {\n// async inner runs only behind guard\nreturn (async()=>{if(typeof require === \"function\"){await Promise.resolve();return require(name)}return \"safe\"})()\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-await-mutation",
+  "code": "module.exports = function(name) {\nglobalThis.require=()=>\"safe\";return (async()=>{if(typeof require === \"function\"){await Promise.resolve().then(()=>{delete globalThis.require});return require(name)}return \"safe\"})()\n}\n",
+  "runs": false
+ },
+ {
+  "name": "guard-callback-mutation",
+  "code": "module.exports = function(name) {\nglobalThis.require=()=>\"safe\";let callback=()=>\"safe\";if(typeof require === \"function\")callback=()=>require(name);delete globalThis.require;return callback()\n}\n",
+  "runs": false
+ },
+ {
+  "name": "assign-free-read",
+  "code": "module.exports = function(name) {\nrequire = x=>\"safe:\"+x;return require(name)\n}\n",
+  "runs": true
+ },
+ {
+  "name": "assign-only",
+  "code": "module.exports = function(name) {\nrequire = x=>\"safe:\"+x;return \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "assign-compound",
+  "code": "module.exports = function(name) {\nrequire += 1; return \"x\"\n}\n",
+  "runs": false
+ },
+ {
+  "name": "assign-logical-or",
+  "code": "module.exports = function(name) {\nrequire ||= x=>x; return \"x\"\n}\n",
+  "runs": false
+ },
+ {
+  "name": "assign-logical-and",
+  "code": "module.exports = function(name) {\nrequire &&= x=>x; return \"x\"\n}\n",
+  "runs": false
+ },
+ {
+  "name": "assign-nullish",
+  "code": "module.exports = function(name) {\nrequire ??= x=>x; return \"x\"\n}\n",
+  "runs": false
+ },
+ {
+  "name": "assign-update",
+  "code": "module.exports = function(name) {\nrequire++;return \"x\"\n}\n",
+  "runs": false
+ },
+ {
+  "name": "assign-destructure",
+  "code": "module.exports = function(name) {\n({load:require}={load:x=>x}); return \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "eval-free",
+  "code": "module.exports = function(name) {\nreturn eval(\"require(name).sep\")\n}\n",
+  "runs": false
+ },
+ {
+  "name": "eval-bound",
+  "code": "module.exports = function(name) {\neval(\"var require = x => 'safe:'+x\"); return require(name)\n}\n",
+  "runs": true
+ },
+ {
+  "name": "eval-alias",
+  "code": "module.exports = function(name) {\nreturn (0,eval)(\"require('node:path').sep\")\n}\n",
+  "runs": false
+ },
+ {
+  "name": "eval-shadow",
+  "code": "module.exports = function(name) {\nconst require=x=>\"safe:\"+x;return eval(\"require(name)\")\n}\n",
+  "runs": true
+ },
+ {
+  "name": "with-local",
+  "code": "module.exports = function(name) {\nwith ({require:x=>\"safe:\"+x}) {return require(name)}\n}\n",
+  "runs": true
+ },
+ {
+  "name": "with-free",
+  "code": "module.exports = function(name) {\nwith ({}) {return require(name)}\n}\n",
+  "runs": false
+ },
+ {
+  "name": "with-shadow-free",
+  "code": "module.exports = function(name) {\nconst require=x=>\"safe\";with ({require:undefined}){return require(name)}\n}\n",
+  "runs": false
+ },
+ {
+  "name": "unicode-location",
+  "code": "module.exports = function(name) {\nconst label=\"汉字😀\"; globalThis.label=label;\n  return require(name).sep\n}\n",
+  "runs": false
+ },
+ {
+  "name": "crlf-location",
+  "code": "module.exports = function(name) {\nconst a = \"abc\";\r\n\tglobalThis.a=a;\r\n\treturn require(name)\n}\n",
+  "runs": false
+ },
+ {
+  "name": "guard-static-node",
+  "code": "module.exports=function(name){\nreturn typeof require === \"function\" ? require(\"node:path\").sep : \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-static-fs",
+  "code": "module.exports=function(name){\nreturn typeof require === \"function\" ? require(\"fs\").existsSync(name) : \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-static-nonnode",
+  "code": "module.exports=function(name){\nreturn typeof require === \"function\" ? require(\"unknown-optional-package\") : \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-nested-try-finally",
+  "code": "module.exports=function(name){\ntry{if(typeof require === \"undefined\")return \"safe\";return require(name)}finally{globalThis.finished=true}\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-try-finally-callback",
+  "code": "module.exports=function(name){\ntry{if(typeof require === \"undefined\") return callback();function callback(){return require(name)}return \"safe\"}finally{globalThis.finished=true}\n}\n",
+  "runs": false
+ },
+ {
+  "name": "unicode-same-line",
+  "code": "module.exports=function(name){\nglobalThis.label=\"汉字😀\"; return require(name)\n}\n",
+  "runs": false
+ },
+ {
+  "name": "unicode-label-previous",
+  "code": "module.exports=function(name){\nconst 中文=\"变量\";globalThis.中文=中文;return require(name)\n}\n",
+  "runs": false
+ },
+ {
+  "name": "escaped-identifier",
+  "code": "module.exports=function(name){\nreturn \\u0072equire(name)\n}\n",
+  "runs": false
+ },
+ {
+  "name": "assignment-destructure-default-free",
+  "code": "module.exports=function(name){\n({require = require(name)}={}); return \"x\"\n}\n",
+  "runs": false
+ },
+ {
+  "name": "for-in-assignment-free",
+  "code": "module.exports=function(name){\nfor(require in {x:1}){}return \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "for-of-assignment-free",
+  "code": "module.exports=function(name){\nfor(require of [1]){}return \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-local-binding-other-scope",
+  "code": "module.exports=function(name){\nif(typeof require === \"undefined\") return (()=>{const require=x=>\"safe\";return require(name)})();return require(name)\n}\n",
+  "runs": true
+ },
+ {
+  "name": "guard-local-typeof-outer-free",
+  "code": "module.exports=function(name){\n{const require=x=>x;if(typeof require === \"function\")globalThis.x=require(name)}return require(name)\n}\n",
+  "runs": false
+ },
+ {
+  "name": "guard-mutation-conditional-test",
+  "code": "module.exports=function(name){\nglobalThis.require=x=>x;return (typeof require === \"function\" && (delete globalThis.require,true)) ? require(name) : \"safe\"\n}\n",
+  "runs": false
+ },
+ {
+  "name": "strict-assign-only",
+  "code": "module.exports=function(name){\n\"use strict\";require=x=>x;return \"safe\"\n}\n",
+  "runs": false
+ },
+ {
+  "name": "strict-assign-compound",
+  "code": "module.exports=function(name){\n\"use strict\";require ||= x=>x;return \"safe\"\n}\n",
+  "runs": false
+ },
+ {
+  "name": "global-assigned-read",
+  "code": "module.exports=function(name){\nglobalThis.require=x=>\"safe:\"+x;return require(name)\n}\n",
+  "runs": true
+ },
+ {
+  "name": "global-assigned-guard",
+  "code": "module.exports=function(name){\nglobalThis.require=x=>\"safe:\"+x;return typeof require === \"function\" ? require(name) : \"safe\"\n}\n",
+  "runs": true
+ },
+ {
+  "name": "strict-local-reassignment",
+  "code": "module.exports=function(name){\n\"use strict\";let require=x=>x;require=x=>\"safe:\"+x;return require(name)\n}\n",
+  "runs": true
+ }
+]
