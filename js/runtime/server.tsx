@@ -25,6 +25,17 @@ const clientRenderedBoundary = '<!--$!-->'
 const incompleteRender =
   'a component threw during the server render and React left its Suspense boundary to the browser, ' +
   'set SSR = false on the page to see the error in the browser console'
+const suspendedRender =
+  'a component suspended during the server render: it threw a promise, or it is a React.lazy component that ' +
+  'had not loaded. renderToString does not wait, so React left its Suspense boundary to the browser. Give the ' +
+  'page its data with Load and import the component statically, or set SSR = false on the page. When a lazy ' +
+  'component failed to load, the server does not see why, the browser console shows it'
+
+// suspended reports whether error is how renderToString reports a boundary that suspended: the
+// reason it aborts the boundary with, which advises a stream renderer tifa does not use.
+function suspended(error: unknown) {
+  return typeof error === 'string' && error.startsWith('The server used "renderTo')
+}
 
 // serve installs startRender, which the Go VM pool calls with the JSON of an Injected value.
 // It leaves the HTML, or the JSON of {"redirect": {location, status}} or {"error": ...}, in
@@ -62,8 +73,13 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = { la
         // renderToString swallows an error thrown inside a Suspense boundary, and the router
         // wraps the routes in one: the boundary renders its fallback and leaves the marker of a
         // boundary the browser must render itself. The page is then incomplete, never a success.
-        // The first error is why, if the plugin could pass it.
-        if (root.includes(clientRenderedBoundary)) throw errors.length > 0 ? errors[0] : new Error(incompleteRender)
+        // The first error a component threw is why, if the plugin could pass it, or else that a
+        // component suspended.
+        if (root.includes(clientRenderedBoundary)) {
+          const thrown = errors.filter((error) => !suspended(error))
+          if (thrown.length > 0) throw thrown[0]
+          throw new Error(errors.length > 0 ? suspendedRender : incompleteRender)
+        }
         const hydration = router.serverSsr!.takeInitialHydrationScriptTags()
         if (!hydration) throw new Error('the router has no hydration scripts for this render')
         router.serverSsr!.setRenderFinished()

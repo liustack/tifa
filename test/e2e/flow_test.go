@@ -47,6 +47,13 @@ func OnError(c *tifa.Ctx, err error) tifa.Error {
 	"app/throws/route.tsx":  "export default function Throws(): never {\n  throw new Error('PAGE_THROWS')\n}\n",
 	"app/legacy/legacy.cjs": "module.exports = function (name) {\n  return require(name)\n}\n",
 	"app/legacy/route.tsx":  "import load from './legacy.cjs'\n\nexport default function Legacy() {\n  return <p>{String(load('node:os'))}</p>\n}\n",
+	// A component that suspends, and a lazy one whose import fails after the render.
+	"app/suspends/route.tsx": "import { Suspense } from 'react'\n\nconst pending = new Promise(() => {})\n\n" +
+		"function Pending(): never {\n  throw pending\n}\n\n" +
+		"export default function Suspends() {\n  return <Suspense fallback=\"pending\"><Pending /></Suspense>\n}\n",
+	"app/lazy/route.tsx": "import { lazy, Suspense } from 'react'\nimport load from '../legacy/legacy.cjs'\n\n" +
+		"const Lazy = lazy(() => Promise.resolve().then(() => ({ default: () => <p>{String(load('node:os'))}</p> })))\n\n" +
+		"export default function LazyPage() {\n  return <Suspense fallback=\"loading\"><Lazy /></Suspense>\n}\n",
 	// A render inside the render of the page, whose error React handles, before the require.
 	"app/nested/route.tsx": "import { Suspense } from 'react'\nimport { renderToString } from 'react-dom/server.edge'\n" +
 		"import load from '../legacy/legacy.cjs'\n\n" +
@@ -157,6 +164,21 @@ func TestErrorFlowInTheVM(t *testing.T) {
 		want := "The code at app/legacy/legacy.cjs:2:10 calls require. SSR runs in QuickJS, which has no require"
 		if !strings.Contains(output.String(), want) {
 			t.Errorf("OnError:\n%s\nwant %s", output, want)
+		}
+	})
+
+	t.Run("a component that suspends gets the advice of tifa", func(t *testing.T) {
+		for _, page := range []string{"/suspends", "/lazy"} {
+			before, from := onErrors(), len(output.String())
+			if code, _, body := get(t, base+page); code != 500 {
+				t.Errorf("%s: %d %s", page, code, body)
+			}
+			output.waitFor(t, func(string) bool { return onErrors()-before >= 1 })
+			got := output.String()[from:]
+			if !strings.Contains(got, "a component suspended during the server render") || !strings.Contains(got, "set SSR = false on the page") ||
+				strings.Contains(got, "renderToReadableStream") {
+				t.Errorf("%s: OnError:\n%s", page, got)
+			}
 		}
 	})
 
