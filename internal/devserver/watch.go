@@ -21,19 +21,24 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-// changes collects the files whose content changed since the last batch was taken.
+// changes collects the files whose content changed since they were last taken into a batch.
 // The watcher adds to it, the rebuild loop takes batches from it.
 type changes struct {
 	mu       sync.Mutex
-	before   map[string]string // checksum when the batch started, "" when the file did not exist
-	after    map[string]string // checksum now, "" when the file is gone
-	building bool              // a build runs and may read any file at any moment
-	touched  map[string]bool   // files that changed while a build ran
-	ready    chan struct{}     // receives a value after add, holds at most one
+	before   map[string]string    // checksum when the file was last taken, "" when it did not exist
+	after    map[string]string    // checksum now, "" when the file is gone
+	first    map[string]time.Time // when the file first changed since it was last taken
+	last     map[string]time.Time // when it changed last
+	building bool                 // a build runs and may read any file at any moment
+	touched  map[string]bool      // files that changed while a build ran
+	ready    chan struct{}        // receives a value after add, holds at most one
 }
 
 func newChanges() *changes {
-	return &changes{before: map[string]string{}, after: map[string]string{}, touched: map[string]bool{}, ready: make(chan struct{}, 1)}
+	return &changes{
+		before: map[string]string{}, after: map[string]string{}, first: map[string]time.Time{}, last: map[string]time.Time{},
+		touched: map[string]bool{}, ready: make(chan struct{}, 1),
+	}
 }
 
 // setBuilding marks the time a build runs. A file that changes during that time counts as
@@ -46,11 +51,14 @@ func (c *changes) setBuilding(b bool) {
 
 // add records that path went from checksum before to checksum after.
 func (c *changes) add(path, before, after string) {
+	now := time.Now()
 	c.mu.Lock()
 	if _, ok := c.before[path]; !ok {
 		c.before[path] = before
+		c.first[path] = now
 	}
 	c.after[path] = after
+	c.last[path] = now
 	if c.building {
 		c.touched[path] = true
 	}
@@ -65,18 +73,65 @@ func (c *changes) add(path, before, after string) {
 // one outside the application directory that Vite's dev server watches. It counts as modified.
 func (c *changes) touch(path string) { c.add(path, "unknown", "changed") }
 
-// take returns the batch sorted by path and starts a new one. A file whose content ends up
-// as it was when the batch started is left out, unless it changed while a build ran.
+// take returns every file that changed, as a batch sorted by path. A file whose content ends up
+// as it was when it was last taken is left out, unless it changed while a build ran.
 func (c *changes) take() []change {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	var batch []change
+	return c.takeLocked(func(string) bool { return true })
+}
+
+// due decides on the next batch at now. A file is settled once it went quiet for quiet, or once it
+// kept changing for limit, such as a log: a file in the middle of a save does not go into a batch,
+// and a file that never stops changing holds back neither itself nor the others for long. When
+// every changed file is settled, or the oldest change waited limit, due takes the settled files as
+// the batch. Otherwise batch is nil and wait says when to look again, 0 when nothing changed.
+func (c *changes) due(now time.Time, quiet, limit time.Duration) (batch []change, wait time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.before) == 0 {
+		return nil, 0
+	}
+	settled := func(p string) bool { return now.Sub(c.last[p]) >= quiet || now.Sub(c.first[p]) >= limit }
+	oldest, all, some := now, true, false
+	wait = limit
+	for p := range c.before {
+		if c.first[p].Before(oldest) {
+			oldest = c.first[p]
+		}
+		if settled(p) {
+			some = true
+			continue
+		}
+		all = false
+		wait = min(wait, c.last[p].Add(quiet).Sub(now), c.first[p].Add(limit).Sub(now))
+	}
+	if all || some && now.Sub(oldest) >= limit {
+		return c.takeLocked(settled), 0
+	}
+	if some {
+		wait = min(wait, oldest.Add(limit).Sub(now))
+	}
+	return nil, max(wait, time.Millisecond)
+}
+
+// takeLocked takes the files for which take reports true. Call it with c.mu held.
+func (c *changes) takeLocked(take func(path string) bool) []change {
+	batch := []change{}
 	for p, before := range c.before {
-		after := c.after[p]
+		if !take(p) {
+			continue
+		}
+		after, touched := c.after[p], c.touched[p]
+		delete(c.before, p)
+		delete(c.after, p)
+		delete(c.first, p)
+		delete(c.last, p)
+		delete(c.touched, p)
 		switch {
-		case before == after && c.touched[p] && after == "":
+		case before == after && touched && after == "":
 			batch = append(batch, change{p, removed})
-		case before == after && c.touched[p]:
+		case before == after && touched:
 			batch = append(batch, change{p, modified})
 		case before == after:
 		case before == "":
@@ -87,9 +142,6 @@ func (c *changes) take() []change {
 			batch = append(batch, change{p, modified})
 		}
 	}
-	clear(c.before)
-	clear(c.after)
-	clear(c.touched)
 	slices.SortFunc(batch, func(a, b change) int { return strings.Compare(a.path, b.path) })
 	return batch
 }

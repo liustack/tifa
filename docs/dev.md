@@ -25,7 +25,7 @@ tifa dev runs the app's own Vite on Node, with the app's `vite.config.ts` (see [
 
 ## What each change triggers
 
-tifa dev watches the app root and skips `.git`, `.tifa`, `node_modules`, and `bin/`, where the dev executable lives. Changes that arrive together are handled as one batch once the files go quiet for 100 ms. A batch waits one second at most, so a file that keeps changing, such as a log, does not hold back the others.
+tifa dev watches the app root and skips `.git`, `.tifa`, `node_modules`, and `bin/`, where the dev executable lives. Changes are handled in batches. A file joins a batch once it stays unchanged for 100 ms, so a build does not start in the middle of a save, and a batch starts once all its files have. A file that keeps changing, such as a log, joins after one second anyway, and the files that are ready then go without waiting for the rest, so nothing is held back for much longer than a second.
 
 | What changed | Steps that run | Open pages |
 | --- | --- | --- |
