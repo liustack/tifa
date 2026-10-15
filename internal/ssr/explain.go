@@ -82,8 +82,9 @@ type segment struct {
 
 // explain returns err with the stack trace of the exception of the bundle it carries, the places
 // in it given in the sources, and for a missing require which code called it and what to do.
-// Errors that carry no stack trace come back as they are.
-func (s *sources) explain(err error) error {
+// loading says that the bundle failed as it loaded, before any render. Errors that carry no stack
+// trace come back as they are.
+func (s *sources) explain(err error, loading bool) error {
 	var head, stack string
 	var reported *scriptError
 	var js *quickjs.Error
@@ -110,7 +111,8 @@ func (s *sources) explain(err error) error {
 	}
 	if head == missingRequire {
 		if place := bundlePlace.FindString(stack); place != "" {
-			text += "\n" + s.requireAdvice(placeOf(place))
+			line, column := placeOf(place)
+			text += "\n" + s.requireAdvice(line, column, loading)
 		}
 	}
 	return &explainedError{err: err, text: text}
@@ -125,10 +127,16 @@ func placeOf(place string) (int, int) {
 }
 
 // requireAdvice says which code called require at line and column of the bundle, why it fails,
-// and what to do.
-func (s *sources) requireAdvice(line, column int) string {
-	const why = ". SSR runs in QuickJS, which has no require, so this code took a path meant for Node. " +
-		"Use the browser entry of the package, or call it from a .client file or a useEffect, which run in the browser only."
+// and what to do, which depends on whether the bundle was loading.
+func (s *sources) requireAdvice(line, column int, loading bool) string {
+	why := ". SSR runs in QuickJS, which has no require, so this code took a path meant for Node. " +
+		"Import the package from a .client file, or call it from a useEffect, which run in the browser only, " +
+		"or use a build of the package that does not need Node."
+	if loading {
+		why = ". SSR runs in QuickJS, which has no require, so this code took a path meant for Node. " +
+			"The bundle runs it as it loads, before any page renders, so moving the call into a useEffect does not help: " +
+			"import the package from a .client file, which runs in the browser only, or use a build of it that does not need Node."
+	}
 	file, sourceLine, sourceColumn, ok := s.source(line, column)
 	if !ok {
 		// The bundle's function gets the Node modules packages import as its arguments.

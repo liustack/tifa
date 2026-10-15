@@ -91,7 +91,7 @@ func NewPool(source string, sourceMap []byte, cfg config.SSR) (*Pool, error) {
 	for range cfg.VMs {
 		vm, err := loadVM(p)
 		if err != nil {
-			return nil, errors.Join(fmt.Errorf("ssr: prewarm VM: %w", p.sources.explain(err)), p.Close())
+			return nil, errors.Join(fmt.Errorf("ssr: prewarm VM: %w", p.sources.explain(err, true)), p.Close())
 		}
 		p.idle <- vm
 	}
@@ -138,7 +138,7 @@ func (p *Pool) Render(ctx context.Context, in Input) (string, error) {
 	var redirect *RedirectError
 	if err != nil && !errors.As(err, &redirect) {
 		p.retire(vm)
-		return "", p.sources.explain(err)
+		return "", p.sources.explain(err, false)
 	}
 	// A redirect is an answer, not a failure: the VM goes back to the pool.
 	p.idle <- vm
@@ -178,7 +178,7 @@ func (p *Pool) refill() {
 			p.idle <- vm
 			return
 		}
-		logf("tifa: ssr: replace VM: %v, retrying in %s", p.sources.explain(err), delay)
+		logf("tifa: ssr: replace VM: %v, retrying in %s", p.sources.explain(err, true), delay)
 		timer := time.NewTimer(delay)
 		select {
 		case <-p.done:

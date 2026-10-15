@@ -102,7 +102,13 @@ func requireMap() []byte {
 	)
 }
 
-const advice = "SSR runs in QuickJS, which has no require"
+const (
+	advice = "SSR runs in QuickJS, which has no require"
+	// What a render can do: run the code in the browser only.
+	renderAdvice = "Import the package from a .client file, or call it from a useEffect"
+	// What a bundle that fails to load can do: the import itself fails.
+	loadAdvice = "The bundle runs it as it loads, before any page renders, so moving the call into a useEffect does not help"
+)
 
 func TestRenderErrorsNameThePackageThatCallsRequire(t *testing.T) {
 	p, err := NewPool(requireBundle, requireMap(), testConfig(1))
@@ -121,7 +127,8 @@ func TestRenderErrorsNameThePackageThatCallsRequire(t *testing.T) {
 		}
 		got := err.Error()
 		if !strings.Contains(got, "ReferenceError: 'require' is not defined") || !strings.Contains(got, want) ||
-			!strings.Contains(got, advice) || strings.Contains(got, "<eval>") {
+			!strings.Contains(got, advice) || !strings.Contains(got, renderAdvice) || strings.Contains(got, loadAdvice) ||
+			strings.Contains(got, "<eval>") {
 			t.Errorf("%s: %s\nwant %s and why", url, got, want)
 		}
 		// A promise callback runs after the page returned.
@@ -155,13 +162,14 @@ func TestPrewarmErrorsNameTheNodeModuleTheBundleLoads(t *testing.T) {
 	_, err := NewPool(bundle, sourceMapOf(mapping{1, 0, "node_modules/pkg/index.js", 0, 0}), testConfig(1))
 	if err == nil || !strings.Contains(err.Error(), `ssr: prewarm VM: ReferenceError: 'require' is not defined`) ||
 		!strings.Contains(err.Error(), `The bundle loads the Node module "node:fs", imported by esm-fs, other, at ssr.js:3:4`) ||
-		!strings.Contains(err.Error(), advice) {
+		!strings.Contains(err.Error(), advice) || !strings.Contains(err.Error(), loadAdvice) || strings.Contains(err.Error(), renderAdvice) {
 		t.Errorf("err = %v, want the Node module and its packages", err)
 	}
 
 	bundle = "(function () {\n  function load(name) { return require(name) }\n  load('fs')\n})()\n"
 	_, err = NewPool(bundle, sourceMapOf(mapping{1, 0, "node_modules/pkg/index.js", 2, 0}), testConfig(1))
-	if err == nil || !strings.Contains(err.Error(), "The package pkg calls require at node_modules/pkg/index.js:3:1") {
+	if err == nil || !strings.Contains(err.Error(), "The package pkg calls require at node_modules/pkg/index.js:3:1") ||
+		!strings.Contains(err.Error(), loadAdvice) {
 		t.Errorf("err = %v, want the package", err)
 	}
 }
@@ -186,10 +194,10 @@ func TestExplainingAnErrorCostsLittleForALargeBundle(t *testing.T) {
 	err := &scriptError{text: "ReferenceError: 'require' is not defined\n" + stack}
 	s := &sources{code: code, raw: sourceMapOf(mapping{0, 0, "node_modules/pkg/index.js", 0, 0})}
 	var first, again error
-	if n := allocated(func() { first = s.explain(err) }); n > size/2 {
+	if n := allocated(func() { first = s.explain(err, false) }); n > size/2 {
 		t.Errorf("the first error allocates %d bytes for a bundle of %d", n, size)
 	}
-	if n := allocated(func() { again = s.explain(err) }); n > 256<<10 {
+	if n := allocated(func() { again = s.explain(err, false) }); n > 256<<10 {
 		t.Errorf("another error allocates %d bytes", n)
 	}
 	if first.Error() != again.Error() || !strings.Contains(first.Error(), "The package pkg calls require at node_modules/pkg/index.js:1:1") {
@@ -201,7 +209,7 @@ func TestExplainingAnErrorCostsLittleForALargeBundle(t *testing.T) {
 // a limit.
 func TestExplainingAnErrorGivesTheFirstFramesOfADeepStack(t *testing.T) {
 	stack := strings.Repeat("    at load (<eval>:2:32)\n", maxFrames+500)
-	err := (&sources{code: requireBundle, raw: requireMap()}).explain(&scriptError{text: "ReferenceError: 'require' is not defined\n" + stack})
+	err := (&sources{code: requireBundle, raw: requireMap()}).explain(&scriptError{text: "ReferenceError: 'require' is not defined\n" + stack}, false)
 	got := err.Error()
 	if n := strings.Count(got, "(node_modules/pkg/index.js:3:10)"); n != maxFrames {
 		t.Errorf("%d frames given, want %d", n, maxFrames)
@@ -232,7 +240,7 @@ func TestErrorsGivePlacesInTheBundleWithABrokenSourceMap(t *testing.T) {
 		"no version":               `{"sources":["node_modules/wrong/index.js"],"mappings":"AAAA"}`,
 	} {
 		s := &sources{code: code, raw: []byte(raw)}
-		err := s.explain(&scriptError{text: "ReferenceError: 'require' is not defined\n    at page (<eval>:1:32)"})
+		err := s.explain(&scriptError{text: "ReferenceError: 'require' is not defined\n    at page (<eval>:1:32)"}, false)
 		if got := err.Error(); !strings.Contains(got, "at page (ssr.js:1:32)") || !strings.Contains(got, "The code at ssr.js:1:32 calls require") {
 			t.Errorf("%s: %s", name, got)
 		}
@@ -243,7 +251,7 @@ func TestErrorsJoinTheSourceRootOfTheSourceMap(t *testing.T) {
 	for root, want := range map[string]string{"src/": "src/node_modules/pkg/index.js", "src": "src/node_modules/pkg/index.js", "": "node_modules/pkg/index.js"} {
 		raw := fmt.Sprintf(`{"version":3,"sourceRoot":%q,"sources":["node_modules/pkg/index.js"],"mappings":"AAAA"}`, root)
 		s := &sources{code: "require('fs')", raw: []byte(raw)}
-		err := s.explain(&scriptError{text: "ReferenceError: 'require' is not defined\n    at page (<eval>:1:1)"})
+		err := s.explain(&scriptError{text: "ReferenceError: 'require' is not defined\n    at page (<eval>:1:1)"}, false)
 		if !strings.Contains(err.Error(), "The package pkg calls require at "+want+":1:1") {
 			t.Errorf("sourceRoot %q: %s", root, err)
 		}
