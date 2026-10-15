@@ -185,7 +185,9 @@ func allocated(f func()) uint64 {
 }
 
 // An error is explained after its render ended, outside the memory limit and the timeout of the
-// VM, so what it costs must not grow with the bundle for each frame of its stack trace.
+// VM, so what it costs must not grow with the bundle. The budget is the size of the bundle: one
+// copy of its line is larger, while what the regular expressions of the stack trace allocate
+// stays below it under the race detector too, which drops the objects they pool.
 func TestExplainingAnErrorCostsLittleForALargeBundle(t *testing.T) {
 	const size = 4 << 20
 	code := "globalThis.x = '" + strings.Repeat("中", size/3) + "😀" + strings.Repeat("x", size/2) + "'"
@@ -194,11 +196,11 @@ func TestExplainingAnErrorCostsLittleForALargeBundle(t *testing.T) {
 	err := &scriptError{text: "ReferenceError: 'require' is not defined\n" + stack}
 	s := &sources{code: code, raw: sourceMapOf(mapping{0, 0, "node_modules/pkg/index.js", 0, 0})}
 	var first, again error
-	if n := allocated(func() { first = s.explain(err, false) }); n > size/2 {
-		t.Errorf("the first error allocates %d bytes for a bundle of %d", n, size)
+	if n := allocated(func() { first = s.explain(err, false) }); n > size {
+		t.Errorf("the first error allocates %d bytes for a bundle of %d", n, len(code))
 	}
-	if n := allocated(func() { again = s.explain(err, false) }); n > 256<<10 {
-		t.Errorf("another error allocates %d bytes", n)
+	if n := allocated(func() { again = s.explain(err, false) }); n > size {
+		t.Errorf("another error allocates %d bytes for a bundle of %d", n, len(code))
 	}
 	if first.Error() != again.Error() || !strings.Contains(first.Error(), "The package pkg calls require at node_modules/pkg/index.js:1:1") {
 		t.Errorf("err = %.300s", first)
