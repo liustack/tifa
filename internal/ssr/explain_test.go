@@ -210,3 +210,42 @@ func TestExplainingAnErrorGivesTheFirstFramesOfADeepStack(t *testing.T) {
 		t.Errorf("err = %.2000s", got)
 	}
 }
+
+// A source map with any part it cannot read maps nothing: a wrong place would name the wrong
+// package. The places then stay in ssr.js.
+func TestErrorsGivePlacesInTheBundleWithABrokenSourceMap(t *testing.T) {
+	const code = "globalThis.startRender = () => require('fs')"
+	for name, raw := range map[string]string{
+		"not JSON":                 "bad",
+		"only a broken segment":    `{"version":3,"sources":["node_modules/wrong/index.js"],"mappings":"!!!"}`,
+		"a broken segment after":   `{"version":3,"sources":["node_modules/wrong/index.js"],"mappings":"AAAA,!!!"}`,
+		"a cut segment":            `{"version":3,"sources":["node_modules/wrong/index.js"],"mappings":"AAAA,g"}`,
+		"two fields":               `{"version":3,"sources":["node_modules/wrong/index.js"],"mappings":"AA"}`,
+		"six fields":               `{"version":3,"sources":["node_modules/wrong/index.js"],"names":["a"],"mappings":"AAAAAA"}`,
+		"an empty segment":         `{"version":3,"sources":["node_modules/wrong/index.js"],"mappings":"AAAA,,CAAC"}`,
+		"a negative line":          `{"version":3,"sources":["node_modules/wrong/index.js"],"mappings":"AADA"}`,
+		"a negative column":        `{"version":3,"sources":["node_modules/wrong/index.js"],"mappings":"AAAD"}`,
+		"a negative bundle column": `{"version":3,"sources":["node_modules/wrong/index.js"],"mappings":"DAAA"}`,
+		"a source out of range":    `{"version":3,"sources":["node_modules/wrong/index.js"],"mappings":"AAAA,ACAA"}`,
+		"a name out of range":      `{"version":3,"sources":["node_modules/wrong/index.js"],"names":[],"mappings":"AAAAA"}`,
+		"another version":          `{"version":42,"sources":["node_modules/wrong/index.js"],"mappings":"AAAA"}`,
+		"no version":               `{"sources":["node_modules/wrong/index.js"],"mappings":"AAAA"}`,
+	} {
+		s := &sources{code: code, raw: []byte(raw)}
+		err := s.explain(&scriptError{text: "ReferenceError: 'require' is not defined\n    at page (<eval>:1:32)"})
+		if got := err.Error(); !strings.Contains(got, "at page (ssr.js:1:32)") || !strings.Contains(got, "The code at ssr.js:1:32 calls require") {
+			t.Errorf("%s: %s", name, got)
+		}
+	}
+}
+
+func TestErrorsJoinTheSourceRootOfTheSourceMap(t *testing.T) {
+	for root, want := range map[string]string{"src/": "src/node_modules/pkg/index.js", "src": "src/node_modules/pkg/index.js", "": "node_modules/pkg/index.js"} {
+		raw := fmt.Sprintf(`{"version":3,"sourceRoot":%q,"sources":["node_modules/pkg/index.js"],"mappings":"AAAA"}`, root)
+		s := &sources{code: "require('fs')", raw: []byte(raw)}
+		err := s.explain(&scriptError{text: "ReferenceError: 'require' is not defined\n    at page (<eval>:1:1)"})
+		if !strings.Contains(err.Error(), "The package pkg calls require at "+want+":1:1") {
+			t.Errorf("sourceRoot %q: %s", root, err)
+		}
+	}
+}

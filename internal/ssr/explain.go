@@ -243,42 +243,80 @@ func (s *sources) prepare() {
 	s.decode()
 }
 
-// decode reads the source map. A map it cannot read maps nothing, the places stay in ssr.js.
+// decode reads the source map. A map it cannot read in full maps nothing, the places stay in
+// ssr.js: a wrong place would name the wrong package.
 func (s *sources) decode() {
 	if s.raw == nil {
 		return
 	}
 	var m struct {
-		Sources  []string `json:"sources"`
-		Mappings string   `json:"mappings"`
+		Version    int      `json:"version"`
+		SourceRoot string   `json:"sourceRoot"`
+		Sources    []string `json:"sources"`
+		Names      []string `json:"names"`
+		Mappings   string   `json:"mappings"`
 	}
-	if json.Unmarshal(s.raw, &m) != nil {
+	if json.Unmarshal(s.raw, &m) != nil || m.Version != 3 {
+		return
+	}
+	lines, ok := mappings(m.Mappings, len(m.Sources), len(m.Names))
+	if !ok {
 		return
 	}
 	s.files = m.Sources
-	file, line, column := 0, 0, 0
-	for text := range strings.SplitSeq(m.Mappings, ";") {
+	if m.SourceRoot != "" {
+		root := strings.TrimSuffix(m.SourceRoot, "/") + "/"
+		s.files = make([]string, len(m.Sources))
+		for i, source := range m.Sources {
+			s.files[i] = root + source
+		}
+	}
+	s.lines = lines
+}
+
+// mappings decodes the mappings of a source map with sources files and names names, by line
+// of the bundle. It reports false when any segment is broken or points outside the sources.
+func mappings(text string, files, names int) ([][]segment, bool) {
+	var lines [][]segment
+	file, line, column, name := 0, 0, 0, 0
+	for text := range strings.SplitSeq(text, ";") {
 		var segments []segment
 		generated := 0
 		for field := range strings.SplitSeq(text, ",") {
+			if field == "" && text == "" {
+				continue
+			}
 			values, ok := vlq(field)
-			if !ok || len(values) == 0 {
-				continue
+			if !ok {
+				return nil, false
 			}
-			generated += values[0]
-			if len(values) < 4 {
+			switch len(values) {
+			case 1:
+				generated += values[0]
 				segments = append(segments, segment{column: generated, file: -1})
-				continue
+			case 4, 5:
+				generated += values[0]
+				file, line, column = file+values[1], line+values[2], column+values[3]
+				if len(values) == 5 {
+					name += values[4]
+					if name < 0 || name >= names {
+						return nil, false
+					}
+				}
+				if file < 0 || file >= files || line < 0 || column < 0 {
+					return nil, false
+				}
+				segments = append(segments, segment{generated, file, line, column})
+			default:
+				return nil, false
 			}
-			file, line, column = file+values[1], line+values[2], column+values[3]
-			if file < 0 || file >= len(s.files) {
-				segments = append(segments, segment{column: generated, file: -1})
-				continue
+			if generated < 0 {
+				return nil, false
 			}
-			segments = append(segments, segment{generated, file, line, column})
 		}
-		s.lines = append(s.lines, segments)
+		lines = append(lines, segments)
 	}
+	return lines, true
 }
 
 // vlq decodes the Base64 VLQ numbers of one source map segment.
