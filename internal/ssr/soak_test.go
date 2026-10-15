@@ -83,7 +83,7 @@ func TestSoakReuse(t *testing.T) {
 		t.Run(b.name, func(t *testing.T) {
 			baseline := nativeBaseline(t)
 			cfg := config.SSR{VMs: 2, VMMemory: 128 << 20, Timeout: 10 * time.Second}
-			p, err := NewPool(b.source, cfg)
+			p, err := NewPool(b.source, nil, cfg)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -155,7 +155,7 @@ func TestSoakOOMRecycle(t *testing.T) {
 	for _, b := range soakBundles(t) {
 		t.Run(b.name, func(t *testing.T) {
 			baseline := nativeBaseline(t)
-			p, err := NewPool(b.source+retain, config.SSR{VMs: 1, VMMemory: 32 << 20, Timeout: 10 * time.Second})
+			p, err := NewPool(b.source+retain, nil, config.SSR{VMs: 1, VMMemory: 32 << 20, Timeout: 10 * time.Second})
 			if err != nil {
 				t.Fatal(err)
 			}

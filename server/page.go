@@ -30,68 +30,136 @@ const (
 
 // frontBuild is dist/build.json.
 type frontBuild struct {
-	ID     string `json:"buildId"`
-	Script string `json:"script"`
-	Style  string `json:"style"`
+	ID string `json:"buildId"`
+	// Head is the HTML that loads the browser bundle: stylesheets, module preloads and the entry
+	// script, or under tifa dev the scripts of Vite's dev server.
+	Head string `json:"head"`
+	// bundle is the hash of ssr.js. tifa dev keeps the build ID when only ssr.js changes, so
+	// what a render depends on is the build ID and the bundle.
+	bundle string
 }
 
-// setFront serves pages from dist: dist/build.json names the build and its assets, dist/assets
-// and dist/public are served as files. render runs the SSR bundle, nil when the application has
-// no pages.
-func (s *Server) setFront(dist fs.FS, render func(context.Context, ssr.Input) (string, error)) error {
+// front is what the server serves from a dist directory. A Server swaps it as a whole, see
+// swapFront.
+type front struct {
+	build  frontBuild
+	assets fs.FS // dist/assets, nil without pages
+	public fs.FS // dist/public, nil without a public directory
+	render func(context.Context, ssr.Input) (string, error)
+	pool   *ssr.Pool // runs render, nil without an SSR bundle or in tests
+	// pages is set when there are pages to render. Without it pages answer JSON.
+	pages bool
+}
+
+// readFront reads the front end in dist: dist/build.json names the build and its assets,
+// dist/assets and dist/public are served as files. render runs the SSR bundle, nil when the
+// application has no pages.
+func (s *Server) readFront(dist fs.FS, render func(context.Context, ssr.Input) (string, error)) (*front, error) {
 	data, err := fs.ReadFile(dist, "build.json")
 	if err != nil {
-		return fmt.Errorf("tifa: read the build: %w", err)
+		return nil, fmt.Errorf("tifa: read the build: %w", err)
 	}
-	if err := json.Unmarshal(data, &s.build); err != nil {
-		return fmt.Errorf("tifa: build.json: %w", err)
+	f := &front{render: render}
+	if err := json.Unmarshal(data, &f.build); err != nil {
+		return nil, fmt.Errorf("tifa: build.json: %w", err)
 	}
-	if s.build.ID == "" {
-		return errors.New("tifa: build.json has no build ID")
+	if f.build.ID == "" {
+		return nil, errors.New("tifa: build.json has no build ID")
+	}
+	if render != nil {
+		source, err := fs.ReadFile(dist, "ssr.js")
+		if err != nil {
+			return nil, err
+		}
+		sum := sha256.Sum256(source)
+		f.build.bundle = hex.EncodeToString(sum[:16])
 	}
 	for _, dir := range []struct {
 		name string
 		fsys *fs.FS
-	}{{"assets", &s.assets}, {"public", &s.public}} {
+	}{{"assets", &f.assets}, {"public", &f.public}} {
 		if _, err := fs.Stat(dist, dir.name); errors.Is(err, fs.ErrNotExist) {
 			continue
 		} else if err != nil {
-			return err
+			return nil, err
 		}
 		sub, err := fs.Sub(dist, dir.name)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		*dir.fsys = sub
 	}
-	if len(s.pages) > 0 && (render == nil || s.build.Script == "") {
-		return errors.New("tifa: the application has pages but the build has no bundles")
+	if len(s.pages) > 0 && (render == nil || f.build.Head == "") {
+		return nil, errors.New("tifa: the application has pages but the build has no bundles")
 	}
-	s.render = render
 	// Without pages there is nothing to render, and unmatched URLs keep their JSON answer.
-	s.front = len(s.pages) > 0
-	return nil
+	f.pages = len(s.pages) > 0
+	return f, nil
+}
+
+// setFront serves the front end in dist with render, see readFront.
+func (s *Server) setFront(dist fs.FS, render func(context.Context, ssr.Input) (string, error)) error {
+	f, err := s.readFront(dist, render)
+	if err != nil {
+		return err
+	}
+	return s.swapFront(f)
 }
 
 // openFront serves the front end in dist, the dist/ directory tifa build writes. With an SSR
-// bundle (ssr.js) it starts the VM pool that renders pages and returns it, to be closed after
-// the server stops.
-func (s *Server) openFront(dist fs.FS, cfg config.SSR) (*ssr.Pool, error) {
+// bundle (ssr.js) it starts the VM pool that renders pages. Calling it again replaces the front
+// end it served before, which tifa dev does after it rebuilt the SSR bundle (see DevMain).
+// When it fails, the front end served before stays.
+func (s *Server) openFront(dist fs.FS, cfg config.SSR) error {
 	source, err := fs.ReadFile(dist, "ssr.js")
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, s.setFront(dist, nil)
+		return s.setFront(dist, nil)
 	}
 	if err != nil {
-		return nil, err
+		return err
 	}
-	pool, err := ssr.NewPool(string(source), cfg)
+	sourceMap, err := fs.ReadFile(dist, "ssr.js.map")
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	pool, err := ssr.NewPool(string(source), sourceMap, cfg)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if err := s.setFront(dist, pool.Render); err != nil {
-		return nil, errors.Join(err, pool.Close())
+	f, err := s.readFront(dist, pool.Render)
+	if err != nil {
+		return errors.Join(err, pool.Close())
 	}
-	return pool, nil
+	f.pool = pool
+	return s.swapFront(f)
+}
+
+// swapFront serves f from now on and closes the VM pool of the front end it replaces. It waits
+// for the renders that run on that pool, so no render uses a closed pool.
+func (s *Server) swapFront(f *front) error {
+	s.rendering.Lock()
+	old := s.front.Load()
+	s.front.Store(f)
+	s.rendering.Unlock()
+	return old.close()
+}
+
+// closeFront closes the VM pool of the front end, after the server stopped.
+func (s *Server) closeFront() error {
+	return s.front.Load().close()
+}
+
+func (f *front) close() error {
+	if f == nil || f.pool == nil {
+		return nil
+	}
+	return f.pool.Close()
+}
+
+// pagesServed reports whether the server renders pages, see front.pages.
+func (s *Server) pagesServed() bool {
+	f := s.front.Load()
+	return f != nil && f.pages
 }
 
 // serveStatic answers GET and HEAD for a file of the browser bundle (/assets/...) or of the
@@ -102,11 +170,15 @@ func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method != "GET" && r.Method != "HEAD" {
 		return false
 	}
+	f := s.front.Load()
+	if f == nil {
+		return false
+	}
 	name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
-	if rest, ok := strings.CutPrefix(name, "assets/"); ok && serveFile(w, r, s.assets, rest, "public, max-age=31536000, immutable") {
+	if rest, ok := strings.CutPrefix(name, "assets/"); ok && serveFile(w, r, f.assets, rest, "public, max-age=31536000, immutable") {
 		return true
 	}
-	return serveFile(w, r, s.public, name, "no-cache")
+	return serveFile(w, r, f.public, name, "no-cache")
 }
 
 // serveFile answers with the regular file name of fsys and reports whether it exists.
@@ -220,7 +292,7 @@ func sameError(a, b error) bool {
 // Without a front end it answers the chain's data as JSON by route ID.
 func (s *Server) pageHandler(r Route, chain []load) func(*tifa.Ctx) error {
 	return func(c *tifa.Ctx) error {
-		if !s.front {
+		if !s.pagesServed() {
 			return loadsAsJSON(c, chain)
 		}
 		// Added, not set: the Vary of OnRequest, such as Cookie, must stay for caches to keep
@@ -260,7 +332,7 @@ func loadsAsJSON(c *tifa.Ctx, chain []load) error {
 // When a listed Load fails, Next returns the failure as it does for the page, and the answer
 // is written once OnRequest has returned (see Server.fail).
 func (s *Server) dataRequest(c *tifa.Ctx, chain []load) error {
-	if c.Header(buildHeader) != s.build.ID {
+	if c.Header(buildHeader) != s.front.Load().build.ID {
 		return tifa.Error{Status: http.StatusConflict, Message: "the application was updated, reload the page"}
 	}
 	var selected []load
@@ -307,7 +379,7 @@ type dataRedirect struct {
 }
 
 // renderPage renders the document in the VM. A successful page gets an ETag from the hash of
-// the build ID, the URL and the data, which are all the render depends on. A matching
+// the build ID, the SSR bundle, the URL and the data, which are all the render depends on. A matching
 // If-None-Match is answered 304, and with cache the HTML of an earlier render is reused.
 func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status int, cache bool) error {
 	r := c.Request()
@@ -315,10 +387,15 @@ func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status in
 	if err != nil {
 		return err
 	}
-	in := ssr.Input{BuildID: s.build.ID, URL: r.URL.RequestURI(), Data: data}
+	// The render runs on the pool of f, which swapFront closes only after this returns. Only
+	// tifa dev swaps the front end, so in production the lock is never contended.
+	s.rendering.RLock()
+	defer s.rendering.RUnlock()
+	f := s.front.Load()
+	in := ssr.Input{BuildID: f.build.ID, URL: r.URL.RequestURI(), Data: data}
 	var key string
 	if status == http.StatusOK {
-		sum := sha256.Sum256([]byte(in.BuildID + "\x00" + in.URL + "\x00" + string(data)))
+		sum := sha256.Sum256([]byte(in.BuildID + "\x00" + f.build.bundle + "\x00" + in.URL + "\x00" + string(data)))
 		key = `"` + hex.EncodeToString(sum[:16]) + `"`
 		c.SetHeader("ETag", key)
 		if etagMatches(c.Header("If-None-Match"), key) {
@@ -332,7 +409,7 @@ func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status in
 			}
 		}
 	}
-	page, err := s.render(r.Context(), in)
+	page, err := f.render(r.Context(), in)
 	var redirect *ssr.RedirectError
 	if errors.As(err, &redirect) {
 		// The router spells the URL differently, /%61 for /a, and sends the browser there.
@@ -368,18 +445,17 @@ func etagMatches(header, etag string) bool {
 // the data, so the browser renders it without a data request (Boot in data.ts). The browser
 // renders into #tifa-root and writes the head of the routes, the viewport meta among it.
 func (s *Server) dataOnly(c *tifa.Ctx, items map[string]routeResult, status int) error {
+	f := s.front.Load()
 	boot, err := json.Marshal(map[string]any{
-		"url": c.Request().URL.RequestURI(), "buildId": s.build.ID, "data": items,
+		"url": c.Request().URL.RequestURI(), "buildId": f.build.ID, "data": items,
 	})
 	if err != nil {
 		return err
 	}
 	var b strings.Builder
 	b.WriteString(`<!DOCTYPE html><html><head><meta charset="utf-8">`)
-	if s.build.Style != "" {
-		fmt.Fprintf(&b, `<link rel="stylesheet" href="%s">`, html.EscapeString(s.build.Style))
-	}
-	fmt.Fprintf(&b, `<script type="module" src="%s"></script></head><body><div id="tifa-root"></div>`, html.EscapeString(s.build.Script))
+	b.WriteString(f.build.Head)
+	b.WriteString(`</head><body><div id="tifa-root"></div>`)
 	// json.Marshal escapes <, >, &, U+2028 and U+2029, so the data cannot close the script element.
 	fmt.Fprintf(&b, `<script type="application/json" id="tifa-data">%s</script></body></html>`, boot)
 	c.SetHeader(renderHeader, "none")

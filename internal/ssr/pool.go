@@ -35,6 +35,7 @@ var ErrClosed = errors.New("ssr: pool closed")
 // background goroutine replaces it with a fresh VM loaded from the same bytecode.
 type Pool struct {
 	bytecode []byte
+	sources  *sources
 	memory   uintptr
 	timeout  time.Duration
 	idle     chan *quickjs.VM
@@ -64,8 +65,10 @@ var (
 const maxRetryDelay = 30 * time.Second
 
 // NewPool compiles the bundle source once and prewarms cfg.VMs VMs from the bytecode.
-// It fails if the bundle does not compile or its top level code fails in any VM.
-func NewPool(source string, cfg config.SSR) (*Pool, error) {
+// It fails if the bundle does not compile or its top level code fails in any VM. sourceMap is
+// the source map of the bundle (ssr.js.map), nil without one: the errors of the bundle's code
+// give the places of their stack traces in the sources with it, in the bundle without it.
+func NewPool(source string, sourceMap []byte, cfg config.SSR) (*Pool, error) {
 	switch {
 	case cfg.VMs < 1:
 		return nil, fmt.Errorf("ssr: ssr.vms must be at least 1, got %d", cfg.VMs)
@@ -75,6 +78,7 @@ func NewPool(source string, cfg config.SSR) (*Pool, error) {
 		return nil, fmt.Errorf("ssr: ssr.timeout must be positive, got %s", cfg.Timeout)
 	}
 	p := &Pool{
+		sources: &sources{code: source, raw: sourceMap},
 		memory:  uintptr(cfg.VMMemory),
 		timeout: cfg.Timeout,
 		idle:    make(chan *quickjs.VM, cfg.VMs),
@@ -87,7 +91,7 @@ func NewPool(source string, cfg config.SSR) (*Pool, error) {
 	for range cfg.VMs {
 		vm, err := loadVM(p)
 		if err != nil {
-			return nil, errors.Join(fmt.Errorf("ssr: prewarm VM: %w", err), p.Close())
+			return nil, errors.Join(fmt.Errorf("ssr: prewarm VM: %w", p.sources.explain(err, true)), p.Close())
 		}
 		p.idle <- vm
 	}
@@ -134,7 +138,7 @@ func (p *Pool) Render(ctx context.Context, in Input) (string, error) {
 	var redirect *RedirectError
 	if err != nil && !errors.As(err, &redirect) {
 		p.retire(vm)
-		return "", err
+		return "", p.sources.explain(err, false)
 	}
 	// A redirect is an answer, not a failure: the VM goes back to the pool.
 	p.idle <- vm
@@ -174,7 +178,7 @@ func (p *Pool) refill() {
 			p.idle <- vm
 			return
 		}
-		logf("tifa: ssr: replace VM: %v, retrying in %s", err, delay)
+		logf("tifa: ssr: replace VM: %v, retrying in %s", p.sources.explain(err, true), delay)
 		timer := time.NewTimer(delay)
 		select {
 		case <-p.done:

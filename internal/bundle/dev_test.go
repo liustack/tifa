@@ -1,81 +1,461 @@
 package bundle
 
 import (
+	"context"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
+
+	"github.com/liustack/tifa/js"
 )
 
-func TestDevRebuildsDist(t *testing.T) {
-	root := fakeApp(t)
-	d, err := NewDev(root, "")
+// devApp is an application root for Dev: the generated files written by hand, a page component in
+// TSX, the SSR host patches, and a Vite config with the tifa plugin and @vitejs/plugin-react.
+func devApp(t *testing.T) string {
+	t.Helper()
+	modules := testModules(t)
+	host, err := js.Runtime.ReadFile("runtime/host.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	writeTree(t, root, map[string]string{
+		"vite.config.ts": "import react from '@vitejs/plugin-react'\nimport tifa from './.tifa/vite.js'\n" +
+			"export default { plugins: [tifa(), react()] }\n",
+		"app/page/view.tsx": "export default function View({ name }: { name: string }) {\n" +
+			"  return <ul>{['a', 'b'].map((x) => <li key={x}>{name + x}</li>)}</ul>\n}\n",
+		".tifa/runtime/host.js":   string(host),
+		".tifa/runtime/client.ts": "export const clientOnly = 1\n",
+		".tifa/client.ts":         "import View from '../app/page/view'\nconsole.log(View)\n",
+		".tifa/server.ts": "import './runtime/host.js'\nimport { renderToString } from 'react-dom/server.edge'\n" +
+			"import { createElement } from 'react'\nimport View from '../app/page/view'\n" +
+			"(globalThis as any).result = process.env.NODE_ENV + ' ' + renderToString(createElement(View, { name: 'n' }))\n",
+		".tifa/vite/plugin.js": js.VitePlugin,
+		".tifa/vite.js":        "import { tifa } from './vite/plugin.js'\nexport default () => tifa()\n",
+	})
+	if err := os.Symlink(modules, filepath.Join(root, "node_modules")); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func freePort(t *testing.T) int {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port
+}
+
+// nodeChildren counts the node processes this test process started that are still running.
+func nodeChildren(t *testing.T) int {
+	t.Helper()
+	if _, err := exec.LookPath("pgrep"); err != nil {
+		t.Skip("pgrep is not installed")
+	}
+	out, err := exec.Command("pgrep", "-P", strconv.Itoa(os.Getpid()), "-x", "node").Output()
+	if err != nil && len(out) > 0 {
+		t.Fatal(err)
+	}
+	return len(strings.Fields(string(out)))
+}
+
+// tifa dev runs Vite's dev server and the SSR builds on one Node process. The SSR bundle is still
+// a production build: the browser modules use the development build of React, QuickJS the
+// production one, and the page's JSX renders with it.
+func TestDevRunsOneNodeProcess(t *testing.T) {
+	root := devApp(t)
+	before := nodeChildren(t)
+	d, err := NewDev(root, freePort(t), io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	public := filepath.Join(root, "public")
-	dist := filepath.Join(root, ".tifa", "dist")
-	id, err := d.Build(public, true)
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if n := nodeChildren(t) - before; n != 1 {
+		t.Errorf("tifa dev runs %d Node processes, want 1", n)
+	}
+	code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	first := readBuild(t, root)
-	if first["buildId"] != id || !strings.HasPrefix(first["script"], "/assets/app-") || first["style"] == "" {
-		t.Fatalf("build.json %v, id %s", first, id)
+	if !strings.Contains(string(code), "react-dom-server-legacy.browser.production.js") {
+		t.Error("the production string renderer is not bundled")
 	}
-	ssr, err := os.ReadFile(filepath.Join(dist, "ssr.js"))
+	if _, err := os.Stat(filepath.Join(root, ".tifa", "dist", "ssr.js.map")); err != nil {
+		t.Errorf("the source map of the SSR bundle: %v", err)
+	}
+	if got, want := evalResult(t, string(code)), "production <ul><li>na</li><li>nb</li></ul>"; got != want {
+		t.Errorf("SSR bundle gives %q, want %q", got, want)
+	}
+}
+
+// tifa build makes a production build whatever NODE_ENV the shell has, so the JSX of the SSR
+// bundle matches the React build in it.
+func TestAppIgnoresInheritedNodeEnv(t *testing.T) {
+	t.Setenv("NODE_ENV", "development")
+	root := devApp(t)
+	n := NewNode(root, io.Discard)
+	defer n.Close()
+	if _, err := App(n, root, filepath.Join(root, "public"), true); err != nil {
+		t.Fatalf("App: %v", err)
+	}
+	code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := `globalThis.__tifaAssets={"script":"` + first["script"] + `"`; !strings.HasPrefix(string(ssr), want) {
-		t.Fatalf("ssr.js starts %.80q, want %q", ssr, want)
+	if got, want := evalResult(t, string(code)), "production <ul><li>na</li><li>nb</li></ul>"; got != want {
+		t.Errorf("SSR bundle gives %q, want %q", got, want)
 	}
-	if again, err := d.Build(public, true); err != nil || again != id {
-		t.Fatalf("unchanged rebuild: %s %v, want %s", again, err, id)
+}
+
+// tifa dev runs Vite's dev server in development whatever NODE_ENV the shell has, so pages get
+// React Fast Refresh, and the SSR bundle is a production build that renders.
+func TestDevIgnoresInheritedNodeEnv(t *testing.T) {
+	for _, env := range []string{"production", "development"} {
+		t.Run(env, func(t *testing.T) {
+			t.Setenv("NODE_ENV", env)
+			root := devApp(t)
+			d, err := NewDev(root, freePort(t), io.Discard)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer d.Close()
+			if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+				t.Fatalf("Build: %v", err)
+			}
+			if !strings.Contains(d.head, "@react-refresh") {
+				t.Errorf("the dev server runs without React Fast Refresh: %s", d.head)
+			}
+			code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, want := evalResult(t, string(code)), "production <ul><li>na</li><li>nb</li></ul>"; got != want {
+				t.Errorf("SSR bundle gives %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// An image a page imports gets the URL of Vite's dev server in the server render too, the one
+// the browser modules use. A build inlines a small PNG, the dev server does not.
+func TestDevSSRUsesTheDevServerURLsOfAssets(t *testing.T) {
+	root := devApp(t)
+	small := "\x89PNG small"
+	writeTree(t, root, map[string]string{
+		"app/page/small.png": small,
+		"app/page/large.svg": `<svg xmlns="http://www.w3.org/2000/svg"><!--` + strings.Repeat("x", 8<<10) + `--></svg>`,
+		".tifa/server.ts": "import small from '../app/page/small.png'\nimport large from '../app/page/large.svg'\n" +
+			"(globalThis as any).result = small + ' ' + large\n",
+	})
+	port := freePort(t)
+	d, err := NewDev(root, port, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := evalResult(t, string(code))
+	if want := DevBase + "app/page/small.png " + DevBase + "app/page/large.svg"; got != want {
+		t.Fatalf("SSR bundle gives %q, want %q", got, want)
+	}
+	res, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d%sapp/page/small.png", port, DevBase))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode != 200 || string(body) != small {
+		t.Errorf("the dev server answers %d %q", res.StatusCode, body)
+	}
+}
+
+// The head of a dev page links the stylesheets the server render imports, from Vite's dev
+// server, so the page is styled before its scripts run, as a built page is. Vite's client knows
+// the links by data-vite-dev-id and updates them in place of adding a second copy.
+func TestDevHeadLinksTheStylesheetsOfTheServerRender(t *testing.T) {
+	root := devApp(t)
+	writeTree(t, root, map[string]string{
+		"app/page/page.css": ".page { color: red }\n",
+		"app/page/view.tsx": "import './page.css'\nexport default function View() { return <p className=\"page\">p</p> }\n",
+		".tifa/server.ts": "declare const __TIFA_ASSETS__: string\nimport View from '../app/page/view'\n" +
+			"(globalThis as any).result = View + __TIFA_ASSETS__\n",
+	})
+	real, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := freePort(t)
+	d, err := NewDev(root, port, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	link := `<link rel="stylesheet" href="` + DevBase + `app/page/page.css" data-vite-dev-id="` +
+		filepath.Join(real, "app", "page", "page.css") + `">`
+	if head := readBuild(t, root).Head; !strings.HasPrefix(head, link) {
+		t.Errorf("build.json head %s, want it to start with %s", head, link)
+	}
+	code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := evalResult(t, string(code)); !strings.Contains(got, link) {
+		t.Errorf("the SSR bundle has the head %s, want %s in it", got, link)
+	}
+	// A browser asks for a stylesheet with this Accept header, which tells Vite to send CSS.
+	req, err := http.NewRequest("GET", fmt.Sprintf("http://127.0.0.1:%d%sapp/page/page.css", port, DevBase), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Accept", "text/css,*/*;q=0.1")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode != 200 || !strings.Contains(string(body), "color: red") ||
+		!strings.HasPrefix(res.Header.Get("Content-Type"), "text/css") {
+		t.Errorf("the dev server answers %d %s %q", res.StatusCode, res.Header.Get("Content-Type"), body)
+	}
+}
+
+// aliasApp is devApp with the tsconfig.json of a tifa application, whose paths send @/components
+// somewhere other than @/ does: the SSR bundle reports which message module it got. A shadcn
+// component outside app/ also imports through @/.
+func aliasApp(t *testing.T) string {
+	t.Helper()
+	root := devApp(t)
+	writeTree(t, root, map[string]string{
+		"tsconfig.json": `{"extends": "./.tifa/tsconfig.json", "compilerOptions": {"paths": {` +
+			`"@/*": ["./*"], "@/components/*": ["./custom/*"], "tifa/client": ["./.tifa/runtime/client.ts"]}},` +
+			` "include": ["**/*", ".tifa/**/*"]}`,
+		".tifa/tsconfig.json":   `{"compilerOptions": {"module": "ESNext", "moduleResolution": "bundler", "jsx": "react-jsx"}}`,
+		"custom/message.ts":     "export default 'tsconfig alias'\n",
+		"components/message.ts": "export default 'root alias'\n",
+		"lib/utils.ts":          "export const join = (a: string, b: string) => a + ' ' + b\n",
+		"shadcn/ui/badge.ts":    "import { join } from '@/lib/utils'\nexport default join('badge', 'ok')\n",
+		"app/page/view.tsx":     "import message from '@/components/message'\nimport badge from '@/shadcn/ui/badge'\nimport { clientOnly } from 'tifa/client'\nexport default message + ', ' + badge + ', ' + clientOnly\n",
+		".tifa/client.ts":       "import view from '../app/page/view'\nconsole.log(view)\n",
+		".tifa/server.ts":       "import view from '../app/page/view'\n(globalThis as any).result = view\n",
+	})
+	return root
+}
+
+const aliasResult = "tsconfig alias, badge ok, 1"
+
+// The paths of the application's tsconfig.json decide what @/ and tifa/client import, in the
+// browser bundle and the SSR bundle of tifa build, as they do for TypeScript.
+func TestAppResolvesImportsByTheTsconfigPaths(t *testing.T) {
+	root := aliasApp(t)
+	n := NewNode(root, io.Discard)
+	defer n.Close()
+	if _, err := App(n, root, filepath.Join(root, "public"), true); err != nil {
+		t.Fatalf("App: %v", err)
+	}
+	code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := evalResult(t, string(code)); got != aliasResult {
+		t.Errorf("SSR bundle gives %q, want %q", got, aliasResult)
+	}
+	browser, err := filepath.Glob(filepath.Join(root, ".tifa", "dist", "assets", "*.js"))
+	if err != nil || len(browser) == 0 {
+		t.Fatalf("no browser bundle: %v", err)
+	}
+	var all string
+	for _, f := range browser {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		all += string(data)
+	}
+	if !strings.Contains(all, "tsconfig alias") || strings.Contains(all, "root alias") {
+		t.Errorf("the browser bundle does not import custom/message.ts")
+	}
+}
+
+// Under tifa dev the SSR bundle and the modules of Vite's dev server follow the tsconfig paths.
+func TestDevResolvesImportsByTheTsconfigPaths(t *testing.T) {
+	root := aliasApp(t)
+	port := freePort(t)
+	d, err := NewDev(root, port, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := evalResult(t, string(code)); got != aliasResult {
+		t.Errorf("SSR bundle gives %q, want %q", got, aliasResult)
+	}
+	res, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d%sapp/page/view.tsx", port, DevBase))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode != 200 || !strings.Contains(string(body), DevBase+"custom/message.ts") {
+		t.Errorf("the dev server answers %d:\n%s", res.StatusCode, body)
+	}
+}
+
+// tifa dev checks the unminified bundle the same way: no warning for a require in code that never
+// runs or that a typeof require test guards, and a warning at its place in the source for one that
+// stays. The build goes on either way.
+func TestDevWarnsOfTheRequiresLeftInTheBundle(t *testing.T) {
+	root := devApp(t)
+	writeTree(t, root, map[string]string{
+		"app/page/reader.cjs": "module.exports = function (name) {\n  if (false) return require(name).sep\n" +
+			"  if (typeof require !== 'undefined') return require(name).sep\n  return '/'\n}\n",
+		".tifa/server.ts": "import './runtime/host.js'\nimport read from '../app/page/reader.cjs'\n" +
+			"(globalThis as any).result = read('node:path')\n",
+	})
+	build := func() string {
+		var output strings.Builder
+		d, err := NewDev(root, freePort(t), &output)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer d.Close()
+		if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		// What Node printed is complete once it exited.
+		if err := d.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return output.String()
+	}
+	if got := build(); strings.Contains(got, "reader.cjs") {
+		t.Errorf("the build prints:\n%s", got)
+	}
+	code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := evalResult(t, string(code)); got != "/" {
+		t.Fatalf("SSR bundle gives %q", got)
 	}
 
-	writeTree(t, root, map[string]string{"app/page/page.css": ".page { color: blue }\n"})
-	id2, err := d.Build(public, true)
+	writeTree(t, root, map[string]string{
+		"app/page/reader.cjs": "module.exports = function (name) {\n  if (name) return require(name).sep\n  return '/'\n}\n",
+	})
+	if got := build(); !strings.Contains(got, filepath.Join("app", "page", "reader.cjs")+":2:20: require loads") {
+		t.Fatalf("the build prints:\n%s\nwant the place of the require", got)
+	}
+}
+
+// slowOutput takes a millisecond for each write, as a terminal or a log file under load may.
+type slowOutput struct {
+	mu   sync.Mutex
+	text strings.Builder
+}
+
+func (w *slowOutput) Write(p []byte) (int, error) {
+	time.Sleep(time.Millisecond)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.text.Write(p)
+}
+
+func (w *slowOutput) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.text.String()
+}
+
+// The SSR worker thread prints through the main thread. Closing tifa dev right after a build
+// must not lose what the worker printed, though Vite's dev server ends the process when stdin
+// ends.
+func TestDevPrintsAllTheSSRWorkerPrinted(t *testing.T) {
+	const lines = 2000
+	root := devApp(t)
+	writeTree(t, root, map[string]string{"vite.config.ts": "import react from '@vitejs/plugin-react'\n" +
+		"import tifa from './.tifa/vite.js'\n" +
+		"const print = { name: 'print', applyToEnvironment: (env) => env.name === 'ssr', generateBundle() {\n" +
+		"  process.stdout.write(('OUT'.padEnd(80, '.') + '\\n').repeat(" + strconv.Itoa(lines) + ") + 'OUT END\\n')\n" +
+		"  process.stderr.write(('ERR'.padEnd(80, '.') + '\\n').repeat(" + strconv.Itoa(lines) + ") + 'ERR END\\n')\n" +
+		"} }\n" +
+		"export default { plugins: [tifa(), react(), print] }\n"})
+	output := &slowOutput{}
+	d, err := NewDev(root, freePort(t), output)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second := readBuild(t, root)
-	if id2 == id || second["style"] == first["style"] {
-		t.Fatalf("edit did not reach the bundle: %v then %v", first, second)
+	_, buildErr := d.Build(context.Background(), filepath.Join(root, "public"), true)
+	if err := d.Close(); err != nil || buildErr != nil {
+		t.Fatalf("build: %v, close: %v", buildErr, err)
 	}
-	if _, err := os.Stat(filepath.Join(dist, filepath.FromSlash(first["style"]))); !os.IsNotExist(err) {
-		t.Errorf("old style %s still in dist: %v", first["style"], err)
-	}
-	if _, err := os.Stat(filepath.Join(dist, "public", "robots.txt")); err != nil {
-		t.Error(err)
-	}
-
-	// An application that lost its pages keeps only the public files.
-	if _, err := d.Build(public, false); err != nil {
-		t.Fatal(err)
-	}
-	for _, gone := range []string{"assets", "ssr.js"} {
-		if _, err := os.Stat(filepath.Join(dist, gone)); !os.IsNotExist(err) {
-			t.Errorf("%s exists without pages: %v", gone, err)
+	got := output.String()
+	for _, stream := range []string{"OUT", "ERR"} {
+		if n := strings.Count(got, stream+"."); n != lines || !strings.Contains(got, stream+" END\n") {
+			t.Errorf("%d lines of %s and its end %v, want %d", n, stream, strings.Contains(got, stream+" END\n"), lines)
 		}
 	}
 }
 
-func TestDevReportsErrorsAndRecovers(t *testing.T) {
-	root := fakeApp(t)
-	d, err := NewDev(root, "")
+// devBuild builds the dev output of root in a dev session of its own, as a start of tifa dev does.
+func devBuild(t *testing.T, root string) {
+	t.Helper()
+	d, err := NewDev(root, freePort(t), io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer d.Close()
-	public := filepath.Join(root, "public")
-	writeTree(t, root, map[string]string{"app/page/route.tsx": "export default {\n"})
-	if _, err := d.Build(public, true); err == nil || !strings.Contains(err.Error(), "route.tsx") {
-		t.Fatalf("got %v, want the syntax error in route.tsx", err)
+	_, buildErr := d.Build(context.Background(), filepath.Join(root, "public"), true)
+	if err := d.Close(); err != nil || buildErr != nil {
+		t.Fatalf("build: %v, close: %v", buildErr, err)
 	}
-	writeTree(t, root, map[string]string{"app/page/route.tsx": "import { route } from './+route'\nexport default route\n"})
-	if _, err := d.Build(public, true); err != nil {
+}
+
+// ssr.js and its source map come from one build. A dev build without a map must not leave the
+// map of an earlier build next to its bundle: the server would read places of other code.
+func TestDevLeavesNoSourceMapOfAnEarlierBuild(t *testing.T) {
+	root := devApp(t)
+	devBuild(t, root)
+	sourceMap := filepath.Join(root, ".tifa", "dist", "ssr.js.map")
+	if _, err := os.Stat(sourceMap); err != nil {
 		t.Fatal(err)
+	}
+	writeTree(t, root, map[string]string{
+		"vite.config.ts": "import react from '@vitejs/plugin-react'\nimport tifa from './.tifa/vite.js'\n" +
+			"export default { plugins: [tifa(), react()], environments: { ssr: { build: { sourcemap: false } } } }\n",
+		"app/page/view.tsx": "const added = 1\n\nexport default function View({ name }: { name: string }) {\n" +
+			"  return <ul>{['a', 'b'].map((x) => <li key={x}>{name + x + added}</li>)}</ul>\n}\n",
+	})
+	devBuild(t, root)
+	if _, err := os.Stat(sourceMap); !os.IsNotExist(err) {
+		t.Errorf("ssr.js.map of the earlier build: %v, want none", err)
 	}
 }

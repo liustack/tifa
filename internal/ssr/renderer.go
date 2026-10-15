@@ -109,7 +109,7 @@ func render(vm *quickjs.VM, input []byte, timeout time.Duration) (string, error)
 		return "", fmt.Errorf("ssr: decode result: %w", err)
 	}
 	if result.Error != "" {
-		return "", fmt.Errorf("ssr: render page: %s", result.Error)
+		return "", &scriptError{text: result.Error}
 	}
 	if result.Redirect != nil {
 		return "", result.Redirect

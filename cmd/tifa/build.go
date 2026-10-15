@@ -24,8 +24,8 @@ func newBuildCmd() *cobra.Command {
 		Use:   "build",
 		Short: "Build the application into a single executable",
 		Long: `build checks the routing conventions, generates the main package and the TypeScript
-route tree into .tifa/, bundles the browser and SSR code into .tifa/dist and compiles the
-executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
+route tree into .tifa/, bundles the browser and SSR code into .tifa/dist with the application's
+Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			root, err := filepath.Abs(dir)
@@ -37,8 +37,11 @@ executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 			if err != nil {
 				return err
 			}
+			// Node runs the application's Vite. It starts only for an application with pages.
+			node := bundle.NewNode(root, cmd.ErrOrStderr())
+			defer node.Close()
 			// 2. Code generation.
-			files, err := codegen.Generate(root, m, false)
+			files, err := codegen.Generate(root, m, false, node.Exports)
 			if err != nil {
 				return err
 			}
@@ -51,9 +54,12 @@ executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 				return err
 			}
 			_, pages := files["client.ts"]
-			id, err := bundle.App(root, filepath.Join(root, settings.Public), settings.Target, pages)
+			id, err := bundle.App(node, root, filepath.Join(root, settings.Public), pages)
 			if err != nil {
 				return err
+			}
+			if err := node.Close(); err != nil {
+				return fmt.Errorf("node: %w", err)
 			}
 			// 4. go build, which embeds .tifa/dist.
 			if output == "" {

@@ -2,31 +2,52 @@ package e2e
 
 import (
 	"bufio"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
+	"fmt"
+	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 )
 
-// devApp copies test/apps/pages into a temporary directory that tifa dev may edit. go.mod points
-// at this repository and node_modules is linked from the original, which must be installed.
+// devApp copies test/apps/pages into a temporary directory that tifa dev may edit.
 func devApp(t *testing.T) string {
 	t.Helper()
-	src := filepath.Join(repoRoot(t), "test", "apps", "pages")
+	return copyApp(t, "pages")
+}
+
+// copyApp copies test/apps/<name> into a temporary directory that tifa dev may edit. go.mod points
+// at this repository and node_modules is linked from the original, which must be installed.
+func copyApp(t *testing.T, name string) string {
+	t.Helper()
+	src := filepath.Join(repoRoot(t), "test", "apps", name)
 	if _, err := os.Stat(filepath.Join(src, "node_modules")); err != nil {
-		t.Skip("run pnpm install --frozen-lockfile in test/apps/pages first")
+		t.Skipf("run pnpm install --frozen-lockfile in test/apps/%s first", name)
 	}
 	dst := t.TempDir()
-	for _, name := range []string{"app", "go.mod", "go.sum", "package.json", "tsconfig.json"} {
-		if out, err := exec.Command("cp", "-R", filepath.Join(src, name), dst).CombinedOutput(); err != nil {
-			t.Fatalf("copy %s: %v\n%s", name, err, out)
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if slices.Contains([]string{"node_modules", ".tifa", "bin"}, e.Name()) {
+			continue
+		}
+		if out, err := exec.Command("cp", "-R", filepath.Join(src, e.Name()), dst).CombinedOutput(); err != nil {
+			t.Fatalf("copy %s: %v\n%s", e.Name(), err, out)
 		}
 	}
 	if err := os.Symlink(filepath.Join(src, "node_modules"), filepath.Join(dst, "node_modules")); err != nil {
@@ -59,18 +80,17 @@ type devStatus struct {
 
 var serving = regexp.MustCompile(`tifa dev: serving (http://\S+)`)
 
-// startDev runs tifa dev on dir with a PATH that has no node, and follows its SSE events.
+// startDev runs tifa dev on dir and follows its SSE events.
 func startDev(t *testing.T, dir string) *devRun {
 	t.Helper()
 	d := &devRun{dir: dir, log: &lockedBuffer{}, statuses: make(chan devStatus, 100)}
 	cmd := exec.Command(cli(t), "dev", "--dir", dir, "--addr", "127.0.0.1:0")
 	// The app rejects unknown TIFA_* variables as settings, TIFA_E2E among them.
 	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "TIFA_") && !strings.HasPrefix(kv, "PATH=") {
+		if !strings.HasPrefix(kv, "TIFA_") {
 			cmd.Env = append(cmd.Env, kv)
 		}
 	}
-	cmd.Env = append(cmd.Env, "PATH="+withoutNode(t))
 	cmd.Stdout = d.log
 	cmd.Stderr = d.log
 	if err := cmd.Start(); err != nil {
@@ -206,13 +226,27 @@ func TestDev(t *testing.T) {
 	v1 := d.waitStatus(t, func(st devStatus) bool { return st.Version != "" && st.Error == "" }).Version
 	expectBody(t, d.base+"/", "North shop")
 
-	// TSX only: a new bundle and a restart, no go build.
-	mark := d.edit(t, "app/route.tsx", "North shop", "North store")
-	expectSteps(t, "TSX edit", d.waitLog(t, mark, ready), "bundle")
-	v2 := d.waitStatus(t, func(st devStatus) bool { return st.Version != v1 && st.Error == "" }).Version
-	expectBody(t, d.base+"/", "North store")
+	// Pages load the modules from Vite's dev server, with the React refresh preamble first.
+	expectBody(t, d.base+"/", `import { injectIntoGlobalHook } from "/__tifa/vite/@react-refresh"`)
+	expectBody(t, d.base+"/", `<script type="module" src="/__tifa/vite/@vite/client"></script>`)
+	expectBody(t, d.base+"/", `<script type="module" src="/__tifa/vite/.tifa/client.ts"></script>`)
+	hmr := dialHMR(t, d.base)
+	// Vite updates the modules a page loaded. Load them the way the page does.
+	for _, module := range []string{".tifa/client.ts", ".tifa/routes.tsx", "app/route.tsx"} {
+		expectBody(t, d.base+"/__tifa/vite/"+module, "import")
+	}
 
-	// A Go function body: analysis finds the same routes, go build without esbuild.
+	// TSX only: Vite updates the open pages in place, so the version stays and they do not
+	// reload. tifa rebuilds the SSR bundle and restarts the app, without go build.
+	mark := d.edit(t, "app/route.tsx", "North shop", "North store")
+	hmr.waitUpdate(t, "/app/route.tsx")
+	expectSteps(t, "TSX edit", d.waitLog(t, mark, ready), "bundle")
+	d.waitStatus(t, func(st devStatus) bool { return st.Version == v1 && st.Error == "" })
+	expectBody(t, d.base+"/", "North store")
+	expectBody(t, d.base+"/__tifa/vite/app/route.tsx", "North store")
+	v2 := v1
+
+	// A Go function body: analysis finds the same routes, go build without a bundle.
 	mark = d.edit(t, "app/shops/shop+/layout.go", `"Shop " + id`, `"Store " + id`)
 	out = d.waitLog(t, mark, ready)
 	expectSteps(t, "Go body edit", out, "static analysis", "go build")
@@ -248,4 +282,118 @@ func TestDev(t *testing.T) {
 	d.waitLog(t, mark, ready)
 	d.waitStatus(t, func(st devStatus) bool { return st.Version != v4 && st.Error == "" })
 	expectBody(t, d.base+"/shops/north", "Shop north!")
+}
+
+// hmrSocket is a client of Vite's HMR websocket, reached through tifa dev.
+type hmrSocket struct {
+	conn net.Conn
+	r    *bufio.Reader
+}
+
+var wsToken = regexp.MustCompile(`const wsToken = "([^"]+)"`)
+
+// dialHMR connects to Vite's HMR websocket the way the Vite client in the page does, and waits
+// for Vite to say it is connected.
+func dialHMR(t *testing.T, base string) *hmrSocket {
+	t.Helper()
+	_, _, client := get(t, base+"/__tifa/vite/@vite/client")
+	token := wsToken.FindStringSubmatch(client)
+	if token == nil {
+		t.Fatalf("no websocket token in the Vite client:\n%.400s", client)
+	}
+	host := strings.TrimPrefix(base, "http://")
+	conn, err := net.Dial("tcp", host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	key := make([]byte, 16)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatal(err)
+	}
+	fmt.Fprintf(conn, "GET /__tifa/vite/?token=%s HTTP/1.1\r\nHost: %s\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n"+
+		"Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: %s\r\nSec-WebSocket-Protocol: vite-hmr\r\n\r\n",
+		url.QueryEscape(token[1]), host, base64.StdEncoding.EncodeToString(key))
+	s := &hmrSocket{conn: conn, r: bufio.NewReader(conn)}
+	resp, err := http.ReadResponse(s.r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("HMR websocket: %s", resp.Status)
+	}
+	if msg := s.next(t); !strings.Contains(msg, `"type":"connected"`) {
+		t.Fatalf("first HMR message %s", msg)
+	}
+	return s
+}
+
+// next returns the next text message. Vite sends unmasked frames without extensions.
+func (s *hmrSocket) next(t *testing.T) string {
+	t.Helper()
+	_ = s.conn.SetReadDeadline(time.Now().Add(time.Minute))
+	var message []byte
+	for {
+		head := make([]byte, 2)
+		if _, err := io.ReadFull(s.r, head); err != nil {
+			t.Fatalf("HMR websocket: %v", err)
+		}
+		size := uint64(head[1] & 0x7f)
+		switch size {
+		case 126:
+			ext := make([]byte, 2)
+			if _, err := io.ReadFull(s.r, ext); err != nil {
+				t.Fatal(err)
+			}
+			size = uint64(binary.BigEndian.Uint16(ext))
+		case 127:
+			ext := make([]byte, 8)
+			if _, err := io.ReadFull(s.r, ext); err != nil {
+				t.Fatal(err)
+			}
+			size = binary.BigEndian.Uint64(ext)
+		}
+		payload := make([]byte, size)
+		if _, err := io.ReadFull(s.r, payload); err != nil {
+			t.Fatal(err)
+		}
+		switch head[0] & 0x0f {
+		case 0x8:
+			t.Fatalf("Vite closed the HMR websocket: %q", payload)
+		case 0x9, 0xa: // ping and pong
+			continue
+		}
+		message = append(message, payload...)
+		if head[0]&0x80 != 0 {
+			return string(message)
+		}
+	}
+}
+
+// waitUpdate waits for Vite to send an update of the module at path. A full reload fails.
+func (s *hmrSocket) waitUpdate(t *testing.T, path string) {
+	t.Helper()
+	for {
+		msg := s.next(t)
+		var payload struct {
+			Type    string `json:"type"`
+			Updates []struct {
+				Path string `json:"path"`
+			} `json:"updates"`
+		}
+		if err := json.Unmarshal([]byte(msg), &payload); err != nil {
+			t.Fatalf("HMR message %s: %v", msg, err)
+		}
+		switch payload.Type {
+		case "full-reload":
+			t.Fatalf("Vite reloads the page instead of updating %s: %s", path, msg)
+		case "update":
+			for _, u := range payload.Updates {
+				if u.Path == path {
+					t.Logf("HMR: %s", msg)
+					return
+				}
+			}
+		}
+	}
 }

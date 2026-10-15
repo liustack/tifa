@@ -11,7 +11,7 @@ import (
 func runApp(t *testing.T, ctx context.Context, app App, environ []string, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
 	var out, errOut bytes.Buffer
-	err = run(ctx, app, args, environ, &out, &errOut)
+	err = run(ctx, app, args, environ, &out, &errOut, nil)
 	return out.String(), errOut.String(), err
 }
 

@@ -9,13 +9,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"maps"
 	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -36,10 +39,12 @@ func newDevCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "dev",
 		Short: "Run the application and rebuild it on every change",
-		Long: `dev builds the application like build, runs it behind a proxy on --addr and rebuilds
-on every saved change: TypeScript and CSS only need a new bundle, Go needs go build, a change
-to the routes regenerates .tifa/ as well. After a rebuild the app restarts and open pages
-reload. A failed build keeps the running app and shows the error in the page.`,
+		Long: `dev builds the application like build, runs it behind a proxy on --addr together with
+Vite's dev server, and rebuilds on every saved change: Vite updates TypeScript and CSS in open
+pages, which then only needs a new SSR bundle, Go needs go build, a change to the routes
+regenerates .tifa/ as well. A new SSR bundle is loaded by the running app, which keeps its state.
+After a Go change the app restarts and open pages reload. A failed
+build keeps the running app and shows the error in the page.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			root, err := filepath.Abs(dir)
@@ -50,7 +55,12 @@ reload. A failed build keeps the running app and shows the error in the page.`,
 			if err != nil {
 				return err
 			}
-			front, err := bundle.NewDev(root, settings.Build.Target)
+			vitePort, err := freePort()
+			if err != nil {
+				return err
+			}
+			logger := log.New(cmd.ErrOrStderr(), "tifa dev: ", log.Ltime)
+			front, err := bundle.NewDev(root, vitePort, &lineLogger{log: logger})
 			if err != nil {
 				return err
 			}
@@ -67,6 +77,7 @@ reload. A failed build keeps the running app and shows the error in the page.`,
 				Dir:    root,
 				Ignore: []string{devOutput},
 				App:    []string{exe, "serve", "--dist", filepath.Join(root, codegen.Dir, codegen.DistDir)},
+				Vite:   net.JoinHostPort("127.0.0.1", strconv.Itoa(vitePort)),
 				// The app may wait shutdown_timeout for requests, again for handlers, and once more
 				// for OnShutdown.
 				StopTimeout: 3*settings.Server.ShutdownTimeout + time.Second,
@@ -106,7 +117,7 @@ func (p *devPipeline) Analyze(context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	files, err := codegen.Generate(p.root, m, true)
+	files, err := codegen.Generate(p.root, m, true, p.front.Exports)
 	if err != nil {
 		return "", err
 	}
@@ -117,30 +128,31 @@ func (p *devPipeline) Analyze(context.Context) (string, error) {
 // Generate writes the files of the last analysis into .tifa.
 func (p *devPipeline) Generate(context.Context) error { return codegen.Write(p.root, p.files) }
 
-// Bundle rebuilds .tifa/dist. The route tree also depends on the exports of route.tsx and
-// layout.tsx, which change without any Go change, so the TypeScript is generated again from the
-// last analysis first, and written when it differs.
-func (p *devPipeline) Bundle(context.Context) error {
+// Bundle rebuilds the SSR bundle in .tifa/dist, and starts Vite's dev server the first time. The
+// route tree also depends on the exports of route.tsx and layout.tsx, which change without any Go
+// change, so the TypeScript is generated again from the last analysis first, and written when it
+// differs.
+func (p *devPipeline) Bundle(ctx context.Context) (string, error) {
 	if p.m == nil {
-		return errors.New("bundle before the first successful analysis")
+		return "", errors.New("bundle before the first successful analysis")
 	}
-	files, err := codegen.Generate(p.root, p.m, true)
+	files, err := codegen.Generate(p.root, p.m, true, p.front.Exports)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if !maps.EqualFunc(files, p.files, bytes.Equal) {
 		if err := codegen.Write(p.root, files); err != nil {
-			return err
+			return "", err
 		}
 		p.files = files
 	}
 	settings, err := codegen.BuildSettings(p.root)
 	if err != nil {
-		return err
+		return "", err
 	}
 	_, pages := files["client.ts"]
-	_, err = p.front.Build(filepath.Join(p.root, settings.Public), pages)
-	return err
+	_, err = p.front.Build(ctx, filepath.Join(p.root, settings.Public), pages)
+	return "", err
 }
 
 // GoBuild builds the executable that tifa dev runs. Its compiler messages go into the error,
@@ -163,4 +175,37 @@ func fingerprint(files map[string][]byte) string {
 		}
 	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// freePort returns a loopback port that is free right now, for Vite's dev server.
+func freePort() (int, error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, err
+	}
+	defer ln.Close()
+	return ln.Addr().(*net.TCPAddr).Port, nil
+}
+
+// lineLogger prints what Node writes, Vite's warnings and errors, one log line per line.
+type lineLogger struct {
+	log  *log.Logger
+	mu   sync.Mutex
+	rest []byte
+}
+
+func (l *lineLogger) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.rest = append(l.rest, p...)
+	for {
+		i := bytes.IndexByte(l.rest, '\n')
+		if i < 0 {
+			return len(p), nil
+		}
+		if line := strings.TrimRight(string(l.rest[:i]), "\r"); strings.TrimSpace(line) != "" {
+			l.log.Print(line)
+		}
+		l.rest = l.rest[i+1:]
+	}
 }

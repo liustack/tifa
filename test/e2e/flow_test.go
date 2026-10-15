@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -44,6 +45,22 @@ func OnError(c *tifa.Ctx, err error) tifa.Error {
 `,
 	"app/throws/route.go":   "package throws\n\nconst Cache = true\n",
 	"app/throws/route.tsx":  "export default function Throws(): never {\n  throw new Error('PAGE_THROWS')\n}\n",
+	"app/legacy/legacy.cjs": "module.exports = function (name) {\n  return require(name)\n}\n",
+	"app/legacy/route.tsx":  "import load from './legacy.cjs'\n\nexport default function Legacy() {\n  return <p>{String(load('node:os'))}</p>\n}\n",
+	// A component that suspends, and a lazy one whose import fails after the render.
+	"app/suspends/route.tsx": "import { Suspense } from 'react'\n\nconst pending = new Promise(() => {})\n\n" +
+		"function Pending(): never {\n  throw pending\n}\n\n" +
+		"export default function Suspends() {\n  return <Suspense fallback=\"pending\"><Pending /></Suspense>\n}\n",
+	"app/lazy/route.tsx": "import { lazy, Suspense } from 'react'\nimport load from '../legacy/legacy.cjs'\n\n" +
+		"const Lazy = lazy(() => Promise.resolve().then(() => ({ default: () => <p>{String(load('node:os'))}</p> })))\n\n" +
+		"export default function LazyPage() {\n  return <Suspense fallback=\"loading\"><Lazy /></Suspense>\n}\n",
+	// A render inside the render of the page, whose error React handles, before the require.
+	"app/nested/route.tsx": "import { Suspense } from 'react'\nimport { renderToString } from 'react-dom/server.edge'\n" +
+		"import load from '../legacy/legacy.cjs'\n\n" +
+		"function Ignored(): never {\n  throw new Error('HANDLED_INNER_ERROR')\n}\n\n" +
+		"function Real() {\n  return <p>{String(load('node:os'))}</p>\n}\n\n" +
+		"export default function Nested() {\n  renderToString(<Suspense fallback=\"inner\"><Ignored /></Suspense>)\n" +
+		"  return <Suspense fallback=\"outer\"><Real /></Suspense>\n}\n",
 	"app/ssr/route.tsx":     "export default function Page() {\n  return <p>PAGE_SSR</p>\n}\n",
 	"app/members/route.tsx": "export default function Members() {\n  return <p>MEMBERS</p>\n}\n",
 	"app/secret/layout.go": `package secret
@@ -131,6 +148,49 @@ func TestErrorFlowInTheVM(t *testing.T) {
 		output.waitFor(t, func(string) bool { return onErrors()-before >= 2 })
 		if got := onErrors() - before; got != 2 {
 			t.Errorf("OnError ran %d times:\n%s", got, output)
+		}
+		// React leaves the route's Suspense boundary to the browser, the server still learns why.
+		if !regexp.MustCompile(`Error: PAGE_THROWS +at \w+ \(app/throws/route\.tsx:2:`).MatchString(output.String()) {
+			t.Errorf("OnError did not see the error and its place:\n%s", output)
+		}
+	})
+
+	t.Run("a require in the render names its place and what to do", func(t *testing.T) {
+		before := onErrors()
+		if code, _, body := get(t, base+"/legacy"); code != 500 {
+			t.Errorf("%d %s", code, body)
+		}
+		output.waitFor(t, func(string) bool { return onErrors()-before >= 1 })
+		want := "The code at app/legacy/legacy.cjs:2:10 calls require. SSR runs in QuickJS, which has no require"
+		if !strings.Contains(output.String(), want) {
+			t.Errorf("OnError:\n%s\nwant %s", output, want)
+		}
+	})
+
+	t.Run("a component that suspends gets the advice of tifa", func(t *testing.T) {
+		for _, page := range []string{"/suspends", "/lazy"} {
+			before, from := onErrors(), len(output.String())
+			if code, _, body := get(t, base+page); code != 500 {
+				t.Errorf("%s: %d %s", page, code, body)
+			}
+			output.waitFor(t, func(string) bool { return onErrors()-before >= 1 })
+			got := output.String()[from:]
+			if !strings.Contains(got, "a component suspended during the server render") || !strings.Contains(got, "set SSR = false on the page") ||
+				strings.Contains(got, "renderToReadableStream") {
+				t.Errorf("%s: OnError:\n%s", page, got)
+			}
+		}
+	})
+
+	t.Run("an error a render inside the page handled is not why the page failed", func(t *testing.T) {
+		before, from := onErrors(), len(output.String())
+		if code, _, body := get(t, base+"/nested"); code != 500 {
+			t.Errorf("%d %s", code, body)
+		}
+		output.waitFor(t, func(string) bool { return onErrors()-before >= 1 })
+		got := output.String()[from:]
+		if !strings.Contains(got, "The code at app/legacy/legacy.cjs:2:10 calls require") || strings.Contains(got, "HANDLED_INNER_ERROR") {
+			t.Errorf("OnError:\n%s\nwant the require", got)
 		}
 	})
 

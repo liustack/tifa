@@ -1,3 +1,7 @@
+// Package bundle builds the front end of an application with the application's own Vite, which
+// runs on Node: the browser bundle, and the SSR bundle that QuickJS evaluates. Under tifa dev it
+// also runs Vite's dev server. The Go side reads Vite's manifest and writes the tags a page loads
+// its scripts and styles with.
 package bundle
 
 import (
@@ -6,37 +10,41 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"html"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
-
-	"github.com/evanw/esbuild/pkg/api"
+	"strings"
 )
 
 // Build is the content of dist/build.json, which the server reads at startup.
 type Build struct {
 	// ID identifies the build: a hash of every other file in dist, names included.
 	ID string `json:"buildId"`
-	// Script and Style are the URL paths of the browser entry and its CSS, empty without pages.
-	Script string `json:"script"`
-	Style  string `json:"style"`
+	// Head is the HTML that loads the browser bundle, written into the head of every page:
+	// the stylesheet, the module preloads and the entry script. Empty without pages.
+	Head string `json:"head"`
 }
+
+// clientEntry is the browser entry tifa generates, as Vite's manifest names it.
+const clientEntry = ".tifa/client.ts"
 
 // App writes the front end of the application at root into root/.tifa/dist, replacing what is
 // there:
 //
 //	dist/assets/  the browser bundle, split per route, every name carrying a content hash
-//	dist/ssr.js   the SSR bundle, which knows the browser assets through __TIFA_ASSETS__
+//	dist/ssr.js   the SSR bundle, which knows the tags of the browser bundle as __TIFA_ASSETS__
 //	dist/public/  a copy of the public directory, when it exists
 //	dist/build.json
 //
-// target is build.target and applies to the browser bundle only. The SSR bundle runs in
-// QuickJS, never in a browser, and keeps ES2022, which QuickJS runs as it is: a lower target
-// would only make rendering slower, a higher one could emit syntax QuickJS lacks.
-// pages is false for an application without route.tsx, which gets no bundles. The generated
-// entries and tsconfig must exist under .tifa. The same input gives the same files and ID.
-func App(root, public, target string, pages bool) (string, error) {
+// Vite builds the two bundles with the application's vite.config.ts, which uses the tifa plugin
+// (js/vite/plugin.js), on Node through n. pages is false for an application without route.tsx,
+// which gets no bundles and needs no Node. The generated entries must exist under .tifa. The same
+// input gives the same files and ID.
+func App(n *Node, root, public string, pages bool) (string, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return "", err
@@ -50,45 +58,101 @@ func App(root, public, target string, pages bool) (string, error) {
 	}
 	var b Build
 	if pages {
-		generated, err := Generated(root)
-		if err != nil {
+		if err := n.call("client", nil, nil); err != nil {
 			return "", err
 		}
-		tsconfig := filepath.Join(".tifa", "tsconfig.json")
-		assets, _, err := Client(ClientOptions{
-			Root: root, Entry: ".tifa/client.ts", Outdir: filepath.Join(dist, "assets"),
-			Tsconfig: tsconfig, Write: true, Target: target, Plugins: []api.Plugin{generated},
-		})
-		if err != nil {
+		if b.Head, err = readManifest(dist); err != nil {
 			return "", err
 		}
-		b.Script = "/assets/" + assets.Script
-		if assets.Style != "" {
-			b.Style = "/assets/" + assets.Style
-		}
-		define, err := json.Marshal(map[string]string{"script": b.Script, "style": b.Style})
-		if err != nil {
-			return "", err
-		}
-		if _, err := SSR(SSROptions{
-			Root: root, Entry: ".tifa/server.ts", Outfile: filepath.Join(dist, "ssr.js"),
-			Tsconfig: tsconfig, Write: true, Plugins: []api.Plugin{generated},
-			Define: map[string]string{"__TIFA_ASSETS__": string(define)},
-		}); err != nil {
+		if err := n.call("ssr", map[string]any{"assets": b.Head, "minify": true}, nil); err != nil {
 			return "", err
 		}
 	}
 	if err := copyDir(public, filepath.Join(dist, "public")); err != nil {
 		return "", err
 	}
-	if b.ID, err = distID(dist); err != nil {
+	if b.ID, err = distID(dist, ""); err != nil {
 		return "", err
 	}
+	return b.ID, writeBuild(dist, b)
+}
+
+// manifestEntry is one chunk or asset of Vite's manifest.
+type manifestEntry struct {
+	File    string   `json:"file"`
+	Src     string   `json:"src"`
+	IsEntry bool     `json:"isEntry"`
+	Imports []string `json:"imports"`
+	CSS     []string `json:"css"`
+}
+
+// readManifest reads the manifest Vite wrote into dist/.vite, removes it, so that it is not
+// served or embedded, and returns the head tags of the browser entry: its stylesheets, a module
+// preload for each chunk it imports, and the entry script.
+func readManifest(dist string) (string, error) {
+	dir := filepath.Join(dist, ".vite")
+	data, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
+	if err != nil {
+		return "", fmt.Errorf("reading Vite's manifest: %w", err)
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return "", err
+	}
+	var manifest map[string]manifestEntry
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return "", fmt.Errorf("Vite's manifest: %w", err)
+	}
+	return headTags(manifest)
+}
+
+// headTags writes the tags that load the entry of manifest, with every URL under /.
+func headTags(manifest map[string]manifestEntry) (string, error) {
+	entry, ok := manifest[clientEntry]
+	if !ok || !entry.IsEntry {
+		return "", fmt.Errorf("Vite's manifest has no entry %s, check the tifa plugin in vite.config.ts", clientEntry)
+	}
+	var styles, preloads []string
+	seen := map[string]bool{}
+	var visit func(key string, e manifestEntry)
+	visit = func(key string, e manifestEntry) {
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		for _, css := range e.CSS {
+			if !slices.Contains(styles, css) {
+				styles = append(styles, css)
+			}
+		}
+		for _, imp := range e.Imports {
+			if dep, ok := manifest[imp]; ok && !seen[imp] {
+				preloads = append(preloads, dep.File)
+				visit(imp, dep)
+			}
+		}
+	}
+	visit(clientEntry, entry)
+	// With build.cssCodeSplit off, as the tifa plugin sets it, all CSS is one file of its own.
+	if style, ok := manifest["style.css"]; ok && !slices.Contains(styles, style.File) {
+		styles = append(styles, style.File)
+	}
+	var b strings.Builder
+	for _, css := range styles {
+		fmt.Fprintf(&b, `<link rel="stylesheet" href="%s">`, html.EscapeString("/"+css))
+	}
+	for _, file := range preloads {
+		fmt.Fprintf(&b, `<link rel="modulepreload" href="%s">`, html.EscapeString("/"+file))
+	}
+	fmt.Fprintf(&b, `<script type="module" src="%s"></script>`, html.EscapeString("/"+entry.File))
+	return b.String(), nil
+}
+
+func writeBuild(dist string, b Build) error {
 	data, err := json.Marshal(b)
 	if err != nil {
-		return "", err
+		return err
 	}
-	return b.ID, os.WriteFile(filepath.Join(dist, "build.json"), data, 0o644)
+	return os.WriteFile(filepath.Join(dist, "build.json"), data, 0o644)
 }
 
 // copyDir copies the regular files under src to dst. A missing src copies nothing.
@@ -116,14 +180,16 @@ func copyDir(src, dst string) error {
 	})
 }
 
-// distID hashes the relative name and content of every file under dist in sorted order, each
-// prefixed with its length, and returns the first 16 hex digits.
-func distID(dist string) (string, error) {
+// distID hashes the relative name and content of every file under dist in sorted order, except
+// skip, each prefixed with its length, and returns the first 16 hex digits.
+func distID(dist, skip string) (string, error) {
 	var names []string
 	err := filepath.WalkDir(dist, func(path string, d fs.DirEntry, err error) error {
 		if err == nil && d.Type().IsRegular() {
 			rel, err := filepath.Rel(dist, path)
-			names = append(names, filepath.ToSlash(rel))
+			if name := filepath.ToSlash(rel); name != skip {
+				names = append(names, name)
+			}
 			return err
 		}
 		return err

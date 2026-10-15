@@ -2,7 +2,7 @@
   "name": "tifa-bundle-testdata",
   "private": true,
   "packageManager": "pnpm@10.33.0",
-  "description": "npm packages the internal/bundle tests bundle: React for the trimmed renderer, core-js and the other SSR host patches for the adapters.",
+  "description": "npm packages the internal/bundle tests bundle: React for the trimmed renderer, core-js and the other SSR host patches for the adapters, and Vite with the React plugin, which build them.",
   "dependencies": {
     "@kayahr/text-encoding": "2.2.0",
     "abort-controller": "3.0.0",
@@ -10,5 +10,9 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "whatwg-fetch": "3.6.20"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "6.1.2",
+    "vite": "8.3.4"
   }
 }

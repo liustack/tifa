@@ -55,7 +55,7 @@ func (r *renders) last(t *testing.T) map[string]routeResult {
 }
 
 var dist = fstest.MapFS{
-	"build.json":             {Data: []byte(`{"buildId":"b1","script":"/assets/app-1.js","style":"/assets/app-1.css"}`)},
+	"build.json":             {Data: []byte(`{"buildId":"b1","head":"<link rel=\"stylesheet\" href=\"/assets/app-1.css\"><script type=\"module\" src=\"/assets/app-1.js\"></script>"}`)},
 	"assets/app-1.js":        {Data: []byte("console.log(1)")},
 	"assets/app-1.css":       {Data: []byte("body{}")},
 	"public/robots.txt":      {Data: []byte("User-agent: *")},
@@ -128,6 +128,25 @@ func TestUnchangedPageAnswers304(t *testing.T) {
 	}
 	if w := get(s, "/projects/p1", "If-None-Match", `"stale"`); w.Code != 200 {
 		t.Errorf("stale ETag: %d", w.Code)
+	}
+}
+
+// tifa dev keeps the build ID when only the SSR bundle changes, so the ETag covers the bundle
+// too: a reload after a change to page code gets the new render, not a 304 for the old one.
+func TestPageETagCoversTheSSRBundle(t *testing.T) {
+	s, _ := newFrontServer(t, frontApp())
+	etag := get(s, "/projects/p1").Header().Get("ETag")
+	changed := fstest.MapFS{}
+	for name, file := range dist {
+		changed[name] = file
+	}
+	changed["ssr.js"] = &fstest.MapFile{Data: []byte("// changed bundle")}
+	s2 := newAppServer(t, frontApp())
+	if err := s2.setFront(changed, (&renders{}).render); err != nil {
+		t.Fatal(err)
+	}
+	if w := get(s2, "/projects/p1", "If-None-Match", etag); w.Code != 200 {
+		t.Errorf("the ETag of the old bundle gets %d, want 200", w.Code)
 	}
 }
 
@@ -341,7 +360,7 @@ func TestSetFrontNeedsBundlesForPages(t *testing.T) {
 func TestOpenFrontRendersWithTheBundle(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
-		"build.json":      `{"buildId":"b9","script":"/assets/app-9.js"}`,
+		"build.json":      `{"buildId":"b9","head":"<script type=\"module\" src=\"/assets/app-9.js\"></script>"}`,
 		"assets/app-9.js": "hydrate()",
 		"ssr.js": `globalThis.startRender = (json) => {
   const input = JSON.parse(json)
@@ -358,12 +377,11 @@ func TestOpenFrontRendersWithTheBundle(t *testing.T) {
 		}
 	}
 	s := newAppServer(t, frontApp())
-	pool, err := s.openFront(os.DirFS(dir), config.Default().SSR)
-	if err != nil {
+	if err := s.openFront(os.DirFS(dir), config.Default().SSR); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if err := pool.Close(); err != nil {
+		if err := s.closeFront(); err != nil {
 			t.Error(err)
 		}
 	})

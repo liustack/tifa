@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -27,15 +28,21 @@ import (
 // tifa.yaml embedded at build time and the defaults, in that order. Main exits the process with
 // status 1 on any error.
 func Main(app App) {
+	start(app, nil)
+}
+
+// start runs the command line of app. dev, set only by DevMain, gives the server the handler
+// of the requests tifa dev sends to the app.
+func start(app App, dev func(*Server, fs.FS, config.SSR) http.Handler) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := run(ctx, app, os.Args[1:], os.Environ(), os.Stdout, os.Stderr); err != nil {
+	if err := run(ctx, app, os.Args[1:], os.Environ(), os.Stdout, os.Stderr, dev); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, app App, args, environ []string, stdout, stderr io.Writer) error {
+func run(ctx context.Context, app App, args, environ []string, stdout, stderr io.Writer, dev func(*Server, fs.FS, config.SSR) http.Handler) error {
 	var distDir string
 	serve := func(cmd *cobra.Command, _ []string) (err error) {
 		cfg, err := loadConfig(cmd.Flags(), app, environ)
@@ -47,12 +54,12 @@ func run(ctx context.Context, app App, args, environ []string, stdout, stderr io
 		if dist, err := frontFiles(app, distDir); err != nil {
 			return err
 		} else if dist != nil {
-			pool, err := s.openFront(dist, cfg.SSR)
-			if err != nil {
+			if err := s.openFront(dist, cfg.SSR); err != nil {
 				return err
 			}
-			if pool != nil {
-				defer func() { err = errors.Join(err, pool.Close()) }()
+			defer func() { err = errors.Join(err, s.closeFront()) }()
+			if dev != nil {
+				s.dev = dev(s, dist, cfg.SSR)
 			}
 		}
 		return s.Run(ctx)

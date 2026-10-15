@@ -2,10 +2,14 @@ package main
 
 import (
 	"context"
+	"io"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/liustack/tifa/internal/bundle"
 	"github.com/liustack/tifa/internal/config"
 )
 
@@ -44,7 +48,23 @@ func TestDevAnalyzeIsStable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &devPipeline{root: root}
+	// The fixture has pages, so their exports are read with the Vite of test/apps/pages.
+	pages, err := filepath.Abs(filepath.Join("..", "..", "test", "apps", "pages"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is not installed")
+	}
+	if _, err := os.Stat(filepath.Join(pages, "node_modules", "vite")); err != nil {
+		t.Skip("run pnpm install --frozen-lockfile in test/apps/pages first")
+	}
+	front, err := bundle.NewDev(pages, 0, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer front.Close()
+	p := &devPipeline{root: root, front: front}
 	first, err := p.Analyze(context.Background())
 	if err != nil {
 		t.Fatal(err)

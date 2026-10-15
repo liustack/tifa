@@ -79,7 +79,7 @@ func (f field) env() string {
 
 func fields(c *Config) []field {
 	return []field{
-		{"build.target", "JavaScript target for esbuild", stringValue{&c.Build.Target}},
+		{"build.target", "JavaScript target of the browser bundle", stringValue{&c.Build.Target}},
 		{"build.public", "Directory of static files copied as is", stringValue{&c.Build.Public}},
 		{"server.addr", "HTTP listen address", stringValue{&c.Server.Addr}},
 		{"server.body_limit", "Request body limit", sizeValue{&c.Server.BodyLimit, 1}},

@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -16,12 +15,12 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/internal/config"
 	"github.com/liustack/tifa/internal/core"
-	"github.com/liustack/tifa/internal/ssr"
 )
 
 // Hooks are the optional functions of the application's hooks.go.
@@ -42,14 +41,13 @@ type Server struct {
 	// The root Layout's LayoutSSR constant, which decides how an unmatched URL is answered.
 	rootSSR bool
 
-	// The front end, see setFront. front is set when there are pages to render, without it
-	// pages answer JSON.
-	front  bool
-	build  frontBuild
-	assets fs.FS // dist/assets, nil without pages
-	public fs.FS // dist/public, nil without a public directory
-	render func(context.Context, ssr.Input) (string, error)
-	cache  *htmlCache
+	// The front end, nil until openFront or setFront. Renders hold rendering for reading, so
+	// swapFront can wait for those on the pool it replaces.
+	front     atomic.Pointer[front]
+	rendering sync.RWMutex
+	cache     *htmlCache
+	// dev answers the requests of tifa dev under /__tifa/dev/, set only by DevMain.
+	dev http.Handler
 }
 
 // New builds a server without routes. The ServeMux holds only the application's routes, so a
@@ -119,7 +117,7 @@ func (h routeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if s.serveStatic(w, r) {
+	if s.serveDev(w, r) || s.serveStatic(w, r) {
 		return
 	}
 	h, _ := s.mux.Handler(r)
@@ -173,7 +171,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, pattern string, p
 		err = recovered(func() error { return s.hooks.OnRequest(c) })
 	}
 	if err != nil {
-		page = page && s.front && (r.Method == "GET" || r.Method == "HEAD") && !c.IsData()
+		page = page && s.pagesServed() && (r.Method == "GET" || r.Method == "HEAD") && !c.IsData()
 		s.fail(c, tw, err, page)
 	}
 }
@@ -199,7 +197,7 @@ func (s *Server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 	}
 	// Only the collector sends X-Tifa-Route. It also reaches a redirect of ServeMux, which has
 	// no pattern.
-	data := c.IsData() && s.front && (r.Method == "GET" || r.Method == "HEAD")
+	data := c.IsData() && s.pagesServed() && (r.Method == "GET" || r.Method == "HEAD")
 	switch {
 	case failure != nil && failure.data:
 		_ = writeData(w, http.StatusOK, items)
@@ -514,6 +512,6 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 
 // errorBody is the JSON answer for a failed request that is not a page.
 type errorBody struct {
-	Error  string            `json:"error"`
+	Error  string      `json:"error"`
 	Fields tifa.Fields `json:"fields,omitempty"`
 }
