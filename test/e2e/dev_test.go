@@ -415,34 +415,9 @@ func TestDevExitsWhileOutsideFilesChange(t *testing.T) {
 		t.Skip("root reads a file without permissions, so the watcher would not fail")
 	}
 	dir := devApp(t)
-	shared, err := filepath.EvalSymlinks(t.TempDir()) // Vite allows files by their real path
-	if err != nil {
-		t.Fatal(err)
-	}
-	card := filepath.Join(shared, "card.ts")
-	write := func(name, content string) {
-		t.Helper()
-		if err := os.WriteFile(name, []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write(card, "export const card = 'outside-one'\n")
-	realDir, err := filepath.EvalSymlinks(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rel, err := filepath.Rel(filepath.Join(realDir, "app"), filepath.Join(shared, "card"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	write(filepath.Join(dir, "vite.config.ts"), fmt.Sprintf(`import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import tifa from './.tifa/vite.js'
-
-export default defineConfig({ plugins: [tifa(), react()], server: { fs: { allow: ['.', %q] } } })
-`, shared))
+	card := outsideCard(t, dir, "")
+	write := writeFunc(t)
 	route := filepath.Join(dir, "app", "route.tsx")
-	write(route, fmt.Sprintf("import { card } from %q\nexport default function Home() { return <main>{card}</main> }\n", filepath.ToSlash(rel)))
 	// The app takes its time to shut down, so the change outside arrives while it does.
 	started := filepath.Join(dir, "shutdown.started")
 	write(filepath.Join(dir, "hooks.go"), fmt.Sprintf(`package pagestest
@@ -489,4 +464,101 @@ func OnShutdown(context.Context) error {
 	case <-time.After(15 * time.Second):
 		t.Fatalf("tifa dev did not exit after its watcher failed\n%s", d.log)
 	}
+}
+
+// writeFunc returns a function that writes a file or fails the test.
+func writeFunc(t *testing.T) func(name, content string) {
+	return func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(name, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// outsideCard makes the home page of the app in dir import card.ts from a directory outside the
+// app, and returns the path of card.ts. plugins go into the Vite config after tifa and react.
+func outsideCard(t *testing.T, dir, plugins string) string {
+	t.Helper()
+	shared, err := filepath.EvalSymlinks(t.TempDir()) // Vite allows files by their real path
+	if err != nil {
+		t.Fatal(err)
+	}
+	write := writeFunc(t)
+	card := filepath.Join(shared, "card.ts")
+	write(card, "export const card = 'outside-one'\n")
+	realDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel, err := filepath.Rel(filepath.Join(realDir, "app"), filepath.Join(shared, "card"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(filepath.Join(dir, "vite.config.ts"), fmt.Sprintf(`import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import tifa from './.tifa/vite.js'
+
+export default defineConfig({ plugins: [tifa(), react(), %s], server: { fs: { allow: ['.', %q] } } })
+`, plugins, shared))
+	write(filepath.Join(dir, "app", "route.tsx"), fmt.Sprintf("import { card } from %q\nexport default function Home() { return <main>{card}</main> }\n", filepath.ToSlash(rel)))
+	return card
+}
+
+// waitBody waits until a GET of url answers 200 with want in the body.
+func waitBody(t *testing.T, url, want string, d *devRun) {
+	t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		status, _, body := get(t, url)
+		if status == 200 && strings.Contains(body, want) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("GET %s: %d, want 200 with %q:\n%.400s\n%s", url, status, want, body, d.log)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// Vite's dev server stops watching while it restarts, here to poll once its watcher ran out of
+// watches. A file outside the app that changes meanwhile is in the next server render all the
+// same: tifa dev builds the SSR bundle again after each restart.
+func TestDevRebuildsAfterViteRestarts(t *testing.T) {
+	skipUnlessEnabled(t)
+	if runtime.GOOS == "windows" {
+		t.Skip("tifa dev needs interrupts, which Windows lacks")
+	}
+	dir := devApp(t)
+	closing := filepath.Join(dir, "closing")
+	card := outsideCard(t, dir, fmt.Sprintf(`{ name: 'control', apply: 'serve',
+  configureServer(server) {
+    server.middlewares.use('/__tifa/vite/__test/enospc', (req, res) => {
+      res.end('ok')
+      server.watcher.emit('error', Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' }))
+    })
+  },
+  async closeBundle() {
+    (await import('node:fs')).writeFileSync(%q, '')
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+  } }`, closing))
+	d := startDev(t, dir)
+	d.waitLog(t, 0, ready)
+	expectBody(t, d.base+"/", "outside-one")
+	expectBody(t, d.base+"/__tifa/vite/@fs"+filepath.ToSlash(card), "outside-one")
+
+	expectBody(t, d.base+"/__tifa/vite/__test/enospc", "ok")
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(closing); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("Vite's dev server did not restart\n%s", d.log)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	time.Sleep(250 * time.Millisecond) // the old watcher is closed, the new one does not know the card
+	writeFunc(t)(card, "export const card = 'outside-two'\n")
+	waitBody(t, d.base+"/", "outside-two", d)
 }

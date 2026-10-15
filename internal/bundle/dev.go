@@ -43,16 +43,17 @@ type Dev struct {
 // Nothing runs before the first call that needs Node.
 //
 // Vite's dev server watches the application root and the files outside it that it loads, such
-// as a package of the workspace. changed, when not nil, gets the absolute path of each of those
-// outside files that changes, from another goroutine: tifa dev watches only the root.
-func NewDev(root string, port int, output io.Writer, changed func(file string)) (*Dev, error) {
+// as a package of the workspace. notices, when not nil, hears of each of those outside files that
+// changes, and of each restart of the dev server, from another goroutine: tifa dev watches only
+// the root.
+func NewDev(root string, port int, output io.Writer, notices Notices) (*Dev, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
 	}
 	n := NewNode(root, output)
 	n.mode = "development"
-	n.notice = changed
+	n.notices = notices
 	return &Dev{
 		node: n,
 		root: root, dist: filepath.Join(root, ".tifa", "dist"), port: port,

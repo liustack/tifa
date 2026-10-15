@@ -84,9 +84,9 @@ func TestDevReportsChangesOutsideTheRoot(t *testing.T) {
 		"app/page/view.tsx": "import { card } from '../../../shared/card'\n" +
 			"export default function View() { return <p>{card}</p> }\n",
 	})
-	changed := make(chan string, 10)
+	heard := newHeard()
 	port := freePort(t)
-	d, err := NewDev(root, port, io.Discard, func(file string) { changed <- file })
+	d, err := NewDev(root, port, io.Discard, heard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestDevReportsChangesOutsideTheRoot(t *testing.T) {
 	for i := 2; ; i++ {
 		writeTree(t, shared, map[string]string{"card.ts": fmt.Sprintf("export const card = 'outside-%d'\n", i)})
 		select {
-		case got := <-changed:
+		case got := <-heard.changed:
 			if got != card {
 				t.Fatalf("Dev reported %s, want %s, files in the root are tifa dev's", got, card)
 			}
@@ -117,6 +117,70 @@ func TestDevReportsChangesOutsideTheRoot(t *testing.T) {
 		case <-time.After(250 * time.Millisecond):
 		case <-deadline:
 			t.Fatal("no change reported within 5s")
+		}
+	}
+}
+
+// heard collects what Dev reports, see Notices.
+type heard struct {
+	changed   chan string
+	restarted chan struct{}
+}
+
+func newHeard() *heard { return &heard{make(chan string, 100), make(chan struct{}, 100)} }
+
+func (h *heard) Changed(file string) { h.changed <- file }
+func (h *heard) Restarted()          { h.restarted <- struct{}{} }
+
+// Once Vite's dev server restarted, Dev says so, as a file outside the root may have changed
+// meanwhile with no event. The new watcher goes on watching the files outside the root that the
+// old one watched, before a browser loads them again.
+func TestDevReportsRestartsAndKeepsWatchingOutside(t *testing.T) {
+	root := devApp(t)
+	shared := filepath.Join(filepath.Dir(root), "shared")
+	writeTree(t, shared, map[string]string{"card.ts": "export const card = 'outside-one'\n"})
+	config := func(note string) string {
+		return "import react from '@vitejs/plugin-react'\nimport tifa from './.tifa/vite.js'\n" +
+			"export default { plugins: [tifa(), react()], server: { fs: { allow: ['..'] }, watch: { useFsEvents: false } } } // " + note + "\n"
+	}
+	writeTree(t, root, map[string]string{
+		"vite.config.ts": config("one"),
+		"app/page/view.tsx": "import { card } from '../../../shared/card'\n" +
+			"export default function View() { return <p>{card}</p> }\n",
+	})
+	heard := newHeard()
+	port := freePort(t)
+	d, err := NewDev(root, port, io.Discard, heard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	card, err := filepath.EvalSymlinks(filepath.Join(shared, "card.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	viteModule(t, port, "@fs"+filepath.ToSlash(card))
+	writeTree(t, root, map[string]string{"vite.config.ts": config("two")})
+	select {
+	case <-heard.restarted:
+	case <-time.After(15 * time.Second):
+		t.Fatal("no restart reported within 15s after the config changed")
+	}
+	deadline := time.After(5 * time.Second)
+	for i := 2; ; i++ {
+		writeTree(t, shared, map[string]string{"card.ts": fmt.Sprintf("export const card = 'outside-%d'\n", i)})
+		select {
+		case got := <-heard.changed:
+			if got != card {
+				t.Fatalf("Dev reported %s, want %s", got, card)
+			}
+			return
+		case <-time.After(250 * time.Millisecond):
+		case <-deadline:
+			t.Fatal("no change outside the root reported within 5s after the restart")
 		}
 	}
 }

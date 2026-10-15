@@ -367,6 +367,20 @@ func TestRunRebuildsForFilesOutsideTheApp(t *testing.T) {
 	}
 }
 
+// A restart of Vite's dev server arrives through Options.Outside and rebuilds the SSR bundle: a
+// file outside the app may have changed while the dev server restarted, with no event.
+func TestRunRebuildsAfterViteRestarts(t *testing.T) {
+	d := startDev(t, "")
+	v1 := d.waitVersionAfter(t, "")
+	d.p.took()
+	d.outside.Restarted()
+	d.waitStatus(t, func(st status) bool { return st.Version == v1 && st.Error == "" })
+	expectSteps(t, d.p, "Bundle")
+	if !strings.Contains(d.out.String(), "Vite's dev server restarted") {
+		t.Fatalf("the log does not say why:\n%s", d.out.String())
+	}
+}
+
 // When the system runs out of watches, tifa dev polls and tells Vite's dev server to poll too.
 func TestRunTellsViteToPollWhenOutOfWatches(t *testing.T) {
 	outErr := outOfWatchesErrors(t)[0]

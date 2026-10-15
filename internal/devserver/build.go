@@ -34,9 +34,10 @@ const (
 	created op = iota
 	modified
 	removed
+	restarted // only for viteServer
 )
 
-func (o op) String() string { return [...]string{"created", "modified", "removed"}[o] }
+func (o op) String() string { return [...]string{"created", "modified", "removed", "restarted"}[o] }
 
 // change is one file whose content differs from the last build. path is relative to the
 // application directory and uses forward slashes.
@@ -96,9 +97,15 @@ func kindOf(p string) kind {
 //   - Go needs a new analysis and a go build. The builder adds code generation and a bundle
 //     when the analysis returns a new route manifest.
 //   - A route.tsx or layout.tsx that appears or disappears changes the manifest, so does tifa.yaml.
+//   - A restart of Vite's dev server needs a new bundle, as a file outside the root may have
+//     changed meanwhile with no event.
 func plan(changes []change) steps {
 	var s steps
 	for _, c := range changes {
+		if c.op == restarted {
+			s.bundle = true
+			continue
+		}
 		switch kindOf(c.path) {
 		case goSource:
 			s.analyze, s.goBuild = true, true

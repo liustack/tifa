@@ -208,9 +208,10 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 }
 
 // Outside brings Run the files outside its Dir that changed. Vite's dev server watches them, as
-// it loaded them, and the driver reports their changes from the goroutine that reads its answers.
-// Changed never blocks, so it never holds up that goroutine: it records the file for the next
-// batch, or drops it while no Run runs, before Run starts and once it returned.
+// it loaded them, and the driver reports their changes and the restarts of the dev server from
+// the goroutine that reads its answers. Changed and Restarted never block, so they never hold up
+// that goroutine: they record what they heard for the next batch, or drop it while no Run runs,
+// before Run starts and once it returned.
 type Outside struct {
 	mu   sync.Mutex
 	root string   // real path of Dir while Run runs
@@ -226,6 +227,16 @@ func (o *Outside) Changed(file string) {
 	}
 	if rel, err := filepath.Rel(o.root, file); err == nil {
 		o.c.touch(filepath.ToSlash(rel))
+	}
+}
+
+// Restarted records that Vite's dev server restarted, or tried to. A file outside Dir may have
+// changed meanwhile with no event, so the next batch builds the SSR bundle again.
+func (o *Outside) Restarted() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.c != nil {
+		o.c.add(viteServer, "", "restarted")
 	}
 }
 

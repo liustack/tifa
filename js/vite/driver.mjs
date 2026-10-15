@@ -28,8 +28,12 @@
 //
 // tifa sets NODE_ENV: production for tifa build, development for tifa dev.
 //
-// Between answers, the driver writes {notice: "changed", file} for a file outside the root that
-// the dev server's watcher saw added, changed or removed. tifa dev watches the root itself.
+// Between answers, the driver writes notices:
+//
+//	{notice: "changed", file}    a file outside the root that the dev server's watcher saw
+//	                             added, changed or removed. tifa dev watches the root itself
+//	{notice: "restarted"}        the dev server restarted, or tried to, and no other restart
+//	                             runs. A file outside the root may have changed meanwhile
 //
 // tifa passes the close timeout in milliseconds as the only argument. The driver closes when
 // stdin ends: it lets the request it runs, the SSR worker and its output finish, and after the
@@ -76,12 +80,19 @@ let ssrWorker = null // builds the SSR bundle when this process is not a product
 // A restart that fails to create the new server keeps the old one. One whose new server cannot
 // listen, because another program took the port, leaves no server listening: failed holds its
 // error until a restart works, and pollFiles tries again.
-const restarts = { running: null, begun: 0, failed: null }
+//
+// The new server's watcher knows nothing of the files outside the root that the old one watched,
+// and a file there that changed while the servers changed hands has no event. So once no restart
+// runs, whether the restarts worked or not, the driver gives the watcher the files outside the
+// root that the old ones watched, and writes the notice restarted: tifa dev then builds the SSR
+// bundle again. outside collects those files while restarts run.
+const restarts = { running: null, begun: 0, failed: null, outside: new Set() }
 
 // trackRestart runs restart, a restart of the dev server, as one of restarts, and returns what
 // restart returns.
 function trackRestart(restart) {
   restarts.begun++
+  for (const file of watchedOutside()) restarts.outside.add(file)
   const run = restart()
   const tracked = run
     .then(
@@ -93,7 +104,12 @@ function trackRestart(restart) {
       },
     )
     .finally(() => {
-      if (restarts.running === tracked) restarts.running = null
+      if (restarts.running !== tracked) return
+      restarts.running = null
+      const files = [...restarts.outside].filter((file) => fs.existsSync(file))
+      restarts.outside.clear()
+      if (files.length > 0) server.watcher.add(files)
+      fs.writeSync(3, JSON.stringify({ notice: 'restarted' }) + '\n')
     })
   restarts.running = tracked
   return run
@@ -418,13 +434,33 @@ function startSSRWorker() {
 // the root and outside node_modules: the dev server watches what it loads from there, such as a
 // package of the workspace, and the SSR bundle may import it too.
 function changedOutside(event, file) {
-  if (!['add', 'change', 'unlink'].includes(event)) return
+  if (!['add', 'change', 'unlink'].includes(event) || !outside(file)) return
+  fs.writeSync(3, JSON.stringify({ notice: 'changed', file }) + '\n')
+}
+
+// outside reports whether file is outside the root and outside node_modules.
+function outside(file) {
   for (const r of [root, realRoot]) {
     const rel = path.relative(r, file)
-    if (rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel)) return
+    if (rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel)) return false
   }
-  if (file.split(/[\\/]/).includes('node_modules')) return
-  fs.writeSync(3, JSON.stringify({ notice: 'changed', file }) + '\n')
+  return !file.split(/[\\/]/).includes('node_modules')
+}
+
+// watchedOutside returns the files outside the root and outside node_modules that the dev
+// server's watcher watches.
+function watchedOutside() {
+  const files = []
+  for (const [dir, names] of Object.entries(server.watcher.getWatched())) {
+    for (const name of names) {
+      const file = path.resolve(root, dir, name)
+      if (!outside(file)) continue
+      try {
+        if (fs.statSync(file).isFile()) files.push(file)
+      } catch {} // gone meanwhile
+    }
+  }
+  return files
 }
 
 // styleLinks returns the tags that link the stylesheets files from Vite's dev server. Vite's

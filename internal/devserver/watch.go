@@ -73,6 +73,10 @@ func (c *changes) add(path, before, after string) {
 // one outside the application directory that Vite's dev server watches. It counts as modified.
 func (c *changes) touch(path string) { c.add(path, "unknown", "changed") }
 
+// viteServer stands in the changes for Vite's dev server, see Outside.Restarted. Its change is
+// always restarted.
+const viteServer = "Vite's dev server"
+
 // take returns every file that changed, as a batch sorted by path. A file whose content ends up
 // as it was when it was last taken is left out, unless it changed while a build ran.
 func (c *changes) take() []change {
@@ -129,6 +133,8 @@ func (c *changes) takeLocked(take func(path string) bool) []change {
 		delete(c.last, p)
 		delete(c.touched, p)
 		switch {
+		case p == viteServer:
+			batch = append(batch, change{p, restarted})
 		case before == after && touched && after == "":
 			batch = append(batch, change{p, removed})
 		case before == after && touched:

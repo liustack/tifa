@@ -62,10 +62,11 @@ build keeps the running app and shows the error in the page.`,
 			logger := log.New(cmd.ErrOrStderr(), "tifa dev: ", log.Ltime)
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			// The driver reports changes outside the root from the goroutine that reads its
-			// answers. outside.Changed never blocks, so front.Close can always wait for the driver.
+			// The driver reports changes outside the root and restarts of Vite's dev server from
+			// the goroutine that reads its answers. outside never blocks there, so front.Close can
+			// always wait for the driver.
 			outside := &devserver.Outside{}
-			front, err := bundle.NewDev(root, vitePort, &lineLogger{log: logger}, outside.Changed)
+			front, err := bundle.NewDev(root, vitePort, &lineLogger{log: logger}, outside)
 			if err != nil {
 				return err
 			}

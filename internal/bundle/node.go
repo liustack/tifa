@@ -22,10 +22,10 @@ import (
 // application's own Vite. The process starts with the first request and serves every later one,
 // so Vite loads once. Requests run one at a time, and Close may run during one.
 type Node struct {
-	root   string
-	output io.Writer         // gets what Node prints, Vite's warnings and errors among it
-	mode   string            // NODE_ENV of the process: production, or development for tifa dev
-	notice func(file string) // gets the files the driver reports between answers, nil drops them
+	root    string
+	output  io.Writer // gets what Node prints, Vite's warnings and errors among it
+	mode    string    // NODE_ENV of the process: production, or development for tifa dev
+	notices Notices   // gets what the driver reports between answers, nil drops it
 
 	mu      sync.Mutex // held by a request
 	answers *bufio.Scanner
@@ -136,23 +136,36 @@ func (n *Node) start() error {
 	return nil
 }
 
-// notice is a line the driver writes without a request: a file outside the root that Vite's dev
-// server saw change.
+// Notices gets what the driver of tifa dev reports between answers, from the goroutine that
+// reads them, so its methods must not block.
+type Notices interface {
+	// Changed gets the absolute path of a file outside the root that Vite's dev server saw change.
+	Changed(file string)
+	// Restarted says that Vite's dev server restarted, or tried to, and no other restart runs. A
+	// file outside the root may have changed meanwhile without Changed hearing of it.
+	Restarted()
+}
+
+// notice is a line the driver writes without a request, see Notices.
 type notice struct {
 	Notice string `json:"notice"`
 	File   string `json:"file"`
 }
 
-// readAnswers reads the driver's lines after the first answer. It hands notices to n.notice and
+// readAnswers reads the driver's lines after the first answer. It hands notices to n.notices and
 // answers to n.replies.
 func (n *Node) readAnswers() {
 	defer close(n.replies)
 	for n.answers.Scan() {
 		line := slices.Clone(n.answers.Bytes())
 		var nt notice
-		if json.Unmarshal(line, &nt) == nil && nt.Notice == "changed" {
-			if n.notice != nil {
-				n.notice(nt.File)
+		if json.Unmarshal(line, &nt) == nil && (nt.Notice == "changed" || nt.Notice == "restarted") {
+			switch {
+			case n.notices == nil:
+			case nt.Notice == "changed":
+				n.notices.Changed(nt.File)
+			default:
+				n.notices.Restarted()
 			}
 			continue
 		}
