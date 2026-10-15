@@ -312,7 +312,7 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
 // name the place in the source.
 async function hostLoads(chunk, vite, parse) {
   // Most bundles never name require or import(), and need no copy.
-  if (!/\brequire\b|\bimport\s*\(/.test(chunk.code)) return []
+  if (!mayLoadModules(chunk.code)) return []
   const defined = await vite.transformWithOxc(chunk.code, chunk.fileName, {
     lang: 'js',
     define: { 'typeof require': '"undefined"' },
@@ -357,6 +357,120 @@ async function hostLoads(chunk, vite, parse) {
     return `${source.source}:${source.line + 1}:${source.column + 1}${name ? ` (${name})` : ''}: ${what}`
   })
   return [...new Set(places)]
+}
+
+// The keywords after which a / starts a regular expression, not a division.
+const beforeExpression = new Set(['return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'throw', 'case', 'do', 'else', 'yield', 'await'])
+
+// mayLoadModules reports whether code names require, or import followed by (, outside comments,
+// strings, template text and regular expressions. It reads the tokens and builds no syntax tree,
+// so it costs little next to the check. A / starts a regular expression where an expression may
+// start: first, after a punctuator other than ) and ], or after a keyword such as return.
+export function mayLoadModules(code) {
+  const templates = [] // the depth of braces at which each ${ of the open templates started
+  let depth = 0
+  let expression = true
+  let i = 0
+  while (i < code.length) {
+    const c = code.charCodeAt(i)
+    if (c === 32 || c === 9 || c === 10 || c === 13) {
+      i++
+    } else if (c === 47 && (code.charCodeAt(i + 1) === 47 || code.charCodeAt(i + 1) === 42)) {
+      i = afterComment(code, i)
+    } else if (c === 47) {
+      i = expression ? afterRegExp(code, i) : i + 1
+      expression = !expression
+    } else if (c === 39 || c === 34) {
+      i = afterString(code, i)
+      expression = false
+    } else if (c === 96 || (c === 125 && templates.at(-1) === depth - 1)) {
+      // The text of a template, from its start or from the end of one of its expressions.
+      if (c === 125) templates.pop(), depth--
+      const [end, open] = afterTemplateText(code, i + 1)
+      if (open) templates.push(depth++)
+      i = end
+      expression = open
+    } else if (identifierChar(c) && !(c >= 48 && c <= 57)) {
+      let end = i + 1
+      while (end < code.length && identifierChar(code.charCodeAt(end))) end++
+      const word = end - i === 7 || end - i === 6 ? code.slice(i, end) : ''
+      if (word === 'require') return true
+      if (word === 'import' && code.charCodeAt(afterSpace(code, end)) === 40) return true
+      expression = beforeExpression.has(code.slice(i, end))
+      i = end
+    } else if (c >= 48 && c <= 57) {
+      while (i < code.length && (identifierChar(code.charCodeAt(i)) || code.charCodeAt(i) === 46)) i++
+      expression = false
+    } else {
+      if (c === 123) depth++
+      if (c === 125) depth--
+      expression = c !== 41 && c !== 93
+      i++
+    }
+  }
+  return false
+}
+
+// identifierChar reports whether the character code c may be part of a name. Any character
+// outside ASCII counts, which is enough to find require and import.
+function identifierChar(c) {
+  return (c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c === 36 || c === 95 || c === 92 || c > 127
+}
+
+// afterComment returns where the comment at i of code ends.
+function afterComment(code, i) {
+  const end = code.charCodeAt(i + 1) === 47 ? code.indexOf('\n', i) : code.indexOf('*/', i + 2) + 2
+  return end <= 1 ? code.length : end
+}
+
+// afterSpace returns where the white space and comments from i of code end.
+function afterSpace(code, i) {
+  for (;;) {
+    const c = code.charCodeAt(i)
+    if (c === 32 || c === 9 || c === 10 || c === 13) i++
+    else if (c === 47 && (code.charCodeAt(i + 1) === 47 || code.charCodeAt(i + 1) === 42)) i = afterComment(code, i)
+    else return i
+  }
+}
+
+// afterString returns where the string at i of code ends. A string ends at the end of its line
+// at the latest.
+function afterString(code, i) {
+  const quote = code.charCodeAt(i)
+  for (i++; i < code.length; i++) {
+    const c = code.charCodeAt(i)
+    if (c === 92) i++
+    else if (c === quote) return i + 1
+    else if (c === 10) return i
+  }
+  return i
+}
+
+// afterRegExp returns where the regular expression at i of code ends, its flags included.
+function afterRegExp(code, i) {
+  let inClass = false
+  for (i++; i < code.length; i++) {
+    const c = code.charCodeAt(i)
+    if (c === 92) i++
+    else if (c === 10) return i
+    else if (c === 91) inClass = true
+    else if (c === 93) inClass = false
+    else if (c === 47 && !inClass) break
+  }
+  for (i++; i < code.length && identifierChar(code.charCodeAt(i)); i++);
+  return i
+}
+
+// afterTemplateText returns where the text of a template from i of code ends, and whether an
+// expression follows it: after ${, or after the closing backquote.
+function afterTemplateText(code, i) {
+  for (; i < code.length; i++) {
+    const c = code.charCodeAt(i)
+    if (c === 92) i++
+    else if (c === 96) return [i + 1, false]
+    else if (c === 36 && code.charCodeAt(i + 1) === 123) return [i + 2, true]
+  }
+  return [i, false]
 }
 
 // stringValue returns the value of a string literal, or of a template literal without
