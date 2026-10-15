@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -306,4 +307,32 @@ func TestWatcherPollsADirectoryThatGrowsPastTheBudget(t *testing.T) {
 		t.Fatalf("%d watches for a budget of %d, polled %v: the new files went past the budget", w.watchCount(), w.budget, w.polled)
 	}
 	warned.has(t, "app")
+}
+
+// A directory whose entries keep changing is listed again and again, which costs more the larger
+// it is. Between two listings the watcher waits pollCostFactor times as long as the last one
+// took, as between two polls, so listing takes at most about a tenth of one core.
+func TestWatcherListsAGrowingDirectoryAtACost(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "app/a.ts", "export {}")
+	w := preparedWatcher(t, dir, func(msg string) { t.Log(msg) })
+	if err := w.start(); err != nil {
+		t.Fatal(err)
+	}
+	const cost = 20 * time.Millisecond // as if the directory held many files
+	var listed atomic.Int32
+	testHookList = func(string) {
+		listed.Add(1)
+		time.Sleep(cost)
+	}
+	defer func() { testHookList = nil }()
+	runWatcher(t, w)
+	const period = time.Second
+	for start, i := time.Now(), 0; time.Since(start) < period; i++ {
+		writeFile(t, dir, fmt.Sprintf("app/f%03d.ts", i), "export {}")
+		time.Sleep(5 * time.Millisecond)
+	}
+	if n, most := listed.Load(), int32(period/(cost*(1+pollCostFactor)))+2; n > most {
+		t.Fatalf("the directory was listed %d times in %v, want at most %d", n, period, most)
+	}
 }

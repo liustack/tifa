@@ -85,23 +85,14 @@ func writeFile(t *testing.T, dir, rel, content string) {
 	}
 }
 
-// expectBatch writes the marker file, then collects batches until the marker shows up and checks
-// that they hold exactly want plus the marker. Events arrive in order, so anything reported for
-// earlier writes is collected by then.
+// expectBatch writes the marker file, then collects batches until they hold want and the marker,
+// and checks that they hold nothing else. A file event can overtake the listing of a directory,
+// see listDirty, so the marker alone does not say that everything before it was reported. A
+// change reported that should not be is usually reported by the time the marker is.
 func expectBatch(t *testing.T, dir string, w *watcher, want ...change) {
 	t.Helper()
 	writeFile(t, dir, "marker.ts", time.Now().String())
-	marker := change{"marker.ts", modified}
-	want = append(want, marker)
-	var got []change
-	for !slices.Contains(got, marker) {
-		got = append(got, nextBatch(t, w.changes)...)
-	}
-	sortChanges(want)
-	sortChanges(got)
-	if !slices.Equal(got, want) {
-		t.Fatalf("got %v, want %v", got, want)
-	}
+	expectChanges(t, w, append(want, change{"marker.ts", modified})...)
 }
 
 func sortChanges(c []change) {

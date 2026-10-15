@@ -183,6 +183,8 @@ type watcher struct {
 	full     bool                       // no more directories get a system watch, new ones are polled
 	short    chan struct{}              // closed once full is set
 	polled   map[string]bool            // directories that are polled
+	dirty    map[string]bool            // directories whose entries changed, to list
+	listAt   time.Time                  // when the dirty directories may be listed next
 	stats    map[string]os.FileInfo     // tracked files as they were when last hashed
 	minPoll  time.Duration              // shortest time between two polls
 	files    map[string]string          // checksum of every tracked file
@@ -237,7 +239,7 @@ func prepareWatcher(root string, ignore []string, warn func(string)) (*watcher, 
 	}
 	w := &watcher{
 		root: abs, rootReal: rootReal, warn: warn, changes: newChanges(), short: make(chan struct{}),
-		budget: watchBudget(), watches: map[string]bool{}, fileOf: map[string]fileWatch{}, polled: map[string]bool{}, stats: map[string]os.FileInfo{}, minPoll: minPollInterval,
+		budget: watchBudget(), watches: map[string]bool{}, fileOf: map[string]fileWatch{}, polled: map[string]bool{}, dirty: map[string]bool{}, stats: map[string]os.FileInfo{}, minPoll: minPollInterval,
 		files: map[string]string{}, dirs: map[string]os.FileInfo{}, kids: map[string]map[string]bool{}, real: map[string]string{}, realDir: map[string]string{}, linkDirs: map[string]string{}, warned: map[string]bool{},
 		links: map[string][]string{}, linkOf: map[string]string{}, extDirs: map[string]int{}, extWatch: map[string]bool{},
 	}
@@ -288,9 +290,14 @@ var testHookLinkPoll func(rel string)
 // testHookChecksum lets tests see each file that is hashed.
 var testHookChecksum func(rel string)
 
+// testHookList lets tests see each directory listed after an event.
+var testHookList func(rel string)
+
 // Polling lists every polled directory and stats its tracked files, about 10µs per entry. A poll
 // waits at least minPollInterval after the last one, and pollCostFactor times as long as the last
-// one took, so polling a large tree takes at most a tenth of one core.
+// one took, so polling a large tree takes at most a tenth of one core. The directories whose
+// entries changed are listed under the same rule, without the minimum: a large directory that
+// keeps growing costs no more, and a small one is listed right away.
 const (
 	minPollInterval = time.Second
 	pollCostFactor  = 10
@@ -307,10 +314,25 @@ func (w *watcher) run(ctx context.Context) error {
 	defer links.Stop()
 	poll := time.NewTimer(w.minPoll)
 	defer poll.Stop()
+	list := time.NewTimer(time.Hour)
+	list.Stop()
+	defer list.Stop()
+	listing := false
 	for {
+		if len(w.dirty) > 0 && !listing {
+			listing = true
+			list.Reset(time.Until(w.listAt))
+		}
 		select {
 		case <-ctx.Done():
 			return nil
+		case <-list.C:
+			listing = false
+			start := time.Now()
+			if err := w.recover(w.listDirty()); err != nil {
+				return err
+			}
+			w.listAt = time.Now().Add(time.Since(start) * pollCostFactor)
 		case <-links.C:
 			if err := w.recover(w.checkLinks()); err != nil {
 				return err
@@ -349,6 +371,20 @@ func (w *watcher) run(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// listDirty lists the directories whose entries changed since the last time.
+func (w *watcher) listDirty() error {
+	for dir := range w.dirty {
+		delete(w.dirty, dir)
+		if testHookList != nil {
+			testHookList(dir)
+		}
+		if err := w.scan(dir, false); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // poll checks the polled directories, and the linked files whose target no system watch covers.
@@ -628,7 +664,8 @@ func (w *watcher) handle(name string, op fsnotify.Op) error {
 	case err != nil:
 		return err
 	case info.IsDir():
-		return w.scan(rel, false)
+		w.dirty[rel] = true // listed by run, see listDirty
+		return nil
 	default:
 		return w.check(rel)
 	}
