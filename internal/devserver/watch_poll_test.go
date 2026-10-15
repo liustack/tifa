@@ -65,6 +65,21 @@ func containsAll(got, want []change) bool {
 	return true
 }
 
+// saveFile replaces the file rel in dir at once, as an editor's atomic save does.
+func saveFile(t *testing.T, dir, rel, content string) {
+	t.Helper()
+	p := filepath.Join(dir, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p+".save", []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(p+".save", p); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // failAfter makes adding a watch fail with err from the nth call on, as a system that ran out does.
 func failAfter(w *watcher, n int, err error) *int {
 	calls := 0
@@ -110,22 +125,23 @@ func TestWatcherPollsWhenOutOfWatches(t *testing.T) {
 			}
 			runWatcher(t, w)
 
-			writeFile(t, dir, "app/store.go", "package app // edited")
+			// Saved whole, so a poll does not catch a file half written and report it twice.
+			saveFile(t, dir, "app/store.go", "package app // edited")
 			expectChanges(t, w, change{"app/store.go", modified})
-			writeFile(t, dir, "app/list/items/table.tsx", "export const edited = 1")
+			saveFile(t, dir, "app/list/items/table.tsx", "export const edited = 1")
 			expectChanges(t, w, change{"app/list/items/table.tsx", modified})
-			writeFile(t, dir, "app/orders/detail/route.tsx", "export {}")
+			saveFile(t, dir, "app/orders/detail/route.tsx", "export {}")
 			expectChanges(t, w, change{"app/orders/detail/route.tsx", created})
-			writeFile(t, dir, "app/orders/detail/route.tsx", "export const edited = 1")
+			saveFile(t, dir, "app/orders/detail/route.tsx", "export const edited = 1")
 			expectChanges(t, w, change{"app/orders/detail/route.tsx", modified})
 			if err := os.RemoveAll(filepath.Join(dir, "app/list")); err != nil {
 				t.Fatal(err)
 			}
 			expectChanges(t, w, change{"app/list/items/table.tsx", removed}, change{"app/list/route.tsx", removed})
 			// A directory created under a watched one once the system ran out is polled too.
-			writeFile(t, dir, "lib/format.ts", "export {}")
+			saveFile(t, dir, "lib/format.ts", "export {}")
 			expectChanges(t, w, change{"lib/format.ts", created})
-			writeFile(t, dir, "lib/format.ts", "export const edited = 1")
+			saveFile(t, dir, "lib/format.ts", "export const edited = 1")
 			expectChanges(t, w, change{"lib/format.ts", modified})
 		})
 	}
@@ -233,7 +249,9 @@ func TestWatcherPollsEverythingWhenRunningOut(t *testing.T) {
 	if err := w.start(); err != nil {
 		t.Fatal(err)
 	}
-	errs := make(chan error, 1) // the system watcher owns and closes its own
+	// The system watcher owns and closes its own. Unbuffered, so the watcher has taken the error
+	// before the edit: else it may report the edit from its system watch first.
+	errs := make(chan error)
 	w.errs = errs
 	runWatcher(t, w)
 	errs <- fmt.Errorf("fsnotify.dirChange: %w", outErr)
