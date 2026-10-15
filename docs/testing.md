@@ -75,7 +75,7 @@ The bundle tests run Vite on Node, with the packages of `internal/bundle/testdat
 
 ## Long SSR tests skipped by default
 
-The default tests in `internal/ssr` only use small handwritten bundles, `testdata/app.js` and the bundles with source maps in `explain_test.go` for render errors, and finish in a few seconds. These groups skip by default:
+The default tests in `internal/ssr` only use small handwritten bundles, `testdata/app.js` and the bundles with source maps in `explain_test.go` for render errors (broken maps, and a bound on what explaining an error allocates), and finish in a few seconds. These groups skip by default:
 
 | Command | Contents |
 | --- | --- |
