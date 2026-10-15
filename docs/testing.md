@@ -1,11 +1,12 @@
 ---
-summary: 'Testing and verification: commands to run before committing, checks for the example app, end-to-end tests, red before green, and the long SSR tests that are skipped by default'
+summary: 'Testing and verification: commands to run before committing, checks for the example app, end-to-end tests, red before green, the long SSR tests that are skipped by default, and the SSR benchmark of the example app'
 read_when:
   - Getting ready to commit and checking which checks to run
   - Writing a new test or fixing a bug
   - An SSR test shows skip and you want to know how to turn it on
   - Changing `internal/bundle`, or a bundle test shows skip
   - Running the end-to-end tests, or changing `internal/codegen`, `test/apps` or `examples/shop`
+  - Measuring SSR render time or VM memory, or comparing an SSR change against the baseline
 ---
 
 # Testing and verification
@@ -86,6 +87,22 @@ You can set both variables, and the soak tests then run again with the real Reac
 
 ## Performance comparisons
 
-The prototype's performance and memory experiments (alternating timing, per-stage timing, memory probes) were not moved over. They stay in `internal/ssr` at the tag `prototype-baseline`. Check out that tag and build from it when needed.
+`BenchmarkShop` and `TestShopVMMemory` in `internal/ssr/bench_test.go` measure the real bundle of `examples/shop`. Like the shop tests above, they need `TIFA_SSR_SHOP=1` and a fresh `go tool tifa build` of the shop:
+
+```sh
+TIFA_SSR_SHOP=1 go test -run '^$' -bench 'Shop/^render' -benchtime 2000x ./internal/ssr
+TIFA_SSR_SHOP=1 go test -run '^$' -bench 'Shop/^(compile|load|first)' -benchtime 50x ./internal/ssr
+TIFA_SSR_SHOP=1 go test -run ShopVMMemory -v ./internal/ssr
+```
+
+| Result | What it measures |
+| --- | --- |
+| `render-<page>` | One of the four comparison pages rendered again and again in a warm VM: `p50-ms` and `p99-ms` of single renders, Go allocations per render |
+| `compile` | Compiling the bundle to bytecode, done once when the program starts |
+| `load` | Creating one VM from the bytecode, done for each VM of the pool and each replacement: time, and the VM's memory as `vm-KiB` |
+| `first-render` | The first render in a fresh VM |
+| `TestShopVMMemory` | The memory of one VM from `JS_ComputeMemoryUsage`, split into a bare VM, Intl, the host polyfills, the whole bundle, and after 64 renders before and after a GC |
+
+The prototype's other experiments (per-stage timing, memory probes) stay in `internal/ssr` at the tag `prototype-baseline`. Check out that tag and build from it when needed.
 
 Run performance comparisons on the same machine, alternating between the old and new builds, and record the machine load. Changes in machine load can make absolute times differ several times over. Only ratios measured in the same alternating round are comparable.
