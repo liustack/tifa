@@ -96,3 +96,20 @@ func TestDevDriverEndsWhenItsParentDiesDuringABuild(t *testing.T) {
 		t.Errorf("port %d of Vite's dev server is still open", port)
 	}
 }
+
+// The driver takes over the stdin listener with which Vite's dev server ends the process, and
+// leaves those of the plugins: they still learn that stdin ended.
+func TestDevKeepsTheStdinListenersOfPlugins(t *testing.T) {
+	root := devApp(t)
+	marker := filepath.Join(root, "stdin-ended")
+	writeTree(t, root, map[string]string{"vite.config.ts": "import react from '@vitejs/plugin-react'\n" +
+		"import tifa from './.tifa/vite.js'\nimport fs from 'node:fs'\n" +
+		"const listen = { name: 'listen', configureServer() {\n" +
+		"  process.stdin.on('end', () => fs.writeFileSync(" + strconv.Quote(marker) + ", 'ended'))\n" +
+		"} }\n" +
+		"export default { plugins: [tifa(), react(), listen] }\n"})
+	devBuild(t, root)
+	if _, err := os.Stat(marker); err != nil {
+		t.Errorf("the stdin listener of a plugin did not run: %v", err)
+	}
+}

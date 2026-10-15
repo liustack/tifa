@@ -105,17 +105,19 @@ const ops = {
   },
 
   async serve({ port }) {
-    const ownListeners = process.stdin.listeners('end')
+    const earlier = new Set([...process.stdin.listeners('end'), ...process.listeners('SIGTERM')])
     server = await vite.createServer({
       root,
       customLogger: logger,
       server: { host: '127.0.0.1', port, strictPort: true },
     })
-    // Vite's dev server ends the process when stdin ends, as for a parent that went away. Here
-    // stdin carries the requests, and its end starts the close below, which first lets the SSR
-    // worker and the output finish.
+    // Vite's dev server ends the process when stdin ends, as for a parent that went away, with
+    // the listener it also adds for SIGTERM. Here stdin carries the requests, and its end starts
+    // the close below, which first lets the SSR worker and the output finish. The stdin
+    // listeners of plugins stay.
+    const sigterm = process.listeners('SIGTERM')
     for (const listener of process.stdin.listeners('end')) {
-      if (!ownListeners.includes(listener)) process.stdin.off('end', listener)
+      if (!earlier.has(listener) && sigterm.includes(listener)) process.stdin.off('end', listener)
     }
     checkPlugin(server.config)
     await server.listen()
