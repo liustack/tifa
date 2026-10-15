@@ -72,14 +72,26 @@ let ssrWorker = null // builds the SSR bundle when this process is not a product
 // new server and then closes the environments of the old one, so loading a module there fails
 // meanwhile. The SSR build waits for a restart that runs, and runs again after one that came in
 // between and made it fail, see devLoad and ops.ssr. begun counts the restarts that began.
-const restarts = { running: null, begun: 0 }
+//
+// A restart that fails to create the new server keeps the old one. One whose new server cannot
+// listen, because another program took the port, leaves no server listening: failed holds its
+// error until a restart works, and pollFiles tries again.
+const restarts = { running: null, begun: 0, failed: null }
 
-// trackRestart runs restart, a restart of the dev server, as one of restarts.
+// trackRestart runs restart, a restart of the dev server, as one of restarts, and returns what
+// restart returns.
 function trackRestart(restart) {
   restarts.begun++
   const run = restart()
   const tracked = run
-    .catch(() => {}) // Vite logs why a restart failed
+    .then(
+      () => {
+        restarts.failed = null
+      },
+      (err) => {
+        restarts.failed = err
+      },
+    )
     .finally(() => {
       if (restarts.running === tracked) restarts.running = null
     })
@@ -95,24 +107,30 @@ async function restartsDone() {
 // The dev server's watcher polls once tifa asks for it or the watcher runs out of watches. The
 // wish stays in devState.pollFiles: from then on the tifa plugin adds usePolling to the config of
 // every dev server Vite creates, also when Vite restarts on its own. switching is the restart
-// that makes the watcher poll, while it runs. Whether it worked is read from the watcher: a
-// restart that fails keeps the old server, and the next call tries again.
+// that makes the watcher poll, while it runs. Whether it worked is read from the watcher and from
+// restarts.failed: the next call tries again.
 const polling = { switching: null, warned: false }
 
 const watcherPolls = () => server?.watcher.options.usePolling === true
 const watcherUsesFSEvents = () => server?.watcher.options.useFsEvents === true
 
 // pollFiles makes the dev server's watcher poll, and returns once it does or the restart failed.
+// It does not throw: it prints why a restart failed.
 function pollFiles() {
   devState.pollFiles = true
   if (!listening) return Promise.resolve() // serve restarts the server once it listens
   polling.switching ??= (async () => {
     try {
       await restartsDone() // a restart that runs may have read the config before the wish
-      if (!watcherPolls()) await server.restart()
+      if (!watcherPolls() || restarts.failed) await server.restart()
       if (!watcherPolls()) {
         logger.warn("Vite's dev server did not restart with a watcher that polls, it tries again at the next error of its watcher")
       }
+    } catch (err) {
+      logger.error(
+        `Vite's dev server did not restart: ${message(err)}\n` +
+          'It tries again at the next error of its watcher, or when Vite restarts after a change to its config',
+      )
     } finally {
       polling.switching = null
     }

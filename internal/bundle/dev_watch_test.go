@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -295,5 +296,68 @@ func TestDevServerTriesPollingAgain(t *testing.T) {
 			t.Fatalf("the watcher does not poll 10s after the second error: %v", err)
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// A restart can also fail once the old server closed, when the new one cannot listen because
+// another program took the port. The driver goes on, and the next restart, here after a change to
+// the config, brings the dev server back.
+func TestDevServerSurvivesARestartThatCannotListen(t *testing.T) {
+	root := devApp(t)
+	closing := filepath.Join(root, "closing")
+	config := func(note string) string {
+		return "import fs from 'node:fs'\n" +
+			"const control = { name: 'control', apply: 'serve',\n" +
+			"  configureServer(server) {\n" +
+			"    server.middlewares.use('" + DevBase + "__test/enospc', (req, res) => {\n" +
+			"      res.end('ok')\n" +
+			"      server.watcher.emit('error', Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' }))\n    })\n" +
+			"  },\n" +
+			"  async closeBundle() { fs.writeFileSync(" + strconv.Quote(closing) + ", ''); await new Promise((r) => setTimeout(r, 900)) } }\n" +
+			"import react from '@vitejs/plugin-react'\nimport tifa from './.tifa/vite.js'\n" +
+			"export default { plugins: [tifa(), react(), control], server: { watch: { useFsEvents: false, usePolling: false } } } // " + note + "\n"
+	}
+	writeTree(t, root, map[string]string{"vite.config.ts": config("one")})
+	port := freePort(t)
+	d, err := NewDev(root, port, io.Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	viteModule(t, port, "__test/enospc")
+	waitFile(t, closing)
+	// Take the port as soon as the old server lets go of it.
+	var taken net.Listener
+	deadline := time.Now().Add(10 * time.Second)
+	for taken == nil {
+		if l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port)); err == nil {
+			taken = l
+		} else if time.Now().After(deadline) {
+			t.Fatalf("the port stays in use: %v", err)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(2 * time.Second) // the new server tries to listen meanwhile, and fails
+	taken.Close()
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+		t.Fatalf("Build after the failed restart: %v", err)
+	}
+	writeTree(t, root, map[string]string{"vite.config.ts": config("two")})
+	deadline = time.Now().Add(15 * time.Second)
+	for {
+		res, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d%sapp/page/view.tsx", port, DevBase))
+		if err == nil {
+			res.Body.Close()
+			if res.StatusCode == 200 {
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the dev server is not back 15s after the config changed: %v", err)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
