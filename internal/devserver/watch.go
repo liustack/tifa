@@ -159,9 +159,11 @@ type systemWatcher struct {
 	errors <-chan error
 }
 
-// watcher watches every directory under root and reports the files that plan cares about
-// whose content changed. Paths in its maps are relative to root with forward slashes, the
-// root itself is ".". Only run touches the maps once newWatcher returns.
+// watcher keeps a snapshot of what is under root and reports the files that plan cares about
+// whose content changed. System events, polls and the link poll only say where to look: the
+// watcher then looks at that place on the disk and brings the snapshot in line with what it
+// finds there, whatever it found before. Paths are relative to root with forward slashes, the
+// root itself is ".". Only run touches the snapshot once newWatcher returns.
 //
 // Directories get a system watch while the budget allows it and the system has watches left,
 // and where watchesFiles, so do their tracked files. The directories that do not are polled:
@@ -179,34 +181,39 @@ type watcher struct {
 	remove   func(name string) error    // removes a system watch
 	budget   int                        // how many system watches the watcher may hold
 	watches  map[string]bool            // the paths that have a system watch
-	fileOf   map[string]fileWatch       // the system watch of each tracked file, where watchesFiles
 	full     bool                       // no more directories get a system watch, new ones are polled
 	short    chan struct{}              // closed once full is set
-	polled   map[string]bool            // directories that are polled
-	dirty    map[string]bool            // directories whose entries changed, to list
+	nodes    map[string]*node           // the snapshot: what each path was when the watcher last looked
+	kids     map[string]map[string]bool // the nodes in each directory node
+	owner    map[string]string          // the directory node of each real directory
+	polled   map[string]bool            // directory nodes that are polled
+	dirty    map[string]bool            // directory nodes whose entries changed, to list
 	listAt   time.Time                  // when the dirty directories may be listed next
-	stats    map[string]os.FileInfo     // tracked files as they were when last hashed
 	minPoll  time.Duration              // shortest time between two polls
-	files    map[string]string          // checksum of every tracked file
-	dirs     map[string]os.FileInfo     // watched and polled directories, as they were when first seen
-	kids     map[string]map[string]bool // tracked files and watched directories by the directory they are in
-	real     map[string]string          // real path of each watched directory to its path under root
-	realDir  map[string]string          // the other way: path under root of each watched directory to its real path
-	linkDirs map[string]string          // watched directories that are links themselves, to the real path watched
 	warn     func(string)
-	warned   map[string]bool     // paths warned about, to warn once
-	links    map[string][]string // real path of a linked file's target to the links under root
-	linkOf   map[string]string   // link under root to the real path of its target
-	extDirs  map[string]int      // directories watched for link targets, with how many links need each
-	extWatch map[string]bool     // directories of extDirs that have a system watch
+	warned   map[string]bool   // the warnings given, by their text, to give each once
+	was      map[string]string // while renew runs, the checksums of the files it dropped
 	changes  *changes
 }
 
-// fileWatch is the system watch of a tracked file: the path it was added for, and the file as it
-// was then.
-type fileWatch struct {
-	name string
-	info os.FileInfo
+// nodeKind is what a path in the snapshot is.
+type nodeKind int
+
+const (
+	fileNode  nodeKind = iota // a file that plan cares about
+	dirNode                   // a directory the watcher looks into
+	aliasNode                 // a directory whose real directory a directory node already covers, through a link
+	linkNode                  // a link that leads nowhere, in a loop, or to a file plan does not care about
+)
+
+// node is what the watcher found at a path when it last looked.
+type node struct {
+	kind  nodeKind
+	link  bool        // the path is a symbolic link
+	info  os.FileInfo // what the path leads to, links followed, nil for a linkNode
+	real  string      // the real path of a directory or alias node
+	sum   string      // the checksum of a file node
+	watch string      // the system watch of a file node, where watchesFiles, "" without one
 }
 
 // newWatcher watches root and records the checksum of every tracked file, without reporting them.
@@ -239,9 +246,9 @@ func prepareWatcher(root string, ignore []string, warn func(string)) (*watcher, 
 	}
 	w := &watcher{
 		root: abs, rootReal: rootReal, warn: warn, changes: newChanges(), short: make(chan struct{}),
-		budget: watchBudget(), watches: map[string]bool{}, fileOf: map[string]fileWatch{}, polled: map[string]bool{}, dirty: map[string]bool{}, stats: map[string]os.FileInfo{}, minPoll: minPollInterval,
-		files: map[string]string{}, dirs: map[string]os.FileInfo{}, kids: map[string]map[string]bool{}, real: map[string]string{}, realDir: map[string]string{}, linkDirs: map[string]string{}, warned: map[string]bool{},
-		links: map[string][]string{}, linkOf: map[string]string{}, extDirs: map[string]int{}, extWatch: map[string]bool{},
+		budget: watchBudget(), watches: map[string]bool{}, minPoll: minPollInterval,
+		nodes: map[string]*node{}, kids: map[string]map[string]bool{}, owner: map[string]string{},
+		polled: map[string]bool{}, dirty: map[string]bool{}, warned: map[string]bool{},
 	}
 	for _, d := range ignore {
 		w.ignore = append(w.ignore, path.Clean(filepath.ToSlash(d)))
@@ -251,7 +258,7 @@ func prepareWatcher(root string, ignore []string, warn func(string)) (*watcher, 
 	case outOfWatches(err):
 		// Such as inotify with no instance left for the user: poll everything.
 		w.setFull()
-		w.warn(fmt.Sprintf("starting the file watcher: %v: every directory is polled for changes", err))
+		w.warnOnce(fmt.Sprintf("starting the file watcher: %v: every directory is polled for changes", err))
 	case err != nil:
 		return nil, err
 	default:
@@ -280,8 +287,8 @@ func (w *watcher) close() {
 // watchCount returns how many system watches the watcher holds.
 func (w *watcher) watchCount() int { return len(w.watches) }
 
-// linkPoll is how often the watcher looks at the links it follows. kqueue (macOS, BSD) watches
-// what a link leads to, so removing or replacing the link itself gives no event.
+// linkPoll is how often the watcher looks at the links under root. Replacing what a link leads
+// to, or a target outside the watched directories, gives no event.
 const linkPoll = 500 * time.Millisecond
 
 // testHookLinkPoll lets tests see each path the link poll looks at.
@@ -380,74 +387,376 @@ func (w *watcher) listDirty() error {
 		if testHookList != nil {
 			testHookList(dir)
 		}
-		if err := w.scan(dir, false); err != nil {
+		if err := w.relist(dir); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// poll checks the polled directories, and the linked files whose target no system watch covers.
+// poll lists the polled directories.
 func (w *watcher) poll() error {
 	for _, dir := range slices.Collect(maps.Keys(w.polled)) {
-		if !w.polled[dir] {
-			continue // gone with a directory polled before
-		}
-		if err := w.scan(dir, false); err != nil {
-			return err
-		}
-	}
-	for rel, target := range maps.Clone(w.linkOf) {
-		if w.linkWatched(rel, target) {
-			continue
-		}
-		if info, err := os.Stat(w.abs(rel)); err == nil && !w.statChanged(rel, info) {
-			continue
-		}
-		if err := w.check(rel); err != nil {
+		if err := w.relist(dir); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// statChanged reports whether the tracked file rel may have changed since it was last hashed.
-func (w *watcher) statChanged(rel string, info os.FileInfo) bool {
-	old, ok := w.stats[rel]
-	return !ok || !os.SameFile(old, info) || old.Size() != info.Size() || !old.ModTime().Equal(info.ModTime())
+// checkLinks looks again at each link under root that leads elsewhere now, or whose target
+// changed. Every link that leads to a directory another node covers is looked at again, which
+// decides anew whether the watcher looks into it.
+func (w *watcher) checkLinks() error {
+	var links []string
+	for rel, n := range w.nodes {
+		if n.link {
+			links = append(links, rel)
+		}
+	}
+	slices.Sort(links) // a link before the links under it
+	for _, rel := range links {
+		n := w.nodes[rel]
+		if n == nil {
+			continue // gone with a link before it
+		}
+		if testHookLinkPoll != nil {
+			testHookLinkPoll(rel)
+		}
+		if w.linkChanged(rel, n) {
+			if err := w.look(rel, hinted); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
-// linkWatched reports whether a system watch reports edits of the target of the linked file rel:
-// the watch of the link itself where watchesFiles, which follows it, or else the watch of the
-// target's directory.
-func (w *watcher) linkWatched(rel, target string) bool {
-	if watchesFiles {
-		_, ok := w.fileOf[rel]
-		return ok
+// linkChanged reports whether the link at rel may lead to something else than its node says.
+func (w *watcher) linkChanged(rel string, n *node) bool {
+	info, err := os.Stat(w.abs(rel))
+	switch {
+	case err != nil:
+		return n.kind != linkNode
+	case n.kind == linkNode || n.kind == aliasNode:
+		return true
+	case n.kind == fileNode:
+		return statChanged(n.info, info)
 	}
-	dir := filepath.Dir(target)
-	if owner, ok := w.real[dir]; ok {
-		return !w.polled[owner]
-	}
-	return w.extWatch[dir]
+	real, err := filepath.EvalSymlinks(w.abs(rel))
+	return err != nil || real != n.real || !os.SameFile(n.info, info)
 }
 
-// watchDir adds a system watch for the directory dir, whose real path is real. It reports false
-// when dir has to be polled instead, because the watch would go past the budget or the system
+// statChanged reports whether a file may have other content than when it was info.
+func statChanged(info, now os.FileInfo) bool {
+	return !os.SameFile(info, now) || info.Size() != now.Size() || !info.ModTime().Equal(now.ModTime())
+}
+
+// how says why the watcher looks at a path.
+type how int
+
+const (
+	listed how = iota // its directory is listed: a file is hashed again only when it looks changed
+	hinted            // an event or a poll points at it: a file is hashed again
+	rescan            // everything under it is compared again, directories that look the same are listed
+)
+
+// rescan compares everything under rel with the disk.
+func (w *watcher) rescan(rel string) error { return w.look(rel, rescan) }
+
+// look brings the snapshot of rel in line with the disk. A path that is gone takes everything
+// under it along. A path that is something else now than its node says, such as a file that
+// became a directory or a link that leads elsewhere, is dropped and taken in as new.
+func (w *watcher) look(rel string, h how) error {
+	if rel != "." && w.skipped(rel) {
+		return nil
+	}
+	li, err := os.Lstat(w.abs(rel))
+	if vanished(err) {
+		w.drop(rel)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	link := li.Mode()&os.ModeSymlink != 0
+	info, err := os.Stat(w.abs(rel)) // follows links, like the build does
+	switch {
+	case vanished(err) || link && errors.Is(err, syscall.EINVAL):
+		// A link that leads nowhere, until its target comes back. macOS may fail with EINVAL
+		// while the link is being replaced.
+		w.setLink(rel, link)
+	case err != nil && link:
+		w.warnOnce(fmt.Sprintf("skipping %s: %v", rel, err)) // such as a loop
+		w.setLink(rel, link)
+	case err != nil:
+		return err
+	case info.IsDir():
+		return w.lookDir(rel, info, link, h)
+	case info.Mode().IsRegular() && kindOf(rel) != other:
+		return w.check(rel, info, link, h)
+	default:
+		w.setLink(rel, link)
+	}
+	return nil
+}
+
+// vanished reports whether err says a path is no longer there, also because a directory on its
+// way became a file.
+func vanished(err error) bool {
+	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR)
+}
+
+// setLink makes rel a link node if it is a link, and drops it from the snapshot otherwise.
+func (w *watcher) setLink(rel string, link bool) {
+	if n := w.nodes[rel]; n != nil && n.kind == linkNode && link {
+		return
+	}
+	w.drop(rel)
+	if link {
+		w.set(rel, &node{kind: linkNode, link: true})
+	}
+}
+
+// lookDir brings the snapshot of the directory rel in line with the disk, info being what it is
+// now. A directory the snapshot holds as it is stays, listed again only for a rescan. Any other
+// one becomes a directory node, watched and listed, unless a directory node already covers its
+// real directory.
+func (w *watcher) lookDir(rel string, info os.FileInfo, link bool, h how) error {
+	real, err := filepath.EvalSymlinks(w.abs(rel))
+	if err != nil {
+		if !vanished(err) && !errors.Is(err, syscall.EINVAL) {
+			w.warnOnce(fmt.Sprintf("not watching %s: %v", rel, err))
+		}
+		w.setLink(rel, link) // changed since the stat: a link is looked at again by the link poll
+		return nil
+	}
+	if n := w.nodes[rel]; n != nil && n.kind == dirNode && n.real == real && os.SameFile(n.info, info) {
+		n.link = link
+		if h == rescan {
+			return w.list(rel, h)
+		}
+		return nil
+	}
+	return w.renew(func() error { return w.takeDir(rel, info, link, real) })
+}
+
+// takeDir takes the directory rel into the snapshot as new.
+func (w *watcher) takeDir(rel string, info os.FileInfo, link bool, real string) error {
+	w.drop(rel)
+	if owner, ok := w.owner[real]; ok {
+		// A link to a directory that is already watched, possibly an ancestor.
+		w.set(rel, &node{kind: aliasNode, link: link, info: info, real: real})
+		w.warnOnce(fmt.Sprintf("not watching %s: it is the directory %s, which is already watched", rel, owner))
+		return nil
+	}
+	watched, err := w.watchDir(rel, real)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil // gone again, the next event looks
+	}
+	if err != nil {
+		return fmt.Errorf("watching %s: %w", rel, err)
+	}
+	w.set(rel, &node{kind: dirNode, link: link, info: info, real: real})
+	w.owner[real] = rel
+	if !watched {
+		w.polled[rel] = true
+	}
+	return w.list(rel, rescan)
+}
+
+// relist lists the directory node dir again, once a look at dir itself found it unchanged.
+func (w *watcher) relist(dir string) error {
+	n := w.nodes[dir]
+	if n == nil || n.kind != dirNode {
+		return nil
+	}
+	if err := w.look(dir, listed); err != nil {
+		return err
+	}
+	if w.nodes[dir] != n {
+		return nil // gone, or looked at as new and listed already
+	}
+	return w.list(dir, listed)
+}
+
+// list brings the snapshot of the entries of the directory node dir in line with the disk.
+func (w *watcher) list(dir string, h how) error {
+	entries, err := os.ReadDir(w.abs(dir))
+	if vanished(err) {
+		w.drop(dir)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	// What is gone goes first, and directory nodes before the other entries: a directory that
+	// is gone or changed lets go of its real directory before a link to it is looked at.
+	present := map[string]bool{}
+	var dirs, others []string
+	for _, e := range entries {
+		rel := path.Join(dir, e.Name())
+		switch {
+		case w.skipped(rel):
+			continue
+		case w.isDir(rel):
+			dirs = append(dirs, rel)
+		default:
+			others = append(others, rel)
+		}
+		present[rel] = true
+	}
+	for kid := range w.kids[dir] {
+		if !present[kid] {
+			w.drop(kid)
+		}
+	}
+	for _, rel := range append(dirs, others...) {
+		if err := w.look(rel, h); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// isDir reports whether rel is a directory node.
+func (w *watcher) isDir(rel string) bool {
+	n := w.nodes[rel]
+	return n != nil && n.kind == dirNode
+}
+
+// check brings the snapshot of the tracked file rel in line with the disk, info being what it is
+// now. Listed, it hashes the file only when it looks changed: new, replaced, or in a polled
+// directory with another size or modification time. Otherwise it always hashes: size and
+// modification time can stay the same while the content changes.
+func (w *watcher) check(rel string, info os.FileInfo, link bool, h how) error {
+	n := w.nodes[rel]
+	if n != nil && n.kind != fileNode {
+		w.drop(rel) // such as a directory that became a file
+		n = nil
+	}
+	if n != nil && h == listed && os.SameFile(n.info, info) && !(w.polled[path.Dir(rel)] && statChanged(n.info, info)) {
+		return nil
+	}
+	if n == nil {
+		n = &node{kind: fileNode, sum: w.was[rel]}
+		delete(w.was, rel)
+		w.set(rel, n)
+	}
+	n.link = link
+	// Watch before hashing, so an edit right after the hash gets an event.
+	if err := w.watchFile(rel, n, info); err != nil {
+		return err
+	}
+	if testHookChecksum != nil {
+		testHookChecksum(rel)
+	}
+	sum, err := checksum(w.abs(rel))
+	if vanished(err) || errors.Is(err, syscall.EISDIR) {
+		// Changed again since the stat: the events that follow say where to look.
+		w.drop(rel)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	n.info = info
+	if sum != n.sum {
+		old := n.sum
+		n.sum = sum
+		w.changes.add(rel, old, sum)
+	}
+	return nil
+}
+
+// drop removes rel and everything under it from the snapshot, reports its tracked files as
+// removed, and gives back their system watches.
+func (w *watcher) drop(rel string) {
+	n := w.nodes[rel]
+	if n == nil {
+		return
+	}
+	for kid := range w.kids[rel] {
+		w.drop(kid)
+	}
+	switch n.kind {
+	case fileNode:
+		w.unwatchFile(n)
+		switch {
+		case w.was != nil:
+			w.was[rel] = n.sum
+		case n.sum != "":
+			w.changes.add(rel, n.sum, "")
+		}
+	case dirNode:
+		w.dropWatch(n.real)
+		delete(w.polled, rel)
+		delete(w.dirty, rel)
+		delete(w.owner, n.real)
+		// A link elsewhere to the same directory may be the one to look into it now.
+		for p, other := range w.nodes {
+			if other.kind == aliasNode && other.real == n.real {
+				w.dirty[path.Dir(p)] = true
+			}
+		}
+	}
+	delete(w.nodes, rel)
+	delete(w.kids, rel)
+	if rel != "." {
+		parent := path.Dir(rel)
+		delete(w.kids[parent], rel)
+		if len(w.kids[parent]) == 0 {
+			delete(w.kids, parent)
+		}
+	}
+}
+
+// renew runs look, which drops part of the snapshot and looks at it as new, and reports the
+// changes against what it dropped: a file found again with the same content did not change.
+func (w *watcher) renew(look func() error) error {
+	if w.was != nil {
+		return look() // within another renew
+	}
+	w.was = map[string]string{}
+	defer func() { w.was = nil }()
+	err := look()
+	for rel, sum := range w.was {
+		if sum != "" {
+			w.changes.add(rel, sum, "")
+		}
+	}
+	return err
+}
+
+// set puts n in the snapshot at rel.
+func (w *watcher) set(rel string, n *node) {
+	w.nodes[rel] = n
+	if rel == "." {
+		return
+	}
+	parent := path.Dir(rel)
+	if w.kids[parent] == nil {
+		w.kids[parent] = map[string]bool{}
+	}
+	w.kids[parent][rel] = true
+}
+
+// watchDir adds a system watch for the directory rel, whose real path is real. watched is false
+// when rel has to be polled instead, because the watch would go past the budget or the system
 // has no watch left.
-func (w *watcher) watchDir(dir, real string) (bool, error) {
+func (w *watcher) watchDir(rel, real string) (watched bool, err error) {
 	if w.full {
 		return false, nil
 	}
 	if w.watchCount() >= w.budget {
 		w.setFull()
-		w.warn(fmt.Sprintf("watching %s would use up the system's file watches, so it and the directories found after it are polled for changes", dir))
+		w.warnOnce(fmt.Sprintf("watching %s would use up the system's file watches, so it and the directories found after it are polled for changes", rel))
 		return false, nil
 	}
-	err := w.add(real)
+	err = w.add(real)
 	if outOfWatches(err) {
 		w.setFull()
-		w.warn(fmt.Sprintf("watching %s: %v: the system ran out of file watches, so it and the directories found after it are polled for changes", dir, err))
+		w.warnOnce(fmt.Sprintf("watching %s: %v: the system ran out of file watches, so it and the directories found after it are polled for changes", rel, err))
 		w.spare()
 		return false, nil
 	}
@@ -458,60 +767,65 @@ func (w *watcher) watchDir(dir, real string) (bool, error) {
 	return true, nil
 }
 
-// watchFile adds a system watch for the tracked file rel where watchesFiles, unless its directory
-// is polled. info is the file as check found it: a file replaced since its watch was added, such
-// as by an atomic save, gets a new one. A watch that would go past the budget polls the directory
-// instead. Running out of file descriptors comes back as the error, see recover.
-func (w *watcher) watchFile(rel string, info os.FileInfo) error {
+// watchFile adds a system watch for the file node n at rel where watchesFiles, unless its
+// directory is polled. info is the file as check found it: a file replaced since its watch was
+// added, as by an atomic save, gets a new one. A watch that would go past the budget polls the
+// directory instead. Running out of file descriptors comes back as the error, see recover.
+func (w *watcher) watchFile(rel string, n *node, info os.FileInfo) error {
 	if !watchesFiles || w.sys == nil {
 		return nil
 	}
 	dir := path.Dir(rel)
-	real, ok := w.realDir[dir]
-	if !ok || w.polled[dir] {
+	if !w.isDir(dir) || w.polled[dir] {
 		return nil
 	}
-	if old, ok := w.fileOf[rel]; ok {
-		if os.SameFile(old.info, info) {
+	if n.watch != "" {
+		if os.SameFile(n.info, info) {
 			return nil
 		}
-		w.unwatchFile(rel)
+		w.unwatchFile(n)
 	}
 	if w.watchCount() >= w.budget {
 		w.pollDir(dir)
-		w.warn(fmt.Sprintf("%s grew past what the system's file watches allow, so it and the directories found after it are polled for changes", dir))
+		w.warnOnce(fmt.Sprintf("%s grew past what the system's file watches allow, so it and the directories found after it are polled for changes", dir))
 		return nil
 	}
-	name := filepath.Join(real, path.Base(rel))
+	name := filepath.Join(w.nodes[dir].real, path.Base(rel))
 	err := w.add(name)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil // gone again, the next event handles it
+		return nil // gone again, the next event looks
 	}
 	if err != nil {
 		return err
 	}
 	w.watches[name] = true
-	w.fileOf[rel] = fileWatch{name, info}
+	n.watch = name
 	return nil
 }
 
-// unwatchFile removes the system watch of the tracked file rel, if it has one.
-func (w *watcher) unwatchFile(rel string) {
-	if fw, ok := w.fileOf[rel]; ok {
-		delete(w.fileOf, rel)
-		w.dropWatch(fw.name)
+// unwatchFile removes the system watch of the file node n, if it has one.
+func (w *watcher) unwatchFile(n *node) {
+	if n.watch != "" {
+		w.dropWatch(n.watch)
+		n.watch = ""
 	}
 }
 
-// pollDir polls the watched directory dir from now on, in place of its system watch and those of
+// dropWatch removes the system watch of name, if it has one.
+func (w *watcher) dropWatch(name string) {
+	if w.watches[name] {
+		_ = w.remove(name) // usually gone with the directory already
+		delete(w.watches, name)
+	}
+}
+
+// pollDir polls the directory node dir from now on, in place of its system watch and those of
 // its files, and polls the directories found after it.
 func (w *watcher) pollDir(dir string) {
 	w.setFull()
-	if real, ok := w.realDir[dir]; ok {
-		w.dropWatch(real)
-	}
+	w.dropWatch(w.nodes[dir].real)
 	for kid := range w.kids[dir] {
-		w.unwatchFile(kid)
+		w.unwatchFile(w.nodes[kid])
 	}
 	w.polled[dir] = true
 }
@@ -534,7 +848,7 @@ const spareWatches = 256
 // spare polls watched directories in place of their system watches until spareWatches are free.
 func (w *watcher) spare() {
 	start := w.watchCount()
-	for real, dir := range w.real {
+	for real, dir := range w.owner {
 		if start-w.watchCount() >= spareWatches {
 			return
 		}
@@ -551,15 +865,14 @@ func (w *watcher) pollAll(err error) {
 		w.sys.close()
 		w.sys, w.events, w.errs = nil, nil, nil
 	}
-	for real, dir := range w.real {
-		if w.watches[real] {
-			w.polled[dir] = true
-		}
+	for _, dir := range w.owner {
+		w.polled[dir] = true
 	}
 	clear(w.watches)
-	clear(w.fileOf)
-	clear(w.extWatch)
-	w.warn(fmt.Sprintf("watching files: %v: the system ran out of file watches, so every directory is polled for changes", err))
+	for _, n := range w.nodes {
+		n.watch = ""
+	}
+	w.warnOnce(fmt.Sprintf("watching files: %v: the system ran out of file watches, so every directory is polled for changes", err))
 }
 
 // recover polls everything and compares it with the disk again when err says the system ran out
@@ -574,43 +887,43 @@ func (w *watcher) recover(err error) error {
 	return w.rescan(".")
 }
 
-// dropWatch removes the system watch of name, if it has one.
-func (w *watcher) dropWatch(name string) {
-	if w.watches[name] {
-		_ = w.remove(name) // usually gone with the directory already
-		delete(w.watches, name)
+// handle looks at the path an event names. A file or directory that an event says is gone or
+// moved is dropped first: whatever is there now is new, as a new one can reuse the inode of the
+// old one.
+func (w *watcher) handle(name string, op fsnotify.Op) error {
+	rel, ok := w.relOf(name)
+	if !ok || !(rel == "." || w.isDir(path.Dir(rel))) {
+		return nil // under a directory that is gone or not looked into
 	}
-}
-
-// checkLinks brings every linked file and every linked directory up to date when the link no
-// longer leads where it did. It looks only at the links: a directory reached through a link is
-// watched by its real path like any other, and a change of a link above it rescans it.
-func (w *watcher) checkLinks() error {
-	for rel, target := range maps.Clone(w.linkOf) {
-		if testHookLinkPoll != nil {
-			testHookLinkPoll(rel)
-		}
-		if real, err := filepath.EvalSymlinks(w.abs(rel)); err != nil || real != target {
-			if err := w.check(rel); err != nil {
-				return err
-			}
+	look := func() error { return w.look(rel, hinted) }
+	if op.Has(fsnotify.Remove) || op.Has(fsnotify.Rename) {
+		look = func() error {
+			w.drop(rel)
+			return w.look(rel, hinted)
 		}
 	}
-	for rel, real := range maps.Clone(w.linkDirs) {
-		if testHookLinkPoll != nil {
-			testHookLinkPoll(rel)
-		}
-		if now, err := filepath.EvalSymlinks(w.abs(rel)); err == nil && now == real {
-			continue
-		}
-		if _, still := w.dirs[rel]; !still {
-			continue // gone with a directory checked before
-		}
-		if err := w.scan(rel, false); err != nil {
-			return err
-		}
+	if err := w.renew(look); err != nil {
+		return err
+	}
+	if w.isDir(rel) {
+		w.dirty[rel] = true // its entries changed, listed by run, see listDirty
 	}
 	return nil
+}
+
+// relOf maps an event path to a path under root. Directories are watched by their real path,
+// so events name real paths: a link to a directory is known by the link's path under root.
+func (w *watcher) relOf(name string) (string, bool) {
+	if rel, ok := w.owner[name]; ok {
+		return rel, true
+	}
+	if dir, ok := w.owner[filepath.Dir(name)]; ok {
+		return path.Join(dir, filepath.Base(name)), true
+	}
+	if r, err := filepath.Rel(w.root, name); err == nil && r != ".." && !strings.HasPrefix(r, ".."+string(filepath.Separator)) {
+		return filepath.ToSlash(r), true
+	}
+	return "", false
 }
 
 func (w *watcher) skipped(rel string) bool {
@@ -629,342 +942,11 @@ func (w *watcher) skipped(rel string) bool {
 
 func (w *watcher) abs(rel string) string { return filepath.Join(w.root, filepath.FromSlash(rel)) }
 
-// under reports whether p is dir or inside it.
-func under(dir, p string) bool { return dir == "." || p == dir || strings.HasPrefix(p, dir+"/") }
-
-// watching reports whether dir is watched and is still the directory the watch was added for.
-func (w *watcher) watching(dir string, info os.FileInfo) bool {
-	known, ok := w.dirs[dir]
-	return ok && os.SameFile(known, info)
-}
-
-// handle brings the state of one path up to date. Events only say where to look: the checksum
-// decides whether a file changed, and a directory is checked against the one that was watched.
-func (w *watcher) handle(name string, op fsnotify.Op) error {
-	for _, link := range w.links[name] {
-		if err := w.check(link); err != nil {
-			return err
-		}
-	}
-	rel, ok := w.relOf(name)
-	if !ok || w.skipped(rel) {
-		return nil
-	}
-	if op.Has(fsnotify.Remove) || op.Has(fsnotify.Rename) {
-		// Whatever is at rel now, the watch for the old directory or file is gone. A new one can
-		// reuse the old one's inode, so identity alone cannot tell.
-		w.unwatch(rel)
-		w.unwatchFile(rel)
-	}
-	info, err := os.Stat(w.abs(rel))
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		w.removeTree(rel)
-		return nil
-	case err != nil:
-		return err
-	case info.IsDir():
-		w.dirty[rel] = true // listed by run, see listDirty
-		return nil
-	default:
-		return w.check(rel)
-	}
-}
-
-// relOf maps an event path to a path under root. Directories are watched by their real path,
-// so events name real paths: a link to a directory is known by the link's path under root.
-func (w *watcher) relOf(name string) (string, bool) {
-	if rel, ok := w.real[name]; ok {
-		return rel, true
-	}
-	if dir, ok := w.real[filepath.Dir(name)]; ok {
-		return path.Join(dir, filepath.Base(name)), true
-	}
-	if r, err := filepath.Rel(w.root, name); err == nil && r != ".." && !strings.HasPrefix(r, ".."+string(filepath.Separator)) {
-		return filepath.ToSlash(r), true
-	}
-	return "", false
-}
-
-// rescan compares everything under rel with the disk, also in directories already watched.
-func (w *watcher) rescan(rel string) error { return w.scan(rel, true) }
-
-// scan watches dir, checks its files and scans its subdirectories. Without deep, it only looks at
-// files and directories it does not know yet: known ones get events of their own. A directory
-// that is new or replaced is scanned deep. Anything under dir that is gone counts as removed.
-func (w *watcher) scan(dir string, deep bool) error {
-	info, err := os.Stat(w.abs(dir))
-	if errors.Is(err, fs.ErrNotExist) {
-		w.removeTree(dir)
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if !w.watching(dir, info) {
-		w.unwatch(dir) // a replaced directory may still have the old watch
-		real, err := filepath.EvalSymlinks(w.abs(dir))
-		if err != nil {
-			w.warnOnce(dir, fmt.Sprintf("not watching %s: %v", dir, err))
-			return nil
-		}
-		if owner, ok := w.real[real]; ok {
-			// A link to a directory that is already watched, possibly an ancestor.
-			w.warnOnce(dir, fmt.Sprintf("not watching %s: it is the directory %s, which is already watched", dir, owner))
-			return nil
-		}
-		// Watch the real path, which is also what the events name.
-		watched, err := w.watchDir(dir, real)
-		if errors.Is(err, fs.ErrNotExist) {
-			w.removeTree(dir)
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("watching %s: %w", dir, err)
-		}
-		if !watched {
-			w.polled[dir] = true
-		}
-		w.dirs[dir] = info
-		w.know(dir)
-		w.real[real] = dir
-		w.realDir[dir] = real
-		if li, err := os.Lstat(w.abs(dir)); dir != "." && err == nil && li.Mode()&os.ModeSymlink != 0 {
-			w.linkDirs[dir] = real
-		}
-		deep = true
-	}
-	entries, err := os.ReadDir(w.abs(dir))
-	if errors.Is(err, fs.ErrNotExist) {
-		w.removeTree(dir)
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	present := map[string]bool{}
-	for _, e := range entries {
-		rel := path.Join(dir, e.Name())
-		if w.skipped(rel) {
-			continue
-		}
-		info, err := os.Stat(w.abs(rel)) // follows symlinks, like the build does
-		if errors.Is(err, fs.ErrNotExist) {
-			continue // also a link to nothing
-		}
-		if errors.Is(err, syscall.ELOOP) {
-			w.warnOnce(rel, fmt.Sprintf("skipping %s: %v", rel, err))
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		present[rel] = true
-		if info.IsDir() {
-			if deep || !w.watching(rel, info) {
-				if err := w.scan(rel, deep); err != nil {
-					return err
-				}
-			}
-			continue
-		}
-		if _, known := w.files[rel]; known && !deep && !(w.polled[dir] && w.statChanged(rel, info)) && !w.replaced(rel, info) {
-			continue
-		}
-		if err := w.check(rel); err != nil {
-			return err
-		}
-	}
-	// Remove what is no longer in dir: a vanished subdirectory takes its files along.
-	for child := range w.kids[dir] {
-		if !present[child] {
-			w.removeTree(child)
-		}
-	}
-	return nil
-}
-
-// replaced reports whether the tracked file rel is another file than its system watch watches,
-// such as after an atomic save.
-func (w *watcher) replaced(rel string, info os.FileInfo) bool {
-	fw, ok := w.fileOf[rel]
-	return ok && !os.SameFile(fw.info, info)
-}
-
-// know records rel, a tracked file or a watched directory, under the directory it is in.
-func (w *watcher) know(rel string) {
-	if rel == "." {
-		return
-	}
-	parent := path.Dir(rel)
-	if w.kids[parent] == nil {
-		w.kids[parent] = map[string]bool{}
-	}
-	w.kids[parent][rel] = true
-}
-
-// forget undoes know once rel is neither a tracked file nor a watched directory.
-func (w *watcher) forget(rel string) {
-	if _, ok := w.files[rel]; ok {
-		return
-	}
-	if _, ok := w.dirs[rel]; ok {
-		return
-	}
-	parent := path.Dir(rel)
-	delete(w.kids[parent], rel)
-	if len(w.kids[parent]) == 0 {
-		delete(w.kids, parent)
-	}
-}
-
-// unwatch forgets the watch of dir, not of its subdirectories.
-func (w *watcher) unwatch(dir string) {
-	delete(w.dirs, dir)
-	w.forget(dir)
-	delete(w.linkDirs, dir)
-	delete(w.polled, dir)
-	for real, owner := range w.real {
-		if owner == dir {
-			delete(w.real, real)
-			w.dropWatch(real)
-		}
-	}
-	delete(w.realDir, dir)
-	delete(w.warned, dir)
-}
-
-func (w *watcher) warnOnce(rel, msg string) {
-	if !w.warned[rel] {
-		w.warned[rel] = true
+// warnOnce warns with msg, unless it did with the same text before.
+func (w *watcher) warnOnce(msg string) {
+	if !w.warned[msg] {
+		w.warned[msg] = true
 		w.warn(msg)
-	}
-}
-
-// check hashes a tracked file and reports it when the checksum differs. It hashes on every call:
-// size and modification time can stay the same while the content changes.
-func (w *watcher) check(rel string) error {
-	if kindOf(rel) == other {
-		return nil
-	}
-	info, err := os.Stat(w.abs(rel))
-	if errors.Is(err, fs.ErrNotExist) {
-		w.removeTree(rel)
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if !info.Mode().IsRegular() {
-		return nil
-	}
-	if err := w.followLink(rel); err != nil {
-		return err
-	}
-	// Watch before hashing, so an edit right after the hash gets an event.
-	if err := w.watchFile(rel, info); err != nil {
-		return err
-	}
-	if testHookChecksum != nil {
-		testHookChecksum(rel)
-	}
-	sum, err := checksum(w.abs(rel))
-	if errors.Is(err, fs.ErrNotExist) {
-		w.removeTree(rel)
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	w.stats[rel] = info
-	if old := w.files[rel]; sum != old {
-		w.files[rel] = sum
-		w.know(rel)
-		w.changes.add(rel, old, sum)
-	}
-	return nil
-}
-
-// followLink keeps track of the target when rel is a symbolic link. inotify reports an edit of the
-// target only to the target's directory, so a target outside the watched directories gets its
-// directory watched as well.
-func (w *watcher) followLink(rel string) error {
-	target := ""
-	if li, err := os.Lstat(w.abs(rel)); err == nil && li.Mode()&os.ModeSymlink != 0 {
-		real, err := filepath.EvalSymlinks(w.abs(rel))
-		if err != nil {
-			return nil // gone again, the next event handles it
-		}
-		target = real
-	}
-	if w.linkOf[rel] == target {
-		return nil
-	}
-	w.unlink(rel)
-	if target == "" {
-		return nil
-	}
-	w.linkOf[rel] = target
-	w.links[target] = append(w.links[target], rel)
-	if watchesFiles {
-		return nil // the watch of the link itself follows it, see linkWatched
-	}
-	dir := filepath.Dir(target)
-	if _, watched := w.real[dir]; watched {
-		return nil
-	}
-	if w.extDirs[dir] == 0 {
-		// Without a system watch the link is polled.
-		watched, err := w.watchDir(dir, dir)
-		if err != nil {
-			watched = false
-			w.warnOnce(rel, fmt.Sprintf("watching %s, the directory of the target of %s: %v: %s is polled for changes", dir, rel, err, rel))
-		}
-		w.extWatch[dir] = watched
-	}
-	w.extDirs[dir]++
-	return nil
-}
-
-// unlink stops tracking the target of rel.
-func (w *watcher) unlink(rel string) {
-	target, ok := w.linkOf[rel]
-	if !ok {
-		return
-	}
-	delete(w.linkOf, rel)
-	w.links[target] = slices.DeleteFunc(w.links[target], func(l string) bool { return l == rel })
-	if len(w.links[target]) == 0 {
-		delete(w.links, target)
-	}
-	dir := filepath.Dir(target)
-	if n, ok := w.extDirs[dir]; ok {
-		if n == 1 {
-			delete(w.extDirs, dir)
-			delete(w.extWatch, dir)
-			w.dropWatch(dir)
-		} else {
-			w.extDirs[dir] = n - 1
-		}
-	}
-}
-
-// removeTree forgets rel and everything under it, reporting the tracked files as removed.
-func (w *watcher) removeTree(rel string) {
-	for p, sum := range w.files {
-		if under(rel, p) {
-			delete(w.files, p)
-			delete(w.stats, p)
-			w.forget(p)
-			w.unlink(p)
-			w.unwatchFile(p)
-			w.changes.add(p, sum, "")
-		}
-	}
-	for d := range w.dirs {
-		if under(rel, d) {
-			w.unwatch(d)
-		}
 	}
 }
 
