@@ -1,6 +1,7 @@
 package bundle
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -66,7 +67,12 @@ func (d *Dev) Close() error { return d.node.Close() }
 // The build ID covers the public files and the script tags of the dev server, not the SSR bundle
 // or the stylesheets: a change to page code reaches open pages through Vite and leaves them on
 // the same build, so their navigation data requests are not refused.
-func (d *Dev) Build(public string, pages bool) (string, error) {
+//
+// When ctx ends, Build closes the Dev, which ends a build that never would, so that tifa dev can
+// stop.
+func (d *Dev) Build(ctx context.Context, public string, pages bool) (string, error) {
+	stop := context.AfterFunc(ctx, func() { d.Close() })
+	defer stop()
 	if err := os.MkdirAll(d.dist, 0o755); err != nil {
 		return "", err
 	}

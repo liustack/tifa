@@ -1,6 +1,7 @@
 package bundle
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -38,7 +39,7 @@ func devParent(root string) {
 	if err != nil {
 		panic(err)
 	}
-	_, err = d.Build(filepath.Join(root, "public"), true)
+	_, err = d.Build(context.Background(), filepath.Join(root, "public"), true)
 	fmt.Fprintln(os.Stderr, "the build ended:", err)
 	select {}
 }
@@ -134,7 +135,7 @@ func TestDevCloseEndsABuildThatNeverEnds(t *testing.T) {
 	}
 	built := make(chan error, 1)
 	go func() {
-		_, err := d.Build(filepath.Join(root, "public"), true)
+		_, err := d.Build(context.Background(), filepath.Join(root, "public"), true)
 		built <- err
 	}()
 	pid := driverPid(t, marker)
@@ -178,7 +179,7 @@ func TestDevCloseKillsADriverThatDoesNotExit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.Build(filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
 		t.Fatal(err)
 	}
 	pid := driverPid(t, marker)
@@ -212,4 +213,34 @@ func TestDevKeepsTheStdinListenersOfPlugins(t *testing.T) {
 	if _, err := os.Stat(marker); err != nil {
 		t.Errorf("the stdin listener of a plugin did not run: %v", err)
 	}
+}
+
+// tifa dev stops by ending the context of the build it runs, on Ctrl-C or SIGTERM. A build that
+// never ends then ends with the driver, so that tifa dev exits.
+func TestDevBuildEndsWithItsContext(t *testing.T) {
+	shortCloseTimeout(t)
+	root, marker := stuckApp(t)
+	d, err := NewDev(root, freePort(t), io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	built := make(chan error, 1)
+	go func() {
+		_, err := d.Build(ctx, filepath.Join(root, "public"), true)
+		built <- err
+	}()
+	pid := driverPid(t, marker)
+	cancel()
+	select {
+	case err := <-built:
+		if !errors.Is(err, errInterrupted) {
+			t.Errorf("Build: %v, want %v", err, errInterrupted)
+		}
+	case <-time.After(closeTimeout + 3*time.Second):
+		t.Fatal("Build waits after its context ended")
+	}
+	gone(t, pid)
 }

@@ -132,7 +132,7 @@ func (p *devPipeline) Generate(context.Context) error { return codegen.Write(p.r
 // route tree also depends on the exports of route.tsx and layout.tsx, which change without any Go
 // change, so the TypeScript is generated again from the last analysis first, and written when it
 // differs.
-func (p *devPipeline) Bundle(context.Context) (string, error) {
+func (p *devPipeline) Bundle(ctx context.Context) (string, error) {
 	if p.m == nil {
 		return "", errors.New("bundle before the first successful analysis")
 	}
@@ -151,7 +151,7 @@ func (p *devPipeline) Bundle(context.Context) (string, error) {
 		return "", err
 	}
 	_, pages := files["client.ts"]
-	_, err = p.front.Build(filepath.Join(p.root, settings.Public), pages)
+	_, err = p.front.Build(ctx, filepath.Join(p.root, settings.Public), pages)
 	return "", err
 }
 

@@ -14,7 +14,7 @@ read_when:
 tifa dev [--dir 应用根目录] [--addr 127.0.0.1:9527]
 ```
 
-启动后先打印 `tifa dev: serving http://<地址>`，然后做一次完整构建（步骤同 [tifa build](build.zh-CN.md)），启动应用。浏览器只连 `--addr`。tifa dev 把页面和数据请求转给应用，把 `/__tifa/vite/` 下的请求（浏览器模块和 Vite 的 HMR websocket）转给 Vite 的开发服务器。应用重启或换 SSR 包期间，页面请求会等它。Ctrl-C 或 SIGTERM 停掉应用、Vite 和 tifa dev。
+启动后先打印 `tifa dev: serving http://<地址>`，然后做一次完整构建（步骤同 [tifa build](build.zh-CN.md)），启动应用。浏览器只连 `--addr`。tifa dev 把页面和数据请求转给应用，把 `/__tifa/vite/` 下的请求（浏览器模块和 Vite 的 HMR websocket）转给 Vite 的开发服务器。应用重启或换 SSR 包期间，页面请求会等它。Ctrl-C 或 SIGTERM 停掉应用、Vite 和 tifa dev。Vite 的构建或插件一直不结束时，最多再等 5 秒就停掉 Vite。tifa dev 自己被强行杀掉时，Vite 也会在这 5 秒内自行退出。
 
 ## Vite
 
