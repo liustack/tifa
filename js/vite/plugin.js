@@ -61,7 +61,9 @@ export function tifa(settings = {}) {
               },
             },
           },
-          ssr: ssrEnvironment(path.join(gen, 'server.ts'), dist),
+          // An application may turn the source map off, which the config of a plugin would
+          // override.
+          ssr: ssrEnvironment(path.join(gen, 'server.ts'), dist, config.environments?.ssr?.build?.sourcemap),
         },
       }
     },
@@ -92,13 +94,14 @@ export function generated() {
 
 // ssrEnvironment is the Vite environment that builds the SSR bundle from entry into dir/ssr.js.
 // The syntax target is ES2022, which QuickJS runs as it is: a lower one only slows rendering, a
-// higher one may emit syntax QuickJS lacks. Whoever builds it sets build.minify.
+// higher one may emit syntax QuickJS lacks. Whoever builds it sets build.minify. sourcemap is
+// build.sourcemap, hidden when undefined.
 //
 // Packages resolve to their main files, not their browser ones, unlike bundlers for Cloudflare
 // Workers. A browser file often takes what the browser has (abort-controller takes
 // AbortController from self, form-data takes FormData from window), and QuickJS has none of it,
 // so renders that work with the main file would fail, with no build warning to point at them.
-export function ssrEnvironment(entry, dir) {
+export function ssrEnvironment(entry, dir, sourcemap = 'hidden') {
   return {
     consumer: 'server',
     resolve: {
@@ -120,7 +123,7 @@ export function ssrEnvironment(entry, dir) {
       // ssr.js.map names the sources of the places in the warnings of the build and in the stack
       // traces of render errors, which the server reads. hidden leaves the comment that points to
       // it out of ssr.js. The server needs no copy of the sources.
-      sourcemap: 'hidden',
+      sourcemap,
       rolldownOptions: {
         output: { format: 'iife', entryFileNames: 'ssr.js', codeSplitting: false, sourcemapExcludeSources: true },
       },

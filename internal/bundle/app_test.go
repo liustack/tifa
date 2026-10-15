@@ -289,3 +289,19 @@ func TestHeadTagsFollowStaticImports(t *testing.T) {
 		t.Error("a manifest without the tifa entry gives no error")
 	}
 }
+
+// An application that turns off the source map of the SSR bundle in its Vite config gets none.
+// Its program is smaller, and render errors give places in ssr.js.
+func TestAppKeepsTheSourceMapSettingOfTheConfig(t *testing.T) {
+	root := fakeApp(t, `["es2022"]`)
+	writeTree(t, root, map[string]string{"vite.config.ts": "import tifa from './.tifa/vite.js'\n" +
+		"export default { plugins: [tifa()], environments: { ssr: { build: { sourcemap: false } } } }\n"})
+	buildApp(t, root)
+	dist := filepath.Join(root, ".tifa", "dist")
+	if _, err := os.Stat(filepath.Join(dist, "ssr.js.map")); !os.IsNotExist(err) {
+		t.Errorf("ssr.js.map: %v, want none", err)
+	}
+	if _, err := os.Stat(filepath.Join(dist, "ssr.js")); err != nil {
+		t.Error(err)
+	}
+}
