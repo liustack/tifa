@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -521,5 +522,77 @@ func TestRunStopsWhenServingFails(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run kept running after the proxy stopped serving")
+	}
+}
+
+// blockingPipeline is a buildPipeline whose step named block waits until the test releases it,
+// then fails, which ends the rebuild.
+type blockingPipeline struct {
+	buildPipeline
+	block   string
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (p *blockingPipeline) wait(name string) error {
+	if name != p.block {
+		return nil
+	}
+	close(p.entered)
+	<-p.release
+	return errors.New("released")
+}
+
+func (p *blockingPipeline) Analyze(ctx context.Context) (string, error) {
+	if err := p.wait("Analyze"); err != nil {
+		return "", err
+	}
+	return p.buildPipeline.Analyze(ctx)
+}
+
+func (p *blockingPipeline) Generate(ctx context.Context) error {
+	if err := p.wait("Generate"); err != nil {
+		return err
+	}
+	return p.buildPipeline.Generate(ctx)
+}
+
+// Page requests wait from the moment a rebuild is known to make a new SSR bundle: once the
+// analysis finds a new route manifest, before code generation, and from the start for a bundle
+// that a failed rebuild left undone.
+func TestRebuildHoldsPagesOnceABundleIsNeeded(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		block string
+		setup func(d *dev, p *blockingPipeline)
+	}{
+		{"new manifest", "Generate", func(d *dev, p *blockingPipeline) { p.manifest = "routes 2" }},
+		{"bundle left undone", "Analyze", func(d *dev, p *blockingPipeline) {
+			p.fail = "Bundle"
+			d.rebuild(context.Background(), steps{bundle: true})
+			p.fail = ""
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			p := &blockingPipeline{block: c.block, entered: make(chan struct{}), release: make(chan struct{})}
+			p.versionFile = filepath.Join(t.TempDir(), "version")
+			p.bundleFile = filepath.Join(t.TempDir(), "bundle")
+			d := &dev{b: builder{p: p, manifest: "routes", log: func(string, ...any) {}}, hub: newHub(), log: log.New(io.Discard, "", 0)}
+			c.setup(d, p)
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan struct{})
+			go func() {
+				d.rebuild(ctx, steps{analyze: true, goBuild: true})
+				close(done)
+			}()
+			<-p.entered
+			busy := d.busy()
+			cancel()
+			close(p.release)
+			<-done
+			if busy == nil {
+				t.Fatalf("pages do not wait during %s, though the rebuild makes a new SSR bundle", c.block)
+			}
+		})
 	}
 }

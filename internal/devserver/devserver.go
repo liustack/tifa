@@ -306,7 +306,8 @@ func (d *dev) fail(title string, err error) {
 // only the server render changes.
 //
 // Page requests wait for the end of a rebuild that makes a new SSR bundle, from the moment the
-// bundle is known to be needed: at the start, or once the analysis finds a new route manifest.
+// bundle is known to be needed: at the start, also for a bundle a failed rebuild left undone, or
+// once the analysis finds a new route manifest, before code generation.
 func (d *dev) rebuild(ctx context.Context, s steps) {
 	if s == (steps{}) {
 		return
@@ -329,9 +330,6 @@ func (d *dev) rebuild(ctx context.Context, s steps) {
 			close(done)
 		}
 	}()
-	if s.bundle {
-		holdPages()
-	}
 	ran, err := d.b.build(ctx, s, holdPages)
 	if err != nil {
 		if ctx.Err() == nil {

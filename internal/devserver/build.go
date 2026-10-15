@@ -144,11 +144,15 @@ func (b *builder) stepDetail(name string, run func() (string, error)) error {
 
 // build runs s plus the steps a failed rebuild left undone, and returns the steps that ran. An
 // analysis that returns a new fingerprint adds code generation, the bundle and go build.
-// beforeBundle, when not nil, is called before the bundle step runs.
-func (b *builder) build(ctx context.Context, s steps, beforeBundle func()) (steps, error) {
+// needBundle, when not nil, is called once it is known that the bundle step runs: at the start,
+// or once the analysis finds a new fingerprint.
+func (b *builder) build(ctx context.Context, s steps, needBundle func()) (steps, error) {
 	s = s.or(b.pending)
 	b.pending = s
 	ran := s
+	if s.bundle && needBundle != nil {
+		needBundle()
+	}
 	if s.analyze {
 		var fp string
 		err := b.step("static analysis", func() (err error) {
@@ -160,6 +164,9 @@ func (b *builder) build(ctx context.Context, s steps, beforeBundle func()) (step
 		}
 		if fp != b.manifest {
 			b.log("route manifest changed")
+			if !s.bundle && needBundle != nil {
+				needBundle()
+			}
 			s.generate, s.bundle, s.goBuild = true, true, true
 			ran = ran.or(s)
 			b.manifest = fp
@@ -177,9 +184,6 @@ func (b *builder) build(ctx context.Context, s steps, beforeBundle func()) (step
 		b.pending = s
 	}
 	if s.bundle {
-		if beforeBundle != nil {
-			beforeBundle()
-		}
 		if err := b.stepDetail("bundle", func() (string, error) { return b.p.Bundle(ctx) }); err != nil {
 			return steps{}, err
 		}
