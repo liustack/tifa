@@ -93,6 +93,11 @@ export function generated() {
 // ssrEnvironment is the Vite environment that builds the SSR bundle from entry into dir/ssr.js.
 // The syntax target is ES2022, which QuickJS runs as it is: a lower one only slows rendering, a
 // higher one may emit syntax QuickJS lacks. Whoever builds it sets build.minify.
+//
+// Packages resolve to their main files, not their browser ones, unlike bundlers for Cloudflare
+// Workers. A browser file often takes what the browser has (abort-controller takes
+// AbortController from self, form-data takes FormData from window), and QuickJS has none of it,
+// so renders that work with the main file would fail, with no build warning to point at them.
 export function ssrEnvironment(entry, dir) {
   return {
     consumer: 'server',

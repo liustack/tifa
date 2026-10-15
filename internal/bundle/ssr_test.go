@@ -127,6 +127,29 @@ func TestSSRWarnsOfNodeAPIsLeftInDependencies(t *testing.T) {
 	}
 }
 
+// The SSR bundle takes the main files of packages and not their browser files. A browser file
+// often takes what the browser has, as abort-controller takes AbortController from self, and
+// QuickJS has none of it: the render would fail where the main file works. Conditional exports
+// leave the browser condition out too, a package may export there code that renders only in the
+// browser.
+func TestSSRKeepsTheMainFilesOfPackages(t *testing.T) {
+	root := copyTestdata(t, "ssr", false)
+	writeTree(t, root, map[string]string{
+		"node_modules/two-mains/package.json":   `{"name":"two-mains","main":"index.js","browser":"browser.js"}`,
+		"node_modules/two-mains/index.js":       "module.exports = class { get name() { return 'main' } }\n",
+		"node_modules/two-mains/browser.js":     "const { Thing } = typeof self !== 'undefined' ? self : undefined\nmodule.exports = Thing\n",
+		"node_modules/conditional/package.json": `{"name":"conditional","exports":{".":{"browser":"./client.js","default":"./server.js"}}}`,
+		"node_modules/conditional/client.js":    "export default 'client'\n",
+		"node_modules/conditional/server.js":    "export default 'server'\n",
+		"mains.ts": "import Thing from 'two-mains'\nimport which from 'conditional'\n" +
+			"globalThis.result = new Thing().name + ',' + which\n",
+	})
+	code, _ := buildPrinting(t, root, "mains.ts")
+	if got := evalResult(t, code); got != "main,server" {
+		t.Errorf("result = %q, want main,server", got)
+	}
+}
+
 func TestSSRDefinesProductionGlobals(t *testing.T) {
 	root := copyTestdata(t, "ssr", false)
 	code, _ := buildScript(t, root, "define.ts")
