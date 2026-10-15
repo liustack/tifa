@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/liustack/quickjs"
 )
@@ -43,18 +44,34 @@ var bundlePlace = regexp.MustCompile(`<eval>:(\d+):(\d+)`)
 // the tifa Vite plugin.
 var nodeModule = regexp.MustCompile("^require\\([\"`]([^\"`]*)[\"`](?:, ?[\"`]([^\"`]*)[\"`])?\\)")
 
+// maxFrames is how many frames of a stack trace an error gives, the rest it counts. An error is
+// explained after its render, outside the limits of the VM, so its cost must have a limit too.
+const maxFrames = 64
+
+// markEvery is how many code points apart the marks of a long line are.
+const markEvery = 1024
+
 // missingRequire is how QuickJS reports a call of require, which it does not have.
 const missingRequire = "ReferenceError: 'require' is not defined"
 
 // sources turns places in the bundle into places in the files it came from, by the source map
-// of the bundle. It decodes the map the first time it is used, on the first error.
+// of the bundle. The first time it is used, on the first error, it indexes the lines of the
+// bundle and decodes the map. Each place then costs at most markEvery code points of a line.
 type sources struct {
 	code string // the bundle
 	raw  []byte // its source map, nil without one
 
-	once  sync.Once
-	files []string
-	lines [][]segment // by line of the bundle, in the order of the column
+	once   sync.Once
+	starts []int          // where each line of the bundle starts in code
+	marks  map[int][]mark // by line, for lines longer than markEvery code points
+	files  []string
+	lines  [][]segment // by line of the bundle, in the order of the column
+}
+
+// mark is where code point k*markEvery of a long line is, for the kth mark of the line: its
+// offset in the bundle and its column in UTF-16 units.
+type mark struct {
+	offset, units int
 }
 
 // segment says that the bundle from column on comes from line and column of files[file], all
@@ -79,10 +96,18 @@ func (s *sources) explain(err error) error {
 	if strings.TrimSpace(stack) == "" {
 		return err
 	}
-	text := err.Error() + "\n" + strings.TrimRight(bundlePlace.ReplaceAllStringFunc(stack, func(place string) string {
+	frames := strings.Split(strings.TrimRight(stack, "\n"), "\n")
+	more := len(frames) - maxFrames
+	if more > 0 {
+		frames = frames[:maxFrames]
+	}
+	text := err.Error() + "\n" + bundlePlace.ReplaceAllStringFunc(strings.Join(frames, "\n"), func(place string) string {
 		line, column := placeOf(place)
 		return s.name(line, column)
-	}), "\n")
+	})
+	if more > 0 {
+		text += fmt.Sprintf("\n    ... %d more frames", more)
+	}
 	if head == missingRequire {
 		if place := bundlePlace.FindString(stack); place != "" {
 			text += "\n" + s.requireAdvice(placeOf(place))
@@ -107,7 +132,7 @@ func (s *sources) requireAdvice(line, column int) string {
 	file, sourceLine, sourceColumn, ok := s.source(line, column)
 	if !ok {
 		// The bundle's function gets the Node modules packages import as its arguments.
-		call := nodeModule.FindStringSubmatch(string(s.text(line, column)))
+		call := nodeModule.FindStringSubmatch(s.text(line, column))
 		if call != nil && call[2] != "" {
 			return fmt.Sprintf("The bundle loads the Node module %q, imported by %s, at %s", call[1], call[2], s.name(line, column)) + why
 		}
@@ -133,18 +158,11 @@ func (s *sources) name(line, column int) string {
 }
 
 // source returns the file, line and column, both from 0, that line and column of the bundle,
-// both from 1, come from. QuickJS counts columns in code points, the source map in UTF-16 units.
+// both from 1, come from.
 func (s *sources) source(line, column int) (string, int, int, bool) {
-	s.once.Do(s.decode)
-	if line < 1 || line > len(s.lines) {
+	_, units, ok := s.locate(line, column)
+	if !ok || line > len(s.lines) {
 		return "", 0, 0, false
-	}
-	units := 0
-	for i, r := range s.text(line, 1) {
-		if i >= column-1 {
-			break
-		}
-		units += utf16.RuneLen(r)
 	}
 	segments := s.lines[line-1]
 	i := sort.Search(len(segments), func(i int) bool { return segments[i].column > units }) - 1
@@ -154,22 +172,75 @@ func (s *sources) source(line, column int) (string, int, int, bool) {
 	return s.files[segments[i].file], segments[i].line, segments[i].sourceColumn, true
 }
 
-// text returns line of the bundle from column on, as runes, both from 1.
-func (s *sources) text(line, column int) []rune {
-	rest := s.code
-	for range line - 1 {
-		_, after, ok := strings.Cut(rest, "\n")
-		if !ok {
-			return nil
+// locate returns the offset in the bundle of line and column, both from 1, and the column in
+// UTF-16 units from 0. QuickJS counts columns in code points, source maps in UTF-16 units.
+func (s *sources) locate(line, column int) (offset, units int, ok bool) {
+	s.once.Do(s.prepare)
+	if line < 1 || line > len(s.starts) || column < 1 {
+		return 0, 0, false
+	}
+	end := len(s.code)
+	if line < len(s.starts) {
+		end = s.starts[line] - 1
+	}
+	offset, from := s.starts[line-1], 0
+	if marks := s.marks[line-1]; marks != nil {
+		k := min((column-1)/markEvery, len(marks)-1)
+		offset, units, from = marks[k].offset, marks[k].units, k*markEvery
+	}
+	for range column - 1 - from {
+		if offset >= end {
+			return 0, 0, false
 		}
-		rest = after
+		r, size := utf8.DecodeRuneInString(s.code[offset:end])
+		offset += size
+		units += utf16.RuneLen(r)
 	}
-	text, _, _ := strings.Cut(rest, "\n")
-	runes := []rune(text)
-	if column-1 > len(runes) {
-		return nil
+	return offset, units, true
+}
+
+// text returns the start of line of the bundle from column on, both from 1.
+func (s *sources) text(line, column int) string {
+	offset, _, ok := s.locate(line, column)
+	if !ok {
+		return ""
 	}
-	return runes[column-1:]
+	rest := s.code[offset:]
+	if i := strings.IndexByte(rest, '\n'); i >= 0 {
+		rest = rest[:i]
+	}
+	return rest[:min(len(rest), 512)]
+}
+
+// prepare indexes the lines of the bundle and decodes the source map.
+func (s *sources) prepare() {
+	s.starts = []int{0}
+	s.marks = map[int][]mark{}
+	var marks []mark
+	points, units := 0, 0
+	for i, r := range s.code {
+		if r == '\n' {
+			if marks != nil {
+				s.marks[len(s.starts)-1] = marks
+				marks = nil
+			}
+			s.starts = append(s.starts, i+1)
+			points, units = 0, 0
+			continue
+		}
+		if points > 0 && points%markEvery == 0 {
+			if marks == nil {
+				marks = []mark{{s.starts[len(s.starts)-1], 0}}
+			}
+			marks = append(marks, mark{i, units})
+		}
+		points++
+		units += utf16.RuneLen(r)
+	}
+	if marks != nil {
+		s.marks[len(s.starts)-1] = marks
+	}
+	s.decode()
 }
 
 // decode reads the source map. A map it cannot read maps nothing, the places stay in ssr.js.

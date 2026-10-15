@@ -3,6 +3,8 @@ package ssr
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -161,5 +163,50 @@ func TestPrewarmErrorsNameTheNodeModuleTheBundleLoads(t *testing.T) {
 	_, err = NewPool(bundle, sourceMapOf(mapping{1, 0, "node_modules/pkg/index.js", 2, 0}), testConfig(1))
 	if err == nil || !strings.Contains(err.Error(), "The package pkg calls require at node_modules/pkg/index.js:3:1") {
 		t.Errorf("err = %v, want the package", err)
+	}
+}
+
+// allocated returns the bytes f allocates.
+func allocated(f func()) uint64 {
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	f()
+	runtime.ReadMemStats(&after)
+	return after.TotalAlloc - before.TotalAlloc
+}
+
+// An error is explained after its render ended, outside the memory limit and the timeout of the
+// VM, so what it costs must not grow with the bundle for each frame of its stack trace.
+func TestExplainingAnErrorCostsLittleForALargeBundle(t *testing.T) {
+	const size = 4 << 20
+	code := "globalThis.x = '" + strings.Repeat("中", size/3) + "😀" + strings.Repeat("x", size/2) + "'"
+	column := len([]rune(code)) - 1
+	stack := strings.Repeat(fmt.Sprintf("    at render (<eval>:1:%d)\n", column), 135)
+	err := &scriptError{text: "ReferenceError: 'require' is not defined\n" + stack}
+	s := &sources{code: code, raw: sourceMapOf(mapping{0, 0, "node_modules/pkg/index.js", 0, 0})}
+	var first, again error
+	if n := allocated(func() { first = s.explain(err) }); n > size/2 {
+		t.Errorf("the first error allocates %d bytes for a bundle of %d", n, size)
+	}
+	if n := allocated(func() { again = s.explain(err) }); n > 256<<10 {
+		t.Errorf("another error allocates %d bytes", n)
+	}
+	if first.Error() != again.Error() || !strings.Contains(first.Error(), "The package pkg calls require at node_modules/pkg/index.js:1:1") {
+		t.Errorf("err = %.300s", first)
+	}
+}
+
+// Only the first frames of a deep stack are given in the sources, so the cost of an error has
+// a limit.
+func TestExplainingAnErrorGivesTheFirstFramesOfADeepStack(t *testing.T) {
+	stack := strings.Repeat("    at load (<eval>:2:32)\n", maxFrames+500)
+	err := (&sources{code: requireBundle, raw: requireMap()}).explain(&scriptError{text: "ReferenceError: 'require' is not defined\n" + stack})
+	got := err.Error()
+	if n := strings.Count(got, "(node_modules/pkg/index.js:3:10)"); n != maxFrames {
+		t.Errorf("%d frames given, want %d", n, maxFrames)
+	}
+	if !strings.Contains(got, "\n    ... 500 more frames\n") || strings.Contains(got, "<eval>") {
+		t.Errorf("err = %.2000s", got)
 	}
 }
