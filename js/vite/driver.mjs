@@ -16,7 +16,8 @@
 //	{op: "serve", port, pollFiles}
 //	                             starts the dev server on 127.0.0.1:port, answers with the tags
 //	                             that load Vite's client and the React refresh runtime. With
-//	                             pollFiles its watcher polls, unless it uses FSEvents
+//	                             pollFiles it then restarts with a watcher that polls, unless the
+//	                             watcher uses FSEvents
 //	{op: "pollFiles"}            makes the running dev server's watcher poll, unless it uses
 //	                             FSEvents, and answers with polling and fsEvents
 //	{op: "script", dir, file, plugin}
@@ -63,6 +64,7 @@ answer({ id: 0, version: vite.version })
 const root = process.cwd()
 const realRoot = fs.realpathSync(root)
 let server = null
+let listening = false // server.listen returned
 let ssrWorker = null // builds the SSR bundle when this process is not a production one
 
 // restarts follows the restarts of the dev server, whoever starts them: Vite after a change to
@@ -90,16 +92,56 @@ async function restartsDone() {
   while (restarts.running) await restarts.running
 }
 
+// The dev server's watcher polls once tifa asks for it or the watcher runs out of watches. The
+// wish stays in devState.pollFiles: from then on the tifa plugin adds usePolling to the config of
+// every dev server Vite creates, also when Vite restarts on its own. switching is the restart
+// that makes the watcher poll, while it runs. Whether it worked is read from the watcher: a
+// restart that fails keeps the old server, and the next call tries again.
+const polling = { switching: null, warned: false }
+
+const watcherPolls = () => server?.watcher.options.usePolling === true
+const watcherUsesFSEvents = () => server?.watcher.options.useFsEvents === true
+
+// pollFiles makes the dev server's watcher poll, and returns once it does or the restart failed.
+function pollFiles() {
+  devState.pollFiles = true
+  if (!listening) return Promise.resolve() // serve restarts the server once it listens
+  polling.switching ??= (async () => {
+    try {
+      await restartsDone() // a restart that runs may have read the config before the wish
+      if (!watcherPolls()) await server.restart()
+      if (!watcherPolls()) {
+        logger.warn("Vite's dev server did not restart with a watcher that polls, it tries again at the next error of its watcher")
+      }
+    } finally {
+      polling.switching = null
+    }
+  })()
+  return polling.switching
+}
+
+// outOfWatches handles a watcher that reports running out of inotify watches (ENOSPC) or file
+// descriptors (EMFILE, ENFILE): the watcher goes on without the paths the system refused, so the
+// dev server switches to a watcher that polls, which takes neither, and nobody has to raise a
+// system limit. This holds for a watcher that uses FSEvents too.
+function outOfWatches(err) {
+  if (!polling.warned) {
+    polling.warned = true
+    logger.warn(`${err.code}: the system ran out of file watches, so Vite's dev server restarts and polls the files for changes`)
+  }
+  pollFiles()
+}
+
 // What the tifa plugin and the driver share, see devState in js/vite/plugin.js.
 const devState = (globalThis[Symbol.for('tifa.dev')] ??= {})
-Object.assign(devState, { pollFiles: false, changed: changedOutside, restart: trackRestart })
+Object.assign(devState, { pollFiles: false, changed: changedOutside, restart: trackRestart, outOfWatches })
 
 // logger prints Vite's warnings and errors. Its progress and file lists are left out, and so is
 // the line that says a build failed, as the error goes back to tifa, which prints it.
 const logger = vite.createLogger('warn', { allowClearScreen: false })
 const logError = logger.error
 logger.error = (msg, options) => {
-  // The tifa plugin says once that the watcher polls when the system runs out of watches.
+  // outOfWatches says once that the watcher polls when the system runs out of watches.
   if (/file watcher error: .*\b(?:ENOSPC|EMFILE|ENFILE)\b/.test(msg)) return
   if (!/Build failed in /.test(msg)) logError(msg, options)
 }
@@ -152,26 +194,22 @@ const ops = {
     }
   },
 
-  async serve({ port, pollFiles }) {
+  async serve({ port, pollFiles: poll }) {
     const earlier = new Set([...process.stdin.listeners('end'), ...process.listeners('SIGTERM')])
-    const create = () =>
-      vite.createServer({ root, customLogger: logger, server: { host: '127.0.0.1', port, strictPort: true } })
-    server = await create()
+    server = await vite.createServer({ root, customLogger: logger, server: { host: '127.0.0.1', port, strictPort: true } })
     checkPlugin(server.config)
-    if (pollFiles && !server.watcher.options.useFsEvents) {
-      devState.pollFiles = true
-      await server.close()
-      server = await create()
-    }
     // Vite's dev server ends the process when stdin ends, as for a parent that went away, with
     // the listener it also adds for SIGTERM. Here stdin carries the requests, and its end starts
     // the close below, which first lets the SSR worker and the output finish. The stdin
-    // listeners of plugins stay.
+    // listeners of plugins stay. A restart keeps the listener off: Vite adds it again only once
+    // every server it created is closed.
     const sigterm = process.listeners('SIGTERM')
     for (const listener of process.stdin.listeners('end')) {
       if (!earlier.has(listener) && sigterm.includes(listener)) process.stdin.off('end', listener)
     }
     await server.listen()
+    listening = true
+    if ((poll && !watcherUsesFSEvents()) || devState.pollFiles) await pollFiles()
     // The plugins add the tags a page needs to the head of an empty document, as they would for
     // an index.html: Vite's client, and the React refresh runtime with @vitejs/plugin-react.
     const html = await server.transformIndexHtml('/', '<html><head></head><body></body></html>')
@@ -180,12 +218,8 @@ const ops = {
   },
 
   async pollFiles() {
-    if (!server.watcher.options.useFsEvents && !devState.pollFiles) {
-      devState.pollFiles = true
-      await server.restart()
-    }
-    const { usePolling, useFsEvents } = server.watcher.options
-    return { polling: usePolling === true, fsEvents: useFsEvents === true }
+    if (!watcherUsesFSEvents()) await pollFiles()
+    return { polling: watcherPolls(), fsEvents: watcherUsesFSEvents() }
   },
 
   async script({ dir, file, plugin }) {

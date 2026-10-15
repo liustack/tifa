@@ -27,9 +27,10 @@ const pollInterval = 1000
 // devState is what the plugin and tifa's Vite driver (js/vite/driver.mjs) share in the Node
 // process of tifa dev. Vite bundles the config, this file with it, so they meet on globalThis.
 // The driver sets it up, so outside tifa dev it is empty:
-//   - pollFiles: the dev server's watcher polls, for a system that ran out of watches.
+//   - pollFiles: the dev server's watcher is to poll, for a system that ran out of watches.
 //   - changed(event, file): gets every event of the dev server's watcher.
 //   - restart(run): runs run, a restart of the dev server, so the driver knows when one runs.
+//   - outOfWatches(err): the watcher ran out of watches or file descriptors.
 function devState() {
   return (globalThis[Symbol.for('tifa.dev')] ??= {})
 }
@@ -95,16 +96,9 @@ export function tifa(settings = {}) {
         const restart = server.restart
         server.restart = (forceOptimize) => state.restart(() => restart(forceOptimize))
       }
-      // chokidar reports a watch the system refused as an error and goes on without it. When the
-      // system is out of inotify watches (ENOSPC) or file descriptors, restart with a watcher
-      // that polls, which takes neither, so nobody has to raise a system limit.
+      // chokidar reports a watch the system refused as an error and goes on without it.
       server.watcher.on('error', (err) => {
-        if (!['ENOSPC', 'EMFILE', 'ENFILE'].includes(err?.code) || state.pollFiles) return
-        state.pollFiles = true
-        server.config.logger.warn(
-          `${err.code}: the system ran out of file watches, so Vite's dev server restarts and polls the files for changes`,
-        )
-        server.restart().catch((restartErr) => server.config.logger.error(String(restartErr)))
+        if (['ENOSPC', 'EMFILE', 'ENFILE'].includes(err?.code)) state.outOfWatches?.(err)
       })
     },
   }

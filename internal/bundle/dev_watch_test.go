@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -172,36 +171,6 @@ func TestDevServerStartsPolling(t *testing.T) {
 	}
 }
 
-// When Vite's own watcher runs out of watches or file descriptors, which chokidar reports as an
-// error event, the dev server restarts with a watcher that polls.
-func TestDevServerPollsWhenItRunsOut(t *testing.T) {
-	root := devApp(t)
-	writeTree(t, root, map[string]string{"vite.config.ts": viteConfig("{ middlewareMode: true, watch: { useFsEvents: false, usePolling: false } }")})
-	script := `
-import { createServer } from 'vite'
-const server = await createServer({ root: process.cwd(), logLevel: 'silent' })
-const before = server.watcher
-const err = Object.assign(new Error('ENOSPC: System limit for number of file watchers reached'), { code: 'ENOSPC' })
-server.watcher.emit('error', err)
-const deadline = Date.now() + 10000
-while (server.watcher === before && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50))
-console.log(JSON.stringify({ restarted: server.watcher !== before, polling: server.watcher.options.usePolling === true }))
-await server.close()
-process.exit(0)
-`
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "node", "--input-type=module", "-e", script)
-	cmd.Dir = root
-	out, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("%v: %s", err, out)
-	}
-	if got := strings.TrimSpace(string(out)); got != `{"restarted":true,"polling":true}` {
-		t.Fatalf("got %s, want the dev server restarted with a polling watcher", got)
-	}
-}
-
 // waitFile waits until name exists.
 func waitFile(t *testing.T, name string) {
 	t.Helper()
@@ -261,5 +230,63 @@ func TestDevSSRWaitsForARestart(t *testing.T) {
 	waitFile(t, closing) // the new dev server is up, the old one closes
 	if got := result(); got != "two "+logo {
 		t.Fatalf("SSR bundle gives %q after the restart, want %q", got, "two "+logo)
+	}
+}
+
+// When Vite's watcher runs out of watches, the dev server restarts with a watcher that polls. A
+// restart that fails, here because the config cannot load for a moment, keeps the old server and
+// its watcher, and the next error of the watcher tries again.
+func TestDevServerTriesPollingAgain(t *testing.T) {
+	root := devApp(t)
+	broken := filepath.Join(root, "broken")
+	control := "import fs from 'node:fs'\n" +
+		"const control = { name: 'control', apply: 'serve',\n" +
+		"  config() { if (globalThis.served && fs.existsSync(" + strconv.Quote(broken) + ")) throw new Error('the config does not load for a moment') },\n" +
+		"  configureServer(server) {\n" +
+		"    globalThis.served = true\n" +
+		"    server.middlewares.use('" + DevBase + "__test/enospc', (req, res) => {\n" +
+		"      server.watcher.emit('error', Object.assign(new Error('ENOSPC: System limit for number of file watchers reached'), { code: 'ENOSPC' }))\n" +
+		"      res.end('ok')\n    })\n" +
+		"    server.middlewares.use('" + DevBase + "__test/watcher', (req, res) => res.end(String(server.watcher.options.usePolling === true)))\n" +
+		"  } }\n"
+	writeTree(t, root, map[string]string{"vite.config.ts": control +
+		"import react from '@vitejs/plugin-react'\nimport tifa from './.tifa/vite.js'\n" +
+		"export default { plugins: [tifa(), react(), control], server: { watch: { useFsEvents: false, usePolling: false } } }\n"})
+	port := freePort(t)
+	d, err := NewDev(root, port, io.Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	polls := func() string { return strings.TrimSpace(viteModule(t, port, "__test/watcher")) }
+	writeTree(t, root, map[string]string{"broken": ""})
+	viteModule(t, port, "__test/enospc")
+	time.Sleep(time.Second)
+	if got := polls(); got != "false" {
+		t.Fatalf("the watcher polls %s, though the restart failed", got)
+	}
+	if err := os.Remove(broken); err != nil {
+		t.Fatal(err)
+	}
+	viteModule(t, port, "__test/enospc")
+	// While the dev server restarts, it closed the old server and the new one does not listen
+	// yet, so a request may find nobody.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		res, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d%s__test/watcher", port, DevBase))
+		if err == nil {
+			body, _ := io.ReadAll(res.Body)
+			res.Body.Close()
+			if strings.TrimSpace(string(body)) == "true" {
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the watcher does not poll 10s after the second error: %v", err)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
