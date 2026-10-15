@@ -1,6 +1,7 @@
 package bundle
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // buildScript builds entry of root like an SSR bundle with the tifa plugin and fails the test on
@@ -463,5 +465,36 @@ func TestSSRAdaptsSymlinkedCoreJS(t *testing.T) {
 	}
 	if hasModule(modules, "core-js/internals/weak-map-basic-detection.js") {
 		t.Fatal("core-js WeakMap detection is still bundled")
+	}
+}
+
+// manyRequires builds a bundle of a package with n requires and returns what the build printed
+// and how long it took.
+func manyRequires(t *testing.T, n int) (string, time.Duration) {
+	t.Helper()
+	root := copyTestdata(t, "ssr", false)
+	var source strings.Builder
+	for i := range n {
+		fmt.Fprintf(&source, "exports.f%d = () => require(globalThis.n%d)\n", i, i)
+	}
+	writeTree(t, root, map[string]string{
+		"node_modules/many/package.json": `{"name":"many","main":"index.js"}`,
+		"node_modules/many/index.js":     source.String(),
+		"many.ts":                        "import * as many from 'many'\nglobalThis.result = Object.keys(many).length\n",
+	})
+	start := time.Now()
+	_, output := buildPrinting(t, root, "many.ts")
+	return output, time.Since(start)
+}
+
+// Node may exit before it wrote all it printed to a pipe, and a long warning lost its end.
+func TestSSRPrintsEveryWarning(t *testing.T) {
+	const n = 20000
+	output, _ := manyRequires(t, n)
+	if got := strings.Count(output, " (many): require loads a module"); got != n {
+		t.Errorf("%d warnings, want %d", got, n)
+	}
+	if !strings.Contains(output, fmt.Sprintf("node_modules/many/index.js:%d:", n)) {
+		t.Errorf("the last require is not placed in its line:\n%.2000s", output)
 	}
 }

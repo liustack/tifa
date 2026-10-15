@@ -340,5 +340,13 @@ lines.on('close', async () => {
   await queue
   await ssrWorker?.close()
   await server?.close()
+  // Node writes to a pipe in the background, and exit drops what it has not written yet.
+  await Promise.all([written(process.stdout), written(process.stderr)])
   process.exit(0)
 })
+
+// written waits until stream has written out all it was given: the callback of a write runs
+// after the writes before it.
+function written(stream) {
+  return new Promise((resolve) => stream.write('', resolve))
+}
