@@ -274,6 +274,69 @@ test('a RouteError keeps its class and status through hydration', async () => {
   )
 })
 
+// richData is data a Go Load may return. It is read with JSON.parse, as the VM reads what Go
+// sends, so __proto__ is a key of its own and not the prototype.
+const richData = JSON.parse(
+  JSON.stringify({
+    name: 'router',
+    numbers: [0, -1.5, 1e21, 9007199254740991],
+    yes: true,
+    no: false,
+    none: null,
+    text: '中文 \u2028 "quoted" \\ </script><!-- <script> $R',
+    deep: { a: { b: { c: { d: { e: [[[{ f: 'g' }]]] } } } } },
+    empty: {},
+    list: [],
+  }).replace(/}$/, ',"__proto__":{"polluted":true}}'),
+)
+
+test('loader data comes through hydration as the server had it', async () => {
+  assert(Object.hasOwn(richData, '__proto__'), 'the test data lacks its own __proto__ key')
+  const url = '/teams/x/one'
+  // The page renders its data, so it is an array React can render.
+  const one = ['one', [], '</script>']
+  const html = await render(url, { 'app/layout': ok(richData), 'app/teams/team+/layout': ok('x'), 'app/teams/team+/one/route': ok(one) })
+  contains(html, 'APP_NAV <!-- -->router', 'TEAM <!-- -->x', 'TEAM_ONE')
+  const { router, calls } = await hydrateFrom(html, url)
+  assert(calls.length === 0, `hydration requested ${JSON.stringify(calls)}`)
+  // The first match is the router's own root route, which has no data.
+  const loaded = router.state.matches.slice(1).map((m: any) => m.loaderData)
+  assert(JSON.stringify(loaded[0]) === JSON.stringify(richData), `root data ${JSON.stringify(loaded[0])}`)
+  assert(Object.getPrototypeOf(loaded[0]) === Object.prototype, 'root data has another prototype')
+  assert(Object.hasOwn(loaded[0], '__proto__') && loaded[0].polluted === undefined, `__proto__ became ${Object.keys(loaded[0])}`)
+  assert(({} as any).polluted === undefined, 'hydration changed Object.prototype')
+  assert(JSON.stringify(loaded.slice(1)) === JSON.stringify(['x', one]), `route data ${JSON.stringify(loaded.slice(1))}`)
+})
+
+// The router reads serializationAdapters from its options, but its constructor type leaves them
+// to TanStack Start and no doc covers setting them on a router of its own (TanStack/router#7796).
+// If an update stops calling the adapter, loader data would go back to the slower default
+// serializer, or break, without any other test noticing.
+test('loader data is written as JSON through the tifa.data adapter', async () => {
+  const html = await render('/hello', appData)
+  contains(html, '$_TSR.t.get("tifa.data")("{\\"name\\":\\"router\\"}")')
+  lacks(html, '{name:"router"}')
+})
+
+test('404, redirect and RouteError results keep their paths', async () => {
+  const url = '/teams/x/one'
+  const html = await render(url, { ...appData, 'app/teams/team+/layout': ok('x'), 'app/teams/team+/one/route': missing })
+  contains(html, 'TEAM_404')
+  const { router, calls } = await hydrateFrom(html, url)
+  assert(calls.length === 0, `hydration requested ${JSON.stringify(calls)}`)
+  const states = router.state.matches.slice(1).map((m: any) => `${m.status} ${JSON.stringify(m.loaderData)}`)
+  assert(
+    JSON.stringify(states) === JSON.stringify(['success {"name":"router"}', 'success "x"', 'notFound undefined']),
+    `states after hydration ${JSON.stringify(states)}`,
+  )
+  const redirected = await renderResult('/hello', { 'app/layout': { status: 302, location: '/login' } })
+  assert(JSON.stringify(redirected.redirect) === '{"location":"/login","status":302}', `redirect ${JSON.stringify(redirected)}`)
+  const failed = await render('/hello', { 'app/layout': { status: 403, error: 'no' } })
+  const hydrated = await hydrateFrom(failed, '/hello')
+  const error = hydrated.router.state.matches[1].error
+  assert(error instanceof RouteError && error.status === 403 && error.message === 'no', `root error ${error}`)
+})
+
 test('preloaded data never goes stale by itself', async () => {
   const { router } = await client('/hello')
   for (const route of Object.values(router.routesById) as Array<{ id: string; options: any }>) {

@@ -422,7 +422,8 @@ func TestPagesApp(t *testing.T) {
 	if status != 200 || header.Get("X-Tifa-Render") != "vm" || header.Get("Vary") != "X-Tifa-Route" {
 		t.Errorf("page: %d %v", status, header)
 	}
-	for _, want := range []string{"<html", "Apple", "Shop north", built.Head, `{id:"north",name:"Shop north"}`} {
+	// The data goes into the page as JSON through the tifa.data adapter.
+	for _, want := range []string{"<html", "Apple", "Shop north", built.Head, `$_TSR.t.get("tifa.data")("{\"id\":\"north\",\"name\":\"Shop north\"}")`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page lacks %s:\n%s", want, body)
 		}
