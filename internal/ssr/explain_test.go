@@ -257,3 +257,15 @@ func TestErrorsJoinTheSourceRootOfTheSourceMap(t *testing.T) {
 		}
 	}
 }
+
+// The version of a source map is a JSON number: 3.0 and 3e0 are 3 as well.
+func TestErrorsReadAMapWhoseVersionIsThreeInAnotherForm(t *testing.T) {
+	for _, version := range []string{"3", "3.0", "3e0"} {
+		raw := `{"version":` + version + `,"sources":["node_modules/pkg/index.js"],"names":[],"mappings":"AAAA"}`
+		s := &sources{code: "require('fs')", raw: []byte(raw)}
+		err := s.explain(&scriptError{text: "ReferenceError: 'require' is not defined\n    at page (<eval>:1:1)"}, false)
+		if !strings.Contains(err.Error(), "The package pkg calls require at node_modules/pkg/index.js:1:1") {
+			t.Errorf("version %s: %s", version, err)
+		}
+	}
+}

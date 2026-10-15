@@ -258,7 +258,7 @@ func (s *sources) decode() {
 		return
 	}
 	var m struct {
-		Version    int      `json:"version"`
+		Version    float64  `json:"version"` // a JSON number, so 3.0 is 3 too
 		SourceRoot string   `json:"sourceRoot"`
 		Sources    []string `json:"sources"`
 		Names      []string `json:"names"`
