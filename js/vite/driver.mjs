@@ -62,10 +62,37 @@ answer({ id: 0, version: vite.version })
 
 const root = process.cwd()
 const realRoot = fs.realpathSync(root)
-// What the tifa plugin and the driver share, see devState in js/vite/plugin.js.
-const devState = (globalThis[Symbol.for('tifa.dev')] ??= { pollFiles: false, changed: null })
 let server = null
 let ssrWorker = null // builds the SSR bundle when this process is not a production one
+
+// restarts follows the restarts of the dev server, whoever starts them: Vite after a change to
+// its config or a .env file, the watcher running out of watches, and tifa. A restart creates a
+// new server and then closes the environments of the old one, so loading a module there fails
+// meanwhile. The SSR build waits for a restart that runs, and runs again after one that came in
+// between and made it fail, see devLoad and ops.ssr. begun counts the restarts that began.
+const restarts = { running: null, begun: 0 }
+
+// trackRestart runs restart, a restart of the dev server, as one of restarts.
+function trackRestart(restart) {
+  restarts.begun++
+  const run = restart()
+  const tracked = run
+    .catch(() => {}) // Vite logs why a restart failed
+    .finally(() => {
+      if (restarts.running === tracked) restarts.running = null
+    })
+  restarts.running = tracked
+  return run
+}
+
+// restartsDone returns once no restart of the dev server runs.
+async function restartsDone() {
+  while (restarts.running) await restarts.running
+}
+
+// What the tifa plugin and the driver share, see devState in js/vite/plugin.js.
+const devState = (globalThis[Symbol.for('tifa.dev')] ??= {})
+Object.assign(devState, { pollFiles: false, changed: changedOutside, restart: trackRestart })
 
 // logger prints Vite's warnings and errors. Its progress and file lists are left out, and so is
 // the line that says a build failed, as the error goes back to tifa, which prints it.
@@ -112,12 +139,20 @@ const ops = {
       return {}
     }
     ssrWorker ??= startSSRWorker()
-    const { styles } = await ssrWorker.build({ assets, minify })
-    return { styles: styleLinks(styles) }
+    for (;;) {
+      await restartsDone()
+      const begun = restarts.begun
+      try {
+        const { styles } = await ssrWorker.build({ assets, minify })
+        return { styles: styleLinks(styles) }
+      } catch (err) {
+        // A restart came in between: build again once it is done.
+        if (restarts.begun === begun && !restarts.running) throw err
+      }
+    }
   },
 
   async serve({ port, pollFiles }) {
-    devState.changed = changedOutside
     const earlier = new Set([...process.stdin.listeners('end'), ...process.listeners('SIGTERM')])
     const create = () =>
       vite.createServer({ root, customLogger: logger, server: { host: '127.0.0.1', port, strictPort: true } })
@@ -356,12 +391,23 @@ function attribute(value) {
   return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
 
-// devLoad loads id in the client environment of Vite's dev server and returns the code.
+// devLoad loads id in the client environment of Vite's dev server and returns the code. It waits
+// for a restart that runs, and tries again on the new server when one came in between.
 async function devLoad(id) {
   if (!server) throw new Error(`loading ${id}: Vite's dev server is not running`)
-  const result = await server.environments.client.pluginContainer.load(id)
-  if (result == null) throw new Error(`Vite's dev server cannot load ${id}`)
-  return typeof result === 'string' ? result : result.code
+  for (;;) {
+    await restartsDone()
+    const begun = restarts.begun
+    let result
+    try {
+      result = await server.environments.client.pluginContainer.load(id)
+    } catch (err) {
+      if (restarts.begun === begun && !restarts.running) throw err
+      continue
+    }
+    if (result == null) throw new Error(`Vite's dev server cannot load ${id}`)
+    return typeof result === 'string' ? result : result.code
+  }
 }
 
 // createBuilder loads the application's Vite config with inline added to it.

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -198,5 +199,67 @@ process.exit(0)
 	}
 	if got := strings.TrimSpace(string(out)); got != `{"restarted":true,"polling":true}` {
 		t.Fatalf("got %s, want the dev server restarted with a polling watcher", got)
+	}
+}
+
+// waitFile waits until name exists.
+func waitFile(t *testing.T, name string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(name); err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s did not appear within 10s", name)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// Vite restarts its dev server after a change to its config, and closes the old one. An SSR
+// build that runs meanwhile waits for the new dev server to load its assets from, and builds with
+// the new config, instead of failing on the dev server that closes.
+func TestDevSSRWaitsForARestart(t *testing.T) {
+	root := devApp(t)
+	closing := filepath.Join(root, "closing")
+	config := func(value string) string {
+		return "import fs from 'node:fs'\nimport react from '@vitejs/plugin-react'\nimport tifa from './.tifa/vite.js'\n" +
+			"const slowClose = { name: 'slow-close', apply: 'serve', async closeBundle() {\n" +
+			"  fs.writeFileSync(" + strconv.Quote(closing) + ", '')\n" +
+			"  await new Promise((resolve) => setTimeout(resolve, 1500))\n} }\n" +
+			"export default { plugins: [tifa(), react(), slowClose], define: { __VALUE__: " + strconv.Quote(strconv.Quote(value)) + " } }\n"
+	}
+	writeTree(t, root, map[string]string{
+		"vite.config.ts": config("one"),
+		// Large enough not to be inlined, so the dev server gives its URL.
+		"app/page/logo.svg": `<svg xmlns="http://www.w3.org/2000/svg"><!--` + strings.Repeat("x", 8<<10) + `--></svg>`,
+		".tifa/server.ts": "import logo from '../app/page/logo.svg?url'\n" +
+			"declare const __VALUE__: string\n(globalThis as any).result = __VALUE__ + ' ' + logo\n",
+	})
+	d, err := NewDev(root, freePort(t), io.Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	result := func() string {
+		t.Helper()
+		if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return evalResult(t, string(code))
+	}
+	logo := DevBase + "app/page/logo.svg"
+	if got := result(); got != "one "+logo {
+		t.Fatalf("SSR bundle gives %q", got)
+	}
+	writeTree(t, root, map[string]string{"vite.config.ts": config("two")})
+	waitFile(t, closing) // the new dev server is up, the old one closes
+	if got := result(); got != "two "+logo {
+		t.Fatalf("SSR bundle gives %q after the restart, want %q", got, "two "+logo)
 	}
 }

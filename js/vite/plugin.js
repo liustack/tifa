@@ -24,12 +24,14 @@ const nodeBuiltins = new Set(builtinModules)
 // Polling 10,000 files every second takes about 8% of one CPU core.
 const pollInterval = 1000
 
-// devState is what the plugin and tifa's Vite driver share in the Node process of tifa dev. Vite
-// bundles the config, this file with it, so they meet on globalThis:
+// devState is what the plugin and tifa's Vite driver (js/vite/driver.mjs) share in the Node
+// process of tifa dev. Vite bundles the config, this file with it, so they meet on globalThis.
+// The driver sets it up, so outside tifa dev it is empty:
 //   - pollFiles: the dev server's watcher polls, for a system that ran out of watches.
 //   - changed(event, file): gets every event of the dev server's watcher.
+//   - restart(run): runs run, a restart of the dev server, so the driver knows when one runs.
 function devState() {
-  return (globalThis[Symbol.for('tifa.dev')] ??= { pollFiles: false, changed: null })
+  return (globalThis[Symbol.for('tifa.dev')] ??= {})
 }
 
 /**
@@ -87,6 +89,12 @@ export function tifa(settings = {}) {
     configureServer(server) {
       const state = devState()
       server.watcher.on('all', (event, file) => state.changed?.(event, file))
+      // Every restart goes through server.restart, from Vite after a change to its config as
+      // well. A restart copies the new server into the old object, this wrapper with it.
+      if (state.restart) {
+        const restart = server.restart
+        server.restart = (forceOptimize) => state.restart(() => restart(forceOptimize))
+      }
       // chokidar reports a watch the system refused as an error and goes on without it. When the
       // system is out of inotify watches (ENOSPC) or file descriptors, restart with a watcher
       // that polls, which takes neither, so nobody has to raise a system limit.
