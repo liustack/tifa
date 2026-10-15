@@ -61,15 +61,11 @@ build keeps the running app and shows the error in the page.`,
 			}
 			logger := log.New(cmd.ErrOrStderr(), "tifa dev: ", log.Ltime)
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
-			// Runs before front.Close, which waits for the driver's last notice to be taken.
 			defer stop()
-			changed := make(chan string)
-			front, err := bundle.NewDev(root, vitePort, &lineLogger{log: logger}, func(file string) {
-				select {
-				case changed <- file:
-				case <-ctx.Done():
-				}
-			})
+			// The driver reports changes outside the root from the goroutine that reads its
+			// answers. outside.Changed never blocks, so front.Close can always wait for the driver.
+			outside := &devserver.Outside{}
+			front, err := bundle.NewDev(root, vitePort, &lineLogger{log: logger}, outside.Changed)
 			if err != nil {
 				return err
 			}
@@ -85,7 +81,7 @@ build keeps the running app and shows the error in the page.`,
 				Ignore:  []string{devOutput},
 				App:     []string{exe, "serve", "--dist", filepath.Join(root, codegen.Dir, codegen.DistDir)},
 				Vite:    net.JoinHostPort("127.0.0.1", strconv.Itoa(vitePort)),
-				Changed: changed,
+				Outside: outside,
 				// The app may wait shutdown_timeout for requests, again for handlers, and once more
 				// for OnShutdown.
 				StopTimeout: 3*settings.Server.ShutdownTimeout + time.Second,

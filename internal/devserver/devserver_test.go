@@ -102,7 +102,7 @@ type devRun struct {
 	p       *buildPipeline
 	out     *syncBuffer
 	events  *eventStream
-	changed chan<- string // Options.Changed
+	outside *Outside // Options.Outside
 }
 
 // startDev runs Run on a small app with the fake pipeline and the fake app until the test ends.
@@ -121,9 +121,9 @@ func startDev(t *testing.T, failFirst string) *devRun {
 		t.Fatal(err)
 	}
 	out := &syncBuffer{}
-	changed := make(chan string)
+	outside := &Outside{}
 	o := Options{
-		Changed:     changed,
+		Outside:     outside,
 		Dir:         dir,
 		App:         fakeAppCommand(t),
 		Pipeline:    p,
@@ -147,7 +147,7 @@ func startDev(t *testing.T, failFirst string) *devRun {
 			t.Error("Run did not return within 10s after cancel")
 		}
 	})
-	d := &devRun{dir: dir, url: "http://" + ln.Addr().String(), p: p, out: out, changed: changed}
+	d := &devRun{dir: dir, url: "http://" + ln.Addr().String(), p: p, out: out, outside: outside}
 	d.events = connectEvents(t, d.url+eventsPath)
 	return d
 }
@@ -347,7 +347,7 @@ func TestRunHoldsPagesWhileTheAnalysisAddsABundle(t *testing.T) {
 }
 
 // A file outside the app that Vite's dev server watches, such as a package of the workspace,
-// arrives on Options.Changed and rebuilds the SSR bundle like a front end file of the app.
+// arrives through Options.Outside and rebuilds the SSR bundle like a front end file of the app.
 func TestRunRebuildsForFilesOutsideTheApp(t *testing.T) {
 	d := startDev(t, "")
 	v1 := d.waitVersionAfter(t, "")
@@ -357,11 +357,7 @@ func TestRunRebuildsForFilesOutsideTheApp(t *testing.T) {
 		t.Fatal(err)
 	}
 	card := filepath.Join(parent, "shared", "card.tsx")
-	select {
-	case d.changed <- card:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Run does not take the changed file")
-	}
+	d.outside.Changed(card)
 	d.waitStatus(t, func(st status) bool { return st.Version == v1 && st.Error == "" })
 	expectSteps(t, d.p, "Bundle")
 	if !strings.Contains(d.out.String(), "../shared/card.tsx modified") {

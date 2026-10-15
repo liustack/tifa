@@ -44,9 +44,9 @@ type Options struct {
 	// Vite is the address of Vite's dev server, which Pipeline.Bundle starts. Requests under
 	// VitePath, its module and HMR websocket requests, go there. Empty sends them to the app too.
 	Vite string
-	// Changed gives the absolute paths of files outside Dir that changed, such as a package of the
-	// workspace that Vite's dev server watches. Each counts as a modified file of its kind.
-	Changed <-chan string
+	// Outside, when not nil, brings Run the files outside Dir that changed, such as a package of
+	// the workspace that Vite's dev server watches. Each counts as a modified file of its kind.
+	Outside *Outside
 
 	// Debounce is how long the files must stay unchanged before a rebuild starts.
 	Debounce time.Duration
@@ -159,18 +159,10 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 		cancel()
 		watched <- err
 	}()
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case file := <-o.Changed:
-				if rel, err := filepath.Rel(w.rootReal, file); err == nil {
-					w.changes.touch(filepath.ToSlash(rel))
-				}
-			}
-		}
-	}()
+	if o.Outside != nil {
+		o.Outside.attach(w.rootReal, w.changes)
+		defer o.Outside.detach()
+	}
 	go func() {
 		// The system is short of watches: Vite's watcher would run out as well.
 		select {
@@ -214,6 +206,36 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 	}
 	return errors.Join(<-watched, err)
 }
+
+// Outside brings Run the files outside its Dir that changed. Vite's dev server watches them, as
+// it loaded them, and the driver reports their changes from the goroutine that reads its answers.
+// Changed never blocks, so it never holds up that goroutine: it records the file for the next
+// batch, or drops it while no Run runs, before Run starts and once it returned.
+type Outside struct {
+	mu   sync.Mutex
+	root string   // real path of Dir while Run runs
+	c    *changes // where Run collects changes, nil while no Run runs
+}
+
+// Changed records that the file at the absolute path file changed.
+func (o *Outside) Changed(file string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.c == nil {
+		return
+	}
+	if rel, err := filepath.Rel(o.root, file); err == nil {
+		o.c.touch(filepath.ToSlash(rel))
+	}
+}
+
+func (o *Outside) attach(root string, c *changes) {
+	o.mu.Lock()
+	o.root, o.c = root, c
+	o.mu.Unlock()
+}
+
+func (o *Outside) detach() { o.attach("", nil) }
 
 func script(source string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
