@@ -1,4 +1,5 @@
-import { renderToString } from 'react-dom/server.edge'
+import type { ReactNode } from 'react'
+import { renderToString as renderString } from 'react-dom/server.edge'
 import { RouterProvider, type AnyRoute } from '@tanstack/react-router'
 import { attachRouterServerSsrUtils } from '@tanstack/react-router/ssr/server'
 import { createAppRouter, type HTMLAttributes } from './router'
@@ -12,9 +13,11 @@ declare const __TIFA_ASSETS__: string
 declare global {
   var startRender: (json: string) => void
   var renderResult: string | undefined
-  // The tifa Vite plugin makes renderToString pass it the errors of the render.
-  var __tifaRenderError: ((error: unknown) => void) | undefined
 }
+
+// The tifa Vite plugin gives renderToString the onError option of React's other renderers. A
+// render inside the render reports to its own.
+const renderToString = renderString as (node: ReactNode, options: { onError: (error: unknown) => void }) => string
 
 // clientRenderedBoundary is what React writes for a Suspense boundary that failed on the
 // server and is left to the browser.
@@ -55,13 +58,7 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = { la
         }
         await router.serverSsr!.dehydrate()
         const errors: unknown[] = []
-        globalThis.__tifaRenderError = (error) => errors.push(error)
-        let root: string
-        try {
-          root = renderToString(<RouterProvider router={router} />)
-        } finally {
-          globalThis.__tifaRenderError = undefined
-        }
+        const root = renderToString(<RouterProvider router={router} />, { onError: (error) => errors.push(error) })
         // renderToString swallows an error thrown inside a Suspense boundary, and the router
         // wraps the routes in one: the boundary renders its fallback and leaves the marker of a
         // boundary the browser must render itself. The page is then incomplete, never a success.

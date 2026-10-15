@@ -223,7 +223,9 @@ export function ssrPlugin(getRoot, loadVite) {
       if (coreJS && id === path.join(coreJS, 'internals', 'internal-state.js')) coreJSState = true
       if (reactStringRenderer.test(id)) {
         // renderToString leaves a Suspense boundary whose content threw to the browser, and its
-        // error handler ignores the error. Pass the error to the runtime, which reports it.
+        // error handler ignores the error. Give renderToString and renderToStaticMarkup the
+        // onError option of React's other renderers, for the runtime to report the error. Each
+        // call reports to its own onError, so a render inside a render keeps its errors.
         const source = fs.readFileSync(id, 'utf8')
         if (source.split(ignoredErrors).length !== 2) {
           this.warn(
@@ -232,7 +234,24 @@ export function ssrPlugin(getRoot, loadVite) {
           )
           return null
         }
-        return source.replace(ignoredErrors, 'function onError(error) { globalThis.__tifaRenderError?.(error) }')
+        return (
+          source.replace(ignoredErrors, 'function onError(error) { tifaOnError?.(error) }') +
+          `
+var tifaOnError
+for (const name of ['renderToString', 'renderToStaticMarkup']) {
+  const render = exports[name]
+  exports[name] = function (children, options) {
+    const outer = tifaOnError
+    tifaOnError = options?.onError
+    try {
+      return render(children, options)
+    } finally {
+      tifaOnError = outer
+    }
+  }
+}
+`
+        )
       }
       if (reactServerEntry.test(id)) {
         const source = fs.readFileSync(id, 'utf8')

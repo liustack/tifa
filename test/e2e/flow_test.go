@@ -47,6 +47,13 @@ func OnError(c *tifa.Ctx, err error) tifa.Error {
 	"app/throws/route.tsx":  "export default function Throws(): never {\n  throw new Error('PAGE_THROWS')\n}\n",
 	"app/legacy/legacy.cjs": "module.exports = function (name) {\n  return require(name)\n}\n",
 	"app/legacy/route.tsx":  "import load from './legacy.cjs'\n\nexport default function Legacy() {\n  return <p>{String(load('node:os'))}</p>\n}\n",
+	// A render inside the render of the page, whose error React handles, before the require.
+	"app/nested/route.tsx": "import { Suspense } from 'react'\nimport { renderToString } from 'react-dom/server.edge'\n" +
+		"import load from '../legacy/legacy.cjs'\n\n" +
+		"function Ignored(): never {\n  throw new Error('HANDLED_INNER_ERROR')\n}\n\n" +
+		"function Real() {\n  return <p>{String(load('node:os'))}</p>\n}\n\n" +
+		"export default function Nested() {\n  renderToString(<Suspense fallback=\"inner\"><Ignored /></Suspense>)\n" +
+		"  return <Suspense fallback=\"outer\"><Real /></Suspense>\n}\n",
 	"app/ssr/route.tsx":     "export default function Page() {\n  return <p>PAGE_SSR</p>\n}\n",
 	"app/members/route.tsx": "export default function Members() {\n  return <p>MEMBERS</p>\n}\n",
 	"app/secret/layout.go": `package secret
@@ -150,6 +157,18 @@ func TestErrorFlowInTheVM(t *testing.T) {
 		want := "The code at app/legacy/legacy.cjs:2:10 calls require. SSR runs in QuickJS, which has no require"
 		if !strings.Contains(output.String(), want) {
 			t.Errorf("OnError:\n%s\nwant %s", output, want)
+		}
+	})
+
+	t.Run("an error a render inside the page handled is not why the page failed", func(t *testing.T) {
+		before, from := onErrors(), len(output.String())
+		if code, _, body := get(t, base+"/nested"); code != 500 {
+			t.Errorf("%d %s", code, body)
+		}
+		output.waitFor(t, func(string) bool { return onErrors()-before >= 1 })
+		got := output.String()[from:]
+		if !strings.Contains(got, "The code at app/legacy/legacy.cjs:2:10 calls require") || strings.Contains(got, "HANDLED_INNER_ERROR") {
+			t.Errorf("OnError:\n%s\nwant the require", got)
 		}
 	})
 

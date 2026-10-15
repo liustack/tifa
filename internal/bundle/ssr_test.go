@@ -56,20 +56,42 @@ func TestSSRTrimmedReactRendersOnlyTheStringRenderer(t *testing.T) {
 }
 
 // renderToString leaves a Suspense boundary whose content threw to the browser and tells no one
-// of the error. The tifa plugin passes it to globalThis.__tifaRenderError, so the server can report
-// it.
+// of the error. The tifa plugin gives it the onError option of React's other renderers, so the
+// server can report the error.
 func TestSSRReportsTheErrorAComponentThrowsInsideSuspense(t *testing.T) {
 	root := copyTestdata(t, "ssr", true)
 	writeTree(t, root, map[string]string{"throws.tsx": "import './host'\n" +
 		"import { renderToString } from 'react-dom/server.edge'\nimport { Suspense } from 'react'\n" +
-		"const errors: unknown[] = []\n;(globalThis as any).__tifaRenderError = (error: unknown) => errors.push(error)\n" +
+		"const errors: unknown[] = []\n" +
 		"function Broken(): never {\n  throw new Error('BROKEN')\n}\n" +
-		"const html = renderToString(<Suspense fallback=\"loading\"><Broken /></Suspense>)\n" +
+		"const html = renderToString(<Suspense fallback=\"loading\"><Broken /></Suspense>, { onError: (e: unknown) => errors.push(e) } as any)\n" +
 		"globalThis.result = html + ' ' + errors.map((e) => (e as Error).message).join()\n",
 	})
 	code, _ := buildScript(t, root, "throws.tsx")
 	if got := evalResult(t, code); !strings.HasPrefix(got, "<!--$!-->") || !strings.HasSuffix(got, " BROKEN") {
 		t.Errorf("result = %q, want the boundary left to the browser and the error", got)
+	}
+}
+
+// A render inside a render reports its errors to its own onError, and to no one without one, as
+// React's other renderers do. The outer render gets only its own.
+func TestSSRReportsTheErrorsOfEachRenderToItsOwnOnError(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"nested.tsx": "import './host'\n" +
+		"import { renderToString, renderToStaticMarkup } from 'react-dom/server.edge'\nimport { Suspense } from 'react'\n" +
+		"const outer: Error[] = [], inner: Error[] = []\n" +
+		"function Inner(): never { throw new Error('INNER') }\n" +
+		"function Outer(): never {\n" +
+		"  renderToString(<Suspense fallback=\"a\"><Inner /></Suspense>)\n" +
+		"  renderToStaticMarkup(<Suspense fallback=\"b\"><Inner /></Suspense>, { onError: (e: Error) => inner.push(e) } as any)\n" +
+		"  throw new Error('OUTER')\n}\n" +
+		"renderToString(<Suspense fallback=\"c\"><Outer /></Suspense>, { onError: (e: Error) => outer.push(e) } as any)\n" +
+		"renderToString(<Suspense fallback=\"d\"><Inner /></Suspense>)\n" +
+		"globalThis.result = [outer, inner].map((l) => l.map((e) => e.message).join()).join(' ')\n",
+	})
+	code, _ := buildScript(t, root, "nested.tsx")
+	if got := evalResult(t, code); got != "OUTER INNER" {
+		t.Errorf("result = %q, want OUTER INNER", got)
 	}
 }
 
