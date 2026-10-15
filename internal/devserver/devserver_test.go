@@ -347,7 +347,8 @@ func TestRunHoldsPagesWhileTheAnalysisAddsABundle(t *testing.T) {
 }
 
 // A file outside the app that Vite's dev server watches, such as a package of the workspace,
-// arrives through Options.Outside and rebuilds the SSR bundle like a front end file of the app.
+// arrives through Options.Outside and rebuilds the SSR bundle. Vite watches it because a module
+// loaded it, so it does whatever its name: also a text file imported with ?raw.
 func TestRunRebuildsForFilesOutsideTheApp(t *testing.T) {
 	d := startDev(t, "")
 	v1 := d.waitVersionAfter(t, "")
@@ -356,12 +357,13 @@ func TestRunRebuildsForFilesOutsideTheApp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	card := filepath.Join(parent, "shared", "card.tsx")
-	d.outside.Changed(card)
-	d.waitStatus(t, func(st status) bool { return st.Version == v1 && st.Error == "" })
-	expectSteps(t, d.p, "Bundle")
-	if !strings.Contains(d.out.String(), "../shared/card.tsx modified") {
-		t.Fatalf("the log does not name the file:\n%s", d.out.String())
+	for _, name := range []string{"card.tsx", "value.txt"} {
+		d.outside.Changed(filepath.Join(parent, "shared", name))
+		d.waitStatus(t, func(st status) bool { return st.Version == v1 && st.Error == "" })
+		expectSteps(t, d.p, "Bundle")
+		if !strings.Contains(d.out.String(), "../shared/"+name+" modified") {
+			t.Fatalf("the log does not name the file:\n%s", d.out.String())
+		}
 	}
 }
 

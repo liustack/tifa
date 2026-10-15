@@ -73,6 +73,7 @@ func TestRebuildMatrix(t *testing.T) {
 		{"config", []change{{"tifa.yaml", modified}}, "v1", all},
 		{"env", []change{{".env", modified}}, "v1", []string{"Bundle"}},
 		{"env of a mode", []change{{".env.production.local", created}}, "v1", []string{"Bundle"}},
+		{"loaded from outside the root", []change{{"../shared/value.txt", modified}}, "v1", []string{"Bundle"}},
 		{"go and tsx", []change{{"app/orders/store.go", modified}, {"app/app.css", modified}}, "v1", []string{"Analyze", "Bundle", "GoBuild"}},
 	}
 	for _, tc := range cases {

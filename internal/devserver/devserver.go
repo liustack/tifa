@@ -45,7 +45,7 @@ type Options struct {
 	// VitePath, its module and HMR websocket requests, go there. Empty sends them to the app too.
 	Vite string
 	// Outside, when not nil, brings Run the files outside Dir that changed, such as a package of
-	// the workspace that Vite's dev server watches. Each counts as a modified file of its kind.
+	// the workspace that Vite's dev server watches. Each counts as a modified front end file.
 	Outside *Outside
 
 	// Debounce is how long the files must stay unchanged before a rebuild starts.

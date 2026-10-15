@@ -59,11 +59,17 @@ type kind int
 const (
 	other    kind = iota
 	goSource      // .go, go.mod, go.sum
-	frontend      // TypeScript, JavaScript, CSS and JSON imported by them, and Vite's .env files
+	frontend      // TypeScript, JavaScript, CSS and JSON imported by them, Vite's .env files, and what Vite loads from outside the root
 	config        // tifa.yaml or tifa.json in the application directory
 )
 
 func kindOf(p string) kind {
+	if strings.HasPrefix(p, "../") {
+		// Outside the root: only Outside records such a file, one that Vite's dev server watches
+		// because a module loaded it, such as source of the workspace or a text file imported with
+		// ?raw. Whatever its name, the SSR bundle may contain it.
+		return frontend
+	}
 	switch p {
 	case "tifa.yaml", "tifa.json":
 		return config
