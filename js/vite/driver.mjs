@@ -99,11 +99,18 @@ const ops = {
   },
 
   async serve({ port }) {
+    const ownListeners = process.stdin.listeners('end')
     server = await vite.createServer({
       root,
       customLogger: logger,
       server: { host: '127.0.0.1', port, strictPort: true },
     })
+    // Vite's dev server ends the process when stdin ends, as for a parent that went away. Here
+    // stdin carries the requests, and its end starts the close below, which first lets the SSR
+    // worker and the output finish.
+    for (const listener of process.stdin.listeners('end')) {
+      if (!ownListeners.includes(listener)) process.stdin.off('end', listener)
+    }
     checkPlugin(server.config)
     await server.listen()
     // The plugins add the tags a page needs to the head of an empty document, as they would for
@@ -204,7 +211,10 @@ async function ssrThread() {
       visit(entry.facadeModuleId)
     },
   })
-  parentPort.on('message', async ({ id, request, ref, code, error }) => {
+  parentPort.on('message', async ({ id, request, ref, code, error, close }) => {
+    // With its port closed the thread has nothing left to do and ends on its own, after its
+    // output, which an end by terminate() may drop.
+    if (close) return parentPort.close()
     if (ref !== undefined) {
       const load = loads.get(ref)
       loads.delete(ref)
@@ -225,13 +235,21 @@ async function ssrThread() {
 }
 
 // startSSRWorker starts the SSR worker thread. Its build returns once the worker has built the
-// bundle, and throws the error of a failed build.
+// bundle, and throws the error of a failed build. Its close returns once the worker has ended and
+// all it printed is in the output of this process.
 function startSSRWorker() {
   const worker = new Worker(`${buildSSR}\n(${ssrThread})()`, {
     eval: true,
     env: { ...process.env, NODE_ENV: 'production' },
     workerData: { vite: import.meta.resolve('vite'), root },
+    stdout: true,
+    stderr: true,
   })
+  worker.stdout.pipe(process.stdout, { end: false })
+  worker.stderr.pipe(process.stderr, { end: false })
+  // The streams end once the worker has ended on its own and all it printed came through.
+  const printed = Promise.all([worker.stdout, worker.stderr].map((stream) => new Promise((resolve) => stream.once('end', resolve))))
+  const exited = new Promise((resolve) => worker.once('exit', resolve))
   const pending = new Map()
   let next = 0
   let failed = null
@@ -265,7 +283,21 @@ function startSSRWorker() {
         worker.postMessage({ id, request })
       })
     },
-    close: () => worker.terminate(),
+    async close() {
+      // An unreferenced worker would let this process end before the worker does.
+      worker.ref()
+      worker.postMessage({ close: true })
+      // A plugin may keep the worker alive, so it gets a few seconds to end, and is then
+      // stopped, which may drop the end of its output.
+      let stopped = false
+      const timer = setTimeout(() => {
+        stopped = true
+        worker.terminate()
+      }, 5000)
+      await exited
+      clearTimeout(timer)
+      if (!stopped) await printed
+    },
   }
 }
 

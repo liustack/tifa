@@ -10,7 +10,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/liustack/tifa/js"
 )
@@ -371,5 +373,54 @@ func TestDevWarnsOfTheRequiresLeftInTheBundle(t *testing.T) {
 	})
 	if got := build(); !strings.Contains(got, filepath.Join("app", "page", "reader.cjs")+":2:20: require loads") {
 		t.Fatalf("the build prints:\n%s\nwant the place of the require", got)
+	}
+}
+
+// slowOutput takes a millisecond for each write, as a terminal or a log file under load may.
+type slowOutput struct {
+	mu   sync.Mutex
+	text strings.Builder
+}
+
+func (w *slowOutput) Write(p []byte) (int, error) {
+	time.Sleep(time.Millisecond)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.text.Write(p)
+}
+
+func (w *slowOutput) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.text.String()
+}
+
+// The SSR worker thread prints through the main thread. Closing tifa dev right after a build
+// must not lose what the worker printed, though Vite's dev server ends the process when stdin
+// ends.
+func TestDevPrintsAllTheSSRWorkerPrinted(t *testing.T) {
+	const lines = 2000
+	root := devApp(t)
+	writeTree(t, root, map[string]string{"vite.config.ts": "import react from '@vitejs/plugin-react'\n" +
+		"import tifa from './.tifa/vite.js'\n" +
+		"const print = { name: 'print', applyToEnvironment: (env) => env.name === 'ssr', generateBundle() {\n" +
+		"  process.stdout.write(('OUT'.padEnd(80, '.') + '\\n').repeat(" + strconv.Itoa(lines) + ") + 'OUT END\\n')\n" +
+		"  process.stderr.write(('ERR'.padEnd(80, '.') + '\\n').repeat(" + strconv.Itoa(lines) + ") + 'ERR END\\n')\n" +
+		"} }\n" +
+		"export default { plugins: [tifa(), react(), print] }\n"})
+	output := &slowOutput{}
+	d, err := NewDev(root, freePort(t), output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, buildErr := d.Build(filepath.Join(root, "public"), true)
+	if err := d.Close(); err != nil || buildErr != nil {
+		t.Fatalf("build: %v, close: %v", buildErr, err)
+	}
+	got := output.String()
+	for _, stream := range []string{"OUT", "ERR"} {
+		if n := strings.Count(got, stream+"."); n != lines || !strings.Contains(got, stream+" END\n") {
+			t.Errorf("%d lines of %s and its end %v, want %d", n, stream, strings.Contains(got, stream+" END\n"), lines)
+		}
 	}
 }
