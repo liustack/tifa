@@ -102,14 +102,21 @@ func TestDevReportsChangesOutsideTheRoot(t *testing.T) {
 		t.Fatalf("the module outside the root is not served: %s", code)
 	}
 	writeTree(t, root, map[string]string{"app/page/view.tsx": "export default function View() { return <p>edited</p> }\n"})
-	writeTree(t, shared, map[string]string{"card.ts": "export const card = 'outside-two'\n"})
-	select {
-	case got := <-changed:
-		if got != card {
-			t.Fatalf("Dev reported %s, want %s, files in the root are tifa dev's", got, card)
+	// Vite's watcher adds the file without waiting for the system to watch it, and on a busy
+	// machine an edit right after the request can come first. So edit until one is reported.
+	deadline := time.After(5 * time.Second)
+	for i := 2; ; i++ {
+		writeTree(t, shared, map[string]string{"card.ts": fmt.Sprintf("export const card = 'outside-%d'\n", i)})
+		select {
+		case got := <-changed:
+			if got != card {
+				t.Fatalf("Dev reported %s, want %s, files in the root are tifa dev's", got, card)
+			}
+			return
+		case <-time.After(250 * time.Millisecond):
+		case <-deadline:
+			t.Fatal("no change reported within 5s")
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("no change reported within 5s")
 	}
 }
 
