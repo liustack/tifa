@@ -198,7 +198,7 @@ func TestWatcherHashesOnEveryEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer w.fs.Close()
+	defer w.close()
 	info, err := os.Stat(filepath.Join(dir, "a.tsx"))
 	if err != nil {
 		t.Fatal(err)
@@ -247,7 +247,7 @@ func TestWatcherRescanFindsEverything(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer w.fs.Close()
+	defer w.close()
 	writeFile(t, dir, "app/store.go", "package app // edited")
 	writeFile(t, dir, "app/list/route.tsx", "export const edited = 1")
 	writeFile(t, dir, "app/deep/er/route.tsx", "export {}")
@@ -400,7 +400,7 @@ func TestWatcherPollsOnlyLinks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer w.fs.Close()
+	defer w.close()
 	var polled []string
 	testHookLinkPoll = func(rel string) { polled = append(polled, rel) }
 	defer func() { testHookLinkPoll = nil }()

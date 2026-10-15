@@ -17,7 +17,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/liustack/tifa/js"
 )
 
@@ -371,8 +370,8 @@ func TestRunRebuildsForFilesOutsideTheApp(t *testing.T) {
 // When the system runs out of watches, tifa dev polls and tells Vite's dev server to poll too.
 func TestRunTellsViteToPollWhenOutOfWatches(t *testing.T) {
 	outErr := outOfWatchesErrors(t)[0]
-	newFSWatcher = func() (*fsnotify.Watcher, error) { return nil, outErr }
-	defer func() { newFSWatcher = fsnotify.NewWatcher }()
+	newFSWatcher = func() (*systemWatcher, error) { return nil, outErr }
+	defer func() { newFSWatcher = newSystemWatcher }()
 	d := startDev(t, "")
 	d.waitVersionAfter(t, "")
 	deadline := time.Now().Add(5 * time.Second)

@@ -151,3 +151,80 @@ func TestWatcherWorksWhenADirectoryGrows(t *testing.T) {
 		})
 	}
 }
+
+// openFiles returns how many file descriptors the test process has open.
+func openFiles(t *testing.T) int {
+	t.Helper()
+	entries, err := os.ReadDir("/dev/fd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(entries)
+}
+
+// Files that arrive in a watched directory faster than the watcher handles them take no more
+// than the budget: past it, the directory is polled and holds nothing for its files.
+func TestWatcherKeepsToTheBudgetWhileFilesArrive(t *testing.T) {
+	root, stage := t.TempDir(), t.TempDir()
+	var want []change
+	for i := range 400 {
+		name := fmt.Sprintf("f%03d.ts", i)
+		writeFile(t, stage, name, "export {}")
+		want = append(want, change{name, created})
+	}
+	w := preparedWatcher(t, root, func(msg string) { t.Log(msg) })
+	w.budget = 10
+	if err := w.start(); err != nil {
+		t.Fatal(err)
+	}
+	before := openFiles(t)
+	for _, c := range want {
+		if err := os.Rename(filepath.Join(stage, c.path), filepath.Join(root, c.path)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- w.run(ctx) }()
+	expectChanges(t, w, want...)
+	time.Sleep(200 * time.Millisecond) // anything still opening files has opened them by now
+	during := openFiles(t)
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if during-before > w.budget || w.watchCount() > w.budget {
+		t.Fatalf("%d more file descriptors open, the watcher counts %d watches, for a budget of %d", during-before, w.watchCount(), w.budget)
+	}
+}
+
+// Atomic saves, a new file renamed over the old one, leave the watches as they were.
+func TestWatcherCountsWatchesAfterAtomicSaves(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "a.ts", "export default 0")
+	w := preparedWatcher(t, root, func(msg string) { t.Log(msg) })
+	if err := w.start(); err != nil {
+		t.Fatal(err)
+	}
+	watches := w.watchCount()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- w.run(ctx) }()
+	before := openFiles(t)
+	for i := range 100 {
+		writeFile(t, root, ".a.ts.save", fmt.Sprintf("export default %d", i+1))
+		if err := os.Rename(filepath.Join(root, ".a.ts.save"), filepath.Join(root, "a.ts")); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(300 * time.Millisecond)
+	during := openFiles(t)
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if during != before || w.watchCount() != watches {
+		t.Fatalf("after 100 atomic saves: %d file descriptors open, %d before, the watcher counts %d watches, %d before", during, before, w.watchCount(), watches)
+	}
+}

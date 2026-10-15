@@ -10,8 +10,6 @@ import (
 	"syscall"
 	"testing"
 	"time"
-
-	"github.com/fsnotify/fsnotify"
 )
 
 // outOfWatchesErrors returns the errors this system reports when it runs out of watches.
@@ -99,8 +97,8 @@ func TestWatcherPollsWhenOutOfWatches(t *testing.T) {
 				}
 			}
 			// Running out also gives back up to spareWatches, here every watch.
-			if w.used != 0 || len(w.cost) != 0 || !w.polled["."] {
-				t.Fatalf("watches left after running out: %v", w.cost)
+			if w.watchCount() != 0 || !w.polled["."] {
+				t.Fatalf("watches left after running out: %v", w.watches)
 			}
 			if *calls != 2 {
 				t.Fatalf("adding watches was tried %d times, want 2: once out, the watcher stops trying", *calls)
@@ -190,7 +188,10 @@ func TestWatcherPollsBeyondTheBudget(t *testing.T) {
 	dir := newApp(t)
 	var warned warnings
 	w := preparedWatcher(t, dir, warned.add)
-	w.budget = watchCost(w.rootReal) // the root alone
+	w.budget = 1 // the root alone
+	if watchesFiles {
+		w.budget++ // and its file, marker.ts
+	}
 	if err := w.start(); err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +232,7 @@ func TestWatcherPollsEverythingWhenRunningOut(t *testing.T) {
 	if err := w.start(); err != nil {
 		t.Fatal(err)
 	}
-	errs := make(chan error, 1) // fsnotify owns and closes w.fs.Errors
+	errs := make(chan error, 1) // the system watcher owns and closes its own
 	w.errs = errs
 	runWatcher(t, w)
 	errs <- fmt.Errorf("fsnotify.dirChange: %w", outErr)
@@ -244,8 +245,8 @@ func TestWatcherPollsEverythingWhenRunningOut(t *testing.T) {
 // polled from the start.
 func TestWatcherPollsWithoutASystemWatcher(t *testing.T) {
 	outErr := outOfWatchesErrors(t)[0]
-	newFSWatcher = func() (*fsnotify.Watcher, error) { return nil, outErr }
-	defer func() { newFSWatcher = fsnotify.NewWatcher }()
+	newFSWatcher = func() (*systemWatcher, error) { return nil, outErr }
+	defer func() { newFSWatcher = newSystemWatcher }()
 	dir := newApp(t)
 	var warned warnings
 	w, err := newWatcher(dir, nil, warned.add)
@@ -273,10 +274,10 @@ func TestPollInterval(t *testing.T) {
 	}
 }
 
-// On kqueue every file created in a watched directory takes a file descriptor of its own. Once
-// they go past the budget, the directory is polled instead, and its new files are still reported.
+// On kqueue every file created in a watched directory takes a watch of its own. Once they go past
+// the budget, the directory is polled instead, and its new files are still reported.
 func TestWatcherPollsADirectoryThatGrowsPastTheBudget(t *testing.T) {
-	if entryCost == 0 {
+	if !watchesFiles {
 		t.Skip("a new file takes no watch of its own on this system")
 	}
 	dir := t.TempDir()
@@ -286,7 +287,7 @@ func TestWatcherPollsADirectoryThatGrowsPastTheBudget(t *testing.T) {
 	if err := w.start(); err != nil {
 		t.Fatal(err)
 	}
-	w.budget = w.used + 5
+	w.budget = w.watchCount() + 5
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- w.run(ctx) }()
@@ -301,31 +302,8 @@ func TestWatcherPollsADirectoryThatGrowsPastTheBudget(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	if w.used > w.budget || !w.polled["app"] {
-		t.Fatalf("used %d of a budget of %d, polled %v: the new files went past the budget", w.used, w.budget, w.polled)
+	if w.watchCount() > w.budget || !w.polled["app"] {
+		t.Fatalf("%d watches for a budget of %d, polled %v: the new files went past the budget", w.watchCount(), w.budget, w.polled)
 	}
 	warned.has(t, "app")
-}
-
-// kqueue reports new files by listing the directory, and fsnotify stops at the first file it
-// cannot open when the process runs out of descriptors, without a word: the files after it get no
-// event. The watcher lists a directory again once a new file shows up in it, so it finds them.
-func TestWatcherFindsFilesWithoutEvents(t *testing.T) {
-	if entryCost == 0 {
-		t.Skip("the system reports every new file")
-	}
-	dir := t.TempDir()
-	writeFile(t, dir, "app/a.ts", "export {}")
-	w := preparedWatcher(t, dir, func(msg string) { t.Log(msg) })
-	if err := w.start(); err != nil {
-		t.Fatal(err)
-	}
-	events := make(chan fsnotify.Event)
-	w.events = events // fsnotify's events go unread, as if it had stopped
-	runWatcher(t, w)
-	for _, name := range []string{"app/b.ts", "app/c.ts", "app/d.ts"} {
-		writeFile(t, dir, name, "export {}")
-	}
-	events <- fsnotify.Event{Name: filepath.Join(w.rootReal, "app", "b.ts"), Op: fsnotify.Create}
-	expectChanges(t, w, change{"app/b.ts", created}, change{"app/c.ts", created}, change{"app/d.ts", created})
 }
