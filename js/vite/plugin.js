@@ -284,6 +284,11 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
         )
       }
     },
+    writeBundle(options, bundle) {
+      // ssr.js and ssr.js.map come from one build. The output folder is kept between dev
+      // builds, so a map this build did not write is of other code.
+      if (!bundle['ssr.js.map']) fs.rmSync(path.join(options.dir, 'ssr.js.map'), { force: true })
+    },
     async generateBundle(_, bundle) {
       const chunks = Object.values(bundle).filter((output) => output.type === 'chunk')
       if (chunks.length !== 1) this.error(`the SSR bundle has ${chunks.length} files, want 1`)

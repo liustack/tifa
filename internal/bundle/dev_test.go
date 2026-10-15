@@ -424,3 +424,37 @@ func TestDevPrintsAllTheSSRWorkerPrinted(t *testing.T) {
 		}
 	}
 }
+
+// devBuild builds the dev output of root in a dev session of its own, as a start of tifa dev does.
+func devBuild(t *testing.T, root string) {
+	t.Helper()
+	d, err := NewDev(root, freePort(t), io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, buildErr := d.Build(filepath.Join(root, "public"), true)
+	if err := d.Close(); err != nil || buildErr != nil {
+		t.Fatalf("build: %v, close: %v", buildErr, err)
+	}
+}
+
+// ssr.js and its source map come from one build. A dev build without a map must not leave the
+// map of an earlier build next to its bundle: the server would read places of other code.
+func TestDevLeavesNoSourceMapOfAnEarlierBuild(t *testing.T) {
+	root := devApp(t)
+	devBuild(t, root)
+	sourceMap := filepath.Join(root, ".tifa", "dist", "ssr.js.map")
+	if _, err := os.Stat(sourceMap); err != nil {
+		t.Fatal(err)
+	}
+	writeTree(t, root, map[string]string{
+		"vite.config.ts": "import react from '@vitejs/plugin-react'\nimport tifa from './.tifa/vite.js'\n" +
+			"export default { plugins: [tifa(), react()], environments: { ssr: { build: { sourcemap: false } } } }\n",
+		"app/page/view.tsx": "const added = 1\n\nexport default function View({ name }: { name: string }) {\n" +
+			"  return <ul>{['a', 'b'].map((x) => <li key={x}>{name + x + added}</li>)}</ul>\n}\n",
+	})
+	devBuild(t, root)
+	if _, err := os.Stat(sourceMap); !os.IsNotExist(err) {
+		t.Errorf("ssr.js.map of the earlier build: %v, want none", err)
+	}
+}
