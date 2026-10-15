@@ -498,3 +498,13 @@ func TestSSRPrintsEveryWarning(t *testing.T) {
 		t.Errorf("the last require is not placed in its line:\n%.2000s", output)
 	}
 }
+
+// The build places each require it warns of in the sources in about the same time, however many
+// there are.
+func TestSSRWarnsOfManyRequiresInTime(t *testing.T) {
+	_, elapsed := manyRequires(t, 20000)
+	t.Logf("the build took %s", elapsed)
+	if elapsed > 3*time.Second {
+		t.Errorf("the build took %s", elapsed)
+	}
+}

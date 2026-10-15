@@ -344,10 +344,11 @@ async function hostLoads(chunk, vite, parse) {
   if (found.length === 0) return []
   // The copy, then the chunk, then the source.
   const maps = [sourcePositions(minified.map), sourcePositions(defined.map), chunk.map && sourcePositions(chunk.map)]
+  const starts = [0]
+  for (let i = minified.code.indexOf('\n'); i >= 0; i = minified.code.indexOf('\n', i + 1)) starts.push(i + 1)
   const places = found.map(({ at, what }) => {
-    const before = minified.code.slice(0, at).split('\n')
-    let position = { line: before.length - 1, column: before.at(-1).length }
-    position = maps[0](position.line, position.column)
+    const line = lastAtOrBefore(starts, at, (start) => start)
+    let position = maps[0](line, at - starts[line])
     position &&= maps[1](position.line, position.column)
     if (!position) return `${chunk.fileName}: ${what}`
     const source = maps[2] && maps[2](position.line, position.column)
@@ -509,13 +510,23 @@ function sourcePositions(map) {
     lines.push(segments)
   }
   return (l, c) => {
-    let best = null
-    for (const segment of lines[l] ?? []) {
-      if (segment.generated > c) break
-      best = segment.position
-    }
-    return best
+    const segments = lines[l] ?? []
+    const i = lastAtOrBefore(segments, c, (segment) => segment.generated)
+    return i < 0 ? null : segments[i].position
   }
+}
+
+// lastAtOrBefore returns the index of the last item of sorted, in the order of key, whose key is
+// at most value, or -1.
+function lastAtOrBefore(sorted, value, key) {
+  let low = 0
+  let high = sorted.length
+  while (low < high) {
+    const middle = (low + high) >>> 1
+    if (key(sorted[middle]) <= value) low = middle + 1
+    else high = middle
+  }
+  return low - 1
 }
 
 // packageName returns the npm package that file belongs to, by the last node_modules in its
