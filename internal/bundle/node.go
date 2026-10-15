@@ -10,8 +10,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/liustack/tifa/js"
 )
@@ -32,6 +34,11 @@ type Node struct {
 	next    int
 	err     error // why the process is gone, nil while it runs or before it starts
 }
+
+// closeTimeout is how long the driver may take to close once its stdin ends, when tifa closes it
+// or dies. It waits for the request it runs and its output, and after this time stops and exits,
+// so a build that never ends does not keep it, and Vite's dev server, alive.
+var closeTimeout = 5 * time.Second
 
 // NewNode prepares a driver for the application at root. Nothing runs until the first request.
 // output receives what Node and Vite print. Its builds are production builds, whatever NODE_ENV
@@ -56,7 +63,7 @@ func (n *Node) start() error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(node, "--input-type=module", "-e", js.ViteDriver)
+	cmd := exec.Command(node, "--input-type=module", "-e", js.ViteDriver, strconv.FormatInt(closeTimeout.Milliseconds(), 10))
 	cmd.Dir = n.root
 	// Vite and @vitejs/plugin-react pick the React build and the JSX transform by NODE_ENV, so
 	// tifa sets it rather than take it from the shell.

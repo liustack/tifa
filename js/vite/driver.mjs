@@ -23,12 +23,18 @@
 //
 // tifa sets NODE_ENV: production for tifa build, development for tifa dev.
 //
-// The driver ends when stdin closes.
+// tifa passes the close timeout in milliseconds as the only argument. The driver closes when
+// stdin ends: it lets the request it runs, the SSR worker and its output finish, and after the
+// close timeout stops and exits, which also ends a request that still runs. So a plugin that never
+// ends does not keep the driver and Vite's dev server alive after tifa is gone.
 import fs from 'node:fs'
 import path from 'node:path'
 import readline from 'node:readline'
 import { pathToFileURL } from 'node:url'
 import { Worker } from 'node:worker_threads'
+
+const closeTimeout = Number(process.argv[1])
+if (!(closeTimeout > 0)) throw new Error(`the close timeout ${process.argv[1]} is not a number of milliseconds`)
 
 const answer = (value) => fs.writeSync(3, JSON.stringify(value) + '\n')
 
@@ -287,16 +293,9 @@ function startSSRWorker() {
       // An unreferenced worker would let this process end before the worker does.
       worker.ref()
       worker.postMessage({ close: true })
-      // A plugin may keep the worker alive, so it gets a few seconds to end, and is then
-      // stopped, which may drop the end of its output.
-      let stopped = false
-      const timer = setTimeout(() => {
-        stopped = true
-        worker.terminate()
-      }, 5000)
+      // A plugin may keep the worker alive, then the close timeout ends the process.
       await exited
-      clearTimeout(timer)
-      if (!stopped) await printed
+      await printed
     },
   }
 }
@@ -369,6 +368,8 @@ lines.on('line', (line) => {
   })
 })
 lines.on('close', async () => {
+  // Exiting stops the worker. It may drop the end of what the worker printed.
+  setTimeout(() => process.exit(0), closeTimeout)
   await queue
   await ssrWorker?.close()
   await server?.close()
