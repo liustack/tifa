@@ -7,7 +7,7 @@ package ssr
 //	TIFA_SSR_SHOP=1 go test -run '^$' -bench 'Shop/^(compile|load|first)' -benchtime 50x ./internal/ssr
 //	TIFA_SSR_SHOP=1 go test -run ShopVMMemory -v ./internal/ssr
 //
-// render-<page> renders one of the four comparison pages in a warm VM and reports the P50 and
+// render-<page> renders one of the comparison pages in a warm VM and reports the P50 and
 // P99 of single renders. compile is the startup compile of the bundle to bytecode, load creates one
 // VM from the bytecode and reports its memory, first-render is the first render of a fresh VM.
 // TestShopVMMemory splits the memory of one VM by what is in it.

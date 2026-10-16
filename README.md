@@ -104,7 +104,7 @@ The first `tifa dev` compiles QuickJS and SQLite once, which can take a minute o
 
 ## Try the example
 
-[examples/shop](examples/shop) is a small order workbench: two shops, an order list, order details, shipping, and three kinds of 404. You need Go 1.27, Node 20.19 or 22.12 and later, and pnpm:
+[examples/shop](examples/shop) is a small order workbench: two shops, an order list, order details, a shipping form, sales stats with charts, and three kinds of 404. You need Go 1.27, Node 20.19 or 22.12 and later, and pnpm:
 
 ```sh
 cd examples/shop

@@ -15,7 +15,9 @@ type Project struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
-	Pending     int    `json:"pending"` // orders waiting to be shipped
+	// TimeZone is the IANA zone the shop trades in. Pages format the times of its orders in it.
+	TimeZone string `json:"timeZone"`
+	Pending  int    `json:"pending"` // orders waiting to be shipped
 }
 
 // GetProject returns the project id, or tifa.ErrNotFound.
@@ -43,7 +45,10 @@ func ListProjects() []Project {
 }
 
 func withStats(p projectRecord) Project {
-	return Project{ID: p.ID, Name: p.Name, Description: p.Description, Pending: orders.CountPending(p.ID)}
+	return Project{
+		ID: p.ID, Name: p.Name, Description: p.Description, TimeZone: p.TimeZone,
+		Pending: orders.CountPending(p.ID),
+	}
 }
 
 // The projects are kept in memory, standing in for the project table of a real database. They
@@ -53,6 +58,7 @@ type projectRecord struct {
 	ID          string
 	Name        string
 	Description string
+	TimeZone    string
 }
 
 var (
@@ -62,7 +68,7 @@ var (
 
 func demoProjects() []projectRecord {
 	return []projectRecord{
-		{ID: "studio", Name: "山海工作室", Description: "为日常生活，挑选一些值得留下的物件。"},
-		{ID: "weekend", Name: "周末小店", Description: "把轻松带回家。"},
+		{ID: "studio", Name: "山海工作室", Description: "为日常生活，挑选一些值得留下的物件。", TimeZone: "Asia/Shanghai"},
+		{ID: "weekend", Name: "周末小店", Description: "把轻松带回家。", TimeZone: "Asia/Shanghai"},
 	}
 }

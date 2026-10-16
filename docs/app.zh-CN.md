@@ -1,5 +1,5 @@
 ---
-summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、route.go 与 route.tsx、Layout、hooks.go、404、SSR 与缓存开关、怎么用 Intl 格式化才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数，以及数据、入参和结果的 JSON 规则'
+summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、route.go 与 route.tsx、Layout、hooks.go、404、SSR 与缓存开关、服务端渲染时有什么以及哪些库在那里渲染得不一样、怎么用 Intl 格式化才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数，以及数据、入参和结果的 JSON 规则'
 read_when:
   - 新建一个 tifa 应用，或给应用加页面、Layout、API 路由
   - 构建报 Ctx 用法或 Load 返回类型的错误，想知道怎么改
@@ -8,6 +8,7 @@ read_when:
   - 给 Load、Layout 函数、方法函数或 OnRequest 写 Go 测试
   - 给应用加 CSS、Tailwind CSS 或 shadcn/ui
   - 在页面里格式化数字或日期，或者 tifa dev 对某个 Intl 调用报警
+  - 页面在服务端渲染失败或水合不一致，想知道服务端有哪些浏览器 API 和库的能力
 ---
 
 [English](app.md) · 简体中文
@@ -35,7 +36,9 @@ myapp/
           order.go  order_test.go   订单领域：Order、ListOrders、GetOrder、ShipOrder
           order+/
             route.go  route.tsx     页面 /projects/{project}/orders/{order}
-            items.tsx  actions.client.tsx
+            items.tsx  ship-form.tsx
+        stats/
+          route.go  route.tsx       页面 /projects/{project}/stats
 ```
 
 - 代码按领域分组，一个领域就是 `app/` 下的一个目录：它的类型、存储和规则和页面放在一起，既有列表又有单条页面时放在列表那一层。页面 import 它要展示的领域包。根包只放钩子和整个应用共享的资源。不设一个装着所有表的 `models/` 或 `db/` 包。见 [structure.zh-CN.md](structure.zh-CN.md)。
@@ -290,6 +293,34 @@ const LayoutSSR = false // 本目录的 Layout，默认 true
 - `Cache = true`：渲染结果按构建版本、URL 和数据缓存，缓存大小是 `cache.size`（见 [config.zh-CN.md](config.zh-CN.md)），数据没变时直接返回 HTML。组件渲染时不能读 `Date.now()`、`Math.random()` 这类每次不同的值，这也是 hydration 的要求。
 - 页面响应都带 ETag，数据没变的第二次请求带 `If-None-Match` 时答 304，和 `Cache` 无关。
 
+## 服务端渲染时有什么
+
+页面在服务端由 QuickJS 虚拟机渲染，不是 Node，也不是浏览器。虚拟机里有 JavaScript 语言本身（包括 `Proxy`、`WeakRef`、`FinalizationRegistry` 和 `new Function`），另外还有：
+
+- `URL`、`URLSearchParams`、`TextEncoder`、`TextDecoder`、`AbortController`、`Headers`、`Response` 和 `queueMicrotask`。`TextDecoder` 只认 UTF-8，别的编码（比如 `new TextDecoder('latin1')`）会抛 `RangeError`。
+- `Intl` 和各个 `toLocale*` 方法，见[服务端渲染里的 Intl](#服务端渲染里的-intl)。
+- `console`，有 `log`、`info`、`debug`、`warn`、`error` 和 `assert`。前四个什么也不输出。`error` 和不成立的 `assert` 会抛错，这次渲染失败，错误信息就是它们的参数。其他方法（比如 `console.time`、`console.table`）没有，调用会抛 `TypeError`。
+- `Date.now()` 和 `Math.random()`。能用，但它们的值不能进 HTML，见 [SSR 与缓存](#ssr-与缓存)。
+
+没有的：
+
+- 定时器：`setTimeout`、`setInterval`、`requestAnimationFrame`、`requestIdleCallback`。微任务跑完渲染就结束，不会等时间。
+- `crypto`、`performance`、`structuredClone`、`atob` 和 `btoa`。
+- 浏览器的东西：`window`、`document`、`navigator`、`self`、`location`、`localStorage`、`matchMedia`、`ResizeObserver`、`Event`、`Blob`、`FormData` 等。
+- I/O：`fetch`、`XMLHttpRequest`、`WebSocket`、`require`、`process`、`Buffer`。构建时会替换包里的 `process.env.NODE_ENV`，只读它的代码没问题。
+
+React 在服务端不执行 effect，所以只在 `useEffect`、`useLayoutEffect` 和事件处理里用到这些的代码没问题。渲染过程中用到会让这次渲染失败，模块顶层用到会让虚拟机加载不起来。先用 `typeof` 判断，或者挪进 effect，或者把组件放进 `.client.tsx`。
+
+### 在服务端渲染得不一样的库
+
+有些库把一部分工作放在 effect 里，服务端渲染出的内容比浏览器稍后显示的少。照下面这样写，页面仍然能无错水合：
+
+- react-spring：`useSpring` 不传 `from`，`useTransition` 传 `initial: null`。这样服务端和浏览器的第一次渲染都直接显示最终值，之后的变化才有动画。
+- react-hook-form：字段用 `Controller` 写。受控字段的值由服务端写进 HTML，`register` 的字段要等水合后才有值。提交按钮在水合前保持禁用（比如用 `useSyncExternalStore(() => () => {}, () => true, () => false)` 判断），免得水合前按回车把表单当普通 HTML 表单提交。
+- Radix Select（也就是 shadcn 的 Select）：选中项的文字要等水合后才搬进触发按钮。字段有值时，把这段文字作为 `SelectValue` 的 children 传进去，否则服务端渲染出一个空按钮。没有值时照常显示占位文字。
+- recharts 3 在服务端只渲染一个空的外层容器，水合后才画图。给图表区域固定高度，页面就不会跳动，关键数字另外用文字显示。
+- 文本排序：服务端的 `localeCompare` 按码点比较，浏览器按语言规则，渲染时排序的文本顺序可能不同。在 Go 里排好，或者用不依赖语言的比较。
+
 ## 服务端渲染里的 Intl
 
 页面在服务端渲染时可以格式化数字、日期和复数，支持 Chromium 有的全部语言（Unicode CLDR 48.2）。能用的有：
@@ -297,7 +328,7 @@ const LayoutSSR = false // 本目录的 Layout，默认 true
 - `Intl.NumberFormat`、`Intl.DateTimeFormat`、`Intl.PluralRules`、`Intl.getCanonicalLocales`，以及各构造器的 `supportedLocalesOf`。
 - `Date` 的 `toLocaleString`、`toLocaleDateString`、`toLocaleTimeString`，`Number` 和 `BigInt` 的 `toLocaleString`。
 
-服务端没有 `Intl.Collator`、`Intl.Segmenter`、`Intl.RelativeTimeFormat`、`Intl.ListFormat`、`Intl.DisplayNames`、`Intl.DurationFormat`、`Intl.supportedValuesOf` 和 `formatRange`，渲染时调用它们会失败。`localeCompare` 按码点比较，不按语言。日期用公历（th 用佛历，fa 等少数语言用波斯历），用 `-u-ca-` 或 `calendar` 选项要的其他历法（比如 japanese）会退回这个语言的默认历法。`roundingIncrement` 和 `roundingPriority` 只支持默认值。
+服务端没有 `Intl.Collator`、`Intl.Segmenter`、`Intl.RelativeTimeFormat`、`Intl.ListFormat`、`Intl.DisplayNames`、`Intl.DurationFormat`、`Intl.supportedValuesOf` 和 `formatRange`，渲染时调用它们会失败。`localeCompare` 按码点比较，不按语言。日期用公历（th 用佛历，fa 等少数语言用波斯历），用 `-u-ca-` 或 `calendar` 选项要的其他历法（比如 japanese）会退回这个语言的默认历法。`roundingIncrement` 和 `roundingPriority` 只支持默认值。`maximumFractionDigits` 小于货币的默认小数位时，必须同时给 `minimumFractionDigits`，否则抛 `RangeError`：浏览器会把最小值一起调低，服务端按的是旧规则。写成 `{ style: 'currency', currency: 'CNY', minimumFractionDigits: 0, maximumFractionDigits: 0 }`，不要只给最大值。
 
 不传 locale 时服务端按 `en-US` 格式化，不传 `timeZone` 时按 `UTC`，和机器的语言、时区无关。服务端 `Date` 的本地时间也恒为 UTC：`getTimezoneOffset()` 是 0，`new Date(2026, 0, 1)`、`getHours`、`toString` 都按 UTC 算。应用的 Go 代码不受影响：进程保持启动时的时区，`time.Local`、日志和 SQLite 照常用这个时区，和普通 Go 程序一样。
 
@@ -350,7 +381,7 @@ export default function ReceiptPage() {
 
 ### 代价
 
-一个 VM 在它的渲染第一次用到 Intl 之前，只带 Intl 的占位，约 10 KB。第一次用到时这个 VM 再多约 30 到 45 KB。示例商店的一个 VM 约 2.2 MB，这部分不到它的 2%。tifa dev 下每个 VM 一开始就付这份代价，因为报警需要先装好 Intl。每种语言在每个进程里只读进内存一次，100 到 180 KB，另外第一次用到任何语言时还要约 1 MB 所有语言共用的数据。语言数据让程序大约增加 1.7 MB，生成的 `main.go` 嵌入的时区数据库再增加约 450 KB。语言数据带有要随程序附带的许可声明，见[要随程序附带的声明](build.zh-CN.md#要随程序附带的声明)。
+一个 VM 在它的渲染第一次用到 Intl 之前，只带 Intl 的占位，约 10 KB。第一次用到时这个 VM 再多约 30 到 45 KB。示例商店的一个 VM 约 11 MB，这部分不到它的 1%。tifa dev 下每个 VM 一开始就付这份代价，因为报警需要先装好 Intl。每种语言在每个进程里只读进内存一次，100 到 180 KB，另外第一次用到任何语言时还要约 1 MB 所有语言共用的数据。语言数据让程序大约增加 1.7 MB，生成的 `main.go` 嵌入的时区数据库再增加约 450 KB。语言数据带有要随程序附带的许可声明，见[要随程序附带的声明](build.zh-CN.md#要随程序附带的声明)。
 
 ## 样式
 

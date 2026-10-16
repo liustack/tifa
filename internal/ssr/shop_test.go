@@ -33,16 +33,19 @@ type shopPage struct {
 	want, forbidden string
 }
 
-// shopRoutes are the four comparison pages of the prototype baseline, a list and a detail page
-// of each project, with the route IDs of their match chains.
-var shopRoutes = []struct{ url, routes string }{
-	{"/projects/studio", "app/layout,app/projects/project+/layout,app/projects/project+/route"},
-	{"/projects/weekend", "app/layout,app/projects/project+/layout,app/projects/project+/route"},
-	{"/projects/studio/orders/SH-1042", "app/layout,app/projects/project+/layout,app/projects/project+/orders/order+/route"},
-	{"/projects/weekend/orders/WK-0201", "app/layout,app/projects/project+/layout,app/projects/project+/orders/order+/route"},
+// shopRoutes are the comparison pages: the four of the prototype baseline, a list and a detail
+// page of each project, then the stats page of each project. Each comes with the route IDs of its
+// match chain, a text its HTML must have and one of the other project that it must not have.
+var shopRoutes = []struct{ url, routes, want, forbidden string }{
+	{"/projects/studio", "app/layout,app/projects/project+/layout,app/projects/project+/route", "SH-1042", "WK-0201"},
+	{"/projects/weekend", "app/layout,app/projects/project+/layout,app/projects/project+/route", "WK-0201", "SH-1042"},
+	{"/projects/studio/orders/SH-1042", "app/layout,app/projects/project+/layout,app/projects/project+/orders/order+/route", "SH-1042", "WK-0201"},
+	{"/projects/weekend/orders/WK-0201", "app/layout,app/projects/project+/layout,app/projects/project+/orders/order+/route", "WK-0201", "SH-1042"},
+	{"/projects/studio/stats", "app/layout,app/projects/project+/layout,app/projects/project+/stats/route", "¥14,134.00", "¥1,689.00"},
+	{"/projects/weekend/stats", "app/layout,app/projects/project+/layout,app/projects/project+/stats/route", "¥1,689.00", "¥14,134.00"},
 }
 
-// shopBundle returns the shop's SSR bundle and its four comparison pages. The data of each
+// shopBundle returns the shop's SSR bundle and its comparison pages. The data of each
 // page is what the shop's own program injects: the test runs bin/shop and asks it for the
 // navigation data of each page, which has the same form as the injected data.
 func shopBundle(t testing.TB) (string, []shopPage) {
@@ -80,11 +83,7 @@ func shopBundle(t testing.TB) (string, []shopPage) {
 		if err != nil || res.StatusCode != 200 {
 			t.Fatalf("data of %s: %d %v %s (rebuild the shop when its build.json changed)", r.url, res.StatusCode, err, body)
 		}
-		want, forbidden := "SH-1042", "WK-0201"
-		if strings.Contains(r.url, "/weekend") {
-			want, forbidden = forbidden, want
-		}
-		pages = append(pages, shopPage{Input{BuildID: built.BuildID, URL: r.url, Data: body}, want, forbidden})
+		pages = append(pages, shopPage{Input{BuildID: built.BuildID, URL: r.url, Data: body}, r.want, r.forbidden})
 	}
 	return string(source), pages
 }
@@ -148,7 +147,7 @@ func TestShopRendersReadyData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, text := range []string{"SH-1042", "林夏", "晨间手冲壶", "山海工作室", "2 单待发货", "data-tsr-stream-part", "正在准备操作"} {
+	for _, text := range []string{"SH-1042", "林夏", "晨间手冲壶", ">山海工作室</h1>", "2</span> 单待发货", "data-tsr-stream-part", "确认发货"} {
 		if !strings.Contains(html, text) {
 			t.Errorf("missing %q", text)
 		}
@@ -182,14 +181,25 @@ func TestShopEscapesScriptClosingTags(t *testing.T) {
 	}
 }
 
-// Same method as the prototype baseline: one reused VM, 512 warm renders,
-// then 2,048 timed renders over the four pages. Timing covers the whole Render.
+// slowestWarmRender is the most a warm render of a shop page may take in the default run. The
+// shop's slowest page takes under 200 ms on a laptop, so this catches a render that became many
+// times slower, not small changes: measure those with TIFA_SSR_MEASURE=1.
+const slowestWarmRender = time.Second
+
+// TestShopWarmLatency renders the comparison pages in one reused VM, timing the whole Render. By
+// default it renders each page a few times, checks the HTML and that no warm render is slower than
+// slowestWarmRender. With TIFA_SSR_MEASURE=1 it uses the method of the prototype baseline, 512
+// warm renders then 2,048 timed ones, for numbers worth comparing.
 func TestShopWarmLatency(t *testing.T) {
 	source, pages := shopBundle(t)
+	warm, timed := 2*len(pages), 8*len(pages)
+	if os.Getenv("TIFA_SSR_MEASURE") != "" {
+		warm, timed = 512, 2048
+	}
 	start := time.Now()
 	p := newTestPool(t, source, shopConfig(1))
 	t.Logf("startup (compile and load one VM): %s, bytecode %d bytes", time.Since(start), len(p.bytecode))
-	for i := range 512 {
+	for i := range warm {
 		page := pages[i%len(pages)]
 		html, err := p.Render(context.Background(), page.input)
 		if err != nil {
@@ -197,16 +207,20 @@ func TestShopWarmLatency(t *testing.T) {
 		}
 		page.check(t, html)
 	}
-	latencies := make([]float64, 2048)
+	latencies := make([]float64, timed)
 	for i := range latencies {
 		page := pages[i%len(pages)]
 		begin := time.Now()
 		html, err := p.Render(context.Background(), page.input)
-		latencies[i] = float64(time.Since(begin)) / 1e6
+		took := time.Since(begin)
+		latencies[i] = float64(took) / 1e6
 		if err != nil {
 			t.Fatal(err)
 		}
 		page.check(t, html)
+		if took > slowestWarmRender {
+			t.Errorf("warm render of %s took %s, more than %s", page.input.URL, took, slowestWarmRender)
+		}
 	}
 	slices.Sort(latencies)
 	at := func(q float64) float64 { return latencies[int(math.Ceil(q*float64(len(latencies))))-1] }

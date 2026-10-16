@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"errors"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
@@ -58,9 +59,30 @@ func TestShopApp(t *testing.T) {
 	if status != 200 || header.Get("X-Tifa-Render") != "vm" {
 		t.Errorf("order page: %d %v", status, header)
 	}
-	for _, want := range []string{"<title>SH-1042 · 山海工作台</title>", "林夏", "晨间手冲壶", "¥428.00", "山海工作室", "2 单待发货", sidebar, "正在准备操作"} {
+	for _, want := range []string{"<title>SH-1042 · 山海工作台</title>", "林夏", "晨间手冲壶", "¥428.00", ">山海工作室</h1>", "2</span> 单待发货", sidebar, "确认发货", "选择快递公司"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("order page lacks %s", want)
+		}
+	}
+	// The list is a table that pages in the browser: the rendered page holds the ten newest
+	// orders and the totals, with money and times in Chinese. The data written into the page
+	// after it holds all 42.
+	_, _, list := get(t, base+"/projects/studio")
+	rendered, _, _ := strings.Cut(list[strings.Index(list, `id="tifa-root"`):], "<script")
+	for _, want := range []string{">SH-1042</a>", ">SH-1033</a>", "¥14,134.00", "10月13日 14:32"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("order list lacks %s", want)
+		}
+	}
+	if strings.Contains(rendered, "SH-1032") || !strings.Contains(list, `\"id\":\"SH-1001\"`) {
+		t.Errorf("the order list renders other than its first page, or lacks the data of the others:\n%s", list)
+	}
+	// The stats page renders its key numbers. The charts draw in the browser only, so the HTML has
+	// their empty wrappers of a fixed size.
+	status, _, stats := get(t, base+"/projects/studio/stats")
+	for _, want := range []string{"<title>销售统计 · 山海工作台</title>", "销售额", "¥14,134.00", "95.2%", "热销商品", `class="recharts-wrapper"`} {
+		if status != 200 || !strings.Contains(stats, want) {
+			t.Errorf("stats page: %d lacks %s", status, want)
 		}
 	}
 	// Same data, same ETag: 304. The order page sets Cache = true: the next request skips the VM.
@@ -77,34 +99,47 @@ func TestShopApp(t *testing.T) {
 		path, want  string
 		withSidebar bool
 	}{
-		{"/projects/studio/orders/WK-0201", "没有找到这个订单</h3>", true},
+		{"/projects/studio/orders/WK-0201", ">没有找到这个订单</div>", true},
 		{"/projects/nope", "没有找到这个页面", true},
+		{"/projects/nope/stats", "没有找到这个页面", true},
 		{"/nowhere", "没有找到这个页面", false},
 	} {
 		status, _, body := get(t, base+tc.path)
 		// The project Layout shows the project name in its heading.
-		project := strings.Contains(body, "<h1>山海工作室</h1>")
+		project := strings.Contains(body, ">山海工作室</h1>")
 		if status != 404 || !strings.Contains(body, tc.want) || !strings.Contains(body, "山海工作台</title>") || strings.Contains(body, sidebar) != tc.withSidebar || project != (tc.path == "/projects/studio/orders/WK-0201") {
 			t.Errorf("%s: %d, want 404 with %q, sidebar %v\n%s", tc.path, status, tc.want, tc.withSidebar, body)
 		}
 	}
 
-	// Shipping: only from a page of this host, once.
-	if status := post(t, base+"/projects/studio/orders/SH-1042", ""); status != 403 {
+	// Shipping: only from a page of this host, with a carrier and a tracking number, once.
+	order := base + "/projects/studio/orders/SH-1042"
+	ship := `{"carrier":"SF","trackingNo":"SF1234567890"}`
+	if status, _ := send(t, "POST", order, "", ship); status != 403 {
 		t.Errorf("POST without Origin: %d", status)
 	}
-	if status := post(t, base+"/projects/studio/orders/SH-1042", "http://other.example"); status != 403 {
+	if status, _ := send(t, "POST", order, "http://other.example", ship); status != 403 {
 		t.Errorf("POST from another site: %d", status)
 	}
-	if status := post(t, base+"/projects/studio/orders/SH-1042", base); status != 200 {
-		t.Errorf("ship: %d", status)
+	if status, body := send(t, "POST", order, base, `{"carrier":"","trackingNo":"SF12"}`); status != 422 || !strings.Contains(body, `"carrier":"请选择快递公司"`) || !strings.Contains(body, `"trackingNo":"运单号是 8 到 20 位字母或数字"`) {
+		t.Errorf("ship without a carrier: %d %s", status, body)
 	}
-	if status := post(t, base+"/projects/studio/orders/SH-1042", base); status != 409 {
+	// The recipient can change until the order ships.
+	if status, body := send(t, "PATCH", order, base, `{"customer":"林夏","phone":"138 0013 8000","address":"上海市徐汇区武康路 99 号"}`); status != 200 || !strings.Contains(body, `"phone":"13800138000"`) {
+		t.Errorf("change the recipient: %d %s", status, body)
+	}
+	if status, body := send(t, "POST", order, base, ship); status != 200 || !strings.Contains(body, `"carrierName":"顺丰速运"`) {
+		t.Errorf("ship: %d %s", status, body)
+	}
+	if status, _ := send(t, "POST", order, base, ship); status != 409 {
 		t.Errorf("ship twice: %d", status)
+	}
+	if status, _ := send(t, "PATCH", order, base, `{"customer":"林夏","phone":"13800138000","address":"上海市"}`); status != 409 {
+		t.Errorf("change the recipient of a shipped order: %d", status)
 	}
 	// The navigation data of the list now carries the new totals, in one response for all routes.
 	status, _, body = get(t, base+"/projects/studio", "X-Tifa-Route", "app/layout,app/projects/project+/layout,app/projects/project+/route", "X-Tifa-Build", built.BuildID)
-	for _, want := range []string{`"app/projects/project+/layout":{"status":200,"data":{"id":"studio","name":"山海工作室"`, `"pending":1`, `"shipped":3`, `"app/layout":{"status":200`} {
+	for _, want := range []string{`"app/projects/project+/layout":{"status":200,"data":{"id":"studio","name":"山海工作室"`, `"pending":1`, `"shipped":41`, `"app/layout":{"status":200`} {
 		if status != 200 || !strings.Contains(body, want) {
 			t.Errorf("list data after shipping: %d lacks %s\n%s", status, want, body)
 		}
@@ -114,21 +149,28 @@ func TestShopApp(t *testing.T) {
 	}
 }
 
-func post(t *testing.T, url, origin string) int {
+// send makes a request with a JSON body from origin, or with no Origin when it is empty, and
+// returns the status and the body of the answer.
+func send(t *testing.T, method, url, origin, body string) (int, string) {
 	t.Helper()
-	req, err := http.NewRequest("POST", url, nil)
+	req, err := http.NewRequest(method, url, strings.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
+	req.Header.Set("Content-Type", "application/json")
 	if origin != "" {
 		req.Header.Set("Origin", origin)
 	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("POST %s: %v", url, err)
+		t.Fatalf("%s %s: %v", method, url, err)
 	}
-	res.Body.Close()
-	return res.StatusCode
+	defer res.Body.Close()
+	b, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, url, err)
+	}
+	return res.StatusCode, string(b)
 }
 
 // Static analysis does not run user code: a package of the shop whose init() writes a file
