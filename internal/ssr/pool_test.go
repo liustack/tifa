@@ -190,6 +190,40 @@ func TestFailedVMIsReplaced(t *testing.T) {
 	}
 }
 
+// A Go panic during a render goes on up to the caller, and the VM it left in an unknown state
+// is replaced, so the pool keeps its size.
+func TestPanickedVMIsReplaced(t *testing.T) {
+	defer swap(&loadVM, func(p *Pool) (*quickjs.VM, error) {
+		vm, err := openVM(p)
+		if err != nil {
+			return nil, err
+		}
+		return vm, vm.RegisterFunc("goPanic", func() { panic("go panic in a render") }, false)
+	})()
+	p := newTestPool(t, testSource(t), testConfig(1))
+	func() {
+		defer func() {
+			if r := recover(); r != "go panic in a render" {
+				t.Errorf("recovered %v, want the panic of the render", r)
+			}
+		}()
+		_, _ = p.Render(context.Background(), input("gopanic", ""))
+		t.Error("Render returned")
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	html, err := p.Render(ctx, input("ok", ""))
+	if err != nil {
+		t.Fatalf("the next render: %v", err)
+	}
+	if !strings.Contains(html, `data-renders="1" data-dirty="false"`) {
+		t.Fatalf("the VM of the panic was reused: %s", html)
+	}
+	if s := p.stats(); s.created != 2 || s.closed != 1 {
+		t.Fatalf("want one VM replaced, got %+v", s)
+	}
+}
+
 func TestTimeoutIsDeadlineExceeded(t *testing.T) {
 	cfg := testConfig(1)
 	cfg.Timeout = 50 * time.Millisecond

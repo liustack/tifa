@@ -26,6 +26,10 @@ globalThis.startRender = (json) => {
       return
     case 'pending':
       return
+    case 'gopanic':
+      // A Go function the test registers panics in the middle of the render.
+      globalThis.goPanic()
+      return
     case 'oom': {
       // Doubling keeps the failing allocation large, so QuickJS still has room
       // to build its "out of memory" error instead of throwing null.

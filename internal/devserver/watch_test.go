@@ -283,6 +283,26 @@ func (w *warnings) has(t *testing.T, substr string) {
 	t.Fatalf("no warning mentions %q, got %q", substr, w.msgs)
 }
 
+// wait waits up to 2 seconds for a warning that mentions substr. A warning about a new entry
+// can come after the changes of the same moment: where the system watch only says that the
+// directory changed, as kqueue does, the entry is found when the directory is listed, which
+// happens at most once per listing interval.
+func (w *warnings) wait(t *testing.T, substr string) {
+	t.Helper()
+	for deadline := time.Now().Add(2 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		w.mu.Lock()
+		found := slices.ContainsFunc(w.msgs, func(m string) bool { return strings.Contains(m, substr) })
+		msgs := slices.Clone(w.msgs)
+		w.mu.Unlock()
+		if found {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no warning mentions %q within 2s, got %q", substr, msgs)
+		}
+	}
+}
+
 func symlink(t *testing.T, target, link string) {
 	t.Helper()
 	if err := os.Symlink(target, link); err != nil {
@@ -307,7 +327,7 @@ func TestWatcherSkipsSymlinkCycles(t *testing.T) {
 	symlink(t, filepath.Join(dir, "app"), filepath.Join(dir, "app/list/up"))
 	writeFile(t, dir, "app/store.go", "package app // edited")
 	expectBatch(t, dir, w, change{"app/store.go", modified})
-	warned.has(t, "app/list/up")
+	warned.wait(t, "app/list/up")
 }
 
 // Two links to one directory are watched once.

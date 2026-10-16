@@ -31,7 +31,7 @@ var ErrClosed = errors.New("ssr: pool closed")
 
 // Pool holds cfg.VMs prewarmed VMs. A VM runs one render at a time and stays
 // in the pool for the next one. A VM whose render fails for any reason (a JS
-// exception, the time budget, the memory limit) leaves the pool, and a
+// exception, the time budget, the memory limit, a Go panic) leaves the pool, and a
 // background goroutine replaces it with a fresh VM loaded from the same bytecode.
 type Pool struct {
 	bytecode []byte
@@ -137,25 +137,34 @@ func (p *Pool) Render(ctx context.Context, in Input) (string, error) {
 		p.idle <- vm
 		return "", err
 	}
+	// The VM goes back to the pool only when the render left it in a known state. Otherwise it
+	// is replaced, also when a Go panic, from the engine or a Go function the bundle calls,
+	// leaves Render: the panic goes on up and the pool keeps its size.
+	keep := false
+	defer func() {
+		if keep {
+			p.idle <- vm
+		} else {
+			p.retire(vm)
+		}
+	}()
 	if p.acquired != nil {
 		p.acquired()
 	}
 	html, err := render(vm, input, p.timeout)
 	var redirect *RedirectError
 	if err != nil && !errors.As(err, &redirect) {
-		p.retire(vm)
 		return "", p.sources.explain(err, false)
 	}
 	if p.dev {
 		// A warning must not fail the page. A VM that cannot list them is replaced.
 		if warnErr := p.warnIntl(vm); warnErr != nil {
 			logf("tifa: ssr: read the Intl warnings: %v", warnErr)
-			p.retire(vm)
 			return html, err
 		}
 	}
 	// A redirect is an answer, not a failure: the VM goes back to the pool.
-	p.idle <- vm
+	keep = true
 	return html, err
 }
 

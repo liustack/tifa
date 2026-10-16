@@ -52,7 +52,7 @@
 ```go
 // app/projects/project+/orders/order+/route.go  →  /projects/{project}/orders/{order}
 func Load(c *tifa.Ctx) (orders.Order, error) {
-	return orders.Get(c.Param("project"), c.Param("order"))
+	return orders.GetOrder(c.Param("project"), c.Param("order"))
 }
 ```
 
@@ -88,7 +88,7 @@ go tool tifa build   # 得到 bin/<应用名>，前端产物已经嵌在里面
 
 ## 新建应用
 
-需要 Go 1.27 和 pnpm（npm 也行）：
+需要 Go 1.27、Node 20.19 或 22.12 及以上（Vite 8 的要求）和 pnpm（npm 也行）。Node 只用来构建前端，部署出去的程序不需要它。`tifa dev` 暂不支持 Windows，请用 WSL。
 
 ```sh
 go run github.com/liustack/tifa/cmd/tifa@latest new myapp
@@ -98,11 +98,13 @@ pnpm install
 go tool tifa dev     # http://127.0.0.1:9527
 ```
 
+第一次 `tifa dev` 要编译一遍 QuickJS 和 SQLite，可能要一两分钟，之后的构建用 Go 的构建缓存。
+
 `tifa new` 写好一个首页：Go 的 `Load`，页面在浏览器里调用的 `POST`，以及测这两个函数的测试。模块路径默认是目录名，也可以传 `--module example.com/myapp`。
 
 ## 跑一下示例
 
-[examples/shop](examples/shop/README.zh-CN.md) 是一个小店主的订单工作台：两家店铺、订单列表、订单详情、发货和三种 404。需要 Go 1.27 和 pnpm：
+[examples/shop](examples/shop/README.zh-CN.md) 是一个小店主的订单工作台：两家店铺、订单列表、订单详情、发货和三种 404。需要 Go 1.27、Node 20.19 或 22.12 及以上，以及 pnpm：
 
 ```sh
 cd examples/shop

@@ -25,9 +25,10 @@ var testHookRetry func()
 // to wait until the app listens again. down reports why no app will come, such as a failed
 // build with no older app to fall back on: the proxy then answers at once. down may be nil.
 //
-// version returns the version of the app now running. Each answer carries it in a Server-Timing
-// header, which the page reads from the Performance API to learn which build it came from.
-func proxy(appAddr string, wait time.Duration, down func() error, version func() string) http.Handler {
+// timing returns the Server-Timing value that names the build now running (see devTiming). Each
+// answer carries it, and the page reads it from the Performance API to learn which build it came
+// from.
+func proxy(appAddr string, wait time.Duration, down func() error, timing func() string) http.Handler {
 	target := &url.URL{Scheme: "http", Host: appAddr}
 	return &httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
@@ -35,13 +36,13 @@ func proxy(appAddr string, wait time.Duration, down func() error, version func()
 			r.Out.Host = r.In.Host
 			r.SetXForwarded()
 		},
-		Transport:     &retryTransport{base: http.DefaultTransport.(*http.Transport).Clone(), addr: appAddr, wait: wait, down: down, version: version},
+		Transport:     &retryTransport{base: http.DefaultTransport.(*http.Transport).Clone(), addr: appAddr, wait: wait, down: down, timing: timing},
 		FlushInterval: -1, // pass streamed responses, such as the app's own SSE, through right away
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			if errors.Is(err, context.Canceled) {
 				return // the browser went away
 			}
-			w.Header().Set("Server-Timing", versionTiming(version()))
+			w.Header().Set("Server-Timing", timing())
 			unavailable(w, http.StatusBadGateway, err)
 		},
 	}
@@ -78,27 +79,30 @@ func unavailable(w http.ResponseWriter, status int, err error) {
 <title>tifa dev</title>
 <script src="%s"></script>
 <pre style="white-space: pre-wrap">%s</pre>
-`, clientPath, html.EscapeString(err.Error()))
+`, clientPath, html.EscapeString(explain(err)))
 }
 
-// versionTiming is the Server-Timing value that names a version.
-func versionTiming(version string) string { return `tifa-dev;desc="` + version + `"` }
+// devTiming is the Server-Timing value that names a build: its version and the count of builds
+// served (see status).
+func devTiming(version string, render int) string {
+	return fmt.Sprintf(`tifa-dev;desc="%s", tifa-dev-render;desc="%d"`, version, render)
+}
 
 type retryTransport struct {
-	base    http.RoundTripper
-	addr    string // where the app listens
-	wait    time.Duration
-	down    func() error
-	version func() string
+	base   http.RoundTripper
+	addr   string // where the app listens
+	wait   time.Duration
+	down   func() error
+	timing func() string
 }
 
-// send makes one attempt and tags a response with the version of the app that was running when
-// the attempt started. Only that app listens: the next one starts after it stopped.
+// send makes one attempt and tags a response with the build that was running when the attempt
+// started. Only that app listens: the next one starts after it stopped.
 func (t *retryTransport) send(req *http.Request) (*http.Response, error) {
-	v := t.version()
+	v := t.timing()
 	resp, err := t.base.RoundTrip(req)
 	if err == nil {
-		resp.Header.Set("Server-Timing", versionTiming(v))
+		resp.Header.Set("Server-Timing", v)
 	}
 	return resp, err
 }

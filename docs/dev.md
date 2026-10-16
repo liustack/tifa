@@ -14,7 +14,9 @@ English · [简体中文](dev.zh-CN.md)
 tifa dev [--dir app-root] [--addr 127.0.0.1:9527]
 ```
 
-On start it prints `tifa dev: serving http://<address>`, then runs a full build (the same steps as [tifa build](build.md)) and starts the app. The browser connects to `--addr` only. tifa dev forwards page and data requests to the app, and requests under `/__tifa/vite/`, the browser modules and Vite's HMR websocket, to Vite's dev server. While the app restarts or loads a new SSR bundle, page requests wait for it. Ctrl-C or SIGTERM stops the app, Vite and tifa dev. A Vite build or plugin that does not end gets 5 seconds, then Vite is stopped. If tifa dev itself is killed, Vite stops on its own within the same 5 seconds.
+On start it prints `tifa dev: serving http://<address>`, then runs a full build (the same steps as [tifa build](build.md), and the first one of an app takes a minute or two, see [Log](#log)) and starts the app. The browser connects to `--addr` only. tifa dev forwards page and data requests to the app, and requests under `/__tifa/vite/`, the browser modules and Vite's HMR websocket, to Vite's dev server. While the app restarts or loads a new SSR bundle, page requests wait for it. Ctrl-C or SIGTERM stops the app, Vite and tifa dev. A Vite build or plugin that does not end gets 5 seconds, then Vite is stopped. If tifa dev itself is killed, Vite stops on its own within the same 5 seconds.
+
+tifa dev does not run on Windows yet. Use WSL.
 
 ## Vite
 
@@ -56,7 +58,18 @@ tifa dev: 07:35:36 bundle done in 90ms
 tifa dev: 07:35:36 ready in 260ms
 ```
 
-The step names are `static analysis`, `code generation`, `bundle` and `go build`. After static analysis there is also a `route manifest changed` or `route manifest unchanged` line. Vite's warnings and errors are printed as `tifa dev:` lines too. The app's own output is printed as usual.
+A step that runs longer than 5 seconds says so, and again every 15 seconds. The first go build of an app compiles QuickJS, SQLite and the other dependencies, which can take a minute or two, and later builds use Go's build cache. The first ready line also names the address to open:
+
+```text
+tifa dev: 07:35:41 go build still running (5s). The first build compiles QuickJS and the other dependencies, later builds use Go's build cache
+tifa dev: 07:35:56 go build still running (20s)
+tifa dev: 07:36:30 go build done in 54.1s
+tifa dev: 07:36:30 ready in 58.3s, open http://127.0.0.1:9527
+```
+
+A page the browser opens during the first build (a GET or HEAD that accepts `text/html`) waits 2 seconds for it. If the build is still running, the page answers 503 and says tifa dev is building the app, and reloads on its own once the app runs. Other requests, such as a script calling an API, wait for the app as they do while it restarts.
+
+The step names are `static analysis`, `code generation`, `bundle` and `go build`. After static analysis there is also a `route manifest changed` or `route manifest unchanged` line. Vite's warnings and errors are printed as `tifa dev:` lines too. The app's own output is printed as usual, without the `tifa: listening on` line of a built program, since the app listens on a port only tifa dev talks to. Its stderr passes through tifa dev, which keeps the last lines for the overlay (see below), so a logger that colors its output only on a terminal writes plain text there.
 
 When a render calls Intl or a `toLocale*` method without a locale, or for a date without a `timeZone`, the app logs a `tifa: ssr:` warning that names the place in your sources, once per place. The page renders as usual. See [Warnings in tifa dev](app.md#warnings-in-tifa-dev).
 
@@ -66,10 +79,16 @@ When a render calls Intl or a `toLocale*` method without a locale, or for a date
 - Once fixed, the overlay goes away. Pages reload when the fix needed a go build, and stay otherwise. Steps left unfinished by the failed build are folded into the next rebuild.
 - A module that fails to compile in the browser shows Vite's own overlay.
 - If the very first build fails, there is no old version to serve. Every request gets 502 with the original error, and things recover on their own once fixed.
-- If the app exits right after starting, the overlay title is `The app did not start` and the body shows why the app exited.
+- If the app exits right after starting, or does not listen within 30 seconds, the overlay title is `The app did not start`. The body shows the exit status and the last 40 lines the app wrote to stderr, where an `OnStart` error and a panic go. The line of a panic stays even when its stack trace is longer, as long as the output ends with that panic's report. A `panic: ` line the app logged and went on from does not. If the running app exits, as after a panic outside a request, the title is `The app stopped` and the body is the same. Until the next build, page requests get 502 with the same text. The log of tifa dev only says the app exited, since the app's output is printed above it already.
 - If the running app cannot load a rebuilt SSR bundle, such as one QuickJS cannot compile, or one whose top-level code throws, the overlay title is `The app did not load the SSR bundle`. The app keeps serving the bundle it had. The stack trace gives places in the source files, and a package that calls `require`, which QuickJS does not have, is named with what to do.
 
 You can close the overlay. Closing it does not affect later reloads.
+
+## When a page fails to render
+
+When a page request fails before the app can render a page, such as when a component throws while the page renders on the server or `OnRequest` returns an unexpected error, the app answers with a plain page from Go. It has the status code that `OnError` picked, so `curl -i` sees it too. Under tifa dev that page also names the request, shows the public message when it differs from the status text, and shows the whole error. A render error gives its stack trace in your source files. The page reloads once you save a fix, also a fix in TSX that does not reload other pages. A built app shows only the status and the public message.
+
+The page shows internal errors. tifa dev listens on `127.0.0.1` by default. With `--addr 0.0.0.0:<port>`, other machines on the network can see them.
 
 Reloads and the overlay come over tifa dev's own connection, `/__tifa/dev/events`, not Vite's HMR websocket. Vite's dev server only starts in the first bundle step, after static analysis and code generation, and an app without pages never starts it. The page that answers while no app runs, after a first build that failed or a crash, must still show the error and reload once things are fixed, and that works only over a connection that tifa dev itself serves from the start. Every tab of a browser shares this connection through a SharedWorker.
 

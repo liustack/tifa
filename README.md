@@ -52,7 +52,7 @@ One folder per page. Go loads the data, React shows it:
 ```go
 // app/projects/project+/orders/order+/route.go  →  /projects/{project}/orders/{order}
 func Load(c *tifa.Ctx) (orders.Order, error) {
-	return orders.Get(c.Param("project"), c.Param("order"))
+	return orders.GetOrder(c.Param("project"), c.Param("order"))
 }
 ```
 
@@ -88,7 +88,7 @@ go tool tifa build   # bin/<app>, with the frontend embedded
 
 ## Start an app
 
-You need Go 1.27 and pnpm (npm works too):
+You need Go 1.27, Node 20.19 or 22.12 and later (what Vite 8 asks for) and pnpm (npm works too). Node only builds the front end: the program you deploy never needs it. `tifa dev` does not run on Windows yet, use WSL.
 
 ```sh
 go run github.com/liustack/tifa/cmd/tifa@latest new myapp
@@ -98,11 +98,13 @@ pnpm install
 go tool tifa dev     # http://127.0.0.1:9527
 ```
 
+The first `tifa dev` compiles QuickJS and SQLite once, which can take a minute or two. Later builds use Go's build cache.
+
 `tifa new` writes a home page with a Go `Load`, a `POST` the page calls from the browser, and a test of both. The module path is the folder name unless you pass `--module example.com/myapp`.
 
 ## Try the example
 
-[examples/shop](examples/shop) is a small order workbench: two shops, an order list, order details, shipping, and three kinds of 404. You need Go 1.27 and pnpm:
+[examples/shop](examples/shop) is a small order workbench: two shops, an order list, order details, shipping, and three kinds of 404. You need Go 1.27, Node 20.19 or 22.12 and later, and pnpm:
 
 ```sh
 cd examples/shop

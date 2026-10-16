@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -280,6 +281,76 @@ func TestFailedRenderFallsBackToAPlainPage(t *testing.T) {
 	}
 	if strings.Contains(w.Body.String(), "window") {
 		t.Error("the fallback page shows the internal error")
+	}
+}
+
+// Under tifa dev the plain page names the request and shows the whole error, and loads the dev
+// client, which reloads it once a rebuild serves a fix.
+func TestDevFailedRenderShowsTheError(t *testing.T) {
+	s, r := newFrontServer(t, frontApp())
+	s.dev = http.NotFoundHandler()
+	r.result = func(ssr.Input) (string, error) {
+		return "", errors.New("ReferenceError: window is not defined\n    at Page (app/projects/route.tsx:3:9)")
+	}
+	w := get(s, "/projects/p1")
+	body := w.Body.String()
+	if w.Code != 500 || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/html") {
+		t.Fatalf("%d %v %s", w.Code, w.Header(), body)
+	}
+	for _, want := range []string{
+		"<h1>500 Internal Server Error</h1>",
+		"GET /projects/p1 failed while rendering on the server.",
+		"ReferenceError: window is not defined\n    at Page (app/projects/route.tsx:3:9)",
+		"<script>window.__tifaDevErrorPage = true</script>",
+		`<script src="/__tifa/dev/client.js"></script>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the page lacks %q: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "Users see:") {
+		t.Errorf("the public message is the status text, the page repeats it: %s", body)
+	}
+}
+
+func TestDevFailedRequestShowsTheError(t *testing.T) {
+	app := frontApp()
+	app.Hooks.OnError = func(c *tifa.Ctx, err error) tifa.Error { return tifa.Error{Status: 503, Message: "Try again later"} }
+	app.Hooks.OnRequest = func(c *tifa.Ctx) error { return errors.New("open the session store: <dial> refused") }
+	s, _ := newFrontServer(t, app)
+	s.dev = http.NotFoundHandler()
+	w := get(s, "/projects/p1")
+	body := w.Body.String()
+	for _, want := range []string{
+		"<h1>503 Service Unavailable</h1>",
+		"GET /projects/p1 failed.",
+		"Users see: Try again later",
+		"open the session store: &lt;dial&gt; refused",
+		`<script src="/__tifa/dev/client.js"></script>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the page lacks %q: %s", want, body)
+		}
+	}
+	if w.Code != 503 || strings.Contains(body, "failed while rendering") {
+		t.Errorf("%d %s", w.Code, body)
+	}
+}
+
+// When the page of a failed Load does not render either, the dev page shows both errors.
+func TestDevFailedErrorPageShowsBothErrors(t *testing.T) {
+	s, r := newFrontServer(t, frontApp())
+	s.dev = http.NotFoundHandler()
+	r.result = func(ssr.Input) (string, error) { return "", errors.New("TypeError: x is undefined") }
+	w := get(s, "/projects/broken")
+	body := w.Body.String()
+	for _, want := range []string{"failed while rendering on the server.", errDatabase.Error(), "TypeError: x is undefined"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the page lacks %q: %s", want, body)
+		}
+	}
+	if w.Code != 500 {
+		t.Errorf("%d %s", w.Code, body)
 	}
 }
 

@@ -393,7 +393,7 @@ type usedLoads map[*Load][]string
 
 // paramUse is one c.Param or c.Query call with a constant name inside Load.
 type paramUse struct {
-	method string // "Param" or "Query"
+	method string // "Param", "Query" or "QueryAll"
 	name   string
 	pos    token.Pos
 }
@@ -676,7 +676,7 @@ func (a *analyzer) funcDecl(pkg *packages.Package, fn *types.Func) *ast.FuncDecl
 	panic("analyze: no declaration for " + fn.FullName()) // fn comes from this package's own scope
 }
 
-// ctxMethod returns "Param" or "Query" when call invokes that method of tifa.Ctx, also through
+// ctxMethod returns "Param", "Query" or "QueryAll" when call invokes that method of tifa.Ctx, also through
 // a struct that embeds the Ctx, and an empty string for any other call.
 func ctxMethod(info *types.Info, call *ast.CallExpr) string {
 	sel, ok := ast.Unparen(call.Fun).(*ast.SelectorExpr)
@@ -689,10 +689,11 @@ func ctxMethod(info *types.Info, call *ast.CallExpr) string {
 	return paramMethod(info.Uses[sel.Sel])
 }
 
-// paramMethod returns "Param" or "Query" when obj is that method of tifa.Ctx.
+// paramMethod returns "Param", "Query" or "QueryAll" when obj is that method of tifa.Ctx.
+// QueryAll reads a query parameter like Query.
 func paramMethod(obj types.Object) string {
 	fn, ok := obj.(*types.Func)
-	if !ok || fn.Signature().Recv() == nil || fn.Name() != "Param" && fn.Name() != "Query" {
+	if !ok || fn.Signature().Recv() == nil || fn.Name() != "Param" && fn.Name() != "Query" && fn.Name() != "QueryAll" {
 		return ""
 	}
 	named, ok := types.Unalias(derefType(fn.Signature().Recv().Type())).(*types.Named)
@@ -727,7 +728,7 @@ func calleeIdent(call *ast.CallExpr) *ast.Ident {
 	return nil
 }
 
-// checkDirectCalls requires c.Param, c.Query and tifa.Use to be called directly, in every loaded
+// checkDirectCalls requires c.Param, c.Query, c.QueryAll and tifa.Use to be called directly, in every loaded
 // package. The analyzer reads parameter names and Use arguments at the call site, so a method
 // value (f := c.Query), a method expression ((*tifa.Ctx).Query(c, "x")) or tifa.Use stored in a
 // variable or passed as an argument would hide them.

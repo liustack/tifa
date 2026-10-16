@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -106,7 +107,7 @@ type devRun struct {
 }
 
 // startDev runs Run on a small app with the fake pipeline and the fake app until the test ends.
-func startDev(t *testing.T, failFirst string) *devRun {
+func startDev(t *testing.T, failFirst string, setup ...func(*buildPipeline)) *devRun {
 	t.Helper()
 	dir := t.TempDir()
 	writeFile(t, dir, "app/store.go", "package app")
@@ -116,6 +117,9 @@ func startDev(t *testing.T, failFirst string) *devRun {
 	bundleFile := filepath.Join(t.TempDir(), "bundle")
 	t.Setenv("TIFA_FAKE_APP_BUNDLE", bundleFile)
 	p := &buildPipeline{versionFile: versionFile, bundleFile: bundleFile, fail: failFirst}
+	for _, f := range setup {
+		f(p)
+	}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -203,7 +207,20 @@ func expectVersion(t *testing.T, url, version string) {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
-	if got, want := resp.Header.Get("Server-Timing"), `tifa-dev;desc="`+version+`"`; got != want {
+	if got, want := resp.Header.Get("Server-Timing"), `tifa-dev;desc="`+version+`", tifa-dev-render;desc="`; !strings.HasPrefix(got, want) {
+		t.Fatalf("Server-Timing %q, want it to start with %q", got, want)
+	}
+}
+
+// expectTiming checks that the page names the build and the count of builds that served it.
+func expectTiming(t *testing.T, url string, st status) {
+	t.Helper()
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if got, want := resp.Header.Get("Server-Timing"), fmt.Sprintf(`tifa-dev;desc="%s", tifa-dev-render;desc="%d"`, st.Version, st.Render); got != want {
 		t.Fatalf("Server-Timing %q, want %q", got, want)
 	}
 }
@@ -232,7 +249,7 @@ func TestRunRebuildsAndKeepsTheOldAppOnFailure(t *testing.T) {
 	d.p.setFail("GoBuild")
 	writeFile(t, d.dir, "app/store.go", "package app // broken")
 	failed := d.waitStatus(t, func(st status) bool { return st.Error != "" })
-	want := status{Version: v3, Title: "Build failed", Error: "go build: gobuild: app/store.go:3:2: undefined: x"}
+	want := status{Version: v3, Render: 3, Title: "Build failed", Error: "go build: gobuild: app/store.go:3:2: undefined: x"}
 	if failed != want {
 		t.Fatalf("got %+v, want %+v", failed, want)
 	}
@@ -439,6 +456,39 @@ func TestRunReloadsTheBundleWithoutARestart(t *testing.T) {
 	}
 }
 
+// Each answer and the dev client name the version and how many builds have been served. The
+// error page of a failed render watches the count, so it reloads after a fix that keeps the
+// version, such as one in TSX.
+func TestRunCountsTheBuildsServed(t *testing.T) {
+	d := startDev(t, "")
+	first := d.waitStatus(t, func(st status) bool { return st.Version != "" && st.Error == "" })
+	if first.Render != 1 {
+		t.Fatalf("first build: %+v", first)
+	}
+	expectTiming(t, d.url+"/", first)
+	writeFile(t, d.dir, "app/list/route.tsx", "export const x = 2")
+	bundled := d.waitStatus(t, func(st status) bool { return st.Render == 2 })
+	if bundled.Version != first.Version || bundled.Error != "" {
+		t.Fatalf("after a TSX change: %+v", bundled)
+	}
+	expectTiming(t, d.url+"/", bundled)
+	writeFile(t, d.dir, "app/store.go", "package app // restart me")
+	restarted := d.waitStatus(t, func(st status) bool { return st.Render == 3 })
+	if restarted.Version == first.Version || restarted.Error != "" {
+		t.Fatalf("after a Go change: %+v", restarted)
+	}
+	expectTiming(t, d.url+"/", restarted)
+	if _, body := get(t, d.url+clientPath); !strings.HasPrefix(body, fmt.Sprintf("window.__tifaDevServed = %q;\nwindow.__tifaDevRendered = 3;\n", restarted.Version)) {
+		t.Errorf("client.js starts %.80q", body)
+	}
+	// A failed build keeps both.
+	d.p.setFail("GoBuild")
+	writeFile(t, d.dir, "app/store.go", "package app // broken")
+	if failed := d.waitStatus(t, func(st status) bool { return st.Error != "" }); failed.Version != restarted.Version || failed.Render != 3 {
+		t.Fatalf("after a failed build: %+v", failed)
+	}
+}
+
 func TestRunReportsTheAppStopping(t *testing.T) {
 	d := startDev(t, "")
 	v1 := d.waitVersionAfter(t, "")
@@ -446,12 +496,15 @@ func TestRunReportsTheAppStopping(t *testing.T) {
 		resp.Body.Close() // the proxy answers 502 for the dropped connection
 	}
 	st := d.waitStatus(t, func(st status) bool { return st.Error != "" })
-	if st.Version != v1 || st.Title != "The app stopped" || !strings.Contains(st.Error, "exit status 3") {
+	if st.Version != v1 || st.Title != "The app stopped" || !strings.Contains(st.Error, "exit status 3") || !strings.Contains(st.Error, "fatal: the disk is full") {
 		t.Fatalf("got %+v", st)
 	}
 	// With no app to wait for, the proxy answers at once with the error.
-	if status, body := get(t, d.url+"/"); status != http.StatusBadGateway || !strings.Contains(body, "exit status 3") {
+	if status, body := get(t, d.url+"/"); status != http.StatusBadGateway || !strings.Contains(body, "exit status 3") || !strings.Contains(body, "fatal: the disk is full") {
 		t.Fatalf("got %d %q", status, body)
+	}
+	if strings.Count(d.out.String(), "fatal: the disk is full") != 1 {
+		t.Errorf("the terminal shows the output of the app other than once:\n%s", d.out.String())
 	}
 	writeFile(t, d.dir, "app/store.go", "package app // restart me")
 	d.waitVersionAfter(t, v1)
@@ -471,6 +524,98 @@ func TestRunRecoversFromAFailedFirstBuild(t *testing.T) {
 	writeFile(t, d.dir, "app/store.go", "package app // fixed")
 	d.waitVersionAfter(t, "")
 	expectPage(t, d.url+"/", "build 1")
+}
+
+// The overlay and the page say why the app did not start, as the app wrote it to stderr.
+func TestRunShowsWhyTheAppDidNotStart(t *testing.T) {
+	t.Setenv("TIFA_FAKE_APP_EXIT", "OnStart: database is down")
+	d := startDev(t, "")
+	st := d.waitStatus(t, func(st status) bool { return st.Error != "" })
+	if st.Title != "The app did not start" || !strings.Contains(st.Error, "exit status 1") || !strings.Contains(st.Error, "fake app: OnStart: database is down") {
+		t.Fatalf("got %+v", st)
+	}
+	if status, body := get(t, d.url+"/"); status != http.StatusBadGateway || !strings.Contains(body, "fake app: OnStart: database is down") {
+		t.Fatalf("got %d %q", status, body)
+	}
+}
+
+// While the first build runs there is no app to show. After a short wait, so a fast build
+// shows the page itself, the browser gets a page that says so and reloads once the app runs.
+// The first ready line names the address to open, the later ones do not.
+func TestRunShowsAPageWhileTheFirstBuildRuns(t *testing.T) {
+	defer func(wait time.Duration) { firstBuildWait = wait }(firstBuildWait)
+	firstBuildWait = 50 * time.Millisecond
+	bundling := make(chan chan struct{})
+	d := startDev(t, "", func(p *buildPipeline) { p.bundling = bundling })
+	var release chan struct{}
+	select {
+	case release = <-bundling:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no bundle within 5s")
+	}
+	// Other requests, such as a script calling an API, wait for the app as they always did.
+	type answer struct {
+		status int
+		body   string
+	}
+	others := make(chan answer, 2)
+	for _, req := range []*http.Request{
+		newRequest(t, "POST", d.url+"/", `{"n":1}`, "Content-Type", "application/json"),
+		newRequest(t, "GET", d.url+"/", "", "Accept", "application/json"),
+	} {
+		go func() {
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				others <- answer{0, err.Error()}
+				return
+			}
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			others <- answer{resp.StatusCode, string(body)}
+		}()
+	}
+	// A page the browser loads gets a page that reloads once the app runs.
+	for _, method := range []string{"GET", "HEAD"} {
+		start := time.Now()
+		resp, err := http.DefaultClient.Do(newRequest(t, method, d.url+"/", "", "Accept", "text/html,application/xhtml+xml,*/*;q=0.8"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusServiceUnavailable || resp.Header.Get("Retry-After") == "" || time.Since(start) > 3*time.Second ||
+			method == "GET" && (!strings.Contains(string(body), "building the app for the first time") || !strings.Contains(string(body), clientPath)) {
+			t.Fatalf("%s after %s: %d %v %q", method, time.Since(start), resp.StatusCode, resp.Header, body)
+		}
+	}
+	select {
+	case a := <-others:
+		t.Fatalf("a request that is not a page was answered during the first build: %+v", a)
+	case <-time.After(4 * firstBuildWait):
+	}
+	close(release)
+	v1 := d.waitVersionAfter(t, "")
+	for range 2 {
+		if a := <-others; a.status != http.StatusOK || a.body != `{"n":1}` && a.body != "build 1" {
+			t.Errorf("after the first build: %+v", a)
+		}
+	}
+	expectPage(t, d.url+"/", "build 1")
+
+	d.p.mu.Lock()
+	d.p.bundling = nil
+	d.p.mu.Unlock()
+	writeFile(t, d.dir, "app/list/route.tsx", "export const x = 2")
+	d.waitStatus(t, func(st status) bool { return st.Version == v1 && st.Error == "" })
+	for deadline := time.Now().Add(5 * time.Second); strings.Count(d.out.String(), "ready in ") < 2; {
+		if time.Now().After(deadline) {
+			t.Fatalf("one ready line within 5s:\n%s", d.out.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := strings.Count(d.out.String(), ", open "+d.url+"\n"); n != 1 {
+		t.Errorf("%d ready lines name the address:\n%s", n, d.out.String())
+	}
 }
 
 func TestRunStopsTheAppWithAnInterrupt(t *testing.T) {
@@ -496,7 +641,7 @@ func TestRunServesTheDevScripts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if path == clientPath && !strings.HasPrefix(string(body), "window.__tifaDevServed = \"") {
+		if path == clientPath && !regexp.MustCompile(`^window.__tifaDevServed = "[^"]*";\nwindow.__tifaDevRendered = \d+;\n`).Match(body) {
 			t.Errorf("client.js does not start with the served version: %.60q", body)
 		}
 		if !strings.HasSuffix(string(body), want) || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/javascript") {
@@ -515,6 +660,26 @@ func TestRunRefusesIncompleteOptions(t *testing.T) {
 	if err == nil || !errors.Is(err, errOptions) {
 		t.Fatalf("got %v, want an options error", err)
 	}
+}
+
+// Browsers open spare connections that may never carry a request. They do not hold up the
+// stop: http.Server.Shutdown waits up to 5s for such a connection.
+func TestRunStopsWithAnUnusedConnection(t *testing.T) {
+	var stopping time.Time
+	var conn net.Conn
+	t.Cleanup(func() { // runs after the cleanup of startDev, which waits for Run
+		if took := time.Since(stopping); took > 2*time.Second {
+			t.Errorf("Run returned %s after the cancel", took.Round(time.Millisecond))
+		}
+		conn.Close()
+	})
+	d := startDev(t, "")
+	d.waitVersionAfter(t, "")
+	conn, err := net.Dial("tcp", strings.TrimPrefix(d.url, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { stopping = time.Now() })
 }
 
 func TestRunStopsWhenServingFails(t *testing.T) {
@@ -608,4 +773,21 @@ func TestRebuildHoldsPagesOnceABundleIsNeeded(t *testing.T) {
 			}
 		})
 	}
+}
+
+// newRequest makes a request with a body (none when empty) and the header pairs.
+func newRequest(t *testing.T, method, url, body string, header ...string) *http.Request {
+	t.Helper()
+	var r io.Reader
+	if body != "" {
+		r = strings.NewReader(body)
+	}
+	req, err := http.NewRequest(method, url, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < len(header); i += 2 {
+		req.Header.Set(header[i], header[i+1])
+	}
+	return req
 }

@@ -23,7 +23,7 @@ tifa new <目录> [--module 模块路径]
 
 | 文件 | 内容 |
 | --- | --- |
-| `go.mod` | tifa、登记为工具的 tifa 命令，以及纯 Go 的 SQLite 驱动 `modernc.org/sqlite` |
+| `go.mod` | tifa、登记为工具的 tifa 命令、纯 Go 的 SQLite 驱动 `modernc.org/sqlite`，以及 `ignore node_modules` |
 | `db.go`、`schema.sql` | 在根目录：`var DB`、打开 WAL、`busy_timeout` 和外键检查的 `OpenDB`，以及所有领域的表，每次启动都用 `CREATE TABLE IF NOT EXISTS` 建。数据库文件是应用运行目录下的 `app.db`，或者 `$DB_PATH` |
 | `hooks.go` | `OnStart` 打开数据库，`OnShutdown` 关闭它。`OnRequest` 和 `OnError` 只在注释里说明，因为写了 `OnError` 就会替换默认处理 |
 | `app/layout.tsx` | 带导航的根 Layout、未知地址的 `NotFound` 和一个 `Error` |
@@ -96,6 +96,7 @@ go tool tifa build
 - `tifa build` 不改 `go.mod` 与 `go.sum`。跑过 `go mod tidy` 的应用直接能构建，`GOFLAGS=-mod=readonly` 的 CI 也一样。
 - 缺依赖时构建失败，并提示执行上面的 `go get -tool` 与 `go mod tidy`。
 - 升级 tifa（`go get -tool github.com/liustack/tifa/cmd/tifa@<版本>`）后跑一次 `go mod tidy`，新版本的命令或运行库多了依赖时，它会补进 `go.mod`。
+- 有些 npm 包带 `.go` 文件，比如 eslint 间接装上的 `flatted`。`ignore node_modules` 这一行让任何深度的 `node_modules` 目录都不进 `./...`，`go test ./...`、`go vet ./...`、`go mod tidy` 和 `tifa build` 的静态分析都跳过它们。`tifa new` 会写上这一行，旧应用用 `go mod edit -ignore=node_modules` 补上。
 
 ## .tifa/ 里的文件
 
@@ -133,13 +134,13 @@ tifa 插件在 SSR 包里改造两个 npm 包，都不看它们的版本，所�
 
 ## 路由树
 
-- 框架自己的根路由没有组件，`errorComponent` 是框架默认组件，`notFoundComponent` 是根 Layout 的 `NotFound`（没有就用框架默认组件），根 Layout 导出 `documentHead` 时它的 `head` 返回这个常量。React 只渲染 `<body>` 里的 `<div id="tifa-root">`。SSR 入口在渲染后把文档拼成字符串：`<html>` 带根 Layout 的 `htmlAttributes`，head 依次是 charset、`build.json` 的 `head`，以及 `<!--tifa-head-->` 与 `<!--/tifa-head-->` 之间按匹配到的路由的 `head` 结果写出的标签（取哪些标签同 TanStack 的 `HeadContent`，属性按 React DOM 的规则写出，见 [app.zh-CN.md](app.zh-CN.md)），body 是应用根节点加上路由器的脱水脚本。所以任何一层出错、404、根 `Layout` 失败时，页面仍是完整文档。浏览器订阅路由器的 matches（TanStack 的 `HeadContent` 读的也是它），导航完成、`router.invalidate()` 在后台取完数据，只要 matches 变了就按同样的规则比对两个注释之间的元素：保留不变的标签（比较 nonce 时读元素的 `nonce` 属性，有 CSP 的页面里 nonce 的 HTML 属性读出来是空的），顺序变了就像 React 移动有 key 的子节点那样只移动不在原位的元素（移动 style 会重建样式表，移动样式表 link 会重新处理一遍），新标签用 DOM 方法创建（不解析 HTML）并按文档顺序插入，hydration 时不动服务器写的 head。不走 SSR 的页面由 Go 写只有 charset 和 `build.json` 的 `head` 的文档，浏览器设置 `htmlAttributes` 并写入 head。
+- 框架自己的根路由没有组件，`errorComponent` 是框架默认组件，`notFoundComponent` 是根 Layout 的 `NotFound`（没有就用框架默认组件），根 Layout 导出 `documentHead` 时它的 `head` 返回这个常量。React 只渲染 `<body>` 里的 `<div id="tifa-root">`。SSR 入口在渲染后把文档拼成字符串：`<html>` 带根 Layout 的 `htmlAttributes`，head 依次是 charset、`build.json` 的 `head`，以及 `<!--tifa-head-->` 与 `<!--/tifa-head-->` 之间按匹配到的路由的 `head` 结果写出的标签（取哪些标签同 TanStack 的 `HeadContent`，属性按 React DOM 的规则写出，见 [app.zh-CN.md](app.zh-CN.md)），body 是应用根节点加上路由器的脱水脚本。所以任何一层出错、404、根 `Layout` 失败时，页面仍是完整文档。浏览器订阅路由器的 matches（TanStack 的 `HeadContent` 读的也是它），导航完成、`router.invalidate()` 取完数据，只要 matches 变了就按同样的规则比对两个注释之间的元素：保留不变的标签（比较 nonce 时读元素的 `nonce` 属性，有 CSP 的页面里 nonce 的 HTML 属性读出来是空的），顺序变了就像 React 移动有 key 的子节点那样只移动不在原位的元素（移动 style 会重建样式表，移动样式表 link 会重新处理一遍），新标签用 DOM 方法创建（不解析 HTML）并按文档顺序插入，hydration 时不动服务器写的 head。不走 SSR 的页面由 Go 写只有 charset 和 `build.json` 的 `head` 的文档，浏览器设置 `htmlAttributes` 并写入 head。
 - 根 Layout（`app/layout.*`）是根路由下的 pathless 路由 `_app`。
 - 其他 Layout 是一条带路径的路由，路径是它的目录在父 Layout 目录之下的部分，所以路径参数在它的匹配身份里。根 Layout 下的 `app/projects/project+` 路径是 `projects/$project`，路由 ID 是 `/_app/projects/$project`。
 - 页面自己导出的 `NotFound` 挂在页面路由上。Layout 导出的 `NotFound` 不另加路由，而是挂在它下一层、子树里有 `Load` 的路由上（根 Layout 的已在根路由上）。TanStack 从抛出 404 的路由往上找第一个带 `notFoundComponent` 的路由，在它的位置显示，所以下层的 404 显示在该 Layout 的 `Outlet` 里。
 - 页面路径是它的目录在所属 Layout 目录之下的部分。和 Layout 同目录的页面是这个 Layout 的 index 路由 `/`，路由 ID 是 `/_app/projects/$project/`。`name+` 写成 `$name`，`name++` 写成 `$`（参数名 `_splat`）。字面量目录名只含 ServeMux、路由器和 URL 读法一致的字符，所以原样写出。
 - 生成后任意两条路由的 TanStack ID 相同时构建报错。
-- 有 `Load` 的路由生成 `loader`、`staleTime: Infinity` 与 `preloadStaleTime: Infinity`，数据只在 `router.invalidate()` 之后重取。`loaderDeps` 只放 `AllQuery` 里的查询参数。`remountDeps` 是 `Load` 读的路径参数（含经 `tifa.Use` 用到的 Layout 读的）加同一份查询参数，路径里有、但没有 `Load` 读的参数变了，组件不重新挂载，状态保留。没有 `Load` 的路由不重新挂载。
+- 有 `Load` 的路由生成 `loader`、`staleTime: Infinity` 与 `preloadStaleTime: Infinity`，数据只在 `router.invalidate()` 之后重取。路由器设了 `defaultStaleReloadMode: 'blocking'`：这次重取，以及导航到缓存数据被 `invalidate` 标为过期的页面时的重取，都在 `invalidate()` 或导航兑现之前完成，期间旧数据留在页面上。TanStack 的默认做法是立刻兑现、在后台取数据。`loaderDeps` 只放 `AllQuery` 里的查询参数，也就是用 `c.Query` 或 `c.QueryAll` 读的。`remountDeps` 是 `Load` 读的路径参数（含经 `tifa.Use` 用到的 Layout 读的）加同一份查询参数，路径里有、但没有 `Load` 读的参数变了，组件不重新挂载，状态保留。没有 `Load` 的路由不重新挂载。
 - `Load` 返回 404 时 loader 抛出不带目标的 `notFound()`。按上一条的挂法，页面的 404 显示它自己的或最近的祖先 Layout 的 `NotFound`。Layout 的 404 显示父 Layout 往上第一个 `NotFound`，因为 Layout 自己的 `NotFound` 只挂在它下层的路由上。
 - 路由器区分路径大小写，和 ServeMux 一致。查询参数按 `c.Query` 的语义解析：值都是字符串，重复的键是字符串数组，不做 JSON 解析。写回 URL 时按浏览器和表单的写法（空格写成 `+`），常见的 URL 保持原样。Go 的 `url.ParseQuery` 会另作解释的字符（`;&=+%#`）一律百分号编码，重取时 `c.Query` 拿到同一个值。
 - 没有路由匹配的 URL 直接显示根路由的 `NotFound`（`notFoundMode: 'root'`），不加载任何路由，不请求服务器。这时根 Layout 的界面不显示，因为它的数据没有加载。
@@ -195,6 +196,7 @@ export default defineConfig({
   - 其他：`OnRequest` 拒绝了整个请求，回答是 `{"error": 消息}` 与错误的状态码，同批 loader 一起以这个状态失败。
   
   构建 ID 不一致时服务器答 409，浏览器刷新当前页面一次（多个 409 只刷新一次，迟到的预加载 409 不会跳到预加载的目标）。仍然收到 3xx（比如来自代理）时，浏览器按整页加载这个 URL。
+- `+route` 模块里的处理函数（见 [app.zh-CN.md](app.zh-CN.md#在浏览器里调用方法函数)）发请求头 `X-Tifa-Call: 1`，不让 `fetch` 跟随重定向。处理函数或 `OnRequest` 返回 `c.Redirect` 时，这样的请求答 200、`Cache-Control: no-store`、`X-Tifa-Redirect: <3xx>`，正文和数据请求一样是 `{"redirect": "<URL>", "status": <3xx>}`。处理函数的结果可能长得一样，所以调用函数只在有这个响应头时才当作重定向。不带 `X-Tifa-Call` 的请求（curl 或别的程序）照旧收到 3xx。两种回答都带 `Vary: X-Tifa-Call`。
 - 整页渲染时，每个 `Load` 的数据随路由的 dehydrate 脚本进入浏览器。对象和数组经 TanStack 的 serialization adapter（键 `tifa.data`）写成一个 JSON 字符串，浏览器用 `JSON.parse` 读回，和 Go 发出的数据完全一样，`__proto__` 键也照样保留。TanStack 默认的序列化器处理同样的数据，在 VM 里要多花几倍时间。字符串、数字等单个值仍走默认序列化器。路由构造函数的类型把 adapter 留给 TanStack Start，单独使用路由时设置它没有文档（TanStack/router#7796），所以 `TestGeneratedRouterBehaves` 检查页面用的是 `tifa.data`，并且数据经过 hydration 后不变。
 - 浏览器从 TanStack 的 dehydrate 数据里拿到构建 ID。
 - loader 为失败的 `Load` 抛出的 `RouteError` 经 TanStack 的 serialization adapter（键 `tifa.RouteError`）写进页面，hydration 后仍是带 `status` 的 `RouteError`，`Error` 组件在服务器和浏览器看到同一个错误。
@@ -236,8 +238,8 @@ export default defineConfig({
 - 有 `Load` 失败时，整页请求与数据请求的 `c.Next()` 都返回所执行 `Load` 里最外层的那个错误（数据请求只执行所列路由，所以是所列路由里最外层的）。成功的 `Load` 不写任何响应，中间件可以据此拒绝整个请求。
 - `OnRequest` 原样返回这个错误（包括用 `%w` 包一层）：框架这时才把每个错误分类，意外错误交给 `OnError`，多个 `Load` 经 `tifa.Use` 共享同一个错误时只交一次。整页请求用全部结果和最外层错误的状态码（404 或 `tifa.Error` 的状态码，意外错误用 `OnError` 的结果）渲染整页，路由器显示对应层级的 `NotFound` 或 `Error`。最外层错误是重定向时答重定向。数据请求答 200 与 `{路由 ID: 结果}`，每项带自己的状态。
 - `OnRequest` 返回别的错误：以中间件为准，按错误本身处理（重定向、`ErrNotFound`、`tifa.Error` 直接处理，其他交给 `OnError`）。整页请求返回 Go 写的简单错误页，数据请求答 `{"error": 消息}` 与状态码，不再输出各项数据。`OnRequest` 自己写了响应时框架不再写。
-- 数据请求遇到整个请求的重定向（`OnRequest` 返回 `c.Redirect`，或 URL 写法不规范）答 200 与 `{"redirect", "status"}`，不发 3xx。
+- 数据请求遇到整个请求的重定向（`OnRequest` 返回 `c.Redirect`，或 URL 写法不规范）答 200 与 `{"redirect", "status"}`，不发 3xx。这个 JSON 里的 URL，以及 `Load` 重定向的路由结果里的 `location`，和 3xx 会带的一样：`../list` 这样的相对 URL 按请求的路径解析，与 `http.Redirect` 相同。
 - 未匹配的 URL：`OnRequest` 之后以 404 渲染根 Layout 的 `NotFound`，不执行任何 `Load`。根 Layout 是 `LayoutSSR = false` 时返回最简文档。
-- VM 渲染失败（包括组件在渲染中抛错：`renderToString` 会把它吞进 Suspense 边界，留下 `<!--$!-->` 标记，SSR 入口见到这个标记就把这次渲染当失败）：算意外错误，不进 HTML 缓存，交给 `OnError`，返回 Go 写的简单错误页，不暴露内部错误。`OnError` 拿到的是代码实际抛出的错误（被 React 吞掉的也一样），错误栈前 64 帧的位置借 `dist/ssr.js.map` 换成源文件里的位置。代码调用了 QuickJS 没有的 `require` 时，错误还会给出包名和位置，并说明怎么办：从 `.client` 文件引入这个包，把调用放进 `useEffect`，或者换一个不需要 Node 的构建。包在加载时就失败（任何页面渲染之前）时，失败的是引入本身，把调用挪进 `useEffect` 没用，所以预热的错误只建议从 `.client` 文件引入这个包或者换一个构建。组件挂起（抛出 promise，或者是还没加载完的 `React.lazy` 组件）也会这样让渲染失败，因为 `renderToString` 不等待。错误会建议用 `Load` 给页面数据并静态引入组件，或者设 `SSR = false`。懒加载的引入为什么失败，服务端看不到。渲染错误页（`NotFound`、`Error`）时失败也一样，状态码和消息取自 `OnError` 的结果，不再尝试渲染错误页。
+- VM 渲染失败（包括组件在渲染中抛错：`renderToString` 会把它吞进 Suspense 边界，留下 `<!--$!-->` 标记，SSR 入口见到这个标记就把这次渲染当失败）：算意外错误，不进 HTML 缓存，交给 `OnError`，返回 Go 写的简单错误页，不暴露内部错误。在 `tifa dev` 下（`DevMain`），这张页还写出请求、完整的错误，并加载 dev 客户端，重建带来修复后它自动刷新。`OnError` 拿到的是代码实际抛出的错误（被 React 吞掉的也一样），错误栈前 64 帧的位置借 `dist/ssr.js.map` 换成源文件里的位置。代码调用了 QuickJS 没有的 `require` 时，错误还会给出包名和位置，并说明怎么办：从 `.client` 文件引入这个包，把调用放进 `useEffect`，或者换一个不需要 Node 的构建。包在加载时就失败（任何页面渲染之前）时，失败的是引入本身，把调用挪进 `useEffect` 没用，所以预热的错误只建议从 `.client` 文件引入这个包或者换一个构建。组件挂起（抛出 promise，或者是还没加载完的 `React.lazy` 组件）也会这样让渲染失败，因为 `renderToString` 不等待。错误会建议用 `Load` 给页面数据并静态引入组件，或者设 `SSR = false`。懒加载的引入为什么失败，服务端看不到。渲染错误页（`NotFound`、`Error`）时失败也一样，状态码和消息取自 `OnError` 的结果，不再尝试渲染错误页。
 - 路由器对 URL 有不同写法（`/%61` 写成 `/a`）时 VM 返回重定向，服务器照样答重定向，不带 ETag。渲染只取决于构建 ID、SSR 包、URL 与数据，同一个 ETag 不会既属于 200 又属于重定向，所以客户端拿不到能把这个重定向变成 304 的 ETag。
 - 非 GET 请求、接口路由与没有页面的应用仍答 JSON。

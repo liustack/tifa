@@ -14,7 +14,9 @@ read_when:
 tifa dev [--dir 应用根目录] [--addr 127.0.0.1:9527]
 ```
 
-启动后先打印 `tifa dev: serving http://<地址>`，然后做一次完整构建（步骤同 [tifa build](build.zh-CN.md)），启动应用。浏览器只连 `--addr`。tifa dev 把页面和数据请求转给应用，把 `/__tifa/vite/` 下的请求（浏览器模块和 Vite 的 HMR websocket）转给 Vite 的开发服务器。应用重启或换 SSR 包期间，页面请求会等它。Ctrl-C 或 SIGTERM 停掉应用、Vite 和 tifa dev。Vite 的构建或插件一直不结束时，最多再等 5 秒就停掉 Vite。tifa dev 自己被强行杀掉时，Vite 也会在这 5 秒内自行退出。
+启动后先打印 `tifa dev: serving http://<地址>`，然后做一次完整构建（步骤同 [tifa build](build.zh-CN.md)，应用的第一次构建要一两分钟，见[日志](#日志)），启动应用。浏览器只连 `--addr`。tifa dev 把页面和数据请求转给应用，把 `/__tifa/vite/` 下的请求（浏览器模块和 Vite 的 HMR websocket）转给 Vite 的开发服务器。应用重启或换 SSR 包期间，页面请求会等它。Ctrl-C 或 SIGTERM 停掉应用、Vite 和 tifa dev。Vite 的构建或插件一直不结束时，最多再等 5 秒就停掉 Vite。tifa dev 自己被强行杀掉时，Vite 也会在这 5 秒内自行退出。
+
+tifa dev 暂不支持 Windows，请用 WSL。
 
 ## Vite
 
@@ -56,7 +58,18 @@ tifa dev: 07:35:36 bundle done in 90ms
 tifa dev: 07:35:36 ready in 260ms
 ```
 
-步骤名是 `static analysis`、`code generation`、`bundle`、`go build`。静态分析之后还有一行 `route manifest changed` 或 `route manifest unchanged`。Vite 的警告和错误也以 `tifa dev:` 行打印。应用自己的输出照常打印。
+步骤超过 5 秒还没结束时打一行说明它还在跑，之后每 15 秒一行。应用的第一次 go build 要编译 QuickJS、SQLite 等依赖，可能要一两分钟，之后的构建用 Go 的构建缓存。第一行 ready 还会带上该打开的地址：
+
+```text
+tifa dev: 07:35:41 go build still running (5s). The first build compiles QuickJS and the other dependencies, later builds use Go's build cache
+tifa dev: 07:35:56 go build still running (20s)
+tifa dev: 07:36:30 go build done in 54.1s
+tifa dev: 07:36:30 ready in 58.3s, open http://127.0.0.1:9527
+```
+
+第一次构建期间浏览器打开的页面（接受 `text/html` 的 GET 或 HEAD）会先等 2 秒。构建还没完成时，页面答 503，说明 tifa dev 正在构建，应用跑起来后自动刷新。其他请求（比如脚本调用 API）和应用重启时一样，等应用起来再答。
+
+步骤名是 `static analysis`、`code generation`、`bundle`、`go build`。静态分析之后还有一行 `route manifest changed` 或 `route manifest unchanged`。Vite 的警告和错误也以 `tifa dev:` 行打印。应用自己的输出照常打印，只是没有构建出的程序会打的 `tifa: listening on` 那一行，因为应用监听的端口只有 tifa dev 在连。它的 stderr 经过 tifa dev，tifa dev 留下最后几行给浮层用（见下文），所以只在终端里上色的日志库在 stderr 上输出的是不带颜色的文字。
 
 渲染时调用 Intl 或 `toLocale*` 方法却没传 locale，或者格式化日期没传 `timeZone`，应用会打一条 `tifa: ssr:` 警告，指出它在源码里的位置，每个位置只打一次。页面照常渲染。见 [tifa dev 下的报警](app.zh-CN.md#tifa-dev-下的报警)。
 
@@ -66,10 +79,16 @@ tifa dev: 07:35:36 ready in 260ms
 - 修好后浮层消失。修复需要 go build 时页面刷新，否则页面保持不动。失败那次没做完的步骤会并入下一次重建。
 - 浏览器里编译失败的模块显示 Vite 自己的浮层。
 - 首次构建就失败时没有旧版本可用，所有请求答 502 和错误原文，等修好后自动恢复。
-- 应用启动后立刻退出时，浮层标题是 `The app did not start`，内容是应用的退出原因。
+- 应用启动后立刻退出，或者 30 秒内没有开始监听时，浮层标题是 `The app did not start`。内容是退出状态和应用最后写到 stderr 的 40 行，`OnStart` 的错误和 panic 都写在那里。栈比 40 行长时，panic 那一行也会留着，前提是输出以这次 panic 的报告结尾。应用打印过、之后又继续运行的 `panic: ` 行不算。运行中的应用退出时（比如请求之外的 panic），标题是 `The app stopped`，内容一样。下一次构建之前，页面请求得到 502 和同样的内容。tifa dev 的日志只说应用退出了，因为应用自己的输出已经打在上面。
 - 运行中的应用读不进重建的 SSR 包时（比如 QuickJS 编译不过，或包的顶层代码抛错），浮层标题是 `The app did not load the SSR bundle`，应用继续用原来的包。错误栈给的是源文件里的位置，调用了 QuickJS 没有的 `require` 的包会被点名，并说明怎么办。
 
 浮层可以关掉，关掉后不影响后续刷新。
+
+## 页面渲染失败
+
+页面请求在应用渲染出页面之前就失败时（比如服务器渲染页面时组件抛错，或者 `OnRequest` 返回了意外错误），应用返回 Go 写的简单页。它的状态码是 `OnError` 定的，`curl -i` 也看得到。在 tifa dev 下，这张页还写出请求，公开的消息和状态文字不同时写出公开的消息，并显示完整的错误。渲染错误给出源文件里的错误栈。保存修复后页面自动刷新，只改 TSX、其他页面不刷新的修复也一样。构建出的应用只显示状态码和公开的消息。
+
+这张页会露出内部错误。tifa dev 默认只听 `127.0.0.1`，用 `--addr 0.0.0.0:<端口>` 时局域网里的其他机器也看得到。
 
 刷新和浮层走 tifa dev 自己的连接 `/__tifa/dev/events`，不走 Vite 的 HMR websocket。Vite 开发服务器要到第一次 bundle 步骤才启动，排在静态分析和代码生成之后，没有页面的应用根本不启动它。没有应用在跑的时候（首次构建失败或应用崩溃）返回的那个页面，照样要显示错误、修好后自动刷新，这只有 tifa dev 从一开始就自己提供的连接做得到。同一个浏览器的所有标签页通过 SharedWorker 共用这一条连接。
 

@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -140,5 +141,62 @@ func TestFailedErrorPageGoesToOnError(t *testing.T) {
 	}
 	if r.count() != 1 {
 		t.Errorf("%d renders", r.count())
+	}
+}
+
+// A relative redirect resolves against the URL of the request, as http.Redirect resolves it for
+// a page, before it goes into the JSON of a data request. The router would resolve it against
+// something else.
+func TestDataRequestResolvesARelativeRedirect(t *testing.T) {
+	var reported []error
+	s, _ := newFrontServer(t, secretApp(func(c *tifa.Ctx) error {
+		if c.Query("away") != "" {
+			return c.Redirect("login?next=1", 302)
+		}
+		return c.Next()
+	}, &reported))
+	w := get(s, "/secret?away=1", secretData...)
+	if w.Code != 200 || strings.TrimSpace(w.Body.String()) != `{"redirect":"/login?next=1","status":302}` {
+		t.Errorf("OnRequest: %d %s", w.Code, w.Body.String())
+	}
+	if w := get(s, "/secret?away=1"); w.Code != 302 || w.Header().Get("Location") != "/login?next=1" {
+		t.Errorf("page: %d %v", w.Code, w.Header())
+	}
+
+	app := App{
+		Layouts: []Layout{{ID: "app/layout", SSR: true}},
+		Routes: []Route{{ID: "app/projects/orders", Path: "/projects/{project}/orders", Page: true, SSR: true, Layouts: []string{"app/layout"},
+			Load: func(c *tifa.Ctx) (any, error) { return nil, c.Redirect("../other/orders", 303) }}},
+	}
+	s, _ = newFrontServer(t, app)
+	w = get(s, "/projects/p1/orders", "X-Tifa-Route", "app/projects/orders", "X-Tifa-Build", "b1")
+	var got map[string]routeResult
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+	if r := got["app/projects/orders"]; r.Status != 303 || r.Location != "/projects/other/orders" {
+		t.Errorf("Load: %d %s", w.Code, w.Body.String())
+	}
+	if w := get(s, "/projects/p1/orders"); w.Code != 303 || w.Header().Get("Location") != "/projects/other/orders" {
+		t.Errorf("page: %d %v", w.Code, w.Header())
+	}
+}
+
+// A handler call of the browser that OnRequest redirects gets the JSON redirect on a server
+// with pages too, not the 3xx a page request gets.
+func TestHandlerCallRedirectOfOnRequestIsJSON(t *testing.T) {
+	var reported []error
+	s, _ := newFrontServer(t, secretApp(func(c *tifa.Ctx) error {
+		if _, err := c.Cookie("session"); err != nil {
+			return c.Redirect("/login", 303)
+		}
+		return c.Next()
+	}, &reported))
+	r := httptest.NewRequest("POST", "/secret", strings.NewReader("{}"))
+	r.Header.Set("X-Tifa-Call", "1")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, r)
+	if w.Code != 200 || w.Header().Get("X-Tifa-Redirect") != "303" || strings.TrimSpace(w.Body.String()) != `{"redirect":"/login","status":303}` {
+		t.Errorf("%d %v %s", w.Code, w.Header(), w.Body.String())
 	}
 }

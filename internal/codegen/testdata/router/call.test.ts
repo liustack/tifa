@@ -16,8 +16,23 @@ globalThis.fetch = (async (url: string, init: RequestInit) => {
   return answer()
 }) as typeof fetch
 let refreshes = 0
-setRouter({ invalidate: async () => void refreshes++ })
+const navigations: string[] = []
+const router = {
+  invalidate: async () => void refreshes++,
+  navigate: async ({ href }: { href: string }) => void navigations.push(href),
+  // Reads a URL the way TanStack Router does: the hash without its #, the query parsed.
+  parseLocation: ({ pathname, search, hash }: { pathname: string; search: string; hash: string }) => ({
+    pathname,
+    search: Object.fromEntries(new URLSearchParams(search)),
+    hash: hash.slice(1),
+  }),
+  state: { location: { pathname: '/notes/1', search: {}, hash: '' } },
+}
 const invalidated = () => refreshes
+const assigned: string[] = []
+;(globalThis as any).window = {
+  location: { href: 'http://shop.test/notes/1', origin: 'http://shop.test', assign: (url: string) => assigned.push(url) },
+}
 const caught = (p: Promise<unknown>) => p.then(() => undefined, (e: unknown) => e)
 
 const last = () => requests[requests.length - 1]
@@ -28,6 +43,17 @@ assert(refused instanceof Error && /browser/.test(refused.message), `server rend
 assert(requests.length === 0, 'a refused call made a request')
 
 globalThis.document = {} as Document
+
+// redirected is how the server answers a call that a handler or OnRequest redirected.
+const redirected = (location: string, status = 303) => () =>
+  Response.json({ redirect: location, status }, { headers: { 'X-Tifa-Redirect': String(status) } })
+
+// Before the router takes over the page, a redirect loads the target as a whole page.
+answer = redirected('/notes/2')
+const early = await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
+assert(early === undefined && assigned.join() === 'http://shop.test/notes/2', `before the router: ${early} ${assigned}`)
+assigned.splice(0)
+setRouter(router)
 
 // GET puts the input in the query string, reads the JSON and refreshes nothing.
 answer = () => Response.json([{ text: 'hi', next: null }])
@@ -42,6 +68,8 @@ const saved = await POST({ params: { note: '1' }, input: { text: 'hi', next: nul
 const headers = new Headers(last().init.headers)
 assert(last().url === '/api/notes/1' && last().init.body === '{"text":"hi","next":null}', `POST ${last().url} ${last().init.body}`)
 assert(headers.get('Content-Type') === 'application/json', 'POST content type')
+// Every call asks for a redirect as JSON, and fetch follows no 3xx to the HTML of its target.
+assert(headers.get('X-Tifa-Call') === '1' && last().init.redirect === 'manual', `call headers ${JSON.stringify(last().init)}`)
 assert(saved.text === 'saved' && invalidated() === 1, `POST result ${JSON.stringify(saved)} ${invalidated()}`)
 
 // invalidate: false keeps the data.
@@ -94,6 +122,67 @@ assert(last().url === '/api/notes/...?tag=', `three dots ${last().url}`)
 for (const [_splat, url] of [['', '/api/files/'], ['a/', '/api/files/a/'], ['.a/b.', '/api/files/.a/b.']]) {
   await file({ params: { _splat } })
   assert(last().url === url, `_splat ${JSON.stringify(_splat)}: ${last().url}`)
+}
+
+// A redirect sends the router to the target. After a write the loaded data goes stale first, so
+// the target and its Layouts load again. The promise resolves once the target shows.
+navigations.splice(0)
+let before = invalidated()
+answer = redirected('/notes/8?tab=items#top')
+const removedThenMoved = await DELETE({ params: { note: '1' }, input: { tag: '', tags: null } })
+assert(removedThenMoved === undefined && navigations.join() === '/notes/8?tab=items#top', `DELETE redirect ${navigations}`)
+assert(invalidated() === before + 1, `DELETE redirect invalidated ${invalidated() - before}`)
+answer = redirected('/notes/9')
+const savedThenMoved = await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
+assert(savedThenMoved === undefined && navigations.at(-1) === '/notes/9' && invalidated() === before + 2, `POST redirect ${savedThenMoved}`)
+// A redirect to the page that shows reloads its data and does not navigate.
+answer = redirected('/notes/1')
+await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
+assert(navigations.length === 2 && invalidated() === before + 3, `redirect to the same page ${navigations} ${invalidated() - before}`)
+before = invalidated()
+// invalidate: false and GET only navigate.
+answer = redirected('/notes/12')
+await POST({ params: { note: '1' }, input: { text: 'hi', next: null }, invalidate: false })
+answer = redirected('/login', 302)
+const listed = await GET({ params: { note: '1' }, input: { tag: '', tags: null } })
+assert(listed === undefined && navigations.join() === '/notes/8?tab=items#top,/notes/9,/notes/12,/login', `GET redirect ${navigations}`)
+assert(invalidated() === before, `invalidate: false or GET invalidated ${invalidated() - before}`)
+// A handler that writes its own response gets the Response of the redirect, unread.
+answer = redirected('/notes/10')
+const rawMoved = await PUT({ params: { note: '1' } })
+assert(rawMoved.ok && rawMoved.headers.get('X-Tifa-Redirect') === '303' && !rawMoved.bodyUsed, `PUT redirect ${rawMoved.status}`)
+assert(navigations.at(-1) === '/notes/10', `PUT redirect ${navigations}`)
+// The same site written in full goes through the router, another site loads as a whole page,
+// also when written without a scheme.
+answer = redirected('http://shop.test/notes/11')
+await POST({ params: { note: '1' }, input: { text: 'hi', next: null }, invalidate: false })
+assert(navigations.at(-1) === '/notes/11' && assigned.join() === '', `same site ${navigations} ${assigned}`)
+const routed = navigations.length
+for (const [location, url] of [
+  ['https://pay.example/checkout?id=1', 'https://pay.example/checkout?id=1'],
+  ['//other.example/x', 'http://other.example/x'],
+]) {
+  answer = redirected(location)
+  const away = await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
+  assert(away === undefined && assigned.at(-1) === url, `${location}: assigned ${assigned}`)
+}
+assert(navigations.length === routed, `another site went through the router: ${navigations}`)
+// A URL that is not http or https is refused.
+answer = redirected('javascript:alert(1)')
+const script = await caught(POST({ params: { note: '1' }, input: { text: 'hi', next: null } }))
+assert(script instanceof Error && !(script instanceof TifaError) && /javascript:/.test(script.message), `javascript: ${script}`)
+assert(navigations.length === routed && assigned.length === 2, 'javascript: was followed')
+// A result shaped like a redirect, without the header, is a result.
+answer = () => Response.json({ redirect: '/x', status: 1 })
+before = invalidated()
+const lookalike: unknown = await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
+assert(JSON.stringify(lookalike) === '{"redirect":"/x","status":1}' && navigations.length === routed, `lookalike ${JSON.stringify(lookalike)}`)
+assert(invalidated() === before + 1, 'lookalike did not refresh')
+// A 3xx that tifa did not write as JSON cannot be read in the browser, and the call fails.
+answer = () => ({ type: 'opaqueredirect', ok: false, status: 0, statusText: '', headers: new Headers() }) as unknown as Response
+for (const send of [() => POST({ params: { note: '1' }, input: { text: 'hi', next: null } }), () => PUT({ params: { note: '1' } })]) {
+  const opaque = await caught(send())
+  assert(opaque instanceof Error && !(opaque instanceof TifaError) && /c\.Redirect/.test(opaque.message), `opaque redirect: ${opaque}`)
 }
 
 console.log('call: ok')

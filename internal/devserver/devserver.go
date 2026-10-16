@@ -62,6 +62,12 @@ type Options struct {
 
 var errOptions = errors.New("tifa dev: incomplete options")
 
+var errFirstBuild = errors.New("tifa dev is building the app for the first time. This page reloads when it is ready.")
+
+// firstBuildWait is how long a browser request waits for the first build before it gets a page
+// that says the build runs. A tifa dev with Go's build cache warm is ready by then.
+var firstBuildWait = 2 * time.Second
+
 // Run builds and starts the application, then serves browsers on ln until ctx is done: requests
 // go to the application, a file change rebuilds it and restarts it or reloads its SSR bundle. A failed build leaves the
 // running application alone and shows the error in the browser. When ctx is done Run stops the
@@ -108,6 +114,8 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 	}
 	d := &dev{
 		o:       o,
+		addr:    ln.Addr().String(),
+		first:   make(chan struct{}),
 		appAddr: appAddr,
 		b:       builder{p: o.Pipeline, log: logger.Printf},
 		hub:     newHub(),
@@ -118,8 +126,10 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 	mux := http.NewServeMux()
 	mux.Handle("GET "+eventsPath, d.hub)
 	mux.Handle("GET "+clientPath, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Tells the page its version where it cannot read Server-Timing.
-		served := "window.__tifaDevServed = " + strconv.Quote(d.version()) + ";\n"
+		// Tells the page its build where it cannot read Server-Timing.
+		version, render := d.build()
+		served := "window.__tifaDevServed = " + strconv.Quote(version) + ";\n" +
+			"window.__tifaDevRendered = " + strconv.Itoa(render) + ";\n"
 		script(served+js.DevClient).ServeHTTP(w, r)
 	}))
 	mux.Handle("GET "+workerPath, script(js.DevWorker))
@@ -127,8 +137,24 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 	if o.Vite != "" {
 		mux.Handle(VitePath, viteProxy(o.Vite))
 	}
-	app := proxy(appAddr, o.ProxyWait, d.down, d.version)
+	app := proxy(appAddr, o.ProxyWait, d.down, d.timing)
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Before the first build there is no app. A page the browser loads waits for a build that
+		// Go's build cache makes fast, and gets a page that loads the dev client during a slow
+		// one, which reloads it once the first app runs. Other requests, such as a script calling
+		// an API, wait for the app below.
+		if pageLoad(r) {
+			select {
+			case <-d.first:
+			case <-r.Context().Done():
+				return
+			case <-time.After(firstBuildWait):
+				w.Header().Set("Retry-After", "2")
+				w.Header().Set("Server-Timing", d.timing())
+				unavailable(w, http.StatusServiceUnavailable, errFirstBuild)
+				return
+			}
+		}
 		// A page loaded while the SSR bundle is rebuilt would show the old server render. Wait
 		// until the app with the new one runs.
 		if busy := d.busy(); busy != nil {
@@ -141,7 +167,8 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 		}
 		app.ServeHTTP(w, r)
 	}))
-	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	unused := &unusedConns{m: map[net.Conn]struct{}{}}
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second, ConnState: unused.track}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	served := make(chan error, 1)
@@ -180,6 +207,7 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 
 	w.changes.setBuilding(true)
 	d.rebuild(ctx, everything)
+	close(d.first)
 	w.changes.setBuilding(false)
 	loop(ctx, w.changes, o.Debounce, func(batch []change) {
 		for _, c := range batch {
@@ -198,6 +226,7 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 		}
 	}
 	d.hub.close()
+	unused.close()
 	shutdown, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelShutdown()
 	err = srv.Shutdown(shutdown)
@@ -259,19 +288,24 @@ func script(source string) http.Handler {
 // dev is the state of one Run. Rebuilds and restarts happen on the loop goroutine, mu guards
 // what the proxy and the exit watchers read.
 type dev struct {
-	o       Options
-	appAddr string
-	b       builder
-	hub     *hub
-	log     *log.Logger
-	nonce   string // makes versions unique across runs of tifa dev
+	o     Options
+	addr  string        // where browsers connect
+	first chan struct{} // closed once the first build ended, whether it worked or not
+	// announced is set once a ready line named addr, on the loop goroutine.
+	announced bool
+	appAddr   string
+	b         builder
+	hub       *hub
+	log       *log.Logger
+	nonce     string // makes versions unique across runs of tifa dev
 
-	mu      sync.Mutex
-	gen     int    // generation of the newest app started
-	serving string // version of the newest app started, the one that answers requests
-	app     *app   // the application process, nil when none runs
-	live    *app   // app once it listens, its exit from then on is a crash
-	downErr error  // why no application runs and none will until the next build
+	mu       sync.Mutex
+	gen      int    // generation of the newest app started
+	serving  string // version of the newest app started, the one that answers requests
+	app      *app   // the application process, nil when none runs
+	live     *app   // app once it listens, its exit from then on is a crash
+	downErr  error  // why no application runs and none will until the next build
+	rendered int    // the count of builds served, see status
 	// bundling is closed once the rebuild of the SSR bundle that runs now has an app serving it,
 	// nil when none runs.
 	bundling chan struct{}
@@ -292,6 +326,16 @@ func (d *dev) version() string {
 	return d.serving
 }
 
+// build returns the version and the count of builds served (see status).
+func (d *dev) build() (string, int) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.serving, d.rendered
+}
+
+// timing is the Server-Timing value of the build that answers requests now.
+func (d *dev) timing() string { return devTiming(d.build()) }
+
 // down tells the proxy not to wait for an application, and why.
 func (d *dev) down() error {
 	d.mu.Lock()
@@ -306,7 +350,7 @@ func (d *dev) fail(title string, err error) {
 	if d.app == nil {
 		d.downErr = err
 	}
-	d.hub.publishError(title, err.Error())
+	d.hub.publishError(title, explain(err))
 	d.mu.Unlock()
 	d.log.Printf("%s: %v", strings.ToLower(title), err)
 }
@@ -362,9 +406,17 @@ func (d *dev) rebuild(ctx context.Context, s steps) {
 		return
 	}
 	d.mu.Lock()
-	d.hub.publish(status{Version: d.serving})
+	d.rendered++
+	d.hub.publish(status{Version: d.serving, Render: d.rendered})
 	d.mu.Unlock()
-	d.log.Printf("ready in %s", time.Since(start).Round(time.Millisecond))
+	took := time.Since(start).Round(time.Millisecond)
+	if !d.announced {
+		// The address is printed when tifa dev starts, before the output of a long first build.
+		d.announced = true
+		d.log.Printf("ready in %s, open http://%s", took, d.addr)
+		return
+	}
+	d.log.Printf("ready in %s", took)
 }
 
 // running reports whether an application listens.
@@ -451,10 +503,49 @@ func (d *dev) watchExit(a *app) {
 	crashed := a.gen == d.gen && d.live == a
 	if crashed {
 		d.app, d.live, d.downErr = nil, nil, err
-		d.hub.publishError("The app stopped", err.Error())
+		d.hub.publishError("The app stopped", explain(err))
 	}
 	d.mu.Unlock()
 	if crashed {
 		d.log.Printf("the app stopped: %v", err)
 	}
+}
+
+// unusedConns keeps the connections that have not carried a request yet. Browsers open spare
+// ones, and http.Server.Shutdown waits up to 5s for each before it counts it as idle.
+type unusedConns struct {
+	mu sync.Mutex
+	m  map[net.Conn]struct{}
+}
+
+func (u *unusedConns) track(c net.Conn, st http.ConnState) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if st == http.StateNew {
+		u.m[c] = struct{}{}
+	} else {
+		delete(u.m, c)
+	}
+}
+
+// close closes them, so the shutdown waits only for the requests in flight.
+func (u *unusedConns) close() {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	for c := range u.m {
+		c.Close()
+	}
+}
+
+// pageLoad reports whether r is the browser loading a page: a GET or HEAD that accepts HTML.
+func pageLoad(r *http.Request) bool {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+	for _, accept := range r.Header.Values("Accept") {
+		if strings.Contains(accept, "text/html") {
+			return true
+		}
+	}
+	return false
 }

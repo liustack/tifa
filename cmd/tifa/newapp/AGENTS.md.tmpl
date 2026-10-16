@@ -37,7 +37,7 @@ Never edit `.tifa/`. It is generated, and `go test ./...` skips it.
 | `tifa.ErrNotFound`, or a `tifa.Error` with Status 404 | 404 with the first `NotFound` going up from the page (from the Layout one level up when a `Layout` returns it) | 404 as JSON |
 | `tifa.Error{Status, Message}`, Status 400 to 599 but not 404 | That status, shown by the nearest `Error` | That status as JSON `{"error": message}` |
 | `tifa.Fields{"field": "message"}` | 422, shown by the nearest `Error` | 422 as JSON with `"fields"` |
-| `c.Redirect(url, code)` | A redirect | A redirect |
+| `c.Redirect(url, code)` | A redirect | Called from the browser, the browser goes there: through the router for a URL of this site, a full page load for another. Otherwise a 3xx |
 | Any other error, a panic, or a `tifa.Error` with another status | `OnError`, or a logged 500 without one | `OnError`, or a logged 500 without one |
 
 `Validate` on a handler input runs before the handler. A `tifa.Error` or `tifa.Fields` it returns is answered as in the table. Any other error, also `tifa.ErrNotFound` or a `c.Redirect`, is answered with 400 and `err.Error()` as the message. A URL that matches no page shows the `NotFound` of the root `layout.tsx`, without the root Layout around it.
@@ -46,10 +46,11 @@ Never edit `.tifa/`. It is generated, and `go test ./...` skips it.
 
 The build reads `Load` and `Layout` and the functions they call to find which parameters each page depends on. It fails with the file and line when they:
 
-- call `c.Param` or `c.Query` with a string that is not a constant, or not directly (stored in a variable or passed as a value),
+- call `c.Param`, `c.Query` or `c.QueryAll` with a string that is not a constant, or not directly (stored in a variable or passed as a value),
 - call `tifa.Use` with anything but a package-level `Layout` that wraps the caller,
 - convert, store, return or send `c` anywhere else than a plain function or method of this module or of tifa, or a new local variable of the same type (see the docs for the full list),
-- call `c.Request()` or `c.Writer()`.
+- call `c.Request()` or `c.Writer()`,
+- call `c.BindQuery` or `c.Bind`: read query values with `c.Query("name")` or `c.QueryAll("name")`.
 
 Writing the response is checked when the request runs instead: in `Load` and `Layout`, `c.JSON`, `c.Text` and `c.NoContent` write nothing and return an error. Returned, that error is an unexpected one (`OnError`, or a 500). Setting headers and cookies is fine. Pass `c.Context()` when a function only needs the context. See [How Load may use Ctx](https://github.com/liustack/tifa/blob/main/docs/app.md#how-load-may-use-ctx).
 
@@ -58,7 +59,7 @@ Writing the response is checked when the request runs instead: in `Load` and `La
 - A typed handler takes an input after the Ctx, returns a result before the error, or both: `func POST(c *tifa.Ctx, in AddInput) (Todo, error)`. The framework decodes `in` from a JSON or form body (from the query string for `GET` and `DELETE`), runs `in.Validate()` if it exists, and writes the result as JSON (204 when there is no result). `func POST(c *tifa.Ctx) error` writes its own response.
 - The data of `Load` and handler inputs and results travel as JSON, and tifa writes their TypeScript types. No interfaces, funcs or channels. A Go slice or map can be `null` in TypeScript, so write `?? []`.
 - In TSX, import from the generated `./+route` of the folder: `route.useLoaderData()`, the `Data` type and one function per handler, such as `POST({ params, input })`. A Layout's data comes from `./+layout`. After a successful POST, PUT, PATCH or DELETE the page data loads again, unless the call passes `invalidate: false`.
-- The function of a typed handler resolves to its result and throws `TifaError` (`status`, `message`, `fields`) for an error answer. The function of a handler that writes its own response resolves to the `Response`, also for a 4xx or 5xx, so check `response.ok`.
+- The function of a typed handler resolves to its result and throws `TifaError` (`status`, `message`, `fields`) for an error answer. The function of a handler that writes its own response resolves to the `Response`, also for a 4xx or 5xx, so check `response.ok`. When the handler or `OnRequest` redirects, the function resolves to `undefined` once the new page shows, whatever its type says. Redirect with `return c.Redirect(...)`, not by writing a 3xx yourself.
 - Styles are CSS files imported from TSX, such as `app/styles.css` in the root `layout.tsx`. `vite.config.ts` adds the Vite plugins of tifa and React. For Tailwind CSS, add `@tailwindcss/vite` there. See [Styles](https://github.com/liustack/tifa/blob/main/docs/app.md#styles).
 - A page may also export `head`, `NotFound` and `Error`. Components that need the browser at import time go in `*.client.tsx` and load with `clientOnly` from `tifa/client`.
 
@@ -80,4 +81,5 @@ Writing the response is checked when the request runs instead: in `Load` and `La
 
 - `tifa.yaml` lists every setting commented out at its default, with an example for `ssr.vms`, whose default is GOMAXPROCS. See [config.md](https://github.com/liustack/tifa/blob/main/docs/config.md). Environment variables starting with `TIFA_` are settings, and an unknown one stops the app, so do not use that prefix for your own.
 - The database is `app.db` (or `$DB_PATH`). `schema.sql` runs at every start, so keep its statements safe to repeat (`CREATE TABLE IF NOT EXISTS`). A new domain adds its tables there. `tifa dev` does not watch `schema.sql`: after changing it, restart `tifa dev`.
+- Under `tifa dev`, a page whose server render fails, or whose `OnRequest` returns an unexpected error, answers with its status and the whole error, a render error with its stack trace in the source files. `curl -i` on the page shows them. A built app shows only the status and the public message.
 - Build and generated files: [build.md](https://github.com/liustack/tifa/blob/main/docs/build.md). `tifa dev`: [dev.md](https://github.com/liustack/tifa/blob/main/docs/dev.md).

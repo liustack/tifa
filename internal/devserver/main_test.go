@@ -24,10 +24,12 @@ import (
 //	                          is the answer to GET /bundle. A reload of the content "broken" fails.
 //	TIFA_FAKE_APP_ON_INTERRUPT "ignore" to keep running after an interrupt
 //	TIFA_FAKE_APP_EXIT        exit right away with this message instead of serving
+//	TIFA_FAKE_APP_PANIC       print this many lines to stderr, then panic deep in the stack
 //	TIFA_FAKE_APP_DETACHED_CHILD start a child outside the process group that keeps stdout open,
 //	                          and print its PID first
 //
-// POST requests get their body back, GET /exit makes the app exit with status 3, GET /pid answers
+// POST requests get their body back, GET /exit makes the app print "fatal: the disk is full" to
+// stderr and exit with status 3, GET /pid answers
 // the process ID. The app prints "shutdown done" once it stopped after an interrupt.
 func TestMain(m *testing.M) {
 	if os.Getenv("TIFA_TEST_FILE_LIMIT") != "" {
@@ -52,6 +54,16 @@ func fakeApp() error {
 	}
 	if msg := os.Getenv("TIFA_FAKE_APP_EXIT"); msg != "" {
 		return errors.New(msg)
+	}
+	if lines := os.Getenv("TIFA_FAKE_APP_PANIC"); lines != "" {
+		n, err := strconv.Atoi(lines)
+		if err != nil {
+			return err
+		}
+		for i := range n {
+			fmt.Fprintf(os.Stderr, "line %d\n", i)
+		}
+		panicDeep(60)
 	}
 	version := "none"
 	if name := os.Getenv("TIFA_FAKE_APP_VERSION"); name != "" {
@@ -91,6 +103,7 @@ func fakeApp() error {
 	}
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/exit" {
+			fmt.Fprintln(os.Stderr, "fatal: the disk is full")
 			os.Exit(3)
 		}
 		switch {
@@ -135,6 +148,14 @@ func fakeApp() error {
 	}
 	fmt.Println("shutdown done")
 	return nil
+}
+
+// panicDeep panics below depth frames, so the stack trace is longer than the panic message.
+func panicDeep(depth int) {
+	if depth == 0 {
+		panic("the order table is gone")
+	}
+	panicDeep(depth - 1)
 }
 
 // fakeAppCommand runs the test binary as the fake application.

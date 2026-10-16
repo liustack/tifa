@@ -4,7 +4,9 @@
 import { createMemoryHistory } from '@tanstack/react-router'
 import { routeTree } from './.tifa/routes'
 import { createAppRouter } from './.tifa/runtime/router'
-import { bootElementId, rootElementId, type RouteResult } from './.tifa/runtime/data'
+import { bootElementId, collector, rootElementId, type RouteResult } from './.tifa/runtime/data'
+import { setRouter } from './.tifa/runtime/call'
+import { POST } from './app/api/notes/note+/+route'
 import { hydrate } from './.tifa/runtime/browser'
 import { followHead, headHTML, setAttributes, syncHead, type Tag } from './.tifa/runtime/head'
 
@@ -279,6 +281,112 @@ test('the head follows data the router refetches in the background', async () =>
     for (let i = 0; i < 100 && title() !== 'TEAM y'; i++) await new Promise((resolve) => setTimeout(resolve, 0))
     assert(title() === 'TEAM y', `title after invalidate ${title()}`)
   })
+})
+
+// The router of a browser build loads in the background, which the Node build of
+// router.test.tsx does not.
+test('a write resolves once the page shows its new data', async () => {
+  const saved = { fetch: g.fetch }
+  let answers = 0
+  g.fetch = async (url: string, init: RequestInit) => {
+    if (init.method === 'POST') return Response.json({ text: 'saved', next: null })
+    const routes = (new Headers(init.headers).get('X-Tifa-Route') ?? '').split(',')
+    answers++
+    return Response.json(Object.fromEntries(routes.map((id) => [id, ok(`${id} ${answers}`)])))
+  }
+  try {
+    const router = createAppRouter(routeTree, collector(() => 'b1'), { history: createMemoryHistory({ initialEntries: ['/a/two'] }) })
+    await router.load()
+    setRouter(router)
+    const shown = () => router.state.matches.map((m) => m.loaderData).filter((d) => d !== undefined).join(', ')
+    assert(shown() === 'app/layout 1, app/a/layout 1, app/a/two/route 1', `first load ${shown()}`)
+    await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
+    assert(shown() === 'app/layout 2, app/a/layout 2, app/a/two/route 2', `after the write ${shown()}`)
+    // So does an app's own invalidate after a write that does not go through a handler.
+    await router.invalidate()
+    assert(shown() === 'app/layout 3, app/a/layout 3, app/a/two/route 3', `after invalidate ${shown()}`)
+  } finally {
+    Object.assign(g, saved)
+  }
+})
+
+// The router of a browser build navigates, which the Node build of router.test.tsx does not.
+test('a redirect of a handler call loads the target once, with fresh data', async () => {
+  const saved = { fetch: g.fetch, location: g.location }
+  const fetched: string[] = []
+  // A function, so TypeScript does not narrow the length from one assert to the next.
+  const requests = () => fetched.length
+  let target = '/a/two'
+  g.fetch = async (url: string, init: RequestInit) => {
+    const headers = new Headers(init.headers)
+    if (headers.get('X-Tifa-Call')) return Response.json({ redirect: target, status: 303 }, { headers: { 'X-Tifa-Redirect': '303' } })
+    const routes = (headers.get('X-Tifa-Route') ?? '').split(',').sort()
+    fetched.push(url + ' ' + routes.join(','))
+    // Each answer is new data, so the page shows which request its data came from.
+    return Response.json(Object.fromEntries(routes.map((id) => [id, ok(`${id} ${fetched.length}`)])))
+  }
+  g.location = { ...saved.location, assign: (url: string) => fetched.push('assign ' + url) }
+  try {
+    const router = createAppRouter(routeTree, collector(() => 'b1'), { history: createMemoryHistory({ initialEntries: ['/a/one'] }) })
+    await router.load()
+    setRouter(router)
+    fetched.splice(0)
+    // shown is the data of the page once the promise resolved.
+    const shown = () =>
+      router.state.location.pathname + ' ' + router.state.matches.map((m) => m.loaderData).filter((d) => d !== undefined).join(', ')
+    // The Layouts the two pages share were loaded for /a/one, and the write made them stale.
+    await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
+    assert(fetched.join(' | ') === '/a/two app/a/layout,app/a/two/route,app/layout', `requests ${fetched.join(' | ')}`)
+    assert(shown() === '/a/two app/layout 1, app/a/layout 1, app/a/two/route 1', `shown ${shown()}`)
+    // Back to the page it is on, as a form that posts and comes back does.
+    await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
+    assert(requests() === 2 && fetched[1] === '/a/two app/a/layout,app/a/two/route,app/layout', `requests ${fetched.join(' | ')}`)
+    assert(shown() === '/a/two app/layout 2, app/a/layout 2, app/a/two/route 2', `shown ${shown()}`)
+    // Without invalidating, only what is not loaded yet loads.
+    target = '/a/one'
+    await POST({ params: { note: '1' }, input: { text: 'hi', next: null }, invalidate: false })
+    assert(requests() === 2, `requests ${fetched.join(' | ')}`)
+    assert(shown() === '/a/one app/layout 2, app/a/layout 2', `shown ${shown()}`)
+    // Back to a page loaded before, after a write: its cached data loads again too.
+    target = '/a/two'
+    await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
+    assert(requests() === 3 && fetched[2] === '/a/two app/a/layout,app/a/two/route,app/layout', `requests ${fetched.join(' | ')}`)
+    assert(shown() === '/a/two app/layout 3, app/a/layout 3, app/a/two/route 3', `shown ${shown()}`)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    assert(requests() === 3, `requests after the promise resolved: ${fetched.join(' | ')}`)
+  } finally {
+    Object.assign(g, saved)
+  }
+})
+
+test('a redirect to the page that shows, spelled another way, reloads its data in place', async () => {
+  const saved = { fetch: g.fetch, location: g.location }
+  const fetched: string[] = []
+  g.fetch = async (url: string, init: RequestInit) => {
+    const headers = new Headers(init.headers)
+    // The server writes the query of the page in another order and encoding than the router.
+    if (headers.get('X-Tifa-Call')) return Response.json({ redirect: '/a/two?a=1&b=x%20y', status: 303 }, { headers: { 'X-Tifa-Redirect': '303' } })
+    const routes = (headers.get('X-Tifa-Route') ?? '').split(',').sort()
+    fetched.push(url + ' ' + routes.join(','))
+    return Response.json(Object.fromEntries(routes.map((id) => [id, ok(`${id} ${fetched.length}`)])))
+  }
+  g.location = { ...saved.location, assign: (url: string) => fetched.push('assign ' + url) }
+  try {
+    const history = createMemoryHistory({ initialEntries: ['/a/two?b=x+y&a=1'] })
+    const router = createAppRouter(routeTree, collector(() => 'b1'), { history })
+    await router.load()
+    setRouter(router)
+    fetched.splice(0)
+    const href = router.state.location.href
+    const entries = history.length
+    const shown = () => router.state.matches.map((m) => m.loaderData).filter((d) => d !== undefined).join(', ')
+    await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
+    assert(fetched.length === 1 && fetched[0].startsWith('/a/two?'), `requests ${fetched.join(' | ')}`)
+    assert(shown() === 'app/layout 1, app/a/layout 1, app/a/two/route 1', `shown ${shown()}`)
+    assert(router.state.location.href === href && history.length === entries, `at ${router.state.location.href}, ${history.length} entries`)
+  } finally {
+    Object.assign(g, saved)
+  }
 })
 
 let failed = 0

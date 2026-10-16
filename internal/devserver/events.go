@@ -12,6 +12,10 @@ type status struct {
 	// Version changes each time a new build of the app is up. A page reloads when it sees a
 	// version other than the first one it saw.
 	Version string `json:"version"`
+	// Render counts the builds served so far, 0 before the first one. It also grows when only the
+	// SSR bundle changed and the version stays. The error page of a failed server render reloads
+	// when it changes.
+	Render int `json:"render"`
 	// Title names what failed, such as "Build failed", and Error is the full message. Both are
 	// empty when everything works.
 	Title string `json:"title,omitempty"`
@@ -43,11 +47,12 @@ func (h *hub) publish(st status) {
 	h.send(st)
 }
 
-// publishError keeps the version and sets the error, so pages show it without reloading.
+// publishError keeps the version and the count and sets the error, so pages show it without
+// reloading.
 func (h *hub) publishError(title, msg string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.send(status{Version: h.st.Version, Title: title, Error: msg})
+	h.send(status{Version: h.st.Version, Render: h.st.Render, Title: title, Error: msg})
 }
 
 // send needs h.mu.

@@ -12,6 +12,10 @@ import (
 // browser requests under it (see internal/devserver).
 const devPrefix = "/__tifa/dev/"
 
+// clientPath is the dev client that tifa dev serves (clientPath in internal/devserver). The dev
+// error page loads it.
+const clientPath = devPrefix + "client.js"
+
 // reloadPath is where tifa dev asks the app to load the SSR bundle again, after it rebuilt
 // only that bundle. internal/devserver sends the request.
 const reloadPath = devPrefix + "reload"

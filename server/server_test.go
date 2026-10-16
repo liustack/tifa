@@ -126,6 +126,48 @@ func TestRedirectAndNotFoundSkipOnError(t *testing.T) {
 	}
 }
 
+// A handler function of the browser sends X-Tifa-Call. A redirect then comes as 200 and JSON
+// the function follows with the router, not as a 3xx fetch would follow to the HTML of the
+// target. Other clients still get the 3xx.
+func TestHandlerCallRedirectIsJSON(t *testing.T) {
+	s := newServer(Hooks{
+		OnRequest: func(c *tifa.Ctx) error {
+			// An app that sets a cache header for every answer, which a redirect must not keep.
+			c.SetHeader("Cache-Control", "public, max-age=60")
+			if c.Request().URL.Path == "/private" {
+				return c.Redirect("/login?next=%2Fprivate", 302)
+			}
+			return c.Next()
+		},
+	})
+	s.Handle("POST", "/orders/{orderId}/ship", func(c *tifa.Ctx) error { return c.Redirect("../8", 303) })
+	s.Handle("POST", "/orders/{orderId}/copy", func(c *tifa.Ctx) error { return c.Redirect("/orders/9", 303) })
+	cases := []struct {
+		target, location string
+		status           int
+	}{
+		{"/orders/7/copy", "/orders/9", 303},
+		{"/orders/7/ship", "/orders/8", 303}, // resolved against the URL of the handler, as for the 3xx
+		{"/private", "/login?next=%2Fprivate", 302},
+	}
+	for _, tc := range cases {
+		r := httptest.NewRequest("POST", tc.target, strings.NewReader("{}"))
+		r.Header.Set("X-Tifa-Call", "1")
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, r)
+		want := fmt.Sprintf(`{"redirect":%q,"status":%d}`, tc.location, tc.status)
+		if w.Code != 200 || w.Header().Get("X-Tifa-Redirect") != fmt.Sprint(tc.status) || w.Header().Get("Location") != "" || strings.TrimSpace(w.Body.String()) != want {
+			t.Errorf("call %s: %d %v %s", tc.target, w.Code, w.Header(), w.Body.String())
+		}
+		if w.Header().Get("Cache-Control") != "no-store" || !strings.HasPrefix(w.Header().Get("Content-Type"), "application/json") {
+			t.Errorf("call %s: headers %v", tc.target, w.Header())
+		}
+		if w := send(s, "POST", tc.target, "{}"); w.Code != tc.status || w.Header().Get("Location") != tc.location || w.Header().Get("X-Tifa-Redirect") != "" {
+			t.Errorf("plain %s: %d %v", tc.target, w.Code, w.Header())
+		}
+	}
+}
+
 func TestUnexpectedErrorsGoThroughOnError(t *testing.T) {
 	var seen []error
 	s := newServer(Hooks{OnError: func(c *tifa.Ctx, err error) tifa.Error {

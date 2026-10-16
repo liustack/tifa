@@ -94,7 +94,7 @@ func POST(c *tifa.Ctx, in ShipInput) (orders.Shipment, error) {
 | 返回 | 结果 |
 | --- | --- |
 | `tifa.ErrNotFound` | 404 |
-| `c.Redirect(url, code)` | 重定向 |
+| `c.Redirect(url, code)` | 重定向。整页加载和导航跟着跳，浏览器里调用的方法函数也会把浏览器带过去（见下文） |
 | `tifa.Error{Status, Message}` | 按它的状态码和消息回答，不进 `OnError`。状态码不在 400 到 599 之间时按意外错误处理 |
 | `tifa.Fields{"carrier": "请选择承运商"}` | 答 422，按入参字段的 json 名字各带一条消息，不进 `OnError` |
 | 其他错误、panic | 交给 `OnError`，没定义时记日志并答 500 |
@@ -129,6 +129,7 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 | --- | --- |
 | `c.Param(name)` | 路径参数，已解码，比如目录 `order+` 用 `c.Param("order")` |
 | `c.Query(name)` | 查询参数的第一个值，没有时为 `""` |
+| `c.QueryAll(name)` | 查询参数的全部值，比如 `?tag=a&tag=b` 得到 `["a", "b"]`，没有时为 `nil` |
 | `c.Header(name)`、`c.Cookie(name)` | 请求头、请求 cookie（没有时返回 `http.ErrNoCookie`） |
 | `c.Context()`、`c.SetContext(ctx)` | 请求 context，替换它来存请求级的值 |
 | `c.Pattern()` | 匹配到的路由路径，比如 `/projects/{project}`，没匹配时为 `""` |
@@ -136,7 +137,7 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 | `c.SetHeader(key, value)`、`c.SetCookie(cookie)` | 响应头、响应 cookie。`Load` 里也能用 |
 | `c.JSON(code, v)`、`c.Text(code, s)`、`c.NoContent(code)` | 写响应。`Load` 里不能用 |
 | `c.Redirect(url, code)` | 返回一个错误值，把它 return 出去就会重定向 |
-| `c.Bind(&v)`、`c.BindQuery(&v)` | 把请求体或查询字符串解码进结构体，见上文 |
+| `c.Bind(&v)`、`c.BindQuery(&v)` | 把请求体或查询字符串解码进结构体，见上文。`Load` 里不能用 |
 | `c.SetBodyLimit(n)` | 改这次请求的请求体上限（默认 `server.body_limit`）。要在读请求体之前调用，通常在 `OnRequest` 里。开始读以后调用会返回错误 |
 | `c.Next()` | 在 `OnRequest` 里执行匹配到的路由，只能调一次 |
 | `c.Request()`、`c.Writer()` | 原始的 `*http.Request` 和 `http.ResponseWriter`，只给方法函数和 `OnRequest` 用 |
@@ -167,7 +168,7 @@ import { clientOnly } from 'tifa/client'
 const OrderActions = clientOnly(() => import('./actions.client'), <button disabled>正在准备操作…</button>)
 ```
 
-- 不经过调用函数（见下）的写操作之后，调用 TanStack 的 `router.invalidate()`，当前页面和所有 Layout 的数据重新取一次，合并成一个请求。
+- 不经过调用函数（见下）的写操作之后，调用 TanStack 的 `router.invalidate()`，当前页面和所有 Layout 的数据重新取一次，合并成一个请求，它返回的 promise 在页面显示出新数据后兑现。
 
 ### 在浏览器里调用方法函数
 
@@ -190,8 +191,28 @@ async function ship() {
 - GET、DELETE 把入参放进查询字符串，其他方法发 JSON 请求体。返回值的类型来自 Go 的返回值。`func(c, in) error` 得到 `void`。`func(c) error` 自己写响应，它的调用函数原样交回 `Response`，错误状态码也一样。
 - POST、PUT、PATCH、DELETE 成功后，先重新取当前页面和它的 Layout 的数据，再兑现 promise。传 `invalidate: false` 可以不刷新。失败和 GET 都不刷新。
 - 错误回答抛出 `TifaError`，带 `status`、`message` 和 `fields`（`tifa.Fields` 的消息，其他情况为空）。网络错误照 `fetch` 的样子抛出。
+- 处理函数或 `OnRequest` 返回 `c.Redirect(url, code)` 时，浏览器去那个 URL：本站的 URL 经路由器跳转，页面不重新加载，别的站点整页加载。POST、PUT、PATCH、DELETE 之后（除非传了 `invalidate: false`），路由器里已有的数据先标为过期，所以新页面和它的 Layout 显示的是新数据。重定向到正在显示的页面时，和没有重定向的调用一样重新取这一页的数据。路径、hash 和查询参数的值都相同就算同一页，查询参数的顺序和编码不论。promise 在新页面显示出来后兑现为 `undefined`，有返回值的处理函数也一样，它的类型上看不出这一点。自己写响应的处理函数，调用函数拿到这次重定向的 `Response`（`ok` 为真，状态码在 `X-Tifa-Redirect` 里）。相对 URL 按处理函数的 URL 解析，不按页面的 URL。处理函数经 `c.Writer()` 自己写的 3xx，或者代理写的 3xx，浏览器读不到，promise 以 `Error` 失败。
 - 在事件处理函数或 effect 里调用。服务器渲染页面期间调用会抛错。
 - `+route` 还为有入参或返回值的处理函数导出 `POSTInput`、`POSTOutput` 等类型。
+
+要在创建之后去新建内容的页面，可以让处理函数返回重定向，也可以返回结果再自己导航。第二种写法要传 `invalidate: false`，免得当前页面在离开前又取一次数据。路由器里已有的数据（比如两个页面共用的 Layout 的数据）这时保持原样：
+
+```go
+func POST(c *tifa.Ctx, in AddInput) error {
+	todo, err := AddTodo(in.Title)
+	if err != nil {
+		return err
+	}
+	return c.Redirect("/todos/"+todo.ID, http.StatusSeeOther)
+}
+```
+
+```tsx
+const router = useRouter() // 来自 @tanstack/react-router
+// 在事件处理函数里，这里的 POST 返回 (Todo, error)：
+const todo = await POST({ input: { title }, invalidate: false })
+await router.navigate({ to: '/todos/$todo', params: { todo: todo.id } })
+```
 
 ## Layout
 
@@ -239,7 +260,7 @@ export const documentHead = {
 
 ## 页面上的错误
 
-`route.tsx` 和 `layout.tsx` 可以导出 `Error`。这一层的 `Load` 或 `Layout` 失败，或者它下面的组件抛错时，在这一层的位置显示它：
+`route.tsx` 和 `layout.tsx` 可以导出 `Error`。这一层的 `Load` 或 `Layout` 失败，或者它下面的组件在浏览器里抛错时，在这一层的位置显示它：
 
 ```tsx
 import { RouteError } from 'tifa/client'
@@ -252,7 +273,9 @@ export function Error({ error }: { error: unknown }) {
 
 - `Load` 或 `Layout` 失败时，`Error` 收到 `RouteError`，带 `status` 和公开的消息（`tifa.Error` 的消息，或 `OnError` 返回的）。服务器上和 hydration 之后都一样。
 - 自己没导出 `Error` 的路由，用最近的导出了 `Error` 的祖先的，都没有就用框架默认的。
-- 页面的状态码取最外层失败的那一层。服务器渲染时组件抛错算意外错误：交给 `OnError` 决定状态码（没定义 `OnError` 时是 500），这次的 HTML 不进缓存。
+- 页面的状态码取最外层失败的那一层。
+- 服务器渲染页面时组件抛错，整次渲染失败。这算意外错误：交给 `OnError` 决定状态码（没定义 `OnError` 时是 500），浏览器拿到的是 Go 写的简单错误页，只有这个状态码和公开的消息，不是你的 `Error` 组件。这次回答不进缓存。在 `tifa dev` 下，这张页还会显示错误和它在源文件里的错误栈，保存修复后自动刷新（见 [tifa dev](dev.zh-CN.md#页面渲染失败)）。
+- 浏览器接管之后组件抛错，显示最近的 `Error`，和 `Load` 失败一样。
 - 无论哪里失败，文档外壳都是完整的，页面照样加载脚本和样式。
 
 ## SSR 与缓存
@@ -419,9 +442,9 @@ func TestLoad(t *testing.T) {
 
 ## Load 里 Ctx 的用法
 
-这一节管 `Load`、`Layout` 和它们调用的函数。构建时，tifa 从每个 `Load` 和 `Layout` 函数出发，找出它读的路由参数（`c.Param`）、查询参数（`c.Query`）和它依赖的 Layout（`tifa.Use`）。`Load` 把 `*tifa.Ctx` 传给本模块里的函数时，tifa 会一层层跟进去，跨包也可以，读到的参数都算在这个 `Load` 名下。一个辅助函数被多个 `Load` 调用时，分别算给每个 `Load`。tifa 自己的函数不跟进。
+这一节管 `Load`、`Layout` 和它们调用的函数。构建时，tifa 从每个 `Load` 和 `Layout` 函数出发，找出它读的路由参数（`c.Param`）、查询参数（`c.Query` 和 `c.QueryAll`）和它依赖的 Layout（`tifa.Use`）。`Load` 把 `*tifa.Ctx` 传给本模块里的函数时，tifa 会一层层跟进去，跨包也可以，读到的参数都算在这个 `Load` 名下。一个辅助函数被多个 `Load` 调用时，分别算给每个 `Load`。tifa 自己的函数不跟进。
 
-为了让 tifa 找全，Ctx 只能用在它看得见的地方。`c.Param` 和 `c.Query` 的参数写常量字符串，比如 `c.Param("order")`。`c.Param`、`c.Query` 和 `tifa.Use` 要直接调用，存进变量或当作值传出去都会构建报错。
+为了让 tifa 找全，Ctx 只能用在它看得见的地方。`c.Param`、`c.Query` 和 `c.QueryAll` 的参数写常量字符串，比如 `c.Param("order")`。它们和 `tifa.Use` 都要直接调用，存进变量或当作值传出去都会构建报错。
 
 能持有 Ctx 的类型只有：`*tifa.Ctx`、`tifa.Ctx`、本模块里声明的非泛型结构体（字段只通过这几种类型持有 Ctx，直接含有、嵌入或间接含有都可以），以及指向这种结构体的指针。
 
@@ -435,7 +458,9 @@ func TestLoad(t *testing.T) {
 
 其他用法都会构建报错，并指出文件和行号，比如：转换成别的类型或接口，赋给已有变量，多个值一起赋值，`return` 它，放进切片、map、数组或通道，`range`，包级变量，`defer`，`go` 语句，传给泛型函数、接口方法、函数变量或模块外的函数（标准库和第三方库）。`return c.Redirect(...)`、`return c.Next()` 不受影响，返回的是方法调用的结果，不是 Ctx 本身。
 
-`Load`、`Layout` 和它们调用的函数里不能调用 `c.Request()` 和 `c.Writer()`，通过原始请求读的参数 tifa 看不到。改用 `c.Param`、`c.Query`、`c.Header`、`c.Cookie` 或 `c.Context()`。这两个方法只在方法函数和 `OnRequest` 里用。
+`Load`、`Layout` 和它们调用的函数里不能调用 `c.Request()` 和 `c.Writer()`，通过原始请求读的参数 tifa 看不到。改用 `c.Param`、`c.Query`、`c.QueryAll`、`c.Header`、`c.Cookie` 或 `c.Context()`。这两个方法只在方法函数和 `OnRequest` 里用。
+
+`c.BindQuery` 和 `c.Bind` 也不能调用。结构体解码了哪些查询参数 tifa 说不出名字，这些参数变了页面不会重新取数据，而页面加载和导航的数据请求都没有请求体。查询参数用 `c.Query("name")` 逐个读，重复的参数用 `c.QueryAll("name")`。
 
 遇到报错时，直接调用 Ctx 的方法，或者把它传给普通函数。只需要请求上下文时传 `c.Context()`，只调用 `c.Context()` 的辅助函数（比如 `auth.User(c)`）跟进后什么也不收集。
 

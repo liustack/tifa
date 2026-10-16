@@ -76,6 +76,7 @@ type devRun struct {
 
 type devStatus struct {
 	Version string `json:"version"`
+	Render  int    `json:"render"`
 	Title   string `json:"title"`
 	Error   string `json:"error"`
 }
@@ -247,10 +248,28 @@ func TestDev(t *testing.T) {
 	mark := d.edit(t, "app/route.tsx", "North shop", "North store")
 	hmr.waitUpdate(t, "/app/route.tsx")
 	expectSteps(t, "TSX edit", d.waitLog(t, mark, ready), "bundle")
-	d.waitStatus(t, func(st devStatus) bool { return st.Version == v1 && st.Error == "" })
+	r2 := d.waitStatus(t, func(st devStatus) bool { return st.Version == v1 && st.Error == "" }).Render
 	expectBody(t, d.base+"/", "North store")
 	expectBody(t, d.base+"/__tifa/vite/app/route.tsx", "North store")
 	v2 := v1
+
+	// A component that throws while the page renders on the server: the page shows the error
+	// with its place in the source and loads the dev client. The fix keeps the version and
+	// changes the count of builds served, which makes that page reload.
+	broken := "export default function Home() {\n  if (typeof window === 'undefined') throw new Error('home is broken')\n"
+	mark = d.edit(t, "app/route.tsx", "export default function Home() {\n", broken)
+	d.waitLog(t, mark, ready)
+	before := d.waitStatus(t, func(st devStatus) bool { return st.Version == v2 && st.Render > r2 && st.Error == "" }).Render
+	status, _, body := get(t, d.base+"/")
+	for _, want := range []string{"home is broken", "app/route.tsx", "GET / failed while rendering on the server.", `<script src="/__tifa/dev/client.js"></script>`} {
+		if status != 500 || !strings.Contains(body, want) {
+			t.Fatalf("a throwing component: %d, want 500 with %q:\n%.2000s", status, want, body)
+		}
+	}
+	mark = d.edit(t, "app/route.tsx", broken, "export default function Home() {\n")
+	d.waitLog(t, mark, ready)
+	d.waitStatus(t, func(st devStatus) bool { return st.Version == v2 && st.Render > before && st.Error == "" })
+	expectBody(t, d.base+"/", "North store")
 
 	// A Go function body: analysis finds the same routes, go build without a bundle.
 	mark = d.edit(t, "app/shops/shop+/layout.go", `"Shop " + id`, `"Store " + id`)
