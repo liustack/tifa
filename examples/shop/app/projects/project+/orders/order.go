@@ -4,66 +4,85 @@
 package orders
 
 import (
-	"fmt"
+	"cmp"
 	"slices"
-	"strings"
 	"sync"
+	"time"
 
 	"github.com/liustack/tifa"
 )
 
-// Status labels of an order.
+// Status of an order. Pages show their own labels for them.
 const (
-	StatusPending = "待发货"
-	StatusShipped = "已发货"
+	StatusPending = "pending"
+	StatusShipped = "shipped"
 )
 
 // ErrShipped is answered when an order that has already shipped is shipped again.
 var ErrShipped = tifa.Error{Status: 409, Message: "订单已发货，请刷新页面"}
 
+// Order is the whole order, as the detail page shows it. Amounts are in cents, and PlacedAt is an
+// instant that pages format in the time zone of the shop.
 type Order struct {
-	ID        string     `json:"id"`
-	ProjectID string     `json:"projectId"`
-	Customer  string     `json:"customer"`
-	Initials  string     `json:"initials"`
-	Email     string     `json:"email"`
-	Address   string     `json:"address"`
-	Date      string     `json:"date"`
-	Status    string     `json:"status"`
-	Total     string     `json:"total"`
-	Items     []LineItem `json:"items"`
+	ID         string     `json:"id"`
+	ProjectID  string     `json:"projectId"`
+	Customer   string     `json:"customer"`
+	Initials   string     `json:"initials"`
+	Email      string     `json:"email"`
+	Address    string     `json:"address"`
+	PlacedAt   time.Time  `json:"placedAt"`
+	Status     string     `json:"status"`
+	TotalCents int        `json:"totalCents"`
+	Items      []LineItem `json:"items"`
 }
 
 type LineItem struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Quantity    int    `json:"quantity"`
-	Price       string `json:"price"`
+	PriceCents  int    `json:"priceCents"`
 	Color       string `json:"color"`
+}
+
+// OrderRow is one line of the order list: only what the list shows, without the items and the
+// address.
+type OrderRow struct {
+	ID         string    `json:"id"`
+	Customer   string    `json:"customer"`
+	Initials   string    `json:"initials"`
+	PlacedAt   time.Time `json:"placedAt"`
+	Status     string    `json:"status"`
+	Items      int       `json:"items"` // pieces in the order
+	TotalCents int       `json:"totalCents"`
 }
 
 // OrderList is the order list of a project with its totals.
 type OrderList struct {
-	Orders  []Order `json:"orders"`
-	Revenue string  `json:"revenue"`
-	Pending int     `json:"pending"`
-	Shipped int     `json:"shipped"`
+	Orders       []OrderRow `json:"orders"`
+	RevenueCents int        `json:"revenueCents"`
+	Pending      int        `json:"pending"`
+	Shipped      int        `json:"shipped"`
 }
 
 // ListOrders returns the orders of a project, newest first, with their totals.
 func ListOrders(projectID string) OrderList {
-	l := OrderList{Orders: []Order{}}
-	revenue := 0
+	l := OrderList{Orders: []OrderRow{}}
 	for _, o := range ordersOf(projectID) {
-		l.Orders = append(l.Orders, view(o))
-		revenue += total(o)
+		row := OrderRow{
+			ID: o.ID, Customer: o.Customer, Initials: initials(o.Customer), PlacedAt: o.PlacedAt,
+			Status: status(o), TotalCents: total(o),
+		}
+		for _, item := range o.Items {
+			row.Items += item.Quantity
+		}
+		l.Orders = append(l.Orders, row)
+		l.RevenueCents += row.TotalCents
 		if o.Shipped {
 			l.Shipped++
 		} else {
 			l.Pending++
 		}
 	}
-	l.Revenue = yuan(revenue)
 	return l
 }
 
@@ -106,32 +125,34 @@ func CountPending(projectID string) int {
 
 func view(o orderRecord) Order {
 	order := Order{
-		ID: o.ID, ProjectID: o.ProjectID, Customer: o.Customer, Initials: string([]rune(o.Customer)[:1]),
-		Email: o.Email, Address: o.Address, Date: o.Date, Status: StatusPending, Total: yuan(total(o)),
+		ID: o.ID, ProjectID: o.ProjectID, Customer: o.Customer, Initials: initials(o.Customer),
+		Email: o.Email, Address: o.Address, PlacedAt: o.PlacedAt, Status: status(o), TotalCents: total(o),
 		Items: []LineItem{},
-	}
-	if o.Shipped {
-		order.Status = StatusShipped
 	}
 	for _, item := range o.Items {
 		order.Items = append(order.Items, LineItem{
 			Name: item.Name, Description: item.Description, Quantity: item.Quantity,
-			Price: yuan(item.Price), Color: item.Color,
+			PriceCents: item.PriceCents, Color: item.Color,
 		})
 	}
 	return order
 }
 
+func status(o orderRecord) string {
+	if o.Shipped {
+		return StatusShipped
+	}
+	return StatusPending
+}
+
+func initials(name string) string { return string([]rune(name)[:1]) }
+
 func total(o orderRecord) int {
 	sum := 0
 	for _, item := range o.Items {
-		sum += item.Price * item.Quantity
+		sum += item.PriceCents * item.Quantity
 	}
 	return sum
-}
-
-func yuan(cents int) string {
-	return fmt.Sprintf("¥%d.%02d", cents/100, cents%100)
 }
 
 // The orders are kept in memory, standing in for the order tables of a real database. They start
@@ -143,7 +164,7 @@ type orderRecord struct {
 	Customer  string
 	Email     string
 	Address   string
-	Date      string
+	PlacedAt  time.Time
 	Shipped   bool
 	Items     []itemRecord
 }
@@ -152,7 +173,7 @@ type itemRecord struct {
 	Name        string
 	Description string
 	Quantity    int
-	Price       int // in cents
+	PriceCents  int
 	Color       string
 }
 
@@ -172,32 +193,13 @@ func ordersOf(projectID string) []orderRecord {
 			list = append(list, o)
 		}
 	}
-	slices.SortFunc(list, func(a, b orderRecord) int { return strings.Compare(b.ID, a.ID) })
+	slices.SortFunc(list, func(a, b orderRecord) int {
+		return cmp.Or(b.PlacedAt.Compare(a.PlacedAt), cmp.Compare(b.ID, a.ID))
+	})
 	return list
 }
 
 // indexOrder finds the order id of a project. The caller holds ordersMu.
 func indexOrder(projectID, id string) int {
 	return slices.IndexFunc(orders, func(o orderRecord) bool { return o.ProjectID == projectID && o.ID == id })
-}
-
-func demoOrders() []orderRecord {
-	return []orderRecord{
-		{ID: "SH-1042", ProjectID: "studio", Customer: "林夏", Email: "linxia@example.com", Address: "上海市徐汇区 · 演示地址", Date: "2026-10-13", Items: []itemRecord{
-			{Name: "晨间手冲壶", Description: "雾白 / 600 ml", Quantity: 1, Price: 32800, Color: "sand"},
-			{Name: "亚麻杯垫", Description: "原色 / 两件装", Quantity: 1, Price: 10000, Color: "olive"},
-		}},
-		{ID: "SH-1041", ProjectID: "studio", Customer: "陈默", Email: "chenmo@example.com", Address: "杭州市西湖区 · 演示地址", Date: "2026-10-12", Items: []itemRecord{
-			{Name: "手作陶瓷杯", Description: "青苔绿 / 280 ml", Quantity: 2, Price: 13400, Color: "olive"},
-		}},
-		{ID: "SH-1040", ProjectID: "studio", Customer: "周宁", Email: "zhouning@example.com", Address: "北京市朝阳区 · 演示地址", Date: "2026-10-12", Shipped: true, Items: []itemRecord{
-			{Name: "原木托盘", Description: "白橡木 / 大号", Quantity: 1, Price: 58000, Color: "sand"},
-		}},
-		{ID: "SH-1039", ProjectID: "studio", Customer: "许知", Email: "xuzhi@example.com", Address: "成都市武侯区 · 演示地址", Date: "2026-10-11", Shipped: true, Items: []itemRecord{
-			{Name: "阅读香薰", Description: "雪松与纸张 / 180 g", Quantity: 1, Price: 19600, Color: "clay"},
-		}},
-		{ID: "WK-0201", ProjectID: "weekend", Customer: "苏禾", Email: "suhe@example.com", Address: "苏州市姑苏区 · 演示地址", Date: "2026-10-13", Items: []itemRecord{
-			{Name: "周末帆布袋", Description: "深蓝 / 标准款", Quantity: 1, Price: 15800, Color: "blue"},
-		}},
-	}
 }

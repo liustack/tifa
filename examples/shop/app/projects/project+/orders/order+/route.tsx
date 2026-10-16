@@ -1,7 +1,10 @@
 import { Link } from '@tanstack/react-router'
 import { clientOnly } from 'tifa/client'
 import { route, type Data } from './+route'
-import { Icon, Status } from '../../../../icons'
+import { Icon } from '../../../../icons'
+import { orderDate } from '../../../../format'
+import { route as project } from '../../+layout'
+import { OrderStatus } from '../../order-status'
 import OrderItems from './items'
 
 const OrderActions = clientOnly(
@@ -13,6 +16,7 @@ const OrderActions = clientOnly(
 
 export default function OrderPage() {
   const order = route.useLoaderData()
+  const { timeZone } = project.useLoaderData()
   return (
     <section aria-labelledby="order-title">
       <Link
@@ -27,10 +31,10 @@ export default function OrderPage() {
         <div>
           <div className="title-group">
             <h2 id="order-title">{order.id}</h2>
-            <Status status={order.status} />
+            <OrderStatus status={order.status} />
           </div>
           <p className="subtle">
-            创建于 {order.date}
+            创建于 {orderDate(order.placedAt, timeZone)}
             <span className="inline-dot">·</span>共{' '}
             {(order.items ?? []).reduce((n, item) => n + item.quantity, 0)} 件商品
           </p>

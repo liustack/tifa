@@ -1,161 +1,181 @@
-import { useState } from 'react'
-import { Link } from '@tanstack/react-router'
+import type { ReactNode } from 'react'
+import { useTable } from '@tanstack/react-table'
+import { ChevronLeft, ChevronRight, Search, SearchX } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
+import { Input } from '@/components/ui/input'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { AnimatedNumber } from '../../animated-number'
+import { yuan } from '../../format'
+import { columns, features, type Row } from './columns'
 import { route } from './+route'
-import { Icon, Status } from '../../icons'
+
+const noOrders: Row[] = []
 
 export default function OrdersPage() {
   const list = route.useLoaderData()
-  const all = list.orders ?? []
-  const [filter, setFilter] = useState('全部订单')
-  const [search, setSearch] = useState('')
-  const orders = all.filter(
-    (order) =>
-      (filter === '全部订单' || order.status === filter) &&
-      `${order.id} ${order.customer}`
-        .toLowerCase()
-        .includes(search.trim().toLowerCase()),
-  )
+  const table = useTable({
+    features,
+    columns,
+    data: list.orders ?? noOrders,
+    initialState: {
+      sorting: [{ id: 'placedAt', desc: true }],
+      pagination: { pageIndex: 0, pageSize: 10 },
+    },
+    globalFilterFn: 'includesString',
+    getColumnCanGlobalFilter: (column) => column.id === 'id' || column.id === 'customer',
+  })
+  const status = (table.getColumn('status')?.getFilterValue() as string | undefined) ?? 'all'
+  const search = (table.state.globalFilter as string | undefined) ?? ''
+  const rows = table.getRowModel().rows
+  const matching = table.getFilteredRowModel().rows.length
 
   return (
-    <section aria-labelledby="orders-title">
-      <div className="section-heading">
-        <div className="title-group">
-          <h2 id="orders-title">订单</h2>
-          <span className="count-pill">{all.length}</span>
-        </div>
-        <span className="subtle">每一份信任，都有回响。</span>
+    <section aria-labelledby="orders-title" className="flex flex-col gap-6">
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Summary title="订单总额" note="所有订单累计">
+          <AnimatedNumber value={list.revenueCents} format={yuan} />
+        </Summary>
+        <Summary title="待发货" note="等待打包的心意">
+          <AnimatedNumber value={list.pending} />
+        </Summary>
+        <Summary title="已发货" note="正在奔赴下一站">
+          <AnimatedNumber value={list.shipped} />
+        </Summary>
       </div>
-      <div className="metrics">
-        <div>
-          <span className="metric-label">订单总额</span>
-          <strong className="revenue">{list.revenue}</strong>
-          <small>所有订单累计</small>
-        </div>
-        <div>
-          <span className="metric-label">
-            待发货
-            <span className="metric-dot amber" />
-          </span>
-          <strong>{list.pending.toString().padStart(2, '0')}</strong>
-          <small>等待打包的心意</small>
-        </div>
-        <div>
-          <span className="metric-label">
-            已发货
-            <span className="metric-dot green" />
-          </span>
-          <strong>{list.shipped.toString().padStart(2, '0')}</strong>
-          <small>正在奔赴下一站</small>
-        </div>
-        <div className="metric-illustration" aria-hidden="true">
-          <Icon name="box" size={62} />
-          <span>
-            GOOD THINGS
-            <br />
-            ON THEIR WAY.
-          </span>
-        </div>
-      </div>
-      <div className="orders-panel">
-        <div className="table-toolbar">
-          <div className="filter-tabs" aria-label="订单状态">
-            {['全部订单', '待发货', '已发货'].map((label) => (
-              <button
-                key={label}
-                aria-pressed={filter === label}
-                className={filter === label ? 'active' : ''}
-                onClick={() => setFilter(label)}
-              >
-                {label}
-              </button>
-            ))}
+
+      <Tabs
+        value={status}
+        onValueChange={(value) => {
+          table.getColumn('status')?.setFilterValue(value === 'all' ? undefined : value)
+          table.setPageIndex(0)
+        }}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <h2 id="orders-title" className="text-lg font-semibold">
+              订单
+            </h2>
+            <TabsList>
+              <TabsTrigger value="all">全部</TabsTrigger>
+              <TabsTrigger value="pending">待发货</TabsTrigger>
+              <TabsTrigger value="shipped">已发货</TabsTrigger>
+            </TabsList>
           </div>
-          <label className="search-field">
-            <Icon name="search" size={17} />
-            <input
-              aria-label="搜索订单或客户"
-              placeholder="搜索订单或客户"
+          <div className="relative w-full sm:w-64">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              type="search"
+              aria-label="搜索订单号或客户"
+              placeholder="搜索订单号或客户"
+              className="bg-card pl-8"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                table.setGlobalFilter(e.target.value)
+                table.setPageIndex(0)
+              }}
             />
-          </label>
+          </div>
         </div>
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>订单编号</th>
-                <th>客户</th>
-                <th>下单日期</th>
-                <th>状态</th>
-                <th className="amount-column">金额</th>
-                <th>
-                  <span className="sr-only">查看</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {orders.map((order) => (
-                <tr key={order.id}>
-                  <td>
-                    <Link
-                      className="order-link"
-                      to="/projects/$project/orders/$order"
-                      params={{ project: order.projectId, order: order.id }}
-                    >
-                      {order.id}
-                    </Link>
-                  </td>
-                  <td>
-                    <span className="customer-cell">
-                      <span className="avatar">{order.initials}</span>
-                      {order.customer}
-                    </span>
-                  </td>
-                  <td className="date-cell">{order.date}</td>
-                  <td>
-                    <Status status={order.status} />
-                  </td>
-                  <td className="amount-column order-amount">{order.total}</td>
-                  <td>
-                    <Link
-                      className="row-arrow"
-                      aria-label={`查看订单 ${order.id}`}
-                      to="/projects/$project/orders/$order"
-                      params={{ project: order.projectId, order: order.id }}
-                    >
-                      <Icon name="arrow" size={18} />
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {orders.length === 0 && (
-            <div className="empty-state">
-              <Icon name="search" size={26} />
-              <h3>没有找到匹配的订单</h3>
-              <p>试试其他关键词，或切换订单状态。</p>
-              <button
-                className="quiet-button"
-                onClick={() => {
-                  setSearch('')
-                  setFilter('全部订单')
-                }}
-              >
-                查看全部订单
-              </button>
-            </div>
-          )}
-        </div>
-        <div className="table-footer">
-          <span>共 {orders.length} 笔订单</span>
-          <span>
-            每一单，都认真对待。
-            <Icon name="check" size={14} />
-          </span>
-        </div>
-      </div>
+        <TabsContent value={status} className="flex flex-col gap-3">
+          <div className="overflow-hidden rounded-lg border bg-card">
+            <Table className="[&_td:first-child]:pl-4 [&_th:first-child]:pl-4 [&_td:last-child]:pr-4 [&_th:last-child]:pr-4">
+              <TableHeader>
+                {table.getHeaderGroups().map((group) => (
+                  <TableRow key={group.id} className="hover:bg-transparent">
+                    {group.headers.map((header) => {
+                      const sorted = header.column.getIsSorted()
+                      return (
+                        <TableHead
+                          key={header.id}
+                          aria-sort={sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : undefined}
+                        >
+                          {header.isPlaceholder ? null : <table.FlexRender header={header} />}
+                        </TableHead>
+                      )
+                    })}
+                  </TableRow>
+                ))}
+              </TableHeader>
+              <TableBody>
+                {rows.map((row) => (
+                  <TableRow key={row.id}>
+                    {row.getAllCells().map((cell) => (
+                      <TableCell key={cell.id}>
+                        <table.FlexRender cell={cell} />
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            {rows.length === 0 && (
+              <Empty className="border-t">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <SearchX />
+                  </EmptyMedia>
+                  <EmptyTitle>没有找到匹配的订单</EmptyTitle>
+                  <EmptyDescription>试试其他关键词，或切换订单状态。</EmptyDescription>
+                </EmptyHeader>
+                <EmptyContent>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      table.setGlobalFilter('')
+                      table.getColumn('status')?.setFilterValue(undefined)
+                    }}
+                  >
+                    查看全部订单
+                  </Button>
+                </EmptyContent>
+              </Empty>
+            )}
+          </div>
+          <div className="flex items-center justify-between text-sm text-muted-foreground">
+            <span>共 {matching} 笔订单</span>
+            {table.getPageCount() > 1 && (
+              <div className="flex items-center gap-2">
+                <span className="tabular-nums">
+                  第 {table.state.pagination.pageIndex + 1} / {table.getPageCount()} 页
+                </span>
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label="上一页"
+                  disabled={!table.getCanPreviousPage()}
+                  onClick={() => table.previousPage()}
+                >
+                  <ChevronLeft />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label="下一页"
+                  disabled={!table.getCanNextPage()}
+                  onClick={() => table.nextPage()}
+                >
+                  <ChevronRight />
+                </Button>
+              </div>
+            )}
+          </div>
+        </TabsContent>
+      </Tabs>
     </section>
+  )
+}
+
+function Summary({ title, note, children }: { title: string; note: string; children: ReactNode }) {
+  return (
+    <Card className="gap-1">
+      <CardHeader>
+        <CardDescription>{title}</CardDescription>
+        <CardTitle className="text-3xl font-semibold tabular-nums">{children}</CardTitle>
+      </CardHeader>
+      <CardContent className="text-xs text-muted-foreground">{note}</CardContent>
+    </Card>
   )
 }

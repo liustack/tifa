@@ -32,13 +32,13 @@ export default function OrderActions({
     <div className="order-actions">
       <button
         className="primary-button"
-        disabled={pending || status === '已发货'}
+        disabled={pending || status === 'shipped'}
         onClick={ship}
       >
-        <Icon name={status === '已发货' ? 'check' : 'box'} size={17} />
+        <Icon name={status === 'shipped' ? 'check' : 'box'} size={17} />
         {pending
           ? '正在更新…'
-          : status === '已发货'
+          : status === 'shipped'
           ? '订单已发货'
           : '标记为已发货'}
       </button>

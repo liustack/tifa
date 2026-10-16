@@ -1,5 +1,6 @@
 import { route } from './+route'
 import { Icon } from '../../../../icons'
+import { yuan } from '../../../../format'
 
 // A nested business component consumes the page's injected data directly.
 // It neither receives a chain of props nor initiates a new server request.
@@ -23,7 +24,7 @@ export default function OrderItems() {
               <small>数量 {item.quantity}</small>
             </div>
             <strong className="item-price">
-              {item.price}
+              {yuan(item.priceCents)}
               <small> / 件</small>
             </strong>
           </div>
@@ -32,7 +33,7 @@ export default function OrderItems() {
       <div className="order-totals">
         <div>
           <span>商品小计</span>
-          <span>{order.total}</span>
+          <span>{yuan(order.totalCents)}</span>
         </div>
         <div>
           <span>运费</span>
@@ -40,7 +41,7 @@ export default function OrderItems() {
         </div>
         <div className="total-row">
           <strong>实付金额</strong>
-          <strong>{order.total}</strong>
+          <strong>{yuan(order.totalCents)}</strong>
         </div>
       </div>
     </div>

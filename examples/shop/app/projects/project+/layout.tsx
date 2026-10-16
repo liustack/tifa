@@ -16,7 +16,7 @@ export default function ProjectLayout() {
       <Collapsible className="flex flex-col gap-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex flex-col gap-1.5">
-            <h1 className="font-heading text-3xl font-semibold tracking-wide text-primary">{project.name}</h1>
+            <h1 className="font-serif text-3xl font-semibold tracking-wide text-primary">{project.name}</h1>
             <p className="text-sm text-muted-foreground">{project.description}</p>
             <p className="text-sm font-medium">
               {project.pending > 0 ? (

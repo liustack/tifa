@@ -63,6 +63,19 @@ func TestShopApp(t *testing.T) {
 			t.Errorf("order page lacks %s", want)
 		}
 	}
+	// The list is a table that pages in the browser: the rendered page holds the ten newest
+	// orders and the totals, with money and times in Chinese. The data written into the page
+	// after it holds all 42.
+	_, _, list := get(t, base+"/projects/studio")
+	rendered, _, _ := strings.Cut(list[strings.Index(list, `id="tifa-root"`):], "<script")
+	for _, want := range []string{">SH-1042</a>", ">SH-1033</a>", "¥14,134.00", "10月13日 14:32"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("order list lacks %s", want)
+		}
+	}
+	if strings.Contains(rendered, "SH-1032") || !strings.Contains(list, `\"id\":\"SH-1001\"`) {
+		t.Errorf("the order list renders other than its first page, or lacks the data of the others:\n%s", list)
+	}
 	// Same data, same ETag: 304. The order page sets Cache = true: the next request skips the VM.
 	if status, _, _ := get(t, detail, "If-None-Match", header.Get("ETag")); status != 304 {
 		t.Errorf("If-None-Match: %d", status)
@@ -104,7 +117,7 @@ func TestShopApp(t *testing.T) {
 	}
 	// The navigation data of the list now carries the new totals, in one response for all routes.
 	status, _, body = get(t, base+"/projects/studio", "X-Tifa-Route", "app/layout,app/projects/project+/layout,app/projects/project+/route", "X-Tifa-Build", built.BuildID)
-	for _, want := range []string{`"app/projects/project+/layout":{"status":200,"data":{"id":"studio","name":"山海工作室"`, `"pending":1`, `"shipped":3`, `"app/layout":{"status":200`} {
+	for _, want := range []string{`"app/projects/project+/layout":{"status":200,"data":{"id":"studio","name":"山海工作室"`, `"pending":1`, `"shipped":41`, `"app/layout":{"status":200`} {
 		if status != 200 || !strings.Contains(body, want) {
 			t.Errorf("list data after shipping: %d lacks %s\n%s", status, want, body)
 		}

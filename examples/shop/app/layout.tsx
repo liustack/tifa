@@ -59,11 +59,11 @@ export default function AppLayout() {
               <SidebarMenuItem>
                 <SidebarMenuButton size="lg" asChild tooltip="山海工作台">
                   <Link to="/projects/$project" params={{ project: 'studio' }}>
-                    <span className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary font-heading text-lg text-sidebar-primary-foreground">
+                    <span className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary font-serif text-lg text-sidebar-primary-foreground">
                       山
                     </span>
                     <span className="grid flex-1 text-left leading-tight">
-                      <span className="font-heading text-base font-semibold">山海</span>
+                      <span className="font-serif text-base font-semibold">山海</span>
                       <span className="text-xs text-muted-foreground">店铺工作台</span>
                     </span>
                   </Link>

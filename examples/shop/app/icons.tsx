@@ -75,12 +75,3 @@ export function Icon({
     </svg>
   )
 }
-
-export function Status({ status }: { status: string }) {
-  return (
-    <span className={`status ${status === '已发货' ? 'shipped' : 'pending'}`}>
-      <span />
-      {status}
-    </span>
-  )
-}
