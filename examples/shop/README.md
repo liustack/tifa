@@ -51,6 +51,7 @@ app/
         order+/                /projects/{project}/orders/{order}: order details, POST ships, PATCH changes the recipient
           ship-form.tsx  recipient-dialog.tsx  items.tsx
       stats/                   /projects/{project}/stats: sales stats
+        revenue-chart.client.tsx  products-chart.client.tsx    the charts, loaded in the browser only
 ```
 
 Each domain sits in its folder under `app/`, next to the pages that show it, with its tests: `app/projects` holds the shop domain, and `app/projects/project+/orders` the order domain, one level above the folder of one order rather than inside it. The root package holds only the hooks. Storage is in memory with demo data, standing in for database tables, and changes are lost on restart. Each folder under `app/` is a segment of the URL. `route.go` holds `Load`, which calls the domain packages, and the order page's `POST` and `PATCH`, whose inputs check themselves with `Validate`. `route.tsx` holds the UI and reads the result of `Load` through `./+route`. The order and stats pages read their shop through the shop Layout with `tifa.Use(c, project.Layout)`. `app/route.go` is an API route whose `GET` redirects `/` to the shop `studio`. The shop domain counts the orders waiting to ship, so `projects` imports `orders`, and `orders` imports neither `projects` nor the pages. See [Philosophy](../../docs/philosophy.md) for why, and [Structuring an app](../../docs/structure.md) for which way imports may go.
@@ -67,7 +68,7 @@ Go sends times as instants, and pages format them with `Intl` in the shop's time
 - Press "确认发货" (ship) with the form empty, or with a tracking number that is too short. The browser shows the errors at once. Go checks the same rules again and returns its errors field by field when a request gets past the browser.
 - Ship an order. Its status, the shop's count of orders waiting to ship and the list totals when you go back all update together.
 - Change the recipient of an order waiting to ship with "修改收货信息". Once the order has shipped, the button is disabled and Go refuses the change.
-- Open the stats page and switch between 7 and 30 days. The key numbers come in the HTML, the charts are drawn only in the browser.
+- Open the stats page and switch between 7 and 30 days. The key numbers come in the HTML. The charts load and draw only in the browser, and until then the HTML holds a placeholder of the same height. Their code is fetched only when a stats page opens.
 - Open `/projects/studio/orders/SH-0000`, `/projects/nope` and `/nowhere`. The three 404s show at the order level, the root Layout level and the whole page.
 
 For more conventions, see [Build and generated code](../../docs/build.md) and [Writing an app](../../docs/app.md).

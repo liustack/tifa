@@ -39,7 +39,7 @@ func TestShopApp(t *testing.T) {
 	}
 
 	base, _, _ := start(t, exe)
-	var built struct{ BuildID string }
+	var built struct{ BuildID, Head string }
 	readJSON(t, filepath.Join(dir, ".tifa", "dist", "build.json"), &built)
 
 	// The site root sends visitors to the first project.
@@ -77,12 +77,24 @@ func TestShopApp(t *testing.T) {
 	if strings.Contains(rendered, "SH-1032") || !strings.Contains(list, `\"id\":\"SH-1001\"`) {
 		t.Errorf("the order list renders other than its first page, or lacks the data of the others:\n%s", list)
 	}
-	// The stats page renders its key numbers. The charts draw in the browser only, so the HTML has
-	// their empty wrappers of a fixed size.
+	// The stats page renders its key numbers. The charts load in the browser only, so the HTML
+	// has a placeholder of a fixed height for each, and recharts is in none of the scripts the
+	// head loads: the entry and the chunks it preloads.
 	status, _, stats := get(t, base+"/projects/studio/stats")
-	for _, want := range []string{"<title>销售统计 · 山海工作室 · 山海工作台</title>", "销售额", "¥14,134.00", "95.2%", "热销商品", `class="recharts-wrapper"`} {
+	for _, want := range []string{"<title>销售统计 · 山海工作室 · 山海工作台</title>", "销售额", "¥14,134.00", "95.2%", "热销商品"} {
 		if status != 200 || !strings.Contains(stats, want) {
 			t.Errorf("stats page: %d lacks %s", status, want)
+		}
+	}
+	if n := strings.Count(stats, `data-slot="skeleton"`); n != 2 {
+		t.Errorf("stats page: %d chart placeholders, want 2", n)
+	}
+	if strings.Contains(stats, "recharts") {
+		t.Error("stats page: recharts rendered on the server")
+	}
+	for _, m := range headURL.FindAllStringSubmatch(built.Head, -1) {
+		if _, _, script := get(t, base+m[1]); strings.HasSuffix(m[1], ".js") && strings.Contains(script, "recharts-wrapper") {
+			t.Errorf("%s, which every page loads, holds recharts", m[1])
 		}
 	}
 	// Same data, same ETag: 304. The order page sets Cache = true: the next request skips the VM.

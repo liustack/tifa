@@ -190,50 +190,61 @@ func TestSoakOOMRecycle(t *testing.T) {
 	}
 }
 
-// What Intl adds to a VM after a GC: loaded without Intl as before, loaded by load, and after a
-// page formats a number and a date. It gives two counts of QuickJS: malloc, the bytes the VM's
-// allocations take, which ssr.vm_memory limits, and used, its own estimate of what its objects,
-// strings and functions take. Intl only puts stand-ins on a VM until it is used, so a VM whose
-// pages never format may cost a few KB more.
+// What a VM holds after a GC. Every VM here but the bare one comes from load, as in the pool, since
+// a bundle may use Intl at its top level. An empty bundle shows what Intl adds: compared with a bare
+// VM, the stand-ins of a VM whose pages never format, and what formatting a number and a date
+// installs. Each bundle then shows what it adds after loading, formatting and a render. It gives
+// two counts of QuickJS: malloc, the bytes the VM's allocations take, which ssr.vm_memory limits,
+// and used, its own estimate of what its objects, strings and functions take.
 func TestSoakVMMemory(t *testing.T) {
 	const formats = `[new Intl.NumberFormat('zh-CN', {style: 'currency', currency: 'CNY'}).format(1234.5),
 		new Date(0).toLocaleDateString('zh-CN', {timeZone: 'Asia/Shanghai'})].join()`
-	for _, b := range soakBundles(t) {
+	const memory, timeout = 128 << 20, 10 * time.Second
+	bundles := soakBundles(t)
+	// measure returns what a VM from open holds, after use when it is set.
+	measure := func(t *testing.T, open func() (*quickjs.VM, error), use func(*quickjs.VM)) lib.TJSMemoryUsage {
+		vm, err := open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+		if use != nil {
+			use(vm)
+		}
+		return vmMemory(vm, true)
+	}
+	loaded := func(t *testing.T, source string) func() (*quickjs.VM, error) {
+		bytecode, err := compile(source, memory, timeout)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return func() (*quickjs.VM, error) { return load(bytecode, memory, timeout, false) }
+	}
+	format := func(vm *quickjs.VM) {
+		if _, err := vm.Eval(formats, quickjs.EvalGlobal); err != nil {
+			t.Fatal(err)
+		}
+	}
+	kb := func(n int64) float64 { return float64(n) / 1024 }
+	show := func(t *testing.T, name string, u, base lib.TJSMemoryUsage) {
+		t.Logf("%-24s malloc %8.1f KB (%+8.1f), used %8.1f KB (%+8.1f)", name,
+			kb(u.Fmalloc_size), kb(u.Fmalloc_size-base.Fmalloc_size),
+			kb(u.Fmemory_used_size), kb(u.Fmemory_used_size-base.Fmemory_used_size))
+	}
+
+	bare := measure(t, quickjs.NewVM, nil)
+	empty := loaded(t, "")
+	unused := measure(t, empty, nil)
+	show(t, "bare VM", bare, bare)
+	show(t, "Intl, unused", unused, bare)
+	show(t, "Intl, after formatting", measure(t, empty, format), bare)
+	if grown := unused.Fmalloc_size - bare.Fmalloc_size; grown > 32<<10 {
+		t.Fatalf("Intl adds %.1f KB to a VM that never formats", kb(grown))
+	}
+
+	for _, b := range bundles {
 		t.Run(b.name, func(t *testing.T) {
-			const memory, timeout = 128 << 20, 10 * time.Second
-			bytecode, err := compile(b.source, memory, timeout)
-			if err != nil {
-				t.Fatal(err)
-			}
-			// measure returns what a VM from open holds, after use when it is set.
-			measure := func(open func() (*quickjs.VM, error), use func(*quickjs.VM)) lib.TJSMemoryUsage {
-				vm, err := open()
-				if err != nil {
-					t.Fatal(err)
-				}
-				defer vm.Close()
-				if use != nil {
-					use(vm)
-				}
-				return vmMemory(vm, true)
-			}
-			withoutIntl := func() (*quickjs.VM, error) {
-				vm, err := quickjs.NewVM()
-				if err != nil {
-					return nil, err
-				}
-				vm.SetMemoryLimit(memory)
-				if _, err := vm.EvalBytecode(bytecode); err != nil {
-					return nil, errors.Join(err, vm.Close())
-				}
-				return vm, nil
-			}
-			withIntl := func() (*quickjs.VM, error) { return load(bytecode, memory, timeout, false) }
-			format := func(vm *quickjs.VM) {
-				if _, err := vm.Eval(formats, quickjs.EvalGlobal); err != nil {
-					t.Fatal(err)
-				}
-			}
+			open := loaded(t, b.source)
 			render := func(vm *quickjs.VM) {
 				in, err := json.Marshal(b.pages[0].input)
 				if err != nil {
@@ -243,23 +254,9 @@ func TestSoakVMMemory(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			plain := measure(withoutIntl, nil)
-			kb := func(n int64) float64 { return float64(n) / 1024 }
-			show := func(name string, u, base lib.TJSMemoryUsage) {
-				t.Logf("%-28s malloc %7.1f KB (%+5.1f), used %7.1f KB (%+5.1f)", name,
-					kb(u.Fmalloc_size), kb(u.Fmalloc_size-base.Fmalloc_size),
-					kb(u.Fmemory_used_size), kb(u.Fmemory_used_size-base.Fmemory_used_size))
-			}
-			unused := measure(withIntl, nil)
-			show("without Intl", plain, plain)
-			show("with Intl, unused", unused, plain)
-			show("with Intl, after formatting", measure(withIntl, format), plain)
-			rendered := measure(withoutIntl, render)
-			show("rendered without Intl", rendered, rendered)
-			show("rendered with Intl", measure(withIntl, render), rendered)
-			if grown := unused.Fmalloc_size - plain.Fmalloc_size; grown > 32<<10 {
-				t.Fatalf("Intl adds %.1f KB to a VM that never formats", kb(grown))
-			}
+			show(t, "loaded", measure(t, open, nil), unused)
+			show(t, "loaded, after formatting", measure(t, open, format), unused)
+			show(t, "loaded, after a render", measure(t, open, render), unused)
 		})
 	}
 }
