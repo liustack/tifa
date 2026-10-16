@@ -1,11 +1,12 @@
 ---
-summary: 'How tifa new starts an app, what tifa build does, which files and outputs it generates in .tifa/, how to set up the tsconfig and go.mod of an app, and how the generated program starts and answers page requests'
+summary: 'How tifa new starts an app, what tifa build does, which files and outputs it generates in .tifa/, how to set up the tsconfig and go.mod of an app, how the generated program starts and answers page requests, and which license notices to ship with it'
 read_when:
   - Changing internal/codegen, the build command in cmd/tifa, or server.Main
   - Creating a tifa app, or adding an app to test/apps
   - You cannot tell where a file under .tifa/ comes from
   - Implementing page rendering or navigation data requests and you need the route tree and the data protocol
   - Changing internal/bundle, js/vite or js/host, or upgrading the dependencies of the SSR host polyfills
+  - Handing a built program to others and checking which notices go with it
 ---
 
 English · [简体中文](build.zh-CN.md)
@@ -62,6 +63,16 @@ GOOS=linux GOARCH=amd64 $(go tool -n tifa) build -o bin/myapp-linux
 ```
 
 `go tool -n tifa` prints the path of the tifa command for this machine without running it. `GOOS=linux go tool tifa build` does not work: `GOOS` then also applies to building the tifa command itself, which fails to start with `exec format error`.
+
+### Notices to ship with the program
+
+The program embeds locale data for [Intl](app.md#intl-in-server-rendering), from Unicode CLDR and from the ICU data Chromium ships, through the package `github.com/liustack/quickjs/intl`. That data is under the Unicode License V3, with Chromium's changes under its BSD license, and both ask that their notices come with every copy of the program or with its documentation. The notices are in the file `intl/LICENSE-DATA` of that module. When you hand the program to others, ship the file with it:
+
+```sh
+cp "$(go list -m -f '{{.Dir}}' github.com/liustack/quickjs)/intl/LICENSE-DATA" bin/LICENSE-DATA
+```
+
+Run it in the app's folder, where `go list` finds the version the app builds with. `tifa build` does not copy the file for you.
 
 ## tifa routes
 
@@ -198,6 +209,8 @@ Defined in `js/runtime/data.ts`. The Go side implements it:
 | `version` | Prints the versions of the app module, the tifa module and Go |
 
 Config priority, from highest to lowest: command-line flags, `TIFA_*` environment variables, the file given with `--config`, the embedded project config, defaults. An unknown `TIFA_*` environment variable makes the program exit with an error.
+
+In the VMs the local time of `Date` is always UTC, whatever zone the program was started in, so a page renders the same on every machine. The process's zone is left alone: `time.Local` in the app's Go code is the zone of the machine or of `TZ`, as in any Go program. The generated `main.go` imports `time/tzdata`, so Intl and `time.LoadLocation` find every time zone even where the system has no zoneinfo, as in a `scratch` container. It makes the program about 450 KB larger.
 
 `serve` also has a dev flag, `--dist <dir>`: it reads the frontend output from that folder instead of the embedded `dist/`. [`tifa dev`](dev.md) points it at `.tifa/dist`. After a rebuild of the SSR bundle alone, the dev program (`server.DevMain`) loads the bundle again from there without a restart, and after other rebuilds tifa dev restarts it. It is not a deployment setting, is not part of the config layers, and has no `TIFA_*` variable. At startup the program reads `ssr.js`, compiles it and prewarms the VM pool, and reads `build.json` for the build ID and the head tags.
 

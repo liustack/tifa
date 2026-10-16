@@ -1,5 +1,5 @@
 ---
-summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、route.go 与 route.tsx、Layout、hooks.go、404、SSR 与缓存开关、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数，以及数据、入参和结果的 JSON 规则'
+summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、route.go 与 route.tsx、Layout、hooks.go、404、SSR 与缓存开关、怎么用 Intl 格式化才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数，以及数据、入参和结果的 JSON 规则'
 read_when:
   - 新建一个 tifa 应用，或给应用加页面、Layout、API 路由
   - 构建报 Ctx 用法或 Load 返回类型的错误，想知道怎么改
@@ -7,6 +7,7 @@ read_when:
   - 改 examples/shop 或 test/apps 里的应用
   - 给 Load、Layout 函数、方法函数或 OnRequest 写 Go 测试
   - 给应用加 CSS、Tailwind CSS 或 shadcn/ui
+  - 在页面里格式化数字或日期，或者 tifa dev 对某个 Intl 调用报警
 ---
 
 [English](app.md) · 简体中文
@@ -265,6 +266,68 @@ const LayoutSSR = false // 本目录的 Layout，默认 true
 - `SSR = false`：照常执行中间件和所有 `Load`，不进 QuickJS，返回带数据的最简文档，浏览器直接渲染。`LayoutSSR = false` 作用于这个 Layout 套到的所有页面。
 - `Cache = true`：渲染结果按构建版本、URL 和数据缓存，缓存大小是 `cache.size`（见 [config.zh-CN.md](config.zh-CN.md)），数据没变时直接返回 HTML。组件渲染时不能读 `Date.now()`、`Math.random()` 这类每次不同的值，这也是 hydration 的要求。
 - 页面响应都带 ETag，数据没变的第二次请求带 `If-None-Match` 时答 304，和 `Cache` 无关。
+
+## 服务端渲染里的 Intl
+
+页面在服务端渲染时可以格式化数字、日期和复数，支持 Chromium 有的全部语言（Unicode CLDR 48.2）。能用的有：
+
+- `Intl.NumberFormat`、`Intl.DateTimeFormat`、`Intl.PluralRules`、`Intl.getCanonicalLocales`，以及各构造器的 `supportedLocalesOf`。
+- `Date` 的 `toLocaleString`、`toLocaleDateString`、`toLocaleTimeString`，`Number` 和 `BigInt` 的 `toLocaleString`。
+
+服务端没有 `Intl.Collator`、`Intl.Segmenter`、`Intl.RelativeTimeFormat`、`Intl.ListFormat`、`Intl.DisplayNames`、`Intl.DurationFormat`、`Intl.supportedValuesOf` 和 `formatRange`，渲染时调用它们会失败。`localeCompare` 按码点比较，不按语言。日期用公历（th 用佛历，fa 等少数语言用波斯历），用 `-u-ca-` 或 `calendar` 选项要的其他历法（比如 japanese）会退回这个语言的默认历法。`roundingIncrement` 和 `roundingPriority` 只支持默认值。
+
+不传 locale 时服务端按 `en-US` 格式化，不传 `timeZone` 时按 `UTC`，和机器的语言、时区无关。服务端 `Date` 的本地时间也恒为 UTC：`getTimezoneOffset()` 是 0，`new Date(2026, 0, 1)`、`getHours`、`toString` 都按 UTC 算。应用的 Go 代码不受影响：进程保持启动时的时区，`time.Local`、日志和 SQLite 照常用这个时区，和普通 Go 程序一样。
+
+输出和 Chromium 156 在约 60,000 个表达式上做过比对，除了服务端没有的历法里的日期，全部一致。少数冷门语言和选项和 Chromium 不同：sr-Cyrl-ME 的货币、单位和时区名用西里尔字母，uz-AF 和 uz-Arab-AF 在带时间的日期里把纪元写在年份前面，en-IE 和 fr-MA 加 `hourCycle: 'h11'` 时写 "am" 或 "AM"，Chromium 写 "a.m."，om-KE 的短纪元是 "BA"。错误信息的措辞不同。Firefox 和 Safari 用各自的数据。新版本很接近，但 macOS 26.4 之前的 Safari 数据较旧（CLDR 46），少数格式可能不同。
+
+### 怎么写才能水合一致
+
+同一个调用只有 locale 和时区都相同时，服务端和浏览器才会得到同样的文字。调用里没传的，浏览器按用户的语言和时区补上，服务端按 `en-US` 和 `UTC` 补上，这时 React 会报水合不一致。所以：
+
+- 每次调用都传 locale，日期还要传 `timeZone`，值来自 `Load` 或 Layout 返回的数据。从哪来由应用决定：用户保存的设置、浏览器把 `Intl.DateTimeFormat().resolvedOptions().timeZone` 存进的 cookie，或者 `c.Header("Accept-Language")`。来自请求的值要先校验再交给页面：不认识的时区会抛 `RangeError`，渲染失败。
+- 渲染时不要用 `Date` 的本地时间方法（`getHours`、`getDate`、`toString`、`new Date(2026, 0, 1)`）：它们在服务端给出 UTC，在浏览器给出用户的时区。改用 UTC 方法，或者带 `timeZone` 的 Intl。
+- 和当前时间有关的文字（比如「3 分钟前」）不管传什么，渲染和水合时都会不同。在 `Load` 里算好，或者放到 `useEffect` 里渲染。
+
+```go
+type Receipt struct {
+	Amount   float64 `json:"amount"`
+	PaidAt   string  `json:"paidAt"`
+	Locale   string  `json:"locale"`
+	TimeZone string  `json:"timeZone"`
+}
+```
+
+```tsx
+import { route } from './+route'
+
+export default function ReceiptPage() {
+  const { amount, paidAt, locale, timeZone } = route.useLoaderData()
+  return (
+    <p>
+      {new Intl.NumberFormat(locale, { style: 'currency', currency: 'CNY' }).format(amount)}
+      {new Date(paidAt).toLocaleDateString(locale, { timeZone })}
+    </p>
+  )
+}
+```
+
+数据是 `locale: 'zh-CN'`、`timeZone: 'Asia/Shanghai'`、`paidAt: '2025-08-16T20:05:09Z'` 时，服务端和浏览器渲染出的都是 `¥1,234.50` 和 `2025/8/17`。
+
+### tifa dev 下的报警
+
+在 [`tifa dev`](dev.zh-CN.md) 下，渲染时调用 Intl 构造器或 `toLocale*` 方法却没传 locale，或者日期没传 `timeZone`，会打一条警告，带上调用在源码里的位置和调用栈：
+
+```text
+2026/10/16 08:00:00 tifa: ssr: Number.prototype.toLocaleString without a locale at app/orders/order+/items.tsx:12:7. The server formats in en-US and UTC, a browser in the language and time zone of its user, so the text can differ from the HTML and React reports a hydration mismatch. Pass the locale and, for a date, the timeZone, from data Load returns, as in toLocaleDateString('zh-CN', {timeZone: 'Asia/Shanghai'}), or format in a useEffect.
+    at Price (app/orders/order+/items.tsx:12:7)
+    at ...
+```
+
+每个位置只打一次，tifa dev 重新加载 SSR 包后再打一次。警告不影响渲染结果。构建出的程序不做这个检查。调用发生在某个包里时，第一行指向包里的文件，你自己的代码在调用栈更下面。
+
+### 代价
+
+一个 VM 在它的渲染第一次用到 Intl 之前，只带 Intl 的占位，约 10 KB。第一次用到时这个 VM 再多约 30 到 45 KB。示例商店的一个 VM 约 2.2 MB，这部分不到它的 2%。tifa dev 下每个 VM 一开始就付这份代价，因为报警需要先装好 Intl。每种语言在每个进程里只读进内存一次，100 到 180 KB，另外第一次用到任何语言时还要约 1 MB 所有语言共用的数据。语言数据让程序大约增加 1.7 MB，生成的 `main.go` 嵌入的时区数据库再增加约 450 KB。语言数据带有要随程序附带的许可声明，见[要随程序附带的声明](build.zh-CN.md#要随程序附带的声明)。
 
 ## 样式
 

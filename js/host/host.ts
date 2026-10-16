@@ -1,4 +1,7 @@
 // Pure computation APIs required by React and the router. No host I/O is exposed.
+// Intl and the toLocale* methods are not here: internal/ssr registers them on every VM from
+// Go (github.com/liustack/quickjs/intl), in every CLDR locale, with en-US and UTC as the
+// defaults. In the browser they are the browser's own.
 import 'core-js/web/url.js'
 import { TextEncoder, TextDecoder } from '@kayahr/text-encoding/no-encodings'
 import AbortController from 'abort-controller'

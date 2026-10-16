@@ -56,6 +56,8 @@ tifa dev: 07:35:36 ready in 260ms
 
 步骤名是 `static analysis`、`code generation`、`bundle`、`go build`。静态分析之后还有一行 `route manifest changed` 或 `route manifest unchanged`。Vite 的警告和错误也以 `tifa dev:` 行打印。应用自己的输出照常打印。
 
+渲染时调用 Intl 或 `toLocale*` 方法却没传 locale，或者格式化日期没传 `timeZone`，应用会打一条 `tifa: ssr:` 警告，指出它在源码里的位置，每个位置只打一次。页面照常渲染。见 [tifa dev 下的报警](app.zh-CN.md#tifa-dev-下的报警)。
+
 ## 构建失败
 
 - 失败时旧版本继续运行，日志打印 `build failed: <原因>`，打开的页面盖上错误浮层，显示 Go 编译器或 Vite 的原文。

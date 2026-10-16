@@ -146,4 +146,4 @@ tifa 不接受 pull request。这类框架同时牵动编译器、打包、服�
 
 ## 许可证
 
-[MIT](LICENSE)
+[MIT](LICENSE)。用 tifa 构建的程序嵌入了 Unicode CLDR 语言数据，分发程序时要附上它的声明，见 [docs/build.zh-CN.md](docs/build.zh-CN.md#要随程序附带的声明)。
