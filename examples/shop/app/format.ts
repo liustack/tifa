@@ -1,3 +1,6 @@
+import { differenceInMinutes, formatDuration } from 'date-fns'
+import { zhCN } from 'date-fns/locale'
+
 // Money and times as the workbench shows them, in Chinese. Every formatter names its locale, and
 // times name the time zone of the shop, so the server render and every browser write the same
 // text whatever the language and zone of the machine.
@@ -28,3 +31,12 @@ export const orderTime = (instant: string, timeZone: string) =>
 // orderDate writes an instant as 2026年10月13日 in timeZone.
 export const orderDate = (instant: string, timeZone: string) =>
   dateFormat(timeZone, { dateStyle: 'long' }).format(new Date(instant))
+
+// waited writes the time between two instants as 1 天 3 小时, or in minutes under an hour. It
+// counts elapsed time, not calendar days, so it reads the same in every time zone.
+export function waited(from: string, to: string) {
+  const minutes = differenceInMinutes(new Date(to), new Date(from))
+  const days = Math.floor(minutes / 1440)
+  const hours = Math.floor((minutes % 1440) / 60)
+  return formatDuration(days || hours ? { days, hours } : { minutes }, { locale: zhCN, delimiter: ' ' })
+}

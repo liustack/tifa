@@ -19,25 +19,25 @@ func at(month time.Month, day, hour, minute int) time.Time {
 	return time.Date(2026, month, day, hour, minute, 0, 0, shopZone)
 }
 
-type customer struct{ name, email, address string }
+type customer struct{ name, phone, email, address string }
 
 var customers = []customer{
-	{"林夏", "linxia@example.com", "上海市徐汇区 · 演示地址"},
-	{"陈默", "chenmo@example.com", "杭州市西湖区 · 演示地址"},
-	{"周宁", "zhouning@example.com", "北京市朝阳区 · 演示地址"},
-	{"许知", "xuzhi@example.com", "成都市武侯区 · 演示地址"},
-	{"苏禾", "suhe@example.com", "苏州市姑苏区 · 演示地址"},
-	{"何安", "hean@example.com", "广州市天河区 · 演示地址"},
-	{"沈星", "shenxing@example.com", "南京市鼓楼区 · 演示地址"},
-	{"江屿", "jiangyu@example.com", "厦门市思明区 · 演示地址"},
-	{"叶青", "yeqing@example.com", "武汉市武昌区 · 演示地址"},
-	{"顾言", "guyan@example.com", "西安市雁塔区 · 演示地址"},
-	{"宋知秋", "songzhiqiu@example.com", "长沙市岳麓区 · 演示地址"},
-	{"唐小满", "tangxiaoman@example.com", "重庆市渝中区 · 演示地址"},
-	{"白露", "bailu@example.com", "青岛市市南区 · 演示地址"},
-	{"秦朗", "qinlang@example.com", "天津市和平区 · 演示地址"},
-	{"温然", "wenran@example.com", "昆明市五华区 · 演示地址"},
-	{"陆川", "luchuan@example.com", "深圳市南山区 · 演示地址"},
+	{"林夏", "13800138000", "linxia@example.com", "上海市徐汇区 · 演示地址"},
+	{"陈默", "13900139001", "chenmo@example.com", "杭州市西湖区 · 演示地址"},
+	{"周宁", "13700137002", "zhouning@example.com", "北京市朝阳区 · 演示地址"},
+	{"许知", "13600136003", "xuzhi@example.com", "成都市武侯区 · 演示地址"},
+	{"苏禾", "13500135004", "suhe@example.com", "苏州市姑苏区 · 演示地址"},
+	{"何安", "18800188005", "hean@example.com", "广州市天河区 · 演示地址"},
+	{"沈星", "18600186006", "shenxing@example.com", "南京市鼓楼区 · 演示地址"},
+	{"江屿", "15900159007", "jiangyu@example.com", "厦门市思明区 · 演示地址"},
+	{"叶青", "15800158008", "yeqing@example.com", "武汉市武昌区 · 演示地址"},
+	{"顾言", "15000150009", "guyan@example.com", "西安市雁塔区 · 演示地址"},
+	{"宋知秋", "17700177010", "songzhiqiu@example.com", "长沙市岳麓区 · 演示地址"},
+	{"唐小满", "18900189011", "tangxiaoman@example.com", "重庆市渝中区 · 演示地址"},
+	{"白露", "13300133012", "bailu@example.com", "青岛市市南区 · 演示地址"},
+	{"秦朗", "15100151013", "qinlang@example.com", "天津市和平区 · 演示地址"},
+	{"温然", "18100181014", "wenran@example.com", "昆明市五华区 · 演示地址"},
+	{"陆川", "19900199015", "luchuan@example.com", "深圳市南山区 · 演示地址"},
 }
 
 var studioCatalogue = []itemRecord{
@@ -61,11 +61,11 @@ var weekendCatalogue = []itemRecord{
 
 func demoOrders() []orderRecord {
 	list := []orderRecord{
-		order("SH-1042", "studio", 0, at(10, 13, 14, 32), false, item(studioCatalogue[0], 1), item(studioCatalogue[1], 1)),
-		order("SH-1041", "studio", 1, at(10, 12, 16, 47), false, item(studioCatalogue[2], 2)),
-		order("SH-1040", "studio", 2, at(10, 12, 10, 8), true, item(studioCatalogue[3], 1)),
-		order("SH-1039", "studio", 3, at(10, 11, 20, 15), true, item(studioCatalogue[4], 1)),
-		order("WK-0201", "weekend", 4, at(10, 13, 9, 26), false, item(weekendCatalogue[0], 1)),
+		order("SH-1042", "studio", 0, at(10, 13, 14, 32), item(studioCatalogue[0], 1), item(studioCatalogue[1], 1)),
+		order("SH-1041", "studio", 1, at(10, 12, 16, 47), item(studioCatalogue[2], 2)),
+		shipped(order("SH-1040", "studio", 2, at(10, 12, 10, 8), item(studioCatalogue[3], 1)), "SF", "SF1408273615", 6),
+		shipped(order("SH-1039", "studio", 3, at(10, 11, 20, 15), item(studioCatalogue[4], 1)), "JD", "JDV004192837465", 14),
+		order("WK-0201", "weekend", 4, at(10, 13, 9, 26), item(weekendCatalogue[0], 1)),
 	}
 	// SH-1001 to SH-1038, from 2026-09-14 to 2026-10-11.
 	list = append(list, generated("SH-%d", 1001, "studio", 38, 0, 27, 7, 0, studioCatalogue)...)
@@ -88,7 +88,9 @@ func generated(format string, first int, projectID string, count, firstDay, last
 			// Another product: a step of 1 to 3 never comes back round in a catalogue of 5 or more.
 			items = append(items, item(catalogue[(product+1+n%3)%len(catalogue)], 1))
 		}
-		list = append(list, order("", projectID, (n*step+offset)%len(customers), placed, true, items...))
+		o := order("", projectID, (n*step+offset)%len(customers), placed, items...)
+		carrier := Carriers[n%len(Carriers)].Code
+		list = append(list, shipped(o, carrier, fmt.Sprintf("%s%010d", carrier, 7310000000+n*7919), 3+(n*5)%20))
 	}
 	slices.SortFunc(list, func(a, b orderRecord) int { return a.PlacedAt.Compare(b.PlacedAt) })
 	for i := range list {
@@ -97,12 +99,18 @@ func generated(format string, first int, projectID string, count, firstDay, last
 	return list
 }
 
-func order(id, projectID string, buyer int, placed time.Time, shipped bool, items ...itemRecord) orderRecord {
+func order(id, projectID string, buyer int, placed time.Time, items ...itemRecord) orderRecord {
 	c := customers[buyer]
 	return orderRecord{
-		ID: id, ProjectID: projectID, Customer: c.name, Email: c.email, Address: c.address,
-		PlacedAt: placed, Shipped: shipped, Items: items,
+		ID: id, ProjectID: projectID, Customer: c.name, Phone: c.phone, Email: c.email, Address: c.address,
+		PlacedAt: placed, Items: items,
 	}
+}
+
+// shipped returns o shipped with carrier under tracking, hours after it was placed.
+func shipped(o orderRecord, carrier, tracking string, hours int) orderRecord {
+	o.Shipment = &Shipment{Carrier: carrier, TrackingNo: tracking, ShippedAt: o.PlacedAt.Add(time.Duration(hours) * time.Hour)}
+	return o
 }
 
 func item(product itemRecord, quantity int) itemRecord {

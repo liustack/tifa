@@ -18,9 +18,6 @@ const (
 	StatusShipped = "shipped"
 )
 
-// ErrShipped is answered when an order that has already shipped is shipped again.
-var ErrShipped = tifa.Error{Status: 409, Message: "订单已发货，请刷新页面"}
-
 // Order is the whole order, as the detail page shows it. Amounts are in cents, and PlacedAt is an
 // instant that pages format in the time zone of the shop.
 type Order struct {
@@ -28,12 +25,14 @@ type Order struct {
 	ProjectID  string     `json:"projectId"`
 	Customer   string     `json:"customer"`
 	Initials   string     `json:"initials"`
+	Phone      string     `json:"phone"`
 	Email      string     `json:"email"`
 	Address    string     `json:"address"`
 	PlacedAt   time.Time  `json:"placedAt"`
 	Status     string     `json:"status"`
 	TotalCents int        `json:"totalCents"`
 	Items      []LineItem `json:"items"`
+	Shipment   *Shipment  `json:"shipment"` // nil until the order ships
 }
 
 type LineItem struct {
@@ -77,7 +76,7 @@ func ListOrders(projectID string) OrderList {
 		}
 		l.Orders = append(l.Orders, row)
 		l.RevenueCents += row.TotalCents
-		if o.Shipped {
+		if o.Shipment != nil {
 			l.Shipped++
 		} else {
 			l.Pending++
@@ -97,26 +96,11 @@ func GetOrder(projectID, id string) (Order, error) {
 	return view(orders[i]), nil
 }
 
-// ShipOrder marks the order as shipped. An order ships once, the second time returns ErrShipped.
-func ShipOrder(projectID, id string) error {
-	ordersMu.Lock()
-	defer ordersMu.Unlock()
-	i := indexOrder(projectID, id)
-	if i < 0 {
-		return tifa.ErrNotFound
-	}
-	if orders[i].Shipped {
-		return ErrShipped
-	}
-	orders[i].Shipped = true
-	return nil
-}
-
 // CountPending returns how many orders of a project wait to be shipped.
 func CountPending(projectID string) int {
 	n := 0
 	for _, o := range ordersOf(projectID) {
-		if !o.Shipped {
+		if o.Shipment == nil {
 			n++
 		}
 	}
@@ -126,8 +110,13 @@ func CountPending(projectID string) int {
 func view(o orderRecord) Order {
 	order := Order{
 		ID: o.ID, ProjectID: o.ProjectID, Customer: o.Customer, Initials: initials(o.Customer),
-		Email: o.Email, Address: o.Address, PlacedAt: o.PlacedAt, Status: status(o), TotalCents: total(o),
-		Items: []LineItem{},
+		Phone: o.Phone, Email: o.Email, Address: o.Address, PlacedAt: o.PlacedAt, Status: status(o),
+		TotalCents: total(o), Items: []LineItem{},
+	}
+	if o.Shipment != nil {
+		s := *o.Shipment
+		s.CarrierName = carrierName(s.Carrier)
+		order.Shipment = &s
 	}
 	for _, item := range o.Items {
 		order.Items = append(order.Items, LineItem{
@@ -139,7 +128,7 @@ func view(o orderRecord) Order {
 }
 
 func status(o orderRecord) string {
-	if o.Shipped {
+	if o.Shipment != nil {
 		return StatusShipped
 	}
 	return StatusPending
@@ -162,10 +151,11 @@ type orderRecord struct {
 	ID        string
 	ProjectID string
 	Customer  string
+	Phone     string
 	Email     string
 	Address   string
 	PlacedAt  time.Time
-	Shipped   bool
+	Shipment  *Shipment
 	Items     []itemRecord
 }
 

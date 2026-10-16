@@ -2,6 +2,8 @@ package orders
 
 import (
 	"errors"
+	"maps"
+	"strings"
 	"testing"
 	"time"
 
@@ -83,20 +85,116 @@ func TestDemoOrdersListEachProductOnce(t *testing.T) {
 
 func TestShipOnce(t *testing.T) {
 	reset()
-	if err := ShipOrder("studio", "SH-1042"); err != nil {
+	at := time.Date(2026, 10, 14, 9, 30, 0, 0, shopZone)
+	if err := ShipOrder("studio", "SH-1042", "SF", " SF1234567890 ", at); err != nil {
 		t.Fatal(err)
 	}
-	if o, _ := GetOrder("studio", "SH-1042"); o.Status != StatusShipped {
-		t.Fatalf("status after shipping %q", o.Status)
+	o, _ := GetOrder("studio", "SH-1042")
+	want := Shipment{Carrier: "SF", CarrierName: "顺丰速运", TrackingNo: "SF1234567890", ShippedAt: at}
+	if o.Status != StatusShipped || o.Shipment == nil || *o.Shipment != want {
+		t.Fatalf("after shipping: %s %+v", o.Status, o.Shipment)
 	}
 	if s := ListOrders("studio"); s.Pending != 1 || s.Shipped != 41 {
 		t.Fatalf("totals after shipping: %d pending, %d shipped", s.Pending, s.Shipped)
 	}
-	if err := ShipOrder("studio", "SH-1042"); err != ErrShipped {
+	if err := ShipOrder("studio", "SH-1042", "JD", "JD0001234567", at); err != ErrShipped {
 		t.Fatalf("second ship: %v", err)
 	}
-	if err := ShipOrder("weekend", "SH-1041"); !errors.Is(err, tifa.ErrNotFound) {
+	if o, _ := GetOrder("studio", "SH-1042"); o.Shipment.Carrier != "SF" {
+		t.Fatalf("shipping twice changed the shipment: %+v", o.Shipment)
+	}
+	if err := ShipOrder("weekend", "SH-1041", "SF", "SF1234567890", at); !errors.Is(err, tifa.ErrNotFound) {
 		t.Fatalf("ship an order of another project: %v", err)
+	}
+}
+
+// Orders that shipped before carry their shipment, those waiting have none.
+func TestDemoShipmentsFollowTheirOrders(t *testing.T) {
+	reset()
+	for _, p := range []string{"studio", "weekend"} {
+		for _, row := range ListOrders(p).Orders {
+			o, _ := GetOrder(p, row.ID)
+			if (o.Shipment != nil) != (o.Status == StatusShipped) {
+				t.Fatalf("%s is %s with shipment %+v", o.ID, o.Status, o.Shipment)
+			}
+			if o.Shipment != nil && (!o.Shipment.ShippedAt.After(o.PlacedAt) || CheckShipment(o.Shipment.Carrier, o.Shipment.TrackingNo) != nil) {
+				t.Errorf("%s: shipment %+v of an order placed at %s", o.ID, o.Shipment, o.PlacedAt)
+			}
+		}
+	}
+}
+
+func TestCheckShipment(t *testing.T) {
+	for _, tc := range []struct {
+		carrier, trackingNo string
+		fields              tifa.Fields
+	}{
+		{"SF", "SF1234567890", nil},
+		{"EMS", " 1234abcd ", nil},
+		{"", "SF1234567890", tifa.Fields{"carrier": "请选择快递公司"}},
+		{"DHL", "SF1234567890", tifa.Fields{"carrier": "请选择快递公司"}},
+		{"SF", "SF12", tifa.Fields{"trackingNo": "运单号是 8 到 20 位字母或数字"}},
+		{"SF", "SF-1234-5678", tifa.Fields{"trackingNo": "运单号是 8 到 20 位字母或数字"}},
+		{"", "", tifa.Fields{"carrier": "请选择快递公司", "trackingNo": "运单号是 8 到 20 位字母或数字"}},
+	} {
+		err := CheckShipment(tc.carrier, tc.trackingNo)
+		if tc.fields == nil {
+			if err != nil {
+				t.Errorf("%q %q: %v", tc.carrier, tc.trackingNo, err)
+			}
+			continue
+		}
+		var fields tifa.Fields
+		if !errors.As(err, &fields) || !maps.Equal(fields, tc.fields) {
+			t.Errorf("%q %q: %v, want %v", tc.carrier, tc.trackingNo, err, tc.fields)
+		}
+	}
+}
+
+func TestCheckRecipient(t *testing.T) {
+	long := strings.Repeat("路", 101)
+	for _, tc := range []struct {
+		customer, phone, address string
+		fields                   tifa.Fields
+	}{
+		{"林夏", "13800138000", "上海市徐汇区漕溪北路 88 号", nil},
+		{" 林夏 ", " 138 0013 8000 ", "上海市徐汇区漕溪北路 88 号", nil},
+		{"", "13800138000", "上海市徐汇区漕溪北路 88 号", tifa.Fields{"customer": "请填写收件人"}},
+		{"林夏", "12345", "上海市徐汇区漕溪北路 88 号", tifa.Fields{"phone": "请填写 11 位手机号"}},
+		{"林夏", "13800138000", "  ", tifa.Fields{"address": "请填写收货地址"}},
+		{"林夏", "13800138000", long, tifa.Fields{"address": "收货地址最多 100 个字"}},
+	} {
+		err := CheckRecipient(tc.customer, tc.phone, tc.address)
+		if tc.fields == nil {
+			if err != nil {
+				t.Errorf("%q %q %q: %v", tc.customer, tc.phone, tc.address, err)
+			}
+			continue
+		}
+		var fields tifa.Fields
+		if !errors.As(err, &fields) || !maps.Equal(fields, tc.fields) {
+			t.Errorf("%q %q %q: %v, want %v", tc.customer, tc.phone, tc.address, err, tc.fields)
+		}
+	}
+}
+
+func TestUpdateRecipientUntilTheOrderShips(t *testing.T) {
+	reset()
+	if err := UpdateRecipient("studio", "SH-1041", " 陈小默 ", "139 0013 9000", " 杭州市西湖区文三路 1 号 "); err != nil {
+		t.Fatal(err)
+	}
+	o, _ := GetOrder("studio", "SH-1041")
+	if o.Customer != "陈小默" || o.Initials != "陈" || o.Phone != "13900139000" || o.Address != "杭州市西湖区文三路 1 号" {
+		t.Fatalf("after the change: %+v", o)
+	}
+	if row := ListOrders("studio").Orders[1]; row.ID != "SH-1041" || row.Customer != "陈小默" {
+		t.Fatalf("the list shows %+v", row)
+	}
+	if err := UpdateRecipient("studio", "SH-1040", "周宁", "13800138000", "北京市朝阳区"); err != ErrRecipientLocked {
+		t.Fatalf("change a shipped order: %v", err)
+	}
+	if err := UpdateRecipient("weekend", "SH-1041", "周宁", "13800138000", "北京市朝阳区"); !errors.Is(err, tifa.ErrNotFound) {
+		t.Fatalf("change an order of another project: %v", err)
 	}
 }
 
