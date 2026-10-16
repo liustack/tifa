@@ -1,5 +1,5 @@
 ---
-summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、route.go 与 route.tsx、Layout、hooks.go、404、SSR 与缓存开关、服务端渲染时有什么以及哪些库在那里渲染得不一样、怎么用 Intl 格式化才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数，以及数据、入参和结果的 JSON 规则'
+summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、route.go 与 route.tsx、Layout、hooks.go、404、SSR 与缓存开关、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 格式化才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数，以及数据、入参和结果的 JSON 规则'
 read_when:
   - 新建一个 tifa 应用，或给应用加页面、Layout、API 路由
   - 构建报 Ctx 用法或 Load 返回类型的错误，想知道怎么改
@@ -9,6 +9,7 @@ read_when:
   - 给应用加 CSS、Tailwind CSS 或 shadcn/ui
   - 在页面里格式化数字或日期，或者 tifa dev 对某个 Intl 调用报警
   - 页面在服务端渲染失败或水合不一致，想知道服务端有哪些浏览器 API 和库的能力
+  - 某个组件要等浏览器画出来才有内容（比如图表、地图），想知道要不要在服务端渲染它
 ---
 
 [English](app.md) · 简体中文
@@ -163,7 +164,7 @@ export const head = ({ loaderData }: { loaderData?: Data }) => ({
 - 只放界面，不取数。`./+route` 是生成的模块，导出 `route`、`Data`（`Load` 的返回类型）和 `Params`。同目录的子组件同样 import `./+route`。Layout 的数据来自它所在目录的 `+layout` 模块：`layout.tsx` import `'./+layout'`，页面读项目 Layout 的数据时 import 比如 `'../../+layout'`。
 - 默认导出是页面组件。可选导出 `head`、`Error`、`NotFound`。
 - Go 的切片和 map 在 TypeScript 里带 `| null`（Go 的 nil 编码成 `null`），用之前写 `?? []`。
-- 模块顶层就要用浏览器能力的组件放进 `.client.tsx`，用 `tifa/client` 的 `clientOnly` 延迟加载。它不进 SSR 包，首屏显示占位内容：
+- 模块顶层就要用浏览器能力的组件放进 `.client.tsx`，用 `tifa/client` 的 `clientOnly` 延迟加载。它不进 SSR 包，首屏显示占位内容。能渲染、但要等浏览器画出来才有内容的组件也适合这样放，见[只在浏览器里绘制的组件](#只在浏览器里绘制的组件)：
 
 ```tsx
 import { clientOnly } from 'tifa/client'
@@ -318,8 +319,34 @@ React 在服务端不执行 effect，所以只在 `useEffect`、`useLayoutEffect
 - react-spring：`useSpring` 不传 `from`，`useTransition` 传 `initial: null`。这样服务端和浏览器的第一次渲染都直接显示最终值，之后的变化才有动画。
 - react-hook-form：字段用 `Controller` 写。受控字段的值由服务端写进 HTML，`register` 的字段要等水合后才有值。提交按钮在水合前保持禁用（比如用 `useSyncExternalStore(() => () => {}, () => true, () => false)` 判断），免得水合前按回车把表单当普通 HTML 表单提交。
 - Radix Select（也就是 shadcn 的 Select）：选中项的文字要等水合后才搬进触发按钮。字段有值时，把这段文字作为 `SelectValue` 的 children 传进去，否则服务端渲染出一个空按钮。没有值时照常显示占位文字。
-- recharts 3 在服务端只渲染一个空的外层容器，水合后才画图。给图表区域固定高度，页面就不会跳动，关键数字另外用文字显示。
+- recharts 3 在服务端只渲染一个空的外层容器，水合后才画图。给图表区域固定高度，页面就不会跳动，关键数字另外用文字显示。想让图表完全不进服务端渲染，见[只在浏览器里绘制的组件](#只在浏览器里绘制的组件)。
 - 文本排序：服务端的 `localeCompare` 按码点比较，浏览器按语言规则，渲染时排序的文本顺序可能不同。在 Go 里排好，或者用不依赖语言的比较。
+
+### 只在浏览器里绘制的组件
+
+有些组件在服务端什么也显示不出来：它们要量自己的尺寸、在 canvas 上画，或者等 effect 跑完才渲染内容。服务端写出的是一个空盒子或加载状态，水合后由浏览器换掉。这样的组件在服务端照样付全价：代码在 SSR 包里，每个虚拟机都要加载它，页面每次渲染都要运行它。
+
+这类组件用 `clientOnly` 加载，配一个同样大小的占位。判断一个组件适不适合，就看服务端为它写出的 HTML（查看网页源代码）。如果是空盒子、加载状态，或者浏览器会整个丢掉的标记，服务端渲染它什么也得不到。希望用户在脚本跑起来之前就看到、或者希望搜索引擎读到的文字（比如图表背后的关键数字），应该留在服务端渲染里：在组件旁边用普通文字写出来。
+
+```tsx
+import { clientOnly } from 'tifa/client'
+import { route } from './+route'
+
+// sales-chart.client.tsx 默认导出图表组件。
+const SalesChart = clientOnly(() => import('./sales-chart.client'), <div className="h-64 w-full" />)
+
+export default function StatsPage() {
+  const { days } = route.useLoaderData()
+  return <SalesChart days={days ?? []} />
+}
+```
+
+- `.client.tsx` 文件默认导出组件，props 照常传。
+- 服务端渲染和水合时都渲染占位，所以页面能无错水合。之后浏览器加载这个模块，显示组件。占位要和组件最终的尺寸一样，页面才不会跳动。
+- `.client.tsx` 文件 import 的东西都不进 SSR 包。在浏览器里它是单独的 chunk，组件第一次渲染时才下载。页面本身在入口脚本里时也是这样（根 Layout 和导出 `head` 的路由模块都在入口脚本里）。
+- 组件比页面其余部分晚一点出现，因为它的代码在水合之后才下载。下载失败时组件抛错，显示最近的 `Error`。
+
+示例 shop 统计页的两张图表改成这样之后，在同一台机器上轮流测两个版本：SSR 包从 1.15 MB 降到 0.77 MB（少三分之一），程序启动时编译它的时间少 40%，加载每个虚拟机的时间少 24%，渲染后每个虚拟机的内存少 3.8 MB（三分之一），统计页渲染快 21%。浏览器入口脚本从 1.08 MB 降到 0.70 MB，0.38 MB 的图表代码只在打开统计页时才下载。
 
 ## 服务端渲染里的 Intl
 
