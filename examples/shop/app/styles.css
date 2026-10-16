@@ -1,15 +1,113 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/inter";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: #f7f8f5;
+  --foreground: #26352f;
+  --card: #ffffff;
+  --card-foreground: #26352f;
+  --popover: #ffffff;
+  --popover-foreground: #26352f;
+  --primary: #284e3e;
+  --primary-foreground: #f7f8f5;
+  --secondary: #edf1e7;
+  --secondary-foreground: #284e3e;
+  --muted: #f0f2ec;
+  --muted-foreground: #7c857e;
+  --accent: #e8ecdf;
+  --accent-foreground: #284e3e;
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: #e6e9e3;
+  --input: #dfe4d9;
+  --ring: #91ad90;
+  --chart-1: #284e3e;
+  --chart-2: #91ad90;
+  --chart-3: #b39854;
+  --chart-4: #697860;
+  --chart-5: #c7d1bf;
+  --radius: 0.625rem;
+  --sidebar: #f0f2ec;
+  --sidebar-foreground: #26352f;
+  --sidebar-primary: #284e3e;
+  --sidebar-primary-foreground: #f7f8f5;
+  --sidebar-accent: #e6eadf;
+  --sidebar-accent-foreground: #284e3e;
+  --sidebar-border: #e2e6dc;
+  --sidebar-ring: #91ad90;
+}
+
+@theme inline {
+  --font-heading: 'Songti SC', STSong, 'Noto Serif CJK SC', serif;
+  --font-sans: 'Inter Variable', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+  ::selection {
+    background: #d8e5cd;
+  }
+}
+
 :root {
   font-family: Inter, 'SF Pro Display', -apple-system, BlinkMacSystemFont,
     'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   color: #26352f;
   background: #f7f8f5;
   font-synthesis: none;
-  font-size: 14px;
   line-height: 1.55;
   font-weight: 400;
   -webkit-font-smoothing: antialiased;
   --green: #284e3e;
-  --muted: #7c857e;
   --line: #e6e9e3;
 }
 * {
@@ -17,6 +115,7 @@
 }
 body {
   margin: 0;
+  font-size: 14px;
 }
 button,
 input,
@@ -676,7 +775,7 @@ tbody tr:hover {
   margin-bottom: 10px;
 }
 .empty-state h3 {
-  font-size: 14px;
+
   color: #697860;
   font-weight: 500;
 }
@@ -880,7 +979,7 @@ tbody tr:hover {
 .customer-profile .avatar {
   width: 41px;
   height: 41px;
-  font-size: 14px;
+
 }
 .customer-profile > div {
   display: flex;
