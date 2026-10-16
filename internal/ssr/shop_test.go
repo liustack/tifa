@@ -181,14 +181,25 @@ func TestShopEscapesScriptClosingTags(t *testing.T) {
 	}
 }
 
-// Same method as the prototype baseline: one reused VM, 512 warm renders,
-// then 2,048 timed renders over the comparison pages. Timing covers the whole Render.
+// slowestWarmRender is the most a warm render of a shop page may take in the default run. The
+// shop's slowest page takes under 200 ms on a laptop, so this catches a render that became many
+// times slower, not small changes: measure those with TIFA_SSR_MEASURE=1.
+const slowestWarmRender = time.Second
+
+// TestShopWarmLatency renders the comparison pages in one reused VM, timing the whole Render. By
+// default it renders each page a few times, checks the HTML and that no warm render is slower than
+// slowestWarmRender. With TIFA_SSR_MEASURE=1 it uses the method of the prototype baseline, 512
+// warm renders then 2,048 timed ones, for numbers worth comparing.
 func TestShopWarmLatency(t *testing.T) {
 	source, pages := shopBundle(t)
+	warm, timed := 2*len(pages), 8*len(pages)
+	if os.Getenv("TIFA_SSR_MEASURE") != "" {
+		warm, timed = 512, 2048
+	}
 	start := time.Now()
 	p := newTestPool(t, source, shopConfig(1))
 	t.Logf("startup (compile and load one VM): %s, bytecode %d bytes", time.Since(start), len(p.bytecode))
-	for i := range 512 {
+	for i := range warm {
 		page := pages[i%len(pages)]
 		html, err := p.Render(context.Background(), page.input)
 		if err != nil {
@@ -196,16 +207,20 @@ func TestShopWarmLatency(t *testing.T) {
 		}
 		page.check(t, html)
 	}
-	latencies := make([]float64, 2048)
+	latencies := make([]float64, timed)
 	for i := range latencies {
 		page := pages[i%len(pages)]
 		begin := time.Now()
 		html, err := p.Render(context.Background(), page.input)
-		latencies[i] = float64(time.Since(begin)) / 1e6
+		took := time.Since(begin)
+		latencies[i] = float64(took) / 1e6
 		if err != nil {
 			t.Fatal(err)
 		}
 		page.check(t, html)
+		if took > slowestWarmRender {
+			t.Errorf("warm render of %s took %s, more than %s", page.input.URL, took, slowestWarmRender)
+		}
 	}
 	slices.Sort(latencies)
 	at := func(q float64) float64 { return latencies[int(math.Ceil(q*float64(len(latencies))))-1] }
