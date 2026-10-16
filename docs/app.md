@@ -36,7 +36,9 @@ myapp/
           order.go  order_test.go   the order domain: Order, ListOrders, GetOrder, ShipOrder
           order+/
             route.go  route.tsx     page /projects/{project}/orders/{order}
-            items.tsx  actions.client.tsx
+            items.tsx  ship-form.tsx
+        stats/
+          route.go  route.tsx       page /projects/{project}/stats
 ```
 
 - Code is grouped by domain, and a domain is a folder under `app/`: its types, storage and rules sit next to its pages, in the list folder when it has a list and a page per item. Pages import the domain packages they show. The root package holds only the hooks and the resources the whole app shares. There is no shared `models/` or `db/` package holding every table. See [structure.md](structure.md).
@@ -379,7 +381,7 @@ Each place is logged once, and again after tifa dev reloads the SSR bundle. The 
 
 ### Cost
 
-A VM carries only stand-ins for Intl, about 10 KB, until one of its renders uses it, which adds about 30 to 45 KB to that VM. A VM of the example shop takes about 2.2 MB, so that is under 2% of it. Under tifa dev every VM pays this at once, because the warnings need Intl installed. Each language is read into memory once per process, 100 to 180 KB, plus about 1 MB shared by all languages the first time any is used. The locale data makes the program about 1.7 MB larger, and the time zone database the generated `main.go` embeds about 450 KB more. The locale data comes with a license notice to ship with the program, see [Notices to ship with the program](build.md#notices-to-ship-with-the-program).
+A VM carries only stand-ins for Intl, about 10 KB, until one of its renders uses it, which adds about 30 to 45 KB to that VM. A VM of the example shop takes about 11 MB, so that is under 1% of it. Under tifa dev every VM pays this at once, because the warnings need Intl installed. Each language is read into memory once per process, 100 to 180 KB, plus about 1 MB shared by all languages the first time any is used. The locale data makes the program about 1.7 MB larger, and the time zone database the generated `main.go` embeds about 450 KB more. The locale data comes with a license notice to ship with the program, see [Notices to ship with the program](build.md#notices-to-ship-with-the-program).
 
 ## Styles
 

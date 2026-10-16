@@ -36,7 +36,9 @@ myapp/
           order.go  order_test.go   订单领域：Order、ListOrders、GetOrder、ShipOrder
           order+/
             route.go  route.tsx     页面 /projects/{project}/orders/{order}
-            items.tsx  actions.client.tsx
+            items.tsx  ship-form.tsx
+        stats/
+          route.go  route.tsx       页面 /projects/{project}/stats
 ```
 
 - 代码按领域分组，一个领域就是 `app/` 下的一个目录：它的类型、存储和规则和页面放在一起，既有列表又有单条页面时放在列表那一层。页面 import 它要展示的领域包。根包只放钩子和整个应用共享的资源。不设一个装着所有表的 `models/` 或 `db/` 包。见 [structure.zh-CN.md](structure.zh-CN.md)。
@@ -379,7 +381,7 @@ export default function ReceiptPage() {
 
 ### 代价
 
-一个 VM 在它的渲染第一次用到 Intl 之前，只带 Intl 的占位，约 10 KB。第一次用到时这个 VM 再多约 30 到 45 KB。示例商店的一个 VM 约 2.2 MB，这部分不到它的 2%。tifa dev 下每个 VM 一开始就付这份代价，因为报警需要先装好 Intl。每种语言在每个进程里只读进内存一次，100 到 180 KB，另外第一次用到任何语言时还要约 1 MB 所有语言共用的数据。语言数据让程序大约增加 1.7 MB，生成的 `main.go` 嵌入的时区数据库再增加约 450 KB。语言数据带有要随程序附带的许可声明，见[要随程序附带的声明](build.zh-CN.md#要随程序附带的声明)。
+一个 VM 在它的渲染第一次用到 Intl 之前，只带 Intl 的占位，约 10 KB。第一次用到时这个 VM 再多约 30 到 45 KB。示例商店的一个 VM 约 11 MB，这部分不到它的 1%。tifa dev 下每个 VM 一开始就付这份代价，因为报警需要先装好 Intl。每种语言在每个进程里只读进内存一次，100 到 180 KB，另外第一次用到任何语言时还要约 1 MB 所有语言共用的数据。语言数据让程序大约增加 1.7 MB，生成的 `main.go` 嵌入的时区数据库再增加约 450 KB。语言数据带有要随程序附带的许可声明，见[要随程序附带的声明](build.zh-CN.md#要随程序附带的声明)。
 
 ## 样式
 
