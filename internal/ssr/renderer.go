@@ -2,6 +2,7 @@ package ssr
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/liustack/quickjs"
+	"github.com/liustack/quickjs/intl"
 )
 
 // compile turns the bundle into bytecode once, in a throwaway VM.
@@ -26,15 +28,30 @@ func compile(source string, memory uintptr, timeout time.Duration) (bytecode []b
 	return vm.Compile(source, quickjs.EvalGlobal)
 }
 
-// load creates a VM and runs the bundle's top level code, which defines startRender.
-// The VM gets no Go callbacks and no module loader, so rendering cannot do I/O.
-func load(bytecode []byte, memory uintptr, timeout time.Duration) (*quickjs.VM, error) {
+// load creates a VM, gives it Intl and runs the bundle's top level code, which defines
+// startRender. The only Go callbacks the VM gets are those of Intl, which format and do no I/O
+// but read the zoneinfo of a time zone the first time the process uses it. It has no module
+// loader, so rendering cannot do I/O.
+//
+// Intl formats in en-US and UTC when a page passes no locale or timeZone, never in the host's
+// language or zone. The local time of Date (getHours, toString, new Date(2026, 0, 1)) is UTC
+// too: the engine's offset from UTC is always 0, and the zone of the process, which the app's
+// Go code uses, is left alone. intl.Register only puts stand-ins on the VM: the first use of Intl or a
+// toLocale* method installs the rest, so a VM whose pages never format costs a few KB more.
+// dev runs intlcheck.js too, which installs Intl at once to watch it.
+func load(bytecode []byte, memory uintptr, timeout time.Duration, dev bool) (*quickjs.VM, error) {
 	vm, err := quickjs.NewVM()
 	if err != nil {
 		return nil, err
 	}
 	vm.SetMemoryLimit(memory)
 	if err = vm.SetEvalTimeout(timeout); err == nil {
+		err = intl.Register(vm)
+	}
+	if err == nil && dev {
+		_, err = vm.Eval(intlCheck, quickjs.EvalGlobal)
+	}
+	if err == nil {
 		_, err = vm.EvalBytecode(bytecode)
 	}
 	if err != nil {
@@ -42,6 +59,11 @@ func load(bytecode []byte, memory uintptr, timeout time.Duration) (*quickjs.VM, 
 	}
 	return vm, nil
 }
+
+// intlCheck is what tifa dev runs on each VM to find the Intl calls that use the defaults.
+//
+//go:embed intlcheck.js
+var intlCheck string
 
 // render runs one request in vm: startRender(input), then the microtasks it queued,
 // then reads globalThis.renderResult. Any error leaves vm in an unknown state.

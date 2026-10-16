@@ -111,7 +111,7 @@ const (
 )
 
 func TestRenderErrorsNameThePackageThatCallsRequire(t *testing.T) {
-	p, err := NewPool(requireBundle, requireMap(), testConfig(1))
+	p, err := NewPool(requireBundle, requireMap(), testConfig(1), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestRenderErrorsNameThePackageThatCallsRequire(t *testing.T) {
 }
 
 func TestRenderErrorsWithoutASourceMapGivePlacesInTheBundle(t *testing.T) {
-	p, err := NewPool(requireBundle, nil, testConfig(1))
+	p, err := NewPool(requireBundle, nil, testConfig(1), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestPrewarmErrorsNameTheNodeModuleTheBundleLoads(t *testing.T) {
 	// Rolldown passes the Node modules an IIFE imports as its arguments, and the tifa plugin
 	// writes them as a require that names the packages that import them.
 	bundle := "(function (fs) {\n  globalThis.startRender = function () {}\n})(require(`node:fs`,`esm-fs, other`))\n"
-	_, err := NewPool(bundle, sourceMapOf(mapping{1, 0, "node_modules/pkg/index.js", 0, 0}), testConfig(1))
+	_, err := NewPool(bundle, sourceMapOf(mapping{1, 0, "node_modules/pkg/index.js", 0, 0}), testConfig(1), false)
 	if err == nil || !strings.Contains(err.Error(), `ssr: prewarm VM: ReferenceError: 'require' is not defined`) ||
 		!strings.Contains(err.Error(), `The bundle loads the Node module "node:fs", imported by esm-fs, other, at ssr.js:3:4`) ||
 		!strings.Contains(err.Error(), advice) || !strings.Contains(err.Error(), loadAdvice) || strings.Contains(err.Error(), renderAdvice) {
@@ -167,7 +167,7 @@ func TestPrewarmErrorsNameTheNodeModuleTheBundleLoads(t *testing.T) {
 	}
 
 	bundle = "(function () {\n  function load(name) { return require(name) }\n  load('fs')\n})()\n"
-	_, err = NewPool(bundle, sourceMapOf(mapping{1, 0, "node_modules/pkg/index.js", 2, 0}), testConfig(1))
+	_, err = NewPool(bundle, sourceMapOf(mapping{1, 0, "node_modules/pkg/index.js", 2, 0}), testConfig(1), false)
 	if err == nil || !strings.Contains(err.Error(), "The package pkg calls require at node_modules/pkg/index.js:3:1") ||
 		!strings.Contains(err.Error(), loadAdvice) {
 		t.Errorf("err = %v, want the package", err)

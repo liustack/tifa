@@ -58,7 +58,9 @@ func generateGo(m *analyze.Manifest, configName string, dev bool) (map[string][]
 	}
 
 	var main strings.Builder
-	main.WriteString(header + "package main\n\nimport (\n\"embed\"\n\n")
+	// time/tzdata lets Intl and time.LoadLocation find every time zone where the system has no
+	// zoneinfo, as in a scratch container.
+	main.WriteString(header + "package main\n\nimport (\n\"embed\"\n_ \"time/tzdata\"\n\n")
 	main.WriteString("\"github.com/liustack/tifa/server\"\n")
 	if len(m.Hooks) > 0 {
 		fmt.Fprintf(&main, "\nhooks %q\n", m.Module)

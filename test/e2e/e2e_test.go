@@ -427,6 +427,13 @@ func TestPagesApp(t *testing.T) {
 			t.Errorf("page lacks %s:\n%s", want, body)
 		}
 	}
+	// Intl formats in the locale and the time zone the page passes, as Chromium does.
+	_, _, body = get(t, base+"/receipt")
+	for _, want := range []string{"¥1,234.50", "2025/8/17", "2025年8月17日星期日 04:05"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("receipt lacks %s:\n%s", want, body)
+		}
+	}
 	// The same data gives the same ETag, answered 304.
 	if status, _, _ := get(t, base+"/shops/north/items/apple", "If-None-Match", header.Get("ETag")); status != 304 {
 		t.Errorf("If-None-Match: %d", status)

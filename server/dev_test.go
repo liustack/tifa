@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -143,6 +144,43 @@ func TestDevMainReloadsTheSSRBundle(t *testing.T) {
 	if n := starts.Load(); n != 1 {
 		t.Fatalf("OnStart ran %d times", n)
 	}
+}
+
+// DevMain logs a render's Intl call that uses the default locale, Main does not.
+func TestOnlyDevMainWarnsAboutIntlDefaults(t *testing.T) {
+	var logs syncBuffer
+	log.SetOutput(&logs)
+	defer log.SetOutput(os.Stderr)
+	for _, dev := range []bool{false, true} {
+		dir := t.TempDir()
+		writeBundle(t, dir, "' + (1234.5).toLocaleString() + '")
+		base := serveApp(t, frontApp(), dev, "--dist", dir)
+		if code, body := fetch(t, "GET", base+"/"); code != 200 || body != "<p>1,234.5</p>" {
+			t.Fatalf("page: %d %s", code, body)
+		}
+		const warning = "Number.prototype.toLocaleString without a locale"
+		if got := strings.Contains(logs.String(), warning); got != dev {
+			t.Fatalf("dev %t: warned %t:\n%s", dev, got, logs.String())
+		}
+	}
+}
+
+// syncBuffer is a bytes.Buffer the log package and the test can share.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 // Main, the entry of production builds, has no reload entry: the path is an ordinary URL of the

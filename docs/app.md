@@ -1,5 +1,5 @@
 ---
-summary: 'How to write a tifa app: folder layout, how folders become URLs, route.go and route.tsx, Layouts, hooks.go, 404s, the SSR and cache switches, styles with Tailwind CSS and shadcn/ui, how to test Go route code, how Load may use Ctx, method handlers with typed input and result, and the JSON rules for data, inputs and results'
+summary: 'How to write a tifa app: folder layout, how folders become URLs, route.go and route.tsx, Layouts, hooks.go, 404s, the SSR and cache switches, formatting with Intl so hydration matches, styles with Tailwind CSS and shadcn/ui, how to test Go route code, how Load may use Ctx, method handlers with typed input and result, and the JSON rules for data, inputs and results'
 read_when:
   - Creating a tifa app, or adding pages, Layouts or API routes to one
   - The build reports an error about Ctx usage or a Load return type and you want to fix it
@@ -7,6 +7,7 @@ read_when:
   - Changing the apps in examples/shop or test/apps
   - Writing Go tests for a Load, a Layout function, a method handler or OnRequest
   - Adding CSS, Tailwind CSS or shadcn/ui to an app
+  - Formatting numbers or dates in a page, or tifa dev warns about an Intl call
 ---
 
 English · [简体中文](app.zh-CN.md)
@@ -265,6 +266,68 @@ const LayoutSSR = false // the Layout of the folder, default true
 - `SSR = false`: middleware and every `Load` run as usual, but QuickJS is skipped. The response is a minimal document with the data, and the browser renders it. `LayoutSSR = false` applies to every page the Layout wraps.
 - `Cache = true`: the rendered result is cached by build version, URL and data, in a cache of `cache.size` (see [config.md](config.md)). When the data has not changed, the HTML is returned directly. Components must not read values that change on every call, such as `Date.now()` or `Math.random()`, while rendering. Hydration requires this too.
 - Every page response carries an ETag. A second request with `If-None-Match` gets 304 when the data has not changed. This has nothing to do with `Cache`.
+
+## Intl in server rendering
+
+Pages can format numbers, dates and plurals while they render on the server, in every locale Chromium has (Unicode CLDR 48.2). These work:
+
+- `Intl.NumberFormat`, `Intl.DateTimeFormat`, `Intl.PluralRules`, `Intl.getCanonicalLocales` and the `supportedLocalesOf` of each constructor.
+- `toLocaleString`, `toLocaleDateString` and `toLocaleTimeString` of `Date`, and `toLocaleString` of `Number` and `BigInt`.
+
+The server does not have `Intl.Collator`, `Intl.Segmenter`, `Intl.RelativeTimeFormat`, `Intl.ListFormat`, `Intl.DisplayNames`, `Intl.DurationFormat`, `Intl.supportedValuesOf` or `formatRange`: a render that calls one fails. `localeCompare` compares code points, not by language. Dates are in the Gregorian calendar (the Buddhist one for th, the Persian one for fa and a few more), and a calendar asked for with `-u-ca-` or the `calendar` option, such as japanese, falls back to the locale's default. `roundingIncrement` and `roundingPriority` only take their defaults.
+
+Without a locale the server formats in `en-US`, without a `timeZone` in `UTC`, whatever the language and zone of the machine. The local time of `Date` on the server is always UTC too: `getTimezoneOffset()` is 0, and `new Date(2026, 0, 1)`, `getHours` and `toString` work in UTC. The Go code of the app is not affected: the process keeps the zone it was started with, so `time.Local`, the log and SQLite use that zone as in any Go program.
+
+The output is compared with Chromium 156 on about 60,000 expressions and matches all of them, except dates in a calendar the server does not have. A few rare locales and options differ from Chromium: sr-Cyrl-ME names currencies, units and zones in Cyrillic, uz-AF and uz-Arab-AF put an era before the year of a date with a time, en-IE and fr-MA with `hourCycle: 'h11'` write "am" or "AM" where Chromium writes "a.m.", and the short era of om-KE is "BA". Error messages are worded differently. Firefox and Safari ship their own copy of the data. Recent versions are close, but Safari before macOS 26.4 has older data (CLDR 46) and may differ in a few formats.
+
+### Formatting so hydration matches
+
+The same call gives the same text on the server and in the browser only with the same locale and time zone. A browser fills in what a call leaves out with the language and zone of its user, the server with `en-US` and `UTC`, and then React reports a hydration mismatch. So:
+
+- Pass the locale and, for dates, the `timeZone` to every call, from the data of `Load` or a Layout. Where they come from is up to the app: a setting the user saved, a cookie in which the browser stored `Intl.DateTimeFormat().resolvedOptions().timeZone`, or `c.Header("Accept-Language")`. Check a value that comes from the request before it reaches the page: an unknown time zone throws a `RangeError` and the render fails.
+- Do not render with the local time methods of `Date` (`getHours`, `getDate`, `toString`, `new Date(2026, 0, 1)`): they give UTC on the server and the user's zone in the browser. Use the UTC methods, or Intl with a `timeZone`.
+- Text that depends on the current time, such as "3 minutes ago", differs between the render and hydration whatever you pass. Compute it in `Load`, or render it in a `useEffect`.
+
+```go
+type Receipt struct {
+	Amount   float64 `json:"amount"`
+	PaidAt   string  `json:"paidAt"`
+	Locale   string  `json:"locale"`
+	TimeZone string  `json:"timeZone"`
+}
+```
+
+```tsx
+import { route } from './+route'
+
+export default function ReceiptPage() {
+  const { amount, paidAt, locale, timeZone } = route.useLoaderData()
+  return (
+    <p>
+      {new Intl.NumberFormat(locale, { style: 'currency', currency: 'CNY' }).format(amount)}
+      {new Date(paidAt).toLocaleDateString(locale, { timeZone })}
+    </p>
+  )
+}
+```
+
+With `locale: 'zh-CN'`, `timeZone: 'Asia/Shanghai'` and `paidAt: '2025-08-16T20:05:09Z'` this renders `¥1,234.50` and `2025/8/17` on the server and in the browser.
+
+### Warnings in tifa dev
+
+Under [`tifa dev`](dev.md), a render that calls an Intl constructor or a `toLocale*` method without a locale, or a date one without a `timeZone`, logs a warning with the place of the call in your sources and its stack:
+
+```text
+2026/10/16 08:00:00 tifa: ssr: Number.prototype.toLocaleString without a locale at app/orders/order+/items.tsx:12:7. The server formats in en-US and UTC, a browser in the language and time zone of its user, so the text can differ from the HTML and React reports a hydration mismatch. Pass the locale and, for a date, the timeZone, from data Load returns, as in toLocaleDateString('zh-CN', {timeZone: 'Asia/Shanghai'}), or format in a useEffect.
+    at Price (app/orders/order+/items.tsx:12:7)
+    at ...
+```
+
+Each place is logged once, and again after tifa dev reloads the SSR bundle. The warning does not change the render. A built program does not check. A call inside a package names the package's file first, and your code further down the stack.
+
+### Cost
+
+A VM carries only stand-ins for Intl, about 10 KB, until one of its renders uses it, which adds about 30 to 45 KB to that VM. A VM of the example shop takes about 2.2 MB, so that is under 2% of it. Under tifa dev every VM pays this at once, because the warnings need Intl installed. Each language is read into memory once per process, 100 to 180 KB, plus about 1 MB shared by all languages the first time any is used. The locale data makes the program about 1.7 MB larger, and the time zone database the generated `main.go` embeds about 450 KB more. The locale data comes with a license notice to ship with the program, see [Notices to ship with the program](build.md#notices-to-ship-with-the-program).
 
 ## Styles
 

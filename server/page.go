@@ -109,7 +109,8 @@ func (s *Server) setFront(dist fs.FS, render func(context.Context, ssr.Input) (s
 // openFront serves the front end in dist, the dist/ directory tifa build writes. With an SSR
 // bundle (ssr.js) it starts the VM pool that renders pages. Calling it again replaces the front
 // end it served before, which tifa dev does after it rebuilt the SSR bundle (see DevMain).
-// When it fails, the front end served before stays.
+// When it fails, the front end served before stays. Under tifa dev (s.dev set) the pool logs
+// the Intl calls that leave the locale or the time zone to the defaults.
 func (s *Server) openFront(dist fs.FS, cfg config.SSR) error {
 	source, err := fs.ReadFile(dist, "ssr.js")
 	if errors.Is(err, fs.ErrNotExist) {
@@ -122,7 +123,7 @@ func (s *Server) openFront(dist fs.FS, cfg config.SSR) error {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	pool, err := ssr.NewPool(string(source), sourceMap, cfg)
+	pool, err := ssr.NewPool(string(source), sourceMap, cfg, s.dev != nil)
 	if err != nil {
 		return err
 	}
