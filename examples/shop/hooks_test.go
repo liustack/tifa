@@ -16,9 +16,13 @@ func TestOnRequestRefusesWritesFromOtherSites(t *testing.T) {
 		ran            bool
 	}{
 		{"GET", "", true},
+		{"HEAD", "", true},
 		{"POST", "http://example.com", true},
 		{"POST", "https://evil.test", false},
 		{"POST", "", false},
+		{"PATCH", "http://example.com", true},
+		{"PATCH", "https://evil.test", false},
+		{"DELETE", "", false},
 	}
 	for _, tc := range cases {
 		// The route answers with nil or with an error, and OnRequest passes on either.
