@@ -152,6 +152,14 @@ func (p *redirectProbe) Header() http.Header         { return p.header }
 func (p *redirectProbe) WriteHeader(code int)        { p.code = code }
 func (p *redirectProbe) Write(b []byte) (int, error) { return len(b), nil }
 
+// redirectLocation is the Location http.Redirect writes for url: a relative URL resolved against
+// the path of r, with its dot segments removed and its non-ASCII bytes escaped.
+func redirectLocation(r *http.Request, url string, code int) string {
+	probe := &redirectProbe{header: http.Header{}}
+	http.Redirect(probe, r, url, code)
+	return probe.header.Get("Location")
+}
+
 // serve runs one request: OnRequest around route, then the error flow. pattern is empty when no
 // route matched. page reports whether a GET of this URL is answered with a page: the route is a
 // page, or no route matched.
@@ -219,13 +227,14 @@ func (s *Server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 }
 
 // classify sorts an error into a redirect or the public error to answer. Unexpected errors go
-// to OnError.
+// to OnError. The URL of a redirect is resolved the way http.Redirect resolves it, so the JSON
+// answers that carry it name the same URL a 3xx would.
 func (s *Server) classify(c *tifa.Ctx, err error) (*core.RedirectError, tifa.Error) {
 	var redirect *core.RedirectError
 	var e tifa.Error
 	switch {
 	case errors.As(err, &redirect):
-		return redirect, e
+		return &core.RedirectError{URL: redirectLocation(c.Request(), redirect.URL, redirect.Code), Code: redirect.Code}, e
 	case errors.Is(err, tifa.ErrNotFound):
 		e = tifa.Error{Status: http.StatusNotFound, Message: http.StatusText(http.StatusNotFound)}
 	case isFields(err):

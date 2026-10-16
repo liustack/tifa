@@ -236,7 +236,7 @@ export default defineConfig({
 - 有 `Load` 失败时，整页请求与数据请求的 `c.Next()` 都返回所执行 `Load` 里最外层的那个错误（数据请求只执行所列路由，所以是所列路由里最外层的）。成功的 `Load` 不写任何响应，中间件可以据此拒绝整个请求。
 - `OnRequest` 原样返回这个错误（包括用 `%w` 包一层）：框架这时才把每个错误分类，意外错误交给 `OnError`，多个 `Load` 经 `tifa.Use` 共享同一个错误时只交一次。整页请求用全部结果和最外层错误的状态码（404 或 `tifa.Error` 的状态码，意外错误用 `OnError` 的结果）渲染整页，路由器显示对应层级的 `NotFound` 或 `Error`。最外层错误是重定向时答重定向。数据请求答 200 与 `{路由 ID: 结果}`，每项带自己的状态。
 - `OnRequest` 返回别的错误：以中间件为准，按错误本身处理（重定向、`ErrNotFound`、`tifa.Error` 直接处理，其他交给 `OnError`）。整页请求返回 Go 写的简单错误页，数据请求答 `{"error": 消息}` 与状态码，不再输出各项数据。`OnRequest` 自己写了响应时框架不再写。
-- 数据请求遇到整个请求的重定向（`OnRequest` 返回 `c.Redirect`，或 URL 写法不规范）答 200 与 `{"redirect", "status"}`，不发 3xx。
+- 数据请求遇到整个请求的重定向（`OnRequest` 返回 `c.Redirect`，或 URL 写法不规范）答 200 与 `{"redirect", "status"}`，不发 3xx。这个 JSON 里的 URL，以及 `Load` 重定向的路由结果里的 `location`，和 3xx 会带的一样：`../list` 这样的相对 URL 按请求的路径解析，与 `http.Redirect` 相同。
 - 未匹配的 URL：`OnRequest` 之后以 404 渲染根 Layout 的 `NotFound`，不执行任何 `Load`。根 Layout 是 `LayoutSSR = false` 时返回最简文档。
 - VM 渲染失败（包括组件在渲染中抛错：`renderToString` 会把它吞进 Suspense 边界，留下 `<!--$!-->` 标记，SSR 入口见到这个标记就把这次渲染当失败）：算意外错误，不进 HTML 缓存，交给 `OnError`，返回 Go 写的简单错误页，不暴露内部错误。`OnError` 拿到的是代码实际抛出的错误（被 React 吞掉的也一样），错误栈前 64 帧的位置借 `dist/ssr.js.map` 换成源文件里的位置。代码调用了 QuickJS 没有的 `require` 时，错误还会给出包名和位置，并说明怎么办：从 `.client` 文件引入这个包，把调用放进 `useEffect`，或者换一个不需要 Node 的构建。包在加载时就失败（任何页面渲染之前）时，失败的是引入本身，把调用挪进 `useEffect` 没用，所以预热的错误只建议从 `.client` 文件引入这个包或者换一个构建。组件挂起（抛出 promise，或者是还没加载完的 `React.lazy` 组件）也会这样让渲染失败，因为 `renderToString` 不等待。错误会建议用 `Load` 给页面数据并静态引入组件，或者设 `SSR = false`。懒加载的引入为什么失败，服务端看不到。渲染错误页（`NotFound`、`Error`）时失败也一样，状态码和消息取自 `OnError` 的结果，不再尝试渲染错误页。
 - 路由器对 URL 有不同写法（`/%61` 写成 `/a`）时 VM 返回重定向，服务器照样答重定向，不带 ETag。渲染只取决于构建 ID、SSR 包、URL 与数据，同一个 ETag 不会既属于 200 又属于重定向，所以客户端拿不到能把这个重定向变成 304 的 ETag。
