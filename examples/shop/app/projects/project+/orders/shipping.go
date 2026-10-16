@@ -33,7 +33,7 @@ var Carriers = []Carrier{
 	{Code: "EMS", Name: "中国邮政 EMS"},
 }
 
-// Shipment is how and when an order left.
+// Shipment is how and when an order left, as the detail page shows it.
 type Shipment struct {
 	Carrier     string    `json:"carrier"`
 	CarrierName string    `json:"carrierName"`
@@ -79,7 +79,7 @@ func ShipOrder(projectID, id, carrier, tracking string, at time.Time) error {
 	if orders[i].Shipment != nil {
 		return ErrShipped
 	}
-	orders[i].Shipment = &Shipment{Carrier: carrier, TrackingNo: strings.TrimSpace(tracking), ShippedAt: at}
+	orders[i].Shipment = &shipmentRecord{Carrier: carrier, TrackingNo: strings.TrimSpace(tracking), ShippedAt: at}
 	return nil
 }
 

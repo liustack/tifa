@@ -111,7 +111,7 @@ func order(id, projectID string, buyer int, placed time.Time, items ...itemRecor
 
 // shipped returns o shipped with carrier under tracking, hours after it was placed.
 func shipped(o orderRecord, carrier, tracking string, hours int) orderRecord {
-	o.Shipment = &Shipment{Carrier: carrier, TrackingNo: tracking, ShippedAt: o.PlacedAt.Add(time.Duration(hours) * time.Hour)}
+	o.Shipment = &shipmentRecord{Carrier: carrier, TrackingNo: tracking, ShippedAt: o.PlacedAt.Add(time.Duration(hours) * time.Hour)}
 	return o
 }
 
