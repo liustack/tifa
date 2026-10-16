@@ -28,3 +28,5 @@ require (
 replace github.com/liustack/tifa => ../..
 
 tool github.com/liustack/tifa/cmd/tifa
+
+ignore node_modules

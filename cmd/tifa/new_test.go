@@ -105,7 +105,7 @@ func TestNewWritesAnApp(t *testing.T) {
 		return string(data)
 	}
 	gomod := read("go.mod")
-	for _, line := range []string{"module My-App\n", "\tgithub.com/liustack/tifa v0.0.0\n", "\tmodernc.org/sqlite v", "tool github.com/liustack/tifa/cmd/tifa\n"} {
+	for _, line := range []string{"module My-App\n", "\tgithub.com/liustack/tifa v0.0.0\n", "\tmodernc.org/sqlite v", "tool github.com/liustack/tifa/cmd/tifa\n", "\nignore node_modules\n"} {
 		if !strings.Contains(gomod, line) {
 			t.Errorf("go.mod has no line %q:\n%s", line, gomod)
 		}

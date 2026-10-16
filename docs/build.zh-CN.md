@@ -23,7 +23,7 @@ tifa new <目录> [--module 模块路径]
 
 | 文件 | 内容 |
 | --- | --- |
-| `go.mod` | tifa、登记为工具的 tifa 命令，以及纯 Go 的 SQLite 驱动 `modernc.org/sqlite` |
+| `go.mod` | tifa、登记为工具的 tifa 命令、纯 Go 的 SQLite 驱动 `modernc.org/sqlite`，以及 `ignore node_modules` |
 | `db.go`、`schema.sql` | 在根目录：`var DB`、打开 WAL、`busy_timeout` 和外键检查的 `OpenDB`，以及所有领域的表，每次启动都用 `CREATE TABLE IF NOT EXISTS` 建。数据库文件是应用运行目录下的 `app.db`，或者 `$DB_PATH` |
 | `hooks.go` | `OnStart` 打开数据库，`OnShutdown` 关闭它。`OnRequest` 和 `OnError` 只在注释里说明，因为写了 `OnError` 就会替换默认处理 |
 | `app/layout.tsx` | 带导航的根 Layout、未知地址的 `NotFound` 和一个 `Error` |
@@ -96,6 +96,7 @@ go tool tifa build
 - `tifa build` 不改 `go.mod` 与 `go.sum`。跑过 `go mod tidy` 的应用直接能构建，`GOFLAGS=-mod=readonly` 的 CI 也一样。
 - 缺依赖时构建失败，并提示执行上面的 `go get -tool` 与 `go mod tidy`。
 - 升级 tifa（`go get -tool github.com/liustack/tifa/cmd/tifa@<版本>`）后跑一次 `go mod tidy`，新版本的命令或运行库多了依赖时，它会补进 `go.mod`。
+- 有些 npm 包带 `.go` 文件，比如 eslint 间接装上的 `flatted`。`ignore node_modules` 这一行让任何深度的 `node_modules` 目录都不进 `./...`，`go test ./...`、`go vet ./...`、`go mod tidy` 和 `tifa build` 的静态分析都跳过它们。`tifa new` 会写上这一行，旧应用用 `go mod edit -ignore=node_modules` 补上。
 
 ## .tifa/ 里的文件
 

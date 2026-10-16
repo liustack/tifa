@@ -57,7 +57,16 @@ func TestNewApp(t *testing.T) {
 	if strings.Join(ran, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("steps %q, want %q", ran, want)
 	}
-	for _, step := range [][]string{{"go", "vet", "./..."}, {"go", "test", "./..."}} {
+	// npm packages may carry Go files, such as flatted, a dependency of eslint, which has no
+	// go.mod of its own. The ignore line of go.mod keeps them out of ./... at any depth.
+	broken := filepath.Join(dir, "web", "node_modules", "broken")
+	if err := os.MkdirAll(broken, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(broken, "broken.go"), []byte("package broken\n\nthis does not compile\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range [][]string{{"go", "vet", "./..."}, {"go", "test", "./..."}, {"go", "mod", "tidy", "-diff"}} {
 		cmd := exec.Command(step[0], step[1:]...)
 		cmd.Dir = dir
 		if out, err := cmd.CombinedOutput(); err != nil {

@@ -23,7 +23,7 @@ Writes a small working app into `dir`, which must be missing or empty: a todo li
 
 | File | What it holds |
 | --- | --- |
-| `go.mod` | tifa, the tifa command as a tool, and `modernc.org/sqlite`, a SQLite driver in pure Go |
+| `go.mod` | tifa, the tifa command as a tool, `modernc.org/sqlite`, a SQLite driver in pure Go, and `ignore node_modules` |
 | `db.go`, `schema.sql` | At the root: `var DB`, `OpenDB` with WAL, `busy_timeout` and foreign keys turned on, and the tables of every domain, created at every start with `CREATE TABLE IF NOT EXISTS`. The file is `app.db` in the folder the app runs in, or `$DB_PATH` |
 | `hooks.go` | `OnStart` opens the database, `OnShutdown` closes it. `OnRequest` and `OnError` are described in comments only, since writing an `OnError` replaces the default |
 | `app/layout.tsx` | The root Layout with a nav, the `NotFound` for unknown URLs and an `Error` |
@@ -96,6 +96,7 @@ go tool tifa build
 - `tifa build` does not change `go.mod` or `go.sum`. An app that has run `go mod tidy` builds as is, and so does CI with `GOFLAGS=-mod=readonly`.
 - If a dependency is missing, the build fails and tells you to run the `go get -tool` above and `go mod tidy`.
 - After upgrading tifa (`go get -tool github.com/liustack/tifa/cmd/tifa@<version>`), run `go mod tidy` once. If the new command or runtime library added dependencies, it adds them to `go.mod`.
+- Some npm packages carry `.go` files, such as `flatted`, which eslint pulls in. The line `ignore node_modules` keeps every `node_modules` folder, at any depth, out of `./...`, so `go test ./...`, `go vet ./...`, `go mod tidy` and the analysis of `tifa build` skip them. `tifa new` writes it. Add it to an older app with `go mod edit -ignore=node_modules`.
 
 ## Files in .tifa/
 
