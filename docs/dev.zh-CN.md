@@ -58,7 +58,7 @@ tifa dev: 07:35:36 bundle done in 90ms
 tifa dev: 07:35:36 ready in 260ms
 ```
 
-步骤名是 `static analysis`、`code generation`、`bundle`、`go build`。静态分析之后还有一行 `route manifest changed` 或 `route manifest unchanged`。Vite 的警告和错误也以 `tifa dev:` 行打印。应用自己的输出照常打印。
+步骤名是 `static analysis`、`code generation`、`bundle`、`go build`。静态分析之后还有一行 `route manifest changed` 或 `route manifest unchanged`。Vite 的警告和错误也以 `tifa dev:` 行打印。应用自己的输出照常打印。它的 stderr 经过 tifa dev，tifa dev 留下最后几行给浮层用（见下文），所以只在终端里上色的日志库在 stderr 上输出的是不带颜色的文字。
 
 渲染时调用 Intl 或 `toLocale*` 方法却没传 locale，或者格式化日期没传 `timeZone`，应用会打一条 `tifa: ssr:` 警告，指出它在源码里的位置，每个位置只打一次。页面照常渲染。见 [tifa dev 下的报警](app.zh-CN.md#tifa-dev-下的报警)。
 
@@ -68,7 +68,7 @@ tifa dev: 07:35:36 ready in 260ms
 - 修好后浮层消失。修复需要 go build 时页面刷新，否则页面保持不动。失败那次没做完的步骤会并入下一次重建。
 - 浏览器里编译失败的模块显示 Vite 自己的浮层。
 - 首次构建就失败时没有旧版本可用，所有请求答 502 和错误原文，等修好后自动恢复。
-- 应用启动后立刻退出时，浮层标题是 `The app did not start`，内容是应用的退出原因。
+- 应用启动后立刻退出，或者 30 秒内没有开始监听时，浮层标题是 `The app did not start`。内容是退出状态和应用最后写到 stderr 的 40 行，`OnStart` 的错误和 panic 都写在那里。栈比 40 行长时，panic 那一行也会留着，前提是输出以这次 panic 的报告结尾。应用打印过、之后又继续运行的 `panic: ` 行不算。运行中的应用退出时（比如请求之外的 panic），标题是 `The app stopped`，内容一样。下一次构建之前，页面请求得到 502 和同样的内容。tifa dev 的日志只说应用退出了，因为应用自己的输出已经打在上面。
 - 运行中的应用读不进重建的 SSR 包时（比如 QuickJS 编译不过，或包的顶层代码抛错），浮层标题是 `The app did not load the SSR bundle`，应用继续用原来的包。错误栈给的是源文件里的位置，调用了 QuickJS 没有的 `require` 的包会被点名，并说明怎么办。
 
 浮层可以关掉，关掉后不影响后续刷新。

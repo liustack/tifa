@@ -306,7 +306,7 @@ func (d *dev) fail(title string, err error) {
 	if d.app == nil {
 		d.downErr = err
 	}
-	d.hub.publishError(title, err.Error())
+	d.hub.publishError(title, explain(err))
 	d.mu.Unlock()
 	d.log.Printf("%s: %v", strings.ToLower(title), err)
 }
@@ -451,7 +451,7 @@ func (d *dev) watchExit(a *app) {
 	crashed := a.gen == d.gen && d.live == a
 	if crashed {
 		d.app, d.live, d.downErr = nil, nil, err
-		d.hub.publishError("The app stopped", err.Error())
+		d.hub.publishError("The app stopped", explain(err))
 	}
 	d.mu.Unlock()
 	if crashed {

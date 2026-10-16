@@ -78,7 +78,7 @@ func unavailable(w http.ResponseWriter, status int, err error) {
 <title>tifa dev</title>
 <script src="%s"></script>
 <pre style="white-space: pre-wrap">%s</pre>
-`, clientPath, html.EscapeString(err.Error()))
+`, clientPath, html.EscapeString(explain(err)))
 }
 
 // versionTiming is the Server-Timing value that names a version.

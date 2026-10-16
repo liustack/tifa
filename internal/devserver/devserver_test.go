@@ -446,12 +446,15 @@ func TestRunReportsTheAppStopping(t *testing.T) {
 		resp.Body.Close() // the proxy answers 502 for the dropped connection
 	}
 	st := d.waitStatus(t, func(st status) bool { return st.Error != "" })
-	if st.Version != v1 || st.Title != "The app stopped" || !strings.Contains(st.Error, "exit status 3") {
+	if st.Version != v1 || st.Title != "The app stopped" || !strings.Contains(st.Error, "exit status 3") || !strings.Contains(st.Error, "fatal: the disk is full") {
 		t.Fatalf("got %+v", st)
 	}
 	// With no app to wait for, the proxy answers at once with the error.
-	if status, body := get(t, d.url+"/"); status != http.StatusBadGateway || !strings.Contains(body, "exit status 3") {
+	if status, body := get(t, d.url+"/"); status != http.StatusBadGateway || !strings.Contains(body, "exit status 3") || !strings.Contains(body, "fatal: the disk is full") {
 		t.Fatalf("got %d %q", status, body)
+	}
+	if strings.Count(d.out.String(), "fatal: the disk is full") != 1 {
+		t.Errorf("the terminal shows the output of the app other than once:\n%s", d.out.String())
 	}
 	writeFile(t, d.dir, "app/store.go", "package app // restart me")
 	d.waitVersionAfter(t, v1)
@@ -471,6 +474,19 @@ func TestRunRecoversFromAFailedFirstBuild(t *testing.T) {
 	writeFile(t, d.dir, "app/store.go", "package app // fixed")
 	d.waitVersionAfter(t, "")
 	expectPage(t, d.url+"/", "build 1")
+}
+
+// The overlay and the page say why the app did not start, as the app wrote it to stderr.
+func TestRunShowsWhyTheAppDidNotStart(t *testing.T) {
+	t.Setenv("TIFA_FAKE_APP_EXIT", "OnStart: database is down")
+	d := startDev(t, "")
+	st := d.waitStatus(t, func(st status) bool { return st.Error != "" })
+	if st.Title != "The app did not start" || !strings.Contains(st.Error, "exit status 1") || !strings.Contains(st.Error, "fake app: OnStart: database is down") {
+		t.Fatalf("got %+v", st)
+	}
+	if status, body := get(t, d.url+"/"); status != http.StatusBadGateway || !strings.Contains(body, "fake app: OnStart: database is down") {
+		t.Fatalf("got %d %q", status, body)
+	}
 }
 
 func TestRunStopsTheAppWithAnInterrupt(t *testing.T) {
