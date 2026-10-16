@@ -14,7 +14,7 @@ English · [简体中文](dev.zh-CN.md)
 tifa dev [--dir app-root] [--addr 127.0.0.1:9527]
 ```
 
-On start it prints `tifa dev: serving http://<address>`, then runs a full build (the same steps as [tifa build](build.md)) and starts the app. The browser connects to `--addr` only. tifa dev forwards page and data requests to the app, and requests under `/__tifa/vite/`, the browser modules and Vite's HMR websocket, to Vite's dev server. While the app restarts or loads a new SSR bundle, page requests wait for it. Ctrl-C or SIGTERM stops the app, Vite and tifa dev. A Vite build or plugin that does not end gets 5 seconds, then Vite is stopped. If tifa dev itself is killed, Vite stops on its own within the same 5 seconds.
+On start it prints `tifa dev: serving http://<address>`, then runs a full build (the same steps as [tifa build](build.md), and the first one of an app takes a minute or two, see [Log](#log)) and starts the app. The browser connects to `--addr` only. tifa dev forwards page and data requests to the app, and requests under `/__tifa/vite/`, the browser modules and Vite's HMR websocket, to Vite's dev server. While the app restarts or loads a new SSR bundle, page requests wait for it. Ctrl-C or SIGTERM stops the app, Vite and tifa dev. A Vite build or plugin that does not end gets 5 seconds, then Vite is stopped. If tifa dev itself is killed, Vite stops on its own within the same 5 seconds.
 
 tifa dev does not run on Windows yet. Use WSL.
 
@@ -57,6 +57,17 @@ tifa dev: 07:35:36 app/home/route.tsx modified
 tifa dev: 07:35:36 bundle done in 90ms
 tifa dev: 07:35:36 ready in 260ms
 ```
+
+A step that runs longer than 5 seconds says so, and again every 15 seconds. The first go build of an app compiles QuickJS, SQLite and the other dependencies, which can take a minute or two, and later builds use Go's build cache. The first ready line also names the address to open:
+
+```text
+tifa dev: 07:35:41 go build still running (5s). The first build compiles QuickJS and the other dependencies, later builds use Go's build cache
+tifa dev: 07:35:56 go build still running (20s)
+tifa dev: 07:36:30 go build done in 54.1s
+tifa dev: 07:36:30 ready in 58.3s, open http://127.0.0.1:9527
+```
+
+A page the browser opens during the first build (a GET or HEAD that accepts `text/html`) waits 2 seconds for it. If the build is still running, the page answers 503 and says tifa dev is building the app, and reloads on its own once the app runs. Other requests, such as a script calling an API, wait for the app as they do while it restarts.
 
 The step names are `static analysis`, `code generation`, `bundle` and `go build`. After static analysis there is also a `route manifest changed` or `route manifest unchanged` line. Vite's warnings and errors are printed as `tifa dev:` lines too. The app's own output is printed as usual, without the `tifa: listening on` line of a built program, since the app listens on a port only tifa dev talks to. Its stderr passes through tifa dev, which keeps the last lines for the overlay (see below), so a logger that colors its output only on a terminal writes plain text there.
 

@@ -14,7 +14,7 @@ read_when:
 tifa dev [--dir 应用根目录] [--addr 127.0.0.1:9527]
 ```
 
-启动后先打印 `tifa dev: serving http://<地址>`，然后做一次完整构建（步骤同 [tifa build](build.zh-CN.md)），启动应用。浏览器只连 `--addr`。tifa dev 把页面和数据请求转给应用，把 `/__tifa/vite/` 下的请求（浏览器模块和 Vite 的 HMR websocket）转给 Vite 的开发服务器。应用重启或换 SSR 包期间，页面请求会等它。Ctrl-C 或 SIGTERM 停掉应用、Vite 和 tifa dev。Vite 的构建或插件一直不结束时，最多再等 5 秒就停掉 Vite。tifa dev 自己被强行杀掉时，Vite 也会在这 5 秒内自行退出。
+启动后先打印 `tifa dev: serving http://<地址>`，然后做一次完整构建（步骤同 [tifa build](build.zh-CN.md)，应用的第一次构建要一两分钟，见[日志](#日志)），启动应用。浏览器只连 `--addr`。tifa dev 把页面和数据请求转给应用，把 `/__tifa/vite/` 下的请求（浏览器模块和 Vite 的 HMR websocket）转给 Vite 的开发服务器。应用重启或换 SSR 包期间，页面请求会等它。Ctrl-C 或 SIGTERM 停掉应用、Vite 和 tifa dev。Vite 的构建或插件一直不结束时，最多再等 5 秒就停掉 Vite。tifa dev 自己被强行杀掉时，Vite 也会在这 5 秒内自行退出。
 
 tifa dev 暂不支持 Windows，请用 WSL。
 
@@ -57,6 +57,17 @@ tifa dev: 07:35:36 app/home/route.tsx modified
 tifa dev: 07:35:36 bundle done in 90ms
 tifa dev: 07:35:36 ready in 260ms
 ```
+
+步骤超过 5 秒还没结束时打一行说明它还在跑，之后每 15 秒一行。应用的第一次 go build 要编译 QuickJS、SQLite 等依赖，可能要一两分钟，之后的构建用 Go 的构建缓存。第一行 ready 还会带上该打开的地址：
+
+```text
+tifa dev: 07:35:41 go build still running (5s). The first build compiles QuickJS and the other dependencies, later builds use Go's build cache
+tifa dev: 07:35:56 go build still running (20s)
+tifa dev: 07:36:30 go build done in 54.1s
+tifa dev: 07:36:30 ready in 58.3s, open http://127.0.0.1:9527
+```
+
+第一次构建期间浏览器打开的页面（接受 `text/html` 的 GET 或 HEAD）会先等 2 秒。构建还没完成时，页面答 503，说明 tifa dev 正在构建，应用跑起来后自动刷新。其他请求（比如脚本调用 API）和应用重启时一样，等应用起来再答。
 
 步骤名是 `static analysis`、`code generation`、`bundle`、`go build`。静态分析之后还有一行 `route manifest changed` 或 `route manifest unchanged`。Vite 的警告和错误也以 `tifa dev:` 行打印。应用自己的输出照常打印，只是没有构建出的程序会打的 `tifa: listening on` 那一行，因为应用监听的端口只有 tifa dev 在连。它的 stderr 经过 tifa dev，tifa dev 留下最后几行给浮层用（见下文），所以只在终端里上色的日志库在 stderr 上输出的是不带颜色的文字。
 

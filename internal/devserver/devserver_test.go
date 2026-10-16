@@ -106,7 +106,7 @@ type devRun struct {
 }
 
 // startDev runs Run on a small app with the fake pipeline and the fake app until the test ends.
-func startDev(t *testing.T, failFirst string) *devRun {
+func startDev(t *testing.T, failFirst string, setup ...func(*buildPipeline)) *devRun {
 	t.Helper()
 	dir := t.TempDir()
 	writeFile(t, dir, "app/store.go", "package app")
@@ -116,6 +116,9 @@ func startDev(t *testing.T, failFirst string) *devRun {
 	bundleFile := filepath.Join(t.TempDir(), "bundle")
 	t.Setenv("TIFA_FAKE_APP_BUNDLE", bundleFile)
 	p := &buildPipeline{versionFile: versionFile, bundleFile: bundleFile, fail: failFirst}
+	for _, f := range setup {
+		f(p)
+	}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -489,6 +492,85 @@ func TestRunShowsWhyTheAppDidNotStart(t *testing.T) {
 	}
 }
 
+// While the first build runs there is no app to show. After a short wait, so a fast build
+// shows the page itself, the browser gets a page that says so and reloads once the app runs.
+// The first ready line names the address to open, the later ones do not.
+func TestRunShowsAPageWhileTheFirstBuildRuns(t *testing.T) {
+	defer func(wait time.Duration) { firstBuildWait = wait }(firstBuildWait)
+	firstBuildWait = 50 * time.Millisecond
+	bundling := make(chan chan struct{})
+	d := startDev(t, "", func(p *buildPipeline) { p.bundling = bundling })
+	var release chan struct{}
+	select {
+	case release = <-bundling:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no bundle within 5s")
+	}
+	// Other requests, such as a script calling an API, wait for the app as they always did.
+	type answer struct {
+		status int
+		body   string
+	}
+	others := make(chan answer, 2)
+	for _, req := range []*http.Request{
+		newRequest(t, "POST", d.url+"/", `{"n":1}`, "Content-Type", "application/json"),
+		newRequest(t, "GET", d.url+"/", "", "Accept", "application/json"),
+	} {
+		go func() {
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				others <- answer{0, err.Error()}
+				return
+			}
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			others <- answer{resp.StatusCode, string(body)}
+		}()
+	}
+	// A page the browser loads gets a page that reloads once the app runs.
+	for _, method := range []string{"GET", "HEAD"} {
+		start := time.Now()
+		resp, err := http.DefaultClient.Do(newRequest(t, method, d.url+"/", "", "Accept", "text/html,application/xhtml+xml,*/*;q=0.8"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusServiceUnavailable || resp.Header.Get("Retry-After") == "" || time.Since(start) > 3*time.Second ||
+			method == "GET" && (!strings.Contains(string(body), "building the app for the first time") || !strings.Contains(string(body), clientPath)) {
+			t.Fatalf("%s after %s: %d %v %q", method, time.Since(start), resp.StatusCode, resp.Header, body)
+		}
+	}
+	select {
+	case a := <-others:
+		t.Fatalf("a request that is not a page was answered during the first build: %+v", a)
+	case <-time.After(4 * firstBuildWait):
+	}
+	close(release)
+	v1 := d.waitVersionAfter(t, "")
+	for range 2 {
+		if a := <-others; a.status != http.StatusOK || a.body != `{"n":1}` && a.body != "build 1" {
+			t.Errorf("after the first build: %+v", a)
+		}
+	}
+	expectPage(t, d.url+"/", "build 1")
+
+	d.p.mu.Lock()
+	d.p.bundling = nil
+	d.p.mu.Unlock()
+	writeFile(t, d.dir, "app/list/route.tsx", "export const x = 2")
+	d.waitStatus(t, func(st status) bool { return st.Version == v1 && st.Error == "" })
+	for deadline := time.Now().Add(5 * time.Second); strings.Count(d.out.String(), "ready in ") < 2; {
+		if time.Now().After(deadline) {
+			t.Fatalf("one ready line within 5s:\n%s", d.out.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := strings.Count(d.out.String(), ", open "+d.url+"\n"); n != 1 {
+		t.Errorf("%d ready lines name the address:\n%s", n, d.out.String())
+	}
+}
+
 func TestRunStopsTheAppWithAnInterrupt(t *testing.T) {
 	var d *devRun
 	t.Run("run", func(t *testing.T) {
@@ -624,4 +706,21 @@ func TestRebuildHoldsPagesOnceABundleIsNeeded(t *testing.T) {
 			}
 		})
 	}
+}
+
+// newRequest makes a request with a body (none when empty) and the header pairs.
+func newRequest(t *testing.T, method, url, body string, header ...string) *http.Request {
+	t.Helper()
+	var r io.Reader
+	if body != "" {
+		r = strings.NewReader(body)
+	}
+	req, err := http.NewRequest(method, url, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < len(header); i += 2 {
+		req.Header.Set(header[i], header[i+1])
+	}
+	return req
 }

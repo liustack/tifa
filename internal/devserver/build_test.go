@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fakePipeline records the steps it runs. fingerprint is what Analyze returns, fail names a step that fails.
@@ -16,6 +17,8 @@ type fakePipeline struct {
 	fingerprint string
 	fail        string
 	detail      string // what Bundle adds to its log line
+	// goBuild, when set, holds GoBuild until it is closed.
+	goBuild chan struct{}
 }
 
 func (p *fakePipeline) step(name string) error {
@@ -33,7 +36,12 @@ func (p *fakePipeline) Generate(context.Context) error { return p.step("Generate
 func (p *fakePipeline) Bundle(context.Context) (string, error) {
 	return p.detail, p.step("Bundle")
 }
-func (p *fakePipeline) GoBuild(context.Context) error           { return p.step("GoBuild") }
+func (p *fakePipeline) GoBuild(context.Context) error {
+	if p.goBuild != nil {
+		<-p.goBuild
+	}
+	return p.step("GoBuild")
+}
 func (p *fakePipeline) PollFiles(context.Context) (bool, error) { return true, nil }
 
 var all = []string{"Analyze", "Generate", "Bundle", "GoBuild"}
@@ -194,5 +202,51 @@ func TestBuildLogsTheBundleDetail(t *testing.T) {
 		if len(lines) != 1 || !regexp.MustCompile(want).MatchString(lines[0]) {
 			t.Errorf("log %q, want %s", lines, want)
 		}
+	}
+}
+
+// A slow step says it is still running, the first time with why a first go build is slow, and
+// stops saying so once it is done.
+func TestBuildLogsTheProgressOfASlowStep(t *testing.T) {
+	var log syncBuffer
+	p := &fakePipeline{fingerprint: "v1", goBuild: make(chan struct{})}
+	b := &builder{p: p, log: func(format string, args ...any) { fmt.Fprintf(&log, format+"\n", args...) }, slow: 20 * time.Millisecond, every: 30 * time.Millisecond}
+	done := make(chan error, 1)
+	go func() {
+		_, err := b.build(context.Background(), everything, nil)
+		done <- err
+	}()
+	for deadline := time.Now().Add(5 * time.Second); strings.Count(log.String(), "go build still running") < 2; {
+		if time.Now().After(deadline) {
+			t.Fatalf("no progress lines within 5s:\n%s", log.String())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	close(p.goBuild)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	lines := strings.Split(strings.TrimSpace(log.String()), "\n")
+	var progress []string
+	for _, line := range lines {
+		if strings.Contains(line, "still running") {
+			progress = append(progress, line)
+		}
+	}
+	if !regexp.MustCompile(`^go build still running \(\d+s\)\. The first build compiles QuickJS and the other dependencies, later builds use Go's build cache$`).MatchString(progress[0]) {
+		t.Errorf("first progress line %q", progress[0])
+	}
+	for _, line := range progress[1:] {
+		if !regexp.MustCompile(`^go build still running \(\d+s\)$`).MatchString(line) {
+			t.Errorf("progress line %q", line)
+		}
+	}
+	if last := lines[len(lines)-1]; !strings.HasPrefix(last, "go build done in ") {
+		t.Errorf("a progress line came after the step ended:\n%s", log.String())
+	}
+	// Fast steps print no progress.
+	if strings.Contains(log.String(), "static analysis still running") || strings.Contains(log.String(), "bundle still running") {
+		t.Errorf("a fast step printed progress:\n%s", log.String())
 	}
 }

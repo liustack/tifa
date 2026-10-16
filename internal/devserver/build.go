@@ -1,6 +1,7 @@
 package devserver
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"path"
@@ -128,7 +129,16 @@ type builder struct {
 	log      func(format string, args ...any) // one line per step that ran
 	manifest string                           // fingerprint of the last successful analysis
 	pending  steps                            // steps a failed rebuild left undone, run again with the next one
+	// A step that takes longer than slow logs that it still runs, then again every every.
+	// Zero means defaultSlow and defaultEvery.
+	slow, every time.Duration
 }
+
+// The defaults of builder.slow and builder.every.
+const (
+	defaultSlow  = 5 * time.Second
+	defaultEvery = 15 * time.Second
+)
 
 // step runs one pipeline step, logs how long it took and names the step in its error.
 func (b *builder) step(name string, run func() error) error {
@@ -138,7 +148,9 @@ func (b *builder) step(name string, run func() error) error {
 // stepDetail is step for a step that adds a detail to its log line.
 func (b *builder) stepDetail(name string, run func() (string, error)) error {
 	start := time.Now()
+	stop := b.progress(name, start)
 	detail, err := run()
+	stop()
 	if err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}
@@ -147,6 +159,37 @@ func (b *builder) stepDetail(name string, run func() (string, error)) error {
 	}
 	b.log("%s done in %s%s", name, time.Since(start).Round(time.Millisecond), detail)
 	return nil
+}
+
+// progress logs that the step name started at start still runs, once it took slow and then
+// every every. The first line of go build says why a first build is slow. The returned function
+// stops it, and no line comes once it returned.
+func (b *builder) progress(name string, start time.Time) func() {
+	slow, every := cmp.Or(b.slow, defaultSlow), cmp.Or(b.every, defaultEvery)
+	stop, stopped := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(stopped)
+		timer := time.NewTimer(slow)
+		defer timer.Stop()
+		why := ""
+		if name == "go build" {
+			why = ". The first build compiles QuickJS and the other dependencies, later builds use Go's build cache"
+		}
+		for {
+			select {
+			case <-stop:
+				return
+			case <-timer.C:
+			}
+			b.log("%s still running (%s)%s", name, time.Since(start).Round(time.Second), why)
+			why = ""
+			timer.Reset(every)
+		}
+	}()
+	return func() {
+		close(stop)
+		<-stopped
+	}
 }
 
 // build runs s plus the steps a failed rebuild left undone, and returns the steps that ran. An
