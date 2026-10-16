@@ -333,6 +333,11 @@ func TestViolations(t *testing.T) {
 			{"db/db.go:8:", "c.Request"},
 			{"db/db.go:10:", "c.Writer"},
 		}},
+		{"bindquery", [][]string{
+			{"app/list/route.go:12:", "c.BindQuery", "c.Query(\"name\")", "c.QueryAll(\"name\")"},
+			{"filter/filter.go:12:", "c.BindQuery"},
+			{"app/list/route.go:20:", "c.Bind", "request body", "c.Query"},
+		}},
 		{"ctxflow", [][]string{
 			{"app/page/route.go:26:", "element of map[int]*tifa.Ctx"},
 			{"app/page/route.go:27:", "converted to any"},

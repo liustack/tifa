@@ -168,6 +168,7 @@ func TestBuildReportsViolations(t *testing.T) {
 		{"layoutparam", "app/projects/layout.go:6:"},
 		{"usenonancestor", "app/shop/route.go:11:"},
 		{"badtype", "app/page/route.go:56:"},
+		{"bindquery", "app/list/route.go:12:"},
 	} {
 		dir := filepath.Join(repoRoot(t), "internal", "analyze", "testdata", tc.fixture)
 		cmd := exec.Command(cli(t), "build", "--dir", dir, "-o", filepath.Join(t.TempDir(), "app"))

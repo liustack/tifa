@@ -49,7 +49,8 @@ The build reads `Load` and `Layout` and the functions they call to find which pa
 - call `c.Param`, `c.Query` or `c.QueryAll` with a string that is not a constant, or not directly (stored in a variable or passed as a value),
 - call `tifa.Use` with anything but a package-level `Layout` that wraps the caller,
 - convert, store, return or send `c` anywhere else than a plain function or method of this module or of tifa, or a new local variable of the same type (see the docs for the full list),
-- call `c.Request()` or `c.Writer()`.
+- call `c.Request()` or `c.Writer()`,
+- call `c.BindQuery` or `c.Bind`: read query values with `c.Query("name")` or `c.QueryAll("name")`.
 
 Writing the response is checked when the request runs instead: in `Load` and `Layout`, `c.JSON`, `c.Text` and `c.NoContent` write nothing and return an error. Returned, that error is an unexpected one (`OnError`, or a 500). Setting headers and cookies is fine. Pass `c.Context()` when a function only needs the context. See [How Load may use Ctx](https://github.com/liustack/tifa/blob/main/docs/app.md#how-load-may-use-ctx).
 

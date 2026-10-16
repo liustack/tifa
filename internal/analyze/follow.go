@@ -91,9 +91,11 @@ func (w *loadWalk) call(info *types.Info, call *ast.CallExpr, helper bool) {
 		w.uses = append(w.uses, paramUse{method: method, name: constant.StringVal(tv.Value), pos: call.Pos()})
 		return
 	}
-	if fn, ok := typeutil.Callee(info, call).(*types.Func); ok && rawAccess(fn) {
-		a.errorAt(call.Pos(), "c.%s gives the raw request or response, where the analyzer cannot see which parameters are read: in Load and the functions it calls, use c.Param, c.Query, c.Header, c.Cookie or c.Context() instead. c.Request and c.Writer are for the GET, POST, PUT, PATCH and DELETE handlers and OnRequest", fn.Name())
-		return
+	if fn, ok := typeutil.Callee(info, call).(*types.Func); ok {
+		if why := refusedInLoad(fn); why != "" {
+			a.errorAt(call.Pos(), "%s", why)
+			return
+		}
 	}
 	if info.Types[call.Fun].IsType() || !callCarriesCtx(info, call) {
 		return
@@ -232,13 +234,25 @@ func methodName(fn *types.Func) string {
 	return fn.Name()
 }
 
-// rawAccess reports whether fn is Ctx.Request or Ctx.Writer, which hand out the http.Request and
-// the http.ResponseWriter.
-func rawAccess(fn *types.Func) bool {
+// refusedInLoad returns why fn may not run in Load, Layout and the functions they call, and an
+// empty string when it may. The refused functions are the methods of the Ctx that read the
+// request where the analyzer cannot see which parameters are read, so the page would not load
+// again when they change.
+func refusedInLoad(fn *types.Func) string {
 	recv := fn.Signature().Recv()
-	if recv == nil || fn.Name() != "Request" && fn.Name() != "Writer" {
-		return false
+	if recv == nil {
+		return ""
 	}
-	named, ok := types.Unalias(derefType(recv.Type())).(*types.Named)
-	return ok && isCtxNamed(named)
+	if named, ok := types.Unalias(derefType(recv.Type())).(*types.Named); !ok || !isCtxNamed(named) {
+		return ""
+	}
+	switch fn.Name() {
+	case "Request", "Writer":
+		return "c." + fn.Name() + " gives the raw request or response, where the analyzer cannot see which parameters are read: in Load and the functions it calls, use c.Param, c.Query, c.QueryAll, c.Header, c.Cookie or c.Context() instead. c.Request and c.Writer are for the GET, POST, PUT, PATCH and DELETE handlers and OnRequest"
+	case "BindQuery":
+		return `c.BindQuery reads query parameters the analyzer cannot name, so the page would not load again when they change: in Load and the functions it calls, read each one with c.Query("name"), or c.QueryAll("name") for a repeated one. c.BindQuery is for the GET, POST, PUT, PATCH and DELETE handlers`
+	case "Bind":
+		return `c.Bind reads the request body, which a page load and the data request of a navigation do not have: in Load and the functions it calls, read query parameters with c.Query("name") or c.QueryAll("name"). c.Bind is for the POST, PUT, PATCH and DELETE handlers`
+	}
+	return ""
 }
