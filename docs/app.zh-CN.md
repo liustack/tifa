@@ -328,7 +328,7 @@ React 在服务端不执行 effect，所以只在 `useEffect`、`useLayoutEffect
 - `Intl.NumberFormat`、`Intl.DateTimeFormat`、`Intl.PluralRules`、`Intl.getCanonicalLocales`，以及各构造器的 `supportedLocalesOf`。
 - `Date` 的 `toLocaleString`、`toLocaleDateString`、`toLocaleTimeString`，`Number` 和 `BigInt` 的 `toLocaleString`。
 
-服务端没有 `Intl.Collator`、`Intl.Segmenter`、`Intl.RelativeTimeFormat`、`Intl.ListFormat`、`Intl.DisplayNames`、`Intl.DurationFormat`、`Intl.supportedValuesOf` 和 `formatRange`，渲染时调用它们会失败。`localeCompare` 按码点比较，不按语言。日期用公历（th 用佛历，fa 等少数语言用波斯历），用 `-u-ca-` 或 `calendar` 选项要的其他历法（比如 japanese）会退回这个语言的默认历法。`roundingIncrement` 和 `roundingPriority` 只支持默认值。`maximumFractionDigits` 小于货币的默认小数位时，必须同时给 `minimumFractionDigits`，否则抛 `RangeError`：浏览器会把最小值一起调低，服务端按的是旧规则。写成 `{ style: 'currency', currency: 'CNY', minimumFractionDigits: 0, maximumFractionDigits: 0 }`，不要只给最大值。
+服务端没有 `Intl.Collator`、`Intl.Segmenter`、`Intl.RelativeTimeFormat`、`Intl.ListFormat`、`Intl.DisplayNames`、`Intl.DurationFormat`、`Intl.supportedValuesOf` 和 `formatRange`，渲染时调用它们会失败。`localeCompare` 按码点比较，不按语言。日期用公历（th 用佛历，fa 等少数语言用波斯历），用 `-u-ca-` 或 `calendar` 选项要的其他历法（比如 japanese）会退回这个语言的默认历法。`roundingIncrement` 和 `roundingPriority` 只支持默认值。
 
 不传 locale 时服务端按 `en-US` 格式化，不传 `timeZone` 时按 `UTC`，和机器的语言、时区无关。服务端 `Date` 的本地时间也恒为 UTC：`getTimezoneOffset()` 是 0，`new Date(2026, 0, 1)`、`getHours`、`toString` 都按 UTC 算。应用的 Go 代码不受影响：进程保持启动时的时区，`time.Local`、日志和 SQLite 照常用这个时区，和普通 Go 程序一样。
 
