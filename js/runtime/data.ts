@@ -49,6 +49,11 @@ export class RouteError extends Error {
 export const routeHeader = 'X-Tifa-Route'
 export const buildHeader = 'X-Tifa-Build'
 
+// A handler function of call.ts sends callHeader. A redirect then comes as 200 and Redirected,
+// with redirectHeader holding its status, since the result of a handler may look like one.
+export const callHeader = 'X-Tifa-Call'
+export const redirectHeader = 'X-Tifa-Redirect'
+
 // injected answers from the data Go injected for a whole-page render. Rendering does no I/O.
 export function injected(input: Injected): Source {
   return async (url, id) => {
@@ -152,13 +157,14 @@ function reloadOnce() {
 }
 
 // Redirected is the answer to a data request that OnRequest, a Load the middleware let
-// through, or ServeMux redirected: {"redirect": URL, "status": 3xx}.
+// through, or ServeMux redirected: {"redirect": URL, "status": 3xx}. A handler call that is
+// redirected gets the same answer.
 export interface Redirected {
   redirect: string
   status: number
 }
 
-function isRedirected(body: unknown): body is Redirected {
+export function isRedirected(body: unknown): body is Redirected {
   return (
     typeof body === 'object' &&
     body !== null &&

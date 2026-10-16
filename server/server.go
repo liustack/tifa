@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"runtime/debug"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -211,7 +212,14 @@ func (s *Server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 		_ = writeData(w, http.StatusOK, items)
 	case redirect != nil && data:
 		_ = writeData(w, http.StatusOK, dataRedirect{Redirect: redirect.URL, Status: redirect.Code})
+	case redirect != nil && r.Header.Get(callHeader) != "":
+		// The app's caching headers would let a cache hand this JSON to a page load.
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set(redirectHeader, strconv.Itoa(redirect.Code))
+		w.Header().Add("Vary", callHeader)
+		writeJSON(w, http.StatusOK, dataRedirect{Redirect: redirect.URL, Status: redirect.Code})
 	case redirect != nil:
+		w.Header().Add("Vary", callHeader)
 		http.Redirect(w, r, redirect.URL, redirect.Code)
 	case !page:
 		body := errorBody{Error: e.Message}

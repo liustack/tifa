@@ -1,6 +1,8 @@
 // The runtime of the handler functions that tifa build writes into each +route module, one per
 // method handler of route.go: GET, POST, PUT, PATCH and DELETE.
 
+import { callHeader, isRedirected, redirectHeader } from './data'
+
 // TifaError is what a handler function throws when the server answers with an error. message is
 // the public message of the answer, fields the messages per input field of a tifa.Fields.
 export class TifaError extends Error {
@@ -27,14 +29,26 @@ export interface CallOptions {
 // for a handler that writes its own response.
 export type Answer = 'json' | 'none' | 'raw'
 
-interface Invalidator {
-  invalidate(): Promise<void>
+// Router is what a handler function needs of the router of the page: reloading the loaded data
+// after a write, and going to the target of a redirect.
+// Location is the part of a location of TanStack Router that tells which page it is.
+interface Location {
+  pathname: string
+  search: unknown
+  hash: string
 }
 
-let router: Invalidator | undefined
+interface Router {
+  invalidate(): Promise<void>
+  navigate(options: { href: string }): Promise<void>
+  parseLocation(location: { href: string; pathname: string; search: string; hash: string; state: object }): Location
+  state: { location: Location }
+}
+
+let router: Router | undefined
 
 // setRouter receives the router of the page once the browser has taken it over.
-export function setRouter(r: Invalidator) {
+export function setRouter(r: Router) {
   router = r
 }
 
@@ -48,17 +62,30 @@ export async function call(
 ): Promise<unknown> {
   if (typeof document === 'undefined')
     throw new Error(`${method} ${url} is called outside the browser: call a handler function from an event handler or an effect, not while rendering`)
-  const init: RequestInit = { method, signal: options.signal, headers: { Accept: 'application/json' } }
+  // The server answers a redirect of a call that carries callHeader as JSON. fetch would follow
+  // a 3xx to the HTML of its target, and send the body of a 307 or 308 along.
+  const headers: Record<string, string> = { Accept: 'application/json', [callHeader]: '1' }
+  const init: RequestInit = { method, signal: options.signal, headers, redirect: 'manual' }
   if (options.input !== undefined) {
     if (method === 'GET' || method === 'DELETE') {
       const query = encodeQuery(options.input as Record<string, unknown>)
       if (query) url += '?' + query
     } else {
-      init.headers = { Accept: 'application/json', 'Content-Type': 'application/json' }
+      headers['Content-Type'] = 'application/json'
       init.body = JSON.stringify(options.input)
     }
   }
   const response = await fetch(url, init)
+  if (response.type === 'opaqueredirect')
+    throw new Error(
+      `${method} ${url} was answered with a redirect the browser cannot read, from a proxy or from a handler that wrote it itself: return c.Redirect(url, code) from the handler or OnRequest instead`,
+    )
+  if (response.headers.has(redirectHeader)) {
+    const body: unknown = await response.clone().json()
+    if (!isRedirected(body)) throw new Error(`${method} ${url} was answered with a redirect without a URL`)
+    await follow(body.redirect, method, options)
+    return answer === 'raw' ? response : undefined
+  }
   if (answer === 'raw') {
     if (response.ok) await refresh(method, options)
     return response
@@ -67,6 +94,45 @@ export async function call(
   const result = answer === 'json' ? await response.json() : undefined
   await refresh(method, options)
   return result
+}
+
+// follow goes to the target of a redirect: through the router for a URL of this site, so the
+// page does not reload, and as a whole page for another site or before the router took over.
+// After a write the loaded data goes stale first, so the target and its Layouts load it again,
+// in the same request as the navigation. A redirect to the page that is showing reloads its
+// data as a call without a redirect does, since the router would show the stale data at once
+// and load the new data after.
+async function follow(location: string, method: string, options: CallOptions) {
+  const target = new URL(location, window.location.href)
+  if (target.protocol !== 'http:' && target.protocol !== 'https:')
+    throw new Error(`${method} was redirected to ${location}, which is not an http or https URL`)
+  if (!router || target.origin !== window.location.origin) {
+    window.location.assign(target.href)
+    return
+  }
+  const href = target.pathname + target.search + target.hash
+  // The router reads the URL, so a query spelled another way, in another order or encoding,
+  // is the same page.
+  const parsed = router.parseLocation({ href, pathname: target.pathname, search: target.search, hash: target.hash, state: {} })
+  if (samePage(parsed, router.state.location)) return refresh(method, options)
+  if (method !== 'GET' && options.invalidate !== false) void router.invalidate()
+  await router.navigate({ href })
+}
+
+function samePage(a: Location, b: Location) {
+  return a.pathname === b.pathname && a.hash === b.hash && sameValue(a.search, b.search)
+}
+
+// sameValue compares parsed queries: objects of strings and arrays of strings.
+function sameValue(a: unknown, b: unknown): boolean {
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return a === b
+  if (Array.isArray(a) !== Array.isArray(b)) return false
+  const keys = Object.keys(a)
+  const other = b as Record<string, unknown>
+  return (
+    keys.length === Object.keys(b).length &&
+    keys.every((key) => Object.hasOwn(other, key) && sameValue((a as Record<string, unknown>)[key], other[key]))
+  )
 }
 
 async function refresh(method: string, options: CallOptions) {

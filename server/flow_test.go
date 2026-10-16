@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -178,5 +179,24 @@ func TestDataRequestResolvesARelativeRedirect(t *testing.T) {
 	}
 	if w := get(s, "/projects/p1/orders"); w.Code != 303 || w.Header().Get("Location") != "/projects/other/orders" {
 		t.Errorf("page: %d %v", w.Code, w.Header())
+	}
+}
+
+// A handler call of the browser that OnRequest redirects gets the JSON redirect on a server
+// with pages too, not the 3xx a page request gets.
+func TestHandlerCallRedirectOfOnRequestIsJSON(t *testing.T) {
+	var reported []error
+	s, _ := newFrontServer(t, secretApp(func(c *tifa.Ctx) error {
+		if _, err := c.Cookie("session"); err != nil {
+			return c.Redirect("/login", 303)
+		}
+		return c.Next()
+	}, &reported))
+	r := httptest.NewRequest("POST", "/secret", strings.NewReader("{}"))
+	r.Header.Set("X-Tifa-Call", "1")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, r)
+	if w.Code != 200 || w.Header().Get("X-Tifa-Redirect") != "303" || strings.TrimSpace(w.Body.String()) != `{"redirect":"/login","status":303}` {
+		t.Errorf("%d %v %s", w.Code, w.Header(), w.Body.String())
 	}
 }

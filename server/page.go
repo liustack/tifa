@@ -28,6 +28,14 @@ const (
 	renderHeader = "X-Tifa-Render" // how a page was answered: vm, cache or none
 )
 
+// Headers of a call of a method handler from the browser, see js/runtime/call.ts. The handler
+// functions send callHeader, and a redirect then comes as 200, redirectHeader with its status,
+// and a dataRedirect.
+const (
+	callHeader     = "X-Tifa-Call"
+	redirectHeader = "X-Tifa-Redirect"
+)
+
 // frontBuild is dist/build.json.
 type frontBuild struct {
 	ID string `json:"buildId"`
@@ -373,7 +381,8 @@ func writeData(w http.ResponseWriter, status int, value any) error {
 
 // dataRedirect is how a data request answers a redirect: 200 and this JSON, which the
 // collector turns into a router redirect. A 3xx would be followed by fetch, still asking for
-// the routes of the old page.
+// the routes of the old page. A handler call of the browser gets the same JSON, marked with
+// redirectHeader, since the result of a handler may look like it.
 type dataRedirect struct {
 	Redirect string `json:"redirect"`
 	Status   int    `json:"status"`

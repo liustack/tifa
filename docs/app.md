@@ -94,7 +94,7 @@ When an error is returned:
 | Returned | Result |
 | --- | --- |
 | `tifa.ErrNotFound` | 404 |
-| `c.Redirect(url, code)` | Redirect |
+| `c.Redirect(url, code)` | A redirect. Page loads and navigation follow it, and so does a handler function called from the browser (see below) |
 | `tifa.Error{Status, Message}` | Answered with its status code and message, does not go to `OnError`. A status outside 400 to 599 is handled as an unexpected error |
 | `tifa.Fields{"carrier": "pick a carrier"}` | 422 with a message per input field by its json name, does not go to `OnError` |
 | Any other error, a panic | Goes to `OnError`. Without one, it is logged and answered with 500 |
@@ -190,8 +190,28 @@ async function ship() {
 - GET and DELETE send the input in the query string, the other methods as a JSON body. The result is typed from the Go result. `func(c, in) error` gives `void`. `func(c) error` writes its own response, so its function gives back the `Response` as it is, also for an error status.
 - After a POST, PUT, PATCH or DELETE succeeds, the data of the current page and its Layouts is loaded again before the promise resolves. Pass `invalidate: false` to keep it. A failure and a GET never reload.
 - An error answer throws `TifaError` with `status`, `message` and `fields` (the messages of a `tifa.Fields`, empty otherwise). A network failure throws as `fetch` does.
+- When the handler or `OnRequest` returns `c.Redirect(url, code)`, the browser goes to that URL: through the router for a URL of this site, without reloading the page, and as a whole page load for another site. After a POST, PUT, PATCH or DELETE (unless `invalidate: false`) the data the router holds goes stale first, so the new page and its Layouts show fresh data. A redirect to the page that is showing loads its data again, as a call without a redirect does. It counts as the same page when the path, the hash and the query values match, whatever the order and encoding of the query. The promise resolves once the new page shows, to `undefined`, also for a handler with a result, whose type does not say so. The function of a handler that writes its own response gets the `Response` of the redirect (`ok`, with the status in `X-Tifa-Redirect`). A relative URL is resolved against the URL of the handler, not of the page. A 3xx the handler wrote itself through `c.Writer()`, or one a proxy wrote, cannot be read in the browser and rejects the promise with an `Error`.
 - Call these functions from event handlers or effects. Calling one while the page renders on the server throws.
 - `+route` also exports `POSTInput`, `POSTOutput` and so on for the types of each handler that has them.
+
+To go to the page of what a handler created, return a redirect from the handler, or return the result and navigate yourself. Pass `invalidate: false` in the second case, so the current page does not load its data again just before you leave it. Data the router already holds, such as that of a Layout both pages share, then stays as it was:
+
+```go
+func POST(c *tifa.Ctx, in AddInput) error {
+	todo, err := AddTodo(in.Title)
+	if err != nil {
+		return err
+	}
+	return c.Redirect("/todos/"+todo.ID, http.StatusSeeOther)
+}
+```
+
+```tsx
+const router = useRouter() // from @tanstack/react-router
+// in the event handler, where POST returns (Todo, error):
+const todo = await POST({ input: { title }, invalidate: false })
+await router.navigate({ to: '/todos/$todo', params: { todo: todo.id } })
+```
 
 ## Layout
 

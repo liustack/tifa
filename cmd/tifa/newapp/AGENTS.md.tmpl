@@ -37,7 +37,7 @@ Never edit `.tifa/`. It is generated, and `go test ./...` skips it.
 | `tifa.ErrNotFound`, or a `tifa.Error` with Status 404 | 404 with the first `NotFound` going up from the page (from the Layout one level up when a `Layout` returns it) | 404 as JSON |
 | `tifa.Error{Status, Message}`, Status 400 to 599 but not 404 | That status, shown by the nearest `Error` | That status as JSON `{"error": message}` |
 | `tifa.Fields{"field": "message"}` | 422, shown by the nearest `Error` | 422 as JSON with `"fields"` |
-| `c.Redirect(url, code)` | A redirect | A redirect |
+| `c.Redirect(url, code)` | A redirect | Called from the browser, the browser goes there: through the router for a URL of this site, a full page load for another. Otherwise a 3xx |
 | Any other error, a panic, or a `tifa.Error` with another status | `OnError`, or a logged 500 without one | `OnError`, or a logged 500 without one |
 
 `Validate` on a handler input runs before the handler. A `tifa.Error` or `tifa.Fields` it returns is answered as in the table. Any other error, also `tifa.ErrNotFound` or a `c.Redirect`, is answered with 400 and `err.Error()` as the message. A URL that matches no page shows the `NotFound` of the root `layout.tsx`, without the root Layout around it.
@@ -58,7 +58,7 @@ Writing the response is checked when the request runs instead: in `Load` and `La
 - A typed handler takes an input after the Ctx, returns a result before the error, or both: `func POST(c *tifa.Ctx, in AddInput) (Todo, error)`. The framework decodes `in` from a JSON or form body (from the query string for `GET` and `DELETE`), runs `in.Validate()` if it exists, and writes the result as JSON (204 when there is no result). `func POST(c *tifa.Ctx) error` writes its own response.
 - The data of `Load` and handler inputs and results travel as JSON, and tifa writes their TypeScript types. No interfaces, funcs or channels. A Go slice or map can be `null` in TypeScript, so write `?? []`.
 - In TSX, import from the generated `./+route` of the folder: `route.useLoaderData()`, the `Data` type and one function per handler, such as `POST({ params, input })`. A Layout's data comes from `./+layout`. After a successful POST, PUT, PATCH or DELETE the page data loads again, unless the call passes `invalidate: false`.
-- The function of a typed handler resolves to its result and throws `TifaError` (`status`, `message`, `fields`) for an error answer. The function of a handler that writes its own response resolves to the `Response`, also for a 4xx or 5xx, so check `response.ok`.
+- The function of a typed handler resolves to its result and throws `TifaError` (`status`, `message`, `fields`) for an error answer. The function of a handler that writes its own response resolves to the `Response`, also for a 4xx or 5xx, so check `response.ok`. When the handler or `OnRequest` redirects, the function resolves to `undefined` once the new page shows, whatever its type says. Redirect with `return c.Redirect(...)`, not by writing a 3xx yourself.
 - Styles are CSS files imported from TSX, such as `app/styles.css` in the root `layout.tsx`. `vite.config.ts` adds the Vite plugins of tifa and React. For Tailwind CSS, add `@tailwindcss/vite` there. See [Styles](https://github.com/liustack/tifa/blob/main/docs/app.md#styles).
 - A page may also export `head`, `NotFound` and `Error`. Components that need the browser at import time go in `*.client.tsx` and load with `clientOnly` from `tifa/client`.
 

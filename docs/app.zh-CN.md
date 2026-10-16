@@ -94,7 +94,7 @@ func POST(c *tifa.Ctx, in ShipInput) (orders.Shipment, error) {
 | 返回 | 结果 |
 | --- | --- |
 | `tifa.ErrNotFound` | 404 |
-| `c.Redirect(url, code)` | 重定向 |
+| `c.Redirect(url, code)` | 重定向。整页加载和导航跟着跳，浏览器里调用的方法函数也会把浏览器带过去（见下文） |
 | `tifa.Error{Status, Message}` | 按它的状态码和消息回答，不进 `OnError`。状态码不在 400 到 599 之间时按意外错误处理 |
 | `tifa.Fields{"carrier": "请选择承运商"}` | 答 422，按入参字段的 json 名字各带一条消息，不进 `OnError` |
 | 其他错误、panic | 交给 `OnError`，没定义时记日志并答 500 |
@@ -190,8 +190,28 @@ async function ship() {
 - GET、DELETE 把入参放进查询字符串，其他方法发 JSON 请求体。返回值的类型来自 Go 的返回值。`func(c, in) error` 得到 `void`。`func(c) error` 自己写响应，它的调用函数原样交回 `Response`，错误状态码也一样。
 - POST、PUT、PATCH、DELETE 成功后，先重新取当前页面和它的 Layout 的数据，再兑现 promise。传 `invalidate: false` 可以不刷新。失败和 GET 都不刷新。
 - 错误回答抛出 `TifaError`，带 `status`、`message` 和 `fields`（`tifa.Fields` 的消息，其他情况为空）。网络错误照 `fetch` 的样子抛出。
+- 处理函数或 `OnRequest` 返回 `c.Redirect(url, code)` 时，浏览器去那个 URL：本站的 URL 经路由器跳转，页面不重新加载，别的站点整页加载。POST、PUT、PATCH、DELETE 之后（除非传了 `invalidate: false`），路由器里已有的数据先标为过期，所以新页面和它的 Layout 显示的是新数据。重定向到正在显示的页面时，和没有重定向的调用一样重新取这一页的数据。路径、hash 和查询参数的值都相同就算同一页，查询参数的顺序和编码不论。promise 在新页面显示出来后兑现为 `undefined`，有返回值的处理函数也一样，它的类型上看不出这一点。自己写响应的处理函数，调用函数拿到这次重定向的 `Response`（`ok` 为真，状态码在 `X-Tifa-Redirect` 里）。相对 URL 按处理函数的 URL 解析，不按页面的 URL。处理函数经 `c.Writer()` 自己写的 3xx，或者代理写的 3xx，浏览器读不到，promise 以 `Error` 失败。
 - 在事件处理函数或 effect 里调用。服务器渲染页面期间调用会抛错。
 - `+route` 还为有入参或返回值的处理函数导出 `POSTInput`、`POSTOutput` 等类型。
+
+要在创建之后去新建内容的页面，可以让处理函数返回重定向，也可以返回结果再自己导航。第二种写法要传 `invalidate: false`，免得当前页面在离开前又取一次数据。路由器里已有的数据（比如两个页面共用的 Layout 的数据）这时保持原样：
+
+```go
+func POST(c *tifa.Ctx, in AddInput) error {
+	todo, err := AddTodo(in.Title)
+	if err != nil {
+		return err
+	}
+	return c.Redirect("/todos/"+todo.ID, http.StatusSeeOther)
+}
+```
+
+```tsx
+const router = useRouter() // 来自 @tanstack/react-router
+// 在事件处理函数里，这里的 POST 返回 (Todo, error)：
+const todo = await POST({ input: { title }, invalidate: false })
+await router.navigate({ to: '/todos/$todo', params: { todo: todo.id } })
+```
 
 ## Layout
 
