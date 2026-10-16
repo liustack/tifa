@@ -4,7 +4,9 @@
 import { createMemoryHistory } from '@tanstack/react-router'
 import { routeTree } from './.tifa/routes'
 import { createAppRouter } from './.tifa/runtime/router'
-import { bootElementId, rootElementId, type RouteResult } from './.tifa/runtime/data'
+import { bootElementId, collector, rootElementId, type RouteResult } from './.tifa/runtime/data'
+import { setRouter } from './.tifa/runtime/call'
+import { POST } from './app/api/notes/note+/+route'
 import { hydrate } from './.tifa/runtime/browser'
 import { followHead, headHTML, setAttributes, syncHead, type Tag } from './.tifa/runtime/head'
 
@@ -279,6 +281,33 @@ test('the head follows data the router refetches in the background', async () =>
     for (let i = 0; i < 100 && title() !== 'TEAM y'; i++) await new Promise((resolve) => setTimeout(resolve, 0))
     assert(title() === 'TEAM y', `title after invalidate ${title()}`)
   })
+})
+
+// The router of a browser build loads in the background, which the Node build of
+// router.test.tsx does not.
+test('a write resolves once the page shows its new data', async () => {
+  const saved = { fetch: g.fetch }
+  let answers = 0
+  g.fetch = async (url: string, init: RequestInit) => {
+    if (init.method === 'POST') return Response.json({ text: 'saved', next: null })
+    const routes = (new Headers(init.headers).get('X-Tifa-Route') ?? '').split(',')
+    answers++
+    return Response.json(Object.fromEntries(routes.map((id) => [id, ok(`${id} ${answers}`)])))
+  }
+  try {
+    const router = createAppRouter(routeTree, collector(() => 'b1'), { history: createMemoryHistory({ initialEntries: ['/a/two'] }) })
+    await router.load()
+    setRouter(router)
+    const shown = () => router.state.matches.map((m) => m.loaderData).filter((d) => d !== undefined).join(', ')
+    assert(shown() === 'app/layout 1, app/a/layout 1, app/a/two/route 1', `first load ${shown()}`)
+    await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
+    assert(shown() === 'app/layout 2, app/a/layout 2, app/a/two/route 2', `after the write ${shown()}`)
+    // So does an app's own invalidate after a write that does not go through a handler.
+    await router.invalidate()
+    assert(shown() === 'app/layout 3, app/a/layout 3, app/a/two/route 3', `after invalidate ${shown()}`)
+  } finally {
+    Object.assign(g, saved)
+  }
 })
 
 let failed = 0

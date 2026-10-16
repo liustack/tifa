@@ -167,7 +167,7 @@ import { clientOnly } from 'tifa/client'
 const OrderActions = clientOnly(() => import('./actions.client'), <button disabled>Loading…</button>)
 ```
 
-- After a write that does not go through a handler function (below), call TanStack's `router.invalidate()`. The data of the current page and all its Layouts is loaded again, merged into one request.
+- After a write that does not go through a handler function (below), call TanStack's `router.invalidate()`. The data of the current page and all its Layouts is loaded again, merged into one request, and the promise it returns resolves once the page shows the new data.
 
 ### Calling method handlers from the browser
 

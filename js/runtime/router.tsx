@@ -53,6 +53,10 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
     // A URL no route matches shows the root's NotFound at once, without loading any route.
     notFoundMode: 'root',
     defaultPreload: 'intent',
+    // Data goes stale only through invalidate, after a write. The reload then finishes before
+    // invalidate or the navigation resolves, so a handler function resolves once the page
+    // shows the new data, rather than showing the old data and loading in the background.
+    defaultStaleReloadMode: 'blocking',
     scrollRestoration: true,
     dehydrate: (): Dehydrated => {
       if (buildId === undefined) throw new Error('a server render needs the build ID')

@@ -167,7 +167,7 @@ import { clientOnly } from 'tifa/client'
 const OrderActions = clientOnly(() => import('./actions.client'), <button disabled>正在准备操作…</button>)
 ```
 
-- 不经过调用函数（见下）的写操作之后，调用 TanStack 的 `router.invalidate()`，当前页面和所有 Layout 的数据重新取一次，合并成一个请求。
+- 不经过调用函数（见下）的写操作之后，调用 TanStack 的 `router.invalidate()`，当前页面和所有 Layout 的数据重新取一次，合并成一个请求，它返回的 promise 在页面显示出新数据后兑现。
 
 ### 在浏览器里调用方法函数
 
