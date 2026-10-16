@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/liustack/quickjs"
+	"github.com/liustack/quickjs/intl"
 )
 
 // compile turns the bundle into bytecode once, in a throwaway VM.
@@ -26,8 +27,14 @@ func compile(source string, memory uintptr, timeout time.Duration) (bytecode []b
 	return vm.Compile(source, quickjs.EvalGlobal)
 }
 
-// load creates a VM and runs the bundle's top level code, which defines startRender.
-// The VM gets no Go callbacks and no module loader, so rendering cannot do I/O.
+// load creates a VM, gives it Intl and runs the bundle's top level code, which defines
+// startRender. The only Go callbacks the VM gets are those of Intl, which format and do no I/O
+// but read a time zone the first time a page names it. It has no module loader, so rendering
+// cannot do I/O.
+//
+// Intl formats in en-US and UTC when a page passes no locale or timeZone, never in the host's
+// language or zone. intl.Register only puts stand-ins on the VM: the first use of Intl or a
+// toLocale* method installs the rest, so a VM whose pages never format costs a few KB more.
 func load(bytecode []byte, memory uintptr, timeout time.Duration) (*quickjs.VM, error) {
 	vm, err := quickjs.NewVM()
 	if err != nil {
@@ -35,6 +42,9 @@ func load(bytecode []byte, memory uintptr, timeout time.Duration) (*quickjs.VM, 
 	}
 	vm.SetMemoryLimit(memory)
 	if err = vm.SetEvalTimeout(timeout); err == nil {
+		err = intl.Register(vm)
+	}
+	if err == nil {
 		_, err = vm.EvalBytecode(bytecode)
 	}
 	if err != nil {

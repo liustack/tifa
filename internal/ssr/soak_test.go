@@ -9,17 +9,21 @@ package ssr
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
 	"syscall"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/liustack/quickjs"
+	lib "github.com/liustack/quickjs/lib"
 	"github.com/liustack/tifa/internal/config"
 	"modernc.org/libc"
 )
@@ -201,4 +205,85 @@ func TestSoakOOMRecycle(t *testing.T) {
 			t.Logf("native allocations back to baseline %d", baseline)
 		})
 	}
+}
+
+// What Intl adds to a VM, in the bytes QuickJS counts for its runtime after a GC: loaded without
+// Intl as before, loaded by load, and after a page formats a number and a date. Intl only puts
+// stand-ins on a VM until it is used, so a VM whose pages never format may cost a few KB more.
+func TestSoakVMMemory(t *testing.T) {
+	const formats = `[new Intl.NumberFormat('zh-CN', {style: 'currency', currency: 'CNY'}).format(1234.5),
+		new Date(0).toLocaleDateString('zh-CN', {timeZone: 'Asia/Shanghai'})].join()`
+	for _, b := range soakBundles(t) {
+		t.Run(b.name, func(t *testing.T) {
+			const memory, timeout = 128 << 20, 10 * time.Second
+			bytecode, err := compile(b.source, memory, timeout)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// measure returns the bytes a VM from open holds, after use when it is set.
+			measure := func(open func() (*quickjs.VM, error), use func(*quickjs.VM)) int64 {
+				vm, err := open()
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer vm.Close()
+				if use != nil {
+					use(vm)
+				}
+				return vmUsage(vm).Fmalloc_size
+			}
+			withoutIntl := func() (*quickjs.VM, error) {
+				vm, err := quickjs.NewVM()
+				if err != nil {
+					return nil, err
+				}
+				vm.SetMemoryLimit(memory)
+				if _, err := vm.EvalBytecode(bytecode); err != nil {
+					return nil, errors.Join(err, vm.Close())
+				}
+				return vm, nil
+			}
+			withIntl := func() (*quickjs.VM, error) { return load(bytecode, memory, timeout) }
+			format := func(vm *quickjs.VM) {
+				if _, err := vm.Eval(formats, quickjs.EvalGlobal); err != nil {
+					t.Fatal(err)
+				}
+			}
+			render := func(vm *quickjs.VM) {
+				in, err := json.Marshal(b.pages[0].input)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := render(vm, in, timeout); err != nil {
+					t.Fatal(err)
+				}
+			}
+			plain, unused, used := measure(withoutIntl, nil), measure(withIntl, nil), measure(withIntl, format)
+			rendered, renderedIntl := measure(withoutIntl, render), measure(withIntl, render)
+			kb := func(n int64) float64 { return float64(n) / 1024 }
+			t.Logf("VM without Intl %.1f KB, with Intl unused %+.1f KB, after formatting %+.1f KB",
+				kb(plain), kb(unused-plain), kb(used-plain))
+			t.Logf("after rendering %s: without Intl %.1f KB, with Intl %+.1f KB",
+				b.pages[0].input.URL, kb(rendered), kb(renderedIntl-rendered))
+			if unused-plain > 32<<10 {
+				t.Fatalf("Intl adds %.1f KB to a VM that never formats", kb(unused-plain))
+			}
+		})
+	}
+}
+
+// vmUsage runs the GC of vm and returns what QuickJS counts in its runtime. The quickjs package
+// does not export the runtime, so the test reads it from the VM, as the fork's own tests do.
+func vmUsage(vm *quickjs.VM) lib.TJSMemoryUsage {
+	rt := (*struct {
+		c   uintptr
+		tls *libc.TLS
+	})(reflect.ValueOf(vm).Elem().FieldByName("runtime").UnsafePointer())
+	lib.XJS_RunGC(rt.tls, rt.c)
+	n := int(unsafe.Sizeof(lib.TJSMemoryUsage{}))
+	p := rt.tls.Alloc(n)
+	defer rt.tls.Free(n)
+	lib.XJS_ComputeMemoryUsage(rt.tls, rt.c, p)
+	// p is C memory of the VM's allocator, which the Go GC neither moves nor frees.
+	return *(*lib.TJSMemoryUsage)(unsafe.Add(nil, p))
 }
