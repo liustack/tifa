@@ -226,11 +226,11 @@ func (s *Server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 		body.Fields, _ = fieldsOf(err)
 		writeJSON(w, e.Status, body)
 	case errors.As(err, new(*renderError)):
-		writeFallback(w, e)
+		s.fallback(c, e, err)
 	case failure != nil:
-		s.errorPage(c, e, items, failure.ssr)
+		s.errorPage(c, e, err, items, failure.ssr)
 	default:
-		s.errorPage(c, e, nil, false)
+		s.errorPage(c, e, err, nil, false)
 	}
 }
 

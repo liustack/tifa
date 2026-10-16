@@ -80,4 +80,5 @@ Writing the response is checked when the request runs instead: in `Load` and `La
 
 - `tifa.yaml` lists every setting commented out at its default, with an example for `ssr.vms`, whose default is GOMAXPROCS. See [config.md](https://github.com/liustack/tifa/blob/main/docs/config.md). Environment variables starting with `TIFA_` are settings, and an unknown one stops the app, so do not use that prefix for your own.
 - The database is `app.db` (or `$DB_PATH`). `schema.sql` runs at every start, so keep its statements safe to repeat (`CREATE TABLE IF NOT EXISTS`). A new domain adds its tables there. `tifa dev` does not watch `schema.sql`: after changing it, restart `tifa dev`.
+- Under `tifa dev`, a page whose server render fails, or whose `OnRequest` returns an unexpected error, answers with its status and the whole error, a render error with its stack trace in the source files. `curl -i` on the page shows them. A built app shows only the status and the public message.
 - Build and generated files: [build.md](https://github.com/liustack/tifa/blob/main/docs/build.md). `tifa dev`: [dev.md](https://github.com/liustack/tifa/blob/main/docs/dev.md).

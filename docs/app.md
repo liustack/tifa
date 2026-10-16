@@ -259,7 +259,7 @@ The status code is 404 in all these cases. The root Layout's `NotFound` is somet
 
 ## Errors on a page
 
-`route.tsx` and `layout.tsx` can export `Error`, shown in place of that route when its `Load` or `Layout` fails or a component below it throws:
+`route.tsx` and `layout.tsx` can export `Error`, shown in place of that route when its `Load` or `Layout` fails, or when a component below it throws in the browser:
 
 ```tsx
 import { RouteError } from 'tifa/client'
@@ -272,7 +272,9 @@ export function Error({ error }: { error: unknown }) {
 
 - A failed `Load` or `Layout` reaches `Error` as a `RouteError` with `status` and the public message (the `tifa.Error` message, or what `OnError` returned). It is the same on the server and after hydration.
 - A route without its own `Error` uses the one of the closest ancestor that exports one, then the framework's default.
-- The status code of the page is that of the outermost failed route. A component that throws during the server render is an unexpected error: it goes to `OnError`, which picks the status (500 without `OnError`), and that HTML is never cached.
+- The status code of the page is that of the outermost failed route.
+- A component that throws while the page renders on the server fails the whole render. It is an unexpected error: `OnError` sees it and picks the status (500 without `OnError`), and the browser gets a plain error page from Go with that status and the public message, not your `Error` component. That answer is never cached. Under `tifa dev` the page also shows the error with its stack trace in your source files, and reloads once you save a fix (see [tifa dev](dev.md#when-a-page-fails-to-render)).
+- Once the browser has taken over, a component that throws shows the nearest `Error`, the same as a failed `Load`.
 - The document shell stays complete whatever fails, so the page still loads its scripts and styles.
 
 ## SSR and cache

@@ -84,6 +84,12 @@ When a render calls Intl or a `toLocale*` method without a locale, or for a date
 
 You can close the overlay. Closing it does not affect later reloads.
 
+## When a page fails to render
+
+When a page request fails before the app can render a page, such as when a component throws while the page renders on the server or `OnRequest` returns an unexpected error, the app answers with a plain page from Go. It has the status code that `OnError` picked, so `curl -i` sees it too. Under tifa dev that page also names the request, shows the public message when it differs from the status text, and shows the whole error. A render error gives its stack trace in your source files. The page reloads once you save a fix, also a fix in TSX that does not reload other pages. A built app shows only the status and the public message.
+
+The page shows internal errors. tifa dev listens on `127.0.0.1` by default. With `--addr 0.0.0.0:<port>`, other machines on the network can see them.
+
 Reloads and the overlay come over tifa dev's own connection, `/__tifa/dev/events`, not Vite's HMR websocket. Vite's dev server only starts in the first bundle step, after static analysis and code generation, and an app without pages never starts it. The page that answers while no app runs, after a first build that failed or a crash, must still show the error and reload once things are fixed, and that works only over a connection that tifa dev itself serves from the start. Every tab of a browser shares this connection through a SharedWorker.
 
 ## Where files go

@@ -485,26 +485,58 @@ func writeHTML(c *tifa.Ctx, status int, page string) error {
 //   - a Load of the chain failed: the page with the results of the whole chain (items)
 //   - no route matched: the root Layout's NotFound, which needs no data
 //
-// Anything else, a failed OnRequest for one, gets a plain page from Go. So does a page whose
-// render fails, after OnError has seen that failure. The plain page is not rendered, so a
-// failing error page ends there.
-func (s *Server) errorPage(c *tifa.Ctx, e tifa.Error, items map[string]routeResult, ssrOn bool) {
+// Anything else, a failed OnRequest for one, gets a plain page from Go (see fallback). So does
+// a page whose render fails, after OnError has seen that failure. The plain page is not
+// rendered, so a failing error page ends there. err is the error that e stands for.
+func (s *Server) errorPage(c *tifa.Ctx, e tifa.Error, err error, items map[string]routeResult, ssrOn bool) {
 	if items == nil {
 		if c.Pattern() != "" || e.Status != http.StatusNotFound {
-			writeFallback(c.Writer(), e)
+			s.fallback(c, e, err)
 			return
 		}
 		items, ssrOn = map[string]routeResult{}, s.rootSSR
 	}
-	var err error
+	var renderErr error
 	if ssrOn {
-		err = s.renderPage(c, items, e.Status, false)
+		renderErr = s.renderPage(c, items, e.Status, false)
 	} else {
-		err = s.dataOnly(c, items, e.Status)
+		renderErr = s.dataOnly(c, items, e.Status)
 	}
-	if err != nil {
-		writeFallback(c.Writer(), s.publicError(c, fmt.Errorf("render the %d page: %w", e.Status, err)))
+	if renderErr != nil {
+		renderErr = fmt.Errorf("render the %d page: %w", e.Status, renderErr)
+		s.fallback(c, s.publicError(c, renderErr), errors.Join(err, renderErr))
 	}
+}
+
+// fallback answers with the plain page of e. Under tifa dev the page also names the request
+// and shows err, the error behind e, and it loads the dev client, which reloads the page once
+// a rebuild serves a fix. A built app never shows err.
+func (s *Server) fallback(c *tifa.Ctx, e tifa.Error, err error) {
+	if s.dev == nil {
+		writeFallback(c.Writer(), e)
+		return
+	}
+	r := c.Request()
+	what := "failed."
+	if errors.As(err, new(*renderError)) {
+		what = "failed while rendering on the server."
+	}
+	title := html.EscapeString(fmt.Sprintf("%d %s", e.Status, http.StatusText(e.Status)))
+	var b strings.Builder
+	fmt.Fprintf(&b, `<!DOCTYPE html><html><head><meta charset="utf-8"><title>%s</title></head><body><h1>%s</h1>`, title, title)
+	fmt.Fprintf(&b, "<p>%s %s %s</p>", html.EscapeString(r.Method), html.EscapeString(r.URL.RequestURI()), what)
+	if e.Message != http.StatusText(e.Status) {
+		fmt.Fprintf(&b, "<p>Users see: %s</p>", html.EscapeString(e.Message))
+	}
+	// Before the error, whose stack trace can be long.
+	b.WriteString("<p>This page reloads after you save a fix. The built app shows only the status and the public message.</p>")
+	fmt.Fprintf(&b, `<pre style="white-space: pre-wrap">%s</pre>`, html.EscapeString(err.Error()))
+	fmt.Fprintf(&b, `<script>window.__tifaDevErrorPage = true</script><script src="%s"></script></body></html>`, clientPath)
+	w := c.Writer()
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(e.Status)
+	_, _ = w.Write([]byte(b.String()))
 }
 
 // writeFallback writes a plain error page when the application cannot render one.

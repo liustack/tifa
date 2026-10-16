@@ -259,7 +259,7 @@ export const documentHead = {
 
 ## 页面上的错误
 
-`route.tsx` 和 `layout.tsx` 可以导出 `Error`。这一层的 `Load` 或 `Layout` 失败，或者它下面的组件抛错时，在这一层的位置显示它：
+`route.tsx` 和 `layout.tsx` 可以导出 `Error`。这一层的 `Load` 或 `Layout` 失败，或者它下面的组件在浏览器里抛错时，在这一层的位置显示它：
 
 ```tsx
 import { RouteError } from 'tifa/client'
@@ -272,7 +272,9 @@ export function Error({ error }: { error: unknown }) {
 
 - `Load` 或 `Layout` 失败时，`Error` 收到 `RouteError`，带 `status` 和公开的消息（`tifa.Error` 的消息，或 `OnError` 返回的）。服务器上和 hydration 之后都一样。
 - 自己没导出 `Error` 的路由，用最近的导出了 `Error` 的祖先的，都没有就用框架默认的。
-- 页面的状态码取最外层失败的那一层。服务器渲染时组件抛错算意外错误：交给 `OnError` 决定状态码（没定义 `OnError` 时是 500），这次的 HTML 不进缓存。
+- 页面的状态码取最外层失败的那一层。
+- 服务器渲染页面时组件抛错，整次渲染失败。这算意外错误：交给 `OnError` 决定状态码（没定义 `OnError` 时是 500），浏览器拿到的是 Go 写的简单错误页，只有这个状态码和公开的消息，不是你的 `Error` 组件。这次回答不进缓存。在 `tifa dev` 下，这张页还会显示错误和它在源文件里的错误栈，保存修复后自动刷新（见 [tifa dev](dev.zh-CN.md#页面渲染失败)）。
+- 浏览器接管之后组件抛错，显示最近的 `Error`，和 `Load` 失败一样。
 - 无论哪里失败，文档外壳都是完整的，页面照样加载脚本和样式。
 
 ## SSR 与缓存
