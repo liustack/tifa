@@ -70,7 +70,7 @@ assert(last().url === '/api/notes/1' && last().init.body === '{"text":"hi","next
 assert(headers.get('Content-Type') === 'application/json', 'POST content type')
 // Every call asks for a redirect as JSON, and fetch follows no 3xx to the HTML of its target.
 assert(headers.get('X-Tifa-Call') === '1' && last().init.redirect === 'manual', `call headers ${JSON.stringify(last().init)}`)
-assert(saved.text === 'saved' && invalidated() === 1, `POST result ${JSON.stringify(saved)} ${invalidated()}`)
+assert(saved?.text === 'saved' && invalidated() === 1, `POST result ${JSON.stringify(saved)} ${invalidated()}`)
 
 // invalidate: false keeps the data.
 await POST({ params: { note: '1' }, input: { text: 'hi', next: null }, invalidate: false })
@@ -135,6 +135,9 @@ assert(invalidated() === before + 1, `DELETE redirect invalidated ${invalidated(
 answer = redirected('/notes/9')
 const savedThenMoved = await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
 assert(savedThenMoved === undefined && navigations.at(-1) === '/notes/9' && invalidated() === before + 2, `POST redirect ${savedThenMoved}`)
+// The result type says a redirect resolves to undefined: tsc refuses this line otherwise.
+const redirectedResult: Awaited<ReturnType<typeof POST>> = undefined
+assert(redirectedResult === savedThenMoved, 'redirect result')
 // A redirect to the page that shows reloads its data and does not navigate.
 answer = redirected('/notes/1')
 await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })

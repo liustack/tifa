@@ -806,12 +806,19 @@ func routeModule(n *tsNode) ([]byte, error) {
 		}
 		if h.Output != "" {
 			fmt.Fprintf(&b, "export type %sOutput = %s\n", h.Method, next())
-			result, answer = h.Method+"Output", "json"
+			// The promise of a redirected call resolves to undefined, see call in
+			// js/runtime/call.ts. Whether a handler redirects is not known statically: OnRequest
+			// may redirect any request, and a redirect is an error value that can come from
+			// anywhere the handler's error does.
+			result, answer = h.Method+"Output | undefined", "json"
 		}
 		if h.Input != "" || h.Output != "" {
 			b.WriteString("\n")
 		}
 		fmt.Fprintf(&b, "// %s sends a request to the Go %s handler of %s.\n", h.Method, h.Method, n.dir)
+		if answer == "json" {
+			b.WriteString("// It resolves to undefined when the handler or OnRequest redirects.\n")
+		}
 		param := "options: " + strings.Join(options, " & ")
 		if len(options) == 1 {
 			param = "options: CallOptions = {}"

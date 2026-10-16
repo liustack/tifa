@@ -13,6 +13,7 @@ export type POSTInput = { carrier: string }
 export type POSTOutput = { id: string; total: number }
 
 // POST sends a request to the Go POST handler of app/projects/projectId+/orders/orderId+.
-export async function POST(options: CallOptions & { params: Params } & { input: POSTInput }): Promise<POSTOutput> {
-  return call("POST", `/projects/${segment(options.params.projectId)}/orders/${segment(options.params.orderId)}`, options, "json") as Promise<POSTOutput>
+// It resolves to undefined when the handler or OnRequest redirects.
+export async function POST(options: CallOptions & { params: Params } & { input: POSTInput }): Promise<POSTOutput | undefined> {
+  return call("POST", `/projects/${segment(options.params.projectId)}/orders/${segment(options.params.orderId)}`, options, "json") as Promise<POSTOutput | undefined>
 }
