@@ -30,7 +30,7 @@ func testConfig(vms int) config.SSR {
 
 func newTestPool(t *testing.T, source string, cfg config.SSR) *Pool {
 	t.Helper()
-	p, err := NewPool(source, nil, cfg)
+	p, err := NewPool(source, nil, cfg, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestNewPoolRejectsInvalidInput(t *testing.T) {
 		{"top level throws", "throw new Error('broken bundle')", testConfig(1), "broken bundle"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			p, err := NewPool(tc.source, nil, tc.cfg)
+			p, err := NewPool(tc.source, nil, tc.cfg, false)
 			if err == nil {
 				p.Close()
 				t.Fatal("accepted")
@@ -269,7 +269,7 @@ func TestQueuedRenderHonoursCancel(t *testing.T) {
 }
 
 func TestCloseWaitsForRendersAndReleasesVMs(t *testing.T) {
-	p, err := NewPool(testSource(t), nil, testConfig(2))
+	p, err := NewPool(testSource(t), nil, testConfig(2), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,7 +316,7 @@ func TestCloseWaitsForRendersAndReleasesVMs(t *testing.T) {
 
 func TestCloseWaitsForReplacement(t *testing.T) {
 	cfg := testConfig(1)
-	p, err := NewPool(testSource(t), nil, cfg)
+	p, err := NewPool(testSource(t), nil, cfg, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,7 +372,7 @@ func TestCloseStopsRetryingReplacement(t *testing.T) {
 		}
 	})()
 	defer swap(&retryDelay, time.Hour)()
-	p, err := NewPool(testSource(t), nil, testConfig(1))
+	p, err := NewPool(testSource(t), nil, testConfig(1), false)
 	if err != nil {
 		t.Fatal(err)
 	}

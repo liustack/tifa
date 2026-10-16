@@ -54,13 +54,14 @@ func run(ctx context.Context, app App, args, environ []string, stdout, stderr io
 		if dist, err := frontFiles(app, distDir); err != nil {
 			return err
 		} else if dist != nil {
+			// openFront reads s.dev to turn on the checks of tifa dev.
+			if dev != nil {
+				s.dev = dev(s, dist, cfg.SSR)
+			}
 			if err := s.openFront(dist, cfg.SSR); err != nil {
 				return err
 			}
 			defer func() { err = errors.Join(err, s.closeFront()) }()
-			if dev != nil {
-				s.dev = dev(s, dist, cfg.SSR)
-			}
 		}
 		return s.Run(ctx)
 	}

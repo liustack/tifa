@@ -87,7 +87,7 @@ func TestSoakReuse(t *testing.T) {
 		t.Run(b.name, func(t *testing.T) {
 			baseline := nativeBaseline(t)
 			cfg := config.SSR{VMs: 2, VMMemory: 128 << 20, Timeout: 10 * time.Second}
-			p, err := NewPool(b.source, nil, cfg)
+			p, err := NewPool(b.source, nil, cfg, false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -159,7 +159,7 @@ func TestSoakOOMRecycle(t *testing.T) {
 	for _, b := range soakBundles(t) {
 		t.Run(b.name, func(t *testing.T) {
 			baseline := nativeBaseline(t)
-			p, err := NewPool(b.source+retain, nil, config.SSR{VMs: 1, VMMemory: 32 << 20, Timeout: 10 * time.Second})
+			p, err := NewPool(b.source+retain, nil, config.SSR{VMs: 1, VMMemory: 32 << 20, Timeout: 10 * time.Second}, false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -243,7 +243,7 @@ func TestSoakVMMemory(t *testing.T) {
 				}
 				return vm, nil
 			}
-			withIntl := func() (*quickjs.VM, error) { return load(bytecode, memory, timeout) }
+			withIntl := func() (*quickjs.VM, error) { return load(bytecode, memory, timeout, false) }
 			format := func(vm *quickjs.VM) {
 				if _, err := vm.Eval(formats, quickjs.EvalGlobal); err != nil {
 					t.Fatal(err)

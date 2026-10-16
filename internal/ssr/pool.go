@@ -38,6 +38,7 @@ type Pool struct {
 	sources  *sources
 	memory   uintptr
 	timeout  time.Duration
+	dev      bool // the checks of tifa dev, see warnIntl
 	idle     chan *quickjs.VM
 	done     chan struct{} // closed when Close starts
 
@@ -45,6 +46,7 @@ type Pool struct {
 	closing bool
 	failure error // errors from closing VMs, returned by Close
 	counts  poolStats
+	warned  map[string]bool // the Intl warnings logged
 
 	renders   sync.WaitGroup
 	refills   sync.WaitGroup
@@ -68,7 +70,9 @@ const maxRetryDelay = 30 * time.Second
 // It fails if the bundle does not compile or its top level code fails in any VM. sourceMap is
 // the source map of the bundle (ssr.js.map), nil without one: the errors of the bundle's code
 // give the places of their stack traces in the sources with it, in the bundle without it.
-func NewPool(source string, sourceMap []byte, cfg config.SSR) (*Pool, error) {
+// dev, set under tifa dev, logs each place where the bundle calls Intl or a toLocale* method
+// without a locale or, for a date, a timeZone, see warnIntl.
+func NewPool(source string, sourceMap []byte, cfg config.SSR, dev bool) (*Pool, error) {
 	switch {
 	case cfg.VMs < 1:
 		return nil, fmt.Errorf("ssr: ssr.vms must be at least 1, got %d", cfg.VMs)
@@ -81,8 +85,10 @@ func NewPool(source string, sourceMap []byte, cfg config.SSR) (*Pool, error) {
 		sources: &sources{code: source, raw: sourceMap},
 		memory:  uintptr(cfg.VMMemory),
 		timeout: cfg.Timeout,
+		dev:     dev,
 		idle:    make(chan *quickjs.VM, cfg.VMs),
 		done:    make(chan struct{}),
+		warned:  map[string]bool{},
 	}
 	var err error
 	if p.bytecode, err = compile(source, p.memory, p.timeout); err != nil {
@@ -139,6 +145,14 @@ func (p *Pool) Render(ctx context.Context, in Input) (string, error) {
 	if err != nil && !errors.As(err, &redirect) {
 		p.retire(vm)
 		return "", p.sources.explain(err, false)
+	}
+	if p.dev {
+		// A warning must not fail the page. A VM that cannot list them is replaced.
+		if warnErr := p.warnIntl(vm); warnErr != nil {
+			logf("tifa: ssr: read the Intl warnings: %v", warnErr)
+			p.retire(vm)
+			return html, err
+		}
 	}
 	// A redirect is an answer, not a failure: the VM goes back to the pool.
 	p.idle <- vm
@@ -215,7 +229,7 @@ func (p *Pool) Close() error {
 }
 
 func openVM(p *Pool) (*quickjs.VM, error) {
-	vm, err := load(p.bytecode, p.memory, p.timeout)
+	vm, err := load(p.bytecode, p.memory, p.timeout, p.dev)
 	if err != nil {
 		return nil, err
 	}
