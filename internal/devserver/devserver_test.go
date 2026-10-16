@@ -1,10 +1,12 @@
 package devserver
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -31,6 +33,7 @@ type buildPipeline struct {
 	fail        string
 	// bundling, when set, gets a channel each Bundle waits on until the test closes it.
 	bundling chan chan struct{}
+	manifest string // what Analyze returns, "routes" when empty
 }
 
 func (p *buildPipeline) step(name string) error {
@@ -70,8 +73,13 @@ func (p *buildPipeline) setFail(name string) {
 	p.fail = name
 }
 
-func (p *buildPipeline) Analyze(context.Context) (string, error) { return "routes", p.step("Analyze") }
-func (p *buildPipeline) Generate(context.Context) error          { return p.step("Generate") }
+func (p *buildPipeline) Analyze(context.Context) (string, error) {
+	p.mu.Lock()
+	manifest := cmp.Or(p.manifest, "routes")
+	p.mu.Unlock()
+	return manifest, p.step("Analyze")
+}
+func (p *buildPipeline) Generate(context.Context) error { return p.step("Generate") }
 func (p *buildPipeline) Bundle(context.Context) (string, error) {
 	p.mu.Lock()
 	bundling := p.bundling
@@ -84,13 +92,17 @@ func (p *buildPipeline) Bundle(context.Context) (string, error) {
 	return "", p.step("Bundle")
 }
 func (p *buildPipeline) GoBuild(context.Context) error { return p.step("GoBuild") }
+func (p *buildPipeline) PollFiles(context.Context) (bool, error) {
+	return true, p.step("PollFiles")
+}
 
 type devRun struct {
-	dir    string
-	url    string
-	p      *buildPipeline
-	out    *syncBuffer
-	events *eventStream
+	dir     string
+	url     string
+	p       *buildPipeline
+	out     *syncBuffer
+	events  *eventStream
+	outside *Outside // Options.Outside
 }
 
 // startDev runs Run on a small app with the fake pipeline and the fake app until the test ends.
@@ -109,7 +121,9 @@ func startDev(t *testing.T, failFirst string) *devRun {
 		t.Fatal(err)
 	}
 	out := &syncBuffer{}
+	outside := &Outside{}
 	o := Options{
+		Outside:     outside,
 		Dir:         dir,
 		App:         fakeAppCommand(t),
 		Pipeline:    p,
@@ -133,7 +147,7 @@ func startDev(t *testing.T, failFirst string) *devRun {
 			t.Error("Run did not return within 10s after cancel")
 		}
 	})
-	d := &devRun{dir: dir, url: "http://" + ln.Addr().String(), p: p, out: out}
+	d := &devRun{dir: dir, url: "http://" + ln.Addr().String(), p: p, out: out, outside: outside}
 	d.events = connectEvents(t, d.url+eventsPath)
 	return d
 }
@@ -283,6 +297,109 @@ func TestRunHoldsPagesWhileBundling(t *testing.T) {
 	expectSteps(t, d.p, "Bundle")
 }
 
+// A Go change whose analysis finds a new route manifest rebuilds the SSR bundle too. Page
+// requests wait for it as soon as the bundle step is known, as they do for a front end change.
+func TestRunHoldsPagesWhileTheAnalysisAddsABundle(t *testing.T) {
+	d := startDev(t, "")
+	d.waitVersionAfter(t, "")
+	d.p.took()
+	bundling := make(chan chan struct{})
+	d.p.mu.Lock()
+	d.p.bundling = bundling
+	d.p.manifest = "routes 2"
+	d.p.mu.Unlock()
+	writeFile(t, d.dir, "app/store.go", "package app // a new route")
+	var release chan struct{}
+	select {
+	case release = <-bundling:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no bundle within 5s")
+	}
+	var once sync.Once
+	free := func() { once.Do(func() { close(release) }) }
+	t.Cleanup(free)
+	answered := make(chan string, 1)
+	go func() {
+		resp, err := http.Get(d.url + "/")
+		if err != nil {
+			answered <- err.Error()
+			return
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		answered <- string(body)
+	}()
+	select {
+	case got := <-answered:
+		t.Fatalf("a request during the bundle step got %q before the rebuild finished", got)
+	case <-time.After(200 * time.Millisecond):
+	}
+	free()
+	select {
+	case got := <-answered:
+		if got != "build 2" {
+			t.Fatalf("the held request got %q, want the new build", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the request still waits 5s after the bundle")
+	}
+	expectSteps(t, d.p, "Analyze", "Generate", "Bundle", "GoBuild")
+}
+
+// A file outside the app that Vite's dev server watches, such as a package of the workspace,
+// arrives through Options.Outside and rebuilds the SSR bundle. Vite watches it because a module
+// loaded it, so it does whatever its name: also a text file imported with ?raw.
+func TestRunRebuildsForFilesOutsideTheApp(t *testing.T) {
+	d := startDev(t, "")
+	v1 := d.waitVersionAfter(t, "")
+	d.p.took()
+	parent, err := filepath.EvalSymlinks(filepath.Dir(d.dir)) // Vite names files by their real path
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"card.tsx", "value.txt"} {
+		d.outside.Changed(filepath.Join(parent, "shared", name))
+		d.waitStatus(t, func(st status) bool { return st.Version == v1 && st.Error == "" })
+		expectSteps(t, d.p, "Bundle")
+		if !strings.Contains(d.out.String(), "../shared/"+name+" modified") {
+			t.Fatalf("the log does not name the file:\n%s", d.out.String())
+		}
+	}
+}
+
+// A restart of Vite's dev server arrives through Options.Outside and rebuilds the SSR bundle: a
+// file outside the app may have changed while the dev server restarted, with no event.
+func TestRunRebuildsAfterViteRestarts(t *testing.T) {
+	d := startDev(t, "")
+	v1 := d.waitVersionAfter(t, "")
+	d.p.took()
+	d.outside.Restarted()
+	d.waitStatus(t, func(st status) bool { return st.Version == v1 && st.Error == "" })
+	expectSteps(t, d.p, "Bundle")
+	if !strings.Contains(d.out.String(), "Vite's dev server restarted") {
+		t.Fatalf("the log does not say why:\n%s", d.out.String())
+	}
+}
+
+// When the system runs out of watches, tifa dev polls and tells Vite's dev server to poll too.
+func TestRunTellsViteToPollWhenOutOfWatches(t *testing.T) {
+	outErr := outOfWatchesErrors(t)[0]
+	newFSWatcher = func() (*systemWatcher, error) { return nil, outErr }
+	defer func() { newFSWatcher = newSystemWatcher }()
+	d := startDev(t, "")
+	d.waitVersionAfter(t, "")
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.Contains(d.out.String(), "Vite's dev server polls the files too") {
+		if time.Now().After(deadline) {
+			t.Fatalf("Vite's dev server was not told to poll:\n%s", d.out.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if calls := d.p.took(); !slices.Contains(calls, "PollFiles") {
+		t.Fatalf("pipeline ran %v, want PollFiles among them", calls)
+	}
+}
+
 // After a rebuild of the SSR bundle alone, the running app loads the new bundle: no restart, so
 // OnStart does not run again and its state stays. A bundle the app cannot load shows the error,
 // and the app keeps serving the bundle it has.
@@ -418,5 +535,77 @@ func TestRunStopsWhenServingFails(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run kept running after the proxy stopped serving")
+	}
+}
+
+// blockingPipeline is a buildPipeline whose step named block waits until the test releases it,
+// then fails, which ends the rebuild.
+type blockingPipeline struct {
+	buildPipeline
+	block   string
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (p *blockingPipeline) wait(name string) error {
+	if name != p.block {
+		return nil
+	}
+	close(p.entered)
+	<-p.release
+	return errors.New("released")
+}
+
+func (p *blockingPipeline) Analyze(ctx context.Context) (string, error) {
+	if err := p.wait("Analyze"); err != nil {
+		return "", err
+	}
+	return p.buildPipeline.Analyze(ctx)
+}
+
+func (p *blockingPipeline) Generate(ctx context.Context) error {
+	if err := p.wait("Generate"); err != nil {
+		return err
+	}
+	return p.buildPipeline.Generate(ctx)
+}
+
+// Page requests wait from the moment a rebuild is known to make a new SSR bundle: once the
+// analysis finds a new route manifest, before code generation, and from the start for a bundle
+// that a failed rebuild left undone.
+func TestRebuildHoldsPagesOnceABundleIsNeeded(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		block string
+		setup func(d *dev, p *blockingPipeline)
+	}{
+		{"new manifest", "Generate", func(d *dev, p *blockingPipeline) { p.manifest = "routes 2" }},
+		{"bundle left undone", "Analyze", func(d *dev, p *blockingPipeline) {
+			p.fail = "Bundle"
+			d.rebuild(context.Background(), steps{bundle: true})
+			p.fail = ""
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			p := &blockingPipeline{block: c.block, entered: make(chan struct{}), release: make(chan struct{})}
+			p.versionFile = filepath.Join(t.TempDir(), "version")
+			p.bundleFile = filepath.Join(t.TempDir(), "bundle")
+			d := &dev{b: builder{p: p, manifest: "routes", log: func(string, ...any) {}}, hub: newHub(), log: log.New(io.Discard, "", 0)}
+			c.setup(d, p)
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan struct{})
+			go func() {
+				d.rebuild(ctx, steps{analyze: true, goBuild: true})
+				close(done)
+			}()
+			<-p.entered
+			busy := d.busy()
+			cancel()
+			close(p.release)
+			<-done
+			if busy == nil {
+				t.Fatalf("pages do not wait during %s, though the rebuild makes a new SSR bundle", c.block)
+			}
+		})
 	}
 }

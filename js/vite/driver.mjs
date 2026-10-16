@@ -13,8 +13,13 @@
 //	                             server, it is built on a worker thread with its own NODE_ENV.
 //	                             There it answers with styles, the tags that link the
 //	                             stylesheets the bundle imports from the dev server
-//	{op: "serve", port}          starts the dev server on 127.0.0.1:port, answers with the tags
-//	                             that load Vite's client and the React refresh runtime
+//	{op: "serve", port, pollFiles}
+//	                             starts the dev server on 127.0.0.1:port, answers with the tags
+//	                             that load Vite's client and the React refresh runtime. With
+//	                             pollFiles it then restarts with a watcher that polls, unless the
+//	                             watcher uses FSEvents
+//	{op: "pollFiles"}            makes the running dev server's watcher poll, unless it uses
+//	                             FSEvents, and answers with polling and fsEvents
 //	{op: "script", dir, file, plugin}
 //	                             builds file in dir alone like an SSR bundle, with the SSR part
 //	                             of the tifa plugin at the path plugin and no Vite config, and
@@ -22,6 +27,13 @@
 //	                             builds the SSR host patches this way
 //
 // tifa sets NODE_ENV: production for tifa build, development for tifa dev.
+//
+// Between answers, the driver writes notices:
+//
+//	{notice: "changed", file}    a file outside the root that the dev server's watcher saw
+//	                             added, changed or removed. tifa dev watches the root itself
+//	{notice: "restarted"}        the dev server restarted, or tried to, and no other restart
+//	                             runs. A file outside the root may have changed meanwhile
 //
 // tifa passes the close timeout in milliseconds as the only argument. The driver closes when
 // stdin ends: it lets the request it runs, the SSR worker and its output finish, and after the
@@ -54,14 +66,117 @@ try {
 answer({ id: 0, version: vite.version })
 
 const root = process.cwd()
+const realRoot = fs.realpathSync(root)
 let server = null
+let listening = false // server.listen returned
 let ssrWorker = null // builds the SSR bundle when this process is not a production one
+
+// restarts follows the restarts of the dev server, whoever starts them: Vite after a change to
+// its config or a .env file, the watcher running out of watches, and tifa. A restart creates a
+// new server and then closes the environments of the old one, so loading a module there fails
+// meanwhile. The SSR build waits for a restart that runs, and runs again after one that came in
+// between and made it fail, see devLoad and ops.ssr. begun counts the restarts that began.
+//
+// A restart that fails to create the new server keeps the old one. One whose new server cannot
+// listen, because another program took the port, leaves no server listening: failed holds its
+// error until a restart works, and pollFiles tries again.
+//
+// The new server's watcher knows nothing of the files outside the root that the old one watched,
+// and a file there that changed while the servers changed hands has no event. So once no restart
+// runs, whether the restarts worked or not, the driver gives the watcher the files outside the
+// root that the old ones watched, and writes the notice restarted: tifa dev then builds the SSR
+// bundle again. outside collects those files while restarts run.
+const restarts = { running: null, begun: 0, failed: null, outside: new Set() }
+
+// trackRestart runs restart, a restart of the dev server, as one of restarts, and returns what
+// restart returns.
+function trackRestart(restart) {
+  restarts.begun++
+  for (const file of watchedOutside()) restarts.outside.add(file)
+  const run = restart()
+  const tracked = run
+    .then(
+      () => {
+        restarts.failed = null
+      },
+      (err) => {
+        restarts.failed = err
+      },
+    )
+    .finally(() => {
+      if (restarts.running !== tracked) return
+      restarts.running = null
+      const files = [...restarts.outside].filter((file) => fs.existsSync(file))
+      restarts.outside.clear()
+      if (files.length > 0) server.watcher.add(files)
+      fs.writeSync(3, JSON.stringify({ notice: 'restarted' }) + '\n')
+    })
+  restarts.running = tracked
+  return run
+}
+
+// restartsDone returns once no restart of the dev server runs.
+async function restartsDone() {
+  while (restarts.running) await restarts.running
+}
+
+// The dev server's watcher polls once tifa asks for it or the watcher runs out of watches. The
+// wish stays in devState.pollFiles: from then on the tifa plugin adds usePolling to the config of
+// every dev server Vite creates, also when Vite restarts on its own. switching is the restart
+// that makes the watcher poll, while it runs. Whether it worked is read from the watcher and from
+// restarts.failed: the next call tries again.
+const polling = { switching: null, warned: false }
+
+const watcherPolls = () => server?.watcher.options.usePolling === true
+const watcherUsesFSEvents = () => server?.watcher.options.useFsEvents === true
+
+// pollFiles makes the dev server's watcher poll, and returns once it does or the restart failed.
+// It does not throw: it prints why a restart failed.
+function pollFiles() {
+  devState.pollFiles = true
+  if (!listening) return Promise.resolve() // serve restarts the server once it listens
+  polling.switching ??= (async () => {
+    try {
+      await restartsDone() // a restart that runs may have read the config before the wish
+      if (!watcherPolls() || restarts.failed) await server.restart()
+      if (!watcherPolls()) {
+        logger.warn("Vite's dev server did not restart with a watcher that polls, it tries again at the next error of its watcher")
+      }
+    } catch (err) {
+      logger.error(
+        `Vite's dev server did not restart: ${message(err)}\n` +
+          'It tries again at the next error of its watcher, or when Vite restarts after a change to its config',
+      )
+    } finally {
+      polling.switching = null
+    }
+  })()
+  return polling.switching
+}
+
+// outOfWatches handles a watcher that reports running out of inotify watches (ENOSPC) or file
+// descriptors (EMFILE, ENFILE): the watcher goes on without the paths the system refused, so the
+// dev server switches to a watcher that polls, which takes neither, and nobody has to raise a
+// system limit. This holds for a watcher that uses FSEvents too.
+function outOfWatches(err) {
+  if (!polling.warned) {
+    polling.warned = true
+    logger.warn(`${err.code}: the system ran out of file watches, so Vite's dev server restarts and polls the files for changes`)
+  }
+  pollFiles()
+}
+
+// What the tifa plugin and the driver share, see devState in js/vite/plugin.js.
+const devState = (globalThis[Symbol.for('tifa.dev')] ??= {})
+Object.assign(devState, { pollFiles: false, changed: changedOutside, restart: trackRestart, outOfWatches })
 
 // logger prints Vite's warnings and errors. Its progress and file lists are left out, and so is
 // the line that says a build failed, as the error goes back to tifa, which prints it.
 const logger = vite.createLogger('warn', { allowClearScreen: false })
 const logError = logger.error
 logger.error = (msg, options) => {
+  // outOfWatches says once that the watcher polls when the system runs out of watches.
+  if (/file watcher error: .*\b(?:ENOSPC|EMFILE|ENFILE)\b/.test(msg)) return
   if (!/Build failed in /.test(msg)) logError(msg, options)
 }
 
@@ -100,32 +215,45 @@ const ops = {
       return {}
     }
     ssrWorker ??= startSSRWorker()
-    const { styles } = await ssrWorker.build({ assets, minify })
-    return { styles: styleLinks(styles) }
+    for (;;) {
+      await restartsDone()
+      const begun = restarts.begun
+      try {
+        const { styles } = await ssrWorker.build({ assets, minify })
+        return { styles: styleLinks(styles) }
+      } catch (err) {
+        // A restart came in between: build again once it is done.
+        if (restarts.begun === begun && !restarts.running) throw err
+      }
+    }
   },
 
-  async serve({ port }) {
+  async serve({ port, pollFiles: poll }) {
     const earlier = new Set([...process.stdin.listeners('end'), ...process.listeners('SIGTERM')])
-    server = await vite.createServer({
-      root,
-      customLogger: logger,
-      server: { host: '127.0.0.1', port, strictPort: true },
-    })
+    server = await vite.createServer({ root, customLogger: logger, server: { host: '127.0.0.1', port, strictPort: true } })
+    checkPlugin(server.config)
     // Vite's dev server ends the process when stdin ends, as for a parent that went away, with
     // the listener it also adds for SIGTERM. Here stdin carries the requests, and its end starts
     // the close below, which first lets the SSR worker and the output finish. The stdin
-    // listeners of plugins stay.
+    // listeners of plugins stay. A restart keeps the listener off: Vite adds it again only once
+    // every server it created is closed.
     const sigterm = process.listeners('SIGTERM')
     for (const listener of process.stdin.listeners('end')) {
       if (!earlier.has(listener) && sigterm.includes(listener)) process.stdin.off('end', listener)
     }
-    checkPlugin(server.config)
     await server.listen()
+    listening = true
+    if ((poll && !watcherUsesFSEvents()) || devState.pollFiles) await pollFiles()
     // The plugins add the tags a page needs to the head of an empty document, as they would for
     // an index.html: Vite's client, and the React refresh runtime with @vitejs/plugin-react.
     const html = await server.transformIndexHtml('/', '<html><head></head><body></body></html>')
     const head = html.slice(html.indexOf('<head>') + 6, html.indexOf('</head>'))
     return { head: head.trim() }
+  },
+
+  async pollFiles() {
+    if (!watcherUsesFSEvents()) await pollFiles()
+    return { polling: watcherPolls(), fsEvents: watcherUsesFSEvents() }
   },
 
   async script({ dir, file, plugin }) {
@@ -302,6 +430,39 @@ function startSSRWorker() {
   }
 }
 
+// changedOutside writes a notice for an event of the dev server's watcher about a file outside
+// the root and outside node_modules: the dev server watches what it loads from there, such as a
+// package of the workspace, and the SSR bundle may import it too.
+function changedOutside(event, file) {
+  if (!['add', 'change', 'unlink'].includes(event) || !outside(file)) return
+  fs.writeSync(3, JSON.stringify({ notice: 'changed', file }) + '\n')
+}
+
+// outside reports whether file is outside the root and outside node_modules.
+function outside(file) {
+  for (const r of [root, realRoot]) {
+    const rel = path.relative(r, file)
+    if (rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel)) return false
+  }
+  return !file.split(/[\\/]/).includes('node_modules')
+}
+
+// watchedOutside returns the files outside the root and outside node_modules that the dev
+// server's watcher watches.
+function watchedOutside() {
+  const files = []
+  for (const [dir, names] of Object.entries(server.watcher.getWatched())) {
+    for (const name of names) {
+      const file = path.resolve(root, dir, name)
+      if (!outside(file)) continue
+      try {
+        if (fs.statSync(file).isFile()) files.push(file)
+      } catch {} // gone meanwhile
+    }
+  }
+  return files
+}
+
 // styleLinks returns the tags that link the stylesheets files from Vite's dev server. Vite's
 // client finds them by data-vite-dev-id and leaves updating them to their own hot updates.
 function styleLinks(files) {
@@ -318,12 +479,23 @@ function attribute(value) {
   return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
 
-// devLoad loads id in the client environment of Vite's dev server and returns the code.
+// devLoad loads id in the client environment of Vite's dev server and returns the code. It waits
+// for a restart that runs, and tries again on the new server when one came in between.
 async function devLoad(id) {
   if (!server) throw new Error(`loading ${id}: Vite's dev server is not running`)
-  const result = await server.environments.client.pluginContainer.load(id)
-  if (result == null) throw new Error(`Vite's dev server cannot load ${id}`)
-  return typeof result === 'string' ? result : result.code
+  for (;;) {
+    await restartsDone()
+    const begun = restarts.begun
+    let result
+    try {
+      result = await server.environments.client.pluginContainer.load(id)
+    } catch (err) {
+      if (restarts.begun === begun && !restarts.running) throw err
+      continue
+    }
+    if (result == null) throw new Error(`Vite's dev server cannot load ${id}`)
+    return typeof result === 'string' ? result : result.code
+  }
 }
 
 // createBuilder loads the application's Vite config with inline added to it.

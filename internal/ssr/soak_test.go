@@ -13,10 +13,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
@@ -63,19 +61,6 @@ func nativeBaseline(t *testing.T) int {
 		t.Fatal("native allocation counters are off, build with -tags memory.counters")
 	}
 	return n
-}
-
-func peakRSS(t *testing.T) string {
-	t.Helper()
-	var usage syscall.Rusage
-	if err := syscall.Getrusage(syscall.RUSAGE_SELF, &usage); err != nil {
-		t.Fatal(err)
-	}
-	peak := usage.Maxrss // bytes on darwin, KiB on linux
-	if runtime.GOOS == "linux" {
-		peak *= 1024
-	}
-	return fmt.Sprintf("%.1f MiB", float64(peak)/(1<<20))
 }
 
 // Two VMs, two callers, 10,000 renders. Every render must carry its own data,

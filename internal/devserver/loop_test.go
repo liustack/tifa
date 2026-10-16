@@ -128,3 +128,84 @@ func TestLoopRebuildsFilesRevertedDuringABuild(t *testing.T) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 }
+
+// A file that keeps changing, such as a log written every few milliseconds, never lets the files
+// go quiet. A batch still starts once it waited maxBatchWaits times the debounce.
+func TestLoopRebuildsWhileAFileKeepsChanging(t *testing.T) {
+	c := newChanges()
+	const debounce = 20 * time.Millisecond
+	batches := runLoop(t, c, debounce, nil)
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			case <-time.After(5 * time.Millisecond):
+				c.add("app/busy.json", "", time.Now().String())
+			}
+		}
+	}()
+	start := time.Now()
+	c.add("app/page.tsx", "s1", "s2")
+	for {
+		select {
+		case b := <-batches:
+			if slices.Contains(b, change{"app/page.tsx", modified}) {
+				if took := time.Since(start); took > 3*maxBatchWaits*debounce {
+					t.Fatalf("the edit waited %v for the files to go quiet", took)
+				}
+				return
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("the edit waits as long as another file keeps changing")
+		}
+	}
+}
+
+// A save that lands just as a batch reaches its limit, while another file keeps changing, is
+// not cut in two: a file joins a batch once it went quiet for the debounce, or once it kept
+// changing for as long as a batch waits at most.
+func TestLoopKeepsASaveInOneBatch(t *testing.T) {
+	c := newChanges()
+	const debounce = 50 * time.Millisecond
+	batches := runLoop(t, c, debounce, nil)
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			case <-time.After(5 * time.Millisecond):
+				c.add("app/busy.json", "", time.Now().String())
+			}
+		}
+	}()
+	time.Sleep(maxBatchWaits*debounce - 30*time.Millisecond)
+	c.add("app/route.tsx", "valid", "half saved")
+	time.Sleep(debounce * 4 / 5) // past the limit of the batch
+	c.add("app/route.tsx", "half saved", "saved")
+	var withRoute, withBusy int
+	deadline := time.After(maxBatchWaits*debounce + 10*debounce)
+	for {
+		select {
+		case b := <-batches:
+			for _, ch := range b {
+				switch ch.path {
+				case "app/route.tsx":
+					withRoute++
+				case "app/busy.json":
+					withBusy++
+				}
+			}
+			continue
+		case <-deadline:
+		}
+		break
+	}
+	if withRoute != 1 || withBusy == 0 {
+		t.Fatalf("app/route.tsx in %d batches, app/busy.json in %d: want the save in one batch, and the busy file built too", withRoute, withBusy)
+	}
+}

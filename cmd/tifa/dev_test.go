@@ -59,7 +59,7 @@ func TestDevAnalyzeIsStable(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(pages, "node_modules", "vite")); err != nil {
 		t.Skip("run pnpm install --frozen-lockfile in test/apps/pages first")
 	}
-	front, err := bundle.NewDev(pages, 0, io.Discard)
+	front, err := bundle.NewDev(pages, 0, io.Discard, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

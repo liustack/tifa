@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"strings"
 	"time"
 )
 
@@ -21,6 +22,10 @@ type Pipeline interface {
 	Bundle(ctx context.Context) (detail string, err error)
 	// GoBuild builds the application executable that Options.App runs.
 	GoBuild(ctx context.Context) error
+	// PollFiles makes Vite's dev server poll the files too, once tifa dev's watcher found the
+	// system short of watches. It may run while a step runs. polling reports whether the dev
+	// server polls, it does not when its watcher takes no watch per file.
+	PollFiles(ctx context.Context) (polling bool, err error)
 }
 
 type op int
@@ -29,9 +34,10 @@ const (
 	created op = iota
 	modified
 	removed
+	restarted // only for viteServer
 )
 
-func (o op) String() string { return [...]string{"created", "modified", "removed"}[o] }
+func (o op) String() string { return [...]string{"created", "modified", "removed", "restarted"}[o] }
 
 // change is one file whose content differs from the last build. path is relative to the
 // application directory and uses forward slashes.
@@ -54,16 +60,28 @@ type kind int
 const (
 	other    kind = iota
 	goSource      // .go, go.mod, go.sum
-	frontend      // TypeScript, JavaScript, CSS and JSON imported by them
+	frontend      // TypeScript, JavaScript, CSS and JSON imported by them, Vite's .env files, and what Vite loads from outside the root
 	config        // tifa.yaml or tifa.json in the application directory
 )
 
 func kindOf(p string) kind {
+	if strings.HasPrefix(p, "../") {
+		// Outside the root: only Outside records such a file, one that Vite's dev server watches
+		// because a module loaded it, such as source of the workspace or a text file imported with
+		// ?raw. Whatever its name, the SSR bundle may contain it.
+		return frontend
+	}
 	switch p {
 	case "tifa.yaml", "tifa.json":
 		return config
 	case "go.mod", "go.sum":
 		return goSource
+	case ".env":
+		return frontend
+	}
+	if strings.HasPrefix(p, ".env.") && !strings.Contains(p, "/") {
+		// .env.local, .env.production and the like, which Vite loads into import.meta.env.
+		return frontend
 	}
 	switch path.Ext(p) {
 	case ".go":
@@ -79,9 +97,15 @@ func kindOf(p string) kind {
 //   - Go needs a new analysis and a go build. The builder adds code generation and a bundle
 //     when the analysis returns a new route manifest.
 //   - A route.tsx or layout.tsx that appears or disappears changes the manifest, so does tifa.yaml.
+//   - A restart of Vite's dev server needs a new bundle, as a file outside the root may have
+//     changed meanwhile with no event.
 func plan(changes []change) steps {
 	var s steps
 	for _, c := range changes {
+		if c.op == restarted {
+			s.bundle = true
+			continue
+		}
 		switch kindOf(c.path) {
 		case goSource:
 			s.analyze, s.goBuild = true, true
@@ -127,10 +151,15 @@ func (b *builder) stepDetail(name string, run func() (string, error)) error {
 
 // build runs s plus the steps a failed rebuild left undone, and returns the steps that ran. An
 // analysis that returns a new fingerprint adds code generation, the bundle and go build.
-func (b *builder) build(ctx context.Context, s steps) (steps, error) {
+// needBundle, when not nil, is called once it is known that the bundle step runs: at the start,
+// or once the analysis finds a new fingerprint.
+func (b *builder) build(ctx context.Context, s steps, needBundle func()) (steps, error) {
 	s = s.or(b.pending)
 	b.pending = s
 	ran := s
+	if s.bundle && needBundle != nil {
+		needBundle()
+	}
 	if s.analyze {
 		var fp string
 		err := b.step("static analysis", func() (err error) {
@@ -142,6 +171,9 @@ func (b *builder) build(ctx context.Context, s steps) (steps, error) {
 		}
 		if fp != b.manifest {
 			b.log("route manifest changed")
+			if !s.bundle && needBundle != nil {
+				needBundle()
+			}
 			s.generate, s.bundle, s.goBuild = true, true, true
 			ran = ran.or(s)
 			b.manifest = fp

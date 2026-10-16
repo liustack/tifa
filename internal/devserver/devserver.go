@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -43,6 +44,10 @@ type Options struct {
 	// Vite is the address of Vite's dev server, which Pipeline.Bundle starts. Requests under
 	// VitePath, its module and HMR websocket requests, go there. Empty sends them to the app too.
 	Vite string
+	// Outside, when not nil, brings Run the files outside Dir that changed, such as a package of
+	// the workspace that Vite's dev server watches. Each counts as a modified front end file.
+	Outside *Outside
+
 	// Debounce is how long the files must stay unchanged before a rebuild starts.
 	Debounce time.Duration
 	// StopTimeout is how long the application gets after an interrupt to run OnShutdown and exit
@@ -154,6 +159,24 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 		cancel()
 		watched <- err
 	}()
+	if o.Outside != nil {
+		o.Outside.attach(w.rootReal, w.changes)
+		defer o.Outside.detach()
+	}
+	go func() {
+		// The system is short of watches: Vite's watcher would run out as well.
+		select {
+		case <-ctx.Done():
+		case <-w.short:
+			polling, err := o.Pipeline.PollFiles(ctx)
+			switch {
+			case err != nil && ctx.Err() == nil:
+				logger.Printf("telling Vite's dev server to poll: %v", err)
+			case polling:
+				logger.Print("Vite's dev server polls the files too")
+			}
+		}
+	}()
 
 	w.changes.setBuilding(true)
 	d.rebuild(ctx, everything)
@@ -183,6 +206,47 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 	}
 	return errors.Join(<-watched, err)
 }
+
+// Outside brings Run the files outside its Dir that changed. Vite's dev server watches them, as
+// it loaded them, and the driver reports their changes and the restarts of the dev server from
+// the goroutine that reads its answers. Changed and Restarted never block, so they never hold up
+// that goroutine: they record what they heard for the next batch, or drop it while no Run runs,
+// before Run starts and once it returned.
+type Outside struct {
+	mu   sync.Mutex
+	root string   // real path of Dir while Run runs
+	c    *changes // where Run collects changes, nil while no Run runs
+}
+
+// Changed records that the file at the absolute path file changed.
+func (o *Outside) Changed(file string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.c == nil {
+		return
+	}
+	if rel, err := filepath.Rel(o.root, file); err == nil {
+		o.c.touch(filepath.ToSlash(rel))
+	}
+}
+
+// Restarted records that Vite's dev server restarted, or tried to. A file outside Dir may have
+// changed meanwhile with no event, so the next batch builds the SSR bundle again.
+func (o *Outside) Restarted() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.c != nil {
+		o.c.add(viteServer, "", "restarted")
+	}
+}
+
+func (o *Outside) attach(root string, c *changes) {
+	o.mu.Lock()
+	o.root, o.c = root, c
+	o.mu.Unlock()
+}
+
+func (o *Outside) detach() { o.attach("", nil) }
 
 func script(source string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -251,24 +315,33 @@ func (d *dev) fail(title string, err error) {
 // the bundle was rebuilt, the running application loads it instead of restarting, so its state
 // stays. Vite has updated the pages already and they stay too: the version stays the same, and
 // only the server render changes.
+//
+// Page requests wait for the end of a rebuild that makes a new SSR bundle, from the moment the
+// bundle is known to be needed: at the start, also for a bundle a failed rebuild left undone, or
+// once the analysis finds a new route manifest, before code generation.
 func (d *dev) rebuild(ctx context.Context, s steps) {
 	if s == (steps{}) {
 		return
 	}
 	start := time.Now()
-	if s.bundle {
-		done := make(chan struct{})
-		d.mu.Lock()
-		d.bundling = done
-		d.mu.Unlock()
-		defer func() {
+	var done chan struct{}
+	holdPages := func() {
+		if done == nil {
+			done = make(chan struct{})
+			d.mu.Lock()
+			d.bundling = done
+			d.mu.Unlock()
+		}
+	}
+	defer func() {
+		if done != nil {
 			d.mu.Lock()
 			d.bundling = nil
 			d.mu.Unlock()
 			close(done)
-		}()
-	}
-	ran, err := d.b.build(ctx, s)
+		}
+	}()
+	ran, err := d.b.build(ctx, s, holdPages)
 	if err != nil {
 		if ctx.Err() == nil {
 			d.fail("Build failed", err)

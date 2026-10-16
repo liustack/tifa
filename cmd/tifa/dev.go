@@ -60,7 +60,13 @@ build keeps the running app and shows the error in the page.`,
 				return err
 			}
 			logger := log.New(cmd.ErrOrStderr(), "tifa dev: ", log.Ltime)
-			front, err := bundle.NewDev(root, vitePort, &lineLogger{log: logger})
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			// The driver reports changes outside the root and restarts of Vite's dev server from
+			// the goroutine that reads its answers. outside never blocks there, so front.Close can
+			// always wait for the driver.
+			outside := &devserver.Outside{}
+			front, err := bundle.NewDev(root, vitePort, &lineLogger{log: logger}, outside)
 			if err != nil {
 				return err
 			}
@@ -71,13 +77,12 @@ build keeps the running app and shows the error in the page.`,
 				return err
 			}
 			fmt.Fprintf(cmd.ErrOrStderr(), "tifa dev: serving http://%s\n", ln.Addr())
-			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
-			defer stop()
 			return devserver.Run(ctx, ln, devserver.Options{
-				Dir:    root,
-				Ignore: []string{devOutput},
-				App:    []string{exe, "serve", "--dist", filepath.Join(root, codegen.Dir, codegen.DistDir)},
-				Vite:   net.JoinHostPort("127.0.0.1", strconv.Itoa(vitePort)),
+				Dir:     root,
+				Ignore:  []string{devOutput},
+				App:     []string{exe, "serve", "--dist", filepath.Join(root, codegen.Dir, codegen.DistDir)},
+				Vite:    net.JoinHostPort("127.0.0.1", strconv.Itoa(vitePort)),
+				Outside: outside,
 				// The app may wait shutdown_timeout for requests, again for handlers, and once more
 				// for OnShutdown.
 				StopTimeout: 3*settings.Server.ShutdownTimeout + time.Second,
@@ -124,6 +129,9 @@ func (p *devPipeline) Analyze(context.Context) (string, error) {
 	p.m, p.files = m, files
 	return fingerprint(files), nil
 }
+
+// PollFiles makes Vite's dev server poll the files, see bundle.Dev.PollFiles.
+func (p *devPipeline) PollFiles(context.Context) (bool, error) { return p.front.PollFiles() }
 
 // Generate writes the files of the last analysis into .tifa.
 func (p *devPipeline) Generate(context.Context) error { return codegen.Write(p.root, p.files) }

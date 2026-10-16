@@ -1,5 +1,5 @@
 ---
-summary: 'How to use tifa dev: how pages update after each kind of change, which steps run, how Vite fits in, how to read the log, what the page and the app do when a build fails, and where dev output goes'
+summary: 'How to use tifa dev: how pages update after each kind of change, which steps run, how Vite fits in, how to read the log, what the page and the app do when a build fails, where dev output goes, and how large apps are watched'
 read_when:
   - Running a tifa app locally for the first time
   - Changing internal/devserver, the dev command in cmd/tifa, or the dev build in internal/bundle
@@ -25,19 +25,21 @@ tifa dev runs the app's own Vite on Node, with the app's `vite.config.ts` (see [
 
 ## What each change triggers
 
-tifa dev watches the app root and skips `.git`, `.tifa`, `node_modules`, and `bin/`, where the dev executable lives. Changes that arrive together are handled as one batch once the files go quiet.
+tifa dev watches the app root and skips `.git`, `.tifa`, `node_modules`, and `bin/`, where the dev executable lives. Changes are handled in batches. A file joins a batch once it stays unchanged for 100 ms, so a build does not start in the middle of a save, and a batch starts once all its files have. A file that keeps changing, such as one a tool writes over and over, joins after one second anyway, and the files that are ready then go without waiting for the rest, so nothing is held back for much longer than a second.
 
 | What changed | Steps that run | Open pages |
 | --- | --- | --- |
 | `.ts`, `.tsx`, `.js`, `.css`, `.json` | bundle (the SSR bundle) | Update in place through Vite |
+| `.env` or `.env.*` in the app root | bundle | Reload, as Vite restarts its dev server |
 | `.go`, `go.mod`, `go.sum` | static analysis, go build | Reload |
 | As above, and the route manifest changed (routes, the result types of Load and Layout, the input and result types of handlers, hooks, etc.) | static analysis, code generation, bundle, go build | Reload |
 | A `route.tsx` or `layout.tsx` added or removed, or `tifa.yaml` or `tifa.json` changed | all steps | Reload |
 
-- A front end change reaches open pages through Vite: React Fast Refresh swaps the edited components and keeps their state, and new CSS replaces the old. Vite reloads the page itself when a module cannot be swapped, such as one that exports more than components.
-- At the same time tifa dev rebuilds the SSR bundle, without go build, and the running app loads it from `.tifa/dist` in place of the old one. The app does not restart: `OnStart` does not run again, and what the app keeps in memory stays. A page request that arrives during this waits for the new bundle, so a reload always shows the new server render.
+- A front end change reaches open pages through Vite: React Fast Refresh swaps the edited components and keeps their state, and new CSS replaces the old. Vite reloads the page itself when a module cannot be swapped, such as one that exports more than components. A change to `vite.config.ts` restarts Vite's dev server, and one to `tsconfig.json` reloads the page. Vite's dev server may keep importing the old target of a changed `paths` entry until tifa dev restarts.
+- At the same time tifa dev rebuilds the SSR bundle, without go build, and the running app loads it from `.tifa/dist` in place of the old one. The app does not restart: `OnStart` does not run again, and what the app keeps in memory stays. A page request that arrives during a rebuild that makes a new SSR bundle waits for it, up to 30 seconds, so a reload shows the new server render. An SSR bundle that builds while Vite's dev server restarts waits for the restart, and builds again on the new server if the restart made it fail. This holds from the start of the rebuild, also when it redoes a bundle that a failed rebuild left undone, or for a Go change, from the moment static analysis finds a new route manifest, before code generation.
 - The dev program calls `server.DevMain` in place of `server.Main`. Only it answers tifa dev's `POST /__tifa/dev/reload`, and it loads the bundle with the same code that loads it at start. The program `tifa build` makes calls `server.Main` and has no such path.
 - Whether the route manifest changed is decided by the `.tifa/` content generated after static analysis. If only function bodies changed, the generated content stays the same, and generation and bundling are skipped.
+- A file outside the app root that Vite's dev server loads, such as the source of another package in a workspace or a text file imported with `?raw`, is watched by Vite rather than tifa dev. When it changes, tifa dev rebuilds the SSR bundle too, whatever the kind of file, as it does for a front end file of the app, and the log names it by its path from the app root. Such a file can change while Vite's dev server restarts, when neither the old watcher nor the new one sees it. So each time restarts of the dev server end, whatever started them and whether they worked, tifa dev rebuilds the SSR bundle once (restarts that overlap count as one), and the log says `Vite's dev server restarted`. The new watcher goes on watching the files outside the root that the old one watched.
 - Images, fonts and other files in the public folder do not trigger a rebuild. They are copied on the next bundle.
 - Stylesheets go through Vite's dev server, so `@tailwindcss/vite` compiles Tailwind CSS the way it does in any Vite app.
 - The head of a page links the stylesheets that the server render imports, from Vite's dev server, so the page is styled before its scripts run, as a built page is. Vite updates these links when a stylesheet changes. A stylesheet that only `.client` modules import arrives with their scripts.
@@ -81,6 +83,21 @@ Reloads and the overlay come over tifa dev's own connection, `/__tifa/dev/events
 
 When stopping the app, tifa dev waits at most 3 times the configured `server.shutdown_timeout` plus 1 second, then kills the whole process group.
 
-## Too many watched files
+## Large apps
 
-On macOS, watching a folder takes one file descriptor per file inside it. If the error says there are not enough descriptors, raise the limit with `ulimit -n`. On Linux, if it reports the watch limit was reached, raise `fs.inotify.max_user_watches`.
+tifa dev watches folders with the system's file events. When an app has more folders or files than the system lets one program watch comfortably, tifa dev polls the rest: it looks at them about once a second and rebuilds as usual. Nothing needs to be set up. The log says so:
+
+```text
+tifa dev: 07:35:36 watching app/assets would use up the system's file watches, so it and the directories found after it are polled for changes
+```
+
+- On macOS, FreeBSD, OpenBSD, NetBSD and DragonFly, tifa dev watches with kqueue. A watched folder takes one file descriptor, and so does each file in it of a kind in the table above, also one that appears later. Other files, such as images, take none. tifa dev counts these against half of what one process may open (the smaller of the open file limit and `kern.maxfilesperproc`), and polls the folders beyond that, also a watched folder whose files grow past it.
+- On Linux, watching a folder takes one of the user's inotify watches, which editors and other tools share. tifa dev uses at most half of `fs.inotify.max_user_watches`.
+- If the system runs out first, because other programs hold many watches or files, tifa dev polls the folders it could not watch, gives back a few watches it holds, and keeps working. If it runs out while tifa dev runs, such as when a file cannot be opened, tifa dev stops watching with system events, polls every folder and compares every file again.
+- A poll lists the polled folders and hashes only the files whose size, modification time or identity changed. Between two polls tifa dev waits at least a second, and at least ten times as long as the last poll took. A watched folder whose entries change is listed again under the same rule, without the one second minimum, so a folder that keeps growing costs no more. Polling and listing thus each take at most about a tenth of one CPU core, on top of handling file events and rebuilding.
+- How long a poll takes grows with the number of files and depends on the machine and its disk. On an Apple M4, with the files in the system's cache, a poll of 20,000 files took between 45 and 65 ms in our runs. While a poll takes less than a tenth of a second, a change in a polled folder is found within about a second, and then built as usual.
+- Polled folders stay polled until tifa dev restarts.
+- Vite's dev server watches the app root too. Once tifa dev polls because the system is short, it tells Vite's dev server to poll as well, unless the dev server watches with FSEvents, as it usually does on macOS. FSEvents takes no file descriptor per file, so it stays.
+- To poll, Vite's dev server restarts, and from then on looks at every file once a second, about 8% of one CPU core for 10,000 files on an Apple M4. That is a single restart when the restart succeeds and no other restart of the dev server, such as one after a change to `vite.config.ts`, runs at the same time. A restart that is running is waited for first, and if it worked and its new server already polls, nothing else restarts.
+- A restart can fail. One that cannot create the new server, such as one with a broken `vite.config.ts`, keeps the old server and its watcher. One whose new server cannot listen, because another program took the port meanwhile, has already closed the old server, so there is no Vite dev server until the next restart. Either way the log says so, and tifa dev and the app keep running. The dev server tries again at the next error of its watcher, and the next restart that succeeds, such as one after a change to `vite.config.ts`, polls.
+- When Vite's own watcher runs out of watches or file descriptors first (ENOSPC, EMFILE or ENFILE), the dev server switches to polling the same way and says so once. This holds for a watcher that uses FSEvents too.

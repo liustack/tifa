@@ -33,7 +33,8 @@ func (p *fakePipeline) Generate(context.Context) error { return p.step("Generate
 func (p *fakePipeline) Bundle(context.Context) (string, error) {
 	return p.detail, p.step("Bundle")
 }
-func (p *fakePipeline) GoBuild(context.Context) error { return p.step("GoBuild") }
+func (p *fakePipeline) GoBuild(context.Context) error           { return p.step("GoBuild") }
+func (p *fakePipeline) PollFiles(context.Context) (bool, error) { return true, nil }
 
 var all = []string{"Analyze", "Generate", "Bundle", "GoBuild"}
 
@@ -42,7 +43,7 @@ func built(t *testing.T) (*builder, *fakePipeline) {
 	t.Helper()
 	p := &fakePipeline{fingerprint: "v1"}
 	b := &builder{p: p, log: t.Logf}
-	if _, err := b.build(context.Background(), everything); err != nil {
+	if _, err := b.build(context.Background(), everything, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Equal(p.calls, all) {
@@ -70,13 +71,16 @@ func TestRebuildMatrix(t *testing.T) {
 		{"removed route", []change{{"app/orders/new/route.tsx", removed}}, "v1", all},
 		{"removed layout", []change{{"app/orders/layout.tsx", removed}}, "v1", all},
 		{"config", []change{{"tifa.yaml", modified}}, "v1", all},
+		{"env", []change{{".env", modified}}, "v1", []string{"Bundle"}},
+		{"env of a mode", []change{{".env.production.local", created}}, "v1", []string{"Bundle"}},
+		{"loaded from outside the root", []change{{"../shared/value.txt", modified}}, "v1", []string{"Bundle"}},
 		{"go and tsx", []change{{"app/orders/store.go", modified}, {"app/app.css", modified}}, "v1", []string{"Analyze", "Bundle", "GoBuild"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			b, p := built(t)
 			p.fingerprint = tc.fingerprint
-			ran, err := b.build(context.Background(), plan(tc.changes))
+			ran, err := b.build(context.Background(), plan(tc.changes), nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -98,7 +102,7 @@ func TestRebuildMatrix(t *testing.T) {
 }
 
 func TestPlanIgnoresOtherFiles(t *testing.T) {
-	for _, path := range []string{"README.md", "app/logo.png", "app/tifa.yaml", "app/notes.txt"} {
+	for _, path := range []string{"README.md", "app/logo.png", "app/tifa.yaml", "app/notes.txt", "app/.env", ".envrc"} {
 		if s := plan([]change{{path, modified}}); s != (steps{}) {
 			t.Errorf("%s planned %+v, want nothing", path, s)
 		}
@@ -121,19 +125,19 @@ func TestFailedStepsCarryOver(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			b, p := built(t)
 			p.fingerprint, p.fail = tc.fp, tc.fail
-			_, err := b.build(context.Background(), plan(tc.first))
+			_, err := b.build(context.Background(), plan(tc.first), nil)
 			if err == nil {
 				t.Fatal("build succeeded, want the error of " + tc.fail)
 			}
 			p.calls, p.fail = nil, ""
-			if _, err := b.build(context.Background(), plan([]change{{"app/a.tsx", modified}})); err != nil {
+			if _, err := b.build(context.Background(), plan([]change{{"app/a.tsx", modified}}), nil); err != nil {
 				t.Fatal(err)
 			}
 			if !slices.Equal(p.calls, tc.ranNext) {
 				t.Fatalf("next build ran %v, want %v", p.calls, tc.ranNext)
 			}
 			p.calls = nil
-			if _, err := b.build(context.Background(), plan([]change{{"app/a.tsx", modified}})); err != nil {
+			if _, err := b.build(context.Background(), plan([]change{{"app/a.tsx", modified}}), nil); err != nil {
 				t.Fatal(err)
 			}
 			if !slices.Equal(p.calls, []string{"Bundle"}) {
@@ -146,7 +150,7 @@ func TestFailedStepsCarryOver(t *testing.T) {
 func TestBuildErrorNamesTheStep(t *testing.T) {
 	b, p := built(t)
 	p.fail = "GoBuild"
-	_, err := b.build(context.Background(), plan([]change{{"app/a.go", modified}}))
+	_, err := b.build(context.Background(), plan([]change{{"app/a.go", modified}}), nil)
 	if err == nil || err.Error() != "go build: GoBuild broke" {
 		t.Fatalf("got %v, want the go build error", err)
 	}
@@ -157,11 +161,11 @@ func TestBuildLogsEachStep(t *testing.T) {
 	var lines []string
 	p := &fakePipeline{fingerprint: "v1"}
 	b := &builder{p: p, log: func(format string, args ...any) { lines = append(lines, fmt.Sprintf(format, args...)) }}
-	if _, err := b.build(context.Background(), everything); err != nil {
+	if _, err := b.build(context.Background(), everything, nil); err != nil {
 		t.Fatal(err)
 	}
 	lines = nil
-	if _, err := b.build(context.Background(), plan([]change{{"app/a.go", modified}})); err != nil {
+	if _, err := b.build(context.Background(), plan([]change{{"app/a.go", modified}}), nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(lines) != 3 || !strings.HasPrefix(lines[0], "static analysis done in ") ||
@@ -175,12 +179,12 @@ func TestBuildLogsTheBundleDetail(t *testing.T) {
 	var lines []string
 	p := &fakePipeline{fingerprint: "v1"}
 	b := &builder{p: p, log: func(format string, args ...any) { lines = append(lines, fmt.Sprintf(format, args...)) }}
-	if _, err := b.build(context.Background(), everything); err != nil {
+	if _, err := b.build(context.Background(), everything, nil); err != nil {
 		t.Fatal(err)
 	}
 	for _, detail := range []string{"", "tailwind 75ms"} {
 		lines, p.detail = nil, detail
-		if _, err := b.build(context.Background(), plan([]change{{"app/a.tsx", modified}})); err != nil {
+		if _, err := b.build(context.Background(), plan([]change{{"app/a.tsx", modified}}), nil); err != nil {
 			t.Fatal(err)
 		}
 		want := `^bundle done in \d+m?s$`
