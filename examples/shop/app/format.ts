@@ -10,12 +10,9 @@ const yuanFormat = new Intl.NumberFormat('zh-CN', { style: 'currency', currency:
 // yuan writes an amount in cents as ¥1,234.50.
 export const yuan = (cents: number) => yuanFormat.format(cents / 100)
 
-// Both digit limits are given: the server's Intl follows the older rule that throws a RangeError
-// when only the maximum is below the currency's two digits.
 const wholeYuanFormat = new Intl.NumberFormat('zh-CN', {
   style: 'currency',
   currency: 'CNY',
-  minimumFractionDigits: 0,
   maximumFractionDigits: 0,
 })
 
