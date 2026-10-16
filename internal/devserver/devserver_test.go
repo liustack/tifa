@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -206,7 +207,20 @@ func expectVersion(t *testing.T, url, version string) {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
-	if got, want := resp.Header.Get("Server-Timing"), `tifa-dev;desc="`+version+`"`; got != want {
+	if got, want := resp.Header.Get("Server-Timing"), `tifa-dev;desc="`+version+`", tifa-dev-render;desc="`; !strings.HasPrefix(got, want) {
+		t.Fatalf("Server-Timing %q, want it to start with %q", got, want)
+	}
+}
+
+// expectTiming checks that the page names the build and the count of builds that served it.
+func expectTiming(t *testing.T, url string, st status) {
+	t.Helper()
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if got, want := resp.Header.Get("Server-Timing"), fmt.Sprintf(`tifa-dev;desc="%s", tifa-dev-render;desc="%d"`, st.Version, st.Render); got != want {
 		t.Fatalf("Server-Timing %q, want %q", got, want)
 	}
 }
@@ -235,7 +249,7 @@ func TestRunRebuildsAndKeepsTheOldAppOnFailure(t *testing.T) {
 	d.p.setFail("GoBuild")
 	writeFile(t, d.dir, "app/store.go", "package app // broken")
 	failed := d.waitStatus(t, func(st status) bool { return st.Error != "" })
-	want := status{Version: v3, Title: "Build failed", Error: "go build: gobuild: app/store.go:3:2: undefined: x"}
+	want := status{Version: v3, Render: 3, Title: "Build failed", Error: "go build: gobuild: app/store.go:3:2: undefined: x"}
 	if failed != want {
 		t.Fatalf("got %+v, want %+v", failed, want)
 	}
@@ -442,6 +456,39 @@ func TestRunReloadsTheBundleWithoutARestart(t *testing.T) {
 	}
 }
 
+// Each answer and the dev client name the version and how many builds have been served. The
+// error page of a failed render watches the count, so it reloads after a fix that keeps the
+// version, such as one in TSX.
+func TestRunCountsTheBuildsServed(t *testing.T) {
+	d := startDev(t, "")
+	first := d.waitStatus(t, func(st status) bool { return st.Version != "" && st.Error == "" })
+	if first.Render != 1 {
+		t.Fatalf("first build: %+v", first)
+	}
+	expectTiming(t, d.url+"/", first)
+	writeFile(t, d.dir, "app/list/route.tsx", "export const x = 2")
+	bundled := d.waitStatus(t, func(st status) bool { return st.Render == 2 })
+	if bundled.Version != first.Version || bundled.Error != "" {
+		t.Fatalf("after a TSX change: %+v", bundled)
+	}
+	expectTiming(t, d.url+"/", bundled)
+	writeFile(t, d.dir, "app/store.go", "package app // restart me")
+	restarted := d.waitStatus(t, func(st status) bool { return st.Render == 3 })
+	if restarted.Version == first.Version || restarted.Error != "" {
+		t.Fatalf("after a Go change: %+v", restarted)
+	}
+	expectTiming(t, d.url+"/", restarted)
+	if _, body := get(t, d.url+clientPath); !strings.HasPrefix(body, fmt.Sprintf("window.__tifaDevServed = %q;\nwindow.__tifaDevRendered = 3;\n", restarted.Version)) {
+		t.Errorf("client.js starts %.80q", body)
+	}
+	// A failed build keeps both.
+	d.p.setFail("GoBuild")
+	writeFile(t, d.dir, "app/store.go", "package app // broken")
+	if failed := d.waitStatus(t, func(st status) bool { return st.Error != "" }); failed.Version != restarted.Version || failed.Render != 3 {
+		t.Fatalf("after a failed build: %+v", failed)
+	}
+}
+
 func TestRunReportsTheAppStopping(t *testing.T) {
 	d := startDev(t, "")
 	v1 := d.waitVersionAfter(t, "")
@@ -594,7 +641,7 @@ func TestRunServesTheDevScripts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if path == clientPath && !strings.HasPrefix(string(body), "window.__tifaDevServed = \"") {
+		if path == clientPath && !regexp.MustCompile(`^window.__tifaDevServed = "[^"]*";\nwindow.__tifaDevRendered = \d+;\n`).Match(body) {
 			t.Errorf("client.js does not start with the served version: %.60q", body)
 		}
 		if !strings.HasSuffix(string(body), want) || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/javascript") {

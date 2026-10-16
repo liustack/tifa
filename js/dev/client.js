@@ -1,23 +1,26 @@
-// tifa dev: reloads the page after each rebuild and shows build errors in an overlay.
+// tifa dev: reloads the page after each rebuild and shows build errors in an overlay. The error
+// page of a failed server render also reloads after a rebuild that kept the version, such as a
+// fix in TSX.
 // It needs no imports and no exports, so it works bundled into the dev client entry or as a plain script.
 (() => {
   if (window.__tifaDev) return;
   window.__tifaDev = true;
 
   const base = "/__tifa/dev/";
-  let first = pageVersion(); // the version this page was built from, null while unknown
+  let first = pageTiming("tifa-dev", window.__tifaDevServed); // the version this page was built from, null while unknown
+  let firstRender = pageTiming("tifa-dev-render", window.__tifaDevRendered); // the count of builds served then
   let overlay = null;
 
   // The dev proxy names the build behind every answer in a Server-Timing header. The Performance
   // API exposes it in secure contexts, which include localhost and 127.0.0.1. Elsewhere the page
-  // falls back to the version client.js was served with, then to the first status it gets, and
-  // can miss a rebuild that finished while it loaded.
-  function pageVersion() {
+  // falls back to what client.js was served with, then to the first status it gets, and can miss
+  // a rebuild that finished while it loaded.
+  function pageTiming(name, served) {
     const nav = performance.getEntriesByType("navigation")[0];
     for (const timing of (nav && nav.serverTiming) || []) {
-      if (timing.name === "tifa-dev") return timing.description;
+      if (timing.name === name) return timing.description;
     }
-    if (typeof window.__tifaDevServed === "string") return window.__tifaDevServed;
+    if (served !== undefined) return String(served);
     return null;
   }
 
@@ -30,9 +33,12 @@
       return;
     }
     if (first === null) first = status.version;
+    if (firstRender === null) firstRender = String(status.render);
     if (status.error) {
       show(status.title || "Error", status.error);
     } else if (status.version !== first) {
+      location.reload();
+    } else if (window.__tifaDevErrorPage === true && String(status.render) !== firstRender) {
       location.reload();
     } else {
       hide();

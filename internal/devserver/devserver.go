@@ -126,8 +126,10 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 	mux := http.NewServeMux()
 	mux.Handle("GET "+eventsPath, d.hub)
 	mux.Handle("GET "+clientPath, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Tells the page its version where it cannot read Server-Timing.
-		served := "window.__tifaDevServed = " + strconv.Quote(d.version()) + ";\n"
+		// Tells the page its build where it cannot read Server-Timing.
+		version, render := d.build()
+		served := "window.__tifaDevServed = " + strconv.Quote(version) + ";\n" +
+			"window.__tifaDevRendered = " + strconv.Itoa(render) + ";\n"
 		script(served+js.DevClient).ServeHTTP(w, r)
 	}))
 	mux.Handle("GET "+workerPath, script(js.DevWorker))
@@ -135,7 +137,7 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 	if o.Vite != "" {
 		mux.Handle(VitePath, viteProxy(o.Vite))
 	}
-	app := proxy(appAddr, o.ProxyWait, d.down, d.version)
+	app := proxy(appAddr, o.ProxyWait, d.down, d.timing)
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Before the first build there is no app. A page the browser loads waits for a build that
 		// Go's build cache makes fast, and gets a page that loads the dev client during a slow
@@ -148,7 +150,7 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 				return
 			case <-time.After(firstBuildWait):
 				w.Header().Set("Retry-After", "2")
-				w.Header().Set("Server-Timing", versionTiming(d.version()))
+				w.Header().Set("Server-Timing", d.timing())
 				unavailable(w, http.StatusServiceUnavailable, errFirstBuild)
 				return
 			}
@@ -297,12 +299,13 @@ type dev struct {
 	log       *log.Logger
 	nonce     string // makes versions unique across runs of tifa dev
 
-	mu      sync.Mutex
-	gen     int    // generation of the newest app started
-	serving string // version of the newest app started, the one that answers requests
-	app     *app   // the application process, nil when none runs
-	live    *app   // app once it listens, its exit from then on is a crash
-	downErr error  // why no application runs and none will until the next build
+	mu       sync.Mutex
+	gen      int    // generation of the newest app started
+	serving  string // version of the newest app started, the one that answers requests
+	app      *app   // the application process, nil when none runs
+	live     *app   // app once it listens, its exit from then on is a crash
+	downErr  error  // why no application runs and none will until the next build
+	rendered int    // the count of builds served, see status
 	// bundling is closed once the rebuild of the SSR bundle that runs now has an app serving it,
 	// nil when none runs.
 	bundling chan struct{}
@@ -322,6 +325,16 @@ func (d *dev) version() string {
 	defer d.mu.Unlock()
 	return d.serving
 }
+
+// build returns the version and the count of builds served (see status).
+func (d *dev) build() (string, int) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.serving, d.rendered
+}
+
+// timing is the Server-Timing value of the build that answers requests now.
+func (d *dev) timing() string { return devTiming(d.build()) }
 
 // down tells the proxy not to wait for an application, and why.
 func (d *dev) down() error {
@@ -393,7 +406,8 @@ func (d *dev) rebuild(ctx context.Context, s steps) {
 		return
 	}
 	d.mu.Lock()
-	d.hub.publish(status{Version: d.serving})
+	d.rendered++
+	d.hub.publish(status{Version: d.serving, Render: d.rendered})
 	d.mu.Unlock()
 	took := time.Since(start).Round(time.Millisecond)
 	if !d.announced {

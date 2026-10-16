@@ -30,7 +30,7 @@ func echoApp(t *testing.T, ln net.Listener) {
 
 func newProxy(t *testing.T, appAddr string, wait time.Duration, down func() error) *httptest.Server {
 	t.Helper()
-	p := httptest.NewServer(proxy(appAddr, wait, down, func() string { return "v7" }))
+	p := httptest.NewServer(proxy(appAddr, wait, down, func() string { return devTiming("v7", 3) }))
 	t.Cleanup(p.Close)
 	return p
 }
@@ -223,7 +223,7 @@ func TestProxyTagsAnswersWithTheVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
-	if got := resp.Header.Get("Server-Timing"); got != `tifa-dev;desc="v7"` {
+	if got := resp.Header.Get("Server-Timing"); got != `tifa-dev;desc="v7", tifa-dev-render;desc="3"` {
 		t.Fatalf("Server-Timing %q", got)
 	}
 
@@ -233,7 +233,7 @@ func TestProxyTagsAnswersWithTheVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
-	if got := resp.Header.Get("Server-Timing"); got != `tifa-dev;desc="v7"` {
+	if got := resp.Header.Get("Server-Timing"); got != `tifa-dev;desc="v7", tifa-dev-render;desc="3"` {
 		t.Fatalf("error page Server-Timing %q", got)
 	}
 }
