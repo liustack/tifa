@@ -4,7 +4,7 @@ import { hydrate } from '@tanstack/react-router/ssr/client'
 import { htmlAttributes, routeTree } from './.tifa/routes'
 import { createAppRouter, load } from './.tifa/runtime/router'
 import { serve } from './.tifa/runtime/server'
-import { collector, RouteError, type RouteResult } from './.tifa/runtime/data'
+import { collector, RouteError, type InjectedResult, type RouteResult } from './.tifa/runtime/data'
 
 const tests: Array<[string, () => Promise<void>]> = []
 const test = (name: string, fn: () => Promise<void>) => tests.push([name, fn])
@@ -17,10 +17,25 @@ const missing: RouteResult = { status: 404 }
 
 serve(routeTree, htmlAttributes)
 
+// inject writes results the way Go injects them: the data of a 200 as JSON text. A result that
+// has its json already stays as it is.
+function inject(data: Record<string, RouteResult | InjectedResult>) {
+  const out: Record<string, InjectedResult> = {}
+  for (const [id, result] of Object.entries(data)) {
+    if ('json' in result || result.status !== 200) {
+      out[id] = result as InjectedResult
+      continue
+    }
+    const { data: value, ...rest } = result as RouteResult
+    out[id] = { ...rest, json: JSON.stringify(value) }
+  }
+  return out
+}
+
 // renderResult runs one whole-page render through the SSR entry, as the Go VM pool does.
-async function renderResult(url: string, data: Record<string, RouteResult>) {
+async function renderResult(url: string, data: Record<string, RouteResult | InjectedResult>) {
   globalThis.renderResult = undefined
-  globalThis.startRender(JSON.stringify({ url, buildId: 'b1', data }))
+  globalThis.startRender(JSON.stringify({ url, buildId: 'b1', data: inject(data) }))
   for (let i = 0; i < 1000 && globalThis.renderResult === undefined; i++)
     await new Promise((resolve) => setTimeout(resolve, 0))
   const result = globalThis.renderResult ?? '{"error":"render did not finish"}'
@@ -32,7 +47,7 @@ async function renderResult(url: string, data: Record<string, RouteResult>) {
   }
 }
 
-async function render(url: string, data: Record<string, RouteResult>): Promise<string> {
+async function render(url: string, data: Record<string, RouteResult | InjectedResult>): Promise<string> {
   const result = await renderResult(url, data)
   if (result.html === undefined) throw new Error(`render ${url}: ${JSON.stringify(result)}`)
   return result.html
@@ -306,6 +321,22 @@ test('loader data comes through hydration as the server had it', async () => {
   assert(Object.hasOwn(loaded[0], '__proto__') && loaded[0].polluted === undefined, `__proto__ became ${Object.keys(loaded[0])}`)
   assert(({} as any).polluted === undefined, 'hydration changed Object.prototype')
   assert(JSON.stringify(loaded.slice(1)) === JSON.stringify(['x', one]), `route data ${JSON.stringify(loaded.slice(1))}`)
+})
+
+// JSON.stringify writes -0 as 0. The page carries the text Go wrote, so a -0 the server rendered
+// reaches the browser as -0, and Intl writes the same -¥0.00 on both sides.
+test('a -0 in loader data reaches the browser as the server read it', async () => {
+  const url = '/teams/x/one'
+  const html = await render(url, {
+    'app/layout': { status: 200, json: '{"name":"router","refunded":-0,"list":[-0,1]}' },
+    'app/teams/team+/layout': ok('x'),
+    'app/teams/team+/one/route': ok(['one']),
+  })
+  contains(html, '\\"refunded\\":-0', '[-0,1]')
+  const { router, calls } = await hydrateFrom(html, url)
+  assert(calls.length === 0, `hydration requested ${JSON.stringify(calls)}`)
+  const data = router.state.matches[1].loaderData as any
+  assert(Object.is(data.refunded, -0) && Object.is(data.list[0], -0), `after hydration ${JSON.stringify(data)} ${Object.is(data.refunded, -0)}`)
 })
 
 // The router reads serializationAdapters from its options, but its constructor type leaves them

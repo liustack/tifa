@@ -17,11 +17,23 @@ export interface RouteResult {
   location?: string
 }
 
+// InjectedResult is a RouteResult as Go puts it into a page: the data of a 200 comes as the JSON
+// text Go wrote, in json. The render parses it, and the page carries the same text to the
+// browser (see loaderDataAdapter in router.tsx), so both read the same values. JSON.stringify in
+// the VM would write a -0 as 0, and a page that formats it with Intl would then hydrate other
+// text than the server rendered.
+export interface InjectedResult {
+  status: number
+  json?: string
+  error?: string
+  location?: string
+}
+
 // Injected is the input of one whole-page render.
 export interface Injected {
   url: string
   buildId: string
-  data: Record<string, RouteResult>
+  data: Record<string, InjectedResult>
 }
 
 // Boot is what a page rendered without SSR carries in <script id="tifa-data">: the render
@@ -54,12 +66,23 @@ export const buildHeader = 'X-Tifa-Build'
 export const callHeader = 'X-Tifa-Call'
 export const redirectHeader = 'X-Tifa-Redirect'
 
+// goJSON holds the JSON text each object of injected data was parsed from.
+export const goJSON = new WeakMap<object, string>()
+
 // injected answers from the data Go injected for a whole-page render. Rendering does no I/O.
 export function injected(input: Injected): Source {
+  const results = new Map<string, RouteResult>()
+  for (const [id, { json, ...result }] of Object.entries(input.data)) {
+    if (json !== undefined) {
+      const data: unknown = JSON.parse(json)
+      if (typeof data === 'object' && data !== null) goJSON.set(data, json)
+      results.set(id, { ...result, data })
+    } else results.set(id, result)
+  }
   return async (url, id) => {
     if (!sameURL(url, input.url))
       throw new Error(`render input is for ${input.url}, the router asked for ${url}`)
-    const result = input.data[id]
+    const result = results.get(id)
     if (!result) throw new Error(`render input has no data for route ${id}`)
     return result
   }

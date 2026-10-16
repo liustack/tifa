@@ -47,7 +47,8 @@ var shopRoutes = []struct{ url, routes, want, forbidden string }{
 
 // shopBundle returns the shop's SSR bundle and its comparison pages. The data of each
 // page is what the shop's own program injects: the test runs bin/shop and asks it for the
-// navigation data of each page, which has the same form as the injected data.
+// navigation data of each page, and writes the data of each route as JSON text, as the program
+// injects it (see injectedData).
 func shopBundle(t testing.TB) (string, []shopPage) {
 	t.Helper()
 	if os.Getenv("TIFA_SSR_SHOP") == "" {
@@ -83,9 +84,39 @@ func shopBundle(t testing.TB) (string, []shopPage) {
 		if err != nil || res.StatusCode != 200 {
 			t.Fatalf("data of %s: %d %v %s (rebuild the shop when its build.json changed)", r.url, res.StatusCode, err, body)
 		}
-		pages = append(pages, shopPage{Input{BuildID: built.BuildID, URL: r.url, Data: body}, r.want, r.forbidden})
+		pages = append(pages, shopPage{Input{BuildID: built.BuildID, URL: r.url, Data: injectedData(t, body)}, r.want, r.forbidden})
 	}
 	return string(source), pages
+}
+
+// injectedData turns the answer of a navigation data request into the data a whole-page render
+// gets: each successful route carries its data as the JSON text Go wrote, in json.
+func injectedData(t testing.TB, answer []byte) json.RawMessage {
+	t.Helper()
+	var routes map[string]struct {
+		Status   int             `json:"status"`
+		Data     json.RawMessage `json:"data,omitempty"`
+		JSON     string          `json:"json,omitempty"`
+		Error    string          `json:"error,omitempty"`
+		Location string          `json:"location,omitempty"`
+	}
+	if err := json.Unmarshal(answer, &routes); err != nil {
+		t.Fatal(err)
+	}
+	for id, r := range routes {
+		if r.Status == http.StatusOK {
+			r.JSON, r.Data = string(r.Data), nil
+			if r.JSON == "" { // a nil Data, left out of the answer
+				r.JSON = "null"
+			}
+			routes[id] = r
+		}
+	}
+	data, err := json.Marshal(routes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }
 
 var listening = regexp.MustCompile(`listening on (http://\S+)`)
@@ -164,8 +195,7 @@ func TestShopRendersReadyData(t *testing.T) {
 func TestShopEscapesScriptClosingTags(t *testing.T) {
 	source, pages := shopBundle(t)
 	p := newTestPool(t, source, shopConfig(1))
-	in := pages[2].input
-	in.Data = json.RawMessage(strings.ReplaceAll(string(in.Data), `"林夏"`, `"</script><script id=\"injected\">alert(1)</script>"`))
+	in := withCustomer(pages[2].input, `</script><script id="injected">alert(1)</script>`)
 	if string(in.Data) == string(pages[2].input.Data) {
 		t.Fatal("customer name not found in the snapshot")
 	}
@@ -231,10 +261,16 @@ func shopConfig(vms int) config.SSR {
 	return config.SSR{VMs: vms, VMMemory: 128 << 20, Timeout: 10 * time.Second}
 }
 
-// withCustomer returns the order detail input with the customer renamed.
-// Callers check that the new name reaches the HTML.
+// withCustomer returns the order detail input with the customer renamed. The data of each route
+// is JSON text inside the input, so the name is replaced as that text spells it inside a JSON
+// string. Callers check that the new name reaches the HTML.
 func withCustomer(detail Input, name string) Input {
-	detail.Data = json.RawMessage(strings.ReplaceAll(string(detail.Data), `"林夏"`, `"`+name+`"`))
+	inString := func(s string) string {
+		value, _ := json.Marshal(s)
+		quoted, _ := json.Marshal(string(value))
+		return string(quoted[1 : len(quoted)-1])
+	}
+	detail.Data = json.RawMessage(strings.ReplaceAll(string(detail.Data), inString("林夏"), inString(name)))
 	return detail
 }
 

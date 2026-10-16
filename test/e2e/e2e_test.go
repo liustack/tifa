@@ -430,7 +430,9 @@ func TestPagesApp(t *testing.T) {
 	}
 	// Intl formats in the locale and the time zone the page passes, as Chromium does.
 	_, _, body = get(t, base+"/receipt")
-	for _, want := range []string{"¥1,234.50", "2025/8/17", "2025年8月17日星期日 04:05"} {
+	// A -0 inside the data renders as -¥0.00, and the page carries it as -0, so the browser
+	// hydrates the same text.
+	for _, want := range []string{"¥1,234.50", `<p id="refunded">-¥0.00</p>`, `\"refunded\":-0,`, "2025/8/17", "2025年8月17日星期日 04:05"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("receipt lacks %s:\n%s", want, body)
 		}
