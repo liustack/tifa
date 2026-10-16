@@ -49,7 +49,7 @@ export function ShipForm() {
     <Card>
       <CardHeader>
         <CardTitle>发货</CardTitle>
-        <CardDescription>填好运单，客户会收到发货通知。</CardDescription>
+        <CardDescription>选择快递公司，填写运单号。</CardDescription>
       </CardHeader>
       <CardContent>
         <form noValidate onSubmit={form.handleSubmit(onSubmit)}>
