@@ -97,7 +97,7 @@ TIFA_SSR_SHOP=1 go test -run ShopVMMemory -v ./internal/ssr
 
 | Result | What it measures |
 | --- | --- |
-| `render-<page>` | One of the four comparison pages rendered again and again in a warm VM: `p50-ms` and `p99-ms` of single renders, Go allocations per render |
+| `render-<page>` | One of the six comparison pages (the order list, an order and the stats of each project) rendered again and again in a warm VM: `p50-ms` and `p99-ms` of single renders, Go allocations per render |
 | `compile` | Compiling the bundle to bytecode, done once when the program starts |
 | `load` | Creating one VM from the bytecode, done for each VM of the pool and each replacement: time, and the VM's memory as `vm-KiB` |
 | `first-render` | The first render in a fresh VM |

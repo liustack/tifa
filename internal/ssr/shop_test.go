@@ -33,16 +33,19 @@ type shopPage struct {
 	want, forbidden string
 }
 
-// shopRoutes are the four comparison pages of the prototype baseline, a list and a detail page
-// of each project, with the route IDs of their match chains.
-var shopRoutes = []struct{ url, routes string }{
-	{"/projects/studio", "app/layout,app/projects/project+/layout,app/projects/project+/route"},
-	{"/projects/weekend", "app/layout,app/projects/project+/layout,app/projects/project+/route"},
-	{"/projects/studio/orders/SH-1042", "app/layout,app/projects/project+/layout,app/projects/project+/orders/order+/route"},
-	{"/projects/weekend/orders/WK-0201", "app/layout,app/projects/project+/layout,app/projects/project+/orders/order+/route"},
+// shopRoutes are the comparison pages: the four of the prototype baseline, a list and a detail
+// page of each project, then the stats page of each project. Each comes with the route IDs of its
+// match chain, a text its HTML must have and one of the other project that it must not have.
+var shopRoutes = []struct{ url, routes, want, forbidden string }{
+	{"/projects/studio", "app/layout,app/projects/project+/layout,app/projects/project+/route", "SH-1042", "WK-0201"},
+	{"/projects/weekend", "app/layout,app/projects/project+/layout,app/projects/project+/route", "WK-0201", "SH-1042"},
+	{"/projects/studio/orders/SH-1042", "app/layout,app/projects/project+/layout,app/projects/project+/orders/order+/route", "SH-1042", "WK-0201"},
+	{"/projects/weekend/orders/WK-0201", "app/layout,app/projects/project+/layout,app/projects/project+/orders/order+/route", "WK-0201", "SH-1042"},
+	{"/projects/studio/stats", "app/layout,app/projects/project+/layout,app/projects/project+/stats/route", "¥14,134.00", "¥1,689.00"},
+	{"/projects/weekend/stats", "app/layout,app/projects/project+/layout,app/projects/project+/stats/route", "¥1,689.00", "¥14,134.00"},
 }
 
-// shopBundle returns the shop's SSR bundle and its four comparison pages. The data of each
+// shopBundle returns the shop's SSR bundle and its comparison pages. The data of each
 // page is what the shop's own program injects: the test runs bin/shop and asks it for the
 // navigation data of each page, which has the same form as the injected data.
 func shopBundle(t testing.TB) (string, []shopPage) {
@@ -80,11 +83,7 @@ func shopBundle(t testing.TB) (string, []shopPage) {
 		if err != nil || res.StatusCode != 200 {
 			t.Fatalf("data of %s: %d %v %s (rebuild the shop when its build.json changed)", r.url, res.StatusCode, err, body)
 		}
-		want, forbidden := "SH-1042", "WK-0201"
-		if strings.Contains(r.url, "/weekend") {
-			want, forbidden = forbidden, want
-		}
-		pages = append(pages, shopPage{Input{BuildID: built.BuildID, URL: r.url, Data: body}, want, forbidden})
+		pages = append(pages, shopPage{Input{BuildID: built.BuildID, URL: r.url, Data: body}, r.want, r.forbidden})
 	}
 	return string(source), pages
 }
@@ -183,7 +182,7 @@ func TestShopEscapesScriptClosingTags(t *testing.T) {
 }
 
 // Same method as the prototype baseline: one reused VM, 512 warm renders,
-// then 2,048 timed renders over the four pages. Timing covers the whole Render.
+// then 2,048 timed renders over the comparison pages. Timing covers the whole Render.
 func TestShopWarmLatency(t *testing.T) {
 	source, pages := shopBundle(t)
 	start := time.Now()
