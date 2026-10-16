@@ -1,5 +1,9 @@
 package app
 
-import "github.com/liustack/tifa"
+import (
+	"strings"
 
-func Layout(c *tifa.Ctx) (string, error) { return "root", nil }
+	"github.com/liustack/tifa"
+)
+
+func Layout(c *tifa.Ctx) (string, error) { return "root" + strings.Join(c.QueryAll("site"), ","), nil }

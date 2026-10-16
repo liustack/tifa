@@ -46,7 +46,7 @@ Never edit `.tifa/`. It is generated, and `go test ./...` skips it.
 
 The build reads `Load` and `Layout` and the functions they call to find which parameters each page depends on. It fails with the file and line when they:
 
-- call `c.Param` or `c.Query` with a string that is not a constant, or not directly (stored in a variable or passed as a value),
+- call `c.Param`, `c.Query` or `c.QueryAll` with a string that is not a constant, or not directly (stored in a variable or passed as a value),
 - call `tifa.Use` with anything but a package-level `Layout` that wraps the caller,
 - convert, store, return or send `c` anywhere else than a plain function or method of this module or of tifa, or a new local variable of the same type (see the docs for the full list),
 - call `c.Request()` or `c.Writer()`.

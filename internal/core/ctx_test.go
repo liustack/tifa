@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -301,5 +302,22 @@ func TestBindQuery(t *testing.T) {
 		if err := c.BindQuery(&filter{}); !errors.As(err, &e) || e.Status != 400 || e.Message != "invalid query string" {
 			t.Errorf("?%s: got %v", query, err)
 		}
+	}
+}
+
+func TestQueryAll(t *testing.T) {
+	r := httptest.NewRequest("GET", "/notes?tag=a&tag=b&empty=&tag=c", nil)
+	c := New(httptest.NewRecorder(), r, "/notes", 1024)
+	if got := c.QueryAll("tag"); !slices.Equal(got, []string{"a", "b", "c"}) {
+		t.Errorf("QueryAll(tag) = %q", got)
+	}
+	if got := c.QueryAll("empty"); !slices.Equal(got, []string{""}) {
+		t.Errorf("QueryAll(empty) = %q", got)
+	}
+	if got := c.QueryAll("none"); got != nil {
+		t.Errorf("QueryAll(none) = %#v, want nil", got)
+	}
+	if got := c.Query("tag"); got != "a" {
+		t.Errorf("Query(tag) = %q, want the first value", got)
 	}
 }

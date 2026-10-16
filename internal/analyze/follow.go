@@ -79,7 +79,7 @@ func (w *loadWalk) call(info *types.Info, call *ast.CallExpr, helper bool) {
 		}
 		return
 	}
-	if method := ctxMethod(info, call); method == "Param" || method == "Query" {
+	if method := ctxMethod(info, call); method != "" {
 		if len(call.Args) != 1 {
 			return
 		}

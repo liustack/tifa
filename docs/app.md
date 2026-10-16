@@ -129,6 +129,7 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 | --- | --- |
 | `c.Param(name)` | A path parameter, decoded, such as `c.Param("order")` for the folder `order+` |
 | `c.Query(name)` | The first value of a query parameter, `""` when absent |
+| `c.QueryAll(name)` | Every value of a query parameter, such as `["a", "b"]` for `?tag=a&tag=b`, `nil` when absent |
 | `c.Header(name)`, `c.Cookie(name)` | A request header, a request cookie (`http.ErrNoCookie` when absent) |
 | `c.Context()`, `c.SetContext(ctx)` | The request context, and replacing it to store request-scoped values |
 | `c.Pattern()` | The path of the matched route, such as `/projects/{project}`, `""` when no route matched |
@@ -441,9 +442,9 @@ This tests the function, not the HTTP answer. Check what the function returns: t
 
 ## How Load may use Ctx
 
-This section covers `Load`, `Layout` and the functions they call. At build time, tifa starts from each `Load` and `Layout` function and finds the route parameters (`c.Param`), query parameters (`c.Query`) and Layouts (`tifa.Use`) it reads. When `Load` passes `*tifa.Ctx` to a function in this module, tifa follows the call level by level, across packages too, and counts every parameter it finds toward that `Load`. A helper called by several `Load` functions counts toward each of them. tifa does not follow into its own functions.
+This section covers `Load`, `Layout` and the functions they call. At build time, tifa starts from each `Load` and `Layout` function and finds the route parameters (`c.Param`), query parameters (`c.Query` and `c.QueryAll`) and Layouts (`tifa.Use`) it reads. When `Load` passes `*tifa.Ctx` to a function in this module, tifa follows the call level by level, across packages too, and counts every parameter it finds toward that `Load`. A helper called by several `Load` functions counts toward each of them. tifa does not follow into its own functions.
 
-So that tifa finds everything, Ctx may only be used where tifa can see it. Pass `c.Param` and `c.Query` a constant string, such as `c.Param("order")`, and call `c.Param`, `c.Query` and `tifa.Use` directly: storing one in a variable or passing it as a value fails the build.
+So that tifa finds everything, Ctx may only be used where tifa can see it. Pass `c.Param`, `c.Query` and `c.QueryAll` a constant string, such as `c.Param("order")`, and call them and `tifa.Use` directly: storing one in a variable or passing it as a value fails the build.
 
 The only types that may hold a Ctx are: `*tifa.Ctx`, `tifa.Ctx`, non-generic structs declared in this module (whose fields hold Ctx only through these types, directly, embedded or indirectly), and pointers to such structs.
 
@@ -457,7 +458,7 @@ A value that holds a Ctx may only appear in these five places:
 
 Any other use fails the build and names the file and line. For example: converting it to another type or an interface, assigning it to an existing variable, assigning several values at once, `return`ing it, putting it in a slice, map, array or channel, `range`, package-level variables, `defer`, `go` statements, or passing it to a generic function, an interface method, a function variable or a function outside the module (the standard library and third-party libraries). `return c.Redirect(...)` and `return c.Next()` are fine, because they return the result of a method call, not the Ctx itself.
 
-`Load`, `Layout` and the functions they call must not call `c.Request()` or `c.Writer()`. tifa cannot see parameters read through the raw request. Use `c.Param`, `c.Query`, `c.Header`, `c.Cookie` or `c.Context()` instead. `c.Request()` and `c.Writer()` are only for method handlers and `OnRequest`.
+`Load`, `Layout` and the functions they call must not call `c.Request()` or `c.Writer()`. tifa cannot see parameters read through the raw request. Use `c.Param`, `c.Query`, `c.QueryAll`, `c.Header`, `c.Cookie` or `c.Context()` instead. `c.Request()` and `c.Writer()` are only for method handlers and `OnRequest`.
 
 When you hit one of these errors, call Ctx methods directly, or pass it to a plain function. If you only need the request context, pass `c.Context()`. A helper that only calls `c.Context()` (such as `auth.User(c)`) collects nothing when tifa follows it.
 

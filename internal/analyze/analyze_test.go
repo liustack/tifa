@@ -305,8 +305,9 @@ func TestViolations(t *testing.T) {
 			{"app/declared/route.go:3:", "Path is not declared"},
 		}},
 		{"paramname", [][]string{
-			{"app/items/key+/route.go:9:", `"id"`, `"/items/{key}"`},
-			{"app/items/key+/route.go:9:", "Query", "constant"},
+			{"app/items/key+/route.go:13:", `"id"`, `"/items/{key}"`},
+			{"app/items/key+/route.go:13:", "c.Query must", "constant"},
+			{"app/items/key+/route.go:13:", "c.QueryAll must", "constant"},
 		}},
 		{"indirect", [][]string{
 			{"app/page/route.go:17:", "c.Query", "called directly"},
@@ -315,6 +316,7 @@ func TestViolations(t *testing.T) {
 			{"app/page/route.go:20:", "tifa.Use", "called directly"},
 			{"app/page/route.go:21:", "use", "function value"},
 			{"app/page/route.go:27:", "c.Param", "called directly"},
+			{"app/page/route.go:29:", "c.QueryAll", "called directly"},
 		}},
 		{"ifacectx", [][]string{
 			{"app/page/route.go:18:", "converted to interface{Query(string) string}", "call its methods directly"},
@@ -638,11 +640,17 @@ func TestFollowHelpers(t *testing.T) {
 	if !reflect.DeepEqual(list.Params, []string{"id"}) ||
 		!reflect.DeepEqual(list.Query, []string{"depth", "dir", "page", "sort"}) ||
 		!reflect.DeepEqual(list.Uses, []string{"app/layout"}) ||
-		!reflect.DeepEqual(list.AllQuery, []string{"depth", "dir", "page", "sort"}) {
+		!reflect.DeepEqual(list.AllQuery, []string{"depth", "dir", "page", "site", "sort"}) {
 		t.Errorf("list Load = %+v", list)
 	}
-	if len(other.Params) != 0 || !reflect.DeepEqual(other.Query, []string{"dir", "sort"}) || len(other.Uses) != 0 {
+	// c.QueryAll counts as a query parameter, also through a helper, and through tifa.Use of a
+	// Layout (list above).
+	if len(other.Params) != 0 || !reflect.DeepEqual(other.Query, []string{"dir", "sort", "tag"}) || len(other.Uses) != 0 ||
+		!reflect.DeepEqual(other.AllQuery, []string{"dir", "sort", "tag"}) {
 		t.Errorf("other Load = %+v", other)
+	}
+	if len(m.Layouts) != 1 || !reflect.DeepEqual(m.Layouts[0].Load.Query, []string{"site"}) {
+		t.Errorf("Layouts = %+v", m.Layouts)
 	}
 }
 
