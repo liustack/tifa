@@ -10,6 +10,10 @@ import (
 type Shell struct {
 	Viewer   Viewer             `json:"viewer"`
 	Projects []projects.Project `json:"projects"`
+	// SidebarOpen is the state the sidebar was left in. The sidebar component keeps it in the
+	// cookie sidebar_state, and the server renders the sidebar that way, so it does not jump
+	// after a reload.
+	SidebarOpen bool `json:"sidebarOpen"`
 }
 
 type Viewer struct {
@@ -18,5 +22,13 @@ type Viewer struct {
 }
 
 func Layout(c *tifa.Ctx) (Shell, error) {
-	return Shell{Viewer: Viewer{Name: "店主", Initials: "店"}, Projects: projects.ListProjects()}, nil
+	open := true
+	if cookie, err := c.Cookie("sidebar_state"); err == nil && cookie.Value == "false" {
+		open = false
+	}
+	return Shell{
+		Viewer:      Viewer{Name: "店主", Initials: "店"},
+		Projects:    projects.ListProjects(),
+		SidebarOpen: open,
+	}, nil
 }

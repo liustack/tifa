@@ -58,7 +58,7 @@ func TestShopApp(t *testing.T) {
 	if status != 200 || header.Get("X-Tifa-Render") != "vm" {
 		t.Errorf("order page: %d %v", status, header)
 	}
-	for _, want := range []string{"<title>SH-1042 · 山海工作台</title>", "林夏", "晨间手冲壶", "¥428.00", "山海工作室", "2 单待发货", sidebar, "正在准备操作"} {
+	for _, want := range []string{"<title>SH-1042 · 山海工作台</title>", "林夏", "晨间手冲壶", "¥428.00", ">山海工作室</h1>", "2</span> 单待发货", sidebar, "正在准备操作"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("order page lacks %s", want)
 		}
@@ -83,7 +83,7 @@ func TestShopApp(t *testing.T) {
 	} {
 		status, _, body := get(t, base+tc.path)
 		// The project Layout shows the project name in its heading.
-		project := strings.Contains(body, "<h1>山海工作室</h1>")
+		project := strings.Contains(body, ">山海工作室</h1>")
 		if status != 404 || !strings.Contains(body, tc.want) || !strings.Contains(body, "山海工作台</title>") || strings.Contains(body, sidebar) != tc.withSidebar || project != (tc.path == "/projects/studio/orders/WK-0201") {
 			t.Errorf("%s: %d, want 404 with %q, sidebar %v\n%s", tc.path, status, tc.want, tc.withSidebar, body)
 		}
