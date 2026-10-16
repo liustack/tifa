@@ -9,7 +9,7 @@ import {
   type ErrorComponentProps,
   type RouterHistory,
 } from '@tanstack/react-router'
-import { RouteError, type Source } from './data'
+import { goJSON, RouteError, type Source } from './data'
 
 // RouterContext is the context of the root route. Loaders read their data through source.
 export interface RouterContext {
@@ -74,18 +74,16 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
   return router
 }
 
-// fromGo holds the objects load returned as route data. Go sent them as JSON, so JSON writes
-// them back as they are.
-const fromGo = new WeakSet<object>()
-
-// loaderDataAdapter writes the data of a Load into the page as one JSON string, read back with
-// JSON.parse in the browser. The default serializer walks every value and escapes strings one
+// loaderDataAdapter writes the data of a Load into the page as the JSON text Go sent it in, read
+// back with JSON.parse in the browser, so the browser reads what the render read (see
+// InjectedResult in data.ts). The default serializer walks every value and escapes strings one
 // character at a time, which takes several times as long in the VM for the same data. Other
-// values the router writes, such as errors, still go through the default serializer.
+// values the router writes, such as errors and single values of a Load, still go through the
+// default serializer.
 const loaderDataAdapter = createSerializationAdapter({
   key: 'tifa.data',
-  test: (value): value is object => typeof value === 'object' && value !== null && fromGo.has(value),
-  toSerializable: (value: object) => JSON.stringify(value),
+  test: (value): value is object => typeof value === 'object' && value !== null && goJSON.has(value),
+  toSerializable: (value: object) => goJSON.get(value)!,
   fromSerializable: (text: string) => JSON.parse(text) as object,
 })
 
@@ -109,10 +107,7 @@ export async function load<T>(
   location: { pathname: string; searchStr: string },
 ): Promise<T> {
   const result = await context.source(location.pathname + location.searchStr, id)
-  if (result.status === 200) {
-    if (typeof result.data === 'object' && result.data !== null) fromGo.add(result.data)
-    return result.data as T
-  }
+  if (result.status === 200) return result.data as T
   if (result.status === 404) throw notFound()
   if (result.location !== undefined) throw redirect({ href: result.location, statusCode: result.status })
   throw new RouteError(result.status, result.error ?? `route ${id} failed with status ${result.status}`)

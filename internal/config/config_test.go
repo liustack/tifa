@@ -82,6 +82,37 @@ func TestEmbeddedJSONIsAccepted(t *testing.T) {
 	}
 }
 
+// build.skip_tanstack_check is a true or false of the project file, off by default.
+func TestSkipTanStackCheckIsABoolOfTheProjectFile(t *testing.T) {
+	if Default().Build.SkipTanStackCheck {
+		t.Fatal("the check is skipped by default")
+	}
+	for name, content := range map[string]string{
+		"tifa.yaml": "build:\n  skip_tanstack_check: true\n",
+		"tifa.json": `{"build":{"skip_tanstack_check":true}}`,
+	} {
+		c, err := load(t, nil, nil, name, content)
+		if err != nil || !c.Build.SkipTanStackCheck {
+			t.Errorf("%s: %+v, %v", name, c.Build, err)
+		}
+	}
+	if c, err := load(t, nil, nil, "tifa.yaml", "build:\n  skip_tanstack_check: false\n"); err != nil || c.Build.SkipTanStackCheck {
+		t.Errorf("false: %+v, %v", c.Build, err)
+	}
+	for name, content := range map[string]string{
+		"tifa.yaml": "build:\n  skip_tanstack_check: \"yes\"\n",
+		"tifa.json": `{"build":{"skip_tanstack_check":1}}`,
+	} {
+		if _, err := load(t, nil, nil, name, content); err == nil || !strings.Contains(err.Error(), "build.skip_tanstack_check") || !strings.Contains(err.Error(), "expected a bool value") {
+			t.Errorf("%s: got %v", name, err)
+		}
+	}
+	_, err := load(t, []string{"--config", writeFile(t, "prod.yaml", "build:\n  skip_tanstack_check: true\n")}, nil, "", "")
+	if err == nil || !strings.Contains(err.Error(), "build settings belong in the project tifa.yaml") {
+		t.Errorf("in a deployment file: %v", err)
+	}
+}
+
 func TestNoFilesGivesDefaults(t *testing.T) {
 	c, err := load(t, nil, nil, "", "")
 	if err != nil {
@@ -221,7 +252,7 @@ func TestFileMustHoldOneDocument(t *testing.T) {
 }
 
 func TestKeysListEverySetting(t *testing.T) {
-	want := "build.target build.public server.addr server.body_limit server.shutdown_timeout ssr.vms ssr.vm_memory ssr.timeout cache.size"
+	want := "build.target build.public build.skip_tanstack_check server.addr server.body_limit server.shutdown_timeout ssr.vms ssr.vm_memory ssr.timeout cache.size"
 	if got := strings.Join(Keys(), " "); got != want {
 		t.Fatalf("Keys: %s, want %s", got, want)
 	}

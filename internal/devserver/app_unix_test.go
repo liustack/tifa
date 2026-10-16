@@ -58,7 +58,7 @@ func stopWithin(t *testing.T, a *app, timeout, limit time.Duration) error {
 func TestStopKillsTheAppsChildren(t *testing.T) {
 	var out syncBuffer
 	// The shell ignores the interrupt, and so does its background child.
-	a, err := startApp([]string{"/bin/sh", "-c", "trap '' INT; sleep 60 & echo $!; wait"}, "127.0.0.1:1", &out, &out)
+	a, err := startApp([]string{"/bin/sh", "-c", "trap '' INT; sleep 60 & echo $!; wait"}, t.TempDir(), "127.0.0.1:1", &out, &out)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -46,6 +46,19 @@ func (v intValue) Set(s string) error {
 func (v intValue) String() string { return strconv.Itoa(*v.p) }
 func (v intValue) kind() string   { return "int" }
 
+type boolValue struct{ p *bool }
+
+func (v boolValue) Set(s string) error {
+	b, err := strconv.ParseBool(s) // also True and TRUE, which YAML reads as bools
+	if err != nil {
+		return fmt.Errorf("invalid bool %q, use true or false", s)
+	}
+	*v.p = b
+	return nil
+}
+func (v boolValue) String() string { return strconv.FormatBool(*v.p) }
+func (v boolValue) kind() string   { return "bool" }
+
 type durationValue struct{ p *time.Duration }
 
 func (v durationValue) Set(s string) error {

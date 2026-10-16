@@ -37,7 +37,7 @@ func startFakeApp(t *testing.T, out io.Writer) (*app, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := startApp(cmd, addr, out, out)
+	a, err := startApp(cmd, t.TempDir(), addr, out, out)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -7,8 +7,9 @@ export type GETInput = { deep: boolean }
 export type GETOutput = { ok: boolean }
 
 // GET sends a request to the Go GET handler of app/api/health.
-export async function GET(options: CallOptions & { input: GETInput }): Promise<GETOutput> {
-  return call("GET", `/api/health`, options, "json") as Promise<GETOutput>
+// It resolves to undefined when the handler or OnRequest redirects.
+export async function GET(options: CallOptions & { input: GETInput }): Promise<GETOutput | undefined> {
+  return call("GET", `/api/health`, options, "json") as Promise<GETOutput | undefined>
 }
 
 // POST sends a request to the Go POST handler of app/api/health.
@@ -19,8 +20,9 @@ export async function POST(options: CallOptions = {}): Promise<Response> {
 export type PUTOutput = { ok: boolean }
 
 // PUT sends a request to the Go PUT handler of app/api/health.
-export async function PUT(options: CallOptions = {}): Promise<PUTOutput> {
-  return call("PUT", `/api/health`, options, "json") as Promise<PUTOutput>
+// It resolves to undefined when the handler or OnRequest redirects.
+export async function PUT(options: CallOptions = {}): Promise<PUTOutput | undefined> {
+  return call("PUT", `/api/health`, options, "json") as Promise<PUTOutput | undefined>
 }
 
 export type DELETEInput = { deep: boolean }

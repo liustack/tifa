@@ -32,6 +32,9 @@ type Config struct {
 type Build struct {
 	Target string
 	Public string
+	// SkipTanStackCheck builds an app whose TanStack Router is not the version tifa is tested
+	// with, see bundle.CheckTanStack.
+	SkipTanStackCheck bool
 }
 
 type Server struct {
@@ -81,6 +84,7 @@ func fields(c *Config) []field {
 	return []field{
 		{"build.target", "JavaScript target of the browser bundle", stringValue{&c.Build.Target}},
 		{"build.public", "Directory of static files copied as is", stringValue{&c.Build.Public}},
+		{"build.skip_tanstack_check", "Build with a TanStack Router version tifa is not tested with", boolValue{&c.Build.SkipTanStackCheck}},
 		{"server.addr", "HTTP listen address", stringValue{&c.Server.Addr}},
 		{"server.body_limit", "Request body limit", sizeValue{&c.Server.BodyLimit, 1}},
 		{"server.shutdown_timeout", "Time allowed for in-flight requests, and then for OnShutdown, after a stop signal", durationValue{&c.Server.ShutdownTimeout}},
@@ -225,6 +229,8 @@ func accepts(kind, typ string) bool {
 		return typ == "number"
 	case "size":
 		return typ == "string" || typ == "number" // 1MiB or a plain byte count
+	case "bool":
+		return typ == "bool"
 	default:
 		return typ == "string"
 	}

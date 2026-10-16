@@ -15,6 +15,7 @@ import (
 	"github.com/liustack/tifa/internal/analyze"
 	"github.com/liustack/tifa/internal/bundle"
 	"github.com/liustack/tifa/internal/codegen"
+	"github.com/liustack/tifa/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -54,6 +55,9 @@ Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 				return err
 			}
 			_, pages := files["client.ts"]
+			if err := checkTanStack(root, settings, pages); err != nil {
+				return err
+			}
 			id, err := bundle.App(node, root, filepath.Join(root, settings.Public), pages)
 			if err != nil {
 				return err
@@ -75,6 +79,15 @@ Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 	cmd.Flags().StringVar(&dir, "dir", ".", "application root, the directory holding go.mod and app/")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "executable path (default bin/<last element of the module path>)")
 	return cmd
+}
+
+// checkTanStack checks the TanStack Router of an app with pages, see bundle.CheckTanStack, unless
+// the project file sets build.skip_tanstack_check.
+func checkTanStack(root string, settings config.Build, pages bool) error {
+	if !pages || settings.SkipTanStackCheck {
+		return nil
+	}
+	return bundle.CheckTanStack(root)
 }
 
 // analyzeApp runs the static analysis and prints each convention violation on its own line.

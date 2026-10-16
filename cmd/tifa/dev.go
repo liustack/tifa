@@ -159,6 +159,9 @@ func (p *devPipeline) Bundle(ctx context.Context) (string, error) {
 		return "", err
 	}
 	_, pages := files["client.ts"]
+	if err := checkTanStack(p.root, settings, pages); err != nil {
+		return "", err
+	}
 	_, err = p.front.Build(ctx, filepath.Join(p.root, settings.Public), pages)
 	return "", err
 }

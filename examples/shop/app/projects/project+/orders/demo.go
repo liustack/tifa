@@ -11,9 +11,15 @@ import (
 // written out, the older ones follow fixed rules from the catalogues and customers below, so the
 // data is the same at every start. Only the newest orders wait to be shipped.
 
+// at returns the instant of a wall clock time in China, where both shops trade. The instant stays
+// the same whatever zone a shop is later moved to.
 func at(month time.Month, day, hour, minute int) time.Time {
-	return time.Date(2026, month, day, hour, minute, 0, 0, shopZone)
+	return time.Date(2026, month, day, hour, minute, 0, 0, chinaTime)
 }
+
+// chinaTime is China Standard Time. China has no daylight saving time, so a fixed zone needs no
+// zone database.
+var chinaTime = time.FixedZone("CST", 8*3600)
 
 type customer struct{ name, phone, email, address string }
 
@@ -105,7 +111,7 @@ func order(id, projectID string, buyer int, placed time.Time, items ...itemRecor
 
 // shipped returns o shipped with carrier under tracking, hours after it was placed.
 func shipped(o orderRecord, carrier, tracking string, hours int) orderRecord {
-	o.Shipment = &Shipment{Carrier: carrier, TrackingNo: tracking, ShippedAt: o.PlacedAt.Add(time.Duration(hours) * time.Hour)}
+	o.Shipment = &shipmentRecord{Carrier: carrier, TrackingNo: tracking, ShippedAt: o.PlacedAt.Add(time.Duration(hours) * time.Hour)}
 	return o
 }
 

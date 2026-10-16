@@ -9,7 +9,9 @@ import (
 	"github.com/liustack/tifa"
 )
 
-// OnRequest refuses writes from other sites: a POST must come from a page of this host.
+// OnRequest refuses writes from other sites: every request other than GET and HEAD, such as the
+// POST that ships an order or the PATCH that changes its recipient, must carry the Origin of a
+// page of this host.
 func OnRequest(c *tifa.Ctx) error {
 	r := c.Request()
 	if r.Method != "GET" && r.Method != "HEAD" {

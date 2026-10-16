@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -112,7 +114,8 @@ func TestPageRendersWithTheResultsOfItsChain(t *testing.T) {
 	if len(data) != 3 || data["app/projects"].Status != 200 || data["app/projects/orders"].Status != 200 {
 		t.Errorf("data %s", in.Data)
 	}
-	if !strings.Contains(w.Body.String(), `"app/projects/orders":{"status":200,"data":["p1-1","p1-2"]}`) {
+	// The data of each route comes as the JSON text Go wrote, which the page carries as it is.
+	if !strings.Contains(w.Body.String(), `"app/projects/orders":{"status":200,"json":"[\"p1-1\",\"p1-2\"]"}`) {
 		t.Errorf("body %s", w.Body.String())
 	}
 }
@@ -179,7 +182,7 @@ func TestPageWithoutSSRCarriesItsData(t *testing.T) {
 		`<link rel="stylesheet" href="/assets/app-1.css">`,
 		`<script type="application/json" id="tifa-data">`,
 		`<body><div id="tifa-root"></div>`,
-		`"buildId":"b1"`, `"app/layout":{"status":200,"data":{"name":"shop"}}`,
+		`"buildId":"b1"`, `"app/layout":{"status":200,"json":"{\"name\":\"shop\"}"}`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("lacks %s:\n%s", want, body)
@@ -435,7 +438,7 @@ func TestOpenFrontRendersWithTheBundle(t *testing.T) {
 		"assets/app-9.js": "hydrate()",
 		"ssr.js": `globalThis.startRender = (json) => {
   const input = JSON.parse(json)
-  globalThis.renderResult = '<!DOCTYPE html><p>' + input.buildId + ' ' + input.url + ' ' + input.data['app/layout'].data.name + '</p>'
+  globalThis.renderResult = '<!DOCTYPE html><p>' + input.buildId + ' ' + input.url + ' ' + JSON.parse(input.data['app/layout'].json).name + '</p>'
 }`,
 	}
 	for name, content := range files {
@@ -547,5 +550,28 @@ func TestFailedRenderIsNotCached(t *testing.T) {
 	}
 	if r.count() != 2 || len(reported) != 2 {
 		t.Errorf("%d renders, OnError got %v", r.count(), reported)
+	}
+}
+
+// The render reads the data of a Load as the JSON text Go writes, and the page carries that text,
+// so a -0 reaches the browser as the -0 the server rendered.
+func TestInjectedResultsKeepTheJSONGoWrites(t *testing.T) {
+	items, err := injectedResults(map[string]routeResult{
+		"app/route":  {Status: 200, Data: map[string]any{"z": math.Copysign(0, -1), "list": []float64{math.Copysign(0, -1), 1}}},
+		"app/layout": {Status: 200},
+		"app/gone":   {Status: 404},
+		"app/moved":  {Status: 303, Location: "/x"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]routeResult{
+		"app/route":  {Status: 200, JSON: `{"list":[-0,1],"z":-0}`},
+		"app/layout": {Status: 200, JSON: "null"},
+		"app/gone":   {Status: 404},
+		"app/moved":  {Status: 303, Location: "/x"},
+	}
+	if !reflect.DeepEqual(items, want) {
+		t.Fatalf("got %+v, want %+v", items, want)
 	}
 }

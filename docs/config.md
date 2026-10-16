@@ -46,6 +46,7 @@ Run `./bin/app config` to print the merged settings of all sources as a commente
 | --- | --- | --- | --- |
 | `build.target` | `es2020` | project file only | JavaScript target of the browser bundle that Vite builds, a comma-separated list: one ECMAScript version (`es2015` to `es2029`, `esnext`) plus browsers with versions, from chrome, edge, firefox, ios, opera and safari, such as `es2019,chrome90,safari14`. The SSR bundle always targets ES2022 |
 | `build.public` | `public` | project file only | Folder of static files copied into the program as they are and served from `/` |
+| `build.skip_tanstack_check` | `false` | project file only | `true` builds an app whose TanStack Router is not the version tifa is tested with, which may leave pages blank in the browser. See [build.md](build.md#the-apps-tsconfig-and-vite-config) |
 | `server.addr` | `127.0.0.1:9527` | `--server-addr`, `TIFA_SERVER_ADDR` | Address to listen on. Use `0.0.0.0:9527` in a container |
 | `server.body_limit` | `1MiB` | `--server-body-limit`, `TIFA_SERVER_BODY_LIMIT` | Largest request body. A bigger one is answered with 413 |
 | `server.shutdown_timeout` | `10s` | `--server-shutdown-timeout`, `TIFA_SERVER_SHUTDOWN_TIMEOUT` | After a stop signal, the time in-flight requests get to finish, and then the time `OnShutdown` gets. Requests still running when it ends are canceled and get one more `shutdown_timeout` to return. `OnShutdown` runs once they have returned and is skipped if they have not. Either way the program exits with status 1 |
@@ -59,6 +60,7 @@ Run `./bin/app config` to print the merged settings of all sources as a commente
 - Sizes are whole numbers with an optional unit: `B`, `KiB`, `MiB` or `GiB`, such as `512KiB`. A plain number is bytes. Only `cache.size` may be 0.
 - Durations use Go's format and must be positive: `500ms`, `3s`, `1m30s`.
 - `ssr.vms` is a whole number of at least 1.
+- `build.skip_tanstack_check` is `true` or `false`, without quotes.
 
 ## Errors
 

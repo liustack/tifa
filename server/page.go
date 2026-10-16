@@ -205,10 +205,32 @@ func serveFile(w http.ResponseWriter, r *http.Request, fsys fs.FS, name, cache s
 
 // routeResult is the outcome of one Load as the browser reads it (RouteResult in data.ts).
 type routeResult struct {
-	Status   int    `json:"status"`
-	Data     any    `json:"data,omitempty"`
+	Status int `json:"status"`
+	Data   any `json:"data,omitempty"`
+	// JSON holds Data as the JSON text Go writes, in place of Data, in the results Go puts into
+	// a page (InjectedResult in data.ts), see injectedResults.
+	JSON     string `json:"json,omitempty"`
 	Error    string `json:"error,omitempty"`
 	Location string `json:"location,omitempty"`
+}
+
+// injectedResults gives each successful result its data as the JSON text Go writes. The render
+// parses that text, and the page carries it to the browser as it is, so the server and the
+// browser read the same values. A JSON writer in the VM would write -0 as 0, and a page that
+// formats it with Intl would then hydrate other text than the server rendered.
+func injectedResults(items map[string]routeResult) (map[string]routeResult, error) {
+	out := make(map[string]routeResult, len(items))
+	for id, item := range items {
+		if item.Status == http.StatusOK {
+			text, err := json.Marshal(item.Data)
+			if err != nil {
+				return nil, err
+			}
+			item.Data, item.JSON = nil, string(text)
+		}
+		out[id] = item
+	}
+	return out, nil
 }
 
 // loadFailure is what a page returns from Next when a Load of the loaded routes failed. Its
@@ -393,7 +415,11 @@ type dataRedirect struct {
 // If-None-Match is answered 304, and with cache the HTML of an earlier render is reused.
 func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status int, cache bool) error {
 	r := c.Request()
-	data, err := json.Marshal(items)
+	injected, err := injectedResults(items)
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(injected)
 	if err != nil {
 		return err
 	}
@@ -456,8 +482,12 @@ func etagMatches(header, etag string) bool {
 // renders into #tifa-root and writes the head of the routes, the viewport meta among it.
 func (s *Server) dataOnly(c *tifa.Ctx, items map[string]routeResult, status int) error {
 	f := s.front.Load()
+	injected, err := injectedResults(items)
+	if err != nil {
+		return err
+	}
 	boot, err := json.Marshal(map[string]any{
-		"url": c.Request().URL.RequestURI(), "buildId": f.build.ID, "data": items,
+		"url": c.Request().URL.RequestURI(), "buildId": f.build.ID, "data": injected,
 	})
 	if err != nil {
 		return err

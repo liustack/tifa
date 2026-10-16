@@ -113,10 +113,10 @@ func view(o orderRecord) Order {
 		Phone: o.Phone, Email: o.Email, Address: o.Address, PlacedAt: o.PlacedAt, Status: status(o),
 		TotalCents: total(o), Items: []LineItem{},
 	}
-	if o.Shipment != nil {
-		s := *o.Shipment
-		s.CarrierName = carrierName(s.Carrier)
-		order.Shipment = &s
+	if s := o.Shipment; s != nil {
+		order.Shipment = &Shipment{
+			Carrier: s.Carrier, CarrierName: carrierName(s.Carrier), TrackingNo: s.TrackingNo, ShippedAt: s.ShippedAt,
+		}
 	}
 	for _, item := range o.Items {
 		order.Items = append(order.Items, LineItem{
@@ -155,8 +155,14 @@ type orderRecord struct {
 	Email     string
 	Address   string
 	PlacedAt  time.Time
-	Shipment  *Shipment
+	Shipment  *shipmentRecord // nil until the order ships
 	Items     []itemRecord
+}
+
+type shipmentRecord struct {
+	Carrier    string // a code of Carriers
+	TrackingNo string
+	ShippedAt  time.Time
 }
 
 type itemRecord struct {
