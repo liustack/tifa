@@ -29,8 +29,8 @@ import (
 //	                          and print its PID first
 //
 // POST requests get their body back, GET /exit makes the app print "fatal: the disk is full" to
-// stderr and exit with status 3, GET /pid answers
-// the process ID. The app prints "shutdown done" once it stopped after an interrupt.
+// stderr and exit with status 3, GET /pid answers the process ID, GET /cwd the working directory.
+// The app prints "shutdown done" once it stopped after an interrupt.
 func TestMain(m *testing.M) {
 	if os.Getenv("TIFA_TEST_FILE_LIMIT") != "" {
 		watchWithFileLimit()
@@ -109,6 +109,14 @@ func fakeApp() error {
 		switch {
 		case r.URL.Path == "/pid":
 			_, _ = io.WriteString(w, strconv.Itoa(os.Getpid()))
+			return
+		case r.URL.Path == "/cwd":
+			wd, err := os.Getwd()
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			_, _ = io.WriteString(w, wd)
 			return
 		case r.URL.Path == "/bundle":
 			bundleMu.Lock()

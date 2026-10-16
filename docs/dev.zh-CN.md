@@ -100,6 +100,8 @@ tifa dev: 07:36:30 ready in 58.3s, open http://127.0.0.1:9527
 | `.tifa/dist/` | SSR 包、`build.json` 和公共文件。浏览器模块改由 Vite 开发服务器提供 |
 | `bin/tifa-dev` | 开发用的可执行文件 |
 
+应用在应用根目录里运行，从别的目录用 `--dir` 启动 tifa dev 时也一样，和在应用根目录里运行 `tifa build` 出的程序一致。应用按相对路径打开的文件，比如 [tifa new](build.zh-CN.md#tifa-new) 模板里的 `app.db`，都落在这里。
+
 停止应用时最多等配置里 `server.shutdown_timeout` 的 3 倍再加 1 秒，超时就强行结束整个进程组。
 
 ## 大应用

@@ -100,6 +100,8 @@ Reloads and the overlay come over tifa dev's own connection, `/__tifa/dev/events
 | `.tifa/dist/` | The SSR bundle, `build.json` and the public files. The browser modules come from Vite's dev server instead |
 | `bin/tifa-dev` | The dev executable |
 
+The app runs in the app root, also when tifa dev starts elsewhere with `--dir`, the same as the program `tifa build` makes when you run it from the app root. Files the app opens by a relative path, such as the `app.db` of the [tifa new](build.md#tifa-new) template, land there.
+
 When stopping the app, tifa dev waits at most 3 times the configured `server.shutdown_timeout` plus 1 second, then kills the whole process group.
 
 ## Large apps

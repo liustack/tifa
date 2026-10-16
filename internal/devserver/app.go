@@ -28,10 +28,11 @@ type app struct {
 	stderr tail
 }
 
-// startApp runs command with TIFA_SERVER_ADDR set to addr, which the application's
+// startApp runs command in dir with TIFA_SERVER_ADDR set to addr, which the application's
 // configuration reads as server.addr.
-func startApp(command []string, addr string, stdout, stderr io.Writer) (*app, error) {
+func startApp(command []string, dir, addr string, stdout, stderr io.Writer) (*app, error) {
 	cmd := exec.Command(command[0], command[1:]...)
+	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "TIFA_SERVER_ADDR="+addr)
 	a := &app{cmd: cmd, done: make(chan struct{})}
 	// Wait returns once the output is copied, so the tail is complete when done is closed.

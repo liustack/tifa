@@ -264,6 +264,21 @@ func TestRunRebuildsAndKeepsTheOldAppOnFailure(t *testing.T) {
 	expectPage(t, d.url+"/", "build 3")
 }
 
+// The app runs in the app directory, wherever tifa dev was started, so files it opens by a
+// relative path, such as app.db, land there as they do for the built program run from it.
+func TestRunStartsTheAppInTheAppDirectory(t *testing.T) {
+	d := startDev(t, "")
+	d.waitVersionAfter(t, "")
+	want, err := filepath.EvalSymlinks(d.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, wd := get(t, d.url+"/cwd")
+	if got, err := filepath.EvalSymlinks(wd); status != 200 || err != nil || got != want {
+		t.Fatalf("the app runs in %q (%d, %v), want %q", wd, status, err, want)
+	}
+}
+
 // A page requested while the SSR bundle is rebuilt waits for the app that serves the new one, so
 // it never shows the old server render.
 func TestRunHoldsPagesWhileBundling(t *testing.T) {
