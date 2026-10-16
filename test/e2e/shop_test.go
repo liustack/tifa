@@ -77,6 +77,14 @@ func TestShopApp(t *testing.T) {
 	if strings.Contains(rendered, "SH-1032") || !strings.Contains(list, `\"id\":\"SH-1001\"`) {
 		t.Errorf("the order list renders other than its first page, or lacks the data of the others:\n%s", list)
 	}
+	// The stats page renders its key numbers. The charts draw in the browser only, so the HTML has
+	// their empty wrappers of a fixed size.
+	status, _, stats := get(t, base+"/projects/studio/stats")
+	for _, want := range []string{"<title>销售统计 · 山海工作台</title>", "销售额", "¥14,134.00", "95.2%", "热销商品", `class="recharts-wrapper"`} {
+		if status != 200 || !strings.Contains(stats, want) {
+			t.Errorf("stats page: %d lacks %s", status, want)
+		}
+	}
 	// Same data, same ETag: 304. The order page sets Cache = true: the next request skips the VM.
 	if status, _, _ := get(t, detail, "If-None-Match", header.Get("ETag")); status != 304 {
 		t.Errorf("If-None-Match: %d", status)
@@ -93,6 +101,7 @@ func TestShopApp(t *testing.T) {
 	}{
 		{"/projects/studio/orders/WK-0201", ">没有找到这个订单</div>", true},
 		{"/projects/nope", "没有找到这个页面", true},
+		{"/projects/nope/stats", "没有找到这个页面", true},
 		{"/nowhere", "没有找到这个页面", false},
 	} {
 		status, _, body := get(t, base+tc.path)

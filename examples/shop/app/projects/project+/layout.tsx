@@ -1,5 +1,5 @@
-import { Outlet } from '@tanstack/react-router'
-import { ChevronDown, NotebookPen } from 'lucide-react'
+import { Link, Outlet, useMatchRoute } from '@tanstack/react-router'
+import { ChartColumn, ChevronDown, NotebookPen, ReceiptText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { AnimatedNumber } from '../../animated-number'
@@ -44,7 +44,29 @@ export default function ProjectLayout() {
           </div>
         </CollapsibleContent>
       </Collapsible>
+      <ProjectNav project={project.id} />
       <Outlet />
     </div>
+  )
+}
+
+const tab =
+  'inline-flex items-center gap-1.5 border-b-2 border-transparent px-1 pb-2.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground data-[current=true]:border-primary data-[current=true]:text-foreground [&_svg]:size-4'
+
+// ProjectNav switches between the orders of the shop, with their detail pages, and its stats.
+function ProjectNav({ project }: { project: string }) {
+  const matchRoute = useMatchRoute()
+  const stats = Boolean(matchRoute({ to: '/projects/$project/stats', params: { project } }))
+  return (
+    <nav aria-label="店铺页面" className="-mt-2 flex gap-6 border-b">
+      <Link to="/projects/$project" params={{ project }} activeOptions={{ exact: true }} className={tab} data-current={!stats}>
+        <ReceiptText />
+        订单
+      </Link>
+      <Link to="/projects/$project/stats" params={{ project }} className={tab} data-current={stats}>
+        <ChartColumn />
+        统计
+      </Link>
+    </nav>
   )
 }

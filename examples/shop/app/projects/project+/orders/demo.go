@@ -11,10 +11,6 @@ import (
 // written out, the older ones follow fixed rules from the catalogues and customers below, so the
 // data is the same at every start. Only the newest orders wait to be shipped.
 
-// shopZone is the zone the shops trade in, China Standard Time. China has no daylight saving time,
-// so a fixed zone needs no zoneinfo.
-var shopZone = time.FixedZone("CST", 8*3600)
-
 func at(month time.Month, day, hour, minute int) time.Time {
 	return time.Date(2026, month, day, hour, minute, 0, 0, shopZone)
 }

@@ -1,8 +1,6 @@
-import type { ReactNode } from 'react'
 import { useTable } from '@tanstack/react-table'
 import { ChevronLeft, ChevronRight, Search, SearchX } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -10,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AnimatedNumber } from '../../animated-number'
 import { yuan } from '../../format'
 import { columns, features, type Row } from './columns'
+import { SummaryCard } from './summary-card'
 import { route } from './+route'
 
 const noOrders: Row[] = []
@@ -35,15 +34,15 @@ export default function OrdersPage() {
   return (
     <section aria-labelledby="orders-title" className="flex flex-col gap-6">
       <div className="grid gap-4 sm:grid-cols-3">
-        <Summary title="订单总额" note="所有订单累计">
+        <SummaryCard title="订单总额" note="所有订单累计">
           <AnimatedNumber value={list.revenueCents} format={yuan} />
-        </Summary>
-        <Summary title="待发货" note="等待打包的心意">
+        </SummaryCard>
+        <SummaryCard title="待发货" note="等待打包的心意">
           <AnimatedNumber value={list.pending} />
-        </Summary>
-        <Summary title="已发货" note="正在奔赴下一站">
+        </SummaryCard>
+        <SummaryCard title="已发货" note="正在奔赴下一站">
           <AnimatedNumber value={list.shipped} />
-        </Summary>
+        </SummaryCard>
       </div>
 
       <Tabs
@@ -165,17 +164,5 @@ export default function OrdersPage() {
         </TabsContent>
       </Tabs>
     </section>
-  )
-}
-
-function Summary({ title, note, children }: { title: string; note: string; children: ReactNode }) {
-  return (
-    <Card className="gap-1">
-      <CardHeader>
-        <CardDescription>{title}</CardDescription>
-        <CardTitle className="text-3xl font-semibold tabular-nums">{children}</CardTitle>
-      </CardHeader>
-      <CardContent className="text-xs text-muted-foreground">{note}</CardContent>
-    </Card>
   )
 }
