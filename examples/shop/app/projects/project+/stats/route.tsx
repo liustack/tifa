@@ -7,6 +7,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AnimatedNumber } from '../../../animated-number'
 import { day, orderDate, percent, wholeYuan, yuan } from '../../../format'
+import { route as projectRoute, type Data as Project } from '../+layout'
 import { SummaryCard } from '../summary-card'
 import { route } from './+route'
 
@@ -147,6 +148,8 @@ export default function StatsPage() {
   )
 }
 
-export const head = () => ({
-  meta: [{ title: '销售统计 · 山海工作台' }],
-})
+// The title names the shop, which the project Layout loads.
+export const head = ({ matches }: { matches: Array<{ routeId: string; loaderData?: unknown }> }) => {
+  const project = matches.find((m) => m.routeId === projectRoute.id)?.loaderData as Project | undefined
+  return { meta: project ? [{ title: `销售统计 · ${project.name} · 山海工作台` }] : [] }
+}

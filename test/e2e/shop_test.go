@@ -80,7 +80,7 @@ func TestShopApp(t *testing.T) {
 	// The stats page renders its key numbers. The charts draw in the browser only, so the HTML has
 	// their empty wrappers of a fixed size.
 	status, _, stats := get(t, base+"/projects/studio/stats")
-	for _, want := range []string{"<title>销售统计 · 山海工作台</title>", "销售额", "¥14,134.00", "95.2%", "热销商品", `class="recharts-wrapper"`} {
+	for _, want := range []string{"<title>销售统计 · 山海工作室 · 山海工作台</title>", "销售额", "¥14,134.00", "95.2%", "热销商品", `class="recharts-wrapper"`} {
 		if status != 200 || !strings.Contains(stats, want) {
 			t.Errorf("stats page: %d lacks %s", status, want)
 		}
