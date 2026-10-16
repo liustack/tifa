@@ -45,7 +45,7 @@ var shopRoutes = []struct{ url, routes string }{
 // shopBundle returns the shop's SSR bundle and its four comparison pages. The data of each
 // page is what the shop's own program injects: the test runs bin/shop and asks it for the
 // navigation data of each page, which has the same form as the injected data.
-func shopBundle(t *testing.T) (string, []shopPage) {
+func shopBundle(t testing.TB) (string, []shopPage) {
 	t.Helper()
 	if os.Getenv("TIFA_SSR_SHOP") == "" {
 		t.Skip("set TIFA_SSR_SHOP=1 after running tifa build in examples/shop")
@@ -92,7 +92,7 @@ func shopBundle(t *testing.T) (string, []shopPage) {
 var listening = regexp.MustCompile(`listening on (http://\S+)`)
 
 // startShop runs the shop's program built by tifa build and returns its base URL.
-func startShop(t *testing.T) string {
+func startShop(t testing.TB) string {
 	t.Helper()
 	cmd := exec.Command(filepath.Join(shopDir, "bin", "shop"), "--server-addr", "127.0.0.1:0")
 	// The program rejects unknown TIFA_* variables as settings, TIFA_SSR_SHOP among them.
@@ -130,7 +130,7 @@ func startShop(t *testing.T) string {
 	}
 }
 
-func (page shopPage) check(t *testing.T, html string) {
+func (page shopPage) check(t testing.TB, html string) {
 	t.Helper()
 	if !strings.Contains(html, page.want) || strings.Contains(html, page.forbidden) || !strings.Contains(html, "data-tsr-stream-part") {
 		t.Fatalf("wrong HTML for %s", page.input.URL)

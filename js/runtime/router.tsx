@@ -63,10 +63,27 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
     },
   })
   // The constructor options leave serialization adapters to TanStack Start, the router reads
-  // them from its options when it dehydrates and hydrates.
-  router.options.serializationAdapters = [routeErrorAdapter]
+  // them from its options when it dehydrates and hydrates. Setting them on a router of its own
+  // is not documented (TanStack/router#7796), so the router tests check that loader data still
+  // goes through loaderDataAdapter.
+  router.options.serializationAdapters = [loaderDataAdapter, routeErrorAdapter]
   return router
 }
+
+// fromGo holds the objects load returned as route data. Go sent them as JSON, so JSON writes
+// them back as they are.
+const fromGo = new WeakSet<object>()
+
+// loaderDataAdapter writes the data of a Load into the page as one JSON string, read back with
+// JSON.parse in the browser. The default serializer walks every value and escapes strings one
+// character at a time, which takes several times as long in the VM for the same data. Other
+// values the router writes, such as errors, still go through the default serializer.
+const loaderDataAdapter = createSerializationAdapter({
+  key: 'tifa.data',
+  test: (value): value is object => typeof value === 'object' && value !== null && fromGo.has(value),
+  toSerializable: (value: object) => JSON.stringify(value),
+  fromSerializable: (text: string) => JSON.parse(text) as object,
+})
 
 // routeErrorAdapter carries a RouteError from the server render to the browser as a
 // RouteError with its status. The default serializer would make it a plain Error, and the
@@ -88,7 +105,10 @@ export async function load<T>(
   location: { pathname: string; searchStr: string },
 ): Promise<T> {
   const result = await context.source(location.pathname + location.searchStr, id)
-  if (result.status === 200) return result.data as T
+  if (result.status === 200) {
+    if (typeof result.data === 'object' && result.data !== null) fromGo.add(result.data)
+    return result.data as T
+  }
   if (result.status === 404) throw notFound()
   if (result.location !== undefined) throw redirect({ href: result.location, statusCode: result.status })
   throw new RouteError(result.status, result.error ?? `route ${id} failed with status ${result.status}`)
