@@ -18,6 +18,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/liustack/tifa/internal/bundle"
 	"github.com/liustack/tifa/internal/config"
 	"github.com/spf13/cobra"
 	"golang.org/x/mod/module"
@@ -40,6 +41,9 @@ type newApp struct {
 	Version string // the tifa version in go.mod
 	Install string // the command that installs the npm packages: pnpm install or npm install
 	Run     string // the command that runs a package.json script: pnpm or npm run
+	// ReactRouter is the version of @tanstack/react-router in package.json, the one tifa is
+	// tested with.
+	ReactRouter string
 }
 
 // lookPath finds a program on PATH. Tests replace it.
@@ -143,7 +147,7 @@ func appNames(modulePath string, fromFolder bool) (newApp, error) {
 	if len(npm) > 214 { // the longest npm name
 		npm = npm[:214]
 	}
-	return newApp{Module: modulePath, Package: pkg, Title: title, NPM: npm}, nil
+	return newApp{Module: modulePath, Package: pkg, Title: title, NPM: npm, ReactRouter: bundle.TestedReactRouter}, nil
 }
 
 // rootNameClashes lists the names a root package may not have, each with what already uses it.

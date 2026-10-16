@@ -6,7 +6,7 @@ This is a [tifa](https://github.com/liustack/tifa) app. Go routes requests, load
 
 | Command | What it does |
 | --- | --- |
-| `{{.Install}}` | Install the npm packages (React, TanStack Router, TypeScript, Vite) |
+| `{{.Install}}` | Install the npm packages (React, TanStack Router, TypeScript, Vite). Keep `@tanstack/react-router` at the version in `package.json`: `tifa build` refuses another one, since tifa is tested with that version only |
 | `go tool tifa dev` | Run at http://127.0.0.1:9527. A TSX or CSS edit updates the open page in place through Vite, a Go or `tifa.yaml` edit rebuilds and reloads it |
 | `go tool tifa build` | Generate `.tifa/`, bundle the front end with Vite and build `bin/` |
 | `go test ./...` and `go vet ./...` | Test and check the Go code |

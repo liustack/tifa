@@ -23,6 +23,7 @@ import (
 	"github.com/spf13/pflag"
 	"golang.org/x/mod/modfile"
 
+	"github.com/liustack/tifa/internal/bundle"
 	"github.com/liustack/tifa/internal/config"
 )
 
@@ -303,7 +304,7 @@ func TestRootNameClashesMatchTheTemplate(t *testing.T) {
 		return nil
 	}
 	app := func(module, pkg string) newApp {
-		return newApp{Module: module, Package: pkg, Title: pkg, NPM: pkg, Go: "1.27.0", Version: "v0.0.0", Install: "npm install", Run: "npm run"}
+		return newApp{Module: module, Package: pkg, Title: pkg, NPM: pkg, Go: "1.27.0", Version: "v0.0.0", Install: "npm install", Run: "npm run", ReactRouter: bundle.TestedReactRouter}
 	}
 	// Tidy one app, and give each app below its go.mod and go.sum, which do not depend on the name.
 	base := filepath.Join(t.TempDir(), "base")
