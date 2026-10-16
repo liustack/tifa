@@ -397,7 +397,11 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	log.Printf("tifa: listening on http://%s", ln.Addr())
+	// Under DevMain the app listens on an address only tifa dev talks to, and tifa dev prints
+	// the one to open.
+	if s.dev == nil {
+		log.Printf("tifa: listening on http://%s", ln.Addr())
+	}
 	return s.Serve(ctx, ln)
 }
 

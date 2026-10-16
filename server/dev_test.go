@@ -165,6 +165,27 @@ func TestOnlyDevMainWarnsAboutIntlDefaults(t *testing.T) {
 	}
 }
 
+// Under tifa dev the app listens on an address only tifa dev talks to, and tifa dev prints the
+// one to open. The app keeps quiet about its own.
+func TestOnlyMainLogsTheListeningAddress(t *testing.T) {
+	var logs syncBuffer
+	log.SetOutput(&logs)
+	defer log.SetOutput(os.Stderr)
+	for _, dev := range []bool{false, true} {
+		logs.reset()
+		dir := t.TempDir()
+		writeBundle(t, dir, "page")
+		base := serveApp(t, frontApp(), dev, "--dist", dir)
+		// An answer comes once the app serves, after it logged or did not.
+		if code, _ := fetch(t, "GET", base+"/"); code != 200 {
+			t.Fatalf("dev %t: page %d", dev, code)
+		}
+		if got := strings.Contains(logs.String(), "tifa: listening on "+base); got == dev {
+			t.Errorf("dev %t: logged the address %t:\n%s", dev, got, logs.String())
+		}
+	}
+}
+
 // syncBuffer is a bytes.Buffer the log package and the test can share.
 type syncBuffer struct {
 	mu  sync.Mutex
@@ -181,6 +202,12 @@ func (b *syncBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buf.String()
+}
+
+func (b *syncBuffer) reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.buf.Reset()
 }
 
 // Main, the entry of production builds, has no reload entry: the path is an ordinary URL of the
