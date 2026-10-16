@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // exprBundle renders the value of each expression in data.exprs, one per line in a <pre>.
@@ -56,6 +59,33 @@ func TestIntlDefaultsToEnglishAndUTC(t *testing.T) {
 		if got := renderExprs(t, p, tc.expr)[0]; got != tc.want {
 			t.Errorf("%s = %q, want %q", tc.expr, got, tc.want)
 		}
+	}
+}
+
+// The local time of a page's Date is UTC whatever zone the process has, so a page renders the
+// same on a laptop in Shanghai and on a server in UTC. The Go code of the app keeps the zone of
+// the process. The child process starts in Asia/Shanghai, as a developer's machine would.
+func TestLocalTimeIsUTCAndGoKeepsItsZone(t *testing.T) {
+	if os.Getenv("TIFA_TEST_ZONE") == "1" {
+		p := newTestPool(t, exprBundle, testConfig(1))
+		got := renderExprs(t, p,
+			`new Date(2026, 6, 1).getTimezoneOffset()`,
+			`new Date(0).getHours()`,
+			`new Date(0).toString()`,
+			`new Date(Date.UTC(2025, 7, 16, 20, 5, 9)).toLocaleString()`)
+		_, offset := time.Date(2026, 7, 1, 0, 0, 0, 0, time.Local).Zone()
+		fmt.Printf("js=%s go=%d\n", strings.Join(got, "|"), offset)
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run", "^TestLocalTimeIsUTCAndGoKeepsItsZone$", "-test.count=1", "-test.v", "-test.timeout=20s")
+	cmd.Env = append(os.Environ(), "TIFA_TEST_ZONE=1", "TZ=Asia/Shanghai")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("child: %v\n%s", err, out)
+	}
+	want := "js=0|0|Thu Jan 01 1970 00:00:00 GMT+0000|8/16/2025, 8:05:09 PM go=28800"
+	if !strings.Contains(string(out), want) {
+		t.Fatalf("want %s in:\n%s", want, out)
 	}
 }
 

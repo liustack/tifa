@@ -34,7 +34,9 @@ func compile(source string, memory uintptr, timeout time.Duration) (bytecode []b
 // loader, so rendering cannot do I/O.
 //
 // Intl formats in en-US and UTC when a page passes no locale or timeZone, never in the host's
-// language or zone. intl.Register only puts stand-ins on the VM: the first use of Intl or a
+// language or zone. The local time of Date (getHours, toString, new Date(2026, 0, 1)) is UTC
+// too: the engine's offset from UTC is always 0, and the zone of the process, which the app's
+// Go code uses, is left alone. intl.Register only puts stand-ins on the VM: the first use of Intl or a
 // toLocale* method installs the rest, so a VM whose pages never format costs a few KB more.
 // dev runs intlcheck.js too, which installs Intl at once to watch it.
 func load(bytecode []byte, memory uintptr, timeout time.Duration, dev bool) (*quickjs.VM, error) {
