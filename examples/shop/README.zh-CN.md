@@ -51,6 +51,7 @@ app/
         order+/                /projects/{project}/orders/{order}：订单详情，POST 发货，PATCH 改收货信息
           ship-form.tsx  recipient-dialog.tsx  items.tsx
       stats/                   /projects/{project}/stats：销售统计
+        revenue-chart.client.tsx  products-chart.client.tsx    两张图表，只在浏览器里加载
 ```
 
 每个领域放在 `app/` 下自己的目录里，和展示它的页面、它的测试在一起：`app/projects` 是店铺领域，`app/projects/project+/orders` 是订单领域，放在单个订单目录的上一层，而不是放进单个订单的目录里。根包只放钩子。存储放在内存里，自带演示数据，代替数据库表，重启后恢复初始值。`app/` 下每层目录是 URL 的一段，`route.go` 写调用领域包的 `Load`，订单页的 `route.go` 还有 `POST` 和 `PATCH`，它们的入参用 `Validate` 自己检查。`route.tsx` 写界面，用 `./+route` 读 `Load` 的结果。订单页和统计页通过店铺 Layout 读店铺：`tifa.Use(c, project.Layout)`。`app/route.go` 是 API 路由，它的 `GET` 把 `/` 重定向到店铺 `studio`。店铺领域要统计待发货的订单，所以 `projects` import `orders`，而 `orders` 既不 import `projects`，也不 import 页面。为什么这样组织见[哲学](../../docs/philosophy.zh-CN.md)，包之间按什么方向 import 见[应用的代码结构](../../docs/structure.zh-CN.md)。
@@ -67,7 +68,7 @@ Go 把时间作为时刻发给页面，页面用 `Intl` 按店铺时区格式化
 - 不填表单，或者填一个太短的运单号，点「确认发货」，浏览器马上提示错误。Go 会按同样的规则再查一遍，请求绕过浏览器时按字段返回错误。
 - 发一单货，订单状态、店铺的待发货数和返回后的列表合计一起更新。
 - 用「修改收货信息」改一个待发货订单的收货人。订单发出后按钮变灰，Go 也拒绝修改。
-- 打开统计页，在近 7 天和近 30 天之间切换。关键数字已经在 HTML 里，图表只在浏览器里画。
+- 打开统计页，在近 7 天和近 30 天之间切换。关键数字已经在 HTML 里。图表只在浏览器里加载和绘制，在此之前 HTML 里是同样高度的占位。图表的代码只在打开统计页时才下载。
 - 打开 `/projects/studio/orders/SH-0000`、`/projects/nope`、`/nowhere`，三种 404 分别显示在订单、根 Layout 和整页的位置。
 
 更多约定见 [构建与生成代码](../../docs/build.zh-CN.md) 和 [应用怎么写](../../docs/app.zh-CN.md)。

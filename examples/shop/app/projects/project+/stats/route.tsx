@@ -1,21 +1,24 @@
 import { useState } from 'react'
 import { ChartNoAxesColumn } from 'lucide-react'
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, LabelList, XAxis, YAxis } from 'recharts'
+import { clientOnly } from 'tifa/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AnimatedNumber } from '../../../animated-number'
-import { day, orderDate, percent, wholeYuan, yuan } from '../../../format'
+import { orderDate, percent, yuan } from '../../../format'
 import { route as projectRoute, type Data as Project } from '../+layout'
 import { SummaryCard } from '../summary-card'
 import { route } from './+route'
 
+// The charts measure their box and draw in the browser, so they stay out of the server render
+// and of the scripts every page loads. The server writes a placeholder of the same height.
+const chartPlaceholder = <Skeleton className="h-64 w-full" />
+const RevenueChart = clientOnly(() => import('./revenue-chart.client'), chartPlaceholder)
+const ProductsChart = clientOnly(() => import('./products-chart.client'), chartPlaceholder)
+
 const ranges = { '7': '近 7 天', '30': '近 30 天' } as const
 type Range = keyof typeof ranges
-
-const revenueConfig = { revenueCents: { label: '销售额', color: 'var(--chart-1)' } } satisfies ChartConfig
-const productConfig = { quantity: { label: '销量', color: 'var(--chart-2)' } } satisfies ChartConfig
 
 export default function StatsPage() {
   const { days: allDays, topProducts } = route.useLoaderData()
@@ -88,41 +91,7 @@ export default function StatsPage() {
             <CardDescription>{ranges[range]}，按下单日计算</CardDescription>
           </CardHeader>
           <CardContent>
-            <ChartContainer config={revenueConfig} className="aspect-auto h-64 w-full">
-              <AreaChart data={days} margin={{ left: 4, right: 12, top: 8 }}>
-                <defs>
-                  <linearGradient id="revenue-fill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--color-revenueCents)" stopOpacity={0.35} />
-                    <stop offset="95%" stopColor="var(--color-revenueCents)" stopOpacity={0.02} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid vertical={false} />
-                <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} minTickGap={24} tickFormatter={day} />
-                <YAxis width={72} tickLine={false} axisLine={false} tickFormatter={wholeYuan} />
-                <ChartTooltip
-                  cursor={false}
-                  content={
-                    <ChartTooltipContent
-                      indicator="line"
-                      labelFormatter={(date) => day(String(date))}
-                      formatter={(value) => (
-                        <div className="flex w-full justify-between gap-4">
-                          <span className="text-muted-foreground">销售额</span>
-                          <span className="font-medium tabular-nums">{yuan(Number(value))}</span>
-                        </div>
-                      )}
-                    />
-                  }
-                />
-                <Area
-                  dataKey="revenueCents"
-                  type="monotone"
-                  fill="url(#revenue-fill)"
-                  stroke="var(--color-revenueCents)"
-                  strokeWidth={2}
-                />
-              </AreaChart>
-            </ChartContainer>
+            <RevenueChart days={days} />
           </CardContent>
         </Card>
 
@@ -132,15 +101,7 @@ export default function StatsPage() {
             <CardDescription>近 30 天销量前 5</CardDescription>
           </CardHeader>
           <CardContent>
-            <ChartContainer config={productConfig} className="aspect-auto h-64 w-full">
-              <BarChart data={topProducts ?? []} layout="vertical" margin={{ right: 32 }}>
-                <XAxis type="number" dataKey="quantity" hide />
-                <YAxis type="category" dataKey="name" width={84} tickLine={false} axisLine={false} />
-                <Bar dataKey="quantity" fill="var(--color-quantity)" radius={4}>
-                  <LabelList dataKey="quantity" position="right" className="fill-foreground" fontSize={12} />
-                </Bar>
-              </BarChart>
-            </ChartContainer>
+            <ProductsChart products={topProducts ?? []} />
           </CardContent>
         </Card>
       </div>
