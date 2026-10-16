@@ -8,7 +8,7 @@ It shows what a tifa app looks like: how folders are grouped by business area, h
 
 ## Run it
 
-Run in the `examples/shop` folder. You need Go 1.27, Node and pnpm. The build bundles the front end with Vite on Node, and the built `bin/shop` runs without Node:
+Run in the `examples/shop` folder. You need Go 1.27, Node 20.19 or 22.12 and later, and pnpm. The build bundles the front end with Vite on Node, and the built `bin/shop` runs without Node:
 
 ```sh
 pnpm install --frozen-lockfile

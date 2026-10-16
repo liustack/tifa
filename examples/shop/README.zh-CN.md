@@ -8,7 +8,7 @@
 
 ## 运行
 
-在 `examples/shop` 目录执行，需要 Go 1.27、Node 和 pnpm。构建时用 Vite 在 Node 上打包前端，构建出的 `bin/shop` 运行时不需要 Node：
+在 `examples/shop` 目录执行，需要 Go 1.27、Node 20.19 或 22.12 及以上，以及 pnpm。构建时用 Vite 在 Node 上打包前端，构建出的 `bin/shop` 运行时不需要 Node：
 
 ```sh
 pnpm install --frozen-lockfile
