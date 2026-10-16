@@ -4,6 +4,7 @@ package main
 
 import (
 	"embed"
+	_ "time/tzdata"
 
 	"github.com/liustack/tifa/server"
 
