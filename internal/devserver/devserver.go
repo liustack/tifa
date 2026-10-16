@@ -165,7 +165,8 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 		}
 		app.ServeHTTP(w, r)
 	}))
-	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	unused := &unusedConns{m: map[net.Conn]struct{}{}}
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second, ConnState: unused.track}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	served := make(chan error, 1)
@@ -223,6 +224,7 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 		}
 	}
 	d.hub.close()
+	unused.close()
 	shutdown, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelShutdown()
 	err = srv.Shutdown(shutdown)
@@ -492,6 +494,32 @@ func (d *dev) watchExit(a *app) {
 	d.mu.Unlock()
 	if crashed {
 		d.log.Printf("the app stopped: %v", err)
+	}
+}
+
+// unusedConns keeps the connections that have not carried a request yet. Browsers open spare
+// ones, and http.Server.Shutdown waits up to 5s for each before it counts it as idle.
+type unusedConns struct {
+	mu sync.Mutex
+	m  map[net.Conn]struct{}
+}
+
+func (u *unusedConns) track(c net.Conn, st http.ConnState) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if st == http.StateNew {
+		u.m[c] = struct{}{}
+	} else {
+		delete(u.m, c)
+	}
+}
+
+// close closes them, so the shutdown waits only for the requests in flight.
+func (u *unusedConns) close() {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	for c := range u.m {
+		c.Close()
 	}
 }
 

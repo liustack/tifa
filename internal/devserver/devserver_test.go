@@ -615,6 +615,26 @@ func TestRunRefusesIncompleteOptions(t *testing.T) {
 	}
 }
 
+// Browsers open spare connections that may never carry a request. They do not hold up the
+// stop: http.Server.Shutdown waits up to 5s for such a connection.
+func TestRunStopsWithAnUnusedConnection(t *testing.T) {
+	var stopping time.Time
+	var conn net.Conn
+	t.Cleanup(func() { // runs after the cleanup of startDev, which waits for Run
+		if took := time.Since(stopping); took > 2*time.Second {
+			t.Errorf("Run returned %s after the cancel", took.Round(time.Millisecond))
+		}
+		conn.Close()
+	})
+	d := startDev(t, "")
+	d.waitVersionAfter(t, "")
+	conn, err := net.Dial("tcp", strings.TrimPrefix(d.url, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { stopping = time.Now() })
+}
+
 func TestRunStopsWhenServingFails(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
