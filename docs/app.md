@@ -1,5 +1,5 @@
 ---
-summary: 'How to write a tifa app: folder layout, how folders become URLs, route.go and route.tsx, Layouts, hooks.go, 404s, the SSR and cache switches, formatting with Intl so hydration matches, styles with Tailwind CSS and shadcn/ui, how to test Go route code, how Load may use Ctx, method handlers with typed input and result, and the JSON rules for data, inputs and results'
+summary: 'How to write a tifa app: folder layout, how folders become URLs, route.go and route.tsx, Layouts, hooks.go, 404s, the SSR and cache switches, what the server render has and which libraries render differently there, formatting with Intl so hydration matches, styles with Tailwind CSS and shadcn/ui, how to test Go route code, how Load may use Ctx, method handlers with typed input and result, and the JSON rules for data, inputs and results'
 read_when:
   - Creating a tifa app, or adding pages, Layouts or API routes to one
   - The build reports an error about Ctx usage or a Load return type and you want to fix it
@@ -8,6 +8,7 @@ read_when:
   - Writing Go tests for a Load, a Layout function, a method handler or OnRequest
   - Adding CSS, Tailwind CSS or shadcn/ui to an app
   - Formatting numbers or dates in a page, or tifa dev warns about an Intl call
+  - A page fails to render on the server or does not hydrate, and you want to know which browser APIs and library features the server has
 ---
 
 English · [简体中文](app.zh-CN.md)
@@ -290,6 +291,34 @@ const LayoutSSR = false // the Layout of the folder, default true
 - `Cache = true`: the rendered result is cached by build version, URL and data, in a cache of `cache.size` (see [config.md](config.md)). When the data has not changed, the HTML is returned directly. Components must not read values that change on every call, such as `Date.now()` or `Math.random()`, while rendering. Hydration requires this too.
 - Every page response carries an ETag. A second request with `If-None-Match` gets 304 when the data has not changed. This has nothing to do with `Cache`.
 
+## What the server render has
+
+Pages render on the server in a QuickJS VM, not in Node or a browser. The VM has the JavaScript language itself, `Proxy`, `WeakRef`, `FinalizationRegistry` and `new Function` included, and these:
+
+- `URL`, `URLSearchParams`, `TextEncoder`, `TextDecoder`, `AbortController`, `Headers`, `Response` and `queueMicrotask`. `TextDecoder` knows UTF-8 only: another encoding, such as `new TextDecoder('latin1')`, throws a `RangeError`.
+- `Intl` and the `toLocale*` methods, see [Intl in server rendering](#intl-in-server-rendering).
+- `console` with `log`, `info`, `debug`, `warn`, `error` and `assert`. The first four print nothing. `error` and a failed `assert` throw, so the render fails with their message. Other methods, such as `console.time` or `console.table`, are missing, and calling one throws a `TypeError`.
+- `Date.now()` and `Math.random()`. They work, but their values must not reach the HTML, see [SSR and cache](#ssr-and-cache).
+
+It does not have:
+
+- Timers: `setTimeout`, `setInterval`, `requestAnimationFrame`, `requestIdleCallback`. A render ends when its microtasks run out, nothing waits for time.
+- `crypto`, `performance`, `structuredClone`, `atob` and `btoa`.
+- The browser: `window`, `document`, `navigator`, `self`, `location`, `localStorage`, `matchMedia`, `ResizeObserver`, `Event`, `Blob`, `FormData` and the like.
+- I/O: `fetch`, `XMLHttpRequest`, `WebSocket`, `require`, `process`, `Buffer`. The build replaces `process.env.NODE_ENV` in the bundle, so code that reads only that works.
+
+React does not run effects on the server, so code that uses these in `useEffect`, `useLayoutEffect` or event handlers is fine. Code that uses them while rendering fails the render, and code that uses them at the top level of a module stops the VM from loading. Check with `typeof` first, use them in an effect, or move the component into a `.client.tsx` file.
+
+### Libraries that render differently on the server
+
+Some libraries do part of their work in effects, so the server renders less than the browser shows later. The page still hydrates without errors when it is written like this:
+
+- react-spring: do not pass `from` to `useSpring`, and give `useTransition` `initial: null`. The first render, on the server and in the browser, then shows the final value, and only later changes animate.
+- react-hook-form: write the fields with `Controller`. The server writes the value of a controlled field into the HTML, a field from `register` gets its value only after hydration. Keep the submit button disabled until the page has hydrated, for example with `useSyncExternalStore(() => () => {}, () => true, () => false)`, so that Enter before hydration does not send the form as a plain HTML form.
+- Radix Select (the shadcn Select): the label of the chosen item moves into the trigger only after hydration. When the field has a value, pass the label as the children of `SelectValue`, or the server renders an empty button. Without a value the placeholder renders as usual.
+- recharts 3 renders only its empty wrapper on the server and draws after hydration. Give the chart box a fixed height so the page does not jump, and show the key numbers as text too.
+- Sorting text: `localeCompare` compares code points on the server, while browsers sort by language, so text sorted while rendering can come out in another order. Sort in Go, or compare without the language.
+
 ## Intl in server rendering
 
 Pages can format numbers, dates and plurals while they render on the server, in every locale Chromium has (Unicode CLDR 48.2). These work:
@@ -297,7 +326,7 @@ Pages can format numbers, dates and plurals while they render on the server, in 
 - `Intl.NumberFormat`, `Intl.DateTimeFormat`, `Intl.PluralRules`, `Intl.getCanonicalLocales` and the `supportedLocalesOf` of each constructor.
 - `toLocaleString`, `toLocaleDateString` and `toLocaleTimeString` of `Date`, and `toLocaleString` of `Number` and `BigInt`.
 
-The server does not have `Intl.Collator`, `Intl.Segmenter`, `Intl.RelativeTimeFormat`, `Intl.ListFormat`, `Intl.DisplayNames`, `Intl.DurationFormat`, `Intl.supportedValuesOf` or `formatRange`: a render that calls one fails. `localeCompare` compares code points, not by language. Dates are in the Gregorian calendar (the Buddhist one for th, the Persian one for fa and a few more), and a calendar asked for with `-u-ca-` or the `calendar` option, such as japanese, falls back to the locale's default. `roundingIncrement` and `roundingPriority` only take their defaults.
+The server does not have `Intl.Collator`, `Intl.Segmenter`, `Intl.RelativeTimeFormat`, `Intl.ListFormat`, `Intl.DisplayNames`, `Intl.DurationFormat`, `Intl.supportedValuesOf` or `formatRange`: a render that calls one fails. `localeCompare` compares code points, not by language. Dates are in the Gregorian calendar (the Buddhist one for th, the Persian one for fa and a few more), and a calendar asked for with `-u-ca-` or the `calendar` option, such as japanese, falls back to the locale's default. `roundingIncrement` and `roundingPriority` only take their defaults. A `maximumFractionDigits` below the default of a currency throws a `RangeError` unless `minimumFractionDigits` is given too: browsers lower the minimum to match, the server follows the older rule. Write `{ style: 'currency', currency: 'CNY', minimumFractionDigits: 0, maximumFractionDigits: 0 }`, not only the maximum.
 
 Without a locale the server formats in `en-US`, without a `timeZone` in `UTC`, whatever the language and zone of the machine. The local time of `Date` on the server is always UTC too: `getTimezoneOffset()` is 0, and `new Date(2026, 0, 1)`, `getHours` and `toString` work in UTC. The Go code of the app is not affected: the process keeps the zone it was started with, so `time.Local`, the log and SQLite use that zone as in any Go program.
 
