@@ -44,7 +44,7 @@ func TestListRowsCountPiecesAndCents(t *testing.T) {
 	reset()
 	row := ListOrders("studio").Orders[0]
 	want := OrderRow{
-		ID: "SH-1042", Customer: "林夏", Initials: "林", PlacedAt: time.Date(2026, 10, 13, 14, 32, 0, 0, shopZone),
+		ID: "SH-1042", Customer: "林夏", Initials: "林", PlacedAt: time.Date(2026, 10, 13, 14, 32, 0, 0, chinaTime),
 		Status: StatusPending, Items: 2, TotalCents: 42800,
 	}
 	if row != want {
@@ -85,7 +85,7 @@ func TestDemoOrdersListEachProductOnce(t *testing.T) {
 
 func TestShipOnce(t *testing.T) {
 	reset()
-	at := time.Date(2026, 10, 14, 9, 30, 0, 0, shopZone)
+	at := time.Date(2026, 10, 14, 9, 30, 0, 0, chinaTime)
 	if err := ShipOrder("studio", "SH-1042", "SF", " SF1234567890 ", at); err != nil {
 		t.Fatal(err)
 	}

@@ -15,7 +15,8 @@ type Project struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
-	// TimeZone is the IANA zone the shop trades in. Pages format the times of its orders in it.
+	// TimeZone is the IANA zone the shop trades in. Pages format the times of its orders in it,
+	// and its stats start each day at midnight there.
 	TimeZone string `json:"timeZone"`
 	Pending  int    `json:"pending"` // orders waiting to be shipped
 }

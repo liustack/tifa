@@ -8,14 +8,10 @@ import (
 
 // Sales of a shop over the last thirty days, for the stats page.
 
-// shopZone is the zone the shops trade in, China Standard Time. Their days start at midnight
-// there. China has no daylight saving time, so a fixed zone needs no zoneinfo.
-var shopZone = time.FixedZone("CST", 8*3600)
-
 // statsDays is how many days the stats page covers.
 const statsDays = 30
 
-// DaySales are the orders placed on one day in the shop's zone. Shipped counts those of them
+// DaySales are the orders placed on one day in the shop's time zone. Shipped counts those of them
 // that have shipped since.
 type DaySales struct {
 	Date         string `json:"date"` // 2026-10-13
@@ -38,16 +34,21 @@ type Sales struct {
 }
 
 // SalesStats returns the sales of a project over the thirty days that end on the day of its newest
-// order. A real shop would end on today in its zone. The demonstration data does not move with
-// the clock, so neither do its stats. A project without orders has no days.
-func SalesStats(projectID string) Sales {
+// order, with days starting at midnight in zone, the time zone of the shop. A real shop would end
+// on today. The demonstration data does not move with the clock, so neither do its stats. A
+// project without orders has no days.
+func SalesStats(projectID string, zone *time.Location) Sales {
 	s := Sales{Days: []DaySales{}, TopProducts: []ProductSales{}}
 	list := ordersOf(projectID) // newest first
 	if len(list) == 0 {
 		return s
 	}
-	last := list[0].PlacedAt.In(shopZone)
-	first := time.Date(last.Year(), last.Month(), last.Day()-(statsDays-1), 0, 0, 0, 0, shopZone)
+	// An order belongs to the day of its time in zone. The dates themselves are only labels of
+	// the calendar, counted in UTC: in a zone whose daylight saving time starts at midnight, such
+	// as America/Santiago, that day has no 00:00, and counting there would list the day before
+	// twice and leave that day out.
+	last := list[0].PlacedAt.In(zone)
+	first := time.Date(last.Year(), last.Month(), last.Day()-(statsDays-1), 0, 0, 0, 0, time.UTC)
 	index := map[string]int{}
 	for i := range statsDays {
 		date := first.AddDate(0, 0, i).Format(time.DateOnly)
@@ -56,7 +57,7 @@ func SalesStats(projectID string) Sales {
 	}
 	products := map[string]*ProductSales{}
 	for _, o := range list {
-		i, ok := index[o.PlacedAt.In(shopZone).Format(time.DateOnly)]
+		i, ok := index[o.PlacedAt.In(zone).Format(time.DateOnly)]
 		if !ok {
 			continue
 		}

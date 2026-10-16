@@ -1,13 +1,23 @@
 package orders
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 	"time"
 )
 
+// shanghai is the zone the demonstration shops trade in.
+var shanghai = func() *time.Location {
+	zone, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		panic(err)
+	}
+	return zone
+}()
+
 func TestSalesStatsCoverThirtyDaysEndingOnTheNewestOrder(t *testing.T) {
-	s := SalesStats("studio")
+	s := SalesStats("studio", shanghai)
 	if len(s.Days) != 30 || s.Days[0].Date != "2026-09-14" || s.Days[29].Date != "2026-10-13" {
 		t.Fatalf("days: %d from %+v", len(s.Days), s.Days)
 	}
@@ -20,9 +30,53 @@ func TestSalesStatsCoverThirtyDaysEndingOnTheNewestOrder(t *testing.T) {
 }
 
 // Every order of the demo data falls inside the thirty days, so the days add up to the list.
+// Days start at midnight in the zone of the shop. The newest order of studio was placed at 14:32
+// on 10-13 in Shanghai, which is still 10-12 in Honolulu.
+func TestSalesStatsCutDaysInTheZoneOfTheShop(t *testing.T) {
+	honolulu, err := time.LoadLocation("Pacific/Honolulu")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := SalesStats("studio", honolulu)
+	if len(s.Days) != 30 || s.Days[29].Date != "2026-10-12" || s.Days[29].Orders != 1 {
+		t.Fatalf("last day in Honolulu: %+v", s.Days[len(s.Days)-1])
+	}
+}
+
+// In Santiago, daylight saving time starts at midnight: 2026-09-06 has no 00:00, the clocks go
+// from 23:59 on 09-05 to 01:00. Each day is still listed once and keeps its orders.
+func TestSalesStatsKeepADayThatStartsAfterMidnight(t *testing.T) {
+	santiago, err := time.LoadLocation("America/Santiago")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(reset)
+	ordersMu.Lock()
+	for i, placed := range []string{"2026-09-10T12:00:00Z", "2026-09-06T04:30:00Z", "2026-09-06T03:59:00Z"} {
+		at, err := time.Parse(time.RFC3339, placed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		orders = append(orders, orderRecord{ID: fmt.Sprint("CL-", i), ProjectID: "chile", PlacedAt: at})
+	}
+	ordersMu.Unlock()
+	s := SalesStats("chile", santiago)
+	seen, placed := map[string]bool{}, 0
+	for _, d := range s.Days {
+		if seen[d.Date] {
+			t.Errorf("day %s listed twice", d.Date)
+		}
+		seen[d.Date] = true
+		placed += d.Orders
+	}
+	if len(s.Days) != 30 || !seen["2026-09-06"] || placed != 3 {
+		t.Fatalf("%d days, 09-06 listed %v, %d orders, want 30 days with 09-06 and 3 orders", len(s.Days), seen["2026-09-06"], placed)
+	}
+}
+
 func TestSalesStatsAddUpToTheOrderList(t *testing.T) {
 	for _, id := range []string{"studio", "weekend"} {
-		s, l := SalesStats(id), ListOrders(id)
+		s, l := SalesStats(id, shanghai), ListOrders(id)
 		var orders, revenue, shipped int
 		for _, d := range s.Days {
 			orders += d.Orders
@@ -50,7 +104,7 @@ func TestTopProductsAreTheBestSellersOfTheShop(t *testing.T) {
 			sold[item.Name] = p
 		}
 	}
-	top := SalesStats("studio").TopProducts
+	top := SalesStats("studio", shanghai).TopProducts
 	if len(top) != 5 {
 		t.Fatalf("top products: %+v", top)
 	}
@@ -68,7 +122,7 @@ func TestTopProductsAreTheBestSellersOfTheShop(t *testing.T) {
 			t.Errorf("%s sold %d but is not in the top 5", name, p.Quantity)
 		}
 	}
-	for _, p := range SalesStats("weekend").TopProducts {
+	for _, p := range SalesStats("weekend", shanghai).TopProducts {
 		if sold[p.Name].Name != "" {
 			t.Errorf("weekend lists %s, a product of studio", p.Name)
 		}
@@ -76,7 +130,7 @@ func TestTopProductsAreTheBestSellersOfTheShop(t *testing.T) {
 }
 
 func TestSalesStatsOfAnUnknownShopHaveNoDays(t *testing.T) {
-	if s := SalesStats("nowhere"); len(s.Days) != 0 || len(s.TopProducts) != 0 {
+	if s := SalesStats("nowhere", shanghai); len(s.Days) != 0 || len(s.TopProducts) != 0 {
 		t.Fatalf("unknown shop: %+v", s)
 	}
 }
