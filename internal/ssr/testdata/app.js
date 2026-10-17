@@ -45,6 +45,13 @@ globalThis.startRender = (json) => {
   switch (mode) {
     case 'throw':
       throw new Error('intentional failure')
+    case 'fakeinterrupt':
+      // Values page code can throw that look like the engine's uncatchable errors.
+      throw new InternalError('interrupted')
+    case 'fakeoom':
+      throw new InternalError('out of memory')
+    case 'fakeoomobject':
+      throw { name: 'InternalError', message: 'out of memory' }
     case 'loop':
       for (;;) {}
     case 'jobs':

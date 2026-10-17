@@ -161,21 +161,21 @@ func (e *RedirectError) Error() string {
 // ErrOutOfMemory matches a render that hit the VM's memory limit (ssr.vm_memory).
 var ErrOutOfMemory = errors.New("ssr: VM out of memory")
 
-// outOfMemory reports the error QuickJS ends a call with when an allocation exceeds the limit,
-// also when the limit leaves no room for the error object. Page code cannot catch it: no catch,
-// finally or promise handler runs, so the bundle never reports it as an error of its own.
+// outOfMemory reports that the call ended because an allocation exceeded the VM's limit, also
+// when the limit left no room for the error object. Page code cannot catch it: no catch, finally
+// or promise handler runs, so the bundle never reports it as an error of its own. What page code
+// throws never counts, whatever its name and message.
 func outOfMemory(err error) bool {
 	var e *quickjs.Error
-	return errors.As(err, &e) && e.Name == "InternalError" && e.Message == "out of memory"
+	return errors.As(err, &e) && e.OutOfMemory
 }
 
-// interrupted reports the error QuickJS ends a call with when its eval timeout fires. Nothing
-// else interrupts a VM of the pool, so it is the time budget even when the deadline, which
-// time.Now measures on the monotonic clock, has not passed yet: the engine measures the timeout
-// on the wall clock, and the two drift apart.
+// interrupted reports that the eval timeout stopped the call. Nothing else interrupts a VM of the
+// pool, so it is the time budget. What page code throws never counts, whatever its name and
+// message.
 func interrupted(err error) bool {
 	var e *quickjs.Error
-	return errors.As(err, &e) && e.Name == "InternalError" && e.Message == "interrupted"
+	return errors.As(err, &e) && e.Interrupted
 }
 
 func timedOut(timeout time.Duration, cause error) error {
