@@ -89,7 +89,7 @@ func RenderVM(vm *quickjs.VM, input []byte, timeout time.Duration) (string, erro
 		if err == nil {
 			return nil
 		}
-		if !time.Now().Before(deadline) {
+		if interrupted(err) || !time.Now().Before(deadline) {
 			return timedOut(timeout, err)
 		}
 		if outOfMemory(err) {
@@ -167,6 +167,15 @@ var ErrOutOfMemory = errors.New("ssr: VM out of memory")
 func outOfMemory(err error) bool {
 	var e *quickjs.Error
 	return errors.As(err, &e) && e.Name == "InternalError" && e.Message == "out of memory"
+}
+
+// interrupted reports the error QuickJS ends a call with when its eval timeout fires. Nothing
+// else interrupts a VM of the pool, so it is the time budget even when the deadline, which
+// time.Now measures on the monotonic clock, has not passed yet: the engine measures the timeout
+// on the wall clock, and the two drift apart.
+func interrupted(err error) bool {
+	var e *quickjs.Error
+	return errors.As(err, &e) && e.Name == "InternalError" && e.Message == "interrupted"
 }
 
 func timedOut(timeout time.Duration, cause error) error {

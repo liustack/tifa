@@ -609,3 +609,30 @@ func TestStackDepthLimitsRecursion(t *testing.T) {
 		}
 	}
 }
+
+// The engine reads the wall clock for the eval timeout and Go the monotonic one for the deadline,
+// and the two drift apart, so the engine can stop a render a little before Go's deadline. The
+// pool never interrupts a VM itself, so an interrupt is the time budget whatever Go's clock says.
+// The test interrupts the VM well before the deadline, as the engine's timer would.
+func TestInterruptIsTheTimeBudget(t *testing.T) {
+	var mu sync.Mutex
+	var vms []*quickjs.VM
+	defer swap(&loadVM, func(p *Pool) (*quickjs.VM, error) {
+		vm, err := openVM(p)
+		mu.Lock()
+		vms = append(vms, vm)
+		mu.Unlock()
+		return vm, err
+	})()
+	p := newTestPool(t, testSource(t), testConfig(1))
+	p.acquired = func() {
+		mu.Lock()
+		vm := vms[len(vms)-1]
+		mu.Unlock()
+		time.AfterFunc(50*time.Millisecond, vm.Interrupt)
+	}
+	_, err := p.Render(context.Background(), input("loop", ""))
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("got %v", err)
+	}
+}
