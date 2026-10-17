@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/liustack/quickjs"
 	"github.com/liustack/tifa/internal/config"
 	"github.com/liustack/tifa/internal/ssr"
 )
@@ -291,16 +292,28 @@ func withCustomer(detail ssr.Input, name string) ssr.Input {
 	return detail
 }
 
-// One reused VM renders the same route with a new customer each time.
-// The current name must appear and the previous one must be gone. The pool keeps its one VM after
-// each render that succeeds, so every render here runs in the same VM.
+// One VM renders the same route with a new customer each time, the steps a Pool takes for each
+// render. The current name must appear and the previous one must be gone. A mark the test leaves on
+// the VM before the first render must still be there after each one, so every render ran in it.
 func TestShopReuseKeepsRequestsApart(t *testing.T) {
 	source, pages := shopBundle(t)
-	p := newPool(t, source, shopConfig(1))
+	cfg := shopConfig(1)
+	bytecode, err := ssr.Compile(source, uintptr(cfg.VMMemory), cfg.Timeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vm, err := ssr.Load(bytecode, uintptr(cfg.VMMemory), uintptr(cfg.VMStackDepth), cfg.Timeout, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer vm.Close()
+	if _, err := vm.Eval("globalThis.reuseMark = 'the VM of this test'", quickjs.EvalGlobal); err != nil {
+		t.Fatal(err)
+	}
 	previous := ""
 	for i := range 12 {
 		name := fmt.Sprintf("customer-%03d-only", i)
-		html, err := p.Render(context.Background(), withCustomer(pages[2].input, name))
+		html, err := ssr.RenderVM(vm, renderInput(t, withCustomer(pages[2].input, name)), cfg.Timeout)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -309,6 +322,9 @@ func TestShopReuseKeepsRequestsApart(t *testing.T) {
 		}
 		if previous != "" && strings.Contains(html, previous) {
 			t.Fatalf("request %d: previous customer leaked into HTML", i)
+		}
+		if mark, err := vm.Eval("globalThis.reuseMark", quickjs.EvalGlobal); err != nil || mark != "the VM of this test" {
+			t.Fatalf("request %d: the mark is %v, %v", i, mark, err)
 		}
 		previous = name
 	}
