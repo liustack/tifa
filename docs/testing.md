@@ -68,7 +68,7 @@ Each app under `test/apps` is a separate module, so the root `go test ./...` doe
 ## Writing tests
 
 - New behavior and bugs with a known cause: write the test first, see it fail with your own eyes, then write the implementation.
-- Tests live in the same package as the code under test, in files named `*_test.go`.
+- Tests live in the same package as the code under test, in files named `*_test.go`. The exceptions test from outside: `test/e2e` the built CLI and apps, `test/ssr` the SSR pool of `internal/ssr` with the example app's real bundle. Framework behavior gets its test in its own package, with its own `testdata`, and does not depend on `examples/shop`.
 - One assertion proves one thing. When a loop runs several cases, give each case its own state, and confirm the code under test really ran. Caching and deduplication logic is the easiest way for a later case to get an earlier case's result while the test still passes.
 - Verify browser behavior (extra requests during hydration, one request per navigation, horizontal overflow on narrow screens) with `playwright-cli`, and take screenshots of the results.
 
