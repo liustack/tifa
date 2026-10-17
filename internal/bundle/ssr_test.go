@@ -10,6 +10,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/liustack/quickjs"
+
+	"github.com/liustack/tifa/internal/ssr"
 )
 
 // buildScript builds entry of root like an SSR bundle with the tifa plugin and fails the test on
@@ -95,6 +99,150 @@ func TestSSRReportsTheErrorsOfEachRenderToItsOwnOnError(t *testing.T) {
 	if got := evalResult(t, code); got != "OUTER INNER" {
 		t.Errorf("result = %q, want OUTER INNER", got)
 	}
+}
+
+// escapes.tsx renders, three times over, texts and attribute values that need escaping and some
+// that do not: every character React escapes, text that is not ASCII and a lone surrogate, values
+// that are not strings, among them an object whose text changes on every call, enough escaped text
+// to fill the tifa plugin's cache of React's escapes past its limit, and a text larger than that
+// limit.
+const escapesPage = "import './host'\n" +
+	"import { renderToString } from 'react-dom/server.edge'\n" +
+	"const texts = ['plain', '', '&', '<>', `\"'`, 'a & b < c > d \" e \\' f', '订单 & 🙂', '\\ud800 & lone', 'x'.repeat(5000) + '&']\n" +
+	"for (let i = 0; i < 16; i++) texts.push(`${i} &`.padEnd(4096, '<'))\n" +
+	"texts.push('a&'.repeat(70000))\n" +
+	"let calls = 0\n" +
+	"const changing = { toString: () => `call ${calls++} & <` }\n" +
+	"const values = [0, -0, 1.5, 10n, true, false, null, changing, ...texts.slice(0, 9)]\n" +
+	"function Page() {\n" +
+	"  return <div>\n" +
+	"    {texts.map((t, i) => <p key={i} className={t}>{t}</p>)}\n" +
+	"    {values.map((v, i) => <i key={i} title={v as any} data-v={v as any}>{typeof v === 'object' ? String(v) : (v as any)}</i>)}\n" +
+	"  </div>\n" +
+	"}\n" +
+	"globalThis.result = [0, 1, 2].map(() => renderToString(<Page />)).join('\\n')\n"
+
+// escapeCacheChars is the size of the plugin's cache of escapes, in UTF-16 code units. The
+// minified bundle keeps it as a number, so it shows whether the cache is in the bundle.
+const escapeCacheChars = "262144"
+
+// The tifa plugin caches the escapes of React's string renderer, and pages render the same with
+// the cache as without it.
+func TestSSRCachesTheEscapesOfReact(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"escapes.tsx": escapesPage})
+	code, printed := buildPrinting(t, root, "escapes.tsx")
+	if !strings.Contains(code, escapeCacheChars) {
+		t.Error("the bundle has no cache of escapes")
+	}
+	if strings.Contains(printed, "escape") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	cached := evalResult(t, code)
+	for _, want := range []string{"<p class=\"a &amp; b &lt; c &gt; d &quot; e &#x27; f\">", "call 0 &amp; &lt;", "call 5 &amp; &lt;", strings.Repeat("a&amp;", 3)} {
+		if !strings.Contains(cached, want) {
+			t.Errorf("the page has no %s", want)
+		}
+	}
+	for name, change := range map[string][2]string{
+		"function": {"function escapeTextForBrowser(text) {", "function escapeTextForBrowser(text) /* changed */ {"},
+		"regexp":   {"matchHtmlRegExp = /[\"'&<>]/;", "matchHtmlRegExp = /[<>\"'&]/;"},
+	} {
+		changed := withReactDOM(t, change[0], change[1])
+		writeTree(t, changed, map[string]string{"escapes.tsx": escapesPage})
+		code, printed := buildPrinting(t, changed, "escapes.tsx")
+		if strings.Contains(code, escapeCacheChars) {
+			t.Errorf("%s: the bundle has a cache of escapes", name)
+		}
+		if !strings.Contains(printed, "react-dom 19.3.0: ") || !strings.Contains(printed, "the tifa plugin does not cache the escapes") {
+			t.Errorf("%s: the build prints:\n%s", name, printed)
+		}
+		if got := evalResult(t, code); got != cached {
+			t.Errorf("%s: the page renders otherwise without the cache", name)
+		}
+	}
+}
+
+// shortEscapesPage renders 36,920 short texts that need escaping, all different, and drops the
+// HTML. It keeps renderToString, as the runtime does, so React's module and the tifa plugin's cache
+// of escapes in it stay in the VM. A text takes 2 code units and its escape 5: counted by their
+// code units alone, all of them would fit in the cache, in about 5 MB.
+const shortEscapesPage = "import './host'\n" +
+	"import { renderToString } from 'react-dom/server.edge'\n" +
+	"const texts = Array.from({ length: 36920 }, (_, i) => '<' + String.fromCharCode(0x100 + i))\n" +
+	"renderToString(<div>{texts.map((t, i) => <i key={i}>{t}</i>)}</div>)\n" +
+	"globalThis.render = renderToString\n" +
+	"globalThis.result = 'done'\n"
+
+// Many short strings take no more memory in the cache of escapes than a few long ones.
+func TestSSRCachesShortEscapesInLittleMemory(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"escapes.tsx": shortEscapesPage})
+	cached, _ := buildPrinting(t, root, "escapes.tsx")
+	plain := withReactDOM(t, "function escapeTextForBrowser(text) {", "function escapeTextForBrowser(text) /* changed */ {")
+	writeTree(t, plain, map[string]string{"escapes.tsx": shortEscapesPage})
+	uncached, _ := buildPrinting(t, plain, "escapes.tsx")
+	memory := func(code string) int64 {
+		vm, err := quickjs.NewVM()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+		if _, err := vm.Eval(code, quickjs.EvalGlobal); err != nil {
+			t.Fatalf("evaluate bundle: %v", err)
+		}
+		return ssr.VMMemory(vm, true).Fmalloc_size
+	}
+	if grown := memory(cached) - memory(uncached); grown > 1<<20 {
+		t.Errorf("the cache of escapes takes %d KiB, want at most 1 MiB", grown>>10)
+	}
+}
+
+// withReactDOM returns a copy of testdata/ssr whose react-dom is a copy of the test's, with old
+// replaced by new in its string renderer. The other packages are the test's.
+func withReactDOM(t *testing.T, old, new string) string {
+	t.Helper()
+	copied := copyTestdata(t, "ssr", false)
+	modules := testModules(t)
+	entries, err := os.ReadDir(modules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Name() == "react-dom" || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		real, err := filepath.EvalSymlinks(filepath.Join(modules, e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(copied, "node_modules"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(real, filepath.Join(copied, "node_modules", e.Name())); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dom, err := filepath.EvalSymlinks(filepath.Join(modules, "react-dom"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(copied, "node_modules", "react-dom")
+	if err := os.CopyFS(target, os.DirFS(dom)); err != nil {
+		t.Fatal(err)
+	}
+	renderer := filepath.Join(target, "cjs", "react-dom-server-legacy.browser.production.js")
+	source, err := os.ReadFile(renderer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(source), old) != 1 {
+		t.Fatalf("%s does not have %q once", renderer, old)
+	}
+	if err := os.WriteFile(renderer, []byte(strings.Replace(string(source), old, new, 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return copied
 }
 
 func TestSSRTrimmedReactKeepsEveryPublicExport(t *testing.T) {
