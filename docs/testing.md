@@ -84,7 +84,7 @@ The default tests in `internal/ssr` only use small handwritten bundles, `testdat
 TIFA_SSR_SOAK=1 go test -tags memory.counters -run Soak -v ./internal/ssr
 ```
 
-They run the normal reuse soak test (2 VMs, 2 callers, 10,000 renders) and the OOM recovery test (8 times running out of memory and replacing the VM) with `testdata/app.js`. After shutdown, the native allocation count must return to the baseline. `TestSoakVMMemory` loads every VM the way the pool does. It prints what Intl adds to an empty VM, unused and after formatting, and what the bundle adds after loading, formatting and a render. It fails when Intl adds more than 32 KB to a VM that never formats.
+They run the normal reuse soak test (2 VMs, 2 callers, 10,000 renders) and the OOM recovery test (8 times running out of memory and replacing the VM) with `testdata/app.js`. The page of the OOM test has a long text that is not ASCII, so the VM runs out of memory where `JSON.parse` converts the input. That is exactly the leak github.com/liustack/quickjs fixed. If this test fails, first confirm the dependency is this fork and not modernc.org/quickjs. After shutdown, the native allocation count must return to the baseline. `TestSoakVMMemory` loads every VM the way the pool does. It prints what Intl adds to an empty VM, unused and after formatting, and what the bundle adds after loading, formatting and a render. It fails when Intl adds more than 32 KB to a VM that never formats.
 
 ## SSR tests with the example app (`test/ssr`)
 
@@ -94,7 +94,7 @@ They run the normal reuse soak test (2 VMs, 2 callers, 10,000 renders) and the O
 | --- | --- |
 | `TIFA_SSR_SHOP=1 go test -run Shop -v ./test/ssr` | Renders the list, detail and stats pages of two shops, checks page content, script escaping, and that VM reuse does not mix up data. `TestShopWarmLatency` renders each page a few times in a warm VM, fails when one render takes more than a second, and prints P50/P95/P99. Takes about 15 seconds |
 | `TIFA_SSR_SHOP=1 TIFA_SSR_MEASURE=1 go test -run ShopWarmLatency -v ./test/ssr` | `TestShopWarmLatency` with the method of the prototype baseline: 512 warm renders, then 2,048 timed ones over the six pages. Use these numbers for comparisons. Takes about 3 minutes |
-| `TIFA_SSR_SHOP=1 TIFA_SSR_SOAK=1 go test -tags memory.counters -run Soak -v ./test/ssr` | The soak tests of `internal/ssr` with the shop's bundle: reuse over the six pages, the OOM recovery test on the order detail page, whose data contains Chinese text, so the OOM lands on the path where `JSON.parse` converts non-ASCII strings, the leak github.com/liustack/quickjs fixed (if it fails, first confirm the dependency is this fork and not modernc.org/quickjs), and what a VM of the shop holds after loading, formatting and a render. Takes about 2 minutes |
+| `TIFA_SSR_SHOP=1 TIFA_SSR_SOAK=1 go test -tags memory.counters -run Soak -v ./test/ssr` | The soak tests of `internal/ssr` with the shop's bundle: reuse over the six pages, the OOM recovery test on the order detail page, whose data contains Chinese text, and what a VM of the shop holds after loading, formatting and a render. Takes about 2 minutes |
 
 ## Performance comparisons
 

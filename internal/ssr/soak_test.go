@@ -104,7 +104,9 @@ func TestSoakReuse(t *testing.T) {
 
 // Each render keeps 256 KiB alive until the VM hits its 32 MiB limit. The pool
 // must replace the VM, serve the next render from a fresh one, and after eight
-// such cycles and Close, native memory must be back at the baseline.
+// such cycles and Close, native memory must be back at the baseline. The text of the page is
+// long and not ASCII, so the VM runs out of memory where JSON.parse converts the input to UTF-8,
+// where QuickJS used to leak the string.
 func TestSoakOOMRecycle(t *testing.T) {
 	skipUnlessSoak(t)
 	const retain = `;globalThis.startRender = (start => { const retained = []; return json => { retained.push(new Uint8Array(256 * 1024).fill(1)); start(json) } })(globalThis.startRender);`
@@ -113,7 +115,7 @@ func TestSoakOOMRecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page := input("ok", "")
+	page := input("ok", strings.Repeat("林夏", 32<<10))
 	for cycle := range 8 {
 		before := p.stats()
 		failed := false
