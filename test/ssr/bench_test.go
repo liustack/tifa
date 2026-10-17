@@ -1,11 +1,11 @@
-package ssr
+package ssr_test
 
 // Opt-in baseline of the real React bundle of examples/shop, for comparing SSR changes. Build the
 // shop first (see shop_test.go), then run:
 //
-//	TIFA_SSR_SHOP=1 go test -run '^$' -bench 'Shop/^render' -benchtime 2000x ./internal/ssr
-//	TIFA_SSR_SHOP=1 go test -run '^$' -bench 'Shop/^(compile|load|first)' -benchtime 50x ./internal/ssr
-//	TIFA_SSR_SHOP=1 go test -run ShopVMMemory -v ./internal/ssr
+//	TIFA_SSR_SHOP=1 go test -run '^$' -bench 'Shop/^render' -benchtime 2000x ./test/ssr
+//	TIFA_SSR_SHOP=1 go test -run '^$' -bench 'Shop/^(compile|load|first)' -benchtime 50x ./test/ssr
+//	TIFA_SSR_SHOP=1 go test -run ShopVMMemory -v ./test/ssr
 //
 // render-<page> renders one of the comparison pages in a warm VM and reports the P50 and
 // P99 of single renders. compile is the startup compile of the bundle to bytecode, load creates one
@@ -28,6 +28,7 @@ import (
 	"github.com/liustack/quickjs"
 	"github.com/liustack/quickjs/intl"
 	lib "github.com/liustack/quickjs/lib"
+	"github.com/liustack/tifa/internal/ssr"
 	"modernc.org/libc"
 )
 
@@ -38,20 +39,20 @@ func BenchmarkShop(b *testing.B) {
 
 	b.Run("compile", func(b *testing.B) {
 		for b.Loop() {
-			if _, err := Compile(source, memory, timeout); err != nil {
+			if _, err := ssr.Compile(source, memory, timeout); err != nil {
 				b.Fatal(err)
 			}
 		}
 	})
 
-	bytecode, err := Compile(source, memory, timeout)
+	bytecode, err := ssr.Compile(source, memory, timeout)
 	if err != nil {
 		b.Fatal(err)
 	}
 	b.Run("load", func(b *testing.B) {
 		var size int64
 		for b.Loop() {
-			vm, err := Load(bytecode, memory, uintptr(cfg.VMStackDepth), timeout, false)
+			vm, err := ssr.Load(bytecode, memory, uintptr(cfg.VMStackDepth), timeout, false)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -69,12 +70,12 @@ func BenchmarkShop(b *testing.B) {
 		input := renderInput(b, page.input)
 		for b.Loop() {
 			b.StopTimer()
-			vm, err := Load(bytecode, memory, uintptr(cfg.VMStackDepth), timeout, false)
+			vm, err := ssr.Load(bytecode, memory, uintptr(cfg.VMStackDepth), timeout, false)
 			if err != nil {
 				b.Fatal(err)
 			}
 			b.StartTimer()
-			html, err := RenderVM(vm, input, timeout)
+			html, err := ssr.RenderVM(vm, input, timeout)
 			b.StopTimer()
 			if err != nil {
 				b.Fatal(err)
@@ -89,7 +90,7 @@ func BenchmarkShop(b *testing.B) {
 
 	for _, page := range pages {
 		b.Run("render"+strings.ReplaceAll(page.input.URL, "/", "-"), func(b *testing.B) {
-			p, err := NewPool(source, nil, cfg, false)
+			p, err := ssr.NewPool(source, nil, cfg, false)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -119,7 +120,7 @@ func BenchmarkShop(b *testing.B) {
 	}
 }
 
-func renderInput(t testing.TB, in Input) []byte {
+func renderInput(t testing.TB, in ssr.Input) []byte {
 	t.Helper()
 	data, err := json.Marshal(in)
 	if err != nil {
@@ -138,7 +139,7 @@ func TestShopVMMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := shopConfig(1)
-	bytecode, err := Compile(source, uintptr(cfg.VMMemory), cfg.Timeout)
+	bytecode, err := ssr.Compile(source, uintptr(cfg.VMMemory), cfg.Timeout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +165,7 @@ func TestShopVMMemory(t *testing.T) {
 	}
 	hosted := vmMemory(withIntl, true)
 
-	vm, err := Load(bytecode, uintptr(cfg.VMMemory), uintptr(cfg.VMStackDepth), cfg.Timeout, false)
+	vm, err := ssr.Load(bytecode, uintptr(cfg.VMMemory), uintptr(cfg.VMStackDepth), cfg.Timeout, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +173,7 @@ func TestShopVMMemory(t *testing.T) {
 	loaded := vmMemory(vm, true)
 	for i := range 64 {
 		page := pages[i%len(pages)]
-		html, err := RenderVM(vm, renderInput(t, page.input), cfg.Timeout)
+		html, err := ssr.RenderVM(vm, renderInput(t, page.input), cfg.Timeout)
 		if err != nil {
 			t.Fatal(err)
 		}
