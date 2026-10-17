@@ -11,12 +11,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-	"unsafe"
 
 	"github.com/liustack/quickjs"
 	lib "github.com/liustack/quickjs/lib"
@@ -177,7 +175,7 @@ func TestSoakVMMemory(t *testing.T) {
 		if use != nil {
 			use(vm)
 		}
-		return vmMemory(vm, true)
+		return VMMemory(vm, true)
 	}
 	loaded := func(t *testing.T, source string) func() (*quickjs.VM, error) {
 		bytecode, err := Compile(source, memory, timeout)
@@ -221,23 +219,4 @@ func TestSoakVMMemory(t *testing.T) {
 	show(t, "loaded", measure(t, open, nil), unused)
 	show(t, "loaded, after formatting", measure(t, open, format), unused)
 	show(t, "loaded, after a render", measure(t, open, render), unused)
-}
-
-// vmMemory returns what QuickJS counts in the runtime of vm, after a GC when collect is set.
-// Each VM of the pool has a runtime of its own. The quickjs package does not export the runtime,
-// so the test reads it from the VM, as the fork's own tests do.
-func vmMemory(vm *quickjs.VM, collect bool) lib.TJSMemoryUsage {
-	rt := (*struct {
-		c   uintptr
-		tls *libc.TLS
-	})(reflect.ValueOf(vm).Elem().FieldByName("runtime").UnsafePointer())
-	if collect {
-		lib.XJS_RunGC(rt.tls, rt.c)
-	}
-	n := int(unsafe.Sizeof(lib.TJSMemoryUsage{}))
-	p := rt.tls.Alloc(n)
-	defer rt.tls.Free(n)
-	lib.XJS_ComputeMemoryUsage(rt.tls, rt.c, p)
-	// p is C memory of the VM's allocator, which the Go GC neither moves nor frees.
-	return *(*lib.TJSMemoryUsage)(unsafe.Add(nil, p))
 }

@@ -185,7 +185,7 @@ func TestSoakVMMemory(t *testing.T) {
 		if use != nil {
 			use(vm)
 		}
-		return vmMemory(vm, true)
+		return ssr.VMMemory(vm, true)
 	}
 	loaded := func(source string) func() (*quickjs.VM, error) {
 		bytecode, err := ssr.Compile(source, memory, cfg.Timeout)
