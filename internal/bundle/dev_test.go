@@ -58,13 +58,15 @@ func freePort(t *testing.T) int {
 	return l.Addr().(*net.TCPAddr).Port
 }
 
-// nodeChildren counts the node processes this test process started that are still running.
+// nodeChildren counts the node processes this test process started that are still running. It
+// matches the command line, not the process name: on Linux Node names its main thread MainThread,
+// and the process takes that name.
 func nodeChildren(t *testing.T) int {
 	t.Helper()
 	if _, err := exec.LookPath("pgrep"); err != nil {
 		t.Skip("pgrep is not installed")
 	}
-	out, err := exec.Command("pgrep", "-P", strconv.Itoa(os.Getpid()), "-x", "node").Output()
+	out, err := exec.Command("pgrep", "-P", strconv.Itoa(os.Getpid()), "-f", "^([^ ]*/)?node( |$)").Output()
 	if err != nil && len(out) > 0 {
 		t.Fatal(err)
 	}
