@@ -544,6 +544,25 @@ func TestPageCodeCannotCatchOutOfMemoryOrTimeout(t *testing.T) {
 	}
 }
 
+// An error page code throws is the page's, even when its name and message are those of the
+// engine's interrupt or of running out of memory: only the engine can end a call so that no page
+// code catches it.
+func TestThrownLookalikesAreErrorsOfThePage(t *testing.T) {
+	for _, mode := range []string{"fakeinterrupt", "fakeoom", "fakeoomobject"} {
+		p := newTestPool(t, testSource(t), testConfig(1))
+		_, err := p.Render(context.Background(), input(mode, ""))
+		if err == nil {
+			t.Fatalf("%s: accepted", mode)
+		}
+		if errors.Is(err, ErrOutOfMemory) || errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("%s: got %v, want an error of the page", mode, err)
+		}
+		if !strings.HasPrefix(err.Error(), "ssr: startRender: ") {
+			t.Errorf("%s: got %v, want the thrown value", mode, err)
+		}
+	}
+}
+
 // A component that recurses without end fails its render with the RangeError of a JavaScript
 // engine, whether the page catches it or not, before the time budget. The process lives on, and
 // the VM is replaced as after any failed render.
@@ -611,10 +630,8 @@ func TestStackDepthLimitsRecursion(t *testing.T) {
 	}
 }
 
-// The engine reads the wall clock for the eval timeout and Go the monotonic one for the deadline,
-// and the two drift apart, so the engine can stop a render a little before Go's deadline. The
-// pool never interrupts a VM itself, so an interrupt is the time budget whatever Go's clock says.
-// The page interrupts its VM long before the deadline, as the engine's timer would.
+// The pool never interrupts a VM itself, so an interrupt is the time budget whatever Go's clock
+// says. The page interrupts its VM long before the deadline, as the engine's timer would.
 func TestInterruptIsTheTimeBudget(t *testing.T) {
 	defer swap(&loadVM, func(p *Pool) (*quickjs.VM, error) {
 		vm, err := openVM(p)

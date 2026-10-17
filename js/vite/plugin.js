@@ -18,6 +18,16 @@ const reactServerEntry = /[/\\]react-dom[/\\]server\.edge\.js$/
 const reactStringRenderer = /[/\\]react-dom[/\\]cjs[/\\]react-dom-server-legacy\.browser\.production\.js$/
 // The error handler of renderToString, which ignores the errors of the render.
 const ignoredErrors = 'function onError() {}'
+// React's HTML escape in its string renderer, with the regular expression that finds the first
+// character to escape.
+const escapeSource = 'matchHtmlRegExp = /["\'&<>]/;\nfunction escapeTextForBrowser(text) {'
+// escapeCacheSize is how much the cache of escapes holds in each VM, in UTF-16 code units: the
+// strings and their escapes, and escapeEntrySize more for each entry, which stands for the memory
+// an entry of the Map takes besides its strings. So many short strings cannot take more memory
+// than a few long ones. Full, the cache takes about 0.5 to 2 MB of VM memory, the most for strings
+// of a little over 8,192 code units outside Latin-1.
+const escapeCacheSize = 1 << 18
+const escapeEntrySize = 64
 const nodeBuiltins = new Set(builtinModules)
 
 // pollInterval is how often, in milliseconds, Vite's watcher looks at each file once it polls.
@@ -191,10 +201,11 @@ function resolveRouteModule(ctx, root, source, importer) {
 }
 
 // ssrPlugin applies to the SSR build only. It replaces *.client modules with a stub, refuses Node
-// APIs in page code, trims React's server entry to the renderer actually used, passes the errors
-// renderToString ignores to the runtime, switches core-js to its property-backed internal state,
-// checks that the bundle is one file, and warns of the places where it may load a module at run
-// time. Its source map names sources relative to the application root.
+// APIs in page code, trims React's server entry to the renderer actually used, caches the HTML
+// escapes of that renderer, passes the errors renderToString ignores to the runtime, switches
+// core-js to its property-backed internal state, checks that the bundle is one file, and warns of
+// the places where it may load a module at run time. Its source map names sources relative to the
+// application root.
 export function ssrPlugin(getRoot, loadVite) {
   const reactTargets = new Map() // server.edge.js path to the renderer modules it imports
   let coreJS // real directory of the core-js package the application resolves, '' for none
@@ -259,17 +270,28 @@ export function ssrPlugin(getRoot, loadVite) {
       if (id === propertyState) return 'module.exports = false'
       if (coreJS && id === path.join(coreJS, 'internals', 'internal-state.js')) coreJSState = true
       if (reactStringRenderer.test(id)) {
+        const react = `react-dom ${packageVersion(path.resolve(id, '..', '..'))}: ${id}`
+        let source = fs.readFileSync(id, 'utf8')
+        const cached = cacheEscapes(source)
+        if (cached) {
+          source = cached
+        } else {
+          this.warn(
+            `${react} has no matchHtmlRegExp and escapeTextForBrowser in the form the tifa plugin knows, so ` +
+              'the tifa plugin does not cache the escapes of the HTML React writes. Pages render the same, but ' +
+              'long texts and attribute values with & < > " or \' in them take longer to render',
+          )
+        }
         // renderToString leaves a Suspense boundary whose content threw to the browser, and its
         // error handler ignores the error. Give renderToString and renderToStaticMarkup the
         // onError option of React's other renderers, for the runtime to report the error. Each
         // call reports to its own onError, so a render inside a render keeps its errors.
-        const source = fs.readFileSync(id, 'utf8')
         if (source.split(ignoredErrors).length !== 2) {
           this.warn(
-            `react-dom ${packageVersion(path.resolve(id, '..', '..'))}: ${id} has no "${ignoredErrors}" the tifa ` +
-              'plugin knows, so a server render that fails inside a Suspense boundary cannot say why',
+            `${react} has no "${ignoredErrors}" the tifa plugin knows, so a server render that fails inside ` +
+              'a Suspense boundary cannot say why',
           )
-          return null
+          return source
         }
         return (
           source.replace(ignoredErrors, 'function onError(error) { tifaOnError?.(error) }') +
@@ -337,6 +359,40 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
       }
     },
   }
+}
+
+// cacheEscapes returns the source of React's string renderer with a cache in front of
+// escapeTextForBrowser, or null when the source does not have it in the form it knows. React
+// escapes every text and attribute value it writes. A string with nothing to escape costs one
+// search of the regular expression, but one with & < > " or ' goes through a loop over each
+// character, which takes long in QuickJS. Such strings are mostly the same from render to render,
+// like the class names of Tailwind CSS ([&_svg]:size-4, has-[>svg]:px-3), so the cache keeps their
+// escapes, keyed by the string. It holds escapeCacheSize code units, and when the next string does
+// not fit it starts over empty: texts of the data, which differ in each request, fill it, and the
+// strings every render writes come back at the next render. A string larger than the whole cache
+// is not kept. The cache lives in the module, so each VM has its own.
+function cacheEscapes(source) {
+  if (source.split(escapeSource).length !== 2) return null
+  const cached = `matchHtmlRegExp = /["'&<>]/;
+var tifaEscapes = new Map(),
+  tifaEscapesSize = 0;
+function escapeTextForBrowser(text) {
+  if ("string" !== typeof text) return tifaEscapeTextForBrowser(text);
+  if (!matchHtmlRegExp.test(text)) return text;
+  var escaped = tifaEscapes.get(text);
+  if (void 0 === escaped) {
+    escaped = tifaEscapeTextForBrowser(text);
+    var size = text.length + escaped.length + ${escapeEntrySize};
+    if (size <= ${escapeCacheSize}) {
+      tifaEscapesSize + size > ${escapeCacheSize} && (tifaEscapes.clear(), (tifaEscapesSize = 0));
+      tifaEscapes.set(text, escaped);
+      tifaEscapesSize += size;
+    }
+  }
+  return escaped;
+}
+function tifaEscapeTextForBrowser(text) {`
+  return source.replace(escapeSource, () => cached)
 }
 
 // hostLoads returns the places where the bundle may still load a module at run time, which
