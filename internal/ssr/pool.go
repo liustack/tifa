@@ -37,6 +37,7 @@ type Pool struct {
 	bytecode []byte
 	sources  *sources
 	memory   uintptr
+	stack    uintptr // stack slots of each VM, see load
 	timeout  time.Duration
 	dev      bool // the checks of tifa dev, see warnIntl
 	idle     chan *quickjs.VM
@@ -78,12 +79,15 @@ func NewPool(source string, sourceMap []byte, cfg config.SSR, dev bool) (*Pool, 
 		return nil, fmt.Errorf("ssr: ssr.vms must be at least 1, got %d", cfg.VMs)
 	case cfg.VMMemory <= 0:
 		return nil, fmt.Errorf("ssr: ssr.vm_memory must be positive, got %d", cfg.VMMemory)
+	case cfg.VMStackDepth < 1 || cfg.VMStackDepth > config.MaxVMStackDepth:
+		return nil, fmt.Errorf("ssr: ssr.vm_stack_depth must be from 1 to %d, got %d", config.MaxVMStackDepth, cfg.VMStackDepth)
 	case cfg.Timeout <= 0:
 		return nil, fmt.Errorf("ssr: ssr.timeout must be positive, got %s", cfg.Timeout)
 	}
 	p := &Pool{
 		sources: &sources{code: source, raw: sourceMap},
 		memory:  uintptr(cfg.VMMemory),
+		stack:   uintptr(cfg.VMStackDepth),
 		timeout: cfg.Timeout,
 		dev:     dev,
 		idle:    make(chan *quickjs.VM, cfg.VMs),
@@ -238,7 +242,7 @@ func (p *Pool) Close() error {
 }
 
 func openVM(p *Pool) (*quickjs.VM, error) {
-	vm, err := load(p.bytecode, p.memory, p.timeout, p.dev)
+	vm, err := load(p.bytecode, p.memory, p.stack, p.timeout, p.dev)
 	if err != nil {
 		return nil, err
 	}

@@ -75,6 +75,20 @@ globalThis.startRender = (json) => {
     case 'recursecaught':
       caught(() => Tree(0))
       return
+    case 'depth': {
+      // How deep calls nest before the engine throws its RangeError.
+      let depth = 0
+      const down = () => {
+        depth++
+        down()
+      }
+      try {
+        down()
+      } catch (error) {
+        globalThis.renderResult = `<p data-depth="${depth}">${error.name}: ${error.message}</p>`
+      }
+      return
+    }
     case 'error':
       globalThis.renderResult = JSON.stringify({ error: 'page failed' })
       return

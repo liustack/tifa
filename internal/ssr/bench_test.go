@@ -51,7 +51,7 @@ func BenchmarkShop(b *testing.B) {
 	b.Run("load", func(b *testing.B) {
 		var size int64
 		for b.Loop() {
-			vm, err := load(bytecode, memory, timeout, false)
+			vm, err := load(bytecode, memory, uintptr(cfg.VMStackDepth), timeout, false)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -69,7 +69,7 @@ func BenchmarkShop(b *testing.B) {
 		input := renderInput(b, page.input)
 		for b.Loop() {
 			b.StopTimer()
-			vm, err := load(bytecode, memory, timeout, false)
+			vm, err := load(bytecode, memory, uintptr(cfg.VMStackDepth), timeout, false)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -164,7 +164,7 @@ func TestShopVMMemory(t *testing.T) {
 	}
 	hosted := vmMemory(withIntl, true)
 
-	vm, err := load(bytecode, uintptr(cfg.VMMemory), cfg.Timeout, false)
+	vm, err := load(bytecode, uintptr(cfg.VMMemory), uintptr(cfg.VMStackDepth), cfg.Timeout, false)
 	if err != nil {
 		t.Fatal(err)
 	}

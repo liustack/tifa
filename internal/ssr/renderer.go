@@ -39,12 +39,17 @@ func compile(source string, memory uintptr, timeout time.Duration) (bytecode []b
 // Go code uses, is left alone. intl.Register only puts stand-ins on the VM: the first use of Intl or a
 // toLocale* method installs the rest, so a VM whose pages never format costs a few KB more.
 // dev runs intlcheck.js too, which installs Intl at once to watch it.
-func load(bytecode []byte, memory uintptr, timeout time.Duration, dev bool) (*quickjs.VM, error) {
+//
+// stack is how deep calls may nest, in the engine's stack slots (ssr.vm_stack_depth). Deeper
+// calls throw RangeError: Maximum call stack size exceeded. The slots live on the goroutine
+// stack of the render, not in the memory the limit counts: a slot takes up to about 13 KB.
+func load(bytecode []byte, memory, stack uintptr, timeout time.Duration, dev bool) (*quickjs.VM, error) {
 	vm, err := quickjs.NewVM()
 	if err != nil {
 		return nil, err
 	}
 	vm.SetMemoryLimit(memory)
+	vm.SetMaxStackSize(stack)
 	if err = vm.SetEvalTimeout(timeout); err == nil {
 		err = intl.Register(vm)
 	}

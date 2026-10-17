@@ -118,7 +118,7 @@ func checkRequireCases(t *testing.T, root string, cases []requireCase, output st
 	if err != nil {
 		t.Fatal(err)
 	}
-	pool, err := ssr.NewPool(string(code), sourceMap, config.SSR{VMs: 1, VMMemory: 64 << 20, Timeout: 5 * time.Second}, false)
+	pool, err := ssr.NewPool(string(code), sourceMap, config.SSR{VMs: 1, VMMemory: 64 << 20, VMStackDepth: config.Default().SSR.VMStackDepth, Timeout: 5 * time.Second}, false)
 	if err != nil {
 		t.Fatal(err)
 	}

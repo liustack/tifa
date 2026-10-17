@@ -27,9 +27,12 @@ func (v stringValue) Set(s string) error {
 func (v stringValue) String() string { return *v.p }
 func (v stringValue) kind() string   { return "string" }
 
+// intValue is a whole number of at least min and, when max is not 0, at most max. why says what
+// goes wrong above max.
 type intValue struct {
-	p   *int
-	min int
+	p        *int
+	min, max int
+	why      string
 }
 
 func (v intValue) Set(s string) error {
@@ -39,6 +42,9 @@ func (v intValue) Set(s string) error {
 	}
 	if n < v.min {
 		return fmt.Errorf("%d is below the minimum %d", n, v.min)
+	}
+	if v.max != 0 && n > v.max {
+		return fmt.Errorf("%d is above the maximum %d: %s", n, v.max, v.why)
 	}
 	*v.p = n
 	return nil
