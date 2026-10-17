@@ -156,8 +156,7 @@ func TestSoakOOMRecycle(t *testing.T) {
 					if err == nil {
 						continue
 					}
-					// Only the memory limit may end a cycle. A timeout, a page error or
-					// a bare null (QuickJS out of room even for its error object) fails
+					// Only the memory limit may end a cycle. A timeout or a page error fails
 					// the test. With these fixed sizes the run is deterministic.
 					if !errors.Is(err, ErrOutOfMemory) {
 						t.Fatalf("cycle %d request %d: want ErrOutOfMemory, got %v", cycle, i, err)

@@ -168,6 +168,11 @@ func TestFailedVMIsReplaced(t *testing.T) {
 		{"loop", "timed out"},
 		{"jobs", "timed out"},
 		{"oom", "out of memory"},
+		{"oomsmall", "out of memory"},
+		{"oomcaught", "out of memory"},
+		{"loopcaught", "timed out"},
+		{"recurse", "RangeError: Maximum call stack size exceeded"},
+		{"recursecaught", "RangeError: Maximum call stack size exceeded"},
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
 			before := p.stats()
@@ -485,10 +490,14 @@ func TestOutOfMemoryIsDistinct(t *testing.T) {
 		oom  bool
 	}{
 		{"oom", true},
+		{"oomsmall", true},
+		{"oomcaught", true},
 		{"throw", false},
 		{"error", false},
 		{"pending", false},
 		{"loop", false},
+		{"loopcaught", false},
+		{"recurse", false},
 	} {
 		_, err := p.Render(context.Background(), input(tc.mode, ""))
 		if err == nil {
@@ -496,6 +505,58 @@ func TestOutOfMemoryIsDistinct(t *testing.T) {
 		}
 		if got := errors.Is(err, ErrOutOfMemory); got != tc.oom {
 			t.Errorf("%s: errors.Is(%v, ErrOutOfMemory) = %v", tc.mode, err, got)
+		}
+	}
+}
+
+// Page code cannot catch running out of memory or the time budget: a catch that reports every
+// error as the page's, as the runtime's startRender does, never runs, and the render fails with
+// ErrOutOfMemory or context.DeadlineExceeded.
+func TestPageCodeCannotCatchOutOfMemoryOrTimeout(t *testing.T) {
+	cfg := testConfig(1)
+	cfg.Timeout = 100 * time.Millisecond
+	p := newTestPool(t, testSource(t), cfg)
+	for _, tc := range []struct {
+		mode string
+		want error
+	}{
+		{"oomcaught", ErrOutOfMemory},
+		{"loopcaught", context.DeadlineExceeded},
+	} {
+		_, err := p.Render(context.Background(), input(tc.mode, ""))
+		if !errors.Is(err, tc.want) {
+			t.Errorf("%s: got %v, want %v", tc.mode, err, tc.want)
+		}
+		var reported *scriptError
+		if errors.As(err, &reported) {
+			t.Errorf("%s: the page caught it: %v", tc.mode, err)
+		}
+	}
+}
+
+// A component that recurses without end fails its render with the RangeError of a JavaScript
+// engine, whether the page catches it or not, well before the time budget. The process lives
+// on, and the VM is replaced as after any failed render.
+func TestInfiniteRecursionIsARenderError(t *testing.T) {
+	p := newTestPool(t, testSource(t), testConfig(1))
+	for _, mode := range []string{"recurse", "recursecaught"} {
+		start := time.Now()
+		_, err := p.Render(context.Background(), input(mode, ""))
+		if err == nil || !strings.Contains(err.Error(), "RangeError: Maximum call stack size exceeded") {
+			t.Fatalf("%s: got %v", mode, err)
+		}
+		if errors.Is(err, ErrOutOfMemory) || errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("%s: got %v, want an error of the page", mode, err)
+		}
+		if elapsed := time.Since(start); elapsed > time.Second {
+			t.Errorf("%s: took %s", mode, elapsed)
+		}
+		html, err := p.Render(context.Background(), input("ok", ""))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(html, `data-renders="1" data-dirty="false"`) {
+			t.Fatalf("%s: the VM was reused: %s", mode, html)
 		}
 	}
 }

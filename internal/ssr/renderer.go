@@ -153,10 +153,9 @@ func (e *RedirectError) Error() string {
 // ErrOutOfMemory matches a render that hit the VM's memory limit (ssr.vm_memory).
 var ErrOutOfMemory = errors.New("ssr: VM out of memory")
 
-// outOfMemory reports the exception QuickJS throws when an allocation exceeds the limit.
-// When the limit leaves no room even for that error object, QuickJS throws null instead,
-// which cannot be told apart from application code throwing null. Such a render still
-// fails and retires its VM, it just does not match ErrOutOfMemory.
+// outOfMemory reports the error QuickJS ends a call with when an allocation exceeds the limit,
+// also when the limit leaves no room for the error object. Page code cannot catch it: no catch,
+// finally or promise handler runs, so the bundle never reports it as an error of its own.
 func outOfMemory(err error) bool {
 	var e *quickjs.Error
 	return errors.As(err, &e) && e.Name == "InternalError" && e.Message == "out of memory"
