@@ -54,6 +54,11 @@ globalThis.startRender = (json) => {
       return
     case 'pending':
       return
+    case 'interrupt':
+      // A Go function the test registers interrupts the VM, then the render runs on until the
+      // interrupt stops it.
+      globalThis.goInterrupt()
+      for (;;) {}
     case 'gopanic':
       // A Go function the test registers panics in the middle of the render.
       globalThis.goPanic()
