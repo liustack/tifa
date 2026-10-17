@@ -279,6 +279,7 @@ export function Error({ error }: { error: unknown }) {
 - 自己没导出 `Error` 的路由，用最近的导出了 `Error` 的祖先的，都没有就用框架默认的。
 - 页面的状态码取最外层失败的那一层。
 - 服务器渲染页面时组件抛错，整次渲染失败。这算意外错误：交给 `OnError` 决定状态码（没定义 `OnError` 时是 500），浏览器拿到的是 Go 写的简单错误页，只有这个状态码和公开的消息，不是你的 `Error` 组件。这次回答不进缓存。在 `tifa dev` 下，这张页还会显示错误和它在源文件里的错误栈，保存修复后自动刷新（见 [tifa dev](dev.zh-CN.md#页面渲染失败)）。
+- 服务器渲染用完 `ssr.vm_memory` 或超过 `ssr.timeout`（见 [config.zh-CN.md](config.zh-CN.md)）时当场停下。你的代码和库里的 `catch`、`finally`、promise 处理函数都不会为它运行，所以页面接不住它，也没法改成显示别的内容。这次渲染照上面那样失败，VM 换成新的。无限递归的代码得到 `RangeError: Maximum call stack size exceeded`，和 Node 一样，`catch` 能接住。没有代码接住时，它和其他错误一样让渲染失败。
 - 浏览器接管之后组件抛错，显示最近的 `Error`，和 `Load` 失败一样。
 - 无论哪里失败，文档外壳都是完整的，页面照样加载脚本和样式。
 
