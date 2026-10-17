@@ -214,11 +214,11 @@ func TestSoakVMMemory(t *testing.T) {
 		return vmMemory(vm, true)
 	}
 	loaded := func(t *testing.T, source string) func() (*quickjs.VM, error) {
-		bytecode, err := compile(source, memory, timeout)
+		bytecode, err := Compile(source, memory, timeout)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return func() (*quickjs.VM, error) { return load(bytecode, memory, stack, timeout, false) }
+		return func() (*quickjs.VM, error) { return Load(bytecode, memory, stack, timeout, false) }
 	}
 	format := func(vm *quickjs.VM) {
 		if _, err := vm.Eval(formats, quickjs.EvalGlobal); err != nil {
@@ -250,7 +250,7 @@ func TestSoakVMMemory(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if _, err := render(vm, in, timeout); err != nil {
+				if _, err := RenderVM(vm, in, timeout); err != nil {
 					t.Fatal(err)
 				}
 			}

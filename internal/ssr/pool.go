@@ -37,7 +37,7 @@ type Pool struct {
 	bytecode []byte
 	sources  *sources
 	memory   uintptr
-	stack    uintptr // stack slots of each VM, see load
+	stack    uintptr // stack slots of each VM, see Load
 	timeout  time.Duration
 	dev      bool // the checks of tifa dev, see warnIntl
 	idle     chan *quickjs.VM
@@ -95,7 +95,7 @@ func NewPool(source string, sourceMap []byte, cfg config.SSR, dev bool) (*Pool, 
 		warned:  map[string]bool{},
 	}
 	var err error
-	if p.bytecode, err = compile(source, p.memory, p.timeout); err != nil {
+	if p.bytecode, err = Compile(source, p.memory, p.timeout); err != nil {
 		return nil, fmt.Errorf("ssr: compile bundle: %w", err)
 	}
 	for range cfg.VMs {
@@ -155,7 +155,7 @@ func (p *Pool) Render(ctx context.Context, in Input) (string, error) {
 	if p.acquired != nil {
 		p.acquired()
 	}
-	html, err := render(vm, input, p.timeout)
+	html, err := RenderVM(vm, input, p.timeout)
 	var redirect *RedirectError
 	if err != nil && !errors.As(err, &redirect) {
 		return "", p.sources.explain(err, false)
@@ -242,7 +242,7 @@ func (p *Pool) Close() error {
 }
 
 func openVM(p *Pool) (*quickjs.VM, error) {
-	vm, err := load(p.bytecode, p.memory, p.stack, p.timeout, p.dev)
+	vm, err := Load(p.bytecode, p.memory, p.stack, p.timeout, p.dev)
 	if err != nil {
 		return nil, err
 	}

@@ -13,9 +13,12 @@ import (
 	"github.com/liustack/quickjs/intl"
 )
 
-// compile turns the bundle into bytecode once, in a throwaway VM.
+// Compile, Load and RenderVM are the steps a Pool takes, exported so that measurements outside
+// the package can time and inspect each one. Code that serves pages uses a Pool.
+
+// Compile turns the bundle into bytecode once, in a throwaway VM.
 // Every VM of the pool, including replacements, loads this bytecode.
-func compile(source string, memory uintptr, timeout time.Duration) (bytecode []byte, err error) {
+func Compile(source string, memory uintptr, timeout time.Duration) (bytecode []byte, err error) {
 	vm, err := quickjs.NewVM()
 	if err != nil {
 		return nil, err
@@ -28,7 +31,7 @@ func compile(source string, memory uintptr, timeout time.Duration) (bytecode []b
 	return vm.Compile(source, quickjs.EvalGlobal)
 }
 
-// load creates a VM, gives it Intl and runs the bundle's top level code, which defines
+// Load creates a VM, gives it Intl and runs the bundle's top level code, which defines
 // startRender. The only Go callbacks the VM gets are those of Intl, which format and do no I/O
 // but read the zoneinfo of a time zone the first time the process uses it. It has no module
 // loader, so rendering cannot do I/O.
@@ -43,7 +46,7 @@ func compile(source string, memory uintptr, timeout time.Duration) (bytecode []b
 // stack is how deep calls may nest, in the engine's stack slots (ssr.vm_stack_depth). Deeper
 // calls throw RangeError: Maximum call stack size exceeded. The slots live on the goroutine
 // stack of the render, not in the memory the limit counts: a slot takes up to about 13 KB.
-func load(bytecode []byte, memory, stack uintptr, timeout time.Duration, dev bool) (*quickjs.VM, error) {
+func Load(bytecode []byte, memory, stack uintptr, timeout time.Duration, dev bool) (*quickjs.VM, error) {
 	vm, err := quickjs.NewVM()
 	if err != nil {
 		return nil, err
@@ -70,9 +73,9 @@ func load(bytecode []byte, memory, stack uintptr, timeout time.Duration, dev boo
 //go:embed intlcheck.js
 var intlCheck string
 
-// render runs one request in vm: startRender(input), then the microtasks it queued,
+// RenderVM runs one request in vm: startRender(input), then the microtasks it queued,
 // then reads globalThis.renderResult. Any error leaves vm in an unknown state.
-func render(vm *quickjs.VM, input []byte, timeout time.Duration) (string, error) {
+func RenderVM(vm *quickjs.VM, input []byte, timeout time.Duration) (string, error) {
 	deadline := time.Now().Add(timeout)
 	// Each phase gets only what is left of the request's budget.
 	budget := func() error {

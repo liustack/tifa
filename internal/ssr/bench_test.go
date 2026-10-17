@@ -38,20 +38,20 @@ func BenchmarkShop(b *testing.B) {
 
 	b.Run("compile", func(b *testing.B) {
 		for b.Loop() {
-			if _, err := compile(source, memory, timeout); err != nil {
+			if _, err := Compile(source, memory, timeout); err != nil {
 				b.Fatal(err)
 			}
 		}
 	})
 
-	bytecode, err := compile(source, memory, timeout)
+	bytecode, err := Compile(source, memory, timeout)
 	if err != nil {
 		b.Fatal(err)
 	}
 	b.Run("load", func(b *testing.B) {
 		var size int64
 		for b.Loop() {
-			vm, err := load(bytecode, memory, uintptr(cfg.VMStackDepth), timeout, false)
+			vm, err := Load(bytecode, memory, uintptr(cfg.VMStackDepth), timeout, false)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -69,12 +69,12 @@ func BenchmarkShop(b *testing.B) {
 		input := renderInput(b, page.input)
 		for b.Loop() {
 			b.StopTimer()
-			vm, err := load(bytecode, memory, uintptr(cfg.VMStackDepth), timeout, false)
+			vm, err := Load(bytecode, memory, uintptr(cfg.VMStackDepth), timeout, false)
 			if err != nil {
 				b.Fatal(err)
 			}
 			b.StartTimer()
-			html, err := render(vm, input, timeout)
+			html, err := RenderVM(vm, input, timeout)
 			b.StopTimer()
 			if err != nil {
 				b.Fatal(err)
@@ -138,7 +138,7 @@ func TestShopVMMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := shopConfig(1)
-	bytecode, err := compile(source, uintptr(cfg.VMMemory), cfg.Timeout)
+	bytecode, err := Compile(source, uintptr(cfg.VMMemory), cfg.Timeout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestShopVMMemory(t *testing.T) {
 	}
 	hosted := vmMemory(withIntl, true)
 
-	vm, err := load(bytecode, uintptr(cfg.VMMemory), uintptr(cfg.VMStackDepth), cfg.Timeout, false)
+	vm, err := Load(bytecode, uintptr(cfg.VMMemory), uintptr(cfg.VMStackDepth), cfg.Timeout, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +172,7 @@ func TestShopVMMemory(t *testing.T) {
 	loaded := vmMemory(vm, true)
 	for i := range 64 {
 		page := pages[i%len(pages)]
-		html, err := render(vm, renderInput(t, page.input), cfg.Timeout)
+		html, err := RenderVM(vm, renderInput(t, page.input), cfg.Timeout)
 		if err != nil {
 			t.Fatal(err)
 		}
