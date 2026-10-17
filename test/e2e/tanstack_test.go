@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -121,6 +122,38 @@ func linkEntries(t *testing.T, src, dst, skip string) {
 		}
 		if err := os.Symlink(filepath.Join(src, e.Name()), filepath.Join(dst, e.Name())); err != nil {
 			t.Fatal(err)
+		}
+	}
+}
+
+// The apps of this repository install the versions tifa is tested with, so the tests that bundle
+// them test those versions. After changing bundle.TestedReactRouter, install it in each.
+func TestAppsOfTheRepositoryUseTheTestedTanStack(t *testing.T) {
+	pinned := regexp.MustCompile(`"@tanstack/react-router": "([^"]+)"`)
+	locked := regexp.MustCompile(`(?m)^  '(@tanstack/(?:react-router|router-core))@([0-9][^'(]*)['(]`)
+	for _, app := range []string{"../../examples/shop", "../../test/apps/pages", "../../test/apps/tailwind"} {
+		pkg, err := os.ReadFile(filepath.Join(app, "package.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m := pinned.FindSubmatch(pkg); m == nil || string(m[1]) != bundle.TestedReactRouter {
+			t.Errorf("%s/package.json pins @tanstack/react-router %q, want %s", app, m, bundle.TestedReactRouter)
+		}
+		lock, err := os.ReadFile(filepath.Join(app, "pnpm-lock.yaml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := map[string]string{"@tanstack/react-router": bundle.TestedReactRouter, "@tanstack/router-core": bundle.TestedRouterCore}
+		found := map[string]bool{}
+		for _, m := range locked.FindAllSubmatch(lock, -1) {
+			name, version := string(m[1]), string(m[2])
+			found[name] = true
+			if version != want[name] {
+				t.Errorf("%s/pnpm-lock.yaml locks %s %s, want %s", app, name, version, want[name])
+			}
+		}
+		if len(found) != 2 {
+			t.Errorf("%s/pnpm-lock.yaml locks %v, want both packages", app, found)
 		}
 	}
 }

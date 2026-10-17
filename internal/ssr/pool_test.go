@@ -6,12 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/liustack/quickjs"
+	lib "github.com/liustack/quickjs/lib"
 	"github.com/liustack/tifa/internal/config"
 )
 
@@ -25,7 +28,18 @@ func testSource(t *testing.T) string {
 }
 
 func testConfig(vms int) config.SSR {
-	return config.SSR{VMs: vms, VMMemory: 8 << 20, Timeout: 2 * time.Second}
+	return config.SSR{VMs: vms, VMMemory: 8 << 20, VMStackDepth: config.Default().SSR.VMStackDepth, Timeout: 2 * time.Second}
+}
+
+// modeConfig is the config of a pool for a render of data.mode: a short time budget for the modes
+// that run until it ends, the default of testConfig for the others, since filling the memory or
+// the stack takes longer than a short budget under the race detector.
+func modeConfig(mode string) config.SSR {
+	cfg := testConfig(1)
+	if mode == "loop" || mode == "jobs" || mode == "loopcaught" {
+		cfg.Timeout = 100 * time.Millisecond
+	}
+	return cfg
 }
 
 func newTestPool(t *testing.T, source string, cfg config.SSR) *Pool {
@@ -80,9 +94,11 @@ func TestNewPoolRejectsInvalidInput(t *testing.T) {
 		cfg    config.SSR
 		want   string
 	}{
-		{"no VMs", "", config.SSR{VMs: 0, VMMemory: 1 << 20, Timeout: time.Second}, "ssr.vms"},
-		{"no memory", "", config.SSR{VMs: 1, VMMemory: 0, Timeout: time.Second}, "ssr.vm_memory"},
-		{"no timeout", "", config.SSR{VMs: 1, VMMemory: 1 << 20, Timeout: 0}, "ssr.timeout"},
+		{"no VMs", "", config.SSR{VMs: 0, VMMemory: 1 << 20, VMStackDepth: 1000, Timeout: time.Second}, "ssr.vms"},
+		{"no memory", "", config.SSR{VMs: 1, VMMemory: 0, VMStackDepth: 1000, Timeout: time.Second}, "ssr.vm_memory"},
+		{"no stack", "", config.SSR{VMs: 1, VMMemory: 1 << 20, VMStackDepth: 0, Timeout: time.Second}, "ssr.vm_stack_depth"},
+		{"deep stack", "", config.SSR{VMs: 1, VMMemory: 1 << 20, VMStackDepth: lib.MaxStackSlots + 1, Timeout: time.Second}, "ssr.vm_stack_depth"},
+		{"no timeout", "", config.SSR{VMs: 1, VMMemory: 1 << 20, VMStackDepth: 1000, Timeout: 0}, "ssr.timeout"},
 		{"syntax", "globalThis.startRender = (", testConfig(1), "compile"},
 		{"top level throws", "throw new Error('broken bundle')", testConfig(1), "broken bundle"},
 	} {
@@ -158,9 +174,6 @@ func TestInvalidInputFailsBeforeJS(t *testing.T) {
 // Every failure retires the VM. The next render must run in a fresh VM,
 // so it sees renders == 1 and no state left by the failed request.
 func TestFailedVMIsReplaced(t *testing.T) {
-	cfg := testConfig(1)
-	cfg.Timeout = 100 * time.Millisecond
-	p := newTestPool(t, testSource(t), cfg)
 	for _, tc := range []struct{ mode, want string }{
 		{"throw", "intentional failure"},
 		{"error", "page failed"},
@@ -168,8 +181,14 @@ func TestFailedVMIsReplaced(t *testing.T) {
 		{"loop", "timed out"},
 		{"jobs", "timed out"},
 		{"oom", "out of memory"},
+		{"oomsmall", "out of memory"},
+		{"oomcaught", "out of memory"},
+		{"loopcaught", "timed out"},
+		{"recurse", "RangeError: Maximum call stack size exceeded"},
+		{"recursecaught", "RangeError: Maximum call stack size exceeded"},
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
+			p := newTestPool(t, testSource(t), modeConfig(tc.mode))
 			before := p.stats()
 			_, err := p.Render(context.Background(), input(tc.mode, ""))
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
@@ -477,19 +496,21 @@ func TestRenderAdmittedBeforeCloseDoesNotStart(t *testing.T) {
 // Only the memory limit matches ErrOutOfMemory. Other failures must not, so callers
 // and tests can tell a VM that ran out of memory from one that failed otherwise.
 func TestOutOfMemoryIsDistinct(t *testing.T) {
-	cfg := testConfig(1)
-	cfg.Timeout = 100 * time.Millisecond
-	p := newTestPool(t, testSource(t), cfg)
 	for _, tc := range []struct {
 		mode string
 		oom  bool
 	}{
 		{"oom", true},
+		{"oomsmall", true},
+		{"oomcaught", true},
 		{"throw", false},
 		{"error", false},
 		{"pending", false},
 		{"loop", false},
+		{"loopcaught", false},
+		{"recurse", false},
 	} {
+		p := newTestPool(t, testSource(t), modeConfig(tc.mode))
 		_, err := p.Render(context.Background(), input(tc.mode, ""))
 		if err == nil {
 			t.Fatalf("%s: accepted", tc.mode)
@@ -497,5 +518,114 @@ func TestOutOfMemoryIsDistinct(t *testing.T) {
 		if got := errors.Is(err, ErrOutOfMemory); got != tc.oom {
 			t.Errorf("%s: errors.Is(%v, ErrOutOfMemory) = %v", tc.mode, err, got)
 		}
+	}
+}
+
+// Page code cannot catch running out of memory or the time budget: a catch that reports every
+// error as the page's, as the runtime's startRender does, never runs, and the render fails with
+// ErrOutOfMemory or context.DeadlineExceeded.
+func TestPageCodeCannotCatchOutOfMemoryOrTimeout(t *testing.T) {
+	for _, tc := range []struct {
+		mode string
+		want error
+	}{
+		{"oomcaught", ErrOutOfMemory},
+		{"loopcaught", context.DeadlineExceeded},
+	} {
+		p := newTestPool(t, testSource(t), modeConfig(tc.mode))
+		_, err := p.Render(context.Background(), input(tc.mode, ""))
+		if !errors.Is(err, tc.want) {
+			t.Errorf("%s: got %v, want %v", tc.mode, err, tc.want)
+		}
+		var reported *scriptError
+		if errors.As(err, &reported) {
+			t.Errorf("%s: the page caught it: %v", tc.mode, err)
+		}
+	}
+}
+
+// A component that recurses without end fails its render with the RangeError of a JavaScript
+// engine, whether the page catches it or not, before the time budget. The process lives on, and
+// the VM is replaced as after any failed render.
+func TestInfiniteRecursionIsARenderError(t *testing.T) {
+	p := newTestPool(t, testSource(t), testConfig(1))
+	for _, mode := range []string{"recurse", "recursecaught"} {
+		_, err := p.Render(context.Background(), input(mode, ""))
+		if err == nil || !strings.Contains(err.Error(), "RangeError: Maximum call stack size exceeded") {
+			t.Fatalf("%s: got %v", mode, err)
+		}
+		if errors.Is(err, ErrOutOfMemory) || errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("%s: got %v, want an error of the page", mode, err)
+		}
+		html, err := p.Render(context.Background(), input("ok", ""))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(html, `data-renders="1" data-dirty="false"`) {
+			t.Fatalf("%s: the VM was reused: %s", mode, html)
+		}
+	}
+}
+
+// tifa's default and largest stack depth is the engine's default, which recurses about as deep as
+// Node does.
+func TestDefaultStackDepthIsTheEngines(t *testing.T) {
+	if got := config.Default().SSR.VMStackDepth; got != lib.MaxStackSlots {
+		t.Fatalf("ssr.vm_stack_depth defaults to %d, the engine to %d", got, lib.MaxStackSlots)
+	}
+	if config.MaxVMStackDepth != lib.MaxStackSlots {
+		t.Fatalf("ssr.vm_stack_depth may go up to %d, the engine's default is %d", config.MaxVMStackDepth, lib.MaxStackSlots)
+	}
+}
+
+// ssr.vm_stack_depth is how deep calls nest in a VM before they throw the RangeError, also in
+// a replacement VM.
+func TestStackDepthLimitsRecursion(t *testing.T) {
+	depth := regexp.MustCompile(`<p data-depth="(\d+)">RangeError: Maximum call stack size exceeded</p>`)
+	for _, tc := range []struct{ limit, least int }{{500, 450}, {config.Default().SSR.VMStackDepth, 9900}} {
+		cfg := testConfig(1)
+		cfg.VMStackDepth = tc.limit
+		p := newTestPool(t, testSource(t), cfg)
+		for _, mode := range []string{"depth", "recurse", "depth"} {
+			html, err := p.Render(context.Background(), input(mode, ""))
+			if mode == "recurse" {
+				if err == nil || !strings.Contains(err.Error(), "RangeError: Maximum call stack size exceeded") {
+					t.Fatalf("%d: recurse: %v", tc.limit, err)
+				}
+				continue
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			m := depth.FindStringSubmatch(html)
+			if m == nil {
+				t.Fatalf("%d: got %s", tc.limit, html)
+			}
+			if n, _ := strconv.Atoi(m[1]); n < tc.least || n > tc.limit {
+				t.Errorf("%d: calls nested %d deep, want %d to %d", tc.limit, n, tc.least, tc.limit)
+			}
+		}
+		if s := p.stats(); s.created != 2 {
+			t.Fatalf("%d: want the VM of recurse replaced, got %+v", tc.limit, s)
+		}
+	}
+}
+
+// The engine reads the wall clock for the eval timeout and Go the monotonic one for the deadline,
+// and the two drift apart, so the engine can stop a render a little before Go's deadline. The
+// pool never interrupts a VM itself, so an interrupt is the time budget whatever Go's clock says.
+// The page interrupts its VM long before the deadline, as the engine's timer would.
+func TestInterruptIsTheTimeBudget(t *testing.T) {
+	defer swap(&loadVM, func(p *Pool) (*quickjs.VM, error) {
+		vm, err := openVM(p)
+		if err != nil {
+			return nil, err
+		}
+		return vm, vm.RegisterFunc("goInterrupt", vm.Interrupt, false)
+	})()
+	p := newTestPool(t, testSource(t), testConfig(1))
+	_, err := p.Render(context.Background(), input("interrupt", ""))
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("got %v", err)
 	}
 }

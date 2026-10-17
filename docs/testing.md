@@ -7,6 +7,7 @@ read_when:
   - Changing `internal/bundle`, or a bundle test shows skip
   - Running the end-to-end tests, or changing `internal/codegen`, `test/apps` or `examples/shop`
   - Measuring SSR render time or VM memory, or comparing an SSR change against the baseline
+  - Changing `internal/ssr` or `test/ssr`
 ---
 
 # Testing and verification
@@ -53,7 +54,7 @@ TIFA_E2E=1 go test ./test/e2e/
 - `TestShopApp`: the example app's full-page render, `Cache = true`, 304, which level each of the three 404s lands on, shipping with a JSON input (403 without Origin and for a cross-site request, 422 with an error per field, 409 for shipping twice), changing the recipient before and after shipping, the stats page, the stats in the navigation data after shipping, the 409 for a build version mismatch, and that `go vet ./...` and `go test ./...` pass in the app without scanning `.tifa/`.
 - `TestRootNameClashesMatchTheTemplate` in `cmd/tifa` also runs only with `TIFA_E2E=1` (`TIFA_E2E=1 go test ./cmd/tifa/`). It writes a new app for each name in `rootNameClashes`, for `init`, and for every other name the template's Go files that import the root package use, then runs `go vet ./...` and `go build ./...`. Listed names must fail, the others must build. When you change those template files, run it and update the list.
 - `TestShopBuildDoesNotRunInit`: in a temporary copy of the example app, adds a package whose `init()` writes a file. After `tifa build` the file does not exist. It appears only after running the output.
-- `TestBuildChecksTheTanStackVersion`: in a temporary copy of `test/apps/pages` whose `@tanstack/react-router` says it is another version, `tifa build` fails before Vite runs and names the installed and the tested versions. With `build.skip_tanstack_check: true` it builds. `TestAppsOfTheRepositoryUseTheTestedTanStack` in `internal/bundle`, which runs by default, checks that the example app and the apps in `test/apps` pin and lock the tested versions.
+- `TestBuildChecksTheTanStackVersion`: in a temporary copy of `test/apps/pages` whose `@tanstack/react-router` says it is another version, `tifa build` fails before Vite runs and names the installed and the tested versions. With `build.skip_tanstack_check: true` it builds. `TestAppsOfTheRepositoryUseTheTestedTanStack`, which runs without `TIFA_E2E`, checks that the example app and the apps in `test/apps` pin and lock the tested versions.
 - `TestBuildReportsViolations`: runs `tifa build` on the apps in `internal/analyze/testdata` that have two parameter folders in one folder, a page that defines `GET`, a Layout reading a parameter outside its folder path, `tifa.Use` referring to a Layout that does not wrap the caller, and a `Load` return type that cannot convert to TS. The build fails and reports the file and line.
 - pages, tailwind and the example app also have a `tsc` subtest: `tsc --noEmit` type-checks the generated TS together with the app's TSX. This subtest skips when the app has no npm packages installed or there is no node.
 - `TestDev`: runs `tifa dev` on a temporary copy of `test/apps/pages`. It checks that pages load the Vite client, the React refresh preamble and the entry from `/__tifa/vite/`, and connects to Vite's HMR websocket through tifa dev. It changes TSX, a Go function body and a page's `SSR` constant one at a time, and checks from the log that each change runs only the steps it should. The TSX change must arrive as a Vite update of that module, not a full reload, keep the version (open pages do not reload), and show in the server render. It then causes a compile error and checks that the old version keeps serving, that SSE pushes the error, and that things recover once fixed. It borrows `test/apps/pages/node_modules` and skips when it is not installed.
@@ -67,7 +68,7 @@ Each app under `test/apps` is a separate module, so the root `go test ./...` doe
 ## Writing tests
 
 - New behavior and bugs with a known cause: write the test first, see it fail with your own eyes, then write the implementation.
-- Tests live in the same package as the code under test, in files named `*_test.go`.
+- Tests live in the same package as the code under test, in files named `*_test.go`. The exceptions test from outside: `test/e2e` the built CLI and apps, `test/ssr` the SSR pool of `internal/ssr` with the example app's real bundle. Framework behavior gets its test in its own package, with its own `testdata`, and does not depend on `examples/shop`.
 - One assertion proves one thing. When a loop runs several cases, give each case its own state, and confirm the code under test really ran. Caching and deduplication logic is the easiest way for a later case to get an earlier case's result while the test still passes.
 - Verify browser behavior (extra requests during hydration, one request per navigation, horizontal overflow on narrow screens) with `playwright-cli`, and take screenshots of the results.
 
@@ -77,24 +78,32 @@ The bundle tests run Vite on Node, with the packages of `internal/bundle/testdat
 
 ## Long SSR tests skipped by default
 
-The default tests in `internal/ssr` only use small handwritten bundles, `testdata/app.js` and the bundles with source maps in `explain_test.go` for render errors (broken maps, and a bound on what explaining an error allocates), and finish in a few seconds. These groups skip by default:
+The default tests in `internal/ssr` only use small handwritten bundles, `testdata/app.js` and the bundles with source maps in `explain_test.go` for render errors (broken maps, and a bound on what explaining an error allocates), and finish in a few seconds. The soak tests skip by default:
+
+```sh
+TIFA_SSR_SOAK=1 go test -tags memory.counters -run Soak -v ./internal/ssr
+```
+
+They run the normal reuse soak test (2 VMs, 2 callers, 10,000 renders) and the OOM recovery test (8 times running out of memory and replacing the VM) with `testdata/app.js`. The page of the OOM test has a long text that is not ASCII, so the VM runs out of memory where `JSON.parse` converts the input. That is exactly the leak github.com/liustack/quickjs fixed. If this test fails, first confirm the dependency is this fork and not modernc.org/quickjs. After shutdown, the native allocation count must return to the baseline. `TestSoakVMMemory` loads every VM the way the pool does. It prints what Intl adds to an empty VM, unused and after formatting, and what the bundle adds after loading, formatting and a render. It fails when Intl adds more than 32 KB to a VM that never formats.
+
+## SSR tests with the example app (`test/ssr`)
+
+`test/ssr` runs the SSR pool of `internal/ssr` on the real React bundle of `examples/shop`, which it treats as an app from outside. All of it skips unless `TIFA_SSR_SHOP=1`. First run `pnpm install --frozen-lockfile && go tool tifa build` in `examples/shop`: the tests read `.tifa/dist/ssr.js` and start the built `bin/shop`, fetching each page's data through navigation data requests and writing it in the form a full-page render gets, each route's data as the JSON text Go wrote. Rebuild after changing the example app, then run again.
 
 | Command | Contents |
 | --- | --- |
-| `TIFA_SSR_SOAK=1 go test -tags memory.counters -run Soak -v ./internal/ssr` | The normal reuse soak test (2 VMs, 2 callers, 10,000 renders) and the OOM recovery test (8 times running out of memory and replacing the VM). After shutdown, the native allocation count must return to the baseline. `TestSoakVMMemory` loads every VM the way the pool does. It prints what Intl adds to an empty VM, unused and after formatting, and what each bundle adds after loading, formatting and a render. It fails when Intl adds more than 32 KB to a VM that never formats |
-| `TIFA_SSR_SHOP=1 go test -run Shop -v ./internal/ssr` | Renders the list, detail and stats pages of two shops with the real React bundle of `examples/shop`, checks page content, script escaping, and that VM reuse does not mix up data. `TestShopWarmLatency` renders each page a few times in a warm VM, fails when one render takes more than a second, and prints P50/P95/P99. Takes about 15 seconds |
-| `TIFA_SSR_SHOP=1 TIFA_SSR_MEASURE=1 go test -run ShopWarmLatency -v ./internal/ssr` | `TestShopWarmLatency` with the method of the prototype baseline: 512 warm renders, then 2,048 timed ones over the six pages. Use these numbers for comparisons. Takes about 3 minutes |
-
-You can set both variables, and the soak tests then run again with the real React bundle. Before using the real bundle, run `pnpm install --frozen-lockfile && go tool tifa build` in `examples/shop`: the tests read `.tifa/dist/ssr.js` and start the built `bin/shop`, fetching each page's data through navigation data requests and writing it in the form a full-page render gets, each route's data as the JSON text Go wrote. Rebuild after changing the example app, then run again. The real bundle's order detail data contains Chinese text, so the OOM lands on the path where `JSON.parse` converts non-ASCII strings. That is exactly the leak github.com/liustack/quickjs fixed. If this test fails, first confirm the dependency is this fork and not modernc.org/quickjs.
+| `TIFA_SSR_SHOP=1 go test -run Shop -v ./test/ssr` | Renders the list, detail and stats pages of two shops, checks page content, script escaping, and that VM reuse does not mix up data. `TestShopWarmLatency` renders each page a few times in a warm VM, fails when one render takes more than a second, and prints P50/P95/P99. Takes about 15 seconds |
+| `TIFA_SSR_SHOP=1 TIFA_SSR_MEASURE=1 go test -run ShopWarmLatency -v ./test/ssr` | `TestShopWarmLatency` with the method of the prototype baseline: 512 warm renders, then 2,048 timed ones over the six pages. Use these numbers for comparisons. Takes about 3 minutes |
+| `TIFA_SSR_SHOP=1 TIFA_SSR_SOAK=1 go test -tags memory.counters -run Soak -v ./test/ssr` | The soak tests of `internal/ssr` with the shop's bundle: reuse over the six pages, the OOM recovery test on the order detail page, whose data contains Chinese text, and what a VM of the shop holds after loading, formatting and a render. Takes about 2 minutes |
 
 ## Performance comparisons
 
-`BenchmarkShop` and `TestShopVMMemory` in `internal/ssr/bench_test.go` measure the real bundle of `examples/shop`. Like the shop tests above, they need `TIFA_SSR_SHOP=1` and a fresh `go tool tifa build` of the shop:
+`BenchmarkShop` and `TestShopVMMemory` in `test/ssr/bench_test.go` measure the real bundle of `examples/shop`. Like the tests above, they need `TIFA_SSR_SHOP=1` and a fresh `go tool tifa build` of the shop:
 
 ```sh
-TIFA_SSR_SHOP=1 go test -run '^$' -bench 'Shop/^render' -benchtime 2000x ./internal/ssr
-TIFA_SSR_SHOP=1 go test -run '^$' -bench 'Shop/^(compile|load|first)' -benchtime 50x ./internal/ssr
-TIFA_SSR_SHOP=1 go test -run ShopVMMemory -v ./internal/ssr
+TIFA_SSR_SHOP=1 go test -run '^$' -bench 'Shop/^render' -benchtime 2000x ./test/ssr
+TIFA_SSR_SHOP=1 go test -run '^$' -bench 'Shop/^(compile|load|first)' -benchtime 50x ./test/ssr
+TIFA_SSR_SHOP=1 go test -run ShopVMMemory -v ./test/ssr
 ```
 
 | Result | What it measures |

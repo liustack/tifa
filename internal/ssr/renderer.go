@@ -13,9 +13,12 @@ import (
 	"github.com/liustack/quickjs/intl"
 )
 
-// compile turns the bundle into bytecode once, in a throwaway VM.
+// Compile, Load and RenderVM are the steps a Pool takes, exported so that measurements outside
+// the package can time and inspect each one. Code that serves pages uses a Pool.
+
+// Compile turns the bundle into bytecode once, in a throwaway VM.
 // Every VM of the pool, including replacements, loads this bytecode.
-func compile(source string, memory uintptr, timeout time.Duration) (bytecode []byte, err error) {
+func Compile(source string, memory uintptr, timeout time.Duration) (bytecode []byte, err error) {
 	vm, err := quickjs.NewVM()
 	if err != nil {
 		return nil, err
@@ -28,7 +31,7 @@ func compile(source string, memory uintptr, timeout time.Duration) (bytecode []b
 	return vm.Compile(source, quickjs.EvalGlobal)
 }
 
-// load creates a VM, gives it Intl and runs the bundle's top level code, which defines
+// Load creates a VM, gives it Intl and runs the bundle's top level code, which defines
 // startRender. The only Go callbacks the VM gets are those of Intl, which format and do no I/O
 // but read the zoneinfo of a time zone the first time the process uses it. It has no module
 // loader, so rendering cannot do I/O.
@@ -39,12 +42,17 @@ func compile(source string, memory uintptr, timeout time.Duration) (bytecode []b
 // Go code uses, is left alone. intl.Register only puts stand-ins on the VM: the first use of Intl or a
 // toLocale* method installs the rest, so a VM whose pages never format costs a few KB more.
 // dev runs intlcheck.js too, which installs Intl at once to watch it.
-func load(bytecode []byte, memory uintptr, timeout time.Duration, dev bool) (*quickjs.VM, error) {
+//
+// stack is how deep calls may nest, in the engine's stack slots (ssr.vm_stack_depth). Deeper
+// calls throw RangeError: Maximum call stack size exceeded. The slots live on the goroutine
+// stack of the render, not in the memory the limit counts: a slot takes up to about 13 KB.
+func Load(bytecode []byte, memory, stack uintptr, timeout time.Duration, dev bool) (*quickjs.VM, error) {
 	vm, err := quickjs.NewVM()
 	if err != nil {
 		return nil, err
 	}
 	vm.SetMemoryLimit(memory)
+	vm.SetMaxStackSize(stack)
 	if err = vm.SetEvalTimeout(timeout); err == nil {
 		err = intl.Register(vm)
 	}
@@ -65,9 +73,9 @@ func load(bytecode []byte, memory uintptr, timeout time.Duration, dev bool) (*qu
 //go:embed intlcheck.js
 var intlCheck string
 
-// render runs one request in vm: startRender(input), then the microtasks it queued,
+// RenderVM runs one request in vm: startRender(input), then the microtasks it queued,
 // then reads globalThis.renderResult. Any error leaves vm in an unknown state.
-func render(vm *quickjs.VM, input []byte, timeout time.Duration) (string, error) {
+func RenderVM(vm *quickjs.VM, input []byte, timeout time.Duration) (string, error) {
 	deadline := time.Now().Add(timeout)
 	// Each phase gets only what is left of the request's budget.
 	budget := func() error {
@@ -81,7 +89,7 @@ func render(vm *quickjs.VM, input []byte, timeout time.Duration) (string, error)
 		if err == nil {
 			return nil
 		}
-		if !time.Now().Before(deadline) {
+		if interrupted(err) || !time.Now().Before(deadline) {
 			return timedOut(timeout, err)
 		}
 		if outOfMemory(err) {
@@ -153,13 +161,21 @@ func (e *RedirectError) Error() string {
 // ErrOutOfMemory matches a render that hit the VM's memory limit (ssr.vm_memory).
 var ErrOutOfMemory = errors.New("ssr: VM out of memory")
 
-// outOfMemory reports the exception QuickJS throws when an allocation exceeds the limit.
-// When the limit leaves no room even for that error object, QuickJS throws null instead,
-// which cannot be told apart from application code throwing null. Such a render still
-// fails and retires its VM, it just does not match ErrOutOfMemory.
+// outOfMemory reports the error QuickJS ends a call with when an allocation exceeds the limit,
+// also when the limit leaves no room for the error object. Page code cannot catch it: no catch,
+// finally or promise handler runs, so the bundle never reports it as an error of its own.
 func outOfMemory(err error) bool {
 	var e *quickjs.Error
 	return errors.As(err, &e) && e.Name == "InternalError" && e.Message == "out of memory"
+}
+
+// interrupted reports the error QuickJS ends a call with when its eval timeout fires. Nothing
+// else interrupts a VM of the pool, so it is the time budget even when the deadline, which
+// time.Now measures on the monotonic clock, has not passed yet: the engine measures the timeout
+// on the wall clock, and the two drift apart.
+func interrupted(err error) bool {
+	var e *quickjs.Error
+	return errors.As(err, &e) && e.Name == "InternalError" && e.Message == "interrupted"
 }
 
 func timedOut(timeout time.Duration, cause error) error {

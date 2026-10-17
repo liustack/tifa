@@ -1,10 +1,11 @@
-package ssr
-
-// Opt-in tests against the real React bundle of the example app in examples/shop.
-// Build it first, then run with TIFA_SSR_SHOP=1:
+// Package ssr_test runs the SSR pool of internal/ssr on the real React bundle of the example app
+// in examples/shop, which it treats as an app from outside: it reads the build output and asks the
+// built program for the data of each page. The tests skip unless TIFA_SSR_SHOP=1. Build the shop
+// first, then run:
 //
 //	cd examples/shop && pnpm install --frozen-lockfile && go tool tifa build
-//	TIFA_SSR_SHOP=1 go test -run Shop -v ./internal/ssr
+//	TIFA_SSR_SHOP=1 go test -run Shop -v ./test/ssr
+package ssr_test
 
 import (
 	"bufio"
@@ -23,13 +24,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/liustack/quickjs"
 	"github.com/liustack/tifa/internal/config"
+	"github.com/liustack/tifa/internal/ssr"
 )
 
 const shopDir = "../../examples/shop"
 
 type shopPage struct {
-	input           Input
+	input           ssr.Input
 	want, forbidden string
 }
 
@@ -84,7 +87,7 @@ func shopBundle(t testing.TB) (string, []shopPage) {
 		if err != nil || res.StatusCode != 200 {
 			t.Fatalf("data of %s: %d %v %s (rebuild the shop when its build.json changed)", r.url, res.StatusCode, err, body)
 		}
-		pages = append(pages, shopPage{Input{BuildID: built.BuildID, URL: r.url, Data: injectedData(t, body)}, r.want, r.forbidden})
+		pages = append(pages, shopPage{ssr.Input{BuildID: built.BuildID, URL: r.url, Data: injectedData(t, body)}, r.want, r.forbidden})
 	}
 	return string(source), pages
 }
@@ -169,7 +172,7 @@ func (page shopPage) check(t testing.TB, html string) {
 
 func TestShopRendersReadyData(t *testing.T) {
 	source, pages := shopBundle(t)
-	p := newTestPool(t, source, shopConfig(1))
+	p := newPool(t, source, shopConfig(1))
 	detail := pages[2]
 	if detail.input.URL != "/projects/studio/orders/SH-1042" {
 		t.Fatalf("unexpected page order: %s", detail.input.URL)
@@ -194,7 +197,7 @@ func TestShopRendersReadyData(t *testing.T) {
 
 func TestShopEscapesScriptClosingTags(t *testing.T) {
 	source, pages := shopBundle(t)
-	p := newTestPool(t, source, shopConfig(1))
+	p := newPool(t, source, shopConfig(1))
 	in := withCustomer(pages[2].input, `</script><script id="injected">alert(1)</script>`)
 	if string(in.Data) == string(pages[2].input.Data) {
 		t.Fatal("customer name not found in the snapshot")
@@ -227,8 +230,8 @@ func TestShopWarmLatency(t *testing.T) {
 		warm, timed = 512, 2048
 	}
 	start := time.Now()
-	p := newTestPool(t, source, shopConfig(1))
-	t.Logf("startup (compile and load one VM): %s, bytecode %d bytes", time.Since(start), len(p.bytecode))
+	p := newPool(t, source, shopConfig(1))
+	t.Logf("startup (compile and load one VM): %s", time.Since(start))
 	for i := range warm {
 		page := pages[i%len(pages)]
 		html, err := p.Render(context.Background(), page.input)
@@ -257,14 +260,29 @@ func TestShopWarmLatency(t *testing.T) {
 	t.Logf("warm render over %d requests: P50 %.3f ms, P95 %.3f ms, P99 %.3f ms", len(latencies), at(.50), at(.95), at(.99))
 }
 
+// newPool returns a pool of the bundle source, closed when the test ends.
+func newPool(t testing.TB, source string, cfg config.SSR) *ssr.Pool {
+	t.Helper()
+	p, err := ssr.NewPool(source, nil, cfg, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := p.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	return p
+}
+
 func shopConfig(vms int) config.SSR {
-	return config.SSR{VMs: vms, VMMemory: 128 << 20, Timeout: 10 * time.Second}
+	return config.SSR{VMs: vms, VMMemory: 128 << 20, VMStackDepth: config.Default().SSR.VMStackDepth, Timeout: 10 * time.Second}
 }
 
 // withCustomer returns the order detail input with the customer renamed. The data of each route
 // is JSON text inside the input, so the name is replaced as that text spells it inside a JSON
 // string. Callers check that the new name reaches the HTML.
-func withCustomer(detail Input, name string) Input {
+func withCustomer(detail ssr.Input, name string) ssr.Input {
 	inString := func(s string) string {
 		value, _ := json.Marshal(s)
 		quoted, _ := json.Marshal(string(value))
@@ -274,15 +292,28 @@ func withCustomer(detail Input, name string) Input {
 	return detail
 }
 
-// One reused VM renders the same route with a new customer each time.
-// The current name must appear and the previous one must be gone.
+// One VM renders the same route with a new customer each time, the steps a Pool takes for each
+// render. The current name must appear and the previous one must be gone. A mark the test leaves on
+// the VM before the first render must still be there after each one, so every render ran in it.
 func TestShopReuseKeepsRequestsApart(t *testing.T) {
 	source, pages := shopBundle(t)
-	p := newTestPool(t, source, shopConfig(1))
+	cfg := shopConfig(1)
+	bytecode, err := ssr.Compile(source, uintptr(cfg.VMMemory), cfg.Timeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vm, err := ssr.Load(bytecode, uintptr(cfg.VMMemory), uintptr(cfg.VMStackDepth), cfg.Timeout, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer vm.Close()
+	if _, err := vm.Eval("globalThis.reuseMark = 'the VM of this test'", quickjs.EvalGlobal); err != nil {
+		t.Fatal(err)
+	}
 	previous := ""
 	for i := range 12 {
 		name := fmt.Sprintf("customer-%03d-only", i)
-		html, err := p.Render(context.Background(), withCustomer(pages[2].input, name))
+		html, err := ssr.RenderVM(vm, renderInput(t, withCustomer(pages[2].input, name)), cfg.Timeout)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -292,9 +323,9 @@ func TestShopReuseKeepsRequestsApart(t *testing.T) {
 		if previous != "" && strings.Contains(html, previous) {
 			t.Fatalf("request %d: previous customer leaked into HTML", i)
 		}
+		if mark, err := vm.Eval("globalThis.reuseMark", quickjs.EvalGlobal); err != nil || mark != "the VM of this test" {
+			t.Fatalf("request %d: the mark is %v, %v", i, mark, err)
+		}
 		previous = name
-	}
-	if s := p.stats(); s.created != 1 {
-		t.Fatalf("want one reused VM, got %+v", s)
 	}
 }

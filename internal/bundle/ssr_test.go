@@ -301,8 +301,8 @@ func TestSSRTrimsReactDOMOfOtherVersions(t *testing.T) {
 }
 
 // A server.edge.js of a form the trimming does not know is bundled as it is, with both renderers,
-// and the build says so. The stream renderer needs the host patches to run, which the shop's
-// bundle has: TestShop* in internal/ssr renders such a bundle.
+// and the build says so. The stream renderer needs the host patches to load, which the bundle
+// has, so it still runs in QuickJS.
 func TestSSRKeepsAReactDOMItCannotTrim(t *testing.T) {
 	root := copyTestdata(t, "ssr", false)
 	fakeReactDOM(t, root, "20.0.0", "'use strict';\n"+
@@ -310,12 +310,19 @@ func TestSSRKeepsAReactDOMItCannotTrim(t *testing.T) {
 		"const b = require('./cjs/react-dom-server.edge.production.js');\n"+
 		"Object.assign(exports, { renderToString: l.renderToString, renderToReadableStream: b.renderToReadableStream });\n")
 	var output strings.Builder
-	_, modules, err := script(testdata(t), root, "react-dom-server.ts", &output)
+	code, modules, err := script(testdata(t), root, "react-dom-server.ts", &output)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !hasModule(modules, "react-dom-server.edge.production.js") || !hasModule(modules, "react-dom-server-legacy.browser.production.js") {
 		t.Errorf("not both renderers: %v", modules)
+	}
+	host, err := os.ReadFile(filepath.Join("..", "..", "js", "runtime", "host.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := evalResult(t, string(host)+"\n"+code); got != "function" {
+		t.Errorf("result = %q", got)
 	}
 	if !strings.Contains(output.String(), "react-dom 20.0.0") {
 		t.Errorf("no warning about the untrimmed react-dom:\n%s", output.String())

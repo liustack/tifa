@@ -46,12 +46,21 @@ type Server struct {
 type SSR struct {
 	VMs      int
 	VMMemory int64
-	Timeout  time.Duration
+	// VMStackDepth is how deep JavaScript calls may nest in each VM, in the engine's stack slots,
+	// about one per call, from 1 to MaxVMStackDepth.
+	VMStackDepth int
+	Timeout      time.Duration
 }
 
 type Cache struct {
 	Size int64
 }
+
+// MaxVMStackDepth is the default and the largest ssr.vm_stack_depth: the engine's own default,
+// which internal/ssr checks. Code that recurses without end takes up to about 13 KB of goroutine
+// stack per level before it throws, and much deeper than this it would pass Go's stack limit,
+// which ends the process.
+const MaxVMStackDepth = 10000
 
 // DefaultAddr is where a built app and tifa dev listen unless told otherwise.
 const DefaultAddr = "127.0.0.1:9527"
@@ -61,7 +70,7 @@ func Default() Config {
 	return Config{
 		Build:  Build{Target: "es2020", Public: "public"},
 		Server: Server{Addr: DefaultAddr, BodyLimit: 1 << 20, ShutdownTimeout: 10 * time.Second},
-		SSR:    SSR{VMs: runtime.GOMAXPROCS(0), VMMemory: 128 << 20, Timeout: 3 * time.Second},
+		SSR:    SSR{VMs: runtime.GOMAXPROCS(0), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second},
 		Cache:  Cache{Size: 64 << 20},
 	}
 }
@@ -88,8 +97,10 @@ func fields(c *Config) []field {
 		{"server.addr", "HTTP listen address", stringValue{&c.Server.Addr}},
 		{"server.body_limit", "Request body limit", sizeValue{&c.Server.BodyLimit, 1}},
 		{"server.shutdown_timeout", "Time allowed for in-flight requests, and then for OnShutdown, after a stop signal", durationValue{&c.Server.ShutdownTimeout}},
-		{"ssr.vms", "Prewarmed JavaScript VMs, defaults to GOMAXPROCS (the CPU limit in containers)", intValue{&c.SSR.VMs, 1}},
+		{"ssr.vms", "Prewarmed JavaScript VMs, defaults to GOMAXPROCS (the CPU limit in containers)", intValue{p: &c.SSR.VMs, min: 1}},
 		{"ssr.vm_memory", "Memory limit of each VM", sizeValue{&c.SSR.VMMemory, 1}},
+		{"ssr.vm_stack_depth", "How deep JavaScript calls may nest in each VM, at most 10000", intValue{p: &c.SSR.VMStackDepth, min: 1, max: MaxVMStackDepth,
+			why: "a deeper stack lets code that recurses without end grow the goroutine stack past Go's limit, which ends the process"}},
 		{"ssr.timeout", "Render time budget of each request", durationValue{&c.SSR.Timeout}},
 		{"cache.size", "Rendered page cache size, 0 disables it", sizeValue{&c.Cache.Size, 0}},
 	}

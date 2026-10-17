@@ -252,7 +252,7 @@ func TestFileMustHoldOneDocument(t *testing.T) {
 }
 
 func TestKeysListEverySetting(t *testing.T) {
-	want := "build.target build.public build.skip_tanstack_check server.addr server.body_limit server.shutdown_timeout ssr.vms ssr.vm_memory ssr.timeout cache.size"
+	want := "build.target build.public build.skip_tanstack_check server.addr server.body_limit server.shutdown_timeout ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout cache.size"
 	if got := strings.Join(Keys(), " "); got != want {
 		t.Fatalf("Keys: %s, want %s", got, want)
 	}
@@ -262,5 +262,62 @@ func TestKeysListEverySetting(t *testing.T) {
 func TestDefaultAddr(t *testing.T) {
 	if DefaultAddr != "127.0.0.1:9527" || Default().Server.Addr != DefaultAddr {
 		t.Fatalf("DefaultAddr = %q, Default().Server.Addr = %q", DefaultAddr, Default().Server.Addr)
+	}
+}
+
+// ssr.vm_stack_depth is a whole number from 1 to 10000, 10000 by default: the default of the
+// QuickJS fork, which internal/ssr checks. A deeper stack would let code that recurses without
+// end grow the goroutine stack past Go's limit, which ends the process.
+func TestVMStackDepth(t *testing.T) {
+	if got := Default().SSR.VMStackDepth; got != 10000 {
+		t.Fatalf("default %d", got)
+	}
+	c, err := load(t, nil, nil, "tifa.yaml", "ssr:\n  vm_stack_depth: 1000\n")
+	if err != nil || c.SSR.VMStackDepth != 1000 {
+		t.Fatalf("file: %d, %v", c.SSR.VMStackDepth, err)
+	}
+	c, err = load(t, []string{"--ssr-vm-stack-depth", "10000"}, nil, "", "")
+	if err != nil || c.SSR.VMStackDepth != 10000 {
+		t.Fatalf("10000: %d, %v", c.SSR.VMStackDepth, err)
+	}
+	for _, tc := range []struct {
+		name, layer   string
+		args, environ []string
+		file          string
+	}{
+		{"flag", "flag --ssr-vm-stack-depth", []string{"--ssr-vm-stack-depth", "10001"}, nil, ""},
+		{"env", "env TIFA_SSR_VM_STACK_DEPTH", nil, []string{"TIFA_SSR_VM_STACK_DEPTH=10001"}, ""},
+		{"file", "file prod.yaml", nil, nil, "ssr:\n  vm_stack_depth: 100000\n"},
+	} {
+		args := tc.args
+		if tc.file != "" {
+			args = []string{"--config", writeFile(t, "prod.yaml", tc.file)}
+		}
+		_, err := load(t, args, tc.environ, "", "")
+		if err == nil {
+			t.Errorf("%s: accepted", tc.name)
+			continue
+		}
+		for _, want := range []string{tc.layer, "ssr.vm_stack_depth", "above the maximum 10000", "Go's limit", "ends the process"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("%s: %v lacks %q", tc.name, err, want)
+			}
+		}
+	}
+	_, err = load(t, nil, nil, "tifa.yaml", "ssr:\n  vm_stack_depth: 20000\n")
+	if err == nil || !strings.Contains(err.Error(), "embedded tifa.yaml") || !strings.Contains(err.Error(), "above the maximum 10000") {
+		t.Errorf("project file: %v", err)
+	}
+	c, err = load(t, []string{"--ssr-vm-stack-depth", "3000"}, []string{"TIFA_SSR_VM_STACK_DEPTH=2000"}, "tifa.yaml", "ssr:\n  vm_stack_depth: 1000\n")
+	if err != nil || c.SSR.VMStackDepth != 3000 {
+		t.Fatalf("flag: %d, %v", c.SSR.VMStackDepth, err)
+	}
+	c, err = load(t, nil, []string{"TIFA_SSR_VM_STACK_DEPTH=2000"}, "tifa.yaml", "ssr:\n  vm_stack_depth: 1000\n")
+	if err != nil || c.SSR.VMStackDepth != 2000 {
+		t.Fatalf("env: %d, %v", c.SSR.VMStackDepth, err)
+	}
+	_, err = load(t, nil, []string{"TIFA_SSR_VM_STACK_DEPTH=0"}, "", "")
+	if err == nil || !strings.Contains(err.Error(), "ssr.vm_stack_depth") || !strings.Contains(err.Error(), "below the minimum 1") {
+		t.Fatalf("0: %v", err)
 	}
 }

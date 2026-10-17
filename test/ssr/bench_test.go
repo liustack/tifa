@@ -1,11 +1,11 @@
-package ssr
+package ssr_test
 
 // Opt-in baseline of the real React bundle of examples/shop, for comparing SSR changes. Build the
 // shop first (see shop_test.go), then run:
 //
-//	TIFA_SSR_SHOP=1 go test -run '^$' -bench 'Shop/^render' -benchtime 2000x ./internal/ssr
-//	TIFA_SSR_SHOP=1 go test -run '^$' -bench 'Shop/^(compile|load|first)' -benchtime 50x ./internal/ssr
-//	TIFA_SSR_SHOP=1 go test -run ShopVMMemory -v ./internal/ssr
+//	TIFA_SSR_SHOP=1 go test -run '^$' -bench 'Shop/^render' -benchtime 2000x ./test/ssr
+//	TIFA_SSR_SHOP=1 go test -run '^$' -bench 'Shop/^(compile|load|first)' -benchtime 50x ./test/ssr
+//	TIFA_SSR_SHOP=1 go test -run ShopVMMemory -v ./test/ssr
 //
 // render-<page> renders one of the comparison pages in a warm VM and reports the P50 and
 // P99 of single renders. compile is the startup compile of the bundle to bytecode, load creates one
@@ -18,17 +18,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
 	"time"
-	"unsafe"
 
 	"github.com/liustack/quickjs"
 	"github.com/liustack/quickjs/intl"
 	lib "github.com/liustack/quickjs/lib"
-	"modernc.org/libc"
+	"github.com/liustack/tifa/internal/ssr"
 )
 
 func BenchmarkShop(b *testing.B) {
@@ -38,24 +36,24 @@ func BenchmarkShop(b *testing.B) {
 
 	b.Run("compile", func(b *testing.B) {
 		for b.Loop() {
-			if _, err := compile(source, memory, timeout); err != nil {
+			if _, err := ssr.Compile(source, memory, timeout); err != nil {
 				b.Fatal(err)
 			}
 		}
 	})
 
-	bytecode, err := compile(source, memory, timeout)
+	bytecode, err := ssr.Compile(source, memory, timeout)
 	if err != nil {
 		b.Fatal(err)
 	}
 	b.Run("load", func(b *testing.B) {
 		var size int64
 		for b.Loop() {
-			vm, err := load(bytecode, memory, timeout, false)
+			vm, err := ssr.Load(bytecode, memory, uintptr(cfg.VMStackDepth), timeout, false)
 			if err != nil {
 				b.Fatal(err)
 			}
-			size = vmMemory(vm, false).Fmalloc_size
+			size = ssr.VMMemory(vm, false).Fmalloc_size
 			if err := vm.Close(); err != nil {
 				b.Fatal(err)
 			}
@@ -69,12 +67,12 @@ func BenchmarkShop(b *testing.B) {
 		input := renderInput(b, page.input)
 		for b.Loop() {
 			b.StopTimer()
-			vm, err := load(bytecode, memory, timeout, false)
+			vm, err := ssr.Load(bytecode, memory, uintptr(cfg.VMStackDepth), timeout, false)
 			if err != nil {
 				b.Fatal(err)
 			}
 			b.StartTimer()
-			html, err := render(vm, input, timeout)
+			html, err := ssr.RenderVM(vm, input, timeout)
 			b.StopTimer()
 			if err != nil {
 				b.Fatal(err)
@@ -89,7 +87,7 @@ func BenchmarkShop(b *testing.B) {
 
 	for _, page := range pages {
 		b.Run("render"+strings.ReplaceAll(page.input.URL, "/", "-"), func(b *testing.B) {
-			p, err := NewPool(source, nil, cfg, false)
+			p, err := ssr.NewPool(source, nil, cfg, false)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -119,7 +117,7 @@ func BenchmarkShop(b *testing.B) {
 	}
 }
 
-func renderInput(t testing.TB, in Input) []byte {
+func renderInput(t testing.TB, in ssr.Input) []byte {
 	t.Helper()
 	data, err := json.Marshal(in)
 	if err != nil {
@@ -138,7 +136,7 @@ func TestShopVMMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := shopConfig(1)
-	bytecode, err := compile(source, uintptr(cfg.VMMemory), cfg.Timeout)
+	bytecode, err := ssr.Compile(source, uintptr(cfg.VMMemory), cfg.Timeout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +146,7 @@ func TestShopVMMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer bare.Close()
-	builtins := vmMemory(bare, true)
+	builtins := ssr.VMMemory(bare, true)
 
 	withIntl, err := quickjs.NewVM()
 	if err != nil {
@@ -158,28 +156,28 @@ func TestShopVMMemory(t *testing.T) {
 	if err := intl.Register(withIntl); err != nil {
 		t.Fatal(err)
 	}
-	intlAdded := vmMemory(withIntl, true)
+	intlAdded := ssr.VMMemory(withIntl, true)
 	if _, err := withIntl.Eval(string(host), quickjs.EvalGlobal); err != nil {
 		t.Fatal(err)
 	}
-	hosted := vmMemory(withIntl, true)
+	hosted := ssr.VMMemory(withIntl, true)
 
-	vm, err := load(bytecode, uintptr(cfg.VMMemory), cfg.Timeout, false)
+	vm, err := ssr.Load(bytecode, uintptr(cfg.VMMemory), uintptr(cfg.VMStackDepth), cfg.Timeout, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer vm.Close()
-	loaded := vmMemory(vm, true)
+	loaded := ssr.VMMemory(vm, true)
 	for i := range 64 {
 		page := pages[i%len(pages)]
-		html, err := render(vm, renderInput(t, page.input), cfg.Timeout)
+		html, err := ssr.RenderVM(vm, renderInput(t, page.input), cfg.Timeout)
 		if err != nil {
 			t.Fatal(err)
 		}
 		page.check(t, html)
 	}
-	used := vmMemory(vm, false)
-	collected := vmMemory(vm, true)
+	used := ssr.VMMemory(vm, false)
+	collected := ssr.VMMemory(vm, true)
 
 	t.Logf("bytecode of the bundle: %d bytes (source %d bytes)", len(bytecode), len(source))
 	columns := []struct {
@@ -227,23 +225,4 @@ var memoryRows = []struct {
 	{"arrays", func(m *lib.TJSMemoryUsage) int64 { return m.Farray_count }},
 	{"fast array elements", func(m *lib.TJSMemoryUsage) int64 { return m.Ffast_array_elements }},
 	{"binary object size", func(m *lib.TJSMemoryUsage) int64 { return m.Fbinary_object_size }},
-}
-
-// vmMemory returns what QuickJS counts in the runtime of vm, after a GC when collect is set.
-// Each VM of the pool has a runtime of its own. The quickjs package does not export the runtime,
-// so the test reads it from the VM, as the fork's own tests do.
-func vmMemory(vm *quickjs.VM, collect bool) lib.TJSMemoryUsage {
-	rt := (*struct {
-		c   uintptr
-		tls *libc.TLS
-	})(reflect.ValueOf(vm).Elem().FieldByName("runtime").UnsafePointer())
-	if collect {
-		lib.XJS_RunGC(rt.tls, rt.c)
-	}
-	n := int(unsafe.Sizeof(lib.TJSMemoryUsage{}))
-	p := rt.tls.Alloc(n)
-	defer rt.tls.Free(n)
-	lib.XJS_ComputeMemoryUsage(rt.tls, rt.c, p)
-	// p is C memory of the VM's allocator, which the Go GC neither moves nor frees.
-	return *(*lib.TJSMemoryUsage)(unsafe.Add(nil, p))
 }

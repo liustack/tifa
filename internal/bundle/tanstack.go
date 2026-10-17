@@ -10,9 +10,9 @@ import (
 )
 
 // The versions of TanStack Router tifa is tested with. This is the one place that names them:
-// tifa new writes TestedReactRouter into package.json, and a test checks that the apps of this
-// repository install both. To move to another version, change them here, install it in those
-// apps and run the router tests in internal/codegen, which check the option below.
+// tifa new writes TestedReactRouter into package.json, and a test in test/e2e checks that the
+// apps of this repository install both. To move to another version, change them here, install it
+// in those apps and run the router tests in internal/codegen, which check the option below.
 //
 // js/runtime/router.tsx sets router.options.serializationAdapters, which these versions read when
 // they write the page data on the server and read it back in the browser, but which TanStack does

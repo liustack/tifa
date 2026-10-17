@@ -1,6 +1,6 @@
 //go:build !unix
 
-package ssr
+package ssr_test
 
 import "testing"
 

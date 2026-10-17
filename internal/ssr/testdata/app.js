@@ -9,6 +9,34 @@ let dirty = false
 const page = (input) =>
   `<main data-build="${input.buildId}" data-url="${input.url}" data-renders="${renders}" data-dirty="${dirty}">${input.data.text ?? ''}</main>`
 
+// Tree is a component that renders itself without end, as a page with a cycle in its data can.
+const Tree = (depth) => '<li>' + Tree(depth + 1) + '</li>'
+
+// caught runs work the way the runtime's startRender does: in an async function whose catch
+// reports any error as {error}, and whose finally cleans up.
+const caught = (work) => {
+  void (async () => {
+    try {
+      await null
+      globalThis.renderResult = work()
+    } catch (error) {
+      globalThis.renderResult = JSON.stringify({ error: `${error.name}: ${error.message}\n${error.stack}` })
+    } finally {
+      globalThis.cleanedUp = true
+    }
+  })()
+}
+
+// fill allocates until the VM's memory limit stops it, in large or in small pieces.
+const fill = (large) => {
+  const kept = []
+  if (large) {
+    // Doubling keeps the failing allocation large.
+    for (let size = 64 * 1024; ; size *= 2) kept.push(new Uint8Array(size).fill(1))
+  }
+  for (;;) kept.push({ index: kept.length })
+}
+
 globalThis.startRender = (json) => {
   const input = JSON.parse(json)
   const mode = input.data.mode ?? 'ok'
@@ -26,15 +54,45 @@ globalThis.startRender = (json) => {
       return
     case 'pending':
       return
+    case 'interrupt':
+      // A Go function the test registers interrupts the VM, then the render runs on until the
+      // interrupt stops it.
+      globalThis.goInterrupt()
+      for (;;) {}
     case 'gopanic':
       // A Go function the test registers panics in the middle of the render.
       globalThis.goPanic()
       return
-    case 'oom': {
-      // Doubling keeps the failing allocation large, so QuickJS still has room
-      // to build its "out of memory" error instead of throwing null.
-      const kept = []
-      for (let size = 64 * 1024; ; size *= 2) kept.push(new Uint8Array(size).fill(1))
+    case 'oom':
+      fill(true)
+    case 'oomsmall':
+      fill(false)
+    case 'oomcaught':
+      caught(() => fill(true))
+      return
+    case 'loopcaught':
+      caught(() => {
+        for (;;) {}
+      })
+      return
+    case 'recurse':
+      Tree(0)
+    case 'recursecaught':
+      caught(() => Tree(0))
+      return
+    case 'depth': {
+      // How deep calls nest before the engine throws its RangeError.
+      let depth = 0
+      const down = () => {
+        depth++
+        down()
+      }
+      try {
+        down()
+      } catch (error) {
+        globalThis.renderResult = `<p data-depth="${depth}">${error.name}: ${error.message}</p>`
+      }
+      return
     }
     case 'error':
       globalThis.renderResult = JSON.stringify({ error: 'page failed' })

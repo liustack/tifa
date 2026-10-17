@@ -279,6 +279,7 @@ export function Error({ error }: { error: unknown }) {
 - A route without its own `Error` uses the one of the closest ancestor that exports one, then the framework's default.
 - The status code of the page is that of the outermost failed route.
 - A component that throws while the page renders on the server fails the whole render. It is an unexpected error: `OnError` sees it and picks the status (500 without `OnError`), and the browser gets a plain error page from Go with that status and the public message, not your `Error` component. That answer is never cached. Under `tifa dev` the page also shows the error with its stack trace in your source files, and reloads once you save a fix (see [tifa dev](dev.md#when-a-page-fails-to-render)).
+- A server render that uses up `ssr.vm_memory` or runs past `ssr.timeout` (see [config.md](config.md)) stops right there. No `catch`, `finally` or promise handler in your code or in a library runs for it, so a page cannot catch it to show something else. The render fails as above, and the VM is replaced with a fresh one. Code that recurses without end gets `RangeError: Maximum call stack size exceeded`, as in Node, which a `catch` can take (see [stack depth](config.md#stack-depth)). When nothing catches it, it fails the render like any other error.
 - Once the browser has taken over, a component that throws shows the nearest `Error`, the same as a failed `Load`.
 - The document shell stays complete whatever fails, so the page still loads its scripts and styles.
 
