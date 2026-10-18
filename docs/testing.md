@@ -1,5 +1,5 @@
 ---
-summary: 'Testing and verification: commands to run before committing, checks for the example app, end-to-end tests, red before green, the long SSR tests that are skipped by default, the SSR benchmark of the example app, and how to collect the engine profile again'
+summary: 'Testing and verification: commands to run before committing, checks for the example app, end-to-end tests, red before green, the long SSR tests that are skipped by default, the SSR benchmarks of the example app with one VM and with several at once, and how to collect the engine profile again'
 read_when:
   - Getting ready to commit and checking which checks to run
   - Writing a new test or fixing a bug
@@ -8,6 +8,7 @@ read_when:
   - Running the end-to-end tests, or changing `internal/codegen`, `test/apps` or `examples/shop`
   - Measuring SSR render time or VM memory, or comparing an SSR change against the baseline
   - Changing `internal/ssr` or `test/ssr`
+  - Changing something every VM uses, such as how the engine allocates memory, or checking that SSR still speeds up with more cores
   - Upgrading github.com/liustack/quickjs or modernc.org/libc, or `TestEngineProfileMatchesTheDependencies` fails
 ---
 
@@ -99,12 +100,13 @@ They run the normal reuse soak test (2 VMs, 2 callers, 10,000 renders) and the O
 
 ## Performance comparisons
 
-`BenchmarkShop` and `TestShopVMMemory` in `test/ssr/bench_test.go` measure the real bundle of `examples/shop`. Like the tests above, they need `TIFA_SSR_SHOP=1` and a fresh `go tool tifa build` of the shop:
+`BenchmarkShop`, `BenchmarkShopParallel` and `TestShopVMMemory` in `test/ssr/bench_test.go` measure the real bundle of `examples/shop`. Like the tests above, they need `TIFA_SSR_SHOP=1` and a fresh `go tool tifa build` of the shop:
 
 ```sh
 TIFA_SSR_SHOP=1 go test -run '^$' -bench 'Shop/^render' -benchtime 2000x ./test/ssr
 TIFA_SSR_SHOP=1 go test -run '^$' -bench 'Shop/^(compile|load|first)' -benchtime 50x ./test/ssr
 TIFA_SSR_SHOP=1 go test -run ShopVMMemory -v ./test/ssr
+TIFA_SSR_SHOP=1 go test -run '^$' -bench ShopParallel -benchtime 15s ./test/ssr
 ```
 
 | Result | What it measures |
@@ -113,11 +115,41 @@ TIFA_SSR_SHOP=1 go test -run ShopVMMemory -v ./test/ssr
 | `compile` | Compiling the bundle to bytecode, done once when the program starts |
 | `load` | Creating one VM from the bytecode, done for each VM of the pool and each replacement: time, and the VM's memory as `vm-KiB` |
 | `first-render` | The first render in a fresh VM |
+| `ShopParallel/vms-<n>` | The six pages in turn with a pool of n VMs and one goroutine per VM, for n = 1 and n = `GOMAXPROCS`: `renders/s`, `lock-wait-%` (the share of the n goroutines' time spent blocked on a `sync.Mutex`, a `sync.RWMutex` or a lock of the runtime, from `/sync/mutex/wait/total:seconds` in `runtime/metrics`), and for n > 1 `speedup`, its renders per second over those of `vms-1` in the same command |
 | `TestShopVMMemory` | The memory of one VM from `JS_ComputeMemoryUsage`, split into a bare VM, Intl, the host polyfills, the whole bundle, and after 64 renders before and after a GC |
 
 The prototype's other experiments (per-stage timing, memory probes) stay in `internal/ssr` at the tag `prototype-baseline`. Check out that tag and build from it when needed.
 
 Run performance comparisons on the same machine, alternating between the old and new builds, and record the machine load. Changes in machine load can make absolute times differ several times over. Only ratios measured in the same alternating round are comparable.
+
+### Reading BenchmarkShopParallel
+
+`BenchmarkShopParallel` catches what one VM cannot show: a lock that every VM takes. `BenchmarkShop` stays the same when such a lock comes back. quickjs v0.26.8 is the example: each JS call took the global allocator lock of modernc.org/libc, and with 4 VMs the program rendered less than two thirds of what 4 times one VM would give.
+
+- Run both sub-benchmarks in one command. `speedup` only shows when `vms-1` ran in the same command. To repeat, run the command again: with `-count` every `speedup` is against the last `vms-1`, and `-cpu` changes `GOMAXPROCS` after the number of VMs is set.
+- On Linux, set `GOMAXPROCS` to a number of physical cores and pin the test to them with `taskset`, one CPU per core. Two VMs on the two threads of one core render only about 20% more than one, so a speedup over hyperthreads says little about locks.
+- Read `speedup` first. A Go mutex spins before it blocks, and spinning shows as CPU time (`runtime.procyield` in a CPU profile) and a lower speedup, not as lock wait. `lock-wait-%` then says whether a lock is the reason.
+- The benchmark does not fail on these numbers, because machine noise moves them as much as the regression does. Compare against main on the same machine, alternating, as above. A speedup more than 10% below main's is worth a look. The runtime samples lock wait, so small values are noisy: v0.26.13 alone ranged from 0.016% to 0.13%. On the machine below, a lock wait above about 0.5% is worth a look. That level holds only for that machine.
+
+Measured on an AMD EPYC 7B13 with 4 physical cores (`GOMAXPROCS=4 taskset -c 4-7`, the other 4 threads idle), 15 seconds for each sub-benchmark:
+
+| Build | `vms-1` renders/s | `vms-4` renders/s | `speedup` | `lock-wait-%` |
+| --- | --- | --- | --- | --- |
+| quickjs v0.26.13, 7 runs | 42.9 to 43.4 | 162 to 168 | 3.76 to 3.89 | 0.016 to 0.13 |
+| quickjs v0.26.8, 7 runs | 31.6 to 32.0 | 47 to 81 | 1.49 to 2.55 | 0.77 to 2.8 |
+| quickjs v0.26.13, two busy threads on the same 4 CPUs | 43.4 | 96 | 2.20 | 0.29 |
+
+v0.26.8 gave a speedup of about 2.5 in one session and about 1.5 in a later one. On a noisy machine the speedup of the good build looks worse than that of the bad build on a good run, though it still renders more per second (96 against 81). On an Apple M4 (4 performance and 6 efficiency cores, `GOMAXPROCS=10`), v0.26.13 gives a speedup of 3.55 with 4.5% lock wait and v0.26.8 1.51 with 19%. Outside Linux, modernc.org/libc still takes the allocator lock for the C stack, so compare Mac numbers only with Mac numbers.
+
+To see which lock it is, take a mutex profile. Profiling makes the lock wait larger, so read the profile for where the wait is, not for how much:
+
+```sh
+TIFA_SSR_SHOP=1 GOMAXPROCS=4 taskset -c 4-7 go test -run '^$' -bench ShopParallel -benchtime 15s \
+  -mutexprofile mutex.out -o ssr.test ./test/ssr
+go tool pprof -top -cum ssr.test mutex.out
+```
+
+With v0.26.8, half the wait is under `modernc.org/libc.Xalloca` and `Xmalloc`, and most of the rest under `Xfree`.
 
 ## The engine profile
 
