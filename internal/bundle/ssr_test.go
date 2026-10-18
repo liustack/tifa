@@ -198,6 +198,72 @@ func TestSSRCachesShortEscapesInLittleMemory(t *testing.T) {
 	}
 }
 
+// segmentsPage renders, three times over, Suspense boundaries side by side, nested in each other,
+// at the start and the end of their parents and one whose content never arrives, with text,
+// attributes, an empty text and hoistable tags around them. Each boundary adds a child segment to
+// the segment around it, so React writes the chunks of a segment between its children.
+const segmentsPage = "import './host'\n" +
+	"import { renderToString } from 'react-dom/server.edge'\n" +
+	"import { Suspense, lazy } from 'react'\n" +
+	"const Never = lazy(() => new Promise<never>(() => {}))\n" +
+	"function Item({ n }: { n: number }) {\n" +
+	"  return <li data-n={n} className={n % 2 ? 'odd' : undefined}>item {n}{''}<b>{n * 1.5}</b></li>\n" +
+	"}\n" +
+	"function Page() {\n" +
+	"  return <main>\n" +
+	"    <Suspense fallback=\"a\"><p>first</p></Suspense>\n" +
+	"    <title>{'segments & <chunks>'}</title>\n" +
+	"    <meta name=\"x\" content=\"y\" />\n" +
+	"    <link rel=\"stylesheet\" href=\"/s.css\" precedence=\"default\" />\n" +
+	"    <h1 title=\"t\">head {'&'} text</h1>\n" +
+	"    <Suspense fallback=\"b\">\n" +
+	"      <ul>{[1, 2, 3].map((n) => <Item key={n} n={n} />)}</ul>\n" +
+	"      <Suspense fallback=\"c\"><Suspense fallback=\"d\">deep</Suspense>between<Item n={4} /></Suspense>\n" +
+	"      tail\n" +
+	"    </Suspense>\n" +
+	"    <Suspense fallback=\"e\"><Never /></Suspense>\n" +
+	"    {''}\n" +
+	"    <Suspense fallback=\"f\">last</Suspense>\n" +
+	"  </main>\n" +
+	"}\n" +
+	"globalThis.result = [0, 1, 2].map(() => renderToString(<Page />)).join('\\n')\n"
+
+// React's string renderer hands the chunks of a segment one by one to the function that appends
+// them to the HTML. The tifa plugin joins the chunks between two children of a segment and hands
+// them over at once, and pages render the same as without that.
+func TestSSRJoinsTheChunksOfEachSegment(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"segments.tsx": segmentsPage})
+	code, printed := buildPrinting(t, root, "segments.tsx")
+	if !joinedChunks.MatchString(code) {
+		t.Error("the bundle does not join the chunks of a segment")
+	}
+	if strings.Contains(printed, "react-dom") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	joined := evalResult(t, code)
+	for _, want := range []string{"<!--$--><p>first</p><!--/$-->", "<!--$--><!--$-->deep<!--/$-->between", "<!--$!--><template></template>e<!--/$-->", "<!--$-->last<!--/$-->"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the page has no %s:\n%s", want, joined)
+		}
+	}
+	changed := withReactDOM(t, "for (r = segment[childIdx]; chunkIdx < r.index; chunkIdx++)", "for (r = segment[childIdx]; r.index > chunkIdx; chunkIdx++)")
+	writeTree(t, changed, map[string]string{"segments.tsx": segmentsPage})
+	code, printed = buildPrinting(t, changed, "segments.tsx")
+	if joinedChunks.MatchString(code) {
+		t.Error("the bundle joins the chunks of a segment of a React DOM it does not know")
+	}
+	if !strings.Contains(printed, "react-dom 19.3.0: ") || !strings.Contains(printed, "the tifa plugin does not join the chunks") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	if got := evalResult(t, code); got != joined {
+		t.Errorf("the page renders otherwise without the joined chunks:\n%s\nwant:\n%s", got, joined)
+	}
+}
+
+// joinedChunks finds the chunks of a segment joined by the tifa plugin in a minified bundle.
+var joinedChunks = regexp.MustCompile("\\.slice\\([^()]*\\)\\.join\\(``\\)")
+
 // withReactDOM returns a copy of testdata/ssr whose react-dom is a copy of the test's, with old
 // replaced by new in its string renderer. The other packages are the test's.
 func withReactDOM(t *testing.T, old, new string) string {

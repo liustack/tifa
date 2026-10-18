@@ -28,6 +28,16 @@ const escapeSource = 'matchHtmlRegExp = /["\'&<>]/;\nfunction escapeTextForBrows
 // of a little over 8,192 code units outside Latin-1.
 const escapeCacheSize = 1 << 18
 const escapeEntrySize = 64
+// The loops of flushSubtree in React's string renderer that hand the chunks of a segment, before
+// each child and after the last, one by one to the destination.
+const segmentLoops = `      for (var childIdx = 0; childIdx < segment.length; childIdx++) {
+        for (r = segment[childIdx]; chunkIdx < r.index; chunkIdx++)
+          destination.push(chunks[chunkIdx]);
+        r = flushSegment(request, destination, r, hoistableState);
+      }
+      for (; chunkIdx < chunks.length - 1; chunkIdx++)
+        destination.push(chunks[chunkIdx]);
+      chunkIdx < chunks.length && (r = destination.push(chunks[chunkIdx]));`
 const nodeBuiltins = new Set(builtinModules)
 
 // pollInterval is how often, in milliseconds, Vite's watcher looks at each file once it polls.
@@ -202,10 +212,10 @@ function resolveRouteModule(ctx, root, source, importer) {
 
 // ssrPlugin applies to the SSR build only. It replaces *.client modules with a stub, refuses Node
 // APIs in page code, trims React's server entry to the renderer actually used, caches the HTML
-// escapes of that renderer, passes the errors renderToString ignores to the runtime, switches
-// core-js to its property-backed internal state, checks that the bundle is one file, and warns of
-// the places where it may load a module at run time. Its source map names sources relative to the
-// application root.
+// escapes of that renderer and joins the chunks it writes, passes the errors renderToString
+// ignores to the runtime, switches core-js to its property-backed internal state, checks that the
+// bundle is one file, and warns of the places where it may load a module at run time. Its source
+// map names sources relative to the application root.
 export function ssrPlugin(getRoot, loadVite) {
   const reactTargets = new Map() // server.edge.js path to the renderer modules it imports
   let coreJS // real directory of the core-js package the application resolves, '' for none
@@ -280,6 +290,16 @@ export function ssrPlugin(getRoot, loadVite) {
             `${react} has no matchHtmlRegExp and escapeTextForBrowser in the form the tifa plugin knows, so ` +
               'the tifa plugin does not cache the escapes of the HTML React writes. Pages render the same, but ' +
               'long texts and attribute values with & < > " or \' in them take longer to render',
+          )
+        }
+        const joined = joinSegmentChunks(source)
+        if (joined) {
+          source = joined
+        } else {
+          this.warn(
+            `${react} has no loops over the chunks of a segment in flushSubtree in the form the tifa plugin ` +
+              'knows, so the tifa plugin does not join the chunks of a segment before it writes them. Pages ' +
+              'render the same, but take longer to render',
           )
         }
         // renderToString leaves a Suspense boundary whose content threw to the browser, and its
@@ -393,6 +413,29 @@ function escapeTextForBrowser(text) {
 }
 function tifaEscapeTextForBrowser(text) {`
   return source.replace(escapeSource, () => cached)
+}
+
+// joinSegmentChunks returns the source of React's string renderer with flushSubtree handing the
+// chunks of a segment between two of its children to the destination at once, joined, or null
+// when the source does not have that code in the form it knows. A page has thousands of chunks,
+// and each call of the destination's push, which appends the chunk to the HTML, takes long in
+// QuickJS. The renderer gives that function only the destination of renderToString, which skips a
+// null chunk and always returns true, and its chunks are strings. join writes a null as an empty
+// string, so the HTML stays the same.
+function joinSegmentChunks(source) {
+  if (source.split(segmentLoops).length !== 2) return null
+  const joined = `      for (var childIdx = 0; childIdx < segment.length; childIdx++) {
+        r = segment[childIdx];
+        chunkIdx < r.index &&
+          (destination.push(chunks.slice(chunkIdx, r.index).join("")),
+          (chunkIdx = r.index));
+        r = flushSegment(request, destination, r, hoistableState);
+      }
+      chunkIdx < chunks.length &&
+        (r = destination.push(
+          0 === chunkIdx ? chunks.join("") : chunks.slice(chunkIdx).join("")
+        ));`
+  return source.replace(segmentLoops, () => joined)
 }
 
 // hostLoads returns the places where the bundle may still load a module at run time, which
