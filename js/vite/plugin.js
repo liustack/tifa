@@ -16,6 +16,12 @@ const routeModule = /^\.\.?\/(?:.*\/)?\+(?:route|layout)(?:\.js|\.ts)?$/
 const clientSource = /\.client(?:\.[jt]sx?)?$/
 const reactServerEntry = /[/\\]react-dom[/\\]server\.edge\.js$/
 const reactStringRenderer = /[/\\]react-dom[/\\]cjs[/\\]react-dom-server-legacy\.browser\.production\.js$/
+// The main files of seroval, which TanStack Router writes the data of a page with, and the
+// directory of any of its modules.
+const serovalModule = /[/\\]node_modules[/\\]seroval[/\\]dist[/\\]index\.c?js$/
+const serovalPackage = /^(.*[/\\]node_modules[/\\]seroval)[/\\]/
+// The length from which seroval escapes a string with JSON.stringify, when that gives the same.
+const serovalLength = 'const MIN_JSON_STRINGIFY_LENGTH = 64;'
 // The error handler of renderToString, which ignores the errors of the render.
 const ignoredErrors = 'function onError() {}'
 // React's HTML escape in its string renderer, with the regular expression that finds the first
@@ -217,15 +223,17 @@ function resolveRouteModule(ctx, root, source, importer) {
 // ssrPlugin applies to the SSR build only. It replaces *.client modules with a stub, refuses Node
 // APIs in page code, trims React's server entry to the renderer actually used, caches the HTML
 // escapes of that renderer, joins the chunks it writes and puts Set checks in front of its long
-// switches on strings, passes the errors renderToString ignores to the runtime, switches core-js
-// to its property-backed internal state, checks that the bundle is one file, and warns of the
-// places where it may load a module at run time. Its source map names sources relative to the
-// application root.
+// switches on strings, passes the errors renderToString ignores to the runtime, makes seroval
+// escape short strings with JSON.stringify, switches core-js to its property-backed internal
+// state, checks that the bundle is one file, and warns of the places where it may load a module
+// at run time. Its source map names sources relative to the application root.
 export function ssrPlugin(getRoot, loadVite) {
   const reactTargets = new Map() // server.edge.js path to the renderer modules it imports
   let coreJS // real directory of the core-js package the application resolves, '' for none
   let coreJSState = false // whether the internal state module of coreJS is in the bundle
   let coreJSAdapted = false // whether it got the property-backed state
+  let seroval // directory of the seroval package the bundle loads a module of, '' for none
+  let serovalMain = false // whether the bundle loads a main file of seroval
   let nodeImporters // Node module to the packages that import it
   return {
     name: 'tifa:ssr',
@@ -233,6 +241,8 @@ export function ssrPlugin(getRoot, loadVite) {
     buildStart() {
       coreJS = findPackage(getRoot(), 'core-js')
       coreJSState = coreJSAdapted = false
+      seroval = ''
+      serovalMain = false
       nodeImporters = new Map()
     },
     outputOptions(options) {
@@ -284,6 +294,24 @@ export function ssrPlugin(getRoot, loadVite) {
       // WeakMap or patch generated output.
       if (id === propertyState) return 'module.exports = false'
       if (coreJS && id === path.join(coreJS, 'internals', 'internal-state.js')) coreJSState = true
+      seroval ||= id.match(serovalPackage)?.[1] ?? ''
+      if (serovalModule.test(id)) {
+        serovalMain = true
+        const source = fs.readFileSync(id, 'utf8')
+        // seroval escapes a string shorter than that length one character at a time, which is
+        // slower in QuickJS than JSON.stringify from 2 code units on. Both give the same text:
+        // seroval takes JSON.stringify only for a string without the characters it escapes
+        // otherwise.
+        if (source.split(serovalLength).length !== 2) {
+          this.warn(
+            `seroval ${packageVersion(path.resolve(id, '..', '..'))}: ${id} has no "${serovalLength}" the tifa ` +
+              'plugin knows, so seroval escapes strings shorter than 64 code units one character at a time. Pages ' +
+              'render the same, but the data of small pages takes longer to write',
+          )
+          return null
+        }
+        return source.replace(serovalLength, 'const MIN_JSON_STRINGIFY_LENGTH = 2;')
+      }
       if (reactStringRenderer.test(id)) {
         const react = `react-dom ${packageVersion(path.resolve(id, '..', '..'))}: ${id}`
         let source = fs.readFileSync(id, 'utf8')
@@ -364,6 +392,15 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
       return null
     },
     buildEnd() {
+      // seroval moved the code the plugin changes to another file.
+      if (seroval && !serovalMain) {
+        this.warn(
+          `seroval ${packageVersion(seroval)} at ${seroval}: the SSR bundle loads neither dist/index.js nor ` +
+            'dist/index.cjs, so the tifa plugin does not change seroval, which escapes strings shorter than 64 ' +
+            'code units one character at a time. Pages render the same, but the data of small pages takes ' +
+            'longer to write',
+        )
+      }
       // core-js keeps internal state in WeakMaps whose values point back to their keys, which
       // QuickJS never frees, so the VMs would grow with every render.
       if (coreJSState && !coreJSAdapted) {

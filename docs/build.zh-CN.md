@@ -127,7 +127,7 @@ go tool tifa build
 
 SSR 包开头引入 `runtime/host.js`，它补上 QuickJS 缺的 `URL`、`TextEncoder`/`TextDecoder`、`AbortController`、`Headers`、`Response`、`queueMicrotask`，以及一个什么也不输出、`error` 时抛错的 `console`，不提供 `fetch` 与 `Request`。页面在服务端能用到的全部东西见[服务端渲染时有什么](app.zh-CN.md#服务端渲染时有什么)。这份脚本由 `go generate ./js` 从 `js/host/host.ts` 预打包后入库，依赖版本锁在 `js/host/package.json` 与 `pnpm-lock.yaml`。升级时在 `js/host` 里 `pnpm install --frozen-lockfile`（或改版本后 `pnpm install`），再跑 `go generate ./js`。`internal/bundle` 的 `TestHostScriptIsUpToDate` 检查重新生成的结果与入库文件一致，`js/host/node_modules` 不存在时 skip。应用因此不需要安装这些补丁包。`abort-controller` 与它依赖的 `event-target-shim` 打了补丁（`js/host/patches`，登记在 `js/host/pnpm-workspace.yaml`）：每个对象的内部状态改存在对象自己的 symbol 属性上，不用 WeakMap。这个属性在建对象时定义一次，之后不再重新定义，所以应用 seal 或 freeze 了 signal 也照样能取消（`TestHostScriptAbortsFrozenSignals`）。唯一会再变的 signal 取消标记放在一个盒子里，只改盒子里的值。其余状态不装盒子，每个状态都装盒子时 P99 多出约 1.5 ms。QuickJS 回收穿过 WeakMap 值的死环要多轮 GC，有的环一直回收不掉，每次渲染留下的路由、AbortController 与监听器因此要等好几轮 GC，VM 的堆更大。改成属性后一次 GC 就能整体回收，`TestHostScriptFreesDeadAbortSignalsInOneCollection` 守住这一点。
 
-tifa 插件在 SSR 包里改造两个 npm 包。它按代码的结构或文字找到要改的地方，不看包的版本，所以 `pnpm update` 不会让构建失败。某个版本改了那段代码时，构建打印警告，写明包的版本和文件，那段代码保持原样，页面照常渲染。这些改造都不改变 HTML，所以没有关掉它们的设置。
+tifa 插件在 SSR 包里改造三个 npm 包。它按代码的结构或文字找到要改的地方，不看包的版本，所以 `pnpm update` 不会让构建失败。某个版本改了那段代码时，构建打印警告，写明包的版本和文件，那段代码保持原样，页面照常渲染。这些改造都不改变 HTML，所以没有关掉它们的设置。
 
 - React DOM 有五处改造：
   - `react-dom/server.edge` 会加载 React 的两个服务端渲染器。插件读这个文件的结构，只留 tifa 用的字符串渲染器。在示例应用上，SSR 包因此小 25%，4 个 VM 的池 63 ms 启动完（不裁是 117 ms），单次渲染耗时不变。没有这处改造时，包里保留两个渲染器。
@@ -135,6 +135,7 @@ tifa 插件在 SSR 包里改造两个 npm 包。它按代码的结构或文字�
   - React 写出的每段文本和每个属性值都要转义。含 `&`、`<`、`>`、`"` 或 `'` 的字符串要逐个字符过一遍循环，这在 QuickJS 里很慢，而 Tailwind CSS 和 shadcn/ui 的 class 里这些字符很多（`[&_svg]:size-4`、`has-[>svg]:px-3`），每次渲染又都一样。插件在这个转义前面加一层缓存，以字符串为键，每个 VM 各有一份。它只存需要转义的字符串，字符串和结果合计最多 262,144 个 UTF-16 码元，每存一个字符串另算 64 个码元，所以大量短串占的内存不会比几个长串多。存满时约占 VM 内存 0.5 到 2 MB。下一个字符串放不下时清空重来，所以每次请求都不同的数据文本不会长时间挤掉每次渲染都写的字符串。比整个缓存还大的字符串不存。在示例应用上，缓存里是 31 个字符串，合计 35,657 个码元，热渲染耗时少 8% 到 10%。在纯文本和数字为主、属性很少的页面上，渲染耗时不变，每次请求的文本都不一样时也不变。没有这处改造时，页面和以前一样快。
   - React 把一页的 HTML 分成若干段，每段是一串片段，片段之间夹着子段，子段来自 Suspense 边界、渲染时挂起的部分和 preamble。React 把片段一个一个交给一个函数接到结果后面。一页有几千个片段，每调用一次在 QuickJS 里都很慢。插件让 React 把一个段里两个子段之间的片段先拼好，一次交过去。HTML 不变：那个函数会跳过 `null` 片段，拼接时它变成空串。在示例应用上，热渲染耗时少 5% 到 7%，纯文本页面少 6% 到 11%。没有这处改造时，页面和以前一样快。
   - React 写属性和标签时用一个按名字的 `switch` 决定怎么写，QuickJS 会拿名字和 case 一个一个比。属性的 `switch` 有 71 个 case，不在其中的名字（比如 `id`、`type`、`aria-label`）要比 71 次才走到 default。插件读渲染器的语法树，在每个拿一个变量和至少 8 个字符串（且只有字符串）比较的 `switch` 前面先查一次 `Set`，这样的名字直接进 default。只在结果不变时才改：有 default 的话它在最后，前面的 case 不会接着跑进它，任何 case 里都没有声明 `let`、`const`、类或函数。React DOM 19.3 里是 5 个 `switch`，按属性名和按标签名。在示例应用上，热渲染耗时少 6% 到 7%，纯文本页面少 9% 到 12%。示例应用的字节码多 5 KB，每个 VM 多几 KiB。React DOM 里没有这样的 `switch` 时，构建打印警告，页面和以前一样快。
+- TanStack Router 用 seroval 把页面的数据写进页面。seroval 对短于 64 个 UTF-16 码元的字符串逐个字符转义，更长的用 `JSON.stringify`，除非里面有两种写法结果不同的字符。在 QuickJS 里从 2 个码元起逐字符的循环就比 `JSON.stringify` 慢，所以插件把这个长度降到 2。写出的文字不变：0 到 0xFFFF 的每个码元，单独出现或夹在别的字符中间，以及代理对和孤立代理项，两种写法结果都一样。小页面渲染快 6% 到 10%，大页面最多快 2.5%。插件只在 seroval 的主文件 `dist/index.js` 和 `dist/index.cjs` 里找这一行。seroval 改了这一行，或者包从别的文件加载 seroval 时，构建打印警告，页面和以前一样快。
 - 应用打包了 `core-js` 时，插件把它的内部状态从 WeakMap 换成属性，因为 QuickJS 永远不回收值又指回键的 WeakMap 条目。core-js 某个版本没有了插件替换的那个模块时，构建打印警告，保留 WeakMap，每个 VM 的内存可能变大。
 
 ## 路由树

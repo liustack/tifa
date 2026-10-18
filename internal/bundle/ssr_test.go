@@ -357,6 +357,106 @@ func TestSSRGuardsTheSwitchesOfReact(t *testing.T) {
 // guardedSwitch finds a switch with a Set check in a minified bundle.
 var guardedSwitch = regexp.MustCompile(`if\(\w+\.has\(([\w$]+)\)\)switch\(([\w$]+)\)`)
 
+// stringsPage serializes with seroval each UTF-16 code unit alone, twice and between two letters,
+// many of them at the end of 63 code units, surrogate pairs, lone surrogates and every character seroval
+// escapes, as values and as keys. Each serialization goes on a line of its own, with each
+// surrogate written as \u and its code, since a lone one does not come out of QuickJS as it is.
+const stringsPage = "import './host'\n" +
+	"import { serialize } from 'seroval'\n" +
+	"const strings: string[] = []\n" +
+	"for (let c = 0; c < 0x10000; c++) {\n" +
+	"  const s = String.fromCharCode(c)\n" +
+	"  strings.push(s, s + s, 'a' + s + 'b')\n" +
+	"  if (c < 0x800 || c % 64 === 0) strings.push(s.padStart(63, 'x'))\n" +
+	"}\n" +
+	"strings.push('🙂', 'a🙂', '🙂🙂', '\\ud83d', '\\ude42\\ud83d', 'x\\udc00y', '\"\\\\\\n\\r\\b\\t\\f<\\u2028\\u2029\\x00\\x0b\\x1f</script>')\n" +
+	"for (let n = 0; n < 70; n++) strings.push('ab<\"'.repeat(n).slice(0, n), 'é'.repeat(n))\n" +
+	"const lines: string[] = []\n" +
+	"for (let i = 0; i < strings.length; i += 4096) {\n" +
+	"  const chunk = strings.slice(i, i + 4096)\n" +
+	"  lines.push(serialize(chunk), serialize(Object.fromEntries(chunk.map((s, k) => [s, k]))))\n" +
+	"}\n" +
+	"globalThis.result = lines.join('\\n').replace(/[\\ud800-\\udfff]/g, (c) => '\\\\u' + c.charCodeAt(0).toString(16))\n"
+
+// seroval escapes a string shorter than 64 code units one character at a time, and the tifa
+// plugin makes it use JSON.stringify from 2 on, which gives the same text.
+func TestSSRSerializesShortStringsWithJSON(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"strings.tsx": stringsPage})
+	code, printed := buildPrinting(t, root, "strings.tsx")
+	if !serializesShortStrings(code) {
+		t.Error("the bundle does not serialize strings of 2 code units with JSON.stringify")
+	}
+	if strings.Contains(printed, "seroval") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	short := evalResult(t, code)
+	for _, want := range []string{`"a\x3Cb"`, `"\"\""`, `"\u2028\u2028"`, `"\ud83d"`} {
+		if !strings.Contains(short, want) {
+			t.Errorf("the serializations have no %s", want)
+		}
+	}
+	changed := withChangedPackage(t, "seroval", filepath.Join("dist", "index.js"), func(source string) string {
+		const length = "const MIN_JSON_STRINGIFY_LENGTH = 64;"
+		if strings.Count(source, length) != 1 {
+			t.Fatalf("seroval does not have %q once", length)
+		}
+		return strings.Replace(source, length, "const MIN_JSON_STRINGIFY_LENGTH = 32 * 2;", 1)
+	})
+	writeTree(t, changed, map[string]string{"strings.tsx": stringsPage})
+	code, printed = buildPrinting(t, changed, "strings.tsx")
+	if serializesShortStrings(code) {
+		t.Error("the bundle of a seroval the plugin does not know serializes strings of 2 code units with JSON.stringify")
+	}
+	if !strings.Contains(printed, "seroval 1.6.9: ") || !strings.Contains(printed, "escapes strings shorter than 64") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	got := strings.Split(evalResult(t, code), "\n")
+	want := strings.Split(short, "\n")
+	if len(got) != len(want) {
+		t.Fatalf("%d serializations without the change, %d with it", len(got), len(want))
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Errorf("serialization %d is otherwise without the change", i)
+		}
+	}
+}
+
+// When seroval's main file is no longer where the tifa plugin looks for it, the build warns.
+func TestSSRWarnsWhenSerovalMovedItsMainFile(t *testing.T) {
+	moved := withChangedPackage(t, "seroval", "package.json", func(source string) string {
+		for _, field := range []string{`"import": "./dist/index.js"`, `"default": "./dist/index.js"`} {
+			if strings.Count(source, field) != 1 {
+				t.Fatalf("the package.json of seroval does not have %s once", field)
+			}
+			source = strings.Replace(source, field, strings.Replace(field, "dist/", "dist/dev/", 1), 1)
+		}
+		return source
+	})
+	writeTree(t, moved, map[string]string{"short.ts": "import { serialize } from 'seroval'\nglobalThis.result = serialize(['ab', 'a<b'])\n"})
+	code, printed := buildPrinting(t, moved, "short.ts")
+	if serializesShortStrings(code) {
+		t.Error("the bundle serializes strings of 2 code units with JSON.stringify")
+	}
+	if !strings.Contains(printed, "seroval 1.6.9 at ") || !strings.Contains(printed, "escapes strings shorter than 64") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	if got := evalResult(t, code); got != `["ab","a\x3Cb"]` {
+		t.Errorf("result = %s", got)
+	}
+}
+
+// serializesShortStrings reports whether seroval in a minified bundle serializes a string with
+// JSON.stringify from a length of 2, which the minifier writes as a number or a variable.
+func serializesShortStrings(code string) bool {
+	m := regexp.MustCompile(`\.length>=([\w$]+)&&!\w+\.test\(\w+\)\)return JSON\.stringify`).FindStringSubmatch(code)
+	if m == nil {
+		return false
+	}
+	return m[1] == "2" || regexp.MustCompile(`[,;{(\s]`+regexp.QuoteMeta(m[1])+`=2[,;]`).MatchString(code)
+}
+
 // withReactDOM returns a copy of testdata/ssr whose react-dom is a copy of the test's, with old
 // replaced by new in its string renderer. The other packages are the test's.
 func withReactDOM(t *testing.T, old, new string) string {
@@ -373,6 +473,13 @@ func withReactDOM(t *testing.T, old, new string) string {
 // with its string renderer changed by change. The other packages are the test's.
 func withChangedReactDOM(t *testing.T, change func(string) string) string {
 	t.Helper()
+	return withChangedPackage(t, "react-dom", filepath.Join("cjs", "react-dom-server-legacy.browser.production.js"), change)
+}
+
+// withChangedPackage returns a copy of testdata/ssr whose package name is a copy of the test's,
+// with its file changed by change. The other packages are the test's.
+func withChangedPackage(t *testing.T, name, file string, change func(string) string) string {
+	t.Helper()
 	copied := copyTestdata(t, "ssr", false)
 	modules := testModules(t)
 	entries, err := os.ReadDir(modules)
@@ -380,7 +487,7 @@ func withChangedReactDOM(t *testing.T, change func(string) string) string {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
-		if e.Name() == "react-dom" || strings.HasPrefix(e.Name(), ".") {
+		if e.Name() == name || strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
 		real, err := filepath.EvalSymlinks(filepath.Join(modules, e.Name()))
@@ -394,20 +501,20 @@ func withChangedReactDOM(t *testing.T, change func(string) string) string {
 			t.Fatal(err)
 		}
 	}
-	dom, err := filepath.EvalSymlinks(filepath.Join(modules, "react-dom"))
+	real, err := filepath.EvalSymlinks(filepath.Join(modules, name))
 	if err != nil {
 		t.Fatal(err)
 	}
-	target := filepath.Join(copied, "node_modules", "react-dom")
-	if err := os.CopyFS(target, os.DirFS(dom)); err != nil {
+	target := filepath.Join(copied, "node_modules", name)
+	if err := os.CopyFS(target, os.DirFS(real)); err != nil {
 		t.Fatal(err)
 	}
-	renderer := filepath.Join(target, "cjs", "react-dom-server-legacy.browser.production.js")
-	source, err := os.ReadFile(renderer)
+	changed := filepath.Join(target, file)
+	source, err := os.ReadFile(changed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(renderer, []byte(change(string(source))), 0o644); err != nil {
+	if err := os.WriteFile(changed, []byte(change(string(source))), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return copied
