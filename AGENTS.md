@@ -22,7 +22,7 @@ The example app `examples/shop` is a shop order workbench written by tifa conven
 2. Before starting work and before creating a doc, run `scripts/docs-list.sh` to see the index, and read the docs whose Read when applies. Before committing, you can run `scripts/docs-list.sh --check`. It fails if a doc has no summary.
 3. `docs/archive/` and `docs/research/` are left out of the index. They hold outdated or exploratory material.
 4. Docs are written for readers: write conclusions and how to do things, not reasoning or work logs.
-5. Docs are written in English by default. User-facing docs (README, docs/app, docs/build, docs/dev, docs/structure, examples/shop/README) also have a `*.zh-CN.md` Chinese version. When you change one side, update the other to match. `scripts/docs-list.sh` skips `*.zh-CN.md` files.
+5. Docs are written in English by default. User-facing docs (README, docs/app, docs/build, docs/config, docs/dev, docs/performance, docs/structure, examples/shop/README) also have a `*.zh-CN.md` Chinese version. When you change one side, update the other to match. `scripts/docs-list.sh` skips `*.zh-CN.md` files.
 6. English: keep it short and direct, use everyday words, and do not invent terms. Chinese: do not use semicolons, and do not use dashes as punctuation.
 
 ## Draft folder

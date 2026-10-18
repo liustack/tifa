@@ -123,6 +123,7 @@ go tool tifa build
 | [构建与运行](docs/build.zh-CN.md) | 想知道 `tifa build` 生成了什么，程序怎么回答请求 |
 | [开发服务器](docs/dev.zh-CN.md) | 在本地跑 `tifa dev`，或者改了代码没有刷新 |
 | [配置](docs/config.zh-CN.md) | 部署时改端口、请求体上限、VM 数、渲染超时和页面缓存 |
+| [性能](docs/performance.zh-CN.md) | 想知道一台小 VPS 扛不扛得住你的流量 |
 | [测试](docs/testing.md) | 参与 tifa 本身的开发（英文） |
 
 ## 联系我们
