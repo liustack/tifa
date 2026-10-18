@@ -52,6 +52,29 @@ func (v intValue) Set(s string) error {
 func (v intValue) String() string { return strconv.Itoa(*v.p) }
 func (v intValue) kind() string   { return "int" }
 
+// pgoValue is build.pgo: auto, off or a file. Words that read as a switch, which would otherwise
+// name a file, fail with what to write. Files may also give it as a bool or a number for that reason.
+type pgoValue struct{ p *string }
+
+func (v pgoValue) Set(s string) error {
+	switch strings.ToLower(s) {
+	case "":
+		return errors.New("must not be empty")
+	case "off", "false", "no", "none", "disable", "disabled", "0":
+		if s != "off" {
+			return fmt.Errorf("%q is not a value, to turn it off, write off", s)
+		}
+	case "auto", "true", "yes", "on", "1":
+		if s != "auto" {
+			return fmt.Errorf("%q is not a value, write auto, off or a file", s)
+		}
+	}
+	*v.p = s
+	return nil
+}
+func (v pgoValue) String() string { return *v.p }
+func (v pgoValue) kind() string   { return "pgo" }
+
 type boolValue struct{ p *bool }
 
 func (v boolValue) Set(s string) error {

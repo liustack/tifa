@@ -1,5 +1,5 @@
 ---
-summary: 'tifa new 怎么新建应用、tifa build 做什么、.tifa/ 里生成了哪些文件和产物、应用的 tsconfig 与 go.mod 怎么配、生成的程序怎么启动和回答页面请求，以及要随程序附带哪些许可声明'
+summary: 'tifa new 怎么新建应用、tifa build 做什么、.tifa/ 里生成了哪些文件和产物、应用的 tsconfig 与 go.mod 怎么配、生成的程序怎么启动和回答页面请求、怎么按剖析编译（PGO），以及要随程序附带哪些许可声明'
 read_when:
   - 改 internal/codegen、cmd/tifa 的 build 命令或 server.Main
   - 新建一个 tifa 应用，或给 test/apps 加应用
@@ -7,6 +7,7 @@ read_when:
   - 实现页面渲染、导航数据请求，需要知道路由树与数据协议
   - 改 internal/bundle、js/vite、js/host，或升级 SSR 宿主补丁的依赖
   - 要把构建出的程序交给别人，想知道要附带哪些声明
+  - 要关掉 PGO，或用自己的剖析构建
 ---
 
 [English](build.md) · 简体中文
@@ -52,7 +53,29 @@ tifa build [--dir 应用根目录] [-o 输出路径]
 1. 静态分析 `app/` 与根目录 `hooks.go`，约定不满足时逐条打印 `文件:行号: 原因` 并退出。
 2. 把生成代码写进 `.tifa/`。只改内容变了的文件，删掉不再生成的文件。
 3. 用应用自己装的 Vite 打包，它跑在 Node 上，产物写进 `.tifa/dist/`，见下文「前端产物」。整个构建只起一个 Node 进程，不管 shell 里设了什么，它的 `NODE_ENV` 都是 `production`，所以构建总用 React 的生产版。第 2 步读 `route.tsx`、`layout.tsx` 的导出也用 Vite 的解析器。没有页面的应用构建时不需要 Node。可执行文件始终不需要 Node。
-4. `CGO_ENABLED=0 go build -o <输出> ./.tifa`，默认输出 `bin/<模块路径最后一段>`。生成的 main 用 `//go:embed all:dist` 把 `.tifa/dist/` 嵌进可执行文件。
+4. `CGO_ENABLED=0 go build -o <输出> ./.tifa`，默认输出 `bin/<模块路径最后一段>`。生成的 main 用 `//go:embed all:dist` 把 `.tifa/dist/` 嵌进可执行文件。有页面的应用用一份页面渲染的剖析来编译，见下文「按剖析优化」。
+
+### 按剖析优化
+
+`go build` 可以拿程序的一份 CPU 剖析来优化它（[PGO](https://go.dev/doc/pgo)）：剖析里显示调用得多的地方，它就内联。`tifa build` 把剖析写进 `.tifa/default.pgo`，`go build` 默认的 `-pgo=auto` 会在 main 包旁边找到它。用[项目文件](config.zh-CN.md#配置项)里的 `build.pgo` 选剖析：
+
+| `build.pgo` | 剖析 |
+| --- | --- |
+| `auto`（默认） | 应用根目录的 `default.pgo`。没有的话，有页面的应用用 tifa 自带的剖析，没有页面的应用不用剖析 |
+| `off` | 不用 |
+| 一个路径，比如 `profiles/prod.pgo` | 这个文件，相对应用根目录 |
+
+tifa 自带的剖析采自示例商店的页面在 linux/amd64 上的热 VM 里渲染。它的样本几乎全在 JavaScript 引擎、libc 和 Go 运行时里，每个页面都要经过这些代码，商店自己的 Go 代码一行也不在里面。用上它，商店的页面在 linux/amd64 上渲染快约 3%，在 darwin/arm64 上快约 7%，HTML 逐字节不变。
+
+`tifa dev` 构建时从不用剖析：它给 `go build` 传 `-pgo=off`。`tifa build` 时，`GOFLAGS` 里的 `-pgo` 比 `build.pgo` 优先，和任何 `go build` 一样。
+
+从空的构建缓存开始构建，带剖析比不带最多多花约 6% 的时间。这是在示例商店上用早先的一份剖析量的：Apple M4 上量的是实际耗时，linux/amd64 上量的是 CPU 时间。但换一份剖析，`go build` 会把每个包重新编译一遍，标准库也在内，所以换了剖析后的第一次 `tifa build` 用不上 `tifa dev` 或 `go test` 留在构建缓存里的东西。示例商店在 Apple M4 上约 5 秒，而走缓存的构建不到一秒。之后剖析不变的构建都从缓存里取。商店的可执行文件在 linux/amd64 上大了约 0.13 MB，在 darwin/arm64 上大了约 0.15 MB，都不到 1%。
+
+自己的剖析更贴合自己的应用。在真实流量下给构建好的程序采一份 CPU 剖析，比如用 `pprof.StartCPUProfile` 采 30 秒，存成应用根目录的 `default.pgo`。页面在同一个进程里渲染，所以它也覆盖了引擎。想让流量没走到的页面也留着 tifa 剖析的效果，就把两份合并。样本是相加的，所以时间长的那份分量更重：
+
+```sh
+go tool pprof -proto prod.pprof "$(go list -m -f '{{.Dir}}' github.com/liustack/tifa)/internal/codegen/engine.pgo" > default.pgo
+```
 
 ### 给别的系统构建
 
@@ -104,6 +127,7 @@ go tool tifa build
 | --- | --- |
 | `main.go` | 调用 `server.Main`（[tifa dev](dev.zh-CN.md) 下是 `server.DevMain`），只填 `hooks.go` 里实际存在的钩子。`go:embed` 前端产物 `dist/`，有项目配置时也嵌入它 |
 | `routes.go` | `layouts` 与 `routes` 两个包级变量，每个 `Load` 与 `Layout` 函数包成 `func(c *tifa.Ctx) (any, error) { return tifa.Use(c, pkg.Load) }`，Layout 用 `pkg.Layout`。带入参或返回值的方法函数经过 `server.Input`、`server.Output` 或 `server.InputOutput`，它们用 `(*tifa.Ctx).Bind`（GET、DELETE 用 `(*tifa.Ctx).BindQuery`）解码入参，执行 `Validate`，写出结果 |
+| `default.pgo` | `go build` 用来优化程序的剖析，见上文「按剖析优化」。[tifa dev](dev.zh-CN.md) 下没有 |
 | `tifa.yaml` 或 `tifa.json` | 项目配置的副本（`go:embed` 不能引用上级目录）。构建时先按运行时规则校验一遍 |
 | `routes.tsx` | TanStack 路由树与 `Register` 类型注册 |
 | `app/<目录>/+route.ts`、`app/<目录>/+layout.ts` | 每个页面一份 `+route.ts`，每个 Layout 一份 `+layout.ts`，都导出 `route`、`Data`、`Params`。`+route.ts` 还按方法函数各导出一个调用函数，有方法函数的 API 路由也生成 `+route.ts`，只含 `Params` 和这些函数。它们调用 `runtime/call.ts` |

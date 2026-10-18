@@ -1,8 +1,8 @@
 // Package codegen writes the generated part of a tifa application into its .tifa directory: the
 // Go main with the route registration, and the TypeScript route tree, the +route modules, the
-// two entries, the tsconfig and the JavaScript runtime. It reads only the route manifest and the
-// source files' exports. The output depends on nothing else, so the same input gives the same
-// bytes.
+// two entries, the tsconfig and the JavaScript runtime, and the profile go build optimizes with.
+// It reads only the route manifest, the source files' exports, the project config and the
+// profile. The output depends on nothing else, so the same input gives the same bytes.
 package codegen
 
 import (
@@ -29,8 +29,9 @@ type Exports func(files []string) (map[string][]string, error)
 
 // Generate returns the generated files of the application at root, by path relative to Dir with
 // forward slashes. dev selects the browser entry of tifa dev, which also loads the reload client
-// of the dev server, and the main of tifa dev, which calls server.DevMain. exports reads the exports of route.tsx and layout.tsx. It is not called for
-// an application without pages.
+// of the dev server, and the main of tifa dev, which calls server.DevMain, and leaves out the
+// profile, so tifa dev builds without PGO. exports reads the exports of route.tsx and layout.tsx.
+// It is not called for an application without pages.
 func Generate(root string, m *analyze.Manifest, dev bool, exports Exports) (map[string][]byte, error) {
 	files := map[string][]byte{}
 	configName, config, err := projectConfig(root)
@@ -59,6 +60,16 @@ func Generate(root string, m *analyze.Manifest, dev bool, exports Exports) (map[
 		return nil, err
 	}
 	maps.Copy(files, tsFiles)
+	if !dev {
+		_, pages := files["client.ts"]
+		pgo, err := profile(root, settings.Build.PGO, pages)
+		if err != nil {
+			return nil, err
+		}
+		if pgo != nil {
+			files[pgoFile] = pgo
+		}
+	}
 	return files, nil
 }
 

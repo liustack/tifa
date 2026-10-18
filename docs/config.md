@@ -2,7 +2,7 @@
 summary: 'Every setting of a tifa app: where each one can be set, which source wins, the default, the flag and environment variable names, the value formats and the errors a bad value gives'
 read_when:
   - Deploying a tifa app, or changing its port, body limit, VM count, VM stack depth, render timeout or page cache
-  - Setting the browser target or the static files folder of a build
+  - Setting the browser target, the static files folder or the profile of a build
   - The program refuses to start with a config error
   - Changing internal/config
 ---
@@ -47,6 +47,7 @@ Run `./bin/app config` to print the merged settings of all sources as a commente
 | `build.target` | `es2020` | project file only | JavaScript target of the browser bundle that Vite builds, a comma-separated list: one ECMAScript version (`es2015` to `es2029`, `esnext`) plus browsers with versions, from chrome, edge, firefox, ios, opera and safari, such as `es2019,chrome90,safari14`. The SSR bundle always targets ES2022 |
 | `build.public` | `public` | project file only | Folder of static files copied into the program as they are and served from `/` |
 | `build.skip_tanstack_check` | `false` | project file only | `true` builds an app whose TanStack Router is not the version tifa is tested with, which may leave pages blank in the browser. See [build.md](build.md#the-apps-tsconfig-and-vite-config) |
+| `build.pgo` | `auto` | project file only | Profile `go build` optimizes the program with. `auto` takes `default.pgo` in the app root, or else, for an app with pages, the profile of page renders tifa ships. `off` builds without a profile. Any other value is a file, given relative to the app root. `tifa dev` never uses one. See [build.md](build.md#profile-guided-optimization) |
 | `server.addr` | `127.0.0.1:9527` | `--server-addr`, `TIFA_SERVER_ADDR` | Address to listen on. Use `0.0.0.0:9527` in a container |
 | `server.body_limit` | `1MiB` | `--server-body-limit`, `TIFA_SERVER_BODY_LIMIT` | Largest request body. A bigger one is answered with 413 |
 | `server.shutdown_timeout` | `10s` | `--server-shutdown-timeout`, `TIFA_SERVER_SHUTDOWN_TIMEOUT` | After a stop signal, the time in-flight requests get to finish, and then the time `OnShutdown` gets. Requests still running when it ends are canceled and get one more `shutdown_timeout` to return. `OnShutdown` runs once they have returned and is skipped if they have not. Either way the program exits with status 1 |
@@ -86,6 +87,7 @@ What a lower depth breaks:
 - `ssr.vms` is a whole number of at least 1.
 - `ssr.vm_stack_depth` is a whole number from 1 to 10000. A deeper stack would let code that recurses without end grow the goroutine stack past Go's limit, and the whole process would exit.
 - `build.skip_tanstack_check` is `true` or `false`, without quotes.
+- `build.pgo` is `auto`, `off` or a path relative to the app root. YAML reads a plain `off` as text, so it needs no quotes. Words that read as a switch, such as `false`, `OFF` or `yes`, fail with what to write instead, and so does an absolute path.
 
 ## Errors
 

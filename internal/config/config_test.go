@@ -113,6 +113,44 @@ func TestSkipTanStackCheckIsABoolOfTheProjectFile(t *testing.T) {
 	}
 }
 
+// build.pgo is a string of the project file, auto by default. YAML reads a plain off as text.
+// A value that looks like a switch but is not auto or off says what to write.
+func TestPGOIsAStringOfTheProjectFile(t *testing.T) {
+	if got := Default().Build.PGO; got != "auto" {
+		t.Fatalf("default build.pgo = %q", got)
+	}
+	for name, content := range map[string]string{
+		"tifa.yaml": "build:\n  pgo: off\n",
+		"tifa.json": `{"build":{"pgo":"off"}}`,
+	} {
+		c, err := load(t, nil, nil, name, content)
+		if err != nil || c.Build.PGO != "off" {
+			t.Errorf("%s: %+v, %v", name, c.Build, err)
+		}
+	}
+	if c, err := load(t, nil, nil, "tifa.yaml", "build:\n  pgo: profiles/prod.pgo\n"); err != nil || c.Build.PGO != "profiles/prod.pgo" {
+		t.Errorf("a file: %+v, %v", c.Build, err)
+	}
+	// Values that look like a switch, which would otherwise be read as a file name.
+	for _, value := range []string{"false", "'false'", "OFF", "no", "none", "disabled", "0"} {
+		if _, err := load(t, nil, nil, "tifa.yaml", "build:\n  pgo: "+value+"\n"); err == nil || !strings.Contains(err.Error(), "build.pgo") || !strings.Contains(err.Error(), "to turn it off, write off") {
+			t.Errorf("%s: %v", value, err)
+		}
+	}
+	for _, value := range []string{"true", "yes", "on", "Auto"} {
+		if _, err := load(t, nil, nil, "tifa.yaml", "build:\n  pgo: "+value+"\n"); err == nil || !strings.Contains(err.Error(), "build.pgo") || !strings.Contains(err.Error(), "write auto") {
+			t.Errorf("%s: %v", value, err)
+		}
+	}
+	if _, err := load(t, nil, nil, "tifa.json", `{"build":{"pgo":false}}`); err == nil || !strings.Contains(err.Error(), "to turn it off, write off") {
+		t.Errorf("JSON false: %v", err)
+	}
+	_, err := load(t, []string{"--config", writeFile(t, "prod.yaml", "build:\n  pgo: off\n")}, nil, "", "")
+	if err == nil || !strings.Contains(err.Error(), "build settings belong in the project tifa.yaml") {
+		t.Errorf("in a deployment file: %v", err)
+	}
+}
+
 func TestNoFilesGivesDefaults(t *testing.T) {
 	c, err := load(t, nil, nil, "", "")
 	if err != nil {
@@ -252,7 +290,7 @@ func TestFileMustHoldOneDocument(t *testing.T) {
 }
 
 func TestKeysListEverySetting(t *testing.T) {
-	want := "build.target build.public build.skip_tanstack_check server.addr server.body_limit server.shutdown_timeout ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout cache.size"
+	want := "build.target build.public build.skip_tanstack_check build.pgo server.addr server.body_limit server.shutdown_timeout ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout cache.size"
 	if got := strings.Join(Keys(), " "); got != want {
 		t.Fatalf("Keys: %s, want %s", got, want)
 	}

@@ -69,7 +69,7 @@ Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 			if output == "" {
 				output = defaultOutput(root, m.Module)
 			}
-			if _, err := goBuild(cmd.Context(), root, output, cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
+			if _, err := goBuild(cmd.Context(), root, output, false, cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
 				return fmt.Errorf("go build: %w", err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "built %s (build %s)\n", output, id)
@@ -105,9 +105,15 @@ func analyzeApp(cmd *cobra.Command, root string) (*analyze.Manifest, error) {
 
 // goBuild compiles the generated main of the application at root into output with
 // CGO_ENABLED=0. It returns what go build printed on stderr, which also goes to stderr.
-// go build leaves go.mod and go.sum as they are.
-func goBuild(ctx context.Context, root, output string, stdout, stderr io.Writer) (string, error) {
-	gobuild := exec.CommandContext(ctx, "go", "build", "-o", output, "./"+codegen.Dir)
+// go build leaves go.mod and go.sum as they are. tifa build leaves -pgo to the go command, which
+// takes .tifa/default.pgo unless GOFLAGS says otherwise. tifa dev (dev) passes -pgo=off, which
+// wins over GOFLAGS.
+func goBuild(ctx context.Context, root, output string, dev bool, stdout, stderr io.Writer) (string, error) {
+	args := []string{"build", "-o", output}
+	if dev {
+		args = append(args, "-pgo=off")
+	}
+	gobuild := exec.CommandContext(ctx, "go", append(args, "./"+codegen.Dir)...)
 	gobuild.Dir = root
 	gobuild.Env = append(os.Environ(), "CGO_ENABLED=0")
 	var printed bytes.Buffer

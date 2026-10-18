@@ -1,5 +1,5 @@
 ---
-summary: 'Testing and verification: commands to run before committing, checks for the example app, end-to-end tests, red before green, the long SSR tests that are skipped by default, and the SSR benchmark of the example app'
+summary: 'Testing and verification: commands to run before committing, checks for the example app, end-to-end tests, red before green, the long SSR tests that are skipped by default, the SSR benchmark of the example app, and how to collect the engine profile again'
 read_when:
   - Getting ready to commit and checking which checks to run
   - Writing a new test or fixing a bug
@@ -8,6 +8,7 @@ read_when:
   - Running the end-to-end tests, or changing `internal/codegen`, `test/apps` or `examples/shop`
   - Measuring SSR render time or VM memory, or comparing an SSR change against the baseline
   - Changing `internal/ssr` or `test/ssr`
+  - Upgrading github.com/liustack/quickjs or modernc.org/libc, or `TestEngineProfileMatchesTheDependencies` fails
 ---
 
 # Testing and verification
@@ -117,3 +118,20 @@ TIFA_SSR_SHOP=1 go test -run ShopVMMemory -v ./test/ssr
 The prototype's other experiments (per-stage timing, memory probes) stay in `internal/ssr` at the tag `prototype-baseline`. Check out that tag and build from it when needed.
 
 Run performance comparisons on the same machine, alternating between the old and new builds, and record the machine load. Changes in machine load can make absolute times differ several times over. Only ratios measured in the same alternating round are comparable.
+
+## The engine profile
+
+`internal/codegen/engine.pgo` is the profile `tifa build` compiles apps with pages with (see [build.md](build.md#profile-guided-optimization)). It is made on linux/amd64. PGO finds a call site by its caller, its callee and the line of the call within the caller, so the profile must be made with the versions of quickjs and modernc.org/libc in `go.mod`. `TestEngineProfileMatchesTheDependencies` in `internal/codegen` checks this from the source file names in the profile, and fails for a profile made with a `replace` of either module.
+
+After upgrading quickjs or modernc.org/libc, collect it again on a quiet linux/amd64 machine, with a fresh build of the example app:
+
+```sh
+(cd examples/shop && pnpm install --frozen-lockfile && go tool tifa build)
+TIFA_SSR_SHOP=1 GOMAXPROCS=1 go test -run '^$' -bench 'Shop/^render' -benchtime 500x \
+  -cpuprofile internal/codegen/engine.pgo -o "$(mktemp -d)/ssr.test" ./test/ssr
+go test -run EngineProfile ./internal/codegen
+```
+
+500 renders of each page give about 110 seconds of CPU samples on a quiet AMD EPYC 7B13. One profile is enough for arm64 too: on darwin/arm64, a build with a profile made on linux/amd64 renders as fast as one with a profile made on the same Mac (0.3% apart).
+
+A profile of an older quickjs or libc still builds and changes no output. It only finds fewer call sites, so pages render slower than they could.

@@ -35,6 +35,10 @@ type Build struct {
 	// SkipTanStackCheck builds an app whose TanStack Router is not the version tifa is tested
 	// with, see bundle.CheckTanStack.
 	SkipTanStackCheck bool
+	// PGO is the profile go build optimizes the program with: auto, off, or a file relative to
+	// the app root. auto is the app's default.pgo, or else tifa's profile of page renders in an
+	// app with pages.
+	PGO string
 }
 
 type Server struct {
@@ -68,7 +72,7 @@ const DefaultAddr = "127.0.0.1:9527"
 // Default holds values sized for small machines. ssr.vms follows GOMAXPROCS, which honours container CPU limits, with no cap.
 func Default() Config {
 	return Config{
-		Build:  Build{Target: "es2020", Public: "public"},
+		Build:  Build{Target: "es2020", Public: "public", PGO: "auto"},
 		Server: Server{Addr: DefaultAddr, BodyLimit: 1 << 20, ShutdownTimeout: 10 * time.Second},
 		SSR:    SSR{VMs: runtime.GOMAXPROCS(0), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second},
 		Cache:  Cache{Size: 64 << 20},
@@ -94,6 +98,7 @@ func fields(c *Config) []field {
 		{"build.target", "JavaScript target of the browser bundle", stringValue{&c.Build.Target}},
 		{"build.public", "Directory of static files copied as is", stringValue{&c.Build.Public}},
 		{"build.skip_tanstack_check", "Build with a TanStack Router version tifa is not tested with", boolValue{&c.Build.SkipTanStackCheck}},
+		{"build.pgo", "Profile for profile-guided optimization: auto, off or a file", pgoValue{&c.Build.PGO}},
 		{"server.addr", "HTTP listen address", stringValue{&c.Server.Addr}},
 		{"server.body_limit", "Request body limit", sizeValue{&c.Server.BodyLimit, 1}},
 		{"server.shutdown_timeout", "Time allowed for in-flight requests, and then for OnShutdown, after a stop signal", durationValue{&c.Server.ShutdownTimeout}},
@@ -242,6 +247,8 @@ func accepts(kind, typ string) bool {
 		return typ == "string" || typ == "number" // 1MiB or a plain byte count
 	case "bool":
 		return typ == "bool"
+	case "pgo":
+		return typ == "string" || typ == "bool" || typ == "number" // false or 0 fails with what to write
 	default:
 		return typ == "string"
 	}
