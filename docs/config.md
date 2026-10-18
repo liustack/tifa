@@ -69,6 +69,8 @@ Every VM can do this at the same moment, so the worst case is `ssr.vms` times 19
 | `2000` | about 16 MB |
 | `1000` | about 8 MB |
 
+On Linux, each level also keeps up to about 2 KB of memory the engine uses for its own local variables, so a VM that once recursed 10000 levels deep holds about 20 MB more. This memory is not in `ssr.vm_memory` either, and the VM keeps it until it closes. A render that fails closes the VM and starts a new one, so the memory comes back then. When the page catches the `RangeError` and the render succeeds, the VM stays and keeps it.
+
 What a lower depth breaks:
 
 - Plain recursive code that goes deeper than the limit, such as a function walking a tree of comments or categories, in your code or in a library. It throws the `RangeError`, and the render fails unless the code catches it.
