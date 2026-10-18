@@ -32,7 +32,7 @@ Unless a section says otherwise:
 | Order | about 38 KB | 15.0 to 15.4 ms | 15.7 to 15.9 ms | 24.9 to 25.0 ms |
 | Stats | about 34 KB | 12.5 ms | 12.9 to 13.0 ms | 21.9 to 22.1 ms |
 
-Each range covers the two shops. "Render" is the benchmark. "Request" is one request at a time over HTTP, which adds Go's `Load`, JSON and net/http. Measured in the same session with one VM, whole requests and the benchmark differ by about 1%. One request at a time, that is 22 to 24 order lists or about 75 stats pages a second.
+Each range covers the two shops. "Render" is the benchmark. "Request" is one request at a time over HTTP, which adds Go's `Load`, JSON and net/http. The request columns come from another session, on a server with 6 VMs on 3 physical cores. Measured in the same session with one VM, whole requests and the benchmark differ by about 1%. One request at a time, that is 22 to 24 order lists or about 75 stats pages a second.
 
 At start the program compiles the SSR bundle to bytecode once and loads that bytecode into each VM of the pool, one after another. For the shop that was about 0.2 s to compile and about 45 ms per VM, measured with quickjs v0.26.9. v0.26.12 made loading about 11% faster.
 
@@ -79,7 +79,7 @@ All six pages in turn, with as many requests in flight as VMs. The service is pi
 - More VMs than CPUs adds no throughput. The renders do not queue: they share the CPUs, so each one takes longer. On 7 CPUs, 8 VMs did 181 requests a second at a P50 of 30.8 ms, and 7 VMs did 183 to 185 at 26.4 ms.
 - Fewer VMs than CPUs trades throughput for a little latency: on the same 7 CPUs, 4 VMs did 137 requests a second at a P50 of 20 ms. The system still puts render threads on two hyperthreads of one core while other cores sit idle. Giving the program only as many CPUs as physical cores is better on both counts: 4 VMs on 4 physical cores did 158 requests a second at 16 ms.
 - A cloud vCPU is usually one hyperthread, so 2 vCPUs are often one physical core. Busy hyperthreads give more throughput but slower renders: with the shop's pages, a P50 of about 16 ms on physical cores becomes about 26 ms when both threads of each core render.
-- The 16 ms was measured with the program pinned to one hyperthread of each physical core and nothing running on the other hyperthreads. A cpuset can give that, such as Docker's `--cpuset-cpus` or the static CPU manager policy of Kubernetes, when the chosen CPUs are laid out so. A plain CPU quota, such as Docker's `--cpus`, does not pin threads, and likely behaves more like fewer VMs than CPUs above. That case was not measured.
+- The 16 ms was measured with the program pinned to one hyperthread of each physical core while the other hyperthreads were nearly idle. A cpuset, such as Docker's `--cpuset-cpus`, can pin the program to such CPUs, but it cannot keep other programs off their sibling hyperthreads. The static CPU manager policy of Kubernetes tends to hand out whole cores, both hyperthreads of each, which is the 26 ms case below. A plain CPU quota, such as Docker's `--cpus`, does not pin threads, and likely behaves more like fewer VMs than CPUs above. That case was not measured.
 - For the shop's six pages in turn, which take about 24 ms of CPU per render on average, plan on about 40 page renders a second per physical core, or about 25 per vCPU when the vCPUs are hyperthreads that are all busy (148.8 a second on 6 vCPUs). Pages with a different render time scale with it.
 
 Only a full page load renders. Navigating in the browser fetches JSON that Go writes without a VM, and API routes and cached pages do not render either. With 6 VMs on 3 physical cores and 64 requests in flight:
@@ -191,7 +191,7 @@ Each item says what it would give and why it was dropped. Check here before tryi
 
 ## Measuring again
 
-[docs/testing.md](testing.md#performance-comparisons) has the commands for the render benchmark and VM memory, and [The engine profile](testing.md#the-engine-profile) how to collect the PGO profile again after upgrading quickjs or modernc.org/libc. Rules that keep numbers comparable:
+[docs/testing.md](testing.md#performance-comparisons) has the commands for the render benchmark and VM memory, [Reading BenchmarkShopParallel](testing.md#reading-benchmarkshopparallel) how to check that several VMs still scale, and [The engine profile](testing.md#the-engine-profile) how to collect the PGO profile again after upgrading quickjs or modernc.org/libc. Rules that keep numbers comparable:
 
 - Compare on the same machine, alternating between the old and new build, round after round. Only ratios from the same rounds compare: a busy machine can change absolute times several times over.
 - Pin each run to one core and keep its hyperthread sibling idle. On Linux, `/sys/devices/system/cpu/cpuN/topology/thread_siblings_list` names the sibling. Note the load of the machine during each round, and run again when other work used more than about 10% of the CPU.

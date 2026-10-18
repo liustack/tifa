@@ -32,7 +32,7 @@ tifa 在 QuickJS 里渲染页面。QuickJS 是用 C 写的 JavaScript 解释器�
 | 订单 | 约 38 KB | 15.0 到 15.4 ms | 15.7 到 15.9 ms | 24.9 到 25.0 ms |
 | 统计 | 约 34 KB | 12.5 ms | 12.9 到 13.0 ms | 21.9 到 22.1 ms |
 
-每个范围包括两家店。「渲染」是基准测试的数。「请求」是走 HTTP、一次一个请求，多出 Go 的 `Load`、JSON 和 net/http。在同一时段用 1 个 VM 测，真实请求和基准只差约 1%。一次一个请求时，每秒能出 22 到 24 个订单列表，或者约 75 个统计页。
+每个范围包括两家店。「渲染」是基准测试的数。「请求」是走 HTTP、一次一个请求，多出 Go 的 `Load`、JSON 和 net/http。请求那几列是另一次测的，服务在 3 个物理核上跑 6 个 VM。在同一时段用 1 个 VM 测，真实请求和基准只差约 1%。一次一个请求时，每秒能出 22 到 24 个订单列表，或者约 75 个统计页。
 
 程序启动时把 SSR 包编译成字节码一次，再把字节码逐个加载进池里的每个 VM。shop 编译约 0.2 秒，每个 VM 加载约 45 ms，这是在 quickjs v0.26.9 上测的。v0.26.12 让加载快了约 11%。
 
@@ -79,7 +79,7 @@ tifa 在 QuickJS 里渲染页面。QuickJS 是用 C 写的 JavaScript 解释器�
 - VM 比 CPU 多不会多出吞吐。渲染不会排队，而是在抢 CPU，每次都变慢：7 个 CPU 上 8 个 VM 是每秒 181 个请求、P50 30.8 ms，7 个 VM 是 183 到 185 个、26.4 ms。
 - VM 比 CPU 少，是拿吞吐换一点延迟：同样 7 个 CPU，4 个 VM 是每秒 137 个请求、P50 20 ms。系统仍会把两个渲染线程放到同一个核的两个超线程上，而别的核还空着。只给程序和物理核一样多的 CPU，两样都更好：4 个物理核上 4 个 VM 是每秒 158 个、16 ms。
 - 云上的一个 vCPU 通常是一个超线程，2 个 vCPU 常常就是 1 个物理核。超线程都忙起来时吞吐更高，但每次渲染更慢：shop 的页面在物理核上 P50 约 16 ms，每个核的两个线程都在渲染时约 26 ms。
-- 16 ms 的条件是程序钉在每个物理核的一个超线程上，另一个超线程上什么都不跑。cpuset 能做到这一点，比如 Docker 的 `--cpuset-cpus` 或 Kubernetes 的 static CPU manager 策略，前提是选的 CPU 正好这样分布。只设 CPU 配额（比如 Docker 的 `--cpus`）时线程不绑核，结果可能更像上面 VM 比 CPU 少的情况。这种情况没有测过。
+- 16 ms 的条件是程序钉在每个物理核的一个超线程上，另一个超线程几乎空着。cpuset（比如 Docker 的 `--cpuset-cpus`）能把程序钉到这样的 CPU 上，但管不了别的程序用它们的兄弟超线程。Kubernetes 的 static CPU manager 策略倾向于整核分配，一个核的两个超线程一起给，那就是下面 26 ms 的情况。只设 CPU 配额（比如 Docker 的 `--cpus`）时线程不绑核，结果可能更像上面 VM 比 CPU 少的情况。这种情况没有测过。
 - 按 shop 六个页面轮流、每次渲染平均约 24 ms CPU 的情况，每个物理核每秒约 40 次渲染，vCPU 是超线程而且都忙时每个 vCPU 约 25 次（6 个 vCPU 每秒 148.8 次）。渲染时间不同的页面按比例换算。
 
 只有整页加载才渲染。在浏览器里切换页面取的是 Go 直接写的 JSON，不经过 VM，API 路由和命中缓存的页面也不渲染。3 个物理核上 6 个 VM、64 个在途请求时：
@@ -191,7 +191,7 @@ v0.26.13 整体的渲染时间是 v0.26.12 的 0.823，8 轮在 0.821 到 0.825 
 
 ## 怎么复测
 
-[docs/testing.md](testing.md#performance-comparisons) 有渲染基准和 VM 内存的命令，[The engine profile](testing.md#the-engine-profile) 讲升级 quickjs 或 modernc.org/libc 后怎么重采 PGO 剖析（英文）。让数字能比的规矩：
+[docs/testing.md](testing.md#performance-comparisons) 有渲染基准和 VM 内存的命令，[Reading BenchmarkShopParallel](testing.md#reading-benchmarkshopparallel) 讲怎么检查多个 VM 是否还能扩展（英文），[The engine profile](testing.md#the-engine-profile) 讲升级 quickjs 或 modernc.org/libc 后怎么重采 PGO 剖析（英文）。让数字能比的规矩：
 
 - 在同一台机器上比，新旧两个构建一轮一轮交替跑。只有同一批轮次的比值能比：机器忙的时候绝对时间能差好几倍。
 - 每次跑都钉在一个核上，并让它的超线程兄弟空着。Linux 上 `/sys/devices/system/cpu/cpuN/topology/thread_siblings_list` 写着兄弟是谁。记下每轮的机器负载，别的任务占了约 10% 以上的 CPU 就重测。
