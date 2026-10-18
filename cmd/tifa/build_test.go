@@ -1,6 +1,9 @@
 package main
 
 import (
+	"debug/buildinfo"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -44,5 +47,51 @@ func TestBuildChecksTanStackOfAppsWithPages(t *testing.T) {
 	}
 	if err := checkTanStack(root, config.Build{}, false); err != nil {
 		t.Errorf("no pages: %v", err)
+	}
+}
+
+// A -pgo in GOFLAGS wins over .tifa/default.pgo in tifa build, as for any go build. tifa dev
+// passes -pgo=off on the command line, which wins over GOFLAGS, so it never builds with a profile.
+func TestDevBuildsWithoutPGOWhateverGOFLAGSSays(t *testing.T) {
+	profile, err := filepath.Abs(filepath.Join("..", "..", "internal", "codegen", "engine.pgo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	for name, content := range map[string]string{
+		"go.mod":            "module example.com/pgo\n\ngo 1.27\n",
+		".tifa/main.go":     "package main\n\nfunc main() {}\n",
+		".tifa/default.pgo": "not a profile, go build fails if it reads this\n",
+	} {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("GOFLAGS", "-pgo="+profile)
+	for _, tc := range []struct {
+		dev  bool
+		want string
+	}{{false, profile}, {true, ""}} {
+		exe := filepath.Join(t.TempDir(), "app")
+		if printed, err := goBuild(t.Context(), root, exe, tc.dev, io.Discard, io.Discard); err != nil {
+			t.Fatalf("dev %t: %v\n%s", tc.dev, err, printed)
+		}
+		info, err := buildinfo.ReadFile(exe)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got string
+		for _, s := range info.Settings {
+			if s.Key == "-pgo" {
+				got = s.Value
+			}
+		}
+		if got != tc.want {
+			t.Errorf("dev %t: built with -pgo=%q, want %q", tc.dev, got, tc.want)
+		}
 	}
 }

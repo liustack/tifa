@@ -125,6 +125,21 @@ func buildWith(t *testing.T, dir, path string) (exe string) {
 	return exe
 }
 
+// buildPGO returns the profile go build optimized exe with, from its build info, empty for none.
+func buildPGO(t *testing.T, exe string) string {
+	t.Helper()
+	out, err := exec.Command("go", "version", "-m", exe).CombinedOutput()
+	if err != nil {
+		t.Fatalf("go version -m %s: %v\n%s", exe, err, out)
+	}
+	for line := range strings.Lines(string(out)) {
+		if setting, ok := strings.CutPrefix(strings.TrimSpace(line), "build\t-pgo="); ok {
+			return setting
+		}
+	}
+	return ""
+}
+
 // typecheck runs tsc --noEmit in the app at dir, so the generated TypeScript in .tifa and the
 // app's TSX check together. It skips when the app's npm packages or node are not installed.
 func typecheck(t *testing.T, dir string) {
@@ -334,6 +349,10 @@ func TestInterfaceApp(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, ".tifa", "routes.tsx")); !os.IsNotExist(err) {
 		t.Errorf("an app without pages got TypeScript: %v", err)
 	}
+	// The engine profile is of page renders, which an app without pages does not do.
+	if pgo := buildPGO(t, exe); pgo != "" {
+		t.Errorf("an app without pages was built with the profile %s", pgo)
+	}
 	list := exec.Command("go", "list", "./...")
 	list.Dir = dir
 	if out, err := list.CombinedOutput(); err != nil || strings.Contains(string(out), ".tifa") {
@@ -408,6 +427,18 @@ func TestPagesApp(t *testing.T) {
 	}
 
 	typecheck(t, dir)
+
+	// go build takes .tifa/default.pgo, here the engine profile, by its default -pgo=auto.
+	if pgo := buildPGO(t, exe); pgo != filepath.Join(dir, ".tifa", "default.pgo") {
+		t.Errorf("built with the profile %q", pgo)
+	}
+	engine, err := os.ReadFile(filepath.Join(repoRoot(t), "internal", "codegen", "engine.pgo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if written, err := os.ReadFile(filepath.Join(dir, ".tifa", "default.pgo")); err != nil || !bytes.Equal(written, engine) {
+		t.Errorf("default.pgo is not the engine profile: %v", err)
+	}
 
 	base, _, _ := start(t, exe)
 	var built struct{ BuildID, Head string }

@@ -2,7 +2,7 @@
 summary: 'tifa 应用的全部配置：每项能在哪设置、谁优先、默认值、参数和环境变量名、值的写法，以及写错时的报错'
 read_when:
   - 部署 tifa 应用，或要改端口、请求体上限、VM 数量、VM 栈深度、渲染超时、页面缓存
-  - 设置构建的浏览器目标或静态文件目录
+  - 设置构建的浏览器目标、静态文件目录或剖析
   - 程序因为配置错误起不来
   - 改 internal/config
 ---
@@ -47,6 +47,7 @@ cache:
 | `build.target` | `es2020` | 只能写在项目文件 | Vite 构建的浏览器包的 JavaScript 目标，逗号分隔：一个 ECMAScript 版本（`es2015` 到 `es2029`、`esnext`）加若干带版本的浏览器，浏览器可选 chrome、edge、firefox、ios、opera 和 safari，如 `es2019,chrome90,safari14`。SSR 包固定是 ES2022 |
 | `build.public` | `public` | 只能写在项目文件 | 静态文件目录，原样打进程序，从 `/` 提供 |
 | `build.skip_tanstack_check` | `false` | 只能写在项目文件 | 设为 `true` 时，TanStack Router 不是 tifa 测过的版本也照样构建，页面在浏览器里可能白屏。见 [build.zh-CN.md](build.zh-CN.md#应用的-tsconfig-与-vite-配置) |
+| `build.pgo` | `auto` | 只能写在项目文件 | `go build` 用来优化程序的剖析。`auto` 取应用根目录的 `default.pgo`，没有的话，有页面的应用用 tifa 自带的页面渲染剖析。`off` 不用剖析。别的值是一个文件，相对应用根目录。`tifa dev` 从不用剖析。见 [build.zh-CN.md](build.zh-CN.md#按剖析优化) |
 | `server.addr` | `127.0.0.1:9527` | `--server-addr`、`TIFA_SERVER_ADDR` | 监听地址。容器里用 `0.0.0.0:9527` |
 | `server.body_limit` | `1MiB` | `--server-body-limit`、`TIFA_SERVER_BODY_LIMIT` | 请求体上限，超过答 413 |
 | `server.shutdown_timeout` | `10s` | `--server-shutdown-timeout`、`TIFA_SERVER_SHUTDOWN_TIMEOUT` | 收到退出信号后，先给在途请求的时间，再给 `OnShutdown` 的时间。到时仍在运行的请求会被取消，再给它们一个 `shutdown_timeout` 返回。都返回了就执行 `OnShutdown`，没返回就跳过它。两种情况程序都以状态码 1 退出 |
@@ -86,6 +87,7 @@ cache:
 - `ssr.vms` 是不小于 1 的整数。
 - `ssr.vm_stack_depth` 是 1 到 10000 的整数。再深的话，无限递归的代码会让 goroutine 栈超过 Go 的上限，整个进程直接退出。
 - `build.skip_tanstack_check` 是 `true` 或 `false`，不加引号。
+- `build.pgo` 是 `auto`、`off` 或一个相对应用根目录的路径。YAML 把不加引号的 `off` 读成文本，所以不用加引号。像开关的词，比如 `false`、`OFF`、`yes`，会报错并告诉你该写什么，写绝对路径也一样。
 
 ## 报错
 

@@ -225,11 +225,19 @@ func TestDev(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("tifa dev needs interrupts, which Windows lacks")
 	}
-	d := startDev(t, devApp(t))
+	dir := devApp(t)
+	// tifa build would optimize with this profile. tifa dev builds without PGO.
+	if err := os.WriteFile(filepath.Join(dir, "default.pgo"), []byte("not read\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d := startDev(t, dir)
 
 	// The first start runs every step.
 	out := d.waitLog(t, 0, ready)
 	expectSteps(t, "first build", out, "static analysis", "code generation", "bundle", "go build")
+	if _, err := os.Stat(filepath.Join(dir, ".tifa", "default.pgo")); !os.IsNotExist(err) {
+		t.Errorf("tifa dev wrote .tifa/default.pgo: %v", err)
+	}
 	v1 := d.waitStatus(t, func(st devStatus) bool { return st.Version != "" && st.Error == "" }).Version
 	expectBody(t, d.base+"/", "North shop")
 
