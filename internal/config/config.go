@@ -57,7 +57,7 @@ type Cache struct {
 }
 
 // MaxVMStackDepth is the default and the largest ssr.vm_stack_depth: the engine's own default,
-// which internal/ssr checks. Code that recurses without end takes up to about 13 KB of goroutine
+// which internal/ssr checks. Code that recurses without end takes about 1 KB of goroutine
 // stack per level before it throws, and much deeper than this it would pass Go's stack limit,
 // which ends the process.
 const MaxVMStackDepth = 10000

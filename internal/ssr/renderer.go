@@ -45,7 +45,7 @@ func Compile(source string, memory uintptr, timeout time.Duration) (bytecode []b
 //
 // stack is how deep calls may nest, in the engine's stack slots (ssr.vm_stack_depth). Deeper
 // calls throw RangeError: Maximum call stack size exceeded. The slots live on the goroutine
-// stack of the render, not in the memory the limit counts: a slot takes up to about 13 KB.
+// stack of the render, not in the memory the limit counts: a slot takes about 1 KB.
 func Load(bytecode []byte, memory, stack uintptr, timeout time.Duration, dev bool) (*quickjs.VM, error) {
 	vm, err := quickjs.NewVM()
 	if err != nil {
