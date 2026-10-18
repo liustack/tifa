@@ -1,6 +1,7 @@
 package bundle
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -198,9 +199,286 @@ func TestSSRCachesShortEscapesInLittleMemory(t *testing.T) {
 	}
 }
 
+// segmentsPage renders, three times over, Suspense boundaries side by side, nested in each other,
+// at the start and the end of their parents and one whose content never arrives, with text,
+// attributes, an empty text and hoistable tags around them. Each boundary adds a child segment to
+// the segment around it, so React writes the chunks of a segment between its children.
+const segmentsPage = "import './host'\n" +
+	"import { renderToString } from 'react-dom/server.edge'\n" +
+	"import { Suspense, lazy } from 'react'\n" +
+	"const Never = lazy(() => new Promise<never>(() => {}))\n" +
+	"function Item({ n }: { n: number }) {\n" +
+	"  return <li data-n={n} className={n % 2 ? 'odd' : undefined}>item {n}{''}<b>{n * 1.5}</b></li>\n" +
+	"}\n" +
+	"function Page() {\n" +
+	"  return <main>\n" +
+	"    <Suspense fallback=\"a\"><p>first</p></Suspense>\n" +
+	"    <title>{'segments & <chunks>'}</title>\n" +
+	"    <meta name=\"x\" content=\"y\" />\n" +
+	"    <link rel=\"stylesheet\" href=\"/s.css\" precedence=\"default\" />\n" +
+	"    <h1 title=\"t\">head {'&'} text</h1>\n" +
+	"    <Suspense fallback=\"b\">\n" +
+	"      <ul>{[1, 2, 3].map((n) => <Item key={n} n={n} />)}</ul>\n" +
+	"      <Suspense fallback=\"c\"><Suspense fallback=\"d\">deep</Suspense>between<Item n={4} /></Suspense>\n" +
+	"      tail\n" +
+	"    </Suspense>\n" +
+	"    <Suspense fallback=\"e\"><Never /></Suspense>\n" +
+	"    {''}\n" +
+	"    <Suspense fallback=\"f\">last</Suspense>\n" +
+	"  </main>\n" +
+	"}\n" +
+	"globalThis.result = [0, 1, 2].map(() => renderToString(<Page />)).join('\\n')\n"
+
+// React's string renderer hands the chunks of a segment one by one to the function that appends
+// them to the HTML. The tifa plugin joins the chunks between two children of a segment and hands
+// them over at once, and pages render the same as without that.
+func TestSSRJoinsTheChunksOfEachSegment(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"segments.tsx": segmentsPage})
+	code, printed := buildPrinting(t, root, "segments.tsx")
+	if !joinedChunks.MatchString(code) {
+		t.Error("the bundle does not join the chunks of a segment")
+	}
+	if strings.Contains(printed, "react-dom") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	joined := evalResult(t, code)
+	for _, want := range []string{"<!--$--><p>first</p><!--/$-->", "<!--$--><!--$-->deep<!--/$-->between", "<!--$!--><template></template>e<!--/$-->", "<!--$-->last<!--/$-->"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the page has no %s:\n%s", want, joined)
+		}
+	}
+	changed := withReactDOM(t, "for (r = segment[childIdx]; chunkIdx < r.index; chunkIdx++)", "for (r = segment[childIdx]; r.index > chunkIdx; chunkIdx++)")
+	writeTree(t, changed, map[string]string{"segments.tsx": segmentsPage})
+	code, printed = buildPrinting(t, changed, "segments.tsx")
+	if joinedChunks.MatchString(code) {
+		t.Error("the bundle joins the chunks of a segment of a React DOM it does not know")
+	}
+	if !strings.Contains(printed, "react-dom 19.3.0: ") || !strings.Contains(printed, "the tifa plugin does not join the chunks") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	if got := evalResult(t, code); got != joined {
+		t.Errorf("the page renders otherwise without the joined chunks:\n%s\nwant:\n%s", got, joined)
+	}
+}
+
+// joinedChunks finds the chunks of a segment joined by the tifa plugin in a minified bundle.
+var joinedChunks = regexp.MustCompile("\\.slice\\([^()]*\\)\\.join\\(``\\)")
+
+// switchesPage renders each name of NAMES, which the test replaces with a JSON list, and names
+// that are no case of React's switches, as the tag of an element alone, with props and children,
+// and inside each element that gives its children another format context, and as a prop of a few
+// elements with values of each type. Each render goes on a line of its own, or the error it
+// throws.
+const switchesPage = "import './host'\n" +
+	"import { renderToString } from 'react-dom/server.edge'\n" +
+	"import { createElement as h } from 'react'\n" +
+	"const names: string[] = [...NAMES, 'id', 'type', 'name', 'aria-label', 'data-x', 'my-element', 'fooBar', 'onclick',\n" +
+	"  'xlinkHref', 'xml:lang', 'font-face', 'annotation-xml', 'missing-glyph', 'unknown', '', 'constructor', '__proto__', 'toString']\n" +
+	"const parents = ['svg', 'math', 'foreignObject', 'select', 'optgroup', 'table', 'thead', 'tbody', 'tfoot', 'tr',\n" +
+	"  'colgroup', 'noscript', 'head', 'html', 'body', 'p', 'picture', 'template']\n" +
+	"const hosts = ['div', 'input', 'select', 'option', 'img', 'link', 'meta', 'script', 'style', 'title', 'textarea', 'svg', 'a', 'button', 'form', 'my-element']\n" +
+	"const values: unknown[] = ['text', '', 'a & \"b\" <c>', 0, -1.5, NaN, true, false, null, undefined,\n" +
+	"  () => {}, Symbol('s'), {}, ['a', 'b'], { __html: '<i>x</i>' }, 10n, { color: 'red', fontSize: 12 }]\n" +
+	"const lines: string[] = []\n" +
+	"const render = (element: any) => {\n" +
+	"  try {\n" +
+	"    lines.push(renderToString(element))\n" +
+	"  } catch (err) {\n" +
+	"    lines.push('throws ' + (err as Error).message)\n" +
+	"  }\n" +
+	"}\n" +
+	"for (const name of names) {\n" +
+	"  render(h(name, null))\n" +
+	"  const element = h(name, { className: 'c', id: 'i', value: 'v', href: '/h', rel: 'stylesheet', precedence: 'p', src: '/s.js', async: true }, 'text')\n" +
+	"  render(element)\n" +
+	"  for (const parent of parents) render(h(parent, null, element, h(name, null)))\n" +
+	"  for (const host of hosts) for (const value of values) render(h(host, { [name]: value }))\n" +
+	"}\n" +
+	"globalThis.result = lines.join('\\n')\n"
+
+// The tifa plugin puts a Set check in front of the long switches on strings in React's string
+// renderer, and pages render the same as without them.
+func TestSSRGuardsTheSwitchesOfReact(t *testing.T) {
+	renderer := filepath.Join(testModules(t), "react-dom", "cjs", "react-dom-server-legacy.browser.production.js")
+	switches := guardedOnNode(t, []string{renderer}, true)[0].Switches
+	if len(switches) == 0 {
+		t.Fatal("guardSwitches changes no switch of React DOM")
+	}
+	var names []string
+	for _, s := range switches {
+		names = append(names, s.Cases...)
+	}
+	list, err := json.Marshal(names)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := strings.Replace(switchesPage, "NAMES", string(list), 1)
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"switches.tsx": page})
+	code, printed := buildPrinting(t, root, "switches.tsx")
+	if got := len(guardedSwitch.FindAllString(code, -1)); got != len(switches) {
+		t.Errorf("the bundle has %d switches with a Set check, want %d", got, len(switches))
+	}
+	if strings.Contains(printed, "react-dom") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	guarded := evalResult(t, code)
+	for _, want := range []string{"<div id=\"text\"></div>", "<input type=\"\"/>", "<svg><foreignObject class=\"c\"", "throws "} {
+		if !strings.Contains(guarded, want) {
+			t.Errorf("the page has no %s", want)
+		}
+	}
+	// (0, x) compares the same value as x, but is no identifier, so the plugin changes no switch.
+	plain := withChangedReactDOM(t, func(source string) string {
+		return regexp.MustCompile(`switch \(([\w$]+)\) \{`).ReplaceAllString(source, "switch ((0, $1)) {")
+	})
+	writeTree(t, plain, map[string]string{"switches.tsx": page})
+	code, printed = buildPrinting(t, plain, "switches.tsx")
+	if guardedSwitch.MatchString(code) {
+		t.Error("the bundle of a React DOM without switches on names has a switch with a Set check")
+	}
+	if !strings.Contains(printed, "react-dom 19.3.0: ") || !strings.Contains(printed, "has no switch the tifa plugin can put a Set check in front of") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	got := strings.Split(evalResult(t, code), "\n")
+	want := strings.Split(guarded, "\n")
+	if len(got) != len(want) {
+		t.Fatalf("the page has %d renders without the Set checks, %d with them", len(got), len(want))
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Errorf("render %d is otherwise without the Set checks:\n%s\nwant:\n%s", i, got[i], want[i])
+			break
+		}
+	}
+}
+
+// guardedSwitch finds a switch with a Set check in a minified bundle.
+var guardedSwitch = regexp.MustCompile(`if\(\w+\.has\(([\w$]+)\)\)switch\(([\w$]+)\)`)
+
+// stringsPage serializes with seroval each UTF-16 code unit alone, twice and between two letters,
+// many of them at the end of 63 code units, surrogate pairs, lone surrogates and every character seroval
+// escapes, as values and as keys. Each serialization goes on a line of its own, with each
+// surrogate written as \u and its code, since a lone one does not come out of QuickJS as it is.
+const stringsPage = "import './host'\n" +
+	"import { serialize } from 'seroval'\n" +
+	"const strings: string[] = []\n" +
+	"for (let c = 0; c < 0x10000; c++) {\n" +
+	"  const s = String.fromCharCode(c)\n" +
+	"  strings.push(s, s + s, 'a' + s + 'b')\n" +
+	"  if (c < 0x800 || c % 64 === 0) strings.push(s.padStart(63, 'x'))\n" +
+	"}\n" +
+	"strings.push('🙂', 'a🙂', '🙂🙂', '\\ud83d', '\\ude42\\ud83d', 'x\\udc00y', '\"\\\\\\n\\r\\b\\t\\f<\\u2028\\u2029\\x00\\x0b\\x1f</script>')\n" +
+	"for (let n = 0; n < 70; n++) strings.push('ab<\"'.repeat(n).slice(0, n), 'é'.repeat(n))\n" +
+	"const lines: string[] = []\n" +
+	"for (let i = 0; i < strings.length; i += 4096) {\n" +
+	"  const chunk = strings.slice(i, i + 4096)\n" +
+	"  lines.push(serialize(chunk), serialize(Object.fromEntries(chunk.map((s, k) => [s, k]))))\n" +
+	"}\n" +
+	"globalThis.result = lines.join('\\n').replace(/[\\ud800-\\udfff]/g, (c) => '\\\\u' + c.charCodeAt(0).toString(16))\n"
+
+// seroval escapes a string shorter than 64 code units one character at a time, and the tifa
+// plugin makes it use JSON.stringify from 2 on, which gives the same text.
+func TestSSRSerializesShortStringsWithJSON(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"strings.tsx": stringsPage})
+	code, printed := buildPrinting(t, root, "strings.tsx")
+	if !serializesShortStrings(code) {
+		t.Error("the bundle does not serialize strings of 2 code units with JSON.stringify")
+	}
+	if strings.Contains(printed, "seroval") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	short := evalResult(t, code)
+	for _, want := range []string{`"a\x3Cb"`, `"\"\""`, `"\u2028\u2028"`, `"\ud83d"`} {
+		if !strings.Contains(short, want) {
+			t.Errorf("the serializations have no %s", want)
+		}
+	}
+	changed := withChangedPackage(t, "seroval", filepath.Join("dist", "index.js"), func(source string) string {
+		const length = "const MIN_JSON_STRINGIFY_LENGTH = 64;"
+		if strings.Count(source, length) != 1 {
+			t.Fatalf("seroval does not have %q once", length)
+		}
+		return strings.Replace(source, length, "const MIN_JSON_STRINGIFY_LENGTH = 32 * 2;", 1)
+	})
+	writeTree(t, changed, map[string]string{"strings.tsx": stringsPage})
+	code, printed = buildPrinting(t, changed, "strings.tsx")
+	if serializesShortStrings(code) {
+		t.Error("the bundle of a seroval the plugin does not know serializes strings of 2 code units with JSON.stringify")
+	}
+	if !strings.Contains(printed, "seroval 1.6.9: ") || !strings.Contains(printed, "escapes strings shorter than 64") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	got := strings.Split(evalResult(t, code), "\n")
+	want := strings.Split(short, "\n")
+	if len(got) != len(want) {
+		t.Fatalf("%d serializations without the change, %d with it", len(got), len(want))
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Errorf("serialization %d is otherwise without the change", i)
+		}
+	}
+}
+
+// When seroval's main file is no longer where the tifa plugin looks for it, the build warns.
+func TestSSRWarnsWhenSerovalMovedItsMainFile(t *testing.T) {
+	moved := withChangedPackage(t, "seroval", "package.json", func(source string) string {
+		for _, field := range []string{`"import": "./dist/index.js"`, `"default": "./dist/index.js"`} {
+			if strings.Count(source, field) != 1 {
+				t.Fatalf("the package.json of seroval does not have %s once", field)
+			}
+			source = strings.Replace(source, field, strings.Replace(field, "dist/", "dist/dev/", 1), 1)
+		}
+		return source
+	})
+	writeTree(t, moved, map[string]string{"short.ts": "import { serialize } from 'seroval'\nglobalThis.result = serialize(['ab', 'a<b'])\n"})
+	code, printed := buildPrinting(t, moved, "short.ts")
+	if serializesShortStrings(code) {
+		t.Error("the bundle serializes strings of 2 code units with JSON.stringify")
+	}
+	if !strings.Contains(printed, "seroval 1.6.9 at ") || !strings.Contains(printed, "escapes strings shorter than 64") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	if got := evalResult(t, code); got != `["ab","a\x3Cb"]` {
+		t.Errorf("result = %s", got)
+	}
+}
+
+// serializesShortStrings reports whether seroval in a minified bundle serializes a string with
+// JSON.stringify from a length of 2, which the minifier writes as a number or a variable.
+func serializesShortStrings(code string) bool {
+	m := regexp.MustCompile(`\.length>=([\w$]+)&&!\w+\.test\(\w+\)\)return JSON\.stringify`).FindStringSubmatch(code)
+	if m == nil {
+		return false
+	}
+	return m[1] == "2" || regexp.MustCompile(`[,;{(\s]`+regexp.QuoteMeta(m[1])+`=2[,;]`).MatchString(code)
+}
+
 // withReactDOM returns a copy of testdata/ssr whose react-dom is a copy of the test's, with old
 // replaced by new in its string renderer. The other packages are the test's.
 func withReactDOM(t *testing.T, old, new string) string {
+	t.Helper()
+	return withChangedReactDOM(t, func(source string) string {
+		if strings.Count(source, old) != 1 {
+			t.Fatalf("the string renderer of React DOM does not have %q once", old)
+		}
+		return strings.Replace(source, old, new, 1)
+	})
+}
+
+// withChangedReactDOM returns a copy of testdata/ssr whose react-dom is a copy of the test's,
+// with its string renderer changed by change. The other packages are the test's.
+func withChangedReactDOM(t *testing.T, change func(string) string) string {
+	t.Helper()
+	return withChangedPackage(t, "react-dom", filepath.Join("cjs", "react-dom-server-legacy.browser.production.js"), change)
+}
+
+// withChangedPackage returns a copy of testdata/ssr whose package name is a copy of the test's,
+// with its file changed by change. The other packages are the test's.
+func withChangedPackage(t *testing.T, name, file string, change func(string) string) string {
 	t.Helper()
 	copied := copyTestdata(t, "ssr", false)
 	modules := testModules(t)
@@ -209,7 +487,7 @@ func withReactDOM(t *testing.T, old, new string) string {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
-		if e.Name() == "react-dom" || strings.HasPrefix(e.Name(), ".") {
+		if e.Name() == name || strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
 		real, err := filepath.EvalSymlinks(filepath.Join(modules, e.Name()))
@@ -223,23 +501,20 @@ func withReactDOM(t *testing.T, old, new string) string {
 			t.Fatal(err)
 		}
 	}
-	dom, err := filepath.EvalSymlinks(filepath.Join(modules, "react-dom"))
+	real, err := filepath.EvalSymlinks(filepath.Join(modules, name))
 	if err != nil {
 		t.Fatal(err)
 	}
-	target := filepath.Join(copied, "node_modules", "react-dom")
-	if err := os.CopyFS(target, os.DirFS(dom)); err != nil {
+	target := filepath.Join(copied, "node_modules", name)
+	if err := os.CopyFS(target, os.DirFS(real)); err != nil {
 		t.Fatal(err)
 	}
-	renderer := filepath.Join(target, "cjs", "react-dom-server-legacy.browser.production.js")
-	source, err := os.ReadFile(renderer)
+	changed := filepath.Join(target, file)
+	source, err := os.ReadFile(changed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(string(source), old) != 1 {
-		t.Fatalf("%s does not have %q once", renderer, old)
-	}
-	if err := os.WriteFile(renderer, []byte(strings.Replace(string(source), old, new, 1)), 0o644); err != nil {
+	if err := os.WriteFile(changed, []byte(change(string(source))), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return copied
