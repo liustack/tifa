@@ -6,20 +6,27 @@ package ssr_test
 //	TIFA_SSR_SHOP=1 go test -run '^$' -bench 'Shop/^render' -benchtime 2000x ./test/ssr
 //	TIFA_SSR_SHOP=1 go test -run '^$' -bench 'Shop/^(compile|load|first)' -benchtime 50x ./test/ssr
 //	TIFA_SSR_SHOP=1 go test -run ShopVMMemory -v ./test/ssr
+//	TIFA_SSR_SHOP=1 go test -run '^$' -bench ShopParallel -benchtime 15s ./test/ssr
 //
 // render-<page> renders one of the comparison pages in a warm VM and reports the P50 and
 // P99 of single renders. compile is the startup compile of the bundle to bytecode, load creates one
 // VM from the bytecode and reports its memory, first-render is the first render of a fresh VM.
-// TestShopVMMemory splits the memory of one VM by what is in it.
+// TestShopVMMemory splits the memory of one VM by what is in it. BenchmarkShopParallel renders
+// with several VMs at once, to catch what only shows on several cores.
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"runtime/metrics"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -115,6 +122,91 @@ func BenchmarkShop(b *testing.B) {
 			b.ReportMetric(at(.99), "p99-ms")
 		})
 	}
+}
+
+// BenchmarkShopParallel renders the six comparison pages in turn with a pool of 1 VM, then of
+// GOMAXPROCS VMs, with one goroutine per VM so that every VM is busy and none waits for another.
+// vms-<n> reports renders per second, the share of the rendering goroutines' time spent blocked
+// on a lock, and for more than one VM, how many times the renders per second of vms-1 it reaches
+// (only when vms-1 ran in the same command). A lock all VMs share, such as the allocator of
+// modernc.org/libc, shows here as a speedup well below the VM count and a larger lock wait, while
+// BenchmarkShop, which renders with one VM, does not change.
+func BenchmarkShopParallel(b *testing.B) {
+	source, pages := shopBundle(b)
+	counts := []int{1}
+	if n := runtime.GOMAXPROCS(0); n > 1 {
+		counts = append(counts, n)
+	}
+	var single float64 // renders per second of vms-1, once it has run
+	for _, n := range counts {
+		var p *ssr.Pool
+		b.Run(fmt.Sprintf("vms-%d", n), func(b *testing.B) {
+			if p == nil {
+				var err error
+				if p, err = ssr.NewPool(source, nil, shopConfig(n), false); err != nil {
+					b.Fatal(err)
+				}
+				if err := renderParallel(p, pages, n, 64*n); err != nil {
+					b.Fatal(err)
+				}
+				b.ResetTimer()
+			}
+			waited := lockWait()
+			begin := time.Now()
+			if err := renderParallel(p, pages, n, b.N); err != nil {
+				b.Fatal(err)
+			}
+			elapsed := time.Since(begin).Seconds()
+			waited = lockWait() - waited
+			rate := float64(b.N) / elapsed
+			b.ReportMetric(rate, "renders/s")
+			b.ReportMetric(100*waited/(float64(n)*elapsed), "lock-wait-%")
+			if n == 1 {
+				single = rate
+			} else if single > 0 {
+				b.ReportMetric(rate/single, "speedup")
+			}
+		})
+		if p != nil {
+			if err := p.Close(); err != nil {
+				b.Error(err)
+			}
+		}
+	}
+}
+
+// renderParallel makes count renders of the pages in turn with n goroutines, n being the VM count
+// of p.
+func renderParallel(p *ssr.Pool, pages []shopPage, n, count int) error {
+	var next atomic.Int64
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	for w := range n {
+		wg.Go(func() {
+			for i := int(next.Add(1)) - 1; i < count; i = int(next.Add(1)) - 1 {
+				page := pages[i%len(pages)]
+				html, err := p.Render(context.Background(), page.input)
+				if err == nil && !page.matches(html) {
+					err = fmt.Errorf("wrong HTML for %s", page.input.URL)
+				}
+				if err != nil {
+					errs[w] = err
+					return
+				}
+			}
+		})
+	}
+	wg.Wait()
+	return errors.Join(errs...)
+}
+
+// lockWait returns the seconds goroutines of this process have spent blocked on a sync.Mutex, a
+// sync.RWMutex or a lock of the runtime so far. The runtime keeps this count all the time, so
+// reading it changes nothing about the renders.
+func lockWait() float64 {
+	sample := []metrics.Sample{{Name: "/sync/mutex/wait/total:seconds"}}
+	metrics.Read(sample)
+	return sample[0].Value.Float64()
 }
 
 func renderInput(t testing.TB, in ssr.Input) []byte {

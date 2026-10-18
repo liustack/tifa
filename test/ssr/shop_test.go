@@ -165,9 +165,15 @@ func startShop(t testing.TB) string {
 
 func (page shopPage) check(t testing.TB, html string) {
 	t.Helper()
-	if !strings.Contains(html, page.want) || strings.Contains(html, page.forbidden) || !strings.Contains(html, "data-tsr-stream-part") {
+	if !page.matches(html) {
 		t.Fatalf("wrong HTML for %s", page.input.URL)
 	}
+}
+
+// matches reports whether html is this page: it has the page's text, not the other project's,
+// and the router's data script.
+func (page shopPage) matches(html string) bool {
+	return strings.Contains(html, page.want) && !strings.Contains(html, page.forbidden) && strings.Contains(html, "data-tsr-stream-part")
 }
 
 func TestShopRendersReadyData(t *testing.T) {
