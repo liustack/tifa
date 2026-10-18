@@ -1,6 +1,7 @@
 package bundle
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -264,9 +265,113 @@ func TestSSRJoinsTheChunksOfEachSegment(t *testing.T) {
 // joinedChunks finds the chunks of a segment joined by the tifa plugin in a minified bundle.
 var joinedChunks = regexp.MustCompile("\\.slice\\([^()]*\\)\\.join\\(``\\)")
 
+// switchesPage renders each name of NAMES, which the test replaces with a JSON list, and names
+// that are no case of React's switches, as the tag of an element alone, with props and children,
+// and inside each element that gives its children another format context, and as a prop of a few
+// elements with values of each type. Each render goes on a line of its own, or the error it
+// throws.
+const switchesPage = "import './host'\n" +
+	"import { renderToString } from 'react-dom/server.edge'\n" +
+	"import { createElement as h } from 'react'\n" +
+	"const names: string[] = [...NAMES, 'id', 'type', 'name', 'aria-label', 'data-x', 'my-element', 'fooBar', 'onclick',\n" +
+	"  'xlinkHref', 'xml:lang', 'font-face', 'annotation-xml', 'missing-glyph', 'unknown', '', 'constructor', '__proto__', 'toString']\n" +
+	"const parents = ['svg', 'math', 'foreignObject', 'select', 'optgroup', 'table', 'thead', 'tbody', 'tfoot', 'tr',\n" +
+	"  'colgroup', 'noscript', 'head', 'html', 'body', 'p', 'picture', 'template']\n" +
+	"const hosts = ['div', 'input', 'select', 'option', 'img', 'link', 'meta', 'script', 'style', 'title', 'textarea', 'svg', 'a', 'button', 'form', 'my-element']\n" +
+	"const values: unknown[] = ['text', '', 'a & \"b\" <c>', 0, -1.5, NaN, true, false, null, undefined,\n" +
+	"  () => {}, Symbol('s'), {}, ['a', 'b'], { __html: '<i>x</i>' }, 10n, { color: 'red', fontSize: 12 }]\n" +
+	"const lines: string[] = []\n" +
+	"const render = (element: any) => {\n" +
+	"  try {\n" +
+	"    lines.push(renderToString(element))\n" +
+	"  } catch (err) {\n" +
+	"    lines.push('throws ' + (err as Error).message)\n" +
+	"  }\n" +
+	"}\n" +
+	"for (const name of names) {\n" +
+	"  render(h(name, null))\n" +
+	"  const element = h(name, { className: 'c', id: 'i', value: 'v', href: '/h', rel: 'stylesheet', precedence: 'p', src: '/s.js', async: true }, 'text')\n" +
+	"  render(element)\n" +
+	"  for (const parent of parents) render(h(parent, null, element, h(name, null)))\n" +
+	"  for (const host of hosts) for (const value of values) render(h(host, { [name]: value }))\n" +
+	"}\n" +
+	"globalThis.result = lines.join('\\n')\n"
+
+// The tifa plugin puts a Set check in front of the long switches on strings in React's string
+// renderer, and pages render the same as without them.
+func TestSSRGuardsTheSwitchesOfReact(t *testing.T) {
+	renderer := filepath.Join(testModules(t), "react-dom", "cjs", "react-dom-server-legacy.browser.production.js")
+	switches := guardedOnNode(t, []string{renderer}, true)[0].Switches
+	if len(switches) == 0 {
+		t.Fatal("guardSwitches changes no switch of React DOM")
+	}
+	var names []string
+	for _, s := range switches {
+		names = append(names, s.Cases...)
+	}
+	list, err := json.Marshal(names)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := strings.Replace(switchesPage, "NAMES", string(list), 1)
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"switches.tsx": page})
+	code, printed := buildPrinting(t, root, "switches.tsx")
+	if got := len(guardedSwitch.FindAllString(code, -1)); got != len(switches) {
+		t.Errorf("the bundle has %d switches with a Set check, want %d", got, len(switches))
+	}
+	if strings.Contains(printed, "react-dom") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	guarded := evalResult(t, code)
+	for _, want := range []string{"<div id=\"text\"></div>", "<input type=\"\"/>", "<svg><foreignObject class=\"c\"", "throws "} {
+		if !strings.Contains(guarded, want) {
+			t.Errorf("the page has no %s", want)
+		}
+	}
+	// (0, x) compares the same value as x, but is no identifier, so the plugin changes no switch.
+	plain := withChangedReactDOM(t, func(source string) string {
+		return regexp.MustCompile(`switch \(([\w$]+)\) \{`).ReplaceAllString(source, "switch ((0, $1)) {")
+	})
+	writeTree(t, plain, map[string]string{"switches.tsx": page})
+	code, printed = buildPrinting(t, plain, "switches.tsx")
+	if guardedSwitch.MatchString(code) {
+		t.Error("the bundle of a React DOM without switches on names has a switch with a Set check")
+	}
+	if !strings.Contains(printed, "react-dom 19.3.0: ") || !strings.Contains(printed, "has no switch the tifa plugin can put a Set check in front of") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	got := strings.Split(evalResult(t, code), "\n")
+	want := strings.Split(guarded, "\n")
+	if len(got) != len(want) {
+		t.Fatalf("the page has %d renders without the Set checks, %d with them", len(got), len(want))
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Errorf("render %d is otherwise without the Set checks:\n%s\nwant:\n%s", i, got[i], want[i])
+			break
+		}
+	}
+}
+
+// guardedSwitch finds a switch with a Set check in a minified bundle.
+var guardedSwitch = regexp.MustCompile(`if\(\w+\.has\(([\w$]+)\)\)switch\(([\w$]+)\)`)
+
 // withReactDOM returns a copy of testdata/ssr whose react-dom is a copy of the test's, with old
 // replaced by new in its string renderer. The other packages are the test's.
 func withReactDOM(t *testing.T, old, new string) string {
+	t.Helper()
+	return withChangedReactDOM(t, func(source string) string {
+		if strings.Count(source, old) != 1 {
+			t.Fatalf("the string renderer of React DOM does not have %q once", old)
+		}
+		return strings.Replace(source, old, new, 1)
+	})
+}
+
+// withChangedReactDOM returns a copy of testdata/ssr whose react-dom is a copy of the test's,
+// with its string renderer changed by change. The other packages are the test's.
+func withChangedReactDOM(t *testing.T, change func(string) string) string {
 	t.Helper()
 	copied := copyTestdata(t, "ssr", false)
 	modules := testModules(t)
@@ -302,10 +407,7 @@ func withReactDOM(t *testing.T, old, new string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(string(source), old) != 1 {
-		t.Fatalf("%s does not have %q once", renderer, old)
-	}
-	if err := os.WriteFile(renderer, []byte(strings.Replace(string(source), old, new, 1)), 0o644); err != nil {
+	if err := os.WriteFile(renderer, []byte(change(string(source))), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return copied

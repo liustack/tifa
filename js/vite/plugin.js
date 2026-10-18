@@ -28,6 +28,10 @@ const escapeSource = 'matchHtmlRegExp = /["\'&<>]/;\nfunction escapeTextForBrows
 // of a little over 8,192 code units outside Latin-1.
 const escapeCacheSize = 1 << 18
 const escapeEntrySize = 64
+// guardedCases is the fewest string cases a switch needs for the tifa plugin to put a Set check in
+// front of it, and switchCases the prefix of the names of those Sets.
+const guardedCases = 8
+const switchCases = 'tifaSwitchCases'
 // The loops of flushSubtree in React's string renderer that hand the chunks of a segment, before
 // each child and after the last, one by one to the destination.
 const segmentLoops = `      for (var childIdx = 0; childIdx < segment.length; childIdx++) {
@@ -212,10 +216,11 @@ function resolveRouteModule(ctx, root, source, importer) {
 
 // ssrPlugin applies to the SSR build only. It replaces *.client modules with a stub, refuses Node
 // APIs in page code, trims React's server entry to the renderer actually used, caches the HTML
-// escapes of that renderer and joins the chunks it writes, passes the errors renderToString
-// ignores to the runtime, switches core-js to its property-backed internal state, checks that the
-// bundle is one file, and warns of the places where it may load a module at run time. Its source
-// map names sources relative to the application root.
+// escapes of that renderer, joins the chunks it writes and puts Set checks in front of its long
+// switches on strings, passes the errors renderToString ignores to the runtime, switches core-js
+// to its property-backed internal state, checks that the bundle is one file, and warns of the
+// places where it may load a module at run time. Its source map names sources relative to the
+// application root.
 export function ssrPlugin(getRoot, loadVite) {
   const reactTargets = new Map() // server.edge.js path to the renderer modules it imports
   let coreJS // real directory of the core-js package the application resolves, '' for none
@@ -300,6 +305,16 @@ export function ssrPlugin(getRoot, loadVite) {
             `${react} has no loops over the chunks of a segment in flushSubtree in the form the tifa plugin ` +
               'knows, so the tifa plugin does not join the chunks of a segment before it writes them. Pages ' +
               'render the same, but take longer to render',
+          )
+        }
+        const guarded = guardSwitches(source, this.parse(source))
+        if (guarded.switches.length > 0) {
+          source = guarded.code
+        } else {
+          this.warn(
+            `${react} has no switch the tifa plugin can put a Set check in front of, so a name that matches ` +
+              'none of the cases of a switch is compared with each of them. Pages render the same, but take ' +
+              'longer to render',
           )
         }
         // renderToString leaves a Suspense boundary whose content threw to the browser, and its
@@ -436,6 +451,129 @@ function joinSegmentChunks(source) {
           0 === chunkIdx ? chunks.join("") : chunks.slice(chunkIdx).join("")
         ));`
   return source.replace(segmentLoops, () => joined)
+}
+
+// guardSwitches puts a check of a Set in front of each switch of program, the syntax tree of
+// source, that compares a name with string cases only, at least guardedCases of them. QuickJS
+// compares the name with one case after the other, so a name that matches none, such as most
+// attributes and tags in React's string renderer, costs a comparison for each case. With the
+// check it goes to the default clause at once:
+//
+//	{ if (tifaSwitchCases0.has(x)) switch (x) { cases } else switch (0) { default clause } }
+//
+// and without a default clause the else is left out. It returns the new source, and the switches
+// it changed as {name, cases}, the name of the switch and the values of its cases. It changes a
+// switch only where that does the same:
+//
+//   - The switch compares a parameter, a var or a function declared at the top of a function
+//     around it, which reads the same twice. A global might be a property with a getter.
+//   - Every case is a string literal. A switch compares with ===, Set.has with SameValueZero,
+//     which are the same for a string, and no other value matches either.
+//   - The default clause, if any, is the last, after a clause that ends in break, return, throw or
+//     continue, so no case falls through into it. A break in it leaves the switch (0).
+//   - No clause declares let, const, class or a function, whose scope is the whole switch.
+//   - Inside a switch it changes, it leaves the switches as they are.
+//
+// The block keeps an if without else from taking the else of an if around the switch. The Sets are
+// declared after the hashbang and the directives of source, so they exist before any of its code
+// runs. It changes nothing in a source that already names tifaSwitchCases.
+export function guardSwitches(source, program) {
+  if (source.includes(switchCases)) return { code: source, switches: [] }
+  const found = []
+  const scopes = [] // the names each function around the node declares, the innermost last
+  const visit = (node) => {
+    const scope = functionTypes.has(node.type)
+    if (scope) scopes.push(declaredNames(node))
+    if (node.type === 'SwitchStatement' && guardable(node) && scopes.some((names) => names.has(node.discriminant.name))) {
+      found.push(node)
+    }
+    for (const value of Object.values(node)) {
+      for (const child of Array.isArray(value) ? value : [value]) {
+        if (child && typeof child.type === 'string') visit(child)
+      }
+    }
+    if (scope) scopes.pop()
+  }
+  visit(program)
+  // The outermost ones, from the end of source, so the places of the others stay valid.
+  const outer = found.filter((n) => !found.some((m) => m !== n && m.start <= n.start && n.end <= m.end))
+  outer.sort((a, b) => b.start - a.start)
+  const sets = []
+  const switches = []
+  let code = source
+  for (const n of outer) {
+    const set = switchCases + sets.length
+    const x = n.discriminant.name
+    const tests = n.cases.filter((c) => c.test !== null)
+    const last = n.cases[n.cases.length - 1]
+    const guarded =
+      last.test === null
+        ? `if (${set}.has(${x})) switch (${x}) {\n${code.slice(n.cases[0].start, last.start)}} else switch (0) {\n${code.slice(last.start, n.end - 1)}}`
+        : `if (${set}.has(${x})) ${code.slice(n.start, n.end)}`
+    code = code.slice(0, n.start) + `{ ${guarded} }` + code.slice(n.end)
+    sets.push(`var ${set} = new Set([${tests.map((c) => JSON.stringify(c.test.value)).join(', ')}]);`)
+    switches.push({ name: x, cases: tests.map((c) => c.test.value) })
+  }
+  if (sets.length === 0) return { code: source, switches: [] }
+  // After the line of a hashbang, which must come first.
+  let at = source.startsWith('#!') ? source.search(/[\n\r\u2028\u2029]|$/) : 0
+  for (const node of program.body) {
+    if (typeof node.directive !== 'string') break
+    at = node.end
+  }
+  return { code: code.slice(0, at) + '\n' + sets.join('\n') + '\n' + code.slice(at), switches: switches.reverse() }
+}
+
+const functionTypes = new Set(['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression'])
+
+// declaredNames returns the names that the function node declares for all of its body: its
+// parameters, its var variables anywhere outside the functions in it, and the functions declared
+// at the top of its body. A let, a const, a class or a function in a block is seen only inside that
+// block, and names in patterns are left out, which only leaves a switch on them as it is.
+function declaredNames(fn) {
+  const names = new Set()
+  for (const param of fn.params) {
+    const id = param.type === 'AssignmentPattern' ? param.left : param
+    if (id.type === 'Identifier') names.add(id.name)
+  }
+  if (fn.body.type === 'BlockStatement') {
+    for (const node of fn.body.body) if (node.type === 'FunctionDeclaration' && node.id) names.add(node.id.name)
+  }
+  const visit = (node) => {
+    if (node.type === 'VariableDeclaration' && node.kind === 'var') {
+      for (const d of node.declarations) if (d.id.type === 'Identifier') names.add(d.id.name)
+    }
+    if (functionTypes.has(node.type)) return
+    for (const value of Object.values(node)) {
+      for (const child of Array.isArray(value) ? value : [value]) {
+        if (child && typeof child.type === 'string') visit(child)
+      }
+    }
+  }
+  visit(fn.body)
+  return names
+}
+
+// guardable reports whether guardSwitches may put a Set check in front of the switch node.
+function guardable(node) {
+  const cases = node.cases
+  const def = cases.findIndex((c) => c.test === null)
+  const exits = (statements) =>
+    ['BreakStatement', 'ReturnStatement', 'ThrowStatement', 'ContinueStatement'].includes(statements.at(-1)?.type)
+  return (
+    node.discriminant.type === 'Identifier' &&
+    (def === -1 || (def === cases.length - 1 && def > 0 && exits(cases[def - 1].consequent))) &&
+    cases.filter((c) => c.test !== null).length >= guardedCases &&
+    cases.every((c) => c.test === null || (c.test.type === 'Literal' && typeof c.test.value === 'string')) &&
+    cases.every((c) =>
+      c.consequent.every(
+        (s) =>
+          !(s.type === 'VariableDeclaration' && s.kind !== 'var') &&
+          s.type !== 'FunctionDeclaration' &&
+          s.type !== 'ClassDeclaration',
+      ),
+    )
+  )
 }
 
 // hostLoads returns the places where the bundle may still load a module at run time, which
