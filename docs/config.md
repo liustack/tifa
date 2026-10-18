@@ -58,16 +58,16 @@ Run `./bin/app config` to print the merged settings of all sources as a commente
 
 ## Stack depth
 
-With the default `ssr.vm_stack_depth` of 10000, plain recursion goes as deep in a render as in Node, which stops at about 10,400 calls. Each level takes room on the stack of the Go goroutine that renders, not in the memory `ssr.vm_memory` limits. A normal page needs a few hundred levels and a few MB of stack. Code that recurses without end goes all the way down before it throws, and the stack of that render then grows to about 128 MB. Go takes it back at the next garbage collection. The stack grows by doubling, and when a garbage collection is running as it grows, the old stack is freed only once the collection ends, so for a moment the render can hold about 192 MB.
+With the default `ssr.vm_stack_depth` of 10000, plain recursion goes as deep in a render as in Node, which stops at about 10,400 calls. Each level takes room on the stack of the Go goroutine that renders, not in the memory `ssr.vm_memory` limits. A normal page needs a few hundred levels and a few MB of stack. Code that recurses without end goes all the way down before it throws, and the stack of that render then grows to about 16 MB. Go takes it back at the next garbage collection. The stack grows by doubling, and when a garbage collection is running as it grows, the old stack is freed only once the collection ends, so for a moment the render can hold about 24 MB.
 
-Every VM can do this at the same moment, so the worst case is `ssr.vms` times 192 MB on top of the memory of the VMs. On a small machine, lower the depth. Measured on darwin/arm64, where a level takes up to about 13 KB:
+Every VM can do this at the same moment, so the worst case is `ssr.vms` times 24 MB on top of the memory of the VMs. On a small machine, lower the depth. Measured on darwin/arm64 and linux/amd64, where a level takes about 1 KB:
 
 | `ssr.vm_stack_depth` | Stack of a render that recurses without end |
 | --- | --- |
-| `10000` | about 128 MB, up to about 192 MB while it grows |
-| `5000` | about 64 MB |
-| `2000` | about 16 MB |
-| `1000` | about 8 MB |
+| `10000` | about 16 MB, up to about 24 MB while it grows |
+| `5000` | about 8 MB |
+| `2000` | about 2 MB |
+| `1000` | about 1 MB |
 
 On Linux, each level also keeps up to about 2 KB of memory the engine uses for its own local variables, so a VM that once recursed 10000 levels deep holds about 20 MB more. This memory is not in `ssr.vm_memory` either, and the VM keeps it until it closes. A render that fails closes the VM and starts a new one, so the memory comes back then. When the page catches the `RangeError` and the render succeeds, the VM stays and keeps it.
 
@@ -77,7 +77,7 @@ What a lower depth breaks:
 - `JSON.parse` of data nested deeper than the limit, the data Go hands to the render included. Node has no such limit.
 - Not React: when a deep component tree hits the limit, React renders the rest of that tree from a fresh stack. Only far below 1000 do pages fail, with odd errors from libraries that ran out of stack halfway through their work, and with a few dozen the bundle fails to load when the program starts. Every page of the example shop still renders at 200.
 
-`2000` keeps such pages working and holds a render that recurses without end to about 16 MB.
+`2000` keeps such pages working and holds a render that recurses without end to about 2 MB.
 
 ## Value formats
 
