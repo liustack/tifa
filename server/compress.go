@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/klauspost/compress/gzhttp"
@@ -47,6 +48,25 @@ var compressibleTypes = []string{
 	"application/javascript", "application/x-javascript", "application/json", "application/xml",
 	"application/wasm", "application/x-protobuf", "application/vnd.ms-fontobject",
 	"font/ttf", "font/otf", "image/x-icon", "image/vnd.microsoft.icon",
+}
+
+// acceptsGzip reports whether an Accept-Encoding header takes gzip: named with a q above 0. Like
+// gzhttp, it does not read * as gzip.
+func acceptsGzip(header string) bool {
+	for _, coding := range strings.Split(header, ",") {
+		name, params, _ := strings.Cut(coding, ";")
+		if !strings.EqualFold(strings.TrimSpace(name), "gzip") {
+			continue
+		}
+		q := 1.0
+		for _, param := range strings.Split(params, ";") {
+			if v, ok := strings.CutPrefix(strings.ToLower(strings.TrimSpace(param)), "q="); ok {
+				q, _ = strconv.ParseFloat(v, 64)
+			}
+		}
+		return q > 0
+	}
+	return false
 }
 
 // earlyFlush sits between the handler and gzhttp. gzhttp picks the encoding from the first bytes

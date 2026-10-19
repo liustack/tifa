@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/klauspost/compress/gzhttp"
@@ -336,6 +337,73 @@ func TestCompressionOverTheWire(t *testing.T) {
 	hijacked.Body.Close()
 	if string(body) != "hi" {
 		t.Errorf("hijacked connection: %d %q", hijacked.StatusCode, body)
+	}
+}
+
+// A file of the browser bundle that tifa build compressed goes out as its .gz file, with the
+// type and cache of the file itself, to a GET that accepts gzip. Anything else gets the file.
+func TestBundleFilesGoOutPrecompressed(t *testing.T) {
+	script := strings.Repeat("console.log('tifa');\n", 200)
+	var gz bytes.Buffer
+	zw, _ := gzip.NewWriterLevel(&gz, gzip.BestCompression)
+	zw.Write([]byte(script))
+	zw.Close()
+	files := fstest.MapFS{
+		"assets/app-2.js":     {Data: []byte(script)},
+		"assets/app-2.js.gz":  {Data: gz.Bytes()},
+		"public/notes.txt":    {Data: []byte(script)},
+		"public/notes.txt.gz": {Data: []byte("not the notes")},
+		"public/download.gz":  {Data: gz.Bytes()},
+	}
+	for name, file := range dist {
+		files[name] = file
+	}
+	for _, compress := range []bool{true, false} {
+		cfg := config.Default()
+		cfg.Server.Compress = compress
+		s := New(cfg, Hooks{})
+		if err := s.setFront(files, nil); err != nil {
+			t.Fatal(err)
+		}
+		w := get(s, "/assets/app-2.js", "Accept-Encoding", "gzip")
+		h := w.Header()
+		if !compress {
+			if h.Get("Content-Encoding") != "" || w.Body.String() != script {
+				t.Errorf("compress off: %v", h)
+			}
+			continue
+		}
+		if w.Code != 200 || h.Get("Content-Encoding") != "gzip" || !bytes.Equal(w.Body.Bytes(), gz.Bytes()) ||
+			h.Get("Content-Length") != strconv.Itoa(gz.Len()) || !strings.HasPrefix(h.Get("Content-Type"), "text/javascript") ||
+			h.Get("Cache-Control") != "public, max-age=31536000, immutable" || !varies(w, "Accept-Encoding") {
+			t.Errorf("gzip: %d %v, %d bytes", w.Code, h, w.Body.Len())
+		}
+		// A range of the compressed file, as nginx and Caddy answer.
+		if w := get(s, "/assets/app-2.js", "Accept-Encoding", "gzip", "Range", "bytes=0-9"); w.Code != 206 ||
+			w.Header().Get("Content-Encoding") != "gzip" || !bytes.Equal(w.Body.Bytes(), gz.Bytes()[:10]) {
+			t.Errorf("range: %d %v", w.Code, w.Header())
+		}
+		// Without gzip the file goes out as it is, or compressed while it is sent.
+		for accept, want := range map[string]string{"": "", "gzip;q=0": "", "zstd": "zstd"} {
+			w := get(s, "/assets/app-2.js", "Accept-Encoding", accept)
+			if w.Header().Get("Content-Encoding") != want || decoded(t, w) != script {
+				t.Errorf("%q: %v", accept, w.Header())
+			}
+		}
+		head := httptest.NewRequest("HEAD", "/assets/app-2.js", nil)
+		head.Header.Set("Accept-Encoding", "gzip")
+		hw := httptest.NewRecorder()
+		s.ServeHTTP(hw, head)
+		if hw.Header().Get("Content-Encoding") != "" || hw.Header().Get("Content-Length") != strconv.Itoa(len(script)) {
+			t.Errorf("HEAD: %v", hw.Header())
+		}
+		// Files of the public folder are the app's own: a .gz next to one is a file of its own.
+		if w := get(s, "/notes.txt", "Accept-Encoding", "gzip"); decoded(t, w) != script {
+			t.Errorf("public file: %v", w.Header())
+		}
+		if w := get(s, "/download.gz", "Accept-Encoding", "gzip"); w.Header().Get("Content-Encoding") != "" || !bytes.Equal(w.Body.Bytes(), gz.Bytes()) {
+			t.Errorf("public .gz file: %v", w.Header())
+		}
 	}
 }
 

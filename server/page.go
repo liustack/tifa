@@ -10,6 +10,7 @@ import (
 	"html"
 	"io"
 	"io/fs"
+	"mime"
 	"net/http"
 	"path"
 	"reflect"
@@ -186,21 +187,38 @@ func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
-	if rest, ok := strings.CutPrefix(name, "assets/"); ok && serveFile(w, r, f.assets, rest, "public, max-age=31536000, immutable") {
+	if rest, ok := strings.CutPrefix(name, "assets/"); ok && serveFile(w, r, f.assets, rest, "public, max-age=31536000, immutable", s.cfg.Compress) {
 		return true
 	}
-	return serveFile(w, r, f.public, name, "no-cache")
+	return serveFile(w, r, f.public, name, "no-cache", false)
 }
 
-// serveFile answers with the regular file name of fsys and reports whether it exists.
-func serveFile(w http.ResponseWriter, r *http.Request, fsys fs.FS, name, cache string) bool {
+// serveFile answers with the regular file name of fsys and reports whether it exists. With
+// gz, a GET that accepts gzip gets the file name.gz that tifa build compressed, when there is
+// one, as nginx's gzip_static and Caddy's precompressed do: with the type of name, and a range
+// of a Range request taken from the compressed file. HEAD is answered with name, as gzhttp
+// answers HEAD uncompressed.
+func serveFile(w http.ResponseWriter, r *http.Request, fsys fs.FS, name, cache string, gz bool) bool {
 	if fsys == nil || name == "" || !fs.ValidPath(name) {
 		return false
 	}
 	if info, err := fs.Stat(fsys, name); err != nil || !info.Mode().IsRegular() {
 		return false
 	}
-	w.Header().Set("Cache-Control", cache)
+	h := w.Header()
+	h.Set("Cache-Control", cache)
+	if gz && r.Method == "GET" && acceptsGzip(r.Header.Get("Accept-Encoding")) {
+		info, err := fs.Stat(fsys, name+".gz")
+		if contentType := mime.TypeByExtension(path.Ext(name)); err == nil && info.Mode().IsRegular() && contentType != "" {
+			h.Set("Content-Type", contentType)
+			h.Set("Content-Encoding", "gzip")
+			// ServeContent leaves the length out of an answer with a Content-Encoding.
+			if r.Header.Get("Range") == "" {
+				h.Set("Content-Length", strconv.FormatInt(info.Size(), 10))
+			}
+			name += ".gz"
+		}
+	}
 	http.ServeFileFS(w, r, fsys, name)
 	return true
 }
