@@ -33,3 +33,4 @@ Plans, design drafts, experiment notes and raw measurement data go in the reposi
 
 - See [docs/testing.md](docs/testing.md) for verification commands and [docs/commit.md](docs/commit.md) for commit rules.
 - For new behavior, write a failing test first, then implement. For a bug, find the root cause before changing code, and do not hide it with fallback values.
+- When merging a branch that changes what apps or their users can see, add it to both CHANGELOG.md and CHANGELOG.zh-CN.md.

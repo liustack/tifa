@@ -124,6 +124,7 @@ go tool tifa build
 | [开发服务器](docs/dev.zh-CN.md) | 在本地跑 `tifa dev`，或者改了代码没有刷新 |
 | [配置](docs/config.zh-CN.md) | 部署时改端口、请求体上限、VM 数、渲染超时和页面缓存 |
 | [性能](docs/performance.zh-CN.md) | 想知道一台小 VPS 扛不扛得住你的流量 |
+| [研究报告](docs/studies/README.md) | 想看某个数字背后完整的方法和数据，或者某个想法有没有人试过（英文） |
 | [测试](docs/testing.md) | 参与 tifa 本身的开发（英文） |
 
 ## 联系我们
