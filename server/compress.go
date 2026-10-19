@@ -36,7 +36,8 @@ func compressed(h http.Handler) http.Handler {
 // compressible reports whether an answer of this Content-Type is worth compressing: text and
 // the text formats, and fonts and icons stored without compression. The list is a short form
 // of the default of Caddy's encode, which takes it from Cloudflare. Other images, WOFF fonts,
-// audio, video and archives are compressed already.
+// audio, video and archives are compressed already. The files tifa build compresses
+// (precompressed in internal/bundle) follow this list.
 func compressible(contentType string) bool {
 	t, _, _ := strings.Cut(contentType, ";")
 	t = strings.ToLower(strings.TrimSpace(t))

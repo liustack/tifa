@@ -35,7 +35,8 @@ const clientEntry = ".tifa/client.ts"
 // App writes the front end of the application at root into root/.tifa/dist, replacing what is
 // there:
 //
-//	dist/assets/  the browser bundle, split per route, every name carrying a content hash
+//	dist/assets/  the browser bundle, split per route, every name carrying a content hash, and
+//	              a .gz of each text file worth compressing (see precompress)
 //	dist/ssr.js   the SSR bundle, which knows the tags of the browser bundle as __TIFA_ASSETS__
 //	dist/public/  a copy of the public directory, when it exists
 //	dist/build.json
@@ -65,6 +66,9 @@ func App(n *Node, root, public string, pages bool) (string, error) {
 			return "", err
 		}
 		if err := n.call("ssr", map[string]any{"assets": b.Head, "minify": true}, nil); err != nil {
+			return "", err
+		}
+		if err := precompress(filepath.Join(dist, "assets")); err != nil {
 			return "", err
 		}
 	}
