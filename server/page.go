@@ -415,7 +415,9 @@ type dataRedirect struct {
 
 // renderPage renders the document in the VM. A successful page gets an ETag from the hash of
 // the build ID, the SSR bundle, the URL and the data, which are all the render depends on. A matching
-// If-None-Match is answered 304, and with cache the HTML of an earlier render is reused.
+// If-None-Match is answered 304, and with cache the HTML of an earlier render is reused. With
+// server.compress the ETag is weak: the page goes out in several encodings under it, and the 304,
+// which is answered before the encoding is known, carries the same ETag as the 200.
 func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status int, cache bool) error {
 	r := c.Request()
 	injected, err := injectedResults(items)
@@ -436,7 +438,11 @@ func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status in
 	if status == http.StatusOK {
 		sum := sha256.Sum256([]byte(in.BuildID + "\x00" + f.build.bundle + "\x00" + in.URL + "\x00" + string(data)))
 		key = `"` + hex.EncodeToString(sum[:16]) + `"`
-		c.SetHeader("ETag", key)
+		etag := key
+		if s.cfg.Compress {
+			etag = "W/" + key
+		}
+		c.SetHeader("ETag", etag)
 		if etagMatches(c.Header("If-None-Match"), key) {
 			c.SetHeader(renderHeader, "none")
 			return c.NoContent(http.StatusNotModified)

@@ -105,7 +105,7 @@ func TestPageRendersWithTheResultsOfItsChain(t *testing.T) {
 	if w.Code != 200 || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/html") || w.Header().Get("X-Tifa-Render") != "vm" {
 		t.Fatalf("%d %v %s", w.Code, w.Header(), w.Body.String())
 	}
-	if w.Header().Get("Vary") != "X-Tifa-Route" || w.Header().Get("ETag") == "" {
+	if !varies(w, "X-Tifa-Route") || w.Header().Get("ETag") == "" {
 		t.Errorf("headers %v", w.Header())
 	}
 	in := r.inputs[0]
@@ -201,7 +201,7 @@ func TestPageWithoutSSRCarriesItsData(t *testing.T) {
 func TestDataRequestAnswersTheListedRoutes(t *testing.T) {
 	s, r := newFrontServer(t, frontApp())
 	w := get(s, "/projects/p1", "X-Tifa-Route", "app/projects/orders, app/projects", "X-Tifa-Build", "b1")
-	if w.Code != 200 || w.Header().Get("Vary") != "X-Tifa-Route" || r.count() != 0 {
+	if w.Code != 200 || !varies(w, "X-Tifa-Route") || r.count() != 0 {
 		t.Fatalf("%d %v %s", w.Code, w.Header(), w.Body.String())
 	}
 	var got map[string]routeResult
@@ -589,10 +589,12 @@ func (r *stringRecorder) WriteString(s string) (int, error) {
 	return r.ResponseRecorder.WriteString(s)
 }
 
-// A page reaches the connection as the string the render returned, without a copy into a
-// byte slice on the way.
+// Without compression a page reaches the connection as the string the render returned,
+// without a copy into a byte slice on the way. Compressing needs the bytes anyway.
 func TestPagesAreWrittenAsStrings(t *testing.T) {
-	s, _ := newFrontServer(t, frontApp())
+	cfg := config.Default()
+	cfg.Server.Compress = false
+	s := newBigServer(t, cfg, frontApp())
 	for _, target := range []string{"/projects/p1", "/login", "/nowhere"} {
 		w := &stringRecorder{ResponseRecorder: httptest.NewRecorder()}
 		s.ServeHTTP(w, httptest.NewRequest("GET", target, nil))

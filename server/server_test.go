@@ -691,8 +691,12 @@ func (h *hijackWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return h.conn, bufio.NewReadWriter(bufio.NewReader(h.conn), bufio.NewWriter(h.conn)), nil
 }
 
+// gzhttp's writers flush through http.Flusher, which has no error, so with compression on a
+// flush of a writer that cannot flush counts as written. The writer of net/http always flushes.
 func TestFailedCommitDoesNotCountAsWritten(t *testing.T) {
-	s := New(config.Default(), Hooks{})
+	cfg := config.Default()
+	cfg.Server.Compress = false
+	s := New(cfg, Hooks{})
 	s.Handle("GET", "/flush", func(c *tifa.Ctx) error {
 		if err := http.NewResponseController(c.Writer()).Flush(); !errors.Is(err, http.ErrNotSupported) {
 			t.Errorf("Flush returned %v", err)

@@ -20,6 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/klauspost/compress/gzhttp"
 	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/internal/config"
 	"github.com/liustack/tifa/internal/core"
@@ -50,16 +51,23 @@ type Server struct {
 	cache     *htmlCache
 	// dev answers the requests of tifa dev under /__tifa/dev/, set only by DevMain.
 	dev http.Handler
+	// handler is route, wrapped by compressed when server.compress is on.
+	handler http.Handler
 }
 
 // New builds a server without routes. The ServeMux holds only the application's routes, so a
 // root catch-all page (Path "/{rest...}") can be registered. ServeHTTP handles unmatched URLs.
 func New(cfg config.Config, hooks Hooks) *Server {
-	return &Server{
+	s := &Server{
 		cfg: cfg.Server, hooks: hooks, mux: http.NewServeMux(),
 		routes: map[string]map[string]func(*tifa.Ctx) error{}, pages: map[string]bool{},
 		rootSSR: true, cache: newHTMLCache(cfg.Cache.Size),
 	}
+	s.handler = http.HandlerFunc(s.route)
+	if cfg.Server.Compress {
+		s.handler = compressed(s.handler)
+	}
+	return s
 }
 
 var methods = []string{"GET", "POST", "PUT", "PATCH", "DELETE"}
@@ -118,6 +126,11 @@ func (h routeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.handler.ServeHTTP(w, r)
+}
+
+// route answers a request of tifa dev, a static file, or a request for a route.
+func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if s.serveDev(w, r) || s.serveStatic(w, r) {
 		return
@@ -166,7 +179,7 @@ func redirectLocation(r *http.Request, url string, code int) string {
 // route matched. page reports whether a GET of this URL is answered with a page: the route is a
 // page, or no route matched.
 func (s *Server) serve(w http.ResponseWriter, r *http.Request, pattern string, page bool, route func(*tifa.Ctx) error) {
-	tw := &writer{ResponseWriter: w}
+	tw := &writer{ResponseWriter: w, plain: !s.cfg.Compress}
 	c := core.New(tw, r, pattern, s.cfg.BodyLimit)
 	defer func() {
 		if err := core.Finish(c); err != nil {
@@ -335,11 +348,15 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 type writer struct {
 	http.ResponseWriter
 	wrote bool
+	plain bool // server.compress is off: No-Gzip-Compression goes, as gzhttp removes it when it is on
 }
 
 // commit runs call on the underlying writer. The response counts as committed only when call returns
 // normally and reports that it committed. A panic leaves the state untouched and propagates.
 func (w *writer) commit(call func() bool) {
+	if w.plain {
+		w.Header().Del(gzhttp.HeaderNoCompression)
+	}
 	if call() {
 		w.wrote = true
 	}

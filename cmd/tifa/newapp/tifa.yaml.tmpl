@@ -15,6 +15,7 @@
 #   addr: 127.0.0.1:9527    # address to listen on, 0.0.0.0:9527 in a container
 #   body_limit: 1MiB        # largest request body, a bigger one gets 413
 #   shutdown_timeout: 10s   # after a stop signal, time for requests in flight, then for OnShutdown
+#   compress: true          # gzip or zstd for text answers, false when a proxy in front compresses
 
 # ssr:
 #   vms: 4                  # example: pages that render at once, one JavaScript VM each (default: GOMAXPROCS)
