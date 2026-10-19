@@ -131,7 +131,7 @@ func guardedOnNode(t *testing.T, sources []string, files bool) []guarded {
 		"}\n" +
 		"const results = JSON.parse(process.argv[2]).map((name) => {\n" +
 		"  const source = files ? fs.readFileSync(name, 'utf8') : name\n" +
-		"  const { code, switches } = plugin.guardSwitches(source, parseAst(source))\n" +
+		"  const { code, switches } = plugin.guardSwitches(source, parseAst)\n" +
 		"  return { code: files ? '' : code, parses: parses(code), switches, before: files ? [] : run(source), after: files ? [] : run(code) }\n" +
 		"})\n" +
 		"process.stdout.write(JSON.stringify(results))\n"

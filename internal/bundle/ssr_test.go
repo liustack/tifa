@@ -15,6 +15,7 @@ import (
 	"github.com/liustack/quickjs"
 
 	"github.com/liustack/tifa/internal/ssr"
+	"github.com/liustack/tifa/js"
 )
 
 // buildScript builds entry of root like an SSR bundle with the tifa plugin and fails the test on
@@ -443,6 +444,122 @@ func TestSSRGivesReactNamespacesPlainValues(t *testing.T) {
 	}
 }
 
+// keyPathsPage renders, three times over, components of each kind with and without keys, nested
+// in each other, useId, which React derives from the place of a component, and forms with
+// useActionState and function actions, with and without a permalink. None of the actions is a
+// server action.
+const keyPathsPage = "import './host'\n" +
+	"import { renderToString } from 'react-dom/server.edge'\n" +
+	"import { Fragment, Suspense, forwardRef, memo, useActionState, useId } from 'react'\n" +
+	"function Field({ label }: { label: string }) {\n  const id = useId()\n  return <label htmlFor={id}>{label}<input id={id} /></label>\n}\n" +
+	"const Memo = memo(Field)\n" +
+	"const Ref = forwardRef<HTMLDivElement, { n: number }>(({ n }, ref) => <div ref={ref}><Memo label={'m' + n} /></div>)\n" +
+	"function Counter({ permalink }: { permalink?: string }) {\n" +
+	"  const [count, increment, pending] = useActionState((n: number) => n + 1, 0, permalink)\n" +
+	"  return <form action={increment}><output>{count} {String(pending)}</output><button formAction={increment}>+</button></form>\n" +
+	"}\n" +
+	"function Page() {\n" +
+	"  return <main>\n" +
+	"    {['a', 'b'].map((k) => <Fragment key={k}><Field label={k} /><Ref n={1} /></Fragment>)}\n" +
+	"    <Field label=\"c\" />\n" +
+	"    <Suspense fallback=\"x\"><Counter /><Counter permalink=\"/count\" /></Suspense>\n" +
+	"    {[1, 2].map((n) => <Ref key={n} n={n} />)}\n" +
+	"  </main>\n" +
+	"}\n" +
+	"globalThis.result = [0, 1, 2].map(() => renderToString(<Page />)).join('\\n')\n"
+
+// keyPath finds the key path React makes for an element in a minified bundle, with the variable
+// that holds the name of its component.
+var keyPath = regexp.MustCompile(`\[[\w$]+\.keyPath,([\w$]+),[\w$]+\]`)
+
+// namesInKeyPaths reports whether a minified bundle puts the names of components into their key
+// paths: whether the last value given to the variable of the name before the key path is another
+// than null.
+func namesInKeyPaths(t *testing.T, code string) bool {
+	t.Helper()
+	m := keyPath.FindStringSubmatchIndex(code)
+	if m == nil {
+		t.Fatal("the bundle makes no key paths")
+	}
+	name := code[m[2]:m[3]]
+	values := regexp.MustCompile(`[,;{(]`+regexp.QuoteMeta(name)+`=([^,;]+)`).FindAllStringSubmatch(code[max(0, m[0]-500):m[0]], -1)
+	if values == nil {
+		t.Fatalf("the bundle gives %s no value before %s", name, code[m[0]:m[1]])
+	}
+	return values[len(values)-1][1] != "null"
+}
+
+// React's string renderer puts the name of each component it renders into the path of keys of the
+// component, which only server actions read. The tifa plugin leaves the names out, and pages
+// render the same as with them.
+func TestSSRLeavesComponentNamesOutOfKeyPaths(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"keys.tsx": keyPathsPage})
+	code, printed := buildPrinting(t, root, "keys.tsx")
+	if namesInKeyPaths(t, code) {
+		t.Error("the bundle puts the names of components into their key paths")
+	}
+	if printed != "" {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	unnamed := evalResult(t, code)
+	for _, want := range []string{"<label for=\"_R_", "<output>0<!-- --> <!-- -->false</output>", "javascript:throw new Error("} {
+		if !strings.Contains(unnamed, want) {
+			t.Errorf("the page has no %q:\n%s", want, unnamed)
+		}
+	}
+	for name, change := range map[string][2]string{
+		"names":     {"name = getComponentNameFromType(type),\n", "name = (getComponentNameFromType(type)),\n"},
+		"formState": {"    void 0,\n    void 0\n  );\n  children.flushScheduled", "    void 0,\n    globalThis.formState\n  );\n  children.flushScheduled"},
+		"request":   {"    onFatalError,\n    formState\n  );", "    onFatalError,\n    globalThis.formState\n  );"},
+		// Another reader of the names: a key from a key path, and the name of a key path.
+		"key":  {"function onError() {}", "function tifaKey(keyPath) {\n  return JSON.stringify([keyPath, null, 0]);\n}\nfunction onError() {}"},
+		"name": {"function onError() {}", "function tifaName(keyPath) {\n  return keyPath[1];\n}\nfunction onError() {}"},
+	} {
+		changed := withReactDOM(t, change[0], change[1])
+		writeTree(t, changed, map[string]string{"keys.tsx": keyPathsPage})
+		code, printed := buildPrinting(t, changed, "keys.tsx")
+		if !namesInKeyPaths(t, code) {
+			t.Errorf("%s: the bundle leaves the names of components out of their key paths", name)
+		}
+		if !strings.Contains(printed, "react-dom 19.3.0: ") || !strings.Contains(printed, "the tifa plugin does not leave the names of components out") {
+			t.Errorf("%s: the build prints:\n%s", name, printed)
+		}
+		if got := evalResult(t, code); got != unnamed {
+			t.Errorf("%s: the page renders otherwise with the names:\n%s\nwant:\n%s", name, got, unnamed)
+		}
+	}
+}
+
+// A server action has a $$FORM_ACTION, and React writes a key for its form state from the key path
+// of the component, names included. tifa has no server actions, and the build warns of each module
+// with $$FORM_ACTION in its code.
+func TestSSRWarnsOfServerActions(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{
+		"actions.tsx": "import './host'\nimport { renderToString } from 'react-dom/server.edge'\nimport { action } from './action'\n" +
+			"globalThis.result = renderToString(<form action={action}></form>)\n",
+		"action.ts": "export function action() {}\n(action as any).$$FORM_ACTION = () => ({ name: 'a', action: '/a' })\n",
+	})
+	_, printed := buildPrinting(t, root, "actions.tsx")
+	if !strings.Contains(printed, "action.ts: has $$FORM_ACTION in its code") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+}
+
+// The tifa plugin leaves the names of components out of their key paths because the server
+// renders with renderToString, which takes no form state. The runtime imports no other renderer.
+func TestRuntimeRendersOnlyWithRenderToString(t *testing.T) {
+	server, err := js.Runtime.ReadFile("runtime/server.tsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	imports := regexp.MustCompile(`import\s*(\{[^}]*\}|[\w$*][^'"]*)\s*from\s*['"](react-dom[^'"]*)['"]`).FindAllStringSubmatch(string(server), -1)
+	if len(imports) != 1 || imports[0][2] != "react-dom/server.edge" || strings.Join(strings.Fields(imports[0][1]), " ") != "{ renderToString as renderString }" {
+		t.Errorf("js/runtime/server.tsx imports %q from React DOM, want only renderToString", imports)
+	}
+}
+
 // switchesPage renders each name of NAMES, which the test replaces with a JSON list, and names
 // that are no case of React's switches, as the tag of an element alone, with props and children,
 // and inside each element that gives its children another format context, and as a prop of a few
@@ -529,6 +646,31 @@ func TestSSRGuardsTheSwitchesOfReact(t *testing.T) {
 			t.Errorf("render %d is otherwise without the Set checks:\n%s\nwant:\n%s", i, got[i], want[i])
 			break
 		}
+	}
+}
+
+// The tifa plugin puts a Set check in front of a switch of React DOM after the code its other
+// changes make shorter or longer, at the end of the renderer too.
+func TestSSRGuardsTheSwitchesAfterTheOtherChanges(t *testing.T) {
+	renderer := filepath.Join(testModules(t), "react-dom", "cjs", "react-dom-server-legacy.browser.production.js")
+	switches := guardedOnNode(t, []string{renderer}, true)[0].Switches
+	cases := ""
+	for _, c := range "abcdefgh" {
+		cases += "    case \"" + string(c) + "\":\n"
+	}
+	last := "function tifaSwitch(name) {\n  switch (name) {\n" + cases + "      return 1;\n    default:\n      return 0;\n  }\n}\n" +
+		"globalThis.tifaSwitched = tifaSwitch(\"c\") + tifaSwitch(\"z\");\nfunction onError() {}"
+	changed := withReactDOM(t, "function onError() {}", last)
+	writeTree(t, changed, map[string]string{"keys.tsx": keyPathsPage + "globalThis.result += '\\n' + (globalThis as any).tifaSwitched\n"})
+	code, printed := buildPrinting(t, changed, "keys.tsx")
+	if got := len(guardedSwitch.FindAllString(code, -1)); got != len(switches)+1 {
+		t.Errorf("the bundle has %d switches with a Set check, want %d", got, len(switches)+1)
+	}
+	if printed != "" {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	if got := evalResult(t, code); !strings.HasSuffix(got, "\n1") {
+		t.Errorf("the switch gives %q, want 1", got[strings.LastIndex(got, "\n")+1:])
 	}
 }
 

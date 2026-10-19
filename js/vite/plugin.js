@@ -87,6 +87,14 @@ const stackAroundNode = `      (node = task.componentStack),
 // the error handler, and the reads hand the stack on from task to task and to it. Other versions
 // may have as many readers at other places, so the counts are those of one version.
 const stackReaders = '7 15'
+// Where retryNode in React's string renderer takes the name of a component for its key path.
+const keyPathName = `            name = getComponentNameFromType(type),
+            keyOrIndex =`
+// The readers of the names in key paths in React's string renderer of React DOM 19.3, as the calls
+// of JSON.stringify with an array and the reads of [1] of a variable named keyPath or ...KeyPath:
+// useActionState hashes a key path for its key, and the code that prerenders a page reads the
+// names of the key paths of what it postpones.
+const keyPathReaders = '2 4'
 // guardedCases is the fewest string cases a switch needs for the tifa plugin to put a Set check in
 // front of it, and switchCases the prefix of the names of those Sets.
 const guardedCases = 8
@@ -301,10 +309,11 @@ function resolveRouteModule(ctx, root, source, importer) {
 // APIs in page code, trims React's server entry to the renderer actually used, caches the HTML
 // escapes of that renderer and makes them with replaceAll, joins the chunks it writes, puts Set
 // checks in front of its long switches on strings, passes the errors renderToString ignores to the
-// runtime and keeps the renderer from building component stacks, makes seroval escape short
-// strings with JSON.stringify, switches core-js to its property-backed internal state, checks that
-// the bundle is one file, and warns of the places where it may load a module at run time. Its
-// source map names sources relative to the application root.
+// runtime, keeps the renderer from building component stacks and from putting the names of
+// components into their key paths, gives the importers of React namespaces of plain values, makes
+// seroval escape short strings with JSON.stringify, switches core-js to its property-backed
+// internal state, checks that the bundle is one file, and warns of the places where it may load a
+// module at run time. Its source map names sources relative to the application root.
 export function ssrPlugin(getRoot, loadVite) {
   const reactTargets = new Map() // server.edge.js path to the renderer modules it imports
   let coreJS // real directory of the core-js package the application resolves, '' for none
@@ -313,6 +322,8 @@ export function ssrPlugin(getRoot, loadVite) {
   let seroval // directory of the seroval package the bundle loads a module of, '' for none
   let serovalMain = false // whether the bundle loads a main file of seroval
   let nodeImporters // Node module to the packages that import it
+  let namesDropped = false // whether React's key paths have no names of components
+  let serverActions // the modules outside React DOM with $$FORM_ACTION in their code
   return {
     name: 'tifa:ssr',
     applyToEnvironment: (env) => env.name === 'ssr',
@@ -322,6 +333,8 @@ export function ssrPlugin(getRoot, loadVite) {
       seroval = ''
       serovalMain = false
       nodeImporters = new Map()
+      namesDropped = false
+      serverActions = new Set()
     },
     outputOptions(options) {
       const root = getRoot()
@@ -361,6 +374,13 @@ export function ssrPlugin(getRoot, loadVite) {
           coreJSAdapted = true
           return propertyState
         }
+        return null
+      },
+    },
+    transform: {
+      filter: { code: /\$\$FORM_ACTION/ },
+      handler(_, id) {
+        if (packageName(id) !== 'react-dom') serverActions.add(path.relative(getRoot(), id))
         return null
       },
     },
@@ -424,7 +444,22 @@ export function ssrPlugin(getRoot, loadVite) {
               'render the same, but take longer to render',
           )
         }
-        const guarded = guardSwitches(source, this.parse(source))
+        // A syntax tree goes only with the source it was parsed from: each change below parses
+        // the source the changes before it left.
+        const parse = (code) => this.parse(code)
+        const read = keyPathNamesRead(parse(source))
+        const unnamed = !read && dropKeyPathNames(source)
+        if (unnamed) {
+          source = unnamed
+          namesDropped = true
+        } else {
+          this.warn(
+            `${react} ${read || `has no "${keyPathName.trim().split('\n')[0]}" the tifa plugin knows`}, ` +
+              'so the tifa plugin does not leave the names of components out of their key paths. Pages render the ' +
+              'same, but take longer to render',
+          )
+        }
+        const guarded = guardSwitches(source, parse)
         if (guarded.switches.length > 0) {
           source = guarded.code
         } else {
@@ -446,7 +481,7 @@ export function ssrPlugin(getRoot, loadVite) {
           return source
         }
         // React gives that handler the component stack of the error, which the handler drops.
-        const stacksRead = componentStacksRead(this.parse(source))
+        const stacksRead = componentStacksRead(parse(source))
         const unstacked = !stacksRead && dropComponentStacks(source)
         if (unstacked) {
           source = unstacked
@@ -493,6 +528,16 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
       return null
     },
     buildEnd() {
+      // React writes the key of the state of useActionState with a server action from the key path
+      // of the component, see dropKeyPathNames.
+      if (namesDropped && serverActions.size > 0) {
+        this.warn(
+          `${[...serverActions].join(', ')}: has $$FORM_ACTION in its code, the property of a server action. tifa ` +
+            'has no server actions, and the tifa plugin leaves the names of components out of their key paths in ' +
+            'React, so if the module makes such an action, the key React writes into a form for the state of ' +
+            'useActionState with it differs from the one React writes without the plugin',
+        )
+      }
       // seroval moved the code the plugin changes to another file.
       if (seroval && !serovalMain) {
         this.warn(
@@ -626,6 +671,75 @@ function componentStacksRead(program) {
     : `calls getThrownInfo ${calls} times and reads componentStack ${reads} times, which the tifa plugin does not know`
 }
 
+// dropKeyPathNames returns the source of React's string renderer without the names of components
+// in their key paths, or null when the source does not take the name in the form it knows. For
+// each element it renders, React gets the name of its component, which takes long in QuickJS, and
+// puts it into the key path of the element. Of the code that reads the names, only one place runs
+// in renderToString: useActionState hashes the key path into the key of its state, for an action
+// with $$FORM_ACTION, which only a server action has. The others resume or prerender a page. tifa
+// has no server actions, and the plugin warns of each module that sets $$FORM_ACTION. The plugin
+// leaves the names out only when keyPathNamesRead finds no form state and no other readers of the
+// names.
+function dropKeyPathNames(source) {
+  if (source.split(keyPathName).length !== 2) return null
+  return source.replace(keyPathName, () => '            name = null,\n            keyOrIndex =')
+}
+
+// keyPathNamesRead returns why program, React's string renderer, may read the names of components
+// in their key paths, or '' when it does not in renderToString. It reads them only as
+// keyPathReaders has it, and creates each request without a form state: RequestInstance and
+// createRequest have a parameter formState, each new RequestInstance passes nothing or void 0 for
+// it, or the formState of createRequest, and each call of createRequest passes nothing or void 0.
+function keyPathNamesRead(program) {
+  const params = {}
+  const calls = { RequestInstance: [], createRequest: [] }
+  let hashes = 0
+  let names = 0
+  const functions = [] // the names of the functions around the node, the innermost last
+  const visit = (node) => {
+    if (node.type === 'FunctionDeclaration' && node.id && node.id.name in calls) {
+      params[node.id.name] = node.params.findIndex((param) => param.type === 'Identifier' && param.name === 'formState')
+    }
+    const callee = (node.type === 'NewExpression' || node.type === 'CallExpression') && node.callee.type === 'Identifier' && node.callee.name
+    if (callee === 'RequestInstance' && node.type === 'NewExpression' || callee === 'createRequest' && node.type === 'CallExpression') {
+      calls[callee].push({ node, inside: functions.at(-1) })
+    }
+    if (
+      node.type === 'CallExpression' && named(node.callee, 'stringify') && node.callee.object.type === 'Identifier' &&
+      node.callee.object.name === 'JSON' && node.arguments[0]?.type === 'ArrayExpression'
+    ) {
+      hashes++
+    }
+    if (
+      node.type === 'MemberExpression' && node.computed && node.property.type === 'Literal' && node.property.value === 1 &&
+      node.object.type === 'Identifier' && /(^k|K)eyPath$/.test(node.object.name)
+    ) {
+      names++
+    }
+    const fn = functionTypes.has(node.type)
+    if (fn) functions.push(node.id?.name)
+    for (const value of Object.values(node)) {
+      for (const child of Array.isArray(value) ? value : [value]) {
+        if (child && typeof child.type === 'string') visit(child)
+      }
+    }
+    if (fn) functions.pop()
+  }
+  visit(program)
+  const nothing = (arg) => arg === undefined || (arg.type === 'UnaryExpression' && arg.operator === 'void' && arg.argument.type === 'Literal')
+  const passes = (name, ok) =>
+    params[name] >= 0 &&
+    calls[name].length > 0 &&
+    calls[name].every(({ node, inside }) => node.arguments.every((arg) => arg.type !== 'SpreadElement') && ok(node.arguments[params[name]], inside))
+  const fromCreateRequest = (arg, inside) => inside === 'createRequest' && arg.type === 'Identifier' && arg.name === 'formState'
+  if (!passes('createRequest', nothing) || !passes('RequestInstance', (arg, inside) => nothing(arg) || fromCreateRequest(arg, inside))) {
+    return 'may create a request with a form state'
+  }
+  return `${hashes} ${names}` === keyPathReaders
+    ? ''
+    : `calls JSON.stringify with an array ${hashes} times and reads [1] of a key path ${names} times, which the tifa plugin does not know`
+}
+
 // visitNodes calls visit with each node of the syntax tree node, its parent and the key of the
 // parent that holds it.
 function visitNodes(node, visit, parent = null, key = null) {
@@ -678,8 +792,8 @@ function joinSegmentChunks(source) {
   return source.replace(segmentLoops, () => sameLines(segmentLoops, joined))
 }
 
-// guardSwitches puts a check of a Set in front of each switch of program, the syntax tree of
-// source, that compares a name with string cases only, at least guardedCases of them. QuickJS
+// guardSwitches puts a check of a Set in front of each switch of source, which it parses with
+// parse, that compares a name with string cases only, at least guardedCases of them. QuickJS
 // compares the name with one case after the other, so a name that matches none, such as most
 // attributes and tags in React's string renderer, costs a comparison for each case. With the
 // check it goes to the default clause at once:
@@ -703,8 +817,9 @@ function joinSegmentChunks(source) {
 // declared after the hashbang and the directives of source, so they exist before any of its code
 // runs. Each line of source stays where it was. It changes nothing in a source that already names
 // tifaSwitchCases.
-export function guardSwitches(source, program) {
+export function guardSwitches(source, parse) {
   if (source.includes(switchCases)) return { code: source, switches: [] }
+  const program = parse(source)
   const found = []
   const scopes = [] // the names each function around the node declares, the innermost last
   const visit = (node) => {
