@@ -68,6 +68,25 @@ const escapeLoop = `  var match = matchHtmlRegExp.exec(text);
     text = lastIndex !== index ? html + text.slice(lastIndex, index) : html;
   }
   return text;`
+// The function of React's string renderer that puts an element on the component stack of a task,
+// and the code in renderNodeDestructive that puts each node on it and takes it off again.
+const stackPush = `function pushComponentStack(task) {
+  var node = task.node;
+  if ("object" === typeof node && null !== node)
+    switch (node.$$typeof) {
+      case REACT_ELEMENT_TYPE:
+        task.componentStack = { parent: task.componentStack, type: node.type };
+    }
+}`
+const stackAroundNode = `      (node = task.componentStack),
+      pushComponentStack(task),
+      retryNode(request, task),
+      (task.componentStack = node));`
+// The readers of component stacks in React's string renderer of React DOM 19.3, as the calls of
+// getThrownInfo and the reads of a componentStack property: getThrownInfo makes the errorInfo for
+// the error handler, and the reads hand the stack on from task to task and to it. Other versions
+// may have as many readers at other places, so the counts are those of one version.
+const stackReaders = '7 15'
 // guardedCases is the fewest string cases a switch needs for the tifa plugin to put a Set check in
 // front of it, and switchCases the prefix of the names of those Sets.
 const guardedCases = 8
@@ -256,11 +275,12 @@ function resolveRouteModule(ctx, root, source, importer) {
 
 // ssrPlugin applies to the SSR build only. It replaces *.client modules with a stub, refuses Node
 // APIs in page code, trims React's server entry to the renderer actually used, caches the HTML
-// escapes of that renderer and makes them with replaceAll, joins the chunks it writes and puts Set checks in front of its long
-// switches on strings, passes the errors renderToString ignores to the runtime, makes seroval
-// escape short strings with JSON.stringify, switches core-js to its property-backed internal
-// state, checks that the bundle is one file, and warns of the places where it may load a module
-// at run time. Its source map names sources relative to the application root.
+// escapes of that renderer and makes them with replaceAll, joins the chunks it writes, puts Set
+// checks in front of its long switches on strings, passes the errors renderToString ignores to the
+// runtime and keeps the renderer from building component stacks, makes seroval escape short
+// strings with JSON.stringify, switches core-js to its property-backed internal state, checks that
+// the bundle is one file, and warns of the places where it may load a module at run time. Its
+// source map names sources relative to the application root.
 export function ssrPlugin(getRoot, loadVite) {
   const reactTargets = new Map() // server.edge.js path to the renderer modules it imports
   let coreJS // real directory of the core-js package the application resolves, '' for none
@@ -401,6 +421,18 @@ export function ssrPlugin(getRoot, loadVite) {
           )
           return source
         }
+        // React gives that handler the component stack of the error, which the handler drops.
+        const stacksRead = componentStacksRead(this.parse(source))
+        const unstacked = !stacksRead && dropComponentStacks(source)
+        if (unstacked) {
+          source = unstacked
+        } else {
+          this.warn(
+            `${react} ${stacksRead || 'has no pushComponentStack in the form the tifa plugin knows'}, so the tifa ` +
+              'plugin does not keep React from building component stacks, which no one reads. Pages render the ' +
+              'same, but take longer to render',
+          )
+        }
         return (
           source.replace(ignoredErrors, 'function onError(error) { tifaOnError?.(error) }') +
           `
@@ -531,6 +563,53 @@ function chainEscapes(source) {
       .replaceAll("'", "&#x27;"));
   return text;`
   return source.replace(escapeLoop, () => sameLines(escapeLoop, chained))
+}
+
+// dropComponentStacks returns the source of React's string renderer without the component stacks
+// it builds, or null when the source does not have the code that builds them in the form it
+// knows. React puts each element it renders on the component stack of its task, an object for
+// each, which takes long in QuickJS. In the string renderer the stack only goes into the second
+// argument of the error handler of renderToString, as errorInfo.componentStack, and the tifa
+// plugin gives renderToString a handler that passes on only the error. React needs the stack only
+// for that, so it can stop building it: pushComponentStack does nothing, and renderNodeDestructive
+// no longer saves and restores the stack around each node. The call of retryNode stays on its
+// line, for the stack traces of render errors. The plugin changes the source only when
+// componentStacksRead finds no other readers of the stacks.
+function dropComponentStacks(source) {
+  if (source.split(stackPush).length !== 2 || source.split(stackAroundNode).length !== 2) return null
+  return source
+    .replace(stackPush, () => sameLines(stackPush, 'function pushComponentStack() {}'))
+    .replace(stackAroundNode, () => '\n\n      retryNode(request, task)\n    );')
+}
+
+// componentStacksRead returns why program, React's string renderer, may read component stacks
+// otherwise than the tifa plugin knows, or '' when it reads them only as stackReaders has it.
+function componentStacksRead(program) {
+  let calls = 0
+  let reads = 0
+  visitNodes(program, (node, parent, key) => {
+    if (node.type === 'CallExpression' && node.callee.type === 'Identifier' && node.callee.name === 'getThrownInfo') calls++
+    if (named(node, 'componentStack') && !(parent.type === 'AssignmentExpression' && key === 'left')) reads++
+  })
+  return `${calls} ${reads}` === stackReaders
+    ? ''
+    : `calls getThrownInfo ${calls} times and reads componentStack ${reads} times, which the tifa plugin does not know`
+}
+
+// visitNodes calls visit with each node of the syntax tree node, its parent and the key of the
+// parent that holds it.
+function visitNodes(node, visit, parent = null, key = null) {
+  if (parent) visit(node, parent, key)
+  for (const [k, value] of Object.entries(node)) {
+    for (const child of Array.isArray(value) ? value : [value]) {
+      if (child && typeof child.type === 'string') visitNodes(child, visit, node, k)
+    }
+  }
+}
+
+// named reports whether node reads the property name of an object with a dot.
+function named(node, name) {
+  return node.type === 'MemberExpression' && !node.computed && node.property.type === 'Identifier' && node.property.name === name
 }
 
 // sameLines returns to, which replaces from, with as many lines as from, so the lines after it

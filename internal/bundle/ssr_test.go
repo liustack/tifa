@@ -326,6 +326,83 @@ func TestSSRJoinsTheChunksOfEachSegment(t *testing.T) {
 // joinedChunks finds the chunks of a segment joined by the tifa plugin in a minified bundle.
 var joinedChunks = regexp.MustCompile("\\.slice\\([^()]*\\)\\.join\\(``\\)")
 
+// stacksPage renders, three times over, elements of each kind React puts on its component
+// stacks: function and class components, memo, forwardRef, context, fragments, keyed lists and
+// Suspense boundaries, one of which throws. It also renders a component that throws outside a
+// Suspense boundary, and records how many arguments onError gets and the errors.
+const stacksPage = "import './host'\n" +
+	"import { renderToString } from 'react-dom/server.edge'\n" +
+	"import { Component, Fragment, Suspense, createContext, forwardRef, memo, useContext } from 'react'\n" +
+	"const Theme = createContext('light')\n" +
+	"function Leaf({ n }: { n: number }) {\n  return <i data-n={n}>{useContext(Theme)} {n}</i>\n}\n" +
+	"const Memo = memo(Leaf)\n" +
+	"const Ref = forwardRef<HTMLSpanElement, { n: number }>(({ n }, ref) => <span ref={ref}><Memo n={n} /></span>)\n" +
+	"class Box extends Component<{ children: any }> {\n  render() {\n    return <section>{this.props.children}</section>\n  }\n}\n" +
+	"function Broken(): never {\n  throw new Error('BROKEN')\n}\n" +
+	"function Page() {\n" +
+	"  return <Theme.Provider value=\"dark\">\n" +
+	"    <Box>{[1, 2, 3].map((n) => <Fragment key={n}><Ref n={n} /><Leaf n={n} /></Fragment>)}</Box>\n" +
+	"    <Suspense fallback=\"a\"><Box><Memo n={4} /></Box></Suspense>\n" +
+	"    <Suspense fallback=\"b\"><Leaf n={5} /><Broken /></Suspense>\n" +
+	"    <Theme.Consumer>{(theme) => <b>{theme}</b>}</Theme.Consumer>\n" +
+	"  </Theme.Provider>\n" +
+	"}\n" +
+	"const lines: string[] = []\n" +
+	"for (let i = 0; i < 3; i++) {\n" +
+	"  const calls: string[] = []\n" +
+	"  lines.push(renderToString(<Page />, { onError: function () { calls.push(arguments.length + ' ' + arguments[0].message) } } as any))\n" +
+	"  lines.push(calls.join())\n" +
+	"}\n" +
+	"try {\n  renderToString(<Box><Broken /></Box>)\n} catch (err) {\n  lines.push('throws ' + (err as Error).message)\n}\n" +
+	"globalThis.result = lines.join('\\n')\n"
+
+// componentStack finds where React puts an element on a component stack in a minified bundle.
+var componentStack = regexp.MustCompile(`componentStack=\{parent:[\w$]+\.componentStack,type:`)
+
+// React's string renderer puts each element it renders on a component stack, which it only gives
+// the error handler of renderToString. The tifa plugin drops what that handler gets besides the
+// error, and the component stacks with it, and pages render the same as with them.
+func TestSSRBuildsNoComponentStacks(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"stacks.tsx": stacksPage})
+	code, printed := buildPrinting(t, root, "stacks.tsx")
+	if componentStack.MatchString(code) {
+		t.Error("the bundle builds component stacks")
+	}
+	if strings.Contains(printed, "react-dom") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	unstacked := evalResult(t, code)
+	for _, want := range []string{"<i data-n=\"3\">dark<!-- --> <!-- -->3</i>", "<!--$!--><template></template>b<!--/$-->", "\n1 BROKEN\n", "throws BROKEN"} {
+		if !strings.Contains(unstacked, want) {
+			t.Errorf("the page has no %q:\n%s", want, unstacked)
+		}
+	}
+	for name, change := range map[string][2]string{
+		"stack":   {"task.componentStack = { parent: task.componentStack, type: node.type };", "task.componentStack = { type: node.type, parent: task.componentStack };"},
+		"onError": {"function onError() {}", "function onError() { }"},
+		// Another reader of the stacks: a call of getThrownInfo, and a read of a stack alone.
+		"thrown": {"function onError() {}", "function tifaThrown(task) {\n  return getThrownInfo(task.componentStack);\n}\nfunction onError() {}"},
+		"read":   {"function onError() {}", "function tifaStack(task) {\n  return task.componentStack;\n}\nfunction onError() {}"},
+	} {
+		changed := withReactDOM(t, change[0], change[1])
+		writeTree(t, changed, map[string]string{"stacks.tsx": stacksPage})
+		code, printed := buildPrinting(t, changed, "stacks.tsx")
+		if name == "stack" && !regexp.MustCompile(`componentStack=\{type:`).MatchString(code) || name != "stack" && !componentStack.MatchString(code) {
+			t.Errorf("%s: the bundle builds no component stacks", name)
+		}
+		if name != "onError" && !strings.Contains(printed, "the tifa plugin does not keep React from building component stacks") {
+			t.Errorf("%s: the build prints:\n%s", name, printed)
+		}
+		if name == "onError" {
+			continue // React's own onError: the errors go nowhere
+		}
+		if got := evalResult(t, code); got != unstacked {
+			t.Errorf("%s: the page renders otherwise with component stacks:\n%s\nwant:\n%s", name, got, unstacked)
+		}
+	}
+}
+
 // switchesPage renders each name of NAMES, which the test replaces with a JSON list, and names
 // that are no case of React's switches, as the tag of an element alone, with props and children,
 // and inside each element that gives its children another format context, and as a prop of a few

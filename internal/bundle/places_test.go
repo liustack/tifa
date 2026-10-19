@@ -17,15 +17,20 @@ import (
 // placesEntry is an SSR entry whose startRender renders the page its URL names and reports the
 // error the render throws, as the runtime of tifa does. Each page makes React DOM throw at
 // another place of its string renderer: near its start, in its hooks and where it renders a
-// child.
+// child. On the pages app and nested the application throws, from a component React renders as the
+// page and as the child of an element.
 const placesEntry = "import './runtime/host.js'\n" +
 	"import { renderToString } from 'react-dom/server.edge'\n" +
 	"import { createElement as h, use } from 'react'\n" +
+	"import * as React from 'react'\n" +
 	"function Use() {\n  return use(42 as any)\n}\n" +
+	"function App() {\n  React.useState(0)\n  throw new Error('APP')\n}\n" +
 	"const pages: Record<string, () => any> = {\n" +
 	"  style: () => h('div', { style: 'color: red' }),\n" +
 	"  use: () => h(Use),\n" +
 	"  object: () => h('div', null, {} as any),\n" +
+	"  app: () => h(App),\n" +
+	"  nested: () => h('main', null, h(App)),\n" +
 	"}\n" +
 	";(globalThis as any).startRender = (json: string) => {\n" +
 	"  try {\n" +
@@ -35,8 +40,9 @@ const placesEntry = "import './runtime/host.js'\n" +
 	"  }\n" +
 	"}\n"
 
-// rendererPlace finds a place in React's string renderer in an explained stack trace.
-var rendererPlace = regexp.MustCompile(`react-dom-server-legacy\.browser\.production\.js:(\d+):\d+`)
+// rendererPlace finds a place in React's string renderer in an explained stack trace, with its
+// line and column.
+var rendererPlace = regexp.MustCompile(`react-dom-server-legacy\.browser\.production\.js:(\d+):(\d+)`)
 
 // The places in React DOM that the stack traces of render errors give are those of its file:
 // the tifa plugin changes the string renderer, but leaves each of its lines where it was.
@@ -68,6 +74,43 @@ func TestSSRGivesThePlacesOfReactDOMInRenderErrors(t *testing.T) {
 		line, _ := strconv.Atoi(m[1])
 		if line < 1 || line > len(lines) || !strings.Contains(lines[line-1], want) {
 			t.Errorf("%s: the error names line %d of React DOM, which does not have %q:\n%v", page, line, want, err)
+		}
+	}
+}
+
+// call is what a place of a frame of a stack trace starts with in React DOM: a call, which may be
+// that of a return statement.
+var call = regexp.MustCompile(`^(return )?[\w$.]+\(`)
+
+// Each frame in React DOM of the stack trace of an error the application throws gives the place of
+// a call in its file, those of the code the tifa plugin changes too: the plugin keeps each call on
+// the line it was on.
+func TestSSRGivesThePlacesOfCallsInReactDOM(t *testing.T) {
+	root := devApp(t)
+	writeTree(t, root, map[string]string{filepath.Join(".tifa", "server.ts"): placesEntry})
+	buildApp(t, root)
+	pool := appPool(t, root)
+	renderer, err := os.ReadFile(filepath.Join(testModules(t), "react-dom", "cjs", "react-dom-server-legacy.browser.production.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(string(renderer), "\n")
+	_, err = pool.Render(context.Background(), ssr.Input{URL: "nested"})
+	if err == nil {
+		t.Fatal("the render does not fail")
+	}
+	places := rendererPlace.FindAllStringSubmatch(err.Error(), -1)
+	if len(places) < 5 {
+		t.Fatalf("the error names %d places in React DOM, want the frames of the components and elements around the throw:\n%v", len(places), err)
+	}
+	for _, m := range places {
+		line, _ := strconv.Atoi(m[1])
+		column, _ := strconv.Atoi(m[2])
+		if line > len(lines) {
+			continue // the code the tifa plugin adds after React DOM
+		}
+		if column < 1 || column > len(lines[line-1]) || !call.MatchString(lines[line-1][column-1:]) {
+			t.Errorf("the error names %s:%s of React DOM, which is no call: %q\n%v", m[1], m[2], lines[line-1], err)
 		}
 	}
 }
