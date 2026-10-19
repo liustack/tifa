@@ -34,6 +34,40 @@ const escapeSource = 'matchHtmlRegExp = /["\'&<>]/;\nfunction escapeTextForBrows
 // of a little over 8,192 code units outside Latin-1.
 const escapeCacheSize = 1 << 18
 const escapeEntrySize = 64
+// The loop of escapeTextForBrowser in React's string renderer that escapes a string one character
+// at a time.
+const escapeLoop = `  var match = matchHtmlRegExp.exec(text);
+  if (match) {
+    var html = "",
+      index,
+      lastIndex = 0;
+    for (index = match.index; index < text.length; index++) {
+      switch (text.charCodeAt(index)) {
+        case 34:
+          match = "&quot;";
+          break;
+        case 38:
+          match = "&amp;";
+          break;
+        case 39:
+          match = "&#x27;";
+          break;
+        case 60:
+          match = "&lt;";
+          break;
+        case 62:
+          match = "&gt;";
+          break;
+        default:
+          continue;
+      }
+      lastIndex !== index && (html += text.slice(lastIndex, index));
+      lastIndex = index + 1;
+      html += match;
+    }
+    text = lastIndex !== index ? html + text.slice(lastIndex, index) : html;
+  }
+  return text;`
 // guardedCases is the fewest string cases a switch needs for the tifa plugin to put a Set check in
 // front of it, and switchCases the prefix of the names of those Sets.
 const guardedCases = 8
@@ -222,7 +256,7 @@ function resolveRouteModule(ctx, root, source, importer) {
 
 // ssrPlugin applies to the SSR build only. It replaces *.client modules with a stub, refuses Node
 // APIs in page code, trims React's server entry to the renderer actually used, caches the HTML
-// escapes of that renderer, joins the chunks it writes and puts Set checks in front of its long
+// escapes of that renderer and makes them with replaceAll, joins the chunks it writes and puts Set checks in front of its long
 // switches on strings, passes the errors renderToString ignores to the runtime, makes seroval
 // escape short strings with JSON.stringify, switches core-js to its property-backed internal
 // state, checks that the bundle is one file, and warns of the places where it may load a module
@@ -323,6 +357,17 @@ export function ssrPlugin(getRoot, loadVite) {
             `${react} has no matchHtmlRegExp and escapeTextForBrowser in the form the tifa plugin knows, so ` +
               'the tifa plugin does not cache the escapes of the HTML React writes. Pages render the same, but ' +
               'long texts and attribute values with & < > " or \' in them take longer to render',
+          )
+        }
+        const chained = chainEscapes(source)
+        if (chained) {
+          source = chained
+        } else {
+          this.warn(
+            `${react} has no loop over the characters of a text in escapeTextForBrowser in the form the tifa ` +
+              'plugin knows, so the tifa plugin does not escape them with replaceAll. Pages render the same, but ' +
+              'texts and attribute values with & < > " or \' in them that the cache of escapes does not hold take ' +
+              'longer to render',
           )
         }
         const joined = joinSegmentChunks(source)
@@ -442,7 +487,8 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
 // escapes, keyed by the string. It holds escapeCacheSize code units, and when the next string does
 // not fit it starts over empty: texts of the data, which differ in each request, fill it, and the
 // strings every render writes come back at the next render. A string larger than the whole cache
-// is not kept. The cache lives in the module, so each VM has its own.
+// is not kept. The cache lives in the module, so each VM has its own. It searches with exec, which
+// takes less time in QuickJS than test: test looks up exec and calls it.
 function cacheEscapes(source) {
   if (source.split(escapeSource).length !== 2) return null
   const cached = `matchHtmlRegExp = /["'&<>]/;
@@ -450,7 +496,7 @@ var tifaEscapes = new Map(),
   tifaEscapesSize = 0;
 function escapeTextForBrowser(text) {
   if ("string" !== typeof text) return tifaEscapeTextForBrowser(text);
-  if (!matchHtmlRegExp.test(text)) return text;
+  if (null === matchHtmlRegExp.exec(text)) return text;
   var escaped = tifaEscapes.get(text);
   if (void 0 === escaped) {
     escaped = tifaEscapeTextForBrowser(text);
@@ -465,6 +511,26 @@ function escapeTextForBrowser(text) {
 }
 function tifaEscapeTextForBrowser(text) {`
   return source.replace(escapeSource, () => sameLines(escapeSource, cached))
+}
+
+// chainEscapes returns the source of React's string renderer with escapeTextForBrowser escaping
+// each of the five characters it escapes with one replaceAll, or null when the source does not
+// have its loop over the characters in the form it knows. The loop handles one character at a
+// time, which takes long in QuickJS, and replaceAll runs in the engine. Both give the same text:
+// each character becomes its entity, & first, so the & of the other entities stays as it is, and
+// no entity has any of the other four characters in it. A string without them comes back as it
+// is, without a call of replaceAll.
+function chainEscapes(source) {
+  if (source.split(escapeLoop).length !== 2) return null
+  const chained = `  null !== matchHtmlRegExp.exec(text) &&
+    (text = text
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#x27;"));
+  return text;`
+  return source.replace(escapeLoop, () => sameLines(escapeLoop, chained))
 }
 
 // sameLines returns to, which replaces from, with as many lines as from, so the lines after it

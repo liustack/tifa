@@ -127,6 +127,10 @@ const escapesPage = "import './host'\n" +
 // minified bundle keeps it as a number, so it shows whether the cache is in the bundle.
 const escapeCacheChars = "262144"
 
+// searchedWithExec finds the search of the cache of escapes for a character to escape, with exec,
+// in a minified bundle.
+var searchedWithExec = regexp.MustCompile(`if\(\w+\.exec\(\w+\)===null\)return \w+;var \w+=\w+\.get\(`)
+
 // The tifa plugin caches the escapes of React's string renderer, and pages render the same with
 // the cache as without it.
 func TestSSRCachesTheEscapesOfReact(t *testing.T) {
@@ -135,6 +139,9 @@ func TestSSRCachesTheEscapesOfReact(t *testing.T) {
 	code, printed := buildPrinting(t, root, "escapes.tsx")
 	if !strings.Contains(code, escapeCacheChars) {
 		t.Error("the bundle has no cache of escapes")
+	}
+	if !searchedWithExec.MatchString(code) {
+		t.Error("the cache of escapes does not search with exec")
 	}
 	if strings.Contains(printed, "escape") {
 		t.Errorf("the build prints:\n%s", printed)
@@ -161,6 +168,60 @@ func TestSSRCachesTheEscapesOfReact(t *testing.T) {
 		if got := evalResult(t, code); got != cached {
 			t.Errorf("%s: the page renders otherwise without the cache", name)
 		}
+	}
+}
+
+// everyEscapePage renders, as text and as attribute values, every UTF-16 code unit between two
+// ampersands, all of them in a row, and 3,000 strings of up to 40 code units drawn from the
+// characters React escapes, letters, lone surrogates and characters outside Latin-1. The cache of
+// escapes has seen none of them, so React escapes each one itself.
+const everyEscapePage = "import './host'\n" +
+	"import { renderToString } from 'react-dom/server.edge'\n" +
+	"const units = Array.from({ length: 0x10000 }, (_, c) => String.fromCharCode(c))\n" +
+	"const texts = [units.join('&'), units.join(''), units.join('<a>')]\n" +
+	"const alphabet = ['a', 'b', ' ', '&', '<', '>', '\"', \"'\", '&amp;', '\\ud800', '\\udc00', 'é', '订', '🙂']\n" +
+	"let seed = 1\n" +
+	"const random = (n: number) => ((seed = (seed * 1103515245 + 12345) % 2147483648), seed % n)\n" +
+	"for (let i = 0; i < 3000; i++) {\n" +
+	"  let s = ''\n" +
+	"  for (let n = random(41); n > 0; n--) s += alphabet[random(alphabet.length)]\n" +
+	"  texts.push(s)\n" +
+	"}\n" +
+	"globalThis.result = renderToString(<div>{texts.map((t, i) => <p key={i} title={t}>{t}</p>)}</div>)\n"
+
+// escapedAtOnce finds the escape of & with replaceAll in a minified bundle.
+var escapedAtOnce = regexp.MustCompile("\\.replaceAll\\(`&`,`&amp;`\\)")
+
+// React's string renderer escapes a string one character at a time. The tifa plugin escapes it
+// with replaceAll, once for each character React escapes, and pages render the same as without
+// that.
+func TestSSREscapesEachCharacterAtOnce(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"escapes.tsx": everyEscapePage})
+	code, printed := buildPrinting(t, root, "escapes.tsx")
+	if !escapedAtOnce.MatchString(code) {
+		t.Error("the bundle does not escape with replaceAll")
+	}
+	if strings.Contains(printed, "react-dom") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	escaped := evalResult(t, code)
+	for _, want := range []string{"&amp;&lt;&amp;", "&amp;&gt;&amp;", "&amp;&quot;&amp;", "&amp;&#x27;&amp;", "&amp;amp;"} {
+		if !strings.Contains(escaped, want) {
+			t.Errorf("the page has no %s", want)
+		}
+	}
+	changed := withReactDOM(t, "for (index = match.index; index < text.length; index++) {", "for (index = match.index; text.length > index; index++) {")
+	writeTree(t, changed, map[string]string{"escapes.tsx": everyEscapePage})
+	code, printed = buildPrinting(t, changed, "escapes.tsx")
+	if escapedAtOnce.MatchString(code) {
+		t.Error("the bundle escapes with replaceAll in a React DOM it does not know")
+	}
+	if !strings.Contains(printed, "react-dom 19.3.0: ") || !strings.Contains(printed, "the tifa plugin does not escape them with replaceAll") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	if got := evalResult(t, code); got != escaped {
+		t.Error("the page renders otherwise with React's loop over the characters")
 	}
 }
 
