@@ -139,7 +139,7 @@ Measured on an AMD EPYC 7B13 with 4 physical cores (`GOMAXPROCS=4 taskset -c 4-7
 | quickjs v0.26.8, 7 runs | 31.6 to 32.0 | 47 to 81 | 1.49 to 2.55 | 0.77 to 2.8 |
 | quickjs v0.26.13, two busy threads on the same 4 CPUs | 43.4 | 96 | 2.20 | 0.29 |
 
-v0.26.8 gave a speedup of about 2.5 in one session and about 1.5 in a later one. On a noisy machine the speedup of the good build looks worse than that of the bad build on a good run, though it still renders more per second (96 against 81). On an Apple M4 (4 performance and 6 efficiency cores, `GOMAXPROCS=10`), v0.26.13 gives a speedup of 3.55 with 4.5% lock wait and v0.26.8 1.51 with 19%. Outside Linux, modernc.org/libc still takes the allocator lock for the C stack, so compare Mac numbers only with Mac numbers.
+v0.26.8 gave a speedup of about 2.5 in one session and about 1.5 in a later one. On a noisy machine the speedup of the good build looks worse than that of the bad build on a good run, though it still renders more per second (96 against 81). On an Apple M4 (4 performance and 6 efficiency cores, `GOMAXPROCS=10`), v0.26.15 gives a speedup of 4.91 to 5.09 with 0.67% to 0.76% lock wait, v0.26.14 3.39 to 3.62 with 4.2% to 4.5%, and v0.26.8 1.51 with 19%. Up to v0.26.14, libc took its allocator lock outside Linux each time the TLS stack of a VM grew past a segment. From v0.26.15 each VM keeps 1 MiB of that stack instead. The cores differ, so compare Mac numbers only with Mac numbers.
 
 To see which lock it is, take a mutex profile. Profiling makes the lock wait larger, so read the profile for where the wait is, not for how much:
 
@@ -164,6 +164,6 @@ TIFA_SSR_SHOP=1 GOMAXPROCS=1 go test -run '^$' -bench 'Shop/^render' -benchtime 
 go test -run EngineProfile ./internal/codegen
 ```
 
-500 renders of each page give about 110 seconds of CPU samples on a quiet AMD EPYC 7B13. One profile is enough for arm64 too: on darwin/arm64, a build with a profile made on linux/amd64 renders as fast as one with a profile made on the same Mac (0.3% apart).
+500 renders of each page give about 90 seconds of CPU samples on a quiet AMD EPYC 7B13. One profile is enough for arm64 too: on darwin/arm64, a build with a profile made on linux/amd64 renders as fast as one with a profile made on the same Mac (0.3% apart, measured with quickjs v0.26.13).
 
 A profile of an older quickjs or libc still builds and changes no output. It only finds fewer call sites, so pages render slower than they could.
