@@ -464,7 +464,20 @@ function escapeTextForBrowser(text) {
   return escaped;
 }
 function tifaEscapeTextForBrowser(text) {`
-  return source.replace(escapeSource, () => cached)
+  return source.replace(escapeSource, () => sameLines(escapeSource, cached))
+}
+
+// sameLines returns to, which replaces from, with as many lines as from, so the lines after it
+// stay where they were: the places in React DOM that the stack traces of render errors give are
+// those of the code the tifa plugin loads for it. A shorter to gets empty lines in front, so its
+// last lines stay where the last lines of from were. Lines that to has beyond those of from go on
+// its last line, which only works for code without line comments that ends each statement with a
+// semicolon.
+function sameLines(from, to) {
+  const want = from.split('\n').length
+  const lines = to.split('\n')
+  if (lines.length > want) lines.splice(want - 1, Infinity, lines.slice(want - 1).map((line) => line.trim()).join(' '))
+  return '\n'.repeat(want - lines.length) + lines.join('\n')
 }
 
 // joinSegmentChunks returns the source of React's string renderer with flushSubtree handing the
@@ -487,7 +500,7 @@ function joinSegmentChunks(source) {
         (r = destination.push(
           0 === chunkIdx ? chunks.join("") : chunks.slice(chunkIdx).join("")
         ));`
-  return source.replace(segmentLoops, () => joined)
+  return source.replace(segmentLoops, () => sameLines(segmentLoops, joined))
 }
 
 // guardSwitches puts a check of a Set in front of each switch of program, the syntax tree of
@@ -513,7 +526,8 @@ function joinSegmentChunks(source) {
 //
 // The block keeps an if without else from taking the else of an if around the switch. The Sets are
 // declared after the hashbang and the directives of source, so they exist before any of its code
-// runs. It changes nothing in a source that already names tifaSwitchCases.
+// runs. Each line of source stays where it was. It changes nothing in a source that already names
+// tifaSwitchCases.
 export function guardSwitches(source, program) {
   if (source.includes(switchCases)) return { code: source, switches: [] }
   const found = []
@@ -545,20 +559,22 @@ export function guardSwitches(source, program) {
     const last = n.cases[n.cases.length - 1]
     const guarded =
       last.test === null
-        ? `if (${set}.has(${x})) switch (${x}) {\n${code.slice(n.cases[0].start, last.start)}} else switch (0) {\n${code.slice(last.start, n.end - 1)}}`
+        ? `if (${set}.has(${x})) ${code.slice(n.start, last.start)}} else switch (0) { ${code.slice(last.start, n.end - 1)}}`
         : `if (${set}.has(${x})) ${code.slice(n.start, n.end)}`
     code = code.slice(0, n.start) + `{ ${guarded} }` + code.slice(n.end)
     sets.push(`var ${set} = new Set([${tests.map((c) => JSON.stringify(c.test.value)).join(', ')}]);`)
     switches.push({ name: x, cases: tests.map((c) => c.test.value) })
   }
   if (sets.length === 0) return { code: source, switches: [] }
-  // After the line of a hashbang, which must come first.
-  let at = source.startsWith('#!') ? source.search(/[\n\r\u2028\u2029]|$/) : 0
+  // On the line after a hashbang, which must come first, after a semicolon that ends the
+  // directive before them, if any.
+  const hashbang = source.startsWith('#!') ? /\r\n|[\n\r\u2028\u2029]|$/.exec(source) : null
+  let at = hashbang ? hashbang.index + hashbang[0].length : 0
   for (const node of program.body) {
     if (typeof node.directive !== 'string') break
     at = node.end
   }
-  return { code: code.slice(0, at) + '\n' + sets.join('\n') + '\n' + code.slice(at), switches: switches.reverse() }
+  return { code: code.slice(0, at) + ';' + sets.join(' ') + ' ' + code.slice(at), switches: switches.reverse() }
 }
 
 const functionTypes = new Set(['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression'])

@@ -240,6 +240,9 @@ func TestPluginGuardsSwitchesOnStrings(t *testing.T) {
 		if !got.Parses {
 			t.Errorf("%s: the new source does not parse:\n%s", name, got.Code)
 		}
+		if strings.Count(got.Code, "\n") != strings.Count(sources[i], "\n") {
+			t.Errorf("%s: the lines of the source moved:\n%s", name, got.Code)
+		}
 		if len(got.Before) != len(got.After) || len(got.Before) == 0 {
 			t.Errorf("%s: f ran %d times before and %d after: %q", name, len(got.Before), len(got.After), got.After)
 			continue
