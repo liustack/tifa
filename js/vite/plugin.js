@@ -488,7 +488,7 @@ export function ssrPlugin(getRoot, loadVite) {
         } else {
           this.warn(
             `${react} ${stacksRead || 'has no pushComponentStack in the form the tifa plugin knows'}, so the tifa ` +
-              'plugin does not keep React from building component stacks, which no one reads. Pages render the ' +
+              'plugin does not keep React from building component stacks. Pages render the ' +
               'same, but take longer to render',
           )
         }
