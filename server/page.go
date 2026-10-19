@@ -14,6 +14,7 @@ import (
 	"path"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/liustack/tifa"
@@ -397,6 +398,7 @@ func writeData(w http.ResponseWriter, status int, value any) error {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(status)
 	_, err = w.Write(data)
 	return err
@@ -506,6 +508,7 @@ func (s *Server) dataOnly(c *tifa.Ctx, items map[string]routeResult, status int)
 func writeHTML(c *tifa.Ctx, status int, page string) error {
 	w := c.Writer()
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Length", strconv.Itoa(len(page)))
 	w.WriteHeader(status)
 	_, err := io.WriteString(w, page)
 	return err
@@ -566,6 +569,7 @@ func (s *Server) fallback(c *tifa.Ctx, e tifa.Error, err error) {
 	w := c.Writer()
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Length", strconv.Itoa(b.Len()))
 	w.WriteHeader(e.Status)
 	_, _ = io.WriteString(w, b.String())
 }
@@ -576,6 +580,7 @@ func writeFallback(w http.ResponseWriter, e tifa.Error) {
 	page := fmt.Sprintf(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>%s</title></head><body><h1>%s</h1><p>%s</p></body></html>`,
 		title, title, html.EscapeString(e.Message))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Length", strconv.Itoa(len(page)))
 	w.WriteHeader(e.Status)
 	_, _ = io.WriteString(w, page)
 }

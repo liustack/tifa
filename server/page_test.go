@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -608,5 +609,32 @@ func TestPagesAreWrittenAsStrings(t *testing.T) {
 	tw := &writer{ResponseWriter: httptest.NewRecorder()}
 	if _, err := io.WriteString(tw, "<html>"); err != nil || !tw.wrote {
 		t.Errorf("WriteString: %v, wrote %v", err, tw.wrote)
+	}
+}
+
+// Whole pages and JSON answers state their length.
+func TestPagesAndJSONCarryTheirLength(t *testing.T) {
+	s, _ := newFrontServer(t, frontApp())
+	for _, tc := range []struct {
+		name   string
+		w      *httptest.ResponseRecorder
+		status int
+	}{
+		{"page", get(s, "/projects/p1"), 200},
+		{"page from the cache", func() *httptest.ResponseRecorder { get(s, "/stats"); return get(s, "/stats") }(), 200},
+		{"page without SSR", get(s, "/login"), 200},
+		{"404 page", get(s, "/nowhere"), 404},
+		{"data request", get(s, "/projects/p1", "X-Tifa-Route", "app/layout", "X-Tifa-Build", "b1"), 200},
+		{"data request of another build", get(s, "/projects/p1", "X-Tifa-Route", "app/layout", "X-Tifa-Build", "old"), 409},
+		{"API error", send(newServer(Hooks{}), "GET", "/orders/missing", ""), 404},
+	} {
+		if got, want := tc.w.Header().Get("Content-Length"), strconv.Itoa(tc.w.Body.Len()); tc.w.Code != tc.status || got != want {
+			t.Errorf("%s: %d, Content-Length %q, body %s bytes", tc.name, tc.w.Code, got, want)
+		}
+	}
+	w := httptest.NewRecorder()
+	writeFallback(w, tifa.Error{Status: 500, Message: "down"})
+	if got, want := w.Header().Get("Content-Length"), strconv.Itoa(w.Body.Len()); got != want {
+		t.Errorf("plain error page: Content-Length %q, body %s bytes", got, want)
 	}
 }
