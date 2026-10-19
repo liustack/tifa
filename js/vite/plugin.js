@@ -34,6 +34,67 @@ const escapeSource = 'matchHtmlRegExp = /["\'&<>]/;\nfunction escapeTextForBrows
 // of a little over 8,192 code units outside Latin-1.
 const escapeCacheSize = 1 << 18
 const escapeEntrySize = 64
+// The loop of escapeTextForBrowser in React's string renderer that escapes a string one character
+// at a time.
+const escapeLoop = `  var match = matchHtmlRegExp.exec(text);
+  if (match) {
+    var html = "",
+      index,
+      lastIndex = 0;
+    for (index = match.index; index < text.length; index++) {
+      switch (text.charCodeAt(index)) {
+        case 34:
+          match = "&quot;";
+          break;
+        case 38:
+          match = "&amp;";
+          break;
+        case 39:
+          match = "&#x27;";
+          break;
+        case 60:
+          match = "&lt;";
+          break;
+        case 62:
+          match = "&gt;";
+          break;
+        default:
+          continue;
+      }
+      lastIndex !== index && (html += text.slice(lastIndex, index));
+      lastIndex = index + 1;
+      html += match;
+    }
+    text = lastIndex !== index ? html + text.slice(lastIndex, index) : html;
+  }
+  return text;`
+// The function of React's string renderer that puts an element on the component stack of a task,
+// and the code in renderNodeDestructive that puts each node on it and takes it off again.
+const stackPush = `function pushComponentStack(task) {
+  var node = task.node;
+  if ("object" === typeof node && null !== node)
+    switch (node.$$typeof) {
+      case REACT_ELEMENT_TYPE:
+        task.componentStack = { parent: task.componentStack, type: node.type };
+    }
+}`
+const stackAroundNode = `      (node = task.componentStack),
+      pushComponentStack(task),
+      retryNode(request, task),
+      (task.componentStack = node));`
+// The readers of component stacks in React's string renderer of React DOM 19.3, as the calls of
+// getThrownInfo and the reads of a componentStack property: getThrownInfo makes the errorInfo for
+// the error handler, and the reads hand the stack on from task to task and to it. Other versions
+// may have as many readers at other places, so the counts are those of one version.
+const stackReaders = '7 15'
+// Where retryNode in React's string renderer takes the name of a component for its key path.
+const keyPathName = `            name = getComponentNameFromType(type),
+            keyOrIndex =`
+// The readers of the names in key paths in React's string renderer of React DOM 19.3, as the calls
+// of JSON.stringify with an array and the reads of [1] of a variable named keyPath or ...KeyPath:
+// useActionState hashes a key path for its key, and the code that prerenders a page reads the
+// names of the key paths of what it postpones.
+const keyPathReaders = '2 4'
 // guardedCases is the fewest string cases a switch needs for the tifa plugin to put a Set check in
 // front of it, and switchCases the prefix of the names of those Sets.
 const guardedCases = 8
@@ -48,6 +109,30 @@ const segmentLoops = `      for (var childIdx = 0; childIdx < segment.length; ch
       for (; chunkIdx < chunks.length - 1; chunkIdx++)
         destination.push(chunks[chunkIdx]);
       chunkIdx < chunks.length && (r = destination.push(chunks[chunkIdx]));`
+// The packages whose CommonJS modules the ES modules of the SSR bundle import as namespaces of plain
+// values, see plainNamespaces.
+const plainPackages = new Set(['react', 'react-dom'])
+// The helpers with which rolldown gives an ES module the exports of a CommonJS module as a
+// namespace, white space collapsed: __copyProps defines a getter for each export. rolldown adds $
+// and a number to the name of a helper when the bundle has another name like it.
+const esmHelpers =
+  'var __copyProps = (to, from, except, desc) => { if (from && typeof from === "object" || typeof from === "function") ' +
+  '{ for (var keys = __getOwnPropNames(from), i = 0, n = keys.length, key; i < n; i++) { key = keys[i]; if ' +
+  '(!__hasOwnProp.call(to, key) && key !== except) { __defProp(to, key, { get: ((k) => from[k]).bind(null, key), ' +
+  'enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable }); } } } return to; }; var __toESM = (mod, ' +
+  'isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(isNodeMode || !mod ' +
+  '|| !mod.__esModule || !__hasOwnProp.call(mod, "default") ? __defProp(target, "default", { value: mod, ' +
+  'enumerable: true }) : target, mod));'
+// plainESM does what __toESM of esmHelpers does, with a property of each export's value in place of
+// a getter. Its name is as long as __toESM, and the helpers it calls are those of __toESM, with
+// their names in the bundle.
+const plainESM =
+  ' function __tifaV(mod, isNodeMode) { var target = mod != null ? __create(__getProtoOf(mod)) : {}; if (isNodeMode ' +
+  '|| !mod || !mod.__esModule || !__hasOwnProp.call(mod, "default")) __defProp(target, "default", { value: mod, ' +
+  'enumerable: true }); if (mod && typeof mod === "object" || typeof mod === "function") for (var keys = ' +
+  '__getOwnPropNames(mod), i = 0, n = keys.length, key, desc; i < n; i++) { key = keys[i]; if ' +
+  '(!__hasOwnProp.call(target, key)) __defProp(target, key, { value: mod[key], enumerable: !(desc = ' +
+  '__getOwnPropDesc(mod, key)) || desc.enumerable }); } return target; }'
 const nodeBuiltins = new Set(builtinModules)
 
 // pollInterval is how often, in milliseconds, Vite's watcher looks at each file once it polls.
@@ -222,11 +307,13 @@ function resolveRouteModule(ctx, root, source, importer) {
 
 // ssrPlugin applies to the SSR build only. It replaces *.client modules with a stub, refuses Node
 // APIs in page code, trims React's server entry to the renderer actually used, caches the HTML
-// escapes of that renderer, joins the chunks it writes and puts Set checks in front of its long
-// switches on strings, passes the errors renderToString ignores to the runtime, makes seroval
-// escape short strings with JSON.stringify, switches core-js to its property-backed internal
-// state, checks that the bundle is one file, and warns of the places where it may load a module
-// at run time. Its source map names sources relative to the application root.
+// escapes of that renderer and makes them with replaceAll, joins the chunks it writes, puts Set
+// checks in front of its long switches on strings, passes the errors renderToString ignores to the
+// runtime, keeps the renderer from building component stacks and from putting the names of
+// components into their key paths, gives the importers of React namespaces of plain values, makes
+// seroval escape short strings with JSON.stringify, switches core-js to its property-backed
+// internal state, checks that the bundle is one file, and warns of the places where it may load a
+// module at run time. Its source map names sources relative to the application root.
 export function ssrPlugin(getRoot, loadVite) {
   const reactTargets = new Map() // server.edge.js path to the renderer modules it imports
   let coreJS // real directory of the core-js package the application resolves, '' for none
@@ -235,6 +322,8 @@ export function ssrPlugin(getRoot, loadVite) {
   let seroval // directory of the seroval package the bundle loads a module of, '' for none
   let serovalMain = false // whether the bundle loads a main file of seroval
   let nodeImporters // Node module to the packages that import it
+  let namesDropped = false // whether React's key paths have no names of components
+  let serverActions // the modules outside React DOM with $$FORM_ACTION in their code
   return {
     name: 'tifa:ssr',
     applyToEnvironment: (env) => env.name === 'ssr',
@@ -244,6 +333,8 @@ export function ssrPlugin(getRoot, loadVite) {
       seroval = ''
       serovalMain = false
       nodeImporters = new Map()
+      namesDropped = false
+      serverActions = new Set()
     },
     outputOptions(options) {
       const root = getRoot()
@@ -286,6 +377,13 @@ export function ssrPlugin(getRoot, loadVite) {
         return null
       },
     },
+    transform: {
+      filter: { code: /\$\$FORM_ACTION/ },
+      handler(_, id) {
+        if (packageName(id) !== 'react-dom') serverActions.add(path.relative(getRoot(), id))
+        return null
+      },
+    },
     load(id) {
       if (id === clientOnlyStub) {
         return 'export default function ClientOnlyStub(){ throw new Error("Client-only module invoked during SSR") }'
@@ -325,6 +423,17 @@ export function ssrPlugin(getRoot, loadVite) {
               'long texts and attribute values with & < > " or \' in them take longer to render',
           )
         }
+        const chained = chainEscapes(source)
+        if (chained) {
+          source = chained
+        } else {
+          this.warn(
+            `${react} has no loop over the characters of a text in escapeTextForBrowser in the form the tifa ` +
+              'plugin knows, so the tifa plugin does not escape them with replaceAll. Pages render the same, but ' +
+              'texts and attribute values with & < > " or \' in them that the cache of escapes does not hold take ' +
+              'longer to render',
+          )
+        }
         const joined = joinSegmentChunks(source)
         if (joined) {
           source = joined
@@ -335,7 +444,22 @@ export function ssrPlugin(getRoot, loadVite) {
               'render the same, but take longer to render',
           )
         }
-        const guarded = guardSwitches(source, this.parse(source))
+        // A syntax tree goes only with the source it was parsed from: each change below parses
+        // the source the changes before it left.
+        const parse = (code) => this.parse(code)
+        const read = keyPathNamesRead(parse(source))
+        const unnamed = !read && dropKeyPathNames(source)
+        if (unnamed) {
+          source = unnamed
+          namesDropped = true
+        } else {
+          this.warn(
+            `${react} ${read || `has no "${keyPathName.trim().split('\n')[0]}" the tifa plugin knows`}, ` +
+              'so the tifa plugin does not leave the names of components out of their key paths. Pages render the ' +
+              'same, but take longer to render',
+          )
+        }
+        const guarded = guardSwitches(source, parse)
         if (guarded.switches.length > 0) {
           source = guarded.code
         } else {
@@ -355,6 +479,18 @@ export function ssrPlugin(getRoot, loadVite) {
               'a Suspense boundary cannot say why',
           )
           return source
+        }
+        // React gives that handler the component stack of the error, which the handler drops.
+        const stacksRead = componentStacksRead(parse(source))
+        const unstacked = !stacksRead && dropComponentStacks(source)
+        if (unstacked) {
+          source = unstacked
+        } else {
+          this.warn(
+            `${react} ${stacksRead || 'has no pushComponentStack in the form the tifa plugin knows'}, so the tifa ` +
+              'plugin does not keep React from building component stacks. Pages render the ' +
+              'same, but take longer to render',
+          )
         }
         return (
           source.replace(ignoredErrors, 'function onError(error) { tifaOnError?.(error) }') +
@@ -392,6 +528,16 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
       return null
     },
     buildEnd() {
+      // React writes the key of the state of useActionState with a server action from the key path
+      // of the component, see dropKeyPathNames.
+      if (namesDropped && serverActions.size > 0) {
+        this.warn(
+          `${[...serverActions].join(', ')}: has $$FORM_ACTION in its code, the property of a server action. tifa ` +
+            'has no server actions, and the tifa plugin leaves the names of components out of their key paths in ' +
+            'React, so if the module makes such an action, the key React writes into a form for the state of ' +
+            'useActionState with it differs from the one React writes without the plugin',
+        )
+      }
       // seroval moved the code the plugin changes to another file.
       if (seroval && !serovalMain) {
         this.warn(
@@ -416,6 +562,12 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
       // ssr.js and ssr.js.map come from one build. The output folder is kept between dev
       // builds, so a map this build did not write is of other code.
       if (!bundle['ssr.js.map']) fs.rmSync(path.join(options.dir, 'ssr.js.map'), { force: true })
+    },
+    renderChunk(code, chunk) {
+      const plain = plainNamespaces(code, chunk.moduleIds)
+      if (plain.warning) this.warn(plain.warning)
+      // The code keeps the lines and places it had, so the source map fits it as it is.
+      return plain.code === code ? null : { code: plain.code, map: null }
     },
     async generateBundle(_, bundle) {
       const chunks = Object.values(bundle).filter((output) => output.type === 'chunk')
@@ -442,7 +594,8 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
 // escapes, keyed by the string. It holds escapeCacheSize code units, and when the next string does
 // not fit it starts over empty: texts of the data, which differ in each request, fill it, and the
 // strings every render writes come back at the next render. A string larger than the whole cache
-// is not kept. The cache lives in the module, so each VM has its own.
+// is not kept. The cache lives in the module, so each VM has its own. It searches with exec, which
+// takes less time in QuickJS than test: test looks up exec and calls it.
 function cacheEscapes(source) {
   if (source.split(escapeSource).length !== 2) return null
   const cached = `matchHtmlRegExp = /["'&<>]/;
@@ -450,7 +603,7 @@ var tifaEscapes = new Map(),
   tifaEscapesSize = 0;
 function escapeTextForBrowser(text) {
   if ("string" !== typeof text) return tifaEscapeTextForBrowser(text);
-  if (!matchHtmlRegExp.test(text)) return text;
+  if (null === matchHtmlRegExp.exec(text)) return text;
   var escaped = tifaEscapes.get(text);
   if (void 0 === escaped) {
     escaped = tifaEscapeTextForBrowser(text);
@@ -464,7 +617,156 @@ function escapeTextForBrowser(text) {
   return escaped;
 }
 function tifaEscapeTextForBrowser(text) {`
-  return source.replace(escapeSource, () => cached)
+  return source.replace(escapeSource, () => sameLines(escapeSource, cached))
+}
+
+// chainEscapes returns the source of React's string renderer with escapeTextForBrowser escaping
+// each of the five characters it escapes with one replaceAll, or null when the source does not
+// have its loop over the characters in the form it knows. The loop handles one character at a
+// time, which takes long in QuickJS, and replaceAll runs in the engine. Both give the same text:
+// each character becomes its entity, & first, so the & of the other entities stays as it is, and
+// no entity has any of the other four characters in it. A string without them comes back as it
+// is, without a call of replaceAll.
+function chainEscapes(source) {
+  if (source.split(escapeLoop).length !== 2) return null
+  const chained = `  null !== matchHtmlRegExp.exec(text) &&
+    (text = text
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#x27;"));
+  return text;`
+  return source.replace(escapeLoop, () => sameLines(escapeLoop, chained))
+}
+
+// dropComponentStacks returns the source of React's string renderer without the component stacks
+// it builds, or null when the source does not have the code that builds them in the form it
+// knows. React puts each element it renders on the component stack of its task, an object for
+// each, which takes long in QuickJS. In the string renderer the stack only goes into the second
+// argument of the error handler of renderToString, as errorInfo.componentStack, and the tifa
+// plugin gives renderToString a handler that passes on only the error. React needs the stack only
+// for that, so it can stop building it: pushComponentStack does nothing, and renderNodeDestructive
+// no longer saves and restores the stack around each node. The call of retryNode stays on its
+// line, for the stack traces of render errors. The plugin changes the source only when
+// componentStacksRead finds no other readers of the stacks.
+function dropComponentStacks(source) {
+  if (source.split(stackPush).length !== 2 || source.split(stackAroundNode).length !== 2) return null
+  return source
+    .replace(stackPush, () => sameLines(stackPush, 'function pushComponentStack() {}'))
+    .replace(stackAroundNode, () => '\n\n      retryNode(request, task)\n    );')
+}
+
+// componentStacksRead returns why program, React's string renderer, may read component stacks
+// otherwise than the tifa plugin knows, or '' when it reads them only as stackReaders has it.
+function componentStacksRead(program) {
+  let calls = 0
+  let reads = 0
+  visitNodes(program, (node, parent, key) => {
+    if (node.type === 'CallExpression' && node.callee.type === 'Identifier' && node.callee.name === 'getThrownInfo') calls++
+    if (named(node, 'componentStack') && !(parent.type === 'AssignmentExpression' && key === 'left')) reads++
+  })
+  return `${calls} ${reads}` === stackReaders
+    ? ''
+    : `calls getThrownInfo ${calls} times and reads componentStack ${reads} times, which the tifa plugin does not know`
+}
+
+// dropKeyPathNames returns the source of React's string renderer without the names of components
+// in their key paths, or null when the source does not take the name in the form it knows. For
+// each element it renders, React gets the name of its component, which takes long in QuickJS, and
+// puts it into the key path of the element. Of the code that reads the names, only one place runs
+// in renderToString: useActionState hashes the key path into the key of its state, for an action
+// with $$FORM_ACTION, which only a server action has. The others resume or prerender a page. tifa
+// has no server actions, and the plugin warns of each module that sets $$FORM_ACTION. The plugin
+// leaves the names out only when keyPathNamesRead finds no form state and no other readers of the
+// names.
+function dropKeyPathNames(source) {
+  if (source.split(keyPathName).length !== 2) return null
+  return source.replace(keyPathName, () => '            name = null,\n            keyOrIndex =')
+}
+
+// keyPathNamesRead returns why program, React's string renderer, may read the names of components
+// in their key paths, or '' when it does not in renderToString. It reads them only as
+// keyPathReaders has it, and creates each request without a form state: RequestInstance and
+// createRequest have a parameter formState, each new RequestInstance passes nothing or void 0 for
+// it, or the formState of createRequest, and each call of createRequest passes nothing or void 0.
+function keyPathNamesRead(program) {
+  const params = {}
+  const calls = { RequestInstance: [], createRequest: [] }
+  let hashes = 0
+  let names = 0
+  const functions = [] // the names of the functions around the node, the innermost last
+  const visit = (node) => {
+    if (node.type === 'FunctionDeclaration' && node.id && node.id.name in calls) {
+      params[node.id.name] = node.params.findIndex((param) => param.type === 'Identifier' && param.name === 'formState')
+    }
+    const callee = (node.type === 'NewExpression' || node.type === 'CallExpression') && node.callee.type === 'Identifier' && node.callee.name
+    if (callee === 'RequestInstance' && node.type === 'NewExpression' || callee === 'createRequest' && node.type === 'CallExpression') {
+      calls[callee].push({ node, inside: functions.at(-1) })
+    }
+    if (
+      node.type === 'CallExpression' && named(node.callee, 'stringify') && node.callee.object.type === 'Identifier' &&
+      node.callee.object.name === 'JSON' && node.arguments[0]?.type === 'ArrayExpression'
+    ) {
+      hashes++
+    }
+    if (
+      node.type === 'MemberExpression' && node.computed && node.property.type === 'Literal' && node.property.value === 1 &&
+      node.object.type === 'Identifier' && /(^k|K)eyPath$/.test(node.object.name)
+    ) {
+      names++
+    }
+    const fn = functionTypes.has(node.type)
+    if (fn) functions.push(node.id?.name)
+    for (const value of Object.values(node)) {
+      for (const child of Array.isArray(value) ? value : [value]) {
+        if (child && typeof child.type === 'string') visit(child)
+      }
+    }
+    if (fn) functions.pop()
+  }
+  visit(program)
+  const nothing = (arg) => arg === undefined || (arg.type === 'UnaryExpression' && arg.operator === 'void' && arg.argument.type === 'Literal')
+  const passes = (name, ok) =>
+    params[name] >= 0 &&
+    calls[name].length > 0 &&
+    calls[name].every(({ node, inside }) => node.arguments.every((arg) => arg.type !== 'SpreadElement') && ok(node.arguments[params[name]], inside))
+  const fromCreateRequest = (arg, inside) => inside === 'createRequest' && arg.type === 'Identifier' && arg.name === 'formState'
+  if (!passes('createRequest', nothing) || !passes('RequestInstance', (arg, inside) => nothing(arg) || fromCreateRequest(arg, inside))) {
+    return 'may create a request with a form state'
+  }
+  return `${hashes} ${names}` === keyPathReaders
+    ? ''
+    : `calls JSON.stringify with an array ${hashes} times and reads [1] of a key path ${names} times, which the tifa plugin does not know`
+}
+
+// visitNodes calls visit with each node of the syntax tree node, its parent and the key of the
+// parent that holds it.
+function visitNodes(node, visit, parent = null, key = null) {
+  if (parent) visit(node, parent, key)
+  for (const [k, value] of Object.entries(node)) {
+    for (const child of Array.isArray(value) ? value : [value]) {
+      if (child && typeof child.type === 'string') visitNodes(child, visit, node, k)
+    }
+  }
+}
+
+// named reports whether node reads the property name of an object with a dot.
+function named(node, name) {
+  return node.type === 'MemberExpression' && !node.computed && node.property.type === 'Identifier' && node.property.name === name
+}
+
+// sameLines returns to, which replaces from, with as many lines as from, so the lines after it
+// stay where they were: the places in React DOM that the stack traces of render errors give are
+// those of the code the tifa plugin loads for it. A shorter to gets empty lines in front, so its
+// last lines stay where the last lines of from were. Lines that to has beyond those of from go on
+// its last line, which only works for code without line comments that ends each statement with a
+// semicolon.
+function sameLines(from, to) {
+  const want = from.split('\n').length
+  const lines = to.split('\n')
+  if (lines.length > want) lines.splice(want - 1, Infinity, lines.slice(want - 1).map((line) => line.trim()).join(' '))
+  return '\n'.repeat(want - lines.length) + lines.join('\n')
 }
 
 // joinSegmentChunks returns the source of React's string renderer with flushSubtree handing the
@@ -487,11 +789,11 @@ function joinSegmentChunks(source) {
         (r = destination.push(
           0 === chunkIdx ? chunks.join("") : chunks.slice(chunkIdx).join("")
         ));`
-  return source.replace(segmentLoops, () => joined)
+  return source.replace(segmentLoops, () => sameLines(segmentLoops, joined))
 }
 
-// guardSwitches puts a check of a Set in front of each switch of program, the syntax tree of
-// source, that compares a name with string cases only, at least guardedCases of them. QuickJS
+// guardSwitches puts a check of a Set in front of each switch of source, which it parses with
+// parse, that compares a name with string cases only, at least guardedCases of them. QuickJS
 // compares the name with one case after the other, so a name that matches none, such as most
 // attributes and tags in React's string renderer, costs a comparison for each case. With the
 // check it goes to the default clause at once:
@@ -513,9 +815,11 @@ function joinSegmentChunks(source) {
 //
 // The block keeps an if without else from taking the else of an if around the switch. The Sets are
 // declared after the hashbang and the directives of source, so they exist before any of its code
-// runs. It changes nothing in a source that already names tifaSwitchCases.
-export function guardSwitches(source, program) {
+// runs. Each line of source stays where it was. It changes nothing in a source that already names
+// tifaSwitchCases.
+export function guardSwitches(source, parse) {
   if (source.includes(switchCases)) return { code: source, switches: [] }
+  const program = parse(source)
   const found = []
   const scopes = [] // the names each function around the node declares, the innermost last
   const visit = (node) => {
@@ -545,20 +849,22 @@ export function guardSwitches(source, program) {
     const last = n.cases[n.cases.length - 1]
     const guarded =
       last.test === null
-        ? `if (${set}.has(${x})) switch (${x}) {\n${code.slice(n.cases[0].start, last.start)}} else switch (0) {\n${code.slice(last.start, n.end - 1)}}`
+        ? `if (${set}.has(${x})) ${code.slice(n.start, last.start)}} else switch (0) { ${code.slice(last.start, n.end - 1)}}`
         : `if (${set}.has(${x})) ${code.slice(n.start, n.end)}`
     code = code.slice(0, n.start) + `{ ${guarded} }` + code.slice(n.end)
     sets.push(`var ${set} = new Set([${tests.map((c) => JSON.stringify(c.test.value)).join(', ')}]);`)
     switches.push({ name: x, cases: tests.map((c) => c.test.value) })
   }
   if (sets.length === 0) return { code: source, switches: [] }
-  // After the line of a hashbang, which must come first.
-  let at = source.startsWith('#!') ? source.search(/[\n\r\u2028\u2029]|$/) : 0
+  // On the line after a hashbang, which must come first, after a semicolon that ends the
+  // directive before them, if any.
+  const hashbang = source.startsWith('#!') ? /\r\n|[\n\r\u2028\u2029]|$/.exec(source) : null
+  let at = hashbang ? hashbang.index + hashbang[0].length : 0
   for (const node of program.body) {
     if (typeof node.directive !== 'string') break
     at = node.end
   }
-  return { code: code.slice(0, at) + '\n' + sets.join('\n') + '\n' + code.slice(at), switches: switches.reverse() }
+  return { code: code.slice(0, at) + ';' + sets.join(' ') + ' ' + code.slice(at), switches: switches.reverse() }
 }
 
 const functionTypes = new Set(['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression'])
@@ -611,6 +917,70 @@ function guardable(node) {
       ),
     )
   )
+}
+
+// plainNamespaces returns code, a chunk of the SSR bundle before it is minified, with the ES
+// modules that import a CommonJS module of plainPackages getting a namespace of plain values, and
+// a warning when it cannot do that. ids are the modules of the chunk. rolldown gives an ES module
+// the exports of a CommonJS module with __toESM(require_x()), a namespace with a getter for each
+// export, so a page that calls React.createElement or a component that calls a hook of React
+// through a namespace calls a getter each time, which takes long in QuickJS. React and React DOM
+// set their exports once, when their modules run, and never change them, so plainESM gives the
+// same namespace with each export's value: the same values, prototype, names and enumerability.
+// It changes only the calls of __toESM whose module rolldown wrote under a region of those
+// packages, and finds the helpers and the calls by the form rolldown writes them in: when the form
+// is another, it warns and changes nothing. The calls keep their length and plainESM goes at the
+// end of the line of __toESM, which has no source, so every other place stays where it was.
+export function plainNamespaces(code, ids) {
+  const packages = [...new Set(ids.map(packageName).filter((name) => plainPackages.has(name)))].sort()
+  if (packages.length === 0 || !/\b__toESM(?:\$\d+)?\(/.test(code)) return { code }
+  const skip = (why) => ({
+    code,
+    warning:
+      `${packages.join(', ')}: ${why}, so the tifa plugin does not give the modules that import them namespaces ` +
+      'of plain values in place of getters. Pages render the same, but take longer to render',
+  })
+  const start = code.search(/\bvar __copyProps(?:\$\d+)? = /)
+  const end = code.indexOf(' : target, mod));', start) + ' : target, mod));'.length
+  const helpers = new Map() // the name of each helper to its name in the bundle
+  const known =
+    start >= 0 &&
+    end > start &&
+    code
+      .slice(start, end)
+      .replace(/\s+/g, ' ')
+      .replace(/\b(__[A-Za-z]+)(\$\d+)?/g, (_, name, number = '') => {
+        if ((helpers.get(name) ?? name + number) !== name + number) helpers.set(name, null)
+        else helpers.set(name, name + number)
+        return name
+      }) === esmHelpers &&
+    ![...helpers.values()].includes(null)
+  if (!known) {
+    return skip('rolldown writes __toESM, which gives an ES module the exports of a CommonJS module, in a form the tifa plugin does not know')
+  }
+  const toESM = helpers.get('__toESM')
+  const plainName = '__tifaV' + toESM.slice('__toESM'.length)
+  if (new RegExp(`\\b${plainName.replace('$', '\\$')}(?![\\w$])`).test(code)) return skip(`the SSR bundle already names ${plainName}`)
+  const regions = new Map() // the name of each module's require function to its package
+  for (const m of code.matchAll(/^\/\/#region ([^\n]+)\n[\t ]*var (require_[\w$]+) = \/\* @__PURE__ \*\/ __commonJSMin(?:\$\d+)?\(/gm)) {
+    regions.set(m[2], packageName(m[1]))
+  }
+  const plain = []
+  for (const { index: at } of code.matchAll(new RegExp(`(?<![\\w$])${toESM.replace('$', '\\$')}\\(`, 'g'))) {
+    const call = code.slice(at + toESM.length + 1, at + toESM.length + 200)
+    const required = /^(require_[\w$]+)\(\)/.exec(call)?.[1]
+    if (!required) {
+      if (/^\(\/\* @__PURE__ \*\/ __commonJSMin(?:\$\d+)?\(/.test(call)) continue
+      return skip(`rolldown calls __toESM in a form the tifa plugin does not know: ${toESM}(${call.split('\n')[0].slice(0, 40)}`)
+    }
+    if (!regions.has(required)) return skip(`the tifa plugin cannot tell which package ${required}() of the SSR bundle loads`)
+    if (plainPackages.has(regions.get(required))) plain.push(at)
+  }
+  if (plain.length === 0) return { code }
+  let changed = code
+  for (const at of plain) changed = changed.slice(0, at) + plainName + changed.slice(at + plainName.length)
+  const helper = plainESM.replace('__tifaV', plainName).replace(/\b__[A-Za-z]+\b/g, (name) => helpers.get(name) ?? name)
+  return { code: changed.slice(0, end) + helper + changed.slice(end) }
 }
 
 // hostLoads returns the places where the bundle may still load a module at run time, which

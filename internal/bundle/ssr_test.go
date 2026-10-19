@@ -15,6 +15,7 @@ import (
 	"github.com/liustack/quickjs"
 
 	"github.com/liustack/tifa/internal/ssr"
+	"github.com/liustack/tifa/js"
 )
 
 // buildScript builds entry of root like an SSR bundle with the tifa plugin and fails the test on
@@ -127,6 +128,10 @@ const escapesPage = "import './host'\n" +
 // minified bundle keeps it as a number, so it shows whether the cache is in the bundle.
 const escapeCacheChars = "262144"
 
+// searchedWithExec finds the search of the cache of escapes for a character to escape, with exec,
+// in a minified bundle.
+var searchedWithExec = regexp.MustCompile(`if\(\w+\.exec\(\w+\)===null\)return \w+;var \w+=\w+\.get\(`)
+
 // The tifa plugin caches the escapes of React's string renderer, and pages render the same with
 // the cache as without it.
 func TestSSRCachesTheEscapesOfReact(t *testing.T) {
@@ -135,6 +140,9 @@ func TestSSRCachesTheEscapesOfReact(t *testing.T) {
 	code, printed := buildPrinting(t, root, "escapes.tsx")
 	if !strings.Contains(code, escapeCacheChars) {
 		t.Error("the bundle has no cache of escapes")
+	}
+	if !searchedWithExec.MatchString(code) {
+		t.Error("the cache of escapes does not search with exec")
 	}
 	if strings.Contains(printed, "escape") {
 		t.Errorf("the build prints:\n%s", printed)
@@ -161,6 +169,60 @@ func TestSSRCachesTheEscapesOfReact(t *testing.T) {
 		if got := evalResult(t, code); got != cached {
 			t.Errorf("%s: the page renders otherwise without the cache", name)
 		}
+	}
+}
+
+// everyEscapePage renders, as text and as attribute values, every UTF-16 code unit between two
+// ampersands, all of them in a row, and 3,000 strings of up to 40 code units drawn from the
+// characters React escapes, letters, lone surrogates and characters outside Latin-1. The cache of
+// escapes has seen none of them, so React escapes each one itself.
+const everyEscapePage = "import './host'\n" +
+	"import { renderToString } from 'react-dom/server.edge'\n" +
+	"const units = Array.from({ length: 0x10000 }, (_, c) => String.fromCharCode(c))\n" +
+	"const texts = [units.join('&'), units.join(''), units.join('<a>')]\n" +
+	"const alphabet = ['a', 'b', ' ', '&', '<', '>', '\"', \"'\", '&amp;', '\\ud800', '\\udc00', 'é', '订', '🙂']\n" +
+	"let seed = 1\n" +
+	"const random = (n: number) => ((seed = (seed * 1103515245 + 12345) % 2147483648), seed % n)\n" +
+	"for (let i = 0; i < 3000; i++) {\n" +
+	"  let s = ''\n" +
+	"  for (let n = random(41); n > 0; n--) s += alphabet[random(alphabet.length)]\n" +
+	"  texts.push(s)\n" +
+	"}\n" +
+	"globalThis.result = renderToString(<div>{texts.map((t, i) => <p key={i} title={t}>{t}</p>)}</div>)\n"
+
+// escapedAtOnce finds the escape of & with replaceAll in a minified bundle.
+var escapedAtOnce = regexp.MustCompile("\\.replaceAll\\(`&`,`&amp;`\\)")
+
+// React's string renderer escapes a string one character at a time. The tifa plugin escapes it
+// with replaceAll, once for each character React escapes, and pages render the same as without
+// that.
+func TestSSREscapesEachCharacterAtOnce(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"escapes.tsx": everyEscapePage})
+	code, printed := buildPrinting(t, root, "escapes.tsx")
+	if !escapedAtOnce.MatchString(code) {
+		t.Error("the bundle does not escape with replaceAll")
+	}
+	if strings.Contains(printed, "react-dom") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	escaped := evalResult(t, code)
+	for _, want := range []string{"&amp;&lt;&amp;", "&amp;&gt;&amp;", "&amp;&quot;&amp;", "&amp;&#x27;&amp;", "&amp;amp;"} {
+		if !strings.Contains(escaped, want) {
+			t.Errorf("the page has no %s", want)
+		}
+	}
+	changed := withReactDOM(t, "for (index = match.index; index < text.length; index++) {", "for (index = match.index; text.length > index; index++) {")
+	writeTree(t, changed, map[string]string{"escapes.tsx": everyEscapePage})
+	code, printed = buildPrinting(t, changed, "escapes.tsx")
+	if escapedAtOnce.MatchString(code) {
+		t.Error("the bundle escapes with replaceAll in a React DOM it does not know")
+	}
+	if !strings.Contains(printed, "react-dom 19.3.0: ") || !strings.Contains(printed, "the tifa plugin does not escape them with replaceAll") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	if got := evalResult(t, code); got != escaped {
+		t.Error("the page renders otherwise with React's loop over the characters")
 	}
 }
 
@@ -265,6 +327,239 @@ func TestSSRJoinsTheChunksOfEachSegment(t *testing.T) {
 // joinedChunks finds the chunks of a segment joined by the tifa plugin in a minified bundle.
 var joinedChunks = regexp.MustCompile("\\.slice\\([^()]*\\)\\.join\\(``\\)")
 
+// stacksPage renders, three times over, elements of each kind React puts on its component
+// stacks: function and class components, memo, forwardRef, context, fragments, keyed lists and
+// Suspense boundaries, one of which throws. It also renders a component that throws outside a
+// Suspense boundary, and records how many arguments onError gets and the errors.
+const stacksPage = "import './host'\n" +
+	"import { renderToString } from 'react-dom/server.edge'\n" +
+	"import { Component, Fragment, Suspense, createContext, forwardRef, memo, useContext } from 'react'\n" +
+	"const Theme = createContext('light')\n" +
+	"function Leaf({ n }: { n: number }) {\n  return <i data-n={n}>{useContext(Theme)} {n}</i>\n}\n" +
+	"const Memo = memo(Leaf)\n" +
+	"const Ref = forwardRef<HTMLSpanElement, { n: number }>(({ n }, ref) => <span ref={ref}><Memo n={n} /></span>)\n" +
+	"class Box extends Component<{ children: any }> {\n  render() {\n    return <section>{this.props.children}</section>\n  }\n}\n" +
+	"function Broken(): never {\n  throw new Error('BROKEN')\n}\n" +
+	"function Page() {\n" +
+	"  return <Theme.Provider value=\"dark\">\n" +
+	"    <Box>{[1, 2, 3].map((n) => <Fragment key={n}><Ref n={n} /><Leaf n={n} /></Fragment>)}</Box>\n" +
+	"    <Suspense fallback=\"a\"><Box><Memo n={4} /></Box></Suspense>\n" +
+	"    <Suspense fallback=\"b\"><Leaf n={5} /><Broken /></Suspense>\n" +
+	"    <Theme.Consumer>{(theme) => <b>{theme}</b>}</Theme.Consumer>\n" +
+	"  </Theme.Provider>\n" +
+	"}\n" +
+	"const lines: string[] = []\n" +
+	"for (let i = 0; i < 3; i++) {\n" +
+	"  const calls: string[] = []\n" +
+	"  lines.push(renderToString(<Page />, { onError: function () { calls.push(arguments.length + ' ' + arguments[0].message) } } as any))\n" +
+	"  lines.push(calls.join())\n" +
+	"}\n" +
+	"try {\n  renderToString(<Box><Broken /></Box>)\n} catch (err) {\n  lines.push('throws ' + (err as Error).message)\n}\n" +
+	"globalThis.result = lines.join('\\n')\n"
+
+// componentStack finds where React puts an element on a component stack in a minified bundle.
+var componentStack = regexp.MustCompile(`componentStack=\{parent:[\w$]+\.componentStack,type:`)
+
+// React's string renderer puts each element it renders on a component stack, which it only gives
+// the error handler of renderToString. The tifa plugin drops what that handler gets besides the
+// error, and the component stacks with it, and pages render the same as with them.
+func TestSSRBuildsNoComponentStacks(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"stacks.tsx": stacksPage})
+	code, printed := buildPrinting(t, root, "stacks.tsx")
+	if componentStack.MatchString(code) {
+		t.Error("the bundle builds component stacks")
+	}
+	if strings.Contains(printed, "react-dom") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	unstacked := evalResult(t, code)
+	for _, want := range []string{"<i data-n=\"3\">dark<!-- --> <!-- -->3</i>", "<!--$!--><template></template>b<!--/$-->", "\n1 BROKEN\n", "throws BROKEN"} {
+		if !strings.Contains(unstacked, want) {
+			t.Errorf("the page has no %q:\n%s", want, unstacked)
+		}
+	}
+	for name, change := range map[string][2]string{
+		"stack":   {"task.componentStack = { parent: task.componentStack, type: node.type };", "task.componentStack = { type: node.type, parent: task.componentStack };"},
+		"onError": {"function onError() {}", "function onError() { }"},
+		// Another reader of the stacks: a call of getThrownInfo, and a read of a stack alone.
+		"thrown": {"function onError() {}", "function tifaThrown(task) {\n  return getThrownInfo(task.componentStack);\n}\nfunction onError() {}"},
+		"read":   {"function onError() {}", "function tifaStack(task) {\n  return task.componentStack;\n}\nfunction onError() {}"},
+	} {
+		changed := withReactDOM(t, change[0], change[1])
+		writeTree(t, changed, map[string]string{"stacks.tsx": stacksPage})
+		code, printed := buildPrinting(t, changed, "stacks.tsx")
+		if name == "stack" && !regexp.MustCompile(`componentStack=\{type:`).MatchString(code) || name != "stack" && !componentStack.MatchString(code) {
+			t.Errorf("%s: the bundle builds no component stacks", name)
+		}
+		if name != "onError" && !strings.Contains(printed, "the tifa plugin does not keep React from building component stacks") {
+			t.Errorf("%s: the build prints:\n%s", name, printed)
+		}
+		if name == "onError" {
+			continue // React's own onError: the errors go nowhere
+		}
+		if got := evalResult(t, code); got != unstacked {
+			t.Errorf("%s: the page renders otherwise with component stacks:\n%s\nwant:\n%s", name, got, unstacked)
+		}
+	}
+}
+
+// namespacesPage imports React, React DOM and abort-controller, which are CommonJS packages, as
+// namespaces, from a TSX module and from an .mjs one, which rolldown imports in Node mode. It
+// renders through them and gives, for an export of each, whether its namespace has a plain value
+// for it or a getter. An ES module that a CommonJS module requires declares the names of rolldown's
+// helpers, so rolldown renames its own, as it does in larger apps.
+const namespacesPage = "import './host'\n" +
+	"import * as React from 'react'\n" +
+	"import ReactDefault from 'react'\n" +
+	"import * as ReactDOM from 'react-dom'\n" +
+	"import * as AbortControllers from 'abort-controller'\n" +
+	"import { renderToString } from 'react-dom/server.edge'\n" +
+	"import { kind, nodeMode } from './node-mode.mjs'\n" +
+	"import helpers from './helpers.cjs'\n" +
+	"function Page() {\n  const [n] = React.useState(3)\n  return React.createElement('b', null, n, ReactDefault.Children.count([1, 2]))\n}\n" +
+	"globalThis.result = [renderToString(React.createElement(Page)), kind(React, 'useState'), kind(ReactDOM, 'flushSync'),\n" +
+	"  kind(AbortControllers, 'AbortController'), nodeMode(), ReactDefault === (React as any).default, helpers.names].join(' ')\n"
+
+const nodeModeModule = "import * as R from 'react'\n" +
+	"export const kind = (ns, name) => ('value' in Object.getOwnPropertyDescriptor(ns, name) ? 'value' : 'getter')\n" +
+	"export const nodeMode = () => kind(R, 'useId') + ' ' + typeof R.default.useId\n"
+
+// The modules that import React or React DOM as a namespace get plain values in place of getters,
+// in Node mode too, and the other packages keep their getters.
+func TestSSRGivesReactNamespacesPlainValues(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{
+		"namespaces.tsx": namespacesPage,
+		"node-mode.mjs":  nodeModeModule,
+		"helpers.cjs":    "module.exports = require('./helpers.mjs')\n",
+		"helpers.mjs":    "var __toESM = 't', __defProp = 'd', __copyProps = 'c', __commonJSMin = 'm'\nexport const names = __toESM + __defProp + __copyProps + __commonJSMin\n",
+	})
+	code, printed := buildPrinting(t, root, "namespaces.tsx")
+	if printed != "" {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	if got, want := evalResult(t, code), "<b>3<!-- -->2</b> value value getter value function true tdcm"; got != want {
+		t.Errorf("result = %q, want %q", got, want)
+	}
+}
+
+// keyPathsPage renders, three times over, components of each kind with and without keys, nested
+// in each other, useId, which React derives from the place of a component, and forms with
+// useActionState and function actions, with and without a permalink. None of the actions is a
+// server action.
+const keyPathsPage = "import './host'\n" +
+	"import { renderToString } from 'react-dom/server.edge'\n" +
+	"import { Fragment, Suspense, forwardRef, memo, useActionState, useId } from 'react'\n" +
+	"function Field({ label }: { label: string }) {\n  const id = useId()\n  return <label htmlFor={id}>{label}<input id={id} /></label>\n}\n" +
+	"const Memo = memo(Field)\n" +
+	"const Ref = forwardRef<HTMLDivElement, { n: number }>(({ n }, ref) => <div ref={ref}><Memo label={'m' + n} /></div>)\n" +
+	"function Counter({ permalink }: { permalink?: string }) {\n" +
+	"  const [count, increment, pending] = useActionState((n: number) => n + 1, 0, permalink)\n" +
+	"  return <form action={increment}><output>{count} {String(pending)}</output><button formAction={increment}>+</button></form>\n" +
+	"}\n" +
+	"function Page() {\n" +
+	"  return <main>\n" +
+	"    {['a', 'b'].map((k) => <Fragment key={k}><Field label={k} /><Ref n={1} /></Fragment>)}\n" +
+	"    <Field label=\"c\" />\n" +
+	"    <Suspense fallback=\"x\"><Counter /><Counter permalink=\"/count\" /></Suspense>\n" +
+	"    {[1, 2].map((n) => <Ref key={n} n={n} />)}\n" +
+	"  </main>\n" +
+	"}\n" +
+	"globalThis.result = [0, 1, 2].map(() => renderToString(<Page />)).join('\\n')\n"
+
+// keyPath finds the key path React makes for an element in a minified bundle, with the variable
+// that holds the name of its component.
+var keyPath = regexp.MustCompile(`\[[\w$]+\.keyPath,([\w$]+),[\w$]+\]`)
+
+// namesInKeyPaths reports whether a minified bundle puts the names of components into their key
+// paths: whether the last value given to the variable of the name before the key path is another
+// than null.
+func namesInKeyPaths(t *testing.T, code string) bool {
+	t.Helper()
+	m := keyPath.FindStringSubmatchIndex(code)
+	if m == nil {
+		t.Fatal("the bundle makes no key paths")
+	}
+	name := code[m[2]:m[3]]
+	values := regexp.MustCompile(`[,;{(]`+regexp.QuoteMeta(name)+`=([^,;]+)`).FindAllStringSubmatch(code[max(0, m[0]-500):m[0]], -1)
+	if values == nil {
+		t.Fatalf("the bundle gives %s no value before %s", name, code[m[0]:m[1]])
+	}
+	return values[len(values)-1][1] != "null"
+}
+
+// React's string renderer puts the name of each component it renders into the path of keys of the
+// component, which only server actions read. The tifa plugin leaves the names out, and pages
+// render the same as with them.
+func TestSSRLeavesComponentNamesOutOfKeyPaths(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"keys.tsx": keyPathsPage})
+	code, printed := buildPrinting(t, root, "keys.tsx")
+	if namesInKeyPaths(t, code) {
+		t.Error("the bundle puts the names of components into their key paths")
+	}
+	if printed != "" {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	unnamed := evalResult(t, code)
+	for _, want := range []string{"<label for=\"_R_", "<output>0<!-- --> <!-- -->false</output>", "javascript:throw new Error("} {
+		if !strings.Contains(unnamed, want) {
+			t.Errorf("the page has no %q:\n%s", want, unnamed)
+		}
+	}
+	for name, change := range map[string][2]string{
+		"names":     {"name = getComponentNameFromType(type),\n", "name = (getComponentNameFromType(type)),\n"},
+		"formState": {"    void 0,\n    void 0\n  );\n  children.flushScheduled", "    void 0,\n    globalThis.formState\n  );\n  children.flushScheduled"},
+		"request":   {"    onFatalError,\n    formState\n  );", "    onFatalError,\n    globalThis.formState\n  );"},
+		// Another reader of the names: a key from a key path, and the name of a key path.
+		"key":  {"function onError() {}", "function tifaKey(keyPath) {\n  return JSON.stringify([keyPath, null, 0]);\n}\nfunction onError() {}"},
+		"name": {"function onError() {}", "function tifaName(keyPath) {\n  return keyPath[1];\n}\nfunction onError() {}"},
+	} {
+		changed := withReactDOM(t, change[0], change[1])
+		writeTree(t, changed, map[string]string{"keys.tsx": keyPathsPage})
+		code, printed := buildPrinting(t, changed, "keys.tsx")
+		if !namesInKeyPaths(t, code) {
+			t.Errorf("%s: the bundle leaves the names of components out of their key paths", name)
+		}
+		if !strings.Contains(printed, "react-dom 19.3.0: ") || !strings.Contains(printed, "the tifa plugin does not leave the names of components out") {
+			t.Errorf("%s: the build prints:\n%s", name, printed)
+		}
+		if got := evalResult(t, code); got != unnamed {
+			t.Errorf("%s: the page renders otherwise with the names:\n%s\nwant:\n%s", name, got, unnamed)
+		}
+	}
+}
+
+// A server action has a $$FORM_ACTION, and React writes a key for its form state from the key path
+// of the component, names included. tifa has no server actions, and the build warns of each module
+// with $$FORM_ACTION in its code.
+func TestSSRWarnsOfServerActions(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{
+		"actions.tsx": "import './host'\nimport { renderToString } from 'react-dom/server.edge'\nimport { action } from './action'\n" +
+			"globalThis.result = renderToString(<form action={action}></form>)\n",
+		"action.ts": "export function action() {}\n(action as any).$$FORM_ACTION = () => ({ name: 'a', action: '/a' })\n",
+	})
+	_, printed := buildPrinting(t, root, "actions.tsx")
+	if !strings.Contains(printed, "action.ts: has $$FORM_ACTION in its code") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+}
+
+// The tifa plugin leaves the names of components out of their key paths because the server
+// renders with renderToString, which takes no form state. The runtime imports no other renderer.
+func TestRuntimeRendersOnlyWithRenderToString(t *testing.T) {
+	server, err := js.Runtime.ReadFile("runtime/server.tsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	imports := regexp.MustCompile(`import\s*(\{[^}]*\}|[\w$*][^'"]*)\s*from\s*['"](react-dom[^'"]*)['"]`).FindAllStringSubmatch(string(server), -1)
+	if len(imports) != 1 || imports[0][2] != "react-dom/server.edge" || strings.Join(strings.Fields(imports[0][1]), " ") != "{ renderToString as renderString }" {
+		t.Errorf("js/runtime/server.tsx imports %q from React DOM, want only renderToString", imports)
+	}
+}
+
 // switchesPage renders each name of NAMES, which the test replaces with a JSON list, and names
 // that are no case of React's switches, as the tag of an element alone, with props and children,
 // and inside each element that gives its children another format context, and as a prop of a few
@@ -351,6 +646,31 @@ func TestSSRGuardsTheSwitchesOfReact(t *testing.T) {
 			t.Errorf("render %d is otherwise without the Set checks:\n%s\nwant:\n%s", i, got[i], want[i])
 			break
 		}
+	}
+}
+
+// The tifa plugin puts a Set check in front of a switch of React DOM after the code its other
+// changes make shorter or longer, at the end of the renderer too.
+func TestSSRGuardsTheSwitchesAfterTheOtherChanges(t *testing.T) {
+	renderer := filepath.Join(testModules(t), "react-dom", "cjs", "react-dom-server-legacy.browser.production.js")
+	switches := guardedOnNode(t, []string{renderer}, true)[0].Switches
+	cases := ""
+	for _, c := range "abcdefgh" {
+		cases += "    case \"" + string(c) + "\":\n"
+	}
+	last := "function tifaSwitch(name) {\n  switch (name) {\n" + cases + "      return 1;\n    default:\n      return 0;\n  }\n}\n" +
+		"globalThis.tifaSwitched = tifaSwitch(\"c\") + tifaSwitch(\"z\");\nfunction onError() {}"
+	changed := withReactDOM(t, "function onError() {}", last)
+	writeTree(t, changed, map[string]string{"keys.tsx": keyPathsPage + "globalThis.result += '\\n' + (globalThis as any).tifaSwitched\n"})
+	code, printed := buildPrinting(t, changed, "keys.tsx")
+	if got := len(guardedSwitch.FindAllString(code, -1)); got != len(switches)+1 {
+		t.Errorf("the bundle has %d switches with a Set check, want %d", got, len(switches)+1)
+	}
+	if printed != "" {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	if got := evalResult(t, code); !strings.HasSuffix(got, "\n1") {
+		t.Errorf("the switch gives %q, want 1", got[strings.LastIndex(got, "\n")+1:])
 	}
 }
 
