@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### 新增
+
+- 示例应用多了给顾客的中英文店面，在 `/store` 下：商品搜索和筛选、商品详情、购物车、结算表单，以及用 Markdown 写、代码带高亮的手记。
+
 ### 变更
 
 - 有页面的应用装的 React 或 React DOM 低于 19.3.0 时，`tifa build` 和 `tifa dev` 报错停下。

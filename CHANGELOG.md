@@ -4,6 +4,10 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 
 ## [Unreleased]
 
+### Added
+
+- The example app has a storefront for customers in Chinese and English under `/store`: product search and filters, product pages, a cart, a checkout form, and a journal written in Markdown with highlighted code.
+
 ### Changed
 
 - `tifa build` and `tifa dev` stop with an error when an app with pages installs React or React DOM older than 19.3.0.

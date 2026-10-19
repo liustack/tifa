@@ -14,7 +14,7 @@ tifa is a full-stack Go framework: Go handles routing, data loading, caching and
 
 ## Current state of the repository
 
-The example app `examples/shop` is a shop order workbench written by tifa conventions. It is a separate Go module (`github.com/liustack/tifa/examples/shop`). Its `go.mod` uses `replace` to point at the repository root and registers `cmd/tifa` as a tool. The root module does not import it. `test/e2e` builds and checks it, the real-bundle tests in `test/ssr` use its build output, and it is the app to check against when changing framework behavior. The framework's code and tests under `internal/` do not use it: they test with their own `testdata`. The prototype go-quick stays at the tag `prototype-baseline`, and all performance comparisons build from that tag.
+The example app `examples/shop` is a shop written by tifa conventions: an order workbench under `/projects` and a storefront in two languages under `/store`. The six pages of `BenchmarkShop` are workbench pages. It is a separate Go module (`github.com/liustack/tifa/examples/shop`). Its `go.mod` uses `replace` to point at the repository root and registers `cmd/tifa` as a tool. The root module does not import it. `test/e2e` builds and checks it, the real-bundle tests in `test/ssr` use its build output, and it is the app to check against when changing framework behavior. The framework's code and tests under `internal/` do not use it: they test with their own `testdata`. The prototype go-quick stays at the tag `prototype-baseline`, and all performance comparisons build from that tag.
 
 ## Docs (`docs/`)
 
