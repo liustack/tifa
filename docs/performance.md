@@ -50,7 +50,24 @@ The same `ssr.js` in Node 24, loaded with `vm.runInThisContext` and given the sa
 - P99 is 4 to 16.5 ms in Node with JIT, 4 to 25 ms with `--jitless` and 15.5 to 44.4 ms in QuickJS.
 - A cold Node process takes 74 to 75 ms for its first order list.
 - Before quickjs v0.26.12 and v0.26.13, and before three rewrites of the SSR bundle (joining the chunks React writes, checking a `Set` before React's long `switch` statements, and a shorter length from which seroval, the library TanStack Router writes a page's data with, uses `JSON.stringify`), the same measurement gave about 13.6 times slower than Node with JIT and 4.45 times slower than `--jitless`.
-- This compares renders only. Node's HTTP server and a Node cluster across cores were not measured.
+- This compares renders only. [Compared with Next.js and TanStack Start](#compared-with-nextjs-and-tanstack-start) compares whole requests.
+
+### Compared with Next.js and TanStack Start
+
+The shop was also written for Next.js 16.4.2 (App Router, every route dynamic, data loaded in server components, the same React components) and for TanStack Start 1.169.3 (the same routes and loaders), on Node 24.13.0. These two versions were written only for this measurement and are not in this repository. All three give the same visible text on the six pages. The test sent whole requests over HTTP, the six pages in turn, with `Accept-Encoding: identity`, on the same GCP machine in one session. For two cores, Next.js and Start run two processes under Node's cluster module (Start uses Nitro's `node-cluster` preset), and tifa runs 2 VMs.
+
+| | tifa | Next.js | TanStack Start |
+| --- | --- | --- | --- |
+| One core, requests/s | 49 to 52 | 185 to 199 | 284 to 293 |
+| Two cores, 2 in flight, requests/s | 100 to 102 | 312 | 513 to 520 |
+| Two cores against one | 1.98 times | 1.67 times | 1.81 times |
+| Peak memory (RSS), one core | 62 MiB | 466 MiB | 356 to 366 MiB |
+| Peak memory (RSS), two cores | 83 MiB | 989 to 1000 MiB | 781 to 784 MiB |
+| From process start to first answer | 273 ms | 659 ms | 294 ms |
+| Request from which latency settles | 7th | 260th to 530th | 310th to 510th |
+
+- On one core, Next.js answers 3.7 to 3.9 times as many requests as tifa, and Start 5.6 to 5.8 times. Next.js run with `--jitless` answers 1.27 times as many, and on the stats page tifa is 2% to 4% ahead of it.
+- With the default `Accept-Encoding` of the load tool, tifa and Next.js send gzip and Start sends pages uncompressed (about 53 KB against about 8.5 KB). Compression costs tifa 1.3% of its requests a second and Next.js 16% on one core, so there Next.js answers 3.1 times as many.
 
 ## How it scales with cores
 
