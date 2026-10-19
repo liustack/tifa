@@ -45,6 +45,9 @@ type Server struct {
 	Addr            string
 	BodyLimit       int64
 	ShutdownTimeout time.Duration
+	// Compress sends text answers with gzip or zstd to clients that accept them, and the
+	// browser bundle as the files tifa build compressed.
+	Compress bool
 }
 
 type SSR struct {
@@ -73,7 +76,7 @@ const DefaultAddr = "127.0.0.1:9527"
 func Default() Config {
 	return Config{
 		Build:  Build{Target: "es2020", Public: "public", PGO: "auto"},
-		Server: Server{Addr: DefaultAddr, BodyLimit: 1 << 20, ShutdownTimeout: 10 * time.Second},
+		Server: Server{Addr: DefaultAddr, BodyLimit: 1 << 20, ShutdownTimeout: 10 * time.Second, Compress: true},
 		SSR:    SSR{VMs: runtime.GOMAXPROCS(0), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second},
 		Cache:  Cache{Size: 64 << 20},
 	}
@@ -102,6 +105,7 @@ func fields(c *Config) []field {
 		{"server.addr", "HTTP listen address", stringValue{&c.Server.Addr}},
 		{"server.body_limit", "Request body limit", sizeValue{&c.Server.BodyLimit, 1}},
 		{"server.shutdown_timeout", "Time allowed for in-flight requests, and then for OnShutdown, after a stop signal", durationValue{&c.Server.ShutdownTimeout}},
+		{"server.compress", "Compress text answers and send the compressed browser bundle", boolValue{&c.Server.Compress}},
 		{"ssr.vms", "Prewarmed JavaScript VMs, defaults to GOMAXPROCS (the CPU limit in containers)", intValue{p: &c.SSR.VMs, min: 1}},
 		{"ssr.vm_memory", "Memory limit of each VM", sizeValue{&c.SSR.VMMemory, 1}},
 		{"ssr.vm_stack_depth", "How deep JavaScript calls may nest in each VM, at most 10000", intValue{p: &c.SSR.VMStackDepth, min: 1, max: MaxVMStackDepth,

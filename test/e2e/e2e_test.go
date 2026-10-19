@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -450,7 +451,7 @@ func TestPagesApp(t *testing.T) {
 
 	// A page renders in the VM with the Loads' data.
 	status, header, body := get(t, base+"/shops/north/items/apple")
-	if status != 200 || header.Get("X-Tifa-Render") != "vm" || header.Get("Vary") != "X-Tifa-Route" {
+	if status != 200 || header.Get("X-Tifa-Render") != "vm" || !slices.Contains(header.Values("Vary"), "X-Tifa-Route") {
 		t.Errorf("page: %d %v", status, header)
 	}
 	// The data goes into the page as JSON through the tifa.data adapter.
@@ -485,7 +486,7 @@ func TestPagesApp(t *testing.T) {
 	}
 	// A navigation asks for the listed routes and gets their results by route ID.
 	status, header, body = get(t, base+"/shops/north/items/apple", "X-Tifa-Route", "app/shops/shop+/layout,app/shops/shop+/items/item+/route", "X-Tifa-Build", built.BuildID)
-	if status != 200 || header.Get("Vary") != "X-Tifa-Route" || body != `{"app/shops/shop+/items/item+/route":{"status":200,"data":{"id":"apple","title":"Apple","price":1.5,"tags":["fruit"]}},"app/shops/shop+/layout":{"status":200,"data":{"id":"north","name":"Shop north"}}}` {
+	if status != 200 || !slices.Contains(header.Values("Vary"), "X-Tifa-Route") || body != `{"app/shops/shop+/items/item+/route":{"status":200,"data":{"id":"apple","title":"Apple","price":1.5,"tags":["fruit"]}},"app/shops/shop+/layout":{"status":200,"data":{"id":"north","name":"Shop north"}}}` {
 		t.Errorf("data request: %d %v %s", status, header, body)
 	}
 	if status, _, _ := get(t, base+"/shops/north", "X-Tifa-Route", "app/shops/shop+/layout", "X-Tifa-Build", "old"); status != 409 {

@@ -1,6 +1,8 @@
 package e2e
 
 import (
+	"bytes"
+	"compress/gzip"
 	"errors"
 	"io"
 	"io/fs"
@@ -8,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -104,6 +107,8 @@ func TestShopApp(t *testing.T) {
 	if _, again, _ := get(t, detail); again.Get("X-Tifa-Render") != "cache" {
 		t.Errorf("second request of a Cache = true page: %s", again.Get("X-Tifa-Render"))
 	}
+
+	checkCompressed(t, base, dir, built.BuildID, built.Head)
 
 	// 404 at each level: the order inside the project Layout, the project inside the root Layout,
 	// an unknown URL on its own. Each one keeps a title, the last from the root Layout's documentHead.
@@ -293,4 +298,92 @@ func replaceIn(t *testing.T, path, old, new string) {
 		t.Fatalf("%s lacks %q", path, old)
 	}
 	write(t, path, strings.Replace(string(data), old, new, 1))
+}
+
+// checkCompressed checks that the built shop sends its pages, navigation data and browser bundle
+// compressed: pages and data compressed while they are sent, the bundle as the .gz files of the
+// build, every one with Vary: Accept-Encoding.
+func checkCompressed(t *testing.T, base, dir, buildID, head string) {
+	t.Helper()
+	client := &http.Client{Transport: &http.Transport{DisableCompression: true}}
+	fetch := func(path, accept string, header ...string) (*http.Response, []byte) {
+		t.Helper()
+		req, err := http.NewRequest("GET", base+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Accept-Encoding", accept)
+		for i := 0; i < len(header); i += 2 {
+			req.Header.Set(header[i], header[i+1])
+		}
+		res, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		body, err := io.ReadAll(res.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(strings.Join(res.Header.Values("Vary"), ","), "Accept-Encoding") {
+			t.Errorf("%s: Vary %q", path, res.Header.Values("Vary"))
+		}
+		return res, body
+	}
+	gunzip := func(data []byte) string {
+		t.Helper()
+		r, err := gzip.NewReader(bytes.NewReader(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		plain, err := io.ReadAll(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(plain)
+	}
+
+	// The order list is about 85 KB of HTML.
+	page, body := fetch("/projects/studio", "gzip")
+	if page.Header.Get("Content-Encoding") != "gzip" || !strings.HasPrefix(page.Header.Get("ETag"), `W/"`) || len(body) > 20<<10 || !strings.Contains(gunzip(body), ">SH-1042</a>") {
+		t.Errorf("order list with gzip: %v, %d bytes", page.Header, len(body))
+	}
+	if page, _ := fetch("/projects/studio", "gzip, deflate, br, zstd"); page.Header.Get("Content-Encoding") != "zstd" {
+		t.Errorf("order list with zstd: %v", page.Header)
+	}
+	if page, body := fetch("/projects/studio", "identity"); page.Header.Get("Content-Encoding") != "" || page.Header.Get("Content-Length") != strconv.Itoa(len(body)) {
+		t.Errorf("order list without compression: %v, %d bytes", page.Header, len(body))
+	}
+	// The order page sets Cache = true: a hit goes out as the gzip form the cache stored, with its length.
+	fetch("/projects/studio/orders/SH-1042", "gzip")
+	if order, body := fetch("/projects/studio/orders/SH-1042", "gzip"); order.Header.Get("X-Tifa-Render") != "cache" || order.Header.Get("Content-Encoding") != "gzip" ||
+		order.Header.Get("Content-Length") != strconv.Itoa(len(body)) || !strings.Contains(gunzip(body), "SH-1042") {
+		t.Errorf("cached order with gzip: %v, %d bytes", order.Header, len(body))
+	}
+	data, body := fetch("/projects/studio", "gzip", "X-Tifa-Route", "app/layout,app/projects/project+/layout,app/projects/project+/route", "X-Tifa-Build", buildID)
+	if data.Header.Get("Content-Encoding") != "gzip" || !strings.Contains(gunzip(body), `"app/layout":{"status":200`) {
+		t.Errorf("navigation data: %v", data.Header)
+	}
+
+	// Each file the head loads, and the largest chunk among them, goes out as its .gz file.
+	largest := 0
+	for _, m := range headURL.FindAllStringSubmatch(head, -1) {
+		file := filepath.Join(dir, ".tifa", "dist", filepath.FromSlash(m[1]))
+		want, err := os.ReadFile(file + ".gz")
+		if err != nil {
+			t.Errorf("%s has no .gz: %v", m[1], err)
+			continue
+		}
+		if info, err := os.Stat(file); err == nil && info.Size() > int64(largest) {
+			largest = int(info.Size())
+		}
+		res, body := fetch(m[1], "gzip, deflate, br, zstd")
+		if res.Header.Get("Content-Encoding") != "gzip" || !bytes.Equal(body, want) || !strings.Contains(res.Header.Get("Cache-Control"), "immutable") ||
+			!strings.HasPrefix(res.Header.Get("Content-Type"), "text/") || res.Header.Get("Content-Length") != strconv.Itoa(len(want)) {
+			t.Errorf("%s: %v, %d bytes, want the %d of its .gz", m[1], res.Header, len(body), len(want))
+		}
+	}
+	if largest < 500<<10 {
+		t.Errorf("the largest file the head loads has %d bytes, the check wants the chunk over 500 KB", largest)
+	}
 }

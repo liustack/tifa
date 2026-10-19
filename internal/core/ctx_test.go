@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -319,5 +320,22 @@ func TestQueryAll(t *testing.T) {
 	}
 	if got := c.Query("tag"); got != "a" {
 		t.Errorf("Query(tag) = %q, want the first value", got)
+	}
+}
+
+// A whole body states its length, so net/http sends it without chunked framing and a
+// compressing writer above it can decide at the first write.
+func TestWholeBodiesCarryTheirLength(t *testing.T) {
+	for name, write := range map[string]func(*Ctx) error{
+		"JSON": func(c *Ctx) error { return c.JSON(200, map[string]string{"note": strings.Repeat("长", 3000)}) },
+		"Text": func(c *Ctx) error { return c.Text(200, strings.Repeat("x", 5000)) },
+	} {
+		c, w := newCtx("GET", "", "", 1024)
+		if err := write(c); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := w.Header().Get("Content-Length"), strconv.Itoa(w.Body.Len()); got != want {
+			t.Errorf("%s: Content-Length %q, body %s bytes", name, got, want)
+		}
 	}
 }

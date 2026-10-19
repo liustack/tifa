@@ -1,7 +1,7 @@
 ---
 summary: 'Every setting of a tifa app: where each one can be set, which source wins, the default, the flag and environment variable names, the value formats and the errors a bad value gives'
 read_when:
-  - Deploying a tifa app, or changing its port, body limit, VM count, VM stack depth, render timeout or page cache
+  - Deploying a tifa app, or changing its port, body limit, compression, VM count, VM stack depth, render timeout or page cache
   - Setting the browser target, the static files folder or the profile of a build
   - The program refuses to start with a config error
   - Changing internal/config
@@ -51,11 +51,12 @@ Run `./bin/app config` to print the merged settings of all sources as a commente
 | `server.addr` | `127.0.0.1:9527` | `--server-addr`, `TIFA_SERVER_ADDR` | Address to listen on. Use `0.0.0.0:9527` in a container |
 | `server.body_limit` | `1MiB` | `--server-body-limit`, `TIFA_SERVER_BODY_LIMIT` | Largest request body. A bigger one is answered with 413 |
 | `server.shutdown_timeout` | `10s` | `--server-shutdown-timeout`, `TIFA_SERVER_SHUTDOWN_TIMEOUT` | After a stop signal, the time in-flight requests get to finish, and then the time `OnShutdown` gets. Requests still running when it ends are canceled and get one more `shutdown_timeout` to return. `OnShutdown` runs once they have returned and is skipped if they have not. Either way the program exits with status 1 |
+| `server.compress` | `true` | `--server-compress`, `TIFA_SERVER_COMPRESS` | Sends text answers with gzip or zstd to clients that accept them, and the browser bundle as the gzip files `tifa build` wrote, see [Compression](build.md#compression). Set it to `false` when a proxy in front compresses, such as nginx with brotli |
 | `ssr.vms` | the CPU count (`GOMAXPROCS`) | `--ssr-vms`, `TIFA_SSR_VMS` | Prewarmed JavaScript VMs, which is how many pages render at once. In a container it follows the CPU limit. [Sizing a machine](performance.md#sizing-a-machine) says when to change it |
 | `ssr.vm_memory` | `128MiB` | `--ssr-vm-memory`, `TIFA_SSR_VM_MEMORY` | Memory limit of each VM. A render that runs out of memory fails, and the VM is replaced with a fresh one. Page code cannot catch it |
 | `ssr.vm_stack_depth` | `10000` | `--ssr-vm-stack-depth`, `TIFA_SSR_VM_STACK_DEPTH` | How deep JavaScript calls may nest in each VM, about one level per call. Deeper calls throw `RangeError: Maximum call stack size exceeded`, at about the depth Node does. From 1 to 10000, see [Stack depth](#stack-depth) |
 | `ssr.timeout` | `3s` | `--ssr-timeout`, `TIFA_SSR_TIMEOUT` | Time budget of one render. A render that runs longer is stopped and handled as an unexpected error, which goes to `OnError`. Page code cannot catch it |
-| `cache.size` | `64MiB` | `--cache-size`, `TIFA_CACHE_SIZE` | Size of the HTML cache of pages with `Cache = true`. `0` turns it off |
+| `cache.size` | `64MiB` | `--cache-size`, `TIFA_CACHE_SIZE` | Size of the HTML cache of pages with `Cache = true`, counting the gzip and zstd forms it keeps with `server.compress` on. `0` turns it off |
 
 ## Stack depth
 
@@ -86,7 +87,7 @@ What a lower depth breaks:
 - Durations use Go's format and must be positive: `500ms`, `3s`, `1m30s`.
 - `ssr.vms` is a whole number of at least 1.
 - `ssr.vm_stack_depth` is a whole number from 1 to 10000. A deeper stack would let code that recurses without end grow the goroutine stack past Go's limit, and the whole process would exit.
-- `build.skip_tanstack_check` is `true` or `false`, without quotes.
+- `build.skip_tanstack_check` and `server.compress` are `true` or `false`, without quotes. The flag takes its value after `=`: `--server-compress=false`.
 - `build.pgo` is `auto`, `off` or a path relative to the app root. YAML reads a plain `off` as text, so it needs no quotes. Words that read as a switch, such as `false`, `OFF` or `yes`, fail with what to write instead, and so does an absolute path.
 
 ## Errors

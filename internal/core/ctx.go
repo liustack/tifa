@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"sync"
 )
 
@@ -132,6 +133,7 @@ func (c *Ctx) JSON(code int, v any) error {
 		return err
 	}
 	c.w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	c.w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	c.w.WriteHeader(code)
 	_, err = c.w.Write(data)
 	return err
@@ -142,6 +144,7 @@ func (c *Ctx) Text(code int, s string) error {
 		return err
 	}
 	c.w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	c.w.Header().Set("Content-Length", strconv.Itoa(len(s)))
 	c.w.WriteHeader(code)
 	_, err := io.WriteString(c.w, s)
 	return err

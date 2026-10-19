@@ -8,13 +8,17 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"io"
 	"io/fs"
+	"mime"
 	"net/http"
 	"path"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 
+	"github.com/klauspost/compress/gzhttp"
 	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/internal/config"
 	"github.com/liustack/tifa/internal/core"
@@ -184,21 +188,38 @@ func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
-	if rest, ok := strings.CutPrefix(name, "assets/"); ok && serveFile(w, r, f.assets, rest, "public, max-age=31536000, immutable") {
+	if rest, ok := strings.CutPrefix(name, "assets/"); ok && serveFile(w, r, f.assets, rest, "public, max-age=31536000, immutable", s.cfg.Compress) {
 		return true
 	}
-	return serveFile(w, r, f.public, name, "no-cache")
+	return serveFile(w, r, f.public, name, "no-cache", false)
 }
 
-// serveFile answers with the regular file name of fsys and reports whether it exists.
-func serveFile(w http.ResponseWriter, r *http.Request, fsys fs.FS, name, cache string) bool {
+// serveFile answers with the regular file name of fsys and reports whether it exists. With
+// gz, a GET that accepts gzip gets the file name.gz that tifa build compressed, when there is
+// one, as nginx's gzip_static and Caddy's precompressed do: with the type of name, and a range
+// of a Range request taken from the compressed file. HEAD is answered with name, as gzhttp
+// answers HEAD uncompressed.
+func serveFile(w http.ResponseWriter, r *http.Request, fsys fs.FS, name, cache string, gz bool) bool {
 	if fsys == nil || name == "" || !fs.ValidPath(name) {
 		return false
 	}
 	if info, err := fs.Stat(fsys, name); err != nil || !info.Mode().IsRegular() {
 		return false
 	}
-	w.Header().Set("Cache-Control", cache)
+	h := w.Header()
+	h.Set("Cache-Control", cache)
+	if gz && r.Method == "GET" && quality(r.Header.Get("Accept-Encoding"), "gzip") > 0 {
+		info, err := fs.Stat(fsys, name+".gz")
+		if contentType := mime.TypeByExtension(path.Ext(name)); err == nil && info.Mode().IsRegular() && contentType != "" {
+			h.Set("Content-Type", contentType)
+			h.Set("Content-Encoding", "gzip")
+			// ServeContent leaves the length out of an answer with a Content-Encoding.
+			if r.Header.Get("Range") == "" {
+				h.Set("Content-Length", strconv.FormatInt(info.Size(), 10))
+			}
+			name += ".gz"
+		}
+	}
 	http.ServeFileFS(w, r, fsys, name)
 	return true
 }
@@ -396,6 +417,7 @@ func writeData(w http.ResponseWriter, status int, value any) error {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(status)
 	_, err = w.Write(data)
 	return err
@@ -412,7 +434,9 @@ type dataRedirect struct {
 
 // renderPage renders the document in the VM. A successful page gets an ETag from the hash of
 // the build ID, the SSR bundle, the URL and the data, which are all the render depends on. A matching
-// If-None-Match is answered 304, and with cache the HTML of an earlier render is reused.
+// If-None-Match is answered 304, and with cache the HTML of an earlier render is reused. With
+// server.compress the ETag is weak: the page goes out in several encodings under it, and the 304,
+// which is answered before the encoding is known, carries the same ETag as the 200.
 func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status int, cache bool) error {
 	r := c.Request()
 	injected, err := injectedResults(items)
@@ -433,7 +457,11 @@ func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status in
 	if status == http.StatusOK {
 		sum := sha256.Sum256([]byte(in.BuildID + "\x00" + f.build.bundle + "\x00" + in.URL + "\x00" + string(data)))
 		key = `"` + hex.EncodeToString(sum[:16]) + `"`
-		c.SetHeader("ETag", key)
+		etag := key
+		if s.cfg.Compress {
+			etag = "W/" + key
+		}
+		c.SetHeader("ETag", etag)
 		if etagMatches(c.Header("If-None-Match"), key) {
 			c.SetHeader(renderHeader, "none")
 			return c.NoContent(http.StatusNotModified)
@@ -441,7 +469,11 @@ func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status in
 		if cache {
 			if page, ok := s.cache.get(key); ok {
 				c.SetHeader(renderHeader, "cache")
-				return writeHTML(c, status, page)
+				encoding := s.formEncoding(c)
+				if encoding != "" && !page.compressed {
+					page = s.cachePage(key, page.html, encoding)
+				}
+				return writeCached(c, status, page, encoding)
 			}
 		}
 	}
@@ -459,11 +491,35 @@ func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status in
 	if err != nil {
 		return &renderError{err: err}
 	}
-	if cache && key != "" {
-		s.cache.put(key, page)
-	}
 	c.SetHeader(renderHeader, "vm")
-	return writeHTML(c, status, page)
+	if !cache || key == "" || !s.cache.holds(page) {
+		return writeHTML(c, status, page)
+	}
+	encoding := s.formEncoding(c)
+	return writeCached(c, status, s.cachePage(key, page, encoding), encoding)
+}
+
+// formEncoding is the encoding a page of the HTML cache goes out in to c: the one compressed would
+// pick, and none with server.compress off or No-Gzip-Compression set.
+func (s *Server) formEncoding(c *tifa.Ctx) string {
+	if !s.cfg.Compress || len(c.Writer().Header()[gzhttp.HeaderNoCompression]) > 0 {
+		return ""
+	}
+	return pageEncoding(c.Request())
+}
+
+// cachePage stores a page in the HTML cache and returns it as stored, with its forms even when
+// they did not fit. With an encoding to send it in, the page is compressed into its gzip and zstd
+// forms first, and the answer sends the one it takes. Without one the answer sends the HTML, so
+// only the HTML is kept, and the first hit with an encoding compresses the page.
+func (s *Server) cachePage(key, html, encoding string) cachedPage {
+	page := cachedPage{html: html}
+	if encoding != "" {
+		page.gzip, page.zstd = compressPage(html)
+		page.compressed = true
+	}
+	s.cache.put(key, page)
+	return page
 }
 
 // etagMatches implements the If-None-Match comparison of RFC 9110: weak, any of a list, or *.
@@ -502,11 +558,34 @@ func (s *Server) dataOnly(c *tifa.Ctx, items map[string]routeResult, status int)
 	return writeHTML(c, status, b.String())
 }
 
+// writeCached writes a page of the HTML cache in its form for encoding (formEncoding), and as
+// HTML when it has none. compressed leaves an answer that has a Content-Encoding as it is.
+func writeCached(c *tifa.Ctx, status int, page cachedPage, encoding string) error {
+	var body []byte
+	switch encoding {
+	case "gzip":
+		body = page.gzip
+	case "zstd":
+		body = page.zstd
+	}
+	if body == nil {
+		return writeHTML(c, status, page.html)
+	}
+	w := c.Writer()
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Encoding", encoding)
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+	w.WriteHeader(status)
+	_, err := w.Write(body)
+	return err
+}
+
 func writeHTML(c *tifa.Ctx, status int, page string) error {
 	w := c.Writer()
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Length", strconv.Itoa(len(page)))
 	w.WriteHeader(status)
-	_, err := w.Write([]byte(page))
+	_, err := io.WriteString(w, page)
 	return err
 }
 
@@ -565,8 +644,9 @@ func (s *Server) fallback(c *tifa.Ctx, e tifa.Error, err error) {
 	w := c.Writer()
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Length", strconv.Itoa(b.Len()))
 	w.WriteHeader(e.Status)
-	_, _ = w.Write([]byte(b.String()))
+	_, _ = io.WriteString(w, b.String())
 }
 
 // writeFallback writes a plain error page when the application cannot render one.
@@ -575,6 +655,7 @@ func writeFallback(w http.ResponseWriter, e tifa.Error) {
 	page := fmt.Sprintf(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>%s</title></head><body><h1>%s</h1><p>%s</p></body></html>`,
 		title, title, html.EscapeString(e.Message))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Length", strconv.Itoa(len(page)))
 	w.WriteHeader(e.Status)
-	_, _ = w.Write([]byte(page))
+	_, _ = io.WriteString(w, page)
 }

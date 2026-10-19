@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -103,7 +105,7 @@ func TestPageRendersWithTheResultsOfItsChain(t *testing.T) {
 	if w.Code != 200 || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/html") || w.Header().Get("X-Tifa-Render") != "vm" {
 		t.Fatalf("%d %v %s", w.Code, w.Header(), w.Body.String())
 	}
-	if w.Header().Get("Vary") != "X-Tifa-Route" || w.Header().Get("ETag") == "" {
+	if !varies(w, "X-Tifa-Route") || w.Header().Get("ETag") == "" {
 		t.Errorf("headers %v", w.Header())
 	}
 	in := r.inputs[0]
@@ -199,7 +201,7 @@ func TestPageWithoutSSRCarriesItsData(t *testing.T) {
 func TestDataRequestAnswersTheListedRoutes(t *testing.T) {
 	s, r := newFrontServer(t, frontApp())
 	w := get(s, "/projects/p1", "X-Tifa-Route", "app/projects/orders, app/projects", "X-Tifa-Build", "b1")
-	if w.Code != 200 || w.Header().Get("Vary") != "X-Tifa-Route" || r.count() != 0 {
+	if w.Code != 200 || !varies(w, "X-Tifa-Route") || r.count() != 0 {
 		t.Fatalf("%d %v %s", w.Code, w.Header(), w.Body.String())
 	}
 	var got map[string]routeResult
@@ -573,5 +575,68 @@ func TestInjectedResultsKeepTheJSONGoWrites(t *testing.T) {
 	}
 	if !reflect.DeepEqual(items, want) {
 		t.Fatalf("got %+v, want %+v", items, want)
+	}
+}
+
+// stringRecorder counts the strings it is handed whole, as net/http's writer takes them.
+type stringRecorder struct {
+	*httptest.ResponseRecorder
+	strings int
+}
+
+func (r *stringRecorder) WriteString(s string) (int, error) {
+	r.strings++
+	return r.ResponseRecorder.WriteString(s)
+}
+
+// Without compression a page reaches the connection as the string the render returned,
+// without a copy into a byte slice on the way. Compressing needs the bytes anyway.
+func TestPagesAreWrittenAsStrings(t *testing.T) {
+	cfg := config.Default()
+	cfg.Server.Compress = false
+	s := newBigServer(t, cfg, frontApp())
+	for _, target := range []string{"/projects/p1", "/login", "/nowhere"} {
+		w := &stringRecorder{ResponseRecorder: httptest.NewRecorder()}
+		s.ServeHTTP(w, httptest.NewRequest("GET", target, nil))
+		if w.Body.Len() == 0 || w.strings != 1 {
+			t.Errorf("%s: %d, %d strings, body %q", target, w.Code, w.strings, w.Body.String())
+		}
+	}
+	w := &stringRecorder{ResponseRecorder: httptest.NewRecorder()}
+	writeFallback(w, tifa.Error{Status: 500, Message: "down"})
+	if w.strings != 1 {
+		t.Errorf("plain error page: %d strings", w.strings)
+	}
+	// A string commits the response like bytes do, so a late error writes nothing more.
+	tw := &writer{ResponseWriter: httptest.NewRecorder()}
+	if _, err := io.WriteString(tw, "<html>"); err != nil || !tw.wrote {
+		t.Errorf("WriteString: %v, wrote %v", err, tw.wrote)
+	}
+}
+
+// Whole pages and JSON answers state their length.
+func TestPagesAndJSONCarryTheirLength(t *testing.T) {
+	s, _ := newFrontServer(t, frontApp())
+	for _, tc := range []struct {
+		name   string
+		w      *httptest.ResponseRecorder
+		status int
+	}{
+		{"page", get(s, "/projects/p1"), 200},
+		{"page from the cache", func() *httptest.ResponseRecorder { get(s, "/stats"); return get(s, "/stats") }(), 200},
+		{"page without SSR", get(s, "/login"), 200},
+		{"404 page", get(s, "/nowhere"), 404},
+		{"data request", get(s, "/projects/p1", "X-Tifa-Route", "app/layout", "X-Tifa-Build", "b1"), 200},
+		{"data request of another build", get(s, "/projects/p1", "X-Tifa-Route", "app/layout", "X-Tifa-Build", "old"), 409},
+		{"API error", send(newServer(Hooks{}), "GET", "/orders/missing", ""), 404},
+	} {
+		if got, want := tc.w.Header().Get("Content-Length"), strconv.Itoa(tc.w.Body.Len()); tc.w.Code != tc.status || got != want {
+			t.Errorf("%s: %d, Content-Length %q, body %s bytes", tc.name, tc.w.Code, got, want)
+		}
+	}
+	w := httptest.NewRecorder()
+	writeFallback(w, tifa.Error{Status: 500, Message: "down"})
+	if got, want := w.Header().Get("Content-Length"), strconv.Itoa(w.Body.Len()); got != want {
+		t.Errorf("plain error page: Content-Length %q, body %s bytes", got, want)
 	}
 }

@@ -290,9 +290,31 @@ func TestFileMustHoldOneDocument(t *testing.T) {
 }
 
 func TestKeysListEverySetting(t *testing.T) {
-	want := "build.target build.public build.skip_tanstack_check build.pgo server.addr server.body_limit server.shutdown_timeout ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout cache.size"
+	want := "build.target build.public build.skip_tanstack_check build.pgo server.addr server.body_limit server.shutdown_timeout server.compress ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout cache.size"
 	if got := strings.Join(Keys(), " "); got != want {
 		t.Fatalf("Keys: %s, want %s", got, want)
+	}
+}
+
+// server.compress is on by default and turns off from every runtime source.
+func TestCompressIsOnUnlessTurnedOff(t *testing.T) {
+	if !Default().Server.Compress {
+		t.Fatal("compression is off by default")
+	}
+	for name, tc := range map[string]struct {
+		args, environ []string
+	}{
+		"flag": {args: []string{"--server-compress=false"}},
+		"env":  {environ: []string{"TIFA_SERVER_COMPRESS=false"}},
+		"file": {args: []string{"--config", writeFile(t, "prod.yaml", "server:\n  compress: false\n")}},
+	} {
+		c, err := load(t, tc.args, tc.environ, "", "")
+		if err != nil || c.Server.Compress {
+			t.Errorf("%s: compress %v, %v", name, c.Server.Compress, err)
+		}
+	}
+	if _, err := load(t, nil, []string{"TIFA_SERVER_COMPRESS=gzip"}, "", ""); err == nil || !strings.Contains(err.Error(), "server.compress") {
+		t.Errorf("a word that is not a bool: %v", err)
 	}
 }
 
