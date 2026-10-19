@@ -1,8 +1,9 @@
 ---
-summary: 'How fast tifa renders pages and how that compares with Node, how throughput grows with cores, how to size CPUs, ssr.vms and memory, which changes made rendering faster and by how much, what was tried and dropped, how to measure again and where to continue'
+summary: 'How fast tifa renders pages and how that compares with Node, how throughput grows with cores, how to size CPUs, ssr.vms and memory, what compressing answers costs, which changes made rendering faster and by how much, what was tried and dropped, how to measure again and where to continue'
 read_when:
   - Deciding how many CPUs and how much memory a tifa app needs, or setting `ssr.vms`
   - Asking how fast tifa renders a page, or how it compares with Node
+  - Deciding whether to turn off `server.compress`, or changing how answers are compressed
   - Changing `internal/ssr`, the rewrites the Vite plugin makes to the SSR bundle, or the PGO profile, and checking what a change gains
   - Upgrading github.com/liustack/quickjs and checking that rendering did not get slower
   - Planning more work on SSR speed, or about to try an idea that may already have been tried
@@ -115,6 +116,38 @@ That adds up to about 10 MB. The other 7 MiB or so of each VM's 17 MiB has not b
 
 - Code that recurses without end can add up to about 24 MB of goroutine stack per VM for a moment.
 - On Linux, a VM that once recursed 10000 levels deep keeps about 20 MB more of TLS blocks until the VM closes.
+
+## Compression
+
+With [`server.compress`](config.md#settings) on, the default, see [Compression](build.md#compression), compressing a page costs under 1.2% of its render time, and the browser bundle goes out as the gzip files of the build at no CPU.
+
+What compressing one page takes, on one core of the machine above with the encoders reused as the server reuses them, the mean of 200 runs, next to the render P50 from [How fast a page renders](#how-fast-a-page-renders):
+
+| Page | HTML | gzip, level 5 | zstd, default level | Share of the render |
+| --- | --- | --- | --- | --- |
+| Order list | 81 to 86 KB | 9.3 to 9.8 KB in 256 to 280 µs | 9.0 to 9.5 KB in 143 to 152 µs | gzip 0.6% to 0.7%, zstd 0.4% |
+| Order | about 38 KB | 8.3 to 8.4 KB in 180 µs | 8.6 to 8.7 KB in 126 to 128 µs | gzip 1.2%, zstd 0.8% |
+| Stats | about 34 KB | 7.0 KB in 131 to 138 µs | 7.2 to 7.3 KB in 107 to 108 µs | gzip 1.0% to 1.1%, zstd 0.9% |
+
+Whole requests, with the server on one physical core (cpus 0 and 4, 2 VMs) and oha on another, two rounds of 15 seconds per step. Pages render with `--cache-size 0`. "Identity" asks for no compression, zstd is what `Accept-Encoding: gzip, zstd` gets, gzip what `Accept-Encoding: gzip` gets:
+
+| Request | Identity | zstd | gzip |
+| --- | --- | --- | --- |
+| Six pages in turn, 1 in flight | 43.4 to 44.5 requests/s, P50 14.9 to 15.0 ms, 51 to 52 KB each | 43.3 to 43.7, P50 15.1 to 15.2 ms, 8.3 to 8.4 KB | 41.6 to 43.6, P50 15.2 to 15.4 ms, 8.3 KB |
+| Six pages in turn, 2 in flight | 52.1 to 53.3, P50 24.6 to 24.8 ms | 53.0 to 53.8, P50 24.7 to 24.9 ms | 51.4 to 51.8, P50 25.1 to 25.2 ms |
+| Navigation data of a list, 64 in flight | 8,108 to 8,159, 6,632 bytes | 7,383 to 7,484, 1,227 bytes | 6,951 to 7,002, 1,258 bytes |
+| Navigation data of an order, 64 in flight | 12,875 to 13,356, 1,350 bytes | 11,091 to 11,102, 739 bytes | 10,689 to 10,761, 737 bytes |
+| Navigation data of the stats, 64 in flight | 8,729 to 8,743, 2,947 bytes | 7,833 to 7,837, 777 bytes | 7,564 to 7,636, 734 bytes |
+| The 700 KB chunk of the bundle, 64 in flight | 3,854 to 5,105, 699,833 bytes | the `.gz` file: 11,549 to 12,182, 224,176 bytes | the same `.gz` file |
+
+- For pages, compressing is within the noise of whole requests: the CPU of a request moved by up to 1 ms from run to run, several times what compressing takes. Pages go out about 6 times smaller.
+- Navigation data is cheap to answer, so compressing it shows: 23 to 43 µs more CPU per request, 8% to 20% fewer requests a second on a saturated core, for answers 1.8 to 5.4 times smaller. gzip costs more than zstd here too.
+- The bundle sent as its `.gz` file takes less CPU than the file itself, since there are fewer bytes to write: 2.4 to 3 times the requests a second.
+- zstd at gzhttp's fastest level would take 82 to 138 µs a page, but the pages come out 3% to 11% larger than with gzip. At its default level, as in Caddy and Traefik, the order lists are 3% smaller than gzip and the other pages about 4% larger.
+- Brotli at levels 4 and 5, with the pure Go encoder github.com/andybalholm/brotli, takes 648 to 1,183 µs a page, 4 to 6 times gzip, for pages 3% to 16% smaller.
+- For files the build compresses, gzip at its best level gives 224 KB for the 700 KB chunk. zstd at its best level would give 213 KB, and brotli at level 11 192 KB.
+- The program of the shop is 1.12 MiB larger: 0.35 MiB of `.gz` files and the code of gzip and zstd.
+- During these runs the other cpus of the machine were at most 3% busy.
 
 ## What made it faster
 
