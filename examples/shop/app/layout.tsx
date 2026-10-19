@@ -44,6 +44,10 @@ export default function AppLayout() {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const loading = useRouterState({ select: (state) => state.isLoading })
 
+  // The storefront is for customers: its Layout draws its own header and footer, without the
+  // workbench around it.
+  if (pathname.startsWith('/store/')) return <Outlet />
+
   return (
     <TooltipProvider>
       <SidebarProvider defaultOpen={shell.sidebarOpen}>

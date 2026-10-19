@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/http/cookiejar"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -204,6 +205,121 @@ func TestShopApp(t *testing.T) {
 	}
 	if status, _, _ := get(t, base+"/projects/studio", "X-Tifa-Route", "app/projects/project+/layout", "X-Tifa-Build", "old"); status != 409 {
 		t.Errorf("data request of another build: %d", status)
+	}
+
+	checkStorefront(t, base)
+}
+
+// rendered returns the part of a page React rendered, without the data written after it.
+func rendered(page string) string {
+	i := strings.Index(page, `id="tifa-root"`)
+	if i < 0 {
+		return ""
+	}
+	html, _, _ := strings.Cut(page[i:], "<script")
+	return html
+}
+
+// checkStorefront checks the customer side of the shop at /store/{lang}: pages in both
+// languages with their money and dates, search and filters in the query string, Markdown with
+// highlighted code, and a cart kept in a cookie through to a placed order.
+func checkStorefront(t *testing.T, base string) {
+	t.Helper()
+	for _, tc := range []struct {
+		path  string
+		wants []string
+	}{
+		{"/store/zh-CN", []string{"<title>山海 · 日常器物</title>", `lang="zh-CN"`, "秋天的第一壶茶"}},
+		{"/store/en-US/products?color=moss&sort=price-asc", []string{"<title>All products · Shanhai</title>", "11 products", `products/dot-notebook">Dot Grid Notebook</a>`}},
+		{"/store/en-US/products/pour-over-kettle", []string{"Morning Pour-Over Kettle", "$46.20", "63 reviews", "Order now and get it between"}},
+		{"/store/zh-CN/products/pour-over-kettle", []string{"晨间手冲壶", "¥328.00"}},
+		{"/store/zh-CN/journal/stock-sync-api", []string{"用开放接口同步库存", "<table", `hljs language-go`, `class="hljs-keyword"`}},
+	} {
+		// The title is in the head, the rest in what React rendered.
+		status, _, page := get(t, base+tc.path)
+		for _, want := range tc.wants {
+			in := rendered(page)
+			if strings.HasPrefix(want, "<title>") {
+				in = page
+			}
+			if status != 200 || !strings.Contains(in, want) {
+				t.Errorf("%s: %d lacks %s", tc.path, status, want)
+			}
+		}
+	}
+	// Prices are in the rendered order the filters ask for: the cheapest moss product first.
+	_, _, list := get(t, base+"/store/en-US/products?color=moss&sort=price-asc")
+	if a, b := strings.Index(rendered(list), "Dot Grid Notebook"), strings.Index(rendered(list), "Beeswax Wraps"); a < 0 || b < a {
+		t.Errorf("moss products by price: notebook at %d, wraps at %d", a, b)
+	}
+	for _, path := range []string{"/store/xx", "/store/zh-CN/products/nope", "/store/en-US/journal/nope"} {
+		if status, _, _ := get(t, base+path); status != 404 {
+			t.Errorf("%s: %d, want 404", path, status)
+		}
+	}
+
+	// The cart lives in a cookie made by the first change. Errors come back field by field.
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	do := func(method, path, body string) (int, http.Header, string) {
+		t.Helper()
+		req, err := http.NewRequest(method, base+path, strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if method != "GET" {
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Origin", base)
+		}
+		res, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("%s %s: %v", method, path, err)
+		}
+		defer res.Body.Close()
+		b, err := io.ReadAll(res.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.StatusCode, res.Header, string(b)
+	}
+	kettle := "/store/en-US/products/pour-over-kettle"
+	if status, body := send(t, "POST", base+kettle, base, `{"color":"pink","size":"","quantity":1}`); status != 422 || !strings.Contains(body, `"color":"variant"`) {
+		t.Errorf("add a colour the kettle lacks: %d %s", status, body)
+	}
+	status, header, body := do("POST", kettle, `{"color":"charcoal","size":"","quantity":2}`)
+	if status != 200 || !strings.Contains(header.Get("Set-Cookie"), "store_cart=") || body != `{"count":7}` {
+		t.Errorf("add to cart: %d %s %v", status, body, header)
+	}
+	if status, _, body := do("PATCH", "/store/en-US/cart", `{"line":"pour-over-kettle.charcoal","quantity":3}`); status != 200 || !strings.Contains(body, `"id":"pour-over-kettle.charcoal","slug":"pour-over-kettle","name":"Morning Pour-Over Kettle","color":"charcoal","colorName":"Charcoal"`) || !strings.Contains(body, `"count":8,`) {
+		t.Errorf("change a quantity: %d %s", status, body)
+	}
+	if status, _, body := do("POST", "/store/en-US/cart", `{"code":"NOPE"}`); status != 422 || !strings.Contains(body, `"code":"coupon"`) {
+		t.Errorf("unknown coupon: %d %s", status, body)
+	}
+	if status, _, _ := do("POST", "/store/zh-CN/cart", `{"code":"welcome30"}`); status != 204 {
+		t.Errorf("apply a coupon: %d", status)
+	}
+	if _, _, page := do("GET", "/store/zh-CN/cart", ""); !strings.Contains(rendered(page), "WELCOME30") || !strings.Contains(rendered(page), "−<!-- -->¥30.00") {
+		t.Errorf("cart after the coupon lacks the discount\n%s", rendered(page))
+	}
+	// The order is checked on the server too, and placing it empties the cart.
+	if status, _, body := do("POST", "/store/zh-CN/checkout", `{"email":"x","address":{"name":"","phone":"1","country":"CN","region":"","city":"","line1":"","line2":"","postalCode":"abc"},"delivery":"express","payment":"card","cardNumber":"4242424242424241","cardExpiry":"13/20","cardCvc":"1","billingSame":true,"notes":"","newsletter":false,"terms":false}`); status != 422 ||
+		!strings.Contains(body, `"address.postalCode":"postalCode"`) || !strings.Contains(body, `"cardNumber":"card"`) || !strings.Contains(body, `"terms":"terms"`) {
+		t.Errorf("checkout with errors: %d %s", status, body)
+	}
+	status, header, _ = do("POST", "/store/zh-CN/checkout", `{"email":"lin@example.com","address":{"name":"林夏","phone":"138 0013 8000","country":"CN","region":"上海市","city":"上海市","line1":"武康路 99 号","line2":"","postalCode":"200031"},"delivery":"express","payment":"alipay","cardNumber":"","cardExpiry":"","cardCvc":"","billingSame":true,"notes":"","newsletter":false,"terms":true}`)
+	placed := header.Get("Location")
+	if status != 303 || !strings.HasPrefix(placed, "/store/zh-CN/checkout?placed=SS-") {
+		t.Fatalf("place the order: %d %s", status, placed)
+	}
+	if _, _, page := do("GET", placed, ""); !strings.Contains(rendered(page), "已提交，确认邮件已发往 lin@example.com") {
+		t.Errorf("order confirmation:\n%s", rendered(page))
+	}
+	if _, _, page := do("GET", "/store/zh-CN/cart", ""); !strings.Contains(rendered(page), "购物车是空的") {
+		t.Errorf("cart after the order:\n%s", rendered(page))
 	}
 }
 
