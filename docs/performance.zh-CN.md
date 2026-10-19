@@ -50,7 +50,24 @@ tifa 在 QuickJS 里渲染页面。QuickJS 是用 C 写的 JavaScript 解释器�
 - P99：Node 有 JIT 是 4 到 16.5 ms，`--jitless` 是 4 到 25 ms，QuickJS 是 15.5 到 44.4 ms。
 - 冷启动的 Node 进程第一次渲染订单列表要 74 到 75 ms。
 - 在 quickjs v0.26.12 和 v0.26.13 之前，也在 SSR 包的三项改写之前（合并 React 写出的 chunk，React 的长 `switch` 前先查 `Set`，以及调低 seroval 改用 `JSON.stringify` 的长度，seroval 是 TanStack Router 用来把页面数据写进 HTML 的库），同样的测法是比有 JIT 慢约 13.6 倍，比 `--jitless` 慢 4.45 倍。
-- 这里只比渲染。Node 自己的 HTTP 服务和多核下的 Node cluster 没有测。
+- 这里只比渲染。整个请求的对比见 [和 Next.js 与 TanStack Start 比](#和-nextjs-与-tanstack-start-比)。
+
+### 和 Next.js 与 TanStack Start 比
+
+shop 另外照着写了 Next.js 16.4.2 版（App Router，每个路由都是动态的，数据在服务端组件里取，React 组件相同）和 TanStack Start 1.169.3 版（路由和 loader 相同），跑在 Node 24.13.0 上。这两个版本只为这次测量而写，不在本仓库里。三边六个页面的可见文本相同。测的是走 HTTP 的完整请求，六个页面轮流，带 `Accept-Encoding: identity`，同一台 GCP 机器，同一时段。两核时，Next.js 和 Start 用 Node 的 cluster 模块开两个进程（Start 用 Nitro 的 `node-cluster` preset），tifa 开 2 个 VM。
+
+| | tifa | Next.js | TanStack Start |
+| --- | --- | --- | --- |
+| 单核，每秒请求数 | 49 到 52 | 185 到 199 | 284 到 293 |
+| 两核，2 个在途，每秒请求数 | 100 到 102 | 312 | 513 到 520 |
+| 两核是单核的 | 1.98 倍 | 1.67 倍 | 1.81 倍 |
+| 内存峰值（RSS），单核 | 62 MiB | 466 MiB | 356 到 366 MiB |
+| 内存峰值（RSS），两核 | 83 MiB | 989 到 1000 MiB | 781 到 784 MiB |
+| 进程启动到第一次响应 | 273 ms | 659 ms | 294 ms |
+| 从第几个请求起延迟稳定 | 第 7 个 | 第 260 到 530 个 | 第 310 到 510 个 |
+
+- 单核时，Next.js 每秒答的请求是 tifa 的 3.7 到 3.9 倍，Start 是 5.6 到 5.8 倍。Next.js 加 `--jitless` 时是 1.27 倍，统计页上 tifa 比它快 2% 到 4%。
+- 压测工具用默认的 `Accept-Encoding` 时，tifa 和 Next.js 发 gzip，Start 不压缩（每页约 53 KB，压缩后约 8.5 KB）。压缩让 tifa 每秒请求数少 1.3%，让单核的 Next.js 少 16%，这时 Next.js 是 tifa 的 3.1 倍。
 
 ## 多核怎么扩展
 
