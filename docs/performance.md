@@ -129,7 +129,7 @@ What compressing one page takes, on one core of the machine above with the encod
 | Order | about 38 KB | 8.3 to 8.4 KB in 180 µs | 8.6 to 8.7 KB in 126 to 128 µs | gzip 1.2%, zstd 0.8% |
 | Stats | about 34 KB | 7.0 KB in 131 to 138 µs | 7.2 to 7.3 KB in 107 to 108 µs | gzip 1.0% to 1.1%, zstd 0.9% |
 
-Whole requests, with the server on one physical core (cpus 0 and 4, 2 VMs) and oha on another, two rounds of 15 seconds per step. Pages render with `--cache-size 0`. "Identity" asks for no compression, zstd is what `Accept-Encoding: gzip, zstd` gets, gzip what `Accept-Encoding: gzip` gets:
+Whole requests, with the server on one physical core (cpus 0 and 4, 2 VMs) and oha on another, two rounds of 15 seconds per step. Pages render with `--cache-size 0`, and the cached order pages, two in turn, come from the HTML cache. "Identity" asks for no compression, zstd is what `Accept-Encoding: gzip, zstd` gets, gzip what `Accept-Encoding: gzip` gets:
 
 | Request | Identity | zstd | gzip |
 | --- | --- | --- | --- |
@@ -138,10 +138,13 @@ Whole requests, with the server on one physical core (cpus 0 and 4, 2 VMs) and o
 | Navigation data of a list, 64 in flight | 8,108 to 8,159, 6,632 bytes | 7,383 to 7,484, 1,227 bytes | 6,951 to 7,002, 1,258 bytes |
 | Navigation data of an order, 64 in flight | 12,875 to 13,356, 1,350 bytes | 11,091 to 11,102, 739 bytes | 10,689 to 10,761, 737 bytes |
 | Navigation data of the stats, 64 in flight | 8,729 to 8,743, 2,947 bytes | 7,833 to 7,837, 777 bytes | 7,564 to 7,636, 734 bytes |
+| Cached order page, 1 in flight | 6,077 to 6,115, P50 0.15 ms, 38,469 bytes | 6,737 to 6,852, P50 0.14 ms, 8,607 and 8,609 bytes | 6,943 to 6,975, P50 0.14 ms, 8,317 bytes |
+| Cached order page, 64 in flight | 10,653 to 11,174, P99 13.8 to 14.6 ms | 13,140 to 13,245, P99 12.6 to 12.8 ms | 13,230 to 13,294, P99 12.7 ms |
 | The 700 KB chunk of the bundle, 64 in flight | 3,854 to 5,105, 699,833 bytes | the `.gz` file: 11,549 to 12,182, 224,176 bytes | the same `.gz` file |
 
 - For pages, compressing is within the noise of whole requests: the CPU of a request moved by up to 1 ms from run to run, several times what compressing takes. Pages go out about 6 times smaller.
 - Navigation data is cheap to answer, so compressing it shows: 23 to 43 µs more CPU per request, 8% to 20% fewer requests a second on a saturated core, for answers 1.8 to 5.4 times smaller. gzip costs more than zstd here too.
+- A cache hit sends the gzip or zstd form the cache stored with the page, so a compressed hit takes less CPU than an uncompressed one, 0.15 ms against 0.18 to 0.19 ms, as there are fewer bytes to write. When the stored HTML was compressed again on each hit, a hit took 0.45 ms of CPU in all with zstd and 0.54 ms with gzip, about 0.26 to 0.34 ms of it compressing, and hits at 64 in flight fell to 4,410 to 4,423 and 3,711 to 3,712 a second, with P99 of 34 to 37 ms. A miss that takes compression compresses the page in both forms and sends one of them, so it costs one compression more than a page without `Cache`: 0.8% to 1.2% of its render, the compression times of the first table divided by the render P50. A miss that takes no compression keeps the HTML alone and compresses nothing.
 - The bundle sent as its `.gz` file takes less CPU than the file itself, since there are fewer bytes to write: 2.4 to 3 times the requests a second.
 - zstd at gzhttp's fastest level would take 82 to 138 µs a page, but the pages come out 3% to 11% larger than with gzip. At its default level, as in Caddy and Traefik, the order lists are 3% smaller than gzip and the other pages about 4% larger.
 - Brotli at levels 4 and 5, with the pure Go encoder github.com/andybalholm/brotli, takes 648 to 1,183 µs a page, 4 to 6 times gzip, for pages 3% to 16% smaller.
