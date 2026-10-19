@@ -124,6 +124,7 @@ go tool tifa build
 | [Dev server](docs/dev.md) | Running `tifa dev` locally, or a change did not reload |
 | [Configuration](docs/config.md) | Deploying: the port, body limit, VMs, render timeout and page cache |
 | [Performance](docs/performance.md) | You want to know whether a small VPS can carry your traffic |
+| [Research studies](docs/studies/README.md) | You want the full method and data behind a number, or to see whether an idea was already tried |
 | [Testing](docs/testing.md) | Contributing to tifa itself |
 
 ## Talk to us
