@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -573,5 +574,39 @@ func TestInjectedResultsKeepTheJSONGoWrites(t *testing.T) {
 	}
 	if !reflect.DeepEqual(items, want) {
 		t.Fatalf("got %+v, want %+v", items, want)
+	}
+}
+
+// stringRecorder counts the strings it is handed whole, as net/http's writer takes them.
+type stringRecorder struct {
+	*httptest.ResponseRecorder
+	strings int
+}
+
+func (r *stringRecorder) WriteString(s string) (int, error) {
+	r.strings++
+	return r.ResponseRecorder.WriteString(s)
+}
+
+// A page reaches the connection as the string the render returned, without a copy into a
+// byte slice on the way.
+func TestPagesAreWrittenAsStrings(t *testing.T) {
+	s, _ := newFrontServer(t, frontApp())
+	for _, target := range []string{"/projects/p1", "/login", "/nowhere"} {
+		w := &stringRecorder{ResponseRecorder: httptest.NewRecorder()}
+		s.ServeHTTP(w, httptest.NewRequest("GET", target, nil))
+		if w.Body.Len() == 0 || w.strings != 1 {
+			t.Errorf("%s: %d, %d strings, body %q", target, w.Code, w.strings, w.Body.String())
+		}
+	}
+	w := &stringRecorder{ResponseRecorder: httptest.NewRecorder()}
+	writeFallback(w, tifa.Error{Status: 500, Message: "down"})
+	if w.strings != 1 {
+		t.Errorf("plain error page: %d strings", w.strings)
+	}
+	// A string commits the response like bytes do, so a late error writes nothing more.
+	tw := &writer{ResponseWriter: httptest.NewRecorder()}
+	if _, err := io.WriteString(tw, "<html>"); err != nil || !tw.wrote {
+		t.Errorf("WriteString: %v, wrote %v", err, tw.wrote)
 	}
 }

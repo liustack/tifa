@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -356,6 +357,16 @@ func (w *writer) WriteHeader(code int) {
 func (w *writer) Write(b []byte) (n int, err error) {
 	w.commit(func() bool {
 		n, err = w.ResponseWriter.Write(b)
+		return err == nil || n > 0
+	})
+	return n, err
+}
+
+// WriteString hands s on whole to a writer that takes strings, as net/http's does, so a page
+// is not copied into a byte slice on the way.
+func (w *writer) WriteString(s string) (n int, err error) {
+	w.commit(func() bool {
+		n, err = io.WriteString(w.ResponseWriter, s)
 		return err == nil || n > 0
 	})
 	return n, err

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"io"
 	"io/fs"
 	"net/http"
 	"path"
@@ -506,7 +507,7 @@ func writeHTML(c *tifa.Ctx, status int, page string) error {
 	w := c.Writer()
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
-	_, err := w.Write([]byte(page))
+	_, err := io.WriteString(w, page)
 	return err
 }
 
@@ -566,7 +567,7 @@ func (s *Server) fallback(c *tifa.Ctx, e tifa.Error, err error) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(e.Status)
-	_, _ = w.Write([]byte(b.String()))
+	_, _ = io.WriteString(w, b.String())
 }
 
 // writeFallback writes a plain error page when the application cannot render one.
@@ -576,5 +577,5 @@ func writeFallback(w http.ResponseWriter, e tifa.Error) {
 		title, title, html.EscapeString(e.Message))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(e.Status)
-	_, _ = w.Write([]byte(page))
+	_, _ = io.WriteString(w, page)
 }
