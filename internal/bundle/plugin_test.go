@@ -2,6 +2,7 @@ package bundle
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -275,5 +276,188 @@ func TestPluginGuardsSwitchesOnStrings(t *testing.T) {
 	}
 	if !slices.ContainsFunc(results, func(r guarded) bool { return slices.Contains(r.Before, `["a","end"]`) }) {
 		t.Error("no f returned the trace of case a")
+	}
+}
+
+// rolldownRuntime is how the SSR bundle starts at renderChunk: the IIFE and rolldown's helpers that
+// give an ES module the exports of a CommonJS module.
+const rolldownRuntime = "(function() {\n\n//#region \\0rolldown/runtime.js\n" +
+	"\tvar __create = Object.create;\n" +
+	"\tvar __defProp = Object.defineProperty;\n" +
+	"\tvar __getOwnPropDesc = Object.getOwnPropertyDescriptor;\n" +
+	"\tvar __getOwnPropNames = Object.getOwnPropertyNames;\n" +
+	"\tvar __getProtoOf = Object.getPrototypeOf;\n" +
+	"\tvar __hasOwnProp = Object.prototype.hasOwnProperty;\n" +
+	"\tvar __commonJSMin = (cb, mod) => () => (mod || (cb((mod = { exports: {} }).exports, mod, mod.exports), cb = null), mod.exports);\n" +
+	"\tvar __copyProps = (to, from, except, desc) => {\n" +
+	"\t\tif (from && typeof from === \"object\" || typeof from === \"function\") {\n" +
+	"\t\t\tfor (var keys = __getOwnPropNames(from), i = 0, n = keys.length, key; i < n; i++) {\n" +
+	"\t\t\t\tkey = keys[i];\n" +
+	"\t\t\t\tif (!__hasOwnProp.call(to, key) && key !== except) {\n" +
+	"\t\t\t\t\t__defProp(to, key, {\n" +
+	"\t\t\t\t\t\tget: ((k) => from[k]).bind(null, key),\n" +
+	"\t\t\t\t\t\tenumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable\n" +
+	"\t\t\t\t\t});\n" +
+	"\t\t\t\t}\n" +
+	"\t\t\t}\n" +
+	"\t\t}\n" +
+	"\t\treturn to;\n" +
+	"\t};\n" +
+	"\tvar __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(isNodeMode || !mod || !mod.__esModule || !__hasOwnProp.call(mod, \"default\") ? __defProp(target, \"default\", {\n" +
+	"\t\tvalue: mod,\n" +
+	"\t\tenumerable: true\n" +
+	"\t}) : target, mod));\n\n" +
+	"//#endregion\n"
+
+// cjsExports is what CommonJS modules export in namespaceChunk: objects, functions and classes
+// with properties, ES modules compiled to CommonJS with and without a default export, and values
+// that are no objects.
+var cjsExports = []string{
+	"{ a: 1, f() { return this }, nested: { b: 2 } }",
+	"Object.assign(function f() {}, { a: 1, default: 2 })",
+	"class C { static s = 1 }",
+	"Object.defineProperties({ a: 1 }, { hidden: { value: 2, enumerable: false }, got: { get() { return 3 }, enumerable: true } })",
+	"Object.defineProperty({ default: 'd', a: 1 }, '__esModule', { value: true })",
+	"Object.defineProperty({ a: 1 }, '__esModule', { value: true })",
+	"Object.create({ inherited: 1 }, { own: { value: 2, enumerable: true } })",
+	"null",
+	"'text'",
+	"42",
+}
+
+// namespaceChunk is a chunk at renderChunk with a CommonJS module of pkg for each of cjsExports,
+// imported by an ES module with and without Node mode, and at the end the namespaces and the
+// exports in globalThis.
+func namespaceChunk(pkg string) string {
+	var b strings.Builder
+	b.WriteString(rolldownRuntime)
+	for i, e := range cjsExports {
+		fmt.Fprintf(&b, "//#region ../node_modules/.pnpm/%[1]s@1.0.0/node_modules/%[1]s/m%[2]d.js\n"+
+			"\tvar require_m%[2]d = /* @__PURE__ */ __commonJSMin(((exports, module) => {\n\t\tmodule.exports = %[3]s;\n\t}));\n\n//#endregion\n", pkg, i, e)
+	}
+	b.WriteString("//#region app/page.tsx\n")
+	for i := range cjsExports {
+		fmt.Fprintf(&b, "var ns%[1]d = /* @__PURE__ */ __toESM(require_m%[1]d());\nvar node%[1]d = /* @__PURE__ */ __toESM(require_m%[1]d(), 1);\n", i)
+	}
+	b.WriteString("globalThis.namespaces = [")
+	for i := range cjsExports {
+		fmt.Fprintf(&b, "[ns%[1]d, node%[1]d, require_m%[1]d()], ", i)
+	}
+	b.WriteString("];\n\n//#endregion\n})();\n")
+	return b.String()
+}
+
+// plain is what plainNamespaces of the tifa Vite plugin does to a chunk, run on Node: the new code,
+// the warning, and for each module of the chunk when it runs, its namespaces with and without Node
+// mode as the original code and the new one give them.
+type plain struct {
+	Code, Warning string
+	Before, After []string
+}
+
+// plainOnNode runs plainNamespaces of the tifa Vite plugin on code, a chunk with the modules ids.
+func plainOnNode(t *testing.T, code string, ids []string) plain {
+	t.Helper()
+	testModules(t)
+	plugin := filepath.Join(t.TempDir(), "plugin.mjs")
+	if err := os.WriteFile(plugin, []byte(js.VitePlugin), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	input, err := json.Marshal([]any{code, ids})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// describe gives each own property of a namespace with its value, as the exports of the module
+	// or its own, and whether it is enumerable, and the prototype of the namespace.
+	script := "const plugin = await import(process.argv[1])\n" +
+		"const [code, ids] = JSON.parse(process.argv[2])\n" +
+		"const describe = (ns, exports) => JSON.stringify([Object.getPrototypeOf(ns) === (exports == null ? Object.prototype : Object.getPrototypeOf(Object(exports))),\n" +
+		"  Object.getOwnPropertyNames(ns).map((k) => [k, ns[k] === exports ? 'exports' : typeof ns[k] === 'function' ? 'function' : ns[k], Object.getOwnPropertyDescriptor(ns, k).enumerable])])\n" +
+		"const run = (code) => {\n" +
+		"  try {\n" +
+		"    new Function(code)()\n" +
+		"  } catch (err) {\n" +
+		"    return ['throws ' + err.message]\n" +
+		"  }\n" +
+		"  return globalThis.namespaces.map(([ns, node, exports]) => describe(ns, exports) + ' ' + describe(node, exports))\n" +
+		"}\n" +
+		"const { code: changed, warning = '' } = plugin.plainNamespaces(code, ids)\n" +
+		"process.stdout.write(JSON.stringify({ code: changed, warning, before: run(code), after: run(changed) }))\n"
+	cmd := exec.Command("node", "--input-type=module", "-e", script, plugin, string(input))
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("plainNamespaces: %v\n%s", err, stderr.String())
+	}
+	var result plain
+	if err := json.Unmarshal(out, &result); err != nil {
+		t.Fatalf("plainNamespaces: %v: %s", err, out)
+	}
+	return result
+}
+
+// The tifa plugin gives the ES modules that import a CommonJS module of React or React DOM a
+// namespace of plain values in place of rolldown's getters, the same values with the same
+// prototype, names and enumerability, and leaves the namespaces of other packages as they are.
+func TestPluginGivesReactNamespacesPlainValues(t *testing.T) {
+	ids := []string{"/app/node_modules/react/index.js", "/app/node_modules/react-dom/index.js", "/app/page.tsx"}
+	// rolldown adds $ and a number to the name of a helper when the bundle has another name like it.
+	renamed := strings.NewReplacer("__defProp", "__defProp$34", "__toESM", "__toESM$1", "__commonJSMin", "__commonJSMin$2")
+	for _, pkg := range []string{"react", "react-dom", "renamed"} {
+		chunk, plainCall := namespaceChunk(pkg), "__tifaV(require_m"
+		if pkg == "renamed" {
+			chunk, plainCall = renamed.Replace(namespaceChunk("react")), "__tifaV$1(require_m"
+		}
+		got := plainOnNode(t, chunk, ids)
+		if got.Warning != "" {
+			t.Errorf("%s: warning %s", pkg, got.Warning)
+		}
+		if n := strings.Count(got.Code, plainCall); n != 2*len(cjsExports) {
+			t.Errorf("%s: %d imports get plain values, want %d:\n%s", pkg, n, 2*len(cjsExports), got.Code)
+		}
+		// The new code has the lines and the places of the old one, so the source map still fits.
+		old, changed := strings.Split(chunk, "\n"), strings.Split(got.Code, "\n")
+		if len(changed) != len(old) {
+			t.Errorf("%s: %d lines, want %d", pkg, len(changed), len(old))
+		} else {
+			for i := range old {
+				if len(changed[i]) != len(old[i]) && !strings.HasPrefix(changed[i], old[i]) {
+					t.Errorf("%s: line %d moved:\n%s\nwas:\n%s", pkg, i+1, changed[i], old[i])
+				}
+			}
+		}
+		if !slices.Equal(got.Before, got.After) || len(got.Before) != len(cjsExports) {
+			t.Errorf("%s: the namespaces are\n%s\nwant\n%s", pkg, strings.Join(got.After, "\n"), strings.Join(got.Before, "\n"))
+		}
+	}
+	if got := plainOnNode(t, namespaceChunk("abort-controller"), ids); got.Code != namespaceChunk("abort-controller") || got.Warning != "" {
+		t.Errorf("the chunk of another package changed to\n%s\nwarning %q", got.Code, got.Warning)
+	}
+	// Without React in the bundle there is nothing to change and nothing to warn of.
+	odd := strings.Replace(namespaceChunk("react"), "get: ((k) => from[k]).bind(null, key)", "get: () => from[key]", 1)
+	if got := plainOnNode(t, odd, ids[2:]); got.Code != odd || got.Warning != "" {
+		t.Errorf("a bundle without React changed to\n%s\nwarning %q", got.Code, got.Warning)
+	}
+}
+
+// When rolldown writes the namespaces of CommonJS modules in a form the tifa plugin does not know,
+// the build warns, with the packages and why, and the chunk stays as it is.
+func TestPluginWarnsWhenItCannotGiveReactNamespacesPlainValues(t *testing.T) {
+	chunk := namespaceChunk("react")
+	for name, c := range map[string]struct{ code, why string }{
+		"getter":     {strings.Replace(chunk, "get: ((k) => from[k]).bind(null, key)", "get: () => from[key]", 1), "writes __toESM"},
+		"no __toESM": {strings.Replace(chunk, "\tvar __toESM = (mod, isNodeMode, target) =>", "\tvar __toESM2 = (mod, isNodeMode, target) =>", 1), "writes __toESM"},
+		"call":       {strings.Replace(chunk, "var ns0 = /* @__PURE__ */ __toESM(require_m0());", "var ns0 = /* @__PURE__ */ __toESM(globalThis.x ? require_m0() : null);", 1), "calls __toESM"},
+		"region":     {strings.Replace(chunk, "//#region ../node_modules/.pnpm/react@1.0.0/node_modules/react/m0.js\n", "", 1), "require_m0"},
+		"name":       {strings.Replace(chunk, "})();\n", "var __tifaV = 1;\n})();\n", 1), "__tifaV"},
+	} {
+		got := plainOnNode(t, c.code, []string{"/app/node_modules/react/index.js", "/app/node_modules/.pnpm/react-dom@1.0.0/node_modules/react-dom/index.js"})
+		if got.Code != c.code {
+			t.Errorf("%s: the chunk changed to\n%s", name, got.Code)
+		}
+		if !strings.HasPrefix(got.Warning, "react, react-dom: ") || !strings.Contains(got.Warning, c.why) || !strings.Contains(got.Warning, "plain values") {
+			t.Errorf("%s: warning %q, want one with the packages and %q", name, got.Warning, c.why)
+		}
 	}
 }

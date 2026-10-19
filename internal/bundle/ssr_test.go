@@ -403,6 +403,46 @@ func TestSSRBuildsNoComponentStacks(t *testing.T) {
 	}
 }
 
+// namespacesPage imports React, React DOM and abort-controller, which are CommonJS packages, as
+// namespaces, from a TSX module and from an .mjs one, which rolldown imports in Node mode. It
+// renders through them and gives, for an export of each, whether its namespace has a plain value
+// for it or a getter. An ES module that a CommonJS module requires declares the names of rolldown's
+// helpers, so rolldown renames its own, as it does in larger apps.
+const namespacesPage = "import './host'\n" +
+	"import * as React from 'react'\n" +
+	"import ReactDefault from 'react'\n" +
+	"import * as ReactDOM from 'react-dom'\n" +
+	"import * as AbortControllers from 'abort-controller'\n" +
+	"import { renderToString } from 'react-dom/server.edge'\n" +
+	"import { kind, nodeMode } from './node-mode.mjs'\n" +
+	"import helpers from './helpers.cjs'\n" +
+	"function Page() {\n  const [n] = React.useState(3)\n  return React.createElement('b', null, n, ReactDefault.Children.count([1, 2]))\n}\n" +
+	"globalThis.result = [renderToString(React.createElement(Page)), kind(React, 'useState'), kind(ReactDOM, 'flushSync'),\n" +
+	"  kind(AbortControllers, 'AbortController'), nodeMode(), ReactDefault === (React as any).default, helpers.names].join(' ')\n"
+
+const nodeModeModule = "import * as R from 'react'\n" +
+	"export const kind = (ns, name) => ('value' in Object.getOwnPropertyDescriptor(ns, name) ? 'value' : 'getter')\n" +
+	"export const nodeMode = () => kind(R, 'useId') + ' ' + typeof R.default.useId\n"
+
+// The modules that import React or React DOM as a namespace get plain values in place of getters,
+// in Node mode too, and the other packages keep their getters.
+func TestSSRGivesReactNamespacesPlainValues(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{
+		"namespaces.tsx": namespacesPage,
+		"node-mode.mjs":  nodeModeModule,
+		"helpers.cjs":    "module.exports = require('./helpers.mjs')\n",
+		"helpers.mjs":    "var __toESM = 't', __defProp = 'd', __copyProps = 'c', __commonJSMin = 'm'\nexport const names = __toESM + __defProp + __copyProps + __commonJSMin\n",
+	})
+	code, printed := buildPrinting(t, root, "namespaces.tsx")
+	if printed != "" {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	if got, want := evalResult(t, code), "<b>3<!-- -->2</b> value value getter value function true tdcm"; got != want {
+		t.Errorf("result = %q, want %q", got, want)
+	}
+}
+
 // switchesPage renders each name of NAMES, which the test replaces with a JSON list, and names
 // that are no case of React's switches, as the tag of an element alone, with props and children,
 // and inside each element that gives its children another format context, and as a prop of a few

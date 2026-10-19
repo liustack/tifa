@@ -101,6 +101,30 @@ const segmentLoops = `      for (var childIdx = 0; childIdx < segment.length; ch
       for (; chunkIdx < chunks.length - 1; chunkIdx++)
         destination.push(chunks[chunkIdx]);
       chunkIdx < chunks.length && (r = destination.push(chunks[chunkIdx]));`
+// The packages whose CommonJS modules the ES modules of the SSR bundle import as namespaces of plain
+// values, see plainNamespaces.
+const plainPackages = new Set(['react', 'react-dom'])
+// The helpers with which rolldown gives an ES module the exports of a CommonJS module as a
+// namespace, white space collapsed: __copyProps defines a getter for each export. rolldown adds $
+// and a number to the name of a helper when the bundle has another name like it.
+const esmHelpers =
+  'var __copyProps = (to, from, except, desc) => { if (from && typeof from === "object" || typeof from === "function") ' +
+  '{ for (var keys = __getOwnPropNames(from), i = 0, n = keys.length, key; i < n; i++) { key = keys[i]; if ' +
+  '(!__hasOwnProp.call(to, key) && key !== except) { __defProp(to, key, { get: ((k) => from[k]).bind(null, key), ' +
+  'enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable }); } } } return to; }; var __toESM = (mod, ' +
+  'isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(isNodeMode || !mod ' +
+  '|| !mod.__esModule || !__hasOwnProp.call(mod, "default") ? __defProp(target, "default", { value: mod, ' +
+  'enumerable: true }) : target, mod));'
+// plainESM does what __toESM of esmHelpers does, with a property of each export's value in place of
+// a getter. Its name is as long as __toESM, and the helpers it calls are those of __toESM, with
+// their names in the bundle.
+const plainESM =
+  ' function __tifaV(mod, isNodeMode) { var target = mod != null ? __create(__getProtoOf(mod)) : {}; if (isNodeMode ' +
+  '|| !mod || !mod.__esModule || !__hasOwnProp.call(mod, "default")) __defProp(target, "default", { value: mod, ' +
+  'enumerable: true }); if (mod && typeof mod === "object" || typeof mod === "function") for (var keys = ' +
+  '__getOwnPropNames(mod), i = 0, n = keys.length, key, desc; i < n; i++) { key = keys[i]; if ' +
+  '(!__hasOwnProp.call(target, key)) __defProp(target, key, { value: mod[key], enumerable: !(desc = ' +
+  '__getOwnPropDesc(mod, key)) || desc.enumerable }); } return target; }'
 const nodeBuiltins = new Set(builtinModules)
 
 // pollInterval is how often, in milliseconds, Vite's watcher looks at each file once it polls.
@@ -494,6 +518,12 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
       // builds, so a map this build did not write is of other code.
       if (!bundle['ssr.js.map']) fs.rmSync(path.join(options.dir, 'ssr.js.map'), { force: true })
     },
+    renderChunk(code, chunk) {
+      const plain = plainNamespaces(code, chunk.moduleIds)
+      if (plain.warning) this.warn(plain.warning)
+      // The code keeps the lines and places it had, so the source map fits it as it is.
+      return plain.code === code ? null : { code: plain.code, map: null }
+    },
     async generateBundle(_, bundle) {
       const chunks = Object.values(bundle).filter((output) => output.type === 'chunk')
       if (chunks.length !== 1) this.error(`the SSR bundle has ${chunks.length} files, want 1`)
@@ -772,6 +802,70 @@ function guardable(node) {
       ),
     )
   )
+}
+
+// plainNamespaces returns code, a chunk of the SSR bundle before it is minified, with the ES
+// modules that import a CommonJS module of plainPackages getting a namespace of plain values, and
+// a warning when it cannot do that. ids are the modules of the chunk. rolldown gives an ES module
+// the exports of a CommonJS module with __toESM(require_x()), a namespace with a getter for each
+// export, so a page that calls React.createElement or a component that calls a hook of React
+// through a namespace calls a getter each time, which takes long in QuickJS. React and React DOM
+// set their exports once, when their modules run, and never change them, so plainESM gives the
+// same namespace with each export's value: the same values, prototype, names and enumerability.
+// It changes only the calls of __toESM whose module rolldown wrote under a region of those
+// packages, and finds the helpers and the calls by the form rolldown writes them in: when the form
+// is another, it warns and changes nothing. The calls keep their length and plainESM goes at the
+// end of the line of __toESM, which has no source, so every other place stays where it was.
+export function plainNamespaces(code, ids) {
+  const packages = [...new Set(ids.map(packageName).filter((name) => plainPackages.has(name)))].sort()
+  if (packages.length === 0 || !/\b__toESM(?:\$\d+)?\(/.test(code)) return { code }
+  const skip = (why) => ({
+    code,
+    warning:
+      `${packages.join(', ')}: ${why}, so the tifa plugin does not give the modules that import them namespaces ` +
+      'of plain values in place of getters. Pages render the same, but take longer to render',
+  })
+  const start = code.search(/\bvar __copyProps(?:\$\d+)? = /)
+  const end = code.indexOf(' : target, mod));', start) + ' : target, mod));'.length
+  const helpers = new Map() // the name of each helper to its name in the bundle
+  const known =
+    start >= 0 &&
+    end > start &&
+    code
+      .slice(start, end)
+      .replace(/\s+/g, ' ')
+      .replace(/\b(__[A-Za-z]+)(\$\d+)?/g, (_, name, number = '') => {
+        if ((helpers.get(name) ?? name + number) !== name + number) helpers.set(name, null)
+        else helpers.set(name, name + number)
+        return name
+      }) === esmHelpers &&
+    ![...helpers.values()].includes(null)
+  if (!known) {
+    return skip('rolldown writes __toESM, which gives an ES module the exports of a CommonJS module, in a form the tifa plugin does not know')
+  }
+  const toESM = helpers.get('__toESM')
+  const plainName = '__tifaV' + toESM.slice('__toESM'.length)
+  if (new RegExp(`\\b${plainName.replace('$', '\\$')}(?![\\w$])`).test(code)) return skip(`the SSR bundle already names ${plainName}`)
+  const regions = new Map() // the name of each module's require function to its package
+  for (const m of code.matchAll(/^\/\/#region ([^\n]+)\n[\t ]*var (require_[\w$]+) = \/\* @__PURE__ \*\/ __commonJSMin(?:\$\d+)?\(/gm)) {
+    regions.set(m[2], packageName(m[1]))
+  }
+  const plain = []
+  for (const { index: at } of code.matchAll(new RegExp(`(?<![\\w$])${toESM.replace('$', '\\$')}\\(`, 'g'))) {
+    const call = code.slice(at + toESM.length + 1, at + toESM.length + 200)
+    const required = /^(require_[\w$]+)\(\)/.exec(call)?.[1]
+    if (!required) {
+      if (/^\(\/\* @__PURE__ \*\/ __commonJSMin(?:\$\d+)?\(/.test(call)) continue
+      return skip(`rolldown calls __toESM in a form the tifa plugin does not know: ${toESM}(${call.split('\n')[0].slice(0, 40)}`)
+    }
+    if (!regions.has(required)) return skip(`the tifa plugin cannot tell which package ${required}() of the SSR bundle loads`)
+    if (plainPackages.has(regions.get(required))) plain.push(at)
+  }
+  if (plain.length === 0) return { code }
+  let changed = code
+  for (const at of plain) changed = changed.slice(0, at) + plainName + changed.slice(at + plainName.length)
+  const helper = plainESM.replace('__tifaV', plainName).replace(/\b__[A-Za-z]+\b/g, (name) => helpers.get(name) ?? name)
+  return { code: changed.slice(0, end) + helper + changed.slice(end) }
 }
 
 // hostLoads returns the places where the bundle may still load a module at run time, which

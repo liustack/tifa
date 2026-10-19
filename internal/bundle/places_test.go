@@ -40,6 +40,19 @@ const placesEntry = "import './runtime/host.js'\n" +
 	"  }\n" +
 	"}\n"
 
+// The places in the sources of the application that the stack traces of render errors give stay
+// right though the tifa plugin changes the bundle after rolldown wrote it.
+func TestSSRGivesThePlacesOfTheApplicationInRenderErrors(t *testing.T) {
+	root := devApp(t)
+	writeTree(t, root, map[string]string{filepath.Join(".tifa", "server.ts"): placesEntry})
+	buildApp(t, root)
+	_, err := appPool(t, root).Render(context.Background(), ssr.Input{URL: "app"})
+	// Line 10, column 13 is the Error of throw new Error('APP'). The name of App is minified.
+	if err == nil || !regexp.MustCompile(`Error: APP\n    at \S+ \(\.tifa/server\.ts:10:13\)\n`).MatchString(err.Error()) {
+		t.Errorf("the error does not name the place of the throw in the application:\n%v", err)
+	}
+}
+
 // rendererPlace finds a place in React's string renderer in an explained stack trace, with its
 // line and column.
 var rendererPlace = regexp.MustCompile(`react-dom-server-legacy\.browser\.production\.js:(\d+):(\d+)`)
