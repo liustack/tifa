@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/klauspost/compress/gzhttp"
 	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/internal/config"
 	"github.com/liustack/tifa/internal/core"
@@ -207,7 +208,7 @@ func serveFile(w http.ResponseWriter, r *http.Request, fsys fs.FS, name, cache s
 	}
 	h := w.Header()
 	h.Set("Cache-Control", cache)
-	if gz && r.Method == "GET" && acceptsGzip(r.Header.Get("Accept-Encoding")) {
+	if gz && r.Method == "GET" && quality(r.Header.Get("Accept-Encoding"), "gzip") > 0 {
 		info, err := fs.Stat(fsys, name+".gz")
 		if contentType := mime.TypeByExtension(path.Ext(name)); err == nil && info.Mode().IsRegular() && contentType != "" {
 			h.Set("Content-Type", contentType)
@@ -468,7 +469,11 @@ func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status in
 		if cache {
 			if page, ok := s.cache.get(key); ok {
 				c.SetHeader(renderHeader, "cache")
-				return writeHTML(c, status, page)
+				encoding := s.formEncoding(c)
+				if encoding != "" && !page.compressed {
+					page = s.cachePage(key, page.html, encoding)
+				}
+				return writeCached(c, status, page, encoding)
 			}
 		}
 	}
@@ -486,11 +491,35 @@ func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status in
 	if err != nil {
 		return &renderError{err: err}
 	}
-	if cache && key != "" {
-		s.cache.put(key, page)
-	}
 	c.SetHeader(renderHeader, "vm")
-	return writeHTML(c, status, page)
+	if !cache || key == "" || !s.cache.holds(page) {
+		return writeHTML(c, status, page)
+	}
+	encoding := s.formEncoding(c)
+	return writeCached(c, status, s.cachePage(key, page, encoding), encoding)
+}
+
+// formEncoding is the encoding a page of the HTML cache goes out in to c: the one compressed would
+// pick, and none with server.compress off or No-Gzip-Compression set.
+func (s *Server) formEncoding(c *tifa.Ctx) string {
+	if !s.cfg.Compress || len(c.Writer().Header()[gzhttp.HeaderNoCompression]) > 0 {
+		return ""
+	}
+	return pageEncoding(c.Request())
+}
+
+// cachePage stores a page in the HTML cache and returns it as stored, with its forms even when
+// they did not fit. With an encoding to send it in, the page is compressed into its gzip and zstd
+// forms first, and the answer sends the one it takes. Without one the answer sends the HTML, so
+// only the HTML is kept, and the first hit with an encoding compresses the page.
+func (s *Server) cachePage(key, html, encoding string) cachedPage {
+	page := cachedPage{html: html}
+	if encoding != "" {
+		page.gzip, page.zstd = compressPage(html)
+		page.compressed = true
+	}
+	s.cache.put(key, page)
+	return page
 }
 
 // etagMatches implements the If-None-Match comparison of RFC 9110: weak, any of a list, or *.
@@ -527,6 +556,28 @@ func (s *Server) dataOnly(c *tifa.Ctx, items map[string]routeResult, status int)
 	fmt.Fprintf(&b, `<script type="application/json" id="tifa-data">%s</script></body></html>`, boot)
 	c.SetHeader(renderHeader, "none")
 	return writeHTML(c, status, b.String())
+}
+
+// writeCached writes a page of the HTML cache in its form for encoding (formEncoding), and as
+// HTML when it has none. compressed leaves an answer that has a Content-Encoding as it is.
+func writeCached(c *tifa.Ctx, status int, page cachedPage, encoding string) error {
+	var body []byte
+	switch encoding {
+	case "gzip":
+		body = page.gzip
+	case "zstd":
+		body = page.zstd
+	}
+	if body == nil {
+		return writeHTML(c, status, page.html)
+	}
+	w := c.Writer()
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Encoding", encoding)
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+	w.WriteHeader(status)
+	_, err := w.Write(body)
+	return err
 }
 
 func writeHTML(c *tifa.Ctx, status int, page string) error {

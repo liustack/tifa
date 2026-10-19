@@ -282,6 +282,7 @@ TanStack Router 必须是这个 tifa 测过的版本：`tifa new` 写进 `packag
 
 - 页面、导航数据、JSON 和其他文本在发出时压缩，用 zstd 或 gzip，各取默认级别，和 Caddy、Traefik 一样，由 [klauspost/compress](https://github.com/klauspost/compress) 的 gzhttp 完成。按客户端的 `Accept-Encoding` 选：`q` 大的优先，相同时用 zstd。回答从 1024 字节起才压缩，而且只压文本类型：`text/*`、JavaScript、JSON、XML、`+json` 和 `+xml` 类型、WebAssembly、图标，以及 TTF、OTF、EOT 字体。HEAD、已经带 `Content-Encoding` 的回答和带 `Content-Range` 的回答原样发出。
 - 浏览器包里的文件，对接受 gzip 的 GET 直接发构建写好的 `.gz` 文件，类型和缓存头沿用原文件，和 nginx 的 `gzip_static` 一样。Range 请求取的是 `.gz` 文件的一段。没有 `.gz` 的文件，类型在上面的列表里就在发出时压缩。公共目录里的 `.gz` 文件是它自己，不会代替别的文件发出。
+- HTML 缓存里的页面（`Cache = true`）只在存进去时压缩一次：缓存在 HTML 旁边存它的 gzip 和 zstd 版本，存它的那个请求和之后每次命中都直接发存好的版本，带 `Content-Length`。压缩版算进 `cache.size`：加上它们，示例 shop 的一个页面大约占 HTML 的 1.4 倍。不接受压缩的请求（`Accept-Encoding` 里没有 gzip 或 zstd、HEAD、带 `No-Gzip-Compression`）没命中时只存 HTML，之后第一个接受压缩的命中再压出压缩版。压缩版放不下的页面只存 HTML，HTML 都放不下的页面（比如 `cache.size` 为 0）在发出时压缩。
 - 每个回答都带 `Vary: Accept-Encoding`，没压缩的也带，应用自己设了 `Vary` 也一样。
 - 压缩后的回答，强 ETag 改成弱 ETag（`W/"…"`），和 nginx 一样，因为强 ETag 承诺的是同样的字节。`If-None-Match` 按弱比较，所以 304 照常有效。页面的 ETag 一开始就是弱的，各种编码和它的 304 都一样，因为 304 在知道编码之前就答了。
 - 不用 brotli。纯 Go 的 brotli 编码器在 4 级和 5 级要花 gzip 的 4 到 6 倍时间，页面只小 3% 到 16%。

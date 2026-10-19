@@ -2,13 +2,17 @@ package server
 
 import (
 	"bufio"
+	"bytes"
+	"io"
 	"net"
 	"net/http"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/klauspost/compress/gzhttp"
+	"github.com/klauspost/compress/gzip"
 	"github.com/klauspost/compress/zstd"
 )
 
@@ -51,23 +55,83 @@ var compressibleTypes = []string{
 	"font/ttf", "font/otf", "image/x-icon", "image/vnd.microsoft.icon",
 }
 
-// acceptsGzip reports whether an Accept-Encoding header takes gzip: named with a q above 0. Like
-// gzhttp, it does not read * as gzip.
-func acceptsGzip(header string) bool {
-	for _, coding := range strings.Split(header, ",") {
-		name, params, _ := strings.Cut(coding, ";")
-		if !strings.EqualFold(strings.TrimSpace(name), "gzip") {
+// quality returns the q an Accept-Encoding header gives coding, held between 0 and 1, and 0 when
+// it does not name it. Like gzhttp, it does not read * as a coding.
+func quality(header, coding string) float64 {
+	for _, item := range strings.Split(header, ",") {
+		name, params, _ := strings.Cut(item, ";")
+		if !strings.EqualFold(strings.TrimSpace(name), coding) {
 			continue
 		}
 		q := 1.0
 		for _, param := range strings.Split(params, ";") {
 			if v, ok := strings.CutPrefix(strings.ToLower(strings.TrimSpace(param)), "q="); ok {
 				q, _ = strconv.ParseFloat(v, 64)
+				q = min(max(q, 0), 1)
 			}
 		}
-		return q > 0
+		return q
 	}
-	return false
+	return 0
+}
+
+// pageEncoding picks the encoding compressed gives an answer to r, with the comparisons of
+// gzhttp's selectEncoding, so a q of NaN goes the same way: none for HEAD, the one of zstd and
+// gzip that is taken, else the higher q, and zstd when they are alike.
+func pageEncoding(r *http.Request) string {
+	if r.Method == http.MethodHead {
+		return ""
+	}
+	header := r.Header.Get("Accept-Encoding")
+	gz, zs := quality(header, "gzip"), quality(header, "zstd")
+	switch {
+	case zs <= 0:
+		if gz > 0 {
+			return "gzip"
+		}
+		return ""
+	case gz <= 0:
+		if zs > 0 {
+			return "zstd"
+		}
+		return ""
+	case gz > zs:
+		return "gzip"
+	}
+	return "zstd"
+}
+
+// The encoders of compressPage, at the levels and window of compressed. The zstd encoder takes
+// several pages at once.
+var (
+	pageGzip = sync.Pool{New: func() any {
+		w, _ := gzip.NewWriterLevel(nil, gzip.DefaultCompression) // fails only on a bad level
+		return w
+	}}
+	pageZstd = must(zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedDefault), zstd.WithWindowSize(128<<10)))
+)
+
+// compressPage gives the gzip and zstd forms of a page for the HTML cache, so a hit is sent as
+// stored: compressing a cached page again on each hit took more CPU than the hit itself. A page
+// under gzhttp's minimum size gets none, as compressed does not compress it.
+func compressPage(html string) (gz, zs []byte) {
+	if len(html) < gzhttp.DefaultMinSize {
+		return nil, nil
+	}
+	var buf bytes.Buffer
+	w := pageGzip.Get().(*gzip.Writer)
+	w.Reset(&buf)
+	io.WriteString(w, html) // a bytes.Buffer does not fail
+	w.Close()
+	pageGzip.Put(w)
+	return buf.Bytes(), pageZstd.EncodeAll([]byte(html), nil)
+}
+
+func must[T any](v T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return v
 }
 
 // earlyFlush sits between the handler and gzhttp. gzhttp picks the encoding from the first bytes

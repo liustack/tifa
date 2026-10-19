@@ -354,6 +354,12 @@ func checkCompressed(t *testing.T, base, dir, buildID, head string) {
 	if page, body := fetch("/projects/studio", "identity"); page.Header.Get("Content-Encoding") != "" || page.Header.Get("Content-Length") != strconv.Itoa(len(body)) {
 		t.Errorf("order list without compression: %v, %d bytes", page.Header, len(body))
 	}
+	// The order page sets Cache = true: a hit goes out as the gzip form the cache stored, with its length.
+	fetch("/projects/studio/orders/SH-1042", "gzip")
+	if order, body := fetch("/projects/studio/orders/SH-1042", "gzip"); order.Header.Get("X-Tifa-Render") != "cache" || order.Header.Get("Content-Encoding") != "gzip" ||
+		order.Header.Get("Content-Length") != strconv.Itoa(len(body)) || !strings.Contains(gunzip(body), "SH-1042") {
+		t.Errorf("cached order with gzip: %v, %d bytes", order.Header, len(body))
+	}
 	data, body := fetch("/projects/studio", "gzip", "X-Tifa-Route", "app/layout,app/projects/project+/layout,app/projects/project+/route", "X-Tifa-Build", buildID)
 	if data.Header.Get("Content-Encoding") != "gzip" || !strings.Contains(gunzip(body), `"app/layout":{"status":200`) {
 		t.Errorf("navigation data: %v", data.Header)
