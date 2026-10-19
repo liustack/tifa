@@ -65,7 +65,7 @@ tifa build [--dir app-root] [-o output-path]
 | `off` | None |
 | a path, such as `profiles/prod.pgo` | That file, relative to the app root |
 
-The profile tifa ships is of the example shop's pages rendering in warm VMs on linux/amd64. Nearly all its samples are in the JavaScript engine, libc and the Go runtime, which every page runs through: no Go code of the shop is in it. With it, the shop's pages render about 3% faster on linux/amd64 and about 7% faster on darwin/arm64, and the HTML stays the same byte for byte.
+The profile tifa ships is of the example shop's pages rendering in warm VMs on linux/amd64. Nearly all its samples are in the JavaScript engine, libc and the Go runtime, which every page runs through: no Go code of the shop is in it. With it, the shop's pages render about 2.4% faster on linux/amd64 and about 7% faster on darwin/arm64, and the HTML stays the same byte for byte.
 
 `tifa dev` always builds without a profile: it passes `-pgo=off` to `go build`. For `tifa build`, a `-pgo` in `GOFLAGS` wins over `build.pgo`, as it does for any `go build`.
 
