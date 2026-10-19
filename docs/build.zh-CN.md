@@ -288,4 +288,6 @@ TanStack Router 必须是这个 tifa 测过的版本：`tifa new` 写进 `packag
 - 不用 brotli。纯 Go 的 brotli 编码器在 4 级和 5 级要花 gzip 的 4 到 6 倍时间，页面只小 3% 到 16%。
 - `tifa dev` 的页面同样压缩。它的浏览器包来自 Vite 的开发服务器。
 
+压缩可能通过回答的长度泄露机密（BREACH 攻击）。回答走 HTTPS，而且同一个正文既回显请求里的内容（比如搜索词），又带着用户的机密（比如 CSRF token）时，就有这个风险。给这样的回答设 `No-Gzip-Compression` 头，它就不压缩，这个头在回答发出前会被去掉。也可以关掉 `server.compress`。
+
 前面有代理负责压缩时关掉它，比如用 brotli 的 nginx：代理不会再碰已经带 `Content-Encoding` 的回答。压缩的开销见[性能](performance.zh-CN.md#压缩)。

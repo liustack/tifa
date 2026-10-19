@@ -288,4 +288,6 @@ With [`server.compress`](config.md#settings) on, the default, answers go out com
 - Brotli is not used. At levels 4 and 5 its pure Go encoder takes 4 to 6 times as long as gzip for pages 3% to 16% smaller.
 - `tifa dev` compresses its pages the same way. Its browser bundle comes from Vite's dev server.
 
+Compression can leak a secret through the length of an answer (the BREACH attack). The risk is there when an answer goes out over HTTPS and the same body both repeats something from the request, such as a search term, and carries a secret of the user, such as a CSRF token. Send such an answer uncompressed by setting the `No-Gzip-Compression` header on it, which is removed before the answer goes out, or turn `server.compress` off.
+
 Turn it off when a proxy in front compresses, such as nginx with brotli: a proxy leaves an answer that already has a `Content-Encoding` alone. [Performance](performance.md#compression) has what compressing costs.
