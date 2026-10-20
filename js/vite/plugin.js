@@ -283,21 +283,26 @@ export function lazyRoutes(environments = ['client']) {
     load: {
       filter: { id: new RegExp('^' + lazyRoute) },
       handler(id) {
-        const module = JSON.stringify(id.slice(lazyRoute.length))
-        // routes.tsx reads default, head, Error and NotFound of a route module. A stand-in for an
-        // export the module lacks is never read, and the bundler leaves it out.
-        return (
-          `import { lazyRouteComponent } from ${JSON.stringify(router.id)}\n` +
-          `const load = () => import(${module})\n` +
-          'export default lazyRouteComponent(load)\n' +
-          'const error = /* @__PURE__ */ lazyRouteComponent(load, "Error")\n' +
-          'const notFound = /* @__PURE__ */ lazyRouteComponent(load, "NotFound")\n' +
-          'export { error as Error, notFound as NotFound }\n' +
-          'export const head = (context) => load().then((module) => module.head(context))\n'
-        )
+        return lazyRouteModule(router.id, id.slice(lazyRoute.length))
       },
     },
   }
+}
+
+// lazyRouteModule is the stand-in lazyRoutes gives routes.tsx for the route module module, with
+// lazyRouteComponent imported from router. routes.tsx reads default, head, Error and NotFound of
+// a route module (TestHeadModulesReadOnlyWhatTheirStandInExports in internal/codegen holds it to
+// that). A stand-in for an export the module lacks is never read, and the bundler leaves it out.
+export function lazyRouteModule(router, module) {
+  return (
+    `import { lazyRouteComponent } from ${JSON.stringify(router)}\n` +
+    `const load = () => import(${JSON.stringify(module)})\n` +
+    'export default lazyRouteComponent(load)\n' +
+    'const error = /* @__PURE__ */ lazyRouteComponent(load, "Error")\n' +
+    'const notFound = /* @__PURE__ */ lazyRouteComponent(load, "NotFound")\n' +
+    'export { error as Error, notFound as NotFound }\n' +
+    'export const head = (context) => load().then((module) => module.head(context))\n'
+  )
 }
 
 // generated resolves ./+route and ./+layout, the imports that lead to what tifa generates. Other
