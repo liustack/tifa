@@ -37,7 +37,11 @@ function suspended(error: unknown) {
   return typeof error === 'string' && error.startsWith('The server used "renderTo')
 }
 
-// serve installs startRender, which the Go VM pool calls with the JSON of an Injected value.
+// RenderInput is what the Go VM pool renders a page from: the injected data, and the module
+// preloads of the matched Layouts and route, which follow the tags of the browser entry.
+type RenderInput = Injected & { preload?: string }
+
+// serve installs startRender, which the Go VM pool calls with the JSON of a RenderInput.
 // It leaves the HTML, or the JSON of {"redirect": {location, status}} or {"error": ...}, in
 // renderResult once the queued jobs have run. The router redirects a URL it spells differently, such as
 // /%61 for /a. Go answers redirects of Loads itself before it renders.
@@ -50,7 +54,7 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = { la
   const assetTags = __TIFA_ASSETS__
   const bodyStart = headEnd + '</head><body><div id="' + rootElementId + '">'
   globalThis.startRender = (json: string) => {
-    const input: Injected = JSON.parse(json)
+    const input: RenderInput = JSON.parse(json)
     const router = createAppRouter(routeTree, injected(input), {
       buildId: input.buildId,
       serverURL: input.url,
@@ -86,6 +90,7 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = { la
         const html =
           documentStart +
           assetTags +
+          (input.preload ?? '') +
           headStart +
           headHTML(headTags(router.stores.matches.get())) +
           bodyStart +

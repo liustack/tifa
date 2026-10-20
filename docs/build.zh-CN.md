@@ -143,11 +143,11 @@ go tool tifa build
 
 | 路径 | 内容 |
 | --- | --- |
-| `dist/assets/` | Vite 打出的浏览器包：入口 `client.ts`（`app-<哈希>.js`）、共享 chunk（`chunk-<哈希>.js`）、装着应用全部 CSS 的一个样式表（`style-<哈希>.css`），以及 CSS 引用的字体和图片，小文件 Vite 会内联成 data URL。语法目标取配置项 `build.target`（默认 `es2020`：一个 ECMAScript 版本加若干带版本的浏览器，如 `es2019,chrome90,safari14`）。按路由拆分：除根 Layout 和导出 `head` 的模块外，每个路由模块用 `lazyRouteComponent` 懒加载，各自一个 chunk。1024 字节及以上的 JavaScript、CSS、HTML、JSON、SVG、XML 和 WebAssembly 文件旁边还有一个按 gzip 最高级别压缩的 `<文件名>.gz`，gzip 压不小的文件没有。服务端用它代替原文件发出，见[压缩](#压缩) |
+| `dist/assets/` | Vite 打出的浏览器包：入口 `client.ts`（`app-<哈希>.js`）、共享 chunk（`chunk-<哈希>.js`）、装着应用全部 CSS 的一个样式表（`style-<哈希>.css`），以及 CSS 引用的字体和图片，小文件 Vite 会内联成 data URL。语法目标取配置项 `build.target`（默认 `es2020`：一个 ECMAScript 版本加若干带版本的浏览器，如 `es2019,chrome90,safari14`）。按路由拆分：入口里放根 Layout 和每个页面都要加载的其他代码，其他每个 `route.tsx` 和 `layout.tsx` 各自一个 chunk，路由第一次用到时才加载，见[浏览器里的路由模块](#浏览器里的路由模块)。1024 字节及以上的 JavaScript、CSS、HTML、JSON、SVG、XML 和 WebAssembly 文件旁边还有一个按 gzip 最高级别压缩的 `<文件名>.gz`，gzip 压不小的文件没有。服务端用它代替原文件发出，见[压缩](#压缩) |
 | `dist/ssr.js` | SSR 包，入口 `server.ts`：一个 IIFE 文件，所有 npm 包都打在里面。包解析到它的主文件（先 `module` 后 `main`），条件导出 `exports` 按 `worker`、`import`、`module`、`default` 这几个条件取。不用包的浏览器文件：很多浏览器文件直接取浏览器里的东西，比如 `self` 或 `window`，QuickJS 里没有。想在服务端用某个包的浏览器版，按路径引入那个文件。语法目标固定为 ES2022（QuickJS 原样能跑的版本，调低只会让渲染变慢，调高可能写出 QuickJS 不支持的语法）。页面代码引入 Node 模块时构建失败。对 npm 包，构建只给警告：列出包里运行时可能用 `require` 或 `import()` 加载模块的位置，给出源文件、行、列和包名，因为服务端渲染走到那里会在 QuickJS 里失败。它在最终代码的一份压缩副本里找：凡是代码没有自己声明 `require` 的地方，`typeof require` 都当作 `"undefined"`。所以死代码里的 `require`（比如 `if (false)` 分支）和被 `typeof require` 判断守住的 `require`（比如 `typeof require === 'function' ? require(name) : 备用值`）不会有警告：QuickJS 没有 `require`，会走另一条分支。这份清单只是提示。它可能列出渲染走不到的代码，比如包按 `typeof process` 选的分支（debug 就这样做）、`try`/`catch` 里的 `require`、被代码赋值的 `require`。它也可能漏掉写在 `eval` 字符串里的 `require`、先设置 `globalThis.require` 再删掉的代码，以及后面的插件加进来的代码。没有源码对应的位置（比如某个包引入的 Node 模块）给的是 `ssr.js` 里的位置。`define` 把浏览器包的 head 标签写进 `__TIFA_ASSETS__` |
 | `dist/ssr.js.map` | SSR 包的 sourcemap，不带源码副本。服务端加载 SSR 包时读入这个文件，这个包第一次出错时（预热失败也算）才解码，把错误栈里的位置换成源文件里的位置，路径相对于应用根目录。读不全的 map 整个不用，位置留在 `ssr.js` 里。体积看应用，`examples/shop` 约 1.9 MB，不到 `ssr.js` 的两倍。它和 `dist/` 里其他文件一起嵌进可执行文件。不想要它，就在 `vite.config.ts` 里把 `environments.ssr.build.sourcemap` 设为 `false`：`examples/shop` 的可执行文件会小约 1.9 MB，构建警告和渲染错误给的是 `ssr.js` 里的位置。没有写出 `ssr.js.map` 的构建会删掉之前构建留下的那份（`tifa dev` 下 `.tifa/dist` 会保留旧文件，它对应的是别的代码）。服务端只读这个文件，所以设成 `inline` 时写在 `ssr.js` 里的 map 不会被用到 |
 | `dist/public/` | 配置项 `build.public` 指向的目录（默认 `public`）原样复制，不存在就没有 |
-| `dist/build.json` | `{buildId, head}`。`head` 是加载浏览器包的 HTML，取自 Vite 的 manifest：样式表、入口引入的每个 chunk 一条 `modulepreload`、入口脚本。构建 ID 是 `dist/` 里其他所有文件（含文件名）的哈希，文件名与内容各自带长度前缀，不同的文件树不会拼出同一串字节。同样的输入得到同样的 ID |
+| `dist/build.json` | `{buildId, head, preload}`。`head` 是加载浏览器包的 HTML，取自 Vite 的 manifest：样式表、入口引入的每个 chunk 一条 `modulepreload`、入口脚本。`preload` 列出每个路由模块在 `head` 之外还要的文件，见[预加载页面的 chunk](#预加载页面的-chunk)。构建 ID 是 `dist/` 里其他所有文件（含文件名）的哈希，文件名与内容各自带长度前缀，不同的文件树不会拼出同一串字节。同样的输入得到同样的 ID |
 
 SSR 包开头引入 `runtime/host.js`，它补上 QuickJS 缺的 `URL`、`TextEncoder`/`TextDecoder`、`AbortController`、`Headers`、`Response`、`queueMicrotask`，以及一个什么也不输出、`error` 时抛错的 `console`，不提供 `fetch` 与 `Request`。页面在服务端能用到的全部东西见[服务端渲染时有什么](app.zh-CN.md#服务端渲染时有什么)。这份脚本由 `go generate ./js` 从 `js/host/host.ts` 预打包后入库，依赖版本锁在 `js/host/package.json` 与 `pnpm-lock.yaml`。升级时在 `js/host` 里 `pnpm install --frozen-lockfile`（或改版本后 `pnpm install`），再跑 `go generate ./js`。`internal/bundle` 的 `TestHostScriptIsUpToDate` 检查重新生成的结果与入库文件一致，`js/host/node_modules` 不存在时 skip。应用因此不需要安装这些补丁包。`abort-controller` 与它依赖的 `event-target-shim` 打了补丁（`js/host/patches`，登记在 `js/host/pnpm-workspace.yaml`）：每个对象的内部状态改存在对象自己的 symbol 属性上，不用 WeakMap。这个属性在建对象时定义一次，之后不再重新定义，所以应用 seal 或 freeze 了 signal 也照样能取消（`TestHostScriptAbortsFrozenSignals`）。唯一会再变的 signal 取消标记放在一个盒子里，只改盒子里的值。其余状态不装盒子，每个状态都装盒子时 P99 多出约 1.5 ms。QuickJS 回收穿过 WeakMap 值的死环要多轮 GC，有的环一直回收不掉，每次渲染留下的路由、AbortController 与监听器因此要等好几轮 GC，VM 的堆更大。改成属性后一次 GC 就能整体回收，`TestHostScriptFreesDeadAbortSignalsInOneCollection` 守住这一点。
 
@@ -166,9 +166,41 @@ tifa 插件在 SSR 包里改造四个 npm 包。它按代码的结构或文字�
 - TanStack Router 用 seroval 把页面的数据写进页面。seroval 对短于 64 个 UTF-16 码元的字符串逐个字符转义，更长的用 `JSON.stringify`，除非里面有两种写法结果不同的字符。在 QuickJS 里从 2 个码元起逐字符的循环就比 `JSON.stringify` 慢，所以插件把这个长度降到 2。写出的文字不变：0 到 0xFFFF 的每个码元，单独出现或夹在别的字符中间，以及代理对和孤立代理项，两种写法结果都一样。小页面渲染快 6% 到 10%，大页面最多快 2.5%。插件只在 seroval 的主文件 `dist/index.js` 和 `dist/index.cjs` 里找这一行。seroval 改了这一行，或者包从别的文件加载 seroval 时，构建打印警告，页面和以前一样快。
 - 应用打包了 `core-js` 时，插件把它的内部状态从 WeakMap 换成属性，因为 QuickJS 永远不回收值又指回键的 WeakMap 条目。core-js 某个版本没有了插件替换的那个模块时，构建打印警告，保留 WeakMap，每个 VM 的内存可能变大。
 
+### 浏览器里的路由模块
+
+`routes.tsx` 静态 import 根 Layout 和导出 `head` 的路由模块，其他路由模块用 `import()`。SSR 包是一个文件，这些 import 照原样用，所以服务端渲染直接调用模块自己的 `head`。
+
+`tifa build` 打出的浏览器包里，除根 Layout 外的每个路由模块都等它的路由用到时才加载，导出 `head` 的也一样。插件 `tifa:lazy-routes` 把 `routes.tsx` 里对这类模块的静态 import 换成一个替身：替身的 `default`、`Error`、`NotFound` 由 `lazyRouteComponent` 包住对原模块的 `import()` 得来，它的 `head` 先加载原模块，再返回一个 promise，兑现为原模块 `head` 的返回值。TanStack Router 接受返回 promise 的 `head`，而且页面 hydration 和导航时，它都先加载匹配到的每条路由的 chunk，再运行 `head`。所以运行 `head` 时模块已经在了，head 照旧更新。入口脚本里留着根 Layout（根路由要它的 `NotFound`，两个入口要它的 `htmlAttributes`）和运行时。`examples/shop` 的 `build.json` 的 head 要加载的文件，gzip 后从 224 KB 降到 146 KB。
+
+- 路由模块始终是一个模块。它的 `head`、组件和两者共用的代码不拆开也不复制，规则和任何用 `import()` 加载的模块一样。
+- 路由模块顶层的代码（含只为副作用的 import）在它的路由第一次加载时运行一次：在它所在页面第一次渲染之前，而不是应用启动时。每个页面都需要的初始化，比如根 Layout 要读的 i18n 实例，放在根 Layout 里，或放在根 Layout import 的模块里。
+- 入口脚本里的模块 import 了某个路由模块时，这个路由模块留在入口脚本里。构建会打印打包器的 `INEFFECTIVE_DYNAMIC_IMPORT` 警告，写明是谁 import 了它。把两边都要用的东西挪到单独的模块里。
+- 页面的 HTML 会预加载它的路由要的 chunk，见下一节。
+- [tifa dev](dev.zh-CN.md) 逐个模块提供服务，保留这些静态 import。
+- 插件靠 rolldown（Vite 的打包器）传给插件的 import 种类区分静态 import 和 `import()`。Vite 不传这个信息时，构建打印警告，导出 `head` 的模块留在入口脚本里。
+
+每个页面都要加载的代码全在入口脚本里。tifa 插件给 rolldown 一个代码拆分分组，装入口静态 import 的所有模块（标签 `$initial`）。没有它，rolldown 会把入口和路由 chunk、以及路由 chunk 再加载的 chunk 共用的代码（React 就在其中）拆成单独的文件，`examples/shop` 的每个页面要下载四个文件而不是一个，字节数一样。
+
+#### 预加载页面的 chunk
+
+`tifa build` 在 `build.json` 的 `preload` 里，给每个自成 chunk 的 Layout 和路由模块列出这个 chunk 和它静态 import 的 chunk，去掉 `head` 已经加载的文件。服务端在 `head` 后面、`<!--tifa-head-->` 前面，给匹配到的 Layout 和路由的每个文件写一条 `<link rel="modulepreload">`。没有这些链接，浏览器要等入口脚本运行后才发现页面的 chunk，import 每深一层就多一轮请求，页面也就晚这么久才响应操作。有了它们，这些 chunk 和入口脚本一起下载。
+
+- 顺序：最外层的 Layout 在前，路由在最后。同一个模块里，先是它自己的 chunk，再是它 import 的 chunk，深度优先。每个文件只出现一次。
+- 模块用 `import()` 加载的 chunk（比如 `.client.tsx` 组件）不预加载，等代码运行到时才加载。
+- `Load` 失败时，路由器只显示到出错的最外一层，页面也只预加载到这一层。Layout 返回 404 时显示上一层的 `NotFound`，所以不带这个 Layout 的 chunk。Layout 的其他失败，以及页面自己的 404 或其他失败，显示这一层或上面某层的 `Error` 或 `NotFound`，所以带上这一层的 chunk，它两个都不导出时也带。没有匹配到页面的 URL 显示根 Layout，它在入口里，所以没有链接。不走 SSR 的页面在 Go 写的文档里同样带这些链接。
+- 这些链接不带 nonce，和 `head` 里其他标签一样。
+- 列表在构建时生成，启动时读一次，渲染不为它做 I/O。链接由构建和匹配到的路径决定，所以 ETag 和 HTML 缓存照旧。
+- tifa dev 不写列表，也不写链接。
+
+tifa 只提供 HTTP/1.1：它在普通 TCP 上监听，而浏览器只在 TLS 上用 HTTP/2。走 HTTP/1.1 时浏览器对一个主机最多开 6 个连接，页面要的文件每多 6 个，大约多等一个往返。前面有和浏览器讲 HTTP/2 的代理或 CDN 时，这些文件共用一个连接，个数的影响小得多。数一数页面的 `modulepreload` 链接，就知道它除入口脚本外还要几个文件。
+
+`examples/shop` 用它自己的程序走 HTTP/1.1 提供服务，在 Chrome 的网络节流下测量：页面完成 hydration 不晚于导出 `head` 的路由模块还在入口脚本里的时候，往返 150 ms、9 Mbit/s 时早 11 到 192 ms，往返 40 ms、20 Mbit/s 时早 4 到 77 ms。首次绘制晚 8 到 24 ms，因为样式表要和更多文件分带宽。经本机的 HTTP/2 代理时，hydration 在晚 3 ms 到早 159 ms 之间，首次绘制晚 8 到 48 ms，因为所有文件一开始就共用一个连接。
+
+路由之间共用代码的组合多的应用，每个页面要的文件也多。在示例 shop 基础上做的一个共 10 个页面的商店里，商品页除入口脚本外要 20 个文件，订单页要 17 个。由 tifa 自己走 HTTP/1.1 提供服务、往返 150 ms 时，这两页完成 hydration 比导出 `head` 的路由模块还在入口脚本里时晚 100 ms 和 58 ms。往返 40 ms 时，以及两档都经 HTTP/2 时，它们更早完成。这样的应用前面应放一个和浏览器讲 HTTP/2 的代理或 CDN。
+
 ## 路由树
 
-- 框架自己的根路由没有组件，`errorComponent` 是框架默认组件，`notFoundComponent` 是根 Layout 的 `NotFound`（没有就用框架默认组件），根 Layout 导出 `documentHead` 时它的 `head` 返回这个常量。React 只渲染 `<body>` 里的 `<div id="tifa-root">`。SSR 入口在渲染后把文档拼成字符串：`<html>` 带根 Layout 的 `htmlAttributes`，head 依次是 charset、`build.json` 的 `head`，以及 `<!--tifa-head-->` 与 `<!--/tifa-head-->` 之间按匹配到的路由的 `head` 结果写出的标签（取哪些标签同 TanStack 的 `HeadContent`，属性按 React DOM 的规则写出，见 [app.zh-CN.md](app.zh-CN.md)），body 是应用根节点加上路由器的脱水脚本。所以任何一层出错、404、根 `Layout` 失败时，页面仍是完整文档。浏览器订阅路由器的 matches（TanStack 的 `HeadContent` 读的也是它），导航完成、`router.invalidate()` 取完数据，只要 matches 变了就按同样的规则比对两个注释之间的元素：保留不变的标签（比较 nonce 时读元素的 `nonce` 属性，有 CSP 的页面里 nonce 的 HTML 属性读出来是空的），顺序变了就像 React 移动有 key 的子节点那样只移动不在原位的元素（移动 style 会重建样式表，移动样式表 link 会重新处理一遍），新标签用 DOM 方法创建（不解析 HTML）并按文档顺序插入，hydration 时不动服务器写的 head。不走 SSR 的页面由 Go 写只有 charset 和 `build.json` 的 `head` 的文档，浏览器设置 `htmlAttributes` 并写入 head。
+- 框架自己的根路由没有组件，`errorComponent` 是框架默认组件，`notFoundComponent` 是根 Layout 的 `NotFound`（没有就用框架默认组件），根 Layout 导出 `documentHead` 时它的 `head` 返回这个常量。React 只渲染 `<body>` 里的 `<div id="tifa-root">`。SSR 入口在渲染后把文档拼成字符串：`<html>` 带根 Layout 的 `htmlAttributes`，head 依次是 charset、`build.json` 的 `head`、匹配到的路由的模块预加载（见[预加载页面的 chunk](#预加载页面的-chunk)），以及 `<!--tifa-head-->` 与 `<!--/tifa-head-->` 之间按匹配到的路由的 `head` 结果写出的标签（取哪些标签同 TanStack 的 `HeadContent`，属性按 React DOM 的规则写出，见 [app.zh-CN.md](app.zh-CN.md)），body 是应用根节点加上路由器的脱水脚本。所以任何一层出错、404、根 `Layout` 失败时，页面仍是完整文档。浏览器订阅路由器的 matches（TanStack 的 `HeadContent` 读的也是它），导航完成、`router.invalidate()` 取完数据，只要 matches 变了就按同样的规则比对两个注释之间的元素：保留不变的标签（比较 nonce 时读元素的 `nonce` 属性，有 CSP 的页面里 nonce 的 HTML 属性读出来是空的），顺序变了就像 React 移动有 key 的子节点那样只移动不在原位的元素（移动 style 会重建样式表，移动样式表 link 会重新处理一遍），新标签用 DOM 方法创建（不解析 HTML）并按文档顺序插入，hydration 时不动服务器写的 head。不走 SSR 的页面由 Go 写只有 charset、`build.json` 的 `head` 和页面的模块预加载的文档，浏览器设置 `htmlAttributes` 并写入 head。
 - 根 Layout（`app/layout.*`）是根路由下的 pathless 路由 `_app`。
 - 其他 Layout 是一条带路径的路由，路径是它的目录在父 Layout 目录之下的部分，所以路径参数在它的匹配身份里。根 Layout 下的 `app/projects/project+` 路径是 `projects/$project`，路由 ID 是 `/_app/projects/$project`。
 - 页面自己导出的 `NotFound` 挂在页面路由上。Layout 导出的 `NotFound` 不另加路由，而是挂在它下一层、子树里有 `Load` 的路由上（根 Layout 的已在根路由上）。TanStack 从抛出 404 的路由往上找第一个带 `notFoundComponent` 的路由，在它的位置显示，所以下层的 404 显示在该 Layout 的 `Outlet` 里。

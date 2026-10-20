@@ -13,7 +13,9 @@ import (
 	"fmt"
 	"html"
 	"io/fs"
+	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -27,6 +29,10 @@ type Build struct {
 	// Head is the HTML that loads the browser bundle, written into the head of every page:
 	// the stylesheet, the module preloads and the entry script. Empty without pages.
 	Head string `json:"head"`
+	// Preload lists, by the ID of a Layout or route whose module is a chunk of its own, the URLs
+	// of the JavaScript files the module needs that Head does not load: its chunk, then the
+	// chunks it imports statically. A page preloads those of its Layouts and route.
+	Preload map[string][]string `json:"preload,omitempty"`
 }
 
 // clientEntry is the browser entry tifa generates, as Vite's manifest names it.
@@ -62,7 +68,7 @@ func App(n *Node, root, public string, pages bool) (string, error) {
 		if err := n.call("client", nil, nil); err != nil {
 			return "", err
 		}
-		if b.Head, err = readManifest(dist); err != nil {
+		if b.Head, b.Preload, err = readManifest(dist); err != nil {
 			return "", err
 		}
 		if err := n.call("ssr", map[string]any{"assets": b.Head, "minify": true}, nil); err != nil {
@@ -83,30 +89,78 @@ func App(n *Node, root, public string, pages bool) (string, error) {
 
 // manifestEntry is one chunk or asset of Vite's manifest.
 type manifestEntry struct {
-	File    string   `json:"file"`
-	Src     string   `json:"src"`
-	IsEntry bool     `json:"isEntry"`
-	Imports []string `json:"imports"`
-	CSS     []string `json:"css"`
+	File           string   `json:"file"`
+	Src            string   `json:"src"`
+	IsEntry        bool     `json:"isEntry"`
+	Imports        []string `json:"imports"`
+	DynamicImports []string `json:"dynamicImports"`
+	CSS            []string `json:"css"`
 }
 
 // readManifest reads the manifest Vite wrote into dist/.vite, removes it, so that it is not
-// served or embedded, and returns the head tags of the browser entry: its stylesheets, a module
-// preload for each chunk it imports, and the entry script.
-func readManifest(dist string) (string, error) {
+// served or embedded, and returns the head tags of the browser entry (its stylesheets, a module
+// preload for each chunk it imports, and the entry script) and the preloads of the route
+// modules (see routePreloads).
+func readManifest(dist string) (string, map[string][]string, error) {
 	dir := filepath.Join(dist, ".vite")
 	data, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
 	if err != nil {
-		return "", fmt.Errorf("reading Vite's manifest: %w", err)
+		return "", nil, fmt.Errorf("reading Vite's manifest: %w", err)
 	}
 	if err := os.RemoveAll(dir); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	var manifest map[string]manifestEntry
 	if err := json.Unmarshal(data, &manifest); err != nil {
-		return "", fmt.Errorf("Vite's manifest: %w", err)
+		return "", nil, fmt.Errorf("Vite's manifest: %w", err)
 	}
-	return headTags(manifest)
+	head, err := headTags(manifest)
+	if err != nil {
+		return "", nil, err
+	}
+	return head, routePreloads(manifest), nil
+}
+
+// staticImports calls f for key and then for each chunk it imports statically, depth first and
+// each once, skipping the keys seen holds already. It marks what it visits in seen.
+func staticImports(manifest map[string]manifestEntry, key string, seen map[string]bool, f func(key string, e manifestEntry)) {
+	e, ok := manifest[key]
+	if !ok || seen[key] {
+		return
+	}
+	seen[key] = true
+	f(key, e)
+	for _, imp := range e.Imports {
+		staticImports(manifest, imp, seen, f)
+	}
+}
+
+// routePreloads lists, for each layout.tsx and route.tsx under app/ that is a chunk of its own,
+// the URLs of the chunk and of the chunks it imports statically, in the order headTags writes
+// them, without the entry and what it imports. The key is the ID of the Layout or route, the
+// path without .tsx. A module the entry imports, such as the root Layout, gets nothing, and
+// neither do the modules a chunk imports with import(), which load when their code runs.
+func routePreloads(manifest map[string]manifestEntry) map[string][]string {
+	inHead := map[string]bool{}
+	staticImports(manifest, clientEntry, inHead, func(string, manifestEntry) {})
+	preload := map[string][]string{}
+	for key := range manifest {
+		name := path.Base(key)
+		if !strings.HasPrefix(key, "app/") || (name != "route.tsx" && name != "layout.tsx") || inHead[key] {
+			continue
+		}
+		seen := maps.Clone(inHead)
+		var files []string
+		staticImports(manifest, key, seen, func(_ string, e manifestEntry) {
+			if strings.HasSuffix(e.File, ".js") {
+				files = append(files, "/"+e.File)
+			}
+		})
+		if len(files) > 0 {
+			preload[strings.TrimSuffix(key, ".tsx")] = files
+		}
+	}
+	return preload
 }
 
 // headTags writes the tags that load the entry of manifest, with every URL under /.

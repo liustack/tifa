@@ -13,21 +13,26 @@ import (
 
 // routerBuild bundles the tests with Vite for Node to run. router.test.tsx runs the server
 // renders and the browser routers on Node's build of TanStack, head.test.tsx the head code of the
-// browser on its browser build, call.test.ts the generated handler functions.
+// browser on its browser build, call.test.ts the generated handler functions. router.test.tsx and
+// head.test.tsx are bundled once more with the lazyRoutes plugin, which the browser build of an
+// application has, into *.lazy.mjs: their route modules load when a route needs them, also those
+// that export head.
 const routerBuild = `import { build } from 'vite'
-import { generated } from './.tifa/vite/plugin.js'
+import { generated, lazyRoutes } from './.tifa/vite/plugin.js'
 const assets = '<link rel="stylesheet" href="/assets/app.css"><script type="module" src="/assets/app.js"></script>'
-for (const [entry, platform] of [['router.test.tsx', 'node'], ['head.test.tsx', 'browser'], ['call.test.ts', 'node']]) {
+const entries = [['router.test.tsx', 'node', false], ['head.test.tsx', 'browser', false], ['call.test.ts', 'node', false],
+  ['router.test.tsx', 'node', true], ['head.test.tsx', 'browser', true]]
+for (const [entry, platform, lazy] of entries) {
   await build({
     configFile: false,
     logLevel: 'warn',
-    plugins: [generated()],
+    plugins: lazy ? [generated(), lazyRoutes(['ssr'])] : [generated()],
     resolve: { tsconfigPaths: true },
-    define: { 'process.env.NODE_ENV': '"production"', __TIFA_ASSETS__: JSON.stringify(assets) },
+    define: { 'process.env.NODE_ENV': '"production"', __TIFA_ASSETS__: JSON.stringify(assets), __LAZY_ROUTES__: String(lazy) },
     environments: { ssr: { resolve: { noExternal: true, conditions: [platform, 'import', 'module', 'default'] } } },
     build: {
       ssr: entry,
-      outDir: 'out',
+      outDir: lazy ? 'out/lazy' : 'out',
       emptyOutDir: false,
       minify: false,
       rolldownOptions: { output: { format: 'es', entryFileNames: entry.replace(/\.tsx?$/, '.mjs') } },
@@ -96,8 +101,8 @@ func TestGeneratedRouterBehaves(t *testing.T) {
 		t.Logf("%v:\n%s", args, output)
 	}
 	run("build.mjs")
-	for _, name := range []string{"router.test", "head.test", "call.test"} {
-		run(filepath.Join("out", name+".mjs"))
+	for _, name := range []string{"router.test", "head.test", "call.test", "lazy/router.test", "lazy/head.test"} {
+		run(filepath.Join("out", filepath.FromSlash(name)+".mjs"))
 	}
 
 	// The generated tree, the runtime and the fixture's TSX type-check together.

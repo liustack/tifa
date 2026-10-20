@@ -163,6 +163,7 @@ export const head = ({ loaderData }: { loaderData?: Data }) => ({
 
 - 只放界面，不取数。`./+route` 是生成的模块，导出 `route`、`Data`（`Load` 的返回类型）和 `Params`。同目录的子组件同样 import `./+route`。Layout 的数据来自它所在目录的 `+layout` 模块：`layout.tsx` import `'./+layout'`，页面读项目 Layout 的数据时 import 比如 `'../../+layout'`。
 - 默认导出是页面组件。可选导出 `head`、`Error`、`NotFound`。
+- 在浏览器里，每个 `route.tsx`，以及根 Layout 以外的每个 `layout.tsx`，连同它 import 的一切（含 `head`）各自是一个 chunk。路由第一次用到时才加载，路由器等它加载完才显示页面、运行 `head`。页面的 HTML 预加载它的 Layout 和路由的 chunk，所以它们和入口脚本一起到。文件顶层的代码（含只为副作用的 import）在这时运行，而不是应用启动时，所以每个页面都需要的初始化放在根 Layout 里，或放在它 import 的模块里。见[浏览器里的路由模块](build.zh-CN.md#浏览器里的路由模块)。
 - Go 的切片和 map 在 TypeScript 里带 `| null`（Go 的 nil 编码成 `null`），用之前写 `?? []`。
 - 模块顶层就要用浏览器能力的组件放进 `.client.tsx`，用 `tifa/client` 的 `clientOnly` 延迟加载。它不进 SSR 包，首屏显示占位内容。能渲染、但要等浏览器画出来才有内容的组件也适合这样放，见[只在浏览器里绘制的组件](#只在浏览器里绘制的组件)：
 
@@ -344,7 +345,7 @@ export default function StatsPage() {
 
 - `.client.tsx` 文件默认导出组件，props 照常传。
 - 服务端渲染和水合时都渲染占位，所以页面能无错水合。之后浏览器加载这个模块，显示组件。占位要和组件最终的尺寸一样，页面才不会跳动。
-- `.client.tsx` 文件 import 的东西都不进 SSR 包。在浏览器里它是单独的 chunk，组件第一次渲染时才下载。页面本身在入口脚本里时也是这样（根 Layout 和导出 `head` 的路由模块都在入口脚本里）。
+- `.client.tsx` 文件 import 的东西都不进 SSR 包。在浏览器里它是单独的 chunk，组件第一次渲染时才下载。页面本身在入口脚本里时也是这样（根 Layout 在入口脚本里）。
 - 组件比页面其余部分晚一点出现，因为它的代码在水合之后才下载。下载失败时组件抛错，显示最近的 `Error`。
 
 示例 shop 统计页的两张图表改成这样之后，在同一台机器上轮流测两个版本：SSR 包从 1.15 MB 降到 0.77 MB（少三分之一），程序启动时编译它的时间少 40%，加载每个虚拟机的时间少 24%，渲染后每个虚拟机的内存少 3.8 MB（三分之一），统计页渲染快 21%。浏览器入口脚本从 1.08 MB 降到 0.70 MB，0.38 MB 的图表代码只在打开统计页时才下载。

@@ -33,9 +33,9 @@ function inject(data: Record<string, RouteResult | InjectedResult>) {
 }
 
 // renderResult runs one whole-page render through the SSR entry, as the Go VM pool does.
-async function renderResult(url: string, data: Record<string, RouteResult | InjectedResult>) {
+async function renderResult(url: string, data: Record<string, RouteResult | InjectedResult>, preload?: string) {
   globalThis.renderResult = undefined
-  globalThis.startRender(JSON.stringify({ url, buildId: 'b1', data: inject(data) }))
+  globalThis.startRender(JSON.stringify({ url, buildId: 'b1', data: inject(data), preload }))
   for (let i = 0; i < 1000 && globalThis.renderResult === undefined; i++)
     await new Promise((resolve) => setTimeout(resolve, 0))
   const result = globalThis.renderResult ?? '{"error":"render did not finish"}'
@@ -47,8 +47,8 @@ async function renderResult(url: string, data: Record<string, RouteResult | Inje
   }
 }
 
-async function render(url: string, data: Record<string, RouteResult | InjectedResult>): Promise<string> {
-  const result = await renderResult(url, data)
+async function render(url: string, data: Record<string, RouteResult | InjectedResult>, preload?: string): Promise<string> {
+  const result = await renderResult(url, data, preload)
   if (result.html === undefined) throw new Error(`render ${url}: ${JSON.stringify(result)}`)
   return result.html
 }
@@ -155,6 +155,18 @@ test('the document around the React root is written as a string', async () => {
   assert(html.split('<html').length === 2 && html.split('<body').length === 2, `one html and body: ${html}`)
   const root = html.slice(html.indexOf('<div id="tifa-root">'), html.indexOf('</div><script'))
   lacks(root, '<script type="module"', '<title>', 'data-tsr-stream-part')
+})
+
+test('the module preloads Go gives for the matched routes follow the asset tags', async () => {
+  const data = { ...appData, 'app/teams/team+/layout': ok('x'), 'app/teams/team+/one/route': ok('one') }
+  const preload = '<link rel="modulepreload" href="/assets/chunk-team.js"><link rel="modulepreload" href="/assets/chunk-one.js">'
+  const html = await render('/teams/x/one', data, preload)
+  contains(html, '<script type="module" src="/assets/app.js"></script>' + preload + '<!--tifa-head-->')
+  // Without preloads the document is the one written before there were any, apart from the
+  // times the router stamps its matches with.
+  const stamps = (page: string) => page.replace(/\bu:\d+/g, 'u:0')
+  const plain = await render('/teams/x/one', data)
+  assert(stamps(html.replace(preload, '')) === stamps(plain), `the preloads change more than their place:\n${html}\n${plain}`)
 })
 
 test('the head holds the tags of the deepest route, escaped', async () => {
@@ -275,6 +287,40 @@ test("a page without its own Error shows the closest ancestor's", async () => {
   const one = Object.values(router.routesById).find((r: any) => r.id.includes('/teams/$team/') && r.id.endsWith('/one')) as any
   const team = Object.values(router.routesById).find((r: any) => r.id.endsWith('/teams/$team')) as any
   assert(one.options.errorComponent === team.options.errorComponent, 'the page and its Layout use different Error components')
+})
+
+// titles lists the titles the head functions of the matches gave.
+const titles = (router: any) =>
+  router.state.matches.flatMap((m: any) => (m.meta ?? []).map((t: any) => t?.title).filter(Boolean))
+
+test('head fills the matches after hydration and after a navigation', async () => {
+  const url = '/teams/x/one'
+  const html = await render(url, { ...appData, 'app/teams/team+/layout': ok('x'), 'app/teams/team+/one/route': ok('one') })
+  const { router, calls } = await hydrateFrom(html, url)
+  assert(calls.length === 0, `hydration requested ${JSON.stringify(calls)}`)
+  const hydrated = JSON.stringify(titles(router))
+  assert(hydrated === '["APP_TITLE & <x>","TEAM x","ONE_TITLE"]', `titles after hydration ${hydrated}`)
+  // No React mounts the router here, so nothing loads the new location until load.
+  await router.navigate({ to: '/teams/$team/one', params: { team: 'y' } })
+  await router.load()
+  const navigated = JSON.stringify(titles(router))
+  assert(navigated === '["APP_TITLE & <x>","TEAM app/teams/team+/layout","ONE_TITLE"]', `titles after navigation ${navigated}`)
+})
+
+// The server bundle reads the modules that export head at once. The browser build of an
+// application, which this test runs as when __LAZY_ROUTES__ is true, loads them when their route
+// needs them, as it loads the other route modules, and keeps the root Layout in the entry script.
+declare const __LAZY_ROUTES__: boolean
+test('a route module that exports head loads with its route in the browser build', async () => {
+  const { router } = await client('/hello')
+  const routes = Object.values(router.routesById) as any[]
+  const team = routes.find((r) => r.id.endsWith('/teams/$team'))
+  const app = routes.find((r) => r.id === '/_app')
+  assert((typeof team.options.component.preload === 'function') === __LAZY_ROUTES__, `the team Layout is lazy: ${!__LAZY_ROUTES__}`)
+  assert(typeof app.options.component.preload !== 'function', 'the root Layout is lazy')
+  const head = team.options.head({ loaderData: 'z' })
+  assert((head instanceof Promise) === __LAZY_ROUTES__, `head gives a promise: ${head instanceof Promise}`)
+  assert(JSON.stringify(await head) === '{"meta":[{"title":"TEAM z"}]}', `head gives ${JSON.stringify(await head)}`)
 })
 
 test('a RouteError keeps its class and status through hydration', async () => {

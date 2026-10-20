@@ -461,3 +461,42 @@ func TestPluginWarnsWhenItCannotGiveReactNamespacesPlainValues(t *testing.T) {
 		}
 	}
 }
+
+// A Vite whose bundler does not say whether an import is static or import() leaves the route
+// modules of routes.tsx to the bundler: lazyRoutes resolves nothing and warns once per build.
+func TestLazyRoutesWarnOnceWithoutTheKindOfImports(t *testing.T) {
+	testModules(t)
+	dir := t.TempDir()
+	plugin := filepath.Join(dir, "plugin.mjs")
+	if err := os.WriteFile(plugin, []byte(js.VitePlugin), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := "const fs = await import('node:fs')\nconst path = await import('node:path')\n" +
+		"const { lazyRoutes } = await import(process.argv[1])\n" +
+		"const root = fs.realpathSync(process.argv[2])\n" +
+		"const p = lazyRoutes()\n" +
+		"p.configResolved({ root })\n" +
+		"const warnings = []\n" +
+		"const ctx = { warn: (m) => warnings.push(String(m)), resolve: async () => { throw new Error('resolve called') }, error: (m) => { throw new Error(m) } }\n" +
+		"const routes = path.join(root, '.tifa', 'routes.tsx')\n" +
+		"const results = []\n" +
+		"for (const source of ['../app/a/route', '../app/b/layout']) results.push(await p.resolveId.handler.call(ctx, source, routes, {}))\n" +
+		"process.stdout.write(JSON.stringify({ results, warnings }))\n"
+	out, err := exec.Command("node", "--input-type=module", "-e", script, plugin, dir).CombinedOutput()
+	if err != nil {
+		t.Fatalf("node: %v\n%s", err, out)
+	}
+	var got struct {
+		Results  []any
+		Warnings []string
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if len(got.Results) != 2 || got.Results[0] != nil || got.Results[1] != nil {
+		t.Errorf("results %v, want null for each import", got.Results)
+	}
+	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], "does not say whether an import is static") {
+		t.Errorf("warnings %q, want one that says the bundler does not tell the kind of import", got.Warnings)
+	}
+}

@@ -95,9 +95,49 @@ func TestShopApp(t *testing.T) {
 	if strings.Contains(stats, "recharts") {
 		t.Error("stats page: recharts rendered on the server")
 	}
+	// What every page loads is one script, the entry, and the stylesheet. React, which the
+	// chunks of the charts import too, is in the entry rather than in a chunk of its own.
+	if n := strings.Count(built.Head, ".js\""); n != 1 || strings.Contains(built.Head, "modulepreload") {
+		t.Errorf("the head loads %d scripts, want the entry alone: %s", n, built.Head)
+	}
+	// The order page, the stats page and the project Layout export head. Their components load
+	// with their routes too, so none of their texts is in what every page loads.
 	for _, m := range headURL.FindAllStringSubmatch(built.Head, -1) {
-		if _, _, script := get(t, base+m[1]); strings.HasSuffix(m[1], ".js") && strings.Contains(script, "recharts-wrapper") {
-			t.Errorf("%s, which every page loads, holds recharts", m[1])
+		_, _, script := get(t, base+m[1])
+		if !strings.HasSuffix(m[1], ".js") {
+			continue
+		}
+		for _, text := range []string{"recharts-wrapper", "没有找到这个订单", "销售统计", "订单都已发出"} {
+			if strings.Contains(script, text) {
+				t.Errorf("%s, which every page loads, holds %s", m[1], text)
+			}
+		}
+	}
+	// The order page preloads the chunks of the project Layout and of its route right after the
+	// head of the build, so the browser fetches them alongside the entry script. The order route
+	// holds its NotFound. An unknown URL shows the root Layout, which is in the entry, and
+	// preloads nothing.
+	after, ok := strings.CutPrefix(body[strings.Index(body, built.Head)+len(built.Head):], `<link rel="modulepreload" href="`)
+	preloads, _, _ := strings.Cut(after, "<!--tifa-head-->")
+	var chunks strings.Builder
+	for _, m := range headURL.FindAllStringSubmatch(`<link rel="modulepreload" href="`+preloads, -1) {
+		if strings.Contains(built.Head, m[1]) {
+			t.Errorf("the order page preloads %s, which the head loads", m[1])
+		}
+		status, _, script := get(t, base+m[1])
+		if status != 200 {
+			t.Errorf("preload %s: %d", m[1], status)
+		}
+		chunks.WriteString(script)
+	}
+	if !ok || !strings.Contains(chunks.String(), "没有找到这个订单") {
+		t.Errorf("the order page does not preload its route:\n%s", preloads)
+	}
+	// An unknown project is a 404 of the project Layout, which the root Layout shows, so that page
+	// preloads nothing either.
+	for _, path := range []string{"/nowhere", "/projects/nope"} {
+		if _, _, page := get(t, base+path); !strings.Contains(page, built.Head+"<!--tifa-head-->") {
+			t.Errorf("the 404 page %s preloads more than the head:\n%s", path, page)
 		}
 	}
 	// Same data, same ETag: 304. The order page sets Cache = true: the next request skips the VM.
@@ -108,7 +148,8 @@ func TestShopApp(t *testing.T) {
 		t.Errorf("second request of a Cache = true page: %s", again.Get("X-Tifa-Render"))
 	}
 
-	checkCompressed(t, base, dir, built.BuildID, built.Head)
+	// The files the order page loads besides its own HTML: the head of the build and its preloads.
+	checkCompressed(t, base, dir, built.BuildID, body[strings.Index(body, built.Head):strings.Index(body, "<!--tifa-head-->")])
 
 	// 404 at each level: the order inside the project Layout, the project inside the root Layout,
 	// an unknown URL on its own. Each one keeps a title, the last from the root Layout's documentHead.
@@ -365,10 +406,22 @@ func checkCompressed(t *testing.T, base, dir, buildID, head string) {
 		t.Errorf("navigation data: %v", data.Header)
 	}
 
-	// Each file the head loads, and the largest chunk among them, goes out as its .gz file.
-	largest := 0
+	// Each file the head loads, the entry script of over 256 KB among them, goes out as its .gz
+	// file. A file under 1024 bytes, such as a small chunk the order page preloads, has none and
+	// goes out as it is.
+	largest, small := 0, 0
 	for _, m := range headURL.FindAllStringSubmatch(head, -1) {
 		file := filepath.Join(dir, ".tifa", "dist", filepath.FromSlash(m[1]))
+		if info, err := os.Stat(file); err == nil && info.Size() < 1024 {
+			if _, err := os.Stat(file + ".gz"); !os.IsNotExist(err) {
+				t.Errorf("%s of %d bytes has a .gz: %v", m[1], info.Size(), err)
+			}
+			if res, body := fetch(m[1], "gzip, deflate, br, zstd"); res.Header.Get("Content-Encoding") != "" || int64(len(body)) != info.Size() {
+				t.Errorf("%s: %v, %d bytes, want the %d of the file", m[1], res.Header, len(body), info.Size())
+			}
+			small++
+			continue
+		}
 		want, err := os.ReadFile(file + ".gz")
 		if err != nil {
 			t.Errorf("%s has no .gz: %v", m[1], err)
@@ -383,7 +436,7 @@ func checkCompressed(t *testing.T, base, dir, buildID, head string) {
 			t.Errorf("%s: %v, %d bytes, want the %d of its .gz", m[1], res.Header, len(body), len(want))
 		}
 	}
-	if largest < 500<<10 {
-		t.Errorf("the largest file the head loads has %d bytes, the check wants the chunk over 500 KB", largest)
+	if largest < 256<<10 || small == 0 {
+		t.Errorf("the largest file the head loads has %d bytes and %d have under 1024, the check wants one over 256 KB and one under 1024 bytes", largest, small)
 	}
 }
