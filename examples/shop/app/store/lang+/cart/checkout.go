@@ -2,11 +2,11 @@ package cart
 
 import (
 	"crypto/rand"
-	"net/mail"
 	"regexp"
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/examples/shop/app/store"
@@ -89,7 +89,15 @@ func SavedAddresses(l store.Locale) []Address {
 	}
 }
 
+// maxNotes is the most characters the notes take, counted in code points, as the page counts
+// them and as checkout-schema.ts checks them.
+const maxNotes = 200
+
 var (
+	// emailPattern takes a plain address with a dot in its domain, such as lin@example.com, and
+	// nothing around it. checkout-schema.ts has the same pattern, which means the same in Go and
+	// in JavaScript.
+	emailPattern  = regexp.MustCompile(`^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$`)
 	phonePattern  = regexp.MustCompile(`^\+?[0-9 ()-]{7,20}$`)
 	postalPattern = map[string]*regexp.Regexp{
 		"CN": regexp.MustCompile(`^[0-9]{6}$`),
@@ -105,7 +113,7 @@ var (
 // keys checkout-schema.ts uses.
 func (o Order) Validate() error {
 	f := tifa.Fields{}
-	if _, err := mail.ParseAddress(o.Email); err != nil || !strings.Contains(o.Email, ".") {
+	if !emailPattern.MatchString(o.Email) {
 		f["email"] = "email"
 	}
 	a := o.Address
@@ -143,7 +151,7 @@ func (o Order) Validate() error {
 	default:
 		f["payment"] = "required"
 	}
-	if len([]rune(o.Notes)) > 200 {
+	if utf8.RuneCountInString(o.Notes) > maxNotes {
 		f["notes"] = "tooLong"
 	}
 	if !o.Terms {

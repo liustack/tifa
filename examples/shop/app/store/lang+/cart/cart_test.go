@@ -2,8 +2,10 @@ package cart
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -124,6 +126,11 @@ func TestOrdersAreCheckedFieldByField(t *testing.T) {
 		msg    string
 	}{
 		{func(o *Order) { o.Email = "lin" }, "email", "email"},
+		// Only a plain address, as the browser's schema takes: no name around it, and a domain
+		// with a dot.
+		{func(o *Order) { o.Email = "Lin <lin@example.com>" }, "email", "email"},
+		{func(o *Order) { o.Email = "a.b@localhost" }, "email", "email"},
+		{func(o *Order) { o.Email = " lin@example.com" }, "email", "email"},
 		{func(o *Order) { o.Address.Name = " " }, "address.name", "required"},
 		{func(o *Order) { o.Address.Phone = "12" }, "address.phone", "phone"},
 		{func(o *Order) { o.Address.PostalCode = "2000" }, "address.postalCode", "postalCode"},
@@ -134,6 +141,7 @@ func TestOrdersAreCheckedFieldByField(t *testing.T) {
 		{func(o *Order) { o.CardExpiry = "13/29" }, "cardExpiry", "expiry"},
 		{func(o *Order) { o.CardCVC = "12" }, "cardCvc", "cvc"},
 		{func(o *Order) { o.Notes = strings.Repeat("字", 201) }, "notes", "tooLong"},
+		{func(o *Order) { o.Notes = strings.Repeat("🍵", 201) }, "notes", "tooLong"},
 		{func(o *Order) { o.Terms = false }, "terms", "terms"},
 		{func(o *Order) { o.Payment = "cash" }, "payment", "required"},
 	} {
@@ -144,8 +152,14 @@ func TestOrdersAreCheckedFieldByField(t *testing.T) {
 			t.Errorf("want %s: %s, got %v", tc.field, tc.msg, err)
 		}
 	}
-	// Card fields count only when paying by card.
+	// Notes are counted in characters (code points), as the page counts them: 200 emoji fit.
 	o := goodOrder()
+	o.Email, o.Notes = "lin.xia+shop@mail.example.cn", strings.Repeat("🍵", 200)
+	if err := o.Validate(); err != nil {
+		t.Errorf("a plain address and 200 emoji: %v", err)
+	}
+	// Card fields count only when paying by card.
+	o = goodOrder()
 	o.Payment, o.CardNumber = "alipay", ""
 	if err := o.Validate(); err != nil {
 		t.Errorf("alipay without a card: %v", err)
@@ -352,5 +366,23 @@ func TestAQuantityStaysWithinTheStock(t *testing.T) {
 	}
 	if _, err := SetQuantity(c, "oak-tray.oat.M", 6); err != nil {
 		t.Errorf("set 6 of 6 in stock: %v", err)
+	}
+}
+
+// The browser checks the order with checkout-schema.ts before sending it. Its email pattern
+// and its count of the notes must be the ones Validate uses, or Go refuses what the page let
+// through.
+func TestTheBrowserChecksEmailsAndNotesAsGoDoes(t *testing.T) {
+	schema, err := os.ReadFile("../checkout/checkout-schema.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"/" + emailPattern.String() + "/",
+		fmt.Sprintf("[...s].length <= %d", maxNotes),
+	} {
+		if !strings.Contains(string(schema), want) {
+			t.Errorf("checkout-schema.ts lacks %s", want)
+		}
 	}
 }

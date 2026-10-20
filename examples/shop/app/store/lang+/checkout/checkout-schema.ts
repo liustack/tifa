@@ -49,12 +49,20 @@ export function luhn(number: string) {
   return sum % 10 === 0
 }
 
+// email takes a plain address with a dot in its domain, with the pattern of emailPattern in Go.
+// z.email() would differ from it.
+const email = z.string().regex(/^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/, 'email')
+
+// notes counts characters (code points), as the page's counter and Go do. z.string().max()
+// would count UTF-16 code units, which makes an emoji count twice.
+const notes = z.string().refine((s) => [...s].length <= 200, 'tooLong')
+
 // oneOf takes one of a few strings. It stays a string type, as in the Go input.
 const oneOf = (values: string[]) => z.string().refine((v) => values.includes(v), 'required')
 
 export const checkoutSchema = z
   .object({
-    email: z.email('email'),
+    email,
     address: addressSchema,
     delivery: oneOf(['standard', 'express', 'pickup']),
     payment: oneOf(['card', 'alipay', 'wechat']),
@@ -62,7 +70,7 @@ export const checkoutSchema = z
     cardExpiry: z.string(),
     cardCvc: z.string(),
     billingSame: z.boolean(),
-    notes: z.string().max(200, 'tooLong'),
+    notes,
     newsletter: z.boolean(),
     terms: z.boolean().refine((v) => v, 'terms'),
   })
