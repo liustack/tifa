@@ -153,7 +153,7 @@ func fields(c *Config) []field {
 		{"server.tls_ca", "ACME directory URL that tls_domains get their certificates from", caValue{&c.Server.TLSCA}},
 		{"server.tls_cert", "Serve HTTPS with this certificate file (PEM), reloaded when it changes", optionalValue{&c.Server.TLSCert}},
 		{"server.tls_key", "Private key file (PEM) of tls_cert", optionalValue{&c.Server.TLSKey}},
-		{"server.http_addr", "With HTTPS, plain HTTP address that answers Let's Encrypt and redirects to HTTPS, off for none", stringValue{&c.Server.HTTPAddr}},
+		{"server.http_addr", "With HTTPS, plain HTTP address that answers Let's Encrypt and redirects to HTTPS, off for none", httpAddrValue{&c.Server.HTTPAddr}},
 		{"server.hsts", "Send Strict-Transport-Security, so browsers keep to HTTPS for a year", boolValue{&c.Server.HSTS}},
 		{"ssr.vms", "Prewarmed JavaScript VMs, defaults to GOMAXPROCS (the CPU limit in containers)", intValue{p: &c.SSR.VMs, min: 1}},
 		{"ssr.vm_memory", "Memory limit of each VM", sizeValue{&c.SSR.VMMemory, 1}},

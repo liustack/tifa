@@ -99,6 +99,30 @@ func (v caValue) Set(s string) error {
 func (v caValue) String() string { return *v.p }
 func (v caValue) kind() string   { return "string" }
 
+// httpAddrValue is server.http_addr: an address with a port, or off. Words that read as a
+// switch fail with what to write, as for build.pgo.
+type httpAddrValue struct{ p *string }
+
+func (v httpAddrValue) Set(s string) error {
+	switch strings.ToLower(s) {
+	case "off":
+		if s != "off" {
+			return fmt.Errorf("%q is not a value, to turn it off, write off", s)
+		}
+		*v.p = s
+		return nil
+	case "false", "no", "none", "disable", "disabled", "0":
+		return fmt.Errorf("%q is not a value, to turn it off, write off", s)
+	}
+	if _, _, err := net.SplitHostPort(s); err != nil {
+		return fmt.Errorf("invalid address %q, use a host and port such as :80 or 0.0.0.0:80, or off", s)
+	}
+	*v.p = s
+	return nil
+}
+func (v httpAddrValue) String() string { return *v.p }
+func (v httpAddrValue) kind() string   { return "string" }
+
 // intValue is a whole number of at least min and, when max is not 0, at most max. why says what
 // goes wrong above max.
 type intValue struct {

@@ -513,3 +513,21 @@ func TestTLSDomainsAreStoredAsASCII(t *testing.T) {
 		}
 	}
 }
+
+// server.http_addr is an address or off, in lower case like the other words of the settings.
+func TestHTTPAddrIsAnAddressOrOff(t *testing.T) {
+	for _, good := range []string{":80", "0.0.0.0:80", "[::]:8080", "off"} {
+		c, err := load(t, nil, []string{"TIFA_SERVER_HTTP_ADDR=" + good}, "", "")
+		if err != nil || c.Server.HTTPAddr != good {
+			t.Errorf("%q: %q, %v", good, c.Server.HTTPAddr, err)
+		}
+	}
+	for _, tc := range []struct{ value, want string }{
+		{"OFF", "write off"}, {"false", "write off"}, {"none", "write off"}, {"80", "such as :80"}, {"example.com", "such as :80"},
+	} {
+		_, err := load(t, nil, []string{"TIFA_SERVER_HTTP_ADDR=" + tc.value}, "", "")
+		if err == nil || !strings.Contains(err.Error(), "server.http_addr") || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%q: %v", tc.value, err)
+		}
+	}
+}
