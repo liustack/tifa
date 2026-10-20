@@ -3,7 +3,9 @@ package e2e
 import (
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -208,6 +210,7 @@ func TestShopApp(t *testing.T) {
 	}
 
 	checkStorefront(t, base)
+	checkStorefrontKeepsCustomersApart(t, base)
 }
 
 // rendered returns the part of a page React rendered, without the data written after it.
@@ -222,7 +225,8 @@ func rendered(page string) string {
 
 // checkStorefront checks the customer side of the shop at /store/{lang}: pages in both
 // languages with their money and dates, search and filters in the query string, Markdown with
-// highlighted code, and a cart kept in a cookie through to a placed order.
+// highlighted code, and a cart kept in the server's memory, with its ID in a cookie, through to
+// a placed order.
 func checkStorefront(t *testing.T, base string) {
 	t.Helper()
 	for _, tc := range []struct {
@@ -258,7 +262,8 @@ func checkStorefront(t *testing.T, base string) {
 		}
 	}
 
-	// The cart lives in a cookie made by the first change. Errors come back field by field.
+	// The cart lives in the server's memory, and the first change sets a cookie with its ID.
+	// Errors come back field by field.
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -328,6 +333,111 @@ func checkStorefront(t *testing.T, base string) {
 	}
 	if _, _, page := do("GET", "/store/zh-CN/cart", ""); !strings.Contains(rendered(page), "最低 ¥15.00") {
 		t.Errorf("delivery of a small cart:\n%s", rendered(page))
+	}
+}
+
+// shopper is a visitor of the storefront with a cookie jar of their own.
+type shopper struct {
+	t      *testing.T
+	base   string
+	client *http.Client
+}
+
+func newShopper(t *testing.T, base string) *shopper {
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	return &shopper{t, base, client}
+}
+
+// do makes a request from the storefront's own origin, with a JSON body unless it is a GET, and
+// returns the status, the headers and the body of the answer. Cookies are extra cookies to
+// send.
+func (s *shopper) do(method, path, body string, cookies ...*http.Cookie) (int, http.Header, string) {
+	s.t.Helper()
+	req, err := http.NewRequest(method, s.base+path, strings.NewReader(body))
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	if method != "GET" {
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Origin", s.base)
+	}
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	res, err := s.client.Do(req)
+	if err != nil {
+		s.t.Fatalf("%s %s: %v", method, path, err)
+	}
+	defer res.Body.Close()
+	b, err := io.ReadAll(res.Body)
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	return res.StatusCode, res.Header, string(b)
+}
+
+// checkStorefrontKeepsCustomersApart checks what one visitor of the storefront must not reach:
+// the workbench's data, another visitor's order, and memory for carts that requests make up.
+// It also checks that a placed order costs what the checkout showed, and that query parameters
+// out of range still give a page.
+func checkStorefrontKeepsCustomersApart(t *testing.T, base string) {
+	t.Helper()
+	// The page data of the storefront has none of the root Layout's workbench data, which the
+	// workbench's pages have, as JSON in a script string.
+	_, _, home := get(t, base+"/store/zh-CN")
+	_, _, workbench := get(t, base+"/projects/studio")
+	for _, owner := range []string{`\"name\":\"店主\"`, "周末小店", `\"pending\":`} {
+		if strings.Contains(home, owner) || !strings.Contains(workbench, owner) {
+			t.Errorf("the storefront carries %s, or the workbench lacks it", owner)
+		}
+	}
+	// A page past the last shows the last, from the 25th product on.
+	if status, _, list := get(t, base+"/store/zh-CN/products?page=9223372036854775807"); status != 200 || !strings.Contains(rendered(list), "第 25 到") {
+		t.Errorf("a page past the last of the list: %d", status)
+	}
+
+	// A request that fails makes no cart, and a cart ID the server did not make is not kept.
+	lin := newShopper(t, base)
+	if status, header, _ := lin.do("PATCH", "/store/zh-CN/cart", `{"line":"nope.mist","quantity":1}`); status != 404 || header.Get("Set-Cookie") != "" {
+		t.Errorf("change a line not in the cart: %d %s", status, header.Get("Set-Cookie"))
+	}
+	forged := &http.Cookie{Name: "store_cart", Value: strings.Repeat("f", 3000)}
+	if status, header, _ := lin.do("POST", "/store/zh-CN/products/ceramic-cup", `{"color":"moss","size":"","quantity":1}`, forged); status != 200 ||
+		!strings.Contains(header.Get("Set-Cookie"), "store_cart=") || strings.Contains(header.Get("Set-Cookie"), forged.Value) {
+		t.Errorf("add with a cart ID the server did not make: %d %.80s", status, header.Get("Set-Cookie"))
+	}
+
+	// The English checkout adds up prices in dollars, and the order costs the same: the
+	// demonstration cart with 10% off and next-day delivery, which is ¥25 at 7.1 yuan a dollar,
+	// rounded up to 10 cents.
+	emma := newShopper(t, base)
+	if status, _, _ := emma.do("POST", "/store/en-US/cart", `{"code":"SHANHAI10"}`); status != 204 {
+		t.Fatalf("apply a coupon: %d", status)
+	}
+	_, _, body := emma.do("PATCH", "/store/en-US/cart", `{"line":"ceramic-cup.moss","quantity":2}`)
+	var cart struct{ SubtotalCents, DiscountCents int }
+	if err := json.Unmarshal([]byte(body), &cart); err != nil {
+		t.Fatalf("cart %s: %v", body, err)
+	}
+	total := cart.SubtotalCents - cart.DiscountCents + 360
+	status, header, _ := emma.do("POST", "/store/en-US/checkout", `{"email":"emma@example.com","address":{"name":"Emma Walker","phone":"+1 415 555 0134","country":"US","region":"CA","city":"San Francisco","line1":"1 Market Street","line2":"","postalCode":"94105"},"delivery":"express","payment":"alipay","cardNumber":"","cardExpiry":"","cardCvc":"","billingSame":true,"notes":"","newsletter":false,"terms":true}`)
+	placed := header.Get("Location")
+	if status != 303 || !strings.HasPrefix(placed, "/store/en-US/checkout?placed=SS-") {
+		t.Fatalf("place the order: %d %s", status, placed)
+	}
+	want := fmt.Sprintf("$%d.%02d", total/100, total%100)
+	if _, _, page := emma.do("GET", placed, ""); !strings.Contains(rendered(page), want+" in all") || !strings.Contains(rendered(page), "emma@example.com") {
+		t.Errorf("confirmation lacks %s in all:\n%s", want, rendered(page))
+	}
+	// Only the cart that placed the order sees it. Its email address is on the page.
+	for _, other := range []*shopper{lin, newShopper(t, base)} {
+		if status, _, page := other.do("GET", placed, ""); status != 404 || strings.Contains(page, "emma@example.com") {
+			t.Errorf("another visitor opens the order: %d", status)
+		}
 	}
 }
 
