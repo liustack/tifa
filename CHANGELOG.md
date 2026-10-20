@@ -14,6 +14,7 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 
 - The HTML of a page preloads the chunks of its Layouts and route with `<link rel="modulepreload">` right after the tags of the build, so they download alongside the entry script. When a `Load` fails, it preloads only the levels the router shows. `build.json` lists the chunks under `preload`.
 - The example app has a storefront for customers in Chinese and English under `/store`: product search and filters, product pages, a cart, a checkout form, and a journal written in Markdown with highlighted code.
+- A route's `head` can return `htmlAttributes`, the attributes of `<html>` for its pages, such as `lang` on a site in several languages. They merge over the root Layout's `htmlAttributes` one attribute at a time, the deepest route winning, and `null` takes one away. The browser keeps them in step after each navigation, also on pages without SSR, and takes away only the attributes tifa wrote. Apps that do not use it render the same HTML. The example storefront sets its language this way, and a path it has no page for is a 404 in the language of the URL.
 
 ### Performance
 
