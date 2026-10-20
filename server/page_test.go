@@ -648,6 +648,41 @@ func TestInjectedResultsKeepTheJSONGoWrites(t *testing.T) {
 	}
 }
 
+// rawJSON is data whose MarshalJSON writes text json.Marshal passes on as it is.
+type rawJSON string
+
+func (r rawJSON) MarshalJSON() ([]byte, error) { return []byte(r), nil }
+
+// seroval writes the JSON text into the page one code unit at a time when it has a surrogate, so
+// Go writes each character above U+FFFF as the escapes of its surrogate pair. The text means the
+// same. Other characters, and bytes that are no UTF-8, stay as they were.
+func TestInjectedResultsEscapeCharactersAboveFFFF(t *testing.T) {
+	data := map[string]any{"text": "a😀b 𝄞", "🙂": []string{"é中", "<&>"}, "raw": rawJSON("\"\xf0\x28\xff\"")}
+	items, err := injectedResults(map[string]routeResult{"app/route": {Status: 200, Data: data}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := items["app/route"].JSON
+	want := `{"raw":"` + "\xf0\x28\xff" + `","text":"a\ud83d\ude00b \ud834\udd1e","\ud83d\ude42":["é中","\u003c\u0026\u003e"]}`
+	if got != want {
+		t.Fatalf("got %s, want %s", got, want)
+	}
+	plain, err := json.Marshal(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var before, after any
+	if err := json.Unmarshal(plain, &before); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(got), &after); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(before, after) {
+		t.Errorf("the text means %v, without the escapes %v", after, before)
+	}
+}
+
 // stringRecorder counts the strings it is handed whole, as net/http's writer takes them.
 type stringRecorder struct {
 	*httptest.ResponseRecorder
