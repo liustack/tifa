@@ -395,6 +395,32 @@ test('loader data is written as JSON through the tifa.data adapter', async () =>
   lacks(html, '{name:"router"}')
 })
 
+// seroval takes an array as an array before it asks the adapters, unless the SSR bundle changes it.
+test('array loader data is written as JSON and comes back as the server had it', async () => {
+  const url = '/teams/x/one'
+  const one = ['one', [], [['two', null]], null, '</script>']
+  for (const [data, text] of [
+    [one, '$_TSR.t.get("tifa.data")("[\\"one\\",[],[[\\"two\\",null]],null,\\"\\x3C/script>\\"]")'],
+    [[], '$_TSR.t.get("tifa.data")("[]")'],
+    [null, ''],
+  ] as const) {
+    const html = await render(url, { ...appData, 'app/teams/team+/layout': ok('x'), 'app/teams/team+/one/route': ok(data) })
+    contains(html, text, 'TEAM_ONE')
+    lacks(html, '[[["two",null]]')
+    const { router, calls } = await hydrateFrom(html, url)
+    assert(calls.length === 0, `hydration requested ${JSON.stringify(calls)}`)
+    const loaded = router.state.matches.at(-1)!.loaderData as any
+    assert(JSON.stringify(loaded) === JSON.stringify(data), `route data ${JSON.stringify(loaded)}`)
+    if (data === null) {
+      assert(loaded === null, `null became ${loaded}`)
+      continue
+    }
+    assert(Array.isArray(loaded) && loaded.length === data.length, `array became ${JSON.stringify(loaded)}`)
+    if (data === one)
+      assert(Array.isArray(loaded[1]) && Array.isArray(loaded[2][0]) && loaded[2][0][1] === null && loaded[3] === null, `nested ${JSON.stringify(loaded)}`)
+  }
+})
+
 test('404, redirect and RouteError results keep their paths', async () => {
   const url = '/teams/x/one'
   const html = await render(url, { ...appData, 'app/teams/team+/layout': ok('x'), 'app/teams/team+/one/route': missing })

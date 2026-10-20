@@ -767,6 +767,111 @@ func TestSSRWarnsWhenSerovalMovedItsMainFile(t *testing.T) {
 	}
 }
 
+// arraysPage serializes values with seroval and a plugin that writes the arrays and objects it
+// marks as JSON text, as the tifa.data adapter does, in seroval's three ways: at once, async and
+// as a stream, which TanStack Router takes. Each serialization goes on a line with the value its
+// code gives back, written with JSON.stringify, which tells an array from an object.
+const arraysPage = "import './host'\n" +
+	"import { createPlugin, crossSerializeStream, serialize, serializeAsync } from 'seroval'\n" +
+	"const marked = new WeakSet<object>()\n" +
+	"const mark = <T extends object>(value: T) => (marked.add(value), value)\n" +
+	"const asJSON = createPlugin<object, { text: any }>({\n" +
+	"  tag: 'test.json',\n" +
+	"  test: (value) => typeof value === 'object' && value !== null && marked.has(value),\n" +
+	"  parse: {\n" +
+	"    sync: (value, ctx) => ({ text: ctx.parse(JSON.stringify(value)) }),\n" +
+	"    async: async (value, ctx) => ({ text: await ctx.parse(JSON.stringify(value)) }),\n" +
+	"    stream: (value, ctx) => ({ text: ctx.parse(JSON.stringify(value)) }),\n" +
+	"  },\n" +
+	"  serialize: (node, ctx) => 'JSON.parse(' + ctx.serialize(node.text) + ')',\n" +
+	"  deserialize: (node, ctx) => JSON.parse(ctx.deserialize(node.text) as string),\n" +
+	"})\n" +
+	"const values = [\n" +
+	"  mark([1, [2, [], null], null, [], { a: [] }]),\n" +
+	"  mark([]),\n" +
+	"  { list: mark(['n', [[]]]), empty: mark([]), plain: [3, [], { b: [null] }] },\n" +
+	"]\n" +
+	"const lines: string[] = []\n" +
+	"const line = (way: string, code: string) => lines.push(way + ' ' + code + ' ' + JSON.stringify((0, eval)(code)))\n" +
+	"const run = async () => {\n" +
+	"  for (const value of values) {\n" +
+	"    line('sync', serialize(value, { plugins: [asJSON] }))\n" +
+	"    line('async', await serializeAsync(value, { plugins: [asJSON] }))\n" +
+	"    let code = ''\n" +
+	"    crossSerializeStream(value, { plugins: [asJSON], onSerialize: (part) => (code += part), onError: (e) => { throw e } })\n" +
+	"    ;(globalThis as any).$R = []\n" +
+	"    line('stream', code)\n" +
+	"  }\n" +
+	"  globalThis.result = lines.join('\\n')\n" +
+	"}\n" +
+	"run().catch((e) => (globalThis.result = 'error ' + e))\n"
+
+// plainArray finds the array of arraysPage that has no mark in seroval's own form, with or without
+// a reference.
+var plainArray = regexp.MustCompile(`plain:(\$R\[\d+\]=)?\[3,`)
+
+// seroval tries its plugins on an object, but takes an array as an array before it asks them.
+// The tifa plugin makes it ask them for arrays too, so the data of a page that is an array goes
+// through the tifa.data adapter as its JSON text. Arrays the plugins do not take stay as they were.
+func TestSSRSerializesArraysWithPlugins(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"arrays.ts": arraysPage})
+	code, printed := buildPrinting(t, root, "arrays.ts")
+	if strings.Contains(printed, "seroval") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	values := []string{`[1,[2,[],null],null,[],{"a":[]}]`, `[]`, `{"list":["n",[[]]],"empty":[],"plain":[3,[],{"b":[null]}]}`}
+	lines := strings.Split(evalResult(t, code), "\n")
+	if len(lines) != 3*len(values) {
+		t.Fatalf("%d serializations:\n%s", len(lines), strings.Join(lines, "\n"))
+	}
+	for i, l := range lines {
+		value := values[i/3]
+		if !strings.HasSuffix(l, " "+value) {
+			t.Errorf("serialization %d does not give back %s: %s", i, value, l)
+		}
+		// The marked arrays are JSON text, the plain one keeps seroval's own form.
+		switch i / 3 {
+		case 0:
+			if !strings.Contains(l, `JSON.parse("[1,[2,[],null],null,[],{\"a\":[]}]")`) || strings.Contains(l, "{a:") {
+				t.Errorf("serialization %d does not write the array as JSON text: %s", i, l)
+			}
+		case 1:
+			if !strings.Contains(l, `JSON.parse("[]")`) {
+				t.Errorf("serialization %d does not write the empty array as JSON text: %s", i, l)
+			}
+		case 2:
+			if !strings.Contains(l, `JSON.parse("[\"n\",[[]]]")`) || !strings.Contains(l, `JSON.parse("[]")`) || !plainArray.MatchString(l) {
+				t.Errorf("serialization %d does not write the marked arrays alone as JSON text: %s", i, l)
+			}
+		}
+	}
+
+	// A seroval whose parseObject the plugin does not know takes arrays as arrays, and the build
+	// says so.
+	changed := withChangedPackage(t, "seroval", filepath.Join("dist", "index.js"), func(source string) string {
+		const check = "\tif (Array.isArray(current)) return parseArray(ctx, depth, id, current);\n"
+		if strings.Count(source, check) != 1 {
+			t.Fatalf("seroval does not have %q once", check)
+		}
+		return strings.Replace(source, check, "\tif (Array.isArray(current)) { return parseArray(ctx, depth, id, current); }\n", 1)
+	})
+	writeTree(t, changed, map[string]string{"arrays.ts": arraysPage})
+	code, printed = buildPrinting(t, changed, "arrays.ts")
+	if !strings.Contains(printed, "seroval 1.6.9: ") || !strings.Contains(printed, "takes an array as an array") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	lines = strings.Split(evalResult(t, code), "\n")
+	for i, l := range lines {
+		if !strings.HasSuffix(l, " "+values[i/3]) {
+			t.Errorf("serialization %d does not give back %s: %s", i, values[i/3], l)
+		}
+		if i/3 == 0 && !strings.Contains(l, "{a:") {
+			t.Errorf("serialization %d of a seroval the plugin does not know writes the array as JSON text: %s", i, l)
+		}
+	}
+}
+
 // serializesShortStrings reports whether seroval in a minified bundle serializes a string with
 // JSON.stringify from a length of 2, which the minifier writes as a number or a variable.
 func serializesShortStrings(code string) bool {
