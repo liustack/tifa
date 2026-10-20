@@ -18,6 +18,8 @@ On start it prints `tifa dev: serving http://<address>`, then runs a full build 
 
 tifa dev does not run on Windows yet. Use WSL.
 
+tifa dev serves plain HTTP. The [HTTPS settings](config.md#https) of the project file apply to the built program only: the dev program ignores them.
+
 ## Vite
 
 tifa dev runs the app's own Vite on Node, with the app's `vite.config.ts` (see [build.md](build.md#the-apps-tsconfig-and-vite-config)):

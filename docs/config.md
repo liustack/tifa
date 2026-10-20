@@ -1,7 +1,9 @@
 ---
-summary: 'Every setting of a tifa app: where each one can be set, which source wins, the default, the flag and environment variable names, the value formats and the errors a bad value gives'
+summary: 'Every setting of a tifa app: where each one can be set, which source wins, the default, the flag and environment variable names, the value formats and the errors a bad value gives, and how to serve HTTPS with certificates the program gets itself or with your own'
 read_when:
   - Deploying a tifa app, or changing its port, body limit, compression, VM count, VM stack depth, render timeout or page cache
+  - Serving HTTPS from the program itself, with Let's Encrypt or your own certificate, or deciding whether to
+  - The program cannot listen on port 80 or 443, or gets no certificate
   - Setting the browser target, the static files folder or the profile of a build
   - The program refuses to start with a config error
   - Changing internal/config
@@ -48,15 +50,83 @@ Run `./bin/app config` to print the merged settings of all sources as a commente
 | `build.public` | `public` | project file only | Folder of static files copied into the program as they are and served from `/` |
 | `build.skip_tanstack_check` | `false` | project file only | `true` builds an app whose TanStack Router is not the version tifa is tested with, which may leave pages blank in the browser. See [build.md](build.md#the-apps-tsconfig-and-vite-config) |
 | `build.pgo` | `auto` | project file only | Profile `go build` optimizes the program with. `auto` takes `default.pgo` in the app root, or else, for an app with pages, the profile of page renders tifa ships. `off` builds without a profile. Any other value is a file, given relative to the app root. `tifa dev` never uses one. See [build.md](build.md#profile-guided-optimization) |
-| `server.addr` | `127.0.0.1:9527` | `--server-addr`, `TIFA_SERVER_ADDR` | Address to listen on. Use `0.0.0.0:9527` in a container |
+| `server.addr` | `127.0.0.1:9527` | `--server-addr`, `TIFA_SERVER_ADDR` | Address to listen on. Use `0.0.0.0:9527` in a container. With [HTTPS](#https) on it serves HTTPS, usually on `:443` |
 | `server.body_limit` | `1MiB` | `--server-body-limit`, `TIFA_SERVER_BODY_LIMIT` | Largest request body. A bigger one is answered with 413 |
 | `server.shutdown_timeout` | `10s` | `--server-shutdown-timeout`, `TIFA_SERVER_SHUTDOWN_TIMEOUT` | After a stop signal, the time in-flight requests get to finish, and then the time `OnShutdown` gets. Requests still running when it ends are canceled and get one more `shutdown_timeout` to return. `OnShutdown` runs once they have returned and is skipped if they have not. Either way the program exits with status 1 |
 | `server.compress` | `true` | `--server-compress`, `TIFA_SERVER_COMPRESS` | Sends text answers with gzip or zstd to clients that accept them, and the browser bundle as the gzip files `tifa build` wrote, see [Compression](build.md#compression). Set it to `false` when a proxy in front compresses, such as nginx with brotli |
+| `server.tls_domains` | none | `--server-tls-domains`, `TIFA_SERVER_TLS_DOMAINS` | Turns on [HTTPS](#https) with certificates from Let's Encrypt for these domains, comma-separated, such as `example.com,www.example.com` |
+| `server.tls_email` | none | `--server-tls-email`, `TIFA_SERVER_TLS_EMAIL` | Contact address given to Let's Encrypt with `tls_domains`. Optional |
+| `server.tls_cache` | none | `--server-tls-cache`, `TIFA_SERVER_TLS_CACHE` | Folder that keeps the certificates of `tls_domains` across restarts. Needed with `tls_domains`, and must survive new deployments |
+| `server.tls_ca` | `https://acme-v02.api.letsencrypt.org/directory` | `--server-tls-ca`, `TIFA_SERVER_TLS_CA` | ACME directory that `tls_domains` get their certificates from. Let's Encrypt by default |
+| `server.tls_cert` | none | `--server-tls-cert`, `TIFA_SERVER_TLS_CERT` | Turns on [HTTPS](#https) with your own certificate file instead, in PEM, loaded again when it changes |
+| `server.tls_key` | none | `--server-tls-key`, `TIFA_SERVER_TLS_KEY` | Private key file of `tls_cert`, in PEM |
+| `server.http_addr` | `:80` | `--server-http-addr`, `TIFA_SERVER_HTTP_ADDR` | With HTTPS on, the plain HTTP address that answers the checks of Let's Encrypt and redirects everything else to HTTPS. `off` for none. Not used without HTTPS |
+| `server.hsts` | `false` | `--server-hsts`, `TIFA_SERVER_HSTS` | Adds `Strict-Transport-Security: max-age=31536000` to the answers of `server.addr`, so browsers keep to HTTPS for a year |
 | `ssr.vms` | the CPU count (`GOMAXPROCS`) | `--ssr-vms`, `TIFA_SSR_VMS` | Prewarmed JavaScript VMs, which is how many pages render at once. In a container it follows the CPU limit. [Sizing a machine](performance.md#sizing-a-machine) says when to change it |
 | `ssr.vm_memory` | `128MiB` | `--ssr-vm-memory`, `TIFA_SSR_VM_MEMORY` | Memory limit of each VM. A render that runs out of memory fails, and the VM is replaced with a fresh one. Page code cannot catch it |
 | `ssr.vm_stack_depth` | `10000` | `--ssr-vm-stack-depth`, `TIFA_SSR_VM_STACK_DEPTH` | How deep JavaScript calls may nest in each VM, about one level per call. Deeper calls throw `RangeError: Maximum call stack size exceeded`, at about the depth Node does. From 1 to 10000, see [Stack depth](#stack-depth) |
 | `ssr.timeout` | `3s` | `--ssr-timeout`, `TIFA_SSR_TIMEOUT` | Time budget of one render. A render that runs longer is stopped and handled as an unexpected error, which goes to `OnError`. Page code cannot catch it |
 | `cache.size` | `64MiB` | `--cache-size`, `TIFA_CACHE_SIZE` | Size of the HTML cache of pages with `Cache = true`, counting the gzip and zstd forms it keeps with `server.compress` on. `0` turns it off |
+
+## HTTPS
+
+HTTPS is off by default, and the program serves plain HTTP on `server.addr` as it always did. Leave it off behind a CDN or a proxy that ends TLS, such as Cloudflare, nginx or Caddy: they already speak HTTPS and HTTP/2 to browsers, and they would be the only ones to see a certificate of the program.
+
+Turn it on when the program faces the internet by itself. Browsers then also get HTTP/2, which they speak only over TLS: every file of a page shares one connection, where over HTTP/1.1 a browser opens at most 6 to a host, see [Preloading the chunks of a page](build.md#preloading-the-chunks-of-a-page). There are two ways, and setting both fails.
+
+### Certificates from Let's Encrypt
+
+```yaml
+server:
+  addr: :443
+  tls_domains: example.com,www.example.com
+  tls_email: ops@example.com     # optional
+  tls_cache: /var/lib/myapp/certs
+```
+
+- At start the program asks Let's Encrypt for a certificate of each domain, or takes it from `tls_cache`, and logs until when it is valid. It renews each one on its own before it runs out (30 days before, or with a third of its life left for shorter certificates), without a restart. Setting `tls_domains` means agreeing to the terms of the ACME server, for Let's Encrypt its [subscriber agreement](https://letsencrypt.org/repository/).
+- DNS must point each domain to this machine, and the internet must reach it on port 443 or 80. Let's Encrypt checks that you control the domain over TLS on port 443 (`server.addr`) or over plain HTTP on port 80 (`server.http_addr`). The program tries the first, then the second.
+- `tls_cache` must survive restarts and new deployments: in a container, mount a volume on it. It holds the account key and the certificates with their private keys, readable by the program's user only. Without it every start would ask for new certificates, and Let's Encrypt gives the same set of names at most 5 a week: the sixth start in a week would get none.
+- Wildcards (`*.example.com`) and IP addresses are not supported, since they need another kind of check.
+- A name not in `tls_domains` gets no certificate: its TLS handshake fails, and Let's Encrypt is not asked.
+- When getting a certificate fails, for example because DNS points elsewhere, the log says why, and a connection a minute later tries again. Let's Encrypt allows 5 failed checks an hour for a name.
+- To try it without these limits, set `tls_ca` to `https://acme-staging-v02.api.letsencrypt.org/directory`, the staging server of Let's Encrypt. Browsers do not trust its certificates. Empty `tls_cache` when you switch back.
+
+### Your own certificate
+
+```yaml
+server:
+  addr: :443
+  tls_cert: /etc/letsencrypt/live/example.com/fullchain.pem
+  tls_key: /etc/letsencrypt/live/example.com/privkey.pem
+```
+
+- Both files are PEM. The certificate file holds the certificate followed by its intermediate certificates, as certbot's `fullchain.pem` does.
+- Before each new connection the program looks at both files and loads them again when one changed, so a renewed certificate takes effect without a restart or a signal. Links are followed, so the `live/` folder of certbot and a Kubernetes secret mounted as a volume work. While the new files do not load, for example when the certificate is written but its key not yet, the program keeps the certificate it had and logs why once.
+- Files that do not load at start stop the program before `OnStart`.
+
+### Port 80 and HSTS
+
+- With HTTPS on, `server.http_addr` (`:80` by default) serves plain HTTP. It answers the checks of Let's Encrypt, and redirects every other request to the same URL over HTTPS with a 308, which keeps the method. The redirect has no port, so it goes to 443 also when `server.addr` listens on another port that 443 is mapped to. Set it to `off` for none: with `tls_domains`, Let's Encrypt can then check only over TLS on port 443.
+- `server.hsts: true` adds `Strict-Transport-Security: max-age=31536000` to every answer of `server.addr`. A browser that saw it goes over HTTPS for a year, even when a link says `http://`, and turning it off again does not reach that browser. Turn it on once HTTPS works. It leaves out `includeSubDomains` and `preload`. Browsers ignore it over plain HTTP, so the redirect does not carry it. Behind a proxy that ends TLS it works too, since the proxy passes it on.
+
+### Ports below 1024
+
+On Linux only root may listen on ports 80 and 443. Give the program that one right instead:
+
+```sh
+sudo setcap cap_net_bind_service=+ep ./bin/myapp
+```
+
+Copying or building the file again drops it, so do it after each deployment. Under systemd, `AmbientCapabilities=CAP_NET_BIND_SERVICE` in the unit does the same. In a container that does not run as root, listen on high ports, such as `server.addr: :8443` and `server.http_addr: :8080`, and publish 443 and 80 on them (`-p 443:8443 -p 80:8080`). Without the right the program does not start, and the error says what to do. On macOS any user may listen on them.
+
+### What changes over HTTP/2
+
+- Compression, the `.gz` files of the build, the HTML cache, ETags, redirects and server-sent events work as over HTTP/1.1, and a flush sends what was written at once.
+- `Hijack` fails with `http.ErrNotSupported` on an HTTP/2 connection, since that connection carries other requests too. Unless `GODEBUG=http2xconnect=1` is set, the server does not offer WebSockets over HTTP/2, so browsers open them over a separate HTTP/1.1 connection, where `Hijack` works.
+- Over HTTPS, read what compression may leak in [Compression](build.md#compression).
+
+`tifa dev` always serves plain HTTP and ignores these settings, also when the project file sets them.
 
 ## Stack depth
 
@@ -87,7 +157,9 @@ What a lower depth breaks:
 - Durations use Go's format and must be positive: `500ms`, `3s`, `1m30s`.
 - `ssr.vms` is a whole number of at least 1.
 - `ssr.vm_stack_depth` is a whole number from 1 to 10000. A deeper stack would let code that recurses without end grow the goroutine stack past Go's limit, and the whole process would exit.
-- `build.skip_tanstack_check` and `server.compress` are `true` or `false`, without quotes. The flag takes its value after `=`: `--server-compress=false`.
+- `build.skip_tanstack_check`, `server.compress` and `server.hsts` are `true` or `false`, without quotes. The flag takes its value after `=`: `--server-compress=false`.
+- `server.tls_domains` is a comma-separated list of host names, without scheme, port or path. Each needs a dot. `server.tls_ca` is an `https` URL. `server.http_addr` is an address or `off`.
+- `server.tls_domains`, `server.tls_email`, `server.tls_cache`, `server.tls_cert` and `server.tls_key` may be empty, which turns off what a lower source set: `TIFA_SERVER_TLS_DOMAINS=` with `--server-tls-cert` serves your own certificate where the project file asks for Let's Encrypt.
 - `build.pgo` is `auto`, `off` or a path relative to the app root. YAML reads a plain `off` as text, so it needs no quotes. Words that read as a switch, such as `false`, `OFF` or `yes`, fail with what to write instead, and so does an absolute path.
 
 ## Errors
@@ -97,5 +169,12 @@ What a lower depth breaks:
 - a file or variable names an unknown key, such as `TIFA_SERVER_PORT`,
 - a value has the wrong type or format, such as `ssr.timeout: 3`,
 - a deployment file sets a `build.*` key. There are no `build.*` flags or `TIFA_BUILD_*` variables.
+
+It also refuses to start, before `OnStart`, and names the settings when:
+
+- the HTTPS settings do not go together once all sources are merged: `tls_domains` with `tls_cert`, `tls_cert` without `tls_key` or the other way round, `tls_domains` without `tls_cache`, or `tls_email` or `tls_cache` without `tls_domains`. The project file alone may leave out what the deployment adds, so `tifa build` does not check this,
+- the files of `tls_cert` and `tls_key` do not load, or `tls_cache` cannot be created.
+
+When `server.addr` or `server.http_addr` cannot be listened on, the error names the setting, and for a port only root may take it says what to do.
 
 `serve --dist <folder>` is a flag for [`tifa dev`](dev.md) only. It is not a setting and has no environment variable.

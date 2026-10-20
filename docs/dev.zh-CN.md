@@ -18,6 +18,8 @@ tifa dev [--dir 应用根目录] [--addr 127.0.0.1:9527]
 
 tifa dev 暂不支持 Windows，请用 WSL。
 
+tifa dev 提供明文 HTTP。项目文件里的 [HTTPS 配置](config.zh-CN.md#https)只对构建出的程序生效，开发程序不管它们。
+
 ## Vite
 
 tifa dev 在 Node 上跑应用自己装的 Vite，用应用的 `vite.config.ts`（见 [build.zh-CN.md](build.zh-CN.md#应用的-tsconfig-与-vite-配置)）：

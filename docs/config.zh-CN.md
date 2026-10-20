@@ -1,7 +1,9 @@
 ---
-summary: 'tifa 应用的全部配置：每项能在哪设置、谁优先、默认值、参数和环境变量名、值的写法，以及写错时的报错'
+summary: 'tifa 应用的全部配置：每项能在哪设置、谁优先、默认值、参数和环境变量名、值的写法、写错时的报错，以及怎样用程序自己申请的证书或你自己的证书提供 HTTPS'
 read_when:
   - 部署 tifa 应用，或要改端口、请求体上限、压缩、VM 数量、VM 栈深度、渲染超时、页面缓存
+  - 想让程序自己提供 HTTPS，用 Let's Encrypt 或自己的证书，或者在犹豫要不要这样做
+  - 程序监听不了 80 或 443 端口，或者拿不到证书
   - 设置构建的浏览器目标、静态文件目录或剖析
   - 程序因为配置错误起不来
   - 改 internal/config
@@ -48,15 +50,83 @@ cache:
 | `build.public` | `public` | 只能写在项目文件 | 静态文件目录，原样打进程序，从 `/` 提供 |
 | `build.skip_tanstack_check` | `false` | 只能写在项目文件 | 设为 `true` 时，TanStack Router 不是 tifa 测过的版本也照样构建，页面在浏览器里可能白屏。见 [build.zh-CN.md](build.zh-CN.md#应用的-tsconfig-与-vite-配置) |
 | `build.pgo` | `auto` | 只能写在项目文件 | `go build` 用来优化程序的剖析。`auto` 取应用根目录的 `default.pgo`，没有的话，有页面的应用用 tifa 自带的页面渲染剖析。`off` 不用剖析。别的值是一个文件，相对应用根目录。`tifa dev` 从不用剖析。见 [build.zh-CN.md](build.zh-CN.md#按剖析优化) |
-| `server.addr` | `127.0.0.1:9527` | `--server-addr`、`TIFA_SERVER_ADDR` | 监听地址。容器里用 `0.0.0.0:9527` |
+| `server.addr` | `127.0.0.1:9527` | `--server-addr`、`TIFA_SERVER_ADDR` | 监听地址。容器里用 `0.0.0.0:9527`。开了 [HTTPS](#https) 时这里提供 HTTPS，一般是 `:443` |
 | `server.body_limit` | `1MiB` | `--server-body-limit`、`TIFA_SERVER_BODY_LIMIT` | 请求体上限，超过答 413 |
 | `server.shutdown_timeout` | `10s` | `--server-shutdown-timeout`、`TIFA_SERVER_SHUTDOWN_TIMEOUT` | 收到退出信号后，先给在途请求的时间，再给 `OnShutdown` 的时间。到时仍在运行的请求会被取消，再给它们一个 `shutdown_timeout` 返回。都返回了就执行 `OnShutdown`，没返回就跳过它。两种情况程序都以状态码 1 退出 |
 | `server.compress` | `true` | `--server-compress`、`TIFA_SERVER_COMPRESS` | 对接受压缩的客户端用 gzip 或 zstd 发文本回答，浏览器包直接发 `tifa build` 写好的 gzip 文件，见[压缩](build.zh-CN.md#压缩)。前面有代理负责压缩时设为 `false`，比如用 brotli 的 nginx |
+| `server.tls_domains` | 无 | `--server-tls-domains`、`TIFA_SERVER_TLS_DOMAINS` | 开启 [HTTPS](#https)，为这些域名向 Let's Encrypt 申请证书，逗号分隔，比如 `example.com,www.example.com` |
+| `server.tls_email` | 无 | `--server-tls-email`、`TIFA_SERVER_TLS_EMAIL` | 配合 `tls_domains` 交给 Let's Encrypt 的联系邮箱，可不填 |
+| `server.tls_cache` | 无 | `--server-tls-cache`、`TIFA_SERVER_TLS_CACHE` | 保存 `tls_domains` 证书的目录，重启后接着用。配了 `tls_domains` 就必须配，而且重新部署也不能丢 |
+| `server.tls_ca` | `https://acme-v02.api.letsencrypt.org/directory` | `--server-tls-ca`、`TIFA_SERVER_TLS_CA` | `tls_domains` 申请证书用的 ACME 目录地址，默认是 Let's Encrypt |
+| `server.tls_cert` | 无 | `--server-tls-cert`、`TIFA_SERVER_TLS_CERT` | 改用你自己的证书文件开启 [HTTPS](#https)，PEM 格式，文件变了会重新加载 |
+| `server.tls_key` | 无 | `--server-tls-key`、`TIFA_SERVER_TLS_KEY` | `tls_cert` 的私钥文件，PEM 格式 |
+| `server.http_addr` | `:80` | `--server-http-addr`、`TIFA_SERVER_HTTP_ADDR` | 开了 HTTPS 时的明文 HTTP 地址，回应 Let's Encrypt 的验证，其余请求跳转到 HTTPS。`off` 表示不开。没开 HTTPS 时不用 |
+| `server.hsts` | `false` | `--server-hsts`、`TIFA_SERVER_HSTS` | 给 `server.addr` 的回答加上 `Strict-Transport-Security: max-age=31536000`，浏览器一年内只走 HTTPS |
 | `ssr.vms` | CPU 数（`GOMAXPROCS`） | `--ssr-vms`、`TIFA_SSR_VMS` | 预热的 JavaScript VM 数，也就是同时能渲染几个页面。容器里跟随 CPU 限额。什么时候该改见[机器怎么配](performance.zh-CN.md#机器怎么配) |
 | `ssr.vm_memory` | `128MiB` | `--ssr-vm-memory`、`TIFA_SSR_VM_MEMORY` | 每个 VM 的内存上限。渲染时内存用尽则这次渲染失败，VM 换成新的。页面代码接不住它 |
 | `ssr.vm_stack_depth` | `10000` | `--ssr-vm-stack-depth`、`TIFA_SSR_VM_STACK_DEPTH` | 每个 VM 里 JavaScript 调用最多嵌套多深，大约一次调用一层。更深的调用抛出 `RangeError: Maximum call stack size exceeded`，和 Node 停下的深度差不多。可设 1 到 10000，见[栈深度](#栈深度) |
 | `ssr.timeout` | `3s` | `--ssr-timeout`、`TIFA_SSR_TIMEOUT` | 一次渲染的时间预算。超时的渲染被停下，按意外错误处理，交给 `OnError`。页面代码接不住它 |
 | `cache.size` | `64MiB` | `--cache-size`、`TIFA_CACHE_SIZE` | `Cache = true` 页面的 HTML 缓存大小，`server.compress` 开着时它存的 gzip 和 zstd 版本也算在内，`0` 关闭 |
+
+## HTTPS
+
+HTTPS 默认关闭，程序照旧在 `server.addr` 上提供明文 HTTP。在 CDN 或负责 TLS 的代理（比如 Cloudflare、nginx、Caddy）后面就别开：它们已经用 HTTPS 和 HTTP/2 跟浏览器说话，程序的证书只有它们看得到。
+
+程序直接面对互联网时再开。这时浏览器也能用上 HTTP/2，浏览器只在 TLS 上说 HTTP/2：一个页面的所有文件共用一条连接，而 HTTP/1.1 下浏览器对一个主机最多开 6 条，见[预加载页面的 chunk](build.zh-CN.md#预加载页面的-chunk)。有两种方式，两种都配会报错。
+
+### 向 Let's Encrypt 申请证书
+
+```yaml
+server:
+  addr: :443
+  tls_domains: example.com,www.example.com
+  tls_email: ops@example.com     # 可不填
+  tls_cache: /var/lib/myapp/certs
+```
+
+- 程序启动时为每个域名向 Let's Encrypt 申请证书，或者从 `tls_cache` 取出，并在日志里写明有效期到哪天。证书快到期时自己续期（提前 30 天，有效期更短的证书在剩三分之一寿命时），不用重启。配了 `tls_domains` 就表示同意这个 ACME 服务的条款，对 Let's Encrypt 来说是它的[订户协议](https://letsencrypt.org/repository/)。
+- DNS 要把每个域名指到这台机器，互联网要能连到它的 443 或 80 端口。Let's Encrypt 通过 443 端口上的 TLS（`server.addr`）或 80 端口上的明文 HTTP（`server.http_addr`）确认域名归你。程序先试前者，再试后者。
+- `tls_cache` 必须经得起重启和重新部署：容器里要给它挂卷。里面是账号密钥、证书和证书的私钥，只有程序的用户能读。没有它每次启动都会重新申请，而 Let's Encrypt 给同一组域名每周最多发 5 张：一周里第六次启动就拿不到证书了。
+- 不支持通配符（`*.example.com`）和 IP 地址，它们需要另一种验证方式。
+- 不在 `tls_domains` 里的名字拿不到证书：它的 TLS 握手失败，也不会去问 Let's Encrypt。
+- 申请失败时（比如 DNS 指到了别处），日志会写明原因，一分钟后的连接会再试。Let's Encrypt 允许每个名字每小时验证失败 5 次。
+- 想先试试又不想碰这些限额，把 `tls_ca` 设成 Let's Encrypt 的测试服务 `https://acme-staging-v02.api.letsencrypt.org/directory`。浏览器不信任它发的证书。切回来时清空 `tls_cache`。
+
+### 用你自己的证书
+
+```yaml
+server:
+  addr: :443
+  tls_cert: /etc/letsencrypt/live/example.com/fullchain.pem
+  tls_key: /etc/letsencrypt/live/example.com/privkey.pem
+```
+
+- 两个文件都是 PEM 格式。证书文件里先放证书，后面跟中间证书，certbot 的 `fullchain.pem` 就是这样。
+- 每个新连接之前程序都会看一眼两个文件，有一个变了就重新加载，所以续期后的证书不用重启、也不用发信号就生效。符号链接会跟过去，所以 certbot 的 `live/` 目录和以卷挂载的 Kubernetes secret 都能用。新文件还加载不了时（比如证书写好了私钥还没写），程序继续用原来的证书，并在日志里写一次原因。
+- 启动时文件加载不了，程序在 `OnStart` 之前就停下。
+
+### 80 端口与 HSTS
+
+- 开了 HTTPS 时，`server.http_addr`（默认 `:80`）提供明文 HTTP。它回应 Let's Encrypt 的验证，其余请求都用 308 跳转到同一个网址的 HTTPS 版本，308 保留请求方法。跳转的网址不带端口，所以 `server.addr` 监听在别的端口、由 443 映射过去时，也会跳到 443。设成 `off` 就不开：配了 `tls_domains` 时，Let's Encrypt 就只能通过 443 端口上的 TLS 验证了。
+- `server.hsts: true` 给 `server.addr` 的每个回答加上 `Strict-Transport-Security: max-age=31536000`。见过它的浏览器一年内只走 HTTPS，链接写的是 `http://` 也一样，之后再关掉也影响不到这个浏览器。等 HTTPS 确认能用了再开。它不带 `includeSubDomains` 和 `preload`。浏览器在明文 HTTP 上不理这个头，所以跳转不带它。在负责 TLS 的代理后面也能开，代理会把它传下去。
+
+### 1024 以下的端口
+
+Linux 上只有 root 能监听 80 和 443。可以只给程序这一项权限：
+
+```sh
+sudo setcap cap_net_bind_service=+ep ./bin/myapp
+```
+
+复制或重新构建文件后这项权限就没了，每次部署后都要再执行一次。用 systemd 的话，在 unit 里写 `AmbientCapabilities=CAP_NET_BIND_SERVICE` 效果一样。容器里不以 root 运行时，监听高端口，比如 `server.addr: :8443` 和 `server.http_addr: :8080`，再把 443 和 80 映射过去（`-p 443:8443 -p 80:8080`）。没有这项权限程序起不来，报错会告诉你怎么办。macOS 上任何用户都能监听这些端口。
+
+### HTTP/2 下有什么不同
+
+- 压缩、构建写好的 `.gz` 文件、HTML 缓存、ETag、跳转和 server-sent events 都和 HTTP/1.1 下一样，flush 会把写好的内容马上发出去。
+- 在 HTTP/2 连接上 `Hijack` 返回 `http.ErrNotSupported`，因为这条连接上还有别的请求。除非设了 `GODEBUG=http2xconnect=1`，服务端不在 HTTP/2 上提供 WebSocket，浏览器会另开一条 HTTP/1.1 连接来建 WebSocket，那里 `Hijack` 照常能用。
+- 走 HTTPS 时压缩可能泄露什么，见[压缩](build.zh-CN.md#压缩)。
+
+`tifa dev` 总是提供明文 HTTP，不管这些配置，项目文件里配了也一样。
 
 ## 栈深度
 
@@ -87,7 +157,9 @@ cache:
 - 时长用 Go 的写法，必须为正：`500ms`、`3s`、`1m30s`。
 - `ssr.vms` 是不小于 1 的整数。
 - `ssr.vm_stack_depth` 是 1 到 10000 的整数。再深的话，无限递归的代码会让 goroutine 栈超过 Go 的上限，整个进程直接退出。
-- `build.skip_tanstack_check` 和 `server.compress` 是 `true` 或 `false`，不加引号。参数要用 `=` 带值：`--server-compress=false`。
+- `build.skip_tanstack_check`、`server.compress` 和 `server.hsts` 是 `true` 或 `false`，不加引号。参数要用 `=` 带值：`--server-compress=false`。
+- `server.tls_domains` 是逗号分隔的主机名，不带协议、端口和路径，每个都要有点号。`server.tls_ca` 是 `https` 网址。`server.http_addr` 是地址或 `off`。
+- `server.tls_domains`、`server.tls_email`、`server.tls_cache`、`server.tls_cert` 和 `server.tls_key` 可以为空，表示关掉低优先级来源设的值：项目文件要 Let's Encrypt 时，用 `TIFA_SERVER_TLS_DOMAINS=` 加 `--server-tls-cert` 就能改用自己的证书。
 - `build.pgo` 是 `auto`、`off` 或一个相对应用根目录的路径。YAML 把不加引号的 `off` 读成文本，所以不用加引号。像开关的词，比如 `false`、`OFF`、`yes`，会报错并告诉你该写什么，写绝对路径也一样。
 
 ## 报错
@@ -97,5 +169,12 @@ cache:
 - 文件或环境变量里有未知的键，比如 `TIFA_SERVER_PORT`。
 - 值的类型或格式不对，比如 `ssr.timeout: 3`。
 - 部署文件里写了 `build.*`。`build.*` 没有对应的参数，也没有 `TIFA_BUILD_*` 环境变量。
+
+下面几种情况程序也拒绝启动，在 `OnStart` 之前停下，并指出是哪几项配置：
+
+- 各来源合并后 HTTPS 配置互相矛盾：`tls_domains` 和 `tls_cert` 同时配了，只配了 `tls_cert` 和 `tls_key` 中的一个，配了 `tls_domains` 没配 `tls_cache`，或者没配 `tls_domains` 却配了 `tls_email` 或 `tls_cache`。项目文件可以不写部署时才补上的项，所以 `tifa build` 不查这一条。
+- `tls_cert` 和 `tls_key` 的文件加载不了，或者 `tls_cache` 建不出来。
+
+`server.addr` 或 `server.http_addr` 监听不了时，报错会指出是哪项配置，端口只有 root 能用时还会告诉你怎么办。
 
 `serve --dist <目录>` 只给 [`tifa dev`](dev.zh-CN.md) 用，不是配置项，也没有环境变量。
