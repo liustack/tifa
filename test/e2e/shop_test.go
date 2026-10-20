@@ -133,8 +133,12 @@ func TestShopApp(t *testing.T) {
 	if !ok || !strings.Contains(chunks.String(), "没有找到这个订单") {
 		t.Errorf("the order page does not preload its route:\n%s", preloads)
 	}
-	if _, _, page := get(t, base+"/nowhere"); !strings.Contains(page, built.Head+"<!--tifa-head-->") {
-		t.Errorf("the 404 page preloads more than the head:\n%s", page)
+	// An unknown project is a 404 of the project Layout, which the root Layout shows, so that page
+	// preloads nothing either.
+	for _, path := range []string{"/nowhere", "/projects/nope"} {
+		if _, _, page := get(t, base+path); !strings.Contains(page, built.Head+"<!--tifa-head-->") {
+			t.Errorf("the 404 page %s preloads more than the head:\n%s", path, page)
+		}
 	}
 	// Same data, same ETag: 304. The order page sets Cache = true: the next request skips the VM.
 	if status, _, _ := get(t, detail, "If-None-Match", header.Get("ETag")); status != 304 {

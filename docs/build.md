@@ -187,7 +187,7 @@ The entry script holds all the code every page loads. The tifa plugin gives roll
 
 - Order: the outermost Layout first and the route last. Within a module, its own chunk first, then the chunks it imports, depth first. Each file comes once.
 - Chunks that a module loads with `import()`, such as a `.client.tsx` component, are not preloaded. They load when their code runs.
-- A page whose `Load` failed gets the links of its Layouts and route, since the router shows a component of one of them. A URL that matches no page shows the root Layout, which is in the entry, and gets none. A page without SSR gets them in its document too.
+- When a `Load` fails, the router shows the page only down to the outermost level that failed, and the page preloads only those levels. A Layout's 404 shows the `NotFound` of the level above, so the Layout's chunk is left out. Any other failure of a Layout, and a 404 or other failure of the page, shows the `Error` or `NotFound` of that level or of one above, so that level's chunk is kept, also when it exports neither. A URL that matches no page shows the root Layout, which is in the entry, and gets none. A page without SSR gets the links in its document too.
 - The links carry no nonce, like the other tags of `head`.
 - The list is made at build time and read once at startup, so a render does no I/O for it. The links follow from the build and the matched path, so ETags and the HTML cache work as before.
 - tifa dev writes no list and no links.

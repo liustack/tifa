@@ -268,18 +268,37 @@ func TestFailedPagesRenderWithTheErrorStatus(t *testing.T) {
 }
 
 // A page preloads the chunks of the Layouts and the route it matched, as build.json lists them,
-// outermost first and each file once, right after the head of the build. So does a page whose
-// Load failed, which shows a component of the route. An unmatched URL shows the root Layout,
-// which is part of the entry, and preloads nothing.
+// outermost first and each file once, right after the head of the build. When a Load fails, the
+// router shows the page down to that level only: a Layout's 404 shows the NotFound of the level
+// above, so the page preloads the levels above it, and any other failure, or a 404 of the page
+// itself, shows the Error or NotFound of that level or one above, so it preloads down to it. An
+// unmatched URL shows the root Layout, which is part of the entry, and preloads nothing.
 func TestPagePreloadsTheModulesOfItsRoutes(t *testing.T) {
 	head := `<script type="module" src="/assets/app-1.js"></script>`
 	preloads := fstest.MapFS{
 		"build.json": {Data: []byte(`{"buildId":"b1","head":"<script type=\"module\" src=\"/assets/app-1.js\"></script>","preload":{` +
-			`"app/projects":["/assets/chunk-p.js","/assets/chunk-s.js"],"app/projects/orders":["/assets/chunk-o.js","/assets/chunk-s.js"],` +
+			`"app/layout":["/assets/chunk-r.js"],"app/projects":["/assets/chunk-p.js","/assets/chunk-s.js"],"app/projects/orders":["/assets/chunk-o.js","/assets/chunk-s.js"],` +
 			`"app/login":["/assets/chunk-l&.js"],"app/gone/route":["/assets/chunk-g.js"]}}`)},
 		"ssr.js": {Data: []byte("// bundle")},
 	}
-	s := newAppServer(t, frontApp())
+	app := frontApp()
+	app.Layouts[1].Load = func(c *tifa.Ctx) (any, error) {
+		if c.Param("projectId") == "nope" {
+			return nil, tifa.ErrNotFound
+		}
+		return tifa.Use(c, loadProject)
+	}
+	for i, route := range app.Routes {
+		if route.ID == "app/projects/orders" {
+			app.Routes[i].Load = func(c *tifa.Ctx) (any, error) {
+				if c.Param("projectId") == "gone" {
+					return nil, tifa.ErrNotFound
+				}
+				return tifa.Use(c, loadOrders)
+			}
+		}
+	}
+	s := newAppServer(t, app)
 	r := &renders{}
 	if err := s.setFront(preloads, r.render); err != nil {
 		t.Fatal(err)
@@ -291,15 +310,17 @@ func TestPagePreloadsTheModulesOfItsRoutes(t *testing.T) {
 		}
 		return b.String()
 	}
-	orders := link("/assets/chunk-p.js", "/assets/chunk-s.js", "/assets/chunk-o.js")
+	orders := link("/assets/chunk-r.js", "/assets/chunk-p.js", "/assets/chunk-s.js", "/assets/chunk-o.js")
 	for _, c := range []struct {
 		url, want string
 		status    int
 	}{
 		{"/projects/p1", orders, 200},
-		{"/projects/p1?site=missing", orders, 404},
-		{"/projects/broken", orders, 500},
-		{"/", "", 200},
+		{"/projects/gone", orders, 404},
+		{"/projects/broken", link("/assets/chunk-r.js", "/assets/chunk-p.js", "/assets/chunk-s.js"), 500},
+		{"/projects/nope", link("/assets/chunk-r.js"), 404},
+		{"/projects/p1?site=missing", "", 404},
+		{"/", link("/assets/chunk-r.js"), 200},
 		{"/nowhere", "", 404},
 	} {
 		w := get(s, c.url)
@@ -311,7 +332,7 @@ func TestPagePreloadsTheModulesOfItsRoutes(t *testing.T) {
 		}
 	}
 	// A page without SSR writes them into its document after the head of the build.
-	if body := get(s, "/login").Body.String(); !strings.Contains(body, head+link("/assets/chunk-l&amp;.js")+"</head>") {
+	if body := get(s, "/login").Body.String(); !strings.Contains(body, head+link("/assets/chunk-r.js", "/assets/chunk-l&amp;.js")+"</head>") {
 		t.Errorf("the page without SSR lacks its preload:\n%s", body)
 	}
 }

@@ -64,7 +64,7 @@ type front struct {
 	// pages is set when there are pages to render. Without it pages answer JSON.
 	pages bool
 	// preload holds, by the path of a page, the module preloads its document carries.
-	preload map[string]string
+	preload map[string]pagePreload
 }
 
 // readFront reads the front end in dist: dist/build.json names the build and its assets,
@@ -114,6 +114,13 @@ func (s *Server) readFront(dist fs.FS, render func(context.Context, ssr.Input) (
 	return f, nil
 }
 
+// pagePreload is what preloads a page's chunks: the IDs of its Layouts and route, outermost
+// first, and links[k], the module preloads of the first k of them.
+type pagePreload struct {
+	ids   []string
+	links []string
+}
+
 // preloads writes, for each page, a module preload of every file its Layouts and route need
 // beyond the head of the build: the files build.json lists for each, outermost first, each file
 // once. The links come right after the head, before the tags of the route head. The browser then
@@ -121,11 +128,12 @@ func (s *Server) readFront(dist fs.FS, render func(context.Context, ssr.Input) (
 // imports turn up, and the page hydrates as soon as with all of them in the entry. A URL that
 // matches no page shows the root Layout, which is part of the entry, and preloads nothing. tifa
 // writes no nonce on these links, as on the other tags of the head.
-func preloads(modules map[string][]string, files map[string][]string) map[string]string {
-	out := make(map[string]string, len(modules))
+func preloads(modules map[string][]string, files map[string][]string) map[string]pagePreload {
+	out := make(map[string]pagePreload, len(modules))
 	for path, ids := range modules {
 		var b strings.Builder
 		seen := map[string]bool{}
+		p := pagePreload{ids: ids, links: []string{""}}
 		for _, id := range ids {
 			for _, file := range files[id] {
 				if !seen[file] {
@@ -133,12 +141,34 @@ func preloads(modules map[string][]string, files map[string][]string) map[string
 					fmt.Fprintf(&b, `<link rel="modulepreload" href="%s">`, html.EscapeString(file))
 				}
 			}
+			p.links = append(p.links, b.String())
 		}
-		if b.Len() > 0 {
-			out[path] = b.String()
-		}
+		out[path] = p
 	}
 	return out
+}
+
+// preloadOf is the module preloads of the page at path with the results of its Loads. The
+// router shows the page down to the outermost level whose Load failed. A Layout's 404 shows the
+// NotFound of the level above, so the Layout's chunk is left out. Any other failure, and a 404
+// of the page, shows the Error or the NotFound of that level or of one above, so the chunk of
+// that level is kept.
+func (f *front) preloadOf(path string, items map[string]routeResult) string {
+	p, ok := f.preload[path]
+	if !ok {
+		return ""
+	}
+	for i, id := range p.ids {
+		r, ok := items[id]
+		if !ok || r.Status == http.StatusOK {
+			continue
+		}
+		if r.Status == http.StatusNotFound && i < len(p.ids)-1 {
+			return p.links[i]
+		}
+		return p.links[i+1]
+	}
+	return p.links[len(p.ids)]
 }
 
 // setFront serves the front end in dist with render, see readFront.
@@ -484,9 +514,9 @@ func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status in
 	s.rendering.RLock()
 	defer s.rendering.RUnlock()
 	f := s.front.Load()
-	// The preloads follow from the build and the matched path, which the URL picks, so the ETag
-	// and the HTML cache need not cover them.
-	in := ssr.Input{BuildID: f.build.ID, URL: r.URL.RequestURI(), Data: data, Preload: f.preload[c.Pattern()]}
+	// The preloads follow from the build, the matched path, which the URL picks, and the results
+	// of the Loads, so the ETag and the HTML cache need not cover more.
+	in := ssr.Input{BuildID: f.build.ID, URL: r.URL.RequestURI(), Data: data, Preload: f.preloadOf(c.Pattern(), items)}
 	var key string
 	if status == http.StatusOK {
 		sum := sha256.Sum256([]byte(in.BuildID + "\x00" + f.build.bundle + "\x00" + in.URL + "\x00" + string(data)))
@@ -585,7 +615,7 @@ func (s *Server) dataOnly(c *tifa.Ctx, items map[string]routeResult, status int)
 	var b strings.Builder
 	b.WriteString(`<!DOCTYPE html><html><head><meta charset="utf-8">`)
 	b.WriteString(f.build.Head)
-	b.WriteString(f.preload[c.Pattern()])
+	b.WriteString(f.preloadOf(c.Pattern(), items))
 	b.WriteString(`</head><body><div id="tifa-root"></div>`)
 	// json.Marshal escapes <, >, &, U+2028 and U+2029, so the data cannot close the script element.
 	fmt.Fprintf(&b, `<script type="application/json" id="tifa-data">%s</script></body></html>`, boot)
