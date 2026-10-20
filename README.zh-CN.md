@@ -38,7 +38,7 @@
 
 | 在 1 核 1G 的 VPS 上 | 常见的一套 | 用 tifa |
 | :-- | :-- | :-- |
-| 反向代理 | nginx | 二进制里自带的 Go HTTP 服务 |
+| 反向代理与证书 | nginx + certbot | 程序里的 Go HTTP 服务器，自己申请 Let's Encrypt 证书，支持 HTTP/2 |
 | 运行时与进程管理 | Node.js + PM2 | 一个 Go 可执行文件 |
 | React SSR | TanStack Start | TanStack Router，由 Go 进程内的纯 Go QuickJS 渲染 |
 | 缓存 | Redis | 进程内的 HTML 缓存，以及你放在 Go 内存里的数据 |

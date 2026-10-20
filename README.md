@@ -36,7 +36,7 @@ So I started hacking on tifa. Once it is done, deploying should mean copying one
 
 | On a 1 CPU / 1 GB VPS | The usual stack | With tifa |
 | :-- | :-- | :-- |
-| Reverse proxy | nginx | The Go HTTP server in the binary |
+| Reverse proxy and certificates | nginx + certbot | The Go HTTP server in the binary, which gets its own Let's Encrypt certificate and speaks HTTP/2 |
 | Runtime and process manager | Node.js + PM2 | One Go executable |
 | React SSR | TanStack Start | TanStack Router, rendered by a pure Go QuickJS inside the Go process |
 | Cache | Redis | An in-process HTML cache, plus whatever you keep in Go memory |
