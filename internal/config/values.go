@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/net/idna"
 )
 
 // value parses one setting from text, whatever layer the text came from.
@@ -60,10 +63,21 @@ func (v domainsValue) Set(s string) error {
 			return fmt.Errorf("%q: an IP address gets no certificate this way, use a domain name", d)
 		case strings.Contains(d, ":"):
 			return fmt.Errorf("%q: write the host name without a port, such as example.com", d)
-		case !strings.Contains(strings.Trim(d, "."), "."):
+		}
+		// A final dot names the same domain, and browsers do not send it.
+		name := strings.TrimSuffix(d, ".")
+		if !strings.Contains(name, ".") {
 			return fmt.Errorf("%q: a domain needs a dot, such as example.com", d)
 		}
-		domains = append(domains, d)
+		if slices.Contains(strings.Split(name, "."), "") {
+			return fmt.Errorf("%q: a domain has no empty parts between dots", d)
+		}
+		// autocert compares names in this ASCII form, and drops the ones that do not convert.
+		ascii, err := idna.Lookup.ToASCII(name)
+		if err != nil {
+			return fmt.Errorf("%q is not a valid domain name: %v", d, err)
+		}
+		domains = append(domains, ascii)
 	}
 	*v.p = domains
 	return nil

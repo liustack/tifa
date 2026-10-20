@@ -494,3 +494,22 @@ func TestExampleHoldsTheHTTPSSettings(t *testing.T) {
 		t.Fatalf("round trip: %+v, %v", got.Server, err)
 	}
 }
+
+// Domains are stored the way autocert compares them, in ASCII without a final dot: a name
+// HostWhitelist cannot convert would otherwise be dropped without a word, and a final dot would
+// never match the name a browser sends.
+func TestTLSDomainsAreStoredAsASCII(t *testing.T) {
+	c, err := load(t, nil, []string{"TIFA_SERVER_TLS_DOMAINS=Example.com., bücher.example, www.example.com"}, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"example.com", "xn--bcher-kva.example", "www.example.com"}; !reflect.DeepEqual(c.Server.TLSDomains, want) {
+		t.Fatalf("%q, want %q", c.Server.TLSDomains, want)
+	}
+	for _, bad := range []string{"a_b.example.com", "-x.example.com", "exa mple.com", "example..com", "example.com.."} {
+		_, err := load(t, nil, []string{"TIFA_SERVER_TLS_DOMAINS=" + bad}, "", "")
+		if err == nil || !strings.Contains(err.Error(), "server.tls_domains") {
+			t.Errorf("%q: %v", bad, err)
+		}
+	}
+}
