@@ -221,7 +221,7 @@ const blockedURL = "javascript:throw new Error('React has blocked a javascript: 
 export function attribute(key: string, value: unknown): [string, string] | undefined {
   if (value === null || value === undefined || ignored.has(key)) return undefined
   if (typeof value === 'function' || typeof value === 'symbol') return undefined
-  if (key === 'style') throw new Error('head: tags of the head take no style attribute')
+  if (key === 'style') throw new Error('head: the head and <html> take no style attribute, set styles in a stylesheet')
   if (booleans.has(key)) return value ? [aliases[key] ?? key, ''] : undefined
   if (booleanStrings.has(key)) return [key, String(value)]
   if (key === 'href' || key === 'src') {
