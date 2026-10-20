@@ -2,6 +2,7 @@ package cart
 
 import (
 	"crypto/rand"
+	"net/http"
 	"regexp"
 	"slices"
 	"strings"
@@ -257,7 +258,14 @@ func PlaceOrder(c *tifa.Ctx, l store.Locale, o Order, now time.Time) (string, er
 	defer carts.mu.Unlock()
 	cartID := ID(c)
 	rec, ok := carts.get(cartID, now)
-	if !ok {
+	switch {
+	case !ok && cartID != "":
+		// The cart was forgotten, or never made here. The checkout showed that cart, so placing
+		// the demonstration cart in its place would charge another amount. Drop the cookie, so
+		// the page shows the demonstration cart when it loads again.
+		c.SetCookie(&http.Cookie{Name: CookieName, Path: "/store", MaxAge: -1})
+		return "", tifa.Error{Status: 409, Message: "cartExpired"}
+	case !ok:
 		rec = &cartRecord{lines: demoLines}
 	}
 	cart := price(rec.lines, rec.coupon, l)
@@ -265,8 +273,8 @@ func PlaceOrder(c *tifa.Ctx, l store.Locale, o Order, now time.Time) (string, er
 		return "", tifa.Error{Status: 409, Message: "emptyCart"}
 	}
 	if !ok {
-		// A visitor who checks out the demonstration cart gets a cart of their own, which the
-		// order is placed from.
+		// A visitor without a cart, who checks out the demonstration cart, gets a cart of their
+		// own, which the order is placed from.
 		cartID = newCartID()
 		carts.add(cartID, rec, now)
 	}

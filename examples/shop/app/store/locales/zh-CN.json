@@ -230,7 +230,8 @@
     "coupon": "优惠码无效",
     "price": "最低价不能高于最高价",
     "network": "网络异常，请重试",
-    "emptyCart": "购物车是空的"
+    "emptyCart": "购物车是空的",
+    "cartExpired": "购物车已过期，页面已经刷新，请确认商品后重新下单"
   },
   "journal": {
     "title": "手记",

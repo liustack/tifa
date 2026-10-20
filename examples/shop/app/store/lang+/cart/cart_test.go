@@ -291,11 +291,10 @@ func TestFailedChangesMakeNoCart(t *testing.T) {
 func TestOnlyCartIDsTheServerMadeAreKept(t *testing.T) {
 	forged := strings.Repeat("f", 3000)
 	c, w := visit(t, forged)
-	if _, err := PlaceOrder(c, zh, goodOrder(), time.Now()); err != nil {
-		t.Fatal(err)
+	if _, err := PlaceOrder(c, zh, goodOrder(), time.Now()); err == nil {
+		t.Fatal("checking out with a forged cart ID placed an order")
 	}
-	cookie := w.Header().Get("Set-Cookie")
-	if strings.Contains(cookie, forged) || !strings.Contains(cookie, CookieName+"=") {
+	if cookie := w.Header().Get("Set-Cookie"); strings.Contains(cookie, forged) {
 		t.Errorf("checking out with a forged cart ID set %.80s", cookie)
 	}
 	if n := Count(forged); n != Get("", zh).Count {
@@ -405,5 +404,36 @@ func TestTheBrowserChecksEmailsAndLengthsAsGoDoes(t *testing.T) {
 		if !strings.Contains(string(schema), want) {
 			t.Errorf("checkout-schema.ts lacks %s", want)
 		}
+	}
+}
+
+// A visitor whose cart was forgotten, after a month unused or when the store of carts was full,
+// still sends its ID. Checking out then fails and drops the cookie: the checkout showed a cart
+// that is gone, and placing the demonstration cart in its place would charge another amount.
+func TestACartThatIsGoneCannotBeCheckedOut(t *testing.T) {
+	c, _ := visit(t, "")
+	id, err := Add(c, "oak-tray", "oat", "M", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	carts.mu.Lock()
+	carts.remove(carts.items[id])
+	before := carts.len()
+	carts.mu.Unlock()
+	c, w := visit(t, id)
+	_, err = PlaceOrder(c, zh, goodOrder(), time.Now())
+	var e tifa.Error
+	if !errors.As(err, &e) || e.Status != 409 || e.Message != "cartExpired" {
+		t.Errorf("check out a cart that is gone: %v", err)
+	}
+	cookie, perr := http.ParseSetCookie(w.Header().Get("Set-Cookie"))
+	if perr != nil || cookie.Name != CookieName || cookie.MaxAge >= 0 {
+		t.Errorf("the cookie of a cart that is gone stays: %q", w.Header().Get("Set-Cookie"))
+	}
+	carts.mu.Lock()
+	after := carts.len()
+	carts.mu.Unlock()
+	if after != before {
+		t.Errorf("checking out a cart that is gone made a cart: %d before, %d after", before, after)
 	}
 }

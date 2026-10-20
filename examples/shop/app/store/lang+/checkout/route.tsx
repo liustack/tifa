@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Link } from '@tanstack/react-router'
+import { Link, useRouter } from '@tanstack/react-router'
 import { CircleCheck, CircleDashed, CreditCard, Lock, MapPin, PartyPopper } from 'lucide-react'
 import { Controller, useForm, useWatch, type Control, type FieldPath } from 'react-hook-form'
 import { TifaError } from 'tifa/client'
@@ -87,6 +87,7 @@ const addressFields = ['name', 'phone', 'country', 'region', 'city', 'line1', 'l
 function Checkout({ view }: { view: Data }) {
   const { t, locale, money } = useStore()
   const hydrated = useHydrated()
+  const router = useRouter()
   const saved = view.saved ?? []
   const lines = view.cart.lines ?? []
   const deliveries = view.deliveries ?? []
@@ -137,6 +138,9 @@ function Checkout({ view }: { view: Data }) {
       const fields = Object.entries(e.fields)
       for (const [name, msg] of fields) form.setError(name as FieldPath<POSTInput>, { message: msg })
       if (fields.length === 0) form.setError('root', { message: e.message })
+      // The cart this page showed is gone and the server dropped its cookie: load the page
+      // again, so the summary shows the cart an order would now be placed from.
+      if (e.status === 409 && e.message === 'cartExpired') await router.invalidate()
     }
   }
 
