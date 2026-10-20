@@ -72,7 +72,7 @@ cache:
 
 HTTPS 默认关闭，程序照旧在 `server.addr` 上提供明文 HTTP。在 CDN 或负责 TLS 的代理（比如 Cloudflare、nginx、Caddy）后面就别开：它们已经用 HTTPS 和 HTTP/2 跟浏览器说话，程序的证书只有它们看得到。
 
-程序直接面对互联网时再开。这时浏览器也能用上 HTTP/2，浏览器只在 TLS 上说 HTTP/2：一个页面的所有文件共用一条连接，而 HTTP/1.1 下浏览器对一个主机最多开 6 条，见[预加载页面的 chunk](build.zh-CN.md#预加载页面的-chunk)。有两种方式，两种都配会报错。不管用哪种都要设 `server.addr`：开了 HTTPS 还用默认的 `127.0.0.1:9527` 时程序拒绝启动，因为只有本机连得到它。设成别的回环地址（比如 `127.0.0.1:8443`）能启动，日志里会有一行警告，方便在本机测试。
+程序直接面对互联网时再开。这时浏览器也能用上 HTTP/2，浏览器只在 TLS 上说 HTTP/2：一个页面的所有文件共用一条连接，而 HTTP/1.1 下浏览器对一个主机最多开 6 条，见[预加载页面的 chunk](build.zh-CN.md#预加载页面的-chunk)。有两种方式，两种都配会报错。不管用哪种都要设 `server.addr`：开了 HTTPS 还用默认的 `127.0.0.1:9527` 时程序拒绝启动，因为只有本机连得到它。在配置里写出来也一样。设成别的回环地址（比如 `127.0.0.1:8443`）能启动，日志里会有一行警告，方便在本机测试。
 
 ### 向 Let's Encrypt 申请证书
 
@@ -172,7 +172,7 @@ sudo setcap cap_net_bind_service=+ep ./bin/myapp
 
 下面几种情况程序也拒绝启动，在 `OnStart` 之前停下，并指出是哪几项配置：
 
-- 开了 HTTPS，`server.addr` 却还是默认值。
+- 开了 HTTPS，`server.addr` 却是默认的 `127.0.0.1:9527`，不管是没写还是写出来的。
 - 各来源合并后 HTTPS 配置互相矛盾：`tls_domains` 和 `tls_cert` 同时配了，只配了 `tls_cert` 和 `tls_key` 中的一个，配了 `tls_domains` 没配 `tls_cache`，或者没配 `tls_domains` 却配了 `tls_email` 或 `tls_cache`。项目文件可以不写部署时才补上的项，所以 `tifa build` 不查这一条。
 - `tls_cert` 和 `tls_key` 的文件加载不了，或者 `tls_cache` 建不出来。
 

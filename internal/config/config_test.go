@@ -541,8 +541,16 @@ func TestHTTPSNeedsServerAddr(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = c.Server.CheckHTTPS()
-	if err == nil || !strings.Contains(err.Error(), "server.addr") || !strings.Contains(err.Error(), ":443") {
+	if err == nil || !strings.Contains(err.Error(), "server.addr is 127.0.0.1:9527, the default") || !strings.Contains(err.Error(), ":443") {
 		t.Fatalf("default addr: %v", err)
+	}
+	// Written out by hand it is the same address, and the error reads right for it too.
+	c, err = load(t, []string{"--server-addr", "127.0.0.1:9527"}, []string{"TIFA_SERVER_TLS_CERT=c.pem", "TIFA_SERVER_TLS_KEY=k.pem"}, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Server.CheckHTTPS(); err == nil || !strings.Contains(err.Error(), "server.addr is 127.0.0.1:9527, the default") {
+		t.Fatalf("default addr written out: %v", err)
 	}
 	c.Server.Addr = "127.0.0.1:8443"
 	if err := c.Server.CheckHTTPS(); err != nil {
