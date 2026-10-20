@@ -93,7 +93,8 @@ func shopBundle(t testing.TB) (string, []shopPage) {
 }
 
 // injectedData turns the answer of a navigation data request into the data a whole-page render
-// gets: each successful route carries its data as the JSON text Go wrote, in json.
+// gets: each successful route carries its data as the JSON text Go wrote, in json, with the
+// escapes of ssr.EscapeAboveFFFF the server writes into it.
 func injectedData(t testing.TB, answer []byte) json.RawMessage {
 	t.Helper()
 	var routes map[string]struct {
@@ -108,7 +109,7 @@ func injectedData(t testing.TB, answer []byte) json.RawMessage {
 	}
 	for id, r := range routes {
 		if r.Status == http.StatusOK {
-			r.JSON, r.Data = string(r.Data), nil
+			r.JSON, r.Data = string(ssr.EscapeAboveFFFF(r.Data)), nil
 			if r.JSON == "" { // a nil Data, left out of the answer
 				r.JSON = "null"
 			}
@@ -120,6 +121,19 @@ func injectedData(t testing.TB, answer []byte) json.RawMessage {
 		t.Fatal(err)
 	}
 	return data
+}
+
+// injectedData writes the data of a route as the server does, characters above U+FFFF as the
+// escapes of their surrogate pairs among it.
+func TestInjectedDataIsWhatTheServerInjects(t *testing.T) {
+	data := injectedData(t, []byte(`{"app/route":{"status":200,"data":{"s":"a😀"}},"app/gone":{"status":404}}`))
+	var routes map[string]struct{ JSON string }
+	if err := json.Unmarshal(data, &routes); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := routes["app/route"].JSON, `{"s":"a\ud83d\ude00"}`; got != want {
+		t.Errorf("json = %s, want %s", got, want)
+	}
 }
 
 var listening = regexp.MustCompile(`listening on (http://\S+)`)
