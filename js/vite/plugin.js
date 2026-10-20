@@ -217,7 +217,82 @@ export function tifa(settings = {}) {
       })
     },
   }
-  return [plugin, generated(), ssrPlugin(() => root, () => import('vite'))]
+  return [plugin, generated(), lazyRoutes(), ssrPlugin(() => root, () => import('vite'))]
+}
+
+// lazyRoute is the prefix of the ID of a stand-in for a route module, see lazyRoutes.
+const lazyRoute = '\0tifa-lazy-route:'
+
+/**
+ * lazyRoutes makes the browser bundle load every route module except the root Layout when its
+ * route needs it. routes.tsx imports a route module with import(), or statically when it exports
+ * head, so that the server render, whose bundle is one file, calls head from the module itself.
+ * In the browser build this plugin hands such a static import a stand-in instead: the same
+ * exports, made with lazyRouteComponent from an import() of the module, and a head that loads
+ * the module and calls its head. TanStack Router accepts a head that returns a promise, and it
+ * loads the chunk of a route before it runs head, so the module is there by then. The root
+ * Layout stays in the entry script: the root route needs its NotFound, and the entries its
+ * htmlAttributes. tifa dev serves each module on its own and keeps the static imports.
+ *
+ * environments are the Vite environments it applies to.
+ */
+export function lazyRoutes(environments = ['client']) {
+  let routes = '' // .tifa/routes.tsx
+  let rootLayout = ''
+  let router // the ID TanStack Router resolves to from routes.tsx
+  let unknownKind = false
+  return {
+    name: 'tifa:lazy-routes',
+    // Before Vite's resolver, which would resolve the import to the module itself.
+    enforce: 'pre',
+    apply: 'build',
+    applyToEnvironment: (env) => environments.includes(env.name),
+    configResolved(config) {
+      const root = fs.realpathSync(config.root)
+      routes = path.join(root, '.tifa', 'routes.tsx')
+      rootLayout = path.join(root, 'app', 'layout.tsx')
+    },
+    resolveId: {
+      filter: { id: /^\.\.\/app\// },
+      async handler(source, importer, options) {
+        if (importer !== routes) return null
+        if (options.kind === undefined) {
+          // Without the kind of an import, a static one cannot be told from import().
+          if (!unknownKind) {
+            unknownKind = true
+            this.warn(
+              'tifa: this Vite does not say whether an import is static, so the route modules that export head ' +
+                'are part of the entry script of the browser. tifa is tested with the Vite that tifa new writes into package.json',
+            )
+          }
+          return null
+        }
+        if (options.kind !== 'import-statement') return null
+        const resolved = await this.resolve(source, importer, { kind: options.kind, skipSelf: true })
+        if (!resolved || resolved.external || resolved.id === rootLayout) return null
+        router ??= await this.resolve('@tanstack/react-router', importer, { kind: options.kind, skipSelf: true })
+        if (!router) this.error(`@tanstack/react-router does not resolve from ${importer}`)
+        return lazyRoute + resolved.id
+      },
+    },
+    load: {
+      filter: { id: new RegExp('^' + lazyRoute) },
+      handler(id) {
+        const module = JSON.stringify(id.slice(lazyRoute.length))
+        // routes.tsx reads default, head, Error and NotFound of a route module. A stand-in for an
+        // export the module lacks is never read, and the bundler leaves it out.
+        return (
+          `import { lazyRouteComponent } from ${JSON.stringify(router.id)}\n` +
+          `const load = () => import(${module})\n` +
+          'export default lazyRouteComponent(load)\n' +
+          'const error = /* @__PURE__ */ lazyRouteComponent(load, "Error")\n' +
+          'const notFound = /* @__PURE__ */ lazyRouteComponent(load, "NotFound")\n' +
+          'export { error as Error, notFound as NotFound }\n' +
+          'export const head = (context) => load().then((module) => module.head(context))\n'
+        )
+      },
+    },
+  }
 }
 
 // generated resolves ./+route and ./+layout, the imports that lead to what tifa generates. Other

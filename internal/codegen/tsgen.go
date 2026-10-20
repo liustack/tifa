@@ -476,7 +476,10 @@ func jsStrings(values []string) string {
 // routesModule writes routes.tsx: the routes of tanstackRoutes, the tree, and the router type
 // registration that gives getRouteApi its types. A TSX module is loaded lazily, in its own
 // browser chunk, unless it is the root Layout's, whose NotFound and htmlAttributes the root
-// route and the entries need, or exports head, which the router needs before it loads route chunks.
+// route and the entries need, or exports head, which the server render then calls from the
+// module itself. The browser build loads these head modules lazily too: lazyRoutes in
+// js/vite/plugin.js hands routes.tsx a stand-in for each, so only the root Layout is in the
+// entry script.
 func routesModule(nodes []*tsNode) ([]byte, error) {
 	routes, err := tanstackRoutes(nodes)
 	if err != nil {

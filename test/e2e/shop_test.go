@@ -95,9 +95,17 @@ func TestShopApp(t *testing.T) {
 	if strings.Contains(stats, "recharts") {
 		t.Error("stats page: recharts rendered on the server")
 	}
+	// The order page, the stats page and the project Layout export head. Their components load
+	// with their routes too, so none of their texts is in what every page loads.
 	for _, m := range headURL.FindAllStringSubmatch(built.Head, -1) {
-		if _, _, script := get(t, base+m[1]); strings.HasSuffix(m[1], ".js") && strings.Contains(script, "recharts-wrapper") {
-			t.Errorf("%s, which every page loads, holds recharts", m[1])
+		_, _, script := get(t, base+m[1])
+		if !strings.HasSuffix(m[1], ".js") {
+			continue
+		}
+		for _, text := range []string{"recharts-wrapper", "没有找到这个订单", "销售统计", "订单都已发出"} {
+			if strings.Contains(script, text) {
+				t.Errorf("%s, which every page loads, holds %s", m[1], text)
+			}
 		}
 	}
 	// Same data, same ETag: 304. The order page sets Cache = true: the next request skips the VM.
@@ -365,10 +373,20 @@ func checkCompressed(t *testing.T, base, dir, buildID, head string) {
 		t.Errorf("navigation data: %v", data.Header)
 	}
 
-	// Each file the head loads, and the largest chunk among them, goes out as its .gz file.
+	// Each file the head loads, the entry script of over 256 KB among them, goes out as its .gz
+	// file. A file under 1024 bytes has none and goes out as it is.
 	largest := 0
 	for _, m := range headURL.FindAllStringSubmatch(head, -1) {
 		file := filepath.Join(dir, ".tifa", "dist", filepath.FromSlash(m[1]))
+		if info, err := os.Stat(file); err == nil && info.Size() < 1024 {
+			if _, err := os.Stat(file + ".gz"); !os.IsNotExist(err) {
+				t.Errorf("%s of %d bytes has a .gz: %v", m[1], info.Size(), err)
+			}
+			if res, body := fetch(m[1], "gzip, deflate, br, zstd"); res.Header.Get("Content-Encoding") != "" || int64(len(body)) != info.Size() {
+				t.Errorf("%s: %v, %d bytes, want the %d of the file", m[1], res.Header, len(body), info.Size())
+			}
+			continue
+		}
 		want, err := os.ReadFile(file + ".gz")
 		if err != nil {
 			t.Errorf("%s has no .gz: %v", m[1], err)
@@ -383,7 +401,7 @@ func checkCompressed(t *testing.T, base, dir, buildID, head string) {
 			t.Errorf("%s: %v, %d bytes, want the %d of its .gz", m[1], res.Header, len(body), len(want))
 		}
 	}
-	if largest < 500<<10 {
-		t.Errorf("the largest file the head loads has %d bytes, the check wants the chunk over 500 KB", largest)
+	if largest < 256<<10 {
+		t.Errorf("the largest file the head loads has %d bytes, the check wants one over 256 KB", largest)
 	}
 }
