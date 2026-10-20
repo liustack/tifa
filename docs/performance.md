@@ -217,7 +217,10 @@ v0.26.13 as a whole renders in 0.823 of the time of v0.26.12, between 0.821 and 
 | Leave the names of components out of React's key paths | 2.1% to 2.7% less on five of the six shop pages, 1.4% to 2.9% on the other pages |
 | Let seroval escape strings from 2 UTF-16 code units with `JSON.stringify` | 6% to 10% less on small pages, at most 2.5% on larger ones |
 | Hand each `Load`'s data to the browser as the JSON text Go wrote ([Data protocol](build.md#data-protocol)) | TanStack's default serializer takes several times as long for the same data |
+| Let seroval ask its plugins about arrays too, so a `Load` that returns an array also goes into the page as that JSON text | 39% less on a table of 1,000 rows of two UUIDs each (34.8 ms against 56.9). The six shop pages, whose data are objects, stay within 0.4%, with the same HTML |
 | Compile the program with a profile of page renders (PGO) | About 2.4% less on linux/amd64 and 7% less on darwin/arm64 (Apple M4), with quickjs v0.26.15 and a profile of it |
+
+The array row was measured with one VM on cpu 0, the build before and after in turn, 3 to 4 rounds. The table is the table page of [eknkc/ssr-benchmark](https://github.com/eknkc/ssr-benchmark) with fixed rows.
 
 The escape cache, the joined chunks and the `Set` checks together make the shop 11% to 14% faster, pages of plain text 17.5% to 22% and small pages 8% to 11%.
 
