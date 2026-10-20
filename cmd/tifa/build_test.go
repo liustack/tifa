@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/liustack/tifa/internal/bundle"
 	"github.com/liustack/tifa/internal/config"
 )
 
@@ -47,6 +48,27 @@ func TestBuildChecksTanStackOfAppsWithPages(t *testing.T) {
 	}
 	if err := checkTanStack(root, config.Build{}, false); err != nil {
 		t.Errorf("no pages: %v", err)
+	}
+}
+
+// An app with pages bundles React DOM, whose string renderer the Vite plugin rewrites, so its
+// version is checked. The app tifa new writes installs the minimum version.
+func TestBuildChecksReactOfAppsWithPages(t *testing.T) {
+	root := t.TempDir() // no node_modules: the check fails on the missing react
+	if err := checkReact(root, true); err == nil || !strings.Contains(err.Error(), "react is not installed") {
+		t.Errorf("pages: %v", err)
+	}
+	if err := checkReact(root, false); err != nil {
+		t.Errorf("no pages: %v", err)
+	}
+	pkg, err := os.ReadFile(filepath.Join("newapp", "package.json.tmpl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"react", "react-dom", "@types/react", "@types/react-dom"} {
+		if want := `"` + name + `": "` + bundle.MinReact + `"`; !strings.Contains(string(pkg), want) {
+			t.Errorf("tifa new does not write %s", want)
+		}
 	}
 }
 

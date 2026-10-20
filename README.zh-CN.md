@@ -88,7 +88,7 @@ go tool tifa build   # 得到 bin/<应用名>，前端产物已经嵌在里面
 
 ## 新建应用
 
-需要 Go 1.27、Node 20.19 或 22.12 及以上（Vite 8 的要求）和 pnpm（npm 也行）。Node 只用来构建前端，部署出去的程序不需要它。`tifa dev` 暂不支持 Windows，请用 WSL。
+需要 Go 1.27、Node 20.19 或 22.12 及以上（Vite 8 的要求）和 pnpm（npm 也行）。页面需要 React 19.3 及以上，`tifa new` 装的就是。Node 只用来构建前端，部署出去的程序不需要它。`tifa dev` 暂不支持 Windows，请用 WSL。
 
 ```sh
 go run github.com/liustack/tifa/cmd/tifa@latest new myapp
