@@ -88,7 +88,7 @@ go tool tifa build   # bin/<app>, with the frontend embedded
 
 ## Start an app
 
-You need Go 1.27, Node 20.19 or 22.12 and later (what Vite 8 asks for) and pnpm (npm works too). Node only builds the front end: the program you deploy never needs it. `tifa dev` does not run on Windows yet, use WSL.
+You need Go 1.27, Node 20.19 or 22.12 and later (what Vite 8 asks for) and pnpm (npm works too). Pages need React 19.3 or later, which `tifa new` installs. Node only builds the front end: the program you deploy never needs it. `tifa dev` does not run on Windows yet, use WSL.
 
 ```sh
 go run github.com/liustack/tifa/cmd/tifa@latest new myapp

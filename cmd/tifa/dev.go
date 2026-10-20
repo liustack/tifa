@@ -162,6 +162,9 @@ func (p *devPipeline) Bundle(ctx context.Context) (string, error) {
 	if err := checkTanStack(p.root, settings, pages); err != nil {
 		return "", err
 	}
+	if err := checkReact(p.root, pages); err != nil {
+		return "", err
+	}
 	_, err = p.front.Build(ctx, filepath.Join(p.root, settings.Public), pages)
 	return "", err
 }

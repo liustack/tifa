@@ -58,6 +58,9 @@ Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 			if err := checkTanStack(root, settings, pages); err != nil {
 				return err
 			}
+			if err := checkReact(root, pages); err != nil {
+				return err
+			}
 			id, err := bundle.App(node, root, filepath.Join(root, settings.Public), pages)
 			if err != nil {
 				return err
@@ -88,6 +91,14 @@ func checkTanStack(root string, settings config.Build, pages bool) error {
 		return nil
 	}
 	return bundle.CheckTanStack(root)
+}
+
+// checkReact checks the React of an app with pages, see bundle.CheckReact.
+func checkReact(root string, pages bool) error {
+	if !pages {
+		return nil
+	}
+	return bundle.CheckReact(root)
 }
 
 // analyzeApp runs the static analysis and prints each convention violation on its own line.

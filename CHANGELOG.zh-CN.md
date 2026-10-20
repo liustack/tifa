@@ -6,11 +6,12 @@
 
 ### 变更
 
+- 有页面的应用装的 React 或 React DOM 低于 19.3.0 时，`tifa build` 和 `tifa dev` 报错停下。
 - React DOM 以外的模块代码里出现 `$$FORM_ACTION` 时，构建打印警告并写明是哪个模块，因为这样的表单拿到的键和没有插件时 React 写的不一样。
 
 ### 性能
 
-- Vite 插件对 SSR bundle 再做四项改写：React 转义 HTML 改用 `replaceAll`，不再构建组件栈，命名空间拿到的是普通值而不是 getter，key path 里不再放组件名。合起来示例 shop 渲染快 6.5% 到 7.5%，纯文字页面快 17.6% 到 18.3%，HTML 不变。去掉组件栈和 key path 里的组件名这两项要求 React DOM 19.3，换成别的版本时构建打印警告，照旧保留。
+- Vite 插件对 SSR bundle 再做四项改写：React 转义 HTML 改用 `replaceAll`，不再构建组件栈，命名空间拿到的是普通值而不是 getter，key path 里不再放组件名。合起来示例 shop 渲染快 6.5% 到 7.5%，纯文字页面快 17.6% 到 18.3%，HTML 不变。
 
 ### 修复
 
