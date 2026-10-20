@@ -6,11 +6,12 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 
 ### Changed
 
+- `tifa build` and `tifa dev` stop with an error when an app with pages installs React or React DOM older than 19.3.0.
 - The build prints a warning that names each module outside React DOM with `$$FORM_ACTION` in its code, since such a form gets a different key than React writes without the plugin.
 
 ### Performance
 
-- Four more rewrites of the SSR bundle by the Vite plugin: React escapes HTML with `replaceAll`, builds no component stacks, gets plain values in place of the getters of its namespaces, and leaves component names out of key paths. Together the example shop renders 6.5% to 7.5% faster and pages of plain text 17.6% to 18.3% faster, with the same HTML. Leaving out component stacks and key path names needs React DOM 19.3: with another version the build prints a warning and keeps them.
+- Four more rewrites of the SSR bundle by the Vite plugin: React escapes HTML with `replaceAll`, builds no component stacks, gets plain values in place of the getters of its namespaces, and leaves component names out of key paths. Together the example shop renders 6.5% to 7.5% faster and pages of plain text 17.6% to 18.3% faster, with the same HTML.
 
 ### Fixed
 
