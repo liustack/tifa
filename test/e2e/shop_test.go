@@ -256,9 +256,13 @@ func checkStorefront(t *testing.T, base string) {
 	if a, b := strings.Index(rendered(list), "Dot Grid Notebook"), strings.Index(rendered(list), "Beeswax Wraps"); a < 0 || b < a {
 		t.Errorf("moss products by price: notebook at %d, wraps at %d", a, b)
 	}
-	for _, path := range []string{"/store/xx", "/store/zh-CN/products/nope", "/store/en-US/journal/nope"} {
-		if status, _, _ := get(t, base+path); status != 404 {
-			t.Errorf("%s: %d, want 404", path, status)
+	for _, tc := range []struct{ path, text string }{
+		{"/store/xx", "没有找到这个页面"},
+		{"/store/zh-CN/products/nope", "没有找到这个页面"},
+		{"/store/en-US/journal/nope", "We could not find this page"},
+	} {
+		if status, _, page := get(t, base+tc.path); status != 404 || !strings.Contains(rendered(page), tc.text) {
+			t.Errorf("%s: %d, want 404 with %s", tc.path, status, tc.text)
 		}
 	}
 
@@ -440,7 +444,7 @@ func checkStorefrontKeepsCustomersApart(t *testing.T, base string) {
 	}
 	// Only the cart that placed the order sees it. Its email address is on the page.
 	for _, other := range []*shopper{lin, newShopper(t, base)} {
-		if status, _, page := other.do("GET", placed, ""); status != 404 || strings.Contains(page, "emma@example.com") {
+		if status, _, page := other.do("GET", placed, ""); status != 404 || strings.Contains(page, "emma@example.com") || !strings.Contains(rendered(page), "We could not find this page") {
 			t.Errorf("another visitor opens the order: %d", status)
 		}
 	}

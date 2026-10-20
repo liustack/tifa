@@ -145,7 +145,8 @@ function StoreFooter() {
   )
 }
 
-// NotFound shows inside this Layout when a product or a post does not exist.
+// NotFound shows inside this Layout when a product, a post or an order does not exist, or the
+// order is another visitor's, so it names none of them.
 export function NotFound() {
   const { t, locale } = useStore()
   return (
@@ -159,7 +160,7 @@ export function NotFound() {
       </EmptyHeader>
       <EmptyContent>
         <Button variant="outline" asChild>
-          <a href={`/store/${locale.code}/products`}>{t('notFound.back')}</a>
+          <a href={`/store/${locale.code}`}>{t('notFound.back')}</a>
         </Button>
       </EmptyContent>
     </Empty>

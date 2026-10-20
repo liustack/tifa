@@ -274,8 +274,8 @@
     "copyright": "© {{year}} Shanhai Studio. All products and orders are demonstration data"
   },
   "notFound": {
-    "title": "We could not find this product",
-    "body": "It may be gone, or the address is wrong.",
-    "back": "Back to all products"
+    "title": "We could not find this page",
+    "body": "The address may be wrong, or what was here is gone.",
+    "back": "Back to the shop"
   }
 }
