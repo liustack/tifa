@@ -157,8 +157,7 @@ func Search(f Filter, l store.Locale) Results {
 	if !slices.Contains(Sorts, f.Sort) {
 		f.Sort = "featured"
 	}
-	f.Page = max(f.Page, 1)
-	r := Results{Filter: f, Products: []Card{}}
+	r := Results{Products: []Card{}}
 	match := func(p productRecord, skipCategory, skipColors bool) bool {
 		if q := strings.ToLower(strings.TrimSpace(f.Query)); q != "" &&
 			!strings.Contains(strings.ToLower(p.name[0]), q) && !strings.Contains(strings.ToLower(p.name[1]), q) &&
@@ -214,7 +213,11 @@ func Search(f Filter, l store.Locale) Results {
 	}
 	r.Total = len(found)
 	r.Pages = max(1, (len(found)+PageSize-1)/PageSize)
-	from := min((f.Page-1)*PageSize, len(found))
+	// The page comes from the query string: keep it within the pages before multiplying, so a
+	// large one shows the last page instead of overflowing the offset.
+	f.Page = min(max(f.Page, 1), r.Pages)
+	r.Filter = f
+	from := (f.Page - 1) * PageSize
 	for _, p := range found[from:min(from+PageSize, len(found))] {
 		r.Products = append(r.Products, p.card(l))
 	}

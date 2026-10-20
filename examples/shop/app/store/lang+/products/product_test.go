@@ -2,6 +2,7 @@ package products
 
 import (
 	"errors"
+	"math"
 	"slices"
 	"testing"
 
@@ -76,5 +77,21 @@ func TestProductsAndVariants(t *testing.T) {
 	related := Related("pour-over-kettle", 4, zh)
 	if len(related) != 4 || slices.ContainsFunc(related, func(c Card) bool { return c.Slug == "pour-over-kettle" }) {
 		t.Errorf("related %+v", related)
+	}
+}
+
+func TestSearchKeepsNumbersWithinRange(t *testing.T) {
+	// A page past the last shows the last, also one so large that its offset would overflow.
+	for _, page := range []int{3, math.MaxInt} {
+		r := Search(Filter{Page: page}, zh)
+		if r.Filter.Page != r.Pages || len(r.Products) != len(catalogue)-PageSize {
+			t.Errorf("page %d: shows page %d of %d with %d products", page, r.Filter.Page, r.Pages, len(r.Products))
+		}
+	}
+	if r := Search(Filter{Min: math.MaxInt}, en); r.Total != 0 || r.Filter.Page != 1 || r.Pages != 1 {
+		t.Errorf("min above every price: %d products, page %d of %d", r.Total, r.Filter.Page, r.Pages)
+	}
+	if r := Search(Filter{Max: math.MaxInt}, en); r.Total != len(catalogue) {
+		t.Errorf("max above every price: %d products", r.Total)
 	}
 }
