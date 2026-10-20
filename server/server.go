@@ -433,13 +433,13 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	ln, err := net.Listen("tcp", s.cfg.Addr)
 	if err != nil {
-		return err
+		return listenError("server.addr", err)
 	}
 	var plainLn net.Listener
 	if tlsConfig != nil && s.cfg.HTTPAddr != "off" {
 		if plainLn, err = net.Listen("tcp", s.cfg.HTTPAddr); err != nil {
 			ln.Close()
-			return fmt.Errorf("tifa: server.http_addr: %w", err)
+			return listenError("server.http_addr", err)
 		}
 	}
 	// Under DevMain the app listens on an address only tifa dev talks to, and tifa dev prints

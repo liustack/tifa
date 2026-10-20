@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"golang.org/x/crypto/acme"
@@ -89,6 +91,15 @@ func obtain(m *autocert.Manager, domains []string) {
 		}
 		log.Printf("tifa: certificate for %s, valid until %s", d, cert.Leaf.NotAfter.UTC().Format(time.DateOnly))
 	}
+}
+
+// listenError names the setting of an address that could not be listened on, and says what to
+// do when the port is one only root may take, as 80 and 443 are on Linux.
+func listenError(setting string, err error) error {
+	if errors.Is(err, syscall.EACCES) {
+		return fmt.Errorf("tifa: %s: %w. Ports below 1024 need root, or the capability: sudo setcap cap_net_bind_service=+ep <program>", setting, err)
+	}
+	return fmt.Errorf("tifa: %s: %w", setting, err)
 }
 
 // redirectToHTTPS answers the requests of server.http_addr with a permanent redirect to the

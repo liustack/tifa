@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -521,5 +522,23 @@ func TestDevServesPlainHTTP(t *testing.T) {
 	defer cancel()
 	if err := run(ctx, app, []string{"--server-addr", "127.0.0.1:0"}, nil, io.Discard, io.Discard, nil); err == nil || !strings.Contains(err.Error(), "missing.pem") {
 		t.Fatalf("a built program uses the settings: %v", err)
+	}
+}
+
+// A port below 1024 that the program may not bind fails with what to do on Linux.
+func TestListenErrorsNameTheSettingAndTheFix(t *testing.T) {
+	denied := &net.OpError{Op: "listen", Net: "tcp", Err: os.NewSyscallError("bind", syscall.EACCES)}
+	err := listenError("server.addr", denied)
+	for _, want := range []string{"server.addr", "permission denied", "cap_net_bind_service"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("%v lacks %q", err, want)
+		}
+	}
+	if !errors.Is(err, syscall.EACCES) {
+		t.Error("the error no longer wraps EACCES")
+	}
+	busy := &net.OpError{Op: "listen", Net: "tcp", Err: os.NewSyscallError("bind", syscall.EADDRINUSE)}
+	if err := listenError("server.http_addr", busy); strings.Contains(err.Error(), "cap_net_bind_service") || !strings.Contains(err.Error(), "server.http_addr") {
+		t.Errorf("busy: %v", err)
 	}
 }
