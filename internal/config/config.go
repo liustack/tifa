@@ -85,7 +85,7 @@ func (s Server) CheckHTTPS() error {
 	case len(s.TLSDomains) == 0 && s.TLSCache != "":
 		return errors.New("config: server.tls_cache is only used with server.tls_domains")
 	case s.HTTPS() && s.Addr == DefaultAddr:
-		return fmt.Errorf("config: HTTPS is on, but server.addr is still the default %s, which only this machine reaches: set it to the address browsers connect to, usually addr: :443", DefaultAddr)
+		return fmt.Errorf("config: HTTPS is on, but server.addr is %s, the default, which only this machine reaches: set it to the address browsers connect to, usually addr: :443", DefaultAddr)
 	}
 	return nil
 }

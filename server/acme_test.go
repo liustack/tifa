@@ -464,7 +464,8 @@ func TestTLSCacheThatCannotBeCreatedFails(t *testing.T) {
 }
 
 // With server.tls_domains, plain HTTP redirects only the names of tls_domains, and answers
-// others with 421, while the challenges of Let's Encrypt still get through.
+// others with 421, while the challenges of Let's Encrypt still get through. A final dot names
+// the same domain, as it does for your own certificate.
 func TestAutomaticCertificatesRedirectOnlyTheirDomains(t *testing.T) {
 	ca := newFakeACME(t, "http-01")
 	trustACME(t, ca)
@@ -478,7 +479,10 @@ func TestAutomaticCertificatesRedirectOnlyTheirDomains(t *testing.T) {
 	defer cancel()
 	go s.serveBoth(ctx, ln, tlsConfig, plainLn, plain)
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	for host, want := range map[string]int{testDomain: 308, testDomain + ":80": 308, "other.example.test": 421, "127.0.0.1": 421} {
+	for host, want := range map[string]int{
+		testDomain: 308, testDomain + ":80": 308, testDomain + ".": 308, testDomain + ".:80": 308,
+		testDomain + "..": 421, "other.example.test": 421, "127.0.0.1": 421,
+	} {
 		req, _ := http.NewRequest("GET", "http://"+plainLn.Addr().String()+"/x", nil)
 		req.Host = host
 		res, err := client.Do(req)

@@ -72,7 +72,7 @@ Run `./bin/app config` to print the merged settings of all sources as a commente
 
 HTTPS is off by default, and the program serves plain HTTP on `server.addr` as it always did. Leave it off behind a CDN or a proxy that ends TLS, such as Cloudflare, nginx or Caddy: they already speak HTTPS and HTTP/2 to browsers, and they would be the only ones to see a certificate of the program.
 
-Turn it on when the program faces the internet by itself. Browsers then also get HTTP/2, which they speak only over TLS: every file of a page shares one connection, where over HTTP/1.1 a browser opens at most 6 to a host, see [Preloading the chunks of a page](build.md#preloading-the-chunks-of-a-page). There are two ways, and setting both fails. With either, set `server.addr`: with HTTPS on, the default `127.0.0.1:9527` refuses to start, since only this machine reaches it. Another loopback address, such as `127.0.0.1:8443`, starts with a warning in the log, for a test on this machine.
+Turn it on when the program faces the internet by itself. Browsers then also get HTTP/2, which they speak only over TLS: every file of a page shares one connection, where over HTTP/1.1 a browser opens at most 6 to a host, see [Preloading the chunks of a page](build.md#preloading-the-chunks-of-a-page). There are two ways, and setting both fails. With either, set `server.addr`: with HTTPS on, the default `127.0.0.1:9527` refuses to start, since only this machine reaches it. Writing it out in the config is the same. Another loopback address, such as `127.0.0.1:8443`, starts with a warning in the log, for a test on this machine.
 
 ### Certificates from Let's Encrypt
 
@@ -104,6 +104,7 @@ server:
 - Both files are PEM. The certificate file holds the certificate followed by its intermediate certificates, as certbot's `fullchain.pem` does.
 - Before each new connection the program looks at both files and loads them again when one changed, so a renewed certificate takes effect without a restart or a signal. Links are followed, so the `live/` folder of certbot and a Kubernetes secret mounted as a volume work. While the new files do not load, for example when the certificate is written but its key not yet, the program keeps the certificate it had and logs why once.
 - Files that do not load at start stop the program before `OnStart`.
+- When certbot renews with the http-01 challenge, it needs port 80, which the program holds for `server.http_addr`. Renew with a DNS challenge instead, or set `http_addr: off` and let certbot listen on port 80 itself in standalone mode.
 
 ### Port 80 and HSTS
 
@@ -172,7 +173,7 @@ What a lower depth breaks:
 
 It also refuses to start, before `OnStart`, and names the settings when:
 
-- HTTPS is on and `server.addr` is still the default,
+- HTTPS is on and `server.addr` is the default `127.0.0.1:9527`, left out or written out,
 - the HTTPS settings do not go together once all sources are merged: `tls_domains` with `tls_cert`, `tls_cert` without `tls_key` or the other way round, `tls_domains` without `tls_cache`, or `tls_email` or `tls_cache` without `tls_domains`. The project file alone may leave out what the deployment adds, so `tifa build` does not check this,
 - the files of `tls_cert` and `tls_key` do not load, or `tls_cache` cannot be created.
 
