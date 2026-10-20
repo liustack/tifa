@@ -143,7 +143,7 @@ go tool tifa build
 
 | 路径 | 内容 |
 | --- | --- |
-| `dist/assets/` | Vite 打出的浏览器包：入口 `client.ts`（`app-<哈希>.js`）、共享 chunk（`chunk-<哈希>.js`）、装着应用全部 CSS 的一个样式表（`style-<哈希>.css`），以及 CSS 引用的字体和图片，小文件 Vite 会内联成 data URL。语法目标取配置项 `build.target`（默认 `es2020`：一个 ECMAScript 版本加若干带版本的浏览器，如 `es2019,chrome90,safari14`）。按路由拆分：除根 Layout 和导出 `head` 的模块外，每个路由模块用 `lazyRouteComponent` 懒加载，各自一个 chunk。1024 字节及以上的 JavaScript、CSS、HTML、JSON、SVG、XML 和 WebAssembly 文件旁边还有一个按 gzip 最高级别压缩的 `<文件名>.gz`，gzip 压不小的文件没有。服务端用它代替原文件发出，见[压缩](#压缩) |
+| `dist/assets/` | Vite 打出的浏览器包：入口 `client.ts`（`app-<哈希>.js`）、共享 chunk（`chunk-<哈希>.js`）、装着应用全部 CSS 的一个样式表（`style-<哈希>.css`），以及 CSS 引用的字体和图片，小文件 Vite 会内联成 data URL。语法目标取配置项 `build.target`（默认 `es2020`：一个 ECMAScript 版本加若干带版本的浏览器，如 `es2019,chrome90,safari14`）。按路由拆分：入口里放根 Layout，其他每个 `route.tsx` 和 `layout.tsx` 各自一个 chunk，路由第一次用到时才加载，见[浏览器里的路由模块](#浏览器里的路由模块)。1024 字节及以上的 JavaScript、CSS、HTML、JSON、SVG、XML 和 WebAssembly 文件旁边还有一个按 gzip 最高级别压缩的 `<文件名>.gz`，gzip 压不小的文件没有。服务端用它代替原文件发出，见[压缩](#压缩) |
 | `dist/ssr.js` | SSR 包，入口 `server.ts`：一个 IIFE 文件，所有 npm 包都打在里面。包解析到它的主文件（先 `module` 后 `main`），条件导出 `exports` 按 `worker`、`import`、`module`、`default` 这几个条件取。不用包的浏览器文件：很多浏览器文件直接取浏览器里的东西，比如 `self` 或 `window`，QuickJS 里没有。想在服务端用某个包的浏览器版，按路径引入那个文件。语法目标固定为 ES2022（QuickJS 原样能跑的版本，调低只会让渲染变慢，调高可能写出 QuickJS 不支持的语法）。页面代码引入 Node 模块时构建失败。对 npm 包，构建只给警告：列出包里运行时可能用 `require` 或 `import()` 加载模块的位置，给出源文件、行、列和包名，因为服务端渲染走到那里会在 QuickJS 里失败。它在最终代码的一份压缩副本里找：凡是代码没有自己声明 `require` 的地方，`typeof require` 都当作 `"undefined"`。所以死代码里的 `require`（比如 `if (false)` 分支）和被 `typeof require` 判断守住的 `require`（比如 `typeof require === 'function' ? require(name) : 备用值`）不会有警告：QuickJS 没有 `require`，会走另一条分支。这份清单只是提示。它可能列出渲染走不到的代码，比如包按 `typeof process` 选的分支（debug 就这样做）、`try`/`catch` 里的 `require`、被代码赋值的 `require`。它也可能漏掉写在 `eval` 字符串里的 `require`、先设置 `globalThis.require` 再删掉的代码，以及后面的插件加进来的代码。没有源码对应的位置（比如某个包引入的 Node 模块）给的是 `ssr.js` 里的位置。`define` 把浏览器包的 head 标签写进 `__TIFA_ASSETS__` |
 | `dist/ssr.js.map` | SSR 包的 sourcemap，不带源码副本。服务端加载 SSR 包时读入这个文件，这个包第一次出错时（预热失败也算）才解码，把错误栈里的位置换成源文件里的位置，路径相对于应用根目录。读不全的 map 整个不用，位置留在 `ssr.js` 里。体积看应用，`examples/shop` 约 1.9 MB，不到 `ssr.js` 的两倍。它和 `dist/` 里其他文件一起嵌进可执行文件。不想要它，就在 `vite.config.ts` 里把 `environments.ssr.build.sourcemap` 设为 `false`：`examples/shop` 的可执行文件会小约 1.9 MB，构建警告和渲染错误给的是 `ssr.js` 里的位置。没有写出 `ssr.js.map` 的构建会删掉之前构建留下的那份（`tifa dev` 下 `.tifa/dist` 会保留旧文件，它对应的是别的代码）。服务端只读这个文件，所以设成 `inline` 时写在 `ssr.js` 里的 map 不会被用到 |
 | `dist/public/` | 配置项 `build.public` 指向的目录（默认 `public`）原样复制，不存在就没有 |
@@ -165,6 +165,19 @@ tifa 插件在 SSR 包里改造四个 npm 包。它按代码的结构或文字�
 - 多数组件库以命名空间的方式引入 React，比如 `import * as React from 'react'`。React 和 React DOM 是 CommonJS 模块，rolldown 用 `__toESM` 把它们的导出交给这样的 import，每个导出都定义成一个 getter。于是通过命名空间每调一次 `React.createElement` 或 hook，都要先调一次 getter，这在 QuickJS 里很慢。React 和 React DOM 只在模块运行时设一次导出，之后不再改，所以插件给这些 import 换成一个存普通值的命名空间：值、原型、名字和可枚举性都一样。其他包的命名空间保留 getter，因为包可能之后改它的导出，引入它的模块得看到。同样的道理，如果某个库在 ES 模块引入 React 之后才改 `require('react')` 导出对象上的属性，这个模块看不到改动。React 自己不会这么做。插件在 rolldown 写完包之后、压缩之前做这处改动，按 rolldown 写这些 helper 和调用的写法找到它们。写法变了时，构建打印警告，写明是哪些包、为什么跳过，页面和以前一样快。这处改动让包里每个位置都留在原处，所以 source map 仍然准确。
 - TanStack Router 用 seroval 把页面的数据写进页面。seroval 对短于 64 个 UTF-16 码元的字符串逐个字符转义，更长的用 `JSON.stringify`，除非里面有两种写法结果不同的字符。在 QuickJS 里从 2 个码元起逐字符的循环就比 `JSON.stringify` 慢，所以插件把这个长度降到 2。写出的文字不变：0 到 0xFFFF 的每个码元，单独出现或夹在别的字符中间，以及代理对和孤立代理项，两种写法结果都一样。小页面渲染快 6% 到 10%，大页面最多快 2.5%。插件只在 seroval 的主文件 `dist/index.js` 和 `dist/index.cjs` 里找这一行。seroval 改了这一行，或者包从别的文件加载 seroval 时，构建打印警告，页面和以前一样快。
 - 应用打包了 `core-js` 时，插件把它的内部状态从 WeakMap 换成属性，因为 QuickJS 永远不回收值又指回键的 WeakMap 条目。core-js 某个版本没有了插件替换的那个模块时，构建打印警告，保留 WeakMap，每个 VM 的内存可能变大。
+
+### 浏览器里的路由模块
+
+`routes.tsx` 静态 import 根 Layout 和导出 `head` 的路由模块，其他路由模块用 `import()`。SSR 包是一个文件，这些 import 照原样用，所以服务端渲染直接调用模块自己的 `head`。
+
+`tifa build` 打出的浏览器包里，除根 Layout 外的每个路由模块都等它的路由用到时才加载，导出 `head` 的也一样。插件 `tifa:lazy-routes` 把 `routes.tsx` 里对这类模块的静态 import 换成一个替身：替身的 `default`、`Error`、`NotFound` 由 `lazyRouteComponent` 包住对原模块的 `import()` 得来，它的 `head` 先加载原模块，再返回一个 promise，兑现为原模块 `head` 的返回值。TanStack Router 接受返回 promise 的 `head`，而且页面 hydration 和导航时，它都先加载匹配到的每条路由的 chunk，再运行 `head`。所以运行 `head` 时模块已经在了，head 照旧更新。入口脚本里留着根 Layout（根路由要它的 `NotFound`，两个入口要它的 `htmlAttributes`）和运行时。`examples/shop` 的 `build.json` 的 head 要加载的文件，gzip 后从 224 KB 降到 148 KB。
+
+- 路由模块始终是一个模块。它的 `head`、组件和两者共用的代码不拆开也不复制，规则和任何用 `import()` 加载的模块一样。
+- 路由模块顶层的代码（含只为副作用的 import）在它的路由第一次加载时运行一次：在它所在页面第一次渲染之前，而不是应用启动时。每个页面都需要的初始化，比如根 Layout 要读的 i18n 实例，放在根 Layout 里，或放在根 Layout import 的模块里。
+- 入口脚本里的模块 import 了某个路由模块时，这个路由模块留在入口脚本里。构建会打印打包器的 `INEFFECTIVE_DYNAMIC_IMPORT` 警告，写明是谁 import 了它。把两边都要用的东西挪到单独的模块里。
+- 打开的页面自己的 chunk 在入口脚本运行之后、页面 hydration 之前下载。服务器给的 HTML 照旧立刻显示，但页面要多等一轮请求才响应操作。`examples/shop` 用它自己的程序走 HTTP/1.1 提供服务，在 Chrome 的网络节流下测量：往返 150 ms 时，页面比这些模块放在入口脚本里时晚 40 到 220 ms 完成 hydration，往返 40 ms 时在早 40 ms 到晚 50 ms 之间。路由模块不导出 `head` 的页面以前就是这样加载的。
+- [tifa dev](dev.zh-CN.md) 逐个模块提供服务，保留这些静态 import。
+- 插件靠 rolldown（Vite 的打包器）传给插件的 import 种类区分静态 import 和 `import()`。Vite 不传这个信息时，构建打印警告，导出 `head` 的模块留在入口脚本里。
 
 ## 路由树
 
