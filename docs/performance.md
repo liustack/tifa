@@ -221,7 +221,7 @@ v0.26.13 as a whole renders in 0.823 of the time of v0.26.12, between 0.821 and 
 | Write each character above U+FFFF in that JSON text as the escapes of its surrogate pair | One emoji in the data of the shop's order list made its render 9% slower (36.6 ms against 33.7), and now it renders as fast as without the emoji. With the array change above and without this one, one emoji would make the table 2.3 times slower |
 | Compile the program with a profile of page renders (PGO) | About 2.4% less on linux/amd64 and 7% less on darwin/arm64 (Apple M4), with quickjs v0.26.15 and a profile of it |
 
-The array and the surrogate rows were measured with one VM on cpu 0, the build before and after in turn, 3 to 4 rounds. The table is the table page of [eknkc/ssr-benchmark](https://github.com/eknkc/ssr-benchmark) with fixed rows.
+The array and the surrogate rows were measured on the machine above with one VM on cpu 0, the build before and after in turn, 3 to 4 rounds. The table is the table page of [eknkc/ssr-benchmark](https://github.com/eknkc/ssr-benchmark) with fixed rows.
 
 The escape cache, the joined chunks and the `Set` checks together make the shop 11% to 14% faster, pages of plain text 17.5% to 22% and small pages 8% to 11%.
 

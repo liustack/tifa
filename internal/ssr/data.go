@@ -8,10 +8,11 @@ import (
 // EscapeAboveFFFF writes each character above U+FFFF in the JSON text of the data of a route as
 // the escapes of its surrogate pair, such as \ud83d\ude00 for 😀. seroval, which writes the text
 // into the page, takes JSON.stringify only for a string without surrogates and otherwise goes over
-// each code unit, which in QuickJS takes about 35 times as long. JSON is ASCII outside its
-// strings, and in a string the escapes stand for the same character, so the text means the same.
-// Bytes that are no UTF-8, which a MarshalJSON method may write, stay as they are. A text without
-// such a character comes back as it is.
+// each code unit, which is much slower in QuickJS: one emoji in the 80 KB of data of a table of
+// 1,000 rows made its render 2.3 times as long. JSON is ASCII outside its strings, and in a string
+// the escapes stand for the same character, so the text means the same. Bytes that are no UTF-8,
+// which a MarshalJSON method may write, stay as they are. A text without such a character comes
+// back as it is.
 func EscapeAboveFFFF(text []byte) []byte {
 	const hex = "0123456789abcdef"
 	var out []byte
