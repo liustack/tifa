@@ -24,6 +24,7 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 - Four more rewrites of the SSR bundle by the Vite plugin: React escapes HTML with `replaceAll`, builds no component stacks, gets plain values in place of the getters of its namespaces, and leaves component names out of key paths. Together the example shop renders 6.5% to 7.5% faster and pages of plain text 17.6% to 18.3% faster, with the same HTML.
 - The data of a route whose `Load` returns an array, such as a slice, now goes into the page as the JSON text Go wrote, as objects already did. A table of 1,000 rows takes 39% less time to render. When seroval's code has another form, the build prints a warning and pages render as before.
 - Go writes characters above U+FFFF, such as emoji, in the data it gives the render as the escapes of their surrogate pairs, so one emoji no longer makes the shop's order list render 9% slower. The browser reads the same values.
+- quickjs v0.26.16: without PGO, two of its changes make renders take 0.971 of the time of v0.26.15, and the other three take 0.955 of that, with the same HTML. Each VM keeps the shapes of recent objects and a cache of freed small blocks for reuse, so it holds about 0.7 MiB more after a garbage collection, 647 KiB of it for the shapes. Pages that make many objects whose keys no other object has can make the shapes take up to about 6 MiB. The shapes count against `ssr.vm_memory`.
 
 ### Fixed
 
