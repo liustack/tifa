@@ -17,8 +17,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"unicode/utf16"
-	"unicode/utf8"
 
 	"github.com/klauspost/compress/gzhttp"
 	"github.com/liustack/tifa"
@@ -303,7 +301,7 @@ type routeResult struct {
 // parses that text, and the page carries it to the browser as it is, so the server and the
 // browser read the same values. A JSON writer in the VM would write -0 as 0, and a page that
 // formats it with Intl would then hydrate other text than the server rendered. A character above
-// U+FFFF goes into the text as the escapes of its surrogate pair, see escapeAboveFFFF.
+// U+FFFF goes into the text as the escapes of its surrogate pair, see ssr.EscapeAboveFFFF.
 func injectedResults(items map[string]routeResult) (map[string]routeResult, error) {
 	out := make(map[string]routeResult, len(items))
 	for id, item := range items {
@@ -312,50 +310,11 @@ func injectedResults(items map[string]routeResult) (map[string]routeResult, erro
 			if err != nil {
 				return nil, err
 			}
-			item.Data, item.JSON = nil, string(escapeAboveFFFF(text))
+			item.Data, item.JSON = nil, string(ssr.EscapeAboveFFFF(text))
 		}
 		out[id] = item
 	}
 	return out, nil
-}
-
-// escapeAboveFFFF writes each character above U+FFFF in the JSON text as the escapes of its
-// surrogate pair, such as \ud83d\ude00 for 😀. seroval, which writes the text into the page,
-// takes JSON.stringify only for a string without surrogates and otherwise goes over each code
-// unit, which in QuickJS takes about 35 times as long. JSON is ASCII outside its strings, and in a
-// string the escapes stand for the same character, so the text means the same. Bytes that are no
-// UTF-8, which a MarshalJSON method may write, stay as they are. A text without such a character
-// comes back as it is.
-func escapeAboveFFFF(text []byte) []byte {
-	const hex = "0123456789abcdef"
-	var out []byte
-	done := 0
-	for i := 0; i < len(text); {
-		// Only the first byte of a character above U+FFFF is 0xF0 or more.
-		if text[i] < 0xF0 {
-			i++
-			continue
-		}
-		r, size := utf8.DecodeRune(text[i:])
-		if size != 4 {
-			i++
-			continue
-		}
-		if out == nil {
-			out = make([]byte, 0, len(text)+8)
-		}
-		out = append(out, text[done:i]...)
-		hi, lo := utf16.EncodeRune(r)
-		for _, u := range [2]rune{hi, lo} {
-			out = append(out, '\\', 'u', hex[u>>12&0xF], hex[u>>8&0xF], hex[u>>4&0xF], hex[u&0xF])
-		}
-		i += size
-		done = i
-	}
-	if out == nil {
-		return text
-	}
-	return append(out, text[done:]...)
 }
 
 // loadFailure is what a page returns from Next when a Load of the loaded routes failed. Its
