@@ -45,7 +45,7 @@ export default function AppLayout() {
   const loading = useRouterState({ select: (state) => state.isLoading })
 
   // The storefront is for customers: its Layout draws its own header and footer, without the
-  // workbench around it.
+  // workbench around it, and layout.go gives its pages no workbench data.
   if (pathname.startsWith('/store/')) return <Outlet />
 
   return (

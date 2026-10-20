@@ -3,6 +3,8 @@
 package app
 
 import (
+	"strings"
+
 	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/examples/shop/app/projects"
 )
@@ -22,6 +24,12 @@ type Viewer struct {
 }
 
 func Layout(c *tifa.Ctx) (Shell, error) {
+	// The storefront is for customers and draws none of this (layout.tsx), so its pages must not
+	// carry the shop owner, the shops and their orders in their data either. Its links to the
+	// workbench are plain <a> links that load the whole page, so this runs again there.
+	if strings.HasPrefix(c.Pattern(), "/store/") {
+		return Shell{}, nil
+	}
 	open := true
 	if cookie, err := c.Cookie("sidebar_state"); err == nil && cookie.Value == "false" {
 		open = false

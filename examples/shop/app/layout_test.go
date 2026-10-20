@@ -38,3 +38,26 @@ func TestLayoutKeepsTheSidebarAsTheUserLeftIt(t *testing.T) {
 		}
 	}
 }
+
+// The storefront is for customers, so its pages carry none of the workbench: not the shop
+// owner, not the shops, not their orders waiting to ship.
+func TestLayoutLeavesTheWorkbenchOutOfTheStorefront(t *testing.T) {
+	for _, pattern := range []string{"/store/{lang}", "/store/{lang}/cart", "/store/{lang}/products/{product}"} {
+		r := httptest.NewRequest("GET", "/store/zh-CN", nil)
+		r.Pattern = pattern
+		c, _ := tifatest.NewCtx(t, r)
+		shell, err := tifa.Use(c, Layout)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if shell.Viewer != (Viewer{}) || shell.Projects != nil || shell.SidebarOpen {
+			t.Errorf("%s: %+v", pattern, shell)
+		}
+	}
+	r := httptest.NewRequest("GET", "/projects/studio", nil)
+	r.Pattern = "/projects/{project}"
+	c, _ := tifatest.NewCtx(t, r)
+	if shell, err := tifa.Use(c, Layout); err != nil || shell.Viewer.Name == "" || len(shell.Projects) != 2 {
+		t.Errorf("workbench: %+v %v", shell, err)
+	}
+}
