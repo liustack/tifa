@@ -21,7 +21,7 @@ Unless a section says otherwise:
 
 - Machine: a Google Cloud VM with 8 vCPUs of an AMD EPYC 7B13 (Zen 3), Linux. The 8 vCPUs are 4 physical cores with 2 hyperthreads each: cpu `n` and cpu `n+4` share a core.
 - Software: Go 1.27, quickjs v0.26.15, tifa 790b746, built without PGO. PGO, which `tifa build` turns on by default, makes renders about 2.4% faster on linux/amd64 (see [Build](#build)). A section measured with an older version says so.
-- App: the production build of [examples/shop](../examples/shop), React 19.3 and TanStack Router, with Tailwind CSS and shadcn/ui. Six pages: the order list, an order and the stats of each of its two shops.
+- App: the production build of [examples/shop](../examples/shop), React 19.3 and TanStack Router, with Tailwind CSS and shadcn/ui. Six pages: the order list, an order and the stats of each of its two shops. Measured on the shop before the storefront (`app/store`) was added. The storefront makes the SSR bundle grow from 772 KB to 1,288 KB, so the numbers that depend on the bundle, the start of the program and the memory of a VM, are lower here than the shop gives now. The HTML of the six pages stays the same.
 - Single renders: `BenchmarkShop` in `test/ssr`, one warm VM pinned to one core, the median (P50) of many renders.
 - Whole requests: the built `bin/shop` with `--cache-size 0`, so every page request renders, loaded with [oha](https://github.com/hatoo/oha) pinned apart from the service where the cores allow. oha asks with its default `Accept-Encoding: gzip, compress, deflate, br`, so with [`server.compress`](config.md#settings) on the pages go out as gzip, unless a section says the requests asked for identity. For page requests oha uses 1% to 2% of a CPU. Each step warms up for a few seconds and then runs for 10 to 20 seconds.
 
@@ -35,7 +35,7 @@ Unless a section says otherwise:
 
 Each range covers the two shops. "Render" is the benchmark. "Request" is one request at a time over HTTP, which adds Go's `Load`, JSON, gzip and net/http, on a server with 6 VMs on 3 physical cores. With one VM, a request takes 0.5 to 1.3 ms longer than the render, 0.13 to 0.28 ms of it compressing (see [Compression](#compression)). One request at a time, that is 26 to 28 order lists or about 88 stats pages a second.
 
-At start the program compiles the SSR bundle to bytecode once and loads that bytecode into each VM of the pool, one after another. For the shop that was about 0.2 s to compile and about 45 ms per VM, measured with quickjs v0.26.9. v0.26.12 made loading about 11% faster.
+At start the program compiles the SSR bundle to bytecode once and loads that bytecode into each VM of the pool, one after another. For the shop before the storefront was added, that was about 0.2 s to compile and about 45 ms per VM, measured with quickjs v0.26.9. v0.26.12 made loading about 11% faster.
 
 ## How it compares with Node
 
@@ -54,7 +54,7 @@ The same `ssr.js` in Node 24, loaded with `vm.runInThisContext` and given the sa
 
 ### Compared with Next.js and TanStack Start
 
-The shop was also written for Next.js 16.4.2 (App Router, every route dynamic, data loaded in server components, the same React components) and for TanStack Start 1.169.3 (the same routes and loaders), on Node 24.13.0. These two versions were written only for this measurement and are not in this repository. All three give the same visible text on the six pages. The test sent whole requests over HTTP, the six pages in turn, with `Accept-Encoding: identity`, on the same GCP machine in one session. For two cores, Next.js and Start run two processes under Node's cluster module (Start uses Nitro's `node-cluster` preset), and tifa runs 2 VMs.
+The shop was also written for Next.js 16.4.2 (App Router, every route dynamic, data loaded in server components, the same React components) and for TanStack Start 1.169.3 (the same routes and loaders), on Node 24.13.0. These two versions were written only for this measurement and are not in this repository. All three give the same visible text on the six pages, and tifa ran the shop before the storefront was added. The test sent whole requests over HTTP, the six pages in turn, with `Accept-Encoding: identity`, on the same GCP machine in one session. For two cores, Next.js and Start run two processes under Node's cluster module (Start uses Nitro's `node-cluster` preset), and tifa runs 2 VMs.
 
 | | tifa | Next.js | TanStack Start |
 | --- | --- | --- | --- |
@@ -116,6 +116,8 @@ Only a full page load renders. Navigating in the browser fetches JSON that Go wr
 A large part of their cost is the app's, not tifa's. For navigation data and cache hits, 20% to 24% goes to the shop's own `Load` functions, which copy and sort every order on each request, and 13% to 20% to the system calls that write the response. `PATCH` gets only 56% more from 3 cores than from one, which looks like the shop's own lock on its orders (`ordersMu`). That one was not profiled. A cache hit costs as much as a navigation data request: the cache key holds the data, so every `Load` runs before the cache is checked.
 
 ### Memory
+
+Measured on the shop before the storefront was added, with an SSR bundle of 772 KB instead of 1,288 KB.
 
 Peak RSS (the high-water mark the kernel reports) of the whole program while it renders the six pages, one VM per CPU, with as many requests in flight as VMs, the pages sent as gzip:
 
@@ -264,7 +266,7 @@ Each item says what it would give and why it was dropped. Check here before tryi
 
 - **Hoisting static JSX out of components**, as Babel's transform-react-constant-elements does: the shop's pages build 44 to 83 fewer elements but render only 0.5% to 0.9% faster, and an almost static page 5.4%. One element saved is about 0.8 µs: the time goes to React walking the tree and joining strings. It cannot reach the JSX of libraries in `node_modules`, needs Babel or a new transform, and a hoisted element is shared by all requests of a VM, so a library that changes one would carry that change into the next request.
 - **A lower syntax target for the SSR bundle**: ES2021 to ES2018 stay within 1%. From ES2017, object spread becomes helper functions, and the shop gets 33% to 45% slower. The target stays ES2022.
-- **An unminified SSR bundle**: the bundle is already minified. Unminified, it renders about 1% slower and is 1,799 KB instead of 772, and a VM holds 9,133 KiB after loading instead of 7,634.
+- **An unminified SSR bundle**: the bundle is already minified. Unminified, on the shop before the storefront was added, it renders about 1% slower and is 1,799 KB instead of 772, and a VM holds 9,133 KiB after loading instead of 7,634.
 - **Smaller rewrites of React**, each under 1%: `push(x)` as an index assignment (0.1% to 0.9%), spread instead of `for...in` in `jsxProd` and `createElement` (also copies symbol keys, so not the same), an object instead of a `Map` in `startChunkForTag` and `endChunkForTag` (under 0.5%), `Object.keys` instead of `for...in` (slower in a micro benchmark), `Object.hasOwn` instead of `hasOwnProperty.call` (saves about 25 ns per key).
 - **Other forms of React's escape and of its search**: `indexOf` five times and a loop over characters are both slower than its regular expression, and five `indexOf` calls and `search` are slower than `exec`. Looking up every string in the escape cache before the regular expression made pages of plain text 4% slower, and the 1,188 escapes of an order list 22% slower in a benchmark of those escapes alone, since most strings need no escape and a `Map` lookup costs more than the search. So the cache only takes strings that need escaping. What is left of the search is the engine's. A cache that stops taking strings when full would let the text of early requests keep the room for good, and one that drops the least recently used string pays a delete and a set on each hit.
 - **Building React's component stacks and key path names in a cheaper form** instead of dropping them: inlining `pushComponentStack` into its caller, or getting the name of a string or function type without calling `getComponentNameFromType`, stays within 1% either way (0.994 to 1.024 on the shop). The cost is making the objects and strings, not the calls.

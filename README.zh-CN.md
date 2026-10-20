@@ -104,7 +104,7 @@ go tool tifa dev     # http://127.0.0.1:9527
 
 ## 跑一下示例
 
-[examples/shop](examples/shop/README.zh-CN.md) 是一个小店主的订单工作台：两家店铺、订单列表、订单详情、发货表单、带图表的销售统计和三种 404。需要 Go 1.27、Node 20.19 或 22.12 及以上，以及 pnpm：
+[examples/shop](examples/shop/README.zh-CN.md) 是一家小店的两面：给店主的订单工作台（订单列表、订单详情、发货表单、带图表的销售统计），以及给顾客的中英文店面（商品搜索和筛选、商品详情、购物车、结算表单和用 Markdown 写的手记）。需要 Go 1.27、Node 20.19 或 22.12 及以上，以及 pnpm：
 
 ```sh
 cd examples/shop
