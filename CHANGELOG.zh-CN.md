@@ -8,9 +8,15 @@
 
 - 有页面的应用装的 React 或 React DOM 低于 19.3.0 时，`tifa build` 和 `tifa dev` 报错停下。
 - React DOM 以外的模块代码里出现 `$$FORM_ACTION` 时，构建打印警告并写明是哪个模块，因为这样的表单拿到的键和没有插件时 React 写的不一样。
+- 浏览器里，导出 `head` 的路由模块和其他路由模块一样随路由加载，不再放在入口脚本里。示例 shop 的入口 gzip 后从 224 KB 降到 146 KB。这类模块顶层的代码改在路由第一次加载时运行，每个页面都需要的初始化应放在根 Layout 里。入口里的模块 import 了路由模块时，它留在入口里，构建打印打包器的 `INEFFECTIVE_DYNAMIC_IMPORT` 警告。
+
+### 新增
+
+- 页面的 HTML 紧跟在构建的标签后面，用 `<link rel="modulepreload">` 预加载它的 Layout 和路由的 chunk，这些文件和入口脚本一起下载。`Load` 失败时只预加载路由器显示的那几层。`build.json` 在 `preload` 下列出这些 chunk。
 
 ### 性能
 
+- 每个页面都要加载的代码放进入口脚本这一个文件，不再是四个。走 HTTP/1.1、往返 150 ms 时，shop 的页面完成 hydration 比以前早 11 到 192 ms，往返 40 ms 时早 4 到 77 ms，首次绘制晚 8 到 24 ms（走 HTTP/2 时晚 8 到 48 ms）。由 tifa 自己走 HTTP/1.1 提供服务时，每页要 17 到 20 个文件的应用在往返 150 ms 时完成 hydration 晚 58 到 100 ms，前面放一个讲 HTTP/2 的代理或 CDN 就能避免。
 - Vite 插件对 SSR bundle 再做四项改写：React 转义 HTML 改用 `replaceAll`，不再构建组件栈，命名空间拿到的是普通值而不是 getter，key path 里不再放组件名。合起来示例 shop 渲染快 6.5% 到 7.5%，纯文字页面快 17.6% 到 18.3%，HTML 不变。
 
 ### 修复
