@@ -91,8 +91,9 @@ func SavedAddresses(l store.Locale) []Address {
 }
 
 // The most characters (code points) each text field of an order takes, counted after the
-// spaces the page trims, as limits in checkout-schema.ts. A limit on every field the order
-// keeps stops requests from filling the memory with long text.
+// spaces the page trims, as limits in checkout-schema.ts. Of these fields the placed order
+// keeps only the email, so its limit also keeps requests from filling the memory with long
+// text. The others match what the page checks.
 const (
 	maxEmail      = 254 // the longest address mail delivers to
 	maxName       = 100
