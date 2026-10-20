@@ -31,14 +31,13 @@ func (s *Server) https() (tlsConfig *tls.Config, plain http.Handler, ready func(
 	if err := c.CheckHTTPS(); err != nil {
 		return nil, nil, nil, err
 	}
-	plain = http.HandlerFunc(redirectToHTTPS)
 	if c.TLSCert != "" {
 		files, err := loadCertFiles(c.TLSCert, c.TLSKey)
 		if err != nil {
 			return nil, nil, nil, err
 		}
 		// net/http adds h2 and http/1.1 to NextProtos, so browsers get HTTP/2.
-		return &tls.Config{GetCertificate: files.get}, plain, func() {}, nil
+		return &tls.Config{GetCertificate: files.get}, redirectToHTTPS(files.serves), func() {}, nil
 	}
 	if err := os.MkdirAll(c.TLSCache, 0o700); err != nil {
 		return nil, nil, nil, fmt.Errorf("tifa: server.tls_cache: %w", err)
@@ -54,7 +53,8 @@ func (s *Server) https() (tlsConfig *tls.Config, plain http.Handler, ready func(
 	// The manager tries tls-alpn-01 on server.addr first, and http-01 only once HTTPHandler has
 	// been called: with server.http_addr off nothing could answer it.
 	if c.HTTPAddr != "off" {
-		plain = m.HTTPHandler(plain)
+		policy := hostPolicy(c.TLSDomains)
+		plain = m.HTTPHandler(redirectToHTTPS(func(host string) bool { return policy(context.Background(), host) == nil }))
 	}
 	tlsConfig = &tls.Config{GetCertificate: m.GetCertificate, NextProtos: []string{acme.ALPNProto}}
 	return tlsConfig, plain, func() { go obtain(m, c.TLSDomains) }, nil
@@ -113,21 +113,25 @@ func listenError(setting string, err error) error {
 // redirectToHTTPS answers the requests of server.http_addr with a permanent redirect to the
 // same URL over HTTPS, keeping the method (308), as Caddy does. The URL has no port: browsers
 // reach HTTPS on 443, also when server.addr listens on another port that 443 is mapped to.
-func redirectToHTTPS(w http.ResponseWriter, r *http.Request) {
-	host := r.Host
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	}
-	host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
-	if host == "" {
-		http.Error(w, "missing Host header", http.StatusBadRequest)
-		return
-	}
-	if strings.Contains(host, ":") {
-		host = "[" + host + "]"
-	}
-	w.Header().Set("Connection", "close")
-	http.Redirect(w, r, "https://"+host+r.URL.RequestURI(), http.StatusPermanentRedirect)
+// It redirects only to a host that served reports HTTPS has a certificate for, and answers
+// other hosts with 421, so a browser is never sent to a name whose handshake would fail.
+func redirectToHTTPS(served func(host string) bool) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		host = strings.ToLower(strings.TrimSuffix(strings.TrimPrefix(host, "["), "]"))
+		w.Header().Set("Connection", "close")
+		if host == "" || !served(host) {
+			http.Error(w, "No certificate for this host name", http.StatusMisdirectedRequest)
+			return
+		}
+		if strings.Contains(host, ":") {
+			host = "[" + host + "]"
+		}
+		http.Redirect(w, r, "https://"+host+r.URL.RequestURI(), http.StatusPermanentRedirect)
+	})
 }
 
 // certFiles serves the certificate of server.tls_cert and server.tls_key. Before each TLS
@@ -204,6 +208,13 @@ func (f *certFiles) get(*tls.ClientHelloInfo) (*tls.Certificate, error) {
 		}
 	}
 	return f.cert, nil
+}
+
+// serves reports whether the certificate loaded now is for host, a name or an IP address.
+func (f *certFiles) serves(host string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.cert.Leaf.VerifyHostname(host) == nil
 }
 
 // sameFile reports whether a and b describe the same file with the same time and size.

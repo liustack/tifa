@@ -46,7 +46,8 @@ func selfSigned(t *testing.T) (certPEM, keyPEM []byte, serial *big.Int) {
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber: serial, Subject: pkix.Name{CommonName: testDomain}, DNSNames: []string{testDomain},
-		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(24 * time.Hour),
+		IPAddresses: []net.IP{net.ParseIP("2001:db8::1")},
+		NotBefore:   time.Now().Add(-time.Hour), NotAfter: time.Now().Add(24 * time.Hour),
 		KeyUsage: x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true, IsCA: true,
 	}
@@ -265,35 +266,89 @@ func TestRunChecksTheHTTPSSettings(t *testing.T) {
 
 // server.http_addr redirects every request to the same URL over HTTPS, on port 443: the port
 // browsers use, also when server.addr names another one, as when a container maps 443 to it.
+// It redirects only to names the certificate is for, the one it has now, and answers others
+// with 421, so it never sends a browser to a name HTTPS cannot serve.
 func TestPlainHTTPRedirectsToHTTPS(t *testing.T) {
-	cfg, _, _, _, _ := certConfig(t)
+	cfg, certPath, keyPath, _, _ := certConfig(t)
 	cfg.Server.HSTS = true
 	s := New(cfg, Hooks{})
 	s.Handle("GET", "/hello", hello)
 	srv := startHTTPS(t, s)
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	for _, tc := range []struct{ method, host, path, want string }{
-		{"GET", testDomain, "/hello?a=1&b=%20", "https://" + testDomain + "/hello?a=1&b=%20"},
-		{"HEAD", testDomain + ":8080", "/", "https://" + testDomain + "/"},
-		{"POST", testDomain, "/orders", "https://" + testDomain + "/orders"},
-		{"GET", "[2001:db8::1]:80", "/x", "https://[2001:db8::1]/x"},
-		{"GET", "[2001:db8::1]", "/x", "https://[2001:db8::1]/x"},
-	} {
-		req, _ := http.NewRequest(tc.method, "http://"+srv.plain+tc.path, nil)
-		req.Host = tc.host
+	redirect := func(method, host, path string) *http.Response {
+		req, _ := http.NewRequest(method, "http://"+srv.plain+path, nil)
+		req.Host = host
 		res, err := client.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
 		res.Body.Close()
+		// HSTS over plain HTTP means nothing to browsers (RFC 6797, 8.1), so it is left out.
+		if res.Header.Get("Strict-Transport-Security") != "" {
+			t.Errorf("%s %s%s: HSTS over plain HTTP", method, host, path)
+		}
+		return res
+	}
+	for _, tc := range []struct{ method, host, path, want string }{
+		{"GET", testDomain, "/hello?a=1&b=%20", "https://" + testDomain + "/hello?a=1&b=%20"},
+		{"HEAD", "APP.example.test:8080", "/", "https://app.example.test/"},
+		{"POST", testDomain, "/orders", "https://" + testDomain + "/orders"},
+		{"GET", "[2001:db8::1]:80", "/x", "https://[2001:db8::1]/x"},
+		{"GET", "[2001:db8::1]", "/x", "https://[2001:db8::1]/x"},
+	} {
+		res := redirect(tc.method, tc.host, tc.path)
 		if res.StatusCode != http.StatusPermanentRedirect || res.Header.Get("Location") != tc.want {
 			t.Errorf("%s %s%s: %d %q, want 308 %q", tc.method, tc.host, tc.path, res.StatusCode, res.Header.Get("Location"), tc.want)
 		}
-		// HSTS over plain HTTP means nothing to browsers (RFC 6797, 8.1), so it is left out.
-		if res.Header.Get("Strict-Transport-Security") != "" {
-			t.Errorf("%s %s: HSTS over plain HTTP", tc.method, tc.path)
+	}
+	for _, host := range []string{"other.example.test", "203.0.113.7", "evil.example.test:80"} {
+		if res := redirect("GET", host, "/"); res.StatusCode != http.StatusMisdirectedRequest || res.Header.Get("Location") != "" {
+			t.Errorf("%s: %d %q, want 421", host, res.StatusCode, res.Header.Get("Location"))
 		}
 	}
+
+	// A new certificate for another name moves the redirect along, once HTTPS loaded it.
+	other := selfSignedFor(t, "shop.example.test")
+	writeFile(t, certPath+".new", other.cert)
+	writeFile(t, keyPath+".new", other.key)
+	os.Rename(certPath+".new", certPath)
+	os.Rename(keyPath+".new", keyPath)
+	h2 := h2Client(pool(t, other.cert))
+	h2.Transport.(*http.Transport).TLSClientConfig.ServerName = "shop.example.test"
+	if res, err := h2.Get("https://" + srv.main + "/hello"); err != nil {
+		t.Fatal(err)
+	} else {
+		res.Body.Close()
+	}
+	if res := redirect("GET", "shop.example.test", "/"); res.StatusCode != http.StatusPermanentRedirect {
+		t.Errorf("new name: %d", res.StatusCode)
+	}
+	if res := redirect("GET", testDomain, "/"); res.StatusCode != http.StatusMisdirectedRequest {
+		t.Errorf("old name: %d", res.StatusCode)
+	}
+}
+
+type keyPair struct{ cert, key []byte }
+
+// selfSignedFor is selfSigned for another name.
+func selfSignedFor(t *testing.T, name string) keyPair {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(time.Now().UnixNano()), Subject: pkix.Name{CommonName: name}, DNSNames: []string{name},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(24 * time.Hour),
+		KeyUsage: x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true, IsCA: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, key.Public(), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyDER, _ := x509.MarshalPKCS8PrivateKey(key)
+	return keyPair{pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})}
 }
 
 // HTTPS on a loopback address set by hand starts, since it may be a test on this machine, but
@@ -487,7 +542,9 @@ func TestRunServesBothAddresses(t *testing.T) {
 		t.Fatalf("over %s", res.Proto)
 	}
 	plain := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	res, err := plain.Get("http://" + cfg.Server.HTTPAddr + "/hello")
+	req, _ := http.NewRequest("GET", "http://"+cfg.Server.HTTPAddr+"/hello", nil)
+	req.Host = testDomain
+	res, err := plain.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}

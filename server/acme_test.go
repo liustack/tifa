@@ -462,3 +462,32 @@ func TestTLSCacheThatCannotBeCreatedFails(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+// With server.tls_domains, plain HTTP redirects only the names of tls_domains, and answers
+// others with 421, while the challenges of Let's Encrypt still get through.
+func TestAutomaticCertificatesRedirectOnlyTheirDomains(t *testing.T) {
+	ca := newFakeACME(t, "http-01")
+	trustACME(t, ca)
+	s := New(autoConfig(ca, t.TempDir()), Hooks{})
+	tlsConfig, plain, _, err := s.https()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, plainLn := listenLoopback(t), listenLoopback(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.serveBoth(ctx, ln, tlsConfig, plainLn, plain)
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	for host, want := range map[string]int{testDomain: 308, testDomain + ":80": 308, "other.example.test": 421, "127.0.0.1": 421} {
+		req, _ := http.NewRequest("GET", "http://"+plainLn.Addr().String()+"/x", nil)
+		req.Host = host
+		res, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if res.StatusCode != want {
+			t.Errorf("%s: %d, want %d", host, res.StatusCode, want)
+		}
+	}
+}
