@@ -194,7 +194,9 @@ The entry script holds all the code every page loads. The tifa plugin gives roll
 
 tifa serves HTTP/1.1 only: it listens on plain TCP, and browsers speak HTTP/2 only over TLS. Over HTTP/1.1 a browser opens at most 6 connections to a host, so a page waits about one more round trip for every 6 files it needs. Behind a proxy or CDN that speaks HTTP/2 to the browser, the files share one connection and their number matters much less. Count the `modulepreload` links of a page to see how many files it needs besides the entry script.
 
-On `examples/shop`, measured with Chrome's network throttling against its own program over HTTP/1.1, pages hydrate as soon as or sooner than when the route modules that export `head` were part of the entry script: 11 to 192 ms sooner at 150 ms round trips and 9 Mbit/s, 4 to 77 ms sooner at 40 ms and 20 Mbit/s. They paint 8 to 24 ms later, because the stylesheet shares the link with more files. Through a local HTTP/2 proxy they hydrate between 3 ms later and 159 ms sooner.
+On `examples/shop`, measured with Chrome's network throttling against its own program over HTTP/1.1, pages hydrate as soon as or sooner than when the route modules that export `head` were part of the entry script: 11 to 192 ms sooner at 150 ms round trips and 9 Mbit/s, 4 to 77 ms sooner at 40 ms and 20 Mbit/s. They paint 8 to 24 ms later, because the stylesheet shares the link with more files. Through a local HTTP/2 proxy they hydrate between 3 ms later and 159 ms sooner, and paint 8 to 48 ms later, since all files then share one connection from the start.
+
+An app whose routes share code in many combinations needs more files per page. On a store of 10 pages built on the example shop, a product page needs 20 files besides the entry script and an order page 17. Served by tifa itself over HTTP/1.1 at 150 ms round trips, these pages hydrate 100 and 58 ms later than when the route modules that export `head` were part of the entry script. At 40 ms round trips, and through HTTP/2 at both, they hydrate sooner. Put a proxy or CDN that speaks HTTP/2 to the browser in front of such an app.
 
 ## Route tree
 
