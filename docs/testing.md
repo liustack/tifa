@@ -10,6 +10,7 @@ read_when:
   - Changing `internal/ssr` or `test/ssr`
   - Changing something every VM uses, such as how the engine allocates memory, or checking that SSR still speeds up with more cores
   - Upgrading github.com/liustack/quickjs or modernc.org/libc, or `TestEngineProfileMatchesTheDependencies` fails
+  - Changing how the server serves HTTPS or gets its certificates
 ---
 
 # Testing and verification
@@ -75,6 +76,17 @@ Each app under `test/apps` is a separate module, so the root `go test ./...` doe
 - Tests live in the same package as the code under test, in files named `*_test.go`. The exceptions test from outside: `test/e2e` the built CLI and apps, `test/ssr` the SSR pool of `internal/ssr` with the example app's real bundle. Framework behavior gets its test in its own package, with its own `testdata`, and does not depend on `examples/shop`.
 - One assertion proves one thing. When a loop runs several cases, give each case its own state, and confirm the code under test really ran. Caching and deduplication logic is the easiest way for a later case to get an earlier case's result while the test still passes.
 - Verify browser behavior (extra requests during hydration, one request per navigation, horizontal overflow on narrow screens) with `playwright-cli`, and take screenshots of the results.
+
+## HTTPS tests (`server`)
+
+`server/tls_test.go` and `server/acme_test.go` run with `go test ./server/`, on the loopback and without a network. They make their certificates themselves, and the ACME server they ask is a fake one in the test process (`fakeACME`). It checks nothing a client signs, but it does what Let's Encrypt does with the challenges: it connects to the program over plain HTTP (http-01) or over TLS with `acme-tls/1` (tls-alpn-01) and checks the key authorization. Its http-01 request carries the port in `Host`, as Pebble's does. The tests cover HTTP/2 with your own certificate, loading the files again after they change, the redirect, HSTS, compression and streams over HTTP/2, both addresses shutting down, a certificate from each challenge and from the cache after a restart, and that tifa dev serves plain HTTP.
+
+Before changing how certificates are got, also check a built program against [Pebble](https://github.com/letsencrypt/pebble), the test server of Let's Encrypt, on Linux, where `SSL_CERT_FILE` makes the program trust Pebble's own certificate:
+
+1. `go install github.com/letsencrypt/pebble/v2/cmd/pebble@v2.10.1 github.com/letsencrypt/pebble/v2/cmd/pebble-challtestsrv@v2.10.1`.
+2. Start `pebble-challtestsrv -defaultIPv4 127.0.0.1 -dnsserver 127.0.0.1:8053 -http01 "" -https01 "" -tlsalpn01 "" -doh ""`, which answers every name with 127.0.0.1.
+3. Start `PEBBLE_VA_NOSLEEP=1 PEBBLE_WFE_NONCEREJECT=0 pebble -config pebble.json -dnsserver 127.0.0.1:8053`, with the `test/config/pebble-config.json` of Pebble changed to `"httpPort": 80, "tlsPort": 443`. Its certificates are in `test/certs` of the Pebble module.
+4. `sudo setcap cap_net_bind_service=+ep ./bin/shop`, then run it with `TIFA_SERVER_ADDR=:443 TIFA_SERVER_TLS_DOMAINS=shop.example.test TIFA_SERVER_TLS_CACHE=./certs TIFA_SERVER_TLS_CA=https://localhost:14000/dir SSL_CERT_FILE=<test/certs/pebble.minica.pem>`. The log shows the certificate, and `curl --http2 --resolve shop.example.test:443:127.0.0.1 --cacert <root>` (the root from `https://localhost:15000/roots/0`) gets a page over HTTP/2. After a restart, Pebble's log shows no new `POST /order-plz`. With `"tlsPort"` set to a port nothing listens on, the certificate comes through http-01 instead.
 
 ## Bundle tests (`internal/bundle`)
 
