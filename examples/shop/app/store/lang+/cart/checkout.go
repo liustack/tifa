@@ -6,7 +6,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/liustack/tifa"
@@ -189,9 +188,15 @@ type Placed struct {
 	PlacedAt   time.Time `json:"placedAt"`
 }
 
+// Placed orders are kept for their confirmation, at most maxPlaced of them and each for
+// placedIdle after it was last shown, like the carts.
+const (
+	maxPlaced  = 10_000
+	placedIdle = 30 * 24 * time.Hour
+)
+
 var (
-	placedMu   sync.Mutex
-	placed     = map[string]placedRecord{}
+	placed     = newRecent[placedRecord](maxPlaced, placedIdle)
 	nextPlaced = 5001
 )
 
@@ -217,27 +222,23 @@ func PlaceOrder(c *tifa.Ctx, o Order, now time.Time) (string, error) {
 			total += d.PriceCents
 		}
 	}
-	placedMu.Lock()
+	placed.mu.Lock()
 	id := fmt.Sprintf("SS-%d", nextPlaced)
 	nextPlaced++
-	placed[id] = placedRecord{email: o.Email, count: cart.Count, totalFen: total, delivery: o.Delivery, at: now}
-	placedMu.Unlock()
-	if id := ID(c); id != "" {
-		clear(id)
-	} else {
-		// A visitor who checks out the demonstration cart gets an empty cart of their own.
-		if _, err := change(c, func(rec *cartRecord) error { rec.lines = nil; return nil }); err != nil {
-			return "", err
-		}
+	placed.add(id, placedRecord{email: o.Email, count: cart.Count, totalFen: total, delivery: o.Delivery, at: now}, now)
+	placed.mu.Unlock()
+	// A visitor who checks out the demonstration cart gets an empty cart of their own.
+	if _, err := change(c, func(rec *cartRecord) error { *rec = cartRecord{}; return nil }); err != nil {
+		return "", err
 	}
 	return id, nil
 }
 
 // GetPlaced returns a placed order in the language of l, or tifa.ErrNotFound.
 func GetPlaced(id string, l store.Locale) (Placed, error) {
-	placedMu.Lock()
-	r, ok := placed[id]
-	placedMu.Unlock()
+	placed.mu.Lock()
+	r, ok := placed.get(id, time.Now())
+	placed.mu.Unlock()
 	if !ok {
 		return Placed{}, tifa.ErrNotFound
 	}

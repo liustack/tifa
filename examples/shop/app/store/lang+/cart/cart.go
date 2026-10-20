@@ -1,15 +1,13 @@
 // Package cart is the cart domain of the storefront: the lines of each visitor's cart, coupons,
-// delivery methods and the totals, and placing an order from a cart. Carts are kept in memory,
-// keyed by the cookie store_cart, in place of a cart table.
+// delivery methods and the totals, and placing an order from a cart. Carts are kept in memory in
+// place of a cart table, and the cookie store_cart holds only the ID of the visitor's cart.
 package cart
 
 import (
 	"crypto/rand"
-	"encoding/hex"
 	"net/http"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/liustack/tifa"
@@ -69,10 +67,16 @@ type cartRecord struct {
 	coupon string
 }
 
-var (
-	cartsMu sync.Mutex
-	carts   = map[string]*cartRecord{}
+// A cart nobody has used for cartIdle is forgotten, as its cookie expires then too, and at most
+// maxCarts are kept, so visitors cannot fill the memory with carts.
+const (
+	maxCarts = 10_000
+	cartIdle = 30 * 24 * time.Hour
 )
+
+// carts are the carts by ID. Only IDs this package made are keys: an ID a request brings that
+// is not here gets a new cart with a new ID, never a cart under the ID it brought.
+var carts = newRecent[*cartRecord](maxCarts, cartIdle)
 
 // A visitor without a cart sees this one, so the demonstration has something to check out. It
 // becomes the visitor's own cart at the first change.
@@ -93,16 +97,13 @@ func ID(c *tifa.Ctx) string {
 
 // Get returns the cart id in the language of l: the demonstration cart for an ID that has none.
 func Get(id string, l store.Locale) Cart {
-	cartsMu.Lock()
-	rec, ok := carts[id]
-	var lines []lineRecord
-	coupon := ""
+	carts.mu.Lock()
+	rec, ok := carts.get(id, time.Now())
+	lines, coupon := demoLines, ""
 	if ok {
 		lines, coupon = slices.Clone(rec.lines), rec.coupon
-	} else {
-		lines = demoLines
 	}
-	cartsMu.Unlock()
+	carts.mu.Unlock()
 	cart := Cart{Lines: []Line{}, Coupon: coupon, FreeShippingCents: FreeShipping(l)}
 	for _, r := range lines {
 		p, err := products.GetProduct(r.slug, l)
@@ -129,10 +130,10 @@ func Get(id string, l store.Locale) Cart {
 
 // Count returns the number of pieces in the cart id.
 func Count(id string) int {
-	cartsMu.Lock()
-	defer cartsMu.Unlock()
+	carts.mu.Lock()
+	defer carts.mu.Unlock()
 	lines := demoLines
-	if rec, ok := carts[id]; ok {
+	if rec, ok := carts.get(id, time.Now()); ok {
 		lines = rec.lines
 	}
 	n := 0
@@ -142,22 +143,50 @@ func Count(id string) int {
 	return n
 }
 
-// change runs f on the cart of the request under the lock, making the visitor a cart of their
-// own first when they have none, and sets the cookie. It returns the ID of the cart.
+// change runs f on a copy of the cart of the request under the lock, and keeps the copy when f
+// succeeds. A visitor without a cart, or with an ID this package did not make, gets a cart of
+// their own with a new ID, starting from the demonstration cart, but only when f succeeds, so a
+// failed request leaves no cart behind. It sets the cookie and returns the ID of the cart.
 func change(c *tifa.Ctx, f func(*cartRecord) error) (string, error) {
-	cartsMu.Lock()
-	defer cartsMu.Unlock()
+	now := time.Now()
+	carts.mu.Lock()
+	defer carts.mu.Unlock()
 	id := ID(c)
-	rec, ok := carts[id]
+	rec, ok := carts.get(id, now)
 	if !ok {
-		b := make([]byte, 12)
-		rand.Read(b)
-		id = hex.EncodeToString(b)
-		rec = &cartRecord{lines: slices.Clone(demoLines)}
-		carts[id] = rec
+		rec = &cartRecord{lines: demoLines}
 	}
-	c.SetCookie(&http.Cookie{Name: CookieName, Value: id, Path: "/store", HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: 30 * 24 * 3600})
-	return id, f(rec)
+	next := &cartRecord{lines: slices.Clone(rec.lines), coupon: rec.coupon}
+	if err := f(next); err != nil {
+		return "", err
+	}
+	if ok {
+		*rec = *next
+	} else {
+		id = newCartID()
+		carts.add(id, next, now)
+	}
+	setCookie(c, id)
+	return id, nil
+}
+
+// newCartID returns a random ID no cart has. The caller holds carts.mu.
+func newCartID() string {
+	for {
+		if id := rand.Text(); !carts.has(id) {
+			return id
+		}
+	}
+}
+
+func setCookie(c *tifa.Ctx, id string) {
+	// The cookie lives as long as an unused cart, and only the server reads it. Behind HTTPS,
+	// set Secure: true as well, so the browser never sends the ID over plain HTTP. It is left
+	// out here because the example runs on http://127.0.0.1, where a Secure cookie is not sent.
+	c.SetCookie(&http.Cookie{
+		Name: CookieName, Value: id, Path: "/store", MaxAge: int(cartIdle / time.Second),
+		HttpOnly: true, SameSite: http.SameSiteLaxMode,
+	})
 }
 
 // Add puts quantity of a product in a colour and size into the cart of the request, and returns
@@ -216,13 +245,6 @@ func ApplyCoupon(c *tifa.Ctx, code string) error {
 		return nil
 	})
 	return err
-}
-
-// clear empties the cart id after an order. The caller holds no lock.
-func clear(id string) {
-	cartsMu.Lock()
-	defer cartsMu.Unlock()
-	carts[id] = &cartRecord{}
 }
 
 func lineID(slug, color, size string) string {

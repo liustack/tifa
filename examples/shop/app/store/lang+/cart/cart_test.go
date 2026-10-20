@@ -176,3 +176,65 @@ func TestPlacingAnOrderEmptiesTheCart(t *testing.T) {
 		t.Errorf("unknown order: %v", err)
 	}
 }
+
+func TestFailedChangesMakeNoCart(t *testing.T) {
+	c, w := visit(t, "")
+	if _, err := SetQuantity(c, "nope.mist", 1); !errors.Is(err, tifa.ErrNotFound) {
+		t.Fatalf("change an unknown line: %v", err)
+	}
+	if cookie := w.Header().Get("Set-Cookie"); cookie != "" {
+		t.Errorf("a failed change gave a cart: %s", cookie)
+	}
+}
+
+func TestOnlyCartIDsTheServerMadeAreKept(t *testing.T) {
+	forged := strings.Repeat("f", 3000)
+	c, w := visit(t, forged)
+	if _, err := PlaceOrder(c, goodOrder(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	cookie := w.Header().Get("Set-Cookie")
+	if strings.Contains(cookie, forged) || !strings.Contains(cookie, CookieName+"=") {
+		t.Errorf("checking out with a forged cart ID set %.80s", cookie)
+	}
+	if n := Count(forged); n != Get("", zh).Count {
+		t.Errorf("the forged ID holds a cart of %d pieces", n)
+	}
+	c, w = visit(t, forged)
+	id, err := Add(c, "ceramic-cup", "moss", "", 1)
+	if err != nil || id == forged || !strings.Contains(w.Header().Get("Set-Cookie"), CookieName+"="+id) {
+		t.Errorf("adding with a forged cart ID: %.80s %v", id, err)
+	}
+}
+
+func TestRecentForgetsTheIdleAndTheLeastUsed(t *testing.T) {
+	r := newRecent[int](3, time.Hour)
+	at := time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC)
+	for i, key := range []string{"a", "b", "c"} {
+		r.add(key, i, at)
+	}
+	if v, ok := r.get("a", at.Add(time.Minute)); !ok || v != 0 {
+		t.Fatalf("a: %d %v", v, ok)
+	}
+	// b is now the least recently used, so a fourth key pushes it out.
+	r.add("d", 3, at.Add(2*time.Minute))
+	if _, ok := r.get("b", at.Add(2*time.Minute)); ok || r.len() != 3 {
+		t.Errorf("b kept past the limit, %d held", r.len())
+	}
+	// c was last used at the start: an hour and a second later it is gone, a is not.
+	later := at.Add(time.Hour + time.Second)
+	if _, ok := r.get("c", later); ok {
+		t.Error("c kept after an idle hour")
+	}
+	if _, ok := r.get("a", later); !ok {
+		t.Error("a forgotten within an hour of its last use")
+	}
+	// Adding sweeps out what has been idle too long.
+	r.add("e", 4, at.Add(3*time.Hour))
+	if r.len() != 1 {
+		t.Errorf("%d held after everything else went idle", r.len())
+	}
+	if carts.limit != maxCarts || placed.limit != maxPlaced {
+		t.Errorf("limits %d and %d", carts.limit, placed.limit)
+	}
+}
