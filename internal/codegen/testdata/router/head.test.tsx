@@ -287,8 +287,8 @@ test('the attributes of <html> follow the matched routes', async () => {
     const changes = () => describe(html)
     await router.navigate({ to: '/intl/$lang', params: { lang: 'de' } })
     for (let i = 0; i < 100 && !changes().includes('lang=de'); i++) await new Promise((resolve) => setTimeout(resolve, 0))
-    // The page's class and title go, the root Layout's data-theme comes back.
-    assert(describe(html) === 'html data-color=dark lang=de dir=ltr data-theme=t', `after navigating ${describe(html)}`)
+    // The page's title goes, its class gives way to the Layout's, the root Layout's data-theme comes back.
+    assert(describe(html) === 'html data-color=dark lang=de dir=ltr class=outer data-theme=t', `after navigating ${describe(html)}`)
     await router.navigate({ to: '/hello' })
     for (let i = 0; i < 100 && changes().includes('dir='); i++) await new Promise((resolve) => setTimeout(resolve, 0))
     assert(describe(html) === 'html data-color=dark lang=xx data-theme=t', `after leaving ${describe(html)}`)

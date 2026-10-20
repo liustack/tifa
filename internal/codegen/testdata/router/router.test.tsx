@@ -196,9 +196,10 @@ const documentStart = (html: string) => html.slice(0, html.indexOf('<head>'))
 test('head sets attributes of <html> over those of the root Layout, the deepest route winning', async () => {
   const intl = { ...appData, 'app/intl/lang+/layout': ok('fr'), 'app/intl/lang+/route': ok('home') }
   const home = await render('/intl/fr', intl)
-  assert(documentStart(home) === '<!DOCTYPE html><html lang="fr" data-theme="a&quot;b" dir="ltr">', `document start: ${documentStart(home)}`)
+  assert(documentStart(home) === '<!DOCTYPE html><html lang="fr" data-theme="a&quot;b" dir="ltr" class="outer">', `document start: ${documentStart(home)}`)
   contains(home, 'INTL <!-- -->fr', 'INTL_HOME')
-  // null takes away what an outer level set, and the attributes React DOM would not write are left out.
+  // null takes away what an outer level set, and the attributes React DOM would not write are left
+  // out. className and class are one attribute, written once.
   const rtl = await render('/intl/fr/rtl', { ...intl, 'app/intl/lang+/rtl/route': ok('rtl') })
   assert(
     documentStart(rtl) === '<!DOCTYPE html><html lang="fr" dir="rtl" class="wide" title="a&quot;&lt;b">',
@@ -214,10 +215,10 @@ test('head sets attributes of <html> over those of the root Layout, the deepest 
 test('a failed or unmatched page gets the attributes of the levels it shows', async () => {
   // The Layout failed, so its head has no data and the root's lang stays.
   const failed = await render('/intl/fr', { ...appData, 'app/intl/lang+/layout': { status: 500, error: 'boom' }, 'app/intl/lang+/route': ok('home') })
-  assert(documentStart(failed) === '<!DOCTYPE html><html lang="xx" data-theme="a&quot;b" dir="ltr">', `failed Layout: ${documentStart(failed)}`)
+  assert(documentStart(failed) === '<!DOCTYPE html><html lang="xx" data-theme="a&quot;b" dir="ltr" class="outer">', `failed Layout: ${documentStart(failed)}`)
   // The page failed below the Layout: the Layout's language holds.
   const missingPage = await render('/intl/fr', { ...appData, 'app/intl/lang+/layout': ok('fr'), 'app/intl/lang+/route': missing })
-  assert(documentStart(missingPage) === '<!DOCTYPE html><html lang="fr" data-theme="a&quot;b" dir="ltr">', `404 page: ${documentStart(missingPage)}`)
+  assert(documentStart(missingPage) === '<!DOCTYPE html><html lang="fr" data-theme="a&quot;b" dir="ltr" class="outer">', `404 page: ${documentStart(missingPage)}`)
   contains(missingPage, 'APP_404')
   // A URL no route matches shows the root alone, with the root Layout's attributes.
   const unmatched = await render('/intl/fr/rtl/nowhere', {})

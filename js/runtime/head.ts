@@ -80,17 +80,28 @@ function withHTMLAttributes(head: HeadResult): unknown {
 
 // htmlAttributesOf merges the htmlAttributes of the matches over base, attribute by attribute,
 // the deepest route that gives an attribute winning, as the title does. Only the matches the
-// page shows count, the first one that did not load included. Without any it returns base.
+// page shows count, the first one that did not load included. Attributes are one when React DOM
+// writes them under the same HTML name, so className and class are one, and Lang and lang. Only
+// own keys count, and __proto__ is none.
 export function htmlAttributesOf(all: ReadonlyArray<HeadMatch>, base: HTMLAttributes): HTMLAttributes {
-  let merged: HTMLAttributes | undefined
+  // The key and the value of each attribute, by its HTML name in lower case.
+  const merged = new Map<string, [string, unknown]>()
+  const add = (attrs: HTMLAttributes) => {
+    for (const key of Object.keys(attrs)) {
+      const value = attrs[key]
+      if (value === undefined || key === '__proto__') continue
+      merged.set((aliases[key] ?? key).toLowerCase(), [key, value])
+    }
+  }
+  add(base)
   for (const match of presented(all))
     for (const m of (match.meta ?? []) as ReadonlyArray<Record<symbol, HTMLAttributes> | undefined>) {
       const attrs = m?.[htmlKey]
-      if (!attrs) continue
-      merged ??= { ...base }
-      for (const key in attrs) if (attrs[key] !== undefined) merged[key] = attrs[key]
+      if (attrs) add(attrs)
     }
-  return merged ?? base
+  const out: HTMLAttributes = Object.create(null)
+  for (const [key, value] of merged.values()) out[key] = value
+  return out
 }
 
 // headTags collects the head of the matches the way TanStack's HeadContent does: the matches

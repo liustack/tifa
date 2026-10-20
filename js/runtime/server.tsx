@@ -61,8 +61,8 @@ type RenderInput = Injected & { preload?: string }
 // document.
 export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defaultHTMLAttributes) {
   const documentStart = (attrs: HTMLAttributes) => '<!DOCTYPE html><html' + attributes(attrs) + '><head><meta charset="utf-8">'
-  // The start of a page whose routes set no attributes of <html>.
-  const baseStart = documentStart(htmlAttributes)
+  // The root Layout's attributes fail here, when the bundle loads, rather than in every render.
+  documentStart(htmlAttributesOf([], htmlAttributes))
   const assetTags = __TIFA_ASSETS__
   const bodyStart = headEnd + '</head><body><div id="' + rootElementId + '">'
   globalThis.startRender = (json: string) => {
@@ -100,9 +100,8 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
         if (!hydration) throw new Error('the router has no hydration scripts for this render')
         router.serverSsr!.setRenderFinished()
         const matches = router.stores.matches.get()
-        const attrs = htmlAttributesOf(matches, htmlAttributes)
         const html =
-          (attrs === htmlAttributes ? baseStart : documentStart(attrs)) +
+          documentStart(htmlAttributesOf(matches, htmlAttributes)) +
           assetTags +
           (input.preload ?? '') +
           headStart +
