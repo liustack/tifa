@@ -9,7 +9,10 @@ import { Separator } from '@/components/ui/separator'
 import { i18nFor, LocaleContext, useStore } from '../i18n'
 import { route, type Data } from './+layout'
 
+// The language of every page of the store, from the locale the Go function checked. Without it,
+// when the Layout failed, the page keeps the root Layout's language.
 export const head = ({ loaderData }: { loaderData?: Data }) => ({
+  htmlAttributes: { lang: loaderData?.locale.code },
   meta: loaderData ? [{ title: i18nFor(loaderData.locale).t('home.title') }] : [],
 })
 
@@ -18,7 +21,7 @@ export default function StoreLayout() {
   return (
     <LocaleContext.Provider value={shell.locale}>
       <I18nextProvider i18n={i18nFor(shell.locale)}>
-        <div lang={shell.locale.code} className="flex min-h-svh flex-col bg-background">
+        <div className="flex min-h-svh flex-col bg-background">
           <StoreHeader />
           <main id="store-main" tabIndex={-1} className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 outline-none md:px-8">
             <Outlet />
