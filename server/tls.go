@@ -61,15 +61,17 @@ func (s *Server) https() (tlsConfig *tls.Config, plain http.Handler, ready func(
 }
 
 // hostPolicy allows the names of server.tls_domains. The http-01 challenge checks the Host
-// header against it, which may carry a port, as the requests of Pebble do, and other letter
-// cases: autocert.HostWhitelist alone takes neither.
+// header against it, which may carry a port, as the requests of Pebble do, other letter cases,
+// or a final dot, which names the same domain: autocert.HostWhitelist alone takes none of them.
+// The redirect on server.http_addr asks it too, and then treats a final dot as
+// Certificate.VerifyHostname does for your own certificate.
 func hostPolicy(domains []string) autocert.HostPolicy {
 	allowed := autocert.HostWhitelist(domains...)
 	return func(ctx context.Context, host string) error {
 		if h, _, err := net.SplitHostPort(host); err == nil {
 			host = h
 		}
-		return allowed(ctx, strings.ToLower(host))
+		return allowed(ctx, strings.TrimSuffix(strings.ToLower(host), "."))
 	}
 }
 

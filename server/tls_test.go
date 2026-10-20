@@ -295,6 +295,7 @@ func TestPlainHTTPRedirectsToHTTPS(t *testing.T) {
 		{"POST", testDomain, "/orders", "https://" + testDomain + "/orders"},
 		{"GET", "[2001:db8::1]:80", "/x", "https://[2001:db8::1]/x"},
 		{"GET", "[2001:db8::1]", "/x", "https://[2001:db8::1]/x"},
+		{"GET", testDomain + ".", "/x", "https://" + testDomain + "./x"},
 	} {
 		res := redirect(tc.method, tc.host, tc.path)
 		if res.StatusCode != http.StatusPermanentRedirect || res.Header.Get("Location") != tc.want {
