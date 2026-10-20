@@ -4,7 +4,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -165,15 +167,81 @@ func TestPlacingAnOrderEmptiesTheCart(t *testing.T) {
 	if n := Count(id); n != 0 {
 		t.Errorf("%d pieces left after the order", n)
 	}
-	p, err := GetPlaced(order, zh)
+	p, err := GetPlaced(order, id, zh)
 	if err != nil || p.Count != 6 || p.Email != "lin@example.com" || p.Delivery.ID != "express" {
 		t.Errorf("placed %+v %v", p, err)
 	}
 	if _, err := PlaceOrder(c, goodOrder(), now); err == nil {
 		t.Error("an empty cart placed an order")
 	}
-	if _, err := GetPlaced("SS-1", zh); !errors.Is(err, tifa.ErrNotFound) {
+	if _, err := GetPlaced("SS-1", id, zh); !errors.Is(err, tifa.ErrNotFound) {
 		t.Errorf("unknown order: %v", err)
+	}
+}
+
+func TestOnlyTheCartThatPlacedAnOrderSeesIt(t *testing.T) {
+	now := time.Now()
+	var orders, ids []string
+	for range 2 {
+		c, w := visit(t, "")
+		order, err := PlaceOrder(c, goodOrder(), now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cookie, err := http.ParseSetCookie(w.Header().Get("Set-Cookie"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		orders, ids = append(orders, order), append(ids, cookie.Value)
+	}
+	// Order numbers are random, so one order says nothing about the number of the next.
+	pattern := regexp.MustCompile(`^SS-[A-Z2-7]{10}$`)
+	for _, order := range orders {
+		if !pattern.MatchString(order) {
+			t.Errorf("order number %q", order)
+		}
+	}
+	if _, err := GetPlaced(orders[0], ids[0], zh); err != nil {
+		t.Errorf("the cart that placed the order: %v", err)
+	}
+	for _, id := range []string{ids[1], "", "nope"} {
+		if _, err := GetPlaced(orders[0], id, zh); !errors.Is(err, tifa.ErrNotFound) {
+			t.Errorf("cart %q sees another's order: %v", id, err)
+		}
+	}
+}
+
+func TestACartPlacesOneOrder(t *testing.T) {
+	c, _ := visit(t, "")
+	id, err := Add(c, "ceramic-cup", "moss", "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Many clicks on the button at once place one order: the others find the cart empty.
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	errs := make([]error, 20)
+	for i := range errs {
+		c, _ := visit(t, id)
+		wg.Go(func() {
+			<-start
+			_, errs[i] = PlaceOrder(c, goodOrder(), time.Now())
+		})
+	}
+	close(start)
+	wg.Wait()
+	placedOrders := 0
+	for _, err := range errs {
+		var e tifa.Error
+		switch {
+		case err == nil:
+			placedOrders++
+		case !errors.As(err, &e) || e.Status != 409:
+			t.Errorf("unexpected error: %v", err)
+		}
+	}
+	if placedOrders != 1 {
+		t.Errorf("one cart placed %d orders", placedOrders)
 	}
 }
 

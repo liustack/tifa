@@ -1,7 +1,7 @@
 package cart
 
 import (
-	"fmt"
+	"crypto/rand"
 	"net/mail"
 	"regexp"
 	"slices"
@@ -195,12 +195,13 @@ const (
 	placedIdle = 30 * 24 * time.Hour
 )
 
-var (
-	placed     = newRecent[placedRecord](maxPlaced, placedIdle)
-	nextPlaced = 5001
-)
+// placed are the placed orders by order number.
+var placed = newRecent[placedRecord](maxPlaced, placedIdle)
 
 type placedRecord struct {
+	// cart is the ID of the cart the order was placed from. Only a request with that cart sees
+	// the order: the confirmation shows an email address, and order numbers can be guessed.
+	cart     string
 	email    string
 	count    int
 	totalFen int
@@ -208,13 +209,27 @@ type placedRecord struct {
 	at       time.Time
 }
 
-// PlaceOrder places the order of the cart of the request, empties the cart and returns the ID
-// of the order. The order must have passed Validate.
+// PlaceOrder places the order of the cart of the request, empties the cart and returns the
+// number of the order. The order must have passed Validate. It holds the lock of the carts from
+// reading the cart to emptying it, so two requests with one cart place one order.
 func PlaceOrder(c *tifa.Ctx, o Order, now time.Time) (string, error) {
 	zh, _ := store.FindLocale("zh-CN")
-	cart := Get(ID(c), zh)
+	carts.mu.Lock()
+	defer carts.mu.Unlock()
+	cartID := ID(c)
+	rec, ok := carts.get(cartID, now)
+	if !ok {
+		rec = &cartRecord{lines: demoLines}
+	}
+	cart := price(rec.lines, rec.coupon, zh)
 	if len(cart.Lines) == 0 {
 		return "", tifa.Error{Status: 409, Message: "emptyCart"}
+	}
+	if !ok {
+		// A visitor who checks out the demonstration cart gets a cart of their own, which the
+		// order is placed from.
+		cartID = newCartID()
+		carts.add(cartID, rec, now)
 	}
 	total := cart.SubtotalCents - cart.DiscountCents
 	for _, d := range Deliveries(cart, now, zh) {
@@ -223,23 +238,31 @@ func PlaceOrder(c *tifa.Ctx, o Order, now time.Time) (string, error) {
 		}
 	}
 	placed.mu.Lock()
-	id := fmt.Sprintf("SS-%d", nextPlaced)
-	nextPlaced++
-	placed.add(id, placedRecord{email: o.Email, count: cart.Count, totalFen: total, delivery: o.Delivery, at: now}, now)
+	id := newOrderNumber()
+	placed.add(id, placedRecord{cart: cartID, email: o.Email, count: cart.Count, totalFen: total, delivery: o.Delivery, at: now}, now)
 	placed.mu.Unlock()
-	// A visitor who checks out the demonstration cart gets an empty cart of their own.
-	if _, err := change(c, func(rec *cartRecord) error { *rec = cartRecord{}; return nil }); err != nil {
-		return "", err
-	}
+	*rec = cartRecord{}
+	setCookie(c, cartID)
 	return id, nil
 }
 
-// GetPlaced returns a placed order in the language of l, or tifa.ErrNotFound.
-func GetPlaced(id string, l store.Locale) (Placed, error) {
+// newOrderNumber returns a random order number no placed order has, such as SS-7K2QXM4TBA. The
+// caller holds placed.mu.
+func newOrderNumber() string {
+	for {
+		if id := "SS-" + rand.Text()[:10]; !placed.has(id) {
+			return id
+		}
+	}
+}
+
+// GetPlaced returns an order placed from the cart cartID in the language of l, or
+// tifa.ErrNotFound, also when another cart placed it.
+func GetPlaced(id, cartID string, l store.Locale) (Placed, error) {
 	placed.mu.Lock()
 	r, ok := placed.get(id, time.Now())
 	placed.mu.Unlock()
-	if !ok {
+	if !ok || cartID == "" || r.cart != cartID {
 		return Placed{}, tifa.ErrNotFound
 	}
 	p := Placed{ID: id, Email: r.email, Count: r.count, TotalCents: store.Price(r.totalFen, l), PlacedAt: r.at}

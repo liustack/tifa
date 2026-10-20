@@ -29,7 +29,7 @@ func Load(c *tifa.Ctx) (View, error) {
 		return View{}, err
 	}
 	if id := c.Query("placed"); id != "" {
-		p, err := cart.GetPlaced(id, l)
+		p, err := cart.GetPlaced(id, cart.ID(c), l)
 		if err != nil {
 			return View{}, err
 		}
