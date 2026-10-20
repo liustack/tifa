@@ -22,6 +22,23 @@ const serovalModule = /[/\\]node_modules[/\\]seroval[/\\]dist[/\\]index\.c?js$/
 const serovalPackage = /^(.*[/\\]node_modules[/\\]seroval)[/\\]/
 // The length from which seroval escapes a string with JSON.stringify, when that gives the same.
 const serovalLength = 'const MIN_JSON_STRINGIFY_LENGTH = 64;'
+// seroval's parseObject and parseObjectAsync take an array as an array in their first line, and
+// ask the plugins further down. Each entry has the name of the function, that first line, the
+// call of the plugins further down, and the first line that asks the plugins first.
+const serovalArrays = [
+  [
+    'parseObject',
+    '\tif (Array.isArray(current)) return parseArray(ctx, depth, id, current);\n',
+    '\tconst parsed = parsePlugin(ctx, depth, id, current);\n',
+    '\tif (Array.isArray(current)) return parsePlugin(ctx, depth, id, current) || parseArray(ctx, depth, id, current);\n',
+  ],
+  [
+    'parseObjectAsync',
+    '\tif (Array.isArray(current)) return parseArray$1(ctx, depth, id, current);\n',
+    '\tconst parsed = await parsePlugin$1(ctx, depth, id, current);\n',
+    '\tif (Array.isArray(current)) return await parsePlugin$1(ctx, depth, id, current) || parseArray$1(ctx, depth, id, current);\n',
+  ],
+]
 // The error handler of renderToString, which ignores the errors of the render.
 const ignoredErrors = 'function onError() {}'
 // React's HTML escape in its string renderer, with the regular expression that finds the first
@@ -395,28 +412,24 @@ function resolveRouteModule(ctx, root, source, importer) {
 // escapes of that renderer and makes them with replaceAll, joins the chunks it writes, puts Set
 // checks in front of its long switches on strings, passes the errors renderToString ignores to the
 // runtime, keeps the renderer from building component stacks and from putting the names of
-// components into their key paths, gives the importers of React namespaces of plain values, makes
-// seroval escape short strings with JSON.stringify, switches core-js to its property-backed
-// internal state, checks that the bundle is one file, and warns of the places where it may load a
-// module at run time. Its source map names sources relative to the application root.
+// components into their key paths, gives the importers of React namespaces of plain values,
+// switches core-js to its property-backed internal state, checks that the bundle is one file, and
+// warns of the places where it may load a module at run time. Its source map names sources
+// relative to the application root. It comes with serovalPlugin, which changes seroval.
 export function ssrPlugin(getRoot, loadVite) {
   const reactTargets = new Map() // server.edge.js path to the renderer modules it imports
   let coreJS // real directory of the core-js package the application resolves, '' for none
   let coreJSState = false // whether the internal state module of coreJS is in the bundle
   let coreJSAdapted = false // whether it got the property-backed state
-  let seroval // directory of the seroval package the bundle loads a module of, '' for none
-  let serovalMain = false // whether the bundle loads a main file of seroval
   let nodeImporters // Node module to the packages that import it
   let namesDropped = false // whether React's key paths have no names of components
   let serverActions // the modules outside React DOM with $$FORM_ACTION in their code
-  return {
+  const plugin = {
     name: 'tifa:ssr',
     applyToEnvironment: (env) => env.name === 'ssr',
     buildStart() {
       coreJS = findPackage(getRoot(), 'core-js')
       coreJSState = coreJSAdapted = false
-      seroval = ''
-      serovalMain = false
       nodeImporters = new Map()
       namesDropped = false
       serverActions = new Set()
@@ -477,24 +490,6 @@ export function ssrPlugin(getRoot, loadVite) {
       // WeakMap or patch generated output.
       if (id === propertyState) return 'module.exports = false'
       if (coreJS && id === path.join(coreJS, 'internals', 'internal-state.js')) coreJSState = true
-      seroval ||= id.match(serovalPackage)?.[1] ?? ''
-      if (serovalModule.test(id)) {
-        serovalMain = true
-        const source = fs.readFileSync(id, 'utf8')
-        // seroval escapes a string shorter than that length one character at a time, which is
-        // slower in QuickJS than JSON.stringify from 2 code units on. Both give the same text:
-        // seroval takes JSON.stringify only for a string without the characters it escapes
-        // otherwise.
-        if (source.split(serovalLength).length !== 2) {
-          this.warn(
-            `seroval ${packageVersion(path.resolve(id, '..', '..'))}: ${id} has no "${serovalLength}" the tifa ` +
-              'plugin knows, so seroval escapes strings shorter than 64 code units one character at a time. Pages ' +
-              'render the same, but the data of small pages takes longer to write',
-          )
-          return null
-        }
-        return source.replace(serovalLength, 'const MIN_JSON_STRINGIFY_LENGTH = 2;')
-      }
       if (reactStringRenderer.test(id)) {
         const react = `react-dom ${packageVersion(path.resolve(id, '..', '..'))}: ${id}`
         let source = fs.readFileSync(id, 'utf8')
@@ -623,15 +618,6 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
             'useActionState with it differs from the one React writes without the plugin',
         )
       }
-      // seroval moved the code the plugin changes to another file.
-      if (seroval && !serovalMain) {
-        this.warn(
-          `seroval ${packageVersion(seroval)} at ${seroval}: the SSR bundle loads neither dist/index.js nor ` +
-            'dist/index.cjs, so the tifa plugin does not change seroval, which escapes strings shorter than 64 ' +
-            'code units one character at a time. Pages render the same, but the data of small pages takes ' +
-            'longer to write',
-        )
-      }
       // core-js keeps internal state in WeakMaps whose values point back to their keys, which
       // QuickJS never frees, so the VMs would grow with every render.
       if (coreJSState && !coreJSAdapted) {
@@ -668,6 +654,86 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
       }
     },
   }
+  return [plugin, serovalPlugin()]
+}
+
+// serovalPlugin applies to the SSR build only. It changes seroval, which TanStack Router writes
+// the data of a page with, so that it escapes short strings with JSON.stringify and asks its
+// plugins for arrays as it does for objects.
+export function serovalPlugin() {
+  let seroval // directory of the seroval package the bundle loads a module of, '' for none
+  let serovalMain = false // whether the bundle loads a main file of seroval
+  return {
+    name: 'tifa:seroval',
+    applyToEnvironment: (env) => env.name === 'ssr',
+    buildStart() {
+      seroval = ''
+      serovalMain = false
+    },
+    load(id) {
+      seroval ||= id.match(serovalPackage)?.[1] ?? ''
+      if (serovalModule.test(id)) {
+        serovalMain = true
+        const name = `seroval ${packageVersion(path.resolve(id, '..', '..'))}: ${id}`
+        let source = fs.readFileSync(id, 'utf8')
+        // seroval escapes a string shorter than that length one character at a time, which is
+        // slower in QuickJS than JSON.stringify from 2 code units on. Both give the same text:
+        // seroval takes JSON.stringify only for a string without the characters it escapes
+        // otherwise.
+        if (source.split(serovalLength).length === 2) {
+          source = source.replace(serovalLength, 'const MIN_JSON_STRINGIFY_LENGTH = 2;')
+        } else {
+          this.warn(
+            `${name} has no "${serovalLength}" the tifa plugin knows, so seroval escapes strings shorter than ` +
+              '64 code units one character at a time. Pages render the same, but the data of small pages takes ' +
+              'longer to write',
+          )
+        }
+        // The data of a route that is an array goes through the tifa.data adapter as the JSON text
+        // Go wrote only when seroval asks its plugins for arrays. Otherwise seroval writes each of
+        // its values, which takes several times as long in QuickJS. The other plugins of a page,
+        // TanStack Router's and the one of RouteError, take errors and streams, which no array is,
+        // so they write the same as before.
+        const arrays = askPluginsForArrays(source)
+        if (arrays.missing.length === 0) {
+          source = arrays.source
+        } else {
+          this.warn(
+            `${name} has no ${arrays.missing.join(' and no ')} in the form the tifa plugin knows, so the tifa ` +
+              'plugin changes neither, and seroval takes an array as an array before it asks its plugins. Pages ' +
+              'render the same, but the data of a route that is an array takes longer to write',
+          )
+        }
+        return source
+      }
+      return null
+    },
+    buildEnd() {
+      // seroval moved the code the plugin changes to another file.
+      if (seroval && !serovalMain) {
+        this.warn(
+          `seroval ${packageVersion(seroval)} at ${seroval}: the SSR bundle loads neither dist/index.js nor ` +
+            'dist/index.cjs, so the tifa plugin does not change seroval, which escapes strings shorter than 64 ' +
+            'code units one character at a time and takes an array as an array before it asks its plugins. Pages ' +
+            'render the same, but the data of small pages and of routes that are arrays takes longer to write',
+        )
+      }
+    },
+  }
+}
+
+// askPluginsForArrays returns the source of seroval's main file with parseObject and
+// parseObjectAsync asking the plugins for an array before they take it as an array, and the names
+// of the functions the source does not have in the form it knows. The source is of use only when
+// none is missing, so that seroval does not write arrays one way at once and another way async.
+// Each line stays where it was.
+function askPluginsForArrays(source) {
+  const missing = []
+  for (const [fn, check, plugins, first] of serovalArrays) {
+    if (source.split(check).length !== 2 || source.split(plugins).length !== 2) missing.push(fn)
+    else source = source.replace(check, () => first)
+  }
+  return { source, missing }
 }
 
 // cacheEscapes returns the source of React's string renderer with a cache in front of

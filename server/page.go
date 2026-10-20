@@ -300,7 +300,8 @@ type routeResult struct {
 // injectedResults gives each successful result its data as the JSON text Go writes. The render
 // parses that text, and the page carries it to the browser as it is, so the server and the
 // browser read the same values. A JSON writer in the VM would write -0 as 0, and a page that
-// formats it with Intl would then hydrate other text than the server rendered.
+// formats it with Intl would then hydrate other text than the server rendered. A character above
+// U+FFFF goes into the text as the escapes of its surrogate pair, see ssr.EscapeAboveFFFF.
 func injectedResults(items map[string]routeResult) (map[string]routeResult, error) {
 	out := make(map[string]routeResult, len(items))
 	for id, item := range items {
@@ -309,7 +310,7 @@ func injectedResults(items map[string]routeResult) (map[string]routeResult, erro
 			if err != nil {
 				return nil, err
 			}
-			item.Data, item.JSON = nil, string(text)
+			item.Data, item.JSON = nil, string(ssr.EscapeAboveFFFF(text))
 		}
 		out[id] = item
 	}

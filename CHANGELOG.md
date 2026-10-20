@@ -19,6 +19,8 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 
 - The entry script holds all code every page loads in one file instead of four. Over HTTP/1.1 at 150 ms round trips the shop's pages hydrate 11 to 192 ms sooner than before, at 40 ms 4 to 77 ms sooner, and they paint 8 to 24 ms later (8 to 48 ms over HTTP/2). Served by tifa itself over HTTP/1.1, an app whose pages need 17 to 20 files hydrates 58 to 100 ms later at 150 ms round trips. A proxy or CDN that speaks HTTP/2 in front avoids that.
 - Four more rewrites of the SSR bundle by the Vite plugin: React escapes HTML with `replaceAll`, builds no component stacks, gets plain values in place of the getters of its namespaces, and leaves component names out of key paths. Together the example shop renders 6.5% to 7.5% faster and pages of plain text 17.6% to 18.3% faster, with the same HTML.
+- The data of a route whose `Load` returns an array, such as a slice, now goes into the page as the JSON text Go wrote, as objects already did. A table of 1,000 rows takes 39% less time to render. When seroval's code has another form, the build prints a warning and pages render as before.
+- Go writes characters above U+FFFF, such as emoji, in the data it gives the render as the escapes of their surrogate pairs, so one emoji no longer makes the shop's order list render 9% slower. The browser reads the same values.
 
 ### Fixed
 
