@@ -224,16 +224,6 @@ func Search(f Filter, l store.Locale) Results {
 	return r
 }
 
-// Price returns the price of a product in fen, for the cart, and whether it exists.
-func Price(slug string) (int, bool) {
-	for _, p := range catalogue {
-		if p.slug == slug {
-			return p.priceFen, true
-		}
-	}
-	return 0, false
-}
-
 // HasVariant reports whether a product comes in the colour and size, and how many are in stock.
 func HasVariant(slug, color, size string) (stock int, ok bool) {
 	for _, p := range catalogue {
