@@ -4,6 +4,7 @@ package server
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -414,9 +415,15 @@ func (w *writer) Hijack() (conn net.Conn, rw *bufio.ReadWriter, err error) {
 	return conn, rw, err
 }
 
-// Run calls OnStart, listens on the configured address and serves until ctx is done.
+// Run calls OnStart, listens on the configured addresses and serves until ctx is done. With
+// HTTPS on, server.addr serves HTTPS and server.http_addr, unless it is off, plain HTTP that
+// answers the challenges of the ACME server and redirects the rest to HTTPS.
 func (s *Server) Run(ctx context.Context) error {
 	if err := checkServeMux(); err != nil {
+		return err
+	}
+	tlsConfig, plain, ready, err := s.https()
+	if err != nil {
 		return err
 	}
 	if s.hooks.OnStart != nil {
@@ -428,12 +435,27 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	var plainLn net.Listener
+	if tlsConfig != nil && s.cfg.HTTPAddr != "off" {
+		if plainLn, err = net.Listen("tcp", s.cfg.HTTPAddr); err != nil {
+			ln.Close()
+			return fmt.Errorf("tifa: server.http_addr: %w", err)
+		}
+	}
 	// Under DevMain the app listens on an address only tifa dev talks to, and tifa dev prints
 	// the one to open.
 	if s.dev == nil {
-		log.Printf("tifa: listening on http://%s", ln.Addr())
+		scheme := "http"
+		if tlsConfig != nil {
+			scheme = "https"
+		}
+		log.Printf("tifa: listening on %s://%s", scheme, ln.Addr())
+		if plainLn != nil {
+			log.Printf("tifa: listening on http://%s, which redirects to HTTPS", plainLn.Addr())
+		}
 	}
-	return s.Serve(ctx, ln)
+	ready()
+	return s.serveBoth(ctx, ln, tlsConfig, plainLn, plain)
 }
 
 // checkServeMux fails when ServeMux runs the Go 1.21 semantics, which GODEBUG=httpmuxgo121=1 selects
@@ -494,7 +516,7 @@ func (g *gate) wait(timeout time.Duration) bool {
 	}
 }
 
-// Serve serves on ln until ctx is done or ln fails, then shuts down the same way in both cases:
+// Serve serves plain HTTP on ln until ctx is done or ln fails, then shuts down the same way in both cases:
 //  1. stop accepting and wait up to shutdown_timeout for connections to finish, as http.Server.Shutdown does
 //  2. close the gate, so a request net/http hands over from now on gets 503 without running handler code
 //  3. cancel every request context and close the remaining connections, which also reaches hijacked ones
@@ -504,8 +526,19 @@ func (g *gate) wait(timeout time.Duration) bool {
 // If a handler never returns, OnShutdown is skipped and Serve reports it, because cleaning up under a
 // running handler is worse than not cleaning up. Serve always closes ln, also when it refuses to start.
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
+	return s.serveBoth(ctx, ln, nil, nil, nil)
+}
+
+// serveBoth is Serve with HTTPS: ln serves TLS with tlsConfig when it is not nil, and plainLn,
+// when not nil, serves plain on its own server. That server runs no handler code, so it only
+// takes part in step 1: it stops accepting and finishes its requests alongside ln. A failure of
+// either listener shuts both down.
+func (s *Server) serveBoth(ctx context.Context, ln net.Listener, tlsConfig *tls.Config, plainLn net.Listener, plain http.Handler) error {
 	if err := checkServeMux(); err != nil {
 		ln.Close()
+		if plainLn != nil {
+			plainLn.Close()
+		}
 		return err
 	}
 	var g gate
@@ -516,6 +549,9 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 			if testHookEntry != nil {
 				testHookEntry("before")
 				defer testHookEntry("done")
+			}
+			if s.cfg.HSTS {
+				w.Header().Set("Strict-Transport-Security", "max-age=31536000")
 			}
 			if !g.enter() {
 				w.Header().Set("Connection", "close")
@@ -528,16 +564,43 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 		BaseContext:       func(net.Listener) context.Context { return base },
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second,
 	}
-	served := make(chan error, 1)
-	go func() { served <- srv.Serve(ln) }()
+	served := make(chan error, 2)
+	go func() {
+		if tlsConfig != nil {
+			srv.TLSConfig = tlsConfig
+			served <- srv.ServeTLS(ln, "", "")
+		} else {
+			served <- srv.Serve(ln)
+		}
+	}()
+	running := 1
+	var plainSrv *http.Server
+	if plainLn != nil {
+		plainSrv = &http.Server{
+			Handler:           plain,
+			ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second,
+		}
+		go func() { served <- plainSrv.Serve(plainLn) }()
+		running++
+	}
 	var serveErr error // the listener failure, nil when ctx ended serving
 	select {
 	case serveErr = <-served:
 		serveErr = fmt.Errorf("tifa: serving stopped: %w", serveErr)
+		running--
 	case <-ctx.Done():
 	}
 	drain, cancel := context.WithTimeout(context.Background(), s.cfg.ShutdownTimeout)
+	plainDone := make(chan error, 1)
+	if plainSrv != nil {
+		go func() { plainDone <- plainSrv.Shutdown(drain) }()
+	} else {
+		plainDone <- nil
+	}
 	err := srv.Shutdown(drain)
+	if plainErr := <-plainDone; err == nil {
+		err = plainErr
+	}
 	cancel()
 	if err != nil {
 		err = fmt.Errorf("tifa: waiting for in-flight requests: %w", err)
@@ -546,7 +609,10 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	g.close()
 	cancelRequests()
 	_ = srv.Close()
-	if serveErr == nil {
+	if plainSrv != nil {
+		_ = plainSrv.Close()
+	}
+	for ; running > 0; running-- {
 		<-served // http.ErrServerClosed
 	}
 	if !g.wait(s.cfg.ShutdownTimeout) {
