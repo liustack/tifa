@@ -503,6 +503,28 @@ func TestPagesApp(t *testing.T) {
 			t.Errorf("%s: %d\n%s", path, status, body)
 		}
 	}
+	// The guide's Layout sets the language of <html> through head, over the root Layout's
+	// htmlAttributes, also on its 404 pages. A Layout that fails keeps the root's language, and a
+	// URL no route matches gets the root's attributes alone. Go writes the document of a page
+	// without SSR, and the browser sets them.
+	for path, want := range map[string]struct {
+		status int
+		html   string
+	}{
+		"/":                       {200, `<html lang="en">`},
+		"/guide/zh-CN":            {200, `<html lang="zh-CN" dir="ltr">`},
+		"/guide/en-US":            {200, `<html lang="en-US" dir="ltr">`},
+		"/guide/zh-CN/topics/tea": {200, `<html lang="zh-CN" dir="ltr">`},
+		"/guide/zh-CN/topics/pu":  {404, `<html lang="zh-CN" dir="ltr">`},
+		"/guide/xx":               {404, `<html lang="en" dir="ltr">`},
+		"/guide/zh-CN/a/b":        {404, `<html lang="en">`},
+		"/guide/zh-CN/plain":      {200, `<html>`},
+	} {
+		status, _, body := get(t, base+path)
+		if start := "<!DOCTYPE html>" + want.html + "<head>"; status != want.status || !strings.HasPrefix(body, start) {
+			t.Errorf("%s: %d, want %d and a document starting %s:\n%.200s", path, status, want.status, start, body)
+		}
+	}
 	// Bundle files are served with a long cache and their type.
 	for _, m := range headURL.FindAllStringSubmatch(built.Head, -1) {
 		status, header, _ := get(t, base+m[1])
