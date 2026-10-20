@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -11,6 +12,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/crypto/acme"
+	"golang.org/x/crypto/acme/autocert"
 )
 
 // https sets up HTTPS from the settings: the TLS config of server.addr, the handler of
@@ -25,12 +29,66 @@ func (s *Server) https() (tlsConfig *tls.Config, plain http.Handler, ready func(
 	if err := c.CheckHTTPS(); err != nil {
 		return nil, nil, nil, err
 	}
-	files, err := loadCertFiles(c.TLSCert, c.TLSKey)
-	if err != nil {
-		return nil, nil, nil, err
+	plain = http.HandlerFunc(redirectToHTTPS)
+	if c.TLSCert != "" {
+		files, err := loadCertFiles(c.TLSCert, c.TLSKey)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		// net/http adds h2 and http/1.1 to NextProtos, so browsers get HTTP/2.
+		return &tls.Config{GetCertificate: files.get}, plain, func() {}, nil
 	}
-	// net/http adds h2 and http/1.1 to NextProtos, so browsers get HTTP/2.
-	return &tls.Config{GetCertificate: files.get}, http.HandlerFunc(redirectToHTTPS), func() {}, nil
+	if err := os.MkdirAll(c.TLSCache, 0o700); err != nil {
+		return nil, nil, nil, fmt.Errorf("tifa: server.tls_cache: %w", err)
+	}
+	// Taking server.tls_domains is taking the terms of the ACME server, as with Caddy.
+	m := &autocert.Manager{
+		Prompt:     autocert.AcceptTOS,
+		Cache:      autocert.DirCache(c.TLSCache),
+		HostPolicy: hostPolicy(c.TLSDomains),
+		Email:      c.TLSEmail,
+		Client:     &acme.Client{DirectoryURL: c.TLSCA, HTTPClient: testACMEClient},
+	}
+	// The manager tries tls-alpn-01 on server.addr first, and http-01 only once HTTPHandler has
+	// been called: with server.http_addr off nothing could answer it.
+	if c.HTTPAddr != "off" {
+		plain = m.HTTPHandler(plain)
+	}
+	tlsConfig = &tls.Config{GetCertificate: m.GetCertificate, NextProtos: []string{acme.ALPNProto}}
+	return tlsConfig, plain, func() { go obtain(m, c.TLSDomains) }, nil
+}
+
+// hostPolicy allows the names of server.tls_domains. The http-01 challenge checks the Host
+// header against it, which may carry a port, as the requests of Pebble do, and other letter
+// cases: autocert.HostWhitelist alone takes neither.
+func hostPolicy(domains []string) autocert.HostPolicy {
+	allowed := autocert.HostWhitelist(domains...)
+	return func(ctx context.Context, host string) error {
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		return allowed(ctx, strings.ToLower(host))
+	}
+}
+
+// obtain asks for the certificate of each domain, from server.tls_cache or else from the ACME
+// server, as a browser that supports ECDSA would. Otherwise the first browser to come would wait
+// for it, and a mistake, such as DNS that points elsewhere, would only show then. autocert keeps
+// a failure for a minute, and the next connection after that asks again.
+func obtain(m *autocert.Manager, domains []string) {
+	for _, d := range domains {
+		cert, err := m.GetCertificate(&tls.ClientHelloInfo{
+			ServerName:       d,
+			CipherSuites:     []uint16{tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+			SignatureSchemes: []tls.SignatureScheme{tls.ECDSAWithP256AndSHA256},
+			SupportedCurves:  []tls.CurveID{tls.CurveP256},
+		})
+		if err != nil {
+			log.Printf("tifa: no certificate for %s yet, a connection after a minute asks again: %v", d, err)
+			continue
+		}
+		log.Printf("tifa: certificate for %s, valid until %s", d, cert.Leaf.NotAfter.UTC().Format(time.DateOnly))
+	}
 }
 
 // redirectToHTTPS answers the requests of server.http_addr with a permanent redirect to the
@@ -140,3 +198,6 @@ func certNames(leaf *x509.Certificate) string {
 	}
 	return leaf.Subject.CommonName
 }
+
+// testACMEClient, when set by a test, is the HTTP client that talks to the ACME server.
+var testACMEClient *http.Client
