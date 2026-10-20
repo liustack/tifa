@@ -847,27 +847,31 @@ func TestSSRSerializesArraysWithPlugins(t *testing.T) {
 		}
 	}
 
-	// A seroval whose parseObject the plugin does not know takes arrays as arrays, and the build
-	// says so.
-	changed := withChangedPackage(t, "seroval", filepath.Join("dist", "index.js"), func(source string) string {
-		const check = "\tif (Array.isArray(current)) return parseArray(ctx, depth, id, current);\n"
-		if strings.Count(source, check) != 1 {
-			t.Fatalf("seroval does not have %q once", check)
+	// A seroval with either first line in a form the plugin does not know keeps both, so it takes
+	// arrays as arrays in each of its ways of writing, and the build names the function.
+	for _, c := range []struct{ name, check, changed string }{
+		{"parseObject", "\tif (Array.isArray(current)) return parseArray(ctx, depth, id, current);\n", "\tif (Array.isArray(current)) { return parseArray(ctx, depth, id, current); }\n"},
+		{"parseObjectAsync", "\tif (Array.isArray(current)) return parseArray$1(ctx, depth, id, current);\n", "\tif (Array.isArray(current)) { return parseArray$1(ctx, depth, id, current); }\n"},
+	} {
+		changed := withChangedPackage(t, "seroval", filepath.Join("dist", "index.js"), func(source string) string {
+			if strings.Count(source, c.check) != 1 {
+				t.Fatalf("seroval does not have %q once", c.check)
+			}
+			return strings.Replace(source, c.check, c.changed, 1)
+		})
+		writeTree(t, changed, map[string]string{"arrays.ts": arraysPage})
+		code, printed = buildPrinting(t, changed, "arrays.ts")
+		if !strings.Contains(printed, "seroval 1.6.9: ") || !strings.Contains(printed, "has no "+c.name+" in the form") || !strings.Contains(printed, "takes an array as an array") {
+			t.Errorf("%s: the build prints:\n%s", c.name, printed)
 		}
-		return strings.Replace(source, check, "\tif (Array.isArray(current)) { return parseArray(ctx, depth, id, current); }\n", 1)
-	})
-	writeTree(t, changed, map[string]string{"arrays.ts": arraysPage})
-	code, printed = buildPrinting(t, changed, "arrays.ts")
-	if !strings.Contains(printed, "seroval 1.6.9: ") || !strings.Contains(printed, "takes an array as an array") {
-		t.Errorf("the build prints:\n%s", printed)
-	}
-	lines = strings.Split(evalResult(t, code), "\n")
-	for i, l := range lines {
-		if !strings.HasSuffix(l, " "+values[i/3]) {
-			t.Errorf("serialization %d does not give back %s: %s", i, values[i/3], l)
-		}
-		if i/3 == 0 && !strings.Contains(l, "{a:") {
-			t.Errorf("serialization %d of a seroval the plugin does not know writes the array as JSON text: %s", i, l)
+		lines = strings.Split(evalResult(t, code), "\n")
+		for i, l := range lines {
+			if !strings.HasSuffix(l, " "+values[i/3]) {
+				t.Errorf("%s: serialization %d does not give back %s: %s", c.name, i, values[i/3], l)
+			}
+			if i/3 == 0 && !strings.Contains(l, "{a:") {
+				t.Errorf("%s: serialization %d of a seroval the plugin does not know writes the array as JSON text: %s", c.name, i, l)
+			}
 		}
 	}
 }

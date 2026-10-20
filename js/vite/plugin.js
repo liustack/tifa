@@ -23,15 +23,17 @@ const serovalPackage = /^(.*[/\\]node_modules[/\\]seroval)[/\\]/
 // The length from which seroval escapes a string with JSON.stringify, when that gives the same.
 const serovalLength = 'const MIN_JSON_STRINGIFY_LENGTH = 64;'
 // seroval's parseObject and parseObjectAsync take an array as an array in their first line, and
-// ask the plugins further down. Each entry has that first line, the call of the plugins further
-// down, and the first line that asks the plugins first.
+// ask the plugins further down. Each entry has the name of the function, that first line, the
+// call of the plugins further down, and the first line that asks the plugins first.
 const serovalArrays = [
   [
+    'parseObject',
     '\tif (Array.isArray(current)) return parseArray(ctx, depth, id, current);\n',
     '\tconst parsed = parsePlugin(ctx, depth, id, current);\n',
     '\tif (Array.isArray(current)) return parsePlugin(ctx, depth, id, current) || parseArray(ctx, depth, id, current);\n',
   ],
   [
+    'parseObjectAsync',
     '\tif (Array.isArray(current)) return parseArray$1(ctx, depth, id, current);\n',
     '\tconst parsed = await parsePlugin$1(ctx, depth, id, current);\n',
     '\tif (Array.isArray(current)) return await parsePlugin$1(ctx, depth, id, current) || parseArray$1(ctx, depth, id, current);\n',
@@ -693,13 +695,13 @@ export function serovalPlugin() {
         // TanStack Router's and the one of RouteError, take errors and streams, which no array is,
         // so they write the same as before.
         const arrays = askPluginsForArrays(source)
-        if (arrays) {
-          source = arrays
+        if (arrays.missing.length === 0) {
+          source = arrays.source
         } else {
           this.warn(
-            `${name} has no parseObject and parseObjectAsync in the form the tifa plugin knows, so seroval takes ` +
-              'an array as an array before it asks its plugins. Pages render the same, but the data of a route ' +
-              'that is an array takes longer to write',
+            `${name} has no ${arrays.missing.join(' and no ')} in the form the tifa plugin knows, so the tifa ` +
+              'plugin changes neither, and seroval takes an array as an array before it asks its plugins. Pages ' +
+              'render the same, but the data of a route that is an array takes longer to write',
           )
         }
         return source
@@ -721,14 +723,17 @@ export function serovalPlugin() {
 }
 
 // askPluginsForArrays returns the source of seroval's main file with parseObject and
-// parseObjectAsync asking the plugins for an array before they take it as an array, or null when
-// the source does not have both in the form it knows. Each line stays where it was.
+// parseObjectAsync asking the plugins for an array before they take it as an array, and the names
+// of the functions the source does not have in the form it knows. The source is of use only when
+// none is missing, so that seroval does not write arrays one way at once and another way async.
+// Each line stays where it was.
 function askPluginsForArrays(source) {
-  for (const [check, plugins, first] of serovalArrays) {
-    if (source.split(check).length !== 2 || source.split(plugins).length !== 2) return null
-    source = source.replace(check, () => first)
+  const missing = []
+  for (const [fn, check, plugins, first] of serovalArrays) {
+    if (source.split(check).length !== 2 || source.split(plugins).length !== 2) missing.push(fn)
+    else source = source.replace(check, () => first)
   }
-  return source
+  return { source, missing }
 }
 
 // cacheEscapes returns the source of React's string renderer with a cache in front of
