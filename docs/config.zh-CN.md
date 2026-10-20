@@ -50,7 +50,7 @@ cache:
 | `build.public` | `public` | 只能写在项目文件 | 静态文件目录，原样打进程序，从 `/` 提供 |
 | `build.skip_tanstack_check` | `false` | 只能写在项目文件 | 设为 `true` 时，TanStack Router 不是 tifa 测过的版本也照样构建，页面在浏览器里可能白屏。见 [build.zh-CN.md](build.zh-CN.md#应用的-tsconfig-与-vite-配置) |
 | `build.pgo` | `auto` | 只能写在项目文件 | `go build` 用来优化程序的剖析。`auto` 取应用根目录的 `default.pgo`，没有的话，有页面的应用用 tifa 自带的页面渲染剖析。`off` 不用剖析。别的值是一个文件，相对应用根目录。`tifa dev` 从不用剖析。见 [build.zh-CN.md](build.zh-CN.md#按剖析优化) |
-| `server.addr` | `127.0.0.1:9527` | `--server-addr`、`TIFA_SERVER_ADDR` | 监听地址。容器里用 `0.0.0.0:9527`。开了 [HTTPS](#https) 时这里提供 HTTPS，一般是 `:443` |
+| `server.addr` | `127.0.0.1:9527` | `--server-addr`、`TIFA_SERVER_ADDR` | 监听地址。容器里用 `0.0.0.0:9527`。开了 [HTTPS](#https) 时这里提供 HTTPS，而且必须设置，一般设成 `:443` |
 | `server.body_limit` | `1MiB` | `--server-body-limit`、`TIFA_SERVER_BODY_LIMIT` | 请求体上限，超过答 413 |
 | `server.shutdown_timeout` | `10s` | `--server-shutdown-timeout`、`TIFA_SERVER_SHUTDOWN_TIMEOUT` | 收到退出信号后，先给在途请求的时间，再给 `OnShutdown` 的时间。到时仍在运行的请求会被取消，再给它们一个 `shutdown_timeout` 返回。都返回了就执行 `OnShutdown`，没返回就跳过它。两种情况程序都以状态码 1 退出 |
 | `server.compress` | `true` | `--server-compress`、`TIFA_SERVER_COMPRESS` | 对接受压缩的客户端用 gzip 或 zstd 发文本回答，浏览器包直接发 `tifa build` 写好的 gzip 文件，见[压缩](build.zh-CN.md#压缩)。前面有代理负责压缩时设为 `false`，比如用 brotli 的 nginx |
@@ -72,7 +72,7 @@ cache:
 
 HTTPS 默认关闭，程序照旧在 `server.addr` 上提供明文 HTTP。在 CDN 或负责 TLS 的代理（比如 Cloudflare、nginx、Caddy）后面就别开：它们已经用 HTTPS 和 HTTP/2 跟浏览器说话，程序的证书只有它们看得到。
 
-程序直接面对互联网时再开。这时浏览器也能用上 HTTP/2，浏览器只在 TLS 上说 HTTP/2：一个页面的所有文件共用一条连接，而 HTTP/1.1 下浏览器对一个主机最多开 6 条，见[预加载页面的 chunk](build.zh-CN.md#预加载页面的-chunk)。有两种方式，两种都配会报错。
+程序直接面对互联网时再开。这时浏览器也能用上 HTTP/2，浏览器只在 TLS 上说 HTTP/2：一个页面的所有文件共用一条连接，而 HTTP/1.1 下浏览器对一个主机最多开 6 条，见[预加载页面的 chunk](build.zh-CN.md#预加载页面的-chunk)。有两种方式，两种都配会报错。不管用哪种都要设 `server.addr`：开了 HTTPS 还用默认的 `127.0.0.1:9527` 时程序拒绝启动，因为只有本机连得到它。设成别的回环地址（比如 `127.0.0.1:8443`）能启动，日志里会有一行警告，方便在本机测试。
 
 ### 向 Let's Encrypt 申请证书
 
@@ -86,8 +86,8 @@ server:
 
 - 程序启动时为每个域名向 Let's Encrypt 申请证书，或者从 `tls_cache` 取出，并在日志里写明有效期到哪天。证书快到期时自己续期（提前 30 天，有效期更短的证书在剩三分之一寿命时），不用重启。配了 `tls_domains` 就表示同意这个 ACME 服务的条款，对 Let's Encrypt 来说是它的[订户协议](https://letsencrypt.org/repository/)。
 - DNS 要把每个域名指到这台机器，互联网要能连到它的 443 或 80 端口。Let's Encrypt 通过 443 端口上的 TLS（`server.addr`）或 80 端口上的明文 HTTP（`server.http_addr`）确认域名归你。程序先试前者，再试后者。
-- `tls_cache` 必须经得起重启和重新部署：容器里要给它挂卷。里面是账号密钥、证书和证书的私钥，只有程序的用户能读。没有它每次启动都会重新申请，而 Let's Encrypt 给同一组域名每周最多发 5 张：一周里第六次启动就拿不到证书了。
-- 不支持通配符（`*.example.com`）和 IP 地址，它们需要另一种验证方式。
+- `tls_cache` 必须经得起重启和重新部署：容器里要给它挂卷。里面是账号密钥、证书和证书的私钥。程序新建的目录权限是 0700，每个文件是 0600。已经存在的目录保持原来的权限，所以要让它只归程序的用户。没有它每次启动都会重新申请，而 Let's Encrypt 给同一组域名每周最多发 5 张：一周里第六次启动就拿不到证书了。
+- 不支持通配符（`*.example.com`）和 IP 地址，它们需要另一种验证方式。域名按小写的 ASCII 形式保存，`bücher.example` 会变成 `xn--bcher-kva.example`，末尾的点会去掉。不是合法主机名的名字会报错，比如 `a_b.example.com` 或 `-x.example.com`。
 - 不在 `tls_domains` 里的名字拿不到证书：它的 TLS 握手失败，也不会去问 Let's Encrypt。
 - 申请失败时（比如 DNS 指到了别处），日志会写明原因，一分钟后的连接会再试。Let's Encrypt 允许每个名字每小时验证失败 5 次。
 - 想先试试又不想碰这些限额，把 `tls_ca` 设成 Let's Encrypt 的测试服务 `https://acme-staging-v02.api.letsencrypt.org/directory`。浏览器不信任它发的证书。切回来时清空 `tls_cache`。
@@ -107,7 +107,7 @@ server:
 
 ### 80 端口与 HSTS
 
-- 开了 HTTPS 时，`server.http_addr`（默认 `:80`）提供明文 HTTP。它回应 Let's Encrypt 的验证，其余请求都用 308 跳转到同一个网址的 HTTPS 版本，308 保留请求方法。跳转的网址不带端口，所以 `server.addr` 监听在别的端口、由 443 映射过去时，也会跳到 443。设成 `off` 就不开：配了 `tls_domains` 时，Let's Encrypt 就只能通过 443 端口上的 TLS 验证了。
+- 开了 HTTPS 时，`server.http_addr`（默认 `:80`）提供明文 HTTP。它回应 Let's Encrypt 的验证，其余请求都用 308 跳转到同一个网址的 HTTPS 版本，308 保留请求方法。它只跳转 HTTPS 有证书的名字：`tls_domains` 里的名字，或者你自己的证书（最近一次加载的）里的名字。别的主机名，比如直接用机器的 IP 访问，回 421。跳转的网址不带端口，所以 `server.addr` 监听在别的端口、由 443 映射过去时，也会跳到 443。设成 `off` 就不开：配了 `tls_domains` 时，Let's Encrypt 就只能通过 443 端口上的 TLS 验证了。
 - `server.hsts: true` 给 `server.addr` 的每个回答加上 `Strict-Transport-Security: max-age=31536000`。见过它的浏览器一年内只走 HTTPS，链接写的是 `http://` 也一样，之后再关掉也影响不到这个浏览器。等 HTTPS 确认能用了再开。它不带 `includeSubDomains` 和 `preload`。浏览器在明文 HTTP 上不理这个头，所以跳转不带它。在负责 TLS 的代理后面也能开，代理会把它传下去。
 
 ### 1024 以下的端口
@@ -158,7 +158,7 @@ sudo setcap cap_net_bind_service=+ep ./bin/myapp
 - `ssr.vms` 是不小于 1 的整数。
 - `ssr.vm_stack_depth` 是 1 到 10000 的整数。再深的话，无限递归的代码会让 goroutine 栈超过 Go 的上限，整个进程直接退出。
 - `build.skip_tanstack_check`、`server.compress` 和 `server.hsts` 是 `true` 或 `false`，不加引号。参数要用 `=` 带值：`--server-compress=false`。
-- `server.tls_domains` 是逗号分隔的主机名，不带协议、端口和路径，每个都要有点号。`server.tls_ca` 是 `https` 网址。`server.http_addr` 是地址或 `off`。
+- `server.tls_domains` 是逗号分隔的主机名，不带协议、端口和路径，每个都要有点号。`server.tls_ca` 是 `https` 网址。`server.http_addr` 是带端口的地址，比如 `:80` 或 `0.0.0.0:80`，或者小写的 `off`。像开关的词，比如 `OFF`、`false`、`none`，会报错并告诉你该写什么。
 - `server.tls_domains`、`server.tls_email`、`server.tls_cache`、`server.tls_cert` 和 `server.tls_key` 可以为空，表示关掉低优先级来源设的值：项目文件要 Let's Encrypt 时，用 `TIFA_SERVER_TLS_DOMAINS=` 加 `--server-tls-cert` 就能改用自己的证书。
 - `build.pgo` 是 `auto`、`off` 或一个相对应用根目录的路径。YAML 把不加引号的 `off` 读成文本，所以不用加引号。像开关的词，比如 `false`、`OFF`、`yes`，会报错并告诉你该写什么，写绝对路径也一样。
 
@@ -172,6 +172,7 @@ sudo setcap cap_net_bind_service=+ep ./bin/myapp
 
 下面几种情况程序也拒绝启动，在 `OnStart` 之前停下，并指出是哪几项配置：
 
+- 开了 HTTPS，`server.addr` 却还是默认值。
 - 各来源合并后 HTTPS 配置互相矛盾：`tls_domains` 和 `tls_cert` 同时配了，只配了 `tls_cert` 和 `tls_key` 中的一个，配了 `tls_domains` 没配 `tls_cache`，或者没配 `tls_domains` 却配了 `tls_email` 或 `tls_cache`。项目文件可以不写部署时才补上的项，所以 `tifa build` 不查这一条。
 - `tls_cert` 和 `tls_key` 的文件加载不了，或者 `tls_cache` 建不出来。
 
