@@ -89,9 +89,17 @@ func SavedAddresses(l store.Locale) []Address {
 	}
 }
 
-// maxNotes is the most characters the notes take, counted in code points, as the page counts
-// them and as checkout-schema.ts checks them.
-const maxNotes = 200
+// The most characters (code points) each text field of an order takes, counted after the
+// spaces the page trims, as limits in checkout-schema.ts. A limit on every field the order
+// keeps stops requests from filling the memory with long text.
+const (
+	maxEmail      = 254 // the longest address mail delivers to
+	maxName       = 100
+	maxPlace      = 100 // region and city
+	maxLine       = 200 // the two address lines
+	maxPostalCode = 20
+	maxNotes      = 200
+)
 
 var (
 	// emailPattern takes a plain address with a dot in its domain, such as lin@example.com, and
@@ -113,14 +121,29 @@ var (
 // keys checkout-schema.ts uses.
 func (o Order) Validate() error {
 	f := tifa.Fields{}
-	if !emailPattern.MatchString(o.Email) {
+	if utf8.RuneCountInString(o.Email) > maxEmail || !emailPattern.MatchString(o.Email) {
 		f["email"] = "email"
 	}
 	a := o.Address
-	for name, v := range map[string]string{"address.name": a.Name, "address.region": a.Region, "address.city": a.City, "address.line1": a.Line1} {
-		if strings.TrimSpace(v) == "" {
-			f[name] = "required"
+	for _, field := range []struct {
+		name  string
+		value string
+		max   int
+	}{
+		{"address.name", a.Name, maxName},
+		{"address.region", a.Region, maxPlace},
+		{"address.city", a.City, maxPlace},
+		{"address.line1", a.Line1, maxLine},
+	} {
+		if v := strings.TrimSpace(field.value); v == "" {
+			f[field.name] = "required"
+		} else if utf8.RuneCountInString(v) > field.max {
+			f[field.name] = "tooLong"
 		}
+	}
+	// The page does not trim the second line, which may be empty.
+	if utf8.RuneCountInString(a.Line2) > maxLine {
+		f["address.line2"] = "tooLong"
 	}
 	if !phonePattern.MatchString(strings.TrimSpace(a.Phone)) {
 		f["address.phone"] = "phone"
@@ -128,9 +151,12 @@ func (o Order) Validate() error {
 	if !slices.ContainsFunc(countries, func(c countryRecord) bool { return c.code == a.Country }) {
 		f["address.country"] = "required"
 	}
-	if p, ok := postalPattern[a.Country]; ok && !p.MatchString(strings.TrimSpace(a.PostalCode)) {
+	postal := strings.TrimSpace(a.PostalCode)
+	if p, ok := postalPattern[a.Country]; utf8.RuneCountInString(postal) > maxPostalCode {
+		f["address.postalCode"] = "tooLong"
+	} else if ok && !p.MatchString(postal) {
 		f["address.postalCode"] = "postalCode"
-	} else if !ok && strings.TrimSpace(a.PostalCode) == "" {
+	} else if !ok && postal == "" {
 		f["address.postalCode"] = "required"
 	}
 	if !slices.ContainsFunc(deliveries, func(d deliveryRecord) bool { return d.id == o.Delivery }) {

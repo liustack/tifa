@@ -10,27 +10,38 @@ const postalCodes: Record<string, RegExp> = {
   CA: /^[A-Za-z][0-9][A-Za-z] ?[0-9][A-Za-z][0-9]$/,
 }
 
+// The most characters (code points) each text field takes, counted after the spaces a field
+// trims, the same numbers as Validate in Go.
+export const limits = { email: 254, name: 100, region: 100, city: 100, line1: 200, line2: 200, postalCode: 20, notes: 200 }
+
+// atMost checks a length in characters (code points), as Go and the page's counter count it.
+// z.string().max() would count UTF-16 code units, which makes an emoji count twice.
+const atMost = (n: number) => (s: string) => [...s].length <= n
+
 const required = z.string().trim().min(1, 'required')
 
 export const addressSchema = z
   .object({
-    name: required,
+    name: required.refine(atMost(limits.name), 'tooLong'),
     phone: z
       .string()
       .trim()
       .regex(/^\+?[0-9 ()-]{7,20}$/, 'phone'),
     country: required,
-    region: required,
-    city: required,
-    line1: required,
-    line2: z.string(),
+    region: required.refine(atMost(limits.region), 'tooLong'),
+    city: required.refine(atMost(limits.city), 'tooLong'),
+    line1: required.refine(atMost(limits.line1), 'tooLong'),
+    line2: z.string().refine(atMost(limits.line2), 'tooLong'),
     postalCode: z.string().trim(),
   })
   .superRefine((a, ctx) => {
     const pattern = postalCodes[a.country]
-    if (pattern ? !pattern.test(a.postalCode) : a.postalCode === '') {
-      ctx.addIssue({ code: 'custom', path: ['postalCode'], message: pattern ? 'postalCode' : 'required' })
-    }
+    const message = !atMost(limits.postalCode)(a.postalCode)
+      ? 'tooLong'
+      : pattern
+        ? !pattern.test(a.postalCode) && 'postalCode'
+        : a.postalCode === '' && 'required'
+    if (message) ctx.addIssue({ code: 'custom', path: ['postalCode'], message })
   })
 
 // luhn reports whether a card number, with spaces, passes the Luhn check and has 13 to 19 digits.
@@ -50,12 +61,11 @@ export function luhn(number: string) {
 }
 
 // email takes a plain address with a dot in its domain, with the pattern of emailPattern in Go.
-// z.email() would differ from it.
-const email = z.string().regex(/^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/, 'email')
+// z.email() would differ from it. An address the pattern takes is ASCII, so max() counts it as
+// Go does.
+const email = z.string().max(limits.email, 'email').regex(/^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/, 'email')
 
-// notes counts characters (code points), as the page's counter and Go do. z.string().max()
-// would count UTF-16 code units, which makes an emoji count twice.
-const notes = z.string().refine((s) => [...s].length <= 200, 'tooLong')
+const notes = z.string().refine(atMost(limits.notes), 'tooLong')
 
 // oneOf takes one of a few strings. It stays a string type, as in the Go input.
 const oneOf = (values: string[]) => z.string().refine((v) => values.includes(v), 'required')

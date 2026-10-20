@@ -131,6 +131,15 @@ func TestOrdersAreCheckedFieldByField(t *testing.T) {
 		{func(o *Order) { o.Email = "Lin <lin@example.com>" }, "email", "email"},
 		{func(o *Order) { o.Email = "a.b@localhost" }, "email", "email"},
 		{func(o *Order) { o.Email = " lin@example.com" }, "email", "email"},
+		// Every text field that an order keeps has a limit, so requests cannot fill the memory.
+		{func(o *Order) { o.Email = strings.Repeat("a", 243) + "@example.com" }, "email", "email"},
+		{func(o *Order) { o.Address.Name = strings.Repeat("林", 101) }, "address.name", "tooLong"},
+		{func(o *Order) { o.Address.Region = strings.Repeat("省", 101) }, "address.region", "tooLong"},
+		{func(o *Order) { o.Address.City = strings.Repeat("市", 101) }, "address.city", "tooLong"},
+		{func(o *Order) { o.Address.Line1 = strings.Repeat("路", 201) }, "address.line1", "tooLong"},
+		{func(o *Order) { o.Address.Line2 = strings.Repeat("号", 201) }, "address.line2", "tooLong"},
+		{func(o *Order) { o.Address.PostalCode = strings.Repeat("2", 21) }, "address.postalCode", "tooLong"},
+		{func(o *Order) { o.Address.Country, o.Address.PostalCode = "SG", strings.Repeat("2", 21) }, "address.postalCode", "tooLong"},
 		{func(o *Order) { o.Address.Name = " " }, "address.name", "required"},
 		{func(o *Order) { o.Address.Phone = "12" }, "address.phone", "phone"},
 		{func(o *Order) { o.Address.PostalCode = "2000" }, "address.postalCode", "postalCode"},
@@ -157,6 +166,16 @@ func TestOrdersAreCheckedFieldByField(t *testing.T) {
 	o.Email, o.Notes = "lin.xia+shop@mail.example.cn", strings.Repeat("🍵", 200)
 	if err := o.Validate(); err != nil {
 		t.Errorf("a plain address and 200 emoji: %v", err)
+	}
+	// Each limit takes its full length, in characters, after the spaces the page trims.
+	o = goodOrder()
+	o.Email = strings.Repeat("a", 242) + "@example.com"
+	o.Address.Name = " " + strings.Repeat("🍵", 100) + " "
+	o.Address.Region, o.Address.City = strings.Repeat("省", 100), strings.Repeat("市", 100)
+	o.Address.Line1, o.Address.Line2 = strings.Repeat("路", 200), strings.Repeat("号", 200)
+	o.Address.Country, o.Address.PostalCode = "SG", strings.Repeat("2", 20)
+	if err := o.Validate(); err != nil {
+		t.Errorf("every field at its limit: %v", err)
 	}
 	// Card fields count only when paying by card.
 	o = goodOrder()
@@ -369,17 +388,19 @@ func TestAQuantityStaysWithinTheStock(t *testing.T) {
 	}
 }
 
-// The browser checks the order with checkout-schema.ts before sending it. Its email pattern
-// and its count of the notes must be the ones Validate uses, or Go refuses what the page let
-// through.
-func TestTheBrowserChecksEmailsAndNotesAsGoDoes(t *testing.T) {
+// The browser checks the order with checkout-schema.ts before sending it. Its email rule, its
+// limits and the way it counts characters must be the ones Validate uses, or Go refuses what
+// the page let through.
+func TestTheBrowserChecksEmailsAndLengthsAsGoDoes(t *testing.T) {
 	schema, err := os.ReadFile("../checkout/checkout-schema.ts")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"/" + emailPattern.String() + "/",
-		fmt.Sprintf("[...s].length <= %d", maxNotes),
+		fmt.Sprintf("export const limits = { email: %d, name: %d, region: %d, city: %d, line1: %d, line2: %d, postalCode: %d, notes: %d }\n",
+			maxEmail, maxName, maxPlace, maxPlace, maxLine, maxLine, maxPostalCode, maxNotes),
+		"const email = z.string().max(limits.email, 'email').regex(/" + emailPattern.String() + "/, 'email')\n",
+		"const atMost = (n: number) => (s: string) => [...s].length <= n\n",
 	} {
 		if !strings.Contains(string(schema), want) {
 			t.Errorf("checkout-schema.ts lacks %s", want)

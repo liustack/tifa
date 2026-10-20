@@ -234,7 +234,7 @@
     "expiry": "Use MM/YY, such as 08/29",
     "cvc": "The security code has 3 or 4 digits",
     "terms": "Please agree to the terms of sale",
-    "tooLong": "200 characters at most",
+    "tooLong": "This is too long",
     "quantity": "Pick between 1 and 10",
     "stock": "Not that many left in stock",
     "lineGone": "This item is no longer in your cart. Please reload the page",

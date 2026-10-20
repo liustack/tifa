@@ -433,6 +433,11 @@ func checkStorefrontKeepsCustomersApart(t *testing.T, base string) {
 	if _, _, page := emma.do("GET", placed, ""); !strings.Contains(rendered(page), want+" in all") || !strings.Contains(rendered(page), "emma@example.com") {
 		t.Errorf("confirmation lacks %s in all:\n%s", want, rendered(page))
 	}
+	// The order keeps the email address, so a long one is refused rather than kept.
+	long := strings.Repeat("a", 243) + "@example.com"
+	if status, _, body := emma.do("POST", "/store/en-US/checkout", `{"email":"`+long+`","address":{"name":"Emma Walker","phone":"+1 415 555 0134","country":"US","region":"CA","city":"San Francisco","line1":"1 Market Street","line2":"","postalCode":"94105"},"delivery":"express","payment":"alipay","cardNumber":"","cardExpiry":"","cardCvc":"","billingSame":true,"notes":"","newsletter":false,"terms":true}`); status != 422 || !strings.Contains(body, `"email":"email"`) {
+		t.Errorf("an email address of 255 characters: %d %s", status, body)
+	}
 	// Only the cart that placed the order sees it. Its email address is on the page.
 	for _, other := range []*shopper{lin, newShopper(t, base)} {
 		if status, _, page := other.do("GET", placed, ""); status != 404 || strings.Contains(page, "emma@example.com") {
