@@ -65,9 +65,16 @@ func TestBuildChecksReactOfAppsWithPages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"react", "react-dom", "@types/react", "@types/react-dom"} {
+	for _, name := range []string{"react", "react-dom"} {
 		if want := `"` + name + `": "` + bundle.MinReact + `"`; !strings.Contains(string(pkg), want) {
 			t.Errorf("tifa new does not write %s", want)
+		}
+	}
+	// The types follow the minor version of React, not its patches.
+	minor := bundle.MinReact[:strings.LastIndex(bundle.MinReact, ".")]
+	for _, name := range []string{"@types/react", "@types/react-dom"} {
+		if want := `"` + name + `": "` + minor + `.`; !strings.Contains(string(pkg), want) {
+			t.Errorf("tifa new does not write %s of React %s", name, minor)
 		}
 	}
 }

@@ -15,7 +15,7 @@ func flatReact(t *testing.T, react, dom string) string {
 }
 
 func TestCheckReactPassesFromTheMinimumVersion(t *testing.T) {
-	for _, version := range []string{MinReact, "19.3.1", "19.4.0", "20.0.0"} {
+	for _, version := range []string{MinReact, "19.3.1", "19.3.0+build.1", "19.4.0", "20.0.0"} {
 		if err := CheckReact(flatReact(t, version, version)); err != nil {
 			t.Errorf("%s: %v", version, err)
 		}
@@ -27,6 +27,7 @@ func TestCheckReactFailsBelowTheMinimumVersion(t *testing.T) {
 		{"19.2.4", "19.3.0", "react 19.2.4"},
 		{"19.3.0", "19.2.7", "react-dom 19.2.7"},
 		{"18.3.1", "18.3.1", "react 18.3.1"},
+		{"19.3.0-rc.1+b-1", "19.3.0", "react 19.3.0-rc.1+b-1"},
 		{"19.3.0-canary-278794d7-20261002", "19.3.0", "react 19.3.0-canary-278794d7-20261002"},
 	} {
 		err := CheckReact(flatReact(t, c.react, c.dom))

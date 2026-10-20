@@ -30,16 +30,18 @@ func CheckReact(root string) error {
 			return fmt.Errorf("%s version %q: %w", name, version, err)
 		}
 		if old {
-			return fmt.Errorf(`the app installs %s %s, and tifa needs react and react-dom %s or later.
+			return fmt.Errorf(`the app installs %s %s, and tifa needs react and react-dom %s or later, where a prerelease of %s counts as older.
+The Vite plugin rewrites the string renderer of React DOM as 19.3 writes it.
 Write "react": "%s" and "react-dom": "%s" in package.json and install again`,
-				name, version, MinReact, MinReact, MinReact)
+				name, version, MinReact, MinReact, MinReact, MinReact)
 		}
 	}
 	return nil
 }
 
 // olderThan reports whether the version is older than min, both of the form major.minor.patch.
-// A prerelease of a version, such as 19.3.0-canary-278794d7-20261002, is older than it.
+// A prerelease of a version, such as 19.3.0-canary-278794d7-20261002, is older than it, and build
+// metadata after a + does not count.
 func olderThan(version, min string) (bool, error) {
 	v, pre, err := parseVersion(version)
 	if err != nil {
@@ -59,6 +61,7 @@ func olderThan(version, min string) (bool, error) {
 
 func parseVersion(version string) ([3]int, bool, error) {
 	var v [3]int
+	version, _, _ = strings.Cut(version, "+")
 	core, _, pre := strings.Cut(version, "-")
 	parts := strings.Split(core, ".")
 	if len(parts) != 3 {
