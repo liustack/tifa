@@ -321,6 +321,14 @@ func checkStorefront(t *testing.T, base string) {
 	if _, _, page := do("GET", "/store/zh-CN/cart", ""); !strings.Contains(rendered(page), "购物车是空的") {
 		t.Errorf("cart after the order:\n%s", rendered(page))
 	}
+	// A small cart pays for delivery: the summary gives the cheapest delivery with a price, not
+	// the free pickup in store.
+	if status, _, _ := do("POST", "/store/zh-CN/products/ceramic-cup", `{"color":"moss","size":"","quantity":1}`); status != 200 {
+		t.Errorf("add a cup to the empty cart: %d", status)
+	}
+	if _, _, page := do("GET", "/store/zh-CN/cart", ""); !strings.Contains(rendered(page), "最低 ¥15.00") {
+		t.Errorf("delivery of a small cart:\n%s", rendered(page))
+	}
 }
 
 // send makes a request with a JSON body from origin, or with no Origin when it is empty, and

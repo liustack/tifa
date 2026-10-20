@@ -31,7 +31,8 @@ export default function CartPage() {
   const lang = locale.code
   const lines = cart.lines ?? []
   const net = cart.subtotalCents - cart.discountCents
-  const cheapest = Math.min(...(deliveries ?? []).map((d) => d.priceCents))
+  // The cheapest delivery to an address. Picking up in store is free, but it is no delivery.
+  const cheapest = Math.min(...(deliveries ?? []).filter((d) => d.id !== 'pickup').map((d) => d.priceCents))
   const standard = (deliveries ?? []).find((d) => d.id === 'standard')
   const left = cart.freeShippingCents - net
 
