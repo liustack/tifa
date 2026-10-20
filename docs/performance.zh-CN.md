@@ -21,7 +21,7 @@ tifa 在 QuickJS 里渲染页面。QuickJS 是用 C 写的 JavaScript 解释器�
 
 - 机器：Google Cloud 上一台 8 vCPU 的虚机，AMD EPYC 7B13（Zen 3），Linux。8 个 vCPU 是 4 个物理核，每核 2 个超线程：cpu `n` 和 cpu `n+4` 共用一个核。
 - 软件：Go 1.27，quickjs v0.26.15，tifa 790b746，构建不带 PGO。`tifa build` 默认开 PGO，它让 linux/amd64 上的渲染再快约 2.4%（见[构建](#构建)）。用旧版本测的小节会注明。
-- 应用：[examples/shop](../examples/shop/README.zh-CN.md) 的生产构建，React 19.3 和 TanStack Router，加 Tailwind CSS 和 shadcn/ui。六个页面：两家店各自的订单列表、一个订单、统计。在加店面（`app/store`）之前的 shop 上测。加了店面后 SSR 包从 773 KB 涨到 1,288 KB，所以跟包有关的数字，也就是程序启动和每个 VM 的内存，这里比现在的 shop 低。六个页面的 HTML 不变。
+- 应用：[examples/shop](../examples/shop/README.zh-CN.md) 的生产构建，React 19.3 和 TanStack Router，加 Tailwind CSS 和 shadcn/ui。六个页面：两家店各自的订单列表、一个订单、统计。在加店面（`app/store`）之前的 shop 上测。加了店面后 SSR 包从 772 KB 涨到 1,288 KB，所以跟包有关的数字，也就是程序启动和每个 VM 的内存，这里比现在的 shop 低。六个页面的 HTML 不变。
 - 单次渲染：`test/ssr` 的 `BenchmarkShop`，一个热 VM 钉在一个核上，取多次渲染的中位数（P50）。
 - 完整请求：构建出的 `bin/shop` 加 `--cache-size 0`，让每个页面请求都渲染，用 [oha](https://github.com/hatoo/oha) 压测，核够用时 oha 和服务钉在不同的核上。oha 用它默认的 `Accept-Encoding: gzip, compress, deflate, br` 请求，所以 [`server.compress`](config.zh-CN.md#配置项) 开着时页面以 gzip 发出，除非某节写明请求要的是 identity。压页面时 oha 只占一个 CPU 的 1% 到 2%。每一档先热几秒，再测 10 到 20 秒。
 
@@ -117,7 +117,7 @@ shop 另外照着写了 Next.js 16.4.2 版（App Router，每个路由都是动�
 
 ### 内存
 
-在加店面之前的 shop 上测，SSR 包是 773 KB，不是 1,288 KB。
+在加店面之前的 shop 上测，SSR 包是 772 KB，不是 1,288 KB。
 
 渲染六个页面时整个程序的 RSS 峰值（内核记的最高值），每个 CPU 一个 VM，在途请求数等于 VM 数，页面以 gzip 发出：
 

@@ -21,7 +21,7 @@ Unless a section says otherwise:
 
 - Machine: a Google Cloud VM with 8 vCPUs of an AMD EPYC 7B13 (Zen 3), Linux. The 8 vCPUs are 4 physical cores with 2 hyperthreads each: cpu `n` and cpu `n+4` share a core.
 - Software: Go 1.27, quickjs v0.26.15, tifa 790b746, built without PGO. PGO, which `tifa build` turns on by default, makes renders about 2.4% faster on linux/amd64 (see [Build](#build)). A section measured with an older version says so.
-- App: the production build of [examples/shop](../examples/shop), React 19.3 and TanStack Router, with Tailwind CSS and shadcn/ui. Six pages: the order list, an order and the stats of each of its two shops. Measured on the shop before the storefront (`app/store`) was added. The storefront makes the SSR bundle grow from 773 KB to 1,288 KB, so the numbers that depend on the bundle, the start of the program and the memory of a VM, are lower here than the shop gives now. The HTML of the six pages stays the same.
+- App: the production build of [examples/shop](../examples/shop), React 19.3 and TanStack Router, with Tailwind CSS and shadcn/ui. Six pages: the order list, an order and the stats of each of its two shops. Measured on the shop before the storefront (`app/store`) was added. The storefront makes the SSR bundle grow from 772 KB to 1,288 KB, so the numbers that depend on the bundle, the start of the program and the memory of a VM, are lower here than the shop gives now. The HTML of the six pages stays the same.
 - Single renders: `BenchmarkShop` in `test/ssr`, one warm VM pinned to one core, the median (P50) of many renders.
 - Whole requests: the built `bin/shop` with `--cache-size 0`, so every page request renders, loaded with [oha](https://github.com/hatoo/oha) pinned apart from the service where the cores allow. oha asks with its default `Accept-Encoding: gzip, compress, deflate, br`, so with [`server.compress`](config.md#settings) on the pages go out as gzip, unless a section says the requests asked for identity. For page requests oha uses 1% to 2% of a CPU. Each step warms up for a few seconds and then runs for 10 to 20 seconds.
 
@@ -117,7 +117,7 @@ A large part of their cost is the app's, not tifa's. For navigation data and cac
 
 ### Memory
 
-Measured on the shop before the storefront was added, with an SSR bundle of 773 KB instead of 1,288 KB.
+Measured on the shop before the storefront was added, with an SSR bundle of 772 KB instead of 1,288 KB.
 
 Peak RSS (the high-water mark the kernel reports) of the whole program while it renders the six pages, one VM per CPU, with as many requests in flight as VMs, the pages sent as gzip:
 
