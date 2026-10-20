@@ -310,6 +310,7 @@ func (ca *fakeACME) validate(a *fakeAuthz) error {
 // autoConfig asks the fake server for the certificate of testDomain, kept in cache.
 func autoConfig(ca *fakeACME, cache string) config.Config {
 	cfg := config.Default()
+	cfg.Server.Addr = "127.0.0.1:0"
 	cfg.Server.TLSDomains = []string{testDomain}
 	cfg.Server.TLSCache = cache
 	cfg.Server.TLSCA = ca.url("/directory")
@@ -454,6 +455,7 @@ func TestTLSCacheThatCannotBeCreatedFails(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "file")
 	writeFile(t, file, nil)
 	cfg := config.Default()
+	cfg.Server.Addr = "127.0.0.1:0"
 	cfg.Server.TLSDomains, cfg.Server.TLSCache = []string{testDomain}, filepath.Join(file, "certs")
 	_, _, _, err := New(cfg, Hooks{}).https()
 	if err == nil || !strings.Contains(err.Error(), "server.tls_cache") {

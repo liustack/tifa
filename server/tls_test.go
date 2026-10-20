@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math/big"
 	"net"
 	"net/http"
@@ -155,6 +156,7 @@ func certConfig(t *testing.T) (cfg config.Config, certPath, keyPath string, cert
 	writeFile(t, certPath, certPEM)
 	writeFile(t, keyPath, keyPEM)
 	cfg = config.Default()
+	cfg.Server.Addr = "127.0.0.1:0" // HTTPS refuses the default address
 	cfg.Server.TLSCert, cfg.Server.TLSKey = certPath, keyPath
 	return cfg, certPath, keyPath, certPEM, serial
 }
@@ -293,6 +295,30 @@ func TestPlainHTTPRedirectsToHTTPS(t *testing.T) {
 		}
 	}
 }
+
+// HTTPS on a loopback address set by hand starts, since it may be a test on this machine, but
+// the log says nobody else reaches it.
+func TestHTTPSOnTheLoopbackWarns(t *testing.T) {
+	cfg, _, _, _, _ := certConfig(t)
+	cfg.Server.Addr, cfg.Server.HTTPAddr = freeAddr(t), "off"
+	var out strings.Builder
+	var mu sync.Mutex
+	log.SetOutput(writerFunc(func(b []byte) (int, error) { mu.Lock(); defer mu.Unlock(); return out.Write(b) }))
+	defer log.SetOutput(os.Stderr)
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := New(cfg, Hooks{OnStart: func() error { cancel(); return nil }}).Run(ctx); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !strings.Contains(out.String(), "loopback") || !strings.Contains(out.String(), "server.addr") {
+		t.Fatalf("log:\n%s", out.String())
+	}
+}
+
+type writerFunc func([]byte) (int, error)
+
+func (f writerFunc) Write(b []byte) (int, error) { return f(b) }
 
 // server.hsts adds Strict-Transport-Security to every answer of server.addr, the 404 of an
 // unknown URL included. Off, the default, it adds nothing.

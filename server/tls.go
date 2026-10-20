@@ -93,6 +93,14 @@ func obtain(m *autocert.Manager, domains []string) {
 	}
 }
 
+// warnLoopback logs when HTTPS listens on a loopback address, which only this machine
+// reaches. It starts anyway, since that may be a test on this machine.
+func warnLoopback(addr net.Addr) {
+	if a, ok := addr.(*net.TCPAddr); ok && a.IP.IsLoopback() {
+		log.Printf("tifa: HTTPS listens on the loopback address %s, which no other machine reaches, Let's Encrypt included: set server.addr to the address browsers connect to, usually :443", addr)
+	}
+}
+
 // listenError names the setting of an address that could not be listened on, and says what to
 // do when the port is one only root may take, as 80 and 443 are on Linux.
 func listenError(setting string, err error) error {

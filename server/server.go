@@ -450,6 +450,9 @@ func (s *Server) Run(ctx context.Context) error {
 			scheme = "https"
 		}
 		log.Printf("tifa: listening on %s://%s", scheme, ln.Addr())
+		if tlsConfig != nil {
+			warnLoopback(ln.Addr())
+		}
 		if plainLn != nil {
 			log.Printf("tifa: listening on http://%s, which redirects to HTTPS", plainLn.Addr())
 		}

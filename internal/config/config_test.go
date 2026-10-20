@@ -400,7 +400,7 @@ func TestHTTPSIsOffByDefault(t *testing.T) {
 
 func TestHTTPSSettingsComeFromEveryLayer(t *testing.T) {
 	c, err := load(t, nil, []string{"TIFA_SERVER_TLS_DOMAINS=example.com, www.Example.com"}, "tifa.yaml",
-		"server:\n  tls_cache: /var/lib/app/certs\n  tls_email: ops@example.com\n  http_addr: off\n  hsts: true\n")
+		"server:\n  addr: :443\n  tls_cache: /var/lib/app/certs\n  tls_email: ops@example.com\n  http_addr: off\n  hsts: true\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,13 +412,13 @@ func TestHTTPSSettingsComeFromEveryLayer(t *testing.T) {
 	if err := s.CheckHTTPS(); err != nil {
 		t.Fatal(err)
 	}
-	c, err = load(t, []string{"--server-tls-cert", "cert.pem", "--server-tls-key", "key.pem"}, nil, "", "")
+	c, err = load(t, []string{"--server-addr", ":443", "--server-tls-cert", "cert.pem", "--server-tls-key", "key.pem"}, nil, "", "")
 	if err != nil || c.Server.TLSCert != "cert.pem" || c.Server.TLSKey != "key.pem" || !c.Server.HTTPS() || c.Server.CheckHTTPS() != nil {
 		t.Fatalf("own files: %+v, %v", c.Server, err)
 	}
 	// An empty value from a higher layer turns off what a lower one set, so a deployment can
 	// use its own files where the project file asks for Let's Encrypt.
-	c, err = load(t, []string{"--server-tls-cert", "cert.pem", "--server-tls-key", "key.pem"},
+	c, err = load(t, []string{"--server-addr", ":443", "--server-tls-cert", "cert.pem", "--server-tls-key", "key.pem"},
 		[]string{"TIFA_SERVER_TLS_DOMAINS=", "TIFA_SERVER_TLS_CACHE="}, "tifa.yaml", "server:\n  tls_domains: example.com\n  tls_cache: certs\n")
 	if err != nil || c.Server.TLSDomains != nil || c.Server.CheckHTTPS() != nil {
 		t.Fatalf("unset domains: %+v, %v", c.Server, err)
@@ -529,5 +529,22 @@ func TestHTTPAddrIsAnAddressOrOff(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "server.http_addr") || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%q: %v", tc.value, err)
 		}
+	}
+}
+
+// With HTTPS on, server.addr must be set: the default only listens on the loopback, where no
+// browser and no Let's Encrypt reaches it. An address set by hand, loopback or not, is kept.
+func TestHTTPSNeedsServerAddr(t *testing.T) {
+	c, err := load(t, nil, []string{"TIFA_SERVER_TLS_CERT=c.pem", "TIFA_SERVER_TLS_KEY=k.pem"}, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = c.Server.CheckHTTPS()
+	if err == nil || !strings.Contains(err.Error(), "server.addr") || !strings.Contains(err.Error(), ":443") {
+		t.Fatalf("default addr: %v", err)
+	}
+	c.Server.Addr = "127.0.0.1:8443"
+	if err := c.Server.CheckHTTPS(); err != nil {
+		t.Fatalf("loopback set by hand: %v", err)
 	}
 }
