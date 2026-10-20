@@ -1,0 +1,4 @@
+{
+  "extends": "./.tifa/tsconfig.json",
+  "include": ["**/*", ".tifa/**/*"]
+}
