@@ -484,6 +484,9 @@ func TestPagesApp(t *testing.T) {
 	if first.Get("X-Tifa-Render") != "vm" || second.Get("X-Tifa-Render") != "cache" {
 		t.Errorf("Cache = true: %s then %s", first.Get("X-Tifa-Render"), second.Get("X-Tifa-Render"))
 	}
+	// Requests that miss the cache at the same time share one render. Those that come after it
+	// find the cache.
+	checkBurst(t, base+"/shops/south?sort=desc", 20)
 	// A navigation asks for the listed routes and gets their results by route ID.
 	status, header, body = get(t, base+"/shops/north/items/apple", "X-Tifa-Route", "app/shops/shop+/layout,app/shops/shop+/items/item+/route", "X-Tifa-Build", built.BuildID)
 	if status != 200 || !slices.Contains(header.Values("Vary"), "X-Tifa-Route") || body != `{"app/shops/shop+/items/item+/route":{"status":200,"data":{"id":"apple","title":"Apple","price":1.5,"tags":["fruit"]}},"app/shops/shop+/layout":{"status":200,"data":{"id":"north","name":"Shop north"}}}` {
@@ -537,4 +540,46 @@ func TestPagesApp(t *testing.T) {
 		}
 	}
 
+}
+
+// checkBurst sends n requests for the Cache = true page at url at once, with a cold cache. One
+// of them renders in the VM, and the others get the same page.
+func checkBurst(t *testing.T, url string, n int) {
+	t.Helper()
+	type answer struct {
+		status int
+		render string
+		body   string
+		err    error
+	}
+	answers := make([]answer, n)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range answers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			res, err := http.Get(url)
+			if err != nil {
+				answers[i].err = err
+				return
+			}
+			defer res.Body.Close()
+			body, err := io.ReadAll(res.Body)
+			answers[i] = answer{res.StatusCode, res.Header.Get("X-Tifa-Render"), string(body), err}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	by := map[string]int{}
+	for i, a := range answers {
+		if a.err != nil || a.status != 200 || a.body != answers[0].body {
+			t.Errorf("burst request %d: %d %v", i, a.status, a.err)
+		}
+		by[a.render]++
+	}
+	if by["vm"] != 1 || by["shared"]+by["cache"] != n-1 {
+		t.Errorf("a burst of %d requests was answered by %v, want one render", n, by)
+	}
 }

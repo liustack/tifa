@@ -10,6 +10,7 @@ import (
 	"html"
 	"io"
 	"io/fs"
+	"log"
 	"mime"
 	"net/http"
 	"path"
@@ -29,7 +30,7 @@ import (
 const (
 	routeHeader  = "X-Tifa-Route"
 	buildHeader  = "X-Tifa-Build"
-	renderHeader = "X-Tifa-Render" // how a page was answered: vm, cache or none
+	renderHeader = "X-Tifa-Render" // how a page was answered: vm, shared, cache or none
 )
 
 // Headers of a call of a method handler from the browser, see js/runtime/call.ts. The handler
@@ -497,7 +498,8 @@ type dataRedirect struct {
 
 // renderPage renders the document in the VM. A successful page gets an ETag from the hash of
 // the build ID, the SSR bundle, the URL and the data, which are all the render depends on. A matching
-// If-None-Match is answered 304, and with cache the HTML of an earlier render is reused. With
+// If-None-Match is answered 304, and with cache the HTML of an earlier render is reused, or of the
+// render that other requests for the same page wait for at the time (renderCached). With
 // server.compress the ETag is weak: the page goes out in several encodings under it, and the 304,
 // which is answered before the encoding is known, carries the same ETag as the 200.
 func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status int, cache bool) error {
@@ -531,18 +533,63 @@ func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status in
 			c.SetHeader(renderHeader, "none")
 			return c.NoContent(http.StatusNotModified)
 		}
-		if cache {
-			if page, ok := s.cache.get(key); ok {
-				c.SetHeader(renderHeader, "cache")
-				encoding := s.formEncoding(c)
-				if encoding != "" && !page.compressed {
-					page = s.cachePage(key, page.html, encoding)
-				}
-				return writeCached(c, status, page, encoding)
-			}
-		}
+	}
+	if cache && key != "" {
+		return s.renderCached(c, f, in, key, status)
 	}
 	page, err := f.render(r.Context(), in)
+	if err != nil {
+		return renderFailed(c, err)
+	}
+	c.SetHeader(renderHeader, "vm")
+	return writeHTML(c, status, page)
+}
+
+// errClientGone is what Next returns for a request whose client went away while it waited for
+// the render of a Cache = true page. Server.fail cuts the connection of such a request, without an
+// answer, without OnError and without a log line.
+var errClientGone = fmt.Errorf("tifa: the client went away: %w", context.Canceled)
+
+// renderCached answers a page of a Cache = true route from the HTML cache, or from the render
+// that every request missing the same key at the time waits for (htmlCache.fetch). Each request
+// writes the page with its own headers and in its own encoding, as a cache hit does. With
+// server.compress the render compresses the page into both its forms once, so no request
+// compresses it again, whatever encoding the request that started the render takes.
+func (s *Server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, status int) error {
+	method, path := c.Request().Method, c.Request().URL.Path
+	// A render that fails once no request waits has no OnError to go to, so it is logged.
+	unheard := func(err error) {
+		if !errors.As(err, new(*ssr.RedirectError)) {
+			log.Printf("tifa: %s %s: %v, and no request waits for the render", method, path, &renderError{err: err})
+		}
+	}
+	got, err := s.cache.fetch(c.Request().Context(), key, unheard, func(ctx context.Context) (cachedPage, bool, error) {
+		html, err := f.render(ctx, in)
+		if err != nil || !s.cache.holds(html) {
+			return cachedPage{html: html}, false, err
+		}
+		page := cachedPage{html: html}
+		if s.cfg.Compress {
+			page.gzip, page.zstd = compressPage(html)
+		}
+		return page, true, nil
+	})
+	if err != nil {
+		if errors.Is(err, context.Canceled) && errors.Is(c.Request().Context().Err(), context.Canceled) {
+			return errClientGone
+		}
+		return renderFailed(c, err)
+	}
+	c.SetHeader(renderHeader, got.how)
+	if !got.held {
+		return writeHTML(c, status, got.page.html)
+	}
+	return writeCached(c, status, got.page, s.formEncoding(c))
+}
+
+// renderFailed answers a render that returned err: a redirect of the router, or a *renderError
+// for the error flow.
+func renderFailed(c *tifa.Ctx, err error) error {
 	var redirect *ssr.RedirectError
 	if errors.As(err, &redirect) {
 		// The router spells the URL differently, /%61 for /a, and sends the browser there.
@@ -550,18 +597,10 @@ func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status in
 		// data, so an ETag a client got with a 200 for this URL never belongs to a redirect,
 		// and 304 is only answered to a client that made its If-None-Match up.
 		c.Writer().Header().Del("ETag")
-		http.Redirect(c.Writer(), r, redirect.Location, redirect.Status)
+		http.Redirect(c.Writer(), c.Request(), redirect.Location, redirect.Status)
 		return nil
 	}
-	if err != nil {
-		return &renderError{err: err}
-	}
-	c.SetHeader(renderHeader, "vm")
-	if !cache || key == "" || !s.cache.holds(page) {
-		return writeHTML(c, status, page)
-	}
-	encoding := s.formEncoding(c)
-	return writeCached(c, status, s.cachePage(key, page, encoding), encoding)
+	return &renderError{err: err}
 }
 
 // formEncoding is the encoding a page of the HTML cache goes out in to c: the one compressed would
@@ -571,20 +610,6 @@ func (s *Server) formEncoding(c *tifa.Ctx) string {
 		return ""
 	}
 	return pageEncoding(c.Request())
-}
-
-// cachePage stores a page in the HTML cache and returns it as stored, with its forms even when
-// they did not fit. With an encoding to send it in, the page is compressed into its gzip and zstd
-// forms first, and the answer sends the one it takes. Without one the answer sends the HTML, so
-// only the HTML is kept, and the first hit with an encoding compresses the page.
-func (s *Server) cachePage(key, html, encoding string) cachedPage {
-	page := cachedPage{html: html}
-	if encoding != "" {
-		page.gzip, page.zstd = compressPage(html)
-		page.compressed = true
-	}
-	s.cache.put(key, page)
-	return page
 }
 
 // etagMatches implements the If-None-Match comparison of RFC 9110: weak, any of a list, or *.
