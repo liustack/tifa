@@ -160,7 +160,7 @@ func TestPlacingAnOrderEmptiesTheCart(t *testing.T) {
 	}
 	c, _ = visit(t, id)
 	now := time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC)
-	order, err := PlaceOrder(c, goodOrder(), now)
+	order, err := PlaceOrder(c, zh, goodOrder(), now)
 	if err != nil || !strings.HasPrefix(order, "SS-") {
 		t.Fatalf("PlaceOrder: %q %v", order, err)
 	}
@@ -171,7 +171,7 @@ func TestPlacingAnOrderEmptiesTheCart(t *testing.T) {
 	if err != nil || p.Count != 6 || p.Email != "lin@example.com" || p.Delivery.ID != "express" {
 		t.Errorf("placed %+v %v", p, err)
 	}
-	if _, err := PlaceOrder(c, goodOrder(), now); err == nil {
+	if _, err := PlaceOrder(c, zh, goodOrder(), now); err == nil {
 		t.Error("an empty cart placed an order")
 	}
 	if _, err := GetPlaced("SS-1", id, zh); !errors.Is(err, tifa.ErrNotFound) {
@@ -184,7 +184,7 @@ func TestOnlyTheCartThatPlacedAnOrderSeesIt(t *testing.T) {
 	var orders, ids []string
 	for range 2 {
 		c, w := visit(t, "")
-		order, err := PlaceOrder(c, goodOrder(), now)
+		order, err := PlaceOrder(c, zh, goodOrder(), now)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -225,7 +225,7 @@ func TestACartPlacesOneOrder(t *testing.T) {
 		c, _ := visit(t, id)
 		wg.Go(func() {
 			<-start
-			_, errs[i] = PlaceOrder(c, goodOrder(), time.Now())
+			_, errs[i] = PlaceOrder(c, zh, goodOrder(), time.Now())
 		})
 	}
 	close(start)
@@ -258,7 +258,7 @@ func TestFailedChangesMakeNoCart(t *testing.T) {
 func TestOnlyCartIDsTheServerMadeAreKept(t *testing.T) {
 	forged := strings.Repeat("f", 3000)
 	c, w := visit(t, forged)
-	if _, err := PlaceOrder(c, goodOrder(), time.Now()); err != nil {
+	if _, err := PlaceOrder(c, zh, goodOrder(), time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	cookie := w.Header().Get("Set-Cookie")
@@ -304,5 +304,33 @@ func TestRecentForgetsTheIdleAndTheLeastUsed(t *testing.T) {
 	}
 	if carts.limit != maxCarts || placed.limit != maxPlaced {
 		t.Errorf("limits %d and %d", carts.limit, placed.limit)
+	}
+}
+
+func TestAnOrderIsTotalledInTheCurrencyOfItsStorefront(t *testing.T) {
+	c, w := visit(t, "")
+	if err := ApplyCoupon(c, "SHANHAI10"); err != nil {
+		t.Fatal(err)
+	}
+	cookie, err := http.ParseSetCookie(w.Header().Get("Set-Cookie"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := cookie.Value
+	// The checkout of the English storefront adds up the prices it shows, each in dollars.
+	now := time.Now()
+	cart := Get(id, en)
+	want := cart.SubtotalCents - cart.DiscountCents + Deliveries(cart, now, en)[1].PriceCents
+	c, _ = visit(t, id)
+	order, err := PlaceOrder(c, en, goodOrder(), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The order keeps its currency when the confirmation is read in the other language.
+	for _, l := range []store.Locale{en, zh} {
+		p, err := GetPlaced(order, id, l)
+		if err != nil || p.TotalCents != want || p.Currency != "USD" {
+			t.Errorf("in %s: %d %s, want %d USD (%v)", l.Code, p.TotalCents, p.Currency, want, err)
+		}
 	}
 }

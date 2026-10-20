@@ -48,7 +48,11 @@ func Load(c *tifa.Ctx) (View, error) {
 
 // POST places the order and sends the visitor to its confirmation.
 func POST(c *tifa.Ctx, in cart.Order) error {
-	id, err := cart.PlaceOrder(c, in, time.Now())
+	l, err := store.FindLocale(c.Param("lang"))
+	if err != nil {
+		return err
+	}
+	id, err := cart.PlaceOrder(c, l, in, time.Now())
 	if err != nil {
 		return err
 	}

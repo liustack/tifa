@@ -49,7 +49,14 @@ function Placed({ placed }: { placed: NonNullable<Data['placed']> }) {
         <CardDescription>{t('checkout.placedBody', { id: placed.id, email: placed.email })}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-2 text-center text-sm">
-        <p>{t('checkout.placedTotal', { count: placed.count, amount: placed.totalCents / 100 })}</p>
+        <p>
+          {t('checkout.placedTotal', {
+            count: placed.count,
+            amount: placed.totalCents / 100,
+            // In the currency the order was placed in, also when the page is read in the other language.
+            formatParams: { amount: { currency: placed.currency } },
+          })}
+        </p>
         <p>
           {placed.delivery.earliest === placed.delivery.latest
             ? t('checkout.placedDeliveryOn', { name: placed.delivery.name, date: placed.delivery.latest, formatParams: { date: day } })

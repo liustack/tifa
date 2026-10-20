@@ -178,12 +178,14 @@ func luhn(number string) bool {
 	return sum%10 == 0
 }
 
-// Placed is an order placed from a cart, as the confirmation shows it.
+// Placed is an order placed from a cart, as the confirmation shows it. TotalCents is in the
+// minor unit of Currency, the currency the order was placed in, whatever language shows it.
 type Placed struct {
 	ID         string    `json:"id"`
 	Email      string    `json:"email"`
 	Count      int       `json:"count"`
 	TotalCents int       `json:"totalCents"`
+	Currency   string    `json:"currency"`
 	Delivery   Delivery  `json:"delivery"`
 	PlacedAt   time.Time `json:"placedAt"`
 }
@@ -201,19 +203,22 @@ var placed = newRecent[placedRecord](maxPlaced, placedIdle)
 type placedRecord struct {
 	// cart is the ID of the cart the order was placed from. Only a request with that cart sees
 	// the order: the confirmation shows an email address, and order numbers can be guessed.
-	cart     string
-	email    string
-	count    int
-	totalFen int
-	delivery string
-	at       time.Time
+	cart  string
+	email string
+	count int
+	// totalCents is what the checkout showed, in the minor unit of currency.
+	totalCents int
+	currency   string
+	delivery   string
+	at         time.Time
 }
 
 // PlaceOrder places the order of the cart of the request, empties the cart and returns the
-// number of the order. The order must have passed Validate. It holds the lock of the carts from
-// reading the cart to emptying it, so two requests with one cart place one order.
-func PlaceOrder(c *tifa.Ctx, o Order, now time.Time) (string, error) {
-	zh, _ := store.FindLocale("zh-CN")
+// number of the order. The order must have passed Validate. It is totalled in the language of
+// l, the storefront it was placed from, from the prices that storefront shows. It holds the lock
+// of the carts from reading the cart to emptying it, so two requests with one cart place one
+// order.
+func PlaceOrder(c *tifa.Ctx, l store.Locale, o Order, now time.Time) (string, error) {
 	carts.mu.Lock()
 	defer carts.mu.Unlock()
 	cartID := ID(c)
@@ -221,7 +226,7 @@ func PlaceOrder(c *tifa.Ctx, o Order, now time.Time) (string, error) {
 	if !ok {
 		rec = &cartRecord{lines: demoLines}
 	}
-	cart := price(rec.lines, rec.coupon, zh)
+	cart := price(rec.lines, rec.coupon, l)
 	if len(cart.Lines) == 0 {
 		return "", tifa.Error{Status: 409, Message: "emptyCart"}
 	}
@@ -232,14 +237,16 @@ func PlaceOrder(c *tifa.Ctx, o Order, now time.Time) (string, error) {
 		carts.add(cartID, rec, now)
 	}
 	total := cart.SubtotalCents - cart.DiscountCents
-	for _, d := range Deliveries(cart, now, zh) {
+	for _, d := range Deliveries(cart, now, l) {
 		if d.ID == o.Delivery {
 			total += d.PriceCents
 		}
 	}
 	placed.mu.Lock()
 	id := newOrderNumber()
-	placed.add(id, placedRecord{cart: cartID, email: o.Email, count: cart.Count, totalFen: total, delivery: o.Delivery, at: now}, now)
+	placed.add(id, placedRecord{
+		cart: cartID, email: o.Email, count: cart.Count, totalCents: total, currency: l.Currency, delivery: o.Delivery, at: now,
+	}, now)
 	placed.mu.Unlock()
 	*rec = cartRecord{}
 	setCookie(c, cartID)
@@ -265,7 +272,7 @@ func GetPlaced(id, cartID string, l store.Locale) (Placed, error) {
 	if !ok || cartID == "" || r.cart != cartID {
 		return Placed{}, tifa.ErrNotFound
 	}
-	p := Placed{ID: id, Email: r.email, Count: r.count, TotalCents: store.Price(r.totalFen, l), PlacedAt: r.at}
+	p := Placed{ID: id, Email: r.email, Count: r.count, TotalCents: r.totalCents, Currency: r.currency, PlacedAt: r.at}
 	for _, d := range Deliveries(Cart{FreeShippingCents: 1}, r.at, l) {
 		if d.ID == r.delivery {
 			p.Delivery = d
