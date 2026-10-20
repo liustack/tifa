@@ -3,7 +3,7 @@
 // document that has just what that code uses.
 import { readFileSync } from 'node:fs'
 import { createMemoryHistory } from '@tanstack/react-router'
-import { routeTree } from './.tifa/routes'
+import { htmlAttributes, routeTree } from './.tifa/routes'
 import { createAppRouter } from './.tifa/runtime/router'
 import { bootElementId, collector, rootElementId, type RouteResult } from './.tifa/runtime/data'
 import { setRouter } from './.tifa/runtime/call'
@@ -305,34 +305,70 @@ test('the attributes of <html> follow the matched routes', async () => {
   })
 })
 
-// The page the server rendered for /intl/fr/rtl, which router.test.tsx writes.
-const serverPage = () => readFileSync('intl-fr-rtl.html', 'utf8')
+// takeOverPage runs the scripts of a page the server rendered for url, which router.test.tsx
+// writes into file, with <html> holding the attributes the server wrote, and hydrates a browser
+// router from it as the browser entry does. before runs before the hydration, as an inline
+// script of the page does.
+async function takeOverPage(file: string, url: string, before = () => {}) {
+  const html = readFileSync(file, 'utf8')
+  const start = html.slice(0, html.indexOf('<head>'))
+  for (const [, name, value] of start.matchAll(/ ([^\s=]+)="([^"]*)"/g))
+    fakeDocument.documentElement.setAttribute(name!, value!.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'))
+  const server = describe(fakeDocument.documentElement)
+  before()
+  // The page's scripts leave the dehydrated router where TanStack's hydrate finds it.
+  const saved = { document: g.document, location: g.location }
+  g.location = { href: 'http://tifa.test' + url, origin: 'http://tifa.test', pathname: url, search: '', hash: '' }
+  try {
+    for (const [, code] of html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)) {
+      if (code!.trim() === '') continue
+      g.document = { ...fakeDocument, currentScript: { previousElementSibling: null, remove() {} } }
+      new Function(code!)()
+    }
+  } finally {
+    Object.assign(g, saved)
+  }
+  const router = createAppRouter(routeTree, async (_, id) => ok(id), { history: createMemoryHistory({ initialEntries: [url] }) })
+  await takeOver(router, htmlAttributes)
+  return { router, server }
+}
+
+// navigateTo navigates router to `to` and waits until the attributes of <html> changed, or a while.
+async function navigateTo(router: any, options: object) {
+  const before = describe(fakeDocument.documentElement)
+  await router.navigate(options)
+  for (let i = 0; i < 100 && describe(fakeDocument.documentElement) === before; i++) await new Promise((resolve) => setTimeout(resolve, 0))
+}
 
 test('a hydrated page takes away the attributes of <html> the server wrote for it', async () => {
   await withDocument(async () => {
-    const html = serverPage()
-    // The document the browser parsed from the page: the attributes of <html> as the server wrote them.
-    const start = html.slice(0, html.indexOf('<head>'))
-    for (const [, name, value] of start.matchAll(/ ([^\s=]+)="([^"]*)"/g))
-      fakeDocument.documentElement.setAttribute(name!, value!.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'))
-    assert(describe(fakeDocument.documentElement) === 'html lang=fr dir=rtl class=wide title=a"<b', `server html ${describe(fakeDocument.documentElement)}`)
-    // The page's scripts leave the dehydrated router where TanStack's hydrate finds it.
-    const saved = { document: g.document, location: g.location }
-    g.location = { href: 'http://tifa.test/intl/fr/rtl', origin: 'http://tifa.test', pathname: '/intl/fr/rtl', search: '', hash: '' }
-    try {
-      for (const [, code] of html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)) {
-        if (code!.trim() === '') continue
-        g.document = { ...fakeDocument, currentScript: { previousElementSibling: null, remove() {} } }
-        new Function(code!)()
-      }
-    } finally {
-      Object.assign(g, saved)
-    }
-    const router = createAppRouter(routeTree, async (_, id) => ok(id), { history: createMemoryHistory({ initialEntries: ['/intl/fr/rtl'] }) })
-    await takeOver(router, { lang: 'xx', 'data-theme': 'a"b' })
-    await router.navigate({ to: '/hello' })
-    for (let i = 0; i < 100 && describe(fakeDocument.documentElement).includes('lang=fr'); i++) await new Promise((resolve) => setTimeout(resolve, 0))
-    assert(describe(fakeDocument.documentElement) === 'html lang=xx data-theme=a"b', `html after navigating ${describe(fakeDocument.documentElement)}`)
+    const { router, server } = await takeOverPage('intl-fr-rtl.html', '/intl/fr/rtl')
+    assert(server === 'html lang=fr class=wide dir=rtl title=a"<b', `server html ${server}`)
+    assert(describe(fakeDocument.documentElement) === server, `hydration changed <html>: ${describe(fakeDocument.documentElement)}`)
+    await navigateTo(router, { to: '/hello' })
+    assert(describe(fakeDocument.documentElement) === 'html lang=xx class=h-full data-theme=a"b', `html after navigating ${describe(fakeDocument.documentElement)}`)
+  })
+})
+
+test('what scripts of the page set on <html> stays until a route changes that attribute', async () => {
+  await withDocument(async () => {
+    const html = fakeDocument.documentElement
+    // A dark mode script adds a class before the hydration, a translation of the browser sets lang after it.
+    const { router, server } = await takeOverPage('hello.html', '/hello', () => html.setAttribute('class', 'h-full dark'))
+    assert(server === 'html lang=xx data-theme=a"b class=h-full', `server html ${server}`)
+    assert(describe(html) === 'html lang=xx data-theme=a"b class=h-full dark', `after hydrating ${describe(html)}`)
+    html.setAttribute('lang', 'de')
+    html.setAttribute('class', 'h-full dark contrast')
+    // No route of /a/one sets an attribute of <html>: the root Layout's are the same as before.
+    await router.navigate({ to: '/a/one' })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    assert(router.state.location.pathname === '/a/one', `at ${router.state.location.pathname}`)
+    assert(describe(html) === 'html lang=de data-theme=a"b class=h-full dark contrast', `after navigating ${describe(html)}`)
+    // The routes of /intl/fr set lang and class: theirs win, and data-theme, which they leave, stays.
+    await navigateTo(router, { to: '/intl/$lang', params: { lang: 'fr' } })
+    assert(describe(html) === 'html lang=app/intl/lang+/layout data-theme=a"b class=outer dir=ltr', `on /intl/fr ${describe(html)}`)
+    await navigateTo(router, { to: '/hello' })
+    assert(describe(html) === 'html lang=xx data-theme=a"b class=h-full', `back on /hello ${describe(html)}`)
   })
 })
 

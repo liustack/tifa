@@ -421,28 +421,46 @@ function markers(): [Comment, Comment] {
   return [start, end]
 }
 
-// The attributes of <html> the last syncHTMLAttributes wrote, by their names in lower case, and
-// the element it wrote them on. Attributes of other names, such as a theme a script of the page
-// sets, are left as they are.
-let managed: { element: Element; names: Set<string> } | undefined
+// The attributes of <html> tifa wrote last, by their names in lower case with the values it
+// wrote, and the element it wrote them on. tifa compares what it wants with these, not with the
+// page: what a script of the page set, such as a theme class or a translated lang, stays until a
+// route wants another value of that attribute.
+let managed: { element: Element; values: Map<string, string> } | undefined
 
-// syncHTMLAttributes makes the attributes of <html> those htmlAttributesOf gives for the
-// matches, written by the rules of attribute. It takes away the ones it wrote before and no
-// longer gives, and sets only those whose value changed.
-export function syncHTMLAttributes(matches: ReadonlyArray<HeadMatch>, base: HTMLAttributes) {
-  const element = document.documentElement
-  const before = managed?.element === element ? managed.names : new Set<string>()
-  const names = new Set<string>()
+// wanted gives the attributes of <html> htmlAttributesOf gives for the matches, written by the
+// rules of attribute: by their names in lower case, the name to write and the value.
+function wanted(matches: ReadonlyArray<HeadMatch>, base: HTMLAttributes): Map<string, [string, string]> {
+  const out = new Map<string, [string, string]>()
   const attrs = htmlAttributesOf(matches, base)
   for (const key in attrs) {
     const written = attribute(key, attrs[key])
-    if (!written) continue
-    const name = written[0].toLowerCase()
-    names.add(name)
-    if (element.getAttribute(name) !== written[1]) element.setAttribute(written[0], written[1])
+    if (written) out.set(written[0].toLowerCase(), written)
   }
-  for (const name of before) if (!names.has(name)) element.removeAttribute(name)
-  managed = { element, names }
+  return out
+}
+
+// syncHTMLAttributes writes the attributes of <html> htmlAttributesOf gives for the matches. It
+// sets those whose value is not the one tifa wrote last, and takes away those tifa wrote and no
+// longer gives. It leaves the rest alone, even when a script of the page changed them.
+export function syncHTMLAttributes(matches: ReadonlyArray<HeadMatch>, base: HTMLAttributes) {
+  const element = document.documentElement
+  const before = managed?.element === element ? managed.values : new Map<string, string>()
+  const values = new Map<string, string>()
+  for (const [name, [written, value]] of wanted(matches, base)) {
+    values.set(name, value)
+    if (before.get(name) !== value) element.setAttribute(written, value)
+  }
+  for (const name of before.keys()) if (!values.has(name)) element.removeAttribute(name)
+  managed = { element, values }
+}
+
+// noteHTMLAttributes notes the attributes of <html> htmlAttributesOf gives for the matches as
+// written, without touching the page: those the server wrote for the matches it rendered. A
+// script of the page may have changed them since, and the hydration keeps that.
+export function noteHTMLAttributes(matches: ReadonlyArray<HeadMatch>, base: HTMLAttributes) {
+  const values = new Map<string, string>()
+  for (const [name, [, value]] of wanted(matches, base)) values.set(name, value)
+  managed = { element: document.documentElement, values }
 }
 
 // followHead keeps document.head and the attributes of <html> in step with the router's

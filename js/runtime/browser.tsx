@@ -3,7 +3,7 @@ import { Await, RouterProvider, type AnyRoute, type AnyRouter } from '@tanstack/
 import { hydrate as hydrateRouter } from '@tanstack/react-router/ssr/client'
 import { createAppRouter } from './router'
 import { bootElementId, collector, injected, rootElementId, sameURL, type Boot, type Source } from './data'
-import { defaultHTMLAttributes, followHead, syncHead, syncHTMLAttributes, type HTMLAttributes } from './head'
+import { defaultHTMLAttributes, followHead, noteHTMLAttributes, syncHead, syncHTMLAttributes, type HTMLAttributes } from './head'
 import { setRouter } from './call'
 
 // hydrate takes over the application root the server rendered. A page rendered without SSR
@@ -47,16 +47,17 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
 
 // takeOver hydrates the router from the scripts of the page the server rendered, as TanStack's
 // RouterClient does, then has the head and the attributes of <html> follow its matches. It first
-// syncs them with the matches the server rendered. That changes nothing on the page, but notes
-// which attributes of <html> the server wrote, so that the first navigation takes away those the
-// next page does not give. It does not wait for the store of the matches to report the hydration.
+// syncs the head with the matches the server rendered, which changes nothing on the page, and
+// notes which attributes of <html> the server wrote without writing them again, so that the
+// first navigation takes away those the next page does not give, and what scripts of the page
+// set on <html> stays. It does not wait for the store of the matches to report the hydration.
 export function takeOver(router: AnyRouter, htmlAttributes: HTMLAttributes): Promise<void> {
   return hydrateRouter(router)
     .finally(() => window.$_TSR!.h())
     .then(() => {
       const matches = router.stores.matches.get()
       syncHead(matches)
-      syncHTMLAttributes(matches, htmlAttributes)
+      noteHTMLAttributes(matches, htmlAttributes)
       followHead(router, htmlAttributes)
     })
 }
