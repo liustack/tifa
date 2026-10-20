@@ -40,6 +40,8 @@ type Server struct {
 	mux    *http.ServeMux
 	routes map[string]map[string]func(*tifa.Ctx) error // path, then method
 	pages  map[string]bool                             // paths whose GET renders a page
+	// modules holds, by the path of a page, the IDs of its Layouts and route, outermost first.
+	modules map[string][]string
 
 	// The root Layout's LayoutSSR constant, which decides how an unmatched URL is answered.
 	rootSSR bool
@@ -61,7 +63,7 @@ func New(cfg config.Config, hooks Hooks) *Server {
 	s := &Server{
 		cfg: cfg.Server, hooks: hooks, mux: http.NewServeMux(),
 		routes: map[string]map[string]func(*tifa.Ctx) error{}, pages: map[string]bool{},
-		rootSSR: true, cache: newHTMLCache(cfg.Cache.Size),
+		modules: map[string][]string{}, rootSSR: true, cache: newHTMLCache(cfg.Cache.Size),
 	}
 	s.handler = http.HandlerFunc(s.route)
 	if cfg.Server.Compress {

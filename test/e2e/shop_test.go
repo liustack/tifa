@@ -108,6 +108,29 @@ func TestShopApp(t *testing.T) {
 			}
 		}
 	}
+	// The order page preloads the chunks of the project Layout and of its route right after the
+	// head of the build, so the browser fetches them alongside the entry script. The order route
+	// holds its NotFound. An unknown URL shows the root Layout, which is in the entry, and
+	// preloads nothing.
+	after, ok := strings.CutPrefix(body[strings.Index(body, built.Head)+len(built.Head):], `<link rel="modulepreload" href="`)
+	preloads, _, _ := strings.Cut(after, "<!--tifa-head-->")
+	var chunks strings.Builder
+	for _, m := range headURL.FindAllStringSubmatch(`<link rel="modulepreload" href="`+preloads, -1) {
+		if strings.Contains(built.Head, m[1]) {
+			t.Errorf("the order page preloads %s, which the head loads", m[1])
+		}
+		status, _, script := get(t, base+m[1])
+		if status != 200 {
+			t.Errorf("preload %s: %d", m[1], status)
+		}
+		chunks.WriteString(script)
+	}
+	if !ok || !strings.Contains(chunks.String(), "没有找到这个订单") {
+		t.Errorf("the order page does not preload its route:\n%s", preloads)
+	}
+	if _, _, page := get(t, base+"/nowhere"); !strings.Contains(page, built.Head+"<!--tifa-head-->") {
+		t.Errorf("the 404 page preloads more than the head:\n%s", page)
+	}
 	// Same data, same ETag: 304. The order page sets Cache = true: the next request skips the VM.
 	if status, _, _ := get(t, detail, "If-None-Match", header.Get("ETag")); status != 304 {
 		t.Errorf("If-None-Match: %d", status)

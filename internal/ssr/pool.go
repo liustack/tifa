@@ -24,6 +24,9 @@ type Input struct {
 	BuildID string          `json:"buildId"`
 	URL     string          `json:"url"`
 	Data    json.RawMessage `json:"data"` // data injected by Load, already JSON
+	// Preload is the module preloads of the matched Layouts and route, which the document
+	// carries after the tags of the browser entry.
+	Preload string `json:"preload,omitempty"`
 }
 
 // ErrClosed is returned by Render after Close has started.

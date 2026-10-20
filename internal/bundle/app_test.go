@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -287,6 +288,35 @@ func TestHeadTagsFollowStaticImports(t *testing.T) {
 	}
 	if _, err := headTags(map[string]manifestEntry{"other.ts": {File: "x.js", IsEntry: true}}); err == nil {
 		t.Error("a manifest without the tifa entry gives no error")
+	}
+}
+
+// Each Layout and route module that is a chunk of its own preloads that chunk and the chunks it
+// imports statically, in the order headTags writes them, without what the head loads already.
+// The root Layout is part of the entry, and modules that are no Layout or route get nothing.
+func TestRoutePreloadsLeaveOutTheHead(t *testing.T) {
+	preload := routePreloads(map[string]manifestEntry{
+		".tifa/client.ts":          {File: "assets/app-1.js", IsEntry: true, Imports: []string{"_a.js", "app/layout.tsx"}},
+		"app/layout.tsx":           {File: "assets/chunk-root.js", Imports: []string{"_a.js"}},
+		"_a.js":                    {File: "assets/chunk-a.js"},
+		"_b.js":                    {File: "assets/chunk-b.js", Imports: []string{"_a.js", "_c.js"}},
+		"_c.js":                    {File: "assets/chunk-c.js", Imports: []string{".tifa/client.ts"}},
+		"_d.js":                    {File: "assets/chunk-d.js"},
+		"app/x/route.tsx":          {File: "assets/chunk-x.js", Imports: []string{"_a.js", ".tifa/client.ts", "_b.js", "_d.js"}, DynamicImports: []string{"app/x/chart.client.tsx"}},
+		"app/x/chart.client.tsx":   {File: "assets/chunk-chart.js", Imports: []string{"_d.js"}},
+		"app/x/y+/layout.tsx":      {File: "assets/chunk-y.js", Imports: []string{"_c.js"}},
+		"app/x/y+/z/route.tsx":     {File: "assets/chunk-z.js"},
+		"app/x/route.css":          {File: "assets/route.css"},
+		"node_modules/a/route.tsx": {File: "assets/chunk-n.js"},
+		"style.css":                {File: "assets/style-1.css"},
+	})
+	want := map[string][]string{
+		"app/x/route":      {"/assets/chunk-x.js", "/assets/chunk-b.js", "/assets/chunk-c.js", "/assets/chunk-d.js"},
+		"app/x/y+/layout":  {"/assets/chunk-y.js", "/assets/chunk-c.js"},
+		"app/x/y+/z/route": {"/assets/chunk-z.js"},
+	}
+	if !reflect.DeepEqual(preload, want) {
+		t.Errorf("preloads\n%v\nwant\n%v", preload, want)
 	}
 }
 

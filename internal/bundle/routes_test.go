@@ -107,8 +107,32 @@ func TestBrowserLoadsRouteModulesWhenTheirRoutesNeedThem(t *testing.T) {
 			t.Errorf("no chunk holds %s", text)
 		}
 	}
-	// The stylesheet of a lazily loaded module is still in the one stylesheet of the head.
+	// build.json lists the files each route module needs beyond the head, its own chunk first.
 	dist := filepath.Join(root, ".tifa", "dist")
+	b := readBuild(t, root)
+	if _, ok := b.Preload["app/layout"]; ok || len(b.Preload) != 2 {
+		t.Errorf("preloads %v, want the two pages", b.Preload)
+	}
+	for id, text := range map[string]string{"app/page/route": "PAGE-COMPONENT", "app/other/route": "OTHER-COMPONENT"} {
+		files := b.Preload[id]
+		if len(files) == 0 {
+			t.Errorf("%s preloads nothing", id)
+			continue
+		}
+		for _, file := range files {
+			if strings.Contains(b.Head, file) {
+				t.Errorf("%s preloads %s, which the head loads", id, file)
+			}
+		}
+		data, err := os.ReadFile(filepath.Join(dist, filepath.FromSlash(strings.TrimPrefix(files[0], "/"))))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(data), text) {
+			t.Errorf("%s preloads %s first, which lacks %s", id, files[0], text)
+		}
+	}
+	// The stylesheet of a lazily loaded module is still in the one stylesheet of the head.
 	var css strings.Builder
 	for _, m := range headURL.FindAllStringSubmatch(readBuild(t, root).Head, -1) {
 		if strings.HasSuffix(m[1], ".css") {

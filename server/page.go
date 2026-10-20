@@ -46,6 +46,8 @@ type frontBuild struct {
 	// Head is the HTML that loads the browser bundle: stylesheets, module preloads and the entry
 	// script, or under tifa dev the scripts of Vite's dev server.
 	Head string `json:"head"`
+	// Preload lists the module preloads of the Layouts and routes by ID, see preloads.
+	Preload map[string][]string `json:"preload"`
 	// bundle is the hash of ssr.js. tifa dev keeps the build ID when only ssr.js changes, so
 	// what a render depends on is the build ID and the bundle.
 	bundle string
@@ -61,6 +63,8 @@ type front struct {
 	pool   *ssr.Pool // runs render, nil without an SSR bundle or in tests
 	// pages is set when there are pages to render. Without it pages answer JSON.
 	pages bool
+	// preload holds, by the path of a page, the module preloads its document carries.
+	preload map[string]string
 }
 
 // readFront reads the front end in dist: dist/build.json names the build and its assets,
@@ -106,7 +110,35 @@ func (s *Server) readFront(dist fs.FS, render func(context.Context, ssr.Input) (
 	}
 	// Without pages there is nothing to render, and unmatched URLs keep their JSON answer.
 	f.pages = len(s.pages) > 0
+	f.preload = preloads(s.modules, f.build.Preload)
 	return f, nil
+}
+
+// preloads writes, for each page, a module preload of every file its Layouts and route need
+// beyond the head of the build: the files build.json lists for each, outermost first, each file
+// once. The links come right after the head, before the tags of the route head. The browser then
+// fetches the chunks of the page alongside the entry script instead of one after another as the
+// imports turn up, and the page hydrates as soon as with all of them in the entry. A URL that
+// matches no page shows the root Layout, which is part of the entry, and preloads nothing. tifa
+// writes no nonce on these links, as on the other tags of the head.
+func preloads(modules map[string][]string, files map[string][]string) map[string]string {
+	out := make(map[string]string, len(modules))
+	for path, ids := range modules {
+		var b strings.Builder
+		seen := map[string]bool{}
+		for _, id := range ids {
+			for _, file := range files[id] {
+				if !seen[file] {
+					seen[file] = true
+					fmt.Fprintf(&b, `<link rel="modulepreload" href="%s">`, html.EscapeString(file))
+				}
+			}
+		}
+		if b.Len() > 0 {
+			out[path] = b.String()
+		}
+	}
+	return out
 }
 
 // setFront serves the front end in dist with render, see readFront.
@@ -452,7 +484,9 @@ func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status in
 	s.rendering.RLock()
 	defer s.rendering.RUnlock()
 	f := s.front.Load()
-	in := ssr.Input{BuildID: f.build.ID, URL: r.URL.RequestURI(), Data: data}
+	// The preloads follow from the build and the matched path, which the URL picks, so the ETag
+	// and the HTML cache need not cover them.
+	in := ssr.Input{BuildID: f.build.ID, URL: r.URL.RequestURI(), Data: data, Preload: f.preload[c.Pattern()]}
 	var key string
 	if status == http.StatusOK {
 		sum := sha256.Sum256([]byte(in.BuildID + "\x00" + f.build.bundle + "\x00" + in.URL + "\x00" + string(data)))
@@ -551,6 +585,7 @@ func (s *Server) dataOnly(c *tifa.Ctx, items map[string]routeResult, status int)
 	var b strings.Builder
 	b.WriteString(`<!DOCTYPE html><html><head><meta charset="utf-8">`)
 	b.WriteString(f.build.Head)
+	b.WriteString(f.preload[c.Pattern()])
 	b.WriteString(`</head><body><div id="tifa-root"></div>`)
 	// json.Marshal escapes <, >, &, U+2028 and U+2029, so the data cannot close the script element.
 	fmt.Fprintf(&b, `<script type="application/json" id="tifa-data">%s</script></body></html>`, boot)

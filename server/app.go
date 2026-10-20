@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"io/fs"
+	"slices"
 	"strings"
 	"sync"
 
@@ -95,6 +96,7 @@ func (s *Server) register(layouts []Layout, routes []Route) {
 				panic(fmt.Sprintf("tifa: page %s defines GET", r.ID))
 			}
 			s.pages[r.Path] = true
+			s.modules[r.Path] = append(slices.Clone(r.Layouts), r.ID)
 			s.Handle("GET", r.Path, s.pageHandler(r, chain))
 		}
 		for _, h := range []struct {

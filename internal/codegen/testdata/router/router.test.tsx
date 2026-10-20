@@ -33,9 +33,9 @@ function inject(data: Record<string, RouteResult | InjectedResult>) {
 }
 
 // renderResult runs one whole-page render through the SSR entry, as the Go VM pool does.
-async function renderResult(url: string, data: Record<string, RouteResult | InjectedResult>) {
+async function renderResult(url: string, data: Record<string, RouteResult | InjectedResult>, preload?: string) {
   globalThis.renderResult = undefined
-  globalThis.startRender(JSON.stringify({ url, buildId: 'b1', data: inject(data) }))
+  globalThis.startRender(JSON.stringify({ url, buildId: 'b1', data: inject(data), preload }))
   for (let i = 0; i < 1000 && globalThis.renderResult === undefined; i++)
     await new Promise((resolve) => setTimeout(resolve, 0))
   const result = globalThis.renderResult ?? '{"error":"render did not finish"}'
@@ -47,8 +47,8 @@ async function renderResult(url: string, data: Record<string, RouteResult | Inje
   }
 }
 
-async function render(url: string, data: Record<string, RouteResult | InjectedResult>): Promise<string> {
-  const result = await renderResult(url, data)
+async function render(url: string, data: Record<string, RouteResult | InjectedResult>, preload?: string): Promise<string> {
+  const result = await renderResult(url, data, preload)
   if (result.html === undefined) throw new Error(`render ${url}: ${JSON.stringify(result)}`)
   return result.html
 }
@@ -155,6 +155,18 @@ test('the document around the React root is written as a string', async () => {
   assert(html.split('<html').length === 2 && html.split('<body').length === 2, `one html and body: ${html}`)
   const root = html.slice(html.indexOf('<div id="tifa-root">'), html.indexOf('</div><script'))
   lacks(root, '<script type="module"', '<title>', 'data-tsr-stream-part')
+})
+
+test('the module preloads Go gives for the matched routes follow the asset tags', async () => {
+  const data = { ...appData, 'app/teams/team+/layout': ok('x'), 'app/teams/team+/one/route': ok('one') }
+  const preload = '<link rel="modulepreload" href="/assets/chunk-team.js"><link rel="modulepreload" href="/assets/chunk-one.js">'
+  const html = await render('/teams/x/one', data, preload)
+  contains(html, '<script type="module" src="/assets/app.js"></script>' + preload + '<!--tifa-head-->')
+  // Without preloads the document is the one written before there were any, apart from the
+  // times the router stamps its matches with.
+  const stamps = (page: string) => page.replace(/\bu:\d+/g, 'u:0')
+  const plain = await render('/teams/x/one', data)
+  assert(stamps(html.replace(preload, '')) === stamps(plain), `the preloads change more than their place:\n${html}\n${plain}`)
 })
 
 test('the head holds the tags of the deepest route, escaped', async () => {

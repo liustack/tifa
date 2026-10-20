@@ -267,6 +267,55 @@ func TestFailedPagesRenderWithTheErrorStatus(t *testing.T) {
 	}
 }
 
+// A page preloads the chunks of the Layouts and the route it matched, as build.json lists them,
+// outermost first and each file once, right after the head of the build. So does a page whose
+// Load failed, which shows a component of the route. An unmatched URL shows the root Layout,
+// which is part of the entry, and preloads nothing.
+func TestPagePreloadsTheModulesOfItsRoutes(t *testing.T) {
+	head := `<script type="module" src="/assets/app-1.js"></script>`
+	preloads := fstest.MapFS{
+		"build.json": {Data: []byte(`{"buildId":"b1","head":"<script type=\"module\" src=\"/assets/app-1.js\"></script>","preload":{` +
+			`"app/projects":["/assets/chunk-p.js","/assets/chunk-s.js"],"app/projects/orders":["/assets/chunk-o.js","/assets/chunk-s.js"],` +
+			`"app/login":["/assets/chunk-l&.js"],"app/gone/route":["/assets/chunk-g.js"]}}`)},
+		"ssr.js": {Data: []byte("// bundle")},
+	}
+	s := newAppServer(t, frontApp())
+	r := &renders{}
+	if err := s.setFront(preloads, r.render); err != nil {
+		t.Fatal(err)
+	}
+	link := func(files ...string) string {
+		var b strings.Builder
+		for _, f := range files {
+			b.WriteString(`<link rel="modulepreload" href="` + f + `">`)
+		}
+		return b.String()
+	}
+	orders := link("/assets/chunk-p.js", "/assets/chunk-s.js", "/assets/chunk-o.js")
+	for _, c := range []struct {
+		url, want string
+		status    int
+	}{
+		{"/projects/p1", orders, 200},
+		{"/projects/p1?site=missing", orders, 404},
+		{"/projects/broken", orders, 500},
+		{"/", "", 200},
+		{"/nowhere", "", 404},
+	} {
+		w := get(s, c.url)
+		if w.Code != c.status {
+			t.Errorf("%s: %d %s", c.url, w.Code, w.Body.String())
+		}
+		if got := r.inputs[len(r.inputs)-1].Preload; got != c.want {
+			t.Errorf("%s preloads %q, want %q", c.url, got, c.want)
+		}
+	}
+	// A page without SSR writes them into its document after the head of the build.
+	if body := get(s, "/login").Body.String(); !strings.Contains(body, head+link("/assets/chunk-l&amp;.js")+"</head>") {
+		t.Errorf("the page without SSR lacks its preload:\n%s", body)
+	}
+}
+
 func TestUnmatchedURLWithoutRootSSRCarriesNoData(t *testing.T) {
 	app := frontApp()
 	app.Layouts[0].SSR = false
