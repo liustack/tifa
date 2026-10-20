@@ -9,10 +9,12 @@
 - 有页面的应用装的 React 或 React DOM 低于 19.3.0 时，`tifa build` 和 `tifa dev` 报错停下。
 - React DOM 以外的模块代码里出现 `$$FORM_ACTION` 时，构建打印警告并写明是哪个模块，因为这样的表单拿到的键和没有插件时 React 写的不一样。
 - 浏览器里，导出 `head` 的路由模块和其他路由模块一样随路由加载，不再放在入口脚本里。示例 shop 的入口 gzip 后从 224 KB 降到 146 KB。这类模块顶层的代码改在路由第一次加载时运行，每个页面都需要的初始化应放在根 Layout 里。入口里的模块 import 了路由模块时，它留在入口里，构建打印打包器的 `INEFFECTIVE_DYNAMIC_IMPORT` 警告。
+- 地址监听不了时报错会指出是哪项配置，端口只有 root 能用时提示用 `setcap cap_net_bind_service=+ep`。
 
 ### 新增
 
 - 页面的 HTML 紧跟在构建的标签后面，用 `<link rel="modulepreload">` 预加载它的 Layout 和路由的 chunk，这些文件和入口脚本一起下载。`Load` 失败时只预加载路由器显示的那几层。`build.json` 在 `preload` 下列出这些 chunk。
+- 程序自己提供 HTTPS，默认关闭。`server.tls_domains` 向 Let's Encrypt 申请并续期证书，存在 `server.tls_cache`。`server.tls_cert` 和 `server.tls_key` 用你自己的证书，文件变了不用重启就重新加载。开了 HTTPS 时浏览器能用 HTTP/2，`server.http_addr`（`:80`）回应 Let's Encrypt 的验证，并把 HTTPS 有证书的名字用 308 跳转到 HTTPS，`server.hsts` 加上 Strict-Transport-Security。开了 HTTPS 还用默认的 `server.addr` 时拒绝启动，并提示设成 `addr: :443`，设成别的回环地址能启动但会打一行警告。`tifa dev` 仍走明文 HTTP。
 - 示例应用多了给顾客的中英文店面，在 `/store` 下：商品搜索和筛选、商品详情、购物车、结算表单，以及用 Markdown 写、代码带高亮的手记。
 
 ### 性能
