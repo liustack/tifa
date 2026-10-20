@@ -196,6 +196,10 @@ func setCookie(c *tifa.Ctx, id string) {
 
 // Add puts quantity of a product in a colour and size into the cart of the request, and returns
 // the ID of the cart.
+//
+// The catalogue keeps one stock per product, not per colour and size, and each line is held to
+// it on its own. So two lines of one product can together hold more than the stock. A shop with
+// stock per variant would check the sum of a product's lines here and in SetQuantity.
 func Add(c *tifa.Ctx, slug, color, size string, quantity int) (string, error) {
 	stock, ok := products.HasVariant(slug, color, size)
 	if !ok {
