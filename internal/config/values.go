@@ -3,9 +3,14 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/net/idna"
 )
 
 // value parses one setting from text, whatever layer the text came from.
@@ -26,6 +31,97 @@ func (v stringValue) Set(s string) error {
 }
 func (v stringValue) String() string { return *v.p }
 func (v stringValue) kind() string   { return "string" }
+
+// optionalValue is text that may be empty, which turns its setting off, also when a lower layer set it.
+type optionalValue struct{ p *string }
+
+func (v optionalValue) Set(s string) error { *v.p = s; return nil }
+func (v optionalValue) String() string     { return *v.p }
+func (v optionalValue) kind() string       { return "string" }
+
+// domainsValue is server.tls_domains: comma-separated host names, lowercased, empty for none.
+// Let's Encrypt gives certificates for names it can reach over HTTP or TLS, so wildcards (which
+// need a DNS challenge), IP addresses, ports, schemes and names without a dot are refused.
+type domainsValue struct{ p *[]string }
+
+func (v domainsValue) Set(s string) error {
+	if strings.TrimSpace(s) == "" {
+		*v.p = nil
+		return nil
+	}
+	var domains []string
+	for _, d := range strings.Split(s, ",") {
+		d = strings.ToLower(strings.TrimSpace(d))
+		switch {
+		case d == "":
+			return fmt.Errorf("empty domain in %q", s)
+		case strings.Contains(d, "*"):
+			return fmt.Errorf("%q: wildcard certificates need a DNS challenge, which tifa does not do, list each name", d)
+		case strings.Contains(d, "://") || strings.Contains(d, "/"):
+			return fmt.Errorf("%q: write the host name without a scheme or path, such as example.com", d)
+		case net.ParseIP(strings.Trim(d, "[]")) != nil:
+			return fmt.Errorf("%q: an IP address gets no certificate this way, use a domain name", d)
+		case strings.Contains(d, ":"):
+			return fmt.Errorf("%q: write the host name without a port, such as example.com", d)
+		}
+		// A final dot names the same domain, and browsers do not send it.
+		name := strings.TrimSuffix(d, ".")
+		if !strings.Contains(name, ".") {
+			return fmt.Errorf("%q: a domain needs a dot, such as example.com", d)
+		}
+		if slices.Contains(strings.Split(name, "."), "") {
+			return fmt.Errorf("%q: a domain has no empty parts between dots", d)
+		}
+		// autocert compares names in this ASCII form, and drops the ones that do not convert.
+		ascii, err := idna.Lookup.ToASCII(name)
+		if err != nil {
+			return fmt.Errorf("%q is not a valid domain name: %v", d, err)
+		}
+		domains = append(domains, ascii)
+	}
+	*v.p = domains
+	return nil
+}
+func (v domainsValue) String() string { return strings.Join(*v.p, ",") }
+func (v domainsValue) kind() string   { return "string" }
+
+// caValue is server.tls_ca, the https URL of an ACME directory.
+type caValue struct{ p *string }
+
+func (v caValue) Set(s string) error {
+	u, err := url.Parse(s)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return fmt.Errorf("invalid ACME directory %q, use an https URL such as %s", s, LetsEncrypt)
+	}
+	*v.p = s
+	return nil
+}
+func (v caValue) String() string { return *v.p }
+func (v caValue) kind() string   { return "string" }
+
+// httpAddrValue is server.http_addr: an address with a port, or off. Words that read as a
+// switch fail with what to write, as for build.pgo.
+type httpAddrValue struct{ p *string }
+
+func (v httpAddrValue) Set(s string) error {
+	switch strings.ToLower(s) {
+	case "off":
+		if s != "off" {
+			return fmt.Errorf("%q is not a value, to turn it off, write off", s)
+		}
+		*v.p = s
+		return nil
+	case "false", "no", "none", "disable", "disabled", "0":
+		return fmt.Errorf("%q is not a value, to turn it off, write off", s)
+	}
+	if _, _, err := net.SplitHostPort(s); err != nil {
+		return fmt.Errorf("invalid address %q, use a host and port such as :80 or 0.0.0.0:80, or off", s)
+	}
+	*v.p = s
+	return nil
+}
+func (v httpAddrValue) String() string { return *v.p }
+func (v httpAddrValue) kind() string   { return "string" }
 
 // intValue is a whole number of at least min and, when max is not 0, at most max. why says what
 // goes wrong above max.

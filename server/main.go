@@ -49,6 +49,9 @@ func run(ctx context.Context, app App, args, environ []string, stdout, stderr io
 		if err != nil {
 			return err
 		}
+		if dev != nil {
+			cfg.Server = withoutHTTPS(cfg.Server)
+		}
 		s := New(cfg, app.Hooks)
 		s.register(app.Layouts, app.Routes)
 		if dist, err := frontFiles(app, distDir); err != nil {
@@ -121,6 +124,15 @@ func frontFiles(app App, dir string) (fs.FS, error) {
 		return nil, nil
 	}
 	return fs.Sub(app.Dist, "dist")
+}
+
+// withoutHTTPS turns off the HTTPS settings for tifa dev, whose proxy talks to the app over
+// plain HTTP. Certificates of the deployment have no place on the machine of a developer.
+func withoutHTTPS(c config.Server) config.Server {
+	d := config.Default().Server
+	c.TLSDomains, c.TLSEmail, c.TLSCache, c.TLSCA = d.TLSDomains, d.TLSEmail, d.TLSCache, d.TLSCA
+	c.TLSCert, c.TLSKey, c.HTTPAddr, c.HSTS = d.TLSCert, d.TLSKey, d.HTTPAddr, d.HSTS
+	return c
 }
 
 func loadConfig(fs *pflag.FlagSet, app App, environ []string) (config.Config, error) {

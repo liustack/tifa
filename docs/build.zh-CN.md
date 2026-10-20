@@ -194,11 +194,13 @@ tifa 插件在 SSR 包里改造四个 npm 包。它按代码的结构或文字�
 - 列表在构建时生成，启动时读一次，渲染不为它做 I/O。链接由构建和匹配到的路径决定，所以 ETag 和 HTML 缓存照旧。
 - tifa dev 不写列表，也不写链接。
 
-tifa 只提供 HTTP/1.1：它在普通 TCP 上监听，而浏览器只在 TLS 上用 HTTP/2。走 HTTP/1.1 时浏览器对一个主机最多开 6 个连接，页面要的文件每多 6 个，大约多等一个往返。前面有和浏览器讲 HTTP/2 的代理或 CDN 时，这些文件共用一个连接，个数的影响小得多。数一数页面的 `modulepreload` 链接，就知道它除入口脚本外还要几个文件。
+不开 [HTTPS](config.zh-CN.md#https) 时，tifa 在普通 TCP 上只提供 HTTP/1.1，而浏览器只在 TLS 上用 HTTP/2。走 HTTP/1.1 时浏览器对一个主机最多开 6 个连接，页面要的文件每多 6 个，大约多等一个往返。开了 HTTPS，或者前面有和浏览器讲 HTTP/2 的代理或 CDN 时，这些文件共用一个连接，个数的影响小得多。数一数页面的 `modulepreload` 链接，就知道它除入口脚本外还要几个文件。
 
 `examples/shop` 用它自己的程序走 HTTP/1.1 提供服务，在 Chrome 的网络节流下测量：页面完成 hydration 不晚于导出 `head` 的路由模块还在入口脚本里的时候，往返 150 ms、9 Mbit/s 时早 11 到 192 ms，往返 40 ms、20 Mbit/s 时早 4 到 77 ms。首次绘制晚 8 到 24 ms，因为样式表要和更多文件分带宽。经本机的 HTTP/2 代理时，hydration 在晚 3 ms 到早 159 ms 之间，首次绘制晚 8 到 48 ms，因为所有文件一开始就共用一个连接。
 
-路由之间共用代码的组合多的应用，每个页面要的文件也多。在示例 shop 基础上做的一个共 10 个页面的商店里，商品页除入口脚本外要 20 个文件，订单页要 17 个。由 tifa 自己走 HTTP/1.1 提供服务、往返 150 ms 时，这两页完成 hydration 比导出 `head` 的路由模块还在入口脚本里时晚 100 ms 和 58 ms。往返 40 ms 时，以及两档都经 HTTP/2 时，它们更早完成。这样的应用前面应放一个和浏览器讲 HTTP/2 的代理或 CDN。
+路由之间共用代码的组合多的应用，每个页面要的文件也多。在示例 shop 基础上做的一个共 10 个页面的商店里，商品页除入口脚本外要 20 个文件，订单页要 17 个。由 tifa 自己走 HTTP/1.1 提供服务、往返 150 ms 时，这两页完成 hydration 比导出 `head` 的路由模块还在入口脚本里时晚 100 ms 和 58 ms。往返 40 ms 时，以及两档都经 HTTP/2 时，它们更早完成。这样的应用应该走 [HTTPS](config.zh-CN.md#https)，或者在前面放一个和浏览器讲 HTTP/2 的代理或 CDN。
+
+`examples/shop` 自己的页面在 hydration 前只加载 9 个脚本，文件太少，共用一条连接带来的差别显不出来：由它自己的程序走 HTTPS 和 HTTP/2 提供服务时，往返 150 ms 下 hydration 比明文 HTTP/1.1 晚 6 到 32 ms，往返 40 ms 下在早 7 ms 到晚 6 ms 之间。
 
 ## 路由树
 
@@ -279,7 +281,7 @@ React 和 React DOM 至少要 19.3.0。Vite 插件是按 19.3 的写法改写 Re
 
 | 命令 | 作用 |
 | --- | --- |
-| `serve`（默认） | 加载配置，执行 `OnStart`，监听，收到 SIGINT 或 SIGTERM 后优雅退出并执行 `OnShutdown` |
+| `serve`（默认） | 加载配置，开了 [HTTPS](config.zh-CN.md#https) 时先把它准备好，执行 `OnStart`，监听 `server.addr`（开了 HTTPS 时还有 `server.http_addr`），收到 SIGINT 或 SIGTERM 后优雅退出并执行 `OnShutdown`。两个地址一起停止接收新连接，一起把在途请求处理完 |
 | `config` | 按全部配置层合并后，输出带注释的部署配置文件 |
 | `version` | 输出应用模块、tifa 模块与 Go 的版本 |
 

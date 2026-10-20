@@ -9,10 +9,12 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 - `tifa build` and `tifa dev` stop with an error when an app with pages installs React or React DOM older than 19.3.0.
 - The build prints a warning that names each module outside React DOM with `$$FORM_ACTION` in its code, since such a form gets a different key than React writes without the plugin.
 - In the browser, route modules that export `head` load with their routes, as other route modules did, instead of being part of the entry script. The example shop's entry went from 224 KB to 146 KB with gzip. Code at the top level of such a module now runs when its route first loads, so setup that every page needs belongs in the root Layout. A module of the entry that imports a route module keeps it in the entry, with the bundler's `INEFFECTIVE_DYNAMIC_IMPORT` warning.
+- An address that cannot be listened on names its setting, and a port only root may take says to use `setcap cap_net_bind_service=+ep`.
 
 ### Added
 
 - The HTML of a page preloads the chunks of its Layouts and route with `<link rel="modulepreload">` right after the tags of the build, so they download alongside the entry script. When a `Load` fails, it preloads only the levels the router shows. `build.json` lists the chunks under `preload`.
+- HTTPS from the program itself, off by default. `server.tls_domains` gets and renews certificates from Let's Encrypt, kept in `server.tls_cache`. `server.tls_cert` and `server.tls_key` serve your own certificate and load it again when the files change, without a restart. With HTTPS on, browsers get HTTP/2, `server.http_addr` (`:80`) answers Let's Encrypt and redirects the names HTTPS has a certificate for to HTTPS with 308, and `server.hsts` adds Strict-Transport-Security. HTTPS on the default `server.addr` refuses to start and says to set `addr: :443`, and another loopback address starts with a warning. `tifa dev` stays on plain HTTP.
 - The example app has a storefront for customers in Chinese and English under `/store`: product search and filters, product pages, a cart, a checkout form, and a journal written in Markdown with highlighted code.
 
 ### Performance

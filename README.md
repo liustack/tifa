@@ -36,7 +36,7 @@ So I started hacking on tifa. Once it is done, deploying should mean copying one
 
 | On a 1 CPU / 1 GB VPS | The usual stack | With tifa |
 | :-- | :-- | :-- |
-| Reverse proxy | nginx | The Go HTTP server in the binary |
+| Reverse proxy and certificates | nginx + certbot | The Go HTTP server in the binary, which gets its own Let's Encrypt certificate and speaks HTTP/2 |
 | Runtime and process manager | Node.js + PM2 | One Go executable |
 | React SSR | TanStack Start | TanStack Router, rendered by a pure Go QuickJS inside the Go process |
 | Cache | Redis | An in-process HTML cache, plus whatever you keep in Go memory |
@@ -122,7 +122,7 @@ go tool tifa build
 | [Writing an app](docs/app.md) | Laying out folders, routes, Layouts, hooks, 404 pages, head tags and caching |
 | [Build and run](docs/build.md) | You want to know what `tifa build` generates and how the program answers requests |
 | [Dev server](docs/dev.md) | Running `tifa dev` locally, or a change did not reload |
-| [Configuration](docs/config.md) | Deploying: the port, body limit, VMs, render timeout and page cache |
+| [Configuration](docs/config.md) | Deploying: the port, HTTPS, body limit, VMs, render timeout and page cache |
 | [Performance](docs/performance.md) | You want to know whether a small VPS can carry your traffic |
 | [Research studies](docs/studies/README.md) | You want the full method and data behind a number, or to see whether an idea was already tried |
 | [Testing](docs/testing.md) | Contributing to tifa itself |

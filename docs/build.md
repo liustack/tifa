@@ -194,11 +194,13 @@ The entry script holds all the code every page loads. The tifa plugin gives roll
 - The list is made at build time and read once at startup, so a render does no I/O for it. The links follow from the build and the matched path, so ETags and the HTML cache work as before.
 - tifa dev writes no list and no links.
 
-tifa serves HTTP/1.1 only: it listens on plain TCP, and browsers speak HTTP/2 only over TLS. Over HTTP/1.1 a browser opens at most 6 connections to a host, so a page waits about one more round trip for every 6 files it needs. Behind a proxy or CDN that speaks HTTP/2 to the browser, the files share one connection and their number matters much less. Count the `modulepreload` links of a page to see how many files it needs besides the entry script.
+Without [HTTPS](config.md#https) tifa serves HTTP/1.1 on plain TCP, and browsers speak HTTP/2 only over TLS. Over HTTP/1.1 a browser opens at most 6 connections to a host, so a page waits about one more round trip for every 6 files it needs. With HTTPS on, or behind a proxy or CDN that speaks HTTP/2 to the browser, the files share one connection and their number matters much less. Count the `modulepreload` links of a page to see how many files it needs besides the entry script.
 
 On `examples/shop`, measured with Chrome's network throttling against its own program over HTTP/1.1, pages hydrate as soon as or sooner than when the route modules that export `head` were part of the entry script: 11 to 192 ms sooner at 150 ms round trips and 9 Mbit/s, 4 to 77 ms sooner at 40 ms and 20 Mbit/s. They paint 8 to 24 ms later, because the stylesheet shares the link with more files. Through a local HTTP/2 proxy they hydrate between 3 ms later and 159 ms sooner, and paint 8 to 48 ms later, since all files then share one connection from the start.
 
-An app whose routes share code in many combinations needs more files per page. On a store of 10 pages built on the example shop, a product page needs 20 files besides the entry script and an order page 17. Served by tifa itself over HTTP/1.1 at 150 ms round trips, these pages hydrate 100 and 58 ms later than when the route modules that export `head` were part of the entry script. At 40 ms round trips, and through HTTP/2 at both, they hydrate sooner. Put a proxy or CDN that speaks HTTP/2 to the browser in front of such an app.
+An app whose routes share code in many combinations needs more files per page. On a store of 10 pages built on the example shop, a product page needs 20 files besides the entry script and an order page 17. Served by tifa itself over HTTP/1.1 at 150 ms round trips, these pages hydrate 100 and 58 ms later than when the route modules that export `head` were part of the entry script. At 40 ms round trips, and through HTTP/2 at both, they hydrate sooner. Serve such an app over [HTTPS](config.md#https), or put a proxy or CDN that speaks HTTP/2 to the browser in front of it.
+
+The pages of `examples/shop` itself load 9 scripts before they hydrate, too few for one connection to make a difference: served by its own program over HTTPS and HTTP/2, they hydrate 6 to 32 ms later than over plain HTTP/1.1 at 150 ms round trips, and between 7 ms sooner and 6 ms later at 40 ms.
 
 ## Route tree
 
@@ -279,7 +281,7 @@ Defined in `js/runtime/data.ts`. The Go side implements it:
 
 | Command | What it does |
 | --- | --- |
-| `serve` (default) | Loads the config, runs `OnStart`, listens, and on SIGINT or SIGTERM shuts down gracefully and runs `OnShutdown` |
+| `serve` (default) | Loads the config, sets up [HTTPS](config.md#https) when it is on, runs `OnStart`, listens on `server.addr` (and with HTTPS on `server.http_addr`), and on SIGINT or SIGTERM shuts down gracefully and runs `OnShutdown`. Both addresses stop accepting and finish their requests together |
 | `config` | Prints a commented deployment config file, merged from all config layers |
 | `version` | Prints the versions of the app module, the tifa module and Go |
 

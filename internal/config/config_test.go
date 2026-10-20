@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -156,7 +157,7 @@ func TestNoFilesGivesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c != Default() {
+	if !reflect.DeepEqual(c, Default()) {
 		t.Fatalf("%+v", c)
 	}
 }
@@ -233,7 +234,7 @@ func TestExampleLoadsBackToSameValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != c {
+	if !reflect.DeepEqual(got, c) {
 		t.Fatalf("round trip changed values:\n%+v\n%+v", got, c)
 	}
 }
@@ -290,7 +291,7 @@ func TestFileMustHoldOneDocument(t *testing.T) {
 }
 
 func TestKeysListEverySetting(t *testing.T) {
-	want := "build.target build.public build.skip_tanstack_check build.pgo server.addr server.body_limit server.shutdown_timeout server.compress ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout cache.size"
+	want := "build.target build.public build.skip_tanstack_check build.pgo server.addr server.body_limit server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout cache.size"
 	if got := strings.Join(Keys(), " "); got != want {
 		t.Fatalf("Keys: %s, want %s", got, want)
 	}
@@ -379,5 +380,171 @@ func TestVMStackDepth(t *testing.T) {
 	_, err = load(t, nil, []string{"TIFA_SSR_VM_STACK_DEPTH=0"}, "", "")
 	if err == nil || !strings.Contains(err.Error(), "ssr.vm_stack_depth") || !strings.Contains(err.Error(), "below the minimum 1") {
 		t.Fatalf("0: %v", err)
+	}
+}
+
+// HTTPS is off unless server.tls_domains or server.tls_cert is set, so a program behind a proxy
+// or CDN serves plain HTTP on server.addr as before.
+func TestHTTPSIsOffByDefault(t *testing.T) {
+	s := Default().Server
+	if s.HTTPS() || s.TLSDomains != nil || s.TLSCert != "" || s.TLSKey != "" || s.TLSEmail != "" || s.TLSCache != "" || s.HSTS {
+		t.Fatalf("defaults turn HTTPS on: %+v", s)
+	}
+	if s.TLSCA != "https://acme-v02.api.letsencrypt.org/directory" || s.HTTPAddr != ":80" {
+		t.Fatalf("tls_ca %q, http_addr %q", s.TLSCA, s.HTTPAddr)
+	}
+	if err := s.CheckHTTPS(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHTTPSSettingsComeFromEveryLayer(t *testing.T) {
+	c, err := load(t, nil, []string{"TIFA_SERVER_TLS_DOMAINS=example.com, www.Example.com"}, "tifa.yaml",
+		"server:\n  addr: :443\n  tls_cache: /var/lib/app/certs\n  tls_email: ops@example.com\n  http_addr: off\n  hsts: true\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := c.Server
+	if !reflect.DeepEqual(s.TLSDomains, []string{"example.com", "www.example.com"}) || s.TLSCache != "/var/lib/app/certs" ||
+		s.TLSEmail != "ops@example.com" || s.HTTPAddr != "off" || !s.HSTS || !s.HTTPS() {
+		t.Fatalf("%+v", s)
+	}
+	if err := s.CheckHTTPS(); err != nil {
+		t.Fatal(err)
+	}
+	c, err = load(t, []string{"--server-addr", ":443", "--server-tls-cert", "cert.pem", "--server-tls-key", "key.pem"}, nil, "", "")
+	if err != nil || c.Server.TLSCert != "cert.pem" || c.Server.TLSKey != "key.pem" || !c.Server.HTTPS() || c.Server.CheckHTTPS() != nil {
+		t.Fatalf("own files: %+v, %v", c.Server, err)
+	}
+	// An empty value from a higher layer turns off what a lower one set, so a deployment can
+	// use its own files where the project file asks for Let's Encrypt.
+	c, err = load(t, []string{"--server-addr", ":443", "--server-tls-cert", "cert.pem", "--server-tls-key", "key.pem"},
+		[]string{"TIFA_SERVER_TLS_DOMAINS=", "TIFA_SERVER_TLS_CACHE="}, "tifa.yaml", "server:\n  tls_domains: example.com\n  tls_cache: certs\n")
+	if err != nil || c.Server.TLSDomains != nil || c.Server.CheckHTTPS() != nil {
+		t.Fatalf("unset domains: %+v, %v", c.Server, err)
+	}
+}
+
+func TestHTTPSSettingsThatDoNotGoTogetherFail(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		yaml  string
+		wants []string
+	}{
+		{"both kinds", "tls_domains: example.com\n  tls_cache: certs\n  tls_cert: c.pem\n  tls_key: k.pem\n", []string{"server.tls_domains", "server.tls_cert", "only one"}},
+		{"cert alone", "tls_cert: c.pem\n", []string{"server.tls_cert", "server.tls_key"}},
+		{"key alone", "tls_key: k.pem\n", []string{"server.tls_key", "server.tls_cert"}},
+		{"no cache", "tls_domains: example.com\n", []string{"server.tls_domains", "server.tls_cache", "restarts"}},
+		{"email alone", "tls_email: ops@example.com\n", []string{"server.tls_email", "server.tls_domains"}},
+		{"cache alone", "tls_cache: certs\n", []string{"server.tls_cache", "server.tls_domains"}},
+		{"cache with own files", "tls_cert: c.pem\n  tls_key: k.pem\n  tls_cache: certs\n", []string{"server.tls_cache", "server.tls_domains"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// A project file may leave out what the deployment adds, so it loads and only
+			// CheckHTTPS, which serve calls, fails.
+			c, err := load(t, nil, nil, "tifa.yaml", "server:\n  "+tc.yaml)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = c.Server.CheckHTTPS()
+			if err == nil {
+				t.Fatal("accepted")
+			}
+			for _, want := range tc.wants {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("%v lacks %q", err, want)
+				}
+			}
+		})
+	}
+}
+
+func TestBadHTTPSValuesFailWithTheirLayer(t *testing.T) {
+	for _, tc := range []struct{ env, want string }{
+		{"TIFA_SERVER_TLS_DOMAINS=*.example.com", "wildcard"},
+		{"TIFA_SERVER_TLS_DOMAINS=https://example.com", "scheme"},
+		{"TIFA_SERVER_TLS_DOMAINS=example.com:443", "port"},
+		{"TIFA_SERVER_TLS_DOMAINS=203.0.113.7", "IP address"},
+		{"TIFA_SERVER_TLS_DOMAINS=localhost", "dot"},
+		{"TIFA_SERVER_TLS_DOMAINS=example.com,,www.example.com", "empty"},
+		{"TIFA_SERVER_TLS_CA=http://acme.example.com/directory", "https"},
+		{"TIFA_SERVER_HSTS=yes please", "server.hsts"},
+	} {
+		name, _, _ := strings.Cut(tc.env, "=")
+		_, err := load(t, nil, []string{tc.env}, "", "")
+		if err == nil || !strings.Contains(err.Error(), "env "+name) || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: %v", tc.env, err)
+		}
+	}
+}
+
+func TestExampleHoldsTheHTTPSSettings(t *testing.T) {
+	c := Default()
+	c.Server.TLSDomains = []string{"example.com", "www.example.com"}
+	c.Server.TLSCache = "/var/lib/app/certs"
+	c.Server.HTTPAddr = "off"
+	example := Example(c)
+	for _, want := range []string{`tls_domains: "example.com,www.example.com"`, "TIFA_SERVER_TLS_CERT", `tls_cert: ""`, `http_addr: "off"`, "hsts: false"} {
+		if !strings.Contains(string(example), want) {
+			t.Errorf("example lacks %q:\n%s", want, example)
+		}
+	}
+	got, err := load(t, []string{"--config", writeFile(t, "example.yaml", string(example))}, nil, "", "")
+	if err != nil || !reflect.DeepEqual(got, c) {
+		t.Fatalf("round trip: %+v, %v", got.Server, err)
+	}
+}
+
+// Domains are stored the way autocert compares them, in ASCII without a final dot: a name
+// HostWhitelist cannot convert would otherwise be dropped without a word, and a final dot would
+// never match the name a browser sends.
+func TestTLSDomainsAreStoredAsASCII(t *testing.T) {
+	c, err := load(t, nil, []string{"TIFA_SERVER_TLS_DOMAINS=Example.com., bücher.example, www.example.com"}, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"example.com", "xn--bcher-kva.example", "www.example.com"}; !reflect.DeepEqual(c.Server.TLSDomains, want) {
+		t.Fatalf("%q, want %q", c.Server.TLSDomains, want)
+	}
+	for _, bad := range []string{"a_b.example.com", "-x.example.com", "exa mple.com", "example..com", "example.com.."} {
+		_, err := load(t, nil, []string{"TIFA_SERVER_TLS_DOMAINS=" + bad}, "", "")
+		if err == nil || !strings.Contains(err.Error(), "server.tls_domains") {
+			t.Errorf("%q: %v", bad, err)
+		}
+	}
+}
+
+// server.http_addr is an address or off, in lower case like the other words of the settings.
+func TestHTTPAddrIsAnAddressOrOff(t *testing.T) {
+	for _, good := range []string{":80", "0.0.0.0:80", "[::]:8080", "off"} {
+		c, err := load(t, nil, []string{"TIFA_SERVER_HTTP_ADDR=" + good}, "", "")
+		if err != nil || c.Server.HTTPAddr != good {
+			t.Errorf("%q: %q, %v", good, c.Server.HTTPAddr, err)
+		}
+	}
+	for _, tc := range []struct{ value, want string }{
+		{"OFF", "write off"}, {"false", "write off"}, {"none", "write off"}, {"80", "such as :80"}, {"example.com", "such as :80"},
+	} {
+		_, err := load(t, nil, []string{"TIFA_SERVER_HTTP_ADDR=" + tc.value}, "", "")
+		if err == nil || !strings.Contains(err.Error(), "server.http_addr") || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%q: %v", tc.value, err)
+		}
+	}
+}
+
+// With HTTPS on, server.addr must be set: the default only listens on the loopback, where no
+// browser and no Let's Encrypt reaches it. An address set by hand, loopback or not, is kept.
+func TestHTTPSNeedsServerAddr(t *testing.T) {
+	c, err := load(t, nil, []string{"TIFA_SERVER_TLS_CERT=c.pem", "TIFA_SERVER_TLS_KEY=k.pem"}, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = c.Server.CheckHTTPS()
+	if err == nil || !strings.Contains(err.Error(), "server.addr") || !strings.Contains(err.Error(), ":443") {
+		t.Fatalf("default addr: %v", err)
+	}
+	c.Server.Addr = "127.0.0.1:8443"
+	if err := c.Server.CheckHTTPS(); err != nil {
+		t.Fatalf("loopback set by hand: %v", err)
 	}
 }

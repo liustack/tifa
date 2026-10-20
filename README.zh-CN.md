@@ -38,7 +38,7 @@
 
 | 在 1 核 1G 的 VPS 上 | 常见的一套 | 用 tifa |
 | :-- | :-- | :-- |
-| 反向代理 | nginx | 二进制里自带的 Go HTTP 服务 |
+| 反向代理与证书 | nginx + certbot | 程序里的 Go HTTP 服务器，自己申请 Let's Encrypt 证书，支持 HTTP/2 |
 | 运行时与进程管理 | Node.js + PM2 | 一个 Go 可执行文件 |
 | React SSR | TanStack Start | TanStack Router，由 Go 进程内的纯 Go QuickJS 渲染 |
 | 缓存 | Redis | 进程内的 HTML 缓存，以及你放在 Go 内存里的数据 |
@@ -122,7 +122,7 @@ go tool tifa build
 | [应用怎么写](docs/app.zh-CN.md) | 安排目录、路由、Layout、钩子、404、head 标签和缓存 |
 | [构建与运行](docs/build.zh-CN.md) | 想知道 `tifa build` 生成了什么，程序怎么回答请求 |
 | [开发服务器](docs/dev.zh-CN.md) | 在本地跑 `tifa dev`，或者改了代码没有刷新 |
-| [配置](docs/config.zh-CN.md) | 部署时改端口、请求体上限、VM 数、渲染超时和页面缓存 |
+| [配置](docs/config.zh-CN.md) | 部署时改端口、HTTPS、请求体上限、VM 数、渲染超时和页面缓存 |
 | [性能](docs/performance.zh-CN.md) | 想知道一台小 VPS 扛不扛得住你的流量 |
 | [研究报告](docs/studies/README.md) | 想看某个数字背后完整的方法和数据，或者某个想法有没有人试过（英文） |
 | [测试](docs/testing.md) | 参与 tifa 本身的开发（英文） |

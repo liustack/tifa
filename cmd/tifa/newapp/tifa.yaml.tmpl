@@ -16,6 +16,14 @@
 #   body_limit: 1MiB        # largest request body, a bigger one gets 413
 #   shutdown_timeout: 10s   # after a stop signal, time for requests in flight, then for OnShutdown
 #   compress: true          # gzip or zstd for text answers, false when a proxy in front compresses
+#   tls_domains: ""         # HTTPS with Let's Encrypt certificates for these domains, such as example.com,www.example.com
+#   tls_email: ""           # contact address given to Let's Encrypt, optional
+#   tls_cache: ""           # folder that keeps those certificates across restarts, needed with tls_domains
+#   tls_ca: https://acme-v02.api.letsencrypt.org/directory  # where tls_domains get their certificates
+#   tls_cert: ""            # HTTPS with your own certificate file (PEM) instead, reloaded when it changes
+#   tls_key: ""             # private key file of tls_cert
+#   http_addr: ":80"        # with HTTPS: plain HTTP that answers Let's Encrypt and redirects, off for none
+#   hsts: false             # true tells browsers to keep to HTTPS for a year
 
 # ssr:
 #   vms: 4                  # example: pages that render at once, one JavaScript VM each (default: GOMAXPROCS)

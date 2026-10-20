@@ -48,7 +48,50 @@ type Server struct {
 	// Compress sends text answers with gzip or zstd to clients that accept them, and the
 	// browser bundle as the files tifa build compressed.
 	Compress bool
+
+	// HTTPS is on when TLSDomains or TLSCert is set, see HTTPS and CheckHTTPS. TLSDomains get
+	// certificates from the ACME server at TLSCA (Let's Encrypt), kept in the folder TLSCache.
+	// TLSCert and TLSKey are PEM files of the app's own certificate.
+	TLSDomains []string
+	TLSEmail   string
+	TLSCache   string
+	TLSCA      string
+	TLSCert    string
+	TLSKey     string
+	// HTTPAddr is the plain HTTP address that answers the http-01 challenges of the ACME server
+	// and redirects everything else to HTTPS, "off" for none. It is only used with HTTPS on.
+	HTTPAddr string
+	// HSTS adds Strict-Transport-Security to the answers of Addr.
+	HSTS bool
 }
+
+// HTTPS reports whether Addr serves HTTPS.
+func (s Server) HTTPS() bool { return len(s.TLSDomains) > 0 || s.TLSCert != "" || s.TLSKey != "" }
+
+// CheckHTTPS reports settings of HTTPS that do not go together. Load does not call it, since
+// a project file may leave out what the deployment adds: serve calls it on the merged settings.
+func (s Server) CheckHTTPS() error {
+	switch {
+	case len(s.TLSDomains) > 0 && (s.TLSCert != "" || s.TLSKey != ""):
+		return errors.New("config: server.tls_domains and server.tls_cert both turn on HTTPS, one with certificates from Let's Encrypt, the other with your own files: set only one")
+	case s.TLSCert != "" && s.TLSKey == "":
+		return errors.New("config: server.tls_cert needs server.tls_key, the file of its private key")
+	case s.TLSKey != "" && s.TLSCert == "":
+		return errors.New("config: server.tls_key needs server.tls_cert, the file of its certificate")
+	case len(s.TLSDomains) > 0 && s.TLSCache == "":
+		return errors.New("config: server.tls_domains needs server.tls_cache, a folder that keeps the certificates across restarts, such as /var/lib/app/certs. Without it every start asks Let's Encrypt again and soon hits its limit of 5 certificates a week")
+	case len(s.TLSDomains) == 0 && s.TLSEmail != "":
+		return errors.New("config: server.tls_email is only used with server.tls_domains")
+	case len(s.TLSDomains) == 0 && s.TLSCache != "":
+		return errors.New("config: server.tls_cache is only used with server.tls_domains")
+	case s.HTTPS() && s.Addr == DefaultAddr:
+		return fmt.Errorf("config: HTTPS is on, but server.addr is still the default %s, which only this machine reaches: set it to the address browsers connect to, usually addr: :443", DefaultAddr)
+	}
+	return nil
+}
+
+// LetsEncrypt is the ACME directory of Let's Encrypt, the default server.tls_ca.
+const LetsEncrypt = "https://acme-v02.api.letsencrypt.org/directory"
 
 type SSR struct {
 	VMs      int
@@ -76,7 +119,7 @@ const DefaultAddr = "127.0.0.1:9527"
 func Default() Config {
 	return Config{
 		Build:  Build{Target: "es2020", Public: "public", PGO: "auto"},
-		Server: Server{Addr: DefaultAddr, BodyLimit: 1 << 20, ShutdownTimeout: 10 * time.Second, Compress: true},
+		Server: Server{Addr: DefaultAddr, BodyLimit: 1 << 20, ShutdownTimeout: 10 * time.Second, Compress: true, TLSCA: LetsEncrypt, HTTPAddr: ":80"},
 		SSR:    SSR{VMs: runtime.GOMAXPROCS(0), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second},
 		Cache:  Cache{Size: 64 << 20},
 	}
@@ -106,6 +149,14 @@ func fields(c *Config) []field {
 		{"server.body_limit", "Request body limit", sizeValue{&c.Server.BodyLimit, 1}},
 		{"server.shutdown_timeout", "Time allowed for in-flight requests, and then for OnShutdown, after a stop signal", durationValue{&c.Server.ShutdownTimeout}},
 		{"server.compress", "Compress text answers and send the compressed browser bundle", boolValue{&c.Server.Compress}},
+		{"server.tls_domains", "Serve HTTPS with Let's Encrypt certificates for these comma-separated domains", domainsValue{&c.Server.TLSDomains}},
+		{"server.tls_email", "Contact address given to Let's Encrypt, optional", optionalValue{&c.Server.TLSEmail}},
+		{"server.tls_cache", "Folder that keeps the certificates of tls_domains across restarts", optionalValue{&c.Server.TLSCache}},
+		{"server.tls_ca", "ACME directory URL that tls_domains get their certificates from", caValue{&c.Server.TLSCA}},
+		{"server.tls_cert", "Serve HTTPS with this certificate file (PEM), reloaded when it changes", optionalValue{&c.Server.TLSCert}},
+		{"server.tls_key", "Private key file (PEM) of tls_cert", optionalValue{&c.Server.TLSKey}},
+		{"server.http_addr", "With HTTPS, plain HTTP address that answers Let's Encrypt and redirects to HTTPS, off for none", httpAddrValue{&c.Server.HTTPAddr}},
+		{"server.hsts", "Send Strict-Transport-Security, so browsers keep to HTTPS for a year", boolValue{&c.Server.HSTS}},
 		{"ssr.vms", "Prewarmed JavaScript VMs, defaults to GOMAXPROCS (the CPU limit in containers)", intValue{p: &c.SSR.VMs, min: 1}},
 		{"ssr.vm_memory", "Memory limit of each VM", sizeValue{&c.SSR.VMMemory, 1}},
 		{"ssr.vm_stack_depth", "How deep JavaScript calls may nest in each VM, at most 10000", intValue{p: &c.SSR.VMStackDepth, min: 1, max: MaxVMStackDepth,
