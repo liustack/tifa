@@ -10,6 +10,7 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 - The build prints a warning that names each module outside React DOM with `$$FORM_ACTION` in its code, since such a form gets a different key than React writes without the plugin.
 - In the browser, route modules that export `head` load with their routes, as other route modules did, instead of being part of the entry script. The example shop's entry went from 224 KB to 146 KB with gzip. Code at the top level of such a module now runs when its route first loads, so setup that every page needs belongs in the root Layout. A module of the entry that imports a route module keeps it in the entry, with the bundler's `INEFFECTIVE_DYNAMIC_IMPORT` warning.
 - An address that cannot be listened on names its setting, and a port only root may take says to use `setcap cap_net_bind_service=+ep`.
+- A panic in the render of a `Cache = true` page reaches `OnRequest` and `OnError` as an error of the render, `tifa: render page: tifa: panic: ...`, with the stack of the render, rather than the plain `tifa: panic: ...` it gave before, which a panic in a `Load` still gives. Under `tifa dev` its error page says the request failed while rendering on the server, not only that it failed.
 
 ### Added
 
@@ -25,6 +26,7 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 - The data of a route whose `Load` returns an array, such as a slice, now goes into the page as the JSON text Go wrote, as objects already did. A table of 1,000 rows takes 39% less time to render. When seroval's code has another form, the build prints a warning and pages render as before.
 - Go writes characters above U+FFFF, such as emoji, in the data it gives the render as the escapes of their surrogate pairs, so one emoji no longer makes the shop's order list render 9% slower. The browser reads the same values.
 - quickjs v0.26.16: without PGO, two of its changes make renders take 0.971 of the time of v0.26.15, and the other three take 0.955 of that, with the same HTML. Each VM keeps the shapes of recent objects and a cache of freed small blocks for reuse, so it holds about 0.7 MiB more after a garbage collection, 647 KiB of it for the shapes. Pages that make many objects whose keys no other object has can make the shapes take up to about 6 MiB. The shapes count against `ssr.vm_memory`.
+- Requests for a `Cache = true` page that miss the cache at the same time with the same data share one render, so a burst on a cold page, such as right after a deploy, renders it once. Each request keeps its own headers and gets its own encoding, the render compresses the page once for all of them, a failed render is the answer of every request that waited for it, and the requests that took the render another one started carry `X-Tifa-Render: shared`. A request whose client goes away while it waits has its connection cut, with no answer sent and no call to `OnError`. A render that fails once no request waits for it is logged. 50 requests at once for a cold order page of the shop took 50 renders and 146 to 221 ms before, and now take one render and 30 to 52 ms.
 
 ### Fixed
 

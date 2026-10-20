@@ -205,8 +205,17 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, pattern string, p
 // fail turns the error OnRequest returned into a response. Redirects, ErrNotFound and
 // tifa.Error are expected results and skip OnError. page answers with an HTML page instead of
 // JSON. A failed Load that OnRequest returned unchanged keeps the results of every loaded
-// route: a data request answers them by route, a page renders with them.
+// route: a data request answers them by route, a page renders with them. A request whose client
+// went away while it waited for a shared render (errClientGone) has its connection cut.
 func (s *Server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
+	if errors.Is(err, errClientGone) {
+		// Nothing has been written. Returning would let net/http send an empty 200 with the
+		// page's ETag, which a browser or a CDN could keep, as the client may still be there
+		// (it only half-closed, or middleware canceled the context). ErrAbortHandler cuts the
+		// connection, or resets the stream over HTTP/2, without a log line. OnRequest has
+		// returned, so recovered does not see it, and it passes recovered anyway.
+		panic(http.ErrAbortHandler)
+	}
 	r := c.Request()
 	var failure *loadFailure
 	var items map[string]routeResult
