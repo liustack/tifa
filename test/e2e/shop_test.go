@@ -95,6 +95,11 @@ func TestShopApp(t *testing.T) {
 	if strings.Contains(stats, "recharts") {
 		t.Error("stats page: recharts rendered on the server")
 	}
+	// What every page loads is one script, the entry, and the stylesheet. React, which the
+	// chunks of the charts import too, is in the entry rather than in a chunk of its own.
+	if n := strings.Count(built.Head, ".js\""); n != 1 || strings.Contains(built.Head, "modulepreload") {
+		t.Errorf("the head loads %d scripts, want the entry alone: %s", n, built.Head)
+	}
 	// The order page, the stats page and the project Layout export head. Their components load
 	// with their routes too, so none of their texts is in what every page loads.
 	for _, m := range headURL.FindAllStringSubmatch(built.Head, -1) {

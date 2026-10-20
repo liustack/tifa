@@ -192,6 +192,11 @@ export function tifa(settings = {}) {
                   entryFileNames: 'assets/app-[hash].js',
                   chunkFileNames: 'assets/chunk-[hash].js',
                   assetFileNames: 'assets/[name]-[hash][extname]',
+                  // Every page loads the entry and what it imports statically, so all of it goes
+                  // into the entry script. Rolldown would otherwise split off what route chunks or
+                  // the chunks they load share with it, React for one, and a page would wait for
+                  // more files before it hydrates, with the same bytes in all.
+                  codeSplitting: { groups: [{ name: 'app', tags: ['$initial'] }] },
                 },
               },
             },
