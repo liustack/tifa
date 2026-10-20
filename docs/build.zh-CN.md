@@ -251,7 +251,7 @@ export default defineConfig({
 
 应用的 `package.json` 需要 React、React DOM 与 TanStack Router，开发依赖要有 `vite` 和 `@vitejs/plugin-react`。类型检查另需 `typescript`、`@types/react`、`@types/react-dom`。参照 `test/apps/pages/package.json`，用 Tailwind CSS 参照 `test/apps/tailwind/package.json`。
 
-TanStack Router 必须是这个 tifa 测过的版本：`tifa new` 写进 `package.json` 的 `@tanstack/react-router`，以及它装上的 `@tanstack/router-core`。tifa 把页面数据交给浏览器，靠的是 TanStack Router 一个在 TanStack Start 之外没有文档的选项（见[数据协议](#数据协议)），换个版本浏览器端可能就不读它了，这时所有带对象数据的页面都是白屏。浏览器入口还代替 TanStack 的 `RouterClient` 做 hydration（`js/runtime/browser.tsx` 的 `takeOver`），所以 tifa 升级 TanStack Router 时，要对照新版的 `RouterClient.tsx` 复核 `takeOver`。所以 `tifa build` 和 `tifa dev` 会按 Node 查找包的方式读出这两个包装上的版本，不一致就报错停下，错误里写出装的版本和测过的版本。要用更新的 TanStack Router，升级 tifa。一定要用别的版本构建（风险自负），在 `tifa.yaml` 里设 `build.skip_tanstack_check: true`（见 [config.zh-CN.md](config.zh-CN.md)）。没有页面的应用不检查。
+TanStack Router 必须是这个 tifa 测过的版本：`tifa new` 写进 `package.json` 的 `@tanstack/react-router`，以及它装上的 `@tanstack/router-core`。tifa 把页面数据交给浏览器，靠的是 TanStack Router 一个在 TanStack Start 之外没有文档的选项（见[数据协议](#数据协议)），换个版本浏览器端可能就不读它了，这时所有带对象数据的页面都是白屏。所以 `tifa build` 和 `tifa dev` 会按 Node 查找包的方式读出这两个包装上的版本，不一致就报错停下，错误里写出装的版本和测过的版本。要用更新的 TanStack Router，升级 tifa。一定要用别的版本构建（风险自负），在 `tifa.yaml` 里设 `build.skip_tanstack_check: true`（见 [config.zh-CN.md](config.zh-CN.md)）。没有页面的应用不检查。
 
 React 和 React DOM 至少要 19.3.0。Vite 插件是按 19.3 的写法改写 React DOM 的字符串渲染器的（见[前端产物](#前端产物)），所以 `tifa build` 和 `tifa dev` 用同样的方式读出装上的 `react` 和 `react-dom` 的版本，低于 19.3.0 就报错停下，错误里写明要装的版本。19.3.0 的预发布版（比如 canary）也算低于 19.3.0。没有页面的应用不检查。
 
