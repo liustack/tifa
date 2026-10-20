@@ -5,7 +5,7 @@ English · [简体中文](README.zh-CN.md)
 Two sides of one small shop, in one program.
 
 - **The workbench**, for the shop owner: two shops, an order list to sort, filter and search, order details, a shipping form, a dialog to change where an order goes, and a sales stats page with charts. After you ship an order the list and the stats update with it.
-- **The storefront**, for customers, in Chinese and English: a home page, a product list with search and filters, product pages with reviews, a cart kept in a cookie, a checkout with a long form, and a journal of articles in Markdown with highlighted code. Prices are in yuan or dollars, and dates and numbers follow the language.
+- **The storefront**, for customers, in Chinese and English: a home page, a product list with search and filters, product pages with reviews, a cart kept in the program's memory with its ID in a cookie, a checkout with a long form, and a journal of articles in Markdown with highlighted code. Prices are in yuan or dollars, and dates and numbers follow the language.
 
 Pages are rendered to complete HTML on the server. After the browser takes over, it moves between pages on its own. Data lives in process memory and resets on restart.
 
@@ -71,6 +71,7 @@ app/
         product+/              /store/{lang}/products/{product}: product page, POST adds to the cart
       cart/
         cart.go  checkout.go   cart domain: lines, coupons, delivery, the checks of an order, placing it
+        recent.go              carts and placed orders kept in memory, with a limit and an expiry
         route.go  route.tsx    /store/{lang}/cart: PATCH changes a quantity, POST applies a coupon
       checkout/                /store/{lang}/checkout: the order form, POST places the order
         checkout-schema.ts     the zod schema of the order, with the same rules as Order.Validate
@@ -100,7 +101,8 @@ The storefront takes its language from the first segment of the URL. Go loads th
 - Open `/projects/studio/orders/SH-0000`, `/projects/nope` and `/nowhere`. The three 404s show at the order level, the root Layout level and the whole page.
 - Switch the storefront between 中文 and English. Prices change between yuan and dollars, and dates, review counts and delivery days follow the language.
 - Search and filter the product list. The filters go into the URL, so a filtered list can be shared and the server renders it as it is. Set a minimum price above the maximum: the form refuses before sending anything.
-- Add a product to the cart in a colour, change quantities in the cart and try the codes `SHANHAI10` and `WELCOME30`. The first change gives you a cart of your own in a cookie.
+- Add a product to the cart in a colour, change quantities in the cart and try the codes `SHANHAI10` and `WELCOME30`. The first change gives you a cart of your own. It is kept in the program's memory, and a cookie holds only its ID. When a change fails, for example with the network down, its message shows under the line.
+- Place an order, then open its confirmation in a private window. It answers 404: only the cart that placed an order sees it, since the page shows an email address.
 - Check out with an empty form, a postal code of the wrong shape, or a card number that fails the check digit. The errors show field by field, and Go returns the same ones when a request gets past the browser.
 - Open a journal article. The code blocks are highlighted in the HTML the server sends.
 

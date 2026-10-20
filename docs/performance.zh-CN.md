@@ -21,7 +21,7 @@ tifa 在 QuickJS 里渲染页面。QuickJS 是用 C 写的 JavaScript 解释器�
 
 - 机器：Google Cloud 上一台 8 vCPU 的虚机，AMD EPYC 7B13（Zen 3），Linux。8 个 vCPU 是 4 个物理核，每核 2 个超线程：cpu `n` 和 cpu `n+4` 共用一个核。
 - 软件：Go 1.27，quickjs v0.26.15，tifa 790b746，构建不带 PGO。`tifa build` 默认开 PGO，它让 linux/amd64 上的渲染再快约 2.4%（见[构建](#构建)）。用旧版本测的小节会注明。
-- 应用：[examples/shop](../examples/shop/README.zh-CN.md) 的生产构建，React 19.3 和 TanStack Router，加 Tailwind CSS 和 shadcn/ui。六个页面：两家店各自的订单列表、一个订单、统计。
+- 应用：[examples/shop](../examples/shop/README.zh-CN.md) 的生产构建，React 19.3 和 TanStack Router，加 Tailwind CSS 和 shadcn/ui。六个页面：两家店各自的订单列表、一个订单、统计。在加店面（`app/store`）之前的 shop 上测。加了店面后 SSR 包从 773 KB 涨到 1,288 KB，所以跟包有关的数字，也就是程序启动和每个 VM 的内存，这里比现在的 shop 低。六个页面的 HTML 不变。
 - 单次渲染：`test/ssr` 的 `BenchmarkShop`，一个热 VM 钉在一个核上，取多次渲染的中位数（P50）。
 - 完整请求：构建出的 `bin/shop` 加 `--cache-size 0`，让每个页面请求都渲染，用 [oha](https://github.com/hatoo/oha) 压测，核够用时 oha 和服务钉在不同的核上。oha 用它默认的 `Accept-Encoding: gzip, compress, deflate, br` 请求，所以 [`server.compress`](config.zh-CN.md#配置项) 开着时页面以 gzip 发出，除非某节写明请求要的是 identity。压页面时 oha 只占一个 CPU 的 1% 到 2%。每一档先热几秒，再测 10 到 20 秒。
 
@@ -35,7 +35,7 @@ tifa 在 QuickJS 里渲染页面。QuickJS 是用 C 写的 JavaScript 解释器�
 
 每个范围包括两家店。「渲染」是基准测试的数。「请求」是走 HTTP、一次一个请求，多出 Go 的 `Load`、JSON、gzip 和 net/http，服务在 3 个物理核上跑 6 个 VM。用 1 个 VM 时，一个请求比一次渲染多花 0.5 到 1.3 ms，其中 0.13 到 0.28 ms 是压缩（见[压缩](#压缩)）。一次一个请求时，每秒能出 26 到 28 个订单列表，或者约 88 个统计页。
 
-程序启动时把 SSR 包编译成字节码一次，再把字节码逐个加载进池里的每个 VM。shop 编译约 0.2 秒，每个 VM 加载约 45 ms，这是在 quickjs v0.26.9 上测的。v0.26.12 让加载快了约 11%。
+程序启动时把 SSR 包编译成字节码一次，再把字节码逐个加载进池里的每个 VM。在加店面之前的 shop 上，编译约 0.2 秒，每个 VM 加载约 45 ms，这是在 quickjs v0.26.9 上测的。v0.26.12 让加载快了约 11%。
 
 ## 和 Node 比
 
@@ -54,7 +54,7 @@ tifa 在 QuickJS 里渲染页面。QuickJS 是用 C 写的 JavaScript 解释器�
 
 ### 和 Next.js 与 TanStack Start 比
 
-shop 另外照着写了 Next.js 16.4.2 版（App Router，每个路由都是动态的，数据在服务端组件里取，React 组件相同）和 TanStack Start 1.169.3 版（路由和 loader 相同），跑在 Node 24.13.0 上。这两个版本只为这次测量而写，不在本仓库里。三边六个页面的可见文本相同。测的是走 HTTP 的完整请求，六个页面轮流，带 `Accept-Encoding: identity`，同一台 GCP 机器，同一时段。两核时，Next.js 和 Start 用 Node 的 cluster 模块开两个进程（Start 用 Nitro 的 `node-cluster` preset），tifa 开 2 个 VM。
+shop 另外照着写了 Next.js 16.4.2 版（App Router，每个路由都是动态的，数据在服务端组件里取，React 组件相同）和 TanStack Start 1.169.3 版（路由和 loader 相同），跑在 Node 24.13.0 上。这两个版本只为这次测量而写，不在本仓库里。三边六个页面的可见文本相同，tifa 跑的是加店面之前的 shop。测的是走 HTTP 的完整请求，六个页面轮流，带 `Accept-Encoding: identity`，同一台 GCP 机器，同一时段。两核时，Next.js 和 Start 用 Node 的 cluster 模块开两个进程（Start 用 Nitro 的 `node-cluster` preset），tifa 开 2 个 VM。
 
 | | tifa | Next.js | TanStack Start |
 | --- | --- | --- | --- |
@@ -116,6 +116,8 @@ shop 另外照着写了 Next.js 16.4.2 版（App Router，每个路由都是动�
 这些请求的成本很大一块在应用自己，不在 tifa。导航数据和命中缓存的请求里，20% 到 24% 花在 shop 自己的 `Load` 上，它每个请求都把全部订单复制、排序一遍，13% 到 20% 花在写响应的系统调用上。`PATCH` 用 3 个核只比 1 个核多 56%，像是卡在 shop 自己的订单锁（`ordersMu`）上，这一类没有剖析过。命中缓存和导航数据请求一样贵：缓存键里有数据，所以查缓存之前每个 `Load` 都要先跑完。
 
 ### 内存
+
+在加店面之前的 shop 上测，SSR 包是 773 KB，不是 1,288 KB。
 
 渲染六个页面时整个程序的 RSS 峰值（内核记的最高值），每个 CPU 一个 VM，在途请求数等于 VM 数，页面以 gzip 发出：
 
@@ -264,7 +266,7 @@ v0.26.13 整体的渲染时间是 v0.26.12 的 0.823，8 轮在 0.821 到 0.825 
 
 - **把静态 JSX 提到组件外**，像 Babel 的 transform-react-constant-elements：shop 的页面每次少建 44 到 83 个元素，渲染只快 0.5% 到 0.9%，几乎全静态的页面快 5.4%。每少建一个元素约省 0.8 µs，时间主要花在 React 遍历和拼字符串上。它管不到 `node_modules` 里库的 JSX，要么得装 Babel，要么得自己写一个转换。提上去的元素被一个 VM 的所有请求共用，某个库要是改了它，改动会带到下一个请求。
 - **降低 SSR 包的语法目标**：ES2021 到 ES2018 差 1% 以内。从 ES2017 起对象展开变成辅助函数，shop 慢 33% 到 45%。目标保持 ES2022。
-- **SSR 包不压缩**：包本来就压缩了。不压缩时渲染慢约 1%，包从 772 KB 变成 1,799 KB，VM 加载后从 7,634 KiB 变成 9,133 KiB。
+- **SSR 包不压缩**：包本来就压缩了。在加店面之前的 shop 上，不压缩时渲染慢约 1%，包从 772 KB 变成 1,799 KB，VM 加载后从 7,634 KiB 变成 9,133 KiB。
 - **对 React 的小改写**，每项都不到 1%：`push(x)` 改成按下标赋值（0.1% 到 0.9%），`jsxProd` 和 `createElement` 里的 `for...in` 拷贝改成展开（会多拷 symbol 键，语义不同），`startChunkForTag` 和 `endChunkForTag` 的 `Map` 换成对象（不到 0.5%），`for...in` 换成 `Object.keys`（微基准里更慢），`hasOwnProperty.call` 换成 `Object.hasOwn`（每个键省约 25 ns）。
 - **React 转义和它查找要转义字符的别的写法**：`indexOf` 查五次、逐字符循环都比它的正则慢，查找时五次 `indexOf` 和 `search` 也都比 `exec` 慢。每个字符串都先查转义缓存再跑正则，纯文字页面慢 4%，在只测转义的基准里，一个订单列表的 1,188 次转义慢 22%，因为多数字符串不用转义，而 `Map` 查一次比搜一次更贵。所以缓存只收需要转义的字符串。搜索剩下的开销在引擎里。要是缓存满了就不再收，早先请求的文本会一直占着位置。要是淘汰最久没用的那条，每次命中都要多一次删除和一次写入。
 - **把 React 的组件栈和 key path 里的名字换成更省的写法，而不是去掉**：把 `pushComponentStack` 内联到调用处，或者对字符串和函数类型不调 `getComponentNameFromType` 直接取名字，都在 1% 以内（shop 上 0.994 到 1.024）。花时间的是建对象和字符串，不是函数调用。
