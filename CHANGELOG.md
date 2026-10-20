@@ -4,10 +4,6 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 
 ## [Unreleased]
 
-### Added
-
-- The example app has a storefront for customers in Chinese and English under `/store`: product search and filters, product pages, a cart, a checkout form, and a journal written in Markdown with highlighted code.
-
 ### Changed
 
 - `tifa build` and `tifa dev` stop with an error when an app with pages installs React or React DOM older than 19.3.0.
@@ -17,6 +13,7 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 ### Added
 
 - The HTML of a page preloads the chunks of its Layouts and route with `<link rel="modulepreload">` right after the tags of the build, so they download alongside the entry script. When a `Load` fails, it preloads only the levels the router shows. `build.json` lists the chunks under `preload`.
+- The example app has a storefront for customers in Chinese and English under `/store`: product search and filters, product pages, a cart, a checkout form, and a journal written in Markdown with highlighted code.
 
 ### Performance
 
