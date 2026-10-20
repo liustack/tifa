@@ -16,10 +16,6 @@ export interface RouterContext {
   source: Source
 }
 
-// HTMLAttributes are the attributes of the <html> element, from the htmlAttributes export of the
-// root Layout.
-export type HTMLAttributes = Record<string, string>
-
 interface Dehydrated {
   buildId: string
 }

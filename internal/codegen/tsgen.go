@@ -538,6 +538,7 @@ func routesModule(nodes []*tsNode) ([]byte, error) {
 		index[n] = i
 	}
 	runtime["DefaultError"] = true
+	heads := false
 	// errorOf names the Error export of a node once, so a Layout and the routes that borrow
 	// its Error share one component.
 	var shared strings.Builder
@@ -574,7 +575,8 @@ func routesModule(nodes []*tsNode) ([]byte, error) {
 			// The root Layout's documentHead is the head of every page, a URL no route matches
 			// and a failed root Load included.
 			if app != nil && app.exported("documentHead") {
-				n.route.opts = append(n.route.opts, fmt.Sprintf("head: () => m%d.documentHead", appIndex))
+				heads = true
+				n.route.opts = append(n.route.opts, fmt.Sprintf("head: routeHead(() => m%d.documentHead)", appIndex))
 			}
 			continue
 		}
@@ -582,8 +584,10 @@ func routesModule(nodes []*tsNode) ([]byte, error) {
 		if n.tsx {
 			opts = append(opts, "component: "+export(i, n, "default"))
 		}
+		// routeHead passes the htmlAttributes a head returns on to the matches, see head.ts.
 		if n.exported("head") {
-			opts = append(opts, fmt.Sprintf("head: m%d.head", i))
+			heads = true
+			opts = append(opts, fmt.Sprintf("head: routeHead(m%d.head)", i))
 		}
 		// Every route names its Error component: its own, or the closest ancestor's, or the
 		// framework's. The server renders the component of the failed route itself while the
@@ -664,8 +668,9 @@ func routesModule(nodes []*tsNode) ([]byte, error) {
 		body.WriteString("})\n\n")
 	}
 	fmt.Fprintf(&body, "export const routeTree = %s\n", subtree(routes[0]))
-	// The attributes of <html>. The server writes the document around the React root, the
-	// browser sets them on a page rendered without SSR.
+	// The attributes of <html> every page starts from, below those the head functions of its
+	// routes return. The server writes the document around the React root, the browser sets
+	// them on a page rendered without SSR and after each navigation.
 	if app != nil && app.exported("htmlAttributes") {
 		fmt.Fprintf(&body, "export const htmlAttributes = m%d.htmlAttributes\n", appIndex)
 	} else {
@@ -694,6 +699,9 @@ declare module "@tanstack/react-router" {
 	}
 	names = append(names, "type RouterContext")
 	fmt.Fprintf(&out, `import { %s } from "./runtime/router"`+"\n", strings.Join(names, ", "))
+	if heads {
+		out.WriteString(`import { routeHead } from "./runtime/head"` + "\n")
+	}
 	out.WriteString(imports.String())
 	out.WriteString("\n")
 	out.WriteString(body.String())

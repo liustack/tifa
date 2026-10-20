@@ -29,6 +29,70 @@ interface HeadMatch {
 // The meta every page starts from. A route's meta with the same name replaces it.
 const baseMeta: Meta[] = [{ name: 'viewport', content: 'width=device-width, initial-scale=1' }]
 
+// HTMLAttributes are attributes of the <html> element: the htmlAttributes of the root Layout,
+// and those a head function returns. undefined leaves an attribute to the levels above, null
+// takes it away.
+export type HTMLAttributes = Record<string, unknown>
+
+// The attributes of <html> of an application whose root Layout exports no htmlAttributes.
+export const defaultHTMLAttributes: HTMLAttributes = { lang: 'en' }
+
+// TanStack Router keeps only meta, links, scripts and styles of what head returns. routeHead
+// carries the htmlAttributes of a head along as one more entry of meta, under this key, which
+// headTags leaves out and htmlAttributesOf reads.
+const htmlKey = Symbol('tifa.htmlAttributes')
+
+// HeadResult is what a head function may return: what TanStack Router reads, and htmlAttributes.
+type HeadResult =
+  | {
+      htmlAttributes?: HTMLAttributes
+      meta?: ReadonlyArray<unknown>
+      links?: ReadonlyArray<unknown>
+      scripts?: ReadonlyArray<unknown>
+      styles?: ReadonlyArray<unknown>
+    }
+  | undefined
+  | void
+
+// WithoutHTMLAttributes is the result of a head as TanStack Router types it, which knows no
+// htmlAttributes.
+type WithoutHTMLAttributes<R> = R extends Promise<infer T> ? Promise<Omit<T, 'htmlAttributes'>> : Omit<R, 'htmlAttributes'>
+
+// routeHead wraps the head function of a route module so that the htmlAttributes it returns
+// reach the matches. A head without them returns what it returned before, the same object.
+export function routeHead<C, R extends HeadResult | Promise<HeadResult>>(head: (context: C) => R) {
+  return ((context: C) => {
+    const result: HeadResult | Promise<HeadResult> = head(context)
+    return result instanceof Promise ? result.then(withHTMLAttributes) : withHTMLAttributes(result)
+  }) as (context: C) => WithoutHTMLAttributes<R>
+}
+
+function withHTMLAttributes(head: HeadResult): unknown {
+  if (head?.htmlAttributes === undefined) return head
+  const { htmlAttributes, ...rest } = head
+  if (typeof htmlAttributes !== 'object' || htmlAttributes === null || Array.isArray(htmlAttributes)) {
+    const kind = htmlAttributes === null ? 'null' : Array.isArray(htmlAttributes) ? 'an array' : typeof htmlAttributes
+    throw new Error(`head: htmlAttributes is ${kind}, not an object of attributes`)
+  }
+  // A new array: the meta of a head may be a constant that other renders read too.
+  return { ...rest, meta: [...(rest.meta ?? []), { [htmlKey]: htmlAttributes }] }
+}
+
+// htmlAttributesOf merges the htmlAttributes of the matches over base, attribute by attribute,
+// the deepest route that gives an attribute winning, as the title does. Only the matches the
+// page shows count, the first one that did not load included. Without any it returns base.
+export function htmlAttributesOf(all: ReadonlyArray<HeadMatch>, base: HTMLAttributes): HTMLAttributes {
+  let merged: HTMLAttributes | undefined
+  for (const match of presented(all))
+    for (const m of (match.meta ?? []) as ReadonlyArray<Record<symbol, HTMLAttributes> | undefined>) {
+      const attrs = m?.[htmlKey]
+      if (!attrs) continue
+      merged ??= { ...base }
+      for (const key in attrs) if (attrs[key] !== undefined) merged[key] = attrs[key]
+    }
+  return merged ?? base
+}
+
 // headTags collects the head of the matches the way TanStack's HeadContent does: the matches
 // up to the first one that did not load, the title and each named meta of the deepest route
 // that has it, then links, styles and head scripts in route order. Writing them leaves out
@@ -44,7 +108,7 @@ export function headTags(all: ReadonlyArray<HeadMatch>): Tag[] {
     const list = metas[i]!
     for (let j = list.length - 1; j >= 0; j--) {
       const m = list[j]
-      if (!m) continue
+      if (!m || htmlKey in m) continue
       if (m.title) {
         title ??= { tag: 'title', attrs: {}, children: String(m.title) }
       } else if ('script:ld+json' in m) {
@@ -346,12 +410,41 @@ function markers(): [Comment, Comment] {
   return [start, end]
 }
 
-// followHead keeps document.head in step with the router's matches: after a navigation, and
-// whenever the data of a match changes, such as when router.invalidate() refetches in the
-// background. This is what TanStack's HeadContent reads too. In the browser build TanStack makes
-// the matches a store one can subscribe to, on the server a plain value.
-export function followHead(router: { stores: { matches: { get: () => ReadonlyArray<HeadMatch> } } }) {
+// The attributes of <html> the last syncHTMLAttributes wrote, by their names in lower case, and
+// the element it wrote them on. Attributes of other names, such as a theme a script of the page
+// sets, are left as they are.
+let managed: { element: Element; names: Set<string> } | undefined
+
+// syncHTMLAttributes makes the attributes of <html> those htmlAttributesOf gives for the
+// matches, written by the rules of attribute. It takes away the ones it wrote before and no
+// longer gives, and sets only those whose value changed.
+export function syncHTMLAttributes(matches: ReadonlyArray<HeadMatch>, base: HTMLAttributes) {
+  const element = document.documentElement
+  const before = managed?.element === element ? managed.names : new Set<string>()
+  const names = new Set<string>()
+  const attrs = htmlAttributesOf(matches, base)
+  for (const key in attrs) {
+    const written = attribute(key, attrs[key])
+    if (!written) continue
+    const name = written[0].toLowerCase()
+    names.add(name)
+    if (element.getAttribute(name) !== written[1]) element.setAttribute(written[0], written[1])
+  }
+  for (const name of before) if (!names.has(name)) element.removeAttribute(name)
+  managed = { element, names }
+}
+
+// followHead keeps document.head and the attributes of <html> in step with the router's
+// matches: after a navigation, and whenever the data of a match changes, such as when
+// router.invalidate() refetches in the background. This is what TanStack's HeadContent reads
+// too. In the browser build TanStack makes the matches a store one can subscribe to, on the
+// server a plain value. base is the htmlAttributes of the root Layout.
+export function followHead(router: { stores: { matches: { get: () => ReadonlyArray<HeadMatch> } } }, base: HTMLAttributes) {
   const matches = router.stores.matches as { get: () => ReadonlyArray<HeadMatch>; subscribe?: (listener: () => void) => unknown }
   if (typeof matches.subscribe !== 'function') throw new Error('head: the router has no store of matches to follow, it is not a browser router')
-  matches.subscribe(() => syncHead(matches.get()))
+  matches.subscribe(() => {
+    const current = matches.get()
+    syncHead(current)
+    syncHTMLAttributes(current, base)
+  })
 }

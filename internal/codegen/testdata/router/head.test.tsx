@@ -8,7 +8,7 @@ import { bootElementId, collector, rootElementId, type RouteResult } from './.ti
 import { setRouter } from './.tifa/runtime/call'
 import { POST } from './app/api/notes/note+/+route'
 import { hydrate } from './.tifa/runtime/browser'
-import { followHead, headHTML, setAttributes, syncHead, type Tag } from './.tifa/runtime/head'
+import { followHead, headHTML, setAttributes, syncHead, syncHTMLAttributes, type Tag } from './.tifa/runtime/head'
 
 const tests: Array<[string, () => Promise<void>]> = []
 const test = (name: string, fn: () => Promise<void>) => tests.push([name, fn])
@@ -100,6 +100,9 @@ class FakeElement extends FakeNode {
   }
   getAttribute(name: string) {
     return this.attributes.find((a) => a.name === name)?.value ?? null
+  }
+  removeAttribute(name: string) {
+    this.attributes = this.attributes.filter((a) => a.name !== name)
   }
 }
 
@@ -268,11 +271,34 @@ test('a page without SSR gets the html attributes React DOM would write', async 
   })
 })
 
+test('the attributes of <html> follow the matched routes', async () => {
+  await withDocument(async () => {
+    const html = fakeDocument.documentElement
+    // An attribute the page sets itself, such as a theme, is not tifa's to take away.
+    html.setAttribute('data-color', 'dark')
+    // The Layout's data is the language in the URL, as its Go function reads it.
+    const { router } = await client('/intl/fr/rtl', (url, id) => ok(id === 'app/intl/lang+/layout' ? url.split('/')[2] : id))
+    const base = { lang: 'xx', 'data-theme': 't' }
+    followHead(router, base)
+    syncHead(router.stores.matches.get())
+    syncHTMLAttributes(router.stores.matches.get(), base)
+    assert(describe(html) === 'html data-color=dark lang=fr dir=rtl class=wide title=a"<b', `html ${describe(html)}`)
+    const changes = () => describe(html)
+    await router.navigate({ to: '/intl/$lang', params: { lang: 'de' } })
+    for (let i = 0; i < 100 && !changes().includes('lang=de'); i++) await new Promise((resolve) => setTimeout(resolve, 0))
+    // The page's class and title go, the root Layout's data-theme comes back.
+    assert(describe(html) === 'html data-color=dark lang=de dir=ltr data-theme=t', `after navigating ${describe(html)}`)
+    await router.navigate({ to: '/hello' })
+    for (let i = 0; i < 100 && changes().includes('dir='); i++) await new Promise((resolve) => setTimeout(resolve, 0))
+    assert(describe(html) === 'html data-color=dark lang=xx data-theme=t', `after leaving ${describe(html)}`)
+  })
+})
+
 test('the head follows data the router refetches in the background', async () => {
   await withDocument(async () => {
     let team = 'x'
     const { router } = await client('/teams/x/two', (_, id) => ok(id === 'app/teams/team+/layout' ? team : id))
-    followHead(router)
+    followHead(router, { lang: "xx" })
     syncHead(router.stores.matches.get())
     const title = () => managed().find((e) => e.localName === 'title')?.textContent
     assert(title() === 'TEAM x', `title ${title()}`)
