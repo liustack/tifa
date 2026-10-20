@@ -3,6 +3,8 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -26,6 +28,62 @@ func (v stringValue) Set(s string) error {
 }
 func (v stringValue) String() string { return *v.p }
 func (v stringValue) kind() string   { return "string" }
+
+// optionalValue is text that may be empty, which turns its setting off, also when a lower layer set it.
+type optionalValue struct{ p *string }
+
+func (v optionalValue) Set(s string) error { *v.p = s; return nil }
+func (v optionalValue) String() string     { return *v.p }
+func (v optionalValue) kind() string       { return "string" }
+
+// domainsValue is server.tls_domains: comma-separated host names, lowercased, empty for none.
+// Let's Encrypt gives certificates for names it can reach over HTTP or TLS, so wildcards (which
+// need a DNS challenge), IP addresses, ports, schemes and names without a dot are refused.
+type domainsValue struct{ p *[]string }
+
+func (v domainsValue) Set(s string) error {
+	if strings.TrimSpace(s) == "" {
+		*v.p = nil
+		return nil
+	}
+	var domains []string
+	for _, d := range strings.Split(s, ",") {
+		d = strings.ToLower(strings.TrimSpace(d))
+		switch {
+		case d == "":
+			return fmt.Errorf("empty domain in %q", s)
+		case strings.Contains(d, "*"):
+			return fmt.Errorf("%q: wildcard certificates need a DNS challenge, which tifa does not do, list each name", d)
+		case strings.Contains(d, "://") || strings.Contains(d, "/"):
+			return fmt.Errorf("%q: write the host name without a scheme or path, such as example.com", d)
+		case net.ParseIP(strings.Trim(d, "[]")) != nil:
+			return fmt.Errorf("%q: an IP address gets no certificate this way, use a domain name", d)
+		case strings.Contains(d, ":"):
+			return fmt.Errorf("%q: write the host name without a port, such as example.com", d)
+		case !strings.Contains(strings.Trim(d, "."), "."):
+			return fmt.Errorf("%q: a domain needs a dot, such as example.com", d)
+		}
+		domains = append(domains, d)
+	}
+	*v.p = domains
+	return nil
+}
+func (v domainsValue) String() string { return strings.Join(*v.p, ",") }
+func (v domainsValue) kind() string   { return "string" }
+
+// caValue is server.tls_ca, the https URL of an ACME directory.
+type caValue struct{ p *string }
+
+func (v caValue) Set(s string) error {
+	u, err := url.Parse(s)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return fmt.Errorf("invalid ACME directory %q, use an https URL such as %s", s, LetsEncrypt)
+	}
+	*v.p = s
+	return nil
+}
+func (v caValue) String() string { return *v.p }
+func (v caValue) kind() string   { return "string" }
 
 // intValue is a whole number of at least min and, when max is not 0, at most max. why says what
 // goes wrong above max.
