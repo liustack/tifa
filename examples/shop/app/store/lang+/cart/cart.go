@@ -220,7 +220,8 @@ func Add(c *tifa.Ctx, slug, color, size string, quantity int) (string, error) {
 }
 
 // SetQuantity changes how many of a line the cart holds, 0 removes the line, and returns the ID
-// of the cart.
+// of the cart. A line takes at most MaxQuantity and no more than the stock, as the cart page
+// offers.
 func SetQuantity(c *tifa.Ctx, line string, quantity int) (string, error) {
 	if quantity < 0 || quantity > MaxQuantity {
 		return "", tifa.Fields{"quantity": "quantity"}
@@ -229,6 +230,10 @@ func SetQuantity(c *tifa.Ctx, line string, quantity int) (string, error) {
 		i := slices.IndexFunc(rec.lines, func(r lineRecord) bool { return lineID(r.slug, r.color, r.size) == line })
 		if i < 0 {
 			return tifa.ErrNotFound
+		}
+		r := rec.lines[i]
+		if stock, _ := products.HasVariant(r.slug, r.color, r.size); quantity > stock {
+			return tifa.Fields{"quantity": "stock"}
 		}
 		if quantity == 0 {
 			rec.lines = slices.Delete(rec.lines, i, i+1)

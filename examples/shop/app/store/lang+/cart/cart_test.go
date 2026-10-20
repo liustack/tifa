@@ -334,3 +334,23 @@ func TestAnOrderIsTotalledInTheCurrencyOfItsStorefront(t *testing.T) {
 		}
 	}
 }
+
+func TestAQuantityStaysWithinTheStock(t *testing.T) {
+	c, _ := visit(t, "")
+	id, err := Add(c, "oak-tray", "oat", "M", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The tray has 6 in stock: the cart page offers up to 6, and Go takes no more either.
+	c, w := visit(t, id)
+	var fields tifa.Fields
+	if _, err := SetQuantity(c, "oak-tray.oat.M", 7); !errors.As(err, &fields) || fields["quantity"] != "stock" {
+		t.Errorf("set 7 of 6 in stock: %v", err)
+	}
+	if w.Header().Get("Set-Cookie") != "" {
+		t.Error("a refused change set the cookie")
+	}
+	if _, err := SetQuantity(c, "oak-tray.oat.M", 6); err != nil {
+		t.Errorf("set 6 of 6 in stock: %v", err)
+	}
+}

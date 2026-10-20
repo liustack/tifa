@@ -236,6 +236,8 @@
     "terms": "Please agree to the terms of sale",
     "tooLong": "200 characters at most",
     "quantity": "Pick between 1 and 10",
+    "stock": "Not that many left in stock",
+    "lineGone": "This item is no longer in your cart. Please reload the page",
     "soldOut": "This item is sold out",
     "variant": "Please choose a colour and size",
     "coupon": "This code is not valid",

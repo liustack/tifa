@@ -175,12 +175,19 @@ function CartLine({ line }: { line: Line }) {
   const { t, locale, money } = useStore()
   const hydrated = useHydrated()
   const [busy, setBusy] = useState(false)
+  // error is the key of the message for the last change that failed, shown under the line.
+  const [error, setError] = useState('')
   async function setQuantity(quantity: number) {
     setBusy(true)
+    setError('')
     try {
       // The page and the store Layout load again before this resolves, so the totals and the
       // count in the header follow.
       await PATCH({ params: { lang: locale.code }, input: { line: line.id, quantity } })
+    } catch (e) {
+      if (!(e instanceof TifaError)) setError('network')
+      else if (e.status === 404) setError('lineGone')
+      else setError(e.fields.quantity ?? 'network')
     } finally {
       setBusy(false)
     }
@@ -229,6 +236,11 @@ function CartLine({ line }: { line: Line }) {
             <Plus />
           </Button>
         </div>
+        {error && (
+          <p role="alert" className="mt-1 max-w-40 text-xs text-destructive">
+            {t(`errors.${error}`)}
+          </p>
+        )}
       </TableCell>
       <TableCell className="text-right font-medium tabular-nums">{money(line.priceCents * line.quantity)}</TableCell>
       <TableCell>
