@@ -465,6 +465,7 @@ func TestBadHTTPSValuesFailWithTheirLayer(t *testing.T) {
 		{"TIFA_SERVER_TLS_DOMAINS=https://example.com", "scheme"},
 		{"TIFA_SERVER_TLS_DOMAINS=example.com:443", "port"},
 		{"TIFA_SERVER_TLS_DOMAINS=203.0.113.7", "IP address"},
+		{"TIFA_SERVER_TLS_DOMAINS=203.0.113.7.", "IP address"},
 		{"TIFA_SERVER_TLS_DOMAINS=localhost", "dot"},
 		{"TIFA_SERVER_TLS_DOMAINS=example.com,,www.example.com", "empty"},
 		{"TIFA_SERVER_TLS_CA=http://acme.example.com/directory", "https"},

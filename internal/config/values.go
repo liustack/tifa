@@ -52,6 +52,8 @@ func (v domainsValue) Set(s string) error {
 	var domains []string
 	for _, d := range strings.Split(s, ",") {
 		d = strings.ToLower(strings.TrimSpace(d))
+		// A final dot names the same domain, and browsers do not send it.
+		name := strings.TrimSuffix(d, ".")
 		switch {
 		case d == "":
 			return fmt.Errorf("empty domain in %q", s)
@@ -59,13 +61,11 @@ func (v domainsValue) Set(s string) error {
 			return fmt.Errorf("%q: wildcard certificates need a DNS challenge, which tifa does not do, list each name", d)
 		case strings.Contains(d, "://") || strings.Contains(d, "/"):
 			return fmt.Errorf("%q: write the host name without a scheme or path, such as example.com", d)
-		case net.ParseIP(strings.Trim(d, "[]")) != nil:
+		case net.ParseIP(strings.Trim(name, "[]")) != nil:
 			return fmt.Errorf("%q: an IP address gets no certificate this way, use a domain name", d)
 		case strings.Contains(d, ":"):
 			return fmt.Errorf("%q: write the host name without a port, such as example.com", d)
 		}
-		// A final dot names the same domain, and browsers do not send it.
-		name := strings.TrimSuffix(d, ".")
 		if !strings.Contains(name, ".") {
 			return fmt.Errorf("%q: a domain needs a dot, such as example.com", d)
 		}
