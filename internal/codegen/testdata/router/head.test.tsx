@@ -9,7 +9,7 @@ import { bootElementId, collector, rootElementId, type RouteResult } from './.ti
 import { setRouter } from './.tifa/runtime/call'
 import { POST } from './app/api/notes/note+/+route'
 import { hydrate, takeOver } from './.tifa/runtime/browser'
-import { attributes, followHead, headHTML, setAttributes, syncHead, syncHTMLAttributes, type Tag } from './.tifa/runtime/head'
+import { attributes, followHead, headHTML, htmlAttributesOf, setAttributes, syncHead, syncHTMLAttributes, type Tag } from './.tifa/runtime/head'
 
 const tests: Array<[string, () => Promise<void>]> = []
 const test = (name: string, fn: () => Promise<void>) => tests.push([name, fn])
@@ -186,6 +186,15 @@ test('a style attribute fails with a message that fits <html> too', async () => 
     message = error instanceof Error ? error.message : String(error)
   }
   assert(message === 'head: the head and <html> take no style attribute, set styles in a stylesheet', `message ${message}`)
+})
+
+test('attributes named like properties of every object are written as any other', async () => {
+  const attrs = { constructor: 'a', toString: 'b', hasOwnProperty: 'c' }
+  const html = attributes(attrs)
+  assert(html === ' constructor="a" toString="b" hasOwnProperty="c"', `attributes ${html}`)
+  const merged = htmlAttributesOf([], { lang: 'en', ...attrs })
+  const keys = Object.keys(merged).join(' ')
+  assert(keys === 'lang constructor toString hasOwnProperty', `htmlAttributesOf ${keys}`)
 })
 
 test('the browser builds head elements without parsing their content', async () => {

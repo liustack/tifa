@@ -90,7 +90,7 @@ export function htmlAttributesOf(all: ReadonlyArray<HeadMatch>, base: HTMLAttrib
     for (const key of Object.keys(attrs)) {
       const value = attrs[key]
       if (value === undefined || key === '__proto__') continue
-      merged.set((aliases[key] ?? key).toLowerCase(), [key, value])
+      merged.set((aliases.get(key) ?? key).toLowerCase(), [key, value])
     }
   }
   add(base)
@@ -165,18 +165,19 @@ function presented<T extends HeadMatch>(matches: ReadonlyArray<T>): ReadonlyArra
   return matches
 }
 
-// The React prop names React DOM writes under another HTML name.
-const aliases: Record<string, string> = {
-  className: 'class',
-  htmlFor: 'for',
-  httpEquiv: 'http-equiv',
-  acceptCharset: 'accept-charset',
-  crossOrigin: 'crossorigin',
-  tabIndex: 'tabindex',
-  autoFocus: 'autofocus',
-  multiple: 'multiple',
-  muted: 'muted',
-}
+// The React prop names React DOM writes under another HTML name. A Map, so that props named
+// like properties of every object, such as constructor, find no alias.
+const aliases = new Map([
+  ['className', 'class'],
+  ['htmlFor', 'for'],
+  ['httpEquiv', 'http-equiv'],
+  ['acceptCharset', 'accept-charset'],
+  ['crossOrigin', 'crossorigin'],
+  ['tabIndex', 'tabindex'],
+  ['autoFocus', 'autofocus'],
+  ['multiple', 'multiple'],
+  ['muted', 'muted'],
+])
 
 // Props React DOM never writes as attributes.
 const ignored = new Set([
@@ -222,7 +223,7 @@ export function attribute(key: string, value: unknown): [string, string] | undef
   if (value === null || value === undefined || ignored.has(key)) return undefined
   if (typeof value === 'function' || typeof value === 'symbol') return undefined
   if (key === 'style') throw new Error('head: the head and <html> take no style attribute, set styles in a stylesheet')
-  if (booleans.has(key)) return value ? [aliases[key] ?? key, ''] : undefined
+  if (booleans.has(key)) return value ? [aliases.get(key) ?? key, ''] : undefined
   if (booleanStrings.has(key)) return [key, String(value)]
   if (key === 'href' || key === 'src') {
     if (value === '' || typeof value === 'boolean') return undefined
@@ -230,7 +231,7 @@ export function attribute(key: string, value: unknown): [string, string] | undef
     return [key, javascriptURL.test(url) ? blockedURL : url]
   }
   if (key.length > 2 && (key[0] === 'o' || key[0] === 'O') && (key[1] === 'n' || key[1] === 'N')) return undefined
-  const name = aliases[key] ?? key
+  const name = aliases.get(key) ?? key
   if (!validName.test(name)) return undefined
   if (typeof value === 'boolean') {
     const prefix = name.slice(0, 5).toLowerCase()
