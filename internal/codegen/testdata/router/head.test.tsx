@@ -1,13 +1,14 @@
 // Run by TestGeneratedRouterBehaves in Node, bundled for the browser: the routers here run as
 // they do in the browser, with the reactive stores the head code subscribes to, against a
 // document that has just what that code uses.
+import { readFileSync } from 'node:fs'
 import { createMemoryHistory } from '@tanstack/react-router'
 import { routeTree } from './.tifa/routes'
 import { createAppRouter } from './.tifa/runtime/router'
 import { bootElementId, collector, rootElementId, type RouteResult } from './.tifa/runtime/data'
 import { setRouter } from './.tifa/runtime/call'
 import { POST } from './app/api/notes/note+/+route'
-import { hydrate } from './.tifa/runtime/browser'
+import { hydrate, takeOver } from './.tifa/runtime/browser'
 import { followHead, headHTML, setAttributes, syncHead, syncHTMLAttributes, type Tag } from './.tifa/runtime/head'
 
 const tests: Array<[string, () => Promise<void>]> = []
@@ -291,6 +292,37 @@ test('the attributes of <html> follow the matched routes', async () => {
     await router.navigate({ to: '/hello' })
     for (let i = 0; i < 100 && changes().includes('dir='); i++) await new Promise((resolve) => setTimeout(resolve, 0))
     assert(describe(html) === 'html data-color=dark lang=xx data-theme=t', `after leaving ${describe(html)}`)
+  })
+})
+
+// The page the server rendered for /intl/fr/rtl, which router.test.tsx writes.
+const serverPage = () => readFileSync('intl-fr-rtl.html', 'utf8')
+
+test('a hydrated page takes away the attributes of <html> the server wrote for it', async () => {
+  await withDocument(async () => {
+    const html = serverPage()
+    // The document the browser parsed from the page: the attributes of <html> as the server wrote them.
+    const start = html.slice(0, html.indexOf('<head>'))
+    for (const [, name, value] of start.matchAll(/ ([^\s=]+)="([^"]*)"/g))
+      fakeDocument.documentElement.setAttribute(name!, value!.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'))
+    assert(describe(fakeDocument.documentElement) === 'html lang=fr dir=rtl class=wide title=a"<b', `server html ${describe(fakeDocument.documentElement)}`)
+    // The page's scripts leave the dehydrated router where TanStack's hydrate finds it.
+    const saved = { document: g.document, location: g.location }
+    g.location = { href: 'http://tifa.test/intl/fr/rtl', origin: 'http://tifa.test', pathname: '/intl/fr/rtl', search: '', hash: '' }
+    try {
+      for (const [, code] of html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)) {
+        if (code!.trim() === '') continue
+        g.document = { ...fakeDocument, currentScript: { previousElementSibling: null, remove() {} } }
+        new Function(code!)()
+      }
+    } finally {
+      Object.assign(g, saved)
+    }
+    const router = createAppRouter(routeTree, async (_, id) => ok(id), { history: createMemoryHistory({ initialEntries: ['/intl/fr/rtl'] }) })
+    await takeOver(router, { lang: 'xx', 'data-theme': 'a"b' })
+    await router.navigate({ to: '/hello' })
+    for (let i = 0; i < 100 && describe(fakeDocument.documentElement).includes('lang=fr'); i++) await new Promise((resolve) => setTimeout(resolve, 0))
+    assert(describe(fakeDocument.documentElement) === 'html lang=xx data-theme=a"b', `html after navigating ${describe(fakeDocument.documentElement)}`)
   })
 })
 

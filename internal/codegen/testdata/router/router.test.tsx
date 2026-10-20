@@ -1,4 +1,5 @@
 // Run by TestGeneratedRouterBehaves in Node, against the route tree generated for this app.
+import { writeFileSync } from 'node:fs'
 import { createMemoryHistory, isRedirect } from '@tanstack/react-router'
 import { hydrate } from '@tanstack/react-router/ssr/client'
 import { htmlAttributes, routeTree } from './.tifa/routes'
@@ -204,6 +205,8 @@ test('head sets attributes of <html> over those of the root Layout, the deepest 
     `document start: ${documentStart(rtl)}`,
   )
   contains(rtl.slice(0, rtl.indexOf('</head>')), '<title>RTL</title>')
+  // head.test.tsx hydrates a browser router from this page, which this build cannot.
+  writeFileSync('intl-fr-rtl.html', rtl)
   // The attributes of <html> are no head tags.
   lacks(rtl.slice(rtl.indexOf('<head>'), rtl.indexOf('</head>')), 'dir=', 'wide')
 })
