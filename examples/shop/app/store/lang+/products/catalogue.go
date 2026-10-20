@@ -362,7 +362,7 @@ var catalogue = []productRecord{
 		tags:    []string{"vase", "花器", "flower"},
 		summary: T{"一枝也好看，一把也撑得住。", "Good with one stem, steady with a bunch."},
 		description: T{
-			"粗陶坯体保留颗粒感，内壁施釉防渗水。瓶口收窄，一枝也能立住；瓶身宽阔，插一把也不会倒。",
+			"粗陶坯体保留颗粒感，内壁施釉防渗水。瓶口收窄，一枝也能立住。瓶身宽阔，插一把也不会倒。",
 			"Stoneware left grainy outside and glazed inside so it holds water. A narrow neck holds a single stem upright, and a wide body keeps a bunch from tipping.",
 		},
 		materials: []T{{"粗陶", "Stoneware"}},
