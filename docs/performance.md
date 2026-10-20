@@ -117,6 +117,15 @@ Only a full page load renders. Navigating in the browser fetches JSON that Go wr
 
 A large part of their cost is the app's, not tifa's. For navigation data and cache hits, 20% to 24% goes to the shop's own `Load` functions, which copy and sort every order on each request, and 13% to 20% to the system calls that write the response. `PATCH` gets only 56% more from 3 cores than from one, which looks like the shop's own lock on its orders (`ordersMu`). That one was not profiled. A cache hit costs as much as a navigation data request: the cache key holds the data, so every `Load` runs before the cache is checked.
 
+Requests for a `Cache = true` page that miss the cache at the same time share one render (see [SSR and cache](app.md#ssr-and-cache)), so a burst on a cold page, such as right after a deploy, costs one render instead of one per request. 50 requests at once for a cold order page of the shop on an Apple M4 with other work running, five rounds of each in turn, without PGO:
+
+| VMs | Each request renders: renders, all answered in, P50 | Shared render: renders, all answered in, P50 |
+| --- | --- | --- |
+| 10, `GOMAXPROCS=10` | 50, 146 to 221 ms, 103 to 133 ms | 1, 30 to 52 ms, 29 to 51 ms |
+| 2, `GOMAXPROCS=2` (three rounds) | 50, 332 to 354 ms, 187 to 201 ms | 1, 33 to 40 ms, 32 to 38 ms |
+
+The one render is the first in a fresh VM, which is slower than a warm one. Requests that come once it is done find the cache.
+
 ### Memory
 
 Measured on the shop before the storefront was added, with an SSR bundle of 772 KB instead of 1,288 KB.
@@ -184,7 +193,7 @@ Whole requests, measured with quickjs v0.26.14, with the server on one physical 
 
 - For pages, compressing is within the noise of whole requests: the CPU of a request moved by up to 1 ms from run to run, several times what compressing takes. Pages go out about 6 times smaller.
 - Navigation data is cheap to answer, so compressing it shows: 23 to 43 µs more CPU per request, 8% to 20% fewer requests a second on a saturated core, for answers 1.8 to 5.4 times smaller. gzip costs more than zstd here too.
-- A cache hit sends the gzip or zstd form the cache stored with the page, so a compressed hit takes less CPU than an uncompressed one, 0.15 ms against 0.18 to 0.19 ms, as there are fewer bytes to write. When the stored HTML was compressed again on each hit, a hit took 0.45 ms of CPU in all with zstd and 0.54 ms with gzip, about 0.26 to 0.34 ms of it compressing, and hits at 64 in flight fell to 4,410 to 4,423 and 3,711 to 3,712 a second, with P99 of 34 to 37 ms. A miss that takes compression compresses the page in both forms and sends one of them, so it costs one compression more than a page without `Cache`: 1.0% to 1.4% of its render, the compression times of the first table divided by the render P50. A miss that takes no compression keeps the HTML alone and compresses nothing.
+- A cache hit sends the gzip or zstd form the cache stored with the page, so a compressed hit takes less CPU than an uncompressed one, 0.15 ms against 0.18 to 0.19 ms, as there are fewer bytes to write. When the stored HTML was compressed again on each hit, a hit took 0.45 ms of CPU in all with zstd and 0.54 ms with gzip, about 0.26 to 0.34 ms of it compressing, and hits at 64 in flight fell to 4,410 to 4,423 and 3,711 to 3,712 a second, with P99 of 34 to 37 ms. A miss that takes compression compresses the page in both forms and sends one of them, so it costs one compression more than a page without `Cache`: 1.0% to 1.4% of its render, the compression times of the first table divided by the render P50. The render of a miss makes both forms whatever the request that started it takes, so requests that share it never compress the page again.
 - The bundle sent as its `.gz` file takes less CPU than the file itself, since there are fewer bytes to write: 2.4 to 3 times the requests a second.
 - zstd at gzhttp's fastest level would take 82 to 138 µs a page, but the pages come out 3% to 11% larger than with gzip. At its default level, as in Caddy and Traefik, the order lists are 3% smaller than gzip and the other pages about 4% larger.
 - Brotli at levels 4 and 5, with the pure Go encoder github.com/andybalholm/brotli, takes 648 to 1,183 µs a page, 4 to 6 times gzip, for pages 3% to 16% smaller.
@@ -244,6 +253,12 @@ The array and the surrogate rows were measured on the machine above with one VM 
 The escape cache, the joined chunks and the `Set` checks together make the shop 11% to 14% faster, pages of plain text 17.5% to 22% and small pages 8% to 11%.
 
 The four rewrites of the escape chain, the component stacks, the namespaces and the key paths were measured on the machine above with PGO, one VM pinned to one core, each step against the step before it, 12 rounds in turn. On the sixth shop page, the stats of one shop, the namespaces measured 2.4% slower and the key paths 5.3% faster, 3.3% faster together, close to the 3.8% to 5.4% of the other pages. Together the four make the shop 6.5% to 7.5% faster, pages of plain text 17.6% to 18.3%, a landing page 10.1% and small pages 5.4% to 5.9%. HTML stays the same byte for byte. Keeping every line of React DOM in place, which the rewrites need for the places in error stacks, moves render time by at most 1.4% either way.
+
+### Server
+
+| Change | Effect |
+| --- | --- |
+| Requests for a `Cache = true` page that miss the cache at the same time share one render | A burst of 50 requests on a cold order page of the shop renders once instead of 50 times, and is answered in 30 to 52 ms rather than 146 to 221 ms on the Apple M4, see [CPU and `ssr.vms`](#cpu-and-ssrvms). A single render takes as long as before |
 
 ### From the baseline to now
 

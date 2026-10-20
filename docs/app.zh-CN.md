@@ -307,6 +307,8 @@ const LayoutSSR = false // 本目录的 Layout，默认 true
 
 - `SSR = false`：照常执行中间件和所有 `Load`，不进 QuickJS，返回带数据的最简文档，浏览器直接渲染。`LayoutSSR = false` 作用于这个 Layout 套到的所有页面。
 - `Cache = true`：渲染结果按构建版本、URL 和数据缓存，缓存大小是 `cache.size`（见 [config.zh-CN.md](config.zh-CN.md)），数据没变时直接返回 HTML。组件渲染时不能读 `Date.now()`、`Math.random()` 这类每次不同的值，这也是 hydration 的要求。
+- `Cache = true` 的页面同时有多个请求没命中缓存，并且构建版本、URL 和数据都相同时（比如刚部署完涌进来一批访客），它们共用一次渲染。每个请求照样跑自己的中间件和 `Load`，保留它们设的响应头（比如 `Set-Cookie` 和 `Vary`），拿到自己接受的编码。`cache.size` 为 0、页面大到缓存放不下、在 `tifa dev` 下也都这样。数据不同的请求各自渲染，没有 `Cache` 的页面每个请求都渲染，因为它的 HTML 可能因用户而不同。
+- 共用的那次渲染失败时，等它的每个请求都拿到同一个错误并交给 `OnError`，panic 也一样。失败的结果不缓存，下一个请求重新渲染。客户端断开的请求立刻停止等待，连接被中断，不发响应：`OnRequest` 里 `c.Next()` 返回一个匹配 `context.Canceled` 的错误，但不调 `OnError`，也不打日志。渲染继续给其他请求用。请求自己的 deadline 在等待时到了，和别的错误一样处理。没有请求再等时，还在等 VM 的渲染就此放弃，已经在跑的跑完放进缓存。这时如果渲染失败，没有请求把它交给 `OnError`，所以错误写进日志。
 - 页面响应都带 ETag，数据没变的第二次请求带 `If-None-Match` 时答 304，和 `Cache` 无关。
 
 ## 服务端渲染时有什么
