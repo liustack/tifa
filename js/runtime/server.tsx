@@ -2,9 +2,18 @@ import type { ReactNode } from 'react'
 import { renderToString as renderString } from 'react-dom/server.edge'
 import { RouterProvider, type AnyRoute } from '@tanstack/react-router'
 import { attachRouterServerSsrUtils } from '@tanstack/react-router/ssr/server'
-import { createAppRouter, type HTMLAttributes } from './router'
+import { createAppRouter } from './router'
 import { injected, rootElementId, type Injected } from './data'
-import { attributes, headEnd, headHTML, headStart, headTags } from './head'
+import {
+  attributes,
+  defaultHTMLAttributes,
+  headEnd,
+  headHTML,
+  headStart,
+  headTags,
+  htmlAttributesOf,
+  type HTMLAttributes,
+} from './head'
 
 // The tags that load the browser bundle, its stylesheets and scripts, written into the head as
 // they are. tifa build defines it when it builds the SSR bundle.
@@ -46,11 +55,14 @@ type RenderInput = Injected & { preload?: string }
 // renderResult once the queued jobs have run. The router redirects a URL it spells differently, such as
 // /%61 for /a. Go answers redirects of Loads itself before it renders.
 //
-// React renders only the application root. The document around it, the head from the head
-// functions of the matched routes, the assets and the hydration scripts are written as strings,
-// so a page that failed at any level still comes as a whole document.
-export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = { lang: 'en' }) {
-  const documentStart = '<!DOCTYPE html><html' + attributes(htmlAttributes) + '><head><meta charset="utf-8">'
+// React renders only the application root. The document around it, the attributes of <html>
+// and the head from the head functions of the matched routes, the assets and the hydration
+// scripts are written as strings, so a page that failed at any level still comes as a whole
+// document.
+export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defaultHTMLAttributes) {
+  const documentStart = (attrs: HTMLAttributes) => '<!DOCTYPE html><html' + attributes(attrs) + '><head><meta charset="utf-8">'
+  // The root Layout's attributes fail here, when the bundle loads, rather than in every render.
+  documentStart(htmlAttributesOf([], htmlAttributes))
   const assetTags = __TIFA_ASSETS__
   const bodyStart = headEnd + '</head><body><div id="' + rootElementId + '">'
   globalThis.startRender = (json: string) => {
@@ -87,12 +99,13 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = { la
         const hydration = router.serverSsr!.takeInitialHydrationScriptTags()
         if (!hydration) throw new Error('the router has no hydration scripts for this render')
         router.serverSsr!.setRenderFinished()
+        const matches = router.stores.matches.get()
         const html =
-          documentStart +
+          documentStart(htmlAttributesOf(matches, htmlAttributes)) +
           assetTags +
           (input.preload ?? '') +
           headStart +
-          headHTML(headTags(router.stores.matches.get())) +
+          headHTML(headTags(matches)) +
           bodyStart +
           root +
           '</div>' +

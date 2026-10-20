@@ -1,15 +1,15 @@
 import { createRoot, hydrateRoot } from 'react-dom/client'
-import { RouterProvider, type AnyRoute } from '@tanstack/react-router'
-import { RouterClient } from '@tanstack/react-router/ssr/client'
-import { createAppRouter, type HTMLAttributes } from './router'
+import { Await, RouterProvider, type AnyRoute, type AnyRouter } from '@tanstack/react-router'
+import { hydrate as hydrateRouter } from '@tanstack/react-router/ssr/client'
+import { createAppRouter } from './router'
 import { bootElementId, collector, injected, rootElementId, sameURL, type Boot, type Source } from './data'
-import { followHead, setAttributes, syncHead } from './head'
+import { defaultHTMLAttributes, followHead, noteHTMLAttributes, syncHead, syncHTMLAttributes, type HTMLAttributes } from './head'
 import { setRouter } from './call'
 
 // hydrate takes over the application root the server rendered. A page rendered without SSR
 // carries its data instead, and the browser renders it from that data without a request. Either
-// way the head follows the matched routes from then on.
-export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = { lang: 'en' }) {
+// way the head and the attributes of <html> follow the matched routes from then on.
+export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defaultHTMLAttributes) {
   const root = document.getElementById(rootElementId)
   if (!root) throw new Error(`the page has no element #${rootElementId} to render into`)
   const boot = document.getElementById(bootElementId)
@@ -18,13 +18,15 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = { 
     const router = createAppRouter(routeTree, collector(() => buildId), {
       onHydrate: (id) => (buildId = id),
     })
-    followHead(router)
     setRouter(router)
-    hydrateRoot(root, <RouterClient router={router} />)
+    const hydrated = takeOver(router, htmlAttributes)
+    // What TanStack's RouterClient renders, with the promise of takeOver in place of its own.
+    hydrateRoot(root, <Await promise={hydrated}>{() => <RouterProvider router={router} />}</Await>)
     return
   }
-  // Go writes the document of a page without SSR, the attributes of <html> come from here.
-  setAttributes(document.documentElement, htmlAttributes)
+  // Go writes the document of a page without SSR, the attributes of <html> come from here: those
+  // of the root Layout at once, and those of the routes once they have loaded.
+  syncHTMLAttributes([], htmlAttributes)
   const input: Boot = JSON.parse(boot.textContent ?? '')
   const live = collector(() => input.buildId)
   const local = injected(input)
@@ -35,9 +37,27 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = { 
   const router = createAppRouter(routeTree, source, { buildId: input.buildId })
   void router.load().then(() => {
     first = false
-    followHead(router)
+    followHead(router, htmlAttributes)
     setRouter(router)
     syncHead(router.stores.matches.get())
+    syncHTMLAttributes(router.stores.matches.get(), htmlAttributes)
     createRoot(root).render(<RouterProvider router={router} />)
   })
+}
+
+// takeOver hydrates the router from the scripts of the page the server rendered, as TanStack's
+// RouterClient does, then has the head and the attributes of <html> follow its matches. It first
+// syncs the head with the matches the server rendered, which changes nothing on the page, and
+// notes which attributes of <html> the server wrote without writing them again, so that the
+// first navigation takes away those the next page does not give, and what scripts of the page
+// set on <html> stays. It does not wait for the store of the matches to report the hydration.
+export function takeOver(router: AnyRouter, htmlAttributes: HTMLAttributes): Promise<void> {
+  return hydrateRouter(router)
+    .finally(() => window.$_TSR!.h())
+    .then(() => {
+      const matches = router.stores.matches.get()
+      syncHead(matches)
+      noteHTMLAttributes(matches, htmlAttributes)
+      followHead(router, htmlAttributes)
+    })
 }

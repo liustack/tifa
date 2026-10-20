@@ -1,7 +1,7 @@
 import { Outlet } from '@tanstack/react-router'
 import { route } from './+layout'
 
-export const htmlAttributes = { lang: 'xx', 'data-theme': 'a"b' }
+export const htmlAttributes = { lang: 'xx', 'data-theme': 'a"b', className: 'h-full' }
 
 export const documentHead = { meta: [{ name: 'theme-color', content: '#123' }], links: [{ rel: 'icon', href: '/icon.svg' }] }
 

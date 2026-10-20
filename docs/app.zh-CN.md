@@ -238,7 +238,7 @@ const LayoutSSR = false // 可选，默认 true
 - 同一个 Layout 下切换页面时，Layout 组件不重新挂载，它的状态保留。`Layout` 函数读的参数变了（比如换了一个项目），Layout 重新挂载，状态重置。它不读的参数变了，状态保留，页面同理。
 - 页面和 Layout 都可以用 `tifa.Use(c, project.Layout)` 拿到套着自己的 Layout（同目录或祖先目录的）本次请求的结果，同一个 `Layout` 每个请求只跑一次。引用别的 Layout 构建报错，传入的不是包级 `Layout` 函数（比如闭包）也报错。`Layout` 函数不能引用自己所在目录的 Layout，直接引用或经辅助函数引用都不行。
 - 浏览器里跳转时，导航数据请求只执行所列路由的 `Load` 和 `Layout` 函数。祖先 Layout 的数据还在缓存里时，它不在列表中，它的 `Layout` 这次不会再跑。所以权限检查不要只写在 Layout 里：放进 `OnRequest`，或者让页面的 `Load` 用 `tifa.Use` 依赖做检查的那个 Layout，这样每次请求都会执行它。
-- 文档外壳（`<html>`、`<head>`、资源与注入数据的脚本）由框架写成字符串，React 只渲染 `<body>` 里的应用根节点，所以任何一层出错或 404 时页面仍是完整文档。根 Layout（`app/layout.tsx`）可以导出两个常量定制外壳：`htmlAttributes` 是 `<html>` 的属性（不导出时为 `{ lang: 'en' }`），`documentHead` 是每个页面都带的 head 标签（没有路由匹配、根 `Layout` 失败时也带），格式同 `head` 的返回值。在这里放网站的默认 `title`，没有路由匹配的 404 页面也有标题，页面自己的 `head` 返回 `title` 时会覆盖它。导出 `Document` 组件会构建报错。
+- 文档外壳（`<html>`、`<head>`、资源与注入数据的脚本）由框架写成字符串，React 只渲染 `<body>` 里的应用根节点，所以任何一层出错或 404 时页面仍是完整文档。根 Layout（`app/layout.tsx`）可以导出两个常量定制外壳：`htmlAttributes` 是每个页面 `<html>` 的初始属性（不导出时为 `{ lang: 'en' }`，路由的 `head` 可以为自己的页面改它们，见下文），`documentHead` 是每个页面都带的 head 标签（没有路由匹配、根 `Layout` 失败时也带），格式同 `head` 的返回值。在这里放网站的默认 `title`，没有路由匹配的 404 页面也有标题，页面自己的 `head` 返回 `title` 时会覆盖它。导出 `Document` 组件会构建报错。
 
 ```tsx
 export const htmlAttributes = { lang: 'zh-CN' }
@@ -249,6 +249,19 @@ export const documentHead = {
 ```
 
 - 页面的 head 由匹配到的路由的 `head` 返回值决定：`title` 和同名的 meta 取最深的路由，link、style、script 按路由顺序去重。框架默认带 `<meta charset="utf-8">` 和 viewport meta，路由的 `name: 'viewport'` meta 会替换后者。标签的属性按 React DOM 在服务器上的规则写：`className`、`htmlFor`、`httpEquiv`、`crossOrigin` 等改成 HTML 的名字，`on` 开头的事件属性、非法的属性名、`null`、`undefined`、函数不写，`async`、`defer` 这类布尔属性为真时写成空值，其他属性的布尔值只在 `data-`、`aria-` 属性上写成字符串，`javascript:` 链接被替换。head 标签不支持 `style` 属性，写了会让渲染出错。`htmlAttributes` 按同样的规则写。style、script 的内容原样写入，只有其中会结束元素的 `<script`、`</script`（style 里是 `<style`、`</style`）按 React DOM 的方式转义。浏览器里跳转、`router.invalidate()` 之后 head 随新的匹配更新。
+- `head` 还可以返回 `htmlAttributes`，即这些页面 `<html>` 的属性，比如多语言网站每个页面的语言。搜索引擎、读屏软件和浏览器的翻译都从 `lang` 读语言。它们逐个属性合并到根 Layout 的 `htmlAttributes` 上：同一个属性取给出它的最深的路由，`undefined` 交给上层决定，`null` 去掉这个属性。属性按 React DOM 写出的名字对应，所以一个路由的 `className` 和另一个路由的 `class` 是同一个属性。`class` 按整个属性替换，不和别处的值合并。`style` 和 head 标签一样不支持。写法规则和 head 标签相同。浏览器里跳转、`router.invalidate()` 之后它们也随新的匹配更新。在浏览器里，tifa 只在它要给 `<html>` 某个属性的值变了时才写这个属性，也只去掉自己写过的属性。所以页面脚本设的值（比如暗色模式脚本加的 `dark` class，翻译插件改的 `lang`）在 hydration 和跳转之后都还在，只要路由要的这个属性的值没变。这个值变了时，比如某个路由设了另一个 `class`，或者跳出这个路由后根 Layout 的 `class` 又回来，tifa 就会写上新值，脚本加的 class 也就没了。这类主题放在没有路由设的属性上（比如 `data-theme`），或者让脚本再加一次。不走 SSR 的页面在浏览器里得到这些属性。
+
+```tsx
+// app/guide/lang+/layout.tsx。layout.go 检查 URL 里的语言并返回它，
+// 网站没有的语言返回 tifa.ErrNotFound。
+export const head = ({ loaderData }: { loaderData?: Data }) => ({
+  htmlAttributes: { lang: loaderData?.lang },
+})
+```
+
+- 算数的路由就是 head 出现在页面上的那些。Layout 下面的 404 或出错保留 Layout 的语言。Layout 自己失败时，它的 `head` 拿不到数据，上面的例子就留下根 Layout 的 `lang`。没有路由匹配的 URL 只显示根 Layout 的 `NotFound`，带根 Layout 的属性。想让这类 URL 也用 URL 里的语言回答，就加一个接住剩余路径的页面，比如 `app/guide/lang+/rest++/route.go`，它的 `Load` 返回 `tifa.ErrNotFound`，这样 404 显示在这个 Layout 里面。
+- `htmlAttributes` 必须是对象，别的值 `pnpm typecheck` 会报出来。运行时这样的值和 `head` 抛错一样处理：服务器渲染按意外错误失败（交给 `OnError`，没有就是 500），消息写进日志，`tifa dev` 下也显示在页面上。浏览器里跳转后、或者不走 SSR 的页面上，路由器把错误打到控制台，并丢掉这个路由的整个 head。
+- 语言像上面那样从 Layout 的数据取，不要直接取 `params`：Go 函数会检查它，别人在 URL 里随便写的字不会变成页面的语言。
 
 ## 404
 

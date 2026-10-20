@@ -16,6 +16,7 @@
 - 页面的 HTML 紧跟在构建的标签后面，用 `<link rel="modulepreload">` 预加载它的 Layout 和路由的 chunk，这些文件和入口脚本一起下载。`Load` 失败时只预加载路由器显示的那几层。`build.json` 在 `preload` 下列出这些 chunk。
 - 程序自己提供 HTTPS，默认关闭。`server.tls_domains` 向 Let's Encrypt 申请并续期证书，存在 `server.tls_cache`。`server.tls_cert` 和 `server.tls_key` 用你自己的证书，文件变了不用重启就重新加载。开了 HTTPS 时浏览器能用 HTTP/2，`server.http_addr`（`:80`）回应 Let's Encrypt 的验证，并把 HTTPS 有证书的名字用 308 跳转到 HTTPS，`server.hsts` 加上 Strict-Transport-Security。开了 HTTPS 还用默认的 `server.addr` 时拒绝启动，并提示设成 `addr: :443`，设成别的回环地址能启动但会打一行警告。`tifa dev` 仍走明文 HTTP。
 - 示例应用多了给顾客的中英文店面，在 `/store` 下：商品搜索和筛选、商品详情、购物车、结算表单，以及用 Markdown 写、代码带高亮的手记。
+- 路由的 `head` 可以返回 `htmlAttributes`，即这些页面 `<html>` 的属性，比如多语言网站的 `lang`。它们逐个属性合并到根 Layout 的 `htmlAttributes` 上，最深的路由优先，`null` 去掉属性。浏览器每次跳转后同步这些属性，不走 SSR 的页面也一样。tifa 只在它要的值变了时才写某个属性，也只去掉自己写过的属性，所以页面脚本设的 class 或 `lang` 一直保留，直到某个路由要另一个值。不用这个功能的应用 HTML 不变，在浏览器里 tifa 也和以前一样，首次渲染之后不再碰 `<html>`，页面脚本在上面改什么都保留。示例店面这样设置自己的语言，店面没有的路径用 URL 里的语言回答 404。
 
 ### 性能
 

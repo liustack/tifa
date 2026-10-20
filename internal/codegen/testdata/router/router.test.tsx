@@ -1,4 +1,5 @@
 // Run by TestGeneratedRouterBehaves in Node, against the route tree generated for this app.
+import { writeFileSync } from 'node:fs'
 import { createMemoryHistory, isRedirect } from '@tanstack/react-router'
 import { hydrate } from '@tanstack/react-router/ssr/client'
 import { htmlAttributes, routeTree } from './.tifa/routes'
@@ -141,7 +142,7 @@ test('literal segments match the URLs ServeMux matches', async () => {
 test('the document around the React root is written as a string', async () => {
   const html = await render('/teams/x/one', { ...appData, 'app/teams/team+/layout': ok('x'), 'app/teams/team+/one/route': ok('one') })
   assert(
-    html.startsWith('<!DOCTYPE html><html lang="xx" data-theme="a&quot;b"><head><meta charset="utf-8">'),
+    html.startsWith('<!DOCTYPE html><html lang="xx" data-theme="a&quot;b" class="h-full"><head><meta charset="utf-8">'),
     `document start: ${html.slice(0, 200)}`,
   )
   contains(
@@ -187,6 +188,43 @@ test('the head holds the tags of the deepest route, escaped', async () => {
     '<title>APP_TITLE &amp; &lt;x&gt;</title>',
     '<meta name="description" content="say &quot;hi&quot; &amp; &lt;/script&gt;">',
   )
+})
+
+// documentStart is the document up to its head.
+const documentStart = (html: string) => html.slice(0, html.indexOf('<head>'))
+
+test('head sets attributes of <html> over those of the root Layout, the deepest route winning', async () => {
+  const intl = { ...appData, 'app/intl/lang+/layout': ok('fr'), 'app/intl/lang+/route': ok('home') }
+  const home = await render('/intl/fr', intl)
+  assert(documentStart(home) === '<!DOCTYPE html><html lang="fr" data-theme="a&quot;b" class="outer" dir="ltr">', `document start: ${documentStart(home)}`)
+  contains(home, 'INTL <!-- -->fr', 'INTL_HOME')
+  // null takes away what an outer level set, and the attributes React DOM would not write are left
+  // out. className and class are one attribute, written once.
+  const rtl = await render('/intl/fr/rtl', { ...intl, 'app/intl/lang+/rtl/route': ok('rtl') })
+  assert(
+    documentStart(rtl) === '<!DOCTYPE html><html lang="fr" class="wide" dir="rtl" title="a&quot;&lt;b">',
+    `document start: ${documentStart(rtl)}`,
+  )
+  contains(rtl.slice(0, rtl.indexOf('</head>')), '<title>RTL</title>')
+  // head.test.tsx hydrates browser routers from this page and from that of /hello, which this
+  // build cannot.
+  writeFileSync('intl-fr-rtl.html', rtl)
+  writeFileSync('hello.html', await render('/hello', appData))
+  // The attributes of <html> are no head tags.
+  lacks(rtl.slice(rtl.indexOf('<head>'), rtl.indexOf('</head>')), 'dir=', 'wide')
+})
+
+test('a failed or unmatched page gets the attributes of the levels it shows', async () => {
+  // The Layout failed, so its head has no data and the root's lang stays.
+  const failed = await render('/intl/fr', { ...appData, 'app/intl/lang+/layout': { status: 500, error: 'boom' }, 'app/intl/lang+/route': ok('home') })
+  assert(documentStart(failed) === '<!DOCTYPE html><html lang="xx" data-theme="a&quot;b" class="outer" dir="ltr">', `failed Layout: ${documentStart(failed)}`)
+  // The page failed below the Layout: the Layout's language holds.
+  const missingPage = await render('/intl/fr', { ...appData, 'app/intl/lang+/layout': ok('fr'), 'app/intl/lang+/route': missing })
+  assert(documentStart(missingPage) === '<!DOCTYPE html><html lang="fr" data-theme="a&quot;b" class="outer" dir="ltr">', `404 page: ${documentStart(missingPage)}`)
+  contains(missingPage, 'APP_404')
+  // A URL no route matches shows the root alone, with the root Layout's attributes.
+  const unmatched = await render('/intl/fr/rtl/nowhere', {})
+  assert(documentStart(unmatched) === '<!DOCTYPE html><html lang="xx" data-theme="a&quot;b" class="h-full">', `unmatched: ${documentStart(unmatched)}`)
 })
 
 test('a component that throws fails the render', async () => {

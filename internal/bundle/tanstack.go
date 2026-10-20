@@ -18,6 +18,9 @@ import (
 // they write the page data on the server and read it back in the browser, but which TanStack does
 // not document outside TanStack Start. TestedRouterCore is the router-core that TestedReactRouter
 // depends on.
+//
+// takeOver in js/runtime/browser.tsx hydrates the router in place of TanStack's RouterClient:
+// when moving to another version, check it against the RouterClient.tsx of that version.
 const (
 	TestedReactRouter = "1.170.42"
 	TestedRouterCore  = "1.171.35"
