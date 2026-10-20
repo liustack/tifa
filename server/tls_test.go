@@ -351,6 +351,84 @@ func selfSignedFor(t *testing.T, name string) keyPair {
 	return keyPair{pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})}
 }
 
+// Connections keep coming while a Kubernetes secret swaps its ..data link to a new folder.
+// Every handshake gets a whole certificate, the old or the new one, and the new one wins once
+// the swap is done. With -race this also proves certFiles guards what handshakes share.
+func TestCertificateSwapUnderConcurrentHandshakes(t *testing.T) {
+	dir := t.TempDir()
+	first, firstKey, firstSerial := selfSigned(t)
+	second, secondKey, secondSerial := selfSigned(t)
+	publish := func(name string, cert, key []byte) {
+		if err := os.Mkdir(filepath.Join(dir, name), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(dir, name, "tls.crt"), cert)
+		writeFile(t, filepath.Join(dir, name, "tls.key"), key)
+		if err := os.Symlink(name, filepath.Join(dir, "..data_tmp")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(filepath.Join(dir, "..data_tmp"), filepath.Join(dir, "..data")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	publish("..2026_10_20_01", first, firstKey)
+	for _, f := range []string{"tls.crt", "tls.key"} {
+		if err := os.Symlink(filepath.Join("..data", f), filepath.Join(dir, f)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := config.Default()
+	cfg.Server.Addr = "127.0.0.1:0"
+	cfg.Server.TLSCert, cfg.Server.TLSKey = filepath.Join(dir, "tls.crt"), filepath.Join(dir, "tls.key")
+	srv := startHTTPS(t, New(cfg, Hooks{}))
+	roots := pool(t, append(append([]byte{}, first...), second...))
+
+	handshake := func() (*big.Int, error) {
+		conn, err := tls.Dial("tcp", srv.main, &tls.Config{RootCAs: roots, ServerName: testDomain})
+		if err != nil {
+			return nil, err
+		}
+		defer conn.Close()
+		return conn.ConnectionState().PeerCertificates[0].SerialNumber, nil
+	}
+	stop := make(chan struct{})
+	errs := make(chan error, 8)
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				serial, err := handshake()
+				if err == nil && serial.Cmp(firstSerial) != 0 && serial.Cmp(secondSerial) != 0 {
+					err = fmt.Errorf("serial %v is neither certificate", serial)
+				}
+				if err != nil {
+					errs <- err
+					return
+				}
+			}
+		}()
+	}
+	time.Sleep(50 * time.Millisecond)
+	publish("..2026_10_20_02", second, secondKey)
+	time.Sleep(50 * time.Millisecond)
+	close(stop)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
+	}
+	if serial, err := handshake(); err != nil || serial.Cmp(secondSerial) != 0 {
+		t.Fatalf("after the swap: %v, %v, want %v", serial, err, secondSerial)
+	}
+}
+
 // HTTPS on a loopback address set by hand starts, since it may be a test on this machine, but
 // the log says nobody else reaches it.
 func TestHTTPSOnTheLoopbackWarns(t *testing.T) {
