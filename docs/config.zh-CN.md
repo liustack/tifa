@@ -104,6 +104,7 @@ server:
 - 两个文件都是 PEM 格式。证书文件里先放证书，后面跟中间证书，certbot 的 `fullchain.pem` 就是这样。
 - 每个新连接之前程序都会看一眼两个文件，有一个变了就重新加载，所以续期后的证书不用重启、也不用发信号就生效。符号链接会跟过去，所以 certbot 的 `live/` 目录和以卷挂载的 Kubernetes secret 都能用。新文件还加载不了时（比如证书写好了私钥还没写），程序继续用原来的证书，并在日志里写一次原因。
 - 启动时文件加载不了，程序在 `OnStart` 之前就停下。
+- certbot 用 http-01 验证续期时要用 80 端口，而程序为 `server.http_addr` 占着它。这时改用 DNS 验证续期，或者设 `http_addr: off`，让 certbot 用 standalone 模式自己监听 80 端口。
 
 ### 80 端口与 HSTS
 
