@@ -144,7 +144,8 @@ func TestShopApp(t *testing.T) {
 		t.Errorf("second request of a Cache = true page: %s", again.Get("X-Tifa-Render"))
 	}
 
-	checkCompressed(t, base, dir, built.BuildID, built.Head)
+	// The files the order page loads besides its own HTML: the head of the build and its preloads.
+	checkCompressed(t, base, dir, built.BuildID, body[strings.Index(body, built.Head):strings.Index(body, "<!--tifa-head-->")])
 
 	// 404 at each level: the order inside the project Layout, the project inside the root Layout,
 	// an unknown URL on its own. Each one keeps a title, the last from the root Layout's documentHead.
@@ -402,8 +403,9 @@ func checkCompressed(t *testing.T, base, dir, buildID, head string) {
 	}
 
 	// Each file the head loads, the entry script of over 256 KB among them, goes out as its .gz
-	// file. A file under 1024 bytes has none and goes out as it is.
-	largest := 0
+	// file. A file under 1024 bytes, such as a small chunk the order page preloads, has none and
+	// goes out as it is.
+	largest, small := 0, 0
 	for _, m := range headURL.FindAllStringSubmatch(head, -1) {
 		file := filepath.Join(dir, ".tifa", "dist", filepath.FromSlash(m[1]))
 		if info, err := os.Stat(file); err == nil && info.Size() < 1024 {
@@ -413,6 +415,7 @@ func checkCompressed(t *testing.T, base, dir, buildID, head string) {
 			if res, body := fetch(m[1], "gzip, deflate, br, zstd"); res.Header.Get("Content-Encoding") != "" || int64(len(body)) != info.Size() {
 				t.Errorf("%s: %v, %d bytes, want the %d of the file", m[1], res.Header, len(body), info.Size())
 			}
+			small++
 			continue
 		}
 		want, err := os.ReadFile(file + ".gz")
@@ -429,7 +432,7 @@ func checkCompressed(t *testing.T, base, dir, buildID, head string) {
 			t.Errorf("%s: %v, %d bytes, want the %d of its .gz", m[1], res.Header, len(body), len(want))
 		}
 	}
-	if largest < 256<<10 {
-		t.Errorf("the largest file the head loads has %d bytes, the check wants one over 256 KB", largest)
+	if largest < 256<<10 || small == 0 {
+		t.Errorf("the largest file the head loads has %d bytes and %d have under 1024, the check wants one over 256 KB and one under 1024 bytes", largest, small)
 	}
 }
