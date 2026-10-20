@@ -563,11 +563,12 @@ func (s *Server) serveBoth(ctx context.Context, ln net.Listener, tlsConfig *tls.
 		}),
 		BaseContext:       func(net.Listener) context.Context { return base },
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second,
+		// ServeTLS adds h2 and http/1.1 to NextProtos and turns HTTP/2 on.
+		TLSConfig: tlsConfig,
 	}
 	served := make(chan error, 2)
 	go func() {
 		if tlsConfig != nil {
-			srv.TLSConfig = tlsConfig
 			served <- srv.ServeTLS(ln, "", "")
 		} else {
 			served <- srv.Serve(ln)
