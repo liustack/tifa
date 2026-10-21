@@ -26,14 +26,14 @@ func attempt(expr string) string {
 func TestServerRenderGlobals(t *testing.T) {
 	missing := []string{
 		"setTimeout", "setInterval", "clearTimeout", "requestAnimationFrame", "requestIdleCallback",
-		"performance", "crypto", "window", "document", "navigator", "self", "location", "localStorage",
+		"performance", "window", "document", "navigator", "self", "location", "localStorage",
 		"matchMedia", "ResizeObserver", "IntersectionObserver", "MessageChannel", "structuredClone",
 		"fetch", "Request", "XMLHttpRequest", "Blob", "FormData", "Event", "EventTarget",
 		"AbortSignal", "process", "global", "Buffer", "require", "WebAssembly",
 	}
 	present := []string{
 		"queueMicrotask", "URL", "URLSearchParams", "TextEncoder", "TextDecoder", "AbortController",
-		"DOMException", "atob", "btoa", "Headers", "Response", "WeakRef", "FinalizationRegistry", "Proxy", "Intl", "console",
+		"crypto", "DOMException", "atob", "btoa", "Headers", "Response", "WeakRef", "FinalizationRegistry", "Proxy", "Intl", "console",
 	}
 	var exprs []string
 	for _, name := range append(missing, present...) {
