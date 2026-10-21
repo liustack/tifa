@@ -32,6 +32,7 @@
 
 ### 修复
 
+- quickjs v0.26.17：Intl 按 ECMA-402 转换选项、值和语言列表，该给字符串或数字的地方给了 Symbol 或 BigInt 会抛 `TypeError`，`Intl.NumberFormat` 格式化包装起来的 BigInt 时不再经过 double 舍入，而是原样精确输出。页面改了 `Array.prototype`、`JSON` 或别的内置对象，不再影响 Intl。Intl 的函数和内置函数的样子一样，格式化器由进程里所有 VM 共用，所以用过 Intl 的 VM 少占几 KB。
 - SSR bundle 保持 React DOM 每一行的位置不变，渲染报错栈里的位置指向正确的行。
 
 ## 2026-10-19

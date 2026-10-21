@@ -32,6 +32,7 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 
 ### Fixed
 
+- quickjs v0.26.17: Intl converts options, values and locale lists as ECMA-402 does, so a Symbol or a BigInt where a string or a number is wanted throws a `TypeError`, and `Intl.NumberFormat` formats a wrapped BigInt exactly where it rounded it through a double. A page that changes `Array.prototype`, `JSON` or other built-ins no longer changes what Intl does. Intl's functions have the shape of built-ins, and the formatters are shared by every VM of the process, so a VM that has used Intl holds a few KB less.
 - The SSR bundle keeps every line of React DOM in place, so the places in render error stacks point at the right lines.
 
 ## 2026-10-19
