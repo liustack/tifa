@@ -2,6 +2,7 @@
 // Intl and the toLocale* methods are not here: internal/ssr registers them on every VM from
 // Go (github.com/liustack/quickjs/intl), in every CLDR locale, with en-US and UTC as the
 // defaults. In the browser they are the browser's own.
+import { makeStructuredClone } from './structured-clone'
 import { crypto } from './crypto'
 import { DOMException } from './dom-exception'
 import { atob, btoa } from './base64'
@@ -41,3 +42,7 @@ Object.assign(globalThis, {
     },
   },
 })
+
+globalThis.structuredClone = makeStructuredClone([URL.prototype, URLSearchParams.prototype,
+  AbortController.prototype, Object.getPrototypeOf(new AbortController().signal),
+  Headers.prototype, Response.prototype, TextEncoder.prototype, TextDecoder.prototype])
