@@ -1,5 +1,5 @@
 ---
-summary: 'How tifa new starts an app, what tifa build does, which files and outputs it generates in .tifa/, how to set up the tsconfig and go.mod of an app, how the generated program starts and answers page requests, how it is compiled with a profile (PGO), and which license notices to ship with it'
+summary: 'How tifa new starts an app, what tifa build does, which files and outputs it generates in .tifa/, how to set up the tsconfig and go.mod of an app, how the generated program starts and answers page requests, how it is compiled with a profile (PGO), why it leaves out the debug info, and which license notices to ship with it'
 read_when:
   - Changing internal/codegen, the build command in cmd/tifa, or server.Main
   - Creating a tifa app, or adding an app to test/apps
@@ -8,6 +8,7 @@ read_when:
   - Changing internal/bundle, js/vite or js/host, or upgrading the dependencies of the SSR host polyfills
   - Handing a built program to others and checking which notices go with it
   - Turning PGO off or building with your own profile
+  - Debugging the built program with Delve, or passing your own -ldflags
 ---
 
 English · [简体中文](build.zh-CN.md)
@@ -53,7 +54,7 @@ tifa build [--dir app-root] [-o output-path]
 1. Statically analyzes `app/` and the root `hooks.go`. If a convention is broken, it prints `file:line: reason` for each problem and exits.
 2. Writes the generated code into `.tifa/`. Only files whose content changed are rewritten, and files no longer generated are deleted.
 3. Bundles with the app's own Vite, which runs on Node, and writes the output to `.tifa/dist/`. See "Frontend output" below. tifa runs one Node process for the whole build, with `NODE_ENV=production` whatever the shell sets, so the build always uses the production build of React. It also reads the exports of `route.tsx` and `layout.tsx` with Vite's parser for step 2. An app without pages builds without Node. The executable never needs Node.
-4. Runs `CGO_ENABLED=0 go build -o <output> ./.tifa`. The default output is `bin/<last segment of the module path>`. The generated main embeds `.tifa/dist/` into the executable with `//go:embed all:dist`. An app with pages is compiled with a profile of page renders, see "Profile-guided optimization" below.
+4. Runs `CGO_ENABLED=0 go build -o <output> -ldflags=-w ./.tifa`. The default output is `bin/<last segment of the module path>`. The generated main embeds `.tifa/dist/` into the executable with `//go:embed all:dist`. An app with pages is compiled with a profile of page renders, see "Profile-guided optimization" below. `-w` leaves out the debug info, see "Debug info" below.
 
 ### Profile-guided optimization
 
@@ -76,6 +77,23 @@ Your own profile fits your app better. Take a CPU profile of the built program u
 ```sh
 go tool pprof -proto prod.pprof "$(go list -m -f '{{.Dir}}' github.com/liustack/tifa)/internal/codegen/engine.pgo" > default.pgo
 ```
+
+### Debug info
+
+`tifa build` passes `-ldflags=-w` to `go build`, which leaves the DWARF debug info out of the program. For `examples/shop` on an Apple M4 (darwin/arm64), the program goes from 26.4 MB to 21.2 MB, about 20% smaller.
+
+Go keeps its own table of functions, files and lines in every program, apart from DWARF, so most things work as before. Panics and stack traces still give the file and line of each frame, and `runtime.Caller` and pprof profiles read the same table. What you lose is debuggers such as Delve (`dlv`): they need DWARF, so they cannot step through the built program or show its variables. tifa does not pass `-s`, which would also take out the symbol table that tools such as `go tool nm` read.
+
+To keep the debug info, set `build.debug_info` in the [project file](config.md#settings):
+
+```yaml
+build:
+  debug_info: true
+```
+
+`tifa dev` always keeps the debug info.
+
+`go build` takes several `-ldflags`, each for a package pattern or, without one, for the packages named on the command line. For each package it uses the last one that matches it, and the command line comes after `GOFLAGS`, so a `-ldflags` there replaces the one in `GOFLAGS`. So tifa puts the flags of the last `-ldflags` in `GOFLAGS` (set in the environment or with `go env -w`) in front of `-w`: with `GOFLAGS=-ldflags=-X=main.version=v1`, tifa passes `-ldflags=-X=main.version=v1 -w`. It adds nothing when those flags already have `-w` or `-s`, which then decide. It also adds nothing when an `-ldflags` in `GOFLAGS` is for a package pattern, such as `-ldflags=all=-X=main.version=v1`: write `-w` there yourself.
 
 ### Building for another system
 

@@ -1,5 +1,5 @@
 ---
-summary: 'tifa new 怎么新建应用、tifa build 做什么、.tifa/ 里生成了哪些文件和产物、应用的 tsconfig 与 go.mod 怎么配、生成的程序怎么启动和回答页面请求、怎么按剖析编译（PGO），以及要随程序附带哪些许可声明'
+summary: 'tifa new 怎么新建应用、tifa build 做什么、.tifa/ 里生成了哪些文件和产物、应用的 tsconfig 与 go.mod 怎么配、生成的程序怎么启动和回答页面请求、怎么按剖析编译（PGO）、为什么不带调试信息，以及要随程序附带哪些许可声明'
 read_when:
   - 改 internal/codegen、cmd/tifa 的 build 命令或 server.Main
   - 新建一个 tifa 应用，或给 test/apps 加应用
@@ -8,6 +8,7 @@ read_when:
   - 改 internal/bundle、js/vite、js/host，或升级 SSR 宿主补丁的依赖
   - 要把构建出的程序交给别人，想知道要附带哪些声明
   - 要关掉 PGO，或用自己的剖析构建
+  - 要用 Delve 调试构建出的程序，或要传自己的 -ldflags
 ---
 
 [English](build.md) · 简体中文
@@ -53,7 +54,7 @@ tifa build [--dir 应用根目录] [-o 输出路径]
 1. 静态分析 `app/` 与根目录 `hooks.go`，约定不满足时逐条打印 `文件:行号: 原因` 并退出。
 2. 把生成代码写进 `.tifa/`。只改内容变了的文件，删掉不再生成的文件。
 3. 用应用自己装的 Vite 打包，它跑在 Node 上，产物写进 `.tifa/dist/`，见下文「前端产物」。整个构建只起一个 Node 进程，不管 shell 里设了什么，它的 `NODE_ENV` 都是 `production`，所以构建总用 React 的生产版。第 2 步读 `route.tsx`、`layout.tsx` 的导出也用 Vite 的解析器。没有页面的应用构建时不需要 Node。可执行文件始终不需要 Node。
-4. `CGO_ENABLED=0 go build -o <输出> ./.tifa`，默认输出 `bin/<模块路径最后一段>`。生成的 main 用 `//go:embed all:dist` 把 `.tifa/dist/` 嵌进可执行文件。有页面的应用用一份页面渲染的剖析来编译，见下文「按剖析优化」。
+4. `CGO_ENABLED=0 go build -o <输出> -ldflags=-w ./.tifa`，默认输出 `bin/<模块路径最后一段>`。生成的 main 用 `//go:embed all:dist` 把 `.tifa/dist/` 嵌进可执行文件。有页面的应用用一份页面渲染的剖析来编译，见下文「按剖析优化」。`-w` 去掉调试信息，见下文「调试信息」。
 
 ### 按剖析优化
 
@@ -76,6 +77,23 @@ tifa 自带的剖析采自示例商店的页面在 linux/amd64 上的热 VM 里�
 ```sh
 go tool pprof -proto prod.pprof "$(go list -m -f '{{.Dir}}' github.com/liustack/tifa)/internal/codegen/engine.pgo" > default.pgo
 ```
+
+### 调试信息
+
+`tifa build` 给 `go build` 传 `-ldflags=-w`，程序里不带 DWARF 调试信息。`examples/shop` 在 Apple M4（darwin/arm64）上的程序从 26.4 MB 降到 21.2 MB，小了约 20%。
+
+Go 在每个程序里另有一张函数、文件和行号的表，和 DWARF 无关，所以大多数事照旧。panic 和栈追踪照样给出每一帧的文件和行号，`runtime.Caller` 和 pprof 的剖析读的也是这张表。少了的是 Delve（`dlv`）这类调试器：它们要靠 DWARF，所以没法单步调试构建出的程序，也看不了它的变量。tifa 不传 `-s`，它还会去掉符号表，`go tool nm` 这类读符号表的工具就用不了了。
+
+要保留调试信息，在[项目文件](config.zh-CN.md#配置项)里设 `build.debug_info`：
+
+```yaml
+build:
+  debug_info: true
+```
+
+`tifa dev` 总是保留调试信息。
+
+`go build` 可以有多个 `-ldflags`，每个给一个包模式，不写模式就是给命令行上列出的包。每个包用的是最后一个和它匹配的 `-ldflags`，而命令行排在 `GOFLAGS` 后面，所以命令行上的 `-ldflags` 会顶替 `GOFLAGS` 里的。所以 tifa 把 `GOFLAGS`（在环境变量里设的，或用 `go env -w` 写的）里最后一个 `-ldflags` 的参数放在 `-w` 前面：`GOFLAGS=-ldflags=-X=main.version=v1` 时，tifa 传 `-ldflags=-X=main.version=v1 -w`。这些参数里已经有 `-w` 或 `-s` 时，tifa 什么都不加，由它们决定。`GOFLAGS` 里有给包模式的 `-ldflags` 时，比如 `-ldflags=all=-X=main.version=v1`，tifa 也什么都不加，要去掉调试信息就自己在那里写上 `-w`。
 
 ### 给别的系统构建
 
