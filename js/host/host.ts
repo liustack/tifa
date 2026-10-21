@@ -2,6 +2,8 @@
 // Intl and the toLocale* methods are not here: internal/ssr registers them on every VM from
 // Go (github.com/liustack/quickjs/intl), in every CLDR locale, with en-US and UTC as the
 // defaults. In the browser they are the browser's own.
+import { DOMException } from './dom-exception'
+import { atob, btoa } from './base64'
 import 'core-js/web/url.js'
 import { TextEncoder, TextDecoder } from '@kayahr/text-encoding/no-encodings'
 import AbortController from 'abort-controller'
@@ -13,6 +15,9 @@ Reflect.deleteProperty(globalThis, 'fetch')
 Reflect.deleteProperty(globalThis, 'Request')
 
 Object.assign(globalThis, {
+  DOMException,
+  atob,
+  btoa,
   TextEncoder,
   TextDecoder,
   AbortController,
