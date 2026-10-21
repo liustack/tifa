@@ -346,6 +346,7 @@ Each item says what it would give and why it was dropped. Check here before tryi
 - **One libc allocator per VM**, to avoid its global lock: with 8 VMs on Linux the lock costs 0.4% to 0.9% of the CPU, and since v0.26.15 10 VMs on an Apple M4 wait on locks for about 0.7% of their time.
 - **Dropping function source from the bytecode** (`JS_SetStripInfo`) to save VM memory: seroval reads the source of its own helpers with `toString` and writes it into pages, so the browser would break.
 - **Go versions of `TextEncoder`, `URL` and the other host polyfills**: renders barely call them, so render time has nothing to gain.
+- **Removing the store of the bytecode position on arm64**: the up to 11.6% of the interpreter's own time it seemed to take is where the sampler puts the wait for the next opcode. The store is Go saving the local `pc` for the calls that read it back, on the path every opcode takes. Only moving the instructions put the samples on the opcode load instead (8.8% down to 0.4%), with the same instruction count, cycles and render time.
 
 ### Build
 
@@ -389,5 +390,4 @@ The time of one render is nearly all the cost: with quickjs v0.26.13, 99.5% of t
 5. **Kept shapes with less memory.** v0.26.16 keeps shapes for 3.6% less render time, but each VM of the shop holds 647 KiB more for them. When the Go code of the engine can be generated again from C, a change in C, such as a reference from each child shape to its parent, could give the same speed with less memory. A candidate for upstream.
 6. **Go 1.28 on amd64.** When it ships, measure the rewritten engine again. If it is still slower than with Go 1.27, make a small reproduction for the Go team.
 7. **The escape cache.** QuickJS hashes `Map` keys without a seed, so many strings with the same hash slow the lookups. The 64 code units counted for each string keep a chain under about 3,700 entries, and a limit on the number of entries would make it shorter. Long strings that are not Latin-1, from 8,192 code units, take about 4 times their content in memory: check whether string concatenation leaves spare room.
-8. **arm64.** After the stack rewrites, storing the bytecode position took up to about 11.6% of the interpreter's own time on arm64, for a reason not found. It is an upper bound: the store sits on the chain that reads the next opcode, so the sampling may count time spent waiting there against it.
-9. **Comparisons not made yet.** Node's own HTTP server and a Node cluster, and the same pages in TanStack Start and Next.js on the same machine.
+8. **Comparisons not made yet.** Node's own HTTP server and a Node cluster, and the same pages in TanStack Start and Next.js on the same machine.
