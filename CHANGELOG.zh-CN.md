@@ -10,6 +10,7 @@
 - React DOM 以外的模块代码里出现 `$$FORM_ACTION` 时，构建打印警告并写明是哪个模块，因为这样的表单拿到的键和没有插件时 React 写的不一样。
 - 浏览器里，导出 `head` 的路由模块和其他路由模块一样随路由加载，不再放在入口脚本里。示例 shop 的入口 gzip 后从 224 KB 降到 146 KB。这类模块顶层的代码改在路由第一次加载时运行，每个页面都需要的初始化应放在根 Layout 里。入口里的模块 import 了路由模块时，它留在入口里，构建打印打包器的 `INEFFECTIVE_DYNAMIC_IMPORT` 警告。
 - 地址监听不了时报错会指出是哪项配置，端口只有 root 能用时提示用 `setcap cap_net_bind_service=+ep`。
+- `tifa build` 用 `-ldflags=-w` 去掉程序里的 DWARF 调试信息，`GOFLAGS` 里 `-ldflags` 的参数放在它前面照样生效。示例商店在 darwin/arm64 上的程序从 26.4 MB 降到 21.2 MB。panic、`runtime.Caller` 和 pprof 照样给出文件和行号，但 Delve 这类调试器没法单步调试这个程序。在项目文件里写 `build.debug_info: true` 可以保留调试信息。`tifa dev` 和以前一样保留。
 - `Cache = true` 页面渲染时的 panic，现在作为渲染错误 `tifa: render page: tifa: panic: ...` 交给 `OnRequest` 和 `OnError`，带渲染时的栈，不再是以前那样的普通 `tifa: panic: ...`（`Load` 里的 panic 仍然是这样）。`tifa dev` 下它的错误页写的是请求在服务端渲染时失败，而不只是请求失败。
 
 ### 新增
