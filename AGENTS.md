@@ -7,7 +7,7 @@ tifa is a full-stack Go framework: Go handles routing, data loading, caching and
 ## Hard constraints
 
 - Pure Go, `CGO_ENABLED=0`, shipped as a single executable. Do not bring in a cgo QuickJS, V8, or a Node side process.
-- SSR uses a pool of prewarmed QuickJS VMs and outputs complete HTML, with no streaming. Go loads all data and injects it before rendering. Rendering does no I/O. No RSC.
+- SSR uses a pool of prewarmed QuickJS VMs and outputs complete HTML, with no streaming. Go loads all data and injects it before rendering. Rendering does no application I/O. The host reads OS randomness on demand for crypto, and Intl may read zoneinfo on first use. No RSC.
 - A single render being slower than Node is an accepted cost. Performance discussions only cover how to speed things up and raise whole-process throughput within that limit.
 - Little magic: package-level functions and global variables, no dependency injection container (dependencies are wired by hand), no needless structs. The build never runs the app's Go code: it only analyzes it statically. Vite runs the app's `vite.config.ts` and its plugins.
 - The running app never needs Node: no Node service and no Node at runtime. `tifa build` and `tifa dev` run the app's own Vite on Node to bundle the front end, since a React app has Node for npm anyway. An app without pages builds without Node.
