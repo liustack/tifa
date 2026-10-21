@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liustack/quickjs"
 	lib "github.com/liustack/quickjs/lib"
 	"github.com/liustack/tifa/internal/config"
 )
@@ -212,7 +211,7 @@ func TestFailedVMIsReplaced(t *testing.T) {
 // A Go panic during a render goes on up to the caller, and the VM it left in an unknown state
 // is replaced, so the pool keeps its size.
 func TestPanickedVMIsReplaced(t *testing.T) {
-	defer swap(&loadVM, func(p *Pool) (*quickjs.VM, error) {
+	defer swap(&loadVM, func(p *Pool) (*pooledVM, error) {
 		vm, err := openVM(p)
 		if err != nil {
 			return nil, err
@@ -392,7 +391,7 @@ func TestFailedReplacementIsLoggedAndRetried(t *testing.T) {
 	p := newTestPool(t, testSource(t), testConfig(1))
 	failures := 2
 	var mu sync.Mutex
-	defer swap(&loadVM, func(p *Pool) (*quickjs.VM, error) {
+	defer swap(&loadVM, func(p *Pool) (*pooledVM, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		if failures > 0 {
@@ -429,7 +428,7 @@ func TestCloseStopsRetryingReplacement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer swap(&loadVM, func(*Pool) (*quickjs.VM, error) { return nil, errors.New("broken") })()
+	defer swap(&loadVM, func(*Pool) (*pooledVM, error) { return nil, errors.New("broken") })()
 	if _, err := p.Render(context.Background(), input("throw", "")); err == nil {
 		t.Fatal("accepted")
 	}
@@ -633,7 +632,7 @@ func TestStackDepthLimitsRecursion(t *testing.T) {
 // The pool never interrupts a VM itself, so an interrupt is the time budget whatever Go's clock
 // says. The page interrupts its VM long before the deadline, as the engine's timer would.
 func TestInterruptIsTheTimeBudget(t *testing.T) {
-	defer swap(&loadVM, func(p *Pool) (*quickjs.VM, error) {
+	defer swap(&loadVM, func(p *Pool) (*pooledVM, error) {
 		vm, err := openVM(p)
 		if err != nil {
 			return nil, err

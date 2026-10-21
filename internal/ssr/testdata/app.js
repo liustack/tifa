@@ -41,7 +41,7 @@ globalThis.startRender = (json) => {
   const input = JSON.parse(json)
   const mode = input.data.mode ?? 'ok'
   renders++
-  if (mode !== 'ok' && mode !== 'garbage' && mode !== 'globals') dirty = true
+  if (mode !== 'ok' && mode !== 'garbage' && mode !== 'cycles' && mode !== 'hold' && mode !== 'globals') dirty = true
   switch (mode) {
     case 'throw':
       throw new Error('intentional failure')
@@ -126,6 +126,22 @@ globalThis.startRender = (json) => {
         globalThis.renderResult = page(input) + rows.length
       })
       return
+    }
+    case 'hold': {
+      // data.text objects that the render holds until it ends, as a large page holds its tree,
+      // and that are freed as soon as it ends.
+      const held = []
+      for (let i = 0; i < Number(input.data.text); i++) held.push({ index: i })
+      globalThis.renderResult = page(input) + held.length
+      return
+    }
+    case 'cycles': {
+      // data.text objects that point at themselves, garbage only a GC frees.
+      for (let i = 0; i < Number(input.data.text); i++) {
+        const node = { index: i }
+        node.self = node
+      }
+      break
     }
   }
   Promise.resolve().then(() => {

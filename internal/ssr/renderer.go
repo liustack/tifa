@@ -65,6 +65,10 @@ func Load(bytecode []byte, memory, stack uintptr, timeout time.Duration, dev boo
 	if err != nil {
 		return nil, errors.Join(err, vm.Close())
 	}
+	// What loading left as garbage goes now, so that the live size of the VM is what the bundle
+	// keeps, and the first render gets the threshold of the next ones.
+	vm.RunGC()
+	vm.SetGCThreshold(gcThreshold(vm.MemorySize(), 0, memory))
 	return vm, nil
 }
 
