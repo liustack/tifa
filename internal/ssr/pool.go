@@ -17,6 +17,7 @@ import (
 
 	"github.com/liustack/quickjs"
 	"github.com/liustack/tifa/internal/config"
+	"github.com/liustack/tifa/internal/core"
 )
 
 // Input is everything a render sees. The HTML depends on nothing else.
@@ -39,14 +40,16 @@ var ErrClosed = errors.New("ssr: pool closed")
 // The garbage renders leave is mostly collected between renders, after the answer
 // (see release).
 type Pool struct {
-	bytecode []byte
-	sources  *sources
-	memory   uintptr
-	stack    uintptr // stack slots of each VM, see Load
-	timeout  time.Duration
-	dev      bool // the checks of tifa dev, see warnIntl
-	idle     chan *pooledVM
-	done     chan struct{} // closed when Close starts
+	bytecode    []byte
+	sources     *sources
+	memory      uintptr
+	stack       uintptr // stack slots of each VM, see Load
+	timeout     time.Duration
+	waitTimeout time.Duration
+	waiters     chan struct{}
+	dev         bool // the checks of tifa dev, see warnIntl
+	idle        chan *pooledVM
+	done        chan struct{} // closed when Close starts
 
 	mu      sync.Mutex
 	closing bool
@@ -58,8 +61,9 @@ type Pool struct {
 	refills   sync.WaitGroup
 	closeOnce sync.Once
 
-	acquired   func()          // test hook, runs after a render takes a VM
-	collecting func(*pooledVM) // test hook, runs before a GC between renders
+	waiting    func(*time.Timer) // test hook, runs before the wait select
+	acquired   func()            // test hook, runs after a render takes a VM
+	collecting func(*pooledVM)   // test hook, runs before a GC between renders
 }
 
 // pooledVM is a VM of the pool with what its GC threshold is made of (see gcThreshold).
@@ -114,16 +118,22 @@ func NewPool(source string, sourceMap []byte, cfg config.SSR, dev bool) (*Pool, 
 		return nil, fmt.Errorf("ssr: ssr.vm_stack_depth must be from 1 to %d, got %d", config.MaxVMStackDepth, cfg.VMStackDepth)
 	case cfg.Timeout <= 0:
 		return nil, fmt.Errorf("ssr: ssr.timeout must be positive, got %s", cfg.Timeout)
+	case cfg.QueueLimit < 0:
+		return nil, fmt.Errorf("ssr: ssr.queue_limit must not be negative, got %d", cfg.QueueLimit)
+	case cfg.WaitTimeout <= 0:
+		return nil, fmt.Errorf("ssr: ssr.wait_timeout must be positive, got %s", cfg.WaitTimeout)
 	}
 	p := &Pool{
-		sources: &sources{code: source, raw: sourceMap},
-		memory:  uintptr(cfg.VMMemory),
-		stack:   uintptr(cfg.VMStackDepth),
-		timeout: cfg.Timeout,
-		dev:     dev,
-		idle:    make(chan *pooledVM, cfg.VMs),
-		done:    make(chan struct{}),
-		warned:  map[string]bool{},
+		sources:     &sources{code: source, raw: sourceMap},
+		memory:      uintptr(cfg.VMMemory),
+		stack:       uintptr(cfg.VMStackDepth),
+		timeout:     cfg.Timeout,
+		waitTimeout: cfg.WaitTimeout,
+		waiters:     make(chan struct{}, cfg.QueueLimit),
+		dev:         dev,
+		idle:        make(chan *pooledVM, cfg.VMs),
+		done:        make(chan struct{}),
+		warned:      map[string]bool{},
 	}
 	var err error
 	if p.bytecode, err = Compile(source, p.memory, p.timeout); err != nil {
@@ -140,15 +150,12 @@ func NewPool(source string, sourceMap []byte, cfg config.SSR, dev bool) (*Pool, 
 }
 
 // Render waits for an idle VM and renders in into a whole HTML document.
-// While waiting it honours ctx. Once a VM is taken the render runs to completion
+// Waiting honours ctx, ssr.queue_limit and ssr.wait_timeout. A full queue or an
+// expired wait returns core.ErrSSRBusy. Once a VM is taken the render runs to completion
 // or to the ssr.timeout budget, because stopping it halfway would cost the VM.
 // A budget overrun returns an error that matches context.DeadlineExceeded. When the router
 // redirects the URL, Render returns a *RedirectError.
 func (p *Pool) Render(ctx context.Context, in Input) (string, error) {
-	input, err := json.Marshal(in)
-	if err != nil {
-		return "", fmt.Errorf("ssr: encode input: %w", err)
-	}
 	p.mu.Lock()
 	if p.closing {
 		p.mu.Unlock()
@@ -158,19 +165,21 @@ func (p *Pool) Render(ctx context.Context, in Input) (string, error) {
 	p.mu.Unlock()
 	defer p.renders.Done()
 
-	var vm *pooledVM
-	select {
-	case vm = <-p.idle:
-	case <-ctx.Done():
-		return "", ctx.Err()
-	case <-p.done:
-		return "", ErrClosed
+	vm, err := p.acquire(ctx)
+	if err != nil {
+		return "", err
 	}
 	// select picks at random among ready cases, so a canceled request or a closing
 	// pool can still win the idle VM. Hand it back unused.
 	if err := p.stopped(ctx); err != nil {
 		p.idle <- vm
 		return "", err
+	}
+	// Do not keep another copy of the input while waiting or encode rejected work.
+	input, err := json.Marshal(in)
+	if err != nil {
+		p.idle <- vm
+		return "", fmt.Errorf("ssr: encode input: %w", err)
 	}
 	// The VM goes back to the pool only when the render left it in a known state. Otherwise it
 	// is replaced, also when a Go panic, from the engine or a Go function the bundle calls,
@@ -201,6 +210,44 @@ func (p *Pool) Render(ctx context.Context, in Input) (string, error) {
 	// A redirect is an answer, not a failure: the VM goes back to the pool.
 	keep = true
 	return html, err
+}
+
+func (p *Pool) acquire(ctx context.Context) (*pooledVM, error) {
+	if err := p.stopped(ctx); err != nil {
+		return nil, err
+	}
+	select {
+	case vm := <-p.idle:
+		return vm, nil
+	default:
+	}
+	select {
+	case p.waiters <- struct{}{}:
+		defer func() { <-p.waiters }()
+	default:
+		return nil, fmt.Errorf("%w: queue is full", core.ErrSSRBusy)
+	}
+	deadline := time.Now().Add(p.waitTimeout)
+	timer := time.NewTimer(p.waitTimeout)
+	defer timer.Stop()
+	if p.waiting != nil {
+		p.waiting(timer)
+	}
+	select {
+	case vm := <-p.idle:
+		// A ready VM must not win a select after the wait budget expired.
+		if !time.Now().Before(deadline) {
+			p.idle <- vm
+			return nil, fmt.Errorf("%w: wait exceeded %s", core.ErrSSRBusy, p.waitTimeout)
+		}
+		return vm, nil
+	case <-timer.C:
+		return nil, fmt.Errorf("%w: wait exceeded %s", core.ErrSSRBusy, p.waitTimeout)
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-p.done:
+		return nil, ErrClosed
+	}
 }
 
 func (p *Pool) stopped(ctx context.Context) error {

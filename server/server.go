@@ -269,6 +269,11 @@ func (s *Server) classify(c *tifa.Ctx, err error) (*core.RedirectError, tifa.Err
 	switch {
 	case errors.As(err, &redirect):
 		return &core.RedirectError{URL: redirectLocation(c.Request(), redirect.URL, redirect.Code), Code: redirect.Code}, e
+	case errors.Is(err, tifa.ErrSSRBusy):
+		c.SetHeader("Retry-After", "1")
+		c.SetHeader("Cache-Control", "no-store")
+		c.Writer().Header().Del("ETag")
+		e = tifa.Error{Status: http.StatusServiceUnavailable, Message: http.StatusText(http.StatusServiceUnavailable)}
 	case errors.Is(err, tifa.ErrNotFound):
 		e = tifa.Error{Status: http.StatusNotFound, Message: http.StatusText(http.StatusNotFound)}
 	case isFields(err):

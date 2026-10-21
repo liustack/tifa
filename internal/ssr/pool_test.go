@@ -27,7 +27,7 @@ func testSource(t *testing.T) string {
 }
 
 func testConfig(vms int) config.SSR {
-	return config.SSR{VMs: vms, VMMemory: 8 << 20, VMStackDepth: config.Default().SSR.VMStackDepth, Timeout: 2 * time.Second}
+	return config.SSR{VMs: vms, VMMemory: 8 << 20, VMStackDepth: config.Default().SSR.VMStackDepth, Timeout: 2 * time.Second, QueueLimit: 32, WaitTimeout: time.Second}
 }
 
 // modeConfig is the config of a pool for a render of data.mode: a short time budget for the modes
@@ -93,11 +93,11 @@ func TestNewPoolRejectsInvalidInput(t *testing.T) {
 		cfg    config.SSR
 		want   string
 	}{
-		{"no VMs", "", config.SSR{VMs: 0, VMMemory: 1 << 20, VMStackDepth: 1000, Timeout: time.Second}, "ssr.vms"},
-		{"no memory", "", config.SSR{VMs: 1, VMMemory: 0, VMStackDepth: 1000, Timeout: time.Second}, "ssr.vm_memory"},
-		{"no stack", "", config.SSR{VMs: 1, VMMemory: 1 << 20, VMStackDepth: 0, Timeout: time.Second}, "ssr.vm_stack_depth"},
-		{"deep stack", "", config.SSR{VMs: 1, VMMemory: 1 << 20, VMStackDepth: lib.MaxStackSlots + 1, Timeout: time.Second}, "ssr.vm_stack_depth"},
-		{"no timeout", "", config.SSR{VMs: 1, VMMemory: 1 << 20, VMStackDepth: 1000, Timeout: 0}, "ssr.timeout"},
+		{"no VMs", "", config.SSR{VMs: 0, VMMemory: 1 << 20, VMStackDepth: 1000, Timeout: time.Second, QueueLimit: 32, WaitTimeout: time.Second}, "ssr.vms"},
+		{"no memory", "", config.SSR{VMs: 1, VMMemory: 0, VMStackDepth: 1000, Timeout: time.Second, QueueLimit: 32, WaitTimeout: time.Second}, "ssr.vm_memory"},
+		{"no stack", "", config.SSR{VMs: 1, VMMemory: 1 << 20, VMStackDepth: 0, Timeout: time.Second, QueueLimit: 32, WaitTimeout: time.Second}, "ssr.vm_stack_depth"},
+		{"deep stack", "", config.SSR{VMs: 1, VMMemory: 1 << 20, VMStackDepth: lib.MaxStackSlots + 1, Timeout: time.Second, QueueLimit: 32, WaitTimeout: time.Second}, "ssr.vm_stack_depth"},
+		{"no timeout", "", config.SSR{VMs: 1, VMMemory: 1 << 20, VMStackDepth: 1000, Timeout: 0, QueueLimit: 32, WaitTimeout: time.Second}, "ssr.timeout"},
 		{"syntax", "globalThis.startRender = (", testConfig(1), "compile"},
 		{"top level throws", "throw new Error('broken bundle')", testConfig(1), "broken bundle"},
 	} {

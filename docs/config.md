@@ -1,7 +1,7 @@
 ---
 summary: 'Every setting of a tifa app: where each one can be set, which source wins, the default, the flag and environment variable names, the value formats and the errors a bad value gives, and how to serve HTTPS with certificates the program gets itself or with your own'
 read_when:
-  - Deploying a tifa app, or changing its port, body limit, compression, VM count, VM stack depth, render timeout or page cache
+  - Deploying a tifa app, or changing its port, body limit, compression, VM count, VM stack depth, render timeout, render queue or page cache
   - Serving HTTPS from the program itself, with Let's Encrypt or your own certificate, or deciding whether to
   - The program cannot listen on port 80 or 443, or gets no certificate
   - Setting the browser target, the static files folder or the profile of a build
@@ -67,7 +67,38 @@ Run `./bin/app config` to print the merged settings of all sources as a commente
 | `ssr.vm_memory` | `128MiB` | `--ssr-vm-memory`, `TIFA_SSR_VM_MEMORY` | Memory limit of each VM. A render that runs out of memory fails, and the VM is replaced with a fresh one. Page code cannot catch it. The shapes the engine keeps for reuse count here too, up to about 6 MiB per VM at worst (2048 shapes of 32 keys of about ten characters, more with longer keys), so leave room for them when you lower it (see [Memory](performance.md#memory)) |
 | `ssr.vm_stack_depth` | `10000` | `--ssr-vm-stack-depth`, `TIFA_SSR_VM_STACK_DEPTH` | How deep JavaScript calls may nest in each VM, about one level per call. Deeper calls throw `RangeError: Maximum call stack size exceeded`, at about the depth Node does. From 1 to 10000, see [Stack depth](#stack-depth) |
 | `ssr.timeout` | `3s` | `--ssr-timeout`, `TIFA_SSR_TIMEOUT` | Time budget of one render. A render that runs longer is stopped and handled as an unexpected error, which goes to `OnError`. Page code cannot catch it |
+| `ssr.queue_limit` | `32` | `--ssr-queue-limit`, `TIFA_SSR_QUEUE_LIMIT` | Renders allowed to wait for a VM, excluding renders already running. `0` rejects immediately when no VM is idle. A full queue answers 503 with `Retry-After: 1` |
+| `ssr.wait_timeout` | `1s` | `--ssr-wait-timeout`, `TIFA_SSR_WAIT_TIMEOUT` | Maximum wait for a VM. Expiry answers 503 with `Retry-After: 1`, without starting or replacing a VM. Separate from `ssr.timeout`, which starts after a VM is acquired |
 | `cache.size` | `64MiB` | `--cache-size`, `TIFA_CACHE_SIZE` | Size of the HTML cache of pages with `Cache = true`, counting the gzip and zstd forms it keeps with `server.compress` on. `0` turns it off, though requests that miss the same page at the same time still share one render (see [SSR and cache](app.md#ssr-and-cache)) |
+
+## Render queue
+
+When every VM is busy, at most `ssr.queue_limit` renders wait for up to `ssr.wait_timeout`. The first limit reached rejects the render. The default is 32 waiting renders and a 1 second wait. `ssr.timeout` still limits only execution in a VM, to 3 seconds by default. A client cancel or pool shutdown also ends a wait.
+
+Overload answers use a small HTML page written by Go, status 503, `Retry-After: 1` and `Cache-Control: no-store`, without an ETag. They are not cached, rendered again or sent to `OnError`. `OnRequest` can handle the error returned by `Next`. A render of a 404 or an error page uses the same limits. An actual render failure or render timeout still goes to `OnError`.
+
+App code can match a rejected render with `errors.Is(err, tifa.ErrSSRBusy)`, including wrapped errors. For example, record overload in `OnRequest`:
+
+```go
+import (
+    "errors"
+    "log"
+
+    "github.com/liustack/tifa"
+)
+
+func OnRequest(c *tifa.Ctx) error {
+    err := c.Next()
+    if errors.Is(err, tifa.ErrSSRBusy) {
+        log.Printf("SSR queue busy: %s", c.Request().URL.Path)
+    }
+    return err
+}
+```
+
+Returning the original error keeps the default 503 and its headers. Other render failures do not match `tifa.ErrSSRBusy`.
+
+The limits apply only when a render needs a VM. Cache hits, 304 responses, navigation data, API routes and pages with SSR off do not wait for one. Requests sharing a cache miss count as one render. `Load` runs before admission, and shared requests still hold their own HTTP state. A queue limit bounds render jobs, not total process memory or all HTTP requests. See [Overload](performance.md#overload) for sizing and measurements.
 
 ## HTTPS
 
@@ -158,6 +189,7 @@ What a lower depth breaks:
 - Sizes are whole numbers with an optional unit: `B`, `KiB`, `MiB` or `GiB`, such as `512KiB`. A plain number is bytes. Only `cache.size` may be 0.
 - Durations use Go's format and must be positive: `500ms`, `3s`, `1m30s`.
 - `ssr.vms` is a whole number of at least 1.
+- `ssr.queue_limit` is a whole number of at least 0. `ssr.wait_timeout` must be positive even with a queue limit of 0.
 - `ssr.vm_stack_depth` is a whole number from 1 to 10000. A deeper stack would let code that recurses without end grow the goroutine stack past Go's limit, and the whole process would exit.
 - `build.skip_tanstack_check`, `build.debug_info`, `server.compress` and `server.hsts` are `true` or `false`, without quotes. The flag takes its value after `=`: `--server-compress=false`.
 - `server.tls_domains` is a comma-separated list of host names, without scheme, port or path. Each needs a dot. `server.tls_ca` is an `https` URL. `server.http_addr` is an address with a port, such as `:80` or `0.0.0.0:80`, or `off` in lower case. Words that read as a switch, such as `OFF`, `false` or `none`, fail with what to write.

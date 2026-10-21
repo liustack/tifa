@@ -1,7 +1,7 @@
 ---
 summary: 'tifa 应用的全部配置：每项能在哪设置、谁优先、默认值、参数和环境变量名、值的写法、写错时的报错，以及怎样用程序自己申请的证书或你自己的证书提供 HTTPS'
 read_when:
-  - 部署 tifa 应用，或要改端口、请求体上限、压缩、VM 数量、VM 栈深度、渲染超时、页面缓存
+  - 部署 tifa 应用，或要改端口、请求体上限、压缩、VM 数量、VM 栈深度、渲染超时、渲染队列、页面缓存
   - 想让程序自己提供 HTTPS，用 Let's Encrypt 或自己的证书，或者在犹豫要不要这样做
   - 程序监听不了 80 或 443 端口，或者拿不到证书
   - 设置构建的浏览器目标、静态文件目录或剖析
@@ -67,7 +67,38 @@ cache:
 | `ssr.vm_memory` | `128MiB` | `--ssr-vm-memory`、`TIFA_SSR_VM_MEMORY` | 每个 VM 的内存上限。渲染时内存用尽则这次渲染失败，VM 换成新的。页面代码接不住它。引擎留住再用的形状也算在这里，最坏每个 VM 约 6 MiB（按 2048 个形状、每个 32 个键、键名约十个字符算，键名更长会更多），调低时要留出这部分（见[内存](performance.zh-CN.md#内存)） |
 | `ssr.vm_stack_depth` | `10000` | `--ssr-vm-stack-depth`、`TIFA_SSR_VM_STACK_DEPTH` | 每个 VM 里 JavaScript 调用最多嵌套多深，大约一次调用一层。更深的调用抛出 `RangeError: Maximum call stack size exceeded`，和 Node 停下的深度差不多。可设 1 到 10000，见[栈深度](#栈深度) |
 | `ssr.timeout` | `3s` | `--ssr-timeout`、`TIFA_SSR_TIMEOUT` | 一次渲染的时间预算。超时的渲染被停下，按意外错误处理，交给 `OnError`。页面代码接不住它 |
+| `ssr.queue_limit` | `32` | `--ssr-queue-limit`、`TIFA_SSR_QUEUE_LIMIT` | 最多有多少次渲染等待空闲 VM，不包含正在运行的渲染。`0` 表示没有空闲 VM 就立即拒绝。队列满时返回 503 和 `Retry-After: 1` |
+| `ssr.wait_timeout` | `1s` | `--ssr-wait-timeout`、`TIFA_SSR_WAIT_TIMEOUT` | 等待 VM 的最长时间。超时返回 503 和 `Retry-After: 1`，不启动渲染，也不替换 VM。它与取得 VM 后才开始的 `ssr.timeout` 分开计算 |
 | `cache.size` | `64MiB` | `--cache-size`、`TIFA_CACHE_SIZE` | `Cache = true` 页面的 HTML 缓存大小，`server.compress` 开着时它存的 gzip 和 zstd 版本也算在内，`0` 关闭，但同时没命中同一个页面的请求仍然共用一次渲染（见 [SSR 与缓存](app.zh-CN.md#ssr-与缓存)） |
+
+## 渲染队列
+
+所有 VM 都忙时，最多允许 `ssr.queue_limit` 次渲染等待空闲 VM，每次最多等 `ssr.wait_timeout`。先碰到哪项限制，就按哪项拒绝。默认最多排队 32 次，最多等待 1 秒。`ssr.timeout` 仍然只限制 VM 内的执行时间，默认 3 秒。客户端取消或池关闭也会结束等待。
+
+过载响应由 Go 写出简单的 HTML，状态码为 503，带 `Retry-After: 1` 和 `Cache-Control: no-store`，不带 ETag。它不会进入缓存，不会再次调用 VM，也不会交给 `OnError`。`OnRequest` 可以处理 `Next` 返回的错误。404 和错误页的渲染使用相同限制。真正的渲染失败和渲染超时仍交给 `OnError`。
+
+应用代码可用 `errors.Is(err, tifa.ErrSSRBusy)` 判断渲染是否被拒绝，错误被包装后也能匹配。例如在 `OnRequest` 中记录过载：
+
+```go
+import (
+    "errors"
+    "log"
+
+    "github.com/liustack/tifa"
+)
+
+func OnRequest(c *tifa.Ctx) error {
+    err := c.Next()
+    if errors.Is(err, tifa.ErrSSRBusy) {
+        log.Printf("SSR queue busy: %s", c.Request().URL.Path)
+    }
+    return err
+}
+```
+
+原样返回错误会保留默认的 503 和响应头。其他渲染失败不会匹配 `tifa.ErrSSRBusy`。
+
+限制只在渲染需要 VM 时生效。缓存命中、304、导航数据、API 和关闭 SSR 的页面都不等 VM。共享同一次缓存未命中的请求只算一次渲染。`Load` 在准入检查前运行，共享渲染的请求仍各自占用 HTTP 状态。队列限制约束渲染任务数量，不是整个进程的内存或全部 HTTP 请求。容量建议和测量见[过载](performance.zh-CN.md#过载)。
 
 ## HTTPS
 
@@ -158,6 +189,7 @@ sudo setcap cap_net_bind_service=+ep ./bin/myapp
 - 大小写成整数加可选单位：`B`、`KiB`、`MiB` 或 `GiB`，比如 `512KiB`。不带单位就是字节。只有 `cache.size` 可以是 0。
 - 时长用 Go 的写法，必须为正：`500ms`、`3s`、`1m30s`。
 - `ssr.vms` 是不小于 1 的整数。
+- `ssr.queue_limit` 是不小于 0 的整数。即使队列限制为 0，`ssr.wait_timeout` 也必须为正数。
 - `ssr.vm_stack_depth` 是 1 到 10000 的整数。再深的话，无限递归的代码会让 goroutine 栈超过 Go 的上限，整个进程直接退出。
 - `build.skip_tanstack_check`、`build.debug_info`、`server.compress` 和 `server.hsts` 是 `true` 或 `false`，不加引号。参数要用 `=` 带值：`--server-compress=false`。
 - `server.tls_domains` 是逗号分隔的主机名，不带协议、端口和路径，每个都要有点号。`server.tls_ca` 是 `https` 网址。`server.http_addr` 是带端口的地址，比如 `:80` 或 `0.0.0.0:80`，或者小写的 `off`。像开关的词，比如 `OFF`、`false`、`none`，会报错并告诉你该写什么。

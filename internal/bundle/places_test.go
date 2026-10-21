@@ -141,7 +141,7 @@ func appPool(t *testing.T, root string) *ssr.Pool {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pool, err := ssr.NewPool(string(code), sourceMap, config.SSR{VMs: 1, VMMemory: 64 << 20, VMStackDepth: config.Default().SSR.VMStackDepth, Timeout: 5 * time.Second}, false)
+	pool, err := ssr.NewPool(string(code), sourceMap, config.SSR{VMs: 1, VMMemory: 64 << 20, VMStackDepth: config.Default().SSR.VMStackDepth, Timeout: 5 * time.Second, QueueLimit: 32, WaitTimeout: time.Second}, false)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -52,7 +52,7 @@ func nativeBaseline(t *testing.T) int {
 func TestSoakReuse(t *testing.T) {
 	skipUnlessSoak(t)
 	baseline := nativeBaseline(t)
-	cfg := config.SSR{VMs: 2, VMMemory: 128 << 20, VMStackDepth: config.Default().SSR.VMStackDepth, Timeout: 10 * time.Second}
+	cfg := config.SSR{VMs: 2, VMMemory: 128 << 20, VMStackDepth: config.Default().SSR.VMStackDepth, Timeout: 10 * time.Second, QueueLimit: 32, WaitTimeout: time.Second}
 	p, err := NewPool(testSource(t), nil, cfg, false)
 	if err != nil {
 		t.Fatal(err)
@@ -109,7 +109,7 @@ func TestSoakOOMRecycle(t *testing.T) {
 	skipUnlessSoak(t)
 	const retain = `;globalThis.startRender = (start => { const retained = []; return json => { retained.push(new Uint8Array(256 * 1024).fill(1)); start(json) } })(globalThis.startRender);`
 	baseline := nativeBaseline(t)
-	p, err := NewPool(testSource(t)+retain, nil, config.SSR{VMs: 1, VMMemory: 32 << 20, VMStackDepth: config.Default().SSR.VMStackDepth, Timeout: 10 * time.Second}, false)
+	p, err := NewPool(testSource(t)+retain, nil, config.SSR{VMs: 1, VMMemory: 32 << 20, VMStackDepth: config.Default().SSR.VMStackDepth, Timeout: 10 * time.Second, QueueLimit: 32, WaitTimeout: time.Second}, false)
 	if err != nil {
 		t.Fatal(err)
 	}

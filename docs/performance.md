@@ -1,7 +1,8 @@
 ---
-summary: 'How fast tifa renders pages and how that compares with Node, how throughput grows with cores, how to size CPUs, ssr.vms and memory, what compressing answers costs, which changes made rendering faster and by how much, what was tried and dropped, how to measure again and where to continue'
+summary: 'How fast tifa renders pages and how that compares with Node, how throughput grows with cores, how to size CPUs, ssr.vms and memory, what happens under overload, what compressing answers costs, which changes made rendering faster and by how much, what was tried and dropped, how to measure again and where to continue'
 read_when:
   - Deciding how many CPUs and how much memory a tifa app needs, or setting `ssr.vms`
+  - Requests arrive faster than pages render, or you need to size the render queue
   - Asking how fast tifa renders a page, or how it compares with Node
   - Deciding whether to turn off `server.compress`, or changing how answers are compressed
   - Changing `internal/ssr`, the rewrites the Vite plugin makes to the SSR bundle, or the PGO profile, and checking what a change gains
@@ -108,7 +109,7 @@ Each row is the mean of two rounds.
 - Up to the 4 physical cores measured, throughput grows almost linearly: 4 cores give 3.75 times one core over HTTP. With quickjs v0.26.13, the pool alone, without HTTP, gave 3.87 times. The few percent lost per core look like the shared L3 cache or memory. The VM has no hardware counters to prove it.
 - A hyperthread adds only about 20%. One core with 2 VMs does 59.3 to 60.4 requests a second against 49.4 with one, and a render's CPU time grows from about 20 ms to 33 or 34 ms, spread over every function of the interpreter: the two threads fight over the same core.
 - Measured with quickjs v0.26.13, before compression: libc's allocator lock, garbage collection, HTTP and the kernel together take about 3% of the CPU. 99.5% of the program's CPU is in user space, and the kernel takes 0.3% to 0.5%. So throughput follows the time of one render.
-- With more requests than VMs, throughput holds and only the queue grows: with 6 VMs on 3 cores, 24 requests in flight still get 170.0 to 174.8 a second, at a P50 of 133 to 137 ms.
+- Below the queue limits, more requests than VMs add waiting without raising throughput: with 6 VMs on 3 cores, 24 requests in flight still get 170.0 to 174.8 a second, at a P50 of 133 to 137 ms.
 
 ## Sizing a machine
 
@@ -142,6 +143,35 @@ Requests for a `Cache = true` page that miss the cache at the same time share on
 | 2, `GOMAXPROCS=2` (three rounds) | 50, 332 to 354 ms, 187 to 201 ms | 1, 33 to 40 ms, 32 to 38 ms |
 
 The one render is the first in a fresh VM, which is slower than a warm one. Requests that come once it is done find the cache.
+
+### Overload
+
+Keep the usual arrival rate below measured render capacity. At capacity, small changes in render time can grow a queue. More VMs than the CPUs can run do not fix sustained overload.
+
+The defaults allow 32 renders to wait for a VM, each for at most 1 second. A full queue or an expired wait answers 503 with `Retry-After: 1` and `Cache-Control: no-store`. The answer comes from Go and uses no VM. These are expected rejections and do not call `OnError`. See [Render queue](config.md#render-queue).
+
+Both bounds matter. A time limit alone still lets the number waiting grow with the arrival rate. A count limit alone can leave requests waiting while every VM is slow or being replaced. With the shop's measured capacity, 32 waiting renders represent about half a second of work. The 1 second wait leaves room for a short burst without using the whole HTTP write budget. For pages with a different cost, set `ssr.queue_limit` and `ssr.wait_timeout` from their measured capacity and acceptable wait. `ssr.queue_limit: 0` rejects whenever no VM is idle.
+
+Measured on 2026-10-22 with the six workbench pages of the shop, Go 1.27.2 and quickjs v0.26.17, without PGO. The server used CPUs 1 and 5, two threads of one AMD EPYC 7B13 core, with `MemoryMax=1G`, no swap and the default 2 VMs. The open-loop client used CPUs 0 and 4, sent gzip requests for 60 seconds per step, and waited up to 90 seconds per request. Unique URLs and `cache.size=0` made each request render. Arrivals below use the same fraction of the original measured capacity, 69.47 requests/s, for both builds. The bounded build measured 70.69 requests/s, a small change that also affects the row near capacity. These are HTTP timings with temporary pool timing logs, not a render microbenchmark.
+
+| Arrival rate | Before: errors | Before: all P99 | Before: peak RSS | Bounded: 503 | Bounded: successful P99 | Bounded: peak RSS |
+| --- | --- | --- | --- | --- | --- | --- |
+| 50% | 0.0% | 0.039 s | 100.9 MiB | 0.0% | 0.039 s | 97.0 MiB |
+| 75% | 0.0% | 0.052 s | 102.5 MiB | 0.0% | 0.051 s | 99.3 MiB |
+| 100% | 0.0% | 0.283 s | 106.5 MiB | 0.0% | 0.059 s | 101.0 MiB |
+| 150% | 68.5% | 29.830 s | 292.6 MiB | 32.0% | 0.563 s | 104.2 MiB |
+| 200% | 84.1% | 59.031 s | 453.2 MiB | 48.7% | 0.577 s | 105.8 MiB |
+| 300% | 92.0% | 90.004 s | 826.2 MiB | 66.8% | 0.627 s | 105.8 MiB |
+
+The first failure was latency. The old 3 second render timeout did not count waiting for a VM. The HTTP server's 10 second write timeout did not cancel that wait either: a request could render after its write deadline and then fail with EOF. At 150%, 200% and 300%, no successful responses arrived in the last 10 seconds of injection, although VMs kept working. After the queue drained, the server recovered. The 60 second runs did not reach the cgroup limit. In an extra 180 second run at 300%, with a 300 second client timeout, the kernel killed the old process after about 92 seconds of arrivals. The unit reported `oom-kill` and a 1 GiB memory peak.
+
+At 300%, the bounded build's successful responses had P50/P99 of 501/627 ms. Its 503 responses had P99 of 53 ms. The P50 of all requests was only 28 ms because most were rejected, so all-request latency alone hides the cost to accepted requests. All rejections carried `Retry-After: 1`, and there were no transport errors or client timeouts. The defaults are a starting point for a small machine, not an optimum found by searching every queue size.
+
+Explicit VM counts gave the same result. With 1 VM at 300%, successful P50/P99 was 581/680 ms and peak RSS was 80.8 MiB. With 2 VMs it was 491/611 ms and 105.0 MiB. Across all 18 bounded runs, 102,717 requests produced no transport errors or client timeouts, and each run passed all 10 recovery requests after draining. A 180 second run at the same 300% arrival rate kept peak RSS at 105.9 MiB and successful P99 at 609 ms.
+
+The same 180 second test without pool timing logs killed the old process after 104 seconds, again at the 1 GiB cgroup limit. The bounded process stayed alive, with peak RSS of 107.3 MiB and successful P50/P99 of 497/601 ms. It returned 24,984 responses with status 503 out of 37,514 arrivals, with no transport errors or client timeouts, and passed all recovery requests.
+
+The queue limit counts render jobs, not bytes or all HTTP requests. `Load` runs before admission. Requests sharing one cache miss still hold their own HTTP state. The low-concurrency RSS figures below do not cover arbitrary connections, large loader data or application memory. `ssr.vm_memory` limits each VM, not the process, and a render queue bound is not a guarantee against a process OOM.
 
 ### Memory
 

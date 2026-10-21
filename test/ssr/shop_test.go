@@ -296,7 +296,7 @@ func newPool(t testing.TB, source string, cfg config.SSR) *ssr.Pool {
 }
 
 func shopConfig(vms int) config.SSR {
-	return config.SSR{VMs: vms, VMMemory: 128 << 20, VMStackDepth: config.Default().SSR.VMStackDepth, Timeout: 10 * time.Second}
+	return config.SSR{VMs: vms, VMMemory: 128 << 20, VMStackDepth: config.Default().SSR.VMStackDepth, Timeout: 10 * time.Second, QueueLimit: 32, WaitTimeout: time.Second}
 }
 
 // withCustomer returns the order detail input with the customer renamed. The data of each route
