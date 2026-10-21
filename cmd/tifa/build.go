@@ -72,7 +72,11 @@ Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 			if output == "" {
 				output = defaultOutput(root, m.Module)
 			}
-			if _, err := goBuild(cmd.Context(), root, output, false, cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
+			flags, err := buildFlags(cmd.Context(), root, settings)
+			if err != nil {
+				return err
+			}
+			if _, err := goBuild(cmd.Context(), root, output, flags, cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
 				return fmt.Errorf("go build: %w", err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "built %s (build %s)\n", output, id)
@@ -115,15 +119,10 @@ func analyzeApp(cmd *cobra.Command, root string) (*analyze.Manifest, error) {
 }
 
 // goBuild compiles the generated main of the application at root into output with
-// CGO_ENABLED=0. It returns what go build printed on stderr, which also goes to stderr.
-// go build leaves go.mod and go.sum as they are. tifa build leaves -pgo to the go command, which
-// takes .tifa/default.pgo unless GOFLAGS says otherwise. tifa dev (dev) passes -pgo=off, which
-// wins over GOFLAGS.
-func goBuild(ctx context.Context, root, output string, dev bool, stdout, stderr io.Writer) (string, error) {
-	args := []string{"build", "-o", output}
-	if dev {
-		args = append(args, "-pgo=off")
-	}
+// CGO_ENABLED=0 and the given flags of go build, see buildFlags and devFlags. It returns what go
+// build printed on stderr, which also goes to stderr. go build leaves go.mod and go.sum as they are.
+func goBuild(ctx context.Context, root, output string, flags []string, stdout, stderr io.Writer) (string, error) {
+	args := append([]string{"build", "-o", output}, flags...)
 	gobuild := exec.CommandContext(ctx, "go", append(args, "./"+codegen.Dir)...)
 	gobuild.Dir = root
 	gobuild.Env = append(os.Environ(), "CGO_ENABLED=0")
@@ -134,6 +133,97 @@ func goBuild(ctx context.Context, root, output string, dev bool, stdout, stderr 
 		return printed.String(), fmt.Errorf("%w%s", err, missingDependencyHint(printed.String()))
 	}
 	return printed.String(), nil
+}
+
+// devFlags are the flags of go build in tifa dev: -pgo=off, which wins over GOFLAGS, so it never
+// builds with a profile. It keeps the DWARF debug info.
+var devFlags = []string{"-pgo=off"}
+
+// buildFlags are the flags of go build in tifa build: none when build.debug_info keeps the DWARF
+// debug info, or else those of ldflags. It leaves -pgo to the go command, which takes
+// .tifa/default.pgo unless GOFLAGS says otherwise.
+func buildFlags(ctx context.Context, root string, settings config.Build) ([]string, error) {
+	if settings.DebugInfo {
+		return nil, nil
+	}
+	// go env also reads GOFLAGS from the file go env -w writes.
+	goenv := exec.CommandContext(ctx, "go", "env", "GOFLAGS")
+	goenv.Dir = root
+	out, err := goenv.Output()
+	if err != nil {
+		return nil, fmt.Errorf("go env GOFLAGS: %w", err)
+	}
+	return ldflags(strings.TrimSpace(string(out)))
+}
+
+// ldflags returns -ldflags with -w, which leaves the DWARF debug info out of the program. The
+// program still has the line table of the Go runtime, which panics, runtime.Caller and pprof read.
+// For each package, go build uses the last -ldflags that matches it, and the command line comes
+// after GOFLAGS, so the flags of the last -ldflags in goflags come before -w. It returns none when
+// those flags already have -w or -s, or when an -ldflags of goflags is for a package pattern, which
+// only the go command can match against the main package.
+func ldflags(goflags string) ([]string, error) {
+	words, err := splitQuoted(goflags)
+	if err != nil {
+		return nil, fmt.Errorf("GOFLAGS: %w", err)
+	}
+	user := ""
+	for _, word := range words {
+		value, ok := strings.CutPrefix(trimDashes(word), "ldflags=")
+		if !ok {
+			continue
+		}
+		user = strings.TrimSpace(value)
+		if user != "" && !strings.HasPrefix(user, "-") {
+			return nil, nil // pattern=flags
+		}
+	}
+	flags, err := splitQuoted(user)
+	if err != nil {
+		return nil, fmt.Errorf("GOFLAGS: -ldflags: %w", err)
+	}
+	for _, flag := range flags {
+		name, _, _ := strings.Cut(trimDashes(flag), "=")
+		if name == "w" || name == "s" {
+			return nil, nil
+		}
+	}
+	if user == "" {
+		return []string{"-ldflags=-w"}, nil
+	}
+	return []string{"-ldflags=" + user + " -w"}, nil
+}
+
+// trimDashes takes the one or two dashes off a flag, as Go's flag package reads -x and --x alike.
+func trimDashes(flag string) string {
+	return strings.TrimPrefix(strings.TrimPrefix(flag, "-"), "-")
+}
+
+// splitQuoted splits s at spaces as the go command splits GOFLAGS and -ldflags: a word that
+// starts with a single or double quote runs to the next such quote, without escapes.
+func splitQuoted(s string) ([]string, error) {
+	var words []string
+	for {
+		s = strings.TrimLeft(s, " \t\n\r")
+		if s == "" {
+			return words, nil
+		}
+		if quote := s[0]; quote == '"' || quote == '\'' {
+			end := strings.IndexByte(s[1:], quote)
+			if end < 0 {
+				return nil, fmt.Errorf("unterminated %c string", quote)
+			}
+			words = append(words, s[1:1+end])
+			s = s[2+end:]
+			continue
+		}
+		end := strings.IndexAny(s, " \t\n\r")
+		if end < 0 {
+			end = len(s)
+		}
+		words = append(words, s[:end])
+		s = s[end:]
+	}
 }
 
 // missingDependencyHint tells what to run when go build misses requirements of the generated

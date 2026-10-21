@@ -50,6 +50,7 @@ cache:
 | `build.public` | `public` | 只能写在项目文件 | 静态文件目录，原样打进程序，从 `/` 提供 |
 | `build.skip_tanstack_check` | `false` | 只能写在项目文件 | 设为 `true` 时，TanStack Router 不是 tifa 测过的版本也照样构建，页面在浏览器里可能白屏。见 [build.zh-CN.md](build.zh-CN.md#应用的-tsconfig-与-vite-配置) |
 | `build.pgo` | `auto` | 只能写在项目文件 | `go build` 用来优化程序的剖析。`auto` 取应用根目录的 `default.pgo`，没有的话，有页面的应用用 tifa 自带的页面渲染剖析。`off` 不用剖析。别的值是一个文件，相对应用根目录。`tifa dev` 从不用剖析。见 [build.zh-CN.md](build.zh-CN.md#按剖析优化) |
+| `build.debug_info` | `false` | 只能写在项目文件 | 设为 `true` 时，程序里保留 DWARF 调试信息，给 Delve 这类调试器用。不设的话，`tifa build` 用 `-ldflags=-w` 去掉调试信息，示例商店的程序因此小约 20%。两种情况下 panic 都照样给出每一帧的文件和行号。`tifa dev` 总是保留。见 [build.zh-CN.md](build.zh-CN.md#调试信息) |
 | `server.addr` | `127.0.0.1:9527` | `--server-addr`、`TIFA_SERVER_ADDR` | 监听地址。容器里用 `0.0.0.0:9527`。开了 [HTTPS](#https) 时这里提供 HTTPS，而且必须设置，一般设成 `:443` |
 | `server.body_limit` | `1MiB` | `--server-body-limit`、`TIFA_SERVER_BODY_LIMIT` | 请求体上限，超过答 413 |
 | `server.shutdown_timeout` | `10s` | `--server-shutdown-timeout`、`TIFA_SERVER_SHUTDOWN_TIMEOUT` | 收到退出信号后，先给在途请求的时间，再给 `OnShutdown` 的时间。到时仍在运行的请求会被取消，再给它们一个 `shutdown_timeout` 返回。都返回了就执行 `OnShutdown`，没返回就跳过它。两种情况程序都以状态码 1 退出 |
@@ -158,7 +159,7 @@ sudo setcap cap_net_bind_service=+ep ./bin/myapp
 - 时长用 Go 的写法，必须为正：`500ms`、`3s`、`1m30s`。
 - `ssr.vms` 是不小于 1 的整数。
 - `ssr.vm_stack_depth` 是 1 到 10000 的整数。再深的话，无限递归的代码会让 goroutine 栈超过 Go 的上限，整个进程直接退出。
-- `build.skip_tanstack_check`、`server.compress` 和 `server.hsts` 是 `true` 或 `false`，不加引号。参数要用 `=` 带值：`--server-compress=false`。
+- `build.skip_tanstack_check`、`build.debug_info`、`server.compress` 和 `server.hsts` 是 `true` 或 `false`，不加引号。参数要用 `=` 带值：`--server-compress=false`。
 - `server.tls_domains` 是逗号分隔的主机名，不带协议、端口和路径，每个都要有点号。`server.tls_ca` 是 `https` 网址。`server.http_addr` 是带端口的地址，比如 `:80` 或 `0.0.0.0:80`，或者小写的 `off`。像开关的词，比如 `OFF`、`false`、`none`，会报错并告诉你该写什么。
 - `server.tls_domains`、`server.tls_email`、`server.tls_cache`、`server.tls_cert` 和 `server.tls_key` 可以为空，表示关掉低优先级来源设的值：项目文件要 Let's Encrypt 时，用 `TIFA_SERVER_TLS_DOMAINS=` 加 `--server-tls-cert` 就能改用自己的证书。
 - `build.pgo` 是 `auto`、`off` 或一个相对应用根目录的路径。YAML 把不加引号的 `off` 读成文本，所以不用加引号。像开关的词，比如 `false`、`OFF`、`yes`，会报错并告诉你该写什么，写绝对路径也一样。

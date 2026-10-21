@@ -39,6 +39,9 @@ type Build struct {
 	// the app root. auto is the app's default.pgo, or else tifa's profile of page renders in an
 	// app with pages.
 	PGO string
+	// DebugInfo keeps the DWARF debug info in the program tifa build makes, for debuggers such
+	// as Delve. Without it the program is built with -ldflags=-w.
+	DebugInfo bool
 }
 
 type Server struct {
@@ -145,6 +148,7 @@ func fields(c *Config) []field {
 		{"build.public", "Directory of static files copied as is", stringValue{&c.Build.Public}},
 		{"build.skip_tanstack_check", "Build with a TanStack Router version tifa is not tested with", boolValue{&c.Build.SkipTanStackCheck}},
 		{"build.pgo", "Profile for profile-guided optimization: auto, off or a file", pgoValue{&c.Build.PGO}},
+		{"build.debug_info", "Keep the DWARF debug info in the program, for debuggers such as Delve", boolValue{&c.Build.DebugInfo}},
 		{"server.addr", "HTTP listen address", stringValue{&c.Server.Addr}},
 		{"server.body_limit", "Request body limit", sizeValue{&c.Server.BodyLimit, 1}},
 		{"server.shutdown_timeout", "Time allowed for in-flight requests, and then for OnShutdown, after a stop signal", durationValue{&c.Server.ShutdownTimeout}},
