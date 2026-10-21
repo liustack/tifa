@@ -103,6 +103,8 @@ type SSR struct {
 	// about one per call, from 1 to MaxVMStackDepth.
 	VMStackDepth int
 	Timeout      time.Duration
+	QueueLimit   int
+	WaitTimeout  time.Duration
 }
 
 type Cache struct {
@@ -123,7 +125,7 @@ func Default() Config {
 	return Config{
 		Build:  Build{Target: "es2020", Public: "public", PGO: "auto"},
 		Server: Server{Addr: DefaultAddr, BodyLimit: 1 << 20, ShutdownTimeout: 10 * time.Second, Compress: true, TLSCA: LetsEncrypt, HTTPAddr: ":80"},
-		SSR:    SSR{VMs: runtime.GOMAXPROCS(0), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second},
+		SSR:    SSR{VMs: runtime.GOMAXPROCS(0), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second, QueueLimit: 32, WaitTimeout: time.Second},
 		Cache:  Cache{Size: 64 << 20},
 	}
 }
@@ -166,6 +168,8 @@ func fields(c *Config) []field {
 		{"ssr.vm_stack_depth", "How deep JavaScript calls may nest in each VM, at most 10000", intValue{p: &c.SSR.VMStackDepth, min: 1, max: MaxVMStackDepth,
 			why: "a deeper stack lets code that recurses without end grow the goroutine stack past Go's limit, which ends the process"}},
 		{"ssr.timeout", "Render time budget of each request", durationValue{&c.SSR.Timeout}},
+		{"ssr.queue_limit", "Requests allowed to wait for a VM, 0 rejects when all VMs are busy", intValue{p: &c.SSR.QueueLimit, min: 0}},
+		{"ssr.wait_timeout", "Maximum time waiting for a VM before answering 503", durationValue{&c.SSR.WaitTimeout}},
 		{"cache.size", "Rendered page cache size, 0 disables it", sizeValue{&c.Cache.Size, 0}},
 	}
 }

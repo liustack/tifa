@@ -12,6 +12,9 @@ import (
 // ErrNotFound is an expected result. The server answers 404 without calling OnError.
 var ErrNotFound = errors.New("tifa: not found")
 
+// ErrSSRBusy means the render queue is full or its wait budget expired.
+var ErrSSRBusy = errors.New("ssr: render queue busy")
+
 // Error is a failure that is safe to show to the client. The server answers it as is, without calling OnError.
 type Error struct {
 	Status  int

@@ -31,6 +31,8 @@
 #   vm_memory: 128MiB       # memory limit of each VM
 #   vm_stack_depth: 10000   # how deep JavaScript calls may nest in each VM, 1 to 10000
 #   timeout: 3s             # time limit of one render
+#   queue_limit: 32         # renders waiting for a VM, 0 rejects when all VMs are busy
+#   wait_timeout: 1s        # maximum wait for a VM, then 503 with Retry-After: 1
 
 # cache:
 #   size: 64MiB             # HTML cache of pages with Cache = true, 0 turns it off

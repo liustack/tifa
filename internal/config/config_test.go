@@ -314,7 +314,7 @@ func TestFileMustHoldOneDocument(t *testing.T) {
 }
 
 func TestKeysListEverySetting(t *testing.T) {
-	want := "build.target build.public build.skip_tanstack_check build.pgo build.debug_info server.addr server.body_limit server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout cache.size"
+	want := "build.target build.public build.skip_tanstack_check build.pgo build.debug_info server.addr server.body_limit server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout cache.size"
 	if got := strings.Join(Keys(), " "); got != want {
 		t.Fatalf("Keys: %s, want %s", got, want)
 	}
@@ -578,5 +578,30 @@ func TestHTTPSNeedsServerAddr(t *testing.T) {
 	c.Server.Addr = "127.0.0.1:8443"
 	if err := c.Server.CheckHTTPS(); err != nil {
 		t.Fatalf("loopback set by hand: %v", err)
+	}
+}
+
+func TestSSRQueueSettings(t *testing.T) {
+	c, err := load(t, nil, nil, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.SSR.QueueLimit != 32 || c.SSR.WaitTimeout != time.Second {
+		t.Fatalf("defaults: %+v", c.SSR)
+	}
+	file := writeFile(t, "deploy.yaml", "ssr:\n  queue_limit: 8\n  wait_timeout: 800ms\n")
+	c, err = load(t, []string{"--config", file, "--ssr-queue-limit", "0", "--ssr-wait-timeout", "200ms"}, []string{"TIFA_SSR_QUEUE_LIMIT=4", "TIFA_SSR_WAIT_TIMEOUT=400ms"}, "tifa.yaml", "ssr:\n  queue_limit: 16\n  wait_timeout: 2s\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.SSR.QueueLimit != 0 || c.SSR.WaitTimeout != 200*time.Millisecond {
+		t.Fatalf("flags: %+v", c.SSR)
+	}
+	for _, setting := range []string{"queue_limit: -1", "queue_limit: 0.5", "wait_timeout: 0s", "wait_timeout: -1s", "wait_timeout: 1"} {
+		t.Run(setting, func(t *testing.T) {
+			if _, err := load(t, nil, nil, "tifa.yaml", "ssr:\n  "+setting+"\n"); err == nil {
+				t.Fatal("accepted invalid queue setting")
+			}
+		})
 	}
 }

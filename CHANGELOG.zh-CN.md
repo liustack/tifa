@@ -17,6 +17,7 @@
 
 - SSR VM 提供 `atob`、`btoa`、`DOMException`、`crypto.getRandomValues`、`crypto.randomUUID` 和 `structuredClone`。随机字节直接从 Go 读取，渲染前、渲染时和模块加载时都能调用。宿主 API 在 VM 复用时沿用初始化保存的内建函数。getRandomValues 对共享或可调整大小缓冲区的视图抛 TypeError。克隆保留循环引用、共享引用和常见 JS 内建类型，不支持 transfer、SharedArrayBuffer 和可调整大小的 ArrayBuffer 视图克隆。与浏览器不同，普通对象和数组的透明 Proxy 通过 traps 克隆。不提供 `crypto.subtle`。
 
+- SSR 等待受 `ssr.queue_limit` 和 `ssr.wait_timeout` 限制，默认最多排队 32 次，最多等 1 秒。队列满或等待超时返回 503，带 `Retry-After: 1` 和 `Cache-Control: no-store`，不占用 VM，也不调用 `OnError`。应用可用 `errors.Is(err, tifa.ErrSSRBusy)` 识别拒绝。`ssr.timeout` 仍然只限制执行时间。
 - 页面的 HTML 紧跟在构建的标签后面，用 `<link rel="modulepreload">` 预加载它的 Layout 和路由的 chunk，这些文件和入口脚本一起下载。`Load` 失败时只预加载路由器显示的那几层。`build.json` 在 `preload` 下列出这些 chunk。
 - 程序自己提供 HTTPS，默认关闭。`server.tls_domains` 向 Let's Encrypt 申请并续期证书，存在 `server.tls_cache`。`server.tls_cert` 和 `server.tls_key` 用你自己的证书，文件变了不用重启就重新加载。开了 HTTPS 时浏览器能用 HTTP/2，`server.http_addr`（`:80`）回应 Let's Encrypt 的验证，并把 HTTPS 有证书的名字用 308 跳转到 HTTPS，`server.hsts` 加上 Strict-Transport-Security。开了 HTTPS 还用默认的 `server.addr` 时拒绝启动，并提示设成 `addr: :443`，设成别的回环地址能启动但会打一行警告。`tifa dev` 仍走明文 HTTP。
 - 示例应用多了给顾客的中英文店面，在 `/store` 下：商品搜索和筛选、商品详情、购物车、结算表单，以及用 Markdown 写、代码带高亮的手记。

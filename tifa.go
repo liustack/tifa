@@ -17,6 +17,10 @@ type Fields = core.Fields
 // ErrNotFound makes the server answer 404 without calling OnError.
 var ErrNotFound = core.ErrNotFound
 
+// ErrSSRBusy means SSR was rejected because its queue was full or its wait expired.
+// OnRequest can match it with errors.Is. The default response is 503 with Retry-After.
+var ErrSSRBusy = core.ErrSSRBusy
+
 // Use returns the result of a Layout function for this request, the Layout of the caller's
 // directory or of a directory above it: tifa.Use(c, project.Layout).
 // Each function runs at most once per request, a second caller waits for the first run.

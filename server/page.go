@@ -704,7 +704,8 @@ func (s *Server) errorPage(c *tifa.Ctx, e tifa.Error, err error, items map[strin
 	}
 	if renderErr != nil {
 		renderErr = fmt.Errorf("render the %d page: %w", e.Status, renderErr)
-		s.fallback(c, s.publicError(c, renderErr), errors.Join(err, renderErr))
+		_, public := s.classify(c, renderErr)
+		s.fallback(c, public, errors.Join(err, renderErr))
 	}
 }
 
