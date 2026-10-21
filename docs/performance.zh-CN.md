@@ -71,6 +71,23 @@ shop 另外照着写了 Next.js 16.4.2 版（App Router，每个路由都是动�
 - 单核时，Next.js 每秒答的请求是 tifa 的 3.7 到 3.9 倍，Start 是 5.6 到 5.8 倍。Next.js 加 `--jitless` 时是 1.27 倍，统计页上 tifa 比它快 2% 到 4%。
 - 压测工具用默认的 `Accept-Encoding` 时，tifa 和 Next.js 发 gzip，Start 不压缩（每页约 53 KB，压缩后约 8.5 KB）。压缩让 tifa 每秒请求数少 1.3%，让单核的 Next.js 少 16%，这时 Next.js 是 tifa 的 3.1 倍。
 
+## 和别的纯 Go 引擎比
+
+quickjs 的[引擎对比](https://github.com/liustack/quickjs/blob/main/docs/benchmarks.md)在每个能跑现代 JavaScript 的纯 Go 引擎上渲染 tifa 的页面，拿 C QuickJS、QuickJS-NG 和 Node 当参照，每次 quickjs 发版都重跑。v0.26.17，GCP 的一个核，不开 PGO，渲染耗时和 tifa 用的引擎相比（大于 1 就是更慢）：
+
+| 引擎 | 不用 `Intl` 的页面 | 各引擎按自己的方式跑 shop |
+| --- | --- | --- |
+| go-quickjs v0.28.0，解释器 | 1.13 | 1.24，20 页里 2 页失败 |
+| go-quickjs v0.28.0，JIT | 1.20 | 1.43，20 页里 2 页失败 |
+| moejs | 1.16 | 加载不了 shop |
+| modernc.org/quickjs | 2.12 | 2.35 |
+| goant | 2.47 到 2.80 | 3.47 到 3.58 |
+| C QuickJS 2026-06-04 | 0.63 | 0.89 |
+| Node 24 | 0.10 | 0.16 |
+
+- 在 tifa 的页面上，没有别的纯 Go 引擎渲染得更快。通用基准上 go-quickjs 和 goant 的 JIT 更快，对比里列了是哪些。
+- 每个 VM 占的内存是纯 Go 引擎里最少的，1.2 MiB，内存上限是精确的。
+
 ## 多核怎么扩展
 
 六个页面轮流请求，以 gzip 发出，在途请求数等于 VM 数。服务钉在和 VM 数一样多的 CPU 上：先每个物理核一个（1 到 4），再加同一批核的超线程（5 到 8）。

@@ -71,6 +71,23 @@ The shop was also written for Next.js 16.4.2 (App Router, every route dynamic, d
 - On one core, Next.js answers 3.7 to 3.9 times as many requests as tifa, and Start 5.6 to 5.8 times. Next.js run with `--jitless` answers 1.27 times as many, and on the stats page tifa is 2% to 4% ahead of it.
 - With the default `Accept-Encoding` of the load tool, tifa and Next.js send gzip and Start sends pages uncompressed (about 53 KB against about 8.5 KB). Compression costs tifa 1.3% of its requests a second and Next.js 16% on one core, so there Next.js answers 3.1 times as many.
 
+## How it compares with other pure Go engines
+
+quickjs's [engine comparison](https://github.com/liustack/quickjs/blob/main/docs/benchmarks.md) renders tifa pages on every pure Go engine that runs modern JavaScript, with C QuickJS, QuickJS-NG and Node as references, and runs again at each quickjs release. On v0.26.17, one GCP core, without PGO, the time of a render against tifa's engine (above 1 is slower):
+
+| Engine | Pages without `Intl` | The shop as each engine runs it |
+| --- | --- | --- |
+| go-quickjs v0.28.0, interpreter | 1.13 | 1.24, and 2 of 20 pages fail |
+| go-quickjs v0.28.0, JIT | 1.20 | 1.43, and 2 of 20 pages fail |
+| moejs | 1.16 | cannot load the shop |
+| modernc.org/quickjs | 2.12 | 2.35 |
+| goant | 2.47 to 2.80 | 3.47 to 3.58 |
+| C QuickJS 2026-06-04 | 0.63 | 0.89 |
+| Node 24 | 0.10 | 0.16 |
+
+- On tifa's pages no other pure Go engine renders faster. On generic benchmarks, go-quickjs and goant's JIT do better, and the comparison lists where.
+- Each VM takes the least memory of the pure Go engines, 1.2 MiB, with an exact memory limit.
+
 ## How it scales with cores
 
 All six pages in turn, sent as gzip, with as many requests in flight as VMs. The service is pinned to as many CPUs as VMs: one per physical core first (1 to 4), then the hyperthreads of the same cores (5 to 8).
