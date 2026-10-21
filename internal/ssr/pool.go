@@ -36,6 +36,8 @@ var ErrClosed = errors.New("ssr: pool closed")
 // in the pool for the next one. A VM whose render fails for any reason (a JS
 // exception, the time budget, the memory limit, a Go panic) leaves the pool, and a
 // background goroutine replaces it with a fresh VM loaded from the same bytecode.
+// The garbage renders leave is mostly collected between renders, after the answer
+// (see release).
 type Pool struct {
 	bytecode []byte
 	sources  *sources
@@ -43,7 +45,7 @@ type Pool struct {
 	stack    uintptr // stack slots of each VM, see Load
 	timeout  time.Duration
 	dev      bool // the checks of tifa dev, see warnIntl
-	idle     chan *quickjs.VM
+	idle     chan *pooledVM
 	done     chan struct{} // closed when Close starts
 
 	mu      sync.Mutex
@@ -56,10 +58,36 @@ type Pool struct {
 	refills   sync.WaitGroup
 	closeOnce sync.Once
 
-	acquired func() // test hook, runs after a render takes a VM
+	acquired   func()          // test hook, runs after a render takes a VM
+	collecting func(*pooledVM) // test hook, runs before a GC between renders
 }
 
-type poolStats struct{ created, closed, peak int }
+// pooledVM is a VM of the pool with what its GC threshold is made of (see gcThreshold).
+type pooledVM struct {
+	*quickjs.VM
+	// live is the live size, what the VM held after its last GC between renders, or after Load.
+	live uintptr
+	// need is the threshold the engine set when it last collected during a render, at most four
+	// times the live size, or 0 before. A render that collects keeps it at least where it was, and
+	// each render that does not takes 1/needDecay of what it is above twice the live size off it.
+	need uintptr
+	// threshold is the GC threshold the pool set last. The engine sets another when it collects.
+	threshold uintptr
+}
+
+// needDecay sets how slowly need comes down after a big render. At 1/1024 a render, half of what
+// need is above twice the live size goes in about 700 renders: a VM that ran one big page gets its
+// usual threshold back, and a page that needs need collects during a render about once in 1000.
+const needDecay = 1024
+
+// setThreshold sets the GC threshold of vm from its live size and need under the limit memory.
+func (vm *pooledVM) setThreshold(memory uintptr) {
+	vm.threshold = gcThreshold(vm.live, vm.need, memory)
+	vm.SetGCThreshold(vm.threshold)
+}
+
+// renderGCs counts the renders in which the engine ran a GC, idleGCs the GCs between renders.
+type poolStats struct{ created, closed, peak, renderGCs, idleGCs int }
 
 // Replaced by tests.
 var (
@@ -93,7 +121,7 @@ func NewPool(source string, sourceMap []byte, cfg config.SSR, dev bool) (*Pool, 
 		stack:   uintptr(cfg.VMStackDepth),
 		timeout: cfg.Timeout,
 		dev:     dev,
-		idle:    make(chan *quickjs.VM, cfg.VMs),
+		idle:    make(chan *pooledVM, cfg.VMs),
 		done:    make(chan struct{}),
 		warned:  map[string]bool{},
 	}
@@ -130,7 +158,7 @@ func (p *Pool) Render(ctx context.Context, in Input) (string, error) {
 	p.mu.Unlock()
 	defer p.renders.Done()
 
-	var vm *quickjs.VM
+	var vm *pooledVM
 	select {
 	case vm = <-p.idle:
 	case <-ctx.Done():
@@ -150,7 +178,7 @@ func (p *Pool) Render(ctx context.Context, in Input) (string, error) {
 	keep := false
 	defer func() {
 		if keep {
-			p.idle <- vm
+			p.release(vm)
 		} else {
 			p.retire(vm)
 		}
@@ -158,14 +186,14 @@ func (p *Pool) Render(ctx context.Context, in Input) (string, error) {
 	if p.acquired != nil {
 		p.acquired()
 	}
-	html, err := RenderVM(vm, input, p.timeout)
+	html, err := RenderVM(vm.VM, input, p.timeout)
 	var redirect *RedirectError
 	if err != nil && !errors.As(err, &redirect) {
 		return "", p.sources.explain(err, false)
 	}
 	if p.dev {
 		// A warning must not fail the page. A VM that cannot list them is replaced.
-		if warnErr := p.warnIntl(vm); warnErr != nil {
+		if warnErr := p.warnIntl(vm.VM); warnErr != nil {
 			logf("tifa: ssr: read the Intl warnings: %v", warnErr)
 			return html, err
 		}
@@ -186,7 +214,7 @@ func (p *Pool) stopped(ctx context.Context) error {
 
 // retire closes vm and starts its replacement in the background.
 // Close waits for the replacement, so it runs while a render still holds the pool open.
-func (p *Pool) retire(vm *quickjs.VM) {
+func (p *Pool) retire(vm *pooledVM) {
 	p.refills.Go(func() {
 		p.closeVM(vm)
 		p.refill()
@@ -244,7 +272,7 @@ func (p *Pool) Close() error {
 	return p.failure
 }
 
-func openVM(p *Pool) (*quickjs.VM, error) {
+func openVM(p *Pool) (*pooledVM, error) {
 	vm, err := Load(p.bytecode, p.memory, p.stack, p.timeout, p.dev)
 	if err != nil {
 		return nil, err
@@ -253,10 +281,89 @@ func openVM(p *Pool) (*quickjs.VM, error) {
 	p.counts.created++
 	p.counts.peak = max(p.counts.peak, p.counts.created-p.counts.closed)
 	p.mu.Unlock()
-	return vm, nil
+	// Load ended with a GC and set the threshold.
+	return &pooledVM{VM: vm, live: vm.MemorySize(), threshold: vm.GCThreshold()}, nil
 }
 
-func (p *Pool) closeVM(vm *quickjs.VM) {
+// release puts vm back in the pool after a render it survived. When its memory grew to 1.5 times
+// its live size, where the engine would collect by itself, a goroutine collects it first, after
+// the render has given its answer (see collect). A GC takes about as long as the garbage it frees,
+// so collecting here takes it out of the renders, which with the threshold of gcThreshold rarely
+// collect.
+func (p *Pool) release(vm *pooledVM) {
+	engineGC := vm.GCThreshold() != vm.threshold
+	if engineGC {
+		// The engine collected during the render and set the threshold to 1.5 times what its GC
+		// left, which counts what the render held then, so the live size stays the one of the last
+		// GC between renders.
+		vm.need = min(max(vm.need, vm.GCThreshold()), 4*vm.live)
+		p.mu.Lock()
+		p.counts.renderGCs++
+		p.mu.Unlock()
+	} else if vm.need > 2*vm.live {
+		vm.need -= (vm.need - 2*vm.live) / needDecay
+	}
+	vm.setThreshold(p.memory)
+	// Under a limit below twice the live size the threshold is below 1.5 times the live size, so
+	// a VM collected here is over it, and the next render would collect at its start.
+	if vm.MemorySize() < vm.live+vm.live/2 {
+		p.idle <- vm
+		return
+	}
+	p.refills.Go(func() { p.collect(vm) })
+}
+
+// collect runs a GC between renders on vm and puts it back in the pool. Close waits for it, and
+// once Close has started vm goes back as it is, for Close to close it. A GC that fails replaces vm.
+func (p *Pool) collect(vm *pooledVM) {
+	select {
+	case <-p.done:
+		p.idle <- vm
+		return
+	default:
+	}
+	if err := p.runGC(vm); err != nil {
+		logf("tifa: ssr: GC between renders: %v, replacing the VM", err)
+		p.closeVM(vm)
+		p.refill()
+		return
+	}
+	p.idle <- vm
+}
+
+// runGC collects vm and sets its live size and threshold from what is left. It returns a Go
+// panic, from the engine, as an error: in the goroutine of collect it has no caller to go up to,
+// and would end the process.
+func (p *Pool) runGC(vm *pooledVM) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+	if p.collecting != nil {
+		p.collecting(vm)
+	}
+	vm.RunGC()
+	vm.live = vm.MemorySize()
+	vm.setThreshold(p.memory)
+	p.mu.Lock()
+	p.counts.idleGCs++
+	p.mu.Unlock()
+	return nil
+}
+
+// gcThreshold is the GC threshold of a VM for its next render, live being what its last GC between
+// renders left, need what renders have shown they need (see pooledVM) and memory its limit. It is
+// twice the live size, so that the garbage of several renders fits before a GC between renders,
+// or need when that is more: a render that holds more than the live size until it ends, such as a
+// large page, made the engine collect during it, and would again in each render. It is no more than
+// half way to the limit, so that a render that makes more garbage than that still collects it
+// before it runs out of memory.
+func gcThreshold(live, need, memory uintptr) uintptr {
+	return min(max(2*live, need), live/2+memory/2)
+}
+
+func (p *Pool) closeVM(vm *pooledVM) {
 	err := vm.Close()
 	p.mu.Lock()
 	defer p.mu.Unlock()
