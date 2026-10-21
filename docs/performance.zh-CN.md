@@ -358,6 +358,7 @@ v0.26.16 那几行没有另外注明的都不开 PGO 测，一个 VM 钉在一�
 - **在插件里改写 react-spring 和 TanStack Table**：react-spring 做颜色插值时拿每个值去匹配一个有 148 个颜色名的正则，QuickJS 里一次 24 µs，Node `--jitless` 是 0.175 µs（占订单列表 2.1%）。TanStack Table 通过 `fn(this, ...args)` 调用，约 1 µs，对比 67 ns（占 1.2%）。改写它们就把插件绑在两个库的写法上。两处都该在引擎里做：正则的每个分支先比首字符再试，展开普通数组时不走迭代器。
 - **渲染后由 Go 把页面数据放进 HTML**：`tifa.data` adapter 只写一个占位符，Go 再把 JSON 文本作为 JavaScript 字符串填进去。1,000 行的表格 JSON 文本约 80 KB，渲染从 34.2 ms 降到 32.3 ms，Go 这边约 0.2 ms，合起来少约 5%。shop 六页不变。这样 VM 写出的就不再是完整页面，每条写页面和缓存页面的路径都得填占位符，还要按 script 元素的规则转义。
 - **把请求之间不变的页面片段缓存成 HTML**：tifa 不知道页面是怎么写的。`Cache = true` 按数据缓存整个页面。
+- **React Compiler**：`@vitejs/plugin-react` 的 `reactCompilerPreset()` 只编译浏览器端的构建，开不开 SSR 包都逐字节相同，shop 的 20 个页面渲染相差 1% 以内（0.994 到 1.010），两个 VM 的吞吐也一样。浏览器端 JS 压缩后大 6.1%（31 KB），HTML 和 hydration 不变。tifa 默认不开。应用想在浏览器端用，可以在自己的 `vite.config.ts` 里打开，再量自己的交互速度和包大小。
 
 ### 服务端
 
