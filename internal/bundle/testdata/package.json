@@ -4,13 +4,21 @@
   "packageManager": "pnpm@10.33.0",
   "description": "npm packages the internal/bundle tests bundle: React for the trimmed renderer, seroval and core-js for the adapters, the other SSR host patches, and Vite with the React plugin, which build them.",
   "dependencies": {
+    "@hookform/resolvers": "6.0.0",
     "@kayahr/text-encoding": "2.2.0",
     "abort-controller": "3.0.0",
+    "ajv": "8.20.0",
+    "ajv-errors": "3.0.0",
+    "ajv-formats": "3.0.1",
     "core-js": "3.50.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "react-hook-form": "7.90.0",
+    "serialize-javascript": "7.1.2",
     "seroval": "1.6.9",
-    "whatwg-fetch": "3.6.20"
+    "uuid": "14.0.3",
+    "whatwg-fetch": "3.6.20",
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "6.1.2",

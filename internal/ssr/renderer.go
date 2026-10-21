@@ -32,9 +32,9 @@ func Compile(source string, memory uintptr, timeout time.Duration) (bytecode []b
 }
 
 // Load creates a VM, gives it Intl and runs the bundle's top level code, which defines
-// startRender. The only Go callbacks the VM gets are those of Intl, which format and do no I/O
-// but read the zoneinfo of a time zone the first time the process uses it. It has no module
-// loader, so rendering cannot do I/O.
+// startRender. Go callbacks provide Intl and cryptographically secure random bytes.
+// Intl may read zoneinfo on first use, and crypto reads the OS entropy source on demand.
+// There is no module loader or application network or file I/O.
 //
 // Intl formats in en-US and UTC when a page passes no locale or timeZone, never in the host's
 // language or zone. The local time of Date (getHours, toString, new Date(2026, 0, 1)) is UTC
@@ -55,6 +55,9 @@ func Load(bytecode []byte, memory, stack uintptr, timeout time.Duration, dev boo
 	vm.SetMaxStackSize(stack)
 	if err = vm.SetEvalTimeout(timeout); err == nil {
 		err = intl.Register(vm)
+	}
+	if err == nil {
+		err = registerRandom(vm)
 	}
 	if err == nil && dev {
 		_, err = vm.Eval(intlCheck, quickjs.EvalGlobal)
