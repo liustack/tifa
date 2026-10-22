@@ -107,13 +107,16 @@ GOOS=linux GOARCH=amd64 $(go tool -n tifa) build -o bin/myapp-linux
 
 ### 要随程序附带的声明
 
-程序通过 `github.com/liustack/quickjs/intl` 包嵌入了 [Intl](app.zh-CN.md#服务端渲染里的-intl) 用的语言数据，来自 Unicode CLDR 和 Chromium 自带的 ICU 数据。这些数据采用 Unicode License V3，Chromium 改过的部分采用它的 BSD 许可，两者都要求程序的每个副本或它的文档里带上它们的声明。声明放在这个模块的 `intl/LICENSE-DATA` 文件里。把程序交给别人时，把这个文件一起附上：
+程序通过 `github.com/liustack/quickjs/intl` 包嵌入了 [Intl](app.zh-CN.md#服务端渲染里的-intl) 用的语言数据和时区数据。数据来自 Unicode CLDR、Chromium 自带的 ICU 数据和 go-intl，go-intl 还移植了 V8 和 Temporal 的 Rust 库的代码。这些许可都要求程序的每个副本或它的文档里带上它们的声明。声明是这个模块里的六个文件。把程序交给别人时，把它们一起附上：
 
 ```sh
-cp "$(go list -m -f '{{.Dir}}' github.com/liustack/quickjs)/intl/LICENSE-DATA" bin/LICENSE-DATA
+q="$(go list -m -f '{{.Dir}}' github.com/liustack/quickjs)"
+mkdir -p bin/notices
+cp "$q/intl/LICENSE-DATA" "$q"/internal/gointl/qjsdata/NOTICE-* bin/notices/
+cp "$q/internal/gointl/LICENSE" bin/notices/LICENSE-GOINTL
 ```
 
-在应用目录里运行，`go list` 才会找到应用构建时用的版本。`tifa build` 不会替你复制这个文件。
+在应用目录里运行，`go list` 才会找到应用构建时用的版本。`tifa build` 不会替你复制这些文件。
 
 ## tifa routes
 

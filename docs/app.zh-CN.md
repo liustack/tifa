@@ -340,7 +340,6 @@ React 在服务端不执行 effect，所以只在 `useEffect`、`useLayoutEffect
 - react-hook-form：字段用 `Controller` 写。受控字段的值由服务端写进 HTML，`register` 的字段要等水合后才有值。提交按钮在水合前保持禁用（比如用 `useSyncExternalStore(() => () => {}, () => true, () => false)` 判断），免得水合前按回车把表单当普通 HTML 表单提交。
 - Radix Select（也就是 shadcn 的 Select）：选中项的文字要等水合后才搬进触发按钮。字段有值时，把这段文字作为 `SelectValue` 的 children 传进去，否则服务端渲染出一个空按钮。没有值时照常显示占位文字。
 - recharts 3 在服务端只渲染一个空的外层容器，水合后才画图。给图表区域固定高度，页面就不会跳动，关键数字另外用文字显示。想让图表完全不进服务端渲染，见[只在浏览器里绘制的组件](#只在浏览器里绘制的组件)。
-- 文本排序：服务端的 `localeCompare` 按码点比较，浏览器按语言规则，渲染时排序的文本顺序可能不同。在 Go 里排好，或者用不依赖语言的比较。
 
 ### 只在浏览器里绘制的组件
 
@@ -370,16 +369,17 @@ export default function StatsPage() {
 
 ## 服务端渲染里的 Intl
 
-页面在服务端渲染时可以格式化数字、日期和复数，支持 Chromium 有的全部语言（Unicode CLDR 48.2）。能用的有：
+页面在服务端渲染时可以用 `Intl`，支持 Chromium 有的全部语言，用法和 Chromium 一样：
 
-- `Intl.NumberFormat`、`Intl.DateTimeFormat`、`Intl.PluralRules`、`Intl.getCanonicalLocales`，以及各构造器的 `supportedLocalesOf`。
-- `Date` 的 `toLocaleString`、`toLocaleDateString`、`toLocaleTimeString`，`Number` 和 `BigInt` 的 `toLocaleString`。
+- `Intl.NumberFormat`、带 `formatRange` 的 `Intl.DateTimeFormat`、`Intl.PluralRules`、`Intl.Collator`、`Intl.Segmenter`、`Intl.RelativeTimeFormat`、`Intl.ListFormat`、`Intl.DisplayNames`、`Intl.DurationFormat`、`Intl.Locale`、`Intl.supportedValuesOf`、`Intl.getCanonicalLocales`，以及各构造器的 `supportedLocalesOf`。
+- `Date` 的 `toLocaleString`、`toLocaleDateString`、`toLocaleTimeString`，`Number` 和 `BigInt` 的 `toLocaleString`，按语言规则排序的 `localeCompare`，以及 `toLocaleUpperCase` 和 `toLocaleLowerCase`。
+- Chromium 有的全部历法，用 `-u-ca-` 或 `calendar` 选项指定。
 
-服务端没有 `Intl.Collator`、`Intl.Segmenter`、`Intl.RelativeTimeFormat`、`Intl.ListFormat`、`Intl.DisplayNames`、`Intl.DurationFormat`、`Intl.supportedValuesOf` 和 `formatRange`，渲染时调用它们会失败。`localeCompare` 按码点比较，不按语言。日期用公历（th 用佛历，fa 等少数语言用波斯历），用 `-u-ca-` 或 `calendar` 选项要的其他历法（比如 japanese）会退回这个语言的默认历法。`roundingIncrement` 和 `roundingPriority` 只支持默认值。
+服务端没有 `Temporal`。
 
 不传 locale 时服务端按 `en-US` 格式化，不传 `timeZone` 时按 `UTC`，和机器的语言、时区无关。服务端 `Date` 的本地时间也恒为 UTC：`getTimezoneOffset()` 是 0，`new Date(2026, 0, 1)`、`getHours`、`toString` 都按 UTC 算。应用的 Go 代码不受影响：进程保持启动时的时区，`time.Local`、日志和 SQLite 照常用这个时区，和普通 Go 程序一样。
 
-输出和 Chromium 156 在约 60,000 个表达式上做过比对，除了服务端没有的历法里的日期，全部一致。少数冷门语言和选项和 Chromium 不同：sr-Cyrl-ME 的货币、单位和时区名用西里尔字母，uz-AF 和 uz-Arab-AF 在带时间的日期里把纪元写在年份前面，en-IE 和 fr-MA 加 `hourCycle: 'h11'` 时写 "am" 或 "AM"，Chromium 写 "a.m."，om-KE 的短纪元是 "BA"。错误信息的措辞不同。Firefox 和 Safari 用各自的数据。新版本很接近，但 macOS 26.4 之前的 Safari 数据较旧（CLDR 46），少数格式可能不同。
+时区数据用程序里内嵌的 tz 2026e，从不读机器的 zoneinfo。输出和 Chromium 156 在约 75,000 个表达式上做过比对。数字、日期和复数全部一致。其余只有几处不同：`Intl.Segmenter` 在部分语言里分词不同，`Intl.DisplayNames` 的名称比 Chromium 多，Winnipeg 按 tz 2026e 改成了永久夏令时，Chromium 156 的数据还没有这一条。错误信息的措辞不同。Firefox 和 Safari 用各自的数据。新版本很接近，但 macOS 26.4 之前的 Safari 数据较旧（CLDR 46），少数格式可能不同。
 
 ### 怎么写才能水合一致
 

@@ -340,7 +340,6 @@ Some libraries do part of their work in effects, so the server renders less than
 - react-hook-form: write the fields with `Controller`. The server writes the value of a controlled field into the HTML, a field from `register` gets its value only after hydration. Keep the submit button disabled until the page has hydrated, for example with `useSyncExternalStore(() => () => {}, () => true, () => false)`, so that Enter before hydration does not send the form as a plain HTML form.
 - Radix Select (the shadcn Select): the label of the chosen item moves into the trigger only after hydration. When the field has a value, pass the label as the children of `SelectValue`, or the server renders an empty button. Without a value the placeholder renders as usual.
 - recharts 3 renders only its empty wrapper on the server and draws after hydration. Give the chart box a fixed height so the page does not jump, and show the key numbers as text too. To keep the chart out of the server render altogether, see [Components that draw only in the browser](#components-that-draw-only-in-the-browser).
-- Sorting text: `localeCompare` compares code points on the server, while browsers sort by language, so text sorted while rendering can come out in another order. Sort in Go, or compare without the language.
 
 ### Components that draw only in the browser
 
@@ -370,16 +369,17 @@ What this saved on the two charts of the example shop's stats page, with the two
 
 ## Intl in server rendering
 
-Pages can format numbers, dates and plurals while they render on the server, in every locale Chromium has (Unicode CLDR 48.2). These work:
+Pages can use `Intl` while they render on the server, in every locale Chromium has. All of it works as in Chromium:
 
-- `Intl.NumberFormat`, `Intl.DateTimeFormat`, `Intl.PluralRules`, `Intl.getCanonicalLocales` and the `supportedLocalesOf` of each constructor.
-- `toLocaleString`, `toLocaleDateString` and `toLocaleTimeString` of `Date`, and `toLocaleString` of `Number` and `BigInt`.
+- `Intl.NumberFormat`, `Intl.DateTimeFormat` with `formatRange`, `Intl.PluralRules`, `Intl.Collator`, `Intl.Segmenter`, `Intl.RelativeTimeFormat`, `Intl.ListFormat`, `Intl.DisplayNames`, `Intl.DurationFormat`, `Intl.Locale`, `Intl.supportedValuesOf`, `Intl.getCanonicalLocales` and the `supportedLocalesOf` of each constructor.
+- `toLocaleString`, `toLocaleDateString` and `toLocaleTimeString` of `Date`, `toLocaleString` of `Number` and `BigInt`, `localeCompare`, which sorts by the locale's rules, and `toLocaleUpperCase` and `toLocaleLowerCase`.
+- Every calendar Chromium has, asked for with `-u-ca-` or the `calendar` option.
 
-The server does not have `Intl.Collator`, `Intl.Segmenter`, `Intl.RelativeTimeFormat`, `Intl.ListFormat`, `Intl.DisplayNames`, `Intl.DurationFormat`, `Intl.supportedValuesOf` or `formatRange`: a render that calls one fails. `localeCompare` compares code points, not by language. Dates are in the Gregorian calendar (the Buddhist one for th, the Persian one for fa and a few more), and a calendar asked for with `-u-ca-` or the `calendar` option, such as japanese, falls back to the locale's default. `roundingIncrement` and `roundingPriority` only take their defaults.
+The server has no `Temporal`.
 
 Without a locale the server formats in `en-US`, without a `timeZone` in `UTC`, whatever the language and zone of the machine. The local time of `Date` on the server is always UTC too: `getTimezoneOffset()` is 0, and `new Date(2026, 0, 1)`, `getHours` and `toString` work in UTC. The Go code of the app is not affected: the process keeps the zone it was started with, so `time.Local`, the log and SQLite use that zone as in any Go program.
 
-The output is compared with Chromium 156 on about 60,000 expressions and matches all of them, except dates in a calendar the server does not have. A few rare locales and options differ from Chromium: sr-Cyrl-ME names currencies, units and zones in Cyrillic, uz-AF and uz-Arab-AF put an era before the year of a date with a time, en-IE and fr-MA with `hourCycle: 'h11'` write "am" or "AM" where Chromium writes "a.m.", and the short era of om-KE is "BA". Error messages are worded differently. Firefox and Safari ship their own copy of the data. Recent versions are close, but Safari before macOS 26.4 has older data (CLDR 46) and may differ in a few formats.
+Time zones come from tz 2026e, built into the program: the machine's zoneinfo is never read. The output is compared with Chromium 156 on about 75,000 expressions. Numbers, dates and plurals match in full. The rest differs in a few places: `Intl.Segmenter` breaks words in some languages differently, `Intl.DisplayNames` has more names than Chromium, and Winnipeg is on permanent daylight time, which tz 2026e has and Chromium 156 does not yet. Error messages are worded differently. Firefox and Safari ship their own copy of the data. Recent versions are close, but Safari before macOS 26.4 has older data (CLDR 46) and may differ in a few formats.
 
 ### Formatting so hydration matches
 

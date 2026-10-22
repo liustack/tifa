@@ -107,13 +107,16 @@ GOOS=linux GOARCH=amd64 $(go tool -n tifa) build -o bin/myapp-linux
 
 ### Notices to ship with the program
 
-The program embeds locale data for [Intl](app.md#intl-in-server-rendering), from Unicode CLDR and from the ICU data Chromium ships, through the package `github.com/liustack/quickjs/intl`. That data is under the Unicode License V3, with Chromium's changes under its BSD license, and both ask that their notices come with every copy of the program or with its documentation. The notices are in the file `intl/LICENSE-DATA` of that module. When you hand the program to others, ship the file with it:
+The program embeds locale data and time zones for [Intl](app.md#intl-in-server-rendering) through the package `github.com/liustack/quickjs/intl`. The data comes from Unicode CLDR, from the ICU data Chromium ships and from go-intl, which also ported code from V8 and from the Rust crates of Temporal. Their licenses ask that their notices come with every copy of the program or with its documentation. The notices are six files of that module. When you hand the program to others, ship them with it:
 
 ```sh
-cp "$(go list -m -f '{{.Dir}}' github.com/liustack/quickjs)/intl/LICENSE-DATA" bin/LICENSE-DATA
+q="$(go list -m -f '{{.Dir}}' github.com/liustack/quickjs)"
+mkdir -p bin/notices
+cp "$q/intl/LICENSE-DATA" "$q"/internal/gointl/qjsdata/NOTICE-* bin/notices/
+cp "$q/internal/gointl/LICENSE" bin/notices/LICENSE-GOINTL
 ```
 
-Run it in the app's folder, where `go list` finds the version the app builds with. `tifa build` does not copy the file for you.
+Run it in the app's folder, where `go list` finds the version the app builds with. `tifa build` does not copy the files for you.
 
 ## tifa routes
 
