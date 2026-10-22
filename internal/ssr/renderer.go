@@ -65,6 +65,9 @@ func Load(bytecode []byte, memory, stack uintptr, timeout time.Duration, dev boo
 	if err == nil {
 		err = registerRandom(vm)
 	}
+	if err == nil {
+		err = registerHash(vm)
+	}
 	if err == nil && dev {
 		_, err = vm.Eval(intlCheck, quickjs.EvalGlobal)
 	}

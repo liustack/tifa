@@ -906,7 +906,8 @@ func withChangedReactDOM(t *testing.T, change func(string) string) string {
 }
 
 // withChangedPackage returns a copy of testdata/ssr whose package name is a copy of the test's,
-// with its file changed by change. The other packages are the test's.
+// with its file changed by change. The other packages are the test's, but for those of the scope
+// of a scoped name.
 func withChangedPackage(t *testing.T, name, file string, change func(string) string) string {
 	t.Helper()
 	copied := copyTestdata(t, "ssr", false)
@@ -915,8 +916,9 @@ func withChangedPackage(t *testing.T, name, file string, change func(string) str
 	if err != nil {
 		t.Fatal(err)
 	}
+	scope, _, scoped := strings.Cut(name, "/")
 	for _, e := range entries {
-		if e.Name() == name || strings.HasPrefix(e.Name(), ".") {
+		if e.Name() == name || scoped && e.Name() == scope || strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
 		real, err := filepath.EvalSymlinks(filepath.Join(modules, e.Name()))
@@ -935,6 +937,9 @@ func withChangedPackage(t *testing.T, name, file string, change func(string) str
 		t.Fatal(err)
 	}
 	target := filepath.Join(copied, "node_modules", name)
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.CopyFS(target, os.DirFS(real)); err != nil {
 		t.Fatal(err)
 	}
@@ -947,6 +952,46 @@ func withChangedPackage(t *testing.T, name, file string, change func(string) str
 		t.Fatal(err)
 	}
 	return copied
+}
+
+// emotion takes the hash of @emotion/hash of every style it serializes, and the tifa plugin makes
+// murmur2 ask __tifa_murmur2__ first, which ssr.Load defines to hash strings in Go. murmur2 hashes
+// in JavaScript when __tifa_murmur2__ is not there or gives undefined, and when the plugin does not
+// know the murmur2 of the package.
+func TestSSRHashesEmotionStylesInGo(t *testing.T) {
+	const page = "import hash from '@emotion/hash'\n" +
+		"const styles = ['', 'go', 'color:red;', 'x'.repeat(4099)]\n" +
+		"const before = styles.map(hash)\n" +
+		"globalThis.__tifa_murmur2__ = (s) => (s === 'go' ? 'go!' : void 0)\n" +
+		"globalThis.result = before.concat(styles.map(hash)).join(' ')\n"
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"hash.ts": page})
+	code, printed := buildPrinting(t, root, "hash.ts")
+	if strings.Contains(printed, "emotion") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	hashed := strings.Fields(evalResult(t, code))
+	changed := withChangedPackage(t, "@emotion/hash", filepath.Join("dist", "emotion-hash.esm.js"), func(source string) string {
+		const mix = "h ^= h >>> 13;"
+		if strings.Count(source, mix) != 1 {
+			t.Fatalf("@emotion/hash does not have %q once", mix)
+		}
+		return strings.Replace(source, mix, "h = h ^ h >>> 13;", 1)
+	})
+	writeTree(t, changed, map[string]string{"hash.ts": page})
+	code, printed = buildPrinting(t, changed, "hash.ts")
+	if !strings.Contains(printed, "@emotion/hash 0.9.2: ") || !strings.Contains(printed, "has no murmur2 the tifa plugin knows") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	inJS := strings.Fields(evalResult(t, code))
+	if len(hashed) != 8 || len(inJS) != 8 {
+		t.Fatalf("hashes %q with the change, %q without it", hashed, inJS)
+	}
+	for i, want := range append(inJS[:4:4], inJS[4], "go!", inJS[6], inJS[7]) {
+		if hashed[i] != want {
+			t.Errorf("hash %d is %q, want %q", i, hashed[i], want)
+		}
+	}
 }
 
 func TestSSRTrimmedReactKeepsEveryPublicExport(t *testing.T) {
