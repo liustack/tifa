@@ -16,6 +16,8 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 
 ### Added
 
+- SSR VMs provide Temporal and `Date.prototype.toTemporalInstant`, installed on first use. `Temporal.Now` uses the live system clock and defaults to UTC, consistent with Date and Intl. Temporal locale formatting uses Intl. Browser support is still the app's responsibility.
+
 - The SSR VM provides `atob`, `btoa`, `DOMException`, `crypto.getRandomValues`, `crypto.randomUUID` and `structuredClone`. Random bytes come directly from Go before or during rendering, including module loading. The host APIs retain the built-ins they use across VM reuse. getRandomValues rejects views on shared or resizable buffers with TypeError. Cloning preserves cycles, shared references and common JavaScript built-ins. Transfer, SharedArrayBuffer and views on resizable ArrayBuffers remain unsupported. Unlike browsers, transparent proxies of ordinary objects and arrays are cloned through their traps. There is no `crypto.subtle`.
 
 - SSR waits are bounded by `ssr.queue_limit` (32) and `ssr.wait_timeout` (1s). A full queue or an expired wait answers 503 with `Retry-After: 1` and `Cache-Control: no-store`, without using a VM or calling `OnError`. Apps can match the rejection with `errors.Is(err, tifa.ErrSSRBusy)`. `ssr.timeout` still limits execution only.

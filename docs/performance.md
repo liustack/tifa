@@ -40,6 +40,8 @@ Each range covers the two shops. "Render" is the benchmark. "Request" is one req
 
 At start the program compiles the SSR bundle to bytecode once and loads that bytecode into each VM of the pool, one after another. For the shop before the storefront was added, that was about 0.2 s to compile and about 45 ms per VM, measured with quickjs v0.26.9. v0.26.12 made loading about 11% faster.
 
+With quickjs v0.27.0 and the current shop, adding lazy Temporal registration leaves loading about the same: `Load` alone in a later VM takes 41.69 ms before and 41.43 ms after, excluding compilation and closing. The first measured VM in a process takes 49.17 and 49.95 ms, including the first registration of the stand-ins. The existing load benchmark, which also inspects memory and closes the VM, gives a median paired ratio of 1.008. These are six alternating rounds on linux/amd64, without PGO. The first actual use of Temporal costs separately, see [Memory](#memory).
+
 ## How it compares with Node
 
 The same `ssr.js` in Node 24, loaded with `vm.runInThisContext` and given the same inputs, on the same machine and core. Node warms up with 600 renders, then runs 5 rounds, and the table gives the median of the per-round P50. Node with JIT is the normal Node. `--jitless` turns off V8's compiler to machine code, so V8 only interprets, which is closer to what QuickJS does.
@@ -174,6 +176,23 @@ The same 180 second test without pool timing logs killed the old process after 1
 The queue limit counts render jobs, not bytes or all HTTP requests. `Load` runs before admission. Requests sharing one cache miss still hold their own HTTP state. The low-concurrency RSS figures below do not cover arbitrary connections, large loader data or application memory. `ssr.vm_memory` limits each VM, not the process, and a render queue bound is not a guarantee against a process OOM.
 
 ### Memory
+
+Temporal registration, measured on 2026-10-22 with quickjs v0.27.0, Go 1.27.2 and the current shop including the storefront, against the same app without registration:
+
+| Cost | Before | With Temporal |
+| --- | --- | --- |
+| Shop executable, built by `tifa build` with `-ldflags=-w`, PGO off | 31,424,294 bytes | 32,193,024 bytes |
+| VM after loading, engine allocated / used | 11,497,264 / 7,350,388 bytes | 11,503,416 / 7,354,258 bytes |
+| VM after one order-detail render, engine allocated / used | 11,661,448 / 7,482,385 bytes | 11,671,704 / 7,486,255 bytes |
+| After that render and an explicit GC, engine allocated / used | 11,620,360 / 7,365,166 bytes | 11,622,408 / 7,369,036 bytes |
+
+The executable grows by 768,730 bytes (2.45%). An unused Temporal keeps about 3.8 KiB more JS allocations per VM. The allocator's larger blocks make its increase vary from 2 to 10 KiB in these snapshots. These are engine counts, not process RSS, and leave out Go allocations and libc's TLS stack.
+
+Temporal stays lazy after an ordinary shop render. After that render, the first `Temporal.PlainDate.from(...).toString()` in a process takes 10.89 ms, including compilation of the full shim, and the first in a later VM takes 1.00 ms. After GC it adds 150.7 KiB of JS allocations to each VM. The first process use also leaves about 552 KiB more Go heap. The first `toLocaleString('en-US', {dateStyle: 'long'})` after this takes 0.25 ms, or 0.07 ms in the later VM. Intl has already been used by the shop here. Other first calls can load different data.
+
+Measured on an AMD EPYC 7B13 with one render VM, `GOMAXPROCS=1`, CPUs 1/5 idle before each run, six alternating rounds and PGO off. Each page gets 256 warm-up and 300 timed renders per round. The six workbench pages do not use Temporal: their median paired P50 ratios are 0.999 to 1.005 and mean-time ratios 0.997 to 1.000, with the same SSR bundle and passing HTML checks. No material render regression was measured. The small unused VM cost does not justify a runtime setting, which would not remove the linked code anyway.
+
+The older memory measurements below use different versions and bundles.
 
 Measured on the shop before the storefront was added, with an SSR bundle of 772 KB instead of 1,288 KB.
 

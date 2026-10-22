@@ -11,6 +11,7 @@ import (
 
 	"github.com/liustack/quickjs"
 	"github.com/liustack/quickjs/intl"
+	"github.com/liustack/quickjs/temporal"
 )
 
 // Compile, Load and RenderVM are the steps a Pool takes, exported so that measurements outside
@@ -31,9 +32,9 @@ func Compile(source string, memory uintptr, timeout time.Duration) (bytecode []b
 	return vm.Compile(source, quickjs.EvalGlobal)
 }
 
-// Load creates a VM, gives it Intl and runs the bundle's top level code, which defines
-// startRender. Go callbacks provide Intl and cryptographically secure random bytes.
-// Intl may read zoneinfo on first use, and crypto reads the OS entropy source on demand.
+// Load creates a VM, gives it Intl and Temporal and runs the bundle's top level code, which
+// defines startRender. Go callbacks provide formatting, dates and secure random bytes.
+// Intl and Temporal use embedded zone data, and crypto reads the OS entropy source on demand.
 // There is no module loader or application network or file I/O.
 //
 // Intl formats in en-US and UTC when a page passes no locale or timeZone, never in the host's
@@ -42,6 +43,8 @@ func Compile(source string, memory uintptr, timeout time.Duration) (bytecode []b
 // Go code uses, is left alone. intl.Register only puts stand-ins on the VM: the first use of Intl or a
 // toLocale* method installs the rest, so a VM whose pages never format costs a few KB more.
 // dev runs intlcheck.js too, which installs Intl at once to watch it.
+// Temporal is lazy too. Its default clock is time.Now, the live system clock Date.now uses,
+// not a time frozen at VM creation or at the start of a render. Its default zone follows Intl.
 //
 // stack is how deep calls may nest, in the engine's stack slots (ssr.vm_stack_depth). Deeper
 // calls throw RangeError: Maximum call stack size exceeded. The slots live on the goroutine
@@ -55,6 +58,9 @@ func Load(bytecode []byte, memory, stack uintptr, timeout time.Duration, dev boo
 	vm.SetMaxStackSize(stack)
 	if err = vm.SetEvalTimeout(timeout); err == nil {
 		err = intl.Register(vm)
+	}
+	if err == nil {
+		err = temporal.Register(vm)
 	}
 	if err == nil {
 		err = registerRandom(vm)

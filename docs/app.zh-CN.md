@@ -1,5 +1,5 @@
 ---
-summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、route.go 与 route.tsx、Layout、hooks.go、404、SSR 与缓存开关、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 格式化才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数，以及数据、入参和结果的 JSON 规则'
+summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、route.go 与 route.tsx、Layout、hooks.go、404、SSR 与缓存开关、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数，以及数据、入参和结果的 JSON 规则'
 read_when:
   - 新建一个 tifa 应用，或给应用加页面、Layout、API 路由
   - 构建报 Ctx 用法或 Load 返回类型的错误，想知道怎么改
@@ -320,6 +320,7 @@ const LayoutSSR = false // 本目录的 Layout，默认 true
 - `crypto.getRandomValues` 原地填充整数类型数组，每次最多 65,536 字节。共享或可调整大小缓冲区的视图会在元素类型和配额检查之前抛 `TypeError`。`crypto.randomUUID` 生成 v4 UUID。两者每次都从 Go 的 `crypto/rand` 读取新字节，模块加载期间也能调用，没有随机字节池。这项宿主操作可能读取操作系统熵源，不向应用代码开放文件或网络访问。和 `Math.random` 一样，不要把随机值放进需要 hydration 的 HTML。
 - `structuredClone` 支持原始值、对象、数组、Date、RegExp、Map、Set、错误对象（含 cause 和 AggregateError）、ArrayBuffer、类型数组、DataView 和装箱原始值，保留循环引用与共享引用。缓冲区会复制，也支持可调整大小的缓冲区。这类 ArrayBuffer 的所有视图都抛 `DataCloneError`，无论长度固定还是随缓冲区变化。函数、symbol 和弱引用集合抛 `DataCloneError`。Promise、FinalizationRegistry、内建迭代器和不支持的宿主对象按原型链识别并拒绝。移除或替换原型链后，它们可能被当作普通对象，只复制可枚举的自有属性。这些类型无法像受支持的内建类型那样，通过纯 JS 的内部品牌检查始终识别。与浏览器不同，普通对象或数组的透明 Proxy 会通过 traps 克隆为普通对象或数组。仅模仿受支持内建类型原型的对象会被拒绝。SharedArrayBuffer 和非空 transfer 列表暂不支持，也抛 `DataCloneError`，空 transfer 列表可以传。自定义原型、访问器和属性描述符不保留，普通对象和数组只复制可枚举的自有字符串键。
 - `Intl` 和各个 `toLocale*` 方法，见[服务端渲染里的 Intl](#服务端渲染里的-intl)。
+- `Temporal` 和 `Date.prototype.toTemporalInstant`，见[服务端渲染里的 Temporal](#服务端渲染里的-temporal)。
 - `console`，有 `log`、`info`、`debug`、`warn`、`error` 和 `assert`。前四个什么也不输出。`error` 和不成立的 `assert` 会抛错，这次渲染失败，错误信息就是它们的参数。其他方法（比如 `console.time`、`console.table`）没有，调用会抛 `TypeError`。
 - `Date.now()` 和 `Math.random()`。能用，但它们的值不能进 HTML，见 [SSR 与缓存](#ssr-与缓存)。
 
@@ -375,8 +376,6 @@ export default function StatsPage() {
 - `Date` 的 `toLocaleString`、`toLocaleDateString`、`toLocaleTimeString`，`Number` 和 `BigInt` 的 `toLocaleString`，按语言规则排序的 `localeCompare`，以及 `toLocaleUpperCase` 和 `toLocaleLowerCase`。
 - Chromium 有的全部历法，用 `-u-ca-` 或 `calendar` 选项指定。
 
-服务端没有 `Temporal`。
-
 不传 locale 时服务端按 `en-US` 格式化，不传 `timeZone` 时按 `UTC`，和机器的语言、时区无关。服务端 `Date` 的本地时间也恒为 UTC：`getTimezoneOffset()` 是 0，`new Date(2026, 0, 1)`、`getHours`、`toString` 都按 UTC 算。应用的 Go 代码不受影响：进程保持启动时的时区，`time.Local`、日志和 SQLite 照常用这个时区，和普通 Go 程序一样。
 
 时区数据用程序里内嵌的 tz 2026e，从不读机器的 zoneinfo。输出和 Chromium 156 在约 75,000 个表达式上做过比对。数字、日期和复数全部一致。其余只有几处不同：`Intl.Segmenter` 在部分语言里分词不同，`Intl.DisplayNames` 的名称比 Chromium 多，Winnipeg 按 tz 2026e 改成了永久夏令时，Chromium 156 的数据还没有这一条。错误信息的措辞不同。Firefox 和 Safari 用各自的数据。新版本很接近，但 macOS 26.4 之前的 Safari 数据较旧（CLDR 46），少数格式可能不同。
@@ -429,6 +428,25 @@ export default function ReceiptPage() {
 ### 代价
 
 一个 VM 在它的渲染第一次用到 Intl 之前，只带 Intl 的占位，约 10 KB。第一次用到时这个 VM 再多约 30 到 45 KB。示例商店的一个 VM 约 11 MB，这部分不到它的 1%。tifa dev 下每个 VM 一开始就付这份代价，因为报警需要先装好 Intl。每种语言在每个进程里只读进内存一次，100 到 180 KB，另外第一次用到任何语言时还要约 1 MB 所有语言共用的数据。语言数据让程序大约增加 1.7 MB，生成的 `main.go` 嵌入的时区数据库再增加约 450 KB。语言数据带有要随程序附带的许可声明，见[要随程序附带的声明](build.zh-CN.md#要随程序附带的声明)。
+
+## 服务端渲染里的 Temporal
+
+页面可以用 `Temporal.Now`、`Instant`、`ZonedDateTime`、`PlainDate`、`PlainTime`、`PlainDateTime`、`PlainYearMonth`、`PlainMonthDay`、`Duration` 和 `Date.prototype.toTemporalInstant`，模块加载时也能用。QuickJS 提供 V8 已有的方法、IANA 时区和 Intl 支持的历法。Temporal 和 Intl 共用内嵌的 tz 2026e 数据，不读机器的 zoneinfo。
+
+`Temporal.Now` 和 `Date.now()` 一样读取实时系统时钟，不在 VM 创建时或一次渲染内冻结。`Temporal.Now.instant().epochMilliseconds` 和 `Date.now()` 分别采样，调用之间经过了时间，结果就可能不同。`Temporal.Now.timeZoneId()` 是 `UTC`，和 Intl 的默认时区一致。其他 Now 方法不传时区时也用 UTC。进程的 Go 时区保持不变。
+
+`toLocaleString` 通过 Intl 格式化，要明确传入 locale。普通日期或时间没有时区，会忽略 `timeZone`，`Instant` 用格式化器的时区，`ZonedDateTime` 用自身的时区。构造带时区的值或格式化瞬时时间时要明确指定时区。ISO 历法的 `PlainYearMonth` 和 `PlainMonthDay` 格式化时需要 `calendar: 'iso8601'`。
+
+要让水合一致，从 `Load` 或 Layout 返回 ISO 字符串、语言和时区，在两端构造相同的 Temporal 值。例如数据是 `day: '2026-10-22'` 和 `locale: 'en-US'`：
+
+```tsx
+const { day, locale } = route.useLoaderData()
+return <time>{Temporal.PlainDate.from(day).toLocaleString(locale, { dateStyle: 'long' })}</time>
+```
+
+结果是 `October 22, 2026`。不要把 `Temporal.Now` 的结果放进要水合的 HTML，浏览器运行得更晚，默认时区也可能不同。应在 `Load` 里算好固定值，或者在水合后的 effect 里显示当前时间。浏览器的语言数据也可能不同，见 Intl 一节。tifa 只向服务端 VM 提供 Temporal，不提供浏览器 polyfill 或 TypeScript 类型声明。不支持 Temporal 的浏览器需要在页面代码运行前加载 polyfill，或者让页面在浏览器里避开它。
+
+每个 VM 第一次读取 `Temporal` 或调用 `toTemporalInstant` 时才安装完整实现，不使用它的页面只保留占位实现。用来安装它的字节码在进程内只编译一次。程序体积、VM 内存和首次使用成本见[内存](performance.zh-CN.md#内存)。原有的[六份声明文件](build.zh-CN.md#要随程序附带的声明)也已覆盖 Temporal。
 
 ## 样式
 

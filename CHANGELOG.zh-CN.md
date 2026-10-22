@@ -16,6 +16,8 @@
 
 ### 新增
 
+- SSR VM 提供 Temporal 和 `Date.prototype.toTemporalInstant`，首次使用时安装完整实现。`Temporal.Now` 读取实时系统时钟，默认时区是 UTC，与 Date 和 Intl 一致。Temporal 的语言格式化通过 Intl 完成。浏览器支持仍由应用负责。
+
 - SSR VM 提供 `atob`、`btoa`、`DOMException`、`crypto.getRandomValues`、`crypto.randomUUID` 和 `structuredClone`。随机字节直接从 Go 读取，渲染前、渲染时和模块加载时都能调用。宿主 API 在 VM 复用时沿用初始化保存的内建函数。getRandomValues 对共享或可调整大小缓冲区的视图抛 TypeError。克隆保留循环引用、共享引用和常见 JS 内建类型，不支持 transfer、SharedArrayBuffer 和可调整大小的 ArrayBuffer 视图克隆。与浏览器不同，普通对象和数组的透明 Proxy 通过 traps 克隆。不提供 `crypto.subtle`。
 
 - SSR 等待受 `ssr.queue_limit` 和 `ssr.wait_timeout` 限制，默认最多排队 32 次，最多等 1 秒。队列满或等待超时返回 503，带 `Retry-After: 1` 和 `Cache-Control: no-store`，不占用 VM，也不调用 `OnError`。应用可用 `errors.Is(err, tifa.ErrSSRBusy)` 识别拒绝。`ssr.timeout` 仍然只限制执行时间。
