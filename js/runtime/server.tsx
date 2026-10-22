@@ -90,7 +90,8 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
         // wraps the routes in one: the boundary renders its fallback and leaves the marker of a
         // boundary the browser must render itself. The page is then incomplete, never a success.
         // The first error a component threw is why, if the plugin could pass it, or else that a
-        // component suspended.
+        // component suspended. Only the marker tells for sure: a component that asks for the
+        // browser with use(browser()) leaves its boundary without calling onError.
         if (root.includes(clientRenderedBoundary)) {
           const thrown = errors.filter((error) => !suspended(error))
           if (thrown.length > 0) throw thrown[0]
