@@ -6,6 +6,7 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 
 ### Changed
 
+- Server rendering runs on quickjs v0.27.1, which renders the same HTML in less time (see Performance below).
 - Pages styled with emotion, such as MUI's, render faster: the hash emotion takes of every style is computed in Go, with the same result. The pages of the MUI test app take 28% to 29% less time to render, with the same HTML.
 - Server rendering runs on quickjs v0.27.0. Every `Intl` constructor and every calendar Chromium has now work while a page renders, and `localeCompare` sorts by the locale's rules, as browsers do, where it compared code points. A program now carries go-intl's data and code, so it ships six notice files where it shipped `LICENSE-DATA` alone ([build.md](docs/build.md#notices-to-ship-with-the-program)).
 - `tifa build` and `tifa dev` stop with an error when an app with pages installs React or React DOM older than 19.3.0.
@@ -31,6 +32,7 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 
 ### Performance
 
+- quickjs v0.27.1 renders the shop's workbench pages in 0.991 of the time of v0.27.0 without PGO and in 0.982 with PGO, and the pages of the MUI test app in 0.986 and 0.980, with the same HTML and memory. Together with emotion's hash computed in Go, the MUI pages render in 0.70 of the time they took on v0.27.0 before that change, with or without PGO, and the shop in 0.987 without PGO and 0.984 with it.
 - quickjs v0.27.0 renders the shop's workbench pages in 0.982 of the time of v0.26.17 without PGO, and in the same time with PGO, which already got what its changes give. A page that makes the same regexps on every render, such as one that highlights code, compiles them once per VM: the shop's journal post that highlights CSS renders in 0.893 of the time without PGO.
 - The entry script holds all code every page loads in one file instead of four. Over HTTP/1.1 at 150 ms round trips the shop's pages hydrate 11 to 192 ms sooner than before, at 40 ms 4 to 77 ms sooner, and they paint 8 to 24 ms later (8 to 48 ms over HTTP/2). Served by tifa itself over HTTP/1.1, an app whose pages need 17 to 20 files hydrates 58 to 100 ms later at 150 ms round trips. A proxy or CDN that speaks HTTP/2 in front avoids that.
 - Four more rewrites of the SSR bundle by the Vite plugin: React escapes HTML with `replaceAll`, builds no component stacks, gets plain values in place of the getters of its namespaces, and leaves component names out of key paths. Together the example shop renders 6.5% to 7.5% faster and pages of plain text 17.6% to 18.3% faster, with the same HTML.
