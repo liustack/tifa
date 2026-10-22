@@ -6,6 +6,7 @@
 
 ### 变更
 
+- 用 emotion 写样式的页面（比如 MUI）渲染更快：emotion 给每段样式算的哈希改在 Go 里算，结果不变。MUI 测试应用的页面渲染时间少 28% 到 29%，HTML 不变。
 - 服务端渲染改用 quickjs v0.27.0。页面渲染时可以用全部 `Intl` 构造器和 Chromium 有的全部历法，`localeCompare` 按语言规则排序，和浏览器一样，以前按码点比较。程序现在带上了 go-intl 的数据和代码，分发时要附上六个声明文件，以前只有 `LICENSE-DATA` 一个（见 [build.zh-CN.md](docs/build.zh-CN.md#要随程序附带的声明)）。
 - 有页面的应用装的 React 或 React DOM 低于 19.3.0 时，`tifa build` 和 `tifa dev` 报错停下。
 - React DOM 以外的模块代码里出现 `$$FORM_ACTION` 时，构建打印警告并写明是哪个模块，因为这样的表单拿到的键和没有插件时 React 写的不一样。

@@ -359,9 +359,12 @@ v0.27.0 整体和 v0.26.17 比，用商店工作台的六个页面，一个 VM �
 | 每个 `Load` 的数据以 Go 写的 JSON 文本交给浏览器（[数据协议](build.zh-CN.md#数据协议)） | TanStack 默认的序列化处理同样的数据要慢好几倍 |
 | seroval 遇到数组也先问插件，返回数组的 `Load` 也以这段 JSON 文本进页面 | 1,000 行、每行两个 UUID 的表格少 39%（34.8 ms，原来 56.9）。shop 六页的数据都是对象，浮动不超过 0.4%，HTML 不变 |
 | 这段 JSON 文本里 U+FFFF 以上的字符写成代理对的转义 | shop 订单列表的数据里有一个 emoji 时，渲染原来慢 9%（36.6 ms 对 33.7），现在和没有 emoji 一样快。只有上面数组那项、没有这项时，一个 emoji 会让表格慢到 2.3 倍 |
+| emotion 的样式哈希改在 Go 里算，不走 `@emotion/hash` 的 JavaScript 循环 | MUI 测试应用的三个页面少 28% 到 29%，HTML 不变。shop 没用 emotion，包也没变，变化在 1% 以内 |
 | 用页面渲染的剖析编译程序（PGO） | linux/amd64 上少约 2.4%，用的是 quickjs v0.26.15 和它的剖析，darwin/arm64（Apple M4）上少约 7%，用的是 v0.26.13 |
 
 数组和代理对这两行在上面那台机器上测，1 个 VM 钉在 cpu 0 上，改前改后轮流跑 3 到 4 轮。表格是 [eknkc/ssr-benchmark](https://github.com/eknkc/ssr-benchmark) 的表格页，行是固定的。
+
+emotion 那一行在上面那台机器上不开 PGO 测，一个 VM 钉在一个核上，改前改后轮流跑，3 种代码布局各 6 轮。
 
 转义缓存、拼好的 chunk 和 `Set` 检查这三项合起来，shop 快 11% 到 14%，纯文字页面快 17.5% 到 22%，小页面快 8% 到 11%。
 

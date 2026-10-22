@@ -359,9 +359,12 @@ v0.27.0 as a whole, against v0.26.17 on the six workbench pages of the shop, one
 | Hand each `Load`'s data to the browser as the JSON text Go wrote ([Data protocol](build.md#data-protocol)) | TanStack's default serializer takes several times as long for the same data |
 | Let seroval ask its plugins about arrays too, so a `Load` that returns an array also goes into the page as that JSON text | 39% less on a table of 1,000 rows of two UUIDs each (34.8 ms against 56.9). The six shop pages, whose data are objects, stay within 0.4%, with the same HTML |
 | Write each character above U+FFFF in that JSON text as the escapes of its surrogate pair | One emoji in the data of the shop's order list made its render 9% slower (36.6 ms against 33.7), and now it renders as fast as without the emoji. With the array change above and without this one, one emoji would make the table 2.3 times slower |
+| Hash the styles of emotion in Go rather than with the JavaScript loop of `@emotion/hash` | 28% to 29% less on the three pages of the MUI test app, with the same HTML. The shop, which has no emotion and the same bundle, stays within 1% |
 | Compile the program with a profile of page renders (PGO) | About 2.4% less on linux/amd64, with quickjs v0.26.15 and a profile of it, and 7% less on darwin/arm64 (Apple M4), with v0.26.13 |
 
 The array and the surrogate rows were measured on the machine above with one VM on cpu 0, the build before and after in turn, 3 to 4 rounds. The table is the table page of [eknkc/ssr-benchmark](https://github.com/eknkc/ssr-benchmark) with fixed rows.
+
+The emotion row was measured on the machine above without PGO, one VM pinned to one core, the build before and after in turn, over 3 layouts of the code and 6 rounds.
 
 The escape cache, the joined chunks and the `Set` checks together make the shop 11% to 14% faster, pages of plain text 17.5% to 22% and small pages 8% to 11%.
 
