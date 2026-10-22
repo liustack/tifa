@@ -16,6 +16,8 @@
 
 ### 新增
 
+- SSR 池会主动替换回收后存活内存超过预热基线上界的 VM。渲染队列无人等待时，后台一次加载一个备用 VM，只与空闲 VM 交换，加载期间保留渲染容量。加载失败时旧 VM 继续服务，并按退避间隔重试。替换期间需要多留一个 VM 的内存，见[内存](docs/performance.zh-CN.md#内存)。
+
 - SSR VM 提供 Temporal 和 `Date.prototype.toTemporalInstant`，首次使用时安装完整实现。`Temporal.Now` 读取实时系统时钟，默认时区是 UTC，与 Date 和 Intl 一致。Temporal 的语言格式化通过 Intl 完成。浏览器支持仍由应用负责。
 
 - SSR VM 提供 `atob`、`btoa`、`DOMException`、`crypto.getRandomValues`、`crypto.randomUUID` 和 `structuredClone`。随机字节直接从 Go 读取，渲染前、渲染时和模块加载时都能调用。宿主 API 在 VM 复用时沿用初始化保存的内建函数。getRandomValues 对共享或可调整大小缓冲区的视图抛 TypeError。克隆保留循环引用、共享引用和常见 JS 内建类型，不支持 transfer、SharedArrayBuffer 和可调整大小的 ArrayBuffer 视图克隆。与浏览器不同，普通对象和数组的透明 Proxy 通过 traps 克隆。不提供 `crypto.subtle`。

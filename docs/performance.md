@@ -177,6 +177,46 @@ The queue limit counts render jobs, not bytes or all HTTP requests. `Load` runs 
 
 ### Memory
 
+The pool schedules background replacement when a VM's live size after collection crosses a growth bound. The baseline is its live size immediately after loading and the warmup collection. After a collection between renders, the bound is twice that baseline, lowered to 75% of `ssr.vm_memory` when that is smaller. It never goes below 175% of the baseline, so a bundle that starts near the memory limit does not cause repeated reloads without recovering space. These sizes use the engine's `MemorySize`, the same count as the existing GC policy, not process RSS. With a limit below 1.75 times the loaded size, the floor can exceed the limit. Replacement cannot make that unchanged bundle fit. There is no new setting.
+
+Measured on 2026-10-22 with Go 1.27.2, quickjs v0.27.0, PGO off and an AMD EPYC 7B13 on GCP. Each page group ran 4,096 renders with one VM and another 4,096 with two VMs, rotating through 6 workbench pages, 12 storefront pages in two languages, and 4 MUI pages. These are the live sizes recorded by the pool after its ordinary collections, with no extra GC:
+
+| Pages | Baseline, MiB | Highest live, 1 VM | Highest live, 2 VMs | Largest ratio to baseline |
+| --- | --- | --- | --- | --- |
+| Shop workbench | 10.97 | 12.29 MiB | 12.28 MiB | 1.120 |
+| Shop storefront | 10.97 | 15.00 MiB | 14.93 MiB | 1.367 |
+| MUI | 5.23 | 8.68 MiB | 8.72 MiB | 1.666 |
+
+Twice the baseline leaves 20% above the largest observed normal live size. The 1.75-times floor under a low memory limit still leaves 5% above it. All 24,576 recorded live sizes stayed below 1.75 times the baseline. This evidence supports a fixed bound for these apps without another setting.
+
+The pool loads one spare in the background, leaving the old VM available for renders. It starts a load only with an eligible idle VM and no requests in the render queue. Once loaded, it swaps with an eligible idle VM only while the queue is empty, then closes the removed VM. Only one such replacement runs at a time across the pool. Budget for one extra VM while it loads and until an idle slot permits the exchange, including that VM's Go and TLS allocations. Sustained load can postpone replacement. A single render can still exceed the memory limit before the next between-render collection.
+
+A failed load keeps the old VM serving and retries after 1 second, doubling up to 30 seconds, with one warning until recovery. Each successful swap logs the baseline, old live size, bound and new live size, and increments the pool's replacement counter. Shutdown waits for loading and closes any unused spare. Module state in a replaced VM is lost, as after a failed render. Persistent application state belongs in Go.
+
+A VM left in an unknown state by an exception, timeout, memory failure or panic still leaves service immediately. Loading first cannot safely keep it serving, so the existing failure recovery keeps its temporary capacity loss. Proactive replacement only handles VMs whose renders have succeeded.
+
+Normal render latency was compared with `012d6e2` in six alternating rounds on the same machine, with PGO off. Each run warmed a new pool for 256 renders and timed 1,024 more, rotating through its page group with one caller per VM. Both VM counts used a pair of sibling threads on one physical core. Each round started after both threads passed a 30 second idle check. These are `Pool.Render` times, including any wait for a VM, excluding HTTP, Go loaders and HTML caching. Values below are medians of the six runs, and ratios are medians of the six paired after/before ratios. No normal run failed or loaded a replacement.
+
+| Pages / VMs | Before P50 / P99, ms | After P50 / P99, ms | Paired P50 / P99 ratio |
+| --- | --- | --- | --- |
+| Workbench / 1 | 10.81 / 29.62 | 10.80 / 29.94 | 0.995 / 1.020 |
+| Workbench / 2 | 17.69 / 48.29 | 17.60 / 50.41 | 0.997 / 1.051 |
+| Storefront / 1 | 41.20 / 98.94 | 40.66 / 97.44 | 0.987 / 0.987 |
+| Storefront / 2 | 66.20 / 174.59 | 65.59 / 172.00 | 0.983 / 0.983 |
+| MUI / 1 | 157.43 / 173.11 | 154.38 / 171.32 | 0.985 / 0.985 |
+| MUI / 2 | 260.93 / 283.56 | 254.58 / 277.42 | 0.975 / 0.980 |
+
+The short workbench runs had noisy tails: the 2 VM P99 paired ratio ranged from 0.846 to 1.120, with median 1.051. Six further alternating rounds with 4,096 timed renders per run gave P50/P99 ratios of 0.979/0.985, with P99 medians of 48.15 ms before and 47.41 ms after. The six individual workbench pages had P99 ratios from 0.944 to 0.988 in those longer runs. The short-run increase did not reproduce. These measurements show no consistent slowdown on the tested normal pages. Individual runs still vary.
+
+A fake leak wrapped the real shop order-detail render and retained another 32,768-element array on each call, under the default 128 MiB VM limit. Each run warmed for 128 renders before enabling the leak, then timed 1,024 calls with a 1 ms pause per caller between calls. Six alternating rounds used the same CPU and PGO conditions. The load-window P99 includes calls overlapping a background load or starting within 50 ms after it ended. Failed calls stay in the overall timing data. P99 values are medians of six runs, while failures and loads are totals over 6,144 calls per build and VM count:
+
+| VMs | Failed calls, before / after | All-call P99, before / after | Load-window P99, before / after | Loads, before / after |
+| --- | --- | --- | --- | --- |
+| 1 | 48 / 0 | 33.11 / 37.47 ms | 113.29 / 39.61 ms | 48 / 378 |
+| 2 | 48 / 0 | 52.41 / 53.30 ms | 195.77 / 57.77 ms | 48 / 324 |
+
+Loading first removed failures in this workload and reduced the P99 around each replacement. It also reloaded much more often, so background work raised the overall P99, especially with one VM. The two builds have different numbers of load-window samples because one waits for failure and the other replaces growing VMs earlier. Keeping capacity during a swap does not make loading free.
+
 Temporal registration, measured on 2026-10-22 with quickjs v0.27.0, Go 1.27.2 and the current shop including the storefront, against the same app without registration:
 
 | Cost | Before | With Temporal |
