@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// What a page finds when it renders on the server: the host script of every SSR bundle, Intl and
+// What a page finds when it renders on the server: the host script of every SSR bundle, Intl, Temporal and
 // the engine itself. docs/app.md lists the same in "What the server render has", so a change here
 // is a change to that section.
 
@@ -33,7 +33,7 @@ func TestServerRenderGlobals(t *testing.T) {
 	}
 	present := []string{
 		"queueMicrotask", "URL", "URLSearchParams", "TextEncoder", "TextDecoder", "AbortController",
-		"structuredClone", "crypto", "DOMException", "atob", "btoa", "Headers", "Response", "WeakRef", "FinalizationRegistry", "Proxy", "Intl", "console",
+		"structuredClone", "crypto", "DOMException", "atob", "btoa", "Headers", "Response", "WeakRef", "FinalizationRegistry", "Proxy", "Intl", "Temporal", "console",
 	}
 	var exprs []string
 	for _, name := range append(missing, present...) {

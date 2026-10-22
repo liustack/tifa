@@ -69,6 +69,7 @@ func TestLocalTimeIsUTCAndGoKeepsItsZone(t *testing.T) {
 	if os.Getenv("TIFA_TEST_ZONE") == "1" {
 		p := newTestPool(t, exprBundle, testConfig(1))
 		got := renderExprs(t, p,
+			`Temporal.Now.timeZoneId()`,
 			`new Date(2026, 6, 1).getTimezoneOffset()`,
 			`new Date(0).getHours()`,
 			`new Date(0).toString()`,
@@ -83,7 +84,7 @@ func TestLocalTimeIsUTCAndGoKeepsItsZone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("child: %v\n%s", err, out)
 	}
-	want := "js=0|0|Thu Jan 01 1970 00:00:00 GMT+0000|8/16/2025, 8:05:09 PM go=28800"
+	want := "js=UTC|0|0|Thu Jan 01 1970 00:00:00 GMT+0000|8/16/2025, 8:05:09 PM go=28800"
 	if !strings.Contains(string(out), want) {
 		t.Fatalf("want %s in:\n%s", want, out)
 	}
