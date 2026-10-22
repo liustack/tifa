@@ -16,6 +16,60 @@ const routeModule = /^\.\.?\/(?:.*\/)?\+(?:route|layout)(?:\.js|\.ts)?$/
 const clientSource = /\.client(?:\.[jt]sx?)?$/
 const reactServerEntry = /[/\\]react-dom[/\\]server\.edge\.js$/
 const reactStringRenderer = /[/\\]react-dom[/\\]cjs[/\\]react-dom-server-legacy\.browser\.production\.js$/
+// The hash of @emotion/hash 0.9, which emotion takes of every style it serializes, and the
+// dist files that have it. internal/ssr gives the VMs the same hash in Go as __tifa_murmur2__.
+const emotionHash = /[/\\]@emotion[/\\]hash[/\\]dist[/\\]emotion-hash\.(?:esm|cjs\.prod|cjs\.dev)\.js$/
+const murmur2Source = `function murmur2(str) {
+  // 'm' and 'r' are mixing constants generated offline.
+  // They're not really 'magic', they just happen to work well.
+  // const m = 0x5bd1e995;
+  // const r = 24;
+  // Initialize the hash
+  var h = 0; // Mix 4 bytes at a time into the hash
+
+  var k,
+      i = 0,
+      len = str.length;
+
+  for (; len >= 4; ++i, len -= 4) {
+    k = str.charCodeAt(i) & 0xff | (str.charCodeAt(++i) & 0xff) << 8 | (str.charCodeAt(++i) & 0xff) << 16 | (str.charCodeAt(++i) & 0xff) << 24;
+    k =
+    /* Math.imul(k, m): */
+    (k & 0xffff) * 0x5bd1e995 + ((k >>> 16) * 0xe995 << 16);
+    k ^=
+    /* k >>> r: */
+    k >>> 24;
+    h =
+    /* Math.imul(k, m): */
+    (k & 0xffff) * 0x5bd1e995 + ((k >>> 16) * 0xe995 << 16) ^
+    /* Math.imul(h, m): */
+    (h & 0xffff) * 0x5bd1e995 + ((h >>> 16) * 0xe995 << 16);
+  } // Handle the last few bytes of the input array
+
+
+  switch (len) {
+    case 3:
+      h ^= (str.charCodeAt(i + 2) & 0xff) << 16;
+
+    case 2:
+      h ^= (str.charCodeAt(i + 1) & 0xff) << 8;
+
+    case 1:
+      h ^= str.charCodeAt(i) & 0xff;
+      h =
+      /* Math.imul(h, m): */
+      (h & 0xffff) * 0x5bd1e995 + ((h >>> 16) * 0xe995 << 16);
+  } // Do a few final mixes of the hash to ensure the last few
+  // bytes are well-incorporated.
+
+
+  h ^= h >>> 13;
+  h =
+  /* Math.imul(h, m): */
+  (h & 0xffff) * 0x5bd1e995 + ((h >>> 16) * 0xe995 << 16);
+  return ((h ^ h >>> 15) >>> 0).toString(36);
+}
+`
 // The main files of seroval, which TanStack Router writes the data of a page with, and the
 // directory of any of its modules.
 const serovalModule = /[/\\]node_modules[/\\]seroval[/\\]dist[/\\]index\.c?js$/
@@ -490,6 +544,17 @@ export function ssrPlugin(getRoot, loadVite) {
       // WeakMap or patch generated output.
       if (id === propertyState) return 'module.exports = false'
       if (coreJS && id === path.join(coreJS, 'internals', 'internal-state.js')) coreJSState = true
+      if (emotionHash.test(id)) {
+        const source = fs.readFileSync(id, 'utf8')
+        if (source.split(murmur2Source).length !== 2) {
+          this.warn(
+            `@emotion/hash ${packageVersion(path.resolve(id, '..', '..'))}: ${id} has no murmur2 the tifa plugin knows, ` +
+              'so emotion hashes its styles in JavaScript. Pages render the same, but styles take longer to serialize',
+          )
+          return null
+        }
+        return source.replace(murmur2Source, () => hashInGo(murmur2Source))
+      }
       if (reactStringRenderer.test(id)) {
         const react = `react-dom ${packageVersion(path.resolve(id, '..', '..'))}: ${id}`
         let source = fs.readFileSync(id, 'utf8')
@@ -769,6 +834,18 @@ function escapeTextForBrowser(text) {
 }
 function tifaEscapeTextForBrowser(text) {`
   return source.replace(escapeSource, () => sameLines(escapeSource, cached))
+}
+
+// hashInGo returns the source of murmur2, source, asking __tifa_murmur2__ first, which hashes a
+// string in Go, the same as the loop of murmur2 does. It gives undefined for anything else, and
+// then murmur2 hashes as before. The lines stay where they were.
+function hashInGo(source) {
+  const [first, ...rest] = source.split('\n')
+  return [
+    first +
+      ' var tifaHash = "function" === typeof __tifa_murmur2__ ? __tifa_murmur2__(str) : void 0; if (void 0 !== tifaHash) return tifaHash;',
+    ...rest,
+  ].join('\n')
 }
 
 // chainEscapes returns the source of React's string renderer with escapeTextForBrowser escaping
