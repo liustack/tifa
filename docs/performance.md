@@ -437,6 +437,7 @@ Each item says what it would give and why it was dropped. Check here before tryi
 
 - **A higher collection threshold**, twice or three times the live size or a fixed 32 MiB, with the engine still collecting during renders: a collection takes about as long as the garbage it frees, so collecting half as often saved only about 15% of the collection time, under 1% of a render, too little to measure. The P99 and P999 got worse, a VM held 40% to 50% more, and with a low `ssr.vm_memory` a VM ran out of memory sooner.
 - **Collecting between renders only at twice the live size**, with three times during a render: the same P99 as at 1.5 times, but a VM held 22% to 45% more, and with a low `ssr.vm_memory` it ran out of memory sooner.
+- **Skipping the search for a Suspense boundary left to the browser when `onError` got no error**: the runtime looks for `<!--$!-->` in the whole HTML after each render, about 1% of a shop render and 0.4% of a MUI page, and skipping it renders the shop in 0.987 of the time and the MUI pages in 0.995. But React 19.3 leaves a boundary to the browser without calling `onError` when a component calls `use(browser())`: `renderToString` reports that to an `onBrowserBailout` option it does not take. So the search stays, and making it cheaper is the engine's job.
 
 ## Measuring again
 

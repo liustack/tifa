@@ -81,6 +81,32 @@ func TestSSRReportsTheErrorAComponentThrowsInsideSuspense(t *testing.T) {
 	}
 }
 
+// The runtime finds a boundary React left to the browser in the HTML, not in the errors onError
+// got: a component that throws, suspends or is a lazy component that has not loaded reports to
+// onError, but one that asks for the browser with use(browser()) reports only to the
+// onBrowserBailout option, which renderToString does not take. The page still needs the marker.
+func TestSSRLeavesABoundaryToTheBrowserWithOrWithoutAnError(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"left.tsx": "import './host'\n" +
+		"import { renderToString } from 'react-dom/server.edge'\nimport { browser } from 'react-dom'\n" +
+		"import { Suspense, lazy, use, type ReactNode } from 'react'\n" +
+		"function Throws(): never { throw new Error('THROWS') }\n" +
+		"function Suspends(): never { throw new Promise(() => {}) }\n" +
+		"const Lazy = lazy(() => new Promise<never>(() => {}))\n" +
+		"function Browser() { use((browser as any)('BROWSER')); return null }\n" +
+		"const cases: [string, ReactNode][] = [['throws', <Throws />], ['suspends', <Suspends />], ['lazy', <Lazy />], ['browser', <Browser />]]\n" +
+		"globalThis.result = cases.map(([name, node]) => {\n" +
+		"  const errors: unknown[] = []\n" +
+		"  const html = renderToString(<p><Suspense fallback=\"wait\">{node}</Suspense></p>, { onError: (e: unknown) => errors.push(e) } as any)\n" +
+		"  return name + ' ' + html.includes('<!--$!-->') + ' ' + errors.length\n" +
+		"}).join(', ')\n",
+	})
+	code, _ := buildScript(t, root, "left.tsx")
+	if got, want := evalResult(t, code), "throws true 1, suspends true 1, lazy true 1, browser true 0"; got != want {
+		t.Errorf("result = %q, want %q", got, want)
+	}
+}
+
 // A render inside a render reports its errors to its own onError, and to no one without one, as
 // React's other renderers do. The outer render gets only its own.
 func TestSSRReportsTheErrorsOfEachRenderToItsOwnOnError(t *testing.T) {
