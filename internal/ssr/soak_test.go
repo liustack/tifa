@@ -190,8 +190,10 @@ func TestSoakVMMemory(t *testing.T) {
 	show(t, "bare VM", bare, bare)
 	show(t, "Intl, unused", unused, bare)
 	show(t, "Intl, after formatting", measure(t, empty, format), bare)
-	if grown := unused.Fmalloc_size - bare.Fmalloc_size; grown > 32<<10 {
-		t.Fatalf("Intl adds %.1f KB to a VM that never formats", kb(grown))
+	// malloc moves in whole blocks of the allocator, so a few bytes more can show as 16 KB more.
+	// The budget is on used, what the stand-ins of Intl and Temporal take.
+	if grown := unused.Fmemory_used_size - bare.Fmemory_used_size; grown > 32<<10 {
+		t.Fatalf("Intl and Temporal add %.1f KB to a VM that never formats", kb(grown))
 	}
 
 	open := loaded(t, testSource(t))
