@@ -100,14 +100,18 @@ func TestSoakReuse(t *testing.T) {
 	t.Logf("native allocations back to baseline %d", baseline)
 }
 
-// Each render keeps 256 KiB alive until the VM hits its 32 MiB limit. The pool
-// must replace the VM, serve the next render from a fresh one, and after eight
-// such cycles and Close, native memory must be back at the baseline. The text of the page is
-// long and not ASCII, so the VM runs out of memory where JSON.parse converts the input to UTF-8,
-// where QuickJS used to leak the string.
+// One render fills a VM in 256 KiB steps and repeatedly parses Chinese input.
+// Growth within the render cannot be preempted by an idle swap. After eight OOM
+// failures, recovery renders and Close, native memory must return to baseline.
 func TestSoakOOMRecycle(t *testing.T) {
 	skipUnlessSoak(t)
-	const retain = `;globalThis.startRender = (start => { const retained = []; return json => { retained.push(new Uint8Array(256 * 1024).fill(1)); start(json) } })(globalThis.startRender);`
+	const retain = `;globalThis.startRender = (start => json => {
+ if (JSON.parse(json).preload === "<!-- oom -->") {
+  const retained = [];
+  for (;;) { retained.push(new Uint8Array(256 * 1024).fill(1)); JSON.parse(json); }
+ }
+ return start(json);
+})(globalThis.startRender);`
 	baseline := nativeBaseline(t)
 	p, err := NewPool(testSource(t)+retain, nil, config.SSR{VMs: 1, VMMemory: 32 << 20, VMStackDepth: config.Default().SSR.VMStackDepth, Timeout: 10 * time.Second, QueueLimit: 32, WaitTimeout: time.Second}, false)
 	if err != nil {
@@ -116,26 +120,10 @@ func TestSoakOOMRecycle(t *testing.T) {
 	page := input("ok", strings.Repeat("林夏", 32<<10))
 	for cycle := range 8 {
 		before := p.stats()
-		failed := false
-		for i := range 256 {
-			_, err := p.Render(context.Background(), page)
-			if err == nil {
-				continue
-			}
-			// Only the memory limit may end a cycle. A timeout or a page error fails
-			// the test. With these fixed sizes the run is deterministic.
-			if !errors.Is(err, ErrOutOfMemory) {
-				t.Fatalf("cycle %d request %d: want ErrOutOfMemory, got %v", cycle, i, err)
-			}
-			if i == 0 {
-				t.Fatalf("cycle %d: first render of a fresh VM ran out of memory", cycle)
-			}
-			failed = true
-			t.Logf("cycle %d: request %d failed: %v", cycle+1, i+1, err)
-			break
-		}
-		if !failed {
-			t.Fatal("VM never reached its memory limit")
+		failing := page
+		failing.Preload = "<!-- oom -->"
+		if _, err := p.Render(context.Background(), failing); !errors.Is(err, ErrOutOfMemory) {
+			t.Fatalf("cycle %d: want ErrOutOfMemory, got %v", cycle, err)
 		}
 		if _, err := p.Render(context.Background(), page); err != nil {
 			t.Fatalf("cycle %d: render after OOM: %v", cycle, err)

@@ -38,7 +38,8 @@ var ErrClosed = errors.New("ssr: pool closed")
 // exception, the time budget, the memory limit, a Go panic) leaves the pool, and a
 // background goroutine replaces it with a fresh VM loaded from the same bytecode.
 // The garbage renders leave is mostly collected between renders, after the answer
-// (see release).
+// (see release). VMs whose live size grows too far are replaced after loading a
+// spare, without taking capacity away from renders.
 type Pool struct {
 	bytecode    []byte
 	sources     *sources
@@ -51,11 +52,13 @@ type Pool struct {
 	idle        chan *pooledVM
 	done        chan struct{} // closed when Close starts
 
-	mu      sync.Mutex
-	closing bool
-	failure error // errors from closing VMs, returned by Close
-	counts  poolStats
-	warned  map[string]bool // the Intl warnings logged
+	mu       sync.Mutex
+	closing  bool
+	failure  error // errors from closing VMs, returned by Close
+	counts   poolStats
+	warned   map[string]bool // the Intl warnings logged
+	swapping bool            // one load-first replacement, including retries and closing the old VM
+	swapWake chan struct{}
 
 	renders   sync.WaitGroup
 	refills   sync.WaitGroup
@@ -71,6 +74,8 @@ type pooledVM struct {
 	*quickjs.VM
 	// live is the live size, what the VM held after its last GC between renders, or after Load.
 	live uintptr
+	// baseline is the live size after Load, never raised by renders.
+	baseline uintptr
 	// need is the threshold the engine set when it last collected during a render, at most four
 	// times the live size, or 0 before. A render that collects keeps it at least where it was, and
 	// each render that does not takes 1/needDecay of what it is above twice the live size off it.
@@ -90,8 +95,9 @@ func (vm *pooledVM) setThreshold(memory uintptr) {
 	vm.SetGCThreshold(vm.threshold)
 }
 
-// renderGCs counts the renders in which the engine ran a GC, idleGCs the GCs between renders.
-type poolStats struct{ created, closed, peak, renderGCs, idleGCs int }
+// renderGCs counts renders with an engine GC, idleGCs collections between renders,
+// and replaced successful proactive swaps (failure refills only affect created and closed).
+type poolStats struct{ created, closed, peak, renderGCs, idleGCs, replaced int }
 
 // Replaced by tests.
 var (
@@ -133,6 +139,7 @@ func NewPool(source string, sourceMap []byte, cfg config.SSR, dev bool) (*Pool, 
 		dev:         dev,
 		idle:        make(chan *pooledVM, cfg.VMs),
 		done:        make(chan struct{}),
+		swapWake:    make(chan struct{}, 1),
 		warned:      map[string]bool{},
 	}
 	var err error
@@ -144,7 +151,7 @@ func NewPool(source string, sourceMap []byte, cfg config.SSR, dev bool) (*Pool, 
 		if err != nil {
 			return nil, errors.Join(fmt.Errorf("ssr: prewarm VM: %w", p.sources.explain(err, true)), p.Close())
 		}
-		p.idle <- vm
+		p.putIdle(vm)
 	}
 	return p, nil
 }
@@ -172,13 +179,13 @@ func (p *Pool) Render(ctx context.Context, in Input) (string, error) {
 	// select picks at random among ready cases, so a canceled request or a closing
 	// pool can still win the idle VM. Hand it back unused.
 	if err := p.stopped(ctx); err != nil {
-		p.idle <- vm
+		p.putIdle(vm)
 		return "", err
 	}
 	// Do not keep another copy of the input while waiting or encode rejected work.
 	input, err := json.Marshal(in)
 	if err != nil {
-		p.idle <- vm
+		p.putIdle(vm)
 		return "", fmt.Errorf("ssr: encode input: %w", err)
 	}
 	// The VM goes back to the pool only when the render left it in a known state. Otherwise it
@@ -216,15 +223,24 @@ func (p *Pool) acquire(ctx context.Context) (*pooledVM, error) {
 	if err := p.stopped(ctx); err != nil {
 		return nil, err
 	}
+	p.mu.Lock()
 	select {
 	case vm := <-p.idle:
+		p.mu.Unlock()
 		return vm, nil
 	default:
 	}
 	select {
 	case p.waiters <- struct{}{}:
-		defer func() { <-p.waiters }()
+		p.mu.Unlock()
+		defer func() {
+			p.mu.Lock()
+			<-p.waiters
+			p.wakeSwap()
+			p.mu.Unlock()
+		}()
 	default:
+		p.mu.Unlock()
 		return nil, fmt.Errorf("%w: queue is full", core.ErrSSRBusy)
 	}
 	deadline := time.Now().Add(p.waitTimeout)
@@ -237,7 +253,7 @@ func (p *Pool) acquire(ctx context.Context) (*pooledVM, error) {
 	case vm := <-p.idle:
 		// A ready VM must not win a select after the wait budget expired.
 		if !time.Now().Before(deadline) {
-			p.idle <- vm
+			p.putIdle(vm)
 			return nil, fmt.Errorf("%w: wait exceeded %s", core.ErrSSRBusy, p.waitTimeout)
 		}
 		return vm, nil
@@ -279,8 +295,9 @@ func (p *Pool) refill() {
 		}
 		vm, err := loadVM(p)
 		if err == nil {
-			// The old VM is closed first, so the pool never holds more than cfg.VMs.
-			p.idle <- vm
+			// Failure recovery closes the old VM first. Unlike a proactive swap,
+			// it must restore a slot whose VM can no longer serve requests.
+			p.putIdle(vm)
 			return
 		}
 		logf("tifa: ssr: replace VM: %v, retrying in %s", p.sources.explain(err, true), delay)
@@ -329,7 +346,7 @@ func openVM(p *Pool) (*pooledVM, error) {
 	p.counts.peak = max(p.counts.peak, p.counts.created-p.counts.closed)
 	p.mu.Unlock()
 	// Load ended with a GC and set the threshold.
-	return &pooledVM{VM: vm, live: vm.MemorySize(), threshold: vm.GCThreshold()}, nil
+	return &pooledVM{VM: vm, live: vm.MemorySize(), baseline: vm.MemorySize(), threshold: vm.GCThreshold()}, nil
 }
 
 // release puts vm back in the pool after a render it survived. When its memory grew to 1.5 times
@@ -354,7 +371,7 @@ func (p *Pool) release(vm *pooledVM) {
 	// Under a limit below twice the live size the threshold is below 1.5 times the live size, so
 	// a VM collected here is over it, and the next render would collect at its start.
 	if vm.MemorySize() < vm.live+vm.live/2 {
-		p.idle <- vm
+		p.putIdle(vm)
 		return
 	}
 	p.refills.Go(func() { p.collect(vm) })
@@ -365,7 +382,7 @@ func (p *Pool) release(vm *pooledVM) {
 func (p *Pool) collect(vm *pooledVM) {
 	select {
 	case <-p.done:
-		p.idle <- vm
+		p.putIdle(vm)
 		return
 	default:
 	}
@@ -375,7 +392,133 @@ func (p *Pool) collect(vm *pooledVM) {
 		p.refill()
 		return
 	}
+	p.putIdle(vm)
+}
+
+// memoryBound leaves room for transient render allocations under a low VM limit.
+// The real-page measurements in docs/performance.md reach 1.67 times the baseline.
+// Keep at least 75% growth room even under a low limit, so ordinary warm caches
+// do not cause repeated reloads without recovering any space.
+func (vm *pooledVM) memoryBound(memory uintptr) uintptr {
+	return max(vm.baseline+vm.baseline/2+vm.baseline/4, min(2*vm.baseline, memory-memory/4))
+}
+
+// putIdle publishes only VMs exclusively owned by its caller. Admission and swap
+// selection share mu, so a new waiter cannot race the decision to start loading.
+func (p *Pool) putIdle(vm *pooledVM) {
+	p.mu.Lock()
 	p.idle <- vm
+	if !p.closing && !p.swapping && vm.live > vm.memoryBound(p.memory) {
+		p.swapping = true
+		p.refills.Go(p.replaceGrown)
+	}
+	p.wakeSwap()
+	p.mu.Unlock()
+}
+
+// Called under mu. Notifications are hints, the worker always checks the state.
+func (p *Pool) wakeSwap() {
+	if p.swapping {
+		select {
+		case p.swapWake <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// grownIdle inspects only idle VMs, while admission is locked and no requests
+// wait. With fresh it exchanges one VM before releasing the lock. Without fresh
+// it only checks whether loading a replacement would be useful.
+func (p *Pool) grownIdle(fresh *pooledVM) *pooledVM {
+	if p.closing || len(p.waiters) != 0 {
+		return nil
+	}
+	for n := len(p.idle); n > 0; n-- {
+		vm := <-p.idle
+		if vm.live > vm.memoryBound(p.memory) {
+			if fresh != nil {
+				p.idle <- fresh
+			} else {
+				p.idle <- vm
+			}
+			return vm
+		}
+		p.idle <- vm
+	}
+	return nil
+}
+
+// replaceGrown owns the spare until it is exchanged or closed. The old VM keeps
+// serving during loading and backoff. Close cancels waits and joins this worker.
+func (p *Pool) replaceGrown() {
+	var fresh *pooledVM
+	defer func() {
+		if fresh != nil {
+			p.closeVM(fresh)
+		}
+	}()
+	delay, warned := retryDelay, false
+	for {
+		p.mu.Lock()
+		if p.closing {
+			p.swapping = false
+			p.mu.Unlock()
+			return
+		}
+		var freshLive uintptr
+		if fresh != nil {
+			freshLive = fresh.live
+		}
+		old := p.grownIdle(fresh)
+		if old == nil {
+			// No more candidates when every VM is idle. Busy VMs will notify on return.
+			if len(p.idle) == cap(p.idle) && len(p.waiters) == 0 {
+				if fresh != nil {
+					p.mu.Unlock()
+					p.closeVM(fresh)
+					fresh = nil
+					continue
+				}
+				p.swapping = false
+				p.mu.Unlock()
+				return
+			}
+			p.mu.Unlock()
+			select {
+			case <-p.done:
+			case <-p.swapWake:
+			}
+			continue
+		}
+		if fresh != nil {
+			p.counts.replaced++
+			p.mu.Unlock()
+			logf("tifa: ssr: replaced growing VM: baseline=%d live=%d bound=%d fresh=%d bytes", old.baseline, old.live, old.memoryBound(p.memory), freshLive)
+			fresh = nil
+			p.closeVM(old)
+			delay, warned = retryDelay, false
+			continue
+		}
+		// The decision to load is serialized with queue admission. Requests arriving
+		// after this point continue using the old VM while the load runs.
+		p.mu.Unlock()
+		var err error
+		fresh, err = loadVM(p)
+		if err == nil {
+			continue
+		}
+		if !warned {
+			logf("tifa: ssr: replace growing VM: %v, retrying with backoff", p.sources.explain(err, true))
+			warned = true
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-p.done:
+			timer.Stop()
+		case <-timer.C:
+		}
+		delay = min(2*delay, maxRetryDelay)
+	}
 }
 
 // runGC collects vm and sets its live size and threshold from what is left. It returns a Go

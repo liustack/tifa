@@ -16,6 +16,8 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 
 ### Added
 
+- The SSR pool replaces VMs whose live memory after collection has grown too far from their warmup baseline. It loads one spare at a time while the render queue is empty and exchanges it only with an idle VM, keeping render capacity during loading. Failed loads keep the old VM and retry with backoff. Allow memory for one extra VM during replacement, see [Memory](docs/performance.md#memory).
+
 - SSR VMs provide Temporal and `Date.prototype.toTemporalInstant`, installed on first use. `Temporal.Now` uses the live system clock and defaults to UTC, consistent with Date and Intl. Temporal locale formatting uses Intl. Browser support is still the app's responsibility.
 
 - The SSR VM provides `atob`, `btoa`, `DOMException`, `crypto.getRandomValues`, `crypto.randomUUID` and `structuredClone`. Random bytes come directly from Go before or during rendering, including module loading. The host APIs retain the built-ins they use across VM reuse. getRandomValues rejects views on shared or resizable buffers with TypeError. Cloning preserves cycles, shared references and common JavaScript built-ins. Transfer, SharedArrayBuffer and views on resizable ArrayBuffers remain unsupported. Unlike browsers, transparent proxies of ordinary objects and arrays are cloned through their traps. There is no `crypto.subtle`.
