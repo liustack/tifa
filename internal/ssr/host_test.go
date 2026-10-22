@@ -64,8 +64,8 @@ func TestServerRenderBehavior(t *testing.T) {
 		// TextDecoder knows UTF-8 only.
 		{"new TextDecoder().encoding", "utf-8"},
 		{"new TextDecoder('latin1')", "throws RangeError: Encoding not supported: latin1"},
-		// localeCompare compares code points.
-		{"['张', '李', 'a', 'B'].sort((a, b) => a.localeCompare(b)).join()", "B,a,张,李"},
+		// localeCompare sorts by the locale's collation, as Chromium does.
+		{"['张', '李', 'a', 'B'].sort((a, b) => a.localeCompare(b)).join()", "a,B,张,李"},
 		// A maximumFractionDigits below the currency's digits lowers the minimum to match, and
 		// fraction digits are not read next to significant digits, as in browsers. A minimum
 		// above a given maximum still throws.
@@ -73,7 +73,7 @@ func TestServerRenderBehavior(t *testing.T) {
 		{"new Intl.NumberFormat('zh-CN', {style: 'currency', currency: 'CNY', minimumFractionDigits: 0, maximumFractionDigits: 0}).format(5)", "¥5"},
 		{"new Intl.NumberFormat('en-US', {maximumSignificantDigits: 3, maximumFractionDigits: 200}).format(1.2345)", "1.23"},
 		{"new Intl.NumberFormat('zh-CN', {style: 'currency', currency: 'CNY', minimumFractionDigits: 3}).format(5)", "¥5.000"},
-		{"new Intl.NumberFormat('zh-CN', {style: 'currency', currency: 'CNY', minimumFractionDigits: 3, maximumFractionDigits: 1}).format(5)", "throws RangeError: minimumFractionDigits is greater than maximumFractionDigits"},
+		{"new Intl.NumberFormat('zh-CN', {style: 'currency', currency: 'CNY', minimumFractionDigits: 3, maximumFractionDigits: 1}).format(5)", "throws RangeError: intl: an option is out of range: at least 3 decimals but at most 1"},
 		// The clock, random numbers and the compiler are there. Pages must not let the first two
 		// reach the HTML, see "SSR and cache".
 		{"typeof Date.now()", "number"},

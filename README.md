@@ -150,4 +150,4 @@ tifa does not accept pull requests. A framework like this touches the compiler, 
 
 ## License
 
-[MIT](LICENSE). A program built with tifa embeds Unicode CLDR locale data, whose notices go with the program when you distribute it, see [docs/build.md](docs/build.md#notices-to-ship-with-the-program).
+[MIT](LICENSE). A program built with tifa embeds locale data and time zones from Unicode CLDR, ICU and go-intl, whose notices go with the program when you distribute it, see [docs/build.md](docs/build.md#notices-to-ship-with-the-program).
