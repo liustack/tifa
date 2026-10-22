@@ -6,6 +6,7 @@
 
 ### 变更
 
+- 服务端渲染改用 quickjs v0.27.0。页面渲染时可以用全部 `Intl` 构造器和 Chromium 有的全部历法，`localeCompare` 按语言规则排序，和浏览器一样，以前按码点比较。程序现在带上了 go-intl 的数据和代码，分发时要附上六个声明文件，以前只有 `LICENSE-DATA` 一个（见 [build.zh-CN.md](docs/build.zh-CN.md#要随程序附带的声明)）。
 - 有页面的应用装的 React 或 React DOM 低于 19.3.0 时，`tifa build` 和 `tifa dev` 报错停下。
 - React DOM 以外的模块代码里出现 `$$FORM_ACTION` 时，构建打印警告并写明是哪个模块，因为这样的表单拿到的键和没有插件时 React 写的不一样。
 - 浏览器里，导出 `head` 的路由模块和其他路由模块一样随路由加载，不再放在入口脚本里。示例 shop 的入口 gzip 后从 224 KB 降到 146 KB。这类模块顶层的代码改在路由第一次加载时运行，每个页面都需要的初始化应放在根 Layout 里。入口里的模块 import 了路由模块时，它留在入口里，构建打印打包器的 `INEFFECTIVE_DYNAMIC_IMPORT` 警告。

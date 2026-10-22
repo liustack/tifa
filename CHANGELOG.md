@@ -6,6 +6,7 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 
 ### Changed
 
+- Server rendering runs on quickjs v0.27.0. Every `Intl` constructor and every calendar Chromium has now work while a page renders, and `localeCompare` sorts by the locale's rules, as browsers do, where it compared code points. A program now carries go-intl's data and code, so it ships six notice files where it shipped `LICENSE-DATA` alone ([build.md](docs/build.md#notices-to-ship-with-the-program)).
 - `tifa build` and `tifa dev` stop with an error when an app with pages installs React or React DOM older than 19.3.0.
 - The build prints a warning that names each module outside React DOM with `$$FORM_ACTION` in its code, since such a form gets a different key than React writes without the plugin.
 - In the browser, route modules that export `head` load with their routes, as other route modules did, instead of being part of the entry script. The example shop's entry went from 224 KB to 146 KB with gzip. Code at the top level of such a module now runs when its route first loads, so setup that every page needs belongs in the root Layout. A module of the entry that imports a route module keeps it in the entry, with the bundler's `INEFFECTIVE_DYNAMIC_IMPORT` warning.
