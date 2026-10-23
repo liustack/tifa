@@ -270,6 +270,91 @@ const looksLikeObjectPath = (key, nsSeparator, keySeparator) => {
   if (possibleChars.length === 0) return true;
   const r = looksLikeObjectPathRegExpCache.getRegExp(\`(\${possibleChars.map(c => c === '?' ? '\\\\?' : c).join('|')})\`);
 `
+// i18nextCacheSource is what the tifa plugin adds to i18next for build.i18next_cache, see
+// i18nextCache. It is one line, which goes before the line that makes i18next's default
+// instance, and so after all classes of i18next and before any instance exists.
+const i18nextCacheSize = 1 << 20
+const i18nextCacheSource = `
+var tifaI18nCache = new Map(), tifaI18nBytes = 0, tifaI18nEffects = 0, tifaI18nIds = new WeakMap(), tifaI18nLastId = 0;
+var tifaI18nIsArray = Array.isArray, tifaI18nPrototypeOf = Object.getPrototypeOf, tifaI18nObject = Object.prototype;
+function tifaI18nClear() { tifaI18nEffects++; tifaI18nCache.clear(); tifaI18nBytes = 0; }
+function tifaI18nPart(v) {
+  switch (typeof v) {
+    case 'string': return 's' + v.length + ':' + v;
+    case 'number': return (v === 0 && 1 / v < 0 ? 'n-0' : 'n' + v) + ';';
+    case 'boolean': return v ? 'T' : 'F';
+    case 'undefined': return 'U';
+    case 'bigint': return 'b' + v + ';';
+    case 'object':
+      if (v === null) return 'N';
+      if (tifaI18nIsArray(v)) {
+        let s = 'a' + v.length + ';';
+        for (let i = 0; i < v.length; i++) { const e = v[i]; if (typeof e !== 'string') return; s += e.length + ':' + e; }
+        return s;
+      }
+  }
+}
+function tifaI18nKey(i18n, fixedT, keyPrefix, key, opts, rest) {
+  let id = tifaI18nIds.get(i18n);
+  if (id === undefined) tifaI18nIds.set(i18n, id = ++tifaI18nLastId);
+  let k = id + ';', p;
+  if ((p = tifaI18nPart(fixedT.lng)) === undefined) return; k += p;
+  if ((p = tifaI18nPart(fixedT.lngs)) === undefined) return; k += p;
+  if ((p = tifaI18nPart(fixedT.ns)) === undefined) return; k += p;
+  if ((p = tifaI18nPart(fixedT.keyPrefix)) === undefined) return; k += p;
+  if ((p = tifaI18nPart(keyPrefix)) === undefined) return; k += p;
+  if ((p = tifaI18nPart(key)) === undefined) return; k += p;
+  if (typeof opts === 'object') {
+    if (opts === null) return k + 'N';
+    const proto = tifaI18nPrototypeOf(opts);
+    if (proto !== tifaI18nObject && proto !== null) return;
+    k += 'o';
+    for (const name in opts) { if ((p = tifaI18nPart(opts[name])) === undefined) return; k += name.length + ':' + name + p; }
+    return k;
+  }
+  if ((p = tifaI18nPart(opts)) === undefined) return; k += 'p' + p;
+  for (let i = 0; i < rest.length; i++) { if ((p = tifaI18nPart(rest[i])) === undefined) return; k += p; }
+  return k;
+}
+function tifaI18nKeep(key, effects, result) {
+  if (key !== undefined && effects === tifaI18nEffects && typeof result === 'string') {
+    const bytes = 2 * (key.length + result.length) + 80;
+    if (tifaI18nBytes + bytes > ${i18nextCacheSize}) { tifaI18nCache.clear(); tifaI18nBytes = 0; }
+    if (bytes <= ${i18nextCacheSize}) { tifaI18nCache.set(key, result); tifaI18nBytes += bytes; }
+  }
+  return result;
+}
+function tifaI18nWrap(object, names) {
+  for (const name of names) {
+    const f = object[name];
+    object[name] = function (...args) { tifaI18nClear(); try { return f.apply(this, args); } finally { tifaI18nClear(); } };
+  }
+}
+tifaI18nWrap(ResourceStore.prototype, ['addNamespaces', 'removeNamespaces', 'addResource', 'addResources', 'addResourceBundle', 'removeResourceBundle']);
+tifaI18nWrap(Translator.prototype, ['changeLanguage']);
+tifaI18nWrap(Formatter.prototype, ['init', 'add', 'addCached']);
+tifaI18nWrap(postProcessor, ['addPostProcessor']);
+tifaI18nWrap(I18n.prototype, ['init', 'loadResources', 'reloadResources', 'use', 'setResolvedLanguage', 'changeLanguage', 'setDefaultNamespace', 'loadNamespaces', 'loadLanguages', 'cloneInstance']);
+var tifaI18nEmit = EventEmitter.prototype.emit;
+EventEmitter.prototype.emit = function (event, ...args) { if (event === 'missingKey') tifaI18nEffects++; else tifaI18nClear(); return tifaI18nEmit.call(this, event, ...args); };
+var tifaI18nForward = Logger.prototype.forward;
+Logger.prototype.forward = function (...args) { tifaI18nEffects++; return tifaI18nForward.apply(this, args); };
+`
+// i18nextCacheHead, i18nextCacheReturn and i18nextCacheInstance are the lines i18nextCache
+// changes, each once in i18next, and i18nextCacheMethods the methods i18nextCacheSource and the
+// changed lines need, by the line that starts their class or object.
+const i18nextCacheHead = '    const fixedT = (key, opts, ...rest) => {\n'
+const i18nextCacheReturn = '      return this.t(resultKey, o);\n    };\n'
+const i18nextCacheInstance = '\nconst instance = I18n.createInstance();\n'
+const i18nextCacheMethods = {
+  'class EventEmitter {': ['emit'],
+  'class Logger {': ['forward'],
+  'class ResourceStore extends EventEmitter {': ['addNamespaces', 'removeNamespaces', 'addResource', 'addResources', 'addResourceBundle', 'removeResourceBundle'],
+  'class Translator extends EventEmitter {': ['changeLanguage'],
+  'class Formatter {': ['init', 'add', 'addCached'],
+  'var postProcessor = {': ['addPostProcessor'],
+  'class I18n extends EventEmitter {': ['init', 'loadResources', 'reloadResources', 'use', 'setResolvedLanguage', 'changeLanguage', 'setDefaultNamespace', 'loadNamespaces', 'loadLanguages', 'cloneInstance', 'getFixedT'],
+}
 // The error handler of renderToString, which ignores the errors of the render.
 const ignoredErrors = 'function onError() {}'
 // React's HTML escape in its string renderer, with the regular expression that finds the first
@@ -402,7 +487,7 @@ function devState() {
  * tifa returns the plugins of a tifa application.
  *
  * settings.target is build.target of the project configuration, the browsers the browser bundle
- * runs in.
+ * runs in. settings.i18nextCache is build.i18next_cache, see ssrPlugin.
  */
 export function tifa(settings = {}) {
   let root = ''
@@ -470,7 +555,7 @@ export function tifa(settings = {}) {
       })
     },
   }
-  return [plugin, generated(), lazyRoutes(), ssrPlugin(() => root, () => import('vite'))]
+  return [plugin, generated(), lazyRoutes(), ssrPlugin(() => root, () => import('vite'), { i18nextCache: settings.i18nextCache })]
 }
 
 // lazyRoute is the prefix of the ID of a stand-in for a route module, see lazyRoutes.
@@ -646,8 +731,9 @@ function resolveRouteModule(ctx, root, source, importer) {
 // components into their key paths, gives the importers of React namespaces of plain values,
 // switches core-js to its property-backed internal state, checks that the bundle is one file, and
 // warns of the places where it may load a module at run time. Its source map names sources
-// relative to the application root. It comes with serovalPlugin, which changes seroval.
-export function ssrPlugin(getRoot, loadVite) {
+// relative to the application root. It comes with serovalPlugin, which changes seroval. With
+// settings.i18nextCache, build.i18next_cache, it also adds a cache to i18next, see i18nextCache.
+export function ssrPlugin(getRoot, loadVite, settings = {}) {
   const reactTargets = new Map() // server.edge.js path to the renderer modules it imports
   let coreJS // real directory of the core-js package the application resolves, '' for none
   let coreJSState = false // whether the internal state module of coreJS is in the bundle
@@ -742,7 +828,8 @@ export function ssrPlugin(getRoot, loadVite) {
       }
       if (i18nextModule.test(id)) {
         const i18next = `i18next ${packageVersion(path.resolve(id, '..', '..', '..'))}: ${id}`
-        const { source, unknown } = i18nextFaster(fs.readFileSync(id, 'utf8'))
+        const original = fs.readFileSync(id, 'utf8')
+        const { source, unknown } = i18nextFaster(original)
         if (unknown.includes('fixedT')) {
           this.warn(
             `${i18next} has no fixedT the tifa plugin knows, so the functions getFixedT returns copy all ` +
@@ -755,7 +842,16 @@ export function ssrPlugin(getRoot, loadVite) {
               'call. Pages render the same, but translations take longer',
           )
         }
-        return unknown.length === 2 ? null : source
+        const faster = unknown.length === 2 ? null : source
+        if (!settings.i18nextCache) return faster
+        const cached = i18nextCache(faster ?? original)
+        if (cached === undefined) {
+          this.warn(
+            `${i18next} has a form the tifa plugin does not know, so the tifa plugin does not cache its translations ` +
+              'as build.i18next_cache asks. Pages render the same, but translations take longer',
+          )
+        }
+        return cached ?? faster
       }
       if (emotionHash.test(id)) {
         const source = fs.readFileSync(id, 'utf8')
@@ -1193,6 +1289,51 @@ function i18nextFaster(source) {
     unknown.push('looksLikeObjectPath')
   }
   return { source, unknown }
+}
+
+// i18nextCache returns the source of i18next with a cache of the strings that the functions
+// getFixedT returns give, for build.i18next_cache, or undefined when the source does not have the
+// parts it changes in a form it knows. It knows the forms of i18next 25.5 to 26.5. Each line
+// stays where it was.
+//
+// The cache is one Map in the VM, from a key of the call to the string the call gave. The key
+// holds the instance, the language, namespace and key prefix of the function, which an app may
+// change on it, and the key and the options of the call, when each is a string, number, boolean,
+// bigint, null, undefined or array of strings, and the options are a plain object. A call with
+// another value, such as a function or an object, translates as before and keeps nothing. So
+// does a call during which i18next logs, as it does for a missing key, or emits an event, as it
+// does through missingKey, so missingKeyHandler and the listeners hear of every missing key. Only
+// strings are kept, so a call with returnObjects or returnDetails translates again too.
+//
+// The cache forgets all it holds when anything an app does through i18next's API could change a
+// translation: the methods of the instance and its store that change resources, languages,
+// namespaces or options, adding a formatter or post-processor, and every event of i18next other
+// than missingKey. It holds at most about i18nextCacheSize bytes, counting two bytes a
+// character and 80 for each entry, and starts over when the next string would not fit. It
+// assumes that the app changes resources and options only through i18next's API, and that
+// formatters, post-processors and the other functions i18next calls give the same result for
+// the same input. When an app breaks either, pages may show translations from before the change.
+function i18nextCache(source) {
+  const once = (text) => source.split(text).length === 2
+  if (!once(i18nextCacheHead) || !once(i18nextCacheReturn) || !once(i18nextCacheInstance)) return undefined
+  for (const [head, names] of Object.entries(i18nextCacheMethods)) {
+    const start = source.indexOf(`\n${head}\n`)
+    if (start < 0 || !once(`\n${head}\n`)) return undefined
+    const body = source.slice(start, source.indexOf('\n}', start + 1))
+    if (!names.every((name) => body.includes(`\n  ${name}(`))) return undefined
+  }
+  const order = ['\n  getFixedT(', i18nextCacheHead, i18nextCacheReturn, i18nextCacheInstance].map((text) => source.indexOf(text))
+  if (order.some((at, i) => i > 0 && at < order[i - 1])) return undefined
+  const added = i18nextCacheSource.trim().replace(/\n\s*/g, ' ')
+  return source
+    .replace(
+      i18nextCacheHead,
+      () =>
+        i18nextCacheHead.slice(0, -1) +
+        ' const tifaKey = tifaI18nKey(this, fixedT, keyPrefix, key, opts, rest); if (tifaKey !== undefined) { const tifaHit = tifaI18nCache.get(tifaKey); if (tifaHit !== undefined) return tifaHit; } const tifaEffects = tifaI18nEffects;\n',
+    )
+    .replace(i18nextCacheReturn, () => '      return tifaI18nKeep(tifaKey, tifaEffects, this.t(resultKey, o));\n    };\n')
+    .replace(i18nextCacheInstance, () => `\n${added} const instance = I18n.createInstance();\n`)
 }
 
 // chainEscapes returns the source of React's string renderer with escapeTextForBrowser escaping
