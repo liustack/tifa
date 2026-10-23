@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	lib "github.com/liustack/quickjs/lib"
+	lib "github.com/liustack/slowjs/lib"
 	"github.com/liustack/tifa/internal/config"
 )
 

@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liustack/quickjs"
-	lib "github.com/liustack/quickjs/lib"
+	"github.com/liustack/slowjs"
+	lib "github.com/liustack/slowjs/lib"
 	"github.com/liustack/tifa/internal/config"
 	"modernc.org/libc"
 )
@@ -33,7 +33,7 @@ func skipUnlessSoak(t *testing.T) {
 // created and closed, which warms the allocator like the prototype measurements.
 func nativeBaseline(t *testing.T) int {
 	t.Helper()
-	vm, err := quickjs.NewVM()
+	vm, err := slowjs.NewVM()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestSoakVMMemory(t *testing.T) {
 	const memory, timeout = 128 << 20, 10 * time.Second
 	stack := uintptr(config.Default().SSR.VMStackDepth)
 	// measure returns what a VM from open holds, after use when it is set.
-	measure := func(t *testing.T, open func() (*quickjs.VM, error), use func(*quickjs.VM)) lib.TJSMemoryUsage {
+	measure := func(t *testing.T, open func() (*slowjs.VM, error), use func(*slowjs.VM)) lib.TJSMemoryUsage {
 		vm, err := open()
 		if err != nil {
 			t.Fatal(err)
@@ -165,15 +165,15 @@ func TestSoakVMMemory(t *testing.T) {
 		}
 		return VMMemory(vm, true)
 	}
-	loaded := func(t *testing.T, source string) func() (*quickjs.VM, error) {
+	loaded := func(t *testing.T, source string) func() (*slowjs.VM, error) {
 		bytecode, err := Compile(source, memory, timeout)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return func() (*quickjs.VM, error) { return Load(bytecode, memory, stack, timeout, false) }
+		return func() (*slowjs.VM, error) { return Load(bytecode, memory, stack, timeout, false) }
 	}
-	format := func(vm *quickjs.VM) {
-		if _, err := vm.Eval(formats, quickjs.EvalGlobal); err != nil {
+	format := func(vm *slowjs.VM) {
+		if _, err := vm.Eval(formats, slowjs.EvalGlobal); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -184,7 +184,7 @@ func TestSoakVMMemory(t *testing.T) {
 			kb(u.Fmemory_used_size), kb(u.Fmemory_used_size-base.Fmemory_used_size))
 	}
 
-	bare := measure(t, quickjs.NewVM, nil)
+	bare := measure(t, slowjs.NewVM, nil)
 	empty := loaded(t, "")
 	unused := measure(t, empty, nil)
 	show(t, "bare VM", bare, bare)
@@ -197,7 +197,7 @@ func TestSoakVMMemory(t *testing.T) {
 	}
 
 	open := loaded(t, testSource(t))
-	render := func(vm *quickjs.VM) {
+	render := func(vm *slowjs.VM) {
 		in, err := json.Marshal(input("ok", ""))
 		if err != nil {
 			t.Fatal(err)

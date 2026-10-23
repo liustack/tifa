@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liustack/quickjs"
+	"github.com/liustack/slowjs"
 )
 
 // The objects of the cycles and hold renders of testdata/app.js.
@@ -36,7 +36,7 @@ func objectSize(t *testing.T, js string) uintptr {
 	defer vm.Close()
 	vm.SetGCThreshold(^uintptr(0))
 	before := vm.MemorySize()
-	if _, err := vm.Eval(js, quickjs.EvalGlobal); err != nil {
+	if _, err := vm.Eval(js, slowjs.EvalGlobal); err != nil {
 		t.Fatal(err)
 	}
 	return (vm.MemorySize() - before) / 10000

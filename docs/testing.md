@@ -9,7 +9,7 @@ read_when:
   - Measuring SSR render time or VM memory, or comparing an SSR change against the baseline
   - Changing `internal/ssr` or `test/ssr`
   - Changing something every VM uses, such as how the engine allocates memory, or checking that SSR still speeds up with more cores
-  - Upgrading github.com/liustack/quickjs or modernc.org/libc, or `TestEngineProfileMatchesTheDependencies` fails
+  - Upgrading github.com/liustack/slowjs or modernc.org/libc, or `TestEngineProfileMatchesTheDependencies` fails
   - Changing how the server serves HTTPS or gets its certificates
 ---
 
@@ -102,7 +102,7 @@ The default tests in `internal/ssr` only use small handwritten bundles, `testdat
 TIFA_SSR_SOAK=1 go test -tags memory.counters -run Soak -v ./internal/ssr
 ```
 
-They run normal reuse (2 VMs, 2 callers, 10,000 renders), OOM recovery (8 failures and replacements), and 16 proactive memory swaps. The OOM fixture fills memory within one render, repeatedly parsing input with long Chinese text, so an idle swap cannot preempt the failure. It exercises the input conversion and allocation cleanup where github.com/liustack/quickjs fixed a leak. If this test fails, first confirm the dependency is this fork and not modernc.org/quickjs. After shutdown, the native allocation count must return to the baseline. `TestSoakVMMemory` loads every VM the way the pool does. It prints what Intl adds to an empty VM, unused and after formatting, and what the bundle adds after loading, formatting and a render. It fails when Intl adds more than 32 KB to a VM that never formats.
+They run normal reuse (2 VMs, 2 callers, 10,000 renders), OOM recovery (8 failures and replacements), and 16 proactive memory swaps. The OOM fixture fills memory within one render, repeatedly parsing input with long Chinese text, so an idle swap cannot preempt the failure. It exercises the input conversion and allocation cleanup where github.com/liustack/slowjs fixed a leak. If this test fails, first confirm the dependency is this fork and not modernc.org/quickjs. After shutdown, the native allocation count must return to the baseline. `TestSoakVMMemory` loads every VM the way the pool does. It prints what Intl adds to an empty VM, unused and after formatting, and what the bundle adds after loading, formatting and a render. It fails when Intl adds more than 32 KB to a VM that never formats.
 
 ## SSR tests with the example app (`test/ssr`)
 
@@ -169,9 +169,9 @@ With v0.26.8, half the wait is under `modernc.org/libc.Xalloca` and `Xmalloc`, a
 
 ## The engine profile
 
-`internal/codegen/engine.pgo` is the profile `tifa build` compiles apps with pages with (see [build.md](build.md#profile-guided-optimization)). It is made on linux/amd64. PGO finds a call site by its caller, its callee and the line of the call within the caller, so the profile must be made with the versions of quickjs and modernc.org/libc in `go.mod`. `TestEngineProfileMatchesTheDependencies` in `internal/codegen` checks this from the source file names in the profile, and fails for a profile made with a `replace` of either module.
+`internal/codegen/engine.pgo` is the profile `tifa build` compiles apps with pages with (see [build.md](build.md#profile-guided-optimization)). It is made on linux/amd64. PGO finds a call site by its caller, its callee and the line of the call within the caller, so the profile must be made with the versions of slowjs and modernc.org/libc in `go.mod`. `TestEngineProfileMatchesTheDependencies` in `internal/codegen` checks this from the source file names in the profile, and fails for a profile made with a `replace` of either module.
 
-After upgrading quickjs or modernc.org/libc, collect it again on a quiet linux/amd64 machine, with a fresh build of the example app:
+After upgrading slowjs or modernc.org/libc, collect it again on a quiet linux/amd64 machine, with a fresh build of the example app:
 
 ```sh
 (cd examples/shop && pnpm install --frozen-lockfile && go tool tifa build)
@@ -180,6 +180,6 @@ TIFA_SSR_SHOP=1 GOMAXPROCS=1 go test -run '^$' -bench 'Shop/^render' -benchtime 
 go test -run EngineProfile ./internal/codegen
 ```
 
-500 renders of each page give about 72 seconds of CPU samples on a quiet AMD EPYC 7B13 with quickjs v0.27.2. One profile is enough for arm64 too: on darwin/arm64, a build with a profile made on linux/amd64 renders as fast as one with a profile made on the same Mac (0.3% apart, measured with quickjs v0.26.13).
+500 renders of each page give about 72 seconds of CPU samples on a quiet AMD EPYC 7B13 with slowjs v0.28.0. One profile is enough for arm64 too: on darwin/arm64, a build with a profile made on linux/amd64 renders as fast as one with a profile made on the same Mac (0.3% apart, measured with quickjs v0.26.13).
 
-A profile of an older quickjs or libc still builds and changes no output. It only finds fewer call sites, so pages render slower than they could.
+A profile of an older slowjs or libc still builds and changes no output. It only finds fewer call sites, so pages render slower than they could.

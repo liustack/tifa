@@ -16,8 +16,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/liustack/quickjs"
-	lib "github.com/liustack/quickjs/lib"
+	"github.com/liustack/slowjs"
+	lib "github.com/liustack/slowjs/lib"
 	"github.com/liustack/tifa/internal/ssr"
 	"modernc.org/libc"
 )
@@ -40,7 +40,7 @@ const detail = 2
 // created and closed, which warms the allocator like the prototype measurements.
 func nativeBaseline(t *testing.T) int {
 	t.Helper()
-	vm, err := quickjs.NewVM()
+	vm, err := slowjs.NewVM()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestSoakVMMemory(t *testing.T) {
 	cfg := shopConfig(1)
 	memory, stack := uintptr(cfg.VMMemory), uintptr(cfg.VMStackDepth)
 	// measure returns what a VM from open holds, after use when it is set.
-	measure := func(open func() (*quickjs.VM, error), use func(*quickjs.VM)) lib.TJSMemoryUsage {
+	measure := func(open func() (*slowjs.VM, error), use func(*slowjs.VM)) lib.TJSMemoryUsage {
 		vm, err := open()
 		if err != nil {
 			t.Fatal(err)
@@ -176,19 +176,19 @@ func TestSoakVMMemory(t *testing.T) {
 		}
 		return ssr.VMMemory(vm, true)
 	}
-	loaded := func(source string) func() (*quickjs.VM, error) {
+	loaded := func(source string) func() (*slowjs.VM, error) {
 		bytecode, err := ssr.Compile(source, memory, cfg.Timeout)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return func() (*quickjs.VM, error) { return ssr.Load(bytecode, memory, stack, cfg.Timeout, false) }
+		return func() (*slowjs.VM, error) { return ssr.Load(bytecode, memory, stack, cfg.Timeout, false) }
 	}
-	format := func(vm *quickjs.VM) {
-		if _, err := vm.Eval(formats, quickjs.EvalGlobal); err != nil {
+	format := func(vm *slowjs.VM) {
+		if _, err := vm.Eval(formats, slowjs.EvalGlobal); err != nil {
 			t.Fatal(err)
 		}
 	}
-	render := func(vm *quickjs.VM) {
+	render := func(vm *slowjs.VM) {
 		in, err := json.Marshal(pages[0].input)
 		if err != nil {
 			t.Fatal(err)

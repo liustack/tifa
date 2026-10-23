@@ -41,7 +41,7 @@ tifa new <目录> [--module 模块路径]
 - 模块路径默认是目录名，`--module` 可以另给。应用要 import 根目录的包，所以路径必须是 go 命令能 import 的。tifa new 拒绝含 `vendor` 段的路径，也拒绝首段不带点、且（不分大小写）和标准库包或 go 命令包模式的首段相同的路径（比如 `fmt`、`net`、`all`），即使并没有同名的包。改传 `--module example.com/fmt`。
 - 根包以模块路径最后一段命名（不算 `/v2` 这类主版本后缀），转成小写，只留字母和数字。它必须是合法的 Go 标识符，不是关键字，也不是 `main` 或 `init`（Go 不接受以 `init` 作为被 import 包的名字）。`app/` 下的 Go 文件直接用这个名字 import 它，所以在这些文件用到它的地方，这个名字不能另有所指：它们 import 的包，比如领域 `todos` 或 `tifa`，它们用到的预声明名字，比如 `error`，以及在其作用域里用到根包的参数或变量，比如 `db`、`ctx`。tifa new 维护一份这样的名单，遇到就报错，所以 `tifa new todos` 会失败，提示换一个目录名或用 `--module`，而 `--module example.com/todos` 会失败，提示换 `--module` 的最后一段。这些文件里的其他名字，比如 `c`、`rows`，不受影响。`package.json` 里的名字也是它，超过 npm 上限 214 个字符时截断。
 - `go.mod` 要求的 tifa 版本，是 go 命令下载来运行的这个命令的版本：`go run github.com/liustack/tifa/cmd/tifa@<版本> new myapp`，或者在应用里 `go tool tifa new`。在 tifa 源码目录里构建、或被源码目录 replace 的命令写 `v0.0.0`，并多给一步用 `go mod edit -replace` 把 `go.mod` 指向源码目录。
-- `modernc.org/sqlite` 和 tifa 的 QuickJS 都跑在 `modernc.org/libc` 上，而每个 SQLite 版本只对应一个确切的 libc 版本。`go.mod` 固定了一个和 tifa 所需 libc 对应的 SQLite 版本。以后升级其中任何一个，都要让这个 libc 版本保持一致。
+- `modernc.org/sqlite` 和 tifa 的 slowjs 都跑在 `modernc.org/libc` 上，而每个 SQLite 版本只对应一个确切的 libc 版本。`go.mod` 固定了一个和 tifa 所需 libc 对应的 SQLite 版本。以后升级其中任何一个，都要让这个 libc 版本保持一致。
 - `tifa new` 只写文件，不跑 go 或 npm 命令，也不联网。它最后打印接下来的步骤：`cd` 进目录、`go mod tidy`、`pnpm install` 和 `go tool tifa dev`，开发服务在 http://127.0.0.1:9527。
 - 它会在 PATH 里找 `pnpm`，但不运行它。找到时，安装步骤和 `README.md`、`AGENTS.md` 里的命令用 pnpm（`pnpm install`、`pnpm typecheck`），找不到就用 npm（`npm install`、`npm run typecheck`）。`package.json` 不写 `packageManager` 字段，所以同一个应用两种都能用。
 
@@ -107,10 +107,10 @@ GOOS=linux GOARCH=amd64 $(go tool -n tifa) build -o bin/myapp-linux
 
 ### 要随程序附带的声明
 
-程序通过 `github.com/liustack/quickjs/intl` 包嵌入了 [Intl](app.zh-CN.md#服务端渲染里的-intl) 用的语言数据和时区数据。数据来自 Unicode CLDR、Chromium 自带的 ICU 数据和 go-intl，go-intl 还移植了 V8 和 Temporal 的 Rust 库的代码。这些许可都要求程序的每个副本或它的文档里带上它们的声明。声明是这个模块里的六个文件。把程序交给别人时，把它们一起附上：
+程序通过 `github.com/liustack/slowjs/intl` 包嵌入了 [Intl](app.zh-CN.md#服务端渲染里的-intl) 用的语言数据和时区数据。数据来自 Unicode CLDR、Chromium 自带的 ICU 数据和 go-intl，go-intl 还移植了 V8 和 Temporal 的 Rust 库的代码。这些许可都要求程序的每个副本或它的文档里带上它们的声明。声明是这个模块里的六个文件。把程序交给别人时，把它们一起附上：
 
 ```sh
-q="$(go list -m -f '{{.Dir}}' github.com/liustack/quickjs)"
+q="$(go list -m -f '{{.Dir}}' github.com/liustack/slowjs)"
 mkdir -p bin/notices
 cp "$q/intl/LICENSE-DATA" "$q"/internal/gointl/qjsdata/NOTICE-* bin/notices/
 cp "$q/internal/gointl/LICENSE" bin/notices/LICENSE-GOINTL
@@ -136,7 +136,7 @@ go tool tifa build
 ```
 
 - `go tool tifa` 用的是 `go.mod` 里那一版 tifa，命令与运行库的版本总是一致。
-- 生成的 main 引用 `github.com/liustack/tifa/server`，`go mod tidy` 跳过 `.tifa/` 看不到这层引用。tifa 命令自己也引用 server，`go mod tidy` 会保留工具需要的全部模块，所以 server 的依赖（cobra、yaml、quickjs 等）一直留在 `go.mod` 与 `go.sum` 里。
+- 生成的 main 引用 `github.com/liustack/tifa/server`，`go mod tidy` 跳过 `.tifa/` 看不到这层引用。tifa 命令自己也引用 server，`go mod tidy` 会保留工具需要的全部模块，所以 server 的依赖（cobra、yaml、slowjs 等）一直留在 `go.mod` 与 `go.sum` 里。
 - `tifa build` 不改 `go.mod` 与 `go.sum`。跑过 `go mod tidy` 的应用直接能构建，`GOFLAGS=-mod=readonly` 的 CI 也一样。
 - 缺依赖时构建失败，并提示执行上面的 `go get -tool` 与 `go mod tidy`。
 - 升级 tifa（`go get -tool github.com/liustack/tifa/cmd/tifa@<版本>`）后跑一次 `go mod tidy`，新版本的命令或运行库多了依赖时，它会补进 `go.mod`。

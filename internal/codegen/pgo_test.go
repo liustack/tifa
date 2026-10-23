@@ -106,7 +106,7 @@ func TestAbsoluteProfilePathFails(t *testing.T) {
 }
 
 // PGO finds a call site by the caller, the callee and the line of the call within the caller, so
-// the engine profile must come from the versions of quickjs and modernc.org/libc that tifa
+// the engine profile must come from the versions of slowjs and modernc.org/libc that tifa
 // requires, on linux/amd64. See "The engine profile" in docs/testing.md for how to collect it again.
 func TestEngineProfileMatchesTheDependencies(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "go.mod"))
@@ -126,9 +126,9 @@ func TestEngineProfileMatchesTheDependencies(t *testing.T) {
 		t.Fatalf("engine.pgo: %v", err)
 	}
 	// Each source file the profile has samples in, such as
-	// /home/me/go/pkg/mod/github.com/liustack/quickjs@v0.26.13/lib/ccgo_linux_amd64.go.
+	// /home/me/go/pkg/mod/github.com/liustack/slowjs@v0.26.13/lib/ccgo_linux_amd64.go.
 	for _, dep := range []struct{ module, marker, want string }{
-		{"github.com/liustack/quickjs", "/lib/ccgo_", "/lib/ccgo_linux_amd64.go"},
+		{"github.com/liustack/slowjs", "/lib/ccgo_", "/lib/ccgo_linux_amd64.go"},
 		{"modernc.org/libc", "modernc.org/libc", "modernc.org/libc@"},
 	} {
 		version := required[dep.module]

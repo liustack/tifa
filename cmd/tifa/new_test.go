@@ -502,9 +502,9 @@ func TestStdRootsListTheStandardLibrary(t *testing.T) {
 	}
 }
 
-// modernc.org/sqlite and the QuickJS of tifa both run on modernc.org/libc, and each is built for
+// modernc.org/sqlite and the slowjs of tifa both run on modernc.org/libc, and each is built for
 // the exact libc version its go.mod requires. Go picks the highest version any module requires,
-// so the app builds with that libc only when the SQLite release go.mod.tmpl pins and the QuickJS
+// so the app builds with that libc only when the SQLite release go.mod.tmpl pins and the slowjs
 // tifa requires both require the libc tifa builds with.
 func TestNewPinsASQLiteBuiltForTheLibcOfTifa(t *testing.T) {
 	tmpl, err := os.ReadFile(filepath.Join("newapp", "go.mod.tmpl"))
@@ -525,7 +525,7 @@ func TestNewPinsASQLiteBuiltForTheLibcOfTifa(t *testing.T) {
 		return out
 	}
 	libc := strings.TrimSpace(string(goCmd("list", "-m", "-f", "{{.Version}}", "modernc.org/libc")))
-	quickjs := strings.TrimSpace(string(goCmd("list", "-m", "-f", "{{.GoMod}}", "github.com/liustack/quickjs")))
+	engine := strings.TrimSpace(string(goCmd("list", "-m", "-f", "{{.GoMod}}", "github.com/liustack/slowjs")))
 	// The SQLite module is not a dependency of tifa, so it may have to be downloaded.
 	out, err := exec.Command("go", "mod", "download", "-json", sqlite).Output()
 	if err != nil {
@@ -535,7 +535,7 @@ func TestNewPinsASQLiteBuiltForTheLibcOfTifa(t *testing.T) {
 	if err := json.Unmarshal(out, &download); err != nil {
 		t.Fatal(err)
 	}
-	for _, gomod := range []string{quickjs, download.GoMod} {
+	for _, gomod := range []string{engine, download.GoMod} {
 		data, err := os.ReadFile(gomod)
 		if err != nil {
 			t.Fatal(err)
@@ -551,7 +551,7 @@ func TestNewPinsASQLiteBuiltForTheLibcOfTifa(t *testing.T) {
 			}
 		}
 		if required != libc {
-			t.Errorf("%s requires modernc.org/libc %s, tifa builds with %s: pin a modernc.org/sqlite in go.mod.tmpl built for the same libc as the QuickJS of tifa", f.Module.Mod, required, libc)
+			t.Errorf("%s requires modernc.org/libc %s, tifa builds with %s: pin a modernc.org/sqlite in go.mod.tmpl built for the same libc as the slowjs of tifa", f.Module.Mod, required, libc)
 		}
 	}
 }

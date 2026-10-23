@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/liustack/quickjs"
+	"github.com/liustack/slowjs"
 )
 
 func TestHostStructuredClone(t *testing.T) {
@@ -69,15 +69,15 @@ func TestHostStructuredCloneWithoutBridge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	vm, err := quickjs.NewVM()
+	vm, err := slowjs.NewVM()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer vm.Close()
-	if _, err = vm.Eval(string(host), quickjs.EvalGlobal); err != nil {
+	if _, err = vm.Eval(string(host), slowjs.EvalGlobal); err != nil {
 		t.Fatal(err)
 	}
-	result, err := vm.Eval(`(()=>{const a={n:1};a.self=a;const b=structuredClone(a);return b!==a&&b.self===b&&b.n===1})()`, quickjs.EvalGlobal)
+	result, err := vm.Eval(`(()=>{const a={n:1};a.self=a;const b=structuredClone(a);return b!==a&&b.self===b&&b.n===1})()`, slowjs.EvalGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}

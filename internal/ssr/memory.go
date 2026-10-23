@@ -4,15 +4,15 @@ import (
 	"reflect"
 	"unsafe"
 
-	"github.com/liustack/quickjs"
-	lib "github.com/liustack/quickjs/lib"
+	"github.com/liustack/slowjs"
+	lib "github.com/liustack/slowjs/lib"
 	"modernc.org/libc"
 )
 
 // VMMemory returns what QuickJS counts in the runtime of vm, after a GC when collect is set. Like
-// Compile, Load and RenderVM it is for measurements. Each VM has a runtime of its own. The quickjs
+// Compile, Load and RenderVM it is for measurements. Each VM has a runtime of its own. The slowjs
 // package does not export the runtime, so VMMemory reads it from the VM, as the fork's own tests do.
-func VMMemory(vm *quickjs.VM, collect bool) lib.TJSMemoryUsage {
+func VMMemory(vm *slowjs.VM, collect bool) lib.TJSMemoryUsage {
 	rt := (*struct {
 		c   uintptr
 		tls *libc.TLS

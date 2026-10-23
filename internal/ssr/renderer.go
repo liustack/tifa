@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/liustack/quickjs"
-	"github.com/liustack/quickjs/intl"
-	"github.com/liustack/quickjs/temporal"
+	"github.com/liustack/slowjs"
+	"github.com/liustack/slowjs/intl"
+	"github.com/liustack/slowjs/temporal"
 )
 
 // Compile, Load and RenderVM are the steps a Pool takes, exported so that measurements outside
@@ -20,7 +20,7 @@ import (
 // Compile turns the bundle into bytecode once, in a throwaway VM.
 // Every VM of the pool, including replacements, loads this bytecode.
 func Compile(source string, memory uintptr, timeout time.Duration) (bytecode []byte, err error) {
-	vm, err := quickjs.NewVM()
+	vm, err := slowjs.NewVM()
 	if err != nil {
 		return nil, err
 	}
@@ -29,7 +29,7 @@ func Compile(source string, memory uintptr, timeout time.Duration) (bytecode []b
 	if err := vm.SetEvalTimeout(timeout); err != nil {
 		return nil, err
 	}
-	return vm.Compile(source, quickjs.EvalGlobal)
+	return vm.Compile(source, slowjs.EvalGlobal)
 }
 
 // Load creates a VM, gives it Intl and Temporal and runs the bundle's top level code, which
@@ -49,8 +49,8 @@ func Compile(source string, memory uintptr, timeout time.Duration) (bytecode []b
 // stack is how deep calls may nest, in the engine's stack slots (ssr.vm_stack_depth). Deeper
 // calls throw RangeError: Maximum call stack size exceeded. The slots live on the goroutine
 // stack of the render, not in the memory the limit counts: a slot takes about 1 KB.
-func Load(bytecode []byte, memory, stack uintptr, timeout time.Duration, dev bool) (*quickjs.VM, error) {
-	vm, err := quickjs.NewVM()
+func Load(bytecode []byte, memory, stack uintptr, timeout time.Duration, dev bool) (*slowjs.VM, error) {
+	vm, err := slowjs.NewVM()
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +69,7 @@ func Load(bytecode []byte, memory, stack uintptr, timeout time.Duration, dev boo
 		err = registerHash(vm)
 	}
 	if err == nil && dev {
-		_, err = vm.Eval(intlCheck, quickjs.EvalGlobal)
+		_, err = vm.Eval(intlCheck, slowjs.EvalGlobal)
 	}
 	if err == nil {
 		_, err = vm.EvalBytecode(bytecode)
@@ -91,7 +91,7 @@ var intlCheck string
 
 // RenderVM runs one request in vm: startRender(input), then the microtasks it queued,
 // then reads globalThis.renderResult. Any error leaves vm in an unknown state.
-func RenderVM(vm *quickjs.VM, input []byte, timeout time.Duration) (string, error) {
+func RenderVM(vm *slowjs.VM, input []byte, timeout time.Duration) (string, error) {
 	deadline := time.Now().Add(timeout)
 	// Each phase gets only what is left of the request's budget.
 	budget := func() error {
@@ -116,7 +116,7 @@ func RenderVM(vm *quickjs.VM, input []byte, timeout time.Duration) (string, erro
 	if err := budget(); err != nil {
 		return "", err
 	}
-	if _, err := vm.Eval("globalThis.renderResult = undefined", quickjs.EvalGlobal); err != nil {
+	if _, err := vm.Eval("globalThis.renderResult = undefined", slowjs.EvalGlobal); err != nil {
 		return "", phase("reset result", err)
 	}
 	if err := budget(); err != nil {
@@ -134,7 +134,7 @@ func RenderVM(vm *quickjs.VM, input []byte, timeout time.Duration) (string, erro
 	if err := budget(); err != nil {
 		return "", err
 	}
-	value, err := vm.Eval("(() => { const result = globalThis.renderResult; globalThis.renderResult = undefined; return result })()", quickjs.EvalGlobal)
+	value, err := vm.Eval("(() => { const result = globalThis.renderResult; globalThis.renderResult = undefined; return result })()", slowjs.EvalGlobal)
 	if err != nil {
 		return "", phase("read result", err)
 	}
@@ -182,7 +182,7 @@ var ErrOutOfMemory = errors.New("ssr: VM out of memory")
 // or promise handler runs, so the bundle never reports it as an error of its own. What page code
 // throws never counts, whatever its name and message.
 func outOfMemory(err error) bool {
-	var e *quickjs.Error
+	var e *slowjs.Error
 	return errors.As(err, &e) && e.OutOfMemory
 }
 
@@ -190,7 +190,7 @@ func outOfMemory(err error) bool {
 // pool, so it is the time budget. What page code throws never counts, whatever its name and
 // message.
 func interrupted(err error) bool {
-	var e *quickjs.Error
+	var e *slowjs.Error
 	return errors.As(err, &e) && e.Interrupted
 }
 
