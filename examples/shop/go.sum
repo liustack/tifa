@@ -13,8 +13,8 @@ github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
 github.com/klauspost/compress v1.20.3 h1:zWNoFqq/lSuYQRim3dUXlXeA0IqwuZGicdG5ZTfY5j4=
 github.com/klauspost/compress v1.20.3/go.mod h1:LUdAzn7YLVvxLpc7y3V1m40wESHTgc1422pwwBSKYuI=
-github.com/liustack/slowjs v0.28.1 h1:m6dWf4N4yzI+DeTq4agqnYBtTXmnXxSGZwWiI8W231E=
-github.com/liustack/slowjs v0.28.1/go.mod h1:IYQJQ793/UY17Lud8MIrzXanVZHmxlEoAKHCcO+5TCQ=
+github.com/liustack/slowjs v0.28.2 h1:SnVSxye4XdzX1EekrrmBjNsRJWnhuSCqN28gDb+ADVo=
+github.com/liustack/slowjs v0.28.2/go.mod h1:IYQJQ793/UY17Lud8MIrzXanVZHmxlEoAKHCcO+5TCQ=
 github.com/mattn/go-isatty v0.0.24 h1:tGZZoVgT/KiqK1c8ocVLeDS8BSWMRd47J3Lbz7vsReI=
 github.com/mattn/go-isatty v0.0.24/go.mod h1:nMCL3Zebbrt45jsMDgnfIwz6ydEQApk5oEI3HqDio6A=
 github.com/ncruces/go-strftime v1.0.0 h1:HMFp8mLCTPp341M/ZnA4qaf7ZlsbTc+miZjCLOFAw7w=
