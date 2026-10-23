@@ -6,6 +6,7 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 
 ### Changed
 
+- Server rendering runs on slowjs v0.28.4, which frees the top-level function of a module once it has run, with the variables it kept.
 - The SSR bundle runs in strict mode, as the browser bundle does: it is now an ES module, which each VM evaluates as a module (see [Top-level await and strict mode](docs/app.md#top-level-await-and-strict-mode)). A package that only works outside strict mode now fails on the server too. `tifa build` compiles the SSR bundle as the server does, without running it, so syntax that only sloppy mode allows, such as a `with` statement in a CommonJS file, fails the build with the place in the source file rather than the start of the server. An assignment to a variable that was never declared throws a `ReferenceError` where it runs. Pages render the same HTML.
 - Server rendering runs on slowjs v0.28.3. Regexps with the v flag accept what the specification allows and Node accepts, such as `[\&\;]` and `/-/v`, where they threw a SyntaxError. The regexps shiki makes compile, apart from those with more than 254 capture groups.
 - Server rendering runs on slowjs v0.28.0, the new name of the quickjs engine (`github.com/liustack/slowjs`, it was `github.com/liustack/quickjs`). It is the engine of quickjs v0.27.3 under a new name, and pages render the same HTML. slowjs supports Linux and macOS on amd64 and arm64, and Windows on amd64, so an app can no longer be built for FreeBSD, 32-bit targets or other CPUs.
