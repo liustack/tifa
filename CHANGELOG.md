@@ -6,6 +6,7 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 
 ### Changed
 
+- Server rendering runs on quickjs v0.27.2. The render timeout (`ssr.timeout`) now stops a page that compiles regexps or builds strings in a loop within a few milliseconds, where such a loop could run on for seconds past it: compiling a regexp and the built-ins that parse source or build a string (`JSON.parse`, `JSON.stringify`, `join`, `repeat`, `replaceAll` and the like) count toward the engine's interrupt check. One long call of such a built-in still runs to its end. The GC between renders frees the WeakMap entries whose keys are gone in one collection, also when a value points back to its key, where such entries stayed in a reused VM. The HTML is the same (see Performance below).
 - Server rendering runs on quickjs v0.27.1, which renders the same HTML in less time (see Performance below).
 - Pages styled with emotion, such as MUI's, render faster: the hash emotion takes of every style is computed in Go, with the same result. The pages of the MUI test app take 28% to 29% less time to render, with the same HTML.
 - Server rendering runs on quickjs v0.27.0. Every `Intl` constructor and every calendar Chromium has now work while a page renders, and `localeCompare` sorts by the locale's rules, as browsers do, where it compared code points. A program now carries go-intl's data and code, so it ships six notice files where it shipped `LICENSE-DATA` alone ([build.md](docs/build.md#notices-to-ship-with-the-program)).

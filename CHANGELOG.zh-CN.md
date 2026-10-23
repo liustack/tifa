@@ -6,6 +6,7 @@
 
 ### 变更
 
+- 服务端渲染改用 quickjs v0.27.2。页面在循环里编译正则或拼字符串时，渲染超时（`ssr.timeout`）现在几毫秒内就能把它停下，以前这样的循环会越过超时再跑好几秒：编译正则，以及解析源码或拼字符串的内置函数（`JSON.parse`、`JSON.stringify`、`join`、`repeat`、`replaceAll` 等）都计入引擎的中断检查。这类内置函数的单次长调用仍会跑完。渲染之间的 GC 一次就能释放键已不可达的 WeakMap 条目，值反过来指向键时也一样，以前这样的条目会一直留在复用的 VM 里。HTML 不变（见下面的性能）。
 - 服务端渲染改用 quickjs v0.27.1，HTML 不变，渲染更快（见下面的性能）。
 - 用 emotion 写样式的页面（比如 MUI）渲染更快：emotion 给每段样式算的哈希改在 Go 里算，结果不变。MUI 测试应用的页面渲染时间少 28% 到 29%，HTML 不变。
 - 服务端渲染改用 quickjs v0.27.0。页面渲染时可以用全部 `Intl` 构造器和 Chromium 有的全部历法，`localeCompare` 按语言规则排序，和浏览器一样，以前按码点比较。程序现在带上了 go-intl 的数据和代码，分发时要附上六个声明文件，以前只有 `LICENSE-DATA` 一个（见 [build.zh-CN.md](docs/build.zh-CN.md#要随程序附带的声明)）。
