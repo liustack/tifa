@@ -241,8 +241,8 @@ func i18nextCacheRender(t *testing.T, settings string) (i18nextCacheResult, stri
 // With build.i18next_cache the t of getFixedT gives the translation it gave before for the same
 // call, and translates again after any change made through i18next's API. Translations stay
 // those of i18next without the cache, a missing key still reaches missingKeyHandler and the
-// listeners of missingKey every time, an instance with debug on logs as much, and formatters are
-// not called again for a translation the cache keeps.
+// listeners of missingKey every time, an instance with debug on logs as much, and a formatter of
+// the app runs on every call, since the cache keeps no translation that ran one.
 func TestSSRCachesI18nextTranslationsTheSameWay(t *testing.T) {
 	plain, _ := i18nextCacheRender(t, `{ target: ["es2022"] }`)
 	cached, printed := i18nextCacheRender(t, `{ target: ["es2022"], i18nextCache: true }`)
@@ -267,8 +267,8 @@ func TestSSRCachesI18nextTranslationsTheSameWay(t *testing.T) {
 	if cached.Logs != plain.Logs || plain.Logs == 0 {
 		t.Errorf("i18next logged %d times, want %d", cached.Logs, plain.Logs)
 	}
-	if cached.Formats >= plain.Formats {
-		t.Errorf("the formatter ran %d times with the cache and %d without", cached.Formats, plain.Formats)
+	if cached.Formats != plain.Formats || plain.Formats == 0 {
+		t.Errorf("the formatter of the app ran %d times with the cache, want %d", cached.Formats, plain.Formats)
 	}
 }
 
@@ -326,5 +326,218 @@ func TestSSRLeavesAnUnknownI18nextUncached(t *testing.T) {
 		if on != off {
 			t.Errorf("%s changed: the bundle differs from the one without the cache", c.name)
 		}
+	}
+}
+
+// i18nextReusePage renders requests the ways apps use i18next on a server, and counts the
+// translations i18next makes for each instance, which a call the cache answers does not make.
+// shared is one instance that changes its language for each request, as an app with one
+// instance does. base is cloned for each request, as i18next-http-middleware does, and kept
+// translates next to an instance made for each request, as the examples of react-i18next for
+// servers do. Each request takes a new t from getFixedT, as useTranslation does on a server.
+const i18nextReusePage = `import i18next from 'i18next'
+
+const resources = {
+  en: { translation: { title: 'Shop', greet: 'Hello {{name}}', count_one: '{{count}} item', count_other: '{{count}} items' } },
+  de: { translation: { title: 'Laden', greet: 'Hallo {{name}}', count_one: '{{count}} Ding', count_other: '{{count}} Dinge' } },
+}
+const make = (lng) => {
+  const i18n = i18next.createInstance()
+  i18n.init({ lng, resources, initAsync: false, interpolation: { escapeValue: false } })
+  return i18n
+}
+const shared = make('en')
+const base = make('en')
+const kept = make('de')
+
+const counts = new Map()
+const proto = Object.getPrototypeOf(shared.translator)
+const translate = proto.translate
+proto.translate = function (...args) {
+  counts.set(this, (counts.get(this) ?? 0) + 1)
+  return translate.apply(this, args)
+}
+
+const render = (t) => [t('title'), t('greet', { name: 'N' }), t('count', { count: 2 })]
+const requests = []
+const made = { shared: 0, base: 0, kept: 0 }
+for (let i = 0; i < 8; i++) {
+  const lng = i % 2 ? 'de' : 'en'
+  if (i === 4) for (const name in made) made[name] = counts.get(name === 'shared' ? shared.translator : name === 'base' ? base.translator : kept.translator) ?? 0
+  shared.changeLanguage(lng)
+  const clone = base.cloneInstance({ initAsync: false })
+  clone.changeLanguage(lng)
+  const fresh = make(lng)
+  requests.push([
+    render(shared.getFixedT(shared.language)),
+    render(shared.getFixedT(null)),
+    render(clone.getFixedT(clone.language)),
+    render(base.getFixedT(null)),
+    render(fresh.getFixedT(fresh.language)),
+    render(kept.getFixedT(kept.language)),
+  ])
+}
+const after = (i18n) => (counts.get(i18n.translator) ?? 0)
+globalThis.result = JSON.stringify({
+  requests,
+  later: { shared: after(shared) - made.shared, base: after(base) - made.base, kept: after(kept) - made.kept },
+})
+`
+
+// The cache keeps its translations across what apps do for each request: a shared instance
+// changing its language, cloneInstance, and an instance made for each request. The translations
+// stay those without the cache.
+func TestSSRI18nextCacheKeepsAcrossRequests(t *testing.T) {
+	type result struct {
+		Requests [][][]string
+		Later    map[string]int
+	}
+	run := func(settings string) result {
+		code, _ := i18nextApp(t, copyTestdata(t, "ssr", true), i18nextReusePage, settings)
+		var r result
+		if err := json.Unmarshal([]byte(evalWithIntl(t, code)), &r); err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	plain := run(`{ target: ["es2022"] }`)
+	cached := run(`{ target: ["es2022"], i18nextCache: true }`)
+	if string(mustJSON(t, cached.Requests)) != string(mustJSON(t, plain.Requests)) {
+		t.Errorf("translations differ:\n%s\nwant\n%s", mustJSON(t, cached.Requests), mustJSON(t, plain.Requests))
+	}
+	if plain.Requests[0][0][0] != "Shop" || plain.Requests[1][0][0] != "Laden" || plain.Requests[1][2][0] != "Laden" {
+		t.Errorf("the languages do not change: %s", mustJSON(t, plain.Requests[:2]))
+	}
+	for name, n := range plain.Later {
+		if n == 0 {
+			t.Errorf("%s: no translations counted without the cache", name)
+		}
+		if cached.Later[name] != 0 {
+			t.Errorf("%s translated %d times in the last four requests with the cache, want none", name, cached.Later[name])
+		}
+	}
+}
+
+// i18nextAppCodePage translates through code of the app that reads a variable, zone, which
+// changes between requests: formatters added with add and addCached, a post-processor, a
+// missingInterpolationHandler, a formatter module, and defaultVariables the app changes in the
+// options. Each translation must show the zone of its request. An i18nFormat module, as
+// i18next-icu is, gets new formats from addUserDefinedFormats, which replaces its formats object.
+const i18nextAppCodePage = `import i18next from 'i18next'
+
+let zone = 'A'
+const messages = {
+  en: {
+    translation: {
+      plain: 'At {{t, zoned}}',
+      cached: 'At {{t, zonedCached}}',
+      pp: 'Post',
+      user: 'Hi {{user}}',
+      missing: 'Hi {{nobody}}',
+    },
+  },
+}
+const init = (i18n, options = {}) => i18n.init({ lng: 'en', resources: messages, initAsync: false, interpolation: { escapeValue: false }, ...options })
+
+const app = i18next.createInstance()
+init(app, { interpolation: { escapeValue: false, defaultVariables: { user: 'A' } } })
+app.services.formatter.add('zoned', (value) => value + '@' + zone)
+app.services.formatter.addCached('zonedCached', () => (value) => value + '@' + zone)
+app.use({ type: 'postProcessor', name: 'zone', process: (value) => value + '@' + zone })
+
+const handler = i18next.createInstance()
+init(handler, { missingInterpolationHandler: () => zone })
+
+const module = i18next.createInstance()
+module.use({ type: 'formatter', init() {}, add() {}, addCached() {}, format: (value) => value + '@' + zone })
+init(module)
+
+const icu = {
+  type: 'i18nFormat',
+  formats: { zone: 'A' },
+  parse(res) { return res + '@' + this.formats.zone },
+  addUserDefinedFormats(formats) { this.formats = { ...this.formats, ...formats } },
+}
+const message = i18next.createInstance()
+message.use(icu)
+init(message)
+
+const runs = []
+for (const z of ['A', 'B', 'A', 'C', 'C', 'B']) {
+  zone = z
+  app.options.interpolation.defaultVariables.user = z
+  icu.addUserDefinedFormats({ zone: z })
+  const t = app.getFixedT('en')
+  runs.push([
+    t('plain', { t: 1 }),
+    t('cached', { t: 1 }),
+    t('pp', { postProcess: 'zone' }),
+    t('user'),
+    handler.getFixedT('en')('missing'),
+    module.getFixedT('en')('plain', { t: 1 }),
+    message.getFixedT('en')('pp'),
+  ])
+}
+globalThis.result = JSON.stringify(runs)
+`
+
+// The cache keeps no translation that ran code of the app, so code that reads something of the
+// request gives each request its own translation. Nor does it keep one across a change of
+// defaultVariables.
+func TestSSRI18nextCacheLeavesAppCodeUncached(t *testing.T) {
+	code, _ := i18nextApp(t, copyTestdata(t, "ssr", true), i18nextAppCodePage, `{ target: ["es2022"] }`)
+	plain := evalWithIntl(t, code)
+	code, _ = i18nextApp(t, copyTestdata(t, "ssr", true), i18nextAppCodePage, `{ target: ["es2022"], i18nextCache: true }`)
+	cached := evalWithIntl(t, code)
+	if cached != plain {
+		t.Errorf("translations differ:\n%s\nwant\n%s", cached, plain)
+	}
+	if !strings.Contains(plain, `["At 1@B","At 1@B","Post@B","Hi B","Hi B","At 1@B","Post@B"]`) {
+		t.Errorf("the zone does not reach the translations: %s", plain)
+	}
+}
+
+// i18nextMissPage translates one key with a new name on every call, as a page that writes the
+// name of each user does, then counts the translations i18next makes for calls that repeat.
+const i18nextMissPage = `import i18next from 'i18next'
+
+const i18n = i18next.createInstance()
+i18n.init({ lng: 'en', resources: { en: { translation: { greet: 'Hello {{name}}', title: 'Shop' } } }, initAsync: false })
+let translations = 0
+const translate = i18n.translator.translate
+i18n.translator.translate = function (...args) {
+  translations++
+  return translate.apply(this, args)
+}
+const counted = (f) => {
+  const before = translations
+  f()
+  return translations - before
+}
+const t = () => i18n.getFixedT('en')
+for (let i = 0; i < 3000; i++) t()('greet', { name: 'user ' + i })
+const off = counted(() => { for (let i = 0; i < 10; i++) t()('greet', { name: 'same' }) })
+const title = counted(() => { for (let i = 0; i < 10; i++) t()('title') })
+for (let i = 0; i < 300; i++) t()('greet', { name: 'same' })
+const back = counted(() => { for (let i = 0; i < 10; i++) t()('greet', { name: 'same' }) })
+globalThis.result = JSON.stringify({ off, title, back })
+`
+
+// A key whose calls keep missing stops being looked up and kept, so they cost about what they
+// cost without the cache, and other keys stay cached. Once its calls repeat, it is cached again.
+func TestSSRI18nextCacheStopsForKeysThatMiss(t *testing.T) {
+	code, _ := i18nextApp(t, copyTestdata(t, "ssr", true), i18nextMissPage, `{ target: ["es2022"], i18nextCache: true }`)
+	var r struct{ Off, Title, Back int }
+	if err := json.Unmarshal([]byte(evalWithIntl(t, code)), &r); err != nil {
+		t.Fatal(err)
+	}
+	if r.Off < 9 {
+		t.Errorf("after 3000 different names, %d of 10 calls with the same name translated, want at least 9", r.Off)
+	}
+	if r.Title > 1 {
+		t.Errorf("another key translated %d times in 10 calls", r.Title)
+	}
+	if r.Back != 0 {
+		t.Errorf("after 300 calls with the same name, %d of the next 10 translated, want none", r.Back)
 	}
 }
