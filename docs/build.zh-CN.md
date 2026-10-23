@@ -190,8 +190,25 @@ tifa 插件在 SSR 包里改造七个 npm 包。它按代码的结构或文字�
 - 应用打包了 `core-js` 时，插件把它的内部状态从 WeakMap 换成属性，因为 QuickJS 永远不回收值又指回键的 WeakMap 条目。core-js 某个版本没有了插件替换的那个模块时，构建打印警告，保留 WeakMap，每个 VM 的内存可能变大。
 - MUI 等组件库用 emotion 写样式，emotion 对它序列化的每段样式都算一次 `@emotion/hash` 的哈希。这个哈希逐个 UTF-16 码元循环，MUI 的样式又长，所以在 MUI 测试应用上这个循环占 QuickJS 里一次渲染约 29% 的时间。插件让 `@emotion/hash` 的 dist 文件里的 `murmur2` 先问 VM，tifa 在 Go 里算出同一个哈希。测试拿 2,011 个字符串（含孤立代理项和 BMP 之外的字符）对比两边的结果。参数不是字符串时，或者页面换掉了 murmur2 要调的 `String.prototype.charCodeAt` 或 `Number.prototype.toString` 时，murmur2 仍在 JavaScript 里算。MUI 测试应用的页面渲染时间少 28% 到 29%，HTML 不变。没用 emotion 的应用和以前一样快。`@emotion/hash` 某个版本改了 murmur2 时，构建打印警告，页面和以前一样快。
 - lucide-react 每次渲染都把每个图标重新构建一遍：拼接类名，把默认属性和 props 复制进一个新对象，再给图标的每条路径各建一个元素。在 shop 上这在 QuickJS 里占一次渲染的 5% 到 10%。插件让 lucide-react 的 `Icon` 在每个 VM 里记住它给 props 相同的图标构建出的结果（每个图标保留最近 16 种构建方式），并把图标路径的元素原样再交出去，React 不会改动这些元素。只有 `createLucideIcon` 创建的图标才会被记住（lucide-react 导出的每个图标都是它创建的），而且每个 prop 都得是字符串、数字、布尔值、`null` 或 `undefined`，比较方式和 `Object.is` 相同。带对象或函数 prop（比如 `style`、`onClick`）或者带 symbol 键的图标照旧构建。页面替换了 lucide-react 构建图标要用的内置函数（比如 `Array.prototype.map`、`String.prototype.split`）期间，所有图标也照旧构建。插件假定首次渲染之后没有代码改动图标的数据（`__iconData`）或 lucide-react 的默认属性。shop 的工作台页面渲染时间少 4.3%，店面页面少 5.8%，HTML 不变，渲染完页面后 shop 的一个 VM 多占 45 到 90 KB。插件按文字认得 lucide-react 1.42 到 1.61 的文件。某个版本改了缓存依赖的任一文件时，构建只打印一次警告，所有图标照旧构建。
-- i18next 每次翻译做的事比翻译本身需要的多。`getFixedT` 返回的函数（react-i18next 的 `useTranslation` 交出去的 `t` 就是它）每次调用都把 i18next 的全部选项复制进一个新对象，可是只有写成函数的键或键前缀（`t($ => $.a.b)`）才读这份副本。`looksLikeObjectPath` 每个键要调两次，用来分辨带命名空间的键和一句话，它每次都从分隔符重新拼出同一个正则的源码。插件改了 i18next 的 `dist/esm/i18next.js` 和 `dist/cjs/i18next.js` 里的这两处：`t` 到第一个需要选项的函数那里才复制，`looksLikeObjectPath` 记住最近一对分隔符的正则，同一对再来时直接用。翻译结果不变：测试比较改动前后的结果，页面替换了改动处要调用的内置函数时也比较，这种情况下那段代码照旧执行。只有 i18next 的选项或某次调用的选项是 getter 时页面才看得出区别，这个 getter 会晚一点执行或者不执行，而这些对象都是 i18next 自己用普通值建的。shop 的店面页面渲染时间少 5.2%，HTML 不变。插件认得 i18next 23 到 26.5 的写法。某个版本改了这两个函数之一时，构建打印警告，那个函数保持原样。
+- i18next 每次翻译做的事比翻译本身需要的多。`getFixedT` 返回的函数（react-i18next 的 `useTranslation` 交出去的 `t` 就是它）每次调用都把 i18next 的全部选项复制进一个新对象，可是只有写成函数的键或键前缀（`t($ => $.a.b)`）才读这份副本。`looksLikeObjectPath` 每个键要调两次，用来分辨带命名空间的键和一句话，它每次都从分隔符重新拼出同一个正则的源码。插件改了 i18next 的 `dist/esm/i18next.js` 和 `dist/cjs/i18next.js` 里的这两处：`t` 到第一个需要选项的函数那里才复制，`looksLikeObjectPath` 记住最近一对分隔符的正则，同一对再来时直接用。翻译结果不变：测试比较改动前后的结果，页面替换了改动处要调用的内置函数时也比较，这种情况下那段代码照旧执行。只有 i18next 的选项或某次调用的选项是 getter 时页面才看得出区别，这个 getter 会晚一点执行或者不执行，而这些对象都是 i18next 自己用普通值建的。shop 的店面页面渲染时间少 5.2%，HTML 不变。插件认得 i18next 23 到 26.5 的写法。某个版本改了这两个函数之一时，构建打印警告，那个函数保持原样。设置 `build.i18next_cache` 还能缓存翻译结果，见 [i18next 缓存](#i18next-缓存)。
 - 压缩器会把 `if (a) b` 写成语句 `a && b`，`a || b` 和 `a ? b : c` 也写成语句，`true` 写成 `!0`。QuickJS 把这样的语句编成“复制一份值、每条路径上再丢掉”，把 `!0` 编成一次压栈加一次取反，而 `if` 语句和 `true` 只要一次跳转或一次压栈。压缩器跑完之后，插件把 SSR 包里的这类语句改成 `if` 语句，用逗号连起来的几条语句拆开，`!0` 和 `!1` 写成 `true` 和 `false`。操作数的求值顺序、注释和行号都不变，所以求值结果不会不同，`ssr.js.map` 也跟着挪位置，错误栈里的位置仍是源码里的位置。脚本顶层的语句、带括号的语句、分支以 `{`、`function`、`class`、`async` 或 `let` 开头的语句和 `??` 保持原样。浏览器包不改。MUI 测试应用的页面渲染时间少 1.1%，商店少约 0.6%，引擎执行的指令少 2.5% 到 3.7%，HTML 不变。改完的包解析不过时，构建报错退出。
+
+### i18next 缓存
+
+i18next 做一次翻译在 QuickJS 里要几十微秒，shop 的店面页面每次渲染约翻译 126 次，而且多半是同样的文案配同样的值。在项目文件里写上 `build.i18next_cache: true`，tifa 插件就在 SSR 包里给 i18next 加一个缓存。`getFixedT` 返回的 `t`（react-i18next 的 `useTranslation` 交出去的就是它）记住自己给出的每个字符串，之后用同样的键和选项再调用时直接拿回这个字符串，不再翻译一遍。每个 VM 有自己的缓存。这个设置默认关闭，关闭时 SSR 包一个字节都不变。
+
+查缓存用的是 i18next 实例、`t` 的语言、命名空间和键前缀、键，以及这次调用的选项。只有键和选项都是字符串、数字、布尔值、`null`、`undefined` 或字符串数组，并且选项是普通对象的调用才会被记住。其余的照旧翻译：键或选项是函数或对象（比如 `replace`），结果不是字符串（`returnObjects`、`returnDetails`），以及翻译过程中 i18next 打了日志或发了事件的调用。所以缺失的键每次都会传到 `missingKeyHandler`、`missingKey` 的监听者和日志。实例自己的 `t`（`i18n.t`）不缓存。
+
+应用通过 i18next 的 API 改动任何东西时，缓存都会清空：`addResource`、`addResources`、`addResourceBundle`、`removeResourceBundle`、`changeLanguage`、`init`、`loadNamespaces`、`loadLanguages`、`reloadResources`、`setDefaultNamespace`、`use`、`cloneInstance`，用 `services.formatter.add` 或 `addCached` 加格式化函数，以及 i18next 除 `missingKey` 之外的每个事件，比如 backend 加载完资源时的 `loaded`。每个 VM 里缓存最多存约 1 MB，键和字符串的每个字符按两字节算，每条再加 80 字节。下一个字符串放不下时，缓存清空重来。
+
+缓存要成立，应用得守两条规则：
+
+- 资源和选项只通过 i18next 的 API 改。第一次渲染之后，不改交给 `init` 的资源对象（i18next 留着它并从里面读），不改 `getResourceBundle` 和 `getDataByLanguage` 返回的对象，也不改 `i18n.options`。
+- 格式化函数、后处理器，以及交给 i18next 的其他函数（比如 `overloadTranslationOptionHandler`），同样的输入总是给出同样的结果。调用选项里的 getter 也一样：缓存读一次，i18next 再读一次。写当前时间的格式化函数，或者读应用会改的变量的格式化函数，都违反这条规则。
+
+违反任何一条，就会拿到过期的翻译：页面可能一直显示改动之前的文字，直到缓存因为别的原因清空。每个请求都新建实例的应用（比如用 `cloneInstance`）得不到好处，因为缓存条目属于某个实例，而 `cloneInstance` 会清空缓存。
+
+shop 在自己的 `tifa.yaml` 里打开了这个设置。它的十个店面页面渲染时间是原来的 0.741（0.736 到 0.759），各页面在 0.633 到 0.978 之间，HTML 不变。这些数字是同样十个页面反复渲染测出来的，所以第一次渲染之后几乎每次调用都能找到字符串。找不到的调用在 Apple M4 上多花约 5 µs，约占一次翻译的 15%，所以每个请求选项都不同的页面得益更少，甚至更慢。渲染完店面页面后，一个 VM 的缓存存着 481 个字符串，按上面的算法约 100 KB，VM 比不开缓存时多占 95 KB。插件认识 i18next 25.5 到 26.5 的代码。换成别的版本，或者某个版本改了缓存依赖的代码，构建会打印警告，SSR 包和不开这个设置时一样。
 
 ### 浏览器里的路由模块
 

@@ -21,6 +21,7 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 
 ### Added
 
+- `build.i18next_cache: true` in the project file makes the server render keep the strings i18next translates and give them again for the same key and options. It is off by default. The example shop turns it on, and its storefront pages take 0.741 of the time to render, with the same HTML. The cache counts on the app changing i18next's resources and options only through i18next's API, and on formatters and post-processors that give the same result for the same input. An app that breaks this may show stale translations. For an i18next whose code the plugin does not know, the build prints a warning and the bundle is the one without the setting ([build.md](docs/build.md#i18next-cache)).
 - The SSR pool replaces VMs whose live memory after collection has grown too far from their warmup baseline. It loads one spare at a time while the render queue is empty and exchanges it only with an idle VM, keeping render capacity during loading. Failed loads keep the old VM and retry with backoff. Allow memory for one extra VM during replacement, see [Memory](docs/performance.md#memory).
 
 - `tifa.WithRenderClock(ctx, now)` gives one server render a fixed or controlled clock shared by Date, Temporal.Now and Intl. The clock is cleared before VM reuse, and also applies to replacement VMs. Production keeps the live clock by default. Module initialization still runs during prewarming.
