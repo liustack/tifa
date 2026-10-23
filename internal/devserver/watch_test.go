@@ -58,19 +58,48 @@ func runWatcher(t *testing.T, w *watcher) {
 	})
 }
 
-// nextBatch waits for the next non-empty batch.
+// nextBatch waits for the next non-empty batch, taken as the dev loop takes it (see loop): once
+// the files went quiet for DefaultDebounce. What only passes through, such as a file between the
+// truncate and the write of an in-place save, or a link before it is renamed into place, is not
+// a change, as it is not one in tifa dev.
 func nextBatch(t *testing.T, c *changes) []change {
 	t.Helper()
-	timeout := time.After(5 * time.Second)
+	deadline := time.Now().Add(5 * time.Second)
 	for {
-		select {
-		case <-c.ready:
-			if batch := c.take(); len(batch) > 0 {
-				return batch
-			}
-		case <-timeout:
+		batch, wait := c.due(time.Now(), DefaultDebounce, maxBatchWaits*DefaultDebounce)
+		if len(batch) > 0 {
+			return batch
+		}
+		left := time.Until(deadline)
+		if left <= 0 {
 			t.Fatal("no change reported within 5s")
 		}
+		if wait == 0 || wait > left {
+			wait = left
+		}
+		select {
+		case <-c.ready:
+		case <-time.After(wait):
+		}
+	}
+}
+
+// A file written in place is empty for a moment between the truncate and the write, and the
+// watcher may hash it then. nextBatch waits for the file to go quiet, as the dev loop does, so
+// the two hashes make one change, as they do in tifa dev.
+func TestNextBatchWaitsForAWriteToSettle(t *testing.T) {
+	c := newChanges()
+	c.add("a.ts", "s1", "empty") // hashed right after the truncate
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		c.add("a.ts", "empty", "s2") // and again after the write
+	}()
+	if got := nextBatch(t, c); !slices.Equal(got, []change{{"a.ts", modified}}) {
+		t.Fatalf("got %v, want one modified a.ts", got)
+	}
+	time.Sleep(2 * DefaultDebounce)
+	if got := c.take(); len(got) != 0 {
+		t.Fatalf("the write was reported again: %v", got)
 	}
 }
 
