@@ -37,6 +37,7 @@
 
 ### 性能
 
+- lucide-react 的图标渲染更快：每个 VM 记住 lucide-react 给 props 相同的图标构建出的结果，再次用到时直接交出去。shop 的工作台页面渲染时间少 4.3%，店面页面少 5.8%，HTML 不变。lucide-react 某个版本改了缓存依赖的文件时，构建打印警告，图标照旧渲染（[build.zh-CN.md](docs/build.zh-CN.md#前端产物)）。
 - SSR 池里的 VM 借助 slowjs 的 `SharedBytecode` 共用一份 bundle 函数源码和给错误栈提供行号的表，所以示例商店的每个 VM 加载后少占 2.35 MiB（9.0 MB，原来 11.5 MB），MUI 测试应用的每个 VM 少占 1.22 MiB。`toString`、错误栈和 HTML 都不变。这份共用的副本不算进 `ssr.vm_memory`。渲染时间不变。
 - SSR 包执行的字节码指令更少：压缩之后，`tifa build` 和 `tifa dev` 把 SSR 包里的语句 `a && b;`、`a || b;` 和 `a ? b : c;` 写成 `if` 语句，`!0` 和 `!1` 写成 `true` 和 `false`，浏览器包不动。MUI 测试应用的页面渲染时间为原来的 0.989（6 轮全部更快），商店工作台页面为 0.994，在各轮的离散度以内，HTML 和错误栈里的位置都不变。
 - quickjs v0.27.2 渲染商店工作台页面和 MUI 测试应用页面的耗时和 v0.27.1 一样，开不开 PGO 都在 1% 以内（不开 PGO 时为 1.006 和 0.991，开 PGO 时为 0.993 和 0.996），HTML 不变。GC 之后，VM 从分配器占的内存最多少 0.6 MiB。
