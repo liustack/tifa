@@ -214,6 +214,62 @@ function tifaKeepIcon(built, kids) {
 }
 export { tifaLucideIcons };
 `
+// i18next translates with code that copies and searches more than a translation needs, which takes
+// long in QuickJS. The tifa plugin changes two of its functions in dist/esm/i18next.js and
+// dist/cjs/i18next.js, see i18nextFaster, and leaves the rest. i18nextFixedT is the end of the
+// function getFixedT returns, which copies all options of i18next into selectorOpts on every call,
+// though only a key or key prefix that is a function reads them. i18nextObjectPath is RegExpCache
+// and the start of looksLikeObjectPath, which builds the source of the same regexp from the
+// separators on every call.
+const i18nextModule = /[/\\]i18next[/\\]dist[/\\](?:esm|cjs)[/\\]i18next\.js$/
+const i18nextFixedT = `      const selectorOpts = {
+        ...this.options,
+        ...o
+      };
+      if (Array.isArray(scopeNs) && !explicitCallNs) selectorOpts.ns = scopeNs;
+      if (typeof o.keyPrefix === 'function') o.keyPrefix = keysFromSelector(o.keyPrefix, selectorOpts);
+      const keySeparator = this.options.keySeparator || '.';
+      let resultKey;
+      if (o.keyPrefix && Array.isArray(key)) {
+        resultKey = key.map(k => {
+          if (typeof k === 'function') k = keysFromSelector(k, selectorOpts);
+          return \`\${o.keyPrefix}\${keySeparator}\${k}\`;
+        });
+      } else {
+        if (typeof key === 'function') key = keysFromSelector(key, selectorOpts);
+        resultKey = o.keyPrefix ? \`\${o.keyPrefix}\${keySeparator}\${key}\` : key;
+      }
+      return this.t(resultKey, o);
+`
+const i18nextObjectPath = `class RegExpCache {
+  constructor(capacity) {
+    this.capacity = capacity;
+    this.regExpMap = new Map();
+    this.regExpQueue = [];
+  }
+  getRegExp(pattern) {
+    const regExpFromCache = this.regExpMap.get(pattern);
+    if (regExpFromCache !== undefined) {
+      return regExpFromCache;
+    }
+    const regExpNew = new RegExp(pattern);
+    if (this.regExpQueue.length === this.capacity) {
+      this.regExpMap.delete(this.regExpQueue.shift());
+    }
+    this.regExpMap.set(pattern, regExpNew);
+    this.regExpQueue.push(pattern);
+    return regExpNew;
+  }
+}
+const chars = [' ', ',', '?', '!', ';'];
+const looksLikeObjectPathRegExpCache = new RegExpCache(20);
+const looksLikeObjectPath = (key, nsSeparator, keySeparator) => {
+  nsSeparator = nsSeparator || '';
+  keySeparator = keySeparator || '';
+  const possibleChars = chars.filter(c => !nsSeparator.includes(c) && !keySeparator.includes(c));
+  if (possibleChars.length === 0) return true;
+  const r = looksLikeObjectPathRegExpCache.getRegExp(\`(\${possibleChars.map(c => c === '?' ? '\\\\?' : c).join('|')})\`);
+`
 // The error handler of renderToString, which ignores the errors of the render.
 const ignoredErrors = 'function onError() {}'
 // React's HTML escape in its string renderer, with the regular expression that finds the first
@@ -684,6 +740,23 @@ export function ssrPlugin(getRoot, loadVite) {
         if (!lucide.get(dir)) return null
         return lucideCache(lucideFile[1], fs.readFileSync(id, 'utf8'))
       }
+      if (i18nextModule.test(id)) {
+        const i18next = `i18next ${packageVersion(path.resolve(id, '..', '..', '..'))}: ${id}`
+        const { source, unknown } = i18nextFaster(fs.readFileSync(id, 'utf8'))
+        if (unknown.includes('fixedT')) {
+          this.warn(
+            `${i18next} has no fixedT the tifa plugin knows, so the functions getFixedT returns copy all ` +
+              'options on every call. Pages render the same, but translations take longer',
+          )
+        }
+        if (unknown.includes('looksLikeObjectPath')) {
+          this.warn(
+            `${i18next} has no looksLikeObjectPath the tifa plugin knows, so it builds its regexp on every ` +
+              'call. Pages render the same, but translations take longer',
+          )
+        }
+        return unknown.length === 2 ? null : source
+      }
       if (emotionHash.test(id)) {
         const source = fs.readFileSync(id, 'utf8')
         if (source.split(murmur2Source).length !== 2) {
@@ -1050,6 +1123,76 @@ function lucideCache(file, source) {
           '        ...(tifaHit !== void 0 ? tifaHit.kids : tifaKeepIcon(tifaBuilt, builtIconNode.map(([tag, attrs]) => createElement(tag, attrs)))),\n',
       ) + lucideCacheSource
   )
+}
+
+// i18nextFaster returns the source of dist/esm/i18next.js or dist/cjs/i18next.js of i18next with
+// the changes below, and the names of the functions it does not find in a form it knows and
+// leaves as they are. Each line stays where it was. It knows the forms of i18next 23 to 26.5.
+// i18next before 25.9 has no selectorOpts, which fixedT then does not need to leave out.
+//
+// fixedT, the function getFixedT returns, copies the options into selectorOpts only when a key or
+// a key prefix that is a function asks for them, at the first place one does. Up to that place it
+// reads only o.keyPrefix and this.options.keySeparator and calls no code of the page, so the copy
+// holds what the copy at the old place held. i18next 26.3 and later also call Array.isArray for
+// the copy, so fixedT copies at the old place while a page has replaced Array.isArray, or before
+// the end of the file has set tifaIsArray. A page can only tell when an option of i18next or of a
+// call is a getter, which then runs later or not at all, and i18next makes both objects itself,
+// with plain values.
+//
+// looksLikeObjectPath keeps the regexp RegExpCache gave it for the last two separators, when both
+// are strings, and takes it again for the same two: the chars, and so the pattern, are the same.
+// RegExpCache only drops a pattern when it is asked for another, and that call keeps the new one or
+// forgets the kept one, so the cache would still give the kept regexp, which is not global and
+// keeps no state between tests. While a page has replaced a built-in that making the pattern calls
+// (filter, map and join of arrays, includes or indexOf of strings, get of maps), it makes the
+// pattern as before.
+function i18nextFaster(source) {
+  const unknown = []
+  const scoped = '      if (Array.isArray(scopeNs) && !explicitCallNs) selectorOpts.ns = scopeNs;\n'
+  const prefixed = "      if (typeof o.keyPrefix === 'function') o.keyPrefix = keysFromSelector(o.keyPrefix, selectorOpts);\n"
+  const unscoped = i18nextFixedT.replace(scoped, '')
+  const fixedT = [i18nextFixedT, unscoped, unscoped.replace(prefixed, '')].find((known) => source.split(known).length === 2)
+  if (fixedT) {
+    const scopes = fixedT.includes(scoped)
+    const lines = fixedT.split('\n')
+    lines[0] = '      let tifaSelectorOpts; const selectorOpts = () => {'
+    lines[1] =
+      '        if (tifaSelectorOpts === undefined) { tifaSelectorOpts = { ...this.options, ...o };' +
+      (scopes ? ' if (Array.isArray(scopeNs) && !explicitCallNs) tifaSelectorOpts.ns = scopeNs;' : '') +
+      ' }'
+    lines[2] = '        return tifaSelectorOpts;'
+    lines[3] = scopes ? '      }; if (Array.isArray !== tifaIsArray) selectorOpts();' : '      };'
+    if (scopes) lines[4] = ''
+    for (let i = 4; i < lines.length; i++) lines[i] = lines[i].replace(', selectorOpts)', ', selectorOpts())')
+    source = source.replace(fixedT, () => lines.join('\n'))
+    if (scopes) source += '\nvar tifaIsArray = Array.isArray;\n'
+  } else if (source.includes('selectorOpts')) {
+    unknown.push('fixedT')
+  }
+  const filters = {
+    includes: 'chars.filter(c => !nsSeparator.includes(c) && !keySeparator.includes(c))',
+    indexOf: 'chars.filter(c => nsSeparator.indexOf(c) < 0 && keySeparator.indexOf(c) < 0)',
+  }
+  const find = Object.keys(filters).find(
+    (name) => source.split(i18nextObjectPath.replace(filters.includes, filters[name])).length === 2,
+  )
+  if (find) {
+    const known = i18nextObjectPath.replace(filters.includes, filters[find])
+    const lines = known.split('\n')
+    const at = lines.indexOf("const chars = [' ', ',', '?', '!', ';'];")
+    lines[at] +=
+      ` const tifaArray = Array.prototype, tifaString = String.prototype, tifaFilter = tifaArray.filter, tifaMap = tifaArray.map, tifaJoin = tifaArray.join, tifaFind = tifaString.${find}, tifaMapGet = Map.prototype.get; let tifaPathNs, tifaPathKs, tifaPathRegExp;`
+    lines[at + 5] =
+      `  const tifaKept = tifaPathRegExp !== undefined && nsSeparator === tifaPathNs && keySeparator === tifaPathKs && tifaArray.filter === tifaFilter && tifaArray.map === tifaMap && tifaArray.join === tifaJoin && tifaString.${find} === tifaFind && Map.prototype.get === tifaMapGet;` +
+      ` const possibleChars = tifaKept ? chars : ${filters[find]};`
+    lines[at + 7] =
+      '  const r = tifaKept ? tifaPathRegExp : looksLikeObjectPathRegExpCache.getRegExp(`(${possibleChars.map(c => c === \'?\' ? \'\\\\?\' : c).join(\'|\')})`);' +
+      " if (!tifaKept) { const kept = typeof nsSeparator === 'string' && typeof keySeparator === 'string'; tifaPathNs = nsSeparator; tifaPathKs = keySeparator; tifaPathRegExp = kept ? r : undefined; }"
+    source = source.replace(known, () => lines.join('\n'))
+  } else {
+    unknown.push('looksLikeObjectPath')
+  }
+  return { source, unknown }
 }
 
 // chainEscapes returns the source of React's string renderer with escapeTextForBrowser escaping
