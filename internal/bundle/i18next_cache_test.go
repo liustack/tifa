@@ -541,3 +541,49 @@ func TestSSRI18nextCacheStopsForKeysThatMiss(t *testing.T) {
 		t.Errorf("after 300 calls with the same name, %d of the next 10 translated, want none", r.Back)
 	}
 }
+
+// i18nextFormatsPage formats a value that differs on every call with a formatter added with
+// addCached, whose formatters i18next keeps for each set of options, as many times as grow is
+// told.
+const i18nextFormatsPage = `import i18next from 'i18next'
+
+const i18n = i18next.createInstance()
+i18n.init({ lng: 'en', resources: { en: { translation: { paid: 'Paid {{amount, money}}' } } }, initAsync: false })
+i18n.services.formatter.addCached('money', (lng, options) => (value) => '$' + value)
+let n = 0
+globalThis.grow = (count) => {
+  for (let i = 0; i < count; i++, n++) i18n.getFixedT('en')('paid', { amount: n, order: 'order ' + n })
+}
+`
+
+// The cache counts the calls of a formatter of the app without adding to each formatter i18next
+// keeps, so a VM grows about as much with the cache as without it.
+func TestSSRI18nextCacheAddsNothingToTheFormattersOfI18next(t *testing.T) {
+	grown := func(settings string) int64 {
+		code, _ := i18nextApp(t, copyTestdata(t, "ssr", true), i18nextFormatsPage, settings)
+		bytecode, err := ssr.Compile(code, 256<<20, 5*time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer bytecode.Close()
+		vm, err := ssr.Load(bytecode, 256<<20, 0, time.Minute, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+		if _, err := vm.Eval("grow(100)", slowjs.EvalGlobal); err != nil {
+			t.Fatal(err)
+		}
+		vm.RunGC()
+		before := vm.MemorySize()
+		if _, err := vm.Eval("grow(5000)", slowjs.EvalGlobal); err != nil {
+			t.Fatal(err)
+		}
+		vm.RunGC()
+		return int64(vm.MemorySize()) - int64(before)
+	}
+	plain, cached := grown(`{ target: ["es2022"] }`), grown(`{ target: ["es2022"], i18nextCache: true }`)
+	if cached-plain > 100<<10 {
+		t.Errorf("5000 formats grew the VM by %d bytes with the cache and %d without", cached, plain)
+	}
+}

@@ -373,12 +373,26 @@ function tifaI18nWrap(object, names, clears) {
     };
   }
 }
-function tifaI18nCounted(f) { return typeof f === 'function' ? function (...args) { tifaI18nEffects++; return f.apply(this, args); } : f; }
 tifaI18nWrap(ResourceStore.prototype, ['addNamespaces', 'removeNamespaces', 'addResource', 'addResources', 'addResourceBundle', 'removeResourceBundle'], () => true);
 tifaI18nWrap(Formatter.prototype, ['init', 'add', 'addCached'], (formatter) => tifaI18nFormatters.has(formatter));
-var tifaI18nAdd = Formatter.prototype.add, tifaI18nAddCached = Formatter.prototype.addCached;
-Formatter.prototype.add = function (name, fc) { return tifaI18nAdd.call(this, name, tifaI18nCounted(fc)); };
-Formatter.prototype.addCached = function (name, fc) { return tifaI18nAddCached.call(this, name, (...args) => tifaI18nCounted(fc(...args))); };
+var tifaI18nOwn = new WeakSet();
+function tifaI18nCount(formatter) {
+  const formats = formatter.formats;
+  if (typeof formats !== 'object' || formats === null) return;
+  for (const name in formats) {
+    const f = formats[name];
+    if (typeof f !== 'function' || tifaI18nOwn.has(f)) continue;
+    const counted = function (...args) { tifaI18nEffects++; return f.apply(this, args); };
+    tifaI18nOwn.add(counted);
+    formats[name] = counted;
+  }
+}
+var tifaI18nFormatterInit = Formatter.prototype.init, tifaI18nAdd = Formatter.prototype.add, tifaI18nAddCached = Formatter.prototype.addCached;
+Formatter.prototype.init = function (...args) {
+  try { return tifaI18nFormatterInit.apply(this, args); } finally { const formats = this.formats; if (typeof formats === 'object' && formats !== null) for (const name in formats) if (typeof formats[name] === 'function') tifaI18nOwn.add(formats[name]); }
+};
+Formatter.prototype.add = function (...args) { try { return tifaI18nAdd.apply(this, args); } finally { tifaI18nCount(this); } };
+Formatter.prototype.addCached = function (...args) { try { return tifaI18nAddCached.apply(this, args); } finally { tifaI18nCount(this); } };
 tifaI18nWrap(postProcessor, ['addPostProcessor'], () => true);
 var tifaI18nHandle = postProcessor.handle;
 postProcessor.handle = function (...args) { tifaI18nEffects++; return tifaI18nHandle.apply(this, args); };
