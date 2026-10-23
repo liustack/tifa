@@ -121,9 +121,10 @@ var (
 const maxRetryDelay = 30 * time.Second
 
 // NewPool compiles the bundle source once and prewarms cfg.VMs VMs from the bytecode.
-// It fails if the bundle does not compile or its top level code fails in any VM. sourceMap is
-// the source map of the bundle (ssr.js.map), nil without one: the errors of the bundle's code
-// give the places of their stack traces in the sources with it, in the bundle without it.
+// It fails if the bundle does not compile as an ES module, which is strict mode code, or its top
+// level code fails in any VM. sourceMap is the source map of the bundle (ssr.js.map), nil without
+// one: the errors of the bundle's code, a compile error included, give the places of their stack
+// traces in the sources with it, in the bundle without it.
 // dev, set under tifa dev, logs each place where the bundle calls Intl or a toLocale* method
 // without a locale or, for a date, a timeZone, see warnIntl.
 func NewPool(source string, sourceMap []byte, cfg config.SSR, dev bool) (*Pool, error) {
@@ -156,7 +157,7 @@ func NewPool(source string, sourceMap []byte, cfg config.SSR, dev bool) (*Pool, 
 	}
 	var err error
 	if p.bytecode, err = Compile(source, p.memory, p.timeout); err != nil {
-		return nil, fmt.Errorf("ssr: compile bundle: %w", err)
+		return nil, fmt.Errorf("ssr: compile bundle: %w", p.sources.explain(err, true))
 	}
 	for range cfg.VMs {
 		vm, err := loadVM(p)

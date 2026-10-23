@@ -271,3 +271,15 @@ func TestErrorsReadAMapWhoseVersionIsThreeInAnotherForm(t *testing.T) {
 		}
 	}
 }
+
+// The bundle is an ES module, so its code runs in strict mode. A dependency written for sloppy
+// mode, with a with statement here, fails to compile, and the error names its place in the
+// sources.
+func TestCompileErrorsGiveThePlaceInTheSources(t *testing.T) {
+	bundle := "globalThis.startRender = function () {}\nfunction f(o) {\n  with (o) { return x }\n}\n"
+	_, err := NewPool(bundle, sourceMapOf(mapping{2, 2, "node_modules/old/index.js", 7, 4}), testConfig(1), false)
+	if err == nil || !strings.Contains(err.Error(), "ssr: compile bundle: SyntaxError: invalid keyword: with") ||
+		!strings.Contains(err.Error(), "at node_modules/old/index.js:8:5") {
+		t.Errorf("err = %v, want the syntax error at its place in the sources", err)
+	}
+}
