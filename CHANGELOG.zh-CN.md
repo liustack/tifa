@@ -6,6 +6,7 @@
 
 ### 变更
 
+- 服务端渲染改用 slowjs v0.28.3。带 v 标志的正则接受规范允许、Node 也接受的写法，比如 `[\&\;]` 和 `/-/v`，以前会抛 SyntaxError。shiki 生成的正则都能编译，捕获组超过 254 个的除外。
 - 服务端渲染改用 slowjs v0.28.0，也就是 quickjs 引擎的新名字（`github.com/liustack/slowjs`，原来是 `github.com/liustack/quickjs`）。它就是 quickjs v0.27.3 的引擎换了名字，页面渲染出的 HTML 不变。slowjs 支持 amd64 和 arm64 上的 Linux 与 macOS，以及 amd64 上的 Windows，所以应用不能再为 FreeBSD、32 位平台或其他 CPU 构建。
 - 服务端渲染改用 quickjs v0.27.3。池子在渲染之间调用 `VM.RunYoungGC`。字符串查找（`includes`、`indexOf` 和 `lastIndexOf`）用 Go 的 `bytes` 包跳过不匹配的内容，查过的文本计入中断检查。
 - 服务端渲染改用 quickjs v0.27.2。页面在循环里编译正则或拼字符串时，渲染超时（`ssr.timeout`）现在几毫秒内就能把它停下，以前这样的循环会越过超时再跑好几秒：编译正则，以及解析源码或拼字符串的内置函数（`JSON.parse`、`JSON.stringify`、`join`、`repeat`、`replaceAll` 等）都计入引擎的中断检查。这类内置函数的单次长调用仍会跑完。渲染之间的 GC 一次就能释放键已不可达的 WeakMap 条目，值反过来指向键时也一样，以前这样的条目会一直留在复用的 VM 里。HTML 不变（见下面的性能）。
