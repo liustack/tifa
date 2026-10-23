@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -132,7 +133,8 @@ func waitReplacements(t *testing.T, p *Pool, n int) {
 func TestMemorySwapDoesNotLoadWhileRequestsWait(t *testing.T) {
 	p := newTestPool(t, leakSource, testConfig(1))
 	collecting, finishGC := make(chan struct{}), make(chan struct{})
-	p.collecting = func(*pooledVM) { close(collecting); <-finishGC }
+	var first sync.Once
+	p.collecting = func(*pooledVM) { first.Do(func() { close(collecting); <-finishGC }) }
 	entered, release := make(chan struct{}), make(chan struct{})
 	var hold atomic.Bool
 	p.acquired = func() {

@@ -16,6 +16,9 @@ const (
 	holdJS   = "globalThis.held = []; for (let i = 0; i < 10000; i++) held.push({ index: i }); undefined"
 )
 
+// The objects of the oldcycles render of testdata/app.js, which only a full GC frees.
+const oldCyclesJS = "globalThis.oldCycle = []; oldCycle.self = oldCycle; for (let i = 0; i < 10000; i++) oldCycle.push({ index: i }); undefined"
+
 // objectSize returns the bytes each of the 10000 objects js makes takes, measured on a VM of the
 // test bundle that does not collect, so that the tests size renders by the live size of the VM
 // on any platform.
@@ -47,10 +50,10 @@ func idleVM(p *Pool, look func(vm *pooledVM)) {
 	look(vm)
 }
 
-// Each garbage render leaves cycles that only a GC frees. The pool collects them between renders,
-// so no render collects, after each GC the VM holds about what it held after Load, and the
-// threshold for the next render is twice that.
-func TestPoolCollectsBetweenRenders(t *testing.T) {
+// Each garbage render leaves cycles that only a GC frees. The pool runs a young GC after each render,
+// which frees them, so no render collects, the VM holds about what it held after Load, and the
+// threshold for the next render is twice that. A full GC runs only every fullGCEvery renders.
+func TestPoolRunsAYoungGCAfterEachRender(t *testing.T) {
 	p := newTestPool(t, testSource(t), testConfig(1))
 	var loaded uintptr
 	idleVM(p, func(vm *pooledVM) { loaded = vm.MemorySize() })
@@ -75,11 +78,57 @@ func TestPoolCollectsBetweenRenders(t *testing.T) {
 		})
 	}
 	s := p.stats()
-	if s.idleGCs < 10 {
-		t.Fatalf("%d GCs between 300 renders of garbage", s.idleGCs)
+	if want := 300 / fullGCEvery; s.idleGCs != want || s.youngGCs != 300-want {
+		t.Fatalf("%d young and %d full GCs between 300 renders of garbage, want %d and %d", s.youngGCs, s.idleGCs, 300-want, want)
 	}
 	if s.renderGCs != 0 {
 		t.Fatalf("%d renders ran a GC", s.renderGCs)
+	}
+}
+
+// Objects a render lets go of after a young GC made them old stay until a full GC. The pool runs
+// one when a young GC leaves 1.5 times the live size of the last full GC, so the VM never stays
+// over that, and no render collects.
+func TestFullGCWhenOldGarbageGrows(t *testing.T) {
+	p := newTestPool(t, testSource(t), testConfig(1))
+	var live uintptr
+	idleVM(p, func(vm *pooledVM) { live = vm.live })
+	// Each render leaves about 0.3 times the live size that only a full GC frees.
+	count := fmt.Sprint(live * 3 / 10 / objectSize(t, oldCyclesJS))
+	for i := range 20 {
+		if _, err := p.Render(context.Background(), input("oldcycles", count)); err != nil {
+			t.Fatal(err)
+		}
+		idleVM(p, func(vm *pooledVM) {
+			if size := vm.MemorySize(); size >= vm.live+vm.live/2 {
+				t.Fatalf("render %d: an idle VM holds %d bytes, 1.5 times the live size %d or more", i, size, vm.live)
+			}
+		})
+	}
+	s := p.stats()
+	if s.renderGCs != 0 || s.youngGCs+s.idleGCs != 20 || s.idleGCs < 5 || s.idleGCs > 10 {
+		t.Fatalf("want a young or full GC after each of 20 renders, a full one every two or three, none during renders: %+v", s)
+	}
+}
+
+// Old garbage that stays under 1.5 times the live size, such as the objects of a WeakMap whose
+// key went old, still goes at a full GC every fullGCEvery renders.
+func TestFullGCEveryNRenders(t *testing.T) {
+	p := newTestPool(t, testSource(t), testConfig(1))
+	for i := range fullGCEvery {
+		if _, err := p.Render(context.Background(), input("ok", "")); err != nil {
+			t.Fatal(err)
+		}
+		idleVM(p, func(*pooledVM) {})
+		s := p.stats()
+		if want := 0; i == fullGCEvery-1 {
+			want = 1
+			if s.idleGCs != want || s.youngGCs != fullGCEvery-1 {
+				t.Fatalf("after %d renders: %+v, want one full GC", i+1, s)
+			}
+		} else if s.idleGCs != want || s.youngGCs != i+1 {
+			t.Fatalf("after %d renders: %+v, want only young GCs", i+1, s)
+		}
 	}
 }
 
@@ -128,14 +177,15 @@ func TestGCThresholdStaysUnderTheLimit(t *testing.T) {
 			}
 		})
 	}
-	if s := p.stats(); s.created != 1 || s.idleGCs == 0 {
-		t.Fatalf("want one VM and GCs between renders, got %+v", s)
+	if s := p.stats(); s.created != 1 || s.youngGCs+s.idleGCs != 100 {
+		t.Fatalf("want one VM and a GC after each render, got %+v", s)
 	}
 }
 
 // A render that makes more garbage than the threshold leaves room for collects during the render.
-// The engine then sets its own threshold, 1.5 times what its GC left, and the pool puts its own
-// back before the next render, also when the render left too little garbage for a GC after it.
+// The engine then sets its own threshold, 1.5 times what its GC left, which counts what the render
+// held. The pool runs a full GC after such a render, to know the live size again, and puts its own
+// threshold back before the next render.
 func TestGCThresholdIsResetAfterTheEnginesGC(t *testing.T) {
 	p := newTestPool(t, testSource(t), testConfig(1))
 	var live uintptr
@@ -146,14 +196,14 @@ func TestGCThresholdIsResetAfterTheEnginesGC(t *testing.T) {
 	if _, err := p.Render(context.Background(), input("cycles", count)); err != nil {
 		t.Fatal(err)
 	}
-	if s := p.stats(); s.renderGCs != 1 || s.idleGCs != 0 {
-		t.Fatalf("want one render that ran a GC and none after it, got %+v", s)
-	}
 	idleVM(p, func(vm *pooledVM) {
 		if got := vm.GCThreshold(); got != 2*vm.live {
 			t.Fatalf("GC threshold %d after the engine's GC, want twice the live size %d", got, vm.live)
 		}
 	})
+	if s := p.stats(); s.renderGCs != 1 || s.idleGCs != 1 || s.youngGCs != 0 {
+		t.Fatalf("want one render that ran a GC and a full GC after it, got %+v", s)
+	}
 }
 
 // A render that holds more than the live size until it ends makes the engine collect at twice the
@@ -252,27 +302,32 @@ func TestGCThresholdComesBackAfterABigRender(t *testing.T) {
 }
 
 // With a memory limit under twice the live size, the threshold is under 1.5 times the live size,
-// and a render of garbage makes the engine collect. A GC between renders then runs only on a VM
-// over the threshold, which the next render would collect at its start.
+// and a render of garbage makes the engine collect, so a full GC follows each. Old garbage, which
+// young GCs keep, is collected during renders or between them, before it fills the VM.
 func TestGCBetweenRendersUnderALowLimit(t *testing.T) {
 	var live uintptr
 	idleVM(newTestPool(t, testSource(t), testConfig(1)), func(vm *pooledVM) { live = vm.live })
 	cfg := testConfig(1)
 	cfg.VMMemory = int64(live * 19 / 10)
 	p := newTestPool(t, testSource(t), cfg)
-	p.collecting = func(vm *pooledVM) {
-		if size := vm.MemorySize(); size < vm.GCThreshold() {
-			t.Errorf("a GC between renders at %d bytes, under the threshold %d", size, vm.GCThreshold())
-		}
-	}
 	for i := range 100 {
 		if _, err := p.Render(context.Background(), input("garbage", "")); err != nil {
 			t.Fatalf("render %d: %v", i, err)
 		}
 		idleVM(p, func(*pooledVM) {})
 	}
-	if s := p.stats(); s.renderGCs == 0 || s.idleGCs == 0 {
-		t.Fatalf("want GCs during and between renders under a limit of 1.9 times the live size: %+v", s)
+	if s := p.stats(); s.renderGCs != 100 || s.idleGCs != 100 || s.youngGCs != 0 {
+		t.Fatalf("want a GC during and a full GC after each render of garbage: %+v", s)
+	}
+	count := fmt.Sprint(live / 10 / objectSize(t, oldCyclesJS))
+	for i := range 100 {
+		if _, err := p.Render(context.Background(), input("oldcycles", count)); err != nil {
+			t.Fatalf("render %d: %v", i, err)
+		}
+		idleVM(p, func(*pooledVM) {})
+	}
+	if s := p.stats(); s.created != 1 || s.renderGCs+s.idleGCs <= 200+100/fullGCEvery {
+		t.Fatalf("want old garbage collected in one VM: %+v", s)
 	}
 }
 
@@ -293,7 +348,7 @@ func TestGCPanicReplacesTheVM(t *testing.T) {
 		// Wait for the GC, if any, and the replacement.
 		idleVM(p, func(*pooledVM) {})
 	}
-	if s := p.stats(); s.created != 2 || s.closed != 1 || s.idleGCs != 0 {
+	if s := p.stats(); s.created != 2 || s.closed != 1 || s.youngGCs != 0 || s.idleGCs != 0 {
 		t.Fatalf("want the VM replaced, got %+v", s)
 	}
 	if msg := <-logs; !strings.Contains(msg, "GC between renders") || !strings.Contains(msg, "gc failed") {
@@ -309,15 +364,19 @@ func TestGCPanicReplacesTheVM(t *testing.T) {
 func TestNoGCBetweenRendersOnceClosing(t *testing.T) {
 	var live uintptr
 	idleVM(newTestPool(t, testSource(t), testConfig(1)), func(vm *pooledVM) { live = vm.live })
-	// About 0.75 times the live size: no GC during the render, one after it.
+	// About 0.75 times the live size: no GC during the render, a young one after it.
 	count := fmt.Sprint(live * 3 / 4 / objectSize(t, cyclesJS))
 	open := newTestPool(t, testSource(t), testConfig(1))
 	if _, err := open.Render(context.Background(), input("cycles", count)); err != nil {
 		t.Fatal(err)
 	}
-	idleVM(open, func(*pooledVM) {})
-	if s := open.stats(); s.renderGCs != 0 || s.idleGCs != 1 {
-		t.Fatalf("want the render to leave a GC between renders, got %+v", s)
+	idleVM(open, func(vm *pooledVM) {
+		if size := vm.MemorySize(); size >= vm.live+vm.live/8 {
+			t.Fatalf("a young GC left %d bytes of a live size of %d", size, vm.live)
+		}
+	})
+	if s := open.stats(); s.renderGCs != 0 || s.youngGCs != 1 || s.idleGCs != 0 {
+		t.Fatalf("want the render to leave a young GC between renders, got %+v", s)
 	}
 
 	p, err := NewPool(testSource(t), nil, testConfig(1), false)
@@ -336,7 +395,7 @@ func TestNoGCBetweenRendersOnceClosing(t *testing.T) {
 	if err := <-closed; err != nil {
 		t.Fatal(err)
 	}
-	if s := p.stats(); s.created != 1 || s.closed != 1 || s.idleGCs != 0 {
+	if s := p.stats(); s.created != 1 || s.closed != 1 || s.youngGCs != 0 || s.idleGCs != 0 {
 		t.Fatalf("want the VM closed without a GC, got %+v", s)
 	}
 }
