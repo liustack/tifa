@@ -10,7 +10,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/klauspost/compress v1.20.3 // indirect
-	github.com/liustack/slowjs v0.0.0-00010101000000-000000000000 // indirect
+	github.com/liustack/slowjs v0.28.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
@@ -34,6 +34,3 @@ replace github.com/liustack/tifa => ../..
 tool github.com/liustack/tifa/cmd/tifa
 
 ignore node_modules
-
-// Temporary: points at the local checkout until slowjs v0.28.0 is released.
-replace github.com/liustack/slowjs => /Users/leon/projects/quickjs
