@@ -102,7 +102,7 @@
  {
   "name": "block-function-free",
   "code": "module.exports = function(name) {\n{function require(x){return x} globalThis.seen=require(\"x\")} return require(name)\n}\n",
-  "runs": true
+  "runs": false
  },
  {
   "name": "catch-local",
@@ -508,12 +508,12 @@
  {
   "name": "assign-free-read",
   "code": "module.exports = function(name) {\nrequire = x=>\"safe:\"+x;return require(name)\n}\n",
-  "runs": true
+  "runs": false
  },
  {
   "name": "assign-only",
   "code": "module.exports = function(name) {\nrequire = x=>\"safe:\"+x;return \"safe\"\n}\n",
-  "runs": true
+  "runs": false
  },
  {
   "name": "assign-compound",
@@ -543,7 +543,7 @@
  {
   "name": "assign-destructure",
   "code": "module.exports = function(name) {\n({load:require}={load:x=>x}); return \"safe\"\n}\n",
-  "runs": true
+  "runs": false
  },
  {
   "name": "eval-free",
@@ -553,7 +553,7 @@
  {
   "name": "eval-bound",
   "code": "module.exports = function(name) {\neval(\"var require = x => 'safe:'+x\"); return require(name)\n}\n",
-  "runs": true
+  "runs": false
  },
  {
   "name": "eval-alias",
@@ -563,21 +563,6 @@
  {
   "name": "eval-shadow",
   "code": "module.exports = function(name) {\nconst require=x=>\"safe:\"+x;return eval(\"require(name)\")\n}\n",
-  "runs": true
- },
- {
-  "name": "with-local",
-  "code": "module.exports = function(name) {\nwith ({require:x=>\"safe:\"+x}) {return require(name)}\n}\n",
-  "runs": true
- },
- {
-  "name": "with-free",
-  "code": "module.exports = function(name) {\nwith ({}) {return require(name)}\n}\n",
-  "runs": false
- },
- {
-  "name": "with-shadow-free",
-  "code": "module.exports = function(name) {\nconst require=x=>\"safe\";with ({require:undefined}){return require(name)}\n}\n",
   "runs": true
  },
  {
@@ -638,12 +623,12 @@
  {
   "name": "for-in-assignment-free",
   "code": "module.exports=function(name){\nfor(require in {x:1}){}return \"safe\"\n}\n",
-  "runs": true
+  "runs": false
  },
  {
   "name": "for-of-assignment-free",
   "code": "module.exports=function(name){\nfor(require of [1]){}return \"safe\"\n}\n",
-  "runs": true
+  "runs": false
  },
  {
   "name": "guard-local-binding-other-scope",

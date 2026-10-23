@@ -17,7 +17,7 @@ import (
 // Compile, Load and RenderVM are the steps a Pool takes, exported so that measurements outside
 // the package can time and inspect each one. Code that serves pages uses a Pool.
 
-// Compile turns the bundle into bytecode once, in a throwaway VM.
+// Compile turns the bundle, an ES module, into bytecode once, in a throwaway VM.
 // Every VM of the pool, including replacements, loads this bytecode. The VMs share the source text
 // of its functions, which their toString returns, and the tables error stacks read their lines
 // from: these stay in the one copy of the bytecode, outside the memory of every VM and of
@@ -33,15 +33,35 @@ func Compile(source string, memory uintptr, timeout time.Duration) (bytecode *sl
 	if err := vm.SetEvalTimeout(timeout); err != nil {
 		return nil, err
 	}
-	code, err := vm.Compile(source, slowjs.EvalGlobal)
+	code, err := vm.Compile(source, slowjs.EvalModule)
 	if err != nil {
 		return nil, err
 	}
 	return slowjs.NewSharedBytecode(code)
 }
 
+// Check compiles the bundle as NewPool does, without running it, so that tifa build finds code
+// the server could not compile, such as code only sloppy mode allows in a CommonJS file. The
+// error gives the place in the sources by sourceMap, the source map of the bundle (nil without
+// one). The memory limit and timeout are those of the build, not of a VM of the server: they
+// only keep a broken compile from running away.
+func Check(source string, sourceMap []byte) error {
+	bytecode, err := Compile(source, checkMemory, checkTimeout)
+	if err != nil {
+		return fmt.Errorf("ssr: compile bundle: %w", (&sources{code: source, raw: sourceMap}).explain(err, true))
+	}
+	return bytecode.Close()
+}
+
+const (
+	checkMemory  = 1 << 30
+	checkTimeout = time.Minute
+)
+
 // Load creates a VM, gives it Intl and Temporal and runs the bundle's top level code, which
-// defines startRender. Go callbacks provide formatting, dates and secure random bytes.
+// defines startRender. A top-level await of the bundle finishes here: Load runs the jobs it
+// waits for, and fails when it still waits once none is left, since a VM has no timers and does
+// no I/O that could settle it. Go callbacks provide formatting, dates and secure random bytes.
 // Intl and Temporal use embedded zone data, and crypto reads the OS entropy source on demand.
 // There is no module loader or application network or file I/O.
 //

@@ -156,17 +156,17 @@ func TestRenderErrorsWithoutASourceMapGivePlacesInTheBundle(t *testing.T) {
 }
 
 func TestPrewarmErrorsNameTheNodeModuleTheBundleLoads(t *testing.T) {
-	// Rolldown passes the Node modules an IIFE imports as its arguments, and the tifa plugin
-	// writes them as a require that names the packages that import them.
-	bundle := "(function (fs) {\n  globalThis.startRender = function () {}\n})(require(`node:fs`,`esm-fs, other`))\n"
+	// The tifa plugin writes each import of a Node module as a require that names the packages
+	// that import it.
+	bundle := "globalThis.startRender = function () {}\n\nvar fs = require(`node:fs`,`esm-fs, other`);\n"
 	_, err := NewPool(bundle, sourceMapOf(mapping{1, 0, "node_modules/pkg/index.js", 0, 0}), testConfig(1), false)
 	if err == nil || !strings.Contains(err.Error(), `ssr: prewarm VM: ReferenceError: 'require' is not defined`) ||
-		!strings.Contains(err.Error(), `The bundle loads the Node module "node:fs", imported by esm-fs, other, at ssr.js:3:4`) ||
+		!strings.Contains(err.Error(), `The bundle loads the Node module "node:fs", imported by esm-fs, other, at ssr.js:3:10`) ||
 		!strings.Contains(err.Error(), advice) || !strings.Contains(err.Error(), loadAdvice) || strings.Contains(err.Error(), renderAdvice) {
 		t.Errorf("err = %v, want the Node module and its packages", err)
 	}
 
-	bundle = "(function () {\n  function load(name) { return require(name) }\n  load('fs')\n})()\n"
+	bundle = "\nfunction load(name) { return require(name) }\nload('fs')\n"
 	_, err = NewPool(bundle, sourceMapOf(mapping{1, 0, "node_modules/pkg/index.js", 2, 0}), testConfig(1), false)
 	if err == nil || !strings.Contains(err.Error(), "The package pkg calls require at node_modules/pkg/index.js:3:1") ||
 		!strings.Contains(err.Error(), loadAdvice) {
@@ -269,5 +269,31 @@ func TestErrorsReadAMapWhoseVersionIsThreeInAnotherForm(t *testing.T) {
 		if !strings.Contains(err.Error(), "The package pkg calls require at node_modules/pkg/index.js:1:1") {
 			t.Errorf("version %s: %s", version, err)
 		}
+	}
+}
+
+// The bundle is an ES module, so its code runs in strict mode. A dependency written for sloppy
+// mode, with a with statement here, fails to compile, and the error names its place in the
+// sources.
+func TestCompileErrorsGiveThePlaceInTheSources(t *testing.T) {
+	bundle := "globalThis.startRender = function () {}\nfunction f(o) {\n  with (o) { return x }\n}\n"
+	_, err := NewPool(bundle, sourceMapOf(mapping{2, 2, "node_modules/old/index.js", 7, 4}), testConfig(1), false)
+	if err == nil || !strings.Contains(err.Error(), "ssr: compile bundle: SyntaxError: invalid keyword: with") ||
+		!strings.Contains(err.Error(), "at node_modules/old/index.js:8:5") {
+		t.Errorf("err = %v, want the syntax error at its place in the sources", err)
+	}
+}
+
+// Check compiles the bundle as the pool does and gives a compile error with its place in the
+// sources. It does not run the bundle, so code that fails only as it runs passes.
+func TestCheckCompilesWithoutRunning(t *testing.T) {
+	bundle := "globalThis.startRender = function () {}\nfunction f(o) {\n  with (o) { return x }\n}\n"
+	err := Check(bundle, sourceMapOf(mapping{2, 2, "node_modules/old/index.js", 7, 4}))
+	if err == nil || !strings.Contains(err.Error(), "ssr: compile bundle: SyntaxError: invalid keyword: with") ||
+		!strings.Contains(err.Error(), "at node_modules/old/index.js:8:5") {
+		t.Errorf("err = %v, want the syntax error at its place in the sources", err)
+	}
+	if err := Check("require('node:fs')\nawait new Promise(() => {})\nthrow new Error('runs')\n", nil); err != nil {
+		t.Errorf("err = %v, want none for a bundle that fails only as it runs", err)
 	}
 }

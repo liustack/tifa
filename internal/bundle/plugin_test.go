@@ -279,34 +279,34 @@ func TestPluginGuardsSwitchesOnStrings(t *testing.T) {
 	}
 }
 
-// rolldownRuntime is how the SSR bundle starts at renderChunk: the IIFE and rolldown's helpers that
+// rolldownRuntime is how the SSR bundle, an ES module, starts at renderChunk: rolldown's helpers that
 // give an ES module the exports of a CommonJS module.
-const rolldownRuntime = "(function() {\n\n//#region \\0rolldown/runtime.js\n" +
-	"\tvar __create = Object.create;\n" +
-	"\tvar __defProp = Object.defineProperty;\n" +
-	"\tvar __getOwnPropDesc = Object.getOwnPropertyDescriptor;\n" +
-	"\tvar __getOwnPropNames = Object.getOwnPropertyNames;\n" +
-	"\tvar __getProtoOf = Object.getPrototypeOf;\n" +
-	"\tvar __hasOwnProp = Object.prototype.hasOwnProperty;\n" +
-	"\tvar __commonJSMin = (cb, mod) => () => (mod || (cb((mod = { exports: {} }).exports, mod, mod.exports), cb = null), mod.exports);\n" +
-	"\tvar __copyProps = (to, from, except, desc) => {\n" +
-	"\t\tif (from && typeof from === \"object\" || typeof from === \"function\") {\n" +
-	"\t\t\tfor (var keys = __getOwnPropNames(from), i = 0, n = keys.length, key; i < n; i++) {\n" +
-	"\t\t\t\tkey = keys[i];\n" +
-	"\t\t\t\tif (!__hasOwnProp.call(to, key) && key !== except) {\n" +
-	"\t\t\t\t\t__defProp(to, key, {\n" +
-	"\t\t\t\t\t\tget: ((k) => from[k]).bind(null, key),\n" +
-	"\t\t\t\t\t\tenumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable\n" +
-	"\t\t\t\t\t});\n" +
-	"\t\t\t\t}\n" +
+const rolldownRuntime = "//#region \\0rolldown/runtime.js\n" +
+	"var __create = Object.create;\n" +
+	"var __defProp = Object.defineProperty;\n" +
+	"var __getOwnPropDesc = Object.getOwnPropertyDescriptor;\n" +
+	"var __getOwnPropNames = Object.getOwnPropertyNames;\n" +
+	"var __getProtoOf = Object.getPrototypeOf;\n" +
+	"var __hasOwnProp = Object.prototype.hasOwnProperty;\n" +
+	"var __commonJSMin = (cb, mod) => () => (mod || (cb((mod = { exports: {} }).exports, mod, mod.exports), cb = null), mod.exports);\n" +
+	"var __copyProps = (to, from, except, desc) => {\n" +
+	"\tif (from && typeof from === \"object\" || typeof from === \"function\") {\n" +
+	"\t\tfor (var keys = __getOwnPropNames(from), i = 0, n = keys.length, key; i < n; i++) {\n" +
+	"\t\t\tkey = keys[i];\n" +
+	"\t\t\tif (!__hasOwnProp.call(to, key) && key !== except) {\n" +
+	"\t\t\t\t__defProp(to, key, {\n" +
+	"\t\t\t\t\tget: ((k) => from[k]).bind(null, key),\n" +
+	"\t\t\t\t\tenumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable\n" +
+	"\t\t\t\t});\n" +
 	"\t\t\t}\n" +
 	"\t\t}\n" +
-	"\t\treturn to;\n" +
-	"\t};\n" +
-	"\tvar __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(isNodeMode || !mod || !mod.__esModule || !__hasOwnProp.call(mod, \"default\") ? __defProp(target, \"default\", {\n" +
-	"\t\tvalue: mod,\n" +
-	"\t\tenumerable: true\n" +
-	"\t}) : target, mod));\n\n" +
+	"\t}\n" +
+	"\treturn to;\n" +
+	"};\n" +
+	"var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(isNodeMode || !mod || !mod.__esModule || !__hasOwnProp.call(mod, \"default\") ? __defProp(target, \"default\", {\n" +
+	"\tvalue: mod,\n" +
+	"\tenumerable: true\n" +
+	"}) : target, mod));\n\n" +
 	"//#endregion\n"
 
 // cjsExports is what CommonJS modules export in namespaceChunk: objects, functions and classes
@@ -333,7 +333,7 @@ func namespaceChunk(pkg string) string {
 	b.WriteString(rolldownRuntime)
 	for i, e := range cjsExports {
 		fmt.Fprintf(&b, "//#region ../node_modules/.pnpm/%[1]s@1.0.0/node_modules/%[1]s/m%[2]d.js\n"+
-			"\tvar require_m%[2]d = /* @__PURE__ */ __commonJSMin(((exports, module) => {\n\t\tmodule.exports = %[3]s;\n\t}));\n\n//#endregion\n", pkg, i, e)
+			"var require_m%[2]d = /* @__PURE__ */ __commonJSMin(((exports, module) => {\n\tmodule.exports = %[3]s;\n}));\n\n//#endregion\n", pkg, i, e)
 	}
 	b.WriteString("//#region app/page.tsx\n")
 	for i := range cjsExports {
@@ -343,7 +343,7 @@ func namespaceChunk(pkg string) string {
 	for i := range cjsExports {
 		fmt.Fprintf(&b, "[ns%[1]d, node%[1]d, require_m%[1]d()], ", i)
 	}
-	b.WriteString("];\n\n//#endregion\n})();\n")
+	b.WriteString("];\n\n//#endregion\n")
 	return b.String()
 }
 
@@ -447,10 +447,10 @@ func TestPluginWarnsWhenItCannotGiveReactNamespacesPlainValues(t *testing.T) {
 	chunk := namespaceChunk("react")
 	for name, c := range map[string]struct{ code, why string }{
 		"getter":     {strings.Replace(chunk, "get: ((k) => from[k]).bind(null, key)", "get: () => from[key]", 1), "writes __toESM"},
-		"no __toESM": {strings.Replace(chunk, "\tvar __toESM = (mod, isNodeMode, target) =>", "\tvar __toESM2 = (mod, isNodeMode, target) =>", 1), "writes __toESM"},
+		"no __toESM": {strings.Replace(chunk, "var __toESM = (mod, isNodeMode, target) =>", "var __toESM2 = (mod, isNodeMode, target) =>", 1), "writes __toESM"},
 		"call":       {strings.Replace(chunk, "var ns0 = /* @__PURE__ */ __toESM(require_m0());", "var ns0 = /* @__PURE__ */ __toESM(globalThis.x ? require_m0() : null);", 1), "calls __toESM"},
 		"region":     {strings.Replace(chunk, "//#region ../node_modules/.pnpm/react@1.0.0/node_modules/react/m0.js\n", "", 1), "require_m0"},
-		"name":       {strings.Replace(chunk, "})();\n", "var __tifaV = 1;\n})();\n", 1), "__tifaV"},
+		"name":       {chunk + "var __tifaV = 1;\n", "__tifaV"},
 	} {
 		got := plainOnNode(t, c.code, []string{"/app/node_modules/react/index.js", "/app/node_modules/.pnpm/react-dom@1.0.0/node_modules/react-dom/index.js"})
 		if got.Code != c.code {

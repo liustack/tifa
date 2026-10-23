@@ -1,6 +1,7 @@
 package bundle
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -60,6 +61,21 @@ func writeTree(t *testing.T, root string, files map[string]string) {
 	}
 }
 
+// evalModule runs code, a bundle, in vm as an ES module, as the server loads it: compiled in a VM
+// of its own, which a module needs, and run until its top-level await is done.
+func evalModule(vm *slowjs.VM, code string) error {
+	compiler, err := slowjs.NewVM()
+	if err != nil {
+		return err
+	}
+	bytecode, err := compiler.Compile(code, slowjs.EvalModule)
+	if err = errors.Join(err, compiler.Close()); err != nil {
+		return err
+	}
+	_, err = vm.EvalBytecode(bytecode)
+	return err
+}
+
 // evalResult runs a bundle in a fresh QuickJS VM, drains microtasks and returns
 // globalThis.result.
 func evalResult(t *testing.T, code string) string {
@@ -69,7 +85,7 @@ func evalResult(t *testing.T, code string) string {
 		t.Fatal(err)
 	}
 	defer vm.Close()
-	if _, err := vm.Eval(code, slowjs.EvalGlobal); err != nil {
+	if err := evalModule(vm, code); err != nil {
 		t.Fatalf("evaluate bundle: %v", err)
 	}
 	if _, err := vm.ExecutePendingJobs(); err != nil {

@@ -6,6 +6,8 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 
 ### Changed
 
+- Server rendering runs on slowjs v0.28.4, which frees the top-level function of a module once it has run, with the variables it kept.
+- The SSR bundle runs in strict mode, as the browser bundle does: it is now an ES module, which each VM evaluates as a module (see [Top-level await and strict mode](docs/app.md#top-level-await-and-strict-mode)). A package that only works outside strict mode now fails on the server too. `tifa build` compiles the SSR bundle as the server does, without running it, so syntax that only sloppy mode allows, such as a `with` statement in a CommonJS file, fails the build with the place in the source file rather than the start of the server. An assignment to a variable that was never declared throws a `ReferenceError` where it runs. Pages render the same HTML.
 - Server rendering runs on slowjs v0.28.3. Regexps with the v flag accept what the specification allows and Node accepts, such as `[\&\;]` and `/-/v`, where they threw a SyntaxError. The regexps shiki makes compile, apart from those with more than 254 capture groups.
 - Server rendering runs on slowjs v0.28.0, the new name of the quickjs engine (`github.com/liustack/slowjs`, it was `github.com/liustack/quickjs`). It is the engine of quickjs v0.27.3 under a new name, and pages render the same HTML. slowjs supports Linux and macOS on amd64 and arm64, and Windows on amd64, so an app can no longer be built for FreeBSD, 32-bit targets or other CPUs.
 - Server rendering runs on quickjs v0.27.3. The pool uses `VM.RunYoungGC` between renders. String searches (`includes`, `indexOf` and `lastIndexOf`) skip with Go's `bytes` package and count the searched text toward the interrupt check.
@@ -22,6 +24,7 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 
 ### Added
 
+- Packages and page code may use top-level `await` in the server render, as fumadocs-mdx does for its collections. A build with one used to fail. Each VM waits for it while it loads, before its first render. It must settle with promises alone, such as `await import()` of a module in the bundle: one that waits for a timer or a request never settles, and the VM fails to load.
 - `build.i18next_cache: true` in the project file makes the server render keep the strings i18next translates and give them again for the same key and options. It is off by default. The example shop turns it on, and its storefront pages take 0.741 of the time to render, with the same HTML. The cache counts on the app changing i18next's resources and options only through i18next's API, and on formatters and post-processors that give the same result for the same input. An app that breaks this may show stale translations. For an i18next whose code the plugin does not know, the build prints a warning and the bundle is the one without the setting ([build.md](docs/build.md#i18next-cache)).
 - The SSR pool replaces VMs whose live memory after collection has grown too far from their warmup baseline. It loads one spare at a time while the render queue is empty and exchanges it only with an idle VM, keeping render capacity during loading. Failed loads keep the old VM and retry with backoff. Allow memory for one extra VM during replacement, see [Memory](docs/performance.md#memory).
 
