@@ -322,6 +322,7 @@ func TestShopReuseKeepsRequestsApart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer bytecode.Close()
 	vm, err := ssr.Load(bytecode, uintptr(cfg.VMMemory), uintptr(cfg.VMStackDepth), cfg.Timeout, false)
 	if err != nil {
 		t.Fatal(err)

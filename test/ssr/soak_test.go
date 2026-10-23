@@ -181,6 +181,7 @@ func TestSoakVMMemory(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		t.Cleanup(func() { bytecode.Close() })
 		return func() (*slowjs.VM, error) { return ssr.Load(bytecode, memory, stack, cfg.Timeout, false) }
 	}
 	format := func(vm *slowjs.VM) {

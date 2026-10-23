@@ -42,7 +42,7 @@ var ErrClosed = errors.New("ssr: pool closed")
 // live size grows too far are replaced after loading a spare, without taking
 // capacity away from renders.
 type Pool struct {
-	bytecode    []byte
+	bytecode    *slowjs.SharedBytecode
 	sources     *sources
 	memory      uintptr
 	stack       uintptr // stack slots of each VM, see Load
@@ -338,6 +338,10 @@ func (p *Pool) Close() error {
 			case vm := <-p.idle:
 				p.closeVM(vm)
 			default:
+				// The bytecode stays for a VM loaded from it outside the pool until it is closed.
+				if p.bytecode != nil {
+					p.bytecode.Close()
+				}
 				return
 			}
 		}

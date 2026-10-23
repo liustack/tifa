@@ -43,9 +43,11 @@ func BenchmarkShop(b *testing.B) {
 
 	b.Run("compile", func(b *testing.B) {
 		for b.Loop() {
-			if _, err := ssr.Compile(source, memory, timeout); err != nil {
+			bytecode, err := ssr.Compile(source, memory, timeout)
+			if err != nil {
 				b.Fatal(err)
 			}
+			bytecode.Close()
 		}
 	})
 
@@ -53,6 +55,7 @@ func BenchmarkShop(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
+	defer bytecode.Close()
 	b.Run("load", func(b *testing.B) {
 		var size int64
 		for b.Loop() {
@@ -232,6 +235,7 @@ func TestShopVMMemory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer bytecode.Close()
 
 	bare, err := slowjs.NewVM()
 	if err != nil {
@@ -271,7 +275,7 @@ func TestShopVMMemory(t *testing.T) {
 	used := ssr.VMMemory(vm, false)
 	collected := ssr.VMMemory(vm, true)
 
-	t.Logf("bytecode of the bundle: %d bytes (source %d bytes)", len(bytecode), len(source))
+	t.Logf("bytecode of the bundle: %d bytes (source %d bytes)", bytecode.Len(), len(source))
 	columns := []struct {
 		name string
 		m    lib.TJSMemoryUsage

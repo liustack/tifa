@@ -46,6 +46,7 @@ Math.random = () => { throw new Error('Unexpected insecure random fallback') }
 			if err != nil {
 				t.Fatal(err)
 			}
+			defer bytecode.Close()
 			vm, err := ssr.Load(bytecode, 128<<20, 0, 5*time.Second, false)
 			if err != nil {
 				t.Fatal(err)
