@@ -427,3 +427,27 @@ func TestBuildTargetReachesVite(t *testing.T) {
 		}
 	}
 }
+
+// build.i18next_cache turns on the i18next cache of the tifa plugin in .tifa/vite.js. Without it
+// vite.js does not name the setting.
+func TestBuildI18nextCacheReachesVite(t *testing.T) {
+	m := &analyze.Manifest{Module: "example.com/x", Routes: []analyze.Route{{ID: "app/page/route", Dir: "app/page", Path: "/page", Page: true, SSR: true}}}
+	for config, want := range map[string]string{
+		"":                                 `tifa({ target: ["es2020"] })`,
+		"build:\n  i18next_cache: false\n": `tifa({ target: ["es2020"] })`,
+		"build:\n  i18next_cache: true\n":  `tifa({ target: ["es2020"], i18nextCache: true })`,
+	} {
+		root := t.TempDir()
+		writeFile(t, filepath.Join(root, "app/page/route.tsx"), "export default function P() { return null }\n")
+		if config != "" {
+			writeFile(t, filepath.Join(root, "tifa.yaml"), config)
+		}
+		files, err := Generate(root, m, false, fakeExports)
+		if err != nil {
+			t.Fatalf("%q: %v", config, err)
+		}
+		if !strings.Contains(string(files["vite.js"]), want) {
+			t.Errorf("%q: vite.js lacks %s:\n%s", config, want, files["vite.js"])
+		}
+	}
+}

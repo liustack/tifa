@@ -570,7 +570,7 @@ func TestNewTifaYAMLListsEverySetting(t *testing.T) {
 	if c, err := config.Load(pflag.NewFlagSet("serve", pflag.ContinueOnError), nil, "tifa.yaml", data); err != nil || !reflect.DeepEqual(c, config.Default()) {
 		t.Fatalf("tifa.yaml as written: %+v, %v, want the defaults", c, err)
 	}
-	setting := regexp.MustCompile(`^# ( *)([a-z_]+):`)
+	setting := regexp.MustCompile(`^# ( *)([a-z0-9_]+):`)
 	var lines, keys []string
 	section := ""
 	for _, line := range strings.Split(string(data), "\n") {
