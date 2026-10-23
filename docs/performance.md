@@ -369,11 +369,14 @@ v0.27.2 as a whole, against v0.27.1 under the same tifa and the same SSR bundles
 | Let seroval ask its plugins about arrays too, so a `Load` that returns an array also goes into the page as that JSON text | 39% less on a table of 1,000 rows of two UUIDs each (34.8 ms against 56.9). The six shop pages, whose data are objects, stay within 0.4%, with the same HTML |
 | Write each character above U+FFFF in that JSON text as the escapes of its surrogate pair | One emoji in the data of the shop's order list made its render 9% slower (36.6 ms against 33.7), and now it renders as fast as without the emoji. With the array change above and without this one, one emoji would make the table 2.3 times slower |
 | Hash the styles of emotion in Go rather than with the JavaScript loop of `@emotion/hash` | 28% to 29% less on the three pages of the MUI test app, with the same HTML. The shop, which has no emotion and the same bundle, stays within 1% |
+| Turn the minifier's `a && b;`, `a || b;` and `a ? b : c;` statements into `if` statements, and `!0` and `!1` into `true` and `false`, after the minifier has run | The pages of the MUI test app take 0.989 of the time (0.978 to 0.995, faster in 6 of 6 rounds). The shop takes 0.994 (0.975 to 1.026, faster in 4 of 6 rounds), which the spread of the rounds covers. 2.5% to 2.7% fewer bytecode instructions on the shop and 3.0% to 3.7% on the MUI pages, with the same HTML |
 | Compile the program with a profile of page renders (PGO) | About 2.4% less on linux/amd64, with quickjs v0.26.15 and a profile of it, and 7% less on darwin/arm64 (Apple M4), with v0.26.13 |
 
 The array and the surrogate rows were measured on the machine above with one VM on cpu 0, the build before and after in turn, 3 to 4 rounds. The table is the table page of [eknkc/ssr-benchmark](https://github.com/eknkc/ssr-benchmark) with fixed rows.
 
 The emotion row was measured on the machine above without PGO, one VM pinned to one core, the build before and after in turn, over 3 layouts of the code and 6 rounds.
+
+The statement row was measured on the machine above without PGO, one VM pinned to one core, with the SSR bundle built by main and by the branch run by the same program, in turn, over 3 layouts of the code and 6 rounds. The shop is its six workbench pages (256 warm renders, 200 measured) and the MUI app its four pages (48 and 60). The ratios are those of the sums of the P50 of a round. The HTML of all ten pages is the same byte for byte. The fewer instructions are the bytecode instructions the interpreter runs in one warm render.
 
 The escape cache, the joined chunks and the `Set` checks together make the shop 11% to 14% faster, pages of plain text 17.5% to 22% and small pages 8% to 11%.
 

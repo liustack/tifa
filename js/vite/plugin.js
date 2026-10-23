@@ -717,6 +717,22 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
             `and miss some:\n${loads.join('\n')}`,
         )
       }
+      // The minifier ran before this hook, and would undo the rewrite if it ran after it. The file
+      // ssr.js.map is an asset the bundler made from the map of the chunk before this hook, so it
+      // is changed here to fit. A map inline in ssr.js is not used.
+      const parse = (code) => this.parse(code)
+      const asset = bundle[`${chunk.fileName}.map`]
+      const map = asset && JSON.parse(typeof asset.source === 'string' ? asset.source : Buffer.from(asset.source).toString())
+      const rewritten = rewriteStatements(chunk.code, parse, map?.mappings)
+      if (rewritten.count > 0) {
+        // The rewrite must give code that parses: the build fails here, not in the server.
+        parse(rewritten.code)
+        chunk.code = rewritten.code
+        if (map) {
+          map.mappings = rewritten.mappings
+          asset.source = JSON.stringify(map)
+        }
+      }
     },
   }
   return [plugin, serovalPlugin()]
@@ -1272,6 +1288,228 @@ async function hostLoads(chunk, vite, parse) {
     return `${source.source}:${source.line + 1}:${source.column + 1}${name ? ` (${name})` : ''}: ${what}`
   })
   return [...new Set(places)]
+}
+
+// rewriteStatements changes the code of the SSR bundle after the minifier, which writes
+// statements that QuickJS compiles badly:
+//
+//   - A statement that is a && b, a || b or a ? b : c compiles to a copy of the value and a drop
+//     on each path, which if (a) b does not need. Each becomes an if statement. Every branch
+//     is in braces, so what a branch starts with cannot turn into a block or a declaration. A
+//     statement of comma separated expressions with one of these is split into statements.
+//   - !0 and !1 compile to a number and a negation, true and false to one push.
+//
+// Nothing else changes: the operands stay as they were, in the order they were evaluated, with
+// their comments and lines. The value of a statement is dropped everywhere but at the top level
+// of a script, which this leaves alone, so no completion value changes. parse gives the syntax
+// tree of a source. mappings is the mappings string of the source map of code. It gives the new
+// code, the mappings string that fits it (undefined without mappings) and the number of changes.
+export function rewriteStatements(code, parse, mappings) {
+  const edits = []
+  const visit = (node, parent, key) => {
+    if (node.type === 'UnaryExpression') {
+      if (node.operator === '!' && /^![01]$/.test(code.slice(node.start, node.end))) {
+        // return!0 is return true: a word in front needs a space.
+        if (identifierChar(code.charCodeAt(node.start - 1))) edits.push({ start: node.start, end: node.start, text: ' ' })
+        edits.push({ start: node.start, end: node.end, text: code[node.start + 1] === '0' ? 'true' : 'false' })
+      }
+    } else if (node.type === 'ExpressionStatement' && !node.directive && parent.type !== 'Program') {
+      statementEdits(code, node, Array.isArray(parent[key]), edits)
+    }
+  }
+  visitNodes(parse(code), visit)
+  if (edits.length === 0) return { code, mappings, count: 0 }
+  // At one place, an insertion goes before a replacement, and insertions go in the order they were
+  // made.
+  const order = new Map(edits.map((edit, i) => [edit, i]))
+  edits.sort((a, b) => a.start - b.start || a.end - b.end || order.get(a) - order.get(b))
+  let out = ''
+  let at = 0
+  for (const edit of edits) {
+    if (edit.start < at) throw new Error(`rewriting the SSR bundle: two changes overlap at ${edit.start}`)
+    out += code.slice(at, edit.start) + edit.text
+    at = edit.end
+  }
+  out += code.slice(at)
+  return { code: out, mappings: mappings && shiftMappings(mappings, code, edits), count: edits.length }
+}
+
+// What a branch must not start with: after if (a) { it would be a block, a declaration or a
+// function declaration, not an expression.
+const startsStatement = /\{|function\b|class\b|async\b|let\b/y
+
+// statementEdits adds to edits what changes the expression statement stmt. inList tells whether
+// its parent holds a list of statements, so that the statement can become several. Otherwise it
+// is the body of an if, a loop or a label, and a block keeps it one statement.
+function statementEdits(code, stmt, inList, edits) {
+  const expr = stmt.expression
+  // A statement in parentheses is none of the forms below, and starts one character before them.
+  if (expr.start !== stmt.start) return
+  const end = code[stmt.end - 1] === ';' ? stmt.end - 1 : stmt.end
+  const own = []
+  if (expr.type === 'SequenceExpression') {
+    const parts = []
+    let from = stmt.start
+    let converted = false
+    for (const [i, part] of expr.expressions.entries()) {
+      const last = i === expr.expressions.length - 1
+      const comma = last ? -1 : operatorAfter(code, part.end, ',')
+      if (!last && comma < 0) return
+      const start = afterSpace(code, from)
+      // After a comma, a part that starts with a block or a function would be a statement.
+      if (i > 0 && startsAStatement(code, start)) return
+      // Parentheses in front of a part are no part of its node. The part is not a branch then.
+      const branch = start === part.start ? branchEdits(code, part, last ? end : comma) : null
+      if (branch) converted = true
+      parts.push({ branch, comma, last })
+      from = comma + 1
+    }
+    if (!converted) return
+    for (const { branch, comma, last } of parts) {
+      if (branch) own.push(...branch)
+      if (!last) own.push({ start: comma, end: comma + 1, text: branch ? '' : ';' })
+    }
+    if (parts.at(-1).branch && inList && end < stmt.end) own.push({ start: end, end: stmt.end, text: '' })
+  } else {
+    const branch = branchEdits(code, expr, end)
+    if (!branch) return
+    own.push(...branch)
+    if (inList && end < stmt.end) own.push({ start: end, end: stmt.end, text: '' })
+  }
+  if (inList) {
+    edits.push(...own)
+  } else {
+    edits.push({ start: stmt.start, end: stmt.start, text: '{' }, ...own, { start: stmt.end, end: stmt.end, text: '}' })
+  }
+}
+
+// branchEdits returns the changes that turn expression node into if statements, or null when it
+// is none of the forms or a branch of it could not follow the opening brace. node starts where a
+// statement or a branch starts, and its branches end at edge, where the closing brace goes.
+function branchEdits(code, node, edge) {
+  if (node.type === 'LogicalExpression' && (node.operator === '&&' || node.operator === '||')) {
+    const operator = operatorAfter(code, node.left.end, node.operator)
+    if (operator < 0) return null
+    const right = afterSpace(code, operator + 2)
+    if (startsAStatement(code, right)) return null
+    const and = node.operator === '&&'
+    const edits = [
+      { start: node.start, end: node.start, text: and ? 'if(' : 'if(!(' },
+      { start: operator, end: operator + 2, text: and ? '){' : ')){' },
+    ]
+    // a || b && c is a || (b && c), and its right side is a statement of its own.
+    if (right === node.right.start) edits.push(...(branchEdits(code, node.right, edge) ?? []))
+    edits.push({ start: edge, end: edge, text: '}' })
+    return edits
+  }
+  if (node.type === 'ConditionalExpression') {
+    const question = operatorAfter(code, node.test.end, '?')
+    const colon = question < 0 ? -1 : operatorAfter(code, node.consequent.end, ':')
+    if (colon < 0) return null
+    const consequent = afterSpace(code, question + 1)
+    const alternate = afterSpace(code, colon + 1)
+    if (startsAStatement(code, consequent) || startsAStatement(code, alternate)) return null
+    const edits = [
+      { start: node.start, end: node.start, text: 'if(' },
+      { start: question, end: question + 1, text: '){' },
+    ]
+    if (consequent === node.consequent.start) edits.push(...(branchEdits(code, node.consequent, colon) ?? []))
+    edits.push({ start: colon, end: colon + 1, text: '}else{' })
+    if (alternate === node.alternate.start) edits.push(...(branchEdits(code, node.alternate, edge) ?? []))
+    edits.push({ start: edge, end: edge, text: '}' })
+    return edits
+  }
+  return null
+}
+
+function startsAStatement(code, at) {
+  startsStatement.lastIndex = at
+  return startsStatement.test(code)
+}
+
+// operatorAfter returns where the operator op is, looking from i past white space, comments and
+// closing parentheses (those of an operand, which the node of the operand does not include), or
+// -1 when something else comes first.
+function operatorAfter(code, i, op) {
+  for (;;) {
+    i = afterSpace(code, i)
+    if (code[i] !== ')') break
+    i++
+  }
+  return code.startsWith(op, i) ? i : -1
+}
+
+// shiftMappings returns mappings, the mappings string of the source map of code, for the code
+// that edits make of it. The edits keep the lines. A segment at a place where an edit inserts
+// moves behind the new text, a segment inside what an edit replaces moves to the start of the new
+// text, and each later one moves by the change in length.
+function shiftMappings(mappings, code, edits) {
+  const lines = []
+  const starts = [0]
+  for (let i = code.indexOf('\n'); i >= 0; i = code.indexOf('\n', i + 1)) starts.push(i + 1)
+  for (const edit of edits) {
+    if (code.slice(edit.start, edit.end).includes('\n') || edit.text.includes('\n')) {
+      throw new Error('rewriting the SSR bundle: a change spans lines, which the source map cannot follow')
+    }
+    const line = lastAtOrBefore(starts, edit.start, (start) => start)
+    ;(lines[line] ??= []).push({ ...edit, start: edit.start - starts[line], end: edit.end - starts[line] })
+  }
+  return mappings
+    .split(';')
+    .map((text, line) => {
+      const changes = lines[line]
+      if (!changes || !text) return text
+      let next = 0 // the first change that ends after the segment
+      let moved = 0 // what the changes before it add to the length
+      let column = 0 // column of the segment before, in the old code
+      let newColumn = 0 // and in the new code
+      return text
+        .split(',')
+        .map((segment) => {
+          if (!segment) return segment
+          const [delta, length] = firstVLQ(segment)
+          column += delta
+          while (next < changes.length && changes[next].end <= column) {
+            moved += changes[next].text.length - (changes[next].end - changes[next].start)
+            next++
+          }
+          const inside = next < changes.length && changes[next].start <= column
+          const placed = (inside ? changes[next].start : column) + moved
+          const out = encodeVLQ(placed - newColumn) + segment.slice(length)
+          newColumn = placed
+          return out
+        })
+        .join(',')
+    })
+    .join(';')
+}
+
+// firstVLQ decodes the first Base64 VLQ number of a source map segment and returns it with the
+// number of characters it takes.
+function firstVLQ(segment) {
+  let value = 0
+  let shift = 0
+  let i = 0
+  for (;;) {
+    const digit = base64.indexOf(segment[i++])
+    value += (digit & 31) * 2 ** shift
+    if (!(digit & 32)) break
+    shift += 5
+  }
+  return [value % 2 ? -(value - 1) / 2 : value / 2, i]
+}
+
+// encodeVLQ is the Base64 VLQ of n.
+function encodeVLQ(n) {
+  let value = n < 0 ? -2 * n + 1 : 2 * n
+  let text = ''
+  do {
+    let digit = value % 32
+    value = Math.floor(value / 32)
+    if (value > 0) digit |= 32
+    text += base64[digit]
+  } while (value > 0)
+  return text
 }
 
 // The keywords after which a / starts a regular expression, not a division.
