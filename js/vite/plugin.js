@@ -1826,9 +1826,8 @@ async function hostLoads(chunk, vite, parse) {
 //   - !0 and !1 compile to a number and a negation, true and false to one push.
 //
 // Nothing else changes: the operands stay as they were, in the order they were evaluated, with
-// their comments and lines. The value of a statement is dropped everywhere but at the top level
-// of a script, which this leaves alone, so no completion value changes. parse gives the syntax
-// tree of a source. mappings is the mappings string of the source map of code. It gives the new
+// their comments and lines. The bundle is an ES module, which has no completion value, so the
+// value of every statement is dropped and none changes. parse gives the syntax tree of a source. mappings is the mappings string of the source map of code. It gives the new
 // code, the mappings string that fits it (undefined without mappings) and the number of changes.
 export function rewriteStatements(code, parse, mappings) {
   const edits = []
@@ -1839,7 +1838,7 @@ export function rewriteStatements(code, parse, mappings) {
         if (identifierChar(code.charCodeAt(node.start - 1))) edits.push({ start: node.start, end: node.start, text: ' ' })
         edits.push({ start: node.start, end: node.end, text: code[node.start + 1] === '0' ? 'true' : 'false' })
       }
-    } else if (node.type === 'ExpressionStatement' && !node.directive && parent.type !== 'Program') {
+    } else if (node.type === 'ExpressionStatement' && !node.directive) {
       statementEdits(code, node, Array.isArray(parent[key]), edits)
     }
   }
