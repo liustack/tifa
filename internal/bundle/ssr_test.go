@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liustack/quickjs"
+	"github.com/liustack/slowjs"
 
 	"github.com/liustack/tifa/internal/ssr"
 	"github.com/liustack/tifa/js"
@@ -272,12 +272,12 @@ func TestSSRCachesShortEscapesInLittleMemory(t *testing.T) {
 	writeTree(t, plain, map[string]string{"escapes.tsx": shortEscapesPage})
 	uncached, _ := buildPrinting(t, plain, "escapes.tsx")
 	memory := func(code string) int64 {
-		vm, err := quickjs.NewVM()
+		vm, err := slowjs.NewVM()
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer vm.Close()
-		if _, err := vm.Eval(code, quickjs.EvalGlobal); err != nil {
+		if _, err := vm.Eval(code, slowjs.EvalGlobal); err != nil {
 			t.Fatalf("evaluate bundle: %v", err)
 		}
 		return ssr.VMMemory(vm, true).Fmalloc_size

@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/liustack/quickjs"
+	"github.com/liustack/slowjs"
 	"github.com/liustack/tifa/internal/config"
 	"github.com/liustack/tifa/internal/core"
 )
@@ -72,7 +72,7 @@ type Pool struct {
 
 // pooledVM is a VM of the pool with what its GC threshold is made of (see gcThreshold).
 type pooledVM struct {
-	*quickjs.VM
+	*slowjs.VM
 	// live is the live size, what the VM held after its last full GC between renders, or after Load.
 	live uintptr
 	// young counts the renders since that GC.

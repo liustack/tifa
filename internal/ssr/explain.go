@@ -12,7 +12,7 @@ import (
 	"unicode/utf16"
 	"unicode/utf8"
 
-	"github.com/liustack/quickjs"
+	"github.com/liustack/slowjs"
 )
 
 // scriptError is an exception of the bundle's JavaScript that the bundle caught and reported in
@@ -87,7 +87,7 @@ type segment struct {
 func (s *sources) explain(err error, loading bool) error {
 	var head, stack string
 	var reported *scriptError
-	var js *quickjs.Error
+	var js *slowjs.Error
 	switch {
 	case errors.As(err, &reported):
 		head, stack, _ = strings.Cut(reported.text, "\n")

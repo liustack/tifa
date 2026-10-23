@@ -30,9 +30,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liustack/quickjs"
-	"github.com/liustack/quickjs/intl"
-	lib "github.com/liustack/quickjs/lib"
+	"github.com/liustack/slowjs"
+	"github.com/liustack/slowjs/intl"
+	lib "github.com/liustack/slowjs/lib"
 	"github.com/liustack/tifa/internal/ssr"
 )
 
@@ -233,14 +233,14 @@ func TestShopVMMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	bare, err := quickjs.NewVM()
+	bare, err := slowjs.NewVM()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer bare.Close()
 	builtins := ssr.VMMemory(bare, true)
 
-	withIntl, err := quickjs.NewVM()
+	withIntl, err := slowjs.NewVM()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func TestShopVMMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 	intlAdded := ssr.VMMemory(withIntl, true)
-	if _, err := withIntl.Eval(string(host), quickjs.EvalGlobal); err != nil {
+	if _, err := withIntl.Eval(string(host), slowjs.EvalGlobal); err != nil {
 		t.Fatal(err)
 	}
 	hosted := ssr.VMMemory(withIntl, true)

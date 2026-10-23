@@ -1,6 +1,6 @@
 // Web APIs for SSR. Only crypto obtains random bytes from the Go host.
 // Intl and the toLocale* methods are not here: internal/ssr registers them on every VM from
-// Go (github.com/liustack/quickjs/intl), in every CLDR locale, with en-US and UTC as the
+// Go (github.com/liustack/slowjs/intl), in every CLDR locale, with en-US and UTC as the
 // defaults. In the browser they are the browser's own.
 import { makeStructuredClone } from './structured-clone'
 import { crypto } from './crypto'

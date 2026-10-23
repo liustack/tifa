@@ -78,12 +78,12 @@ func TestNewApp(t *testing.T) {
 	if err := os.Symlink(modules, filepath.Join(dir, "node_modules")); err != nil {
 		t.Fatal(err)
 	}
-	// SQLite and the QuickJS of tifa both run on modernc.org/libc, and each is built for the exact
+	// SQLite and the slowjs of tifa both run on modernc.org/libc, and each is built for the exact
 	// libc version its go.mod requires. The app must build with that version for both.
 	libc := moduleVersion(t, dir, "modernc.org/libc")
-	for _, module := range []string{"modernc.org/sqlite", "github.com/liustack/quickjs"} {
+	for _, module := range []string{"modernc.org/sqlite", "github.com/liustack/slowjs"} {
 		if required := requires(t, dir, module, "modernc.org/libc"); required != libc {
-			t.Errorf("%s requires modernc.org/libc %s, the new app builds with %s: pin a modernc.org/sqlite in cmd/tifa/newapp/go.mod.tmpl built for the libc of the QuickJS of tifa", module, required, libc)
+			t.Errorf("%s requires modernc.org/libc %s, the new app builds with %s: pin a modernc.org/sqlite in cmd/tifa/newapp/go.mod.tmpl built for the libc of the slowjs of tifa", module, required, libc)
 		}
 	}
 	exe := buildAt(t, dir)

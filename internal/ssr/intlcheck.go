@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/liustack/quickjs"
+	"github.com/liustack/slowjs"
 )
 
 // intlWarning is a call intlcheck.js wrote down: what was called, whether it had no locale and
@@ -25,11 +25,11 @@ const intlAdvice = "The server formats in en-US and UTC, a browser in the langua
 
 // warnIntl logs the Intl calls vm wrote down since it was last asked, each place once for the
 // pool, with the places of its stack in the sources.
-func (p *Pool) warnIntl(vm *quickjs.VM) error {
+func (p *Pool) warnIntl(vm *slowjs.VM) error {
 	if err := vm.SetEvalTimeout(p.timeout); err != nil {
 		return err
 	}
-	value, err := vm.Eval("globalThis.__tifa_intl_warnings__()", quickjs.EvalGlobal)
+	value, err := vm.Eval("globalThis.__tifa_intl_warnings__()", slowjs.EvalGlobal)
 	if err != nil {
 		return err
 	}

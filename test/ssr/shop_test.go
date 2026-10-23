@@ -24,7 +24,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liustack/quickjs"
+	"github.com/liustack/slowjs"
 	"github.com/liustack/tifa/internal/config"
 	"github.com/liustack/tifa/internal/ssr"
 )
@@ -327,7 +327,7 @@ func TestShopReuseKeepsRequestsApart(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer vm.Close()
-	if _, err := vm.Eval("globalThis.reuseMark = 'the VM of this test'", quickjs.EvalGlobal); err != nil {
+	if _, err := vm.Eval("globalThis.reuseMark = 'the VM of this test'", slowjs.EvalGlobal); err != nil {
 		t.Fatal(err)
 	}
 	previous := ""
@@ -343,7 +343,7 @@ func TestShopReuseKeepsRequestsApart(t *testing.T) {
 		if previous != "" && strings.Contains(html, previous) {
 			t.Fatalf("request %d: previous customer leaked into HTML", i)
 		}
-		if mark, err := vm.Eval("globalThis.reuseMark", quickjs.EvalGlobal); err != nil || mark != "the VM of this test" {
+		if mark, err := vm.Eval("globalThis.reuseMark", slowjs.EvalGlobal); err != nil || mark != "the VM of this test" {
 			t.Fatalf("request %d: the mark is %v, %v", i, mark, err)
 		}
 		previous = name

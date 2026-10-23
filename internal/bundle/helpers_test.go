@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/liustack/quickjs"
+	"github.com/liustack/slowjs"
 )
 
 // testModules is the npm packages these tests use, Vite among them, installed from
@@ -64,18 +64,18 @@ func writeTree(t *testing.T, root string, files map[string]string) {
 // globalThis.result.
 func evalResult(t *testing.T, code string) string {
 	t.Helper()
-	vm, err := quickjs.NewVM()
+	vm, err := slowjs.NewVM()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer vm.Close()
-	if _, err := vm.Eval(code, quickjs.EvalGlobal); err != nil {
+	if _, err := vm.Eval(code, slowjs.EvalGlobal); err != nil {
 		t.Fatalf("evaluate bundle: %v", err)
 	}
 	if _, err := vm.ExecutePendingJobs(); err != nil {
 		t.Fatal(err)
 	}
-	value, err := vm.Eval("String(globalThis.result)", quickjs.EvalGlobal)
+	value, err := vm.Eval("String(globalThis.result)", slowjs.EvalGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}

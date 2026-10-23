@@ -3,7 +3,7 @@ package ssr
 import (
 	"strconv"
 
-	"github.com/liustack/quickjs"
+	"github.com/liustack/slowjs"
 )
 
 // The hash of @emotion/hash (MurmurHash2 of the low bytes of the UTF-16 code units of a string,
@@ -12,10 +12,10 @@ import (
 // The tifa plugin makes murmur2 ask __tifa_murmur2__ first, see js/vite/plugin.js.
 
 // murmur2Builtin hashes a string argument and returns undefined for anything else.
-var murmur2Builtin = quickjs.NewBuiltin("murmur2", 1, func(a quickjs.Args) (quickjs.Value, error) {
+var murmur2Builtin = slowjs.NewBuiltin("murmur2", 1, func(a slowjs.Args) (slowjs.Value, error) {
 	s, ok := a.WTF8(0)
 	if !ok {
-		return quickjs.Value{}, nil
+		return slowjs.Value{}, nil
 	}
 	return a.VM().NewString(murmur2(s))
 })
@@ -30,8 +30,8 @@ const murmur2Hook = `(hash) => {
   })
 }`
 
-func registerHash(vm *quickjs.VM) error {
-	define, err := vm.EvalValue(murmur2Hook, quickjs.EvalGlobal)
+func registerHash(vm *slowjs.VM) error {
+	define, err := vm.EvalValue(murmur2Hook, slowjs.EvalGlobal)
 	if err != nil {
 		return err
 	}
@@ -41,7 +41,7 @@ func registerHash(vm *quickjs.VM) error {
 		return err
 	}
 	defer b.Free()
-	r, err := define.CallValue(quickjs.UndefinedValue, b)
+	r, err := define.CallValue(slowjs.UndefinedValue, b)
 	if err != nil {
 		return err
 	}
