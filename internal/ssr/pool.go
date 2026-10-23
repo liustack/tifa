@@ -20,7 +20,8 @@ import (
 	"github.com/liustack/tifa/internal/core"
 )
 
-// Input is everything a render sees. The HTML depends on nothing else.
+// Input is the page data passed to JavaScript. Pool.Render takes the clock
+// separately from its context. Cacheable HTML must depend only on Input.
 type Input struct {
 	BuildID string          `json:"buildId"`
 	URL     string          `json:"url"`
@@ -213,6 +214,9 @@ func (p *Pool) Render(ctx context.Context, in Input) (string, error) {
 	if p.acquired != nil {
 		p.acquired()
 	}
+	vm.SetClock(core.RenderClock(ctx))
+	// Clear before release or retirement, including when a callback panics.
+	defer vm.SetClock(nil)
 	html, err := RenderVM(vm.VM, input, p.timeout)
 	var redirect *RedirectError
 	if err != nil && !errors.As(err, &redirect) {

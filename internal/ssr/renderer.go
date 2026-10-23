@@ -51,8 +51,9 @@ func Compile(source string, memory uintptr, timeout time.Duration) (bytecode *sl
 // Go code uses, is left alone. intl.Register only puts stand-ins on the VM: the first use of Intl or a
 // toLocale* method installs the rest, so a VM whose pages never format costs a few KB more.
 // dev runs intlcheck.js too, which installs Intl at once to watch it.
-// Temporal is lazy too. Its default clock is time.Now, the live system clock Date.now uses,
-// not a time frozen at VM creation or at the start of a render. Its default zone follows Intl.
+// Temporal is lazy too. Date, Temporal and Intl share the VM clock, live during
+// prewarming. Pool.Render may set a request clock after loading. Values already
+// captured by module initialization stay unchanged. The default zone follows Intl.
 //
 // stack is how deep calls may nest, in the engine's stack slots (ssr.vm_stack_depth). Deeper
 // calls throw RangeError: Maximum call stack size exceeded. The slots live on the goroutine

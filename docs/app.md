@@ -376,7 +376,7 @@ What this saved on the two charts of the example shop's stats page, with the two
 
 ## Intl in server rendering
 
-Pages can use `Intl` while they render on the server, in every locale Chromium has. All of it works as in Chromium:
+Pages can use `Intl` while they render on the server, in every locale Chromium has. `Intl.DateTimeFormat.format()` and `formatToParts()` without a date read the same render clock as Date and Temporal.Now, including a clock supplied with `tifa.WithRenderClock`. All of it works as in Chromium:
 
 - `Intl.NumberFormat`, `Intl.DateTimeFormat` with `formatRange`, `Intl.PluralRules`, `Intl.Collator`, `Intl.Segmenter`, `Intl.RelativeTimeFormat`, `Intl.ListFormat`, `Intl.DisplayNames`, `Intl.DurationFormat`, `Intl.Locale`, `Intl.supportedValuesOf`, `Intl.getCanonicalLocales` and the `supportedLocalesOf` of each constructor.
 - `toLocaleString`, `toLocaleDateString` and `toLocaleTimeString` of `Date`, `toLocaleString` of `Number` and `BigInt`, `localeCompare`, which sorts by the locale's rules, and `toLocaleUpperCase` and `toLocaleLowerCase`.
@@ -439,7 +439,7 @@ A VM carries only stand-ins for Intl, about 10 KB, until one of its renders uses
 
 Pages can use `Temporal.Now`, `Instant`, `ZonedDateTime`, `PlainDate`, `PlainTime`, `PlainDateTime`, `PlainYearMonth`, `PlainMonthDay`, `Duration` and `Date.prototype.toTemporalInstant`, including at module load. QuickJS provides the methods V8 ships, IANA time zones and the calendars supported by Intl. Temporal uses the same embedded tz 2026e data as Intl, without reading the machine's zoneinfo.
 
-`Temporal.Now` reads the live system clock, as `Date.now()` does. Time is not frozen at VM creation or during a render. `Temporal.Now.instant().epochMilliseconds` and `Date.now()` sample that clock separately, so they can differ if time passes between calls. `Temporal.Now.timeZoneId()` is `UTC`, the default zone of Intl, and the other Now methods use UTC when no zone is passed. The process's Go time zone stays unchanged.
+`Date.now()`, `new Date()`, `Date()`, `Temporal.Now` and Intl date formatting without a date share the VM clock. By default it stays live during a render. Go can supply a clock for one render with `tifa.WithRenderClock`, see [Render clock](#render-clock). `Temporal.Now.instant().epochMilliseconds` and `Date.now()` sample that clock separately, so they can differ if time passes between calls. `Temporal.Now.timeZoneId()` is `UTC`, the default zone of Intl, and the other Now methods use UTC when no zone is passed. The process's Go time zone stays unchanged.
 
 `toLocaleString` uses Intl. Pass an explicit locale. A plain date or time has no zone and ignores `timeZone`, an `Instant` uses the formatter's zone, and a `ZonedDateTime` uses its own zone. Use an explicit zone when constructing a zoned value or formatting an instant. ISO `PlainYearMonth` and `PlainMonthDay` need `calendar: 'iso8601'` when formatting.
 
@@ -541,6 +541,25 @@ This tests the function, not the HTTP answer. Check what the function returns: t
 - For `OnRequest`, `tifatest.SetNext(c, next)` sets what `c.Next()` calls: `next` runs once, as it is, and its error is what `c.Next()` returns. It stands in for the route, so it neither recovers a panic nor writes a result.
 - The body limit is the default `server.body_limit`, 1 MiB, unless `c.SetBodyLimit` changes it. The test removes the multipart files of the request when it ends.
 - `tifa build` reads no `_test.go` files, so tests may sit in any folder under `app/`.
+
+### Render clock
+
+Set the clock through the context in `OnRequest`, or give an `httptest` request the same context in a test:
+
+```go
+at := time.Date(2026, 10, 22, 12, 0, 0, 123456789, time.UTC)
+ctx := tifa.WithRenderClock(c.Context(), func() time.Time { return at })
+c.SetContext(ctx)
+return c.Next()
+```
+
+Date and Intl round down to milliseconds. Temporal keeps nanoseconds. The clock covers the whole render, including promises and queueMicrotask, and is cleared before VM reuse or replacement. Pass nil to restore the live clock. The callback must not block and must be safe for concurrent calls when renders share it. It does not change Go's time.Now, timeouts or the browser clock.
+
+Production keeps the live clock. Freezing the start time makes repeated reads identical and avoids repeated sampling, but changes elapsed-time behavior and does not make a whole render deterministic if it also uses randomness or external data. tifa preserves its existing live behavior. Tests and apps can supply a fixed value without a configuration setting.
+
+Module top-level code runs during VM prewarming, before a request, on the live clock. Time values captured there are not recomputed. A Date.now function, Temporal.Now method or Intl formatter saved at module load reads the current render's clock when called during that render.
+
+The clock is not a cache key. A cache hit skips rendering, and requests with the same key may share a render. Return displayed times from `Load` so SSR, caching and browser hydration use the same data. `tifatest.NewCtx` preserves the request context but does not run SSR itself. Use `tifatest.SetNext` to test middleware passing this context, and server requests to check full HTML.
 
 ## How Load may use Ctx
 
