@@ -52,10 +52,30 @@ type tsRoute struct {
 
 func (n *tsNode) exported(name string) bool { return slices.Contains(n.exports, name) }
 
+// viteSettings is what .tifa/vite.js passes to the tifa plugin: build.target as Vite's target
+// and build.i18next_cache.
+type viteSettings struct {
+	target       []string
+	i18nextCache bool
+}
+
+// js returns the settings as the object literal vite.js passes. It names i18nextCache only when
+// it is on, so vite.js stays as it was without the setting.
+func (s viteSettings) js() (string, error) {
+	target, err := json.Marshal(s.target)
+	if err != nil {
+		return "", err
+	}
+	if s.i18nextCache {
+		return "{ target: " + string(target) + ", i18nextCache: true }", nil
+	}
+	return "{ target: " + string(target) + " }", nil
+}
+
 // generateTS writes the route tree, a +route or +layout module for every page and Layout of the tree, the two entries,
 // the tsconfig and the runtime.
 // An application without pages has no TypeScript and gets none.
-func generateTS(root string, m *analyze.Manifest, dev bool, exportsOf Exports, target []string) (map[string][]byte, error) {
+func generateTS(root string, m *analyze.Manifest, dev bool, exportsOf Exports, vite viteSettings) (map[string][]byte, error) {
 	if !slices.ContainsFunc(m.Routes, func(r analyze.Route) bool { return r.Page }) {
 		return nil, nil
 	}
@@ -105,7 +125,7 @@ import { htmlAttributes, routeTree } from "./routes"
 	files["client.ts"] = []byte(client + "\nhydrate(routeTree, htmlAttributes)\n")
 	files["tsconfig.json"] = []byte(tsconfig)
 	files["vite/plugin.js"] = []byte(js.VitePlugin)
-	targetJSON, err := json.Marshal(target)
+	settingsJS, err := vite.js()
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +133,7 @@ import { htmlAttributes, routeTree } from "./routes"
 
 // The Vite plugins of tifa, for the plugins of vite.config.ts.
 export default function () {
-  return tifa({ target: ` + string(targetJSON) + ` })
+  return tifa(` + settingsJS + `)
 }
 `)
 	files["vite.d.ts"] = []byte(tsHeader + `import type { PluginOption } from "vite"

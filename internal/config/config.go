@@ -42,6 +42,9 @@ type Build struct {
 	// DebugInfo keeps the DWARF debug info in the program tifa build makes, for debuggers such
 	// as Delve. Without it the program is built with -ldflags=-w.
 	DebugInfo bool
+	// I18nextCache makes the tifa Vite plugin add a cache of translations to i18next in the SSR
+	// bundle, see docs/build.md.
+	I18nextCache bool
 }
 
 type Server struct {
@@ -151,6 +154,7 @@ func fields(c *Config) []field {
 		{"build.skip_tanstack_check", "Build with a TanStack Router version tifa is not tested with", boolValue{&c.Build.SkipTanStackCheck}},
 		{"build.pgo", "Profile for profile-guided optimization: auto, off or a file", pgoValue{&c.Build.PGO}},
 		{"build.debug_info", "Keep the DWARF debug info in the program, for debuggers such as Delve", boolValue{&c.Build.DebugInfo}},
+		{"build.i18next_cache", "Keep the strings i18next translates in the SSR bundle and give them again for the same call", boolValue{&c.Build.I18nextCache}},
 		{"server.addr", "HTTP listen address", stringValue{&c.Server.Addr}},
 		{"server.body_limit", "Request body limit", sizeValue{&c.Server.BodyLimit, 1}},
 		{"server.shutdown_timeout", "Time allowed for in-flight requests, and then for OnShutdown, after a stop signal", durationValue{&c.Server.ShutdownTimeout}},

@@ -1,0 +1,5 @@
+# The storefront changes its i18next resources and options only through i18next's API, and its
+# formatters give the same result for the same input, so the server render may keep the strings
+# i18next translates. See docs/build.md.
+build:
+  i18next_cache: true

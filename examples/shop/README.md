@@ -36,6 +36,7 @@ go test ./...
 ## Folders
 
 ```text
+tifa.yaml                      turns on the i18next cache of the server render, see docs/build.md
 hooks.go                       blocks cross-site write requests, logs unexpected errors
 components/ui/  lib/  hooks/   shadcn/ui components and their helpers, imported as @/components/ui/...
 app/

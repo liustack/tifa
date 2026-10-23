@@ -137,6 +137,29 @@ func TestDebugInfoIsABoolOfTheProjectFile(t *testing.T) {
 	}
 }
 
+// build.i18next_cache is a true or false of the project file, off by default.
+func TestI18nextCacheIsABoolOfTheProjectFile(t *testing.T) {
+	if Default().Build.I18nextCache {
+		t.Fatal("the i18next cache is on by default")
+	}
+	for name, content := range map[string]string{
+		"tifa.yaml": "build:\n  i18next_cache: true\n",
+		"tifa.json": `{"build":{"i18next_cache":true}}`,
+	} {
+		c, err := load(t, nil, nil, name, content)
+		if err != nil || !c.Build.I18nextCache {
+			t.Errorf("%s: %+v, %v", name, c.Build, err)
+		}
+	}
+	if _, err := load(t, nil, nil, "tifa.yaml", "build:\n  i18next_cache: \"yes\"\n"); err == nil || !strings.Contains(err.Error(), "build.i18next_cache") || !strings.Contains(err.Error(), "expected a bool value") {
+		t.Errorf("a string: %v", err)
+	}
+	_, err := load(t, []string{"--config", writeFile(t, "prod.yaml", "build:\n  i18next_cache: true\n")}, nil, "", "")
+	if err == nil || !strings.Contains(err.Error(), "build settings belong in the project tifa.yaml") {
+		t.Errorf("in a deployment file: %v", err)
+	}
+}
+
 // build.pgo is a string of the project file, auto by default. YAML reads a plain off as text.
 // A value that looks like a switch but is not auto or off says what to write.
 func TestPGOIsAStringOfTheProjectFile(t *testing.T) {
@@ -314,7 +337,7 @@ func TestFileMustHoldOneDocument(t *testing.T) {
 }
 
 func TestKeysListEverySetting(t *testing.T) {
-	want := "build.target build.public build.skip_tanstack_check build.pgo build.debug_info server.addr server.body_limit server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout cache.size"
+	want := "build.target build.public build.skip_tanstack_check build.pgo build.debug_info build.i18next_cache server.addr server.body_limit server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout cache.size"
 	if got := strings.Join(Keys(), " "); got != want {
 		t.Fatalf("Keys: %s, want %s", got, want)
 	}
