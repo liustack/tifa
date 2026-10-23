@@ -6,6 +6,7 @@
 
 ### 变更
 
+- SSR 包和浏览器包一样在严格模式下运行：它现在是一个 ES 模块，每个虚拟机把它当模块运行（见[顶层 await 和严格模式](docs/app.zh-CN.md#顶层-await-和严格模式)）。只能在非严格模式下运行的包，在服务端也会失败。`with` 语句或 `010` 这样的八进制字面量会让服务端启动失败，错误里有源文件中的位置，给从没声明过的变量赋值会在运行到那里时抛 `ReferenceError`。页面渲染出的 HTML 不变。
 - 服务端渲染改用 slowjs v0.28.3。带 v 标志的正则接受规范允许、Node 也接受的写法，比如 `[\&\;]` 和 `/-/v`，以前会抛 SyntaxError。shiki 生成的正则都能编译，捕获组超过 254 个的除外。
 - 服务端渲染改用 slowjs v0.28.0，也就是 quickjs 引擎的新名字（`github.com/liustack/slowjs`，原来是 `github.com/liustack/quickjs`）。它就是 quickjs v0.27.3 的引擎换了名字，页面渲染出的 HTML 不变。slowjs 支持 amd64 和 arm64 上的 Linux 与 macOS，以及 amd64 上的 Windows，所以应用不能再为 FreeBSD、32 位平台或其他 CPU 构建。
 - 服务端渲染改用 quickjs v0.27.3。池子在渲染之间调用 `VM.RunYoungGC`。字符串查找（`includes`、`indexOf` 和 `lastIndexOf`）用 Go 的 `bytes` 包跳过不匹配的内容，查过的文本计入中断检查。
@@ -22,6 +23,7 @@
 
 ### 新增
 
+- 服务端渲染里，包和页面代码可以用顶层 `await`，fumadocs-mdx 的集合就这么用。以前有它的构建会失败。每个虚拟机加载时等它完成，再做第一次渲染。它只能靠 promise 完成，比如对包内模块的 `await import()`：等定时器或请求的永远等不到，虚拟机加载失败。
 - 在项目文件里写上 `build.i18next_cache: true`，服务端渲染就记住 i18next 翻译出的字符串，同样的键和选项再来时直接给出。默认关闭。示例商店打开了它，店面页面的渲染时间是原来的 0.741，HTML 不变。缓存的前提是应用只通过 i18next 的 API 改资源和选项，格式化函数和后处理器对同样的输入给出同样的结果。违反这一点的应用可能显示过期的翻译。插件不认识某个 i18next 的代码时，构建打印警告，SSR 包和不开这个设置时一样（[build.zh-CN.md](docs/build.zh-CN.md#i18next-缓存)）。
 - SSR 池会主动替换回收后存活内存超过预热基线上界的 VM。渲染队列无人等待时，后台一次加载一个备用 VM，只与空闲 VM 交换，加载期间保留渲染容量。加载失败时旧 VM 继续服务，并按退避间隔重试。替换期间需要多留一个 VM 的内存，见[内存](docs/performance.zh-CN.md#内存)。
 

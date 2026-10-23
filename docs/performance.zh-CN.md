@@ -42,6 +42,8 @@ tifa 在 QuickJS 里渲染页面。QuickJS 是用 C 写的 JavaScript 解释器�
 
 在 quickjs v0.27.0 和当前 shop 上，惰性注册 Temporal 后加载时间基本不变。同一进程后续 VM 的 `Load` 单独耗时从 41.69 ms 变为 41.43 ms，不含编译和关闭。进程里第一个被测 VM 从 49.17 ms 变为 49.95 ms，包含占位实现的首次注册。现有加载基准还会检查内存和关闭 VM，其同轮时间比值中位数是 1.008。以上是在 linux/amd64 上关闭 PGO、交替六轮的结果。真正首次使用 Temporal 的成本另计，见[内存](#内存)。
 
+SSR 包是 ES 模块，每个 VM 把它当模块运行，这样包里可以用顶层 `await`（见[顶层 await 和严格模式](app.zh-CN.md#顶层-await-和严格模式)）。和原来的 IIFE 比，shop 的十六个页面 HTML 都不变：工作台页面耗时为 0.997（0.988 到 1.007），店面页面为 1.000（0.969 到 1.021），加载一个 VM 为 0.991 到 0.998，编译少约 7%。字节码从 5.36 MB 降到 4.04 MB，因为包住整个包的那个函数的源码不用再存。一个 VM 加载后多占 31 KB（8,884 KiB 对 8,853），渲染后多 19 到 31 KB。这要靠 slowjs 在模块跑完后释放它的顶层函数：QuickJS 原本让它连同所有顶层变量一直留到 VM 关闭，在 shop 的 VM 里约 0.8 MB。测量在 linux/amd64 上，不开 PGO，一个 VM 跑在一对空闲了 30 秒的核的其中一个线程上，同一个程序轮流跑两个包，覆盖 3 种代码布局，每种 6 轮：工作台先热 256 次，每轮每页 30 次，店面先热 256 次，每轮每页 12 次。比值取三种布局中位数的中间那个，范围是全部 18 轮的。
+
 ## 和 Node 比
 
 同一份 `ssr.js` 放进 Node 24，用 `vm.runInThisContext` 加载，给同样的输入，同一台机器、同一个核。Node 先热 600 次渲染，再跑 5 轮，表里是每轮 P50 的中位数。有 JIT 就是平常的 Node。`--jitless` 关掉 V8 编译成机器码的部分，V8 只解释执行，更接近 QuickJS 的做法。
@@ -471,7 +473,7 @@ i18next 缓存那一行用同样的方法测，拿打开 `build.i18next_cache` �
 
 完整请求：构建 `examples/shop`，用 `taskset` 把 `bin/shop --server-addr 127.0.0.1:0 --cache-size 0` 钉在几个核上，从另一个物理核压测，在途请求数等于 VM 数。每次先热几秒，测扩展曲线时服务钉的 CPU 数等于 VM 数。
 
-Node：用 `vm.runInThisContext` 加载同一份 `.tifa/dist/ssr.js`，渲染同样的输入，先热几百次，在 QuickJS 基准用的那个核上各跑一遍有 JIT 和 `--jitless`。找下一个该改的地方时，比较每个函数在 QuickJS 和 `--jitless` 的 Node 里各花多少时间：倍数远高于整体的函数就是候选。
+Node：SSR 包是 ES 模块，把同一份 `.tifa/dist/ssr.js` 复制成 `ssr.mjs`，用 `import()` 加载，渲染同样的输入，先热几百次，在 QuickJS 基准用的那个核上各跑一遍有 JIT 和 `--jitless`。找下一个该改的地方时，比较每个函数在 QuickJS 和 `--jitless` 的 Node 里各花多少时间：倍数远高于整体的函数就是候选。
 
 ## 还能从哪里继续
 
