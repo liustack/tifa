@@ -402,9 +402,9 @@ func TestProjectSettingsReadsTheServerSection(t *testing.T) {
 func TestBuildTargetReachesVite(t *testing.T) {
 	m := &analyze.Manifest{Module: "example.com/x", Routes: []analyze.Route{{ID: "app/page/route", Dir: "app/page", Path: "/page", Page: true, SSR: true}}}
 	for target, want := range map[string]string{
-		"":                           `tifa({ target: ["es2020"] })`, // the default
-		"es2020":                     `tifa({ target: ["es2020"] })`,
-		" ES2019, chrome90,safari14": `tifa({ target: ["es2019","chrome90","safari14"] })`,
+		"":                           `tifa({ target: ["es2020"], i18nextCache: true })`, // the default
+		"es2020":                     `tifa({ target: ["es2020"], i18nextCache: true })`,
+		" ES2019, chrome90,safari14": `tifa({ target: ["es2019","chrome90","safari14"], i18nextCache: true })`,
 	} {
 		root := t.TempDir()
 		writeFile(t, filepath.Join(root, "app/page/route.tsx"), "export default function P() { return null }\n")
@@ -428,14 +428,14 @@ func TestBuildTargetReachesVite(t *testing.T) {
 	}
 }
 
-// build.i18next_cache turns on the i18next cache of the tifa plugin in .tifa/vite.js. Without it
-// vite.js does not name the setting.
+// build.i18next_cache turns on the i18next cache of the tifa plugin in .tifa/vite.js, by default.
+// Turned off, vite.js does not name the setting, and the plugin leaves i18next without the cache.
 func TestBuildI18nextCacheReachesVite(t *testing.T) {
 	m := &analyze.Manifest{Module: "example.com/x", Routes: []analyze.Route{{ID: "app/page/route", Dir: "app/page", Path: "/page", Page: true, SSR: true}}}
 	for config, want := range map[string]string{
-		"":                                 `tifa({ target: ["es2020"] })`,
-		"build:\n  i18next_cache: false\n": `tifa({ target: ["es2020"] })`,
+		"":                                 `tifa({ target: ["es2020"], i18nextCache: true })`,
 		"build:\n  i18next_cache: true\n":  `tifa({ target: ["es2020"], i18nextCache: true })`,
+		"build:\n  i18next_cache: false\n": `tifa({ target: ["es2020"] })`,
 	} {
 		root := t.TempDir()
 		writeFile(t, filepath.Join(root, "app/page/route.tsx"), "export default function P() { return null }\n")
