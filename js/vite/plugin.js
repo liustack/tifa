@@ -2,6 +2,7 @@
 // application's vite.config.ts uses it through .tifa/vite.js. It tells Vite where tifa's
 // generated entries are, resolves the modules tifa generates, and builds the SSR bundle that
 // QuickJS runs: one IIFE file with every dependency inside and no Node API.
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { builtinModules } from 'node:module'
@@ -93,6 +94,126 @@ const serovalArrays = [
     '\tif (Array.isArray(current)) return await parsePlugin$1(ctx, depth, id, current) || parseArray$1(ctx, depth, id, current);\n',
   ],
 ]
+// lucide-react builds every icon it renders again from the icon's data and props, with object and
+// array spreads that take long in QuickJS. The tifa plugin caches what it built for an icon with
+// the same props, see lucideCache. lucideFiles are the files of lucide-react 1.42 to
+// 1.61 the cache depends on, each with the start of the base64 SHA-256 of its text with the
+// version taken out of its license comment (see lucideText).
+const lucideModule = /[/\\]lucide-react[/\\]dist[/\\]esm[/\\](Icon|createLucideIcon)\.mjs$/
+const lucideFiles = {
+  'Icon.mjs': 'fSlEepanC8e4JvCZ',
+  'createLucideIcon.mjs': 'EBpPPIf8R/bnOJe7',
+  'shared/src/build/buildLucideIconForReact.mjs': 'kCsZISFzunSDGldZ',
+  'shared/src/build/buildLucideIconNode.mjs': '2ghtU8h+rJ6hPYjs',
+  'shared/src/build/defaultAttributes.mjs': 'NvQmyXYwf1MBgSgm',
+  'shared/src/utils/mergeClasses.mjs': 'VAuAw++Ix73S/b7C',
+  'shared/src/utils/hasA11yProp.mjs': 'gN3CMtFD/5HmcRru',
+}
+const lucideParams = `    const hasAccessibleProp = Boolean(children) || hasA11yProp(rest);
+    const [name, svgAttributes, builtIconNode = []] = buildLucideIconForReact(icon, {
+      color: color ?? contextColor,
+      width: width ?? size ?? contextSize,
+      height: height ?? size ?? contextSize,
+      strokeWidth: strokeWidth ?? contextStrokeWidth,
+      absoluteStrokeWidth: absoluteStrokeWidth ?? contextAbsoluteStrokeWidth,
+      nonScalingStroke: nonScalingStroke ?? contextNonScalingStroke,
+      className: mergeClasses(contextClass, className),
+      hasA11yProp: hasAccessibleProp,
+      attributes: rest
+    });
+`
+const lucidePaths = '        ...builtIconNode.map(([tag, attrs]) => createElement(tag, attrs)),\n'
+const lucideIconData =
+  '  const iconData = typeof iconDataOrName === "string" ? toLucideIconData(iconDataOrName, iconNode, aliases) : iconDataOrName;\n'
+// lucideCacheSource is the cache, added at the end of Icon.mjs. tifaFindIcon looks up what
+// buildLucideIconForReact built for icon with the values of the props that went into it: each prop
+// lucide reads, the two class names mergeClasses joins, whether the icon has an accessible name,
+// and each prop lucide passes on to the svg, in their order. It caches only icons
+// createLucideIcon made, whose data lucide never changes, and only when every value is a
+// primitive, which it compares as Object.is does: an object or a function prop may change between
+// renders. It finds nothing while a page has replaced a built-in that lucide builds an icon with.
+// Each icon keeps the last lucideCacheSize ways it was built. tifaKeepIcon caches what a render
+// that found nothing built, and the elements of the icon's paths, which React does not change.
+const lucideCacheSize = 16
+const lucideCacheSource = `
+const tifaLucideIcons = new WeakSet();
+const tifaIconCache = new WeakMap();
+let tifaPending = null;
+const tifaArray = Array.prototype, tifaString = String.prototype;
+const tifaArrayIterator = Object.getPrototypeOf([][Symbol.iterator]());
+const tifaFilter = tifaArray.filter, tifaMap = tifaArray.map, tifaReduce = tifaArray.reduce, tifaIndexOf = tifaArray.indexOf, tifaJoin = tifaArray.join;
+const tifaValues = tifaArray[Symbol.iterator], tifaNext = tifaArrayIterator.next, tifaTrim = tifaString.trim, tifaSplit = tifaString.split;
+const tifaSplitter = tifaString[Symbol.split], tifaEntries = Object.entries, tifaNumber = Number, tifaBoolean = Boolean, tifaSymbols = Object.getOwnPropertySymbols;
+function tifaBuiltinsKept() {
+  return tifaArray.filter === tifaFilter && tifaArray.map === tifaMap && tifaArray.reduce === tifaReduce && tifaArray.indexOf === tifaIndexOf &&
+    tifaArray.join === tifaJoin && tifaArray[Symbol.iterator] === tifaValues && tifaArrayIterator.next === tifaNext && tifaString.trim === tifaTrim &&
+    tifaString.split === tifaSplit && tifaString[Symbol.split] === tifaSplitter && Object.entries === tifaEntries && Number === tifaNumber &&
+    Boolean === tifaBoolean && Object.getOwnPropertySymbols === tifaSymbols;
+}
+function tifaPrimitive(v) {
+  return v === null || (typeof v !== "object" && typeof v !== "function" && typeof v !== "symbol");
+}
+function tifaIs(a, b) {
+  return a === b ? a !== 0 || 1 / a === 1 / b : a !== a && b !== b;
+}
+function tifaSameRest(entry, rest) {
+  const keys = entry.keys, values = entry.values;
+  let n = 0;
+  for (const key in rest) {
+    if (n === keys.length || keys[n] !== key || !tifaIs(values[n], rest[key])) return false;
+    n++;
+  }
+  return n === keys.length;
+}
+function tifaFindIcon(icon, color, width, height, strokeWidth, absoluteStrokeWidth, nonScalingStroke, contextClass, className, a11y, rest) {
+  tifaPending = null;
+  if (!tifaLucideIcons.has(icon) || !tifaBuiltinsKept() || tifaSymbols(rest).length !== 0) return void 0;
+  const cache = tifaIconCache.get(icon);
+  if (cache !== void 0) {
+    const list = cache.list;
+    for (let i = 0; i < list.length; i++) {
+      const at = (cache.last + i) % list.length, e = list[at];
+      if (tifaIs(e.color, color) && tifaIs(e.width, width) && tifaIs(e.height, height) && tifaIs(e.strokeWidth, strokeWidth) &&
+        tifaIs(e.absoluteStrokeWidth, absoluteStrokeWidth) && tifaIs(e.nonScalingStroke, nonScalingStroke) && tifaIs(e.contextClass, contextClass) &&
+        tifaIs(e.className, className) && e.a11y === a11y && tifaSameRest(e, rest)) {
+        cache.last = at;
+        return e;
+      }
+    }
+  }
+  if (!(tifaPrimitive(color) && tifaPrimitive(width) && tifaPrimitive(height) && tifaPrimitive(strokeWidth) && tifaPrimitive(absoluteStrokeWidth) &&
+    tifaPrimitive(nonScalingStroke) && tifaPrimitive(contextClass) && tifaPrimitive(className))) return void 0;
+  const keys = [], values = [];
+  let n = 0;
+  for (const key in rest) {
+    const value = rest[key];
+    if (!tifaPrimitive(value)) return void 0;
+    keys[n] = key;
+    values[n] = value;
+    n++;
+  }
+  tifaPending = { icon, color, width, height, strokeWidth, absoluteStrokeWidth, nonScalingStroke, contextClass, className, a11y, keys, values, built: null, kids: null };
+  return void 0;
+}
+function tifaKeepIcon(built, kids) {
+  const e = tifaPending;
+  if (e === null) return kids;
+  tifaPending = null;
+  let cache = tifaIconCache.get(e.icon);
+  if (cache === void 0) tifaIconCache.set(e.icon, (cache = { list: [], next: 0, last: 0 }));
+  e.icon = null;
+  e.built = built;
+  e.kids = kids;
+  if (cache.list.length < ${lucideCacheSize}) {
+    cache.list[cache.list.length] = e;
+  } else {
+    cache.list[cache.next] = e;
+    cache.next = (cache.next + 1) % ${lucideCacheSize};
+  }
+  return kids;
+}
+export { tifaLucideIcons };
+`
 // The error handler of renderToString, which ignores the errors of the render.
 const ignoredErrors = 'function onError() {}'
 // React's HTML escape in its string renderer, with the regular expression that finds the first
@@ -478,6 +599,7 @@ export function ssrPlugin(getRoot, loadVite) {
   let nodeImporters // Node module to the packages that import it
   let namesDropped = false // whether React's key paths have no names of components
   let serverActions // the modules outside React DOM with $$FORM_ACTION in their code
+  let lucide // folder of lucide-react's ES modules to whether the plugin knows its files
   const plugin = {
     name: 'tifa:ssr',
     applyToEnvironment: (env) => env.name === 'ssr',
@@ -487,6 +609,7 @@ export function ssrPlugin(getRoot, loadVite) {
       nodeImporters = new Map()
       namesDropped = false
       serverActions = new Set()
+      lucide = new Map()
     },
     outputOptions(options) {
       const root = getRoot()
@@ -544,6 +667,23 @@ export function ssrPlugin(getRoot, loadVite) {
       // WeakMap or patch generated output.
       if (id === propertyState) return 'module.exports = false'
       if (coreJS && id === path.join(coreJS, 'internals', 'internal-state.js')) coreJSState = true
+      const lucideFile = lucideModule.exec(id)
+      if (lucideFile) {
+        const dir = path.dirname(id)
+        if (!lucide.has(dir)) {
+          const unknown = Object.keys(lucideFiles).find((file) => lucideFileHash(path.join(dir, file)) !== lucideFiles[file])
+          if (unknown) {
+            this.warn(
+              `lucide-react ${packageVersion(path.resolve(dir, '..', '..'))}: ${path.join(dir, unknown)} has a form the tifa ` +
+                'plugin does not know, so the tifa plugin does not cache the icons lucide-react builds. Pages render the ' +
+                'same, but icons take longer to render',
+            )
+          }
+          lucide.set(dir, !unknown)
+        }
+        if (!lucide.get(dir)) return null
+        return lucideCache(lucideFile[1], fs.readFileSync(id, 'utf8'))
+      }
       if (emotionHash.test(id)) {
         const source = fs.readFileSync(id, 'utf8')
         if (source.split(murmur2Source).length !== 2) {
@@ -862,6 +1002,54 @@ function hashInGo(source) {
       ' var tifaHash = "function" === typeof __tifa_murmur2__ ? __tifa_murmur2__(str) : void 0; if (void 0 !== tifaHash) return tifaHash;',
     ...rest,
   ].join('\n')
+}
+
+// lucideFileHash returns the start of the base64 SHA-256 of the text of a file of lucide-react, with
+// the version taken out of its license comment, or '' when there is no such file.
+function lucideFileHash(file) {
+  let text
+  try {
+    text = fs.readFileSync(file, 'utf8')
+  } catch {
+    return ''
+  }
+  text = text.replace(/^ \* @license lucide-react v\S+ - ISC$/m, ' * @license lucide-react - ISC')
+  return createHash('sha256').update(text).digest('base64').slice(0, 16)
+}
+
+// lucideCache returns the source of Icon.mjs of lucide-react with the cache of lucideCacheSource,
+// or of createLucideIcon.mjs that adds the data of each icon it makes to the icons the cache may
+// cache. Icon looks in the cache before it builds an icon, and puts what it built there. Each line
+// stays where it was. Both files are those of lucideFiles.
+function lucideCache(file, source) {
+  if (file === 'createLucideIcon') {
+    return source
+      .replace("import Icon from './Icon.mjs';", "import Icon, { tifaLucideIcons } from './Icon.mjs';")
+      .replace(lucideIconData, () => lucideIconData.replace(/\n$/, ' tifaLucideIcons.add(iconData);\n'))
+  }
+  const params = lucideParams.split('\n')
+  params[0] +=
+    ' const tifaColor = color ?? contextColor, tifaWidth = width ?? size ?? contextSize, tifaHeight = height ?? size ?? contextSize,' +
+    ' tifaStrokeWidth = strokeWidth ?? contextStrokeWidth, tifaAbsolute = absoluteStrokeWidth ?? contextAbsoluteStrokeWidth,' +
+    ' tifaNonScaling = nonScalingStroke ?? contextNonScalingStroke; const tifaHit = tifaFindIcon(icon, tifaColor, tifaWidth,' +
+    ' tifaHeight, tifaStrokeWidth, tifaAbsolute, tifaNonScaling, contextClass, className, hasAccessibleProp, rest);'
+  params[1] = '    const tifaBuilt = tifaHit !== void 0 ? tifaHit.built : buildLucideIconForReact(icon, {'
+  params[2] = '      color: tifaColor,'
+  params[3] = '      width: tifaWidth,'
+  params[4] = '      height: tifaHeight,'
+  params[5] = '      strokeWidth: tifaStrokeWidth,'
+  params[6] = '      absoluteStrokeWidth: tifaAbsolute,'
+  params[7] = '      nonScalingStroke: tifaNonScaling,'
+  params[11] += ' const [name, svgAttributes, builtIconNode = []] = tifaBuilt;'
+  return (
+    source
+      .replace(lucideParams, () => params.join('\n'))
+      .replace(
+        lucidePaths,
+        () =>
+          '        ...(tifaHit !== void 0 ? tifaHit.kids : tifaKeepIcon(tifaBuilt, builtIconNode.map(([tag, attrs]) => createElement(tag, attrs)))),\n',
+      ) + lucideCacheSource
+  )
 }
 
 // chainEscapes returns the source of React's string renderer with escapeTextForBrowser escaping
