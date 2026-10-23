@@ -37,9 +37,10 @@ var ErrClosed = errors.New("ssr: pool closed")
 // in the pool for the next one. A VM whose render fails for any reason (a JS
 // exception, the time budget, the memory limit, a Go panic) leaves the pool, and a
 // background goroutine replaces it with a fresh VM loaded from the same bytecode.
-// The garbage renders leave is mostly collected between renders, after the answer
-// (see release). VMs whose live size grows too far are replaced after loading a
-// spare, without taking capacity away from renders.
+// The garbage renders leave is collected between renders, after the answer, by a
+// young GC after each render and a full GC now and then (see release). VMs whose
+// live size grows too far are replaced after loading a spare, without taking
+// capacity away from renders.
 type Pool struct {
 	bytecode    []byte
 	sources     *sources
@@ -72,8 +73,10 @@ type Pool struct {
 // pooledVM is a VM of the pool with what its GC threshold is made of (see gcThreshold).
 type pooledVM struct {
 	*quickjs.VM
-	// live is the live size, what the VM held after its last GC between renders, or after Load.
+	// live is the live size, what the VM held after its last full GC between renders, or after Load.
 	live uintptr
+	// young counts the renders since that GC.
+	young int
 	// baseline is the live size after Load, never raised by renders.
 	baseline uintptr
 	// need is the threshold the engine set when it last collected during a render, at most four
@@ -95,9 +98,17 @@ func (vm *pooledVM) setThreshold(memory uintptr) {
 	vm.SetGCThreshold(vm.threshold)
 }
 
-// renderGCs counts renders with an engine GC, idleGCs collections between renders,
-// and replaced successful proactive swaps (failure refills only affect created and closed).
-type poolStats struct{ created, closed, peak, renderGCs, idleGCs, replaced int }
+// renderGCs counts renders with an engine GC, youngGCs collections between renders that ran only
+// a young GC, idleGCs those that ran a full GC, and replaced successful proactive swaps (failure
+// refills only affect created and closed).
+type poolStats struct{ created, closed, peak, renderGCs, youngGCs, idleGCs, replaced int }
+
+// fullGCEvery is how many renders a VM runs at most between two full GCs. A young GC keeps what
+// the old objects hold, such as the cycles of objects that went old before a render let go of
+// them, and with no full GC that waits for 1.5 times the live size. A full GC every 256 renders
+// is under 0.4% of renders. On the example shop, every 64 renders raised the P99 of renders by
+// 1.5% to 4%, and every 1024 gave the same P99 and memory as 256.
+const fullGCEvery = 256
 
 // Replaced by tests.
 var (
@@ -349,11 +360,12 @@ func openVM(p *Pool) (*pooledVM, error) {
 	return &pooledVM{VM: vm, live: vm.MemorySize(), baseline: vm.MemorySize(), threshold: vm.GCThreshold()}, nil
 }
 
-// release puts vm back in the pool after a render it survived. When its memory grew to 1.5 times
-// its live size, where the engine would collect by itself, a goroutine collects it first, after
-// the render has given its answer (see collect). A GC takes about as long as the garbage it frees,
-// so collecting here takes it out of the renders, which with the threshold of gcThreshold rarely
-// collect.
+// release puts vm back in the pool after a render it survived, through a goroutine that collects
+// it first, after the render has given its answer (see collect). A GC takes about as long as the
+// garbage it frees, so collecting here takes it out of the renders, which with the threshold of
+// gcThreshold rarely collect. A young GC after each render visits only the objects made since the
+// last GC, mostly the garbage of that render, where a full GC visits the objects of the bundle
+// too, so it takes a fraction of the time of the full GC it replaces.
 func (p *Pool) release(vm *pooledVM) {
 	engineGC := vm.GCThreshold() != vm.threshold
 	if engineGC {
@@ -368,25 +380,21 @@ func (p *Pool) release(vm *pooledVM) {
 		vm.need -= (vm.need - 2*vm.live) / needDecay
 	}
 	vm.setThreshold(p.memory)
-	// Under a limit below twice the live size the threshold is below 1.5 times the live size, so
-	// a VM collected here is over it, and the next render would collect at its start.
-	if vm.MemorySize() < vm.live+vm.live/2 {
-		p.putIdle(vm)
-		return
-	}
-	p.refills.Go(func() { p.collect(vm) })
+	vm.young++
+	p.refills.Go(func() { p.collect(vm, engineGC) })
 }
 
-// collect runs a GC between renders on vm and puts it back in the pool. Close waits for it, and
-// once Close has started vm goes back as it is, for Close to close it. A GC that fails replaces vm.
-func (p *Pool) collect(vm *pooledVM) {
+// collect runs a GC between renders on vm and puts it back in the pool, a full one after a render
+// in which the engine collected (see runGC). Close waits for it, and once Close has started vm
+// goes back as it is, for Close to close it. A GC that fails replaces vm.
+func (p *Pool) collect(vm *pooledVM, engineGC bool) {
 	select {
 	case <-p.done:
 		p.putIdle(vm)
 		return
 	default:
 	}
-	if err := p.runGC(vm); err != nil {
+	if err := p.runGC(vm, engineGC); err != nil {
 		logf("tifa: ssr: GC between renders: %v, replacing the VM", err)
 		p.closeVM(vm)
 		p.refill()
@@ -521,10 +529,12 @@ func (p *Pool) replaceGrown() {
 	}
 }
 
-// runGC collects vm and sets its live size and threshold from what is left. It returns a Go
-// panic, from the engine, as an error: in the goroutine of collect it has no caller to go up to,
-// and would end the process.
-func (p *Pool) runGC(vm *pooledVM) (err error) {
+// runGC runs a young GC on vm, then a full GC when the young GC left 1.5 times the live size or
+// more. It runs only the full GC when vm ran fullGCEvery renders since its last full GC. With full it runs only the full GC: the engine collected during the render, and
+// set its threshold from what the render held then. The full GC sets the live size and threshold
+// from what is left. runGC returns a Go panic, from the engine, as an error: in the goroutine of
+// collect it has no caller to go up to, and would end the process.
+func (p *Pool) runGC(vm *pooledVM, full bool) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic: %v", r)
@@ -533,7 +543,17 @@ func (p *Pool) runGC(vm *pooledVM) (err error) {
 	if p.collecting != nil {
 		p.collecting(vm)
 	}
+	if !full && vm.young < fullGCEvery {
+		vm.RunYoungGC()
+		if vm.MemorySize() < vm.live+vm.live/2 {
+			p.mu.Lock()
+			p.counts.youngGCs++
+			p.mu.Unlock()
+			return nil
+		}
+	}
 	vm.RunGC()
+	vm.young = 0
 	vm.live = vm.MemorySize()
 	vm.setThreshold(p.memory)
 	p.mu.Lock()

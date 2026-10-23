@@ -100,6 +100,8 @@ func TestPoolQueueDisabledAndWaitSlotReleased(t *testing.T) {
 			if err := <-first; err != nil {
 				t.Fatal(err)
 			}
+			// The VM is busy until the GC after the first render ends.
+			idleVM(p, func(*pooledVM) {})
 			if _, err := p.Render(context.Background(), input("ok", "after")); err != nil {
 				t.Fatalf("idle VM rejected: %v", err)
 			}

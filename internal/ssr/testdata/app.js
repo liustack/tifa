@@ -41,7 +41,7 @@ globalThis.startRender = (json) => {
   const input = JSON.parse(json)
   const mode = input.data.mode ?? 'ok'
   renders++
-  if (mode !== 'ok' && mode !== 'garbage' && mode !== 'cycles' && mode !== 'hold' && mode !== 'globals') dirty = true
+  if (mode !== 'ok' && mode !== 'garbage' && mode !== 'cycles' && mode !== 'hold' && mode !== 'oldcycles' && mode !== 'globals') dirty = true
   switch (mode) {
     case 'throw':
       throw new Error('intentional failure')
@@ -134,6 +134,15 @@ globalThis.startRender = (json) => {
       for (let i = 0; i < Number(input.data.text); i++) held.push({ index: i })
       globalThis.renderResult = page(input) + held.length
       return
+    }
+    case 'oldcycles': {
+      // data.text objects held by an array in a cycle, which the next render lets go of. A young
+      // GC after this render finds them reachable and makes them old, so only a full GC frees them.
+      const held = []
+      held.self = held
+      for (let i = 0; i < Number(input.data.text); i++) held.push({ index: i })
+      globalThis.oldCycle = held
+      break
     }
     case 'cycles': {
       // data.text objects that point at themselves, garbage only a GC frees.
