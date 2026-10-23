@@ -376,6 +376,8 @@ export default function StatsPage() {
 
 ## 服务端渲染里的 Intl
 
+`Intl.DateTimeFormat.format()` 和 `formatToParts()` 不传日期时，与 Date、Temporal.Now 读取同一个渲染时钟，也会使用 `tifa.WithRenderClock` 指定的时钟。
+
 页面在服务端渲染时可以用 `Intl`，支持 Chromium 有的全部语言，用法和 Chromium 一样：
 
 - `Intl.NumberFormat`、带 `formatRange` 的 `Intl.DateTimeFormat`、`Intl.PluralRules`、`Intl.Collator`、`Intl.Segmenter`、`Intl.RelativeTimeFormat`、`Intl.ListFormat`、`Intl.DisplayNames`、`Intl.DurationFormat`、`Intl.Locale`、`Intl.supportedValuesOf`、`Intl.getCanonicalLocales`，以及各构造器的 `supportedLocalesOf`。
@@ -439,7 +441,7 @@ export default function ReceiptPage() {
 
 页面可以用 `Temporal.Now`、`Instant`、`ZonedDateTime`、`PlainDate`、`PlainTime`、`PlainDateTime`、`PlainYearMonth`、`PlainMonthDay`、`Duration` 和 `Date.prototype.toTemporalInstant`，模块加载时也能用。QuickJS 提供 V8 已有的方法、IANA 时区和 Intl 支持的历法。Temporal 和 Intl 共用内嵌的 tz 2026e 数据，不读机器的 zoneinfo。
 
-`Temporal.Now` 和 `Date.now()` 一样读取实时系统时钟，不在 VM 创建时或一次渲染内冻结。`Temporal.Now.instant().epochMilliseconds` 和 `Date.now()` 分别采样，调用之间经过了时间，结果就可能不同。`Temporal.Now.timeZoneId()` 是 `UTC`，和 Intl 的默认时区一致。其他 Now 方法不传时区时也用 UTC。进程的 Go 时区保持不变。
+`Date.now()`、`new Date()`、`Date()`、`Temporal.Now` 和 Intl 无参日期格式化共用 VM 时钟。默认读取实时系统时钟，不在一次渲染内冻结。Go 可以通过 `tifa.WithRenderClock` 为一次渲染指定时钟，见[渲染时钟](#渲染时钟)。`Temporal.Now.instant().epochMilliseconds` 和 `Date.now()` 分别采样，调用之间经过了时间，结果就可能不同。`Temporal.Now.timeZoneId()` 是 `UTC`，和 Intl 的默认时区一致。其他 Now 方法不传时区时也用 UTC。进程的 Go 时区保持不变。
 
 `toLocaleString` 通过 Intl 格式化，要明确传入 locale。普通日期或时间没有时区，会忽略 `timeZone`，`Instant` 用格式化器的时区，`ZonedDateTime` 用自身的时区。构造带时区的值或格式化瞬时时间时要明确指定时区。ISO 历法的 `PlainYearMonth` 和 `PlainMonthDay` 格式化时需要 `calendar: 'iso8601'`。
 
@@ -541,6 +543,25 @@ func TestLoad(t *testing.T) {
 - 测 `OnRequest` 时，`tifatest.SetNext(c, next)` 设置 `c.Next()` 调用什么：`next` 原样跑一次，它的错误就是 `c.Next()` 的返回值。它代替的是路由，所以不恢复 panic，也不写出结果。
 - 请求体上限是 `server.body_limit` 的默认值 1 MiB，可以用 `c.SetBodyLimit` 改。测试结束时会清理请求的 multipart 临时文件。
 - `tifa build` 不读 `_test.go` 文件，所以测试可以放在 `app/` 下任何目录里。
+
+### 渲染时钟
+
+在 `OnRequest` 中通过 context 指定时钟，也可以在测试里给 `httptest` 请求设置同样的 context：
+
+```go
+at := time.Date(2026, 10, 22, 12, 0, 0, 123456789, time.UTC)
+ctx := tifa.WithRenderClock(c.Context(), func() time.Time { return at })
+c.SetContext(ctx)
+return c.Next()
+```
+
+Date 和 Intl 取向下舍入的毫秒，Temporal 保留纳秒。这个时钟覆盖整个渲染，包括 promise 和 queueMicrotask，归还或替换 VM 前会清除。传 nil 恢复实时时钟。回调不能阻塞，多次渲染共用回调时必须保证并发安全。它不改变 Go 的 time.Now、超时或浏览器时钟。
+
+不调 `WithRenderClock` 时时钟保持实时。固定时钟不会让同时用到随机数或外部数据的渲染变得可重复。
+
+模块顶层代码在 VM 预热时执行，早于请求，用的是实时时钟。顶层保存的时间值不会重新计算。顶层保存的 Date.now 函数、Temporal.Now 方法和 Intl formatter 在渲染时调用，则会读当前渲染的时钟。
+
+时钟不参与缓存键。缓存命中会跳过渲染，同键请求也可能共用一次渲染。需要显示并水合的时间应从 `Load` 返回，让服务端、缓存和浏览器使用同一份数据。`tifatest.NewCtx` 保留请求的 context，但自身不执行 SSR。可用 `tifatest.SetNext` 测试中间件传递这个 context，完整 HTML 应通过服务端请求验证。
 
 ## Load 里 Ctx 的用法
 

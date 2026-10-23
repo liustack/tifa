@@ -18,8 +18,12 @@ import (
 // the package can time and inspect each one. Code that serves pages uses a Pool.
 
 // Compile turns the bundle into bytecode once, in a throwaway VM.
-// Every VM of the pool, including replacements, loads this bytecode.
-func Compile(source string, memory uintptr, timeout time.Duration) (bytecode []byte, err error) {
+// Every VM of the pool, including replacements, loads this bytecode. The VMs share the source text
+// of its functions, which their toString returns, and the tables error stacks read their lines
+// from: these stay in the one copy of the bytecode, outside the memory of every VM and of
+// ssr.vm_memory. The caller closes the bytecode, and its memory goes once the last VM that loaded
+// it is closed too.
+func Compile(source string, memory uintptr, timeout time.Duration) (bytecode *slowjs.SharedBytecode, err error) {
 	vm, err := slowjs.NewVM()
 	if err != nil {
 		return nil, err
@@ -29,7 +33,11 @@ func Compile(source string, memory uintptr, timeout time.Duration) (bytecode []b
 	if err := vm.SetEvalTimeout(timeout); err != nil {
 		return nil, err
 	}
-	return vm.Compile(source, slowjs.EvalGlobal)
+	code, err := vm.Compile(source, slowjs.EvalGlobal)
+	if err != nil {
+		return nil, err
+	}
+	return slowjs.NewSharedBytecode(code)
 }
 
 // Load creates a VM, gives it Intl and Temporal and runs the bundle's top level code, which
@@ -43,13 +51,14 @@ func Compile(source string, memory uintptr, timeout time.Duration) (bytecode []b
 // Go code uses, is left alone. intl.Register only puts stand-ins on the VM: the first use of Intl or a
 // toLocale* method installs the rest, so a VM whose pages never format costs a few KB more.
 // dev runs intlcheck.js too, which installs Intl at once to watch it.
-// Temporal is lazy too. Its default clock is time.Now, the live system clock Date.now uses,
-// not a time frozen at VM creation or at the start of a render. Its default zone follows Intl.
+// Temporal is lazy too. Date, Temporal and Intl share the VM clock, live during
+// prewarming. Pool.Render may set a request clock after loading. Values already
+// captured by module initialization stay unchanged. The default zone follows Intl.
 //
 // stack is how deep calls may nest, in the engine's stack slots (ssr.vm_stack_depth). Deeper
 // calls throw RangeError: Maximum call stack size exceeded. The slots live on the goroutine
 // stack of the render, not in the memory the limit counts: a slot takes about 1 KB.
-func Load(bytecode []byte, memory, stack uintptr, timeout time.Duration, dev bool) (*slowjs.VM, error) {
+func Load(bytecode *slowjs.SharedBytecode, memory, stack uintptr, timeout time.Duration, dev bool) (*slowjs.VM, error) {
 	vm, err := slowjs.NewVM()
 	if err != nil {
 		return nil, err
@@ -72,7 +81,7 @@ func Load(bytecode []byte, memory, stack uintptr, timeout time.Duration, dev boo
 		_, err = vm.Eval(intlCheck, slowjs.EvalGlobal)
 	}
 	if err == nil {
-		_, err = vm.EvalBytecode(bytecode)
+		_, err = vm.EvalSharedBytecode(bytecode)
 	}
 	if err != nil {
 		return nil, errors.Join(err, vm.Close())

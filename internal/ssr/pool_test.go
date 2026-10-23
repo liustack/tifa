@@ -81,7 +81,7 @@ func TestPoolPrewarmsVMsAndCompilesOnce(t *testing.T) {
 	if s.created != 3 || s.closed != 0 {
 		t.Fatalf("want 3 prewarmed VMs, got %+v", s)
 	}
-	if len(p.bytecode) == 0 {
+	if p.bytecode.Len() == 0 {
 		t.Fatal("bytecode was not compiled")
 	}
 }

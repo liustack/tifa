@@ -23,6 +23,8 @@
 
 - SSR 池会主动替换回收后存活内存超过预热基线上界的 VM。渲染队列无人等待时，后台一次加载一个备用 VM，只与空闲 VM 交换，加载期间保留渲染容量。加载失败时旧 VM 继续服务，并按退避间隔重试。替换期间需要多留一个 VM 的内存，见[内存](docs/performance.zh-CN.md#内存)。
 
+- `tifa.WithRenderClock(ctx, now)` 为一次服务端渲染指定固定或受控的时钟，Date、Temporal.Now 和 Intl 共用它。VM 复用前会清除时钟，替换后的 VM 也会使用当前渲染的时钟。生产环境默认保持实时，模块初始化仍在预热时执行。
+
 - SSR VM 提供 Temporal 和 `Date.prototype.toTemporalInstant`，首次使用时安装完整实现。`Temporal.Now` 读取实时系统时钟，默认时区是 UTC，与 Date 和 Intl 一致。Temporal 的语言格式化通过 Intl 完成。浏览器支持仍由应用负责。
 
 - SSR VM 提供 `atob`、`btoa`、`DOMException`、`crypto.getRandomValues`、`crypto.randomUUID` 和 `structuredClone`。随机字节直接从 Go 读取，渲染前、渲染时和模块加载时都能调用。宿主 API 在 VM 复用时沿用初始化保存的内建函数。getRandomValues 对共享或可调整大小缓冲区的视图抛 TypeError。克隆保留循环引用、共享引用和常见 JS 内建类型，不支持 transfer、SharedArrayBuffer 和可调整大小的 ArrayBuffer 视图克隆。与浏览器不同，普通对象和数组的透明 Proxy 通过 traps 克隆。不提供 `crypto.subtle`。
@@ -35,6 +37,7 @@
 
 ### 性能
 
+- SSR 池里的 VM 借助 slowjs 的 `SharedBytecode` 共用一份 bundle 函数源码和给错误栈提供行号的表，所以示例商店的每个 VM 加载后少占 2.35 MiB（9.0 MB，原来 11.5 MB），MUI 测试应用的每个 VM 少占 1.22 MiB。`toString`、错误栈和 HTML 都不变。这份共用的副本不算进 `ssr.vm_memory`。渲染时间不变。
 - SSR 包执行的字节码指令更少：压缩之后，`tifa build` 和 `tifa dev` 把 SSR 包里的语句 `a && b;`、`a || b;` 和 `a ? b : c;` 写成 `if` 语句，`!0` 和 `!1` 写成 `true` 和 `false`，浏览器包不动。MUI 测试应用的页面渲染时间为原来的 0.989（6 轮全部更快），商店工作台页面为 0.994，在各轮的离散度以内，HTML 和错误栈里的位置都不变。
 - quickjs v0.27.2 渲染商店工作台页面和 MUI 测试应用页面的耗时和 v0.27.1 一样，开不开 PGO 都在 1% 以内（不开 PGO 时为 1.006 和 0.991，开 PGO 时为 0.993 和 0.996），HTML 不变。GC 之后，VM 从分配器占的内存最多少 0.6 MiB。
 - quickjs v0.27.1 渲染商店工作台页面，不开 PGO 时耗时为 v0.27.0 的 0.991，开 PGO 时 0.982，MUI 测试应用的页面是 0.986 和 0.980，HTML 和内存不变。加上 emotion 的哈希改在 Go 里算，MUI 页面的耗时是这项改动之前（还在 v0.27.0 上时）的 0.70，开不开 PGO 都一样，商店不开 PGO 时是 0.987，开 PGO 时是 0.984。

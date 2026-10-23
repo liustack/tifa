@@ -20,7 +20,8 @@ import (
 	"github.com/liustack/tifa/internal/core"
 )
 
-// Input is everything a render sees. The HTML depends on nothing else.
+// Input is the page data passed to JavaScript. Pool.Render takes the clock
+// separately from its context. Cacheable HTML must depend only on Input.
 type Input struct {
 	BuildID string          `json:"buildId"`
 	URL     string          `json:"url"`
@@ -42,7 +43,7 @@ var ErrClosed = errors.New("ssr: pool closed")
 // live size grows too far are replaced after loading a spare, without taking
 // capacity away from renders.
 type Pool struct {
-	bytecode    []byte
+	bytecode    *slowjs.SharedBytecode
 	sources     *sources
 	memory      uintptr
 	stack       uintptr // stack slots of each VM, see Load
@@ -213,6 +214,9 @@ func (p *Pool) Render(ctx context.Context, in Input) (string, error) {
 	if p.acquired != nil {
 		p.acquired()
 	}
+	vm.SetClock(core.RenderClock(ctx))
+	// Clear before release or retirement, including when a callback panics.
+	defer vm.SetClock(nil)
 	html, err := RenderVM(vm.VM, input, p.timeout)
 	var redirect *RedirectError
 	if err != nil && !errors.As(err, &redirect) {
@@ -338,6 +342,10 @@ func (p *Pool) Close() error {
 			case vm := <-p.idle:
 				p.closeVM(vm)
 			default:
+				// The bytecode stays for a VM loaded from it outside the pool until it is closed.
+				if p.bytecode != nil {
+					p.bytecode.Close()
+				}
 				return
 			}
 		}

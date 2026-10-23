@@ -180,6 +180,14 @@ TIFA_SSR_SHOP=1 GOMAXPROCS=1 go test -run '^$' -bench 'Shop/^render' -benchtime 
 go test -run EngineProfile ./internal/codegen
 ```
 
-500 renders of each page give about 72 seconds of CPU samples on a quiet AMD EPYC 7B13 with slowjs v0.28.0. One profile is enough for arm64 too: on darwin/arm64, a build with a profile made on linux/amd64 renders as fast as one with a profile made on the same Mac (0.3% apart, measured with quickjs v0.26.13).
+500 renders of each page give about 72 seconds of CPU samples on a quiet AMD EPYC 7B13 with slowjs v0.28.2. One profile is enough for arm64 too: on darwin/arm64, a build with a profile made on linux/amd64 renders as fast as one with a profile made on the same Mac (0.3% apart, measured with quickjs v0.26.13).
 
 A profile of an older slowjs or libc still builds and changes no output. It only finds fewer call sites, so pages render slower than they could.
+
+## Render clock
+
+`tifa.WithRenderClock(ctx, now)` supplies the source for Date, Temporal.Now and Intl date formatting without a date in one render. Use a closure returning a fixed `time.Time` for deterministic assertions. Set the context on the test request before calling `tifatest.NewCtx`, or set it in `OnRequest` with `c.SetContext`. `tifatest.NewCtx` tests route functions and preserves the context. It does not run SSR. The public API and the module initialization and cache boundaries are described in [app.md](app.md#render-clock).
+
+`go test -p 2 ./internal/ssr ./server -run 'RenderClock|Temporal'` covers fixed time across promises, saved functions and formatters, live module initialization, VM reuse, replacement, parallel renders and middleware through a real server render. Repeat the touched packages with `-race`. `TestRenderClockFromMiddleware` also uses `tifatest.NewCtx` and `tifatest.SetNext` to exercise the same middleware in a route test.
+
+The production default remains live. Test a fixed source rather than requiring separately sampled live timestamps to match. A fixed render clock does not change Go's time.Now or the monotonic timeout budget. It is not a cache key, so cached HTML and shared renders may bypass a request's clock.

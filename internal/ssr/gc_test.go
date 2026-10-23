@@ -29,6 +29,7 @@ func objectSize(t *testing.T, js string) uintptr {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer bytecode.Close()
 	vm, err := Load(bytecode, uintptr(cfg.VMMemory), uintptr(cfg.VMStackDepth), cfg.Timeout, false)
 	if err != nil {
 		t.Fatal(err)
@@ -140,6 +141,7 @@ func TestLoadCollects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer bytecode.Close()
 	vm, err := Load(bytecode, uintptr(cfg.VMMemory), uintptr(cfg.VMStackDepth), cfg.Timeout, false)
 	if err != nil {
 		t.Fatal(err)
