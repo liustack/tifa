@@ -6,6 +6,7 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 
 ### Changed
 
+- Server rendering runs on quickjs v0.27.2. The render timeout (`ssr.timeout`) now stops a page that compiles regexps or builds strings in a loop within a few milliseconds, where such a loop could run on for seconds past it: compiling a regexp and the built-ins that parse source or build a string (`JSON.parse`, `JSON.stringify`, `join`, `repeat`, `replaceAll` and the like) count toward the engine's interrupt check. One long call of such a built-in still runs to its end. The GC between renders frees the WeakMap entries whose keys are gone in one collection, also when a value points back to its key, where such entries stayed in a reused VM. The HTML is the same (see Performance below).
 - Server rendering runs on quickjs v0.27.1, which renders the same HTML in less time (see Performance below).
 - Pages styled with emotion, such as MUI's, render faster: the hash emotion takes of every style is computed in Go, with the same result. The pages of the MUI test app take 28% to 29% less time to render, with the same HTML.
 - Server rendering runs on quickjs v0.27.0. Every `Intl` constructor and every calendar Chromium has now work while a page renders, and `localeCompare` sorts by the locale's rules, as browsers do, where it compared code points. A program now carries go-intl's data and code, so it ships six notice files where it shipped `LICENSE-DATA` alone ([build.md](docs/build.md#notices-to-ship-with-the-program)).
@@ -32,6 +33,7 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 
 ### Performance
 
+- quickjs v0.27.2 renders the shop's workbench pages and the pages of the MUI test app in the same time as v0.27.1, within 1% with or without PGO (1.006 and 0.991 of the time without PGO, 0.993 and 0.996 with it), with the same HTML. After a GC a VM holds up to 0.6 MiB less memory from its allocator.
 - quickjs v0.27.1 renders the shop's workbench pages in 0.991 of the time of v0.27.0 without PGO and in 0.982 with PGO, and the pages of the MUI test app in 0.986 and 0.980, with the same HTML and memory. Together with emotion's hash computed in Go, the MUI pages render in 0.70 of the time they took on v0.27.0 before that change, with or without PGO, and the shop in 0.987 without PGO and 0.984 with it.
 - quickjs v0.27.0 renders the shop's workbench pages in 0.982 of the time of v0.26.17 without PGO, and in the same time with PGO, which already got what its changes give. A page that makes the same regexps on every render, such as one that highlights code, compiles them once per VM: the shop's journal post that highlights CSS renders in 0.893 of the time without PGO.
 - The entry script holds all code every page loads in one file instead of four. Over HTTP/1.1 at 150 ms round trips the shop's pages hydrate 11 to 192 ms sooner than before, at 40 ms 4 to 77 ms sooner, and they paint 8 to 24 ms later (8 to 48 ms over HTTP/2). Served by tifa itself over HTTP/1.1, an app whose pages need 17 to 20 files hydrates 58 to 100 ms later at 150 ms round trips. A proxy or CDN that speaks HTTP/2 in front avoids that.
