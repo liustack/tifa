@@ -555,7 +555,7 @@ return c.Next()
 
 Date and Intl round down to milliseconds. Temporal keeps nanoseconds. The clock covers the whole render, including promises and queueMicrotask, and is cleared before VM reuse or replacement. Pass nil to restore the live clock. The callback must not block and must be safe for concurrent calls when renders share it. It does not change Go's time.Now, timeouts or the browser clock.
 
-Production keeps the live clock. Freezing the start time makes repeated reads identical and avoids repeated sampling, but changes elapsed-time behavior and does not make a whole render deterministic if it also uses randomness or external data. tifa preserves its existing live behavior. Tests and apps can supply a fixed value without a configuration setting.
+Without `WithRenderClock` the clock stays live. A fixed clock does not make a render repeatable when it also uses randomness or outside data.
 
 Module top-level code runs during VM prewarming, before a request, on the live clock. Time values captured there are not recomputed. A Date.now function, Temporal.Now method or Intl formatter saved at module load reads the current render's clock when called during that render.
 
