@@ -283,3 +283,17 @@ func TestCompileErrorsGiveThePlaceInTheSources(t *testing.T) {
 		t.Errorf("err = %v, want the syntax error at its place in the sources", err)
 	}
 }
+
+// Check compiles the bundle as the pool does and gives a compile error with its place in the
+// sources. It does not run the bundle, so code that fails only as it runs passes.
+func TestCheckCompilesWithoutRunning(t *testing.T) {
+	bundle := "globalThis.startRender = function () {}\nfunction f(o) {\n  with (o) { return x }\n}\n"
+	err := Check(bundle, sourceMapOf(mapping{2, 2, "node_modules/old/index.js", 7, 4}))
+	if err == nil || !strings.Contains(err.Error(), "ssr: compile bundle: SyntaxError: invalid keyword: with") ||
+		!strings.Contains(err.Error(), "at node_modules/old/index.js:8:5") {
+		t.Errorf("err = %v, want the syntax error at its place in the sources", err)
+	}
+	if err := Check("require('node:fs')\nawait new Promise(() => {})\nthrow new Error('runs')\n", nil); err != nil {
+		t.Errorf("err = %v, want none for a bundle that fails only as it runs", err)
+	}
+}

@@ -20,6 +20,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/liustack/tifa/internal/ssr"
 )
 
 // Build is the content of dist/build.json, which the server reads at startup.
@@ -74,6 +76,9 @@ func App(n *Node, root, public string, pages bool) (string, error) {
 		if err := n.call("ssr", map[string]any{"assets": b.Head, "minify": true}, nil); err != nil {
 			return "", err
 		}
+		if err := checkSSR(dist); err != nil {
+			return "", err
+		}
 		if err := precompress(filepath.Join(dist, "assets")); err != nil {
 			return "", err
 		}
@@ -85,6 +90,24 @@ func App(n *Node, root, public string, pages bool) (string, error) {
 		return "", err
 	}
 	return b.ID, writeBuild(dist, b)
+}
+
+// checkSSR compiles dist/ssr.js as the server does, without running it. The bundle is an ES
+// module, strict mode code, and rolldown keeps code of a CommonJS file that only sloppy mode
+// allows, such as a with statement: that fails here, with its place in the sources, and not
+// when the server starts.
+func checkSSR(dist string) error {
+	code, err := os.ReadFile(filepath.Join(dist, "ssr.js"))
+	if err != nil {
+		return err
+	}
+	sourceMap, err := os.ReadFile(filepath.Join(dist, "ssr.js.map"))
+	if errors.Is(err, fs.ErrNotExist) {
+		sourceMap = nil
+	} else if err != nil {
+		return err
+	}
+	return ssr.Check(string(code), sourceMap)
 }
 
 // manifestEntry is one chunk or asset of Vite's manifest.

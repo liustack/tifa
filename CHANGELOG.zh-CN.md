@@ -6,7 +6,7 @@
 
 ### 变更
 
-- SSR 包和浏览器包一样在严格模式下运行：它现在是一个 ES 模块，每个虚拟机把它当模块运行（见[顶层 await 和严格模式](docs/app.zh-CN.md#顶层-await-和严格模式)）。只能在非严格模式下运行的包，在服务端也会失败。`with` 语句或 `010` 这样的八进制字面量会让服务端启动失败，错误里有源文件中的位置，给从没声明过的变量赋值会在运行到那里时抛 `ReferenceError`。页面渲染出的 HTML 不变。
+- SSR 包和浏览器包一样在严格模式下运行：它现在是一个 ES 模块，每个虚拟机把它当模块运行（见[顶层 await 和严格模式](docs/app.zh-CN.md#顶层-await-和严格模式)）。只能在非严格模式下运行的包，在服务端也会失败。`tifa build` 像服务端那样把 SSR 包编译一遍，但不运行它，所以只有非严格模式允许的语法（比如 CommonJS 文件里的 `with` 语句）会让构建失败，错误里有源文件中的位置，不会等到服务端启动才失败。给从没声明过的变量赋值，运行到那里时抛 `ReferenceError`。页面渲染出的 HTML 不变。
 - 服务端渲染改用 slowjs v0.28.3。带 v 标志的正则接受规范允许、Node 也接受的写法，比如 `[\&\;]` 和 `/-/v`，以前会抛 SyntaxError。shiki 生成的正则都能编译，捕获组超过 254 个的除外。
 - 服务端渲染改用 slowjs v0.28.0，也就是 quickjs 引擎的新名字（`github.com/liustack/slowjs`，原来是 `github.com/liustack/quickjs`）。它就是 quickjs v0.27.3 的引擎换了名字，页面渲染出的 HTML 不变。slowjs 支持 amd64 和 arm64 上的 Linux 与 macOS，以及 amd64 上的 Windows，所以应用不能再为 FreeBSD、32 位平台或其他 CPU 构建。
 - 服务端渲染改用 quickjs v0.27.3。池子在渲染之间调用 `VM.RunYoungGC`。字符串查找（`includes`、`indexOf` 和 `lastIndexOf`）用 Go 的 `bytes` 包跳过不匹配的内容，查过的文本计入中断检查。

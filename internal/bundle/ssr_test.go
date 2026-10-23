@@ -1109,6 +1109,29 @@ func TestSSRPrewarmNamesTheNodeModuleTheBundleImports(t *testing.T) {
 	}
 }
 
+// The SSR bundle is an ES module, so its code is strict mode code. rolldown parses a CommonJS
+// file as a script and keeps code only sloppy mode allows, a with statement here. The build
+// compiles the bundle as the server would, so such a dependency fails the build with its place,
+// and not the start of the server. The build does not run the bundle: code that fails as it
+// runs, as a require of a Node module does, builds (see the test above).
+func TestSSRBuildFailsOnCodeOnlySloppyModeAllows(t *testing.T) {
+	root := devApp(t)
+	writeTree(t, root, map[string]string{
+		"vendor/node_modules/old/package.json": `{"name":"old","main":"index.cjs"}`,
+		"vendor/node_modules/old/index.cjs":    "module.exports = function (o) {\n  with (o) {\n    return x\n  }\n}\n",
+		".tifa/server.ts": "import './runtime/host.js'\nimport old from '../vendor/node_modules/old/index.cjs'\n" +
+			"(globalThis as any).startRender = () => { (globalThis as any).renderResult = String(old({ x: 1 })) }\n",
+	})
+	n := NewNode(root, io.Discard)
+	defer n.Close()
+	_, err := App(n, root, filepath.Join(root, "public"), true)
+	want := "vendor/node_modules/old/index.cjs:2:"
+	if err == nil || !strings.Contains(err.Error(), "SyntaxError: invalid keyword: with") ||
+		!strings.Contains(err.Error(), want) {
+		t.Errorf("err = %v, want the syntax error at %s", err, want)
+	}
+}
+
 // A dependency may await at its top level, as the collections fumadocs-mdx generates do. The SSR
 // bundle keeps the await, loading it waits for it, and the check of the output still finds the
 // places where it may load a module.

@@ -40,6 +40,24 @@ func Compile(source string, memory uintptr, timeout time.Duration) (bytecode *sl
 	return slowjs.NewSharedBytecode(code)
 }
 
+// Check compiles the bundle as NewPool does, without running it, so that tifa build finds code
+// the server could not compile, such as code only sloppy mode allows in a CommonJS file. The
+// error gives the place in the sources by sourceMap, the source map of the bundle (nil without
+// one). The memory limit and timeout are those of the build, not of a VM of the server: they
+// only keep a broken compile from running away.
+func Check(source string, sourceMap []byte) error {
+	bytecode, err := Compile(source, checkMemory, checkTimeout)
+	if err != nil {
+		return fmt.Errorf("ssr: compile bundle: %w", (&sources{code: source, raw: sourceMap}).explain(err, true))
+	}
+	return bytecode.Close()
+}
+
+const (
+	checkMemory  = 1 << 30
+	checkTimeout = time.Minute
+)
+
 // Load creates a VM, gives it Intl and Temporal and runs the bundle's top level code, which
 // defines startRender. A top-level await of the bundle finishes here: Load runs the jobs it
 // waits for, and fails when it still waits once none is left, since a VM has no timers and does
