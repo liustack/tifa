@@ -14,6 +14,7 @@ import (
 
 	"github.com/liustack/slowjs"
 
+	"github.com/liustack/tifa/internal/config"
 	"github.com/liustack/tifa/internal/ssr"
 	"github.com/liustack/tifa/js"
 )
@@ -277,7 +278,7 @@ func TestSSRCachesShortEscapesInLittleMemory(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer vm.Close()
-		if _, err := vm.Eval(code, slowjs.EvalGlobal); err != nil {
+		if err := evalModule(vm, code); err != nil {
 			t.Fatalf("evaluate bundle: %v", err)
 		}
 		return ssr.VMMemory(vm, true).Fmalloc_size
@@ -1074,6 +1075,76 @@ func TestSSRWarnsOfNodeAPIsLeftInDependencies(t *testing.T) {
 	}
 }
 
+// A bundle that still imports a Node module loads it with a require, which fails as the server
+// prewarms its VMs, and the error names the module and the packages that import it.
+func TestSSRPrewarmNamesTheNodeModuleTheBundleImports(t *testing.T) {
+	root := devApp(t)
+	writeTree(t, root, map[string]string{
+		"vendor/node_modules/esm-fs/package.json": `{"name":"esm-fs","type":"module","main":"index.js"}`,
+		"vendor/node_modules/esm-fs/index.js": "import { readFileSync } from 'node:fs'\nimport * as path from 'node:path'\n" +
+			"export const read = (p) => readFileSync(path.join('a', p))\n",
+		".tifa/server.ts": "import './runtime/host.js'\nimport { read } from '../vendor/node_modules/esm-fs/index.js'\n" +
+			"(globalThis as any).startRender = () => { (globalThis as any).renderResult = String(read) }\n",
+	})
+	n := NewNode(root, io.Discard)
+	if _, err := App(n, root, filepath.Join(root, "public"), true); err != nil {
+		t.Fatal(err)
+	}
+	if err := n.Close(); err != nil {
+		t.Fatal(err)
+	}
+	dist := filepath.Join(root, ".tifa", "dist")
+	code, err := os.ReadFile(filepath.Join(dist, "ssr.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceMap, err := os.ReadFile(filepath.Join(dist, "ssr.js.map"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = ssr.NewPool(string(code), sourceMap, config.SSR{VMs: 1, VMMemory: 64 << 20, VMStackDepth: config.Default().SSR.VMStackDepth, Timeout: 5 * time.Second, QueueLimit: 32, WaitTimeout: time.Second}, false)
+	if err == nil || !strings.Contains(err.Error(), "ReferenceError: 'require' is not defined") ||
+		!regexp.MustCompile(`The bundle loads the Node module "node:(fs|path)", imported by esm-fs, at ssr\.js:\d+:\d+`).MatchString(err.Error()) {
+		t.Errorf("err = %v, want the Node module and its package", err)
+	}
+}
+
+// A dependency may await at its top level, as the collections fumadocs-mdx generates do. The SSR
+// bundle keeps the await, loading it waits for it, and the check of the output still finds the
+// places where it may load a module.
+func TestSSRRunsTheTopLevelAwaitOfADependency(t *testing.T) {
+	root := copyTestdata(t, "ssr", false)
+	writeTree(t, root, map[string]string{
+		"node_modules/awaits/package.json": `{"name":"awaits","type":"module","main":"index.js"}`,
+		"node_modules/awaits/index.js": "const { word } = await import('./late.js')\n" +
+			"const parts = await Promise.all([Promise.resolve('loaded'), " +
+			"new Promise((resolve) => Promise.resolve().then(() => resolve(word)))])\n" +
+			"export const value = parts.join(' ')\n",
+		"node_modules/awaits/late.js":     "export const word = 'late'\n",
+		"node_modules/loads/package.json": `{"name":"loads","main":"index.cjs"}`,
+		"node_modules/loads/index.cjs":    "module.exports = function (name) {\n  return require(name)\n}\n",
+		"awaits.ts":                       "import { value } from 'awaits'\nimport load from 'loads'\nglobalThis.load = load\nglobalThis.result = value\n",
+	})
+	code, output := buildPrinting(t, root, "awaits.ts")
+	want := filepath.Join("node_modules", "loads", "index.cjs") + ":2:10 (loads): require loads a module"
+	if !strings.Contains(output, want) {
+		t.Errorf("the build prints:\n%s\nwant %s", output, want)
+	}
+	bytecode, err := ssr.Compile(code, 128<<20, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bytecode.Close()
+	vm, err := ssr.Load(bytecode, 128<<20, 0, 5*time.Second, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer vm.Close()
+	if got, err := vm.Eval("globalThis.result", slowjs.EvalGlobal); err != nil || got != "loaded late" {
+		t.Errorf("result = %v, %v, want what the dependency awaited", got, err)
+	}
+}
+
 // The SSR bundle takes the main files of packages and not their browser files. A browser file
 // often takes what the browser has, as abort-controller takes AbortController from self, and
 // QuickJS has none of it: the render would fail where the main file works. Conditional exports
@@ -1103,8 +1174,8 @@ func TestSSRDefinesProductionGlobals(t *testing.T) {
 	if got := evalResult(t, code); got != "production:true" {
 		t.Fatalf("result = %q, want production:true", got)
 	}
-	if !strings.HasPrefix(code, "(function(){") || strings.Contains(code, "\n  ") {
-		t.Errorf("SSR bundle is not a minified IIFE: %.40s", code)
+	if strings.Contains(code, "\n  ") {
+		t.Errorf("SSR bundle is not minified: %.40s", code)
 	}
 }
 

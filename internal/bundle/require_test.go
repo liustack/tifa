@@ -35,17 +35,10 @@ var requireLimits = map[string]string{
 	"try-catch-optional-fallback": "warns, a missing require only throws inside try",
 	// The code creates require itself. The check takes typeof require to be "undefined", which
 	// holds only while no code writes require, so a write counts as a use.
-	"assign-free-read":       "warns, the code assigns require before it reads it",
-	"assign-only":            "warns, the code assigns require",
-	"assign-destructure":     "warns, the code assigns require",
-	"for-in-assignment-free": "warns, the code assigns require",
-	"for-of-assignment-free": "warns, the code assigns require",
-	"global-assigned-read":   "warns, the code sets globalThis.require before it reads it",
-	// The minifier keeps the names in code with a direct eval or with, so a require declared
-	// there counts as the host's.
-	"eval-bound":  "warns, eval declares require",
+	"global-assigned-read": "warns, the code sets globalThis.require before it reads it",
+	// The minifier keeps the names in code with a direct eval, so a require declared there counts
+	// as the host's.
 	"eval-shadow": "warns, a direct eval keeps the name of the local require",
-	"with-local":  "warns, the require a with object gives is not declared",
 	// The check takes typeof require to be "undefined" and does not follow code that sets
 	// globalThis.require and removes it again.
 	"guard-delete":                    "no warning, the code sets globalThis.require and deletes it",

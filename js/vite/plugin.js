@@ -1,7 +1,7 @@
 // The Vite plugin of tifa. tifa writes it into .tifa/vite/plugin.js of an application, and the
 // application's vite.config.ts uses it through .tifa/vite.js. It tells Vite where tifa's
 // generated entries are, resolves the modules tifa generates, and builds the SSR bundle that
-// QuickJS runs: one IIFE file with every dependency inside and no Node API.
+// QuickJS runs: one ES module file with every dependency inside, no imports and no Node API.
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -660,9 +660,13 @@ export function generated() {
 }
 
 // ssrEnvironment is the Vite environment that builds the SSR bundle from entry into dir/ssr.js.
-// The syntax target is ES2022, which QuickJS runs as it is: a lower one only slows rendering, a
-// higher one may emit syntax QuickJS lacks. Whoever builds it sets build.minify. sourcemap is
-// build.sourcemap, hidden when undefined.
+// The bundle is an ES module, which the server loads as one: a dependency may await at its top
+// level, and its code runs in strict mode, as in the browser bundle. polyfillRequire: false keeps
+// a require of a CommonJS module as it is, a call of the host's require, where it would become a
+// require that rolldown makes with createRequire of Node. The syntax target is ES2022, which
+// QuickJS runs as it is: a lower one only slows rendering, a higher one may emit syntax QuickJS
+// lacks. Whoever builds it sets build.minify. sourcemap is build.sourcemap, hidden when
+// undefined.
 //
 // Packages resolve to their main files, not their browser ones, unlike bundlers for Cloudflare
 // Workers. A browser file often takes what the browser has (abort-controller takes
@@ -692,7 +696,13 @@ export function ssrEnvironment(entry, dir, sourcemap = 'hidden') {
       // it out of ssr.js. The server needs no copy of the sources.
       sourcemap,
       rolldownOptions: {
-        output: { format: 'iife', entryFileNames: 'ssr.js', codeSplitting: false, sourcemapExcludeSources: true },
+        output: {
+          format: 'esm',
+          polyfillRequire: false,
+          entryFileNames: 'ssr.js',
+          codeSplitting: false,
+          sourcemapExcludeSources: true,
+        },
       },
     },
   }
@@ -729,8 +739,9 @@ function resolveRouteModule(ctx, root, source, importer) {
 // checks in front of its long switches on strings, passes the errors renderToString ignores to the
 // runtime, keeps the renderer from building component stacks and from putting the names of
 // components into their key paths, gives the importers of React namespaces of plain values,
-// switches core-js to its property-backed internal state, checks that the bundle is one file, and
-// warns of the places where it may load a module at run time. Its source map names sources
+// switches core-js to its property-backed internal state, checks that the bundle is one file, turns
+// the imports of Node modules into calls of require, and warns of the places where it may load a
+// module at run time. Its source map names sources
 // relative to the application root. It comes with serovalPlugin, which changes seroval. With
 // settings.i18nextCache, build.i18next_cache, it also adds a cache to i18next, see i18nextCache.
 export function ssrPlugin(getRoot, loadVite, settings = {}) {
@@ -759,23 +770,25 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         ...options,
         // The places in the source map, relative to the application root.
         sourcemapPathTransform: (source, map) => path.relative(root, path.resolve(path.dirname(map), source)),
-        // An import of a Node module that stays in the bundle reads require("node:fs", "the
-        // packages that import it"). The check of the output finds it, and QuickJS, which has no
-        // require, fails at it with a stack trace the server explains with the packages.
-        globals: (id) => `require(${JSON.stringify(id)}, ${JSON.stringify([...(nodeImporters.get(id) ?? [])].join(', '))})`,
       }
     },
     resolveId: {
       order: 'pre',
       async handler(source, importer) {
         const fromDependency = importer?.includes(`${path.sep}node_modules${path.sep}`)
+        // On Node, the helpers of rolldown import createRequire, which polyfillRequire: false
+        // leaves unused. Without side effects, the import goes with it.
+        if (source === 'node:module' && importer === rolldownRuntime) {
+          return { id: source, external: true, moduleSideEffects: false }
+        }
         if (source.startsWith('node:') || nodeBuiltins.has(source)) {
           if (!fromDependency) this.error(`Node APIs are not supported in page code: ${source}`)
           if (!nodeImporters.has(source)) nodeImporters.set(source, new Set())
           nodeImporters.get(source).add(packageName(importer))
-          // A dependency may import a Node module it never uses on this platform. The check of
-          // the output finds the import if it stays: the bundle loads it with require.
-          return { id: source, external: true }
+          // A dependency may import a Node module it never uses on this platform: an import of
+          // nothing goes. The check of the output finds an import that stays, which renderChunk
+          // turns into a require.
+          return { id: source, external: true, moduleSideEffects: false }
         }
         if (clientSource.test(source)) return clientOnlyStub
         if (importer && reactTargets.get(importer)?.includes(source)) {
@@ -1011,8 +1024,11 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
     renderChunk(code, chunk) {
       const plain = plainNamespaces(code, chunk.moduleIds)
       if (plain.warning) this.warn(plain.warning)
+      const importers = (id) => [...(nodeImporters.get(id) ?? [])].join(', ')
+      const required = requireNodeModules(plain.code, (code) => this.parse(code), importers)
+      if (required.error) this.error(required.error)
       // The code keeps the lines and places it had, so the source map fits it as it is.
-      return plain.code === code ? null : { code: plain.code, map: null }
+      return required.code === code ? null : { code: required.code, map: null }
     },
     async generateBundle(_, bundle) {
       const chunks = Object.values(bundle).filter((output) => output.type === 'chunk')
@@ -1045,6 +1061,44 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
     },
   }
   return [plugin, serovalPlugin()]
+}
+
+// rolldownRuntime is the ID of the module of rolldown's helpers.
+const rolldownRuntime = '\0rolldown/runtime.js'
+
+// requireNodeModules returns code, a chunk of the SSR bundle before it is minified, with each
+// import of a Node module turned into a require of it that names the packages that import it, as
+// in require("node:fs", "esm-fs, other"), with importers giving them for a module. QuickJS has no
+// require, so a bundle that keeps one fails as it loads, with a stack trace the server explains
+// with the packages, and the check of the output finds it. Rolldown writes these imports at the
+// start of the chunk, and the require goes in the place of each, on the last of its lines, so the
+// lines stay where they were and the source map fits the code as it is. Every module the SSR build does not bundle is a Node module.
+// Each import becomes a declaration of the names it binds. A chunk that reexports from a module
+// gives an error.
+export function requireNodeModules(code, parse, importers) {
+  if (!/^(?:import|export)\b/m.test(code)) return { code }
+  const edits = []
+  for (const node of parse(code).body) {
+    if ((node.type === 'ExportNamedDeclaration' || node.type === 'ExportAllDeclaration') && node.source) {
+      return { code, error: `the SSR bundle reexports ${node.source.value}, which QuickJS cannot load` }
+    }
+    if (node.type !== 'ImportDeclaration') continue
+    const id = node.source.value
+    const call = `require(${JSON.stringify(id)}, ${JSON.stringify(importers(id))})`
+    let namespace
+    const names = []
+    for (const s of node.specifiers) {
+      if (s.type === 'ImportNamespaceSpecifier') namespace = s.local.name
+      else if (s.type === 'ImportDefaultSpecifier') names.push(`default: ${s.local.name}`)
+      else names.push(`${s.imported.type === 'Identifier' ? s.imported.name : JSON.stringify(s.imported.value)}: ${s.local.name}`)
+    }
+    const declared = [namespace && `${namespace} = ${call}`, names.length > 0 && `{ ${names.join(', ')} } = ${namespace ?? call}`]
+    const text = namespace || names.length > 0 ? `var ${declared.filter(Boolean).join(', ')};` : `${call};`
+    edits.push({ start: node.start, end: node.end, text: sameLines(code.slice(node.start, node.end), text) })
+  }
+  let out = code
+  for (const { start, end, text } of edits.reverse()) out = out.slice(0, start) + text + out.slice(end)
+  return { code: out }
 }
 
 // serovalPlugin applies to the SSR build only. It changes seroval, which TanStack Router writes
@@ -1710,7 +1764,7 @@ export function plainNamespaces(code, ids) {
 //     is the host's.
 //
 // The bundle loads the Node modules it imports with require("node:fs") and the like (see
-// outputOptions of ssrPlugin), so they are found the same way. The source maps of the copy and of the chunk
+// requireNodeModules), so they are found the same way. The source maps of the copy and of the chunk
 // name the place in the source.
 async function hostLoads(chunk, vite, parse) {
   // Most bundles never name require or import(), and need no copy.
