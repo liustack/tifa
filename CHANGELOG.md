@@ -6,6 +6,7 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 
 ### Changed
 
+- Server rendering runs on slowjs v0.28.0, the new name of the quickjs engine (`github.com/liustack/slowjs`, it was `github.com/liustack/quickjs`). It is the engine of quickjs v0.27.3 under a new name, and pages render the same HTML. slowjs supports Linux and macOS on amd64 and arm64, and Windows on amd64, so an app can no longer be built for FreeBSD, 32-bit targets or other CPUs.
 - Server rendering runs on quickjs v0.27.3. The pool uses `VM.RunYoungGC` between renders. String searches (`includes`, `indexOf` and `lastIndexOf`) skip with Go's `bytes` package and count the searched text toward the interrupt check.
 - Server rendering runs on quickjs v0.27.2. The render timeout (`ssr.timeout`) now stops a page that compiles regexps or builds strings in a loop within a few milliseconds, where such a loop could run on for seconds past it: compiling a regexp and the built-ins that parse source or build a string (`JSON.parse`, `JSON.stringify`, `join`, `repeat`, `replaceAll` and the like) count toward the engine's interrupt check. One long call of such a built-in still runs to its end. The GC between renders frees the WeakMap entries whose keys are gone in one collection, also when a value points back to its key, where such entries stayed in a reused VM. The HTML is the same (see Performance below).
 - Server rendering runs on quickjs v0.27.1, which renders the same HTML in less time (see Performance below).
