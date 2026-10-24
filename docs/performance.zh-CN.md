@@ -461,6 +461,7 @@ i18next 缓存那一行用同样的方法测，拿 `build.i18next_cache: false` 
 - **在年轻回收之外每 64 次或 1024 次渲染做一次完整回收**，和每 256 次比：每 64 次让 shop 的 P99 高 1.5% 到 4%，每 1024 次的 P99 和内存都和 256 次一样，一轮做 2 次完整回收，256 次时是 8 次。
 - **两次渲染之间要到活大小的两倍才回收**，渲染中途到三倍：P99 和 1.5 倍时一样，但一个 VM 多占 22% 到 45% 的内存，`ssr.vm_memory` 设得低时更早用完内存。
 - **`onError` 没收到错误时，跳过对交给浏览器的 Suspense 边界的查找**：运行时每次渲染后在整页 HTML 里找 `<!--$!-->`，约占商店渲染的 1%，MUI 页面的 0.4%，跳过后商店耗时为原来的 0.987，MUI 页面为 0.995。但在 React 19.3 里，组件调用 `use(browser())` 时，边界交给了浏览器却不调 `onError`：`renderToString` 把它报给一个自己不接收的 `onBrowserBailout` 选项。所以查找留着，把它变快是引擎的事。
+- **用 React 的流式渲染器渲染，让页面等懒加载组件**：`react-dom/static` 的 `prerender` 和等到 `allReady` 的 `renderToReadableStream` 给出同样的 HTML，但在 tifa 6e062d6 上商店慢到 8.7 到 8.8 倍，MUI 页面慢到 4.2 倍，每个 VM 最多多占 1.7 MiB。先用 `renderToString` 渲染，只在它把边界交给浏览器时再用流式渲染器渲染一次，普通页面一样快，但这些页面要渲染两遍。tifa 改用 `prerenderToString`：插件给 React DOM 加的字符串渲染，会等 VM 的任务能完成的事。在 GCP 机器上不开 PGO，3 种布局各 6 轮，商店耗时为 `renderToString` 的 0.995，MUI 页面为 1.001，HTML 一样，每个 VM 大约多 20 到 40 KiB。
 
 ## 怎么复测
 
