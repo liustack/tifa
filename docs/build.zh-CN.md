@@ -122,16 +122,28 @@ GOOS=linux GOARCH=amd64 $(go tool -n tifa) build -o bin/myapp-linux
 
 ### 要随程序附带的声明
 
-程序通过 `github.com/liustack/slowjs/intl` 包嵌入了 [Intl](app.zh-CN.md#服务端渲染里的-intl) 用的语言数据和时区数据。数据来自 Unicode CLDR、Chromium 自带的 ICU 数据和 go-intl，go-intl 还移植了 V8 和 Temporal 的 Rust 库的代码。这些许可都要求程序的每个副本或它的文档里带上它们的声明。声明是这个模块里的六个文件。把程序交给别人时，把它们一起附上：
+程序里的代码和数据来自多种许可：tifa（MIT）、Go（BSD-3-Clause）、引擎 slowjs 和它所基于的 QuickJS（MIT 和 BSD-3-Clause）、程序链接的其他 Go 模块、[Intl](app.zh-CN.md#服务端渲染里的-intl) 用的语言和时区数据（Unicode License V3，以及 ICU 和 Chromium 的声明），还有打进包里的 npm 包。这些许可要求程序的每个副本都带上它们的声明，放在文档里或者程序旁边的文件里。把程序交给别人时，把它们一起附上。
+
+Go 这一侧的声明，在 `tifa build` 之后到应用目录里运行下面的命令，`go list` 才会找到应用构建时用的版本。它复制 Go 的许可、程序链接的每个模块（`go version -m` 列出的那些）的许可和声明文件，以及 slowjs 放在子目录里的声明：
 
 ```sh
-q="$(go list -m -f '{{.Dir}}' github.com/liustack/slowjs)"
 mkdir -p bin/notices
+cp "$(go env GOROOT)/LICENSE" bin/notices/golang.org_go-LICENSE
+go version -m bin/<app> | awk '$1 == "dep" { print $2 }' | while read -r m; do
+  dir="$(go list -m -f '{{.Dir}}' "$m")"
+  for f in "$dir"/LICENSE* "$dir"/COPYING* "$dir"/NOTICE*; do
+    if [ -f "$f" ]; then cp "$f" "bin/notices/$(echo "$m" | tr / _)-$(basename "$f")"; fi
+  done
+done
+q="$(go list -m -f '{{.Dir}}' github.com/liustack/slowjs)"
+cp "$q/lib/LICENSE" bin/notices/slowjs-lib-LICENSE
+cp "$q/internal/gointl/LICENSE" bin/notices/slowjs-gointl-LICENSE
 cp "$q/intl/LICENSE-DATA" "$q"/internal/gointl/qjsdata/NOTICE-* bin/notices/
-cp "$q/internal/gointl/LICENSE" bin/notices/LICENSE-GOINTL
 ```
 
-在应用目录里运行，`go list` 才会找到应用构建时用的版本。`tifa build` 不会替你复制这些文件。
+每种许可要求哪些文件，见 slowjs 的 [NOTICE.md](https://github.com/liustack/slowjs/blob/main/NOTICE.md#what-a-program-that-ships-a-binary-must-include)。
+
+Vite 打进 SSR 包和浏览器包的 npm 包是应用自己的依赖，它们的许可（MIT、ISC、BSD、Apache-2.0 等）大多也有同样的要求。浏览器包会发给每个打开页面的人。`tifa build` 不收集这些声明，请用你选的工具收集，比如 Vite 或 Rollup 的许可插件。
 
 ## tifa routes
 
@@ -369,7 +381,7 @@ React 和 React DOM 至少要 19.3.0。Vite 插件是按 19.3 的写法改写 Re
 
 配置优先级从高到低：命令行参数、`TIFA_*` 环境变量、`--config` 指定的文件、嵌入的项目配置、默认值。未知的 `TIFA_*` 环境变量会让程序报错退出。
 
-不管程序启动时在哪个时区，VM 里 `Date` 的本地时间恒为 UTC，所以同一个页面在每台机器上渲染得一样。进程的时区不受影响：应用 Go 代码里的 `time.Local` 是机器或 `TZ` 指定的时区，和普通 Go 程序一样。生成的 `main.go` 导入了 `time/tzdata`，所以系统没有 zoneinfo 时（比如 `scratch` 容器），Intl 和 `time.LoadLocation` 也能找到每个时区。程序因此大约增加 450 KB。
+不管程序启动时在哪个时区，VM 里 `Date` 的本地时间恒为 UTC，所以同一个页面在每台机器上渲染得一样。进程的时区不受影响：应用 Go 代码里的 `time.Local` 是机器或 `TZ` 指定的时区，和普通 Go 程序一样。VM 里的 Intl 和 Temporal 用 slowjs 内嵌的时区数据，从不读系统的 zoneinfo。生成的 `main.go` 导入了 `time/tzdata`，所以系统没有 zoneinfo 时（比如 `scratch` 容器），应用 Go 代码里的 `time.LoadLocation` 也能找到每个时区。程序因此大约增加 450 KB。
 
 `serve` 另有开发开关 `--dist <目录>`：从这个目录读前端产物，替代嵌入的 `dist/`。[`tifa dev`](dev.zh-CN.md) 把它指向 `.tifa/dist`。只重建了 SSR 包时，开发用的程序（`server.DevMain`）从这里重新读包，不重启。其他重建之后 tifa dev 重启它。它不是部署配置，不进配置分层，也没有对应的 `TIFA_*` 变量。启动时读 `ssr.js` 编译并预热 VM 池，读 `build.json` 拿到构建 ID 与 head 标签。
 

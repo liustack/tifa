@@ -122,16 +122,28 @@ GOOS=linux GOARCH=amd64 $(go tool -n tifa) build -o bin/myapp-linux
 
 ### Notices to ship with the program
 
-The program embeds locale data and time zones for [Intl](app.md#intl-in-server-rendering) through the package `github.com/liustack/slowjs/intl`. The data comes from Unicode CLDR, from the ICU data Chromium ships and from go-intl, which also ported code from V8 and from the Rust crates of Temporal. Their licenses ask that their notices come with every copy of the program or with its documentation. The notices are six files of that module. When you hand the program to others, ship them with it:
+The program holds code and data under several licenses: tifa (MIT), Go (BSD-3-Clause), the engine slowjs and the QuickJS it comes from (MIT and BSD-3-Clause), the other Go modules it links, the locale and time zone data of [Intl](app.md#intl-in-server-rendering) (Unicode License V3, ICU's and Chromium's notices), and the npm packages in its bundles. These licenses ask that their notices come with every copy of the program, in its documentation or in files next to it. When you hand the program to others, ship them with it.
+
+For everything on the Go side, run this in the app's folder after `tifa build`, so that `go list` finds the versions the app builds with. It copies Go's license, the license and notice files of every module linked into the program, which `go version -m` lists, and the notices slowjs keeps in subfolders:
 
 ```sh
-q="$(go list -m -f '{{.Dir}}' github.com/liustack/slowjs)"
 mkdir -p bin/notices
+cp "$(go env GOROOT)/LICENSE" bin/notices/golang.org_go-LICENSE
+go version -m bin/<app> | awk '$1 == "dep" { print $2 }' | while read -r m; do
+  dir="$(go list -m -f '{{.Dir}}' "$m")"
+  for f in "$dir"/LICENSE* "$dir"/COPYING* "$dir"/NOTICE*; do
+    if [ -f "$f" ]; then cp "$f" "bin/notices/$(echo "$m" | tr / _)-$(basename "$f")"; fi
+  done
+done
+q="$(go list -m -f '{{.Dir}}' github.com/liustack/slowjs)"
+cp "$q/lib/LICENSE" bin/notices/slowjs-lib-LICENSE
+cp "$q/internal/gointl/LICENSE" bin/notices/slowjs-gointl-LICENSE
 cp "$q/intl/LICENSE-DATA" "$q"/internal/gointl/qjsdata/NOTICE-* bin/notices/
-cp "$q/internal/gointl/LICENSE" bin/notices/LICENSE-GOINTL
 ```
 
-Run it in the app's folder, where `go list` finds the version the app builds with. `tifa build` does not copy the files for you.
+slowjs's [NOTICE.md](https://github.com/liustack/slowjs/blob/main/NOTICE.md#what-a-program-that-ships-a-binary-must-include) says which of these files each license asks for.
+
+The npm packages that Vite bundles into the SSR bundle and the browser bundle are the app's own dependencies, and most of their licenses (MIT, ISC, BSD, Apache-2.0) ask the same. The browser bundle goes to everyone who opens a page. `tifa build` does not collect their notices: collect them with a tool of your choice, for example a Vite or Rollup license plugin.
 
 ## tifa routes
 
@@ -369,7 +381,7 @@ Defined in `js/runtime/data.ts`. The Go side implements it:
 
 Config priority, from highest to lowest: command-line flags, `TIFA_*` environment variables, the file given with `--config`, the embedded project config, defaults. An unknown `TIFA_*` environment variable makes the program exit with an error.
 
-In the VMs the local time of `Date` is always UTC, whatever zone the program was started in, so a page renders the same on every machine. The process's zone is left alone: `time.Local` in the app's Go code is the zone of the machine or of `TZ`, as in any Go program. The generated `main.go` imports `time/tzdata`, so Intl and `time.LoadLocation` find every time zone even where the system has no zoneinfo, as in a `scratch` container. It makes the program about 450 KB larger.
+In the VMs the local time of `Date` is always UTC, whatever zone the program was started in, so a page renders the same on every machine. The process's zone is left alone: `time.Local` in the app's Go code is the zone of the machine or of `TZ`, as in any Go program. Intl and Temporal in the VMs use the time zone data built into slowjs and never read the system's zoneinfo. The generated `main.go` imports `time/tzdata`, so `time.LoadLocation` in the app's Go code finds every time zone even where the system has no zoneinfo, as in a `scratch` container. It makes the program about 450 KB larger.
 
 `serve` also has a dev flag, `--dist <dir>`: it reads the frontend output from that folder instead of the embedded `dist/`. [`tifa dev`](dev.md) points it at `.tifa/dist`. After a rebuild of the SSR bundle alone, the dev program (`server.DevMain`) loads the bundle again from there without a restart, and after other rebuilds tifa dev restarts it. It is not a deployment setting, is not part of the config layers, and has no `TIFA_*` variable. At startup the program reads `ssr.js`, compiles it and prewarms the VM pool, and reads `build.json` for the build ID and the head tags.
 
