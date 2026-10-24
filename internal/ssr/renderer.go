@@ -97,6 +97,9 @@ func Load(bytecode *slowjs.SharedBytecode, memory, stack uintptr, timeout time.D
 	if err == nil {
 		err = registerHash(vm)
 	}
+	if err == nil {
+		err = registerAsyncContext(vm)
+	}
 	if err == nil && dev {
 		_, err = vm.Eval(intlCheck, slowjs.EvalGlobal)
 	}

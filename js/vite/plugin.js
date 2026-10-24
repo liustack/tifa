@@ -840,13 +840,19 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         if (source === 'node:module' && importer === rolldownRuntime) {
           return { id: source, external: true, moduleSideEffects: false }
         }
-        if (source === nodeHelper) return { id: source, moduleSideEffects: false }
+        if (source === nodeHelper || source === asyncHooksHelper) return { id: source, moduleSideEffects: false }
         if (source.startsWith('node:') || nodeBuiltins.has(source)) {
           if (!fromDependency) this.error(`Node APIs are not supported in page code: ${source}`)
           // A dependency may import a Node module it never uses on this platform: an import gets
           // a stand-in, see nodeModuleStub. A require or an import() stays as it is, and the
           // check of the output finds it.
-          if (extra?.kind === 'import-statement') return nodeModuleStub(source, importer)
+          if (extra?.kind === 'import-statement') {
+            const code = this.getModuleInfo(importer)?.code ?? fs.readFileSync(importer, 'utf8')
+            if (asyncHooks.has(source) && [...importsOf(code, source, (code) => this.parse(code))].every((name) => serverHooks.has(name))) {
+              return { id: asyncHooksHelper, moduleSideEffects: false }
+            }
+            return nodeModuleStub(source, importer)
+          }
           return { id: source, external: true, moduleSideEffects: false }
         }
         if (clientSource.test(source)) return clientOnlyStub
@@ -875,6 +881,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
     },
     load(id) {
       if (id === nodeHelper) return { code: nodeHelperCode, map: { mappings: '' } }
+      if (id === asyncHooksHelper) return { code: asyncHooksCode, map: { mappings: '' } }
       if (id.startsWith(nodeStub)) return nodeModuleCode(id, (code) => this.parse(code), this.getModuleInfo(nodeStubImporter(id)))
       if (id === clientOnlyStub) {
         return 'export default function ClientOnlyStub(){ throw new Error("Client-only module invoked during SSR") }'
@@ -1161,18 +1168,16 @@ function nodeStubImporter(id) {
 function nodeModuleCode(id, parse, info) {
   const [source, importer] = JSON.parse(id.slice(nodeStub.length))
   const names = new Set(Object.keys(nodeModuleExports(source)))
-  const code = info?.code ?? fs.readFileSync(importer, 'utf8')
-  for (const node of parse(code).body) {
-    if (node.type !== 'ImportDeclaration' && node.type !== 'ExportNamedDeclaration') continue
-    if (node.source?.value !== source) continue
-    for (const s of node.specifiers) {
-      const name = node.type === 'ImportDeclaration' ? s.imported : s.local
-      if (name) names.add(name.type === 'Identifier' ? name.name : name.value)
-    }
-  }
+  for (const name of importsOf(info?.code ?? fs.readFileSync(importer, 'utf8'), source, parse)) names.add(name)
   names.delete('default')
+  names.delete('*')
   const args = (name) => [source, packageName(importer), name].map((v) => JSON.stringify(v)).join(', ')
   let out = `import { nodeExport } from ${JSON.stringify(nodeHelper)}\n`
+  if (asyncHooks.has(source)) {
+    // The server has these, see asyncHooksCode. The other exports are stand-ins.
+    out += `export { ${[...serverHooks].join(', ')} } from ${JSON.stringify(asyncHooksHelper)}\n`
+    for (const name of serverHooks) names.delete(name)
+  }
   let i = 0
   for (const name of names) {
     out += `const e${i} = /* @__PURE__ */ nodeExport(${args(name)})\nexport { e${i++} as ${JSON.stringify(name)} }\n`
@@ -1180,6 +1185,34 @@ function nodeModuleCode(id, parse, info) {
   out += `export default /* @__PURE__ */ nodeExport(${args('')})\n`
   // The stand-in comes from no source file: the places in it map to none.
   return { code: out, map: { mappings: '' } }
+}
+
+// asyncHooks are the names of node:async_hooks. Its exports serverHooks, AsyncLocalStorage and
+// AsyncResource, are those of the server, which the tifa host makes (js/host/async-local-storage.ts)
+// and asyncHooksHelper exports. An import of node:async_hooks that asks for nothing else gets
+// asyncHooksHelper itself, and the build does not warn of it. The stand-in that any other import
+// gets exports them too.
+const asyncHooks = new Set(['node:async_hooks', 'async_hooks'])
+const serverHooks = new Set(['AsyncLocalStorage', 'AsyncResource'])
+const asyncHooksHelper = '\0tifa-node-async-hooks'
+const asyncHooksCode = `const { AsyncLocalStorage, AsyncResource } = globalThis.__tifa_async_hooks__
+export { AsyncLocalStorage, AsyncResource }
+`
+
+// importsOf returns the names code, parsed by parse, imports or re-exports from the module source,
+// and * for a default or namespace import of it or an export * from it.
+function importsOf(code, source, parse) {
+  const names = new Set()
+  for (const node of parse(code).body) {
+    if (node.source?.value !== source) continue
+    if (node.type === 'ExportAllDeclaration') names.add('*')
+    if (node.type !== 'ImportDeclaration' && node.type !== 'ExportNamedDeclaration') continue
+    for (const s of node.specifiers) {
+      const name = node.type === 'ImportDeclaration' ? s.imported : s.local
+      names.add(name ? (name.type === 'Identifier' ? name.name : name.value) : '*')
+    }
+  }
+  return names
 }
 
 // nodeModuleExports returns the module object of the Node module source, of the Node that runs the
