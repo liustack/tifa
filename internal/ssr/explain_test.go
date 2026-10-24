@@ -155,17 +155,18 @@ func TestRenderErrorsWithoutASourceMapGivePlacesInTheBundle(t *testing.T) {
 	}
 }
 
-func TestPrewarmErrorsNameTheNodeModuleTheBundleLoads(t *testing.T) {
-	// The tifa plugin writes each import of a Node module as a require that names the packages
-	// that import it.
-	bundle := "globalThis.startRender = function () {}\n\nvar fs = require(`node:fs`,`esm-fs, other`);\n"
-	_, err := NewPool(bundle, sourceMapOf(mapping{1, 0, "node_modules/pkg/index.js", 0, 0}), testConfig(1), false)
-	if err == nil || !strings.Contains(err.Error(), `ssr: prewarm VM: ReferenceError: 'require' is not defined`) ||
-		!strings.Contains(err.Error(), `The bundle loads the Node module "node:fs", imported by esm-fs, other, at ssr.js:3:10`) ||
-		!strings.Contains(err.Error(), advice) || !strings.Contains(err.Error(), loadAdvice) || strings.Contains(err.Error(), renderAdvice) {
-		t.Errorf("err = %v, want the Node module and its packages", err)
+func TestPrewarmErrorsNameTheNodeModuleTheBundleUses(t *testing.T) {
+	// The tifa plugin gives each import of a Node module a stand-in whose exports throw this when
+	// used. Its code maps to no source: the place is that of the first frame that does.
+	bundle := "globalThis.startRender = function () {}\n" +
+		"function used() { throw new Error('readFileSync of the Node module \"node:fs\", imported by esm-fs, was used on the server, which has no Node modules') }\n" +
+		"function read() { used() }\nread()\n"
+	_, err := NewPool(bundle, sourceMapOf(mapping{2, 0, "node_modules/esm-fs/index.js", 4, 2}), testConfig(1), false)
+	if err == nil || !strings.Contains(err.Error(), `ssr: prewarm VM: Error: readFileSync of the Node module "node:fs", imported by esm-fs`) ||
+		!strings.Contains(err.Error(), "The code at node_modules/esm-fs/index.js:5:3 used it. SSR runs in QuickJS, which has no Node modules") ||
+		!strings.Contains(err.Error(), loadAdvice) || strings.Contains(err.Error(), renderAdvice) {
+		t.Errorf("err = %v, want the place of the use and the advice", err)
 	}
-
 	bundle = "\nfunction load(name) { return require(name) }\nload('fs')\n"
 	_, err = NewPool(bundle, sourceMapOf(mapping{1, 0, "node_modules/pkg/index.js", 2, 0}), testConfig(1), false)
 	if err == nil || !strings.Contains(err.Error(), "The package pkg calls require at node_modules/pkg/index.js:3:1") ||

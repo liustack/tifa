@@ -6,6 +6,7 @@
 
 ### 变更
 
+- 服务端渲染改用 slowjs v0.28.5，它让异步上下文跟着 promise 任务走，服务端的 `AsyncLocalStorage` 靠的就是这个，还会直接从 shape 列出普通对象的自有键，用于 `Object.keys`、`for in`、对象展开和 `JSON.stringify`。
 - 服务端渲染改用 slowjs v0.28.4，模块跑完后它会释放模块的顶层函数和它留住的变量。
 - SSR 包和浏览器包一样在严格模式下运行：它现在是一个 ES 模块，每个虚拟机把它当模块运行（见[顶层 await 和严格模式](docs/app.zh-CN.md#顶层-await-和严格模式)）。只能在非严格模式下运行的包，在服务端也会失败。`tifa build` 像服务端那样把 SSR 包编译一遍，但不运行它，所以只有非严格模式允许的语法（比如 CommonJS 文件里的 `with` 语句）会让构建失败，错误里有源文件中的位置，不会等到服务端启动才失败。给从没声明过的变量赋值，运行到那里时抛 `ReferenceError`。页面渲染出的 HTML 不变。
 - 服务端渲染改用 slowjs v0.28.3。带 v 标志的正则接受规范允许、Node 也接受的写法，比如 `[\&\;]` 和 `/-/v`，以前会抛 SyntaxError。shiki 生成的正则都能编译，捕获组超过 254 个的除外。
@@ -24,6 +25,9 @@
 
 ### 新增
 
+- 包可以引入只在 Node 上用的 Node 模块（比如渲染永远走不到的代码里用的 `node:fs`），应用照样加载、渲染。引入的每个名字都是一个替身，渲染用到它时才抛错，错误里有用到的导出、模块、包和它源码里的位置。以前打包时这样的 import 变成 `require`，每个虚拟机加载时就失败，哪怕只有 `import()` 才走到那个模块。`tifa build` 仍会列出留在 SSR 包里的 Node 模块（见[引入 Node 模块的包](docs/app.zh-CN.md#引入-node-模块的包)）。
+- 挂起等待 promise 自己就能完成的事的组件（比如模块在包里的 `React.lazy` 组件，或对 promise 调 `use`）可以在服务端渲染：服务端等它，写出完整的页面，就是浏览器加载完后显示的样子。以前这样的页面会失败，错误说有组件挂起了。等定时器或请求的仍然报这个错。不挂起的页面 HTML 不变，渲染一样快（见[会等待的组件](docs/app.zh-CN.md#会等待的组件)）。
+- 服务端渲染里有 `AsyncLocalStorage`，既是全局变量，也和 `AsyncResource` 一起由 `node:async_hooks` 导出，和 Cloudflare Workers 一样：有 `run`、`exit`、`getStore`、`bind` 和 `snapshot`。store 跟着 `await` 和 promise 回调走。fumadocs 把页面状态放在里面，现在除了它自己的 `collections` 别名，不用任何设置就能构建和渲染。
 - 服务端渲染里，包和页面代码可以用顶层 `await`，fumadocs-mdx 的集合就这么用。以前有它的构建会失败。每个虚拟机加载时等它完成，再做第一次渲染。它只能靠 promise 完成，比如对包内模块的 `await import()`：等定时器或请求的永远等不到，虚拟机加载失败。
 - 服务端渲染记住 i18next 翻译出的字符串，同样的键和选项再来时直接给出。示例商店的店面页面渲染时间是原来的 0.798，HTML 不变。默认打开，在项目文件里写上 `build.i18next_cache: false` 就关掉。运行了应用的格式化函数或后处理器的调用每次都重新翻译，`cloneInstance` 做出的实例的调用也一样，所以这些代码可以读请求里的东西。应用在第一次渲染之后绕开 i18next 的 API 改资源或选项，或者交给 i18next 别的会读请求的函数（比如 `overloadTranslationOptionHandler`）时，应该关掉它，否则页面可能显示过期的翻译。插件不认识某个 i18next 的代码时，构建打印警告，SSR 包和没有缓存时一样（[build.zh-CN.md](docs/build.zh-CN.md#i18next-缓存)）。
 - SSR 池会主动替换回收后存活内存超过预热基线上界的 VM。渲染队列无人等待时，后台一次加载一个备用 VM，只与空闲 VM 交换，加载期间保留渲染容量。加载失败时旧 VM 继续服务，并按退避间隔重试。替换期间需要多留一个 VM 的内存，见[内存](docs/performance.zh-CN.md#内存)。

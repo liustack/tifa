@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { renderToString as renderString } from 'react-dom/server.edge'
+import { prerenderToString } from 'react-dom/server.edge'
 import { RouterProvider, type AnyRoute } from '@tanstack/react-router'
 import { attachRouterServerSsrUtils } from '@tanstack/react-router/ssr/server'
 import { createAppRouter } from './router'
@@ -22,11 +22,19 @@ declare const __TIFA_ASSETS__: string
 declare global {
   var startRender: (json: string) => void
   var renderResult: string | undefined
+  var stopRender: (() => void) | undefined
 }
 
-// The tifa Vite plugin gives renderToString the onError option of React's other renderers. A
-// render inside the render reports to its own.
-const renderToString = renderString as (node: ReactNode, options: { onError: (error: unknown) => void }) => string
+// prerenderToString is what the tifa Vite plugin adds to React DOM's string renderer: it renders
+// what renderToString renders, but waits for the components that suspend on work the jobs of the
+// VM settle, such as a React.lazy component of a module in the bundle, and writes them in place.
+// Its signal ends the render as renderToString ends it. Each call reports to its own onError.
+declare module 'react-dom/server.edge' {
+  function prerenderToString(
+    node: ReactNode,
+    options: { onError: (error: unknown) => void; signal: AbortSignal },
+  ): Promise<string>
+}
 
 // clientRenderedBoundary is what React writes for a Suspense boundary that failed on the
 // server and is left to the browser.
@@ -35,13 +43,14 @@ const incompleteRender =
   'a component threw during the server render and React left its Suspense boundary to the browser, ' +
   'set SSR = false on the page to see the error in the browser console'
 const suspendedRender =
-  'a component suspended during the server render: it threw a promise, or it is a React.lazy component that ' +
-  'had not loaded. renderToString does not wait, so React left its Suspense boundary to the browser. Give the ' +
-  'page its data with Load and import the component statically, or set SSR = false on the page. When a lazy ' +
-  'component failed to load, the server does not see why, the browser console shows it'
+  'a component suspended during the server render: it threw a promise, or it is a React.lazy component, that ' +
+  'never settled. The server has no timers and does no I/O, so the render waits only for what its jobs settle, ' +
+  'and React left its Suspense boundary to the browser. Give the page its data with Load and import the component ' +
+  'statically, or set SSR = false on the page'
 
 // suspended reports whether error is how renderToString reports a boundary that suspended: the
 // reason it aborts the boundary with, which advises a stream renderer tifa does not use.
+// prerenderToString gives the same reason when it stops.
 function suspended(error: unknown) {
   return typeof error === 'string' && error.startsWith('The server used "renderTo')
 }
@@ -52,7 +61,9 @@ type RenderInput = Injected & { preload?: string }
 
 // serve installs startRender, which the Go VM pool calls with the JSON of a RenderInput.
 // It leaves the HTML, or the JSON of {"redirect": {location, status}} or {"error": ...}, in
-// renderResult once the queued jobs have run. The router redirects a URL it spells differently, such as
+// renderResult once the queued jobs have run. While React waits for a component that suspended,
+// stopRender is set: the pool calls it when no job is left, as nothing could settle what React
+// waits for, and the render ends with the boundaries still waiting left to the browser. The router redirects a URL it spells differently, such as
 // /%61 for /a. Go answers redirects of Loads itself before it renders.
 //
 // React renders only the application root. The document around it, the attributes of <html>
@@ -85,8 +96,14 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
         }
         await router.serverSsr!.dehydrate()
         const errors: unknown[] = []
-        const root = renderToString(<RouterProvider router={router} />, { onError: (error) => errors.push(error) })
-        // renderToString swallows an error thrown inside a Suspense boundary, and the router
+        const stop = new AbortController()
+        globalThis.stopRender = () => stop.abort()
+        const root = await prerenderToString(<RouterProvider router={router} />, {
+          onError: (error) => errors.push(error),
+          signal: stop.signal,
+        })
+        globalThis.stopRender = undefined
+        // React swallows an error thrown inside a Suspense boundary, and the router
         // wraps the routes in one: the boundary renders its fallback and leaves the marker of a
         // boundary the browser must render itself. The page is then incomplete, never a success.
         // The first error a component threw is why, if the plugin could pass it, or else that a
@@ -122,6 +139,7 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
               : String(error),
         })
       } finally {
+        globalThis.stopRender = undefined
         router.serverSsr!.cleanup()
       }
     })()

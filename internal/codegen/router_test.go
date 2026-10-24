@@ -17,9 +17,10 @@ import (
 // head.test.tsx are bundled once more with the lazyRoutes plugin, which the browser build of an
 // application has, into *.lazy.mjs: their route modules load when a route needs them, also those
 // that export head. seroval gets the changes of the SSR bundle, so the server renders write the
-// data of a page as the bundle does.
+// data of a page as the bundle does, and React DOM gets the prerenderToString the runtime renders
+// with.
 const routerBuild = `import { build } from 'vite'
-import { generated, lazyRoutes, serovalPlugin } from './.tifa/vite/plugin.js'
+import { generated, lazyRoutes, prerenderPlugin, serovalPlugin } from './.tifa/vite/plugin.js'
 const assets = '<link rel="stylesheet" href="/assets/app.css"><script type="module" src="/assets/app.js"></script>'
 const entries = [['router.test.tsx', 'node', false], ['head.test.tsx', 'browser', false], ['call.test.ts', 'node', false],
   ['router.test.tsx', 'node', true], ['head.test.tsx', 'browser', true]]
@@ -27,7 +28,7 @@ for (const [entry, platform, lazy] of entries) {
   await build({
     configFile: false,
     logLevel: 'warn',
-    plugins: lazy ? [generated(), lazyRoutes(['ssr']), serovalPlugin()] : [generated(), serovalPlugin()],
+    plugins: lazy ? [generated(), lazyRoutes(['ssr']), serovalPlugin(), prerenderPlugin()] : [generated(), serovalPlugin(), prerenderPlugin()],
     resolve: { tsconfigPaths: true },
     define: { 'process.env.NODE_ENV': '"production"', __TIFA_ASSETS__: JSON.stringify(assets), __LAZY_ROUTES__: String(lazy) },
     environments: { ssr: { resolve: { noExternal: true, conditions: [platform, 'import', 'module', 'default'] } } },

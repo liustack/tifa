@@ -319,6 +319,7 @@ const LayoutSSR = false // 本目录的 Layout，默认 true
 - 二进制字符串的 Base64 编解码 `atob` 和 `btoa`，以及 Web API 错误使用的 `DOMException`。`btoa` 拒绝 U+00FF 以上的字符。
 - `crypto.getRandomValues` 原地填充整数类型数组，每次最多 65,536 字节。共享或可调整大小缓冲区的视图会在元素类型和配额检查之前抛 `TypeError`。`crypto.randomUUID` 生成 v4 UUID。两者每次都从 Go 的 `crypto/rand` 读取新字节，模块加载期间也能调用，没有随机字节池。这项宿主操作可能读取操作系统熵源，不向应用代码开放文件或网络访问。和 `Math.random` 一样，不要把随机值放进需要 hydration 的 HTML。
 - `structuredClone` 支持原始值、对象、数组、Date、RegExp、Map、Set、错误对象（含 cause 和 AggregateError）、ArrayBuffer、类型数组、DataView 和装箱原始值，保留循环引用与共享引用。缓冲区会复制，也支持可调整大小的缓冲区。这类 ArrayBuffer 的所有视图都抛 `DataCloneError`，无论长度固定还是随缓冲区变化。函数、symbol 和弱引用集合抛 `DataCloneError`。Promise、FinalizationRegistry、内建迭代器和不支持的宿主对象按原型链识别并拒绝。移除或替换原型链后，它们可能被当作普通对象，只复制可枚举的自有属性。这些类型无法像受支持的内建类型那样，通过纯 JS 的内部品牌检查始终识别。与浏览器不同，普通对象或数组的透明 Proxy 会通过 traps 克隆为普通对象或数组。仅模仿受支持内建类型原型的对象会被拒绝。SharedArrayBuffer 和非空 transfer 列表暂不支持，也抛 `DataCloneError`，空 transfer 列表可以传。自定义原型、访问器和属性描述符不保留，普通对象和数组只复制可枚举的自有字符串键。
+- `AsyncLocalStorage`，既是全局变量，也和 `AsyncResource` 一起由 `node:async_hooks` 导出，和 Cloudflare Workers 一样：有 `run`、`exit`、`getStore`、`AsyncLocalStorage.bind` 和 `AsyncLocalStorage.snapshot`，没有 `enterWith` 和 `disable`。store 跟着 `await` 和 promise 回调走，所以把一次请求的状态放在里面的包能用。这里没有定时器和事件，也就谈不上跟着它们走。
 - `Intl` 和各个 `toLocale*` 方法，见[服务端渲染里的 Intl](#服务端渲染里的-intl)。
 - `Temporal` 和 `Date.prototype.toTemporalInstant`，见[服务端渲染里的 Temporal](#服务端渲染里的-temporal)。
 - `console`，有 `log`、`info`、`debug`、`warn`、`error` 和 `assert`。前四个什么也不输出。`error` 和不成立的 `assert` 会抛错，这次渲染失败，错误信息就是它们的参数。其他方法（比如 `console.time`、`console.table`）没有，调用会抛 `TypeError`。
@@ -338,6 +339,18 @@ React 在服务端不执行 effect，所以只在 `useEffect`、`useLayoutEffect
 SSR 包是一个 ES 模块。每个虚拟机加载时运行它一次，包里的模块（应用自己的或 npm 包的）可以用顶层 `await`：虚拟机等它完成，再做第一次渲染。虚拟机没有定时器，也不做 I/O，所以这样的 `await` 只能靠 promise 完成，比如对包内模块的 `await import('./mod')`。等定时器或请求的 `await` 永远等不到，服务端起不来：虚拟机加载失败，错误说模块的顶层 await 还没完成。
 
 既然是模块，整个包都在严格模式下运行，和浏览器包一样。只能在非严格模式下运行的包，在服务端同样会失败。只有非严格模式允许的语法，比如 `with` 语句、两个同名参数或给 `eval` 赋值，会让 `tifa build` 失败，错误里有源文件中的位置：构建时像服务端那样把 SSR 包编译一遍，但不运行它。在 `tifa dev` 下，应用加载重建的包时报同样的错。严格模式要等代码运行才拦的，在运行到那里时抛错：给从没声明过的变量赋值抛 `ReferenceError`，读 `arguments.callee` 抛 `TypeError`。
+
+### 引入 Node 模块的包
+
+有的包为只在 Node 上跑的代码引入 Node 模块，比如 `node:fs` 或 `node:path`。服务端没有 Node 模块，但这样的 import 不会让应用起不来：它引入的每个名字都是一个替身，渲染用到它（调用、构造或读它的属性）时才抛错。`tifa build` 列出留在 SSR 包里的 Node 模块和引入它们的包。这份清单只是提示，走不到那段代码的页面照样渲染。只有 `import()` 才走到的模块，要等那个 import 运行时才运行。
+
+渲染用到替身时，错误里有用到的导出、模块、包和它源码里的位置。模块顶层就用到的，虚拟机加载不起来。这时从 `.client.tsx` 文件里引入这个包，或者换用它不需要 Node 的构建，很多包都给浏览器或 workers 准备了这样的构建。对 Node 模块的 `require` 仍是 `require`，服务端没有它，构建同样会提示。`node:async_hooks` 的 `AsyncLocalStorage` 和 `AsyncResource` 不是替身，见上文。
+
+### 会等待的组件
+
+组件可以挂起，等 promise 自己就能完成的事：模块在包里的 `React.lazy` 组件，比如 `lazy(() => import('./panel'))`，或者对一个用页面已有数据做出来的 promise 调 `use`。服务端会等它，写出完整的页面，HTML 里没有 fallback，就是浏览器加载完后显示的样子。
+
+服务端没有定时器，也不做 I/O，所以只在还有 promise 任务可跑时等。等定时器或请求的组件等不到结果：这次渲染失败，错误说有组件挂起了且一直没完成。这种数据用 `Load` 交给页面，或者让组件只在浏览器里渲染。不挂起的页面和以前一样一遍渲染完。
 
 ### 一次渲染会给下一次留下什么
 
