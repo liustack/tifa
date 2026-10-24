@@ -20,11 +20,12 @@
 //	                             watcher uses FSEvents
 //	{op: "pollFiles"}            makes the running dev server's watcher poll, unless it uses
 //	                             FSEvents, and answers with polling and fsEvents
-//	{op: "script", dir, file, plugin}
+//	{op: "script", dir, file, plugin, format}
 //	                             builds file in dir alone like an SSR bundle, with the SSR part
 //	                             of the tifa plugin at the path plugin and no Vite config, and
-//	                             answers with its code and the modules in it. go generate ./js
-//	                             builds the SSR host patches this way
+//	                             answers with its code and the modules in it. format, when set,
+//	                             replaces the bundle's esm. go generate ./js builds the SSR host
+//	                             patches this way, as an iife
 //
 // tifa sets NODE_ENV: production for tifa build, development for tifa dev.
 //
@@ -256,9 +257,10 @@ const ops = {
     return { polling: watcherPolls(), fsEvents: watcherUsesFSEvents() }
   },
 
-  async script({ dir, file, plugin }) {
+  async script({ dir, file, plugin, format }) {
     const { ssrEnvironment, ssrPlugin } = await import(pathToFileURL(plugin).href)
     const env = ssrEnvironment(path.resolve(dir, file), path.join(dir, 'out'))
+    if (format) env.build.rolldownOptions.output.format = format
     const builder = await vite.createBuilder({
       root: dir,
       configFile: false,
