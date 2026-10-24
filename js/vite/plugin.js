@@ -5,7 +5,7 @@
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { builtinModules } from 'node:module'
+import { builtinModules, createRequire } from 'node:module'
 
 // devBase is where the Vite dev server serves modules under tifa dev. tifa dev sends every
 // request under it to Vite and every other one to the application.
@@ -800,9 +800,9 @@ function resolveRouteModule(ctx, root, source, importer) {
 // checks in front of its long switches on strings, passes the errors renderToString ignores to the
 // runtime, keeps the renderer from building component stacks and from putting the names of
 // components into their key paths, gives the importers of React namespaces of plain values,
-// switches core-js to its property-backed internal state, checks that the bundle is one file, turns
-// the imports of Node modules into calls of require, and warns of the places where it may load a
-// module at run time. Its source map names sources
+// switches core-js to its property-backed internal state, checks that the bundle is one file, gives
+// the imports of Node modules stand-ins that throw when used, and warns of them and of the places
+// where it may load a module at run time. Its source map names sources
 // relative to the application root. It comes with serovalPlugin, which changes seroval. With
 // settings.i18nextCache, build.i18next_cache, it also adds a cache to i18next, see i18nextCache.
 export function ssrPlugin(getRoot, loadVite, settings = {}) {
@@ -810,7 +810,6 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
   let coreJS // real directory of the core-js package the application resolves, '' for none
   let coreJSState = false // whether the internal state module of coreJS is in the bundle
   let coreJSAdapted = false // whether it got the property-backed state
-  let nodeImporters // Node module to the packages that import it
   let namesDropped = false // whether React's key paths have no names of components
   let serverActions // the modules outside React DOM with $$FORM_ACTION in their code
   let lucide // folder of lucide-react's ES modules to whether the plugin knows its files
@@ -820,7 +819,6 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
     buildStart() {
       coreJS = findPackage(getRoot(), 'core-js')
       coreJSState = coreJSAdapted = false
-      nodeImporters = new Map()
       namesDropped = false
       serverActions = new Set()
       lucide = new Map()
@@ -835,20 +833,20 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
     },
     resolveId: {
       order: 'pre',
-      async handler(source, importer) {
+      async handler(source, importer, extra) {
         const fromDependency = importer?.includes(`${path.sep}node_modules${path.sep}`)
         // On Node, the helpers of rolldown import createRequire, which polyfillRequire: false
         // leaves unused. Without side effects, the import goes with it.
         if (source === 'node:module' && importer === rolldownRuntime) {
           return { id: source, external: true, moduleSideEffects: false }
         }
+        if (source === nodeHelper) return { id: source, moduleSideEffects: false }
         if (source.startsWith('node:') || nodeBuiltins.has(source)) {
           if (!fromDependency) this.error(`Node APIs are not supported in page code: ${source}`)
-          if (!nodeImporters.has(source)) nodeImporters.set(source, new Set())
-          nodeImporters.get(source).add(packageName(importer))
-          // A dependency may import a Node module it never uses on this platform: an import of
-          // nothing goes. The check of the output finds an import that stays, which renderChunk
-          // turns into a require.
+          // A dependency may import a Node module it never uses on this platform: an import gets
+          // a stand-in, see nodeModuleStub. A require or an import() stays as it is, and the
+          // check of the output finds it.
+          if (extra?.kind === 'import-statement') return nodeModuleStub(source, importer)
           return { id: source, external: true, moduleSideEffects: false }
         }
         if (clientSource.test(source)) return clientOnlyStub
@@ -876,6 +874,8 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
       },
     },
     load(id) {
+      if (id === nodeHelper) return { code: nodeHelperCode, map: { mappings: '' } }
+      if (id.startsWith(nodeStub)) return nodeModuleCode(id, (code) => this.parse(code), this.getModuleInfo(nodeStubImporter(id)))
       if (id === clientOnlyStub) {
         return 'export default function ClientOnlyStub(){ throw new Error("Client-only module invoked during SSR") }'
       }
@@ -1086,16 +1086,23 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
     renderChunk(code, chunk) {
       const plain = plainNamespaces(code, chunk.moduleIds)
       if (plain.warning) this.warn(plain.warning)
-      const importers = (id) => [...(nodeImporters.get(id) ?? [])].join(', ')
-      const required = requireNodeModules(plain.code, (code) => this.parse(code), importers)
-      if (required.error) this.error(required.error)
       // The code keeps the lines and places it had, so the source map fits it as it is.
-      return required.code === code ? null : { code: required.code, map: null }
+      return plain.code === code ? null : { code: plain.code, map: null }
     },
     async generateBundle(_, bundle) {
       const chunks = Object.values(bundle).filter((output) => output.type === 'chunk')
       if (chunks.length !== 1) this.error(`the SSR bundle has ${chunks.length} files, want 1`)
       const [chunk] = chunks
+      const imports = chunk.code.match(/^(?:import|export)\b.*\bfrom\s*(["'][^"']*["'])/m)
+      if (imports) this.error(`the SSR bundle imports ${imports[1]}, which QuickJS cannot load`)
+      const stubs = nodeModulesLeft(chunk)
+      if (stubs.length > 0) {
+        this.warn(
+          'the SSR bundle uses Node modules, which QuickJS does not have: in their place it has stand-ins that throw ' +
+            'when a render uses them. The list is a hint, a render may never reach the code that uses them:\n' +
+            stubs.join('\n'),
+        )
+      }
       const loads = await hostLoads(chunk, await loadVite(), (code) => this.parse(code))
       if (loads.length > 0) {
         this.warn(
@@ -1128,39 +1135,91 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
 // rolldownRuntime is the ID of the module of rolldown's helpers.
 const rolldownRuntime = '\0rolldown/runtime.js'
 
-// requireNodeModules returns code, a chunk of the SSR bundle before it is minified, with each
-// import of a Node module turned into a require of it that names the packages that import it, as
-// in require("node:fs", "esm-fs, other"), with importers giving them for a module. QuickJS has no
-// require, so a bundle that keeps one fails as it loads, with a stack trace the server explains
-// with the packages, and the check of the output finds it. Rolldown writes these imports at the
-// start of the chunk, and the require goes in the place of each, on the last of its lines, so the
-// lines stay where they were and the source map fits the code as it is. Every module the SSR build does not bundle is a Node module.
-// Each import becomes a declaration of the names it binds. A chunk that reexports from a module
-// gives an error.
-export function requireNodeModules(code, parse, importers) {
-  if (!/^(?:import|export)\b/m.test(code)) return { code }
-  const edits = []
+// nodeStub starts the IDs of the stand-ins of Node modules, see nodeModuleStub, and nodeHelper is
+// the ID of the module they share.
+const nodeStub = '\0tifa-node:'
+const nodeHelper = '\0tifa-node'
+
+// nodeModuleStub resolves an import of the Node module source by importer, a file of a dependency,
+// to a stand-in module of its own: QuickJS has no Node modules. Each export of the stand-in throws
+// when it is used: called, constructed, or its properties read or set. Merely importing a Node
+// module, as a package does that uses it only on Node or only in code a render never reaches, does
+// no harm, and a module the bundle runs only on an import() runs only then. The stand-in has no
+// side effects, so the exports no code uses leave the bundle.
+function nodeModuleStub(source, importer) {
+  return { id: nodeStub + JSON.stringify([source, importer]), moduleSideEffects: false }
+}
+
+function nodeStubImporter(id) {
+  return JSON.parse(id.slice(nodeStub.length))[1]
+}
+
+// nodeModuleCode returns the stand-in with the ID id, whose module importer imports as info, its
+// module info, gives it, and which parse parses. It exports what Node exports from the module,
+// asked of the Node that runs the build, and every other name importer imports from it, such as an
+// API of a newer Node: rolldown fails on an import of a name a module does not export.
+function nodeModuleCode(id, parse, info) {
+  const [source, importer] = JSON.parse(id.slice(nodeStub.length))
+  const names = new Set(Object.keys(nodeModuleExports(source)))
+  const code = info?.code ?? fs.readFileSync(importer, 'utf8')
   for (const node of parse(code).body) {
-    if ((node.type === 'ExportNamedDeclaration' || node.type === 'ExportAllDeclaration') && node.source) {
-      return { code, error: `the SSR bundle reexports ${node.source.value}, which QuickJS cannot load` }
-    }
-    if (node.type !== 'ImportDeclaration') continue
-    const id = node.source.value
-    const call = `require(${JSON.stringify(id)}, ${JSON.stringify(importers(id))})`
-    let namespace
-    const names = []
+    if (node.type !== 'ImportDeclaration' && node.type !== 'ExportNamedDeclaration') continue
+    if (node.source?.value !== source) continue
     for (const s of node.specifiers) {
-      if (s.type === 'ImportNamespaceSpecifier') namespace = s.local.name
-      else if (s.type === 'ImportDefaultSpecifier') names.push(`default: ${s.local.name}`)
-      else names.push(`${s.imported.type === 'Identifier' ? s.imported.name : JSON.stringify(s.imported.value)}: ${s.local.name}`)
+      const name = node.type === 'ImportDeclaration' ? s.imported : s.local
+      if (name) names.add(name.type === 'Identifier' ? name.name : name.value)
     }
-    const declared = [namespace && `${namespace} = ${call}`, names.length > 0 && `{ ${names.join(', ')} } = ${namespace ?? call}`]
-    const text = namespace || names.length > 0 ? `var ${declared.filter(Boolean).join(', ')};` : `${call};`
-    edits.push({ start: node.start, end: node.end, text: sameLines(code.slice(node.start, node.end), text) })
   }
-  let out = code
-  for (const { start, end, text } of edits.reverse()) out = out.slice(0, start) + text + out.slice(end)
-  return { code: out }
+  names.delete('default')
+  const args = (name) => [source, packageName(importer), name].map((v) => JSON.stringify(v)).join(', ')
+  let out = `import { nodeExport } from ${JSON.stringify(nodeHelper)}\n`
+  let i = 0
+  for (const name of names) {
+    out += `const e${i} = /* @__PURE__ */ nodeExport(${args(name)})\nexport { e${i++} as ${JSON.stringify(name)} }\n`
+  }
+  out += `export default /* @__PURE__ */ nodeExport(${args('')})\n`
+  // The stand-in comes from no source file: the places in it map to none.
+  return { code: out, map: { mappings: '' } }
+}
+
+// nodeModuleExports returns the module object of the Node module source, of the Node that runs the
+// build. Its own properties are the names the ES module exports.
+function nodeModuleExports(source) {
+  try {
+    return process.getBuiltinModule?.(source) ?? createRequire(import.meta.url)(source)
+  } catch {
+    return {}
+  }
+}
+
+// nodeHelperCode makes the exports of the stand-ins: a function whose every operation throws an
+// error that says which export was used, of which Node module, imported by which package. The
+// server's explanation of the error ends in the same words as the message (see internal/ssr).
+const nodeHelperCode = `const traps = ['apply', 'construct', 'defineProperty', 'deleteProperty', 'get', 'getOwnPropertyDescriptor',
+  'getPrototypeOf', 'has', 'isExtensible', 'ownKeys', 'preventExtensions', 'set', 'setPrototypeOf']
+const named = new Set(['defineProperty', 'deleteProperty', 'get', 'getOwnPropertyDescriptor', 'has', 'set'])
+function nodeModuleUsed(module, importers, name, trap, key) {
+  const what = named.has(trap) && typeof key === 'string' ? (name ? name + '.' + key : key) : name || 'the default export'
+  return new Error(what + ' of the Node module "' + module + '", imported by ' + importers + ', was used on the server, which has no Node modules')
+}
+export function nodeExport(module, importers, name) {
+  const handler = {}
+  for (const trap of traps) handler[trap] = (target, key) => { throw nodeModuleUsed(module, importers, name, trap, key) }
+  return new Proxy(function () {}, handler)
+}
+`
+
+// nodeModulesLeft returns the Node modules whose stand-ins are in chunk, one line for each, with the
+// packages that import it.
+function nodeModulesLeft(chunk) {
+  const importers = new Map()
+  for (const [id, module] of Object.entries(chunk.modules)) {
+    if (!id.startsWith(nodeStub) || module.renderedLength === 0) continue
+    const [source, importer] = JSON.parse(id.slice(nodeStub.length))
+    if (!importers.has(source)) importers.set(source, new Set())
+    importers.get(source).add(packageName(importer))
+  }
+  return [...importers].map(([source, names]) => `${JSON.stringify(source)}, imported by ${[...names].join(', ')}`)
 }
 
 // serovalPlugin applies to the SSR build only. It changes seroval, which TanStack Router writes
@@ -1835,9 +1894,7 @@ export function plainNamespaces(code, ids) {
 //   - The minifier renames every name the bundle's function declares, so a require that is left
 //     is the host's.
 //
-// The bundle loads the Node modules it imports with require("node:fs") and the like (see
-// requireNodeModules), so they are found the same way. The source maps of the copy and of the chunk
-// name the place in the source.
+// The source maps of the copy and of the chunk name the place in the source.
 async function hostLoads(chunk, vite, parse) {
   // Most bundles never name require or import(), and need no copy.
   if (!mayLoadModules(chunk.code)) return []
@@ -1851,13 +1908,13 @@ async function hostLoads(chunk, vite, parse) {
   const found = []
   const visit = (node, parent, key) => {
     if (node.type === 'Identifier' && node.name === 'require' && isReference(parent, key)) {
-      const [name, importers] = parent.type === 'CallExpression' && key === 'callee' ? parent.arguments.map(stringValue) : []
+      const [name] = parent.type === 'CallExpression' && key === 'callee' ? parent.arguments.map(stringValue) : []
       found.push({
         at: node.start,
         what:
           typeof name !== 'string'
             ? 'require loads a module by a name known only at run time'
-            : `require(${JSON.stringify(name)}) loads a Node module${importers ? ` imported by ${importers}` : ''}`,
+            : `require(${JSON.stringify(name)}) loads a Node module`,
       })
     } else if (node.type === 'ImportExpression') {
       found.push({ at: node.start, what: 'import() loads a module at run time' })

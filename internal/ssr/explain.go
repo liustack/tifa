@@ -40,9 +40,8 @@ func (e *explainedError) Unwrap() error { return e.err }
 // <eval>, and code that eval or Function runs <input>.
 var bundlePlace = regexp.MustCompile(`<eval>:(\d+):(\d+)`)
 
-// nodeModule matches the call that loads a Node module packages import, and its packages, see
-// the tifa Vite plugin.
-var nodeModule = regexp.MustCompile("^require\\([\"`]([^\"`]*)[\"`](?:, ?[\"`]([^\"`]*)[\"`])?\\)")
+// nodeModule matches a call of require that loads a Node module by its name.
+var nodeModule = regexp.MustCompile("^require\\([\"`]([^\"`]*)[\"`]\\)")
 
 // maxFrames is how many frames of a stack trace an error gives, the rest it counts. An error is
 // explained after its render, outside the limits of the VM, so its cost must have a limit too.
@@ -53,6 +52,10 @@ const markEvery = 1024
 
 // missingRequire is how QuickJS reports a call of require, which it does not have.
 const missingRequire = "ReferenceError: 'require' is not defined"
+
+// nodeModuleUsed ends the message of the error that the stand-in of a Node module throws when a
+// render uses one of its exports, see nodeHelperCode in the tifa Vite plugin.
+const nodeModuleUsed = ", was used on the server, which has no Node modules"
 
 // sources turns places in the bundle into places in the files it came from, by the source map
 // of the bundle. The first time it is used, on the first error, it indexes the lines of the
@@ -115,6 +118,9 @@ func (s *sources) explain(err error, loading bool) error {
 			text += "\n" + s.requireAdvice(line, column, loading)
 		}
 	}
+	if strings.HasSuffix(head, nodeModuleUsed) {
+		text += "\n" + s.nodeModuleAdvice(stack, loading)
+	}
 	return &explainedError{err: err, text: text}
 }
 
@@ -126,24 +132,39 @@ func placeOf(place string) (int, int) {
 	return line, column
 }
 
+// nodeAdvice is what to do about code that took a path meant for Node, which depends on whether the
+// bundle was loading.
+func nodeAdvice(loading bool) string {
+	if loading {
+		return "The bundle runs it as it loads, before any page renders, so moving the call into a useEffect does not help: " +
+			"import the package from a .client file, which runs in the browser only, or use a build of it that does not need Node."
+	}
+	return "Import the package from a .client file, or call it from a useEffect, which run in the browser only, " +
+		"or use a build of the package that does not need Node."
+}
+
+// nodeModuleAdvice says where the code that used the stand-in of a Node module is, by the first
+// frame of stack with a place in the sources: the frames of the stand-in have none. It then says
+// why it fails and what to do.
+func (s *sources) nodeModuleAdvice(stack string, loading bool) string {
+	where := "Code of the bundle used it"
+	for _, place := range bundlePlace.FindAllString(stack, maxFrames) {
+		line, column := placeOf(place)
+		if file, sourceLine, sourceColumn, ok := s.source(line, column); ok {
+			where = fmt.Sprintf("The code at %s:%d:%d used it", file, sourceLine+1, sourceColumn+1)
+			break
+		}
+	}
+	return where + ". SSR runs in QuickJS, which has no Node modules, so this code took a path meant for Node. " + nodeAdvice(loading)
+}
+
 // requireAdvice says which code called require at line and column of the bundle, why it fails,
 // and what to do, which depends on whether the bundle was loading.
 func (s *sources) requireAdvice(line, column int, loading bool) string {
-	why := ". SSR runs in QuickJS, which has no require, so this code took a path meant for Node. " +
-		"Import the package from a .client file, or call it from a useEffect, which run in the browser only, " +
-		"or use a build of the package that does not need Node."
-	if loading {
-		why = ". SSR runs in QuickJS, which has no require, so this code took a path meant for Node. " +
-			"The bundle runs it as it loads, before any page renders, so moving the call into a useEffect does not help: " +
-			"import the package from a .client file, which runs in the browser only, or use a build of it that does not need Node."
-	}
+	why := ". SSR runs in QuickJS, which has no require, so this code took a path meant for Node. " + nodeAdvice(loading)
 	file, sourceLine, sourceColumn, ok := s.source(line, column)
 	if !ok {
-		// The bundle's function gets the Node modules packages import as its arguments.
 		call := nodeModule.FindStringSubmatch(s.text(line, column))
-		if call != nil && call[2] != "" {
-			return fmt.Sprintf("The bundle loads the Node module %q, imported by %s, at %s", call[1], call[2], s.name(line, column)) + why
-		}
 		if call != nil {
 			return fmt.Sprintf("The bundle loads the Node module %q at %s", call[1], s.name(line, column)) + why
 		}

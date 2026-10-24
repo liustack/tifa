@@ -1043,8 +1043,8 @@ func TestSSRRejectsNodeAPIsInPageCode(t *testing.T) {
 }
 
 // A dependency that still loads a Node module in the bundle gets a warning at the place it does,
-// with its package, whether it requires the module or imports it. The build goes on: the module
-// may never load on the server. A require that a typeof require test guards gets none: QuickJS
+// with its package, and one that imports a Node module gets a warning with the module and its
+// package. The build goes on: the module may never be used on the server. A require that a typeof require test guards gets none: QuickJS
 // takes the other branch.
 func TestSSRWarnsOfNodeAPIsLeftInDependencies(t *testing.T) {
 	root := copyTestdata(t, "ssr", false)
@@ -1063,7 +1063,8 @@ func TestSSRWarnsOfNodeAPIsLeftInDependencies(t *testing.T) {
 	if _, got := buildPrinting(t, root, "uses-fs.ts"); !strings.Contains(got, want) {
 		t.Errorf("uses-fs.ts: the build prints:\n%s\nwant %s", got, want)
 	}
-	if _, got := buildPrinting(t, root, "esm-fs.ts"); !strings.Contains(got, `require("node:fs") loads a Node module imported by esm-fs`) {
+	if _, got := buildPrinting(t, root, "esm-fs.ts"); !strings.Contains(got, "stand-ins that throw when a render uses them") ||
+		!strings.Contains(got, `"node:fs", imported by esm-fs`) {
 		t.Errorf("esm-fs.ts: the build prints:\n%s\nwant the import of node:fs", got)
 	}
 	code, got := buildPrinting(t, root, "guarded-fs.ts")
@@ -1075,18 +1076,14 @@ func TestSSRWarnsOfNodeAPIsLeftInDependencies(t *testing.T) {
 	}
 }
 
-// A bundle that still imports a Node module loads it with a require, which fails as the server
-// prewarms its VMs, and the error names the module and the packages that import it.
-func TestSSRPrewarmNamesTheNodeModuleTheBundleImports(t *testing.T) {
+// nodePool builds a dev app whose .tifa/server.ts and vendor packages are files, and starts a pool of
+// one VM on its SSR bundle, as the server does.
+func nodePool(t *testing.T, files map[string]string) (*ssr.Pool, string, error) {
+	t.Helper()
 	root := devApp(t)
-	writeTree(t, root, map[string]string{
-		"vendor/node_modules/esm-fs/package.json": `{"name":"esm-fs","type":"module","main":"index.js"}`,
-		"vendor/node_modules/esm-fs/index.js": "import { readFileSync } from 'node:fs'\nimport * as path from 'node:path'\n" +
-			"export const read = (p) => readFileSync(path.join('a', p))\n",
-		".tifa/server.ts": "import './runtime/host.js'\nimport { read } from '../vendor/node_modules/esm-fs/index.js'\n" +
-			"(globalThis as any).startRender = () => { (globalThis as any).renderResult = String(read) }\n",
-	})
-	n := NewNode(root, io.Discard)
+	writeTree(t, root, files)
+	var output strings.Builder
+	n := NewNode(root, &output)
 	if _, err := App(n, root, filepath.Join(root, "public"), true); err != nil {
 		t.Fatal(err)
 	}
@@ -1102,10 +1099,107 @@ func TestSSRPrewarmNamesTheNodeModuleTheBundleImports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = ssr.NewPool(string(code), sourceMap, config.SSR{VMs: 1, VMMemory: 64 << 20, VMStackDepth: config.Default().SSR.VMStackDepth, Timeout: 5 * time.Second, QueueLimit: 32, WaitTimeout: time.Second}, false)
-	if err == nil || !strings.Contains(err.Error(), "ReferenceError: 'require' is not defined") ||
-		!regexp.MustCompile(`The bundle loads the Node module "node:(fs|path)", imported by esm-fs, at ssr\.js:\d+:\d+`).MatchString(err.Error()) {
-		t.Errorf("err = %v, want the Node module and its package", err)
+	pool, err := ssr.NewPool(string(code), sourceMap, config.SSR{VMs: 1, VMMemory: 64 << 20, VMStackDepth: config.Default().SSR.VMStackDepth, Timeout: 5 * time.Second, QueueLimit: 32, WaitTimeout: time.Second}, false)
+	if err == nil {
+		t.Cleanup(func() { pool.Close() })
+	}
+	return pool, output.String(), err
+}
+
+// esmFS imports two Node modules and uses them only when read is called.
+var esmFS = map[string]string{
+	"vendor/node_modules/esm-fs/package.json": `{"name":"esm-fs","type":"module","main":"index.js"}`,
+	"vendor/node_modules/esm-fs/index.js": "import { readFileSync } from 'node:fs'\nimport * as path from 'node:path'\n" +
+		"export const read = (p) => readFileSync(path.join('a', p))\n",
+}
+
+// A package may import a Node module it uses only on Node, and a module only an import() reaches,
+// which then runs only when that import runs. QuickJS has no Node modules, and the bundle loads and
+// renders as long as no render uses one: an import of a Node module gives exports that throw only
+// when they are used. The build still names the Node modules that stay in the bundle.
+func TestSSRLoadsAPackageThatImportsANodeModuleItDoesNotUse(t *testing.T) {
+	files := map[string]string{
+		"vendor/node_modules/lazy-node/package.json": `{"name":"lazy-node","type":"module","main":"index.js"}`,
+		"vendor/node_modules/lazy-node/index.js": "export const name = 'lazy-node'\n" +
+			"export async function digest(text) {\n  const { hash } = await import('./server.js')\n  return hash(text)\n}\n",
+		// As fumadocs-core/server does with node:async_hooks, the module makes an object of a
+		// Node module as it runs.
+		"vendor/node_modules/lazy-node/server.js": "import { createHash } from 'node:crypto'\n" +
+			"const sha = createHash('sha256')\nexport const hash = (text) => sha.update(text).digest('hex')\n",
+		".tifa/server.ts": "import './runtime/host.js'\nimport { name, digest } from '../vendor/node_modules/lazy-node/index.js'\n" +
+			"import { read } from '../vendor/node_modules/esm-fs/index.js'\n" +
+			"Object.assign(globalThis, { digest, read });\n" +
+			"(globalThis as any).startRender = () => { (globalThis as any).renderResult = '<p>' + name + '</p>' }\n",
+	}
+	for name, content := range esmFS {
+		files[name] = content
+	}
+	pool, output, err := nodePool(t, files)
+	if err != nil {
+		t.Fatalf("prewarm: %v", err)
+	}
+	if html, err := pool.Render(t.Context(), ssr.Input{URL: "/"}); err != nil || html != "<p>lazy-node</p>" {
+		t.Errorf("render = %q, %v", html, err)
+	}
+	for _, want := range []string{`"node:fs"`, `"node:path"`, "esm-fs", `"node:crypto"`, "lazy-node"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("the build prints:\n%s\nwant %s named", output, want)
+		}
+	}
+}
+
+// A render that uses an export of a Node module fails with the module, the package that imports
+// it, the place of the use in the package, and what to do about it.
+func TestSSRRenderNamesTheNodeModuleItUses(t *testing.T) {
+	files := map[string]string{".tifa/server.ts": "import './runtime/host.js'\nimport { read } from '../vendor/node_modules/esm-fs/index.js'\n" +
+		"(globalThis as any).startRender = () => {\n  try {\n    (globalThis as any).renderResult = String(read('x'))\n  } catch (e: any) {\n" +
+		"    (globalThis as any).renderResult = JSON.stringify({ error: e.name + ': ' + e.message + '\\n' + e.stack })\n  }\n}\n"}
+	for name, content := range esmFS {
+		files[name] = content
+	}
+	pool, _, err := nodePool(t, files)
+	if err != nil {
+		t.Fatalf("prewarm: %v", err)
+	}
+	_, err = pool.Render(t.Context(), ssr.Input{URL: "/"})
+	if err == nil || !strings.Contains(err.Error(), `Node module "node:path", imported by esm-fs`) ||
+		!strings.Contains(err.Error(), "vendor/node_modules/esm-fs/index.js:3:") ||
+		!strings.Contains(err.Error(), "call it from a useEffect") {
+		t.Errorf("err = %v, want the Node module, its package, the place and the advice", err)
+	}
+}
+
+// A package that uses a Node module as the bundle loads fails as the server prewarms its VMs, and
+// the error names the module, the package that imports it and the place.
+func TestSSRPrewarmNamesTheNodeModuleTheBundleUses(t *testing.T) {
+	_, _, err := nodePool(t, map[string]string{
+		"vendor/node_modules/esm-fs/package.json": `{"name":"esm-fs","type":"module","main":"index.js"}`,
+		"vendor/node_modules/esm-fs/index.js": "import { readFileSync } from 'node:fs'\n" +
+			"export const config = String(readFileSync('config.json'))\n",
+		".tifa/server.ts": "import './runtime/host.js'\nimport { config } from '../vendor/node_modules/esm-fs/index.js'\n" +
+			"(globalThis as any).startRender = () => { (globalThis as any).renderResult = config }\n",
+	})
+	if err == nil || !strings.Contains(err.Error(), `Node module "node:fs", imported by esm-fs`) ||
+		!strings.Contains(err.Error(), "vendor/node_modules/esm-fs/index.js:2:") ||
+		!strings.Contains(err.Error(), "moving the call into a useEffect does not help") {
+		t.Errorf("err = %v, want the Node module, its package, the place and the advice", err)
+	}
+}
+
+// A package may import a name the Node that runs the build does not have, such as an API of a newer
+// Node. The bundle builds and loads as it did when it kept the import, and the name throws when used.
+func TestSSRBuildsAnImportOfANameNodeDoesNotHave(t *testing.T) {
+	pool, _, err := nodePool(t, map[string]string{
+		"vendor/node_modules/new-node/package.json": `{"name":"new-node","type":"module","main":"index.js"}`,
+		"vendor/node_modules/new-node/index.js":     "import { readFileFuture } from 'node:fs'\nexport const read = (p) => readFileFuture(p)\n",
+		".tifa/server.ts": "import './runtime/host.js'\nimport { read } from '../vendor/node_modules/new-node/index.js'\n" +
+			"(globalThis as any).startRender = () => { (globalThis as any).renderResult = '<p>' + typeof read + '</p>' }\n",
+	})
+	if err != nil {
+		t.Fatalf("prewarm: %v", err)
+	}
+	if got, err := pool.Render(t.Context(), ssr.Input{URL: "/"}); err != nil || got != "<p>function</p>" {
+		t.Errorf("render = %q, %v", got, err)
 	}
 }
 
