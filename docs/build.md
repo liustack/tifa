@@ -122,16 +122,28 @@ GOOS=linux GOARCH=amd64 $(go tool -n tifa) build -o bin/myapp-linux
 
 ### Notices to ship with the program
 
-The program embeds locale data and time zones for [Intl](app.md#intl-in-server-rendering) through the package `github.com/liustack/slowjs/intl`. The data comes from Unicode CLDR, from the ICU data Chromium ships and from go-intl, which also ported code from V8 and from the Rust crates of Temporal. Their licenses ask that their notices come with every copy of the program or with its documentation. The notices are six files of that module. When you hand the program to others, ship them with it:
+The program holds code and data under several licenses: tifa (MIT), Go (BSD-3-Clause), the engine slowjs and the QuickJS it comes from (MIT and BSD-3-Clause), the other Go modules it links, the locale and time zone data of [Intl](app.md#intl-in-server-rendering) (Unicode License V3, ICU's and Chromium's notices), and the npm packages in its bundles. These licenses ask that their notices come with every copy of the program, in its documentation or in files next to it. When you hand the program to others, ship them with it.
+
+For everything on the Go side, run this in the app's folder after `tifa build`, so that `go list` finds the versions the app builds with. It copies Go's license, the license and notice files of every module linked into the program, which `go version -m` lists, and the notices slowjs keeps in subfolders:
 
 ```sh
-q="$(go list -m -f '{{.Dir}}' github.com/liustack/slowjs)"
 mkdir -p bin/notices
+cp "$(go env GOROOT)/LICENSE" bin/notices/golang.org_go-LICENSE
+go version -m bin/<app> | awk '$1 == "dep" { print $2 }' | while read -r m; do
+  dir="$(go list -m -f '{{.Dir}}' "$m")"
+  for f in "$dir"/LICENSE* "$dir"/COPYING* "$dir"/NOTICE*; do
+    if [ -f "$f" ]; then cp "$f" "bin/notices/$(echo "$m" | tr / _)-$(basename "$f")"; fi
+  done
+done
+q="$(go list -m -f '{{.Dir}}' github.com/liustack/slowjs)"
+cp "$q/lib/LICENSE" bin/notices/slowjs-lib-LICENSE
+cp "$q/internal/gointl/LICENSE" bin/notices/slowjs-gointl-LICENSE
 cp "$q/intl/LICENSE-DATA" "$q"/internal/gointl/qjsdata/NOTICE-* bin/notices/
-cp "$q/internal/gointl/LICENSE" bin/notices/LICENSE-GOINTL
 ```
 
-Run it in the app's folder, where `go list` finds the version the app builds with. `tifa build` does not copy the files for you.
+slowjs's [NOTICE.md](https://github.com/liustack/slowjs/blob/main/NOTICE.md#what-a-program-that-ships-a-binary-must-include) says which of these files each license asks for.
+
+The npm packages that Vite bundles into the SSR bundle and the browser bundle are the app's own dependencies, and most of their licenses (MIT, ISC, BSD, Apache-2.0) ask the same. The browser bundle goes to everyone who opens a page. `tifa build` does not collect their notices: collect them with a tool of your choice, for example a Vite or Rollup license plugin.
 
 ## tifa routes
 
