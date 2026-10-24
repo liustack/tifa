@@ -58,8 +58,9 @@ func generateGo(m *analyze.Manifest, configName string, dev bool) (map[string][]
 	}
 
 	var main strings.Builder
-	// time/tzdata lets Intl and time.LoadLocation find every time zone where the system has no
-	// zoneinfo, as in a scratch container.
+	// time/tzdata lets time.LoadLocation in the app's Go code find every time zone where the
+	// system has no zoneinfo, as in a scratch container. Intl and Temporal in the VMs use slowjs's
+	// own zone data.
 	main.WriteString(header + "package main\n\nimport (\n\"embed\"\n_ \"time/tzdata\"\n\n")
 	main.WriteString("\"github.com/liustack/tifa/server\"\n")
 	if len(m.Hooks) > 0 {
