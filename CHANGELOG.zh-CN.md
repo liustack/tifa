@@ -6,7 +6,7 @@
 
 ### 变更
 
-- 在 linux/amd64 上，服务端渲染改用 slowjs 的 Go 汇编解释器执行 JavaScript，slowjs 现在在这个平台上默认用它。页面渲染出的 HTML 一样，用的时间更少：一个 VM 时，示例商店的工作台页面耗时是原来的 0.940，MUI 测试应用的页面是 0.850，8 个超线程上跑 8 个 VM 时，程序每秒渲染的商店页面是原来的 1.085 倍，MUI 页面是 1.211 倍（见 [JavaScript 解释器](docs/build.zh-CN.md#javascript-解释器)）。在项目文件里写 `build.goasm: false` 就改用 Go 解释器构建。
+- 服务端渲染改用 slowjs v0.28.6。在 linux/amd64 上，服务端渲染改用 slowjs 的 Go 汇编解释器执行 JavaScript，slowjs 现在在这个平台上默认用它。页面渲染出的 HTML 一样，用的时间更少：一个 VM 时，示例商店的工作台页面耗时是原来的 0.940，MUI 测试应用的页面是 0.850，8 个超线程上跑 8 个 VM 时，程序每秒渲染的商店页面是原来的 1.085 倍，MUI 页面是 1.211 倍（见 [JavaScript 解释器](docs/build.zh-CN.md#javascript-解释器)）。在项目文件里写 `build.goasm: false` 就改用 Go 解释器构建。
 - 服务端渲染改用 slowjs v0.28.5，它让异步上下文跟着 promise 任务走，服务端的 `AsyncLocalStorage` 靠的就是这个，还会直接从 shape 列出普通对象的自有键，用于 `Object.keys`、`for in`、对象展开和 `JSON.stringify`。
 - 服务端渲染改用 slowjs v0.28.4，模块跑完后它会释放模块的顶层函数和它留住的变量。
 - SSR 包和浏览器包一样在严格模式下运行：它现在是一个 ES 模块，每个虚拟机把它当模块运行（见[顶层 await 和严格模式](docs/app.zh-CN.md#顶层-await-和严格模式)）。只能在非严格模式下运行的包，在服务端也会失败。`tifa build` 像服务端那样把 SSR 包编译一遍，但不运行它，所以只有非严格模式允许的语法（比如 CommonJS 文件里的 `with` 语句）会让构建失败，错误里有源文件中的位置，不会等到服务端启动才失败。给从没声明过的变量赋值，运行到那里时抛 `ReferenceError`。页面渲染出的 HTML 不变。
