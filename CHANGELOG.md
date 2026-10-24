@@ -6,6 +6,7 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 
 ### Changed
 
+- Server rendering runs on slowjs v0.28.5, which keeps an async context across promise jobs, for the `AsyncLocalStorage` of the server, and lists the own keys of ordinary objects from their shape, for `Object.keys`, `for in`, object spread and `JSON.stringify`.
 - Server rendering runs on slowjs v0.28.4, which frees the top-level function of a module once it has run, with the variables it kept.
 - The SSR bundle runs in strict mode, as the browser bundle does: it is now an ES module, which each VM evaluates as a module (see [Top-level await and strict mode](docs/app.md#top-level-await-and-strict-mode)). A package that only works outside strict mode now fails on the server too. `tifa build` compiles the SSR bundle as the server does, without running it, so syntax that only sloppy mode allows, such as a `with` statement in a CommonJS file, fails the build with the place in the source file rather than the start of the server. An assignment to a variable that was never declared throws a `ReferenceError` where it runs. Pages render the same HTML.
 - Server rendering runs on slowjs v0.28.3. Regexps with the v flag accept what the specification allows and Node accepts, such as `[\&\;]` and `/-/v`, where they threw a SyntaxError. The regexps shiki makes compile, apart from those with more than 254 capture groups.
