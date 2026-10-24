@@ -587,3 +587,51 @@ func TestSSRI18nextCacheAddsNothingToTheFormattersOfI18next(t *testing.T) {
 		t.Errorf("5000 formats grew the VM by %d bytes with the cache and %d without", cached, plain)
 	}
 }
+
+// i18nextInstancesPage makes a new instance for each request, as apps that call createInstance
+// on each request do, and translates with it, as many requests as serve is told.
+const i18nextInstancesPage = `import i18next from 'i18next'
+
+const resources = { en: { translation: { greet: 'Hello {{name}}', item: 'Item {{n}} of {{of}}' } } }
+let request = 0
+globalThis.serve = (count) => {
+  for (let i = 0; i < count; i++, request++) {
+    const i18n = i18next.createInstance()
+    i18n.init({ lng: 'en', resources, initAsync: false })
+    const t = i18n.getFixedT('en')
+    for (let n = 0; n < 10; n++) t('item', { n, of: 10 }), t('item', { n, of: 10 }), t('greet', { name: 'user ' + request })
+  }
+}
+`
+
+// The strings an instance kept go with it, so instances made for each request leave the VM about
+// as large as without the cache.
+func TestSSRI18nextCacheForgetsInstancesThatAreGone(t *testing.T) {
+	grown := func(settings string) int64 {
+		code, _ := i18nextApp(t, copyTestdata(t, "ssr", true), i18nextInstancesPage, settings)
+		bytecode, err := ssr.Compile(code, 256<<20, 5*time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer bytecode.Close()
+		vm, err := ssr.Load(bytecode, 256<<20, 0, time.Minute, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+		if _, err := vm.Eval("serve(10)", slowjs.EvalGlobal); err != nil {
+			t.Fatal(err)
+		}
+		vm.RunGC()
+		before := vm.MemorySize()
+		if _, err := vm.Eval("serve(2000)", slowjs.EvalGlobal); err != nil {
+			t.Fatal(err)
+		}
+		vm.RunGC()
+		return int64(vm.MemorySize()) - int64(before)
+	}
+	plain, cached := grown(`{ target: ["es2022"] }`), grown(`{ target: ["es2022"], i18nextCache: true }`)
+	if cached-plain > 100<<10 {
+		t.Errorf("2000 instances grew the VM by %d bytes with the cache and %d without", cached, plain)
+	}
+}

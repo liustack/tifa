@@ -284,10 +284,10 @@ const i18nextCacheHit = 128
 const i18nextCacheOff = 64 * i18nextCacheMiss
 const i18nextCacheKeys = 4096
 const i18nextCacheSource = `
-var tifaI18nCache = new Map(), tifaI18nBytes = 0, tifaI18nEffects = 0, tifaI18nIds = new WeakMap(), tifaI18nLastId = 0;
+var tifaI18nCaches = new WeakMap(), tifaI18nBytes = 0, tifaI18nEffects = 0, tifaI18nIds = new WeakMap(), tifaI18nLastId = 0;
 var tifaI18nDebts = new Map(), tifaI18nFormatters = new WeakSet(), tifaI18nFound;
 var tifaI18nIsArray = Array.isArray, tifaI18nPrototypeOf = Object.getPrototypeOf, tifaI18nObject = Object.prototype;
-function tifaI18nClear() { tifaI18nEffects++; tifaI18nCache.clear(); tifaI18nBytes = 0; }
+function tifaI18nClear() { tifaI18nEffects++; tifaI18nCaches = new WeakMap(); tifaI18nBytes = 0; }
 function tifaI18nPart(v) {
   switch (typeof v) {
     case 'string': return 's' + v.length + ':' + v;
@@ -312,10 +312,8 @@ function tifaI18nObjectPart(o) {
   return k + ';';
 }
 function tifaI18nKey(i18n, options, fixedT, keyPrefix, key, opts, rest) {
-  let id = tifaI18nIds.get(i18n);
-  if (id === undefined) { tifaI18nIds.set(i18n, id = ++tifaI18nLastId); tifaI18nFormatters.add(i18n.services.formatter); }
-  let k = id + ';', p;
-  if ((p = tifaI18nPart(fixedT.lng)) === undefined) return; k += p;
+  let k, p;
+  if ((k = tifaI18nPart(fixedT.lng)) === undefined) return;
   if (!fixedT.lng) { if ((p = tifaI18nPart(i18n.translator.language)) === undefined) return; k += p; }
   if ((p = tifaI18nPart(fixedT.lngs)) === undefined) return; k += p;
   if ((p = tifaI18nPart(fixedT.ns)) === undefined) return; k += p;
@@ -347,19 +345,22 @@ function tifaI18nFind(i18n, fixedT, keyPrefix, key, opts, rest) {
   if (debt === undefined) { if (tifaI18nDebts.size >= ${i18nextCacheKeys}) tifaI18nDebts.clear(); tifaI18nDebts.set(key, debt = { n: 0 }); }
   else if (debt.n >= ${i18nextCacheOff}) { debt.n--; return; }
   if (!(i18n.services.formatter instanceof Formatter)) return;
-  const k = tifaI18nKey(i18n, options, fixedT, keyPrefix, key, opts, rest);
-  if (k !== undefined) {
-    const hit = tifaI18nCache.get(k);
+  const k = tifaI18nKey(i18n, options, fixedT, keyPrefix, key, opts, rest), cache = tifaI18nCaches.get(i18n);
+  if (k !== undefined && cache !== undefined) {
+    const hit = cache.get(k);
     if (hit !== undefined) { debt.n = debt.n > ${i18nextCacheHit - i18nextCacheOff} ? debt.n - ${i18nextCacheHit} : ${-i18nextCacheOff}; tifaI18nFound = hit; return null; }
   }
   debt.n += ${i18nextCacheMiss};
   return k;
 }
-function tifaI18nKeep(key, effects, result) {
+function tifaI18nKeep(i18n, key, effects, result) {
   if (effects === tifaI18nEffects && typeof result === 'string') {
     const bytes = 2 * (key.length + result.length) + 80;
-    if (tifaI18nBytes + bytes > ${i18nextCacheSize}) { tifaI18nCache.clear(); tifaI18nBytes = 0; }
-    if (bytes <= ${i18nextCacheSize}) { tifaI18nCache.set(key, result); tifaI18nBytes += bytes; }
+    if (tifaI18nBytes + bytes > ${i18nextCacheSize}) { tifaI18nCaches = new WeakMap(); tifaI18nBytes = 0; }
+    if (bytes > ${i18nextCacheSize}) return result;
+    let cache = tifaI18nCaches.get(i18n);
+    if (cache === undefined) { tifaI18nCaches.set(i18n, cache = new Map()); tifaI18nFormatters.add(i18n.services.formatter); }
+    cache.set(key, result); tifaI18nBytes += bytes;
   }
   return result;
 }
@@ -397,7 +398,7 @@ tifaI18nWrap(postProcessor, ['addPostProcessor'], () => true);
 var tifaI18nHandle = postProcessor.handle;
 postProcessor.handle = function (...args) { tifaI18nEffects++; return tifaI18nHandle.apply(this, args); };
 tifaI18nWrap(I18n.prototype, ['loadNamespaces'], () => true);
-tifaI18nWrap(I18n.prototype, ['init', 'reloadResources', 'use', 'setDefaultNamespace', 'loadLanguages'], (i18n) => !i18n.options.isClone && tifaI18nIds.delete(i18n));
+tifaI18nWrap(I18n.prototype, ['init', 'reloadResources', 'use', 'setDefaultNamespace', 'loadLanguages'], (i18n) => !i18n.options.isClone && tifaI18nCaches.delete(i18n));
 var tifaI18nForward = Logger.prototype.forward;
 Logger.prototype.forward = function (...args) { tifaI18nEffects++; return tifaI18nForward.apply(this, args); };
 `
@@ -1411,25 +1412,26 @@ function i18nextFaster(source) {
 // parts it changes in a form it knows. It knows the forms of i18next 25.5 to 26.5. Each line
 // stays where it was.
 //
-// The cache is one Map in the VM, from a key of the call to the string the call gave. The key
-// holds the instance, the language, namespace and key prefix of the function, which an app may
-// change on it, the language of the instance when the function has none, the formats object of
-// an i18nFormat module such as i18next-icu, the defaultVariables of the instance, and the key and
-// the options of the call, when each is a string, number, boolean, bigint, null, undefined or
-// array of strings, and the options are a plain object. A call with another value, such as a
-// function or an object, translates as before and keeps nothing. So does a call during which
-// i18next logs, as it does for each missing key before it calls missingKeyHandler and emits
-// missingKey, so the handler and the listeners hear of every missing key, and a call that runs
-// code of the app, a formatter added with add or addCached or a post-processor, which may read
-// something of the request. Only strings are kept, so a call with returnObjects or returnDetails
-// translates again too. Instances made by cloneInstance, instances with a
-// missingInterpolationHandler and instances with a formatter module of their own keep nothing.
+// The cache is a Map for each instance, from a key of the call to the string the call gave, in a
+// WeakMap, so the strings an instance kept go with it. The key holds the language, namespace and
+// key prefix of the function, which an app may change on it, the language of the instance when
+// the function has none, the formats object of an i18nFormat module such as i18next-icu, the
+// defaultVariables of the instance, and the key and the options of the call, when each is a
+// string, number, boolean, bigint, null, undefined or array of strings, and the options are a
+// plain object. A call with another value, such as a function or an object, translates as before
+// and keeps nothing. So does a call during which i18next logs, as it does for each missing key
+// before it calls missingKeyHandler and emits missingKey, so the handler and the listeners hear of
+// every missing key, and a call that runs code of the app, a formatter added with add or addCached
+// or a post-processor, which may read something of the request. Only strings are kept, so a call
+// with returnObjects or returnDetails translates again too. Instances made by cloneInstance,
+// instances with a missingInterpolationHandler and instances with a formatter module of their own
+// keep nothing.
 //
 // The cache forgets all it holds when anything an app does through i18next's API could change a
-// translation it holds: the methods of the store, the methods of an instance it holds
-// translations of that change resources, namespaces or options, adding a formatter to the
-// formatter of such an instance, and adding a post-processor. A backend loads resources through
-// the store too. changeLanguage and cloneInstance keep it, since the language is part of the key
+// translation it holds: the methods of the store, loadNamespaces, adding a formatter to the
+// formatter of an instance it holds translations of, and adding a post-processor. A backend loads
+// resources through the store too. The other methods of an instance that change its resources,
+// namespaces or options make it forget what that instance kept. changeLanguage and cloneInstance keep it, since the language is part of the key
 // and clones keep nothing. It holds at most about i18nextCacheSize bytes, counting two bytes a
 // character and 80 for each entry, and starts over when the next string would not fit. A key of t
 // whose calls keep missing stops using the cache, see i18nextCacheSource. It assumes that the app
@@ -1456,7 +1458,7 @@ function i18nextCache(source) {
         i18nextCacheHead.slice(0, -1) +
         ' const tifaKey = tifaI18nFind(this, fixedT, keyPrefix, key, opts, rest); if (tifaKey === null) return tifaI18nFound; const tifaEffects = tifaI18nEffects;\n',
     )
-    .replace(i18nextCacheReturn, () => '      return tifaKey === undefined ? this.t(resultKey, o) : tifaI18nKeep(tifaKey, tifaEffects, this.t(resultKey, o));\n    };\n')
+    .replace(i18nextCacheReturn, () => '      return tifaKey === undefined ? this.t(resultKey, o) : tifaI18nKeep(this, tifaKey, tifaEffects, this.t(resultKey, o));\n    };\n')
     .replace(i18nextCacheInstance, () => `\n${added} const instance = I18n.createInstance();\n`)
 }
 
