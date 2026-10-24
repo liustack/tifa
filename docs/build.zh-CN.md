@@ -66,7 +66,7 @@ tifa build [--dir 应用根目录] [-o 输出路径]
 | `off` | 不用 |
 | 一个路径，比如 `profiles/prod.pgo` | 这个文件，相对应用根目录 |
 
-tifa 自带的剖析采自示例商店的页面在 linux/amd64 上的热 VM 里渲染。它的样本几乎全在 JavaScript 引擎、libc 和 Go 运行时里，每个页面都要经过这些代码，商店自己的 Go 代码一行也不在里面。用上它，商店的页面在 linux/amd64 上渲染快约 2.4%（用 quickjs v0.26.15 测），在 darwin/arm64 上快约 7%（用 v0.26.13 测），HTML 逐字节不变。
+tifa 自带的剖析采自示例商店的页面在 linux/amd64 上的热 VM 里渲染。它的样本几乎全在 JavaScript 引擎、libc 和 Go 运行时里，每个页面都要经过这些代码，商店自己的 Go 代码一行也不在里面。用上它，商店的页面在 linux/amd64 上渲染快约 3%（用 slowjs v0.28.6 和它的 Go 汇编解释器测，用 quickjs v0.26.15 时是 2.4%），在 darwin/arm64 上快约 7%（用 v0.26.13 测），HTML 逐字节不变。
 
 `tifa dev` 构建时从不用剖析：它给 `go build` 传 `-pgo=off`。`tifa build` 时，`GOFLAGS` 里的 `-pgo` 比 `build.pgo` 优先，和任何 `go build` 一样。
 
