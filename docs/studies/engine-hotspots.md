@@ -1,7 +1,7 @@
 ---
 summary: 'Where a render spends its CPU inside the engine by category, which prototypes in the generated Go of quickjs paid off (no defer, the regular expression skip, TLS frames only where needed) and which did not, and why removing defer gave four times its own share'
 read_when:
-  - Changing fixlib or the generated Go of github.com/liustack/quickjs for speed
+  - Changing fixlib or the generated Go of github.com/liustack/slowjs (named github.com/liustack/quickjs when this was measured) for speed
   - About to try a fast path in the interpreter loop, or a change to TLS frames
   - Asking why an engine change gained much more or much less than its share of the profile
 measured: '2026-10-19 (tifa a2084b4, quickjs v0.26.14 with PGO) and 2026-10-20 for the wider TLS frame prototype (on v0.26.15)'

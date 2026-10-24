@@ -1,7 +1,7 @@
 ---
 summary: 'What compiling a tifa app with a CPU profile of page renders (PGO) gains on linux/amd64 and darwin/arm64, why one profile collected on linux/amd64 serves both, and what it costs in build time and program size'
 read_when:
-  - Collecting the engine profile again after a quickjs or libc upgrade, and checking it still gains
+  - Collecting the engine profile again after a slowjs or libc upgrade, and checking it still gains
   - Someone proposes one profile per platform, or a profile from another workload
   - Asking why PGO gains less after an engine release than before
 measured: '2026-10-18 (quickjs v0.26.13), 2026-10-19 (quickjs v0.26.15) and 2026-10-24 (slowjs v0.28.6, gain only)'
