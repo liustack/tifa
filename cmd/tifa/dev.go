@@ -169,10 +169,18 @@ func (p *devPipeline) Bundle(ctx context.Context) (string, error) {
 	return "", err
 }
 
-// GoBuild builds the executable that tifa dev runs. Its compiler messages go into the error,
-// which devserver prints and shows in the page.
+// GoBuild builds the executable that tifa dev runs, with build.goasm as the project file says
+// now. Its compiler messages go into the error, which devserver prints and shows in the page.
 func (p *devPipeline) GoBuild(ctx context.Context) error {
-	printed, err := goBuild(ctx, p.root, p.exe, devFlags, io.Discard, io.Discard)
+	settings, err := codegen.BuildSettings(p.root)
+	if err != nil {
+		return err
+	}
+	flags, err := devFlags(ctx, p.root, settings)
+	if err != nil {
+		return err
+	}
+	printed, err := goBuild(ctx, p.root, p.exe, flags, io.Discard, io.Discard)
 	if err != nil {
 		return fmt.Errorf("%s\n%w", strings.TrimSpace(printed), err)
 	}

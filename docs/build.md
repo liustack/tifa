@@ -95,6 +95,21 @@ build:
 
 `go build` takes several `-ldflags`, each for a package pattern or, without one, for the packages named on the command line. For each package it uses the last one that matches it, and the command line comes after `GOFLAGS`, so a `-ldflags` there replaces the one in `GOFLAGS`. So tifa puts the flags of the last `-ldflags` in `GOFLAGS` (set in the environment or with `go env -w`) in front of `-w`: with `GOFLAGS=-ldflags=-X=main.version=v1`, tifa passes `-ldflags=-X=main.version=v1 -w`. It adds nothing when those flags already have `-w` or `-s`, which then decide. It also adds nothing when an `-ldflags` in `GOFLAGS` is for a package pattern, such as `-ldflags=all=-X=main.version=v1`: write `-w` there yourself.
 
+### The JavaScript interpreter
+
+On linux/amd64, slowjs runs JavaScript in an interpreter in Go assembly that LLVM compiled from QuickJS's C, in place of the interpreter in Go that every other system runs. Pages render the same HTML in less time. On an AMD EPYC 7B13 without PGO, with one VM, the shop's workbench pages take 0.940 of the time and the pages of the MUI test app 0.850. With 4 VMs on 4 cores the program renders 1.046 times as many shop pages a second and 1.171 times as many MUI pages, with 8 VMs on 8 hyperthreads 1.085 and 1.211 times, and it holds a little less memory. See [the measurements in slowjs](https://github.com/liustack/slowjs/blob/main/docs/fork-changes/go-assembly.md).
+
+To build with the Go interpreter on linux/amd64 too, set `build.goasm` in the [project file](config.md#settings):
+
+```yaml
+build:
+  goasm: false
+```
+
+Turn it off to see the time of the interpreter by Go function in a CPU profile, where the assembly shows as one function, `goasmRun`, or when a page behaves differently with it, which is a bug of slowjs to report.
+
+`tifa build` and `tifa dev` then pass `-tags=slowjs_nogoasm` to `go build`. A `-tags` on the command line replaces the one in `GOFLAGS`, so tifa puts the tags of the last `-tags` in `GOFLAGS` (set in the environment or with `go env -w`) in front: with `GOFLAGS=-tags=netgo`, tifa passes `-tags=netgo,slowjs_nogoasm`. With `build.goasm` on, tifa passes no `-tags`, and `GOFLAGS=-tags=slowjs_nogoasm` turns the assembly off as well.
+
 ### Building for another system
 
 The analysis and `go build` both run with the `GOOS` and `GOARCH` of the environment, so they pick the same files the go command picks for that target, such as `limit_windows.go` or files with a `//go:build` line. Run the tifa command built for your own machine with the target set:

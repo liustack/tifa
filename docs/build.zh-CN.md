@@ -95,6 +95,21 @@ build:
 
 `go build` 可以有多个 `-ldflags`，每个给一个包模式，不写模式就是给命令行上列出的包。每个包用的是最后一个和它匹配的 `-ldflags`，而命令行排在 `GOFLAGS` 后面，所以命令行上的 `-ldflags` 会顶替 `GOFLAGS` 里的。所以 tifa 把 `GOFLAGS`（在环境变量里设的，或用 `go env -w` 写的）里最后一个 `-ldflags` 的参数放在 `-w` 前面：`GOFLAGS=-ldflags=-X=main.version=v1` 时，tifa 传 `-ldflags=-X=main.version=v1 -w`。这些参数里已经有 `-w` 或 `-s` 时，tifa 什么都不加，由它们决定。`GOFLAGS` 里有给包模式的 `-ldflags` 时，比如 `-ldflags=all=-X=main.version=v1`，tifa 也什么都不加，要去掉调试信息就自己在那里写上 `-w`。
 
+### JavaScript 解释器
+
+在 linux/amd64 上，slowjs 用一个 Go 汇编写成的解释器执行 JavaScript，它由 LLVM 从 QuickJS 的 C 源码编译而来，其他系统用的则是 Go 写的解释器。页面渲染出的 HTML 一样，用的时间更少。在 AMD EPYC 7B13 上不开 PGO、一个 VM 时，shop 的工作台页面耗时是原来的 0.940，MUI 测试应用的页面是 0.850。4 个核上跑 4 个 VM 时，程序每秒渲染的 shop 页面是原来的 1.046 倍，MUI 页面是 1.171 倍，8 个超线程上跑 8 个 VM 时是 1.085 倍和 1.211 倍，占的内存也略少。见 [slowjs 里的测量](https://github.com/liustack/slowjs/blob/main/docs/fork-changes/go-assembly.md)。
+
+要在 linux/amd64 上也用 Go 解释器构建，在[项目文件](config.zh-CN.md#配置项)里设 `build.goasm`：
+
+```yaml
+build:
+  goasm: false
+```
+
+想在 CPU 剖析里按 Go 函数看解释器的耗时，就关掉它，因为汇编在剖析里只显示成一个函数 `goasmRun`。页面在汇编解释器下表现不一样时也可以先关掉，这是 slowjs 的 bug，请报告。
+
+这时 `tifa build` 和 `tifa dev` 给 `go build` 传 `-tags=slowjs_nogoasm`。命令行上的 `-tags` 会顶替 `GOFLAGS` 里的，所以 tifa 把 `GOFLAGS`（在环境变量里设的，或用 `go env -w` 写的）里最后一个 `-tags` 的标签放在前面：`GOFLAGS=-tags=netgo` 时，tifa 传 `-tags=netgo,slowjs_nogoasm`。`build.goasm` 打开时 tifa 不传 `-tags`，设 `GOFLAGS=-tags=slowjs_nogoasm` 同样能关掉汇编解释器。
+
 ### 给别的系统构建
 
 静态分析和 `go build` 都按环境里的 `GOOS`、`GOARCH` 运行，所以它们选的文件和 go 命令为这个目标选的一样，比如 `limit_windows.go`，或者带 `//go:build` 行的文件。用为本机构建的 tifa 命令，再设上目标平台：
