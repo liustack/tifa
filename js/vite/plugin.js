@@ -1129,7 +1129,7 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
       }
     },
   }
-  return [plugin, serovalPlugin()]
+  return [plugin, serovalPlugin(), prerenderPlugin()]
 }
 
 // rolldownRuntime is the ID of the module of rolldown's helpers.
@@ -1221,6 +1221,175 @@ function nodeModulesLeft(chunk) {
   }
   return [...importers].map(([source, names]) => `${JSON.stringify(source)}, imported by ${[...names].join(', ')}`)
 }
+
+// renderToStringImpl is the function of React DOM's string renderer that renderToString and
+// renderToStaticMarkup call, as prerenderToString knows it.
+const renderToStringImpl = `function renderToStringImpl(
+  children,
+  options,
+  generateStaticMarkup,
+  abortReason
+) {
+  var didFatal = !1,
+    fatalError = null,
+    result = "",
+    readyToStream = !1;
+  options = createResumableState(options ? options.identifierPrefix : void 0);
+  children = createRequest(
+    children,
+    options,
+    createRenderState(options, generateStaticMarkup),
+    createFormatContext(0, null, 0, null),
+    Infinity,
+    onError,
+    void 0,
+    void 0,
+    function () {
+      readyToStream = !0;
+    },
+    void 0,
+    void 0,
+    void 0
+  );
+  children.flushScheduled = null !== children.destination;
+  performWork(children);
+  10 === children.status && (children.status = 11);
+  null === children.trackedPostpones &&
+    safelyEmitEarlyPreloads(children, 0 === children.pendingRootTasks);
+  abort(children, abortReason);
+  startFlowing(children, {
+    push: function (chunk) {
+      null !== chunk && (result += chunk);
+      return !0;
+    },
+    destroy: function (error) {
+      didFatal = !0;
+      fatalError = error;
+    }
+  });
+  if (didFatal && fatalError !== abortReason) throw fatalError;
+  if (!readyToStream) throw Error(formatProdErrorMessage(426));
+  return result;
+}
+`
+// prerenderToStringSource is the function prerenderToString adds to the string renderer, next to
+// renderToStringImpl, whose helpers it calls. It is what renderToStringImpl does, but it flushes the
+// HTML once no task is left: a component that suspended, such as a React.lazy one, pings its task
+// when its promise settles, and the string renderer renders the task again at once. The last task
+// to finish flushes in a job of its own, outside the work loop that ran it. The signal of
+// the options ends the render as renderToString ends it, with its reason, so the boundaries still
+// waiting are left to the browser.
+const prerenderToStringSource = `
+function tifaPrerenderToString(children, options) {
+  var abortReason =
+    'The server used "renderToString" which does not support Suspense. If you intended for this Suspense boundary to render the fallback content on the server consider throwing an Error somewhere within the Suspense boundary. If you intended to have the server wait for the suspended component please switch to "renderToReadableStream" which supports Suspense on the server';
+  return new Promise(function (resolve, reject) {
+    var started = !1,
+      allReady = !1,
+      done = !1,
+      readyToStream = !1,
+      state = createResumableState(options ? options.identifierPrefix : void 0),
+      request = createRequest(
+        children,
+        state,
+        createRenderState(state, !1),
+        createFormatContext(0, null, 0, null),
+        Infinity,
+        options && options.onError ? options.onError : onError,
+        void 0,
+        function () {
+          allReady = !0;
+          started && Promise.resolve().then(finish);
+        },
+        function () {
+          readyToStream = !0;
+        },
+        void 0,
+        void 0,
+        void 0
+      );
+    function finish() {
+      if (done) return;
+      done = !0;
+      var didFatal = !1,
+        fatalError = null,
+        result = "";
+      abort(request, abortReason);
+      startFlowing(request, {
+        push: function (chunk) {
+          null !== chunk && (result += chunk);
+          return !0;
+        },
+        destroy: function (error) {
+          didFatal = !0;
+          fatalError = error;
+        }
+      });
+      if (didFatal && fatalError !== abortReason) reject(fatalError);
+      else if (!readyToStream) reject(Error(formatProdErrorMessage(426)));
+      else resolve(result);
+    }
+    var signal = options && options.signal;
+    signal && signal.addEventListener("abort", finish);
+    request.flushScheduled = null !== request.destination;
+    performWork(request);
+    10 === request.status && (request.status = 11);
+    null === request.trackedPostpones &&
+      safelyEmitEarlyPreloads(request, 0 === request.pendingRootTasks);
+    started = !0;
+    (allReady || (signal && signal.aborted)) && finish();
+  });
+}
+exports.prerenderToString = tifaPrerenderToString;
+`
+
+// prerenderPlugin applies to the SSR build only. It adds prerenderToString to React DOM's string
+// renderer and its server entry: it renders as renderToString does and waits for the components
+// that suspended, see prerenderToStringSource. The runtime renders pages with it. ssrPlugin
+// includes it, after the changes it makes to the string renderer, and trims the server entry to
+// an ES module that exports it. A server entry that keeps its CommonJS form gets the export here.
+export function prerenderPlugin() {
+  return {
+    name: 'tifa:prerender',
+    applyToEnvironment: (env) => env.name === 'ssr',
+    transform: {
+      filter: { id: [reactStringRenderer, reactServerEntry] },
+      handler(code, id) {
+        if (reactServerEntry.test(id)) {
+          const string = /^exports\.renderToString = (\w+)\.renderToString;$/m.exec(code)
+          return string ? `${code}\nexports.prerenderToString = ${string[1]}.prerenderToString;\n` : null
+        }
+        const waiting = prerenderToString(code)
+        if (waiting) return { code: waiting, map: null }
+        this.warn(
+          `react-dom ${packageVersion(path.resolve(id, '..', '..'))}: ${id} has no renderToStringImpl the tifa plugin ` +
+            'knows, so the server does not wait for a component that suspends, such as a React.lazy one: a page with ' +
+            'one fails to render on the server',
+        )
+        return { code: code + prerenderNotWaiting, map: null }
+      },
+    },
+  }
+}
+
+// prerenderToString returns source, React DOM's string renderer, with prerenderToString, which
+// renders as renderToString does and waits for the components that suspended (see
+// prerenderToStringSource). It returns undefined when the renderer has no renderToStringImpl the
+// plugin knows.
+function prerenderToString(source) {
+  if (source.split(renderToStringImpl).length !== 2) return undefined
+  return source + prerenderToStringSource
+}
+
+// prerenderNotWaiting stands in for prerenderToString in a string renderer the plugin cannot add it
+// to: it renders with renderToString, which does not wait.
+const prerenderNotWaiting = `
+exports.prerenderToString = function (children, options) {
+  return new Promise(function (resolve) {
+    resolve(exports.renderToString(children, options));
+  });
+};
+`
 
 // serovalPlugin applies to the SSR build only. It changes seroval, which TanStack Router writes
 // the data of a page with, so that it escapes short strings with JSON.stringify and asks its
@@ -2424,7 +2593,10 @@ function reactServerExports(program) {
     }
     return null
   }
-  if (!exports.some(([name]) => name === 'renderToString')) return null
+  const string = exports.find(([name]) => name === 'renderToString')
+  if (!string) return null
+  // The tifa plugin adds prerenderToString to the string renderer, see prerenderToString.
+  exports.push(['prerenderToString', string[1], 'prerenderToString'])
   const named = []
   const namespace = []
   for (const [name, variable, prop] of exports) {

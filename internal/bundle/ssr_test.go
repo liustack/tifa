@@ -575,15 +575,16 @@ func TestSSRWarnsOfServerActions(t *testing.T) {
 }
 
 // The tifa plugin leaves the names of components out of their key paths because the server
-// renders with renderToString, which takes no form state. The runtime imports no other renderer.
-func TestRuntimeRendersOnlyWithRenderToString(t *testing.T) {
+// renders with the string renderer, whose renderToString and prerenderToString take no form state.
+// The runtime imports no other renderer.
+func TestRuntimeRendersOnlyWithTheStringRenderer(t *testing.T) {
 	server, err := js.Runtime.ReadFile("runtime/server.tsx")
 	if err != nil {
 		t.Fatal(err)
 	}
 	imports := regexp.MustCompile(`import\s*(\{[^}]*\}|[\w$*][^'"]*)\s*from\s*['"](react-dom[^'"]*)['"]`).FindAllStringSubmatch(string(server), -1)
-	if len(imports) != 1 || imports[0][2] != "react-dom/server.edge" || strings.Join(strings.Fields(imports[0][1]), " ") != "{ renderToString as renderString }" {
-		t.Errorf("js/runtime/server.tsx imports %q from React DOM, want only renderToString", imports)
+	if len(imports) != 1 || imports[0][2] != "react-dom/server.edge" || strings.Join(strings.Fields(imports[0][1]), " ") != "{ prerenderToString }" {
+		t.Errorf("js/runtime/server.tsx imports %q from React DOM, want only prerenderToString", imports)
 	}
 }
 
@@ -1021,9 +1022,11 @@ func TestSSRHashesEmotionStylesInGo(t *testing.T) {
 	}
 }
 
+// The trimmed server entry of React DOM keeps every export of the one it replaces, and adds the
+// prerenderToString of the plugin.
 func TestSSRTrimmedReactKeepsEveryPublicExport(t *testing.T) {
 	root := copyTestdata(t, "ssr", true)
-	const want = "renderToReadableStream,renderToStaticMarkup,renderToString,resume,version"
+	const want = "prerenderToString,renderToReadableStream,renderToStaticMarkup,renderToString,resume,version"
 	for _, entry := range []string{"exports-namespace.ts", "exports-default.ts"} {
 		code, _ := buildScript(t, root, entry)
 		if got := evalResult(t, code); got != want {

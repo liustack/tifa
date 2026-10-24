@@ -47,13 +47,23 @@ func OnError(c *tifa.Ctx, err error) tifa.Error {
 	"app/throws/route.tsx":  "export default function Throws(): never {\n  throw new Error('PAGE_THROWS')\n}\n",
 	"app/legacy/legacy.cjs": "module.exports = function (name) {\n  return require(name)\n}\n",
 	"app/legacy/route.tsx":  "import load from './legacy.cjs'\n\nexport default function Legacy() {\n  return <p>{String(load('node:os'))}</p>\n}\n",
-	// A component that suspends, and a lazy one whose import fails after the render.
+	// A component that suspends on a promise that never settles, and a lazy one whose import
+	// settles in a job and whose component then fails.
 	"app/suspends/route.tsx": "import { Suspense } from 'react'\n\nconst pending = new Promise(() => {})\n\n" +
 		"function Pending(): never {\n  throw pending\n}\n\n" +
 		"export default function Suspends() {\n  return <Suspense fallback=\"pending\"><Pending /></Suspense>\n}\n",
 	"app/lazy/route.tsx": "import { lazy, Suspense } from 'react'\nimport load from '../legacy/legacy.cjs'\n\n" +
 		"const Lazy = lazy(() => Promise.resolve().then(() => ({ default: () => <p>{String(load('node:os'))}</p> })))\n\n" +
 		"export default function LazyPage() {\n  return <Suspense fallback=\"loading\"><Lazy /></Suspense>\n}\n",
+	// Lazy components of modules in the bundle, one outside any Suspense boundary, one made of
+	// lazy ones, and use of a promise a job settles: the page waits for them.
+	"app/waits/panel.tsx": "export default function Panel() {\n  return <p>PANEL_LOADED</p>\n}\n",
+	"app/waits/route.tsx": "import { lazy, Suspense, use } from 'react'\n\n" +
+		"const Panel = lazy(() => import('./panel'))\n" +
+		"const Nested = lazy(() => Promise.resolve().then(() => ({ default: () => <Suspense fallback=\"inner\"><Panel /></Suspense> })))\n" +
+		"const ready = Promise.resolve().then(() => 'USE_READY')\n\n" +
+		"function Uses() {\n  return <b>{use(ready)}</b>\n}\n\n" +
+		"export default function Waits() {\n  return <main><Panel /><Suspense fallback=\"FALLBACK\"><Nested /><Uses /></Suspense></main>\n}\n",
 	// A render inside the render of the page, whose error React handles, before the require.
 	"app/nested/route.tsx": "import { Suspense } from 'react'\nimport { renderToString } from 'react-dom/server.edge'\n" +
 		"import load from '../legacy/legacy.cjs'\n\n" +
@@ -167,8 +177,29 @@ func TestErrorFlowInTheVM(t *testing.T) {
 		}
 	})
 
+	t.Run("a page waits for the lazy components and promises jobs settle", func(t *testing.T) {
+		code, _, body := get(t, base+"/waits")
+		if code != 200 || strings.Count(body, "<p>PANEL_LOADED</p>") != 2 || !strings.Contains(body, "<b>USE_READY</b>") ||
+			strings.Contains(body, "FALLBACK") || strings.Contains(body, "inner") || strings.Contains(body, "<!--$!-->") ||
+			strings.Contains(body, "$RC") {
+			t.Errorf("%d %s", code, body)
+		}
+	})
+
+	t.Run("a lazy component that loads and fails names its error", func(t *testing.T) {
+		before, from := onErrors(), len(output.String())
+		if code, _, body := get(t, base+"/lazy"); code != 500 {
+			t.Errorf("%d %s", code, body)
+		}
+		output.waitFor(t, func(string) bool { return onErrors()-before >= 1 })
+		got := output.String()[from:]
+		if !strings.Contains(got, "The code at app/legacy/legacy.cjs:2:10 calls require") || strings.Contains(got, "a component suspended") {
+			t.Errorf("OnError:\n%s\nwant the require", got)
+		}
+	})
+
 	t.Run("a component that suspends gets the advice of tifa", func(t *testing.T) {
-		for _, page := range []string{"/suspends", "/lazy"} {
+		for _, page := range []string{"/suspends"} {
 			before, from := onErrors(), len(output.String())
 			if code, _, body := get(t, base+page); code != 500 {
 				t.Errorf("%s: %d %s", page, code, body)

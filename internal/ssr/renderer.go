@@ -119,7 +119,10 @@ func Load(bytecode *slowjs.SharedBytecode, memory, stack uintptr, timeout time.D
 var intlCheck string
 
 // RenderVM runs one request in vm: startRender(input), then the microtasks it queued,
-// then reads globalThis.renderResult. Any error leaves vm in an unknown state.
+// then reads globalThis.renderResult. A render that left no result once no job is left waits for
+// work nothing can settle, since a VM has no timers and does no I/O: when the bundle set
+// globalThis.stopRender for it, RenderVM calls it, runs the jobs that queued and reads the
+// result again. Any error leaves vm in an unknown state.
 func RenderVM(vm *slowjs.VM, input []byte, timeout time.Duration) (string, error) {
 	deadline := time.Now().Add(timeout)
 	// Each phase gets only what is left of the request's budget.
@@ -163,9 +166,23 @@ func RenderVM(vm *slowjs.VM, input []byte, timeout time.Duration) (string, error
 	if err := budget(); err != nil {
 		return "", err
 	}
-	value, err := vm.Eval("(() => { const result = globalThis.renderResult; globalThis.renderResult = undefined; return result })()", slowjs.EvalGlobal)
+	value, err := vm.Eval(readResult, slowjs.EvalGlobal)
 	if err != nil {
 		return "", phase("read result", err)
+	}
+	if stopped, ok := value.(bool); ok && !stopped {
+		if err := budget(); err != nil {
+			return "", err
+		}
+		if _, err := vm.ExecutePendingJobs(); err != nil {
+			return "", phase("microtasks", err)
+		}
+		if err := budget(); err != nil {
+			return "", err
+		}
+		if value, err = vm.Eval(readResult, slowjs.EvalGlobal); err != nil {
+			return "", phase("read result", err)
+		}
 	}
 	text, ok := value.(string)
 	if !ok {
@@ -191,6 +208,16 @@ func RenderVM(vm *slowjs.VM, input []byte, timeout time.Duration) (string, error
 	}
 	return "", errors.New("ssr: render returned neither HTML nor a redirect or an error")
 }
+
+// readResult takes globalThis.renderResult. Without one it calls globalThis.stopRender, when the
+// bundle set it, and returns false.
+const readResult = `(() => {
+  const result = globalThis.renderResult
+  globalThis.renderResult = undefined
+  if (result !== undefined || typeof globalThis.stopRender !== 'function') return result
+  globalThis.stopRender()
+  return false
+})()`
 
 // RedirectError is what Render returns when the router answers the URL with a redirect, as
 // TanStack Router does for a URL it spells differently (/%61 for /a). The VM is fine.
