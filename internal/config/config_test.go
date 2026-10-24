@@ -137,24 +137,24 @@ func TestDebugInfoIsABoolOfTheProjectFile(t *testing.T) {
 	}
 }
 
-// build.i18next_cache is a true or false of the project file, off by default.
+// build.i18next_cache is a true or false of the project file, on by default.
 func TestI18nextCacheIsABoolOfTheProjectFile(t *testing.T) {
-	if Default().Build.I18nextCache {
-		t.Fatal("the i18next cache is on by default")
+	if !Default().Build.I18nextCache {
+		t.Fatal("the i18next cache is off by default")
 	}
 	for name, content := range map[string]string{
-		"tifa.yaml": "build:\n  i18next_cache: true\n",
-		"tifa.json": `{"build":{"i18next_cache":true}}`,
+		"tifa.yaml": "build:\n  i18next_cache: false\n",
+		"tifa.json": `{"build":{"i18next_cache":false}}`,
 	} {
 		c, err := load(t, nil, nil, name, content)
-		if err != nil || !c.Build.I18nextCache {
+		if err != nil || c.Build.I18nextCache {
 			t.Errorf("%s: %+v, %v", name, c.Build, err)
 		}
 	}
 	if _, err := load(t, nil, nil, "tifa.yaml", "build:\n  i18next_cache: \"yes\"\n"); err == nil || !strings.Contains(err.Error(), "build.i18next_cache") || !strings.Contains(err.Error(), "expected a bool value") {
 		t.Errorf("a string: %v", err)
 	}
-	_, err := load(t, []string{"--config", writeFile(t, "prod.yaml", "build:\n  i18next_cache: true\n")}, nil, "", "")
+	_, err := load(t, []string{"--config", writeFile(t, "prod.yaml", "build:\n  i18next_cache: false\n")}, nil, "", "")
 	if err == nil || !strings.Contains(err.Error(), "build settings belong in the project tifa.yaml") {
 		t.Errorf("in a deployment file: %v", err)
 	}

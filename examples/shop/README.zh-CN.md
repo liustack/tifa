@@ -36,7 +36,6 @@ go test ./...
 ## 目录
 
 ```text
-tifa.yaml                      打开服务端渲染的 i18next 缓存，见 docs/build.zh-CN.md
 hooks.go                       拦截跨站的写请求，记录意外错误
 components/ui/  lib/  hooks/   shadcn/ui 组件和它们的辅助代码，用 @/components/ui/... 引用
 app/

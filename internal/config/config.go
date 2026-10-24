@@ -43,7 +43,7 @@ type Build struct {
 	// as Delve. Without it the program is built with -ldflags=-w.
 	DebugInfo bool
 	// I18nextCache makes the tifa Vite plugin add a cache of translations to i18next in the SSR
-	// bundle, see docs/build.md.
+	// bundle, see docs/build.md. It is on by default.
 	I18nextCache bool
 }
 
@@ -126,7 +126,7 @@ const DefaultAddr = "127.0.0.1:9527"
 // Default holds values sized for small machines. ssr.vms follows GOMAXPROCS, which honours container CPU limits, with no cap.
 func Default() Config {
 	return Config{
-		Build:  Build{Target: "es2020", Public: "public", PGO: "auto"},
+		Build:  Build{Target: "es2020", Public: "public", PGO: "auto", I18nextCache: true},
 		Server: Server{Addr: DefaultAddr, BodyLimit: 1 << 20, ShutdownTimeout: 10 * time.Second, Compress: true, TLSCA: LetsEncrypt, HTTPAddr: ":80"},
 		SSR:    SSR{VMs: runtime.GOMAXPROCS(0), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second, QueueLimit: 32, WaitTimeout: time.Second},
 		Cache:  Cache{Size: 64 << 20},

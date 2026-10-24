@@ -3,5 +3,5 @@ import { tifa } from "./vite/plugin.js"
 
 // The Vite plugins of tifa, for the plugins of vite.config.ts.
 export default function () {
-  return tifa({ target: ["es2020"] })
+  return tifa({ target: ["es2020"], i18nextCache: true })
 }

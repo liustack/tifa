@@ -60,7 +60,7 @@ type viteSettings struct {
 }
 
 // js returns the settings as the object literal vite.js passes. It names i18nextCache only when
-// it is on, so vite.js stays as it was without the setting.
+// it is on, which it is by default. Without it the plugin leaves i18next without the cache.
 func (s viteSettings) js() (string, error) {
 	target, err := json.Marshal(s.target)
 	if err != nil {
