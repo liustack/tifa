@@ -398,11 +398,6 @@ var tifaI18nHandle = postProcessor.handle;
 postProcessor.handle = function (...args) { tifaI18nEffects++; return tifaI18nHandle.apply(this, args); };
 tifaI18nWrap(I18n.prototype, ['loadNamespaces'], () => true);
 tifaI18nWrap(I18n.prototype, ['init', 'reloadResources', 'use', 'setDefaultNamespace', 'loadLanguages'], (i18n) => !i18n.options.isClone && tifaI18nIds.delete(i18n));
-var tifaI18nEmit = EventEmitter.prototype.emit;
-EventEmitter.prototype.emit = function (event, ...args) {
-  if (event === 'missingKey' || event === 'languageChanging' || event === 'languageChanged' || event === 'initialized') tifaI18nEffects++; else tifaI18nClear();
-  return tifaI18nEmit.call(this, event, ...args);
-};
 var tifaI18nForward = Logger.prototype.forward;
 Logger.prototype.forward = function (...args) { tifaI18nEffects++; return tifaI18nForward.apply(this, args); };
 `
@@ -413,7 +408,6 @@ const i18nextCacheHead = '    const fixedT = (key, opts, ...rest) => {\n'
 const i18nextCacheReturn = '      return this.t(resultKey, o);\n    };\n'
 const i18nextCacheInstance = '\nconst instance = I18n.createInstance();\n'
 const i18nextCacheMethods = {
-  'class EventEmitter {': ['emit'],
   'class Logger {': ['forward'],
   'class ResourceStore extends EventEmitter {': ['addNamespaces', 'removeNamespaces', 'addResource', 'addResources', 'addResourceBundle', 'removeResourceBundle'],
   'class Translator extends EventEmitter {': ['changeLanguage', 'translate'],
@@ -1424,25 +1418,25 @@ function i18nextFaster(source) {
 // the options of the call, when each is a string, number, boolean, bigint, null, undefined or
 // array of strings, and the options are a plain object. A call with another value, such as a
 // function or an object, translates as before and keeps nothing. So does a call during which
-// i18next logs, as it does for a missing key, or emits an event, as it does through missingKey,
-// so missingKeyHandler and the listeners hear of every missing key, and a call that runs code of
-// the app, a formatter added with add or addCached or a post-processor, which may read something
-// of the request. Only strings are kept, so a call with returnObjects or returnDetails translates
-// again too. Instances made by cloneInstance, instances with a missingInterpolationHandler and
-// instances with a formatter module of their own keep nothing.
+// i18next logs, as it does for each missing key before it calls missingKeyHandler and emits
+// missingKey, so the handler and the listeners hear of every missing key, and a call that runs
+// code of the app, a formatter added with add or addCached or a post-processor, which may read
+// something of the request. Only strings are kept, so a call with returnObjects or returnDetails
+// translates again too. Instances made by cloneInstance, instances with a
+// missingInterpolationHandler and instances with a formatter module of their own keep nothing.
 //
 // The cache forgets all it holds when anything an app does through i18next's API could change a
 // translation it holds: the methods of the store, the methods of an instance it holds
 // translations of that change resources, namespaces or options, adding a formatter to the
-// formatter of such an instance, adding a post-processor, and every event of i18next other than
-// missingKey, languageChanging, languageChanged and initialized. changeLanguage and cloneInstance
-// keep it, since the language is part of the key and clones keep nothing. It holds at most about
-// i18nextCacheSize bytes, counting two bytes a character and 80 for each entry, and starts over
-// when the next string would not fit. A key of t whose calls keep missing stops using the cache,
-// see i18nextCacheSource. It assumes that the app changes resources and options, other than
-// defaultVariables, only through i18next's API, and that the other functions it gives i18next,
-// such as overloadTranslationOptionHandler, give the same result for the same input. When an app
-// breaks either, pages may show translations from before the change.
+// formatter of such an instance, and adding a post-processor. A backend loads resources through
+// the store too. changeLanguage and cloneInstance keep it, since the language is part of the key
+// and clones keep nothing. It holds at most about i18nextCacheSize bytes, counting two bytes a
+// character and 80 for each entry, and starts over when the next string would not fit. A key of t
+// whose calls keep missing stops using the cache, see i18nextCacheSource. It assumes that the app
+// changes resources and options, other than defaultVariables, only through i18next's API, and that
+// the other functions it gives i18next, such as overloadTranslationOptionHandler, give the same
+// result for the same input. When an app breaks either, pages may show translations from before
+// the change.
 function i18nextCache(source) {
   const once = (text) => source.split(text).length === 2
   if (!once(i18nextCacheHead) || !once(i18nextCacheReturn) || !once(i18nextCacheInstance)) return undefined
