@@ -1,9 +1,9 @@
 ---
-summary: 'How fast tifa renders pages and how that compares with Node, how throughput grows with cores, how to size CPUs, ssr.vms and memory, what happens under overload, what compressing answers costs, which changes made rendering faster and by how much, what was tried and dropped, how to measure again and where to continue'
+summary: 'How fast tifa renders pages against C QuickJS and Node, how whole requests compare with Next.js and TanStack Start, how throughput grows with cores, how to size CPUs, ssr.vms and memory, what happens under overload, what compression costs, which changes made rendering faster, what was tried and dropped, how to measure again and where to continue'
 read_when:
   - Deciding how many CPUs and how much memory a tifa app needs, or setting `ssr.vms`
   - Requests arrive faster than pages render, or you need to size the render queue
-  - Asking how fast tifa renders a page, or how it compares with Node
+  - Asking how fast tifa renders a page, or how it compares with C QuickJS, Node, Next.js or TanStack Start
   - Deciding whether to turn off `server.compress`, or changing how answers are compressed
   - Changing `internal/ssr`, the rewrites the Vite plugin makes to the SSR bundle, or the PGO profile, and checking what a change gains
   - Upgrading github.com/liustack/slowjs and checking that rendering did not get slower
@@ -14,175 +14,123 @@ English · [简体中文](performance.zh-CN.md)
 
 # Performance
 
-tifa renders pages in QuickJS, a JavaScript interpreter written in C and translated to Go, whose interpreter loop on linux/amd64 is Go assembly compiled from the same C. A render is slower than in Node, which compiles JavaScript to machine code. This doc gives the numbers, how to size a machine for them, and, for maintainers, what has been done, what was dropped and where to go next.
+tifa renders pages in slowjs, QuickJS translated from C to Go, whose interpreter loop on linux/amd64 is Go assembly compiled from the same C. It has no JIT, so a render is slower than in Node. This doc gives the numbers and how to size a machine for them. Its second half, from [What made it faster](#what-made-it-faster), is for maintainers.
+
+## At a glance
+
+- **One render** takes 0.94 times as long as in C QuickJS on the shop's pages and 1.15 times on pages without `Intl`. It takes about 2 times as long as in Node without its JIT and 6.6 times as long as in Node with it.
+- **Whole requests**: on one core tifa answers 74 page requests a second, Next.js 2.5 times as many and TanStack Start 3.9 times. Next.js without its JIT answers 0.85 times as many. tifa's peak memory is 55 MiB against 441 MiB for Next.js.
+- **Cores**: 4 physical cores answer 3.76 times as many requests as one. A busy hyperthread adds about 30%.
+- **Sizing**: plan on about 73 requests a second per physical core for pages like the shop's workbench, and about 45 MiB plus 12 to 16 MiB per VM.
 
 ## How the numbers were measured
 
-Unless a section says otherwise:
+All numbers before [What made it faster](#what-made-it-faster) were measured on 2026-10-24, on the same machine, with the same build.
 
-- Machine: a Google Cloud VM with 8 vCPUs of an AMD EPYC 7B13 (Zen 3), Linux. The 8 vCPUs are 4 physical cores with 2 hyperthreads each: cpu `n` and cpu `n+4` share a core.
-- Software: Go 1.27.2, slowjs v0.28.6, tifa c729ad2, Node 24.13.0. The app is built by `tifa build` as it ships: PGO on, and on linux/amd64 slowjs's interpreter in Go assembly ([`build.goasm`](build.md#the-javascript-interpreter)). The engine was named quickjs up to v0.27.3 and is slowjs from v0.28.0, so the versions up to v0.27.3 keep the old name in this doc.
-- Measured again on 2026-10-24: [How fast a page renders](#how-fast-a-page-renders), [How it compares with Node](#how-it-compares-with-node), [Compared with Next.js and TanStack Start](#compared-with-nextjs-and-tanstack-start), the C QuickJS rows of [How it compares with other pure Go engines](#how-it-compares-with-other-pure-go-engines), [How it scales with cores](#how-it-scales-with-cores), the peak RSS in [Memory](#memory) and the PGO row of [Build](#build). The other numbers are older, mostly of quickjs v0.26.13 to v0.27.2, built without PGO, and each part says which version it used.
-- App: the production build of [examples/shop](../examples/shop), React 19.3 and TanStack Router, with Tailwind CSS and shadcn/ui. The workbench is six pages: the order list, an order and the stats of each of its two shops. The storefront (`app/store`) is 14 pages, seven in each of two languages, translated with i18next. Some parts also render the four pages of the MUI test app (`test/apps/mui`). Parts measured on the shop before the storefront was added say so: the storefront made the SSR bundle grow from 772 KB to 1,288 KB, so the numbers that depend on the bundle, the start of the program and the memory of a VM, were lower then. The HTML of the six workbench pages stayed the same.
-- Single renders: one warm VM pinned to one thread of a core pair whose other thread is idle, as `BenchmarkShop` in `test/ssr` renders. Each page renders 256 times to warm up, then 500 times (workbench), 300 times (storefront) or 200 times (MUI, after 64). Five rounds, and the tables give the median of the per-round P50 or P99.
-- Whole requests: the built `bin/shop` with `--cache-size 0`, so every page request renders, loaded with [oha](https://github.com/hatoo/oha) pinned apart from the service where the cores allow. oha asks with its default `Accept-Encoding: gzip, compress, deflate, br`, so with [`server.compress`](config.md#settings) on the pages go out as gzip, unless a section says the requests asked for identity. For page requests oha uses 1% to 2% of a CPU. Each step warms up for a few seconds and then runs for 10 to 20 seconds. Each run took locks on the core pairs it used, after they had been idle for 30 seconds. During single renders the idle thread of the pair stayed under 2% busy, and a step over HTTP was run again when other work used more than 10% of a CPU.
+- **Machine**: a Google Cloud VM with 8 vCPUs of an AMD EPYC 7B13 (Zen 3), Linux. The 8 vCPUs are 4 physical cores with 2 hyperthreads each: cpu `n` and cpu `n+4` share a core. Each run took locks on the cores it used and waited for them to be idle for 30 seconds. Other work stayed under 8% of a CPU.
+- **Build**: tifa c729ad2, slowjs v0.28.6, Go 1.27.2, built by `tifa build` as it ships: PGO with the profile tifa ships, and slowjs's interpreter in Go assembly ([`build.goasm`](build.md#the-javascript-interpreter)).
+- **Apps**: the production build of [examples/shop](../examples/shop), React 19.3 and TanStack Router, with Tailwind CSS and shadcn/ui. The workbench is six pages: the order list, an order and the stats of each of two shops. The storefront is 14 pages, seven in each of two languages, translated with i18next. Some tables also render the MUI test app (`test/apps/mui`) and the pages without `Intl` of `test/apps/bench`.
+- **One render**: one warm VM on one thread of a core whose other thread is idle, as `BenchmarkShop` in `test/ssr` renders. 256 renders to warm up, then 500 (workbench), 300 (storefront) or 200 (MUI) timed, five rounds, the median of the per-round P50.
+- **Node**: Node 24.13.0 runs the same `ssr.js` with the same inputs on another idle core, 600 renders to warm up, then five rounds of 200. The HTML is the same as tifa's.
+- **C QuickJS**: QuickJS 2026-06-04, built and run by slowjs's [engine comparison](https://github.com/liustack/slowjs/blob/main/docs/benchmarks.md), on the same bundles. C has no `Intl`, so it runs the FormatJS polyfill on pages that need it.
+- **Whole requests**: the built `bin/shop` with `--cache-size 0`, so every page request renders, loaded with [oha](https://github.com/hatoo/oha) from other cores. Pages go out as gzip unless a table says otherwise. Each step warms up for a few seconds and runs for 15 to 20 seconds, two or three rounds.
 
 ## How fast a page renders
 
-The workbench, each range covering the two shops:
+P50 of one render in ms, lower is faster. The workbench rows are one of its two shops (the other is within 4%), the storefront rows are its English pages (the Chinese ones are within 2%, except the journal post).
 
-| Page | HTML | Render P50 | Render P99 | Request P50 | Request P99 |
+| Page | HTML | tifa | C QuickJS | Node `--jitless` | Node with JIT |
 | --- | --- | --- | --- | --- | --- |
-| Order list | 81 to 86 KB | 22.7 to 23.6 ms | 24.2 to 25.0 ms | 23.3 to 24.3 ms | 24.8 to 26.0 ms |
-| Order | about 38 KB | 8.30 to 8.43 ms | 9.1 to 9.3 ms | 8.87 to 9.02 ms | 9.7 to 10.1 ms |
-| Stats | about 34 KB | 7.06 to 7.12 ms | 7.5 to 7.8 ms | 7.54 to 7.57 ms | 8.4 to 8.5 ms |
+| Workbench: order list | 87 KB | 23.6 | 28.3 | 11.3 | 3.56 |
+| Workbench: order | 40 KB | 8.43 | 8.24 | 3.86 | 1.13 |
+| Workbench: stats | 35 KB | 7.12 | 7.07 | 3.24 | 0.91 |
+| Storefront: home | 102 KB | 20.3 | 22.9 | 10.5 | 3.26 |
+| Storefront: products | 207 KB | 38.2 | 38.5 | 20.3 | 6.58 |
+| Storefront: product | 132 KB | 22.8 | 25.4 | 11.7 | 3.65 |
+| Storefront: cart | 76 KB | 14.1 | 16.0 | 7.27 | 2.38 |
+| Storefront: checkout | 87 KB | 17.9 | 18.3 | 8.86 | 3.09 |
+| Storefront: journal | 26 KB | 4.73 | 5.11 | 2.30 | 0.66 |
+| Storefront: journal post, English | 50 KB | 79.8 | 61.5 | 34.9 | 10.9 |
+| Storefront: journal post, Chinese | 49 KB | 60.9 | 47.3 | 26.7 | 9.86 |
+| MUI: home | | 42.6 | 130 | 31.7 | 8.30 |
+| MUI: order | | 40.0 | 56.2 | 30.5 | 7.97 |
+| MUI: orders | | 91.9 | 255 | 69.8 | 17.4 |
 
-The storefront, each range covering the two languages:
+tifa's time divided by the others', the geometric mean over the pages (below 1, tifa is faster):
 
-| Page | HTML | Render P50 | Render P99 | Request P50 | Request P99 |
-| --- | --- | --- | --- | --- | --- |
-| Home | about 102 KB | 20.3 to 20.5 ms | 21.4 to 21.7 ms | 21.1 ms | 22.4 to 22.5 ms |
-| Products | about 207 KB | 38.0 to 38.2 ms | 39.9 to 40.0 ms | 39.1 to 39.2 ms | 40.7 to 41.4 ms |
-| Product | about 131 KB | 22.8 to 22.9 ms | 24.4 to 24.8 ms | 23.9 to 24.0 ms | 24.7 to 25.2 ms |
-| Cart | about 76 KB | 14.1 ms | 15.2 ms | 14.9 ms | 16.0 to 16.2 ms |
-| Checkout | about 87 KB | 17.8 to 17.9 ms | 19.2 to 19.3 ms | 18.6 to 18.7 ms | 20.1 to 20.4 ms |
-| Journal | about 26 KB | 4.73 to 4.78 ms | 5.3 to 5.7 ms | 5.04 to 5.08 ms | 5.5 to 5.6 ms |
-| Journal post | about 50 KB | 79.8 ms in English, 60.9 ms in Chinese | 84.2, 64.8 ms | 80.5, 61.7 ms | 84.4, 66.2 ms |
-
-The MUI test app renders its home page in 42.6 ms (P99 44.8 ms), an order in 40.0 ms (41.6 ms) and the order table, at `/orders` and at `/orders?page=1`, in 91.9 to 92.1 ms (93.9 to 94.8 ms).
-
-"Render" is one VM on its own, five rounds, the median of the per-round P50 and P99. Each round's P50 stays within 2% of the median on 21 of the 24 pages, and within 4.1% on all. "Request" is one request at a time over HTTP to a server with one VM on one core, sent as gzip, two rounds of 10 seconds. It adds Go's `Load`, JSON, gzip and net/http: 0.45 to 0.7 ms on the workbench and 0.3 to 1.1 ms on the storefront, 0.13 to 0.28 ms of it compressing (see [Compression](#compression)). One request at a time, that is 41 to 43 order lists or about 131 stats pages a second.
-
-On 2026-10-19, with quickjs v0.26.15 without PGO and tifa 790b746, the workbench rendered in 34.3 to 35.4 ms (order list), 12.5 to 12.9 ms (order) and 10.4 ms (stats), with a P99 of 15.5 to 44.4 ms. Today's renders take about two thirds of that time, measured in another session.
-
-At start the program compiles the SSR bundle to bytecode once and loads that bytecode into each VM of the pool, one after another. For the shop before the storefront was added, that was about 0.2 s to compile and about 45 ms per VM, measured with quickjs v0.26.9. v0.26.12 made loading about 11% faster. On 2026-10-24, with the storefront and slowjs v0.28.6, the program listens 293 ms after it starts with 1 VM, 342 ms with 2 and 413 ms with 4, and answers its first page 44 to 46 ms later.
-
-With quickjs v0.27.0 and the current shop, adding lazy Temporal registration leaves loading about the same: `Load` alone in a later VM takes 41.69 ms before and 41.43 ms after, excluding compilation and closing. The first measured VM in a process takes 49.17 and 49.95 ms, including the first registration of the stand-ins. The existing load benchmark, which also inspects memory and closes the VM, gives a median paired ratio of 1.008. These are six alternating rounds on linux/amd64, without PGO. The first actual use of Temporal costs separately, see [Memory](#memory).
-
-The SSR bundle is an ES module, which each VM evaluates as a module, so that packages may use top-level `await` (see [Top-level await and strict mode](app.md#top-level-await-and-strict-mode)). Against the IIFE it was before, with the same HTML on all sixteen pages of the shop: the workbench pages take 0.997 of the time (0.988 to 1.007), the storefront pages 1.000 (0.969 to 1.021), loading a VM 0.991 to 0.998 of the time and compiling about 7% less. The bytecode is 4.04 MB rather than 5.36 MB, since the source text of the function around the whole bundle is no longer kept. A VM holds 31 KB more after loading (8,884 KiB against 8,853) and 19 to 31 KB more after rendering. That needs slowjs to free the top-level function of a module once it has run: QuickJS keeps it, with every top-level variable, for the life of the VM, about 0.8 MB of a VM of the shop. Measured on linux/amd64 without PGO, one VM on one thread of a core pair that had been idle for 30 seconds, the two bundles in turn in the same program, over 3 layouts of the code and 6 rounds: the workbench with 256 warm renders, then each page 30 times a round, the storefront with 256, then 12 times a round. The ratio is the middle one of the medians of the three layouts, and the range is that of all 18 rounds.
-
-## How it compares with Node
-
-The same `ssr.js` in Node 24.13.0, copied to `ssr.mjs` and loaded with `import()`, given the same inputs, on the same machine and on a thread of another idle core pair. Node warms up with 600 renders of each page, then runs 5 rounds of 200, and the table gives the median of the per-round P50. Node with JIT is the normal Node. `--jitless` turns off V8's compiler to machine code, so V8 only interprets, which is closer to what slowjs does. The HTML is the same as tifa's, with the render times the router writes masked.
-
-| Pages | Node with JIT | Node `--jitless` | tifa | tifa slower than JIT | tifa slower than jitless |
-| --- | --- | --- | --- | --- | --- |
-| Order list | 3.41 to 3.56 ms | 11.07 to 11.30 ms | 22.70 to 23.62 ms | 6.6 to 6.7 times | 2.1 times |
-| Order | 1.08 to 1.13 ms | 3.80 to 3.86 ms | 8.30 to 8.43 ms | 7.4 to 7.7 times | 2.2 times |
-| Stats | 0.87 to 0.91 ms | 3.22 to 3.24 ms | 7.06 to 7.12 ms | 7.8 to 8.1 times | 2.2 times |
-| Workbench, the six pages together | 10.96 ms | 36.49 ms | 77.23 ms | 7.05 times | 2.12 times |
-| Storefront, the 14 pages together | 59.81 ms | 183.94 ms | 376.69 ms | 6.30 times (5.8 to 7.3 by page) | 2.05 times (1.87 to 2.28) |
-| MUI test app, the 4 pages together | 51.85 ms | 201.70 ms | 266.61 ms | 5.14 times (5.0 to 5.3) | 1.32 times (1.31 to 1.34) |
-
-- P99 is 5.3 to 20.5 ms in Node with JIT on the workbench pages, 9.2 to 26.2 ms with `--jitless` and 7.5 to 25.0 ms in tifa, whose P99 stays within 11% of its P50 on every workbench page: the pool collects garbage between renders, after the answer has gone out (see [Memory](#memory)).
-- A fresh Node process takes 55 ms for its first render, an order page.
-- On the MUI pages tifa is closest to Node with `--jitless`: tifa hashes emotion's styles in Go, and Node runs `@emotion/hash` in JavaScript.
-- With quickjs v0.26.15, without PGO, tifa 790b746 and the shop before the storefront, the same measurement gave 8.0 to 8.9 times slower than Node with JIT and 2.7 times slower than `--jitless`. Before quickjs v0.26.12 and v0.26.13 and three rewrites of the SSR bundle, it gave about 13.6 and 4.45 times.
-- This compares renders only. [Compared with Next.js and TanStack Start](#compared-with-nextjs-and-tanstack-start) compares whole requests.
-
-### Compared with Next.js and TanStack Start
-
-The shop's workbench was also written for Next.js 16.4.2 (App Router, every route dynamic, data loaded in server components, the same React components) and for TanStack Start 1.169.3 (the same routes and loaders), on Node 24.13.0. These two versions were written only for this measurement and are not in this repository. All three give the same visible text on the six pages. The test sent whole requests over HTTP, the six pages in turn, with `Accept-Encoding: identity`, on the same GCP machine in one session, two rounds. For two cores, Next.js and Start run two processes under Node's cluster module (Start uses Nitro's `node-cluster` preset), and tifa runs 2 VMs. [tifa against Next.js and TanStack Start](studies/nextjs-and-tanstack-start.md) has the method and every number.
-
-| | tifa | Next.js | TanStack Start |
+| Pages | Against C QuickJS | Against Node `--jitless` | Against Node with JIT |
 | --- | --- | --- | --- |
-| One core, 1 and 4 in flight, requests/s | 74 to 77 | 185 to 200 | 288 to 299 |
-| Two cores, 2 in flight, requests/s | 146 to 150 | 308 to 314 | 502 to 516 |
-| Two cores against one | 2.00 times | 1.67 times | 1.77 times |
-| Peak memory (RSS), one core | 55 to 56 MiB | 441 to 453 MiB | 362 to 368 MiB |
-| Peak memory (RSS), two cores | 70 MiB | 952 to 979 MiB | 762 to 791 MiB |
-| From process start to first answer | 337 ms | 662 ms | 294 ms |
-| Request from which latency settles | 1st | 512th (236th to 571st) | 310th (305th to 507th) |
+| The shop, 20 pages | 0.94 | 2.04 | 6.58 |
+| MUI, 3 pages | 0.43 | 1.32 | 5.12 |
+| `test/apps/bench`, 2 pages without `Intl` | 1.15 | not measured | not measured |
 
-- On one core, Next.js answers 2.5 to 2.6 times as many requests as tifa, and Start 3.9 times. On two cores with 2 in flight, 2.1 and 3.4 times. Next.js run with `--jitless` answers 0.85 times as many as tifa: tifa is ahead of it on the order and stats pages by 1.4 to 1.5 times, and level with it on the order lists.
-- With the default `Accept-Encoding` of the load tool, tifa and Next.js send gzip and Start sends pages uncompressed (about 53 KB against about 8.5 KB). Compression costs tifa 1.6% of its requests a second and Next.js 16% on one core, so there Next.js answers 2.1 times as many.
-- Latency settles from the request after which the median of every 30 requests stays within 10% of the steady latency of their pages. Next.js and Start keep getting faster up to the 600th request, the last one measured.
-- On 2026-10-19, with quickjs v0.26.15, tifa answered 49 to 52 requests a second on one core and 100 to 102 on two, so Next.js answered 3.7 to 3.9 times as many and Start 5.6 to 5.8 times. Next.js and Start answer about as many as then.
+- **Against C**: on the same JavaScript, polyfill included, slowjs takes 1.17 to 1.26 times as long as C on the bench and shop pages. tifa is still ahead on most pages because its `Intl` is written in Go while C runs the FormatJS polyfill, and on the MUI pages because tifa hashes emotion's styles in Go. The journal posts are behind C: most of their time is the syntax highlighter's regular expressions. The C column and its ratios come from slowjs's comparison tool, whose tifa times are within 5% of the tifa column.
+- **Against Node**: the gap is the JIT. Without it, Node is about 2 times as fast on the shop and 1.3 times on MUI.
+- **P99**: tifa's P99 stays within 11% of its P50 on every workbench page, since the pool collects garbage between renders, after the answer has gone out (see [Memory](#memory)). Node's P99 on the same pages is 5.3 to 20.5 ms with JIT and 9.2 to 26.2 ms with `--jitless`.
+- **First render**: the program listens 293 ms after it starts with 1 VM, 342 ms with 2 and 413 ms with 4, and answers its first page 44 to 46 ms later, at its steady speed. A fresh Node process takes 55 ms for its first order page.
 
-## How it compares with other pure Go engines
+## Against Next.js and TanStack Start
 
-slowjs's [engine comparison](https://github.com/liustack/slowjs/blob/main/docs/benchmarks.md) renders tifa pages on every pure Go engine that runs modern JavaScript, with C QuickJS, QuickJS-NG and Node as references, and runs again at each slowjs release. On v0.26.17, one GCP core, without PGO, the time of a render against tifa's engine (above 1 is slower):
+The six workbench pages were written again for Next.js 16.4.2 (App Router, every route dynamic, data loaded in server components, the same React components) and TanStack Start 1.169.3 (the same routes and loaders), run on Node 24.13.0, with the same visible text. Whole requests over HTTP, the six pages in turn, one at a time, `Accept-Encoding: identity`. For two cores, Next.js and Start run two processes under Node's cluster module and tifa runs 2 VMs. [tifa against Next.js and TanStack Start](studies/nextjs-and-tanstack-start.md) has the method and every number.
 
-| Engine | Pages without `Intl` | The shop as each engine runs it |
-| --- | --- | --- |
-| go-quickjs v0.28.0, interpreter | 1.13 | 1.24, and 2 of 20 pages fail |
-| go-quickjs v0.28.0, JIT | 1.20 | 1.43, and 2 of 20 pages fail |
-| moejs | 1.16 | cannot load the shop |
-| modernc.org/quickjs | 2.12 | 2.35 |
-| goant | 2.47 to 2.80 | 3.47 to 3.58 |
-| C QuickJS 2026-06-04 | 0.63 | 0.89 |
-| Node 24 | 0.10 | 0.16 |
+| | tifa | Next.js | Next.js `--jitless` | TanStack Start |
+| --- | --- | --- | --- | --- |
+| Requests/s, one core | 74 | 185 to 186 | 63 to 64 | 288 |
+| Against tifa | 1 | 2.5 | 0.85 | 3.9 |
+| P50 / P99, one core | 8.9 / 24.8 ms | 3.9 / 15 ms | 12.3 / 30 ms | 2.2 / 11 ms |
+| Peak RSS, one core | 55 to 56 MiB | 441 to 453 MiB | 332 to 343 MiB | 362 to 368 MiB |
+| Requests/s, two cores, 2 in flight | 146 to 150 | 308 to 314 | not measured | 502 to 516 |
+| Two cores against one | 2.00 times | 1.67 times | not measured | 1.77 times |
+| Process start to first answer | 337 ms | 662 ms | 698 ms | 294 ms |
+| Request from which latency settles | 1st | 512th | 164th | 310th |
 
-- On tifa's pages no other pure Go engine renders faster. On generic benchmarks, go-quickjs and goant's JIT do better, and the comparison lists where.
-- Each VM takes the least memory of the pure Go engines, 1.2 MiB, with an exact memory limit.
-
-On 2026-10-24 the comparison ran again on slowjs v0.28.6 with the bundles tifa c729ad2 builds, for C QuickJS, QuickJS-NG and Node only, one GCP core, without PGO. The time of a render as tifa runs it, against C QuickJS 2026-06-04, which renders the pages that need `Intl` on the FormatJS polyfill (below 1 is faster than C):
-
-| Row | Pages without `Intl` | The shop | The MUI pages |
-| --- | --- | --- | --- |
-| tifa's engine, as tifa runs it | 1.22 | 0.97 | 0.45 |
-| The same, with `build.goasm: false` | 1.46 | 1.04 | 0.48 |
-| slowjs on the same JavaScript as C, with the polyfill | 1.25 | 1.29 | 0.99 |
-| QuickJS-NG v0.17.0 | 1.33 | 1.25 | 0.96, and 1 of 3 pages fails |
-| Node 24.11 with JIT | 0.16 | 0.24 | 0.16 |
-| Node 24.11 `--jitless` | 0.53 | 0.59 | 0.48 |
-
-- In the run of v0.26.17 above, C QuickJS took 0.63 of tifa's time on pages without `Intl` and 0.89 on the shop. Now it takes 0.82 and 1.03.
-- On the shop and the MUI pages tifa's engine is faster than C QuickJS because its `Intl` is written in Go, while C runs the polyfill, and because the MUI pages hash their styles in Go. Running the same JavaScript as C, polyfill included, slowjs takes 1.25 times the time of C on the pages without `Intl` and 1.29 on the shop.
-- Details and every page: [the run with tifa's current bundles](https://github.com/liustack/slowjs/blob/main/docs/benchmarks.md#tifas-current-bundles).
+- With gzip, which tifa and Next.js send by default, Next.js loses 16% of its requests on one core and tifa 1.6%, so Next.js answers 2.1 times as many. Start sends pages uncompressed, about 53 KB against about 8.5 KB.
+- Latency settles from the request after which the median of every 30 requests stays within 10% of the steady latency of their pages.
 
 ## How it scales with cores
 
-The pages in turn, sent as gzip, with as many VMs as cores and as many requests in flight as VMs, one VM per physical core. 1 core is cpu 1 with oha on cpu 3, 2 cores are cpus 1 and 2 with oha on cpu 3, 4 cores are cpus 0 to 3 with oha on cpu 7, the sibling of cpu 3. Three rounds, the median and the range:
+The pages in turn, gzip, as many VMs as cores and as many requests in flight as VMs. Physical cores means one hyperthread of each core, with its sibling idle.
 
-| Pages | Cores and VMs | Requests/s | Times 1 core | P50 | P99 | Peak RSS |
-| --- | --- | --- | --- | --- | --- | --- |
-| Workbench, 6 pages | 1 | 74.4 (74.0 to 77.2) | 1.00 | 9.09 ms | 24.8 ms | 56 MiB |
-| | 2 | 141.7 (137.7 to 143.7) | 1.90 | 9.35 ms | 26.5 ms | 70 to 71 MiB |
-| | 4 | 280.0 (279.2 to 284.5) | 3.76 | 9.62 ms | 28.5 ms | 99 to 100 MiB |
-| Storefront, 14 pages | 1 | 34.6 (32.7 to 35.4) | 1.00 | 21.7 ms | 81.0 ms | 66 MiB |
-| | 2 | 67.2 (65.6 to 70.4) | 1.94 | 23.2 ms | 82.7 ms | 88 to 89 MiB |
-| | 4 | 133.0 (132.0 to 135.0) | 3.84 | 23.2 ms | 85.2 ms | 129 to 131 MiB |
+| Pages | CPUs and VMs | Requests/s | Against one core | P50 | P99 | CPU per request | Peak RSS |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Workbench, 6 pages | 1 physical core | 73.0 to 74.4 | 1 | 9.1 ms | 24.9 ms | 13.7 ms | 56 MiB |
+| | 2 physical cores | 141.7 to 145.6 | 1.90 to 1.99 | 9.2 to 9.4 ms | 26.5 to 27.1 ms | 13.5 ms | 70 to 71 MiB |
+| | 4 physical cores | 279.3 to 280.0 | 3.76 | 9.6 ms | 28.5 to 28.8 ms | 13.8 ms | 100 MiB |
+| | 1 core, both hyperthreads | 95.2 | 1.30 | 14.0 ms | 39.8 ms | 20.8 ms | 70 to 71 MiB |
+| | 4 cores, all 8 hyperthreads | 355.0 | 4.8 | 15.5 ms | 48.1 ms | 20.5 ms | 157 to 158 MiB |
+| Storefront, 14 pages | 1 physical core | 34.6 | 1 | 21.7 ms | 81.0 ms | | 66 MiB |
+| | 2 physical cores | 67.2 | 1.94 | 23.2 ms | 82.7 ms | | 88 to 89 MiB |
+| | 4 physical cores | 133.0 | 3.84 | 23.2 ms | 85.2 ms | | 129 to 131 MiB |
 
-The P99 of a mix is the slowest page: the order list on the workbench, the English journal post on the storefront.
-
-- Up to the 4 physical cores measured, throughput grows almost linearly: 4 cores give 3.76 to 3.84 times one core over HTTP. With quickjs v0.26.13, the pool alone, without HTTP, gave 3.87 times. The few percent lost per core look like the shared L3 cache or memory. The VM has no hardware counters to prove it.
-- The hyperthreads were not measured again. With quickjs v0.26.15, before the storefront, the six workbench pages went from 49.4 requests a second on 1 VM to 185.3 on 4 physical cores (3.75 times) and only to 222.6 on all 8 hyperthreads (4.51 times). A hyperthread adds about 20%: one core with 2 VMs did 59.3 to 60.4 requests a second against 49.4 with one, and a render's CPU time grew from about 20 ms to 33 or 34 ms, spread over every function of the interpreter: the two threads fight over the same core.
-- Measured with quickjs v0.26.13, before compression: libc's allocator lock, garbage collection, HTTP and the kernel together take about 3% of the CPU. 99.5% of the program's CPU is in user space, and the kernel takes 0.3% to 0.5%. So throughput follows the time of one render.
-- Below the queue limits, more requests than VMs add waiting without raising throughput. On 2026-10-24, one core and 1 VM did 74.0 requests a second with 1 in flight and 76.0 with 4, at a P50 of 50 ms (pages asked for as identity, see [Compared with Next.js and TanStack Start](#compared-with-nextjs-and-tanstack-start)).
+- Up to 4 physical cores throughput grows almost linearly, 3.76 to 3.84 times one core. Throughput follows the time of one render: HTTP, compression and the rest are under 1 ms of a request's 13.7 ms of CPU.
+- A second hyperthread on the same core adds about 30% throughput, but each render gets about 1.5 times slower, because the two threads share one core.
+- The P99 of a mix is its slowest page: the order list on the workbench, the English journal post on the storefront.
 
 ## Sizing a machine
 
 ### CPU and `ssr.vms`
 
-The requests in this part took the pages as gzip. The figures of the second to the fifth point were measured with quickjs v0.26.15, without PGO, on the shop before the storefront, when a workbench page took about 1.5 times as long to render as now.
-
 - Leave [`ssr.vms`](config.md#settings) at its default, the CPU count Go sees (`GOMAXPROCS`), which follows a container's CPU limit.
-- More VMs than CPUs adds no throughput. The renders do not queue: they share the CPUs, so each one takes longer. On 7 CPUs, 8 VMs did 212 to 218 requests a second at a P50 of 25.9 to 26.4 ms, and 7 VMs did 211 to 214 at 22.4 to 22.5 ms.
-- Fewer VMs than CPUs trades throughput for a little latency: on the same 7 CPUs, 4 VMs did 155 to 162 requests a second at a P50 of 17.2 to 17.8 ms. The system still puts render threads on two hyperthreads of one core while other cores sit idle. Giving the program only as many CPUs as physical cores is better on both counts: 4 VMs on 4 physical cores did 182 to 188 requests a second at 13.8 to 13.9 ms.
-- A cloud vCPU is usually one hyperthread, so 2 vCPUs are often one physical core. Busy hyperthreads give more throughput but slower renders: with the shop's pages, a P50 of about 14 ms on physical cores became about 22 ms when both threads of each core rendered.
-- The 14 ms was measured with the program pinned to one hyperthread of each physical core while the other hyperthreads were nearly idle. A cpuset, such as Docker's `--cpuset-cpus`, can pin the program to such CPUs, but it cannot keep other programs off their sibling hyperthreads. The static CPU manager policy of Kubernetes tends to hand out whole cores, both hyperthreads of each, which is the 22 ms case above. A plain CPU quota, such as Docker's `--cpus`, does not pin threads, and likely behaves more like fewer VMs than CPUs above. That case was not measured.
-- Plan on about 74 page requests a second per physical core for the shop's six workbench pages in turn, which take about 13.4 ms of CPU each with HTTP, and about 34 for its 14 storefront pages, about 29 ms each. When the vCPUs are hyperthreads that are all busy, plan on about 0.6 of that per vCPU: with quickjs v0.26.15, 6 such vCPUs did 172.0 to 173.9 requests a second where one physical core did 46. Pages with a different render time scale with it.
+- Plan on about 73 page requests a second per physical core for pages like the shop's workbench, 13.7 ms of CPU each with HTTP, and about 34 for its storefront, about 29 ms each. Pages with a different render time scale with it.
+- A cloud vCPU is usually one hyperthread, so 2 vCPUs are often one physical core. When all hyperthreads are busy, plan on about 0.63 of a physical core per vCPU: 6 busy hyperthreads answered 276 requests a second, 46 per vCPU. Renders are then about 1.5 times slower: a P50 of 14.7 ms against 9.6 ms.
+- More VMs than CPUs adds no throughput and slows every render. On 7 CPUs, 8 VMs answered 338 requests a second at a P50 of 16.6 ms and 7 VMs 334 at 14.7 ms.
+- Fewer VMs than CPUs does not help either: on the same 7 CPUs, 4 VMs answered 235 requests a second at a P50 of 11.9 ms, because the system still puts two of them on the hyperthreads of one core. Giving the program as many CPUs as physical cores is better on both counts: 4 VMs on 4 physical cores answered 279 at 9.6 ms.
+- A cpuset, such as Docker's `--cpuset-cpus`, can pin the program to one hyperthread of each core, but cannot keep other programs off the siblings. The static CPU manager policy of Kubernetes hands out whole cores, both hyperthreads, which is the busy hyperthread case above. A plain CPU quota, such as Docker's `--cpus`, does not pin threads. That case was not measured.
 
-Only a full page load renders. Navigating in the browser fetches JSON that Go writes without a VM, and API routes and cached pages do not render either. With 6 VMs on 3 physical cores and 64 requests in flight, measured with quickjs v0.26.13:
+Only a full page load renders. Navigating in the browser fetches JSON that Go writes without a VM, and API routes and cached pages do not render either. 6 VMs on 3 physical cores (6 hyperthreads), 64 requests in flight, gzip:
 
-| Request | Requests/s | P50 | P99 |
-| --- | --- | --- | --- |
-| Navigation data of a list, an order, the stats | 20,161, 33,030, 21,264 | 1.5 to 2.5 ms | 8.1 to 14.1 ms |
-| A page of `Cache = true` from the cache | 22,538 | 2.1 ms | 13.1 ms |
-| The same page answered with 304 | 31,165 | 1.5 ms | 8.8 ms |
-| API `PATCH` of an order | 57,905 | 1.4 ms | 3.3 ms |
+| Request | Requests/s | P50 | P99 | CPU per request |
+| --- | --- | --- | --- | --- |
+| Navigation data of a list | 17,989 | 2.65 ms | 14.4 to 14.9 ms | 0.32 ms |
+| Navigation data of an order | 26,949 | 1.68 to 1.74 ms | 9.7 to 10.0 ms | 0.21 ms |
+| Navigation data of the stats | 18,448 | 2.57 to 2.60 ms | 14.0 ms | 0.31 ms |
+| A `Cache = true` page from the cache | 37,094 | 1.30 to 1.33 ms | 6.2 to 6.3 ms | 0.15 ms |
+| The same page answered with 304 | 36,985 | 1.33 to 1.34 ms | 6.1 to 6.2 ms | 0.15 ms |
+| API `PATCH` of an order | 53,275 | 1.51 to 1.53 ms | 3.5 to 3.6 ms | 0.07 ms |
 
-A large part of their cost is the app's, not tifa's. For navigation data and cache hits, 20% to 24% goes to the shop's own `Load` functions, which copy and sort every order on each request, and 13% to 20% to the system calls that write the response. `PATCH` gets only 56% more from 3 cores than from one, which looks like the shop's own lock on its orders (`ordersMu`). That one was not profiled. A cache hit costs as much as a navigation data request: the cache key holds the data, so every `Load` runs before the cache is checked.
+Much of their cost is the app's: the shop's `Load` functions copy and sort every order on each request. The `PATCH` row may be limited by the load tool, which used a whole CPU.
 
-Requests for a `Cache = true` page that miss the cache at the same time share one render (see [SSR and cache](app.md#ssr-and-cache)), so a burst on a cold page, such as right after a deploy, costs one render instead of one per request. 50 requests at once for a cold order page of the shop on an Apple M4 with other work running, five rounds of each in turn, without PGO:
-
-| VMs | Each request renders: renders, all answered in, P50 | Shared render: renders, all answered in, P50 |
-| --- | --- | --- |
-| 10, `GOMAXPROCS=10` | 50, 146 to 221 ms, 103 to 133 ms | 1, 30 to 52 ms, 29 to 51 ms |
-| 2, `GOMAXPROCS=2` (three rounds) | 50, 332 to 354 ms, 187 to 201 ms | 1, 33 to 40 ms, 32 to 38 ms |
-
-The one render is the first in a fresh VM, which is slower than a warm one. Requests that come once it is done find the cache.
+Requests for a `Cache = true` page that miss the cache at the same time share one render (see [SSR and cache](app.md#ssr-and-cache)), so a burst on a cold page, such as right after a deploy, costs one render instead of one per request. 50 requests at once for a cold order page, a fresh process each round, five rounds: one render each round, and all 50 answered in 32.5 to 33.2 ms with 10 VMs on 8 CPUs, and in 30.9 to 38.0 ms with 2 VMs on 2 CPUs. The one render is the first in a fresh VM, which is slower than a warm one.
 
 ### Overload
 
@@ -190,133 +138,59 @@ Keep the usual arrival rate below measured render capacity. At capacity, small c
 
 The defaults allow 32 renders to wait for a VM, each for at most 1 second. A full queue or an expired wait answers 503 with `Retry-After: 1` and `Cache-Control: no-store`. The answer comes from Go and uses no VM. These are expected rejections and do not call `OnError`. See [Render queue](config.md#render-queue).
 
-Both bounds matter. A time limit alone still lets the number waiting grow with the arrival rate. A count limit alone can leave requests waiting while every VM is slow or being replaced. With the shop's measured capacity, 32 waiting renders represent about half a second of work. The 1 second wait leaves room for a short burst without using the whole HTTP write budget. For pages with a different cost, set `ssr.queue_limit` and `ssr.wait_timeout` from their measured capacity and acceptable wait. `ssr.queue_limit: 0` rejects whenever no VM is idle.
+Both bounds matter. A time limit alone still lets the number waiting grow with the arrival rate. A count limit alone can leave requests waiting while every VM is slow or being replaced. With the shop's capacity, 32 waiting renders are about a third of a second of work. The 1 second wait leaves room for a short burst without using the whole HTTP write budget. For pages with a different cost, set `ssr.queue_limit` and `ssr.wait_timeout` from their measured capacity and acceptable wait. `ssr.queue_limit: 0` rejects whenever no VM is idle.
 
-Measured on 2026-10-22 with the six workbench pages of the shop, Go 1.27.2 and quickjs v0.26.17, without PGO. The server used CPUs 1 and 5, two threads of one AMD EPYC 7B13 core, with `MemoryMax=1G`, no swap and the default 2 VMs. The open-loop client used CPUs 0 and 4, sent gzip requests for 60 seconds per step, and waited up to 90 seconds per request. Unique URLs and `cache.size=0` made each request render. Arrivals below use the same fraction of the original measured capacity, 69.47 requests/s, for both builds. The bounded build measured 70.69 requests/s, a small change that also affects the row near capacity. These are HTTP timings with temporary pool timing logs, not a render microbenchmark.
+The six workbench pages, unique URLs so that each request renders, the default 2 VMs on the two hyperthreads of one core, `MemoryMax=1G` without swap. An open-loop client on another core sends gzip requests at a fixed rate for 60 seconds per step, as a fraction of the measured capacity of 89.5 requests a second, two rounds:
 
-| Arrival rate | Before: errors | Before: all P99 | Before: peak RSS | Bounded: 503 | Bounded: successful P99 | Bounded: peak RSS |
-| --- | --- | --- | --- | --- | --- | --- |
-| 50% | 0.0% | 0.039 s | 100.9 MiB | 0.0% | 0.039 s | 97.0 MiB |
-| 75% | 0.0% | 0.052 s | 102.5 MiB | 0.0% | 0.051 s | 99.3 MiB |
-| 100% | 0.0% | 0.283 s | 106.5 MiB | 0.0% | 0.059 s | 101.0 MiB |
-| 150% | 68.5% | 29.830 s | 292.6 MiB | 32.0% | 0.563 s | 104.2 MiB |
-| 200% | 84.1% | 59.031 s | 453.2 MiB | 48.7% | 0.577 s | 105.8 MiB |
-| 300% | 92.0% | 90.004 s | 826.2 MiB | 66.8% | 0.627 s | 105.8 MiB |
+| Arrival rate | Answered 503 | Successful P50 / P99 | 503 P99 | Peak RSS |
+| --- | --- | --- | --- | --- |
+| 50% | 0% | 12 / 31 ms | | 77 MiB |
+| 75% | 0% | 16 / 40 ms | | 78 MiB |
+| 100% | 0% | 104 to 147 / 153 to 289 ms | | 82 to 83 MiB |
+| 150% | 34% | 385 to 389 / 445 to 452 ms | 45 ms | 84 MiB |
+| 200% | 51% | 389 to 390 / 469 to 473 ms | 47 ms | 84 MiB |
+| 300% | 68% | 395 to 399 / 493 to 499 ms | 50 to 52 ms | 85 MiB |
+| 300%, 180 seconds | 67% | 395 / 490 ms | 52 ms | 84 MiB |
 
-The first failure was latency. The old 3 second render timeout did not count waiting for a VM. The HTTP server's 10 second write timeout did not cancel that wait either: a request could render after its write deadline and then fail with EOF. At 150%, 200% and 300%, no successful responses arrived in the last 10 seconds of injection, although VMs kept working. After the queue drained, the server recovered. The 60 second runs did not reach the cgroup limit. In an extra 180 second run at 300%, with a 300 second client timeout, the kernel killed the old process after about 92 seconds of arrivals. The unit reported `oom-kill` and a 1 GiB memory peak.
-
-At 300%, the bounded build's successful responses had P50/P99 of 501/627 ms. Its 503 responses had P99 of 53 ms. The P50 of all requests was only 28 ms because most were rejected, so all-request latency alone hides the cost to accepted requests. All rejections carried `Retry-After: 1`, and there were no transport errors or client timeouts. The defaults are a starting point for a small machine, not an optimum found by searching every queue size.
-
-Explicit VM counts gave the same result. With 1 VM at 300%, successful P50/P99 was 581/680 ms and peak RSS was 80.8 MiB. With 2 VMs it was 491/611 ms and 105.0 MiB. Across all 18 bounded runs, 102,717 requests produced no transport errors or client timeouts, and each run passed all 10 recovery requests after draining. A 180 second run at the same 300% arrival rate kept peak RSS at 105.9 MiB and successful P99 at 609 ms.
-
-The same 180 second test without pool timing logs killed the old process after 104 seconds, again at the 1 GiB cgroup limit. The bounded process stayed alive, with peak RSS of 107.3 MiB and successful P50/P99 of 497/601 ms. It returned 24,984 responses with status 503 out of 37,514 arrivals, with no transport errors or client timeouts, and passed all recovery requests.
-
-The queue limit counts render jobs, not bytes or all HTTP requests. `Load` runs before admission. Requests sharing one cache miss still hold their own HTTP state. The low-concurrency RSS figures below do not cover arbitrary connections, large loader data or application memory. `ssr.vm_memory` limits each VM, not the process, and a render queue bound is not a guarantee against a process OOM.
+- No request failed in transport or timed out, every rejection carried `Retry-After: 1`, and after each step the server answered 10 recovery requests out of 10. Successful answers kept coming until the end of every step.
+- At 300%, the P50 of all requests is only 26 ms, because most of them are rejected quickly. Watch the latency of successful requests, not of all requests.
+- At exactly 100%, small changes in render time decide how long the queue gets, so the two rounds differ.
+- The queue limit counts render jobs, not bytes or HTTP requests. `Load` runs before admission, and requests that share one cache miss still hold their own HTTP state. These RSS figures do not cover many connections, large loader data or the app's own memory. `ssr.vm_memory` limits each VM, not the process, and the queue does not guarantee that the process never runs out of memory.
 
 ### Memory
 
-The pool schedules background replacement when a VM's live size after collection crosses a growth bound. The baseline is its live size immediately after loading and the warmup collection. After a collection between renders, the bound is twice that baseline, lowered to 75% of `ssr.vm_memory` when that is smaller. It never goes below 175% of the baseline, so a bundle that starts near the memory limit does not cause repeated reloads without recovering space. These sizes use the engine's `MemorySize`, the same count as the existing GC policy, not process RSS. With a limit below 1.75 times the loaded size, the floor can exceed the limit. Replacement cannot make that unchanged bundle fit. There is no new setting.
-
-Measured on 2026-10-22 with Go 1.27.2, quickjs v0.27.0, PGO off and an AMD EPYC 7B13 on GCP. Each page group ran 4,096 renders with one VM and another 4,096 with two VMs, rotating through 6 workbench pages, 12 storefront pages in two languages, and 4 MUI pages. These are the live sizes recorded by the pool after its ordinary collections, with no extra GC:
-
-| Pages | Baseline, MiB | Highest live, 1 VM | Highest live, 2 VMs | Largest ratio to baseline |
-| --- | --- | --- | --- | --- |
-| Shop workbench | 10.97 | 12.29 MiB | 12.28 MiB | 1.120 |
-| Shop storefront | 10.97 | 15.00 MiB | 14.93 MiB | 1.367 |
-| MUI | 5.23 | 8.68 MiB | 8.72 MiB | 1.666 |
-
-Twice the baseline leaves 20% above the largest observed normal live size. The 1.75-times floor under a low memory limit still leaves 5% above it. All 24,576 recorded live sizes stayed below 1.75 times the baseline. This evidence supports a fixed bound for these apps without another setting.
-
-The pool loads one spare in the background, leaving the old VM available for renders. It starts a load only with an eligible idle VM and no requests in the render queue. Once loaded, it swaps with an eligible idle VM only while the queue is empty, then closes the removed VM. Only one such replacement runs at a time across the pool. Budget for one extra VM while it loads and until an idle slot permits the exchange, including that VM's Go and TLS allocations. Sustained load can postpone replacement. A single render can still exceed the memory limit before the next between-render collection.
-
-A failed load keeps the old VM serving and retries after 1 second, doubling up to 30 seconds, with one warning until recovery. Each successful swap logs the baseline, old live size, bound and new live size, and increments the pool's replacement counter. Shutdown waits for loading and closes any unused spare. Module state in a replaced VM is lost, as after a failed render. Persistent application state belongs in Go.
-
-A VM left in an unknown state by an exception, timeout, memory failure or panic still leaves service immediately. Loading first cannot safely keep it serving, so the existing failure recovery keeps its temporary capacity loss. Proactive replacement only handles VMs whose renders have succeeded.
-
-Normal render latency was compared with `012d6e2` in six alternating rounds on the same machine, with PGO off. Each run warmed a new pool for 256 renders and timed 1,024 more, rotating through its page group with one caller per VM. Both VM counts used a pair of sibling threads on one physical core. Each round started after both threads passed a 30 second idle check. These are `Pool.Render` times, including any wait for a VM, excluding HTTP, Go loaders and HTML caching. Values below are medians of the six runs, and ratios are medians of the six paired after/before ratios. No normal run failed or loaded a replacement.
-
-| Pages / VMs | Before P50 / P99, ms | After P50 / P99, ms | Paired P50 / P99 ratio |
-| --- | --- | --- | --- |
-| Workbench / 1 | 10.81 / 29.62 | 10.80 / 29.94 | 0.995 / 1.020 |
-| Workbench / 2 | 17.69 / 48.29 | 17.60 / 50.41 | 0.997 / 1.051 |
-| Storefront / 1 | 41.20 / 98.94 | 40.66 / 97.44 | 0.987 / 0.987 |
-| Storefront / 2 | 66.20 / 174.59 | 65.59 / 172.00 | 0.983 / 0.983 |
-| MUI / 1 | 157.43 / 173.11 | 154.38 / 171.32 | 0.985 / 0.985 |
-| MUI / 2 | 260.93 / 283.56 | 254.58 / 277.42 | 0.975 / 0.980 |
-
-The short workbench runs had noisy tails: the 2 VM P99 paired ratio ranged from 0.846 to 1.120, with median 1.051. Six further alternating rounds with 4,096 timed renders per run gave P50/P99 ratios of 0.979/0.985, with P99 medians of 48.15 ms before and 47.41 ms after. The six individual workbench pages had P99 ratios from 0.944 to 0.988 in those longer runs. The short-run increase did not reproduce. These measurements show no consistent slowdown on the tested normal pages. Individual runs still vary.
-
-A fake leak wrapped the real shop order-detail render and retained another 32,768-element array on each call, under the default 128 MiB VM limit. Each run warmed for 128 renders before enabling the leak, then timed 1,024 calls with a 1 ms pause per caller between calls. Six alternating rounds used the same CPU and PGO conditions. The load-window P99 includes calls overlapping a background load or starting within 50 ms after it ended. Failed calls stay in the overall timing data. P99 values are medians of six runs, while failures and loads are totals over 6,144 calls per build and VM count:
-
-| VMs | Failed calls, before / after | All-call P99, before / after | Load-window P99, before / after | Loads, before / after |
-| --- | --- | --- | --- | --- |
-| 1 | 48 / 0 | 33.11 / 37.47 ms | 113.29 / 39.61 ms | 48 / 378 |
-| 2 | 48 / 0 | 52.41 / 53.30 ms | 195.77 / 57.77 ms | 48 / 324 |
-
-Loading first removed failures in this workload and reduced the P99 around each replacement. It also reloaded much more often, so background work raised the overall P99, especially with one VM. The two builds have different numbers of load-window samples because one waits for failure and the other replaces growing VMs earlier. Keeping capacity during a swap does not make loading free.
-
-Temporal registration, measured on 2026-10-22 with quickjs v0.27.0, Go 1.27.2 and the current shop including the storefront, against the same app without registration:
-
-| Cost | Before | With Temporal |
-| --- | --- | --- |
-| Shop executable, built by `tifa build` with `-ldflags=-w`, PGO off | 31,424,294 bytes | 32,193,024 bytes |
-| VM after loading, engine allocated / used | 11,497,264 / 7,350,388 bytes | 11,503,416 / 7,354,258 bytes |
-| VM after one order-detail render, engine allocated / used | 11,661,448 / 7,482,385 bytes | 11,671,704 / 7,486,255 bytes |
-| After that render and an explicit GC, engine allocated / used | 11,620,360 / 7,365,166 bytes | 11,622,408 / 7,369,036 bytes |
-
-The executable grows by 768,730 bytes (2.45%). An unused Temporal keeps about 3.8 KiB more JS allocations per VM. The allocator's larger blocks make its increase vary from 2 to 10 KiB in these snapshots. These are engine counts, not process RSS, and leave out Go allocations and libc's TLS stack.
-
-Temporal stays lazy after an ordinary shop render. After that render, the first `Temporal.PlainDate.from(...).toString()` in a process takes 10.89 ms, including compilation of the full shim, and the first in a later VM takes 1.00 ms. After GC it adds 150.7 KiB of JS allocations to each VM. The first process use also leaves about 552 KiB more Go heap. The first `toLocaleString('en-US', {dateStyle: 'long'})` after this takes 0.25 ms, or 0.07 ms in the later VM. Intl has already been used by the shop here. Other first calls can load different data.
-
-Measured on an AMD EPYC 7B13 with one render VM, `GOMAXPROCS=1`, CPUs 1/5 idle before each run, six alternating rounds and PGO off. Each page gets 256 warm-up and 300 timed renders per round. The six workbench pages do not use Temporal: their median paired P50 ratios are 0.999 to 1.005 and mean-time ratios 0.997 to 1.000, with the same SSR bundle and passing HTML checks. No material render regression was measured. The small unused VM cost does not justify a runtime setting, which would not remove the linked code anyway.
-
-Peak RSS (the high-water mark the kernel reports) of the whole program on 2026-10-24, with slowjs v0.28.6, while it renders the pages in turn, one VM per core, with as many requests in flight as VMs, the pages sent as gzip (the runs of [How it scales with cores](#how-it-scales-with-cores)):
-
-| VMs | 1 | 2 | 4 |
-| --- | --- | --- | --- |
-| Workbench, 6 pages | 56 MiB | 70 to 71 MiB | 99 to 100 MiB |
-| Storefront, 14 pages | 66 MiB | 88 to 89 MiB | 129 to 131 MiB |
-
-So with gzip the shop needs about 42 MiB plus about 15 MiB per VM for the workbench, and about 45 MiB plus about 21 MiB per VM for the storefront, whose pages are larger and hold more in each VM. Asked for as identity, the six workbench pages peak at 55 to 56 MiB with 1 VM and at 70 MiB with 2, and after 600 requests one at a time a fresh program holds 54 MiB with 1 VM, 63 MiB with 2 and 83 MiB with 4.
-
-The older memory measurements below use different versions and bundles.
-
-Measured on the shop before the storefront was added, with an SSR bundle of 772 KB instead of 1,288 KB.
-
-Peak RSS (the high-water mark the kernel reports) of the whole program while it renders the six pages, one VM per CPU, with as many requests in flight as VMs, the pages sent as gzip:
-
-| VMs | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Peak RSS | 64 MiB | 84 MiB | 102 MiB | 122 MiB | 141 MiB | 158 MiB | 180 MiB | 201 MiB |
-
-With the CPUs fixed at 7, the peak was 136 to 138, 178 to 181 and 202 to 204 MiB for 4, 7 and 8 VMs. So with gzip the shop needs about 45 MiB plus about 19 MiB per VM. Part of that is not the VM: each answer being compressed holds an encoder. With the server on 3 CPUs, `GOMAXPROCS` and the VMs at k and k requests in flight, two rounds each:
+Peak RSS (the high-water mark the kernel reports) of the whole program, rendering the six workbench pages, with as many VMs and requests in flight as the top row says, on 3 CPUs:
 
 | VMs and requests in flight | 1 | 2 | 4 | 8 |
 | --- | --- | --- | --- | --- |
-| Identity | 62 MiB | 79 MiB | 115 MiB | 180 MiB |
-| gzip | 64 MiB | 83 to 84 MiB | 121 to 123 MiB | 199 to 200 MiB |
-| zstd | 65 MiB | 85 to 86 MiB | 126 to 129 MiB | 213 MiB |
+| Uncompressed | 57 to 58 MiB | 67 to 68 MiB | 92 to 93 MiB | 141 to 142 MiB |
+| gzip | 56 MiB | 70 MiB | 100 to 101 MiB | 158 MiB |
+| zstd | 57 to 58 MiB | 73 to 74 MiB | 108 MiB | 174 to 175 MiB |
 
-Without compression a VM takes about 17 MiB with quickjs v0.26.15, as with v0.26.13 and v0.26.14. v0.26.16 adds about 0.7 MiB to that, see below. With 8 requests in flight, each one compressing adds about 2.4 MiB with gzip and about 4 MiB with zstd. Browsers from Chrome 123 on ask for `gzip, deflate, br, zstd` and get zstd, so plan on about 21 MiB per VM for them. Measured with quickjs v0.26.13: twice as many requests in flight as VMs raised the peak at 8 VMs from 180 MiB to 191 to 193 MiB, and with 6 VMs serving only navigation data, API and cached pages, RSS at the end of each step was 88 to 98 MiB.
+The storefront, one VM per physical core, gzip: 66 MiB with 1 VM, 88 to 89 MiB with 2 and 129 to 131 MiB with 4.
 
-What one VM holds, measured with quickjs v0.26.13:
+So plan on about 45 MiB plus 12 MiB per VM, and for each request being compressed at the same time about 2 MiB more with gzip and 4 MiB with zstd. Browsers from Chrome 123 ask for zstd, so plan on about 16 MiB per VM. The storefront, whose pages are larger, takes about 21 MiB per VM.
 
-- About 7.8 MB right after loading the shop's bundle, and about 8.6 to 8.8 MB after a few hundred renders. Of that, about 4.9 MB is in use after a garbage collection. The rest is how the allocator rounds and keeps blocks.
-- The cache of React's escapes (see [Build](#build)) takes about 0.5 to 2 MB when full. The shop fills only a small part of it.
-- On Linux, about 1 MB more that the engine's count leaves out: the blocks of libc's TLS stack, where the Go translation of the engine keeps C locals, one per call depth the VM has reached, kept until the VM closes. Outside Linux, since quickjs v0.26.15, each VM keeps a block of 1 MiB for that stack until it closes, of which only the pages the stack has reached are in memory.
+What one VM holds by the engine's count (slowjs's `MemorySize`), one VM rendering every page in turn 300 times as the pool does:
 
-That adds up to about 10 MB. The other 7 MiB or so of the 17 MiB a VM takes without compression has not been broken down.
+| App | Bytecode, shared by all VMs | After loading | After 300 renders | Of that, in use |
+| --- | --- | --- | --- | --- |
+| The shop, 20 pages | 4.06 MB | 9.13 MB | 12.48 MB | 7.29 MB |
+| MUI, 4 pages | 2.08 MB | 4.25 MB | 5.39 MB | 2.99 MB |
 
-What quickjs v0.26.16 adds to each VM, measured on the shop as it is now, with the storefront, so not comparable with the 4.9 MB of the older shop above:
+A full collection after the 300 renders frees nothing more: the young collection after each render already freed what could be freed. The rest of a VM's share of RSS is Go memory, and on Linux libc's TLS stack, where the Go translation of the engine keeps C locals.
 
-- It keeps the shapes of the last 2048 plain objects after the objects are gone (a shape records which keys an object has, in which order), and a list per size of freed small blocks, which a garbage collection hands back. After a garbage collection one VM of the shop holds about 722 KiB more, 8.03 MiB against 7.33 by the engine's count, 647 KiB of it for the shapes. How the blocks fall in the engine's arenas moves these numbers by up to 0.5 MiB from one run to another.
-- Between collections the lists hold up to 1.6 MiB of blocks. A cached block also keeps its arena of 4 KiB from being freed until the next collection, about 31 MiB in the extreme case where every list is full and each block sits in an arena of its own. The engine's collection threshold counts those arenas, and an allocation that hits the memory limit hands the cached blocks back and tries again.
-- The kept shapes count against `ssr.vm_memory`, and the engine does not let them go when a VM runs out of memory. A page that makes many objects whose keys no other object has can fill the 2048 with such shapes. A shape of 32 keys of about ten characters takes about 3 KiB with its key names, so that is about 6 MiB per VM, and more with longer keys. The table of key names keeps the size it grew to after they go. Such a page can run out of memory in a VM where it did not before.
-- The engine's `VM.SetShapeCache` sets how many shapes a VM keeps, `slowjs.DefaultShapeCache` (2048) by default. tifa keeps the default and has no setting for it.
+- The pool loads the bundle with slowjs's `SharedBytecode`, so the bytecode, the source text of the bundle's functions, which their `toString` returns, and the tables that give error stacks their line numbers are kept once for the process, outside every VM and its `ssr.vm_memory`.
+- Each VM keeps the shapes of the last 2048 plain objects after the objects are gone (a shape records which keys an object has, in which order), and a list per size of freed small blocks, which a garbage collection hands back. Between collections the lists hold up to 1.6 MiB of blocks. The engine's collection threshold counts them, and an allocation that hits the memory limit hands the cached blocks back and tries again.
+- The kept shapes count against `ssr.vm_memory`. A page that makes many objects whose keys no other object has can fill the 2048 with such shapes: a shape of 32 keys of about ten characters takes about 3 KiB with its key names, so about 6 MiB per VM. The engine's `VM.SetShapeCache` sets how many shapes a VM keeps, `slowjs.DefaultShapeCache` (2048) by default. tifa keeps the default and has no setting for it.
 
-The pool loads the bundle into its VMs with slowjs's `SharedBytecode`, so the source text of the bundle's functions, which their `toString` returns, and the tables that give error stacks their line numbers are kept once for the process rather than once per VM. By the engine's count a VM of the shop holds 9,043,000 bytes after loading rather than 11,509,568, 2.35 MiB less, and 9,989,080 after 64 renders and a full collection rather than 12,428,920. A VM of the MUI test app holds 4,155,576 bytes after loading rather than 5,436,184, 1.22 MiB less. With 8 VMs the RSS of the process after loading goes from 122.0 to 100.9 MB on the shop and from 72.7 to 57.9 MB on MUI. The shared copy is the whole bytecode, 5.3 MB for the shop, outside every VM and its `ssr.vm_memory`, where the pool kept the same bytecode on the Go heap before. `toString`, error stacks and line numbers stay the same, and so does the HTML. Render time does not change: with one VM on one thread of an idle core pair, main and the branch taking turns over 3 code layouts (23 pairs of runs), the six workbench pages render in 0.994 of the time at the median (0.979 to 1.015) and the MUI pages in 0.994 (0.981 to 1.005), and the pool runs as many young and full collections as before. Measured on linux/amd64 without PGO.
+When the garbage is collected: QuickJS collects when it makes an object past a threshold, and then sets the threshold to 1.5 times what the collection left. The pool keeps what a VM held after its last full collection between renders, or after loading, as its live size. After each render, once the answer has gone out, it runs a young collection (slowjs's `VM.RunYoungGC`), which looks only at the objects made since the last collection and frees the garbage among them, and only then lets the VM take the next render. Objects a young collection keeps become old, and a later young collection does not look at them again. It runs a full collection instead when a young one leaves 1.5 times the live size, after a render in which the engine collected by itself, and every 256 renders, for the old garbage young collections leave, such as a cycle through an old object or the values of a WeakMap. During a render the threshold is twice the live size, so a render rarely collects. A page that holds more than the live size until its render ends, such as the spiral of `test/apps/bench`, makes the engine collect during its render once, and the threshold the engine set then is kept for the VM's next renders. It is kept up to four times the live size, and each render that does not collect brings it 1/1024 of the way back to twice the live size: a VM that ran one large page gets its usual threshold back, and a page that needs the room collects during a render about once in 1000 renders. The threshold never goes past half way from the live size to `ssr.vm_memory`, so a render that makes more garbage than that still collects before it runs out of memory.
 
-When the garbage is collected: QuickJS collects when it makes an object past a threshold, and then sets the threshold to 1.5 times what the collection left. The pool keeps what a VM held after its last full collection between renders, or after loading, as its live size. After each render, once the answer has gone out, it runs a young collection (slowjs's `VM.RunYoungGC`), which looks only at the objects made since the last collection and frees the garbage among them, and only then lets the VM take the next render. Objects a young collection keeps become old, and a later young collection does not look at them again. It runs a full collection instead when a young one leaves 1.5 times the live size, after a render in which the engine collected by itself, and every 256 renders, for the old garbage young collections leave, such as a cycle through an old object or the values of a WeakMap. During a render the threshold is twice the live size, so a render rarely collects. A page that holds more than the live size until its render ends, such as the spiral of `test/apps/bench`, makes the engine collect during its render once, and the threshold the engine set then is kept for the VM's next renders. It is kept up to four times the live size, and each render that does not collect brings it 1/1024 of the way back to twice the live size: a VM that ran one large page gets its usual threshold back, and a page that needs the room collects during a render about once in 1000 renders. The threshold never goes past half way from the live size to `ssr.vm_memory`, so a render that makes more garbage than that still collects before it runs out of memory. A VM of the shop holds at most 17.3 to 20.0 MiB after a render by the engine's count, against 18.6 to 23.3 MiB when the engine collected during renders.
+The pool replaces a VM in the background when its live size after a collection crosses a growth bound. The baseline is its live size right after loading and the warm-up collection. The bound is twice that baseline, lowered to 75% of `ssr.vm_memory` when that is smaller, but never below 175% of the baseline, so a bundle that starts near the memory limit does not cause repeated reloads without recovering space. These sizes use the engine's `MemorySize`, not process RSS. With a limit below 1.75 times the loaded size, the floor can exceed the limit, and replacement cannot make that bundle fit.
+
+- The pool loads one spare in the background, leaving the old VM available for renders. It starts a load only with an eligible idle VM and no requests in the render queue. Once loaded, it swaps with an eligible idle VM only while the queue is empty, then closes the removed VM. Only one such replacement runs at a time across the pool. Budget for one extra VM while it loads and until an idle slot permits the exchange, including that VM's Go and TLS memory. Sustained load can postpone replacement. A single render can still exceed the memory limit before the next collection between renders.
+- A failed load keeps the old VM serving and retries after 1 second, doubling up to 30 seconds, with one warning until recovery. Each successful swap logs the baseline, old live size, bound and new live size, and increments the pool's replacement counter. Shutdown waits for loading and closes any unused spare. Module state in a replaced VM is lost, as after a failed render. Persistent application state belongs in Go.
+- A VM left in an unknown state by an exception, timeout, memory failure or panic still leaves service at once, and the pool runs one VM short until its replacement has loaded. Replacement in the background only handles VMs whose renders have succeeded.
 
 `ssr.vm_memory` (128 MiB per VM by default) is far above this. Two cases need room on top, both described in [Stack depth](config.md#stack-depth), which says how to lower them on a small machine:
 
@@ -325,38 +199,33 @@ When the garbage is collected: QuickJS collects when it makes an object past a t
 
 ## Compression
 
-With [`server.compress`](config.md#settings) on, the default, see [Compression](build.md#compression), compressing a page costs at most about 2% of its render time, and the browser bundle goes out as the gzip files of the build at no CPU.
+With [`server.compress`](config.md#settings) on, the default (see [Compression](build.md#compression)), compressing a page costs 1% to 2% of its render time, and the browser bundle goes out as the gzip files the build wrote, at no CPU.
 
-What compressing one page takes, on one core of the machine above with the encoders reused as the server reuses them, the mean of 200 runs, measured before 2026-10-24 (the time to compress does not depend on the engine), next to the render P50 of 2026-10-24 from [How fast a page renders](#how-fast-a-page-renders):
+What compressing one page takes, on one core, with the encoders reused as the server reuses them, the mean of 200 runs, next to the render P50 from [How fast a page renders](#how-fast-a-page-renders):
 
 | Page | HTML | gzip, level 5 | zstd, default level | Share of the render |
 | --- | --- | --- | --- | --- |
-| Order list | 81 to 86 KB | 9.3 to 9.8 KB in 256 to 280 µs | 9.0 to 9.5 KB in 143 to 152 µs | gzip 1.1% to 1.2%, zstd 0.6% |
-| Order | about 38 KB | 8.3 to 8.4 KB in 180 µs | 8.6 to 8.7 KB in 126 to 128 µs | gzip 2.1% to 2.2%, zstd 1.5% |
-| Stats | about 34 KB | 7.0 KB in 131 to 138 µs | 7.2 to 7.3 KB in 107 to 108 µs | gzip 1.8% to 1.9%, zstd 1.5% |
+| Order list | 82 to 87 KB | 9.5 to 10.0 KB in 261 to 281 µs | 9.2 to 9.7 KB in 146 to 155 µs | gzip 1.1% to 1.2%, zstd 0.6% to 0.65% |
+| Order | 39 to 40 KB | 8.4 to 8.6 KB in 181 to 185 µs | 8.7 to 8.8 KB in 128 to 131 µs | gzip 2.2%, zstd 1.5% |
+| Stats | 35 KB | 7.1 to 7.2 KB in 133 to 138 µs | 7.4 to 7.5 KB in 109 to 111 µs | gzip 1.9%, zstd 1.5% |
 
-Whole requests, measured with quickjs v0.26.14, with the server on one physical core (cpus 0 and 4, 2 VMs) and oha on another, two rounds of 15 seconds per step. Pages render with `--cache-size 0`, and the cached order pages, two in turn, come from the HTML cache. "Identity" asks for no compression, zstd is what `Accept-Encoding: gzip, zstd` gets, gzip what `Accept-Encoding: gzip` gets:
+Whole requests, the server on one physical core (both hyperthreads, 2 VMs) and oha on another, 15 seconds per step, two rounds. Pages render with `--cache-size 0`, and the cached order pages, two in turn, come from the HTML cache. The zstd column asks with `Accept-Encoding: gzip, zstd`:
 
-| Request | Identity | zstd | gzip |
+| Request | Uncompressed | zstd | gzip |
 | --- | --- | --- | --- |
-| Six pages in turn, 1 in flight | 43.4 to 44.5 requests/s, P50 14.9 to 15.0 ms, 51 to 52 KB each | 43.3 to 43.7, P50 15.1 to 15.2 ms, 8.3 to 8.4 KB | 41.6 to 43.6, P50 15.2 to 15.4 ms, 8.3 KB |
-| Six pages in turn, 2 in flight | 52.1 to 53.3, P50 24.6 to 24.8 ms | 53.0 to 53.8, P50 24.7 to 24.9 ms | 51.4 to 51.8, P50 25.1 to 25.2 ms |
-| Navigation data of a list, 64 in flight | 8,108 to 8,159, 6,632 bytes | 7,383 to 7,484, 1,227 bytes | 6,951 to 7,002, 1,258 bytes |
-| Navigation data of an order, 64 in flight | 12,875 to 13,356, 1,350 bytes | 11,091 to 11,102, 739 bytes | 10,689 to 10,761, 737 bytes |
-| Navigation data of the stats, 64 in flight | 8,729 to 8,743, 2,947 bytes | 7,833 to 7,837, 777 bytes | 7,564 to 7,636, 734 bytes |
-| Cached order page, 1 in flight | 6,077 to 6,115, P50 0.15 ms, 38,469 bytes | 6,737 to 6,852, P50 0.14 ms, 8,607 and 8,609 bytes | 6,943 to 6,975, P50 0.14 ms, 8,317 bytes |
-| Cached order page, 64 in flight | 10,653 to 11,174, P99 13.8 to 14.6 ms | 13,140 to 13,245, P99 12.6 to 12.8 ms | 13,230 to 13,294, P99 12.7 ms |
-| The 700 KB chunk of the bundle, 64 in flight | 3,854 to 5,105, 699,833 bytes | the `.gz` file: 11,549 to 12,182, 224,176 bytes | the same `.gz` file |
+| Six pages in turn, 1 in flight | 75.8 requests/s, P50 8.84 ms, 52 KB each | 75.0 to 75.5, P50 9.10 ms, 8.5 KB | 72.8 to 73.3, P50 9.12 to 9.15 ms, 8.5 KB |
+| Six pages in turn, 2 in flight | 95.4 to 98.0, P50 13.7 to 13.9 ms | 95.2 to 97.3, P50 13.9 to 14.0 ms | 95.4, P50 14.1 ms |
+| Navigation data of a list, 64 in flight | 7,852 to 7,860, 6,632 bytes | 7,368 to 7,448, 1,227 bytes | 6,934 to 6,987, 1,258 bytes |
+| Navigation data of an order, 64 in flight | 12,880 to 12,920, 1,350 bytes | 11,268 to 11,280, 739 bytes | 10,677 to 10,694, 737 bytes |
+| Navigation data of the stats, 64 in flight | 8,077 to 8,280, 2,947 bytes | 7,601 to 7,622, 777 bytes | 7,372 to 7,380, 734 bytes |
+| Cached order page, 1 in flight | 6,076 to 6,163, P50 0.15 ms, 39,412 bytes | 6,900 to 6,903, P50 0.14 ms, 8,796 bytes | 6,780 to 6,854, P50 0.14 ms, 8,502 bytes |
+| Cached order page, 64 in flight | 10,812 to 10,974, P99 15.0 ms | 12,813 to 13,044, P99 12.5 to 12.7 ms | 12,716 to 12,927, P99 12.7 to 12.9 ms |
+| Largest chunk of the browser bundle, 64 in flight | 7,039 to 7,300, 456,594 bytes | the `.gz` file: 14,958 to 15,287, 147,331 bytes | the same `.gz` file |
 
-- For pages, compressing is within the noise of whole requests: the CPU of a request moved by up to 1 ms from run to run, several times what compressing takes. Pages go out about 6 times smaller.
-- Navigation data is cheap to answer, so compressing it shows: 23 to 43 µs more CPU per request, 8% to 20% fewer requests a second on a saturated core, for answers 1.8 to 5.4 times smaller. gzip costs more than zstd here too.
-- A cache hit sends the gzip or zstd form the cache stored with the page, so a compressed hit takes less CPU than an uncompressed one, 0.15 ms against 0.18 to 0.19 ms, as there are fewer bytes to write. When the stored HTML was compressed again on each hit, a hit took 0.45 ms of CPU in all with zstd and 0.54 ms with gzip, about 0.26 to 0.34 ms of it compressing, and hits at 64 in flight fell to 4,410 to 4,423 and 3,711 to 3,712 a second, with P99 of 34 to 37 ms. A miss that takes compression compresses the page in both forms and sends one of them, so it costs one compression more than a page without `Cache`: 0.6% to 2.2% of its render, the compression times of the first table divided by the render P50. The render of a miss makes both forms whatever the request that started it takes, so requests that share it never compress the page again.
-- The bundle sent as its `.gz` file takes less CPU than the file itself, since there are fewer bytes to write: 2.4 to 3 times the requests a second.
-- zstd at gzhttp's fastest level would take 82 to 138 µs a page, but the pages come out 3% to 11% larger than with gzip. At its default level, as in Caddy and Traefik, the order lists are 3% smaller than gzip and the other pages about 4% larger.
-- Brotli at levels 4 and 5, with the pure Go encoder github.com/andybalholm/brotli, takes 648 to 1,183 µs a page, 4 to 6 times gzip, for pages 3% to 16% smaller.
-- For files the build compresses, gzip at its best level gives 224 KB for the 700 KB chunk. zstd at its best level would give 213 KB, and brotli at level 11 192 KB.
-- The program of the shop is 1.12 MiB larger: 0.35 MiB of `.gz` files and the code of gzip and zstd.
-- During these runs the other cpus of the machine were at most 3% busy.
+- For pages, the three encodings stay within 4% of each other, and pages go out about 6 times smaller.
+- Navigation data is cheap to answer, so compressing it shows: 6% to 17% fewer requests a second on a saturated core, for answers 1.8 to 5.4 times smaller.
+- A cache hit sends the gzip or zstd form the cache stored with the page, so a compressed hit takes less CPU than an uncompressed one, since there are fewer bytes to write. A miss that takes compression compresses the page in both forms and sends one of them. Requests that share that render never compress the page again.
+- The bundle sent as its `.gz` file answers about 2 times the requests a second of the file itself, since there are fewer bytes to write.
 
 ## What made it faster
 
@@ -451,9 +320,9 @@ The four rewrites of the escape chain, the component stacks, the namespaces and 
 
 ### From the baseline to now
 
-The baseline is tifa 0673723 with quickjs v0.26.8. It already had the escape cache, the trimmed renderer and the JSON text adapter, but not the other three rewrites, v0.26.12, v0.26.13 or v0.26.15. Now is tifa 790b746 with v0.26.15. Neither uses PGO, and both were measured alternately in the same session:
+The baseline is tifa 0673723 with quickjs v0.26.8. It already had the escape cache, the trimmed renderer and the JSON text adapter, but not the other three rewrites, v0.26.12, v0.26.13 or v0.26.15. It is compared here with tifa 790b746 and v0.26.15, both without PGO, measured alternately in the same session:
 
-| | Before | Now | Faster by |
+| | Baseline | 790b746 | Faster by |
 | --- | --- | --- | --- |
 | One VM, single render, each of the six pages | 19.3 to 64.2 ms | 10.4 to 35.6 ms | 1.80 to 1.88 times (0.532 to 0.555 of the time) |
 | One VM, one request at a time over HTTP | 65.1 ms for one order list | 36.3 ms for the same list | 1.79 to 1.86 times over the six pages |
@@ -464,7 +333,7 @@ The baseline has no compression, so for the two rows over HTTP both sides asked 
 
 On one core that is about 1.83 times overall. The multi-core gain is larger because the baseline was held back by a lock. Every JavaScript call allocated through libc, whose allocator has one global lock. With 6 VMs, 20% of the CPU went to `sync.Mutex.Lock`, and a render took 81 ms of CPU against 38 ms with one VM. Removing that allocation in v0.26.12 also removed the contention. A benchmark with one VM cannot show this.
 
-On 2026-10-24, tifa c729ad2 with slowjs v0.28.6, its Go assembly interpreter and PGO rendered the six pages in about two thirds of the time of 790b746 (see [How fast a page renders](#how-fast-a-page-renders)), measured in another session, and 4 VMs on 4 physical cores answered 280 of them a second.
+tifa c729ad2 with slowjs v0.28.6, its Go assembly interpreter and PGO renders the six pages in about two thirds of the time of 790b746, measured in another session (see [How fast a page renders](#how-fast-a-page-renders)), and 4 VMs on 4 physical cores answer 280 of them a second.
 
 ## What was tried and not done
 
@@ -509,6 +378,7 @@ Each item says what it would give and why it was dropped. Check here before tryi
 - **A higher collection threshold**, twice or three times the live size or a fixed 32 MiB, with the engine still collecting during renders: a collection takes about as long as the garbage it frees, so collecting half as often saved only about 15% of the collection time, under 1% of a render, too little to measure. The P99 and P999 got worse, a VM held 40% to 50% more, and with a low `ssr.vm_memory` a VM ran out of memory sooner.
 - **Collecting between renders only at twice the live size**, with three times during a render: the same P99 as at 1.5 times, but a VM held 22% to 45% more, and with a low `ssr.vm_memory` it ran out of memory sooner.
 - **Skipping the search for a Suspense boundary left to the browser when `onError` got no error**: the runtime looks for `<!--$!-->` in the whole HTML after each render, about 1% of a shop render and 0.4% of a MUI page, and skipping it renders the shop in 0.987 of the time and the MUI pages in 0.995. But React 19.3 leaves a boundary to the browser without calling `onError` when a component calls `use(browser())`: `renderToString` reports that to an `onBrowserBailout` option it does not take. So the search stays, and making it cheaper is the engine's job.
+- **zstd at its fastest level, and brotli**: zstd at gzhttp's fastest level takes 82 to 138 µs a page, but the pages come out 3% to 11% larger than with gzip. Brotli at levels 4 and 5, with the pure Go encoder github.com/andybalholm/brotli, takes 4 to 6 times as long as gzip for pages 3% to 16% smaller. For the files the build compresses, zstd and brotli at their best levels give files 5% and 14% smaller than gzip at its best. tifa compresses pages with gzip at level 5 and zstd at its default level, as Caddy and Traefik do, and the build writes gzip files.
 - **Rendering with React's stream renderers so that pages wait for lazy components**: `prerender` from `react-dom/static` and `renderToReadableStream` waited on `allReady` give the same HTML, but rendered the shop 8.7 to 8.8 times slower and the MUI pages 4.2 times slower, with up to 1.7 MiB more in each VM, on tifa 6e062d6. Rendering with `renderToString` first and again with a stream renderer only when it left a boundary to the browser would keep ordinary pages as fast, but would render those pages twice. tifa renders with `prerenderToString` instead, a string render that the plugin adds to React DOM and that waits for what the jobs of the VM settle: over 3 layouts of 6 rounds on the GCP machine, without PGO, the shop rendered in 0.995 of the time of `renderToString` and the MUI pages in 1.001, with the same HTML and each VM about 20 to 40 KiB larger.
 
 ## Measuring again
@@ -526,13 +396,12 @@ Node: copy the same `.tifa/dist/ssr.js` to `ssr.mjs` and load it with `import()`
 
 ## Where to continue
 
-The time of one render is nearly all the cost: with quickjs v0.26.13, 99.5% of the program's CPU was in user space, and with v0.26.15 the interpreter function alone takes about 36%. Anything that makes a render faster raises throughput by as much. In rough order of what it may give:
+The time of one render is nearly all the cost: HTTP, compression and the rest take under 1 ms of the 13.7 ms of CPU a workbench request takes. Anything that makes a render faster raises throughput by as much. In rough order of what it may give:
 
-1. **Property access in the engine.** Property reads take about 16% of a render with v0.26.15, `find_own_property` alone 5.5%. Assignment (`o.x = v`, `Object.assign`) still takes the slow path, about 2%, and needs prototype setters and read-only properties checked.
-2. **Making and freeing objects.** With v0.26.15, the engine's malloc and free, making and freeing objects and reference counts took about 13% of a render. v0.26.16 keeps small freed blocks and shapes for reuse, which takes part of that. React makes an object for every element, hook and component on the stack, which is why `createHook`, `pushComponentStack` and `jsxProd` were 6 to 12 times slower than in Node with `--jitless`. The plugin now keeps React from building component stacks, which no one reads. The rest only the engine can fix.
-3. **The TLS frames that are left.** v0.26.16 takes TLS frames by statement only in 8 hot functions. With that change on v0.26.15, taking and freeing TLS frames still took about 3.5% of a render, down from 4.2% (see [Engine hotspots](studies/engine-hotspots.md#data)). Another line of work tries to remove the remaining allocations on libc's TLS stack, which stands in for the C stack.
-4. **Less memory per VM.** All VMs could share one read-only copy of the function source and line tables from the bytecode, so `toString` still works. Estimated at about 380 KB per VM. Needs changes to the C patch (the fork's changes to the C source of QuickJS), to fixlib (the fork's tool that rewrites the generated Go) and to the Go API.
-5. **Kept shapes with less memory.** v0.26.16 keeps shapes for 3.6% less render time, but each VM of the shop holds 647 KiB more for them. When the Go code of the engine can be generated again from C, a change in C, such as a reference from each child shape to its parent, could give the same speed with less memory. A candidate for upstream.
-6. **Go 1.28 on amd64.** When it ships, measure the rewritten engine again. If it is still slower than with Go 1.27, make a small reproduction for the Go team.
-7. **The escape cache.** QuickJS hashes `Map` keys without a seed, so many strings with the same hash slow the lookups. The 64 code units counted for each string keep a chain under about 3,700 entries, and a limit on the number of entries would make it shorter. Long strings that are not Latin-1, from 8,192 code units, take about 4 times their content in memory: check whether string concatenation leaves spare room.
-8. **Comparisons not made yet.** Next.js and TanStack Start on more than two cores, and with the storefront's pages.
+1. **The Go functions the assembly interpreter calls.** On the same JavaScript slowjs takes 1.17 to 1.26 times as long as C. The interpreter loop is now the C compiled to Go assembly, so the gap left is mostly in the Go functions it calls: property lookup, making and freeing objects, strings. Measure how the gap spreads over them before choosing which to move to assembly.
+2. **Regular expressions.** The journal posts render in 1.24 times the time of C, while the other pages of the shop are faster than C: most of their time is the syntax highlighter's regular expressions.
+3. **Making and freeing objects.** React makes an object for every element, hook and component on the stack. The plugin already keeps React from building component stacks no one reads. The rest only the engine can fix.
+4. **Kept shapes with less memory.** Keeping the shapes of object literals saves render time but costs memory in each VM. A change in the C, such as a reference from each child shape to its parent, could give the same speed with less memory. A candidate for upstream.
+5. **The escape cache.** QuickJS hashes `Map` keys without a seed, so many strings with the same hash slow the lookups. The 64 code units counted for each string keep a chain under about 3,700 entries, and a limit on the number of entries would make it shorter.
+6. **Go 1.28 on amd64.** When it ships, measure again. A development build made the rewritten engine slower for a reason not found (see [What was tried and not done](#what-was-tried-and-not-done)).
+7. **Comparisons not made yet.** Next.js and TanStack Start on more than two cores and with the storefront's pages, and the whole shop on a 1-core VPS with 1 GB of memory.

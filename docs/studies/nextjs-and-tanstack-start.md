@@ -10,7 +10,7 @@ versions: 'Next.js 16.4.2 (App Router, Turbopack build, its bundled React 19.3.0
 
 # tifa against Next.js and TanStack Start
 
-[Performance](../performance.md#compared-with-nextjs-and-tanstack-start) has the summary. This page has the method and the full numbers.
+[Performance](../performance.md#at-a-glance) has the summary. This page has the method and the full numbers.
 
 ## Question
 
@@ -171,7 +171,7 @@ From the first run only (tifa a2084b4), not measured again:
 ## Why
 
 - **JIT.** Node compiles the hot render code to machine code. The `--jitless` row shows that the gap is the JIT, not the frameworks: interpreted, Next.js answers fewer requests than tifa.
-- **Framework cost.** Next.js renders server components, serializes them to the RSC payload, renders the client components from it and writes the payload into the page. It also matches routes, applies redirects and writes `Vary` and `Cache-Control`. Start's request path is lighter, which is most of why it serves 1.5 times what Next.js does. This cost is why whole requests differ by 2.5 to 3.9 times while renders alone differ by about 7 times (see [How it compares with Node](../performance.md#how-it-compares-with-node)).
+- **Framework cost.** Next.js renders server components, serializes them to the RSC payload, renders the client components from it and writes the payload into the page. It also matches routes, applies redirects and writes `Vary` and `Cache-Control`. Start's request path is lighter, which is most of why it serves 1.5 times what Next.js does. This cost is why whole requests differ by 2.5 to 3.9 times while renders alone differ by about 7 times (see [How it compares with Node](../performance.md#how-fast-a-page-renders)).
 - **Scaling.** tifa's VMs share nothing on the render path, so two cores give 2.00 times. Node's cluster hands out connections round robin, and each worker has its own heap and GC.
 - **Memory.** Each Node process carries V8, its heap sized for the machine and the framework's modules. A tifa VM holds the bytecode of one bundle and the objects of one render.
 
@@ -188,7 +188,7 @@ From the first run only (tifa a2084b4), not measured again:
 
 ## What it means for tifa
 
-- The comparison is in [Performance](../performance.md#compared-with-nextjs-and-tanstack-start), with the gap stated plainly.
+- The comparison is in [Performance](../performance.md#at-a-glance), with the gap stated plainly.
 - tifa does not try to close the gap to Node with JIT: an interpreter cannot. Work goes into render time, which every request pays (see [Where to continue](../performance.md#where-to-continue)), and the numbers here are run again when it changes.
 - Memory, start-up, scaling and one file to deploy are where tifa is ahead, and they are what tifa is built for.
 
