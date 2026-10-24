@@ -4,7 +4,7 @@ read_when:
   - Collecting the engine profile again after a quickjs or libc upgrade, and checking it still gains
   - Someone proposes one profile per platform, or a profile from another workload
   - Asking why PGO gains less after an engine release than before
-measured: '2026-10-18 (quickjs v0.26.13) and 2026-10-19 (quickjs v0.26.15)'
+measured: '2026-10-18 (quickjs v0.26.13), 2026-10-19 (quickjs v0.26.15) and 2026-10-24 (slowjs v0.28.6, gain only)'
 versions: 'Go 1.27.2, the example shop, internal/codegen/engine.pgo of each release'
 ---
 
@@ -75,6 +75,7 @@ In a separate measurement of the fork against moejs, PGO made v0.26.15 about 1.0
 - **PGO inlines hot calls and lays out hot code.** Nearly all of the profile's samples are in the engine, libc and the Go runtime, which every page runs through. No Go code of the shop is in it, so the profile serves any app with pages.
 - **It finds call sites by caller, callee and line.** The engine's generated Go is the same on both architectures except for a few lines, so the amd64 profile finds almost as many call sites on arm64 as an arm64 profile does. That is also why a profile goes stale when quickjs or libc changes: lines move.
 - **It gains less as the engine does more inlining itself.** v0.26.15 removed `defer` from the engine, which let Go inline hundreds of small functions without a profile. What PGO adds on top got smaller: 3.2% with v0.26.13, 2.4% with v0.26.15.
+- **The Go assembly interpreter leaves PGO the rest of the engine.** With slowjs v0.28.6, whose interpreter loop on linux/amd64 is Go assembly that PGO does not touch, the profile still takes about 3% off: the shop's workbench and storefront pages and the MUI test app's pages render in 0.97 to 0.98 of the time, 0.96 to 0.98 over 5 rounds (2026-10-24, one VM on one thread of an idle core pair, tifa c729ad2).
 - **The interpreter loop gets nothing.** `JS_CallInternal` is too large for Go to inline into beyond the smallest helpers, profile or not.
 
 ## What it means for tifa
