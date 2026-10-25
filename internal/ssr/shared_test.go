@@ -64,7 +64,7 @@ func TestVMOutlivesThePool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	html, err := RenderVM(vm, in, cfg.Timeout)
+	html, err := RenderVM(vm, in, nil, cfg.Timeout)
 	if err != nil {
 		t.Fatal(err)
 	}

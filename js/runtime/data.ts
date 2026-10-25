@@ -21,7 +21,9 @@ export interface RouteResult {
 // text Go wrote, in json. The render parses it, and the page carries the same text to the
 // browser (see loaderDataAdapter in router.tsx), so both read the same values. JSON.stringify in
 // the VM would write a -0 as 0, and a page that formats it with Intl would then hydrate other
-// text than the server rendered.
+// text than the server rendered. A server render gets the text as an argument of startRender
+// instead (see RenderResult in server.tsx), and the boot data of a page that skips SSR carries it
+// in json.
 export interface InjectedResult {
   status: number
   json?: string
@@ -29,15 +31,17 @@ export interface InjectedResult {
   location?: string
 }
 
-// Injected is the input of one whole-page render.
+// Injected is the results of the Loads of a page with their JSON texts in json, the form of the
+// boot data of a page without SSR (Boot) and of what injected answers from. A server render is
+// given RenderInput (server.tsx) instead, whose texts are arguments of startRender of their own.
 export interface Injected {
   url: string
   buildId: string
   data: Record<string, InjectedResult>
 }
 
-// Boot is what a page rendered without SSR carries in <script id="tifa-data">: the render
-// input, so the browser renders it without asking for data.
+// Boot is what a page rendered without SSR carries in <script id="tifa-data">: the results of
+// its Loads, so the browser renders it without asking for data.
 export type Boot = Injected
 
 export const bootElementId = 'tifa-data'

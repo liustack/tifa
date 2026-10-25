@@ -6,6 +6,7 @@
 
 ### 变更
 
+- 带大块 `Load` 数据的页面渲染更快。每个 `Load` 的 JSON 文本现在作为交给渲染的一个单独参数，Go 不用再把它转义进输入的 JSON，VM 也不用解析两遍。一个 1,000 行、每行两个 UUID 的表格，渲染时间是原来的 0.986（0.965 到 0.991，6 轮全部更快），服务端准备渲染输入的时间是原来的 0.665（0.655 到 0.682）。示例商店的工作台和店面页面数据只有几 KB，变化在各轮的波动之内（一组页面在原来的 0.987 到 1.008 之间）。HTML 不变，浏览器包也不变。
 - 装了 rolldown 1.2.15 或 seroval 1.7 的应用，也能拿到 tifa 插件的提速。rolldown 1.2.15 在每个模块开头写的是 `// 路径` 注释，不再是 `//#region 路径`，seroval 1.7 把要问的插件传给 `parsePlugin`，所以原来插件会报警告，React 的命名空间留着 getter，路由数据里的数组按 seroval 自己的写法写出，渲染更慢。新建的应用装的就是这两个版本。页面 HTML 不变。
 - 服务端渲染改用 slowjs v0.28.6。在 linux/amd64 上，服务端渲染改用 slowjs 的 Go 汇编解释器执行 JavaScript，slowjs 现在在这个平台上默认用它。页面渲染出的 HTML 一样，用的时间更少：一个 VM 时，示例商店的工作台页面耗时是原来的 0.940，MUI 测试应用的页面是 0.850，8 个超线程上跑 8 个 VM 时，程序每秒渲染的商店页面是原来的 1.085 倍，MUI 页面是 1.211 倍（见 [JavaScript 解释器](docs/build.zh-CN.md#javascript-解释器)）。在项目文件里写 `build.goasm: false` 就改用 Go 解释器构建。
 - 服务端渲染改用 slowjs v0.28.5，它让异步上下文跟着 promise 任务走，服务端的 `AsyncLocalStorage` 靠的就是这个，还会直接从 shape 列出普通对象的自有键，用于 `Object.keys`、`for in`、对象展开和 `JSON.stringify`。

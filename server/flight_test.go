@@ -135,7 +135,7 @@ func TestBurstWithOtherDataRendersEach(t *testing.T) {
 		Layouts: []string{"app/layout"}, Load: func(c *tifa.Ctx) (any, error) { return c.Header("X-Group"), nil }})
 	s, g := newHeldServer(t, config.Default(), app)
 	g.result = func(_ context.Context, in ssr.Input) (string, error) {
-		return "<html>" + string(in.Data) + "</html>", nil
+		return "<html>" + string(in.Data) + " " + strings.Join(in.Texts, " ") + "</html>", nil
 	}
 	group := func(i int) string { return fmt.Sprintf("group-%d", i%2) }
 	out := burst(t, s, g, 20, "/report", func(i int) []string { return []string{"X-Group", group(i)} })

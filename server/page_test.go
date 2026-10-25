@@ -36,7 +36,7 @@ func (r *renders) render(_ context.Context, in ssr.Input) (string, error) {
 	if r.result != nil {
 		return r.result(in)
 	}
-	return "<html>" + in.URL + " " + string(in.Data) + "</html>", nil
+	return "<html>" + in.URL + " " + string(in.Data) + " " + strings.Join(in.Texts, " ") + "</html>", nil
 }
 
 func (r *renders) count() int {
@@ -116,9 +116,63 @@ func TestPageRendersWithTheResultsOfItsChain(t *testing.T) {
 	if len(data) != 3 || data["app/projects"].Status != 200 || data["app/projects/orders"].Status != 200 {
 		t.Errorf("data %s", in.Data)
 	}
-	// The data of each route comes as the JSON text Go wrote, which the page carries as it is.
-	if !strings.Contains(w.Body.String(), `"app/projects/orders":{"status":200,"json":"[\"p1-1\",\"p1-2\"]"}`) {
+	// The data of each route comes as the JSON text Go wrote, which the page carries as it is. The
+	// text is an argument of the render, and the data says which.
+	if !strings.Contains(w.Body.String(), `"app/projects/orders":{"status":200,"text":2}`) || !strings.Contains(w.Body.String(), `["p1-1","p1-2"]`) {
 		t.Errorf("body %s", w.Body.String())
+	}
+	if len(in.Texts) != 3 || in.Texts[2] != `["p1-1","p1-2"]` || strings.Contains(string(in.Data), "p1-1") {
+		t.Errorf("texts %q, data %s", in.Texts, in.Data)
+	}
+}
+
+// The VM gets the JSON text of each successful Load as an argument of its own, as Go wrote it, and
+// not escaped into the JSON of the input. The texts come in the order of the route IDs, and each
+// result says the number of its text. A result without data has no text.
+func TestPageGivesTheRenderTheJSONTextOfEachLoadApart(t *testing.T) {
+	tricky := map[string]any{"quote": `a "b"`, "slash": `C:\temp`, "line": "x\u2028y\u2029", "tag": "</script><!--", "emoji": "😀", "amp": "a&b<c>"}
+	app := App{
+		Layouts: []Layout{{ID: "app/layout", SSR: true, Load: func(c *tifa.Ctx) (any, error) { return tricky, nil }}},
+		Routes: []Route{
+			{ID: "app/page", Path: "/p", Page: true, SSR: true, Layouts: []string{"app/layout"},
+				Load: func(c *tifa.Ctx) (any, error) { return []string{"</script>", `"`, c.Header("X-Name")}, nil }},
+			{ID: "app/gone", Path: "/gone", Page: true, SSR: true, Layouts: []string{"app/layout"},
+				Load: func(c *tifa.Ctx) (any, error) { return nil, tifa.ErrNotFound }},
+		},
+	}
+	s, r := newFrontServer(t, app)
+	if w := get(s, "/p", "X-Name", "n1"); w.Code != 200 {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+	in := r.inputs[0]
+	wantTexts := []string{
+		`{"amp":"a\u0026b\u003cc\u003e","emoji":"\ud83d\ude00","line":"x\u2028y\u2029","quote":"a \"b\"","slash":"C:\\temp","tag":"\u003c/script\u003e\u003c!--"}`,
+		`["\u003c/script\u003e","\"","n1"]`,
+	}
+	if !reflect.DeepEqual(in.Texts, wantTexts) {
+		t.Errorf("texts\n%q\nwant\n%q", in.Texts, wantTexts)
+	}
+	if want := `{"app/layout":{"status":200,"text":0},"app/page":{"status":200,"text":1}}`; string(in.Data) != want {
+		t.Errorf("data %s, want %s", in.Data, want)
+	}
+
+	// A result without data has no text, and the numbers still follow the successful ones.
+	r.mu.Lock()
+	r.inputs = nil
+	r.mu.Unlock()
+	get(s, "/gone")
+	in = r.inputs[0]
+	if want := `{"app/gone":{"status":404,"error":"Not Found"},"app/layout":{"status":200,"text":0}}`; string(in.Data) != want || len(in.Texts) != 1 || in.Texts[0] != wantTexts[0] {
+		t.Errorf("a 404: data %s, texts %q", in.Data, in.Texts)
+	}
+
+	// The ETag covers the texts: the same data gives the same one, other data another.
+	etag := get(s, "/p", "X-Name", "n1").Header().Get("ETag")
+	if again := get(s, "/p", "X-Name", "n1").Header().Get("ETag"); etag == "" || again != etag {
+		t.Errorf("the same data gave the ETags %q and %q", etag, again)
+	}
+	if other := get(s, "/p", "X-Name", "n2").Header().Get("ETag"); other == etag {
+		t.Errorf("data that differs only in a text gave the ETag %q again", etag)
 	}
 }
 
@@ -508,9 +562,9 @@ func TestOpenFrontRendersWithTheBundle(t *testing.T) {
 	files := map[string]string{
 		"build.json":      `{"buildId":"b9","head":"<script type=\"module\" src=\"/assets/app-9.js\"></script>"}`,
 		"assets/app-9.js": "hydrate()",
-		"ssr.js": `globalThis.startRender = (json) => {
+		"ssr.js": `globalThis.startRender = (json, ...texts) => {
   const input = JSON.parse(json)
-  globalThis.renderResult = '<!DOCTYPE html><p>' + input.buildId + ' ' + input.url + ' ' + JSON.parse(input.data['app/layout'].json).name + '</p>'
+  globalThis.renderResult = '<!DOCTYPE html><p>' + input.buildId + ' ' + input.url + ' ' + JSON.parse(texts[input.data['app/layout'].text]).name + '</p>'
 }`,
 	}
 	for name, content := range files {

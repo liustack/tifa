@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"net/http"
 	"os"
@@ -51,7 +52,7 @@ var shopRoutes = []struct{ url, routes, want, forbidden string }{
 // shopBundle returns the shop's SSR bundle and its comparison pages. The data of each
 // page is what the shop's own program injects: the test runs bin/shop and asks it for the
 // navigation data of each page, and writes the data of each route as JSON text, as the program
-// injects it (see injectedData).
+// injects it (see injectedInput).
 func shopBundle(t testing.TB) (string, []shopPage) {
 	t.Helper()
 	if os.Getenv("TIFA_SSR_SHOP") == "" {
@@ -87,52 +88,65 @@ func shopBundle(t testing.TB) (string, []shopPage) {
 		if err != nil || res.StatusCode != 200 {
 			t.Fatalf("data of %s: %d %v %s (rebuild the shop when its build.json changed)", r.url, res.StatusCode, err, body)
 		}
-		pages = append(pages, shopPage{ssr.Input{BuildID: built.BuildID, URL: r.url, Data: injectedData(t, body)}, r.want, r.forbidden})
+		data, texts := injectedInput(t, body)
+		pages = append(pages, shopPage{ssr.Input{BuildID: built.BuildID, URL: r.url, Data: data, Texts: texts}, r.want, r.forbidden})
 	}
 	return string(source), pages
 }
 
-// injectedData turns the answer of a navigation data request into the data a whole-page render
-// gets: each successful route carries its data as the JSON text Go wrote, in json, with the
-// escapes of ssr.EscapeAboveFFFF the server writes into it.
-func injectedData(t testing.TB, answer []byte) json.RawMessage {
+// injectedInput turns the answer of a navigation data request into the data a whole-page render
+// gets, as the server writes it: the statuses, errors and redirects as JSON, and the data of each
+// successful route as JSON text of its own, with the escapes of ssr.EscapeAboveFFFF the server
+// writes into it. A result says the number of its text, which follows the order of the route IDs.
+func injectedInput(t testing.TB, answer []byte) (json.RawMessage, []string) {
 	t.Helper()
 	var routes map[string]struct {
 		Status   int             `json:"status"`
 		Data     json.RawMessage `json:"data,omitempty"`
-		JSON     string          `json:"json,omitempty"`
 		Error    string          `json:"error,omitempty"`
 		Location string          `json:"location,omitempty"`
 	}
 	if err := json.Unmarshal(answer, &routes); err != nil {
 		t.Fatal(err)
 	}
-	for id, r := range routes {
-		if r.Status == http.StatusOK {
-			r.JSON, r.Data = string(ssr.EscapeAboveFFFF(r.Data)), nil
-			if r.JSON == "" { // a nil Data, left out of the answer
-				r.JSON = "null"
-			}
-			routes[id] = r
-		}
+	type result struct {
+		Status   int    `json:"status"`
+		Text     *int   `json:"text,omitempty"`
+		Error    string `json:"error,omitempty"`
+		Location string `json:"location,omitempty"`
 	}
-	data, err := json.Marshal(routes)
+	out := make(map[string]result, len(routes))
+	var texts []string
+	for _, id := range slices.Sorted(maps.Keys(routes)) {
+		r := routes[id]
+		res := result{Status: r.Status, Error: r.Error, Location: r.Location}
+		if r.Status == http.StatusOK {
+			text := string(ssr.EscapeAboveFFFF(r.Data))
+			if text == "" { // a nil Data, left out of the answer
+				text = "null"
+			}
+			number := len(texts)
+			res.Text = &number
+			texts = append(texts, text)
+		}
+		out[id] = res
+	}
+	data, err := json.Marshal(out)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return data
+	return data, texts
 }
 
-// injectedData writes the data of a route as the server does, characters above U+FFFF as the
-// escapes of their surrogate pairs among it.
-func TestInjectedDataIsWhatTheServerInjects(t *testing.T) {
-	data := injectedData(t, []byte(`{"app/route":{"status":200,"data":{"s":"a😀"}},"app/gone":{"status":404}}`))
-	var routes map[string]struct{ JSON string }
-	if err := json.Unmarshal(data, &routes); err != nil {
-		t.Fatal(err)
+// injectedInput writes the data of a route as the server does, characters above U+FFFF as the
+// escapes of their surrogate pairs among it, and apart from the JSON that numbers it.
+func TestInjectedInputIsWhatTheServerInjects(t *testing.T) {
+	data, texts := injectedInput(t, []byte(`{"app/route":{"status":200,"data":{"s":"a😀"}},"app/gone":{"status":404,"error":"Not Found"},"app/other":{"status":200,"data":[1]}}`))
+	if want := `{"app/gone":{"status":404,"error":"Not Found"},"app/other":{"status":200,"text":0},"app/route":{"status":200,"text":1}}`; string(data) != want {
+		t.Errorf("data = %s, want %s", data, want)
 	}
-	if got, want := routes["app/route"].JSON, `{"s":"a\ud83d\ude00"}`; got != want {
-		t.Errorf("json = %s, want %s", got, want)
+	if want := []string{`[1]`, `{"s":"a\ud83d\ude00"}`}; !slices.Equal(texts, want) {
+		t.Errorf("texts = %q, want %q", texts, want)
 	}
 }
 
@@ -219,7 +233,7 @@ func TestShopEscapesScriptClosingTags(t *testing.T) {
 	source, pages := shopBundle(t)
 	p := newPool(t, source, shopConfig(1))
 	in := withCustomer(pages[2].input, `</script><script id="injected">alert(1)</script>`)
-	if string(in.Data) == string(pages[2].input.Data) {
+	if slices.Equal(in.Texts, pages[2].input.Texts) {
 		t.Fatal("customer name not found in the snapshot")
 	}
 	html, err := p.Render(context.Background(), in)
@@ -300,15 +314,18 @@ func shopConfig(vms int) config.SSR {
 }
 
 // withCustomer returns the order detail input with the customer renamed. The data of each route
-// is JSON text inside the input, so the name is replaced as that text spells it inside a JSON
-// string. Callers check that the new name reaches the HTML.
+// is a JSON text of its own in the input, so the name is replaced as that text spells it inside a
+// JSON string. Callers check that the new name reaches the HTML.
 func withCustomer(detail ssr.Input, name string) ssr.Input {
 	inString := func(s string) string {
-		value, _ := json.Marshal(s)
-		quoted, _ := json.Marshal(string(value))
+		quoted, _ := json.Marshal(s)
 		return string(quoted[1 : len(quoted)-1])
 	}
-	detail.Data = json.RawMessage(strings.ReplaceAll(string(detail.Data), inString("林夏"), inString(name)))
+	texts := make([]string, len(detail.Texts))
+	for i, text := range detail.Texts {
+		texts[i] = strings.ReplaceAll(text, inString("林夏"), inString(name))
+	}
+	detail.Texts = texts
 	return detail
 }
 
@@ -334,7 +351,8 @@ func TestShopReuseKeepsRequestsApart(t *testing.T) {
 	previous := ""
 	for i := range 12 {
 		name := fmt.Sprintf("customer-%03d-only", i)
-		html, err := ssr.RenderVM(vm, renderInput(t, withCustomer(pages[2].input, name)), cfg.Timeout)
+		in := withCustomer(pages[2].input, name)
+		html, err := ssr.RenderVM(vm, renderInput(t, in), in.Texts, cfg.Timeout)
 		if err != nil {
 			t.Fatal(err)
 		}

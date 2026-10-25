@@ -3,7 +3,7 @@ import { prerenderToString } from 'react-dom/server.edge'
 import { RouterProvider, type AnyRoute } from '@tanstack/react-router'
 import { attachRouterServerSsrUtils } from '@tanstack/react-router/ssr/server'
 import { createAppRouter } from './router'
-import { injected, rootElementId, type Injected } from './data'
+import { injected, rootElementId, type Injected, type InjectedResult, type Source } from './data'
 import {
   attributes,
   defaultHTMLAttributes,
@@ -20,7 +20,7 @@ import {
 declare const __TIFA_ASSETS__: string
 
 declare global {
-  var startRender: (json: string) => void
+  var startRender: (json: string, ...texts: string[]) => void
   var renderResult: string | undefined
   var stopRender: (() => void) | undefined
 }
@@ -55,16 +55,41 @@ function suspended(error: unknown) {
   return typeof error === 'string' && error.startsWith('The server used "renderTo')
 }
 
-// RenderInput is what the Go VM pool renders a page from: the injected data, and the module
-// preloads of the matched Layouts and route, which follow the tags of the browser entry.
-type RenderInput = Injected & { preload?: string }
+// RenderResult is an InjectedResult as the Go VM pool gives it to a server render: the JSON text of
+// the data of a 200 is not in it. It is the argument of startRender that text numbers, counting
+// from the first one after the input, so the text is neither escaped into the JSON of the input
+// nor parsed out of it. A page that skips SSR carries the text in json instead.
+export type RenderResult = Omit<InjectedResult, 'json'> & { text?: number }
 
-// serve installs startRender, which the Go VM pool calls with the JSON of a RenderInput.
-// It leaves the HTML, or the JSON of {"redirect": {location, status}} or {"error": ...}, in
-// renderResult once the queued jobs have run. While React waits for a component that suspended,
-// stopRender is set: the pool calls it when no job is left, as nothing could settle what React
-// waits for, and the render ends with the boundaries still waiting left to the browser. The router redirects a URL it spells differently, such as
-// /%61 for /a. Go answers redirects of Loads itself before it renders.
+// RenderInput is what the Go VM pool renders a page from: the results of the Loads, and the module
+// preloads of the matched Layouts and route, which follow the tags of the browser entry.
+export type RenderInput = Omit<Injected, 'data'> & { data: Record<string, RenderResult>; preload?: string }
+
+// renderSource answers from the data of a server render. Each result that numbers a text gets
+// that text of texts, the arguments of startRender after the input, as its json. A number with no
+// text fails the render.
+function renderSource(input: RenderInput, texts: string[]): Source {
+  const data: Record<string, InjectedResult> = {}
+  for (const [id, { text, ...result }] of Object.entries(input.data)) {
+    if (text === undefined) {
+      data[id] = result
+      continue
+    }
+    const json = texts[text]
+    if (json === undefined) throw new Error(`render input has no text ${text} for route ${id}`)
+    data[id] = { ...result, json }
+  }
+  return injected({ url: input.url, buildId: input.buildId, data })
+}
+
+// serve installs startRender, which the Go VM pool calls with the JSON of a RenderInput and, as
+// the arguments after it, the JSON text of the data of each successful Load, which the results
+// of the input number. It leaves the HTML, or the JSON of {"redirect": {location, status}} or
+// {"error": ...}, in renderResult once the queued jobs have run. While React waits for a
+// component that suspended, stopRender is set: the pool calls it when no job is left, as nothing
+// could settle what React waits for, and the render ends with the boundaries still waiting left to
+// the browser. The router redirects a URL it spells differently, such as /%61 for /a. Go answers
+// redirects of Loads itself before it renders.
 //
 // React renders only the application root. The document around it, the attributes of <html>
 // and the head from the head functions of the matched routes, the assets and the hydration
@@ -76,9 +101,9 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
   documentStart(htmlAttributesOf([], htmlAttributes))
   const assetTags = __TIFA_ASSETS__
   const bodyStart = headEnd + '</head><body><div id="' + rootElementId + '">'
-  globalThis.startRender = (json: string) => {
+  globalThis.startRender = (json: string, ...texts: string[]) => {
     const input: RenderInput = JSON.parse(json)
-    const router = createAppRouter(routeTree, injected(input), {
+    const router = createAppRouter(routeTree, renderSource(input, texts), {
       buildId: input.buildId,
       serverURL: input.url,
     })
