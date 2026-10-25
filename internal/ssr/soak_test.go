@@ -203,7 +203,7 @@ func TestSoakVMMemory(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := RenderVM(vm, in, timeout); err != nil {
+		if _, err := RenderVM(vm, in, nil, timeout); err != nil {
 			t.Fatal(err)
 		}
 	}

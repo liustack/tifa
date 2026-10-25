@@ -1,9 +1,10 @@
 // Package ssr renders pages to HTML in a pool of prewarmed QuickJS VMs.
 //
-// A bundle defines globalThis.startRender(json). It receives the JSON of Input
-// and leaves globalThis.renderResult as a string: the HTML, which starts with <,
-// on success, or the JSON of {"redirect": {location, status}} or {"error": ...}. Work may continue in microtasks, the
-// host drains them before reading the result. Nothing else crosses the boundary.
+// A bundle defines globalThis.startRender(json, ...texts). It receives the JSON of Input and, as
+// the arguments after it, the strings of Input.Texts. It leaves globalThis.renderResult as a
+// string: the HTML, which starts with <, on success, or the JSON of {"redirect": {location,
+// status}} or {"error": ...}. Work may continue in microtasks, the host drains them before reading
+// the result. Nothing else crosses the boundary.
 package ssr
 
 import (
@@ -25,7 +26,12 @@ import (
 type Input struct {
 	BuildID string          `json:"buildId"`
 	URL     string          `json:"url"`
-	Data    json.RawMessage `json:"data"` // data injected by Load, already JSON
+	Data    json.RawMessage `json:"data"` // the results of the Loads, already JSON, without the data of the successful ones
+	// Texts are the JSON texts of the data of the successful Loads, which Data refers to by
+	// their number. Each goes to startRender as an argument of its own, as it is, so that neither
+	// Go escapes it into the JSON of the input nor the VM parses it out of that JSON. The VM
+	// reads each text once, with JSON.parse, and the page carries the same text to the browser.
+	Texts []string `json:"-"`
 	// Preload is the module preloads of the matched Layouts and route, which the document
 	// carries after the tags of the browser entry.
 	Preload string `json:"preload,omitempty"`
@@ -218,7 +224,7 @@ func (p *Pool) Render(ctx context.Context, in Input) (string, error) {
 	vm.SetClock(core.RenderClock(ctx))
 	// Clear before release or retirement, including when a callback panics.
 	defer vm.SetClock(nil)
-	html, err := RenderVM(vm.VM, input, p.timeout)
+	html, err := RenderVM(vm.VM, input, in.Texts, p.timeout)
 	var redirect *RedirectError
 	if err != nil && !errors.As(err, &redirect) {
 		return "", p.sources.explain(err, false)

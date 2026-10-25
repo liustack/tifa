@@ -11,6 +11,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"maps"
 	"mime"
 	"net/http"
 	"path"
@@ -298,24 +299,70 @@ type routeResult struct {
 	Location string `json:"location,omitempty"`
 }
 
-// injectedResults gives each successful result its data as the JSON text Go writes. The render
-// parses that text, and the page carries it to the browser as it is, so the server and the
-// browser read the same values. A JSON writer in the VM would write -0 as 0, and a page that
-// formats it with Intl would then hydrate other text than the server rendered. A character above
-// U+FFFF goes into the text as the escapes of its surrogate pair, see ssr.EscapeAboveFFFF.
+// loaderText writes the data of a Load as the JSON text a page carries. The render parses that
+// text, and the page carries it to the browser as it is, so the server and the browser read the
+// same values. A JSON writer in the VM would write -0 as 0, and a page that formats it with Intl
+// would then hydrate other text than the server rendered. A character above U+FFFF goes into the
+// text as the escapes of its surrogate pair, see ssr.EscapeAboveFFFF.
+func loaderText(data any) (string, error) {
+	text, err := json.Marshal(data)
+	if err != nil {
+		return "", err
+	}
+	return string(ssr.EscapeAboveFFFF(text)), nil
+}
+
+// injectedResults gives each successful result its data as the JSON text Go writes (loaderText),
+// in a page that skips SSR, which carries the results to the browser (Boot in data.ts).
 func injectedResults(items map[string]routeResult) (map[string]routeResult, error) {
 	out := make(map[string]routeResult, len(items))
 	for id, item := range items {
 		if item.Status == http.StatusOK {
-			text, err := json.Marshal(item.Data)
+			text, err := loaderText(item.Data)
 			if err != nil {
 				return nil, err
 			}
-			item.Data, item.JSON = nil, string(ssr.EscapeAboveFFFF(text))
+			item.Data, item.JSON = nil, text
 		}
 		out[id] = item
 	}
 	return out, nil
+}
+
+// renderResult is a routeResult as the VM gets it in a render (RenderResult in server.tsx, not the
+// InjectedResult in data.ts that a page without SSR carries). The data of a successful Load is not
+// in it: its JSON text is the argument of startRender that Text numbers, counting from the first
+// text.
+type renderResult struct {
+	Status   int    `json:"status"`
+	Text     *int   `json:"text,omitempty"`
+	Error    string `json:"error,omitempty"`
+	Location string `json:"location,omitempty"`
+}
+
+// renderInput splits the results of the Loads for a render into the JSON of what is not data, the
+// statuses, errors and redirects, and the JSON text of the data of each successful one (loaderText),
+// which goes to the VM as it is, apart from the JSON, as an argument of its own. Neither Go has
+// to escape each text into the outer JSON nor the VM to parse it out of there. The texts follow
+// the order of the route IDs, so the same results always give the same input.
+func renderInput(items map[string]routeResult) (data []byte, texts []string, err error) {
+	results := make(map[string]renderResult, len(items))
+	for _, id := range slices.Sorted(maps.Keys(items)) {
+		item := items[id]
+		result := renderResult{Status: item.Status, Error: item.Error, Location: item.Location}
+		if item.Status == http.StatusOK {
+			text, err := loaderText(item.Data)
+			if err != nil {
+				return nil, nil, err
+			}
+			number := len(texts)
+			result.Text = &number
+			texts = append(texts, text)
+		}
+		results[id] = result
+	}
+	data, err = json.Marshal(results)
+	return data, texts, err
 }
 
 // loadFailure is what a page returns from Next when a Load of the loaded routes failed. Its
@@ -504,11 +551,7 @@ type dataRedirect struct {
 // which is answered before the encoding is known, carries the same ETag as the 200.
 func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status int, cache bool) error {
 	r := c.Request()
-	injected, err := injectedResults(items)
-	if err != nil {
-		return err
-	}
-	data, err := json.Marshal(injected)
+	data, texts, err := renderInput(items)
 	if err != nil {
 		return err
 	}
@@ -519,11 +562,15 @@ func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status in
 	f := s.front.Load()
 	// The preloads follow from the build, the matched path, which the URL picks, and the results
 	// of the Loads, so the ETag and the HTML cache need not cover more.
-	in := ssr.Input{BuildID: f.build.ID, URL: r.URL.RequestURI(), Data: data, Preload: f.preloadOf(c.Pattern(), items)}
+	in := ssr.Input{BuildID: f.build.ID, URL: r.URL.RequestURI(), Data: data, Texts: texts, Preload: f.preloadOf(c.Pattern(), items)}
 	var key string
 	if status == http.StatusOK {
-		sum := sha256.Sum256([]byte(in.BuildID + "\x00" + f.build.bundle + "\x00" + in.URL + "\x00" + string(data)))
-		key = `"` + hex.EncodeToString(sum[:16]) + `"`
+		sum := sha256.New()
+		io.WriteString(sum, in.BuildID+"\x00"+f.build.bundle+"\x00"+in.URL+"\x00"+string(data))
+		for _, text := range texts {
+			io.WriteString(sum, "\x00"+text)
+		}
+		key = `"` + hex.EncodeToString(sum.Sum(nil)[:16]) + `"`
 		etag := key
 		if s.cfg.Compress {
 			etag = "W/" + key

@@ -82,7 +82,7 @@ func BenchmarkShop(b *testing.B) {
 				b.Fatal(err)
 			}
 			b.StartTimer()
-			html, err := ssr.RenderVM(vm, input, timeout)
+			html, err := ssr.RenderVM(vm, input, page.input.Texts, timeout)
 			b.StopTimer()
 			if err != nil {
 				b.Fatal(err)
@@ -266,7 +266,7 @@ func TestShopVMMemory(t *testing.T) {
 	loaded := ssr.VMMemory(vm, true)
 	for i := range 64 {
 		page := pages[i%len(pages)]
-		html, err := ssr.RenderVM(vm, renderInput(t, page.input), cfg.Timeout)
+		html, err := ssr.RenderVM(vm, renderInput(t, page.input), page.input.Texts, cfg.Timeout)
 		if err != nil {
 			t.Fatal(err)
 		}

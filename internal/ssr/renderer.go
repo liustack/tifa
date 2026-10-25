@@ -121,12 +121,12 @@ func Load(bytecode *slowjs.SharedBytecode, memory, stack uintptr, timeout time.D
 //go:embed intlcheck.js
 var intlCheck string
 
-// RenderVM runs one request in vm: startRender(input), then the microtasks it queued,
-// then reads globalThis.renderResult. A render that left no result once no job is left waits for
+// RenderVM runs one request in vm: startRender(input, ...texts), then the microtasks it queued,
+// then reads globalThis.renderResult. Each of texts is an argument of startRender of its own. A render that left no result once no job is left waits for
 // work nothing can settle, since a VM has no timers and does no I/O: when the bundle set
 // globalThis.stopRender for it, RenderVM calls it, runs the jobs that queued and reads the
 // result again. Any error leaves vm in an unknown state.
-func RenderVM(vm *slowjs.VM, input []byte, timeout time.Duration) (string, error) {
+func RenderVM(vm *slowjs.VM, input []byte, texts []string, timeout time.Duration) (string, error) {
 	deadline := time.Now().Add(timeout)
 	// Each phase gets only what is left of the request's budget.
 	budget := func() error {
@@ -157,7 +157,12 @@ func RenderVM(vm *slowjs.VM, input []byte, timeout time.Duration) (string, error
 	if err := budget(); err != nil {
 		return "", err
 	}
-	if _, err := vm.Call("startRender", string(input)); err != nil {
+	args := make([]any, 1+len(texts))
+	args[0] = string(input)
+	for i, text := range texts {
+		args[1+i] = text
+	}
+	if _, err := vm.Call("startRender", args...); err != nil {
 		return "", phase("startRender", err)
 	}
 	if err := budget(); err != nil {

@@ -4,7 +4,7 @@ import { createMemoryHistory, isRedirect } from '@tanstack/react-router'
 import { hydrate } from '@tanstack/react-router/ssr/client'
 import { htmlAttributes, routeTree } from './.tifa/routes'
 import { createAppRouter, load } from './.tifa/runtime/router'
-import { serve } from './.tifa/runtime/server'
+import { serve, type RenderResult } from './.tifa/runtime/server'
 import { collector, RouteError, type InjectedResult, type RouteResult } from './.tifa/runtime/data'
 
 const tests: Array<[string, () => Promise<void>]> = []
@@ -18,25 +18,29 @@ const missing: RouteResult = { status: 404 }
 
 serve(routeTree, htmlAttributes)
 
-// inject writes results the way Go injects them: the data of a 200 as JSON text. A result that
-// has its json already stays as it is.
+// inject writes results the way Go injects them into a render: the data of a 200 as JSON text,
+// which goes to startRender as an argument of its own, and the result says its number. A result
+// that has its json already keeps that text.
 function inject(data: Record<string, RouteResult | InjectedResult>) {
-  const out: Record<string, InjectedResult> = {}
+  const out: Record<string, RenderResult> = {}
+  const texts: string[] = []
   for (const [id, result] of Object.entries(data)) {
-    if ('json' in result || result.status !== 200) {
-      out[id] = result as InjectedResult
+    if (result.status !== 200) {
+      out[id] = result as RenderResult
       continue
     }
-    const { data: value, ...rest } = result as RouteResult
-    out[id] = { ...rest, json: JSON.stringify(value) }
+    const { data: value, json, ...rest } = result as RouteResult & InjectedResult
+    out[id] = { ...rest, text: texts.length }
+    texts.push(json ?? JSON.stringify(value))
   }
-  return out
+  return { data: out, texts }
 }
 
 // renderResult runs one whole-page render through the SSR entry, as the Go VM pool does.
 async function renderResult(url: string, data: Record<string, RouteResult | InjectedResult>, preload?: string) {
   globalThis.renderResult = undefined
-  globalThis.startRender(JSON.stringify({ url, buildId: 'b1', data: inject(data), preload }))
+  const input = inject(data)
+  globalThis.startRender(JSON.stringify({ url, buildId: 'b1', data: input.data, preload }), ...input.texts)
   for (let i = 0; i < 1000 && globalThis.renderResult === undefined; i++)
     await new Promise((resolve) => setTimeout(resolve, 0))
   const result = globalThis.renderResult ?? '{"error":"render did not finish"}'
@@ -421,6 +425,41 @@ test('a -0 in loader data reaches the browser as the server read it', async () =
   assert(calls.length === 0, `hydration requested ${JSON.stringify(calls)}`)
   const data = router.state.matches[1].loaderData as any
   assert(Object.is(data.refunded, -0) && Object.is(data.list[0], -0), `after hydration ${JSON.stringify(data)} ${Object.is(data.refunded, -0)}`)
+})
+
+// The text of a Load's data is an argument of startRender of its own, so it reaches the page as
+// Go wrote it, whatever a JSON layer around it would have had to escape: quotes, backslashes,
+// U+2028 and U+2029, </script>, and characters above U+FFFF that Go writes as surrogate pairs.
+test('loader JSON text reaches the page as it was given, and the browser reads the same data', async () => {
+  const url = '/teams/x/one'
+  const tricky = '{"quote":"a \\"b\\"","slash":"C:\\\\temp","line":"x\u2028y\u2029","tag":"</script><!--","emoji":"\\ud83d\\ude00","accent":"é","nul":"\\u0000"}'
+  const html = await render(url, {
+    'app/layout': { status: 200, json: tricky },
+    'app/teams/team+/layout': ok('x'),
+    'app/teams/team+/one/route': ok(['one']),
+  })
+  contains(
+    html,
+    '$_TSR.t.get("tifa.data")("{\\"quote\\":\\"a \\\\\\"b\\\\\\"\\",\\"slash\\":\\"C:\\\\\\\\temp\\",\\"line\\":\\"x\\u2028y\\u2029\\",\\"tag\\":\\"\\x3C/script>\\x3C!--\\",' +
+      '\\"emoji\\":\\"\\\\ud83d\\\\ude00\\",\\"accent\\":\\"é\\",\\"nul\\":\\"\\\\u0000\\"}")',
+  )
+  lacks(html, 'tag\\":\\"<', 'nul\\":\\"\0')
+  const { router, calls } = await hydrateFrom(html, url)
+  assert(calls.length === 0, `hydration requested ${JSON.stringify(calls)}`)
+  const data = router.state.matches[1].loaderData as any
+  assert(JSON.stringify(data) === JSON.stringify(JSON.parse(tricky)), `after hydration ${JSON.stringify(data)}`)
+  assert(data.line === 'x\u2028y\u2029' && data.emoji === '\u{1F600}' && data.nul === '\0', `after hydration ${JSON.stringify(data)}`)
+})
+
+// A result that names a text startRender was not given cannot be rendered, and says which.
+test('a text that startRender was not given fails the render', async () => {
+  let message = ''
+  try {
+    globalThis.startRender(JSON.stringify({ url: '/hello', buildId: 'b1', data: { 'app/layout': { status: 200, text: 1 } } }), '{"name":"router"}')
+  } catch (error) {
+    message = String(error)
+  }
+  assert(message.includes('text 1') && message.includes('app/layout'), `the render says: ${message}`)
 })
 
 // The router reads serializationAdapters from its options, but its constructor type leaves them

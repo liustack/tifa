@@ -115,16 +115,16 @@ func TestSoakReuse(t *testing.T) {
 }
 
 // Fill a VM within one render, so idle replacement cannot preempt the OOM.
-// Repeatedly parse the order detail input, which contains Chinese text. Recovery
-// must succeed eight times, and Close must return native memory to baseline.
+// Repeatedly parse the order detail input and the JSON text of its data, which contains Chinese
+// text. Recovery must succeed eight times, and Close must return native memory to baseline.
 func TestSoakOOMRecycle(t *testing.T) {
 	source, pages := soakBundle(t)
-	const retain = `;globalThis.startRender = (start => json => {
+	const retain = `;globalThis.startRender = (start => (json, ...texts) => {
  if (JSON.parse(json).preload === "<!-- oom -->") {
   const retained = [];
-  for (;;) { retained.push(new Uint8Array(256 * 1024).fill(1)); JSON.parse(json); }
+  for (;;) { retained.push(new Uint8Array(256 * 1024).fill(1)); JSON.parse(json); for (const text of texts) JSON.parse(text); }
  }
- return start(json);
+ return start(json, ...texts);
 })(globalThis.startRender);`
 	baseline := nativeBaseline(t)
 	cfg := shopConfig(1)
@@ -194,7 +194,7 @@ func TestSoakVMMemory(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := ssr.RenderVM(vm, in, cfg.Timeout); err != nil {
+		if _, err := ssr.RenderVM(vm, in, pages[0].input.Texts, cfg.Timeout); err != nil {
 			t.Fatal(err)
 		}
 	}
