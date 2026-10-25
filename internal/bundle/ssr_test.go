@@ -906,12 +906,15 @@ func TestSSRSerializesArraysWithPlugins(t *testing.T) {
 
 // From 1.7.0 seroval passes the plugins it asks to parsePlugin, the ones for plain objects or the
 // others. The tifa plugin knows that form too, and asks the others for arrays. The test gives the
-// seroval of testdata the lines of 1.7 and the function they call.
+// seroval of testdata the lines of 1.7, the function they call, and parsePlugin functions that ask
+// only the plugins they are passed, as in 1.7.
 func TestSSRSerializesArraysWithPluginsInSeroval17(t *testing.T) {
 	changed := withChangedPackage(t, "seroval", filepath.Join("dist", "index.js"), func(source string) string {
 		for _, c := range [][2]string{
 			{"\tconst parsed = parsePlugin(ctx, depth, id, current);\n", "\tconst parsed = parsePlugin(ctx, depth, id, current, getObjectPlugins(ctx.base, current, currentClass));\n"},
 			{"\tconst parsed = await parsePlugin$1(ctx, depth, id, current);\n", "\tconst parsed = await parsePlugin$1(ctx, depth, id, current, getObjectPlugins(ctx.base, current, currentClass));\n"},
+			{"function parsePlugin(ctx, depth, id, current) {\n\tconst currentPlugins = ctx.base.plugins;\n", "function parsePlugin(ctx, depth, id, current, currentPlugins) {\n"},
+			{"async function parsePlugin$1(ctx, depth, id, current) {\n\tconst currentPlugins = ctx.base.plugins;\n", "async function parsePlugin$1(ctx, depth, id, current, currentPlugins) {\n"},
 		} {
 			if strings.Count(source, c[0]) != 1 {
 				t.Fatalf("seroval does not have %q once", c[0])
