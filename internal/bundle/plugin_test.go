@@ -404,10 +404,15 @@ func TestPluginGivesReactNamespacesPlainValues(t *testing.T) {
 	ids := []string{"/app/node_modules/react/index.js", "/app/node_modules/react-dom/index.js", "/app/page.tsx"}
 	// rolldown adds $ and a number to the name of a helper when the bundle has another name like it.
 	renamed := strings.NewReplacer("__defProp", "__defProp$34", "__toESM", "__toESM$1", "__commonJSMin", "__commonJSMin$2")
-	for _, pkg := range []string{"react", "react-dom", "renamed"} {
+	// From 1.2.15 rolldown starts each module with "// path" and no longer ends it.
+	comments := strings.NewReplacer("//#region ", "// ", "//#endregion\n", "")
+	for _, pkg := range []string{"react", "react-dom", "renamed", "comments"} {
 		chunk, plainCall := namespaceChunk(pkg), "__tifaV(require_m"
-		if pkg == "renamed" {
+		switch pkg {
+		case "renamed":
 			chunk, plainCall = renamed.Replace(namespaceChunk("react")), "__tifaV$1(require_m"
+		case "comments":
+			chunk = comments.Replace(namespaceChunk("react"))
 		}
 		got := plainOnNode(t, chunk, ids)
 		if got.Warning != "" {

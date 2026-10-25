@@ -2031,7 +2031,7 @@ function guardable(node) {
 // set their exports once, when their modules run, and never change them, so plainESM gives the
 // same namespace with each export's value: the same values, prototype, names and enumerability.
 // It changes only the calls of __toESM whose module rolldown wrote under a region of those
-// packages, and finds the helpers and the calls by the form rolldown writes them in: when the form
+// packages ("//#region path", from rolldown 1.2.15 "// path"), and finds the helpers and the calls by the form rolldown writes them in: when the form
 // is another, it warns and changes nothing. The calls keep their length and plainESM goes at the
 // end of the line of __toESM, which has no source, so every other place stays where it was.
 export function plainNamespaces(code, ids) {
@@ -2065,7 +2065,7 @@ export function plainNamespaces(code, ids) {
   const plainName = '__tifaV' + toESM.slice('__toESM'.length)
   if (new RegExp(`\\b${plainName.replace('$', '\\$')}(?![\\w$])`).test(code)) return skip(`the SSR bundle already names ${plainName}`)
   const regions = new Map() // the name of each module's require function to its package
-  for (const m of code.matchAll(/^\/\/#region ([^\n]+)\n[\t ]*var (require_[\w$]+) = \/\* @__PURE__ \*\/ __commonJSMin(?:\$\d+)?\(/gm)) {
+  for (const m of code.matchAll(/^\/\/(?:#region)? ([^\n]+)\n[\t ]*var (require_[\w$]+) = \/\* @__PURE__ \*\/ __commonJSMin(?:\$\d+)?\(/gm)) {
     regions.set(m[2], packageName(m[1]))
   }
   const plain = []
