@@ -78,20 +78,38 @@ const serovalPackage = /^(.*[/\\]node_modules[/\\]seroval)[/\\]/
 // The length from which seroval escapes a string with JSON.stringify, when that gives the same.
 const serovalLength = 'const MIN_JSON_STRINGIFY_LENGTH = 64;'
 // seroval's parseObject and parseObjectAsync take an array as an array in their first line, and
-// ask the plugins further down. Each entry has the name of the function, that first line, the
-// call of the plugins further down, and the first line that asks the plugins first.
+// ask the plugins further down. Each entry has the name of the function, that first line, and the
+// forms the plugin knows: the call of the plugins further down, and the first line that asks the
+// plugins first. From 1.7.0 seroval passes parsePlugin the plugins to ask, those for plain objects
+// or the others, and an array gets the others.
 const serovalArrays = [
   [
     'parseObject',
     '\tif (Array.isArray(current)) return parseArray(ctx, depth, id, current);\n',
-    '\tconst parsed = parsePlugin(ctx, depth, id, current);\n',
-    '\tif (Array.isArray(current)) return parsePlugin(ctx, depth, id, current) || parseArray(ctx, depth, id, current);\n',
+    [
+      [
+        '\tconst parsed = parsePlugin(ctx, depth, id, current);\n',
+        '\tif (Array.isArray(current)) return parsePlugin(ctx, depth, id, current) || parseArray(ctx, depth, id, current);\n',
+      ],
+      [
+        '\tconst parsed = parsePlugin(ctx, depth, id, current, getObjectPlugins(ctx.base, current, currentClass));\n',
+        '\tif (Array.isArray(current)) return parsePlugin(ctx, depth, id, current, ctx.base.plugins) || parseArray(ctx, depth, id, current);\n',
+      ],
+    ],
   ],
   [
     'parseObjectAsync',
     '\tif (Array.isArray(current)) return parseArray$1(ctx, depth, id, current);\n',
-    '\tconst parsed = await parsePlugin$1(ctx, depth, id, current);\n',
-    '\tif (Array.isArray(current)) return await parsePlugin$1(ctx, depth, id, current) || parseArray$1(ctx, depth, id, current);\n',
+    [
+      [
+        '\tconst parsed = await parsePlugin$1(ctx, depth, id, current);\n',
+        '\tif (Array.isArray(current)) return await parsePlugin$1(ctx, depth, id, current) || parseArray$1(ctx, depth, id, current);\n',
+      ],
+      [
+        '\tconst parsed = await parsePlugin$1(ctx, depth, id, current, getObjectPlugins(ctx.base, current, currentClass));\n',
+        '\tif (Array.isArray(current)) return await parsePlugin$1(ctx, depth, id, current, ctx.base.plugins) || parseArray$1(ctx, depth, id, current);\n',
+      ],
+    ],
   ],
 ]
 // lucide-react builds every icon it renders again from the icon's data and props, with object and
@@ -1496,9 +1514,10 @@ export function serovalPlugin() {
 // Each line stays where it was.
 function askPluginsForArrays(source) {
   const missing = []
-  for (const [fn, check, plugins, first] of serovalArrays) {
-    if (source.split(check).length !== 2 || source.split(plugins).length !== 2) missing.push(fn)
-    else source = source.replace(check, () => first)
+  for (const [fn, check, forms] of serovalArrays) {
+    const form = forms.find(([plugins]) => source.split(plugins).length === 2)
+    if (source.split(check).length !== 2 || !form) missing.push(fn)
+    else source = source.replace(check, () => form[1])
   }
   return { source, missing }
 }
@@ -2031,7 +2050,7 @@ function guardable(node) {
 // set their exports once, when their modules run, and never change them, so plainESM gives the
 // same namespace with each export's value: the same values, prototype, names and enumerability.
 // It changes only the calls of __toESM whose module rolldown wrote under a region of those
-// packages, and finds the helpers and the calls by the form rolldown writes them in: when the form
+// packages ("//#region path", from rolldown 1.2.15 "// path"), and finds the helpers and the calls by the form rolldown writes them in: when the form
 // is another, it warns and changes nothing. The calls keep their length and plainESM goes at the
 // end of the line of __toESM, which has no source, so every other place stays where it was.
 export function plainNamespaces(code, ids) {
@@ -2065,7 +2084,7 @@ export function plainNamespaces(code, ids) {
   const plainName = '__tifaV' + toESM.slice('__toESM'.length)
   if (new RegExp(`\\b${plainName.replace('$', '\\$')}(?![\\w$])`).test(code)) return skip(`the SSR bundle already names ${plainName}`)
   const regions = new Map() // the name of each module's require function to its package
-  for (const m of code.matchAll(/^\/\/#region ([^\n]+)\n[\t ]*var (require_[\w$]+) = \/\* @__PURE__ \*\/ __commonJSMin(?:\$\d+)?\(/gm)) {
+  for (const m of code.matchAll(/^\/\/(?:#region)? ([^\n]+)\n[\t ]*var (require_[\w$]+) = \/\* @__PURE__ \*\/ __commonJSMin(?:\$\d+)?\(/gm)) {
     regions.set(m[2], packageName(m[1]))
   }
   const plain = []
