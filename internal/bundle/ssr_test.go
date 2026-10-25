@@ -904,6 +904,42 @@ func TestSSRSerializesArraysWithPlugins(t *testing.T) {
 	}
 }
 
+// From 1.7.0 seroval passes the plugins it asks to parsePlugin, the ones for plain objects or the
+// others. The tifa plugin knows that form too, and asks the others for arrays. The test gives the
+// seroval of testdata the lines of 1.7 and the function they call.
+func TestSSRSerializesArraysWithPluginsInSeroval17(t *testing.T) {
+	changed := withChangedPackage(t, "seroval", filepath.Join("dist", "index.js"), func(source string) string {
+		for _, c := range [][2]string{
+			{"\tconst parsed = parsePlugin(ctx, depth, id, current);\n", "\tconst parsed = parsePlugin(ctx, depth, id, current, getObjectPlugins(ctx.base, current, currentClass));\n"},
+			{"\tconst parsed = await parsePlugin$1(ctx, depth, id, current);\n", "\tconst parsed = await parsePlugin$1(ctx, depth, id, current, getObjectPlugins(ctx.base, current, currentClass));\n"},
+		} {
+			if strings.Count(source, c[0]) != 1 {
+				t.Fatalf("seroval does not have %q once", c[0])
+			}
+			source = strings.Replace(source, c[0], c[1], 1)
+		}
+		return source + "function getObjectPlugins(ctx) {\n\treturn ctx.plugins;\n}\n"
+	})
+	writeTree(t, changed, map[string]string{"arrays.ts": arraysPage})
+	code, printed := buildPrinting(t, changed, "arrays.ts")
+	if strings.Contains(printed, "seroval") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	values := []string{`[1,[2,[],null],null,[],{"a":[]}]`, `[]`, `{"list":["n",[[]]],"empty":[],"plain":[3,[],{"b":[null]}]}`}
+	lines := strings.Split(evalResult(t, code), "\n")
+	if len(lines) != 3*len(values) {
+		t.Fatalf("%d serializations:\n%s", len(lines), strings.Join(lines, "\n"))
+	}
+	for i, l := range lines {
+		if !strings.HasSuffix(l, " "+values[i/3]) {
+			t.Errorf("serialization %d does not give back %s: %s", i, values[i/3], l)
+		}
+		if i/3 == 0 && !strings.Contains(l, `JSON.parse("[1,[2,[],null],null,[],{\"a\":[]}]")`) {
+			t.Errorf("serialization %d does not write the array as JSON text: %s", i, l)
+		}
+	}
+}
+
 // serializesShortStrings reports whether seroval in a minified bundle serializes a string with
 // JSON.stringify from a length of 2, which the minifier writes as a number or a variable.
 func serializesShortStrings(code string) bool {

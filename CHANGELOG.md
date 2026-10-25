@@ -6,6 +6,7 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 
 ### Changed
 
+- Apps that install rolldown 1.2.15 or seroval 1.7 keep the speedups of the tifa plugin. rolldown 1.2.15 starts each module with a `// path` comment rather than `//#region path`, and seroval 1.7 passes the plugins it asks to `parsePlugin`, so the plugin warned and left React's namespaces with getters and arrays of route data in seroval's own form, which render more slowly. A new app gets these versions. Pages render the same HTML.
 - Server rendering runs on slowjs v0.28.6. On linux/amd64, it runs JavaScript in slowjs's interpreter in Go assembly, which slowjs now uses by default there. Pages render the same HTML in less time: with one VM the example shop's workbench pages take 0.940 of the time and the pages of the MUI test app 0.850, and with 8 VMs on 8 hyperthreads the program renders 1.085 times as many shop pages a second and 1.211 times as many MUI pages (see [The JavaScript interpreter](docs/build.md#the-javascript-interpreter)). `build.goasm: false` in the project file builds with the Go interpreter.
 - Server rendering runs on slowjs v0.28.5, which keeps an async context across promise jobs, for the `AsyncLocalStorage` of the server, and lists the own keys of ordinary objects from their shape, for `Object.keys`, `for in`, object spread and `JSON.stringify`.
 - Server rendering runs on slowjs v0.28.4, which frees the top-level function of a module once it has run, with the variables it kept.
