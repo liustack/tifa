@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/liustack/slowjs"
-	lib "github.com/liustack/slowjs/lib"
 	"github.com/liustack/tifa/internal/config"
 	"modernc.org/libc"
 )
@@ -154,7 +153,7 @@ func TestSoakVMMemory(t *testing.T) {
 	const memory, timeout = 128 << 20, 10 * time.Second
 	stack := uintptr(config.Default().SSR.VMStackDepth)
 	// measure returns what a VM from open holds, after use when it is set.
-	measure := func(t *testing.T, open func() (*slowjs.VM, error), use func(*slowjs.VM)) lib.TJSMemoryUsage {
+	measure := func(t *testing.T, open func() (*slowjs.VM, error), use func(*slowjs.VM)) slowjs.MemoryUsage {
 		vm, err := open()
 		if err != nil {
 			t.Fatal(err)
@@ -179,10 +178,10 @@ func TestSoakVMMemory(t *testing.T) {
 		}
 	}
 	kb := func(n int64) float64 { return float64(n) / 1024 }
-	show := func(t *testing.T, name string, u, base lib.TJSMemoryUsage) {
+	show := func(t *testing.T, name string, u, base slowjs.MemoryUsage) {
 		t.Logf("%-24s malloc %8.1f KB (%+8.1f), used %8.1f KB (%+8.1f)", name,
-			kb(u.Fmalloc_size), kb(u.Fmalloc_size-base.Fmalloc_size),
-			kb(u.Fmemory_used_size), kb(u.Fmemory_used_size-base.Fmemory_used_size))
+			kb(u.MallocSize), kb(u.MallocSize-base.MallocSize),
+			kb(u.MemoryUsedSize), kb(u.MemoryUsedSize-base.MemoryUsedSize))
 	}
 
 	bare := measure(t, slowjs.NewVM, nil)
@@ -193,7 +192,7 @@ func TestSoakVMMemory(t *testing.T) {
 	show(t, "Intl, after formatting", measure(t, empty, format), bare)
 	// malloc moves in whole blocks of the allocator, so a few bytes more can show as 16 KB more.
 	// The budget is on used, what the stand-ins of Intl and Temporal take.
-	if grown := unused.Fmemory_used_size - bare.Fmemory_used_size; grown > 32<<10 {
+	if grown := unused.MemoryUsedSize - bare.MemoryUsedSize; grown > 32<<10 {
 		t.Fatalf("Intl and Temporal add %.1f KB to a VM that never formats", kb(grown))
 	}
 
