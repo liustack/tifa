@@ -262,9 +262,9 @@ VM 回收后的活大小超过增长上界时，池会在后台替换它。基�
 | `/providers/500` | 2.1 ms，7.3 MiB | 3.7 ms，7.3 MiB | 3.0 ms，6.2 MiB |
 | `/providers/1000` | 4.2 ms，7.8 MiB | 6.4 ms，7.8 MiB | 5.3 ms，6.7 MiB |
 | `/charts/12` | 269 ms，17.0 MiB | 456 ms，17.0 MiB | 372 ms，12.5 MiB |
-| `/markdown/200` | 1,848 ms，92.4 MiB | 超时（3.1 秒，92.5 MiB） | 2,718 ms，10.1 MiB |
-| `/markdown/1000` | 2.2 秒后内存用完（16 秒，407 MiB） | 超时（27 秒，408 MiB） | 超时（22 秒，436 MiB） |
-| `/markdown/2000` | 2.5 秒后内存用完（52 秒，809 MiB） | 超时（超过 60 秒） | 超时（超过 60 秒） |
+| `/markdown/200` | 1,848 ms，92.4 MiB | 超时（3.1 秒，92.5 MiB） | 2,321 ms，10.2 MiB |
+| `/markdown/1000` | 2.2 秒后内存用完（16 秒，407 MiB） | 超时（27 秒，408 MiB） | 1.9 秒后内存用完（12.6 秒，16 MiB） |
+| `/markdown/2000` | 2.5 秒后内存用完（52 秒，809 MiB） | 超时（超过 60 秒） | 2.0 秒后内存用完（26.5 秒，789 MiB） |
 | `/i18n/3000` | 229 ms，17.2 MiB | 491 ms，17.2 MiB | 412 ms，15.8 MiB |
 | `/mall/zh-CN` | 151 ms，16.5 MiB | 305 ms，16.6 MiB | 261 ms，14.4 MiB |
 | `/mall/en-US` | 152 ms，16.3 MiB | 301 ms，16.3 MiB | 262 ms，13.8 MiB |
@@ -272,7 +272,8 @@ VM 回收后的活大小超过增长上界时，池会在后台替换它。基�
 
 - **每次失败都干净。** 两个引擎下没有哪一档让程序退出或卡住。每次失败都是时间预算内的 500，VM 换新，下一个页面照常渲染。程序开 2 个 VM，跑完所有档位最多占 363 到 416 MiB。
 - **大数据和长列表先用完内存**：注入 20 MB 数据、5000 行的表、长 Markdown。**长 Markdown 和后台忙碌的一天（300 条 Markdown 回复）先用完时间**。
-- **上表的 Markdown 几行是修 micromark 之前的数字。** react-markdown 底下的解析器 micromark 4.0.3 每应用一次编辑就把整个文档的事件拷一遍，时间随文档体积的平方涨（[micromark#246](https://github.com/micromark/micromark/issues/246)，还没修）。触发它的是列表，高亮只占页面时间约 2%。本仓库的应用打了补丁（`patches/micromark-util-edit-map@1.0.0.patch`，即那个 issue 里提的改法）。打补丁后，M4 上的 C 引擎 200 KB 要 1.0 秒，1 MB 要 5.9 秒，2 MB 要 11.5 秒，和体积成正比。不打补丁时是 1.2 秒、10.3 秒和 32 秒。用 react-markdown 渲染长 Markdown 的应用也要打同样的补丁，或者用 micromark 4.0.2，等 micromark 发版修好。
+- **上表 C 引擎一列的 Markdown 几行是修 micromark 之后的数字。** react-markdown 底下的解析器 micromark 4.0.3 每应用一次编辑就把整个文档的事件拷一遍，时间随文档体积的平方涨（[micromark#246](https://github.com/micromark/micromark/issues/246)，还没修）。触发它的是列表，高亮只占页面时间约 2%。本仓库的应用打了补丁（`patches/micromark-util-edit-map@1.0.0.patch`，即那个 issue 里提的改法）。C 引擎这三行带着补丁在 slowjs main 9df4560f 上重测：200 KB 要 2.3 秒，1 MB 要 12.6 秒，2 MB 要 26.5 秒，每 KB 约 11 到 12 ms（从 50 KB 到 2 MB 的各点都落在一条直线的 12% 以内，2 MB 时平方项不到总时间的 5%）。不打补丁时同样三行是 2.7 秒、22 秒和超过 60 秒，用的是 slowjs main 0c8c338。M4 和 Go 引擎的格子是补丁之前的数字，没有重测。用 react-markdown 渲染长 Markdown 的应用也要打同样的补丁，或者用 micromark 4.0.2，等 micromark 发版修好。
+- **长 Markdown 的内存峰值约为每 KB 0.45 MiB**，在已加载 VM 的占用之上：100 KB 要 45 MiB，400 KB 要 171 MiB，1 MB 要 447 MiB。默认的 128 MiB 大约够到 270 KB。表格里的内存是渲染结束后读的，结束前刚好做过一次 GC 时会偏低（`/markdown/1000` 的 16 MiB 就是这样，它在 VM 里的峰值是 452 MiB）。大头来自这些库：解析器在读完整篇文档之前把每个 token 都留着，Node 跑同样的库也要差不多的量（堆峰值每 KB 0.3 到 0.5 MiB，400 KB 要 138 MiB，1 MB 要 281 MiB）。引擎的峰值到 200 KB 和 Node 相当，从 400 KB 到 1 MB 是 Node 的 1.3 到 1.6 倍。原因是解析器留着不放的那些数据在引擎里占的内存是 V8 里的 2.2 到 2.6 倍（一个对象 64 字节，属性另放一块），而 Node 留着更多等 GC 的垃圾。
 - **C 引擎**在较大的页面上比跑在 Go 上的引擎少用 11% 到 21% 的时间，在 5000 层和 10000 层组件上稍慢。它解析 JSON 最多 2000 层，所以 `/json/2001` 在它上面失败。
 - **深层调用**占的是 Go 栈，不是 VM 内存。渲染时 goroutine 栈的增长：500 到 1000 层组件或 Provider、400 到 600 层嵌套 `div` 涨 1 到 4 MiB，5000 和 10000 层组件在 EPYC 上涨 8 MiB，在 M4 上涨 16 MiB。宽而不深的页面最多涨 512 KiB。
 - **注入数据**：在 M4 上，带 5 MB 数据的页面渲染用 69 ms，其中 37 ms 花在 VM 里解析数据。渲染之前，Go 加载数据并写成 JSON 用 21 ms，转义用 2 ms。
