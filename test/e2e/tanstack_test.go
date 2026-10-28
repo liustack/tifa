@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -154,6 +155,23 @@ func TestAppsOfTheRepositoryUseTheTestedTanStack(t *testing.T) {
 		}
 		if len(found) != 2 {
 			t.Errorf("%s/pnpm-lock.yaml locks %v, want both packages", app, found)
+		}
+	}
+}
+
+// micromark 4.0.3 copies every event of a document on each edit it applies, which makes
+// parsing Markdown quadratic in the length of a document: a page of 2 MB took 32 s where it
+// takes 11 s patched (micromark/micromark#246). An app that installs micromark-util-edit-map
+// 1.0.0 applies patches/micromark-util-edit-map@1.0.0.patch, until micromark releases the fix.
+func TestAppsOfTheRepositoryPatchTheQuadraticEditMap(t *testing.T) {
+	patched := regexp.MustCompile(`(?m)^patchedDependencies:\n  micromark-util-edit-map@1\.0\.0:\n`)
+	for _, app := range []string{"../../examples/shop", "../../test/apps/pages", "../../test/apps/tailwind", "../../test/apps/mui", "../../test/apps/bench", "../../test/apps/extreme"} {
+		lock, err := os.ReadFile(filepath.Join(app, "pnpm-lock.yaml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(lock, []byte("\n  micromark-util-edit-map@1.0.0:")) && !patched.Match(lock) {
+			t.Errorf("%s/pnpm-lock.yaml installs micromark-util-edit-map 1.0.0 without its patch", app)
 		}
 	}
 }
