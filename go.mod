@@ -5,7 +5,7 @@ go 1.27.0
 require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/klauspost/compress v1.20.3
-	github.com/liustack/slowjs v0.28.7-0.20261028133357-44964b97294a
+	github.com/liustack/slowjs v0.28.7-0.20261028192220-75052b72cbb7
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	go.yaml.in/yaml/v3 v3.0.4
