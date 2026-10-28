@@ -93,7 +93,7 @@ Left out on purpose:
 
 The steps run with `permissions: contents: read`, and the actions are pinned to a major version.
 
-One test is racy on macOS. In `TestAutomaticCertificate` (`server/acme_test.go`), `ready()` starts `obtain` in a goroutine, and the test's own request is a second handshake that waits for the same certificate. When autocert finishes the order it lets the waiting handshake go before the first one has written the certificate into `server.tls_cache`, so the test can stop the server and look for the file too early (`certificate not in the cache`). It failed once in 6 runs of the macOS job and once in 200 runs of the test alone on a macOS runner, and never on linux (0 in 200). A red macOS run with only that failure is this race, and a rerun passes. CI does not retry or skip it.
+One test is racy on macOS. The cause below is read from the code of autocert, and not yet traced at run time. In `TestAutomaticCertificate` (`server/acme_test.go`), `ready()` starts `obtain` in a goroutine, and the test's own request is a second handshake that waits for the same certificate. When autocert finishes the order it lets the waiting handshake go before the first one has written the certificate into `server.tls_cache`, so the test can stop the server and look for the file too early (`certificate not in the cache`). It failed once in 6 runs of the macOS job and once in 200 runs of the test alone on a macOS runner, and never on linux (0 in 200). A red macOS run with only that failure is this race, and a rerun passes. CI does not retry or skip it.
 
 ## Writing tests
 
