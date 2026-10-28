@@ -45,7 +45,15 @@
     "addNamed": "Add {{name}} to the cart",
     "added": "Added",
     "addFailed": "Not added, try again",
-    "chooseSize": "Choose a size"
+    "chooseSize": "Choose a size",
+    "quickView": "Quick view of {{name}}",
+    "quickViewTip": "Quick view",
+    "viewDetails": "See the whole product",
+    "wishTip": "Save for later",
+    "wishOn": "Saved",
+    "ships": "Ships within 48 hours",
+    "stockLeft_other": "Only {{count}} left, ships within 48 hours",
+    "restock": "Restocking, order when it is back"
   },
   "home": {
     "title": "Shanhai · Everyday things",
@@ -90,7 +98,70 @@
     "page": "Page {{page}} of {{pages}}",
     "previous": "Previous",
     "next": "Next",
-    "breadcrumb": "You are here"
+    "breadcrumb": "You are here",
+    "view": "Layout",
+    "viewGrid4": "Four columns",
+    "viewGrid3": "Three columns",
+    "viewList": "List",
+    "seen": "Recently viewed",
+    "picks": "Best rated",
+    "categories": "Browse by category",
+    "guide": "Buying guide",
+    "popular": "Popular searches",
+    "editorialKicker": "Journal",
+    "editorialTitle": "How we photograph a kettle",
+    "editorialBody": "One lamp, one white card and a lot of patience: the light, the kit and the edit behind our product photos.",
+    "editorialCta": "Read it",
+    "serviceShip": "Free shipping over {{amount, currency}}, ships within 48 hours",
+    "serviceReturn": "Returns within seven days of delivery",
+    "serviceWarranty": "Broken metal and ceramic pieces replaced within a year",
+    "serviceHelp": "Support is online 9:00 to 21:00 China time",
+    "guideItems": [
+      {
+        "q": "What size of pour-over kettle should I pick?",
+        "a": "400 to 600 ml for one person, 800 ml or more if two or three of you drink coffee daily. A bigger kettle is harder to control at the end of the pour, so bigger is not better."
+      },
+      {
+        "q": "Can ceramic cups go in the dishwasher?",
+        "a": "Smooth glazed cups can, on the top rack. Stoneware and pieces with wooden parts are better washed by hand and dried."
+      },
+      {
+        "q": "Does linen shrink in the wash?",
+        "a": "It is preshrunk before it ships, so normal cold washing shrinks it less than 3%. Wash it alone the first time and dry it in the shade."
+      },
+      {
+        "q": "Brass and copper change colour. Is that a flaw?",
+        "a": "No. Copper darkens slowly with use. A soft cloth and a little lemon juice brings the shine back, or leave it: that is how it ages."
+      },
+      {
+        "q": "Can I add a card when it is a gift?",
+        "a": "Choose gift wrapping at checkout and write what you want to say in the notes. We write it on a card by hand and leave the price out."
+      },
+      {
+        "q": "When will a sold out piece be back?",
+        "a": "Handmade pieces come in small batches, usually restocked in two to four weeks. The product page gives the expected date, and you can save it until then."
+      },
+      {
+        "q": "How soon will it arrive?",
+        "a": "Orders before 16:00 leave our Hangzhou warehouse the next day. Around Shanghai and Zhejiang it takes 1 to 2 days, elsewhere 2 to 4."
+      },
+      {
+        "q": "What if it arrives with a flaw?",
+        "a": "Write to us within seven days with a photo. We pay the shipping, and you choose a replacement or a refund."
+      }
+    ],
+    "popularWords": [
+      "coffee",
+      "cup",
+      "tea",
+      "linen",
+      "candle",
+      "picnic",
+      "notebook",
+      "vase",
+      "lantern",
+      "bottle"
+    ]
   },
   "filters": {
     "title": "Filters",
@@ -110,7 +181,18 @@
     "count_one": "{{count}} item",
     "count_other": "{{count}} items",
     "active_one": "{{count}} filter on",
-    "active_other": "{{count}} filters on"
+    "active_other": "{{count}} filters on",
+    "chosen": "Chosen",
+    "remove": "Remove {{name}}",
+    "quick": "Quick filters",
+    "materials": "Material",
+    "rating": "Rating",
+    "anyRating": "Any",
+    "ratingFloor": "{{rating}} and up",
+    "status": "Status",
+    "under": "Under ${{max}}",
+    "between": "${{min}} to ${{max}}",
+    "over": "${{min}} and up"
   },
   "sort": {
     "featured": "Featured",

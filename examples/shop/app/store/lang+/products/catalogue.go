@@ -1,6 +1,8 @@
 package products
 
 import (
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/liustack/tifa/examples/shop/app/store"
@@ -447,4 +449,45 @@ var catalogue = []productRecord{
 		specs:     [][2]T{{{"尺寸", "Sizes"}, {"20、25、33 厘米", "20, 25 and 33 cm"}}},
 		added:     day(2, 14),
 	},
+}
+
+// materialGroups are the families of materials the product list filters by. A product belongs to
+// every family one of its materials names, in either language, with one of the words.
+var materialGroups = []struct {
+	id    string
+	name  T
+	words []string
+}{
+	{"metal", T{"金属", "Metal"}, []string{"stainless", "brass", "pure tin", "tinplate", "tinned", "copper", "aluminium", "steel", "不锈钢", "黄铜", "纯锡", "紫铜", "铝", "钢", "铁皮"}},
+	{"ceramic", T{"陶瓷", "Ceramic"}, []string{"clay", "stoneware", "glaze", "enamel", "陶瓷", "粗陶", "搪瓷", "釉", "高岭"}},
+	{"wood", T{"木", "Wood"}, []string{"oak", "walnut", "木"}},
+	{"glass", T{"玻璃", "Glass"}, []string{"glass", "玻璃"}},
+	{"fabric", T{"织物", "Fabric"}, []string{"linen", "cotton", "wool", "canvas", "oxford", "亚麻", "棉", "羊毛", "帆布", "牛津布"}},
+	{"paper", T{"纸", "Paper"}, []string{"paper", "kraft", "纸"}},
+	{"wax", T{"蜡与精油", "Wax and oils"}, []string{"wax", "oil", "sandalwood", "cypress", "osmanthus", "蜡", "油", "檀香", "柏木", "桂花"}},
+}
+
+// badges are the labels a product can wear, as the product list filters by them.
+var badges = []struct {
+	id   string
+	name T
+}{
+	{"new", T{"新品", "New"}},
+	{"sale", T{"特价", "On sale"}},
+	{"limited", T{"限量", "Limited"}},
+}
+
+// materialFamilies returns the ids of the families a product's materials fall in.
+func materialFamilies(p productRecord) []string {
+	var out []string
+	for _, g := range materialGroups {
+		if slices.ContainsFunc(p.materials, func(m T) bool {
+			return slices.ContainsFunc(g.words, func(w string) bool {
+				return strings.Contains(strings.ToLower(m[0]), w) || strings.Contains(strings.ToLower(m[1]), w)
+			})
+		}) {
+			out = append(out, g.id)
+		}
+	}
+	return out
 }

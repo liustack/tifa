@@ -33,6 +33,7 @@ func Load(c *tifa.Ctx) (Detail, error) {
 	if err != nil {
 		return Detail{}, err
 	}
+	products.MarkSeen(c, p.Slug)
 	reviews, ratings := products.Reviews(p.Slug, 8, l)
 	related := products.Related(p.Slug, 8, l)
 	d := Detail{Product: p, Reviews: reviews, Ratings: ratings, Bundle: products.Bundle(p.Slug, 2, l), Related: related, Questions: products.Questions(p.Slug, l)}
