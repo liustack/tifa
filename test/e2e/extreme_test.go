@@ -14,7 +14,7 @@ type outcome int
 const (
 	renders outcome = iota // 200 from the VM, with the HTML the size asks for
 	fails                  // 500 within ssr.timeout and a second, and the process goes on serving
-	either                 // within a factor of two of a limit, so the speed of the machine decides
+	slow                   // renders, but near the render timeout, so a program with a longer one gets it
 )
 
 // extremePages are the sizes of each scenario of test/apps/extreme and texts their HTML must have.
@@ -45,14 +45,18 @@ var extremePages = []struct {
 	{"/providers/500", renders, []string{`id="sum">125250<`}},
 	{"/providers/1000", renders, []string{`id="sum">500500<`}},
 	{"/charts/12", renders, []string{`<circle`}},
-	{"/markdown/200", either, []string{`id="blocks">50<`}},
+	{"/markdown/200", slow, []string{`id="blocks">50<`}},
 	{"/markdown/1000", fails, nil},
 	{"/markdown/2000", fails, nil},
 	{"/i18n/3000", renders, []string{`id="formats"`}},
 	{"/mall/zh-CN", renders, []string{`id="title"`, `id="price"`}},
 	{"/mall/en-US", renders, []string{`id="title"`, `id="price"`}},
-	{"/console/100", either, []string{`id="comments">300<`}},
+	{"/console/100", slow, []string{`id="comments">300<`}},
 }
+
+// slowTimeout is the render timeout of the program that renders the slow pages: more than any
+// machine needs for them, so what they render does not depend on how fast the machine is.
+const slowTimeout = 60 * time.Second
 
 // extremeRSS is the most memory the program may hold at once over all the sizes: its two VMs
 // at their 128 MiB limit, and the data, HTML and compressed copy of the largest page in Go.
@@ -85,17 +89,20 @@ func TestExtremeApp(t *testing.T) {
 	expectInBody(t, "/", index, `href="/dom/10000"`, `href="/console/100"`)
 	const budget = 3*time.Second + time.Second
 	for _, page := range extremePages {
+		if page.want == slow {
+			continue // see the end of the test
+		}
 		begin := time.Now()
 		status, header, body := get(t, base+page.url)
 		took := time.Since(begin)
 		t.Logf("%s: %d in %s, %d KiB", page.url, status, took.Round(time.Millisecond), len(body)>>10)
 		switch {
-		case status == 200 && page.want != fails:
+		case status == 200 && page.want == renders:
 			if header.Get("X-Tifa-Render") != "vm" {
 				t.Errorf("%s: rendered by %q, want the VM", page.url, header.Get("X-Tifa-Render"))
 			}
 			expectInBody(t, page.url, body, page.texts...)
-		case status == 500 && page.want != renders:
+		case status == 500 && page.want == fails:
 			if took > budget {
 				t.Errorf("%s: failed after %s, want within %s", page.url, took, budget)
 			}
@@ -119,6 +126,7 @@ func TestExtremeApp(t *testing.T) {
 	if strings.Contains(output.String(), "panic") {
 		t.Errorf("the program panicked:\n%s", output.String())
 	}
+	renderSlowPages(t, exe)
 	peak, ok := peakRSS(cmd)
 	if !ok {
 		return
@@ -129,6 +137,40 @@ func TestExtremeApp(t *testing.T) {
 	}
 }
 
+// renderSlowPages requests the pages that take from about 1.4 to 3.5 seconds, depending on the
+// machine and the engine, from a program whose render timeout is slowTimeout. With the default
+// timeout of 3 seconds the speed of the machine would decide whether they render or time out, so
+// the test could pass and fail on the same code. Here they must render, with all their data.
+func renderSlowPages(t *testing.T, exe string) {
+	t.Helper()
+	base, cmd, output := start(t, exe, "--ssr-timeout", slowTimeout.String())
+	for _, page := range extremePages {
+		if page.want != slow {
+			continue
+		}
+		begin := time.Now()
+		status, header, body := get(t, base+page.url)
+		t.Logf("%s: %d in %s, %d KiB, with a timeout of %s", page.url, status, time.Since(begin).Round(time.Millisecond), len(body)>>10, slowTimeout)
+		if status != 200 {
+			t.Errorf("%s: %d, want 200:\n%.600s", page.url, status, body)
+			continue
+		}
+		if header.Get("X-Tifa-Render") != "vm" {
+			t.Errorf("%s: rendered by %q, want the VM", page.url, header.Get("X-Tifa-Render"))
+		}
+		expectInBody(t, page.url, body, page.texts...)
+	}
+	if err := cmd.Process.Signal(os.Interrupt); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("the program did not stop cleanly: %v\n%s", err, output.String())
+	}
+	if strings.Contains(output.String(), "panic") {
+		t.Errorf("the program panicked:\n%s", output.String())
+	}
+}
+
 func (o outcome) String() string {
-	return [...]string{"200 from the VM", "500 within the budget", "200 or 500"}[o]
+	return [...]string{"200 from the VM", "500 within the budget", "200 with a long timeout"}[o]
 }

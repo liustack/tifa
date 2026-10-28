@@ -238,11 +238,11 @@ func (b *lockedBuffer) waitFor(t *testing.T, ok func(output string) bool) {
 var listening = regexp.MustCompile(`listening on (http://\S+)`)
 
 // start runs exe on a free port and returns its base URL once it listens. Its PATH has no node:
-// a built application never needs it.
-func start(t *testing.T, exe string) (base string, cmd *exec.Cmd, output *lockedBuffer) {
+// a built application never needs it. args are more flags for it.
+func start(t *testing.T, exe string, args ...string) (base string, cmd *exec.Cmd, output *lockedBuffer) {
 	t.Helper()
 	output = &lockedBuffer{drained: make(chan struct{})}
-	cmd = exec.Command(exe, "--server-addr", "127.0.0.1:0")
+	cmd = exec.Command(exe, append([]string{"--server-addr", "127.0.0.1:0"}, args...)...)
 	// The app rejects unknown TIFA_* variables as settings, TIFA_E2E among them.
 	for _, kv := range os.Environ() {
 		if !strings.HasPrefix(kv, "TIFA_") && !strings.HasPrefix(kv, "PATH=") {
