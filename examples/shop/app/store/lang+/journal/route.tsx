@@ -1,14 +1,12 @@
 import { Link } from '@tanstack/react-router'
 import { Badge } from '@/components/ui/badge'
 import { message, storeTitle, useStore } from '../../i18n'
-import { ProductImage } from '../../product-card'
+import { JournalCover } from '../../product-card'
 import { route } from './+route'
 
 export const head = ({ params }: { params: { lang: string } }) => ({
   meta: [{ title: storeTitle(params.lang, message(params.lang, 'journal.title')) }],
 })
-
-const covers = ['#6f7f5b', '#b76e4c', '#2b3440']
 
 export default function JournalPage() {
   const posts = route.useLoaderData() ?? []
@@ -20,10 +18,10 @@ export default function JournalPage() {
         <p className="text-muted-foreground">{t('journal.intro')}</p>
       </header>
       <ul className="grid gap-10 md:grid-cols-2 lg:grid-cols-3">
-        {posts.map((post, i) => (
+        {posts.map((post) => (
           <li key={post.slug}>
             <article className="flex flex-col gap-3">
-              <ProductImage name={post.tags?.[0] ?? ''} hex={covers[i % covers.length]} className="aspect-[4/3]" />
+              <JournalCover slug={post.slug} alt="" />
               <div className="flex flex-wrap gap-1.5">
                 {(post.tags ?? []).map((tag) => (
                   <Badge key={tag} variant="secondary">

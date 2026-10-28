@@ -40,7 +40,7 @@ export default function StoreHome() {
         </div>
         <div className="grid grid-cols-2 gap-4">
           {(home.featured ?? []).slice(0, 4).map((p) => (
-            <ProductImage key={p.slug} name={p.name} hex={p.colors?.[0]?.hex ?? '#d9c9a8'} />
+            <ProductImage key={p.slug} slug={p.slug} alt={p.name} sizes="(min-width: 768px) 20vw, 50vw" eager />
           ))}
         </div>
       </section>

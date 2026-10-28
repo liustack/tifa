@@ -35,7 +35,13 @@
     "colors_other": "{{count}} 种颜色",
     "from": "原价 {{price}}",
     "save": "省 {{percent, number}}%",
-    "quickAdd": "查看 {{name}}"
+    "quickAdd": "查看 {{name}}",
+    "wish": "收藏 {{name}}",
+    "add": "加入购物车",
+    "addNamed": "把 {{name}} 加入购物车",
+    "added": "已加入",
+    "addFailed": "没加上，再试一次",
+    "chooseSize": "选择尺码"
   },
   "home": {
     "title": "山海 · 日常器物",

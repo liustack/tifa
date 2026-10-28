@@ -39,7 +39,13 @@
     "colors_other": "{{count}} colours",
     "from": "Was {{price}}",
     "save": "Save {{percent, number}}%",
-    "quickAdd": "View {{name}}"
+    "quickAdd": "View {{name}}",
+    "wish": "Save {{name}}",
+    "add": "Add to cart",
+    "addNamed": "Add {{name}} to the cart",
+    "added": "Added",
+    "addFailed": "Not added, try again",
+    "chooseSize": "Choose a size"
   },
   "home": {
     "title": "Shanhai · Everyday things",

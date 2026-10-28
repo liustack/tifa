@@ -198,7 +198,7 @@ function CartLine({ line }: { line: Line }) {
     <TableRow aria-busy={busy}>
       <TableCell>
         <div className="flex items-center gap-3">
-          <ProductImage name="" hex={line.hex || '#d9c9a8'} className="size-16 shrink-0 rounded-lg" />
+          <ProductImage slug={line.slug} alt="" width={160} className="size-16 shrink-0 rounded-lg" />
           <div className="flex flex-col">
             <Link
               to="/store/$lang/products/$product"

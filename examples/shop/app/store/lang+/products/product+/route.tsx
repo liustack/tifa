@@ -79,7 +79,7 @@ export default function ProductPage() {
       </Breadcrumb>
 
       <div className="grid gap-10 lg:grid-cols-2">
-        <Gallery name={product.name} hexes={colors.map((c) => c.hex)} />
+        <Gallery name={product.name} slug={product.slug} />
         <div className="flex flex-col gap-6">
           <div className="flex flex-col gap-2">
             <div className="flex gap-2">
@@ -240,15 +240,16 @@ export default function ProductPage() {
   )
 }
 
-function Gallery({ name, hexes }: { name: string; hexes: string[] }) {
+const views = ['main', 'detail', 'scene'] as const
+
+function Gallery({ name, slug }: { name: string; slug: string }) {
   const { t } = useStore()
   const [shown, setShown] = useState(0)
-  const views = [0, 1, 2, 3].map((i) => hexes[i % Math.max(1, hexes.length)] ?? '#d9c9a8')
   return (
     <div className="flex flex-col gap-3" aria-label={t('product.gallery')} role="group">
-      <ProductImage name={name} hex={views[shown]} className="rounded-2xl" />
-      <div className="grid grid-cols-4 gap-3">
-        {views.map((hex, i) => (
+      <ProductImage slug={slug} alt={name} view={views[shown]} sizes="(min-width: 1024px) 50vw, 100vw" eager className="rounded-2xl" />
+      <div className="grid grid-cols-3 gap-3">
+        {views.map((view, i) => (
           <button
             key={i}
             type="button"
@@ -257,7 +258,7 @@ function Gallery({ name, hexes }: { name: string; hexes: string[] }) {
             onClick={() => setShown(i)}
             className="rounded-lg outline-none ring-offset-2 aria-pressed:ring-2 aria-pressed:ring-primary focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <ProductImage name={String(i + 1)} hex={hex} className="rounded-lg" />
+            <ProductImage slug={slug} alt="" view={view} width={160} className="rounded-lg" />
           </button>
         ))}
       </div>
