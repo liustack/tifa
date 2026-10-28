@@ -45,9 +45,10 @@ var ErrClosed = errors.New("ssr: pool closed")
 // exception, the time budget, the memory limit, a Go panic) leaves the pool, and a
 // background goroutine replaces it with a fresh VM loaded from the same bytecode.
 // The garbage renders leave is collected between renders, after the answer, by a
-// young GC after each render and a full GC now and then (see release). VMs whose
-// live size grows too far are replaced after loading a spare, without taking
-// capacity away from renders.
+// young GC after each render and a full GC now and then (see release). A VM that
+// waits idle for idleRelease gives the memory it keeps free back to the system (see
+// trimIdle). VMs whose live size grows too far are replaced after loading a spare,
+// without taking capacity away from renders.
 type Pool struct {
 	bytecode    *slowjs.SharedBytecode
 	sources     *sources
@@ -75,6 +76,12 @@ type Pool struct {
 	waiting    func(*time.Timer) // test hook, runs before the wait select
 	acquired   func()            // test hook, runs after a render takes a VM
 	collecting func(*pooledVM)   // test hook, runs before a GC between renders
+	releasing  func(*pooledVM)   // test hook, runs with a VM held, before its free memory goes back (see trimIdle)
+
+	// trimTimer runs trimIdle once a VM may have waited idleRelease. It is made on first use and
+	// armed under mu.
+	trimTimer *time.Timer
+	trimArmed bool
 }
 
 // pooledVM is a VM of the pool with what its GC threshold is made of (see gcThreshold).
@@ -92,6 +99,11 @@ type pooledVM struct {
 	need uintptr
 	// threshold is the GC threshold the pool set last. The engine sets another when it collects.
 	threshold uintptr
+	// dirty is set when the VM rendered since its free memory last went back to the system, and
+	// idleSince is when it last came back to the pool. Only the goroutine that holds the VM, or
+	// takes it from the idle channel, reads or writes them.
+	dirty     bool
+	idleSince time.Time
 }
 
 // needDecay sets how slowly need comes down after a big render. At 1/1024 a render, half of what
@@ -107,8 +119,17 @@ func (vm *pooledVM) setThreshold(memory uintptr) {
 
 // renderGCs counts renders with an engine GC, youngGCs collections between renders that ran only
 // a young GC, idleGCs those that ran a full GC, and replaced successful proactive swaps (failure
-// refills only affect created and closed).
-type poolStats struct{ created, closed, peak, renderGCs, youngGCs, idleGCs, replaced int }
+// refills only affect created and closed), and trimmed the times an idle VM gave its free memory
+// back to the system (see idleRelease).
+type poolStats struct{ created, closed, peak, renderGCs, youngGCs, idleGCs, replaced, trimmed int }
+
+// idleRelease is how long a VM waits idle before the pool gives the memory it keeps free back to
+// the system. A render takes that memory again, and the pages come back zeroed one fault at a
+// time, about 0.9 ms for each MiB on a GCP virtual machine, so a VM that renders more often
+// than this keeps it. At the shortest wait that costs one such refill a second for a VM, about
+// 0.3% of its time, and an idle one holds a quarter less. A second is also the delay mimalloc
+// waits before it gives pages back.
+const idleRelease = time.Second
 
 // fullGCEvery is how many renders a VM runs at most between two full GCs. A young GC keeps what
 // the old objects hold, such as the cycles of objects that went old before a render let go of
@@ -340,6 +361,9 @@ func (p *Pool) Close() error {
 	p.closeOnce.Do(func() {
 		p.mu.Lock()
 		p.closing = true
+		if p.trimTimer != nil {
+			p.trimTimer.Stop()
+		}
 		p.mu.Unlock()
 		close(p.done)
 		p.renders.Wait()
@@ -396,6 +420,7 @@ func (p *Pool) release(vm *pooledVM) {
 	}
 	vm.setThreshold(p.memory)
 	vm.young++
+	vm.dirty = true
 	p.refills.Go(func() { p.collect(vm, engineGC) })
 }
 
@@ -430,6 +455,10 @@ func (vm *pooledVM) memoryBound(memory uintptr) uintptr {
 // selection share mu, so a new waiter cannot race the decision to start loading.
 func (p *Pool) putIdle(vm *pooledVM) {
 	p.mu.Lock()
+	vm.idleSince = time.Now()
+	if vm.dirty {
+		p.armTrim(idleRelease)
+	}
 	p.idle <- vm
 	if !p.closing && !p.swapping && vm.live > vm.memoryBound(p.memory) {
 		p.swapping = true
@@ -437,6 +466,92 @@ func (p *Pool) putIdle(vm *pooledVM) {
 	}
 	p.wakeSwap()
 	p.mu.Unlock()
+}
+
+// armTrim makes the timer run trimIdle in d, unless it is armed already or the pool is closing.
+// Called under mu.
+func (p *Pool) armTrim(d time.Duration) {
+	if p.trimArmed || p.closing {
+		return
+	}
+	p.trimArmed = true
+	if p.trimTimer == nil {
+		p.trimTimer = time.AfterFunc(d, p.trimIdle)
+	} else {
+		p.trimTimer.Reset(d)
+	}
+}
+
+// trimIdle gives the free memory of each VM that rendered and has waited idleRelease back to the
+// system. It takes a VM from the idle channel as a render does, so it never works on a VM that
+// renders or is collected, and a render that comes meanwhile waits for it as it waits for any VM,
+// about half a millisecond. The VMs that have not waited long enough make the timer run again when
+// they will have. A VM that comes back to the pool later arms the timer in putIdle. Close waits
+// for it, as it does for a collection.
+func (p *Pool) trimIdle() {
+	p.mu.Lock()
+	p.trimArmed = false
+	if p.closing {
+		p.mu.Unlock()
+		return
+	}
+	p.refills.Add(1)
+	p.mu.Unlock()
+	defer p.refills.Done()
+	var next time.Duration
+	for range cap(p.idle) {
+		var vm *pooledVM
+		select {
+		case vm = <-p.idle:
+		default:
+			// The others are rendering or collecting, and arm the timer when they come back.
+			p.armTrimAfter(next)
+			return
+		}
+		if wait := idleRelease - time.Since(vm.idleSince); vm.dirty && wait > 0 {
+			if next == 0 || wait < next {
+				next = wait
+			}
+		} else if vm.dirty {
+			if err := p.giveBack(vm); err != nil {
+				logf("tifa: ssr: give memory back from an idle VM: %v, replacing the VM", err)
+				p.closeVM(vm)
+				p.refill()
+				continue
+			}
+			vm.dirty = false
+			p.mu.Lock()
+			p.counts.trimmed++
+			p.mu.Unlock()
+		}
+		p.idle <- vm
+	}
+	p.armTrimAfter(next)
+}
+
+// armTrimAfter arms the timer for d, if d is not 0.
+func (p *Pool) armTrimAfter(d time.Duration) {
+	if d == 0 {
+		return
+	}
+	p.mu.Lock()
+	p.armTrim(d)
+	p.mu.Unlock()
+}
+
+// giveBack gives the free memory of vm back to the system. It returns a Go panic, from the engine,
+// as an error, as runGC does.
+func (p *Pool) giveBack(vm *pooledVM) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+	if p.releasing != nil {
+		p.releasing(vm)
+	}
+	_, err = vm.ReleaseMemory(0)
+	return err
 }
 
 // Called under mu. Notifications are hints, the worker always checks the state.
@@ -547,7 +662,7 @@ func (p *Pool) replaceGrown() {
 // runGC runs a young GC on vm, then a full GC when the young GC left 1.5 times the live size or
 // more. It runs only the full GC when vm ran fullGCEvery renders since its last full GC. With full it runs only the full GC: the engine collected during the render, and
 // set its threshold from what the render held then. The full GC sets the live size and threshold
-// from what is left, and what the VM holds beyond the threshold goes back to the system. runGC returns a Go panic, from the engine, as an error: in the goroutine of
+// from what is left, and the memory the VM holds free goes back to the system. runGC returns a Go panic, from the engine, as an error: in the goroutine of
 // collect it has no caller to go up to, and would end the process.
 func (p *Pool) runGC(vm *pooledVM, full bool) (err error) {
 	defer func() {
@@ -571,11 +686,13 @@ func (p *Pool) runGC(vm *pooledVM, full bool) (err error) {
 	vm.young = 0
 	vm.live = vm.MemorySize()
 	vm.setThreshold(p.memory)
-	// The memory the renders until the next GC fill stays, the rest goes back to the system, as
-	// what a big render took once the threshold no longer leaves room for it.
-	if _, err := vm.ReleaseMemory(vm.threshold - vm.live); err != nil {
+	// What the VM holds free goes back to the system, as after Load. The renders until the next full GC
+	// take what they need again, and a full GC is rare (see fullGCEvery). Keeping the room the
+	// threshold leaves above the live size kept all of it, since that is more than a VM holds free.
+	if _, err := vm.ReleaseMemory(0); err != nil {
 		return err
 	}
+	vm.dirty = false
 	p.mu.Lock()
 	p.counts.idleGCs++
 	p.mu.Unlock()

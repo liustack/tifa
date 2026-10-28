@@ -454,3 +454,35 @@ func TestFullGCGivesBackWhatTheThresholdNoLongerNeeds(t *testing.T) {
 		}
 	})
 }
+
+// A full GC between renders gives back all the free memory of the VM, also when the threshold
+// leaves room for more than the VM holds free. The renders are big enough to leave free memory
+// of a bit less than the live size.
+func TestFullGCGivesBackFreeMemory(t *testing.T) {
+	p := newTestPool(t, testSource(t), testConfig(1))
+	var live uintptr
+	idleVM(p, func(vm *pooledVM) { live = vm.live })
+	count := fmt.Sprint(live / 2 / objectSize(t, holdJS))
+	for i := range fullGCEvery - 1 {
+		if _, err := p.Render(context.Background(), input("hold", count)); err != nil {
+			t.Fatalf("render %d: %v", i, err)
+		}
+	}
+	var before slowjs.MemoryUsage
+	idleVM(p, func(vm *pooledVM) { before = vm.MemoryUsage() })
+	if before.Footprint == 0 {
+		t.Skip("the engine takes its memory from libc")
+	}
+	if _, err := p.Render(context.Background(), input("hold", count)); err != nil {
+		t.Fatal(err)
+	}
+	idleVM(p, func(vm *pooledVM) {
+		u := vm.MemoryUsage()
+		if s := p.stats(); s.idleGCs != 1 {
+			t.Fatalf("want one full GC, got %+v", s)
+		}
+		if given := u.ReleaseCandidate - before.ReleaseCandidate; given < int64(vm.live/4) {
+			t.Fatalf("the full GC gave back %d bytes, live size %d, threshold %d, footprint %d", given, vm.live, vm.GCThreshold(), u.Footprint)
+		}
+	})
+}
