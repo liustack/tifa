@@ -79,7 +79,7 @@ type Pool struct {
 
 // pooledVM is a VM of the pool with what its GC threshold is made of (see gcThreshold).
 type pooledVM struct {
-	*slowjs.VM
+	*VM
 	// live is the live size, what the VM held after its last full GC between renders, or after Load.
 	live uintptr
 	// young counts the renders since that GC.
@@ -231,7 +231,7 @@ func (p *Pool) Render(ctx context.Context, in Input) (string, error) {
 	}
 	if p.dev {
 		// A warning must not fail the page. A VM that cannot list them is replaced.
-		if warnErr := p.warnIntl(vm.VM); warnErr != nil {
+		if warnErr := p.warnIntl(vm.VM.VM); warnErr != nil {
 			logf("tifa: ssr: read the Intl warnings: %v", warnErr)
 			return html, err
 		}

@@ -62,7 +62,7 @@ func BenchmarkShop(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			size = ssr.VMMemory(vm, false).MallocSize
+			size = ssr.VMMemory(vm.VM, false).MallocSize
 			if err := vm.Close(); err != nil {
 				b.Fatal(err)
 			}
@@ -262,7 +262,7 @@ func TestShopVMMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer vm.Close()
-	loaded := ssr.VMMemory(vm, true)
+	loaded := ssr.VMMemory(vm.VM, true)
 	for i := range 64 {
 		page := pages[i%len(pages)]
 		html, err := ssr.RenderVM(vm, renderInput(t, page.input), page.input.Texts, cfg.Timeout)
@@ -271,8 +271,8 @@ func TestShopVMMemory(t *testing.T) {
 		}
 		page.check(t, html)
 	}
-	used := ssr.VMMemory(vm, false)
-	collected := ssr.VMMemory(vm, true)
+	used := ssr.VMMemory(vm.VM, false)
+	collected := ssr.VMMemory(vm.VM, true)
 
 	t.Logf("bytecode of the bundle: %d bytes (source %d bytes)", bytecode.Len(), len(source))
 	columns := []struct {

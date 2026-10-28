@@ -153,7 +153,7 @@ func TestSoakVMMemory(t *testing.T) {
 	const memory, timeout = 128 << 20, 10 * time.Second
 	stack := uintptr(config.Default().SSR.VMStackDepth)
 	// measure returns what a VM from open holds, after use when it is set.
-	measure := func(t *testing.T, open func() (*slowjs.VM, error), use func(*slowjs.VM)) slowjs.MemoryUsage {
+	measure := func(t *testing.T, open func() (*VM, error), use func(*VM)) slowjs.MemoryUsage {
 		vm, err := open()
 		if err != nil {
 			t.Fatal(err)
@@ -162,17 +162,17 @@ func TestSoakVMMemory(t *testing.T) {
 		if use != nil {
 			use(vm)
 		}
-		return VMMemory(vm, true)
+		return VMMemory(vm.VM, true)
 	}
-	loaded := func(t *testing.T, source string) func() (*slowjs.VM, error) {
+	loaded := func(t *testing.T, source string) func() (*VM, error) {
 		bytecode, err := Compile(source, memory, timeout)
 		if err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { bytecode.Close() })
-		return func() (*slowjs.VM, error) { return Load(bytecode, memory, stack, timeout, false) }
+		return func() (*VM, error) { return Load(bytecode, memory, stack, timeout, false) }
 	}
-	format := func(vm *slowjs.VM) {
+	format := func(vm *VM) {
 		if _, err := vm.Eval(formats, slowjs.EvalGlobal); err != nil {
 			t.Fatal(err)
 		}
@@ -184,7 +184,14 @@ func TestSoakVMMemory(t *testing.T) {
 			kb(u.MemoryUsedSize), kb(u.MemoryUsedSize-base.MemoryUsedSize))
 	}
 
-	bare := measure(t, slowjs.NewVM, nil)
+	bare := func() slowjs.MemoryUsage {
+		vm, err := slowjs.NewVM()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+		return VMMemory(vm, true)
+	}()
 	empty := loaded(t, "")
 	unused := measure(t, empty, nil)
 	show(t, "bare VM", bare, bare)
@@ -197,7 +204,7 @@ func TestSoakVMMemory(t *testing.T) {
 	}
 
 	open := loaded(t, testSource(t))
-	render := func(vm *slowjs.VM) {
+	render := func(vm *VM) {
 		in, err := json.Marshal(input("ok", ""))
 		if err != nil {
 			t.Fatal(err)

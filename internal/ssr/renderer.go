@@ -78,27 +78,32 @@ const (
 // stack is how deep calls may nest, in the engine's stack slots (ssr.vm_stack_depth). Deeper
 // calls throw RangeError: Maximum call stack size exceeded. The slots live on the goroutine
 // stack of the render, not in the memory the limit counts: a slot takes about 1 KB.
-func Load(bytecode *slowjs.SharedBytecode, memory, stack uintptr, timeout time.Duration, dev bool) (*slowjs.VM, error) {
-	vm, err := slowjs.NewVM()
+//
+// Load takes the functions RenderVM calls from the global object once, so that a render parses no
+// code of its own: globalThis.startRender as the bundle left it, which a render calls even when
+// the bundle replaces it later.
+func Load(bytecode *slowjs.SharedBytecode, memory, stack uintptr, timeout time.Duration, dev bool) (*VM, error) {
+	js, err := slowjs.NewVM()
 	if err != nil {
 		return nil, err
 	}
+	vm := &VM{VM: js}
 	vm.SetMemoryLimit(memory)
 	vm.SetMaxStackSize(stack)
 	if err = vm.SetEvalTimeout(timeout); err == nil {
-		err = intl.Register(vm)
+		err = intl.Register(vm.VM)
 	}
 	if err == nil {
-		err = temporal.Register(vm)
+		err = temporal.Register(vm.VM)
 	}
 	if err == nil {
-		err = registerRandom(vm)
+		err = registerRandom(vm.VM)
 	}
 	if err == nil {
-		err = registerHash(vm)
+		err = registerHash(vm.VM)
 	}
 	if err == nil {
-		err = registerAsyncContext(vm)
+		err = registerAsyncContext(vm.VM)
 	}
 	if err == nil && dev {
 		_, err = vm.Eval(intlCheck, slowjs.EvalGlobal)
@@ -106,8 +111,11 @@ func Load(bytecode *slowjs.SharedBytecode, memory, stack uintptr, timeout time.D
 	if err == nil {
 		_, err = vm.EvalSharedBytecode(bytecode)
 	}
+	if err == nil {
+		err = vm.takeFunctions()
+	}
 	if err != nil {
-		return nil, errors.Join(err, vm.Close())
+		return nil, errors.Join(err, vm.VM.Close())
 	}
 	// What loading left as garbage goes now, so that the live size of the VM is what the bundle
 	// keeps, and the first render gets the threshold of the next ones.
@@ -121,12 +129,45 @@ func Load(bytecode *slowjs.SharedBytecode, memory, stack uintptr, timeout time.D
 //go:embed intlcheck.js
 var intlCheck string
 
+// VM is a VM of the bundle, made by Load, with the functions RenderVM calls.
+type VM struct {
+	*slowjs.VM
+	// global is the global object, which startRender gets as this, as a call by its name would
+	// give it. reset clears globalThis.renderResult, and readResult is the function of
+	// readResult.
+	global, reset, startRender, readResult slowjs.Value
+}
+
+// takeFunctions takes the functions RenderVM calls from the global object.
+func (vm *VM) takeFunctions() error {
+	values := [...]*slowjs.Value{&vm.global, &vm.reset, &vm.startRender, &vm.readResult}
+	for i, source := range [...]string{"globalThis", resetResult, "globalThis.startRender", readResult} {
+		v, err := vm.EvalValue(source, slowjs.EvalGlobal)
+		if err != nil {
+			for _, taken := range values[:i] {
+				taken.Free()
+			}
+			return err
+		}
+		*values[i] = v
+	}
+	return nil
+}
+
+// Close frees the functions RenderVM calls and closes the VM.
+func (vm *VM) Close() error {
+	for _, v := range [...]*slowjs.Value{&vm.global, &vm.reset, &vm.startRender, &vm.readResult} {
+		v.Free()
+	}
+	return vm.VM.Close()
+}
+
 // RenderVM runs one request in vm: startRender(input, ...texts), then the microtasks it queued,
 // then reads globalThis.renderResult. Each of texts is an argument of startRender of its own. A render that left no result once no job is left waits for
 // work nothing can settle, since a VM has no timers and does no I/O: when the bundle set
 // globalThis.stopRender for it, RenderVM calls it, runs the jobs that queued and reads the
 // result again. Any error leaves vm in an unknown state.
-func RenderVM(vm *slowjs.VM, input []byte, texts []string, timeout time.Duration) (string, error) {
+func RenderVM(vm *VM, input []byte, texts []string, timeout time.Duration) (string, error) {
 	deadline := time.Now().Add(timeout)
 	// Each phase gets only what is left of the request's budget.
 	budget := func() error {
@@ -151,7 +192,7 @@ func RenderVM(vm *slowjs.VM, input []byte, texts []string, timeout time.Duration
 	if err := budget(); err != nil {
 		return "", err
 	}
-	if _, err := vm.Eval("globalThis.renderResult = undefined", slowjs.EvalGlobal); err != nil {
+	if _, err := vm.reset.Call(slowjs.UndefinedValue); err != nil {
 		return "", phase("reset result", err)
 	}
 	if err := budget(); err != nil {
@@ -162,7 +203,7 @@ func RenderVM(vm *slowjs.VM, input []byte, texts []string, timeout time.Duration
 	for i, text := range texts {
 		args[1+i] = text
 	}
-	if _, err := vm.Call("startRender", args...); err != nil {
+	if _, err := vm.startRender.Call(vm.global, args...); err != nil {
 		return "", phase("startRender", err)
 	}
 	if err := budget(); err != nil {
@@ -174,7 +215,7 @@ func RenderVM(vm *slowjs.VM, input []byte, texts []string, timeout time.Duration
 	if err := budget(); err != nil {
 		return "", err
 	}
-	value, err := vm.Eval(readResult, slowjs.EvalGlobal)
+	value, err := vm.readResult.Call(slowjs.UndefinedValue)
 	if err != nil {
 		return "", phase("read result", err)
 	}
@@ -188,7 +229,7 @@ func RenderVM(vm *slowjs.VM, input []byte, texts []string, timeout time.Duration
 		if err := budget(); err != nil {
 			return "", err
 		}
-		if value, err = vm.Eval(readResult, slowjs.EvalGlobal); err != nil {
+		if value, err = vm.readResult.Call(slowjs.UndefinedValue); err != nil {
 			return "", phase("read result", err)
 		}
 	}
@@ -217,15 +258,18 @@ func RenderVM(vm *slowjs.VM, input []byte, texts []string, timeout time.Duration
 	return "", errors.New("ssr: render returned neither HTML nor a redirect or an error")
 }
 
+// resetResult clears globalThis.renderResult before a render.
+const resetResult = `() => { globalThis.renderResult = undefined }`
+
 // readResult takes globalThis.renderResult. Without one it calls globalThis.stopRender, when the
 // bundle set it, and returns false.
-const readResult = `(() => {
+const readResult = `() => {
   const result = globalThis.renderResult
   globalThis.renderResult = undefined
   if (result !== undefined || typeof globalThis.stopRender !== 'function') return result
   globalThis.stopRender()
   return false
-})()`
+}`
 
 // RedirectError is what Render returns when the router answers the URL with a redirect, as
 // TanStack Router does for a URL it spells differently (/%61 for /a). The VM is fine.
