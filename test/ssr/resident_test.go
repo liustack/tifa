@@ -9,7 +9,8 @@ package ssr_test
 // once with TIFA_SSR_VMS (8), and takes the memory of one VM from the difference of the two processes,
 // (RSS of N VMs - RSS of 1 VM) / (N - 1). Two processes, because after the first pool the Go heap and the
 // allocator keep pages that a second pool in the same process would count as its own. Each child prints
-// the VmRSS of its process after loading, after rendering every page with every VM, and idle, and the
+// the VmRSS of its process after loading, after rendering every page with every VM, idle for half a second,
+// and after waiting 1.5 seconds more, which is longer than the pool lets an idle VM keep its free memory, and the
 // highest VmRSS it reached (VmHWM) in a line "vmhwm-kb: N", which `sjdev bench run` reads. The child of 1
 // VM also prints what the engine counts for one VM, rendered the way the pool renders (a young GC after
 // each render, a full one at the end).
@@ -83,40 +84,40 @@ func TestParseProcKiB(t *testing.T) {
 	}
 }
 
-var residentLine = regexp.MustCompile(`resident: vms (\d+) start (\d+) loaded (\d+) rendered (\d+) idle (\d+)`)
+var residentLine = regexp.MustCompile(`resident: vms (\d+) start (\d+) loaded (\d+) rendered (\d+) idle (\d+) waited (\d+)`)
 
 // residentSample is the line a child prints.
-type residentSample struct{ vms, start, loaded, rendered, idle int }
+type residentSample struct{ vms, start, loaded, rendered, idle, waited int }
 
 func parseResident(out string) (residentSample, error) {
 	m := residentLine.FindStringSubmatch(out)
 	if m == nil {
 		return residentSample{}, fmt.Errorf("no resident line in %q", out)
 	}
-	var v [5]int
+	var v [6]int
 	for i := range v {
 		v[i], _ = strconv.Atoi(m[i+1])
 	}
-	return residentSample{v[0], v[1], v[2], v[3], v[4]}, nil
+	return residentSample{v[0], v[1], v[2], v[3], v[4], v[5]}, nil
 }
 
 // perVM returns the KiB one VM takes: the difference of the processes over the difference of the VMs.
-func perVM(one, many residentSample) (loaded, rendered float64, err error) {
+func perVM(one, many residentSample) (loaded, rendered, waited float64, err error) {
 	if many.vms <= one.vms {
-		return 0, 0, fmt.Errorf("%d VMs against %d: the second process must have more", many.vms, one.vms)
+		return 0, 0, 0, fmt.Errorf("%d VMs against %d: the second process must have more", many.vms, one.vms)
 	}
 	d := float64(many.vms - one.vms)
-	return float64(many.loaded-one.loaded) / d, float64(many.rendered-one.rendered) / d, nil
+	return float64(many.loaded-one.loaded) / d, float64(many.rendered-one.rendered) / d, float64(many.waited-one.waited) / d, nil
 }
 
 func TestPerVM(t *testing.T) {
-	one := residentSample{vms: 1, loaded: 30000, rendered: 40000}
-	many := residentSample{vms: 8, loaded: 30000 + 7*8000, rendered: 40000 + 7*12000}
-	l, r, err := perVM(one, many)
-	if err != nil || l != 8000 || r != 12000 {
-		t.Errorf("perVM = %v, %v, %v", l, r, err)
+	one := residentSample{vms: 1, loaded: 30000, rendered: 40000, waited: 38000}
+	many := residentSample{vms: 8, loaded: 30000 + 7*8000, rendered: 40000 + 7*12000, waited: 38000 + 7*9000}
+	l, r, w, err := perVM(one, many)
+	if err != nil || l != 8000 || r != 12000 || w != 9000 {
+		t.Errorf("perVM = %v, %v, %v, %v", l, r, w, err)
 	}
-	if _, _, err := perVM(many, one); err == nil {
+	if _, _, _, err := perVM(many, one); err == nil {
 		t.Error("fewer VMs in the second process accepted")
 	}
 }
@@ -144,12 +145,12 @@ func TestShopVMResident(t *testing.T) {
 		return s
 	}
 	one, n := run(1), run(many)
-	loaded, rendered, err := perVM(one, n)
+	loaded, rendered, waited, err := perVM(one, n)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("one VM, from %d against 1 (MiB): after loading %.1f, after rendering %.1f", many, loaded/1024, rendered/1024)
-	fmt.Printf("per-vm-mib: loaded %.1f rendered %.1f\n", loaded/1024, rendered/1024)
+	t.Logf("one VM, from %d against 1 (MiB): after loading %.1f, after rendering %.1f, after waiting %.1f", many, loaded/1024, rendered/1024, waited/1024)
+	fmt.Printf("per-vm-mib: loaded %.1f rendered %.1f waited %.1f\n", loaded/1024, rendered/1024, waited/1024)
 }
 
 // TestShopVMResidentChild is the process TestShopVMResident starts. It does nothing on its own.
@@ -173,7 +174,9 @@ func TestShopVMResidentChild(t *testing.T) {
 	rendered := residentKiB(t)
 	time.Sleep(500 * time.Millisecond) // the collections after the last renders
 	idle := residentKiB(t)
-	fmt.Printf("resident: vms %d start %d loaded %d rendered %d idle %d\n", n, start, loaded, rendered, idle)
+	time.Sleep(1500 * time.Millisecond) // the pool gives free memory back from a VM idle for a second
+	waited := residentKiB(t)
+	fmt.Printf("resident: vms %d start %d loaded %d rendered %d idle %d waited %d\n", n, start, loaded, rendered, idle, waited)
 	if err := p.Close(); err != nil {
 		t.Fatal(err)
 	}
