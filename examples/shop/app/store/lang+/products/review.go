@@ -19,6 +19,8 @@ type Review struct {
 	Helpful  int       `json:"helpful"`  // how many found it helpful
 	// Photos are the views of the product the customer took pictures of: "detail" or "scene".
 	Photos []string `json:"photos"`
+	// Reply is what the shop answered, empty when it did not.
+	Reply string `json:"reply"`
 }
 
 // RatingCount is how many reviews gave a number of stars, for the bars above the reviews.
@@ -27,39 +29,98 @@ type RatingCount struct {
 	Count int `json:"count"`
 }
 
-// Reviews returns the n newest reviews of a product and how its reviews spread over the stars.
-func Reviews(slug string, n int, l store.Locale) ([]Review, []RatingCount) {
-	var p productRecord
+// ReviewsPerPage is how many reviews a page of a product's reviews holds.
+const ReviewsPerPage = 10
+
+// ReviewTag is something customers say about a product, with how many reviews say it.
+type ReviewTag struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
+
+// ReviewsPage is one page of the reviews of a product, newest first, with how all of its reviews
+// spread over the stars and what they most often mention.
+type ReviewsPage struct {
+	Reviews []Review      `json:"reviews"`
+	Ratings []RatingCount `json:"ratings"`
+	Tags    []ReviewTag   `json:"tags"`
+	Total   int           `json:"total"`
+	Page    int           `json:"page"`
+	Pages   int           `json:"pages"`
+}
+
+func productBySlug(slug string) productRecord {
 	for _, r := range catalogue {
 		if r.slug == slug {
-			p = r
+			return r
 		}
 	}
+	return productRecord{}
+}
+
+// ReviewPage returns page of the reviews of a product, from 1. A page past the last shows the last.
+func ReviewPage(slug string, page int, l store.Locale) ReviewsPage {
+	p := productBySlug(slug)
 	total := reviewCount(p)
-	var list []Review
-	for i := range min(n, total) {
-		t := reviewTexts[(i+len(p.slug))%len(reviewTexts)]
-		stars := 5 - (i*7+len(p.slug))%3/2
-		if p.rating < 4.5 && i%3 == 2 {
-			stars = 3
-		}
-		list = append(list, Review{
-			Author:   reviewers[(i*5+len(p.slug))%len(reviewers)].In(l),
-			Rating:   stars,
-			Title:    t.title.In(l),
-			Body:     t.body.In(l),
-			PostedAt: p.added.Add(time.Duration(40-i*3) * 24 * time.Hour).Add(time.Duration(i*97) * time.Minute),
-			Verified: i%4 != 3,
-			Helpful:  (i*13 + len(p.slug)) % 17,
-			Photos:   reviewPhotos(i),
-		})
+	out := ReviewsPage{Total: total, Pages: (total + ReviewsPerPage - 1) / ReviewsPerPage}
+	out.Page = min(max(page, 1), out.Pages)
+	for i := (out.Page - 1) * ReviewsPerPage; i < min(out.Page*ReviewsPerPage, total); i++ {
+		out.Reviews = append(out.Reviews, reviewAt(p, i, l))
 	}
 	five := total * int(p.rating*10-40) / 10
 	four := (total - five) * 2 / 3
 	three := (total - five - four) * 2 / 3
 	two := (total - five - four - three) / 2
-	counts := []RatingCount{{5, five}, {4, four}, {3, three}, {2, two}, {1, total - five - four - three - two}}
-	return list, counts
+	out.Ratings = []RatingCount{{5, five}, {4, four}, {3, three}, {2, two}, {1, total - five - four - three - two}}
+	for i, tag := range reviewTags {
+		out.Tags = append(out.Tags, ReviewTag{Name: tag.In(l), Count: total * (len(reviewTags) - i) / (len(reviewTags) + 2)})
+	}
+	return out
+}
+
+// Reviews returns the n newest reviews of a product.
+func Reviews(slug string, n int, l store.Locale) []Review {
+	p := productBySlug(slug)
+	var list []Review
+	for i := range min(n, reviewCount(p)) {
+		list = append(list, reviewAt(p, i, l))
+	}
+	return list
+}
+
+// reviewAt writes the ith newest review of a product. Reviews follow the days since it was added
+// at a steady pace, the newest 75 days after it went on sale.
+func reviewAt(p productRecord, i int, l store.Locale) Review {
+	t := reviewTexts[(i+len(p.slug))%len(reviewTexts)]
+	stars := 5 - (i*7+len(p.slug))%3/2
+	if p.rating < 4.5 && i%3 == 2 {
+		stars = 3
+	}
+	return Review{
+		Author:   reviewers[(i*5+len(p.slug))%len(reviewers)].In(l),
+		Rating:   stars,
+		Title:    t.title.In(l),
+		Body:     t.body.In(l),
+		PostedAt: p.added.Add(75*24*time.Hour - time.Duration(i)*(20*time.Hour+97*time.Minute)),
+		Verified: i%4 != 3,
+		Helpful:  (i*13 + len(p.slug)) % 17,
+		Photos:   reviewPhotos(i),
+		Reply:    shopReply(i, l),
+	}
+}
+
+// shopReply is what the shop wrote back to a review: to every fifth, and to a thank you.
+func shopReply(i int, l store.Locale) string {
+	if i%5 != 1 {
+		return ""
+	}
+	return T{"谢谢你的反馈，我们会转给做这件器物的工坊。有任何问题随时联系客服。", "Thank you for the feedback. We will pass it on to the workshop that made it. Write to us any time."}.In(l)
+}
+
+// reviewTags are what reviews mention, the most mentioned first.
+var reviewTags = []T{
+	{"做工扎实", "Well made"}, {"颜色好看", "Lovely colour"}, {"尺寸合适", "Just the right size"},
+	{"包装用心", "Thoughtful packaging"}, {"适合送礼", "Good as a gift"}, {"物流较快", "Quick delivery"}, {"性价比高", "Good value"},
 }
 
 // reviewPhotos returns the views the ith review has pictures of: every third review has one or two.
@@ -85,7 +146,7 @@ func LatestReviews(n int, l store.Locale) []ReviewCard {
 	slices.SortStableFunc(list, func(a, b productRecord) int { return b.added.Compare(a.added) })
 	var out []ReviewCard
 	for _, p := range list[:min(n, len(list))] {
-		reviews, _ := Reviews(p.slug, 1, l)
+		reviews := Reviews(p.slug, 1, l)
 		out = append(out, ReviewCard{Review: reviews[0], Product: p.card(l)})
 	}
 	return out

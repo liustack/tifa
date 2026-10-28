@@ -3,6 +3,7 @@
 package product
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/liustack/tifa"
@@ -13,13 +14,15 @@ import (
 
 // Detail is the product page.
 type Detail struct {
-	Product products.Product       `json:"product"`
-	Reviews []products.Review      `json:"reviews"`
-	Ratings []products.RatingCount `json:"ratings"`
-	Related []products.Card        `json:"related"`
+	Product products.Product     `json:"product"`
+	Reviews products.ReviewsPage `json:"reviews"`
+	Related []products.Card      `json:"related"`
 	// Bundle are two products of the same category that go with this one, sold together.
 	Bundle    []products.Card     `json:"bundle"`
 	Questions []products.Question `json:"questions"`
+	// Best are the best rated products of the category, and Seen what the visitor looked at last.
+	Best []products.Card `json:"best"`
+	Seen []products.Card `json:"seen"`
 	// Delivery is when standard delivery would arrive if ordered now.
 	Delivery cart.Delivery `json:"delivery"`
 }
@@ -33,10 +36,13 @@ func Load(c *tifa.Ctx) (Detail, error) {
 	if err != nil {
 		return Detail{}, err
 	}
+	seen := products.Seen(c, p.Slug, l)
 	products.MarkSeen(c, p.Slug)
-	reviews, ratings := products.Reviews(p.Slug, 8, l)
-	related := products.Related(p.Slug, 8, l)
-	d := Detail{Product: p, Reviews: reviews, Ratings: ratings, Bundle: products.Bundle(p.Slug, 2, l), Related: related, Questions: products.Questions(p.Slug, l)}
+	page, _ := strconv.Atoi(c.Query("reviews"))
+	d := Detail{
+		Product: p, Reviews: products.ReviewPage(p.Slug, page, l), Bundle: products.Bundle(p.Slug, 2, l), Related: products.Related(p.Slug, 12, l),
+		Questions: products.Questions(p.Slug, l), Best: products.BestInCategory(p.Slug, 5, l), Seen: seen,
+	}
 	d.Delivery = cart.Deliveries(cart.Cart{FreeShippingCents: 1}, time.Now(), l)[0]
 	return d, nil
 }

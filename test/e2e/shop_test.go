@@ -213,6 +213,7 @@ func TestShopApp(t *testing.T) {
 	checkStorefront(t, base, built.BuildID)
 	checkStorefrontKeepsCustomersApart(t, base)
 	checkShopModules(t, base)
+	checkProductPageCounts(t, base)
 }
 
 // rendered returns the part of a page React rendered, without the data written after it.

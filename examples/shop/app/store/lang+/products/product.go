@@ -59,15 +59,16 @@ type Card struct {
 // Product is the whole product, as its page shows it.
 type Product struct {
 	Card
-	CategoryID  string    `json:"categoryId"`
-	Summary     string    `json:"summary"`
-	Description string    `json:"description"`
-	Sizes       []string  `json:"sizes"`
-	Stock       int       `json:"stock"`
-	Materials   []string  `json:"materials"`
-	Care        []string  `json:"care"`
-	Specs       []Spec    `json:"specs"`
-	AddedAt     time.Time `json:"addedAt"`
+	CategoryID  string      `json:"categoryId"`
+	Summary     string      `json:"summary"`
+	Description string      `json:"description"`
+	Sizes       []string    `json:"sizes"`
+	Stock       int         `json:"stock"`
+	Materials   []string    `json:"materials"`
+	Care        []string    `json:"care"`
+	Specs       []Spec      `json:"specs"`
+	SpecGroups  []SpecGroup `json:"specGroups"`
+	AddedAt     time.Time   `json:"addedAt"`
 }
 
 // GetProduct returns the product slug in the language of l, or tifa.ErrNotFound.
@@ -357,6 +358,7 @@ func (p productRecord) product(l store.Locale) Product {
 	for _, s := range p.specs {
 		out.Specs = append(out.Specs, Spec{Label: s[0].In(l), Value: s[1].In(l)})
 	}
+	out.SpecGroups = p.specGroups(l)
 	return out
 }
 
@@ -368,6 +370,23 @@ func TopRated(n int, l store.Locale) []Card {
 	})
 	var out []Card
 	for _, p := range list[:min(n, len(list))] {
+		out = append(out, p.card(l))
+	}
+	return out
+}
+
+// BestInCategory returns the n best rated products of the category of slug, leaving slug out.
+func BestInCategory(slug string, n int, l store.Locale) []Card {
+	self := productBySlug(slug)
+	var in []productRecord
+	for _, p := range catalogue {
+		if p.category == self.category && p.slug != slug {
+			in = append(in, p)
+		}
+	}
+	slices.SortStableFunc(in, func(a, b productRecord) int { return compareRating(b, a) })
+	var out []Card
+	for _, p := range in[:min(n, len(in))] {
 		out = append(out, p.card(l))
 	}
 	return out
