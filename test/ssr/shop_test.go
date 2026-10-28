@@ -155,7 +155,13 @@ var listening = regexp.MustCompile(`listening on (http://\S+)`)
 // startShop runs the shop's program built by tifa build and returns its base URL.
 func startShop(t testing.TB) string {
 	t.Helper()
-	cmd := exec.Command(filepath.Join(shopDir, "bin", "shop"), "--server-addr", "127.0.0.1:0")
+	return startProgram(t, filepath.Join(shopDir, "bin", "shop"))
+}
+
+// startProgram runs a program built by tifa build and returns its base URL.
+func startProgram(t testing.TB, exe string) string {
+	t.Helper()
+	cmd := exec.Command(exe, "--server-addr", "127.0.0.1:0")
 	// The program rejects unknown TIFA_* variables as settings, TIFA_SSR_SHOP among them.
 	for _, kv := range os.Environ() {
 		if !strings.HasPrefix(kv, "TIFA_") {
@@ -167,7 +173,7 @@ func startShop(t testing.TB) string {
 		t.Fatal(err)
 	}
 	if err := cmd.Start(); err != nil {
-		t.Fatalf("run tifa build in examples/shop first: %v", err)
+		t.Fatalf("run tifa build first: %v", err)
 	}
 	t.Cleanup(func() {
 		cmd.Process.Kill()
@@ -186,7 +192,7 @@ func startShop(t testing.TB) string {
 	case base := <-found:
 		return base
 	case <-time.After(10 * time.Second):
-		t.Fatal("the shop did not start listening")
+		t.Fatalf("%s did not start listening", exe)
 		return ""
 	}
 }
