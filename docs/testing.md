@@ -221,7 +221,7 @@ TIFA_SSR_SHOP=1 GOMAXPROCS=1 go test -run '^$' -bench 'Shop/^render' -benchtime 
 go test -run EngineProfile ./internal/codegen
 ```
 
-500 renders of each page give about 62 seconds of CPU samples on a quiet AMD EPYC 7B13 with slowjs v0.28.6, whose default build on linux/amd64 runs the interpreter in Go assembly. One profile is enough for arm64 too: on darwin/arm64, a build with a profile made on linux/amd64 renders as fast as one with a profile made on the same Mac (0.3% apart, measured with quickjs v0.26.13).
+500 renders of each page give about 3 minutes of CPU samples on a quiet AMD EPYC 7B13 with the slowjs of October 28, 2026, whose default build on linux/amd64 runs the interpreter in Go assembly. One profile is enough for arm64 too: on darwin/arm64, a build with a profile made on linux/amd64 renders as fast as one with a profile made on the same Mac (0.3% apart, measured with quickjs v0.26.13).
 
 A profile of an older slowjs or libc still builds and changes no output. It only finds fewer call sites, so pages render slower than they could.
 

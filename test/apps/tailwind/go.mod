@@ -8,7 +8,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/klauspost/compress v1.20.3 // indirect
-	github.com/liustack/slowjs v0.28.6 // indirect
+	github.com/liustack/slowjs v0.28.7-0.20261028133357-44964b97294a // indirect
 	github.com/liustack/tifa v0.0.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect

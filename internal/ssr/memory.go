@@ -1,29 +1,12 @@
 package ssr
 
-import (
-	"reflect"
-	"unsafe"
+import "github.com/liustack/slowjs"
 
-	"github.com/liustack/slowjs"
-	lib "github.com/liustack/slowjs/lib"
-	"modernc.org/libc"
-)
-
-// VMMemory returns what QuickJS counts in the runtime of vm, after a GC when collect is set. Like
-// Compile, Load and RenderVM it is for measurements. Each VM has a runtime of its own. The slowjs
-// package does not export the runtime, so VMMemory reads it from the VM, as the fork's own tests do.
-func VMMemory(vm *slowjs.VM, collect bool) lib.TJSMemoryUsage {
-	rt := (*struct {
-		c   uintptr
-		tls *libc.TLS
-	})(reflect.ValueOf(vm).Elem().FieldByName("runtime").UnsafePointer())
+// VMMemory returns what the engine counts in vm, after a full GC when collect is set. Like Compile,
+// Load and RenderVM it is for measurements: it walks every object of the VM.
+func VMMemory(vm *slowjs.VM, collect bool) slowjs.MemoryUsage {
 	if collect {
-		lib.XJS_RunGC(rt.tls, rt.c)
+		vm.RunGC()
 	}
-	n := int(unsafe.Sizeof(lib.TJSMemoryUsage{}))
-	p := rt.tls.Alloc(n)
-	defer rt.tls.Free(n)
-	lib.XJS_ComputeMemoryUsage(rt.tls, rt.c, p)
-	// p is C memory of the VM's allocator, which the Go GC neither moves nor frees.
-	return *(*lib.TJSMemoryUsage)(unsafe.Add(nil, p))
+	return vm.MemoryUsage()
 }

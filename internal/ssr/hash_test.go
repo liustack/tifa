@@ -1,6 +1,7 @@
 package ssr
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/liustack/slowjs"
@@ -111,5 +112,13 @@ func TestMurmur2LeavesTheRestToJavaScript(t *testing.T) {
 	const want = `[null,null,null,null,null,null,null,null,true,null,null,true,false]`
 	if got != want {
 		t.Errorf("got %s, want %s", got, want)
+	}
+}
+
+// BenchmarkMurmur2 hashes a style of the length MUI serializes, in Go.
+func BenchmarkMurmur2(b *testing.B) {
+	style := strings.Repeat("display:flex;align-items:center;padding:8px 16px;", 6)
+	for b.Loop() {
+		murmur2(style)
 	}
 }

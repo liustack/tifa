@@ -17,7 +17,6 @@ import (
 	"testing"
 
 	"github.com/liustack/slowjs"
-	lib "github.com/liustack/slowjs/lib"
 	"github.com/liustack/tifa/internal/ssr"
 	"modernc.org/libc"
 )
@@ -165,7 +164,7 @@ func TestSoakVMMemory(t *testing.T) {
 	cfg := shopConfig(1)
 	memory, stack := uintptr(cfg.VMMemory), uintptr(cfg.VMStackDepth)
 	// measure returns what a VM from open holds, after use when it is set.
-	measure := func(open func() (*slowjs.VM, error), use func(*slowjs.VM)) lib.TJSMemoryUsage {
+	measure := func(open func() (*ssr.VM, error), use func(*ssr.VM)) slowjs.MemoryUsage {
 		vm, err := open()
 		if err != nil {
 			t.Fatal(err)
@@ -174,22 +173,22 @@ func TestSoakVMMemory(t *testing.T) {
 		if use != nil {
 			use(vm)
 		}
-		return ssr.VMMemory(vm, true)
+		return ssr.VMMemory(vm.VM, true)
 	}
-	loaded := func(source string) func() (*slowjs.VM, error) {
+	loaded := func(source string) func() (*ssr.VM, error) {
 		bytecode, err := ssr.Compile(source, memory, cfg.Timeout)
 		if err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { bytecode.Close() })
-		return func() (*slowjs.VM, error) { return ssr.Load(bytecode, memory, stack, cfg.Timeout, false) }
+		return func() (*ssr.VM, error) { return ssr.Load(bytecode, memory, stack, cfg.Timeout, false) }
 	}
-	format := func(vm *slowjs.VM) {
+	format := func(vm *ssr.VM) {
 		if _, err := vm.Eval(formats, slowjs.EvalGlobal); err != nil {
 			t.Fatal(err)
 		}
 	}
-	render := func(vm *slowjs.VM) {
+	render := func(vm *ssr.VM) {
 		in, err := json.Marshal(pages[0].input)
 		if err != nil {
 			t.Fatal(err)
@@ -199,10 +198,10 @@ func TestSoakVMMemory(t *testing.T) {
 		}
 	}
 	kb := func(n int64) float64 { return float64(n) / 1024 }
-	show := func(name string, u, base lib.TJSMemoryUsage) {
+	show := func(name string, u, base slowjs.MemoryUsage) {
 		t.Logf("%-24s malloc %8.1f KB (%+8.1f), used %8.1f KB (%+8.1f)", name,
-			kb(u.Fmalloc_size), kb(u.Fmalloc_size-base.Fmalloc_size),
-			kb(u.Fmemory_used_size), kb(u.Fmemory_used_size-base.Fmemory_used_size))
+			kb(u.MallocSize), kb(u.MallocSize-base.MallocSize),
+			kb(u.MemoryUsedSize), kb(u.MemoryUsedSize-base.MemoryUsedSize))
 	}
 	empty := measure(loaded(""), nil)
 	open := loaded(source)

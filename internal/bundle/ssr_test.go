@@ -281,7 +281,7 @@ func TestSSRCachesShortEscapesInLittleMemory(t *testing.T) {
 		if err := evalModule(vm, code); err != nil {
 			t.Fatalf("evaluate bundle: %v", err)
 		}
-		return ssr.VMMemory(vm, true).Fmalloc_size
+		return ssr.VMMemory(vm, true).MallocSize
 	}
 	if grown := memory(cached) - memory(uncached); grown > 1<<20 {
 		t.Errorf("the cache of escapes takes %d KiB, want at most 1 MiB", grown>>10)

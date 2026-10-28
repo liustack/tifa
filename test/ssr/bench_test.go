@@ -32,7 +32,6 @@ import (
 
 	"github.com/liustack/slowjs"
 	"github.com/liustack/slowjs/intl"
-	lib "github.com/liustack/slowjs/lib"
 	"github.com/liustack/tifa/internal/ssr"
 )
 
@@ -63,7 +62,7 @@ func BenchmarkShop(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			size = ssr.VMMemory(vm, false).Fmalloc_size
+			size = ssr.VMMemory(vm.VM, false).MallocSize
 			if err := vm.Close(); err != nil {
 				b.Fatal(err)
 			}
@@ -263,7 +262,7 @@ func TestShopVMMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer vm.Close()
-	loaded := ssr.VMMemory(vm, true)
+	loaded := ssr.VMMemory(vm.VM, true)
 	for i := range 64 {
 		page := pages[i%len(pages)]
 		html, err := ssr.RenderVM(vm, renderInput(t, page.input), page.input.Texts, cfg.Timeout)
@@ -272,13 +271,13 @@ func TestShopVMMemory(t *testing.T) {
 		}
 		page.check(t, html)
 	}
-	used := ssr.VMMemory(vm, false)
-	collected := ssr.VMMemory(vm, true)
+	used := ssr.VMMemory(vm.VM, false)
+	collected := ssr.VMMemory(vm.VM, true)
 
 	t.Logf("bytecode of the bundle: %d bytes (source %d bytes)", bytecode.Len(), len(source))
 	columns := []struct {
 		name string
-		m    lib.TJSMemoryUsage
+		m    slowjs.MemoryUsage
 	}{{"bare VM", builtins}, {"+ Intl", intlAdded}, {"+ host.js", hosted}, {"loaded bundle", loaded}, {"64 renders", used}, {"after GC", collected}}
 	var out strings.Builder
 	fmt.Fprintf(&out, "%-22s", "")
@@ -298,27 +297,27 @@ func TestShopVMMemory(t *testing.T) {
 
 var memoryRows = []struct {
 	name  string
-	value func(*lib.TJSMemoryUsage) int64
+	value func(*slowjs.MemoryUsage) int64
 }{
-	{"malloc size", func(m *lib.TJSMemoryUsage) int64 { return m.Fmalloc_size }},
-	{"malloc count", func(m *lib.TJSMemoryUsage) int64 { return m.Fmalloc_count }},
-	{"memory used size", func(m *lib.TJSMemoryUsage) int64 { return m.Fmemory_used_size }},
-	{"atoms", func(m *lib.TJSMemoryUsage) int64 { return m.Fatom_count }},
-	{"atom size", func(m *lib.TJSMemoryUsage) int64 { return m.Fatom_size }},
-	{"strings", func(m *lib.TJSMemoryUsage) int64 { return m.Fstr_count }},
-	{"string size", func(m *lib.TJSMemoryUsage) int64 { return m.Fstr_size }},
-	{"objects", func(m *lib.TJSMemoryUsage) int64 { return m.Fobj_count }},
-	{"object size", func(m *lib.TJSMemoryUsage) int64 { return m.Fobj_size }},
-	{"properties", func(m *lib.TJSMemoryUsage) int64 { return m.Fprop_count }},
-	{"property size", func(m *lib.TJSMemoryUsage) int64 { return m.Fprop_size }},
-	{"shapes", func(m *lib.TJSMemoryUsage) int64 { return m.Fshape_count }},
-	{"shape size", func(m *lib.TJSMemoryUsage) int64 { return m.Fshape_size }},
-	{"JS functions", func(m *lib.TJSMemoryUsage) int64 { return m.Fjs_func_count }},
-	{"JS function size", func(m *lib.TJSMemoryUsage) int64 { return m.Fjs_func_size }},
-	{"bytecode size", func(m *lib.TJSMemoryUsage) int64 { return m.Fjs_func_code_size }},
-	{"pc2line size", func(m *lib.TJSMemoryUsage) int64 { return m.Fjs_func_pc2line_size }},
-	{"C functions", func(m *lib.TJSMemoryUsage) int64 { return m.Fc_func_count }},
-	{"arrays", func(m *lib.TJSMemoryUsage) int64 { return m.Farray_count }},
-	{"fast array elements", func(m *lib.TJSMemoryUsage) int64 { return m.Ffast_array_elements }},
-	{"binary object size", func(m *lib.TJSMemoryUsage) int64 { return m.Fbinary_object_size }},
+	{"malloc size", func(m *slowjs.MemoryUsage) int64 { return m.MallocSize }},
+	{"malloc count", func(m *slowjs.MemoryUsage) int64 { return m.MallocCount }},
+	{"memory used size", func(m *slowjs.MemoryUsage) int64 { return m.MemoryUsedSize }},
+	{"atoms", func(m *slowjs.MemoryUsage) int64 { return m.AtomCount }},
+	{"atom size", func(m *slowjs.MemoryUsage) int64 { return m.AtomSize }},
+	{"strings", func(m *slowjs.MemoryUsage) int64 { return m.StrCount }},
+	{"string size", func(m *slowjs.MemoryUsage) int64 { return m.StrSize }},
+	{"objects", func(m *slowjs.MemoryUsage) int64 { return m.ObjCount }},
+	{"object size", func(m *slowjs.MemoryUsage) int64 { return m.ObjSize }},
+	{"properties", func(m *slowjs.MemoryUsage) int64 { return m.PropCount }},
+	{"property size", func(m *slowjs.MemoryUsage) int64 { return m.PropSize }},
+	{"shapes", func(m *slowjs.MemoryUsage) int64 { return m.ShapeCount }},
+	{"shape size", func(m *slowjs.MemoryUsage) int64 { return m.ShapeSize }},
+	{"JS functions", func(m *slowjs.MemoryUsage) int64 { return m.JSFuncCount }},
+	{"JS function size", func(m *slowjs.MemoryUsage) int64 { return m.JSFuncSize }},
+	{"bytecode size", func(m *slowjs.MemoryUsage) int64 { return m.JSFuncCodeSize }},
+	{"pc2line size", func(m *slowjs.MemoryUsage) int64 { return m.JSFuncPC2LineSize }},
+	{"C functions", func(m *slowjs.MemoryUsage) int64 { return m.CFuncCount }},
+	{"arrays", func(m *slowjs.MemoryUsage) int64 { return m.ArrayCount }},
+	{"fast array elements", func(m *slowjs.MemoryUsage) int64 { return m.FastArrayElements }},
+	{"binary object size", func(m *slowjs.MemoryUsage) int64 { return m.BinaryObjectSize }},
 }

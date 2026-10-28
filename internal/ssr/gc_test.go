@@ -401,3 +401,56 @@ func TestNoGCBetweenRendersOnceClosing(t *testing.T) {
 		t.Fatalf("want the VM closed without a GC, got %+v", s)
 	}
 }
+
+// Load gives the memory that loading left free back to the system, so that a VM the pool keeps
+// for later holds what its bundle keeps. The engine of lib takes its memory from libc and gives
+// none back.
+func TestLoadGivesBackFreeMemory(t *testing.T) {
+	cfg := testConfig(1)
+	bytecode, err := Compile(testSource(t), uintptr(cfg.VMMemory), cfg.Timeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bytecode.Close()
+	vm, err := Load(bytecode, uintptr(cfg.VMMemory), uintptr(cfg.VMStackDepth), cfg.Timeout, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer vm.Close()
+	u := vm.MemoryUsage()
+	if u.Footprint == 0 {
+		t.Skip("the engine takes its memory from libc")
+	}
+	if u.ReleaseCandidate == 0 {
+		t.Fatalf("Load gave nothing back: footprint %d, %d bytes in use", u.Footprint, u.MallocSize)
+	}
+}
+
+// After a render that holds far more than the live size, the threshold keeps room for it and the
+// VM keeps the memory. Once the threshold has come back down, a full GC gives back what it no
+// longer leaves room for.
+func TestFullGCGivesBackWhatTheThresholdNoLongerNeeds(t *testing.T) {
+	p := newTestPool(t, testSource(t), testConfig(1))
+	var live uintptr
+	idleVM(p, func(vm *pooledVM) { live = vm.live })
+	if _, err := p.Render(context.Background(), input("hold", fmt.Sprint(3*live/objectSize(t, holdJS)))); err != nil {
+		t.Fatal(err)
+	}
+	var before slowjs.MemoryUsage
+	idleVM(p, func(vm *pooledVM) { before = vm.MemoryUsage() })
+	if before.Footprint == 0 {
+		t.Skip("the engine takes its memory from libc")
+	}
+	for i := range 1000 {
+		if _, err := p.Render(context.Background(), input("ok", "")); err != nil {
+			t.Fatalf("render %d: %v", i, err)
+		}
+	}
+	idleVM(p, func(vm *pooledVM) {
+		u := vm.MemoryUsage()
+		if given := u.ReleaseCandidate - before.ReleaseCandidate; given < int64(vm.live/2) {
+			t.Fatalf("full GCs gave back %d bytes after the threshold came back to %d, live size %d, footprint %d after the big render, %d now",
+				given, vm.GCThreshold(), vm.live, before.Footprint, u.Footprint)
+		}
+	})
+}
