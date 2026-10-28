@@ -80,13 +80,12 @@ GitHub Actions (`.github/workflows/ci.yml`) checks every push, and every pull re
 
 | Job | Where | What it runs |
 | --- | --- | --- |
-| test | linux/amd64 (`ubuntu-24.04`) and darwin/arm64 (`macos-15`) | `go vet ./...`, `CGO_ENABLED=0 go build ./...`, `go test -count=1 ./...`, `scripts/docs-list.sh --check`. About 1 minute with a warm Go cache |
+| test | linux/amd64 (`ubuntu-24.04`) and darwin/arm64 (`macos-15`) | Node 24 and pnpm 10.33.0, `pnpm install --frozen-lockfile` in `internal/bundle/testdata`, `test/apps/pages` and `js/host` (about 7 seconds), then `go vet ./...`, `CGO_ENABLED=0 go build ./...`, `go test -count=1 ./...`, `scripts/docs-list.sh --check`. About 2 minutes with a warm Go cache: with the packages installed the bundle, router and dev tests run for real, which doubles the time of `go test` |
 | e2e | linux/amd64 | Node 24 and pnpm 10.33.0, `pnpm install --frozen-lockfile` in `test/apps/pages`, `tailwind`, `mui`, `bench` and `examples/shop`, then `TIFA_E2E=1 go test -count=1 ./test/e2e/`. About 3.5 minutes |
 
 Left out on purpose:
 
 - **Tests that need `TIFA_SSR_SHOP`, `TIFA_SSR_SOAK`, `TIFA_SSR_EXTREME` or `TIFA_EXTREME`**: the shop SSR tests, the soak tests and the extreme pages. They take long, and the benchmarks among them need a quiet machine.
-- **The bundle tests of `internal/bundle` and the router test of `internal/codegen`**: they need `pnpm install` in `internal/bundle/testdata` and `test/apps/pages`, which the test job does not run, so they show skip there. The e2e job installs `test/apps/pages` but runs only `test/e2e`. To turn them on, run the installs in the linux test job.
 - **The `-race` runs**: they are run on chosen packages by hand (see [Before committing](#before-committing)).
 - **darwin/arm64 for e2e**: it has the same Node and the same tests, so it adds time and no new facts. Add it by putting the job in a matrix.
 - **The C engine of slowjs** (`-tags slowjs_cengine`): slowjs checks that itself. Add a `GOFLAGS=-tags=slowjs_cengine` run of `go test ./...` when tifa starts to use it.
