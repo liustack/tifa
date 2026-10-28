@@ -62,7 +62,7 @@ func payment(o orderRecord) Payment {
 	sum := total(o)
 	return Payment{
 		Method:        payMethods[h%uint32(len(payMethods))],
-		TransactionNo: fmt.Sprintf("4200%020d", uint64(h)*7919%100000000000000000),
+		TransactionNo: fmt.Sprintf("4200%010d%010d", h, hashOf(o.ID+"/pay")),
 		PaidAt:        o.PlacedAt.Add(2 * time.Minute),
 		SubtotalCents: sum, PaidCents: sum,
 	}
