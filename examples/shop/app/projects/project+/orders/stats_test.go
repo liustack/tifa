@@ -134,3 +134,107 @@ func TestSalesStatsOfAnUnknownShopHaveNoDays(t *testing.T) {
 		t.Fatalf("unknown shop: %+v", s)
 	}
 }
+
+func TestSalesStatsRankEveryProductWithItsDays(t *testing.T) {
+	s := SalesStats("studio", shanghai)
+	if len(s.Products) < 8 {
+		t.Fatalf("%d products", len(s.Products))
+	}
+	var pieces, orders int
+	byName := map[string]ProductRow{}
+	for i, p := range s.Products {
+		byName[p.Name] = p
+		pieces += p.Quantity
+		orders += p.Orders
+		if len(p.Daily) != 30 {
+			t.Errorf("%s has %d days", p.Name, len(p.Daily))
+		}
+		sum := 0
+		for _, n := range p.Daily {
+			sum += n
+		}
+		if sum != p.Quantity {
+			t.Errorf("%s: days add up to %d, sold %d", p.Name, sum, p.Quantity)
+		}
+		if i > 0 && p.Quantity > s.Products[i-1].Quantity {
+			t.Errorf("%s sold more than %s above it", p.Name, s.Products[i-1].Name)
+		}
+	}
+	var dayPieces int
+	for _, d := range s.Days {
+		dayPieces += d.Pieces
+	}
+	if pieces != dayPieces || pieces != s.Totals.Pieces {
+		t.Errorf("products %d, days %d, totals %d pieces", pieces, dayPieces, s.Totals.Pieces)
+	}
+	// The best sellers of the chart are the first of the ranking.
+	for i, p := range s.TopProducts {
+		if s.Products[i].Name != p.Name || s.Products[i].Quantity != p.Quantity {
+			t.Errorf("rank %d is %s, the chart has %s", i, s.Products[i].Name, p.Name)
+		}
+	}
+	if k := byName["晨间手冲壶"]; k.Orders < 3 || k.Orders > k.Quantity {
+		t.Errorf("kettle %+v", k)
+	}
+}
+
+func TestSalesStatsCountWhenOrdersCome(t *testing.T) {
+	s := SalesStats("studio", shanghai)
+	if len(s.Heat) != 7 {
+		t.Fatalf("%d weekdays", len(s.Heat))
+	}
+	total := 0
+	for _, row := range s.Heat {
+		if len(row) != 12 {
+			t.Fatalf("%d blocks", len(row))
+		}
+		for _, n := range row {
+			total += n
+		}
+	}
+	if total != 42 {
+		t.Errorf("heat counts %d orders, want 42", total)
+	}
+	// SH-1042 was placed at 14:32 on a Tuesday: Monday is the first row, 14:00 to 16:00 the eighth block.
+	if s.Heat[1][7] < 1 {
+		t.Errorf("Tuesday 14:00 to 16:00: %d", s.Heat[1][7])
+	}
+	shipped := 0
+	for _, b := range s.Dispatch {
+		shipped += b.Orders
+	}
+	if len(s.Dispatch) != 4 || shipped != 40 {
+		t.Errorf("dispatch %+v adds up to %d shipped orders", s.Dispatch, shipped)
+	}
+}
+
+func TestSalesStatsListCustomersRecentOrdersAndTotals(t *testing.T) {
+	s := SalesStats("studio", shanghai)
+	if len(s.Customers) != 8 || len(s.Recent) != 8 || s.Recent[0].ID != "SH-1042" {
+		t.Fatalf("%d customers, %d recent, first %v", len(s.Customers), len(s.Recent), s.Recent)
+	}
+	for i, c := range s.Customers {
+		if i > 0 && c.SpentCents > s.Customers[i-1].SpentCents {
+			t.Errorf("%s spent more than %s above", c.Name, s.Customers[i-1].Name)
+		}
+		_, count, spent := CustomerOrders("studio", firstOrderOf("studio", c.Name))
+		if c.Orders != count || c.SpentCents != spent {
+			t.Errorf("%s: %d orders, %d cents, want %d, %d", c.Name, c.Orders, c.SpentCents, count, spent)
+		}
+	}
+	if s.Totals.PendingOrders != 2 || s.Totals.PendingCents != 42800+26800 || s.Totals.Customers < 10 || s.Totals.Repeat < 1 || s.Totals.Repeat > s.Totals.Customers {
+		t.Errorf("totals %+v", s.Totals)
+	}
+	if h := s.Totals.AvgDispatchHours; h < 3 || h > 22 {
+		t.Errorf("average dispatch %.1f hours", h)
+	}
+}
+
+func firstOrderOf(projectID, customer string) string {
+	for _, r := range ListOrders(projectID).Orders {
+		if r.Customer == customer {
+			return r.ID
+		}
+	}
+	return ""
+}

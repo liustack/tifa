@@ -18,7 +18,7 @@ export function SummaryRow({ children }: { children: ReactNode }) {
   return <div className="grid gap-px border bg-border sm:grid-cols-2 xl:grid-cols-4">{children}</div>
 }
 
-function Spark({ points }: { points: number[] }) {
+export function Spark({ points, className }: { points: number[]; className?: string }) {
   const max = Math.max(...points)
   const min = Math.min(...points)
   const span = max - min || 1
@@ -26,7 +26,7 @@ function Spark({ points }: { points: number[] }) {
     .map((p, i) => `${((i / (points.length - 1)) * 120).toFixed(1)},${(28 - ((p - min) / span) * 24).toFixed(1)}`)
     .join(' ')
   return (
-    <svg viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true" className="absolute top-5 right-5 h-6 w-24 text-primary">
+    <svg viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true" className={className ?? "absolute top-5 right-5 h-6 w-24 text-primary"}>
       <polyline points={line} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
     </svg>
   )

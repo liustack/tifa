@@ -2,7 +2,6 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/newsreader";
-@import "@fontsource-variable/noto-serif-sc";
 @import "@fontsource/ibm-plex-mono/latin-400.css";
 @import "@fontsource/ibm-plex-mono/latin-500.css";
 
@@ -123,9 +122,9 @@
 }
 
 @theme inline {
-  /* Headings are bundled, body text uses the system fonts every Chinese and Latin reader already has. */
-  --font-heading: 'Newsreader Variable', 'Noto Serif SC Variable', 'Songti SC', serif;
-  --font-serif: 'Newsreader Variable', 'Noto Serif SC Variable', 'Songti SC', serif;
+  /* Newsreader is bundled for Latin headings. Chinese headings and all body text use the fonts every reader already has. */
+  --font-heading: 'Newsreader Variable', 'Songti SC', 'Noto Serif CJK SC', 'Source Han Serif SC', 'STSong', 'SimSun', serif;
+  --font-serif: 'Newsreader Variable', 'Songti SC', 'Noto Serif CJK SC', 'Source Han Serif SC', 'STSong', 'SimSun', serif;
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
   --color-sidebar-ring: var(--sidebar-ring);

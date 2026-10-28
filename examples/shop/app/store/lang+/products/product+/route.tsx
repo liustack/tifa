@@ -1,14 +1,17 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Link } from '@tanstack/react-router'
-import { BadgeCheck, ChevronRight, Gift, Heart, MessageCircleQuestion, Minus, Plus, RotateCcw, Share2, ShieldCheck, ThumbsUp, Truck } from 'lucide-react'
+import { BadgeCheck, ChevronRight, CircleCheck, CreditCard, Gift, Heart, MessageCircleQuestion, Minus, Plus, RotateCcw, Share2, ShieldCheck, Store, ThumbsUp, Truck } from 'lucide-react'
 import { useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { TifaError } from 'tifa/client'
 import { z } from 'zod'
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel, FieldLegend, FieldSet } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from 'cn'
 import { useHydrated } from '../../../../use-hydrated'
@@ -37,7 +40,8 @@ const addSchema = z.object({
 const views: View[] = ['main', 'detail', 'scene']
 
 export default function ProductPage() {
-  const { product, related } = route.useLoaderData()
+  const data = route.useLoaderData()
+  const { product, related } = data
   const { t, locale } = useStore()
   const lang = locale.code
   const origin = (product.specs ?? []).find((s) => s.label === t('product.originLabel'))?.value
@@ -75,7 +79,7 @@ export default function ProductPage() {
             </a>
             <span aria-hidden>·</span>
             <a href="#questions" className="underline underline-offset-3">
-              {t('product.questionsCount', { count: route.useLoaderData().questions?.length ?? 0 })}
+              {t('product.questionsCount', { count: data.questions?.length ?? 0 })}
             </a>
           </div>
           <Price priceCents={product.priceCents} compareAtCents={product.compareAtCents} className="text-2xl" />
@@ -97,25 +101,8 @@ export default function ProductPage() {
               )
             })}
           </ul>
-          <table className="w-full text-sm">
-            <caption className="mb-2 text-left font-mono text-[11px] tracking-[0.1em] text-muted-foreground">{t('product.specs')}</caption>
-            <tbody>
-              {(product.specs ?? []).map((s) => (
-                <tr key={s.label} className="border-t">
-                  <th scope="row" className="w-1/3 py-2 text-left font-heading font-normal text-muted-foreground">
-                    {s.label}
-                  </th>
-                  <td className="py-2">{s.value}</td>
-                </tr>
-              ))}
-              <tr className="border-y">
-                <th scope="row" className="py-2 text-left font-heading font-normal text-muted-foreground">
-                  {t('product.materials')}
-                </th>
-                <td className="py-2">{(product.materials ?? []).join(locale.code === 'zh-CN' ? '、' : ', ')}</td>
-              </tr>
-            </tbody>
-          </table>
+          <Services />
+          <Seller />
           <div className="flex gap-2">
             <Button variant="ghost" size="sm">
               <Heart />
@@ -131,19 +118,104 @@ export default function ProductPage() {
 
       <Bundle />
       <Details />
+      <Compare />
+      <PriceAndArrival />
       <Reviews />
       <Questions />
 
-      <section aria-labelledby="related-title" className="flex flex-col gap-5">
-        <h2 id="related-title" className="border-b border-foreground pb-2.5 font-heading text-[22px] font-medium tracking-[0.04em]">
-          {t('product.related')}
-        </h2>
+      {(data.seen ?? []).length > 0 && (
+        <Row id="seen-title" title={t('list.seen')}>
+          <ProductGrid>
+            {(data.seen ?? []).slice(0, 4).map((p) => (
+              <ProductCard key={p.slug} product={p} lang={lang} />
+            ))}
+          </ProductGrid>
+        </Row>
+      )}
+
+      <Row id="related-title" title={t('product.related')}>
         <ProductGrid>
           {(related ?? []).map((p) => (
             <ProductCard key={p.slug} product={p} lang={lang} />
           ))}
         </ProductGrid>
-      </section>
+      </Row>
+
+      <Ranking />
+    </div>
+  )
+}
+
+function Row({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
+  return (
+    <section aria-labelledby={id} className="flex flex-col gap-5">
+      <h2 id={id} className="border-b border-foreground pb-2.5 font-heading text-[22px] font-medium tracking-[0.04em]">
+        {title}
+      </h2>
+      {children}
+    </section>
+  )
+}
+
+// Services answers what a buyer asks beside the buy button: delivery, returns, warranty and how to pay.
+function Services() {
+  const { t } = useStore()
+  const shell = layout.useLoaderData()
+  const items = [
+    { id: 'delivery', icon: Truck, title: t('product.svcDelivery'), body: t('product.svcDeliveryBody', { amount: shell.cart.freeShippingCents / 100 }) },
+    { id: 'returns', icon: RotateCcw, title: t('product.svcReturns'), body: t('product.svcReturnsBody') },
+    { id: 'warranty', icon: ShieldCheck, title: t('product.svcWarranty'), body: t('product.svcWarrantyBody') },
+    { id: 'pay', icon: CreditCard, title: t('product.svcPay'), body: t('product.svcPayBody') },
+  ]
+  return (
+    <Accordion type="single" collapsible className="border-y">
+      {items.map(({ id, icon: Icon, title, body }) => (
+        <AccordionItem key={id} value={id}>
+          <AccordionTrigger className="items-center py-3 text-[13px]">
+            <span className="flex items-center gap-2.5">
+              <Icon className="size-4 text-primary" aria-hidden />
+              {title}
+            </span>
+          </AccordionTrigger>
+          <AccordionContent forceMount className="text-[13px] text-muted-foreground data-[state=closed]:hidden">
+            {body}
+          </AccordionContent>
+        </AccordionItem>
+      ))}
+    </Accordion>
+  )
+}
+
+// Seller is who sells the product and how they do by their customers.
+function Seller() {
+  const { t } = useStore()
+  const facts = [
+    [t('product.sellerRating'), '98.6%'],
+    [t('product.sellerReply'), t('product.sellerReplyValue')],
+    [t('product.sellerShip'), t('product.sellerShipValue')],
+  ]
+  return (
+    <div className="flex flex-col gap-3 border bg-card p-4">
+      <div className="flex items-center gap-3">
+        <Avatar className="size-10 rounded-none">
+          <AvatarFallback className="rounded-none bg-secondary font-heading text-primary">{t('store.initial')}</AvatarFallback>
+        </Avatar>
+        <div className="flex flex-col">
+          <span className="flex items-center gap-1.5 text-sm font-medium">
+            {t('store.name')}
+            <BadgeCheck className="size-3.5 text-primary" aria-label={t('product.official')} />
+          </span>
+          <span className="text-xs text-muted-foreground">{t('product.sellerAbout')}</span>
+        </div>
+      </div>
+      <dl className="grid grid-cols-3 gap-3 border-t pt-3 text-xs">
+        {facts.map(([k, v]) => (
+          <div key={k} className="flex flex-col gap-0.5">
+            <dt className="text-muted-foreground">{k}</dt>
+            <dd className="font-mono">{v}</dd>
+          </div>
+        ))}
+      </dl>
     </div>
   )
 }
@@ -407,17 +479,18 @@ function Bundle() {
   )
 }
 
-// Details are the long description of the product with its close-up and in-use photos, the
-// care notes and the delivery terms, in tabs.
+// Details are the description of the product with its close-up and in-use photos, the whole
+// specification, the care notes and the delivery terms, in tabs. Every tab is in the HTML.
 function Details() {
   const { product, delivery } = route.useLoaderData()
   const shell = layout.useLoaderData()
   const { t } = useStore()
+  const tabs = ['description', 'specs', 'care', 'shipping']
   return (
     <section aria-label={t('product.description')}>
       <Tabs defaultValue="description" className="gap-6">
         <TabsList variant="line" className="h-auto w-full justify-start gap-2 rounded-none border-b bg-transparent p-0">
-          {['description', 'care', 'shipping'].map((k) => (
+          {tabs.map((k) => (
             <TabsTrigger key={k} value={k} className="flex-none rounded-none px-3 pb-2.5 text-sm">
               {t(`product.${k}`)}
             </TabsTrigger>
@@ -459,8 +532,25 @@ function Details() {
             })}
           </div>
         </TabsContent>
-        <TabsContent value="care" forceMount className="data-[state=inactive]:hidden">
-          <ol className="flex max-w-2xl flex-col">
+        <TabsContent value="specs" forceMount className="grid gap-x-10 gap-y-6 data-[state=inactive]:hidden lg:grid-cols-3">
+          {(product.specGroups ?? []).map((g) => (
+            <table key={g.title} className="h-fit w-full text-sm">
+              <caption className="mb-2 border-b border-foreground pb-2 text-left font-heading text-base">{g.title}</caption>
+              <tbody>
+                {(g.rows ?? []).map((r) => (
+                  <tr key={r.label} className="border-b align-top">
+                    <th scope="row" className="w-2/5 py-2 pr-3 text-left font-normal text-muted-foreground">
+                      {r.label}
+                    </th>
+                    <td className="py-2">{r.value}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ))}
+        </TabsContent>
+        <TabsContent value="care" forceMount className="grid gap-10 data-[state=inactive]:hidden lg:grid-cols-2">
+          <ol className="flex flex-col">
             {(product.care ?? []).map((c, i) => (
               <li key={c} className="flex gap-4 border-b py-3 text-sm">
                 <span className="font-mono text-xs text-muted-foreground">0{i + 1}</span>
@@ -468,6 +558,17 @@ function Details() {
               </li>
             ))}
           </ol>
+          <div className="flex flex-col gap-3 border bg-card p-5">
+            <h3 className="font-heading text-base">{t('product.unboxTitle')}</h3>
+            <ul className="flex flex-col gap-2.5 text-sm text-muted-foreground">
+              {(t('product.unboxItems', { returnObjects: true }) as string[]).map((s) => (
+                <li key={s} className="flex gap-2.5">
+                  <CircleCheck className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+                  {s}
+                </li>
+              ))}
+            </ul>
+          </div>
         </TabsContent>
         <TabsContent value="shipping" forceMount className="max-w-2xl text-sm text-muted-foreground data-[state=inactive]:hidden">
           {t('product.shippingBody', { amount: shell.cart.freeShippingCents / 100, express: delivery.priceCents / 100 })}
@@ -477,20 +578,108 @@ function Details() {
   )
 }
 
+// Compare sets this product beside three like it, row by row.
+function Compare() {
+  const { product, related } = route.useLoaderData()
+  const { t, locale, money } = useStore()
+  const lang = locale.code
+  const others = (related ?? []).slice(0, 3)
+  const cols = [product, ...others]
+  const sep = lang === 'zh-CN' ? '、' : ', '
+  const rows: [string, (p: (typeof cols)[number]) => React.ReactNode][] = [
+    [t('product.cmpPrice'), (p) => <span className="font-mono">{money(p.priceCents)}</span>],
+    [t('product.cmpRating'), (p) => <Stars rating={p.rating} />],
+    [t('product.cmpReviews'), (p) => t('rating.reviews', { count: p.reviews })],
+    [t('product.cmpMaterials'), (p) => (p.materials ?? []).join(sep)],
+    [t('product.cmpColors'), (p) => (p.colors ?? []).map((c) => c.name).join(sep)],
+    [t('product.cmpStock'), (p) => (p.inStock ? (p.stock <= 10 ? t('card.stockLeft', { count: p.stock }) : t('product.inStock')) : t('product.soldOut'))],
+  ]
+  return (
+    <Row id="compare-title" title={t('product.compare')}>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[640px] border-collapse text-sm">
+          <thead>
+            <tr className="align-bottom">
+              <td className="w-32" />
+              {cols.map((p, i) => (
+                <th key={p.slug} scope="col" className={cn('border-x border-t bg-card p-3 text-left font-normal', i === 0 && 'border-primary')}>
+                  <Link to="/store/$lang/products/$product" params={{ lang, product: p.slug }} className="flex flex-col gap-2">
+                    <ProductImage slug={p.slug} alt="" width={160} className="w-24" />
+                    <span className="font-heading text-[15px] leading-snug">{p.name}</span>
+                    {i === 0 && <span className="font-mono text-[11px] text-primary">{t('product.bundleThis')}</span>}
+                  </Link>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(([label, cell]) => (
+              <tr key={label} className="border-t">
+                <th scope="row" className="py-2.5 pr-3 text-left font-normal text-muted-foreground">
+                  {label}
+                </th>
+                {cols.map((p) => (
+                  <td key={p.slug} className="px-3 py-2.5">
+                    {cell(p)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Row>
+  )
+}
+
+// Ranking lists the best rated products of the category, best first.
+function Ranking() {
+  const { best, product } = route.useLoaderData()
+  const { t, locale } = useStore()
+  const lang = locale.code
+  return (
+    <Row id="ranking-title" title={t('product.ranking', { category: product.category })}>
+      <ol className="grid gap-x-10 md:grid-cols-2">
+        {(best ?? []).map((p, i) => (
+          <li key={p.slug} className="border-b">
+            <Link to="/store/$lang/products/$product" params={{ lang, product: p.slug }} className="flex items-center gap-4 py-3 hover:bg-card">
+              <span className="w-6 font-mono text-sm text-muted-foreground">{String(i + 1).padStart(2, '0')}</span>
+              <ProductImage slug={p.slug} alt="" width={160} className="size-14 shrink-0" />
+              <span className="flex min-w-0 flex-1 flex-col gap-1">
+                <span className="truncate font-heading text-base">{p.name}</span>
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Stars rating={p.rating} />
+                  {t('rating.reviews', { count: p.reviews })}
+                </span>
+              </span>
+              <Price priceCents={p.priceCents} compareAtCents={p.compareAtCents} className="text-sm" />
+            </Link>
+          </li>
+        ))}
+      </ol>
+    </Row>
+  )
+}
+
+type Sort = 'newest' | 'helpful' | 'highest'
+
 function Reviews() {
-  const { product, reviews, ratings } = route.useLoaderData()
-  const { t } = useStore()
+  const { product, reviews } = route.useLoaderData()
+  const { t, locale } = useStore()
   const [filter, setFilter] = useState<'all' | 'photos' | 'five'>('all')
-  const list = reviews ?? []
-  const total = (ratings ?? []).reduce((n, r) => n + r.count, 0)
+  const [sort, setSort] = useState<Sort>('newest')
+  const list = reviews.reviews ?? []
+  const total = reviews.total
   const withPhotos = list.filter((r) => (r.photos ?? []).length > 0)
   const five = list.filter((r) => r.rating === 5)
-  const shown = filter === 'photos' ? withPhotos : filter === 'five' ? five : list
+  const filtered = filter === 'photos' ? withPhotos : filter === 'five' ? five : list
+  const shown = [...filtered].sort((a, b) => (sort === 'helpful' ? b.helpful - a.helpful : sort === 'highest' ? b.rating - a.rating : 0))
   const chips = [
-    ['all', t('product.filterAll', { count: total })],
+    ['all', t('product.filterAll', { count: list.length })],
     ['photos', t('product.filterPhotos', { count: withPhotos.length })],
     ['five', t('product.filterFive', { count: five.length })],
   ] as const
+  const pageHref = (n: number) => `/store/${locale.code}/products/${product.slug}${n > 1 ? `?reviews=${n}` : ''}#reviews`
   return (
     <section id="reviews" aria-labelledby="reviews-title" className="grid gap-10 lg:grid-cols-[280px_1fr]">
       <div className="flex flex-col gap-3">
@@ -503,7 +692,7 @@ function Reviews() {
         </p>
         <Stars rating={product.rating} />
         <ul className="flex flex-col gap-1.5">
-          {(ratings ?? []).map((r) => (
+          {(reviews.ratings ?? []).map((r) => (
             <li key={r.stars} className="flex items-center gap-2 text-sm">
               <span className="w-10 shrink-0 font-mono text-xs text-muted-foreground">{t('rating.stars', { count: r.stars })}</span>
               <span className="h-1.5 flex-1 bg-muted">
@@ -513,24 +702,58 @@ function Reviews() {
             </li>
           ))}
         </ul>
+        <div className="flex flex-col gap-2 border-t pt-3">
+          <h3 className="font-mono text-[11px] tracking-[0.1em] text-muted-foreground">{t('product.mentioned')}</h3>
+          <ul className="flex flex-wrap gap-1.5">
+            {(reviews.tags ?? []).map((tag) => (
+              <li key={tag.name} className="flex items-center gap-1.5 border bg-card px-2 py-0.5 text-xs">
+                {tag.name}
+                <span className="font-mono text-[11px] text-muted-foreground">{tag.count}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
         <Button variant="outline" className="mt-2 self-start">
           {t('product.writeReview')}
         </Button>
       </div>
       <div className="flex flex-col">
-        <div role="group" aria-label={t('product.reviewFilter')} className="flex flex-wrap gap-2 border-b pb-4">
-          {chips.map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              aria-pressed={filter === id}
-              onClick={() => setFilter(id)}
-              className="border px-3 py-1 text-[13px] aria-pressed:border-primary aria-pressed:bg-primary aria-pressed:text-primary-foreground"
-            >
-              {label}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-4">
+          <div role="group" aria-label={t('product.reviewFilter')} className="flex flex-wrap gap-2">
+            {chips.map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                aria-pressed={filter === id}
+                onClick={() => setFilter(id)}
+                className="border px-3 py-1 text-[13px] aria-pressed:border-primary aria-pressed:bg-primary aria-pressed:text-primary-foreground"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <Select value={sort} onValueChange={(v) => setSort(v as Sort)}>
+            <SelectTrigger size="sm" className="w-40" aria-label={t('product.reviewSort')}>
+              <SelectValue>{t(`product.sort.${sort}`)}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {(['newest', 'helpful', 'highest'] as const).map((s) => (
+                <SelectItem key={s} value={s}>
+                  {t(`product.sort.${s}`)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
+        {withPhotos.length > 0 && (
+          <ul className="flex flex-wrap gap-2 border-b py-4" aria-label={t('product.reviewPhotos')}>
+            {withPhotos.flatMap((r, i) => (r.photos ?? []).map((v) => (
+              <li key={`${i}-${v}`}>
+                <ProductImage slug={product.slug} view={v as View} alt={t('product.reviewPhoto', { name: product.name })} width={160} className="size-16 border" />
+              </li>
+            )))}
+          </ul>
+        )}
         <ul className="flex flex-col divide-y">
           {shown.map((r, i) => (
             <li key={`${r.author}-${i}`} className="flex flex-col gap-2 py-5">
@@ -561,16 +784,56 @@ function Reviews() {
                   ))}
                 </ul>
               )}
-              <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                <ThumbsUp className="size-3" />
-                {t('product.helpful', { count: r.helpful })}
-              </span>
+              {r.reply && (
+                <p className="flex gap-2 border-l-2 border-primary bg-card px-3 py-2 text-sm">
+                  <Store className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+                  <span>
+                    <span className="font-medium">{t('product.shopReply')}</span> {r.reply}
+                  </span>
+                </p>
+              )}
+              <HelpfulButton count={r.helpful} />
             </li>
           ))}
         </ul>
-        <p className="border-t pt-4 font-mono text-xs text-muted-foreground">{t('product.reviewsShown', { shown: list.length, total })}</p>
+        <nav aria-label={t('product.reviewPages')} className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+          <p className="font-mono text-xs text-muted-foreground">
+            {t('product.reviewsShown', { shown: (reviews.page - 1) * 10 + list.length, total })}
+          </p>
+          <ul className="flex gap-1">
+            {Array.from({ length: reviews.pages }, (_, i) => i + 1).map((n) => (
+              <li key={n}>
+                <a
+                  href={pageHref(n)}
+                  aria-current={n === reviews.page ? 'page' : undefined}
+                  aria-label={t('list.page', { page: n, pages: reviews.pages })}
+                  className="flex size-8 items-center justify-center border text-[13px] hover:border-foreground aria-[current=page]:border-foreground aria-[current=page]:bg-foreground aria-[current=page]:text-background"
+                >
+                  {n}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
       </div>
     </section>
+  )
+}
+
+// HelpfulButton counts the visitor's own vote on top of the others.
+function HelpfulButton({ count }: { count: number }) {
+  const { t } = useStore()
+  const [on, setOn] = useState(false)
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      onClick={() => setOn(!on)}
+      className="flex w-fit items-center gap-1 text-xs text-muted-foreground hover:text-foreground aria-pressed:text-primary"
+    >
+      <ThumbsUp className={cn('size-3', on && 'fill-current')} />
+      {t('product.helpful', { count: count + (on ? 1 : 0) })}
+    </button>
   )
 }
 
@@ -607,6 +870,77 @@ function Questions() {
           </li>
         ))}
       </ul>
+    </section>
+  )
+}
+
+// Pricing shows where the price goes, and Arrival when the parcel gets to each part of the country.
+function PriceAndArrival() {
+  const { product, delivery } = route.useLoaderData()
+  const { t, money } = useStore()
+  const parts = [
+    ['materials', 36],
+    ['workshop', 32],
+    ['packing', 6],
+    ['shipping', 8],
+    ['shop', 18],
+  ] as const
+  const regions = [
+    ['east', 0],
+    ['north', 1],
+    ['south', 1],
+    ['west', 2],
+    ['far', 3],
+  ] as const
+  const first = new Date(delivery.earliest).getTime()
+  return (
+    <section aria-label={t('product.priceTitle')} className="grid gap-10 lg:grid-cols-2">
+      <div className="flex flex-col gap-4">
+        <h2 className="border-b border-foreground pb-2.5 font-heading text-[22px] font-medium tracking-[0.04em]">{t('product.priceTitle')}</h2>
+        <p className="text-sm text-muted-foreground">{t('product.priceBody')}</p>
+        <ul className="flex flex-col gap-2.5">
+          {parts.map(([id, pct]) => (
+            <li key={id} className="grid grid-cols-[6rem_1fr_5rem] items-center gap-3 text-sm">
+              <span>{t(`product.price.${id}`)}</span>
+              <span className="h-1.5 bg-muted">
+                <span className="block h-full bg-primary" style={{ width: `${pct * 2}%` }} />
+              </span>
+              <span className="text-right font-mono text-xs tabular-nums">{money(Math.round((product.priceCents * pct) / 100))}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="flex flex-col gap-4">
+        <h2 className="border-b border-foreground pb-2.5 font-heading text-[22px] font-medium tracking-[0.04em]">{t('product.arrivalTitle')}</h2>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs text-muted-foreground">
+              <th scope="col" className="py-1 font-normal">
+                {t('product.arrivalTo')}
+              </th>
+              <th scope="col" className="py-1 font-normal">
+                {t('product.arrivalBy')}
+              </th>
+              <th scope="col" className="py-1 text-right font-normal">
+                {t('product.arrivalFee')}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {regions.map(([id, days]) => (
+              <tr key={id} className="border-t">
+                <th scope="row" className="py-2.5 text-left font-normal">
+                  {t(`product.region.${id}`)}
+                </th>
+                <td className="py-2.5 font-mono text-xs">
+                  {t('product.arrivalDate', { date: new Date(first + days * 86400000), formatParams: { date: { month: 'long', day: 'numeric' } } })}
+                </td>
+                <td className="py-2.5 text-right font-mono text-xs">{t(days === 3 ? 'product.arrivalPaid' : 'product.arrivalFree')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </section>
   )
 }

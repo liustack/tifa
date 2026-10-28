@@ -28,22 +28,24 @@ The example shop was redesigned on 2026-10-28, and its pages got heavier. Every 
 
 ## The redesigned shop
 
-The redesign made the shop's pages as heavy as those of a real shop: product photos, a category menu and a cart drawer on every storefront page, a carousel, galleries, reviews with photos and questions, and an order list of 25 rows a page with filters, row menus and bulk actions. These numbers are for the new pages. They are not a change in tifa's speed, so they are not compared with the old ones.
+The redesign made the shop's pages as heavy as those of a real shop: product photos, a category menu and a cart drawer on every storefront page, a carousel, galleries, reviews with photos and questions, facets and a comparison on the product pages, and an order list of 25 rows a page with filters, row menus and bulk actions. An order shows its log, notes, payment, stock check and packing list, and the stats page a table of every product, a heatmap and the carriers. These numbers are for the new pages. They are not a change in tifa's speed, so they are not compared with the old ones, except that the order and stats pages are given before and after their second round of modules.
 
-Measured on 2026-10-28 on the machine below, with tifa 95c2af8, slowjs v0.28.6, PGO with the profile tifa ships: `BenchmarkShop` in `test/ssr`, one warm VM on one thread of a core whose other thread is idle, 2,000 renders, three rounds, the median of the rounds.
+Measured on 2026-10-28 on the machine below, with tifa 14e7e54, slowjs v0.28.6, PGO with the profile tifa ships: `BenchmarkShop` in `test/ssr`, one warm VM on one thread of a core whose other thread is idle, 1,000 renders, three rounds taken in turns with the build from before the second round, the median of the rounds.
 
-| Page | HTML | P50 ms | P99 ms |
-| --- | --- | --- | --- |
-| Workbench: order list, 42 orders | 218 KB | 72.9 | 97.2 |
-| Workbench: order list, 12 orders | 130 KB | 42.8 | 59.5 |
-| Workbench: order | 55 KB | 12.5 | 14.9 |
-| Workbench: order of the other shop | 51 KB | 11.9 | 17.2 |
-| Workbench: stats | 74 KB | 14.5 | 22.1 |
-| Workbench: stats of the other shop | 58 KB | 12.3 | 19.2 |
+| Page | HTML | P50 ms | P99 ms | P50 before the second round |
+| --- | --- | --- | --- | --- |
+| Workbench: order list, 42 orders | 218 KB | 72.4 | 76.0 | 71.7 |
+| Workbench: order list, 12 orders | 130 KB | 42.6 | 45.3 | 42.5 |
+| Workbench: order | 135 KB | 30.2 | 33.4 | 12.5 |
+| Workbench: order of the other shop | 116 KB | 26.5 | 27.6 | 11.9 |
+| Workbench: stats | 144 KB | 33.5 | 36.8 | 14.3 |
+| Workbench: stats of the other shop | 120 KB | 26.1 | 27.9 | 12.3 |
 
-- `BenchmarkShopParallel`, the six pages in turn: one VM renders 34.95 pages a second, and two VMs on the two threads of one core 44.51, 1.27 times as many.
-- `TestShopVMMemory`: the bytecode of the bundle is 4.30 MB, shared by all VMs. One VM holds 9.43 MB after loading the bundle, 12.18 MB after 64 renders and 10.65 MB after a full collection.
-- The storefront pages are heavier still: as HTML, the home page is 379 KB, the product list 292 KB and a product page 206 KB.
+The order list did not change in the second round, and its P50 is within 1% of before. The order and stats pages send 2.0 to 2.5 times as much HTML, and take 2.1 to 2.4 times as long.
+
+- `BenchmarkShopParallel`, the six pages in turn, on two threads: one VM renders 25.64 pages a second (35.68 before), and two VMs 31.83 (45.18 before), 1.26 times as many.
+- `TestShopVMMemory`: the bytecode of the bundle is 4.52 MB, shared by all VMs. One VM holds 9.73 MB after loading the bundle, 14.70 MB after 64 renders and 11.39 MB after a full collection (9.43, 12.18 and 10.65 MB before).
+- The storefront pages are heavier still: as HTML, the home page is 342 KB, the product list 469 KB and a product page 341 KB. The storefront has no benchmark of its own yet.
 
 ## How the numbers were measured
 

@@ -3,7 +3,8 @@
     "name": "山海",
     "full": "山海工作室",
     "tagline": "日常器物，慢慢用旧",
-    "skip": "跳至主要内容"
+    "skip": "跳至主要内容",
+    "initial": "山"
   },
   "nav": {
     "home": "首页",
@@ -41,7 +42,15 @@
     "addNamed": "把 {{name}} 加入购物车",
     "added": "已加入",
     "addFailed": "没加上，再试一次",
-    "chooseSize": "选择尺码"
+    "chooseSize": "选择尺码",
+    "quickView": "快速查看 {{name}}",
+    "quickViewTip": "快速查看",
+    "viewDetails": "查看商品详情",
+    "wishTip": "加入收藏",
+    "wishOn": "已收藏",
+    "ships": "48 小时内发货",
+    "stockLeft_other": "仅剩 {{count}} 件，48 小时内发货",
+    "restock": "补货中，到货后可预订"
   },
   "home": {
     "title": "山海 · 日常器物",
@@ -85,7 +94,70 @@
     "page": "第 {{page}} 页，共 {{pages}} 页",
     "previous": "上一页",
     "next": "下一页",
-    "breadcrumb": "当前位置"
+    "breadcrumb": "当前位置",
+    "view": "排列方式",
+    "viewGrid4": "四列网格",
+    "viewGrid3": "三列网格",
+    "viewList": "列表",
+    "seen": "最近看过",
+    "picks": "评分最高",
+    "categories": "按分类逛",
+    "guide": "选购指南",
+    "popular": "大家常搜",
+    "editorialKicker": "手记",
+    "editorialTitle": "我们怎么给手冲壶拍照",
+    "editorialBody": "一盏灯、一块白板和很多耐心。商品图背后的布光、器材和后期。",
+    "editorialCta": "读这一篇",
+    "serviceShip": "满 {{amount, currency}} 包邮，48 小时内发货",
+    "serviceReturn": "收到后七天内可无理由退换",
+    "serviceWarranty": "金属与陶瓷器物一年内破损免费换新",
+    "serviceHelp": "客服在线时间 9:00 到 21:00",
+    "guideItems": [
+      {
+        "q": "手冲壶要选多大容量？",
+        "a": "一人一杯选 400 到 600 毫升，两三个人常喝选 800 毫升以上。壶越大，倒到最后越难控制，不用追求大。"
+      },
+      {
+        "q": "陶瓷杯可以进洗碗机吗？",
+        "a": "釉面光滑的陶瓷杯可以，放上层。粗陶和带木质部分的器物建议手洗，擦干后收好。"
+      },
+      {
+        "q": "亚麻织物洗后会缩水吗？",
+        "a": "出厂前已预缩，正常冷水洗涤的缩率在 3% 以内。第一次洗请单独洗，阴干。"
+      },
+      {
+        "q": "黄铜和紫铜会变色，算瑕疵吗？",
+        "a": "不算。铜会随使用慢慢氧化变深，用软布和少许柠檬汁可以擦亮，也可以留着，那是它的样子。"
+      },
+      {
+        "q": "买来送人，可以附卡片吗？",
+        "a": "结账时勾选礼盒包装，在备注里写下想说的话，我们手写在卡片上，不放价格。"
+      },
+      {
+        "q": "缺货的商品什么时候补？",
+        "a": "手作的器物每批数量有限，补货通常在两到四周。商品页写明了预计时间，到货前可以先收藏。"
+      },
+      {
+        "q": "多久能收到？",
+        "a": "杭州仓当天 16:00 前的订单次日发出，江浙沪一般 1 到 2 天，其他地区 2 到 4 天。"
+      },
+      {
+        "q": "收到后发现有瑕疵怎么办？",
+        "a": "七天内联系客服，拍一张照片就行，我们承担运费，补发或退款由你选。"
+      }
+    ],
+    "popularWords": [
+      "咖啡",
+      "杯",
+      "茶",
+      "亚麻",
+      "蜡烛",
+      "野餐",
+      "笔记本",
+      "花器",
+      "灯",
+      "水壶"
+    ]
   },
   "filters": {
     "title": "筛选",
@@ -103,7 +175,18 @@
     "apply": "应用筛选",
     "reset": "重置",
     "count_other": "{{count}} 件",
-    "active_other": "已选 {{count}} 项"
+    "active_other": "已选 {{count}} 项",
+    "chosen": "已选条件",
+    "remove": "移除 {{name}}",
+    "quick": "常用筛选",
+    "materials": "材质",
+    "rating": "评分",
+    "anyRating": "不限",
+    "ratingFloor": "{{rating}} 分以上",
+    "status": "商品状态",
+    "under": "{{max}} 元以下",
+    "between": "{{min}} 到 {{max}} 元",
+    "over": "{{min}} 元以上"
   },
   "sort": {
     "featured": "推荐",
@@ -163,11 +246,74 @@
     "filterAll_other": "全部 {{count}}",
     "filterPhotos_other": "有图 {{count}}",
     "filterFive_other": "5 星 {{count}}",
-    "reviewsShown": "显示最新 {{shown}} 条，共 {{total}} 条评价",
+    "reviewsShown": "已显示 {{shown}} 条，共 {{total}} 条评价",
     "questions": "问答",
     "ask": "提问",
     "answerShop": "店主回答",
-    "answerCustomer": "已购顾客回答"
+    "answerCustomer": "已购顾客回答",
+    "svcDelivery": "配送",
+    "svcDeliveryBody": "杭州仓发货，满 {{amount, currency}} 包邮。当天 16:00 前的订单次日发出，江浙沪 1 到 2 天，其他地区 2 到 4 天。",
+    "svcReturns": "退换",
+    "svcReturnsBody": "收到后七天内可无理由退换，商品保持原样即可，退回运费由我们承担。定制商品除外。",
+    "svcWarranty": "保修",
+    "svcWarrantyBody": "器物类一年内破损免费换新，织物和文具三十天内因做工问题免费换新。人为损坏不在其内。",
+    "svcPay": "支付",
+    "svcPayBody": "支持银行卡、支付宝和微信支付。演示店铺不会真的扣款。",
+    "sellerRating": "好评率",
+    "sellerReply": "平均回复",
+    "sellerReplyValue": "10 分钟内",
+    "sellerShip": "发货",
+    "sellerShipValue": "48 小时内",
+    "sellerAbout": "杭州 · 工作室自营",
+    "official": "官方店铺",
+    "unboxTitle": "收到商品后",
+    "unboxItems": [
+      "拆开外箱后先对照清单检查，有破损请当天拍照联系客服。",
+      "第一次使用前，按保养一栏清洗或擦拭。",
+      "吊牌和包装请留到七天后，退换时需要。",
+      "用着顺手的话，欢迎回来写一条评价，附图更好。"
+    ],
+    "compare": "和同类比一比",
+    "cmpPrice": "价格",
+    "cmpRating": "评分",
+    "cmpReviews": "评价",
+    "cmpMaterials": "材质",
+    "cmpColors": "颜色",
+    "cmpStock": "库存",
+    "ranking": "{{category}}好评榜",
+    "mentioned": "评价里常提到",
+    "reviewSort": "评价排序",
+    "sort": {
+      "newest": "最新",
+      "helpful": "最有用",
+      "highest": "评分最高"
+    },
+    "reviewPhotos": "买家晒图",
+    "shopReply": "店家回复：",
+    "reviewPages": "评价分页",
+    "priceTitle": "价格里有什么",
+    "priceBody": "每一件的价格大致这样分。我们不做大促，也不先抬价再打折。",
+    "price": {
+      "materials": "材料",
+      "workshop": "工坊工费",
+      "packing": "包装",
+      "shipping": "运输",
+      "shop": "店铺运营"
+    },
+    "arrivalTitle": "多久能到",
+    "arrivalTo": "收货地区",
+    "arrivalBy": "最早送达",
+    "arrivalFee": "运费",
+    "region": {
+      "east": "江浙沪",
+      "north": "华北、华中",
+      "south": "华南",
+      "west": "西南、西北",
+      "far": "新疆、西藏、海外"
+    },
+    "arrivalDate": "{{date, datetime}}",
+    "arrivalFree": "按订单金额",
+    "arrivalPaid": "另计"
   },
   "cart": {
     "title": "购物车",
@@ -202,7 +348,19 @@
     "suggested": "搭配购买",
     "pieces_other": "{{count}} 件",
     "updating": "正在更新…",
-    "secure": "安全结算，支持支付宝、微信和银行卡"
+    "secure": "安全结算，支持支付宝、微信和银行卡",
+    "offers": "可用优惠",
+    "offerUse": "使用",
+    "offerNot": "还不够",
+    "offerOn": "已使用",
+    "promiseReturnsTitle": "七天退换",
+    "promiseReturnsBody": "收到后七天内可无理由退换，运费我们出。",
+    "promiseWarrantyTitle": "破损补发",
+    "promiseWarrantyBody": "路上摔坏的，拍张照片就补发。",
+    "promiseGiftTitle": "礼盒与卡片",
+    "promiseGiftBody": "结账时在备注里写下想说的话，手写在卡片上。",
+    "promiseHelpTitle": "有人回话",
+    "promiseHelpBody": "9:00 到 21:00 在线，通常十分钟内回复。"
   },
   "checkout": {
     "title": "结算",
@@ -256,7 +414,12 @@
     "placedDeliveryOn": "{{name}}，预计 {{date, datetime}} 送达",
     "placedAt": "下单时间：{{date, datetime}}",
     "backHome": "回到首页",
-    "emptyCart": "购物车是空的，先去挑几件吧。"
+    "emptyCart": "购物车是空的，先去挑几件吧。",
+    "addMore": "付款前，要不要再带一件",
+    "trustShipTitle": "48 小时内发出",
+    "trustShipBody": "杭州仓现货，当天 16:00 前下单次日发出。",
+    "trustSafeTitle": "付款安全",
+    "trustSafeBody": "我们不保存银行卡信息，演示店铺也不会扣款。"
   },
   "errors": {
     "required": "请填写这一项",

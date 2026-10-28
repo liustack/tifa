@@ -22,6 +22,10 @@ type Detail struct {
 	Others     []orders.OrderRow `json:"others"`
 	Count      int               `json:"count"`
 	SpentCents int               `json:"spentCents"`
+	// Other orders of the shop that hold the first product of this one, newest first.
+	SameProduct []orders.OrderRow `json:"sameProduct"`
+	// How each carrier did for the shop.
+	CarrierStats []orders.CarrierSales `json:"carrierStats"`
 }
 
 // Load reads the project through its Layout, which loads it once for the whole request.
@@ -35,7 +39,10 @@ func Load(c *tifa.Ctx) (Detail, error) {
 		return Detail{}, err
 	}
 	others, count, spent := orders.CustomerOrders(p.ID, o.ID)
-	return Detail{Order: o, Carriers: orders.Carriers, Others: others, Count: count, SpentCents: spent}, nil
+	return Detail{
+		Order: o, Carriers: orders.Carriers, Others: others, Count: count, SpentCents: spent,
+		SameProduct: orders.OrdersWith(p.ID, o.Items[0].Slug, o.ID, 4), CarrierStats: orders.CarrierStats(p.ID),
+	}, nil
 }
 
 type ShipInput struct {
@@ -66,6 +73,21 @@ func (in RecipientInput) Validate() error {
 // PATCH changes who receives the order and where, until it ships, and answers with the order.
 func PATCH(c *tifa.Ctx, in RecipientInput) (orders.Order, error) {
 	if err := orders.UpdateRecipient(c.Param("project"), c.Param("order"), in.Customer, in.Phone, in.Address); err != nil {
+		return orders.Order{}, err
+	}
+	return orders.GetOrder(c.Param("project"), c.Param("order"))
+}
+
+type NoteInput struct {
+	Text string `json:"text"`
+}
+
+func (in NoteInput) Validate() error { return orders.CheckNote(in.Text) }
+
+// PUT puts a note on the order, for the staff of the shop, and answers with the order. Notes can
+// be written after the order ships too.
+func PUT(c *tifa.Ctx, in NoteInput) (orders.Order, error) {
+	if err := orders.AddNote(c.Param("project"), c.Param("order"), "店主", in.Text, time.Now()); err != nil {
 		return orders.Order{}, err
 	}
 	return orders.GetOrder(c.Param("project"), c.Param("order"))

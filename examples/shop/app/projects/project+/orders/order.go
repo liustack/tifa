@@ -34,6 +34,10 @@ type Order struct {
 	TotalCents int        `json:"totalCents"`
 	Items      []LineItem `json:"items"`
 	Shipment   *Shipment  `json:"shipment"` // nil until the order ships
+	Payment    Payment    `json:"payment"`
+	Log        []LogEntry `json:"log"`   // oldest first
+	Notes      []Note     `json:"notes"` // what staff wrote, oldest first
+	Packing    []PackLine `json:"packing"`
 }
 
 type LineItem struct {
@@ -43,6 +47,12 @@ type LineItem struct {
 	Quantity    int    `json:"quantity"`
 	PriceCents  int    `json:"priceCents"`
 	Color       string `json:"color"`
+	// Stock is how many the shop has left, and Demand how many of them the orders waiting to ship
+	// need.
+	Stock  int `json:"stock"`
+	Demand int `json:"demand"`
+	// Sold is how many of the product the shop has sold in all its orders.
+	Sold int `json:"sold"`
 }
 
 // OrderRow is one line of the order list: only what the list shows, without the address. The
@@ -96,6 +106,21 @@ func ListOrders(projectID string) OrderList {
 	return l
 }
 
+// orderRow is the line of the order list for an order.
+func orderRow(o orderRecord) OrderRow {
+	row := OrderRow{
+		ID: o.ID, Customer: o.Customer, Initials: initials(o.Customer), PlacedAt: o.PlacedAt, Status: status(o), Lines: len(o.Items),
+		TotalCents: total(o), Items: itemCount(o),
+	}
+	if len(o.Items) > 0 {
+		row.Product, row.Slug = o.Items[0].Name, o.Items[0].Slug
+	}
+	if s := o.Shipment; s != nil {
+		row.Carrier, row.TrackingNo = carrierName(s.Carrier), s.TrackingNo
+	}
+	return row
+}
+
 // GetOrder returns the order id of a project, or tifa.ErrNotFound.
 func GetOrder(projectID, id string) (Order, error) {
 	ordersMu.RLock()
@@ -122,7 +147,8 @@ func view(o orderRecord) Order {
 	order := Order{
 		ID: o.ID, ProjectID: o.ProjectID, Customer: o.Customer, Initials: initials(o.Customer),
 		Phone: o.Phone, Email: o.Email, Address: o.Address, Note: o.Note, PlacedAt: o.PlacedAt, Status: status(o),
-		TotalCents: total(o), Items: []LineItem{},
+		TotalCents: total(o), Items: []LineItem{}, Payment: payment(o), Log: logOf(o), Packing: packing(o),
+		Notes: slices.Clone(o.Notes),
 	}
 	if s := o.Shipment; s != nil {
 		order.Shipment = &Shipment{
@@ -133,7 +159,8 @@ func view(o orderRecord) Order {
 	for _, item := range o.Items {
 		order.Items = append(order.Items, LineItem{
 			Slug: item.Slug, Name: item.Name, Description: item.Description, Quantity: item.Quantity,
-			PriceCents: item.PriceCents, Color: item.Color,
+			PriceCents: item.PriceCents, Color: item.Color, Stock: item.Stock, Sold: soldOf(o.ProjectID, item.Slug),
+			Demand: waitingFor(o.ProjectID, item.Slug),
 		})
 	}
 	return order
@@ -170,6 +197,7 @@ type orderRecord struct {
 	PlacedAt  time.Time
 	Shipment  *shipmentRecord // nil until the order ships
 	Items     []itemRecord
+	Notes     []Note
 }
 
 type shipmentRecord struct {
@@ -186,6 +214,7 @@ type itemRecord struct {
 	Quantity    int
 	PriceCents  int
 	Color       string
+	Stock       int
 }
 
 var (
@@ -234,4 +263,37 @@ func CustomerOrders(projectID, id string) (others []OrderRow, count, spentCents 
 		}
 	}
 	return others, count, spentCents
+}
+
+// soldOf counts the pieces of a product in the orders of a project. The caller holds ordersMu.
+func soldOf(projectID, slug string) int {
+	n := 0
+	for _, o := range orders {
+		if o.ProjectID != projectID {
+			continue
+		}
+		for _, item := range o.Items {
+			if item.Slug == slug {
+				n += item.Quantity
+			}
+		}
+	}
+	return n
+}
+
+// waitingFor counts the pieces of a product in the orders of a project that wait to be shipped.
+// The caller holds ordersMu.
+func waitingFor(projectID, slug string) int {
+	n := 0
+	for _, o := range orders {
+		if o.ProjectID != projectID || o.Shipment != nil {
+			continue
+		}
+		for _, item := range o.Items {
+			if item.Slug == slug {
+				n += item.Quantity
+			}
+		}
+	}
+	return n
 }

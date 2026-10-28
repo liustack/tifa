@@ -95,3 +95,78 @@ func TestSearchKeepsNumbersWithinRange(t *testing.T) {
 		t.Errorf("max above every price: %d products", r.Total)
 	}
 }
+
+func TestSearchFiltersByMaterialRatingAndBadge(t *testing.T) {
+	// Every material family counts the products that Search finds when it alone is chosen, and a
+	// product made of two families is counted in both.
+	all := Search(Filter{}, zh)
+	if len(all.Materials) < 6 {
+		t.Fatalf("%d material facets", len(all.Materials))
+	}
+	for _, m := range all.Materials {
+		r := Search(Filter{Materials: []string{m.ID}}, zh)
+		if m.Count == 0 || r.Total != m.Count {
+			t.Errorf("material %s: facet %d, search %d", m.ID, m.Count, r.Total)
+		}
+	}
+	ceramic := Search(Filter{Materials: []string{"ceramic"}}, en)
+	if !slices.ContainsFunc(ceramic.Products, func(c Card) bool { return c.Slug == "ceramic-cup" }) ||
+		slices.ContainsFunc(ceramic.Products, func(c Card) bool { return c.Slug == "pour-over-kettle" }) {
+		t.Errorf("ceramic: %+v", ceramic.Products)
+	}
+	// Rating is a floor in tenths of a star, badges are any of the chosen.
+	good := Search(Filter{Rating: 48, Sort: "rating"}, zh)
+	if good.Total == 0 || good.Total >= all.Total {
+		t.Fatalf("rating 4.8 leaves %d of %d", good.Total, all.Total)
+	}
+	for _, p := range good.Products {
+		if p.Rating < 4.8 {
+			t.Errorf("%s has %.1f", p.Slug, p.Rating)
+		}
+	}
+	if r := Search(Filter{Badges: []string{"sale"}}, zh); r.Total != 4 {
+		t.Errorf("sale leaves %d", r.Total)
+	}
+	if r := Search(Filter{Badges: []string{"sale", "new"}}, zh); r.Total != 6 {
+		t.Errorf("sale or new leaves %d", r.Total)
+	}
+	// A facet ignores its own filter and keeps the others.
+	both := Search(Filter{Badges: []string{"sale"}, Rating: 48}, zh)
+	for _, b := range both.Badges {
+		if b.ID == "new" && b.Count != Search(Filter{Badges: []string{"new"}, Rating: 48}, zh).Total {
+			t.Errorf("new facet %d under sale and 4.8", b.Count)
+		}
+	}
+}
+
+func TestSearchCountsPriceBands(t *testing.T) {
+	for _, l := range []store.Locale{zh, en} {
+		r := Search(Filter{InStock: true}, l)
+		if len(r.Bands) != 4 {
+			t.Fatalf("%s: %d bands", l.Code, len(r.Bands))
+		}
+		sum := 0
+		for _, b := range r.Bands {
+			sum += b.Count
+			if got := Search(Filter{InStock: true, Min: b.Min, Max: b.Max}, l).Total; got != b.Count {
+				t.Errorf("%s band %d to %d: facet %d, search %d", l.Code, b.Min, b.Max, b.Count, got)
+			}
+		}
+		if sum != r.Total {
+			t.Errorf("%s: bands add up to %d of %d", l.Code, sum, r.Total)
+		}
+	}
+}
+
+func TestTopRatedStartsWithTheBestAndTheCheaperOfEquals(t *testing.T) {
+	top := TopRated(8, zh)
+	if len(top) != 8 {
+		t.Fatalf("%d products", len(top))
+	}
+	for i, p := range top[1:] {
+		prev := top[i]
+		if p.Rating > prev.Rating || (p.Rating == prev.Rating && p.PriceCents < prev.PriceCents) {
+			t.Errorf("%s (%.1f, %d) after %s (%.1f, %d)", p.Slug, p.Rating, p.PriceCents, prev.Slug, prev.Rating, prev.PriceCents)
+		}
+	}
+}

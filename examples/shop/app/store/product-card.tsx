@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { Check, Heart, Star } from 'lucide-react'
+import { Check, Eye, Heart, Star, Truck } from 'lucide-react'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useHydrated } from '../use-hydrated'
 import { useStore } from './i18n'
 import { photo, photoSet, picture, type View, type Width } from './images'
@@ -20,6 +22,9 @@ export type Card = {
   badge: string
   inStock: boolean
   number: number
+  stock: number
+  summary: string
+  materials: string[] | null
   sized?: boolean
 }
 
@@ -152,29 +157,86 @@ export function ProductGrid({ className, children }: { className?: string; child
 }
 
 // ProductCard is a product in a list: its photo, which turns to the photo of it in use on hover,
-// its number in the catalogue, name, rating, price and colours.
-export function ProductCard({ product, lang, sizes = '(min-width: 768px) 25vw, 50vw' }: { product: Card; lang: string; sizes?: string }) {
-  const { t } = useStore()
+// its number in the catalogue, name, rating, price and colours. In the list layout the photo
+// stands left of the text, which adds the summary and the materials.
+export function ProductCard({
+  product,
+  lang,
+  sizes = '(min-width: 768px) 25vw, 50vw',
+  layout = 'grid',
+}: {
+  product: Card
+  lang: string
+  sizes?: string
+  layout?: 'grid' | 'list' | 'tile'
+}) {
+  const { t, locale } = useStore()
   const colors = product.colors ?? []
+  const list = layout === 'list'
+  if (layout === 'tile') return <ProductTile product={product} lang={lang} sizes={sizes} />
   return (
-    <article className="group relative flex flex-col gap-3.5 border-r border-b bg-card p-3 md:p-4">
-      <Link
-        to="/store/$lang/products/$product"
-        params={{ lang, product: product.slug }}
-        className="relative block outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        aria-label={t('card.quickAdd', { name: product.name })}
-      >
+    <article
+      className={cn(
+        'group relative flex border-r border-b bg-card p-3 md:p-4',
+        list ? 'col-span-full flex-col gap-4 sm:flex-row sm:items-stretch sm:gap-6' : 'flex-col gap-3.5',
+      )}
+    >
+      <div className={cn('relative', list && 'sm:w-44 sm:shrink-0 md:w-56')}>
+        <Link
+          to="/store/$lang/products/$product"
+          params={{ lang, product: product.slug }}
+          className="relative block outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={t('card.quickAdd', { name: product.name })}
+        >
+          <ProductImage slug={product.slug} alt={product.name} sizes={list ? '224px' : sizes} />
+          <ProductImage
+            slug={product.slug}
+            view="scene"
+            alt=""
+            sizes={list ? '224px' : sizes}
+            className="absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+          />
+          <CardBadges product={product} />
+        </Link>
+        <QuickView product={product} lang={lang} />
+      </div>
+      <Wish name={product.name} />
+      <div className={cn('flex flex-col gap-1.5', list && 'flex-1')}>
+        <span className="font-mono text-[11px] tracking-wider text-muted-foreground">
+          {catalogueNo(product.number)} · {product.category}
+        </span>
+        <h3 className="font-heading text-base leading-snug md:text-lg">
+          <Link to="/store/$lang/products/$product" params={{ lang, product: product.slug }} className="hover:underline">
+            {product.name}
+          </Link>
+        </h3>
+        {list && <p className="max-w-prose text-sm text-muted-foreground">{product.summary}</p>}
+        <p className="text-xs text-muted-foreground">{(product.materials ?? []).join(locale.code === 'zh-CN' ? '、' : ', ')}</p>
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Stars rating={product.rating} />
+          <span>{t('rating.reviews', { count: product.reviews })}</span>
+        </div>
+        <Price priceCents={product.priceCents} compareAtCents={product.compareAtCents} className="text-sm" />
+        <Swatches colors={colors} />
+        <Availability product={product} />
+      </div>
+      <div className={cn(list ? 'flex flex-col justify-end gap-2 sm:w-44' : 'mt-auto flex flex-col')}>
+        <QuickAdd product={product} lang={lang} />
+      </div>
+    </article>
+  )
+}
+
+// ProductTile is a product in a short row, such as the best sellers of a category: its photo, number,
+// name, rating and price, and nothing to press but the link.
+function ProductTile({ product, lang, sizes }: { product: Card; lang: string; sizes: string }) {
+  const { t } = useStore()
+  return (
+    <article className="group relative flex flex-col gap-3 border-r border-b bg-card p-3 md:p-4">
+      <Link to="/store/$lang/products/$product" params={{ lang, product: product.slug }} className="relative block outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={t('card.quickAdd', { name: product.name })}>
         <ProductImage slug={product.slug} alt={product.name} sizes={sizes} />
-        <ProductImage
-          slug={product.slug}
-          view="scene"
-          alt=""
-          sizes={sizes}
-          className="absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-        />
         <CardBadges product={product} />
       </Link>
-      <Wish name={product.name} />
       <div className="flex flex-col gap-1.5">
         <span className="font-mono text-[11px] tracking-wider text-muted-foreground">
           {catalogueNo(product.number)} · {product.category}
@@ -189,10 +251,64 @@ export function ProductCard({ product, lang, sizes = '(min-width: 768px) 25vw, 5
           <span>{t('rating.reviews', { count: product.reviews })}</span>
         </div>
         <Price priceCents={product.priceCents} compareAtCents={product.compareAtCents} className="text-sm" />
-        <Swatches colors={colors} />
       </div>
-      <QuickAdd product={product} lang={lang} />
     </article>
+  )
+}
+
+// Availability says how many are left when few are, and when an order would leave.
+function Availability({ product }: { product: Pick<Card, 'inStock' | 'stock'> }) {
+  const { t } = useStore()
+  if (!product.inStock) return <p className="text-xs text-muted-foreground">{t('card.restock')}</p>
+  return (
+    <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+      <Truck className="size-3.5 text-primary" aria-hidden />
+      {product.stock <= 10 ? t('card.stockLeft', { count: product.stock }) : t('card.ships')}
+    </p>
+  )
+}
+
+// QuickView opens the product in a dialog over the list, with a button to the whole page.
+function QuickView({ product, lang }: { product: Card; lang: string }) {
+  const { t, locale } = useStore()
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <button
+          type="button"
+          aria-label={t('card.quickView', { name: product.name })}
+          title={t('card.quickViewTip')}
+          className="absolute right-0 bottom-0 z-10 flex size-8 items-center justify-center border bg-card/90 text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <Eye className="size-4" />
+        </button>
+      </DialogTrigger>
+      <DialogContent className="max-w-2xl gap-0 p-0 sm:max-w-2xl">
+        <div className="grid sm:grid-cols-2">
+          <ProductImage slug={product.slug} view="scene" alt={product.name} sizes="(min-width: 640px) 336px, 100vw" />
+          <div className="flex flex-col gap-3 p-6">
+            <DialogHeader>
+              <span className="font-mono text-[11px] tracking-wider text-muted-foreground">
+                {catalogueNo(product.number)} · {product.category}
+              </span>
+              <DialogTitle className="font-heading text-2xl font-medium">{product.name}</DialogTitle>
+              <DialogDescription>{product.summary}</DialogDescription>
+            </DialogHeader>
+            <Price priceCents={product.priceCents} compareAtCents={product.compareAtCents} className="text-lg" />
+            <Swatches colors={product.colors ?? []} />
+            <p className="text-xs text-muted-foreground">{(product.materials ?? []).join(locale.code === 'zh-CN' ? '、' : ', ')}</p>
+            <div className="mt-auto flex flex-col gap-2">
+              <QuickAdd product={product} lang={lang} />
+              <Button variant="ghost" size="sm" asChild>
+                <Link to="/store/$lang/products/$product" params={{ lang, product: product.slug }}>
+                  {t('card.viewDetails')}
+                </Link>
+              </Button>
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -201,15 +317,20 @@ function Wish({ name }: { name: string }) {
   const { t } = useStore()
   const [on, setOn] = useState(false)
   return (
-    <button
-      type="button"
-      aria-pressed={on}
-      aria-label={t('card.wish', { name })}
-      onClick={() => setOn(!on)}
-      className="absolute top-5 right-5 z-10 flex size-8 items-center justify-center border bg-card/90 text-muted-foreground transition-colors hover:text-foreground aria-pressed:text-destructive md:top-6 md:right-6"
-    >
-      <Heart className={cn('size-4', on && 'fill-current')} />
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-pressed={on}
+          aria-label={t('card.wish', { name })}
+          onClick={() => setOn(!on)}
+          className="absolute top-5 right-5 z-10 flex size-8 items-center justify-center border bg-card/90 text-muted-foreground transition-colors hover:text-foreground aria-pressed:text-destructive md:top-6 md:right-6"
+        >
+          <Heart className={cn('size-4', on && 'fill-current')} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{t(on ? 'card.wishOn' : 'card.wishTip')}</TooltipContent>
+    </Tooltip>
   )
 }
 

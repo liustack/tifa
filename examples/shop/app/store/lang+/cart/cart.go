@@ -5,6 +5,7 @@ package cart
 
 import (
 	"crypto/rand"
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -322,6 +323,36 @@ func Deliveries(cart Cart, now time.Time, l store.Locale) []Delivery {
 			Earliest: now.Add(time.Duration(d.earliestDays) * 24 * time.Hour),
 			Latest:   now.Add(time.Duration(d.latestDays) * 24 * time.Hour),
 		})
+	}
+	return out
+}
+
+// Offer is a coupon the shop gives out, as the cart lists it to apply with one press.
+type Offer struct {
+	Code string `json:"code"`
+	// Detail says what it takes off and from what subtotal, in the language of the locale.
+	Detail string `json:"detail"`
+	// Applies is whether the subtotal reaches what the coupon asks for.
+	Applies bool `json:"applies"`
+}
+
+// Offers returns the coupons the shop gives out, for a cart with subtotalCents.
+func Offers(subtotalCents int, l store.Locale) []Offer {
+	var out []Offer
+	for _, code := range []string{"SHANHAI10", "WELCOME30"} {
+		c := coupons[code]
+		o := Offer{Code: code, Applies: discount(code, subtotalCents, l) > 0}
+		switch {
+		case c.percent > 0 && l.Code == "en-US":
+			o.Detail = fmt.Sprintf("%d%% off everything", c.percent)
+		case c.percent > 0:
+			o.Detail = fmt.Sprintf("全场 %g 折", float64(100-c.percent)/10)
+		case l.Code == "en-US":
+			o.Detail = fmt.Sprintf("$%.2f off orders over $%.2f", float64(store.Price(c.offFen, l))/100, float64(store.Price(c.minimumFen, l))/100)
+		default:
+			o.Detail = fmt.Sprintf("满 %d 元减 %d 元", c.minimumFen/100, c.offFen/100)
+		}
+		out = append(out, o)
 	}
 	return out
 }

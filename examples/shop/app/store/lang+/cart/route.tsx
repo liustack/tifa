@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Link } from '@tanstack/react-router'
-import { Lock, Minus, Plus, ShoppingBag, Tag, Trash2, Truck } from 'lucide-react'
+import { Gift, Headset, Lock, Minus, Plus, RotateCcw, ShieldCheck, ShoppingBag, Tag, Trash2, Truck } from 'lucide-react'
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { TifaError } from 'tifa/client'
@@ -26,7 +26,7 @@ export const head = ({ params }: { params: { lang: string } }) => ({
 const couponSchema = z.object({ code: z.string().trim().max(20, 'coupon') })
 
 export default function CartPage() {
-  const { cart, deliveries, suggested } = route.useLoaderData()
+  const { cart, deliveries, suggested, seen } = route.useLoaderData()
   const { t, locale, money } = useStore()
   const lang = locale.code
   const lines = cart.lines ?? []
@@ -63,6 +63,7 @@ export default function CartPage() {
         <h1 className="font-heading text-[34px] font-medium tracking-[0.04em]">{t('cart.title')}</h1>
         <span className="font-mono text-sm text-muted-foreground">{t('cart.pieces', { count: cart.count })}</span>
       </div>
+      <Offers />
       <div className="grid gap-8 lg:grid-cols-[1fr_22rem]">
         <div className="flex flex-col gap-4">
           <div
@@ -157,6 +158,19 @@ export default function CartPage() {
           </CardFooter>
         </Card>
       </div>
+
+      <Promises />
+
+      {(seen ?? []).length > 0 && (
+        <section className="flex flex-col gap-4">
+          <h2 className="border-b border-foreground pb-2.5 font-heading text-[22px] font-medium tracking-[0.04em]">{t('list.seen')}</h2>
+          <ProductGrid>
+            {(seen ?? []).slice(0, 4).map((p) => (
+              <ProductCard key={p.slug} product={p} lang={lang} />
+            ))}
+          </ProductGrid>
+        </section>
+      )}
 
       <section className="flex flex-col gap-4">
         <h2 className="border-b border-foreground pb-2.5 font-heading text-[22px] font-medium tracking-[0.04em]">{t('cart.suggested')}</h2>
@@ -293,5 +307,72 @@ function CouponForm({ coupon }: { coupon: string }) {
         {error && <FieldError>{t(`errors.${error}`)}</FieldError>}
       </Field>
     </form>
+  )
+}
+
+// Offers are the coupons the shop gives out, each with a button that puts it on the cart.
+function Offers() {
+  const { offers, cart } = route.useLoaderData()
+  const { t, locale } = useStore()
+  const hydrated = useHydrated()
+  const [failed, setFailed] = useState(false)
+  async function use(code: string) {
+    setFailed(false)
+    try {
+      await POST({ params: { lang: locale.code }, input: { code } })
+    } catch {
+      setFailed(true)
+    }
+  }
+  return (
+    <section aria-label={t('cart.offers')} className="grid gap-px border bg-border sm:grid-cols-2">
+      {(offers ?? []).map((o) => (
+        <div key={o.code} className="flex items-center gap-4 bg-card p-4">
+          <Tag className="size-5 shrink-0 text-primary" aria-hidden />
+          <div className="flex-1">
+            <p className="font-mono text-sm tracking-wider">{o.code}</p>
+            <p className="text-xs text-muted-foreground">{o.detail}</p>
+          </div>
+          {cart.coupon === o.code ? (
+            <Badge variant="secondary" className="rounded-none">
+              {t('cart.offerOn')}
+            </Badge>
+          ) : (
+            <Button variant="outline" size="sm" disabled={!hydrated || !o.applies} onClick={() => use(o.code)}>
+              {o.applies ? t('cart.offerUse') : t('cart.offerNot')}
+            </Button>
+          )}
+        </div>
+      ))}
+      {failed && (
+        <p role="alert" className="col-span-full bg-card px-4 py-2 text-sm text-destructive">
+          {t('errors.network')}
+        </p>
+      )}
+    </section>
+  )
+}
+
+// Promises are what the shop owes a buyer, in four lines under the cart.
+function Promises() {
+  const { t } = useStore()
+  const items = [
+    { icon: RotateCcw, title: t('cart.promiseReturnsTitle'), body: t('cart.promiseReturnsBody') },
+    { icon: ShieldCheck, title: t('cart.promiseWarrantyTitle'), body: t('cart.promiseWarrantyBody') },
+    { icon: Gift, title: t('cart.promiseGiftTitle'), body: t('cart.promiseGiftBody') },
+    { icon: Headset, title: t('cart.promiseHelpTitle'), body: t('cart.promiseHelpBody') },
+  ]
+  return (
+    <ul className="grid border-y sm:grid-cols-2 lg:grid-cols-4">
+      {items.map(({ icon: Icon, title, body }) => (
+        <li key={title} className="flex items-start gap-3 px-4 py-4 [&+li]:border-t sm:[&+li]:border-t-0 sm:[&+li]:border-l">
+          <Icon className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden />
+          <div>
+            <p className="text-sm font-medium">{title}</p>
+            <p className="text-xs text-muted-foreground">{body}</p>
+          </div>
+        </li>
+      ))}
+    </ul>
   )
 }

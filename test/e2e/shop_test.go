@@ -212,6 +212,11 @@ func TestShopApp(t *testing.T) {
 
 	checkStorefront(t, base, built.BuildID)
 	checkStorefrontKeepsCustomersApart(t, base)
+	checkShopModules(t, base)
+	checkProductPageCounts(t, base)
+	checkOrderPageModules(t, base)
+	checkStatsPanels(t, base)
+	checkCartAndCheckoutModules(t, base)
 }
 
 // rendered returns the part of a page React rendered, without the data written after it.
@@ -264,6 +269,10 @@ func checkStorefront(t *testing.T, base, buildID string) {
 	font := regexp.MustCompile(`url\((/assets/[^)]+\.woff2)\)`).FindStringSubmatch(sheet)
 	if font == nil {
 		t.Fatalf("stylesheet %s loads no font under /assets/", css[1])
+	}
+	// Chinese headings use the system serif fonts, so no Chinese font file is bundled.
+	if strings.Contains(sheet, "Noto Serif SC") {
+		t.Errorf("stylesheet %s still bundles Noto Serif SC", css[1])
 	}
 	for _, asset := range []struct{ path, kind string }{{photo[1], "image/avif"}, {font[1], "font/woff2"}} {
 		status, header, _ := get(t, base+asset.path)

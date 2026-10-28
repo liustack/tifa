@@ -67,3 +67,22 @@ func TestHandlersRefuseShippedOrdersAndOtherShops(t *testing.T) {
 		t.Fatalf("PATCH of an order of another project: %v", err)
 	}
 }
+
+// A note can go on any order, shipped or not, and only on the orders of its own shop.
+func TestPUTPutsANoteOnTheOrder(t *testing.T) {
+	o, err := PUT(orderCtx(t, "PUT", "studio", "SH-1040"), NoteInput{Text: "  顾客来电，说已收到。 "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := o.Notes[len(o.Notes)-1]
+	if last.Text != "顾客来电，说已收到。" || last.Author != "店主" || last.At.IsZero() {
+		t.Errorf("last note %+v", last)
+	}
+	if _, err := PUT(orderCtx(t, "PUT", "weekend", "SH-1040"), NoteInput{Text: "x"}); !errors.Is(err, tifa.ErrNotFound) {
+		t.Errorf("note on an order of another project: %v", err)
+	}
+	var fields tifa.Fields
+	if err := (NoteInput{Text: " "}).Validate(); !errors.As(err, &fields) || fields["text"] == "" {
+		t.Errorf("empty note: %v", err)
+	}
+}

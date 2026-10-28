@@ -5,6 +5,7 @@ import { I18nextProvider } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Input } from '@/components/ui/input'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { cn } from 'cn'
 import { i18nFor, LocaleContext, useStore } from '../i18n'
@@ -23,14 +24,16 @@ export default function StoreLayout() {
   return (
     <LocaleContext.Provider value={shell.locale}>
       <I18nextProvider i18n={i18nFor(shell.locale)}>
-        <div className="flex min-h-svh flex-col bg-background">
-          <Announcement />
-          <StoreHeader />
-          <main id="store-main" tabIndex={-1} className="mx-auto w-full max-w-[1240px] flex-1 px-4 py-8 outline-none md:px-8">
-            <Outlet />
-          </main>
-          <StoreFooter />
-        </div>
+        <TooltipProvider>
+          <div className="flex min-h-svh flex-col bg-background">
+            <Announcement />
+            <StoreHeader />
+            <main id="store-main" tabIndex={-1} className="mx-auto w-full max-w-[1240px] flex-1 px-4 py-8 outline-none md:px-8">
+              <Outlet />
+            </main>
+            <StoreFooter />
+          </div>
+        </TooltipProvider>
       </I18nextProvider>
     </LocaleContext.Provider>
   )

@@ -22,15 +22,19 @@ var ErrRecipientLocked = tifa.Error{Status: 409, Message: "订单已发货，收
 type Carrier struct {
 	Code string `json:"code"`
 	Name string `json:"name"`
+	// Days is how long a parcel takes within the same region, and FeeCents what the first kilo
+	// costs, which the order page shows to help pick one.
+	Days     string `json:"days"`
+	FeeCents int    `json:"feeCents"`
 }
 
 // Carriers are the delivery companies to pick from when shipping.
 var Carriers = []Carrier{
-	{Code: "SF", Name: "顺丰速运"},
-	{Code: "JD", Name: "京东物流"},
-	{Code: "ZTO", Name: "中通快递"},
-	{Code: "YTO", Name: "圆通速递"},
-	{Code: "EMS", Name: "中国邮政 EMS"},
+	{Code: "SF", Name: "顺丰速运", Days: "1 到 2 天", FeeCents: 1200},
+	{Code: "JD", Name: "京东物流", Days: "1 到 2 天", FeeCents: 1000},
+	{Code: "ZTO", Name: "中通快递", Days: "2 到 3 天", FeeCents: 600},
+	{Code: "YTO", Name: "圆通速递", Days: "2 到 3 天", FeeCents: 550},
+	{Code: "EMS", Name: "中国邮政 EMS", Days: "3 到 5 天", FeeCents: 1000},
 }
 
 // Shipment is how and when an order left, as the detail page shows it.

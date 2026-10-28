@@ -12,6 +12,7 @@ import { day, orderDate, percent, yuan } from '../../../format'
 import { route as projectRoute, type Data as Project } from '../+layout'
 import { SummaryCard, SummaryRow } from '../summary-card'
 import { route } from './+route'
+import { Carriers, Customers, Dispatch, Heatmap, ProductTable, Recent } from './panels'
 
 // The charts measure their box and draw in the browser, so they stay out of the server render
 // and of the scripts every page loads. The server writes a placeholder of the same height.
@@ -23,7 +24,7 @@ const ranges = { '7': '近 7 天', '30': '近 30 天' } as const
 type Range = keyof typeof ranges
 
 export default function StatsPage() {
-  const { days: allDays, topProducts } = route.useLoaderData()
+  const { days: allDays, topProducts, totals } = route.useLoaderData()
   // The range is page state, not a query parameter: the cards tween between the two ranges
   // instead of the page loading again.
   const [range, setRange] = useState<Range>('30')
@@ -44,10 +45,12 @@ export default function StatsPage() {
   let revenue = 0
   let orders = 0
   let shipped = 0
+  let pieces = 0
   for (const d of days) {
     revenue += d.revenueCents
     orders += d.orders
     shipped += d.shipped
+    pieces += d.pieces
   }
   const last = allDays[allDays.length - 1].date
 
@@ -83,6 +86,21 @@ export default function StatsPage() {
         </SummaryCard>
         <SummaryCard title="发货率" note="已发出的订单占比">
           <AnimatedNumber value={orders ? shipped / orders : 0} format={percent} />
+        </SummaryCard>
+      </SummaryRow>
+
+      <SummaryRow>
+        <SummaryCard title="售出件数" note={ranges[range]} points={days.map((d) => d.pieces)}>
+          <AnimatedNumber value={pieces} />
+        </SummaryCard>
+        <SummaryCard title="每单件数" note="平均每笔订单">
+          <AnimatedNumber value={orders ? pieces / orders : 0} format={(n) => n.toFixed(1)} />
+        </SummaryCard>
+        <SummaryCard title="待发货金额" note={`${totals.pendingOrders} 单在等`}>
+          <AnimatedNumber value={totals.pendingCents} format={yuan} />
+        </SummaryCard>
+        <SummaryCard title="回头客" note={`${totals.repeat} / ${totals.customers} 位顾客买过不止一次`}>
+          <AnimatedNumber value={totals.customers ? totals.repeat / totals.customers : 0} format={percent} />
         </SummaryCard>
       </SummaryRow>
 
@@ -177,6 +195,21 @@ export default function StatsPage() {
             </Table>
           </CardContent>
         </Card>
+      </div>
+
+      <ProductTable />
+
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        <Heatmap />
+        <div className="grid gap-4">
+          <Carriers />
+          <Dispatch />
+        </div>
+      </div>
+
+      <div className="grid items-start gap-4 lg:grid-cols-[22rem_minmax(0,1fr)]">
+        <Customers />
+        <Recent />
       </div>
     </section>
   )

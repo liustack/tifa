@@ -242,10 +242,10 @@ func TestDemoParcelsTravelToTheCityOfTheAddress(t *testing.T) {
 	reset()
 	o, _ := GetOrder("studio", "SH-1040") // 周宁, 北京市朝阳区
 	events := o.Shipment.Events
-	if len(events) != 8 || !events[0].At.Equal(o.Shipment.ShippedAt) || events[0].Place != warehouse {
+	if len(events) != 11 || !events[0].At.Equal(o.Shipment.ShippedAt) || events[0].Place != warehouse {
 		t.Fatalf("events %+v", events)
 	}
-	if last := events[7]; last.Place != "北京市朝阳区" || last.Note != "已签收，签收人：本人" {
+	if last := events[10]; last.Place != "北京市朝阳区" || last.Note != "已签收，签收人：本人" {
 		t.Errorf("last event %+v", last)
 	}
 	for i := 1; i < len(events); i++ {
