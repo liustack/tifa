@@ -77,6 +77,8 @@ type Pool struct {
 	acquired   func()            // test hook, runs after a render takes a VM
 	collecting func(*pooledVM)   // test hook, runs before a GC between renders
 	releasing  func(*pooledVM)   // test hook, runs with a VM held, before its free memory goes back (see trimIdle)
+	trimming   func()            // test hook, runs in trimIdle before it takes a VM
+	scanning   func()            // test hook, runs in grownIdle after it counted the idle VMs
 
 	// trimTimer runs trimIdle once a VM may have waited idleRelease. It is made on first use and
 	// armed under mu.
@@ -498,6 +500,9 @@ func (p *Pool) trimIdle() {
 	p.refills.Add(1)
 	p.mu.Unlock()
 	defer p.refills.Done()
+	if p.trimming != nil {
+		p.trimming()
+	}
 	var next time.Duration
 	for range cap(p.idle) {
 		var vm *pooledVM
@@ -524,9 +529,19 @@ func (p *Pool) trimIdle() {
 			p.counts.trimmed++
 			p.mu.Unlock()
 		}
-		p.idle <- vm
+		p.returnIdle(vm)
 	}
 	p.armTrimAfter(next)
+}
+
+// returnIdle puts back a VM that trimIdle took from the idle channel. The replacement may have looked
+// for an idle VM meanwhile and found none, so this wakes it, as putIdle does for a VM that comes back
+// from a render. The VM keeps the time it went idle: it did not render.
+func (p *Pool) returnIdle(vm *pooledVM) {
+	p.idle <- vm
+	p.mu.Lock()
+	p.wakeSwap()
+	p.mu.Unlock()
 }
 
 // armTrimAfter arms the timer for d, if d is not 0.
@@ -567,12 +582,26 @@ func (p *Pool) wakeSwap() {
 // grownIdle inspects only idle VMs, while admission is locked and no requests
 // wait. With fresh it exchanges one VM before releasing the lock. Without fresh
 // it only checks whether loading a replacement would be useful.
+//
+// The lock keeps renders and the replacement apart, but not trimIdle, which takes idle VMs from the
+// channel without it. So a VM it counted may be gone when it comes to take it, and it takes without
+// waiting: waiting would hold the lock that trimIdle needs before it gives the VM back. When it finds
+// no VM, trimIdle wakes the replacement when the VM is back (see returnIdle).
 func (p *Pool) grownIdle(fresh *pooledVM) *pooledVM {
 	if p.closing || len(p.waiters) != 0 {
 		return nil
 	}
-	for n := len(p.idle); n > 0; n-- {
-		vm := <-p.idle
+	n := len(p.idle)
+	if p.scanning != nil {
+		p.scanning()
+	}
+	for ; n > 0; n-- {
+		var vm *pooledVM
+		select {
+		case vm = <-p.idle:
+		default:
+			return nil
+		}
 		if vm.live > vm.memoryBound(p.memory) {
 			if fresh != nil {
 				p.idle <- fresh
