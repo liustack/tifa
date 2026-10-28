@@ -1,5 +1,5 @@
 ---
-summary: 'Testing and verification: commands to run before committing, checks for the example app, end-to-end tests, red before green, the long SSR tests that are skipped by default, the SSR benchmarks of the example app with one VM and with several at once, and how to collect the engine profile again'
+summary: 'Testing and verification: commands to run before committing, checks for the example app, end-to-end tests, red before green, the long SSR tests that are skipped by default, the SSR benchmarks of the example app with one VM and with several at once, the extreme pages that find where rendering stops working, and how to collect the engine profile again'
 read_when:
   - Getting ready to commit and checking which checks to run
   - Writing a new test or fixing a bug
@@ -8,6 +8,7 @@ read_when:
   - Running the end-to-end tests, or changing `internal/codegen`, `test/apps` or `examples/shop`
   - Measuring SSR render time or VM memory, or comparing an SSR change against the baseline
   - Changing `internal/ssr` or `test/ssr`
+  - Checking how large a page can get before it fails, or that it fails cleanly, on either engine of slowjs
   - Changing something every VM uses, such as how the engine allocates memory, or checking that SSR still speeds up with more cores
   - Upgrading github.com/liustack/slowjs or modernc.org/libc, or `TestEngineProfileMatchesTheDependencies` fails
   - Changing how the server serves HTTPS or gets its certificates
@@ -44,7 +45,7 @@ go test ./...
 
 ## End-to-end tests (`test/e2e`)
 
-`test/e2e` builds the `tifa` CLI, runs `tifa build` on the apps in `test/apps/`, on `examples/shop` and on an app that `tifa new` creates, starts the outputs and checks them from outside. Skipped by default. First run `pnpm install --frozen-lockfile` in `test/apps/pages`, `test/apps/tailwind`, `test/apps/mui`, `test/apps/bench` and `examples/shop`, then turn them on:
+`test/e2e` builds the `tifa` CLI, runs `tifa build` on the apps in `test/apps/`, on `examples/shop` and on an app that `tifa new` creates, starts the outputs and checks them from outside. Skipped by default. First run `pnpm install --frozen-lockfile` in `test/apps/pages`, `test/apps/tailwind`, `test/apps/mui`, `test/apps/bench` and `examples/shop`, then turn them on (`test/apps/extreme` also needs `TIFA_EXTREME=1`, see [Extreme pages](#extreme-pages-testappsextreme)):
 
 ```sh
 TIFA_E2E=1 go test ./test/e2e/
@@ -113,6 +114,46 @@ They run normal reuse (2 VMs, 2 callers, 10,000 renders), OOM recovery (8 failur
 | `TIFA_SSR_SHOP=1 go test -run Shop -v ./test/ssr` | Renders the list, detail and stats pages of two shops, checks page content, script escaping, and that VM reuse does not mix up data. `TestShopWarmLatency` renders each page a few times in a warm VM, fails when one render takes more than a second, and prints P50/P95/P99. Takes about 15 seconds |
 | `TIFA_SSR_SHOP=1 TIFA_SSR_MEASURE=1 go test -run ShopWarmLatency -v ./test/ssr` | `TestShopWarmLatency` with the method of the prototype baseline: 512 warm renders, then 2,048 timed ones over the six pages. Use these numbers for comparisons. Takes about 3 minutes |
 | `TIFA_SSR_SHOP=1 TIFA_SSR_SOAK=1 go test -tags memory.counters -run Soak -v ./test/ssr` | The soak tests of `internal/ssr` with the shop's bundle: reuse over the six pages, the OOM recovery test on the order detail page, whose data contains Chinese text, and what a VM of the shop holds after loading, formatting and a render. Takes about 2 minutes |
+
+## Extreme pages (`test/apps/extreme`)
+
+`test/apps/extreme` is an app of pages pushed past what a normal page needs, to see where rendering stops working and that it stops cleanly. Each scenario is one route with its size in the path, such as `/dom/50000`. Its `Load` builds the data from a fixed seed, so a size always renders the same page. Two pages are mixes that look like real business pages, with the shop's photos and styles: a large marketplace product page (`/mall/zh-CN`, `/mall/en-US`) and a busy admin dashboard (`/console/100`). The app's `tifa.yaml` sets `ssr.vms: 2`, so the program holds the same on every machine. Every other setting is the default: 128 MiB per VM, 3 seconds per render, 10,000 levels of calls.
+
+| Scenario | Sizes | What it loads |
+| --- | --- | --- |
+| `/dom/<elements>` | 10,000, 50,000, 100,000 | The files tab of a large pull request: many DOM elements |
+| `/nest/<levels>` | 500, 1,000, 5,000, 10,000 | Components that only pass on children, plain, `memo`, `forwardRef` and context readers in turn: deep JavaScript calls |
+| `/deep/<levels>` | 400, 600 | Nested `div`s. Browsers stop nesting at about 512, so 600 only shows what the server does |
+| `/inject/<MB>` | 1, 5, 20 | A product catalogue of that many MB of JSON in the page |
+| `/json/<levels>` | 1,999, 2,001 | Data nested that deep. The C engine of slowjs parses JSON at most 2,000 levels deep |
+| `/table/<rows>` | 1,000, 5,000, 10,000 | A TanStack Table of 10 columns |
+| `/providers/<levels>` | 200, 500, 1,000 | That many context providers, each a different context, all read at the bottom |
+| `/charts/12` | 12 | Line, bar, area and scatter charts drawn on the server with d3 |
+| `/markdown/<KB>` | 200, 1,000, 2,000 | A long handbook with highlighted code, through react-markdown and highlight.js |
+| `/i18n/<keys>` | 3,000 | i18next texts in two languages with plurals and nesting, and 5,000 `Intl` calls |
+| `/mall/<language>` | `zh-CN`, `en-US` | A product page the size of Amazon's or JD's: about 1 MB of data and 3 MB of HTML |
+| `/console/<rows>` | 100 | An admin day: sidebar, 51 levels of providers, 6 charts, a 100-row order table, a ticket with 300 Markdown replies |
+
+None of this runs in the default `go test ./...`. Install and build the app first, then:
+
+```sh
+cd test/apps/extreme && pnpm install --frozen-lockfile && go tool tifa build && cd ../../..
+TIFA_E2E=1 TIFA_EXTREME=1 go test -run Extreme -v ./test/e2e/
+TIFA_SSR_EXTREME=1 go test -run '^$' -bench Extreme -benchtime 5x -v ./test/ssr
+TIFA_SSR_EXTREME=1 go test -run ExtremeIsolation -v ./test/ssr
+```
+
+- `TestExtremeApp` (20 to 30 seconds with the build) requests every size in turn from the built program. Each size must render, with the counts of its data in the HTML, or fail as a 500 within the 3 seconds of `ssr.timeout` and one more, after which `/` must render. `extremePages` in `test/e2e/extreme_test.go` says which sizes must render, which must fail, and which may do either because they take from about 1.8 to 3.5 seconds depending on the machine and the engine. The program must not exit or panic, and must not hold more than 1 GiB at once.
+- `BenchmarkExtreme` (3 to 6 minutes, mostly the sizes that fail) renders each size with the default settings. For a size that renders it reports the P50 and P99 of warm renders, `vm-MiB`, the VM's memory right after its first render, and `stack-KiB`, how much the goroutine stack grew during it. The `/inject` sizes also report the data request (`load-ms`), escaping it (`escape-ms`) and parsing it in a VM (`parse-ms`). For a size that fails, it logs how and after how long, and what it takes with 1 GiB and 60 seconds instead, and skips. Run it with `-v` to see these lines.
+- `TestExtremeIsolation` (about 20 seconds with 4 CPUs) renders `/table/25` with three of four VMs while the fourth renders `/markdown/200` again and again: once with time to finish, once with a budget of one second, so the pool stops and replaces that VM each time. The P99 of the light page must not be more than 1.5 times, or 5 ms, worse when VMs are stopped. It needs 4 CPUs, and with fewer only prints the numbers.
+
+To run them on the C engine of slowjs (linux/amd64 only), use a `go.work` that uses this repository, `test/apps/extreme` and a checkout of slowjs with its engine generated, and build with its tag. The end-to-end tests pass `GOFLAGS` on to `tifa build`:
+
+```sh
+export GOWORK=/path/to/go.work GOFLAGS=-tags=slowjs_cengine
+```
+
+`test/e2e/extreme_cengine_test.go` holds what differs on the C engine: `/json/2001` fails there. The numbers of the last run are in [Performance](performance.md#extreme-pages).
 
 ## Performance comparisons
 

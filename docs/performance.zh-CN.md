@@ -1,8 +1,9 @@
 ---
-summary: 'tifa 渲染页面和 C QuickJS、Node 比有多快，整个请求和 Next.js、TanStack Start 比怎么样，吞吐怎么随核数增长，CPU、ssr.vms 和内存怎么配，过载时会发生什么，压缩花多少，哪些改动让渲染变快，试过又放弃的做法，怎么复测，以后从哪里继续'
+summary: 'tifa 渲染页面和 C QuickJS、Node 比有多快，整个请求和 Next.js、TanStack Start 比怎么样，吞吐怎么随核数增长，CPU、ssr.vms 和内存怎么配，过载时会发生什么，页面大到什么程度会渲染失败，压缩花多少，哪些改动让渲染变快，试过又放弃的做法，怎么复测，以后从哪里继续'
 read_when:
   - 决定 tifa 应用要几个 CPU、多少内存，或者设置 `ssr.vms`
   - 请求到达速度超过页面渲染速度，或者要设置渲染队列
+  - 页面特别大、特别深或者数据特别多，想知道它能不能渲染出来
   - 想知道 tifa 渲染一个页面多快，和 C QuickJS、Node、Next.js 或 TanStack Start 比怎么样
   - 决定要不要关掉 `server.compress`，或者要改回答的压缩方式
   - 改 `internal/ssr`、Vite 插件对 SSR 包的改写或 PGO 剖析，想核对改动的收益
@@ -217,6 +218,53 @@ VM 回收后的活大小超过增长上界时，池会在后台替换它。基�
 
 - 无限递归的代码会让每个 VM 一时多占约 24 MB 的 goroutine 栈。
 - 在 Linux 上，一个 VM 递归到过 10000 层后，会一直多占约 20 MB 的 TLS 块，直到 VM 关闭。
+
+## 极端页面
+
+页面能大到什么程度才渲染失败，失败得干不干净？测试文档的[极端页面](testing.md#extreme-pages-testappsextreme)介绍了这个应用和它的场景。2026-10-28 用默认设置（每个 VM 128 MiB，每次渲染 3 秒）测，不开 PGO：
+
+- **M4**：Apple M4，slowjs v0.28.6，也就是 tifa 现在用的、跑在 Go 上的引擎。
+- **EPYC**：上面那台 AMD EPYC 7B13 的一个线程，同一个核的另一个线程空着，跑同一个引擎，以及 slowjs 的 C 引擎（slowjs main 0c8c338，用 `-release` 生成，用 `-tags slowjs_cengine` 构建）。C 引擎只能在 linux/amd64 上跑。
+
+每格是 5 次热渲染的 P50 和渲染刚结束时 VM 占的内存，或者渲染怎么失败的、换成 1 GiB 和 60 秒要多少。两个引擎回收垃圾的时机不同，内存只在同一个引擎里比。
+
+| 页面 | M4 | EPYC | EPYC，C 引擎 |
+| --- | --- | --- | --- |
+| `/dom/10000` | 41 ms，9.5 MiB | 71 ms，9.6 MiB | 60 ms，7.5 MiB |
+| `/dom/50000` | 208 ms，18.5 MiB | 362 ms，18.5 MiB | 318 ms，14.0 MiB |
+| `/dom/100000` | 419 ms，30.0 MiB | 739 ms，30.0 MiB | 638 ms，22.2 MiB |
+| `/nest/500` | 1.3 ms，6.9 MiB | 2.4 ms，6.9 MiB | 2.0 ms，5.8 MiB |
+| `/nest/1000` | 2.5 ms，6.9 MiB | 3.6 ms，6.9 MiB | 3.1 ms，5.8 MiB |
+| `/nest/5000` | 14 ms，7.6 MiB | 15 ms，7.7 MiB | 18 ms，6.6 MiB |
+| `/nest/10000` | 27 ms，9.8 MiB | 31 ms，9.8 MiB | 33 ms，8.7 MiB |
+| `/deep/400` | 1.8 ms，6.9 MiB | 3.2 ms，6.9 MiB | 2.7 ms，5.8 MiB |
+| `/deep/600` | 2.4 ms，6.9 MiB | 4.3 ms，6.9 MiB | 3.5 ms，5.8 MiB |
+| `/inject/1` | 13 ms，12.1 MiB | 26 ms，12.1 MiB | 22 ms，10.0 MiB |
+| `/inject/5` | 69 ms，31.4 MiB | 138 ms，31.4 MiB | 121 ms，27.3 MiB |
+| `/inject/20` | 0.14 秒后内存用完（0.25 秒，105 MiB） | 0.32 秒后内存用完（0.52 秒，105 MiB） | 0.39 秒后内存用完（0.53 秒，92 MiB） |
+| `/json/1999` | 2.2 ms，7.4 MiB | 4.4 ms，7.4 MiB | 3.6 ms，6.2 MiB |
+| `/json/2001` | 2.2 ms，7.4 MiB | 4.4 ms，7.4 MiB | 2 ms 后抛出 `RangeError: Maximum call stack size exceeded` |
+| `/table/1000` | 253 ms，36.3 MiB | 545 ms，36.3 MiB | 486 ms，34.0 MiB |
+| `/table/5000` | 0.93 秒后内存用完（1.4 秒，152 MiB） | 1.9 秒后内存用完（3.0 秒，152 MiB） | 1.8 秒后内存用完（2.6 秒，147 MiB） |
+| `/table/10000` | 0.83 秒后内存用完（2.8 秒，296 MiB） | 1.6 秒后内存用完（6.0 秒，297 MiB） | 1.4 秒后内存用完（5.3 秒，288 MiB） |
+| `/providers/200` | 1.2 ms，7.0 MiB | 2.2 ms，7.0 MiB | 1.9 ms，5.9 MiB |
+| `/providers/500` | 2.1 ms，7.3 MiB | 3.7 ms，7.3 MiB | 3.0 ms，6.2 MiB |
+| `/providers/1000` | 4.2 ms，7.8 MiB | 6.4 ms，7.8 MiB | 5.3 ms，6.7 MiB |
+| `/charts/12` | 269 ms，17.0 MiB | 456 ms，17.0 MiB | 372 ms，12.5 MiB |
+| `/markdown/200` | 1,848 ms，92.4 MiB | 超时（3.1 秒，92.5 MiB） | 2,718 ms，10.1 MiB |
+| `/markdown/1000` | 2.2 秒后内存用完（16 秒，407 MiB） | 超时（27 秒，408 MiB） | 超时（22 秒，436 MiB） |
+| `/markdown/2000` | 2.5 秒后内存用完（52 秒，809 MiB） | 超时（超过 60 秒） | 超时（超过 60 秒） |
+| `/i18n/3000` | 229 ms，17.2 MiB | 491 ms，17.2 MiB | 412 ms，15.8 MiB |
+| `/mall/zh-CN` | 151 ms，16.5 MiB | 305 ms，16.6 MiB | 261 ms，14.4 MiB |
+| `/mall/en-US` | 152 ms，16.3 MiB | 301 ms，16.3 MiB | 262 ms，13.8 MiB |
+| `/console/100` | 1,788 ms，31.3 MiB | 超时（3.4 秒，22.6 MiB） | 2,694 ms，19.7 MiB |
+
+- **每次失败都干净。** 两个引擎下没有哪一档让程序退出或卡住。每次失败都是时间预算内的 500，VM 换新，下一个页面照常渲染。程序开 2 个 VM，跑完所有档位最多占 363 到 416 MiB。
+- **大数据和长列表先用完内存**：注入 20 MB 数据、5000 行的表、长 Markdown。**高亮代码先用完时间**：Markdown 页面和后台忙碌的一天（300 条带代码的回复）的时间大半花在高亮上。它们的时间比体积涨得快：在 M4 上 200 KB 的 Markdown 要 1.8 秒，1 MB 要 16 秒，2 MB 要 52 秒。
+- **C 引擎**在较大的页面上比跑在 Go 上的引擎少用 11% 到 21% 的时间，在 5000 层和 10000 层组件上稍慢。它解析 JSON 最多 2000 层，所以 `/json/2001` 在它上面失败。
+- **深层调用**占的是 Go 栈，不是 VM 内存。渲染时 goroutine 栈的增长：500 到 1000 层组件或 Provider、400 到 600 层嵌套 `div` 涨 1 到 4 MiB，5000 和 10000 层组件在 EPYC 上涨 8 MiB，在 M4 上涨 16 MiB。宽而不深的页面最多涨 512 KiB。
+- **注入数据**：在 M4 上，带 5 MB 数据的页面渲染用 69 ms，其中 37 ms 花在 VM 里解析数据。渲染之前，Go 加载数据并写成 JSON 用 21 ms，转义用 2 ms。
+- **一个 VM 被停下不拖累别人**：在 M4 上开 4 个 VM，其中 3 个渲染 `/table/25`，单独跑时 P99 是 9 ms，第 4 个渲染 `/markdown/200` 时是 19 到 21 ms，第 4 个每秒被停下换新时是 17 到 18 ms。重页面本身会拖慢别人（M4 只有 4 个性能核），但停下和换新 VM 不会在这之上再加。
 
 ## 压缩
 

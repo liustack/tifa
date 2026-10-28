@@ -1,0 +1,4 @@
+/bin/
+.tifa/
+node_modules/
+*.tsbuildinfo
