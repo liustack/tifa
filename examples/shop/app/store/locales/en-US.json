@@ -277,11 +277,26 @@
     "newsletter": "Newsletter",
     "newsletterBody": "One email a month about new arrivals and the journal.",
     "subscribe": "Subscribe",
-    "copyright": "© {{year}} Shanhai Studio. All products and orders are demonstration data"
+    "copyright": "© {{year}} Shanhai Studio. All products and orders are demonstration data",
+    "faq": "Questions",
+    "story": "Our story",
+    "workshops": "Our workshops",
+    "hours": "Help desk 9:00 to 21:00 daily",
+    "payments": "Cards, Alipay and WeChat Pay accepted"
   },
   "notFound": {
     "title": "We could not find this page",
     "body": "The address may be wrong, or what was here is gone.",
     "back": "Back to the shop"
+  },
+  "shell": {
+    "announce": "Free delivery over {{amount, currency}} · Returns within seven days · Autumn 2026 catalogue, issue 4",
+    "menuCount_other": "{{count}} items",
+    "menuAll": "All of {{name}}",
+    "menuKinds": "Kinds",
+    "menuBest": "Best rated",
+    "popular": "Often searched",
+    "viewCart": "View cart",
+    "menuCount_one": "{{count}} item"
   }
 }

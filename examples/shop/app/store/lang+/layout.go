@@ -9,14 +9,12 @@ import (
 	"github.com/liustack/tifa/examples/shop/app/store/lang+/products"
 )
 
-// Shell is what every page of the storefront shows around itself: the language, the
-// categories in the menu and the number of pieces in the cart.
+// Shell is what every page of the storefront shows around itself: the language, the category
+// menu and the cart, which the header opens in a drawer.
 type Shell struct {
-	Locale     store.Locale        `json:"locale"`
-	Categories []products.Category `json:"categories"`
-	CartCount  int                 `json:"cartCount"`
-	// FreeShippingCents is the subtotal from which standard delivery is free.
-	FreeShippingCents int `json:"freeShippingCents"`
+	Locale store.Locale         `json:"locale"`
+	Menu   []products.MenuGroup `json:"menu"`
+	Cart   cart.Cart            `json:"cart"`
 }
 
 func Layout(c *tifa.Ctx) (Shell, error) {
@@ -24,5 +22,5 @@ func Layout(c *tifa.Ctx) (Shell, error) {
 	if err != nil {
 		return Shell{}, err
 	}
-	return Shell{Locale: l, Categories: products.Categories(l), CartCount: cart.Count(cart.ID(c)), FreeShippingCents: cart.FreeShipping(l)}, nil
+	return Shell{Locale: l, Menu: products.Menu(l), Cart: cart.Get(cart.ID(c), l)}, nil
 }

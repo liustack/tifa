@@ -12,7 +12,7 @@ export default function StoreHome() {
   const shell = layout.useLoaderData()
   const { t, locale } = useStore()
   const lang = locale.code
-  const free = shell.freeShippingCents / 100
+  const free = shell.cart.freeShippingCents / 100
   const promises = [
     { icon: Truck, title: t('home.promise1Title'), body: t('home.promise1Body', { amount: free }) },
     { icon: RotateCcw, title: t('home.promise2Title'), body: t('home.promise2Body') },
@@ -62,7 +62,7 @@ export default function StoreHome() {
           {t('home.categories')}
         </h2>
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          {(shell.categories ?? []).map((c) => (
+          {(shell.menu ?? []).map((c) => (
             <li key={c.id}>
               <Link
                 to="/store/$lang/products"

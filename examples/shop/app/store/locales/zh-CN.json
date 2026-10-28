@@ -263,11 +263,25 @@
     "newsletter": "订阅邮件",
     "newsletterBody": "每月一封，介绍新品和手记。",
     "subscribe": "订阅",
-    "copyright": "© {{year}} 山海工作室，所有商品与订单均为演示数据"
+    "copyright": "© {{year}} 山海工作室，所有商品与订单均为演示数据",
+    "faq": "常见问题",
+    "story": "我们的故事",
+    "workshops": "合作作坊",
+    "hours": "客服 每天 9:00 到 21:00",
+    "payments": "支持银行卡、支付宝和微信支付"
   },
   "notFound": {
     "title": "没有找到这个页面",
     "body": "地址可能有误，或者这里的内容已经不在了。",
     "back": "返回首页"
+  },
+  "shell": {
+    "announce": "全场满 {{amount, currency}} 包邮 · 收到后七天内可退换 · 2026 秋季目录第 4 期",
+    "menuCount_other": "{{count}} 件",
+    "menuAll": "查看全部{{name}}",
+    "menuKinds": "品类",
+    "menuBest": "评分最高",
+    "popular": "大家常搜",
+    "viewCart": "查看购物车"
   }
 }

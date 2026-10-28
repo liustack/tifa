@@ -163,7 +163,7 @@ export default function ProductPage() {
             <AccordionItem value="shipping">
               <AccordionTrigger>{t('product.shipping')}</AccordionTrigger>
               <AccordionContent className="text-muted-foreground">
-                {t('product.shippingBody', { amount: shell.freeShippingCents / 100, express: delivery.priceCents / 100 })}
+                {t('product.shippingBody', { amount: shell.cart.freeShippingCents / 100, express: delivery.priceCents / 100 })}
               </AccordionContent>
             </AccordionItem>
           </Accordion>
