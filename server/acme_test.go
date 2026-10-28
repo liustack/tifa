@@ -362,9 +362,7 @@ func TestAutomaticCertificate(t *testing.T) {
 			if err := <-served; err != nil {
 				t.Fatal(err)
 			}
-			if _, err := os.Stat(filepath.Join(cache, testDomain)); err != nil {
-				t.Fatalf("certificate not in the cache: %v", err)
-			}
+			waitForCachedCertificate(t, filepath.Join(cache, testDomain))
 
 			s = New(cfg, Hooks{})
 			s.Handle("GET", "/hello", hello)
@@ -429,6 +427,23 @@ func TestCertificatesAreAskedForAtStart(t *testing.T) {
 	for deadline := time.Now().Add(10 * time.Second); ca.orderCount() == 0 || !orderValid(ca); time.Sleep(20 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("no certificate asked for")
+		}
+	}
+}
+
+// waitForCachedCertificate waits for the certificate file. autocert lets a handshake that waits
+// for an order go as soon as the order is done, and writes the file to server.tls_cache just
+// after that, so the handshake can finish, and the server stop, before the file is there. The
+// file is written whole and moved into place, so seeing it is seeing all of it.
+func waitForCachedCertificate(t *testing.T, path string) {
+	t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		_, err := os.Stat(path)
+		if err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("certificate not in the cache: %v", err)
 		}
 	}
 }
