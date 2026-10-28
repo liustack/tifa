@@ -265,6 +265,10 @@ func checkStorefront(t *testing.T, base, buildID string) {
 	if font == nil {
 		t.Fatalf("stylesheet %s loads no font under /assets/", css[1])
 	}
+	// Chinese headings use the system serif fonts, so no Chinese font file is bundled.
+	if strings.Contains(sheet, "Noto Serif SC") {
+		t.Errorf("stylesheet %s still bundles Noto Serif SC", css[1])
+	}
 	for _, asset := range []struct{ path, kind string }{{photo[1], "image/avif"}, {font[1], "font/woff2"}} {
 		status, header, _ := get(t, base+asset.path)
 		if status != 200 || header.Get("Content-Type") != asset.kind || !strings.Contains(header.Get("Cache-Control"), "immutable") {

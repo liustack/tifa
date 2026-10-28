@@ -9,7 +9,7 @@
 
 页面在服务器上渲染成完整 HTML，浏览器接管后在页面之间跳转。数据放在进程内存里，重启恢复初始值。
 
-界面照着印刷的商品目录来做：细线，商品编号，规格摆在明处。每件商品有三张图：商品本身、细节和使用场景，存成 AVIF，各有 160、480 和 1200 像素宽三份。标题用 Newsreader 和 Noto Serif SC，随应用打包，正文用系统字体。界面用 Tailwind CSS 和 shadcn/ui，订单列表用 TanStack Table，表单用 react-hook-form 和 zod，图表用 recharts，数字补间用 react-spring。店面的翻译用 i18next，手记用 react-markdown 渲染，代码高亮用 highlight.js。
+界面照着印刷的商品目录来做：细线，商品编号，规格摆在明处。每件商品有三张图：商品本身、细节和使用场景，存成 AVIF，各有 160、480 和 1200 像素宽三份。英文标题用 Newsreader，随应用打包，中文标题和正文用系统字体。界面用 Tailwind CSS 和 shadcn/ui，订单列表用 TanStack Table，表单用 react-hook-form 和 zod，图表用 recharts，数字补间用 react-spring。店面的翻译用 i18next，手记用 react-markdown 渲染，代码高亮用 highlight.js。
 
 它用来演示一个 tifa 应用长什么样：怎么按业务分目录，Go 怎么给页面准备数据，React 组件怎么读这些数据。
 
