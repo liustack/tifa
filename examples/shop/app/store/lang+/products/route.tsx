@@ -29,7 +29,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Separator } from '@/components/ui/separator'
 import { useHydrated } from '../../../use-hydrated'
 import { message, storeTitle, useStore } from '../../i18n'
-import { ProductCard } from '../../product-card'
+import { ProductCard, ProductGrid } from '../../product-card'
 import { filterSchema, sorts, type FilterValues } from './filter-schema'
 import { route, type Data } from './+route'
 
@@ -129,17 +129,17 @@ export default function ProductList() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="font-serif text-3xl font-semibold">{categoryName ?? t('list.title')}</h1>
-          <p className="text-sm text-muted-foreground">
+      <div className="flex flex-wrap items-end justify-between gap-3 border-b border-foreground pb-5">
+        <div className="flex flex-col gap-2">
+          <h1 className="font-heading text-[42px] leading-tight font-medium tracking-[0.04em]">{categoryName ?? t('list.title')}</h1>
+          <p className="font-mono text-xs text-muted-foreground">
             {t('list.results', { count: results.total })}
             {products.length > 0 && ` · ${t('list.showing', { from, to: from + products.length - 1 })}`}
           </p>
         </div>
         {active > 0 && (
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="secondary">{t('filters.active', { count: active })}</Badge>
+            <Badge variant="outline" className="rounded-none font-mono">{t('filters.active', { count: active })}</Badge>
             <Button variant="ghost" size="sm" asChild>
               <a href={`/store/${lang}/products`}>
                 <X />
@@ -150,13 +150,13 @@ export default function ProductList() {
         )}
       </div>
 
-      <div className="grid gap-8 lg:grid-cols-[16rem_1fr]">
-        <aside>
+      <div className="grid gap-8 lg:grid-cols-[15rem_1fr]">
+        <aside className="lg:border-r lg:pr-6">
           <FilterForm results={results} values={values} issues={issues.map((i) => ({ path: i.path.join('.'), message: i.message }))} />
         </aside>
         <section aria-label={t('list.title')} className="flex flex-col gap-8">
           {products.length === 0 ? (
-            <Empty className="border">
+            <Empty className="rounded-none border">
               <EmptyHeader>
                 <EmptyMedia variant="icon">
                   <SearchX />
@@ -171,11 +171,11 @@ export default function ProductList() {
               </EmptyContent>
             </Empty>
           ) : (
-            <div className="grid grid-cols-2 gap-x-4 gap-y-8 md:grid-cols-3 xl:grid-cols-4">
+            <ProductGrid className="md:grid-cols-3 xl:grid-cols-4">
               {products.map((p) => (
-                <ProductCard key={p.slug} product={p} lang={lang} />
+                <ProductCard key={p.slug} product={p} lang={lang} sizes="(min-width: 1280px) 20vw, (min-width: 768px) 30vw, 50vw" />
               ))}
-            </div>
+            </ProductGrid>
           )}
           {results.pages > 1 && (
             <Pagination>
@@ -230,7 +230,7 @@ function FilterForm({ results, values, issues }: { results: Data; values: Filter
   return (
     <form noValidate onSubmit={form.handleSubmit(onSubmit)} aria-label={t('filters.title')}>
       <FieldGroup className="gap-6">
-        <div className="flex items-center gap-2 font-medium">
+        <div className="flex items-center gap-2 border-b border-foreground pb-2.5 font-heading text-lg font-medium tracking-[0.04em]">
           <SlidersHorizontal className="size-4" />
           {t('filters.title')}
         </div>
@@ -278,7 +278,7 @@ function FilterForm({ results, values, issues }: { results: Data; values: Filter
                     <RadioGroupItem value={c.id} id={`filter-category-${c.id}`} disabled={c.count === 0} />
                     <FieldLabel htmlFor={`filter-category-${c.id}`} className="flex-1 justify-between font-normal">
                       {c.name}
-                      <span className="text-xs text-muted-foreground tabular-nums">{t('filters.count', { count: c.count })}</span>
+                      <span className="font-mono text-[11px] text-muted-foreground tabular-nums">{t('filters.count', { count: c.count })}</span>
                     </FieldLabel>
                   </Field>
                 ))}
@@ -307,7 +307,7 @@ function FilterForm({ results, values, issues }: { results: Data; values: Filter
                         <span className="size-3 rounded-full border border-black/10" style={{ backgroundColor: c.hex }} />
                         {c.name}
                       </span>
-                      <span className="text-xs text-muted-foreground tabular-nums">{c.count}</span>
+                      <span className="font-mono text-[11px] text-muted-foreground tabular-nums">{c.count}</span>
                     </FieldLabel>
                   </Field>
                 ))}

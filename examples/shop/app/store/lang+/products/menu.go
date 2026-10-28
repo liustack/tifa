@@ -57,3 +57,26 @@ func compareRating(a, b productRecord) int {
 	}
 	return 0
 }
+
+// Bundle returns up to n products to buy together with slug: others of its category that come in
+// one size, best rated first, so each goes into the cart in its first colour.
+func Bundle(slug string, n int, l store.Locale) []Card {
+	var self productRecord
+	for _, p := range catalogue {
+		if p.slug == slug {
+			self = p
+		}
+	}
+	var in []productRecord
+	for _, p := range catalogue {
+		if p.category == self.category && p.slug != slug && len(p.sizes) == 0 && p.stock > 0 {
+			in = append(in, p)
+		}
+	}
+	slices.SortStableFunc(in, func(a, b productRecord) int { return compareRating(b, a) })
+	var out []Card
+	for _, p := range in[:min(n, len(in))] {
+		out = append(out, p.card(l))
+	}
+	return out
+}

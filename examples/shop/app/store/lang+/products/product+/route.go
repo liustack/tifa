@@ -17,6 +17,9 @@ type Detail struct {
 	Reviews []products.Review      `json:"reviews"`
 	Ratings []products.RatingCount `json:"ratings"`
 	Related []products.Card        `json:"related"`
+	// Bundle are two products of the same category that go with this one, sold together.
+	Bundle    []products.Card     `json:"bundle"`
+	Questions []products.Question `json:"questions"`
 	// Delivery is when standard delivery would arrive if ordered now.
 	Delivery cart.Delivery `json:"delivery"`
 }
@@ -31,7 +34,8 @@ func Load(c *tifa.Ctx) (Detail, error) {
 		return Detail{}, err
 	}
 	reviews, ratings := products.Reviews(p.Slug, 8, l)
-	d := Detail{Product: p, Reviews: reviews, Ratings: ratings, Related: products.Related(p.Slug, 4, l)}
+	related := products.Related(p.Slug, 8, l)
+	d := Detail{Product: p, Reviews: reviews, Ratings: ratings, Bundle: products.Bundle(p.Slug, 2, l), Related: related, Questions: products.Questions(p.Slug, l)}
 	d.Delivery = cart.Deliveries(cart.Cart{FreeShippingCents: 1}, time.Now(), l)[0]
 	return d, nil
 }

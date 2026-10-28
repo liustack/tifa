@@ -59,3 +59,17 @@ func TestLatestReviewsHavePicturesOfNewProducts(t *testing.T) {
 		}
 	}
 }
+
+func TestBundleHasOtherProductsOfOneSizeInStock(t *testing.T) {
+	for _, p := range catalogue {
+		for _, b := range Bundle(p.slug, 2, zh) {
+			stock, ok := HasVariant(b.Slug, b.Colors[0].ID, "")
+			if b.Slug == p.slug || !ok || stock == 0 {
+				t.Errorf("%s: bundle has %s (stock %d, one size %v)", p.slug, b.Slug, stock, ok)
+			}
+		}
+	}
+	if n := len(Bundle("pour-over-kettle", 2, zh)); n != 2 {
+		t.Errorf("the kettle has %d products to go with it", n)
+	}
+}
