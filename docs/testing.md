@@ -7,6 +7,8 @@ read_when:
   - Changing `internal/bundle`, or a bundle test shows skip
   - Running the end-to-end tests, or changing `internal/codegen`, `test/apps` or `examples/shop`
   - Measuring SSR render time or VM memory, or comparing an SSR change against the baseline
+  - Measuring what one VM costs the process, how long the Go GC stops the program while VMs render, or whether two builds write the same HTML
+  - Running the SSR tests and benchmarks on the C engine of slowjs
   - Changing `internal/ssr` or `test/ssr`
   - Checking how large a page can get before it fails, or that it fails cleanly, on either engine of slowjs
   - Changing something every VM uses, such as how the engine allocates memory, or checking that SSR still speeds up with more cores
@@ -174,6 +176,33 @@ TIFA_SSR_SHOP=1 go test -run '^$' -bench ShopParallel -benchtime 15s ./test/ssr
 | `first-render` | The first render in a fresh VM |
 | `ShopParallel/vms-<n>` | The six pages in turn with a pool of n VMs and one goroutine per VM, for n = 1 and n = `GOMAXPROCS`: `renders/s`, `lock-wait-%` (the share of the n goroutines' time spent blocked on a `sync.Mutex`, a `sync.RWMutex` or a lock of the runtime, from `/sync/mutex/wait/total:seconds` in `runtime/metrics`), and for n > 1 `speedup`, its renders per second over those of `vms-1` in the same command |
 | `TestShopVMMemory` | The memory of one VM from `JS_ComputeMemoryUsage`, split into a bare VM, Intl, the host polyfills, the whole bundle, and after 64 renders before and after a GC |
+
+Three more tests in `test/ssr` answer the questions a change to the engine or to the pool raises. All of them need the shop built, and the first two need `TIFA_SSR_SHOP=1`:
+
+```sh
+TIFA_SSR_SHOP=1 go test -run ShopVMResident -v ./test/ssr
+TIFA_SSR_SHOP=1 TIFA_SSR_MEASURE=1 go test -run ShopGCPause -v ./test/ssr
+TIFA_SSR_CRAWL=write:/tmp/pages-a TIFA_SSR_CRAWL_BIN=$PWD/examples/shop/bin/shop-a go test -run ShopCrawl -v ./test/ssr
+TIFA_SSR_CRAWL=compare:/tmp/pages-a TIFA_SSR_CRAWL_BIN=$PWD/examples/shop/bin/shop-b go test -run ShopCrawl -v ./test/ssr
+```
+
+| Test | What it measures |
+| --- | --- |
+| `TestShopVMResident` | What one VM costs the process. It starts its test binary twice as `TestShopVMResidentChild`, with 1 VM and with `TIFA_SSR_VMS` (8), and each child renders every page with every VM, 32 rounds (`TIFA_SSR_ROUNDS`). The memory of one VM is `(VmRSS with N VMs - VmRSS with 1 VM) / (N - 1)`, after loading and after rendering. Two processes, because in one the second pool would count pages the first left in the Go heap. The child with 1 VM also prints what the engine counts (malloc, footprint, chunks, what a release would give back) after loading, rendering, a full GC and a release, and every child prints its `vmhwm-kb:` peak |
+| `TestShopGCPause` | How long the Go GC stops the program while VMs render. `TIFA_SSR_VMS` (2) VMs render without a pause while a goroutine allocates `TIFA_SSR_ALLOC_MB` (512) megabytes a second, so the GC runs all the time. Reports the number of pauses and their P50, P99 and largest, for the whole stop and for the wait to stop the world (where a VM inside one long operation shows), and the renders a second with their P50 and P99. A few seconds by default, `TIFA_SSR_MEASURE=1` makes it 10 seconds of warm-up and `TIFA_SSR_SECS` (60) of measuring |
+| `TestShopCrawl` | Whether two builds write the same HTML. Crawls the pages of a running shop program, 27 starting URLs and the links they lead to (up to 160 pages), and writes them (`write:DIR`) or compares them byte for byte with a crawl made before (`compare:DIR`). The loaders write some times as RFC 3339 text, so a page that differs only there counts as the same after masking them, and the log counts them. Build the shop twice and crawl each; `TIFA_SSR_CRAWL_BIN` names the program (default `examples/shop/bin/shop`) |
+
+### On the C engine of slowjs
+
+The tests and benchmarks above run on the C engine of slowjs (linux/amd64, linux/arm64 and darwin/arm64) with a `go.work` that uses this repository, `examples/shop` and a slowjs checkout whose engine is generated, and the tag:
+
+```sh
+export GOWORK=/path/to/go.work GOFLAGS=-tags=slowjs_cengine
+(cd examples/shop && go tool tifa build)       # the shop program is built with the engine too
+TIFA_SSR_SHOP=1 go test -run '^$' -bench 'Shop/^render' -benchtime 100x ./test/ssr
+```
+
+To time one build of slowjs against another at several code positions, use `go tool sjdev bench` in slowjs ([docs/testing.md](https://github.com/liustack/slowjs/blob/main/docs/testing.md#developer-tools-generate-check-time)), which also has the make targets that generate its engine and run its checks, here or on another machine: it builds this package's test binary against each checkout, runs them in turn and reads the `p50-ms` of the pages by the rule of its code positions. A binary that prints a line `vmhwm-kb: N` at the end (the child of `TestShopVMResident` does) also gets its peak memory reported.
 
 The prototype's other experiments (per-stage timing, memory probes) stay in `internal/ssr` at the tag `prototype-baseline`. Check out that tag and build from it when needed.
 
