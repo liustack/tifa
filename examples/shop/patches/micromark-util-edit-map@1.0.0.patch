@@ -1,0 +1,15 @@
+diff --git a/index.js b/index.js
+index 5ddf22c742d46cb5a8c2642320bf917632e56ab7..71969ba4185b1b1e3bc3323f59fc1724de068d39 100644
+--- a/index.js
++++ b/index.js
+@@ -124,8 +124,8 @@ export class EditMap {
+       // Truncate rest.
+       events.length = this.map[index][0];
+     }
+-    vecs.push(events.slice());
+-    events.length = 0;
++    // The events before the first edit stay where they are: copying them on every call made
++    // parsing quadratic in the length of a document (micromark/micromark#246).
+     let slice = vecs.pop();
+     while (slice) {
+       for (const element of slice) {

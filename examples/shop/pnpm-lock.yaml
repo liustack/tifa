@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  micromark-util-edit-map@1.0.0:
+    hash: 07c0a943f5dd7455abbc1ba6a10e58364bd7cef8d72939b6ee441cb446fe0696
+    path: patches/micromark-util-edit-map@1.0.0.patch
+
 importers:
 
   .:
@@ -5599,7 +5604,7 @@ snapshots:
       micromark-util-character: 2.1.1
       micromark-util-chunked: 2.0.1
       micromark-util-classify-character: 2.0.1
-      micromark-util-edit-map: 1.0.0
+      micromark-util-edit-map: 1.0.0(patch_hash=07c0a943f5dd7455abbc1ba6a10e58364bd7cef8d72939b6ee441cb446fe0696)
       micromark-util-html-tag-name: 2.0.1
       micromark-util-normalize-identifier: 2.0.1
       micromark-util-resolve-all: 2.0.1
@@ -5728,7 +5733,7 @@ snapshots:
       micromark-util-decode-numeric-character-reference: 2.0.2
       micromark-util-symbol: 2.0.1
 
-  micromark-util-edit-map@1.0.0:
+  micromark-util-edit-map@1.0.0(patch_hash=07c0a943f5dd7455abbc1ba6a10e58364bd7cef8d72939b6ee441cb446fe0696):
     dependencies:
       micromark-util-types: 2.0.3
 
@@ -5773,7 +5778,7 @@ snapshots:
       micromark-util-chunked: 2.0.1
       micromark-util-combine-extensions: 2.0.1
       micromark-util-decode-numeric-character-reference: 2.0.2
-      micromark-util-edit-map: 1.0.0
+      micromark-util-edit-map: 1.0.0(patch_hash=07c0a943f5dd7455abbc1ba6a10e58364bd7cef8d72939b6ee441cb446fe0696)
       micromark-util-encode: 2.0.1
       micromark-util-normalize-identifier: 2.0.1
       micromark-util-resolve-all: 2.0.1
