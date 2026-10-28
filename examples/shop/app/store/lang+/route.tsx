@@ -118,7 +118,7 @@ export default function StoreHome() {
             <TabsContent key={c.id} value={c.id} forceMount className="data-[state=inactive]:hidden">
               <ProductGrid>
                 {(c.products ?? []).map((p) => (
-                  <ProductCard key={p.slug} product={p} lang={lang} />
+                  <ProductCard key={p.slug} product={p} lang={lang} layout="tile" />
                 ))}
               </ProductGrid>
             </TabsContent>

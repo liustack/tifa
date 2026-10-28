@@ -168,11 +168,12 @@ export function ProductCard({
   product: Card
   lang: string
   sizes?: string
-  layout?: 'grid' | 'list'
+  layout?: 'grid' | 'list' | 'tile'
 }) {
   const { t, locale } = useStore()
   const colors = product.colors ?? []
   const list = layout === 'list'
+  if (layout === 'tile') return <ProductTile product={product} lang={lang} sizes={sizes} />
   return (
     <article
       className={cn(
@@ -221,6 +222,35 @@ export function ProductCard({
       </div>
       <div className={cn(list ? 'flex flex-col justify-end gap-2 sm:w-44' : 'mt-auto flex flex-col')}>
         <QuickAdd product={product} lang={lang} />
+      </div>
+    </article>
+  )
+}
+
+// ProductTile is a product in a short row, such as the best sellers of a category: its photo, number,
+// name, rating and price, and nothing to press but the link.
+function ProductTile({ product, lang, sizes }: { product: Card; lang: string; sizes: string }) {
+  const { t } = useStore()
+  return (
+    <article className="group relative flex flex-col gap-3 border-r border-b bg-card p-3 md:p-4">
+      <Link to="/store/$lang/products/$product" params={{ lang, product: product.slug }} className="relative block outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={t('card.quickAdd', { name: product.name })}>
+        <ProductImage slug={product.slug} alt={product.name} sizes={sizes} />
+        <CardBadges product={product} />
+      </Link>
+      <div className="flex flex-col gap-1.5">
+        <span className="font-mono text-[11px] tracking-wider text-muted-foreground">
+          {catalogueNo(product.number)} · {product.category}
+        </span>
+        <h3 className="font-heading text-base leading-snug md:text-lg">
+          <Link to="/store/$lang/products/$product" params={{ lang, product: product.slug }} className="hover:underline">
+            {product.name}
+          </Link>
+        </h3>
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Stars rating={product.rating} />
+          <span>{t('rating.reviews', { count: product.reviews })}</span>
+        </div>
+        <Price priceCents={product.priceCents} compareAtCents={product.compareAtCents} className="text-sm" />
       </div>
     </article>
   )
