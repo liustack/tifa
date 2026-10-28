@@ -3,6 +3,7 @@ package orders
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -43,27 +44,27 @@ var customers = []customer{
 }
 
 var studioCatalogue = []itemRecord{
-	{Name: "晨间手冲壶", Description: "雾白 / 600 ml", PriceCents: 32800, Color: "sand"},
-	{Name: "亚麻杯垫", Description: "原色 / 两件装", PriceCents: 10000, Color: "olive"},
-	{Name: "手作陶瓷杯", Description: "青苔绿 / 280 ml", PriceCents: 13400, Color: "olive"},
-	{Name: "原木托盘", Description: "白橡木 / 大号", PriceCents: 58000, Color: "sand"},
-	{Name: "阅读香薰", Description: "雪松与纸张 / 180 g", PriceCents: 19600, Color: "clay"},
-	{Name: "黄铜书签", Description: "哑光 / 两枚装", PriceCents: 6800, Color: "sand"},
-	{Name: "粗陶花器", Description: "灰白 / 中号", PriceCents: 24800, Color: "clay"},
-	{Name: "棉麻围裙", Description: "燕麦色 / 均码", PriceCents: 16800, Color: "olive"},
+	{Slug: "pour-over-kettle", Name: "晨间手冲壶", Description: "雾白 / 600 ml", PriceCents: 32800, Color: "sand"},
+	{Slug: "linen-coasters", Name: "亚麻杯垫", Description: "原色 / 两件装", PriceCents: 10000, Color: "olive"},
+	{Slug: "ceramic-cup", Name: "手作陶瓷杯", Description: "青苔绿 / 280 ml", PriceCents: 13400, Color: "olive"},
+	{Slug: "oak-tray", Name: "原木托盘", Description: "白橡木 / 大号", PriceCents: 58000, Color: "sand"},
+	{Slug: "reading-candle", Name: "阅读香薰", Description: "雪松与纸张 / 180 g", PriceCents: 19600, Color: "clay"},
+	{Slug: "brass-bookmarks", Name: "黄铜书签", Description: "哑光 / 两枚装", PriceCents: 6800, Color: "sand"},
+	{Slug: "stoneware-vase", Name: "粗陶花器", Description: "灰白 / 中号", PriceCents: 24800, Color: "clay"},
+	{Slug: "linen-apron", Name: "棉麻围裙", Description: "燕麦色 / 均码", PriceCents: 16800, Color: "olive"},
 }
 
 var weekendCatalogue = []itemRecord{
-	{Name: "周末帆布袋", Description: "深蓝 / 标准款", PriceCents: 15800, Color: "blue"},
-	{Name: "露营折叠凳", Description: "军绿 / 承重 120 kg", PriceCents: 13900, Color: "olive"},
-	{Name: "野餐垫", Description: "格纹 / 2 × 2 m", PriceCents: 8900, Color: "blue"},
-	{Name: "保温水壶", Description: "雾蓝 / 750 ml", PriceCents: 12800, Color: "blue"},
-	{Name: "手绘明信片", Description: "城市系列 / 6 张", PriceCents: 3600, Color: "clay"},
+	{Slug: "canvas-tote", Name: "周末帆布袋", Description: "深蓝 / 标准款", PriceCents: 15800, Color: "blue"},
+	{Slug: "folding-stool", Name: "露营折叠凳", Description: "军绿 / 承重 120 kg", PriceCents: 13900, Color: "olive"},
+	{Slug: "picnic-blanket", Name: "野餐垫", Description: "格纹 / 2 × 2 m", PriceCents: 8900, Color: "blue"},
+	{Slug: "insulated-bottle", Name: "保温水壶", Description: "雾蓝 / 750 ml", PriceCents: 12800, Color: "blue"},
+	{Slug: "postcards", Name: "手绘明信片", Description: "城市系列 / 6 张", PriceCents: 3600, Color: "clay"},
 }
 
 func demoOrders() []orderRecord {
 	list := []orderRecord{
-		order("SH-1042", "studio", 0, at(10, 13, 14, 32), item(studioCatalogue[0], 1), item(studioCatalogue[1], 1)),
+		noted(order("SH-1042", "studio", 0, at(10, 13, 14, 32), item(studioCatalogue[0], 1), item(studioCatalogue[1], 1)), notes[0]),
 		order("SH-1041", "studio", 1, at(10, 12, 16, 47), item(studioCatalogue[2], 2)),
 		shipped(order("SH-1040", "studio", 2, at(10, 12, 10, 8), item(studioCatalogue[3], 1)), "SF", "SF1408273615", 6),
 		shipped(order("SH-1039", "studio", 3, at(10, 11, 20, 15), item(studioCatalogue[4], 1)), "JD", "JDV004192837465", 14),
@@ -91,6 +92,9 @@ func generated(format string, first int, projectID string, count, firstDay, last
 			items = append(items, item(catalogue[(product+1+n%3)%len(catalogue)], 1))
 		}
 		o := order("", projectID, (n*step+offset)%len(customers), placed, items...)
+		if n%6 == 0 {
+			o.Note = notes[n/6%len(notes)]
+		}
 		carrier := Carriers[n%len(Carriers)].Code
 		list = append(list, shipped(o, carrier, fmt.Sprintf("%s%010d", carrier, 7310000000+n*7919), 3+(n*5)%20))
 	}
@@ -109,9 +113,51 @@ func order(id, projectID string, buyer int, placed time.Time, items ...itemRecor
 	}
 }
 
-// shipped returns o shipped with carrier under tracking, hours after it was placed.
+// shipped returns o shipped with carrier under tracking, hours after it was placed, and delivered
+// a day and a half later.
 func shipped(o orderRecord, carrier, tracking string, hours int) orderRecord {
-	o.Shipment = &shipmentRecord{Carrier: carrier, TrackingNo: tracking, ShippedAt: o.PlacedAt.Add(time.Duration(hours) * time.Hour)}
+	at := o.PlacedAt.Add(time.Duration(hours) * time.Hour)
+	o.Shipment = &shipmentRecord{Carrier: carrier, TrackingNo: tracking, ShippedAt: at, Events: journey(at, o.Address)}
+	return o
+}
+
+// warehouse is where the shops pack and hand their parcels to the carrier.
+const warehouse = "杭州市余杭区 · 山海仓"
+
+// journey is the way of a parcel from the warehouse to address, leaving at at.
+func journey(at time.Time, address string) []TrackEvent {
+	city, district, _ := strings.Cut(strings.TrimSuffix(address, " · 演示地址"), "市")
+	city += "市"
+	steps := []struct {
+		hours       int
+		place, note string
+	}{
+		{0, warehouse, "快递员已揽收"},
+		{3, "杭州转运中心", "已到达"},
+		{5, "杭州转运中心", "已发出，下一站 " + city + "转运中心"},
+		{19, city + "转运中心", "已到达"},
+		{22, city + "转运中心", "已发出，下一站 " + district + "营业部"},
+		{27, city + district + "营业部", "已到达"},
+		{29, city + district + "营业部", "快递员正在派送"},
+		{33, city + district, "已签收，签收人：本人"},
+	}
+	var events []TrackEvent
+	for _, s := range steps {
+		events = append(events, TrackEvent{At: at.Add(time.Duration(s.hours) * time.Hour), Place: s.place, Note: s.note})
+	}
+	return events
+}
+
+// notes are what some customers write at checkout.
+var notes = []string{
+	"送朋友的生日礼物，请不要放价签。",
+	"工作日白天家里没人，请放快递柜。",
+	"能不能帮忙附一张手写卡片，写「生日快乐」就好。",
+	"包装请结实一些，上次的杯子路上磕了一个小口。",
+}
+
+func noted(o orderRecord, note string) orderRecord {
+	o.Note = note
 	return o
 }
 

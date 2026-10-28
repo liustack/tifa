@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -70,17 +71,17 @@ func TestShopApp(t *testing.T) {
 			t.Errorf("order page lacks %s", want)
 		}
 	}
-	// The list is a table that pages in the browser: the rendered page holds the ten newest
+	// The list is a table that pages in the browser: the rendered page holds the 25 newest
 	// orders and the totals, with money and times in Chinese. The data written into the page
 	// after it holds all 42.
 	_, _, list := get(t, base+"/projects/studio")
 	rendered, _, _ := strings.Cut(list[strings.Index(list, `id="tifa-root"`):], "<script")
-	for _, want := range []string{">SH-1042</a>", ">SH-1033</a>", "¥14,134.00", "10月13日 14:32"} {
+	for _, want := range []string{">SH-1042</a>", ">SH-1018</a>", "¥14,134.00", "10月13日 14:32"} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("order list lacks %s", want)
 		}
 	}
-	if strings.Contains(rendered, "SH-1032") || !strings.Contains(list, `\"id\":\"SH-1001\"`) {
+	if strings.Contains(rendered, "SH-1017") || !strings.Contains(list, `\"id\":\"SH-1001\"`) {
 		t.Errorf("the order list renders other than its first page, or lacks the data of the others:\n%s", list)
 	}
 	// The stats page renders its key numbers. The charts load in the browser only, so the HTML
@@ -249,6 +250,25 @@ func checkStorefront(t *testing.T, base, buildID string) {
 			if status != 200 || !strings.Contains(in, want) {
 				t.Errorf("%s: %d lacks %s", tc.path, status, want)
 			}
+		}
+	}
+	// Product photos and the fonts of the stylesheet are files under /assets/ whose names carry a
+	// hash of their content, so they are cached for good.
+	_, _, home := get(t, base+"/store/zh-CN")
+	photo := regexp.MustCompile(`src="(/assets/[^"]+\.avif)"`).FindStringSubmatch(home)
+	css := regexp.MustCompile(`href="(/assets/[^"]+\.css)"`).FindStringSubmatch(home)
+	if photo == nil || css == nil {
+		t.Fatalf("home page has no photo or no stylesheet under /assets/")
+	}
+	_, _, sheet := get(t, base+css[1])
+	font := regexp.MustCompile(`url\((/assets/[^)]+\.woff2)\)`).FindStringSubmatch(sheet)
+	if font == nil {
+		t.Fatalf("stylesheet %s loads no font under /assets/", css[1])
+	}
+	for _, asset := range []struct{ path, kind string }{{photo[1], "image/avif"}, {font[1], "font/woff2"}} {
+		status, header, _ := get(t, base+asset.path)
+		if status != 200 || header.Get("Content-Type") != asset.kind || !strings.Contains(header.Get("Cache-Control"), "immutable") {
+			t.Errorf("%s: %d %v", asset.path, status, header)
 		}
 	}
 	// Prices are in the rendered order the filters ask for: the cheapest moss product first.
@@ -647,10 +667,11 @@ func checkCompressed(t *testing.T, base, dir, buildID, head string) {
 		return string(plain)
 	}
 
-	// The order list is about 85 KB of HTML.
+	// The order list is over 200 KB of HTML, which gzip makes a few times smaller.
+	_, plain := fetch("/projects/studio", "identity")
 	page, body := fetch("/projects/studio", "gzip")
-	if page.Header.Get("Content-Encoding") != "gzip" || !strings.HasPrefix(page.Header.Get("ETag"), `W/"`) || len(body) > 20<<10 || !strings.Contains(gunzip(body), ">SH-1042</a>") {
-		t.Errorf("order list with gzip: %v, %d bytes", page.Header, len(body))
+	if page.Header.Get("Content-Encoding") != "gzip" || !strings.HasPrefix(page.Header.Get("ETag"), `W/"`) || len(body) > len(plain)/4 || !strings.Contains(gunzip(body), ">SH-1042</a>") {
+		t.Errorf("order list with gzip: %v, %d bytes of %d", page.Header, len(body), len(plain))
 	}
 	if page, _ := fetch("/projects/studio", "gzip, deflate, br, zstd"); page.Header.Get("Content-Encoding") != "zstd" {
 		t.Errorf("order list with zstd: %v", page.Header)

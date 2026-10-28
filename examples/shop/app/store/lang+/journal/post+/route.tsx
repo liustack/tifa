@@ -1,10 +1,8 @@
 import { Link } from '@tanstack/react-router'
 import { ArrowLeft } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Separator } from '@/components/ui/separator'
 import { storeTitle, useStore } from '../../../i18n'
+import { JournalCover, ProductCard, ProductGrid } from '../../../product-card'
 import { Article } from '../markdown'
 import { route, type Data } from './+route'
 
@@ -18,51 +16,63 @@ export const head = ({ loaderData, params }: { loaderData?: Data; params: { lang
 })
 
 export default function PostPage() {
-  const { post, more } = route.useLoaderData()
+  const { post, products, more } = route.useLoaderData()
   const { t, locale } = useStore()
   const lang = locale.code
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-8">
-      <Button variant="ghost" size="sm" asChild className="w-fit">
-        <Link to="/store/$lang/journal" params={{ lang }}>
-          <ArrowLeft />
-          {t('journal.back')}
-        </Link>
-      </Button>
-      <header className="flex flex-col gap-3">
-        <div className="flex flex-wrap gap-1.5">
-          {(post.tags ?? []).map((tag) => (
-            <Badge key={tag} variant="secondary">
-              {tag}
-            </Badge>
+    <div className="flex flex-col gap-12">
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
+        <Button variant="ghost" size="sm" asChild className="w-fit">
+          <Link to="/store/$lang/journal" params={{ lang }}>
+            <ArrowLeft />
+            {t('journal.back')}
+          </Link>
+        </Button>
+        <header className="flex flex-col gap-4 border-b border-foreground pb-6">
+          <p className="flex flex-wrap gap-x-3 font-mono text-[11px] tracking-wider text-muted-foreground">
+            {(post.tags ?? []).map((tag) => (
+              <span key={tag}>#{tag}</span>
+            ))}
+          </p>
+          <h1 className="font-heading text-[42px] leading-tight font-medium tracking-[0.02em]">{post.title}</h1>
+          <p className="text-lg text-muted-foreground">{post.excerpt}</p>
+          <p className="font-mono text-xs text-muted-foreground">
+            {t('journal.by', { author: post.author, date: post.publishedAt, formatParams: { date: { dateStyle: 'long' } } })} ·{' '}
+            {t('journal.minutes', { count: post.minutes })}
+          </p>
+        </header>
+        <JournalCover slug={post.slug} alt="" sizes="(min-width: 768px) 768px, 100vw" className="border" />
+        <Article body={post.body} />
+        <p className="border-t pt-6 text-sm text-muted-foreground">{t('journal.share')}</p>
+      </div>
+      <section aria-labelledby="post-products" className="flex flex-col gap-5">
+        <h2 id="post-products" className="border-b border-foreground pb-2.5 font-heading text-[22px] font-medium tracking-[0.04em]">
+          {t('journal.products')}
+        </h2>
+        <ProductGrid>
+          {(products ?? []).map((p) => (
+            <ProductCard key={p.slug} product={p} lang={lang} />
           ))}
-        </div>
-        <h1 className="font-serif text-4xl font-semibold leading-tight">{post.title}</h1>
-        <p className="text-lg text-muted-foreground">{post.excerpt}</p>
-        <p className="text-sm text-muted-foreground">
-          {t('journal.by', { author: post.author, date: post.publishedAt, formatParams: { date: { dateStyle: 'long' } } })} ·{' '}
-          {t('journal.minutes', { count: post.minutes })}
-        </p>
-      </header>
-      <Separator />
-      <Article body={post.body} />
-      <Separator />
-      <p className="text-sm text-muted-foreground">{t('journal.share')}</p>
-      <section className="flex flex-col gap-4">
-        <h2 className="font-serif text-2xl font-semibold">{t('journal.more')}</h2>
-        <div className="grid gap-4 sm:grid-cols-2">
+        </ProductGrid>
+      </section>
+      <section aria-labelledby="post-more" className="flex flex-col gap-5">
+        <h2 id="post-more" className="border-b border-foreground pb-2.5 font-heading text-[22px] font-medium tracking-[0.04em]">
+          {t('journal.more')}
+        </h2>
+        <div className="grid gap-8 sm:grid-cols-2">
           {(more ?? []).map((p) => (
-            <Card key={p.slug}>
-              <CardHeader>
-                <CardDescription>{t('journal.by', { author: p.author, date: p.publishedAt })}</CardDescription>
-                <CardTitle className="font-serif">
+            <article key={p.slug} className="grid grid-cols-[160px_1fr] gap-4">
+              <JournalCover slug={p.slug} alt="" sizes="160px" className="border" />
+              <div className="flex flex-col gap-1.5">
+                <p className="font-mono text-[11px] text-muted-foreground">{t('journal.by', { author: p.author, date: p.publishedAt })}</p>
+                <h3 className="font-heading text-lg leading-snug">
                   <Link to="/store/$lang/journal/$post" params={{ lang, post: p.slug }} className="hover:underline">
                     {p.title}
                   </Link>
-                </CardTitle>
-                <CardDescription>{p.excerpt}</CardDescription>
-              </CardHeader>
-            </Card>
+                </h3>
+                <p className="line-clamp-2 text-sm text-muted-foreground">{p.excerpt}</p>
+              </div>
+            </article>
           ))}
         </div>
       </section>

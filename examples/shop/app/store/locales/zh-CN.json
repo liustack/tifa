@@ -35,7 +35,13 @@
     "colors_other": "{{count}} 种颜色",
     "from": "原价 {{price}}",
     "save": "省 {{percent, number}}%",
-    "quickAdd": "查看 {{name}}"
+    "quickAdd": "查看 {{name}}",
+    "wish": "收藏 {{name}}",
+    "add": "加入购物车",
+    "addNamed": "把 {{name}} 加入购物车",
+    "added": "已加入",
+    "addFailed": "没加上，再试一次",
+    "chooseSize": "选择尺码"
   },
   "home": {
     "title": "山海 · 日常器物",
@@ -53,7 +59,21 @@
     "promise2Title": "七天无理由",
     "promise2Body": "收到后七天内可退换",
     "promise3Title": "手作",
-    "promise3Body": "每一件都来自合作的小作坊"
+    "promise3Body": "每一件都来自合作的小作坊",
+    "kicker": "2026 秋 · 第 4 期",
+    "heroCaption": "No. 001 到 005 · 晨间手冲壶、手作陶瓷杯、锡制茶叶罐",
+    "heroAlt": "手冲壶、陶瓷杯和锡制茶叶罐放在三个石膏台上",
+    "featuredLabel": "本期推荐",
+    "slide": "第 {{n}} 张，共 {{total}} 张",
+    "previous": "上一张",
+    "next": "下一张",
+    "saleKicker": "限时特价 · 到 11 月 11 日",
+    "saleTitle": "盖毯、营灯和冷水壶，限时特价",
+    "saleBody": "入秋前最后一批，卖完就恢复原价。",
+    "saleCta": "看特价商品",
+    "picks": "店主常用",
+    "byCategory": "各类评分最高",
+    "reviews": "顾客怎么说"
   },
   "list": {
     "title": "全部商品",
@@ -121,7 +141,33 @@
     "gallery": "商品图片",
     "thumbnail": "第 {{n}} 张图",
     "share": "分享",
-    "wishlist": "加入心愿单"
+    "wishlist": "加入心愿单",
+    "reviewPhoto": "顾客拍的{{name}}",
+    "originLabel": "产地",
+    "questionsCount_other": "{{count}} 个问答",
+    "promiseReturns": "七天无理由退换",
+    "promiseWarranty": "一年质保",
+    "promiseGift": "可选礼盒包装",
+    "view": {
+      "main": "主图",
+      "detail": "细节",
+      "scene": "使用中"
+    },
+    "bundle": "搭配购买",
+    "bundleThis": "本商品",
+    "bundleCount_other": "{{count}} 件合计",
+    "bundleAdd_other": "{{count}} 件一起加入购物车",
+    "bundleAdded": "已加入购物车",
+    "writeReview": "写评价",
+    "reviewFilter": "筛选评价",
+    "filterAll_other": "全部 {{count}}",
+    "filterPhotos_other": "有图 {{count}}",
+    "filterFive_other": "5 星 {{count}}",
+    "reviewsShown": "显示最新 {{shown}} 条，共 {{total}} 条评价",
+    "questions": "问答",
+    "ask": "提问",
+    "answerShop": "店主回答",
+    "answerCustomer": "已购顾客回答"
   },
   "cart": {
     "title": "购物车",
@@ -244,7 +290,8 @@
     "tags": "标签",
     "toc": "目录",
     "copy": "复制代码",
-    "share": "觉得有用？分享给朋友"
+    "share": "觉得有用？分享给朋友",
+    "products": "文中的器物"
   },
   "footer": {
     "about": "关于我们",
@@ -257,11 +304,25 @@
     "newsletter": "订阅邮件",
     "newsletterBody": "每月一封，介绍新品和手记。",
     "subscribe": "订阅",
-    "copyright": "© {{year}} 山海工作室，所有商品与订单均为演示数据"
+    "copyright": "© {{year}} 山海工作室，所有商品与订单均为演示数据",
+    "faq": "常见问题",
+    "story": "我们的故事",
+    "workshops": "合作作坊",
+    "hours": "客服 每天 9:00 到 21:00",
+    "payments": "支持银行卡、支付宝和微信支付"
   },
   "notFound": {
     "title": "没有找到这个页面",
     "body": "地址可能有误，或者这里的内容已经不在了。",
     "back": "返回首页"
+  },
+  "shell": {
+    "announce": "全场满 {{amount, currency}} 包邮 · 收到后七天内可退换 · 2026 秋季目录第 4 期",
+    "menuCount_other": "{{count}} 件",
+    "menuAll": "查看全部{{name}}",
+    "menuKinds": "品类",
+    "menuBest": "评分最高",
+    "popular": "大家常搜",
+    "viewCart": "查看购物车"
   }
 }

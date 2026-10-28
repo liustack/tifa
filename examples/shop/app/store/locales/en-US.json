@@ -39,7 +39,13 @@
     "colors_other": "{{count}} colours",
     "from": "Was {{price}}",
     "save": "Save {{percent, number}}%",
-    "quickAdd": "View {{name}}"
+    "quickAdd": "View {{name}}",
+    "wish": "Save {{name}}",
+    "add": "Add to cart",
+    "addNamed": "Add {{name}} to the cart",
+    "added": "Added",
+    "addFailed": "Not added, try again",
+    "chooseSize": "Choose a size"
   },
   "home": {
     "title": "Shanhai · Everyday things",
@@ -57,7 +63,21 @@
     "promise2Title": "7-day returns",
     "promise2Body": "Return or exchange within seven days",
     "promise3Title": "Handmade",
-    "promise3Body": "Every piece comes from a small workshop we know"
+    "promise3Body": "Every piece comes from a small workshop we know",
+    "kicker": "Autumn 2026 · Issue 4",
+    "heroCaption": "No. 001 to 005 · Pour-over kettle, ceramic cup, tin tea canister",
+    "heroAlt": "A pour-over kettle, a ceramic cup and a tin tea canister on three plaster stands",
+    "featuredLabel": "In this issue",
+    "slide": "Slide {{n}} of {{total}}",
+    "previous": "Previous",
+    "next": "Next",
+    "saleKicker": "On sale · until 11 November",
+    "saleTitle": "Throws, lanterns and carafes on sale",
+    "saleBody": "The last of them before autumn sets in, back to full price once gone.",
+    "saleCta": "See what is on sale",
+    "picks": "What we use every day",
+    "byCategory": "Best rated in each category",
+    "reviews": "What customers say"
   },
   "list": {
     "title": "All products",
@@ -131,7 +151,37 @@
     "gallery": "Product images",
     "thumbnail": "Image {{n}}",
     "share": "Share",
-    "wishlist": "Add to wishlist"
+    "wishlist": "Add to wishlist",
+    "reviewPhoto": "A customer's photo of the {{name}}",
+    "originLabel": "Made in",
+    "questionsCount_other": "{{count}} questions",
+    "promiseReturns": "Returns within seven days",
+    "promiseWarranty": "One-year warranty",
+    "promiseGift": "Gift wrapping available",
+    "view": {
+      "main": "Product",
+      "detail": "Detail",
+      "scene": "In use"
+    },
+    "bundle": "Bought together",
+    "bundleThis": "This item",
+    "bundleCount_other": "{{count}} items together",
+    "bundleAdd_other": "Add all {{count}} to cart",
+    "bundleAdded": "Added to your cart",
+    "writeReview": "Write a review",
+    "reviewFilter": "Filter reviews",
+    "filterAll_other": "All {{count}}",
+    "filterPhotos_other": "With photos {{count}}",
+    "filterFive_other": "5 stars {{count}}",
+    "reviewsShown": "Showing the newest {{shown}} of {{total}} reviews",
+    "questions": "Questions",
+    "ask": "Ask a question",
+    "answerShop": "Answered by the shop",
+    "answerCustomer": "Answered by a customer",
+    "questionsCount_one": "{{count}} question",
+    "filterAll_one": "All {{count}}",
+    "filterPhotos_one": "With photos {{count}}",
+    "filterFive_one": "5 stars {{count}}"
   },
   "cart": {
     "title": "Cart",
@@ -258,7 +308,8 @@
     "tags": "Tags",
     "toc": "Contents",
     "copy": "Copy code",
-    "share": "Found it useful? Pass it on"
+    "share": "Found it useful? Pass it on",
+    "products": "In this post"
   },
   "footer": {
     "about": "About us",
@@ -271,11 +322,26 @@
     "newsletter": "Newsletter",
     "newsletterBody": "One email a month about new arrivals and the journal.",
     "subscribe": "Subscribe",
-    "copyright": "© {{year}} Shanhai Studio. All products and orders are demonstration data"
+    "copyright": "© {{year}} Shanhai Studio. All products and orders are demonstration data",
+    "faq": "Questions",
+    "story": "Our story",
+    "workshops": "Our workshops",
+    "hours": "Help desk 9:00 to 21:00 daily",
+    "payments": "Cards, Alipay and WeChat Pay accepted"
   },
   "notFound": {
     "title": "We could not find this page",
     "body": "The address may be wrong, or what was here is gone.",
     "back": "Back to the shop"
+  },
+  "shell": {
+    "announce": "Free delivery over {{amount, currency}} · Returns within seven days · Autumn 2026 catalogue, issue 4",
+    "menuCount_other": "{{count}} items",
+    "menuAll": "All of {{name}}",
+    "menuKinds": "Kinds",
+    "menuBest": "Best rated",
+    "popular": "Often searched",
+    "viewCart": "View cart",
+    "menuCount_one": "{{count}} item"
   }
 }

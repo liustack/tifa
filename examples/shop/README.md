@@ -4,12 +4,12 @@ English · [简体中文](README.zh-CN.md)
 
 Two sides of one small shop, in one program.
 
-- **The workbench**, for the shop owner: two shops, an order list to sort, filter and search, order details, a shipping form, a dialog to change where an order goes, and a sales stats page with charts. After you ship an order the list and the stats update with it.
-- **The storefront**, for customers, in Chinese and English: a home page, a product list with search and filters, product pages with reviews, a cart kept in the program's memory with its ID in a cookie, a checkout with a long form, and a journal of articles in Markdown with highlighted code. Prices are in yuan or dollars, and dates and numbers follow the language.
+- **The workbench**, for the shop owner: two shops, an order list of 25 rows a page with product photos, to sort, search and filter by status, date, carrier and amount, with rows to select and export, order details with the way of the parcel, a shipping form, a dialog to change where an order goes, and a sales stats page with charts and a daily table. After you ship an order the list and the stats update with it.
+- **The storefront**, for customers, in Chinese and English: a category menu and a cart drawer on every page, a home page with a carousel and tabs of best sellers, a product list with search and filters, product pages with a photo gallery, reviews with photos, questions and products to buy together, a cart kept in the program's memory with its ID in a cookie, a checkout with a long form, and a journal of articles in Markdown with highlighted code. Prices are in yuan or dollars, and dates and numbers follow the language.
 
 Pages are rendered to complete HTML on the server. After the browser takes over, it moves between pages on its own. Data lives in process memory and resets on restart.
 
-The interface is built with Tailwind CSS and shadcn/ui, the order list with TanStack Table, the forms with react-hook-form and zod, the charts with recharts, and the numbers tween with react-spring. The storefront is translated with i18next, and the journal is rendered with react-markdown, with code highlighted by highlight.js.
+The interface looks like a printed catalogue: thin lines, numbered products and their details in plain sight. Every product has three photos, of itself, a close detail and in use, stored as AVIF at 160, 480 and 1200 pixels wide. Headings use Newsreader and Noto Serif SC, bundled with the app, and body text uses the system fonts. The interface is built with Tailwind CSS and shadcn/ui, the order list with TanStack Table, the forms with react-hook-form and zod, the charts with recharts, and the numbers tween with react-spring. The storefront is translated with i18next, and the journal is rendered with react-markdown, with code highlighted by highlight.js.
 
 It shows what a tifa app looks like: how folders are grouped by business area, how Go prepares data for pages, and how React components read that data.
 
@@ -60,9 +60,10 @@ app/
   store/
     store.go                   what the storefront shares: its two languages, their currency and time zone, prices
     i18n.ts  locales/          i18next with the texts of both languages, money and dates formatted per language
-    product-card.tsx           the product card of every list
+    product-card.tsx           the product card of every list, product photos and prices
+    images.ts  images/         the product, home page and journal photos, in AVIF
     lang+/                     /store/{lang}
-      layout.go  layout.tsx    storefront Layout: categories, search, language switch, cart count, footer
+      layout.go  layout.tsx    storefront Layout: category menu, search, language switch, cart drawer, footer
       route.go  route.tsx      home page
       products/
         product.go  catalogue.go  review.go    catalogue domain: products, search, filters and their counts, reviews
@@ -90,8 +91,8 @@ The storefront takes its language from the first segment of the URL. Go loads th
 
 ## Things to try
 
-- View the page source. The first ten orders, the totals and the customer details are already in the HTML.
-- Sort, filter and search the order list. It all happens in the browser, with no request.
+- View the page source. The first 25 orders, the totals and the customer details are already in the HTML.
+- Sort, filter and search the order list, select a few rows and export them. It all happens in the browser, with no request.
 - Open "店铺备忘" (shop notes), then go to an order's details. The notes stay open. Switch to the other shop: the shop notes close.
 - Collapse the sidebar and reload. The server renders it collapsed, because the state is kept in a cookie.
 - Watch the Network tab in the developer tools: taking over the first page makes no extra data request, and each navigation makes at most one data request.

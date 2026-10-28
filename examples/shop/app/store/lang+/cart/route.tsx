@@ -15,7 +15,7 @@ import { Separator } from '@/components/ui/separator'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useHydrated } from '../../../use-hydrated'
 import { message, storeTitle, useStore } from '../../i18n'
-import { ProductCard, ProductImage } from '../../product-card'
+import { ProductCard, ProductGrid, ProductImage } from '../../product-card'
 import { PATCH, POST, route, type Data } from './+route'
 import { arrival } from './arrival'
 
@@ -38,7 +38,7 @@ export default function CartPage() {
 
   if (lines.length === 0) {
     return (
-      <Empty className="min-h-[50vh]">
+      <Empty className="min-h-[50vh] border">
         <EmptyHeader>
           <EmptyMedia variant="icon">
             <ShoppingBag />
@@ -59,19 +59,19 @@ export default function CartPage() {
 
   return (
     <div className="flex flex-col gap-10">
-      <div className="flex items-baseline gap-3">
-        <h1 className="font-serif text-3xl font-semibold">{t('cart.title')}</h1>
-        <span className="text-muted-foreground">{t('cart.pieces', { count: cart.count })}</span>
+      <div className="flex items-baseline gap-3 border-b border-foreground pb-3">
+        <h1 className="font-heading text-[34px] font-medium tracking-[0.04em]">{t('cart.title')}</h1>
+        <span className="font-mono text-sm text-muted-foreground">{t('cart.pieces', { count: cart.count })}</span>
       </div>
       <div className="grid gap-8 lg:grid-cols-[1fr_22rem]">
         <div className="flex flex-col gap-4">
           <div
             role="status"
-            className="flex items-center gap-2 rounded-lg border bg-card px-4 py-3 text-sm"
+            className="flex items-center gap-2 border bg-card px-4 py-3 text-sm"
           >
             <Truck className="size-4 text-primary" />
             {left > 0 ? t('cart.freeShippingLeft', { amount: left / 100 }) : t('cart.freeShippingDone')}
-            <span className="ml-auto h-1.5 w-32 overflow-hidden rounded-full bg-muted">
+            <span className="ml-auto h-px w-40 bg-border">
               <span className="block h-full bg-primary" style={{ width: `${Math.min(100, Math.round((net / cart.freeShippingCents) * 100))}%` }} />
             </span>
           </div>
@@ -100,15 +100,15 @@ export default function CartPage() {
           </Button>
         </div>
 
-        <Card className="h-fit">
+        <Card className="h-fit gap-4 rounded-none py-5 shadow-none lg:sticky lg:top-24">
           <CardHeader>
-            <CardTitle>{t('cart.summary')}</CardTitle>
+            <CardTitle className="font-heading text-xl font-medium">{t('cart.summary')}</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-4 text-sm">
             <dl className="flex flex-col gap-2">
               <div className="flex justify-between">
                 <dt className="text-muted-foreground">{t('cart.subtotal')}</dt>
-                <dd className="tabular-nums">{money(cart.subtotalCents)}</dd>
+                <dd className="font-mono tabular-nums">{money(cart.subtotalCents)}</dd>
               </div>
               {cart.discountCents > 0 && (
                 <div className="flex justify-between text-primary">
@@ -126,21 +126,21 @@ export default function CartPage() {
             <Separator />
             <div className="flex justify-between text-base font-medium">
               <span>{t('cart.estimated')}</span>
-              <span className="tabular-nums">{money(net + (standard?.priceCents ?? 0))}</span>
+              <span className="font-mono tabular-nums">{money(net + (standard?.priceCents ?? 0))}</span>
             </div>
             <CouponForm coupon={cart.coupon} />
             <div className="flex flex-col gap-2">
               <h2 className="font-medium">{t('cart.deliveries')}</h2>
               <ul className="flex flex-col gap-2">
                 {(deliveries ?? []).map((d) => (
-                  <li key={d.id} className="flex justify-between gap-2 rounded-md bg-muted/50 px-3 py-2">
+                  <li key={d.id} className="flex justify-between gap-2 border px-3 py-2">
                     <span>
                       {d.name}
                       <span className="block text-xs text-muted-foreground">
                         {arrival(t, d)}
                       </span>
                     </span>
-                    <span className="tabular-nums">{d.priceCents === 0 ? t('cart.free') : money(d.priceCents)}</span>
+                    <span className="font-mono tabular-nums">{d.priceCents === 0 ? t('cart.free') : money(d.priceCents)}</span>
                   </li>
                 ))}
               </ul>
@@ -159,12 +159,12 @@ export default function CartPage() {
       </div>
 
       <section className="flex flex-col gap-4">
-        <h2 className="font-serif text-2xl font-semibold">{t('cart.suggested')}</h2>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-8 md:grid-cols-4">
+        <h2 className="border-b border-foreground pb-2.5 font-heading text-[22px] font-medium tracking-[0.04em]">{t('cart.suggested')}</h2>
+        <ProductGrid>
           {(suggested ?? []).map((p) => (
             <ProductCard key={p.slug} product={p} lang={lang} />
           ))}
-        </div>
+        </ProductGrid>
       </section>
     </div>
   )
@@ -198,12 +198,12 @@ function CartLine({ line }: { line: Line }) {
     <TableRow aria-busy={busy}>
       <TableCell>
         <div className="flex items-center gap-3">
-          <ProductImage name="" hex={line.hex || '#d9c9a8'} className="size-16 shrink-0 rounded-lg" />
+          <ProductImage slug={line.slug} alt="" width={160} className="size-20 shrink-0 border" />
           <div className="flex flex-col">
             <Link
               to="/store/$lang/products/$product"
               params={{ lang: locale.code, product: line.slug }}
-              className="font-medium hover:underline"
+              className="font-heading text-base hover:underline"
             >
               {line.name}
             </Link>
@@ -214,7 +214,7 @@ function CartLine({ line }: { line: Line }) {
           </div>
         </div>
       </TableCell>
-      <TableCell className="hidden tabular-nums md:table-cell">{money(line.priceCents)}</TableCell>
+      <TableCell className="hidden font-mono tabular-nums md:table-cell">{money(line.priceCents)}</TableCell>
       <TableCell>
         <div className="flex items-center gap-1" role="group" aria-label={t('cart.lineQuantity', { name: line.name })}>
           <Button
@@ -243,7 +243,7 @@ function CartLine({ line }: { line: Line }) {
           </p>
         )}
       </TableCell>
-      <TableCell className="text-right font-medium tabular-nums">{money(line.priceCents * line.quantity)}</TableCell>
+      <TableCell className="text-right font-mono font-medium tabular-nums">{money(line.priceCents * line.quantity)}</TableCell>
       <TableCell>
         <Button
           variant="ghost"

@@ -23,6 +23,27 @@ tifa 在 slowjs 里渲染页面。slowjs 是从 C 翻译成 Go 的 QuickJS，在
 - **多核**：4 个物理核答的请求是 1 个核的 3.76 倍。同一个核的第二个超线程忙起来，约多 30%。
 - **怎么配**：像 shop 工作台这样的页面，按每个物理核每秒约 73 个请求、约 45 MiB 加每个 VM 12 到 16 MiB 准备。
 
+示例商店在 2026-10-28 改了版，页面变重了。这篇文档里其他数字都是在改版前的页面上测的。新页面的数字见[改版后的商店](#改版后的商店)。
+
+## 改版后的商店
+
+改版让商店的页面重到和真实网店相当：店面每页都有商品图、分类菜单和购物车抽屉，还有轮播、图库、带图评价和问答，订单列表每页 25 行，带筛选、行操作菜单和批量操作。下面的数字是新页面的。它们不代表 tifa 变慢了，所以不和旧页面比。
+
+2026-10-28 在下文那台机器上测，tifa 95c2af8，slowjs v0.28.6，用 tifa 自带的 profile 开 PGO：`test/ssr` 的 `BenchmarkShop`，一个热的 VM 跑在一个核的一个线程上，同核另一个线程空闲，2,000 次渲染，测三轮，取各轮的中位数。
+
+| 页面 | HTML | P50 ms | P99 ms |
+| --- | --- | --- | --- |
+| 工作台：订单列表，42 单 | 218 KB | 72.9 | 97.2 |
+| 工作台：订单列表，12 单 | 130 KB | 42.8 | 59.5 |
+| 工作台：订单详情 | 55 KB | 12.5 | 14.9 |
+| 工作台：另一家店的订单详情 | 51 KB | 11.9 | 17.2 |
+| 工作台：统计 | 74 KB | 14.5 | 22.1 |
+| 工作台：另一家店的统计 | 58 KB | 12.3 | 19.2 |
+
+- `BenchmarkShopParallel`，六个页面轮流：一个 VM 每秒渲染 34.95 页，同一个核的两个线程上两个 VM 每秒 44.51 页，是一个 VM 的 1.27 倍。
+- `TestShopVMMemory`：包的字节码 4.30 MB，所有 VM 共用。一个 VM 载入包后占 9.43 MB，渲染 64 次后 12.18 MB，完整回收一次后 10.65 MB。
+- 店面的页面更重：HTML 首页 379 KB，商品列表 292 KB，商品详情 206 KB。
+
 ## 这些数字怎么测的
 
 [哪些改动让它变快](#哪些改动让它变快)之前的数字都是 2026-10-24 在同一台机器上、用同一个构建测的。
@@ -71,7 +92,7 @@ tifa 的耗时除以对方的，取各页的几何平均（小于 1 就是 tifa 
 
 ## 和 Next.js 与 TanStack Start 比
 
-shop 的六个工作台页面另外照着写了 Next.js 16.4.2 版（App Router，每个路由都是动态的，数据在服务端组件里取，React 组件相同）和 TanStack Start 1.169.3 版（路由和 loader 相同），跑在 Node 24.13.0 上，可见文本相同。测的是走 HTTP 的完整请求，六个页面轮流，一次一个，`Accept-Encoding: identity`。两核时，Next.js 和 Start 用 Node 的 cluster 模块开两个进程，tifa 开 2 个 VM。测法和全部数字见 [tifa 对比 Next.js 和 TanStack Start](studies/nextjs-and-tanstack-start.md)。
+shop 的六个工作台页面另外照着写了 Next.js 16.4.2 版（App Router，每个路由都是动态的，数据在服务端组件里取，React 组件相同）和 TanStack Start 1.169.3 版（路由和 loader 相同），跑在 Node 24.13.0 上，可见文本相同。测的是走 HTTP 的完整请求，六个页面轮流，一次一个，`Accept-Encoding: identity`。两核时，Next.js 和 Start 用 Node 的 cluster 模块开两个进程，tifa 开 2 个 VM。测法和全部数字见 [tifa 对比 Next.js 和 TanStack Start](studies/nextjs-and-tanstack-start.md)。测的是 2026-10-28 改版之前的工作台页面。
 
 | | tifa | Next.js | Next.js `--jitless` | TanStack Start |
 | --- | --- | --- | --- | --- |

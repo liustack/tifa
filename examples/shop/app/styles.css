@@ -1,49 +1,133 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/inter";
+@import "@fontsource-variable/newsreader";
+@import "@fontsource-variable/noto-serif-sc";
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark {
+  &:where(.dark, .dark *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not(.light) *) {
+      @slot;
+    }
+  }
+}
 
 :root {
-  --background: #f7f8f5;
-  --foreground: #26352f;
-  --card: #ffffff;
-  --card-foreground: #26352f;
-  --popover: #ffffff;
-  --popover-foreground: #26352f;
-  --primary: #284e3e;
-  --primary-foreground: #f7f8f5;
-  --secondary: #edf1e7;
-  --secondary-foreground: #284e3e;
-  --muted: #f0f2ec;
-  --muted-foreground: #7c857e;
-  --accent: #e8ecdf;
-  --accent-foreground: #284e3e;
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: #e6e9e3;
-  --input: #dfe4d9;
-  --ring: #91ad90;
-  --chart-1: #284e3e;
-  --chart-2: #91ad90;
-  --chart-3: #b39854;
-  --chart-4: #697860;
-  --chart-5: #c7d1bf;
-  --radius: 0.625rem;
-  --sidebar: #f0f2ec;
-  --sidebar-foreground: #26352f;
-  --sidebar-primary: #284e3e;
-  --sidebar-primary-foreground: #f7f8f5;
-  --sidebar-accent: #e6eadf;
-  --sidebar-accent-foreground: #284e3e;
-  --sidebar-border: #e2e6dc;
-  --sidebar-ring: #91ad90;
+  --radius: 0.125rem;
+  --background: #f2f4f5;
+  --foreground: #1c2433;
+  --card: #fbfcfc;
+  --card-foreground: #1c2433;
+  --popover: #fbfcfc;
+  --popover-foreground: #1c2433;
+  --primary: #1f3a5f;
+  --primary-foreground: #f6f8fa;
+  --secondary: #e3e8ec;
+  --secondary-foreground: #1c2433;
+  --muted: #e8ecef;
+  --muted-foreground: #5b6876;
+  --accent: #d8e6e2;
+  --accent-foreground: #17302c;
+  --destructive: #a3352b;
+  --border: #d3dae0;
+  --input: #c6cfd6;
+  --ring: #4c7a9a;
+  --chart-1: #1f3a5f;
+  --chart-2: #6e9c95;
+  --chart-3: #a3352b;
+  --chart-4: #8c9aa6;
+  --chart-5: #3e6e8e;
+  --sidebar: #1c2433;
+  --sidebar-foreground: #d9e0e7;
+  --sidebar-primary: #d8e6e2;
+  --sidebar-primary-foreground: #1c2433;
+  --sidebar-accent: #273246;
+  --sidebar-accent-foreground: #f6f8fa;
+  --sidebar-border: #2b3649;
+  --sidebar-ring: #6e9c95;
+}
+.dark {
+  --background: #0f141b;
+  --foreground: #e3e8ee;
+  --card: #151c25;
+  --card-foreground: #e3e8ee;
+  --popover: #151c25;
+  --popover-foreground: #e3e8ee;
+  --primary: #a9c3df;
+  --primary-foreground: #0f141b;
+  --secondary: #1d2631;
+  --secondary-foreground: #e3e8ee;
+  --muted: #19212b;
+  --muted-foreground: #8e9bab;
+  --accent: #1f302e;
+  --accent-foreground: #cfe3de;
+  --destructive: #e07b6e;
+  --border: #253041;
+  --input: #2c3848;
+  --ring: #6f95b8;
+  --chart-1: #a9c3df;
+  --chart-2: #7fb3aa;
+  --chart-3: #e07b6e;
+  --chart-4: #6b7a89;
+  --chart-5: #5d93b8;
+  --sidebar: #0b0f15;
+  --sidebar-foreground: #c9d2dc;
+  --sidebar-primary: #7fb3aa;
+  --sidebar-primary-foreground: #0b0f15;
+  --sidebar-accent: #18202b;
+  --sidebar-accent-foreground: #e3e8ee;
+  --sidebar-border: #1b2430;
+  --sidebar-ring: #7fb3aa;
+}
+
+/* With no class from the page, the shop follows the system setting. */
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --background: #0f141b;
+    --foreground: #e3e8ee;
+    --card: #151c25;
+    --card-foreground: #e3e8ee;
+    --popover: #151c25;
+    --popover-foreground: #e3e8ee;
+    --primary: #a9c3df;
+    --primary-foreground: #0f141b;
+    --secondary: #1d2631;
+    --secondary-foreground: #e3e8ee;
+    --muted: #19212b;
+    --muted-foreground: #8e9bab;
+    --accent: #1f302e;
+    --accent-foreground: #cfe3de;
+    --destructive: #e07b6e;
+    --border: #253041;
+    --input: #2c3848;
+    --ring: #6f95b8;
+    --chart-1: #a9c3df;
+    --chart-2: #7fb3aa;
+    --chart-3: #e07b6e;
+    --chart-4: #6b7a89;
+    --chart-5: #5d93b8;
+    --sidebar: #0b0f15;
+    --sidebar-foreground: #c9d2dc;
+    --sidebar-primary: #7fb3aa;
+    --sidebar-primary-foreground: #0b0f15;
+    --sidebar-accent: #18202b;
+    --sidebar-accent-foreground: #e3e8ee;
+    --sidebar-border: #1b2430;
+    --sidebar-ring: #7fb3aa;
+  }
 }
 
 @theme inline {
-  --font-heading: var(--font-sans);
-  --font-serif: 'Songti SC', STSong, 'Noto Serif CJK SC', serif;
-  --font-sans: 'Inter Variable', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  /* Headings are bundled, body text uses the system fonts every Chinese and Latin reader already has. */
+  --font-heading: 'Newsreader Variable', 'Noto Serif SC Variable', 'Songti SC', serif;
+  --font-serif: 'Newsreader Variable', 'Noto Serif SC Variable', 'Songti SC', serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -111,7 +195,7 @@
     touch-action: manipulation;
   }
   ::selection {
-    background: #d8e5cd;
+    background: var(--accent);
   }
 }
 

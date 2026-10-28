@@ -1,6 +1,7 @@
 package products
 
 import (
+	"slices"
 	"time"
 
 	"github.com/liustack/tifa/examples/shop/app/store"
@@ -16,6 +17,8 @@ type Review struct {
 	PostedAt time.Time `json:"postedAt"`
 	Verified bool      `json:"verified"` // bought in this shop
 	Helpful  int       `json:"helpful"`  // how many found it helpful
+	// Photos are the views of the product the customer took pictures of: "detail" or "scene".
+	Photos []string `json:"photos"`
 }
 
 // RatingCount is how many reviews gave a number of stars, for the bars above the reviews.
@@ -48,6 +51,7 @@ func Reviews(slug string, n int, l store.Locale) ([]Review, []RatingCount) {
 			PostedAt: p.added.Add(time.Duration(40-i*3) * 24 * time.Hour).Add(time.Duration(i*97) * time.Minute),
 			Verified: i%4 != 3,
 			Helpful:  (i*13 + len(p.slug)) % 17,
+			Photos:   reviewPhotos(i),
 		})
 	}
 	five := total * int(p.rating*10-40) / 10
@@ -56,6 +60,35 @@ func Reviews(slug string, n int, l store.Locale) ([]Review, []RatingCount) {
 	two := (total - five - four - three) / 2
 	counts := []RatingCount{{5, five}, {4, four}, {3, three}, {2, two}, {1, total - five - four - three - two}}
 	return list, counts
+}
+
+// reviewPhotos returns the views the ith review has pictures of: every third review has one or two.
+func reviewPhotos(i int) []string {
+	switch i % 6 {
+	case 0:
+		return []string{"scene", "detail"}
+	case 3:
+		return []string{"scene"}
+	}
+	return []string{}
+}
+
+// ReviewCard is a review with the product it is about, for the reviews of the home page.
+type ReviewCard struct {
+	Review
+	Product Card `json:"product"`
+}
+
+// LatestReviews returns the newest review with pictures of each of the n newest products.
+func LatestReviews(n int, l store.Locale) []ReviewCard {
+	list := slices.Clone(catalogue)
+	slices.SortStableFunc(list, func(a, b productRecord) int { return b.added.Compare(a.added) })
+	var out []ReviewCard
+	for _, p := range list[:min(n, len(list))] {
+		reviews, _ := Reviews(p.slug, 1, l)
+		out = append(out, ReviewCard{Review: reviews[0], Product: p.card(l)})
+	}
+	return out
 }
 
 func reviewCount(p productRecord) int { return 9 + len(p.slug)*3 + int(p.rating*10)%7 }

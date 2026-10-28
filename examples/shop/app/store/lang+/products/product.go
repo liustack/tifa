@@ -42,6 +42,11 @@ type Card struct {
 	Colors         []Color `json:"colors"`
 	Badge          string  `json:"badge"` // "new", "sale", "limited" or ""
 	InStock        bool    `json:"inStock"`
+	// Number is the place of the product in the catalogue, from 1, which the cards show.
+	Number int `json:"number"`
+	// Sized is whether the product comes in sizes, which a card cannot pick, so it adds to the
+	// cart from the product page only.
+	Sized bool `json:"sized"`
 }
 
 // Product is the whole product, as its page shows it.
@@ -248,7 +253,8 @@ func ColorName(id string, l store.Locale) string {
 func (p productRecord) card(l store.Locale) Card {
 	c := Card{
 		Slug: p.slug, Name: p.name.In(l), Rating: p.rating, Reviews: reviewCount(p),
-		PriceCents: store.Price(p.priceFen, l), Badge: p.badge, InStock: p.stock > 0,
+		PriceCents: store.Price(p.priceFen, l), Badge: p.badge, InStock: p.stock > 0, Sized: len(p.sizes) > 0,
+		Number: slices.IndexFunc(catalogue, func(r productRecord) bool { return r.slug == p.slug }) + 1,
 	}
 	if p.compareFen > 0 {
 		c.CompareAtCents = store.Price(p.compareFen, l)

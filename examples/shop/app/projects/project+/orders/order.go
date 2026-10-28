@@ -28,6 +28,7 @@ type Order struct {
 	Phone      string     `json:"phone"`
 	Email      string     `json:"email"`
 	Address    string     `json:"address"`
+	Note       string     `json:"note"` // what the customer wrote at checkout
 	PlacedAt   time.Time  `json:"placedAt"`
 	Status     string     `json:"status"`
 	TotalCents int        `json:"totalCents"`
@@ -36,6 +37,7 @@ type Order struct {
 }
 
 type LineItem struct {
+	Slug        string `json:"slug"` // the product in the storefront, whose photos the pages show
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Quantity    int    `json:"quantity"`
@@ -43,8 +45,8 @@ type LineItem struct {
 	Color       string `json:"color"`
 }
 
-// OrderRow is one line of the order list: only what the list shows, without the items and the
-// address.
+// OrderRow is one line of the order list: only what the list shows, without the address. The
+// list shows the first product of the order and how many more there are.
 type OrderRow struct {
 	ID         string    `json:"id"`
 	Customer   string    `json:"customer"`
@@ -52,6 +54,11 @@ type OrderRow struct {
 	PlacedAt   time.Time `json:"placedAt"`
 	Status     string    `json:"status"`
 	Items      int       `json:"items"` // pieces in the order
+	Lines      int       `json:"lines"` // different products in the order
+	Product    string    `json:"product"`
+	Slug       string    `json:"slug"`
+	Carrier    string    `json:"carrier"` // the name of the carrier, empty until the order ships
+	TrackingNo string    `json:"trackingNo"`
 	TotalCents int       `json:"totalCents"`
 }
 
@@ -69,7 +76,11 @@ func ListOrders(projectID string) OrderList {
 	for _, o := range ordersOf(projectID) {
 		row := OrderRow{
 			ID: o.ID, Customer: o.Customer, Initials: initials(o.Customer), PlacedAt: o.PlacedAt,
-			Status: status(o), TotalCents: total(o),
+			Status: status(o), Lines: len(o.Items), Product: o.Items[0].Name, Slug: o.Items[0].Slug,
+			TotalCents: total(o),
+		}
+		if s := o.Shipment; s != nil {
+			row.Carrier, row.TrackingNo = carrierName(s.Carrier), s.TrackingNo
 		}
 		for _, item := range o.Items {
 			row.Items += item.Quantity
@@ -110,17 +121,18 @@ func CountPending(projectID string) int {
 func view(o orderRecord) Order {
 	order := Order{
 		ID: o.ID, ProjectID: o.ProjectID, Customer: o.Customer, Initials: initials(o.Customer),
-		Phone: o.Phone, Email: o.Email, Address: o.Address, PlacedAt: o.PlacedAt, Status: status(o),
+		Phone: o.Phone, Email: o.Email, Address: o.Address, Note: o.Note, PlacedAt: o.PlacedAt, Status: status(o),
 		TotalCents: total(o), Items: []LineItem{},
 	}
 	if s := o.Shipment; s != nil {
 		order.Shipment = &Shipment{
 			Carrier: s.Carrier, CarrierName: carrierName(s.Carrier), TrackingNo: s.TrackingNo, ShippedAt: s.ShippedAt,
+			Events: slices.Clone(s.Events),
 		}
 	}
 	for _, item := range o.Items {
 		order.Items = append(order.Items, LineItem{
-			Name: item.Name, Description: item.Description, Quantity: item.Quantity,
+			Slug: item.Slug, Name: item.Name, Description: item.Description, Quantity: item.Quantity,
 			PriceCents: item.PriceCents, Color: item.Color,
 		})
 	}
@@ -154,6 +166,7 @@ type orderRecord struct {
 	Phone     string
 	Email     string
 	Address   string
+	Note      string
 	PlacedAt  time.Time
 	Shipment  *shipmentRecord // nil until the order ships
 	Items     []itemRecord
@@ -163,9 +176,11 @@ type shipmentRecord struct {
 	Carrier    string // a code of Carriers
 	TrackingNo string
 	ShippedAt  time.Time
+	Events     []TrackEvent // oldest first, as the carrier reports them
 }
 
 type itemRecord struct {
+	Slug        string
 	Name        string
 	Description string
 	Quantity    int
@@ -198,4 +213,25 @@ func ordersOf(projectID string) []orderRecord {
 // indexOrder finds the order id of a project. The caller holds ordersMu.
 func indexOrder(projectID, id string) int {
 	return slices.IndexFunc(orders, func(o orderRecord) bool { return o.ProjectID == projectID && o.ID == id })
+}
+
+// CustomerOrders returns the other orders of the customer of order id in a project, newest
+// first, with the number of orders and the cents they spent in all, this one counted.
+func CustomerOrders(projectID, id string) (others []OrderRow, count, spentCents int) {
+	o, err := GetOrder(projectID, id)
+	if err != nil {
+		return []OrderRow{}, 0, 0
+	}
+	others = []OrderRow{}
+	for _, row := range ListOrders(projectID).Orders {
+		if row.Customer != o.Customer {
+			continue
+		}
+		count++
+		spentCents += row.TotalCents
+		if row.ID != id {
+			others = append(others, row)
+		}
+	}
+	return others, count, spentCents
 }

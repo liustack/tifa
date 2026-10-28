@@ -243,7 +243,7 @@ const LayoutSSR = false // 可选，默认 true
 ```tsx
 export const htmlAttributes = { lang: 'zh-CN' }
 export const documentHead = {
-  meta: [{ title: '山海工作台' }, { name: 'theme-color', content: '#f7f8f5' }],
+  meta: [{ title: '山海工作台' }, { name: 'theme-color', content: '#f2f4f5' }],
   links: [{ rel: 'icon', href: '/favicon.svg' }],
 }
 ```

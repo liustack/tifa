@@ -35,10 +35,18 @@ var Carriers = []Carrier{
 
 // Shipment is how and when an order left, as the detail page shows it.
 type Shipment struct {
-	Carrier     string    `json:"carrier"`
-	CarrierName string    `json:"carrierName"`
-	TrackingNo  string    `json:"trackingNo"`
-	ShippedAt   time.Time `json:"shippedAt"`
+	Carrier     string       `json:"carrier"`
+	CarrierName string       `json:"carrierName"`
+	TrackingNo  string       `json:"trackingNo"`
+	ShippedAt   time.Time    `json:"shippedAt"`
+	Events      []TrackEvent `json:"events"` // oldest first
+}
+
+// TrackEvent is one step of a parcel on its way, as the carrier reports it.
+type TrackEvent struct {
+	At    time.Time `json:"at"`
+	Place string    `json:"place"`
+	Note  string    `json:"note"`
 }
 
 func carrierName(code string) string {
@@ -79,7 +87,10 @@ func ShipOrder(projectID, id, carrier, tracking string, at time.Time) error {
 	if orders[i].Shipment != nil {
 		return ErrShipped
 	}
-	orders[i].Shipment = &shipmentRecord{Carrier: carrier, TrackingNo: strings.TrimSpace(tracking), ShippedAt: at}
+	orders[i].Shipment = &shipmentRecord{
+		Carrier: carrier, TrackingNo: strings.TrimSpace(tracking), ShippedAt: at,
+		Events: []TrackEvent{{At: at, Place: warehouse, Note: "快递员已揽收"}},
+	}
 	return nil
 }
 

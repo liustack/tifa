@@ -4,13 +4,14 @@
 
 | 变量 | 默认值 | 用在哪里 |
 | --- | --- | --- |
-| `--background` | `#f7f8f5` | 页面底色 |
-| `--foreground` | `#26352f` | 正文文字 |
-| `--primary` | `#284e3e` | 按钮、链接、价格 |
-| `--muted-foreground` | `#7c857e` | 次要文字 |
-| `--border` | `#e6e9e3` | 卡片和输入框的边框 |
-| `--radius` | `0.625rem` | 所有圆角的基准 |
-| `--font-sans` | `Inter Variable` | 正文字体 |
+| `--background` | `#f2f4f5` | 页面底色 |
+| `--foreground` | `#1c2433` | 正文文字 |
+| `--primary` | `#1f3a5f` | 按钮、链接、价格 |
+| `--muted-foreground` | `#5b6876` | 次要文字 |
+| `--border` | `#d3dae0` | 卡片和输入框的边框 |
+| `--radius` | `0.125rem` | 所有圆角的基准 |
+| `--font-sans` | 系统字体 | 正文字体 |
+| `--font-heading` | `Newsreader Variable` | 标题字体 |
 
 ## 换一套颜色
 
