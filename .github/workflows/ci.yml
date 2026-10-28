@@ -1,0 +1,48 @@
+# What runs on every push and pull request. See "CI" in docs/testing.md for what
+# it covers and what it leaves out.
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same ref stops the older run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # A pull request from a branch of this repository is already tested by the
+    # push of that branch. Only pull requests from forks run here.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    name: test (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux/amd64
+            os: ubuntu-24.04
+          - name: darwin/arm64
+            os: macos-15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Vet
+        run: go vet ./...
+      - name: Build without cgo
+        run: CGO_ENABLED=0 go build ./...
+      - name: Test
+        run: go test ./...
+      - name: Docs have a summary
+        run: scripts/docs-list.sh --check
