@@ -159,10 +159,10 @@ function Checkout({ view }: { view: Data }) {
   const { errors, isSubmitting } = form.formState
   return (
     <div className="flex flex-col gap-8">
-      <h1 className="font-serif text-3xl font-semibold">{t('checkout.title')}</h1>
+      <h1 className="border-b border-foreground pb-3 font-heading text-[34px] font-medium tracking-[0.04em]">{t('checkout.title')}</h1>
       <ol className="grid gap-2 sm:grid-cols-4">
         {steps.map((s, i) => (
-          <li key={s.title} className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm">
+          <li key={s.title} className="flex items-center gap-2 border bg-card px-3 py-2 text-sm">
             {s.done ? <CircleCheck className="size-4 text-primary" /> : <CircleDashed className="size-4 text-muted-foreground" />}
             <span className="flex flex-col">
               <span className="text-xs text-muted-foreground">{t('checkout.step', { count: i + 1 })}</span>
@@ -201,7 +201,7 @@ function Checkout({ view }: { view: Data }) {
                         ? []
                         : [...new Set(check.error.issues.map((issue) => t(`checkout.${String(issue.path[0])}`)))]
                       return (
-                        <li key={i} className="flex flex-col gap-2 rounded-lg border p-3 text-sm">
+                        <li key={i} className="flex flex-col gap-2 border p-3 text-sm">
                           <span className="flex items-center gap-2 font-medium">
                             <MapPin className="size-4 text-primary" />
                             {a.name}
@@ -340,7 +340,7 @@ function Checkout({ view }: { view: Data }) {
         <aside className="flex flex-col gap-4">
           <Card className="sticky top-20">
             <CardHeader>
-              <CardTitle>{t('checkout.summary')}</CardTitle>
+              <CardTitle className="font-heading text-xl font-medium">{t('checkout.summary')}</CardTitle>
               <CardDescription>
                 <Link to="/store/$lang/cart" params={{ lang: locale.code }} className="text-primary hover:underline">
                   {t('checkout.edit')}
@@ -352,14 +352,14 @@ function Checkout({ view }: { view: Data }) {
                 {lines.map((l) => (
                   <li key={l.id} className="flex items-center gap-3">
                     <div className="relative">
-                      <ProductImage slug={l.slug} alt="" width={160} className="size-12 rounded-md" />
-                      <Badge className="absolute -top-2 -right-2 h-5 min-w-5 rounded-full px-1 tabular-nums">{l.quantity}</Badge>
+                      <ProductImage slug={l.slug} alt="" width={160} className="size-14 border" />
+                      <Badge className="absolute -top-2 -right-2 h-5 min-w-5 rounded-none px-1 font-mono tabular-nums">{l.quantity}</Badge>
                     </div>
                     <span className="flex flex-1 flex-col">
                       {l.name}
                       <span className="text-xs text-muted-foreground">{l.size ? `${l.colorName} / ${l.size}` : l.colorName}</span>
                     </span>
-                    <span className="tabular-nums">{money(l.priceCents * l.quantity)}</span>
+                    <span className="font-mono tabular-nums">{money(l.priceCents * l.quantity)}</span>
                   </li>
                 ))}
               </ul>

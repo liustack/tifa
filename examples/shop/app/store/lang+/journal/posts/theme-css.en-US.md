@@ -4,13 +4,14 @@ Owners often ask whether they can give their shop their own brand colours. They 
 
 | Variable | Default | Used for |
 | --- | --- | --- |
-| `--background` | `#f7f8f5` | The page |
-| `--foreground` | `#26352f` | Body text |
-| `--primary` | `#284e3e` | Buttons, links and prices |
-| `--muted-foreground` | `#7c857e` | Secondary text |
-| `--border` | `#e6e9e3` | Borders of cards and inputs |
-| `--radius` | `0.625rem` | The base of every rounded corner |
-| `--font-sans` | `Inter Variable` | Body type |
+| `--background` | `#f2f4f5` | The page |
+| `--foreground` | `#1c2433` | Body text |
+| `--primary` | `#1f3a5f` | Buttons, links and prices |
+| `--muted-foreground` | `#5b6876` | Secondary text |
+| `--border` | `#d3dae0` | Borders of cards and inputs |
+| `--radius` | `0.125rem` | The base of every rounded corner |
+| `--font-sans` | System fonts | Body type |
+| `--font-heading` | `Newsreader Variable` | Headings |
 
 ## A new set of colours
 

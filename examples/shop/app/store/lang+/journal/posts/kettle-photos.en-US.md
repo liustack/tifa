@@ -33,6 +33,6 @@ The aperture goes to f/8 to f/11, so everything from spout to handle is sharp. S
 
 The edit does three things: it removes dust, sets the white balance and makes the backdrop pure white. It does not change the kettle's shape or add a sheen that is not there. What customers get should look like the picture.
 
-At the end every image is exported as WebP at 2000 pixels wide, and the web shop scales it to the screen.
+At the end every image is exported as AVIF at 160, 480 and 1200 pixels wide, and the web shop picks the one that fits the screen.
 
 Next time: how to photograph textiles, which is another thing altogether.
