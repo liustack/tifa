@@ -1,0 +1,84 @@
+# What runs on every push and pull request. See "CI" in docs/testing.md for what
+# it covers and what it leaves out.
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same ref stops the older run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # A pull request from a branch of this repository is already tested by the
+    # push of that branch. Only pull requests from forks run here.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    name: test (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux/amd64
+            os: ubuntu-24.04
+          - name: darwin/arm64
+            os: macos-15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Show the machine
+        run: (lscpu | grep "Model name") || sysctl -n machdep.cpu.brand_string
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Vet
+        run: go vet ./...
+      - name: Build without cgo
+        run: CGO_ENABLED=0 go build ./...
+      - name: Test
+        run: go test -count=1 ./...
+      - name: Docs have a summary
+        run: scripts/docs-list.sh --check
+
+  e2e:
+    # The end-to-end tests build the CLI and the apps under test/apps and
+    # examples/shop with Node and pnpm, then start the outputs.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    name: e2e (linux/amd64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            test/apps/*/pnpm-lock.yaml
+            examples/shop/pnpm-lock.yaml
+
+      - name: Install the packages of the apps
+        run: |
+          for app in test/apps/pages test/apps/tailwind test/apps/mui test/apps/bench examples/shop; do
+            (cd "$app" && pnpm install --frozen-lockfile)
+          done
+      - name: Test
+        run: go test -count=1 ./test/e2e/ -v -timeout 25m
+        env:
+          TIFA_E2E: "1"
