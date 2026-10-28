@@ -50,6 +50,9 @@ type frontBuild struct {
 	Head string `json:"head"`
 	// Preload lists the module preloads of the Layouts and routes by ID, see preloads.
 	Preload map[string][]string `json:"preload"`
+	// Public holds the content hash of each file of dist/public by its path there, which
+	// serveFile turns into the ETag of the file. Absent under tifa dev.
+	Public map[string]string `json:"public"`
 	// bundle is the hash of ssr.js. tifa dev keeps the build ID when only ssr.js changes, so
 	// what a render depends on is the build ID and the bundle.
 	bundle string
@@ -252,18 +255,26 @@ func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
-	if rest, ok := strings.CutPrefix(name, "assets/"); ok && serveFile(w, r, f.assets, rest, "public, max-age=31536000, immutable", s.cfg.Compress) {
+	if rest, ok := strings.CutPrefix(name, "assets/"); ok && serveFile(w, r, f.assets, rest, "public, max-age=31536000, immutable", "", s.cfg.Compress) {
 		return true
 	}
-	return serveFile(w, r, f.public, name, "no-cache", false)
+	// The embedded files have no modification time, so the ETag from the content hash of the
+	// build is the only validator that lets a revalidation end in a 304.
+	etag := ""
+	if hash, ok := f.build.Public[name]; ok {
+		etag = `"` + hash + `"`
+	}
+	return serveFile(w, r, f.public, name, "no-cache", etag, false)
 }
 
 // serveFile answers with the regular file name of fsys and reports whether it exists. With
 // gz, a GET that accepts gzip gets the file name.gz that tifa build compressed, when there is
 // one, as nginx's gzip_static and Caddy's precompressed do: with the type of name, and a range
 // of a Range request taken from the compressed file. HEAD is answered with name, as gzhttp
-// answers HEAD uncompressed.
-func serveFile(w http.ResponseWriter, r *http.Request, fsys fs.FS, name, cache string, gz bool) bool {
+// answers HEAD uncompressed. A non-empty etag is sent as the ETag, and a request with a matching
+// If-None-Match gets 304. Without one the validator is the modification time of the file, which
+// a file of the directory tifa dev serves has and an embedded file does not.
+func serveFile(w http.ResponseWriter, r *http.Request, fsys fs.FS, name, cache, etag string, gz bool) bool {
 	if fsys == nil || name == "" || !fs.ValidPath(name) {
 		return false
 	}
@@ -272,6 +283,9 @@ func serveFile(w http.ResponseWriter, r *http.Request, fsys fs.FS, name, cache s
 	}
 	h := w.Header()
 	h.Set("Cache-Control", cache)
+	if etag != "" {
+		h.Set("ETag", etag)
+	}
 	if gz && r.Method == "GET" && quality(r.Header.Get("Accept-Encoding"), "gzip") > 0 {
 		info, err := fs.Stat(fsys, name+".gz")
 		if contentType := mime.TypeByExtension(path.Ext(name)); err == nil && info.Mode().IsRegular() && contentType != "" {

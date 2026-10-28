@@ -35,6 +35,11 @@ type Build struct {
 	// of the JavaScript files the module needs that Head does not load: its chunk, then the
 	// chunks it imports statically. A page preloads those of its Layouts and route.
 	Preload map[string][]string `json:"preload,omitempty"`
+	// Public holds the content hash of each file of dist/public by its path in that folder. The
+	// server makes it the ETag of the file: the copy embedded in the program has no
+	// modification time, so a browser could not revalidate the file without it. tifa dev leaves
+	// it out, and its files keep the modification time of the directory it serves.
+	Public map[string]string `json:"public,omitempty"`
 }
 
 // clientEntry is the browser entry tifa generates, as Vite's manifest names it.
@@ -47,7 +52,7 @@ const clientEntry = ".tifa/client.ts"
 //	              a .gz of each text file worth compressing (see precompress)
 //	dist/ssr.js   the SSR bundle, which knows the tags of the browser bundle as __TIFA_ASSETS__
 //	dist/public/  a copy of the public directory, when it exists
-//	dist/build.json
+//	dist/build.json  with the content hash of each public file, see Build.Public
 //
 // Vite builds the two bundles with the application's vite.config.ts, which uses the tifa plugin
 // (js/vite/plugin.js), on Node through n. pages is false for an application without route.tsx,
@@ -84,6 +89,9 @@ func App(n *Node, root, public string, pages bool) (string, error) {
 		}
 	}
 	if err := copyDir(public, filepath.Join(dist, "public")); err != nil {
+		return "", err
+	}
+	if b.Public, err = publicHashes(filepath.Join(dist, "public")); err != nil {
 		return "", err
 	}
 	if b.ID, err = distID(dist, ""); err != nil {
@@ -234,6 +242,35 @@ func writeBuild(dist string, b Build) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(dist, "build.json"), data, 0o644)
+}
+
+// publicHashes returns the content hash of each regular file under dir by its slash-separated
+// path in dir, the first 16 bytes of its SHA-256 in hex. It is nil for a folder without files.
+func publicHashes(dir string) (map[string]string, error) {
+	var hashes map[string]string
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if errors.Is(err, fs.ErrNotExist) && path == dir {
+			return filepath.SkipAll
+		}
+		if err != nil || !d.Type().IsRegular() {
+			return err
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		sum := sha256.Sum256(data)
+		if hashes == nil {
+			hashes = map[string]string{}
+		}
+		hashes[filepath.ToSlash(rel)] = hex.EncodeToString(sum[:16])
+		return nil
+	})
+	return hashes, err
 }
 
 // copyDir copies the regular files under src to dst. A missing src copies nothing.

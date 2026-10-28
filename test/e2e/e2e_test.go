@@ -6,6 +6,8 @@ package e2e
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -392,6 +394,25 @@ func TestInterfaceApp(t *testing.T) {
 		if tc.path == "/orders/7" && header.Get("X-Pattern") != "/orders/{order}" {
 			t.Errorf("OnRequest saw pattern %q", header.Get("X-Pattern"))
 		}
+	}
+
+	// A public file is embedded without a modification time. Its ETag is the hash of its content
+	// from the build, so a browser that revalidates gets a 304 and not the whole file again.
+	robots, err := os.ReadFile(filepath.Join(dir, "public", "robots.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(robots)
+	etag := `"` + hex.EncodeToString(sum[:16]) + `"`
+	status, header, body := get(t, base+"/robots.txt")
+	if status != 200 || body != string(robots) || header.Get("ETag") != etag || header.Get("Cache-Control") != "no-cache" {
+		t.Errorf("GET /robots.txt: %d %v %q", status, header, body)
+	}
+	if status, header, body := get(t, base+"/robots.txt", "If-None-Match", etag); status != 304 || body != "" || header.Get("ETag") != etag {
+		t.Errorf("GET /robots.txt with its ETag: %d %v %q", status, header, body)
+	}
+	if status, _, body := get(t, base+"/robots.txt", "If-None-Match", `"other"`); status != 200 || body != string(robots) {
+		t.Errorf("GET /robots.txt with another ETag: %d %q", status, body)
 	}
 
 	if err := cmd.Process.Signal(syscall.SIGINT); err != nil {

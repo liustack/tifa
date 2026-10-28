@@ -1,6 +1,8 @@
 package bundle
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"os"
@@ -333,5 +335,55 @@ func TestAppKeepsTheSourceMapSettingOfTheConfig(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dist, "ssr.js")); err != nil {
 		t.Error(err)
+	}
+}
+
+// build.json names the content hash of each file of the public folder, which the server turns
+// into the ETag of the file: the embedded copy has no modification time, so without it a browser
+// could not revalidate the file with a 304.
+func TestAppHashesPublicFiles(t *testing.T) {
+	root := t.TempDir()
+	writeTree(t, root, map[string]string{
+		"public/robots.txt":      "User-agent: *",
+		"public/assets/logo.svg": "<svg/>",
+		"public/copy.txt":        "User-agent: *",
+	})
+	n := NewNode(root, io.Discard)
+	defer n.Close()
+	if _, err := App(n, root, filepath.Join(root, "public"), false); err != nil {
+		t.Fatalf("App: %v", err)
+	}
+	hash := func(content string) string {
+		sum := sha256.Sum256([]byte(content))
+		return hex.EncodeToString(sum[:16])
+	}
+	want := map[string]string{
+		"robots.txt":      hash("User-agent: *"),
+		"assets/logo.svg": hash("<svg/>"),
+		"copy.txt":        hash("User-agent: *"),
+	}
+	if b := readBuild(t, root); !reflect.DeepEqual(b.Public, want) {
+		t.Errorf("public hashes %v, want %v", b.Public, want)
+	}
+	// Changing a file changes its hash and the ID of the build, and leaves the others.
+	writeTree(t, root, map[string]string{"public/robots.txt": "User-agent: bot"})
+	if _, err := App(n, root, filepath.Join(root, "public"), false); err != nil {
+		t.Fatal(err)
+	}
+	want["robots.txt"] = hash("User-agent: bot")
+	if b := readBuild(t, root); !reflect.DeepEqual(b.Public, want) {
+		t.Errorf("public hashes after a change %v, want %v", b.Public, want)
+	}
+}
+
+func TestAppWithoutPublicFilesHasNoHashes(t *testing.T) {
+	root := t.TempDir()
+	n := NewNode(root, io.Discard)
+	defer n.Close()
+	if _, err := App(n, root, filepath.Join(root, "public"), false); err != nil {
+		t.Fatal(err)
+	}
+	if b := readBuild(t, root); len(b.Public) != 0 {
+		t.Errorf("public hashes %v", b.Public)
 	}
 }

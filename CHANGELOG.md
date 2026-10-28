@@ -68,6 +68,7 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 
 ### Fixed
 
+- Files from the public folder get an ETag, so a browser that revalidates them gets a 304 instead of the whole file again. They go out with `Cache-Control: no-cache`, but the copy embedded in the program has no modification time and had no ETag, so every revalidation downloaded the file in full. `tifa build` now writes the content hash of each public file into `build.json`, and the server sends it as a strong ETag, which turns weak (`W/"…"`) when the file goes out compressed. Files of the browser bundle are unchanged, and `tifa dev` keeps the modification time of the files it serves.
 - quickjs v0.26.17: Intl converts options, values and locale lists as ECMA-402 does, so a Symbol or a BigInt where a string or a number is wanted throws a `TypeError`, and `Intl.NumberFormat` formats a wrapped BigInt exactly where it rounded it through a double. A page that changes `Array.prototype`, `JSON` or other built-ins no longer changes what Intl does. Intl's functions have the shape of built-ins, and the formatters are shared by every VM of the process, so a VM that has used Intl holds a few KB less.
 - The SSR bundle keeps every line of React DOM in place, so the places in render error stacks point at the right lines.
 
