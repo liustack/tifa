@@ -363,7 +363,19 @@
     "pieces_one": "{{count}} item",
     "pieces_other": "{{count}} items",
     "updating": "Updating…",
-    "secure": "Secure checkout with Alipay, WeChat Pay and cards"
+    "secure": "Secure checkout with Alipay, WeChat Pay and cards",
+    "offers": "Coupons you can use",
+    "offerUse": "Use",
+    "offerNot": "Not yet",
+    "offerOn": "In use",
+    "promiseReturnsTitle": "Seven day returns",
+    "promiseReturnsBody": "Send it back within seven days of delivery. We pay the shipping.",
+    "promiseWarrantyTitle": "Broken on the way",
+    "promiseWarrantyBody": "If it breaks in transit, send a photo and we ship another.",
+    "promiseGiftTitle": "Gift box and card",
+    "promiseGiftBody": "Write what you want to say in the notes at checkout. We write it on a card by hand.",
+    "promiseHelpTitle": "A person answers",
+    "promiseHelpBody": "Online 9:00 to 21:00 China time, usually within ten minutes."
   },
   "checkout": {
     "title": "Checkout",
@@ -419,7 +431,12 @@
     "placedDeliveryOn": "{{name}}, arriving on {{date, datetime}}",
     "placedAt": "Placed on {{date, datetime}}",
     "backHome": "Back to the shop",
-    "emptyCart": "Your cart is empty. Pick a few things first."
+    "emptyCart": "Your cart is empty. Pick a few things first.",
+    "addMore": "Before you pay, one more thing?",
+    "trustShipTitle": "Ships within 48 hours",
+    "trustShipBody": "From stock in Hangzhou. Orders before 16:00 leave the next day.",
+    "trustSafeTitle": "Safe to pay",
+    "trustSafeBody": "We never keep card details, and this demonstration shop charges nothing."
   },
   "errors": {
     "required": "Please fill this in",

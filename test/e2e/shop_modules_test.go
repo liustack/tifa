@@ -157,3 +157,33 @@ func checkStatsPanels(t *testing.T, base string) {
 		t.Error("recharts rendered on the server")
 	}
 }
+
+// checkCartAndCheckoutModules checks the coupons, promises and suggestions around the cart and
+// the checkout, and that a coupon from the list goes on the cart.
+func checkCartAndCheckoutModules(t *testing.T, base string) {
+	t.Helper()
+	for _, tc := range []struct {
+		path  string
+		wants []string
+	}{
+		{"/store/en-US/cart", []string{"Coupons you can use", "SHANHAI10", "10% off everything", "$4.30 off orders over $28.20", "Seven day returns", "A person answers"}},
+		{"/store/zh-CN/cart", []string{"可用优惠", "全场 9 折", "满 200 元减 30 元", "破损补发"}},
+		{"/store/en-US/checkout", []string{"Before you pay, one more thing?", "Safe to pay", "Ships within 48 hours"}},
+	} {
+		status, _, page := get(t, base+tc.path)
+		for _, want := range tc.wants {
+			if status != 200 || !strings.Contains(rendered(page), want) {
+				t.Errorf("%s: %d lacks %s", tc.path, status, want)
+			}
+		}
+	}
+	// Eight products are suggested under the cart.
+	_, _, cart := get(t, base+"/store/en-US/cart")
+	i := strings.Index(rendered(cart), "Goes well with")
+	if i < 0 {
+		t.Fatal("the cart has no suggestions")
+	}
+	if n := strings.Count(rendered(cart)[i:], `<article`); n < 8 {
+		t.Errorf("%d suggested products under the cart", n)
+	}
+}

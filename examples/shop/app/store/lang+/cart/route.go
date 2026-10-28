@@ -13,6 +13,9 @@ type View struct {
 	Cart       Cart            `json:"cart"`
 	Deliveries []Delivery      `json:"deliveries"`
 	Suggested  []products.Card `json:"suggested"`
+	// Offers are the coupons to apply, and Seen what the visitor looked at last.
+	Offers []Offer         `json:"offers"`
+	Seen   []products.Card `json:"seen"`
 }
 
 func Load(c *tifa.Ctx) (View, error) {
@@ -25,7 +28,8 @@ func Load(c *tifa.Ctx) (View, error) {
 	if len(cart.Lines) > 0 {
 		slug = cart.Lines[0].Slug
 	}
-	return View{Cart: cart, Deliveries: Deliveries(cart, time.Now(), l), Suggested: products.Related(slug, 4, l)}, nil
+	return View{Cart: cart, Deliveries: Deliveries(cart, time.Now(), l), Suggested: products.Related(slug, 8, l),
+		Offers: Offers(cart.SubtotalCents, l), Seen: products.Seen(c, "", l)}, nil
 }
 
 type QuantityInput struct {

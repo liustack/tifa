@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Link, useRouter } from '@tanstack/react-router'
-import { CircleCheck, CircleDashed, CreditCard, Lock, MapPin, PartyPopper } from 'lucide-react'
+import { CircleCheck, CircleDashed, CreditCard, Headset, Lock, MapPin, PartyPopper, RotateCcw, ShieldCheck, Truck } from 'lucide-react'
 import { Controller, useForm, useWatch, type Control, type FieldPath } from 'react-hook-form'
 import { TifaError } from 'tifa/client'
 import { Badge } from '@/components/ui/badge'
@@ -23,7 +23,7 @@ import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
 import { useHydrated } from '../../../use-hydrated'
 import { message, storeTitle, useStore } from '../../i18n'
-import { ProductImage } from '../../product-card'
+import { ProductCard, ProductGrid, ProductImage } from '../../product-card'
 import { arrival } from '../cart/arrival'
 import { addressSchema, checkoutSchema, type Address } from './checkout-schema'
 import { POST, route, type Data, type POSTInput } from './+route'
@@ -397,6 +397,7 @@ function Checkout({ view }: { view: Data }) {
           </Card>
         </aside>
       </form>
+      <Extras />
     </div>
   )
 }
@@ -455,5 +456,40 @@ function CheckField({ control, name, label }: { control: Control<POSTInput>; nam
         </Field>
       )}
     />
+  )
+}
+
+// Extras sit under the form: what is often added at the last moment, and what the shop promises.
+function Extras() {
+  const { t, locale } = useStore()
+  const { suggested } = route.useLoaderData()
+  const promises = [
+    { icon: Truck, title: t('checkout.trustShipTitle'), body: t('checkout.trustShipBody') },
+    { icon: RotateCcw, title: t('cart.promiseReturnsTitle'), body: t('cart.promiseReturnsBody') },
+    { icon: ShieldCheck, title: t('checkout.trustSafeTitle'), body: t('checkout.trustSafeBody') },
+    { icon: Headset, title: t('cart.promiseHelpTitle'), body: t('cart.promiseHelpBody') },
+  ]
+  return (
+    <div className="flex flex-col gap-8">
+      <section className="flex flex-col gap-4">
+        <h2 className="border-b border-foreground pb-2.5 font-heading text-[22px] font-medium tracking-[0.04em]">{t('checkout.addMore')}</h2>
+        <ProductGrid className="md:grid-cols-3">
+          {(suggested ?? []).map((p) => (
+            <ProductCard key={p.slug} product={p} lang={locale.code} layout="tile" />
+          ))}
+        </ProductGrid>
+      </section>
+      <ul className="grid border-y sm:grid-cols-2 lg:grid-cols-4">
+        {promises.map(({ icon: Icon, title, body }) => (
+          <li key={title} className="flex items-start gap-3 px-4 py-4 [&+li]:border-t sm:[&+li]:border-t-0 sm:[&+li]:border-l">
+            <Icon className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden />
+            <div>
+              <p className="text-sm font-medium">{title}</p>
+              <p className="text-xs text-muted-foreground">{body}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }

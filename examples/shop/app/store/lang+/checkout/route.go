@@ -9,6 +9,7 @@ import (
 	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/examples/shop/app/store"
 	"github.com/liustack/tifa/examples/shop/app/store/lang+/cart"
+	"github.com/liustack/tifa/examples/shop/app/store/lang+/products"
 )
 
 // View is the checkout: the cart and what the form offers, or the order just placed.
@@ -18,6 +19,8 @@ type View struct {
 	Countries  []cart.Country  `json:"countries"`
 	Saved      []cart.Address  `json:"saved"`
 	Email      string          `json:"email"`
+	// Suggested are small things to add before paying.
+	Suggested []products.Card `json:"suggested"`
 	// Placed is the order the visitor just placed, from ?placed=, which the page confirms in
 	// place of the form.
 	Placed *cart.Placed `json:"placed"`
@@ -42,7 +45,7 @@ func Load(c *tifa.Ctx) (View, error) {
 	}
 	return View{
 		Cart: ct, Deliveries: cart.Deliveries(ct, time.Now(), l), Countries: cart.Countries(l),
-		Saved: cart.SavedAddresses(l), Email: email,
+		Saved: cart.SavedAddresses(l), Email: email, Suggested: products.TopRated(3, l),
 	}, nil
 }
 

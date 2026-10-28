@@ -348,7 +348,19 @@
     "suggested": "搭配购买",
     "pieces_other": "{{count}} 件",
     "updating": "正在更新…",
-    "secure": "安全结算，支持支付宝、微信和银行卡"
+    "secure": "安全结算，支持支付宝、微信和银行卡",
+    "offers": "可用优惠",
+    "offerUse": "使用",
+    "offerNot": "还不够",
+    "offerOn": "已使用",
+    "promiseReturnsTitle": "七天退换",
+    "promiseReturnsBody": "收到后七天内可无理由退换，运费我们出。",
+    "promiseWarrantyTitle": "破损补发",
+    "promiseWarrantyBody": "路上摔坏的，拍张照片就补发。",
+    "promiseGiftTitle": "礼盒与卡片",
+    "promiseGiftBody": "结账时在备注里写下想说的话，手写在卡片上。",
+    "promiseHelpTitle": "有人回话",
+    "promiseHelpBody": "9:00 到 21:00 在线，通常十分钟内回复。"
   },
   "checkout": {
     "title": "结算",
@@ -402,7 +414,12 @@
     "placedDeliveryOn": "{{name}}，预计 {{date, datetime}} 送达",
     "placedAt": "下单时间：{{date, datetime}}",
     "backHome": "回到首页",
-    "emptyCart": "购物车是空的，先去挑几件吧。"
+    "emptyCart": "购物车是空的，先去挑几件吧。",
+    "addMore": "付款前，要不要再带一件",
+    "trustShipTitle": "48 小时内发出",
+    "trustShipBody": "杭州仓现货，当天 16:00 前下单次日发出。",
+    "trustSafeTitle": "付款安全",
+    "trustSafeBody": "我们不保存银行卡信息，演示店铺也不会扣款。"
   },
   "errors": {
     "required": "请填写这一项",

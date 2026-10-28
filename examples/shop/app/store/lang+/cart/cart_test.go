@@ -437,3 +437,20 @@ func TestACartThatIsGoneCannotBeCheckedOut(t *testing.T) {
 		t.Errorf("checking out a cart that is gone made a cart: %d before, %d after", before, after)
 	}
 }
+
+func TestOffersListTheCouponsAndWhetherTheSubtotalReachesThem(t *testing.T) {
+	offers := Offers(15000, zh)
+	if len(offers) != 2 || offers[0].Code != "SHANHAI10" || offers[0].Detail != "全场 9 折" || !offers[0].Applies {
+		t.Fatalf("offers %+v", offers)
+	}
+	// WELCOME30 asks for 200 yuan.
+	if offers[1].Code != "WELCOME30" || offers[1].Detail != "满 200 元减 30 元" || offers[1].Applies {
+		t.Errorf("welcome %+v", offers[1])
+	}
+	if o := Offers(25000, zh); !o[1].Applies {
+		t.Errorf("welcome at 250 yuan %+v", o[1])
+	}
+	if o := Offers(1, en); o[0].Detail != "10% off everything" || o[1].Detail != "$4.30 off orders over $28.20" {
+		t.Errorf("english offers %+v", o)
+	}
+}
