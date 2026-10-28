@@ -8,8 +8,8 @@ export const statusLabels: Record<string, string> = {
 }
 
 const statusStyles: Record<string, string> = {
-  pending: 'bg-[#f7f1e3] text-[#9a7f3c]',
-  shipped: 'bg-[#eaf0e4] text-[#5f7449]',
+  pending: 'border-destructive text-destructive',
+  shipped: 'border-border text-muted-foreground',
 }
 
 // OrderStatus is the badge of an order's status. When the status changes, as after shipping, the
@@ -29,7 +29,7 @@ export function OrderStatus({ status }: { status: string }) {
           className="[grid-area:1/1]"
           style={{ opacity: style.opacity, transform: style.y.to((y) => `translateY(${y}px)`) }}
         >
-          <Badge className={cn('gap-1.5 font-normal', statusStyles[s])}>
+          <Badge variant="outline" className={cn('gap-1.5 rounded-none bg-card font-normal', statusStyles[s])}>
             <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
             {statusLabels[s]}
           </Badge>

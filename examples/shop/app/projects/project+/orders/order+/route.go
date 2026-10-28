@@ -9,13 +9,19 @@ import (
 	"github.com/liustack/tifa/examples/shop/app/projects/project+/orders"
 )
 
-// Detail pages change only when an order ships or its recipient changes, so their HTML is cached.
+// Detail pages change only when an order ships or a recipient changes, and the cache keys the HTML
+// by the data, so their HTML is cached.
 const Cache = true
 
 // Detail is the order with the carriers the shipping form offers.
 type Detail struct {
 	Order    orders.Order     `json:"order"`
 	Carriers []orders.Carrier `json:"carriers"`
+	// The customer's other orders in the shop, with how many orders they placed and what they
+	// spent in all.
+	Others     []orders.OrderRow `json:"others"`
+	Count      int               `json:"count"`
+	SpentCents int               `json:"spentCents"`
 }
 
 // Load reads the project through its Layout, which loads it once for the whole request.
@@ -28,7 +34,8 @@ func Load(c *tifa.Ctx) (Detail, error) {
 	if err != nil {
 		return Detail{}, err
 	}
-	return Detail{Order: o, Carriers: orders.Carriers}, nil
+	others, count, spent := orders.CustomerOrders(p.ID, o.ID)
+	return Detail{Order: o, Carriers: orders.Carriers, Others: others, Count: count, SpentCents: spent}, nil
 }
 
 type ShipInput struct {

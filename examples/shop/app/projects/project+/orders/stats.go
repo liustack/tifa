@@ -22,6 +22,7 @@ type DaySales struct {
 
 // ProductSales is how much of one product the shop sold.
 type ProductSales struct {
+	Slug         string `json:"slug"`
 	Name         string `json:"name"`
 	Quantity     int    `json:"quantity"`
 	RevenueCents int    `json:"revenueCents"`
@@ -70,7 +71,7 @@ func SalesStats(projectID string, zone *time.Location) Sales {
 		for _, item := range o.Items {
 			p := products[item.Name]
 			if p == nil {
-				p = &ProductSales{Name: item.Name}
+				p = &ProductSales{Slug: item.Slug, Name: item.Name}
 				products[item.Name] = p
 			}
 			p.Quantity += item.Quantity

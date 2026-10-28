@@ -1,16 +1,8 @@
-import { ShoppingBag } from 'lucide-react'
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
-import { cn } from '@/lib/utils'
+import { photo } from '../../../../store/images'
 import { yuan } from '../../../../format'
 import { route } from './+route'
-
-const swatches: Record<string, string> = {
-  sand: 'bg-[#f2eee5] text-[#b6a98d]',
-  olive: 'bg-[#e8ecdf] text-[#9ba980]',
-  clay: 'bg-[#f0e4de] text-[#bc9b8a]',
-  blue: 'bg-[#e5ebef] text-[#8b9da8]',
-}
 
 // A nested business component consumes the page's injected data directly.
 // It neither receives a chain of props nor initiates a new server request.
@@ -19,28 +11,28 @@ export default function OrderItems() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>订单商品</CardTitle>
+        <CardTitle className="font-heading text-lg font-medium tracking-[0.04em]">订单商品</CardTitle>
       </CardHeader>
       <CardContent>
         <ul className="divide-y">
           {(order.items ?? []).map((item) => (
             <li className="flex items-center gap-4 py-4 first:pt-0" key={item.name}>
-              <div
-                className={cn(
-                  'flex size-16 shrink-0 items-center justify-center rounded-md',
-                  swatches[item.color],
-                )}
-              >
-                <ShoppingBag className="size-7" strokeWidth={1.5} />
-              </div>
+              <img
+                src={photo(item.slug, 'main', 160)}
+                alt=""
+                width={64}
+                height={64}
+                decoding="async"
+                className="size-16 shrink-0 bg-[#d3dbe2] object-cover dark:bg-[#273240]"
+              />
               <div className="min-w-0 flex-1">
                 <p className="font-medium">{item.name}</p>
                 <p className="text-sm text-muted-foreground">{item.description}</p>
-                <p className="mt-1 text-xs text-muted-foreground">数量 {item.quantity}</p>
+                <p className="mt-1 font-mono text-xs text-muted-foreground">数量 {item.quantity}</p>
               </div>
-              <p className="text-right font-medium tabular-nums">
+              <p className="text-right font-mono tabular-nums">
                 {yuan(item.priceCents)}
-                <span className="text-xs font-normal text-muted-foreground"> / 件</span>
+                <span className="text-xs text-muted-foreground"> / 件</span>
               </p>
             </li>
           ))}
@@ -50,15 +42,15 @@ export default function OrderItems() {
       <CardFooter className="block space-y-2 text-sm">
         <div className="flex justify-between text-muted-foreground">
           <span>商品小计</span>
-          <span className="tabular-nums">{yuan(order.totalCents)}</span>
+          <span className="font-mono tabular-nums">{yuan(order.totalCents)}</span>
         </div>
         <div className="flex justify-between text-muted-foreground">
           <span>运费</span>
           <span>包邮</span>
         </div>
-        <div className="flex justify-between pt-1 text-base font-semibold">
+        <div className="flex justify-between pt-1 text-base font-medium">
           <span>实付金额</span>
-          <span className="tabular-nums">{yuan(order.totalCents)}</span>
+          <span className="font-mono tabular-nums">{yuan(order.totalCents)}</span>
         </div>
       </CardFooter>
     </Card>

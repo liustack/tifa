@@ -98,7 +98,7 @@ func TestTopProductsAreTheBestSellersOfTheShop(t *testing.T) {
 		}
 		for _, item := range o.Items {
 			p := sold[item.Name]
-			p.Name = item.Name
+			p.Slug, p.Name = item.Slug, item.Name
 			p.Quantity += item.Quantity
 			p.RevenueCents += item.Quantity * item.PriceCents
 			sold[item.Name] = p

@@ -2,7 +2,10 @@ package orders
 
 import (
 	"errors"
+	"fmt"
 	"maps"
+	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -45,7 +48,7 @@ func TestListRowsCountPiecesAndCents(t *testing.T) {
 	row := ListOrders("studio").Orders[0]
 	want := OrderRow{
 		ID: "SH-1042", Customer: "林夏", Initials: "林", PlacedAt: time.Date(2026, 10, 13, 14, 32, 0, 0, chinaTime),
-		Status: StatusPending, Items: 2, TotalCents: 42800,
+		Status: StatusPending, Items: 2, Lines: 2, Product: "晨间手冲壶", Slug: "pour-over-kettle", TotalCents: 42800,
 	}
 	if row != want {
 		t.Fatalf("row %+v, want %+v", row, want)
@@ -90,8 +93,11 @@ func TestShipOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	o, _ := GetOrder("studio", "SH-1042")
-	want := Shipment{Carrier: "SF", CarrierName: "顺丰速运", TrackingNo: "SF1234567890", ShippedAt: at}
-	if o.Status != StatusShipped || o.Shipment == nil || *o.Shipment != want {
+	want := Shipment{
+		Carrier: "SF", CarrierName: "顺丰速运", TrackingNo: "SF1234567890", ShippedAt: at,
+		Events: []TrackEvent{{At: at, Place: warehouse, Note: "快递员已揽收"}},
+	}
+	if o.Status != StatusShipped || o.Shipment == nil || !reflect.DeepEqual(*o.Shipment, want) {
 		t.Fatalf("after shipping: %s %+v", o.Status, o.Shipment)
 	}
 	if s := ListOrders("studio"); s.Pending != 1 || s.Shipped != 41 {
@@ -203,4 +209,72 @@ func reset() {
 	ordersMu.Lock()
 	defer ordersMu.Unlock()
 	orders = demoOrders()
+}
+
+func TestEveryProductHasPhotos(t *testing.T) {
+	reset()
+	for _, o := range orders {
+		for _, item := range o.Items {
+			for _, view := range []string{"main", "detail", "scene"} {
+				for _, width := range []int{160, 480, 1200} {
+					file := fmt.Sprintf("../../../store/images/%s/%s-%d.avif", item.Slug, view, width)
+					if _, err := os.Stat(file); err != nil {
+						t.Errorf("%s of %s: %v", item.Name, o.ID, err)
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestListRowsShowTheCarrierOfShippedOrders(t *testing.T) {
+	reset()
+	rows := ListOrders("studio").Orders
+	if rows[0].Carrier != "" || rows[0].TrackingNo != "" {
+		t.Errorf("pending row %+v", rows[0])
+	}
+	if rows[2].ID != "SH-1040" || rows[2].Carrier != "顺丰速运" || rows[2].TrackingNo != "SF1408273615" {
+		t.Errorf("shipped row %+v", rows[2])
+	}
+}
+
+func TestDemoParcelsTravelToTheCityOfTheAddress(t *testing.T) {
+	reset()
+	o, _ := GetOrder("studio", "SH-1040") // 周宁, 北京市朝阳区
+	events := o.Shipment.Events
+	if len(events) != 8 || !events[0].At.Equal(o.Shipment.ShippedAt) || events[0].Place != warehouse {
+		t.Fatalf("events %+v", events)
+	}
+	if last := events[7]; last.Place != "北京市朝阳区" || last.Note != "已签收，签收人：本人" {
+		t.Errorf("last event %+v", last)
+	}
+	for i := 1; i < len(events); i++ {
+		if !events[i].At.After(events[i-1].At) {
+			t.Errorf("event %d at %s is not after %s", i, events[i].At, events[i-1].At)
+		}
+	}
+	if n, _ := GetOrder("studio", "SH-1042"); n.Note == "" {
+		t.Error("SH-1042 has no note")
+	}
+}
+
+func TestCustomerOrdersAreTheOtherOrdersOfTheBuyer(t *testing.T) {
+	reset()
+	others, count, spent := CustomerOrders("studio", "SH-1042") // 林夏
+	if count != len(others)+1 || count < 2 {
+		t.Fatalf("%d orders, %d others", count, len(others))
+	}
+	sum := 42800
+	for _, o := range others {
+		if o.Customer != "林夏" || o.ID == "SH-1042" {
+			t.Errorf("other order %+v", o)
+		}
+		sum += o.TotalCents
+	}
+	if spent != sum {
+		t.Errorf("spent %d, want %d", spent, sum)
+	}
+	if others, count, _ := CustomerOrders("studio", "SH-0000"); len(others) != 0 || count != 0 {
+		t.Errorf("unknown order: %d others, %d orders", len(others), count)
+	}
 }
