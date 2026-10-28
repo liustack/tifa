@@ -1,0 +1,4 @@
+# Two VMs on every machine, so that what the process holds does not depend on the number of CPUs.
+# Every other setting is the default the scenarios are measured with.
+ssr:
+  vms: 2

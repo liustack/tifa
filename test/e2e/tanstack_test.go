@@ -131,7 +131,7 @@ func linkEntries(t *testing.T, src, dst, skip string) {
 func TestAppsOfTheRepositoryUseTheTestedTanStack(t *testing.T) {
 	pinned := regexp.MustCompile(`"@tanstack/react-router": "([^"]+)"`)
 	locked := regexp.MustCompile(`(?m)^  '(@tanstack/(?:react-router|router-core))@([0-9][^'(]*)['(]`)
-	for _, app := range []string{"../../examples/shop", "../../test/apps/pages", "../../test/apps/tailwind", "../../test/apps/mui", "../../test/apps/bench"} {
+	for _, app := range []string{"../../examples/shop", "../../test/apps/pages", "../../test/apps/tailwind", "../../test/apps/mui", "../../test/apps/bench", "../../test/apps/extreme"} {
 		pkg, err := os.ReadFile(filepath.Join(app, "package.json"))
 		if err != nil {
 			t.Fatal(err)
