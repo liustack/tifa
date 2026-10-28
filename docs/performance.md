@@ -204,6 +204,15 @@ What one VM holds by the engine's count (slowjs's `MemorySize`), one VM renderin
 
 A full collection after the 300 renders frees nothing more: the young collection after each render already freed what could be freed. The rest of a VM's share of RSS is Go memory, and on Linux libc's TLS stack, where the Go translation of the engine keeps C locals.
 
+**Idle VMs give their free memory back.** This is for slowjs's C engine, which maps the memory of each VM itself. A render needs memory beyond what the VM keeps, and leaves it behind as free pages: 2.6 MiB for the shop and 1.4 MiB for MUI, plus the part of the engine's stack the render touched, 0.8 and 1.0 MiB. A VM that has not rendered for a second (`idleRelease` in `internal/ssr/pool.go`) gives those pages back to the system, and so does the full collection between renders. What one VM takes of the process, as (RSS with 8 VMs minus RSS with 1 VM) / 7 after the pool rendered every page 32 times, then again after it waited 1.5 seconds with the VMs idle (`TestShopVMResident`, three runs each, AMD EPYC 7B13):
+
+| App | After rendering | After waiting idle | Less |
+| --- | --- | --- | --- |
+| The shop | 12.6 to 13.0 MiB | 9.6 MiB | 3.2 MiB (25%) |
+| MUI | 7.5 to 7.7 MiB | 5.6 MiB | 2.1 MiB (27%) |
+
+The first render after the wait takes the pages again, 1 to 2.5 ms more (3% to 9%) on the shop's pages and 1.2 to 2.5 ms (2.5% to 6.6%) on MUI's, where a build without the release takes up to 1.3 ms more after the same pause. A VM that renders at least once a second keeps its memory, since giving it back would cost each render that refill, about 0.9 ms for each MiB: under steady load the figures above stand, and so does the sizing of 12 to 16 MiB per VM. Render times are the same with and without the release, within 0.5% on each page with 1 VM and within 0.4% with 2 VMs (3 rounds at 8 code positions, so the ratio is not a layout accident). The engine on Go takes its memory from libc and gives none back.
+
 - The pool loads the bundle with slowjs's `SharedBytecode`, so the bytecode, the source text of the bundle's functions, which their `toString` returns, and the tables that give error stacks their line numbers are kept once for the process, outside every VM and its `ssr.vm_memory`.
 - Each VM keeps the shapes of the last 2048 plain objects after the objects are gone (a shape records which keys an object has, in which order), and a list per size of freed small blocks, which a garbage collection hands back. Between collections the lists hold up to 1.6 MiB of blocks. The engine's collection threshold counts them, and an allocation that hits the memory limit hands the cached blocks back and tries again.
 - The kept shapes count against `ssr.vm_memory`. A page that makes many objects whose keys no other object has can fill the 2048 with such shapes: a shape of 32 keys of about ten characters takes about 3 KiB with its key names, so about 6 MiB per VM. The engine's `VM.SetShapeCache` sets how many shapes a VM keeps, `slowjs.DefaultShapeCache` (2048) by default. tifa keeps the default and has no setting for it.
