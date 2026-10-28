@@ -59,7 +59,21 @@
     "promise2Title": "七天无理由",
     "promise2Body": "收到后七天内可退换",
     "promise3Title": "手作",
-    "promise3Body": "每一件都来自合作的小作坊"
+    "promise3Body": "每一件都来自合作的小作坊",
+    "kicker": "2026 秋 · 第 4 期",
+    "heroCaption": "No. 001 到 005 · 晨间手冲壶、手作陶瓷杯、锡制茶叶罐",
+    "heroAlt": "手冲壶、陶瓷杯和锡制茶叶罐放在三个石膏台上",
+    "featuredLabel": "本期推荐",
+    "slide": "第 {{n}} 张，共 {{total}} 张",
+    "previous": "上一张",
+    "next": "下一张",
+    "saleKicker": "限时特价 · 到 11 月 11 日",
+    "saleTitle": "盖毯、营灯和冷水壶，限时特价",
+    "saleBody": "入秋前最后一批，卖完就恢复原价。",
+    "saleCta": "看特价商品",
+    "picks": "店主常用",
+    "byCategory": "各类评分最高",
+    "reviews": "顾客怎么说"
   },
   "list": {
     "title": "全部商品",

@@ -63,7 +63,21 @@
     "promise2Title": "7-day returns",
     "promise2Body": "Return or exchange within seven days",
     "promise3Title": "Handmade",
-    "promise3Body": "Every piece comes from a small workshop we know"
+    "promise3Body": "Every piece comes from a small workshop we know",
+    "kicker": "Autumn 2026 · Issue 4",
+    "heroCaption": "No. 001 to 005 · Pour-over kettle, ceramic cup, tin tea canister",
+    "heroAlt": "A pour-over kettle, a ceramic cup and a tin tea canister on three plaster stands",
+    "featuredLabel": "In this issue",
+    "slide": "Slide {{n}} of {{total}}",
+    "previous": "Previous",
+    "next": "Next",
+    "saleKicker": "On sale · until 11 November",
+    "saleTitle": "Throws, lanterns and carafes on sale",
+    "saleBody": "The last of them before autumn sets in, back to full price once gone.",
+    "saleCta": "See what is on sale",
+    "picks": "What we use every day",
+    "byCategory": "Best rated in each category",
+    "reviews": "What customers say"
   },
   "list": {
     "title": "All products",
