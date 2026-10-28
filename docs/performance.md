@@ -1,8 +1,9 @@
 ---
-summary: 'How fast tifa renders pages against C QuickJS and Node, how whole requests compare with Next.js and TanStack Start, how throughput grows with cores, how to size CPUs, ssr.vms and memory, what happens under overload, what compression costs, which changes made rendering faster, what was tried and dropped, how to measure again and where to continue'
+summary: 'How fast tifa renders pages against C QuickJS and Node, how whole requests compare with Next.js and TanStack Start, how throughput grows with cores, how to size CPUs, ssr.vms and memory, what happens under overload, how large a page can get before rendering fails, what compression costs, which changes made rendering faster, what was tried and dropped, how to measure again and where to continue'
 read_when:
   - Deciding how many CPUs and how much memory a tifa app needs, or setting `ssr.vms`
   - Requests arrive faster than pages render, or you need to size the render queue
+  - A page is very large, deep or full of data, and you want to know whether it will render or fail
   - Asking how fast tifa renders a page, or how it compares with C QuickJS, Node, Next.js or TanStack Start
   - Deciding whether to turn off `server.compress`, or changing how answers are compressed
   - Changing `internal/ssr`, the rewrites the Vite plugin makes to the SSR bundle, or the PGO profile, and checking what a change gains
@@ -217,6 +218,53 @@ The pool replaces a VM in the background when its live size after a collection c
 
 - Code that recurses without end can add up to about 24 MB of goroutine stack per VM for a moment.
 - On Linux, a VM that once recursed 10000 levels deep keeps about 20 MB more of TLS blocks until the VM closes.
+
+## Extreme pages
+
+How large can a page get before rendering fails, and does it fail cleanly? [Extreme pages](testing.md#extreme-pages-testappsextreme) in the testing doc describes the app and its scenarios. Measured on 2026-10-28 with the default settings (128 MiB per VM, 3 seconds per render), without PGO:
+
+- **M4**: an Apple M4, slowjs v0.28.6, the engine tifa ships, which runs on Go.
+- **EPYC**: one thread of the AMD EPYC 7B13 described above, the other thread of its core idle, with the same engine, and with slowjs's C engine (slowjs main at 0c8c338, generated with `-release`, built with `-tags slowjs_cengine`). The C engine runs only on linux/amd64.
+
+Each cell gives the P50 of 5 warm renders and the VM's memory right after a render, or how the render failed and what it takes with 1 GiB and 60 seconds instead. The engines collect garbage at different times, so compare memory only within one engine.
+
+| Page | M4 | EPYC | EPYC, C engine |
+| --- | --- | --- | --- |
+| `/dom/10000` | 41 ms, 9.5 MiB | 71 ms, 9.6 MiB | 60 ms, 7.5 MiB |
+| `/dom/50000` | 208 ms, 18.5 MiB | 362 ms, 18.5 MiB | 318 ms, 14.0 MiB |
+| `/dom/100000` | 419 ms, 30.0 MiB | 739 ms, 30.0 MiB | 638 ms, 22.2 MiB |
+| `/nest/500` | 1.3 ms, 6.9 MiB | 2.4 ms, 6.9 MiB | 2.0 ms, 5.8 MiB |
+| `/nest/1000` | 2.5 ms, 6.9 MiB | 3.6 ms, 6.9 MiB | 3.1 ms, 5.8 MiB |
+| `/nest/5000` | 14 ms, 7.6 MiB | 15 ms, 7.7 MiB | 18 ms, 6.6 MiB |
+| `/nest/10000` | 27 ms, 9.8 MiB | 31 ms, 9.8 MiB | 33 ms, 8.7 MiB |
+| `/deep/400` | 1.8 ms, 6.9 MiB | 3.2 ms, 6.9 MiB | 2.7 ms, 5.8 MiB |
+| `/deep/600` | 2.4 ms, 6.9 MiB | 4.3 ms, 6.9 MiB | 3.5 ms, 5.8 MiB |
+| `/inject/1` | 13 ms, 12.1 MiB | 26 ms, 12.1 MiB | 22 ms, 10.0 MiB |
+| `/inject/5` | 69 ms, 31.4 MiB | 138 ms, 31.4 MiB | 121 ms, 27.3 MiB |
+| `/inject/20` | out of memory after 0.14 s (0.25 s, 105 MiB) | out of memory after 0.32 s (0.52 s, 105 MiB) | out of memory after 0.39 s (0.53 s, 92 MiB) |
+| `/json/1999` | 2.2 ms, 7.4 MiB | 4.4 ms, 7.4 MiB | 3.6 ms, 6.2 MiB |
+| `/json/2001` | 2.2 ms, 7.4 MiB | 4.4 ms, 7.4 MiB | `RangeError: Maximum call stack size exceeded` after 2 ms |
+| `/table/1000` | 253 ms, 36.3 MiB | 545 ms, 36.3 MiB | 486 ms, 34.0 MiB |
+| `/table/5000` | out of memory after 0.93 s (1.4 s, 152 MiB) | out of memory after 1.9 s (3.0 s, 152 MiB) | out of memory after 1.8 s (2.6 s, 147 MiB) |
+| `/table/10000` | out of memory after 0.83 s (2.8 s, 296 MiB) | out of memory after 1.6 s (6.0 s, 297 MiB) | out of memory after 1.4 s (5.3 s, 288 MiB) |
+| `/providers/200` | 1.2 ms, 7.0 MiB | 2.2 ms, 7.0 MiB | 1.9 ms, 5.9 MiB |
+| `/providers/500` | 2.1 ms, 7.3 MiB | 3.7 ms, 7.3 MiB | 3.0 ms, 6.2 MiB |
+| `/providers/1000` | 4.2 ms, 7.8 MiB | 6.4 ms, 7.8 MiB | 5.3 ms, 6.7 MiB |
+| `/charts/12` | 269 ms, 17.0 MiB | 456 ms, 17.0 MiB | 372 ms, 12.5 MiB |
+| `/markdown/200` | 1,848 ms, 92.4 MiB | timed out (3.1 s, 92.5 MiB) | 2,718 ms, 10.1 MiB |
+| `/markdown/1000` | out of memory after 2.2 s (16 s, 407 MiB) | timed out (27 s, 408 MiB) | timed out (22 s, 436 MiB) |
+| `/markdown/2000` | out of memory after 2.5 s (52 s, 809 MiB) | timed out (over 60 s) | timed out (over 60 s) |
+| `/i18n/3000` | 229 ms, 17.2 MiB | 491 ms, 17.2 MiB | 412 ms, 15.8 MiB |
+| `/mall/zh-CN` | 151 ms, 16.5 MiB | 305 ms, 16.6 MiB | 261 ms, 14.4 MiB |
+| `/mall/en-US` | 152 ms, 16.3 MiB | 301 ms, 16.3 MiB | 262 ms, 13.8 MiB |
+| `/console/100` | 1,788 ms, 31.3 MiB | timed out (3.4 s, 22.6 MiB) | 2,694 ms, 19.7 MiB |
+
+- **Every failure is clean.** On both engines no size made the program exit or hang. Each failure was a 500 within the time budget, the VM was replaced, and the next page rendered. With 2 VMs the program held at most 363 to 416 MiB over all the sizes.
+- **Memory runs out first** for large data and long lists: 20 MB of injected data, a table of 5,000 rows, a long Markdown document. **Time runs out first** for highlighted code: highlighting takes most of the Markdown pages and of the admin day, which has 300 replies with code. Their time grows faster than their size: 200 KB of Markdown takes 1.8 s on the M4, 1 MB 16 s and 2 MB 52 s.
+- **The C engine** takes 11% to 21% less time than the engine on Go on the larger pages, and slightly more on 5,000 and 10,000 levels of components. It parses JSON at most 2,000 levels deep, so `/json/2001` fails there.
+- **Deep calls** cost Go stack, not VM memory. During a render the goroutine stack grows by 1 to 4 MiB for 500 to 1,000 levels of components or providers and for 400 to 600 nested `div`s, and by 8 MiB on the EPYC and 16 MiB on the M4 for 5,000 and 10,000 levels of components. Pages that are wide rather than deep grow it by at most 512 KiB.
+- **Injected data**: on the M4, the render of the page with 5 MB of data took 69 ms, 37 ms of which went to parsing the data in the VM. Before the render, Go took 21 ms to load the data and write it as JSON, and 2 ms to escape it.
+- **A stopped VM slows no one else**: on the M4, with 4 VMs, the P99 of `/table/25` on three of them was 9 ms alone, 19 to 21 ms while the fourth rendered `/markdown/200`, and 17 to 18 ms while the fourth was stopped and replaced every second. The heavy page itself slows the others (the M4 has 4 performance cores), but stopping and replacing VMs adds nothing to that.
 
 ## Compression
 
