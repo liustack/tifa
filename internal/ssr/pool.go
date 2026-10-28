@@ -547,7 +547,7 @@ func (p *Pool) replaceGrown() {
 // runGC runs a young GC on vm, then a full GC when the young GC left 1.5 times the live size or
 // more. It runs only the full GC when vm ran fullGCEvery renders since its last full GC. With full it runs only the full GC: the engine collected during the render, and
 // set its threshold from what the render held then. The full GC sets the live size and threshold
-// from what is left. runGC returns a Go panic, from the engine, as an error: in the goroutine of
+// from what is left, and what the VM holds beyond the threshold goes back to the system. runGC returns a Go panic, from the engine, as an error: in the goroutine of
 // collect it has no caller to go up to, and would end the process.
 func (p *Pool) runGC(vm *pooledVM, full bool) (err error) {
 	defer func() {
@@ -571,6 +571,11 @@ func (p *Pool) runGC(vm *pooledVM, full bool) (err error) {
 	vm.young = 0
 	vm.live = vm.MemorySize()
 	vm.setThreshold(p.memory)
+	// The memory the renders until the next GC fill stays, the rest goes back to the system, as
+	// what a big render took once the threshold no longer leaves room for it.
+	if _, err := vm.ReleaseMemory(vm.threshold - vm.live); err != nil {
+		return err
+	}
 	p.mu.Lock()
 	p.counts.idleGCs++
 	p.mu.Unlock()

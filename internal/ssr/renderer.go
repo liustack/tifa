@@ -118,9 +118,14 @@ func Load(bytecode *slowjs.SharedBytecode, memory, stack uintptr, timeout time.D
 		return nil, errors.Join(err, vm.VM.Close())
 	}
 	// What loading left as garbage goes now, so that the live size of the VM is what the bundle
-	// keeps, and the first render gets the threshold of the next ones.
+	// keeps, and the first render gets the threshold of the next ones. The memory it took goes
+	// back to the system: a VM of the pool may wait long for its first render, which takes it
+	// again.
 	vm.RunGC()
 	vm.SetGCThreshold(gcThreshold(vm.MemorySize(), 0, memory))
+	if _, err := vm.ReleaseMemory(0); err != nil {
+		return nil, errors.Join(err, vm.Close())
+	}
 	return vm, nil
 }
 
