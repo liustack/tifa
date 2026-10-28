@@ -1,5 +1,5 @@
 ---
-summary: 'Testing and verification: commands to run before committing, checks for the example app, end-to-end tests, red before green, the long SSR tests that are skipped by default, the SSR benchmarks of the example app with one VM and with several at once, the extreme pages that find where rendering stops working, and how to collect the engine profile again'
+summary: 'Testing and verification: commands to run before committing, checks for the example app, end-to-end tests, red before green, the long SSR tests that are skipped by default, the SSR benchmarks of the example app with one VM and with several at once, the extreme pages that find where rendering stops working, and how to collect the engine profile again, and what CI on GitHub runs and leaves out'
 read_when:
   - Getting ready to commit and checking which checks to run
   - Writing a new test or fixing a bug
@@ -14,6 +14,7 @@ read_when:
   - Changing something every VM uses, such as how the engine allocates memory, or checking that SSR still speeds up with more cores
   - Upgrading github.com/liustack/slowjs or modernc.org/libc, or `TestEngineProfileMatchesTheDependencies` fails
   - Changing how the server serves HTTPS or gets its certificates
+  - Changing `.github/workflows/`, or a CI run is red and you need to know what it runs
 ---
 
 # Testing and verification
@@ -72,6 +73,25 @@ TIFA_E2E=1 go test ./test/e2e/
 Each app under `test/apps` is a separate module, so the root `go test ./...` does not scan them. Builds write `.tifa/` and `node_modules/` in the app folder, and both are ignored. After changing the output of `internal/codegen`, run `go test -update` in `internal/codegen` to refresh the golden files, then review the diff.
 
 `TestGeneratedRouterBehaves` in `internal/codegen` generates the route tree for `testdata/router`, bundles the tests with Vite, with the changes the SSR bundle makes to seroval, and runs `testdata/router/router.test.tsx` with Node: a full-page render through the SSR entry (the module preloads Go passes go right after the head of the build and change nothing else, the JSON text of each route's data comes as an argument of `startRender` and reaches the page as it was given, with quotes, backslashes, U+2028, `</script>` and characters above U+FFFF, and a result that numbers a text `startRender` was not given fails the render), hydration from the rendered page (loader data must come back unchanged through the `tifa.data` adapter, a nested `-0` and arrays at the top, nested and empty included), client loading on an in-memory history, checks of the data collector against a replaced `fetch`, and finally `tsc --noEmit` together with the runtime. `router.test.tsx` and `head.test.tsx` run twice: as Vite bundles them for the server, and with the `lazyRoutes` plugin of the browser build (`out/lazy/`), where every route module but the root Layout loads when its route needs it and `head` returns a promise. The heads after hydration and after a navigation must be the same in both. It borrows `test/apps/pages/node_modules` and skips when Node is not installed or `pnpm install --frozen-lockfile` has not been run in that folder. When changing route tree generation or `js/runtime`, add cases here first.
+
+## CI
+
+GitHub Actions (`.github/workflows/ci.yml`) checks every push, and every pull request from a fork. It checks that things are right and times nothing.
+
+| Job | Where | What it runs |
+| --- | --- | --- |
+| test | linux/amd64 (`ubuntu-24.04`) and darwin/arm64 (`macos-15`) | `go vet ./...`, `CGO_ENABLED=0 go build ./...`, `go test -count=1 ./...`, `scripts/docs-list.sh --check`. About 1 minute with a warm Go cache |
+| e2e | linux/amd64 | Node 24 and pnpm 10.33.0, `pnpm install --frozen-lockfile` in `test/apps/pages`, `tailwind`, `mui`, `bench` and `examples/shop`, then `TIFA_E2E=1 go test -count=1 ./test/e2e/`. About 3.5 minutes |
+
+Left out on purpose:
+
+- **Tests that need `TIFA_SSR_SHOP`, `TIFA_SSR_SOAK`, `TIFA_SSR_EXTREME` or `TIFA_EXTREME`**: the shop SSR tests, the soak tests and the extreme pages. They take long, and the benchmarks among them need a quiet machine.
+- **The bundle tests of `internal/bundle` and the router test of `internal/codegen`**: they need `pnpm install` in `internal/bundle/testdata` and `test/apps/pages`, which the test job does not run, so they show skip there. The e2e job installs `test/apps/pages` but runs only `test/e2e`. To turn them on, run the installs in the linux test job.
+- **The `-race` runs**: they are run on chosen packages by hand (see [Before committing](#before-committing)).
+- **darwin/arm64 for e2e**: it has the same Node and the same tests, so it adds time and no new facts. Add it by putting the job in a matrix.
+- **The C engine of slowjs** (`-tags slowjs_cengine`): slowjs checks that itself. Add a `GOFLAGS=-tags=slowjs_cengine` run of `go test ./...` when tifa starts to use it.
+
+The steps run with `permissions: contents: read`, and the actions are pinned to a major version.
 
 ## Writing tests
 
