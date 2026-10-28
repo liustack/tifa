@@ -158,15 +158,22 @@ func startShop(t testing.TB) string {
 	return startProgram(t, filepath.Join(shopDir, "bin", "shop"))
 }
 
-// startProgram runs a program built by tifa build and returns its base URL.
+// startProgram runs a program built by tifa build and returns its base URL. The program runs under
+// a reaper (see reap) that kills it when this process ends, also when a panic in another goroutine
+// or a timeout ends it without running t.Cleanup.
 func startProgram(t testing.TB, exe string) string {
 	t.Helper()
-	cmd := exec.Command(exe, "--server-addr", "127.0.0.1:0")
+	cmd := exec.Command(os.Args[0], "--server-addr", "127.0.0.1:0")
 	// The program rejects unknown TIFA_* variables as settings, TIFA_SSR_SHOP among them.
 	for _, kv := range os.Environ() {
 		if !strings.HasPrefix(kv, "TIFA_") {
 			cmd.Env = append(cmd.Env, kv)
 		}
+	}
+	cmd.Env = append(cmd.Env, reaperEnv+"="+exe)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
@@ -176,7 +183,10 @@ func startProgram(t testing.TB, exe string) string {
 		t.Fatalf("run tifa build first: %v", err)
 	}
 	t.Cleanup(func() {
-		cmd.Process.Kill()
+		// The reaper kills the program once its input ends, and then ends itself.
+		stdin.Close()
+		timer := time.AfterFunc(10*time.Second, func() { cmd.Process.Kill() })
+		defer timer.Stop()
 		cmd.Wait()
 	})
 	found := make(chan string, 1)
