@@ -35,7 +35,11 @@ import './styles.css'
 export const htmlAttributes = { lang: 'zh-CN' }
 
 export const documentHead = {
-  meta: [{ title: '山海工作台' }, { name: 'theme-color', content: '#f7f8f5' }],
+  meta: [
+    { title: '山海工作台' },
+    { name: 'theme-color', content: '#f2f4f5', media: '(prefers-color-scheme: light)' },
+    { name: 'theme-color', content: '#0f141b', media: '(prefers-color-scheme: dark)' },
+  ],
   links: [{ rel: 'icon', href: 'data:,' }],
 }
 
