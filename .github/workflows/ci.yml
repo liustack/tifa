@@ -43,7 +43,7 @@ jobs:
       - name: Build without cgo
         run: CGO_ENABLED=0 go build ./...
       - name: Test
-        run: go test ./...
+        run: go test -count=1 ./...
       - name: Docs have a summary
         run: scripts/docs-list.sh --check
 
@@ -77,6 +77,6 @@ jobs:
             (cd "$app" && pnpm install --frozen-lockfile)
           done
       - name: Test
-        run: go test ./test/e2e/ -v -timeout 25m
+        run: go test -count=1 ./test/e2e/ -v -timeout 25m
         env:
           TIFA_E2E: "1"
