@@ -4,8 +4,8 @@
 
 一家小店的两面，放在同一个程序里。
 
-- **工作台**，给店主用：两家店铺，每页 25 行、带商品图的订单列表，可以排序、搜索，按状态、日期、快递和金额筛选，也可以勾选订单批量导出，带物流轨迹的订单详情，发货表单，修改收货信息的弹窗，以及带图表和每日明细的销售统计。发货后列表和统计跟着更新。
-- **店面**，给顾客用，有中文和英文：每页都有分类菜单和购物车抽屉，首页有轮播和按分类切换的热销，带搜索和筛选的商品列表，商品详情有图库、带图评价、问答和搭配购买，存在程序内存里、cookie 只放编号的购物车，表单很长的结算页，以及用 Markdown 写、代码带高亮的手记文章。价格按语言用人民币或美元，日期和数字也按语言格式化。
+- **工作台**，给店主用：两家店铺，每页 25 行、带商品图的订单列表，可以排序、搜索，按状态、日期、快递和金额筛选，也可以勾选订单批量导出。订单详情有操作记录、内部备注、付款与发票、库存检查、拣货单、物流轨迹和各家快递的表现，还有发货表单和修改收货信息的弹窗。销售统计有图表、带走势线的商品销售明细、下单时段热力图、快递表现、发货时效和常客。发货后列表和统计跟着更新。
+- **店面**，给顾客用，有中文和英文：每页都有分类菜单和购物车抽屉，首页有轮播和按分类切换的热销，商品列表有搜索、带数量的筛选、常用筛选、已选条件、网格和列表两种视图和每件商品的快速查看，商品详情有图库、完整规格、和同类商品的对比、分页的评价（带图，店家会回复）、问答和搭配购买，购物车存在程序内存里、cookie 只放编号，周围有优惠券和推荐，结算页表单很长，还有用 Markdown 写、代码带高亮的手记文章。价格按语言用人民币或美元，日期和数字也按语言格式化。
 
 页面在服务器上渲染成完整 HTML，浏览器接管后在页面之间跳转。数据放在进程内存里，重启恢复初始值。
 
@@ -53,10 +53,12 @@ app/
       orders/
         order.go  shipping.go  订单领域：列表、详情、发货和收货信息的规则、存储
         stats.go               近 30 天的销售
-        order+/                /projects/{project}/orders/{order}：订单详情，POST 发货，PATCH 改收货信息
-          ship-form.tsx  recipient-dialog.tsx  items.tsx
+        order+/                /projects/{project}/orders/{order}：订单详情，POST 发货，PATCH 改收货信息，PUT 加备注
+          ship-form.tsx  recipient-dialog.tsx  items.tsx  notes.tsx  activity.tsx  side-cards.tsx
+        detail.go              订单页除订单本身外要显示的东西：付款、操作记录、备注、拣货单、快递统计
       stats/                   /projects/{project}/stats：销售统计
         revenue-chart.client.tsx  products-chart.client.tsx    两张图表，只在浏览器里加载
+        panels.tsx             商品明细表、下单热力图、快递、常客和最近订单
   store/
     store.go                   店面共用的部分：两种语言、各自的币种和时区、价格
     i18n.ts  locales/          i18next 和两种语言的文案，金额和日期按语言格式化
@@ -66,7 +68,7 @@ app/
       layout.go  layout.tsx    店面 Layout：分类菜单、搜索、语言切换、购物车抽屉、页脚
       route.go  route.tsx      首页
       products/
-        product.go  catalogue.go  review.go    商品领域：商品、搜索、筛选和各项计数、评价
+        product.go  catalogue.go  review.go    商品领域：商品、搜索、筛选和各项计数、评价、规格、最近看过
         route.go  route.tsx    商品列表，筛选条件放在查询字符串里
         filter-schema.ts       筛选表单的 zod schema
         product+/              /store/{lang}/products/{product}：商品详情，POST 加入购物车
