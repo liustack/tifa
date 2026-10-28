@@ -46,3 +46,37 @@ jobs:
         run: go test ./...
       - name: Docs have a summary
         run: scripts/docs-list.sh --check
+
+  e2e:
+    # The end-to-end tests build the CLI and the apps under test/apps and
+    # examples/shop with Node and pnpm, then start the outputs.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    name: e2e (linux/amd64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            test/apps/*/pnpm-lock.yaml
+            examples/shop/pnpm-lock.yaml
+
+      - name: Install the packages of the apps
+        run: |
+          for app in test/apps/pages test/apps/tailwind test/apps/mui test/apps/bench examples/shop; do
+            (cd "$app" && pnpm install --frozen-lockfile)
+          done
+      - name: Test
+        run: go test ./test/e2e/ -v -timeout 25m
+        env:
+          TIFA_E2E: "1"
