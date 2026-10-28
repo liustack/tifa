@@ -79,3 +79,55 @@ func reviewsOf(page string) string {
 	}
 	return html[i:j]
 }
+
+// checkOrderPageModules checks the modules of the workbench order page: a waiting order shows what
+// to pick and check before shipping, a shipped one how its parcel went. A note put on an order
+// shows on its page, and an empty one is refused.
+func checkOrderPageModules(t *testing.T, base string) {
+	t.Helper()
+	for _, tc := range []struct {
+		path  string
+		wants []string
+		not   []string
+	}{
+		{"/projects/studio/orders/SH-1041", []string{
+			"操作记录", "内部备注", "拣货单", "库存检查", "快递对比", "毛利估算", "地址核验", "付款与发票", "订单标记", "发货前检查", "同款商品的订单",
+			"两只杯子分开包", "打印订单", "进入待发货", "锁定库存", "待发 2 件",
+		}, []string{"物流轨迹", "快递用时对比", "发货后跟进"}},
+		{"/projects/studio/orders/SH-1040", []string{
+			"物流轨迹", "快递用时对比", "发货后跟进", "已签收，签收人：本人", "干线运输途中", "打印面单", "发送通知", "店里已售",
+		}, []string{"拣货单", "库存检查", "发货前检查"}},
+	} {
+		status, _, page := get(t, base+tc.path)
+		in := rendered(page)
+		for _, want := range tc.wants {
+			if status != 200 || !strings.Contains(in, want) {
+				t.Errorf("%s: %d lacks %s", tc.path, status, want)
+			}
+		}
+		for _, no := range tc.not {
+			if strings.Contains(in, no) {
+				t.Errorf("%s has %s", tc.path, no)
+			}
+		}
+	}
+	// A parcel's way has 11 steps, each with a place under a tooltip trigger.
+	_, _, shipped := get(t, base+"/projects/studio/orders/SH-1040")
+	if n := strings.Count(rendered(shipped), `data-slot="tooltip-trigger"`); n < 11 {
+		t.Errorf("%d tooltip triggers on a shipped order", n)
+	}
+	url := base + "/projects/studio/orders/SH-1041"
+	if status, body := send(t, "PUT", url, base, `{"text":"  "}`); status != 422 || !strings.Contains(body, "请写点内容") {
+		t.Errorf("an empty note: %d %s", status, body)
+	}
+	if status, body := send(t, "PUT", url, base, `{"text":"顾客改了送货时间，周三前送到。"}`); status != 200 || !strings.Contains(body, "顾客改了送货时间") {
+		t.Errorf("a note: %d %s", status, body)
+	}
+	_, _, page := get(t, url)
+	if !strings.Contains(rendered(page), "顾客改了送货时间，周三前送到。") || !strings.Contains(rendered(page), "添加备注") {
+		t.Error("the note is not on the order page")
+	}
+	if status, _ := send(t, "PUT", url, "https://elsewhere.example", `{"text":"x"}`); status != 403 {
+		t.Errorf("a note from another site: %d", status)
+	}
+}

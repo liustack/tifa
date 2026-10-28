@@ -3,6 +3,7 @@ package orders
 import (
 	"cmp"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -88,4 +89,51 @@ func SalesStats(projectID string, zone *time.Location) Sales {
 		s.TopProducts = s.TopProducts[:5]
 	}
 	return s
+}
+
+// CarrierSales is how a carrier did for a shop: how many parcels it took, how long the shop took to
+// hand them over after the order, and how long the carrier took to deliver.
+type CarrierSales struct {
+	Code             string  `json:"code"`
+	Name             string  `json:"name"`
+	Orders           int     `json:"orders"`
+	AvgDispatchHours float64 `json:"avgDispatchHours"`
+	AvgTransitHours  float64 `json:"avgTransitHours"`
+}
+
+// CarrierStats returns a line for each carrier, in the order of Carriers. Transit counts only the
+// parcels that have been signed for.
+func CarrierStats(projectID string) []CarrierSales {
+	out := make([]CarrierSales, len(Carriers))
+	dispatch := make([]time.Duration, len(Carriers))
+	transit := make([]time.Duration, len(Carriers))
+	delivered := make([]int, len(Carriers))
+	for i, c := range Carriers {
+		out[i] = CarrierSales{Code: c.Code, Name: c.Name}
+	}
+	for _, o := range ordersOf(projectID) {
+		s := o.Shipment
+		i := -1
+		if s != nil {
+			i = slices.IndexFunc(Carriers, func(c Carrier) bool { return c.Code == s.Carrier })
+		}
+		if i < 0 {
+			continue
+		}
+		out[i].Orders++
+		dispatch[i] += s.ShippedAt.Sub(o.PlacedAt)
+		if n := len(s.Events); n > 0 && strings.HasPrefix(s.Events[n-1].Note, "已签收") {
+			delivered[i]++
+			transit[i] += s.Events[n-1].At.Sub(s.ShippedAt)
+		}
+	}
+	for i := range out {
+		if out[i].Orders > 0 {
+			out[i].AvgDispatchHours = dispatch[i].Hours() / float64(out[i].Orders)
+		}
+		if delivered[i] > 0 {
+			out[i].AvgTransitHours = transit[i].Hours() / float64(delivered[i])
+		}
+	}
+	return out
 }

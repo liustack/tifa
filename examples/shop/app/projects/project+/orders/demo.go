@@ -44,28 +44,31 @@ var customers = []customer{
 }
 
 var studioCatalogue = []itemRecord{
-	{Slug: "pour-over-kettle", Name: "晨间手冲壶", Description: "雾白 / 600 ml", PriceCents: 32800, Color: "sand"},
-	{Slug: "linen-coasters", Name: "亚麻杯垫", Description: "原色 / 两件装", PriceCents: 10000, Color: "olive"},
-	{Slug: "ceramic-cup", Name: "手作陶瓷杯", Description: "青苔绿 / 280 ml", PriceCents: 13400, Color: "olive"},
-	{Slug: "oak-tray", Name: "原木托盘", Description: "白橡木 / 大号", PriceCents: 58000, Color: "sand"},
-	{Slug: "reading-candle", Name: "阅读香薰", Description: "雪松与纸张 / 180 g", PriceCents: 19600, Color: "clay"},
-	{Slug: "brass-bookmarks", Name: "黄铜书签", Description: "哑光 / 两枚装", PriceCents: 6800, Color: "sand"},
-	{Slug: "stoneware-vase", Name: "粗陶花器", Description: "灰白 / 中号", PriceCents: 24800, Color: "clay"},
-	{Slug: "linen-apron", Name: "棉麻围裙", Description: "燕麦色 / 均码", PriceCents: 16800, Color: "olive"},
+	{Slug: "pour-over-kettle", Name: "晨间手冲壶", Description: "雾白 / 600 ml", PriceCents: 32800, Color: "sand", Stock: 23},
+	{Slug: "linen-coasters", Name: "亚麻杯垫", Description: "原色 / 两件装", PriceCents: 10000, Color: "olive", Stock: 80},
+	{Slug: "ceramic-cup", Name: "手作陶瓷杯", Description: "青苔绿 / 280 ml", PriceCents: 13400, Color: "olive", Stock: 58},
+	{Slug: "oak-tray", Name: "原木托盘", Description: "白橡木 / 大号", PriceCents: 58000, Color: "sand", Stock: 6},
+	{Slug: "reading-candle", Name: "阅读香薰", Description: "雪松与纸张 / 180 g", PriceCents: 19600, Color: "clay", Stock: 40},
+	{Slug: "brass-bookmarks", Name: "黄铜书签", Description: "哑光 / 两枚装", PriceCents: 6800, Color: "sand", Stock: 200},
+	{Slug: "stoneware-vase", Name: "粗陶花器", Description: "灰白 / 中号", PriceCents: 24800, Color: "clay", Stock: 11},
+	{Slug: "linen-apron", Name: "棉麻围裙", Description: "燕麦色 / 均码", PriceCents: 16800, Color: "olive", Stock: 34},
 }
 
 var weekendCatalogue = []itemRecord{
-	{Slug: "canvas-tote", Name: "周末帆布袋", Description: "深蓝 / 标准款", PriceCents: 15800, Color: "blue"},
-	{Slug: "folding-stool", Name: "露营折叠凳", Description: "军绿 / 承重 120 kg", PriceCents: 13900, Color: "olive"},
-	{Slug: "picnic-blanket", Name: "野餐垫", Description: "格纹 / 2 × 2 m", PriceCents: 8900, Color: "blue"},
-	{Slug: "insulated-bottle", Name: "保温水壶", Description: "雾蓝 / 750 ml", PriceCents: 12800, Color: "blue"},
-	{Slug: "postcards", Name: "手绘明信片", Description: "城市系列 / 6 张", PriceCents: 3600, Color: "clay"},
+	{Slug: "canvas-tote", Name: "周末帆布袋", Description: "深蓝 / 标准款", PriceCents: 15800, Color: "blue", Stock: 45},
+	{Slug: "folding-stool", Name: "露营折叠凳", Description: "军绿 / 承重 120 kg", PriceCents: 13900, Color: "olive", Stock: 52},
+	{Slug: "picnic-blanket", Name: "野餐垫", Description: "格纹 / 2 × 2 m", PriceCents: 8900, Color: "blue", Stock: 66},
+	{Slug: "insulated-bottle", Name: "保温水壶", Description: "雾蓝 / 750 ml", PriceCents: 12800, Color: "blue", Stock: 75},
+	{Slug: "postcards", Name: "手绘明信片", Description: "城市系列 / 6 张", PriceCents: 3600, Color: "clay", Stock: 260},
 }
 
 func demoOrders() []orderRecord {
 	list := []orderRecord{
-		noted(order("SH-1042", "studio", 0, at(10, 13, 14, 32), item(studioCatalogue[0], 1), item(studioCatalogue[1], 1)), notes[0]),
-		order("SH-1041", "studio", 1, at(10, 12, 16, 47), item(studioCatalogue[2], 2)),
+		staffNoted(noted(order("SH-1042", "studio", 0, at(10, 13, 14, 32), item(studioCatalogue[0], 1), item(studioCatalogue[1], 1)), notes[0]),
+			Note{"小满", "顾客要手写卡片，已通知包装的同事。", at(10, 13, 15, 10)},
+			Note{"阿远", "手冲壶库存 23 件，这单发完后提醒工坊补货。", at(10, 13, 16, 2)}),
+		staffNoted(order("SH-1041", "studio", 1, at(10, 12, 16, 47), item(studioCatalogue[2], 2)),
+			Note{"小满", "两只杯子分开包，避免路上相碰。", at(10, 12, 17, 20)}),
 		shipped(order("SH-1040", "studio", 2, at(10, 12, 10, 8), item(studioCatalogue[3], 1)), "SF", "SF1408273615", 6),
 		shipped(order("SH-1039", "studio", 3, at(10, 11, 20, 15), item(studioCatalogue[4], 1)), "JD", "JDV004192837465", 14),
 		order("WK-0201", "weekend", 4, at(10, 13, 9, 26), item(weekendCatalogue[0], 1)),
@@ -134,8 +137,11 @@ func journey(at time.Time, address string) []TrackEvent {
 	}{
 		{0, warehouse, "快递员已揽收"},
 		{3, "杭州转运中心", "已到达"},
+		{4, "杭州转运中心", "正在分拣"},
 		{5, "杭州转运中心", "已发出，下一站 " + city + "转运中心"},
+		{12, "干线运输途中", "已离开杭州，运输中"},
 		{19, city + "转运中心", "已到达"},
+		{20, city + "转运中心", "正在分拣"},
 		{22, city + "转运中心", "已发出，下一站 " + district + "营业部"},
 		{27, city + district + "营业部", "已到达"},
 		{29, city + district + "营业部", "快递员正在派送"},
@@ -154,6 +160,12 @@ var notes = []string{
 	"工作日白天家里没人，请放快递柜。",
 	"能不能帮忙附一张手写卡片，写「生日快乐」就好。",
 	"包装请结实一些，上次的杯子路上磕了一个小口。",
+}
+
+// staffNoted returns o with notes staff wrote on it.
+func staffNoted(o orderRecord, notes ...Note) orderRecord {
+	o.Notes = notes
+	return o
 }
 
 func noted(o orderRecord, note string) orderRecord {
