@@ -148,7 +148,7 @@ type once struct {
 	stack uint64  // how much the goroutine stacks of the process grew during the render
 }
 
-// renderOnce loads a VM from bytecode with the limits of cfg and renders in in it on a new
+// renderOnce loads a VM from bytecode with the limits of cfg and renders in it on a new
 // goroutine, which starts with a small stack.
 func renderOnce(t testing.TB, bytecode *slowjs.SharedBytecode, cfg config.SSR, in ssr.Input) once {
 	t.Helper()
@@ -164,7 +164,12 @@ func renderOnce(t testing.TB, bytecode *slowjs.SharedBytecode, cfg config.SSR, i
 		begin := time.Now()
 		html, err := ssr.RenderVM(vm, input, in.Texts, cfg.Timeout)
 		took := time.Since(begin)
-		done <- once{html: html, err: err, took: took, vm: vm.MemorySize(), stack: goStacks() - before}
+		r := once{html: html, err: err, took: took, stack: goStacks() - before}
+		// A render that failed leaves the VM good only for Close, as RenderVM says.
+		if err == nil {
+			r.vm = vm.MemorySize()
+		}
+		done <- r
 	}()
 	r := <-done
 	// A VM whose render failed may only be closed, which is what the pool does with it.
