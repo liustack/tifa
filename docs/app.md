@@ -243,7 +243,7 @@ const LayoutSSR = false // optional, default true
 ```tsx
 export const htmlAttributes = { lang: 'zh-CN' }
 export const documentHead = {
-  meta: [{ title: 'Shop' }, { name: 'theme-color', content: '#f7f8f5' }],
+  meta: [{ title: 'Shop' }, { name: 'theme-color', content: '#f2f4f5' }],
   links: [{ rel: 'icon', href: '/favicon.svg' }],
 }
 ```

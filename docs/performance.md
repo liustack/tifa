@@ -23,6 +23,27 @@ tifa renders pages in slowjs, QuickJS translated from C to Go, whose interpreter
 - **Cores**: 4 physical cores answer 3.76 times as many requests as one. A busy hyperthread adds about 30%.
 - **Sizing**: plan on about 73 requests a second per physical core for pages like the shop's workbench, and about 45 MiB plus 12 to 16 MiB per VM.
 
+The example shop was redesigned on 2026-10-28, and its pages got heavier. Every other number in this doc was measured on the pages from before. [The redesigned shop](#the-redesigned-shop) has the numbers of the new pages.
+
+## The redesigned shop
+
+The redesign made the shop's pages as heavy as those of a real shop: product photos, a category menu and a cart drawer on every storefront page, a carousel, galleries, reviews with photos and questions, and an order list of 25 rows a page with filters, row menus and bulk actions. These numbers are for the new pages. They are not a change in tifa's speed, so they are not compared with the old ones.
+
+Measured on 2026-10-28 on the machine below, with tifa 95c2af8, slowjs v0.28.6, PGO with the profile tifa ships: `BenchmarkShop` in `test/ssr`, one warm VM on one thread of a core whose other thread is idle, 2,000 renders, three rounds, the median of the rounds.
+
+| Page | HTML | P50 ms | P99 ms |
+| --- | --- | --- | --- |
+| Workbench: order list, 42 orders | 218 KB | 72.9 | 97.2 |
+| Workbench: order list, 12 orders | 130 KB | 42.8 | 59.5 |
+| Workbench: order | 55 KB | 12.5 | 14.9 |
+| Workbench: order of the other shop | 51 KB | 11.9 | 17.2 |
+| Workbench: stats | 74 KB | 14.5 | 22.1 |
+| Workbench: stats of the other shop | 58 KB | 12.3 | 19.2 |
+
+- `BenchmarkShopParallel`, the six pages in turn: one VM renders 34.95 pages a second, and two VMs on the two threads of one core 44.51, 1.27 times as many.
+- `TestShopVMMemory`: the bytecode of the bundle is 4.30 MB, shared by all VMs. One VM holds 9.43 MB after loading the bundle, 12.18 MB after 64 renders and 10.65 MB after a full collection.
+- The storefront pages are heavier still: as HTML, the home page is 379 KB, the product list 292 KB and a product page 206 KB.
+
 ## How the numbers were measured
 
 All numbers before [What made it faster](#what-made-it-faster) were measured on 2026-10-24, on the same machine, with the same build.
@@ -71,7 +92,7 @@ tifa's time divided by the others', the geometric mean over the pages (below 1, 
 
 ## Against Next.js and TanStack Start
 
-The six workbench pages were written again for Next.js 16.4.2 (App Router, every route dynamic, data loaded in server components, the same React components) and TanStack Start 1.169.3 (the same routes and loaders), run on Node 24.13.0, with the same visible text. Whole requests over HTTP, the six pages in turn, one at a time, `Accept-Encoding: identity`. For two cores, Next.js and Start run two processes under Node's cluster module and tifa runs 2 VMs. [tifa against Next.js and TanStack Start](studies/nextjs-and-tanstack-start.md) has the method and every number.
+The six workbench pages were written again for Next.js 16.4.2 (App Router, every route dynamic, data loaded in server components, the same React components) and TanStack Start 1.169.3 (the same routes and loaders), run on Node 24.13.0, with the same visible text. Whole requests over HTTP, the six pages in turn, one at a time, `Accept-Encoding: identity`. For two cores, Next.js and Start run two processes under Node's cluster module and tifa runs 2 VMs. [tifa against Next.js and TanStack Start](studies/nextjs-and-tanstack-start.md) has the method and every number. It measured the workbench pages from before the redesign of 2026-10-28.
 
 | | tifa | Next.js | Next.js `--jitless` | TanStack Start |
 | --- | --- | --- | --- | --- |

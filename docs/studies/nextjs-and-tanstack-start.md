@@ -12,6 +12,8 @@ versions: 'Next.js 16.4.2 (App Router, Turbopack build, its bundled React 19.3.0
 
 [Performance](../performance.md#at-a-glance) has the summary. This page has the method and the full numbers.
 
+All runs used the workbench pages of the example shop as they were before its redesign of 2026-10-28: an order list of ten rows without photos, an order page and a stats page. The comparison was not run again on the redesigned pages, which are heavier.
+
 ## Question
 
 On whole HTTP requests for the same pages, how much more do Next.js and TanStack Start serve than tifa, and what does tifa give back in memory, start-up and deployment?
