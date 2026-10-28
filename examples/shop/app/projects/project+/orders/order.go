@@ -106,6 +106,21 @@ func ListOrders(projectID string) OrderList {
 	return l
 }
 
+// orderRow is the line of the order list for an order.
+func orderRow(o orderRecord) OrderRow {
+	row := OrderRow{
+		ID: o.ID, Customer: o.Customer, Initials: initials(o.Customer), PlacedAt: o.PlacedAt, Status: status(o), Lines: len(o.Items),
+		TotalCents: total(o), Items: itemCount(o),
+	}
+	if len(o.Items) > 0 {
+		row.Product, row.Slug = o.Items[0].Name, o.Items[0].Slug
+	}
+	if s := o.Shipment; s != nil {
+		row.Carrier, row.TrackingNo = carrierName(s.Carrier), s.TrackingNo
+	}
+	return row
+}
+
 // GetOrder returns the order id of a project, or tifa.ErrNotFound.
 func GetOrder(projectID, id string) (Order, error) {
 	ordersMu.RLock()

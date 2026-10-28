@@ -131,3 +131,29 @@ func checkOrderPageModules(t *testing.T, base string) {
 		t.Errorf("a note from another site: %d", status)
 	}
 }
+
+// checkStatsPanels checks the panels the stats page renders on the server: key numbers, the table
+// of every product with its sparklines, the heatmap of order times, the carriers and the customers.
+func checkStatsPanels(t *testing.T, base string) {
+	t.Helper()
+	_, _, page := get(t, base+"/projects/weekend/stats")
+	in := rendered(page)
+	for _, want := range []string{
+		"售出件数", "每单件数", "待发货金额", "回头客", "商品销售明细", "下单时段", "快递表现", "发货快不快", "常客", "最近的订单",
+		"周一", "周日", "6 小时内", "超过 24 小时", "WK-0201", "野餐垫",
+	} {
+		if !strings.Contains(in, want) {
+			t.Errorf("weekend stats lack %s", want)
+		}
+	}
+	// One sparkline for each of the five products in the table, besides the ones of the key numbers.
+	if n := strings.Count(in, `<polyline`); n < 5+2 {
+		t.Errorf("%d sparklines", n)
+	}
+	if strings.Count(in, `role="row"`) != 7 {
+		t.Errorf("the heatmap has %d rows, want 7", strings.Count(in, `role="row"`))
+	}
+	if strings.Contains(in, "recharts") {
+		t.Error("recharts rendered on the server")
+	}
+}
