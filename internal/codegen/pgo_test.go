@@ -106,8 +106,8 @@ func TestAbsoluteProfilePathFails(t *testing.T) {
 }
 
 // PGO finds a call site by the caller, the callee and the line of the call within the caller, so
-// the engine profile must come from the versions of slowjs and modernc.org/libc that tifa
-// requires, on linux/amd64. See "The engine profile" in docs/testing.md for how to collect it again.
+// the engine profile must come from the version of slowjs that tifa requires, on linux/amd64. See
+// "The engine profile" in docs/testing.md for how to collect it again.
 func TestEngineProfileMatchesTheDependencies(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "go.mod"))
 	if err != nil {
@@ -117,39 +117,37 @@ func TestEngineProfileMatchesTheDependencies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	required := map[string]string{}
+	const slowjs = "github.com/liustack/slowjs"
+	version := ""
 	for _, r := range mod.Require {
-		required[r.Mod.Path] = r.Mod.Version
+		if r.Mod.Path == slowjs {
+			version = r.Mod.Version
+		}
+	}
+	if version == "" {
+		t.Fatalf("go.mod does not require %s", slowjs)
 	}
 	files, err := profileFiles(enginePGO)
 	if err != nil {
 		t.Fatalf("engine.pgo: %v", err)
 	}
 	// Each source file the profile has samples in, such as
-	// /home/me/go/pkg/mod/github.com/liustack/slowjs@v0.26.13/lib/ccgo_linux_amd64.go.
-	for _, dep := range []struct{ module, marker, want string }{
-		{"github.com/liustack/slowjs", "/lib/ccgo_", "/lib/ccgo_linux_amd64.go"},
-		{"modernc.org/libc", "modernc.org/libc", "modernc.org/libc@"},
-	} {
-		version := required[dep.module]
-		if version == "" {
-			t.Fatalf("go.mod does not require %s", dep.module)
+	// /home/me/go/pkg/mod/github.com/liustack/slowjs@v0.29.0/vm.go. The engine itself is assembly,
+	// which has no .go file: the Go side of slowjs is what the profile finds call sites in.
+	prefix := slowjs + "@" + version + "/"
+	found := false
+	for _, file := range files {
+		if !strings.Contains(file, slowjs+"@") {
+			continue
 		}
-		prefix := dep.module + "@" + version + "/"
-		found := false
-		for _, file := range files {
-			if !strings.Contains(file, dep.marker) {
-				continue
-			}
-			if !strings.Contains(file, prefix) {
-				t.Errorf("engine.pgo has samples in %s, want the files of %s", file, prefix)
-				continue
-			}
-			found = found || strings.Contains(file, dep.want)
+		if !strings.Contains(file, prefix) {
+			t.Errorf("engine.pgo has samples in %s, want the files of %s", file, prefix)
+			continue
 		}
-		if !found {
-			t.Errorf("engine.pgo has no samples in %s matching %s", prefix, dep.want)
-		}
+		found = true
+	}
+	if !found {
+		t.Errorf("engine.pgo has no samples in the files of %s", prefix)
 	}
 }
 
