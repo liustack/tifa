@@ -6,7 +6,7 @@ read_when:
   - A page is very large, deep or full of data, and you want to know whether it will render or fail
   - Asking how fast tifa renders a page, or how it compares with C QuickJS, Node, Next.js or TanStack Start
   - Deciding whether to turn off `server.compress`, or changing how answers are compressed
-  - Changing `internal/ssr`, the rewrites the Vite plugin makes to the SSR bundle, or the PGO profile, and checking what a change gains
+  - Changing `internal/ssr`, the rewrites the Vite plugin makes to the SSR bundle, and checking what a change gains
   - Upgrading github.com/liustack/slowjs and checking that rendering did not get slower
   - Planning more work on SSR speed, or about to try an idea that may already have been tried
 ---
@@ -32,7 +32,7 @@ The example shop was redesigned on 2026-10-28, and its pages got heavier. Every 
 
 The redesign made the shop's pages as heavy as those of a real shop: product photos, a category menu and a cart drawer on every storefront page, a carousel, galleries, reviews with photos and questions, facets and a comparison on the product pages, and an order list of 25 rows a page with filters, row menus and bulk actions. An order shows its log, notes, payment, stock check and packing list, and the stats page a table of every product, a heatmap and the carriers. These numbers are for the new pages. They are not a change in tifa's speed, so they are not compared with the old ones, except that the order and stats pages are given before and after their second round of modules.
 
-Measured on 2026-10-29 on the machine below, with tifa phase5/tifa-switch, slowjs 0cc6d332 (the C engine), PGO with the profile tifa ships: `BenchmarkShop` in `test/ssr`, one warm VM on one thread of a core whose other thread is idle, 1,000 renders, two runs, the mean of the runs. The last column is the P50 with slowjs v0.28.6, measured on 2026-10-28.
+Measured on 2026-10-29 on the machine below, with tifa phase5/tifa-switch, slowjs 0cc6d332 (the C engine), built with the profile tifa shipped then, which made no difference: `BenchmarkShop` in `test/ssr`, one warm VM on one thread of a core whose other thread is idle, 1,000 renders, two runs, the mean of the runs. The last column is the P50 with slowjs v0.28.6, measured on 2026-10-28.
 
 | Page | HTML | P50 ms | P99 ms | P50 ms, slowjs v0.28.6 |
 | --- | --- | --- | --- | --- |
@@ -348,7 +348,7 @@ v0.27.2 as a whole, against v0.27.1 under the same tifa and the same SSR bundles
 
 ### Build
 
-[docs/build.md](build.md#frontend-output) describes each rewrite the Vite plugin makes to the SSR bundle, and [Profile-guided optimization](build.md#profile-guided-optimization) the profile:
+[docs/build.md](build.md#frontend-output) describes each rewrite the Vite plugin makes to the SSR bundle:
 
 | Change | Effect |
 | --- | --- |
@@ -369,7 +369,7 @@ v0.27.2 as a whole, against v0.27.1 under the same tifa and the same SSR bundles
 | Keep what lucide-react built for an icon with the same props, in each VM | The six workbench pages of the shop take 0.957 of the time (0.948 to 0.967), its ten storefront pages 0.942 (0.925 to 0.948), and its two product pages, with the most icons, 0.905. Same HTML. A VM of the shop holds 45 to 90 KB more after rendering its pages |
 | Let i18next copy its options only for a key that is a function, and keep the regexp that tells keys with a namespace from sentences | The ten storefront pages of the shop take 0.948 of the time (0.939 to 0.955), each page 0.924 to 0.994. The workbench pages, which do not translate, 1.001 (0.991 to 1.005). Same HTML |
 | Keep the strings i18next translates, on unless `build.i18next_cache: false` ([i18next cache](build.md#i18next-cache)) | The ten storefront pages of the shop take 0.798 of the time (0.786 to 0.804), each page 0.739 to 0.964. Written the other ways apps use i18next, the same pages take 0.803 to 0.998, the most with `cloneInstance` on each request. The workbench pages, which do not translate, 0.997 (0.990 to 1.004). Same HTML. After the storefront pages a VM holds 127 KB more |
-| Compile the program with a profile of page renders (PGO) | About 3% less on linux/amd64 with slowjs v0.28.6 and its Go assembly interpreter: the workbench, storefront and MUI pages take 0.97 to 0.98 of the time (0.96 to 0.98 over 5 rounds, each page 0.95 to 0.98). 2.4% less with quickjs v0.26.15, and 7% less on darwin/arm64 (Apple M4) with v0.26.13. **None with the C engine of slowjs 0cc6d332**, which is Go assembly that PGO does not change: with a profile collected again, on the AMD EPYC 7B13 with one VM on one core, 8 code positions and 3 rounds in turn, the six workbench pages of the shop take 0.998 of the time with it (0.987 to 1.007 over the positions, each page 0.997 to 1.002), the three MUI pages 0.999 (0.994 to 1.008) and the two bench pages 1.004 (0.986 to 1.010), none of them a change by the rule of [Code positions](https://github.com/liustack/slowjs/blob/main/docs/performance.md#code-positions). Under callgrind a render executes 0.9987 (shop `/projects/weekend/stats`), 0.9995 (MUI `/`) and 1.0003 (bench `/table`) of the instructions with it. On darwin/arm64 (Apple M4), with the profile from linux/amd64, the shop's pages take 1.002 of the time (0.993 to 1.006 by page, 4 rounds in turn, one code position) |
+| Compile the program with a profile of page renders (PGO) | About 3% less on linux/amd64 with slowjs v0.28.6 and its Go assembly interpreter: the workbench, storefront and MUI pages take 0.97 to 0.98 of the time (0.96 to 0.98 over 5 rounds, each page 0.95 to 0.98). 2.4% less with quickjs v0.26.15, and 7% less on darwin/arm64 (Apple M4) with v0.26.13. **None with the C engine of slowjs 0cc6d332**, which is Go assembly that PGO does not change: with a profile collected again, on the AMD EPYC 7B13 with one VM on one core, 8 code positions and 3 rounds in turn, the six workbench pages of the shop take 0.998 of the time with it (0.987 to 1.007 over the positions, each page 0.997 to 1.002), the three MUI pages 0.999 (0.994 to 1.008) and the two bench pages 1.004 (0.986 to 1.010), none of them a change by the rule of [Code positions](https://github.com/liustack/slowjs/blob/main/docs/performance.md#code-positions). Under callgrind a render executes 0.9987 (shop `/projects/weekend/stats`), 0.9995 (MUI `/`) and 1.0003 (bench `/table`) of the instructions with it. On darwin/arm64 (Apple M4), with the profile from linux/amd64, the shop's pages take 1.002 of the time (0.993 to 1.006 by page, 4 rounds in turn, one code position). `tifa build` no longer installs a profile |
 
 The array and the surrogate rows were measured on the machine above with one VM on cpu 0, the build before and after in turn, 3 to 4 rounds. The table is the table page of [eknkc/ssr-benchmark](https://github.com/eknkc/ssr-benchmark) with fixed rows.
 
@@ -464,7 +464,7 @@ These were tried on the engine that translated C to Go, which slowjs v0.29 repla
 
 ## Measuring again
 
-[docs/testing.md](testing.md#performance-comparisons) has the commands for the render benchmark and VM memory, [Reading BenchmarkShopParallel](testing.md#reading-benchmarkshopparallel) how to check that several VMs still scale, and [The engine profile](testing.md#the-engine-profile) how to collect the PGO profile again after upgrading slowjs. Rules that keep numbers comparable:
+[docs/testing.md](testing.md#performance-comparisons) has the commands for the render benchmark and VM memory, [Reading BenchmarkShopParallel](testing.md#reading-benchmarkshopparallel) how to check that several VMs still scale. Rules that keep numbers comparable:
 
 - Compare on the same machine, alternating between the old and new build, round after round. Only ratios from the same rounds compare: a busy machine can change absolute times several times over.
 - Pin each run to one core and keep its hyperthread sibling idle. On Linux, `/sys/devices/system/cpu/cpuN/topology/thread_siblings_list` names the sibling. Note the load of the machine during each round, and run again when other work used more than about 10% of the CPU.

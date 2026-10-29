@@ -6,7 +6,7 @@ read_when:
   - 页面特别大、特别深或者数据特别多，想知道它能不能渲染出来
   - 想知道 tifa 渲染一个页面多快，和 C QuickJS、Node、Next.js 或 TanStack Start 比怎么样
   - 决定要不要关掉 `server.compress`，或者要改回答的压缩方式
-  - 改 `internal/ssr`、Vite 插件对 SSR 包的改写或 PGO 剖析，想核对改动的收益
+  - 改 `internal/ssr`、Vite 插件对 SSR 包的改写，想核对改动的收益
   - 升级 github.com/liustack/slowjs，确认渲染没有变慢
   - 打算继续优化 SSR 速度，或者要试的想法可能已经试过
 ---
@@ -32,7 +32,7 @@ slowjs v0.29 换掉了把 QuickJS 从 C 翻译成 Go 的那个引擎。C 引擎�
 
 改版让商店的页面重到和真实网店相当：店面每页都有商品图、分类菜单和购物车抽屉，还有轮播、图库、带图评价和问答，商品页有筛选计数和同类对比，订单列表每页 25 行，带筛选、行操作菜单和批量操作。订单页有操作记录、备注、付款、库存检查和拣货单，统计页有每件商品的明细表、热力图和快递表现。下面的数字是新页面的。它们不代表 tifa 变慢了，所以不和旧页面比，只给订单页和统计页写出第二轮补模块前后的对照。
 
-2026-10-29 在下文那台机器上测，tifa 的 phase5/tifa-switch 分支，slowjs 0cc6d332（C 引擎），用 tifa 自带的 profile 开 PGO：`test/ssr` 的 `BenchmarkShop`，一个热的 VM 跑在一个核的一个线程上，同核另一个线程空闲，1,000 次渲染，跑两遍，取两遍的平均。最后一列是 slowjs v0.28.6 的 P50，2026-10-28 测的。
+2026-10-29 在下文那台机器上测，tifa 的 phase5/tifa-switch 分支，slowjs 0cc6d332（C 引擎），带着当时 tifa 自带的 profile 构建，它没有差别：`test/ssr` 的 `BenchmarkShop`，一个热的 VM 跑在一个核的一个线程上，同核另一个线程空闲，1,000 次渲染，跑两遍，取两遍的平均。最后一列是 slowjs v0.28.6 的 P50，2026-10-28 测的。
 
 | 页面 | HTML | P50 ms | P99 ms | P50 ms，slowjs v0.28.6 |
 | --- | --- | --- | --- | --- |
@@ -348,7 +348,7 @@ v0.27.2 整体和 v0.27.1 比，tifa 和 SSR 包都相同，一个 VM 跑在一�
 
 ### 构建
 
-[docs/build.zh-CN.md](build.zh-CN.md#前端产物) 讲了 Vite 插件对 SSR 包的每项改写，[按剖析优化](build.zh-CN.md#按剖析优化)讲了剖析：
+[docs/build.zh-CN.md](build.zh-CN.md#前端产物) 讲了 Vite 插件对 SSR 包的每项改写：
 
 | 改动 | 效果 |
 | --- | --- |
@@ -369,7 +369,7 @@ v0.27.2 整体和 v0.27.1 比，tifa 和 SSR 包都相同，一个 VM 跑在一�
 | 每个 VM 记住 lucide-react 给 props 相同的图标构建出的结果 | shop 的六个工作台页面耗时为 0.957（0.948 到 0.967），十个店面页面为 0.942（0.925 到 0.948），图标最多的两个商品页为 0.905。HTML 不变。渲染完页面后 shop 的一个 VM 多占 45 到 90 KB |
 | i18next 只为写成函数的键复制选项，并记住分辨带命名空间的键和一句话用的正则 | shop 的十个店面页面耗时为 0.948（0.939 到 0.955），各页在 0.924 到 0.994 之间。工作台页面不翻译，为 1.001（0.991 到 1.005）。HTML 不变 |
 | 记住 i18next 翻译出的字符串，除非写了 `build.i18next_cache: false`（[i18next 缓存](build.zh-CN.md#i18next-缓存)） | shop 的十个店面页面耗时为 0.798（0.786 到 0.804），各页在 0.739 到 0.964 之间。换成应用使用 i18next 的其他写法，同样的页面为 0.803 到 0.998，最高的是每个请求 `cloneInstance` 一次。工作台页面不翻译，为 0.997（0.990 到 1.004）。HTML 不变。渲染完店面页面后，一个 VM 多占 127 KB |
-| 用页面渲染的剖析编译程序（PGO） | linux/amd64 上用 slowjs v0.28.6 和它的 Go 汇编解释器少约 3%：工作台、店面和 MUI 页面的耗时为 0.97 到 0.98（5 轮里 0.96 到 0.98，各页 0.95 到 0.98）。用 quickjs v0.26.15 时少 2.4%，darwin/arm64（Apple M4）上用 v0.26.13 少约 7%。**slowjs 0cc6d332 的 C 引擎没有收益**，它是 PGO 改不了的 Go 汇编：重新采集剖析后，在 AMD EPYC 7B13 上一个 VM 一个核，8 个代码位置、3 轮交替，shop 的六个工作台页面用它的耗时是不用的 0.998（8 个位置在 0.987 到 1.007 之间，各页 0.997 到 1.002），MUI 的三个页面是 0.999（0.994 到 1.008），bench 的两个页面是 1.004（0.986 到 1.010），按[代码位置](https://github.com/liustack/slowjs/blob/main/docs/performance.md#code-positions)的规则都不算变化。用 callgrind 数，一次渲染执行的指令数用它是不用的 0.9987（shop 的 `/projects/weekend/stats`）、0.9995（MUI 的 `/`）和 1.0003（bench 的 `/table`）。在 darwin/arm64（Apple M4）上，用 linux/amd64 的剖析，商店的页面用它的耗时是不用的 1.002（各页 0.993 到 1.006，4 轮交替，一个代码位置） |
+| 用页面渲染的剖析编译程序（PGO） | linux/amd64 上用 slowjs v0.28.6 和它的 Go 汇编解释器少约 3%：工作台、店面和 MUI 页面的耗时为 0.97 到 0.98（5 轮里 0.96 到 0.98，各页 0.95 到 0.98）。用 quickjs v0.26.15 时少 2.4%，darwin/arm64（Apple M4）上用 v0.26.13 少约 7%。**slowjs 0cc6d332 的 C 引擎没有收益**，它是 PGO 改不了的 Go 汇编：重新采集剖析后，在 AMD EPYC 7B13 上一个 VM 一个核，8 个代码位置、3 轮交替，shop 的六个工作台页面用它的耗时是不用的 0.998（8 个位置在 0.987 到 1.007 之间，各页 0.997 到 1.002），MUI 的三个页面是 0.999（0.994 到 1.008），bench 的两个页面是 1.004（0.986 到 1.010），按[代码位置](https://github.com/liustack/slowjs/blob/main/docs/performance.md#code-positions)的规则都不算变化。用 callgrind 数，一次渲染执行的指令数用它是不用的 0.9987（shop 的 `/projects/weekend/stats`）、0.9995（MUI 的 `/`）和 1.0003（bench 的 `/table`）。在 darwin/arm64（Apple M4）上，用 linux/amd64 的剖析，商店的页面用它的耗时是不用的 1.002（各页 0.993 到 1.006，4 轮交替，一个代码位置）。`tifa build` 不再安装剖析 |
 
 数组和代理对这两行在上面那台机器上测，1 个 VM 钉在 cpu 0 上，改前改后轮流跑 3 到 4 轮。表格是 [eknkc/ssr-benchmark](https://github.com/eknkc/ssr-benchmark) 的表格页，行是固定的。
 
@@ -464,7 +464,7 @@ tifa c729ad2 加 slowjs v0.28.6、它的 Go 汇编解释器和 PGO，渲染这�
 
 ## 怎么复测
 
-[docs/testing.md](testing.md#performance-comparisons) 有渲染基准和 VM 内存的命令，[Reading BenchmarkShopParallel](testing.md#reading-benchmarkshopparallel) 讲怎么检查多个 VM 是否还能扩展（英文），[The engine profile](testing.md#the-engine-profile) 讲升级 slowjs 后怎么重采 PGO 剖析（英文）。让数字能比的规矩：
+[docs/testing.md](testing.md#performance-comparisons) 有渲染基准和 VM 内存的命令，[Reading BenchmarkShopParallel](testing.md#reading-benchmarkshopparallel) 讲怎么检查多个 VM 是否还能扩展（英文）。让数字能比的规矩：
 
 - 在同一台机器上比，新旧两个构建一轮一轮交替跑。只有同一批轮次的比值能比：机器忙的时候绝对时间能差好几倍。
 - 每次跑都钉在一个核上，并让它的超线程兄弟空着。Linux 上 `/sys/devices/system/cpu/cpuN/topology/thread_siblings_list` 写着兄弟是谁。记下每轮的机器负载，别的任务占了约 10% 以上的 CPU 就重测。

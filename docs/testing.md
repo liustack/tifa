@@ -1,5 +1,5 @@
 ---
-summary: 'Testing and verification: commands to run before committing, checks for the example app, end-to-end tests, red before green, the long SSR tests that are skipped by default, the SSR benchmarks of the example app with one VM and with several at once, the extreme pages that find where rendering stops working, and how to collect the engine profile again, and what CI on GitHub runs and leaves out'
+summary: 'Testing and verification: commands to run before committing, checks for the example app, end-to-end tests, red before green, the long SSR tests that are skipped by default, the SSR benchmarks of the example app with one VM and with several at once, the extreme pages that find where rendering stops working, and what CI on GitHub runs and leaves out'
 read_when:
   - Getting ready to commit and checking which checks to run
   - Writing a new test or fixing a bug
@@ -12,7 +12,7 @@ read_when:
   - Changing `internal/ssr` or `test/ssr`
   - Checking how large a page can get before it fails, or that it fails cleanly
   - Changing something every VM uses, such as how the engine allocates memory, or checking that SSR still speeds up with more cores
-  - Upgrading github.com/liustack/slowjs, or `TestEngineProfileMatchesTheDependencies` fails
+  - Upgrading github.com/liustack/slowjs
   - Changing how the server serves HTTPS or gets its certificates
   - Changing `.github/workflows/`, or a CI run is red and you need to know what it runs
 ---
@@ -241,22 +241,6 @@ go tool pprof -top -cum ssr.test mutex.out
 
 With v0.26.8, half the wait is under `modernc.org/libc.Xalloca` and `Xmalloc`, and most of the rest under `Xfree`.
 
-## The engine profile
-
-`internal/codegen/engine.pgo` is the profile `tifa build` compiles apps with pages with (see [build.md](build.md#profile-guided-optimization)). It is made on linux/amd64. PGO finds a call site by its caller, its callee and the line of the call within the caller, so the profile must be made with the version of slowjs in `go.mod`. `TestEngineProfileMatchesTheDependencies` in `internal/codegen` checks this from the source file names in the profile, and fails for a profile made with a `replace` of slowjs.
-
-After upgrading slowjs, collect it again on a quiet linux/amd64 machine, with a fresh build of the example app:
-
-```sh
-(cd examples/shop && pnpm install --frozen-lockfile && go tool tifa build)
-TIFA_SSR_SHOP=1 GOMAXPROCS=1 go test -run '^$' -bench 'Shop/^render' -benchtime 500x \
-  -cpuprofile internal/codegen/engine.pgo -o "$(mktemp -d)/ssr.test" ./test/ssr
-go test -run EngineProfile ./internal/codegen
-```
-
-500 renders of each page give about 2.5 minutes of CPU samples on a quiet AMD EPYC 7B13 with slowjs 0cc6d332 of October 29, 2026. Its engine is Go assembly, which the profile shows as functions with samples of their own, and the Go functions around it have none of their own: PGO can only act on the Go call sites that lead into the engine. One profile is enough for arm64 too: on darwin/arm64, a build with a profile made on linux/amd64 renders as fast as one with a profile made on the same Mac (0.3% apart, measured with quickjs v0.26.13, the engine before slowjs v0.29).
-
-A profile of an older slowjs still builds and changes no output. It only finds fewer call sites, so pages may render slower than they could.
 
 ## Render clock
 

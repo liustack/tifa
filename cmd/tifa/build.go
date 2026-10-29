@@ -119,7 +119,7 @@ func analyzeApp(cmd *cobra.Command, root string) (*analyze.Manifest, error) {
 }
 
 // goBuild compiles the generated main of the application at root into output with
-// CGO_ENABLED=0 and the given flags of go build, see buildFlags and devFlags. It returns what go
+// CGO_ENABLED=0 and the given flags of go build, see buildFlags. It returns what go
 // build printed on stderr, which also goes to stderr. go build leaves go.mod and go.sum as they are.
 func goBuild(ctx context.Context, root, output string, flags []string, stdout, stderr io.Writer) (string, error) {
 	args := append([]string{"build", "-o", output}, flags...)
@@ -135,15 +135,8 @@ func goBuild(ctx context.Context, root, output string, flags []string, stdout, s
 	return printed.String(), nil
 }
 
-// devFlags are the flags of go build in tifa dev: -pgo=off, which wins over GOFLAGS, so it never
-// builds with a profile. It keeps the DWARF debug info.
-func devFlags() []string {
-	return []string{"-pgo=off"}
-}
-
 // buildFlags are the flags of go build in tifa build: those of ldflags unless build.debug_info
-// keeps the DWARF debug info. It runs no go env when it keeps it. It leaves -pgo to the go
-// command, which takes .tifa/default.pgo unless GOFLAGS says otherwise.
+// keeps the DWARF debug info. It runs no go env when it keeps it.
 func buildFlags(ctx context.Context, root string, settings config.Build) ([]string, error) {
 	if settings.DebugInfo {
 		return nil, nil

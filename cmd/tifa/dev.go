@@ -172,7 +172,7 @@ func (p *devPipeline) Bundle(ctx context.Context) (string, error) {
 // GoBuild builds the executable that tifa dev runs. Its compiler messages go into the error, which
 // devserver prints and shows in the page.
 func (p *devPipeline) GoBuild(ctx context.Context) error {
-	printed, err := goBuild(ctx, p.root, p.exe, devFlags(), io.Discard, io.Discard)
+	printed, err := goBuild(ctx, p.root, p.exe, nil, io.Discard, io.Discard)
 	if err != nil {
 		return fmt.Errorf("%s\n%w", strings.TrimSpace(printed), err)
 	}

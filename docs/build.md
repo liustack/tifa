@@ -1,5 +1,5 @@
 ---
-summary: 'How tifa new starts an app, what tifa build does, which files and outputs it generates in .tifa/, how to set up the tsconfig and go.mod of an app, how the generated program starts and answers page requests, how it is compiled with a profile (PGO), why it leaves out the debug info, and which license notices to ship with it'
+summary: 'How tifa new starts an app, what tifa build does, which files and outputs it generates in .tifa/, how to set up the tsconfig and go.mod of an app, how the generated program starts and answers page requests, why it leaves out the debug info, and which license notices to ship with it'
 read_when:
   - Changing internal/codegen, the build command in cmd/tifa, or server.Main
   - Creating a tifa app, or adding an app to test/apps
@@ -7,7 +7,6 @@ read_when:
   - Implementing page rendering or navigation data requests and you need the route tree and the data protocol
   - Changing internal/bundle, js/vite or js/host, or upgrading the dependencies of the SSR host polyfills
   - Handing a built program to others and checking which notices go with it
-  - Turning PGO off or building with your own profile
   - Debugging the built program with Delve, or passing your own -ldflags
 ---
 
@@ -54,29 +53,7 @@ tifa build [--dir app-root] [-o output-path]
 1. Statically analyzes `app/` and the root `hooks.go`. If a convention is broken, it prints `file:line: reason` for each problem and exits.
 2. Writes the generated code into `.tifa/`. Only files whose content changed are rewritten, and files no longer generated are deleted.
 3. Bundles with the app's own Vite, which runs on Node, and writes the output to `.tifa/dist/`. See "Frontend output" below. tifa runs one Node process for the whole build, with `NODE_ENV=production` whatever the shell sets, so the build always uses the production build of React. It also reads the exports of `route.tsx` and `layout.tsx` with Vite's parser for step 2. An app without pages builds without Node. The executable never needs Node.
-4. Runs `CGO_ENABLED=0 go build -o <output> -ldflags=-w ./.tifa`. The default output is `bin/<last segment of the module path>`. The generated main embeds `.tifa/dist/` into the executable with `//go:embed all:dist`. An app with pages is compiled with a profile of page renders, see "Profile-guided optimization" below. `-w` leaves out the debug info, see "Debug info" below.
-
-### Profile-guided optimization
-
-`go build` can optimize a program with a CPU profile of it ([PGO](https://go.dev/doc/pgo)): it inlines the calls the profile shows are hot. `tifa build` writes the profile into `.tifa/default.pgo`, where the default `-pgo=auto` of `go build` finds it next to the main package. `build.pgo` in the [project file](config.md#settings) picks the profile:
-
-| `build.pgo` | Profile |
-| --- | --- |
-| `auto` (default) | `default.pgo` in the app root. Without one, an app with pages gets the profile tifa ships, and an app without pages builds without a profile |
-| `off` | None |
-| a path, such as `profiles/prod.pgo` | That file, relative to the app root |
-
-The profile tifa ships is of the example shop's pages rendering in warm VMs on linux/amd64. All its samples are in the JavaScript engine, which every page runs through, and in the Go code that calls it: no Go code of the shop is in it. The engine of slowjs is Go assembly that PGO does not change, so the profile can only act on the few Go calls around it. With slowjs's C engine it makes no difference you can measure on linux/amd64: the shop's, the MUI app's and the bench app's pages take 0.998, 0.999 and 1.004 of the time with it as without it (one VM on one core, 8 code positions, 3 rounds), the instructions of a render differ by less than 0.15%, and the HTML stays the same byte for byte. With the engine before it, which was Go translated from C, the shop's pages rendered about 3% faster with it on linux/amd64 (slowjs v0.28.6) and about 7% faster on darwin/arm64 (quickjs v0.26.13). On darwin/arm64 (Apple M4), with the profile collected on linux/amd64, the shop's pages took 1.002 of the time with it (0.993 to 1.006 by page, 4 rounds in turn, one code position), so it does nothing there either.
-
-`tifa dev` always builds without a profile: it passes `-pgo=off` to `go build`. For `tifa build`, a `-pgo` in `GOFLAGS` wins over `build.pgo`, as it does for any `go build`.
-
-A build from an empty build cache takes up to about 6% longer with the profile than without. That was measured on the example shop with an earlier profile, as the elapsed time on an Apple M4 and as the CPU time on linux/amd64. But a new profile makes `go build` compile every package again, the standard library included, so the first `tifa build` with a new profile cannot use what `tifa dev` or `go test` left in the build cache. For the example shop on an Apple M4 that is about 5 seconds, where a cached build takes a fraction of a second. Later builds with the same profile come from the cache. The shop's executable grows by about 0.13 MB on linux/amd64 and 0.15 MB on darwin/arm64, under 1%.
-
-Your own profile fits your app better. Take a CPU profile of the built program under real traffic, such as 30 seconds of `pprof.StartCPUProfile`, and save it as `default.pgo` in the app root. Pages render in the same process, so it covers the engine too. To keep tifa's profile for pages your traffic did not reach, merge the two. The samples add up, so the longer profile counts for more:
-
-```sh
-go tool pprof -proto prod.pprof "$(go list -m -f '{{.Dir}}' github.com/liustack/tifa)/internal/codegen/engine.pgo" > default.pgo
-```
+4. Runs `CGO_ENABLED=0 go build -o <output> -ldflags=-w ./.tifa`. The default output is `bin/<last segment of the module path>`. The generated main embeds `.tifa/dist/` into the executable with `//go:embed all:dist`. `-w` leaves out the debug info, see "Debug info" below.
 
 ### Debug info
 
@@ -164,7 +141,6 @@ go tool tifa build
 | --- | --- |
 | `main.go` | Calls `server.Main` (`server.DevMain` under [tifa dev](dev.md)), filling in only the hooks that actually exist in `hooks.go`. Embeds the frontend output `dist/` with `go:embed`, and the project config too when there is one |
 | `routes.go` | Two package-level variables, `layouts` and `routes`. Each `Load` and `Layout` function is wrapped as `func(c *tifa.Ctx) (any, error) { return tifa.Use(c, pkg.Load) }`, and `pkg.Layout` for a Layout. A method handler with an input or a result goes through `server.Input`, `server.Output` or `server.InputOutput`, which decode the input with `(*tifa.Ctx).Bind` or, for GET and DELETE, `(*tifa.Ctx).BindQuery`, run its `Validate` and write the result |
-| `default.pgo` | The profile `go build` optimizes the program with, see "Profile-guided optimization" above. Not under [tifa dev](dev.md) |
 | `tifa.yaml` or `tifa.json` | A copy of the project config (`go:embed` cannot reach parent folders). It is checked against the runtime rules at build time first |
 | `routes.tsx` | The TanStack route tree and the `Register` type registration |
 | `app/<folder>/+route.ts`, `app/<folder>/+layout.ts` | `+route.ts` for each page, `+layout.ts` for each Layout. Each exports `route`, `Data` and `Params`. `+route.ts` also exports a function per method handler, and an API route with handlers gets a `+route.ts` with only `Params` and these functions. They call `runtime/call.ts` |

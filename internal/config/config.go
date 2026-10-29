@@ -35,10 +35,6 @@ type Build struct {
 	// SkipTanStackCheck builds an app whose TanStack Router is not the version tifa is tested
 	// with, see bundle.CheckTanStack.
 	SkipTanStackCheck bool
-	// PGO is the profile go build optimizes the program with: auto, off, or a file relative to
-	// the app root. auto is the app's default.pgo, or else tifa's profile of page renders in an
-	// app with pages.
-	PGO string
 	// DebugInfo keeps the DWARF debug info in the program tifa build makes, for debuggers such
 	// as Delve. Without it the program is built with -ldflags=-w.
 	DebugInfo bool
@@ -125,7 +121,7 @@ const DefaultAddr = "127.0.0.1:9527"
 // Default holds values sized for small machines. ssr.vms follows GOMAXPROCS, which honours container CPU limits, with no cap.
 func Default() Config {
 	return Config{
-		Build:  Build{Target: "es2020", Public: "public", PGO: "auto", I18nextCache: true},
+		Build:  Build{Target: "es2020", Public: "public", I18nextCache: true},
 		Server: Server{Addr: DefaultAddr, BodyLimit: 1 << 20, ShutdownTimeout: 10 * time.Second, Compress: true, TLSCA: LetsEncrypt, HTTPAddr: ":80"},
 		SSR:    SSR{VMs: runtime.GOMAXPROCS(0), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second, QueueLimit: 32, WaitTimeout: time.Second},
 		Cache:  Cache{Size: 64 << 20},
@@ -151,7 +147,6 @@ func fields(c *Config) []field {
 		{"build.target", "JavaScript target of the browser bundle", stringValue{&c.Build.Target}},
 		{"build.public", "Directory of static files copied as is", stringValue{&c.Build.Public}},
 		{"build.skip_tanstack_check", "Build with a TanStack Router version tifa is not tested with", boolValue{&c.Build.SkipTanStackCheck}},
-		{"build.pgo", "Profile for profile-guided optimization: auto, off or a file", pgoValue{&c.Build.PGO}},
 		{"build.debug_info", "Keep the DWARF debug info in the program, for debuggers such as Delve", boolValue{&c.Build.DebugInfo}},
 		{"build.i18next_cache", "Keep the strings i18next translates in the SSR bundle and give them again for the same call", boolValue{&c.Build.I18nextCache}},
 		{"server.addr", "HTTP listen address", stringValue{&c.Server.Addr}},
@@ -313,8 +308,6 @@ func accepts(kind, typ string) bool {
 		return typ == "string" || typ == "number" // 1MiB or a plain byte count
 	case "bool":
 		return typ == "bool"
-	case "pgo":
-		return typ == "string" || typ == "bool" || typ == "number" // false or 0 fails with what to write
 	default:
 		return typ == "string"
 	}

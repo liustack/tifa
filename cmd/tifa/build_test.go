@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"debug/buildinfo"
 	"debug/elf"
 	"debug/macho"
 	"io"
@@ -85,51 +84,6 @@ func TestBuildChecksReactOfAppsWithPages(t *testing.T) {
 	}
 }
 
-// A -pgo in GOFLAGS wins over .tifa/default.pgo in tifa build, as for any go build. tifa dev
-// passes -pgo=off on the command line, which wins over GOFLAGS, so it never builds with a profile.
-func TestDevBuildsWithoutPGOWhateverGOFLAGSSays(t *testing.T) {
-	profile, err := filepath.Abs(filepath.Join("..", "..", "internal", "codegen", "engine.pgo"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	root := writeGoApp(t, map[string]string{
-		".tifa/main.go":     "package main\n\nfunc main() {}\n",
-		".tifa/default.pgo": "not a profile, go build fails if it reads this\n",
-	})
-	t.Setenv("GOFLAGS", "-pgo="+profile)
-	build, err := buildFlags(t.Context(), root, config.Build{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	dev := devFlags()
-	for _, tc := range []struct {
-		dev  bool
-		want string
-	}{{false, profile}, {true, ""}} {
-		exe := filepath.Join(t.TempDir(), "app")
-		flags := build
-		if tc.dev {
-			flags = dev
-		}
-		if printed, err := goBuild(t.Context(), root, exe, flags, io.Discard, io.Discard); err != nil {
-			t.Fatalf("dev %t: %v\n%s", tc.dev, err, printed)
-		}
-		info, err := buildinfo.ReadFile(exe)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var got string
-		for _, s := range info.Settings {
-			if s.Key == "-pgo" {
-				got = s.Value
-			}
-		}
-		if got != tc.want {
-			t.Errorf("dev %t: built with -pgo=%q, want %q", tc.dev, got, tc.want)
-		}
-	}
-}
-
 // writeGoApp writes files, given by slash-separated paths, into a new app root with a go.mod.
 func writeGoApp(t *testing.T, files map[string]string) string {
 	t.Helper()
@@ -204,9 +158,6 @@ func TestBuildFlagsWithDebugInfoRunNoGoEnv(t *testing.T) {
 	if got, err := buildFlags(t.Context(), t.TempDir(), config.Build{DebugInfo: true}); err != nil || got != nil {
 		t.Errorf("%q, %v, want none", got, err)
 	}
-	if got := devFlags(); !slices.Equal(got, []string{"-pgo=off"}) {
-		t.Errorf("dev: %q, want -pgo=off", got)
-	}
 }
 
 // The program tifa build makes has no DWARF debug info unless build.debug_info keeps it, and keeps
@@ -234,7 +185,7 @@ func main() {
 		dev       bool
 		debugInfo bool
 	}{{"build", false, false}, {"build.debug_info", false, true}, {"dev", true, false}} {
-		flags := devFlags()
+		var flags []string
 		if !tc.dev {
 			var err error
 			if flags, err = buildFlags(t.Context(), root, config.Build{DebugInfo: tc.debugInfo}); err != nil {

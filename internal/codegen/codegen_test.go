@@ -70,15 +70,14 @@ func generate(t *testing.T, app string, dev bool) map[string][]byte {
 }
 
 // The generated files of each test application must match testdata/golden/<app>. The runtime and
-// the Vite plugin are copied from the js package as they are and are left out, and so is the
-// profile, see TestBuildProfile. Run go test -update to rewrite them.
+// the Vite plugin are copied from the js package as they are and are left out. Run go test -update to rewrite them.
 func TestGolden(t *testing.T) {
 	for _, app := range []string{"shop", "bare"} {
 		t.Run(app, func(t *testing.T) {
 			files := generate(t, app, false)
 			golden := filepath.Join("testdata", "golden", app)
 			for _, name := range slices.Sorted(maps.Keys(files)) {
-				if strings.HasPrefix(name, "runtime/") || strings.HasPrefix(name, "vite/") || name == "default.pgo" {
+				if strings.HasPrefix(name, "runtime/") || strings.HasPrefix(name, "vite/") {
 					continue
 				}
 				path := filepath.Join(golden, filepath.FromSlash(name)+".golden")

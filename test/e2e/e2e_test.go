@@ -353,10 +353,6 @@ func TestInterfaceApp(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, ".tifa", "routes.tsx")); !os.IsNotExist(err) {
 		t.Errorf("an app without pages got TypeScript: %v", err)
 	}
-	// The engine profile is of page renders, which an app without pages does not do.
-	if pgo := buildPGO(t, exe); pgo != "" {
-		t.Errorf("an app without pages was built with the profile %s", pgo)
-	}
 	list := exec.Command("go", "list", "./...")
 	list.Dir = dir
 	if out, err := list.CombinedOutput(); err != nil || strings.Contains(string(out), ".tifa") {
@@ -451,16 +447,12 @@ func TestPagesApp(t *testing.T) {
 
 	typecheck(t, dir)
 
-	// go build takes .tifa/default.pgo, here the engine profile, by its default -pgo=auto.
-	if pgo := buildPGO(t, exe); pgo != filepath.Join(dir, ".tifa", "default.pgo") {
+	// tifa build writes no profile for go build, so the program is built without PGO.
+	if _, err := os.Stat(filepath.Join(dir, ".tifa", "default.pgo")); !os.IsNotExist(err) {
+		t.Errorf("tifa build wrote .tifa/default.pgo: %v", err)
+	}
+	if pgo := buildPGO(t, exe); pgo != "" {
 		t.Errorf("built with the profile %q", pgo)
-	}
-	engine, err := os.ReadFile(filepath.Join(repoRoot(t), "internal", "codegen", "engine.pgo"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if written, err := os.ReadFile(filepath.Join(dir, ".tifa", "default.pgo")); err != nil || !bytes.Equal(written, engine) {
-		t.Errorf("default.pgo is not the engine profile: %v", err)
 	}
 
 	base, _, _ := start(t, exe)
