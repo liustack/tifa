@@ -21,7 +21,6 @@ import (
 	"testing"
 
 	"github.com/spf13/pflag"
-	"golang.org/x/mod/modfile"
 
 	"github.com/liustack/tifa/internal/bundle"
 	"github.com/liustack/tifa/internal/config"
@@ -502,56 +501,20 @@ func TestStdRootsListTheStandardLibrary(t *testing.T) {
 	}
 }
 
-// modernc.org/sqlite and the slowjs of tifa both run on modernc.org/libc, and each is built for
-// the exact libc version its go.mod requires. Go picks the highest version any module requires,
-// so the app builds with that libc only when the SQLite release go.mod.tmpl pins and the slowjs
-// tifa requires both require the libc tifa builds with.
-func TestNewPinsASQLiteBuiltForTheLibcOfTifa(t *testing.T) {
-	tmpl, err := os.ReadFile(filepath.Join("newapp", "go.mod.tmpl"))
+// modernc.org/sqlite is built by ccgo for one exact version of modernc.org/libc. A module that is
+// built by ccgo too, as slowjs was until v0.29, has to be built for the same libc, and the SQLite
+// release go.mod.tmpl pins has to be one built for it. slowjs no longer uses modernc.org/libc and
+// nothing else of tifa does, so a new app takes the libc its SQLite requires and no version
+// needs to match. If a dependency of tifa asks for modernc.org/libc again, go back to pinning a
+// SQLite release that requires the libc tifa builds with.
+func TestTifaDoesNotRequireModerncLibc(t *testing.T) {
+	out, err := exec.Command("go", "list", "-m", "-f", "{{.Path}}", "all").Output()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("go list -m all: %v", err)
 	}
-	m := regexp.MustCompile(`(?m)^\s*modernc\.org/sqlite (v\S+)$`).FindSubmatch(tmpl)
-	if m == nil {
-		t.Fatalf("go.mod.tmpl requires no modernc.org/sqlite:\n%s", tmpl)
-	}
-	sqlite := "modernc.org/sqlite@" + string(m[1])
-	goCmd := func(args ...string) []byte {
-		t.Helper()
-		out, err := exec.Command("go", args...).Output()
-		if err != nil {
-			t.Fatalf("go %s: %v", strings.Join(args, " "), err)
-		}
-		return out
-	}
-	libc := strings.TrimSpace(string(goCmd("list", "-m", "-f", "{{.Version}}", "modernc.org/libc")))
-	engine := strings.TrimSpace(string(goCmd("list", "-m", "-f", "{{.GoMod}}", "github.com/liustack/slowjs")))
-	// The SQLite module is not a dependency of tifa, so it may have to be downloaded.
-	out, err := exec.Command("go", "mod", "download", "-json", sqlite).Output()
-	if err != nil {
-		t.Skipf("go mod download %s: %v, the module proxy may be out of reach", sqlite, err)
-	}
-	var download struct{ GoMod string }
-	if err := json.Unmarshal(out, &download); err != nil {
-		t.Fatal(err)
-	}
-	for _, gomod := range []string{engine, download.GoMod} {
-		data, err := os.ReadFile(gomod)
-		if err != nil {
-			t.Fatal(err)
-		}
-		f, err := modfile.ParseLax(gomod, data, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		required := "none"
-		for _, r := range f.Require {
-			if r.Mod.Path == "modernc.org/libc" {
-				required = r.Mod.Version
-			}
-		}
-		if required != libc {
-			t.Errorf("%s requires modernc.org/libc %s, tifa builds with %s: pin a modernc.org/sqlite in go.mod.tmpl built for the same libc as the slowjs of tifa", f.Module.Mod, required, libc)
+	for _, path := range strings.Fields(string(out)) {
+		if path == "modernc.org/libc" {
+			t.Errorf("tifa requires modernc.org/libc: pin a modernc.org/sqlite in cmd/tifa/newapp/go.mod.tmpl built for the same libc version")
 		}
 	}
 }

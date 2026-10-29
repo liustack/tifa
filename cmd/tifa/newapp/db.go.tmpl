@@ -8,9 +8,7 @@ import (
 	_ "embed"
 	"os"
 
-	// The SQLite driver is pure Go, so the app builds with CGO_ENABLED=0. It runs on the same
-	// modernc.org/libc as the QuickJS of tifa, and each release is built for one exact libc
-	// version: when you upgrade tifa or the driver, keep the libc version both of them require.
+	// The SQLite driver is pure Go, so the app builds with CGO_ENABLED=0.
 	_ "modernc.org/sqlite"
 )
 

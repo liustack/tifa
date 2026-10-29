@@ -130,8 +130,8 @@ func BenchmarkShop(b *testing.B) {
 // GOMAXPROCS VMs, with one goroutine per VM so that every VM is busy and none waits for another.
 // vms-<n> reports renders per second, the share of the rendering goroutines' time spent blocked
 // on a lock, and for more than one VM, how many times the renders per second of vms-1 it reaches
-// (only when vms-1 ran in the same command). A lock all VMs share, such as the allocator of
-// modernc.org/libc, shows here as a speedup well below the VM count and a larger lock wait, while
+// (only when vms-1 ran in the same command). A lock all VMs share, such as the one allocator of the
+// old engine, shows here as a speedup well below the VM count and a larger lock wait, while
 // BenchmarkShop, which renders with one VM, does not change.
 func BenchmarkShopParallel(b *testing.B) {
 	source, pages := shopBundle(b)

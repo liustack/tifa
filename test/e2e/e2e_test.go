@@ -114,7 +114,7 @@ func buildWith(t *testing.T, dir, path string) (exe string) {
 	}
 	before := moduleFiles(t, dir)
 	cmd := exec.Command(cli(t), "build", "--dir", dir, "-o", exe)
-	// The flags of the caller stay, such as -tags=slowjs_cengine to build on the C engine of slowjs.
+	// The flags of the caller stay.
 	cmd.Env = append(os.Environ(), "PATH="+path, "GOFLAGS="+strings.TrimSpace(os.Getenv("GOFLAGS")+" -mod=readonly"))
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("tifa build %s: %v\n%s", app, err, out)

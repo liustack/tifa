@@ -37,7 +37,8 @@ var extremePages = []struct {
 	{"/inject/5", renders, []string{`id="items"`}},
 	{"/inject/20", fails, nil},
 	{"/json/1999", renders, []string{`id="levels">1998<`}},
-	{"/json/2001", jsonPast2000, []string{`id="levels">2000<`}},
+	// The engine of slowjs parses JSON at most 2,000 levels deep, so the render throws.
+	{"/json/2001", fails, nil},
 	{"/table/1000", renders, []string{`SH-200999`}},
 	{"/table/5000", fails, nil},
 	{"/table/10000", fails, nil},

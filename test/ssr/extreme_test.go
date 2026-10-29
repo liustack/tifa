@@ -39,7 +39,7 @@ import (
 const extremeDir = "../../test/apps/extreme"
 
 // extremeTimeout is a page that renders for well over the one second TestExtremeIsolation gives
-// a render, without running out of 128 MiB first, on both engines.
+// a render, without running out of 128 MiB first.
 const extremeTimeout = "/markdown/200"
 
 // extremeSizes are the sizes of each scenario, with the route ID of its page and texts its HTML

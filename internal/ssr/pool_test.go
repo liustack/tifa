@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	lib "github.com/liustack/slowjs/lib"
+	"github.com/liustack/slowjs"
 	"github.com/liustack/tifa/internal/config"
 )
 
@@ -96,7 +96,7 @@ func TestNewPoolRejectsInvalidInput(t *testing.T) {
 		{"no VMs", "", config.SSR{VMs: 0, VMMemory: 1 << 20, VMStackDepth: 1000, Timeout: time.Second, QueueLimit: 32, WaitTimeout: time.Second}, "ssr.vms"},
 		{"no memory", "", config.SSR{VMs: 1, VMMemory: 0, VMStackDepth: 1000, Timeout: time.Second, QueueLimit: 32, WaitTimeout: time.Second}, "ssr.vm_memory"},
 		{"no stack", "", config.SSR{VMs: 1, VMMemory: 1 << 20, VMStackDepth: 0, Timeout: time.Second, QueueLimit: 32, WaitTimeout: time.Second}, "ssr.vm_stack_depth"},
-		{"deep stack", "", config.SSR{VMs: 1, VMMemory: 1 << 20, VMStackDepth: lib.MaxStackSlots + 1, Timeout: time.Second, QueueLimit: 32, WaitTimeout: time.Second}, "ssr.vm_stack_depth"},
+		{"deep stack", "", config.SSR{VMs: 1, VMMemory: 1 << 20, VMStackDepth: config.MaxVMStackDepth + 1, Timeout: time.Second, QueueLimit: 32, WaitTimeout: time.Second}, "ssr.vm_stack_depth"},
 		{"no timeout", "", config.SSR{VMs: 1, VMMemory: 1 << 20, VMStackDepth: 1000, Timeout: 0, QueueLimit: 32, WaitTimeout: time.Second}, "ssr.timeout"},
 		{"syntax", "globalThis.startRender = (", testConfig(1), "compile"},
 		{"top level throws", "throw new Error('broken bundle')", testConfig(1), "broken bundle"},
@@ -585,14 +585,25 @@ func TestInfiniteRecursionIsARenderError(t *testing.T) {
 	}
 }
 
-// tifa's default and largest stack depth is the engine's default, which recurses about as deep as
-// Node does.
-func TestDefaultStackDepthIsTheEngines(t *testing.T) {
-	if got := config.Default().SSR.VMStackDepth; got != lib.MaxStackSlots {
-		t.Fatalf("ssr.vm_stack_depth defaults to %d, the engine to %d", got, lib.MaxStackSlots)
+// The largest ssr.vm_stack_depth is how deep the engine lets calls nest: asked for more, it stops
+// at its own limit. tifa's default is that limit, which recurses about as deep as Node does.
+func TestLargestStackDepthIsTheEngines(t *testing.T) {
+	if got := config.Default().SSR.VMStackDepth; got != config.MaxVMStackDepth {
+		t.Fatalf("ssr.vm_stack_depth defaults to %d, its largest value is %d", got, config.MaxVMStackDepth)
 	}
-	if config.MaxVMStackDepth != lib.MaxStackSlots {
-		t.Fatalf("ssr.vm_stack_depth may go up to %d, the engine's default is %d", config.MaxVMStackDepth, lib.MaxStackSlots)
+	vm, err := slowjs.NewVM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer vm.Close()
+	vm.SetMaxStackSize(1 << 20)
+	got, err := vm.Eval(`var n = 0; function f() { n++; f() } try { f() } catch (e) {} String(n)`, slowjs.EvalGlobal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The entry of the host and the global code take two levels of the limit.
+	if n, _ := strconv.Atoi(fmt.Sprint(got)); n < config.MaxVMStackDepth-5 || n > config.MaxVMStackDepth {
+		t.Fatalf("the engine nests calls %v deep, ssr.vm_stack_depth may go up to %d", got, config.MaxVMStackDepth)
 	}
 }
 
