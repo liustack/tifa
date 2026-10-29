@@ -17,6 +17,8 @@ const routeModule = /^\.\.?\/(?:.*\/)?\+(?:route|layout)(?:\.js|\.ts)?$/
 const clientSource = /\.client(?:\.[jt]sx?)?$/
 const reactServerEntry = /[/\\]react-dom[/\\]server\.edge\.js$/
 const reactStringRenderer = /[/\\]react-dom[/\\]cjs[/\\]react-dom-server-legacy\.browser\.production\.js$/
+// React's own production file, which has createElement and cloneElement, see copyPropsFast.
+const reactModule = /[/\\]react[/\\]cjs[/\\]react\.production\.js$/
 // The hash of @emotion/hash 0.9, which emotion takes of every style it serializes, and the
 // dist files that have it. internal/ssr gives the VMs the same hash in Go as __tifa_murmur2__.
 const emotionHash = /[/\\]@emotion[/\\]hash[/\\]dist[/\\]emotion-hash\.(?:esm|cjs\.prod|cjs\.dev)\.js$/
@@ -434,6 +436,51 @@ const i18nextCacheMethods = {
   'var postProcessor = {': ['addPostProcessor', 'handle'],
   'class I18n extends EventEmitter {': ['init', 'loadResources', 'reloadResources', 'use', 'changeLanguage', 'setDefaultNamespace', 'loadNamespaces', 'loadLanguages', 'cloneInstance', 'getFixedT'],
 }
+// createElement and cloneElement of React copy the keys of their config into the props of the
+// element with a for-in loop that asks hasOwnProperty.call about each key and skips key, __self
+// and __source (and a ref that is undefined, in cloneElement). The loop takes about 270 ns for each
+// key in QuickJS. copyPropsFast puts a copy by the rest of a destructuring in front of it, which the
+// engine does in one step, for a config where the two cannot differ. These are the loops of React
+// 19.2 and 19.3 (tifa needs 19.3), and createElement has been this loop since React 19.0.
+const propsCreateLoop = `  if (null != config)
+    for (propName in (void 0 !== config.key && (key = "" + config.key), config))
+      hasOwnProperty.call(config, propName) &&
+        "key" !== propName &&
+        "__self" !== propName &&
+        "__source" !== propName &&
+        (props[propName] = config[propName]);
+`
+const propsCloneLoop = `  if (null != config)
+    for (propName in (void 0 !== config.key && (key = "" + config.key), config))
+      !hasOwnProperty.call(config, propName) ||
+        "key" === propName ||
+        "__self" === propName ||
+        "__source" === propName ||
+        ("ref" === propName && void 0 === config.ref) ||
+        (props[propName] = config[propName]);
+`
+// The test that a config is one the copy by rest handles as the loop does. It reads nothing of the
+// config that the loop does not read, calls nothing the loop does not call, and holds for every
+// object that is not a Proxy, see copyPropsFast. propsRefGetter is for cloneElement, which reads
+// ref once more.
+const propsPlain =
+  'tifaGetProto(config) === tifaObjectProto && hasOwnProperty.call === tifaCall && ' +
+  '0 === tifaSymbols(config).length && !tifaHasOwn(config, "__proto__") && ' +
+  '!("__self" in config) && !("__source" in config) && ' +
+  '(!("key" in config) || void 0 === tifaLookupGetter(config, "key"))'
+const propsRefGetter = ' && (!("ref" in config) || void 0 === tifaLookupGetter(config, "ref"))'
+// What the copy needs from the built-ins, taken when React's module runs and added to its end, so
+// that no line of the file moves. tifaLookupGetter is __lookupGetter__, which gives the getter of
+// the first property with the name in the config and its prototypes, and undefined for a data
+// property and for a property with no getter, so a read of that name runs no code.
+const propsHelpers = `
+var tifaGetProto = Object.getPrototypeOf,
+  tifaObjectProto = Object.prototype,
+  tifaSymbols = Object.getOwnPropertySymbols,
+  tifaHasOwn = Object.hasOwn,
+  tifaCall = Function.prototype.call,
+  tifaLookupGetter = tifaCall.bind(Object.prototype.__lookupGetter__);
+`
 // The error handler of renderToString, which ignores the errors of the render.
 const ignoredErrors = 'function onError() {}'
 // React's HTML escape in its string renderer, with the regular expression that finds the first
@@ -967,6 +1014,18 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
           return null
         }
         return source.replace(murmur2Source, () => hashInGo(murmur2Source))
+      }
+      if (reactModule.test(id)) {
+        const react = `react ${packageVersion(path.resolve(id, '..', '..'))}: ${id}`
+        const { source, missing } = copyPropsFast(fs.readFileSync(id, 'utf8'))
+        for (const name of missing) {
+          this.warn(
+            `${react} has no ${name} in the form the tifa plugin knows, so React copies the config of each ` +
+              `element it makes with ${name} one key at a time. Pages render the same, but those elements ` +
+              'take longer to make',
+          )
+        }
+        return missing.length === 2 ? null : source
       }
       if (reactStringRenderer.test(id)) {
         const react = `react-dom ${packageVersion(path.resolve(id, '..', '..'))}: ${id}`
@@ -1524,6 +1583,64 @@ function askPluginsForArrays(source) {
     else source = source.replace(check, () => form[1])
   }
   return { source, missing }
+}
+
+// copyPropsFast returns the source of React's production file with createElement and cloneElement
+// copying the config into the props with the rest of a destructuring, which the engine does in one
+// step, and the names of the functions whose loop the source does not have in the form it knows.
+// The copy is for a config where it does what React's loop does. Every other config goes through
+// the loop, which stays as it was.
+//
+// How the loop and the copy differ, and what keeps each difference from showing:
+//   - The loop lists string keys only, the copy takes symbol keys too: the config has none, also
+//     none that is not enumerable (getOwnPropertySymbols).
+//   - The loop reads key once or twice and never reads __self or __source. The copy reads all three
+//     once more: no getter is behind these names, in the config or in Object.prototype ("in", and
+//     __lookupGetter__ for a name that is there). cloneElement does the same for ref.
+//   - The loop sets each key on the props, the copy defines it. A key __proto__ would set the
+//     prototype of the props where the copy defines a property: the config has no own __proto__.
+//   - The loop also lists the keys of the prototypes of the config, and a Proxy there would see
+//     it: the prototype of the config is Object.prototype. So a function, an array, a primitive,
+//     a class instance and a config with no prototype go through the loop.
+//   - The loop calls hasOwnProperty.call, which a page may have replaced: it has not.
+//   - cloneElement copies the rest into props with assign, which sets each key as the loop does,
+//     and leaves ref out of the copy when it is undefined, the one key the loop skips by value.
+// What these checks cannot rule out, since a config that fits them can still be: a Proxy, which no
+// code can tell from another object without calling one of its traps, so its traps are called in
+// other numbers and order than the loop calls them. A getter in the config that deletes a key
+// listed after it: the loop skips that key, the engine's copy defines it as undefined. A setter or
+// a read-only property that a page adds to Object.prototype after React has loaded, with the name
+// of a key of the config: the loop calls the setter or throws, the copy of createElement defines
+// the property (cloneElement sets like the loop, and differs from it only in when it does so
+// compared with the reads of the getters).
+function copyPropsFast(source) {
+  const missing = []
+  // The lines of a loop after its first, moved in to go into the else branch.
+  const otherwise = (loop) => loop.split('\n').slice(1).map((line) => '  ' + line).join('\n')
+  let out = source
+  if (out.split(propsCreateLoop).length === 2) {
+    const to = `  if (null != config)
+    if (${propsPlain}) {
+      void 0 !== config.key && (key = "" + config.key);
+      var { key: tifaKey, __self: tifaSelf, __source: tifaSource, ...tifaRest } = config;
+      props = tifaRest;
+    } else
+${otherwise(propsCreateLoop)}`
+    out = out.replace(propsCreateLoop, () => sameLines(propsCreateLoop, to))
+  } else missing.push('createElement')
+  if (out.split(propsCloneLoop).length === 2) {
+    const to = `  if (null != config)
+    if (${propsPlain}${propsRefGetter}) {
+      void 0 !== config.key && (key = "" + config.key);
+      if (void 0 === config.ref) var { key: tifaKey, __self: tifaSelf, __source: tifaSource, ref: tifaRef, ...tifaRest } = config;
+      else var { key: tifaKey, __self: tifaSelf, __source: tifaSource, ...tifaRest } = config;
+      assign(props, tifaRest);
+    } else
+${otherwise(propsCloneLoop)}`
+    out = out.replace(propsCloneLoop, () => sameLines(propsCloneLoop, to))
+  } else missing.push('cloneElement')
+  if (missing.length === 2) return { source, missing }
+  return { source: out + propsHelpers, missing }
 }
 
 // cacheEscapes returns the source of React's string renderer with a cache in front of
