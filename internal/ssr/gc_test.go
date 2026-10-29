@@ -430,9 +430,6 @@ func TestFullGCGivesBackWhatABigRenderTook(t *testing.T) {
 	var live uintptr
 	var before slowjs.MemoryUsage
 	idleVM(p, func(vm *pooledVM) { live, before = vm.live, vm.MemoryUsage() })
-	if before.Footprint == 0 {
-		t.Skip("the engine takes its memory from libc")
-	}
 	if _, err := p.Render(context.Background(), input("hold", fmt.Sprint(3*live/objectSize(t, holdJS)))); err != nil {
 		t.Fatal(err)
 	}
