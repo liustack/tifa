@@ -1,5 +1,5 @@
 ---
-summary: 'Testing and verification: commands to run before committing, checks for the example app, end-to-end tests, red before green, the long SSR tests that are skipped by default, the SSR benchmarks of the example app with one VM and with several at once, the extreme pages that find where rendering stops working, and what CI on GitHub runs and leaves out'
+summary: 'Testing and verification: commands to run before committing, checks for the example app, end-to-end tests, red before green, the long SSR tests that are skipped by default, the SSR benchmarks of the example app with one VM and with several at once, the extreme pages that find where rendering stops working, the comparison with Next.js and TanStack Start (check and measurement), and what CI on GitHub runs and leaves out'
 read_when:
   - Getting ready to commit and checking which checks to run
   - Writing a new test or fixing a bug
@@ -15,6 +15,8 @@ read_when:
   - Upgrading github.com/liustack/slowjs
   - Changing how the server serves HTTPS or gets its certificates
   - Changing `.github/workflows/`, or a CI run is red and you need to know what it runs
+  - Changing the workbench pages of `examples/shop`, which the comparison with Next.js and TanStack Start copies
+  - Checking that tifa, Next.js and TanStack Start show the same pages, or measuring whole page requests against them
 ---
 
 # Testing and verification
@@ -86,6 +88,7 @@ GitHub Actions (`.github/workflows/ci.yml`) checks every push, and every pull re
 Left out on purpose:
 
 - **Tests that need `TIFA_SSR_SHOP`, `TIFA_SSR_SOAK`, `TIFA_SSR_EXTREME` or `TIFA_EXTREME`**: the shop SSR tests, the soak tests and the extreme pages. They take long, and the benchmarks among them need a quiet machine.
+- **`TIFA_COMPARE`**: the check of [test/compare](#comparison-with-nextjs-and-tanstack-start-testcompare) builds the shop and two more apps with Node, about a minute of work on a warm machine and several on a cold one. Its measurement needs a quiet machine.
 - **The `-race` runs**: they are run on chosen packages by hand (see [Before committing](#before-committing)).
 - **darwin/arm64 for e2e**: it has the same Node and the same tests, so it adds time and no new facts. Add it by putting the job in a matrix.
 
@@ -238,6 +241,56 @@ TIFA_SSR_SHOP=1 GOMAXPROCS=4 taskset -c 4-7 go test -run '^$' -bench ShopParalle
   -mutexprofile mutex.out -o ssr.test ./test/ssr
 go tool pprof -top -cum ssr.test mutex.out
 ```
+
+
+## Comparison with Next.js and TanStack Start (`test/compare`)
+
+`test/compare` builds the six workbench pages of `examples/shop` as a tifa program, as a Next.js app and as a TanStack Start app. It checks that the three show the same pages, and measures how many whole page requests each answers. It builds three apps with Node and the measurement needs a quiet machine, so CI does not run it. The method and the numbers are in [tifa against Next.js and TanStack Start](studies/nextjs-and-tanstack-start.md).
+
+| Where | What it holds |
+| --- | --- |
+| `test/compare/nextjs`, `test/compare/start` | The two Node apps: `package.json` with a lockfile, the server components or routes that load the data of each page, and a few shims. Git ignores what is built into them: `shop/`, `public/images/`, `data.json`, `node_modules` and the build output |
+| `test/compare/overlay`, `nextjs/overlay` | Files that only exist in tifa, written for the two apps: `tifa/client`, the module the generated routes call handlers through, and for Next.js the stand-ins for TanStack Router's `Link`, `Outlet` and loader data |
+| `test/compare/*.go` | Builds and copies (`build.go`), starts the servers (`serve.go`), reads the pages (`parity.go`), measures (`measure.go`, `report.go`) |
+| `test/compare/cmd/compare` | The command that builds and measures |
+
+The two apps do not keep a copy of the shop. Building them copies the components, the stylesheet, the root Layout, everything TypeScript under `app/projects`, the 160 pixel photos and the `+layout` and `+route` modules that `tifa build` generates from the Go types, from `examples/shop` into `shop/` and `public/images/`. The data comes from the shop's own program: the build starts `bin/shop`, asks it for the data of the Layouts and the page of each of the six pages, as the browser router does, and writes it to `data.json`. A change to a component, a page or the Go code that loads its data therefore reaches all three apps without an edit in `test/compare`. What can break is a file in `nextjs/src` or `start/src` that imports a module the shop moved or renamed, which fails the build, and a page of the shop that needs more than the apps give it, which fails the check below.
+
+### Check that the pages are the same
+
+```sh
+TIFA_COMPARE=1 go test -count=1 -v ./test/compare
+```
+
+It runs `pnpm install --frozen-lockfile` and the build of the shop and the two apps (about a minute on a warm machine), starts each server, fetches the six pages without compression and compares what a reader sees: the title, every text node in order, and the number of `tr`, `a`, `svg`, `button`, `li`, `time`, `img`, `table`, `h1` to `h3`, `nav` and `input` elements. Script, style and template elements do not count. It works on macOS and Linux, and skips when `go`, `node` or `pnpm` is missing. `TIFA_COMPARE_SKIP_BUILD=1` starts what the last run built. The tests of the parser run without the switch.
+
+When it fails after a change to the shop, read the difference it prints. A new page needs a route in both apps. A new package the shop's workbench imports needs a line in the `package.json` of both apps and `pnpm install` to update their lockfiles (`pnpm install` in each folder, then commit the lockfile).
+
+### Measure whole requests
+
+```sh
+go run ./test/compare/cmd/compare measure -server-cpus 0 -load-cpus 4 -per-page -render -json out.json
+```
+
+It builds first (add `-skip-build` to use the last build), then starts each of the four servers, tifa, Next.js, Next.js with `node --jitless` and Start, fresh for each round, and loads it with [oha](https://github.com/hatoo/oha): 10 seconds of warm-up, 15 seconds measured, the six pages in turn with `--urls-from-file`, one request in flight, `Accept-Encoding: identity`. tifa runs `--ssr-vms 1 --cache-size 0` with `GOMAXPROCS=1`, so every request renders. The Node servers run `next start` and Nitro's `index.mjs` in production mode. The command prints the tables as Markdown and writes every run as JSON. It needs `oha` too, and quits without it.
+
+| Flag | Default | |
+| --- | --- | --- |
+| `-server-cpus`, `-load-cpus` | empty | The cpus for the server and for oha, as `taskset -c` takes them (`0` or `0,1`). Linux only, since macOS has no `taskset`: leave them empty there, and read the numbers as a check that the command works. On a machine with hyperthreads, cpus `n` and `n+4` share a core, which the report should say |
+| `-rounds` | 2 | Rounds, each with fresh servers |
+| `-warmup`, `-duration` | 10s, 15s | Of the six pages in turn |
+| `-servers` | all | A list out of `tifa`, `nextjs`, `nextjs-jitless`, `start` |
+| `-per-page` | off | Also runs each page alone (`-page-warmup` 3s, `-page-duration` 10s) |
+| `-render` | off | Also runs `BenchmarkShop` of `test/ssr` on `-server-cpus`, which renders the same six pages in one warm VM without HTTP, and splits tifa's request into the render and the rest. Needs `-per-page`. Next.js and Start cannot be split like that from outside: their render happens inside the framework's request handler |
+
+Before each server starts, the command waits until the cpus it uses were idle for 3 seconds (Linux). It holds no lock on the cores. When other work shares the machine, take your own lock (`flock`) around the command and keep the whole run in a cgroup with a memory limit, as the study did. Peak RSS is the largest resident size of the server and its child processes, sampled every 100 ms and, on Linux, the kernel's high-water marks.
+
+What the comparison leaves out or tilts:
+
+- **Data**: Next.js and Start look the data of a page up in memory, where tifa runs the Go `Layout` and `Load` functions for each request. That favors the two Node apps by the time Go takes, which is the "rest" column of the render split, 1 to 5 ms of a page of 20 to 60 ms.
+- **Handlers**: the apps show pages. The forms and dialogs render, but their `POST`, `PUT` and `PATCH` calls fail, since there is no Go behind them.
+- **Photos**: the pages carry the same `<img>` elements, with files from `public/images`. The measurement asks for HTML only, as the study did.
+- **Render**: Next.js runs its own React canary, the others React 19.3.1.
 
 ## Render clock
 
