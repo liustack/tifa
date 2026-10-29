@@ -17,16 +17,16 @@ read_when:
 
 tifa 在 slowjs 里渲染页面。slowjs 是用 C 写的 QuickJS，编译成 Go 汇编，跑在 linux/amd64 和 darwin/arm64 上。它没有 JIT，所以一次渲染比 Node 慢。这篇文档给出数字和按这些数字怎么配机器。从[哪些改动让它变快](#哪些改动让它变快)起的后半篇是写给维护者的。
 
-slowjs v0.29 换掉了把 QuickJS 从 C 翻译成 Go 的那个引擎。C 引擎渲染 shop、MUI 和 bench 应用的页面，耗时是原来引擎的 0.83 到 0.86（见[引擎](#引擎)）。2026-10-24 的测量（怎么测的、一个页面渲染多快、和 Next.js、TanStack Start 比、随核数怎么扩展、配机器里除内存以外的部分、压缩）用的是 slowjs v0.28.6，也就是原来的引擎，所以其中 tifa 的耗时现在大约少 15%，每个核的吞吐大约高同样的比例。改版后的商店、[内存](#内存)、[极端页面](#极端页面)和剖析是用 C 引擎重新测的。
+slowjs v0.29 换掉了把 QuickJS 从 C 翻译成 Go 的那个引擎。C 引擎渲染 shop、MUI 和 bench 应用的页面，耗时是原来引擎的 0.83 到 0.86（见[引擎](#引擎)）。2026-10-24 的测量（怎么测的、一个页面渲染多快、和 Next.js、TanStack Start 比里的第二张表、随核数怎么扩展、配机器里除内存以外的部分、压缩）用的是 slowjs v0.28.6，也就是原来的引擎，所以其中 tifa 的耗时现在大约少 15%，每个核的吞吐大约高同样的比例。改版后的商店、和 Next.js、TanStack Start 比里的第一张表、[内存](#内存)、[极端页面](#极端页面)和剖析是用 C 引擎重新测的。
 
 ## 一眼看
 
 - **一次渲染**：用 C 引擎之前的引擎，在 shop 的页面上耗时是 C QuickJS 的 0.94 倍，在不用 `Intl` 的页面上是 1.15 倍，是 Node 关掉 JIT 时的约 2 倍，是 Node 有 JIT 时的 6.6 倍。C 引擎只用其中的 0.84 倍时间。
-- **整个请求**：单核上 tifa 每秒答 74 个页面请求，Next.js 是它的 2.5 倍，TanStack Start 是 3.9 倍。Next.js 关掉 JIT 后只有 tifa 的 0.85 倍。tifa 的内存峰值是 55 MiB，Next.js 是 441 MiB。
+- **整个请求**：在改版后的工作台页面上，单核 tifa 每秒答 27 到 29 个页面请求，Next.js 是它的 3.0 倍，TanStack Start 是 3.8 到 3.9 倍。Next.js 关掉 JIT 后是 tifa 的 0.89 到 0.96 倍。tifa 的内存峰值是 54 MiB，Next.js 是 465 MiB。tifa 一个请求里 95% 的时间是渲染。
 - **多核**：4 个物理核答的请求是 1 个核的 3.76 倍。同一个核的第二个超线程忙起来，约多 30%。
 - **怎么配**：像 shop 工作台这样的页面，按每个物理核每秒约 73 个请求、约 45 MiB 加每个 VM 12 到 16 MiB 准备。
 
-示例商店在 2026-10-28 改了版，页面变重了。这篇文档里其他数字都是在改版前的页面上测的。新页面的数字见[改版后的商店](#改版后的商店)。
+示例商店在 2026-10-28 改了版，页面变重了。这篇文档里其他数字都是在改版前的页面上测的，只有[改版后的商店](#改版后的商店)里的渲染耗时、内存数字和[和 Next.js 与 TanStack Start 比](#和-nextjs-与-tanstack-start-比)里的第一张表例外。
 
 ## 改版后的商店
 
@@ -99,7 +99,23 @@ MUI 几行用 C 引擎重新测过（slowjs 0cc6d332，2026-10-29，同类机器
 
 ## 和 Next.js 与 TanStack Start 比
 
-shop 的六个工作台页面另外照着写了 Next.js 16.4.2 版（App Router，每个路由都是动态的，数据在服务端组件里取，React 组件相同）和 TanStack Start 1.169.3 版（路由和 loader 相同），跑在 Node 24.13.0 上，可见文本相同。测的是走 HTTP 的完整请求，六个页面轮流，一次一个，`Accept-Encoding: identity`。两核时，Next.js 和 Start 用 Node 的 cluster 模块开两个进程，tifa 开 2 个 VM。测法和全部数字见 [tifa 对比 Next.js 和 TanStack Start](studies/nextjs-and-tanstack-start.md)。测的是 2026-10-28 改版之前的工作台页面。
+shop 的六个工作台页面做成三个版本：tifa，Next.js 16.4.2（App Router，每个路由都是动态的，React 组件相同，数据在服务端组件里查）和 TanStack Start 1.169.3（路由和 loader 相同），跑在 Node 24.13.0 上。三个版本的可见文本相同，由一个测试检查。应用在 [test/compare](../test/compare)，怎么构建、检查和再测一遍见[测试文档](testing.md#comparison-with-nextjs-and-tanstack-start-testcompare)（英文）。测的是走 HTTP 的完整请求，六个页面轮流，一次一个，`Accept-Encoding: identity`。测法和全部数字见 [tifa 对比 Next.js 和 TanStack Start](studies/nextjs-and-tanstack-start.md)（英文）。
+
+2026-10-29 用 tifa e0f6fdb 和 slowjs v0.29.0 测，页面是改版后的工作台页面，单核：服务钉在 0 号核，oha 钉在 4 号核，它们是同一个物理核的两个线程（2026-10-24 那次用的是 1 号和 6 号核，不共用物理核）。两轮，每轮新起服务器。
+
+| | tifa | Next.js | Next.js `--jitless` | TanStack Start |
+| --- | --- | --- | --- | --- |
+| 每秒请求数 | 27.3 到 28.9 | 83.5 到 85.0 | 25.8 到 26.3 | 104.7 到 112.0 |
+| 是 tifa 的几倍 | 1 | 2.95 到 3.06 | 0.89 到 0.96 | 3.83 到 3.88 |
+| P50 / P99 | 29.4 / 66 到 68 ms | 10.1 / 29 到 31 ms | 33.8 到 34.4 / 70 ms | 6.5 到 7.0 / 25.5 到 28.1 ms |
+| RSS 峰值 | 53 到 54 MiB | 462 到 469 MiB | 291 到 295 MiB | 352 到 357 MiB |
+
+- **分页面看**：Next.js 每秒答的请求是 tifa 的 2.96 到 3.49 倍，Start 是 3.69 到 4.31 倍。tifa 渲染第一个店铺的订单列表（42 个订单，223 KB）要 65 ms，其他页面 22 到 37 ms。
+- **渲染和其余部分**：六个页面单独测，整个请求的 P50 平均 33.3 ms，同一个页面在热 VM 里不走 HTTP 的渲染平均 31.8 ms。路由、`Load`、JSON、写 HTML 和 net/http 共 1.5 ms，占 5%，分页面是 0 到 5.5 ms。Next.js 和 Start 从外面拆不开。
+- **改版前的页面**，同样用 C 引擎、同样的核位置、2026-10-19 写的那两个应用：tifa 每秒 87 到 90 个请求，Next.js 是它的 2.05 到 2.06 倍，Start 是 3.1 到 3.2 倍，Next.js 关 JIT 是 0.71 到 0.72 倍。改版后的页面对 tifa 重了约 3 倍，对 Next.js 重了约 2.2 倍。
+- Next.js 和 Start 的应用查的是 shop 的 Go 代码返回过的数据，tifa 则每个请求都跑一遍那段代码，所以对它们有利，大小就是上面的 1 到 5 ms。它们页面里的表单能渲染，但不能提交。
+
+2026-10-24 用 slowjs v0.28.6、改版前的页面和手写的应用测（那两个应用没有保留，不在仓库里）：
 
 | | tifa | Next.js | Next.js `--jitless` | TanStack Start |
 | --- | --- | --- | --- | --- |
@@ -473,6 +489,8 @@ tifa c729ad2 加 slowjs v0.28.6、它的 Go 汇编解释器和 PGO，渲染这�
 
 完整请求：构建 `examples/shop`，用 `taskset` 把 `bin/shop --server-addr 127.0.0.1:0 --cache-size 0` 钉在几个核上，从另一个物理核压测，在途请求数等于 VM 数。每次先热几秒，测扩展曲线时服务钉的 CPU 数等于 VM 数。
 
+Next.js 和 TanStack Start：`go run ./test/compare/cmd/compare measure` 构建三个应用并按这个方法测，核位置用参数给（见[测试文档](testing.md#comparison-with-nextjs-and-tanstack-start-testcompare)，英文）。
+
 Node：SSR 包是 ES 模块，把同一份 `.tifa/dist/ssr.js` 复制成 `ssr.mjs`，用 `import()` 加载，渲染同样的输入，先热几百次，在 QuickJS 基准用的那个核上各跑一遍有 JIT 和 `--jitless`。导入之前，先把 Node 在 `globalThis` 上的 getter（比如 `crypto` 和 `navigator`）换成普通值，因为包会给它们赋值，再补上 `Iterator.concat`，TanStack Router 会调用它，而 Node 24.13 没有。找下一个该改的地方时，比较每个函数在 QuickJS 和 `--jitless` 的 Node 里各花多少时间：倍数远高于整体的函数就是候选。
 
 ## 还能从哪里继续
@@ -485,4 +503,4 @@ Node：SSR 包是 ES 模块，把同一份 `.tifa/dist/ssr.js` 复制成 `ssr.mj
 4. **用更少内存留住形状。** 留住对象字面量的形状省了渲染时间，但每个 VM 要多占内存。在 C 里改，比如让每个子形状引用它的父形状，可能用更少的内存拿到同样的速度。可以考虑提交给上游。
 5. **转义缓存。** QuickJS 给 `Map` 的键算哈希时不加种子，很多哈希相同的字符串会让查找变慢。每个字符串算 64 个码元，让链在约 3,700 项以内，限制项数可以让链更短。
 6. **新的 Go 版本。** 引擎是汇编，依赖 Go 怎么排栈和寄存器。Go 出新版本时，跑 slowjs 的 `docs/upgrading.md` 列的检查，再重测。
-7. **还没做的对比。** Next.js 和 TanStack Start 在两个核以上和店面页面上的对比，以及整个 shop 在 1 核 1 GB 内存的 VPS 上的实测。
+7. **还没做的对比。** Next.js 和 TanStack Start 在改版后的页面上两核、带压缩和启动的对比，在两个核以上和店面页面上的对比，以及整个 shop 在 1 核 1 GB 内存的 VPS 上的实测。
