@@ -1,0 +1,8 @@
+# Copied from examples/shop and written when the app is built (see test/compare)
+/shop/
+/public/images/
+/data.json
+
+node_modules
+.next
+next-env.d.ts
