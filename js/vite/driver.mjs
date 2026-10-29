@@ -167,9 +167,68 @@ function outOfWatches(err) {
   pollFiles()
 }
 
+// scans tells when a watcher of the dev server has read the files it was given. Vite does not wait
+// for that: a restart ends while the new chokidar watcher still reads the application root in the
+// background, and its ready event comes early whenever a path Vite gave it does not exist, such as
+// a .env file (chokidar 3 counts such a path twice). A file the watcher has not reached has no
+// baseline yet, so an edit before it is lost: with the files polled, the stat the first poll
+// compares with is taken when the watcher gets to the file, and a module Vite served before is
+// never invalidated. Nothing public says when the reading ends, so the driver counts the paths
+// chokidar is reading, which are the calls of _addToNodeFs of its Node file system handler: a path
+// that is a directory counts until all it holds is read, as it starts the reading of its files
+// before it ends. This holds for the watchers created after trackScans ran. A watcher that uses
+// FSEvents (macOS) has nothing to count: it watches the root as a whole.
+const scans = new WeakMap() // watcher -> { pending, idle }, idle holds the waiting calls of scanned
+const unscanned = new WeakSet() // watchers created before trackScans ran
+let scansTracked = false
+
+function scanState(watcher) {
+  let state = scans.get(watcher)
+  if (!state) scans.set(watcher, (state = { pending: 0, idle: [] }))
+  return state
+}
+
+// trackScans starts counting the reads of the watchers created from now on. It gets the class of
+// the Node file system handler from a watcher of its own that uses no FSEvents, as the one of the
+// dev server may. It returns whether chokidar looks as expected.
+function trackScans(watcher) {
+  if (!watcher._nodeFsHandler && !watcher._fsEventsHandler) return true // server.watch is null
+  unscanned.add(watcher)
+  let proto
+  try {
+    const probe = new watcher.constructor({ persistent: false, useFsEvents: false })
+    proto = probe._nodeFsHandler && Object.getPrototypeOf(probe._nodeFsHandler)
+    probe.close()
+  } catch {
+    return false
+  }
+  if (typeof proto?._addToNodeFs !== 'function') return false
+  if (scansTracked) return true
+  scansTracked = true
+  const read = proto._addToNodeFs
+  proto._addToNodeFs = async function (...args) {
+    const state = unscanned.has(this.fsw) ? null : scanState(this.fsw)
+    if (state) state.pending++
+    try {
+      return await read.apply(this, args)
+    } finally {
+      if (state && --state.pending === 0) setImmediate(() => state.pending === 0 && state.idle.splice(0).forEach((wake) => wake()))
+    }
+  }
+  return true
+}
+
+// scanned returns once watcher has read the files it was given, and the files that appeared meanwhile.
+// The tifa plugin holds the requests of the dev server back until then.
+function scanned(watcher) {
+  const state = scans.get(watcher)
+  if (!state || state.pending === 0) return Promise.resolve()
+  return new Promise((resolve) => state.idle.push(resolve))
+}
+
 // What the tifa plugin and the driver share, see devState in js/vite/plugin.js.
 const devState = (globalThis[Symbol.for('tifa.dev')] ??= {})
-Object.assign(devState, { pollFiles: false, changed: changedOutside, restart: trackRestart, outOfWatches })
+Object.assign(devState, { pollFiles: false, changed: changedOutside, restart: trackRestart, outOfWatches, scanned })
 
 // logger prints Vite's warnings and errors. Its progress and file lists are left out, and so is
 // the line that says a build failed, as the error goes back to tifa, which prints it.
@@ -233,6 +292,9 @@ const ops = {
     const earlier = new Set([...process.stdin.listeners('end'), ...process.listeners('SIGTERM')])
     server = await vite.createServer({ root, customLogger: logger, server: { host: '127.0.0.1', port, strictPort: true } })
     checkPlugin(server.config)
+    if (!trackScans(server.watcher)) {
+      logger.warn("Vite's file watcher is not the one tifa knows, so a file edited right after Vite's dev server restarts may not be noticed until it changes again")
+    }
     // Vite's dev server ends the process when stdin ends, as for a parent that went away, with
     // the listener it also adds for SIGTERM. Here stdin carries the requests, and its end starts
     // the close below, which first lets the SSR worker and the output finish. The stdin

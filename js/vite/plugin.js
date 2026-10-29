@@ -556,6 +556,7 @@ const pollInterval = 1000
 // The driver sets it up, so outside tifa dev it is empty:
 //   - pollFiles: the dev server's watcher is to poll, for a system that ran out of watches.
 //   - changed(event, file): gets every event of the dev server's watcher.
+//   - scanned(watcher): returns once the watcher has read the files it was given.
 //   - restart(run): runs run, a restart of the dev server, so the driver knows when one runs.
 //   - outOfWatches(err): the watcher ran out of watches or file descriptors.
 function devState() {
@@ -622,6 +623,9 @@ export function tifa(settings = {}) {
     configureServer(server) {
       const state = devState()
       server.watcher.on('all', (event, file) => state.changed?.(event, file))
+      // A module is served once the watcher has read the files, so an edit after the module
+      // was read is one the watcher sees. Vite restarts without waiting for the new watcher.
+      if (state.scanned) server.middlewares.use((req, res, next) => state.scanned(server.watcher).then(() => next(), next))
       // Every restart goes through server.restart, from Vite after a change to its config as
       // well. A restart copies the new server into the old object, this wrapper with it.
       if (state.restart) {

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -423,5 +424,54 @@ func TestDevServerSurvivesARestartThatCannotListen(t *testing.T) {
 			t.Fatalf("the dev server is not back 15s after the config changed: %v", err)
 		}
 		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// slowFileStat makes the Node process of Dev answer the stat of the file whose path ends with
+// suffix late, as a disk that is slow to answer does. Vite's watcher reads the stat of each file
+// while it scans the application root, so it reaches that file late. Only the watcher is
+// slowed: Vite's dev server reads the module with other calls.
+func slowFileStat(t *testing.T, suffix string, delay time.Duration) {
+	t.Helper()
+	preload := filepath.Join(t.TempDir(), "slow-stat.mjs")
+	writeTree(t, filepath.Dir(preload), map[string]string{filepath.Base(preload): "import fs from 'node:fs'\n" +
+		"const suffix = " + strconv.Quote(suffix) + "\n" +
+		"for (const name of ['stat', 'lstat']) {\n" +
+		"  const stat = fs[name]\n" +
+		"  fs[name] = function (file, ...args) {\n" +
+		"    if (typeof file !== 'string' || !file.endsWith(suffix)) return stat.call(this, file, ...args)\n" +
+		"    setTimeout(() => stat.call(this, file, ...args), " + strconv.Itoa(int(delay.Milliseconds())) + ")\n" +
+		"  }\n}\n"})
+	t.Setenv("NODE_OPTIONS", "--import="+(&url.URL{Scheme: "file", Path: preload}).String())
+}
+
+// Vite restarts its dev server without waiting for the new watcher to read the application root.
+// A file it has not reached has no baseline yet, and with the files polled an edit before it
+// is never seen, so a module Vite served before stays old. The dev server serves once its watcher
+// has read the files. Here the watcher is slow to get to the module, as on a slow disk.
+func TestDevServerWaitsForItsWatcher(t *testing.T) {
+	slowFileStat(t, "app/page/view.tsx", 500*time.Millisecond)
+	root := devApp(t)
+	writeTree(t, root, map[string]string{"vite.config.ts": viteConfig("{ watch: { useFsEvents: false, usePolling: false } }")})
+	port := freePort(t)
+	d, err := NewDev(root, port, io.Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if polling, err := d.PollFiles(); err != nil || !polling {
+		t.Fatalf("PollFiles = %v, %v", polling, err)
+	}
+	viteModule(t, port, "app/page/view.tsx")
+	writeTree(t, root, map[string]string{"app/page/view.tsx": "export default function View() { return <p>polled</p> }\n"})
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.Contains(viteModule(t, port, "app/page/view.tsx"), "polled") {
+		if time.Now().After(deadline) {
+			t.Fatal("the polling dev server serves the old module 5s after the edit")
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
