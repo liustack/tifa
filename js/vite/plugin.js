@@ -1603,16 +1603,19 @@ function askPluginsForArrays(source) {
 //     it: the prototype of the config is Object.prototype. So a function, an array, a primitive,
 //     a class instance and a config with no prototype go through the loop.
 //   - The loop calls hasOwnProperty.call, which a page may have replaced: it has not.
-//   - cloneElement copies the rest into props with assign, which sets each key as the loop does,
-//     and leaves ref out of the copy when it is undefined, the one key the loop skips by value.
+//   - A config with none of key, __self and __source has nothing to leave out: createElement copies
+//     it with a spread, which the engine does fastest, and cloneElement with assign(props, config),
+//     which reads and sets one key after the other as the loop does. A config with a key, or with a
+//     ref that is undefined (the one key the loop skips by value), is copied with the rest of a
+//     destructuring that leaves those out, and cloneElement sets the result with assign.
 // What these checks cannot rule out, since a config that fits them can still be: a Proxy, which no
 // code can tell from another object without calling one of its traps, so its traps are called in
 // other numbers and order than the loop calls them. A getter in the config that deletes a key
 // listed after it: the loop skips that key, the engine's copy defines it as undefined. A setter or
 // a read-only property that a page adds to Object.prototype after React has loaded, with the name
 // of a key of the config: the loop calls the setter or throws, the copy of createElement defines
-// the property (cloneElement sets like the loop, and differs from it only in when it does so
-// compared with the reads of the getters).
+// the property. cloneElement sets like the loop, but after it has read the getters of the config
+// where the loop sets between them, when the config has a key or a ref that is undefined.
 function copyPropsFast(source) {
   const missing = []
   // The lines of a loop after its first, moved in to go into the else branch.
@@ -1621,9 +1624,11 @@ function copyPropsFast(source) {
   if (out.split(propsCreateLoop).length === 2) {
     const to = `  if (null != config)
     if (${propsPlain}) {
-      void 0 !== config.key && (key = "" + config.key);
-      var { key: tifaKey, __self: tifaSelf, __source: tifaSource, ...tifaRest } = config;
-      props = tifaRest;
+      if ("key" in config) {
+        void 0 !== config.key && (key = "" + config.key);
+        var { key: tifaKey, __self: tifaSelf, __source: tifaSource, ...tifaRest } = config;
+        props = tifaRest;
+      } else props = { ...config };
     } else
 ${otherwise(propsCreateLoop)}`
     out = out.replace(propsCreateLoop, () => sameLines(propsCreateLoop, to))
@@ -1631,10 +1636,12 @@ ${otherwise(propsCreateLoop)}`
   if (out.split(propsCloneLoop).length === 2) {
     const to = `  if (null != config)
     if (${propsPlain}${propsRefGetter}) {
-      void 0 !== config.key && (key = "" + config.key);
-      if (void 0 === config.ref) var { key: tifaKey, __self: tifaSelf, __source: tifaSource, ref: tifaRef, ...tifaRest } = config;
-      else var { key: tifaKey, __self: tifaSelf, __source: tifaSource, ...tifaRest } = config;
-      assign(props, tifaRest);
+      if ("key" in config || (void 0 === config.ref && "ref" in config)) {
+        void 0 !== config.key && (key = "" + config.key);
+        if (void 0 === config.ref) var { key: tifaKey, __self: tifaSelf, __source: tifaSource, ref: tifaRef, ...tifaRest } = config;
+        else var { key: tifaKey, __self: tifaSelf, __source: tifaSource, ...tifaRest } = config;
+        assign(props, tifaRest);
+      } else assign(props, config);
     } else
 ${otherwise(propsCloneLoop)}`
     out = out.replace(propsCloneLoop, () => sameLines(propsCloneLoop, to))
