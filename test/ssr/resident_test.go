@@ -30,12 +30,20 @@ import (
 	"github.com/liustack/tifa/internal/ssr"
 )
 
+// procStatus is where Linux keeps the memory of a process. Other systems have no such file, and the
+// tests that read memory skip there. A test that starts a child to read it must skip first: the
+// skip of the child counts as a pass for the parent, which then finds no numbers.
+const (
+	procStatus   = "/proc/self/status"
+	noProcStatus = "memory is read from /proc/self/status, which this system does not have"
+)
+
 // procKiB returns a field of /proc/self/status in KiB, such as VmRSS or VmHWM.
 func procKiB(t testing.TB, field string) int {
 	t.Helper()
-	b, err := os.ReadFile("/proc/self/status")
+	b, err := os.ReadFile(procStatus)
 	if err != nil {
-		t.Skip("memory is read from /proc/self/status, which this system does not have")
+		t.Skip(noProcStatus)
 	}
 	n, err := parseProcKiB(string(b), field)
 	if err != nil {
@@ -125,6 +133,9 @@ func TestPerVM(t *testing.T) {
 func TestShopVMResident(t *testing.T) {
 	if os.Getenv("TIFA_SSR_SHOP") == "" {
 		t.Skip("set TIFA_SSR_SHOP=1 after running tifa build in examples/shop")
+	}
+	if _, err := os.Stat(procStatus); err != nil {
+		t.Skip(noProcStatus)
 	}
 	many := envInt("TIFA_SSR_VMS", 8)
 	if many < 2 {
