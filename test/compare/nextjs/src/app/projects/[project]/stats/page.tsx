@@ -15,7 +15,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function Page({ params }: Props) {
   const { project } = await params
   return (
-    <StatsProvider value={orNotFound(() => loadStats(project))}>
+    <StatsProvider value={orNotFound(() => loadStats(loadProject(project)))}>
       <StatsPage />
     </StatsProvider>
   )

@@ -5,7 +5,7 @@ import { statsFn } from '../../../../compare/fns'
 export const Route = createFileRoute('/_app/projects/$project/stats')({
   component: StatsPage,
   head,
-  loader: ({ params }) => statsFn({ data: params.project }),
+  loader: async ({ parentMatchPromise }) => statsFn({ data: (await parentMatchPromise).loaderData! }),
   staleTime: Infinity,
   remountDeps: ({ params }) => [params.project],
 })

@@ -5,10 +5,11 @@
 // has the steps.
 //
 // The two Node apps hold only what is specific to their framework: the layouts and pages that load
-// data, a few shims, and a package.json with a lockfile. Everything else is copied from
-// examples/shop when the apps are built (sync.go), so a change to a component of the shop reaches
-// all three at once. The data of the pages is what the shop's own program loads for them
-// (snapshot.go), so it cannot drift either.
+// data, a few shims, and a package.json with a lockfile. The components, the stylesheet and the
+// photos are copied from examples/shop when the apps are built (build.go), so a change to a
+// component of the shop reaches all three at once. The data of the pages is computed in Node on
+// every request by domain/, a port of the Go code of the shop that TestDomainMatchesGo keeps equal
+// to the Go code.
 package compare
 
 import (

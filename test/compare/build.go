@@ -2,24 +2,19 @@ package compare
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
 // Prepare builds everything the comparison needs, writing the commands and their failures to log:
-// the shop as a tifa program, the data of its six pages, the sources of the two Node apps copied
-// from the shop, and the two apps.
+// the shop as a tifa program, the sources of the two Node apps copied from the shop, and the two
+// apps.
 func (e Env) Prepare(ctx context.Context, log io.Writer) error {
 	if err := e.BuildShop(ctx, log); err != nil {
-		return err
-	}
-	if err := e.Snapshot(ctx, log); err != nil {
 		return err
 	}
 	for _, app := range []struct{ dir, kind string }{{e.Next, "next"}, {e.Start, "start"}} {
@@ -50,73 +45,9 @@ func (e Env) BuildApp(ctx context.Context, log io.Writer, dir string) error {
 	return run(ctx, log, dir, env, "pnpm", "build")
 }
 
-// Snapshot starts bin/shop and asks it, as the browser router does, for the data of the Layouts
-// and the page of each of the six pages. It writes them to data.json in both apps, which the
-// apps load the way tifa's Go code loads: once per request, as the data the page needs. The data
-// is what the Go code of the shop returns, so the apps cannot show other numbers than tifa.
-func (e Env) Snapshot(ctx context.Context, log io.Writer) error {
-	var built struct{ BuildID string }
-	data, err := os.ReadFile(filepath.Join(e.Shop, ".tifa", "dist", "build.json"))
-	if err != nil {
-		return fmt.Errorf("build the shop first: %w", err)
-	}
-	if err := json.Unmarshal(data, &built); err != nil {
-		return err
-	}
-	shop, err := e.Targets()[0].Start(ctx, "")
-	if err != nil {
-		return err
-	}
-	defer shop.Stop()
-
-	// url -> route ID -> data
-	snapshot := map[string]map[string]json.RawMessage{}
-	for _, page := range Pages {
-		req, err := http.NewRequestWithContext(ctx, "GET", shop.Base+page.URL, nil)
-		if err != nil {
-			return err
-		}
-		req.Header.Set("X-Tifa-Route", page.Routes)
-		req.Header.Set("X-Tifa-Build", built.BuildID)
-		res, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return err
-		}
-		body, err := io.ReadAll(res.Body)
-		res.Body.Close()
-		if err != nil || res.StatusCode != 200 {
-			return fmt.Errorf("data of %s: %d %v %s", page.URL, res.StatusCode, err, body)
-		}
-		var routes map[string]struct {
-			Status int
-			Data   json.RawMessage
-		}
-		if err := json.Unmarshal(body, &routes); err != nil {
-			return fmt.Errorf("data of %s: %w", page.URL, err)
-		}
-		snapshot[page.URL] = map[string]json.RawMessage{}
-		for id, r := range routes {
-			if r.Status != 200 {
-				return fmt.Errorf("data of %s: route %s answered %d", page.URL, id, r.Status)
-			}
-			snapshot[page.URL][id] = r.Data
-		}
-	}
-	out, err := json.MarshalIndent(snapshot, "", " ")
-	if err != nil {
-		return err
-	}
-	for _, dir := range []string{e.Next, e.Start} {
-		if err := os.WriteFile(filepath.Join(dir, "data.json"), out, 0o644); err != nil {
-			return err
-		}
-	}
-	fmt.Fprintf(log, "data of %d pages written to both apps\n", len(Pages))
-	return nil
-}
-
 // Sync copies what the workbench pages are made of from the shop into dir/shop, where the app
-// imports it as `@/`. kind is "next" or "start". The folder is made new every time.
+// imports it as `@/`. kind is "next" or "start". The folder is made new every time. The data the
+// pages show is not copied: the apps compute it from the domain code in test/compare/domain.
 //
 // Copied as they are: the shadcn components, the helpers, the root Layout, the stylesheet, the
 // formatting functions and everything under app/projects that is TypeScript. The generated
