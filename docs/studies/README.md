@@ -12,7 +12,7 @@ Each study gives one question its full method, data and limits. [Performance](..
 | Study | Measured | Question |
 | --- | --- | --- |
 | [moejs](moejs.md) | 2026-10-20 | Does the pure Go engine moejs render tifa's pages faster than the quickjs fork, and what in it is worth copying? |
-| [Next.js and TanStack Start](nextjs-and-tanstack-start.md) | 2026-10-19, 2026-10-24 | On whole HTTP requests for the same pages, how much more do Next.js and TanStack Start serve than tifa, and what does tifa give back in memory, start-up and deployment? |
+| [Next.js and TanStack Start](nextjs-and-tanstack-start.md) | 2026-10-19, 2026-10-24, 2026-10-29 | On whole HTTP requests for the same pages, how much more do Next.js and TanStack Start serve than tifa, and what does tifa give back in memory, start-up and deployment? |
 | [React PR 37022 and React Compiler](react-layer.md) | 2026-10-20 | Do one push per start tag or React Compiler, in its normal or SSR mode, make renders in QuickJS faster? |
 | [What others do to go faster](industry-survey.md) | 2026-10-20 | Which known ways to speed up interpreters and React server rendering fit tifa, and what might each give? |
 | [JavaScript function profile](js-function-profile.md) | 2026-10-18, 2026-10-20 | Which JavaScript functions of React and the libraries cost the most in QuickJS, and which cost far more than in another interpreter? |
