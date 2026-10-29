@@ -27,6 +27,7 @@
 - 服务端渲染改用 quickjs v0.27.3。池子在渲染之间调用 `VM.RunYoungGC`。字符串查找（`includes`、`indexOf` 和 `lastIndexOf`）用 Go 的 `bytes` 包跳过不匹配的内容，查过的文本计入中断检查。
 - 服务端渲染改用 quickjs v0.27.2。页面在循环里编译正则或拼字符串时，渲染超时（`ssr.timeout`）现在几毫秒内就能把它停下，以前这样的循环会越过超时再跑好几秒：编译正则，以及解析源码或拼字符串的内置函数（`JSON.parse`、`JSON.stringify`、`join`、`repeat`、`replaceAll` 等）都计入引擎的中断检查。这类内置函数的单次长调用仍会跑完。渲染之间的 GC 一次就能释放键已不可达的 WeakMap 条目，值反过来指向键时也一样，以前这样的条目会一直留在复用的 VM 里。HTML 不变（见下面的性能）。
 - 服务端渲染改用 quickjs v0.27.1，HTML 不变，渲染更快（见下面的性能）。
+- React 的 `createElement` 和 `cloneElement` 在复制结果和 React 的循环无从分辨时，一步复制元素的 config，其余情况照旧走循环。示例 shop 的工作台页面渲染耗时是原来的 0.987，店面页面 0.985，MUI 测试应用的页面 0.976，一次渲染少执行 2.4%、2.0% 和 3.5% 的指令。HTML 不变。还剩三处差别，检查排除不了：config 是 `Proxy` 时看到的 trap 不同，config 的 getter 删掉排在后面的键时复制把那个键留成 `undefined`，页面在 React 加载之后给 `Object.prototype` 加的 setter 或只读属性被触及的方式不同（见 [构建与生成代码](docs/build.zh-CN.md#前端产物)）。
 - 用 emotion 写样式的页面（比如 MUI）渲染更快：emotion 给每段样式算的哈希改在 Go 里算，结果不变。MUI 测试应用的页面渲染时间少 28% 到 29%，HTML 不变。
 - 服务端渲染改用 quickjs v0.27.0。页面渲染时可以用全部 `Intl` 构造器和 Chromium 有的全部历法，`localeCompare` 按语言规则排序，和浏览器一样，以前按码点比较。程序现在带上了 go-intl 的数据和代码，分发时要附上六个声明文件，以前只有 `LICENSE-DATA` 一个（见 [build.zh-CN.md](docs/build.zh-CN.md#要随程序附带的声明)）。
 - 有页面的应用装的 React 或 React DOM 低于 19.3.0 时，`tifa build` 和 `tifa dev` 报错停下。
