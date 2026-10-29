@@ -114,7 +114,7 @@ Measured on 2026-10-29 with slowjs v0.29.0 on the redesigned workbench pages, on
 - **The render and the rest**: the P50 of the six pages alone averages 33.2 ms for a whole request and 31.6 ms for the render in a warm VM without HTTP. Routing, `Load`, JSON, writing the HTML and net/http take 1.6 ms, 5%, and 0.4 to 5.1 ms by page. Next.js and Start cannot be split like that from outside.
 - **The data work**: in a first run the same day, the apps looked their data up instead of computing it, and Next.js answered 83.5 to 85.0 requests a second, Start 104.7 to 112.0. Computing it costs them 3% to 5%.
 - **On the pages before the redesign**, with the C engine, the same placement and the apps of 2026-10-19: tifa 87 to 90 requests a second, Next.js 2.05 to 2.06 times as many, Start 3.1 to 3.2 and Next.js without JIT 0.71 to 0.72. The redesigned pages are about 3 times as heavy for tifa and 2.2 times for Next.js.
-- The forms of the Node apps' pages render but cannot submit, since the handlers are not ported. The study lists the other differences, such as that tifa hashes each page for an `ETag` and the Node servers stream theirs.
+- The forms of the Node apps' pages render but cannot submit, since the handlers are not ported. The study lists the other differences, such as that the Node servers stream their pages and tifa writes each one whole.
 
 On 2026-10-24, with slowjs v0.28.6, on the pages before the redesign, with hand-written apps that were not kept and are not in the repository:
 
