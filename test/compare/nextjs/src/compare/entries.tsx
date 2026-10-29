@@ -13,8 +13,11 @@ import { route as list } from '@/app/projects/project+/+route'
 import { route as order } from '@/app/projects/project+/orders/order+/+route'
 import { route as stats } from '@/app/projects/project+/stats/+route'
 import { OutletProvider as OutletProviderComponent } from '@/runtime/router'
+import { counts } from '../../../domain/counts.ts'
 
 export function AppLayout() {
+  // One render of the page on the server. The browser has its own copy of the counters.
+  if (typeof window === 'undefined') counts.renders++
   return <AppLayoutComponent />
 }
 export function ProjectLayout() {

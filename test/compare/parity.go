@@ -70,27 +70,33 @@ func ParseView(page []byte) View {
 // Fetch gets the page the way a browser that sends no compression does, so a server that
 // compresses by default sends plain HTML like the others.
 func Fetch(base string, page Page) ([]byte, error) {
+	body, _, err := FetchWithHeader(base, page)
+	return body, err
+}
+
+// FetchWithHeader is Fetch that also returns the headers of the answer.
+func FetchWithHeader(base string, page Page) ([]byte, http.Header, error) {
 	req, err := http.NewRequest("GET", base+page.URL, nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	req.Header.Set("Accept-Encoding", "identity")
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer res.Body.Close()
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if res.StatusCode != 200 {
-		return nil, fmt.Errorf("GET %s: %d", page.URL, res.StatusCode)
+		return nil, nil, fmt.Errorf("GET %s: %d", page.URL, res.StatusCode)
 	}
 	if enc := res.Header.Get("Content-Encoding"); enc != "" {
-		return nil, fmt.Errorf("GET %s: answered with Content-Encoding %s to Accept-Encoding: identity", page.URL, enc)
+		return nil, nil, fmt.Errorf("GET %s: answered with Content-Encoding %s to Accept-Encoding: identity", page.URL, enc)
 	}
-	return body, nil
+	return body, res.Header, nil
 }
 
 // Diff describes how two views differ, or returns "" when they show the same.
