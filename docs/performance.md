@@ -309,7 +309,7 @@ All changes leave the HTML the same byte for byte. Effects are the time a render
 
 ### Engine
 
-The fork [github.com/liustack/slowjs](https://github.com/liustack/slowjs#slowjs) lists each change in its README, with the details and tests. The changes for speed. Every row up to v0.28.6 is a change of the engine that translated QuickJS from C to Go, which slowjs v0.29 replaced with the C engine in the last row. They stay as the record of how the numbers in this doc came to be, and of what has been tried:
+[docs/changes](https://github.com/liustack/slowjs/blob/main/docs/changes/README.md) of [github.com/liustack/slowjs](https://github.com/liustack/slowjs) lists each change, with the details and tests. The changes for speed. Every row up to v0.28.6 is a change of the engine that translated QuickJS from C to Go, which slowjs v0.29 replaced with the C engine in the last row. They stay as the record of how the numbers in this doc came to be, and of what has been tried:
 
 | Change | Release | Effect |
 | --- | --- | --- |
@@ -424,7 +424,7 @@ These were tried on the engine that translated C to Go, which slowjs v0.29 repla
 - **Removing the TLS frame of 135 more small functions** (a TLS frame is the part of libc's TLS stack where the Go translation keeps a function's C locals whose address is taken): about 0.24% of render time, too small to measure, for 135 more entries to maintain.
 - **Letting more than 768 bytes of a call's room live in its TLS frame**: 1024 bytes covers 0.02% more calls, but doubles the blocks Linux keeps per call depth from 2 KB to 4 KB.
 - **Moving rarely used opcodes out of the interpreter loop**: at most 8% alone on amd64, an upper bound measured by replacing the 56 handlers of opcodes the shop never runs with empty stubs, but only 1.4% on top of the rewrite that keeps 15 values in their stack slots, and 0.5% on arm64. It would need the loop's locals moved into a struct.
-- **Dispatching opcodes through closures or a table of functions**, as some Go interpreters do: a rewrite of the interpreter, against the fork's rule of making only mechanical changes. Not tried.
+- **Dispatching opcodes through closures or a table of functions**, as some Go interpreters do: a rewrite of the interpreter, against the rule of slowjs to make only mechanical changes. Not tried.
 - **Waiting for Go 1.28**: a development build made the unchanged engine 5% faster on amd64 and 2% on arm64, but the rewritten engine 5% to 6.5% slower on amd64, for a reason not found. The rewrites still win there by 4.2% on amd64 and 15.5% on arm64.
 - **Keeping every in-between shape of object literals** (a shape records which properties an object has, in which order): about 2% more on top of the new property fast path, but the two list pages ran out of VM memory, because the kept shapes hold their prototypes and everything those reach. v0.26.16 keeps shapes another way, see [Engine](#engine): only the last 2048, only those whose prototype is `Object.prototype`, with at most 32 keys and no symbol key that is not registered, and a shape is copied rather than grown in place only on credit that objects earn by finding kept shapes, so objects whose keys no other object has pay little for it. Its state is a field that fixlib adds at the end of the engine's runtime struct, so the Go code did not need to be generated again from C.
 - **Literal templates in the bytecode**, as V8 copies a prebuilt object: needs compiler and bytecode format changes, and quickjs-ng saw no clear difference when it tried.
