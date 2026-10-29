@@ -66,7 +66,7 @@ tifa build [--dir 应用根目录] [-o 输出路径]
 | `off` | 不用 |
 | 一个路径，比如 `profiles/prod.pgo` | 这个文件，相对应用根目录 |
 
-tifa 自带的剖析采自示例商店的页面在 linux/amd64 上的热 VM 里渲染。它的样本几乎全在 JavaScript 引擎、libc 和 Go 运行时里，每个页面都要经过这些代码，商店自己的 Go 代码一行也不在里面。用上它，商店的页面在 linux/amd64 上渲染快约 3%（用 slowjs v0.28.6 和它的 Go 汇编解释器测，用 quickjs v0.26.15 时是 2.4%），在 darwin/arm64 上快约 7%（用 v0.26.13 测），HTML 逐字节不变。
+tifa 自带的剖析采自示例商店的页面在 linux/amd64 上的热 VM 里渲染。它的样本全在 JavaScript 引擎里（每个页面都要经过它），以及调用引擎的 Go 代码里，商店自己的 Go 代码一行也不在里面。slowjs 的引擎是 Go 汇编，PGO 改不了它，所以剖析只能作用在引擎周围那几处 Go 调用上。用 slowjs 的 C 引擎时，它在 linux/amd64 上带来的差别量不出来：商店、MUI 应用和 bench 应用的页面，用它和不用它的耗时比是 0.998、0.999 和 1.004（一个 VM 一个核，8 个代码位置，3 轮），一次渲染执行的指令数相差不到 0.15%，HTML 逐字节不变。用 C 引擎之前的引擎（从 C 翻译成的 Go）时，商店的页面在 linux/amd64 上用它快约 3%（slowjs v0.28.6），在 darwin/arm64 上快约 7%（quickjs v0.26.13）。在 darwin/arm64（Apple M4）上，用 linux/amd64 上采的剖析，商店的页面用它的耗时是不用的 1.002（各页 0.993 到 1.006，4 轮交替，一个代码位置），在那里也没有作用。
 
 `tifa dev` 构建时从不用剖析：它给 `go build` 传 `-pgo=off`。`tifa build` 时，`GOFLAGS` 里的 `-pgo` 比 `build.pgo` 优先，和任何 `go build` 一样。
 
