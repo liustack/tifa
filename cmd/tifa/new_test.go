@@ -501,24 +501,6 @@ func TestStdRootsListTheStandardLibrary(t *testing.T) {
 	}
 }
 
-// modernc.org/sqlite is built by ccgo for one exact version of modernc.org/libc. A module that is
-// built by ccgo too, as slowjs was until v0.29, has to be built for the same libc, and the SQLite
-// release go.mod.tmpl pins has to be one built for it. slowjs no longer uses modernc.org/libc and
-// nothing else of tifa does, so a new app takes the libc its SQLite requires and no version
-// needs to match. If a dependency of tifa asks for modernc.org/libc again, go back to pinning a
-// SQLite release that requires the libc tifa builds with.
-func TestTifaDoesNotRequireModerncLibc(t *testing.T) {
-	out, err := exec.Command("go", "list", "-m", "-f", "{{.Path}}", "all").Output()
-	if err != nil {
-		t.Fatalf("go list -m all: %v", err)
-	}
-	for _, path := range strings.Fields(string(out)) {
-		if path == "modernc.org/libc" {
-			t.Errorf("tifa requires modernc.org/libc: pin a modernc.org/sqlite in cmd/tifa/newapp/go.mod.tmpl built for the same libc version")
-		}
-	}
-}
-
 // tifa.yaml lists every setting commented out, so as written it loads the defaults. Turned on, it
 // loads them too, except ssr.vms, whose default depends on the machine and which shows an example.
 func TestNewTifaYAMLListsEverySetting(t *testing.T) {

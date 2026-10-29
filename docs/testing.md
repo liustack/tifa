@@ -123,7 +123,7 @@ The default tests in `internal/ssr` only use small handwritten bundles, `testdat
 TIFA_SSR_SOAK=1 go test -run Soak -v ./internal/ssr
 ```
 
-They run normal reuse (2 VMs, 2 callers, 10,000 renders), OOM recovery (8 failures and replacements), and 16 proactive memory swaps. The OOM fixture fills memory within one render, repeatedly parsing input with long Chinese text, so an idle swap cannot preempt the failure. It exercises the input conversion and allocation cleanup where github.com/liustack/slowjs fixed a leak. If this test fails, first confirm the dependency is this fork and not modernc.org/quickjs. After shutdown, every VM the pool made must have closed without an error. `TestSoakVMMemory` loads every VM the way the pool does. It prints what Intl adds to an empty VM, unused and after formatting, and what the bundle adds after loading, formatting and a render. It fails when Intl adds more than 32 KB to a VM that never formats.
+They run normal reuse (2 VMs, 2 callers, 10,000 renders), OOM recovery (8 failures and replacements), and 16 proactive memory swaps. The OOM fixture fills memory within one render, repeatedly parsing input with long Chinese text, so an idle swap cannot preempt the failure. It exercises the input conversion and allocation cleanup where github.com/liustack/slowjs fixed a leak. If this test fails, first confirm the dependency is github.com/liustack/slowjs. After shutdown, every VM the pool made must have closed without an error. `TestSoakVMMemory` loads every VM the way the pool does. It prints what Intl adds to an empty VM, unused and after formatting, and what the bundle adds after loading, formatting and a render. It fails when Intl adds more than 32 KB to a VM that never formats.
 
 ## SSR tests with the example app (`test/ssr`)
 
@@ -214,7 +214,7 @@ Run performance comparisons on the same machine, alternating between the old and
 
 ### Reading BenchmarkShopParallel
 
-`BenchmarkShopParallel` catches what one VM cannot show: a lock that every VM takes. `BenchmarkShop` stays the same when such a lock comes back. quickjs v0.26.8 is the example: each JS call took the global allocator lock of modernc.org/libc, and with 4 VMs the program rendered less than two thirds of what 4 times one VM would give.
+`BenchmarkShopParallel` catches what one VM cannot show: a lock that every VM takes. `BenchmarkShop` stays the same when such a lock comes back. quickjs v0.26.8 is the example: each JS call took a global allocator lock, and with 4 VMs the program rendered less than two thirds of what 4 times one VM would give.
 
 - Run both sub-benchmarks in one command. `speedup` only shows when `vms-1` ran in the same command. To repeat, run the command again: with `-count` every `speedup` is against the last `vms-1`, and `-cpu` changes `GOMAXPROCS` after the number of VMs is set.
 - On Linux, set `GOMAXPROCS` to a number of physical cores and pin the test to them with `taskset`, one CPU per core. Two VMs on the two threads of one core render only about 20% more than one, so a speedup over hyperthreads says little about locks.
@@ -238,9 +238,6 @@ TIFA_SSR_SHOP=1 GOMAXPROCS=4 taskset -c 4-7 go test -run '^$' -bench ShopParalle
   -mutexprofile mutex.out -o ssr.test ./test/ssr
 go tool pprof -top -cum ssr.test mutex.out
 ```
-
-With v0.26.8, half the wait is under `modernc.org/libc.Xalloca` and `Xmalloc`, and most of the rest under `Xfree`.
-
 
 ## Render clock
 
