@@ -98,7 +98,7 @@ pnpm install
 go tool tifa dev     # http://127.0.0.1:9527
 ```
 
-第一次 `tifa dev` 要编译一遍 QuickJS 和 SQLite，可能要一两分钟，之后的构建用 Go 的构建缓存。
+第一次 `tifa dev` 要编译一遍 QuickJS 和 SQLite，在 Apple M4 上约 7 秒（空的构建缓存，整个应用），之后的构建用 Go 的构建缓存。
 
 `tifa new` 写好一个首页：Go 的 `Load`，页面在浏览器里调用的 `POST`，以及测这两个函数的测试。模块路径默认是目录名，也可以传 `--module example.com/myapp`。
 
