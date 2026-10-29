@@ -38,8 +38,8 @@ import (
 
 const extremeDir = "../../test/apps/extreme"
 
-// extremeTimeout is a page that renders for well over the one second TestExtremeIsolation gives
-// a render, without running out of 128 MiB first, on both engines.
+// extremeTimeout is a page that renders for well over the half second TestExtremeIsolation gives
+// a render, without running out of 128 MiB first.
 const extremeTimeout = "/markdown/200"
 
 // extremeSizes are the sizes of each scenario, with the route ID of its page and texts its HTML
@@ -299,7 +299,7 @@ func injection(b *testing.B, p extremePage) (report func()) {
 
 // TestExtremeIsolation renders a light page with three of the four VMs of a pool while the fourth
 // renders a heavy page again and again: once where the heavy page renders, and once where it runs
-// past the pool's time budget of a second each time, so that the pool stops its VM and loads a new
+// past the pool's time budget of half a second each time, so that the pool stops its VM and loads a new
 // one. Stopping and replacing VMs must not slow the light page down by much more than the heavy
 // work alone does. Both runs load the CPU equally, so the comparison leaves out what the cores
 // and the GC of the process cost anyway.
@@ -310,7 +310,7 @@ func TestExtremeIsolation(t *testing.T) {
 	cfg := extremeConfig(4)
 	cfg.Timeout = 10 * time.Second
 	finishes := newPool(t, source, cfg)
-	cfg.Timeout = time.Second
+	cfg.Timeout = 500 * time.Millisecond
 	stops := newPool(t, source, cfg)
 	const each = 600
 	run := func(p *ssr.Pool, busy bool) (p50, p99 float64, heavyRuns int) {

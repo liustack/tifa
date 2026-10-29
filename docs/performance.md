@@ -6,7 +6,7 @@ read_when:
   - A page is very large, deep or full of data, and you want to know whether it will render or fail
   - Asking how fast tifa renders a page, or how it compares with C QuickJS, Node, Next.js or TanStack Start
   - Deciding whether to turn off `server.compress`, or changing how answers are compressed
-  - Changing `internal/ssr`, the rewrites the Vite plugin makes to the SSR bundle, or the PGO profile, and checking what a change gains
+  - Changing `internal/ssr`, the rewrites the Vite plugin makes to the SSR bundle, and checking what a change gains
   - Upgrading github.com/liustack/slowjs and checking that rendering did not get slower
   - Planning more work on SSR speed, or about to try an idea that may already have been tried
 ---
@@ -15,11 +15,13 @@ English · [简体中文](performance.zh-CN.md)
 
 # Performance
 
-tifa renders pages in slowjs, QuickJS translated from C to Go, whose interpreter loop on linux/amd64 is Go assembly compiled from the same C. It has no JIT, so a render is slower than in Node. This doc gives the numbers and how to size a machine for them. Its second half, from [What made it faster](#what-made-it-faster), is for maintainers.
+tifa renders pages in slowjs, QuickJS written in C and compiled to Go assembly, which runs on linux/amd64 and darwin/arm64. It has no JIT, so a render is slower than in Node. This doc gives the numbers and how to size a machine for them. Its second half, from [What made it faster](#what-made-it-faster), is for maintainers.
+
+slowjs v0.29 replaced the engine that translated QuickJS from C to Go. The C engine renders the pages of the shop, MUI and bench apps in 0.83 to 0.86 of the time of the engine before it ([Engine](#engine)). The measurements of 2026-10-24 (How the numbers were measured, How fast a page renders, Against Next.js and TanStack Start, How it scales with cores, Sizing a machine, except Memory, and Compression) used slowjs v0.28.6, the engine before it, so each tifa time in them is now about 15% lower, and the throughput per core about as much higher. The redesigned shop, [Memory](#memory), [Extreme pages](#extreme-pages) and the profile were measured again with the C engine.
 
 ## At a glance
 
-- **One render** takes 0.94 times as long as in C QuickJS on the shop's pages and 1.15 times on pages without `Intl`. It takes about 2 times as long as in Node without its JIT and 6.6 times as long as in Node with it.
+- **One render** took 0.94 times as long as in C QuickJS on the shop's pages and 1.15 times on pages without `Intl`, with the engine before the C engine. It took about 2 times as long as in Node without its JIT and 6.6 times as long as in Node with it. The C engine takes 0.84 of that time.
 - **Whole requests**: on one core tifa answers 74 page requests a second, Next.js 2.5 times as many and TanStack Start 3.9 times. Next.js without its JIT answers 0.85 times as many. tifa's peak memory is 55 MiB against 441 MiB for Next.js.
 - **Cores**: 4 physical cores answer 3.76 times as many requests as one. A busy hyperthread adds about 30%.
 - **Sizing**: plan on about 73 requests a second per physical core for pages like the shop's workbench, and about 45 MiB plus 12 to 16 MiB per VM.
@@ -30,29 +32,29 @@ The example shop was redesigned on 2026-10-28, and its pages got heavier. Every 
 
 The redesign made the shop's pages as heavy as those of a real shop: product photos, a category menu and a cart drawer on every storefront page, a carousel, galleries, reviews with photos and questions, facets and a comparison on the product pages, and an order list of 25 rows a page with filters, row menus and bulk actions. An order shows its log, notes, payment, stock check and packing list, and the stats page a table of every product, a heatmap and the carriers. These numbers are for the new pages. They are not a change in tifa's speed, so they are not compared with the old ones, except that the order and stats pages are given before and after their second round of modules.
 
-Measured on 2026-10-28 on the machine below, with tifa 14e7e54, slowjs v0.28.6, PGO with the profile tifa ships: `BenchmarkShop` in `test/ssr`, one warm VM on one thread of a core whose other thread is idle, 1,000 renders, three rounds taken in turns with the build from before the second round, the median of the rounds.
+Measured on 2026-10-29 on the machine below, with tifa phase5/tifa-switch, slowjs 0cc6d332 (the C engine), built with the profile tifa shipped then, which made no difference: `BenchmarkShop` in `test/ssr`, one warm VM on one thread of a core whose other thread is idle, 1,000 renders, two runs, the mean of the runs. The last column is the P50 with slowjs v0.28.6, measured on 2026-10-28.
 
-| Page | HTML | P50 ms | P99 ms | P50 before the second round |
+| Page | HTML | P50 ms | P99 ms | P50 ms, slowjs v0.28.6 |
 | --- | --- | --- | --- | --- |
-| Workbench: order list, 42 orders | 218 KB | 72.4 | 76.0 | 71.7 |
-| Workbench: order list, 12 orders | 130 KB | 42.6 | 45.3 | 42.5 |
-| Workbench: order | 135 KB | 30.2 | 33.4 | 12.5 |
-| Workbench: order of the other shop | 116 KB | 26.5 | 27.6 | 11.9 |
-| Workbench: stats | 144 KB | 33.5 | 36.8 | 14.3 |
-| Workbench: stats of the other shop | 120 KB | 26.1 | 27.9 | 12.3 |
+| Workbench: order list, 42 orders | 218 KB | 58.4 | 60.2 | 72.4 |
+| Workbench: order list, 12 orders | 130 KB | 34.5 | 35.7 | 42.6 |
+| Workbench: order | 135 KB | 24.7 | 25.9 | 30.2 |
+| Workbench: order of the other shop | 116 KB | 21.8 | 23.4 | 26.5 |
+| Workbench: stats | 144 KB | 27.0 | 28.1 | 33.5 |
+| Workbench: stats of the other shop | 120 KB | 21.0 | 21.7 | 26.1 |
 
-The order list did not change in the second round, and its P50 is within 1% of before. The order and stats pages send 2.0 to 2.5 times as much HTML, and take 2.1 to 2.4 times as long.
+The order and stats pages send 2.0 to 2.5 times as much HTML as they did before their second round of modules on 2026-10-28, and took 2.1 to 2.4 times as long.
 
-- `BenchmarkShopParallel`, the six pages in turn, on two threads: one VM renders 25.64 pages a second (35.68 before), and two VMs 31.83 (45.18 before), 1.26 times as many.
-- `TestShopVMMemory`: the bytecode of the bundle is 4.52 MB, shared by all VMs. One VM holds 9.73 MB after loading the bundle, 14.70 MB after 64 renders and 11.39 MB after a full collection (9.43, 12.18 and 10.65 MB before).
+- `BenchmarkShopParallel`, the six pages in turn, on the two threads of one core: one VM renders 31.7 pages a second (25.64 with v0.28.6), and two VMs 39.4 to 39.5 (31.83 with v0.28.6), 1.24 times as many (two runs).
+- `TestShopVMMemory`: the bytecode of the bundle is 4.52 MB, shared by all VMs. One VM holds 8.47 MB after loading the bundle, 13.13 MB after 64 renders and 10.10 MB after a full collection (9.73, 14.70 and 11.39 MB with v0.28.6, whose count is 13% to 15% higher for the same heap, see [Memory](#memory)).
 - The storefront pages are heavier still: as HTML, the home page is 342 KB, the product list 469 KB and a product page 341 KB. The storefront has no benchmark of its own yet.
 
 ## How the numbers were measured
 
-All numbers before [What made it faster](#what-made-it-faster) were measured on 2026-10-24, on the same machine, with the same build.
+All numbers before [What made it faster](#what-made-it-faster) were measured on 2026-10-24, on the same machine, with the same build, except those of [The redesigned shop](#the-redesigned-shop), [Memory](#memory) and [Extreme pages](#extreme-pages), which say when and with what they were measured.
 
 - **Machine**: a Google Cloud VM with 8 vCPUs of an AMD EPYC 7B13 (Zen 3), Linux. The 8 vCPUs are 4 physical cores with 2 hyperthreads each: cpu `n` and cpu `n+4` share a core. Each run took locks on the cores it used and waited for them to be idle for 30 seconds. Other work stayed under 8% of a CPU.
-- **Build**: tifa c729ad2, slowjs v0.28.6, Go 1.27.2, built by `tifa build` as it ships: PGO with the profile tifa ships, and slowjs's interpreter in Go assembly ([`build.goasm`](build.md#the-javascript-interpreter)).
+- **Build**: tifa c729ad2, slowjs v0.28.6, Go 1.27.2, built by `tifa build` as it ships: PGO with the profile tifa ships. slowjs v0.28.6 translated QuickJS from C to Go, with the interpreter loop in Go assembly on linux/amd64.
 - **Apps**: the production build of [examples/shop](../examples/shop), React 19.3 and TanStack Router, with Tailwind CSS and shadcn/ui. The workbench is six pages: the order list, an order and the stats of each of two shops. The storefront is 14 pages, seven in each of two languages, translated with i18next. Some tables also render the MUI test app (`test/apps/mui`) and the pages without `Intl` of `test/apps/bench`.
 - **One render**: one warm VM on one thread of a core whose other thread is idle, as `BenchmarkShop` in `test/ssr` renders. 256 renders to warm up, then 500 (workbench), 300 (storefront) or 200 (MUI) timed, five rounds, the median of the per-round P50.
 - **Node**: Node 24.13.0 runs the same `ssr.js` with the same inputs on another idle core, 600 renders to warm up, then five rounds of 200. The HTML is the same as tifa's.
@@ -76,19 +78,21 @@ P50 of one render in ms, lower is faster. The workbench rows are one of its two 
 | Storefront: journal | 26 KB | 4.73 | 5.11 | 2.30 | 0.66 |
 | Storefront: journal post, English | 50 KB | 79.8 | 61.5 | 34.9 | 10.9 |
 | Storefront: journal post, Chinese | 49 KB | 60.9 | 47.3 | 26.7 | 9.86 |
-| MUI: home | | 42.6 | 130 | 31.7 | 8.30 |
-| MUI: order | | 40.0 | 56.2 | 30.5 | 7.97 |
-| MUI: orders | | 91.9 | 255 | 69.8 | 17.4 |
+| MUI: home | | 36.8 | 130 | 31.7 | 8.30 |
+| MUI: order | | 35.1 | 56.2 | 30.5 | 7.97 |
+| MUI: orders | | 80.0 | 255 | 69.8 | 17.4 |
 
 tifa's time divided by the others', the geometric mean over the pages (below 1, tifa is faster):
 
 | Pages | Against C QuickJS | Against Node `--jitless` | Against Node with JIT |
 | --- | --- | --- | --- |
 | The shop, 20 pages | 0.94 | 2.04 | 6.58 |
-| MUI, 3 pages | 0.43 | 1.32 | 5.12 |
+| MUI, 3 pages | 0.38 | 1.15 | 4.5 |
 | `test/apps/bench`, 2 pages without `Intl` | 1.15 | not measured | not measured |
 
-- **Against C**: on the same JavaScript, polyfill included, slowjs takes 1.17 to 1.26 times as long as C on the bench and shop pages. tifa is still ahead on most pages because its `Intl` is written in Go while C runs the FormatJS polyfill, and on the MUI pages because tifa hashes emotion's styles in Go. The journal posts are behind C: most of their time is the syntax highlighter's regular expressions. The C column and its ratios come from slowjs's comparison tool, whose tifa times are within 5% of the tifa column.
+The MUI rows were measured again with the C engine (slowjs 0cc6d332, 2026-10-29, one VM on one core of the same kind of machine, 3 rounds at 8 code positions); their C QuickJS and Node columns are from 2026-10-24. Every other tifa figure here is the engine before the C engine, which renders the same pages in 0.83 to 0.86 of that time, and the shop pages of this table no longer exist in the redesigned shop, so they are not measured again.
+
+- **Against C**: on the same JavaScript, polyfill included, the engine before the C engine took 1.17 to 1.26 times as long as C on the bench and shop pages. tifa is still ahead on most pages because its `Intl` is written in Go while C runs the FormatJS polyfill, and on the MUI pages because tifa hashes emotion's styles in Go. The journal posts are behind C: most of their time is the syntax highlighter's regular expressions. The C column and its ratios come from slowjs's comparison tool, whose tifa times are within 5% of the tifa column.
 - **Against Node**: the gap is the JIT. Without it, Node is about 2 times as fast on the shop and 1.3 times on MUI.
 - **P99**: tifa's P99 stays within 11% of its P50 on every workbench page, since the pool collects garbage between renders, after the answer has gone out (see [Memory](#memory)). Node's P99 on the same pages is 5.3 to 20.5 ms with JIT and 9.2 to 26.2 ms with `--jitless`.
 - **First render**: the program listens 293 ms after it starts with 1 VM, 342 ms with 2 and 413 ms with 4, and answers its first page 44 to 46 ms later, at its steady speed. A fresh Node process takes 55 ms for its first order page.
@@ -183,7 +187,7 @@ The six workbench pages, unique URLs so that each request renders, the default 2
 
 ### Memory
 
-Peak RSS (the high-water mark the kernel reports) of the whole program, rendering the six workbench pages, with as many VMs and requests in flight as the top row says, on 3 CPUs:
+Peak RSS (the high-water mark the kernel reports) of the whole program, rendering the six workbench pages, with as many VMs and requests in flight as the top row says, on 3 CPUs. Measured on 2026-10-24 with slowjs v0.28.6, before the C engine. A VM of the C engine takes 12.8 MiB of the process for the shop after rendering and 7.4 to 7.6 MiB for MUI (the table below), inside the 12 to 16 MiB per VM that the sizing here assumes:
 
 | VMs and requests in flight | 1 | 2 | 4 | 8 |
 | --- | --- | --- | --- | --- |
@@ -195,23 +199,16 @@ The storefront, one VM per physical core, gzip: 66 MiB with 1 VM, 88 to 89 MiB w
 
 So plan on about 45 MiB plus 12 MiB per VM, and for each request being compressed at the same time about 2 MiB more with gzip and 4 MiB with zstd. Browsers from Chrome 123 ask for zstd, so plan on about 16 MiB per VM. The storefront, whose pages are larger, takes about 21 MiB per VM.
 
-What one VM holds by the engine's count (slowjs's `MemorySize`), one VM rendering every page in turn 300 times as the pool does:
+What one VM of the shop holds by the engine's count (slowjs's `MemorySize`, which `ssr.vm_memory` limits), rendering every page in turn 300 times as the pool does: 8.47 MB after loading and 9.09 MB after the renders. The bytecode of the bundle, 4.52 MB, is shared by all VMs. The engine counts what its own allocator holds, 13% to 15% less than the engine before it counted for the same heap, so the same `ssr.vm_memory` leaves that much more room. It takes its memory from the system in chunks, so the VM takes more than it counts: 10.7 MB in 18 chunks after loading and 13.4 MB in 19 chunks after the renders. A full collection after the renders frees nothing more: the young collection after each render already freed what could be freed. The rest of a VM's share of RSS is Go memory and the engine's own stack, 32 MiB of address space for each VM of which the pages touched by rendering the shop's pages are about 1 MiB.
 
-| App | Bytecode, shared by all VMs | After loading | After 300 renders | Of that, in use |
+**Idle VMs give their free memory back.** A render needs memory beyond what the VM keeps, and leaves it behind as free pages: 2.6 MiB for the shop and 1.4 MiB for MUI, plus the part of the engine's stack the render touched, 0.8 and 1.0 MiB. A VM that has not rendered for a second (`idleRelease` in `internal/ssr/pool.go`) gives those pages back to the system, and so does the full collection between renders. What one VM takes of the process, as (RSS with 8 VMs minus RSS with 1 VM) / 7 after loading, after the pool rendered every page 32 times, then again after it waited 1.5 seconds with the VMs idle (`TestShopVMResident`, three runs each for the shop, two for MUI, AMD EPYC 7B13, slowjs v0.29 as of 0cc6d332):
+
+| App | After loading | After rendering | After waiting idle | Less |
 | --- | --- | --- | --- | --- |
-| The shop, 20 pages | 4.06 MB | 9.13 MB | 12.48 MB | 7.29 MB |
-| MUI, 4 pages | 2.08 MB | 4.25 MB | 5.39 MB | 2.99 MB |
+| The shop | 8.5 to 8.6 MiB | 12.8 MiB | 9.6 MiB | 3.2 MiB (25%) |
+| MUI | 3.9 MiB | 7.4 to 7.6 MiB | 5.3 to 5.5 MiB | 2.1 MiB (28%) |
 
-A full collection after the 300 renders frees nothing more: the young collection after each render already freed what could be freed. The rest of a VM's share of RSS is Go memory, and on Linux libc's TLS stack, where the Go translation of the engine keeps C locals.
-
-**Idle VMs give their free memory back.** This is for slowjs's C engine, which maps the memory of each VM itself. A render needs memory beyond what the VM keeps, and leaves it behind as free pages: 2.6 MiB for the shop and 1.4 MiB for MUI, plus the part of the engine's stack the render touched, 0.8 and 1.0 MiB. A VM that has not rendered for a second (`idleRelease` in `internal/ssr/pool.go`) gives those pages back to the system, and so does the full collection between renders. What one VM takes of the process, as (RSS with 8 VMs minus RSS with 1 VM) / 7 after the pool rendered every page 32 times, then again after it waited 1.5 seconds with the VMs idle (`TestShopVMResident`, three runs each, AMD EPYC 7B13):
-
-| App | After rendering | After waiting idle | Less |
-| --- | --- | --- | --- |
-| The shop | 12.6 to 13.0 MiB | 9.6 MiB | 3.2 MiB (25%) |
-| MUI | 7.5 to 7.7 MiB | 5.6 MiB | 2.1 MiB (27%) |
-
-The first render after the wait takes the pages again, 1 to 2.5 ms more (3% to 9%) on the shop's pages and 1.2 to 2.5 ms (2.5% to 6.6%) on MUI's, where a build without the release takes up to 1.3 ms more after the same pause. A VM that renders at least once a second keeps its memory, since giving it back would cost each render that refill, about 0.9 ms for each MiB: under steady load the figures above stand, and so does the sizing of 12 to 16 MiB per VM. Render times are the same with and without the release, within 0.5% on each page with 1 VM and within 0.4% with 2 VMs (3 rounds at 8 code positions, so the ratio is not a layout accident). The engine on Go takes its memory from libc and gives none back.
+The first render after the wait takes the pages again, 1 to 2.5 ms more (3% to 9%) on the shop's pages and 1.2 to 2.5 ms (2.5% to 6.6%) on MUI's, where a version without the release took up to 1.3 ms more after the same pause. A VM that renders at least once a second keeps its memory, since giving it back would cost each render that refill, about 0.9 ms for each MiB: under steady load the figures above stand, and so does the sizing of 12 to 16 MiB per VM. Render times are the same with and without the release, within 0.5% on each page with 1 VM and within 0.4% with 2 VMs (3 rounds at 8 code positions, so the ratio is not a layout accident).
 
 - The pool loads the bundle with slowjs's `SharedBytecode`, so the bytecode, the source text of the bundle's functions, which their `toString` returns, and the tables that give error stacks their line numbers are kept once for the process, outside every VM and its `ssr.vm_memory`.
 - Each VM keeps the shapes of the last 2048 plain objects after the objects are gone (a shape records which keys an object has, in which order), and a list per size of freed small blocks, which a garbage collection hands back. Between collections the lists hold up to 1.6 MiB of blocks. The engine's collection threshold counts them, and an allocation that hits the memory limit hands the cached blocks back and tries again.
@@ -221,63 +218,60 @@ When the garbage is collected: QuickJS collects when it makes an object past a t
 
 The pool replaces a VM in the background when its live size after a collection crosses a growth bound. The baseline is its live size right after loading and the warm-up collection. The bound is twice that baseline, lowered to 75% of `ssr.vm_memory` when that is smaller, but never below 175% of the baseline, so a bundle that starts near the memory limit does not cause repeated reloads without recovering space. These sizes use the engine's `MemorySize`, not process RSS. With a limit below 1.75 times the loaded size, the floor can exceed the limit, and replacement cannot make that bundle fit.
 
-- The pool loads one spare in the background, leaving the old VM available for renders. It starts a load only with an eligible idle VM and no requests in the render queue. Once loaded, it swaps with an eligible idle VM only while the queue is empty, then closes the removed VM. Only one such replacement runs at a time across the pool. Budget for one extra VM while it loads and until an idle slot permits the exchange, including that VM's Go and TLS memory. Sustained load can postpone replacement. A single render can still exceed the memory limit before the next collection between renders.
+- The pool loads one spare in the background, leaving the old VM available for renders. It starts a load only with an eligible idle VM and no requests in the render queue. Once loaded, it swaps with an eligible idle VM only while the queue is empty, then closes the removed VM. Only one such replacement runs at a time across the pool. Budget for one extra VM while it loads and until an idle slot permits the exchange, including that VM's Go memory and engine stack. Sustained load can postpone replacement. A single render can still exceed the memory limit before the next collection between renders.
 - A failed load keeps the old VM serving and retries after 1 second, doubling up to 30 seconds, with one warning until recovery. Each successful swap logs the baseline, old live size, bound and new live size, and increments the pool's replacement counter. Shutdown waits for loading and closes any unused spare. Module state in a replaced VM is lost, as after a failed render. Persistent application state belongs in Go.
 - A VM left in an unknown state by an exception, timeout, memory failure or panic still leaves service at once, and the pool runs one VM short until its replacement has loaded. Replacement in the background only handles VMs whose renders have succeeded.
 
-`ssr.vm_memory` (128 MiB per VM by default) is far above this. Two cases need room on top, both described in [Stack depth](config.md#stack-depth), which says how to lower them on a small machine:
-
-- Code that recurses without end can add up to about 24 MB of goroutine stack per VM for a moment.
-- On Linux, a VM that once recursed 10000 levels deep keeps about 20 MB more of TLS blocks until the VM closes.
+`ssr.vm_memory` (128 MiB per VM by default) is far above this. One case needs room on top, described in [Stack depth](config.md#stack-depth), which says how to lower it on a small machine: code that recurses without end can add up to about 26 MB per VM for a moment.
 
 ## Extreme pages
 
-How large can a page get before rendering fails, and does it fail cleanly? [Extreme pages](testing.md#extreme-pages-testappsextreme) in the testing doc describes the app and its scenarios. Measured on 2026-10-28 with the default settings (128 MiB per VM, 3 seconds per render), without PGO:
+How large can a page get before rendering fails, and does it fail cleanly? [Extreme pages](testing.md#extreme-pages-testappsextreme) in the testing doc describes the app and its scenarios. Measured on 2026-10-29 with the default settings (128 MiB per VM, 3 seconds per render), without PGO, on slowjs 0cc6d332, the C engine:
 
-- **M4**: an Apple M4, slowjs v0.28.6, the engine tifa ships, which runs on Go.
-- **EPYC**: one thread of the AMD EPYC 7B13 described above, the other thread of its core idle, with the same engine, and with slowjs's C engine (slowjs main at 0c8c338, generated with `-release`, built with `-tags slowjs_cengine`). The C engine runs only on linux/amd64.
+- **M4**: an Apple M4 (darwin/arm64).
+- **EPYC**: one thread of the AMD EPYC 7B13 described above, the other thread of its core idle (linux/amd64).
 
-Each cell gives the P50 of 5 warm renders and the VM's memory right after a render, or how the render failed and what it takes with 1 GiB and 60 seconds instead. The engines collect garbage at different times, so compare memory only within one engine.
+Each cell gives the P50 of 5 warm renders and the VM's memory right after a render, or how the render failed and what it takes with 1 GiB and 60 seconds instead.
 
-| Page | M4 | EPYC | EPYC, C engine |
-| --- | --- | --- | --- |
-| `/dom/10000` | 41 ms, 9.5 MiB | 71 ms, 9.6 MiB | 60 ms, 7.5 MiB |
-| `/dom/50000` | 208 ms, 18.5 MiB | 362 ms, 18.5 MiB | 318 ms, 14.0 MiB |
-| `/dom/100000` | 419 ms, 30.0 MiB | 739 ms, 30.0 MiB | 638 ms, 22.2 MiB |
-| `/nest/500` | 1.3 ms, 6.9 MiB | 2.4 ms, 6.9 MiB | 2.0 ms, 5.8 MiB |
-| `/nest/1000` | 2.5 ms, 6.9 MiB | 3.6 ms, 6.9 MiB | 3.1 ms, 5.8 MiB |
-| `/nest/5000` | 14 ms, 7.6 MiB | 15 ms, 7.7 MiB | 18 ms, 6.6 MiB |
-| `/nest/10000` | 27 ms, 9.8 MiB | 31 ms, 9.8 MiB | 33 ms, 8.7 MiB |
-| `/deep/400` | 1.8 ms, 6.9 MiB | 3.2 ms, 6.9 MiB | 2.7 ms, 5.8 MiB |
-| `/deep/600` | 2.4 ms, 6.9 MiB | 4.3 ms, 6.9 MiB | 3.5 ms, 5.8 MiB |
-| `/inject/1` | 13 ms, 12.1 MiB | 26 ms, 12.1 MiB | 22 ms, 10.0 MiB |
-| `/inject/5` | 69 ms, 31.4 MiB | 138 ms, 31.4 MiB | 121 ms, 27.3 MiB |
-| `/inject/20` | out of memory after 0.14 s (0.25 s, 105 MiB) | out of memory after 0.32 s (0.52 s, 105 MiB) | out of memory after 0.39 s (0.53 s, 92 MiB) |
-| `/json/1999` | 2.2 ms, 7.4 MiB | 4.4 ms, 7.4 MiB | 3.6 ms, 6.2 MiB |
-| `/json/2001` | 2.2 ms, 7.4 MiB | 4.4 ms, 7.4 MiB | `RangeError: Maximum call stack size exceeded` after 2 ms |
-| `/table/1000` | 253 ms, 36.3 MiB | 545 ms, 36.3 MiB | 486 ms, 34.0 MiB |
-| `/table/5000` | out of memory after 0.93 s (1.4 s, 152 MiB) | out of memory after 1.9 s (3.0 s, 152 MiB) | out of memory after 1.8 s (2.6 s, 147 MiB) |
-| `/table/10000` | out of memory after 0.83 s (2.8 s, 296 MiB) | out of memory after 1.6 s (6.0 s, 297 MiB) | out of memory after 1.4 s (5.3 s, 288 MiB) |
-| `/providers/200` | 1.2 ms, 7.0 MiB | 2.2 ms, 7.0 MiB | 1.9 ms, 5.9 MiB |
-| `/providers/500` | 2.1 ms, 7.3 MiB | 3.7 ms, 7.3 MiB | 3.0 ms, 6.2 MiB |
-| `/providers/1000` | 4.2 ms, 7.8 MiB | 6.4 ms, 7.8 MiB | 5.3 ms, 6.7 MiB |
-| `/charts/12` | 269 ms, 17.0 MiB | 456 ms, 17.0 MiB | 372 ms, 12.5 MiB |
-| `/markdown/200` | 1,848 ms, 92.4 MiB | timed out (3.1 s, 92.5 MiB) | 2,321 ms, 10.2 MiB |
-| `/markdown/1000` | out of memory after 2.2 s (16 s, 407 MiB) | timed out (27 s, 408 MiB) | out of memory after 1.9 s (12.6 s, 16 MiB) |
-| `/markdown/2000` | out of memory after 2.5 s (52 s, 809 MiB) | timed out (over 60 s) | out of memory after 2.0 s (26.5 s, 789 MiB) |
-| `/i18n/3000` | 229 ms, 17.2 MiB | 491 ms, 17.2 MiB | 412 ms, 15.8 MiB |
-| `/mall/zh-CN` | 151 ms, 16.5 MiB | 305 ms, 16.6 MiB | 261 ms, 14.4 MiB |
-| `/mall/en-US` | 152 ms, 16.3 MiB | 301 ms, 16.3 MiB | 262 ms, 13.8 MiB |
-| `/console/100` | 1,788 ms, 31.3 MiB | timed out (3.4 s, 22.6 MiB) | 2,694 ms, 19.7 MiB |
+| Page | M4 | EPYC |
+| --- | --- | --- |
+| `/dom/10000` | 26 ms, 7.5 MiB | 59 ms, 7.5 MiB |
+| `/dom/50000` | 139 ms, 14.0 MiB | 305 ms, 14.0 MiB |
+| `/dom/100000` | 281 ms, 22.2 MiB | 615 ms, 22.2 MiB |
+| `/nest/500` | 0.9 ms, 5.8 MiB | 1.9 ms, 5.8 MiB |
+| `/nest/1000` | 1.3 ms, 5.8 MiB | 2.9 ms, 5.8 MiB |
+| `/nest/5000` | 6.1 ms, 6.6 MiB | 15 ms, 6.6 MiB |
+| `/nest/10000` | 12 ms, 8.7 MiB | 29 ms, 8.7 MiB |
+| `/deep/400` | 1.2 ms, 5.8 MiB | 2.6 ms, 5.8 MiB |
+| `/deep/600` | 1.6 ms, 5.8 MiB | 3.4 ms, 5.8 MiB |
+| `/inject/1` | 11 ms, 10.0 MiB | 21 ms, 10.0 MiB |
+| `/inject/5` | 64 ms, 27.3 MiB | 141 ms, 27.3 MiB |
+| `/inject/20` | out of memory after 0.18 s (0.27 s, 92.2 MiB) | out of memory after 0.38 s (0.52 s, 92.2 MiB) |
+| `/json/1999` | 1.7 ms, 6.2 MiB | 3.5 ms, 6.2 MiB |
+| `/json/2001` | `RangeError: JSON nesting too deep` after 1 ms | `RangeError: JSON nesting too deep` after 2 ms |
+| `/table/1000` | 205 ms, 34.0 MiB | 485 ms, 34.0 MiB |
+| `/table/5000` | out of memory after 0.71 s (1.1 s, 146.9 MiB) | out of memory after 1.7 s (2.5 s, 146.9 MiB) |
+| `/table/10000` | out of memory after 0.66 s (2.2 s, 288.2 MiB) | out of memory after 1.4 s (5.2 s, 288.2 MiB) |
+| `/providers/200` | 3.3 ms, 5.9 MiB | 1.8 ms, 5.9 MiB |
+| `/providers/500` | 1.3 ms, 6.2 MiB | 2.9 ms, 6.2 MiB |
+| `/providers/1000` | 2.5 ms, 6.7 MiB | 5.0 ms, 6.7 MiB |
+| `/charts/12` | 197 ms, 12.6 MiB | 377 ms, 12.6 MiB |
+| `/markdown/200` | 1,026 ms, 10.2 MiB | 2,321 ms, 10.2 MiB |
+| `/markdown/1000` | out of memory after 0.87 s (5.3 s, 16.2 MiB) | out of memory after 2.0 s (13 s, 16.2 MiB) |
+| `/markdown/2000` | out of memory after 0.84 s (10 s, 789.0 MiB) | out of memory after 2.0 s (25 s, 789.0 MiB) |
+| `/i18n/3000` | 180 ms, 15.8 MiB | 412 ms, 15.8 MiB |
+| `/mall/zh-CN` | 115 ms, 14.4 MiB | 260 ms, 14.4 MiB |
+| `/mall/en-US` | 117 ms, 13.8 MiB | 259 ms, 13.8 MiB |
+| `/console/100` | 1,257 ms, 31.6 MiB | 2,781 ms, 31.6 MiB |
 
-- **Every failure is clean.** On both engines no size made the program exit or hang. Each failure was a 500 within the time budget, the VM was replaced, and the next page rendered. With 2 VMs the program held at most 363 to 416 MiB over all the sizes.
-- **Memory runs out first** for large data and long lists: 20 MB of injected data, a table of 5,000 rows, a long Markdown document. **Time runs out first** for long Markdown and for the admin day, which has 300 replies in Markdown.
-- **The Markdown rows of the C engine column are after a fix of micromark.** micromark 4.0.3, the parser under react-markdown, copies every event of the document on each edit it applies, so its time grows with the square of the document's size ([micromark#246](https://github.com/micromark/micromark/issues/246), open). Lists set it off, and highlighting takes only about 2% of the page. The apps of this repository patch it (`patches/micromark-util-edit-map@1.0.0.patch`, the change proposed in that issue). The three rows of the C engine were measured again with the patch, on slowjs main at 9df4560f: 200 KB takes 2.3 s, 1 MB 12.6 s and 2 MB 26.5 s, about 11 to 12 ms per KB (a straight line through the sizes from 50 KB to 2 MB stays within 12% of every point, and the square term is under 5% of the time at 2 MB). Without the patch the same rows took 2.7 s, 22 s and over 60 s, on slowjs main at 0c8c338. The cells of the M4 and the Go engine are from before the patch and were not measured again. An app that renders long Markdown with react-markdown needs the same patch, or micromark 4.0.2, until micromark releases a fix.
+- **Every failure is clean.** No size made the program exit or hang. Each failure was a 500 within the time budget, the VM was replaced, and the next page rendered. `TestExtremeApp` also keeps the program under 1 GiB over all the sizes.
+- **Memory runs out first** for large data and long lists: 20 MB of injected data, a table of 5,000 rows, a long Markdown document. **Time runs out first** for long Markdown and for the admin day, which has 300 replies in Markdown: `/markdown/200` and `/console/100` take 1.0 to 1.3 s on the M4 and 2.3 to 2.8 s on the EPYC, close to the 3 seconds of `ssr.timeout`.
+- **The Markdown rows are after a fix of micromark.** micromark 4.0.3, the parser under react-markdown, copies every event of the document on each edit it applies, so its time grows with the square of the document's size ([micromark#246](https://github.com/micromark/micromark/issues/246), open). Lists set it off, and highlighting takes only about 2% of the page. The apps of this repository patch it (`patches/micromark-util-edit-map@1.0.0.patch`, the change proposed in that issue), and the rows are with the patch: on the EPYC, 200 KB takes 2.3 s, 1 MB 13 s and 2 MB 25 s to render with 1 GiB and 60 seconds, about 11 to 13 ms per KB. Without the patch the same rows took 2.7 s, 22 s and over 60 s, measured on slowjs main at 0c8c338. An app that renders long Markdown with react-markdown needs the same patch, or micromark 4.0.2, until micromark releases a fix.
 - **Long Markdown holds about 0.45 MiB per KB at its peak**, above what a loaded VM holds: 45 MiB at 100 KB, 171 MiB at 400 KB and 447 MiB at 1 MB. The default 128 MiB fits up to about 270 KB. The memory in the cells is read after the render, and a GC just before the end can make it low (16 MiB for `/markdown/1000`, whose peak is 452 MiB in the VM). Most of this is the libraries: the parser keeps every token of the document alive until it has read all of it, and Node needs a similar amount for the same libraries (its heap peaks at 0.3 to 0.5 MiB per KB, 138 MiB at 400 KB and 281 MiB at 1 MB). The engine's peak is the same as Node's up to 200 KB and 1.3 to 1.6 times it from 400 KB to 1 MB. What the parser keeps alive takes 2.2 to 2.6 times the memory it takes in V8 (an object is 64 bytes with its properties in another block), while Node leaves more garbage waiting for a GC.
-- **The C engine** takes 11% to 21% less time than the engine on Go on the larger pages, and slightly more on 5,000 and 10,000 levels of components. It parses JSON at most 2,000 levels deep, so `/json/2001` fails there.
-- **Deep calls** cost Go stack, not VM memory. During a render the goroutine stack grows by 1 to 4 MiB for 500 to 1,000 levels of components or providers and for 400 to 600 nested `div`s, and by 8 MiB on the EPYC and 16 MiB on the M4 for 5,000 and 10,000 levels of components. Pages that are wide rather than deep grow it by at most 512 KiB.
-- **Injected data**: on the M4, the render of the page with 5 MB of data took 69 ms, 37 ms of which went to parsing the data in the VM. Before the render, Go took 21 ms to load the data and write it as JSON, and 2 ms to escape it.
-- **A stopped VM slows no one else**: on the M4, with 4 VMs, the P99 of `/table/25` on three of them was 9 ms alone, 19 to 21 ms while the fourth rendered `/markdown/200`, and 17 to 18 ms while the fourth was stopped and replaced every second. The heavy page itself slows the others (the M4 has 4 performance cores), but stopping and replacing VMs adds nothing to that.
+- **JSON nests 2,000 levels at most**, so `/json/2001` fails with `RangeError: JSON nesting too deep` after 1 to 2 ms, where the engine before the C engine parsed it.
+- **Deep calls cost goroutine stack**, not VM memory. During a render the goroutine stack grows by 1 to 4 MiB for 500 to 1,000 levels of components or providers and for 400 to 600 nested `div`s, and by 8 MiB for 5,000 and 10,000 levels of components, on both machines. Pages that are wide rather than deep grow it by at most 512 KiB.
+- **Injected data**: on the M4, the render of the page with 5 MB of data took 64 ms, 32 ms of which went to parsing the data in the VM. Before the render, Go took 21 ms to load the data and write it as JSON, and 2 ms to escape it.
+- **A stopped VM slows others by a few milliseconds**: on the M4, with 4 VMs, the P99 of `/table/25` on three of them was 5 to 6 ms alone, 5 to 6 ms while the fourth rendered `/markdown/200`, and 9 to 10 ms while the fourth was stopped and replaced 7 times in ten seconds (`TestExtremeIsolation`, three runs). The test lets a stop add 5 ms.
 
 ## Compression
 
@@ -315,7 +309,7 @@ All changes leave the HTML the same byte for byte. Effects are the time a render
 
 ### Engine
 
-The fork [github.com/liustack/slowjs](https://github.com/liustack/slowjs#slowjs) lists each change in its README, with the details and tests. The changes for speed:
+The fork [github.com/liustack/slowjs](https://github.com/liustack/slowjs#slowjs) lists each change in its README, with the details and tests. The changes for speed. Every row up to v0.28.6 is a change of the engine that translated QuickJS from C to Go, which slowjs v0.29 replaced with the C engine in the last row. They stay as the record of how the numbers in this doc came to be, and of what has been tried:
 
 | Change | Release | Effect |
 | --- | --- | --- |
@@ -339,7 +333,8 @@ The fork [github.com/liustack/slowjs](https://github.com/liustack/slowjs#slowjs)
 | Compiling a regexp, and the built-ins that parse source or build a string, such as `JSON.parse`, `join` or `repeat`, count toward the interrupt check, so the render timeout stops a loop of them within a few milliseconds | v0.27.2 | A fix, not a speedup. On the shop 0.993 of the time without PGO (0.978 to 1.002 over 6 rounds in 3 code layouts), on the MUI pages 0.997 (0.989 to 1.007). Measured in the slowjs repository |
 | A full GC frees the WeakMap entries whose keys are unreachable in one collection, also when a value points back to its key | v0.27.2 | A fix, not a speedup. Render time does not change. Without PGO, a full GC after each render takes 0.989 of the time on the shop and 1.046 on the MUI pages. Large weak maps collect slower: 2.9 times as long for a chain of 100,000 live entries. Measured in the slowjs repository |
 | The Go functions tifa gives the engine (Builtins), such as emotion's hash, read and return strings converted in Go, straight from and into the engine's characters | v0.27.2 | On the shop 1.004 of the time without PGO (0.997 to 1.018 over 6 rounds in 3 code layouts), since its Builtins take few strings. A Builtin that reads a 16-character string and returns a new one takes 134 ns rather than 230. Measured in the slowjs repository |
-| On linux/amd64 the interpreter is compiled by LLVM from QuickJS's C and shipped as Go assembly, in place of the Go that ccgo writes from the same C. Off with [`build.goasm: false`](build.md#the-javascript-interpreter) | v0.28.5 behind a build tag, the default from v0.28.6 | Without PGO, the shop's pages in 0.940 of the time and the MUI pages in 0.850, with the same HTML, measured in the slowjs repository. In slowjs's comparison on the bundles tifa c729ad2 builds, as tifa runs them: 0.93 of the time on the shop (0.89 to 0.95 by page), 0.93 on the MUI pages and 0.84 on the bench pages |
+| On linux/amd64 the interpreter is compiled by LLVM from QuickJS's C and shipped as Go assembly, in place of the Go that ccgo writes from the same C. This was the interpreter loop only, and the engine around it stayed Go | v0.28.5 behind a build tag, the default from v0.28.6 | Without PGO, the shop's pages in 0.940 of the time and the MUI pages in 0.850, with the same HTML, measured in the slowjs repository. In slowjs's comparison on the bundles tifa c729ad2 builds, as tifa runs them: 0.93 of the time on the shop (0.89 to 0.95 by page), 0.93 on the MUI pages and 0.84 on the bench pages |
+| The whole engine is QuickJS in C, compiled by LLVM to Go assembly, in place of the Go that ccgo wrote from it. It runs on linux/amd64 and darwin/arm64 | v0.29 | Without PGO, against v0.28.7 with the profile tifa shipped then, on the AMD EPYC 7B13, one VM on one core, 8 code positions each, 4 rounds in turn: the six workbench pages of the shop in 0.834 to 0.843 of the time, the three pages of the MUI test app in 0.853 to 0.860 and the two of `test/apps/bench` in 0.844 to 0.849, every position faster. The HTML is the same byte for byte over 160 pages of the shop, 33 of the pages app, 60 of MUI and 30 of the extreme app, except the page of 2001 levels of JSON, which now fails. The Go garbage collector stops the program for as long as before while VMs render: a P99 of 131 to 164 µs with 1 VM and 197 µs with 3 |
 
 v0.26.13 as a whole renders in 0.823 of the time of v0.26.12, between 0.821 and 0.825 over 8 rounds. v0.26.15 with a profile collected again renders in 0.859 of the time of v0.26.14 with its profile, between 0.857 and 0.861 over 6 rounds, and in 0.843 without PGO, between 0.842 and 0.846. The HTML is the same byte for byte. Whole requests with 6 VMs on 3 physical cores, the six pages in turn and 6 in flight, both sent as gzip, went up 1.17 times: with PGO, 177.4 requests a second (176.3 to 182.3) against 151.9 (150.5 to 155.8), at a P50 of 21.3 to 21.9 ms against 25.7 to 25.9 ms and a P99 of 72.3 to 74.8 ms against 84.7 to 87.1 ms. Without PGO, 172.2 (171.7 to 174.1) against 147.3 (147.1 to 150.0). On the Apple M4, both without PGO, one VM renders 108 pages a second against 84 to 86, and 10 VMs 532 to 549 against 288 to 305, 1.80 to 1.88 times as many. With 2 VMs on 2 physical cores of the machine above, the speedup over one VM stays at 1.96 to 2.03 and the lock wait under 0.01% in both versions, so on Linux several VMs gain as much as one.
 
@@ -353,7 +348,7 @@ v0.27.2 as a whole, against v0.27.1 under the same tifa and the same SSR bundles
 
 ### Build
 
-[docs/build.md](build.md#frontend-output) describes each rewrite the Vite plugin makes to the SSR bundle, and [Profile-guided optimization](build.md#profile-guided-optimization) the profile:
+[docs/build.md](build.md#frontend-output) describes each rewrite the Vite plugin makes to the SSR bundle:
 
 | Change | Effect |
 | --- | --- |
@@ -374,7 +369,7 @@ v0.27.2 as a whole, against v0.27.1 under the same tifa and the same SSR bundles
 | Keep what lucide-react built for an icon with the same props, in each VM | The six workbench pages of the shop take 0.957 of the time (0.948 to 0.967), its ten storefront pages 0.942 (0.925 to 0.948), and its two product pages, with the most icons, 0.905. Same HTML. A VM of the shop holds 45 to 90 KB more after rendering its pages |
 | Let i18next copy its options only for a key that is a function, and keep the regexp that tells keys with a namespace from sentences | The ten storefront pages of the shop take 0.948 of the time (0.939 to 0.955), each page 0.924 to 0.994. The workbench pages, which do not translate, 1.001 (0.991 to 1.005). Same HTML |
 | Keep the strings i18next translates, on unless `build.i18next_cache: false` ([i18next cache](build.md#i18next-cache)) | The ten storefront pages of the shop take 0.798 of the time (0.786 to 0.804), each page 0.739 to 0.964. Written the other ways apps use i18next, the same pages take 0.803 to 0.998, the most with `cloneInstance` on each request. The workbench pages, which do not translate, 0.997 (0.990 to 1.004). Same HTML. After the storefront pages a VM holds 127 KB more |
-| Compile the program with a profile of page renders (PGO) | About 3% less on linux/amd64 with slowjs v0.28.6 and its Go assembly interpreter: the workbench, storefront and MUI pages take 0.97 to 0.98 of the time (0.96 to 0.98 over 5 rounds, each page 0.95 to 0.98). 2.4% less with quickjs v0.26.15, and 7% less on darwin/arm64 (Apple M4) with v0.26.13 |
+| Compile the program with a profile of page renders (PGO) | About 3% less on linux/amd64 with slowjs v0.28.6 and its Go assembly interpreter: the workbench, storefront and MUI pages take 0.97 to 0.98 of the time (0.96 to 0.98 over 5 rounds, each page 0.95 to 0.98). 2.4% less with quickjs v0.26.15, and 7% less on darwin/arm64 (Apple M4) with v0.26.13. **None with the C engine of slowjs 0cc6d332**, which is Go assembly that PGO does not change: with a profile collected again, on the AMD EPYC 7B13 with one VM on one core, 8 code positions and 3 rounds in turn, the six workbench pages of the shop take 0.998 of the time with it (0.987 to 1.007 over the positions, each page 0.997 to 1.002), the three MUI pages 0.999 (0.994 to 1.008) and the two bench pages 1.004 (0.986 to 1.010), none of them a change by the rule of [Code positions](https://github.com/liustack/slowjs/blob/main/docs/performance.md#code-positions). Under callgrind a render executes 0.9987 (shop `/projects/weekend/stats`), 0.9995 (MUI `/`) and 1.0003 (bench `/table`) of the instructions with it. On darwin/arm64 (Apple M4), with the profile from linux/amd64, the shop's pages take 1.002 of the time (0.993 to 1.006 by page, 4 rounds in turn, one code position). `tifa build` no longer installs a profile |
 
 The array and the surrogate rows were measured on the machine above with one VM on cpu 0, the build before and after in turn, 3 to 4 rounds. The table is the table page of [eknkc/ssr-benchmark](https://github.com/eknkc/ssr-benchmark) with fixed rows.
 
@@ -424,6 +419,8 @@ Each item says what it would give and why it was dropped. Check here before tryi
 
 ### Engine
 
+These were tried on the engine that translated C to Go, which slowjs v0.29 replaced. They stay so that nobody tries them again on another engine.
+
 - **Removing the TLS frame of 135 more small functions** (a TLS frame is the part of libc's TLS stack where the Go translation keeps a function's C locals whose address is taken): about 0.24% of render time, too small to measure, for 135 more entries to maintain.
 - **Letting more than 768 bytes of a call's room live in its TLS frame**: 1024 bytes covers 0.02% more calls, but doubles the blocks Linux keeps per call depth from 2 KB to 4 KB.
 - **Moving rarely used opcodes out of the interpreter loop**: at most 8% alone on amd64, an upper bound measured by replacing the 56 handlers of opcodes the shop never runs with empty stubs, but only 1.4% on top of the rewrite that keeps 15 values in their stack slots, and 0.5% on arm64. It would need the loop's locals moved into a struct.
@@ -467,7 +464,7 @@ Each item says what it would give and why it was dropped. Check here before tryi
 
 ## Measuring again
 
-[docs/testing.md](testing.md#performance-comparisons) has the commands for the render benchmark and VM memory, [Reading BenchmarkShopParallel](testing.md#reading-benchmarkshopparallel) how to check that several VMs still scale, and [The engine profile](testing.md#the-engine-profile) how to collect the PGO profile again after upgrading slowjs or modernc.org/libc. Rules that keep numbers comparable:
+[docs/testing.md](testing.md#performance-comparisons) has the commands for the render benchmark and VM memory, [Reading BenchmarkShopParallel](testing.md#reading-benchmarkshopparallel) how to check that several VMs still scale. Rules that keep numbers comparable:
 
 - Compare on the same machine, alternating between the old and new build, round after round. Only ratios from the same rounds compare: a busy machine can change absolute times several times over.
 - Pin each run to one core and keep its hyperthread sibling idle. On Linux, `/sys/devices/system/cpu/cpuN/topology/thread_siblings_list` names the sibling. Note the load of the machine during each round, and run again when other work used more than about 10% of the CPU.
@@ -482,10 +479,10 @@ Node: copy the same `.tifa/dist/ssr.js` to `ssr.mjs` and load it with `import()`
 
 The time of one render is nearly all the cost: HTTP, compression and the rest take under 1 ms of the 13.7 ms of CPU a workbench request takes. Anything that makes a render faster raises throughput by as much. In rough order of what it may give:
 
-1. **The Go functions the assembly interpreter calls.** On the same JavaScript slowjs takes 1.17 to 1.26 times as long as C. The interpreter loop is now the C compiled to Go assembly, so the gap left is mostly in the Go functions it calls: property lookup, making and freeing objects, strings. Measure how the gap spreads over them before choosing which to move to assembly.
+1. **The C engine against C QuickJS.** With the engine before it, slowjs took 1.17 to 1.26 times as long as C on the same JavaScript. The C engine runs the C itself, compiled to Go assembly, so what is left is the cost of that compilation and of the calls into Go. Measure it with slowjs's engine comparison, and see where the rest goes, before choosing what to change.
 2. **Regular expressions.** The journal posts render in 1.24 times the time of C, while the other pages of the shop are faster than C: most of their time is the syntax highlighter's regular expressions.
 3. **Making and freeing objects.** React makes an object for every element, hook and component on the stack. The plugin already keeps React from building component stacks no one reads. The rest only the engine can fix.
 4. **Kept shapes with less memory.** Keeping the shapes of object literals saves render time but costs memory in each VM. A change in the C, such as a reference from each child shape to its parent, could give the same speed with less memory. A candidate for upstream.
 5. **The escape cache.** QuickJS hashes `Map` keys without a seed, so many strings with the same hash slow the lookups. The 64 code units counted for each string keep a chain under about 3,700 entries, and a limit on the number of entries would make it shorter.
-6. **Go 1.28 on amd64.** When it ships, measure again. A development build made the rewritten engine slower for a reason not found (see [What was tried and not done](#what-was-tried-and-not-done)).
+6. **New Go versions.** The engine is assembly that depends on how Go lays out stacks and registers. When a Go version ships, run the checks listed in slowjs's `docs/upgrading.md`, and measure again.
 7. **Comparisons not made yet.** Next.js and TanStack Start on more than two cores and with the storefront's pages, and the whole shop on a 1-core VPS with 1 GB of memory.

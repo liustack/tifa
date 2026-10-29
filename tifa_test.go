@@ -28,7 +28,7 @@ func TestExternalAppHandlesSSRBusy(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	cmd := exec.Command("go", "test", "-p", "2", "-pgo=off", "-mod=mod", ".")
+	cmd := exec.Command("go", "test", "-p", "2", "-mod=mod", ".")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	if out, err := cmd.CombinedOutput(); err != nil {

@@ -29,9 +29,8 @@ type Exports func(files []string) (map[string][]string, error)
 
 // Generate returns the generated files of the application at root, by path relative to Dir with
 // forward slashes. dev selects the browser entry of tifa dev, which also loads the reload client
-// of the dev server, and the main of tifa dev, which calls server.DevMain, and leaves out the
-// profile, so tifa dev builds without PGO. exports reads the exports of route.tsx and layout.tsx.
-// It is not called for an application without pages.
+// of the dev server, and the main of tifa dev, which calls server.DevMain. exports reads the
+// exports of route.tsx and layout.tsx. It is not called for an application without pages.
 func Generate(root string, m *analyze.Manifest, dev bool, exports Exports) (map[string][]byte, error) {
 	files := map[string][]byte{}
 	configName, config, err := projectConfig(root)
@@ -60,16 +59,6 @@ func Generate(root string, m *analyze.Manifest, dev bool, exports Exports) (map[
 		return nil, err
 	}
 	maps.Copy(files, tsFiles)
-	if !dev {
-		_, pages := files["client.ts"]
-		pgo, err := profile(root, settings.Build.PGO, pages)
-		if err != nil {
-			return nil, err
-		}
-		if pgo != nil {
-			files[pgoFile] = pgo
-		}
-	}
 	return files, nil
 }
 

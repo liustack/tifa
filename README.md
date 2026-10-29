@@ -98,7 +98,7 @@ pnpm install
 go tool tifa dev     # http://127.0.0.1:9527
 ```
 
-The first `tifa dev` compiles QuickJS and SQLite once, which can take a minute or two. Later builds use Go's build cache.
+The first `tifa dev` compiles QuickJS and SQLite once, which takes about 7 seconds on an Apple M4 (an empty build cache, the whole app). Later builds use Go's build cache.
 
 `tifa new` writes a home page with a Go `Load`, a `POST` the page calls from the browser, and a test of both. The module path is the folder name unless you pass `--module example.com/myapp`.
 

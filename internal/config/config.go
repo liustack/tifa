@@ -35,19 +35,12 @@ type Build struct {
 	// SkipTanStackCheck builds an app whose TanStack Router is not the version tifa is tested
 	// with, see bundle.CheckTanStack.
 	SkipTanStackCheck bool
-	// PGO is the profile go build optimizes the program with: auto, off, or a file relative to
-	// the app root. auto is the app's default.pgo, or else tifa's profile of page renders in an
-	// app with pages.
-	PGO string
 	// DebugInfo keeps the DWARF debug info in the program tifa build makes, for debuggers such
 	// as Delve. Without it the program is built with -ldflags=-w.
 	DebugInfo bool
 	// I18nextCache makes the tifa Vite plugin add a cache of translations to i18next in the SSR
 	// bundle, see docs/build.md. It is on by default.
 	I18nextCache bool
-	// Goasm builds the program with slowjs's interpreter in Go assembly on linux/amd64, its
-	// default. false passes the build tag that makes slowjs use its Go interpreter instead.
-	Goasm bool
 }
 
 type Server struct {
@@ -105,8 +98,8 @@ const LetsEncrypt = "https://acme-v02.api.letsencrypt.org/directory"
 type SSR struct {
 	VMs      int
 	VMMemory int64
-	// VMStackDepth is how deep JavaScript calls may nest in each VM, in the engine's stack slots,
-	// about one per call, from 1 to MaxVMStackDepth.
+	// VMStackDepth is how deep JavaScript calls may nest in each VM, from 1
+	// to MaxVMStackDepth.
 	VMStackDepth int
 	Timeout      time.Duration
 	QueueLimit   int
@@ -117,10 +110,9 @@ type Cache struct {
 	Size int64
 }
 
-// MaxVMStackDepth is the default and the largest ssr.vm_stack_depth: the engine's own default,
-// which internal/ssr checks. Code that recurses without end takes about 1 KB of goroutine
-// stack per level before it throws, and much deeper than this it would pass Go's stack limit,
-// which ends the process.
+// MaxVMStackDepth is the default and the largest ssr.vm_stack_depth: the deepest the engine lets calls
+// nest, which internal/ssr checks. Code that recurses without end takes a few KB of stack
+// per level before it throws, and the engine does not nest calls deeper than this.
 const MaxVMStackDepth = 10000
 
 // DefaultAddr is where a built app and tifa dev listen unless told otherwise.
@@ -129,7 +121,7 @@ const DefaultAddr = "127.0.0.1:9527"
 // Default holds values sized for small machines. ssr.vms follows GOMAXPROCS, which honours container CPU limits, with no cap.
 func Default() Config {
 	return Config{
-		Build:  Build{Target: "es2020", Public: "public", PGO: "auto", I18nextCache: true, Goasm: true},
+		Build:  Build{Target: "es2020", Public: "public", I18nextCache: true},
 		Server: Server{Addr: DefaultAddr, BodyLimit: 1 << 20, ShutdownTimeout: 10 * time.Second, Compress: true, TLSCA: LetsEncrypt, HTTPAddr: ":80"},
 		SSR:    SSR{VMs: runtime.GOMAXPROCS(0), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second, QueueLimit: 32, WaitTimeout: time.Second},
 		Cache:  Cache{Size: 64 << 20},
@@ -155,10 +147,8 @@ func fields(c *Config) []field {
 		{"build.target", "JavaScript target of the browser bundle", stringValue{&c.Build.Target}},
 		{"build.public", "Directory of static files copied as is", stringValue{&c.Build.Public}},
 		{"build.skip_tanstack_check", "Build with a TanStack Router version tifa is not tested with", boolValue{&c.Build.SkipTanStackCheck}},
-		{"build.pgo", "Profile for profile-guided optimization: auto, off or a file", pgoValue{&c.Build.PGO}},
 		{"build.debug_info", "Keep the DWARF debug info in the program, for debuggers such as Delve", boolValue{&c.Build.DebugInfo}},
 		{"build.i18next_cache", "Keep the strings i18next translates in the SSR bundle and give them again for the same call", boolValue{&c.Build.I18nextCache}},
-		{"build.goasm", "Run JavaScript in slowjs's interpreter in Go assembly on linux/amd64, false uses its Go interpreter", boolValue{&c.Build.Goasm}},
 		{"server.addr", "HTTP listen address", stringValue{&c.Server.Addr}},
 		{"server.body_limit", "Request body limit", sizeValue{&c.Server.BodyLimit, 1}},
 		{"server.shutdown_timeout", "Time allowed for in-flight requests, and then for OnShutdown, after a stop signal", durationValue{&c.Server.ShutdownTimeout}},
@@ -174,7 +164,7 @@ func fields(c *Config) []field {
 		{"ssr.vms", "Prewarmed JavaScript VMs, defaults to GOMAXPROCS (the CPU limit in containers)", intValue{p: &c.SSR.VMs, min: 1}},
 		{"ssr.vm_memory", "Memory limit of each VM", sizeValue{&c.SSR.VMMemory, 1}},
 		{"ssr.vm_stack_depth", "How deep JavaScript calls may nest in each VM, at most 10000", intValue{p: &c.SSR.VMStackDepth, min: 1, max: MaxVMStackDepth,
-			why: "a deeper stack lets code that recurses without end grow the goroutine stack past Go's limit, which ends the process"}},
+			why: "the engine does not nest calls deeper"}},
 		{"ssr.timeout", "Render time budget of each request", durationValue{&c.SSR.Timeout}},
 		{"ssr.queue_limit", "Requests allowed to wait for a VM, 0 rejects when all VMs are busy", intValue{p: &c.SSR.QueueLimit, min: 0}},
 		{"ssr.wait_timeout", "Maximum time waiting for a VM before answering 503", durationValue{&c.SSR.WaitTimeout}},
@@ -318,8 +308,6 @@ func accepts(kind, typ string) bool {
 		return typ == "string" || typ == "number" // 1MiB or a plain byte count
 	case "bool":
 		return typ == "bool"
-	case "pgo":
-		return typ == "string" || typ == "bool" || typ == "number" // false or 0 fails with what to write
 	default:
 		return typ == "string"
 	}

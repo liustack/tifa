@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"debug/buildinfo"
 	"debug/elf"
 	"debug/macho"
 	"io"
@@ -85,54 +84,6 @@ func TestBuildChecksReactOfAppsWithPages(t *testing.T) {
 	}
 }
 
-// A -pgo in GOFLAGS wins over .tifa/default.pgo in tifa build, as for any go build. tifa dev
-// passes -pgo=off on the command line, which wins over GOFLAGS, so it never builds with a profile.
-func TestDevBuildsWithoutPGOWhateverGOFLAGSSays(t *testing.T) {
-	profile, err := filepath.Abs(filepath.Join("..", "..", "internal", "codegen", "engine.pgo"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	root := writeGoApp(t, map[string]string{
-		".tifa/main.go":     "package main\n\nfunc main() {}\n",
-		".tifa/default.pgo": "not a profile, go build fails if it reads this\n",
-	})
-	t.Setenv("GOFLAGS", "-pgo="+profile)
-	build, err := buildFlags(t.Context(), root, config.Build{Goasm: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	dev, err := devFlags(t.Context(), root, config.Build{Goasm: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, tc := range []struct {
-		dev  bool
-		want string
-	}{{false, profile}, {true, ""}} {
-		exe := filepath.Join(t.TempDir(), "app")
-		flags := build
-		if tc.dev {
-			flags = dev
-		}
-		if printed, err := goBuild(t.Context(), root, exe, flags, io.Discard, io.Discard); err != nil {
-			t.Fatalf("dev %t: %v\n%s", tc.dev, err, printed)
-		}
-		info, err := buildinfo.ReadFile(exe)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var got string
-		for _, s := range info.Settings {
-			if s.Key == "-pgo" {
-				got = s.Value
-			}
-		}
-		if got != tc.want {
-			t.Errorf("dev %t: built with -pgo=%q, want %q", tc.dev, got, tc.want)
-		}
-	}
-}
-
 // writeGoApp writes files, given by slash-separated paths, into a new app root with a go.mod.
 func writeGoApp(t *testing.T, files map[string]string) string {
 	t.Helper()
@@ -194,21 +145,18 @@ func TestBuildFlagsReadTheGoEnvFile(t *testing.T) {
 	}
 	t.Setenv("GOENV", goenv)
 	t.Setenv("GOFLAGS", "")
-	got, err := buildFlags(t.Context(), t.TempDir(), config.Build{Goasm: true})
+	got, err := buildFlags(t.Context(), t.TempDir(), config.Build{})
 	if want := []string{"-ldflags=-X=main.version=v1 -w"}; err != nil || !slices.Equal(got, want) {
 		t.Errorf("%q, %v, want %q", got, err, want)
 	}
 }
 
-// With build.debug_info and build.goasm on, tifa build passes no flags and does not run go env:
-// it gets there with no go command on PATH. So does tifa dev with build.goasm on.
+// With build.debug_info on, tifa build passes no flags and does not run go env: it gets there with
+// no go command on PATH. tifa dev never runs it.
 func TestBuildFlagsWithDebugInfoRunNoGoEnv(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
-	if got, err := buildFlags(t.Context(), t.TempDir(), config.Build{DebugInfo: true, Goasm: true}); err != nil || got != nil {
+	if got, err := buildFlags(t.Context(), t.TempDir(), config.Build{DebugInfo: true}); err != nil || got != nil {
 		t.Errorf("%q, %v, want none", got, err)
-	}
-	if got, err := devFlags(t.Context(), t.TempDir(), config.Build{Goasm: true}); err != nil || !slices.Equal(got, []string{"-pgo=off"}) {
-		t.Errorf("dev: %q, %v, want -pgo=off", got, err)
 	}
 }
 
@@ -237,12 +185,10 @@ func main() {
 		dev       bool
 		debugInfo bool
 	}{{"build", false, false}, {"build.debug_info", false, true}, {"dev", true, false}} {
-		flags, err := devFlags(t.Context(), root, config.Build{Goasm: true})
-		if err != nil {
-			t.Fatal(err)
-		}
+		var flags []string
 		if !tc.dev {
-			if flags, err = buildFlags(t.Context(), root, config.Build{DebugInfo: tc.debugInfo, Goasm: true}); err != nil {
+			var err error
+			if flags, err = buildFlags(t.Context(), root, config.Build{DebugInfo: tc.debugInfo}); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -300,84 +246,4 @@ func hasDWARF(t *testing.T, path string) bool {
 		}
 	}
 	return false
-}
-
-// With build.goasm off, tifa build and tifa dev pass slowjs's opt-out tag, after the tags of the
-// last -tags in GOFLAGS, which a -tags on the command line would otherwise replace. With it on,
-// they pass no -tags.
-func TestGoasmOffAddsTheOptOutTagToThoseOfGOFLAGS(t *testing.T) {
-	for _, tc := range []struct {
-		goflags string
-		want    string
-	}{
-		{"", "-tags=slowjs_nogoasm"},
-		{"-mod=mod -trimpath", "-tags=slowjs_nogoasm"},
-		{"-tags=foo,bar", "-tags=foo,bar,slowjs_nogoasm"},
-		{"--tags=foo", "-tags=foo,slowjs_nogoasm"},
-		{"-tags=foo -tags=bar", "-tags=bar,slowjs_nogoasm"},
-		{"'-tags=foo bar'", "-tags=foo,bar,slowjs_nogoasm"},
-		{"-tags=", "-tags=slowjs_nogoasm"},
-		{"-tags=slowjs_nogoasm,foo", "-tags=slowjs_nogoasm,foo"},
-	} {
-		t.Setenv("GOFLAGS", tc.goflags)
-		got, err := buildFlags(t.Context(), t.TempDir(), config.Build{DebugInfo: true})
-		if err != nil || !slices.Equal(got, []string{tc.want}) {
-			t.Errorf("build, GOFLAGS %q: %q, %v, want %q", tc.goflags, got, err, tc.want)
-		}
-		got, err = devFlags(t.Context(), t.TempDir(), config.Build{})
-		if err != nil || !slices.Equal(got, []string{"-pgo=off", tc.want}) {
-			t.Errorf("dev, GOFLAGS %q: %q, %v, want -pgo=off %q", tc.goflags, got, err, tc.want)
-		}
-	}
-	t.Setenv("GOFLAGS", "-tags=foo -ldflags=-X=main.version=v1")
-	got, err := buildFlags(t.Context(), t.TempDir(), config.Build{})
-	if want := []string{"-ldflags=-X=main.version=v1 -w", "-tags=foo,slowjs_nogoasm"}; err != nil || !slices.Equal(got, want) {
-		t.Errorf("with -ldflags: %q, %v, want %q", got, err, want)
-	}
-	got, err = buildFlags(t.Context(), t.TempDir(), config.Build{Goasm: true})
-	if want := []string{"-ldflags=-X=main.version=v1 -w"}; err != nil || !slices.Equal(got, want) {
-		t.Errorf("goasm on: %q, %v, want %q", got, err, want)
-	}
-	got, err = devFlags(t.Context(), t.TempDir(), config.Build{Goasm: true})
-	if want := []string{"-pgo=off"}; err != nil || !slices.Equal(got, want) {
-		t.Errorf("dev, goasm on: %q, %v, want %q", got, err, want)
-	}
-	t.Setenv("GOFLAGS", "'-tags=foo")
-	if _, err := buildFlags(t.Context(), t.TempDir(), config.Build{DebugInfo: true}); err == nil || !strings.Contains(err.Error(), "GOFLAGS") {
-		t.Errorf("unterminated quote: %v, want an error about GOFLAGS", err)
-	}
-}
-
-// The go command sees the tags of GOFLAGS and the opt-out tag together: a program built with
-// build.goasm off is built with both, in tifa build and in tifa dev.
-func TestGoasmOffBuildsWithTheTagsOfGOFLAGS(t *testing.T) {
-	root := writeGoApp(t, map[string]string{
-		".tifa/main.go":  "package main\n\nimport \"os\"\n\nfunc main() { os.Stdout.WriteString(interp + \" \" + user) }\n",
-		".tifa/on.go":    "//go:build !slowjs_nogoasm\n\npackage main\n\nconst interp = \"goasm\"\n",
-		".tifa/off.go":   "//go:build slowjs_nogoasm\n\npackage main\n\nconst interp = \"nogoasm\"\n",
-		".tifa/foo.go":   "//go:build foo\n\npackage main\n\nconst user = \"foo\"\n",
-		".tifa/nofoo.go": "//go:build !foo\n\npackage main\n\nconst user = \"none\"\n",
-	})
-	t.Setenv("GOFLAGS", "-tags=foo")
-	for _, tc := range []struct {
-		dev   bool
-		goasm bool
-		want  string
-	}{{false, true, "goasm foo"}, {false, false, "nogoasm foo"}, {true, true, "goasm foo"}, {true, false, "nogoasm foo"}} {
-		settings := config.Build{Goasm: tc.goasm}
-		flags, err := buildFlags(t.Context(), root, settings)
-		if tc.dev {
-			flags, err = devFlags(t.Context(), root, settings)
-		}
-		if err != nil {
-			t.Fatal(err)
-		}
-		exe := filepath.Join(t.TempDir(), "app")
-		if printed, err := goBuild(t.Context(), root, exe, flags, io.Discard, io.Discard); err != nil {
-			t.Fatalf("dev %t goasm %t: %v\n%s", tc.dev, tc.goasm, err, printed)
-		}
-		if out, err := exec.Command(exe).Output(); err != nil || string(out) != tc.want {
-			t.Errorf("dev %t goasm %t: printed %q, %v, want %q", tc.dev, tc.goasm, out, err, tc.want)
-		}
-	}
 }

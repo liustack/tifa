@@ -1,10 +1,9 @@
 package ssr_test
 
 // Opt-in long tests of VM reuse and OOM recycling with the shop's bundle, the same as those of
-// internal/ssr with its testdata bundle. They count QuickJS native allocations, so they need the
-// memory.counters build tag:
+// internal/ssr with its testdata bundle:
 //
-//	TIFA_SSR_SHOP=1 TIFA_SSR_SOAK=1 go test -tags memory.counters -run Soak -v ./test/ssr
+//	TIFA_SSR_SHOP=1 TIFA_SSR_SOAK=1 go test -run Soak -v ./test/ssr
 
 import (
 	"context"
@@ -18,7 +17,6 @@ import (
 
 	"github.com/liustack/slowjs"
 	"github.com/liustack/tifa/internal/ssr"
-	"modernc.org/libc"
 )
 
 // soakBundle returns the shop's bundle and pages, or skips the test unless both TIFA_SSR_SOAK and
@@ -26,7 +24,7 @@ import (
 func soakBundle(t *testing.T) (string, []shopPage) {
 	t.Helper()
 	if os.Getenv("TIFA_SSR_SOAK") == "" {
-		t.Skip("set TIFA_SSR_SOAK=1 and build with -tags memory.counters")
+		t.Skip("set TIFA_SSR_SOAK=1")
 	}
 	return shopBundle(t)
 }
@@ -35,30 +33,11 @@ func soakBundle(t *testing.T) (string, []shopPage) {
 // withCustomer renames.
 const detail = 2
 
-// nativeBaseline returns the live native allocations after one VM has been
-// created and closed, which warms the allocator like the prototype measurements.
-func nativeBaseline(t *testing.T) int {
-	t.Helper()
-	vm, err := slowjs.NewVM()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := vm.Close(); err != nil {
-		t.Fatal(err)
-	}
-	n := libc.MemStat().Allocs
-	if n == 0 {
-		t.Fatal("native allocation counters are off, build with -tags memory.counters")
-	}
-	return n
-}
-
 // Two VMs, two callers, 10,000 renders. Every render must carry its own data, and closing the
-// pool returns native memory to the baseline. A render that fails would retire its VM, so no
+// pool unmaps the memory of every VM. A render that fails would retire its VM, so no
 // render may fail.
 func TestSoakReuse(t *testing.T) {
 	source, pages := soakBundle(t)
-	baseline := nativeBaseline(t)
 	cfg := shopConfig(2)
 	p, err := ssr.NewPool(source, nil, cfg, false)
 	if err != nil {
@@ -99,7 +78,7 @@ func TestSoakReuse(t *testing.T) {
 	for i := range requests {
 		jobs <- i
 		if (i+1)%2_000 == 0 {
-			t.Logf("%d renders, native allocations %d, peak RSS %s", i+1, libc.MemStat().Allocs, peakRSS(t))
+			t.Logf("%d renders, peak RSS %s", i+1, peakRSS(t))
 		}
 	}
 	close(jobs)
@@ -107,15 +86,11 @@ func TestSoakReuse(t *testing.T) {
 	if err := p.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if after := libc.MemStat().Allocs; after != baseline {
-		t.Fatalf("native allocations after close: baseline %d, after %d", baseline, after)
-	}
-	t.Logf("native allocations back to baseline %d", baseline)
 }
 
 // Fill a VM within one render, so idle replacement cannot preempt the OOM.
 // Repeatedly parse the order detail input and the JSON text of its data, which contains Chinese
-// text. Recovery must succeed eight times, and Close must return native memory to baseline.
+// text. Recovery must succeed eight times, and Close must return no error.
 func TestSoakOOMRecycle(t *testing.T) {
 	source, pages := soakBundle(t)
 	const retain = `;globalThis.startRender = (start => (json, ...texts) => {
@@ -125,7 +100,6 @@ func TestSoakOOMRecycle(t *testing.T) {
  }
  return start(json, ...texts);
 })(globalThis.startRender);`
-	baseline := nativeBaseline(t)
 	cfg := shopConfig(1)
 	cfg.VMMemory = 32 << 20
 	p, err := ssr.NewPool(source+retain, nil, cfg, false)
@@ -146,10 +120,6 @@ func TestSoakOOMRecycle(t *testing.T) {
 	if err := p.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if after := libc.MemStat().Allocs; after != baseline {
-		t.Fatalf("OOM recycling retained native allocations: baseline %d, after %d", baseline, after)
-	}
-	t.Logf("native allocations back to baseline %d", baseline)
 }
 
 // What a VM of the shop holds after a GC, against a VM loaded from an empty bundle, as

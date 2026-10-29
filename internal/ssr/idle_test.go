@@ -38,8 +38,7 @@ func renderBig(t *testing.T, p *Pool) {
 }
 
 // A VM that waited idle for idleRelease gives back the memory it keeps free, and the engine counts
-// what it gave back. The engine of lib takes its memory from libc and gives none back, so there the
-// pool only counts the release.
+// what it gave back.
 func TestIdleVMGivesBackFreeMemory(t *testing.T) {
 	p := newTestPool(t, testSource(t), testConfig(1))
 	renderBig(t, p)
@@ -47,9 +46,6 @@ func TestIdleVMGivesBackFreeMemory(t *testing.T) {
 	idleVM(p, func(vm *pooledVM) { before = vm.MemoryUsage() })
 	waitFor(t, 5*idleRelease, "no idle VM was released", func() bool { return p.stats().trimmed == 1 })
 	idleVM(p, func(vm *pooledVM) {
-		if before.Footprint == 0 {
-			return
-		}
 		u := vm.MemoryUsage()
 		if u.ReleaseCandidate <= before.ReleaseCandidate {
 			t.Fatalf("the idle VM kept its memory: offered back %d, %d before, footprint %d, %d before",

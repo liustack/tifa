@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/liustack/tifa/internal/analyze"
@@ -120,7 +119,7 @@ func analyzeApp(cmd *cobra.Command, root string) (*analyze.Manifest, error) {
 }
 
 // goBuild compiles the generated main of the application at root into output with
-// CGO_ENABLED=0 and the given flags of go build, see buildFlags and devFlags. It returns what go
+// CGO_ENABLED=0 and the given flags of go build, see buildFlags. It returns what go
 // build printed on stderr, which also goes to stderr. go build leaves go.mod and go.sum as they are.
 func goBuild(ctx context.Context, root, output string, flags []string, stdout, stderr io.Writer) (string, error) {
 	args := append([]string{"build", "-o", output}, flags...)
@@ -136,57 +135,17 @@ func goBuild(ctx context.Context, root, output string, flags []string, stdout, s
 	return printed.String(), nil
 }
 
-// nogoasmTag is the build tag that makes slowjs run JavaScript in its Go interpreter on
-// linux/amd64 instead of the one in Go assembly, which build.goasm false passes.
-const nogoasmTag = "slowjs_nogoasm"
-
-// devFlags are the flags of go build in tifa dev: -pgo=off, which wins over GOFLAGS, so it never
-// builds with a profile, and the -tags of nogoasm when build.goasm is off. It keeps the DWARF
-// debug info.
-func devFlags(ctx context.Context, root string, settings config.Build) ([]string, error) {
-	flags := []string{"-pgo=off"}
-	if settings.Goasm {
-		return flags, nil
-	}
-	goflags, err := goEnvFlags(ctx, root)
-	if err != nil {
-		return nil, err
-	}
-	tags, err := nogoasm(goflags)
-	if err != nil {
-		return nil, err
-	}
-	return append(flags, tags), nil
-}
-
 // buildFlags are the flags of go build in tifa build: those of ldflags unless build.debug_info
-// keeps the DWARF debug info, and the -tags of nogoasm when build.goasm is off. It runs no go env
-// when it needs neither. It leaves -pgo to the go command, which takes .tifa/default.pgo unless
-// GOFLAGS says otherwise.
+// keeps the DWARF debug info. It runs no go env when it keeps it.
 func buildFlags(ctx context.Context, root string, settings config.Build) ([]string, error) {
-	if settings.DebugInfo && settings.Goasm {
+	if settings.DebugInfo {
 		return nil, nil
 	}
 	goflags, err := goEnvFlags(ctx, root)
 	if err != nil {
 		return nil, err
 	}
-	var flags []string
-	if !settings.DebugInfo {
-		ld, err := ldflags(goflags)
-		if err != nil {
-			return nil, err
-		}
-		flags = append(flags, ld...)
-	}
-	if !settings.Goasm {
-		tags, err := nogoasm(goflags)
-		if err != nil {
-			return nil, err
-		}
-		flags = append(flags, tags)
-	}
-	return flags, nil
+	return ldflags(goflags)
 }
 
 // goEnvFlags returns GOFLAGS as the go command sees it in root: go env also reads it from the
@@ -199,26 +158,6 @@ func goEnvFlags(ctx context.Context, root string) (string, error) {
 		return "", fmt.Errorf("go env GOFLAGS: %w", err)
 	}
 	return strings.TrimSpace(string(out)), nil
-}
-
-// nogoasm returns -tags with the tags of the last -tags in goflags and nogoasmTag. A -tags on the
-// command line replaces the one of GOFLAGS, so it must carry the user's tags too. The go command
-// takes the tags apart at commas, and at spaces as it did before Go 1.13.
-func nogoasm(goflags string) (string, error) {
-	words, err := splitQuoted(goflags)
-	if err != nil {
-		return "", fmt.Errorf("GOFLAGS: %w", err)
-	}
-	var tags []string
-	for _, word := range words {
-		if value, ok := strings.CutPrefix(trimDashes(word), "tags="); ok {
-			tags = strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ' ' })
-		}
-	}
-	if !slices.Contains(tags, nogoasmTag) {
-		tags = append(tags, nogoasmTag)
-	}
-	return "-tags=" + strings.Join(tags, ","), nil
 }
 
 // ldflags returns -ldflags with -w, which leaves the DWARF debug info out of the program. The

@@ -4,7 +4,7 @@ read_when:
   - Deploying a tifa app, or changing its port, body limit, compression, VM count, VM stack depth, render timeout, render queue or page cache
   - Serving HTTPS from the program itself, with Let's Encrypt or your own certificate, or deciding whether to
   - The program cannot listen on port 80 or 443, or gets no certificate
-  - Setting the browser target, the static files folder or the profile of a build
+  - Setting the browser target, or the static files folder of a build
   - The program refuses to start with a config error
   - Changing internal/config
 ---
@@ -49,10 +49,8 @@ Run `./bin/app config` to print the merged settings of all sources as a commente
 | `build.target` | `es2020` | project file only | JavaScript target of the browser bundle that Vite builds, a comma-separated list: one ECMAScript version (`es2015` to `es2029`, `esnext`) plus browsers with versions, from chrome, edge, firefox, ios, opera and safari, such as `es2019,chrome90,safari14`. The SSR bundle always targets ES2022 |
 | `build.public` | `public` | project file only | Folder of static files copied into the program as they are and served from `/` |
 | `build.skip_tanstack_check` | `false` | project file only | `true` builds an app whose TanStack Router is not the version tifa is tested with, which may leave pages blank in the browser. See [build.md](build.md#the-apps-tsconfig-and-vite-config) |
-| `build.pgo` | `auto` | project file only | Profile `go build` optimizes the program with. `auto` takes `default.pgo` in the app root, or else, for an app with pages, the profile of page renders tifa ships. `off` builds without a profile. Any other value is a file, given relative to the app root. `tifa dev` never uses one. See [build.md](build.md#profile-guided-optimization) |
 | `build.debug_info` | `false` | project file only | `true` keeps the DWARF debug info in the program, for debuggers such as Delve. Without it, `tifa build` leaves the debug info out with `-ldflags=-w`, which makes the example shop's program about 20% smaller. Panics still give the file and line of each frame either way. `tifa dev` always keeps it. See [build.md](build.md#debug-info) |
 | `build.i18next_cache` | `true` | project file only | The server render keeps the strings i18next translates and gives them again for the same key and options, so pages that translate the same texts on every render take less time: the shop's storefront pages 0.798 of it. `false` turns it off. Turn it off when the app changes i18next's resources or options after the first render without i18next's API, or gives i18next functions other than formatters and post-processors that read something of the request, or pages may show stale translations. See [build.md](build.md#i18next-cache) |
-| `build.goasm` | `true` | project file only | On linux/amd64, run JavaScript in slowjs's interpreter in Go assembly, which renders the same pages in less time. `false` builds with its interpreter in Go (`-tags=slowjs_nogoasm`), as other systems always do. See [build.md](build.md#the-javascript-interpreter) |
 | `server.addr` | `127.0.0.1:9527` | `--server-addr`, `TIFA_SERVER_ADDR` | Address to listen on. Use `0.0.0.0:9527` in a container. With [HTTPS](#https) on it serves HTTPS and must be set, usually to `:443` |
 | `server.body_limit` | `1MiB` | `--server-body-limit`, `TIFA_SERVER_BODY_LIMIT` | Largest request body. A bigger one is answered with 413 |
 | `server.shutdown_timeout` | `10s` | `--server-shutdown-timeout`, `TIFA_SERVER_SHUTDOWN_TIMEOUT` | After a stop signal, the time in-flight requests get to finish, and then the time `OnShutdown` gets. Requests still running when it ends are canceled and get one more `shutdown_timeout` to return. `OnShutdown` runs once they have returned and is skipped if they have not. Either way the program exits with status 1 |
@@ -165,18 +163,18 @@ Copying or building the file again drops it, so do it after each deployment. Und
 
 ## Stack depth
 
-With the default `ssr.vm_stack_depth` of 10000, plain recursion goes as deep in a render as in Node, which stops at about 10,400 calls. Each level takes room on the stack of the Go goroutine that renders, not in the memory `ssr.vm_memory` limits. A normal page needs a few hundred levels and a few MB of stack. Code that recurses without end goes all the way down before it throws, and the stack of that render then grows to about 16 MB. Go takes it back at the next garbage collection. The stack grows by doubling, and when a garbage collection is running as it grows, the old stack is freed only once the collection ends, so for a moment the render can hold about 24 MB.
+With the default `ssr.vm_stack_depth` of 10000, plain recursion goes as deep in a render as in Node, which stops at about 10,400 calls. Each level takes room on the stack of the Go goroutine that renders and on the engine's own stack, not in the memory `ssr.vm_memory` limits. A normal page needs a few hundred levels and a few MB. Code that recurses without end goes all the way down before it throws, and the process grows by about 14 MB on darwin/arm64 and up to about 26 MB on linux/amd64 for that render. The render fails, the VM is replaced, and Go takes the goroutine stack back at the next garbage collection. The goroutine stack grows by doubling, and when a garbage collection is running as it grows, the old stack is freed only once the collection ends.
 
-Every VM can do this at the same moment, so the worst case is `ssr.vms` times 24 MB on top of the memory of the VMs. On a small machine, lower the depth. Measured on darwin/arm64 and linux/amd64, where a level takes about 1 KB:
+Every VM can do this at the same moment, so the worst case is `ssr.vms` times that on top of the memory of the VMs. On a small machine, lower the depth. How much the process grew in one render that recurses without end, measured on darwin/arm64 and linux/amd64:
 
-| `ssr.vm_stack_depth` | Stack of a render that recurses without end |
+| `ssr.vm_stack_depth` | Growth of the process |
 | --- | --- |
-| `10000` | about 16 MB, up to about 24 MB while it grows |
-| `5000` | about 8 MB |
-| `2000` | about 2 MB |
-| `1000` | about 1 MB |
+| `10000` | 14 MB on darwin/arm64, up to 26 MB on linux/amd64 |
+| `5000` | 7 MB |
+| `2000` | 2 to 4 MB |
+| `1000` | 1 to 2 MB |
 
-On Linux, each level also keeps up to about 2 KB of memory the engine uses for its own local variables, so a VM that once recursed 10000 levels deep holds about 20 MB more. This memory is not in `ssr.vm_memory` either, and the VM keeps it until it closes. A render that fails closes the VM and starts a new one, so the memory comes back then. When the page catches the `RangeError` and the render succeeds, the VM stays and keeps it.
+When the page catches the `RangeError` and the render succeeds, the VM stays. The pages of its engine stack that the recursion touched go back to the system when the VM has been idle for a second, as the other free memory of an idle VM does (see [Memory](performance.md#memory)).
 
 What a lower depth breaks:
 
@@ -192,11 +190,10 @@ What a lower depth breaks:
 - Durations use Go's format and must be positive: `500ms`, `3s`, `1m30s`.
 - `ssr.vms` is a whole number of at least 1.
 - `ssr.queue_limit` is a whole number of at least 0. `ssr.wait_timeout` must be positive even with a queue limit of 0.
-- `ssr.vm_stack_depth` is a whole number from 1 to 10000. A deeper stack would let code that recurses without end grow the goroutine stack past Go's limit, and the whole process would exit.
-- `build.skip_tanstack_check`, `build.debug_info`, `build.i18next_cache`, `build.goasm`, `server.compress` and `server.hsts` are `true` or `false`, without quotes. The flag takes its value after `=`: `--server-compress=false`.
+- `ssr.vm_stack_depth` is a whole number from 1 to 10000, the deepest the engine lets calls nest.
+- `build.skip_tanstack_check`, `build.debug_info`, `build.i18next_cache`, `server.compress` and `server.hsts` are `true` or `false`, without quotes. The flag takes its value after `=`: `--server-compress=false`.
 - `server.tls_domains` is a comma-separated list of host names, without scheme, port or path. Each needs a dot. `server.tls_ca` is an `https` URL. `server.http_addr` is an address with a port, such as `:80` or `0.0.0.0:80`, or `off` in lower case. Words that read as a switch, such as `OFF`, `false` or `none`, fail with what to write.
 - `server.tls_domains`, `server.tls_email`, `server.tls_cache`, `server.tls_cert` and `server.tls_key` may be empty, which turns off what a lower source set: `TIFA_SERVER_TLS_DOMAINS=` with `--server-tls-cert` serves your own certificate where the project file asks for Let's Encrypt.
-- `build.pgo` is `auto`, `off` or a path relative to the app root. YAML reads a plain `off` as text, so it needs no quotes. Words that read as a switch, such as `false`, `OFF` or `yes`, fail with what to write instead, and so does an absolute path.
 
 ## Errors
 

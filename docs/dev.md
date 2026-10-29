@@ -14,7 +14,7 @@ English · [简体中文](dev.zh-CN.md)
 tifa dev [--dir app-root] [--addr 127.0.0.1:9527]
 ```
 
-On start it prints `tifa dev: serving http://<address>`, then runs a full build (the same steps as [tifa build](build.md), and the first one of an app takes a minute or two, see [Log](#log)) and starts the app. The browser connects to `--addr` only. tifa dev forwards page and data requests to the app, and requests under `/__tifa/vite/`, the browser modules and Vite's HMR websocket, to Vite's dev server. While the app restarts or loads a new SSR bundle, page requests wait for it. Ctrl-C or SIGTERM stops the app, Vite and tifa dev. A Vite build or plugin that does not end gets 5 seconds, then Vite is stopped. If tifa dev itself is killed, Vite stops on its own within the same 5 seconds.
+On start it prints `tifa dev: serving http://<address>`, then runs a full build (the same steps as [tifa build](build.md), and the first one of an app takes several seconds to a minute, see [Log](#log)) and starts the app. The browser connects to `--addr` only. tifa dev forwards page and data requests to the app, and requests under `/__tifa/vite/`, the browser modules and Vite's HMR websocket, to Vite's dev server. While the app restarts or loads a new SSR bundle, page requests wait for it. Ctrl-C or SIGTERM stops the app, Vite and tifa dev. A Vite build or plugin that does not end gets 5 seconds, then Vite is stopped. If tifa dev itself is killed, Vite stops on its own within the same 5 seconds.
 
 tifa dev does not run on Windows yet. Use WSL.
 
@@ -61,7 +61,7 @@ tifa dev: 07:35:36 bundle done in 90ms
 tifa dev: 07:35:36 ready in 260ms
 ```
 
-A step that runs longer than 5 seconds says so, and again every 15 seconds. The first go build of an app compiles QuickJS, SQLite and the other dependencies, which can take a minute or two, and later builds use Go's build cache. The first ready line also names the address to open:
+A step that runs longer than 5 seconds says so, and again every 15 seconds. The first go build of an app compiles QuickJS, SQLite and the other dependencies, which takes about 7 seconds on an Apple M4 with an empty build cache and longer on a slower machine, and later builds use Go's build cache. The first ready line also names the address to open:
 
 ```text
 tifa dev: 07:35:41 go build still running (5s). The first build compiles QuickJS and the other dependencies, later builds use Go's build cache

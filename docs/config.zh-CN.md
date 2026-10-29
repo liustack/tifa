@@ -4,7 +4,7 @@ read_when:
   - 部署 tifa 应用，或要改端口、请求体上限、压缩、VM 数量、VM 栈深度、渲染超时、渲染队列、页面缓存
   - 想让程序自己提供 HTTPS，用 Let's Encrypt 或自己的证书，或者在犹豫要不要这样做
   - 程序监听不了 80 或 443 端口，或者拿不到证书
-  - 设置构建的浏览器目标、静态文件目录或剖析
+  - 设置构建的浏览器目标或静态文件目录
   - 程序因为配置错误起不来
   - 改 internal/config
 ---
@@ -49,10 +49,8 @@ cache:
 | `build.target` | `es2020` | 只能写在项目文件 | Vite 构建的浏览器包的 JavaScript 目标，逗号分隔：一个 ECMAScript 版本（`es2015` 到 `es2029`、`esnext`）加若干带版本的浏览器，浏览器可选 chrome、edge、firefox、ios、opera 和 safari，如 `es2019,chrome90,safari14`。SSR 包固定是 ES2022 |
 | `build.public` | `public` | 只能写在项目文件 | 静态文件目录，原样打进程序，从 `/` 提供 |
 | `build.skip_tanstack_check` | `false` | 只能写在项目文件 | 设为 `true` 时，TanStack Router 不是 tifa 测过的版本也照样构建，页面在浏览器里可能白屏。见 [build.zh-CN.md](build.zh-CN.md#应用的-tsconfig-与-vite-配置) |
-| `build.pgo` | `auto` | 只能写在项目文件 | `go build` 用来优化程序的剖析。`auto` 取应用根目录的 `default.pgo`，没有的话，有页面的应用用 tifa 自带的页面渲染剖析。`off` 不用剖析。别的值是一个文件，相对应用根目录。`tifa dev` 从不用剖析。见 [build.zh-CN.md](build.zh-CN.md#按剖析优化) |
 | `build.debug_info` | `false` | 只能写在项目文件 | 设为 `true` 时，程序里保留 DWARF 调试信息，给 Delve 这类调试器用。不设的话，`tifa build` 用 `-ldflags=-w` 去掉调试信息，示例商店的程序因此小约 20%。两种情况下 panic 都照样给出每一帧的文件和行号。`tifa dev` 总是保留。见 [build.zh-CN.md](build.zh-CN.md#调试信息) |
 | `build.i18next_cache` | `true` | 只能写在项目文件 | 服务端渲染记住 i18next 翻译出的字符串，同样的键和选项再来时直接给出，于是每次渲染都翻译同样文案的页面更快：shop 的店面页面只用原来 0.798 的时间。设为 `false` 关掉。应用在第一次渲染之后绕开 i18next 的 API 改资源或选项，或者交给 i18next 的函数（格式化函数和后处理器以外）会读请求里的东西时，要关掉它，否则页面可能显示过期的翻译。见 [build.zh-CN.md](build.zh-CN.md#i18next-缓存) |
-| `build.goasm` | `true` | 只能写在项目文件 | 在 linux/amd64 上用 slowjs 的 Go 汇编解释器执行 JavaScript，同样的页面渲染得更快。设为 `false` 时改用它的 Go 解释器构建（`-tags=slowjs_nogoasm`），其他系统一直用的就是这个。见 [build.zh-CN.md](build.zh-CN.md#javascript-解释器) |
 | `server.addr` | `127.0.0.1:9527` | `--server-addr`、`TIFA_SERVER_ADDR` | 监听地址。容器里用 `0.0.0.0:9527`。开了 [HTTPS](#https) 时这里提供 HTTPS，而且必须设置，一般设成 `:443` |
 | `server.body_limit` | `1MiB` | `--server-body-limit`、`TIFA_SERVER_BODY_LIMIT` | 请求体上限，超过答 413 |
 | `server.shutdown_timeout` | `10s` | `--server-shutdown-timeout`、`TIFA_SERVER_SHUTDOWN_TIMEOUT` | 收到退出信号后，先给在途请求的时间，再给 `OnShutdown` 的时间。到时仍在运行的请求会被取消，再给它们一个 `shutdown_timeout` 返回。都返回了就执行 `OnShutdown`，没返回就跳过它。两种情况程序都以状态码 1 退出 |
@@ -165,18 +163,18 @@ sudo setcap cap_net_bind_service=+ep ./bin/myapp
 
 ## 栈深度
 
-`ssr.vm_stack_depth` 默认是 10000，渲染里普通递归能到的深度和 Node 一样，Node 大约在 10400 层调用时停下。每一层占的是负责渲染的 Go goroutine 的栈，不算在 `ssr.vm_memory` 限制的内存里。普通页面只要几百层、几 MB 栈。无限递归的代码会一直走到底才抛错，这次渲染的栈随之涨到约 16 MB。Go 在下一次垃圾回收时收回。栈按翻倍增长，涨栈时如果正赶上垃圾回收，旧栈要等这轮回收结束才释放，所以这次渲染会短暂占到约 24 MB。
+`ssr.vm_stack_depth` 默认是 10000，渲染里普通递归能到的深度和 Node 一样，Node 大约在 10400 层调用时停下。每一层占的是负责渲染的 Go goroutine 的栈和引擎自己的栈，不算在 `ssr.vm_memory` 限制的内存里。普通页面只要几百层、几 MB。无限递归的代码会一直走到底才抛错，这次渲染里整个进程在 darwin/arm64 上涨约 14 MB，在 linux/amd64 上最多涨到约 26 MB。这次渲染失败，VM 被换掉，Go 在下一次垃圾回收时收回 goroutine 栈。goroutine 栈按翻倍增长，涨栈时如果正赶上垃圾回收，旧栈要等这轮回收结束才释放。
 
-每个 VM 都可能同时这样，所以最坏情况是在 VM 本身的内存之外再加 `ssr.vms` 乘 24 MB。小内存机器上把深度调低。以下在 darwin/arm64 和 linux/amd64 上测得，一层约 1 KB：
+每个 VM 都可能同时这样，所以最坏情况是在 VM 本身的内存之外再加 `ssr.vms` 乘上面的数。小内存机器上把深度调低。下面是一次无限递归的渲染让整个进程涨了多少，在 darwin/arm64 和 linux/amd64 上测得：
 
-| `ssr.vm_stack_depth` | 无限递归的渲染占的栈 |
+| `ssr.vm_stack_depth` | 进程涨的内存 |
 | --- | --- |
-| `10000` | 约 16 MB，涨栈时最多约 24 MB |
-| `5000` | 约 8 MB |
-| `2000` | 约 2 MB |
-| `1000` | 约 1 MB |
+| `10000` | darwin/arm64 上 14 MB，linux/amd64 上最多 26 MB |
+| `5000` | 7 MB |
+| `2000` | 2 到 4 MB |
+| `1000` | 1 到 2 MB |
 
-在 Linux 上，每一层还会留下最多约 2 KB 引擎给自己的局部变量用的内存，所以一个 VM 只要递归到过 10000 层，就会多占约 20 MB。这块内存同样不算在 `ssr.vm_memory` 里，VM 关闭前一直留着。渲染失败时 VM 会关闭并换一个新的，内存随之收回。页面接住了 `RangeError`、渲染成功时，VM 留下，这块内存也跟着留下。
+页面接住 `RangeError`、渲染成功时，VM 留下。递归碰过的那部分引擎栈，在 VM 空闲一秒后还给系统，和空闲 VM 的其他空闲内存一样（见[内存](performance.zh-CN.md#内存)）。
 
 调低之后会出问题的：
 
@@ -192,11 +190,10 @@ sudo setcap cap_net_bind_service=+ep ./bin/myapp
 - 时长用 Go 的写法，必须为正：`500ms`、`3s`、`1m30s`。
 - `ssr.vms` 是不小于 1 的整数。
 - `ssr.queue_limit` 是不小于 0 的整数。即使队列限制为 0，`ssr.wait_timeout` 也必须为正数。
-- `ssr.vm_stack_depth` 是 1 到 10000 的整数。再深的话，无限递归的代码会让 goroutine 栈超过 Go 的上限，整个进程直接退出。
-- `build.skip_tanstack_check`、`build.debug_info`、`build.i18next_cache`、`build.goasm`、`server.compress` 和 `server.hsts` 是 `true` 或 `false`，不加引号。参数要用 `=` 带值：`--server-compress=false`。
+- `ssr.vm_stack_depth` 是 1 到 10000 的整数，10000 是引擎允许的最深调用嵌套。
+- `build.skip_tanstack_check`、`build.debug_info`、`build.i18next_cache`、`server.compress` 和 `server.hsts` 是 `true` 或 `false`，不加引号。参数要用 `=` 带值：`--server-compress=false`。
 - `server.tls_domains` 是逗号分隔的主机名，不带协议、端口和路径，每个都要有点号。`server.tls_ca` 是 `https` 网址。`server.http_addr` 是带端口的地址，比如 `:80` 或 `0.0.0.0:80`，或者小写的 `off`。像开关的词，比如 `OFF`、`false`、`none`，会报错并告诉你该写什么。
 - `server.tls_domains`、`server.tls_email`、`server.tls_cache`、`server.tls_cert` 和 `server.tls_key` 可以为空，表示关掉低优先级来源设的值：项目文件要 Let's Encrypt 时，用 `TIFA_SERVER_TLS_DOMAINS=` 加 `--server-tls-cert` 就能改用自己的证书。
-- `build.pgo` 是 `auto`、`off` 或一个相对应用根目录的路径。YAML 把不加引号的 `off` 读成文本，所以不用加引号。像开关的词，比如 `false`、`OFF`、`yes`，会报错并告诉你该写什么，写绝对路径也一样。
 
 ## 报错
 

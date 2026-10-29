@@ -160,67 +160,6 @@ func TestI18nextCacheIsABoolOfTheProjectFile(t *testing.T) {
 	}
 }
 
-// build.goasm is a true or false of the project file, on by default.
-func TestGoasmIsABoolOfTheProjectFile(t *testing.T) {
-	if !Default().Build.Goasm {
-		t.Fatal("the assembly interpreter is off by default")
-	}
-	for name, content := range map[string]string{
-		"tifa.yaml": "build:\n  goasm: false\n",
-		"tifa.json": `{"build":{"goasm":false}}`,
-	} {
-		c, err := load(t, nil, nil, name, content)
-		if err != nil || c.Build.Goasm {
-			t.Errorf("%s: %+v, %v", name, c.Build, err)
-		}
-	}
-	if _, err := load(t, nil, nil, "tifa.yaml", "build:\n  goasm: \"no\"\n"); err == nil || !strings.Contains(err.Error(), "build.goasm") || !strings.Contains(err.Error(), "expected a bool value") {
-		t.Errorf("a string: %v", err)
-	}
-	_, err := load(t, []string{"--config", writeFile(t, "prod.yaml", "build:\n  goasm: false\n")}, nil, "", "")
-	if err == nil || !strings.Contains(err.Error(), "build settings belong in the project tifa.yaml") {
-		t.Errorf("in a deployment file: %v", err)
-	}
-}
-
-// build.pgo is a string of the project file, auto by default. YAML reads a plain off as text.
-// A value that looks like a switch but is not auto or off says what to write.
-func TestPGOIsAStringOfTheProjectFile(t *testing.T) {
-	if got := Default().Build.PGO; got != "auto" {
-		t.Fatalf("default build.pgo = %q", got)
-	}
-	for name, content := range map[string]string{
-		"tifa.yaml": "build:\n  pgo: off\n",
-		"tifa.json": `{"build":{"pgo":"off"}}`,
-	} {
-		c, err := load(t, nil, nil, name, content)
-		if err != nil || c.Build.PGO != "off" {
-			t.Errorf("%s: %+v, %v", name, c.Build, err)
-		}
-	}
-	if c, err := load(t, nil, nil, "tifa.yaml", "build:\n  pgo: profiles/prod.pgo\n"); err != nil || c.Build.PGO != "profiles/prod.pgo" {
-		t.Errorf("a file: %+v, %v", c.Build, err)
-	}
-	// Values that look like a switch, which would otherwise be read as a file name.
-	for _, value := range []string{"false", "'false'", "OFF", "no", "none", "disabled", "0"} {
-		if _, err := load(t, nil, nil, "tifa.yaml", "build:\n  pgo: "+value+"\n"); err == nil || !strings.Contains(err.Error(), "build.pgo") || !strings.Contains(err.Error(), "to turn it off, write off") {
-			t.Errorf("%s: %v", value, err)
-		}
-	}
-	for _, value := range []string{"true", "yes", "on", "Auto"} {
-		if _, err := load(t, nil, nil, "tifa.yaml", "build:\n  pgo: "+value+"\n"); err == nil || !strings.Contains(err.Error(), "build.pgo") || !strings.Contains(err.Error(), "write auto") {
-			t.Errorf("%s: %v", value, err)
-		}
-	}
-	if _, err := load(t, nil, nil, "tifa.json", `{"build":{"pgo":false}}`); err == nil || !strings.Contains(err.Error(), "to turn it off, write off") {
-		t.Errorf("JSON false: %v", err)
-	}
-	_, err := load(t, []string{"--config", writeFile(t, "prod.yaml", "build:\n  pgo: off\n")}, nil, "", "")
-	if err == nil || !strings.Contains(err.Error(), "build settings belong in the project tifa.yaml") {
-		t.Errorf("in a deployment file: %v", err)
-	}
-}
-
 func TestNoFilesGivesDefaults(t *testing.T) {
 	c, err := load(t, nil, nil, "", "")
 	if err != nil {
@@ -360,7 +299,7 @@ func TestFileMustHoldOneDocument(t *testing.T) {
 }
 
 func TestKeysListEverySetting(t *testing.T) {
-	want := "build.target build.public build.skip_tanstack_check build.pgo build.debug_info build.i18next_cache build.goasm server.addr server.body_limit server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout cache.size"
+	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache server.addr server.body_limit server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout cache.size"
 	if got := strings.Join(Keys(), " "); got != want {
 		t.Fatalf("Keys: %s, want %s", got, want)
 	}
@@ -395,9 +334,8 @@ func TestDefaultAddr(t *testing.T) {
 	}
 }
 
-// ssr.vm_stack_depth is a whole number from 1 to 10000, 10000 by default: the default of the
-// QuickJS fork, which internal/ssr checks. A deeper stack would let code that recurses without
-// end grow the goroutine stack past Go's limit, which ends the process.
+// ssr.vm_stack_depth is a whole number from 1 to 10000, 10000 by default: the deepest the
+// engine nests calls, which internal/ssr checks.
 func TestVMStackDepth(t *testing.T) {
 	if got := Default().SSR.VMStackDepth; got != 10000 {
 		t.Fatalf("default %d", got)
@@ -428,7 +366,7 @@ func TestVMStackDepth(t *testing.T) {
 			t.Errorf("%s: accepted", tc.name)
 			continue
 		}
-		for _, want := range []string{tc.layer, "ssr.vm_stack_depth", "above the maximum 10000", "Go's limit", "ends the process"} {
+		for _, want := range []string{tc.layer, "ssr.vm_stack_depth", "above the maximum 10000", "the engine does not nest calls deeper"} {
 			if !strings.Contains(err.Error(), want) {
 				t.Errorf("%s: %v lacks %q", tc.name, err, want)
 			}

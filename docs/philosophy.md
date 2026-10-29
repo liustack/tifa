@@ -53,4 +53,4 @@ What you get:
 
 - `go test ./...`, `go vet ./...` and your editor work on the app as on any Go module.
 - A build is safe to run anywhere, CI included, without the database or the secrets the app needs at run time.
-- An app builds for every platform its engine, slowjs, supports (Linux and macOS on amd64 and arm64, and Windows on amd64), as one file to copy.
+- An app builds into one file to copy, for the two platforms its engine, slowjs, supports: linux/amd64 and darwin/arm64.

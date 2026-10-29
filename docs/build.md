@@ -1,5 +1,5 @@
 ---
-summary: 'How tifa new starts an app, what tifa build does, which files and outputs it generates in .tifa/, how to set up the tsconfig and go.mod of an app, how the generated program starts and answers page requests, how it is compiled with a profile (PGO), why it leaves out the debug info, and which license notices to ship with it'
+summary: 'How tifa new starts an app, what tifa build does, which files and outputs it generates in .tifa/, how to set up the tsconfig and go.mod of an app, how the generated program starts and answers page requests, why it leaves out the debug info, and which license notices to ship with it'
 read_when:
   - Changing internal/codegen, the build command in cmd/tifa, or server.Main
   - Creating a tifa app, or adding an app to test/apps
@@ -7,7 +7,6 @@ read_when:
   - Implementing page rendering or navigation data requests and you need the route tree and the data protocol
   - Changing internal/bundle, js/vite or js/host, or upgrading the dependencies of the SSR host polyfills
   - Handing a built program to others and checking which notices go with it
-  - Turning PGO off or building with your own profile
   - Debugging the built program with Delve, or passing your own -ldflags
 ---
 
@@ -41,7 +40,7 @@ Writes a small working app into `dir`, which must be missing or empty: a todo li
 - The module path is the folder name unless `--module` gives one. The app imports the package at its root, so the path must be one the go command imports. tifa new refuses a path with a `vendor` element, and one whose first element has no dot and is, in any case, the first element of a standard library package or a go command pattern (such as `fmt`, `net` or `all`), even when no such package exists. Pass `--module example.com/fmt` instead.
 - The root package is named after the last element of the module path (not counting a major version suffix such as `/v2`), lowercased, with only its letters and digits kept. It must be a Go identifier that is not a keyword, `main` or `init` (Go does not take `init` as the name of an imported package). The Go files under `app/` import it by that name, so it may not be a name that means something else where they use it: a package they import, such as the domain `todos` or `tifa`, a predeclared name they use, such as `error`, or a parameter or variable in whose scope they use the root package, such as `db` or `ctx`. tifa new keeps a list of these names and refuses them, so `tifa new todos` fails and asks for another folder name or `--module`, and `--module example.com/todos` fails and asks for another last element of `--module`. Other names they use, such as `c` or `rows`, are fine. The name in `package.json` is the same, cut to 214 characters, the npm limit.
 - `go.mod` requires the version of the tifa command that ran when the go command downloaded it: `go run github.com/liustack/tifa/cmd/tifa@<version> new myapp`, or `go tool tifa new` in an app. A command built in a tifa checkout, or replaced by one, writes `v0.0.0` and adds a step that points `go.mod` at the checkout with `go mod edit -replace`.
-- `modernc.org/sqlite` and the slowjs of tifa both run on `modernc.org/libc`, and each SQLite release is built for one exact libc version. `go.mod` pins a SQLite release built for the libc that tifa requires. When you upgrade either one later, keep that libc version the same.
+- `go.mod` pins a `modernc.org/sqlite` release. The SQLite driver is pure Go, and `go mod tidy` adds the `modernc.org/libc` it needs. slowjs does not use that library, so no version has to match.
 - `tifa new` writes files only. It runs no go or npm commands and needs no network. It prints the next steps: `cd` into the folder, `go mod tidy`, `pnpm install` and `go tool tifa dev`, which serves the app at http://127.0.0.1:9527.
 - It looks for `pnpm` on PATH, without running it. When pnpm is there, the install step and the commands in `README.md` and `AGENTS.md` use pnpm (`pnpm install`, `pnpm typecheck`). Otherwise they use npm (`npm install`, `npm run typecheck`). `package.json` has no `packageManager` field, so both work on the same app.
 
@@ -54,29 +53,7 @@ tifa build [--dir app-root] [-o output-path]
 1. Statically analyzes `app/` and the root `hooks.go`. If a convention is broken, it prints `file:line: reason` for each problem and exits.
 2. Writes the generated code into `.tifa/`. Only files whose content changed are rewritten, and files no longer generated are deleted.
 3. Bundles with the app's own Vite, which runs on Node, and writes the output to `.tifa/dist/`. See "Frontend output" below. tifa runs one Node process for the whole build, with `NODE_ENV=production` whatever the shell sets, so the build always uses the production build of React. It also reads the exports of `route.tsx` and `layout.tsx` with Vite's parser for step 2. An app without pages builds without Node. The executable never needs Node.
-4. Runs `CGO_ENABLED=0 go build -o <output> -ldflags=-w ./.tifa`. The default output is `bin/<last segment of the module path>`. The generated main embeds `.tifa/dist/` into the executable with `//go:embed all:dist`. An app with pages is compiled with a profile of page renders, see "Profile-guided optimization" below. `-w` leaves out the debug info, see "Debug info" below.
-
-### Profile-guided optimization
-
-`go build` can optimize a program with a CPU profile of it ([PGO](https://go.dev/doc/pgo)): it inlines the calls the profile shows are hot. `tifa build` writes the profile into `.tifa/default.pgo`, where the default `-pgo=auto` of `go build` finds it next to the main package. `build.pgo` in the [project file](config.md#settings) picks the profile:
-
-| `build.pgo` | Profile |
-| --- | --- |
-| `auto` (default) | `default.pgo` in the app root. Without one, an app with pages gets the profile tifa ships, and an app without pages builds without a profile |
-| `off` | None |
-| a path, such as `profiles/prod.pgo` | That file, relative to the app root |
-
-The profile tifa ships is of the example shop's pages rendering in warm VMs on linux/amd64. Nearly all its samples are in the JavaScript engine, libc and the Go runtime, which every page runs through: no Go code of the shop is in it. With it, the shop's pages render about 3% faster on linux/amd64, measured with slowjs v0.28.6 and its Go assembly interpreter (2.4% with quickjs v0.26.15), and about 7% faster on darwin/arm64, measured with v0.26.13, and the HTML stays the same byte for byte.
-
-`tifa dev` always builds without a profile: it passes `-pgo=off` to `go build`. For `tifa build`, a `-pgo` in `GOFLAGS` wins over `build.pgo`, as it does for any `go build`.
-
-A build from an empty build cache takes up to about 6% longer with the profile than without. That was measured on the example shop with an earlier profile, as the elapsed time on an Apple M4 and as the CPU time on linux/amd64. But a new profile makes `go build` compile every package again, the standard library included, so the first `tifa build` with a new profile cannot use what `tifa dev` or `go test` left in the build cache. For the example shop on an Apple M4 that is about 5 seconds, where a cached build takes a fraction of a second. Later builds with the same profile come from the cache. The shop's executable grows by about 0.13 MB on linux/amd64 and 0.15 MB on darwin/arm64, under 1%.
-
-Your own profile fits your app better. Take a CPU profile of the built program under real traffic, such as 30 seconds of `pprof.StartCPUProfile`, and save it as `default.pgo` in the app root. Pages render in the same process, so it covers the engine too. To keep tifa's profile for pages your traffic did not reach, merge the two. The samples add up, so the longer profile counts for more:
-
-```sh
-go tool pprof -proto prod.pprof "$(go list -m -f '{{.Dir}}' github.com/liustack/tifa)/internal/codegen/engine.pgo" > default.pgo
-```
+4. Runs `CGO_ENABLED=0 go build -o <output> -ldflags=-w ./.tifa`. The default output is `bin/<last segment of the module path>`. The generated main embeds `.tifa/dist/` into the executable with `//go:embed all:dist`. `-w` leaves out the debug info, see "Debug info" below.
 
 ### Debug info
 
@@ -95,20 +72,9 @@ build:
 
 `go build` takes several `-ldflags`, each for a package pattern or, without one, for the packages named on the command line. For each package it uses the last one that matches it, and the command line comes after `GOFLAGS`, so a `-ldflags` there replaces the one in `GOFLAGS`. So tifa puts the flags of the last `-ldflags` in `GOFLAGS` (set in the environment or with `go env -w`) in front of `-w`: with `GOFLAGS=-ldflags=-X=main.version=v1`, tifa passes `-ldflags=-X=main.version=v1 -w`. It adds nothing when those flags already have `-w` or `-s`, which then decide. It also adds nothing when an `-ldflags` in `GOFLAGS` is for a package pattern, such as `-ldflags=all=-X=main.version=v1`: write `-w` there yourself.
 
-### The JavaScript interpreter
+### The JavaScript engine
 
-On linux/amd64, slowjs runs JavaScript in an interpreter in Go assembly that LLVM compiled from QuickJS's C, in place of the interpreter in Go that every other system runs. Pages render the same HTML in less time. On an AMD EPYC 7B13 without PGO, with one VM, the shop's workbench pages take 0.940 of the time and the pages of the MUI test app 0.850. With 4 VMs on 4 cores the program renders 1.046 times as many shop pages a second and 1.171 times as many MUI pages, with 8 VMs on 8 hyperthreads 1.085 and 1.211 times, and it holds a little less memory. See [the measurements in slowjs](https://github.com/liustack/slowjs/blob/main/docs/fork-changes/go-assembly.md).
-
-To build with the Go interpreter on linux/amd64 too, set `build.goasm` in the [project file](config.md#settings):
-
-```yaml
-build:
-  goasm: false
-```
-
-Turn it off to see the time of the interpreter by Go function in a CPU profile, where the assembly shows as one function, `goasmRun`, or when a page behaves differently with it, which is a bug of slowjs to report.
-
-`tifa build` and `tifa dev` then pass `-tags=slowjs_nogoasm` to `go build`. A `-tags` on the command line replaces the one in `GOFLAGS`, so tifa puts the tags of the last `-tags` in `GOFLAGS` (set in the environment or with `go env -w`) in front: with `GOFLAGS=-tags=netgo`, tifa passes `-tags=netgo,slowjs_nogoasm`. With `build.goasm` on, tifa passes no `-tags`, and `GOFLAGS=-tags=slowjs_nogoasm` turns the assembly off as well.
+slowjs runs JavaScript in QuickJS written in C, which LLVM compiled to Go assembly that the module ships. Building needs no C compiler and no cgo, and `CGO_ENABLED=0` stays. The engine runs on linux/amd64 and darwin/arm64 only. A build for another target stops with an error from slowjs that names these two. See [Performance](performance.md) for how fast it renders and how much memory a VM holds.
 
 ### Building for another system
 
@@ -175,7 +141,6 @@ go tool tifa build
 | --- | --- |
 | `main.go` | Calls `server.Main` (`server.DevMain` under [tifa dev](dev.md)), filling in only the hooks that actually exist in `hooks.go`. Embeds the frontend output `dist/` with `go:embed`, and the project config too when there is one |
 | `routes.go` | Two package-level variables, `layouts` and `routes`. Each `Load` and `Layout` function is wrapped as `func(c *tifa.Ctx) (any, error) { return tifa.Use(c, pkg.Load) }`, and `pkg.Layout` for a Layout. A method handler with an input or a result goes through `server.Input`, `server.Output` or `server.InputOutput`, which decode the input with `(*tifa.Ctx).Bind` or, for GET and DELETE, `(*tifa.Ctx).BindQuery`, run its `Validate` and write the result |
-| `default.pgo` | The profile `go build` optimizes the program with, see "Profile-guided optimization" above. Not under [tifa dev](dev.md) |
 | `tifa.yaml` or `tifa.json` | A copy of the project config (`go:embed` cannot reach parent folders). It is checked against the runtime rules at build time first |
 | `routes.tsx` | The TanStack route tree and the `Register` type registration |
 | `app/<folder>/+route.ts`, `app/<folder>/+layout.ts` | `+route.ts` for each page, `+layout.ts` for each Layout. Each exports `route`, `Data` and `Params`. `+route.ts` also exports a function per method handler, and an API route with handlers gets a `+route.ts` with only `Params` and these functions. They call `runtime/call.ts` |

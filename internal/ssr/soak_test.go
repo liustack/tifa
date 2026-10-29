@@ -1,9 +1,8 @@
 package ssr
 
-// Opt-in long tests of VM reuse and OOM recycling. They count QuickJS native
-// allocations, so they need the memory.counters build tag:
+// Opt-in long tests of VM reuse and OOM recycling:
 //
-//	TIFA_SSR_SOAK=1 go test -tags memory.counters -run Soak -v ./internal/ssr
+//	TIFA_SSR_SOAK=1 go test -run Soak -v ./internal/ssr
 
 import (
 	"context"
@@ -18,39 +17,19 @@ import (
 
 	"github.com/liustack/slowjs"
 	"github.com/liustack/tifa/internal/config"
-	"modernc.org/libc"
 )
 
 func skipUnlessSoak(t *testing.T) {
 	t.Helper()
 	if os.Getenv("TIFA_SSR_SOAK") == "" {
-		t.Skip("set TIFA_SSR_SOAK=1 and build with -tags memory.counters")
+		t.Skip("set TIFA_SSR_SOAK=1")
 	}
-}
-
-// nativeBaseline returns the live native allocations after one VM has been
-// created and closed, which warms the allocator like the prototype measurements.
-func nativeBaseline(t *testing.T) int {
-	t.Helper()
-	vm, err := slowjs.NewVM()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := vm.Close(); err != nil {
-		t.Fatal(err)
-	}
-	n := libc.MemStat().Allocs
-	if n == 0 {
-		t.Fatal("native allocation counters are off, build with -tags memory.counters")
-	}
-	return n
 }
 
 // Two VMs, two callers, 10,000 renders. Every render must carry its own data,
-// no VM may be retired, and closing the pool returns native memory to the baseline.
+// no VM may be retired, and closing the pool unmaps the memory of every VM.
 func TestSoakReuse(t *testing.T) {
 	skipUnlessSoak(t)
-	baseline := nativeBaseline(t)
 	cfg := config.SSR{VMs: 2, VMMemory: 128 << 20, VMStackDepth: config.Default().SSR.VMStackDepth, Timeout: 10 * time.Second, QueueLimit: 32, WaitTimeout: time.Second}
 	p, err := NewPool(testSource(t), nil, cfg, false)
 	if err != nil {
@@ -82,7 +61,7 @@ func TestSoakReuse(t *testing.T) {
 	for i := range requests {
 		jobs <- i
 		if (i+1)%2_000 == 0 {
-			t.Logf("%d renders, native allocations %d", i+1, libc.MemStat().Allocs)
+			t.Logf("%d renders", i+1)
 		}
 	}
 	close(jobs)
@@ -93,15 +72,14 @@ func TestSoakReuse(t *testing.T) {
 	if err := p.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if after := libc.MemStat().Allocs; after != baseline {
-		t.Fatalf("native allocations after close: baseline %d, after %d", baseline, after)
+	if s := p.stats(); s.created != s.closed {
+		t.Fatalf("the pool closed with VMs left open: %+v", s)
 	}
-	t.Logf("native allocations back to baseline %d", baseline)
 }
 
 // One render fills a VM in 256 KiB steps and repeatedly parses Chinese input.
 // Growth within the render cannot be preempted by an idle swap. After eight OOM
-// failures, recovery renders and Close, native memory must return to baseline.
+// failures, recovery renders and Close, every VM must have closed without an error.
 func TestSoakOOMRecycle(t *testing.T) {
 	skipUnlessSoak(t)
 	const retain = `;globalThis.startRender = (start => json => {
@@ -111,7 +89,6 @@ func TestSoakOOMRecycle(t *testing.T) {
  }
  return start(json);
 })(globalThis.startRender);`
-	baseline := nativeBaseline(t)
 	p, err := NewPool(testSource(t)+retain, nil, config.SSR{VMs: 1, VMMemory: 32 << 20, VMStackDepth: config.Default().SSR.VMStackDepth, Timeout: 10 * time.Second, QueueLimit: 32, WaitTimeout: time.Second}, false)
 	if err != nil {
 		t.Fatal(err)
@@ -134,10 +111,9 @@ func TestSoakOOMRecycle(t *testing.T) {
 	if err := p.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if after := libc.MemStat().Allocs; after != baseline {
-		t.Fatalf("OOM recycling retained native allocations: baseline %d, after %d", baseline, after)
+	if s := p.stats(); s.created != s.closed {
+		t.Fatalf("the pool closed with VMs left open: %+v", s)
 	}
-	t.Logf("native allocations back to baseline %d", baseline)
 }
 
 // What a VM holds after a GC. Every VM here but the bare one comes from Load, as in the pool, since

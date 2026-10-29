@@ -6,11 +6,19 @@
 
 ### 变更
 
-- 用 slowjs 的 C 引擎时，空闲的 VM 会把空闲内存还给系统。一个 VM 一秒没有渲染，就把渲染留下的空闲页和碰过的栈还回去，两次渲染之间的完整回收原来什么也没还，现在也会还。程序里示例商店的一个 VM 空闲时占 9.6 MiB，原来是 12.8 MiB，MUI 测试应用的一个 VM 占 5.6 MiB，原来是 7.7 MiB，约少四分之一（见[内存](docs/performance.zh-CN.md#内存)）。至少每秒渲染一次的 VM 留着自己的内存，所以按负载估算容量不变。等待之后的第一次渲染多花 1 到 2.5 ms，渲染时间不变。Go 上的引擎不还内存，那里没有变化。
+- 服务端渲染改用 slowjs v0.29 的 C 引擎，它是唯一的引擎：用 C 写的 QuickJS，编译成随模块发布的 Go 汇编。构建不需要 C 编译器，`CGO_ENABLED=0` 照旧。页面渲染出的 HTML 一样，用的时间更少（见下面的性能）。应用能看到的变化：
+  - 应用只能为 linux/amd64 和 darwin/arm64 构建。为别的目标构建，比如 windows、darwin/amd64 或 linux/arm64，会停在 slowjs 报的错上，错误里写明这两个平台。
+  - 一次渲染里 `JSON.parse` 最多嵌套 2000 层，数据嵌套更深的页面原来能渲染，现在会失败，报 `RangeError: JSON nesting too deep`。
+  - `ssr.vm_stack_depth` 默认仍是 10000，最大也仍是 10000。它现在数的是调用次数，原来的引擎数的是自己栈上的槽位。渲染里普通递归能到的深度仍和 Node 一样。无限递归的渲染让进程在 linux/amd64 上最多涨 26 MB，在 darwin/arm64 上涨 14 MB，原来最多涨 24 MB 的 goroutine 栈（见[栈深度](docs/config.zh-CN.md#栈深度)）。
+  - `ssr.vm_memory` 限制的是引擎自己的分配器持有的内存。同一份堆现在数出来少 13% 到 15%，所以同样的限制能多装这么多。
+  - `modernc.org/libc` 不再是 tifa 的依赖。`tifa new` 固定的 SQLite 版本不必再和某个 libc 版本对齐。
+  - 项目文件里的 `build.goasm` 没有了，因为已经没有可以切换过去的 Go 解释器。项目文件里再写它，会因为未知的键而失败。
+- `tifa build` 不再用 CPU 剖析（PGO）编译应用。`build.pgo` 配置项和应用里的 `default.pgo` 文件都没有了，项目文件里再写 `build.pgo` 会因为未知的键而失败。引擎是 PGO 改不了的 Go 汇编，剖析也没有可量出的差别：在 linux/amd64 上，商店、MUI 应用和 bench 应用的页面用它和不用它的耗时比是 0.998、0.999 和 1.004，一次渲染执行的指令数是不用的 0.9987 到 1.0003，在 darwin/arm64 上商店的页面是 1.002（见[性能](docs/performance.zh-CN.md#构建)）。用 C 引擎之前的引擎时，它让页面在 linux/amd64 上快约 3%，在 darwin/arm64 上快约 7%。升级 slowjs 时不用再重采剖析。
+- 空闲的 VM 会把空闲内存还给系统。一个 VM 一秒没有渲染，就把渲染留下的空闲页和碰过的栈还回去，两次渲染之间的完整回收原来什么也没还，现在也会还。程序里示例商店的一个 VM 空闲时占 9.6 MiB，原来是 12.8 MiB，MUI 测试应用的一个 VM 占 5.6 MiB，原来是 7.7 MiB，约少四分之一（见[内存](docs/performance.zh-CN.md#内存)）。至少每秒渲染一次的 VM 留着自己的内存，所以按负载估算容量不变。等待之后的第一次渲染多花 1 到 2.5 ms，渲染时间不变。
 - 示例商店换了外观，页面也重到和真实网店相当。外观照着印刷的商品目录来做，英文标题用 Newsreader，随应用打包，中文标题和正文用系统字体。每件商品有三张 AVIF 图，各有三种宽度。店面加了分类菜单、购物车抽屉、轮播、商品图库、分页的带图评价、问答和搭配购买。商品列表有带数量的筛选、常用筛选、已选条件、网格和列表视图和快速查看，商品页有完整规格和同类商品对比。工作台的订单列表每页 25 行，带商品图，可以按日期、快递和金额筛选，有行操作菜单和批量操作。订单详情有操作记录、内部备注、付款、库存检查、拣货单和物流轨迹，销售统计有每件商品的明细表、下单时段热力图、快递表现和常客。页面内容多了，渲染也就更久：新数字见[性能](docs/performance.zh-CN.md#改版后的商店)，这不代表 tifa 变慢了。打包进去的字体和图片让 darwin/arm64 上的 `bin/shop` 从 31.1 MB 变成 35.9 MB。
 - 带大块 `Load` 数据的页面渲染更快。每个 `Load` 的 JSON 文本现在作为交给渲染的一个单独参数，Go 不用再把它转义进输入的 JSON，VM 也不用解析两遍。一个 1,000 行、每行两个 UUID 的表格，渲染时间是原来的 0.986（0.965 到 0.991，6 轮全部更快），服务端准备渲染输入的时间是原来的 0.665（0.655 到 0.682）。示例商店的工作台和店面页面数据只有几 KB，变化在各轮的波动之内（一组页面在原来的 0.987 到 1.008 之间）。HTML 不变，浏览器包也不变。
 - 装了 rolldown 1.2.15 或 seroval 1.7 的应用，也能拿到 tifa 插件的提速。rolldown 1.2.15 在每个模块开头写的是 `// 路径` 注释，不再是 `//#region 路径`，seroval 1.7 把要问的插件传给 `parsePlugin`，所以原来插件会报警告，React 的命名空间留着 getter，路由数据里的数组按 seroval 自己的写法写出，渲染更慢。新建的应用装的就是这两个版本。页面 HTML 不变。
-- 服务端渲染改用 slowjs v0.28.6。在 linux/amd64 上，服务端渲染改用 slowjs 的 Go 汇编解释器执行 JavaScript，slowjs 现在在这个平台上默认用它。页面渲染出的 HTML 一样，用的时间更少：一个 VM 时，示例商店的工作台页面耗时是原来的 0.940，MUI 测试应用的页面是 0.850，8 个超线程上跑 8 个 VM 时，程序每秒渲染的商店页面是原来的 1.085 倍，MUI 页面是 1.211 倍（见 [JavaScript 解释器](docs/build.zh-CN.md#javascript-解释器)）。在项目文件里写 `build.goasm: false` 就改用 Go 解释器构建。
+- 服务端渲染改用 slowjs v0.28.6。在 linux/amd64 上，服务端渲染改用 slowjs 的 Go 汇编解释器执行 JavaScript，slowjs 现在在这个平台上默认用它。页面渲染出的 HTML 一样，用的时间更少：一个 VM 时，示例商店的工作台页面耗时是原来的 0.940，MUI 测试应用的页面是 0.850，8 个超线程上跑 8 个 VM 时，程序每秒渲染的商店页面是原来的 1.085 倍，MUI 页面是 1.211 倍。
 - 服务端渲染改用 slowjs v0.28.5，它让异步上下文跟着 promise 任务走，服务端的 `AsyncLocalStorage` 靠的就是这个，还会直接从 shape 列出普通对象的自有键，用于 `Object.keys`、`for in`、对象展开和 `JSON.stringify`。
 - 服务端渲染改用 slowjs v0.28.4，模块跑完后它会释放模块的顶层函数和它留住的变量。
 - SSR 包和浏览器包一样在严格模式下运行：它现在是一个 ES 模块，每个虚拟机把它当模块运行（见[顶层 await 和严格模式](docs/app.zh-CN.md#顶层-await-和严格模式)）。只能在非严格模式下运行的包，在服务端也会失败。`tifa build` 像服务端那样把 SSR 包编译一遍，但不运行它，所以只有非严格模式允许的语法（比如 CommonJS 文件里的 `with` 语句）会让构建失败，错误里有源文件中的位置，不会等到服务端启动才失败。给从没声明过的变量赋值，运行到那里时抛 `ReferenceError`。页面渲染出的 HTML 不变。
@@ -30,7 +38,6 @@
 
 ### 新增
 
-- 项目文件里的 `build.goasm`，默认 `true`。设为 `false` 时 `tifa build` 和 `tifa dev` 在 linux/amd64 上也用 slowjs 的 Go 解释器构建，即 `-tags=slowjs_nogoasm`，加在 `GOFLAGS` 里 `-tags` 的标签后面（见 [JavaScript 解释器](docs/build.zh-CN.md#javascript-解释器)）。
 - 包可以引入只在 Node 上用的 Node 模块（比如渲染永远走不到的代码里用的 `node:fs`），应用照样加载、渲染。引入的每个名字都是一个替身，渲染用到它时才抛错，错误里有用到的导出、模块、包和它源码里的位置。以前打包时这样的 import 变成 `require`，每个虚拟机加载时就失败，哪怕只有 `import()` 才走到那个模块。`tifa build` 仍会列出留在 SSR 包里的 Node 模块（见[引入 Node 模块的包](docs/app.zh-CN.md#引入-node-模块的包)）。
 - 挂起等待 promise 自己就能完成的事的组件（比如模块在包里的 `React.lazy` 组件，或对 promise 调 `use`）可以在服务端渲染：服务端等它，写出完整的页面，就是浏览器加载完后显示的样子。以前这样的页面会失败，错误说有组件挂起了。等定时器或请求的仍然报这个错。不挂起的页面 HTML 不变，渲染一样快（见[会等待的组件](docs/app.zh-CN.md#会等待的组件)）。
 - 服务端渲染里有 `AsyncLocalStorage`，既是全局变量，也和 `AsyncResource` 一起由 `node:async_hooks` 导出，和 Cloudflare Workers 一样：有 `run`、`exit`、`getStore`、`bind` 和 `snapshot`。store 跟着 `await` 和 promise 回调走。fumadocs 把页面状态放在里面，现在除了它自己的 `collections` 别名，不用任何设置就能构建和渲染。
@@ -51,6 +58,8 @@
 - 路由的 `head` 可以返回 `htmlAttributes`，即这些页面 `<html>` 的属性，比如多语言网站的 `lang`。它们逐个属性合并到根 Layout 的 `htmlAttributes` 上，最深的路由优先，`null` 去掉属性。浏览器每次跳转后同步这些属性，不走 SSR 的页面也一样。tifa 只在它要的值变了时才写某个属性，也只去掉自己写过的属性，所以页面脚本设的 class 或 `lang` 一直保留，直到某个路由要另一个值。不用这个功能的应用 HTML 不变，在浏览器里 tifa 也和以前一样，首次渲染之后不再碰 `<html>`，页面脚本在上面改什么都保留。示例店面这样设置自己的语言，店面没有的路径用 URL 里的语言回答 404。
 
 ### 性能
+
+- slowjs 的 C 引擎渲染示例商店的工作台页面、MUI 测试应用和 bench 应用的页面，耗时是 slowjs v0.28.7 加 tifa 当时自带剖析的 0.834 到 0.860，HTML 一样，而且不开剖析（11 个页面，一个 VM 一个核，8 个代码位置全部更快，见[引擎](docs/performance.zh-CN.md#引擎)）。渲染时 Go 垃圾回收让程序停的时间一样短：1 个 VM 时 P99 是 131 到 164 µs，3 个 VM 时是 197 µs，最长一次停 3.1 ms 和 0.9 ms，原来是 4.2 和 2.1 ms。示例商店的一个 VM 加载后占进程 8.5 到 8.6 MiB，渲染后 12.8 MiB，空闲后 9.6 MiB，MUI 测试应用的一个 VM 是 3.9、7.4 到 7.6 和 5.3 到 5.5 MiB（见[内存](docs/performance.zh-CN.md#内存)）。
 
 - lucide-react 的图标渲染更快：每个 VM 记住 lucide-react 给 props 相同的图标构建出的结果，再次用到时直接交出去。shop 的工作台页面渲染时间少 4.3%，店面页面少 5.8%，HTML 不变。lucide-react 某个版本改了缓存依赖的文件时，构建打印警告，图标照旧渲染（[build.zh-CN.md](docs/build.zh-CN.md#前端产物)）。
 - 用 i18next 翻译的页面渲染更快：`getFixedT` 和 `useTranslation` 的 `t` 只在键或键前缀写成函数时才复制 i18next 的选项，i18next 也记住分辨带命名空间的键和一句话用的正则。shop 的店面页面渲染时间少 5.2%，HTML 不变。i18next 某个版本改了这两个函数之一时，构建打印警告，那个函数保持原样（[build.zh-CN.md](docs/build.zh-CN.md#前端产物)）。

@@ -1,5 +1,5 @@
 ---
-summary: 'Testing and verification: commands to run before committing, checks for the example app, end-to-end tests, red before green, the long SSR tests that are skipped by default, the SSR benchmarks of the example app with one VM and with several at once, the extreme pages that find where rendering stops working, and how to collect the engine profile again, and what CI on GitHub runs and leaves out'
+summary: 'Testing and verification: commands to run before committing, checks for the example app, end-to-end tests, red before green, the long SSR tests that are skipped by default, the SSR benchmarks of the example app with one VM and with several at once, the extreme pages that find where rendering stops working, and what CI on GitHub runs and leaves out'
 read_when:
   - Getting ready to commit and checking which checks to run
   - Writing a new test or fixing a bug
@@ -8,11 +8,11 @@ read_when:
   - Running the end-to-end tests, or changing `internal/codegen`, `test/apps` or `examples/shop`
   - Measuring SSR render time or VM memory, or comparing an SSR change against the baseline
   - Measuring what one VM costs the process, how long the Go GC stops the program while VMs render, or whether two builds write the same HTML
-  - Running the SSR tests and benchmarks on the C engine of slowjs
+  - Timing the SSR tests and benchmarks against another build of slowjs
   - Changing `internal/ssr` or `test/ssr`
-  - Checking how large a page can get before it fails, or that it fails cleanly, on either engine of slowjs
+  - Checking how large a page can get before it fails, or that it fails cleanly
   - Changing something every VM uses, such as how the engine allocates memory, or checking that SSR still speeds up with more cores
-  - Upgrading github.com/liustack/slowjs or modernc.org/libc, or `TestEngineProfileMatchesTheDependencies` fails
+  - Upgrading github.com/liustack/slowjs
   - Changing how the server serves HTTPS or gets its certificates
   - Changing `.github/workflows/`, or a CI run is red and you need to know what it runs
 ---
@@ -88,7 +88,6 @@ Left out on purpose:
 - **Tests that need `TIFA_SSR_SHOP`, `TIFA_SSR_SOAK`, `TIFA_SSR_EXTREME` or `TIFA_EXTREME`**: the shop SSR tests, the soak tests and the extreme pages. They take long, and the benchmarks among them need a quiet machine.
 - **The `-race` runs**: they are run on chosen packages by hand (see [Before committing](#before-committing)).
 - **darwin/arm64 for e2e**: it has the same Node and the same tests, so it adds time and no new facts. Add it by putting the job in a matrix.
-- **The C engine of slowjs** (`-tags slowjs_cengine`): slowjs checks that itself. Add a `GOFLAGS=-tags=slowjs_cengine` run of `go test ./...` when tifa starts to use it.
 
 The steps run with `permissions: contents: read`, and the actions are pinned to a major version.
 
@@ -121,10 +120,10 @@ The bundle tests run Vite on Node, with the packages of `internal/bundle/testdat
 The default tests in `internal/ssr` only use small handwritten bundles, `testdata/app.js` and the bundles with source maps in `explain_test.go` for render errors (broken maps, and a bound on what explaining an error allocates), and finish in a few seconds. The soak tests skip by default:
 
 ```sh
-TIFA_SSR_SOAK=1 go test -tags memory.counters -run Soak -v ./internal/ssr
+TIFA_SSR_SOAK=1 go test -run Soak -v ./internal/ssr
 ```
 
-They run normal reuse (2 VMs, 2 callers, 10,000 renders), OOM recovery (8 failures and replacements), and 16 proactive memory swaps. The OOM fixture fills memory within one render, repeatedly parsing input with long Chinese text, so an idle swap cannot preempt the failure. It exercises the input conversion and allocation cleanup where github.com/liustack/slowjs fixed a leak. If this test fails, first confirm the dependency is this fork and not modernc.org/quickjs. After shutdown, the native allocation count must return to the baseline. `TestSoakVMMemory` loads every VM the way the pool does. It prints what Intl adds to an empty VM, unused and after formatting, and what the bundle adds after loading, formatting and a render. It fails when Intl adds more than 32 KB to a VM that never formats.
+They run normal reuse (2 VMs, 2 callers, 10,000 renders), OOM recovery (8 failures and replacements), and 16 proactive memory swaps. The OOM fixture fills memory within one render, repeatedly parsing input with long Chinese text, so an idle swap cannot preempt the failure. It exercises the input conversion and allocation cleanup where github.com/liustack/slowjs fixed a leak. If this test fails, first confirm the dependency is this fork and not modernc.org/quickjs. After shutdown, every VM the pool made must have closed without an error. `TestSoakVMMemory` loads every VM the way the pool does. It prints what Intl adds to an empty VM, unused and after formatting, and what the bundle adds after loading, formatting and a render. It fails when Intl adds more than 32 KB to a VM that never formats.
 
 ## SSR tests with the example app (`test/ssr`)
 
@@ -134,7 +133,7 @@ They run normal reuse (2 VMs, 2 callers, 10,000 renders), OOM recovery (8 failur
 | --- | --- |
 | `TIFA_SSR_SHOP=1 go test -run Shop -v ./test/ssr` | Renders the list, detail and stats pages of two shops, checks page content, script escaping, and that VM reuse does not mix up data. `TestShopWarmLatency` renders each page a few times in a warm VM, fails when one render takes more than a second, and prints P50/P95/P99. Takes about 15 seconds |
 | `TIFA_SSR_SHOP=1 TIFA_SSR_MEASURE=1 go test -run ShopWarmLatency -v ./test/ssr` | `TestShopWarmLatency` with the method of the prototype baseline: 512 warm renders, then 2,048 timed ones over the six pages. Use these numbers for comparisons. Takes about 3 minutes |
-| `TIFA_SSR_SHOP=1 TIFA_SSR_SOAK=1 go test -tags memory.counters -run Soak -v ./test/ssr` | The soak tests of `internal/ssr` with the shop's bundle: reuse over the six pages, the OOM recovery test on the order detail page, whose data contains Chinese text, and what a VM of the shop holds after loading, formatting and a render. Takes about 2 minutes |
+| `TIFA_SSR_SHOP=1 TIFA_SSR_SOAK=1 go test -run Soak -v ./test/ssr` | The soak tests of `internal/ssr` with the shop's bundle: reuse over the six pages, the OOM recovery test on the order detail page, whose data contains Chinese text, and what a VM of the shop holds after loading, formatting and a render. Takes about 2 minutes |
 
 ## Extreme pages (`test/apps/extreme`)
 
@@ -164,17 +163,11 @@ TIFA_SSR_EXTREME=1 go test -run '^$' -bench Extreme -benchtime 5x -v ./test/ssr
 TIFA_SSR_EXTREME=1 go test -run ExtremeIsolation -v ./test/ssr
 ```
 
-- `TestExtremeApp` (20 to 30 seconds with the build) requests every size in turn from the built program. Each size must render, with the counts of its data in the HTML, or fail as a 500 within the 3 seconds of `ssr.timeout` and one more, after which `/` must render. `extremePages` in `test/e2e/extreme_test.go` says which sizes must render and which must fail. Two sizes, `/markdown/200` and `/console/100`, take from about 1.4 to 3.5 seconds depending on the machine and the engine, near the 3 seconds of `ssr.timeout`. The test requests them from a second program run with `--ssr-timeout 60s`, where they must render with all their data, so the result does not depend on how fast the machine is. The program must not exit or panic, and must not hold more than 1 GiB at once.
+- `TestExtremeApp` (20 to 30 seconds with the build) requests every size in turn from the built program. Each size must render, with the counts of its data in the HTML, or fail as a 500 within the 3 seconds of `ssr.timeout` and one more, after which `/` must render. `extremePages` in `test/e2e/extreme_test.go` says which sizes must render and which must fail. Two sizes, `/markdown/200` and `/console/100`, take from about 1 to 2.8 seconds depending on the machine, near the 3 seconds of `ssr.timeout`. The test requests them from a second program run with `--ssr-timeout 60s`, where they must render with all their data, so the result does not depend on how fast the machine is. The program must not exit or panic, and must not hold more than 1 GiB at once.
 - `BenchmarkExtreme` (3 to 6 minutes, mostly the sizes that fail) renders each size with the default settings. For a size that renders it reports the P50 and P99 of warm renders, `vm-MiB`, the VM's memory right after its first render, and `stack-KiB`, how much the goroutine stack grew during it. The `/inject` sizes also report the data request (`load-ms`), escaping it (`escape-ms`) and parsing it in a VM (`parse-ms`). For a size that fails, it logs how and after how long, and what it takes with 1 GiB and 60 seconds instead, and skips. Run it with `-v` to see these lines.
-- `TestExtremeIsolation` (about 20 seconds with 4 CPUs) renders `/table/25` with three of four VMs while the fourth renders `/markdown/200` again and again: once with time to finish, once with a budget of one second, so the pool stops and replaces that VM each time. The P99 of the light page must not be more than 1.5 times, or 5 ms, worse when VMs are stopped. It needs 4 CPUs, and with fewer only prints the numbers.
+- `TestExtremeIsolation` (about 20 seconds with 4 CPUs) renders `/table/25` with three of four VMs while the fourth renders `/markdown/200` again and again: once with time to finish, once with a budget of half a second, so the pool stops and replaces that VM each time. The P99 of the light page must not be more than 1.5 times, or 5 ms, worse when VMs are stopped. It needs 4 CPUs, and with fewer only prints the numbers.
 
-To run them on the C engine of slowjs (linux/amd64 only), use a `go.work` that uses this repository, `test/apps/extreme` and a checkout of slowjs with its engine generated, and build with its tag. The end-to-end tests pass `GOFLAGS` on to `tifa build`:
-
-```sh
-export GOWORK=/path/to/go.work GOFLAGS=-tags=slowjs_cengine
-```
-
-`test/e2e/extreme_cengine_test.go` holds what differs on the C engine: `/json/2001` fails there. The numbers of the last run are in [Performance](performance.md#extreme-pages).
+`/json/2001` must fail: the engine of slowjs parses JSON at most 2,000 levels deep, so its render throws and the page is a 500. The numbers of the last run are in [Performance](performance.md#extreme-pages).
 
 ## Performance comparisons
 
@@ -211,17 +204,9 @@ TIFA_SSR_CRAWL=compare:/tmp/pages-a TIFA_SSR_CRAWL_BIN=$PWD/examples/shop/bin/sh
 | `TestShopGCPause` | How long the Go GC stops the program while VMs render. `TIFA_SSR_VMS` (2) VMs render without a pause while a goroutine allocates `TIFA_SSR_ALLOC_MB` (512) megabytes a second, so the GC runs all the time. Reports the number of pauses and their P50, P99 and largest, for the whole stop and for the wait to stop the world (where a VM inside one long operation shows), and the renders a second with their P50 and P99. A few seconds by default, `TIFA_SSR_MEASURE=1` makes it 10 seconds of warm-up and `TIFA_SSR_SECS` (60) of measuring |
 | `TestShopCrawl` | Whether two builds write the same HTML. Crawls the pages of a running shop program, 27 starting URLs and the links they lead to (up to 160 pages), and writes them (`write:DIR`) or compares them byte for byte with a crawl made before (`compare:DIR`). The loaders write some times as RFC 3339 text, so a page that differs only there counts as the same after masking them, and the log counts them. Build the shop twice and crawl each; `TIFA_SSR_CRAWL_BIN` names the program (default `examples/shop/bin/shop`) |
 
-### On the C engine of slowjs
+### Timing a build of slowjs against another
 
-The tests and benchmarks above run on the C engine of slowjs (linux/amd64, linux/arm64 and darwin/arm64) with a `go.work` that uses this repository, `examples/shop` and a slowjs checkout whose engine is generated, and the tag:
-
-```sh
-export GOWORK=/path/to/go.work GOFLAGS=-tags=slowjs_cengine
-(cd examples/shop && go tool tifa build)       # the shop program is built with the engine too
-TIFA_SSR_SHOP=1 go test -run '^$' -bench 'Shop/^render' -benchtime 100x ./test/ssr
-```
-
-To time one build of slowjs against another at several code positions, use `go tool sjdev bench` in slowjs ([docs/testing.md](https://github.com/liustack/slowjs/blob/main/docs/testing.md#developer-tools-generate-check-time)), which also has the make targets that generate its engine and run its checks, here or on another machine: it builds this package's test binary against each checkout, runs them in turn and reads the `p50-ms` of the pages by the rule of its code positions. A binary that prints a line `vmhwm-kb: N` at the end (the child of `TestShopVMResident` does) also gets its peak memory reported.
+To time one build of slowjs against another at several code positions, with a `go.work` that uses this repository, `examples/shop` and a slowjs checkout whose engine is generated, use `go tool sjdev bench` in slowjs ([docs/testing.md](https://github.com/liustack/slowjs/blob/main/docs/testing.md#developer-tools-generate-check-time)), which also has the make targets that generate its engine and run its checks, here or on another machine: it builds this package's test binary against each checkout, runs them in turn and reads the `p50-ms` of the pages by the rule of its code positions. A binary that prints a line `vmhwm-kb: N` at the end (the child of `TestShopVMResident` does) also gets its peak memory reported.
 
 The prototype's other experiments (per-stage timing, memory probes) stay in `internal/ssr` at the tag `prototype-baseline`. Check out that tag and build from it when needed.
 
@@ -256,22 +241,6 @@ go tool pprof -top -cum ssr.test mutex.out
 
 With v0.26.8, half the wait is under `modernc.org/libc.Xalloca` and `Xmalloc`, and most of the rest under `Xfree`.
 
-## The engine profile
-
-`internal/codegen/engine.pgo` is the profile `tifa build` compiles apps with pages with (see [build.md](build.md#profile-guided-optimization)). It is made on linux/amd64. PGO finds a call site by its caller, its callee and the line of the call within the caller, so the profile must be made with the versions of slowjs and modernc.org/libc in `go.mod`. `TestEngineProfileMatchesTheDependencies` in `internal/codegen` checks this from the source file names in the profile, and fails for a profile made with a `replace` of either module.
-
-After upgrading slowjs or modernc.org/libc, collect it again on a quiet linux/amd64 machine, with a fresh build of the example app:
-
-```sh
-(cd examples/shop && pnpm install --frozen-lockfile && go tool tifa build)
-TIFA_SSR_SHOP=1 GOMAXPROCS=1 go test -run '^$' -bench 'Shop/^render' -benchtime 500x \
-  -cpuprofile internal/codegen/engine.pgo -o "$(mktemp -d)/ssr.test" ./test/ssr
-go test -run EngineProfile ./internal/codegen
-```
-
-500 renders of each page give about 3 minutes of CPU samples on a quiet AMD EPYC 7B13 with the slowjs of October 28, 2026, whose default build on linux/amd64 runs the interpreter in Go assembly. One profile is enough for arm64 too: on darwin/arm64, a build with a profile made on linux/amd64 renders as fast as one with a profile made on the same Mac (0.3% apart, measured with quickjs v0.26.13).
-
-A profile of an older slowjs or libc still builds and changes no output. It only finds fewer call sites, so pages render slower than they could.
 
 ## Render clock
 

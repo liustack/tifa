@@ -403,8 +403,7 @@ func TestNoGCBetweenRendersOnceClosing(t *testing.T) {
 }
 
 // Load gives the memory that loading left free back to the system, so that a VM the pool keeps
-// for later holds what its bundle keeps. The engine of lib takes its memory from libc and gives
-// none back.
+// for later holds what its bundle keeps.
 func TestLoadGivesBackFreeMemory(t *testing.T) {
 	cfg := testConfig(1)
 	bytecode, err := Compile(testSource(t), uintptr(cfg.VMMemory), cfg.Timeout)
@@ -418,9 +417,6 @@ func TestLoadGivesBackFreeMemory(t *testing.T) {
 	}
 	defer vm.Close()
 	u := vm.MemoryUsage()
-	if u.Footprint == 0 {
-		t.Skip("the engine takes its memory from libc")
-	}
 	if u.ReleaseCandidate == 0 {
 		t.Fatalf("Load gave nothing back: footprint %d, %d bytes in use", u.Footprint, u.MallocSize)
 	}
@@ -434,9 +430,6 @@ func TestFullGCGivesBackWhatABigRenderTook(t *testing.T) {
 	var live uintptr
 	var before slowjs.MemoryUsage
 	idleVM(p, func(vm *pooledVM) { live, before = vm.live, vm.MemoryUsage() })
-	if before.Footprint == 0 {
-		t.Skip("the engine takes its memory from libc")
-	}
 	if _, err := p.Render(context.Background(), input("hold", fmt.Sprint(3*live/objectSize(t, holdJS)))); err != nil {
 		t.Fatal(err)
 	}
@@ -473,9 +466,6 @@ func TestFullGCGivesBackFreeMemory(t *testing.T) {
 	}
 	var before slowjs.MemoryUsage
 	idleVM(p, func(vm *pooledVM) { before = vm.MemoryUsage() })
-	if before.Footprint == 0 {
-		t.Skip("the engine takes its memory from libc")
-	}
 	if _, err := p.Render(context.Background(), input("hold", count)); err != nil {
 		t.Fatal(err)
 	}

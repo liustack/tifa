@@ -9,8 +9,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"modernc.org/libc"
 )
 
 const leakSource = `globalThis.held = []; globalThis.startRender = (json) => {
@@ -408,10 +406,9 @@ func TestMemorySwapAccumulatedLeak(t *testing.T) {
 	waitReplacements(t, p, 1)
 }
 
-// Proactive swaps must release the native allocations of every retired VM.
+// Proactive swaps must close every retired VM.
 func TestSoakMemorySwap(t *testing.T) {
 	skipUnlessSoak(t)
-	baseline := nativeBaseline(t)
 	p := newTestPool(t, leakSource, testConfig(1))
 	for cycle := range 16 {
 		leakRender(t, p)
@@ -420,7 +417,7 @@ func TestSoakMemorySwap(t *testing.T) {
 	if e := p.Close(); e != nil {
 		t.Fatal(e)
 	}
-	if got := libc.MemStat().Allocs; got != baseline {
-		t.Fatalf("native allocations after swaps: %d, baseline %d", got, baseline)
+	if s := p.stats(); s.created != s.closed {
+		t.Fatalf("VMs left open after swaps: %+v", s)
 	}
 }
