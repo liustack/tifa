@@ -45,9 +45,6 @@ type Build struct {
 	// I18nextCache makes the tifa Vite plugin add a cache of translations to i18next in the SSR
 	// bundle, see docs/build.md. It is on by default.
 	I18nextCache bool
-	// Goasm builds the program with slowjs's interpreter in Go assembly on linux/amd64, its
-	// default. false passes the build tag that makes slowjs use its Go interpreter instead.
-	Goasm bool
 }
 
 type Server struct {
@@ -105,8 +102,8 @@ const LetsEncrypt = "https://acme-v02.api.letsencrypt.org/directory"
 type SSR struct {
 	VMs      int
 	VMMemory int64
-	// VMStackDepth is how deep JavaScript calls may nest in each VM, in the engine's stack slots,
-	// about one per call, from 1 to MaxVMStackDepth.
+	// VMStackDepth is how deep JavaScript calls may nest in each VM, from 1
+	// to MaxVMStackDepth.
 	VMStackDepth int
 	Timeout      time.Duration
 	QueueLimit   int
@@ -117,8 +114,8 @@ type Cache struct {
 	Size int64
 }
 
-// MaxVMStackDepth is the default and the largest ssr.vm_stack_depth: the engine's own default,
-// which internal/ssr checks. Code that recurses without end takes about 1 KB of goroutine
+// MaxVMStackDepth is the default and the largest ssr.vm_stack_depth: the deepest the engine lets calls
+// nest, which internal/ssr checks. Code that recurses without end takes about 1 KB of goroutine
 // stack per level before it throws, and much deeper than this it would pass Go's stack limit,
 // which ends the process.
 const MaxVMStackDepth = 10000
@@ -129,7 +126,7 @@ const DefaultAddr = "127.0.0.1:9527"
 // Default holds values sized for small machines. ssr.vms follows GOMAXPROCS, which honours container CPU limits, with no cap.
 func Default() Config {
 	return Config{
-		Build:  Build{Target: "es2020", Public: "public", PGO: "auto", I18nextCache: true, Goasm: true},
+		Build:  Build{Target: "es2020", Public: "public", PGO: "auto", I18nextCache: true},
 		Server: Server{Addr: DefaultAddr, BodyLimit: 1 << 20, ShutdownTimeout: 10 * time.Second, Compress: true, TLSCA: LetsEncrypt, HTTPAddr: ":80"},
 		SSR:    SSR{VMs: runtime.GOMAXPROCS(0), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second, QueueLimit: 32, WaitTimeout: time.Second},
 		Cache:  Cache{Size: 64 << 20},
@@ -158,7 +155,6 @@ func fields(c *Config) []field {
 		{"build.pgo", "Profile for profile-guided optimization: auto, off or a file", pgoValue{&c.Build.PGO}},
 		{"build.debug_info", "Keep the DWARF debug info in the program, for debuggers such as Delve", boolValue{&c.Build.DebugInfo}},
 		{"build.i18next_cache", "Keep the strings i18next translates in the SSR bundle and give them again for the same call", boolValue{&c.Build.I18nextCache}},
-		{"build.goasm", "Run JavaScript in slowjs's interpreter in Go assembly on linux/amd64, false uses its Go interpreter", boolValue{&c.Build.Goasm}},
 		{"server.addr", "HTTP listen address", stringValue{&c.Server.Addr}},
 		{"server.body_limit", "Request body limit", sizeValue{&c.Server.BodyLimit, 1}},
 		{"server.shutdown_timeout", "Time allowed for in-flight requests, and then for OnShutdown, after a stop signal", durationValue{&c.Server.ShutdownTimeout}},

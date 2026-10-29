@@ -41,7 +41,7 @@ Writes a small working app into `dir`, which must be missing or empty: a todo li
 - The module path is the folder name unless `--module` gives one. The app imports the package at its root, so the path must be one the go command imports. tifa new refuses a path with a `vendor` element, and one whose first element has no dot and is, in any case, the first element of a standard library package or a go command pattern (such as `fmt`, `net` or `all`), even when no such package exists. Pass `--module example.com/fmt` instead.
 - The root package is named after the last element of the module path (not counting a major version suffix such as `/v2`), lowercased, with only its letters and digits kept. It must be a Go identifier that is not a keyword, `main` or `init` (Go does not take `init` as the name of an imported package). The Go files under `app/` import it by that name, so it may not be a name that means something else where they use it: a package they import, such as the domain `todos` or `tifa`, a predeclared name they use, such as `error`, or a parameter or variable in whose scope they use the root package, such as `db` or `ctx`. tifa new keeps a list of these names and refuses them, so `tifa new todos` fails and asks for another folder name or `--module`, and `--module example.com/todos` fails and asks for another last element of `--module`. Other names they use, such as `c` or `rows`, are fine. The name in `package.json` is the same, cut to 214 characters, the npm limit.
 - `go.mod` requires the version of the tifa command that ran when the go command downloaded it: `go run github.com/liustack/tifa/cmd/tifa@<version> new myapp`, or `go tool tifa new` in an app. A command built in a tifa checkout, or replaced by one, writes `v0.0.0` and adds a step that points `go.mod` at the checkout with `go mod edit -replace`.
-- `modernc.org/sqlite` and the slowjs of tifa both run on `modernc.org/libc`, and each SQLite release is built for one exact libc version. `go.mod` pins a SQLite release built for the libc that tifa requires. When you upgrade either one later, keep that libc version the same.
+- `go.mod` pins a `modernc.org/sqlite` release. The SQLite driver is pure Go, and `go mod tidy` adds the `modernc.org/libc` it needs. slowjs does not use that library, so no version has to match.
 - `tifa new` writes files only. It runs no go or npm commands and needs no network. It prints the next steps: `cd` into the folder, `go mod tidy`, `pnpm install` and `go tool tifa dev`, which serves the app at http://127.0.0.1:9527.
 - It looks for `pnpm` on PATH, without running it. When pnpm is there, the install step and the commands in `README.md` and `AGENTS.md` use pnpm (`pnpm install`, `pnpm typecheck`). Otherwise they use npm (`npm install`, `npm run typecheck`). `package.json` has no `packageManager` field, so both work on the same app.
 
@@ -95,20 +95,9 @@ build:
 
 `go build` takes several `-ldflags`, each for a package pattern or, without one, for the packages named on the command line. For each package it uses the last one that matches it, and the command line comes after `GOFLAGS`, so a `-ldflags` there replaces the one in `GOFLAGS`. So tifa puts the flags of the last `-ldflags` in `GOFLAGS` (set in the environment or with `go env -w`) in front of `-w`: with `GOFLAGS=-ldflags=-X=main.version=v1`, tifa passes `-ldflags=-X=main.version=v1 -w`. It adds nothing when those flags already have `-w` or `-s`, which then decide. It also adds nothing when an `-ldflags` in `GOFLAGS` is for a package pattern, such as `-ldflags=all=-X=main.version=v1`: write `-w` there yourself.
 
-### The JavaScript interpreter
+### The JavaScript engine
 
-On linux/amd64, slowjs runs JavaScript in an interpreter in Go assembly that LLVM compiled from QuickJS's C, in place of the interpreter in Go that every other system runs. Pages render the same HTML in less time. On an AMD EPYC 7B13 without PGO, with one VM, the shop's workbench pages take 0.940 of the time and the pages of the MUI test app 0.850. With 4 VMs on 4 cores the program renders 1.046 times as many shop pages a second and 1.171 times as many MUI pages, with 8 VMs on 8 hyperthreads 1.085 and 1.211 times, and it holds a little less memory. See [the measurements in slowjs](https://github.com/liustack/slowjs/blob/main/docs/fork-changes/go-assembly.md).
-
-To build with the Go interpreter on linux/amd64 too, set `build.goasm` in the [project file](config.md#settings):
-
-```yaml
-build:
-  goasm: false
-```
-
-Turn it off to see the time of the interpreter by Go function in a CPU profile, where the assembly shows as one function, `goasmRun`, or when a page behaves differently with it, which is a bug of slowjs to report.
-
-`tifa build` and `tifa dev` then pass `-tags=slowjs_nogoasm` to `go build`. A `-tags` on the command line replaces the one in `GOFLAGS`, so tifa puts the tags of the last `-tags` in `GOFLAGS` (set in the environment or with `go env -w`) in front: with `GOFLAGS=-tags=netgo`, tifa passes `-tags=netgo,slowjs_nogoasm`. With `build.goasm` on, tifa passes no `-tags`, and `GOFLAGS=-tags=slowjs_nogoasm` turns the assembly off as well.
+slowjs runs JavaScript in QuickJS written in C, which LLVM compiled to Go assembly that the module ships. Building needs no C compiler and no cgo, and `CGO_ENABLED=0` stays. The engine runs on linux/amd64 and darwin/arm64 only. A build for another target stops with an error from slowjs that names these two. See [Performance](performance.md) for how fast it renders and how much memory a VM holds.
 
 ### Building for another system
 

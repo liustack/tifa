@@ -41,7 +41,7 @@ tifa new <目录> [--module 模块路径]
 - 模块路径默认是目录名，`--module` 可以另给。应用要 import 根目录的包，所以路径必须是 go 命令能 import 的。tifa new 拒绝含 `vendor` 段的路径，也拒绝首段不带点、且（不分大小写）和标准库包或 go 命令包模式的首段相同的路径（比如 `fmt`、`net`、`all`），即使并没有同名的包。改传 `--module example.com/fmt`。
 - 根包以模块路径最后一段命名（不算 `/v2` 这类主版本后缀），转成小写，只留字母和数字。它必须是合法的 Go 标识符，不是关键字，也不是 `main` 或 `init`（Go 不接受以 `init` 作为被 import 包的名字）。`app/` 下的 Go 文件直接用这个名字 import 它，所以在这些文件用到它的地方，这个名字不能另有所指：它们 import 的包，比如领域 `todos` 或 `tifa`，它们用到的预声明名字，比如 `error`，以及在其作用域里用到根包的参数或变量，比如 `db`、`ctx`。tifa new 维护一份这样的名单，遇到就报错，所以 `tifa new todos` 会失败，提示换一个目录名或用 `--module`，而 `--module example.com/todos` 会失败，提示换 `--module` 的最后一段。这些文件里的其他名字，比如 `c`、`rows`，不受影响。`package.json` 里的名字也是它，超过 npm 上限 214 个字符时截断。
 - `go.mod` 要求的 tifa 版本，是 go 命令下载来运行的这个命令的版本：`go run github.com/liustack/tifa/cmd/tifa@<版本> new myapp`，或者在应用里 `go tool tifa new`。在 tifa 源码目录里构建、或被源码目录 replace 的命令写 `v0.0.0`，并多给一步用 `go mod edit -replace` 把 `go.mod` 指向源码目录。
-- `modernc.org/sqlite` 和 tifa 的 slowjs 都跑在 `modernc.org/libc` 上，而每个 SQLite 版本只对应一个确切的 libc 版本。`go.mod` 固定了一个和 tifa 所需 libc 对应的 SQLite 版本。以后升级其中任何一个，都要让这个 libc 版本保持一致。
+- `go.mod` 固定了一个 `modernc.org/sqlite` 版本。这个 SQLite 驱动是纯 Go 的，`go mod tidy` 会加上它需要的 `modernc.org/libc`。slowjs 不用这个库，所以没有哪个版本需要对齐。
 - `tifa new` 只写文件，不跑 go 或 npm 命令，也不联网。它最后打印接下来的步骤：`cd` 进目录、`go mod tidy`、`pnpm install` 和 `go tool tifa dev`，开发服务在 http://127.0.0.1:9527。
 - 它会在 PATH 里找 `pnpm`，但不运行它。找到时，安装步骤和 `README.md`、`AGENTS.md` 里的命令用 pnpm（`pnpm install`、`pnpm typecheck`），找不到就用 npm（`npm install`、`npm run typecheck`）。`package.json` 不写 `packageManager` 字段，所以同一个应用两种都能用。
 
@@ -95,20 +95,9 @@ build:
 
 `go build` 可以有多个 `-ldflags`，每个给一个包模式，不写模式就是给命令行上列出的包。每个包用的是最后一个和它匹配的 `-ldflags`，而命令行排在 `GOFLAGS` 后面，所以命令行上的 `-ldflags` 会顶替 `GOFLAGS` 里的。所以 tifa 把 `GOFLAGS`（在环境变量里设的，或用 `go env -w` 写的）里最后一个 `-ldflags` 的参数放在 `-w` 前面：`GOFLAGS=-ldflags=-X=main.version=v1` 时，tifa 传 `-ldflags=-X=main.version=v1 -w`。这些参数里已经有 `-w` 或 `-s` 时，tifa 什么都不加，由它们决定。`GOFLAGS` 里有给包模式的 `-ldflags` 时，比如 `-ldflags=all=-X=main.version=v1`，tifa 也什么都不加，要去掉调试信息就自己在那里写上 `-w`。
 
-### JavaScript 解释器
+### JavaScript 引擎
 
-在 linux/amd64 上，slowjs 用一个 Go 汇编写成的解释器执行 JavaScript，它由 LLVM 从 QuickJS 的 C 源码编译而来，其他系统用的则是 Go 写的解释器。页面渲染出的 HTML 一样，用的时间更少。在 AMD EPYC 7B13 上不开 PGO、一个 VM 时，shop 的工作台页面耗时是原来的 0.940，MUI 测试应用的页面是 0.850。4 个核上跑 4 个 VM 时，程序每秒渲染的 shop 页面是原来的 1.046 倍，MUI 页面是 1.171 倍，8 个超线程上跑 8 个 VM 时是 1.085 倍和 1.211 倍，占的内存也略少。见 [slowjs 里的测量](https://github.com/liustack/slowjs/blob/main/docs/fork-changes/go-assembly.md)。
-
-要在 linux/amd64 上也用 Go 解释器构建，在[项目文件](config.zh-CN.md#配置项)里设 `build.goasm`：
-
-```yaml
-build:
-  goasm: false
-```
-
-想在 CPU 剖析里按 Go 函数看解释器的耗时，就关掉它，因为汇编在剖析里只显示成一个函数 `goasmRun`。页面在汇编解释器下表现不一样时也可以先关掉，这是 slowjs 的 bug，请报告。
-
-这时 `tifa build` 和 `tifa dev` 给 `go build` 传 `-tags=slowjs_nogoasm`。命令行上的 `-tags` 会顶替 `GOFLAGS` 里的，所以 tifa 把 `GOFLAGS`（在环境变量里设的，或用 `go env -w` 写的）里最后一个 `-tags` 的标签放在前面：`GOFLAGS=-tags=netgo` 时，tifa 传 `-tags=netgo,slowjs_nogoasm`。`build.goasm` 打开时 tifa 不传 `-tags`，设 `GOFLAGS=-tags=slowjs_nogoasm` 同样能关掉汇编解释器。
+slowjs 用 C 写的 QuickJS 执行 JavaScript，LLVM 把它编译成 Go 汇编，随模块一起发布。构建不需要 C 编译器，也不用 cgo，`CGO_ENABLED=0` 照旧。引擎只支持 linux/amd64 和 darwin/arm64，为其他目标构建会停在 slowjs 报的错上，错误里写明这两个平台。渲染速度和每个 VM 占多少内存见[性能](performance.zh-CN.md)。
 
 ### 给别的系统构建
 
