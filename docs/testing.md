@@ -80,20 +80,18 @@ GitHub Actions (`.github/workflows/ci.yml`) checks every push, and every pull re
 
 | Job | Where | What it runs |
 | --- | --- | --- |
-| test | linux/amd64 (`ubuntu-24.04`) and darwin/arm64 (`macos-15`) | `go vet ./...`, `CGO_ENABLED=0 go build ./...`, `go test -count=1 ./...`, `scripts/docs-list.sh --check`. About 1 minute with a warm Go cache |
+| test | linux/amd64 (`ubuntu-24.04`) and darwin/arm64 (`macos-15`) | On linux only: Node 24 and pnpm 10.33.0, `pnpm install --frozen-lockfile` in `internal/bundle/testdata`, `test/apps/pages` and `js/host` (about 7 seconds). Then on both: `go vet ./...`, `CGO_ENABLED=0 go build ./...`, `go test -count=1 ./...`, `scripts/docs-list.sh --check`. About 2 minutes on linux with a warm Go cache: with the packages installed the bundle, router and dev tests run for real, which doubles the time of `go test`. On macOS they show skip |
 | e2e | linux/amd64 | Node 24 and pnpm 10.33.0, `pnpm install --frozen-lockfile` in `test/apps/pages`, `tailwind`, `mui`, `bench` and `examples/shop`, then `TIFA_E2E=1 go test -count=1 ./test/e2e/`. About 3.5 minutes |
 
 Left out on purpose:
 
 - **Tests that need `TIFA_SSR_SHOP`, `TIFA_SSR_SOAK`, `TIFA_SSR_EXTREME` or `TIFA_EXTREME`**: the shop SSR tests, the soak tests and the extreme pages. They take long, and the benchmarks among them need a quiet machine.
-- **The bundle tests of `internal/bundle` and the router test of `internal/codegen`**: they need `pnpm install` in `internal/bundle/testdata` and `test/apps/pages`, which the test job does not run, so they show skip there. The e2e job installs `test/apps/pages` but runs only `test/e2e`. To turn them on, run the installs in the linux test job.
+- **The Node packages on macOS**: the install takes 7 seconds there too, but `TestDevServerPollsWhenTold` (`internal/bundle`) failed in 2 of 30 macOS runs, and never in 16 linux runs: the polling dev server did not pick up an edit made after the first request, and had not 40 seconds later, so the edit was missed and not slow. It passes 30 of 30 runs alone on a Mac, also with every core busy. The cause is not found. Add the three install steps to macOS when it is.
 - **The `-race` runs**: they are run on chosen packages by hand (see [Before committing](#before-committing)).
 - **darwin/arm64 for e2e**: it has the same Node and the same tests, so it adds time and no new facts. Add it by putting the job in a matrix.
 - **The C engine of slowjs** (`-tags slowjs_cengine`): slowjs checks that itself. Add a `GOFLAGS=-tags=slowjs_cengine` run of `go test ./...` when tifa starts to use it.
 
 The steps run with `permissions: contents: read`, and the actions are pinned to a major version.
-
-One test is racy on macOS. The cause below is read from the code of autocert, and not yet traced at run time. In `TestAutomaticCertificate` (`server/acme_test.go`), `ready()` starts `obtain` in a goroutine, and the test's own request is a second handshake that waits for the same certificate. When autocert finishes the order it lets the waiting handshake go before the first one has written the certificate into `server.tls_cache`, so the test can stop the server and look for the file too early (`certificate not in the cache`). It failed once in 6 runs of the macOS job and once in 200 runs of the test alone on a macOS runner, and never on linux (0 in 200). A red macOS run with only that failure is this race, and a rerun passes. CI does not retry or skip it.
 
 ## Writing tests
 
