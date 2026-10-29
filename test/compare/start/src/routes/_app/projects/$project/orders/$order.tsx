@@ -6,7 +6,8 @@ export const Route = createFileRoute('/_app/projects/$project/orders/$order')({
   component: OrderPage,
   head,
   notFoundComponent: NotFound,
-  loader: ({ params }) => orderFn({ data: { project: params.project, order: params.order } }),
+  loader: async ({ params, parentMatchPromise }) =>
+    orderFn({ data: { project: (await parentMatchPromise).loaderData!, order: params.order } }),
   staleTime: Infinity,
   remountDeps: ({ params }) => [params.project, params.order],
 })

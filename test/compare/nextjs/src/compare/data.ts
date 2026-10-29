@@ -1,23 +1,15 @@
-// The data of the six pages, which examples/shop's Go code loaded when the app was built (see
-// test/compare). Each request looks its page up here and hands the pieces to the layouts and the
-// page, as the Go Layout and Load functions return them.
-import snapshot from '../../data.json'
+// What the layouts and pages of the app load. The functions are the ones ported from the Go code of
+// examples/shop (test/compare/domain), and each request runs them again: nothing here keeps a result
+// from one request to the next. React's cache() only shares a result between the layout, the page
+// and generateMetadata of one request, as tifa.Use shares the project between a Layout and a Load.
+import { cache } from 'react'
+import * as domain from '../../../domain/loaders.ts'
 
-const pages = snapshot as Record<string, Record<string, any>>
+export { NotFound } from '../../../domain/loaders.ts'
+export type { Project } from '../../../domain/loaders.ts'
 
-export class NotFound extends Error {}
-
-function at(url: string, route: string) {
-  const data = pages[url]?.[route]
-  if (data === undefined) throw new NotFound(url)
-  return data
-}
-
-export const loadShell = (sidebarState: string | undefined) => ({
-  ...at('/projects/studio', 'app/layout'),
-  sidebarOpen: sidebarState !== 'false',
-})
-export const loadProject = (project: string) => at(`/projects/${project}`, 'app/projects/project+/layout')
-export const loadOrderList = (project: string) => at(`/projects/${project}`, 'app/projects/project+/route')
-export const loadOrder = (project: string, order: string) => at(`/projects/${project}/orders/${order}`, 'app/projects/project+/orders/order+/route')
-export const loadStats = (project: string) => at(`/projects/${project}/stats`, 'app/projects/project+/stats/route')
+export const loadShell = (sidebarState: string | undefined) => domain.loadShell(sidebarState)
+export const loadProject = cache((id: string) => domain.loadProject(id))
+export const loadOrderList = cache((project: domain.Project) => domain.loadOrderList(project))
+export const loadOrder = cache((project: domain.Project, order: string) => domain.loadOrder(project, order))
+export const loadStats = cache((project: domain.Project) => domain.loadStats(project))

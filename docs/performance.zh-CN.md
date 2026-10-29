@@ -22,7 +22,7 @@ slowjs v0.29 换掉了把 QuickJS 从 C 翻译成 Go 的那个引擎。C 引擎�
 ## 一眼看
 
 - **一次渲染**：用 C 引擎之前的引擎，在 shop 的页面上耗时是 C QuickJS 的 0.94 倍，在不用 `Intl` 的页面上是 1.15 倍，是 Node 关掉 JIT 时的约 2 倍，是 Node 有 JIT 时的 6.6 倍。C 引擎只用其中的 0.84 倍时间。
-- **整个请求**：在改版后的工作台页面上，单核 tifa 每秒答 27 到 29 个页面请求，Next.js 是它的 3.0 倍，TanStack Start 是 3.8 到 3.9 倍。Next.js 关掉 JIT 后是 tifa 的 0.89 到 0.96 倍。tifa 的内存峰值是 54 MiB，Next.js 是 465 MiB。tifa 一个请求里 95% 的时间是渲染。
+- **整个请求**：在改版后的工作台页面上，单核 tifa 每秒答 29 个页面请求，Next.js 是它的 2.8 倍，TanStack Start 是 3.6 倍。Next.js 关掉 JIT 后是 tifa 的 0.85 倍。tifa 的内存峰值是 54 MiB，Next.js 是 466 MiB。tifa 一个请求里 95% 的时间是渲染。
 - **多核**：4 个物理核答的请求是 1 个核的 3.76 倍。同一个核的第二个超线程忙起来，约多 30%。
 - **怎么配**：像 shop 工作台这样的页面，按每个物理核每秒约 73 个请求、约 45 MiB 加每个 VM 12 到 16 MiB 准备。
 
@@ -99,21 +99,22 @@ MUI 几行用 C 引擎重新测过（slowjs 0cc6d332，2026-10-29，同类机器
 
 ## 和 Next.js 与 TanStack Start 比
 
-shop 的六个工作台页面做成三个版本：tifa，Next.js 16.4.2（App Router，每个路由都是动态的，React 组件相同，数据在服务端组件里查）和 TanStack Start 1.169.3（路由和 loader 相同），跑在 Node 24.13.0 上。三个版本的可见文本相同，由一个测试检查。应用在 [test/compare](../test/compare)，怎么构建、检查和再测一遍见[测试文档](testing.md#comparison-with-nextjs-and-tanstack-start-testcompare)（英文）。测的是走 HTTP 的完整请求，六个页面轮流，一次一个，`Accept-Encoding: identity`。测法和全部数字见 [tifa 对比 Next.js 和 TanStack Start](studies/nextjs-and-tanstack-start.md)（英文）。
+shop 的六个工作台页面做成三个版本：tifa，Next.js 16.4.2（App Router，每个路由都是动态的，React 组件相同）和 TanStack Start 1.169.3（路由和 loader 相同），跑在 Node 24.13.0 上。三个版本的可见文本相同，由一个测试检查。每个请求里，两个 Node 应用都跑一份用 TypeScript 移植的 Go 数据加载代码，订单是进程启动时在内存里建好的，和 tifa 跑 Go 代码一样。第二个测试检查移植的代码返回的和 Go 代码返回的一样，第三个测试在三个服务器里数着，证明每个请求都查了订单、重新渲染了页面。应用在 [test/compare](../test/compare)，怎么构建、检查和再测一遍见[测试文档](testing.md#comparison-with-nextjs-and-tanstack-start-testcompare)（英文）。测的是走 HTTP 的完整请求，六个页面轮流，一次一个，`Accept-Encoding: identity`。测法、全部数字和[还有哪些不对等](studies/nextjs-and-tanstack-start.md#what-is-not-equal)见 [tifa 对比 Next.js 和 TanStack Start](studies/nextjs-and-tanstack-start.md)（英文）。
 
-2026-10-29 用 tifa e0f6fdb 和 slowjs v0.29.0 测，页面是改版后的工作台页面，单核：服务钉在 0 号核，oha 钉在 4 号核，它们是同一个物理核的两个线程（2026-10-24 那次用的是 1 号和 6 号核，不共用物理核）。两轮，每轮新起服务器。
+2026-10-29 用 slowjs v0.29.0 测，页面是改版后的工作台页面，单核：服务钉在 0 号核，oha 钉在 4 号核，它们是同一个物理核的两个线程（2026-10-24 那次用的是 1 号和 6 号核，不共用物理核）。两轮，每轮新起服务器。
 
 | | tifa | Next.js | Next.js `--jitless` | TanStack Start |
 | --- | --- | --- | --- | --- |
-| 每秒请求数 | 27.3 到 28.9 | 83.5 到 85.0 | 25.8 到 26.3 | 104.7 到 112.0 |
-| 是 tifa 的几倍 | 1 | 2.95 到 3.06 | 0.89 到 0.96 | 3.83 到 3.88 |
-| P50 / P99 | 29.4 / 66 到 68 ms | 10.1 / 29 到 31 ms | 33.8 到 34.4 / 70 ms | 6.5 到 7.0 / 25.5 到 28.1 ms |
-| RSS 峰值 | 53 到 54 MiB | 462 到 469 MiB | 291 到 295 MiB | 352 到 357 MiB |
+| 每秒请求数 | 28.8 到 29.1 | 80.8 到 82.9 | 24.8 | 102.4 到 105.0 |
+| 是 tifa 的几倍 | 1 | 2.81 到 2.85 | 0.85 到 0.86 | 3.56 到 3.61 |
+| P50 / P99 | 28.9 到 29.3 / 66 到 70 ms | 10.4 到 10.5 / 30 到 32 ms | 34.9 到 36.8 / 69 到 72 ms | 7.4 到 7.5 / 28 到 29 ms |
+| RSS 峰值 | 54 MiB | 461 到 471 MiB | 301 到 349 MiB | 349 到 356 MiB |
 
-- **分页面看**：Next.js 每秒答的请求是 tifa 的 2.96 到 3.49 倍，Start 是 3.69 到 4.31 倍。tifa 渲染第一个店铺的订单列表（42 个订单，223 KB）要 65 ms，其他页面 22 到 37 ms。
-- **渲染和其余部分**：六个页面单独测，整个请求的 P50 平均 33.3 ms，同一个页面在热 VM 里不走 HTTP 的渲染平均 31.8 ms。路由、`Load`、JSON、写 HTML 和 net/http 共 1.5 ms，占 5%，分页面是 0 到 5.5 ms。Next.js 和 Start 从外面拆不开。
+- **分页面看**：Next.js 每秒答的请求是 tifa 的 2.82 到 3.33 倍，Start 是 3.62 到 4.24 倍。tifa 渲染第一个店铺的订单列表（42 个订单，223 KB）要 64 ms，其他页面 22 到 36 ms。
+- **渲染和其余部分**：六个页面单独测，整个请求的 P50 平均 33.2 ms，同一个页面在热 VM 里不走 HTTP 的渲染平均 31.6 ms。路由、`Load`、JSON、写 HTML 和 net/http 共 1.6 ms，占 5%，分页面是 0.4 到 5.1 ms。Next.js 和 Start 从外面拆不开。
+- **数据计算的代价**：当天第一轮里，两个应用是查表拿数据，不自己算，Next.js 每秒 83.5 到 85.0 个，Start 104.7 到 112.0 个。改成自己算以后，它们少了 3% 到 5%。
 - **改版前的页面**，同样用 C 引擎、同样的核位置、2026-10-19 写的那两个应用：tifa 每秒 87 到 90 个请求，Next.js 是它的 2.05 到 2.06 倍，Start 是 3.1 到 3.2 倍，Next.js 关 JIT 是 0.71 到 0.72 倍。改版后的页面对 tifa 重了约 3 倍，对 Next.js 重了约 2.2 倍。
-- Next.js 和 Start 的应用查的是 shop 的 Go 代码返回过的数据，tifa 则每个请求都跑一遍那段代码，所以对它们有利，大小就是上面的 1 到 5 ms。它们页面里的表单能渲染，但不能提交。
+- Node 应用页面里的表单能渲染，但不能提交，因为处理器没有移植。其他不对等的地方，比如 tifa 给每个页面算一个 `ETag` 而 Node 的两个服务器是流式发送，在研究文档里列了。
 
 2026-10-24 用 slowjs v0.28.6、改版前的页面和手写的应用测（那两个应用没有保留，不在仓库里）：
 

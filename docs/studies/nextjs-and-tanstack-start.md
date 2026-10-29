@@ -5,7 +5,7 @@ read_when:
   - Running the comparison again after a change to the engine, the server, the SSR bundle or the workbench pages of the shop
   - Someone asks whether the comparison was fair, or whether one side compressed its answers
   - Changing the apps in test/compare
-measured: '2026-10-29 with tifa e0f6fdb (slowjs v0.29.0, the C engine) on the redesigned workbench pages. 2026-10-24 with tifa c729ad2 (slowjs v0.28.6, its Go assembly interpreter, PGO on) on the pages before the redesign. Earlier runs on 2026-10-19 with tifa a2084b4 (quickjs v0.26.14) and 5bc3f03 (quickjs v0.26.15)'
+measured: '2026-10-29 with tifa 0156ff1 plus the branch test/compare-port (slowjs v0.29.0, the C engine) on the redesigned workbench pages, with the data computed in Node on every request. A first run of the same day on the same pages looked the data up, and runs of that day on the pages before the redesign used the apps of 2026-10-19. 2026-10-24 with tifa c729ad2 (slowjs v0.28.6, its Go assembly interpreter, PGO on) on the pages before the redesign. Earlier runs on 2026-10-19 with tifa a2084b4 (quickjs v0.26.14) and 5bc3f03 (quickjs v0.26.15)'
 versions: 'Next.js 16.4.2 (App Router, Turbopack build, its bundled React 19.3.0-canary-278794d7-20261002), TanStack Start 1.169.3 (react-router 1.170.45, nitro 3.0.260903-beta, React 19.3.1), tifa with React 19.3.1 and TanStack Router 1.170.42, Node 24.13.0'
 ---
 
@@ -15,7 +15,7 @@ versions: 'Next.js 16.4.2 (App Router, Turbopack build, its bundled React 19.3.0
 
 The apps and the commands are in the repository: `test/compare` builds the six workbench pages of `examples/shop` as a tifa program, a Next.js app and a TanStack Start app, checks that they show the same pages, and measures them. [Testing](../testing.md#comparison-with-nextjs-and-tanstack-start-testcompare) says how to run it.
 
-This page has two runs. The run of 2026-10-29 used those apps on the workbench pages as redesigned on 2026-10-28, which are about 3 times as heavy as before, with the C engine of slowjs v0.29.0. The run of 2026-10-24 used apps written by hand for the pages before the redesign and slowjs v0.28.6. Those apps were not kept, so that run cannot be repeated, and its sections say so. The two runs do not mix: take a ratio from one run, not a tifa number from one and a Next.js number from the other.
+This page has these runs. The main one is of 2026-10-29: the apps of `test/compare` on the workbench pages as redesigned on 2026-10-28, which are about 3 times as heavy as before, with the C engine of slowjs v0.29.0, and with the data of each page computed in Node for every request by a port of the Go code. A first run of the same day on the same pages had the apps look the data up instead, and it is kept below as a measure of what the data work costs the Node apps. A third run of the same day, on the pages before the redesign with the apps of 2026-10-19, shows what the redesign did. The run of 2026-10-24 used slowjs v0.28.6 and apps written by hand for the old pages. Those apps were not kept, so the last two runs cannot be repeated, and their sections say so. Take a ratio from one run, not a tifa number from one and a Next.js number from another.
 
 ## Question
 
@@ -23,13 +23,15 @@ On whole HTTP requests for the same pages, how much more do Next.js and TanStack
 
 ## Conclusions
 
-The numbers are from the run of 2026-10-29 on one core, one request at a time, unless a line says otherwise.
+The numbers are from the main run of 2026-10-29 on one core, one request at a time, unless a line says otherwise.
 
-- **Node with JIT serves about 3 to 4 times as much.** Next.js answers 2.95 to 3.06 times as many requests as tifa and Start 3.83 to 3.88 times, with the six pages in turn. Before the redesign, on 2026-10-24, it was 2.5 and 3.9 times, and on the old pages with the C engine (a run described below) 2.05 to 2.06 and 3.1 to 3.2.
-- **The redesigned pages widen the gap.** With the C engine, Next.js was 2.05 times tifa on the old pages and is 2.95 to 3.06 times on the new ones, Start 3.1 to 3.2 and 3.83 to 3.88 times. The new pages are about 3 times as heavy for tifa (27 to 29 requests a second where it did 87 to 90), and about 2.2 times for Next.js. Per page, Next.js is ahead 2.96 to 3.49 times and Start 3.69 to 4.31 times, and no page comes near level.
-- **Without JIT the two are about level.** Next.js with `--jitless` answers 0.89 to 0.96 times as many as tifa, and 0.80 to 1.02 times per page. On the old pages with the C engine it was 0.71 to 0.72.
-- **tifa takes a fraction of the memory.** Peak RSS: 53 to 54 MiB against 462 to 469 MiB for Next.js, 352 to 357 MiB for Start and 291 to 295 MiB for Next.js `--jitless`.
-- **Almost all of a tifa request is the render.** The render alone takes 31.8 ms of the 33.3 ms of a request, as a mean over the six pages. Routing, `Load`, JSON, writing the HTML and net/http take 1.5 ms, 5%. By page it is 0 to 5.5 ms, and the differences between pages under 1 ms are noise. Next.js and Start cannot be split like that from outside, so the gap to them is not shown to be all render.
+- **Node with JIT serves about 2.8 to 3.6 times as much.** Next.js answers 2.81 to 2.85 times as many requests as tifa and Start 3.56 to 3.61 times, with the six pages in turn. Before the redesign, on 2026-10-24, it was 2.5 and 3.9 times, and on the old pages with the C engine (a run described below) 2.05 to 2.06 and 3.1 to 3.2.
+- **The redesigned pages widen the gap.** With the C engine, Next.js was 2.05 times tifa on the old pages and is 2.8 times on the new ones, Start 3.1 to 3.2 and 3.6 times. The new pages are about 3 times as heavy for tifa (29 requests a second where it did 87 to 90), and about 2.2 times for Next.js. Per page, Next.js is ahead 2.82 to 3.33 times and Start 3.62 to 4.24 times, and no page comes near level.
+- **Without JIT Node is slower, but not by much.** Next.js with `--jitless` answers 0.85 to 0.86 times as many as tifa, and 0.76 to 1.00 times per page. On the old pages with the C engine it was 0.71 to 0.72.
+- **tifa takes a fraction of the memory.** Peak RSS: 54 MiB against 461 to 471 MiB for Next.js, 349 to 356 MiB for Start and 301 to 349 MiB for Next.js `--jitless`.
+- **Almost all of a tifa request is the render.** The render alone takes 31.6 ms of the 33.2 ms of a request, as a mean over the six pages. Routing, `Load`, JSON, writing the HTML and net/http take 1.6 ms, 5%. By page it is 0.4 to 5.1 ms. Next.js and Start cannot be split like that from outside, so the gap to them is not shown to be all render.
+- **Doing the data work in Node costs the two apps a little.** In the first run of the day, which looked the data up, Next.js answered 83.5 and 85.0 requests a second and Start 104.7 and 112.0. With the port they answer 80.8 to 82.9 and 102.4 to 105.0, about 3% to 5% fewer. tifa's number did not change (29 where it was 27 to 29). The ported code takes 0.02 to 0.3 ms of a request when warm.
+- **Every request does the work, shown by counting.** In all three, a request for a page queries the orders 4 times for an order list, 6 for an order and 5 for the stats, renders the page once, and a second request does it all again. See How it was measured.
 - **tifa got faster with the C engine, the others did not change.** On the old pages tifa answered 87 to 90 requests a second with slowjs v0.29.0 where it answered 74 with v0.28.6 (about 20% more), and Next.js 178 to 185 where it answered 185 to 186.
 - **From the run of 2026-10-24, not measured again:** two cores, compression, start-up and warm-up, and four requests in flight. They are in [the run of 2026-10-24](#the-run-of-2026-10-24-before-the-redesign). On the old pages, tifa scaled 2.00 times to two cores against 1.67 times for Next.js and 1.77 for Start, was warm 337 ms after it started where Next.js took 662 ms, and lost 1.6% of its requests to gzip where Next.js lost 16%.
 
@@ -38,22 +40,22 @@ The numbers are from the run of 2026-10-29 on one core, one request at a time, u
 - **tifa:** `examples/shop` built by `tifa build` (no PGO, `CGO_ENABLED=0`, the C engine of slowjs v0.29.0), run as `bin/shop --server-addr 127.0.0.1:<port> --ssr-vms 1 --cache-size 0` with `GOMAXPROCS=1`. Every page request renders. The six workbench pages are requested. The storefront is in the bundle.
 - **Next.js** (`test/compare/nextjs`): App Router, built with Turbopack, run as `next start` with `NODE_ENV=production`. Every Layout and page sets `export const dynamic = 'force-dynamic'`, and the build marks all routes as dynamic: no static generation, ISR or data cache. A server component for each Layout and page looks its data up and hands it to the client components through a React context, in place of `getRouteApi`. All the shop's components use hooks, so all are client components. The TanStack Router API they use (`Link`, `Outlet`, `useRouterState`) is a shim of about 60 lines on `next/link` and `usePathname`, and its `Link` writes the same `active` class, `data-status` and `aria-current`.
 - **TanStack Start** (`test/compare/start`): real TanStack Router file routes with the same route IDs as tifa's, so the `+layout` and `+route` modules `tifa build` generates work as they are. Loaders call `createServerFn`. Run as `node .output/server/index.mjs` (Nitro's node-server preset).
-- **What is copied:** neither app keeps a copy of the shop. Building copies the components, the stylesheet, the root Layout, all TypeScript under `app/projects` and the 160 pixel product photos from `examples/shop`. For Start it also copies the generated `+layout` and `+route` modules. For Next.js it copies them with `getRouteApi` replaced by the context.
-- **What is looked up:** the data of the six pages is not computed in Node. The build starts `bin/shop` and asks it for the data of each page's Layouts and page, as the browser router does, and the apps return that. A redesign of the shop therefore cannot leave the apps with other numbers. It also means Node does not pay what Go pays to load the data, 1 to 5 ms of a request (see below), so it favors the two Node apps by that much.
-- **What does not work:** the forms and dialogs render, but their `POST`, `PUT` and `PATCH` calls fail, since no handler is behind them.
+- **What is copied:** neither app keeps a copy of the shop's pages. Building copies the components, the stylesheet, the root Layout, all TypeScript under `app/projects` and the 160 pixel product photos from `examples/shop`. For Start it also copies the generated `+layout` and `+route` modules. For Next.js it copies them with `getRouteApi` replaced by the context.
+- **What is computed:** the data of the six pages. `test/compare/domain` is a port of the Go code that the Layouts and the three `Load` functions call: about 1,000 lines of TypeScript for about 1,300 lines of Go, with the orders, the stats, the carriers and the code that makes the seed data. The orders are built in memory when the Node process starts, from the same rules as in Go, and every request filters the orders of its project, copies them, sorts them and computes its list, order or stats from that, as the Go code does. Next.js calls it from server components (React's `cache()` shares the project between the layout, the page and `generateMetadata` for the length of one request, as `tifa.Use` does), and Start from its loaders through `createServerFn` (the page loader gets the project from the Layout's loader). The seed is ported and not exported from Go, because the Go code makes its seed with rules, not with a file, and a port of the rules is the same kind of start-up work. `TestDomainMatchesGo` compares the JSON of Go and of the port for the six pages, which covers the seed too.
+- **What does not work:** the forms and dialogs render, but their `POST`, `PUT` and `PATCH` calls fail, since the handlers are not ported.
 
 ## Making them equal
 
-`TIFA_COMPARE=1 go test ./test/compare` fetches the six pages from each server with `Accept-Encoding: identity` and compares them after removing `script`, `style` and `template` elements: the title, every text node in order, and the number of `tr`, `a`, `svg`, `button`, `li`, `time`, `img`, `table`, `h1` to `h3`, `nav` and `input` elements. It passed for the run of 2026-10-29.
+`TIFA_COMPARE=1 go test ./test/compare` fetches the six pages from each server with `Accept-Encoding: identity` and compares them after removing `script`, `style` and `template` elements: the title, every text node in order, and the number of `tr`, `a`, `svg`, `button`, `li`, `time`, `img`, `table`, `h1` to `h3`, `nav` and `input` elements. It passed for the runs of 2026-10-29. Two more checks keep the work equal: `TestDomainMatchesGo` for the data, and the counters described below.
 
 | Page | tifa bytes | Next.js bytes | Start bytes | Text nodes |
 | --- | --- | --- | --- | --- |
-| Order list, studio | 223,321 | 228,274 | 221,379 | 302 |
-| Order list, weekend | 132,980 | 137,790 | 132,733 | 178 |
-| Order SH-1042 | 137,855 | 143,071 | 137,242 | 358 |
-| Order WK-0201 | 118,967 | 124,204 | 118,625 | 296 |
-| Stats, studio | 147,523 | 152,943 | 146,927 | 460 |
-| Stats, weekend | 122,807 | 128,210 | 122,233 | 369 |
+| Order list, studio | 223,321 | 228,272 | 221,379 | 302 |
+| Order list, weekend | 132,980 | 137,788 | 132,733 | 178 |
+| Order SH-1042 | 137,855 | 143,069 | 137,242 | 358 |
+| Order WK-0201 | 118,967 | 124,202 | 118,625 | 296 |
+| Stats, studio | 147,523 | 152,941 | 146,927 | 460 |
+| Stats, weekend | 122,807 | 128,208 | 122,233 | 369 |
 
 - Next.js pages are 4.8 to 5.4 KB larger than tifa's, mostly its RSC payload. Start's are 0.2 to 2 KB smaller.
 - The Next.js and Start stats and order pages hydrate in a browser with nothing in the console, the two charts draw and the styles apply (checked on 2026-10-29).
@@ -66,29 +68,42 @@ The numbers are from the run of 2026-10-29 on one core, one request at a time, u
 - **Load:** [oha](https://github.com/hatoo/oha) 1.16.0 with one worker thread and one request in flight, 10 seconds of warm-up and 15 measured, the six pages in turn, `Accept-Encoding: identity`. Two rounds, each with fresh servers, in the order tifa, Next.js, Next.js `--jitless`, Start. Each page alone: 3 seconds of warm-up and 10 measured, two rounds.
 - **Memory:** the whole run was in a cgroup with `MemoryMax=4G` and no swap. Peak RSS is the largest of the samples every 100 ms of the resident size of the server and its children, and the kernel's high-water marks.
 - **Noise:** before each server started, its two cpus had to be idle for 3 seconds. Other work ran on the other cores of the machine. The run did not measure how much, as the run of 2026-10-24 did.
+- **Work per request, counted:** `TestEveryRequestComputesAndRenders` does not infer from the configuration that a request computes and renders, it counts. The tifa program is built a second time with `go build -overlay`, which adds a counter on `ordersOf` and a path that reads it, so no file of the shop changes, and the measured `bin/shop` is the plain one. The Node apps count the same calls in the port, and the runs of the root Layout, the project Layout and the page's `Load`, and the renders of the page on the server (one count in the top client component, which renders once on the server for a request), and answer with the counts at `/compare-counts`. For each page the test asks once and reads what the counters gained, then asks five times more and checks that they gained five times as much. Each Node request ran the three data functions once and rendered once. Each tifa answer had `X-Tifa-Render: vm`, so it was rendered in a VM, not served from the HTML cache or shared with another request. The calls of `ordersOf` for one request were the same in all three: 4, 4, 6, 6, 5 and 5 for the six pages in order. It passed on macOS and on the GCP machine.
+- **Nothing that could keep a page:** `TestNoCachingBetweenRequests` finds neither app has `cacheComponents`, `use cache`, `unstable_cache`, a `revalidate` setting or a `QueryClient` in its sources or its `package.json` and config. Next.js answers a page with `Cache-Control: private, no-cache, no-store, max-age=0, must-revalidate`, and its build marks every route dynamic. Start answers a page with no `Cache-Control`, `ETag`, `Last-Modified`, `Expires` or `Age`.
 - **The render alone:** `BenchmarkShop` of `test/ssr`, one warm VM rendering one page again and again without HTTP, 256 renders to warm up and 2,000 measured, on cpu 0 with the same build of the shop.
 
 ## Data
 
-Run of 2026-10-29, tifa e0f6fdb (slowjs v0.29.0), requests a second for the six pages in turn, one in flight, two rounds:
+Main run of 2026-10-29, tifa 0156ff1 with the branch test/compare-port (slowjs v0.29.0), requests a second for the six pages in turn, one in flight, two rounds:
 
 | | Requests/s | Times tifa | P50 ms | P99 ms | Peak RSS |
 | --- | --- | --- | --- | --- | --- |
-| tifa | 27.3, 28.9 | 1 | 29.4 to 29.5 | 66.2 to 67.6 | 53 to 54 MiB |
-| Next.js | 83.5, 85.0 | 3.06, 2.95 | 10.1 | 28.9 to 31.5 | 462 to 469 MiB |
-| Next.js `--jitless` | 26.3, 25.8 | 0.96, 0.89 | 33.8 to 34.4 | 69.7 to 70.4 | 291 to 295 MiB |
-| Start | 104.7, 112.0 | 3.83, 3.88 | 6.5 to 7.0 | 25.5 to 28.1 | 352 to 357 MiB |
+| tifa | 29.1, 28.8 | 1 | 28.9 to 29.3 | 66.2 to 69.7 | 54 MiB |
+| Next.js | 82.9, 80.8 | 2.85, 2.81 | 10.4 to 10.5 | 29.6 to 32.0 | 461 to 471 MiB |
+| Next.js `--jitless` | 24.8, 24.8 | 0.85, 0.86 | 34.9 to 36.8 | 69.4 to 72.0 | 301 to 349 MiB |
+| Start | 105.0, 102.4 | 3.61, 3.56 | 7.4 to 7.5 | 27.9 to 28.6 | 349 to 356 MiB |
 
 The P50 of the six pages in turn is the middle of a mix of fast and slow pages, so it is lower than the mean of the pages' own P50. One page at a time, mean of two rounds, requests a second (P50 ms):
 
 | Page | tifa | Next.js | Start | Next.js `--jitless` |
 | --- | --- | --- | --- | --- |
-| Order list, studio | 15.7 (64.9) | 52.2 (16.3) | 59.7 (14.0) | 15.9 (63.0) |
-| Order list, weekend | 26.2 (36.6) | 81.9 (10.4) | 96.6 (8.6) | 25.0 (37.9) |
-| Order SH-1042 | 36.5 (26.2) | 113.6 (7.7) | 145.9 (5.8) | 30.2 (31.3) |
-| Order WK-0201 | 42.2 (22.5) | 124.8 (7.0) | 167.6 (5.1) | 33.5 (28.2) |
-| Stats, studio | 33.9 (28.0) | 118.4 (7.4) | 146.0 (5.7) | 28.3 (33.3) |
-| Stats, weekend | 43.4 (21.8) | 141.1 (6.3) | 182.3 (4.6) | 34.6 (27.1) |
+| Order list, studio | 15.8 (64.5) | 52.0 (16.3) | 59.5 (14.1) | 15.8 (63.2) |
+| Order list, weekend | 26.3 (36.2) | 81.6 (10.4) | 95.9 (8.5) | 24.9 (37.7) |
+| Order SH-1042 | 36.4 (26.0) | 102.7 (8.4) | 132.0 (6.4) | 27.8 (34.4) |
+| Order WK-0201 | 41.7 (22.7) | 119.3 (7.3) | 160.4 (5.3) | 32.7 (28.8) |
+| Stats, studio | 33.6 (28.1) | 111.8 (7.7) | 142.5 (5.9) | 27.4 (34.9) |
+| Stats, weekend | 43.5 (21.6) | 134.5 (6.5) | 171.6 (4.8) | 33.7 (27.8) |
+
+### The first run of the day, with the data looked up
+
+The same pages and machine with the apps as they were before the port: each request looked its data up in a table that the build had filled from the shop's own answers, so Node did not do the data work. The tifa program was the same. It shows what the data work costs Node.
+
+| | Requests/s | Times tifa | P50 ms | Peak RSS |
+| --- | --- | --- | --- | --- |
+| tifa | 27.3, 28.9 | 1 | 29.4 to 29.5 | 53 to 54 MiB |
+| Next.js | 83.5, 85.0 | 3.06, 2.95 | 10.1 | 462 to 469 MiB |
+| Next.js `--jitless` | 26.3, 25.8 | 0.96, 0.89 | 33.8 to 34.4 | 291 to 295 MiB |
+| Start | 104.7, 112.0 | 3.83, 3.88 | 6.5 to 7.0 | 352 to 357 MiB |
 
 ### The render and the rest
 
@@ -96,13 +111,13 @@ tifa, one core, one request at a time. The request is the P50 of the page alone 
 
 | Page | Request ms | Render ms | The rest ms | Share of the request |
 | --- | --- | --- | --- | --- |
-| Order list, studio | 64.85 | 59.40 | 5.45 | 8% |
-| Order list, weekend | 36.58 | 35.03 | 1.55 | 4% |
-| Order SH-1042 | 26.17 | 24.89 | 1.28 | 5% |
-| Order WK-0201 | 22.48 | 22.21 | 0.27 | 1% |
-| Stats, studio | 28.01 | 27.40 | 0.61 | 2% |
-| Stats, weekend | 21.76 | 21.72 | 0.04 | 0% |
-| Mean of the six | 33.31 | 31.78 | 1.53 | 5% |
+| Order list, studio | 64.45 | 59.31 | 5.14 | 8% |
+| Order list, weekend | 36.19 | 34.91 | 1.28 | 4% |
+| Order SH-1042 | 26.00 | 24.83 | 1.17 | 4% |
+| Order WK-0201 | 22.70 | 21.95 | 0.75 | 3% |
+| Stats, studio | 28.12 | 27.31 | 0.81 | 3% |
+| Stats, weekend | 21.61 | 21.23 | 0.38 | 2% |
+| Mean of the six | 33.18 | 31.59 | 1.59 | 5% |
 
 - The two measurements ran one after the other, so a difference of a millisecond or less is within what they differ by from run to run. The order list of the first shop is the page with 42 orders, whose data is the largest and whose JSON takes the longest.
 - Next.js and Start have no such split. Their render happens inside the framework's request handler, with React's own server renderer (Next.js its canary), and cannot be timed from outside without changing them. The Node renders of the same pages in [Performance](../performance.md#how-fast-a-page-renders) are of tifa's bundle, not of theirs.
@@ -246,20 +261,28 @@ From the first run only (tifa a2084b4), not measured again:
 ## Why
 
 - **JIT.** Node compiles the hot render code to machine code. The `--jitless` row shows that the gap is the JIT, not the frameworks: interpreted, Next.js answers about as many requests as tifa (0.89 to 0.96 times on the redesigned pages, 0.71 on the old ones with the C engine, 0.85 on 2026-10-24).
-- **Framework cost.** Next.js renders server components, serializes them to the RSC payload, renders the client components from it and writes the payload into the page. It also matches routes, applies redirects and writes `Vary` and `Cache-Control`. Start's request path is lighter, which is most of why it serves 1.5 times what Next.js does. This cost is why whole requests differ by 3.0 to 3.9 times while renders alone differ by about 7 times (see [How it compares with Node](../performance.md#how-fast-a-page-renders)).
+- **Framework cost.** Next.js renders server components, serializes them to the RSC payload, renders the client components from it and writes the payload into the page. It also matches routes, applies redirects and writes `Vary` and `Cache-Control`. Start's request path is lighter, which is most of why it serves 1.5 times what Next.js does. This cost is why whole requests differ by 2.8 to 3.6 times while renders alone differ by about 7 times (see [How it compares with Node](../performance.md#how-fast-a-page-renders)).
 - **Scaling.** tifa's VMs share nothing on the render path, so two cores give 2.00 times. Node's cluster hands out connections round robin, and each worker has its own heap and GC.
 - **Memory.** Each Node process carries V8, its heap sized for the machine and the framework's modules. A tifa VM holds the bytecode of one bundle and the objects of one render.
 
-## What the comparison favors or leaves out
+## What is not equal
 
-- **Against Next.js:** two render passes and the RSC payload. The shop is all client components, which is the cheapest way to write it for Next.js. Its default gzip, which the main tables turn off.
-- **For Next.js:** its `Link` and data context are lighter shims than the real TanStack Router that tifa and Start run.
-- **Against Start:** it serializes loader data value by value with seroval, where tifa writes the JSON text Go made. Its loaders go through `createServerFn` middleware even in process.
+The three servers answer the same six pages with the same text, query the orders the same number of times for a page (4 for an order list, 6 for an order, 5 for the stats), and do their data work and their render for every request. What still differs, and which way it leans:
+
+- **How the data gets into the page.** tifa writes the data of the Layouts and the page as JSON text and puts it into the HTML, and the VM reads it back with `JSON.parse` before it renders. Next.js serializes what the server components pass to client components into its RSC payload and renders twice, once for the server components and once for the client components, which is why its pages are 5 KB larger. Start serializes the loader data value by value with seroval. That is what the frameworks do, so it stays in the comparison.
+- **Answers.** tifa buffers the whole page, hashes it for an `ETag` and sends it with a `Content-Length`. Next.js and Start stream it in chunks, with no hash. oha times whole answers, so streaming's earlier first byte does not show. The hash of about 150 KB is against tifa, and was not timed on its own.
+- **Middleware.** tifa runs the app's `OnRequest` hook (a check of the method), its compression layer (which passes an uncompressed answer through, and writes `Vary: Accept-Encoding`) and its `Vary` and `X-Content-Type-Options` headers. The two Node servers have none of that. Next.js writes `Cache-Control: private, no-cache, no-store, max-age=0, must-revalidate` and a `Link` header that preloads the first photos, and Start writes nothing besides the content type. All of it is a few microseconds, against tifa in the first case and against Next.js in the second, and none was timed.
+- **Compression.** No server compresses in the measurement: oha sends `Accept-Encoding: identity`. tifa's and Next.js's defaults would compress, and Start's would not (see the run of 2026-10-24).
+- **HTML cache.** The order page in the Go code is marked `Cache = true`, and tifa's cache is off here with `--cache-size 0`. The Node apps cache nothing, and the count test shows it.
+- **Time zones.** The stats page reads the hour and weekday of each order in the shop's time zone. Go does it with `time.In`, the port with a cached `Intl.DateTimeFormat`, which costs Node more for the 42 orders of the first shop. It leans against Node, and was not timed on its own.
+- **The seed.** Both build the same 54 orders in memory when they start, from the same rules. The data work in Node takes 0.02 to 0.3 ms a request when warm (on a Mac, outside this run).
+- **Handlers.** Not ported. The pages render forms and dialogs, and a submit fails.
+- **Next.js's React.** The canary that Next.js bundles, 19.3.0, where tifa and Start run 19.3.1.
+- **The project Layout.** tifa runs it once per request and hands it to the page with `tifa.Use`. Next.js shares it between the layout, the page and `generateMetadata` with React's `cache()`, which lasts one request, and Start passes the loaded project from the Layout's loader to the page's loader. Nothing is kept across requests, which the counters show.
+- **Threads.** The cpu pinning holds every thread of a process, so Node's garbage collector and compiler threads share the one core with the main thread, and tifa's Go runtime threads share it with its one VM. Peak memory is of the whole process tree.
+
 - **Against tifa:** its bundle also holds the storefront, which the other two apps do not have. That costs tifa start-up time and memory per VM, not render time on the workbench pages.
-- **Neutral, slightly against Node:** Next.js and Start stream, tifa writes the page whole. oha times whole answers, so streaming's earlier first byte does not show, and Node pays only its cost.
-- **Core placement, slightly against Node:** in the run of 2026-10-29, oha shares its physical core with the server, and takes more the more requests it sends. On the old pages it took 0.5% to 0.6% of a CPU against tifa, 1.9% against Next.js and 2.7% against Start. The same holds for the two cores of the run of 2026-10-24: 0.5% to 1.1% of a CPU for tifa, 1.8% to 3.6% for Next.js, 2.4% to 5.7% for Start.
-- **React:** Next.js runs its own React canary, the others 19.3.1.
-- **Data:** tifa runs the Go `Layout` and `Load` functions for each request, the two apps look up what the same functions returned. In the run of 2026-10-24 the others ran ported TypeScript. A small part of each request either way: 1 to 5 ms of 22 to 65 ms for tifa.
+- **Core placement, slightly against Node:** in the runs of 2026-10-29, oha shares its physical core with the server, and takes more the more requests it sends. On the old pages it took 0.5% to 0.6% of a CPU against tifa, 1.9% against Next.js and 2.7% against Start. The same holds for the two cores of the run of 2026-10-24: 0.5% to 1.1% of a CPU for tifa, 1.8% to 3.6% for Next.js, 2.4% to 5.7% for Start.
 
 ## What it means for tifa
 
@@ -270,7 +293,7 @@ From the first run only (tifa a2084b4), not measured again:
 ## Not measured
 
 - Navigation data, RSC navigation requests, API routes, handler calls and cache hits: only full page renders were compared.
-- Two cores, four requests in flight, compression, start-up and warm-up on the redesigned pages, and one request in flight with the C engine on more than the six pages. The command can run the first two of them with a change of its flags and code, and the data of 2026-10-24 stays the latest for the rest.
+- Two cores, four requests in flight, compression, start-up and warm-up on the redesigned pages. The data of 2026-10-24 is the latest for them.
 - The storefront's pages, which the Next.js and Start apps do not have.
 - More than two physical cores, or both hyperthreads of each core busy.
 - A real 1 GB machine. The heap limits above only simulate one.

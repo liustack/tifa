@@ -1,7 +1,6 @@
 # Copied from examples/shop and written when the app is built (see test/compare)
 /shop/
 /public/images/
-/data.json
 /src/routeTree.gen.ts
 
 node_modules
