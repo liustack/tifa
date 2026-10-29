@@ -132,7 +132,7 @@ They run normal reuse (2 VMs, 2 callers, 10,000 renders), OOM recovery (8 failur
 
 `test/ssr` runs the SSR pool of `internal/ssr` on the real React bundle of `examples/shop`, which it treats as an app from outside. All of it skips unless `TIFA_SSR_SHOP=1`. First run `pnpm install --frozen-lockfile && go tool tifa build` in `examples/shop`: the tests read `.tifa/dist/ssr.js` and start the built `bin/shop`, fetching each page's data through navigation data requests and writing it in the form a full-page render gets, each route's data as the JSON text Go wrote, passed as an argument of its own. Rebuild after changing the example app, then run again.
 
-The tests start the program through a reaper: the test binary run again with `SSR_TEST_REAPER` set (`test/ssr/reaper_test.go`), which stops the program when the test process ends, however it ends. The program does not inherit the files the test process inherited, so the lock of a script that runs the tests under plain `flock` does not stay with it.
+The tests start the program through a reaper: the test binary run again with `SSR_TEST_REAPER` set (`test/ssr/reaper_test.go`). The program ends when the test process ends, however it ends, and also when the reaper is killed (Linux kills it with the reaper, macOS hangs up the terminal it runs on), so a killed or timed-out run leaves no program behind. It does not inherit the files the test process inherited, so the lock of a script that runs the tests under plain `flock` does not stay with it.
 
 | Command | Contents |
 | --- | --- |

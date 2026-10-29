@@ -78,10 +78,12 @@ func TestStartProgramHelper(t *testing.T) {
 }
 
 // helperOptions say how startHelper runs the helper. lock is a file the helper holds open from
-// descriptor 3 on, without close-on-exec, as a shell holds the lock of flock.
+// descriptor 3 on, without close-on-exec, as a shell holds the lock of flock. nohup runs it with
+// SIGHUP ignored, which programs started from it inherit.
 type helperOptions struct {
-	mode string
-	lock *os.File
+	mode  string
+	lock  *os.File
+	nohup bool
 }
 
 // startHelper runs TestStartProgramHelper in a process of its own, as test processes do, and
@@ -89,7 +91,15 @@ type helperOptions struct {
 func startHelper(t *testing.T, opt helperOptions) (*exec.Cmd, fakeReport) {
 	t.Helper()
 	pidFile := filepath.Join(t.TempDir(), "report")
-	helper := exec.Command(os.Args[0], "-test.run=^TestStartProgramHelper$")
+	args := []string{os.Args[0], "-test.run=^TestStartProgramHelper$"}
+	if opt.nohup {
+		nohup, err := exec.LookPath("nohup")
+		if err != nil {
+			t.Skip(err)
+		}
+		args = append([]string{nohup}, args...)
+	}
+	helper := exec.Command(args[0], args[1:]...)
 	helper.Env = append(os.Environ(), "FAKE_SERVER="+fakeServer(t), "FAKE_PIDFILE="+pidFile, "FAKE_HELPER="+opt.mode)
 	if opt.lock != nil {
 		helper.ExtraFiles = []*os.File{opt.lock}
@@ -108,9 +118,10 @@ func startHelper(t *testing.T, opt helperOptions) (*exec.Cmd, fakeReport) {
 	return helper, report
 }
 
-// A program that startProgram runs must not outlive the test process, whichever way it dies: a panic
-// in another goroutine and a timeout end a process at once and run no cleanup.
-func TestStartProgramEndsWithTheTestProcess(t *testing.T) {
+// A program that startProgram runs must not outlive the test process, nor the reaper that startProgram
+// puts between them, whichever way they die: a panic in another goroutine and a timeout end a process
+// at once and run no cleanup, and the kill of a script is a SIGKILL.
+func TestStartProgramEndsWhenItsParentsDie(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		opt  helperOptions
@@ -118,6 +129,12 @@ func TestStartProgramEndsWithTheTestProcess(t *testing.T) {
 	}{
 		{"test process panics", helperOptions{mode: "panic"}, func(*exec.Cmd, fakeReport) {}},
 		{"test process killed", helperOptions{mode: "wait"}, func(helper *exec.Cmd, _ fakeReport) { helper.Process.Kill() }},
+		{"reaper killed", helperOptions{mode: "wait"}, func(_ *exec.Cmd, report fakeReport) { syscall.Kill(report.ppid, syscall.SIGKILL) }},
+		{"reaper killed, test process ignores SIGHUP", helperOptions{mode: "wait", nohup: true}, func(_ *exec.Cmd, report fakeReport) { syscall.Kill(report.ppid, syscall.SIGKILL) }},
+		{"reaper and test process killed", helperOptions{mode: "wait"}, func(helper *exec.Cmd, report fakeReport) {
+			syscall.Kill(report.ppid, syscall.SIGKILL)
+			helper.Process.Kill()
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			helper, report := startHelper(t, tc.opt)

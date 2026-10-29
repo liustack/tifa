@@ -31,6 +31,8 @@ func TestMain(m *testing.M) {
 // A test that kills its children in t.Cleanup leaves them running when a panic in another
 // goroutine or a test timeout ends the process, since neither runs a cleanup. The test process
 // ends the input itself to stop the program.
+// The reaper itself can end without notice too, as a kill of its process or of every process with
+// the name of the test binary does. bindToReaper makes the system kill the program then.
 func reap(exe string, args []string) int {
 	cmd := exec.Command(exe, args...)
 	for _, kv := range os.Environ() {
@@ -39,7 +41,14 @@ func reap(exe string, args []string) int {
 		}
 	}
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	if err := cmd.Start(); err != nil {
+	started, err := bindToReaper(cmd)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	err = cmd.Start()
+	started()
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
