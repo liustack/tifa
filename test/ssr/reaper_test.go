@@ -13,6 +13,13 @@ import (
 const reaperEnv = "SSR_TEST_REAPER"
 
 func TestMain(m *testing.M) {
+	// A script that runs the tests may leave files open that this process inherits, such as the
+	// lock of flock. No program the tests start may hold them: it would keep a lock for as long as
+	// it lives.
+	if err := closeInheritedFilesOnExec(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	if exe := os.Getenv(reaperEnv); exe != "" {
 		os.Exit(reap(exe, os.Args[1:]))
 	}
