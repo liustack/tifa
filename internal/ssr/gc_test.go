@@ -426,31 +426,34 @@ func TestLoadGivesBackFreeMemory(t *testing.T) {
 	}
 }
 
-// After a render that holds far more than the live size, the threshold keeps room for it and the
-// VM keeps the memory. Once the threshold has come back down, a full GC gives back what it no
-// longer leaves room for.
-func TestFullGCGivesBackWhatTheThresholdNoLongerNeeds(t *testing.T) {
+// A render that holds far more than the live size raises the threshold, and the VM grows to fit
+// it. The full GC after the render gives all that memory back though the threshold stays raised,
+// since the VM takes what it needs again when the next big render comes.
+func TestFullGCGivesBackWhatABigRenderTook(t *testing.T) {
 	p := newTestPool(t, testSource(t), testConfig(1))
 	var live uintptr
-	idleVM(p, func(vm *pooledVM) { live = vm.live })
-	if _, err := p.Render(context.Background(), input("hold", fmt.Sprint(3*live/objectSize(t, holdJS)))); err != nil {
-		t.Fatal(err)
-	}
 	var before slowjs.MemoryUsage
-	idleVM(p, func(vm *pooledVM) { before = vm.MemoryUsage() })
+	idleVM(p, func(vm *pooledVM) { live, before = vm.live, vm.MemoryUsage() })
 	if before.Footprint == 0 {
 		t.Skip("the engine takes its memory from libc")
 	}
-	for i := range 1000 {
-		if _, err := p.Render(context.Background(), input("ok", "")); err != nil {
-			t.Fatalf("render %d: %v", i, err)
-		}
+	if _, err := p.Render(context.Background(), input("hold", fmt.Sprint(3*live/objectSize(t, holdJS)))); err != nil {
+		t.Fatal(err)
 	}
 	idleVM(p, func(vm *pooledVM) {
 		u := vm.MemoryUsage()
-		if given := u.ReleaseCandidate - before.ReleaseCandidate; given < int64(vm.live/2) {
-			t.Fatalf("full GCs gave back %d bytes after the threshold came back to %d, live size %d, footprint %d after the big render, %d now",
-				given, vm.GCThreshold(), vm.live, before.Footprint, u.Footprint)
+		if s := p.stats(); s.idleGCs != 1 {
+			t.Fatalf("want one full GC after the big render, got %+v", s)
+		}
+		if vm.GCThreshold() <= 2*vm.live {
+			t.Fatalf("the threshold %d is back to twice the live size %d, the render did not raise it", vm.GCThreshold(), vm.live)
+		}
+		if given := u.ReleaseCandidate - before.ReleaseCandidate; given < int64(live/2) {
+			t.Fatalf("the full GC gave back %d bytes, live size %d, threshold %d, footprint %d before the render, %d now",
+				given, live, vm.GCThreshold(), before.Footprint, u.Footprint)
+		}
+		if u.Footprint > before.Footprint {
+			t.Fatalf("the VM still holds %d bytes of chunks after the big render, %d before it", u.Footprint, before.Footprint)
 		}
 	})
 }
