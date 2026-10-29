@@ -13,6 +13,13 @@ import (
 const reaperEnv = "SSR_TEST_REAPER"
 
 func TestMain(m *testing.M) {
+	// A script that runs the tests may leave files open that this process inherits, such as the
+	// lock of flock. No program the tests start may hold them: it would keep a lock for as long as
+	// it lives.
+	if err := closeInheritedFilesOnExec(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	if exe := os.Getenv(reaperEnv); exe != "" {
 		os.Exit(reap(exe, os.Args[1:]))
 	}
@@ -24,6 +31,8 @@ func TestMain(m *testing.M) {
 // A test that kills its children in t.Cleanup leaves them running when a panic in another
 // goroutine or a test timeout ends the process, since neither runs a cleanup. The test process
 // ends the input itself to stop the program.
+// The reaper itself can end without notice too, as a kill of its process or of every process with
+// the name of the test binary does. bindToReaper makes the system kill the program then.
 func reap(exe string, args []string) int {
 	cmd := exec.Command(exe, args...)
 	for _, kv := range os.Environ() {
@@ -32,7 +41,14 @@ func reap(exe string, args []string) int {
 		}
 	}
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	if err := cmd.Start(); err != nil {
+	started, err := bindToReaper(cmd)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	err = cmd.Start()
+	started()
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
