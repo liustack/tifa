@@ -59,7 +59,7 @@
 
 ### 性能
 
-- slowjs 的 C 引擎渲染示例商店的工作台页面、MUI 测试应用和 bench 应用的页面，耗时是 slowjs v0.28.7 加 tifa 当时自带剖析的 0.834 到 0.860，HTML 一样，而且不开剖析（11 个页面，一个 VM 一个核，8 个代码位置全部更快，见[引擎](docs/performance.zh-CN.md#引擎)）。渲染时 Go 垃圾回收让程序停的时间一样短：1 个 VM 时 P99 是 131 到 164 µs，3 个 VM 时是 197 µs，最长一次停 3.1 ms 和 0.9 ms，原来是 4.2 和 2.1 ms。示例商店的一个 VM 加载后占进程 8.5 到 8.6 MiB，渲染后 12.8 MiB，空闲后 9.6 MiB，MUI 测试应用的一个 VM 是 3.9、7.4 到 7.6 和 5.3 到 5.5 MiB（见[内存](docs/performance.zh-CN.md#内存)）。
+- slowjs 的 C 引擎渲染示例商店的工作台页面、MUI 测试应用和 bench 应用的页面，耗时是 v0.29.0 之前的 slowjs 加 tifa 当时自带剖析的 0.834 到 0.860，HTML 一样，而且不开剖析（11 个页面，一个 VM 一个核，8 个代码位置全部更快，见[引擎](docs/performance.zh-CN.md#引擎)）。渲染时 Go 垃圾回收让程序停的时间一样短：1 个 VM 时 P99 是 131 到 164 µs，3 个 VM 时是 197 µs，最长一次停 3.1 ms 和 0.9 ms，原来是 4.2 和 2.1 ms。示例商店的一个 VM 加载后占进程 8.5 到 8.6 MiB，渲染后 12.8 MiB，空闲后 9.6 MiB，MUI 测试应用的一个 VM 是 3.9、7.4 到 7.6 和 5.3 到 5.5 MiB（见[内存](docs/performance.zh-CN.md#内存)）。
 
 - lucide-react 的图标渲染更快：每个 VM 记住 lucide-react 给 props 相同的图标构建出的结果，再次用到时直接交出去。shop 的工作台页面渲染时间少 4.3%，店面页面少 5.8%，HTML 不变。lucide-react 某个版本改了缓存依赖的文件时，构建打印警告，图标照旧渲染（[build.zh-CN.md](docs/build.zh-CN.md#前端产物)）。
 - 用 i18next 翻译的页面渲染更快：`getFixedT` 和 `useTranslation` 的 `t` 只在键或键前缀写成函数时才复制 i18next 的选项，i18next 也记住分辨带命名空间的键和一句话用的正则。shop 的店面页面渲染时间少 5.2%，HTML 不变。i18next 某个版本改了这两个函数之一时，构建打印警告，那个函数保持原样（[build.zh-CN.md](docs/build.zh-CN.md#前端产物)）。
