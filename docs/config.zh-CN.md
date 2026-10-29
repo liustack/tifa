@@ -164,18 +164,18 @@ sudo setcap cap_net_bind_service=+ep ./bin/myapp
 
 ## 栈深度
 
-`ssr.vm_stack_depth` 默认是 10000，渲染里普通递归能到的深度和 Node 一样，Node 大约在 10400 层调用时停下。每一层占的是负责渲染的 Go goroutine 的栈，不算在 `ssr.vm_memory` 限制的内存里。普通页面只要几百层、几 MB 栈。无限递归的代码会一直走到底才抛错，这次渲染的栈随之涨到约 16 MB。Go 在下一次垃圾回收时收回。栈按翻倍增长，涨栈时如果正赶上垃圾回收，旧栈要等这轮回收结束才释放，所以这次渲染会短暂占到约 24 MB。
+`ssr.vm_stack_depth` 默认是 10000，渲染里普通递归能到的深度和 Node 一样，Node 大约在 10400 层调用时停下。每一层占的是负责渲染的 Go goroutine 的栈和引擎自己的栈，不算在 `ssr.vm_memory` 限制的内存里。普通页面只要几百层、几 MB。无限递归的代码会一直走到底才抛错，这次渲染里整个进程在 darwin/arm64 上涨约 14 MB，在 linux/amd64 上最多涨到约 26 MB。这次渲染失败，VM 被换掉，Go 在下一次垃圾回收时收回 goroutine 栈。goroutine 栈按翻倍增长，涨栈时如果正赶上垃圾回收，旧栈要等这轮回收结束才释放。
 
-每个 VM 都可能同时这样，所以最坏情况是在 VM 本身的内存之外再加 `ssr.vms` 乘 24 MB。小内存机器上把深度调低。以下在 darwin/arm64 和 linux/amd64 上测得，一层约 1 KB：
+每个 VM 都可能同时这样，所以最坏情况是在 VM 本身的内存之外再加 `ssr.vms` 乘上面的数。小内存机器上把深度调低。下面是一次无限递归的渲染让整个进程涨了多少，在 darwin/arm64 和 linux/amd64 上测得：
 
-| `ssr.vm_stack_depth` | 无限递归的渲染占的栈 |
+| `ssr.vm_stack_depth` | 进程涨的内存 |
 | --- | --- |
-| `10000` | 约 16 MB，涨栈时最多约 24 MB |
-| `5000` | 约 8 MB |
-| `2000` | 约 2 MB |
-| `1000` | 约 1 MB |
+| `10000` | darwin/arm64 上 14 MB，linux/amd64 上最多 26 MB |
+| `5000` | 7 MB |
+| `2000` | 2 到 4 MB |
+| `1000` | 1 到 2 MB |
 
-在 Linux 上，每一层还会留下最多约 2 KB 引擎给自己的局部变量用的内存，所以一个 VM 只要递归到过 10000 层，就会多占约 20 MB。这块内存同样不算在 `ssr.vm_memory` 里，VM 关闭前一直留着。渲染失败时 VM 会关闭并换一个新的，内存随之收回。页面接住了 `RangeError`、渲染成功时，VM 留下，这块内存也跟着留下。
+页面接住 `RangeError`、渲染成功时，VM 留下。递归碰过的那部分引擎栈，在 VM 空闲一秒后还给系统，和空闲 VM 的其他空闲内存一样（见[内存](performance.zh-CN.md#内存)）。
 
 调低之后会出问题的：
 
@@ -191,7 +191,7 @@ sudo setcap cap_net_bind_service=+ep ./bin/myapp
 - 时长用 Go 的写法，必须为正：`500ms`、`3s`、`1m30s`。
 - `ssr.vms` 是不小于 1 的整数。
 - `ssr.queue_limit` 是不小于 0 的整数。即使队列限制为 0，`ssr.wait_timeout` 也必须为正数。
-- `ssr.vm_stack_depth` 是 1 到 10000 的整数。再深的话，无限递归的代码会让 goroutine 栈超过 Go 的上限，整个进程直接退出。
+- `ssr.vm_stack_depth` 是 1 到 10000 的整数，10000 是引擎允许的最深调用嵌套。
 - `build.skip_tanstack_check`、`build.debug_info`、`build.i18next_cache`、`server.compress` 和 `server.hsts` 是 `true` 或 `false`，不加引号。参数要用 `=` 带值：`--server-compress=false`。
 - `server.tls_domains` 是逗号分隔的主机名，不带协议、端口和路径，每个都要有点号。`server.tls_ca` 是 `https` 网址。`server.http_addr` 是带端口的地址，比如 `:80` 或 `0.0.0.0:80`，或者小写的 `off`。像开关的词，比如 `OFF`、`false`、`none`，会报错并告诉你该写什么。
 - `server.tls_domains`、`server.tls_email`、`server.tls_cache`、`server.tls_cert` 和 `server.tls_key` 可以为空，表示关掉低优先级来源设的值：项目文件要 Let's Encrypt 时，用 `TIFA_SERVER_TLS_DOMAINS=` 加 `--server-tls-cert` 就能改用自己的证书。

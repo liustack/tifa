@@ -115,9 +115,8 @@ type Cache struct {
 }
 
 // MaxVMStackDepth is the default and the largest ssr.vm_stack_depth: the deepest the engine lets calls
-// nest, which internal/ssr checks. Code that recurses without end takes about 1 KB of goroutine
-// stack per level before it throws, and much deeper than this it would pass Go's stack limit,
-// which ends the process.
+// nest, which internal/ssr checks. Code that recurses without end takes a few KB of stack
+// per level before it throws, and the engine does not nest calls deeper than this.
 const MaxVMStackDepth = 10000
 
 // DefaultAddr is where a built app and tifa dev listen unless told otherwise.
@@ -170,7 +169,7 @@ func fields(c *Config) []field {
 		{"ssr.vms", "Prewarmed JavaScript VMs, defaults to GOMAXPROCS (the CPU limit in containers)", intValue{p: &c.SSR.VMs, min: 1}},
 		{"ssr.vm_memory", "Memory limit of each VM", sizeValue{&c.SSR.VMMemory, 1}},
 		{"ssr.vm_stack_depth", "How deep JavaScript calls may nest in each VM, at most 10000", intValue{p: &c.SSR.VMStackDepth, min: 1, max: MaxVMStackDepth,
-			why: "a deeper stack lets code that recurses without end grow the goroutine stack past Go's limit, which ends the process"}},
+			why: "the engine does not nest calls deeper"}},
 		{"ssr.timeout", "Render time budget of each request", durationValue{&c.SSR.Timeout}},
 		{"ssr.queue_limit", "Requests allowed to wait for a VM, 0 rejects when all VMs are busy", intValue{p: &c.SSR.QueueLimit, min: 0}},
 		{"ssr.wait_timeout", "Maximum time waiting for a VM before answering 503", durationValue{&c.SSR.WaitTimeout}},

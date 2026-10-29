@@ -164,18 +164,18 @@ Copying or building the file again drops it, so do it after each deployment. Und
 
 ## Stack depth
 
-With the default `ssr.vm_stack_depth` of 10000, plain recursion goes as deep in a render as in Node, which stops at about 10,400 calls. Each level takes room on the stack of the Go goroutine that renders, not in the memory `ssr.vm_memory` limits. A normal page needs a few hundred levels and a few MB of stack. Code that recurses without end goes all the way down before it throws, and the stack of that render then grows to about 16 MB. Go takes it back at the next garbage collection. The stack grows by doubling, and when a garbage collection is running as it grows, the old stack is freed only once the collection ends, so for a moment the render can hold about 24 MB.
+With the default `ssr.vm_stack_depth` of 10000, plain recursion goes as deep in a render as in Node, which stops at about 10,400 calls. Each level takes room on the stack of the Go goroutine that renders and on the engine's own stack, not in the memory `ssr.vm_memory` limits. A normal page needs a few hundred levels and a few MB. Code that recurses without end goes all the way down before it throws, and the process grows by about 14 MB on darwin/arm64 and up to about 26 MB on linux/amd64 for that render. The render fails, the VM is replaced, and Go takes the goroutine stack back at the next garbage collection. The goroutine stack grows by doubling, and when a garbage collection is running as it grows, the old stack is freed only once the collection ends.
 
-Every VM can do this at the same moment, so the worst case is `ssr.vms` times 24 MB on top of the memory of the VMs. On a small machine, lower the depth. Measured on darwin/arm64 and linux/amd64, where a level takes about 1 KB:
+Every VM can do this at the same moment, so the worst case is `ssr.vms` times that on top of the memory of the VMs. On a small machine, lower the depth. How much the process grew in one render that recurses without end, measured on darwin/arm64 and linux/amd64:
 
-| `ssr.vm_stack_depth` | Stack of a render that recurses without end |
+| `ssr.vm_stack_depth` | Growth of the process |
 | --- | --- |
-| `10000` | about 16 MB, up to about 24 MB while it grows |
-| `5000` | about 8 MB |
-| `2000` | about 2 MB |
-| `1000` | about 1 MB |
+| `10000` | 14 MB on darwin/arm64, up to 26 MB on linux/amd64 |
+| `5000` | 7 MB |
+| `2000` | 2 to 4 MB |
+| `1000` | 1 to 2 MB |
 
-On Linux, each level also keeps up to about 2 KB of memory the engine uses for its own local variables, so a VM that once recursed 10000 levels deep holds about 20 MB more. This memory is not in `ssr.vm_memory` either, and the VM keeps it until it closes. A render that fails closes the VM and starts a new one, so the memory comes back then. When the page catches the `RangeError` and the render succeeds, the VM stays and keeps it.
+When the page catches the `RangeError` and the render succeeds, the VM stays. The pages of its engine stack that the recursion touched go back to the system when the VM has been idle for a second, as the other free memory of an idle VM does (see [Memory](performance.md#memory)).
 
 What a lower depth breaks:
 
@@ -191,7 +191,7 @@ What a lower depth breaks:
 - Durations use Go's format and must be positive: `500ms`, `3s`, `1m30s`.
 - `ssr.vms` is a whole number of at least 1.
 - `ssr.queue_limit` is a whole number of at least 0. `ssr.wait_timeout` must be positive even with a queue limit of 0.
-- `ssr.vm_stack_depth` is a whole number from 1 to 10000. A deeper stack would let code that recurses without end grow the goroutine stack past Go's limit, and the whole process would exit.
+- `ssr.vm_stack_depth` is a whole number from 1 to 10000, the deepest the engine lets calls nest.
 - `build.skip_tanstack_check`, `build.debug_info`, `build.i18next_cache`, `server.compress` and `server.hsts` are `true` or `false`, without quotes. The flag takes its value after `=`: `--server-compress=false`.
 - `server.tls_domains` is a comma-separated list of host names, without scheme, port or path. Each needs a dot. `server.tls_ca` is an `https` URL. `server.http_addr` is an address with a port, such as `:80` or `0.0.0.0:80`, or `off` in lower case. Words that read as a switch, such as `OFF`, `false` or `none`, fail with what to write.
 - `server.tls_domains`, `server.tls_email`, `server.tls_cache`, `server.tls_cert` and `server.tls_key` may be empty, which turns off what a lower source set: `TIFA_SERVER_TLS_DOMAINS=` with `--server-tls-cert` serves your own certificate where the project file asks for Let's Encrypt.

@@ -372,9 +372,8 @@ func TestDefaultAddr(t *testing.T) {
 	}
 }
 
-// ssr.vm_stack_depth is a whole number from 1 to 10000, 10000 by default: the default of the
-// QuickJS fork, which internal/ssr checks. A deeper stack would let code that recurses without
-// end grow the goroutine stack past Go's limit, which ends the process.
+// ssr.vm_stack_depth is a whole number from 1 to 10000, 10000 by default: the deepest the
+// engine nests calls, which internal/ssr checks.
 func TestVMStackDepth(t *testing.T) {
 	if got := Default().SSR.VMStackDepth; got != 10000 {
 		t.Fatalf("default %d", got)
@@ -405,7 +404,7 @@ func TestVMStackDepth(t *testing.T) {
 			t.Errorf("%s: accepted", tc.name)
 			continue
 		}
-		for _, want := range []string{tc.layer, "ssr.vm_stack_depth", "above the maximum 10000", "Go's limit", "ends the process"} {
+		for _, want := range []string{tc.layer, "ssr.vm_stack_depth", "above the maximum 10000", "the engine does not nest calls deeper"} {
 			if !strings.Contains(err.Error(), want) {
 				t.Errorf("%s: %v lacks %q", tc.name, err, want)
 			}
