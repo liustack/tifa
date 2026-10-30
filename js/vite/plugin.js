@@ -439,6 +439,28 @@ const ignoredErrors = 'function onError() {}'
 // React's HTML escape in its string renderer, with the regular expression that finds the first
 // character to escape.
 const escapeSource = 'matchHtmlRegExp = /["\'&<>]/;\nfunction escapeTextForBrowser(text) {'
+// The function of React's string renderer that writes an attribute whose value is a string, the
+// calls of it with a name that is a string in pushAttribute, the case of pushAttribute that calls it
+// with the name it was given, the first test of isAttributeNameSafe and its call in the default branch
+// of pushAttribute.
+const stringAttributeSource = `function pushStringAttribute(target, name, value) {
+  "function" !== typeof value &&
+    "symbol" !== typeof value &&
+    "boolean" !== typeof value &&
+    target.push(" ", name, '="', escapeTextForBrowser(value), '"');
+}`
+const stringAttributeCall = /pushStringAttribute\(target, ("[^"\n]*"), value\);/g
+const literalAttributePush = /target\.push\(" ", ("[^"\n]*"), '="', escapeTextForBrowser\(value\), '"'\)/g
+const sharedStringCase = `    case "dir":
+    case "role":
+    case "viewBox":
+    case "width":
+    case "height":
+      pushStringAttribute(target, name, value);`
+const attributeNameTest = `function isAttributeNameSafe(attributeName) {
+  if (hasOwnProperty.call(validatedAttributeNameCache, attributeName))
+    return !0;`
+const attributeNameCheck = 'if (((name = aliases.get(name) || name), isAttributeNameSafe(name))) {'
 // escapeCacheSize is how much the cache of escapes holds in each VM, in UTF-16 code units: the
 // strings and their escapes, and escapeEntrySize more for each entry, which stands for the memory
 // an entry of the Map takes besides its strings. So many short strings cannot take more memory
@@ -1000,6 +1022,17 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
             `${react} has no loops over the chunks of a segment in flushSubtree in the form the tifa plugin ` +
               'knows, so the tifa plugin does not join the chunks of a segment before it writes them. Pages ' +
               'render the same, but take longer to render',
+          )
+        }
+        const inlined = inlineAttributeCalls(source)
+        if (inlined) {
+          source = inlined
+        } else {
+          this.warn(
+            `${react} has no pushStringAttribute, pushAttribute and isAttributeNameSafe in the form the tifa ` +
+              'plugin knows, so the tifa plugin does not write the common attributes without calling the ' +
+              'functions that write one string attribute and check an attribute name. Pages render the same, ' +
+              'but take longer to render',
           )
         }
         // A syntax tree goes only with the source it was parsed from: each change below parses
@@ -1776,6 +1809,37 @@ function chainEscapes(source) {
       .replaceAll("'", "&#x27;"));
   return text;`
   return source.replace(escapeLoop, () => sameLines(escapeLoop, chained))
+}
+
+// inlineAttributeCalls returns the source of React's string renderer with pushAttribute writing the
+// attributes that go through pushStringAttribute without calling it, and checking the name of an
+// attribute that isAttributeNameSafe has seen without calling that, or null when the source does not
+// have these functions in the form it knows. pushAttribute writes every attribute of every element,
+// and a call in QuickJS costs about as much as the work of the short function it makes. For a name
+// that is a string, such as "class" for className, the chunk before the value is one string, ' class="',
+// where pushStringAttribute pushed " ", the name and '="'. The chunks are pushed one by one as before,
+// so there is no more joining of strings, which costs more than it saves. The text is the same:
+// the inlined test is the body of pushStringAttribute, and isAttributeNameSafe starts with the lookup
+// that is inlined. Each change stays on the lines it was on.
+function inlineAttributeCalls(source) {
+  const calls = source.match(stringAttributeCall)?.length
+  const pushes = source.match(literalAttributePush)?.length
+  if (
+    source.split(stringAttributeSource).length !== 2 ||
+    source.split(sharedStringCase).length !== 2 ||
+    source.split(attributeNameTest).length !== 2 ||
+    source.split(attributeNameCheck).length !== 2 ||
+    calls !== 11 ||
+    pushes !== 1
+  ) {
+    return null
+  }
+  const written = (name) => `"function" !== typeof value && "symbol" !== typeof value && "boolean" !== typeof value && target.push(' ${name.slice(1, -1)}="', escapeTextForBrowser(value), '"');`
+  return source
+    .replace(literalAttributePush, (all, name) => `target.push(' ${name.slice(1, -1)}="', escapeTextForBrowser(value), '"')`)
+    .replace(stringAttributeCall, (all, name) => written(name))
+    .replace(sharedStringCase, () => sharedStringCase.replace('pushStringAttribute(target, name, value);', `"function" !== typeof value && "symbol" !== typeof value && "boolean" !== typeof value && target.push(" ", name, '="', escapeTextForBrowser(value), '"');`))
+    .replace(attributeNameCheck, () => 'if (((name = aliases.get(name) || name), hasOwnProperty.call(validatedAttributeNameCache, name) || isAttributeNameSafe(name))) {')
 }
 
 // dropComponentStacks returns the source of React's string renderer without the component stacks

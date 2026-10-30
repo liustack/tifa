@@ -257,6 +257,75 @@ func TestSSRDoesNotAskTheEngineWhereTheEscapeIsCalledEarly(t *testing.T) {
 	}
 }
 
+// attributesPage renders every attribute that pushAttribute of React DOM writes through
+// pushStringAttribute or past isAttributeNameSafe, and others beside them, with values of every
+// kind: strings with characters to escape, numbers, booleans, null, undefined, a symbol, functions,
+// an object with its own text and a bigint. A render that throws gives its message. The names of the
+// SVG attributes go on an svg element.
+const attributesPage = "import './host'\n" +
+	"import { renderToString } from 'react-dom/server.edge'\n" +
+	"const names = ['className', 'tabIndex', 'dir', 'role', 'viewBox', 'width', 'height', 'xlinkHref', 'xlinkActuate', 'xlinkArcrole', 'xlinkRole',\n" +
+	"  'xlinkShow', 'xlinkTitle', 'xlinkType', 'xmlBase', 'xmlLang', 'xmlSpace', 'data-x', 'aria-x', 'htmlFor', 'acceptCharset', 'strokeWidth',\n" +
+	"  'foo', 'x:y', 'bad name', '9lives', 'onClick', 'style', 'value', 'href', 'src', 'hidden', 'span', 'download']\n" +
+	"const values: unknown[] = ['text', '', 'a & b < \"c\" d\\'e', 0, 5, -1.5, NaN, true, false, null, undefined, Symbol('s'), () => 1,\n" +
+	"  { toString: () => 'obj<' }, 10n, '\\ud800 lone']\n" +
+	"const out: string[] = []\n" +
+	"for (const name of names) {\n" +
+	"  for (const value of values) {\n" +
+	"    const props = { [name]: value } as any\n" +
+	"    try {\n" +
+	"      out.push(renderToString(<div><svg {...props}><use {...props} /></svg><p {...props} /></div>))\n" +
+	"    } catch (e) {\n" +
+	"      out.push(name + ' ' + String(typeof value) + ' threw ' + (e as Error).message)\n" +
+	"    }\n" +
+	"  }\n" +
+	"}\n" +
+	"globalThis.result = out.join('\\n')\n"
+
+// literalPush finds the push of an attribute whose name is a string, written as one chunk with the
+// name, in a minified bundle.
+var literalPush = regexp.MustCompile("\\w+\\.push\\(` class=\"`,\\w+\\(\\w+\\),`\"`\\)")
+
+// pushAttribute writes className as one chunk and a call of escapeTextForBrowser, without calling
+// pushStringAttribute, and the tifa plugin checks the names of attributes without calling
+// isAttributeNameSafe when it has seen them. Pages render the same as in a React DOM the plugin does
+// not change.
+func TestSSRWritesAttributesWithFewerCalls(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"attributes.tsx": attributesPage})
+	code, printed := buildPrinting(t, root, "attributes.tsx")
+	if !literalPush.MatchString(code) {
+		t.Error("the bundle writes className through pushStringAttribute")
+	}
+	if strings.Contains(printed, "pushStringAttribute") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	written := evalResult(t, code)
+	for _, want := range []string{"<p class=\"text\">", "<p class=\"a &amp; b &lt; &quot;c&quot; d&#x27;e\">", "<p tabindex=\"5\">", "<svg viewBox=\"text\">", "<p width=\"0\">", "xlink:href=\"text\"", "xml:lang=\"text\"", "<p data-x=\"true\">", "<p aria-x=\"false\">", "<p foo=\"obj&lt;\">"} {
+		if !strings.Contains(written, want) {
+			t.Errorf("the page has no %s", want)
+		}
+	}
+	for name, change := range map[string][2]string{
+		"pushStringAttribute": {"function pushStringAttribute(target, name, value) {", "function pushStringAttribute(target, name, value) /* changed */ {"},
+		"isAttributeNameSafe": {"function isAttributeNameSafe(attributeName) {", "function isAttributeNameSafe(attributeName) /* changed */ {"},
+		"the default branch":  {"if (((name = aliases.get(name) || name), isAttributeNameSafe(name))) {", "if (((name = aliases.get(name) || name), isAttributeNameSafe(name) /* changed */)) {"},
+	} {
+		changed := withReactDOM(t, change[0], change[1])
+		writeTree(t, changed, map[string]string{"attributes.tsx": attributesPage})
+		code, printed := buildPrinting(t, changed, "attributes.tsx")
+		if literalPush.MatchString(code) {
+			t.Errorf("%s: the bundle writes className in one chunk of a React DOM it does not know", name)
+		}
+		if !strings.Contains(printed, "react-dom 19.3.0: ") || !strings.Contains(printed, "the tifa plugin does not write the common attributes") {
+			t.Errorf("%s: the build prints:\n%s", name, printed)
+		}
+		if got := evalResult(t, code); got != written {
+			t.Errorf("%s: the page renders otherwise without the change", name)
+		}
+	}
+}
+
 // everyEscapePage renders, as text and as attribute values, every UTF-16 code unit between two
 // ampersands, all of them in a row, and 3,000 strings of up to 40 code units drawn from the
 // characters React escapes, letters, lone surrogates and characters outside Latin-1. The cache of
