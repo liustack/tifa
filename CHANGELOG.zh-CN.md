@@ -60,6 +60,8 @@
 
 ### 性能
 
+- React DOM 对每段文本和每个属性值的转义改在引擎里跑。slowjs 里有用 C 写的 `escapeTextForBrowser`（`RegisterEscapeText`），池里每个 VM 都以 `__tifa_escape` 的名字拥有它，构建让 React 的字符串渲染器调用它，不再走 JavaScript 写的函数加缓存和 `replaceAll`。渲染一次，示例应用 shop 的工作台页面少跑 2.5% 的指令，店面页面少 2.4%，MUI 测试应用少 0.7%，bench 应用少 4.5%，HTML 不变。在 linux/amd64 上按 8 个代码位置计时，工作台页面渲染只花原来的 0.974，店面页面 0.975，bench 页面 0.938。没有这个函数的 VM，以及插件不认识的 React DOM，仍用缓存和 `replaceAll`（[build.zh-CN.md](docs/build.zh-CN.md#前端产物)）。它需要带 `RegisterEscapeText` 的 slowjs 版本。
+- React DOM 的 `pushAttribute` 写 `class`、`tabindex`、`dir`、`role`、`viewBox`、`width`、`height` 以及 XLink 和 XML 的属性时不再调用 `pushStringAttribute`，别的属性名先查有效名字的缓存，查不到才调 `isAttributeNameSafe`。渲染一次，示例应用 shop 的工作台页面少跑 0.8% 的指令，店面页面少 0.7%，bench 应用少 1.0%，MUI 测试应用少 0.1%，HTML 不变。在 linux/amd64 上按 8 个代码位置计时，页面耗时是原来的 0.993 到 0.997，在各位置的波动之内。这几个函数中有一个和 React DOM 19.3 不同时，构建打印警告，页面和以前一样快（[build.zh-CN.md](docs/build.zh-CN.md#前端产物)）。
 - 服务端渲染改用 slowjs v0.29.1，HTML 一样。slowjs 在 linux/amd64 上不开剖析、按 8 个代码位置，逐项和前一步比。只有普通键的对象字面量一次按最终形状建好：示例商店的工作台页面耗时是原来的 0.956，MUI 页面 0.969，bench 应用的表格页 0.942。在此之上，函数调用设置和释放值的步骤更少，React 里配合 `hasOwnProperty.call` 的 `for in` 循环不再真的调用这两个函数：工作台页面耗时是 0.982，MUI 页面 0.976，bench 页面 0.952。普通对象（比如 React 元素的 props）从 72 字节缩到 48 字节，长 Markdown 页面渲染时的内存峰值低 3.8%。
 - slowjs 的 C 引擎渲染示例商店的工作台页面、MUI 测试应用和 bench 应用的页面，耗时是 v0.29.0 之前的 slowjs 加 tifa 当时自带剖析的 0.834 到 0.860，HTML 一样，而且不开剖析（11 个页面，一个 VM 一个核，8 个代码位置全部更快，见[引擎](docs/performance.zh-CN.md#引擎)）。渲染时 Go 垃圾回收让程序停的时间一样短：1 个 VM 时 P99 是 131 到 164 µs，3 个 VM 时是 197 µs，最长一次停 3.1 ms 和 0.9 ms，原来是 4.2 和 2.1 ms。示例商店的一个 VM 加载后占进程 8.5 到 8.6 MiB，渲染后 12.8 MiB，空闲后 9.6 MiB，MUI 测试应用的一个 VM 是 3.9、7.4 到 7.6 和 5.3 到 5.5 MiB（见[内存](docs/performance.zh-CN.md#内存)）。
 
