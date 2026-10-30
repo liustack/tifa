@@ -238,6 +238,77 @@ func TestShopRendersReadyData(t *testing.T) {
 	}
 }
 
+var (
+	renderTime = regexp.MustCompile(`u:\d{13}`)
+	// scriptBreak is where the router starts a script tag of its own for a text over 16K code units.
+	scriptBreak = `</script><script data-tsr-stream-part="">`
+	slotLeft    = regexp.MustCompile(`~[0-9a-f]{32}\.\d+\.`)
+)
+
+// sameButTheTime makes two renders of the same page comparable: the router writes the time of the
+// render into each match, and splits its hydration script where a text is long.
+func sameButTheTime(html string) string {
+	return strings.ReplaceAll(renderTime.ReplaceAllString(html, "u:T"), scriptBreak, ";")
+}
+
+// The pool has the VM write a slot where the page carries the text of a Load's data and fills it
+// afterwards. The page it returns is the page the VM writes when it gets no nonce and writes the
+// text itself, for every page of the shop and for one whose data holds what could break a page.
+func TestShopSlotsGiveTheSamePageAsTheVMDoes(t *testing.T) {
+	source, pages := shopBundle(t)
+	cfg := shopConfig(1)
+	pool := newPool(t, source, cfg)
+	bytecode, err := ssr.Compile(source, uintptr(cfg.VMMemory), cfg.Timeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bytecode.Close()
+	vm, err := ssr.Load(bytecode, uintptr(cfg.VMMemory), uintptr(cfg.VMStackDepth), cfg.Timeout, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer vm.Close()
+	inputs := make([]ssr.Input, 0, len(pages)+1)
+	for _, page := range pages {
+		inputs = append(inputs, page.input)
+	}
+	inputs = append(inputs, withCustomer(pages[2].input, "</script><script id=\"x\">alert(1)</script> \"q\" \\ \xe2\x80\xa8 \xe2\x80\xa9 \x07 😀"))
+	for _, in := range inputs {
+		got, err := pool.Render(context.Background(), in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		input, err := json.Marshal(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, err := ssr.RenderVM(vm, input, in.Texts, cfg.Timeout)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if slotLeft.MatchString(got) {
+			t.Errorf("%s: the page has a slot that was not filled", in.URL)
+		}
+		// The pool filled slots where the VM wrote any: the order list holds a text of over 4,096 code units.
+		slotted := in
+		slotted.Nonce = ssr.NewNonce()
+		input, err = json.Marshal(slotted)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := ssr.RenderVM(vm, input, in.Texts, cfg.Timeout)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if in.URL == "/projects/studio" && !strings.Contains(raw, "~"+slotted.Nonce) {
+			t.Errorf("%s: the VM wrote no slot", in.URL)
+		}
+		if sameButTheTime(got) != sameButTheTime(want) {
+			t.Errorf("%s: the page differs from the page the VM writes by itself (%d and %d bytes)", in.URL, len(got), len(want))
+		}
+	}
+}
+
 func TestShopEscapesScriptClosingTags(t *testing.T) {
 	source, pages := shopBundle(t)
 	p := newPool(t, source, shopConfig(1))
@@ -375,5 +446,153 @@ func TestShopReuseKeepsRequestsApart(t *testing.T) {
 			t.Fatalf("request %d: the mark is %v, %v", i, mark, err)
 		}
 		previous = name
+	}
+}
+
+// units is the length of s in UTF-16 code units, which is what the bundle compares with the length
+// from which a text becomes a slot.
+func units(s string) int {
+	n := 0
+	for _, r := range s {
+		n++
+		if r > 0xFFFF {
+			n++
+		}
+	}
+	return n
+}
+
+// dataLiterals returns the strings that a page passes to the deserializer of the tifa.data adapter,
+// read as JavaScript reads them, which is what the browser parses the data of the router from.
+func dataLiterals(t *testing.T, vm *slowjs.VM, html string) []string {
+	t.Helper()
+	var out []string
+	for _, m := range regexp.MustCompile(`\$_TSR\.t\.get\("tifa\.data"\)\("((?:[^"\\]|\\.)*)"\)`).FindAllStringSubmatch(html, -1) {
+		v, err := vm.Eval(`"`+m[1]+`"`, slowjs.EvalGlobal)
+		if err != nil {
+			t.Fatalf("read %.60s: %v", m[1], err)
+		}
+		out = append(out, v.(string))
+	}
+	return out
+}
+
+// A text goes into the page as a slot from 4,096 code units. At 4,095, 4,096 and 4,097, for text in
+// ASCII, in Chinese and with a character above U+FFFF (written as the escapes of its surrogate pair,
+// as the server writes it), the pool's page is the page the VM writes by itself, and the strings it
+// passes to the adapter are the texts, which is the data the browser reads.
+func TestShopSlotsAtTheLengthWhereTheyStart(t *testing.T) {
+	source, pages := shopBundle(t)
+	cfg := shopConfig(1)
+	pool := newPool(t, source, cfg)
+	bytecode, err := ssr.Compile(source, uintptr(cfg.VMMemory), cfg.Timeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bytecode.Close()
+	vm, err := ssr.Load(bytecode, uintptr(cfg.VMMemory), uintptr(cfg.VMStackDepth), cfg.Timeout, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer vm.Close()
+	reader, err := slowjs.NewVM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+
+	detail := pages[2].input
+	target := -1
+	for i, text := range detail.Texts {
+		if strings.Contains(text, "林夏") {
+			if target >= 0 {
+				t.Fatal("two texts of the order page hold the customer")
+			}
+			target = i
+		}
+	}
+	if target < 0 {
+		t.Fatal("no text holds the customer")
+	}
+	inString := func(s string) string {
+		quoted, _ := json.Marshal(s)
+		return string(quoted[1 : len(quoted)-1])
+	}
+	for _, kind := range []struct {
+		name string
+		unit string // what the name grows by
+		size int    // its code units in the text, after the escape of the characters above U+FFFF
+	}{{"ascii", "x", 1}, {"chinese", "林", 1}, {"astral", "😀", 12}} {
+		for _, want := range []int{4095, 4096, 4097} {
+			t.Run(fmt.Sprintf("%s %d", kind.name, want), func(t *testing.T) {
+				in := detail
+				in.Texts = slices.Clone(detail.Texts)
+				base := units(in.Texts[target])
+				if base >= want {
+					t.Fatalf("the order is already %d code units", base)
+				}
+				k := (want - base) / kind.size
+				pad := strings.Repeat(kind.unit, k) + strings.Repeat("x", want-base-k*kind.size)
+				in.Texts[target] = string(ssr.EscapeAboveFFFF([]byte(strings.Replace(in.Texts[target], inString("林夏"), inString("林夏"+pad), 1))))
+				if got := units(in.Texts[target]); got != want {
+					t.Fatalf("the text has %d code units, want %d", got, want)
+				}
+				got, err := pool.Render(context.Background(), in)
+				if err != nil {
+					t.Fatal(err)
+				}
+				input, err := json.Marshal(in)
+				if err != nil {
+					t.Fatal(err)
+				}
+				plain, err := ssr.RenderVM(vm, input, in.Texts, cfg.Timeout)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if slotLeft.MatchString(got) || sameButTheTime(got) != sameButTheTime(plain) {
+					t.Errorf("the page differs from the page the VM writes by itself (%d and %d bytes)", len(got), len(plain))
+				}
+				// The VM writes a slot for each object or array of 4,096 code units or more, no other.
+				slotted := in
+				slotted.Nonce = ssr.NewNonce()
+				input, err = json.Marshal(slotted)
+				if err != nil {
+					t.Fatal(err)
+				}
+				raw, err := ssr.RenderVM(vm, input, in.Texts, cfg.Timeout)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var objects []string
+				expected := 0
+				for i, text := range in.Texts {
+					if text != "" && (text[0] == '{' || text[0] == '[') {
+						objects = append(objects, text)
+						// The text of the order is the one that grows, so it is a slot from 4,096 code units.
+						if units(text) >= 4096 {
+							expected++
+						} else if i == target && want >= 4096 {
+							t.Fatalf("the text of the order is %d code units", units(text))
+						}
+					}
+				}
+				if n := strings.Count(raw, "~"+slotted.Nonce); n != expected {
+					t.Errorf("the VM wrote %d slots, want %d", n, expected)
+				}
+				if (units(in.Texts[target]) >= 4096) != (want >= 4096) {
+					t.Fatalf("the text of the order is %d code units", units(in.Texts[target]))
+				}
+				// What the browser reads is the same with the slot filled and with the VM's own text.
+				literals := dataLiterals(t, reader, got)
+				slices.Sort(literals)
+				slices.Sort(objects)
+				if !slices.Equal(literals, objects) {
+					t.Errorf("the page passes %d strings to the adapter, which differ from the %d texts of the data", len(literals), len(objects))
+				}
+				if plainLiterals := dataLiterals(t, reader, plain); len(plainLiterals) != len(literals) {
+					t.Errorf("the VM's own page passes %d strings", len(plainLiterals))
+				}
+			})
+		}
 	}
 }

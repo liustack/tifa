@@ -174,10 +174,14 @@ func (vm *VM) Close() error {
 }
 
 // RenderVM runs one request in vm: startRender(input, ...texts), then the microtasks it queued,
-// then reads globalThis.renderResult. Each of texts is an argument of startRender of its own. A render that left no result once no job is left waits for
-// work nothing can settle, since a VM has no timers and does no I/O: when the bundle set
-// globalThis.stopRender for it, RenderVM calls it, runs the jobs that queued and reads the
-// result again. Any error leaves vm in an unknown state.
+// then reads globalThis.renderResult. Each of texts is an argument of startRender of its own.
+// When input holds a nonce, the page has a slot where the text of a Load's data goes, and the
+// caller fills the slots with FillSlots, as Pool.Render does.
+//
+// A render that left no result once no job is left waits for work nothing can settle, since a VM
+// has no timers and does no I/O: when the bundle set globalThis.stopRender for it, RenderVM calls
+// it, runs the jobs that queued and reads the result again. Any error leaves vm in an unknown
+// state.
 func RenderVM(vm *VM, input []byte, texts []string, timeout time.Duration) (string, error) {
 	deadline := time.Now().Add(timeout)
 	// Each phase gets only what is left of the request's budget.

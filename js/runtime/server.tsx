@@ -59,11 +59,25 @@ function suspended(error: unknown) {
 // the data of a 200 is not in it. It is the argument of startRender that text numbers, counting
 // from the first one after the input, so the text is neither escaped into the JSON of the input
 // nor parsed out of it. A page that skips SSR carries the text in json instead.
-export type RenderResult = Omit<InjectedResult, 'json'> & { text?: number }
+export type RenderResult = Omit<InjectedResult, 'json' | 'slot'> & { text?: number }
 
 // RenderInput is what the Go VM pool renders a page from: the results of the Loads, and the module
 // preloads of the matched Layouts and route, which follow the tags of the browser entry.
-export type RenderInput = Omit<Injected, 'data'> & { data: Record<string, RenderResult>; preload?: string }
+export type RenderInput = Omit<Injected, 'data'> & {
+  data: Record<string, RenderResult>
+  preload?: string
+  // The nonce of the render, which Go draws for it. The page carries a slot, a ~, the nonce and the number
+  // of the text, where the JSON text of a Load's data goes, and Go fills it (internal/ssr/slots.go).
+  nonce?: string
+  // The length from which a text goes into the page as a slot, slotMin below unless a test sets it.
+  slotMin?: number
+}
+
+// slotMin is the length, in code units, from which the JSON text of a Load's data goes into the page
+// as a slot. Go fills a slot by copying the page once more, which a shorter text does not pay back:
+// writing a text in the VM takes about 30 ns for each code unit, and the copy of a page of 130 KB
+// about 60 µs.
+const slotMin = 4096
 
 // renderSource answers from the data of a server render. Each result that numbers a text gets
 // that text of texts, the arguments of startRender after the input, as its json. A number with no
@@ -77,7 +91,8 @@ function renderSource(input: RenderInput, texts: string[]): Source {
     }
     const json = texts[text]
     if (json === undefined) throw new Error(`render input has no text ${text} for route ${id}`)
-    data[id] = { ...result, json }
+    const slotted = input.nonce !== undefined && json.length >= (input.slotMin ?? slotMin)
+    data[id] = slotted ? { ...result, json, slot: `~${input.nonce}.${text}.` } : { ...result, json }
   }
   return injected({ url: input.url, buildId: input.buildId, data })
 }

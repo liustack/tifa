@@ -35,6 +35,11 @@ type Input struct {
 	// Preload is the module preloads of the matched Layouts and route, which the document
 	// carries after the tags of the browser entry.
 	Preload string `json:"preload,omitempty"`
+	// Nonce is drawn by Render for each render, and Render ignores one a caller sets. The bundle
+	// writes a slot that holds it in place of each long text of a Load's data in the hydration script,
+	// and Render fills the slots once the VM is free (see slots.go). A bundle that does not know
+	// slots writes the texts itself and never repeats the nonce.
+	Nonce string `json:"nonce,omitempty"`
 }
 
 // ErrClosed is returned by Render after Close has started.
@@ -204,7 +209,24 @@ func NewPool(source string, sourceMap []byte, cfg config.SSR, dev bool) (*Pool, 
 // or to the ssr.timeout budget, because stopping it halfway would cost the VM.
 // A budget overrun returns an error that matches context.DeadlineExceeded. When the router
 // redirects the URL, Render returns a *RedirectError.
+//
+// The VM writes a slot where the page carries the text of a Load's data, and Render fills the slots
+// once the VM is back in the pool (see slots.go), so the page it returns is the whole document.
 func (p *Pool) Render(ctx context.Context, in Input) (string, error) {
+	in.Nonce = NewNonce()
+	html, err := p.renderInVM(ctx, in)
+	if html == "" {
+		return html, err
+	}
+	filled, fillErr := FillSlots(html, in.Nonce, in.Texts)
+	if fillErr != nil {
+		return "", fillErr
+	}
+	return filled, err
+}
+
+// renderInVM is Render up to the VM's answer, with the slots still in it.
+func (p *Pool) renderInVM(ctx context.Context, in Input) (string, error) {
 	p.mu.Lock()
 	if p.closing {
 		p.mu.Unlock()

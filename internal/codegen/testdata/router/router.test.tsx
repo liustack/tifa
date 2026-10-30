@@ -37,23 +37,24 @@ function inject(data: Record<string, RouteResult | InjectedResult>) {
 }
 
 // renderResult runs one whole-page render through the SSR entry, as the Go VM pool does.
-async function renderResult(url: string, data: Record<string, RouteResult | InjectedResult>, preload?: string) {
+async function renderResult(url: string, data: Record<string, RouteResult | InjectedResult>, preload?: string, nonce?: string, slotMin?: number) {
   globalThis.renderResult = undefined
   const input = inject(data)
-  globalThis.startRender(JSON.stringify({ url, buildId: 'b1', data: input.data, preload }), ...input.texts)
+  globalThis.startRender(JSON.stringify({ url, buildId: 'b1', data: input.data, preload, nonce, slotMin }), ...input.texts)
   for (let i = 0; i < 1000 && globalThis.renderResult === undefined; i++)
     await new Promise((resolve) => setTimeout(resolve, 0))
   const result = globalThis.renderResult ?? '{"error":"render did not finish"}'
   // A page comes as the HTML itself, anything else as JSON.
-  return (result.startsWith('<') ? { html: result } : JSON.parse(result)) as {
+  return (result.startsWith('<') ? { html: result, texts: input.texts } : JSON.parse(result)) as {
     html?: string
+    texts?: string[]
     redirect?: { location: string; status: number }
     error?: string
   }
 }
 
-async function render(url: string, data: Record<string, RouteResult | InjectedResult>, preload?: string): Promise<string> {
-  const result = await renderResult(url, data, preload)
+async function render(url: string, data: Record<string, RouteResult | InjectedResult>, preload?: string, nonce?: string, slotMin?: number): Promise<string> {
+  const result = await renderResult(url, data, preload, nonce, slotMin)
   if (result.html === undefined) throw new Error(`render ${url}: ${JSON.stringify(result)}`)
   return result.html
 }
@@ -449,6 +450,113 @@ test('loader JSON text reaches the page as it was given, and the browser reads t
   const data = router.state.matches[1].loaderData as any
   assert(JSON.stringify(data) === JSON.stringify(JSON.parse(tricky)), `after hydration ${JSON.stringify(data)}`)
   assert(data.line === 'x\u2028y\u2029' && data.emoji === '\u{1F600}' && data.nul === '\0', `after hydration ${JSON.stringify(data)}`)
+})
+
+// With a nonce in the input, which the Go pool draws for each render, the page carries a slot in
+// place of the text of each object a Load returned, and Go fills the slot once the VM is free. A
+// page whose slots are filled with the text, written as seroval writes a string, is the page
+// rendered without a nonce, byte for byte, and the browser reads the same data from it.
+const slotNonce = '0123456789abcdef0123456789abcdef'
+
+// The router writes the time of the render into each match, so two renders differ there.
+const sameTime = (html: string) => html.replace(/u:\d{13}/g, 'u:0')
+
+test('with a nonce the data text is a slot, and the rest of the page is the page without one', async () => {
+  const url = '/teams/x/one'
+  const texts = [
+    '{"quote":"a \\"b\\"","slash":"C:\\\\temp","line":"x\u2028y\u2029","tag":"</script><!--","emoji":"\\ud83d\\ude00","accent":"é"}',
+    '["x"]',
+    '["one","two"]',
+  ]
+  const data = {
+    'app/layout': { status: 200, json: texts[0] },
+    'app/teams/team+/layout': { status: 200, json: texts[1] },
+    'app/teams/team+/one/route': { status: 200, json: texts[2] },
+  }
+  const plain = sameTime(await render(url, data))
+  const slotted = sameTime(await render(url, data, undefined, slotNonce, 0))
+  const slots = texts.map((_, number) => `~${slotNonce}.${number}.`)
+  for (const slot of slots) contains(slotted, `$_TSR.t.get("tifa.data")("${slot}")`)
+  lacks(slotted, 'quote', 'accent', 'emoji')
+  assert(slotted.split(slotNonce).length === slots.length + 1, `the nonce is in ${slotted.split(slotNonce).length - 1} places`)
+  // The two pages are the same around the slots, and the plain one has a JavaScript string where a slot is.
+  const around = slotted.split(new RegExp(slots.map((s) => s.replace(/\./g, '\\.')).join('|')))
+  assert(plain.startsWith(around[0]) && plain.endsWith(around[around.length - 1]), 'the pages differ outside the slots')
+  let at = around[0].length
+  let filled = around[0]
+  for (const [number, text] of texts.entries()) {
+    const next = around[number + 1]
+    const end = number === texts.length - 1 ? plain.length - next.length : plain.indexOf(next, at)
+    assert(end >= at, `the pages differ after slot ${number}`)
+    const literal = plain.slice(at, end)
+    // JavaScript reads the string of the plain page as the text.
+    let value: unknown
+    try {
+      value = new Function(`return "${literal}"`)()
+    } catch (error) {
+      throw new Error(`slot ${number}: ${error} in ${literal.slice(0, 200)} ... ${literal.slice(-200)}`)
+    }
+    assert(value === text, `the plain page has another text for slot ${number}`)
+    filled += literal + next
+    at = end + next.length
+  }
+  // Fill the slots with those strings, and the browser reads the data from the page.
+  assert(filled === plain, 'filling the slots does not give the plain page')
+  const { router, calls } = await hydrateFrom(filled, url)
+  assert(calls.length === 0, `hydration requested ${JSON.stringify(calls)}`)
+  const loaded = router.state.matches.slice(1).map((m: any) => m.loaderData)
+  assert(JSON.stringify(loaded) === JSON.stringify(texts.map((t) => JSON.parse(t))), `data after hydration ${JSON.stringify(loaded)}`)
+})
+
+// The scripts of a page split where the router splits them: a text over 16K code units goes into a
+// script tag of its own. A slot is short, so the same page has fewer tags, and its data is the
+// same in the browser.
+test('a page with a large text in a slot hydrates to the same data', async () => {
+  const url = '/teams/x/one'
+  const rows = Array.from({ length: 3000 }, (_, i) => ({ id: i, name: `row ${i}`, note: 'a "b" c\\d' }))
+  const text = JSON.stringify(rows)
+  const data = {
+    'app/layout': { status: 200, json: text },
+    'app/teams/team+/layout': ok('x'),
+    'app/teams/team+/one/route': ok('one'),
+  }
+  const plain = await renderResult(url, data)
+  const slots = await renderResult(url, data, undefined, slotNonce)
+  assert(plain.html !== undefined && slots.html !== undefined, `renders ${JSON.stringify([plain, slots])}`)
+  assert(plain.html.length > 100000 && slots.html.length < 20000, `lengths ${plain.html.length} ${slots.html.length}`)
+  const filled = slots.html.replace(`~${slotNonce}.0.`, () => JSON.stringify(text).slice(1, -1))
+  const { router, calls } = await hydrateFrom(filled, url)
+  assert(calls.length === 0, `hydration requested ${JSON.stringify(calls)}`)
+  const loaded = router.state.matches[1].loaderData as any
+  assert(JSON.stringify(loaded) === text, `hydrated ${JSON.stringify(loaded).slice(0, 200)}`)
+})
+
+// Go fills a slot by copying the page once more, which a short text does not pay back in the VM.
+// From 4,096 code units a text goes into the page as a slot, and a shorter one is written as it was.
+test('only a long text becomes a slot', async () => {
+  const url = '/teams/x/one'
+  const short = JSON.stringify(['short'])
+  const long = JSON.stringify({ note: 'y'.repeat(4100) })
+  assert(short.length < 4096 && long.length >= 4096, `lengths ${short.length} and ${long.length}`)
+  const data = {
+    'app/layout': { status: 200, json: long },
+    'app/teams/team+/layout': ok('x'),
+    'app/teams/team+/one/route': { status: 200, json: short },
+  }
+  const html = await render(url, data, undefined, slotNonce)
+  contains(html, `$_TSR.t.get("tifa.data")("~${slotNonce}.0.")`, `$_TSR.t.get("tifa.data")("[\\"short\\"]")`)
+  lacks(html, 'y'.repeat(100), `~${slotNonce}.2.`)
+  assert(html.split(slotNonce).length === 2, `the nonce is in ${html.split(slotNonce).length - 1} places`)
+})
+
+// Data that is a string, a number or null goes through the default serializer and carries its value
+// in the page, nonce or not. Only an object or an array is a slot.
+test('a nonce changes nothing for data that is no object', async () => {
+  const data = { 'app/layout': { status: 200, json: '"a \\"string\\" with </script>"' }, 'app/teams/team+/layout': { status: 200, json: '42' }, 'app/teams/team+/one/route': { status: 200, json: 'null' } }
+  const plain = sameTime(await render('/teams/x/one', data))
+  const slots = sameTime(await render('/teams/x/one', data, undefined, slotNonce, 0))
+  assert(plain === slots, 'the pages differ')
+  lacks(slots, slotNonce)
 })
 
 // A result that names a text startRender was not given cannot be rendered, and says which.

@@ -2058,3 +2058,64 @@ func unreviewedWarning(printed string) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// serovalStringsPage serializes each string of strings.json with seroval alone, as seroval writes a
+// string into the hydration script, and returns the serializations as a JSON array.
+const serovalStringsPage = "import './host'\n" +
+	"import { serialize } from 'seroval'\n" +
+	"import strings from './strings.json'\n" +
+	"globalThis.result = JSON.stringify((strings as string[]).map((s) => serialize(s)))\n"
+
+// Go fills the slots of a page with ssr.ScriptString, which must write a text as seroval does: this
+// is what the page held when the VM wrote the text itself. Every character below U+3000 alone, twice,
+// between letters and padded to 63 and 64 code units (JSON.stringify for 64 and over, and for 2 and
+// over with the tifa plugin), and the characters seroval escapes among others, in texts of several
+// lengths.
+func TestSSRScriptStringIsWhatSerovalWrites(t *testing.T) {
+	var strs []string
+	pad := func(s string, n int) string {
+		for len([]rune(s)) < n {
+			s = "x" + s
+		}
+		return s
+	}
+	for r := rune(0); r < 0x3000; r++ {
+		if r >= 0xD800 && r < 0xE000 {
+			continue
+		}
+		s := string(r)
+		strs = append(strs, s, s+s, "a"+s+"b", pad(s, 63), pad(s, 64))
+	}
+	strs = append(strs, "😀", "a😀", "\"\\\n\r\b\t\f<  \x00\x0b\x1f</script>", "{\"a\":\"</script><!--\"}", " ", "a ", "é€林夏")
+	for _, n := range []int{2, 3, 62, 63, 64, 65, 200} {
+		strs = append(strs, strings.Repeat("ab<\"", n)[:n], strings.Repeat("é林", n)[:n*2], strings.Repeat("a ", n))
+	}
+	text, err := json.Marshal(strs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"strings.tsx": serovalStringsPage, "strings.json": string(text)})
+	code, printed := buildPrinting(t, root, "strings.tsx")
+	if strings.Contains(printed, "seroval") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	var written []string
+	if err := json.Unmarshal([]byte(evalResult(t, code)), &written); err != nil {
+		t.Fatal(err)
+	}
+	if len(written) != len(strs) {
+		t.Fatalf("%d serializations for %d strings", len(written), len(strs))
+	}
+	bad := 0
+	for i, s := range strs {
+		if want := `"` + ssr.ScriptString(s) + `"`; written[i] != want {
+			if bad++; bad <= 10 {
+				t.Errorf("seroval writes %.40q as %.60q, ScriptString as %.60q", s, written[i], want)
+			}
+		}
+	}
+	if bad > 0 {
+		t.Errorf("%d of %d strings differ", bad, len(strs))
+	}
+}

@@ -9,8 +9,10 @@ import (
 )
 
 // argumentsBundle leaves in its HTML what startRender was called with, as JavaScript got it: the
-// JSON of the input, each text after it, and how many arguments there were.
+// JSON of the input without its nonce, which the page may hold only in a slot, each text after it,
+// and how many arguments there were.
 const argumentsBundle = `globalThis.startRender = function (json, ...texts) {
+  json = json.replace(/,"nonce":"[0-9a-f]{32}"/, '')
   globalThis.renderResult = '<pre>' + JSON.stringify({ json, texts, count: arguments.length }) + '</pre>'
 }
 `
