@@ -1137,6 +1137,50 @@ func withChangedPackage(t *testing.T, name, file string, change func(string) str
 	if err := os.CopyFS(target, os.DirFS(real)); err != nil {
 		t.Fatal(err)
 	}
+	// The packages next to the real folder are its own dependencies, such as the
+	// use-sync-external-store of react-i18next, which the test's top level does not list.
+	deps := filepath.Dir(real)
+	if scoped {
+		// The others of its scope sit in the folder of the scope.
+		members, err := os.ReadDir(deps)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range members {
+			link := filepath.Join(copied, "node_modules", scope, e.Name())
+			if _, err := os.Lstat(link); err == nil {
+				continue
+			}
+			dep, err := filepath.EvalSymlinks(filepath.Join(deps, e.Name()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(dep, link); err != nil {
+				t.Fatal(err)
+			}
+		}
+		deps = filepath.Dir(deps)
+	}
+	siblings, err := os.ReadDir(deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range siblings {
+		link := filepath.Join(copied, "node_modules", e.Name())
+		if e.Name() == name || e.Name() == scope || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		if _, err := os.Lstat(link); err == nil {
+			continue
+		}
+		dep, err := filepath.EvalSymlinks(filepath.Join(deps, e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(dep, link); err != nil {
+			t.Fatal(err)
+		}
+	}
 	changed := filepath.Join(target, file)
 	source, err := os.ReadFile(changed)
 	if err != nil {

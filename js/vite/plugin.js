@@ -234,6 +234,63 @@ function tifaKeepIcon(built, kids) {
 }
 export { tifaLucideIcons };
 `
+// react-i18next gives each call of useTranslation a copy of the whole i18n object, which takes about
+// 40 property descriptors a call in QuickJS and runs for every component that translates. The tifa
+// plugin changes dist/es/useTranslation.js and dist/commonjs/useTranslation.js, see
+// reactI18nextCopy, and leaves the rest. i18nWrapperSource is the function that makes the copy.
+const reactI18nextModule = /[/\\]react-i18next[/\\]dist[/\\](?:es|commonjs)[/\\]useTranslation\.js$/
+const i18nWrapperSource = `  const createI18nWrapper = original => {
+    const descriptors = Object.getOwnPropertyDescriptors(original);
+    if (descriptors.__original) delete descriptors.__original;
+    const wrapper = Object.create(Object.getPrototypeOf(original), descriptors);
+    if (!Object.prototype.hasOwnProperty.call(wrapper, '__original')) {
+      try {
+        Object.defineProperty(wrapper, '__original', {
+          value: original,
+          writable: false,
+          enumerable: false,
+          configurable: false
+        });
+      } catch (_) {}
+    }
+    return wrapper;
+  };
+`
+// i18nWrapperLists is how many objects reactI18nextCopy keeps a list of keys for.
+const i18nWrapperLists = 8
+// i18nWrapperHelpers is what reactI18nextCopy adds to the end of the module. A list holds the own
+// keys of an object that tifaWrapperKeep found to have only plain properties: strings for names,
+// data, writable, enumerable and configurable, and a prototype that is neither null nor
+// Object.prototype. tifaWrapperCopy gives a copy of the object when its keys,
+// prototype and room for new keys are the ones of the list, and nothing otherwise.
+const i18nWrapperHelpers = `
+var tifaWrapperLists = [], tifaWrapperOwnKeys = Reflect.ownKeys, tifaWrapperGetProto = Object.getPrototypeOf, tifaWrapperSetProto = Object.setPrototypeOf;
+var tifaWrapperExtensible = Object.isExtensible, tifaWrapperDefine = Object.defineProperty, tifaWrapperObject = Object.prototype;
+function tifaWrapperCopy(original) {
+  let list;
+  for (let i = 0; i < tifaWrapperLists.length; i++) if (tifaWrapperLists[i].original === original) { list = tifaWrapperLists[i]; break; }
+  if (list === undefined) return;
+  const keys = tifaWrapperOwnKeys(original), expected = list.keys, n = expected.length;
+  if (keys.length !== n || tifaWrapperGetProto(original) !== list.proto || !tifaWrapperExtensible(original)) return;
+  for (let i = 0; i < n; i++) if (keys[i] !== expected[i]) return;
+  const wrapper = tifaWrapperSetProto({ ...original }, list.proto);
+  tifaWrapperDefine(wrapper, '__original', { value: original, writable: false, enumerable: false, configurable: false });
+  return wrapper;
+}
+function tifaWrapperKeep(original, descriptors) {
+  const lists = tifaWrapperLists;
+  for (let i = 0; i < lists.length; i++) if (lists[i].original === original) { lists.splice(i, 1); break; }
+  const proto = tifaWrapperGetProto(original);
+  if (proto === null || proto === tifaWrapperObject) return;
+  const keys = tifaWrapperOwnKeys(descriptors);
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i], d = descriptors[key];
+    if (typeof key !== 'string' || key === '__original' || !('value' in d) || !d.writable || !d.enumerable || !d.configurable) return;
+  }
+  if (lists.length === ${i18nWrapperLists}) lists.shift();
+  lists.push({ original, keys, proto });
+}
+`
 // i18next translates with code that copies and searches more than a translation needs, which takes
 // long in QuickJS. The tifa plugin changes two of its functions in dist/esm/i18next.js and
 // dist/cjs/i18next.js, see i18nextFaster, and leaves the rest. i18nextFixedT is the end of the
@@ -1062,6 +1119,18 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         }
         if (!lucide.get(dir)) return null
         return lucideCache(lucideFile[1], fs.readFileSync(id, 'utf8'))
+      }
+      if (reactI18nextModule.test(id)) {
+        const source = fs.readFileSync(id, 'utf8')
+        const copied = reactI18nextCopy(source)
+        if (!copied && source.includes('createI18nWrapper')) {
+          this.warn(
+            `react-i18next ${packageVersion(path.resolve(id, '..', '..', '..'))}: ${id} has no createI18nWrapper the ` +
+              'tifa plugin knows, so useTranslation copies the whole i18n object on every call. Pages render the ' +
+              'same, but take longer to render',
+          )
+        }
+        return copied ?? null
       }
       if (i18nextModule.test(id)) {
         const i18next = `i18next ${packageVersion(path.resolve(id, '..', '..', '..'))}: ${id}`
@@ -1938,6 +2007,35 @@ function i18nextCache(source) {
     )
     .replace(i18nextCacheReturn, () => '      return tifaKey === undefined ? this.t(resultKey, o) : tifaI18nKeep(this, tifaKey, tifaEffects, this.t(resultKey, o));\n    };\n')
     .replace(i18nextCacheInstance, () => `\n${added} const instance = I18n.createInstance();\n`)
+}
+
+// reactI18nextCopy returns the source of react-i18next's useTranslation with the copy of the i18n
+// object made from a list of the object's keys, or undefined when the source does not have
+// createI18nWrapper in the form it knows. The copy is the one the function made: a new object with
+// the prototype of the i18n object, its own properties in the same order with the values they have
+// now, and __original, which the hook compares to tell which object a copy is of. Each call still
+// makes its own copy, and the hook around it, with its refs, memos and the check of the language,
+// stays as it was.
+//
+// What the function did with Object.getOwnPropertyDescriptors and Object.create, a spread and
+// Object.setPrototypeOf do when every own property of the object is a string key with a data
+// property that is writable, enumerable and configurable. The first call for an object finds out
+// whether it is so, and keeps its keys and prototype in a list, for 8 objects at most, oldest
+// first out. Later calls make the copy only when the object is extensible, has that prototype and
+// those keys in that order, and run the function as it was for any other state. So values that
+// changed copy as they are, and keys that were added or deleted make the function run as before and
+// make a new list. Objects with an accessor, a symbol, a hidden or locked property, a key
+// __original, and no prototype or Object.prototype for one, never get a list, and
+// no object that is not extensible is copied from its list, which is what freezing or sealing an
+// object does to its properties. The list does not see a property of the object change its
+// attributes or become an accessor while its keys stay and it is extensible, and an i18n object
+// is not a Proxy.
+function reactI18nextCopy(source) {
+  if (source.split(i18nWrapperSource).length !== 2) return undefined
+  const lines = i18nWrapperSource.split('\n')
+  lines[0] += ' const tifaCopy = tifaWrapperCopy(original); if (tifaCopy !== undefined) return tifaCopy;'
+  lines[1] += ' tifaWrapperKeep(original, descriptors);'
+  return source.replace(i18nWrapperSource, () => lines.join('\n')) + i18nWrapperHelpers
 }
 
 // chainEscapes returns the source of React's string renderer with escapeTextForBrowser escaping
