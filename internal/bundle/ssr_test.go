@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -196,6 +197,63 @@ func TestSSRCachesTheEscapesOfReact(t *testing.T) {
 		if got := evalResult(t, code); got != cached {
 			t.Errorf("%s: the page renders otherwise without the cache", name)
 		}
+	}
+}
+
+// engineEscape makes a VM give a bundle the escape of the engine as the pool of internal/ssr does,
+// under the name __tifa_escape, and count its calls in globalThis.escapeCalls.
+func engineEscape(t *testing.T) func(*slowjs.VM) {
+	return func(vm *slowjs.VM) {
+		t.Helper()
+		if err := vm.RegisterEscapeText("__engine_escape"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := vm.Eval("globalThis.escapeCalls = 0\n"+
+			"globalThis.__tifa_escape = (text) => (globalThis.escapeCalls++, __engine_escape(text))", slowjs.EvalGlobal); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// The tifa plugin makes the escape of React's string renderer the __tifa_escape of the VM when the
+// VM has one. Pages render the same HTML with it, without it (then the cache and replaceAll
+// escape) and in a React DOM the plugin cannot change.
+func TestSSRAsksTheEngineToEscape(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	unknown := withReactDOM(t, "function escapeTextForBrowser(text) {", "function escapeTextForBrowser(text) /* changed */ {")
+	for name, page := range map[string]string{"escapes": escapesPage, "every unit": everyEscapePage} {
+		writeTree(t, root, map[string]string{"escapes.tsx": page})
+		code, printed := buildPrinting(t, root, "escapes.tsx")
+		if strings.Contains(printed, "escape") {
+			t.Errorf("%s: the build prints:\n%s", name, printed)
+		}
+		writeTree(t, unknown, map[string]string{"escapes.tsx": page})
+		unchanged, _ := buildPrinting(t, unknown, "escapes.tsx")
+		want := evalResult(t, unchanged)
+		if got := evalResult(t, code); got != want {
+			t.Errorf("%s: the page renders otherwise without __tifa_escape", name)
+		}
+		if got := evalResultWith(t, code, engineEscape(t)); got != want {
+			t.Errorf("%s: the page renders otherwise with __tifa_escape", name)
+		}
+		calls := evalResultWith(t, code+"\nglobalThis.result = String(globalThis.escapeCalls)", engineEscape(t))
+		if n, err := strconv.Atoi(calls); err != nil || n < 100 {
+			t.Errorf("%s: React DOM called __tifa_escape %q times", name, calls)
+		}
+	}
+}
+
+// React's string renderer that calls escapeTextForBrowser before the module defines it keeps the
+// function it has and does not ask the engine, which would leave the call without a function.
+func TestSSRDoesNotAskTheEngineWhereTheEscapeIsCalledEarly(t *testing.T) {
+	changed := withReactDOM(t, "function getIteratorFn(maybeIterable) {", "var tifaEarly = escapeTextForBrowser(\"<\");\nfunction getIteratorFn(maybeIterable) {")
+	writeTree(t, changed, map[string]string{"escapes.tsx": escapesPage})
+	code, printed := buildPrinting(t, changed, "escapes.tsx")
+	if !strings.Contains(printed, "react-dom 19.3.0: ") || !strings.Contains(printed, "the tifa plugin does not cache the escapes") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	if strings.Contains(code, "__tifa_escape") {
+		t.Error("the bundle asks for __tifa_escape")
 	}
 }
 

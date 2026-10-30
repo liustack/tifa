@@ -80,11 +80,21 @@ func evalModule(vm *slowjs.VM, code string) error {
 // globalThis.result.
 func evalResult(t *testing.T, code string) string {
 	t.Helper()
+	return evalResultWith(t, code, nil)
+}
+
+// evalResultWith is evalResult in a VM that setup, if it is not nil, has prepared before the
+// bundle runs.
+func evalResultWith(t *testing.T, code string, setup func(*slowjs.VM)) string {
+	t.Helper()
 	vm, err := slowjs.NewVM()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer vm.Close()
+	if setup != nil {
+		setup(vm)
+	}
 	if err := evalModule(vm, code); err != nil {
 		t.Fatalf("evaluate bundle: %v", err)
 	}
