@@ -17,3 +17,12 @@ func interruptGroup(*os.Process) error {
 }
 
 func killGroup(p *os.Process) error { return p.Kill() }
+
+// lifeline needs file descriptors to pass on, which Run does not run without.
+type lifeline struct{}
+
+func newLifeline(*exec.Cmd) (*lifeline, error) { return &lifeline{}, nil }
+
+func (*lifeline) started() {}
+
+func (*lifeline) close() {}

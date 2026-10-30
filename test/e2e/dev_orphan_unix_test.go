@@ -196,6 +196,7 @@ func TestDevLeavesNothingBehind(t *testing.T) {
 		{"SIGHUP", syscall.SIGHUP, true},
 		{"SIGTERM", syscall.SIGTERM, true},
 		{"SIGINT", syscall.SIGINT, true},
+		{"SIGKILL", syscall.SIGKILL, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			d := startDev(t, devApp(t))

@@ -29,7 +29,8 @@ type app struct {
 }
 
 // startApp runs command in dir with TIFA_SERVER_ADDR set to addr, which the application's
-// configuration reads as server.addr.
+// configuration reads as server.addr. It also gives the app a lifeline (see lifeline), so that the
+// app stops when this process ends, however it ends.
 func startApp(command []string, dir, addr string, stdout, stderr io.Writer) (*app, error) {
 	cmd := exec.Command(command[0], command[1:]...)
 	cmd.Dir = dir
@@ -39,13 +40,20 @@ func startApp(command []string, dir, addr string, stdout, stderr io.Writer) (*ap
 	cmd.Stdout, cmd.Stderr = stdout, io.MultiWriter(stderr, &a.stderr)
 	cmd.WaitDelay = appWaitDelay
 	ownGroup(cmd)
-	if err := cmd.Start(); err != nil {
+	life, err := newLifeline(cmd)
+	if err != nil {
 		return nil, fmt.Errorf("starting the app: %w", err)
 	}
+	if err := cmd.Start(); err != nil {
+		life.close()
+		return nil, fmt.Errorf("starting the app: %w", err)
+	}
+	life.started()
 	go func() {
 		a.err = cmd.Wait()
 		// Whatever the app left running in its group goes with it.
 		_ = killGroup(cmd.Process)
+		life.close()
 		close(a.done)
 	}()
 	return a, nil
