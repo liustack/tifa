@@ -59,6 +59,7 @@
 
 ### 性能
 
+- 服务端渲染改用 slowjs v0.29.1，HTML 一样。slowjs 在 linux/amd64 上不开剖析、按 8 个代码位置，逐项和前一步比。只有普通键的对象字面量一次按最终形状建好：示例商店的工作台页面耗时是原来的 0.956，MUI 页面 0.969，bench 应用的表格页 0.942。在此之上，函数调用设置和释放值的步骤更少，React 里配合 `hasOwnProperty.call` 的 `for in` 循环不再真的调用这两个函数：工作台页面耗时是 0.982，MUI 页面 0.976，bench 页面 0.952。普通对象（比如 React 元素的 props）从 72 字节缩到 48 字节，长 Markdown 页面渲染时的内存峰值低 3.8%。
 - slowjs 的 C 引擎渲染示例商店的工作台页面、MUI 测试应用和 bench 应用的页面，耗时是 v0.29.0 之前的 slowjs 加 tifa 当时自带剖析的 0.834 到 0.860，HTML 一样，而且不开剖析（11 个页面，一个 VM 一个核，8 个代码位置全部更快，见[引擎](docs/performance.zh-CN.md#引擎)）。渲染时 Go 垃圾回收让程序停的时间一样短：1 个 VM 时 P99 是 131 到 164 µs，3 个 VM 时是 197 µs，最长一次停 3.1 ms 和 0.9 ms，原来是 4.2 和 2.1 ms。示例商店的一个 VM 加载后占进程 8.5 到 8.6 MiB，渲染后 12.8 MiB，空闲后 9.6 MiB，MUI 测试应用的一个 VM 是 3.9、7.4 到 7.6 和 5.3 到 5.5 MiB（见[内存](docs/performance.zh-CN.md#内存)）。
 
 - lucide-react 的图标渲染更快：每个 VM 记住 lucide-react 给 props 相同的图标构建出的结果，再次用到时直接交出去。shop 的工作台页面渲染时间少 4.3%，店面页面少 5.8%，HTML 不变。lucide-react 某个版本改了缓存依赖的文件时，构建打印警告，图标照旧渲染（[build.zh-CN.md](docs/build.zh-CN.md#前端产物)）。
