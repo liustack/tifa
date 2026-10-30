@@ -234,6 +234,46 @@ function tifaKeepIcon(built, kids) {
 }
 export { tifaLucideIcons };
 `
+// Slot of @radix-ui/react-slot merges the props of the Slot into those of its child with
+// mergeProps on every render of a component that uses asChild. For each prop of the child it tests a
+// regexp, and it builds the class name with filter and join. The tifa plugin changes mergeProps in
+// dist/index.mjs and dist/index.js, see radixMergeProps. radixMergePropsSource is mergeProps of
+// react-slot 1.4 to 1.5 and radixMergePropsOldSource the one of 1.2.1 to 1.3, which does not merge
+// aria-describedby.
+const radixSlotModule = /[/\\]@radix-ui[/\\]react-slot[/\\]dist[/\\]index\.m?js$/
+const radixHandlerTest = '    const isHandler = /^on[A-Z]/.test(propName);\n'
+const radixClassJoin = '      overrideProps[propName] = [slotPropValue, childPropValue].filter(Boolean).join(" ");\n'
+const radixMergePropsOldSource = `function mergeProps(slotProps, childProps) {
+  const overrideProps = { ...childProps };
+  for (const propName in childProps) {
+    const slotPropValue = slotProps[propName];
+    const childPropValue = childProps[propName];
+${radixHandlerTest}    if (isHandler) {
+      if (slotPropValue && childPropValue) {
+        overrideProps[propName] = (...args) => {
+          const result = childPropValue(...args);
+          slotPropValue(...args);
+          return result;
+        };
+      } else if (slotPropValue) {
+        overrideProps[propName] = slotPropValue;
+      }
+    } else if (propName === "style") {
+      overrideProps[propName] = { ...slotPropValue, ...childPropValue };
+    } else if (propName === "className") {
+${radixClassJoin}    }
+  }
+  return { ...slotProps, ...overrideProps };
+}
+`
+const radixMergePropsSource = radixMergePropsOldSource.replace(
+  '    }\n  }\n  return',
+  `    } else if (propName === "aria-describedby") {
+      overrideProps[propName] = concatAriaDescribedby(childPropValue, slotPropValue);
+    }
+  }
+  return`,
+)
 // react-i18next gives each call of useTranslation a copy of the whole i18n object, which takes about
 // 40 property descriptors a call in QuickJS and runs for every component that translates. The tifa
 // plugin changes dist/es/useTranslation.js and dist/commonjs/useTranslation.js, see
@@ -1119,6 +1159,18 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         }
         if (!lucide.get(dir)) return null
         return lucideCache(lucideFile[1], fs.readFileSync(id, 'utf8'))
+      }
+      if (radixSlotModule.test(id)) {
+        const source = fs.readFileSync(id, 'utf8')
+        const merged = radixMergeProps(source)
+        if (!merged && source.includes('function mergeProps(')) {
+          this.warn(
+            `@radix-ui/react-slot ${packageVersion(path.resolve(id, '..', '..'))}: ${id} has no mergeProps the tifa ` +
+              'plugin knows, so Slot tests a regexp for each prop it merges and builds class names with filter and ' +
+              'join. Pages render the same, but take longer to render',
+          )
+        }
+        return merged ?? null
       }
       if (reactI18nextModule.test(id)) {
         const source = fs.readFileSync(id, 'utf8')
@@ -2036,6 +2088,31 @@ function reactI18nextCopy(source) {
   lines[0] += ' const tifaCopy = tifaWrapperCopy(original); if (tifaCopy !== undefined) return tifaCopy;'
   lines[1] += ' tifaWrapperKeep(original, descriptors);'
   return source.replace(i18nWrapperSource, () => lines.join('\n')) + i18nWrapperHelpers
+}
+
+// radixMergeProps returns the source of react-slot with mergeProps testing the name of a prop for a
+// handler (on and a capital letter) with the codes of its first three characters, and joining the
+// two class names with a template, or undefined when the source does not have mergeProps in a form
+// it knows. The rest of the function stays as it is, so the props come out with the same keys in the
+// same order and the same values, and the handlers of the Slot and its child still run child
+// first. /^on[A-Z]/ on a string is true when its first two characters are "on" and the third is one
+// of A to Z, and [a, b].filter(Boolean).join(" ") is the string of a and b joined with a space when
+// both are truthy, the string of the one that is, and the empty string when neither is, where a
+// template turns the value to a string the way join does, so an object gives its toString and a
+// symbol throws. The check is of the whole function, so a release that changes any part of it,
+// such as a new prop it merges, is left alone with a warning. Each change stays on its line. A
+// page that replaces RegExp.prototype.test, Array.prototype.filter or join does not change what
+// mergeProps does, as it did before.
+function radixMergeProps(source) {
+  const known = [radixMergePropsSource, radixMergePropsOldSource].find((text) => source.split(text).length === 2)
+  if (!known) return undefined
+  const merged = known
+    .replace(radixHandlerTest, () => '    const isHandler = propName.length > 2 && propName.charCodeAt(0) === 111 && propName.charCodeAt(1) === 110 && (propName.charCodeAt(2) - 65 >>> 0) < 26;\n')
+    .replace(
+      radixClassJoin,
+      () => '      overrideProps[propName] = slotPropValue ? (childPropValue ? `${slotPropValue} ${childPropValue}` : `${slotPropValue}`) : childPropValue ? `${childPropValue}` : "";\n',
+    )
+  return source.replace(known, () => merged)
 }
 
 // chainEscapes returns the source of React's string renderer with escapeTextForBrowser escaping

@@ -2,11 +2,12 @@
   "name": "tifa-bundle-testdata",
   "private": true,
   "packageManager": "pnpm@10.33.0",
-  "description": "npm packages the internal/bundle tests bundle: React for the trimmed renderer, seroval and core-js for the adapters, @emotion/hash for the hash in Go, i18next for its translations, lucide-react for the cache of its icons, react-i18next for the copy of its i18n object, the other SSR host patches, and Vite with the React plugin, which build them.",
+  "description": "npm packages the internal/bundle tests bundle: React for the trimmed renderer, seroval and core-js for the adapters, @emotion/hash for the hash in Go, i18next for its translations, lucide-react for the cache of its icons, react-i18next for the copy of its i18n object, @radix-ui/react-slot for the merge of its props, the other SSR host patches, and Vite with the React plugin, which build them.",
   "dependencies": {
     "@emotion/hash": "0.9.2",
     "@hookform/resolvers": "6.0.0",
     "@kayahr/text-encoding": "2.2.0",
+    "@radix-ui/react-slot": "1.5.0",
     "abort-controller": "3.0.0",
     "ajv": "8.20.0",
     "ajv-errors": "3.0.0",

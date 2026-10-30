@@ -17,6 +17,9 @@ importers:
       '@kayahr/text-encoding':
         specifier: 2.2.0
         version: 2.2.0
+      '@radix-ui/react-slot':
+        specifier: 1.5.0
+        version: 1.5.0(react@19.3.0)
       abort-controller:
         specifier: 3.0.0
         version: 3.0.0
@@ -165,6 +168,24 @@ packages:
 
   '@oxc-project/types@0.154.0':
     resolution: {integrity: sha512-KYOUGQFlLWR+s4QMV2Q9ko38TZm7EdO87Qm7rvZLqk/webse/cDjtyxKhg/47l0byCbs/k46LT8qc4PKjAikzA==}
+
+  '@radix-ui/react-compose-refs@1.1.5':
+    resolution: {integrity: sha512-+48PbAAbq3didjJxa+OaWY2ZwgAKsNiRGyeHKszblZMQ+kcpd9pAaT11cMkGEie0vsOi3QdeTE6d5Fe3Gn61kA==}
+    peerDependencies:
+      '@types/react': '*'
+      react: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+
+  '@radix-ui/react-slot@1.5.0':
+    resolution: {integrity: sha512-tyYd9ddPXAysAbdbD9eYxgwpCSv6f3PncqVSNKQFSR5lcJVLz3cb/pANDoYrLiHBpXv7skortyUgGUWsYuPPFQ==}
+    peerDependencies:
+      '@types/react': '*'
+      react: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
 
   '@rolldown/binding-android-arm-eabi@1.2.14':
     resolution: {integrity: sha512-aWR+XKH9+rW7m5fWq/5360J3mHycrx/o6xZM2DQFdJnTMdyP7/WzxPjhtLbVWdKo2y612/4U1bWqb3HQhiF7vg==}
@@ -588,6 +609,15 @@ snapshots:
   '@kayahr/text-encoding@2.2.0': {}
 
   '@oxc-project/types@0.154.0': {}
+
+  '@radix-ui/react-compose-refs@1.1.5(react@19.3.0)':
+    dependencies:
+      react: 19.3.0
+
+  '@radix-ui/react-slot@1.5.0(react@19.3.0)':
+    dependencies:
+      '@radix-ui/react-compose-refs': 1.1.5(react@19.3.0)
+      react: 19.3.0
 
   '@rolldown/binding-android-arm-eabi@1.2.14':
     optional: true
