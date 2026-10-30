@@ -670,6 +670,28 @@ const attributeNameTest = `function isAttributeNameSafe(attributeName) {
   if (hasOwnProperty.call(validatedAttributeNameCache, attributeName))
     return !0;`
 const attributeNameCheck = 'if (((name = aliases.get(name) || name), isAttributeNameSafe(name))) {'
+// The tests of the type of a value in pushAttribute that inlineAttributeCalls changes so that a string
+// is let through by one question: the one of the cases src, href, action and formAction, the one of
+// xlinkHref, and the switch of the default branch.
+const urlTypeTest = `      if (
+        null == value ||
+        "function" === typeof value ||
+        "symbol" === typeof value ||
+        "boolean" === typeof value
+      )
+        break;`
+const xlinkTypeTest = `    case "xlinkHref":
+      if (
+        "function" === typeof value ||
+        "symbol" === typeof value ||
+        "boolean" === typeof value
+      )
+        break;`
+const typeSwitch = `          switch (typeof value) {
+            case "function":
+            case "symbol":
+              return;
+            case "boolean":`
 // escapeCacheSize is how much the cache of escapes holds in each VM, in UTF-16 code units: the
 // strings and their escapes, and escapeEntrySize more for each entry, which stands for the memory
 // an entry of the Map takes besides its strings. So many short strings cannot take more memory
@@ -2202,6 +2224,13 @@ function chainEscapes(source) {
 // so there is no more joining of strings, which costs more than it saves. The text is the same:
 // the inlined test is the body of pushStringAttribute, and isAttributeNameSafe starts with the lookup
 // that is inlined. Each change stays on the lines it was on.
+//
+// React asks the type of the value of an attribute up to three times, whether it is a function, a
+// symbol or a boolean, which it does not write. A string is the value of almost every attribute, so
+// each of these tests asks first whether the value is a string, and writes it if it is, with one
+// question where React asks three. A value of another type is asked the three questions after that
+// one, and is written whatever its type if it is none of the three. The tests keep the type in no
+// variable: one more local in pushAttribute costs every call of it about what the questions save.
 function inlineAttributeCalls(source) {
   const calls = source.match(stringAttributeCall)?.length
   const pushes = source.match(literalAttributePush)?.length
@@ -2210,16 +2239,32 @@ function inlineAttributeCalls(source) {
     source.split(sharedStringCase).length !== 2 ||
     source.split(attributeNameTest).length !== 2 ||
     source.split(attributeNameCheck).length !== 2 ||
+    source.split(urlTypeTest).length !== 2 ||
+    source.split(xlinkTypeTest).length !== 2 ||
+    source.split(typeSwitch).length !== 2 ||
     calls !== 11 ||
     pushes !== 1
   ) {
     return null
   }
-  const written = (name) => `"function" !== typeof value && "symbol" !== typeof value && "boolean" !== typeof value && target.push(' ${name.slice(1, -1)}="', escapeTextForBrowser(value), '"');`
+  const written = (name) => `("string" === typeof value || "function" !== typeof value && "symbol" !== typeof value && "boolean" !== typeof value) && target.push(' ${name.slice(1, -1)}="', escapeTextForBrowser(value), '"');`
   return source
+    .replace(urlTypeTest, () => sameLines(urlTypeTest, `      if (
+        null == value ||
+        ("string" !== typeof value && ("function" === typeof value || "symbol" === typeof value || "boolean" === typeof value))
+      )
+        break;`))
+    .replace(xlinkTypeTest, () => sameLines(xlinkTypeTest, `    case "xlinkHref":
+      if ("string" !== typeof value && ("function" === typeof value || "symbol" === typeof value || "boolean" === typeof value))
+        break;`))
+    .replace(typeSwitch, () => sameLines(typeSwitch, `          if ("string" !== typeof value) switch (typeof value) {
+            case "function":
+            case "symbol":
+              return;
+            case "boolean":`))
     .replace(literalAttributePush, (all, name) => `target.push(' ${name.slice(1, -1)}="', escapeTextForBrowser(value), '"')`)
     .replace(stringAttributeCall, (all, name) => written(name))
-    .replace(sharedStringCase, () => sharedStringCase.replace('pushStringAttribute(target, name, value);', `"function" !== typeof value && "symbol" !== typeof value && "boolean" !== typeof value && target.push(" ", name, '="', escapeTextForBrowser(value), '"');`))
+    .replace(sharedStringCase, () => sharedStringCase.replace('pushStringAttribute(target, name, value);', `("string" === typeof value || "function" !== typeof value && "symbol" !== typeof value && "boolean" !== typeof value) && target.push(" ", name, '="', escapeTextForBrowser(value), '"');`))
     .replace(attributeNameCheck, () => 'if (((name = aliases.get(name) || name), hasOwnProperty.call(validatedAttributeNameCache, name) || isAttributeNameSafe(name))) {')
 }
 
