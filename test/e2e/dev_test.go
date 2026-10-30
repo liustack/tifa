@@ -68,6 +68,7 @@ func copyApp(t *testing.T, name string) string {
 }
 
 type devRun struct {
+	cmd      *exec.Cmd
 	dir      string
 	base     string
 	log      *lockedBuffer
@@ -90,6 +91,7 @@ func startDev(t *testing.T, dir string) *devRun {
 	t.Helper()
 	d := &devRun{dir: dir, log: &lockedBuffer{}, statuses: make(chan devStatus, 100), exited: make(chan error, 1)}
 	cmd := exec.Command(cli(t), "dev", "--dir", dir, "--addr", "127.0.0.1:0")
+	d.cmd = cmd
 	// The app rejects unknown TIFA_* variables as settings, TIFA_E2E among them.
 	for _, kv := range os.Environ() {
 		if !strings.HasPrefix(kv, "TIFA_") {
