@@ -6,6 +6,7 @@ package e2e
 import (
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -23,6 +24,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/klauspost/compress/zstd"
+	"github.com/liustack/tifa/internal/ssr"
 	"github.com/liustack/tifa/internal/testproc"
 )
 
@@ -309,6 +312,7 @@ func get(t *testing.T, url string, header ...string) (int, http.Header, string) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	noSlots(t, url, string(data))
 	return res.StatusCode, res.Header, string(data)
 }
 
@@ -485,6 +489,41 @@ func TestPagesApp(t *testing.T) {
 			t.Errorf("receipt lacks %s:\n%s", want, body)
 		}
 	}
+	// Data made of what could break a page reaches it, and the browser, as the text Go wrote: the
+	// server fills the page with the data after the VM wrote it, in every form the page goes out in.
+	_, _, answer := get(t, base+"/hostile", "X-Tifa-Route", "app/hostile/route", "X-Tifa-Build", built.BuildID)
+	var hostile map[string]struct{ Data json.RawMessage }
+	if err := json.Unmarshal([]byte(answer), &hostile); err != nil || len(hostile["app/hostile/route"].Data) == 0 {
+		t.Fatalf("data request: %v %s", err, answer)
+	}
+	written := `$_TSR.t.get("tifa.data")("` + ssr.ScriptString(string(ssr.EscapeAboveFFFF(hostile["app/hostile/route"].Data))) + `")`
+	_, firstHeader, hostileFirst := get(t, base+"/hostile")
+	_, secondHeader, hostileSecond := get(t, base+"/hostile")
+	if firstHeader.Get("X-Tifa-Render") != "vm" || secondHeader.Get("X-Tifa-Render") != "cache" || hostileFirst != hostileSecond {
+		t.Errorf("hostile data: %s then %s, the pages are the same: %v", firstHeader.Get("X-Tifa-Render"), secondHeader.Get("X-Tifa-Render"), hostileFirst == hostileSecond)
+	}
+	for _, page := range []string{hostileFirst, hostileSecond} {
+		for _, want := range []string{written, `<pre id="slot">~0123456789abcdef0123456789abcdef.0. ~00000000000000000000000000000000.1.</pre>`, `<p id="emoji">grin 😀 and 𝒳</p>`, `<p id="list">3</p>`} {
+			if !strings.Contains(page, want) {
+				t.Errorf("hostile page lacks %s:\n%s", want, page)
+			}
+		}
+		// No script element ends early or starts, and no separator or control character is in a script.
+		if strings.Contains(page, "<script>window.pwned") || strings.Count(page, "<script") != strings.Count(page, "</script>") {
+			t.Errorf("hostile page has a script of the data:\n%s", page)
+		}
+		for _, script := range scriptBodies.FindAllStringSubmatch(page, -1) {
+			if strings.ContainsRune(script[1], 0x2028) || strings.ContainsRune(script[1], 0x2029) {
+				t.Errorf("a script of the hostile page has a line or paragraph separator")
+			}
+		}
+	}
+	// Gzip and zstd forms of the cached page are the page as well.
+	for _, encoding := range []string{"gzip", "zstd"} {
+		if body := encoded(t, base+"/hostile", encoding); body != hostileFirst {
+			t.Errorf("hostile page as %s differs from the page", encoding)
+		}
+	}
 	// The same data gives the same ETag, answered 304.
 	if status, _, _ := get(t, base+"/shops/north/items/apple", "If-None-Match", header.Get("ETag")); status != 304 {
 		t.Errorf("If-None-Match: %d", status)
@@ -598,4 +637,55 @@ func checkBurst(t *testing.T, url string, n int) {
 	if by["vm"] != 1 || by["shared"]+by["cache"] != n-1 {
 		t.Errorf("a burst of %d requests was answered by %v, want one render", n, by)
 	}
+}
+
+// slotPattern is what the server writes into a page where the text of a Load's data goes, until it
+// fills it after the render (internal/ssr/slots.go): a ~, the nonce of the render, a dot, a number and a
+// dot. No page leaves the server with one.
+var slotPattern = regexp.MustCompile(`~[0-9a-f]{32}\.[0-9]+\.`)
+
+// noSlots fails the test when body, an answer for url, still has a slot. The page of the app
+// test/apps/pages that holds data made to look like one is the only exception.
+func noSlots(t *testing.T, url, body string) {
+	t.Helper()
+	if !strings.Contains(url, "/hostile") && slotPattern.MatchString(body) {
+		t.Errorf("GET %s: the page has a slot that was not filled: %s", url, slotPattern.FindString(body))
+	}
+}
+
+// scriptBodies finds the text of every script element of a page.
+var scriptBodies = regexp.MustCompile(`(?s)<script[^>]*>(.*?)</script>`)
+
+// encoded fetches url with Accept-Encoding: encoding (gzip or zstd) and returns the page decoded.
+func encoded(t *testing.T, url, encoding string) string {
+	t.Helper()
+	client := &http.Client{Transport: &http.Transport{DisableCompression: true}}
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Accept-Encoding", encoding)
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if got := res.Header.Get("Content-Encoding"); got != encoding {
+		t.Fatalf("GET %s with %s: Content-Encoding %q", url, encoding, got)
+	}
+	var plain io.Reader
+	switch encoding {
+	case "gzip":
+		plain, err = gzip.NewReader(res.Body)
+	case "zstd":
+		plain, err = zstd.NewReader(res.Body)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := io.ReadAll(plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }

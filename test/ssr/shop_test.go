@@ -238,6 +238,77 @@ func TestShopRendersReadyData(t *testing.T) {
 	}
 }
 
+var (
+	renderTime = regexp.MustCompile(`u:\d{13}`)
+	// scriptBreak is where the router starts a script tag of its own for a text over 16K code units.
+	scriptBreak = `</script><script data-tsr-stream-part="">`
+	slotLeft    = regexp.MustCompile(`~[0-9a-f]{32}\.\d+\.`)
+)
+
+// sameButTheTime makes two renders of the same page comparable: the router writes the time of the
+// render into each match, and splits its hydration script where a text is long.
+func sameButTheTime(html string) string {
+	return strings.ReplaceAll(renderTime.ReplaceAllString(html, "u:T"), scriptBreak, ";")
+}
+
+// The pool has the VM write a slot where the page carries the text of a Load's data and fills it
+// afterwards. The page it returns is the page the VM writes when it gets no nonce and writes the
+// text itself, for every page of the shop and for one whose data holds what could break a page.
+func TestShopSlotsGiveTheSamePageAsTheVMDoes(t *testing.T) {
+	source, pages := shopBundle(t)
+	cfg := shopConfig(1)
+	pool := newPool(t, source, cfg)
+	bytecode, err := ssr.Compile(source, uintptr(cfg.VMMemory), cfg.Timeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bytecode.Close()
+	vm, err := ssr.Load(bytecode, uintptr(cfg.VMMemory), uintptr(cfg.VMStackDepth), cfg.Timeout, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer vm.Close()
+	inputs := make([]ssr.Input, 0, len(pages)+1)
+	for _, page := range pages {
+		inputs = append(inputs, page.input)
+	}
+	inputs = append(inputs, withCustomer(pages[2].input, "</script><script id=\"x\">alert(1)</script> \"q\" \\ \xe2\x80\xa8 \xe2\x80\xa9 \x07 😀"))
+	for _, in := range inputs {
+		got, err := pool.Render(context.Background(), in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		input, err := json.Marshal(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, err := ssr.RenderVM(vm, input, in.Texts, cfg.Timeout)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if slotLeft.MatchString(got) {
+			t.Errorf("%s: the page has a slot that was not filled", in.URL)
+		}
+		// The pool filled slots where the VM wrote any: the order list holds a text of over 4,096 code units.
+		slotted := in
+		slotted.Nonce = ssr.NewNonce()
+		input, err = json.Marshal(slotted)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := ssr.RenderVM(vm, input, in.Texts, cfg.Timeout)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if in.URL == "/projects/studio" && !strings.Contains(raw, "~"+slotted.Nonce) {
+			t.Errorf("%s: the VM wrote no slot", in.URL)
+		}
+		if sameButTheTime(got) != sameButTheTime(want) {
+			t.Errorf("%s: the page differs from the page the VM writes by itself (%d and %d bytes)", in.URL, len(got), len(want))
+		}
+	}
+}
+
 func TestShopEscapesScriptClosingTags(t *testing.T) {
 	source, pages := shopBundle(t)
 	p := newPool(t, source, shopConfig(1))

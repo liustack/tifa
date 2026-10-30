@@ -19,14 +19,17 @@ export interface RouteResult {
 
 // InjectedResult is a RouteResult as Go puts it into a page: the data of a 200 comes as the JSON
 // text Go wrote, in json. The render parses it, and the page carries the same text to the
-// browser (see loaderDataAdapter in router.tsx), so both read the same values. JSON.stringify in
-// the VM would write a -0 as 0, and a page that formats it with Intl would then hydrate other
-// text than the server rendered. A server render gets the text as an argument of startRender
-// instead (see RenderResult in server.tsx), and the boot data of a page that skips SSR carries it
-// in json.
+// browser (see loaderDataAdapter in router.tsx), so both read the same values. A render that
+// has a nonce writes a slot in the page where the text goes, and Go fills it with the text after
+// the render (internal/ssr/slots.go). The slot is in slot, and the page carries it in place of
+// json. JSON.stringify in the VM would write a -0 as 0, and a page that formats it with Intl would
+// then hydrate other text than the server rendered. A server render gets the text as an argument
+// of startRender instead (see RenderResult in server.tsx), and the boot data of a page that skips
+// SSR carries it in json.
 export interface InjectedResult {
   status: number
   json?: string
+  slot?: string
   error?: string
   location?: string
 }
@@ -70,16 +73,17 @@ export const buildHeader = 'X-Tifa-Build'
 export const callHeader = 'X-Tifa-Call'
 export const redirectHeader = 'X-Tifa-Redirect'
 
-// goJSON holds the JSON text each object of injected data was parsed from.
+// goJSON holds what the page carries for each object of injected data: the JSON text it was
+// parsed from, or the slot Go fills with that text.
 export const goJSON = new WeakMap<object, string>()
 
 // injected answers from the data Go injected for a whole-page render. Rendering does no I/O.
 export function injected(input: Injected): Source {
   const results = new Map<string, RouteResult>()
-  for (const [id, { json, ...result }] of Object.entries(input.data)) {
+  for (const [id, { json, slot, ...result }] of Object.entries(input.data)) {
     if (json !== undefined) {
       const data: unknown = JSON.parse(json)
-      if (typeof data === 'object' && data !== null) goJSON.set(data, json)
+      if (typeof data === 'object' && data !== null) goJSON.set(data, slot ?? json)
       results.set(id, { ...result, data })
     } else results.set(id, result)
   }
