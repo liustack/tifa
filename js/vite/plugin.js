@@ -738,6 +738,29 @@ const keyPathName = `            name = getComponentNameFromType(type),
 // useActionState hashes a key path for its key, and the code that prerenders a page reads the
 // names of the key paths of what it postpones.
 const keyPathReaders = '2 4'
+// Where React's string renderer makes a key path, and what the tifa plugin makes of each place so
+// that it makes one only when tifaKeyPaths says so: for each element, for the children of an array
+// that has a place of its own, and for the fallback of a Suspense boundary. The last place is the
+// start of createRequest, which sets tifaKeyPaths from a global that the bundle has when a module
+// has $$FORM_ACTION in its code.
+const keyPathMakers = [
+  ['          key = [task.keyPath, name, keyOrIndex];', '          key = tifaKeyPaths ? [task.keyPath, name, keyOrIndex] : null;'],
+  ['    ((task.keyPath = [task.keyPath, "Fragment", childIndex]),', '    ((task.keyPath = tifaKeyPaths ? [task.keyPath, "Fragment", childIndex] : null),'],
+  ['              [keyPath[0], "Suspense Fallback", keyPath[2]],', '              tifaKeyPaths ? [keyPath[0], "Suspense Fallback", keyPath[2]] : null,'],
+  [
+    '  formState\n) {\n  resumableState = new RequestInstance(',
+    '  formState\n) {\n  tifaKeyPaths = true === globalThis.tifaFormActions, resumableState = new RequestInstance(',
+  ],
+]
+// The uses of key paths in React's string renderer of React DOM 19.3 that the tifa plugin does not
+// guard: the reads of [0] or [2] of a variable named keyPath or ...KeyPath, the assignments to a
+// trackedPostpones that are not null, and the calls of createReplayTask. The string renderer makes
+// its requests with createRequest, which sets trackedPostpones to null, and a task has a replay
+// only when createReplayTask makes it, in the code that resumes a render and in the code that
+// follows a trackedPostpones. So the reads of the key paths in the code that resumes or prerenders
+// a page never run in renderToString, and the others are those of useActionState and of a
+// Suspense fallback.
+const keyPathUses = '11 0 2'
 // guardedCases is the fewest string cases a switch needs for the tifa plugin to put a Set check in
 // front of it, and switchCases the prefix of the names of those Sets.
 const guardedCases = 8
@@ -1064,6 +1087,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
   let coreJSState = false // whether the internal state module of coreJS is in the bundle
   let coreJSAdapted = false // whether it got the property-backed state
   let namesDropped = false // whether React's key paths have no names of components
+  let keyPathsDropped = false // whether React makes key paths only when a module has $$FORM_ACTION
   let serverActions // the modules outside React DOM with $$FORM_ACTION in their code
   let lucide // folder of lucide-react's ES modules to whether the plugin knows its files
   const plugin = {
@@ -1073,6 +1097,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
       coreJS = findPackage(getRoot(), 'core-js')
       coreJSState = coreJSAdapted = false
       namesDropped = false
+      keyPathsDropped = false
       serverActions = new Set()
       lucide = new Map()
     },
@@ -1288,6 +1313,17 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         if (unnamed) {
           source = unnamed
           namesDropped = true
+          const used = keyPathsUsed(parse(source))
+          const unkeyed = !used && dropKeyPaths(source)
+          if (unkeyed) {
+            source = unkeyed
+            keyPathsDropped = true
+          } else {
+            this.warn(
+              `${react} ${used || 'has no key paths in the form the tifa plugin knows'}, so the tifa plugin does not ` +
+                'leave out the key paths of the elements. Pages render the same, but take longer to render',
+            )
+          }
         } else {
           this.warn(
             `${react} ${read || `has no "${keyPathName.trim().split('\n')[0]}" the tifa plugin knows`}, ` +
@@ -1431,6 +1467,17 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
         chunk.code = rewritten.code
         if (map) {
           map.mappings = rewritten.mappings
+          asset.source = JSON.stringify(map)
+        }
+      }
+      // With a module that has $$FORM_ACTION in its code, React makes its key paths, see dropKeyPaths.
+      // The global is set on a line of its own before all the code, since a module may render when
+      // it runs. The map gets an empty line to fit.
+      if (keyPathsDropped && serverActions.size > 0) {
+        chunk.code = `globalThis.tifaFormActions = true;\n${chunk.code}`
+        parse(chunk.code)
+        if (map) {
+          map.mappings = `;${map.mappings}`
           asset.source = JSON.stringify(map)
         }
       }
@@ -2209,6 +2256,50 @@ function componentStacksRead(program) {
 function dropKeyPathNames(source) {
   if (source.split(keyPathName).length !== 2) return null
   return source.replace(keyPathName, () => '            name = null,\n            keyOrIndex =')
+}
+
+// dropKeyPaths returns the source of React's string renderer, without the names of components in
+// its key paths, that makes no key path unless tifaKeyPaths is true, or null when the source does
+// not make its key paths in the form the plugin knows. React makes an array for each element it
+// renders, for each place of the children of an array and for the fallback of each Suspense
+// boundary. Of the code that reads them only two places run in renderToString: the hash in
+// useActionState for an action with $$FORM_ACTION, and the key path of the fallback of a
+// boundary. keyPathsUsed finds no other. So tifaKeyPaths is true only when the bundle has a module
+// with $$FORM_ACTION in its code (the plugin sets globalThis.tifaFormActions then, see
+// generateBundle), and the hash is the same as it is with every key path. Otherwise a key path is
+// null, which the fallback of a boundary passes on and the other places only hand on.
+function dropKeyPaths(source) {
+  if (keyPathMakers.some(([from]) => source.split(from).length !== 2)) return null
+  for (const [from, to] of keyPathMakers) source = source.replace(from, () => to)
+  return `${source}\nvar tifaKeyPaths = false;\n`
+}
+
+// keyPathsUsed returns why program, React's string renderer, may use its key paths otherwise than
+// in the places dropKeyPaths knows, or '' when it does not in renderToString: it uses them only as
+// keyPathUses has it.
+function keyPathsUsed(program) {
+  let ends = 0
+  let tracked = 0
+  let replays = 0
+  visitNodes(program, (node) => {
+    if (
+      node.type === 'MemberExpression' && node.computed && node.property.type === 'Literal' &&
+      (node.property.value === 0 || node.property.value === 2) && node.object.type === 'Identifier' &&
+      /(^k|K)eyPath$/.test(node.object.name)
+    ) {
+      ends++
+    }
+    if (
+      node.type === 'AssignmentExpression' && named(node.left, 'trackedPostpones') &&
+      !(node.right.type === 'Literal' && node.right.value === null)
+    ) {
+      tracked++
+    }
+    if (node.type === 'CallExpression' && node.callee.type === 'Identifier' && node.callee.name === 'createReplayTask') replays++
+  })
+  return `${ends} ${tracked} ${replays}` === keyPathUses
+    ? ''
+    : `reads [0] or [2] of a key path ${ends} times, sets trackedPostpones to something but null ${tracked} times and calls createReplayTask ${replays} times, which the tifa plugin does not know`
 }
 
 // keyPathNamesRead returns why program, React's string renderer, may read the names of components

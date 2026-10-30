@@ -685,6 +685,94 @@ func TestSSRLeavesComponentNamesOutOfKeyPaths(t *testing.T) {
 	}
 }
 
+// formActionPage renders four forms with useActionState and an action that has $$FORM_ACTION, as
+// a server action has, each in a place of its own, and gives the hidden fields that React writes
+// into them. The action is made by hand, since tifa has no server actions.
+const formActionPage = "import './host'\n" +
+	"import './marker'\n" +
+	"import { renderToString } from 'react-dom/server.edge'\n" +
+	"import { Fragment, useActionState } from 'react'\n" +
+	"function makeAction() {\n" +
+	"  const action: any = (n: number) => n + 1\n" +
+	"  action.$$FORM_ACTION = () => ({})\n" +
+	"  action.bind = (self: unknown, state: number) => {\n" +
+	"    const bound: any = Function.prototype.bind.call(action, self, state)\n" +
+	"    bound.$$FORM_ACTION = () => {\n" +
+	"      const entries: [string, string][] = []\n" +
+	"      return { action: '/count', data: { append: (k: string, v: string) => entries.push([k, v]), forEach: (f: any, self: unknown) => entries.forEach(([k, v]) => f.call(self, v, k)) } }\n" +
+	"    }\n" +
+	"    return bound\n" +
+	"  }\n" +
+	"  return action\n" +
+	"}\n" +
+	"function Counter() {\n" +
+	"  const [count, increment] = useActionState(makeAction(), 0)\n" +
+	"  return <form action={increment}><output>{count}</output></form>\n" +
+	"}\n" +
+	"function Page() {\n" +
+	"  return <main><Counter />{[1, 2].map((n) => <Fragment key={n}><div><Counter /></div></Fragment>)}<section><Counter /></section></main>\n" +
+	"}\n" +
+	"globalThis.result = renderToString(<Page />)\n"
+
+// keyPathCondition finds the key path that React makes for an element in a minified bundle when
+// the bundle makes it only if a variable says so.
+var keyPathCondition = regexp.MustCompile(`[\w$]+\?\[[\w$]+\.keyPath,[\w$]+,[\w$]+\]:null`)
+
+// React makes a key path for each element it renders, which only useActionState with a server
+// action and the fallback of a Suspense boundary read. The tifa plugin makes them only when a
+// module has $$FORM_ACTION in its code, and pages render the same.
+func TestSSRMakesKeyPathsOnlyForServerActions(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"keys.tsx": keyPathsPage})
+	code, printed := buildPrinting(t, root, "keys.tsx")
+	if !keyPathCondition.MatchString(code) {
+		t.Error("the bundle makes a key path for each element whatever its modules have")
+	}
+	if strings.Contains(code, "tifaFormActions = true") {
+		t.Error("the bundle sets tifaFormActions with no module that has $$FORM_ACTION")
+	}
+	if printed != "" {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	without := evalResult(t, code)
+
+	// A module with $$FORM_ACTION in its code makes the bundle make its key paths.
+	writeTree(t, root, map[string]string{
+		"keys.tsx":  "import './marker'\n" + keyPathsPage,
+		"marker.ts": "export const marker = 'has $$FORM_ACTION in a string'\n",
+	})
+	code, printed = buildPrinting(t, root, "keys.tsx")
+	if !strings.Contains(code, "globalThis.tifaFormActions = true") {
+		t.Error("the bundle of a module with $$FORM_ACTION does not set tifaFormActions")
+	}
+	if !strings.Contains(printed, "marker.ts: has $$FORM_ACTION in its code") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	if got := evalResult(t, code); got != without {
+		t.Errorf("the page renders otherwise with key paths:\n%s\nwant:\n%s", got, without)
+	}
+}
+
+// The key that useActionState writes into a form with a server action does not change with the
+// plugin that leaves key paths out: it is what React DOM gives with the key paths of every
+// element, but for the names of the components.
+func TestSSRKeyOfAServerActionKeepsItsKeyPath(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{
+		"actions.tsx": formActionPage,
+		"marker.ts":   "export const marker = 'has $$FORM_ACTION in a string'\n",
+	})
+	code, _ := buildPrinting(t, root, "actions.tsx")
+	var keys []string
+	for _, m := range regexp.MustCompile(`name="\$ACTION_KEY" value="(k\d+)"`).FindAllStringSubmatch(evalResult(t, code), -1) {
+		keys = append(keys, m[1])
+	}
+	want := []string{"k2365358841", "k1132176831", "k4141456957", "k2692355043"}
+	if !slices.Equal(keys, want) {
+		t.Errorf("the keys are %v, want %v", keys, want)
+	}
+}
+
 // A server action has a $$FORM_ACTION, and React writes a key for its form state from the key path
 // of the component, names included. tifa has no server actions, and the build warns of each module
 // with $$FORM_ACTION in its code.
