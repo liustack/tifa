@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/liustack/tifa/internal/testproc"
 )
 
 // devParentRoot names, in the environment of this test binary, the application a copy of it
@@ -108,7 +110,7 @@ func TestDevDriverEndsWhenItsParentDiesDuringABuild(t *testing.T) {
 	port := freePort(t)
 	parent := exec.Command(os.Args[0])
 	parent.Env = append(os.Environ(), devParentRoot+"="+root, "TIFA_TEST_DEV_PARENT_PORT="+strconv.Itoa(port))
-	if err := parent.Start(); err != nil {
+	if err := testproc.Start(parent); err != nil {
 		t.Fatal(err)
 	}
 	defer parent.Wait()
