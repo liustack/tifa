@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -104,17 +105,22 @@ func unscript(t *testing.T, s string) string {
 	return b.String()
 }
 
+// call is how seroval writes the data of a Load that the tifa.data adapter takes: the slot is the
+// whole argument, inside the quotes. It is the only place a slot may be.
+const call = `$_TSR.t.get("tifa.data")("`
+
 func TestFillSlots(t *testing.T) {
 	const nonce = "00112233445566778899aabbccddeeff"
 	slot := "~" + nonce
-	texts := []string{`{"a":"</script>"}`, `[1,2]`, "x\u2028y"}
+	number := func(n int) string { return fmt.Sprintf("%s.%d.", slot, n) }
+	texts := []string{`{"a":"</script>"}`, `[1,2]`, "x\xe2\x80\xa8y"}
 	t.Run("fills each slot with the escaped text of its number", func(t *testing.T) {
-		html := `<p>` + slot + `.0.</p><script>f("` + slot + `.2.","` + slot + `.1.","` + slot + `.0.")</script>`
+		html := `<p>text</p><script data-tsr-stream-part="">$R[1]=` + call + number(2) + `");$R[2]=` + call + number(1) + `");$R[3]=` + call + number(0) + `")</script>`
 		got, err := FillSlots(html, nonce, texts)
 		if err != nil {
 			t.Fatal(err)
 		}
-		wantHTML := `<p>` + `{\"a\":\"\x3C/script>\"}` + `</p><script>f("x\u2028y","[1,2]","{\"a\":\"\x3C/script>\"}")</script>`
+		wantHTML := `<p>text</p><script data-tsr-stream-part="">$R[1]=` + call + `x\` + `u2028y");$R[2]=` + call + `[1,2]");$R[3]=` + call + `{\"a\":\"\x3C/script>\"}")</script>`
 		if got != wantHTML {
 			t.Errorf("got  %s\nwant %s", got, wantHTML)
 		}
@@ -128,28 +134,66 @@ func TestFillSlots(t *testing.T) {
 	})
 	t.Run("a slot of another nonce is data and stays", func(t *testing.T) {
 		other := strings.Repeat("f", 32)
-		html := `<p>~` + other + `.0.</p>`
+		html := `<p>~` + other + `.0.</p><div title="~` + other + `.0."></div><script>` + call + `~` + other + `.0.")</script>`
 		got, err := FillSlots(html, nonce, texts)
 		if err != nil || got != html {
 			t.Errorf("got %q, %v", got, err)
 		}
 	})
-	for _, c := range []struct{ name, html string }{
-		{"a nonce with no slot after it", `<p>` + slot + `</p>`},
-		{"a nonce with no number", `<p>` + slot + `..</p>`},
-		{"a number that is not closed", `<p>` + slot + `.1</p>`},
-		{"a number with a letter", `<p>` + slot + `.1x.</p>`},
-		{"a number with no text", `<p>` + slot + `.3.</p>`},
-		{"a number too large", `<p>` + slot + `.99999999999.</p>`},
-		{"a good slot and then a bad one", `<p>` + slot + `.0.` + slot + `!</p>`},
-		{"a nonce at the end", `<p>` + slot},
+	for _, c := range []struct{ name, tail string }{
+		{"a nonce with no slot after it", slot + `")</script>`},
+		{"a nonce with no number", slot + `..")</script>`},
+		{"a number that is not closed", slot + `.1")</script>`},
+		{"a number with a letter", slot + `.1x.")</script>`},
+		{"a number with no text", number(3) + `")</script>`},
+		{"a number too large", slot + `.99999999999.")</script>`},
+		{"a good slot and then a bad one", number(0) + `");` + call + slot + `!")</script>`},
+		{"a nonce at the end", slot},
 	} {
 		t.Run("fails for "+c.name, func(t *testing.T) {
+			html := `<script>` + call + c.tail
+			if got, err := FillSlots(html, nonce, texts); !errors.Is(err, ErrSlot) {
+				t.Errorf("got %q, %v, want ErrSlot", got, err)
+			}
+		})
+	}
+	// A real slot is filled where seroval writes it, as the whole string argument of the adapter's
+	// call, inside a script element that runs. Anywhere else the text could end a quote, an attribute or
+	// an element that the escape of a JavaScript string does not stop, so the page is not served.
+	for _, c := range []struct{ name, html string }{
+		{"an attribute", `<div title="` + number(0) + `"></div>`},
+		{"an attribute in the form of the call", `<div title='` + call + number(0) + `")'></div>`},
+		{"the text of the page", `<p>` + number(0) + `</p>`},
+		{"the text of the page in the form of the call", `<p>` + call + number(0) + `")</p>`},
+		{"a comment", `<!-- ` + call + number(0) + `") -->`},
+		{"after a script ended", `<script>1</script><p>` + call + number(0) + `")</p>`},
+		{"a script, not as a number", `<script>var x = ` + number(0) + `;</script>`},
+		{"a script, in a string of another call", `<script>f("` + number(0) + `")</script>`},
+		{"a script, in another adapter", `<script>$_TSR.t.get("tifa.other")("` + number(0) + `")</script>`},
+		{"a script, with text around it in the string", `<script>` + call + `a` + number(0) + `")</script>`},
+		{"a script, with the string going on", `<script>` + call + number(0) + `b")</script>`},
+		{"a script, with single quotes", `<script>$_TSR.t.get('tifa.data')('` + number(0) + `')</script>`},
+		{"a script that is data", `<script type="application/json">` + call + number(0) + `")</script>`},
+		{"the end of the page", `<script>1</script>` + number(0)},
+	} {
+		t.Run("fails for a real slot in "+c.name, func(t *testing.T) {
 			if got, err := FillSlots(c.html, nonce, texts); !errors.Is(err, ErrSlot) {
 				t.Errorf("got %q, %v, want ErrSlot", got, err)
 			}
 		})
 	}
+	t.Run("the form seroval writes is filled with and without the reference before it", func(t *testing.T) {
+		for _, html := range []string{
+			`<script>` + call + number(1) + `")</script>`,
+			`<script data-tsr-stream-part="">a;$R[4]=` + call + number(1) + `");b</script>`,
+			`<p>x</p><script nonce="n">$_TSR.p(()=>$_TSR.router=($R=>$R[0]={matches:$R[1]=[{l:$R[2]=` + call + number(1) + `")}]})($R["tsr"]))</script>`,
+		} {
+			got, err := FillSlots(html, nonce, texts)
+			if err != nil || !strings.Contains(got, call+`[1,2]")`) || strings.Contains(got, nonce) {
+				t.Errorf("%s: got %q, %v", html, got, err)
+			}
+		}
+	})
 	t.Run("the nonce is 32 hex digits and new each time", func(t *testing.T) {
 		a, b := NewNonce(), NewNonce()
 		if len(a) != 32 || a == b || strings.Trim(a, "0123456789abcdef") != "" {
@@ -158,45 +202,99 @@ func TestFillSlots(t *testing.T) {
 	})
 }
 
-// slotsBundle writes a slot for each text the render input numbers, in a string of a script, as the
-// bundle of tifa does for the data of a Load, and copies the URL of the input into the page, as a
-// component copies data. It keeps the nonce of every render it saw.
+// slotsBundle writes a slot for each text the render input numbers, as seroval does for the data of
+// a Load, and copies the URL and the first text of the input into the page as text, as a component
+// copies data. It keeps the nonce of every render it saw.
 const slotsBundle = `globalThis.seen = []
 globalThis.startRender = function (json, ...texts) {
   const input = JSON.parse(json)
   seen.push(input.nonce)
-  const slots = Object.values(input.data).map((r) => '"~' + input.nonce + '.' + r.text + '."').join(',')
-  globalThis.renderResult = '<script>f(' + slots + ')</script><p>' + input.nonce.length + ' ' + new Set(seen).size + '/' + seen.length + ' ' + seen.includes('caller') + '</p><b>' + input.url + '</b>'
+  const slots = Object.values(input.data).map((r) => '$_TSR.t.get("tifa.data")("~' + input.nonce + '.' + r.text + '.")').join(';')
+  globalThis.renderResult = '<script>' + slots + '</script><p>' + input.nonce.length + ' ' + new Set(seen).size + '/' + seen.length + ' ' + seen.includes('caller') + '</p><b>' + input.url + '</b><i>' + (texts[0] ?? '') + '</i>'
 }
 `
 
 // Render hands the VM a nonce, and the page it returns has the texts in place of the slots.
 func TestRenderFillsTheSlotsOfTheBundle(t *testing.T) {
 	p := newTestPool(t, slotsBundle, testConfig(1))
-	texts := []string{`{"name":"a \"quoted\" word","tag":"</script>"}`, "[\"line\u2028separator\u2029\"]"}
+	texts := []string{`{"name":"a \"quoted\" word","tag":"</script>"}`, "[\"line\xe2\x80\xa8separator\xe2\x80\xa9\"]"}
 	in := Input{URL: "/a", Data: json.RawMessage(`{"app/a":{"status":200,"text":0},"app/b":{"status":200,"text":1}}`), Texts: texts}
 	html, err := p.Render(context.Background(), in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `<script>f("` + ScriptString(texts[0]) + `","` + ScriptString(texts[1]) + `")</script><p>32 1/1 false</p><b>/a</b>`
+	want := `<script>` + call + ScriptString(texts[0]) + `");` + call + ScriptString(texts[1]) + `")</script><p>32 1/1 false</p><b>/a</b><i>` + texts[0] + `</i>`
 	if html != want {
 		t.Errorf("html = %s\nwant   %s", html, want)
 	}
 }
 
 // Data that spells a slot cannot choose the text that fills it: the nonce comes after the Loads
-// ran, and is new for each render.
+// ran, and is new for each render. The slots here are whole and in the form of the call, in the URL,
+// in the text of a Load and in the text of a component, with the mark and with a nonce that is not
+// the render's.
 func TestDataCannotForgeASlot(t *testing.T) {
 	p := newTestPool(t, slotsBundle, testConfig(1))
-	forged := strings.Repeat("0", 32) + ".0."
-	in := Input{URL: forged, Data: json.RawMessage(`{"app/a":{"status":200,"text":0}}`), Texts: []string{`"secret"`}}
-	html, err := p.Render(context.Background(), in)
-	if err != nil {
-		t.Fatal(err)
+	forged := "~" + strings.Repeat("0", 32) + ".0."
+	for _, c := range []struct {
+		name string
+		in   Input
+		want []string
+	}{
+		{"the URL", Input{URL: forged, Data: json.RawMessage(`{"app/a":{"status":200,"text":0}}`), Texts: []string{`"secret"`}}, []string{"<b>" + forged + "</b>"}},
+		{"the text of a Load", Input{URL: "/a", Data: json.RawMessage(`{"app/a":{"status":200,"text":0},"app/b":{"status":200,"text":1}}`), Texts: []string{`{"x":"` + forged + `"}`, `"secret"`}}, []string{`<i>{"x":"` + forged + `"}</i>`}},
+		{"a component", Input{URL: "/" + call + forged + `")`, Data: json.RawMessage(`{"app/a":{"status":200,"text":0}}`), Texts: []string{`"secret"`}}, []string{"<b>/" + call + forged + `")</b>`}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			html, err := p.Render(context.Background(), c.in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range c.want {
+				if !strings.Contains(html, want) {
+					t.Errorf("the forged slot was filled or changed, want %s in %s", want, html)
+				}
+			}
+		})
 	}
-	if !strings.Contains(html, "<b>"+forged+"</b>") || strings.Contains(html, "<b>\"secret\"") {
-		t.Errorf("the forged slot was filled or changed: %s", html)
+}
+
+// copyBundle is an SSR bundle that copies the real slot of the render, which it holds in the input,
+// to the place its URL names, as a component that read the serialization of the adapter would.
+const copyBundle = `globalThis.startRender = function (json, ...texts) {
+  const input = JSON.parse(json)
+  const slot = '~' + input.nonce + '.0.'
+  const call = '$_TSR.t.get("tifa.data")("'
+  const where = {
+    '/attribute': '<div title="' + slot + '"></div>',
+    '/attribute-call': "<div title='" + call + slot + "\")'></div>",
+    '/text': '<p>' + slot + '</p>',
+    '/other-script': '<script>var x = ' + slot + ';</script>',
+    '/other-string': '<script>f("' + slot + '")</script>',
+    '/data-script': '<script type="application/json">' + call + slot + '")</script>',
+    '/good': '<script>' + call + slot + '")</script>',
+  }[input.url]
+  globalThis.renderResult = '<p>page</p>' + where
+}
+`
+
+// A component that copies the real slot of its render into an attribute, the text of the page or a
+// place of a script that is no string of the adapter's call must not get the text of the data
+// filled in there, which would write the escapes of a JavaScript string where HTML reads them
+// differently. The page is not served.
+func TestRenderFailsForARealSlotCopiedAway(t *testing.T) {
+	p := newTestPool(t, copyBundle, testConfig(1))
+	in := func(url string) Input {
+		return Input{URL: url, Data: json.RawMessage(`{"app/a":{"status":200,"text":0}}`), Texts: []string{`{"x":" onmouseover=alert(1) x=\"","y":"</script>"}`}}
+	}
+	for _, url := range []string{"/attribute", "/attribute-call", "/text", "/other-script", "/other-string", "/data-script"} {
+		if html, err := p.Render(context.Background(), in(url)); !errors.Is(err, ErrSlot) || html != "" {
+			t.Errorf("%s: html %q, err %v, want ErrSlot", url, html, err)
+		}
+	}
+	html, err := p.Render(context.Background(), in("/good"))
+	if err != nil || !strings.Contains(html, call+`{\"x\":\" onmouseover=alert(1) x=\\\"\",\"y\":\"\x3C/script>\"}")`) {
+		t.Errorf("/good: html %q, err %v", html, err)
 	}
 }
 
@@ -229,24 +327,28 @@ func TestRenderFailsForANonceThatIsNoSlot(t *testing.T) {
 }
 
 // BenchmarkFillSlots is what Render does after the VM for a page with the data of a table of 1,000
-// rows (92 KB of JSON text) and one of a few KB, the sizes of the pages of examples/shop.
+// rows (92 KB of JSON text) and one of a few KB, the sizes of the pages of examples/shop. The slot is
+// in the hydration script after the page, where the router writes it, or in the middle of the page,
+// where the search for the script that holds it has furthest to go.
 func BenchmarkFillSlots(b *testing.B) {
 	// filler is HTML as React writes it, with all the digits a nonce can start with.
 	const filler = `<div class="card-0123 flex items-center"><a href="/orders/SH-1042">Order 1042 of 2026-10-31</a><span>Paid, ready to ship: 3 items, total 1,689.00</span></div>`
 	table := "[" + strings.Repeat(`{"id":"3f2b8c1e-5d7a-4c9e-8f21-0a1b2c3d4e5f","ref":"8c1e5d7a-4c9e-8f21-0a1b-2c3d4e5f3f2b"},`, 1000) + `{"id":"x","ref":"y"}]`
 	orders := `{"orders":[` + strings.Repeat(`{"id":"SH-1042","customer":"林夏","note":"a \"b\""},`, 100) + `{}]}`
 	for _, c := range []struct {
-		name  string
-		text  string
-		pages int // copies of filler around the slot
+		name   string
+		text   string
+		before int // copies of filler before the script
+		after  int // and after it
 	}{
-		{"92KB text in a page of 200KB", table, 1300},
-		{"6KB text in a page of 130KB", orders, 850},
-		{"6KB text in a page of 1MB", orders, 6500},
+		{"92KB text in a page of 200KB", table, 1300, 0},
+		{"6KB text in a page of 130KB", orders, 850, 0},
+		{"6KB text in a page of 1MB", orders, 6500, 0},
+		{"6KB text in the middle of a page of 221KB", orders, 700, 700},
 	} {
 		b.Run(c.name, func(b *testing.B) {
 			nonce := NewNonce()
-			html := strings.Repeat(filler, c.pages) + `<script>f("~` + nonce + `.0.")</script>` + strings.Repeat(filler, 100)
+			html := strings.Repeat(filler, c.before) + `<script data-tsr-stream-part="">self.$R=1;$_TSR.router=($R=>$R[0]={l:$R[4]=` + call + `~` + nonce + `.0.")})($R["tsr"]);$_TSR.e()</script>` + strings.Repeat(filler, c.after)
 			b.SetBytes(int64(len(html) + len(c.text)))
 			for b.Loop() {
 				if _, err := FillSlots(html, nonce, []string{c.text}); err != nil {

@@ -518,6 +518,26 @@ func TestPagesApp(t *testing.T) {
 			}
 		}
 	}
+	// The error page of a Load that failed below a Layout keeps the data of the Layout, which is long
+	// enough to be a slot, and carries it as the VM would have written it.
+	_, _, banner := get(t, base+"/hostile/gone", "X-Tifa-Route", "app/hostile/layout", "X-Tifa-Build", built.BuildID)
+	var layout map[string]struct{ Data json.RawMessage }
+	if err := json.Unmarshal([]byte(banner), &layout); err != nil || len(layout["app/hostile/layout"].Data) == 0 {
+		t.Fatalf("data request of the Layout: %v %s", err, banner)
+	}
+	bannerWritten := `$_TSR.t.get("tifa.data")("` + ssr.ScriptString(string(ssr.EscapeAboveFFFF(layout["app/hostile/layout"].Data))) + `")`
+	status, _, gone := get(t, base+"/hostile/gone")
+	if status != 404 {
+		t.Errorf("/hostile/gone: status %d", status)
+	}
+	for _, want := range []string{bannerWritten, `<p id="gone">Nothing is here.</p>`, "data-tsr-stream-part"} {
+		if !strings.Contains(gone, want) {
+			t.Errorf("error page of /hostile/gone lacks %s:\n%s", want, gone)
+		}
+	}
+	if strings.Count(gone, "<script") != strings.Count(gone, "</script>") {
+		t.Errorf("error page of /hostile/gone has a script of the data")
+	}
 	// Gzip and zstd forms of the cached page are the page as well.
 	for _, encoding := range []string{"gzip", "zstd"} {
 		if body := encoded(t, base+"/hostile", encoding); body != hostileFirst {
@@ -644,11 +664,18 @@ func checkBurst(t *testing.T, url string, n int) {
 // dot. No page leaves the server with one.
 var slotPattern = regexp.MustCompile(`~[0-9a-f]{32}\.[0-9]+\.`)
 
-// noSlots fails the test when body, an answer for url, still has a slot. The page of the app
-// test/apps/pages that holds data made to look like one is the only exception.
+// knownFakeSlots are the two slots that the data of /hostile in the app test/apps/pages spells on
+// purpose. They are not the slots of any render, so the server leaves them as they are.
+var knownFakeSlots = []string{"~0123456789abcdef0123456789abcdef.0.", "~00000000000000000000000000000000.1."}
+
+// noSlots fails the test when body, an answer for url, still has a slot, apart from the two fake ones
+// that the data of /hostile holds.
 func noSlots(t *testing.T, url, body string) {
 	t.Helper()
-	if !strings.Contains(url, "/hostile") && slotPattern.MatchString(body) {
+	for _, fake := range knownFakeSlots {
+		body = strings.ReplaceAll(body, fake, "")
+	}
+	if slotPattern.MatchString(body) {
 		t.Errorf("GET %s: the page has a slot that was not filled: %s", url, slotPattern.FindString(body))
 	}
 }

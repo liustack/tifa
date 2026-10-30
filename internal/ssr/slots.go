@@ -25,6 +25,15 @@ import (
 // spells a slot of another nonce stays as it is, and only the slots the bundle wrote are filled. The page the VM
 // returns holds the ~ and the nonce only in those slots, and FillSlots fails when one is not a whole
 // slot, so a broken slot never reaches a browser.
+//
+// Where a slot may be is fixed too, because the escape of a JavaScript string is right for nowhere
+// else. A component that reads the serialization of the adapter, or the slot of its render, could
+// copy it into an attribute or the text of the page, where \" does not stop a quote, or into a place
+// of a script that is no string. FillSlots fills a slot only where seroval writes it, as the whole
+// argument of the adapter's call, $_TSR.t.get("tifa.data")("<slot>"), inside a script element that
+// has not ended and runs as JavaScript. A real slot anywhere else is an ErrSlot and the page is not
+// served. The code of the page is still trusted to write HTML, as it always was, but it cannot get
+// the text of the data written into a context of its choice.
 
 const (
 	nonceBytes = 16
@@ -70,6 +79,9 @@ func FillSlots(html, nonce string, texts []string) (string, error) {
 		if number >= len(texts) {
 			return "", fmt.Errorf("%w: slot %d, but there are %d texts", ErrSlot, number, len(texts))
 		}
+		if !inCall(html, i, i+len(mark)+size) {
+			return "", fmt.Errorf("%w: slot %d is not the string argument of the adapter's call in a script: %.60q", ErrSlot, number, html[max(0, i-40):min(len(html), i+len(mark)+size+10)])
+		}
 		out = append(out, html[done:i]...)
 		out = appendScriptString(out, texts[number])
 		done = i + len(mark) + size
@@ -82,6 +94,51 @@ func FillSlots(html, nonce string, texts []string) (string, error) {
 	out = append(out, html[done:]...)
 	// out is not used again, so the page is its bytes and not a copy of them.
 	return unsafe.String(unsafe.SliceData(out), len(out)), nil
+}
+
+// callBefore and callAfter are what seroval writes around the text of a Load's data for the adapter
+// tifa.data: the call of its deserializer with the string as the only argument.
+const (
+	callBefore = `.t.get("tifa.data")("`
+	callAfter  = `")`
+)
+
+// inCall reports whether the slot at html[start:end] is the whole string argument of the adapter's
+// call, and the call is in a script element that has not ended and holds JavaScript.
+func inCall(html string, start, end int) bool {
+	if !strings.HasSuffix(html[:start], callBefore) || !strings.HasPrefix(html[end:], callAfter) {
+		return false
+	}
+	open := strings.LastIndex(html[:start], "<script")
+	if open < 0 {
+		return false
+	}
+	// The tag must end before the slot, be a script and not carry data of another type.
+	tagEnd := strings.IndexByte(html[open:start], '>')
+	if tagEnd < 0 {
+		return false
+	}
+	if c := html[open+len("<script")]; c != ' ' && c != '>' && c != '\n' && c != '\t' && c != '/' {
+		return false
+	}
+	tag := html[open : open+tagEnd]
+	if strings.Contains(tag, " type=") {
+		return false
+	}
+	// The script has not ended between its tag and the slot, whatever the case of the closing tag.
+	body := html[open+tagEnd : start]
+	for j := 0; j+8 <= len(body); {
+		k := strings.Index(body[j:], "</")
+		if k < 0 {
+			break
+		}
+		j += k
+		if j+8 <= len(body) && strings.EqualFold(body[j+2:j+8], "script") {
+			return false
+		}
+		j += 2
+	}
+	return true
 }
 
 // slotNumber reads ".<digits>." from the start of s and returns the number and the length read.
