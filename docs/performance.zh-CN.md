@@ -375,6 +375,7 @@ v0.27.2 整体和 v0.27.1 比，tifa 和 SSR 包都相同，一个 VM 跑在一�
 | React 按属性名和标签名的长 `switch` 前先查一次 `Set` | shop 少 6% 到 7%，纯文字页面少 9% 到 12% |
 | React 的 HTML 转义改用五次 `replaceAll`，不再逐个字符循环，查有没有要转义的字符改用 `exec` | 纯文字页面少 8.7% 到 9.8%，落地页少 0.7%。shop 和小页面上下浮动不超过 1.6%，它们的转义大多已由上面的缓存直接给出 |
 | 在引擎里转义 React 的 HTML：VM 有 slowjs 的 C 函数（`RegisterEscapeText`）时，`escapeTextForBrowser` 就是它 | shop 工作台页面只花原来的 0.974，少跑 2.5% 的指令（linux/amd64，8 个代码位置），店面页面 0.975，少 2.4%，bench 页面 0.938，少 4.5%，MUI 页面少 0.7% 的指令。这个调用的开销和调一次空函数差不多，所以连缓存里有的短文本它也更快 |
+| 在引擎里拷 `createElement` 和 `cloneElement` 的 props：这个循环是 slowjs 的一个 C 函数（`RegisterCopyProps`），VM 有它时 React 的两个函数先问它 | shop 工作台页面少跑 2.9% 的指令，耗时是原来的 0.988（linux/amd64，8 个代码位置），店面页面少 2.1%，0.989，MUI 页面少 4.1%，0.980。耗时的变化都在同一个构建各代码位置之间 2.7% 到 3.9% 的差距之内，所以结论看指令数。一个 `createElement` 在 config 有 1 个键时只花原来的 0.70，10 个键时 0.28，没有哪个更慢。bench 页面各只造一个元素：指令数相同（+0.04%），耗时是 1.014，同一个引擎配旧的包也是这样（1.022），所以是引擎的代码落在了别处，不是这处改动造成的 |
 | `pushAttribute` 写常见属性时不再调用 `pushStringAttribute`，别的属性名先查有效名字的缓存，查不到才调 `isAttributeNameSafe` | shop 工作台页面少 0.8% 的指令，店面页面少 0.7%，bench 页面少 1.0%，MUI 页面少 0.1%。计时：工作台页面 0.995，店面页面 0.993，MUI 页面 0.997，按代码位置的规则都不算有变化。 |
 | React 不再构建组件栈。栈只进 `onError` 的第二个参数 `errorInfo`，tifa 给 `renderToString` 的处理函数丢掉这个参数 | shop 少 1.2% 到 4.2%，纯文字页面和落地页少 7.2% 到 7.8%，小页面少 2.3% 到 2.6% |
 | 导入 React 和 React DOM 的模块拿到的命名空间是普通值，不再是 getter | shop 六页里的五页少 1.3% 到 2.9%。其他页面上下浮动不超过 1% |
@@ -462,7 +463,8 @@ tifa c729ad2 加 slowjs v0.28.6、它的 Go 汇编解释器和 PGO，渲染这�
 - **把静态 JSX 提到组件外**，像 Babel 的 transform-react-constant-elements：shop 的页面每次少建 44 到 83 个元素，渲染只快 0.5% 到 0.9%，几乎全静态的页面快 5.4%。每少建一个元素约省 0.8 µs，时间主要花在 React 遍历和拼字符串上。它管不到 `node_modules` 里库的 JSX，要么得装 Babel，要么得自己写一个转换。提上去的元素被一个 VM 的所有请求共用，某个库要是改了它，改动会带到下一个请求。
 - **降低 SSR 包的语法目标**：ES2021 到 ES2018 差 1% 以内。从 ES2017 起对象展开变成辅助函数，shop 慢 33% 到 45%。目标保持 ES2022。
 - **SSR 包不压缩**：包本来就压缩了。在加店面之前的 shop 上，不压缩时渲染慢约 1%，包从 772 KB 变成 1,799 KB，VM 加载后从 7,634 KiB 变成 9,133 KiB。
-- **对 React 的小改写**，每项都不到 1%：`push(x)` 改成按下标赋值（0.1% 到 0.9%），`jsxProd` 和 `createElement` 里的 `for...in` 拷贝改成展开（会多拷 symbol 键，语义不同），`startChunkForTag` 和 `endChunkForTag` 的 `Map` 换成对象（不到 0.5%），`for...in` 换成 `Object.keys`（微基准里更慢），`hasOwnProperty.call` 换成 `Object.hasOwn`（每个键省约 25 ns）。
+- **在 `createElement` 和 `cloneElement` 的展开前用 JavaScript 先检查**：插件先检查 config（原型、symbol、`__proto__`、`__self` 和 `__source`、`key` 背后有没有 getter），再用解构的 rest 拷贝。检查每次调用要 310 到 380 ns，比 React 的循环处理没有键、1 个键或 2 个键的 config 还多，那些元素最多慢到 1.57 倍，页面最好也只有 0.99（少跑 1.6% 到 2.5% 的指令）。Proxy、会删掉后面键的 getter、以及页面在 React 加载后给 `Object.prototype` 加的 setter，它也排除不了。引擎里的函数用 C 做同样的检查，这几处都排除了，少跑 2.1% 到 4.1% 的指令。
+- **对 React 的小改写**，每项都不到 1%：`push(x)` 改成按下标赋值（0.1% 到 0.9%），`jsxProd` 里的 `for...in` 拷贝改成展开（会多拷 symbol 键，语义不同，`createElement` 和 `cloneElement` 改问引擎，见[构建](#构建)），`startChunkForTag` 和 `endChunkForTag` 的 `Map` 换成对象（不到 0.5%），`for...in` 换成 `Object.keys`（微基准里更慢），`hasOwnProperty.call` 换成 `Object.hasOwn`（每个键省约 25 ns）。
 - **用 `+` 把一个属性的几个块拼起来**，在 `pushAttribute` 和 `pushStringAttribute` 里把 `" " + name + '="' + value + '"'` 当成一个块 push：在调用已经写开的基础上，shop 工作台页面只少 0.3% 的指令，而一块一块 push 能少 0.8%。拼接要复制短字符串，花的和省下的 push 差不多。这就是 React PR 37022 的做法（[研究](studies/react-layer.md)），它也让渲染变慢了。
 - **`isAttributeNameSafe` 的两个缓存用 `=== true` 代替 `hasOwnProperty.call`**：在测试用的 EPYC 核上每次调用省 9 ns（58.7 ns 对 49.6 ns，200 万次调用，22 个缓存里有的名字）。slowjs v0.29.1 给 `hasOwnProperty.call` 加了快路径后，两种写法耗时几乎一样，所以不改页面。
 - **在 C 转义前面加缓存**，像 JavaScript 转义那样：缓存里有的一个 30 个字符的类名，带缓存的 JavaScript 函数处理一次要 340 ns，C 函数转义同一个类名只要 70 ns，所以池里的 VM 不用缓存。只有一种情况缓存更快：缓存里有一段 512 个字符、其中 171 个要转义的文本（899 ns 对 2,061 ns），页面里几乎没有这样的文本。

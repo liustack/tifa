@@ -17,6 +17,8 @@ const routeModule = /^\.\.?\/(?:.*\/)?\+(?:route|layout)(?:\.js|\.ts)?$/
 const clientSource = /\.client(?:\.[jt]sx?)?$/
 const reactServerEntry = /[/\\]react-dom[/\\]server\.edge\.js$/
 const reactStringRenderer = /[/\\]react-dom[/\\]cjs[/\\]react-dom-server-legacy\.browser\.production\.js$/
+// React's own production file, which has createElement and cloneElement, see nativeCopyProps.
+const reactModule = /[/\\]react[/\\]cjs[/\\]react\.production\.js$/
 // The hash of @emotion/hash 0.9, which emotion takes of every style it serializes, and the
 // dist files that have it. internal/ssr gives the VMs the same hash in Go as __tifa_murmur2__.
 const emotionHash = /[/\\]@emotion[/\\]hash[/\\]dist[/\\]emotion-hash\.(?:esm|cjs\.prod|cjs\.dev)\.js$/
@@ -434,6 +436,116 @@ const i18nextCacheMethods = {
   'var postProcessor = {': ['addPostProcessor', 'handle'],
   'class I18n extends EventEmitter {': ['init', 'loadResources', 'reloadResources', 'use', 'changeLanguage', 'setDefaultNamespace', 'loadNamespaces', 'loadLanguages', 'cloneInstance', 'getFixedT'],
 }
+// createElement and cloneElement of React in its production file, as React 19.3 has them. Each
+// copies the keys of its config into the props of the element with a for-in loop that asks
+// hasOwnProperty.call about each key and skips key, __self and __source (and a ref that is
+// undefined, in cloneElement). The loop takes about 250 ns for each key in QuickJS. nativeCopyProps
+// asks __tifa_copy_props, which internal/ssr defines in each VM, before the loop. That function is
+// the loop written in C in the engine, and it answers false, having changed nothing, for any config
+// where the loop and it could differ, which then goes through the loop as before. The plugin
+// changes a function only when its whole text is the one below, so that a change anywhere in it
+// (the order of the steps, the key, the defaults, the element it makes) leaves it as React has it.
+const propsCreate = `exports.createElement = function (type, config, children) {
+  var propName,
+    props = {},
+    key = null;
+  if (null != config)
+    for (propName in (void 0 !== config.key && (key = "" + config.key), config))
+      hasOwnProperty.call(config, propName) &&
+        "key" !== propName &&
+        "__self" !== propName &&
+        "__source" !== propName &&
+        (props[propName] = config[propName]);
+  var childrenLength = arguments.length - 2;
+  if (1 === childrenLength) props.children = children;
+  else if (1 < childrenLength) {
+    for (var childArray = Array(childrenLength), i = 0; i < childrenLength; i++)
+      childArray[i] = arguments[i + 2];
+    props.children = childArray;
+  }
+  if (type && type.defaultProps)
+    for (propName in ((childrenLength = type.defaultProps), childrenLength))
+      void 0 === props[propName] &&
+        (props[propName] = childrenLength[propName]);
+  return ReactElement(type, key, props);
+};
+`
+const propsClone = `exports.cloneElement = function (element, config, children) {
+  if (null === element || void 0 === element)
+    throw Error(
+      "The argument must be a React element, but you passed " + element + "."
+    );
+  var props = assign({}, element.props),
+    key = element.key;
+  if (null != config)
+    for (propName in (void 0 !== config.key && (key = "" + config.key), config))
+      !hasOwnProperty.call(config, propName) ||
+        "key" === propName ||
+        "__self" === propName ||
+        "__source" === propName ||
+        ("ref" === propName && void 0 === config.ref) ||
+        (props[propName] = config[propName]);
+  var propName = arguments.length - 2;
+  if (1 === propName) props.children = children;
+  else if (1 < propName) {
+    for (var childArray = Array(propName), i = 0; i < propName; i++)
+      childArray[i] = arguments[i + 2];
+    props.children = childArray;
+  }
+  return ReactElement(element.type, key, props);
+};
+`
+// The loop of each function, and the code that takes its place. The code reads config.key first,
+// as the head of the loop does, and then asks the engine. The loop that follows is the one React
+// has, over the same config, for the VM that has no such function and for a config the function
+// does not copy.
+const propsCreateLoop = `  if (null != config)
+    for (propName in (void 0 !== config.key && (key = "" + config.key), config))
+      hasOwnProperty.call(config, propName) &&
+        "key" !== propName &&
+        "__self" !== propName &&
+        "__source" !== propName &&
+        (props[propName] = config[propName]);
+`
+const propsCloneLoop = `  if (null != config)
+    for (propName in (void 0 !== config.key && (key = "" + config.key), config))
+      !hasOwnProperty.call(config, propName) ||
+        "key" === propName ||
+        "__self" === propName ||
+        "__source" === propName ||
+        ("ref" === propName && void 0 === config.ref) ||
+        (props[propName] = config[propName]);
+`
+const propsCreateNative = `  if (null != config)
+    if (
+      (void 0 !== config.key && (key = "" + config.key),
+      !tifaCopyProps || !tifaCopyProps(config, props, hasOwnProperty, false))
+    )
+      for (propName in config)
+        hasOwnProperty.call(config, propName) &&
+          "key" !== propName &&
+          "__self" !== propName &&
+          "__source" !== propName &&
+          (props[propName] = config[propName]);
+`
+const propsCloneNative = `  if (null != config)
+    if (
+      (void 0 !== config.key && (key = "" + config.key),
+      !tifaCopyProps || !tifaCopyProps(config, props, hasOwnProperty, true))
+    )
+      for (propName in config)
+        !hasOwnProperty.call(config, propName) ||
+          "key" === propName ||
+          "__self" === propName ||
+          "__source" === propName ||
+          ("ref" === propName && void 0 === config.ref) ||
+          (props[propName] = config[propName]);
+`
+// What the code needs, taken when the module of React runs and added to its end, so that no line of
+// the file moves. A VM with no __tifa_copy_props gets null and runs the loops.
+const propsNative = `
+var tifaCopyProps = "function" === typeof __tifa_copy_props ? __tifa_copy_props : null;
+`
 // The error handler of renderToString, which ignores the errors of the render.
 const ignoredErrors = 'function onError() {}'
 // React's HTML escape in its string renderer, with the regular expression that finds the first
@@ -989,6 +1101,18 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
           return null
         }
         return source.replace(murmur2Source, () => hashInGo(murmur2Source))
+      }
+      if (reactModule.test(id)) {
+        const react = `react ${packageVersion(path.resolve(id, '..', '..'))}: ${id}`
+        const { source, missing } = nativeCopyProps(fs.readFileSync(id, 'utf8'))
+        for (const name of missing) {
+          this.warn(
+            `${react} has no ${name} in the form the tifa plugin knows, so React copies the config of each ` +
+              `element it makes with ${name} one key at a time. Pages render the same, but those elements ` +
+              'take longer to make',
+          )
+        }
+        return missing.length === 2 ? null : source
       }
       if (reactStringRenderer.test(id)) {
         const react = `react-dom ${packageVersion(path.resolve(id, '..', '..'))}: ${id}`
@@ -1557,6 +1681,31 @@ function askPluginsForArrays(source) {
     else source = source.replace(check, () => form[1])
   }
   return { source, missing }
+}
+
+// nativeCopyProps returns the source of React's production file with createElement and cloneElement
+// asking __tifa_copy_props before they loop over the keys of their config, and the names of the
+// functions that the source does not have in the form it knows. A function changes only when its
+// whole text is the one of propsCreate or propsClone, and it changes in one place, its loop, so a
+// function is either as the plugin knows it and changed, or left as React has it. __tifa_copy_props
+// is the loop written in C in the engine: it does what the loop does, for a config where nothing
+// can make the two differ, and answers false, having changed nothing, for any other (see
+// docs/build.md). The lines stay where they were.
+function nativeCopyProps(source) {
+  const missing = []
+  let out = source
+  for (const [name, text, loop, native] of [
+    ['createElement', propsCreate, propsCreateLoop, propsCreateNative],
+    ['cloneElement', propsClone, propsCloneLoop, propsCloneNative],
+  ]) {
+    if (out.split(text).length !== 2 || text.split(loop).length !== 2) {
+      missing.push(name)
+      continue
+    }
+    out = out.replace(text, () => text.replace(loop, () => sameLines(loop, native)))
+  }
+  if (missing.length === 2) return { source, missing }
+  return { source: out + propsNative, missing }
 }
 
 // cacheEscapes returns the source of React's string renderer with escapeTextForBrowser asking the
