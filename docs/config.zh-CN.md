@@ -211,4 +211,4 @@ sudo setcap cap_net_bind_service=+ep ./bin/myapp
 
 `server.addr` 或 `server.http_addr` 监听不了时，报错会指出是哪项配置，端口只有 root 能用时还会告诉你怎么办。
 
-`serve --dist <目录>` 只给 [`tifa dev`](dev.zh-CN.md) 用，不是配置项，也没有环境变量。
+`serve --dist <目录>` 和 `serve --lifeline-fd <描述符>` 只给 [`tifa dev`](dev.zh-CN.md) 用，不是配置项，也没有环境变量。`tifa build` 生成的程序没有 `--lifeline-fd`。

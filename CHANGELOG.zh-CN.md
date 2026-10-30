@@ -83,6 +83,7 @@
 
 ### 修复
 
+- `tifa dev`：应用和 Vite 不再比它活得久。关掉运行 `tifa dev` 的终端（SIGHUP）现在和 Ctrl-C 一样停掉它。`tifa dev` 被强杀（SIGKILL）时，它启动的应用像收到 SIGTERM 一样关停，以前应用会带着端口一直跑，直到有人手动杀掉。用 `nohup` 启动的 `tifa dev` 仍然忽略 SIGHUP。应用和 Vite 也不再持有 `tifa dev` 继承来的文件，比如脚本用 `flock` 持有的锁。
 - `tifa dev`：Vite 开发服务器重启后（改了 `vite.config.ts` 或 `.env` 文件，或切换成轮询），紧接着的一次修改可能永远漏掉，开发服务器已经给出的模块会一直是旧的，直到这个文件再次改动。现在开发服务器等文件监视读完应用的文件才回应请求。
 - 公共目录的文件有了 ETag，浏览器重新验证时拿到 304，不再整个重下。这些文件带 `Cache-Control: no-cache`，但嵌进程序的副本没有修改时间，也没有 ETag，每次验证都把文件完整下载一遍。现在 `tifa build` 把每个公共文件的内容哈希写进 `build.json`，服务器把它作为强 ETag 发出，文件压缩后发出时变成弱 ETag（`W/"…"`）。浏览器包的文件不变，`tifa dev` 照旧用它所服务文件的修改时间。
 - quickjs v0.26.17：Intl 按 ECMA-402 转换选项、值和语言列表，该给字符串或数字的地方给了 Symbol 或 BigInt 会抛 `TypeError`，`Intl.NumberFormat` 格式化包装起来的 BigInt 时不再经过 double 舍入，而是原样精确输出。页面改了 `Array.prototype`、`JSON` 或别的内置对象，不再影响 Intl。Intl 的函数和内置函数的样子一样，格式化器由进程里所有 VM 共用，所以用过 Intl 的 VM 少占几 KB。

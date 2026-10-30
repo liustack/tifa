@@ -14,7 +14,7 @@ read_when:
 tifa dev [--dir 应用根目录] [--addr 127.0.0.1:9527]
 ```
 
-启动后先打印 `tifa dev: serving http://<地址>`，然后做一次完整构建（步骤同 [tifa build](build.zh-CN.md)，应用的第一次构建要几秒到一分钟，见[日志](#日志)），启动应用。浏览器只连 `--addr`。tifa dev 把页面和数据请求转给应用，把 `/__tifa/vite/` 下的请求（浏览器模块和 Vite 的 HMR websocket）转给 Vite 的开发服务器。应用重启或换 SSR 包期间，页面请求会等它。Ctrl-C 或 SIGTERM 停掉应用、Vite 和 tifa dev。Vite 的构建或插件一直不结束时，最多再等 5 秒就停掉 Vite。tifa dev 自己被强行杀掉时，Vite 也会在这 5 秒内自行退出。
+启动后先打印 `tifa dev: serving http://<地址>`，然后做一次完整构建（步骤同 [tifa build](build.zh-CN.md)，应用的第一次构建要几秒到一分钟，见[日志](#日志)），启动应用。浏览器只连 `--addr`。tifa dev 把页面和数据请求转给应用，把 `/__tifa/vite/` 下的请求（浏览器模块和 Vite 的 HMR websocket）转给 Vite 的开发服务器。应用重启或换 SSR 包期间，页面请求会等它。Ctrl-C、SIGTERM 和 SIGHUP（终端关闭时会发出）停掉应用、Vite 和 tifa dev。用 `nohup` 启动的 tifa dev 会忽略 SIGHUP。Vite 的构建或插件一直不结束时，最多再等 5 秒就停掉 Vite。tifa dev 自己被强行杀掉时，应用和 Vite 也会自行退出：应用像收到 SIGTERM 一样关停，Vite 在这 5 秒内退出。tifa dev 只把点名要给应用和 Vite 的文件交给它们，自己继承来的文件（比如脚本用 `flock` 持有的锁）不会传下去。
 
 tifa dev 暂不支持 Windows，请用 WSL。
 
@@ -41,7 +41,7 @@ tifa dev 监视应用根目录，跳过 `.git`、`.tifa`、`node_modules` 和放
 
 - 前端改动经 Vite 送到打开着的页面：React Fast Refresh 换掉改过的组件并保留它们的状态，新 CSS 替换旧的。模块换不了时（比如除了组件还导出了别的东西），Vite 自己刷新页面。改 `vite.config.ts` 会让 Vite 重启开发服务器，改 `tsconfig.json` 会刷新页面。改了 `paths` 里的某一项后，Vite 开发服务器可能仍导入旧的目标，直到 tifa dev 重启。
 - 同时 tifa dev 重建 SSR 包（不做 go build），运行中的应用从 `.tifa/dist` 读入新包，换掉旧包。应用不重启：`OnStart` 不会再跑，应用放在内存里的东西都还在。重建要产出新 SSR 包时，这期间到达的页面请求会等新包换上（最多等 30 秒），所以刷新看到的是新的服务端渲染。Vite 开发服务器重启期间要构建的 SSR 包会等重启完成，如果重启让这次构建失败，就在新的服务器上再构建一次。从重建开始就等（补做上次失败留下的打包时也一样），Go 改动则从静态分析发现路由清单变了那一刻开始等，早于生成代码。
-- 开发用的程序调用 `server.DevMain` 而不是 `server.Main`。只有它响应 tifa dev 发来的 `POST /__tifa/dev/reload`，读包用的是和启动时同一段代码。`tifa build` 生成的程序调用 `server.Main`，没有这个路径。
+- 开发用的程序调用 `server.DevMain` 而不是 `server.Main`。只有它响应 tifa dev 发来的 `POST /__tifa/dev/reload`，读包用的是和启动时同一段代码。也只有它在 tifa dev 结束时跟着停止：它读 tifa dev 用 `--lifeline-fd` 传来的管道。`tifa build` 生成的程序调用 `server.Main`，没有这个路径，也没有这个开关。
 - 路由清单有没有变，看的是静态分析后生成的 `.tifa/` 内容。只改函数体时生成内容不变，跳过生成和打包。
 - 应用根目录以外、被 Vite 开发服务器加载的文件（比如工作区里另一个包的源码，或用 `?raw` 导入的文本文件）由 Vite 监视，不归 tifa dev。它变了时，不论是哪种文件，tifa dev 都会重建 SSR 包，和应用里的前端文件一样，日志里用从应用根目录出发的路径列出它。Vite 开发服务器重启期间这样的文件也可能变，这时旧的监视和新的监视都看不到。所以开发服务器的重启每次结束后（重叠的几次重启算一次），不管是谁发起的、成没成功，tifa dev 都重建一次 SSR 包，日志里写 `Vite's dev server restarted`。新的监视接着盯旧的监视盯过的根目录以外的文件。
 - Vite 重启开发服务器时不会等新的文件监视读完应用根目录，而监视还没读到的文件没有起点，在那之前的修改永远看不到，开发服务器已经给出的模块会一直是旧的，直到这个文件再次改动。所以重启之后，开发服务器要等监视读完文件才回应请求，应用越大等得越久。
