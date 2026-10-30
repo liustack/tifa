@@ -21,6 +21,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/liustack/tifa/internal/testproc"
 )
 
 // devApp copies test/apps/pages into a temporary directory that tifa dev may edit.
@@ -96,7 +98,7 @@ func startDev(t *testing.T, dir string) *devRun {
 	}
 	cmd.Stdout = d.log
 	cmd.Stderr = d.log
-	if err := cmd.Start(); err != nil {
+	if err := testproc.Start(cmd); err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)

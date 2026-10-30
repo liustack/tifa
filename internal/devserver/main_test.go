@@ -47,6 +47,15 @@ func TestMain(m *testing.M) {
 }
 
 func fakeApp() error {
+	// The app ends when the test process that started it is gone, however it died: a test killed
+	// or timed out runs no cleanup, and the app would serve for ever.
+	parent := os.Getppid()
+	go func() {
+		for os.Getppid() == parent {
+			time.Sleep(200 * time.Millisecond)
+		}
+		os.Exit(1)
+	}()
 	if os.Getenv("TIFA_FAKE_APP_DETACHED_CHILD") != "" {
 		if err := startDetachedChild(); err != nil {
 			return err
