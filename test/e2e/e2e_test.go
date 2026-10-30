@@ -22,6 +22,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/liustack/tifa/internal/testproc"
 )
 
 var (
@@ -257,7 +259,7 @@ func start(t *testing.T, exe string, args ...string) (base string, cmd *exec.Cmd
 		t.Fatal(err)
 	}
 	cmd.Stdout, cmd.Stderr = w, w
-	err = cmd.Start()
+	err = testproc.Start(cmd)
 	w.Close()
 	if err != nil {
 		r.Close()
