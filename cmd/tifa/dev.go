@@ -60,6 +60,10 @@ build keeps the running app and shows the error in the page.`,
 				return err
 			}
 			logger := log.New(cmd.ErrOrStderr(), "tifa dev: ", log.Ltime)
+			// The app and the driver of Vite get only the files tifa dev names for them.
+			if err := closeInheritedOnExec(); err != nil {
+				logger.Printf("the app and Vite may inherit the files tifa dev inherited: %v", err)
+			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), stopSignals()...)
 			defer stop()
 			// The driver reports changes outside the root and restarts of Vite's dev server from

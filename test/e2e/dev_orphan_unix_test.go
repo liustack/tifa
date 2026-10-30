@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -252,5 +253,36 @@ func TestDevLeavesNothingBehind(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// What tifa dev inherited from the program that started it, such as the lock of a script that
+// runs it under flock, stays with tifa dev. The app and the driver of Vite would keep the lock
+// after tifa dev is gone.
+func TestDevKeepsInheritedFilesOutOfItsChildren(t *testing.T) {
+	skipUnlessEnabled(t)
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockPath := filepath.Join(dir, "lock")
+	lock, err := os.Create(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	// Descriptor 6: tifa dev starts the app with none, and the driver with 3 for its answers.
+	d := startDevWith(t, devApp(t), []*os.File{nil, nil, nil, lock})
+	d.waitLog(t, 0, ready)
+	expectBody(t, d.base+"/", "North shop")
+	app, driver, _ := childrenOf(t, d)
+
+	if !slices.Contains(lsof(t, d.cmd.Process.Pid), lockPath) {
+		t.Fatalf("tifa dev does not hold the lock file %s, the test inherits nothing", lockPath)
+	}
+	for _, p := range []process{app, driver} {
+		if slices.Contains(lsof(t, p.pid), lockPath) {
+			t.Errorf("%v holds the lock file that tifa dev inherited", p)
+		}
 	}
 }

@@ -87,10 +87,15 @@ type devStatus struct {
 var serving = regexp.MustCompile(`tifa dev: serving (http://\S+)`)
 
 // startDev runs tifa dev on dir and follows its SSE events.
-func startDev(t *testing.T, dir string) *devRun {
+func startDev(t *testing.T, dir string) *devRun { return startDevWith(t, dir, nil) }
+
+// startDevWith is startDev for a tifa dev that inherits extra as its file descriptors 3 and up.
+// A nil file leaves its descriptor closed.
+func startDevWith(t *testing.T, dir string, extra []*os.File) *devRun {
 	t.Helper()
 	d := &devRun{dir: dir, log: &lockedBuffer{}, statuses: make(chan devStatus, 100), exited: make(chan error, 1)}
 	cmd := exec.Command(cli(t), "dev", "--dir", dir, "--addr", "127.0.0.1:0")
+	cmd.ExtraFiles = extra
 	d.cmd = cmd
 	// The app rejects unknown TIFA_* variables as settings, TIFA_E2E among them.
 	for _, kv := range os.Environ() {
