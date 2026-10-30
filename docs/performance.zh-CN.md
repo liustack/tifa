@@ -464,6 +464,13 @@ tifa c729ad2 加 slowjs v0.28.6、它的 Go 汇编解释器和 PGO，渲染这�
 - **用 Go 实现 `TextEncoder`、`URL` 等兼容代码**：渲染时几乎不调用它们，渲染时间没有可省的。
 - **在 arm64 上去掉保存字节码位置的那条写入**：它看起来最多占解释器自身时间的 11.6%，其实是采样器把等下一个 opcode 的时间记在了它头上。这条写入是 Go 把局部变量 `pc` 存到栈上，留给之后要读回它的调用，正好在每个 opcode 都走的路径上。只调整指令顺序，采样就从它移到读 opcode 的那条指令上（8.8% 降到 0.4%），指令数、周期数和渲染时间都不变。
 
+评估过但没做的引擎办法：
+
+- **用纯 Go 写 JIT**，把热函数的字节码变成机器码。在 shop 的页面上数过，机器码每次渲染要调回引擎 3.9 万到 13.7 万次（每 1000 个 opcode 约 100 次）。每次调出比今天的 Go 调用多花 3.7 到 14 ns（AMD EPYC，Apple M4 上是 1.5 到 2 ns），吃回渲染时间的 1.6% 到 5.8%。净收益估计是快 1.11 到 1.30 倍，约 1.2 倍，要做 3 到 6 个月，而且前提是机器码能省掉解释器自身时间的 40% 到 60%，这个数没人测过。2026-10-21 的纯 Go 引擎对比里，go-quickjs 开 JIT 比它自己的解释器慢（一次 React 渲染 19.0 ms 对 14.9 ms），jsc2go（14.1 对 20.0）和 goant（28.0 对 34.1）则更快。没开始做。除非找到和 jsc2go、goant、go-quickjs 都不一样的做法，否则不再提。
+- **融合字节码**（超指令）：40 个融合的二连、三连能少掉 19% 的分发（MUI 页面 31%，工作台页面 5%），按模型估计少 1.3% 到 2.2% 的指令。真做出来的那一个融合对子和对照组一样快，但它太小，数不出指令数，所以这次测试什么也证明不了。先搁下，等算术快路径做完，再数着指令数重做。
+- **用闭包分发 opcode，以及在解释器里不递归地从 JavaScript 调 JavaScript**：go-quickjs 两项都测过。闭包分发被它否掉了，不递归的调用让它慢了 3.7% 到 5%。
+- **从 VM 里去掉一部分内建对象**：裸 context 里全部内建对象约占 67 KB 和 0.14 ms（在 quickjs v0.26.16 上测的），最大的一组带类型数组只有 12.6 KB 和 34 µs，内存和启动时间都没有可省的。去掉 Atomics 的 `wait` 和 `notify`、`SharedArrayBuffer`、`HTMLDDA` 或模块，各省几 KB 到 100 KB，test262 会失败，每次跟上游同步还要多费功夫。页面用到的语言特性比看上去多：`Proxy`（i18next、immer、zod、TanStack Query）、`BigInt` 和 `new Function`（zod）、带类型数组、生成器、async 函数和 `\p{}` 正则。
+
 ### 构建
 
 - **把静态 JSX 提到组件外**，像 Babel 的 transform-react-constant-elements：shop 的页面每次少建 44 到 83 个元素，渲染只快 0.5% 到 0.9%，几乎全静态的页面快 5.4%。每少建一个元素约省 0.8 µs，时间主要花在 React 遍历和拼字符串上。它管不到 `node_modules` 里库的 JSX，要么得装 Babel，要么得自己写一个转换。提上去的元素被一个 VM 的所有请求共用，某个库要是改了它，改动会带到下一个请求。
@@ -491,6 +498,7 @@ tifa c729ad2 加 slowjs v0.28.6、它的 Go 汇编解释器和 PGO，渲染这�
 - **`onError` 没收到错误时，跳过对交给浏览器的 Suspense 边界的查找**：运行时每次渲染后在整页 HTML 里找 `<!--$!-->`，约占商店渲染的 1%，MUI 页面的 0.4%，跳过后商店耗时为原来的 0.987，MUI 页面为 0.995。但在 React 19.3 里，组件调用 `use(browser())` 时，边界交给了浏览器却不调 `onError`：`renderToString` 把它报给一个自己不接收的 `onBrowserBailout` 选项。所以查找留着，把它变快是引擎的事。
 - **zstd 最快级别和 brotli**：用 gzhttp 默认的 zstd 最快级别，一页只要 82 到 138 µs，但页面比 gzip 大 3% 到 11%。brotli 用纯 Go 的 github.com/andybalholm/brotli，4 级和 5 级耗时是 gzip 的 4 到 6 倍，页面只小 3% 到 16%。构建时压缩的文件，zstd 和 brotli 用最高级别，比 gzip 最高级别小 5% 和 14%。tifa 压缩页面用 gzip 5 级和 zstd 默认级别，和 Caddy、Traefik 一样，构建写 gzip 文件。
 - **用 React 的流式渲染器渲染，让页面等懒加载组件**：`react-dom/static` 的 `prerender` 和等到 `allReady` 的 `renderToReadableStream` 给出同样的 HTML，但在 tifa 6e062d6 上商店慢到 8.7 到 8.8 倍，MUI 页面慢到 4.2 倍，每个 VM 最多多占 1.7 MiB。先用 `renderToString` 渲染，只在它把边界交给浏览器时再用流式渲染器渲染一次，普通页面一样快，但这些页面要渲染两遍。tifa 改用 `prerenderToString`：插件给 React DOM 加的字符串渲染，会等 VM 的任务能完成的事。在 GCP 机器上不开 PGO，3 种布局各 6 轮，商店耗时为 `renderToString` 的 0.995，MUI 页面为 1.001，HTML 一样，每个 VM 大约多 20 到 40 KiB。
+- **内置 TanStack Query**：tifa 只给页面路由器自带的缓存，想用 Query 的应用仍可在浏览器里自己用。在早期原型的订单页上，官方的 `@tanstack/react-router-ssr-query` 让渲染慢 12.1% 到 12.9%（P50，3 轮）。它还要在每个 VM 里补 `ReadableStream`，在浏览器里留下两个全局变量，让 SSR 包大 27%。手写的 Query 自带 `dehydrate()` 慢 8.1% 到 8.3%，只传 `[key, data, updatedAt]` 慢 4.0% 到 4.3%。每个路由一个 loader 量不出代价（在 0.3% 以内）。
 
 ## 怎么复测
 
