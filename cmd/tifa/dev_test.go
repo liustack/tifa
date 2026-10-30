@@ -89,7 +89,9 @@ func TestDevListensOnTheDefaultAddr(t *testing.T) {
 // back on.
 func TestDevStopSignals(t *testing.T) {
 	was := signal.Ignored(syscall.SIGHUP)
+	sink := make(chan os.Signal, 1)
 	t.Cleanup(func() {
+		signal.Stop(sink)
 		if was {
 			signal.Ignore(syscall.SIGHUP)
 		} else {
@@ -105,10 +107,12 @@ func TestDevStopSignals(t *testing.T) {
 		{"nohup", true, []os.Signal{os.Interrupt, syscall.SIGTERM}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			// Reset would leave SIGHUP ignored when this test run was started under nohup, and
+			// asking for the signal turns it on whatever it was.
 			if tc.ignored {
 				signal.Ignore(syscall.SIGHUP)
 			} else {
-				signal.Reset(syscall.SIGHUP)
+				signal.Notify(sink, syscall.SIGHUP)
 			}
 			if got := stopSignals(); !slices.Equal(got, tc.want) {
 				t.Fatalf("stopSignals() = %v, want %v", got, tc.want)
