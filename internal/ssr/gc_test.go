@@ -148,12 +148,13 @@ func TestLoadCollects(t *testing.T) {
 	}
 	defer vm.Close()
 	loaded := vm.MemorySize()
+	// Read before the GC below, which sets a threshold of its own.
+	if got := vm.GCThreshold(); got != 2*loaded {
+		t.Fatalf("GC threshold %d after Load, want twice the live size %d", got, loaded)
+	}
 	vm.RunGC()
 	if got := vm.MemorySize(); got != loaded {
 		t.Fatalf("a GC after Load freed %d bytes", loaded-got)
-	}
-	if got := vm.GCThreshold(); got != 2*loaded {
-		t.Fatalf("GC threshold %d after Load, want twice the live size %d", got, loaded)
 	}
 }
 
