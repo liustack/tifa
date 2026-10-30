@@ -9,7 +9,9 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -200,6 +202,11 @@ func TestDevLeavesNothingBehind(t *testing.T) {
 		{"SIGKILL", syscall.SIGKILL, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			// A test run under nohup ignores SIGHUP, and tifa dev inherits that and keeps ignoring
+			// it. On macOS testproc.Start gives it the default back.
+			if tc.sig == syscall.SIGHUP && signal.Ignored(syscall.SIGHUP) && runtime.GOOS != "darwin" {
+				t.Skip("SIGHUP is ignored in this test run, as under nohup, and tifa dev inherits that")
+			}
 			d := startDev(t, devApp(t))
 			d.waitLog(t, 0, ready)
 			expectBody(t, d.base+"/", "North shop")
