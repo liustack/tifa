@@ -6,6 +6,7 @@
 
 ### 变更
 
+- 服务端渲染改用 slowjs v0.29.4，HTML 不变。调用 C 写的内置函数少走解释器的一步，字面量对象的属性放进对象自己的块里：一次渲染少 0.1% 到 2.3% 的指令，渲染后每个 VM 少占 1% 到 2.4% 的内存。递归能到的深度和以前完全一样。
 - 服务端渲染改用 slowjs v0.29.3，HTML 不变。页面卡在一次很长的调用里时，渲染超时（`ssr.timeout`）现在几次轮询之内就能让它停下，包括：遍历字符串、数组、Map 或 Set 而每项不调用别的函数（`Object.fromEntries`、展开 Set、`Iterator.prototype.toArray`、`Set` 的各个方法），用字符串做模式的 `replace` 或 `replaceAll`，切出一百万字符以上的 `slice`、`substring`、`trim` 或 `split`，以及键有几百万字符的 Map 或 Set 操作。以前这样的调用要跑到结束，或跑到 VM 被强制终止。
 - 服务端渲染改用 slowjs v0.29.2，HTML 不变。页面卡在一次很长的 `split`、`padStart`、`padEnd`、`trim`、`isWellFormed`、`toWellFormed`、`encodeURI`、`decodeURI` 一类调用、`Array.from` 或类型化数组构造里，或在拼接、比较用 `+` 拼出的长字符串时，渲染超时（`ssr.timeout`）现在几千个字符或元素之内就能让它停下，以前要跑到这次调用结束。对象展开（`{...o}`）、解构的剩余部分和 `Object.assign` 和 Node 一样，轮到每个键时再查一次：前面的 getter 删掉后面的键或把它改成不可枚举，这个键不再被复制，把后面的键改成可枚举，这个键会被复制。
 - 服务端渲染改用 slowjs v0.29 的 C 引擎，它是唯一的引擎：用 C 写的 QuickJS，编译成随模块发布的 Go 汇编。构建不需要 C 编译器，`CGO_ENABLED=0` 照旧。页面渲染出的 HTML 一样，用的时间更少（见下面的性能）。应用能看到的变化：
