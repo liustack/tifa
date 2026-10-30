@@ -77,9 +77,9 @@ How B1 could keep hydration: touch only tags that go through `pushStartGenericEl
 | B2, PR 37022 | Measured: about 1% slower. See [React PR 37022 and React Compiler](react-layer.md) |
 | B4, Compiler SSR mode | Measured: no change, and it can change HTML. Same study |
 | B3, namespaces of plain values | Done: a rewrite of the Vite plugin, 0.3% to 3.1% on the shop, see [Performance](../performance.md#build) |
-| B1, static start tags | Open, the next build-side candidate |
-| E1, inlining by hand | Open |
-| E2, upstream commits | Waits for the next engine sync |
+| B1, static start tags | Built and dropped: only the two bench pages made for it gained (7% to 8%), the shop and MUI pages did not change and the bundle grew 4.9%. See [Performance](../performance.md#build-1) |
+| E1, inlining by hand | Moot: slowjs v0.29 replaced the translated engine this applied to |
+| E2, upstream commits | Moot for the same reason. The C engine takes upstream changes directly |
 | E3 to E9, B6 to B9 | Not done, for the reasons in the tables |
 
 ## Not found, or uncertain
@@ -88,3 +88,14 @@ How B1 could keep hydration: touch only tags that go through `pushStartGenericEl
 - No same-conditions numbers for `switch` against closures or tables in any Go interpreter. goja calls an interface method per instruction, gopher-lua uses a table, yaegi closures, and wazero's interpreter, Starlark and expr a big `switch`.
 - No public numbers for React Compiler's SSR mode, PGO inline tuning or the Zen 3 jump table issue on interpreters.
 - The estimates for B1, B3 and E1 come from profile shares. `fib` ran three times, unpinned, with other work on the Mac. The near 2 times gap is larger than that noise.
+
+## Looked at later
+
+Four more sources, read after the survey above. None changed the plan.
+
+| Source | Read | What it does | Fits tifa |
+| --- | --- | --- | --- |
+| Astro (main `c75e897`, `@astrojs/react` 7.1.0) | 2026-10-17 | Keeps server cost low by using less React: `.astro` templates compile to strings and React components are islands, rendered one by one, or only in the browser with `client:only`. It does not patch React, and pins only the major version of React (17, 18, 19) because it uses only the public API of `react-dom/server`. | No. Nothing compiles React components to strings, and `client:only` is what `clientOnly` in tifa already does. tifa pins TanStack Router because it uses an option that is not public (`serializationAdapters`), not for the same reason |
+| scriptc (Vercel Labs, v0.3.5) | 2026-10-17 | Compiles typed TypeScript to native programs through LLVM, with no JavaScript engine. No JSX, no untyped JavaScript, and no published speed numbers. Users report code 2 to 77 times slower than Node | No. React is untyped JavaScript, and a native program would need cgo or a separate process |
+| goc (`LoyieKing/goc`, `8482979`) | 2026-10-22 | Compiles a C program through a patched Clang 19 and LLVM into Go objects. Works for chosen programs, but full Go GC support for Go heap pointers, general concurrency and `go get` delivery are missing | Not as a library. Building needs the patched LLVM toolchain |
+| jsc2go, goant and go-quickjs | 2026-10-21 | Fast mainly through a JIT and Go's GC memory model: copying a value needs no reference count, and caches are safe from reused addresses | Both are against tifa's design or months of work. Their interpreter-level ideas give about 1% each. On tifa's own page renders go-quickjs used 3% (bench pages) to 15% (shop pages) more CPU than the quickjs fork of that day and failed two pages. Its regular expressions are 4.3 times faster on the engine's benchmark, but 82% of that is `split`, which 20 pages call 238 times. Regular expressions are 2.9% of a render and JSON 0.6%, so matching its best case gains 0.6% and 0.2% |
