@@ -685,14 +685,10 @@ func TestSSRLeavesComponentNamesOutOfKeyPaths(t *testing.T) {
 	}
 }
 
-// formActionPage renders four forms with useActionState and an action that has $$FORM_ACTION, as
-// a server action has, each in a place of its own, and gives the hidden fields that React writes
-// into them. The action is made by hand, since tifa has no server actions.
-const formActionPage = "import './host'\n" +
-	"import './marker'\n" +
-	"import { renderToString } from 'react-dom/server.edge'\n" +
-	"import { Fragment, useActionState } from 'react'\n" +
-	"function makeAction() {\n" +
+// formActionModule makes an action with $$FORM_ACTION, as a server action has, by hand, since tifa
+// has no server actions. Its bound action gives a form a field that React fills with the key of the
+// state of useActionState.
+const formActionModule = "export function makeAction() {\n" +
 	"  const action: any = (n: number) => n + 1\n" +
 	"  action.$$FORM_ACTION = () => ({})\n" +
 	"  action.bind = (self: unknown, state: number) => {\n" +
@@ -704,7 +700,17 @@ const formActionPage = "import './host'\n" +
 	"    return bound\n" +
 	"  }\n" +
 	"  return action\n" +
-	"}\n" +
+	"}\n"
+
+// plainActionModule makes the actions of an application without server actions.
+const plainActionModule = "export function makeAction() {\n  return (n: number) => n + 1\n}\n"
+
+// formActionPage renders four forms with useActionState and an action that has $$FORM_ACTION,
+// each in a place of its own, and gives the hidden fields that React writes into them.
+const formActionPage = "import './host'\n" +
+	"import { renderToString } from 'react-dom/server.edge'\n" +
+	"import { Fragment, useActionState } from 'react'\n" +
+	"import { makeAction } from './action'\n" +
 	"function Counter() {\n" +
 	"  const [count, increment] = useActionState(makeAction(), 0)\n" +
 	"  return <form action={increment}><output>{count}</output></form>\n" +
@@ -714,9 +720,37 @@ const formActionPage = "import './host'\n" +
 	"}\n" +
 	"globalThis.result = renderToString(<Page />)\n"
 
+// suspensePage renders boundaries whose content suspends, one that throws, and one inside another,
+// with forms that useActionState makes in their fallbacks, each in a place of its own. Their
+// key paths are the ones React makes for a fallback.
+const suspensePage = "import './host'\n" +
+	"import { renderToString } from 'react-dom/server.edge'\n" +
+	"import { Suspense, use, useActionState } from 'react'\n" +
+	"import { makeAction } from './action'\n" +
+	"const never = new Promise(() => {})\n" +
+	"function Suspends() {\n  use(never)\n  return null\n}\n" +
+	"function Throws(): null {\n  throw new Error('boom')\n}\n" +
+	"function Counter({ tag }: { tag: string }) {\n" +
+	"  const [count, increment] = useActionState(makeAction(), 0)\n" +
+	"  const [other, bump] = useActionState(makeAction(), 5)\n" +
+	"  return <form action={increment}><output>{tag}{count}{other}</output><button formAction={bump}>+</button></form>\n" +
+	"}\n" +
+	"function Page() {\n" +
+	"  return <main>\n" +
+	"    <Suspense fallback={<section><Counter tag=\"a\" /><div><Counter tag=\"b\" /></div></section>}><Suspends /></Suspense>\n" +
+	"    <Suspense fallback={<aside><Counter tag=\"c\" /><Counter tag=\"d\" /></aside>}><Throws /></Suspense>\n" +
+	"    <Suspense fallback={<Counter tag=\"e\" />}><Suspense fallback={<Counter tag=\"f\" />}><Suspends /></Suspense></Suspense>\n" +
+	"  </main>\n" +
+	"}\n" +
+	"globalThis.result = renderToString(<Page />)\n"
+
 // keyPathCondition finds the key path that React makes for an element in a minified bundle when
 // the bundle makes it only if a variable says so.
 var keyPathCondition = regexp.MustCompile(`[\w$]+\?\[[\w$]+\.keyPath,[\w$]+,[\w$]+\]:null`)
+
+// unreviewedKeyPaths is what the build prints for a string renderer whose text the plugin has not
+// read for its key paths.
+const unreviewedKeyPaths = "is not a file of React DOM whose key paths the tifa plugin has read"
 
 // React makes a key path for each element it renders, which only useActionState with a server
 // action and the fallback of a Suspense boundary read. The tifa plugin makes them only when a
@@ -736,16 +770,17 @@ func TestSSRMakesKeyPathsOnlyForServerActions(t *testing.T) {
 	}
 	without := evalResult(t, code)
 
-	// A module with $$FORM_ACTION in its code makes the bundle make its key paths.
+	// A module of the application that makes an action with $$FORM_ACTION makes the bundle make
+	// its key paths, with no other help.
 	writeTree(t, root, map[string]string{
-		"keys.tsx":  "import './marker'\n" + keyPathsPage,
-		"marker.ts": "export const marker = 'has $$FORM_ACTION in a string'\n",
+		"keys.tsx":  "import './action'\n" + keyPathsPage,
+		"action.ts": formActionModule,
 	})
 	code, printed = buildPrinting(t, root, "keys.tsx")
-	if !strings.Contains(code, "globalThis.tifaFormActions = true") {
-		t.Error("the bundle of a module with $$FORM_ACTION does not set tifaFormActions")
+	if !strings.HasPrefix(code, "globalThis.tifaFormActions = true;\n") {
+		t.Errorf("the bundle of a module with $$FORM_ACTION does not start by setting tifaFormActions:\n%.80s", code)
 	}
-	if !strings.Contains(printed, "marker.ts: has $$FORM_ACTION in its code") {
+	if !strings.Contains(printed, "action.ts: has $$FORM_ACTION in its code") {
 		t.Errorf("the build prints:\n%s", printed)
 	}
 	if got := evalResult(t, code); got != without {
@@ -758,10 +793,7 @@ func TestSSRMakesKeyPathsOnlyForServerActions(t *testing.T) {
 // element, but for the names of the components.
 func TestSSRKeyOfAServerActionKeepsItsKeyPath(t *testing.T) {
 	root := copyTestdata(t, "ssr", true)
-	writeTree(t, root, map[string]string{
-		"actions.tsx": formActionPage,
-		"marker.ts":   "export const marker = 'has $$FORM_ACTION in a string'\n",
-	})
+	writeTree(t, root, map[string]string{"actions.tsx": formActionPage, "action.ts": formActionModule})
 	code, _ := buildPrinting(t, root, "actions.tsx")
 	var keys []string
 	for _, m := range regexp.MustCompile(`name="\$ACTION_KEY" value="(k\d+)"`).FindAllStringSubmatch(evalResult(t, code), -1) {
@@ -770,6 +802,88 @@ func TestSSRKeyOfAServerActionKeepsItsKeyPath(t *testing.T) {
 	want := []string{"k2365358841", "k1132176831", "k4141456957", "k2692355043"}
 	if !slices.Equal(keys, want) {
 		t.Errorf("the keys are %v, want %v", keys, want)
+	}
+}
+
+// The plugin makes no key path only in a string renderer whose text it has read to the end: with
+// one byte of the file changed, the build prints a warning and React makes its key paths, as it
+// does with the names left out, and pages render the same.
+func TestSSRKeepsKeyPathsOfAnUnreviewedRenderer(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"keys.tsx": keyPathsPage})
+	code, _ := buildPrinting(t, root, "keys.tsx")
+	reviewed := evalResult(t, code)
+	for name, change := range map[string]func(string) string{
+		"a space at the end": func(s string) string { return s + " " },
+		"a byte of the version": func(s string) string {
+			return strings.Replace(s, `exports.version = "19.3.0"`, `exports.version = "19.3.9"`, 1)
+		},
+		"a byte of a comment": func(s string) string { return "/**/" + s },
+	} {
+		changed := withChangedReactDOM(t, change)
+		writeTree(t, changed, map[string]string{"keys.tsx": keyPathsPage})
+		code, printed := buildPrinting(t, changed, "keys.tsx")
+		if keyPathCondition.MatchString(code) {
+			t.Errorf("%s: the bundle leaves key paths out of a renderer the plugin has not read", name)
+		}
+		if !strings.Contains(printed, unreviewedKeyPaths) || !strings.Contains(printed, "does not leave out the key paths of the elements") {
+			t.Errorf("%s: the build prints:\n%s", name, printed)
+		}
+		if got := evalResult(t, code); got != reviewed {
+			t.Errorf("%s: the page renders otherwise:\n%s\nwant:\n%s", name, got, reviewed)
+		}
+	}
+}
+
+// Boundaries whose content suspends or throws, with several useActionState in their fallbacks, give
+// the same HTML with the key paths left out as with all of them, both with plain actions (the
+// bundle makes none) and with actions that have $$FORM_ACTION (it makes them all, and each key is
+// what it was).
+func TestSSRSuspenseFallbacksRenderTheSameWithoutKeyPaths(t *testing.T) {
+	unreviewed := func(s string) string { return s + " " }
+	for _, c := range []struct {
+		name, module string
+		flagged      bool
+	}{
+		{"plain actions", plainActionModule, false},
+		{"actions with $$FORM_ACTION", formActionModule, true},
+	} {
+		files := map[string]string{"suspense.tsx": suspensePage, "action.ts": c.module}
+		root := copyTestdata(t, "ssr", true)
+		writeTree(t, root, files)
+		code, _ := buildPrinting(t, root, "suspense.tsx")
+		if got := strings.HasPrefix(code, "globalThis.tifaFormActions = true;\n"); got != c.flagged {
+			t.Errorf("%s: the bundle sets tifaFormActions: %v, want %v", c.name, got, c.flagged)
+		}
+		if got := keyPathCondition.MatchString(code); !got {
+			t.Errorf("%s: the bundle has no conditional key path", c.name)
+		}
+		html := evalResult(t, code)
+		if !strings.Contains(html, "<output>a") || !strings.Contains(html, "<output>c") || !strings.Contains(html, "<output>f") {
+			t.Errorf("%s: the page has no fallbacks:\n%s", c.name, html)
+		}
+		forms := regexp.MustCompile(`name="\$ACTION_KEY" value="(k\d+)"`).FindAllStringSubmatch(html, -1)
+		if c.flagged {
+			seen := map[string]bool{}
+			for _, m := range forms {
+				seen[m[1]] = true
+			}
+			if len(forms) < 4 || len(seen) != len(forms) {
+				t.Errorf("%s: %d keys, %d of them different", c.name, len(forms), len(seen))
+			}
+		} else if len(forms) != 0 {
+			t.Errorf("%s: plain actions write %d keys", c.name, len(forms))
+		}
+		// The renderer as the plugin knew it before: every key path made.
+		changed := withChangedReactDOM(t, unreviewed)
+		writeTree(t, changed, files)
+		oldCode, _ := buildPrinting(t, changed, "suspense.tsx")
+		if keyPathCondition.MatchString(oldCode) {
+			t.Errorf("%s: the bundle of the unreviewed renderer has a conditional key path", c.name)
+		}
+		if old := evalResult(t, oldCode); old != html {
+			t.Errorf("%s: the page renders otherwise without key paths:\n%s\nwant:\n%s", c.name, html, old)
+		}
 	}
 }
 
@@ -909,7 +1023,8 @@ func TestSSRGuardsTheSwitchesAfterTheOtherChanges(t *testing.T) {
 	if got := len(guardedSwitch.FindAllString(code, -1)); got != len(switches)+1 {
 		t.Errorf("the bundle has %d switches with a Set check, want %d", got, len(switches)+1)
 	}
-	if printed != "" {
+	// The renderer is changed, so the plugin warns that it has not read its key paths.
+	if rest := strings.ReplaceAll(printed, unreviewedWarning(printed), ""); strings.TrimSpace(rest) != "" || !strings.Contains(printed, unreviewedKeyPaths) {
 		t.Errorf("the build prints:\n%s", printed)
 	}
 	if got := evalResult(t, code); !strings.HasSuffix(got, "\n1") {
@@ -1926,4 +2041,16 @@ func TestSSRWarnsOfManyRequiresInTime(t *testing.T) {
 	if elapsed > 3*time.Second {
 		t.Errorf("the build took %s", elapsed)
 	}
+}
+
+// unreviewedWarning returns the lines of printed about a string renderer whose key paths the plugin
+// has not read.
+func unreviewedWarning(printed string) string {
+	var lines []string
+	for _, l := range strings.Split(printed, "\n") {
+		if strings.Contains(l, unreviewedKeyPaths) {
+			lines = append(lines, l)
+		}
+	}
+	return strings.Join(lines, "\n")
 }

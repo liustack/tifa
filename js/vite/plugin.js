@@ -761,6 +761,15 @@ const keyPathMakers = [
 // a page never run in renderToString, and the others are those of useActionState and of a
 // Suspense fallback.
 const keyPathUses = '11 0 2'
+// The files of React's string renderer, by the SHA-256 of their text, for which the uses of key
+// paths were read to the end, every read of a key path in its code and whether it can run in
+// renderToString. The counts of keyPathUses cannot tell a read of a key path that is new, such as
+// its length, or one through another name, so the plugin makes no key path only in these files.
+// React DOM 19.3.1 differs from 19.3.0 in the line of its version alone.
+const reviewedRenderers = new Map([
+  ['5528f58d28f5e035dccbf0ebec7e593ed0b97cebae830b838756c27c100a8caa', 'react-dom 19.3.0'],
+  ['a470866a7a27a7f4fa69ef04e9bfdea0514fc9defdcc48bda43516b9ae2dfadd', 'react-dom 19.3.1'],
+])
 // guardedCases is the fewest string cases a switch needs for the tifa plugin to put a Set check in
 // front of it, and switchCases the prefix of the names of those Sets.
 const guardedCases = 8
@@ -1263,6 +1272,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
       if (reactStringRenderer.test(id)) {
         const react = `react-dom ${packageVersion(path.resolve(id, '..', '..'))}: ${id}`
         let source = fs.readFileSync(id, 'utf8')
+        const reviewed = reviewedRenderers.has(createHash('sha256').update(source).digest('hex'))
         const cached = cacheEscapes(source)
         if (cached) {
           source = cached
@@ -1313,7 +1323,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         if (unnamed) {
           source = unnamed
           namesDropped = true
-          const used = keyPathsUsed(parse(source))
+          const used = reviewed ? keyPathsUsed(parse(source)) : 'is not a file of React DOM whose key paths the tifa plugin has read'
           const unkeyed = !used && dropKeyPaths(source)
           if (unkeyed) {
             source = unkeyed

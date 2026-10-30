@@ -62,7 +62,7 @@
 
 ### 性能
 
-- 只有包里有某个模块的代码带 `$$FORM_ACTION` 时，React 才建叫 key path 的数组，原来它渲染的每个元素都要建一个。页面渲染出的 HTML 一样，shop 工作台页面少执行 1.2% 的指令，店面页面和 MUI 测试应用少 0.7%，bench 应用少 1.8%。`useActionState` 写进带 server action 的表单的键和以前一样（见[构建](docs/build.zh-CN.md#前端产物)）。
+- 只有包里有某个模块的代码带 `$$FORM_ACTION` 时，React 才建叫 key path 的数组，原来它渲染的每个元素都要建一个。页面渲染出的 HTML 一样，shop 工作台页面少执行 1.2% 的指令，店面页面和 MUI 测试应用少 0.7%，bench 应用少 1.8%。这项改动只用于插件读过原文的 React DOM 19.3.0 和 19.3.1 的字符串渲染器，换成别的文件，构建会打印警告，key path 照建。包里有模块的文本含 `$$FORM_ACTION` 时（插件就靠这个判断），`useActionState` 写进带 server action 的表单的键和以前一样。运行时才拼出来的属性名认不出来，这样的键按空 key path 算哈希。tifa 自己没有 server action（见[构建](docs/build.zh-CN.md#前端产物)）。
 - React 的 `createElement` 和 `cloneElement` 把 config 拷进元素 props 的活改在引擎里跑。slowjs 里有做这件事的循环，是一个 C 函数（`RegisterCopyProps`），池里每个 VM 都以 `__tifa_copy_props` 的名字拥有它，构建让这两个函数先问它，再走自己的循环。它只拷循环不可能做出别的结果的 config，其余的（Proxy、有 getter 的、类的实例、数组、超过 32 个键的）仍走 React 的循环。渲染一次，示例应用 shop 的工作台页面少跑 2.9% 的指令，店面页面少 2.1%，MUI 测试应用少 4.1%，HTML 不变。在 linux/amd64 上按 8 个代码位置计时，页面渲染花原来的 0.988、0.989 和 0.980，在各位置的差距之内，所以结论看指令数。没有这个函数的 VM，以及插件不认识的 React，仍走 React 的循环（[build.zh-CN.md](docs/build.zh-CN.md#前端产物)）。它需要带 `RegisterCopyProps` 的 slowjs 版本。
 - 用 react-i18next 翻译的页面渲染更快：每次调用 `useTranslation` 都要做的 i18n 对象副本，在对象只有普通属性时按记下的键列表来做，别的对象仍照原样用描述符做。shop 的店面页面渲染时间是原来的 0.967，执行的指令少 6.0%，HTML 不变。react-i18next 某个版本改了 `createI18nWrapper` 时，构建打印警告，那个函数保持原样（[build.zh-CN.md](docs/build.zh-CN.md#前端产物)）。
 - 用了 shadcn/ui 的 `asChild` 组件的页面渲染略快：`@radix-ui/react-slot` 的 `Slot` 合并 props 时改用循环，按名字的字符码区分事件处理函数，原来每个 prop 都要测一次正则。shop 的工作台页面执行的指令少 0.58%，店面页面少 0.24%，HTML 不变。react-slot 某个版本改了 `mergeProps` 时，构建打印警告，那个函数保持原样（[build.zh-CN.md](docs/build.zh-CN.md#前端产物)）。
