@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -195,6 +196,132 @@ func TestSSRCachesTheEscapesOfReact(t *testing.T) {
 		}
 		if got := evalResult(t, code); got != cached {
 			t.Errorf("%s: the page renders otherwise without the cache", name)
+		}
+	}
+}
+
+// engineEscape makes a VM give a bundle the escape of the engine as the pool of internal/ssr does,
+// under the name __tifa_escape, and count its calls in globalThis.escapeCalls.
+func engineEscape(t *testing.T) func(*slowjs.VM) {
+	return func(vm *slowjs.VM) {
+		t.Helper()
+		if err := vm.RegisterEscapeText("__engine_escape"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := vm.Eval("globalThis.escapeCalls = 0\n"+
+			"globalThis.__tifa_escape = (text) => (globalThis.escapeCalls++, __engine_escape(text))", slowjs.EvalGlobal); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// The tifa plugin makes the escape of React's string renderer the __tifa_escape of the VM when the
+// VM has one. Pages render the same HTML with it, without it (then the cache and replaceAll
+// escape) and in a React DOM the plugin cannot change.
+func TestSSRAsksTheEngineToEscape(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	unknown := withReactDOM(t, "function escapeTextForBrowser(text) {", "function escapeTextForBrowser(text) /* changed */ {")
+	for name, page := range map[string]string{"escapes": escapesPage, "every unit": everyEscapePage} {
+		writeTree(t, root, map[string]string{"escapes.tsx": page})
+		code, printed := buildPrinting(t, root, "escapes.tsx")
+		if strings.Contains(printed, "escape") {
+			t.Errorf("%s: the build prints:\n%s", name, printed)
+		}
+		writeTree(t, unknown, map[string]string{"escapes.tsx": page})
+		unchanged, _ := buildPrinting(t, unknown, "escapes.tsx")
+		want := evalResult(t, unchanged)
+		if got := evalResult(t, code); got != want {
+			t.Errorf("%s: the page renders otherwise without __tifa_escape", name)
+		}
+		if got := evalResultWith(t, code, engineEscape(t)); got != want {
+			t.Errorf("%s: the page renders otherwise with __tifa_escape", name)
+		}
+		calls := evalResultWith(t, code+"\nglobalThis.result = String(globalThis.escapeCalls)", engineEscape(t))
+		if n, err := strconv.Atoi(calls); err != nil || n < 100 {
+			t.Errorf("%s: React DOM called __tifa_escape %q times", name, calls)
+		}
+	}
+}
+
+// React's string renderer that calls escapeTextForBrowser before the module defines it keeps the
+// function it has and does not ask the engine, which would leave the call without a function.
+func TestSSRDoesNotAskTheEngineWhereTheEscapeIsCalledEarly(t *testing.T) {
+	changed := withReactDOM(t, "function getIteratorFn(maybeIterable) {", "var tifaEarly = escapeTextForBrowser(\"<\");\nfunction getIteratorFn(maybeIterable) {")
+	writeTree(t, changed, map[string]string{"escapes.tsx": escapesPage})
+	code, printed := buildPrinting(t, changed, "escapes.tsx")
+	if !strings.Contains(printed, "react-dom 19.3.0: ") || !strings.Contains(printed, "the tifa plugin does not cache the escapes") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	if strings.Contains(code, "__tifa_escape") {
+		t.Error("the bundle asks for __tifa_escape")
+	}
+}
+
+// attributesPage renders every attribute that pushAttribute of React DOM writes through
+// pushStringAttribute or past isAttributeNameSafe, and others beside them, with values of every
+// kind: strings with characters to escape, numbers, booleans, null, undefined, a symbol, functions,
+// an object with its own text and a bigint. A render that throws gives its message. The names of the
+// SVG attributes go on an svg element.
+const attributesPage = "import './host'\n" +
+	"import { renderToString } from 'react-dom/server.edge'\n" +
+	"const names = ['className', 'tabIndex', 'dir', 'role', 'viewBox', 'width', 'height', 'xlinkHref', 'xlinkActuate', 'xlinkArcrole', 'xlinkRole',\n" +
+	"  'xlinkShow', 'xlinkTitle', 'xlinkType', 'xmlBase', 'xmlLang', 'xmlSpace', 'data-x', 'aria-x', 'htmlFor', 'acceptCharset', 'strokeWidth',\n" +
+	"  'foo', 'x:y', 'bad name', '9lives', 'onClick', 'style', 'value', 'href', 'src', 'hidden', 'span', 'download']\n" +
+	"const values: unknown[] = ['text', '', 'a & b < \"c\" d\\'e', 0, 5, -1.5, NaN, true, false, null, undefined, Symbol('s'), () => 1,\n" +
+	"  { toString: () => 'obj<' }, 10n, '\\ud800 lone']\n" +
+	"const out: string[] = []\n" +
+	"for (const name of names) {\n" +
+	"  for (const value of values) {\n" +
+	"    const props = { [name]: value } as any\n" +
+	"    try {\n" +
+	"      out.push(renderToString(<div><svg {...props}><use {...props} /></svg><p {...props} /></div>))\n" +
+	"    } catch (e) {\n" +
+	"      out.push(name + ' ' + String(typeof value) + ' threw ' + (e as Error).message)\n" +
+	"    }\n" +
+	"  }\n" +
+	"}\n" +
+	"globalThis.result = out.join('\\n')\n"
+
+// literalPush finds the push of an attribute whose name is a string, written as one chunk with the
+// name, in a minified bundle.
+var literalPush = regexp.MustCompile("\\w+\\.push\\(` class=\"`,\\w+\\(\\w+\\),`\"`\\)")
+
+// pushAttribute writes className as one chunk and a call of escapeTextForBrowser, without calling
+// pushStringAttribute, and the tifa plugin checks the names of attributes without calling
+// isAttributeNameSafe when it has seen them. Pages render the same as in a React DOM the plugin does
+// not change.
+func TestSSRWritesAttributesWithFewerCalls(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"attributes.tsx": attributesPage})
+	code, printed := buildPrinting(t, root, "attributes.tsx")
+	if !literalPush.MatchString(code) {
+		t.Error("the bundle writes className through pushStringAttribute")
+	}
+	if strings.Contains(printed, "pushStringAttribute") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+	written := evalResult(t, code)
+	for _, want := range []string{"<p class=\"text\">", "<p class=\"a &amp; b &lt; &quot;c&quot; d&#x27;e\">", "<p tabindex=\"5\">", "<svg viewBox=\"text\">", "<p width=\"0\">", "xlink:href=\"text\"", "xml:lang=\"text\"", "<p data-x=\"true\">", "<p aria-x=\"false\">", "<p foo=\"obj&lt;\">"} {
+		if !strings.Contains(written, want) {
+			t.Errorf("the page has no %s", want)
+		}
+	}
+	for name, change := range map[string][2]string{
+		"pushStringAttribute": {"function pushStringAttribute(target, name, value) {", "function pushStringAttribute(target, name, value) /* changed */ {"},
+		"isAttributeNameSafe": {"function isAttributeNameSafe(attributeName) {", "function isAttributeNameSafe(attributeName) /* changed */ {"},
+		"the default branch":  {"if (((name = aliases.get(name) || name), isAttributeNameSafe(name))) {", "if (((name = aliases.get(name) || name), isAttributeNameSafe(name) /* changed */)) {"},
+	} {
+		changed := withReactDOM(t, change[0], change[1])
+		writeTree(t, changed, map[string]string{"attributes.tsx": attributesPage})
+		code, printed := buildPrinting(t, changed, "attributes.tsx")
+		if literalPush.MatchString(code) {
+			t.Errorf("%s: the bundle writes className in one chunk of a React DOM it does not know", name)
+		}
+		if !strings.Contains(printed, "react-dom 19.3.0: ") || !strings.Contains(printed, "the tifa plugin does not write the common attributes") {
+			t.Errorf("%s: the build prints:\n%s", name, printed)
+		}
+		if got := evalResult(t, code); got != written {
+			t.Errorf("%s: the page renders otherwise without the change", name)
 		}
 	}
 }
