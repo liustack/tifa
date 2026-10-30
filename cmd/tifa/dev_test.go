@@ -5,8 +5,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/liustack/tifa/internal/bundle"
@@ -78,5 +81,42 @@ func TestDevAnalyzeIsStable(t *testing.T) {
 func TestDevListensOnTheDefaultAddr(t *testing.T) {
 	if got := newDevCmd().Flags().Lookup("addr").DefValue; got != config.DefaultAddr {
 		t.Fatalf("--addr defaults to %q, want %q", got, config.DefaultAddr)
+	}
+}
+
+// A terminal that closes sends SIGHUP, which stops tifa dev as Ctrl-C does. nohup starts a program
+// with SIGHUP ignored, and then tifa dev keeps ignoring it: asking Go for the signal would turn it
+// back on.
+func TestDevStopSignals(t *testing.T) {
+	was := signal.Ignored(syscall.SIGHUP)
+	sink := make(chan os.Signal, 1)
+	t.Cleanup(func() {
+		signal.Stop(sink)
+		if was {
+			signal.Ignore(syscall.SIGHUP)
+		} else {
+			signal.Reset(syscall.SIGHUP)
+		}
+	})
+	for _, tc := range []struct {
+		name    string
+		ignored bool
+		want    []os.Signal
+	}{
+		{"terminal", false, []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP}},
+		{"nohup", true, []os.Signal{os.Interrupt, syscall.SIGTERM}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Reset would leave SIGHUP ignored when this test run was started under nohup, and
+			// asking for the signal turns it on whatever it was.
+			if tc.ignored {
+				signal.Ignore(syscall.SIGHUP)
+			} else {
+				signal.Notify(sink, syscall.SIGHUP)
+			}
+			if got := stopSignals(); !slices.Equal(got, tc.want) {
+				t.Fatalf("stopSignals() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

@@ -32,7 +32,7 @@ func Main(app App) {
 }
 
 // start runs the command line of app. dev, set only by DevMain, gives the server the handler
-// of the requests tifa dev sends to the app.
+// of the requests tifa dev sends to the app, and the app the flag that ties it to tifa dev.
 func start(app App, dev func(*Server, fs.FS, config.SSR) http.Handler) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -44,7 +44,17 @@ func start(app App, dev func(*Server, fs.FS, config.SSR) http.Handler) {
 
 func run(ctx context.Context, app App, args, environ []string, stdout, stderr io.Writer, dev func(*Server, fs.FS, config.SSR) http.Handler) error {
 	var distDir string
+	lifelineFD := -1 // set by tifa dev, see watchLifeline
 	serve := func(cmd *cobra.Command, _ []string) (err error) {
+		if lifelineFD >= 0 {
+			var stop context.CancelFunc
+			ctx, stop = context.WithCancel(ctx)
+			defer stop()
+			// The same graceful stop as SIGTERM: the app runs OnShutdown and exits.
+			if err := watchLifeline(lifelineFD, stop); err != nil {
+				return err
+			}
+		}
 		cfg, err := loadConfig(cmd.Flags(), app, environ)
 		if err != nil {
 			return err
@@ -106,6 +116,12 @@ func run(ctx context.Context, app App, args, environ []string, stdout, stderr io
 	// layers and has no TIFA_ variable.
 	for _, cmd := range []*cobra.Command{root, serveCmd} {
 		cmd.Flags().StringVar(&distDir, "dist", "", "serve the front end from this directory instead of the embedded one (tifa dev)")
+	}
+	// --lifeline-fd exists only in the main of tifa dev, so a program of tifa build has no such flag.
+	if dev != nil {
+		for _, cmd := range []*cobra.Command{root, serveCmd} {
+			cmd.Flags().IntVar(&lifelineFD, "lifeline-fd", -1, "stop when this file descriptor reaches the end of its file, which it does when tifa dev ends (tifa dev)")
+		}
 	}
 	root.AddCommand(serveCmd, configCmd, versionCmd)
 	root.SetArgs(args)

@@ -60,7 +60,11 @@ build keeps the running app and shows the error in the page.`,
 				return err
 			}
 			logger := log.New(cmd.ErrOrStderr(), "tifa dev: ", log.Ltime)
-			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			// The app and the driver of Vite get only the files tifa dev names for them.
+			if err := closeInheritedOnExec(); err != nil {
+				logger.Printf("the app and Vite may inherit the files tifa dev inherited: %v", err)
+			}
+			ctx, stop := signal.NotifyContext(cmd.Context(), stopSignals()...)
 			defer stop()
 			// The driver reports changes outside the root and restarts of Vite's dev server from
 			// the goroutine that reads its answers. outside never blocks there, so front.Close can
@@ -95,6 +99,17 @@ build keeps the running app and shows the error in the page.`,
 	cmd.Flags().StringVar(&dir, "dir", ".", "application root, the directory holding go.mod and app/")
 	cmd.Flags().StringVar(&addr, "addr", config.DefaultAddr, "address the browser connects to")
 	return cmd
+}
+
+// stopSignals are the signals that stop tifa dev: Ctrl-C, SIGTERM and SIGHUP, which a terminal sends
+// to the programs on it when it closes. A tifa dev that was started with SIGHUP ignored, as nohup
+// does, keeps ignoring it: asking Go for the signal would turn it back on.
+func stopSignals() []os.Signal {
+	signals := []os.Signal{os.Interrupt, syscall.SIGTERM}
+	if !signal.Ignored(syscall.SIGHUP) {
+		signals = append(signals, syscall.SIGHUP)
+	}
+	return signals
 }
 
 // devPipeline runs the steps of tifa build for devserver, one at a time.

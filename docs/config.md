@@ -211,4 +211,4 @@ It also refuses to start, before `OnStart`, and names the settings when:
 
 When `server.addr` or `server.http_addr` cannot be listened on, the error names the setting, and for a port only root may take it says what to do.
 
-`serve --dist <folder>` is a flag for [`tifa dev`](dev.md) only. It is not a setting and has no environment variable.
+`serve --dist <folder>` and `serve --lifeline-fd <fd>` are flags for [`tifa dev`](dev.md) only. They are not settings and have no environment variable. The program `tifa build` makes has no `--lifeline-fd`.
