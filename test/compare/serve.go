@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/liustack/tifa/internal/testproc"
 )
 
 // Target is a server to measure. Args hold %PORT% where the port goes.
@@ -119,7 +121,7 @@ func (t Target) Start(ctx context.Context, cpus string) (*Server, error) {
 	}
 	s := &Server{Name: t.Name, Base: "http://127.0.0.1:" + strconv.Itoa(port), cmd: cmd, out: &lockedBuffer{}, stop: make(chan struct{}), done: make(chan struct{})}
 	cmd.Stdout, cmd.Stderr = s.out, s.out
-	if err := cmd.Start(); err != nil {
+	if err := testproc.Start(cmd); err != nil {
 		return nil, fmt.Errorf("start %s: %w", t.Name, err)
 	}
 	exited := make(chan struct{})
