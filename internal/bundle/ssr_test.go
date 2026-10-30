@@ -266,7 +266,8 @@ const attributesPage = "import './host'\n" +
 	"import { renderToString } from 'react-dom/server.edge'\n" +
 	"const names = ['className', 'tabIndex', 'dir', 'role', 'viewBox', 'width', 'height', 'xlinkHref', 'xlinkActuate', 'xlinkArcrole', 'xlinkRole',\n" +
 	"  'xlinkShow', 'xlinkTitle', 'xlinkType', 'xmlBase', 'xmlLang', 'xmlSpace', 'data-x', 'aria-x', 'htmlFor', 'acceptCharset', 'strokeWidth',\n" +
-	"  'foo', 'x:y', 'bad name', '9lives', 'onClick', 'style', 'value', 'href', 'src', 'hidden', 'span', 'download']\n" +
+	"  'foo', 'x:y', 'bad name', '9lives', 'onClick', 'style', 'value', 'href', 'src', 'hidden', 'span', 'download',\n" +
+	"  'action', 'formAction', 'id', 'alt', 'rowSpan', 'cols', 'capture', 'contentEditable', 'constructor', 'toString', '__proto__', 'hasOwnProperty']\n" +
 	"const values: unknown[] = ['text', '', 'a & b < \"c\" d\\'e', 0, 5, -1.5, NaN, true, false, null, undefined, Symbol('s'), () => 1,\n" +
 	"  { toString: () => 'obj<' }, 10n, '\\ud800 lone']\n" +
 	"const out: string[] = []\n" +
@@ -310,6 +311,9 @@ func TestSSRWritesAttributesWithFewerCalls(t *testing.T) {
 		"pushStringAttribute": {"function pushStringAttribute(target, name, value) {", "function pushStringAttribute(target, name, value) /* changed */ {"},
 		"isAttributeNameSafe": {"function isAttributeNameSafe(attributeName) {", "function isAttributeNameSafe(attributeName) /* changed */ {"},
 		"the default branch":  {"if (((name = aliases.get(name) || name), isAttributeNameSafe(name))) {", "if (((name = aliases.get(name) || name), isAttributeNameSafe(name) /* changed */)) {"},
+		"the url cases":       {"null == value ||\n        \"function\" === typeof value ||", "null == value || /* changed */\n        \"function\" === typeof value ||"},
+		"the xlinkHref case":  {"case \"xlinkHref\":", "case \"xlinkHref\": /* changed */"},
+		"the type switch":     {"switch (typeof value) {\n            case \"function\":", "switch (typeof value /* changed */) {\n            case \"function\":"},
 	} {
 		changed := withReactDOM(t, change[0], change[1])
 		writeTree(t, changed, map[string]string{"attributes.tsx": attributesPage})
