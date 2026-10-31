@@ -57,6 +57,7 @@ TIFA_E2E=1 go test ./test/e2e/
 
 The programs the tests start and leave running, the built apps and `tifa dev`, go through `testproc.Start`, so a killed run leaves none of them behind.
 
+- `TestNewApp` also runs `tifa check` and `tifa docs` in the new app, and checks that `tifa docs` points at the checkout the app replaces tifa with.
 - `TestCheckShop` and `TestCheckAppWithoutPages` (`check_test.go`): `tifa check` passes on a copy of `examples/shop` and fails with the step named at a type error and then at a vet error, and runs on `test/apps/api` with node removed from PATH, skipping the TypeScript step.
 - `test/apps/api`: API routes only, with all four hooks. Checks `OnStart`, each method handler, the 404 JSON, `tifa.Error` status codes, `OnError`, that `OnShutdown` runs after SIGINT, and that its public file `robots.txt` has the ETag of its content hash and a conditional request gets 304.
 - Before each app is built, the test confirms `go mod tidy -diff` shows no changes. It then builds with `GOFLAGS=-mod=readonly`, and `go.mod` and `go.sum` are unchanged after the build. `test/apps/api` builds with node removed from PATH, which proves an app without pages needs no Node to build. Every built executable runs with node removed from PATH.

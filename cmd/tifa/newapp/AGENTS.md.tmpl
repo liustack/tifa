@@ -1,6 +1,13 @@
 # Notes for coding agents
 
+<!-- tifa:begin -->
+<!-- This block is written by tifa and may be replaced when tifa is upgraded. Put your own notes outside it. -->
+
 This is a [tifa](https://github.com/liustack/tifa) app. Go routes requests, loads data and runs the hooks. React pages render to HTML inside the Go process (QuickJS, no Node at run time), and TanStack Router takes over in the browser. The build bundles the front end with Vite, on Node, and makes one executable that needs no Node.
+
+## Read the docs of this version first
+
+Run `go tool tifa docs`. It prints the folder with the docs of the tifa version this app uses and one entry for each doc: what it covers and when to read it. Read the docs that apply before you change code. Do not read the docs on GitHub, which are those of the main branch and may differ from this version. The `docs/...` paths in these notes are in that folder.
 
 ## Commands
 
@@ -11,23 +18,16 @@ This is a [tifa](https://github.com/liustack/tifa) app. Go routes requests, load
 | `go tool tifa build` | Generate `.tifa/`, bundle the front end with Vite and build `bin/` |
 | `go tool tifa check` | The one command to run before you finish. It checks the routing conventions, generates `.tifa/`, then runs `go vet ./...`, `go test ./...` and the TypeScript type check with the app's own TypeScript. It stops at the first step that fails and says which |
 | `go tool tifa routes` | List the routes |
+| `go tool tifa docs` | Print the docs of the tifa version this app uses, with when to read each |
 
 Never edit `.tifa/`. It is generated, and the Go tools skip it.
-
-## Layout
-
-- Code is grouped by domain, and a domain is a folder under `app/`. Its types, queries and rules sit next to its pages, with their tests. `app/todos/todo.go` (`package todos`) is the todo list. The home page (`app/route.go`) and the page of one todo (`app/todos/todo+/route.go`) import `{{.Module}}/app/todos`.
-- A new domain gets a folder under `app/` and a file named after it, such as `app/notes/note.go` (`package notes`). When it has a list page and a page per item, its code goes in the list folder, not in the `name+` folder of one item.
-- The root package (`package {{.Package}}`, at the module root) holds only the hooks (`hooks.go`) and what the whole app shares (`db.go`: `var DB`, and `schema.sql` with the tables of every domain). Domains import it as `"{{.Module}}"` and write `{{.Package}}.DB`. By convention it imports nothing under `app/`: Go refuses import cycles, so once a domain uses `{{.Package}}.DB`, the root package could not import that domain or a page that imports it.
-- A domain may import another one that does not depend on it: if `notes` imports `todos`, directly or through other packages, `todos` cannot import `notes`. There are no `models/`, `services/` or `handlers/` packages. See [structure.md](https://github.com/liustack/tifa/blob/main/docs/structure.md).
-- This app wires dependencies by hand: package-level variables such as `DB`, set up in `OnStart`, not in `init()`.
 
 ## Routes
 
 - Every folder under `app/` is a URL segment. `app/` is `/`. `name+` is a parameter read with `c.Param("name")`. `name++` is the rest of the path, last folder only, `_splat` in TypeScript. Name the Go package after the parameter: `todo+` holds `package todo`.
 - A folder has at most three convention files. `route.go` holds every Go name of the folder: `Load` (the page data), `Layout` (the data of the Layout), `LayoutSSR`, `SSR`, `Cache` and the method handlers `GET`, `POST`, `PUT`, `PATCH`, `DELETE`. These names in any other Go file of the package fail the build. `page.tsx` is the page. `layout.tsx` (with `<Outlet />`) wraps the page of its folder and every page below.
 - A folder with `page.tsx` is a page, so it cannot define `GET`. A folder with `route.go` and no `page.tsx` is an API route when it has a method handler, and has no `Load`. Its `Layout` still gives the pages below it their layout data. `tifa.Use(c, pkg.Layout)` gets the data of an enclosing Layout, run once per request.
-- Details: [app.md](https://github.com/liustack/tifa/blob/main/docs/app.md).
+- Details: `docs/app.md`.
 
 ## Returned errors
 
@@ -51,7 +51,7 @@ The build reads `Load` and `Layout` and the functions they call to find which pa
 - call `c.Request()` or `c.Writer()`,
 - call `c.BindQuery` or `c.Bind`: read query values with `c.Query("name")` or `c.QueryAll("name")`.
 
-Writing the response is checked when the request runs instead: in `Load` and `Layout`, `c.JSON`, `c.Text` and `c.NoContent` write nothing and return an error. Returned, that error is an unexpected one (`OnError`, or a 500). Setting headers and cookies is fine. Pass `c.Context()` when a function only needs the context. See [How Load may use Ctx](https://github.com/liustack/tifa/blob/main/docs/app.md#how-load-may-use-ctx).
+Writing the response is checked when the request runs instead: in `Load` and `Layout`, `c.JSON`, `c.Text` and `c.NoContent` write nothing and return an error. Returned, that error is an unexpected one (`OnError`, or a 500). Setting headers and cookies is fine. Pass `c.Context()` when a function only needs the context. See "How Load may use Ctx" in `docs/app.md`.
 
 ## Handlers and the browser
 
@@ -59,8 +59,8 @@ Writing the response is checked when the request runs instead: in `Load` and `La
 - The data of `Load` and handler inputs and results travel as JSON, and tifa writes their TypeScript types. No interfaces, funcs or channels. A Go slice or map can be `null` in TypeScript, so write `?? []`.
 - In TSX, import from the generated `./route.gen` of the folder: `page.useLoaderData()` and `layout.useLoaderData()`, the `PageData` and `LayoutData` types, and one function per handler, such as `POST({ params, input })`. A page reads the data of an enclosing Layout from the `route.gen` of that Layout's folder, such as `../route.gen`. After a successful POST, PUT, PATCH or DELETE the page data loads again, unless the call passes `invalidate: false`.
 - The function of a typed handler resolves to its result and throws `TifaError` (`status`, `message`, `fields`) for an error answer. The function of a handler that writes its own response resolves to the `Response`, also for a 4xx or 5xx, so check `response.ok`. When the handler or `OnRequest` redirects, the function resolves to `undefined` once the new page shows, so its result type is `Out | undefined`: check the result before using it. Redirect with `return c.Redirect(...)`, not by writing a 3xx yourself.
-- Styles are CSS files imported from TSX, such as `app/styles.css` in the root `layout.tsx`. `vite.config.ts` adds the Vite plugins of tifa and React. For Tailwind CSS, add `@tailwindcss/vite` there. See [Styles](https://github.com/liustack/tifa/blob/main/docs/app.md#styles).
-- A page may also export `head` and `Error`, which also shows its 404 as a `RouteError` with `status` 404. In the browser each `page.tsx` and `layout.tsx` but the root one loads with its route, also one that exports `head`: its top-level code runs when its route first loads, not when the app starts, so setup every page needs goes in the root `layout.tsx` or a module it imports. Components that need the browser at import time, or show nothing until the browser draws them, go in `*.client.tsx` and load with `clientOnly` from `tifa/client`, with a placeholder of the same size. See [Components that draw only in the browser](https://github.com/liustack/tifa/blob/main/docs/app.md#components-that-draw-only-in-the-browser).
+- Styles are CSS files imported from TSX, such as `app/styles.css` in the root `layout.tsx`. `vite.config.ts` adds the Vite plugins of tifa and React. For Tailwind CSS, add `@tailwindcss/vite` there. See "Styles" in `docs/app.md`.
+- A page may also export `head` and `Error`, which also shows its 404 as a `RouteError` with `status` 404. In the browser each `page.tsx` and `layout.tsx` but the root one loads with its route, also one that exports `head`: its top-level code runs when its route first loads, not when the app starts, so setup every page needs goes in the root `layout.tsx` or a module it imports. Components that need the browser at import time, or show nothing until the browser draws them, go in `*.client.tsx` and load with `clientOnly` from `tifa/client`, with a placeholder of the same size. See "Components that draw only in the browser" in `docs/app.md`.
 
 ## Hooks
 
@@ -74,11 +74,22 @@ Writing the response is checked when the request runs instead: in `Load` and `La
 ## Tests
 
 - Domain code: plain Go tests next to it, such as `app/todos/todo_test.go`. Each test gets a fresh database with `useTestDB(t)`, which replaces `{{.Package}}.DB`, so these tests do not run in parallel.
-- Route code: `tifatest.NewCtx(t, httptest.NewRequest(...))` gives a `*tifa.Ctx`. Set path parameters with `r.SetPathValue`. Run `Load` and `Layout` through `tifa.Use(c, Load)`, call handlers directly, and test `Validate` on its own. These tests check what the function returns, not the HTTP answer. See [Testing](https://github.com/liustack/tifa/blob/main/docs/app.md#testing).
+- Route code: `tifatest.NewCtx(t, httptest.NewRequest(...))` gives a `*tifa.Ctx`. Set path parameters with `r.SetPathValue`. Run `Load` and `Layout` through `tifa.Use(c, Load)`, call handlers directly, and test `Validate` on its own. These tests check what the function returns, not the HTTP answer. See "Testing" in `docs/app.md`.
 
 ## Settings and data
 
-- `tifa.yaml` lists every setting commented out at its default, with an example for `ssr.vms`, whose default is GOMAXPROCS. See [config.md](https://github.com/liustack/tifa/blob/main/docs/config.md). Environment variables starting with `TIFA_` are settings, and an unknown one stops the app, so do not use that prefix for your own.
+- `tifa.yaml` lists every setting commented out at its default, with an example for `ssr.vms`, whose default is GOMAXPROCS. See `docs/config.md`. Environment variables starting with `TIFA_` are settings, and an unknown one stops the app, so do not use that prefix for your own.
 - The database is `app.db` (or `$DB_PATH`). `schema.sql` runs at every start, so keep its statements safe to repeat (`CREATE TABLE IF NOT EXISTS`). A new domain adds its tables there. `tifa dev` does not watch `schema.sql`: after changing it, restart `tifa dev`.
 - Under `tifa dev`, a page whose server render fails, or whose `OnRequest` returns an unexpected error, answers with its status and the whole error, a render error with its stack trace in the source files. `curl -i` on the page shows them. A built app shows only the status and the public message.
-- Build and generated files: [build.md](https://github.com/liustack/tifa/blob/main/docs/build.md). `tifa dev`: [dev.md](https://github.com/liustack/tifa/blob/main/docs/dev.md).
+- Build and generated files: `docs/build.md`. `tifa dev`: `docs/dev.md`.
+
+<!-- tifa:end -->
+
+## This app
+
+- Code is grouped by domain, and a domain is a folder under `app/`. Its types, queries and rules sit next to its pages, with their tests. `app/todos/todo.go` (`package todos`) is the todo list. The home page (`app/route.go`) and the page of one todo (`app/todos/todo+/route.go`) import `{{.Module}}/app/todos`.
+- A new domain gets a folder under `app/` and a file named after it, such as `app/notes/note.go` (`package notes`). When it has a list page and a page per item, its code goes in the list folder, not in the `name+` folder of one item.
+- The root package (`package {{.Package}}`, at the module root) holds only the hooks (`hooks.go`) and what the whole app shares (`db.go`: `var DB`, and `schema.sql` with the tables of every domain). Domains import it as `"{{.Module}}"` and write `{{.Package}}.DB`. By convention it imports nothing under `app/`: Go refuses import cycles, so once a domain uses `{{.Package}}.DB`, the root package could not import that domain or a page that imports it.
+- A domain may import another one that does not depend on it: if `notes` imports `todos`, directly or through other packages, `todos` cannot import `notes`. There are no `models/`, `services/` or `handlers/` packages. See `docs/structure.md`.
+- This app wires dependencies by hand: package-level variables such as `DB`, set up in `OnStart`, not in `init()`.
+

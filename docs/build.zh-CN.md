@@ -1,8 +1,9 @@
 ---
-summary: 'tifa new 怎么新建应用、tifa build 做什么、tifa check 跑哪些步骤、.tifa/ 里生成了哪些文件和产物、应用的 tsconfig 与 go.mod 怎么配、生成的程序怎么启动和回答页面请求、为什么不带调试信息，以及要随程序附带哪些许可声明'
+summary: 'tifa new 怎么新建应用、tifa build 做什么、tifa check 跑哪些步骤、tifa docs 打印什么和 AGENTS.md 里 tifa 管理的块、.tifa/ 里生成了哪些文件和产物、应用的 tsconfig 与 go.mod 怎么配、生成的程序怎么启动和回答页面请求、为什么不带调试信息，以及要随程序附带哪些许可声明'
 read_when:
   - 改 internal/codegen、cmd/tifa 的 build 命令或 server.Main
   - 改 `tifa check`，或想知道它跑哪些步骤、需要什么
+  - 改 `tifa docs`、`tifa new` 写出的 `AGENTS.md`，或其中由 tifa 管理的部分
   - 新建一个 tifa 应用，或给 test/apps 加应用
   - 看不懂 .tifa/ 下某个文件从哪来
   - 实现页面渲染、导航数据请求，需要知道路由树与数据协议
@@ -35,7 +36,7 @@ tifa new <目录> [--module 模块路径]
 | `app/about/page.tsx` | 没有 `route.go` 的页面 |
 | `*_test.go` | 测试和被测代码放在一起：待办领域、数据库和钩子的测试，以及用 `tifatest` 写的路由代码测试，每个测试用临时目录里的一个新数据库 |
 | `tifa.yaml` | [config.zh-CN.md](config.zh-CN.md) 里的全部设置，按默认值写好并注释掉。`ssr.vms` 的默认值是 GOMAXPROCS，随机器而变，所以写的是示例值 |
-| `AGENTS.md`、`CLAUDE.md` | 给编程 agent 的说明：tifa 应用怎么运作，和唯一的检查命令 `go tool tifa check`。`CLAUDE.md` 只指向 `AGENTS.md` |
+| `AGENTS.md`、`CLAUDE.md` | 给编程 agent 的说明：tifa 应用怎么运作，让 agent 先运行 `go tool tifa docs`，并把 `go tool tifa check` 作为唯一的检查命令，tifa 管理的部分夹在两行标记之间（见 [AGENTS.md 里 tifa 管理的块](#agentsmd-里-tifa-管理的块)）。`CLAUDE.md` 只指向 `AGENTS.md` |
 | `package.json`、`tsconfig.json`、`vite.config.ts`、`.gitignore`、`README.md` | npm 包、TypeScript 与 Vite 配置、要忽略的构建产物和数据库文件，以及常用命令 |
 
 - 模块路径默认是目录名，`--module` 可以另给。应用要 import 根目录的包，所以路径必须是 go 命令能 import 的。tifa new 拒绝含 `vendor` 段的路径，也拒绝首段不带点、且（不分大小写）和标准库包或 go 命令包模式的首段相同的路径（比如 `fmt`、`net`、`all`），即使并没有同名的包。改传 `--module example.com/fmt`。
@@ -137,6 +138,44 @@ tifa: check failed at go vet ./...: exit status 1
 ```
 
 `tifa new` 把 `go tool tifa check` 写进新应用的 `AGENTS.md`，作为改完之后要跑的唯一检查命令。
+
+## tifa docs
+
+```sh
+tifa docs [--dir 应用根目录]
+```
+
+打印应用所用 tifa 版本的文档在哪个目录，再打印这些文档的索引。`tifa new` 写出的 `AGENTS.md` 让编程 agent 先运行它，这样 agent 读到的是应用实际构建所用版本的文档，而不是 GitHub 上 main 分支的。
+
+tifa 在应用根目录问 go 命令（`go list -m -json github.com/liustack/tifa`），所以目录就是 `go.mod` 解析出来的那个：已发布版本在模块缓存里，有 `replace` 时就是 replace 指向的目录。模块还没下载时会失败，并提示要运行 `go mod download github.com/liustack/tifa`。
+
+```text
+github.com/liustack/tifa v0.0.0 (replaced by ../..)
+Docs: /home/me/tifa/docs
+The paths below are relative to /home/me/tifa.
+
+docs/app.md - How to write a tifa app: folder layout, how folders become URLs, ...
+  Read when: Creating a tifa app, or adding pages, Layouts or API routes to one | ...
+docs/build.md - ...
+```
+
+索引的格式同 tifa 仓库里的 `scripts/docs-list.sh`：每篇文档一行，写路径和它 front matter 里的 summary，再一行写 `read_when` 各条，用 ` | ` 连接。文档按路径排序。中文版（`*.zh-CN.md`）、`docs/archive/` 和 `docs/research/` 不列，没有 summary 的文档不列，并在 stderr 打一条警告。
+
+### AGENTS.md 里 tifa 管理的块
+
+`AGENTS.md` 中由 tifa 写的部分，夹在两行标记之间：
+
+```md
+# Notes for coding agents
+
+<!-- tifa:begin -->
+...
+<!-- tifa:end -->
+
+## This app
+```
+
+每个标记独占一行，各出现一次，`tifa:begin` 在 `tifa:end` 之前。两者之间都归 tifa：命令、约定和去哪读更多。以后的 tifa 可以只替换这一段，文件其余部分不动，所以应用自己的说明写在标记之外（`tifa new` 用 `## This app` 开头）。不要改两个标记之间的内容，刷新时会丢。`tifa new` 会写出这个块，目前还没有命令去刷新它。
 
 ## tifa routes
 
