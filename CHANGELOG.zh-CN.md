@@ -108,6 +108,7 @@
 
 ### 修复
 
+- 服务端渲染改用 slowjs v0.29.8，HTML 不变。`JSON.stringify` 内存不足时会抛错，不再留着一个元素不释放，也不再返回缺了 replacer 名单里键的文本。用拼接出来的字符串当 `space` 参数时，缩进写的是它的文字，不再是引擎内部的字节。把数组的 `length` 改小后再往后写，结果和 Node 一样，10 万个元素时快 17%。`Iterator.prototype.reduce` 和 `Iterator.concat` 按规范关闭迭代器。
 - `tifa dev`：应用和 Vite 不再比它活得久。关掉运行 `tifa dev` 的终端（SIGHUP）现在和 Ctrl-C 一样停掉它。`tifa dev` 被强杀（SIGKILL）时，它启动的应用像收到 SIGTERM 一样关停，以前应用会带着端口一直跑，直到有人手动杀掉。用 `nohup` 启动的 `tifa dev` 仍然忽略 SIGHUP。应用和 Vite 也不再持有 `tifa dev` 继承来的文件，比如脚本用 `flock` 持有的锁。
 - `tifa dev`：Vite 开发服务器重启后（改了 `vite.config.ts` 或 `.env` 文件，或切换成轮询），紧接着的一次修改可能永远漏掉，开发服务器已经给出的模块会一直是旧的，直到这个文件再次改动。现在开发服务器等文件监视读完应用的文件才回应请求。
 - 公共目录的文件有了 ETag，浏览器重新验证时拿到 304，不再整个重下。这些文件带 `Cache-Control: no-cache`，但嵌进程序的副本没有修改时间，也没有 ETag，每次验证都把文件完整下载一遍。现在 `tifa build` 把每个公共文件的内容哈希写进 `build.json`，服务器把它作为强 ETag 发出，文件压缩后发出时变成弱 ETag（`W/"…"`）。浏览器包的文件不变，`tifa dev` 照旧用它所服务文件的修改时间。
