@@ -37,7 +37,7 @@ go test ./...
 
 ```text
 hooks.go                       拦截跨站的写请求，记录意外错误
-components/ui/  lib/  hooks/   shadcn/ui 组件和它们的辅助代码，用 @/components/ui/... 引用
+components/                    shadcn/ui 组件在 ui/，它们用到的 hook 在 hooks/，用 @/components/... 引用
 app/
   route.go  layout.tsx         根 Layout：侧栏、顶栏、文档外壳和全站 404，还有把 / 跳到第一家店铺的 GET
   styles.css                   Tailwind CSS 和店铺的主题
