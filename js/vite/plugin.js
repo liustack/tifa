@@ -694,6 +694,42 @@ const typeSwitch = `          switch (typeof value) {
             case "symbol":
               return;
             case "boolean":`
+// The start of pushAttribute after inlineAttributeCalls, and the check of the name in its default
+// branch, which cacheAttributeNames changes.
+const attributeStart = `function pushAttribute(target, name, value) {
+  switch (name) {`
+const attributeDefault = `    default:
+      if (
+        !(2 < name.length) ||
+        ("o" !== name[0] && "O" !== name[0]) ||
+        ("n" !== name[1] && "N" !== name[1])
+      )
+        if (((name = aliases.get(name) || name), hasOwnProperty.call(validatedAttributeNameCache, name) || isAttributeNameSafe(name))) {`
+// attributeNamesKept is how many names the module keeps. React's own cache of valid names has no limit, but
+// the names here include those of event handlers, which React does not keep, and an app may spread an
+// object of its users' keys into a tag.
+const attributeNamesKept = 4096
+// What the module knows of the names of attributes at the start: the chunk before the value for the
+// names whose case writes a string as it is with its own name. It adds the valid names without a case, as
+// the chunk with the name in the form React writes it (the alias of htmlFor is for), and the names that
+// start with on, as an empty chunk. className and style, which pushAttribute answers on its own, are not in it.
+const attributeChunks = `
+var tifaAttributeChunks = new Map([["tabIndex", ' tabindex="'], ["dir", ' dir="'], ["role", ' role="'], ["viewBox", ' viewBox="'], ["width", ' width="'], ["height", ' height="']]);
+`
+// renderNodeDestructive of React's string renderer after dropComponentStacks, white space collapsed:
+// it forwards a node to retryNode, which reads it from the task.
+const nodeForwarder =
+  'function renderNodeDestructive(request, task, node, childIndex) { null !== task.replay && "number" === typeof task.replay.slots ? ' +
+  'resumeNode(request, task, task.replay.slots, node, childIndex) : ((task.node = node), (task.childIndex = childIndex), retryNode(request, task)); }'
+// Where retryNode in React's string renderer works out the key of an element, after dropKeyPathNames:
+// keyOrIndex, which only the key path and the code that resumes a render read.
+const keyOrIndexSource = `            name = null,
+            keyOrIndex =
+              null == key || key === REACT_OPTIMISTIC_KEY
+                ? -1 === childIndex
+                  ? 0
+                  : childIndex
+                : key;`
 // escapeCacheSize is how much the cache of escapes holds in each VM, in UTF-16 code units: the
 // strings and their escapes, and escapeEntrySize more for each entry, which stands for the memory
 // an entry of the Map takes besides its strings. So many short strings cannot take more memory
@@ -1356,6 +1392,15 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
               'but take longer to render',
           )
         }
+        const attributeNames = inlined && cacheAttributeNames(source)
+        if (attributeNames) {
+          source = attributeNames
+        } else if (inlined) {
+          this.warn(
+            `${react} has no pushAttribute in the form the tifa plugin knows, so the tifa plugin does not keep the ` +
+              'names of the attributes it has seen. Pages render the same, but take longer to render',
+          )
+        }
         // A syntax tree goes only with the source it was parsed from: each change below parses
         // the source the changes before it left.
         const parse = (code) => this.parse(code)
@@ -1369,6 +1414,15 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
           if (unkeyed) {
             source = unkeyed
             keyPathsDropped = true
+            const worked = leaveOutUnusedKeys(source)
+            if (worked) {
+              source = worked
+            } else {
+              this.warn(
+                `${react} has no key of an element in the form the tifa plugin knows, so the tifa plugin does not work it ` +
+                  'out only when something reads it. Pages render the same, but take longer to render',
+              )
+            }
           } else {
             this.warn(
               `${react} ${used || 'has no key paths in the form the tifa plugin knows'}, so the tifa plugin does not ` +
@@ -1413,6 +1467,16 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
             `${react} ${stacksRead || 'has no pushComponentStack in the form the tifa plugin knows'}, so the tifa ` +
               'plugin does not keep React from building component stacks. Pages render the ' +
               'same, but take longer to render',
+          )
+        }
+        const forwarded = unstacked && inlineNodeCalls(source, parse)
+        if (forwarded) {
+          source = forwarded
+        } else if (unstacked) {
+          this.warn(
+            `${react} has no renderNodeDestructive in the form the tifa plugin knows, or no call of it to write out, ` +
+              'so the tifa plugin does not hand nodes to retryNode without calling it. Pages render the same, but take ' +
+              'longer to render',
           )
         }
         return (
@@ -2290,6 +2354,128 @@ function inlineAttributeCalls(source) {
     .replace(stringAttributeCall, (all, name) => written(name))
     .replace(sharedStringCase, () => sharedStringCase.replace('pushStringAttribute(target, name, value);', `("string" === typeof value || "function" !== typeof value && "symbol" !== typeof value && "boolean" !== typeof value) && target.push(" ", name, '="', escapeTextForBrowser(value), '"');`))
     .replace(attributeNameCheck, () => 'if (((name = aliases.get(name) || name), hasOwnProperty.call(validatedAttributeNameCache, name) || isAttributeNameSafe(name))) {')
+}
+
+// cacheAttributeNames returns the source of React's string renderer, after inlineAttributeCalls, with
+// pushAttribute writing an attribute whose name it has seen with one lookup of the name, or null when
+// the source does not have pushAttribute in the form it knows.
+function cacheAttributeNames(source) {
+  if (source.split(attributeStart).length !== 2 || source.split(attributeDefault).length !== 2) return null
+  const written = '("string" === typeof value || "function" !== typeof value && "symbol" !== typeof value && "boolean" !== typeof value)'
+  const start =
+    'function pushAttribute(target, name, value) { var tifaChunk; ' +
+    `if ("className" === name) { ${written} && target.push(' class="', escapeTextForBrowser(value), '"'); return; } ` +
+    'if ("style" === name) { pushStyleAttribute(target, value); return; } ' +
+    'if (void 0 !== (tifaChunk = tifaAttributeChunks.get(name))) { if ("" === tifaChunk) return; ' +
+    'if ("string" === typeof value || "number" === typeof value) ' +
+    "{ target.push(tifaChunk, escapeTextForBrowser(value), '\"'); return; } }\n  switch (name) {"
+  // A name that starts with on writes nothing, of any value, and is kept with an empty chunk.
+  const checked = `    default:
+      if (
+        !(2 < name.length) ||
+        ("o" !== name[0] && "O" !== name[0]) ||
+        ("n" !== name[1] && "N" !== name[1]) ||
+        (tifaAttributeChunks.size < ${attributeNamesKept} && tifaAttributeChunks.set(name, ""), !1)
+      )
+        if (((tifaChunk = name), (name = aliases.get(name) || name), hasOwnProperty.call(validatedAttributeNameCache, name) || isAttributeNameSafe(name))) { tifaAttributeChunks.size < ${attributeNamesKept} && tifaAttributeChunks.set(tifaChunk, ' ' + name + '="');`
+  return (
+    source
+      .replace(attributeStart, () => start)
+      .replace(attributeDefault, () => sameLines(attributeDefault, checked)) + attributeChunks
+  )
+}
+
+// inlineNodeCalls returns the source of React's string renderer, after dropComponentStacks, with the
+// calls of renderNodeDestructive written out as its body, or null when the source has the function
+// in another form than nodeForwarder or no call to write out. Every node that React renders goes
+// through renderNodeDestructive, a function that only hands the node on to retryNode, so each node
+// costs a call more than it needs. A call changes when its first two arguments are names, its other two
+// are a name, a number or a property of a name, which have no effect on the task, and no one reads
+// its value: it is a statement, or one of the branches of a conditional or the parts of a sequence
+// that make one, or the value of a return, which becomes a return of nothing, as the function
+// returns. No function around it declares resumeNode or retryNode. renderNodeDestructive stays for
+// the calls that do not change.
+function inlineNodeCalls(source, parse) {
+  const definition = /function renderNodeDestructive\(request, task, node, childIndex\) \{[^]*?\n\}\n/.exec(source)
+  const collapse = (text) => text.replace(/\s+/g, ' ').replace(/\( /g, '(').replace(/ \)/g, ')')
+  if (!definition || collapse(definition[0]).trim() !== nodeForwarder) return null
+  const simple = (arg) =>
+    arg.type === 'Identifier' ||
+    (arg.type === 'Literal' && typeof arg.value === 'number') ||
+    (arg.type === 'UnaryExpression' && arg.operator === '-' && arg.argument.type === 'Literal' && typeof arg.argument.value === 'number') ||
+    (arg.type === 'MemberExpression' && !arg.computed && arg.object.type === 'Identifier' && arg.property.type === 'Identifier')
+  const changes = []
+  const visit = (node, ancestors) => {
+    if (
+      node.type === 'CallExpression' &&
+      node.callee.type === 'Identifier' &&
+      node.callee.name === 'renderNodeDestructive' &&
+      node.arguments.length === 4 &&
+      node.arguments[0].type === 'Identifier' &&
+      node.arguments[1].type === 'Identifier' &&
+      node.arguments.slice(2).every(simple)
+    ) {
+      // Whether no one reads the value of the call: its statement, a branch of a conditional or a
+      // part of a sequence that is one, and the part of a sequence that is not the last.
+      let child = node
+      let mode = null
+      for (let i = ancestors.length - 1; i >= 0 && !mode; i--) {
+        const parent = ancestors[i]
+        if (parent.type === 'ExpressionStatement') mode = 'discarded'
+        else if (parent.type === 'ReturnStatement') {
+          if (child === node) mode = 'returned'
+          break
+        } else if (parent.type === 'ConditionalExpression' && child !== parent.test) child = parent
+        else if (parent.type === 'SequenceExpression') {
+          if (child !== parent.expressions.at(-1)) mode = 'discarded'
+          else child = parent
+        } else break
+      }
+      const shadowed = ancestors.some((a) => {
+        if (!functionTypes.has(a.type)) return false
+        const names = declaredNames(a)
+        return names.has('resumeNode') || names.has('retryNode')
+      })
+      if (mode && !shadowed) {
+        const [request, task, id, index] = node.arguments.map((arg) => source.slice(arg.start, arg.end))
+        const body =
+          `null !== ${task}.replay && "number" === typeof ${task}.replay.slots ? ` +
+          `resumeNode(${request}, ${task}, ${task}.replay.slots, ${id}, ${index}) : ` +
+          `((${task}.node = ${id}), (${task}.childIndex = ${index}), retryNode(${request}, ${task}))`
+        const parent = ancestors.at(-1)
+        changes.push(
+          mode === 'returned'
+            ? { start: parent.start, end: parent.end, text: `{ ${body}; return; }` }
+            : { start: node.start, end: node.end, text: `(${body})` },
+        )
+      }
+    }
+    for (const value of Object.values(node)) {
+      for (const child of Array.isArray(value) ? value : [value]) {
+        if (child && typeof child.type === 'string') visit(child, [...ancestors, node])
+      }
+    }
+  }
+  visit(parse(source), [])
+  if (changes.length === 0) return null
+  changes.sort((a, b) => b.start - a.start)
+  let code = source
+  for (const { start, end, text } of changes) {
+    code = code.slice(0, start) + sameLines(code.slice(start, end), text) + code.slice(end)
+  }
+  return code
+}
+
+// leaveOutUnusedKeys returns the source of React's string renderer, after dropKeyPaths, with retryNode
+// working out the key of an element only when something reads it, or null when the source does not
+// work it out in the form it knows. The key, or the index of the element, goes into the key path, which
+// dropKeyPaths makes only when tifaKeyPaths is true, and into the code that resumes a render, which runs
+// only for a task with a replay. Every element had it worked out, three tests of the key and the index.
+function leaveOutUnusedKeys(source) {
+  if (source.split(keyOrIndexSource).length !== 2) return null
+  const worked =
+    'name = null, keyOrIndex = tifaKeyPaths || null !== task.replay ? (null == key || key === REACT_OPTIMISTIC_KEY ? (-1 === childIndex ? 0 : childIndex) : key) : null;'
+  return source.replace(keyOrIndexSource, () => sameLines(keyOrIndexSource, worked))
 }
 
 // dropComponentStacks returns the source of React's string renderer without the component stacks

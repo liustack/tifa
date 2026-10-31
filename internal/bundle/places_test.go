@@ -97,7 +97,9 @@ var call = regexp.MustCompile(`^(return )?[\w$.]+\(`)
 
 // Each frame in React DOM of the stack trace of an error the application throws gives the place of
 // a call in its file, those of the code the tifa plugin changes too: the plugin keeps each call on
-// the line it was on.
+// the line it was on. The one exception is a call of renderNodeDestructive, which the plugin writes
+// out as its body: the call of retryNode in it is on the line of the call it replaced, to the right of
+// it.
 func TestSSRGivesThePlacesOfCallsInReactDOM(t *testing.T) {
 	root := devApp(t)
 	writeTree(t, root, map[string]string{filepath.Join(".tifa", "server.ts"): placesEntry})
@@ -121,6 +123,9 @@ func TestSSRGivesThePlacesOfCallsInReactDOM(t *testing.T) {
 		column, _ := strconv.Atoi(m[2])
 		if line > len(lines) {
 			continue // the code the tifa plugin adds after React DOM
+		}
+		if column > len(lines[line-1]) && strings.Contains(lines[line-1], "renderNodeDestructive(") {
+			continue
 		}
 		if column < 1 || column > len(lines[line-1]) || !call.MatchString(lines[line-1][column-1:]) {
 			t.Errorf("the error names %s:%s of React DOM, which is no call: %q\n%v", m[1], m[2], lines[line-1], err)
