@@ -621,11 +621,11 @@ func TestCrossSiteSettingsComeFromEveryLayer(t *testing.T) {
 // browser writes another way, such as one with letters outside ASCII or an IP address not in its
 // shortest form, fails and names the form to write, since the server compares the text.
 func TestTrustedOriginsAreWrittenTheWayABrowserSendsThem(t *testing.T) {
-	c, err := load(t, nil, []string{"TIFA_SERVER_TRUSTED_ORIGINS=HTTPS://Admin.Example.com:443, http://localhost:3000, http://a.test:80"}, "", "")
+	c, err := load(t, nil, []string{"TIFA_SERVER_TRUSTED_ORIGINS=HTTPS://Admin.Example.com:443, http://localhost:3000, http://a.test:80, https://[2001:DB8::1]:8443, http://192.0.2.1, http://example.0xg"}, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"https://admin.example.com", "http://localhost:3000", "http://a.test"}; !reflect.DeepEqual(c.Server.TrustedOrigins, want) {
+	if want := []string{"https://admin.example.com", "http://localhost:3000", "http://a.test", "https://[2001:db8::1]:8443", "http://192.0.2.1", "http://example.0xg"}; !reflect.DeepEqual(c.Server.TrustedOrigins, want) {
 		t.Fatalf("%q, want %q", c.Server.TrustedOrigins, want)
 	}
 	for _, tc := range []struct{ value, want string }{
@@ -637,14 +637,18 @@ func TestTrustedOriginsAreWrittenTheWayABrowserSendsThem(t *testing.T) {
 		{"ftp://example.com", "http or https"},
 		{"https://a.test,,https://b.test", "empty"},
 		{"*", "scheme"},
-		{"https://İ.example", "https://xn--i-9bb.example"},
-		{"https://bücher.example", "https://xn--bcher-kva.example"},
-		{"https://[2001:0DB8:0:0:0:0:0:1]", "https://[2001:db8::1]"},
-		{"https://admin.example:0443", "https://admin.example"},
-		{"http://010.0.0.1", "http://8.0.0.1"},
-		{"http://0x7f.0.0.1", "http://127.0.0.1"},
-		{"http://127.1", "http://127.0.0.1"},
-		{"http://1.2.3.256", "refuses"},
+		{"https://İ.example", "xn--i-9bb.example"},
+		{"https://bücher.example", "xn--bcher-kva.example"},
+		{"https://[2001:0DB8:0:0:0:0:0:1]", "[2001:db8::1]"},
+		{"https://admin.example:0443", "leading zeros"},
+		{"http://010.0.0.1", "four decimal"},
+		{"http://0x7f.0.0.1", "four decimal"},
+		{"http://127.1", "four decimal"},
+		{"http://1.2.3.256", "four decimal"},
+		{"https://example.com!", "only letters"},
+		{"https://[::ffff:192.0.2.1]", "IPv4"},
+		{"http://1..2", "empty part"},
+		{"http://example.com..", "empty part"},
 		{"https://a.test:99999", "port"},
 	} {
 		_, err := load(t, nil, []string{"TIFA_SERVER_TRUSTED_ORIGINS=" + tc.value}, "", "")

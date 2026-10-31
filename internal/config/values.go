@@ -144,106 +144,74 @@ func (v originsValue) Set(s string) error {
 func (v originsValue) String() string { return strings.Join(*v.p, ",") }
 func (v originsValue) kind() string   { return "string" }
 
-// browserOrigin returns the origin of u as a browser sends it in Origin. Only the ASCII case of the
-// scheme and host and a written default port may differ from that form: any other way of writing
-// the host, such as letters outside ASCII, an IP address that is not in its shortest form or a
-// port with leading zeros, is an error that names the form to write, because the server compares
-// the text and a host a browser writes another way would match another site, or none.
+// browserOrigin returns the origin of u as a browser sends it in Origin, for a host written in
+// one of the forms that a browser sends as written: a domain name of ASCII letters, digits, '-'
+// and '_' with no empty part, an IPv4 address as four decimal numbers, or an IPv6 address in its
+// shortest form. Only the ASCII case of the scheme and host and a written default port may differ.
+// The server compares the text, and a host a browser reads another way would match another site
+// or none, so every other way of writing it is an error that says what to write instead.
 func browserOrigin(u *url.URL) (string, error) {
-	host, port := u.Hostname(), u.Port()
-	var canon string
-	switch {
-	case strings.HasPrefix(u.Host, "["):
-		addr, err := netip.ParseAddr(host)
-		if err != nil || !addr.Is6() || addr.Zone() != "" {
-			return "", fmt.Errorf("[%s] is not an IPv6 address a browser sends", host)
-		}
-		canon = "[" + addr.String() + "]"
-		host = "[" + strings.ToLower(host) + "]"
-	case strings.IndexFunc(host, func(r rune) bool { return r >= utf8.RuneSelf }) >= 0:
-		ascii, err := idna.Lookup.ToASCII(host)
-		if err != nil {
-			return "", fmt.Errorf("%s is not a valid domain name: %v", host, err)
-		}
-		canon = ascii
-	default:
+	// Only ASCII is lowered here: strings.ToLower maps some letters outside ASCII into it, such as
+	// U+0130 into i, which would trust another host.
+	host := u.Hostname()
+	if strings.IndexFunc(host, func(r rune) bool { return r >= utf8.RuneSelf }) < 0 {
 		host = strings.ToLower(host)
-		canon = host
-		if ip, ok, err := browserIPv4(host); err != nil {
-			return "", err
-		} else if ok {
-			canon = ip
-		}
 	}
-	if port != "" {
+	if strings.HasPrefix(u.Host, "[") {
+		addr, err := netip.ParseAddr(host)
+		switch {
+		case err != nil || !addr.Is6() || addr.Zone() != "":
+			return "", fmt.Errorf("[%s] is not an IPv6 address a browser sends", host)
+		case addr.Is4In6():
+			return "", fmt.Errorf("[%s] is an IPv4 address in IPv6, which a browser writes another way: trust the IPv4 address", host)
+		case addr.String() != host:
+			return "", fmt.Errorf("write the IPv6 address as a browser sends it, [%s]", addr)
+		}
+		host = "[" + host + "]"
+	} else if err := checkOriginHost(host); err != nil {
+		return "", err
+	}
+	origin := u.Scheme + "://" + host
+	if port := u.Port(); port != "" {
 		n, err := strconv.Atoi(port)
-		if err != nil || n < 1 || n > 65535 {
+		switch {
+		case err != nil || n < 1 || n > 65535:
 			return "", fmt.Errorf("the port must be from 1 to 65535")
+		case strconv.Itoa(n) != port:
+			return "", fmt.Errorf("write the port without leading zeros, as %d", n)
+		case n != map[string]int{"http": 80, "https": 443}[u.Scheme]:
+			origin += ":" + port
 		}
-		if s := strconv.Itoa(n); s != port {
-			port = s
-			canon += "!" // differs from host, so the form below is named
-		}
-		if n == map[string]int{"http": 80, "https": 443}[u.Scheme] {
-			port = ""
-		}
-	}
-	origin := u.Scheme + "://" + strings.TrimSuffix(canon, "!")
-	if port != "" {
-		origin += ":" + port
-	}
-	if canon != host {
-		return "", fmt.Errorf("a browser sends this origin as %s: write that", origin)
 	}
 	return origin, nil
 }
 
-// browserIPv4 reads host the way the URL parser of a browser does when its last label is a number:
-// as an IPv4 address of up to four parts, each decimal, octal with a leading 0 or hexadecimal with
-// 0x. It returns the address in dotted decimal and whether host is one, and an error when the
-// browser would refuse the host.
-func browserIPv4(host string) (string, bool, error) {
-	parts := strings.Split(strings.TrimSuffix(host, "."), ".")
+// checkOriginHost reports why a browser would not send host, a host name with ASCII in lower case,
+// as it is written. A host whose last part is a number, decimal or 0x hexadecimal, is read as an IPv4
+// address, so it must be one in dotted decimal.
+func checkOriginHost(host string) error {
+	if strings.IndexFunc(host, func(r rune) bool { return r >= utf8.RuneSelf }) >= 0 {
+		if ascii, err := idna.Lookup.ToASCII(host); err == nil && checkOriginHost(ascii) == nil {
+			return fmt.Errorf("write the host as a browser sends it, %s", ascii)
+		}
+		return fmt.Errorf("%s is not a valid domain name", host)
+	}
+	parts := strings.Split(host, ".")
+	for _, p := range parts {
+		if p == "" {
+			return fmt.Errorf("%s has an empty part between dots", host)
+		}
+		if strings.Trim(p, "abcdefghijklmnopqrstuvwxyz0123456789-_") != "" {
+			return fmt.Errorf("%s: a host name has only letters, digits, '-' and '_'", host)
+		}
+	}
 	last := parts[len(parts)-1]
-	if strings.Trim(last, "0123456789") != "" && !strings.HasPrefix(last, "0x") {
-		return "", false, nil
-	}
-	refuse := fmt.Errorf("a browser reads %s as an IP address and refuses it", host)
-	if len(parts) > 4 {
-		return "", false, refuse
-	}
-	nums := make([]uint64, len(parts))
-	for i, p := range parts {
-		base, digits := 10, p
-		switch {
-		case strings.HasPrefix(p, "0x"):
-			base, digits = 16, p[2:]
-		case len(p) > 1 && p[0] == '0':
-			base, digits = 8, p[1:]
+	if strings.Trim(last, "0123456789") == "" || strings.HasPrefix(last, "0x") && strings.Trim(last[2:], "0123456789abcdef") == "" {
+		if addr, err := netip.ParseAddr(host); err != nil || !addr.Is4() || addr.String() != host {
+			return fmt.Errorf("a browser reads %s as an IP address: write it as four decimal numbers, such as 192.0.2.1", host)
 		}
-		if digits == "" {
-			nums[i] = 0
-			continue
-		}
-		n, err := strconv.ParseUint(digits, base, 64)
-		if err != nil {
-			return "", false, refuse
-		}
-		nums[i] = n
 	}
-	var v uint64
-	for i, n := range nums[:len(nums)-1] {
-		if n > 255 {
-			return "", false, refuse
-		}
-		v |= n << (24 - 8*i)
-	}
-	if lastNum := nums[len(nums)-1]; lastNum >= 1<<(8*(5-len(nums))) {
-		return "", false, refuse
-	} else {
-		v |= lastNum
-	}
-	return netip.AddrFrom4([4]byte{byte(v >> 24), byte(v >> 16), byte(v >> 8), byte(v)}).String(), true, nil
+	return nil
 }
 
 // patternsValue is server.cross_site_paths: comma-separated http.ServeMux patterns, empty for

@@ -179,7 +179,7 @@ sudo setcap cap_net_bind_service=+ep ./bin/myapp
 
 要放行一部分：
 
-- `server.trusted_origins` 列出可以写的页面来源，比如单独的管理站，或开发时跑在 `http://localhost:3000` 的前端。来源由协议、主机名和端口（不是协议默认端口时才写）组成，没有路径：`https://admin.example.com`。它和 `Origin` 头按文本比较，所以 `http://` 和 `https://` 是两个来源。写小写，或者交给程序，它会转成小写并去掉 `:80` 和 `:443`。只信任你自己控制的网站，可信来源的页面能替你的用户办事。
+- `server.trusted_origins` 列出可以写的页面来源，比如单独的管理站，或开发时跑在 `http://localhost:3000` 的前端。来源由协议、主机名和端口（不是协议默认端口时才写）组成，没有路径：`https://admin.example.com`。它和 `Origin` 头按文本比较，所以 `http://` 和 `https://` 是两个来源。按浏览器发送的写法写：程序会把 ASCII 字母转成小写、去掉 `:80` 和 `:443`，主机名的其他写法一律报错，并告诉你该写什么。也就是说，域名用 ASCII，非 ASCII 的字母写成 `xn--` 形式（`bücher.example` 写 `https://xn--bcher-kva.example`），IPv4 地址写四段十进制数，IPv6 地址写最短形式，端口不带前导零。只信任你自己控制的网站，可信来源的页面能替你的用户办事。
 - `server.cross_site_paths` 列出 `http.ServeMux` 写法的模式，比如 `POST /auth/apple/callback` 或 `/hooks/{name}`，这些请求完全不检查。用在第三方的浏览器回调上，比如从对方页面 POST 表单的登录。不带方法的模式接受所有方法。ServeMux 只会重定向到该模式的请求（比如多了结尾的斜杠）不放行。这类路径上的处理函数要自己证明请求是真的，比如核对它放进 cookie 的 `state`，或对方的签名。
 
 ## 栈深度
