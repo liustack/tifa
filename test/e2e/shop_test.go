@@ -307,9 +307,10 @@ func checkStorefront(t *testing.T, base, buildID string) {
 	}
 	// The head of the language Layout sets the language of <html> from the locale its Go
 	// function checked, over the root Layout's zh-CN, also on the 404 pages inside it. A path no
-	// page of the store has is a 404 inside it too, with no page of its own for it. The language
-	// Layout is in layout_.tsx, so a language the store does not have is the framework's 404, in
-	// the language of the root Layout's htmlAttributes, without the workbench.
+	// page of the store has is a 404 inside it too, with no page of its own for it. The store
+	// Layout in app/store is in layout_.tsx, so a language the store does not have is its 404,
+	// written in both languages, in the language of the root Layout's htmlAttributes, without the
+	// workbench.
 	for _, tc := range []struct {
 		path   string
 		status int
@@ -318,7 +319,8 @@ func checkStorefront(t *testing.T, base, buildID string) {
 	}{
 		{"/store/en-US", 200, "en-US", "Free delivery"},
 		{"/store/zh-CN", 200, "zh-CN", "秋天的第一壶茶"},
-		{"/store/xx", 404, "zh-CN", "Page not found"},
+		{"/store/xx", 404, "zh-CN", "We could not find this page"},
+		{"/store/xx/products", 404, "zh-CN", "没有找到这个页面"},
 		{"/store/zh-CN/products/nope", 404, "zh-CN", "没有找到这个页面"},
 		{"/store/en-US/journal/nope", 404, "en-US", "We could not find this page"},
 		{"/store/en-US/nope/deeper", 404, "en-US", "We could not find this page"},
@@ -329,6 +331,12 @@ func checkStorefront(t *testing.T, base, buildID string) {
 		if start := `<!DOCTYPE html><html lang="` + tc.lang + `"><head>`; status != tc.status || !strings.HasPrefix(page, start) || !strings.Contains(rendered(page), tc.text) || strings.Contains(page, sidebar) {
 			t.Errorf("%s: %d, want %d with %s in a document starting %s:\n%.120s", tc.path, status, tc.status, tc.text, start, page)
 		}
+	}
+	// The 404 of a language the store does not have names both languages and links to both
+	// storefronts, since the visitor's language is not known.
+	if _, _, page := get(t, base+"/store/xx"); !strings.Contains(rendered(page), "没有找到这个页面") ||
+		!strings.Contains(page, `href="/store/zh-CN"`) || !strings.Contains(page, `href="/store/en-US"`) || strings.Contains(page, "Page not found") {
+		t.Errorf("/store/xx is not the 404 of the store in both languages:\n%s", rendered(page))
 	}
 	// /store sends the visitor to the language their browser prefers.
 	for accept, want := range map[string]string{"en-GB,en;q=0.9": "/store/en-US", "zh-CN": "/store/zh-CN", "": "/store/zh-CN"} {
