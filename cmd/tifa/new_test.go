@@ -559,8 +559,12 @@ func TestNewWritesAgentNotes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(agents), "npm run typecheck") {
+	if !strings.Contains(string(agents), "| `npm install` |") {
 		t.Errorf("AGENTS.md does not use the commands of npm:\n%s", agents)
+	}
+	// One command runs every check, so the notes name no other way to run them.
+	if !strings.Contains(string(agents), "| `go tool tifa check` |") || strings.Contains(string(agents), "typecheck") || strings.Contains(string(agents), "| `go test") {
+		t.Errorf("AGENTS.md does not give go tool tifa check as the one check command:\n%s", agents)
 	}
 	links := regexp.MustCompile(`https://github\.com/liustack/tifa/blob/main/([^)#\s]+)`).FindAllStringSubmatch(string(agents), -1)
 	if len(links) == 0 {

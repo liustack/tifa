@@ -44,9 +44,7 @@ The commands in the root only cover the framework. The example app `examples/sho
 cd examples/shop
 pnpm install --frozen-lockfile
 go tool tifa build
-pnpm typecheck
-go vet ./...
-go test ./...
+go tool tifa check   # the analysis, go vet ./..., go test ./... and tsc --noEmit, stopping at the first failure
 ```
 
 ## End-to-end tests (`test/e2e`)
@@ -59,6 +57,7 @@ TIFA_E2E=1 go test ./test/e2e/
 
 The programs the tests start and leave running, the built apps and `tifa dev`, go through `testproc.Start`, so a killed run leaves none of them behind.
 
+- `TestCheckShop` and `TestCheckAppWithoutPages` (`check_test.go`): `tifa check` passes on a copy of `examples/shop` and fails with the step named at a type error and then at a vet error, and runs on `test/apps/api` with node removed from PATH, skipping the TypeScript step.
 - `test/apps/api`: API routes only, with all four hooks. Checks `OnStart`, each method handler, the 404 JSON, `tifa.Error` status codes, `OnError`, that `OnShutdown` runs after SIGINT, and that its public file `robots.txt` has the ETag of its content hash and a conditional request gets 304.
 - Before each app is built, the test confirms `go mod tidy -diff` shows no changes. It then builds with `GOFLAGS=-mod=readonly`, and `go.mod` and `go.sum` are unchanged after the build. `test/apps/api` builds with node removed from PATH, which proves an app without pages needs no Node to build. Every built executable runs with node removed from PATH.
 - `test/apps/pages`: a `-0` inside the data of `/receipt` renders as `-¥0.00` and goes into the page as `-0`, the head tags of `build.json` (stylesheet, module preloads, entry script) in full pages and in pages without SSR, the long cache and content type of each asset, pages, nested Layouts, a Layout and its page in one folder, a page with only `page.tsx`, query parameters, `tifa.Use`, `SSR = false`, `/hostile`, whose long data holds `</script>`, U+2028 and U+2029, quotes and backslashes, control characters, a character above U+FFFF and text that looks like a data slot, comes from the VM and then from the HTML cache, as plain text, gzip and zstd, with the data written as `ssr.ScriptString` writes it, no script element ended early and the forged slot left as it was (and no answer of `get` in the e2e tests has a slot left, apart from the two fake ones the data spells). `/hostile/gone`, a 404 below a Layout with long data, carries that data as a slot too, `Cache = true`, ETag and 304, navigation data requests, the three kinds of 404, and the language of `<html>` that the head of a Layout sets in two languages, also on a 404 inside it, for a language it does not have, on a URL no route matches and on a page without SSR.

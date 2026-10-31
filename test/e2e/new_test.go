@@ -121,6 +121,9 @@ func TestNewApp(t *testing.T) {
 	if status, _, body := get(t, base+"/about"); status != 200 || !strings.Contains(body, "<h1>About</h1>") {
 		t.Fatalf("GET /about: %d\n%s", status, body)
 	}
+	if out, err := tifaCheck(t, dir); err != nil {
+		t.Fatalf("tifa check: %v\n%s", err, out)
+	}
 	typecheck(t, dir)
 }
 

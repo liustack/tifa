@@ -25,12 +25,10 @@ go tool tifa build
 
 Open <http://127.0.0.1:9527>. It redirects to the order list of the first shop. The storefront is at <http://127.0.0.1:9527/store/zh-CN> and <http://127.0.0.1:9527/store/en-US>. Use `./bin/shop --server-addr 127.0.0.1:9528` to change the port. `bin/shop` is a single executable with the frontend output embedded, so you can copy it to another machine and run it there.
 
-Type checking and tests:
+Checks and tests, with one command:
 
 ```sh
-pnpm typecheck
-go vet ./...
-go test ./...
+go tool tifa check
 ```
 
 ## Folders

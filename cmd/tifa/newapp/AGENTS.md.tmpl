@@ -9,11 +9,10 @@ This is a [tifa](https://github.com/liustack/tifa) app. Go routes requests, load
 | `{{.Install}}` | Install the npm packages (React, TanStack Router, TypeScript, Vite). Keep `@tanstack/react-router` at the version in `package.json`: `tifa build` refuses another one, since tifa is tested with that version only |
 | `go tool tifa dev` | Run at http://127.0.0.1:9527. A TSX or CSS edit updates the open page in place through Vite, a Go or `tifa.yaml` edit rebuilds and reloads it |
 | `go tool tifa build` | Generate `.tifa/`, bundle the front end with Vite and build `bin/` |
-| `go test ./...` and `go vet ./...` | Test and check the Go code |
-| `{{.Run}} typecheck` | Check the TypeScript, once `tifa build` or `tifa dev` has written the types into `.tifa/` |
+| `go tool tifa check` | The one command to run before you finish. It checks the routing conventions, generates `.tifa/`, then runs `go vet ./...`, `go test ./...` and the TypeScript type check with the app's own TypeScript. It stops at the first step that fails and says which |
 | `go tool tifa routes` | List the routes |
 
-Never edit `.tifa/`. It is generated, and `go test ./...` skips it.
+Never edit `.tifa/`. It is generated, and the Go tools skip it.
 
 ## Layout
 

@@ -1,7 +1,8 @@
 ---
-summary: 'tifa new 怎么新建应用、tifa build 做什么、.tifa/ 里生成了哪些文件和产物、应用的 tsconfig 与 go.mod 怎么配、生成的程序怎么启动和回答页面请求、为什么不带调试信息，以及要随程序附带哪些许可声明'
+summary: 'tifa new 怎么新建应用、tifa build 做什么、tifa check 跑哪些步骤、.tifa/ 里生成了哪些文件和产物、应用的 tsconfig 与 go.mod 怎么配、生成的程序怎么启动和回答页面请求、为什么不带调试信息，以及要随程序附带哪些许可声明'
 read_when:
   - 改 internal/codegen、cmd/tifa 的 build 命令或 server.Main
+  - 改 `tifa check`，或想知道它跑哪些步骤、需要什么
   - 新建一个 tifa 应用，或给 test/apps 加应用
   - 看不懂 .tifa/ 下某个文件从哪来
   - 实现页面渲染、导航数据请求，需要知道路由树与数据协议
@@ -34,7 +35,7 @@ tifa new <目录> [--module 模块路径]
 | `app/about/page.tsx` | 没有 `route.go` 的页面 |
 | `*_test.go` | 测试和被测代码放在一起：待办领域、数据库和钩子的测试，以及用 `tifatest` 写的路由代码测试，每个测试用临时目录里的一个新数据库 |
 | `tifa.yaml` | [config.zh-CN.md](config.zh-CN.md) 里的全部设置，按默认值写好并注释掉。`ssr.vms` 的默认值是 GOMAXPROCS，随机器而变，所以写的是示例值 |
-| `AGENTS.md`、`CLAUDE.md` | 给编程 agent 的说明：tifa 应用怎么运作，并链接到这些文档。`CLAUDE.md` 只指向 `AGENTS.md` |
+| `AGENTS.md`、`CLAUDE.md` | 给编程 agent 的说明：tifa 应用怎么运作，和唯一的检查命令 `go tool tifa check`。`CLAUDE.md` 只指向 `AGENTS.md` |
 | `package.json`、`tsconfig.json`、`vite.config.ts`、`.gitignore`、`README.md` | npm 包、TypeScript 与 Vite 配置、要忽略的构建产物和数据库文件，以及常用命令 |
 
 - 模块路径默认是目录名，`--module` 可以另给。应用要 import 根目录的包，所以路径必须是 go 命令能 import 的。tifa new 拒绝含 `vendor` 段的路径，也拒绝首段不带点、且（不分大小写）和标准库包或 go 命令包模式的首段相同的路径（比如 `fmt`、`net`、`all`），即使并没有同名的包。改传 `--module example.com/fmt`。
@@ -42,7 +43,7 @@ tifa new <目录> [--module 模块路径]
 - `go.mod` 要求的 tifa 版本，是 go 命令下载来运行的这个命令的版本：`go run github.com/liustack/tifa/cmd/tifa@<版本> new myapp`，或者在应用里 `go tool tifa new`。在 tifa 源码目录里构建、或被源码目录 replace 的命令写 `v0.0.0`，并多给一步用 `go mod edit -replace` 把 `go.mod` 指向源码目录。
 - `go.mod` 固定了一个 `modernc.org/sqlite` 版本。这个 SQLite 驱动是纯 Go 的。
 - `tifa new` 只写文件，不跑 go 或 npm 命令，也不联网。它最后打印接下来的步骤：`cd` 进目录、`go mod tidy`、`pnpm install` 和 `go tool tifa dev`，开发服务在 http://127.0.0.1:9527。
-- 它会在 PATH 里找 `pnpm`，但不运行它。找到时，安装步骤和 `README.md`、`AGENTS.md` 里的命令用 pnpm（`pnpm install`、`pnpm typecheck`），找不到就用 npm（`npm install`、`npm run typecheck`）。`package.json` 不写 `packageManager` 字段，所以同一个应用两种都能用。
+- 它会在 PATH 里找 `pnpm`，但不运行它。找到时，安装步骤和 `README.md`、`AGENTS.md` 里的命令用 pnpm（`pnpm install`，`README.md` 里还有 `pnpm typecheck`），找不到就用 npm（`npm install`，`README.md` 里还有 `npm run typecheck`）。`package.json` 不写 `packageManager` 字段，所以同一个应用两种都能用。
 
 ## tifa build
 
@@ -110,6 +111,32 @@ cp "$q/intl/LICENSE-DATA" "$q"/internal/gointl/qjsdata/NOTICE-* bin/notices/
 每种许可要求哪些文件，见 slowjs 的 [NOTICE.md](https://github.com/liustack/slowjs/blob/main/NOTICE.md#what-a-program-that-ships-a-binary-must-include)。
 
 Vite 打进 SSR 包和浏览器包的 npm 包是应用自己的依赖，它们的许可（MIT、ISC、BSD、Apache-2.0 等）大多也有同样的要求。浏览器包会发给每个打开页面的人。`tifa build` 不收集这些声明，请用你选的工具收集，比如 Vite 或 Rollup 的许可插件。
+
+## tifa check
+
+```sh
+tifa check [--dir 应用根目录]
+```
+
+用一条命令跑完应用的全部检查，遇到第一个失败的步骤就停：
+
+1. `analyze`：`tifa build` 的静态分析。每处违反约定都按 `文件:行号: 原因` 打印。
+2. `generate`：和 `tifa build` 一样写出 `.tifa/`，让 TypeScript 这一步用到的类型是最新的。只有带页面的应用才会启动 Node。
+3. `go vet ./...`
+4. `go test ./...`
+5. `typescript (tsc --noEmit)`：用应用自己装的 `typescript` 包里的 `tsc`，在应用根目录用 `node` 跑，读应用的 `tsconfig.json`。tifa 按 Node 的方式找这个包：先在应用的 `node_modules`，再往上层目录找，也认 pnpm 的链接，所以 npm 和 pnpm 都行，也不会安装任何东西。没装 `typescript` 的应用在这一步失败，报错会提示运行包管理器的安装命令。没有页面的应用跳过这一步，打印 `typescript: skipped, the app has no pages (no Node needed)`。
+
+每一步先打印一行以 `==> ` 开头的标题，再是它的工具打印的内容。Go 以 `CGO_ENABLED=0` 运行，和 `tifa build` 一致。某一步失败时命令以非零状态退出，报错里写明是哪一步，后面的步骤不再运行。
+
+```text
+==> analyze
+==> generate
+==> go vet ./...
+vetbad.go:5:29: fmt.Printf format %d has arg "text" of wrong type string
+tifa: check failed at go vet ./...: exit status 1
+```
+
+`tifa new` 把 `go tool tifa check` 写进新应用的 `AGENTS.md`，作为改完之后要跑的唯一检查命令。
 
 ## tifa routes
 

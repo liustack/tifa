@@ -25,12 +25,10 @@ go tool tifa build
 
 打开 <http://127.0.0.1:9527>，会跳到第一家店铺的订单列表。店面在 <http://127.0.0.1:9527/store/zh-CN> 和 <http://127.0.0.1:9527/store/en-US>。`./bin/shop --server-addr 127.0.0.1:9528` 换端口。`bin/shop` 是单个可执行文件，前端产物已经嵌在里面，拷到别的机器上直接运行。
 
-类型检查与测试：
+检查与测试，一条命令：
 
 ```sh
-pnpm typecheck
-go vet ./...
-go test ./...
+go tool tifa check
 ```
 
 ## 目录
