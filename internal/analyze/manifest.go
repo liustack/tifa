@@ -37,8 +37,12 @@ type Layout struct {
 	Parent string `json:"parent"`
 	// Path is the path of Dir in ServeMux syntax, "/" for app.
 	Path string `json:"path"`
-	// TSX reports whether layout.tsx exists.
+	// TSX reports whether layout.tsx or layout_.tsx exists.
 	TSX bool `json:"tsx"`
+	// Replace reports whether the component is in layout_.tsx: the Layout shows its directory and
+	// the directories below it without the Layouts above, whose Layout functions do not run for
+	// them. Parent is then empty, and the Routes of the Layouts above leave out its routes.
+	Replace bool `json:"replace"`
 	// Load describes the Layout function, nil when the Layout has none.
 	Load *Load `json:"load"`
 	// SSR is the Layout's own LayoutSSR constant, true when absent.

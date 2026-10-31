@@ -331,6 +331,62 @@ test('the URL of a Layout without a page of its own shows the 404 inside that La
   }
 })
 
+// app/solo has layout_.tsx: its pages show without the root Layout, which does not load for them.
+test('a layout_.tsx shows its pages without the root Layout, which does not load for them', async () => {
+  for (const [url, want] of [
+    ['/solo', '["app/solo/layout"]'],
+    ['/solo/inner', '["app/solo/layout"]'],
+    ['/solo/nope', '["app/solo/layout"]'],
+  ] as const) {
+    const { calls } = await client(url)
+    const ids = JSON.stringify(calls.map(([, id]) => id).sort())
+    assert(ids === want, `${url} requested ${ids}`)
+  }
+  const html = await render('/solo/inner', { 'app/solo/layout': ok('s') })
+  contains(html, '<html lang="xx" ', 'SOLO <!-- -->s', 'SOLO_INNER_LAYOUT', 'SOLO_INNER')
+  lacks(html, 'APP_NAV')
+  // The document head of the root Layout stays, its head does not.
+  const head = html.slice(0, html.indexOf('</head>'))
+  contains(head, '<meta name="theme-color" content="#123">', '<link rel="icon" href="/icon.svg">')
+  lacks(head, 'APP_TITLE', 'say ')
+  // A URL below it that no page has shows its 404 inside it.
+  const missingPage = await render('/solo/nope', { 'app/solo/layout': ok('s') })
+  contains(missingPage, 'SOLO <!-- -->s', 'SOLO_404')
+  lacks(missingPage, 'APP_NAV', 'APP_404')
+  // When it fails, nothing is above it but the framework's Error.
+  contains(await render('/solo', { 'app/solo/layout': missing }), '<main><h1>Page not found</h1></main>')
+  const failed = await render('/solo', { 'app/solo/layout': { status: 503, error: 'later' } })
+  contains(failed, '<h1>Something went wrong</h1><p>later</p>')
+  lacks(failed, 'APP_NAV', 'APP_ERROR')
+})
+
+test('navigating across a layout_.tsx swaps the outer Layouts and loads what is missing', async () => {
+  const outer = (router: any) => router.state.matches.map((m: any) => m.routeId).filter((id: string) => id === '/_app' || id === '/solo')
+  const { router, calls } = await client('/solo')
+  assert(JSON.stringify(outer(router)) === '["/solo"]', `matches ${JSON.stringify(outer(router))}`)
+  calls.length = 0
+  // No React mounts the router here, so nothing loads the new location until load.
+  router.history.push('/teams/x/one')
+  await router.load()
+  assert(JSON.stringify(outer(router)) === '["/_app"]', `matches ${JSON.stringify(outer(router))}`)
+  const ids = JSON.stringify(calls.map(([, id]) => id).sort())
+  assert(ids === '["app/layout","app/teams/team+/layout","app/teams/team+/one/route"]', `to the team requested ${ids}`)
+  // Back below layout_.tsx: the root Layout is not asked for.
+  calls.length = 0
+  router.history.push('/solo/inner')
+  await router.load()
+  assert(JSON.stringify(outer(router)) === '["/solo"]', `matches ${JSON.stringify(outer(router))}`)
+  assert(!calls.some(([, id]) => id === 'app/layout'), `back requested ${JSON.stringify(calls)}`)
+  // A page rendered on the server hydrates without requests, then leaves for the root Layout.
+  const html = await render('/solo/inner', { 'app/solo/layout': ok('s') })
+  const hydrated = await hydrateFrom(html, '/solo/inner')
+  assert(hydrated.calls.length === 0, `hydration requested ${JSON.stringify(hydrated.calls)}`)
+  hydrated.router.history.push('/hello')
+  await hydrated.router.load()
+  assert(JSON.stringify(outer(hydrated.router)) === '["/_app"]', `matches ${JSON.stringify(outer(hydrated.router))}`)
+  assert(JSON.stringify(hydrated.calls.map(([, id]) => id)) === '["app/layout"]', `to /hello requested ${JSON.stringify(hydrated.calls)}`)
+})
+
 test("the framework's Error shows a 404 as a page that is not found", async () => {
   const html = await render('/hello', { 'app/layout': missing })
   contains(html, '<main><h1>Page not found</h1></main>')

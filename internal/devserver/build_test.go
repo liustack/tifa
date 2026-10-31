@@ -78,6 +78,8 @@ func TestRebuildMatrix(t *testing.T) {
 		{"new route", []change{{"app/orders/new/page.tsx", created}}, "v1", all},
 		{"removed route", []change{{"app/orders/new/page.tsx", removed}}, "v1", all},
 		{"removed layout", []change{{"app/orders/layout.tsx", removed}}, "v1", all},
+		{"new replacing layout", []change{{"app/orders/layout_.tsx", created}}, "v1", all},
+		{"replacing layout", []change{{"app/orders/layout_.tsx", modified}}, "v1", []string{"Bundle"}},
 		{"config", []change{{"tifa.yaml", modified}}, "v1", all},
 		{"env", []change{{".env", modified}}, "v1", []string{"Bundle"}},
 		{"env of a mode", []change{{".env.production.local", created}}, "v1", []string{"Bundle"}},

@@ -97,7 +97,8 @@ func kindOf(p string) kind {
 //   - TypeScript, JavaScript and CSS only need a new bundle.
 //   - Go needs a new analysis and a go build. The builder adds code generation and a bundle
 //     when the analysis returns a new route manifest.
-//   - A page.tsx or layout.tsx that appears or disappears changes the manifest, so does tifa.yaml.
+//   - A page.tsx, layout.tsx or layout_.tsx that appears or disappears changes the manifest, so
+//     does tifa.yaml.
 //   - A restart of Vite's dev server needs a new bundle, as a file outside the root may have
 //     changed meanwhile with no event.
 func plan(changes []change) steps {
@@ -115,7 +116,7 @@ func plan(changes []change) steps {
 		case frontend:
 			s.bundle = true
 			base := path.Base(c.path)
-			if c.op != modified && (base == "page.tsx" || base == "layout.tsx") {
+			if c.op != modified && (base == "page.tsx" || base == "layout.tsx" || base == "layout_.tsx") {
 				s = everything
 			}
 		}

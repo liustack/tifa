@@ -1099,7 +1099,7 @@ function resolveRouteModule(ctx, root, source, importer) {
   if (!fs.existsSync(module)) {
     ctx.error(
       `${source}: ${path.dirname(rel).split(path.sep).join('/')} has no generated route.gen module: ` +
-        'it is made for a directory with page.tsx, layout.tsx or a Layout, or a method handler in route.go',
+        'it is made for a directory with page.tsx, layout.tsx, layout_.tsx or a Layout, or a method handler in route.go',
     )
   }
   return module

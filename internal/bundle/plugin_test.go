@@ -575,7 +575,7 @@ func TestGeneratedResolvesRouteGen(t *testing.T) {
 		"../route.gen from app/x/y/page.tsx":          ".tifa/app/x/route.gen.ts",
 		"../x/route.gen from app/z/page.tsx":          ".tifa/app/x/route.gen.ts",
 		"./route.gen from .tifa/app/x/y/route.gen.ts": ".tifa/app/x/y/route.gen.ts",
-		"./route.gen from app/z/page.tsx":             "error: ./route.gen: app/z has no generated route.gen module: it is made for a directory with page.tsx, layout.tsx or a Layout, or a method handler in route.go",
+		"./route.gen from app/z/page.tsx":             "error: ./route.gen: app/z has no generated route.gen module: it is made for a directory with page.tsx, layout.tsx, layout_.tsx or a Layout, or a method handler in route.go",
 		"./route.gen from lib/a.ts":                   "error: ./route.gen is generated for directories under app/ only",
 		"./+route from app/x/page.tsx":                "unmatched",
 		"./+layout from app/x/page.tsx":               "unmatched",

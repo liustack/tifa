@@ -295,7 +295,8 @@ func TestHeadTagsFollowStaticImports(t *testing.T) {
 
 // Each Layout and route module that is a chunk of its own preloads that chunk and the chunks it
 // imports statically, in the order headTags writes them, without what the head loads already.
-// The root Layout is part of the entry, and modules that are no Layout or route get nothing.
+// The root Layout is part of the entry, and modules that are no Layout or route get nothing. A
+// layout_.tsx is a Layout like layout.tsx.
 func TestRoutePreloadsLeaveOutTheHead(t *testing.T) {
 	preload := routePreloads(map[string]manifestEntry{
 		".tifa/client.ts":         {File: "assets/app-1.js", IsEntry: true, Imports: []string{"_a.js", "app/layout.tsx"}},
@@ -308,6 +309,7 @@ func TestRoutePreloadsLeaveOutTheHead(t *testing.T) {
 		"app/x/chart.client.tsx":  {File: "assets/chunk-chart.js", Imports: []string{"_d.js"}},
 		"app/x/y+/layout.tsx":     {File: "assets/chunk-y.js", Imports: []string{"_c.js"}},
 		"app/x/y+/z/page.tsx":     {File: "assets/chunk-z.js"},
+		"app/w/layout_.tsx":       {File: "assets/chunk-w.js"},
 		"app/x/route.css":         {File: "assets/route.css"},
 		"node_modules/a/page.tsx": {File: "assets/chunk-n.js"},
 		"style.css":               {File: "assets/style-1.css"},
@@ -316,6 +318,7 @@ func TestRoutePreloadsLeaveOutTheHead(t *testing.T) {
 		"app/x/route":      {"/assets/chunk-x.js", "/assets/chunk-b.js", "/assets/chunk-c.js", "/assets/chunk-d.js"},
 		"app/x/y+/layout":  {"/assets/chunk-y.js", "/assets/chunk-c.js"},
 		"app/x/y+/z/route": {"/assets/chunk-z.js"},
+		"app/w/layout":     {"/assets/chunk-w.js"},
 	}
 	if !reflect.DeepEqual(preload, want) {
 		t.Errorf("preloads\n%v\nwant\n%v", preload, want)

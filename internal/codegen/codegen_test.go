@@ -286,6 +286,50 @@ func TestLayoutAndPageInOneDirectory(t *testing.T) {
 	}
 }
 
+// A Layout in layout_.tsx has no parent, so its route hangs from the framework's root, outside
+// the root Layout, and its module is layout_.tsx. It fails into the framework's Error, as the
+// root Layout does. The root Layout's catch-all route turns down its URLs, which the router
+// matches in part to show its own 404.
+func TestReplaceLayoutHangsFromTheFrameworksRoot(t *testing.T) {
+	root := t.TempDir()
+	const store = "app/store/lang+"
+	for _, f := range []string{"app/layout.tsx", "app/page.tsx", store + "/layout_.tsx", store + "/page.tsx", store + "/cart/layout.tsx", store + "/cart/page.tsx"} {
+		writeFile(t, filepath.Join(root, f), "export default function C() { return null }\nexport function Error() { return null }\n")
+	}
+	m := &analyze.Manifest{
+		Module: "example.com/x",
+		Layouts: []analyze.Layout{
+			{ID: "app/layout", Dir: "app", Path: "/", TSX: true, SSR: true, Routes: []string{"app/route"}},
+			{ID: store + "/layout", Dir: store, Path: "/store/{lang}", TSX: true, Replace: true, SSR: true, Routes: []string{store + "/route", store + "/cart/route"}},
+			{ID: store + "/cart/layout", Dir: store + "/cart", Parent: store + "/layout", Path: "/store/{lang}/cart", TSX: true, SSR: true, Routes: []string{store + "/cart/route"}},
+		},
+		Routes: []analyze.Route{
+			{ID: "app/route", Dir: "app", Path: "/", Page: true, SSR: true, Layouts: []string{"app/layout"}},
+			{ID: store + "/route", Dir: store, Path: "/store/{lang}", Page: true, SSR: true, Layouts: []string{store + "/layout"}},
+			{ID: store + "/cart/route", Dir: store + "/cart", Path: "/store/{lang}/cart", Page: true, SSR: true, Layouts: []string{store + "/layout", store + "/cart/layout"}},
+		},
+	}
+	files, err := Generate(root, m, false, fakeExports)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, wants := range map[string][]string{
+		"routes.tsx": {
+			`const m2 = () => import("../app/store/lang+/layout_")`,
+			"getParentRoute: () => root,\n  path: \"store/$lang\",\n  component: lazyRouteComponent(m2),\n  errorComponent: DefaultError,\n  notFoundComponent: n2,",
+			`params: { parse: outside([["store", null], ["store", null, "cart"]]) }`,
+		},
+		store + "/route.gen.ts":      {`export const layout = getRouteApi("/store/$lang")`, `export const page = getRouteApi("/store/$lang/")`},
+		store + "/cart/route.gen.ts": {`export const layout = getRouteApi("/store/$lang/cart")`, `export const page = getRouteApi("/store/$lang/cart/")`},
+	} {
+		for _, want := range wants {
+			if !strings.Contains(string(files[name]), want) {
+				t.Errorf("%s lacks %s:\n%s", name, want, files[name])
+			}
+		}
+	}
+}
+
 // Every route shows the first Error going up from it, a Layout from the level above its own, so
 // a Layout's Error shows in its Outlet with the Layout around it. A Layout's notFoundComponent
 // shows the first Error from the Layout up for a URL that matches nothing below it, and so does

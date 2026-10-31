@@ -166,7 +166,7 @@ func staticImports(manifest map[string]manifestEntry, key string, seen map[strin
 	}
 }
 
-// routePreloads lists, for each layout.tsx and page.tsx under app/ that is a chunk of its own,
+// routePreloads lists, for each layout.tsx, layout_.tsx and page.tsx under app/ that is a chunk of its own,
 // the URLs of the chunk and of the chunks it imports statically, in the order headTags writes
 // them, without the entry and what it imports. The key is the ID of the Layout or route: the
 // path without .tsx for a Layout, and the directory followed by /route for a page. A module the entry imports, such as the root Layout, gets nothing, and
@@ -177,7 +177,7 @@ func routePreloads(manifest map[string]manifestEntry) map[string][]string {
 	preload := map[string][]string{}
 	for key := range manifest {
 		name := path.Base(key)
-		if !strings.HasPrefix(key, "app/") || (name != "page.tsx" && name != "layout.tsx") || inHead[key] {
+		if !strings.HasPrefix(key, "app/") || (name != "page.tsx" && name != "layout.tsx" && name != "layout_.tsx") || inHead[key] {
 			continue
 		}
 		seen := maps.Clone(inHead)
@@ -332,10 +332,11 @@ func distID(dist, skip string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil))[:16], nil
 }
 
-// routeID turns the manifest key of a page.tsx or layout.tsx into the ID of its route or Layout.
+// routeID turns the manifest key of a page.tsx, layout.tsx or layout_.tsx into the ID of its
+// route or Layout.
 func routeID(key string) string {
 	if dir, ok := strings.CutSuffix(key, "/page.tsx"); ok {
 		return dir + "/route"
 	}
-	return strings.TrimSuffix(key, ".tsx")
+	return path.Dir(key) + "/layout"
 }

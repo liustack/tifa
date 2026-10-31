@@ -125,17 +125,22 @@ type analyzer struct {
 	used                usedLoads
 }
 
-// dirInfo records the convention files found in one directory under app/. oldRouteTSX is a
-// route.tsx, the name pages had before they were page.tsx: it is reported and nothing more.
+// dirInfo records the convention files found in one directory under app/. replaceTSX is a
+// layout_.tsx, a Layout shown without the Layouts above it. oldRouteTSX is a route.tsx, the name
+// pages had before they were page.tsx: it is reported and nothing more.
 type dirInfo struct {
-	id                                       string
-	routeGo, pageTSX, layoutTSX, oldRouteTSX bool
+	id                                                   string
+	routeGo, pageTSX, layoutTSX, replaceTSX, oldRouteTSX bool
 }
+
+// replaces reports whether the Layout of d drops the Layouts above it. A layout_.tsx in app/, or
+// next to a layout.tsx, is reported by scan and taken as a layout.tsx.
+func (d *dirInfo) replaces() bool { return d.replaceTSX && !d.layoutTSX && d.id != "app" }
 
 // conventionFiles are the files that make a directory under app/ a page, a Layout or an API
 // route. route.tsx is no longer one, but a page left under that name would silently become a
 // plain component, so the scan reports it.
-var conventionFiles = []string{"route.go", "page.tsx", "layout.tsx", "route.tsx"}
+var conventionFiles = []string{"route.go", "page.tsx", "layout.tsx", "layout_.tsx", "route.tsx"}
 
 // scan walks app/ and records which convention files exist. The go command skips directories
 // whose name starts with "." or "_" and directories named testdata, so a convention file below
@@ -145,7 +150,7 @@ func (a *analyzer) scan() error {
 	if info, err := os.Stat(appDir); err != nil || !info.IsDir() {
 		return fmt.Errorf("%s has no app directory", a.root)
 	}
-	return filepath.WalkDir(appDir, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(appDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -170,12 +175,27 @@ func (a *analyzer) scan() error {
 			info.pageTSX = true
 		case "layout.tsx":
 			info.layoutTSX = true
+		case "layout_.tsx":
+			info.replaceTSX = true
 		case "route.tsx":
 			info.oldRouteTSX = true
 			a.errorInFile(id, name, "route.tsx is not a page file any more: rename it to page.tsx")
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	for _, d := range a.dirs {
+		switch {
+		case !d.replaceTSX:
+		case d.id == "app":
+			a.errorInFile(d.id, "layout_.tsx", "layout_.tsx drops the layouts above it, and app/ has none: rename it to layout.tsx")
+		case d.layoutTSX:
+			a.errorInFile(d.id, "layout_.tsx", "layout.tsx and layout_.tsx are both in %s, and a folder has one layout: keep layout.tsx to show it inside the layouts above, or layout_.tsx to show it without them", d.id)
+		}
+	}
+	return nil
 }
 
 // skippedDir returns the outermost directory of the directory ID id, below app, that the go
@@ -386,7 +406,7 @@ type route struct {
 
 type layout struct {
 	Layout
-	file  string // route.go when it declares the Layout function, else layout.tsx
+	file  string // route.go when it declares the Layout function, else layout.tsx or layout_.tsx
 	segs  []segment
 	valid bool
 	uses  []paramUse
@@ -453,8 +473,10 @@ func (d *dirInfo) firstFile() string {
 		return "page.tsx"
 	case d.oldRouteTSX:
 		return "route.tsx"
+	case d.layoutTSX:
+		return "layout.tsx"
 	}
-	return "layout.tsx"
+	return "layout_.tsx"
 }
 
 // dirPath reads the path of a directory and reports a name that is not a URL segment, or that
@@ -578,7 +600,10 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 // layout.tsx or when route.go declares Layout or LayoutSSR. pkg is the package of route.go, nil
 // when it has none or does not type check.
 func (a *analyzer) layout(d *dirInfo, pkg *packages.Package) *layout {
-	l := &layout{Layout: Layout{ID: d.id + "/layout", Dir: d.id, TSX: d.layoutTSX, SSR: true}, file: "layout.tsx"}
+	l := &layout{Layout: Layout{ID: d.id + "/layout", Dir: d.id, TSX: d.layoutTSX || d.replaceTSX, Replace: d.replaces(), SSR: true}, file: "layout.tsx"}
+	if d.replaceTSX && !d.layoutTSX {
+		l.file = "layout_.tsx"
+	}
 	if pkg != nil {
 		scope := pkg.Types.Scope()
 		if scope.Lookup("Layout") != nil || scope.Lookup("LayoutSSR") != nil {
@@ -588,7 +613,7 @@ func (a *analyzer) layout(d *dirInfo, pkg *packages.Package) *layout {
 			return l
 		}
 	}
-	if !d.layoutTSX {
+	if !l.TSX {
 		return nil
 	}
 	return l
@@ -809,30 +834,63 @@ func derefType(t types.Type) types.Type {
 // isAncestor reports whether directory ID outer strictly contains directory ID inner.
 func isAncestor(outer, inner string) bool { return strings.HasPrefix(inner, outer+"/") }
 
-// covers reports whether a Layout in directory outer wraps what is in directory inner: its own
-// directory and every directory below it.
+// covers reports whether a Layout in directory outer is over what is in directory inner: its own
+// directory and every directory below it. It wraps them unless a layout_.tsx between drops it
+// (see wraps).
 func covers(outer, inner string) bool { return outer == inner || isAncestor(outer, inner) }
 
+// dropper returns the Layout of the deepest layout_.tsx that covers dir and lies below the
+// directory outer, which drops the Layout of outer for dir, nil when there is none. layouts is
+// sorted by directory.
+func dropper(layouts []*layout, outer, dir string) *layout {
+	var found *layout
+	for _, l := range layouts {
+		if l.Replace && isAncestor(outer, l.Dir) && covers(l.Dir, dir) {
+			found = l
+		}
+	}
+	return found
+}
+
+// wraps reports whether the Layout l wraps what is in directory dir: it covers dir, and no
+// layout_.tsx between drops it.
+func wraps(layouts []*layout, l *layout, dir string) bool {
+	return covers(l.Dir, dir) && dropper(layouts, l.Dir, dir) == nil
+}
+
 // linkLayouts fills Layout chains and scopes and checks that every path parameter a Layout
-// function reads lies in the Layout's own path.
+// function reads lies in the Layout's own path. A chain starts at the deepest layout_.tsx above
+// a route, so the Layouts above it neither wrap the route nor pass it LayoutSSR.
 func (a *analyzer) linkLayouts(routes []*route, layouts []*layout) {
 	for _, l := range layouts {
 		for _, p := range layouts { // sorted by directory, so the last match is the closest
-			if isAncestor(p.Dir, l.Dir) {
+			if !l.Replace && isAncestor(p.Dir, l.Dir) {
 				l.Parent = p.ID
 			}
 		}
 		pages := 0
+		var dropped *layout // a layout_.tsx below l over a page that l would wrap without it
 		for _, r := range routes {
-			if covers(l.Dir, r.Dir) {
-				l.Routes = append(l.Routes, r.ID)
-				if r.Page {
-					pages++
+			if !covers(l.Dir, r.Dir) {
+				continue
+			}
+			if d := dropper(layouts, l.Dir, r.Dir); d != nil {
+				if r.Page && dropped == nil {
+					dropped = d
 				}
+				continue
+			}
+			l.Routes = append(l.Routes, r.ID)
+			if r.Page {
+				pages++
 			}
 		}
 		if pages == 0 {
-			a.errorInFile(l.Dir, l.file, "this layout has no pages (page.tsx) in its directory or below it")
+			if dropped != nil {
+				a.errorInFile(l.Dir, l.file, "every page below this layout is below %s/layout_.tsx, which shows its pages without the layouts above it, so this layout wraps no page: add a page it wraps, or remove it", dropped.Dir)
+			} else {
+				a.errorInFile(l.Dir, l.file, "this layout has no pages (page.tsx) in its directory or below it")
+			}
 			continue
 		}
 		if !l.valid {
@@ -846,7 +904,7 @@ func (a *analyzer) linkLayouts(routes []*route, layouts []*layout) {
 	}
 	for _, r := range routes {
 		for _, l := range layouts {
-			if covers(l.Dir, r.Dir) {
+			if wraps(layouts, l, r.Dir) {
 				r.Layouts = append(r.Layouts, l.ID)
 				if !l.SSR {
 					r.SSR = false
@@ -985,7 +1043,7 @@ func (a *analyzer) checkUses(layouts []*layout) {
 		for _, f := range pkg.Syntax {
 			ast.Inspect(f, func(n ast.Node) bool {
 				if call, ok := n.(*ast.CallExpr); ok && isTifaUse(pkg.TypesInfo, call) {
-					a.checkUse(pkg.TypesInfo, call, caller, layoutByPkg)
+					a.checkUse(pkg.TypesInfo, call, caller, layouts, layoutByPkg)
 				}
 				return true
 			})
@@ -994,11 +1052,11 @@ func (a *analyzer) checkUses(layouts []*layout) {
 	// A helper outside the Load's package may call tifa.Use on its behalf. The Layout must then
 	// be an ancestor of the route or Layout whose Load reaches the helper.
 	for _, u := range a.helperUses {
-		a.checkUse(u.info, u.call, u.caller, layoutByPkg)
+		a.checkUse(u.info, u.call, u.caller, layouts, layoutByPkg)
 	}
 }
 
-func (a *analyzer) checkUse(info *types.Info, call *ast.CallExpr, caller string, layoutByPkg map[string]*layout) {
+func (a *analyzer) checkUse(info *types.Info, call *ast.CallExpr, caller string, layouts []*layout, layoutByPkg map[string]*layout) {
 	if len(call.Args) != 2 {
 		return
 	}
@@ -1027,6 +1085,10 @@ func (a *analyzer) checkUse(info *types.Info, call *ast.CallExpr, caller string,
 	}
 	if !covers(l.Dir, caller) {
 		a.errorAt(arg.Pos(), "tifa.Use(c, %s): the layout of %s does not wrap %s", text, l.Dir, caller)
+		return
+	}
+	if d := dropper(layouts, l.Dir, caller); d != nil {
+		a.errorAt(arg.Pos(), "tifa.Use(c, %s): %s/layout_.tsx drops the layout of %s, so its Layout does not run for %s: call the code %s calls yourself, or rename layout_.tsx to layout.tsx to keep the layouts above", text, d.Dir, l.Dir, caller, text)
 	}
 }
 
