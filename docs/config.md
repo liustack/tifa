@@ -173,7 +173,7 @@ A program refuses a POST, PUT, PATCH or DELETE that a browser sends from another
 - A request with neither header does not come from a browser, such as curl, a webhook or another server, and passes.
 - GET, HEAD and OPTIONS are never checked, so a GET must not change anything.
 
-A refused request gets 403 and `{"error":"cross-origin request detected from Sec-Fetch-Site header"}` (or the same with `Sec-Fetch-Site is missing, and Origin does not match Host`), with `Cache-Control: no-store`. `OnRequest` does not run for it, so a log or a counter there does not see it. Calls from your own pages, with the functions of `route.gen` or `fetch`, and `router.invalidate()` are same-origin and unaffected. So is `tifa dev`, where the browser talks to one address.
+A refused request gets 403 and `{"error":"cross-origin request detected from Sec-Fetch-Site header"}` (or the same with `Sec-Fetch-Site is missing, and Origin does not match Host`), with `Cache-Control: no-store`. `OnRequest` does not run for it, so a log or a counter there does not see it. The server logs one line for it with the method, the path, the reason and the `Origin`, `Sec-Fetch-Site` and `Host` it read, which tells a proxy that rewrites `Host` from a real attack. Calls from your own pages, with the functions of `route.gen` or `fetch`, and `router.invalidate()` are same-origin and unaffected. So is `tifa dev`, where the browser talks to one address.
 
 Behind a proxy, let `Host` and `Origin` through as the browser sent them. A modern browser is judged by `Sec-Fetch-Site`, which proxies pass on, but an old one is judged by `Origin` against `Host`, so a proxy that rewrites `Host` makes its writes look foreign.
 

@@ -173,7 +173,7 @@ sudo setcap cap_net_bind_service=+ep ./bin/myapp
 - 两个头都没有的请求不是浏览器发的，比如 curl、webhook 或别的服务器，通过。
 - GET、HEAD、OPTIONS 从不检查，所以 GET 不能改任何东西。
 
-被拒绝的请求得到 403 和 `{"error":"cross-origin request detected from Sec-Fetch-Site header"}`（或者带 `Sec-Fetch-Site is missing, and Origin does not match Host` 的同类说明），并带 `Cache-Control: no-store`。`OnRequest` 不会为它运行，所以那里的日志或计数看不到它。你自己的页面用 `route.gen` 的函数或 `fetch` 发的调用，以及 `router.invalidate()` 都是同源的，不受影响。`tifa dev` 也一样，浏览器只和一个地址打交道。
+被拒绝的请求得到 403 和 `{"error":"cross-origin request detected from Sec-Fetch-Site header"}`（或者带 `Sec-Fetch-Site is missing, and Origin does not match Host` 的同类说明），并带 `Cache-Control: no-store`。`OnRequest` 不会为它运行，所以那里的日志或计数看不到它。服务端会为它记一行日志，写明方法、路径、原因和读到的 `Origin`、`Sec-Fetch-Site`、`Host`，能分清是代理改了 `Host` 还是真的攻击。你自己的页面用 `route.gen` 的函数或 `fetch` 发的调用，以及 `router.invalidate()` 都是同源的，不受影响。`tifa dev` 也一样，浏览器只和一个地址打交道。
 
 在代理后面，让 `Host` 和 `Origin` 原样通过。现代浏览器看 `Sec-Fetch-Site`，代理会照传，旧浏览器看 `Origin` 和 `Host` 是否一致，代理改了 `Host` 就会让它们的写请求像是外来的。
 
