@@ -42,11 +42,8 @@ Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 			node := bundle.NewNode(root, cmd.ErrOrStderr())
 			defer node.Close()
 			// 2. Code generation.
-			files, err := codegen.Generate(root, m, false, node.Exports)
+			files, err := generateApp(root, m, node)
 			if err != nil {
-				return err
-			}
-			if err := codegen.Write(root, files); err != nil {
 				return err
 			}
 			// 3. Bundles: the browser and SSR bundles and the public files, into .tifa/dist.
@@ -86,6 +83,16 @@ Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 	cmd.Flags().StringVar(&dir, "dir", ".", "application root, the directory holding go.mod and app/")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "executable path (default bin/<last element of the module path>)")
 	return cmd
+}
+
+// generateApp writes the generated code of the analyzed app into .tifa/ and returns the files. It
+// starts Node when the app has pages, which reads their exports.
+func generateApp(root string, m *analyze.Manifest, node *bundle.Node) (map[string][]byte, error) {
+	files, err := codegen.Generate(root, m, false, node.Exports)
+	if err != nil {
+		return nil, err
+	}
+	return files, codegen.Write(root, files)
 }
 
 // checkTanStack checks the TanStack Router of an app with pages, see bundle.CheckTanStack, unless
