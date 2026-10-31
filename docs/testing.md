@@ -154,7 +154,7 @@ The tests start the program with `testproc.Start` (see [Writing tests](#writing-
 | `/dom/<elements>` | 10,000, 50,000, 100,000 | The files tab of a large pull request: many DOM elements |
 | `/nest/<levels>` | 500, 1,000, 5,000, 10,000 | Components that only pass on children, plain, `memo`, `forwardRef` and context readers in turn: deep JavaScript calls |
 | `/deep/<levels>` | 400, 600 | Nested `div`s. Browsers stop nesting at about 512, so 600 only shows what the server does |
-| `/inject/<MB>` | 1, 5, 20 | A product catalogue of that many MB of JSON in the page |
+| `/inject/<MB>` | 1, 5, 20, 40 | A product catalogue of that many MB of JSON in the page |
 | `/json/<levels>` | 1,999, 2,001 | Data nested that deep. The C engine of slowjs parses JSON at most 2,000 levels deep |
 | `/table/<rows>` | 1,000, 5,000, 10,000 | A TanStack Table of 10 columns |
 | `/providers/<levels>` | 200, 500, 1,000 | That many context providers, each a different context, all read at the bottom |

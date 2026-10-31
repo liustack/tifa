@@ -57,6 +57,7 @@ var extremeSizes = []struct{ url, route, want string }{
 	{"/inject/1", "app/inject/mb+/route", `id="items"`},
 	{"/inject/5", "app/inject/mb+/route", `id="items"`},
 	{"/inject/20", "app/inject/mb+/route", `id="items"`},
+	{"/inject/40", "app/inject/mb+/route", `id="items"`},
 	{"/json/1999", "app/json/n+/route", `id="levels">1998<`},
 	{"/json/2001", "app/json/n+/route", `id="levels">2000<`},
 	{"/table/1000", "app/table/rows+/route", `SH-200999`},
