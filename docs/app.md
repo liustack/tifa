@@ -1,5 +1,5 @@
 ---
-summary: 'How to write a tifa app: folder layout, how folders become URLs, the three files of a folder (route.go, page.tsx, layout.tsx), Layouts, hooks.go, 404s and errors, a site in several languages, the SSR and cache switches, what the server render has, which libraries render differently there and which components to load only in the browser, using Intl and Temporal so hydration matches, styles with Tailwind CSS and shadcn/ui, how to test Go route code, how Load may use Ctx, method handlers with typed input and result, and the JSON rules for data, inputs and results'
+summary: 'How to write a tifa app: folder layout, how folders become URLs, the three files of a folder (route.go, page.tsx, layout.tsx), Layouts, a Layout without the Layouts above (layout_.tsx), hooks.go, 404s and errors, a site in several languages, the SSR and cache switches, what the server render has, which libraries render differently there and which components to load only in the browser, using Intl and Temporal so hydration matches, styles with Tailwind CSS and shadcn/ui, how to test Go route code, how Load may use Ctx, method handlers with typed input and result, and the JSON rules for data, inputs and results'
 read_when:
   - Creating a tifa app, or adding pages, Layouts or API routes to one
   - The build reports an error about Ctx usage or a Load return type and you want to fix it
@@ -38,6 +38,9 @@ myapp/
             items.tsx  ship-form.tsx
         stats/
           route.go  page.tsx        page /projects/{project}/stats
+    store/
+      lang+/
+        route.go  layout_.tsx  page.tsx  Layout of /store/{lang} and every page below it, without the root Layout around it, and the page /store/{lang}
 ```
 
 - Code is grouped by domain, and a domain is a folder under `app/`: its types, storage and rules sit next to its pages, in the list folder when it has a list and a page per item. Pages import the domain packages they show. The root package holds only the hooks and the resources the whole app shares. There is no shared `models/` or `db/` package holding every table. See [structure.md](structure.md).
@@ -56,7 +59,7 @@ Every folder below `app/` is one segment of the URL. `app/` itself is `/`.
 
 - A literal folder name holds only ASCII letters, digits and `- . _ ~`. A parameter name starts with a letter or `_`, followed by letters, digits or `_`, and appears once per URL.
 - The go command takes the package name from the `package` line, not from the folder. Name the package after the parameter: `project+` holds `package project`, and other packages import it as `project`.
-- The go command skips folders that start with `.` or `_`, and folders named `testdata`. A `route.go`, `page.tsx` or `layout.tsx` inside one fails the build. Other files there, such as a `_components` folder, are fine.
+- The go command skips folders that start with `.` or `_`, and folders named `testdata`. A `route.go`, `page.tsx`, `layout.tsx` or `layout_.tsx` inside one fails the build. Other files there, such as a `_components` folder, are fine.
 - A folder name must also be valid in a Go import path, so names such as `con` or `x~1` (Windows reserved and short names) fail the build.
 - A folder holds at most one parameter folder. `items/id+` next to `items/key+` or `items/path++` fails the build, because both would read the same URL segment.
 - Two routes (pages or API routes) whose URLs overlap without one being more specific fail the build, as in Go's `http.ServeMux`, such as `a/b+` next to `a+/b`. A literal is more specific than a parameter, so `items/new` next to `items/id+` is fine.
@@ -72,11 +75,12 @@ A folder has at most three convention files:
 | `route.go` | Every Go name of the folder: `Layout`, `LayoutSSR`, `Load`, `SSR`, `Cache` and the method handlers |
 | `page.tsx` | The page component. A folder with `page.tsx` is a page |
 | `layout.tsx` | The Layout component |
+| `layout_.tsx` | The Layout component in place of `layout.tsx`, shown without the Layouts above it (see [A Layout without the Layouts above](#a-layout-without-the-layouts-above)) |
 
 - The names of `route.go` are read from that file only. Declaring one of them in another file of the package, `layout.go` included, fails the build. Helpers and types may go in any file.
 - A folder with only `route.go` is an API route when it declares a method handler, and gives the pages below it their Layout data when it declares `Layout`. It can do both. `Load` is only allowed next to a `page.tsx`.
 - `route.tsx` is not a convention file. A `route.tsx` fails the build with the message to rename it to `page.tsx`, so a page is never taken for a plain component.
-- `tifa build` also writes a `route.gen.ts` module for each folder with a page, a Layout or a method handler, which `page.tsx` and `layout.tsx` import (see [page.tsx](#pagetsx)).
+- `tifa build` also writes a `route.gen.ts` module for each folder with a page, a Layout or a method handler, which `page.tsx`, `layout.tsx` and `layout_.tsx` import (see [page.tsx](#pagetsx)).
 
 ## route.go
 
@@ -177,7 +181,7 @@ export const head = ({ loaderData }: { loaderData?: PageData }) => ({
 
 - UI only, no data loading. `./route.gen` is a generated module, one per folder, that exports `page` and `layout` (the TanStack routes of the page and the Layout, only when the folder has them), `PageData` and `LayoutData` (the return types of `Load` and `Layout`), `Params`, and a function per method handler. Child components in the same folder also import `./route.gen`. A Layout's data comes from the `route.gen` of its folder: `layout.tsx` imports `layout` from `'./route.gen'`, and a page reads its project Layout with `layout` from `'../../route.gen'`, for example. A folder with no generated module fails the build when something imports its `route.gen`.
 - The default export is the page component. Optional exports: `head` and `Error`. A 404 shows in `Error` too (see [404](#404)), and exporting `NotFound` fails the build.
-- In the browser, each `page.tsx`, and each `layout.tsx` but the root Layout's, is a chunk of its own with everything it imports, `head` included. It loads the first time its route is needed, and the router waits for it before it shows the page or runs `head`. The HTML of a page preloads the chunks of its Layouts and route, so they arrive with the entry script. Code at the top level of the file, side-effect imports included, runs then and not when the app starts, so put setup that every page needs in the root Layout or a module it imports. See [Route modules in the browser](build.md#route-modules-in-the-browser).
+- In the browser, each `page.tsx`, and each `layout.tsx` or `layout_.tsx` but the root Layout's, is a chunk of its own with everything it imports, `head` included. It loads the first time its route is needed, and the router waits for it before it shows the page or runs `head`. The HTML of a page preloads the chunks of its Layouts and route, so they arrive with the entry script. Code at the top level of the file, side-effect imports included, runs then and not when the app starts, so put setup that every page needs in the root Layout or a module it imports. See [Route modules in the browser](build.md#route-modules-in-the-browser).
 - Go slices and maps carry `| null` in TypeScript (Go's nil is encoded as `null`). Write `?? []` before using them.
 - Put components that need browser features at the module top level into a `.client.tsx` file, and load them lazily with `clientOnly` from `tifa/client`. They are left out of the SSR bundle, and the first paint shows a placeholder. Components that render but show nothing until the browser draws them belong there too, see [Components that draw only in the browser](#components-that-draw-only-in-the-browser):
 
@@ -250,7 +254,7 @@ const LayoutSSR = false // optional, default true
 - `Layout` and `LayoutSSR` go in `route.go`, next to `Load`, `SSR`, `Cache` and the method handlers of the same folder. Declaring one of them in any other file of the package, a `layout.go` for example, fails the build. A `route.go` with only a `Layout` is no API route.
 - A Layout's `c.Param` may only read parameters of its own folder path. `Layout` in `app/projects/project+/route.go` may read `project`, not `order`. A page's `Load` is held to its own path the same way.
 - When you switch between pages under the same Layout, the Layout component is not remounted and keeps its state. When a parameter the Layout function reads changes (for example, you move to another project), the Layout remounts and its state resets. When a parameter it does not read changes, the state is kept. Pages work the same way.
-- Pages and Layouts can call `tifa.Use(c, project.Layout)` to get the result of a Layout that wraps them, for the current request: the Layout of the same folder or of an ancestor folder. The same `Layout` runs only once per request. Any other Layout fails the build, and so does an argument that is not a package-level `Layout` function, such as a closure. A `Layout` function cannot use its own Layout, directly or through a helper.
+- Pages and Layouts can call `tifa.Use(c, project.Layout)` to get the result of a Layout that wraps them, for the current request: the Layout of the same folder or of an ancestor folder, unless a `layout_.tsx` between drops it. The same `Layout` runs only once per request. Any other Layout fails the build, and so does an argument that is not a package-level `Layout` function, such as a closure. A `Layout` function cannot use its own Layout, directly or through a helper.
 - On navigation in the browser, the navigation data request runs only the `Load` and `Layout` functions of the listed routes. If an ancestor Layout's data is still in the cache, that Layout is not in the list and its `Layout` does not run this time. So do not put permission checks only in a Layout. Put them in `OnRequest`, or have the page's `Load` depend on the checking Layout through `tifa.Use`, so the check runs on every request.
 - The document shell (`<html>`, `<head>`, assets and the script that injects data) is written as a string by the framework. React only renders the app root inside `<body>`, so the page is still a complete document when any level fails or returns 404. The root Layout (`app/layout.tsx`) can export two constants to customize the shell: `htmlAttributes` sets the attributes of `<html>` every page starts from (`{ lang: 'en' }` when not exported, and a route's `head` can change them for its pages, see below), and `documentHead` holds head tags that every page carries (also when no route matches or the root `Layout` fails), in the same format as the return value of `head`. Put the site's default `title` here so that the 404 page for an unmatched URL also has a title. A page's own `head` that returns a `title` overrides it. Exporting a `Document` component fails the build.
 
@@ -277,6 +281,30 @@ export const head = ({ loaderData }: { loaderData?: LayoutData }) => ({
 - `htmlAttributes` must be an object, and `pnpm typecheck` reports any other value. At run time such a value fails like an error the `head` throws: the server render fails as an unexpected error (`OnError`, or a 500), with the message in the log, and on the page under `tifa dev`. In the browser, after a navigation or on a page without SSR, the router writes the error to the console and drops the whole head of that route.
 - Take the language from the Layout's data, as above, rather than from `params`: the Go function checks it, so whatever someone types into the URL does not end up as the language of the page.
 
+### A Layout without the Layouts above
+
+Name the component file `layout_.tsx` instead of `layout.tsx`, and the Layout of the folder shows its pages without any Layout above it, the root Layout included. Only the document shell the framework writes stays around them. The storefront of [examples/shop](../examples/shop) works this way: it draws its own header and footer, and none of the workbench the root Layout draws around the other pages.
+
+```text
+app/
+  route.go  layout.tsx                the workbench: sidebar, top bar, the list of shops
+  projects/
+    project+/
+      route.go  layout.tsx  page.tsx  inside the workbench
+  store/
+    lang+/
+      route.go  layout_.tsx  page.tsx   the storefront, without the workbench
+      cart/
+        route.go  page.tsx            inside the storefront
+```
+
+- The pages below it, also those further down, do not render the Layouts above it, and their `Layout` functions do not run for them: not for a page, not for the navigation data request of the browser, not for the 404 of a URL below it that no page has. So their data never reaches these pages.
+- The `Layout` in the `route.go` of the same folder gives it data as usual. The folders below it nest as usual: a `layout.tsx` further down shows inside it and its `Layout` runs. A `layout_.tsx` further down drops it in turn, with everything above it.
+- What belongs to the document still applies: the root Layout's `htmlAttributes` and `documentHead`, and `OnRequest`. What belongs to the Layouts above does not: their `head`, their `Error` and their `LayoutSSR`. When the `Layout` of a `layout_.tsx` fails, or returns `tifa.ErrNotFound`, no Layout is above it to show the error, so the framework's default page shows. Its own `Error` shows for what fails below it, as with any Layout.
+- In the browser, a move between a page below it and a page outside it swaps the whole frame, and the Layouts of the new page load their data when the router has none of it yet.
+- The build fails for a `layout_.tsx` in `app/`, which has no Layout above it, for `layout.tsx` and `layout_.tsx` in the same folder, and for `tifa.Use` of a Layout that a `layout_.tsx` drops, from a page or Layout below it. It also fails for a Layout whose pages are all below a `layout_.tsx`, since it wraps none of them.
+- React Router and TanStack Router also end a name with `_` to keep a route out of a Layout, but only out of the Layout of the segment before it: the root route and the Layouts further up still wrap it. tifa's `layout_.tsx` drops every Layout above it, the root Layout too.
+
 ## 404
 
 A 404 shows in the `Error` of a route (see [Errors on a page](#errors-on-a-page)), which gets it as a `RouteError` with `status` 404:
@@ -294,7 +322,7 @@ export function Error({ error }: { error: unknown }) {
 | --- | --- |
 | A page's `Load` returns `tifa.ErrNotFound` | The first `Error` going up from that page. Outer Layouts are shown as usual |
 | A `Layout` function returns `tifa.ErrNotFound` | The first `Error` going up from the Layout one level up |
-| The URL matches no page | The first `Error` going up from the deepest Layout the URL matches, inside that Layout. The Layouts from the root down to it run and show as usual |
+| The URL matches no page | The first `Error` going up from the deepest Layout the URL matches, inside that Layout. The Layouts from the outermost one down to it run and show as usual: from the root, or from the `layout_.tsx` above it |
 | No route has an `Error` | The framework's default 404 page |
 
 The status code is 404 in all these cases, also after a navigation in the browser, whose data request answers with the data of the Layouts and status 404.
@@ -316,8 +344,8 @@ app/teams/new/page.tsx
 | `/teams/new/x` | the root Layout: `new` is a literal, so `teams/new` wins over `teams/team+`, and that page is in the root Layout |
 
 - A page in a `name++` folder takes every URL below it, so such a URL matches that page, and its `Load` decides what to answer.
-- `OnRequest` runs for a URL that matches no page with an empty `c.Pattern()`. `c.Next()` runs the Layouts and returns `tifa.ErrNotFound`. When `OnRequest` returns `tifa.ErrNotFound` itself, without calling `c.Next()`, no Layout runs, and the page shows as when the root `Layout` returns `tifa.ErrNotFound`.
-- The `Error` of a Layout only ever shows in place of a route below it, in the Layout's `Outlet`, so it can read the Layout's data and the context its component provides. When a Layout fails, the `Error` of the Layout above shows, and when the root Layout fails, the framework's default page.
+- `OnRequest` runs for a URL that matches no page with an empty `c.Pattern()`. `c.Next()` runs the Layouts and returns `tifa.ErrNotFound`. When `OnRequest` returns `tifa.ErrNotFound` itself, without calling `c.Next()`, no Layout runs, and the page shows as when the outermost `Layout` of that URL returns `tifa.ErrNotFound`: the root one, or that of the `layout_.tsx` above it.
+- The `Error` of a Layout only ever shows in place of a route below it, in the Layout's `Outlet`, so it can read the Layout's data and the context its component provides. When a Layout fails, the `Error` of the Layout above shows, and when the root Layout or a Layout in `layout_.tsx` fails, the framework's default page.
 - A `NotFound` export in `page.tsx` or `layout.tsx` fails the build. Move what it shows into `Error`, under `error.status === 404`.
 
 ## Errors on a page
@@ -334,9 +362,9 @@ export function Error({ error }: { error: unknown }) {
 ```
 
 - A failed `Load` or `Layout` reaches `Error` as a `RouteError` with `status` and the public message (the `tifa.Error` message, or what `OnError` returned). It is the same on the server and after hydration.
-- A route without its own `Error` uses the one of the closest ancestor that exports one, then the framework's default.
+- A route without its own `Error` uses the one of the closest ancestor that exports one, then the framework's default. The ancestors end at a `layout_.tsx`.
 - The status code of the page is that of the outermost failed route.
-- A component that throws while the page renders on the server is an unexpected error: `OnError` sees it once and picks the status (500 without `OnError`) and the public message. The page then renders again with that error in place of the page, as a `RouteError`, so the first `Error` from the page up shows it inside the Layouts. If that render fails too, because the `Error` or a Layout around it throws, the error moves one route up, in place of the Layout the page is in, and so on up to the root Layout. Only when the error in place of the root Layout fails too does the browser get a plain error page from Go with the status and the public message. The browser hydrates the page with the error where the server put it, and does not run the route that threw again. Such an answer is never cached. The stack trace shows only under `tifa dev`, over the page with the `Error`, and the page reloads once you save a fix (see [tifa dev](dev.md#when-a-page-fails-to-render)).
+- A component that throws while the page renders on the server is an unexpected error: `OnError` sees it once and picks the status (500 without `OnError`) and the public message. The page then renders again with that error in place of the page, as a `RouteError`, so the first `Error` from the page up shows it inside the Layouts. If that render fails too, because the `Error` or a Layout around it throws, the error moves one route up, in place of the Layout the page is in, and so on up to the outermost Layout, the root one or a `layout_.tsx`. Only when the error in place of that Layout fails too does the browser get a plain error page from Go with the status and the public message. The browser hydrates the page with the error where the server put it, and does not run the route that threw again. Such an answer is never cached. The stack trace shows only under `tifa dev`, over the page with the `Error`, and the page reloads once you save a fix (see [tifa dev](dev.md#when-a-page-fails-to-render)).
 - A server render that uses up `ssr.vm_memory` or runs past `ssr.timeout` (see [config.md](config.md)) stops right there. No `catch`, `finally` or promise handler in your code or in a library runs for it, so a page cannot catch it to show something else. The VM is replaced with a fresh one. A render that used up `ssr.vm_memory` renders again with the error, as above, on a fresh VM. A render that ran past `ssr.timeout`, or found every VM busy, does not: Go answers with its plain error page at once. All the renders of one request share one `ssr.timeout`, counted from the first, and a render with the error that runs out of it ends the tries. Code that recurses without end gets `RangeError: Maximum call stack size exceeded`, as in Node, which a `catch` can take (see [stack depth](config.md#stack-depth)). When nothing catches it, it fails the render like any other error.
 - Once the browser has taken over, a component that throws shows the nearest `Error`, the same as a failed `Load`.
 - The document shell stays complete whatever fails, so the page still loads its scripts and styles.
@@ -359,6 +387,7 @@ func Layout(c *tifa.Ctx) (Shell, error) {
 }
 ```
 
+- The shop names the component of that folder `layout_.tsx`, so the storefront shows without the workbench around it (see [A Layout without the Layouts above](#a-layout-without-the-layouts-above)). A language it does not have then shows the framework's default 404 page, as no Layout is above it.
 - Pages and components take the language from that data, through `layout.useLoaderData()` or a context the Layout component provides, not from `params`: the Go function checked it, so whatever someone types into the URL does not end up as the language of the page. A `Load` below the Layout checks it the same way, or reads the Layout's result with `tifa.Use`.
 - The `head` of the Layout writes `lang` on `<html>` and links to the same page in each language, which search engines read: one per language, the page's own included, and `x-default` for a browser that asks for none of them, here the default language. Search engines want these URLs in full. `matches` holds the routes of the page, the page last:
 

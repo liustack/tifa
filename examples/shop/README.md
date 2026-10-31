@@ -39,7 +39,7 @@ go test ./...
 hooks.go                       blocks cross-site write requests, logs unexpected errors
 components/                    shadcn/ui components in ui/ and the hooks they use in hooks/, imported as @/components/...
 app/
-  route.go  layout.tsx         root Layout: sidebar, top bar, document shell and site-wide 404, and a GET that redirects / to the first shop
+  route.go  layout.tsx         root Layout of the workbench: sidebar, top bar, document shell and site-wide 404, and a GET that redirects / to the first shop
   styles.css                   Tailwind CSS and the shop's theme
   format.ts                    money and times in Chinese, in the shop's time zone
   animated-number.tsx          numbers that tween when the data changes
@@ -64,7 +64,7 @@ app/
     product-card.tsx           the product card of every list, product photos and prices
     images.ts  images/         the product, home page and journal photos, in AVIF
     lang+/                     /store/{lang}
-      route.go  layout.tsx  page.tsx   storefront Layout (category menu, search, language switch, cart drawer, footer) and the home page
+      route.go  layout_.tsx  page.tsx  storefront Layout (category menu, search, language switch, cart drawer, footer), shown without the workbench around it, and the home page
       products/
         product.go  catalogue.go  review.go    catalogue domain: products, search, filters and their counts, reviews, specifications, recently viewed
         route.go  page.tsx      product list, filters in the query string
@@ -86,7 +86,7 @@ Each domain sits in its folder under `app/`, next to the pages that show it, wit
 
 Go sends times as instants, and pages format them with `Intl` in the shop's time zone, which the shop Layout passes along. A browser in another zone shows the same times as the server render.
 
-The storefront takes its language from the first segment of the URL. Go loads the texts in that language and the prices in its currency, and the storefront Layout passes the currency and time zone to i18next, which formats money, dates and plurals with `Intl`. The checks of a form live twice with the same rules: a zod schema in the browser and `Validate` in Go. Both give the same message keys, which the page translates. The catalogue domain is `products`, and `cart` imports it to price the lines. Pages under `lang+` find their language with `store.FindLocale`. The `head` of the storefront Layout sets that language on `<html>` with `htmlAttributes`, over the root Layout's `zh-CN`, and the browser changes it when you move to the other language. It also links each page to the same page in both languages, and to the Chinese one as `x-default`. A path the store has no page for is a 404 inside the storefront Layout, in the language of the URL. `/store` redirects to the language that the browser's `Accept-Language` asks for, matched with `golang.org/x/text/language`, and to Chinese when it asks for neither.
+The storefront takes its language from the first segment of the URL. Go loads the texts in that language and the prices in its currency, and the storefront Layout passes the currency and time zone to i18next, which formats money, dates and plurals with `Intl`. The checks of a form live twice with the same rules: a zod schema in the browser and `Validate` in Go. Both give the same message keys, which the page translates. The catalogue domain is `products`, and `cart` imports it to price the lines. Pages under `lang+` find their language with `store.FindLocale`. The `head` of the storefront Layout sets that language on `<html>` with `htmlAttributes`, over the root Layout's `zh-CN`, and the browser changes it when you move to the other language. It also links each page to the same page in both languages, and to the Chinese one as `x-default`. A path the store has no page for is a 404 inside the storefront Layout, in the language of the URL. The storefront Layout is in `layout_.tsx`, so the store shows without the workbench, and the root Layout's `Layout` does not run for it: none of the workbench's data reaches the store's pages. A language the store does not have has no Layout above it to show its 404, so it gets the framework's 404 page. `/store` redirects to the language that the browser's `Accept-Language` asks for, matched with `golang.org/x/text/language`, and to Chinese when it asks for neither.
 
 ## Things to try
 
