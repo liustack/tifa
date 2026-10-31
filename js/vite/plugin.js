@@ -19,6 +19,8 @@ const reactServerEntry = /[/\\]react-dom[/\\]server\.edge\.js$/
 const reactStringRenderer = /[/\\]react-dom[/\\]cjs[/\\]react-dom-server-legacy\.browser\.production\.js$/
 // React's own production file, which has createElement and cloneElement, see nativeCopyProps.
 const reactModule = /[/\\]react[/\\]cjs[/\\]react\.production\.js$/
+// React's production JSX runtime, which has jsx and jsxs, see inlineElements.
+const reactJsxRuntime = /[/\\]react[/\\]cjs[/\\]react-jsx-runtime\.production\.js$/
 // The hash of @emotion/hash 0.9, which emotion takes of every style it serializes, and the
 // dist files that have it. internal/ssr gives the VMs the same hash in Go as __tifa_murmur2__.
 const emotionHash = /[/\\]@emotion[/\\]hash[/\\]dist[/\\]emotion-hash\.(?:esm|cjs\.prod|cjs\.dev)\.js$/
@@ -792,6 +794,9 @@ const reviewedRenderers = new Map([
   ['5528f58d28f5e035dccbf0ebec7e593ed0b97cebae830b838756c27c100a8caa', 'react-dom 19.3.0'],
   ['a470866a7a27a7f4fa69ef04e9bfdea0514fc9defdcc48bda43516b9ae2dfadd', 'react-dom 19.3.1'],
 ])
+// The files of React's production JSX runtime, by the SHA-256 of their text, for which the elements
+// that jsx makes were read to the end, see inlineElements. React 19.3.1 has the file of 19.3.0.
+const reviewedJsxRuntimes = new Map([['1e46f15002696985e80c61d47aaa30dabb03c954270a690f5f7dfbbacfa9002b', 'react 19.3.0 and 19.3.1']])
 // guardedCases is the fewest string cases a switch needs for the tifa plugin to put a Set check in
 // front of it, and switchCases the prefix of the names of those Sets.
 const guardedCases = 8
@@ -1108,7 +1113,8 @@ function resolveRouteModule(ctx, root, source, importer) {
 // runtime, keeps the renderer from building component stacks and from putting the names of
 // components into their key paths, gives the importers of React namespaces of plain values,
 // switches core-js to its property-backed internal state, checks that the bundle is one file, gives
-// the imports of Node modules stand-ins that throw when used, and warns of them and of the places
+// the imports of Node modules stand-ins that throw when used, writes the calls of jsx of React that
+// it knows as the objects they return, and warns of them and of the places
 // where it may load a module at run time. Its source map names sources
 // relative to the application root. It comes with serovalPlugin, which changes seroval. With
 // settings.i18nextCache, build.i18next_cache, it also adds a cache to i18next, see i18nextCache.
@@ -1121,6 +1127,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
   let keyPathsDropped = false // whether React makes key paths only when a module has $$FORM_ACTION
   let serverActions // the modules outside React DOM with $$FORM_ACTION in their code
   let lucide // folder of lucide-react's ES modules to whether the plugin knows its files
+  let jsxRuntimes // the files of React's JSX runtime in the bundle to whether the plugin knows them
   const plugin = {
     name: 'tifa:ssr',
     applyToEnvironment: (env) => env.name === 'ssr',
@@ -1131,6 +1138,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
       keyPathsDropped = false
       serverActions = new Set()
       lucide = new Map()
+      jsxRuntimes = new Map()
     },
     outputOptions(options) {
       const root = getRoot()
@@ -1278,6 +1286,18 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
           return null
         }
         return source.replace(murmur2Source, () => hashInGo(murmur2Source))
+      }
+      if (reactJsxRuntime.test(id)) {
+        const known = reviewedJsxRuntimes.has(createHash('sha256').update(fs.readFileSync(id)).digest('hex'))
+        jsxRuntimes.set(id, known)
+        if (!known) {
+          this.warn(
+            `react ${packageVersion(path.resolve(id, '..', '..'))}: ${id} has a jsx the tifa plugin does not know, so ` +
+              'the tifa plugin does not write the elements of JSX as objects in place of calls of jsx. Pages render ' +
+              'the same, but take longer to render',
+          )
+        }
+        return null
       }
       if (reactModule.test(id)) {
         const react = `react ${packageVersion(path.resolve(id, '..', '..'))}: ${id}`
@@ -1461,8 +1481,13 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
     renderChunk(code, chunk) {
       const plain = plainNamespaces(code, chunk.moduleIds)
       if (plain.warning) this.warn(plain.warning)
-      // The code keeps the lines and places it had, so the source map fits it as it is.
-      return plain.code === code ? null : { code: plain.code, map: null }
+      // Only with a JSX runtime of which every file is known: with another, the elements might differ.
+      const elements =
+        jsxRuntimes.size > 0 && [...jsxRuntimes.values()].every(Boolean)
+          ? inlineElements(plain.code, (source) => this.parse(source))
+          : { code: plain.code }
+      // The code keeps the lines it had, so the source map fits it as it is.
+      return elements.code === code ? null : { code: elements.code, map: null }
     },
     async generateBundle(_, bundle) {
       const chunks = Object.values(bundle).filter((output) => output.type === 'chunk')
@@ -2653,6 +2678,182 @@ export function plainNamespaces(code, ids) {
   for (const at of plain) changed = changed.slice(0, at) + plainName + changed.slice(at + plainName.length)
   const helper = plainESM.replace('__tifaV', plainName).replace(/\b__[A-Za-z]+\b/g, (name) => helpers.get(name) ?? name)
   return { code: changed.slice(0, end) + helper + changed.slice(end) }
+}
+
+// inlineElements returns code, a chunk of the SSR bundle before it is minified, with calls of jsx
+// and jsxs of React's JSX runtime written as the objects they return. React 19.3 in production
+// has one function for both. It returns { $$typeof, type, key, ref, props }: $$typeof is
+// Symbol.for("react.transitional.element"), key is the third argument or the key of the config as
+// a string, or null, ref is props.ref or null, and props is the config itself when it has no key.
+// So a call
+//
+//   - whose config is an object literal with no spread, no computed name and no property named
+//     key, ref or __proto__, which jsx would copy, read or treat apart,
+//   - and which has no third argument, or a string, a number or a name for it,
+//
+// is the object { $$typeof: symbol, type: T, key: K, ref: null, props: { ... } }, with the same
+// fields in the same order. A string or a number key becomes its text. A name becomes
+// (void 0 !== name ? "" + name : null), as jsx turns it: undefined is no key and null is "null".
+// The key of the object comes before the values of the config, which jsx evaluates first, so a
+// name stays a call when the config assigns to it. A name that a call in the config changes is not
+// seen. Any other call is left as it is.
+//
+// The calls are found by the variable that holds the runtime: one that is given only
+// require_jsx_runtime(), which rolldown writes for react/jsx-runtime, or that module's wrapper
+// written in its place, with __toESM or the function of plainNamespaces around it or not, where the
+// wrapper requires the production file of React. The caller makes sure
+// the text of that file is one the plugin knows. The symbol is taken once, in a variable declared
+// before the first statement, on the line of the statement. Each line of code stays where it was.
+// A jsx reads the config through its prototype, so a program that sets Object.prototype.ref or
+// .key sees what jsx made but not the objects. parse gives the syntax tree of a source. It returns
+// the code, how many calls it saw, how many it wrote as objects and how many of those had a key.
+export function inlineElements(code, parse) {
+  const symbol = '__tifaElement'
+  const stats = { code, sites: 0, inlined: 0, keyed: 0 }
+  const production = new Set() // the require functions of the production file of the runtime
+  for (const m of code.matchAll(/^\/\/(?:#region)? ([^\n]*[/\\]react[/\\]cjs[/\\]react-jsx-runtime\.production\.js)\n/gm)) {
+    const rest = code.slice(m.index + m[0].length)
+    const declared = /\bvar (require_[\w$]+) = \/\* @__PURE__ \*\/ __commonJSMin(?:\$\d+)?\(/.exec(rest)
+    if (declared && !/^\/\/(?:#region)? /m.test(rest.slice(0, declared.index)) && packageName(m[1]) === 'react') {
+      production.add(declared[1])
+    }
+  }
+  const runtimes = new Set() // the require functions of react/jsx-runtime
+  const wrapper =
+    /^\/\/(?:#region)? ([^\n]*[/\\]react[/\\]jsx-runtime\.js)\n[\t ]*var (require_[\w$]+) = \/\* @__PURE__ \*\/ __commonJSMin(?:\$\d+)?\(\(\(exports, module\) => \{\s*module\.exports = (require_[\w$]+)\(\);\s*\}\)\);/gm
+  for (const m of code.matchAll(wrapper)) {
+    if (packageName(m[1]) === 'react' && production.has(m[3])) runtimes.add(m[2])
+  }
+  if (production.size === 0 || new RegExp(`(?<![\\w$])${symbol}(?![\\w$])`).test(code)) return stats
+  const program = parse(code)
+  // require_jsx_runtime(), or the wrapper of react/jsx-runtime where rolldown wrote it in place, in
+  // the only module that imports it: (__commonJSMin((exports, module) => { module.exports = require_x() }))()
+  const loads = (node) => {
+    if (node.type !== 'CallExpression' || node.arguments.length !== 0) return false
+    if (node.callee.type === 'Identifier') return runtimes.has(node.callee.name)
+    const inline = /^__commonJSMin(?:\$\d+)?\(\(\(exports, module\) => \{\s*module\.exports = (require_[\w$]+)\(\);\s*\}\)\)$/.exec(
+      node.callee.type === 'CallExpression' ? code.slice(node.callee.start, node.callee.end) : '',
+    )
+    return inline !== null && production.has(inline[1])
+  }
+  const isRuntime = (node) =>
+    loads(node) ||
+    (node.type === 'CallExpression' &&
+      node.callee.type === 'Identifier' &&
+      /^__(?:toESM|tifaV)(?:\$\d+)?$/.test(node.callee.name) &&
+      node.arguments.length > 0 &&
+      loads(node.arguments[0]))
+  const calls = []
+  const holders = new Map() // a name to whether every value it is given is the runtime
+  const give = (name, runtime) => holders.set(name, (holders.get(name) ?? true) && runtime)
+  const visit = (node) => {
+    if (node.type === 'VariableDeclarator' && node.init) {
+      for (const name of patternNames(node.id)) give(name, node.id.type === 'Identifier' && isRuntime(node.init))
+    } else if (node.type === 'AssignmentExpression') {
+      for (const name of patternNames(node.left)) give(name, node.operator === '=' && node.left.type === 'Identifier' && isRuntime(node.right))
+    } else if (node.type === 'UpdateExpression') {
+      for (const name of patternNames(node.argument)) give(name, false)
+    } else if (node.type === 'CallExpression') {
+      calls.push(node)
+    }
+    for (const value of Object.values(node)) {
+      for (const child of Array.isArray(value) ? value : [value]) {
+        if (child && typeof child.type === 'string') visit(child)
+      }
+    }
+  }
+  visit(program)
+  const newlines = (from, to) => '\n'.repeat(code.slice(from, to).split(/\r\n|[\n\r\u2028\u2029]/).length - 1)
+  const edits = []
+  for (const call of calls) {
+    let callee = call.callee
+    if (callee.type === 'SequenceExpression') callee = callee.expressions.at(-1)
+    if (
+      callee.type !== 'MemberExpression' ||
+      callee.computed ||
+      callee.object.type !== 'Identifier' ||
+      callee.property.type !== 'Identifier' ||
+      (callee.property.name !== 'jsx' && callee.property.name !== 'jsxs') ||
+      holders.get(callee.object.name) !== true
+    ) {
+      continue
+    }
+    stats.sites++
+    const [type, config, key] = call.arguments
+    if (call.arguments.length < 2 || call.arguments.length > 3 || type.type === 'SpreadElement' || config.type !== 'ObjectExpression') continue
+    if (config.properties.some((p) => p.type !== 'Property' || p.computed || ['key', 'ref', '__proto__'].includes(propertyName(p)))) continue
+    let keyText = 'null'
+    if (key) {
+      if (key.type === 'Literal' && (typeof key.value === 'string' || typeof key.value === 'number')) {
+        keyText = JSON.stringify(String(key.value))
+      } else if (key.type === 'Identifier' && !writes(config, key.name)) {
+        keyText = `(void 0 !== ${key.name} ? "" + ${key.name} : null)`
+      } else {
+        continue
+      }
+      stats.keyed++
+    }
+    stats.inlined++
+    edits.push({ start: call.start, end: type.start, text: `({ $$typeof: ${symbol}, type: ` + newlines(call.start, type.start) })
+    edits.push({ start: type.end, end: config.start, text: `, key: ${keyText}, ref: null, props: ` + newlines(type.end, config.start) })
+    edits.push({ start: config.end, end: call.end, text: ' })' + newlines(config.end, call.end) })
+  }
+  if (stats.inlined === 0) return stats
+  // After the directives, before the first statement after them.
+  let at = program.body[0]?.start ?? 0
+  for (const [i, node] of program.body.entries()) {
+    if (typeof node.directive !== 'string') break
+    at = program.body[i + 1]?.start ?? node.end
+  }
+  edits.push({ start: at, end: at, text: `var ${symbol} = Symbol.for("react.transitional.element"); ` })
+  edits.sort((a, b) => a.start - b.start || a.end - b.end)
+  let changed = ''
+  let from = 0
+  for (const edit of edits) {
+    changed += code.slice(from, edit.start) + edit.text
+    from = edit.end
+  }
+  stats.code = changed + code.slice(from)
+  return stats
+}
+
+// propertyName returns the name of the property node of an object literal, or '' for a name that
+// is not an identifier, a string or a number.
+function propertyName(property) {
+  const key = property.key
+  if (key.type === 'Identifier') return key.name
+  return key.type === 'Literal' ? String(key.value) : ''
+}
+
+// patternNames returns the names the target node of a declaration, an assignment or an update
+// writes.
+function patternNames(node) {
+  switch (node.type) {
+    case 'Identifier':
+      return [node.name]
+    case 'ArrayPattern':
+      return node.elements.flatMap((e) => (e ? patternNames(e) : []))
+    case 'ObjectPattern':
+      return node.properties.flatMap((p) => patternNames(p.type === 'Property' ? p.value : p))
+    case 'AssignmentPattern':
+      return patternNames(node.left)
+    case 'RestElement':
+      return patternNames(node.argument)
+    default:
+      return []
+  }
+}
+
+// writes reports whether the code of node assigns to name, or counts it up or down.
+function writes(node, name) {
+  if (node.type === 'AssignmentExpression' && patternNames(node.left).includes(name)) return true
+  if (node.type === 'UpdateExpression' && patternNames(node.argument).includes(name)) return true
+  for (const value of Object.values(node)) {
+    for (const child of Array.isArray(value) ? value : [value]) {
+      if (child && typeof child.type === 'string' && writes(child, name)) return true
+    }
+  }
+  return false
 }
 
 // hostLoads returns the places where the bundle may still load a module at run time, which
