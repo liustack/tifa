@@ -39,16 +39,14 @@ go test ./...
 hooks.go                       blocks cross-site write requests, logs unexpected errors
 components/ui/  lib/  hooks/   shadcn/ui components and their helpers, imported as @/components/ui/...
 app/
-  layout.go  layout.tsx        root Layout: sidebar, top bar, document shell and site-wide 404
+  route.go  layout.tsx         root Layout: sidebar, top bar, document shell and site-wide 404, and a GET that redirects / to the first shop
   styles.css                   Tailwind CSS and the shop's theme
   format.ts                    money and times in Chinese, in the shop's time zone
   animated-number.tsx          numbers that tween when the data changes
-  route.go                     redirects / to the first shop
   projects/
     project.go                 shop domain: types, the count of orders waiting to ship, storage
     project+/                  /projects/{project}
-      layout.go  layout.tsx    shop Layout: shop name, orders waiting to ship, shop notes, links to orders and stats
-      route.go  route.tsx      order list
+      route.go  layout.tsx  page.tsx   shop Layout (shop name, orders waiting to ship, shop notes, links to orders and stats) and the order list
       columns.tsx              the columns of the order list
       orders/
         order.go  shipping.go  order domain: list, details, shipping and recipient rules, storage
@@ -65,17 +63,16 @@ app/
     product-card.tsx           the product card of every list, product photos and prices
     images.ts  images/         the product, home page and journal photos, in AVIF
     lang+/                     /store/{lang}
-      layout.go  layout.tsx    storefront Layout: category menu, search, language switch, cart drawer, footer
-      route.go  route.tsx      home page
+      route.go  layout.tsx  page.tsx   storefront Layout (category menu, search, language switch, cart drawer, footer) and the home page
       products/
         product.go  catalogue.go  review.go    catalogue domain: products, search, filters and their counts, reviews, specifications, recently viewed
-        route.go  route.tsx    product list, filters in the query string
+        route.go  page.tsx      product list, filters in the query string
         filter-schema.ts       the zod schema of the filter form
         product+/              /store/{lang}/products/{product}: product page, POST adds to the cart
       cart/
         cart.go  checkout.go   cart domain: lines, coupons, delivery, the checks of an order, placing it
         recent.go              carts and placed orders kept in memory, with a limit and an expiry
-        route.go  route.tsx    /store/{lang}/cart: PATCH changes a quantity, POST applies a coupon
+        route.go  page.tsx      /store/{lang}/cart: PATCH changes a quantity, POST applies a coupon
       checkout/                /store/{lang}/checkout: the order form, POST places the order
         checkout-schema.ts     the zod schema of the order, with the same rules as Order.Validate
       journal/
@@ -85,7 +82,7 @@ app/
       rest++/                  every other path of the store: a 404 inside the storefront Layout
 ```
 
-Each domain sits in its folder under `app/`, next to the pages that show it, with its tests: `app/projects` holds the shop domain, and `app/projects/project+/orders` the order domain, one level above the folder of one order rather than inside it. The root package holds only the hooks. Storage is in memory with demo data, standing in for database tables, and changes are lost on restart. Each folder under `app/` is a segment of the URL. `route.go` holds `Load`, which calls the domain packages, and the order page's `POST` and `PATCH`, whose inputs check themselves with `Validate`. `route.tsx` holds the UI and reads the result of `Load` through `./+route`. The order and stats pages read their shop through the shop Layout with `tifa.Use(c, project.Layout)`. `app/route.go` is an API route whose `GET` redirects `/` to the shop `studio`. The shop domain counts the orders waiting to ship, so `projects` imports `orders`, and `orders` imports neither `projects` nor the pages. See [Philosophy](../../docs/philosophy.md) for why, and [Structuring an app](../../docs/structure.md) for which way imports may go.
+Each domain sits in its folder under `app/`, next to the pages that show it, with its tests: `app/projects` holds the shop domain, and `app/projects/project+/orders` the order domain, one level above the folder of one order rather than inside it. The root package holds only the hooks. Storage is in memory with demo data, standing in for database tables, and changes are lost on restart. Each folder under `app/` is a segment of the URL. `route.go` holds every Go name of a folder: `Load`, which calls the domain packages, the `Layout` function of the shop and storefront folders, and the order page's `POST` and `PATCH`, whose inputs check themselves with `Validate`. `page.tsx` holds the UI and reads the result of `Load` through `./route.gen`. The order and stats pages read their shop through the shop Layout with `tifa.Use(c, project.Layout)`. `app/route.go` holds the root Layout, and its `GET` redirects `/` to the shop `studio`, so `/` is an API route. The shop domain counts the orders waiting to ship, so `projects` imports `orders`, and `orders` imports neither `projects` nor the pages. See [Philosophy](../../docs/philosophy.md) for why, and [Structuring an app](../../docs/structure.md) for which way imports may go.
 
 Go sends times as instants, and pages format them with `Intl` in the shop's time zone, which the shop Layout passes along. A browser in another zone shows the same times as the server render.
 

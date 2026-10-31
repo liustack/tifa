@@ -24,19 +24,19 @@ myapp/
   db.go                     var DB, opened in OnStart and closed in OnShutdown
   schema.sql                the tables of every domain
   app/
-    layout.go  layout.tsx  route.go
+    route.go  layout.tsx
     projects/
       project.go            Project, GetProject, ListProjects
       project_test.go
-      route.go  route.tsx   the project list, if there is one
+      route.go  page.tsx    the project list, if there is one
       project+/
-        layout.go  layout.tsx  route.go  route.tsx
+        route.go  layout.tsx  page.tsx
         orders/
           order.go          Order, ListOrders, GetOrder, ShipOrder and their queries
           order_test.go
-          route.go  route.tsx
+          route.go  page.tsx
           order+/
-            route.go  route.tsx
+            route.go  page.tsx
 ```
 
 - **Where the code goes.** A domain gets a file named after it in its folder: `app/projects/project.go` holds `package projects`. When a domain has a list page and a page per item, its code goes in the list folder (`orders/`), not in the folder of one item (`order+/`). The list folder does not need a page: in [examples/shop](../examples/shop) the orders are listed on the project page, and `orders/` holds only the domain.

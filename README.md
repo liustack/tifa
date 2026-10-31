@@ -57,16 +57,16 @@ func Load(c *tifa.Ctx) (orders.Order, error) {
 ```
 
 ```tsx
-// app/projects/project+/orders/order+/route.tsx
-import { route, type Data } from './+route'
+// app/projects/project+/orders/order+/page.tsx
+import { page, type PageData } from './route.gen'
 
 export default function OrderPage() {
-  const order = route.useLoaderData() // typed from the Go return value
+  const order = page.useLoaderData() // typed from the Go return value
   return <h2>{order.id}</h2>
 }
 
 // title and meta tags are written into the HTML on the server
-export const head = ({ loaderData }: { loaderData?: Data }) => ({
+export const head = ({ loaderData }: { loaderData?: PageData }) => ({
   meta: [{ title: `Order ${loaderData?.id}` }],
 })
 ```

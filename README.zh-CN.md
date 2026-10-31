@@ -57,16 +57,16 @@ func Load(c *tifa.Ctx) (orders.Order, error) {
 ```
 
 ```tsx
-// app/projects/project+/orders/order+/route.tsx
-import { route, type Data } from './+route'
+// app/projects/project+/orders/order+/page.tsx
+import { page, type PageData } from './route.gen'
 
 export default function OrderPage() {
-  const order = route.useLoaderData() // 类型由 Go 的返回值生成
+  const order = page.useLoaderData() // 类型由 Go 的返回值生成
   return <h2>{order.id}</h2>
 }
 
 // title 和 meta 在服务器上写进 HTML
-export const head = ({ loaderData }: { loaderData?: Data }) => ({
+export const head = ({ loaderData }: { loaderData?: PageData }) => ({
   meta: [{ title: `订单 ${loaderData?.id}` }],
 })
 ```

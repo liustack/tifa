@@ -37,7 +37,7 @@ tifa dev 监视应用根目录，跳过 `.git`、`.tifa`、`node_modules` 和放
 | 应用根目录的 `.env` 或 `.env.*` | 打包 | 刷新（Vite 会重启它的开发服务器） |
 | `.go`、`go.mod`、`go.sum` | 静态分析、go build | 刷新 |
 | 上一行且路由清单变了（路由、Load 和 Layout 的返回类型、方法函数的入参和结果类型、钩子等） | 静态分析、生成代码、打包、go build | 刷新 |
-| 新增或删除 `route.tsx`、`layout.tsx`，或改 `tifa.yaml`、`tifa.json` | 全部步骤 | 刷新 |
+| 新增或删除 `page.tsx`、`layout.tsx`，或改 `tifa.yaml`、`tifa.json` | 全部步骤 | 刷新 |
 
 - 前端改动经 Vite 送到打开着的页面：React Fast Refresh 换掉改过的组件并保留它们的状态，新 CSS 替换旧的。模块换不了时（比如除了组件还导出了别的东西），Vite 自己刷新页面。改 `vite.config.ts` 会让 Vite 重启开发服务器，改 `tsconfig.json` 会刷新页面。改了 `paths` 里的某一项后，Vite 开发服务器可能仍导入旧的目标，直到 tifa dev 重启。
 - 同时 tifa dev 重建 SSR 包（不做 go build），运行中的应用从 `.tifa/dist` 读入新包，换掉旧包。应用不重启：`OnStart` 不会再跑，应用放在内存里的东西都还在。重建要产出新 SSR 包时，这期间到达的页面请求会等新包换上（最多等 30 秒），所以刷新看到的是新的服务端渲染。Vite 开发服务器重启期间要构建的 SSR 包会等重启完成，如果重启让这次构建失败，就在新的服务器上再构建一次。从重建开始就等（补做上次失败留下的打包时也一样），Go 改动则从静态分析发现路由清单变了那一刻开始等，早于生成代码。
@@ -56,7 +56,7 @@ tifa dev 监视应用根目录，跳过 `.git`、`.tifa`、`node_modules` 和放
 每个执行的步骤一行，带耗时，最后一行是从开始重建到应用可用的总耗时：
 
 ```text
-tifa dev: 07:35:36 app/home/route.tsx modified
+tifa dev: 07:35:36 app/home/page.tsx modified
 tifa dev: 07:35:36 bundle done in 90ms
 tifa dev: 07:35:36 ready in 260ms
 ```

@@ -1,5 +1,5 @@
 ---
-summary: 'How to write a tifa app: folder layout, how folders become URLs, route.go and route.tsx, Layouts, hooks.go, 404s, the SSR and cache switches, what the server render has, which libraries render differently there and which components to load only in the browser, using Intl and Temporal so hydration matches, styles with Tailwind CSS and shadcn/ui, how to test Go route code, how Load may use Ctx, method handlers with typed input and result, and the JSON rules for data, inputs and results'
+summary: 'How to write a tifa app: folder layout, how folders become URLs, the three files of a folder (route.go, page.tsx, layout.tsx), Layouts, hooks.go, 404s, the SSR and cache switches, what the server render has, which libraries render differently there and which components to load only in the browser, using Intl and Temporal so hydration matches, styles with Tailwind CSS and shadcn/ui, how to test Go route code, how Load may use Ctx, method handlers with typed input and result, and the JSON rules for data, inputs and results'
 read_when:
   - Creating a tifa app, or adding pages, Layouts or API routes to one
   - The build reports an error about Ctx usage or a Load return type and you want to fix it
@@ -26,20 +26,18 @@ myapp/
   hooks.go                          process and request hooks (optional)
   db.go                             resources the whole app shares: package-level variables and functions (optional)
   app/
-    layout.go  layout.tsx           root Layout, wraps every page
-    route.go                        /
+    route.go  layout.tsx            root Layout (Layout in route.go), wraps every page, and / (GET in route.go)
     projects/
       project.go  project_test.go   the project domain: Project, GetProject, ListProjects
       project+/
-        layout.go  layout.tsx       Layout of /projects/{project} and every page below it
-        route.go  route.tsx         page /projects/{project}
+        route.go  layout.tsx  page.tsx   Layout of /projects/{project} and every page below it, and the page /projects/{project}
         orders/
           order.go  order_test.go   the order domain: Order, ListOrders, GetOrder, ShipOrder
           order+/
-            route.go  route.tsx     page /projects/{project}/orders/{order}
+            route.go  page.tsx      page /projects/{project}/orders/{order}
             items.tsx  ship-form.tsx
         stats/
-          route.go  route.tsx       page /projects/{project}/stats
+          route.go  page.tsx        page /projects/{project}/stats
 ```
 
 - Code is grouped by domain, and a domain is a folder under `app/`: its types, storage and rules sit next to its pages, in the list folder when it has a list and a page per item. Pages import the domain packages they show. The root package holds only the hooks and the resources the whole app shares. There is no shared `models/` or `db/` package holding every table. See [structure.md](structure.md).
@@ -58,12 +56,27 @@ Every folder below `app/` is one segment of the URL. `app/` itself is `/`.
 
 - A literal folder name holds only ASCII letters, digits and `- . _ ~`. A parameter name starts with a letter or `_`, followed by letters, digits or `_`, and appears once per URL.
 - The go command takes the package name from the `package` line, not from the folder. Name the package after the parameter: `project+` holds `package project`, and other packages import it as `project`.
-- The go command skips folders that start with `.` or `_`, and folders named `testdata`. A `route.go`, `route.tsx`, `layout.go` or `layout.tsx` inside one fails the build. Other files there, such as a `_components` folder, are fine.
+- The go command skips folders that start with `.` or `_`, and folders named `testdata`. A `route.go`, `page.tsx` or `layout.tsx` inside one fails the build. Other files there, such as a `_components` folder, are fine.
 - A folder name must also be valid in a Go import path, so names such as `con` or `x~1` (Windows reserved and short names) fail the build.
 - A folder holds at most one parameter folder. `items/id+` next to `items/key+` or `items/path++` fails the build, because both would read the same URL segment.
 - Two routes (pages or API routes) whose URLs overlap without one being more specific fail the build, as in Go's `http.ServeMux`, such as `a/b+` next to `a+/b`. A literal is more specific than a parameter, so `items/new` next to `items/id+` is fine.
-- The URL of a folder with a Layout but no page shows the 404 page, unless a `name++` folder right below it has a page, which answers that URL with an empty rest. No other page may match that URL unless it is more specific than the Layout's path: `settings/layout.tsx` without a `settings/route.tsx`, next to `user+/route.tsx`, fails the build, because `/settings` would also match `/{user}`, but `items/new` next to a Layout in `items/id+` is fine.
+- The URL of a folder with a Layout but no page shows the 404 page, unless a `name++` folder right below it has a page, which answers that URL with an empty rest. No other page may match that URL unless it is more specific than the Layout's path: `settings/layout.tsx` without a `settings/page.tsx`, next to `user+/page.tsx`, fails the build, because `/settings` would also match `/{user}`, but `items/new` next to a Layout in `items/id+` is fine.
 - Declaring `const Path` fails the build. The folder is the URL.
+
+## The files of a folder
+
+A folder has at most three convention files:
+
+| File | What it holds |
+| --- | --- |
+| `route.go` | Every Go name of the folder: `Layout`, `LayoutSSR`, `Load`, `SSR`, `Cache` and the method handlers |
+| `page.tsx` | The page component. A folder with `page.tsx` is a page |
+| `layout.tsx` | The Layout component |
+
+- The names of `route.go` are read from that file only. Declaring one of them in another file of the package, `layout.go` included, fails the build. Helpers and types may go in any file.
+- A folder with only `route.go` is an API route when it declares a method handler, and gives the pages below it their Layout data when it declares `Layout`. It can do both. `Load` is only allowed next to a `page.tsx`.
+- `route.tsx` is not a convention file. A `route.tsx` fails the build with the message to rename it to `page.tsx`, so a page is never taken for a plain component.
+- `tifa build` also writes a `route.gen.ts` module for each folder with a page, a Layout or a method handler, which `page.tsx` and `layout.tsx` import (see [page.tsx](#pagetsx)).
 
 ## route.go
 
@@ -89,8 +102,9 @@ func POST(c *tifa.Ctx, in ShipInput) (orders.Shipment, error) {
 
 - `Load` returns the page data. Its return type must convert to TypeScript (see "JSON rules" below).
 - `GET`, `POST`, `PUT`, `PATCH` and `DELETE` handle the HTTP method they are named after.
-- A folder with a `route.tsx` is a page. The framework renders its GET, so you cannot also write `GET`. A page that needs no data and no other method can be `route.tsx` alone, without `route.go`.
-- A folder with `route.go` and no `route.tsx` is an API route: every method handler answers as written, and `Load` is not allowed, because `Load` loads the data of a page.
+- `Layout` returns the data of the Layout of the folder (see [Layout](#layout)).
+- A folder with a `page.tsx` is a page. The framework renders its GET, so you cannot also write `GET`. A page that needs no data and no other method can be `page.tsx` alone, without `route.go`.
+- A folder with `route.go` and no `page.tsx` is an API route when it declares a method handler: every method handler answers as written, and `Load` is not allowed, because `Load` loads the data of a page. A `route.go` with only a `Layout` is no API route. It gives the pages below it their Layout data.
 - Everything is package-level functions and constants. Use the global variables the app has set up for dependencies. The framework does no dependency injection.
 
 When an error is returned:
@@ -146,24 +160,24 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 | `c.Next()` | Runs the matched route from `OnRequest`, once |
 | `c.Request()`, `c.Writer()` | The raw `*http.Request` and `http.ResponseWriter`, for method handlers and `OnRequest` only |
 
-## route.tsx
+## page.tsx
 
 ```tsx
-import { route, type Data } from './+route'
+import { page, type PageData } from './route.gen'
 
 export default function OrderPage() {
-  const order = route.useLoaderData()
+  const order = page.useLoaderData()
   return <OrderItems />
 }
 
-export const head = ({ loaderData }: { loaderData?: Data }) => ({
+export const head = ({ loaderData }: { loaderData?: PageData }) => ({
   meta: loaderData ? [{ title: loaderData.id }] : [],
 })
 ```
 
-- UI only, no data loading. `./+route` is a generated module that exports `route`, `Data` (the return type of `Load`) and `Params`. Child components in the same folder also import `./+route`. A Layout's data comes from the `+layout` module of its folder: `layout.tsx` imports `'./+layout'`, and a page reads its project Layout with `'../../+layout'`, for example.
+- UI only, no data loading. `./route.gen` is a generated module, one per folder, that exports `page` and `layout` (the TanStack routes of the page and the Layout, only when the folder has them), `PageData` and `LayoutData` (the return types of `Load` and `Layout`), `Params`, and a function per method handler. Child components in the same folder also import `./route.gen`. A Layout's data comes from the `route.gen` of its folder: `layout.tsx` imports `layout` from `'./route.gen'`, and a page reads its project Layout with `layout` from `'../../route.gen'`, for example. A folder with no generated module fails the build when something imports its `route.gen`.
 - The default export is the page component. Optional exports: `head`, `Error`, `NotFound`.
-- In the browser, each `route.tsx`, and each `layout.tsx` but the root Layout's, is a chunk of its own with everything it imports, `head` included. It loads the first time its route is needed, and the router waits for it before it shows the page or runs `head`. The HTML of a page preloads the chunks of its Layouts and route, so they arrive with the entry script. Code at the top level of the file, side-effect imports included, runs then and not when the app starts, so put setup that every page needs in the root Layout or a module it imports. See [Route modules in the browser](build.md#route-modules-in-the-browser).
+- In the browser, each `page.tsx`, and each `layout.tsx` but the root Layout's, is a chunk of its own with everything it imports, `head` included. It loads the first time its route is needed, and the router waits for it before it shows the page or runs `head`. The HTML of a page preloads the chunks of its Layouts and route, so they arrive with the entry script. Code at the top level of the file, side-effect imports included, runs then and not when the app starts, so put setup that every page needs in the root Layout or a module it imports. See [Route modules in the browser](build.md#route-modules-in-the-browser).
 - Go slices and maps carry `| null` in TypeScript (Go's nil is encoded as `null`). Write `?? []` before using them.
 - Put components that need browser features at the module top level into a `.client.tsx` file, and load them lazily with `clientOnly` from `tifa/client`. They are left out of the SSR bundle, and the first paint shows a placeholder. Components that render but show nothing until the browser draws them belong there too, see [Components that draw only in the browser](#components-that-draw-only-in-the-browser):
 
@@ -177,10 +191,10 @@ const OrderActions = clientOnly(() => import('./actions.client'), <button disabl
 
 ### Calling method handlers from the browser
 
-The `+route` module of a folder with method handlers exports one function per handler, named after its method. API routes get a `+route` module too, so a page can import the handlers of any folder:
+The `route.gen` module of a folder with method handlers exports one function per handler, named after its method. API routes get a `route.gen` module too, so a page can import the handlers of any folder:
 
 ```tsx
-import { POST } from './+route'
+import { POST } from './route.gen'
 import { TifaError } from 'tifa/client'
 
 async function ship() {
@@ -198,7 +212,7 @@ async function ship() {
 - An error answer throws `TifaError` with `status`, `message` and `fields` (the messages of a `tifa.Fields`, empty otherwise). A network failure throws as `fetch` does.
 - When the handler or `OnRequest` returns `c.Redirect(url, code)`, the browser goes to that URL: through the router for a URL of this site, without reloading the page, and as a whole page load for another site. After a POST, PUT, PATCH or DELETE (unless `invalidate: false`) the data the router holds goes stale first, so the new page and its Layouts show fresh data. A redirect to the page that is showing loads its data again, as a call without a redirect does. It counts as the same page when the path, the hash and the query values match, whatever the order and encoding of the query. The promise resolves once the new page shows, to `undefined`, also for a handler with a result. Whether a call is redirected is only known from its answer, since `OnRequest` may redirect any request, so the result type of every handler function with a result includes `undefined`. The function of a handler that writes its own response gets the `Response` of the redirect (`ok`, with the status in `X-Tifa-Redirect`). A relative URL is resolved against the URL of the handler, not of the page. A 3xx the handler wrote itself through `c.Writer()`, or one a proxy wrote, cannot be read in the browser and rejects the promise with an `Error`.
 - Call these functions from event handlers or effects. Calling one while the page renders on the server throws.
-- `+route` also exports `POSTInput`, `POSTOutput` and so on for the types of each handler that has them.
+- `route.gen` also exports `POSTInput`, `POSTOutput` and so on for the types of each handler that has them.
 
 To go to the page of what a handler created, return a redirect from the handler, or return the result and navigate yourself. Pass `invalidate: false` in the second case, so the current page does not load its data again just before you leave it. Data the router already holds, such as that of a Layout both pages share, then stays as it was:
 
@@ -221,7 +235,7 @@ if (todo) await router.navigate({ to: '/todos/$todo', params: { todo: todo.id } 
 
 ## Layout
 
-A Layout lives in its folder next to the page of that folder, if there is one: `layout.go` and `layout.tsx` wrap the page in the same folder and every page below it. `layout.tsx` places child routes with `<Outlet />`. Either file may be left out: without `layout.tsx` the child routes render directly, and without `layout.go` the Layout has no data. A Layout with no page in its folder or below it fails the build.
+A Layout lives in its folder next to the page of that folder, if there is one: the `Layout` function in `route.go` and `layout.tsx` wrap the page in the same folder and every page below it. `layout.tsx` places child routes with `<Outlet />`. Either may be left out: without `layout.tsx` the child routes render directly, and without a `Layout` function the Layout has no data. A Layout with no page in its folder or below it fails the build.
 
 ```go
 package project
@@ -233,8 +247,8 @@ func Layout(c *tifa.Ctx) (projects.Project, error) {
 const LayoutSSR = false // optional, default true
 ```
 
-- `layout.go` and `route.go` of one folder are one Go package, but each name has its own file: `Layout` and `LayoutSSR` go in `layout.go`, and `Load`, `SSR`, `Cache` and the method handlers go in `route.go`. Declaring one of them in any other file of the package fails the build. Helpers and types may go in any file.
-- A Layout's `c.Param` may only read parameters of its own folder path. `app/projects/project+/layout.go` may read `project`, not `order`. A page's `Load` is held to its own path the same way.
+- `Layout` and `LayoutSSR` go in `route.go`, next to `Load`, `SSR`, `Cache` and the method handlers of the same folder. Declaring one of them in any other file of the package, a `layout.go` for example, fails the build. A `route.go` with only a `Layout` is no API route.
+- A Layout's `c.Param` may only read parameters of its own folder path. `Layout` in `app/projects/project+/route.go` may read `project`, not `order`. A page's `Load` is held to its own path the same way.
 - When you switch between pages under the same Layout, the Layout component is not remounted and keeps its state. When a parameter the Layout function reads changes (for example, you move to another project), the Layout remounts and its state resets. When a parameter it does not read changes, the state is kept. Pages work the same way.
 - Pages and Layouts can call `tifa.Use(c, project.Layout)` to get the result of a Layout that wraps them, for the current request: the Layout of the same folder or of an ancestor folder. The same `Layout` runs only once per request. Any other Layout fails the build, and so does an argument that is not a package-level `Layout` function, such as a closure. A `Layout` function cannot use its own Layout, directly or through a helper.
 - On navigation in the browser, the navigation data request runs only the `Load` and `Layout` functions of the listed routes. If an ancestor Layout's data is still in the cache, that Layout is not in the list and its `Layout` does not run this time. So do not put permission checks only in a Layout. Put them in `OnRequest`, or have the page's `Load` depend on the checking Layout through `tifa.Use`, so the check runs on every request.
@@ -252,9 +266,9 @@ export const documentHead = {
 - A `head` can also return `htmlAttributes`, the attributes of `<html>` for its pages, such as the language of a site in several languages. Search engines, screen readers and the translation of browsers read the language from `lang`. They are merged over the root Layout's `htmlAttributes` one attribute at a time: the deepest route that gives an attribute wins, `undefined` leaves it to the routes above, and `null` takes it away. Attributes are matched by the name React DOM writes, so `className` in one route and `class` in another are the same attribute. `class` is replaced as a whole, never merged with a value from elsewhere. `style` is not supported, as on the tags of the head. They are written by the same rules as the tags of the head. After browser navigation and after `router.invalidate()` they follow the new routes too. In the browser tifa writes an attribute of `<html>` only when the value it wants for it changes, and takes away only attributes it wrote. So what a script of the page sets, such as the `dark` class of a dark mode script or the `lang` a translation tool changes, stays through hydration and navigation while the routes want the same value of that attribute. When that value changes, because a route sets another `class` or a navigation leaves it and the root Layout's `class` comes back, tifa writes it and the class the script added is gone. Keep such a theme in an attribute no route sets, such as `data-theme`, or have the script add it again. A page without SSR gets these attributes in the browser.
 
 ```tsx
-// app/guide/lang+/layout.tsx. layout.go checks the language of the URL and returns it,
+// app/guide/lang+/layout.tsx. Layout in route.go checks the language of the URL and returns it,
 // or tifa.ErrNotFound for a language the site does not have.
-export const head = ({ loaderData }: { loaderData?: Data }) => ({
+export const head = ({ loaderData }: { loaderData?: LayoutData }) => ({
   htmlAttributes: { lang: loaderData?.lang },
 })
 ```
@@ -265,7 +279,7 @@ export const head = ({ loaderData }: { loaderData?: Data }) => ({
 
 ## 404
 
-`route.tsx` and `layout.tsx` can export `NotFound`:
+`page.tsx` and `layout.tsx` can export `NotFound`:
 
 | Case | What is shown |
 | --- | --- |
@@ -278,7 +292,7 @@ The status code is 404 in all these cases. The root Layout's `NotFound` is somet
 
 ## Errors on a page
 
-`route.tsx` and `layout.tsx` can export `Error`, shown in place of that route when its `Load` or `Layout` fails, or when a component below it throws in the browser:
+`page.tsx` and `layout.tsx` can export `Error`, shown in place of that route when its `Load` or `Layout` fails, or when a component below it throws in the browser:
 
 ```tsx
 import { RouteError } from 'tifa/client'
@@ -375,13 +389,13 @@ Load a component like that with `clientOnly`, with a placeholder of the same siz
 
 ```tsx
 import { clientOnly } from 'tifa/client'
-import { route } from './+route'
+import { page } from './route.gen'
 
 // sales-chart.client.tsx default-exports the chart.
 const SalesChart = clientOnly(() => import('./sales-chart.client'), <div className="h-64 w-full" />)
 
 export default function StatsPage() {
-  const { days } = route.useLoaderData()
+  const { days } = page.useLoaderData()
   return <SalesChart days={days ?? []} />
 }
 ```
@@ -423,10 +437,10 @@ type Receipt struct {
 ```
 
 ```tsx
-import { route } from './+route'
+import { page } from './route.gen'
 
 export default function ReceiptPage() {
-  const { amount, paidAt, locale, timeZone } = route.useLoaderData()
+  const { amount, paidAt, locale, timeZone } = page.useLoaderData()
   return (
     <p>
       {new Intl.NumberFormat(locale, { style: 'currency', currency: 'CNY' }).format(amount)}
@@ -465,7 +479,7 @@ Pages can use `Temporal.Now`, `Instant`, `ZonedDateTime`, `PlainDate`, `PlainTim
 For hydration, return ISO strings and the locale and zone from `Load` or a Layout, then reconstruct the same Temporal values on both sides. For example, with `day: '2026-10-22'` and `locale: 'en-US'`:
 
 ```tsx
-const { day, locale } = route.useLoaderData()
+const { day, locale } = page.useLoaderData()
 return <time>{Temporal.PlainDate.from(day).toLocaleString(locale, { dateStyle: 'long' })}</time>
 ```
 

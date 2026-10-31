@@ -1,5 +1,5 @@
 ---
-summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、route.go 与 route.tsx、Layout、hooks.go、404、SSR 与缓存开关、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数，以及数据、入参和结果的 JSON 规则'
+summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、hooks.go、404、SSR 与缓存开关、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数，以及数据、入参和结果的 JSON 规则'
 read_when:
   - 新建一个 tifa 应用，或给应用加页面、Layout、API 路由
   - 构建报 Ctx 用法或 Load 返回类型的错误，想知道怎么改
@@ -26,20 +26,18 @@ myapp/
   hooks.go                          进程与请求钩子（可选）
   db.go                             整个应用共享的资源：包级变量和函数（可选）
   app/
-    layout.go  layout.tsx           根 Layout，套到所有页面
-    route.go                        /
+    route.go  layout.tsx            根 Layout（route.go 里的 Layout），套到所有页面，以及 /（route.go 里的 GET）
     projects/
       project.go  project_test.go   店铺领域：Project、GetProject、ListProjects
       project+/
-        layout.go  layout.tsx       /projects/{project} 及下面所有页面的 Layout
-        route.go  route.tsx         页面 /projects/{project}
+        route.go  layout.tsx  page.tsx   /projects/{project} 及下面所有页面的 Layout，以及页面 /projects/{project}
         orders/
           order.go  order_test.go   订单领域：Order、ListOrders、GetOrder、ShipOrder
           order+/
-            route.go  route.tsx     页面 /projects/{project}/orders/{order}
+            route.go  page.tsx      页面 /projects/{project}/orders/{order}
             items.tsx  ship-form.tsx
         stats/
-          route.go  route.tsx       页面 /projects/{project}/stats
+          route.go  page.tsx        页面 /projects/{project}/stats
 ```
 
 - 代码按领域分组，一个领域就是 `app/` 下的一个目录：它的类型、存储和规则和页面放在一起，既有列表又有单条页面时放在列表那一层。页面 import 它要展示的领域包。根包只放钩子和整个应用共享的资源。不设一个装着所有表的 `models/` 或 `db/` 包。见 [structure.zh-CN.md](structure.zh-CN.md)。
@@ -58,12 +56,27 @@ myapp/
 
 - 字面量目录名只能用 ASCII 字母、数字和 `- . _ ~`。参数名以字母或 `_` 开头，后面跟字母、数字或 `_`，同一个 URL 里不能重复。
 - Go 的包名取自 `package` 那一行，不取目录名。包名按参数起：`project+` 里写 `package project`，别的包 import 它时就叫 `project`。
-- go 命令会跳过以 `.` 或 `_` 开头的目录和名为 `testdata` 的目录。这些目录里有 `route.go`、`route.tsx`、`layout.go` 或 `layout.tsx` 时构建报错，放别的文件没问题，比如 `_components` 目录。
+- go 命令会跳过以 `.` 或 `_` 开头的目录和名为 `testdata` 的目录。这些目录里有 `route.go`、`page.tsx` 或 `layout.tsx` 时构建报错，放别的文件没问题，比如 `_components` 目录。
 - 目录名还得是合法的 Go import 路径，所以 `con`、`x~1` 这类名字（Windows 保留名和短文件名）构建报错。
 - 一个目录下最多一个参数目录。`items/id+` 和 `items/key+` 或 `items/path++` 并列会构建报错，因为它们读的是同一段 URL。
 - 两个路由（页面或 API 路由）的 URL 有交集、又分不出谁更具体时构建报错，规则同 Go 的 `http.ServeMux`，比如 `a/b+` 和 `a+/b`。字面量比参数具体，所以 `items/new` 和 `items/id+` 并列没问题。
-- 只有 Layout、没有页面的目录，它的 URL 显示 404 页面，除非它下面紧挨着的 `name++` 目录里有页面，这时由那个页面以空的剩余路径接这个 URL。别的页面不能匹配这个 URL，比 Layout 路径更具体的除外：有 `settings/layout.tsx`、没有 `settings/route.tsx`，又有 `user+/route.tsx` 时构建报错，因为 `/settings` 也匹配 `/{user}`，而 `items/new` 和 `items/id+` 里的 Layout 并列没问题。
+- 只有 Layout、没有页面的目录，它的 URL 显示 404 页面，除非它下面紧挨着的 `name++` 目录里有页面，这时由那个页面以空的剩余路径接这个 URL。别的页面不能匹配这个 URL，比 Layout 路径更具体的除外：有 `settings/layout.tsx`、没有 `settings/page.tsx`，又有 `user+/page.tsx` 时构建报错，因为 `/settings` 也匹配 `/{user}`，而 `items/new` 和 `items/id+` 里的 Layout 并列没问题。
 - 声明 `const Path` 会构建报错，目录就是 URL。
+
+## 一个目录的文件
+
+一个目录最多有三个约定文件：
+
+| 文件 | 内容 |
+| --- | --- |
+| `route.go` | 这个目录的全部 Go 名字：`Layout`、`LayoutSSR`、`Load`、`SSR`、`Cache` 和方法函数 |
+| `page.tsx` | 页面组件。有 `page.tsx` 的目录是页面 |
+| `layout.tsx` | Layout 组件 |
+
+- `route.go` 的这些名字只从这个文件读。写在包里别的文件，包括 `layout.go`，会构建报错。辅助函数和类型写在哪个文件都行。
+- 只有 `route.go`、没有 `page.tsx` 的目录：写了方法函数就是 API 路由，写了 `Layout` 就给下面的页面提供 Layout 数据，两者可以同时有。`Load` 只能和 `page.tsx` 一起出现。
+- `route.tsx` 不是约定文件。出现 `route.tsx` 时构建报错，提示改名 `page.tsx`，免得页面被悄悄当成普通组件。
+- `tifa build` 还会为每个有页面、Layout 或方法函数的目录写一个 `route.gen.ts` 模块，`page.tsx` 和 `layout.tsx` 从它 import（见 [page.tsx](#pagetsx)）。
 
 ## route.go
 
@@ -89,8 +102,9 @@ func POST(c *tifa.Ctx, in ShipInput) (orders.Shipment, error) {
 
 - `Load` 返回页面数据，返回类型要能转成 TypeScript（见下文「JSON 规则」）。
 - `GET`、`POST`、`PUT`、`PATCH`、`DELETE` 处理和函数同名的 HTTP 方法。
-- 目录里有 `route.tsx` 就是页面，GET 由框架渲染，这时不能再写 `GET`。不需要数据、也没有别的方法的页面可以只有 `route.tsx`，不写 `route.go`。
-- 有 `route.go`、没有 `route.tsx` 的目录是 API 路由：方法函数照写的那样回答，不能写 `Load`，因为 `Load` 是给页面取数的。
+- `Layout` 返回这个目录的 Layout 的数据（见 [Layout](#layout)）。
+- 目录里有 `page.tsx` 就是页面，GET 由框架渲染，这时不能再写 `GET`。不需要数据、也没有别的方法的页面可以只有 `page.tsx`，不写 `route.go`。
+- 有 `route.go`、没有 `page.tsx` 的目录，写了方法函数就是 API 路由：方法函数照写的那样回答，不能写 `Load`，因为 `Load` 是给页面取数的。只写了 `Layout` 的 `route.go` 不是 API 路由，它只给下面的页面提供 Layout 数据。
 - 全部是包级函数和常量。依赖直接用应用初始化好的全局变量，框架不做依赖注入。
 
 返回错误时：
@@ -146,24 +160,24 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 | `c.Next()` | 在 `OnRequest` 里执行匹配到的路由，只能调一次 |
 | `c.Request()`、`c.Writer()` | 原始的 `*http.Request` 和 `http.ResponseWriter`，只给方法函数和 `OnRequest` 用 |
 
-## route.tsx
+## page.tsx
 
 ```tsx
-import { route, type Data } from './+route'
+import { page, type PageData } from './route.gen'
 
 export default function OrderPage() {
-  const order = route.useLoaderData()
+  const order = page.useLoaderData()
   return <OrderItems />
 }
 
-export const head = ({ loaderData }: { loaderData?: Data }) => ({
+export const head = ({ loaderData }: { loaderData?: PageData }) => ({
   meta: loaderData ? [{ title: loaderData.id }] : [],
 })
 ```
 
-- 只放界面，不取数。`./+route` 是生成的模块，导出 `route`、`Data`（`Load` 的返回类型）和 `Params`。同目录的子组件同样 import `./+route`。Layout 的数据来自它所在目录的 `+layout` 模块：`layout.tsx` import `'./+layout'`，页面读项目 Layout 的数据时 import 比如 `'../../+layout'`。
+- 只放界面，不取数。`./route.gen` 是生成的模块，每个目录一个，导出 `page` 和 `layout`（页面和 Layout 的 TanStack 路由，目录里有才导出）、`PageData` 和 `LayoutData`（`Load` 和 `Layout` 的返回类型）、`Params`，以及每个方法函数一个调用函数。同目录的子组件同样 import `./route.gen`。Layout 的数据来自它所在目录的 `route.gen`：`layout.tsx` 从 `'./route.gen'` import `layout`，页面读项目 Layout 的数据时从比如 `'../../route.gen'` import `layout`。有谁 import 了一个没有生成模块的目录的 `route.gen`，构建就会报错。
 - 默认导出是页面组件。可选导出 `head`、`Error`、`NotFound`。
-- 在浏览器里，每个 `route.tsx`，以及根 Layout 以外的每个 `layout.tsx`，连同它 import 的一切（含 `head`）各自是一个 chunk。路由第一次用到时才加载，路由器等它加载完才显示页面、运行 `head`。页面的 HTML 预加载它的 Layout 和路由的 chunk，所以它们和入口脚本一起到。文件顶层的代码（含只为副作用的 import）在这时运行，而不是应用启动时，所以每个页面都需要的初始化放在根 Layout 里，或放在它 import 的模块里。见[浏览器里的路由模块](build.zh-CN.md#浏览器里的路由模块)。
+- 在浏览器里，每个 `page.tsx`，以及根 Layout 以外的每个 `layout.tsx`，连同它 import 的一切（含 `head`）各自是一个 chunk。路由第一次用到时才加载，路由器等它加载完才显示页面、运行 `head`。页面的 HTML 预加载它的 Layout 和路由的 chunk，所以它们和入口脚本一起到。文件顶层的代码（含只为副作用的 import）在这时运行，而不是应用启动时，所以每个页面都需要的初始化放在根 Layout 里，或放在它 import 的模块里。见[浏览器里的路由模块](build.zh-CN.md#浏览器里的路由模块)。
 - Go 的切片和 map 在 TypeScript 里带 `| null`（Go 的 nil 编码成 `null`），用之前写 `?? []`。
 - 模块顶层就要用浏览器能力的组件放进 `.client.tsx`，用 `tifa/client` 的 `clientOnly` 延迟加载。它不进 SSR 包，首屏显示占位内容。能渲染、但要等浏览器画出来才有内容的组件也适合这样放，见[只在浏览器里绘制的组件](#只在浏览器里绘制的组件)：
 
@@ -177,10 +191,10 @@ const OrderActions = clientOnly(() => import('./actions.client'), <button disabl
 
 ### 在浏览器里调用方法函数
 
-有方法函数的目录，它的 `+route` 模块按方法各导出一个同名函数。API 路由也有 `+route` 模块，页面可以 import 任何目录的方法函数：
+有方法函数的目录，它的 `route.gen` 模块按方法各导出一个同名函数。API 路由也有 `route.gen` 模块，页面可以 import 任何目录的方法函数：
 
 ```tsx
-import { POST } from './+route'
+import { POST } from './route.gen'
 import { TifaError } from 'tifa/client'
 
 async function ship() {
@@ -198,7 +212,7 @@ async function ship() {
 - 错误回答抛出 `TifaError`，带 `status`、`message` 和 `fields`（`tifa.Fields` 的消息，其他情况为空）。网络错误照 `fetch` 的样子抛出。
 - 处理函数或 `OnRequest` 返回 `c.Redirect(url, code)` 时，浏览器去那个 URL：本站的 URL 经路由器跳转，页面不重新加载，别的站点整页加载。POST、PUT、PATCH、DELETE 之后（除非传了 `invalidate: false`），路由器里已有的数据先标为过期，所以新页面和它的 Layout 显示的是新数据。重定向到正在显示的页面时，和没有重定向的调用一样重新取这一页的数据。路径、hash 和查询参数的值都相同就算同一页，查询参数的顺序和编码不论。promise 在新页面显示出来后兑现为 `undefined`，有返回值的处理函数也一样。一次调用是否被重定向，要等回答来了才知道（`OnRequest` 可以重定向任何请求），所以有返回值的处理函数，返回类型都带 `undefined`。自己写响应的处理函数，调用函数拿到这次重定向的 `Response`（`ok` 为真，状态码在 `X-Tifa-Redirect` 里）。相对 URL 按处理函数的 URL 解析，不按页面的 URL。处理函数经 `c.Writer()` 自己写的 3xx，或者代理写的 3xx，浏览器读不到，promise 以 `Error` 失败。
 - 在事件处理函数或 effect 里调用。服务器渲染页面期间调用会抛错。
-- `+route` 还为有入参或返回值的处理函数导出 `POSTInput`、`POSTOutput` 等类型。
+- `route.gen` 还为有入参或返回值的处理函数导出 `POSTInput`、`POSTOutput` 等类型。
 
 要在创建之后去新建内容的页面，可以让处理函数返回重定向，也可以返回结果再自己导航。第二种写法要传 `invalidate: false`，免得当前页面在离开前又取一次数据。路由器里已有的数据（比如两个页面共用的 Layout 的数据）这时保持原样：
 
@@ -221,7 +235,7 @@ if (todo) await router.navigate({ to: '/todos/$todo', params: { todo: todo.id } 
 
 ## Layout
 
-Layout 放在它的目录里，和这个目录的页面（如果有）并列：`layout.go`、`layout.tsx` 套到同目录的页面和下面所有页面。`layout.tsx` 用 `<Outlet />` 放子路由。两个文件都可以省掉一个：没有 `layout.tsx` 时子路由直接渲染，没有 `layout.go` 时 Layout 没有数据。所在目录和下面都没有页面的 Layout 构建报错。
+Layout 放在它的目录里，和这个目录的页面（如果有）并列：`route.go` 里的 `Layout` 函数和 `layout.tsx` 套到同目录的页面和下面所有页面。`layout.tsx` 用 `<Outlet />` 放子路由。两者都可以省掉一个：没有 `layout.tsx` 时子路由直接渲染，没有 `Layout` 函数时 Layout 没有数据。所在目录和下面都没有页面的 Layout 构建报错。
 
 ```go
 package project
@@ -233,8 +247,8 @@ func Layout(c *tifa.Ctx) (projects.Project, error) {
 const LayoutSSR = false // 可选，默认 true
 ```
 
-- 同一个目录的 `layout.go` 和 `route.go` 是同一个 Go 包，但每个名字有固定的文件：`Layout`、`LayoutSSR` 写在 `layout.go`，`Load`、`SSR`、`Cache` 和方法函数写在 `route.go`。写在包里其他文件会构建报错。辅助函数和类型写在哪个文件都行。
-- Layout 用 `c.Param` 只能读自己目录路径里的参数。`app/projects/project+/layout.go` 能读 `project`，不能读 `order`。页面的 `Load` 同样只能读自己路径里的参数。
+- `Layout` 和 `LayoutSSR` 写在 `route.go`，和同一个目录的 `Load`、`SSR`、`Cache` 和方法函数放在一起。写在包里其他文件，比如 `layout.go`，会构建报错。只写了 `Layout` 的 `route.go` 不是 API 路由。
+- Layout 用 `c.Param` 只能读自己目录路径里的参数。`app/projects/project+/route.go` 里的 `Layout` 能读 `project`，不能读 `order`。页面的 `Load` 同样只能读自己路径里的参数。
 - 同一个 Layout 下切换页面时，Layout 组件不重新挂载，它的状态保留。`Layout` 函数读的参数变了（比如换了一个项目），Layout 重新挂载，状态重置。它不读的参数变了，状态保留，页面同理。
 - 页面和 Layout 都可以用 `tifa.Use(c, project.Layout)` 拿到套着自己的 Layout（同目录或祖先目录的）本次请求的结果，同一个 `Layout` 每个请求只跑一次。引用别的 Layout 构建报错，传入的不是包级 `Layout` 函数（比如闭包）也报错。`Layout` 函数不能引用自己所在目录的 Layout，直接引用或经辅助函数引用都不行。
 - 浏览器里跳转时，导航数据请求只执行所列路由的 `Load` 和 `Layout` 函数。祖先 Layout 的数据还在缓存里时，它不在列表中，它的 `Layout` 这次不会再跑。所以权限检查不要只写在 Layout 里：放进 `OnRequest`，或者让页面的 `Load` 用 `tifa.Use` 依赖做检查的那个 Layout，这样每次请求都会执行它。
@@ -252,9 +266,9 @@ export const documentHead = {
 - `head` 还可以返回 `htmlAttributes`，即这些页面 `<html>` 的属性，比如多语言网站每个页面的语言。搜索引擎、读屏软件和浏览器的翻译都从 `lang` 读语言。它们逐个属性合并到根 Layout 的 `htmlAttributes` 上：同一个属性取给出它的最深的路由，`undefined` 交给上层决定，`null` 去掉这个属性。属性按 React DOM 写出的名字对应，所以一个路由的 `className` 和另一个路由的 `class` 是同一个属性。`class` 按整个属性替换，不和别处的值合并。`style` 和 head 标签一样不支持。写法规则和 head 标签相同。浏览器里跳转、`router.invalidate()` 之后它们也随新的匹配更新。在浏览器里，tifa 只在它要给 `<html>` 某个属性的值变了时才写这个属性，也只去掉自己写过的属性。所以页面脚本设的值（比如暗色模式脚本加的 `dark` class，翻译插件改的 `lang`）在 hydration 和跳转之后都还在，只要路由要的这个属性的值没变。这个值变了时，比如某个路由设了另一个 `class`，或者跳出这个路由后根 Layout 的 `class` 又回来，tifa 就会写上新值，脚本加的 class 也就没了。这类主题放在没有路由设的属性上（比如 `data-theme`），或者让脚本再加一次。不走 SSR 的页面在浏览器里得到这些属性。
 
 ```tsx
-// app/guide/lang+/layout.tsx。layout.go 检查 URL 里的语言并返回它，
+// app/guide/lang+/layout.tsx。route.go 里的 Layout 检查 URL 里的语言并返回它，
 // 网站没有的语言返回 tifa.ErrNotFound。
-export const head = ({ loaderData }: { loaderData?: Data }) => ({
+export const head = ({ loaderData }: { loaderData?: LayoutData }) => ({
   htmlAttributes: { lang: loaderData?.lang },
 })
 ```
@@ -265,7 +279,7 @@ export const head = ({ loaderData }: { loaderData?: Data }) => ({
 
 ## 404
 
-`route.tsx` 和 `layout.tsx` 可以导出 `NotFound`：
+`page.tsx` 和 `layout.tsx` 可以导出 `NotFound`：
 
 | 情况 | 显示 |
 | --- | --- |
@@ -278,7 +292,7 @@ export const head = ({ loaderData }: { loaderData?: Data }) => ({
 
 ## 页面上的错误
 
-`route.tsx` 和 `layout.tsx` 可以导出 `Error`。这一层的 `Load` 或 `Layout` 失败，或者它下面的组件在浏览器里抛错时，在这一层的位置显示它：
+`page.tsx` 和 `layout.tsx` 可以导出 `Error`。这一层的 `Load` 或 `Layout` 失败，或者它下面的组件在浏览器里抛错时，在这一层的位置显示它：
 
 ```tsx
 import { RouteError } from 'tifa/client'
@@ -375,13 +389,13 @@ SSR 包是一个 ES 模块。每个虚拟机加载时运行它一次，包里的
 
 ```tsx
 import { clientOnly } from 'tifa/client'
-import { route } from './+route'
+import { page } from './route.gen'
 
 // sales-chart.client.tsx 默认导出图表组件。
 const SalesChart = clientOnly(() => import('./sales-chart.client'), <div className="h-64 w-full" />)
 
 export default function StatsPage() {
-  const { days } = route.useLoaderData()
+  const { days } = page.useLoaderData()
   return <SalesChart days={days ?? []} />
 }
 ```
@@ -425,10 +439,10 @@ type Receipt struct {
 ```
 
 ```tsx
-import { route } from './+route'
+import { page } from './route.gen'
 
 export default function ReceiptPage() {
-  const { amount, paidAt, locale, timeZone } = route.useLoaderData()
+  const { amount, paidAt, locale, timeZone } = page.useLoaderData()
   return (
     <p>
       {new Intl.NumberFormat(locale, { style: 'currency', currency: 'CNY' }).format(amount)}
@@ -467,7 +481,7 @@ export default function ReceiptPage() {
 要让水合一致，从 `Load` 或 Layout 返回 ISO 字符串、语言和时区，在两端构造相同的 Temporal 值。例如数据是 `day: '2026-10-22'` 和 `locale: 'en-US'`：
 
 ```tsx
-const { day, locale } = route.useLoaderData()
+const { day, locale } = page.useLoaderData()
 return <time>{Temporal.PlainDate.from(day).toLocaleString(locale, { dateStyle: 'long' })}</time>
 ```
 

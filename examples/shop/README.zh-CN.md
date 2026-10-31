@@ -39,16 +39,14 @@ go test ./...
 hooks.go                       拦截跨站的写请求，记录意外错误
 components/ui/  lib/  hooks/   shadcn/ui 组件和它们的辅助代码，用 @/components/ui/... 引用
 app/
-  layout.go  layout.tsx        根 Layout：侧栏、顶栏、文档外壳和全站 404
+  route.go  layout.tsx         根 Layout：侧栏、顶栏、文档外壳和全站 404，还有把 / 跳到第一家店铺的 GET
   styles.css                   Tailwind CSS 和店铺的主题
   format.ts                    中文的金额和时间，按店铺时区
   animated-number.tsx          数据变化时补间的数字
-  route.go                     访问 / 时跳到第一家店铺
   projects/
     project.go                 店铺领域：类型、待发货统计、存储
     project+/                  /projects/{project}
-      layout.go  layout.tsx    店铺 Layout：店名、待发货数、店铺备忘、订单和统计的入口
-      route.go  route.tsx      订单列表
+      route.go  layout.tsx  page.tsx   店铺 Layout（店名、待发货数、店铺备忘、订单和统计的入口）和订单列表
       columns.tsx              订单列表的列
       orders/
         order.go  shipping.go  订单领域：列表、详情、发货和收货信息的规则、存储
@@ -65,17 +63,16 @@ app/
     product-card.tsx           各个列表共用的商品卡片、商品图和价格
     images.ts  images/         商品、首页和手记的配图，AVIF 格式
     lang+/                     /store/{lang}
-      layout.go  layout.tsx    店面 Layout：分类菜单、搜索、语言切换、购物车抽屉、页脚
-      route.go  route.tsx      首页
+      route.go  layout.tsx  page.tsx   店面 Layout（分类菜单、搜索、语言切换、购物车抽屉、页脚）和首页
       products/
         product.go  catalogue.go  review.go    商品领域：商品、搜索、筛选和各项计数、评价、规格、最近看过
-        route.go  route.tsx    商品列表，筛选条件放在查询字符串里
+        route.go  page.tsx      商品列表，筛选条件放在查询字符串里
         filter-schema.ts       筛选表单的 zod schema
         product+/              /store/{lang}/products/{product}：商品详情，POST 加入购物车
       cart/
         cart.go  checkout.go   购物车领域：商品行、优惠码、配送、订单的检查和下单
         recent.go              放在内存里的购物车和已下订单，有数量上限，过期就丢掉
-        route.go  route.tsx    /store/{lang}/cart：PATCH 改数量，POST 用优惠码
+        route.go  page.tsx      /store/{lang}/cart：PATCH 改数量，POST 用优惠码
       checkout/                /store/{lang}/checkout：订单表单，POST 下单
         checkout-schema.ts     订单的 zod schema，规则和 Order.Validate 一样
       journal/
@@ -85,7 +82,7 @@ app/
       rest++/                  店面其他所有路径：在店面 Layout 里显示 404
 ```
 
-每个领域放在 `app/` 下自己的目录里，和展示它的页面、它的测试在一起：`app/projects` 是店铺领域，`app/projects/project+/orders` 是订单领域，放在单个订单目录的上一层，而不是放进单个订单的目录里。根包只放钩子。存储放在内存里，自带演示数据，代替数据库表，重启后恢复初始值。`app/` 下每层目录是 URL 的一段，`route.go` 写调用领域包的 `Load`，订单页的 `route.go` 还有 `POST` 和 `PATCH`，它们的入参用 `Validate` 自己检查。`route.tsx` 写界面，用 `./+route` 读 `Load` 的结果。订单页和统计页通过店铺 Layout 读店铺：`tifa.Use(c, project.Layout)`。`app/route.go` 是 API 路由，它的 `GET` 把 `/` 重定向到店铺 `studio`。店铺领域要统计待发货的订单，所以 `projects` import `orders`，而 `orders` 既不 import `projects`，也不 import 页面。为什么这样组织见[哲学](../../docs/philosophy.zh-CN.md)，包之间按什么方向 import 见[应用的代码结构](../../docs/structure.zh-CN.md)。
+每个领域放在 `app/` 下自己的目录里，和展示它的页面、它的测试在一起：`app/projects` 是店铺领域，`app/projects/project+/orders` 是订单领域，放在单个订单目录的上一层，而不是放进单个订单的目录里。根包只放钩子。存储放在内存里，自带演示数据，代替数据库表，重启后恢复初始值。`app/` 下每层目录是 URL 的一段，`route.go` 放这个目录所有的 Go 名字：调用领域包的 `Load`，店铺和店面目录的 `Layout` 函数，订单页的 `POST` 和 `PATCH`，它们的入参用 `Validate` 自己检查。`page.tsx` 写界面，用 `./route.gen` 读 `Load` 的结果。订单页和统计页通过店铺 Layout 读店铺：`tifa.Use(c, project.Layout)`。`app/route.go` 放根 Layout，它的 `GET` 把 `/` 重定向到店铺 `studio`，所以 `/` 是 API 路由。店铺领域要统计待发货的订单，所以 `projects` import `orders`，而 `orders` 既不 import `projects`，也不 import 页面。为什么这样组织见[哲学](../../docs/philosophy.zh-CN.md)，包之间按什么方向 import 见[应用的代码结构](../../docs/structure.zh-CN.md)。
 
 Go 把时间作为时刻发给页面，页面用 `Intl` 按店铺时区格式化，时区由店铺 Layout 一起给出。浏览器在别的时区，看到的时间也和服务端渲染的一样。
 
