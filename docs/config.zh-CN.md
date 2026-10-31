@@ -1,9 +1,10 @@
 ---
-summary: 'tifa 应用的全部配置：每项能在哪设置、谁优先、默认值、参数和环境变量名、值的写法、写错时的报错，以及怎样用程序自己申请的证书或你自己的证书提供 HTTPS'
+summary: 'tifa 应用的全部配置：每项能在哪设置、谁优先、默认值、参数和环境变量名、值的写法、写错时的报错，怎样用程序自己申请的证书或你自己的证书提供 HTTPS，以及程序怎样拒绝浏览器从别的网站发来的写请求、怎样放行指定的来源或路径'
 read_when:
   - 部署 tifa 应用，或要改端口、请求体上限、压缩、VM 数量、VM 栈深度、渲染超时、渲染队列、页面缓存
   - 想让程序自己提供 HTTPS，用 Let's Encrypt 或自己的证书，或者在犹豫要不要这样做
   - 程序监听不了 80 或 443 端口，或者拿不到证书
+  - POST、PUT、PATCH 或 DELETE 收到 403 和 `cross-origin request detected`，或者要放行另一个网站的页面或第三方的回调
   - 设置构建的浏览器目标或静态文件目录
   - 程序因为配置错误起不来
   - 改 internal/config
@@ -63,6 +64,8 @@ cache:
 | `server.tls_key` | 无 | `--server-tls-key`、`TIFA_SERVER_TLS_KEY` | `tls_cert` 的私钥文件，PEM 格式 |
 | `server.http_addr` | `:80` | `--server-http-addr`、`TIFA_SERVER_HTTP_ADDR` | 开了 HTTPS 时的明文 HTTP 地址，回应 Let's Encrypt 的验证，其余请求跳转到 HTTPS。`off` 表示不开。没开 HTTPS 时不用 |
 | `server.hsts` | `false` | `--server-hsts`、`TIFA_SERVER_HSTS` | 给 `server.addr` 的回答加上 `Strict-Transport-Security: max-age=31536000`，浏览器一年内只走 HTTPS |
+| `server.trusted_origins` | 无 | `--server-trusted-origins`、`TIFA_SERVER_TRUSTED_ORIGINS` | 这些来源的页面可以从别的网站发写请求（POST、PUT、PATCH、DELETE），逗号分隔，比如 `https://admin.example.com,http://localhost:3000`。见[跨站写请求](#跨站写请求) |
+| `server.cross_site_paths` | 无 | `--server-cross-site-paths`、`TIFA_SERVER_CROSS_SITE_PATHS` | 这些路径模式的写请求不检查来自哪个网站，逗号分隔，比如 `POST /auth/apple/callback`。见[跨站写请求](#跨站写请求) |
 | `ssr.vms` | CPU 数（`GOMAXPROCS`） | `--ssr-vms`、`TIFA_SSR_VMS` | 预热的 JavaScript VM 数，也就是同时能渲染几个页面。容器里跟随 CPU 限额。什么时候该改见[机器怎么配](performance.zh-CN.md#机器怎么配) |
 | `ssr.vm_memory` | `128MiB` | `--ssr-vm-memory`、`TIFA_SSR_VM_MEMORY` | 每个 VM 的内存上限。渲染时内存用尽则这次渲染失败，VM 换成新的。页面代码接不住它。引擎留住再用的形状也算在这里，最坏每个 VM 约 6 MiB（按 2048 个形状、每个 32 个键、键名约十个字符算，键名更长会更多），调低时要留出这部分（见[内存](performance.zh-CN.md#内存)） |
 | `ssr.vm_stack_depth` | `10000` | `--ssr-vm-stack-depth`、`TIFA_SSR_VM_STACK_DEPTH` | 每个 VM 里 JavaScript 调用最多嵌套多深，大约一次调用一层。更深的调用抛出 `RangeError: Maximum call stack size exceeded`，和 Node 停下的深度差不多。可设 1 到 10000，见[栈深度](#栈深度) |
@@ -161,6 +164,24 @@ sudo setcap cap_net_bind_service=+ep ./bin/myapp
 
 `tifa dev` 总是提供明文 HTTP，不管这些配置，项目文件里配了也一样。
 
+## 跨站写请求
+
+程序会拒绝浏览器从别的网站发来的 POST、PUT、PATCH 和 DELETE。`evil.test` 的页面能让浏览器带着用户的 cookie 向你的应用发表单或 multipart，信 cookie 的处理函数就会替用户办事。这个检查最先执行，在 `OnRequest` 和任何路由之前，页面、接口、没有匹配到路由的地址都一样。每个应用都开着，没有设置能关掉。它用的是 Go 的 `http.CrossOriginProtection`：
+
+- `Sec-Fetch-Site: same-origin` 的请求通过，`none`（用户自己敲的地址）也通过。`same-site`（同一域名的别的子域名）和 `cross-site` 被拒绝。
+- 不发 `Sec-Fetch-Site` 的浏览器（现在的浏览器都发）看 `Origin`，它必须是这个请求的 `Host`。
+- 两个头都没有的请求不是浏览器发的，比如 curl、webhook 或别的服务器，通过。
+- GET、HEAD、OPTIONS 从不检查，所以 GET 不能改任何东西。
+
+被拒绝的请求得到 403 和 `{"error":"cross-origin request detected from Sec-Fetch-Site header"}`（或者带 `Sec-Fetch-Site is missing, and Origin does not match Host` 的同类说明），并带 `Cache-Control: no-store`。`OnRequest` 不会为它运行，所以那里的日志或计数看不到它。你自己的页面用 `route.gen` 的函数或 `fetch` 发的调用，以及 `router.invalidate()` 都是同源的，不受影响。`tifa dev` 也一样，浏览器只和一个地址打交道。
+
+在代理后面，让 `Host` 和 `Origin` 原样通过。现代浏览器看 `Sec-Fetch-Site`，代理会照传，旧浏览器看 `Origin` 和 `Host` 是否一致，代理改了 `Host` 就会让它们的写请求像是外来的。
+
+要放行一部分：
+
+- `server.trusted_origins` 列出可以写的页面来源，比如单独的管理站，或开发时跑在 `http://localhost:3000` 的前端。来源由协议、主机名和端口（不是协议默认端口时才写）组成，没有路径：`https://admin.example.com`。它和 `Origin` 头按文本比较，所以 `http://` 和 `https://` 是两个来源。写小写，或者交给程序，它会转成小写并去掉 `:80` 和 `:443`。只信任你自己控制的网站，可信来源的页面能替你的用户办事。
+- `server.cross_site_paths` 列出 `http.ServeMux` 写法的模式，比如 `POST /auth/apple/callback` 或 `/hooks/{name}`，这些请求完全不检查。用在第三方的浏览器回调上，比如从对方页面 POST 表单的登录。不带方法的模式接受所有方法。ServeMux 只会重定向到该模式的请求（比如多了结尾的斜杠）不放行。这类路径上的处理函数要自己证明请求是真的，比如核对它放进 cookie 的 `state`，或对方的签名。
+
 ## 栈深度
 
 `ssr.vm_stack_depth` 默认是 10000，渲染里普通递归能到的深度和 Node 一样，Node 大约在 10400 层调用时停下。每一层占的是负责渲染的 Go goroutine 的栈和引擎自己的栈，不算在 `ssr.vm_memory` 限制的内存里。普通页面只要几百层、几 MB。无限递归的代码会一直走到底才抛错，这次渲染里整个进程在 darwin/arm64 上涨约 14 MB，在 linux/amd64 上最多涨到约 26 MB。这次渲染失败，VM 被换掉，Go 在下一次垃圾回收时收回 goroutine 栈。goroutine 栈按翻倍增长，涨栈时如果正赶上垃圾回收，旧栈要等这轮回收结束才释放。
@@ -192,6 +213,7 @@ sudo setcap cap_net_bind_service=+ep ./bin/myapp
 - `ssr.queue_limit` 是不小于 0 的整数。即使队列限制为 0，`ssr.wait_timeout` 也必须为正数。
 - `ssr.vm_stack_depth` 是 1 到 10000 的整数，10000 是引擎允许的最深调用嵌套。
 - `build.skip_tanstack_check`、`build.debug_info`、`build.i18next_cache`、`server.compress` 和 `server.hsts` 是 `true` 或 `false`，不加引号。参数要用 `=` 带值：`--server-compress=false`。
+- `server.trusted_origins` 和 `server.cross_site_paths` 是逗号分隔的列表，里面不要加括号或引号，可以为空。高优先级的来源可以清空低优先级设的值：`TIFA_SERVER_TRUSTED_ORIGINS=` 会清掉项目文件里的来源。来源要有 `http` 或 `https` 和主机名，不能带路径、查询串或用户名，写错会报出错在哪。`http.ServeMux` 不接受的模式，或和列表里别的模式冲突的，也会报错。
 - `server.tls_domains` 是逗号分隔的主机名，不带协议、端口和路径，每个都要有点号。`server.tls_ca` 是 `https` 网址。`server.http_addr` 是带端口的地址，比如 `:80` 或 `0.0.0.0:80`，或者小写的 `off`。像开关的词，比如 `OFF`、`false`、`none`，会报错并告诉你该写什么。
 - `server.tls_domains`、`server.tls_email`、`server.tls_cache`、`server.tls_cert` 和 `server.tls_key` 可以为空，表示关掉低优先级来源设的值：项目文件要 Let's Encrypt 时，用 `TIFA_SERVER_TLS_DOMAINS=` 加 `--server-tls-cert` 就能改用自己的证书。
 
