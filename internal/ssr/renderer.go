@@ -260,12 +260,13 @@ func RenderVM(vm *VM, input []byte, texts []string, timeout time.Duration) (stri
 	var result struct {
 		Redirect *RedirectError `json:"redirect"`
 		Error    string         `json:"error"`
+		Levels   int            `json:"levels"`
 	}
 	if err := json.Unmarshal([]byte(text), &result); err != nil {
 		return "", fmt.Errorf("ssr: decode result: %w", err)
 	}
 	if result.Error != "" {
-		return "", &scriptError{text: result.Error}
+		return "", &scriptError{text: result.Error, levels: result.Levels}
 	}
 	if result.Redirect != nil {
 		return "", result.Redirect

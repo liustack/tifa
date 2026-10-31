@@ -16,14 +16,30 @@ import (
 )
 
 // scriptError is an exception of the bundle's JavaScript that the bundle caught and reported in
-// renderResult as "name: message", a newline and its stack trace.
+// renderResult as "name: message", a newline and its stack trace. levels is the number of
+// levels of the route tree that could show it in place of what failed, 0 when the bundle failed
+// before it knew the route.
 type scriptError struct {
-	text string
+	text   string
+	levels int
 }
 
 func (e *scriptError) Error() string {
 	head, _, _ := strings.Cut(e.text, "\n")
 	return "ssr: render page: " + head
+}
+
+func (e *scriptError) Levels() int { return e.levels }
+
+// Levels returns how many levels of the route tree could show the error a render of the bundle
+// reported, and false when the bundle did not say, as for any error but one of the page's code.
+// PlacedError.Level ranges below it. An error with a Levels method reports what it returns.
+func Levels(err error) (int, bool) {
+	var reported interface{ Levels() int }
+	if errors.As(err, &reported) && reported.Levels() > 0 {
+		return reported.Levels(), true
+	}
+	return 0, false
 }
 
 // explainedError is an error of the bundle's JavaScript with its stack trace, the places in it

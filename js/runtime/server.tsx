@@ -3,7 +3,7 @@ import { prerenderToString } from 'react-dom/server.edge'
 import { RouterProvider, type AnyRoute } from '@tanstack/react-router'
 import { attachRouterServerSsrUtils } from '@tanstack/react-router/ssr/server'
 import { createAppRouter } from './router'
-import { injected, rootElementId, type Injected, type InjectedResult, type Source } from './data'
+import { injected, rootElementId, RouteError, type Injected, type InjectedResult, type Source } from './data'
 import {
   attributes,
   defaultHTMLAttributes,
@@ -71,6 +71,21 @@ export type RenderInput = Omit<Injected, 'data'> & {
   nonce?: string
   // The length from which a text goes into the page as a slot, slotMin below unless a test sets it.
   slotMin?: number
+  // An error the page shows in place of what failed at a level of its matches, set when a render of
+  // the page failed (see placed).
+  error?: PlacedError
+}
+
+// PlacedError is an error a render shows at a level of the matches: level 0 is the match that
+// shows what the URL matched, the first that did not load or the last one, each level above it one
+// match further out. The match there renders its errorComponent with a RouteError of the status
+// and message.
+export type PlacedError = { status: number; message: string; level: number }
+
+// shownAt is the index of the match that shows what the URL matched, as headTags reads it.
+function shownAt(matches: ReadonlyArray<{ status: string; _notFound?: boolean }>) {
+  const i = matches.findIndex((match) => match.status !== 'success' || match._notFound)
+  return i < 0 ? matches.length - 1 : i
 }
 
 // slotMin is the length, in code units, from which the JSON text of a Load's data goes into the page
@@ -100,7 +115,9 @@ function renderSource(input: RenderInput, texts: string[]): Source {
 // serve installs startRender, which the Go VM pool calls with the JSON of a RenderInput and, as
 // the arguments after it, the JSON text of the data of each successful Load, which the results
 // of the input number. It leaves the HTML, or the JSON of {"redirect": {location, status}} or
-// {"error": ...}, in renderResult once the queued jobs have run. While React waits for a
+// {"error": ..., "levels": n}, in renderResult once the queued jobs have run, n being how many
+// levels of the matches could show the error (see PlacedError), 0 when the render failed before
+// the router matched the URL. While React waits for a
 // component that suspended, stopRender is set: the pool calls it when no job is left, as nothing
 // could settle what React waits for, and the render ends with the boundaries still waiting left to
 // the browser. The router redirects a URL it spells differently, such as /%61 for /a. Go answers
@@ -124,6 +141,7 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
     })
     attachRouterServerSsrUtils({ router, manifest: undefined })
     globalThis.renderResult = undefined
+    let levels = 0
     void (async () => {
       try {
         await router.load()
@@ -134,6 +152,9 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
           })
           return
         }
+        const shown = shownAt(router.stores.matches.get())
+        levels = shown + 1
+        if (input.error) placed(router, shown, input.error)
         await router.serverSsr!.dehydrate()
         const errors: unknown[] = []
         const stop = new AbortController()
@@ -177,6 +198,7 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
             error instanceof Error
               ? `${error.name}: ${error.message}\n${error.stack}`
               : String(error),
+          levels,
         })
       } finally {
         globalThis.stopRender = undefined
@@ -184,6 +206,20 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
       }
     })()
   }
+}
+
+// placed makes the match at error.level above the shown one fail with the error, so that it renders
+// its errorComponent in its place and the browser hydrates it so. The matches below it stay as they
+// loaded, and nothing renders them.
+function placed(router: ReturnType<typeof createAppRouter>, shown: number, error: PlacedError) {
+  const at = shown - error.level
+  const matches = router.stores.matches.get()
+  if (error.level < 0 || at < 0) throw new Error(`the matches have no level ${error.level} to show the error at`)
+  router.stores.setMatches(
+    matches.map((match, i) =>
+      i === at ? { ...match, status: 'error', error: new RouteError(error.status, error.message), _notFound: undefined } : match,
+    ),
+  )
 }
 
 // scriptsHTML writes the router's hydration scripts as React would: their source as it is.
