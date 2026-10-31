@@ -12,6 +12,7 @@
     "ajv": "8.20.0",
     "ajv-errors": "3.0.0",
     "ajv-formats": "3.0.1",
+    "clsx": "2.1.1",
     "core-js": "3.50.0",
     "i18next": "26.5.3",
     "lucide-react": "1.58.0",

@@ -276,6 +276,13 @@ const radixMergePropsSource = radixMergePropsOldSource.replace(
   }
   return`,
 )
+// clsx joins the class names of an element, for the className of nearly every component of MUI and
+// of many other libraries. It reads its arguments from the arguments object and calls a function for
+// each one, even for a string, which nearly every argument is. The tifa plugin changes dist/clsx.mjs,
+// see clsxFast. clsxSource is that file in clsx 2.0.1 to 2.1.1, which have the same text.
+const clsxModule = /[/\\]clsx[/\\]dist[/\\]clsx\.mjs$/
+const clsxSource =
+  'function r(e){var t,f,n="";if("string"==typeof e||"number"==typeof e)n+=e;else if("object"==typeof e)if(Array.isArray(e)){var o=e.length;for(t=0;t<o;t++)e[t]&&(f=r(e[t]))&&(n&&(n+=" "),n+=f)}else for(f in e)e[f]&&(n&&(n+=" "),n+=f);return n}export function clsx(){for(var e,t,f=0,n="",o=arguments.length;f<o;f++)(e=arguments[f])&&(t=r(e))&&(n&&(n+=" "),n+=t);return n}export default clsx;'
 // react-i18next gives each call of useTranslation a copy of the whole i18n object, which takes about
 // 40 property descriptors a call in QuickJS and runs for every component that translates. The tifa
 // plugin changes dist/es/useTranslation.js and dist/commonjs/useTranslation.js, see
@@ -1234,6 +1241,17 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
           )
         }
         return merged ?? null
+      }
+      if (clsxModule.test(id)) {
+        const faster = clsxFast(fs.readFileSync(id, 'utf8'))
+        if (!faster) {
+          this.warn(
+            `clsx ${packageVersion(path.resolve(id, '..', '..'))}: ${id} has a form the tifa plugin does not know, so ` +
+              'clsx reads each argument with a call of a function even for a string. Pages render the same, but ' +
+              'take longer to render. clsx 2.0.1 to 2.1.1 is changed',
+          )
+        }
+        return faster ?? null
       }
       if (reactI18nextModule.test(id)) {
         const source = fs.readFileSync(id, 'utf8')
@@ -2216,6 +2234,25 @@ function radixMergeProps(source) {
       () => '      overrideProps[propName] = slotPropValue ? (childPropValue ? `${slotPropValue} ${childPropValue}` : `${slotPropValue}`) : childPropValue ? `${childPropValue}` : "";\n',
     )
   return source.replace(known, () => merged)
+}
+
+// clsxFast returns the source of clsx with the function that joins the class names doing for a call
+// of up to six arguments what the old one does in a loop, without the loop or the arguments object
+// and without a call for a string, or undefined when the source is not the one it knows. For each
+// argument, in order, a falsy one adds nothing, a string is its own text, and any other value goes
+// to r, the function the old loop calls for it, so an object, an array, a number or a function is
+// read, called and written as before. The texts join with a space between the non-empty ones, as
+// clsx writes them. A call with more than six arguments goes to the old function with its
+// arguments, before anything else happens. Six is what class-variance-authority passes (cva calls
+// clsx with five), and the calls in the MUI test app have up to five. Only the length of the function differs, 6 for 0.
+function clsxFast(source) {
+  if (source !== clsxSource) return undefined
+  const join = (arg, first) =>
+    `if(${arg}){t="string"==typeof ${arg}?${arg}:r(${arg});if(t)s=${first ? 't' : 's?s+" "+t:t'}}`
+  const fast =
+    'export function clsx(a,b,c,d,e,g){if(arguments.length>6)return tifaClsx.apply(null,arguments);var s="",t;' +
+    `${join('a', true)}${join('b')}${join('c')}${join('d')}${join('e')}${join('g')}return s}`
+  return source.replace('export function clsx(){for(var ', () => `${fast}function tifaClsx(){for(var `)
 }
 
 // chainEscapes returns the source of React's string renderer with escapeTextForBrowser escaping
