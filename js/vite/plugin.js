@@ -694,6 +694,28 @@ const typeSwitch = `          switch (typeof value) {
             case "symbol":
               return;
             case "boolean":`
+// The start of pushAttribute after inlineAttributeCalls, and the check of the name in its default
+// branch, which cacheAttributeNames changes.
+const attributeStart = `function pushAttribute(target, name, value) {
+  switch (name) {`
+const attributeDefault = `    default:
+      if (
+        !(2 < name.length) ||
+        ("o" !== name[0] && "O" !== name[0]) ||
+        ("n" !== name[1] && "N" !== name[1])
+      )
+        if (((name = aliases.get(name) || name), hasOwnProperty.call(validatedAttributeNameCache, name) || isAttributeNameSafe(name))) {`
+// attributeNamesKept is how many names the module keeps. React's own cache of valid names has no limit, but
+// the names here include those of event handlers, which React does not keep, and an app may spread an
+// object of its users' keys into a tag.
+const attributeNamesKept = 4096
+// What the module knows of the names of attributes at the start: the chunk before the value for the
+// names whose case writes a string as it is with its own name. It adds the valid names without a case, as
+// the chunk with the name in the form React writes it (the alias of htmlFor is for), and the names that
+// start with on, as an empty chunk. className and style, which pushAttribute answers on its own, are not in it.
+const attributeChunks = `
+var tifaAttributeChunks = new Map([["tabIndex", ' tabindex="'], ["dir", ' dir="'], ["role", ' role="'], ["viewBox", ' viewBox="'], ["width", ' width="'], ["height", ' height="']]);
+`
 // escapeCacheSize is how much the cache of escapes holds in each VM, in UTF-16 code units: the
 // strings and their escapes, and escapeEntrySize more for each entry, which stands for the memory
 // an entry of the Map takes besides its strings. So many short strings cannot take more memory
@@ -1354,6 +1376,15 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
               'plugin knows, so the tifa plugin does not write the common attributes without calling the ' +
               'functions that write one string attribute and check an attribute name. Pages render the same, ' +
               'but take longer to render',
+          )
+        }
+        const attributeNames = inlined && cacheAttributeNames(source)
+        if (attributeNames) {
+          source = attributeNames
+        } else if (inlined) {
+          this.warn(
+            `${react} has no pushAttribute in the form the tifa plugin knows, so the tifa plugin does not keep the ` +
+              'names of the attributes it has seen. Pages render the same, but take longer to render',
           )
         }
         // A syntax tree goes only with the source it was parsed from: each change below parses
@@ -2290,6 +2321,35 @@ function inlineAttributeCalls(source) {
     .replace(stringAttributeCall, (all, name) => written(name))
     .replace(sharedStringCase, () => sharedStringCase.replace('pushStringAttribute(target, name, value);', `("string" === typeof value || "function" !== typeof value && "symbol" !== typeof value && "boolean" !== typeof value) && target.push(" ", name, '="', escapeTextForBrowser(value), '"');`))
     .replace(attributeNameCheck, () => 'if (((name = aliases.get(name) || name), hasOwnProperty.call(validatedAttributeNameCache, name) || isAttributeNameSafe(name))) {')
+}
+
+// cacheAttributeNames returns the source of React's string renderer, after inlineAttributeCalls, with
+// pushAttribute writing an attribute whose name it has seen with one lookup of the name, or null when
+// the source does not have pushAttribute in the form it knows.
+function cacheAttributeNames(source) {
+  if (source.split(attributeStart).length !== 2 || source.split(attributeDefault).length !== 2) return null
+  const written = '("string" === typeof value || "function" !== typeof value && "symbol" !== typeof value && "boolean" !== typeof value)'
+  const start =
+    'function pushAttribute(target, name, value) { var tifaChunk; ' +
+    `if ("className" === name) { ${written} && target.push(' class="', escapeTextForBrowser(value), '"'); return; } ` +
+    'if ("style" === name) { pushStyleAttribute(target, value); return; } ' +
+    'if (void 0 !== (tifaChunk = tifaAttributeChunks.get(name))) { if ("" === tifaChunk) return; ' +
+    'if ("string" === typeof value || "number" === typeof value) ' +
+    "{ target.push(tifaChunk, escapeTextForBrowser(value), '\"'); return; } }\n  switch (name) {"
+  // A name that starts with on writes nothing, of any value, and is kept with an empty chunk.
+  const checked = `    default:
+      if (
+        !(2 < name.length) ||
+        ("o" !== name[0] && "O" !== name[0]) ||
+        ("n" !== name[1] && "N" !== name[1]) ||
+        (tifaAttributeChunks.size < ${attributeNamesKept} && tifaAttributeChunks.set(name, ""), !1)
+      )
+        if (((tifaChunk = name), (name = aliases.get(name) || name), hasOwnProperty.call(validatedAttributeNameCache, name) || isAttributeNameSafe(name))) { tifaAttributeChunks.size < ${attributeNamesKept} && tifaAttributeChunks.set(tifaChunk, ' ' + name + '="');`
+  return (
+    source
+      .replace(attributeStart, () => start)
+      .replace(attributeDefault, () => sameLines(attributeDefault, checked)) + attributeChunks
+  )
 }
 
 // dropComponentStacks returns the source of React's string renderer without the component stacks
