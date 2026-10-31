@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/net/idna"
 )
@@ -130,20 +132,119 @@ func (v originsValue) Set(s string) error {
 		case u.RawQuery != "" || u.Fragment != "" || strings.ContainsAny(item, "?#"):
 			return fmt.Errorf("%q: an origin has no query or fragment", item)
 		}
-		host := strings.ToLower(u.Host)
-		if u.Port() == map[string]string{"http": "80", "https": "443"}[u.Scheme] {
-			host = strings.ToLower(u.Hostname())
-			if strings.Contains(u.Hostname(), ":") {
-				host = "[" + host + "]"
-			}
+		origin, err := browserOrigin(u)
+		if err != nil {
+			return fmt.Errorf("%q: %v", item, err)
 		}
-		items[i] = u.Scheme + "://" + host
+		items[i] = origin
 	}
 	*v.p = items
 	return nil
 }
 func (v originsValue) String() string { return strings.Join(*v.p, ",") }
 func (v originsValue) kind() string   { return "string" }
+
+// browserOrigin returns the origin of u as a browser sends it in Origin. Only the ASCII case of the
+// scheme and host and a written default port may differ from that form: any other way of writing
+// the host, such as letters outside ASCII, an IP address that is not in its shortest form or a
+// port with leading zeros, is an error that names the form to write, because the server compares
+// the text and a host a browser writes another way would match another site, or none.
+func browserOrigin(u *url.URL) (string, error) {
+	host, port := u.Hostname(), u.Port()
+	var canon string
+	switch {
+	case strings.HasPrefix(u.Host, "["):
+		addr, err := netip.ParseAddr(host)
+		if err != nil || !addr.Is6() || addr.Zone() != "" {
+			return "", fmt.Errorf("[%s] is not an IPv6 address a browser sends", host)
+		}
+		canon = "[" + addr.String() + "]"
+		host = "[" + strings.ToLower(host) + "]"
+	case strings.IndexFunc(host, func(r rune) bool { return r >= utf8.RuneSelf }) >= 0:
+		ascii, err := idna.Lookup.ToASCII(host)
+		if err != nil {
+			return "", fmt.Errorf("%s is not a valid domain name: %v", host, err)
+		}
+		canon = ascii
+	default:
+		host = strings.ToLower(host)
+		canon = host
+		if ip, ok, err := browserIPv4(host); err != nil {
+			return "", err
+		} else if ok {
+			canon = ip
+		}
+	}
+	if port != "" {
+		n, err := strconv.Atoi(port)
+		if err != nil || n < 1 || n > 65535 {
+			return "", fmt.Errorf("the port must be from 1 to 65535")
+		}
+		if s := strconv.Itoa(n); s != port {
+			port = s
+			canon += "!" // differs from host, so the form below is named
+		}
+		if n == map[string]int{"http": 80, "https": 443}[u.Scheme] {
+			port = ""
+		}
+	}
+	origin := u.Scheme + "://" + strings.TrimSuffix(canon, "!")
+	if port != "" {
+		origin += ":" + port
+	}
+	if canon != host {
+		return "", fmt.Errorf("a browser sends this origin as %s: write that", origin)
+	}
+	return origin, nil
+}
+
+// browserIPv4 reads host the way the URL parser of a browser does when its last label is a number:
+// as an IPv4 address of up to four parts, each decimal, octal with a leading 0 or hexadecimal with
+// 0x. It returns the address in dotted decimal and whether host is one, and an error when the
+// browser would refuse the host.
+func browserIPv4(host string) (string, bool, error) {
+	parts := strings.Split(strings.TrimSuffix(host, "."), ".")
+	last := parts[len(parts)-1]
+	if strings.Trim(last, "0123456789") != "" && !strings.HasPrefix(last, "0x") {
+		return "", false, nil
+	}
+	refuse := fmt.Errorf("a browser reads %s as an IP address and refuses it", host)
+	if len(parts) > 4 {
+		return "", false, refuse
+	}
+	nums := make([]uint64, len(parts))
+	for i, p := range parts {
+		base, digits := 10, p
+		switch {
+		case strings.HasPrefix(p, "0x"):
+			base, digits = 16, p[2:]
+		case len(p) > 1 && p[0] == '0':
+			base, digits = 8, p[1:]
+		}
+		if digits == "" {
+			nums[i] = 0
+			continue
+		}
+		n, err := strconv.ParseUint(digits, base, 64)
+		if err != nil {
+			return "", false, refuse
+		}
+		nums[i] = n
+	}
+	var v uint64
+	for i, n := range nums[:len(nums)-1] {
+		if n > 255 {
+			return "", false, refuse
+		}
+		v |= n << (24 - 8*i)
+	}
+	if lastNum := nums[len(nums)-1]; lastNum >= 1<<(8*(5-len(nums))) {
+		return "", false, refuse
+	} else {
+		v |= lastNum
+	}
+	return netip.AddrFrom4([4]byte{byte(v >> 24), byte(v >> 16), byte(v >> 8), byte(v)}).String(), true, nil
+}
 
 // patternsValue is server.cross_site_paths: comma-separated http.ServeMux patterns, empty for
 // none. A pattern that ServeMux would panic on, or that overlaps another one of the list in a

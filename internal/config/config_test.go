@@ -617,7 +617,9 @@ func TestCrossSiteSettingsComeFromEveryLayer(t *testing.T) {
 }
 
 // An origin is a scheme, a host and maybe a port, written the way a browser sends it: lower case
-// and without the default port of its scheme, or no request would ever match it.
+// and without the default port of its scheme, or no request would ever match it. A host that a
+// browser writes another way, such as one with letters outside ASCII or an IP address not in its
+// shortest form, fails and names the form to write, since the server compares the text.
 func TestTrustedOriginsAreWrittenTheWayABrowserSendsThem(t *testing.T) {
 	c, err := load(t, nil, []string{"TIFA_SERVER_TRUSTED_ORIGINS=HTTPS://Admin.Example.com:443, http://localhost:3000, http://a.test:80"}, "", "")
 	if err != nil {
@@ -635,6 +637,15 @@ func TestTrustedOriginsAreWrittenTheWayABrowserSendsThem(t *testing.T) {
 		{"ftp://example.com", "http or https"},
 		{"https://a.test,,https://b.test", "empty"},
 		{"*", "scheme"},
+		{"https://İ.example", "https://xn--i-9bb.example"},
+		{"https://bücher.example", "https://xn--bcher-kva.example"},
+		{"https://[2001:0DB8:0:0:0:0:0:1]", "https://[2001:db8::1]"},
+		{"https://admin.example:0443", "https://admin.example"},
+		{"http://010.0.0.1", "http://8.0.0.1"},
+		{"http://0x7f.0.0.1", "http://127.0.0.1"},
+		{"http://127.1", "http://127.0.0.1"},
+		{"http://1.2.3.256", "refuses"},
+		{"https://a.test:99999", "port"},
 	} {
 		_, err := load(t, nil, []string{"TIFA_SERVER_TRUSTED_ORIGINS=" + tc.value}, "", "")
 		if err == nil || !strings.Contains(err.Error(), "server.trusted_origins") || !strings.Contains(err.Error(), tc.want) {
