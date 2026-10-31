@@ -1,11 +1,11 @@
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts'
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart'
 import { day, wholeYuan, yuan } from '../../../format'
-import type { Data } from './+route'
+import type { PageData } from './route.gen'
 
 const config = { revenueCents: { label: '销售额', color: 'var(--chart-1)' } } satisfies ChartConfig
 
-export default function RevenueChart({ days }: { days: NonNullable<Data['days']> }) {
+export default function RevenueChart({ days }: { days: NonNullable<PageData['days']> }) {
   return (
     <ChartContainer config={config} className="aspect-auto h-64 w-full">
       <AreaChart data={days} margin={{ left: 4, right: 12, top: 8 }}>

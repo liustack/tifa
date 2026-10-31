@@ -87,7 +87,7 @@ func (d *Dev) PollFiles() (polling bool, err error) {
 func (d *Dev) Close() error { return d.node.Close() }
 
 // Build brings .tifa/dist up to date and returns the build ID. The first Build of an application
-// with pages starts Vite's dev server. pages is false for an application without route.tsx,
+// with pages starts Vite's dev server. pages is false for an application without page.tsx,
 // which gets no SSR bundle.
 //
 // The head links the stylesheets the SSR bundle imports, before the tags of the dev server, like

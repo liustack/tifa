@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import OrderPage, { NotFound, head } from '@/app/projects/project+/orders/order+/route'
+import OrderPage, { NotFound, head } from '@/app/projects/project+/orders/order+/page'
 import { orderFn } from '../../../../../compare/fns'
 
 export const Route = createFileRoute('/_app/projects/$project/orders/$order')({

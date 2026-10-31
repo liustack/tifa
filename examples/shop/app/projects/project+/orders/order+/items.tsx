@@ -2,12 +2,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { photo } from '../../../../store/images'
 import { yuan } from '../../../../format'
-import { route } from './+route'
+import { page } from './route.gen'
 
 // A nested business component consumes the page's injected data directly.
 // It neither receives a chain of props nor initiates a new server request.
 export default function OrderItems() {
-  const { order } = route.useLoaderData()
+  const { order } = page.useLoaderData()
   const pay = order.payment
   const pieces = (order.items ?? []).reduce((n, item) => n + item.quantity, 0)
   return (

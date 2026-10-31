@@ -505,3 +505,89 @@ func TestLazyRoutesWarnOnceWithoutTheKindOfImports(t *testing.T) {
 		t.Errorf("warnings %q, want one that says the bundler does not tell the kind of import", got.Warnings)
 	}
 }
+
+// The imports that lead to a generated module end in route.gen, with or without .js or .ts, from
+// the TSX of a directory under app/ or from a generated module. They resolve to the
+// route.gen.ts of the directory in .tifa/app, whatever the path in between. A directory without
+// a generated module, and a directory outside app/, fail the build.
+func TestGeneratedResolvesRouteGen(t *testing.T) {
+	testModules(t)
+	dir := t.TempDir()
+	plugin := filepath.Join(dir, "plugin.mjs")
+	if err := os.WriteFile(plugin, []byte(js.VitePlugin), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(dir, "root")
+	writeTree(t, root, map[string]string{
+		"app/x/page.tsx":                    "",
+		"app/x/y/page.tsx":                  "",
+		"app/z/page.tsx":                    "",
+		"lib/a.ts":                          "",
+		".tifa/app/x/route.gen.ts":          "",
+		".tifa/app/x/y/route.gen.ts":        "",
+		".tifa/app/x/y/route.gen.helper.ts": "",
+	})
+	script := "const fs = await import('node:fs')\n" +
+		"const { generated } = await import(process.argv[1])\n" +
+		"const root = fs.realpathSync(process.argv[2])\n" +
+		"const p = generated()\n" +
+		"p.config({ root })\n" +
+		"const filter = p.resolveId.filter.id\n" +
+		"const ctx = { error: (m) => { throw new Error(m) } }\n" +
+		"const out = {}\n" +
+		"const cases = JSON.parse(process.argv[3])\n" +
+		"for (const [source, importer] of cases) {\n" +
+		"  const key = source + ' from ' + importer\n" +
+		"  if (!filter.test(source)) { out[key] = 'unmatched'; continue }\n" +
+		"  try { out[key] = p.resolveId.handler.call(ctx, source, root + '/' + importer).slice(root.length + 1) } catch (e) { out[key] = 'error: ' + e.message }\n" +
+		"}\n" +
+		"process.stdout.write(JSON.stringify(out))\n"
+	cases := [][2]string{
+		{"./route.gen", "app/x/page.tsx"},
+		{"./route.gen.js", "app/x/page.tsx"},
+		{"./route.gen.ts", "app/x/page.tsx"},
+		{"../route.gen", "app/x/y/page.tsx"},
+		{"../x/route.gen", "app/z/page.tsx"},
+		{"./route.gen", ".tifa/app/x/y/route.gen.ts"},
+		{"./route.gen", "app/z/page.tsx"},
+		{"./route.gen", "lib/a.ts"},
+		{"./+route", "app/x/page.tsx"},
+		{"./+layout", "app/x/page.tsx"},
+		{"./route.gen.helper", "app/x/page.tsx"},
+		{"pkg/route.gen", "app/x/page.tsx"},
+	}
+	input, err := json.Marshal(cases)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outBytes, err := exec.Command("node", "--input-type=module", "-e", script, plugin, root, string(input)).CombinedOutput()
+	if err != nil {
+		t.Fatalf("node: %v\n%s", err, outBytes)
+	}
+	var got map[string]string
+	if err := json.Unmarshal(outBytes, &got); err != nil {
+		t.Fatalf("%v: %s", err, outBytes)
+	}
+	want := map[string]string{
+		"./route.gen from app/x/page.tsx":             ".tifa/app/x/route.gen.ts",
+		"./route.gen.js from app/x/page.tsx":          ".tifa/app/x/route.gen.ts",
+		"./route.gen.ts from app/x/page.tsx":          ".tifa/app/x/route.gen.ts",
+		"../route.gen from app/x/y/page.tsx":          ".tifa/app/x/route.gen.ts",
+		"../x/route.gen from app/z/page.tsx":          ".tifa/app/x/route.gen.ts",
+		"./route.gen from .tifa/app/x/y/route.gen.ts": ".tifa/app/x/y/route.gen.ts",
+		"./route.gen from app/z/page.tsx":             "error: ./route.gen: app/z has no generated route.gen module: it is made for a directory with page.tsx, layout.tsx or a Layout, or a method handler in route.go",
+		"./route.gen from lib/a.ts":                   "error: ./route.gen is generated for directories under app/ only",
+		"./+route from app/x/page.tsx":                "unmatched",
+		"./+layout from app/x/page.tsx":               "unmatched",
+		"./route.gen.helper from app/x/page.tsx":      "unmatched",
+		"pkg/route.gen from app/x/page.tsx":           "unmatched",
+	}
+	for key, w := range want {
+		if strings.HasPrefix(w, "error: ") && strings.HasPrefix(got[key], w) {
+			continue
+		}
+		if got[key] != w {
+			t.Errorf("%s = %q, want %q", key, got[key], w)
+		}
+	}
+}

@@ -11,9 +11,9 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from 'cn'
 import { useFormats, useSession } from './providers'
-import { route, type Data } from './+route'
+import { page, type PageData } from './route.gen'
 
-type Event = NonNullable<Data['ticket']['events']>[number]
+type Event = NonNullable<PageData['ticket']['events']>[number]
 
 const markdown: Components = {
   p: ({ node: _, ...props }) => <p className="my-2 leading-6" {...props} />,
@@ -29,7 +29,7 @@ const markdown: Components = {
 }
 
 export function Thread() {
-  const data = route.useLoaderData()
+  const data = page.useLoaderData()
   const ticket = data.ticket
   const f = useFormats()
   const events = ticket.events ?? []

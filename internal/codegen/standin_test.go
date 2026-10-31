@@ -83,7 +83,7 @@ func TestHeadModulesReadOnlyWhatTheirStandInExports(t *testing.T) {
 		t.Fatal(err)
 	}
 	script := "const { lazyRouteModule } = await import(process.argv[1])\n" +
-		"process.stdout.write(lazyRouteModule('router', '/app/x/route.tsx'))\n"
+		"process.stdout.write(lazyRouteModule('router', '/app/x/page.tsx'))\n"
 	out, err := exec.Command(node, "--input-type=module", "-e", script, plugin).CombinedOutput()
 	if err != nil {
 		t.Fatalf("node: %v\n%s", err, out)

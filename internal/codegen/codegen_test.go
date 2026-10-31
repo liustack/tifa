@@ -162,10 +162,10 @@ func TestDevMainCallsDevMain(t *testing.T) {
 
 func TestPageWithoutDefaultExportFails(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "app/page/route.tsx"), "export function Page() { return null }\n")
+	writeFile(t, filepath.Join(root, "app/page/page.tsx"), "export function Page() { return null }\n")
 	m := &analyze.Manifest{Module: "example.com/x", Routes: []analyze.Route{{ID: "app/page/route", Dir: "app/page", Path: "/page", Page: true, SSR: true}}}
 	_, err := Generate(root, m, false, fakeExports)
-	if err == nil || !strings.Contains(err.Error(), "app/page/route.tsx") {
+	if err == nil || !strings.Contains(err.Error(), "app/page/page.tsx") {
 		t.Fatalf("got %v", err)
 	}
 }
@@ -175,7 +175,7 @@ func TestPageWithoutDefaultExportFails(t *testing.T) {
 func TestRootLayoutDocumentFails(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "app/layout.tsx"), "export default function A() { return null }\nexport function Document() { return null }\n")
-	writeFile(t, filepath.Join(root, "app/page/route.tsx"), "export default function P() { return null }\n")
+	writeFile(t, filepath.Join(root, "app/page/page.tsx"), "export default function P() { return null }\n")
 	m := &analyze.Manifest{
 		Module:  "example.com/x",
 		Layouts: []analyze.Layout{{ID: "app/layout", Dir: "app", Path: "/", TSX: true, SSR: true, Routes: []string{"app/page/route"}}},
@@ -205,7 +205,7 @@ func TestRootLayoutHTMLAttributesReachTheEntries(t *testing.T) {
 func TestRemountFollowsTheParametersLoadReads(t *testing.T) {
 	root := t.TempDir()
 	const project = "app/projects/projectId+"
-	for _, f := range []string{"app/layout.tsx", project + "/layout.tsx", project + "/route.tsx", project + "/orders/orderId+/route.tsx", project + "/files/path++/route.tsx"} {
+	for _, f := range []string{"app/layout.tsx", project + "/layout.tsx", project + "/page.tsx", project + "/orders/orderId+/page.tsx", project + "/files/path++/page.tsx"} {
 		writeFile(t, filepath.Join(root, f), "export default function C() { return null }\n")
 	}
 	str := types.Typ[types.String]
@@ -249,11 +249,11 @@ func TestRemountFollowsTheParametersLoadReads(t *testing.T) {
 }
 
 // A Layout and a page in one directory are two routes: the Layout is a path route, and the page
-// is its index route, so the page's +route module and the Layout's +layout module name each one.
+// is its index route, so the one route.gen module of the directory names each one.
 func TestLayoutAndPageInOneDirectory(t *testing.T) {
 	root := t.TempDir()
 	const project = "app/projects/projectId+"
-	for _, f := range []string{"app/layout.tsx", project + "/layout.tsx", project + "/route.tsx", project + "/orders/orderId+/route.tsx"} {
+	for _, f := range []string{"app/layout.tsx", project + "/layout.tsx", project + "/page.tsx", project + "/orders/orderId+/page.tsx"} {
 		writeFile(t, filepath.Join(root, f), "export default function C() { return null }\n")
 	}
 	scope := []string{project + "/route", project + "/orders/orderId+/route"}
@@ -273,14 +273,15 @@ func TestLayoutAndPageInOneDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, want := range map[string]string{
-		"app/+layout.ts":                       `getRouteApi("/_app")`,
-		project + "/+layout.ts":                `getRouteApi("/_app/projects/$projectId")`,
-		project + "/+route.ts":                 `getRouteApi("/_app/projects/$projectId/")`,
-		project + "/orders/orderId+/+route.ts": `getRouteApi("/_app/projects/$projectId/orders/$orderId")`,
+	for name, wants := range map[string][]string{
+		"app/route.gen.ts":                        {`export const layout = getRouteApi("/_app")`},
+		project + "/route.gen.ts":                 {`export const layout = getRouteApi("/_app/projects/$projectId")`, `export const page = getRouteApi("/_app/projects/$projectId/")`},
+		project + "/orders/orderId+/route.gen.ts": {`export const page = getRouteApi("/_app/projects/$projectId/orders/$orderId")`},
 	} {
-		if !strings.Contains(string(files[name]), want) {
-			t.Errorf("%s lacks %s:\n%s", name, want, files[name])
+		for _, want := range wants {
+			if !strings.Contains(string(files[name]), want) {
+				t.Errorf("%s lacks %s:\n%s", name, want, files[name])
+			}
 		}
 	}
 }
@@ -341,7 +342,7 @@ func TestProjectConfigIsEmbedded(t *testing.T) {
 
 func TestWriteKeepsUnchangedFilesAndRemovesStaleOnes(t *testing.T) {
 	root := t.TempDir()
-	if err := Write(root, map[string][]byte{"main.go": []byte("a"), "app/x/+route.ts": []byte("b"), "app/y/+route.ts": []byte("c")}); err != nil {
+	if err := Write(root, map[string][]byte{"main.go": []byte("a"), "app/x/route.gen.ts": []byte("b"), "app/y/route.gen.ts": []byte("c")}); err != nil {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(root, Dir, "dist/build.json"), "{}")
@@ -350,13 +351,13 @@ func TestWriteKeepsUnchangedFilesAndRemovesStaleOnes(t *testing.T) {
 	if err := os.Chtimes(keep, past, past); err != nil {
 		t.Fatal(err)
 	}
-	if err := Write(root, map[string][]byte{"main.go": []byte("a"), "app/x/+route.ts": []byte("B")}); err != nil {
+	if err := Write(root, map[string][]byte{"main.go": []byte("a"), "app/x/route.gen.ts": []byte("B")}); err != nil {
 		t.Fatal(err)
 	}
 	if info, err := os.Stat(keep); err != nil || !info.ModTime().Equal(past) {
 		t.Error("an unchanged file was rewritten")
 	}
-	if data, _ := os.ReadFile(filepath.Join(root, Dir, "app/x/+route.ts")); string(data) != "B" {
+	if data, _ := os.ReadFile(filepath.Join(root, Dir, "app/x/route.gen.ts")); string(data) != "B" {
 		t.Errorf("changed file holds %q", data)
 	}
 	if _, err := os.Stat(filepath.Join(root, Dir, "dist/build.json")); err != nil {
@@ -406,7 +407,7 @@ func TestBuildTargetReachesVite(t *testing.T) {
 		" ES2019, chrome90,safari14": `tifa({ target: ["es2019","chrome90","safari14"], i18nextCache: true })`,
 	} {
 		root := t.TempDir()
-		writeFile(t, filepath.Join(root, "app/page/route.tsx"), "export default function P() { return null }\n")
+		writeFile(t, filepath.Join(root, "app/page/page.tsx"), "export default function P() { return null }\n")
 		if target != "" {
 			writeFile(t, filepath.Join(root, "tifa.yaml"), "build:\n  target: \""+target+"\"\n")
 		}
@@ -437,7 +438,7 @@ func TestBuildI18nextCacheReachesVite(t *testing.T) {
 		"build:\n  i18next_cache: false\n": `tifa({ target: ["es2020"] })`,
 	} {
 		root := t.TempDir()
-		writeFile(t, filepath.Join(root, "app/page/route.tsx"), "export default function P() { return null }\n")
+		writeFile(t, filepath.Join(root, "app/page/page.tsx"), "export default function P() { return null }\n")
 		if config != "" {
 			writeFile(t, filepath.Join(root, "tifa.yaml"), config)
 		}
@@ -448,5 +449,72 @@ func TestBuildI18nextCacheReachesVite(t *testing.T) {
 		if !strings.Contains(string(files["vite.js"]), want) {
 			t.Errorf("%q: vite.js lacks %s:\n%s", config, want, files["vite.js"])
 		}
+	}
+}
+
+// A directory gets one route.gen module for what it has: a Layout and an API route in one
+// directory share it, and it exports no page, PageData or the old +route names.
+func TestRouteGenHoldsLayoutAndHandlersOfOneDirectory(t *testing.T) {
+	root := t.TempDir()
+	for _, f := range []string{"app/layout.tsx", "app/page.tsx"} {
+		writeFile(t, filepath.Join(root, f), "export default function C() { return null }\n")
+	}
+	str := types.Typ[types.String]
+	scope := []string{"app/route", "app/api/route"}
+	m := &analyze.Manifest{
+		Module:  "example.com/x",
+		Layouts: []analyze.Layout{{ID: "app/layout", Dir: "app", Path: "/", TSX: true, Load: &analyze.Load{Result: str}, SSR: true, Routes: scope}},
+		Routes: []analyze.Route{
+			{ID: "app/route", Dir: "app", Path: "/", Page: true, SSR: true, Layouts: []string{"app/layout"}, Handlers: []analyze.Handler{{Method: "POST"}}},
+		},
+	}
+	// The API route of the root directory: a page with a POST has the module of the page.
+	files, err := Generate(root, m, false, fakeExports)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mod := string(files["app/route.gen.ts"])
+	for _, want := range []string{
+		"export type LayoutData = string",
+		"export type PageData = undefined",
+		"export type Params = Record<string, never>",
+		`export const layout = getRouteApi("/_app")`,
+		`export const page = getRouteApi("/_app/")`,
+		"export async function POST(options: CallOptions = {})",
+	} {
+		if !strings.Contains(mod, want) {
+			t.Errorf("app/route.gen.ts lacks %s:\n%s", want, mod)
+		}
+	}
+	for name := range files {
+		if strings.Contains(name, "+route") || strings.Contains(name, "+layout") {
+			t.Errorf("generated %s", name)
+		}
+	}
+
+	// An API route next to a Layout without a page there: layout and handlers, no page.
+	writeFile(t, filepath.Join(root, "app/desk/layout.tsx"), "export default function C() { return null }\n")
+	m.Layouts = append(m.Layouts, analyze.Layout{ID: "app/desk/layout", Dir: "app/desk", Parent: "app/layout", Path: "/desk", TSX: true, SSR: true, Routes: []string{"app/desk/route", "app/desk/inbox/route"}})
+	writeFile(t, filepath.Join(root, "app/desk/inbox/page.tsx"), "export default function C() { return null }\n")
+	m.Routes = append(m.Routes,
+		analyze.Route{ID: "app/desk/route", Dir: "app/desk", Path: "/desk", SSR: true, Layouts: []string{"app/layout", "app/desk/layout"}, Handlers: []analyze.Handler{{Method: "GET"}}},
+		analyze.Route{ID: "app/desk/inbox/route", Dir: "app/desk/inbox", Path: "/desk/inbox", Page: true, SSR: true, Layouts: []string{"app/layout", "app/desk/layout"}})
+	files, err = Generate(root, m, false, fakeExports)
+	if err != nil {
+		t.Fatal(err)
+	}
+	desk := string(files["app/desk/route.gen.ts"])
+	for _, want := range []string{"export type LayoutData = undefined", "export const layout = getRouteApi(", "export async function GET("} {
+		if !strings.Contains(desk, want) {
+			t.Errorf("app/desk/route.gen.ts lacks %s:\n%s", want, desk)
+		}
+	}
+	for _, not := range []string{"PageData", "export const page"} {
+		if strings.Contains(desk, not) {
+			t.Errorf("app/desk/route.gen.ts has %s:\n%s", not, desk)
+		}
+	}
+	if inbox := string(files["app/desk/inbox/route.gen.ts"]); !strings.Contains(inbox, "export const page = ") || strings.Contains(inbox, "export const layout") {
+		t.Errorf("app/desk/inbox/route.gen.ts:\n%s", inbox)
 	}
 }

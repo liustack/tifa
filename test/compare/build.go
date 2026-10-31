@@ -51,7 +51,7 @@ func (e Env) BuildApp(ctx context.Context, log io.Writer, dir string) error {
 //
 // Copied as they are: the shadcn components, the helpers, the root Layout, the stylesheet, the
 // formatting functions and everything under app/projects that is TypeScript. The generated
-// +layout and +route modules come from .tifa/app, with getRouteApi replaced for Next.js by a
+// route.gen modules come from .tifa/app, with getRouteApi replaced for Next.js by a
 // context the server component fills. The photos the pages show (their 160 pixel size) go to
 // dir/public/images. Then the shared overlay (shims for what only tifa has, such as tifa/client)
 // and the overlay of the app are copied over. The one change to a copied file: the stylesheet
@@ -106,11 +106,7 @@ func (e Env) Sync(dir, kind string) error {
 
 	// The modules tifa generates from the Go types, for the root Layout and the project pages.
 	generated := func(rel string) bool {
-		if !strings.HasPrefix(rel, "projects/") && rel != "+layout.ts" {
-			return false
-		}
-		base := filepath.Base(rel)
-		return base == "+layout.ts" || base == "+route.ts"
+		return (rel == "route.gen.ts" || strings.HasPrefix(rel, "projects/")) && filepath.Base(rel) == "route.gen.ts"
 	}
 	err = filepath.WalkDir(filepath.Join(tifa, "app"), func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -123,7 +119,7 @@ func (e Env) Sync(dir, kind string) error {
 		to := filepath.Join(dst, "app", rel)
 		var edit func([]byte) []byte
 		if kind == "next" {
-			to += "x" // +route.tsx: it holds JSX through the loader context
+			to += "x" // route.gen.tsx: it holds JSX through the loader context
 			edit = nextRoute
 		}
 		return copyFile(path, to, edit)
@@ -163,7 +159,8 @@ func (e Env) Sync(dir, kind string) error {
 func nextRoute(src []byte) []byte {
 	s := string(src)
 	s = strings.Replace(s, `import { getRouteApi } from "@tanstack/react-router"`, `import { loaderRoute } from "@/runtime/loader"`, 1)
-	s = strings.Replace(s, "getRouteApi(", "loaderRoute<Data>(", 1)
+	s = strings.Replace(s, "layout = getRouteApi(", "layout = loaderRoute<LayoutData>(", 1)
+	s = strings.Replace(s, "page = getRouteApi(", "page = loaderRoute<PageData>(", 1)
 	return []byte("'use client'\n" + s)
 }
 

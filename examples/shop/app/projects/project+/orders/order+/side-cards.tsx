@@ -10,14 +10,14 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { orderTime, yuan } from '../../../../format'
-import { route as project } from '../../+layout'
-import { route } from './+route'
+import { layout as project } from '../../route.gen'
+import { page } from './route.gen'
 
 const title = 'font-heading text-lg font-medium tracking-[0.04em]'
 
 // Actions are what the owner does with an order apart from shipping it.
 export function Actions() {
-  const { order } = route.useLoaderData()
+  const { order } = page.useLoaderData()
   const [copied, setCopied] = useState('')
   async function copy(what: string, text: string) {
     try {
@@ -63,7 +63,7 @@ export function Actions() {
 
 // Packing is the packing list the warehouse picks from, with a box to tick each line.
 export function Packing() {
-  const { order } = route.useLoaderData()
+  const { order } = page.useLoaderData()
   const lines = order.packing ?? []
   const [picked, setPicked] = useState<Record<string, boolean>>({})
   const done = lines.filter((l) => picked[l.name]).length
@@ -110,7 +110,7 @@ export function Packing() {
 
 // Customer is who bought, and how much they have bought here.
 export function Customer() {
-  const { order, count, spentCents } = route.useLoaderData()
+  const { order, count, spentCents } = page.useLoaderData()
   const stats = [
     ['订单', `${count} 单`],
     ['累计消费', yuan(spentCents)],
@@ -150,7 +150,7 @@ export function Customer() {
 
 // PaymentCard is how the order was paid, and the invoice that goes with it.
 export function PaymentCard() {
-  const { order } = route.useLoaderData()
+  const { order } = page.useLoaderData()
   const { timeZone } = project.useLoaderData()
   const pay = order.payment
   const rows: [string, React.ReactNode][] = [
@@ -202,7 +202,7 @@ export function PaymentCard() {
 
 // AddressCheck splits the address the way the carrier reads it, and says what was checked.
 export function AddressCheck() {
-  const { order } = route.useLoaderData()
+  const { order } = page.useLoaderData()
   const [place, detail] = order.address.split(' · ')
   const city = place.split('市')[0] + '市'
   const district = place.slice(city.length)
@@ -243,7 +243,7 @@ export function AddressCheck() {
 // CarrierAdvice sets the carriers side by side before the order ships: what they promise, what
 // they cost, and how fast the shop has handed parcels to each so far.
 export function CarrierAdvice() {
-  const { carriers, carrierStats } = route.useLoaderData()
+  const { carriers, carrierStats } = page.useLoaderData()
   return (
     <Card>
       <CardHeader>
@@ -288,7 +288,7 @@ export function CarrierAdvice() {
 
 // StockCheck tells whether the shelf holds what the waiting orders need of each product in this one.
 export function StockCheck() {
-  const { order } = route.useLoaderData()
+  const { order } = page.useLoaderData()
   return (
     <Card>
       <CardHeader>
@@ -325,7 +325,7 @@ export function StockCheck() {
 
 // CarrierTimes sets the carrier of this parcel beside the others, by how long parcels took.
 export function CarrierTimes() {
-  const { order, carrierStats } = route.useLoaderData()
+  const { order, carrierStats } = page.useLoaderData()
   const list = (carrierStats ?? []).filter((c) => c.orders > 0)
   const slowest = Math.max(...list.map((c) => c.avgDispatchHours + c.avgTransitHours), 1)
   return (
@@ -368,7 +368,7 @@ export function CarrierTimes() {
 
 // Checklist is what is left to do with the order: before it ships, or after.
 export function Checklist() {
-  const { order } = route.useLoaderData()
+  const { order } = page.useLoaderData()
   const shipped = !!order.shipment
   const items = shipped
     ? [
@@ -413,7 +413,7 @@ const tags = ['加急', '礼品', '易碎', '手写卡片', '大额订单', '回
 // Tags are what the staff mark an order with, so the warehouse knows how to treat it. The marks
 // start from what the order already says.
 export function Tags() {
-  const { order, count } = route.useLoaderData()
+  const { order, count } = page.useLoaderData()
   const initial = [
     ...(order.note.includes('卡片') ? ['手写卡片'] : []),
     ...(order.note.includes('礼物') ? ['礼品'] : []),
@@ -443,7 +443,7 @@ export function Tags() {
 
 // Margin is what the order earns after what it cost, estimated from the shop's usual costs.
 export function Margin() {
-  const { order } = route.useLoaderData()
+  const { order } = page.useLoaderData()
   const pieces = (order.items ?? []).reduce((n, i) => n + i.quantity, 0)
   const price = order.payment.paidCents
   const goods = Math.round(price * 0.45)

@@ -1,5 +1,5 @@
 import { Outlet } from '@tanstack/react-router'
-import { route } from './+layout'
+import { layout } from './route.gen'
 
 export const htmlAttributes = { lang: 'xx', 'data-theme': 'a"b', className: 'h-full' }
 
@@ -13,7 +13,7 @@ export const head = () => ({
 })
 
 export default function App() {
-  const site = route.useLoaderData()
+  const site = layout.useLoaderData()
   return (
     <div>
       <nav>APP_NAV {site.name}</nav>

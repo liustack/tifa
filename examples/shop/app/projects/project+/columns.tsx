@@ -31,11 +31,10 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { photo } from '../../store/images'
 import { orderTime, yuan } from '../../format'
-import { route as project } from './+layout'
-import type { Data } from './+route'
+import { layout as project, type PageData } from './route.gen'
 import { OrderStatus } from './order-status'
 
-export type Row = NonNullable<Data['orders']>[number]
+export type Row = NonNullable<PageData['orders']>[number]
 
 // The features, columns and helper live at module scope, so the table gets the same inputs on
 // every render.

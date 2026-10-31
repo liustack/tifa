@@ -1,7 +1,7 @@
 // Run by TestGeneratedRouterBehaves in Node: the generated handler functions against a stubbed
 // fetch and a stubbed router.
-import { DELETE, GET, POST, PUT } from './app/api/notes/note+/+route'
-import { GET as file } from './app/api/files/path++/+route'
+import { DELETE, GET, POST, PUT } from './app/api/notes/note+/route.gen'
+import { GET as file } from './app/api/files/path++/route.gen'
 import { setRouter } from './.tifa/runtime/call'
 import { TifaError } from 'tifa/client'
 

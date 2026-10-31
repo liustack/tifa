@@ -557,7 +557,7 @@ func TestBuildReportsViolations(t *testing.T) {
 	for _, tc := range []struct{ fixture, want string }{
 		{"duppath", "app/items/key+/route.go:1:"},
 		{"ongetpage", "app/page/route.go:7:"},
-		{"layoutparam", "app/projects/layout.go:6:"},
+		{"layoutparam", "app/projects/route.go:8:"},
 		{"usenonancestor", "app/shop/route.go:11:"},
 		{"badtype", "app/page/route.go:56:"},
 		{"bindquery", "app/list/route.go:12:"},

@@ -9,7 +9,7 @@ import (
 	"{{.Module}}/app/todos"
 )
 
-// Load returns the todo of the URL. tifa.ErrNotFound shows the NotFound of route.tsx with a 404.
+// Load returns the todo of the URL. tifa.ErrNotFound shows the NotFound of page.tsx with a 404.
 func Load(c *tifa.Ctx) (todos.Todo, error) {
 	id, err := todoID(c)
 	if err != nil {

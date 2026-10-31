@@ -16,7 +16,7 @@ export default function Home() {
   return <time>{day.add({days: 1}).toLocaleString('en-US', {dateStyle: 'long'})}</time>
 }
 `
-	if err := os.WriteFile(filepath.Join(dir, "app", "route.tsx"), []byte(page), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "app", "page.tsx"), []byte(page), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	base, _, _ := start(t, buildAt(t, dir))

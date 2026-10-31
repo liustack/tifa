@@ -19,7 +19,7 @@ import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useHydrated } from '../../../../use-hydrated'
-import { PATCH, route, type PATCHInput } from './+route'
+import { PATCH, page, type PATCHInput } from './route.gen'
 
 // The same rules as orders.CheckRecipient in Go, which checks again on the server.
 const recipientSchema = z.object({
@@ -37,7 +37,7 @@ const recipientSchema = z.object({
 }) satisfies z.ZodType<PATCHInput, PATCHInput>
 
 export function RecipientDialog() {
-  const { order } = route.useLoaderData()
+  const { order } = page.useLoaderData()
   const hydrated = useHydrated()
   const [open, setOpen] = useState(false)
   const current = { customer: order.customer, phone: order.phone, address: order.address }

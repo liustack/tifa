@@ -1,6 +1,10 @@
 package page
 
-import "os"
+import (
+	"os"
+
+	"github.com/liustack/tifa"
+)
 
 // The directory is the URL.
 
@@ -10,3 +14,5 @@ func init() {
 		os.WriteFile(path, []byte("init ran"), 0o644)
 	}
 }
+
+func GET(c *tifa.Ctx) error { return nil }

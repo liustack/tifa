@@ -125,14 +125,17 @@ type analyzer struct {
 	used                usedLoads
 }
 
-// dirInfo records the convention files found in one directory under app/.
+// dirInfo records the convention files found in one directory under app/. oldRouteTSX is a
+// route.tsx, the name pages had before they were page.tsx: it is reported and nothing more.
 type dirInfo struct {
-	id                                     string
-	routeGo, routeTSX, layoutGo, layoutTSX bool
+	id                                       string
+	routeGo, pageTSX, layoutTSX, oldRouteTSX bool
 }
 
-// conventionFiles are the files that make a directory under app/ a route or a Layout.
-var conventionFiles = []string{"route.go", "route.tsx", "layout.go", "layout.tsx"}
+// conventionFiles are the files that make a directory under app/ a page, a Layout or an API
+// route. route.tsx is no longer one, but a page left under that name would silently become a
+// plain component, so the scan reports it.
+var conventionFiles = []string{"route.go", "page.tsx", "layout.tsx", "route.tsx"}
 
 // scan walks app/ and records which convention files exist. The go command skips directories
 // whose name starts with "." or "_" and directories named testdata, so a convention file below
@@ -163,12 +166,13 @@ func (a *analyzer) scan() error {
 		switch name {
 		case "route.go":
 			info.routeGo = true
-		case "route.tsx":
-			info.routeTSX = true
-		case "layout.go":
-			info.layoutGo = true
+		case "page.tsx":
+			info.pageTSX = true
 		case "layout.tsx":
 			info.layoutTSX = true
+		case "route.tsx":
+			info.oldRouteTSX = true
+			a.errorInFile(id, name, "route.tsx is not a page file any more: rename it to page.tsx")
 		}
 		return nil
 	})
@@ -373,7 +377,7 @@ func (a *analyzer) sortedErrors() Errors {
 // route and layout hold what build needs beyond the manifest entries.
 type route struct {
 	Route
-	file   string    // route.go, or route.tsx for a page without route.go, where violations of the whole route are reported
+	file   string    // route.go, or page.tsx for a page without route.go, where violations of the whole route are reported
 	segs   []segment // empty for the home page
 	valid  bool      // the directory names a path, segs is set
 	uses   []paramUse
@@ -382,7 +386,7 @@ type route struct {
 
 type layout struct {
 	Layout
-	file  string // layout.go or layout.tsx
+	file  string // route.go when it declares the Layout function, else layout.tsx
 	segs  []segment
 	valid bool
 	uses  []paramUse
@@ -411,17 +415,14 @@ func (a *analyzer) build() *Manifest {
 		d := a.dirs[id]
 		segs, valid := a.dirPath(d)
 		a.checkPackageNames(d)
-		if d.layoutGo || d.layoutTSX {
-			if l := a.layout(d); l != nil {
-				l.segs, l.valid, l.Path = segs, valid, formatPath(segs)
-				layouts = append(layouts, l)
-			}
+		pkg := a.routePackage(d)
+		if l := a.layout(d, pkg); l != nil {
+			l.segs, l.valid, l.Path = segs, valid, formatPath(segs)
+			layouts = append(layouts, l)
 		}
-		if d.routeGo || d.routeTSX {
-			if r := a.route(d); r != nil {
-				r.segs, r.valid, r.Path = segs, valid, formatPath(segs)
-				routes = append(routes, r)
-			}
+		if r := a.route(d, pkg); r != nil {
+			r.segs, r.valid, r.Path = segs, valid, formatPath(segs)
+			routes = append(routes, r)
 		}
 	}
 
@@ -448,9 +449,9 @@ func (d *dirInfo) firstFile() string {
 	switch {
 	case d.routeGo:
 		return "route.go"
-	case d.layoutGo:
-		return "layout.go"
-	case d.routeTSX:
+	case d.pageTSX:
+		return "page.tsx"
+	case d.oldRouteTSX:
 		return "route.tsx"
 	}
 	return "layout.tsx"
@@ -473,17 +474,13 @@ func (a *analyzer) dirPath(d *dirInfo) ([]segment, bool) {
 	return segs, true
 }
 
-// routeNames are the names that only route.go declares, layoutNames those that only layout.go
-// declares. route.go and layout.go of one directory share a package, so a Layout has names of
-// its own.
-var (
-	routeNames  = append([]string{"Load", "SSR", "Cache"}, methods...)
-	layoutNames = []string{"Layout", "LayoutSSR"}
-)
+// routeNames are the names that only route.go declares: the Layout of the directory, the Load of
+// its page, the switches, and the method handlers.
+var routeNames = append([]string{"Layout", "LayoutSSR", "Load", "SSR", "Cache"}, methods...)
 
-// checkPackageNames reports Path, which the directory replaces, and each name of route.go or
-// layout.go that is declared in another file of the package. The files are read by name, so a
-// Load in layout.go or a Cache in a helper file would otherwise be silently left out.
+// checkPackageNames reports Path, which the directory replaces, and each name of route.go that
+// is declared in another file of the package. The files are read by name, so a Load in
+// layout.go or a Cache in a helper file would otherwise be silently left out.
 func (a *analyzer) checkPackageNames(d *dirInfo) {
 	pkg := a.byDir[d.id]
 	if pkg == nil {
@@ -493,61 +490,74 @@ func (a *analyzer) checkPackageNames(d *dirInfo) {
 	if obj := scope.Lookup("Path"); obj != nil {
 		a.errorAt(obj.Pos(), "Path is not declared: the directory under app/ is the URL, write {name} as the directory name+ and {name...} as name++")
 	}
-	for _, names := range []struct {
-		file string
-		list []string
-	}{{"route.go", routeNames}, {"layout.go", layoutNames}} {
-		for _, name := range names.list {
-			obj := scope.Lookup(name)
-			if obj == nil {
-				continue
-			}
-			file := filepath.Base(a.fset.Position(obj.Pos()).Filename)
-			switch {
-			case file == names.file:
-			case name == "Load" && file == "layout.go":
-				a.errorAt(obj.Pos(), "Load loads the data of a page in route.go: a Layout loads its data with func Layout(c *tifa.Ctx) (T, error)")
-			case name == "SSR" && file == "layout.go":
-				a.errorAt(obj.Pos(), "SSR switches server rendering of a page in route.go: a Layout declares LayoutSSR")
-			default:
-				a.errorAt(obj.Pos(), "%s is read from %s only, move it there from %s", name, names.file, file)
-			}
+	for _, name := range routeNames {
+		obj := scope.Lookup(name)
+		if obj == nil {
+			continue
+		}
+		if file := filepath.Base(a.fset.Position(obj.Pos()).Filename); file != "route.go" {
+			a.errorAt(obj.Pos(), "%s is read from route.go only, move it there from %s", name, file)
 		}
 	}
 }
 
-func (a *analyzer) route(d *dirInfo) *route {
-	file := "route.go"
-	if !d.routeGo {
-		file = "route.tsx"
-	}
-	r := &route{Route: Route{ID: d.id + "/route", Dir: d.id, Page: d.routeTSX, SSR: true}, file: file}
-	if !d.routeGo {
-		return r
-	}
-	if a.broken[d.id] { // kept so that Layouts know a page is in scope
-		r.broken = true
-		return r
+// routePackage returns the package of the route.go in d, nil without route.go and when the
+// package does not type check.
+func (a *analyzer) routePackage(d *dirInfo) *packages.Package {
+	if !d.routeGo || a.broken[d.id] {
+		return nil
 	}
 	pkg := a.byDir[d.id]
 	if pkg == nil {
 		a.errorInFile(d.id, "route.go", "route.go is not part of a package the go command builds")
+	}
+	return pkg
+}
+
+// route reads the page or API route of d, nil when d has neither. A directory is a page when it
+// has page.tsx, and an API route when route.go declares a method handler. route.go with only a
+// Layout is neither. pkg is the package of route.go, nil when it has none or does not type check.
+func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
+	file := "route.go"
+	if !d.routeGo {
+		file = "page.tsx"
+	}
+	r := &route{Route: Route{ID: d.id + "/route", Dir: d.id, Page: d.pageTSX, SSR: true}, file: file}
+	if !d.routeGo {
+		if !d.pageTSX {
+			return nil
+		}
+		return r
+	}
+	if a.broken[d.id] { // kept so that Layouts know a page is in scope
+		if !d.pageTSX {
+			return nil
+		}
+		r.broken = true
+		return r
+	}
+	if pkg == nil {
+		return nil
+	}
+	scope := pkg.Types.Scope()
+	declared := slices.ContainsFunc(methods, func(m string) bool { return scope.Lookup(m) != nil })
+	if load := scope.Lookup("Load"); load != nil && !d.pageTSX {
+		a.errorAt(load.Pos(), "Load is not allowed without page.tsx: Load loads the data of a page, an API route answers GET with a GET function")
+	}
+	if !d.pageTSX && !declared {
 		return nil
 	}
 	r.Package = pkg.PkgPath
-	scope := pkg.Types.Scope()
-	r.Load, r.uses = a.readLoad(pkg, d.id, "Load")
-	if r.Load != nil && !d.routeTSX {
-		a.errorAt(scope.Lookup("Load").Pos(), "Load is not allowed without route.tsx: Load loads the data of a page, an API route answers GET with a GET function")
-		r.Load, r.uses = nil, nil
+	if d.pageTSX {
+		r.Load, r.uses = a.readLoad(pkg, d.id, "Load")
 	}
 	for _, method := range methods {
 		obj := scope.Lookup(method)
 		if obj == nil {
 			continue
 		}
-		if method == "GET" && d.routeTSX {
-			a.errorAt(obj.Pos(), "GET is not allowed next to route.tsx: the framework renders GET for a page")
+		if method == "GET" && d.pageTSX {
+			a.errorAt(obj.Pos(), "GET is not allowed next to page.tsx: the framework renders GET for a page")
 			continue
 		}
 		if h, ok := a.readHandler(pkg, obj, method); ok {
@@ -559,23 +569,23 @@ func (a *analyzer) route(d *dirInfo) *route {
 	return r
 }
 
-func (a *analyzer) layout(d *dirInfo) *layout {
-	file := "layout.go"
-	if !d.layoutGo {
-		file = "layout.tsx"
+// layout reads the Layout of d, nil when d has none. A directory has a Layout when it has
+// layout.tsx or when route.go declares Layout or LayoutSSR. pkg is the package of route.go, nil
+// when it has none or does not type check.
+func (a *analyzer) layout(d *dirInfo, pkg *packages.Package) *layout {
+	l := &layout{Layout: Layout{ID: d.id + "/layout", Dir: d.id, TSX: d.layoutTSX, SSR: true}, file: "layout.tsx"}
+	if pkg != nil {
+		scope := pkg.Types.Scope()
+		if scope.Lookup("Layout") != nil || scope.Lookup("LayoutSSR") != nil {
+			l.file, l.Package = "route.go", pkg.PkgPath
+			l.Load, l.uses = a.readLoad(pkg, d.id, "Layout")
+			l.SSR = a.boolConst(pkg, "LayoutSSR", true)
+			return l
+		}
 	}
-	l := &layout{Layout: Layout{ID: d.id + "/layout", Dir: d.id, TSX: d.layoutTSX, SSR: true}, file: file}
-	if !d.layoutGo || a.broken[d.id] {
-		return l
-	}
-	pkg := a.byDir[d.id]
-	if pkg == nil {
-		a.errorInFile(d.id, "layout.go", "layout.go is not part of a package the go command builds")
+	if !d.layoutTSX {
 		return nil
 	}
-	l.Package = pkg.PkgPath
-	l.Load, l.uses = a.readLoad(pkg, d.id, "Layout")
-	l.SSR = a.boolConst(pkg, "LayoutSSR", true)
 	return l
 }
 
@@ -817,7 +827,7 @@ func (a *analyzer) linkLayouts(routes []*route, layouts []*layout) {
 			}
 		}
 		if pages == 0 {
-			a.errorInFile(l.Dir, l.file, "this layout has no pages (route.tsx) in its directory or below it")
+			a.errorInFile(l.Dir, l.file, "this layout has no pages (page.tsx) in its directory or below it")
 			continue
 		}
 		if !l.valid {
@@ -939,7 +949,7 @@ func (a *analyzer) checkLayoutURLs(routes []*route, layouts []*layout) {
 				rel := comparePaths(muxSegments(l.segs), muxSegments(segs))
 				return rel == equivalent || rel == moreSpecific || rel == overlaps
 			}) {
-				a.errorInFile(l.Dir, l.file, "the URL %q of the layout of %s has no page, but the page %s matches it: the browser would show the 404 page there while the server renders %s, so add a route.tsx to %s or rename one of the directories", l.Path, l.Dir, r.Dir, r.Dir, l.Dir)
+				a.errorInFile(l.Dir, l.file, "the URL %q of the layout of %s has no page, but the page %s matches it: the browser would show the 404 page there while the server renders %s, so add a page.tsx to %s or rename one of the directories", l.Path, l.Dir, r.Dir, r.Dir, l.Dir)
 			}
 		}
 	}

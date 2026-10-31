@@ -23,14 +23,14 @@ func fakeApp(t *testing.T, target string) string {
 	modules := testModules(t)
 	root := t.TempDir()
 	writeTree(t, root, map[string]string{
-		"vite.config.ts":           "import tifa from './.tifa/vite.js'\nexport default { plugins: [tifa()] }\n",
-		"app/page/route.tsx":       "import { route } from './+route'\nimport './page.css'\nexport default route\n",
-		"app/page/page.css":        ".page { color: red }\n",
-		".tifa/app/page/+route.ts": "export const route = 'page-route'\n",
-		".tifa/runtime/client.ts":  "export const clientOnly = 1\n",
-		".tifa/client.ts":          "import('../app/page/route').then((m) => console.log(m.default))\n",
+		"vite.config.ts":              "import tifa from './.tifa/vite.js'\nexport default { plugins: [tifa()] }\n",
+		"app/page/page.tsx":           "import { page } from './route.gen'\nimport './page.css'\nexport default page\n",
+		"app/page/page.css":           ".page { color: red }\n",
+		".tifa/app/page/route.gen.ts": "export const page = 'page-route'\n",
+		".tifa/runtime/client.ts":     "export const clientOnly = 1\n",
+		".tifa/client.ts":             "import('../app/page/page').then((m) => console.log(m.default))\n",
 		".tifa/server.ts": "declare const __TIFA_ASSETS__: string\n" +
-			"import route from '../app/page/route'\n(globalThis as any).result = route + ' ' + __TIFA_ASSETS__\n",
+			"import route from '../app/page/page'\n(globalThis as any).result = route + ' ' + __TIFA_ASSETS__\n",
 		".tifa/vite/plugin.js": js.VitePlugin,
 		".tifa/vite.js":        "import { tifa } from './vite/plugin.js'\nexport default () => tifa({ target: " + target + " })\n",
 		"public/robots.txt":    "User-agent: *\n",
@@ -103,7 +103,7 @@ func TestAppWritesDist(t *testing.T) {
 		SourcesContent []string
 	}
 	readJSON(t, filepath.Join(dist, "ssr.js.map"), &sourceMap)
-	if !slices.Contains(sourceMap.Sources, "app/page/route.tsx") || sourceMap.SourcesContent != nil {
+	if !slices.Contains(sourceMap.Sources, "app/page/page.tsx") || sourceMap.SourcesContent != nil {
 		t.Errorf("ssr.js.map has the sources %q and their content %v", sourceMap.Sources, sourceMap.SourcesContent != nil)
 	}
 	if _, err := os.Stat(filepath.Join(dist, "public", "robots.txt")); err != nil {
@@ -167,7 +167,7 @@ func TestAppHonoursTheTarget(t *testing.T) {
 	build := func(target string) (string, string) {
 		root := fakeApp(t, target)
 		writeTree(t, root, map[string]string{
-			"app/page/route.tsx": "import { route } from './+route'\nlet n = (globalThis as any).n\nn ||= route\nexport default n\n",
+			"app/page/page.tsx": "import { page } from './route.gen'\nlet n = (globalThis as any).n\nn ||= page\nexport default n\n",
 		})
 		buildApp(t, root)
 		var browser strings.Builder
@@ -276,7 +276,7 @@ func TestHeadTagsFollowStaticImports(t *testing.T) {
 		".tifa/client.ts": {File: "assets/app-1.js", IsEntry: true, Imports: []string{"_a.js", "_b.js"}, CSS: []string{"assets/entry.css"}},
 		"_a.js":           {File: "assets/chunk-a.js", Imports: []string{"_b.js"}},
 		"_b.js":           {File: "assets/chunk-b.js", Imports: []string{"_a.js"}},
-		"app/x/route.tsx": {File: "assets/chunk-x.js", Imports: []string{"_a.js"}},
+		"app/x/page.tsx":  {File: "assets/chunk-x.js", Imports: []string{"_a.js"}},
 		"style.css":       {File: "assets/style-1.css"},
 	})
 	if err != nil {
@@ -298,19 +298,19 @@ func TestHeadTagsFollowStaticImports(t *testing.T) {
 // The root Layout is part of the entry, and modules that are no Layout or route get nothing.
 func TestRoutePreloadsLeaveOutTheHead(t *testing.T) {
 	preload := routePreloads(map[string]manifestEntry{
-		".tifa/client.ts":          {File: "assets/app-1.js", IsEntry: true, Imports: []string{"_a.js", "app/layout.tsx"}},
-		"app/layout.tsx":           {File: "assets/chunk-root.js", Imports: []string{"_a.js"}},
-		"_a.js":                    {File: "assets/chunk-a.js"},
-		"_b.js":                    {File: "assets/chunk-b.js", Imports: []string{"_a.js", "_c.js"}},
-		"_c.js":                    {File: "assets/chunk-c.js", Imports: []string{".tifa/client.ts"}},
-		"_d.js":                    {File: "assets/chunk-d.js"},
-		"app/x/route.tsx":          {File: "assets/chunk-x.js", Imports: []string{"_a.js", ".tifa/client.ts", "_b.js", "_d.js"}, DynamicImports: []string{"app/x/chart.client.tsx"}},
-		"app/x/chart.client.tsx":   {File: "assets/chunk-chart.js", Imports: []string{"_d.js"}},
-		"app/x/y+/layout.tsx":      {File: "assets/chunk-y.js", Imports: []string{"_c.js"}},
-		"app/x/y+/z/route.tsx":     {File: "assets/chunk-z.js"},
-		"app/x/route.css":          {File: "assets/route.css"},
-		"node_modules/a/route.tsx": {File: "assets/chunk-n.js"},
-		"style.css":                {File: "assets/style-1.css"},
+		".tifa/client.ts":         {File: "assets/app-1.js", IsEntry: true, Imports: []string{"_a.js", "app/layout.tsx"}},
+		"app/layout.tsx":          {File: "assets/chunk-root.js", Imports: []string{"_a.js"}},
+		"_a.js":                   {File: "assets/chunk-a.js"},
+		"_b.js":                   {File: "assets/chunk-b.js", Imports: []string{"_a.js", "_c.js"}},
+		"_c.js":                   {File: "assets/chunk-c.js", Imports: []string{".tifa/client.ts"}},
+		"_d.js":                   {File: "assets/chunk-d.js"},
+		"app/x/page.tsx":          {File: "assets/chunk-x.js", Imports: []string{"_a.js", ".tifa/client.ts", "_b.js", "_d.js"}, DynamicImports: []string{"app/x/chart.client.tsx"}},
+		"app/x/chart.client.tsx":  {File: "assets/chunk-chart.js", Imports: []string{"_d.js"}},
+		"app/x/y+/layout.tsx":     {File: "assets/chunk-y.js", Imports: []string{"_c.js"}},
+		"app/x/y+/z/page.tsx":     {File: "assets/chunk-z.js"},
+		"app/x/route.css":         {File: "assets/route.css"},
+		"node_modules/a/page.tsx": {File: "assets/chunk-n.js"},
+		"style.css":               {File: "assets/style-1.css"},
 	})
 	want := map[string][]string{
 		"app/x/route":      {"/assets/chunk-x.js", "/assets/chunk-b.js", "/assets/chunk-c.js", "/assets/chunk-d.js"},

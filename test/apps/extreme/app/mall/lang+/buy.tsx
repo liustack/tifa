@@ -6,10 +6,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from 'cn'
 import { photo, photoSet, type View } from '../../images'
 import { Stars, useMarket } from '../market'
-import { route } from './+route'
+import { page as mall } from './route.gen'
 
 export function Breadcrumb() {
-  const page = route.useLoaderData()
+  const page = mall.useLoaderData()
   const crumbs = page.breadcrumb ?? []
   return (
     <nav aria-label="breadcrumb" className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
@@ -27,7 +27,7 @@ export function Breadcrumb() {
 
 // Gallery is the photos of the product: one large and a strip of thumbnails.
 export function Gallery() {
-  const page = route.useLoaderData()
+  const page = mall.useLoaderData()
   const { t } = useMarket()
   const photos = page.gallery ?? []
   const [shown, setShown] = useState(0)
@@ -77,7 +77,7 @@ export function Gallery() {
 
 // Summary is the middle column: the title and what sells the product, its price and its variants.
 export function Summary() {
-  const page = route.useLoaderData()
+  const page = mall.useLoaderData()
   const { t, money, count } = useMarket()
   const [color, setColor] = useState(page.colors?.[0]?.id ?? '')
   const [size, setSize] = useState(page.sizes?.[2] ?? '')
@@ -204,7 +204,7 @@ export function Summary() {
 // BuyBox is the right column: the price again, when it arrives, the quantity, the buttons, who
 // sells and ships it, and the extras.
 export function BuyBox() {
-  const page = route.useLoaderData()
+  const page = mall.useLoaderData()
   const { t, money, day } = useMarket()
   const [quantity, setQuantity] = useState(1)
   const sku = page.skus?.[2]

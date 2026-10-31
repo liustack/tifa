@@ -3,13 +3,13 @@ import { ChevronDown, ChevronUp, Globe, MapPin, Menu, Search, ShoppingCart, User
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { useMarket } from '../market'
-import { route } from './+route'
+import { page as mall } from './route.gen'
 
 // Header is the marketplace's header: where to deliver, search over the departments, the
 // account menu and the cart, then the department bar whose menus are all in the HTML and open
 // on hover, as large shops write them for search engines.
 export function Header() {
-  const page = route.useLoaderData()
+  const page = mall.useLoaderData()
   const { t } = useMarket()
   return (
     <header className="border-b bg-card">
@@ -48,7 +48,7 @@ export function Header() {
 }
 
 function SearchBar() {
-  const page = route.useLoaderData()
+  const page = mall.useLoaderData()
   const { t } = useMarket()
   const [query, setQuery] = useState('')
   return (
@@ -104,7 +104,7 @@ function AccountMenu() {
 }
 
 function Departments() {
-  const page = route.useLoaderData()
+  const page = mall.useLoaderData()
   const { t } = useMarket()
   return (
     <nav aria-label={t('top.all')} className="relative border-t bg-background">
@@ -144,7 +144,7 @@ function Departments() {
 }
 
 export function Footer() {
-  const page = route.useLoaderData()
+  const page = mall.useLoaderData()
   const { t } = useMarket()
   return (
     <footer className="mt-16 border-t bg-card text-sm">

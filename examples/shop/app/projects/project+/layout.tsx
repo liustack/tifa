@@ -3,14 +3,14 @@ import { ChevronDown, NotebookPen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { AnimatedNumber } from '../../animated-number'
-import { route, type Data } from './+layout'
+import { layout, type LayoutData } from './route.gen'
 
-export const head = ({ loaderData }: { loaderData?: Data }) => ({
+export const head = ({ loaderData }: { loaderData?: LayoutData }) => ({
   meta: loaderData ? [{ title: `${loaderData.name} · 山海工作台` }] : [],
 })
 
 export default function ProjectLayout() {
-  const project = route.useLoaderData()
+  const project = layout.useLoaderData()
   return (
     <div className="flex flex-col gap-6">
       <Collapsible className="flex flex-col gap-4">

@@ -419,7 +419,7 @@ func TestDevFailedRenderShowsTheError(t *testing.T) {
 	s, r := newFrontServer(t, frontApp())
 	s.dev = http.NotFoundHandler()
 	r.result = func(ssr.Input) (string, error) {
-		return "", errors.New("ReferenceError: window is not defined\n    at Page (app/projects/route.tsx:3:9)")
+		return "", errors.New("ReferenceError: window is not defined\n    at Page (app/projects/page.tsx:3:9)")
 	}
 	w := get(s, "/projects/p1")
 	body := w.Body.String()
@@ -429,7 +429,7 @@ func TestDevFailedRenderShowsTheError(t *testing.T) {
 	for _, want := range []string{
 		"<h1>500 Internal Server Error</h1>",
 		"GET /projects/p1 failed while rendering on the server.",
-		"ReferenceError: window is not defined\n    at Page (app/projects/route.tsx:3:9)",
+		"ReferenceError: window is not defined\n    at Page (app/projects/page.tsx:3:9)",
 		"<script>window.__tifaDevErrorPage = true</script>",
 		`<script src="/__tifa/dev/client.js"></script>`,
 	} {

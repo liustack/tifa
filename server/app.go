@@ -25,7 +25,7 @@ type App struct {
 	Dist fs.FS
 }
 
-// Layout is one directory holding layout.go, layout.tsx or both.
+// Layout is one directory whose route.go declares Layout or LayoutSSR, or that holds layout.tsx, or both.
 type Layout struct {
 	// ID is the directory relative to the application root followed by "/layout", such as
 	// "app/projects/project+/layout".
@@ -36,7 +36,7 @@ type Layout struct {
 	SSR bool
 }
 
-// Route is one directory holding route.go, route.tsx or both.
+// Route is one directory holding page.tsx, or a route.go that declares a method handler, or both.
 type Route struct {
 	// ID is the directory relative to the application root followed by "/route", such as
 	// "app/projects/project+/route".
@@ -44,7 +44,7 @@ type Route struct {
 	// Path is the path of the directory in ServeMux syntax, such as "/projects/{project}".
 	// "/" is the exact home page.
 	Path string
-	// Page reports whether route.tsx exists. The framework answers GET for a page.
+	// Page reports whether page.tsx exists. The framework answers GET for a page.
 	Page bool
 	// Load returns the result of the route's Load through tifa.Use, nil when the route has none.
 	Load func(c *tifa.Ctx) (any, error)

@@ -25,3 +25,11 @@ func Load(c *tifa.Ctx) (Overview, error) {
 	}
 	return Overview{Shop: s.Name, Items: items}, nil
 }
+
+func Layout(c *tifa.Ctx) (Shop, error) {
+	id := c.Param("shop")
+	if id == "closed" {
+		return Shop{}, tifa.ErrNotFound
+	}
+	return Shop{ID: id, Name: "Shop " + id}, nil
+}

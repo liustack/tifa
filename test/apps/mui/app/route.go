@@ -6,3 +6,12 @@ import (
 )
 
 func Load(c *tifa.Ctx) (admin.Stats, error) { return admin.Dashboard(), nil }
+
+type Shell struct {
+	User    string `json:"user"`
+	Pending int    `json:"pending"`
+}
+
+func Layout(c *tifa.Ctx) (Shell, error) {
+	return Shell{User: "Riley Chen", Pending: admin.Dashboard().ByStatus["pending"]}, nil
+}

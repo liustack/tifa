@@ -10,17 +10,17 @@ import { Sheet, SheetClose, SheetContent, SheetDescription, SheetFooter, SheetHe
 import { cn } from 'cn'
 import { i18nFor, LocaleContext, useStore } from '../i18n'
 import { catalogueNo, Price, ProductImage } from '../product-card'
-import { route, type Data } from './+layout'
+import { layout, type LayoutData } from './route.gen'
 
 // The language of every page of the store, from the locale the Go function checked. Without it,
 // when the Layout failed, the page keeps the root Layout's language.
-export const head = ({ loaderData }: { loaderData?: Data }) => ({
+export const head = ({ loaderData }: { loaderData?: LayoutData }) => ({
   htmlAttributes: { lang: loaderData?.locale.code },
   meta: loaderData ? [{ title: i18nFor(loaderData.locale).t('home.title') }] : [],
 })
 
 export default function StoreLayout() {
-  const shell = route.useLoaderData()
+  const shell = layout.useLoaderData()
   return (
     <LocaleContext.Provider value={shell.locale}>
       <I18nextProvider i18n={i18nFor(shell.locale)}>
@@ -40,7 +40,7 @@ export default function StoreLayout() {
 }
 
 function Announcement() {
-  const shell = route.useLoaderData()
+  const shell = layout.useLoaderData()
   const { t } = useStore()
   return (
     <p className="bg-foreground px-4 py-2 text-center text-[11px] tracking-[0.08em] text-background dark:bg-card dark:text-muted-foreground">
@@ -49,10 +49,10 @@ function Announcement() {
   )
 }
 
-type Group = NonNullable<Data['menu']>[number]
+type Group = NonNullable<LayoutData['menu']>[number]
 
 function StoreHeader() {
-  const shell = route.useLoaderData()
+  const shell = layout.useLoaderData()
   const { t, locale } = useStore()
   const lang = locale.code
   const pathname = useRouterState({ select: (state) => state.location.pathname })
@@ -241,7 +241,7 @@ function SearchBox({ menu }: { menu: Group[] }) {
 
 // CartDrawer opens the cart at the side of the page without leaving it.
 function CartDrawer() {
-  const { cart } = route.useLoaderData()
+  const { cart } = layout.useLoaderData()
   const { t, locale, money } = useStore()
   const lang = locale.code
   const lines = cart.lines ?? []
@@ -350,7 +350,7 @@ function MobileMenu({ menu }: { menu: Group[] }) {
 }
 
 function StoreFooter() {
-  const shell = route.useLoaderData()
+  const shell = layout.useLoaderData()
   const { t, locale } = useStore()
   const lang = locale.code
   const columns = [

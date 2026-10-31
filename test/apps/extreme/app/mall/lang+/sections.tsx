@@ -5,9 +5,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from 'cn'
 import { photo, type View } from '../../images'
 import { Stars, useMarket } from '../market'
-import { route, type Data } from './+route'
+import { page as mall, type PageData } from './route.gen'
 
-type Card = NonNullable<Data['together']>[number]
+type Card = NonNullable<PageData['together']>[number]
 
 function Heading({ id, children, aside }: { id: string; children: React.ReactNode; aside?: React.ReactNode }) {
   return (
@@ -66,7 +66,7 @@ export function ProductCard({ card, eager }: { card: Card; eager: boolean }) {
 }
 
 export function Together() {
-  const page = route.useLoaderData()
+  const page = mall.useLoaderData()
   const { t, money } = useMarket()
   const cards = page.together ?? []
   const total = page.priceFen + cards.slice(0, 2).reduce((s, c) => s + c.priceFen, 0)
@@ -109,7 +109,7 @@ export function Together() {
 }
 
 export function Compare() {
-  const page = route.useLoaderData()
+  const page = mall.useLoaderData()
   const { t, money } = useMarket()
   const cards = page.compare ?? []
   const rows = page.compareRows ?? []
@@ -156,7 +156,7 @@ export function Compare() {
 }
 
 export function Specs() {
-  const page = route.useLoaderData()
+  const page = mall.useLoaderData()
   const { t } = useMarket()
   return (
     <section aria-labelledby="specs" className="flex flex-col gap-4">
@@ -183,7 +183,7 @@ export function Specs() {
 }
 
 export function BrandStory() {
-  const page = route.useLoaderData()
+  const page = mall.useLoaderData()
   const { t } = useMarket()
   return (
     <section aria-labelledby="brand" className="flex flex-col gap-6">
@@ -209,7 +209,7 @@ export function BrandStory() {
 const shownWithPhoto = 6
 
 export function Carousels() {
-  const page = route.useLoaderData()
+  const page = mall.useLoaderData()
   return (
     <>
       {(page.carousels ?? []).map((c) => (
@@ -219,7 +219,7 @@ export function Carousels() {
   )
 }
 
-function Carousel({ carousel }: { carousel: NonNullable<Data['carousels']>[number] }) {
+function Carousel({ carousel }: { carousel: NonNullable<PageData['carousels']>[number] }) {
   const { t } = useMarket()
   const [page, setPage] = useState(0)
   const cards = carousel.cards ?? []
@@ -255,7 +255,7 @@ function Carousel({ carousel }: { carousel: NonNullable<Data['carousels']>[numbe
 const reviewsShown = 60
 
 export function Reviews() {
-  const page = route.useLoaderData()
+  const page = mall.useLoaderData()
   const { t, count } = useMarket()
   const all = page.reviews ?? []
   const histogram = page.histogram ?? []
@@ -346,7 +346,7 @@ export function Reviews() {
   )
 }
 
-function Review({ review }: { review: NonNullable<Data['reviews']>[number] }) {
+function Review({ review }: { review: NonNullable<PageData['reviews']>[number] }) {
   const { t, date } = useMarket()
   const [helpful, setHelpful] = useState(false)
   return (
@@ -390,7 +390,7 @@ function Review({ review }: { review: NonNullable<Data['reviews']>[number] }) {
 }
 
 export function Questions() {
-  const page = route.useLoaderData()
+  const page = mall.useLoaderData()
   const { t, date } = useMarket()
   return (
     <section aria-labelledby="questions" className="flex flex-col gap-4">
@@ -434,7 +434,7 @@ export function Questions() {
 }
 
 export function History() {
-  const page = route.useLoaderData()
+  const page = mall.useLoaderData()
   const { t } = useMarket()
   return (
     <section aria-labelledby="history" className="flex flex-col gap-3">

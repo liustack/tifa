@@ -223,10 +223,10 @@ func TestViolations(t *testing.T) {
 	}{
 		{"duppath", [][]string{
 			{"app/items/key+/route.go:1:", "app/items/id+ and app/items/key+", "parameter directories"},
-			{"app/shops/shop+/a/route.tsx:1:", "app/shops/rest++ and app/shops/shop+", "parameter directories"},
+			{"app/shops/shop+/a/page.tsx:1:", "app/shops/rest++ and app/shops/shop+", "parameter directories"},
 		}},
-		{"ongetpage", [][]string{{"app/page/route.go:7:", "GET", "route.tsx"}}},
-		{"apiload", [][]string{{"app/api/route.go:7:", "Load", "route.tsx"}}},
+		{"ongetpage", [][]string{{"app/page/route.go:7:", "GET", "page.tsx"}}},
+		{"apiload", [][]string{{"app/api/route.go:7:", "Load", "page.tsx"}}},
 		{"badhandler", [][]string{
 			{"app/api/route.go:15:", "Validate", "func() error"},
 			{"app/api/route.go:19:", "GET input", "Nested.Inner", "query string"},
@@ -246,16 +246,16 @@ func TestViolations(t *testing.T) {
 			{"app/text/route.go:97:", "GET input", "text.Word", "MarshalText", "query string"},
 		}},
 		{"dirnames", [][]string{
-			{"app/a%b/route.tsx:1:", `"%"`},
-			{"app/1x+/route.tsx:1:", "parameter name"},
-			{"app/rest++/more/route.tsx:1:", "rest of the path"},
-			{"app/id+/x/id+/route.tsx:1:", "twice"},
-			{"app/x~1/route.tsx:1:", "x~1"},
+			{"app/a%b/page.tsx:1:", `"%"`},
+			{"app/1x+/page.tsx:1:", "parameter name"},
+			{"app/rest++/more/page.tsx:1:", "rest of the path"},
+			{"app/id+/x/id+/page.tsx:1:", "twice"},
+			{"app/x~1/page.tsx:1:", "x~1"},
 		}},
-		{"layoutparam", [][]string{{"app/projects/layout.go:6:", `"projectId"`, `"/projects"`}}},
+		{"layoutparam", [][]string{{"app/projects/route.go:8:", `"projectId"`, `"/projects"`}}},
 		{"usenonancestor", [][]string{
 			{"app/shop/route.go:11:", "admin.Layout", "does not wrap"},
-			{"app/shop/layout.go:10:", "tifa.Use(c, Layout)", "its own result"},
+			{"app/shop/route.go:19:", "tifa.Use(c, Layout)", "its own result"},
 		}},
 		{"useclosure", [][]string{
 			{"app/page/route.go:12:", "package-level function", "closure"},
@@ -302,7 +302,7 @@ func TestViolations(t *testing.T) {
 			{"app/d/b/z+/route.go:1:", `"/d/b/{z}"`, `"/{a}/b/c"`, "conflicts"},
 			{"app/d/q+/rest++/route.go:1:", `"/d/{q}/{rest...}"`, `"/d/{q}"`, `"/{a}/b"`, "conflicts"},
 			{"app/d/q+/rest++/route.go:1:", `"/d/{q}/{rest...}" conflicts`, `"/{a}/b/c"`},
-			{"app/declared/route.go:3:", "Path is not declared"},
+			{"app/declared/route.go:5:", "Path is not declared"},
 		}},
 		{"paramname", [][]string{
 			{"app/items/key+/route.go:13:", `"id"`, `"/items/{key}"`},
@@ -381,20 +381,22 @@ func TestViolations(t *testing.T) {
 			{"app/settings/layout.tsx:1:", `"/settings"`, "app/user+", "no page"},
 		}},
 		{"rolefiles", [][]string{
-			{"app/layout.go:7:", "Load", "func Layout"},
-			{"app/layout.go:9:", "POST", "route.go"},
-			{"app/layout.go:11:", "SSR", "LayoutSSR"},
-			{"app/layout.go:13:", "Cache", "route.go"},
-			{"app/mixed/route.go:7:", "Layout", "layout.go"},
-			{"app/mixed/route.go:9:", "LayoutSSR", "layout.go"},
-			{"app/mixed/extra.go:3:", "Cache", "route.go"},
+			// layout.go is an ordinary file now: every name of route.go is refused there, Layout included.
+			{"app/layout.go:5:", "Layout is read from route.go only", "layout.go"},
+			{"app/layout.go:7:", "Load is read from route.go only", "layout.go"},
+			{"app/layout.go:9:", "POST is read from route.go only", "layout.go"},
+			{"app/layout.go:11:", "SSR is read from route.go only", "layout.go"},
+			{"app/layout.go:13:", "Cache is read from route.go only", "layout.go"},
+			{"app/mixed/extra.go:3:", "Cache is read from route.go only", "extra.go"},
+		}},
+		{"oldroute", [][]string{
+			{"app/route.tsx:1:", "route.tsx is not a page file any more", "rename it to page.tsx"},
 		}},
 		{"structure", [][]string{
-			{"app/empty/layout.go:5:", "Path is not declared"},
-			{"app/empty/layout.go:7:", "Load", "func Layout"},
-			{"app/empty/layout.go:9:", "POST", "layout"},
-			{"app/empty/layout.go:1:", "no pages"},
-			{"app/both/layout.go:5:", "Layout", "func(c *tifa.Ctx) (T, error)"},
+			{"app/empty/route.go:5:", "Path is not declared"},
+			{"app/empty/route.go:7:", "Load is not allowed without page.tsx"},
+			{"app/empty/route.go:1:", "no pages"},
+			{"app/both/route.go:9:", "Layout", "func(c *tifa.Ctx) (T, error)"},
 			{"app/_hidden/route.go:1:", "app/_hidden", "rename"},
 			{"app/testdata/x/layout.tsx:1:", "app/testdata", "rename"},
 		}},
@@ -721,5 +723,48 @@ func TestModuleLeftOutOfGoWork(t *testing.T) {
 	_, err = analyzeApp(t, "tsxonly")
 	if err == nil || !strings.Contains(err.Error(), "go work use") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+// A route.go with only Layout gives the pages below it their layout data. It is no API route:
+// without a method handler or a page.tsx the directory has no route. With a method handler as
+// well, the directory is an API route and has a Layout.
+func TestRouteGoWithLayoutOnlyAndWithHandler(t *testing.T) {
+	m, err := analyzeApp(t, "layoutonly")
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	type layoutInfo struct {
+		id, pkg string
+		load    bool
+		tsx     bool
+	}
+	var layouts []layoutInfo
+	for _, l := range m.Layouts {
+		layouts = append(layouts, layoutInfo{l.ID, l.Package, l.Load != nil, l.TSX})
+	}
+	wantLayouts := []layoutInfo{
+		{"app/desk/layout", "example.com/layoutonly/app/desk", true, true},
+		{"app/team/layout", "example.com/layoutonly/app/team", true, true},
+	}
+	if !reflect.DeepEqual(layouts, wantLayouts) {
+		t.Errorf("Layouts = %+v, want %+v", layouts, wantLayouts)
+	}
+	type routeInfo struct {
+		id, pkg  string
+		page     bool
+		handlers []string
+	}
+	var routes []routeInfo
+	for _, r := range m.Routes {
+		routes = append(routes, routeInfo{r.ID, r.Package, r.Page, handlerMethods(r)})
+	}
+	wantRoutes := []routeInfo{
+		{"app/desk/route", "example.com/layoutonly/app/desk", false, []string{"GET"}},
+		{"app/desk/inbox/route", "", true, nil},
+		{"app/team/members/route", "", true, nil},
+	}
+	if !reflect.DeepEqual(routes, wantRoutes) {
+		t.Errorf("Routes = %+v, want %+v", routes, wantRoutes)
 	}
 }
