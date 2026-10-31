@@ -1,6 +1,6 @@
 import { animated, useTransition } from '@react-spring/web'
 import { Badge } from '@/components/ui/badge'
-import { cn } from '@/lib/utils'
+import { cn } from 'cn'
 
 export const statusLabels: Record<string, string> = {
   pending: '待发货',

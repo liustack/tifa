@@ -86,7 +86,7 @@ func (e Env) Sync(dir, kind string) error {
 	if err := copyTree(filepath.Join(e.Shop, "components", "ui"), filepath.Join(dst, "components", "ui"), typescript); err != nil {
 		return err
 	}
-	for _, name := range []string{"lib/utils.ts", "hooks/use-mobile.ts", "app/layout.tsx", "app/animated-number.tsx", "app/use-hydrated.ts", "app/format.ts"} {
+	for _, name := range []string{"components/hooks/use-mobile.ts", "app/layout.tsx", "app/animated-number.tsx", "app/use-hydrated.ts", "app/format.ts"} {
 		if err := copyFile(filepath.Join(e.Shop, name), filepath.Join(dst, name), nil); err != nil {
 			return err
 		}
