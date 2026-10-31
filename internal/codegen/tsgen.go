@@ -44,11 +44,14 @@ type tsRoute struct {
 	path     string // the path option, relative to the parent route
 	routeID  string // the TanStack route ID
 	opts     []string
-	// unmatched marks the index route added below a Layout without a page in its directory,
-	// whose URL Go does not match.
-	unmatched bool
-	parent    *tsRoute
-	children  []*tsRoute
+	// unmatched is the Layout of the index route added below a Layout without a page at its own
+	// URL, or the root Layout (the framework's root without one) of the route added for the rest
+	// of a URL that no route below it starts. Go matches no route at these URLs.
+	unmatched *tsNode
+	// rest marks the route for the rest of the URL below the root Layout.
+	rest     bool
+	parent   *tsRoute
+	children []*tsRoute
 }
 
 // tsxFile is the name of the component file of the node: page.tsx for a page, layout.tsx for a Layout.
@@ -268,8 +271,7 @@ func buildTree(root string, m *analyze.Manifest, exportsOf Exports) (*tsNode, []
 
 // tanstackRoutes turns the nodes into TanStack routes, parents first:
 //   - the framework's root is the root route. It renders the document as its shell, so a failure
-//     at any level keeps the document, and shows the root Layout's NotFound for a URL no route
-//     matches.
+//     at any level keeps the document.
 //   - the root Layout, whose path is empty, is a pathless route named after its directory.
 //   - any other Layout is a path route, its directory below its parent's, so the path
 //     parameters are part of its match. Two siblings never share a path: each directory holds
@@ -328,16 +330,35 @@ func tanstackRoutes(nodes []*tsNode) ([]*tsRoute, error) {
 			n.route = add(parent, "", path)
 		}
 	}
-	// A path route matches its own URL even when no child does, and would load and show the
-	// Layout there. Go matches no route at that URL, so an index route below such a Layout
-	// shows the root's NotFound before anything loads, as for any URL no route matches. A page
-	// in the Layout's directory takes the URL, and so does a page for the rest of the path right
-	// below it, with an empty rest, also through a Layout of the rest of the path, which always
-	// has that page.
+	// Go answers a URL no route matches with a 404 inside the deepest Layout whose path starts
+	// it, and the router shows the notFoundComponent of that Layout in its Outlet, as it shows
+	// that of the deepest Layout it matches in part. Two kinds of URL need a route of their own:
+	//   - a path route matches its own URL even when no child does, and would show the Layout
+	//     with nothing in its Outlet. An index route below such a Layout fails with a 404 there.
+	//     A page in the Layout's directory takes the URL, and so does a page for the rest of the
+	//     path right below it, with an empty rest, also through a Layout of the rest of the path,
+	//     which always has that page.
+	//   - a URL that no route below the root Layout starts matches the root route alone, without
+	//     the root Layout. A route for the rest of the URL below the root Layout fails with a 404
+	//     for such a URL, and only for such a URL: its params.parse turns down any other, which
+	//     the router then matches in part. Without a root Layout the framework's root holds it.
+	//     A page for the rest of the path in app/ takes every URL instead.
 	ownsURL := func(c *tsNode) bool { return paths[c] == "$" || c.file == "route" && paths[c] == "/" }
+	host := nodes[0]
 	for _, n := range nodes {
-		if n.file == "layout" && n.route.path != "" && !slices.ContainsFunc(n.children, ownsURL) {
-			add(n.route, "", "/").unmatched = true
+		if n.id == rootLayout {
+			host = n
+		}
+	}
+	for _, n := range nodes {
+		switch {
+		case n == host:
+			if !slices.ContainsFunc(n.children, func(c *tsNode) bool { return paths[c] == "$" }) {
+				r := add(n.route, "", "$")
+				r.unmatched, r.rest = n, true
+			}
+		case n.file == "layout" && !slices.ContainsFunc(n.children, ownsURL):
+			add(n.route, "", "/").unmatched = n
 		}
 	}
 	seen := map[string]bool{}
@@ -348,11 +369,6 @@ func tanstackRoutes(nodes []*tsNode) ([]*tsRoute, error) {
 		seen[r.routeID] = true
 	}
 	return routes, nil
-}
-
-// loadsBelow reports whether n or a node under it has a Load.
-func loadsBelow(n *tsNode) bool {
-	return n.load != nil || slices.ContainsFunc(n.children, loadsBelow)
 }
 
 // layoutRouteID is the id option of a Layout's pathless route: an underscore and its directory
@@ -514,7 +530,7 @@ func jsStrings(values []string) string {
 
 // routesModule writes routes.tsx: the routes of tanstackRoutes, the tree, and the router type
 // registration that gives getRouteApi its types. A TSX module is loaded lazily, in its own
-// browser chunk, unless it is the root Layout's, whose NotFound and htmlAttributes the root
+// browser chunk, unless it is the root Layout's, whose htmlAttributes and documentHead the root
 // route and the entries need, or exports head, which the server render then calls from the
 // module itself. The browser build loads these head modules lazily too: lazyRoutes in
 // js/vite/plugin.js hands routes.tsx a stand-in for each, so only the root Layout is in the
@@ -564,12 +580,10 @@ func routesModule(nodes []*tsNode) ([]byte, error) {
 	if app != nil && app.exported("Document") {
 		return nil, errors.New("app/layout.tsx: the root Layout exports Document, which tifa no longer renders: export htmlAttributes for the attributes of <html>, and return the head tags from head")
 	}
-	appExports := func(name, fallback string) string {
-		if app != nil && app.exported(name) {
-			return fmt.Sprintf("m%d.%s", appIndex, name)
+	for _, n := range nodes {
+		if n.exported("NotFound") {
+			return nil, fmt.Errorf("%s/%s: exports NotFound, which tifa no longer shows: a page that is not found shows the first Error from its route up, so export Error and check error instanceof RouteError && error.status === 404", n.dir, n.tsxFile())
 		}
-		runtime[fallback] = true
-		return fallback
 	}
 
 	byID := map[string]*tsNode{}
@@ -586,27 +600,52 @@ func routesModule(nodes []*tsNode) ([]byte, error) {
 	// its Error share one component.
 	var shared strings.Builder
 	errorVars := map[*tsNode]string{}
+	errorNodes := map[string]*tsNode{}
 	errorOf := func(n *tsNode) string {
 		v, ok := errorVars[n]
 		if !ok {
 			v = fmt.Sprintf("e%d", index[n])
-			errorVars[n] = v
+			errorVars[n], errorNodes[v] = v, n
 			fmt.Fprintf(&shared, "const %s = %s\n", v, export(index[n], n, "Error"))
 		}
 		return v
 	}
-	// notFoundOf names a Layout's NotFound for the routes right below it. A lazy one is wrapped
-	// once, so they share one component.
-	notFoundVars := map[*tsNode]string{}
-	notFoundOf := func(n *tsNode) string {
-		if eager(n) {
-			return export(index[n], n, "NotFound")
+	// errorComponent is the options of a route that shows the Error e. The browser build hands
+	// routes.tsx a lazy stand-in for each module it imports statically, but the root Layout's
+	// (lazyRoutes in js/vite/plugin.js), and TanStack wraps a route whose errorComponent can preload
+	// in Suspense. The SSR bundle has the component itself, without Suspense, so such a route turns
+	// Suspense off, or the browser would hydrate another tree than the server rendered. The router
+	// loads the chunk of the Error before it renders the route, as it loads the route's component.
+	errorComponent := func(e string) []string {
+		if n := errorNodes[e]; n != nil && n.id != rootLayout && eager(n) {
+			return []string{"errorComponent: " + e, "wrapInSuspense: false"}
 		}
-		v, ok := notFoundVars[n]
+		return []string{"errorComponent: " + e}
+	}
+	// errorFrom names the first Error going up from n, n included, or the framework's.
+	errorFrom := func(n *tsNode) string {
+		for a := n; a.parent != nil; a = a.parent {
+			if a.exported("Error") {
+				return errorOf(a)
+			}
+		}
+		return "DefaultError"
+	}
+	// notFoundOf names the component that shows the 404 of a URL that matches nothing below n:
+	// errorFrom(n) with a RouteError of status 404, made once for each Error, n0 for the
+	// framework's.
+	notFoundVars := map[string]string{}
+	notFoundOf := func(n *tsNode) string {
+		e := errorFrom(n)
+		v, ok := notFoundVars[e]
 		if !ok {
-			v = fmt.Sprintf("n%d", index[n])
-			notFoundVars[n] = v
-			fmt.Fprintf(&shared, "const %s = %s\n", v, export(index[n], n, "NotFound"))
+			runtime["missing"] = true
+			v = "n" + strings.TrimPrefix(e, "e")
+			if e == "DefaultError" {
+				v = "n0"
+			}
+			notFoundVars[e] = v
+			fmt.Fprintf(&shared, "const %s = missing(%s)\n", v, e)
 		}
 		return v
 	}
@@ -614,7 +653,7 @@ func routesModule(nodes []*tsNode) ([]byte, error) {
 		if n.parent == nil {
 			n.route.opts = append(n.route.opts,
 				"errorComponent: DefaultError",
-				"notFoundComponent: "+appExports("NotFound", "DefaultNotFound"))
+				"notFoundComponent: "+notFoundOf(n))
 			// The root Layout's documentHead is the head of every page, a URL no route matches
 			// and a failed root Load included.
 			if app != nil && app.exported("documentHead") {
@@ -632,27 +671,18 @@ func routesModule(nodes []*tsNode) ([]byte, error) {
 			heads = true
 			opts = append(opts, fmt.Sprintf("head: routeHead(m%d.head)", i))
 		}
-		// Every route names its Error component: its own, or the closest ancestor's, or the
-		// framework's. The server renders the component of the failed route itself while the
-		// browser catches with the closest boundary, so both must find the same one.
-		errorComponent := "DefaultError"
-		for a := n; a.parent != nil; a = a.parent {
-			if a.exported("Error") {
-				errorComponent = errorOf(a)
-				break
-			}
-		}
-		opts = append(opts, "errorComponent: "+errorComponent)
-		// A page shows its own NotFound in its place. A Layout's NotFound goes on the routes right
-		// below it that have a Load in their subtree, since only a Load gives a 404: the router
-		// takes a 404 up from the route that threw to the first route with a notFoundComponent,
-		// and shows it in that route's place, so in the Layout's Outlet. The root Layout's is the
-		// root route's.
-		switch {
-		case n.file == "route" && n.exported("NotFound"):
-			opts = append(opts, "notFoundComponent: "+export(i, n, "NotFound"))
-		case n.parent.parent != nil && n.parent.exported("NotFound") && loadsBelow(n):
-			opts = append(opts, "notFoundComponent: "+notFoundOf(n.parent))
+		// Every route names the Error component it shows in its place when it fails: a page the
+		// first Error from its own up, a Layout the first from the level above, since a Layout's
+		// Error shows in its Outlet, inside the Layout. The server renders the component of the
+		// failed route itself while the browser catches with the boundary of that route, so both
+		// find the same one. A Layout's notFoundComponent shows a URL that matches nothing below
+		// it in its Outlet, with the first Error from the Layout up: the router shows the
+		// notFoundComponent of the deepest Layout it matched.
+		if n.file == "layout" {
+			opts = append(opts, errorComponent(errorFrom(n.parent))...)
+			opts = append(opts, "notFoundComponent: "+notFoundOf(n))
+		} else {
+			opts = append(opts, errorComponent(errorFrom(n))...)
 		}
 		var query []string
 		if n.load != nil {
@@ -684,6 +714,19 @@ func routesModule(nodes []*tsNode) ([]byte, error) {
 		n.route.opts = append(n.route.opts, opts...)
 	}
 
+	for _, r := range routes {
+		if r.unmatched == nil {
+			continue
+		}
+		runtime["unmatched"] = true
+		if r.rest {
+			runtime["outside"] = true
+			r.opts = append(r.opts, fmt.Sprintf("params: { parse: outside(%s) }", routePrefixes(nodes)))
+		}
+		r.opts = append(r.opts, errorComponent(errorFrom(r.unmatched))...)
+		r.opts = append(r.opts, "loader: unmatched")
+	}
+
 	var body strings.Builder
 	if shared.Len() > 0 {
 		body.WriteString(shared.String() + "\n")
@@ -700,10 +743,6 @@ func routesModule(nodes []*tsNode) ([]byte, error) {
 			} else {
 				opts = append(opts, "path: "+jsString(r.path))
 			}
-		}
-		if r.unmatched {
-			runtime["unmatched"] = true
-			opts = append(opts, "beforeLoad: unmatched")
 		}
 		for _, o := range append(opts, r.opts...) {
 			body.WriteString("  " + o + ",\n")
@@ -735,7 +774,7 @@ declare module "@tanstack/react-router" {
 	}
 	fmt.Fprintf(&out, `import { %s } from "@tanstack/react-router"`+"\n", router)
 	var names []string
-	for _, name := range []string{"createAppRouter", "DefaultError", "DefaultNotFound", "load", "pick", "unmatched"} {
+	for _, name := range []string{"createAppRouter", "DefaultError", "load", "missing", "outside", "pick", "unmatched"} {
 		if runtime[name] {
 			names = append(names, name)
 		}
@@ -749,6 +788,36 @@ declare module "@tanstack/react-router" {
 	out.WriteString("\n")
 	out.WriteString(body.String())
 	return []byte(out.String()), nil
+}
+
+// routePrefixes writes the paths a URL may start with to be matched, in full or in part, by a route
+// below the root Layout: the path of every Layout and page but the root Layout and the pages in
+// the directory of their Layout, which the router matches only at the Layout's URL. A path for
+// the rest of the URL counts up to that rest. A literal is its text, a parameter null.
+func routePrefixes(nodes []*tsNode) string {
+	seen := map[string]bool{}
+	var out []string
+	for _, n := range nodes {
+		if n.parent == nil || n.id == rootLayout || n.file == "route" && n.route.path == "/" {
+			continue
+		}
+		var segs []string
+		for _, seg := range n.segs {
+			if strings.HasSuffix(seg.text, "...}") {
+				break
+			}
+			if seg.param {
+				segs = append(segs, "null")
+			} else {
+				segs = append(segs, jsString(seg.text))
+			}
+		}
+		if p := "[" + strings.Join(segs, ", ") + "]"; !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	return "[" + strings.Join(out, ", ") + "]"
 }
 
 func subtree(r *tsRoute) string {

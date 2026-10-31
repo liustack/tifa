@@ -10,6 +10,6 @@ export default function Root() {
   )
 }
 
-export function NotFound() {
+export function Error() {
   return <p>missing</p>
 }

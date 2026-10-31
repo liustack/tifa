@@ -286,23 +286,86 @@ func TestLayoutAndPageInOneDirectory(t *testing.T) {
 	}
 }
 
-// A Layout's NotFound needs no route of its own: the routes right below the Layout carry it, so
-// a 404 under the Layout shows it in the Layout's Outlet, and every loader throws a plain
-// notFound() that the router takes up from its own route.
-func TestLayoutNotFoundAddsNoRoute(t *testing.T) {
-	tree := string(generate(t, "router", false)["routes.tsx"])
-	if strings.Contains(tree, "_notFound") {
-		t.Errorf("the route tree has a NotFound boundary route:\n%s", tree)
-	}
-	if strings.Contains(tree, "location, \"") {
-		t.Errorf("a loader names where its 404 is shown:\n%s", tree)
-	}
+// Every route shows the first Error going up from it, a Layout from the level above its own, so
+// a Layout's Error shows in its Outlet with the Layout around it. A Layout's notFoundComponent
+// shows the first Error from the Layout up for a URL that matches nothing below it, and so does
+// the index route below a Layout without a page of its own.
+func TestErrorBoundaries(t *testing.T) {
+	tree := string(generate(t, "shop", false)["routes.tsx"])
 	for _, want := range []string{
-		"path: \"a\",\n  component: lazyRouteComponent(m2),\n  errorComponent: DefaultError,\n  notFoundComponent: m1.NotFound,",
+		// The root Layout fails: nothing is above it but the framework's Error. A URL that
+		// matches no page below it shows its own Error in its Outlet.
+		"id: \"_app\",\n  component: m1.default,\n  errorComponent: DefaultError,\n  notFoundComponent: n1,",
+		"const e1 = m1.Error\n",
+		"const n1 = missing(e1)\n",
+		// The project Layout fails: the root Layout's Error shows in its place.
+		"path: \"projects/$projectId\",\n  component: lazyRouteComponent(m3),\n  errorComponent: e1,\n  notFoundComponent: n3,",
+		"const n3 = missing(e3)\n",
+		// A page shows its own Error, or else the one of its Layout.
+		"path: \"/\",\n  component: lazyRouteComponent(m7),\n  errorComponent: e3,",
+		"path: \"orders/$orderId\",\n  component: lazyRouteComponent(m8),\n  errorComponent: e8,",
+		"const e8 = lazyRouteComponent(m8, \"Error\")\n",
+		// /auth has a Layout but no page: the index route below it shows the root Layout's Error.
+		"path: \"auth\",\n  component: lazyRouteComponent(m2),\n  errorComponent: e1,\n  notFoundComponent: n1,",
+		"path: \"/\",\n  errorComponent: e1,\n  loader: unmatched,",
+		// A URL that no route below the root Layout starts shows the 404 inside the root Layout.
+		"path: \"$\",\n  params: { parse: outside([[\"auth\"], [\"projects\", null], [\"auth\", \"login\"], [\"auth\", \"register\"], [\"projects\", null, \"orders\", null]]) },\n  errorComponent: e1,\n  loader: unmatched,",
+		"const n0 = missing(DefaultError)\n",
 	} {
 		if !strings.Contains(tree, want) {
 			t.Errorf("routes.tsx lacks %q:\n%s", want, tree)
 		}
+	}
+	if strings.Contains(tree, "NotFound") || strings.Contains(tree, "beforeLoad") {
+		t.Errorf("the route tree still has a NotFound or beforeLoad:\n%s", tree)
+	}
+}
+
+// The browser build hands routes.tsx a lazy stand-in for each module it imports statically, but
+// the root Layout's, and TanStack wraps a route whose errorComponent can preload in Suspense. The
+// SSR bundle has the component itself, so a route whose Error comes from such a module turns that
+// Suspense off, or the browser would hydrate another tree than the server rendered.
+func TestStaticErrorsWrapNoSuspense(t *testing.T) {
+	tree := string(generate(t, "router", false)["routes.tsx"])
+	team := regexp.MustCompile(`import \* as (m\d+) from "\.\./app/teams/team\+/layout"`).FindStringSubmatch(tree)
+	root := regexp.MustCompile(`import \* as (m\d+) from "\.\./app/layout"`).FindStringSubmatch(tree)
+	if team == nil || root == nil {
+		t.Fatalf("routes.tsx imports the team Layout or the root Layout lazily:\n%s", tree)
+	}
+	errorVar := func(module string) string {
+		m := regexp.MustCompile(`const (e\d+) = ` + module + `\.Error\n`).FindStringSubmatch(tree)
+		if m == nil {
+			t.Fatalf("routes.tsx names no Error of %s:\n%s", module, tree)
+		}
+		return m[1]
+	}
+	for _, c := range []struct {
+		error string
+		off   bool
+	}{{errorVar(team[1]), true}, {errorVar(root[1]), false}, {"DefaultError", false}} {
+		uses := strings.Count(tree, "errorComponent: "+c.error+",\n")
+		off := strings.Count(tree, "errorComponent: "+c.error+",\n  wrapInSuspense: false,\n")
+		if uses == 0 || c.off && off != uses || !c.off && off != 0 {
+			t.Errorf("%s: %d routes, %d of them without Suspense:\n%s", c.error, uses, off, tree)
+		}
+	}
+}
+
+// NotFound is no export of page.tsx or layout.tsx: a 404 reaches Error as a RouteError with
+// status 404, so a module that still exports NotFound fails the build instead of being left out
+// silently.
+func TestNotFoundExportFails(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "app/layout.tsx"), "export default function A() { return null }\n")
+	writeFile(t, filepath.Join(root, "app/page/page.tsx"), "export default function P() { return null }\nexport function NotFound() { return null }\n")
+	m := &analyze.Manifest{
+		Module:  "example.com/x",
+		Layouts: []analyze.Layout{{ID: "app/layout", Dir: "app", Path: "/", TSX: true, SSR: true, Routes: []string{"app/page/route"}}},
+		Routes:  []analyze.Route{{ID: "app/page/route", Dir: "app/page", Path: "/page", Page: true, SSR: true, Layouts: []string{"app/layout"}}},
+	}
+	_, err := Generate(root, m, false, fakeExports)
+	if err == nil || !strings.Contains(err.Error(), "app/page/page.tsx") || !strings.Contains(err.Error(), "status === 404") {
+		t.Fatalf("got %v", err)
 	}
 }
 

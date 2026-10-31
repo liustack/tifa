@@ -22,7 +22,7 @@ func generateGo(m *analyze.Manifest, configName string, dev bool) (map[string][]
 	var routes strings.Builder
 	routes.WriteString("var layouts = []server.Layout{\n")
 	for _, l := range m.Layouts {
-		fmt.Fprintf(&routes, "{\nID: %q,\n", l.ID)
+		fmt.Fprintf(&routes, "{\nID: %q,\nPath: %q,\n", l.ID, l.Path)
 		if l.Load != nil {
 			fmt.Fprintf(&routes, "Load: %s,\n", imports.load(l.Package, l.Dir, "Layout"))
 		}

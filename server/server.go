@@ -41,11 +41,13 @@ type Server struct {
 	mux    *http.ServeMux
 	routes map[string]map[string]func(*tifa.Ctx) error // path, then method
 	pages  map[string]bool                             // paths whose GET renders a page
-	// modules holds, by the path of a page, the IDs of its Layouts and route, outermost first.
+	// modules holds, by the path of a page, the IDs of its Layouts and route, outermost first,
+	// and by the ID of a Layout, the IDs of the Layouts from the root down to it.
 	modules map[string][]string
-
-	// The root Layout's LayoutSSR constant, which decides how an unmatched URL is answered.
-	rootSSR bool
+	// layouts holds the Loads of each Layout's chain by its ID, for a URL that matches no page
+	// and shows its 404 inside that Layout. candidates are what notFoundAt picks that Layout from.
+	layouts    map[string]layoutChain
+	candidates []candidate
 
 	// The front end, nil until openFront or setFront. Renders hold rendering for reading, so
 	// swapFront can wait for those on the pool it replaces.
@@ -64,7 +66,7 @@ func New(cfg config.Config, hooks Hooks) *Server {
 	s := &Server{
 		cfg: cfg.Server, hooks: hooks, mux: http.NewServeMux(),
 		routes: map[string]map[string]func(*tifa.Ctx) error{}, pages: map[string]bool{},
-		modules: map[string][]string{}, rootSSR: true, cache: newHTMLCache(cfg.Cache.Size),
+		modules: map[string][]string{}, layouts: map[string]layoutChain{}, cache: newHTMLCache(cfg.Cache.Size),
 	}
 	s.handler = http.HandlerFunc(s.route)
 	if cfg.Server.Compress {
@@ -104,7 +106,8 @@ func (s *Server) path(path string) map[string]func(*tifa.Ctx) error {
 	return route
 }
 
-// routeHandler is what the server registers in its ServeMux. methods is nil for unmatched URLs.
+// routeHandler is what the server registers in its ServeMux. methods is nil for unmatched URLs,
+// which unmatched answers.
 type routeHandler struct {
 	s       *Server
 	pattern string
@@ -114,7 +117,7 @@ type routeHandler struct {
 func (h routeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.s.serve(w, r, h.pattern, h.methods == nil || h.s.pages[h.pattern], func(c *tifa.Ctx) error {
 		if h.methods == nil {
-			return tifa.ErrNotFound
+			return h.s.unmatched(c)
 		}
 		handle := h.methods[r.Method]
 		if handle == nil && r.Method == "HEAD" {
@@ -218,9 +221,13 @@ func (s *Server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 	}
 	r := c.Request()
 	var failure *loadFailure
+	var missing *notFoundPage
+	var failed *renderError
 	var items map[string]routeResult
 	var redirect *core.RedirectError
 	var e tifa.Error
+	errors.As(err, &missing)
+	errors.As(err, &failed)
 	if errors.As(err, &failure) {
 		items, redirect, e = s.results(c, failure)
 	} else {
@@ -236,6 +243,8 @@ func (s *Server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 	switch {
 	case failure != nil && failure.data:
 		_ = writeData(w, http.StatusOK, items)
+	case missing != nil && missing.data && data:
+		_ = writeData(w, http.StatusNotFound, missing.items)
 	case redirect != nil && data:
 		_ = writeData(w, http.StatusOK, dataRedirect{Redirect: redirect.URL, Status: redirect.Code})
 	case redirect != nil && r.Header.Get(callHeader) != "":
@@ -251,12 +260,14 @@ func (s *Server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 		body := errorBody{Error: e.Message}
 		body.Fields, _ = fieldsOf(err)
 		writeJSON(w, e.Status, body)
-	case errors.As(err, new(*renderError)):
-		s.fallback(c, e, err)
+	case failed != nil:
+		s.rescue(c, e, err, failed)
 	case failure != nil:
-		s.errorPage(c, e, err, items, failure.ssr)
+		s.errorPage(c, e, err, items, failure.ssr, failure.key)
+	case missing != nil:
+		s.errorPage(c, e, err, missing.items, missing.ssr, missing.layout)
 	default:
-		s.errorPage(c, e, err, nil, false)
+		s.errorPage(c, e, err, nil, false, "")
 	}
 }
 

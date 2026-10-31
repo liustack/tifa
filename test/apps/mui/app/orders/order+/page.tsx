@@ -1,3 +1,4 @@
+import { RouteError } from 'tifa/client'
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import Alert from '@mui/material/Alert'
@@ -187,6 +188,7 @@ export default function OrderPage() {
   )
 }
 
-export function NotFound() {
-  return <Alert severity="warning">No such order.</Alert>
+export function Error({ error }: { error: unknown }) {
+  if (error instanceof RouteError && error.status === 404) return <Alert severity="warning">No such order.</Alert>
+  return <Alert severity="error">{error instanceof RouteError ? error.message : 'Something went wrong.'}</Alert>
 }

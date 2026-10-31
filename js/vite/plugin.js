@@ -942,7 +942,7 @@ const lazyRoute = '\0tifa-lazy-route:'
  * exports, made with lazyRouteComponent from an import() of the module, and a head that loads
  * the module and calls its head. TanStack Router accepts a head that returns a promise, and it
  * loads the chunk of a route before it runs head, so the module is there by then. The root
- * Layout stays in the entry script: the root route needs its NotFound, and the entries its
+ * Layout stays in the entry script: the root route needs its documentHead, and the entries its
  * htmlAttributes. tifa dev serves each module on its own and keeps the static imports.
  *
  * environments are the Vite environments it applies to.
@@ -996,7 +996,7 @@ export function lazyRoutes(environments = ['client']) {
 }
 
 // lazyRouteModule is the stand-in lazyRoutes gives routes.tsx for the route module module, with
-// lazyRouteComponent imported from router. routes.tsx reads default, head, Error and NotFound of
+// lazyRouteComponent imported from router. routes.tsx reads default, head and Error of
 // a route module (TestHeadModulesReadOnlyWhatTheirStandInExports in internal/codegen holds it to
 // that). A stand-in for an export the module lacks is never read, and the bundler leaves it out.
 export function lazyRouteModule(router, module) {
@@ -1005,8 +1005,7 @@ export function lazyRouteModule(router, module) {
     `const load = () => import(${JSON.stringify(module)})\n` +
     'export default lazyRouteComponent(load)\n' +
     'const error = /* @__PURE__ */ lazyRouteComponent(load, "Error")\n' +
-    'const notFound = /* @__PURE__ */ lazyRouteComponent(load, "NotFound")\n' +
-    'export { error as Error, notFound as NotFound }\n' +
+    'export { error as Error }\n' +
     'export const head = (context) => load().then((module) => module.head(context))\n'
   )
 }

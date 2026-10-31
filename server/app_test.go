@@ -54,9 +54,9 @@ func loadOrders(c *tifa.Ctx) ([]string, error) {
 func testApp() App {
 	return App{
 		Layouts: []Layout{
-			{ID: "app/layout", SSR: true, Load: func(c *tifa.Ctx) (any, error) { return tifa.Use(c, loadSite) }},
-			{ID: "app/projects", SSR: true, Load: func(c *tifa.Ctx) (any, error) { return tifa.Use(c, loadProject) }},
-			{ID: "app/plain", SSR: true},
+			{ID: "app/layout", Path: "/", SSR: true, Load: func(c *tifa.Ctx) (any, error) { return tifa.Use(c, loadSite) }},
+			{ID: "app/projects", Path: "/projects/{projectId}", SSR: true, Load: func(c *tifa.Ctx) (any, error) { return tifa.Use(c, loadProject) }},
+			{ID: "app/plain", Path: "/plain", SSR: true},
 		},
 		Routes: []Route{
 			{ID: "app/home", Path: "/", Page: true, SSR: true, Layouts: []string{"app/layout"}},
@@ -218,7 +218,7 @@ func TestRestOfPathAnswersItsPrefix(t *testing.T) {
 func TestRegisterRejectsInconsistentApps(t *testing.T) {
 	for name, app := range map[string]App{
 		"unknown layout":   {Routes: []Route{{ID: "app/a", Path: "/a", Layouts: []string{"app/layout"}, GET: func(*tifa.Ctx) error { return nil }}}},
-		"duplicate layout": {Layouts: []Layout{{ID: "app/layout"}, {ID: "app/layout"}}},
+		"duplicate layout": {Layouts: []Layout{{ID: "app/layout", Path: "/"}, {ID: "app/layout", Path: "/"}}},
 		"GET on a page":    {Routes: []Route{{ID: "app/a", Path: "/a", Page: true, GET: func(*tifa.Ctx) error { return nil }}}},
 		"duplicate path": {Routes: []Route{
 			{ID: "app/a", Path: "/a", GET: func(*tifa.Ctx) error { return nil }},

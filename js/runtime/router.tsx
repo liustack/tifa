@@ -1,10 +1,9 @@
+import type { ComponentType } from 'react'
 import {
   createMemoryHistory,
   createRouter,
   createSerializationAdapter,
-  notFound,
   redirect,
-  rootRouteId,
   type AnyRoute,
   type ErrorComponentProps,
   type RouterHistory,
@@ -46,8 +45,10 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
     caseSensitive: true,
     parseSearch,
     stringifySearch,
-    // A URL no route matches shows the root's NotFound at once, without loading any route.
-    notFoundMode: 'root',
+    // A URL no route matches shows the notFoundComponent of the deepest Layout it matches in
+    // that Layout's Outlet, after the Layouts above it have loaded. Go finds the same Layout
+    // for that URL (notFoundAt in server/notfound.go) and runs the same Layout functions.
+    notFoundMode: 'fuzzy',
     defaultPreload: 'intent',
     // Data goes stale only through invalidate, after a write. The reload then finishes before
     // invalidate or the navigation resolves, so a handler function resolves once the page
@@ -94,9 +95,8 @@ const routeErrorAdapter = createSerializationAdapter({
 })
 
 // load is the loader of every route with a Go Load: it asks the source for the route's result
-// at the URL being loaded. 404 becomes notFound(), which the router shows with the first
-// notFoundComponent from the route up. A redirect becomes redirect(), other failures a
-// RouteError for the Error components.
+// at the URL being loaded. A redirect becomes redirect(), a failure, 404 included, a RouteError
+// for the Error components.
 export async function load<T>(
   context: RouterContext,
   id: string,
@@ -104,16 +104,45 @@ export async function load<T>(
 ): Promise<T> {
   const result = await context.source(location.pathname + location.searchStr, id)
   if (result.status === 200) return result.data as T
-  if (result.status === 404) throw notFound()
   if (result.location !== undefined) throw redirect({ href: result.location, statusCode: result.status })
   throw new RouteError(result.status, result.error ?? `route ${id} failed with status ${result.status}`)
 }
 
-// unmatched is the beforeLoad of the index route that tifa build adds below a Layout without a
-// page in its own directory. Go matches no route at that URL, so the router shows the root's
-// NotFound before any loader runs, as it does for every URL no route matches.
+// notFoundMessage is the public message of a 404, the one Go gives tifa.ErrNotFound.
+const notFoundMessage = 'Not Found'
+
+// unmatched is the loader of the index route that tifa build adds below a Layout without a page
+// at its own URL. Go matches no route there and answers with a 404 inside the Layout, so the
+// route fails with one, which its Error shows in the Layout's Outlet.
 export function unmatched(): never {
-  throw notFound({ routeId: rootRouteId })
+  throw new RouteError(404, notFoundMessage)
+}
+
+// outside makes the params.parse of the route that tifa build adds for the rest of a URL below
+// the root Layout. The router matches a URL that no route below the root Layout starts with the
+// root route alone, without the root Layout, so this route takes such a URL and fails with a 404
+// inside the root Layout. It turns down every other URL, which the router then matches in part,
+// with the 404 inside the deepest Layout it matches. A prefix holds the segments of a path that a
+// URL may start with, null for a parameter, which takes any segment but an empty one.
+export function outside(prefixes: ReadonlyArray<ReadonlyArray<string | null>>) {
+  return (params: { _splat?: string }) => {
+    const parts = (params._splat ?? '').split('/')
+    const starts = prefixes.some(
+      (prefix) => prefix.length <= parts.length && prefix.every((segment, i) => (segment === null ? parts[i] !== '' : segment === parts[i])),
+    )
+    // The router leaves out a match whose parse returns false.
+    return starts ? (false as never) : {}
+  }
+}
+
+// missing makes the notFoundComponent of a Layout from the Error it shows: a URL that matches
+// nothing below the Layout reaches that Error as a RouteError with status 404. preload loads a
+// lazy Error with the route, so hydration does not wait for it.
+export function missing(Error: ComponentType<ErrorComponentProps> & { preload?: () => Promise<void> | undefined }) {
+  const error = new RouteError(404, notFoundMessage)
+  const NotFound = () => <Error error={error} reset={() => {}} />
+  NotFound.preload = Error.preload
+  return NotFound
 }
 
 // parseSearch reads the query the way c.Query does: every value is a string, and a key given
@@ -167,15 +196,15 @@ export function pick(search: object, keys: string[]): Record<string, unknown> {
   return picked
 }
 
-export function DefaultNotFound() {
-  return (
-    <main>
-      <h1>Page not found</h1>
-    </main>
-  )
-}
-
+// DefaultError is the Error of a route with no Error of its own or above it: the 404 page for a
+// RouteError with status 404, and an error page for anything else.
 export function DefaultError({ error }: ErrorComponentProps) {
+  if (error instanceof RouteError && error.status === 404)
+    return (
+      <main>
+        <h1>Page not found</h1>
+      </main>
+    )
   return (
     <main>
       <h1>Something went wrong</h1>

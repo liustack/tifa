@@ -9,6 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from 'cn'
 import { orderDate, orderTime, waited, yuan } from '../../../../format'
 import { photo } from '../../../../store/images'
+import { RouteError } from 'tifa/client'
 import { layout as project } from '../../route.gen'
 import { OrderStatus } from '../../order-status'
 import { page, type PageData } from './route.gen'
@@ -291,15 +292,18 @@ export const head = ({ loaderData }: { loaderData?: PageData }) => ({
   meta: loaderData ? [{ title: `${loaderData.order.id} · 山海工作台` }] : [],
 })
 
-export function NotFound() {
+export function Error({ error }: { error: unknown }) {
+  const missing = error instanceof RouteError && error.status === 404
   return (
     <Empty className="min-h-[50vh]">
       <EmptyHeader>
         <EmptyMedia variant="icon">
           <SearchX />
         </EmptyMedia>
-        <EmptyTitle>没有找到这个订单</EmptyTitle>
-        <EmptyDescription>订单号可能有误，或者它属于另一家店铺。</EmptyDescription>
+        <EmptyTitle>{missing ? '没有找到这个订单' : '订单没能打开'}</EmptyTitle>
+        <EmptyDescription>
+          {missing ? '订单号可能有误，或者它属于另一家店铺。' : error instanceof RouteError ? error.message : '请稍后再试。'}
+        </EmptyDescription>
       </EmptyHeader>
     </Empty>
   )

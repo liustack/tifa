@@ -13,6 +13,7 @@ import (
 var layouts = []server.Layout{
 	{
 		ID:   "app/docs/layout",
+		Path: "/docs",
 		Load: func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app_docs.Layout) },
 		SSR:  true,
 	},

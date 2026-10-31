@@ -47,6 +47,7 @@ import {
   SidebarTrigger,
 } from '@/components/ui/sidebar'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { RouteError } from 'tifa/client'
 import { layout, type LayoutData } from './route.gen'
 import './styles.css'
 
@@ -367,17 +368,20 @@ function Notifications({ projects }: { projects: Project[] }) {
   )
 }
 
-// NotFound shows inside this Layout when a project does not exist, and on its own for a URL
-// that matches no page, so it reads no loader data.
-export function NotFound() {
+// Error shows inside this Layout when a project does not exist or fails to load, and for a URL
+// that matches no page.
+export function Error({ error }: { error: unknown }) {
+  const missing = error instanceof RouteError && error.status === 404
   return (
     <Empty className="min-h-[60vh]">
       <EmptyHeader>
         <EmptyMedia variant="icon">
           <SearchX />
         </EmptyMedia>
-        <EmptyTitle>没有找到这个页面</EmptyTitle>
-        <EmptyDescription>地址可能有误，或者这家店铺已经不在了。</EmptyDescription>
+        <EmptyTitle>{missing ? '没有找到这个页面' : '页面出了点问题'}</EmptyTitle>
+        <EmptyDescription>
+          {missing ? '地址可能有误，或者这家店铺已经不在了。' : error instanceof RouteError ? error.message : '请稍后再试。'}
+        </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
         <Button variant="outline" asChild>

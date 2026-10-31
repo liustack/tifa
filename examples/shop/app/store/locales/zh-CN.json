@@ -479,6 +479,10 @@
     "body": "地址可能有误，或者这里的内容已经不在了。",
     "back": "返回首页"
   },
+  "failed": {
+    "title": "页面出了点问题",
+    "body": "请稍后再试。"
+  },
   "shell": {
     "announce": "全场满 {{amount, currency}} 包邮 · 收到后七天内可退换 · 2026 秋季目录第 4 期",
     "menuCount_other": "{{count}} 件",

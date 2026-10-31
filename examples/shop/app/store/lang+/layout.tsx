@@ -10,6 +10,7 @@ import { Sheet, SheetClose, SheetContent, SheetDescription, SheetFooter, SheetHe
 import { cn } from 'cn'
 import { i18nFor, LocaleContext, useStore } from '../i18n'
 import { catalogueNo, Price, ProductImage } from '../product-card'
+import { RouteError } from 'tifa/client'
 import { layout, type LayoutData } from './route.gen'
 
 // The language of every page of the store, from the locale the Go function checked. Without it,
@@ -416,18 +417,20 @@ function StoreFooter() {
   )
 }
 
-// NotFound shows inside this Layout when a product, a post or an order does not exist, or the
-// order is another visitor's, so it names none of them.
-export function NotFound() {
+// Error shows inside this Layout when a product, a post or an order does not exist, or the order
+// is another visitor's, so its 404 names none of them. It also shows for a URL of the store that
+// matches no page, in the language of the URL, and for a page that fails.
+export function Error({ error }: { error: unknown }) {
   const { t, locale } = useStore()
+  const shown = error instanceof RouteError && error.status === 404 ? 'notFound' : 'failed'
   return (
     <Empty className={cn('min-h-[50vh] border')}>
       <EmptyHeader>
         <EmptyMedia variant="icon">
           <SearchX />
         </EmptyMedia>
-        <EmptyTitle className="font-heading text-2xl font-medium">{t('notFound.title')}</EmptyTitle>
-        <EmptyDescription>{t('notFound.body')}</EmptyDescription>
+        <EmptyTitle className="font-heading text-2xl font-medium">{t(`${shown}.title`)}</EmptyTitle>
+        <EmptyDescription>{t(`${shown}.body`)}</EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
         <Button variant="outline" asChild>

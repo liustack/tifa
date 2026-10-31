@@ -30,6 +30,10 @@ type Layout struct {
 	// ID is the directory relative to the application root followed by "/layout", such as
 	// "app/projects/project+/layout".
 	ID string
+	// Path is the path of the directory in ServeMux syntax, such as "/projects/{project}", "/"
+	// for app/. A URL that matches no page shows its 404 inside the Layouts whose paths start it
+	// (see notFoundAt).
+	Path string
 	// Load returns the result of the Layout function through tifa.Use, nil when the Layout has none.
 	Load func(c *tifa.Ctx) (any, error)
 	// SSR is the Layout's own LayoutSSR constant.
@@ -66,10 +70,10 @@ func (s *Server) register(layouts []Layout, routes []Route) {
 		if _, dup := byID[l.ID]; dup {
 			panic(fmt.Sprintf("tifa: Layout %s registered twice", l.ID))
 		}
-		byID[l.ID] = l
-		if l.ID == rootLayout {
-			s.rootSSR = l.SSR
+		if l.Path == "" {
+			panic(fmt.Sprintf("tifa: Layout %s has no Path", l.ID))
 		}
+		byID[l.ID] = l
 	}
 	paths := map[string]string{}
 	for _, r := range routes {
@@ -78,13 +82,19 @@ func (s *Server) register(layouts []Layout, routes []Route) {
 		}
 		paths[r.Path] = r.ID
 		var chain []load
-		for _, id := range r.Layouts {
+		ssrOn := true
+		for i, id := range r.Layouts {
 			l, ok := byID[id]
 			if !ok {
 				panic(fmt.Sprintf("tifa: route %s names unknown Layout %s", r.ID, id))
 			}
 			if l.Load != nil {
 				chain = append(chain, load{id: l.ID, run: l.Load})
+			}
+			ssrOn = ssrOn && l.SSR
+			if _, ok := s.layouts[id]; !ok {
+				s.layouts[id] = layoutChain{chain: slices.Clone(chain), ssr: ssrOn}
+				s.modules[id] = slices.Clone(r.Layouts[:i+1])
 			}
 		}
 		if r.Load != nil {
@@ -108,6 +118,7 @@ func (s *Server) register(layouts []Layout, routes []Route) {
 			}
 		}
 	}
+	s.candidates = notFoundCandidates(layouts, routes)
 	// A route for the rest of the path, such as /files/{path...}, also answers /files with an
 	// empty parameter, unless a route has that Path. The browser router writes the URL with an
 	// empty rest that way, and ServeMux alone would redirect it to /files/, which the browser
@@ -122,9 +133,6 @@ func (s *Server) register(layouts []Layout, routes []Route) {
 		}
 	}
 }
-
-// rootLayout is the ID of the Layout in app/. Its LayoutSSR constant applies to unmatched URLs.
-const rootLayout = "app/layout"
 
 // load is one Load of a page's chain.
 type load struct {

@@ -119,8 +119,8 @@ func TestShopApp(t *testing.T) {
 	}
 	// The order page preloads the chunks of the project Layout and of its route right after the
 	// head of the build, so the browser fetches them alongside the entry script. The order route
-	// holds its NotFound. An unknown URL shows the root Layout, which is in the entry, and
-	// preloads nothing.
+	// holds its Error. An unknown URL shows its 404 inside the root Layout, which is in the entry,
+	// and preloads nothing.
 	after, ok := strings.CutPrefix(body[strings.Index(body, built.Head)+len(built.Head):], `<link rel="modulepreload" href="`)
 	preloads, _, _ := strings.Cut(after, "<!--tifa-head-->")
 	var chunks strings.Builder
@@ -155,8 +155,8 @@ func TestShopApp(t *testing.T) {
 	// The files the order page loads besides its own HTML: the head of the build and its preloads.
 	checkCompressed(t, base, dir, built.BuildID, body[strings.Index(body, built.Head):strings.Index(body, "<!--tifa-head-->")])
 
-	// 404 at each level: the order inside the project Layout, the project inside the root Layout,
-	// an unknown URL on its own. Each one keeps a title, the last from the root Layout's documentHead.
+	// 404 at each level: the order inside the project Layout, the project and an unknown URL
+	// inside the root Layout. Each one keeps a title, the last from the root Layout's documentHead.
 	for _, tc := range []struct {
 		path, want  string
 		withSidebar bool
@@ -164,7 +164,7 @@ func TestShopApp(t *testing.T) {
 		{"/projects/studio/orders/WK-0201", ">没有找到这个订单</div>", true},
 		{"/projects/nope", "没有找到这个页面", true},
 		{"/projects/nope/stats", "没有找到这个页面", true},
-		{"/nowhere", "没有找到这个页面", false},
+		{"/nowhere", "没有找到这个页面", true},
 	} {
 		status, _, body := get(t, base+tc.path)
 		// The project Layout shows the project name in its heading.
@@ -301,6 +301,8 @@ func checkStorefront(t *testing.T, base, buildID string) {
 		{"/store/zh-CN/products/nope", 404, "zh-CN", "没有找到这个页面"},
 		{"/store/en-US/journal/nope", 404, "en-US", "We could not find this page"},
 		{"/store/en-US/nope/deeper", 404, "en-US", "We could not find this page"},
+		{"/store/en-US/nope", 404, "en-US", "We could not find this page"},
+		{"/store/zh-CN/journal/x/y", 404, "zh-CN", "没有找到这个页面"},
 	} {
 		status, _, page := get(t, base+tc.path)
 		if start := `<!DOCTYPE html><html lang="` + tc.lang + `"><head>`; status != tc.status || !strings.HasPrefix(page, start) || !strings.Contains(rendered(page), tc.text) {

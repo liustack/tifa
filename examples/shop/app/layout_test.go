@@ -22,6 +22,7 @@ func TestLayoutKeepsTheSidebarAsTheUserLeftIt(t *testing.T) {
 		{"theme=dark", true},
 	} {
 		r := httptest.NewRequest("GET", "/projects/studio", nil)
+		r.Pattern = "/projects/{project}"
 		if tc.cookie != "" {
 			r.Header.Set("Cookie", tc.cookie)
 		}
@@ -54,9 +55,15 @@ func TestLayoutLeavesTheWorkbenchOutOfTheStorefront(t *testing.T) {
 			t.Errorf("%s: %+v", pattern, shell)
 		}
 	}
-	r := httptest.NewRequest("GET", "/projects/studio", nil)
-	r.Pattern = "/projects/{project}"
+	// A URL that matches no page has no pattern, and may show its 404 in the storefront.
+	r := httptest.NewRequest("GET", "/store/en-US/nope", nil)
 	c, _ := tifatest.NewCtx(t, r)
+	if shell, err := tifa.Use(c, Layout); err != nil || shell.Viewer != (Viewer{}) || shell.Projects != nil {
+		t.Errorf("unmatched store URL: %+v %v", shell, err)
+	}
+	r = httptest.NewRequest("GET", "/projects/studio", nil)
+	r.Pattern = "/projects/{project}"
+	c, _ = tifatest.NewCtx(t, r)
 	if shell, err := tifa.Use(c, Layout); err != nil || shell.Viewer.Name == "" || len(shell.Projects) != 2 {
 		t.Errorf("workbench: %+v %v", shell, err)
 	}
