@@ -536,6 +536,20 @@ pnpm dlx shadcn@latest add button card
 
 `init` 安装组件要用的包（`radix-ui`、`class-variance-authority`、`lucide-react` 等），写好 `components.json`、`lib/utils.ts`，并把主题写进引入 Tailwind 的样式表。`add button` 把 `components/ui/button.tsx` 写到应用根目录下，页面代码从 `@/components/ui/button` 引入。两者在第一次构建前就能用。
 
+接着把 `components.json` 的 aliases 指到 `components/` 里，这样应用根目录只剩 `hooks.go`、`app/` 和 `components/`，放 React hook 的文件夹也不会被当成 `hooks.go`：
+
+```json
+"aliases": {
+  "components": "@/components",
+  "ui": "@/components/ui",
+  "hooks": "@/components/hooks",
+  "lib": "@/components/lib",
+  "utils": "@/components/lib/utils"
+}
+```
+
+`add` 按这些 alias 放文件、改写导入：`add sidebar` 会写出 `components/hooks/use-mobile.ts`。`lib/utils.ts` 只是从 `cn` 包转出 `cn` 时（shadcn 4 就是这样），删掉它，页面代码也和组件一样从 `cn` 引入 `cn`。不是的话，把它挪到 `components/lib/utils.ts`。
+
 `@/` 指向应用根目录，由应用 tsconfig 里的 `paths` 设定（见 [build.zh-CN.md](build.zh-CN.md#应用的-tsconfig-与-vite-配置)）。这些组件和其他 React 代码一样在服务端渲染。
 
 ## hooks.go
