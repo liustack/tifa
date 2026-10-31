@@ -1,8 +1,11 @@
 package server
 
 import (
+	"bytes"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -171,5 +174,25 @@ func TestCrossSiteCheckIsOnWithDefaultSettings(t *testing.T) {
 	s.ServeHTTP(w, r)
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("%d", w.Code)
+	}
+}
+
+// Each refusal is one line of the log, with what the check read. The path is quoted, so a path
+// with a newline or a control character in it cannot write a line of its own into the log.
+func TestCrossSiteRefusalIsOneLogLine(t *testing.T) {
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+	var seen atomic.Int32
+	s := crossSiteApp(&seen, nil)
+	crossSiteRequest(s, "POST", "/w%0AFAKE%1b%5b2J?token=secret", `{}`, map[string]string{"Sec-Fetch-Site": "cross-site", "Origin": "https://evil.test"})
+	got := buf.String()
+	if strings.Count(got, "\n") != 1 || strings.ContainsRune(got, 0x1b) || strings.Contains(got, "secret") {
+		t.Fatalf("log %q", got)
+	}
+	for _, want := range []string{`refused POST "/w\nFAKE\x1b[2J"`, `Origin "https://evil.test"`, `Sec-Fetch-Site "cross-site"`, `Host "shop.example"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("log %q lacks %s", got, want)
+		}
 	}
 }

@@ -36,7 +36,7 @@ func crossSiteProtection(cfg config.Server) *http.CrossOriginProtection {
 func (s *Server) refuseCrossSite(w http.ResponseWriter, r *http.Request, reason error) {
 	// A line for each refusal, with the headers the check read, tells a proxy that rewrites Host
 	// from a real attack.
-	log.Printf("tifa: refused %s %s: %v (Origin %q, Sec-Fetch-Site %q, Host %q)", r.Method, r.URL.Path, reason,
+	log.Printf("tifa: refused %s %q: %v (Origin %q, Sec-Fetch-Site %q, Host %q)", r.Method, r.URL.Path, reason,
 		r.Header.Get("Origin"), r.Header.Get("Sec-Fetch-Site"), r.Host)
 	tw := &writer{ResponseWriter: w, plain: !s.cfg.Compress}
 	c := core.New(tw, r, "", s.cfg.BodyLimit)
