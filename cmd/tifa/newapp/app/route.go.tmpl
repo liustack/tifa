@@ -15,7 +15,7 @@ func Load(c *tifa.Ctx) ([]todos.Todo, error) {
 	return todos.ListTodos(c.Context())
 }
 
-// AddInput is the body of POST. The page sends it as JSON through the POST function of ./+route.
+// AddInput is the body of POST. The page sends it as JSON through the POST function of ./route.gen.
 type AddInput struct {
 	Title string `json:"title"`
 }

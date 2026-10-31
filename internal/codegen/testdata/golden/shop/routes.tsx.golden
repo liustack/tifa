@@ -3,17 +3,17 @@ import { createRootRouteWithContext, createRoute, lazyRouteComponent } from "@ta
 import { createAppRouter, DefaultError, load, pick, unmatched, type RouterContext } from "./runtime/router"
 import { routeHead } from "./runtime/head"
 import * as m1 from "../app/layout"
-import type { Data as D1 } from "./app/+layout"
+import type { LayoutData as D1 } from "./app/route.gen"
 const m2 = () => import("../app/auth/layout")
 const m3 = () => import("../app/projects/projectId+/layout")
-import type { Data as D3 } from "./app/projects/projectId+/+layout"
-import * as m4 from "../app/route"
-const m5 = () => import("../app/auth/login/route")
-const m6 = () => import("../app/auth/register/route")
-const m7 = () => import("../app/projects/projectId+/route")
-import type { Data as D7 } from "./app/projects/projectId+/+route"
-const m8 = () => import("../app/projects/projectId+/orders/orderId+/route")
-import type { Data as D8 } from "./app/projects/projectId+/orders/orderId+/+route"
+import type { LayoutData as D3 } from "./app/projects/projectId+/route.gen"
+import * as m4 from "../app/page"
+const m5 = () => import("../app/auth/login/page")
+const m6 = () => import("../app/auth/register/page")
+const m7 = () => import("../app/projects/projectId+/page")
+import type { PageData as D7 } from "./app/projects/projectId+/route.gen"
+const m8 = () => import("../app/projects/projectId+/orders/orderId+/page")
+import type { PageData as D8 } from "./app/projects/projectId+/orders/orderId+/route.gen"
 
 const e3 = lazyRouteComponent(m3, "Error")
 

@@ -47,7 +47,7 @@ import {
   SidebarTrigger,
 } from '@/components/ui/sidebar'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { route, type Data } from './+layout'
+import { layout, type LayoutData } from './route.gen'
 import './styles.css'
 
 export const htmlAttributes = { lang: 'zh-CN' }
@@ -61,7 +61,7 @@ export const documentHead = {
   links: [{ rel: 'icon', href: 'data:,' }],
 }
 
-type Project = NonNullable<Data['projects']>[number]
+type Project = NonNullable<LayoutData['projects']>[number]
 
 // where reads the shop, the page and the order a workbench URL is at.
 function where(pathname: string) {
@@ -71,7 +71,7 @@ function where(pathname: string) {
 }
 
 export default function AppLayout() {
-  const shell = route.useLoaderData()
+  const shell = layout.useLoaderData()
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const loading = useRouterState({ select: (state) => state.isLoading })
 

@@ -6,17 +6,17 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from '@/lib/utils'
 import { orderTime, percent, yuan } from '../../../format'
 import { photo } from '../../../store/images'
-import { route as projectRoute } from '../+layout'
+import { layout as projectRoute } from '../route.gen'
 import { OrderStatus } from '../order-status'
 import { Spark } from '../summary-card'
-import { route } from './+route'
+import { page } from './route.gen'
 
 const title = 'font-heading text-lg font-medium tracking-[0.04em]'
 const head = 'text-xs font-normal text-muted-foreground'
 
 // ProductTable lists every product the shop sold, with how its pieces went day by day.
 export function ProductTable() {
-  const { products } = route.useLoaderData()
+  const { products } = page.useLoaderData()
   const list = products ?? []
   const revenue = list.reduce((n, p) => n + p.revenueCents, 0)
   return (
@@ -76,7 +76,7 @@ const weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '�
 
 // Heatmap shows when orders are placed: the day of the week against two-hour blocks.
 export function Heatmap() {
-  const { heat } = route.useLoaderData()
+  const { heat } = page.useLoaderData()
   const rows = (heat ?? []).map((r) => r ?? [])
   const peak = Math.max(1, ...rows.flat())
   return (
@@ -127,7 +127,7 @@ export function Heatmap() {
 
 // Carriers is how each carrier did for the shop.
 export function Carriers() {
-  const { carriers } = route.useLoaderData()
+  const { carriers } = page.useLoaderData()
   const list = carriers ?? []
   const all = list.reduce((n, c) => n + c.orders, 0)
   return (
@@ -170,7 +170,7 @@ export function Carriers() {
 
 // Dispatch is how long the shop took to hand an order to the carrier.
 export function Dispatch() {
-  const { dispatch, totals } = route.useLoaderData()
+  const { dispatch, totals } = page.useLoaderData()
   const list = dispatch ?? []
   const all = list.reduce((n, b) => n + b.orders, 0)
   return (
@@ -200,7 +200,7 @@ export function Dispatch() {
 
 // Customers are the ones who spent the most.
 export function Customers() {
-  const { customers, totals } = route.useLoaderData()
+  const { customers, totals } = page.useLoaderData()
   return (
     <Card>
       <CardHeader>
@@ -233,7 +233,7 @@ export function Customers() {
 
 // Recent are the newest orders, with the ones waiting to ship first among them.
 export function Recent() {
-  const { recent } = route.useLoaderData()
+  const { recent } = page.useLoaderData()
   const { timeZone } = projectRoute.useLoaderData()
   return (
     <Card>

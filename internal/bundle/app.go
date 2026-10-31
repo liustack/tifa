@@ -55,7 +55,7 @@ const clientEntry = ".tifa/client.ts"
 //	dist/build.json  with the content hash of each public file, see Build.Public
 //
 // Vite builds the two bundles with the application's vite.config.ts, which uses the tifa plugin
-// (js/vite/plugin.js), on Node through n. pages is false for an application without route.tsx,
+// (js/vite/plugin.js), on Node through n. pages is false for an application without page.tsx,
 // which gets no bundles and needs no Node. The generated entries must exist under .tifa. The same
 // input gives the same files and ID.
 func App(n *Node, root, public string, pages bool) (string, error) {
@@ -166,10 +166,10 @@ func staticImports(manifest map[string]manifestEntry, key string, seen map[strin
 	}
 }
 
-// routePreloads lists, for each layout.tsx and route.tsx under app/ that is a chunk of its own,
+// routePreloads lists, for each layout.tsx and page.tsx under app/ that is a chunk of its own,
 // the URLs of the chunk and of the chunks it imports statically, in the order headTags writes
-// them, without the entry and what it imports. The key is the ID of the Layout or route, the
-// path without .tsx. A module the entry imports, such as the root Layout, gets nothing, and
+// them, without the entry and what it imports. The key is the ID of the Layout or route: the
+// path without .tsx for a Layout, and the directory followed by /route for a page. A module the entry imports, such as the root Layout, gets nothing, and
 // neither do the modules a chunk imports with import(), which load when their code runs.
 func routePreloads(manifest map[string]manifestEntry) map[string][]string {
 	inHead := map[string]bool{}
@@ -177,7 +177,7 @@ func routePreloads(manifest map[string]manifestEntry) map[string][]string {
 	preload := map[string][]string{}
 	for key := range manifest {
 		name := path.Base(key)
-		if !strings.HasPrefix(key, "app/") || (name != "route.tsx" && name != "layout.tsx") || inHead[key] {
+		if !strings.HasPrefix(key, "app/") || (name != "page.tsx" && name != "layout.tsx") || inHead[key] {
 			continue
 		}
 		seen := maps.Clone(inHead)
@@ -188,7 +188,7 @@ func routePreloads(manifest map[string]manifestEntry) map[string][]string {
 			}
 		})
 		if len(files) > 0 {
-			preload[strings.TrimSuffix(key, ".tsx")] = files
+			preload[routeID(key)] = files
 		}
 	}
 	return preload
@@ -330,4 +330,12 @@ func distID(dist, skip string) (string, error) {
 		hash.Write(data)
 	}
 	return hex.EncodeToString(hash.Sum(nil))[:16], nil
+}
+
+// routeID turns the manifest key of a page.tsx or layout.tsx into the ID of its route or Layout.
+func routeID(key string) string {
+	if dir, ok := strings.CutSuffix(key, "/page.tsx"); ok {
+		return dir + "/route"
+	}
+	return strings.TrimSuffix(key, ".tsx")
 }

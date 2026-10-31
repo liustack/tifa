@@ -30,9 +30,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from 'cn'
 import { photo } from '../../images'
 import { useFormats, usePermissions, useToasts } from './providers'
-import { route, type Data } from './+route'
+import { page, type PageData } from './route.gen'
 
-type Row = NonNullable<Data['orders']>[number]
+type Row = NonNullable<PageData['orders']>[number]
 
 const statusText: Record<string, string> = {
   pending: '待付款',
@@ -228,7 +228,7 @@ const tabs = ['all', 'paid', 'shipped', 'refunding'] as const
 const tabText = { all: '全部', paid: '待发货', shipped: '已发货', refunding: '退款中' }
 
 export function Orders() {
-  const data = route.useLoaderData()
+  const data = page.useLoaderData()
   const all = data.orders ?? []
   const [tab, setTab] = useState<(typeof tabs)[number]>('all')
   return (

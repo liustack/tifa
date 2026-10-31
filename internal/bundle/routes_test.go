@@ -39,18 +39,18 @@ func routeApp(t *testing.T) string {
 			"  lazy.preload = () => load().then((m) => { component = m[name] })\n" +
 			"  return lazy\n}\n",
 		"app/layout.tsx": "export default function Layout() { return 'LAYOUT-COMPONENT' }\n",
-		"app/page/route.tsx": "import './page.css'\n" +
+		"app/page/page.tsx": "import './page.css'\n" +
 			"(globalThis as any).pageRan = true\n" +
 			"const site = 'PAGE-SITE'\n" +
 			"export default function Page() { return 'PAGE-COMPONENT ' + site }\n" +
 			"export const head = () => ({ meta: [{ title: 'PAGE-HEAD ' + site }] })\n" +
 			"export function Error() { return 'PAGE-ERROR' }\n" +
 			"export function NotFound() { return 'PAGE-NOT-FOUND' }\n",
-		"app/other/route.tsx": "export default function Other() { return 'OTHER-COMPONENT' }\n",
+		"app/other/page.tsx": "export default function Other() { return 'OTHER-COMPONENT' }\n",
 		".tifa/routes.tsx": "import { lazyRouteComponent } from '@tanstack/react-router'\n" +
 			"import * as m1 from '../app/layout'\n" +
-			"import * as m2 from '../app/page/route'\n" +
-			"const m3 = () => import('../app/other/route')\n" +
+			"import * as m2 from '../app/page/page'\n" +
+			"const m3 = () => import('../app/other/page')\n" +
 			"export const parts = { layout: m1.default, page: m2.default, head: m2.head, error: m2.Error, " +
 			"notFound: m2.NotFound, other: lazyRouteComponent(m3) }\n",
 		".tifa/client.ts": "import { parts } from './routes'\n(globalThis as any).parts = parts\n",
@@ -186,7 +186,7 @@ func TestBrowserLoadsRouteModulesWhenTheirRoutesNeedThem(t *testing.T) {
 func TestAppWarnsOfRouteModulesInTheEntryScript(t *testing.T) {
 	root := routeApp(t)
 	writeTree(t, root, map[string]string{
-		"app/layout.tsx": "import Page from './page/route'\n" +
+		"app/layout.tsx": "import Page from './page/page'\n" +
 			"export default function Layout() { return 'LAYOUT-COMPONENT ' + Page() }\n",
 	})
 	var output strings.Builder
@@ -201,7 +201,7 @@ func TestAppWarnsOfRouteModulesInTheEntryScript(t *testing.T) {
 	if !strings.Contains(head, "PAGE-COMPONENT") {
 		t.Fatal("the entry script lacks the module the root Layout imports")
 	}
-	if !strings.Contains(output.String(), "app/page/route.tsx is dynamically imported by") ||
+	if !strings.Contains(output.String(), "app/page/page.tsx is dynamically imported by") ||
 		!strings.Contains(output.String(), "statically imported by app/layout.tsx") {
 		t.Errorf("the build gives no warning that names the module and its importer:\n%s", output.String())
 	}

@@ -37,7 +37,7 @@ tifa dev watches the app root and skips `.git`, `.tifa`, `node_modules`, and `bi
 | `.env` or `.env.*` in the app root | bundle | Reload, as Vite restarts its dev server |
 | `.go`, `go.mod`, `go.sum` | static analysis, go build | Reload |
 | As above, and the route manifest changed (routes, the result types of Load and Layout, the input and result types of handlers, hooks, etc.) | static analysis, code generation, bundle, go build | Reload |
-| A `route.tsx` or `layout.tsx` added or removed, or `tifa.yaml` or `tifa.json` changed | all steps | Reload |
+| A `page.tsx` or `layout.tsx` added or removed, or `tifa.yaml` or `tifa.json` changed | all steps | Reload |
 
 - A front end change reaches open pages through Vite: React Fast Refresh swaps the edited components and keeps their state, and new CSS replaces the old. Vite reloads the page itself when a module cannot be swapped, such as one that exports more than components. A change to `vite.config.ts` restarts Vite's dev server, and one to `tsconfig.json` reloads the page. Vite's dev server may keep importing the old target of a changed `paths` entry until tifa dev restarts.
 - At the same time tifa dev rebuilds the SSR bundle, without go build, and the running app loads it from `.tifa/dist` in place of the old one. The app does not restart: `OnStart` does not run again, and what the app keeps in memory stays. A page request that arrives during a rebuild that makes a new SSR bundle waits for it, up to 30 seconds, so a reload shows the new server render. An SSR bundle that builds while Vite's dev server restarts waits for the restart, and builds again on the new server if the restart made it fail. This holds from the start of the rebuild, also when it redoes a bundle that a failed rebuild left undone, or for a Go change, from the moment static analysis finds a new route manifest, before code generation.
@@ -56,7 +56,7 @@ tifa dev watches the app root and skips `.git`, `.tifa`, `node_modules`, and `bi
 Each step that runs prints one line with its duration. The last line is the total time from the start of the rebuild until the app is ready:
 
 ```text
-tifa dev: 07:35:36 app/home/route.tsx modified
+tifa dev: 07:35:36 app/home/page.tsx modified
 tifa dev: 07:35:36 bundle done in 90ms
 tifa dev: 07:35:36 ready in 260ms
 ```

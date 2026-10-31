@@ -1,9 +1,9 @@
 import { Outlet } from '@tanstack/react-router'
-import { route } from './+layout'
+import { layout } from './route.gen'
 
 export default function ShopLayout() {
-  const shop = route.useLoaderData()
-  const { shop: shopId } = route.useParams()
+  const shop = layout.useLoaderData()
+  const { shop: shopId } = layout.useParams()
   return (
     <section data-shop={shopId}>
       <h1>{shop.name}</h1>

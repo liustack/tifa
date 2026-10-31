@@ -101,7 +101,7 @@ func TestRegisterServesInterfaceRoutes(t *testing.T) {
 	}
 }
 
-// A route without route.tsx and without method handlers still owns its Path: OnRequest sees the pattern and
+// A route without page.tsx and without method handlers still owns its Path: OnRequest sees the pattern and
 // every method is answered 405.
 func TestRegisterRouteWithoutHandlers(t *testing.T) {
 	var pattern string

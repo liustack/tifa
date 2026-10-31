@@ -25,7 +25,7 @@ import SettingsIcon from '@mui/icons-material/Settings'
 import NotificationsIcon from '@mui/icons-material/Notifications'
 import SearchIcon from '@mui/icons-material/Search'
 import BarChartIcon from '@mui/icons-material/BarChart'
-import { route } from './+layout'
+import { layout } from './route.gen'
 import { theme } from './theme'
 
 export const htmlAttributes = { lang: 'en' }
@@ -35,7 +35,7 @@ export const documentHead = { meta: [{ title: 'Northwind admin' }] }
 const width = 240
 
 export default function Root() {
-  const shell = route.useLoaderData()
+  const shell = layout.useLoaderData()
   const path = useRouterState({ select: (s) => s.location.pathname })
   const nav = [
     { to: '/', label: 'Dashboard', icon: <DashboardIcon /> },

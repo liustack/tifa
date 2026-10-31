@@ -24,19 +24,19 @@ myapp/
   db.go                     var DB，在 OnStart 里打开，在 OnShutdown 里关闭
   schema.sql                所有领域的表
   app/
-    layout.go  layout.tsx  route.go
+    route.go  layout.tsx
     projects/
       project.go            Project、GetProject、ListProjects
       project_test.go
-      route.go  route.tsx   店铺列表（如果有）
+      route.go  page.tsx    店铺列表（如果有）
       project+/
-        layout.go  layout.tsx  route.go  route.tsx
+        route.go  layout.tsx  page.tsx
         orders/
           order.go          Order、ListOrders、GetOrder、ShipOrder 和它们的查询
           order_test.go
-          route.go  route.tsx
+          route.go  page.tsx
           order+/
-            route.go  route.tsx
+            route.go  page.tsx
 ```
 
 - **代码放哪。** 领域在自己的目录里有一个以它命名的文件：`app/projects/project.go` 写作 `package projects`。一个领域既有列表页又有单条详情页时，代码放在列表那一层（`orders/`），不放进单条的目录（`order+/`）。列表那层不一定要有页面：[examples/shop](../examples/shop/README.zh-CN.md) 的订单列表显示在店铺页上，`orders/` 里只有领域代码。

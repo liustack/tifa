@@ -13,7 +13,7 @@ export const devBase = '/__tifa/vite/'
 
 const clientOnlyStub = '\0tifa-client-only'
 const propertyState = '\0tifa-core-js-property-state'
-const routeModule = /^\.\.?\/(?:.*\/)?\+(?:route|layout)(?:\.js|\.ts)?$/
+const routeModule = /^\.\.?\/(?:.*\/)?route\.gen(?:\.js|\.ts)?$/
 const clientSource = /\.client(?:\.[jt]sx?)?$/
 const reactServerEntry = /[/\\]react-dom[/\\]server\.edge\.js$/
 const reactStringRenderer = /[/\\]react-dom[/\\]cjs[/\\]react-dom-server-legacy\.browser\.production\.js$/
@@ -1011,7 +1011,7 @@ export function lazyRouteModule(router, module) {
   )
 }
 
-// generated resolves ./+route and ./+layout, the imports that lead to what tifa generates. Other
+// generated resolves ./route.gen, the imports that lead to what tifa generates. Other
 // imports, @/ and tifa/client among them, resolve by the paths of the application's
 // tsconfig.json, as they do for TypeScript.
 export function generated() {
@@ -1081,10 +1081,10 @@ export function ssrEnvironment(entry, dir, sourcemap = 'hidden') {
   }
 }
 
-// resolveRouteModule resolves ./+route and ./+layout the way the generated tsconfig lets
-// TypeScript see them: rootDirs merges the application root and .tifa, so a relative import whose
-// last element is +route or +layout, with or without .js or .ts, and which points into app/<dir>
-// is .tifa/app/<dir>/+route.ts or +layout.ts, whatever the path in between.
+// resolveRouteModule resolves ./route.gen the way the generated tsconfig lets TypeScript see it:
+// rootDirs merges the application root and .tifa, so a relative import whose last element is
+// route.gen, with or without .js or .ts, and which points into app/<dir> is
+// .tifa/app/<dir>/route.gen.ts, whatever the path in between.
 function resolveRouteModule(ctx, root, source, importer) {
   const app = path.join(root, 'app')
   const gen = path.join(root, '.tifa')
@@ -1099,8 +1099,8 @@ function resolveRouteModule(ctx, root, source, importer) {
   const module = path.join(gen, rel + '.ts')
   if (!fs.existsSync(module)) {
     ctx.error(
-      `${source}: ${path.dirname(rel).split(path.sep).join('/')} has no generated ${path.basename(rel)} module: ` +
-        '+route exists for a page, +layout for a Layout with pages',
+      `${source}: ${path.dirname(rel).split(path.sep).join('/')} has no generated route.gen module: ` +
+        'it is made for a directory with page.tsx, layout.tsx or a Layout, or a method handler in route.go',
     )
   }
   return module

@@ -7,7 +7,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from 'cn'
 import { Section, useFormats, useSection, type Formats } from './providers'
-import { route, type Data } from './+route'
+import { page, type PageData } from './route.gen'
 
 const colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)']
 
@@ -16,7 +16,7 @@ function value(f: Formats, kind: string, v: number) {
 }
 
 export function Kpis() {
-  const data = route.useLoaderData()
+  const data = page.useLoaderData()
   const f = useFormats()
   return (
     <section aria-label="今日指标" className="grid grid-cols-2 border-t border-l md:grid-cols-4">
@@ -98,7 +98,7 @@ const H = 200
 const M = { top: 8, right: 8, bottom: 22, left: 52 }
 
 export function Charts() {
-  const data = route.useLoaderData()
+  const data = page.useLoaderData()
   return (
     <section aria-label="经营图表" className="grid gap-4 lg:grid-cols-3">
       <ChartCard title="近 90 天销售额" description="按天，含退款">
@@ -138,7 +138,7 @@ function YAxis({ y, format }: { y: ReturnType<typeof scaleLinear<number, number>
   )
 }
 
-function Revenue({ days }: { days: Data['days'] }) {
+function Revenue({ days }: { days: PageData['days'] }) {
   const f = useFormats()
   const list = days ?? []
   const x = scaleLinear().domain([0, list.length - 1]).range([M.left, W - M.right])
@@ -166,7 +166,7 @@ function Revenue({ days }: { days: Data['days'] }) {
   )
 }
 
-function Orders({ days }: { days: NonNullable<Data['days']> }) {
+function Orders({ days }: { days: NonNullable<PageData['days']> }) {
   const f = useFormats()
   const band = scaleBand<number>()
     .domain(days.map((_, i) => i))
@@ -191,7 +191,7 @@ function Orders({ days }: { days: NonNullable<Data['days']> }) {
   )
 }
 
-function Channels({ series }: { series: NonNullable<Data['channels']> }) {
+function Channels({ series }: { series: NonNullable<PageData['channels']> }) {
   const n = series[0]?.values?.length ?? 0
   const rows = Array.from({ length: n }, (_, i) => Object.fromEntries(series.map((s) => [s.name, s.values?.[i] ?? 0])))
   const layers = stack<Record<string, number>>().keys(series.map((s) => s.name))(rows)
@@ -222,7 +222,7 @@ function Channels({ series }: { series: NonNullable<Data['channels']> }) {
   )
 }
 
-function Funnel({ stages }: { stages: NonNullable<Data['funnel']> }) {
+function Funnel({ stages }: { stages: NonNullable<PageData['funnel']> }) {
   const f = useFormats()
   const top = stages[0]?.value ?? 1
   return (
@@ -243,7 +243,7 @@ function Funnel({ stages }: { stages: NonNullable<Data['funnel']> }) {
   )
 }
 
-function Donut({ shares }: { shares: NonNullable<Data['categories']> }) {
+function Donut({ shares }: { shares: NonNullable<PageData['categories']> }) {
   const slices = pie<(typeof shares)[number]>().value((s) => s.value)(shares)
   const shape = arc<(typeof slices)[number]>().innerRadius(48).outerRadius(80)
   return (

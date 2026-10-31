@@ -1,8 +1,8 @@
 import { Outlet } from '@tanstack/react-router'
-import { route } from './+layout'
+import { layout } from './route.gen'
 
 export default function ProjectLayout() {
-  const project = route.useLoaderData()
+  const project = layout.useLoaderData()
   return (
     <section>
       <h1>{project.name}</h1>

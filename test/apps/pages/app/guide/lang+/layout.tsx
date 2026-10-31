@@ -1,14 +1,14 @@
 import { Link, Outlet } from '@tanstack/react-router'
-import { route, type Data } from './+layout'
+import { layout, type LayoutData } from './route.gen'
 
 // The language of every page of the guide. A failed Layout has no data and keeps the root's.
-export const head = ({ loaderData }: { loaderData?: Data }) => ({
+export const head = ({ loaderData }: { loaderData?: LayoutData }) => ({
   htmlAttributes: { lang: loaderData?.lang, dir: 'ltr' },
   meta: loaderData ? [{ title: loaderData.title }] : [],
 })
 
 export default function GuideLayout() {
-  const guide = route.useLoaderData()
+  const guide = layout.useLoaderData()
   return (
     <section>
       <h1>{guide.title}</h1>
@@ -30,6 +30,6 @@ export default function GuideLayout() {
 }
 
 export function NotFound() {
-  const guide = route.useLoaderData()
+  const guide = layout.useLoaderData()
   return <p>{guide.notFound}</p>
 }

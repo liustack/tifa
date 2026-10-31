@@ -249,40 +249,40 @@ func TestDev(t *testing.T) {
 	expectBody(t, d.base+"/", `<script type="module" src="/__tifa/vite/.tifa/client.ts"></script>`)
 	hmr := dialHMR(t, d.base)
 	// Vite updates the modules a page loaded. Load them the way the page does.
-	for _, module := range []string{".tifa/client.ts", ".tifa/routes.tsx", "app/route.tsx"} {
+	for _, module := range []string{".tifa/client.ts", ".tifa/routes.tsx", "app/page.tsx"} {
 		expectBody(t, d.base+"/__tifa/vite/"+module, "import")
 	}
 
 	// TSX only: Vite updates the open pages in place, so the version stays and they do not
 	// reload. tifa rebuilds the SSR bundle and restarts the app, without go build.
-	mark := d.edit(t, "app/route.tsx", "North shop", "North store")
-	hmr.waitUpdate(t, "/app/route.tsx")
+	mark := d.edit(t, "app/page.tsx", "North shop", "North store")
+	hmr.waitUpdate(t, "/app/page.tsx")
 	expectSteps(t, "TSX edit", d.waitLog(t, mark, ready), "bundle")
 	r2 := d.waitStatus(t, func(st devStatus) bool { return st.Version == v1 && st.Error == "" }).Render
 	expectBody(t, d.base+"/", "North store")
-	expectBody(t, d.base+"/__tifa/vite/app/route.tsx", "North store")
+	expectBody(t, d.base+"/__tifa/vite/app/page.tsx", "North store")
 	v2 := v1
 
 	// A component that throws while the page renders on the server: the page shows the error
 	// with its place in the source and loads the dev client. The fix keeps the version and
 	// changes the count of builds served, which makes that page reload.
 	broken := "export default function Home() {\n  if (typeof window === 'undefined') throw new Error('home is broken')\n"
-	mark = d.edit(t, "app/route.tsx", "export default function Home() {\n", broken)
+	mark = d.edit(t, "app/page.tsx", "export default function Home() {\n", broken)
 	d.waitLog(t, mark, ready)
 	before := d.waitStatus(t, func(st devStatus) bool { return st.Version == v2 && st.Render > r2 && st.Error == "" }).Render
 	status, _, body := get(t, d.base+"/")
-	for _, want := range []string{"home is broken", "app/route.tsx", "GET / failed while rendering on the server.", `<script src="/__tifa/dev/client.js"></script>`} {
+	for _, want := range []string{"home is broken", "app/page.tsx", "GET / failed while rendering on the server.", `<script src="/__tifa/dev/client.js"></script>`} {
 		if status != 500 || !strings.Contains(body, want) {
 			t.Fatalf("a throwing component: %d, want 500 with %q:\n%.2000s", status, want, body)
 		}
 	}
-	mark = d.edit(t, "app/route.tsx", broken, "export default function Home() {\n")
+	mark = d.edit(t, "app/page.tsx", broken, "export default function Home() {\n")
 	d.waitLog(t, mark, ready)
 	d.waitStatus(t, func(st devStatus) bool { return st.Version == v2 && st.Render > before && st.Error == "" })
 	expectBody(t, d.base+"/", "North store")
 
 	// A Go function body: analysis finds the same routes, go build without a bundle.
-	mark = d.edit(t, "app/shops/shop+/layout.go", `"Shop " + id`, `"Store " + id`)
+	mark = d.edit(t, "app/shops/shop+/route.go", `"Shop " + id`, `"Store " + id`)
 	out = d.waitLog(t, mark, ready)
 	expectSteps(t, "Go body edit", out, "static analysis", "go build")
 	if !strings.Contains(out, "route manifest unchanged") {
@@ -304,16 +304,16 @@ func TestDev(t *testing.T) {
 	}
 
 	// A broken build keeps the running app and reports the error over SSE.
-	mark = d.edit(t, "app/shops/shop+/layout.go", `return Shop{ID: id, Name: "Store " + id}, nil`, `return Shop{ID: id, Name: "Store " + id}, nil +`)
+	mark = d.edit(t, "app/shops/shop+/route.go", `return Shop{ID: id, Name: "Store " + id}, nil`, `return Shop{ID: id, Name: "Store " + id}, nil +`)
 	d.waitLog(t, mark, buildFailed)
 	failed := d.waitStatus(t, func(st devStatus) bool { return st.Error != "" })
-	if failed.Version != v4 || failed.Title != "Build failed" || !strings.Contains(failed.Error, "layout.go") {
+	if failed.Version != v4 || failed.Title != "Build failed" || !strings.Contains(failed.Error, "route.go") {
 		t.Fatalf("status %+v", failed)
 	}
 	expectBody(t, d.base+"/shops/north", "Store north")
 
 	// The fix clears the error and brings a new version.
-	mark = d.edit(t, "app/shops/shop+/layout.go", `return Shop{ID: id, Name: "Store " + id}, nil +`, `return Shop{ID: id, Name: "Shop " + id + "!"}, nil`)
+	mark = d.edit(t, "app/shops/shop+/route.go", `return Shop{ID: id, Name: "Store " + id}, nil +`, `return Shop{ID: id, Name: "Shop " + id + "!"}, nil`)
 	d.waitLog(t, mark, ready)
 	d.waitStatus(t, func(st devStatus) bool { return st.Version != v4 && st.Error == "" })
 	expectBody(t, d.base+"/shops/north", "Shop north!")
@@ -446,7 +446,7 @@ func TestDevExitsWhileOutsideFilesChange(t *testing.T) {
 	dir := devApp(t)
 	card := outsideCard(t, dir, "")
 	write := writeFunc(t)
-	route := filepath.Join(dir, "app", "route.tsx")
+	route := filepath.Join(dir, "app", "page.tsx")
 	// The app takes its time to shut down, so the change outside arrives while it does.
 	started := filepath.Join(dir, "shutdown.started")
 	write(filepath.Join(dir, "hooks.go"), fmt.Sprintf(`package pagestest
@@ -530,7 +530,7 @@ import tifa from './.tifa/vite.js'
 
 export default defineConfig({ plugins: [tifa(), react(), %s], server: { fs: { allow: ['.', %q] } } })
 `, plugins, shared))
-	write(filepath.Join(dir, "app", "route.tsx"), fmt.Sprintf("import { card } from %q\nexport default function Home() { return <main>{card}</main> }\n", filepath.ToSlash(rel)))
+	write(filepath.Join(dir, "app", "page.tsx"), fmt.Sprintf("import { card } from %q\nexport default function Home() { return <main>{card}</main> }\n", filepath.ToSlash(rel)))
 	return card
 }
 

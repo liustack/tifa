@@ -8,7 +8,7 @@ import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useHydrated } from '../../../../use-hydrated'
-import { POST, route, type POSTInput } from './+route'
+import { POST, page, type POSTInput } from './route.gen'
 
 // The browser checks what it can before sending. The order page checks again with the same rules
 // in Go, and which carriers exist is up to Go alone.
@@ -21,7 +21,7 @@ const shipSchema = z.object({
 }) satisfies z.ZodType<POSTInput>
 
 export function ShipForm() {
-  const { order, carriers } = route.useLoaderData()
+  const { order, carriers } = page.useLoaderData()
   const hydrated = useHydrated()
   const form = useForm<POSTInput>({
     resolver: zodResolver(shipSchema),

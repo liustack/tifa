@@ -49,7 +49,7 @@ import {
   SidebarTrigger,
 } from '@/components/ui/sidebar'
 import { useCommand, useFormats, useSession, useTheme, useUnread } from './providers'
-import { route } from './+route'
+import { page } from './route.gen'
 
 const icons: Record<string, LucideIcon> = {
   gauge: Gauge,
@@ -78,7 +78,7 @@ const active = 'data-[active=true]:shadow-[inset_2px_0_0_var(--sidebar-primary)]
 const pill = 'rounded-none border border-sidebar-border font-mono text-[11px]'
 
 export function AppSidebar() {
-  const data = route.useLoaderData()
+  const data = page.useLoaderData()
   const session = useSession()
   return (
     <Sidebar collapsible="icon">
@@ -179,7 +179,7 @@ export function Topbar() {
 }
 
 function Notifications() {
-  const data = route.useLoaderData()
+  const data = page.useLoaderData()
   const { unread, markRead } = useUnread()
   const f = useFormats()
   return (

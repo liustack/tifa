@@ -1,8 +1,8 @@
 import { Outlet } from '@tanstack/react-router'
-import { route } from './+layout'
+import { layout } from './route.gen'
 
 export default function HostileLayout() {
-  const banner = route.useLoaderData()
+  const banner = layout.useLoaderData()
   return (
     <div data-banner="">
       <h1>{banner.title}</h1>

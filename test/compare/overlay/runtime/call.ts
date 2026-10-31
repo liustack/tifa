@@ -1,4 +1,4 @@
-// The module the generated +route modules send their requests through. The comparison apps show
+// The module the generated route.gen modules send their requests through. The comparison apps show
 // pages and never call a handler, so a call says so.
 export interface CallOptions {
   signal?: AbortSignal

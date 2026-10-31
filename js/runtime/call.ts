@@ -1,4 +1,4 @@
-// The runtime of the handler functions that tifa build writes into each +route module, one per
+// The runtime of the handler functions that tifa build writes into each route.gen module, one per
 // method handler of route.go: GET, POST, PUT, PATCH and DELETE.
 
 import { callHeader, isRedirected, redirectHeader } from './data'

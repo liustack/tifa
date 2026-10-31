@@ -1,11 +1,11 @@
 import { Link, Outlet } from '@tanstack/react-router'
-import { route } from './+layout'
+import { layout } from './route.gen'
 import './site.css'
 
 export const htmlAttributes = { lang: 'en' }
 
 export default function Site() {
-  const site = route.useLoaderData()
+  const site = layout.useLoaderData()
   return (
     <div lang={site.lang}>
       <nav>

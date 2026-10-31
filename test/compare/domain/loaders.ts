@@ -2,9 +2,9 @@
 // function. A framework calls these once for each request that needs the data, as tifa runs the
 // Go ones.
 //
-//   app/layout.go                                   loadShell
-//   app/projects/project+/layout.go                 loadProject
-//   app/projects/project+/route.go                  loadOrderList
+//   app/route.go (Layout)                           loadShell
+//   app/projects/project+/route.go (Layout)         loadProject
+//   app/projects/project+/route.go (Load)           loadOrderList
 //   app/projects/project+/orders/order+/route.go    loadOrder
 //   app/projects/project+/stats/route.go            loadStats
 //

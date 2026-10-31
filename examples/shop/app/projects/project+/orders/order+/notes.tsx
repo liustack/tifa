@@ -10,14 +10,14 @@ import { Field, FieldError, FieldLabel } from '@/components/ui/field'
 import { Textarea } from '@/components/ui/textarea'
 import { orderTime } from '../../../../format'
 import { useHydrated } from '../../../../use-hydrated'
-import { route as project } from '../../+layout'
-import { PUT, route, type PUTInput } from './+route'
+import { layout as project } from '../../route.gen'
+import { PUT, page, type PUTInput } from './route.gen'
 
 const noteSchema = z.object({ text: z.string().trim().min(1, '请写点内容').max(200, '备注最多 200 个字') }) satisfies z.ZodType<PUTInput>
 
 // Notes are what the staff wrote on the order, and a form for one more. Customers never see them.
 export function Notes() {
-  const { order } = route.useLoaderData()
+  const { order } = page.useLoaderData()
   const { timeZone } = project.useLoaderData()
   const hydrated = useHydrated()
   const form = useForm<PUTInput>({ resolver: zodResolver(noteSchema), defaultValues: { text: '' } })

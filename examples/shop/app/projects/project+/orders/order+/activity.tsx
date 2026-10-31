@@ -4,8 +4,8 @@ import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/componen
 import { orderDate, orderTime } from '../../../../format'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { route as project } from '../../+layout'
-import { route } from './+route'
+import { layout as project } from '../../route.gen'
+import { page } from './route.gen'
 
 const icons = {
   下单: ShoppingBag,
@@ -22,7 +22,7 @@ const icons = {
 
 // Activity is everything that happened to the order, newest first.
 export function Activity() {
-  const { order } = route.useLoaderData()
+  const { order } = page.useLoaderData()
   const { timeZone } = project.useLoaderData()
   const [who, setWho] = useState('all')
   const all = [...(order.log ?? [])].reverse()

@@ -122,7 +122,7 @@ type devPipeline struct {
 }
 
 // Analyze runs the static analysis and generates the code in memory. The fingerprint covers the
-// generated files: everything a route, a Load type, a hook, an export of route.tsx or layout.tsx
+// generated files: everything a route, a Load type, a hook, an export of page.tsx or layout.tsx
 // or the project configuration changes shows up there.
 func (p *devPipeline) Analyze(context.Context) (string, error) {
 	m, err := analyze.Analyze(p.root)
@@ -152,7 +152,7 @@ func (p *devPipeline) PollFiles(context.Context) (bool, error) { return p.front.
 func (p *devPipeline) Generate(context.Context) error { return codegen.Write(p.root, p.files) }
 
 // Bundle rebuilds the SSR bundle in .tifa/dist, and starts Vite's dev server the first time. The
-// route tree also depends on the exports of route.tsx and layout.tsx, which change without any Go
+// route tree also depends on the exports of page.tsx and layout.tsx, which change without any Go
 // change, so the TypeScript is generated again from the last analysis first, and written when it
 // differs.
 func (p *devPipeline) Bundle(ctx context.Context) (string, error) {

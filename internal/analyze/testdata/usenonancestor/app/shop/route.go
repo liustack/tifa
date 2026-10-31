@@ -10,3 +10,11 @@ import (
 func Load(c *tifa.Ctx) (string, error) {
 	return tifa.Use(c, admin.Layout)
 }
+
+func Layout(c *tifa.Ctx) (string, error) {
+	return name(c)
+}
+
+func name(c *tifa.Ctx) (string, error) {
+	return tifa.Use(c, Layout)
+}

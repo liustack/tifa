@@ -68,15 +68,15 @@ func TestRebuildMatrix(t *testing.T) {
 		fingerprint string
 		want        []string
 	}{
-		{"tsx", []change{{"app/orders/list/route.tsx", modified}}, "v1", []string{"Bundle"}},
+		{"tsx", []change{{"app/orders/list/page.tsx", modified}}, "v1", []string{"Bundle"}},
 		{"ts", []change{{"app/orders/format.ts", modified}}, "v1", []string{"Bundle"}},
 		{"css", []change{{"app/app.css", created}}, "v1", []string{"Bundle"}},
 		{"new component", []change{{"app/orders/list/items.tsx", created}}, "v1", []string{"Bundle"}},
 		{"go body", []change{{"app/orders/store.go", modified}}, "v1", []string{"Analyze", "GoBuild"}},
 		{"go.mod", []change{{"go.mod", modified}}, "v1", []string{"Analyze", "GoBuild"}},
 		{"go routes", []change{{"app/orders/list/route.go", modified}}, "v2", all},
-		{"new route", []change{{"app/orders/new/route.tsx", created}}, "v1", all},
-		{"removed route", []change{{"app/orders/new/route.tsx", removed}}, "v1", all},
+		{"new route", []change{{"app/orders/new/page.tsx", created}}, "v1", all},
+		{"removed route", []change{{"app/orders/new/page.tsx", removed}}, "v1", all},
 		{"removed layout", []change{{"app/orders/layout.tsx", removed}}, "v1", all},
 		{"config", []change{{"tifa.yaml", modified}}, "v1", all},
 		{"env", []change{{".env", modified}}, "v1", []string{"Bundle"}},

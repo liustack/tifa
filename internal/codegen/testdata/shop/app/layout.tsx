@@ -1,8 +1,8 @@
 import { Outlet } from '@tanstack/react-router'
-import { route } from './+layout'
+import { layout } from './route.gen'
 
 export default function Root() {
-  const site = route.useLoaderData()
+  const site = layout.useLoaderData()
   return (
     <div lang={site.lang}>
       <Outlet />

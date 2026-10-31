@@ -445,7 +445,7 @@ var (
 func TestPagesApp(t *testing.T) {
 	skipUnlessEnabled(t)
 	dir, exe := build(t, "pages")
-	for _, name := range []string{"routes.tsx", "server.ts", "client.ts", "tsconfig.json", "app/shops/shop+/+layout.ts", "runtime/client.ts"} {
+	for _, name := range []string{"routes.tsx", "server.ts", "client.ts", "tsconfig.json", "app/shops/shop+/route.gen.ts", "runtime/client.ts"} {
 		if _, err := os.Stat(filepath.Join(dir, ".tifa", filepath.FromSlash(name))); err != nil {
 			t.Errorf("generated %s: %v", name, err)
 		}

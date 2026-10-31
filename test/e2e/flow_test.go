@@ -44,36 +44,36 @@ func OnError(c *tifa.Ctx, err error) tifa.Error {
 }
 `,
 	"app/throws/route.go":   "package throws\n\nconst Cache = true\n",
-	"app/throws/route.tsx":  "export default function Throws(): never {\n  throw new Error('PAGE_THROWS')\n}\n",
+	"app/throws/page.tsx":   "export default function Throws(): never {\n  throw new Error('PAGE_THROWS')\n}\n",
 	"app/legacy/legacy.cjs": "module.exports = function (name) {\n  return require(name)\n}\n",
-	"app/legacy/route.tsx":  "import load from './legacy.cjs'\n\nexport default function Legacy() {\n  return <p>{String(load('node:os'))}</p>\n}\n",
+	"app/legacy/page.tsx":   "import load from './legacy.cjs'\n\nexport default function Legacy() {\n  return <p>{String(load('node:os'))}</p>\n}\n",
 	// A component that suspends on a promise that never settles, and a lazy one whose import
 	// settles in a job and whose component then fails.
-	"app/suspends/route.tsx": "import { Suspense } from 'react'\n\nconst pending = new Promise(() => {})\n\n" +
+	"app/suspends/page.tsx": "import { Suspense } from 'react'\n\nconst pending = new Promise(() => {})\n\n" +
 		"function Pending(): never {\n  throw pending\n}\n\n" +
 		"export default function Suspends() {\n  return <Suspense fallback=\"pending\"><Pending /></Suspense>\n}\n",
-	"app/lazy/route.tsx": "import { lazy, Suspense } from 'react'\nimport load from '../legacy/legacy.cjs'\n\n" +
+	"app/lazy/page.tsx": "import { lazy, Suspense } from 'react'\nimport load from '../legacy/legacy.cjs'\n\n" +
 		"const Lazy = lazy(() => Promise.resolve().then(() => ({ default: () => <p>{String(load('node:os'))}</p> })))\n\n" +
 		"export default function LazyPage() {\n  return <Suspense fallback=\"loading\"><Lazy /></Suspense>\n}\n",
 	// Lazy components of modules in the bundle, one outside any Suspense boundary, one made of
 	// lazy ones, and use of a promise a job settles: the page waits for them.
 	"app/waits/panel.tsx": "export default function Panel() {\n  return <p>PANEL_LOADED</p>\n}\n",
-	"app/waits/route.tsx": "import { lazy, Suspense, use } from 'react'\n\n" +
+	"app/waits/page.tsx": "import { lazy, Suspense, use } from 'react'\n\n" +
 		"const Panel = lazy(() => import('./panel'))\n" +
 		"const Nested = lazy(() => Promise.resolve().then(() => ({ default: () => <Suspense fallback=\"inner\"><Panel /></Suspense> })))\n" +
 		"const ready = Promise.resolve().then(() => 'USE_READY')\n\n" +
 		"function Uses() {\n  return <b>{use(ready)}</b>\n}\n\n" +
 		"export default function Waits() {\n  return <main><Panel /><Suspense fallback=\"FALLBACK\"><Nested /><Uses /></Suspense></main>\n}\n",
 	// A render inside the render of the page, whose error React handles, before the require.
-	"app/nested/route.tsx": "import { Suspense } from 'react'\nimport { renderToString } from 'react-dom/server.edge'\n" +
+	"app/nested/page.tsx": "import { Suspense } from 'react'\nimport { renderToString } from 'react-dom/server.edge'\n" +
 		"import load from '../legacy/legacy.cjs'\n\n" +
 		"function Ignored(): never {\n  throw new Error('HANDLED_INNER_ERROR')\n}\n\n" +
 		"function Real() {\n  return <p>{String(load('node:os'))}</p>\n}\n\n" +
 		"export default function Nested() {\n  renderToString(<Suspense fallback=\"inner\"><Ignored /></Suspense>)\n" +
 		"  return <Suspense fallback=\"outer\"><Real /></Suspense>\n}\n",
-	"app/ssr/route.tsx":     "export default function Page() {\n  return <p>PAGE_SSR</p>\n}\n",
-	"app/members/route.tsx": "export default function Members() {\n  return <p>MEMBERS</p>\n}\n",
-	"app/secret/layout.go": `package secret
+	"app/ssr/page.tsx":     "export default function Page() {\n  return <p>PAGE_SSR</p>\n}\n",
+	"app/members/page.tsx": "export default function Members() {\n  return <p>MEMBERS</p>\n}\n",
+	"app/secret/route.go": `package secret
 
 import (
 	"errors"
@@ -87,25 +87,21 @@ func Layout(c *tifa.Ctx) (string, error) {
 	}
 	return "allowed", nil
 }
-`,
-	"app/secret/route.go": `package secret
-
-import "github.com/liustack/tifa"
 
 func Load(c *tifa.Ctx) (string, error) { return "PRIVATE_SECRET", nil }
 `,
-	"app/secret/route.tsx": "import { route } from './+route'\n\nexport default function Secret() {\n  return <p>{route.useLoaderData()}</p>\n}\n",
+	"app/secret/page.tsx": "import { page } from './route.gen'\n\nexport default function Secret() {\n  return <p>{page.useLoaderData()}</p>\n}\n",
 	"app/forbidden/route.go": `package forbidden
 
 import "github.com/liustack/tifa"
 
 func Load(c *tifa.Ctx) (string, error) { return "", tifa.Error{Status: 403, Message: "no entry"} }
 `,
-	"app/forbidden/route.tsx": `import { RouteError } from 'tifa/client'
-import { route } from './+route'
+	"app/forbidden/page.tsx": `import { RouteError } from 'tifa/client'
+import { page } from './route.gen'
 
 export default function Forbidden() {
-  return <p>{route.useLoaderData()}</p>
+  return <p>{page.useLoaderData()}</p>
 }
 
 export function Error({ error }: { error: unknown }) {
@@ -160,7 +156,7 @@ func TestErrorFlowInTheVM(t *testing.T) {
 			t.Errorf("OnError ran %d times:\n%s", got, output)
 		}
 		// React leaves the route's Suspense boundary to the browser, the server still learns why.
-		if !regexp.MustCompile(`Error: PAGE_THROWS +at \w+ \(app/throws/route\.tsx:2:`).MatchString(output.String()) {
+		if !regexp.MustCompile(`Error: PAGE_THROWS +at \w+ \(app/throws/page\.tsx:2:`).MatchString(output.String()) {
 			t.Errorf("OnError did not see the error and its place:\n%s", output)
 		}
 	})

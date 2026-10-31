@@ -7,7 +7,7 @@ import { htmlAttributes, routeTree } from './.tifa/routes'
 import { createAppRouter } from './.tifa/runtime/router'
 import { bootElementId, collector, rootElementId, type RouteResult } from './.tifa/runtime/data'
 import { setRouter } from './.tifa/runtime/call'
-import { POST } from './app/api/notes/note+/+route'
+import { POST } from './app/api/notes/note+/route.gen'
 import { hydrate, takeOver } from './.tifa/runtime/browser'
 import { attributes, followHead, headHTML, htmlAttributesOf, setAttributes, syncHead, syncHTMLAttributes, type Tag } from './.tifa/runtime/head'
 

@@ -8,7 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useHydrated } from '../use-hydrated'
 import { useStore } from './i18n'
 import { photo, photoSet, picture, type View, type Width } from './images'
-import { POST } from './lang+/products/product+/+route'
+import { POST } from './lang+/products/product+/route.gen'
 
 export type Card = {
   slug: string

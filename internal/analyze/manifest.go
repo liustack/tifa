@@ -23,14 +23,15 @@ type Manifest struct {
 	Routes []Route `json:"routes"`
 }
 
-// Layout is a directory under app/ that holds layout.go, layout.tsx or both.
+// Layout is a directory under app/ whose route.go declares Layout or LayoutSSR, or that holds layout.tsx, or both.
 type Layout struct {
 	// ID is Dir followed by "/layout", such as "app/projects/project+/layout". The root Layout is
-	// "app/layout". A route in the same directory has the ID Dir followed by "/route".
+	// "app/layout". A route in the same directory has the ID Dir followed by "/route", whether it is a
+	// page (page.tsx) or an API route (method handlers in route.go).
 	ID string `json:"id"`
 	// Dir is the directory relative to the application root with forward slashes, such as "app/projects/project+".
 	Dir string `json:"dir"`
-	// Package is the import path of the package holding layout.go, empty when the Layout has only layout.tsx.
+	// Package is the import path of the package of route.go when it declares Layout or LayoutSSR, empty when the Layout has only layout.tsx.
 	Package string `json:"package"`
 	// Parent is the ID of the Layout in the closest directory above Dir, empty for the outermost one.
 	Parent string `json:"parent"`
@@ -46,7 +47,7 @@ type Layout struct {
 	Routes []string `json:"routes"`
 }
 
-// Route is a directory under app/ that holds route.go, route.tsx or both.
+// Route is a directory under app/ that holds page.tsx, or whose route.go declares a method handler, or both.
 type Route struct {
 	// ID is Dir followed by "/route", such as "app/projects/project+/route".
 	ID string `json:"id"`
@@ -55,9 +56,9 @@ type Route struct {
 	// Path is the path of Dir in ServeMux syntax: each directory below app/ is a segment, name+
 	// is {name} and name++ is {name...}. "/" is the home page.
 	Path string `json:"path"`
-	// Package is the import path of the route package, empty for a page without route.go.
+	// Package is the import path of the package of route.go, empty for a page without route.go.
 	Package string `json:"package"`
-	// Page reports whether route.tsx exists. The framework renders GET for a page.
+	// Page reports whether page.tsx exists. The framework renders GET for a page.
 	Page bool `json:"page"`
 	// Load is nil when the route has no Load.
 	Load *Load `json:"load"`
