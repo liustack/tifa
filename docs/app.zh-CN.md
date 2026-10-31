@@ -360,19 +360,24 @@ func Layout(c *tifa.Ctx) (Shell, error) {
 ```
 
 - 页面和组件从这份数据取语言，经 `layout.useLoaderData()` 或 Layout 组件提供的 context，不从 `params` 取：Go 函数检查过它，别人在 URL 里随便写的字不会变成页面的语言。Layout 下面的 `Load` 也这样检查，或者用 `tifa.Use` 读 Layout 的结果。
-- Layout 的 `head` 在 `<html>` 上写 `lang`，再链接到同一页的其他语言版本，供搜索引擎读。`matches` 是页面的各层路由，页面在最后：
+- Layout 的 `head` 在 `<html>` 上写 `lang`，再链接到同一页的各语言版本，供搜索引擎读：每种语言一个，包括页面自己的，再加一个 `x-default`，给哪种语言都不要的浏览器，这里用默认语言。搜索引擎要完整的 URL。`matches` 是页面的各层路由，页面在最后：
 
 ```tsx
 // app/store/lang+/layout.tsx
-const site = 'https://shop.example.com'
+const site = 'https://shop.example.com' // 店面的网址
+const languages = ['zh-CN', 'en-US'] // 店面的语言，默认语言在前
 
 export const head = ({ loaderData, matches }: { loaderData?: LayoutData; matches: Array<{ pathname: string }> }) => {
   if (!loaderData) return {}
-  const { code, other } = loaderData.locale
-  const page = matches[matches.length - 1].pathname.replace(/\/$/, '')
+  const { code } = loaderData.locale
+  const page = matches[matches.length - 1].pathname.replace(/\/$/, '').slice(`/store/${code}`.length)
+  const url = (lang: string) => `${site}/store/${lang}${page}`
   return {
     htmlAttributes: { lang: code },
-    links: [{ rel: 'alternate', hrefLang: other, href: site + page.replace(`/store/${code}`, `/store/${other}`) }],
+    links: [
+      ...languages.map((lang) => ({ rel: 'alternate', hrefLang: lang, href: url(lang) })),
+      { rel: 'alternate', hrefLang: 'x-default', href: url(languages[0]) },
+    ],
   }
 }
 ```
