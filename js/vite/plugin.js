@@ -716,6 +716,11 @@ const attributeNamesKept = 4096
 const attributeChunks = `
 var tifaAttributeChunks = new Map([["tabIndex", ' tabindex="'], ["dir", ' dir="'], ["role", ' role="'], ["viewBox", ' viewBox="'], ["width", ' width="'], ["height", ' height="']]);
 `
+// renderNodeDestructive of React's string renderer after dropComponentStacks, white space collapsed:
+// it forwards a node to retryNode, which reads it from the task.
+const nodeForwarder =
+  'function renderNodeDestructive(request, task, node, childIndex) { null !== task.replay && "number" === typeof task.replay.slots ? ' +
+  'resumeNode(request, task, task.replay.slots, node, childIndex) : ((task.node = node), (task.childIndex = childIndex), retryNode(request, task)); }'
 // escapeCacheSize is how much the cache of escapes holds in each VM, in UTF-16 code units: the
 // strings and their escapes, and escapeEntrySize more for each entry, which stands for the memory
 // an entry of the Map takes besides its strings. So many short strings cannot take more memory
@@ -1444,6 +1449,16 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
             `${react} ${stacksRead || 'has no pushComponentStack in the form the tifa plugin knows'}, so the tifa ` +
               'plugin does not keep React from building component stacks. Pages render the ' +
               'same, but take longer to render',
+          )
+        }
+        const forwarded = unstacked && inlineNodeCalls(source, parse)
+        if (forwarded) {
+          source = forwarded
+        } else if (unstacked) {
+          this.warn(
+            `${react} has no renderNodeDestructive in the form the tifa plugin knows, or no call of it to write out, ` +
+              'so the tifa plugin does not hand nodes to retryNode without calling it. Pages render the same, but take ' +
+              'longer to render',
           )
         }
         return (
@@ -2350,6 +2365,87 @@ function cacheAttributeNames(source) {
       .replace(attributeStart, () => start)
       .replace(attributeDefault, () => sameLines(attributeDefault, checked)) + attributeChunks
   )
+}
+
+// inlineNodeCalls returns the source of React's string renderer, after dropComponentStacks, with the
+// calls of renderNodeDestructive written out as its body, or null when the source has the function
+// in another form than nodeForwarder or no call to write out. Every node that React renders goes
+// through renderNodeDestructive, a function that only hands the node on to retryNode, so each node
+// costs a call more than it needs. A call changes when its first two arguments are names, its other two
+// are a name, a number or a property of a name, which have no effect on the task, and no one reads
+// its value: it is a statement, or one of the branches of a conditional or the parts of a sequence
+// that make one, or the value of a return, which becomes a return of nothing, as the function
+// returns. No function around it declares resumeNode or retryNode. renderNodeDestructive stays for
+// the calls that do not change.
+function inlineNodeCalls(source, parse) {
+  const definition = /function renderNodeDestructive\(request, task, node, childIndex\) \{[^]*?\n\}\n/.exec(source)
+  const collapse = (text) => text.replace(/\s+/g, ' ').replace(/\( /g, '(').replace(/ \)/g, ')')
+  if (!definition || collapse(definition[0]).trim() !== nodeForwarder) return null
+  const simple = (arg) =>
+    arg.type === 'Identifier' ||
+    (arg.type === 'Literal' && typeof arg.value === 'number') ||
+    (arg.type === 'UnaryExpression' && arg.operator === '-' && arg.argument.type === 'Literal' && typeof arg.argument.value === 'number') ||
+    (arg.type === 'MemberExpression' && !arg.computed && arg.object.type === 'Identifier' && arg.property.type === 'Identifier')
+  const changes = []
+  const visit = (node, ancestors) => {
+    if (
+      node.type === 'CallExpression' &&
+      node.callee.type === 'Identifier' &&
+      node.callee.name === 'renderNodeDestructive' &&
+      node.arguments.length === 4 &&
+      node.arguments[0].type === 'Identifier' &&
+      node.arguments[1].type === 'Identifier' &&
+      node.arguments.slice(2).every(simple)
+    ) {
+      // Whether no one reads the value of the call: its statement, a branch of a conditional or a
+      // part of a sequence that is one, and the part of a sequence that is not the last.
+      let child = node
+      let mode = null
+      for (let i = ancestors.length - 1; i >= 0 && !mode; i--) {
+        const parent = ancestors[i]
+        if (parent.type === 'ExpressionStatement') mode = 'discarded'
+        else if (parent.type === 'ReturnStatement') {
+          if (child === node) mode = 'returned'
+          break
+        } else if (parent.type === 'ConditionalExpression' && child !== parent.test) child = parent
+        else if (parent.type === 'SequenceExpression') {
+          if (child !== parent.expressions.at(-1)) mode = 'discarded'
+          else child = parent
+        } else break
+      }
+      const shadowed = ancestors.some((a) => {
+        if (!functionTypes.has(a.type)) return false
+        const names = declaredNames(a)
+        return names.has('resumeNode') || names.has('retryNode')
+      })
+      if (mode && !shadowed) {
+        const [request, task, id, index] = node.arguments.map((arg) => source.slice(arg.start, arg.end))
+        const body =
+          `null !== ${task}.replay && "number" === typeof ${task}.replay.slots ? ` +
+          `resumeNode(${request}, ${task}, ${task}.replay.slots, ${id}, ${index}) : ` +
+          `((${task}.node = ${id}), (${task}.childIndex = ${index}), retryNode(${request}, ${task}))`
+        const parent = ancestors.at(-1)
+        changes.push(
+          mode === 'returned'
+            ? { start: parent.start, end: parent.end, text: `{ ${body}; return; }` }
+            : { start: node.start, end: node.end, text: `(${body})` },
+        )
+      }
+    }
+    for (const value of Object.values(node)) {
+      for (const child of Array.isArray(value) ? value : [value]) {
+        if (child && typeof child.type === 'string') visit(child, [...ancestors, node])
+      }
+    }
+  }
+  visit(parse(source), [])
+  if (changes.length === 0) return null
+  changes.sort((a, b) => b.start - a.start)
+  let code = source
+  for (const { start, end, text } of changes) {
+    code = code.slice(0, start) + sameLines(code.slice(start, end), text) + code.slice(end)
+  }
+  return code
 }
 
 // dropComponentStacks returns the source of React's string renderer without the component stacks
