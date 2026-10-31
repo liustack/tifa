@@ -427,9 +427,9 @@ function StoreFooter() {
         <div className="mx-auto flex w-full max-w-[1240px] flex-wrap justify-between gap-2 px-4 py-4 text-xs text-muted-foreground md:px-8">
           <span>{t('footer.copyright', { year: 2026 })}</span>
           <span>{t('footer.payments')}</span>
-          <a href="/projects/studio" className="hover:text-foreground">
+          <Link to="/projects/$project" params={{ project: 'studio' }} className="hover:text-foreground">
             {t('nav.workbench')}
-          </a>
+          </Link>
         </div>
       </div>
     </footer>

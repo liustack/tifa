@@ -76,10 +76,6 @@ export default function AppLayout() {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const loading = useRouterState({ select: (state) => state.isLoading })
 
-  // The storefront is for customers: its Layout draws its own header and footer, without the
-  // workbench around it, and layout.go gives its pages no workbench data.
-  if (pathname.startsWith('/store/')) return <Outlet />
-
   const projects = shell.projects ?? []
   const at = where(pathname)
   const current = projects.find((p) => p.id === at.project)
@@ -159,10 +155,10 @@ export default function AppLayout() {
                     </SidebarMenuItem>
                     <SidebarMenuItem>
                       <SidebarMenuButton asChild tooltip="店面">
-                        <a href="/store/zh-CN">
+                        <Link to="/store/$lang" params={{ lang: 'zh-CN' }}>
                           <ExternalLink />
                           <span>店面</span>
-                        </a>
+                        </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   </SidebarMenu>
@@ -194,10 +190,10 @@ export default function AppLayout() {
               <CommandSearch projects={projects} />
               <Notifications projects={projects} />
               <Button variant="outline" size="sm" asChild className="hidden sm:inline-flex">
-                <a href="/store/zh-CN">
+                <Link to="/store/$lang" params={{ lang: 'zh-CN' }}>
                   <ExternalLink />
                   查看店面
-                </a>
+                </Link>
               </Button>
             </div>
             {loading && (
