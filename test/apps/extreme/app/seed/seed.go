@@ -103,7 +103,9 @@ func Login(r *rand.Rand) string {
 }
 
 // Phone returns a masked mobile number, as admin pages show them.
-func Phone(r *rand.Rand) string { return fmt.Sprintf("1%d%d****%04d", 3+r.IntN(7), r.IntN(10), r.IntN(10000)) }
+func Phone(r *rand.Rand) string {
+	return fmt.Sprintf("1%d%d****%04d", 3+r.IntN(7), r.IntN(10), r.IntN(10000))
+}
 
 // Sentence joins a few phrases of pool into a sentence.
 func Sentence(r *rand.Rand, pool []string, n int) string {
