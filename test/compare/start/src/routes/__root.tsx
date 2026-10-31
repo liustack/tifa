@@ -1,7 +1,8 @@
 /// <reference types="vite/client" />
 import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
-import { NotFound, documentHead, htmlAttributes } from '@/app/layout'
+import { Error, documentHead, htmlAttributes } from '@/app/layout'
+import { notFoundWith } from '../compare/not-found'
 
 export const Route = createRootRoute({
   head: () => ({
@@ -9,7 +10,7 @@ export const Route = createRootRoute({
     meta: [{ name: 'viewport', content: 'width=device-width, initial-scale=1' }, ...documentHead.meta],
   }),
   shellComponent: RootDocument,
-  notFoundComponent: NotFound,
+  notFoundComponent: notFoundWith(Error),
 })
 
 function RootDocument({ children }: { children: ReactNode }) {

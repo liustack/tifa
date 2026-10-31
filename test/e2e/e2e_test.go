@@ -570,7 +570,7 @@ func TestPagesApp(t *testing.T) {
 	if status, _, _ := get(t, base+"/shops/north", "X-Tifa-Route", "app/shops/shop+/layout", "X-Tifa-Build", "old"); status != 409 {
 		t.Errorf("other build: %d", status)
 	}
-	// 404 at every level renders the right NotFound with status 404.
+	// 404 at every level renders the right Error with status 404.
 	for path, want := range map[string]string{
 		"/nowhere":                "This page does not exist.",
 		"/shops/north/items/pear": "No such item.",
@@ -582,9 +582,9 @@ func TestPagesApp(t *testing.T) {
 		}
 	}
 	// The guide's Layout sets the language of <html> through head, over the root Layout's
-	// htmlAttributes, also on its 404 pages. A Layout that fails keeps the root's language, and a
-	// URL no route matches gets the root's attributes alone. Go writes the document of a page
-	// without SSR, and the browser sets them.
+	// htmlAttributes, also on its 404 pages, a URL below it that matches no page among them. A
+	// Layout that fails keeps the root's language. Go writes the document of a page without SSR,
+	// and the browser sets them.
 	for path, want := range map[string]struct {
 		status int
 		html   string
@@ -595,7 +595,7 @@ func TestPagesApp(t *testing.T) {
 		"/guide/zh-CN/topics/tea": {200, `<html lang="zh-CN" dir="ltr">`},
 		"/guide/zh-CN/topics/pu":  {404, `<html lang="zh-CN" dir="ltr">`},
 		"/guide/xx":               {404, `<html lang="en" dir="ltr">`},
-		"/guide/zh-CN/a/b":        {404, `<html lang="en">`},
+		"/guide/zh-CN/a/b":        {404, `<html lang="zh-CN" dir="ltr">`},
 		"/guide/zh-CN/plain":      {200, `<html>`},
 	} {
 		status, _, body := get(t, base+path)

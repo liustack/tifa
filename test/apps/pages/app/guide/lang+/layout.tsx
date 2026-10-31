@@ -1,3 +1,4 @@
+import { RouteError } from 'tifa/client'
 import { Link, Outlet } from '@tanstack/react-router'
 import { layout, type LayoutData } from './route.gen'
 
@@ -29,7 +30,8 @@ export default function GuideLayout() {
   )
 }
 
-export function NotFound() {
+export function Error({ error }: { error: unknown }) {
   const guide = layout.useLoaderData()
-  return <p>{guide.notFound}</p>
+  if (error instanceof RouteError && error.status === 404) return <p>{guide.notFound}</p>
+  return <p role="alert">{error instanceof RouteError ? error.message : 'Something went wrong.'}</p>
 }

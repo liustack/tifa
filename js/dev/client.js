@@ -1,6 +1,8 @@
 // tifa dev: reloads the page after each rebuild and shows build errors in an overlay. The error
 // page of a failed server render also reloads after a rebuild that kept the version, such as a
-// fix in TSX.
+// fix in TSX. A page that shows its Error component for a failed server render carries that
+// failure in window.__tifaDevPageError, {title, text}, which the overlay shows while no build
+// error does.
 // It needs no imports and no exports, so it works bundled into the dev client entry or as a plain script.
 (() => {
   if (window.__tifaDev) return;
@@ -41,8 +43,14 @@
     } else if (window.__tifaDevErrorPage === true && String(status.render) !== firstRender) {
       location.reload();
     } else {
-      hide();
+      showPageError();
     }
+  }
+
+  function showPageError() {
+    const failed = window.__tifaDevPageError;
+    if (failed) show(failed.title, failed.text);
+    else hide();
   }
 
   function show(title, text) {
@@ -84,6 +92,8 @@
     if (overlay !== null) overlay.remove();
     overlay = null;
   }
+
+  if (window.__tifaDevPageError) showPageError();
 
   // A page restored from the back-forward cache may be from an older build.
   addEventListener("pageshow", (event) => {

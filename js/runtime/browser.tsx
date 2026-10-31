@@ -2,9 +2,18 @@ import { createRoot, hydrateRoot } from 'react-dom/client'
 import { Await, RouterProvider, type AnyRoute, type AnyRouter } from '@tanstack/react-router'
 import { hydrate as hydrateRouter } from '@tanstack/react-router/ssr/client'
 import { createAppRouter } from './router'
-import { bootElementId, collector, injected, rootElementId, sameURL, type Boot, type Source } from './data'
+import { bootElementId, collector, injected, RouteError, rootElementId, sameURL, type Boot, type Source } from './data'
 import { defaultHTMLAttributes, followHead, noteHTMLAttributes, syncHead, syncHTMLAttributes, type HTMLAttributes } from './head'
 import { setRouter } from './call'
+
+// rootOptions has React report on the console what an error boundary catches, as it does by
+// default, but for a 404: that is an answer of Go, which the Error of its route shows, no bug.
+const rootOptions = {
+  onCaughtError: (error: unknown, info: { componentStack?: string }) => {
+    if (error instanceof RouteError && error.status === 404) return
+    console.error(error, info.componentStack ?? '')
+  },
+}
 
 // hydrate takes over the application root the server rendered. A page rendered without SSR
 // carries its data instead, and the browser renders it from that data without a request. Either
@@ -21,7 +30,7 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
     setRouter(router)
     const hydrated = takeOver(router, htmlAttributes)
     // What TanStack's RouterClient renders, with the promise of takeOver in place of its own.
-    hydrateRoot(root, <Await promise={hydrated}>{() => <RouterProvider router={router} />}</Await>)
+    hydrateRoot(root, <Await promise={hydrated}>{() => <RouterProvider router={router} />}</Await>, rootOptions)
     return
   }
   // Go writes the document of a page without SSR, the attributes of <html> come from here: those
@@ -41,7 +50,7 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
     setRouter(router)
     syncHead(router.stores.matches.get())
     syncHTMLAttributes(router.stores.matches.get(), htmlAttributes)
-    createRoot(root).render(<RouterProvider router={router} />)
+    createRoot(root, rootOptions).render(<RouterProvider router={router} />)
   })
 }
 

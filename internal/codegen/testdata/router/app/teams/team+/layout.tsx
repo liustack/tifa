@@ -14,10 +14,7 @@ export default function Team() {
   )
 }
 
-export function NotFound() {
-  return <p>TEAM_404</p>
-}
-
 export function Error({ error }: { error: unknown }) {
+  if (error instanceof RouteError && error.status === 404) return <p>TEAM_404</p>
   return <p>TEAM_ERROR {error instanceof RouteError ? `${error.status} ${error.message}` : 'other'}</p>
 }

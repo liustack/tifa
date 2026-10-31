@@ -1,3 +1,4 @@
+import { RouteError } from 'tifa/client'
 import { page, type PageData } from './route.gen'
 
 export default function Detail() {
@@ -5,6 +6,6 @@ export default function Detail() {
   return <p>{order?.id}</p>
 }
 
-export function NotFound() {
-  return <p>no such order</p>
+export function Error({ error }: { error: unknown }) {
+  return <p>{error instanceof RouteError && error.status === 404 ? 'no such order' : 'the order failed'}</p>
 }

@@ -1,3 +1,4 @@
+import { RouteError } from 'tifa/client'
 import { Link, Outlet, useRouterState } from '@tanstack/react-router'
 import AppBar from '@mui/material/AppBar'
 import Avatar from '@mui/material/Avatar'
@@ -100,6 +101,7 @@ export default function Root() {
   )
 }
 
-export function NotFound() {
-  return <Typography sx={{ p: 4 }}>This page does not exist.</Typography>
+export function Error({ error }: { error: unknown }) {
+  if (error instanceof RouteError && error.status === 404) return <Typography sx={{ p: 4 }}>This page does not exist.</Typography>
+  return <Typography sx={{ p: 4 }}>Something went wrong.</Typography>
 }

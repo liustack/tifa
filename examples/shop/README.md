@@ -59,6 +59,7 @@ app/
         panels.tsx             the product table, order heatmap, carriers, customers and recent orders
   store/
     store.go                   what the storefront shares: its two languages, their currency and time zone, prices
+    route.go                   /store: GET redirects to the language the browser prefers
     i18n.ts  locales/          i18next with the texts of both languages, money and dates formatted per language
     product-card.tsx           the product card of every list, product photos and prices
     images.ts  images/         the product, home page and journal photos, in AVIF
@@ -79,14 +80,13 @@ app/
         post.go  posts/        journal domain: articles in Markdown, one file per language
         markdown.tsx           Markdown with GitHub tables and highlighted code
         post+/                 /store/{lang}/journal/{post}
-      rest++/                  every other path of the store: a 404 inside the storefront Layout
 ```
 
 Each domain sits in its folder under `app/`, next to the pages that show it, with its tests: `app/projects` holds the shop domain, and `app/projects/project+/orders` the order domain, one level above the folder of one order rather than inside it. The root package holds only the hooks. Storage is in memory with demo data, standing in for database tables, and changes are lost on restart. Each folder under `app/` is a segment of the URL. `route.go` holds every Go name of a folder: `Load`, which calls the domain packages, the `Layout` function of the shop and storefront folders, and the order page's `POST` and `PATCH`, whose inputs check themselves with `Validate`. `page.tsx` holds the UI and reads the result of `Load` through `./route.gen`. The order and stats pages read their shop through the shop Layout with `tifa.Use(c, project.Layout)`. `app/route.go` holds the root Layout, and its `GET` redirects `/` to the shop `studio`, so `/` is an API route. The shop domain counts the orders waiting to ship, so `projects` imports `orders`, and `orders` imports neither `projects` nor the pages. See [Philosophy](../../docs/philosophy.md) for why, and [Structuring an app](../../docs/structure.md) for which way imports may go.
 
 Go sends times as instants, and pages format them with `Intl` in the shop's time zone, which the shop Layout passes along. A browser in another zone shows the same times as the server render.
 
-The storefront takes its language from the first segment of the URL. Go loads the texts in that language and the prices in its currency, and the storefront Layout passes the currency and time zone to i18next, which formats money, dates and plurals with `Intl`. The checks of a form live twice with the same rules: a zod schema in the browser and `Validate` in Go. Both give the same message keys, which the page translates. The catalogue domain is `products`, and `cart` imports it to price the lines. Pages under `lang+` find their language with `store.FindLocale`. The `head` of the storefront Layout sets that language on `<html>` with `htmlAttributes`, over the root Layout's `zh-CN`, and the browser changes it when you move to the other language. A path the store has no page for is a 404 in the language of the URL, through `rest++`.
+The storefront takes its language from the first segment of the URL. Go loads the texts in that language and the prices in its currency, and the storefront Layout passes the currency and time zone to i18next, which formats money, dates and plurals with `Intl`. The checks of a form live twice with the same rules: a zod schema in the browser and `Validate` in Go. Both give the same message keys, which the page translates. The catalogue domain is `products`, and `cart` imports it to price the lines. Pages under `lang+` find their language with `store.FindLocale`. The `head` of the storefront Layout sets that language on `<html>` with `htmlAttributes`, over the root Layout's `zh-CN`, and the browser changes it when you move to the other language. It also links each page to the same page in both languages, and to the Chinese one as `x-default`. A path the store has no page for is a 404 inside the storefront Layout, in the language of the URL. `/store` redirects to the language that the browser's `Accept-Language` asks for, matched with `golang.org/x/text/language`, and to Chinese when it asks for neither.
 
 ## Things to try
 

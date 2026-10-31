@@ -10,14 +10,34 @@ import { Sheet, SheetClose, SheetContent, SheetDescription, SheetFooter, SheetHe
 import { cn } from 'cn'
 import { i18nFor, LocaleContext, useStore } from '../i18n'
 import { catalogueNo, Price, ProductImage } from '../product-card'
+import { RouteError } from 'tifa/client'
 import { layout, type LayoutData } from './route.gen'
 
-// The language of every page of the store, from the locale the Go function checked. Without it,
-// when the Layout failed, the page keeps the root Layout's language.
-export const head = ({ loaderData }: { loaderData?: LayoutData }) => ({
-  htmlAttributes: { lang: loaderData?.locale.code },
-  meta: loaderData ? [{ title: i18nFor(loaderData.locale).t('home.title') }] : [],
-})
+// site is where the store is served, for the links to a page in each language, which search
+// engines want in full.
+const site = 'https://shop.example.com'
+
+// languages are the languages of the store, the default one first.
+const languages = ['zh-CN', 'en-US']
+
+// The language of every page of the store, from the locale the Go function checked, and links to
+// the same page in each language, the default one for a browser that asks for neither. Without
+// the locale, when the Layout failed, the page keeps the root Layout's language. matches holds
+// the routes of the page, the page last.
+export const head = ({ loaderData, matches }: { loaderData?: LayoutData; matches: Array<{ pathname: string }> }) => {
+  if (!loaderData) return {}
+  const { code } = loaderData.locale
+  const page = matches[matches.length - 1].pathname.replace(/\/$/, '').slice(`/store/${code}`.length)
+  const url = (lang: string) => `${site}/store/${lang}${page}`
+  return {
+    htmlAttributes: { lang: code },
+    meta: [{ title: i18nFor(loaderData.locale).t('home.title') }],
+    links: [
+      ...languages.map((lang) => ({ rel: 'alternate', hrefLang: lang, href: url(lang) })),
+      { rel: 'alternate', hrefLang: 'x-default', href: url(languages[0]) },
+    ],
+  }
+}
 
 export default function StoreLayout() {
   const shell = layout.useLoaderData()
@@ -416,18 +436,20 @@ function StoreFooter() {
   )
 }
 
-// NotFound shows inside this Layout when a product, a post or an order does not exist, or the
-// order is another visitor's, so it names none of them.
-export function NotFound() {
+// Error shows inside this Layout when a product, a post or an order does not exist, or the order
+// is another visitor's, so its 404 names none of them. It also shows for a URL of the store that
+// matches no page, in the language of the URL, and for a page that fails.
+export function Error({ error }: { error: unknown }) {
   const { t, locale } = useStore()
+  const shown = error instanceof RouteError && error.status === 404 ? 'notFound' : 'failed'
   return (
     <Empty className={cn('min-h-[50vh] border')}>
       <EmptyHeader>
         <EmptyMedia variant="icon">
           <SearchX />
         </EmptyMedia>
-        <EmptyTitle className="font-heading text-2xl font-medium">{t('notFound.title')}</EmptyTitle>
-        <EmptyDescription>{t('notFound.body')}</EmptyDescription>
+        <EmptyTitle className="font-heading text-2xl font-medium">{t(`${shown}.title`)}</EmptyTitle>
+        <EmptyDescription>{t(`${shown}.body`)}</EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
         <Button variant="outline" asChild>

@@ -12,8 +12,9 @@ import (
 )
 
 // flowFiles extend a copy of test/apps/pages with the failures the error flow must handle in
-// the real QuickJS VM: a page component that throws, a NotFound that never returns, a Layout
-// Load that refuses, a middleware that redirects and one that refuses on any error of Next.
+// the real QuickJS VM: a page component that throws, one whose Error throws too, a root Error
+// that never returns for a 404, a Layout Load that refuses, a middleware that redirects and one
+// that refuses on any error of Next.
 var flowFiles = map[string]string{
 	"tifa.yaml": "ssr:\n  timeout: 1s\n",
 	"hooks.go": `package pagestest
@@ -43,8 +44,10 @@ func OnError(c *tifa.Ctx, err error) tifa.Error {
 	return tifa.Error{Status: 500, Message: "reported"}
 }
 `,
-	"app/throws/route.go":   "package throws\n\nconst Cache = true\n",
-	"app/throws/page.tsx":   "export default function Throws(): never {\n  throw new Error('PAGE_THROWS')\n}\n",
+	"app/throws/route.go": "package throws\n\nconst Cache = true\n",
+	"app/throws/page.tsx": "export default function Throws(): never {\n  throw new Error('PAGE_THROWS')\n}\n",
+	"app/fails/page.tsx": "export default function Fails(): never {\n  throw new globalThis.Error('PAGE_FAILS')\n}\n\n" +
+		"export function Error(): never {\n  throw new globalThis.Error('ERROR_FAILS')\n}\n",
 	"app/legacy/legacy.cjs": "module.exports = function (name) {\n  return require(name)\n}\n",
 	"app/legacy/page.tsx":   "import load from './legacy.cjs'\n\nexport default function Legacy() {\n  return <p>{String(load('node:os'))}</p>\n}\n",
 	// A component that suspends on a promise that never settles, and a lazy one whose import
@@ -122,15 +125,16 @@ func TestErrorFlowInTheVM(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// The root NotFound never returns, so the 404 page times out in the VM.
+	// The root Error never returns for a 404, so the 404 page times out in the VM.
 	layout := filepath.Join(dir, "app", "layout.tsx")
 	data, err := os.ReadFile(layout)
 	if err != nil {
 		t.Fatal(err)
 	}
-	looping := strings.Replace(string(data), "export function NotFound() {\n", "export function NotFound() {\n  for (;;) {}\n", 1)
+	start404 := "export function Error({ error }: { error: unknown }) {\n"
+	looping := strings.Replace(string(data), start404, start404+"  if (error instanceof RouteError && error.status === 404) for (;;) {}\n", 1)
 	if looping == string(data) {
-		t.Fatal("app/layout.tsx has no NotFound to change")
+		t.Fatal("app/layout.tsx has no Error to change")
 	}
 	if err := os.WriteFile(layout, []byte(looping), 0o644); err != nil {
 		t.Fatal(err)
@@ -147,8 +151,13 @@ func TestErrorFlowInTheVM(t *testing.T) {
 		before := onErrors()
 		for i := range 2 {
 			code, header, body := get(t, base+"/throws")
-			if code != 500 || header.Get("X-Tifa-Render") == "cache" || strings.Contains(body, "PAGE_THROWS") {
+			if code != 500 || header.Get("X-Tifa-Render") != "vm" || header.Get("Cache-Control") != "no-store" || strings.Contains(body, "PAGE_THROWS") {
 				t.Errorf("request %d: %d %v %s", i, code, header, body)
+			}
+			// The page shows the root Layout's Error with the public message of OnError, and
+			// the browser hydrates that error.
+			if !strings.Contains(body, `<p role="alert">reported</p>`) || !strings.Contains(body, `"tifa.RouteError"`) {
+				t.Errorf("request %d shows no Error: %s", i, body)
 			}
 		}
 		output.waitFor(t, func(string) bool { return onErrors()-before >= 2 })
@@ -158,6 +167,19 @@ func TestErrorFlowInTheVM(t *testing.T) {
 		// React leaves the route's Suspense boundary to the browser, the server still learns why.
 		if !regexp.MustCompile(`Error: PAGE_THROWS +at \w+ \(app/throws/page\.tsx:2:`).MatchString(output.String()) {
 			t.Errorf("OnError did not see the error and its place:\n%s", output)
+		}
+	})
+
+	t.Run("an Error that throws too gives way to the Error a level up", func(t *testing.T) {
+		before := onErrors()
+		code, _, body := get(t, base+"/fails")
+		if code != 500 || !strings.Contains(body, "Something went wrong") || !strings.Contains(body, "reported") ||
+			strings.Contains(body, "PAGE_FAILS") || strings.Contains(body, "ERROR_FAILS") {
+			t.Errorf("%d %s", code, body)
+		}
+		output.waitFor(t, func(string) bool { return onErrors()-before >= 1 })
+		if got := onErrors() - before; got != 1 || !strings.Contains(output.String(), "PAGE_FAILS") {
+			t.Errorf("OnError ran %d times:\n%s", got, output)
 		}
 	})
 

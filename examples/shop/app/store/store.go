@@ -7,6 +7,7 @@ import (
 	"math"
 
 	"github.com/liustack/tifa"
+	"golang.org/x/text/language"
 )
 
 // Locale is one language of the storefront. Pages format money in Currency and times in
@@ -32,6 +33,21 @@ func FindLocale(code string) (Locale, error) {
 		}
 	}
 	return Locale{}, tifa.ErrNotFound
+}
+
+// matcher picks the storefront's language for the languages a browser asks for.
+var matcher = language.NewMatcher([]language.Tag{language.MustParse("zh-CN"), language.MustParse("en-US")})
+
+// Preferred returns the locale of the storefront closest to the languages of an Accept-Language
+// header, zh-CN for none.
+func Preferred(acceptLanguage string) Locale {
+	tags, _, _ := language.ParseAcceptLanguage(acceptLanguage)
+	_, i, confidence := matcher.Match(tags...)
+	if confidence == language.No {
+		// The matcher then falls back to English, which a shop in China is not.
+		return locales[0]
+	}
+	return locales[i]
 }
 
 // Text is a text in both languages of the storefront: Chinese, then English.

@@ -15,6 +15,7 @@ import (
 
 	"github.com/liustack/slowjs"
 	"github.com/liustack/tifa/internal/config"
+	"github.com/liustack/tifa/internal/core"
 )
 
 func testSource(t *testing.T) string {
@@ -654,5 +655,74 @@ func TestInterruptIsTheTimeBudget(t *testing.T) {
 	_, err := p.Render(context.Background(), input("interrupt", ""))
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("got %v", err)
+	}
+}
+
+// A render whose deadline has passed fails as a timed out render before it takes a VM, and one
+// whose deadline comes before ssr.timeout gets only what is left of it.
+func TestRenderKeepsToTheDeadlineOfTheInput(t *testing.T) {
+	p := newTestPool(t, testSource(t), testConfig(1))
+	in := input("ok", "")
+	in.Deadline = time.Now().Add(-time.Millisecond)
+	if _, err := p.Render(context.Background(), in); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("got %v, want a timed out render", err)
+	}
+	if s := p.stats(); s.created != 1 || s.closed != 0 {
+		t.Fatalf("a render past its deadline retired a VM: %+v", s)
+	}
+	in = input("loop", "")
+	in.Deadline = time.Now().Add(50 * time.Millisecond)
+	start := time.Now()
+	if _, err := p.Render(context.Background(), in); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("got %v, want a timed out render", err)
+	}
+	if took := time.Since(start); took > time.Second {
+		t.Fatalf("the render ran %s, past its deadline", took)
+	}
+}
+
+// A render that waits for a VM stops waiting at its deadline, before ssr.wait_timeout, and
+// fails as a render that ran out of time, not as a busy pool.
+func TestWaitForAVMKeepsToTheDeadlineOfTheInput(t *testing.T) {
+	cfg := testConfig(1)
+	cfg.WaitTimeout = 2 * time.Second
+	p := newTestPool(t, testSource(t), cfg)
+	vm, err := p.acquire(context.Background(), time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.putIdle(vm)
+	in := input("ok", "")
+	in.Deadline = time.Now().Add(20 * time.Millisecond)
+	start := time.Now()
+	_, err = p.Render(context.Background(), in)
+	if took := time.Since(start); took > time.Second || !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, core.ErrSSRBusy) {
+		t.Fatalf("after %s: %v, want a timed out render at the deadline", took, err)
+	}
+}
+
+// The bundle reports with an error how many levels of the route tree could show it, and an
+// input's error goes to the bundle.
+func TestRenderReportsTheLevelsOfAFailedPage(t *testing.T) {
+	p := newTestPool(t, testSource(t), testConfig(1))
+	_, err := p.Render(context.Background(), input("levels", ""))
+	if levels, ok := Levels(err); !ok || levels != 3 {
+		t.Fatalf("got %d %v from %v, want 3 levels", levels, ok, err)
+	}
+	if !strings.Contains(err.Error(), "page failed") {
+		t.Fatalf("got %v", err)
+	}
+	_, err = p.Render(context.Background(), input("error", ""))
+	if _, ok := Levels(err); ok {
+		t.Fatalf("an error without levels reports some: %v", err)
+	}
+	in := input("placed", "")
+	in.Error = &PlacedError{Status: 503, Message: "down", Level: 1}
+	html, err := p.Render(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `<p>{"status":503,"message":"down","level":1}</p>`; html != want {
+		t.Fatalf("got %s, want %s", html, want)
 	}
 }

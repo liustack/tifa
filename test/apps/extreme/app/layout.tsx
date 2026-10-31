@@ -1,3 +1,4 @@
+import { RouteError } from 'tifa/client'
 import { Outlet } from '@tanstack/react-router'
 import './styles.css'
 
@@ -16,7 +17,8 @@ export default function Root() {
   return <Outlet />
 }
 
-export function NotFound() {
+export function Error({ error }: { error: unknown }) {
+  if (!(error instanceof RouteError && error.status === 404)) return <p>出错了，请稍后再试</p>
   return (
     <main className="mx-auto flex min-h-[60vh] max-w-xl flex-col items-start justify-center gap-3 px-6">
       <p className="font-mono text-xs tracking-[0.12em] text-muted-foreground">404</p>

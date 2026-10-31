@@ -44,18 +44,17 @@ func routeApp(t *testing.T) string {
 			"const site = 'PAGE-SITE'\n" +
 			"export default function Page() { return 'PAGE-COMPONENT ' + site }\n" +
 			"export const head = () => ({ meta: [{ title: 'PAGE-HEAD ' + site }] })\n" +
-			"export function Error() { return 'PAGE-ERROR' }\n" +
-			"export function NotFound() { return 'PAGE-NOT-FOUND' }\n",
+			"export function Error() { return 'PAGE-ERROR' }\n",
 		"app/other/page.tsx": "export default function Other() { return 'OTHER-COMPONENT' }\n",
 		".tifa/routes.tsx": "import { lazyRouteComponent } from '@tanstack/react-router'\n" +
 			"import * as m1 from '../app/layout'\n" +
 			"import * as m2 from '../app/page/page'\n" +
 			"const m3 = () => import('../app/other/page')\n" +
 			"export const parts = { layout: m1.default, page: m2.default, head: m2.head, error: m2.Error, " +
-			"notFound: m2.NotFound, other: lazyRouteComponent(m3) }\n",
+			"other: lazyRouteComponent(m3) }\n",
 		".tifa/client.ts": "import { parts } from './routes'\n(globalThis as any).parts = parts\n",
 		".tifa/server.ts": "import { parts } from './routes'\n" +
-			"(globalThis as any).result = JSON.stringify([parts.layout(), parts.page(), parts.head(), parts.error(), parts.notFound()])\n",
+			"(globalThis as any).result = JSON.stringify([parts.layout(), parts.page(), parts.head(), parts.error()])\n",
 	})
 	return root
 }
@@ -99,7 +98,7 @@ func TestBrowserLoadsRouteModulesWhenTheirRoutesNeedThem(t *testing.T) {
 	if !strings.Contains(head, "LAYOUT-COMPONENT") {
 		t.Error("the entry script lacks the root Layout")
 	}
-	for _, text := range []string{"PAGE-COMPONENT", "PAGE-HEAD", "PAGE-ERROR", "PAGE-NOT-FOUND", "PAGE-SITE", "pageRan", "OTHER-COMPONENT"} {
+	for _, text := range []string{"PAGE-COMPONENT", "PAGE-HEAD", "PAGE-ERROR", "PAGE-SITE", "pageRan", "OTHER-COMPONENT"} {
 		if strings.Contains(head, text) {
 			t.Errorf("the entry script holds %s", text)
 		}
@@ -151,7 +150,7 @@ func TestBrowserLoadsRouteModulesWhenTheirRoutesNeedThem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `["LAYOUT-COMPONENT","PAGE-COMPONENT PAGE-SITE",{"meta":[{"title":"PAGE-HEAD PAGE-SITE"}]},"PAGE-ERROR","PAGE-NOT-FOUND"]`
+	want := `["LAYOUT-COMPONENT","PAGE-COMPONENT PAGE-SITE",{"meta":[{"title":"PAGE-HEAD PAGE-SITE"}]},"PAGE-ERROR"]`
 	if got := evalResult(t, string(ssr)); got != want {
 		t.Errorf("SSR bundle gives %s, want %s", got, want)
 	}
@@ -169,13 +168,13 @@ func TestBrowserLoadsRouteModulesWhenTheirRoutesNeedThem(t *testing.T) {
 		"const p = globalThis.parts\n" +
 		"const before = globalThis.pageRan === true\n" +
 		"const head = await p.head()\n" +
-		"await Promise.all([p.page.preload(), p.error.preload(), p.notFound.preload()])\n" +
-		"console.log(JSON.stringify([before, p.layout(), head, p.page(), p.error(), p.notFound()]))\n"
+		"await Promise.all([p.page.preload(), p.error.preload()])\n" +
+		"console.log(JSON.stringify([before, p.layout(), head, p.page(), p.error()]))\n"
 	out, err := exec.Command("node", "--input-type=module", "-e", run, entry).CombinedOutput()
 	if err != nil {
 		t.Fatalf("node: %v\n%s", err, out)
 	}
-	want = `[false,"LAYOUT-COMPONENT",{"meta":[{"title":"PAGE-HEAD PAGE-SITE"}]},"PAGE-COMPONENT PAGE-SITE","PAGE-ERROR","PAGE-NOT-FOUND"]`
+	want = `[false,"LAYOUT-COMPONENT",{"meta":[{"title":"PAGE-HEAD PAGE-SITE"}]},"PAGE-COMPONENT PAGE-SITE","PAGE-ERROR"]`
 	if got := strings.TrimSpace(string(out)); got != want {
 		t.Errorf("browser bundle gives %s, want %s", got, want)
 	}

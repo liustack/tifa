@@ -16,15 +16,18 @@ import (
 var layouts = []server.Layout{
 	{
 		ID:   "app/layout",
+		Path: "/",
 		Load: func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app.Layout) },
 		SSR:  true,
 	},
 	{
-		ID:  "app/auth/layout",
-		SSR: true,
+		ID:   "app/auth/layout",
+		Path: "/auth",
+		SSR:  true,
 	},
 	{
 		ID:   "app/projects/projectId+/layout",
+		Path: "/projects/{projectId}",
 		Load: func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app_projects_projectId_.Layout) },
 		SSR:  true,
 	},

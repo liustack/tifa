@@ -132,7 +132,7 @@ func TestPageRendersWithTheResultsOfItsChain(t *testing.T) {
 func TestPageGivesTheRenderTheJSONTextOfEachLoadApart(t *testing.T) {
 	tricky := map[string]any{"quote": `a "b"`, "slash": `C:\temp`, "line": "x\u2028y\u2029", "tag": "</script><!--", "emoji": "😀", "amp": "a&b<c>"}
 	app := App{
-		Layouts: []Layout{{ID: "app/layout", SSR: true, Load: func(c *tifa.Ctx) (any, error) { return tricky, nil }}},
+		Layouts: []Layout{{ID: "app/layout", Path: "/", SSR: true, Load: func(c *tifa.Ctx) (any, error) { return tricky, nil }}},
 		Routes: []Route{
 			{ID: "app/page", Path: "/p", Page: true, SSR: true, Layouts: []string{"app/layout"},
 				Load: func(c *tifa.Ctx) (any, error) { return []string{"</script>", `"`, c.Header("X-Name")}, nil }},
@@ -305,7 +305,7 @@ func TestFailedPagesRenderWithTheErrorStatus(t *testing.T) {
 		t.Errorf("OnError got %v, want the shared error once", unexpected)
 	}
 	w = get(s, "/nowhere")
-	if data := r.last(t); w.Code != 404 || len(data) != 0 || !strings.Contains(w.Body.String(), "<html>/nowhere") {
+	if data := r.last(t); w.Code != 404 || len(data) != 1 || data["app/layout"].Status != 200 || !strings.Contains(w.Body.String(), "<html>/nowhere") {
 		t.Errorf("unmatched URL: %d %s", w.Code, w.Body.String())
 	}
 	before := r.count()
@@ -323,10 +323,10 @@ func TestFailedPagesRenderWithTheErrorStatus(t *testing.T) {
 
 // A page preloads the chunks of the Layouts and the route it matched, as build.json lists them,
 // outermost first and each file once, right after the head of the build. When a Load fails, the
-// router shows the page down to that level only: a Layout's 404 shows the NotFound of the level
-// above, so the page preloads the levels above it, and any other failure, or a 404 of the page
-// itself, shows the Error or NotFound of that level or one above, so it preloads down to it. An
-// unmatched URL shows the root Layout, which is part of the entry, and preloads nothing.
+// router shows the page down to that level only: a failed Layout shows the Error of the level
+// above, so the page preloads the levels above it, and a failed page shows the first Error from
+// the page up, so it preloads down to the page. An unmatched URL preloads the Layouts it shows its
+// 404 inside.
 func TestPagePreloadsTheModulesOfItsRoutes(t *testing.T) {
 	head := `<script type="module" src="/assets/app-1.js"></script>`
 	preloads := fstest.MapFS{
@@ -371,11 +371,13 @@ func TestPagePreloadsTheModulesOfItsRoutes(t *testing.T) {
 	}{
 		{"/projects/p1", orders, 200},
 		{"/projects/gone", orders, 404},
-		{"/projects/broken", link("/assets/chunk-r.js", "/assets/chunk-p.js", "/assets/chunk-s.js"), 500},
+		{"/projects/broken", link("/assets/chunk-r.js"), 500},
 		{"/projects/nope", link("/assets/chunk-r.js"), 404},
 		{"/projects/p1?site=missing", "", 404},
 		{"/", link("/assets/chunk-r.js"), 200},
-		{"/nowhere", "", 404},
+		{"/nowhere", link("/assets/chunk-r.js"), 404},
+		{"/projects/p1/nowhere", link("/assets/chunk-r.js", "/assets/chunk-p.js", "/assets/chunk-s.js"), 404},
+		{"/projects/nope/nowhere", link("/assets/chunk-r.js"), 404},
 	} {
 		w := get(s, c.url)
 		if w.Code != c.status {
@@ -391,12 +393,12 @@ func TestPagePreloadsTheModulesOfItsRoutes(t *testing.T) {
 	}
 }
 
-func TestUnmatchedURLWithoutRootSSRCarriesNoData(t *testing.T) {
+func TestUnmatchedURLWithoutRootSSRCarriesTheLayoutData(t *testing.T) {
 	app := frontApp()
 	app.Layouts[0].SSR = false
 	s, r := newFrontServer(t, app)
 	w := get(s, "/nowhere")
-	if w.Code != 404 || r.count() != 0 || !strings.Contains(w.Body.String(), `"data":{}`) {
+	if w.Code != 404 || r.count() != 0 || !strings.Contains(w.Body.String(), `"data":{"app/layout":{"status":200,"json":"{\"name\":\"shop\"}"}}`) {
 		t.Errorf("%d, %d renders: %s", w.Code, r.count(), w.Body.String())
 	}
 }

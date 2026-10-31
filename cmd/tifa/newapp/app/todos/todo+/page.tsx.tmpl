@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { TifaError } from 'tifa/client'
+import { RouteError, TifaError } from 'tifa/client'
+import { Error as RootError } from '../../layout'
 import { page, POST, type PageData } from './route.gen'
 
 export default function TodoPage() {
@@ -42,8 +43,10 @@ export const head = ({ loaderData }: { loaderData?: PageData }) => ({
   meta: loaderData ? [{ title: loaderData.title }] : [],
 })
 
-// NotFound shows inside the root Layout when Load returns tifa.ErrNotFound.
-export function NotFound() {
+// Error shows inside the root Layout when Load fails, a RouteError with status 404 when it
+// returns tifa.ErrNotFound. Other failures show the root Layout's Error.
+export function Error({ error }: { error: unknown }) {
+  if (!(error instanceof RouteError && error.status === 404)) return <RootError error={error} />
   return (
     <>
       <h1>No such todo</h1>

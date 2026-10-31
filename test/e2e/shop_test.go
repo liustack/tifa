@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -119,8 +120,8 @@ func TestShopApp(t *testing.T) {
 	}
 	// The order page preloads the chunks of the project Layout and of its route right after the
 	// head of the build, so the browser fetches them alongside the entry script. The order route
-	// holds its NotFound. An unknown URL shows the root Layout, which is in the entry, and
-	// preloads nothing.
+	// holds its Error. An unknown URL shows its 404 inside the root Layout, which is in the entry,
+	// and preloads nothing.
 	after, ok := strings.CutPrefix(body[strings.Index(body, built.Head)+len(built.Head):], `<link rel="modulepreload" href="`)
 	preloads, _, _ := strings.Cut(after, "<!--tifa-head-->")
 	var chunks strings.Builder
@@ -155,8 +156,8 @@ func TestShopApp(t *testing.T) {
 	// The files the order page loads besides its own HTML: the head of the build and its preloads.
 	checkCompressed(t, base, dir, built.BuildID, body[strings.Index(body, built.Head):strings.Index(body, "<!--tifa-head-->")])
 
-	// 404 at each level: the order inside the project Layout, the project inside the root Layout,
-	// an unknown URL on its own. Each one keeps a title, the last from the root Layout's documentHead.
+	// 404 at each level: the order inside the project Layout, the project and an unknown URL
+	// inside the root Layout. Each one keeps a title, the last from the root Layout's documentHead.
 	for _, tc := range []struct {
 		path, want  string
 		withSidebar bool
@@ -164,7 +165,7 @@ func TestShopApp(t *testing.T) {
 		{"/projects/studio/orders/WK-0201", ">没有找到这个订单</div>", true},
 		{"/projects/nope", "没有找到这个页面", true},
 		{"/projects/nope/stats", "没有找到这个页面", true},
-		{"/nowhere", "没有找到这个页面", false},
+		{"/nowhere", "没有找到这个页面", true},
 	} {
 		status, _, body := get(t, base+tc.path)
 		// The project Layout shows the project name in its heading.
@@ -285,10 +286,25 @@ func checkStorefront(t *testing.T, base, buildID string) {
 	if a, b := strings.Index(rendered(list), "Dot Grid Notebook"), strings.Index(rendered(list), "Beeswax Wraps"); a < 0 || b < a {
 		t.Errorf("moss products by price: notebook at %d, wraps at %d", a, b)
 	}
+	// The head of the language Layout links each page to itself in both languages, and names
+	// the default language for a browser that asks for neither.
+	for path, rest := range map[string]string{"/store/en-US": "", "/store/en-US/products/pour-over-kettle": "/products/pour-over-kettle", "/store/zh-CN/journal": "/journal"} {
+		_, _, page := get(t, base+path)
+		head := page[:strings.Index(page, "</head>")]
+		for _, lang := range []string{"zh-CN", "en-US", "x-default"} {
+			to := "zh-CN"
+			if lang == "en-US" {
+				to = lang
+			}
+			if want := `<link rel="alternate" hrefLang="` + lang + `" href="https://shop.example.com/store/` + to + rest + `">`; !strings.Contains(head, want) {
+				t.Errorf("%s: the head lacks %s", path, want)
+			}
+		}
+	}
 	// The head of the language Layout sets the language of <html> from the locale its Go
 	// function checked, over the root Layout's zh-CN, also on the 404 pages inside it. A path no
-	// page of the store has is a 404 inside it too. A language the store does not have is the
-	// root's 404, in the root's language.
+	// page of the store has is a 404 inside it too, with no page of its own for it. A language the
+	// store does not have is the root's 404, in the root's language.
 	for _, tc := range []struct {
 		path   string
 		status int
@@ -301,10 +317,30 @@ func checkStorefront(t *testing.T, base, buildID string) {
 		{"/store/zh-CN/products/nope", 404, "zh-CN", "没有找到这个页面"},
 		{"/store/en-US/journal/nope", 404, "en-US", "We could not find this page"},
 		{"/store/en-US/nope/deeper", 404, "en-US", "We could not find this page"},
+		{"/store/en-US/nope", 404, "en-US", "We could not find this page"},
+		{"/store/zh-CN/journal/x/y", 404, "zh-CN", "没有找到这个页面"},
 	} {
 		status, _, page := get(t, base+tc.path)
 		if start := `<!DOCTYPE html><html lang="` + tc.lang + `"><head>`; status != tc.status || !strings.HasPrefix(page, start) || !strings.Contains(rendered(page), tc.text) {
 			t.Errorf("%s: %d, want %d with %s in a document starting %s:\n%.120s", tc.path, status, tc.status, tc.text, start, page)
+		}
+	}
+	// /store sends the visitor to the language their browser prefers.
+	for accept, want := range map[string]string{"en-GB,en;q=0.9": "/store/en-US", "zh-CN": "/store/zh-CN", "": "/store/zh-CN"} {
+		req, err := http.NewRequest("GET", base+"/store", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if accept != "" {
+			req.Header.Set("Accept-Language", accept)
+		}
+		res, err := (&http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if res.StatusCode != 302 || res.Header.Get("Location") != want || !slices.Contains(res.Header.Values("Vary"), "Accept-Language") {
+			t.Errorf("/store with Accept-Language %q: %d %v, want %s", accept, res.StatusCode, res.Header, want)
 		}
 	}
 	// A link from /store/en-US to /store/zh-CN loads the language Layout again, its Go function

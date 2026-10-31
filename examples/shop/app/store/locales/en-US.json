@@ -497,6 +497,10 @@
     "body": "The address may be wrong, or what was here is gone.",
     "back": "Back to the shop"
   },
+  "failed": {
+    "title": "Something went wrong",
+    "body": "Please try again in a moment."
+  },
   "shell": {
     "announce": "Free delivery over {{amount, currency}} · Returns within seven days · Autumn 2026 catalogue, issue 4",
     "menuCount_other": "{{count}} items",

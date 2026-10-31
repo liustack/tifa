@@ -1,6 +1,7 @@
 // A tiny SSR bundle for the pool tests. It follows the same contract as a real
 // bundle: startRender(json) receives {buildId, url, data} and leaves
-// globalThis.renderResult as the HTML on success, or a JSON string, {redirect} or {error}.
+// globalThis.renderResult as the HTML on success, or a JSON string, {redirect} or {error}, with
+// the levels of the route tree that could show the error when the bundle knows them.
 // data.mode selects the behaviour, data.text is echoed into the HTML.
 
 let renders = 0
@@ -103,6 +104,12 @@ globalThis.startRender = (json) => {
     }
     case 'error':
       globalThis.renderResult = JSON.stringify({ error: 'page failed' })
+      return
+    case 'levels':
+      globalThis.renderResult = JSON.stringify({ error: 'page failed', levels: 3 })
+      return
+    case 'placed':
+      globalThis.renderResult = '<p>' + JSON.stringify(input.error) + '</p>'
       return
     case 'redirect':
       globalThis.renderResult = JSON.stringify({ redirect: { location: '/a?q=1', status: 307 } })

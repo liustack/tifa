@@ -3,7 +3,7 @@ import { writeFileSync } from 'node:fs'
 import { createMemoryHistory, isRedirect } from '@tanstack/react-router'
 import { hydrate } from '@tanstack/react-router/ssr/client'
 import { htmlAttributes, routeTree } from './.tifa/routes'
-import { createAppRouter, load } from './.tifa/runtime/router'
+import { createAppRouter, load, unmatched } from './.tifa/runtime/router'
 import { serve, type RenderResult } from './.tifa/runtime/server'
 import { collector, RouteError, type InjectedResult, type RouteResult } from './.tifa/runtime/data'
 
@@ -14,7 +14,7 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message)
 }
 const ok = (data: unknown): RouteResult => ({ status: 200, data })
-const missing: RouteResult = { status: 404 }
+const missing: RouteResult = { status: 404, error: 'Not Found' }
 
 serve(routeTree, htmlAttributes)
 
@@ -227,9 +227,11 @@ test('a failed or unmatched page gets the attributes of the levels it shows', as
   const missingPage = await render('/intl/fr', { ...appData, 'app/intl/lang+/layout': ok('fr'), 'app/intl/lang+/route': missing })
   assert(documentStart(missingPage) === '<!DOCTYPE html><html lang="fr" data-theme="a&quot;b" class="outer" dir="ltr">', `404 page: ${documentStart(missingPage)}`)
   contains(missingPage, 'APP_404')
-  // A URL no route matches shows the root alone, with the root Layout's attributes.
-  const unmatched = await render('/intl/fr/rtl/nowhere', {})
-  assert(documentStart(unmatched) === '<!DOCTYPE html><html lang="xx" data-theme="a&quot;b" class="h-full">', `unmatched: ${documentStart(unmatched)}`)
+  // A URL no page matches shows inside the deepest Layout it matches, with that Layout's
+  // attributes: below the language Layout, the 404 is in that language.
+  const unmatched = await render('/intl/fr/rtl/nowhere', { ...appData, 'app/intl/lang+/layout': ok('fr') })
+  assert(documentStart(unmatched) === '<!DOCTYPE html><html lang="fr" data-theme="a&quot;b" class="outer" dir="ltr">', `unmatched: ${documentStart(unmatched)}`)
+  contains(unmatched, 'INTL <!-- -->fr', 'APP_404')
 })
 
 test('a component that throws fails the render', async () => {
@@ -237,17 +239,49 @@ test('a component that throws fails the render', async () => {
   assert(result.html === undefined && result.error !== undefined, `render /throws: ${JSON.stringify(result)}`)
 })
 
+test('a render that failed reports its levels, and renders again with the error placed at a level', async () => {
+  const failed = await renderResult('/throws', appData) as { levels?: number }
+  assert(failed.levels === 3, `levels of /throws: ${JSON.stringify(failed)}`)
+  const placed = async (level: number) => {
+    globalThis.renderResult = undefined
+    const input = inject(appData)
+    globalThis.startRender(JSON.stringify({ url: '/throws', buildId: 'b1', data: input.data, error: { status: 503, message: 'down', level } }), ...input.texts)
+    for (let i = 0; i < 1000 && globalThis.renderResult === undefined; i++) await new Promise((resolve) => setTimeout(resolve, 0))
+    return globalThis.renderResult!
+  }
+  // Level 0 is the page: its Error, the root Layout's, shows inside the root Layout.
+  const page = await placed(0)
+  contains(page, '<html lang="xx" ', 'APP_NAV', 'APP_ERROR <!-- -->503 down', '<title>APP_TITLE &amp; &lt;x&gt;</title>')
+  lacks(page, 'PAGE_THROWS')
+  const { router, calls } = await hydrateFrom(page, '/throws')
+  assert(calls.length === 0, `hydration requested ${JSON.stringify(calls)}`)
+  const match = router.state.matches[router.state.matches.length - 1]
+  assert(match.status === 'error' && match.error instanceof RouteError && match.error.status === 503, `after hydration: ${match.status} ${match.error}`)
+  // Level 1 is the root Layout: the framework's Error shows in its place.
+  const layout = await placed(1)
+  contains(layout, '<html lang="xx" ', 'Something went wrong', 'down')
+  lacks(layout, 'APP_NAV', 'APP_ERROR')
+  contains(await placed(2), 'Something went wrong', 'down')
+  const beyond = JSON.parse(await placed(3))
+  assert(typeof beyond.error === 'string' && beyond.error.includes('no level 3'), `level 3: ${JSON.stringify(beyond)}`)
+})
+
 test('a failed root Load keeps the document', async () => {
   const failed = await render('/hello', { 'app/layout': { status: 500, error: 'boom' } })
   contains(failed, '<html lang="xx" ', 'boom', 'src="/assets/app.js"', 'href="/assets/app.css"')
+  // The root Layout's Error shows inside the root Layout, so the framework's shows its failure.
   const notFound = await render('/hello', { 'app/layout': missing })
-  contains(notFound, '<html lang="xx" ', 'APP_404', 'src="/assets/app.js"')
+  contains(notFound, '<html lang="xx" ', 'Page not found', 'src="/assets/app.js"')
+  lacks(notFound, 'APP_404')
 })
 
-test("a Layout's 404 is shown from the level above, inside the ancestors", async () => {
+test("a failed Layout shows the Error of the level above, inside the ancestors", async () => {
   const html = await render('/teams/x/one', { ...appData, 'app/teams/team+/layout': missing, 'app/teams/team+/one/route': ok('one') })
   contains(html, 'APP_NAV', 'APP_404')
   lacks(html, 'TEAM_404', 'TEAM_ONE')
+  const failed = await render('/teams/x/one', { ...appData, 'app/teams/team+/layout': { status: 403, error: 'no' }, 'app/teams/team+/one/route': ok('one') })
+  contains(failed, 'APP_NAV', 'APP_ERROR <!-- -->403 no')
+  lacks(failed, 'TEAM_ERROR')
 })
 
 test("a page's 404 is shown inside its Layouts", async () => {
@@ -256,29 +290,52 @@ test("a page's 404 is shown inside its Layouts", async () => {
   lacks(html, 'TEAM_ONE')
 })
 
-test("a 404 below a Layout without NotFound is shown in that Layout's place", async () => {
+test("a 404 below a Layout without Error is shown with the Error above, inside that Layout", async () => {
   const html = await render('/a/two', { ...appData, 'app/a/layout': ok('a'), 'app/a/two/route': missing })
-  contains(html, 'APP_NAV', 'APP_404')
-  lacks(html, 'LAYOUT_A', 'PAGE_A_TWO')
+  contains(html, 'APP_NAV', 'LAYOUT_A', 'APP_404')
+  lacks(html, 'PAGE_A_TWO')
 })
 
-test("an unmatched URL shows the root Layout's NotFound without asking for data", async () => {
+test('an unmatched URL shows the 404 inside the deepest Layout it matches, after loading the Layouts', async () => {
   const { calls } = await client('/teams/x/missing')
-  assert(calls.length === 0, `requested ${JSON.stringify(calls)}`)
-  const html = await render('/teams/x/missing', {})
-  contains(html, '<html lang="xx" ', 'APP_404', 'src="/assets/app.js"')
-  // The root Layout did not load, its documentHead is on every page all the same.
-  contains(html.slice(0, html.indexOf('</head>')), '<meta name="theme-color" content="#123">', '<link rel="icon" href="/icon.svg">')
+  const ids = calls.map(([, id]) => id).sort()
+  assert(JSON.stringify(ids) === '["app/layout","app/teams/team+/layout"]', `requested ${JSON.stringify(calls)}`)
+  const html = await render('/teams/x/missing', { ...appData, 'app/teams/team+/layout': ok('x') })
+  contains(html, '<html lang="xx" ', 'APP_NAV', 'TEAM <!-- -->x', 'TEAM_404', 'src="/assets/app.js"')
+  contains(html.slice(0, html.indexOf('</head>')), '<meta name="theme-color" content="#123">', '<link rel="icon" href="/icon.svg">', '<title>TEAM x</title>')
+  // A literal page is more specific than a Layout of a parameter: /a/one/x is under the root
+  // Layout, not under /teams/{team}. The page itself does not load.
+  const below = await client('/a/one/x')
+  assert(JSON.stringify(below.calls.map(([, id]) => id).sort()) === '["app/a/layout","app/layout"]', `requested ${JSON.stringify(below.calls)}`)
+  contains(await render('/a/one/x', { ...appData, 'app/a/layout': ok('a') }), 'LAYOUT_A', 'APP_404')
+  // Outside every Layout but the root one.
+  const outside = await render('/nowhere/at/all', appData)
+  contains(outside, 'APP_NAV', 'APP_404')
+  // The Layout that does not load shows the Error above it.
+  const failed = await render('/teams/x/missing', { ...appData, 'app/teams/team+/layout': { status: 500, error: 'boom' } })
+  contains(failed, 'APP_NAV', 'APP_ERROR <!-- -->500 boom')
+  lacks(failed, 'TEAM_404')
 })
 
-test("the URL of a Layout without a page of its own is unmatched", async () => {
-  for (const url of ['/a', '/teams/x']) {
+test('the URL of a Layout without a page of its own shows the 404 inside that Layout', async () => {
+  for (const [url, data, inside] of [
+    ['/a', { 'app/a/layout': ok('a') }, 'LAYOUT_A'],
+    ['/teams/x', { 'app/teams/team+/layout': ok('x') }, 'TEAM <!-- -->x'],
+    ['/', {}, 'APP_NAV'],
+  ] as const) {
     const { calls } = await client(url)
-    assert(calls.length === 0, `${url} requested ${JSON.stringify(calls)}`)
-    const html = await render(url, {})
-    contains(html, 'APP_404')
-    lacks(html, 'APP_NAV')
+    const ids = calls.map(([, id]) => id).sort()
+    assert(JSON.stringify(ids) === JSON.stringify(['app/layout', ...Object.keys(data)].sort()), `${url} requested ${JSON.stringify(calls)}`)
+    const html = await render(url, { ...appData, ...data })
+    contains(html, 'APP_NAV', inside, url === '/teams/x' ? 'TEAM_404' : 'APP_404')
   }
+})
+
+test("the framework's Error shows a 404 as a page that is not found", async () => {
+  const html = await render('/hello', { 'app/layout': missing })
+  contains(html, '<main><h1>Page not found</h1></main>')
+  const failed = await render('/hello', { 'app/layout': { status: 503, error: 'later' } })
+  contains(failed, '<h1>Something went wrong</h1><p>later</p>')
 })
 
 test('the rest of the path may be empty, written without the trailing slash', async () => {
@@ -325,11 +382,13 @@ async function hydrateFrom(html: string, url: string) {
 
 test("a page without its own Error shows the closest ancestor's", async () => {
   const html = await render('/teams/x/one', { ...appData, 'app/teams/team+/layout': ok('x'), 'app/teams/team+/one/route': { status: 403, error: 'no' } })
-  contains(html, 'TEAM_ERROR <!-- -->403 no')
+  contains(html, 'TEAM <!-- -->x', 'TEAM_ERROR <!-- -->403 no')
   const { router } = await client('/teams/x/one')
   const one = Object.values(router.routesById).find((r: any) => r.id.includes('/teams/$team/') && r.id.endsWith('/one')) as any
+  const two = Object.values(router.routesById).find((r: any) => r.id.includes('/teams/$team/') && r.id.endsWith('/two')) as any
   const team = Object.values(router.routesById).find((r: any) => r.id.endsWith('/teams/$team')) as any
-  assert(one.options.errorComponent === team.options.errorComponent, 'the page and its Layout use different Error components')
+  assert(one.options.errorComponent === two.options.errorComponent, 'the pages of a Layout use different Error components')
+  assert(one.options.errorComponent !== team.options.errorComponent, 'the Layout shows its own Error in its place')
 })
 
 // titles lists the titles the head functions of the matches gave.
@@ -614,9 +673,11 @@ test('404, redirect and RouteError results keep their paths', async () => {
   assert(calls.length === 0, `hydration requested ${JSON.stringify(calls)}`)
   const states = router.state.matches.slice(1).map((m: any) => `${m.status} ${JSON.stringify(m.loaderData)}`)
   assert(
-    JSON.stringify(states) === JSON.stringify(['success {"name":"router"}', 'success "x"', 'notFound undefined']),
+    JSON.stringify(states) === JSON.stringify(['success {"name":"router"}', 'success "x"', 'error undefined']),
     `states after hydration ${JSON.stringify(states)}`,
   )
+  const notFound = router.state.matches.at(-1)?.error
+  assert(notFound instanceof RouteError && notFound.status === 404 && notFound.message === 'Not Found', `404 after hydration ${notFound}`)
   const redirected = await renderResult('/hello', { 'app/layout': { status: 302, location: '/login' } })
   assert(JSON.stringify(redirected.redirect) === '{"location":"/login","status":302}', `redirect ${JSON.stringify(redirected)}`)
   const failed = await render('/hello', { 'app/layout': { status: 403, error: 'no' } })
@@ -628,7 +689,7 @@ test('404, redirect and RouteError results keep their paths', async () => {
 test('preloaded data never goes stale by itself', async () => {
   const { router } = await client('/hello')
   for (const route of Object.values(router.routesById) as Array<{ id: string; options: any }>) {
-    if (!route.options.loader) continue
+    if (!route.options.loader || route.options.loader === unmatched) continue
     assert(route.options.staleTime === Infinity, `${route.id} staleTime ${route.options.staleTime}`)
     assert(route.options.preloadStaleTime === Infinity, `${route.id} preloadStaleTime ${route.options.preloadStaleTime}`)
   }
