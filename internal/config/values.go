@@ -163,7 +163,7 @@ func browserOrigin(u *url.URL) (string, error) {
 		case err != nil || !addr.Is6() || addr.Zone() != "":
 			return "", fmt.Errorf("[%s] is not an IPv6 address a browser sends", host)
 		case addr.Is4In6():
-			return "", fmt.Errorf("[%s] is an IPv4 address in IPv6, which a browser writes another way: trust the IPv4 address", host)
+			return "", fmt.Errorf("[%s] is an IPv4 address in IPv6, which a browser writes in another form: such an origin cannot be trusted", host)
 		case addr.String() != host:
 			return "", fmt.Errorf("write the IPv6 address as a browser sends it, [%s]", addr)
 		}
