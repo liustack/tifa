@@ -49,7 +49,7 @@
 
 ### 新增
 
-- 一个目录可以放 `layout_.tsx` 代替 `layout.tsx`。它的页面和它下面的页面外面不套任何上层 Layout，根 Layout 也不套，上层的 `Layout` 函数也不为它们执行：整页渲染、浏览器导航的数据请求、它下面没有页面的 URL 的 404，都一样。根 Layout 的 `htmlAttributes`、`documentHead` 和 `OnRequest` 照常生效。同目录的 `Layout` 照常给它数据，它下面的 Layout 照常套在它里面，它失败时显示框架默认页面。`app/` 根目录放 `layout_.tsx`、同一个目录同时有 `layout.tsx` 和 `layout_.tsx`、用 `tifa.Use` 引用被 `layout_.tsx` 去掉的 Layout，都会构建报错（见[不套外层的 Layout](docs/app.zh-CN.md#不套外层的-layout)）。示例商店的店面用了它，所以店面页面不再带根 Layout 的空工作台数据，没有匹配页面的 URL 在工作台侧栏里显示店铺，店面没有的语言显示框架的 404 页面。
+- 一个目录可以放 `layout_.tsx` 代替 `layout.tsx`。它的页面和它下面的页面外面不套任何上层 Layout，根 Layout 也不套，上层的 `Layout` 函数也不为它们执行：整页渲染、浏览器导航的数据请求、它下面没有页面的 URL 的 404，都一样。根 Layout 的 `htmlAttributes`、`documentHead` 和 `OnRequest` 照常生效。同目录的 `Layout` 照常给它数据，它下面的 Layout 照常套在它里面，它失败时显示框架默认页面。`app/` 根目录放 `layout_.tsx`、同一个目录同时有 `layout.tsx` 和 `layout_.tsx`、用 `tifa.Use` 引用被 `layout_.tsx` 去掉的 Layout，都会构建报错（见[不套外层的 Layout](docs/app.zh-CN.md#不套外层的-layout)）。示例商店的店面用了它，所以店面页面不再带根 Layout 的空工作台数据，没有匹配页面的 URL 在工作台侧栏里显示店铺，店面没有的语言显示中英双语的店面 404 页面。
 - docs/app.zh-CN.md 新增[多语言网站](docs/app.zh-CN.md#多语言网站)：语言目录、在它的 `Layout` 里检查语言、在它的 `head` 里写 `lang` 和 `hreflang`、不带语言的 URL 怎么跳转、翻译同步加载。示例店铺的店面照它写：`/store` 按浏览器的 `Accept-Language` 跳到 `/store/zh-CN` 或 `/store/en-US`，接住剩余路径的页面删掉了。
 - 包可以引入只在 Node 上用的 Node 模块（比如渲染永远走不到的代码里用的 `node:fs`），应用照样加载、渲染。引入的每个名字都是一个替身，渲染用到它时才抛错，错误里有用到的导出、模块、包和它源码里的位置。以前打包时这样的 import 变成 `require`，每个虚拟机加载时就失败，哪怕只有 `import()` 才走到那个模块。`tifa build` 仍会列出留在 SSR 包里的 Node 模块（见[引入 Node 模块的包](docs/app.zh-CN.md#引入-node-模块的包)）。
 - 挂起等待 promise 自己就能完成的事的组件（比如模块在包里的 `React.lazy` 组件，或对 promise 调 `use`）可以在服务端渲染：服务端等它，写出完整的页面，就是浏览器加载完后显示的样子。以前这样的页面会失败，错误说有组件挂起了。等定时器或请求的仍然报这个错。不挂起的页面 HTML 不变，渲染一样快（见[会等待的组件](docs/app.zh-CN.md#会等待的组件)）。

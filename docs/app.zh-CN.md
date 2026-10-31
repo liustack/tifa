@@ -39,8 +39,9 @@ myapp/
         stats/
           route.go  page.tsx        页面 /projects/{project}/stats
     store/
+      layout_.tsx                   套住 /store 及下面所有页面，外面不套根 Layout，并显示它们的错误
       lang+/
-        route.go  layout_.tsx  page.tsx  /store/{lang} 及下面所有页面的 Layout，外面不套根 Layout，以及页面 /store/{lang}
+        route.go  layout.tsx  page.tsx   /store/{lang} 及下面所有页面的 Layout，以及页面 /store/{lang}
 ```
 
 - 代码按领域分组，一个领域就是 `app/` 下的一个目录：它的类型、存储和规则和页面放在一起，既有列表又有单条页面时放在列表那一层。页面 import 它要展示的领域包。根包只放钩子和整个应用共享的资源。不设一个装着所有表的 `models/` 或 `db/` 包。见 [structure.zh-CN.md](structure.zh-CN.md)。
@@ -292,15 +293,16 @@ app/
     project+/
       route.go  layout.tsx  page.tsx  在工作台里
   store/
+    layout_.tsx                       店面从这里开始，不套工作台
     lang+/
-      route.go  layout_.tsx  page.tsx   店面，不套工作台
+      route.go  layout.tsx  page.tsx  某一种语言的店面
       cart/
         route.go  page.tsx            在店面里
 ```
 
 - 它下面的页面，包括更深的，都不渲染它上面的 Layout，那些 Layout 的 `Layout` 函数也不为它们执行：整页渲染、浏览器导航的数据请求、它下面没有页面的 URL 的 404，都一样。所以那些数据不会出现在这些页面里。
 - 同一个目录 `route.go` 里的 `Layout` 照常给它数据。它下面的目录照常一层套一层：更深处的 `layout.tsx` 套在它里面，它的 `Layout` 照常执行。更深处再有 `layout_.tsx`，就连它和它上面的一起去掉。
-- 属于文档的照常生效：根 Layout 的 `htmlAttributes` 和 `documentHead`，还有 `OnRequest`。属于上层 Layout 的不生效：它们的 `head`、`Error` 和 `LayoutSSR`。`layout_.tsx` 这一层的 `Layout` 失败或返回 `tifa.ErrNotFound` 时，上面没有 Layout 能显示这个错误，于是显示框架默认页面。它自己的 `Error` 照常显示它下面的失败，和别的 Layout 一样。
+- 属于文档的照常生效：根 Layout 的 `htmlAttributes` 和 `documentHead`，还有 `OnRequest`。属于上层 Layout 的不生效：它们的 `head`、`Error` 和 `LayoutSSR`。`layout_.tsx` 这一层的 `Layout` 失败或返回 `tifa.ErrNotFound` 时，上面没有 Layout 能显示这个错误，于是显示框架默认页面。它自己的 `Error` 照常显示它下面的失败，和别的 Layout 一样。想在这个 `Layout` 失败时显示自己的页面，就把 `layout_.tsx` 往上放一层，只渲染 `<Outlet />` 并导出 `Error`，shop 的 `app/store` 就是这样。
 - 浏览器里在它下面的页面和外面的页面之间跳转，整个外框跟着换。新页面的 Layout 数据路由器里还没有时才去取。
 - 这些情况构建报错：`app/` 根目录放 `layout_.tsx`（根上面本来就没有 Layout），同一个目录同时有 `layout.tsx` 和 `layout_.tsx`，它下面的页面或 Layout 用 `tifa.Use` 引用被它去掉的 Layout。一个 Layout 的页面全在某个 `layout_.tsx` 下面时也报错，因为它一个页面都没套上。
 - React Router 和 TanStack Router 也用名字结尾的 `_` 让路由不套进某个 Layout，但只跳过前一段的那个 Layout，根路由和更上层的 Layout 照样套着它。tifa 的 `layout_.tsx` 去掉它上面所有的 Layout，根 Layout 也去掉。
@@ -387,7 +389,7 @@ func Layout(c *tifa.Ctx) (Shell, error) {
 }
 ```
 
-- shop 把这个目录的组件起名 `layout_.tsx`，店面外面就不套工作台（见[不套外层的 Layout](#不套外层的-layout)）。这样店面没有的语言显示框架默认的 404 页面，因为它上面没有 Layout。
+- shop 在上一层的 `app/store` 放了 `layout_.tsx`，店面外面就不套工作台（见[不套外层的 Layout](#不套外层的-layout)）。它只渲染 `<Outlet />`，它的 `Error` 用中英两种语言显示店面没有的语言的 404，并分别链接到两种语言的店面，因为这时不知道访客要哪种语言。
 - 页面和组件从这份数据取语言，经 `layout.useLoaderData()` 或 Layout 组件提供的 context，不从 `params` 取：Go 函数检查过它，别人在 URL 里随便写的字不会变成页面的语言。Layout 下面的 `Load` 也这样检查，或者用 `tifa.Use` 读 Layout 的结果。
 - Layout 的 `head` 在 `<html>` 上写 `lang`，再链接到同一页的各语言版本，供搜索引擎读：每种语言一个，包括页面自己的，再加一个 `x-default`，给哪种语言都不要的浏览器，这里用默认语言。搜索引擎要完整的 URL。`matches` 是页面的各层路由，页面在最后：
 

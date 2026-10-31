@@ -39,8 +39,9 @@ myapp/
         stats/
           route.go  page.tsx        page /projects/{project}/stats
     store/
+      layout_.tsx                   wraps /store and every page below it without the root Layout around them, and shows their errors
       lang+/
-        route.go  layout_.tsx  page.tsx  Layout of /store/{lang} and every page below it, without the root Layout around it, and the page /store/{lang}
+        route.go  layout.tsx  page.tsx   Layout of /store/{lang} and every page below it, and the page /store/{lang}
 ```
 
 - Code is grouped by domain, and a domain is a folder under `app/`: its types, storage and rules sit next to its pages, in the list folder when it has a list and a page per item. Pages import the domain packages they show. The root package holds only the hooks and the resources the whole app shares. There is no shared `models/` or `db/` package holding every table. See [structure.md](structure.md).
@@ -292,15 +293,16 @@ app/
     project+/
       route.go  layout.tsx  page.tsx  inside the workbench
   store/
+    layout_.tsx                       the storefront starts here, without the workbench
     lang+/
-      route.go  layout_.tsx  page.tsx   the storefront, without the workbench
+      route.go  layout.tsx  page.tsx  the storefront in one language
       cart/
         route.go  page.tsx            inside the storefront
 ```
 
 - The pages below it, also those further down, do not render the Layouts above it, and their `Layout` functions do not run for them: not for a page, not for the navigation data request of the browser, not for the 404 of a URL below it that no page has. So their data never reaches these pages.
 - The `Layout` in the `route.go` of the same folder gives it data as usual. The folders below it nest as usual: a `layout.tsx` further down shows inside it and its `Layout` runs. A `layout_.tsx` further down drops it in turn, with everything above it.
-- What belongs to the document still applies: the root Layout's `htmlAttributes` and `documentHead`, and `OnRequest`. What belongs to the Layouts above does not: their `head`, their `Error` and their `LayoutSSR`. When the `Layout` of a `layout_.tsx` fails, or returns `tifa.ErrNotFound`, no Layout is above it to show the error, so the framework's default page shows. Its own `Error` shows for what fails below it, as with any Layout.
+- What belongs to the document still applies: the root Layout's `htmlAttributes` and `documentHead`, and `OnRequest`. What belongs to the Layouts above does not: their `head`, their `Error` and their `LayoutSSR`. When the `Layout` of a `layout_.tsx` fails, or returns `tifa.ErrNotFound`, no Layout is above it to show the error, so the framework's default page shows. Its own `Error` shows for what fails below it, as with any Layout. To show your own page when that `Layout` fails, put the `layout_.tsx` one folder higher, with an `<Outlet />` and an `Error`, as the shop does in `app/store`.
 - In the browser, a move between a page below it and a page outside it swaps the whole frame, and the Layouts of the new page load their data when the router has none of it yet.
 - The build fails for a `layout_.tsx` in `app/`, which has no Layout above it, for `layout.tsx` and `layout_.tsx` in the same folder, and for `tifa.Use` of a Layout that a `layout_.tsx` drops, from a page or Layout below it. It also fails for a Layout whose pages are all below a `layout_.tsx`, since it wraps none of them.
 - React Router and TanStack Router also end a name with `_` to keep a route out of a Layout, but only out of the Layout of the segment before it: the root route and the Layouts further up still wrap it. tifa's `layout_.tsx` drops every Layout above it, the root Layout too.
@@ -387,7 +389,7 @@ func Layout(c *tifa.Ctx) (Shell, error) {
 }
 ```
 
-- The shop names the component of that folder `layout_.tsx`, so the storefront shows without the workbench around it (see [A Layout without the Layouts above](#a-layout-without-the-layouts-above)). A language it does not have then shows the framework's default 404 page, as no Layout is above it.
+- The shop puts a `layout_.tsx` in `app/store`, the folder above, so the storefront shows without the workbench around it (see [A Layout without the Layouts above](#a-layout-without-the-layouts-above)). It renders only an `<Outlet />`, and its `Error` shows the 404 of a language the store does not have in both languages, with a link to the storefront in each, since the visitor's language is not known.
 - Pages and components take the language from that data, through `layout.useLoaderData()` or a context the Layout component provides, not from `params`: the Go function checked it, so whatever someone types into the URL does not end up as the language of the page. A `Load` below the Layout checks it the same way, or reads the Layout's result with `tifa.Use`.
 - The `head` of the Layout writes `lang` on `<html>` and links to the same page in each language, which search engines read: one per language, the page's own included, and `x-default` for a browser that asks for none of them, here the default language. Search engines want these URLs in full. `matches` holds the routes of the page, the page last:
 
