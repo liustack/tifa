@@ -65,6 +65,14 @@ type Server struct {
 	HTTPAddr string
 	// HSTS adds Strict-Transport-Security to the answers of Addr.
 	HSTS bool
+
+	// Writes (every method but GET, HEAD and OPTIONS) that a browser sends from another site are
+	// refused with 403, see server.crossSite. TrustedOrigins are the origins that may send
+	// them anyway, in the form a browser writes them in the Origin header, such as
+	// https://admin.example.com. CrossSitePaths are http.ServeMux patterns, such as
+	// POST /auth/apple/callback, whose requests are not checked at all.
+	TrustedOrigins []string
+	CrossSitePaths []string
 }
 
 // HTTPS reports whether Addr serves HTTPS.
@@ -161,6 +169,8 @@ func fields(c *Config) []field {
 		{"server.tls_key", "Private key file (PEM) of tls_cert", optionalValue{&c.Server.TLSKey}},
 		{"server.http_addr", "With HTTPS, plain HTTP address that answers Let's Encrypt and redirects to HTTPS, off for none", httpAddrValue{&c.Server.HTTPAddr}},
 		{"server.hsts", "Send Strict-Transport-Security, so browsers keep to HTTPS for a year", boolValue{&c.Server.HSTS}},
+		{"server.trusted_origins", "Comma-separated origins whose pages may send cross-site writes, such as https://admin.example.com", originsValue{&c.Server.TrustedOrigins}},
+		{"server.cross_site_paths", "Comma-separated path patterns, such as POST /auth/callback, that accept cross-site writes", patternsValue{&c.Server.CrossSitePaths}},
 		{"ssr.vms", "Prewarmed JavaScript VMs, defaults to GOMAXPROCS (the CPU limit in containers)", intValue{p: &c.SSR.VMs, min: 1}},
 		{"ssr.vm_memory", "Memory limit of each VM", sizeValue{&c.SSR.VMMemory, 1}},
 		{"ssr.vm_stack_depth", "How deep JavaScript calls may nest in each VM, at most 10000", intValue{p: &c.SSR.VMStackDepth, min: 1, max: MaxVMStackDepth,

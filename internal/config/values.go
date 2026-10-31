@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"slices"
 	"strconv"
@@ -84,6 +85,98 @@ func (v domainsValue) Set(s string) error {
 }
 func (v domainsValue) String() string { return strings.Join(*v.p, ",") }
 func (v domainsValue) kind() string   { return "string" }
+
+// splitList splits comma-separated text into trimmed items. Blank text is no items, and an empty
+// item between commas is an error.
+func splitList(s string) ([]string, error) {
+	if strings.TrimSpace(s) == "" {
+		return nil, nil
+	}
+	items := strings.Split(s, ",")
+	for i, item := range items {
+		items[i] = strings.TrimSpace(item)
+		if items[i] == "" {
+			return nil, fmt.Errorf("empty item in %q", s)
+		}
+	}
+	return items, nil
+}
+
+// originsValue is server.trusted_origins: comma-separated origins, each a scheme, a host and
+// maybe a port. A browser sends an origin in lower case and without the default port of the
+// scheme, and the server compares the text, so Set writes each one that way, empty for none.
+type originsValue struct{ p *[]string }
+
+func (v originsValue) Set(s string) error {
+	items, err := splitList(s)
+	if err != nil {
+		return err
+	}
+	for i, item := range items {
+		u, err := url.Parse(item)
+		switch {
+		case err != nil:
+			return fmt.Errorf("invalid origin %q: %v", item, err)
+		case u.Scheme == "":
+			return fmt.Errorf("%q needs a scheme, such as https://admin.example.com", item)
+		case u.Scheme != "http" && u.Scheme != "https":
+			return fmt.Errorf("%q: the scheme must be http or https", item)
+		case u.Host == "":
+			return fmt.Errorf("%q needs a host, such as https://admin.example.com", item)
+		case u.User != nil:
+			return fmt.Errorf("%q: an origin has no user name or password", item)
+		case u.Path != "":
+			return fmt.Errorf("%q: an origin has no path, not even a final slash", item)
+		case u.RawQuery != "" || u.Fragment != "" || strings.ContainsAny(item, "?#"):
+			return fmt.Errorf("%q: an origin has no query or fragment", item)
+		}
+		host := strings.ToLower(u.Host)
+		if u.Port() == map[string]string{"http": "80", "https": "443"}[u.Scheme] {
+			host = strings.ToLower(u.Hostname())
+			if strings.Contains(u.Hostname(), ":") {
+				host = "[" + host + "]"
+			}
+		}
+		items[i] = u.Scheme + "://" + host
+	}
+	*v.p = items
+	return nil
+}
+func (v originsValue) String() string { return strings.Join(*v.p, ",") }
+func (v originsValue) kind() string   { return "string" }
+
+// patternsValue is server.cross_site_paths: comma-separated http.ServeMux patterns, empty for
+// none. A pattern that ServeMux would panic on, or that overlaps another one of the list in a
+// way it rejects, fails here instead.
+type patternsValue struct{ p *[]string }
+
+func (v patternsValue) Set(s string) error {
+	items, err := splitList(s)
+	if err != nil {
+		return err
+	}
+	mux := http.NewServeMux()
+	for _, item := range items {
+		if err := tryPattern(mux, item); err != nil {
+			return fmt.Errorf("invalid path pattern %q: %v", item, err)
+		}
+	}
+	*v.p = items
+	return nil
+}
+func (v patternsValue) String() string { return strings.Join(*v.p, ",") }
+func (v patternsValue) kind() string   { return "string" }
+
+// tryPattern registers pattern in mux and turns the panic of a bad one into an error.
+func tryPattern(mux *http.ServeMux, pattern string) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%v", r)
+		}
+	}()
+	mux.Handle(pattern, http.NotFoundHandler())
+	return nil
+}
 
 // caValue is server.tls_ca, the https URL of an ACME directory.
 type caValue struct{ p *string }
