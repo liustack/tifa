@@ -1,9 +1,10 @@
 ---
-summary: 'Every setting of a tifa app: where each one can be set, which source wins, the default, the flag and environment variable names, the value formats and the errors a bad value gives, and how to serve HTTPS with certificates the program gets itself or with your own'
+summary: 'Every setting of a tifa app: where each one can be set, which source wins, the default, the flag and environment variable names, the value formats and the errors a bad value gives, how to serve HTTPS with certificates the program gets itself or with your own, and how the program refuses writes that a browser sends from another site and how to let chosen origins or paths through'
 read_when:
   - Deploying a tifa app, or changing its port, body limit, compression, VM count, VM stack depth, render timeout, render queue or page cache
   - Serving HTTPS from the program itself, with Let's Encrypt or your own certificate, or deciding whether to
   - The program cannot listen on port 80 or 443, or gets no certificate
+  - A POST, PUT, PATCH or DELETE gets 403 with `cross-origin request detected`, or a page of another site or a provider's callback must be allowed to send one
   - Setting the browser target, or the static files folder of a build
   - The program refuses to start with a config error
   - Changing internal/config
@@ -63,6 +64,8 @@ Run `./bin/app config` to print the merged settings of all sources as a commente
 | `server.tls_key` | none | `--server-tls-key`, `TIFA_SERVER_TLS_KEY` | Private key file of `tls_cert`, in PEM |
 | `server.http_addr` | `:80` | `--server-http-addr`, `TIFA_SERVER_HTTP_ADDR` | With HTTPS on, the plain HTTP address that answers the checks of Let's Encrypt and redirects everything else to HTTPS. `off` for none. Not used without HTTPS |
 | `server.hsts` | `false` | `--server-hsts`, `TIFA_SERVER_HSTS` | Adds `Strict-Transport-Security: max-age=31536000` to the answers of `server.addr`, so browsers keep to HTTPS for a year |
+| `server.trusted_origins` | none | `--server-trusted-origins`, `TIFA_SERVER_TRUSTED_ORIGINS` | Origins whose pages may send writes (POST, PUT, PATCH, DELETE) from another site, comma-separated, such as `https://admin.example.com,http://localhost:3000`. See [Cross-site writes](#cross-site-writes) |
+| `server.cross_site_paths` | none | `--server-cross-site-paths`, `TIFA_SERVER_CROSS_SITE_PATHS` | Path patterns whose writes are not checked for the site they come from, comma-separated, such as `POST /auth/apple/callback`. See [Cross-site writes](#cross-site-writes) |
 | `ssr.vms` | the CPU count (`GOMAXPROCS`) | `--ssr-vms`, `TIFA_SSR_VMS` | Prewarmed JavaScript VMs, which is how many pages render at once. In a container it follows the CPU limit. [Sizing a machine](performance.md#sizing-a-machine) says when to change it |
 | `ssr.vm_memory` | `128MiB` | `--ssr-vm-memory`, `TIFA_SSR_VM_MEMORY` | Memory limit of each VM. A render that runs out of memory fails, and the VM is replaced with a fresh one. Page code cannot catch it. The shapes the engine keeps for reuse count here too, up to about 6 MiB per VM at worst (2048 shapes of 32 keys of about ten characters, more with longer keys), so leave room for them when you lower it (see [Memory](performance.md#memory)) |
 | `ssr.vm_stack_depth` | `10000` | `--ssr-vm-stack-depth`, `TIFA_SSR_VM_STACK_DEPTH` | How deep JavaScript calls may nest in each VM, about one level per call. Deeper calls throw `RangeError: Maximum call stack size exceeded`, at about the depth Node does. From 1 to 10000, see [Stack depth](#stack-depth) |
@@ -161,6 +164,24 @@ Copying or building the file again drops it, so do it after each deployment. Und
 
 `tifa dev` always serves plain HTTP and ignores these settings, also when the project file sets them.
 
+## Cross-site writes
+
+A program refuses a POST, PUT, PATCH or DELETE that a browser sends from another site. A page of `evil.test` can make a browser send a form or a multipart body to your app with the user's cookies, and a handler that trusts the cookie would act for the user. The check runs first, before `OnRequest` and before any route, for pages, API routes and URLs that match nothing. It is on for every app, and no setting turns it off. It is Go's `http.CrossOriginProtection`:
+
+- A request with `Sec-Fetch-Site: same-origin` passes, and so does `none` (the user typed the address). `same-site`, which is another subdomain of the same domain, and `cross-site` are refused.
+- A browser that sends no `Sec-Fetch-Site` (all current ones do) is judged by its `Origin`, which must name the `Host` of the request.
+- A request with neither header does not come from a browser, such as curl, a webhook or another server, and passes.
+- GET, HEAD and OPTIONS are never checked, so a GET must not change anything.
+
+A refused request gets 403 and `{"error":"cross-origin request detected from Sec-Fetch-Site header"}` (or the same with `Sec-Fetch-Site is missing, and Origin does not match Host`), with `Cache-Control: no-store`. `OnRequest` does not run for it, so a log or a counter there does not see it. The server logs one line for it with the method, the path, the reason and the `Origin`, `Sec-Fetch-Site` and `Host` it read, which tells a proxy that rewrites `Host` from a real attack. Calls from your own pages, with the functions of `route.gen` or `fetch`, and `router.invalidate()` are same-origin and unaffected. So is `tifa dev`, where the browser talks to one address.
+
+Behind a proxy, let `Host` and `Origin` through as the browser sent them. A modern browser is judged by `Sec-Fetch-Site`, which proxies pass on, but an old one is judged by `Origin` against `Host`, so a proxy that rewrites `Host` makes its writes look foreign.
+
+To allow some:
+
+- `server.trusted_origins` lists origins whose pages may write, such as a separate admin site or a front end on `http://localhost:3000` during development. An origin is a scheme, a host and, if it is not the default of the scheme, a port, with no path: `https://admin.example.com`. It is compared as text with the `Origin` header, so `http://` and `https://` are different origins. Write it as a browser sends it: the program lowers ASCII letters and drops `:80` and `:443`, and refuses any other way of writing the host, naming what to write. That is a domain name in ASCII, its letters outside ASCII written as `xn--` (`https://xn--bcher-kva.example` for `bücher.example`), an IPv4 address as four decimal numbers, an IPv6 address in its shortest form, and a port without leading zeros. Trust only sites you control, since a page of a trusted origin can act for your users.
+- `server.cross_site_paths` lists patterns, in the syntax of `http.ServeMux`, such as `POST /auth/apple/callback` or `/hooks/{name}`, whose requests are not checked at all. Use it for a provider's browser callback, such as a sign-in that posts a form from the provider's page. A pattern without a method takes every method. A request that ServeMux would only redirect to the pattern, such as one with a final slash, is not let through. A handler on such a path has to prove the request is real itself, for example with the `state` it put in the cookie or the signature of the provider.
+
 ## Stack depth
 
 With the default `ssr.vm_stack_depth` of 10000, plain recursion goes as deep in a render as in Node, which stops at about 10,400 calls. Each level takes room on the stack of the Go goroutine that renders and on the engine's own stack, not in the memory `ssr.vm_memory` limits. A normal page needs a few hundred levels and a few MB. Code that recurses without end goes all the way down before it throws, and the process grows by about 14 MB on darwin/arm64 and up to about 26 MB on linux/amd64 for that render. The render fails, the VM is replaced, and Go takes the goroutine stack back at the next garbage collection. The goroutine stack grows by doubling, and when a garbage collection is running as it grows, the old stack is freed only once the collection ends.
@@ -192,6 +213,7 @@ What a lower depth breaks:
 - `ssr.queue_limit` is a whole number of at least 0. `ssr.wait_timeout` must be positive even with a queue limit of 0.
 - `ssr.vm_stack_depth` is a whole number from 1 to 10000, the deepest the engine lets calls nest.
 - `build.skip_tanstack_check`, `build.debug_info`, `build.i18next_cache`, `server.compress` and `server.hsts` are `true` or `false`, without quotes. The flag takes its value after `=`: `--server-compress=false`.
+- `server.trusted_origins` and `server.cross_site_paths` are comma-separated lists, without brackets or quotes inside, and may be empty. A higher source can empty what a lower one set: `TIFA_SERVER_TRUSTED_ORIGINS=` clears the origins of the project file. An origin needs `http` or `https`, a host and no path, query or user name, and a bad one fails with what is wrong. A pattern that `http.ServeMux` rejects, or that conflicts with another of the list, fails too.
 - `server.tls_domains` is a comma-separated list of host names, without scheme, port or path. Each needs a dot. `server.tls_ca` is an `https` URL. `server.http_addr` is an address with a port, such as `:80` or `0.0.0.0:80`, or `off` in lower case. Words that read as a switch, such as `OFF`, `false` or `none`, fail with what to write.
 - `server.tls_domains`, `server.tls_email`, `server.tls_cache`, `server.tls_cert` and `server.tls_key` may be empty, which turns off what a lower source set: `TIFA_SERVER_TLS_DOMAINS=` with `--server-tls-cert` serves your own certificate where the project file asks for Let's Encrypt.
 

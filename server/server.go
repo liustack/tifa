@@ -58,6 +58,9 @@ type Server struct {
 	dev http.Handler
 	// handler is route, wrapped by compressed when server.compress is on.
 	handler http.Handler
+	// crossSite refuses the writes a browser sends from another site, before anything else
+	// sees the request, see refuseCrossSite.
+	crossSite *http.CrossOriginProtection
 }
 
 // New builds a server without routes. The ServeMux holds only the application's routes, so a
@@ -68,6 +71,7 @@ func New(cfg config.Config, hooks Hooks) *Server {
 		routes: map[string]map[string]func(*tifa.Ctx) error{}, pages: map[string]bool{},
 		modules: map[string][]string{}, layouts: map[string]layoutChain{}, cache: newHTMLCache(cfg.Cache.Size),
 	}
+	s.crossSite = crossSiteProtection(cfg.Server)
 	s.handler = http.HandlerFunc(s.route)
 	if cfg.Server.Compress {
 		s.handler = compressed(s.handler)
@@ -138,6 +142,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // route answers a request of tifa dev, a static file, or a request for a route.
 func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if err := s.crossSite.Check(r); err != nil {
+		s.refuseCrossSite(w, r, err)
+		return
+	}
 	if s.serveDev(w, r) || s.serveStatic(w, r) {
 		return
 	}

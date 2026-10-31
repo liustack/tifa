@@ -299,7 +299,7 @@ func TestFileMustHoldOneDocument(t *testing.T) {
 }
 
 func TestKeysListEverySetting(t *testing.T) {
-	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache server.addr server.body_limit server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout cache.size"
+	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache server.addr server.body_limit server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout cache.size"
 	if got := strings.Join(Keys(), " "); got != want {
 		t.Fatalf("Keys: %s, want %s", got, want)
 	}
@@ -587,5 +587,103 @@ func TestSSRQueueSettings(t *testing.T) {
 				t.Fatal("accepted invalid queue setting")
 			}
 		})
+	}
+}
+
+// Cross-site writes are refused unless the origin is trusted or the path is listed. Neither list is
+// set by default, and a higher layer can empty what a lower one set.
+func TestCrossSiteSettingsComeFromEveryLayer(t *testing.T) {
+	c, err := load(t, nil, nil, "", "")
+	if err != nil || c.Server.TrustedOrigins != nil || c.Server.CrossSitePaths != nil {
+		t.Fatalf("defaults: %+v, %v", c.Server, err)
+	}
+	c, err = load(t, []string{"--server-cross-site-paths", "POST /auth/apple/callback"},
+		[]string{"TIFA_SERVER_TRUSTED_ORIGINS=https://admin.example.com, http://localhost:3000"},
+		"tifa.yaml", "server:\n  trusted_origins: https://old.example.com\n  cross_site_paths: /hooks/{name}, GET /x\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"https://admin.example.com", "http://localhost:3000"}; !reflect.DeepEqual(c.Server.TrustedOrigins, want) {
+		t.Errorf("trusted origins %q, want %q", c.Server.TrustedOrigins, want)
+	}
+	if want := []string{"POST /auth/apple/callback"}; !reflect.DeepEqual(c.Server.CrossSitePaths, want) {
+		t.Errorf("cross-site paths %q, want %q", c.Server.CrossSitePaths, want)
+	}
+	c, err = load(t, nil, []string{"TIFA_SERVER_TRUSTED_ORIGINS=", "TIFA_SERVER_CROSS_SITE_PATHS="},
+		"tifa.yaml", "server:\n  trusted_origins: https://old.example.com\n  cross_site_paths: /hooks/{name}\n")
+	if err != nil || c.Server.TrustedOrigins != nil || c.Server.CrossSitePaths != nil {
+		t.Fatalf("emptied: %+v, %v", c.Server, err)
+	}
+}
+
+// An origin is a scheme, a host and maybe a port, written the way a browser sends it: lower case
+// and without the default port of its scheme, or no request would ever match it. A host that a
+// browser writes another way, such as one with letters outside ASCII or an IP address not in its
+// shortest form, fails and names the form to write, since the server compares the text.
+func TestTrustedOriginsAreWrittenTheWayABrowserSendsThem(t *testing.T) {
+	c, err := load(t, nil, []string{"TIFA_SERVER_TRUSTED_ORIGINS=HTTPS://Admin.Example.com:443, http://localhost:3000, http://a.test:80, https://[2001:DB8::1]:8443, http://192.0.2.1, http://example.0xg"}, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"https://admin.example.com", "http://localhost:3000", "http://a.test", "https://[2001:db8::1]:8443", "http://192.0.2.1", "http://example.0xg"}; !reflect.DeepEqual(c.Server.TrustedOrigins, want) {
+		t.Fatalf("%q, want %q", c.Server.TrustedOrigins, want)
+	}
+	for _, tc := range []struct{ value, want string }{
+		{"admin.example.com", "scheme"},
+		{"https://", "host"},
+		{"https://example.com/", "path"},
+		{"https://example.com/app", "path"},
+		{"https://example.com?x=1", "query"},
+		{"ftp://example.com", "http or https"},
+		{"https://a.test,,https://b.test", "empty"},
+		{"*", "scheme"},
+		{"https://İ.example", "xn--i-9bb.example"},
+		{"https://bücher.example", "xn--bcher-kva.example"},
+		{"https://[2001:0DB8:0:0:0:0:0:1]", "[2001:db8::1]"},
+		{"https://admin.example:0443", "leading zeros"},
+		{"http://010.0.0.1", "four decimal"},
+		{"http://0x7f.0.0.1", "four decimal"},
+		{"http://127.1", "four decimal"},
+		{"http://1.2.3.256", "four decimal"},
+		{"https://example.com!", "only letters"},
+		{"https://[::ffff:192.0.2.1]", "IPv4"},
+		{"http://1..2", "empty part"},
+		{"http://example.com..", "empty part"},
+		{"https://a.test:99999", "port"},
+	} {
+		_, err := load(t, nil, []string{"TIFA_SERVER_TRUSTED_ORIGINS=" + tc.value}, "", "")
+		if err == nil || !strings.Contains(err.Error(), "server.trusted_origins") || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%q: %v, want a message with %q", tc.value, err, tc.want)
+		}
+	}
+}
+
+// A path pattern that http.ServeMux would panic on fails at load, with the layer and the key.
+func TestCrossSitePathsAreServeMuxPatterns(t *testing.T) {
+	for _, good := range []string{"/auth/callback", "POST /auth/callback", "/hooks/{name}", "/files/{path...}", "/a, POST /b"} {
+		if _, err := load(t, nil, []string{"TIFA_SERVER_CROSS_SITE_PATHS=" + good}, "", ""); err != nil {
+			t.Errorf("%q: %v", good, err)
+		}
+	}
+	for _, bad := range []string{"POST", "/a/{", "/a/{b}/{b}", "/a,,/b", "/a, /a"} {
+		_, err := load(t, nil, []string{"TIFA_SERVER_CROSS_SITE_PATHS=" + bad}, "", "")
+		if err == nil || !strings.Contains(err.Error(), "server.cross_site_paths") {
+			t.Errorf("%q: %v", bad, err)
+		}
+	}
+}
+
+func TestExampleHoldsTheCrossSiteSettings(t *testing.T) {
+	c := Default()
+	c.Server.TrustedOrigins = []string{"https://admin.example.com", "http://localhost:3000"}
+	out := string(Example(c))
+	for _, want := range []string{`trusted_origins: "https://admin.example.com,http://localhost:3000"`, "TIFA_SERVER_CROSS_SITE_PATHS", `cross_site_paths: ""`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("example lacks %s:\n%s", want, out)
+		}
+	}
+	back, err := load(t, nil, nil, "x.yaml", out)
+	if err != nil || !reflect.DeepEqual(back.Server.TrustedOrigins, c.Server.TrustedOrigins) {
+		t.Fatalf("round trip: %+v, %v", back.Server, err)
 	}
 }

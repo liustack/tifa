@@ -34,7 +34,7 @@ go tool tifa check
 ## Folders
 
 ```text
-hooks.go                       blocks cross-site write requests, logs unexpected errors
+hooks.go                       logs unexpected errors
 components/                    shadcn/ui components in ui/ and the hooks they use in hooks/, imported as @/components/...
 app/
   route.go  layout.tsx         root Layout of the workbench: sidebar, top bar, document shell and site-wide 404, and a GET that redirects / to the first shop

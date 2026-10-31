@@ -179,29 +179,34 @@ func TestShopApp(t *testing.T) {
 		}
 	}
 
-	// Shipping: only from a page of this host, with a carrier and a tracking number, once.
+	// Shipping: with a carrier and a tracking number, once. The framework refuses a write that a
+	// browser sends from another site, in either way a browser says so, before the app sees it. A
+	// request with no browser headers, such as curl, is not a browser and reaches the handler.
 	order := base + "/projects/studio/orders/SH-1042"
 	ship := `{"carrier":"SF","trackingNo":"SF1234567890"}`
-	if status, _ := send(t, "POST", order, "", ship); status != 403 {
-		t.Errorf("POST without Origin: %d", status)
+	if status, body := send(t, "POST", order, "cross-site", ship); status != 403 || !strings.Contains(body, "cross-origin request detected") {
+		t.Errorf("POST from another site: %d %s", status, body)
 	}
-	if status, _ := send(t, "POST", order, "http://other.example", ship); status != 403 {
-		t.Errorf("POST from another site: %d", status)
+	if status, _ := send(t, "POST", order, "old-browser-cross-site", ship); status != 403 {
+		t.Errorf("POST from another site, by a browser without Sec-Fetch-Site: %d", status)
 	}
-	if status, body := send(t, "POST", order, base, `{"carrier":"","trackingNo":"SF12"}`); status != 422 || !strings.Contains(body, `"carrier":"请选择快递公司"`) || !strings.Contains(body, `"trackingNo":"运单号是 8 到 20 位字母或数字"`) {
+	if status, _ := send(t, "POST", order, "", `{"carrier":"","trackingNo":"SF12"}`); status != 422 {
+		t.Errorf("POST without browser headers: %d", status)
+	}
+	if status, body := send(t, "POST", order, "same-origin", `{"carrier":"","trackingNo":"SF12"}`); status != 422 || !strings.Contains(body, `"carrier":"请选择快递公司"`) || !strings.Contains(body, `"trackingNo":"运单号是 8 到 20 位字母或数字"`) {
 		t.Errorf("ship without a carrier: %d %s", status, body)
 	}
 	// The recipient can change until the order ships.
-	if status, body := send(t, "PATCH", order, base, `{"customer":"林夏","phone":"138 0013 8000","address":"上海市徐汇区武康路 99 号"}`); status != 200 || !strings.Contains(body, `"phone":"13800138000"`) {
+	if status, body := send(t, "PATCH", order, "same-origin", `{"customer":"林夏","phone":"138 0013 8000","address":"上海市徐汇区武康路 99 号"}`); status != 200 || !strings.Contains(body, `"phone":"13800138000"`) {
 		t.Errorf("change the recipient: %d %s", status, body)
 	}
-	if status, body := send(t, "POST", order, base, ship); status != 200 || !strings.Contains(body, `"carrierName":"顺丰速运"`) {
+	if status, body := send(t, "POST", order, "same-origin", ship); status != 200 || !strings.Contains(body, `"carrierName":"顺丰速运"`) {
 		t.Errorf("ship: %d %s", status, body)
 	}
-	if status, _ := send(t, "POST", order, base, ship); status != 409 {
+	if status, _ := send(t, "POST", order, "same-origin", ship); status != 409 {
 		t.Errorf("ship twice: %d", status)
 	}
-	if status, _ := send(t, "PATCH", order, base, `{"customer":"林夏","phone":"13800138000","address":"上海市"}`); status != 409 {
+	if status, _ := send(t, "PATCH", order, "same-origin", `{"customer":"林夏","phone":"13800138000","address":"上海市"}`); status != 409 {
 		t.Errorf("change the recipient of a shipped order: %d", status)
 	}
 	// The navigation data of the list now carries the new totals, in one response for all routes.
@@ -400,7 +405,7 @@ func checkStorefront(t *testing.T, base, buildID string) {
 		return res.StatusCode, res.Header, string(b)
 	}
 	kettle := "/store/en-US/products/pour-over-kettle"
-	if status, body := send(t, "POST", base+kettle, base, `{"color":"pink","size":"","quantity":1}`); status != 422 || !strings.Contains(body, `"color":"variant"`) {
+	if status, body := send(t, "POST", base+kettle, "same-origin", `{"color":"pink","size":"","quantity":1}`); status != 422 || !strings.Contains(body, `"color":"variant"`) {
 		t.Errorf("add a colour the kettle lacks: %d %s", status, body)
 	}
 	status, header, body := do("POST", kettle, `{"color":"charcoal","size":"","quantity":2}`)
@@ -555,17 +560,29 @@ func checkStorefrontKeepsCustomersApart(t *testing.T, base string) {
 	}
 }
 
-// send makes a request with a JSON body from origin, or with no Origin when it is empty, and
-// returns the status and the body of the answer.
-func send(t *testing.T, method, url, origin, body string) (int, string) {
+// send sends a JSON write the way a client of the given kind does and returns the status and the
+// body of the answer. site is "" for a client that is not a browser, "same-origin" for a page of
+// the app, "cross-site" for a page of another site (a current browser sends Sec-Fetch-Site and
+// Origin) and "old-browser-cross-site" for one that sends only the Origin.
+func send(t *testing.T, method, url, site, body string) (int, string) {
 	t.Helper()
 	req, err := http.NewRequest(method, url, strings.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if origin != "" {
-		req.Header.Set("Origin", origin)
+	switch site {
+	case "":
+	case "same-origin":
+		req.Header.Set("Sec-Fetch-Site", site)
+		req.Header.Set("Origin", req.URL.Scheme+"://"+req.URL.Host)
+	case "cross-site":
+		req.Header.Set("Sec-Fetch-Site", site)
+		req.Header.Set("Origin", "https://other.example")
+	case "old-browser-cross-site":
+		req.Header.Set("Origin", "https://other.example")
+	default:
+		t.Fatalf("unknown site %q", site)
 	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {

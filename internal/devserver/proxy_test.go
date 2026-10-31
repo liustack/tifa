@@ -302,3 +302,46 @@ func TestViteProxyPassesModulesAndWebsockets(t *testing.T) {
 		t.Fatalf("got %q, %v through the upgraded connection", line, err)
 	}
 }
+
+// The browser talks to tifa dev's address only, so the app judges its writes by what the browser
+// sent: the proxy keeps Host, Origin and Sec-Fetch-Site as they came. A page of tifa dev can post to
+// the app, and a page of another site cannot, as against a built program.
+func TestProxyKeepsWhatTheCrossSiteCheckReads(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := http.NewCrossOriginProtection().Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	srv := &http.Server{Handler: app}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+	p := newProxy(t, ln.Addr().String(), time.Second, nil)
+	for _, tc := range []struct {
+		name   string
+		header map[string]string
+		status int
+	}{
+		{"page of tifa dev, modern browser", map[string]string{"Sec-Fetch-Site": "same-origin", "Origin": p.URL}, http.StatusNoContent},
+		{"page of tifa dev, old browser", map[string]string{"Origin": p.URL}, http.StatusNoContent},
+		{"page of another site, modern browser", map[string]string{"Sec-Fetch-Site": "cross-site", "Origin": "https://evil.test"}, http.StatusForbidden},
+		{"page of another site, old browser", map[string]string{"Origin": "https://evil.test"}, http.StatusForbidden},
+	} {
+		req, err := http.NewRequest("POST", p.URL+"/orders", strings.NewReader("x"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for k, v := range tc.header {
+			req.Header.Set(k, v)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != tc.status {
+			t.Errorf("%s: %d, want %d", tc.name, resp.StatusCode, tc.status)
+		}
+	}
+}

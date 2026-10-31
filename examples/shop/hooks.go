@@ -1,27 +1,11 @@
-// Package shop is the demonstration shop workspace built with tifa. This file holds its process
-// and request hooks.
+// Package shop is the demonstration shop workspace built with tifa. This file holds its error hook.
 package shop
 
 import (
 	"log/slog"
-	"net/url"
 
 	"github.com/liustack/tifa"
 )
-
-// OnRequest refuses writes from other sites: every request other than GET and HEAD, such as the
-// POST that ships an order or the PATCH that changes its recipient, must carry the Origin of a
-// page of this host.
-func OnRequest(c *tifa.Ctx) error {
-	r := c.Request()
-	if r.Method != "GET" && r.Method != "HEAD" {
-		origin, err := url.Parse(c.Header("Origin"))
-		if err != nil || origin.Host != r.Host {
-			return tifa.Error{Status: 403, Message: "请从店铺页面操作"}
-		}
-	}
-	return c.Next()
-}
 
 func OnError(c *tifa.Ctx, err error) tifa.Error {
 	slog.ErrorContext(c.Context(), "request failed", "path", c.Request().URL.Path, "err", err)

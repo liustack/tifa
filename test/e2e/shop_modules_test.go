@@ -117,17 +117,17 @@ func checkOrderPageModules(t *testing.T, base string) {
 		t.Errorf("%d tooltip triggers on a shipped order", n)
 	}
 	url := base + "/projects/studio/orders/SH-1041"
-	if status, body := send(t, "PUT", url, base, `{"text":"  "}`); status != 422 || !strings.Contains(body, "请写点内容") {
+	if status, body := send(t, "PUT", url, "same-origin", `{"text":"  "}`); status != 422 || !strings.Contains(body, "请写点内容") {
 		t.Errorf("an empty note: %d %s", status, body)
 	}
-	if status, body := send(t, "PUT", url, base, `{"text":"顾客改了送货时间，周三前送到。"}`); status != 200 || !strings.Contains(body, "顾客改了送货时间") {
+	if status, body := send(t, "PUT", url, "same-origin", `{"text":"顾客改了送货时间，周三前送到。"}`); status != 200 || !strings.Contains(body, "顾客改了送货时间") {
 		t.Errorf("a note: %d %s", status, body)
 	}
 	_, _, page := get(t, url)
 	if !strings.Contains(rendered(page), "顾客改了送货时间，周三前送到。") || !strings.Contains(rendered(page), "添加备注") {
 		t.Error("the note is not on the order page")
 	}
-	if status, _ := send(t, "PUT", url, "https://elsewhere.example", `{"text":"x"}`); status != 403 {
+	if status, _ := send(t, "PUT", url, "cross-site", `{"text":"x"}`); status != 403 {
 		t.Errorf("a note from another site: %d", status)
 	}
 }

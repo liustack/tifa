@@ -34,7 +34,7 @@ go tool tifa check
 ## 目录
 
 ```text
-hooks.go                       拦截跨站的写请求，记录意外错误
+hooks.go                       记录意外错误
 components/                    shadcn/ui 组件在 ui/，它们用到的 hook 在 hooks/，用 @/components/... 引用
 app/
   route.go  layout.tsx         工作台的根 Layout：侧栏、顶栏、文档外壳和全站 404，还有把 / 跳到第一家店铺的 GET

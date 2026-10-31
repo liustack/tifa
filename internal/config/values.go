@@ -4,11 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
+	"net/netip"
 	"net/url"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/net/idna"
 )
@@ -84,6 +87,165 @@ func (v domainsValue) Set(s string) error {
 }
 func (v domainsValue) String() string { return strings.Join(*v.p, ",") }
 func (v domainsValue) kind() string   { return "string" }
+
+// splitList splits comma-separated text into trimmed items. Blank text is no items, and an empty
+// item between commas is an error.
+func splitList(s string) ([]string, error) {
+	if strings.TrimSpace(s) == "" {
+		return nil, nil
+	}
+	items := strings.Split(s, ",")
+	for i, item := range items {
+		items[i] = strings.TrimSpace(item)
+		if items[i] == "" {
+			return nil, fmt.Errorf("empty item in %q", s)
+		}
+	}
+	return items, nil
+}
+
+// originsValue is server.trusted_origins: comma-separated origins, each a scheme, a host and
+// maybe a port. A browser sends an origin in lower case and without the default port of the
+// scheme, and the server compares the text, so Set writes each one that way, empty for none.
+type originsValue struct{ p *[]string }
+
+func (v originsValue) Set(s string) error {
+	items, err := splitList(s)
+	if err != nil {
+		return err
+	}
+	for i, item := range items {
+		u, err := url.Parse(item)
+		switch {
+		case err != nil:
+			return fmt.Errorf("invalid origin %q: %v", item, err)
+		case u.Scheme == "":
+			return fmt.Errorf("%q needs a scheme, such as https://admin.example.com", item)
+		case u.Scheme != "http" && u.Scheme != "https":
+			return fmt.Errorf("%q: the scheme must be http or https", item)
+		case u.Host == "":
+			return fmt.Errorf("%q needs a host, such as https://admin.example.com", item)
+		case u.User != nil:
+			return fmt.Errorf("%q: an origin has no user name or password", item)
+		case u.Path != "":
+			return fmt.Errorf("%q: an origin has no path, not even a final slash", item)
+		case u.RawQuery != "" || u.Fragment != "" || strings.ContainsAny(item, "?#"):
+			return fmt.Errorf("%q: an origin has no query or fragment", item)
+		}
+		origin, err := browserOrigin(u)
+		if err != nil {
+			return fmt.Errorf("%q: %v", item, err)
+		}
+		items[i] = origin
+	}
+	*v.p = items
+	return nil
+}
+func (v originsValue) String() string { return strings.Join(*v.p, ",") }
+func (v originsValue) kind() string   { return "string" }
+
+// browserOrigin returns the origin of u as a browser sends it in Origin, for a host written in
+// one of the forms that a browser sends as written: a domain name of ASCII letters, digits, '-'
+// and '_' with no empty part, an IPv4 address as four decimal numbers, or an IPv6 address in its
+// shortest form. Only the ASCII case of the scheme and host and a written default port may differ.
+// The server compares the text, and a host a browser reads another way would match another site
+// or none, so every other way of writing it is an error that says what to write instead.
+func browserOrigin(u *url.URL) (string, error) {
+	// Only ASCII is lowered here: strings.ToLower maps some letters outside ASCII into it, such as
+	// U+0130 into i, which would trust another host.
+	host := u.Hostname()
+	if strings.IndexFunc(host, func(r rune) bool { return r >= utf8.RuneSelf }) < 0 {
+		host = strings.ToLower(host)
+	}
+	if strings.HasPrefix(u.Host, "[") {
+		addr, err := netip.ParseAddr(host)
+		switch {
+		case err != nil || !addr.Is6() || addr.Zone() != "":
+			return "", fmt.Errorf("[%s] is not an IPv6 address a browser sends", host)
+		case addr.Is4In6():
+			return "", fmt.Errorf("[%s] is an IPv4 address in IPv6, which a browser writes in another form: such an origin cannot be trusted", host)
+		case addr.String() != host:
+			return "", fmt.Errorf("write the IPv6 address as a browser sends it, [%s]", addr)
+		}
+		host = "[" + host + "]"
+	} else if err := checkOriginHost(host); err != nil {
+		return "", err
+	}
+	origin := u.Scheme + "://" + host
+	if port := u.Port(); port != "" {
+		n, err := strconv.Atoi(port)
+		switch {
+		case err != nil || n < 1 || n > 65535:
+			return "", fmt.Errorf("the port must be from 1 to 65535")
+		case strconv.Itoa(n) != port:
+			return "", fmt.Errorf("write the port without leading zeros, as %d", n)
+		case n != map[string]int{"http": 80, "https": 443}[u.Scheme]:
+			origin += ":" + port
+		}
+	}
+	return origin, nil
+}
+
+// checkOriginHost reports why a browser would not send host, a host name with ASCII in lower case,
+// as it is written. A host whose last part is a number, decimal or 0x hexadecimal, is read as an IPv4
+// address, so it must be one in dotted decimal.
+func checkOriginHost(host string) error {
+	if strings.IndexFunc(host, func(r rune) bool { return r >= utf8.RuneSelf }) >= 0 {
+		if ascii, err := idna.Lookup.ToASCII(host); err == nil && checkOriginHost(ascii) == nil {
+			return fmt.Errorf("write the host as a browser sends it, %s", ascii)
+		}
+		return fmt.Errorf("%s is not a valid domain name", host)
+	}
+	parts := strings.Split(host, ".")
+	for _, p := range parts {
+		if p == "" {
+			return fmt.Errorf("%s has an empty part between dots", host)
+		}
+		if strings.Trim(p, "abcdefghijklmnopqrstuvwxyz0123456789-_") != "" {
+			return fmt.Errorf("%s: a host name has only letters, digits, '-' and '_'", host)
+		}
+	}
+	last := parts[len(parts)-1]
+	if strings.Trim(last, "0123456789") == "" || strings.HasPrefix(last, "0x") && strings.Trim(last[2:], "0123456789abcdef") == "" {
+		if addr, err := netip.ParseAddr(host); err != nil || !addr.Is4() || addr.String() != host {
+			return fmt.Errorf("a browser reads %s as an IP address: write it as four decimal numbers, such as 192.0.2.1", host)
+		}
+	}
+	return nil
+}
+
+// patternsValue is server.cross_site_paths: comma-separated http.ServeMux patterns, empty for
+// none. A pattern that ServeMux would panic on, or that overlaps another one of the list in a
+// way it rejects, fails here instead.
+type patternsValue struct{ p *[]string }
+
+func (v patternsValue) Set(s string) error {
+	items, err := splitList(s)
+	if err != nil {
+		return err
+	}
+	mux := http.NewServeMux()
+	for _, item := range items {
+		if err := tryPattern(mux, item); err != nil {
+			return fmt.Errorf("invalid path pattern %q: %v", item, err)
+		}
+	}
+	*v.p = items
+	return nil
+}
+func (v patternsValue) String() string { return strings.Join(*v.p, ",") }
+func (v patternsValue) kind() string   { return "string" }
+
+// tryPattern registers pattern in mux and turns the panic of a bad one into an error.
+func tryPattern(mux *http.ServeMux, pattern string) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%v", r)
+		}
+	}()
+	mux.Handle(pattern, http.NotFoundHandler())
+	return nil
+}
 
 // caValue is server.tls_ca, the https URL of an ACME directory.
 type caValue struct{ p *string }
