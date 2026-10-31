@@ -286,6 +286,21 @@ func checkStorefront(t *testing.T, base, buildID string) {
 	if a, b := strings.Index(rendered(list), "Dot Grid Notebook"), strings.Index(rendered(list), "Beeswax Wraps"); a < 0 || b < a {
 		t.Errorf("moss products by price: notebook at %d, wraps at %d", a, b)
 	}
+	// The head of the language Layout links each page to itself in both languages, and names
+	// the default language for a browser that asks for neither.
+	for path, rest := range map[string]string{"/store/en-US": "", "/store/en-US/products/pour-over-kettle": "/products/pour-over-kettle", "/store/zh-CN/journal": "/journal"} {
+		_, _, page := get(t, base+path)
+		head := page[:strings.Index(page, "</head>")]
+		for _, lang := range []string{"zh-CN", "en-US", "x-default"} {
+			to := "zh-CN"
+			if lang == "en-US" {
+				to = lang
+			}
+			if want := `<link rel="alternate" hrefLang="` + lang + `" href="https://shop.example.com/store/` + to + rest + `">`; !strings.Contains(head, want) {
+				t.Errorf("%s: the head lacks %s", path, want)
+			}
+		}
+	}
 	// The head of the language Layout sets the language of <html> from the locale its Go
 	// function checked, over the root Layout's zh-CN, also on the 404 pages inside it. A path no
 	// page of the store has is a 404 inside it too, with no page of its own for it. A language the

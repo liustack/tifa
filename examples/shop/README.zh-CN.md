@@ -86,7 +86,7 @@ app/
 
 Go 把时间作为时刻发给页面，页面用 `Intl` 按店铺时区格式化，时区由店铺 Layout 一起给出。浏览器在别的时区，看到的时间也和服务端渲染的一样。
 
-店面从 URL 的第一段取语言。Go 按这种语言准备文案，按它的币种给出价格，店面 Layout 把币种和时区交给 i18next，由它用 `Intl` 格式化金额、日期和复数。表单的检查按同样的规则写两份：浏览器里是 zod schema，Go 里是 `Validate`。两边给出同样的消息键，由页面翻译。商品领域是 `products`，`cart` 要给商品行定价，所以 import 它。`lang+` 下的页面用 `store.FindLocale` 找到自己的语言。店面 Layout 的 `head` 用 `htmlAttributes` 把这种语言设到 `<html>` 上，盖过根 Layout 的 `zh-CN`，切到另一种语言时浏览器跟着改。店面没有的路径在店面 Layout 里显示 404，用的是 URL 里的语言。`/store` 跳到浏览器的 `Accept-Language` 要的语言，用 `golang.org/x/text/language` 匹配，两种都不要时跳到中文。
+店面从 URL 的第一段取语言。Go 按这种语言准备文案，按它的币种给出价格，店面 Layout 把币种和时区交给 i18next，由它用 `Intl` 格式化金额、日期和复数。表单的检查按同样的规则写两份：浏览器里是 zod schema，Go 里是 `Validate`。两边给出同样的消息键，由页面翻译。商品领域是 `products`，`cart` 要给商品行定价，所以 import 它。`lang+` 下的页面用 `store.FindLocale` 找到自己的语言。店面 Layout 的 `head` 用 `htmlAttributes` 把这种语言设到 `<html>` 上，盖过根 Layout 的 `zh-CN`，切到另一种语言时浏览器跟着改。它还给每一页链接两种语言的同一页，并把中文那页作为 `x-default`。店面没有的路径在店面 Layout 里显示 404，用的是 URL 里的语言。`/store` 跳到浏览器的 `Accept-Language` 要的语言，用 `golang.org/x/text/language` 匹配，两种都不要时跳到中文。
 
 ## 可以试试
 

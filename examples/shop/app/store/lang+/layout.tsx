@@ -13,12 +13,31 @@ import { catalogueNo, Price, ProductImage } from '../product-card'
 import { RouteError } from 'tifa/client'
 import { layout, type LayoutData } from './route.gen'
 
-// The language of every page of the store, from the locale the Go function checked. Without it,
-// when the Layout failed, the page keeps the root Layout's language.
-export const head = ({ loaderData }: { loaderData?: LayoutData }) => ({
-  htmlAttributes: { lang: loaderData?.locale.code },
-  meta: loaderData ? [{ title: i18nFor(loaderData.locale).t('home.title') }] : [],
-})
+// site is where the store is served, for the links to a page in each language, which search
+// engines want in full.
+const site = 'https://shop.example.com'
+
+// languages are the languages of the store, the default one first.
+const languages = ['zh-CN', 'en-US']
+
+// The language of every page of the store, from the locale the Go function checked, and links to
+// the same page in each language, the default one for a browser that asks for neither. Without
+// the locale, when the Layout failed, the page keeps the root Layout's language. matches holds
+// the routes of the page, the page last.
+export const head = ({ loaderData, matches }: { loaderData?: LayoutData; matches: Array<{ pathname: string }> }) => {
+  if (!loaderData) return {}
+  const { code } = loaderData.locale
+  const page = matches[matches.length - 1].pathname.replace(/\/$/, '').slice(`/store/${code}`.length)
+  const url = (lang: string) => `${site}/store/${lang}${page}`
+  return {
+    htmlAttributes: { lang: code },
+    meta: [{ title: i18nFor(loaderData.locale).t('home.title') }],
+    links: [
+      ...languages.map((lang) => ({ rel: 'alternate', hrefLang: lang, href: url(lang) })),
+      { rel: 'alternate', hrefLang: 'x-default', href: url(languages[0]) },
+    ],
+  }
+}
 
 export default function StoreLayout() {
   const shell = layout.useLoaderData()
