@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 // borrow runs f on an idle VM of p.
 func borrow(t *testing.T, p *Pool, f func(*pooledVM)) {
 	t.Helper()
-	vm, err := p.acquire(context.Background())
+	vm, err := p.acquire(context.Background(), time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}

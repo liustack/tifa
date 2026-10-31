@@ -254,7 +254,7 @@ func (p *Pool) renderInVM(ctx context.Context, in Input) (string, error) {
 	if !in.Deadline.IsZero() && !time.Now().Before(in.Deadline) {
 		return "", timedOut(p.timeout, nil)
 	}
-	vm, err := p.acquire(ctx)
+	vm, err := p.acquire(ctx, in.Deadline)
 	if err != nil {
 		return "", err
 	}
@@ -312,7 +312,9 @@ func (p *Pool) renderInVM(ctx context.Context, in Input) (string, error) {
 	return html, err
 }
 
-func (p *Pool) acquire(ctx context.Context) (*pooledVM, error) {
+// acquire takes an idle VM, waiting up to ssr.wait_timeout for one. A render with a deadline
+// (Input.Deadline) waits no later than that: it then fails as a render that ran out of time.
+func (p *Pool) acquire(ctx context.Context, deadline time.Time) (*pooledVM, error) {
 	if err := p.stopped(ctx); err != nil {
 		return nil, err
 	}
@@ -336,8 +338,14 @@ func (p *Pool) acquire(ctx context.Context) (*pooledVM, error) {
 		p.mu.Unlock()
 		return nil, fmt.Errorf("%w: queue is full", core.ErrSSRBusy)
 	}
-	deadline := time.Now().Add(p.waitTimeout)
-	timer := time.NewTimer(p.waitTimeout)
+	// The wait ends after ssr.wait_timeout, or at the render's deadline when that comes first.
+	end := time.Now().Add(p.waitTimeout)
+	late := func() error { return fmt.Errorf("%w: wait exceeded %s", core.ErrSSRBusy, p.waitTimeout) }
+	if !deadline.IsZero() && deadline.Before(end) {
+		end = deadline
+		late = func() error { return timedOut(p.timeout, nil) }
+	}
+	timer := time.NewTimer(time.Until(end))
 	defer timer.Stop()
 	if p.waiting != nil {
 		p.waiting(timer)
@@ -345,13 +353,13 @@ func (p *Pool) acquire(ctx context.Context) (*pooledVM, error) {
 	select {
 	case vm := <-p.idle:
 		// A ready VM must not win a select after the wait budget expired.
-		if !time.Now().Before(deadline) {
+		if !time.Now().Before(end) {
 			p.putIdle(vm)
-			return nil, fmt.Errorf("%w: wait exceeded %s", core.ErrSSRBusy, p.waitTimeout)
+			return nil, late()
 		}
 		return vm, nil
 	case <-timer.C:
-		return nil, fmt.Errorf("%w: wait exceeded %s", core.ErrSSRBusy, p.waitTimeout)
+		return nil, late()
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case <-p.done:

@@ -15,6 +15,7 @@ import (
 
 	"github.com/liustack/slowjs"
 	"github.com/liustack/tifa/internal/config"
+	"github.com/liustack/tifa/internal/core"
 )
 
 func testSource(t *testing.T) string {
@@ -677,6 +678,26 @@ func TestRenderKeepsToTheDeadlineOfTheInput(t *testing.T) {
 	}
 	if took := time.Since(start); took > time.Second {
 		t.Fatalf("the render ran %s, past its deadline", took)
+	}
+}
+
+// A render that waits for a VM stops waiting at its deadline, before ssr.wait_timeout, and
+// fails as a render that ran out of time, not as a busy pool.
+func TestWaitForAVMKeepsToTheDeadlineOfTheInput(t *testing.T) {
+	cfg := testConfig(1)
+	cfg.WaitTimeout = 2 * time.Second
+	p := newTestPool(t, testSource(t), cfg)
+	vm, err := p.acquire(context.Background(), time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.putIdle(vm)
+	in := input("ok", "")
+	in.Deadline = time.Now().Add(20 * time.Millisecond)
+	start := time.Now()
+	_, err = p.Render(context.Background(), in)
+	if took := time.Since(start); took > time.Second || !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, core.ErrSSRBusy) {
+		t.Fatalf("after %s: %v, want a timed out render at the deadline", took, err)
 	}
 }
 
