@@ -396,6 +396,8 @@ func TestViolations(t *testing.T) {
 			{"app/empty/route.go:5:", "Path is not declared"},
 			{"app/empty/route.go:7:", "Load is not allowed without page.tsx"},
 			{"app/empty/route.go:1:", "no pages"},
+			{"app/api/route.go:7:", "SSR is not allowed without page.tsx"},
+			{"app/api/route.go:9:", "Cache is not allowed without page.tsx"},
 			{"app/both/route.go:9:", "Layout", "func(c *tifa.Ctx) (T, error)"},
 			{"app/_hidden/route.go:1:", "app/_hidden", "rename"},
 			{"app/testdata/x/layout.tsx:1:", "app/testdata", "rename"},

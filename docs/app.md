@@ -319,6 +319,8 @@ const Cache = true      // the page, default false
 const LayoutSSR = false // the Layout of the folder, default true
 ```
 
+`SSR` and `Cache` apply to the page of `page.tsx`. In a `route.go` without one they fail the build.
+
 - `SSR = false`: middleware and every `Load` run as usual, but QuickJS is skipped. The response is a minimal document with the data, and the browser renders it. `LayoutSSR = false` applies to every page the Layout wraps.
 - `Cache = true`: the rendered result is cached by build version, URL and data, in a cache of `cache.size` (see [config.md](config.md)). When the data has not changed, the HTML is returned directly. Components must not read values that change on every call, such as `Date.now()` or `Math.random()`, while rendering. Hydration requires this too.
 - When requests for a `Cache = true` page miss the cache at the same time with the same build version, URL and data, such as a burst of visitors right after a deploy, they share one render. Each request still runs its middleware and `Load`s, keeps the headers they set, such as `Set-Cookie` and `Vary`, and gets the encoding it accepts. This also holds with `cache.size` 0 and for a page too large for the cache, and under `tifa dev`. Requests with other data render on their own, and pages without `Cache` render for every request, since their HTML may differ by user.

@@ -544,6 +544,11 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 	if load := scope.Lookup("Load"); load != nil && !d.pageTSX {
 		a.errorAt(load.Pos(), "Load is not allowed without page.tsx: Load loads the data of a page, an API route answers GET with a GET function")
 	}
+	for _, name := range []string{"SSR", "Cache"} {
+		if obj := scope.Lookup(name); obj != nil && !d.pageTSX {
+			a.errorAt(obj.Pos(), "%s is not allowed without page.tsx: it applies to the page of the folder only (a Layout declares LayoutSSR)", name)
+		}
+	}
 	if !d.pageTSX && !declared {
 		return nil
 	}
