@@ -73,7 +73,7 @@ func BenchmarkShop(b *testing.B) {
 	// The first render of a fresh VM, which a replaced VM pays.
 	b.Run("first-render", func(b *testing.B) {
 		page := pages[2]
-		input := renderInput(b, page.input)
+		in, input := serverInput(b, page.input)
 		for b.Loop() {
 			b.StopTimer()
 			vm, err := ssr.Load(bytecode, memory, uintptr(cfg.VMStackDepth), timeout, false)
@@ -81,7 +81,7 @@ func BenchmarkShop(b *testing.B) {
 				b.Fatal(err)
 			}
 			b.StartTimer()
-			html, err := ssr.RenderVM(vm, input, page.input.Texts, timeout)
+			html, err := renderVM(vm, in, input, timeout)
 			b.StopTimer()
 			if err != nil {
 				b.Fatal(err)
@@ -211,13 +211,26 @@ func lockWait() float64 {
 	return sample[0].Value.Float64()
 }
 
-func renderInput(t testing.TB, in ssr.Input) []byte {
+// serverInput is in as Pool.Render hands it to a VM: with a nonce of its own, so the VM writes a
+// slot for each long text of a Load's data, which renderVM fills.
+func serverInput(t testing.TB, in ssr.Input) (ssr.Input, []byte) {
 	t.Helper()
-	data, err := json.Marshal(in)
+	in.Nonce = ssr.NewNonce()
+	input, err := json.Marshal(in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return data
+	return in, input
+}
+
+// renderVM renders input, which serverInput made from in, in vm and fills the slots of the page,
+// as Pool.Render does.
+func renderVM(vm *ssr.VM, in ssr.Input, input []byte, timeout time.Duration) (string, error) {
+	html, err := ssr.RenderVM(vm, input, in.Texts, timeout)
+	if err != nil {
+		return "", err
+	}
+	return ssr.FillSlots(html, in.Nonce, in.Texts)
 }
 
 // TestShopVMMemory reports what one VM of the shop holds: the built-in objects of a bare VM, what
@@ -265,7 +278,8 @@ func TestShopVMMemory(t *testing.T) {
 	loaded := ssr.VMMemory(vm.VM, true)
 	for i := range 64 {
 		page := pages[i%len(pages)]
-		html, err := ssr.RenderVM(vm, renderInput(t, page.input), page.input.Texts, cfg.Timeout)
+		in, input := serverInput(t, page.input)
+		html, err := renderVM(vm, in, input, cfg.Timeout)
 		if err != nil {
 			t.Fatal(err)
 		}

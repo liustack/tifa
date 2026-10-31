@@ -432,7 +432,8 @@ func TestShopReuseKeepsRequestsApart(t *testing.T) {
 	for i := range 12 {
 		name := fmt.Sprintf("customer-%03d-only", i)
 		in := withCustomer(pages[2].input, name)
-		html, err := ssr.RenderVM(vm, renderInput(t, in), in.Texts, cfg.Timeout)
+		in, input := serverInput(t, in)
+		html, err := renderVM(vm, in, input, cfg.Timeout)
 		if err != nil {
 			t.Fatal(err)
 		}
