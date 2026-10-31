@@ -6,6 +6,9 @@
 
 ### 变更
 
+- **破坏性变更：** `page.tsx` 和 `layout.tsx` 不再导出 `NotFound`。404 显示在 `Error` 里，它收到状态码为 404 的 `RouteError`，导出 `NotFound` 构建报错，错误信息会说明这一点。升级应用时，把每个 `NotFound` 显示的内容挪进同一文件的 `Error`，放在 `error instanceof RouteError && error.status === 404` 的分支里。自己和上面都没有 `Error` 的路由显示框架默认的 404 页面，和以前一样。
+- 没有匹配页面的 URL 在它能匹配上的最深一层 Layout 里显示 404，以前只单独显示根 Layout 的 `NotFound`。从根到这一层的 `Layout` 函数照常执行，所以 404 页面保留应用的导航，在语言目录下面还保留 URL 里的语言。浏览器里跳转显示得一样，数据请求回答这些 Layout 的数据和状态码 404。`OnRequest` 看到的 `c.Pattern()` 仍为空，它的 `c.Next()` 现在会执行这些 Layout。想在 Layout 里显示 404，不再需要接住剩余路径的页面（见 [404](docs/app.zh-CN.md#404)）。Layout 失败的页面不再预加载这个 Layout 的 chunk，不管是什么状态码。
+- 服务器渲染页面时组件抛错，显示页面的 `Error`，外面照常是各层 Layout，以前浏览器拿到的是 Go 写的简单错误页。这次渲染也失败时，错误一次往上挪一层路由，错误放在根 Layout 的位置也失败时才给 Go 的简单错误页。`OnError` 只看到这个错误一次，照旧由它决定状态码和公开消息，这种回答不进缓存，浏览器按服务器放错误的位置 hydrate。在 tifa dev 下错误栈显示在页面上的浮层里，保存修复后页面自动刷新。用完 `ssr.vm_memory` 的渲染照样在新 VM 上重试，超过 `ssr.timeout` 的不重试，同一个请求的几次渲染共用一个 `ssr.timeout`（见[页面上的错误](docs/app.zh-CN.md#页面上的错误)）。
 - **破坏性变更：** 一个目录最多三个约定文件，`layout.go` 和 `route.tsx` 不再是约定文件。`route.go` 放这个目录的全部 Go 名字：`Layout`、`LayoutSSR`、`Load`、`SSR`、`Cache` 和方法函数，写在包里别的文件（包括 `layout.go`）会构建报错。页面组件改叫 `page.tsx`，原来叫 `route.tsx`，出现 `route.tsx` 时构建报错并提示改名。`layout.tsx` 不变。只写了 `Layout` 的 `route.go` 给下面的页面提供 Layout 数据，不是 API 路由，`Load` 只能和 `page.tsx` 一起出现。生成的 `+route.ts` 和 `+layout.ts` 换成每个有页面、Layout 或方法函数的目录一个 `route.gen.ts`。它导出 `page` 和 `layout`（代替 `route`）、`PageData` 和 `LayoutData`（代替 `Data`）、`Params`，以及方法函数和它们的 `<METHOD>Input`、`<METHOD>Output` 类型，用 `./route.gen` 引入。升级应用：把每个 `route.tsx` 改名为 `page.tsx`，把每个 `layout.go` 里的 `Layout` 和 `LayoutSSR` 移进同目录的 `route.go`，把 `./+route` 和 `./+layout` 的 import 改成 `./route.gen`。页面 HTML 不变。
 - 服务端渲染把 `jsx` 和 `jsxs` 的调用直接写成它们返回的元素，HTML 不变。在 SSR bundle 里，config 是对象字面量、没有 spread、`ref`、`key` 和计算属性名，key 没有、是字面量或是普通变量的调用，直接变成那个对象。应用里的 React 是 19.3.0 或 19.3.1 时才这样做，别的 React 构建打印警告，调用保持原样。示例 shop 的工作台页面一次渲染少 1.6% 的指令，店面页面少 1.0%，bench 应用少 3.0%，MUI 测试应用少 0.5%。在 linux/amd64 上，工作台页面用时是原来的 0.987，店面页面 0.992，bench 页面 0.959，MUI 页面 0.995。示例 shop 的 bundle 大了 4.5%。
 - 服务端渲染改用 slowjs v0.29.6，HTML 不变。生成的引擎里函数之间调用时从寄存器拿结果，不再从栈上读回。编译器能看出 `let`、`const`、`class` 变量已经写过时，读之前不再检查。示例 shop 和 MUI 测试应用的页面一次渲染少 0.8% 到 1.6% 的指令，shop 工作台页面在 linux/amd64 上用时是原来的 0.978。
@@ -46,6 +49,7 @@
 
 ### 新增
 
+- docs/app.zh-CN.md 新增[多语言网站](docs/app.zh-CN.md#多语言网站)：语言目录、在它的 `Layout` 里检查语言、在它的 `head` 里写 `lang` 和 `hreflang`、不带语言的 URL 怎么跳转、翻译同步加载。示例店铺的店面照它写：`/store` 按浏览器的 `Accept-Language` 跳到 `/store/zh-CN` 或 `/store/en-US`，接住剩余路径的页面删掉了。
 - 包可以引入只在 Node 上用的 Node 模块（比如渲染永远走不到的代码里用的 `node:fs`），应用照样加载、渲染。引入的每个名字都是一个替身，渲染用到它时才抛错，错误里有用到的导出、模块、包和它源码里的位置。以前打包时这样的 import 变成 `require`，每个虚拟机加载时就失败，哪怕只有 `import()` 才走到那个模块。`tifa build` 仍会列出留在 SSR 包里的 Node 模块（见[引入 Node 模块的包](docs/app.zh-CN.md#引入-node-模块的包)）。
 - 挂起等待 promise 自己就能完成的事的组件（比如模块在包里的 `React.lazy` 组件，或对 promise 调 `use`）可以在服务端渲染：服务端等它，写出完整的页面，就是浏览器加载完后显示的样子。以前这样的页面会失败，错误说有组件挂起了。等定时器或请求的仍然报这个错。不挂起的页面 HTML 不变，渲染一样快（见[会等待的组件](docs/app.zh-CN.md#会等待的组件)）。
 - 服务端渲染里有 `AsyncLocalStorage`，既是全局变量，也和 `AsyncResource` 一起由 `node:async_hooks` 导出，和 Cloudflare Workers 一样：有 `run`、`exit`、`getStore`、`bind` 和 `snapshot`。store 跟着 `await` 和 promise 回调走。fumadocs 把页面状态放在里面，现在除了它自己的 `collections` 别名，不用任何设置就能构建和渲染。

@@ -1,5 +1,5 @@
 ---
-summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、hooks.go、404、SSR 与缓存开关、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数，以及数据、入参和结果的 JSON 规则'
+summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、hooks.go、404 和错误、多语言网站、SSR 与缓存开关、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数，以及数据、入参和结果的 JSON 规则'
 read_when:
   - 新建一个 tifa 应用，或给应用加页面、Layout、API 路由
   - 构建报 Ctx 用法或 Load 返回类型的错误，想知道怎么改
@@ -60,7 +60,7 @@ myapp/
 - 目录名还得是合法的 Go import 路径，所以 `con`、`x~1` 这类名字（Windows 保留名和短文件名）构建报错。
 - 一个目录下最多一个参数目录。`items/id+` 和 `items/key+` 或 `items/path++` 并列会构建报错，因为它们读的是同一段 URL。
 - 两个路由（页面或 API 路由）的 URL 有交集、又分不出谁更具体时构建报错，规则同 Go 的 `http.ServeMux`，比如 `a/b+` 和 `a+/b`。字面量比参数具体，所以 `items/new` 和 `items/id+` 并列没问题。
-- 只有 Layout、没有页面的目录，它的 URL 显示 404 页面，除非它下面紧挨着的 `name++` 目录里有页面，这时由那个页面以空的剩余路径接这个 URL。别的页面不能匹配这个 URL，比 Layout 路径更具体的除外：有 `settings/layout.tsx`、没有 `settings/page.tsx`，又有 `user+/page.tsx` 时构建报错，因为 `/settings` 也匹配 `/{user}`，而 `items/new` 和 `items/id+` 里的 Layout 并列没问题。
+- 只有 Layout、没有页面的目录，它的 URL 在这个 Layout 里显示 404（见 [404](#404)），除非它下面紧挨着的 `name++` 目录里有页面，这时由那个页面以空的剩余路径接这个 URL。别的页面不能匹配这个 URL，比 Layout 路径更具体的除外：有 `settings/layout.tsx`、没有 `settings/page.tsx`，又有 `user+/page.tsx` 时构建报错，因为 `/settings` 也匹配 `/{user}`，而 `items/new` 和 `items/id+` 里的 Layout 并列没问题。
 - 声明 `const Path` 会构建报错，目录就是 URL。
 
 ## 一个目录的文件
@@ -176,7 +176,7 @@ export const head = ({ loaderData }: { loaderData?: PageData }) => ({
 ```
 
 - 只放界面，不取数。`./route.gen` 是生成的模块，每个目录一个，导出 `page` 和 `layout`（页面和 Layout 的 TanStack 路由，目录里有才导出）、`PageData` 和 `LayoutData`（`Load` 和 `Layout` 的返回类型）、`Params`，以及每个方法函数一个调用函数。同目录的子组件同样 import `./route.gen`。Layout 的数据来自它所在目录的 `route.gen`：`layout.tsx` 从 `'./route.gen'` import `layout`，页面读项目 Layout 的数据时从比如 `'../../route.gen'` import `layout`。有谁 import 了一个没有生成模块的目录的 `route.gen`，构建就会报错。
-- 默认导出是页面组件。可选导出 `head`、`Error`、`NotFound`。
+- 默认导出是页面组件。可选导出 `head` 和 `Error`。404 也显示在 `Error` 里（见 [404](#404)），导出 `NotFound` 构建报错。
 - 在浏览器里，每个 `page.tsx`，以及根 Layout 以外的每个 `layout.tsx`，连同它 import 的一切（含 `head`）各自是一个 chunk。路由第一次用到时才加载，路由器等它加载完才显示页面、运行 `head`。页面的 HTML 预加载它的 Layout 和路由的 chunk，所以它们和入口脚本一起到。文件顶层的代码（含只为副作用的 import）在这时运行，而不是应用启动时，所以每个页面都需要的初始化放在根 Layout 里，或放在它 import 的模块里。见[浏览器里的路由模块](build.zh-CN.md#浏览器里的路由模块)。
 - Go 的切片和 map 在 TypeScript 里带 `| null`（Go 的 nil 编码成 `null`），用之前写 `?? []`。
 - 模块顶层就要用浏览器能力的组件放进 `.client.tsx`，用 `tifa/client` 的 `clientOnly` 延迟加载。它不进 SSR 包，首屏显示占位内容。能渲染、但要等浏览器画出来才有内容的组件也适合这样放，见[只在浏览器里绘制的组件](#只在浏览器里绘制的组件)：
@@ -273,26 +273,56 @@ export const head = ({ loaderData }: { loaderData?: LayoutData }) => ({
 })
 ```
 
-- 算数的路由就是 head 出现在页面上的那些。Layout 下面的 404 或出错保留 Layout 的语言。Layout 自己失败时，它的 `head` 拿不到数据，上面的例子就留下根 Layout 的 `lang`。没有路由匹配的 URL 只显示根 Layout 的 `NotFound`，带根 Layout 的属性。想让这类 URL 也用 URL 里的语言回答，就加一个接住剩余路径的页面，比如 `app/guide/lang+/rest++/route.go`，它的 `Load` 返回 `tifa.ErrNotFound`，这样 404 显示在这个 Layout 里面。
+- 算数的路由就是 head 出现在页面上的那些。Layout 下面的 404 或出错保留 Layout 的语言，Layout 下面没有页面的 URL 也一样，因为它的 404 显示在这个 Layout 里（见 [404](#404)）。Layout 自己失败时，它的 `head` 拿不到数据，上面的例子就留下根 Layout 的 `lang`。这类网站的其他部分见[多语言网站](#多语言网站)。
 - `htmlAttributes` 必须是对象，别的值 `pnpm typecheck` 会报出来。运行时这样的值和 `head` 抛错一样处理：服务器渲染按意外错误失败（交给 `OnError`，没有就是 500），消息写进日志，`tifa dev` 下也显示在页面上。浏览器里跳转后、或者不走 SSR 的页面上，路由器把错误打到控制台，并丢掉这个路由的整个 head。
 - 语言像上面那样从 Layout 的数据取，不要直接取 `params`：Go 函数会检查它，别人在 URL 里随便写的字不会变成页面的语言。
 
 ## 404
 
-`page.tsx` 和 `layout.tsx` 可以导出 `NotFound`：
+404 显示在路由的 `Error` 里（见[页面上的错误](#页面上的错误)），它收到 `status` 为 404 的 `RouteError`：
+
+```tsx
+import { RouteError } from 'tifa/client'
+
+export function Error({ error }: { error: unknown }) {
+  if (error instanceof RouteError && error.status === 404) return <p>没有这个订单</p>
+  return <p>出了点问题</p>
+}
+```
 
 | 情况 | 显示 |
 | --- | --- |
-| URL 没有匹配任何页面，比如只有 Layout、没有页面的目录的 URL | 根 Layout 的 `NotFound`，不带根 Layout 的界面，不执行任何 `Load` 或 `Layout` |
-| 页面 `Load` 返回 `tifa.ErrNotFound` | 从这个页面往上第一个 `NotFound`，外层 Layout 照常显示 |
-| `Layout` 函数返回 `tifa.ErrNotFound` | 从上一层 Layout 开始往上找 |
-| 都没有导出 | 框架默认页面 |
+| 页面 `Load` 返回 `tifa.ErrNotFound` | 从这个页面往上第一个 `Error`，外层 Layout 照常显示 |
+| `Layout` 函数返回 `tifa.ErrNotFound` | 从上一层 Layout 往上第一个 `Error` |
+| URL 没有匹配任何页面 | 从 URL 能匹配上的最深一层 Layout 往上第一个 `Error`，显示在这个 Layout 里面。从根到这一层的 Layout 照常执行、照常显示 |
+| 没有路由导出 `Error` | 框架默认的 404 页面 |
 
-这几种情况的状态码都是 404。根 Layout 的 `NotFound` 有时单独显示，所以不能读 loader 数据。
+这几种情况的状态码都是 404，浏览器里跳转后也一样，这时的数据请求回答各层 Layout 的数据和状态码 404。
+
+找没有匹配页面的 URL 落在哪个 Layout 时，tifa 从左往右逐段拿 URL 和每个 Layout、每个页面的路径比：字面段胜过参数，参数胜过路径结束。匹配得最多的路径胜出，页面算作它所在的 Layout。比如有这些目录：
+
+```text
+app/layout.tsx
+app/teams/team+/layout.tsx
+app/teams/team+/members/page.tsx
+app/teams/new/page.tsx
+```
+
+| URL | 404 显示在 |
+| --- | --- |
+| `/nowhere` | 根 Layout 里 |
+| `/teams/blue/missing` | team Layout 里，它的 `Layout` 读到的 `c.Param("team")` 是 `blue` |
+| `/teams/blue/members/x` | team Layout 里 |
+| `/teams/new/x` | 根 Layout 里：`new` 是字面段，`teams/new` 胜过 `teams/team+`，而这个页面在根 Layout 里 |
+
+- `name++` 目录里的页面接住它下面的所有 URL，所以这类 URL 匹配的是那个页面，回答什么由它的 `Load` 决定。
+- 没有匹配页面的 URL 也会经过 `OnRequest`，这时 `c.Pattern()` 为空。`c.Next()` 执行各层 Layout，返回 `tifa.ErrNotFound`。`OnRequest` 不调用 `c.Next()`、自己返回 `tifa.ErrNotFound` 时，任何 Layout 都不执行，页面显示得和根 `Layout` 返回 `tifa.ErrNotFound` 时一样。
+- Layout 的 `Error` 只会显示在它下面某个路由的位置，也就是这个 Layout 的 `Outlet` 里，所以它能读这个 Layout 的数据和它的组件提供的 context。Layout 失败时显示上一层 Layout 的 `Error`，根 Layout 失败时显示框架默认页面。
+- `page.tsx` 或 `layout.tsx` 导出 `NotFound` 时构建报错。把它显示的内容挪进 `Error`，放在 `error.status === 404` 的分支里。
 
 ## 页面上的错误
 
-`page.tsx` 和 `layout.tsx` 可以导出 `Error`。这一层的 `Load` 或 `Layout` 失败，或者它下面的组件在浏览器里抛错时，在这一层的位置显示它：
+`page.tsx` 和 `layout.tsx` 可以导出 `Error`。这一层的 `Load` 或 `Layout` 失败、404 显示在这一层（见 [404](#404)），或者它下面的组件抛错时，在这一层的位置显示它：
 
 ```tsx
 import { RouteError } from 'tifa/client'
@@ -306,10 +336,71 @@ export function Error({ error }: { error: unknown }) {
 - `Load` 或 `Layout` 失败时，`Error` 收到 `RouteError`，带 `status` 和公开的消息（`tifa.Error` 的消息，或 `OnError` 返回的）。服务器上和 hydration 之后都一样。
 - 自己没导出 `Error` 的路由，用最近的导出了 `Error` 的祖先的，都没有就用框架默认的。
 - 页面的状态码取最外层失败的那一层。
-- 服务器渲染页面时组件抛错，整次渲染失败。这算意外错误：交给 `OnError` 决定状态码（没定义 `OnError` 时是 500），浏览器拿到的是 Go 写的简单错误页，只有这个状态码和公开的消息，不是你的 `Error` 组件。这次回答不进缓存。在 `tifa dev` 下，这张页还会显示错误和它在源文件里的错误栈，保存修复后自动刷新（见 [tifa dev](dev.zh-CN.md#页面渲染失败)）。
-- 服务器渲染用完 `ssr.vm_memory` 或超过 `ssr.timeout`（见 [config.zh-CN.md](config.zh-CN.md)）时当场停下。你的代码和库里的 `catch`、`finally`、promise 处理函数都不会为它运行，所以页面接不住它，也没法改成显示别的内容。这次渲染照上面那样失败，VM 换成新的。无限递归的代码得到 `RangeError: Maximum call stack size exceeded`，和 Node 一样，`catch` 能接住（见[栈深度](config.zh-CN.md#栈深度)）。没有代码接住时，它和其他错误一样让渲染失败。
+- 服务器渲染页面时组件抛错，算意外错误：`OnError` 只看到它一次，由它决定状态码（没定义 `OnError` 时是 500）和公开的消息。接着页面带着这个错误再渲染一次，错误以 `RouteError` 放在页面的位置，于是从页面往上第一个 `Error` 在各层 Layout 里面显示它。这次渲染如果也失败（`Error` 或包着它的 Layout 抛错），错误就往上挪一层，放到页面所在 Layout 的位置，这样一直挪到根 Layout。错误放在根 Layout 的位置还失败时，浏览器才拿到 Go 写的简单错误页，只有状态码和公开的消息。浏览器按服务器放错误的位置 hydrate，不再运行抛错的那个路由。这种回答不进缓存。错误栈只在 `tifa dev` 下显示，盖在显示 `Error` 的页面上，保存修复后页面自动刷新（见 [tifa dev](dev.zh-CN.md#页面渲染失败)）。
+- 服务器渲染用完 `ssr.vm_memory` 或超过 `ssr.timeout`（见 [config.zh-CN.md](config.zh-CN.md)）时当场停下。你的代码和库里的 `catch`、`finally`、promise 处理函数都不会为它运行，所以页面接不住它，也没法改成显示别的内容。VM 换成新的。用完 `ssr.vm_memory` 的渲染照上面那样在新的 VM 上带着错误再渲染。超过 `ssr.timeout` 或者遇上所有 VM 都忙的渲染不再重来，Go 立刻回答简单错误页。同一个请求的几次渲染共用一个 `ssr.timeout`，从第一次开始算，带着错误的渲染用完了它就不再往上试。无限递归的代码得到 `RangeError: Maximum call stack size exceeded`，和 Node 一样，`catch` 能接住（见[栈深度](config.zh-CN.md#栈深度)）。没有代码接住时，它和其他错误一样让渲染失败。
 - 浏览器接管之后组件抛错，显示最近的 `Error`，和 `Load` 失败一样。
 - 无论哪里失败，文档外壳都是完整的，页面照样加载脚本和样式。
+
+## 多语言网站
+
+tifa 没有语言设置：语言是 URL 的一部分，由应用在 Go 里检查。[examples/shop](../examples/shop) 在 `/store` 下的店面就是这样写的。
+
+- 把语言放进 URL 开头的参数目录，比如 `app/store/lang+`。每个 URL 都写明语言，默认语言也写：`/store/zh-CN/products` 和 `/store/en-US/products`。
+- 这个目录的 `Layout` 检查语言，把它放进返回的数据。网站没有的语言返回 `tifa.ErrNotFound`，显示上一层 Layout 的 404，用上一层的语言：
+
+```go
+// app/store/lang+/route.go
+func Layout(c *tifa.Ctx) (Shell, error) {
+	l, err := store.FindLocale(c.Param("lang")) // 店面没有的语言返回 tifa.ErrNotFound
+	if err != nil {
+		return Shell{}, err
+	}
+	return Shell{Locale: l, Menu: products.Menu(l)}, nil
+}
+```
+
+- 页面和组件从这份数据取语言，经 `layout.useLoaderData()` 或 Layout 组件提供的 context，不从 `params` 取：Go 函数检查过它，别人在 URL 里随便写的字不会变成页面的语言。Layout 下面的 `Load` 也这样检查，或者用 `tifa.Use` 读 Layout 的结果。
+- Layout 的 `head` 在 `<html>` 上写 `lang`，再链接到同一页的其他语言版本，供搜索引擎读。`matches` 是页面的各层路由，页面在最后：
+
+```tsx
+// app/store/lang+/layout.tsx
+const site = 'https://shop.example.com'
+
+export const head = ({ loaderData, matches }: { loaderData?: LayoutData; matches: Array<{ pathname: string }> }) => {
+  if (!loaderData) return {}
+  const { code, other } = loaderData.locale
+  const page = matches[matches.length - 1].pathname.replace(/\/$/, '')
+  return {
+    htmlAttributes: { lang: code },
+    links: [{ rel: 'alternate', hrefLang: other, href: site + page.replace(`/store/${code}`, `/store/${other}`) }],
+  }
+}
+```
+
+- 语言目录下没有页面的 URL，在语言 Layout 里显示 404，用 URL 里的语言（见 [404](#404)），不需要接住剩余路径的页面。
+- 不带语言的 URL（比如 `/store`）用一个方法函数把访客送走：送到他以前选过的语言（他选的时候应用写进 cookie），没有就送到和 `Accept-Language` 最接近的语言。匹配用 `golang.org/x/text/language` 的 `Matcher`，它知道 `en-GB` 离 `en-US` 比离 `zh-CN` 近。回答随请求而变，所以用 302 跳转并加上 `Vary`：
+
+```go
+// app/store/route.go
+var codes = []string{"zh-CN", "en-US"} // 默认语言在前
+
+var matcher = language.NewMatcher([]language.Tag{language.MustParse(codes[0]), language.MustParse(codes[1])})
+
+func GET(c *tifa.Ctx) error {
+	c.Writer().Header().Add("Vary", "Cookie, Accept-Language")
+	if picked, err := c.Cookie("lang"); err == nil && slices.Contains(codes, picked.Value) {
+		return c.Redirect("/store/"+picked.Value, http.StatusFound) // 访客自己选过的语言
+	}
+	tags, _, _ := language.ParseAcceptLanguage(c.Header("Accept-Language"))
+	_, i, confidence := matcher.Match(tags...)
+	if confidence == language.No {
+		i = 0 // 没有接近的语言：用默认语言
+	}
+	return c.Redirect("/store/"+codes[i], http.StatusFound)
+}
+```
+
+- 翻译同步加载：把每种语言的文案和应用打包在一起，库的初始化不等待，比如 i18next 用 `initAsync: false` 加 `resources`。服务端渲染什么都不等，也不读文件，后到的文案不会出现在 HTML 里，浏览器 hydrate 时就会是另一套文字。两边都从 Layout 的数据取语言，所以显示同样的文字。数字和日期也用数据里的语言和时区格式化（见[怎么写才能水合一致](#怎么写才能水合一致)）。
 
 ## SSR 与缓存
 
@@ -563,7 +654,7 @@ func OnRequest(c *tifa.Ctx) error              // 唯一的中间件，调用 c.
 func OnError(c *tifa.Ctx, err error) tifa.Error // 意外错误：上报，返回能给用户看的错误
 ```
 
-- `OnRequest` 作用于页面、导航数据请求、API 路由和没匹配的 URL，不作用于静态文件。没匹配时 `c.Pattern()` 为空。
+- `OnRequest` 作用于页面、导航数据请求、API 路由和没匹配的 URL，不作用于静态文件。没匹配时 `c.Pattern()` 为空，`c.Next()` 执行它的 404 所在的各层 Layout（见 [404](#404)）。
 - 整个应用共享的资源，比如数据库连接、日志，放在应用根目录、和 `hooks.go` 并列的文件里，比如 `db.go`、`middleware.go`。每个文件构建一个包级变量或一个函数：在 `OnStart` 里初始化，在 `OnShutdown` 里释放，其他地方直接用，比如 import `example.com/myapp` 之后写 `myapp.DB`。`app/` 下的领域 import 根包来用它们。按约定，根包不 import `app/` 下的任何包，所以这样永远不会构成循环引用。模型和查询留在各自的领域里。路由代码只在函数里用这些资源，不在包级变量初始化时读。不用 `init()` 做初始化。见 [import 的方向](structure.zh-CN.md#import-的方向)。
 - 请求级的值用标准 context 写入：`c.SetContext(context.WithValue(...))`，业务包提供带类型的读取函数。
 
