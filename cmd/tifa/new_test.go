@@ -559,16 +559,68 @@ func TestNewWritesAgentNotes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(agents), "npm run typecheck") {
+	if !strings.Contains(string(agents), "| `npm install` |") {
 		t.Errorf("AGENTS.md does not use the commands of npm:\n%s", agents)
 	}
-	links := regexp.MustCompile(`https://github\.com/liustack/tifa/blob/main/([^)#\s]+)`).FindAllStringSubmatch(string(agents), -1)
-	if len(links) == 0 {
-		t.Fatal("AGENTS.md links to no docs")
+	// One command runs every check, so the notes name no other way to run them.
+	if !strings.Contains(string(agents), "| `go tool tifa check` |") || strings.Contains(string(agents), "typecheck") || strings.Contains(string(agents), "| `go test") {
+		t.Errorf("AGENTS.md does not give go tool tifa check as the one check command:\n%s", agents)
 	}
-	for _, link := range links {
-		if _, err := os.Stat(filepath.Join("..", "..", filepath.FromSlash(link[1]))); err != nil {
-			t.Errorf("AGENTS.md links to %s: %v", link[0], err)
+	text := string(agents)
+	if !strings.Contains(text, "`go tool tifa docs`") {
+		t.Error("AGENTS.md does not tell the agent to run go tool tifa docs")
+	}
+	// The docs are those of the installed version, so the notes do not send the agent to GitHub.
+	if strings.Contains(text, "blob/main") {
+		t.Error("AGENTS.md links to the docs on the main branch")
+	}
+	refs := regexp.MustCompile("`(docs/[a-z-]+\\.md)`").FindAllStringSubmatch(text, -1)
+	if len(refs) == 0 {
+		t.Fatal("AGENTS.md names no doc")
+	}
+	for _, ref := range refs {
+		if _, err := os.Stat(filepath.Join("..", "..", filepath.FromSlash(ref[1]))); err != nil {
+			t.Errorf("AGENTS.md names %s: %v", ref[1], err)
 		}
+	}
+}
+
+// The part of AGENTS.md that tifa manages sits between two marker lines, so a later tifa can
+// replace it and leave what the user wrote around it. The markers are alone on their lines, appear
+// once each and come in order, and the notes about the app itself are outside them.
+func TestNewAgentNotesHaveOneManagedBlock(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "app")
+	if _, _, err := run(t, "new", dir); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var begin, end []int // the numbers of the lines
+	lines := strings.Split(string(data), "\n")
+	for i, line := range lines {
+		switch strings.TrimSpace(line) {
+		case "<!-- tifa:begin -->":
+			begin = append(begin, i)
+		case "<!-- tifa:end -->":
+			end = append(end, i)
+		}
+		if strings.Contains(line, "tifa:begin") && line != "<!-- tifa:begin -->" || strings.Contains(line, "tifa:end") && line != "<!-- tifa:end -->" {
+			t.Errorf("line %d holds a marker that is not alone on its line: %q", i+1, line)
+		}
+	}
+	if len(begin) != 1 || len(end) != 1 || begin[0] >= end[0] {
+		t.Fatalf("markers: begin at lines %v, end at lines %v, want one of each in order", begin, end)
+	}
+	inside := strings.Join(lines[begin[0]+1:end[0]], "\n")
+	outside := strings.Join(lines[:begin[0]], "\n") + "\n" + strings.Join(lines[end[0]+1:], "\n")
+	for _, want := range []string{"## Commands", "## Routes", "## Hooks", "`go tool tifa docs`", "`go tool tifa check`"} {
+		if !strings.Contains(inside, want) {
+			t.Errorf("the managed block has no %q", want)
+		}
+	}
+	if !strings.HasPrefix(string(data), "# Notes for coding agents\n") || !strings.Contains(outside, "## This app") || strings.Contains(inside, "## This app") {
+		t.Errorf("the title and the notes about this app belong outside the managed block:\n%s", data)
 	}
 }

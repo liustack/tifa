@@ -75,6 +75,7 @@ export const head = ({ loaderData }: { loaderData?: PageData }) => ({
 go get -tool github.com/liustack/tifa/cmd/tifa
 go tool tifa dev     # 改组件即时热更新，改 Go 自动重启
 go tool tifa build   # 得到 bin/<应用名>，前端产物已经嵌在里面
+go tool tifa check   # 分析、vet、测试和 TypeScript 检查一次跑完
 ```
 
 ## 特点

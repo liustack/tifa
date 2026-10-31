@@ -121,6 +121,14 @@ func TestNewApp(t *testing.T) {
 	if status, _, body := get(t, base+"/about"); status != 200 || !strings.Contains(body, "<h1>About</h1>") {
 		t.Fatalf("GET /about: %d\n%s", status, body)
 	}
+	if out, err := tifaCheck(t, dir); err != nil {
+		t.Fatalf("tifa check: %v\n%s", err, out)
+	}
+	// tifa docs finds the docs of the checkout the app replaces tifa with.
+	docs, err := exec.Command(cli(t), "docs", "--dir", dir).CombinedOutput()
+	if err != nil || !strings.Contains(string(docs), "Docs: "+filepath.Join(repoRoot(t), "docs")) || !strings.Contains(string(docs), "docs/app.md - ") {
+		t.Fatalf("tifa docs: %v\n%s", err, docs)
+	}
 	typecheck(t, dir)
 }
 

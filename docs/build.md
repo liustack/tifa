@@ -1,7 +1,9 @@
 ---
-summary: 'How tifa new starts an app, what tifa build does, which files and outputs it generates in .tifa/, how to set up the tsconfig and go.mod of an app, how the generated program starts and answers page requests, why it leaves out the debug info, and which license notices to ship with it'
+summary: 'How tifa new starts an app, what tifa build does, what tifa check runs, what tifa docs prints and the managed block of AGENTS.md, which files and outputs it generates in .tifa/, how to set up the tsconfig and go.mod of an app, how the generated program starts and answers page requests, why it leaves out the debug info, and which license notices to ship with it'
 read_when:
   - Changing internal/codegen, the build command in cmd/tifa, or server.Main
+  - Changing `tifa check`, or finding out which steps it runs and what it needs
+  - Changing `tifa docs` or the `AGENTS.md` that `tifa new` writes, or the part of it that tifa manages
   - Creating a tifa app, or adding an app to test/apps
   - You cannot tell where a file under .tifa/ comes from
   - Implementing page rendering or navigation data requests and you need the route tree and the data protocol
@@ -34,7 +36,7 @@ Writes a small working app into `dir`, which must be missing or empty: a todo li
 | `app/about/page.tsx` | A page without `route.go` |
 | `*_test.go` | Tests next to the code they test: the todos domain, the database and the hooks, and `tifatest` tests of the route code, each on a fresh database in a temporary folder |
 | `tifa.yaml` | Every setting of [config.md](config.md), commented out at its default. `ssr.vms` defaults to GOMAXPROCS, so it shows an example value |
-| `AGENTS.md`, `CLAUDE.md` | Notes for coding agents on how a tifa app works, with links to these docs. `CLAUDE.md` only points at `AGENTS.md` |
+| `AGENTS.md`, `CLAUDE.md` | Notes for coding agents on how a tifa app works, that tell the agent to run `go tool tifa docs` first and give `go tool tifa check` as the one check command, with the part tifa manages between marker lines (see [The managed block of AGENTS.md](#the-managed-block-of-agentsmd)). `CLAUDE.md` only points at `AGENTS.md` |
 | `package.json`, `tsconfig.json`, `vite.config.ts`, `.gitignore`, `README.md` | The npm packages, the TypeScript and Vite setup, the ignored build output and database files, and the commands |
 
 - The module path is the folder name unless `--module` gives one. The app imports the package at its root, so the path must be one the go command imports. tifa new refuses a path with a `vendor` element, and one whose first element has no dot and is, in any case, the first element of a standard library package or a go command pattern (such as `fmt`, `net` or `all`), even when no such package exists. Pass `--module example.com/fmt` instead.
@@ -42,7 +44,7 @@ Writes a small working app into `dir`, which must be missing or empty: a todo li
 - `go.mod` requires the version of the tifa command that ran when the go command downloaded it: `go run github.com/liustack/tifa/cmd/tifa@<version> new myapp`, or `go tool tifa new` in an app. A command built in a tifa checkout, or replaced by one, writes `v0.0.0` and adds a step that points `go.mod` at the checkout with `go mod edit -replace`.
 - `go.mod` pins a `modernc.org/sqlite` release. The SQLite driver is pure Go.
 - `tifa new` writes files only. It runs no go or npm commands and needs no network. It prints the next steps: `cd` into the folder, `go mod tidy`, `pnpm install` and `go tool tifa dev`, which serves the app at http://127.0.0.1:9527.
-- It looks for `pnpm` on PATH, without running it. When pnpm is there, the install step and the commands in `README.md` and `AGENTS.md` use pnpm (`pnpm install`, `pnpm typecheck`). Otherwise they use npm (`npm install`, `npm run typecheck`). `package.json` has no `packageManager` field, so both work on the same app.
+- It looks for `pnpm` on PATH, without running it. When pnpm is there, the install step and the commands in `README.md` and `AGENTS.md` use pnpm (`pnpm install`, and `pnpm typecheck` in `README.md`). Otherwise they use npm (`npm install`, and `npm run typecheck` in `README.md`). `package.json` has no `packageManager` field, so both work on the same app.
 
 ## tifa build
 
@@ -110,6 +112,70 @@ cp "$q/intl/LICENSE-DATA" "$q"/internal/gointl/qjsdata/NOTICE-* bin/notices/
 slowjs's [NOTICE.md](https://github.com/liustack/slowjs/blob/main/NOTICE.md#what-a-program-that-ships-a-binary-must-include) says which of these files each license asks for.
 
 The npm packages that Vite bundles into the SSR bundle and the browser bundle are the app's own dependencies, and most of their licenses (MIT, ISC, BSD, Apache-2.0) ask the same. The browser bundle goes to everyone who opens a page. `tifa build` does not collect their notices: collect them with a tool of your choice, for example a Vite or Rollup license plugin.
+
+## tifa check
+
+```sh
+tifa check [--dir app-root]
+```
+
+Runs every check of the app with one command and stops at the first step that fails:
+
+1. `analyze`: the static analysis of `tifa build`. Each convention violation is printed as `file:line: reason`.
+2. `generate`: writes `.tifa/`, as `tifa build` does, so the types the TypeScript step needs are current. It starts Node only for an app with pages.
+3. `go vet ./...`
+4. `go test ./...`
+5. `typescript (tsc --noEmit)`: the `tsc` of the `typescript` package the app installs, run with `node` in the app root, with the `tsconfig.json` of the app. tifa finds the package the way Node does, in `node_modules` of the app or of a folder above it and behind the links of pnpm, so it works with npm and pnpm and installs nothing. An app that does not install `typescript` fails here and is told to run the install of its package manager. An app without pages skips this step and prints `typescript: skipped, the app has no pages (no Node needed)`.
+
+Each step prints a line that starts with `==> `, then whatever its tool prints. Go runs with `CGO_ENABLED=0`, as in `tifa build`. A failure ends the command with a non-zero status and an error that names the step. The steps after it do not run.
+
+```text
+==> analyze
+==> generate
+==> go vet ./...
+vetbad.go:5:29: fmt.Printf format %d has arg "text" of wrong type string
+tifa: check failed at go vet ./...: exit status 1
+```
+
+`tifa new` writes `go tool tifa check` into the `AGENTS.md` of a new app as the one command to run before finishing a change.
+
+## tifa docs
+
+```sh
+tifa docs [--dir app-root]
+```
+
+Prints where the docs of the tifa version the app uses are, then an index of them. The `AGENTS.md` that `tifa new` writes tells a coding agent to run it first, so the agent reads the docs of the version the app builds with, not those of the main branch on GitHub.
+
+tifa asks the go command (`go list -m -json github.com/liustack/tifa`) in the app root, so the folder is the one `go.mod` resolves: the module cache for a released version, and the folder of a `replace` directive. A module that is not downloaded yet fails with `go mod download github.com/liustack/tifa` as the step to run.
+
+```text
+github.com/liustack/tifa v0.0.0 (replaced by ../..)
+Docs: /home/me/tifa/docs
+The paths below are relative to /home/me/tifa.
+
+docs/app.md - How to write a tifa app: folder layout, how folders become URLs, ...
+  Read when: Creating a tifa app, or adding pages, Layouts or API routes to one | ...
+docs/build.md - ...
+```
+
+The index has the format of `scripts/docs-list.sh` in the tifa repository: one line per doc with its summary, then a line with the `read_when` entries of its front matter joined with ` | `. Docs are sorted by path. The Chinese versions (`*.zh-CN.md`), `docs/archive/` and `docs/research/` are left out, and a doc without a summary is left out with a warning on stderr.
+
+### The managed block of AGENTS.md
+
+The part of `AGENTS.md` that tifa writes sits between two marker lines:
+
+```md
+# Notes for coding agents
+
+<!-- tifa:begin -->
+...
+<!-- tifa:end -->
+
+## This app
+```
+
+Each marker is alone on its line, appears once, and `tifa:begin` comes before `tifa:end`. Everything between them is tifa's: the commands, the conventions and where to read more. A later tifa can replace that part and leave the rest of the file as it is, so the notes about the app itself go outside the markers (`tifa new` starts them with `## This app`). Do not edit between the markers: such edits are lost on a refresh. `tifa new` writes the block and nothing yet refreshes it.
 
 ## tifa routes
 

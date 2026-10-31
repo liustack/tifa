@@ -75,6 +75,7 @@ export const head = ({ loaderData }: { loaderData?: PageData }) => ({
 go get -tool github.com/liustack/tifa/cmd/tifa
 go tool tifa dev     # hot-reloads components, restarts on Go changes
 go tool tifa build   # bin/<app>, with the frontend embedded
+go tool tifa check   # analysis, vet, tests and the TypeScript check in one go
 ```
 
 ## Highlights
