@@ -243,7 +243,7 @@ VM 回收后的活大小超过增长上界时，池会在后台替换它。基�
 
 ## 极端页面
 
-页面能大到什么程度才渲染失败，失败得干不干净？测试文档的[极端页面](testing.md#extreme-pages-testappsextreme)介绍了这个应用和它的场景。2026-10-29 用默认设置（每个 VM 128 MiB，每次渲染 3 秒）测，不开 PGO，用 slowjs 0cc6d332，也就是 C 引擎：
+页面能大到什么程度才渲染失败，失败得干不干净？测试文档的[极端页面](testing.md#extreme-pages-testappsextreme)介绍了这个应用和它的场景。2026-11-01 用默认设置（每个 VM 128 MiB，每次渲染 3 秒）测，不开 PGO，用 slowjs v0.29.6，也就是 C 引擎：
 
 - **M4**：Apple M4（darwin/arm64）。
 - **EPYC**：上面那台 AMD EPYC 7B13 的一个线程，同一个核的另一个线程空着（linux/amd64）。
@@ -252,42 +252,43 @@ VM 回收后的活大小超过增长上界时，池会在后台替换它。基�
 
 | 页面 | M4 | EPYC |
 | --- | --- | --- |
-| `/dom/10000` | 26 ms，7.5 MiB | 59 ms，7.5 MiB |
-| `/dom/50000` | 139 ms，14.0 MiB | 305 ms，14.0 MiB |
-| `/dom/100000` | 281 ms，22.2 MiB | 615 ms，22.2 MiB |
-| `/nest/500` | 0.9 ms，5.8 MiB | 1.9 ms，5.8 MiB |
-| `/nest/1000` | 1.3 ms，5.8 MiB | 2.9 ms，5.8 MiB |
-| `/nest/5000` | 6.1 ms，6.6 MiB | 15 ms，6.6 MiB |
-| `/nest/10000` | 12 ms，8.7 MiB | 29 ms，8.7 MiB |
-| `/deep/400` | 1.2 ms，5.8 MiB | 2.6 ms，5.8 MiB |
-| `/deep/600` | 1.6 ms，5.8 MiB | 3.4 ms，5.8 MiB |
-| `/inject/1` | 11 ms，10.0 MiB | 21 ms，10.0 MiB |
-| `/inject/5` | 64 ms，27.3 MiB | 141 ms，27.3 MiB |
-| `/inject/20` | 内存不足，0.18 秒后（0.27 秒，92.2 MiB） | 内存不足，0.38 秒后（0.52 秒，92.2 MiB） |
-| `/json/1999` | 1.7 ms，6.2 MiB | 3.5 ms，6.2 MiB |
+| `/dom/10000` | 17 ms，7.2 MiB | 48 ms，7.2 MiB |
+| `/dom/50000` | 86 ms，13.6 MiB | 222 ms，13.6 MiB |
+| `/dom/100000` | 180 ms，21.5 MiB | 472 ms，21.5 MiB |
+| `/nest/500` | 0.6 ms，5.6 MiB | 1.6 ms，5.6 MiB |
+| `/nest/1000` | 1.0 ms，5.6 MiB | 2.5 ms，5.6 MiB |
+| `/nest/5000` | 3.9 ms，5.8 MiB | 14 ms，5.8 MiB |
+| `/nest/10000` | 7.6 ms，6.7 MiB | 29 ms，6.7 MiB |
+| `/deep/400` | 0.8 ms，5.7 MiB | 2.0 ms，5.7 MiB |
+| `/deep/600` | 1.1 ms，5.7 MiB | 2.6 ms，5.7 MiB |
+| `/inject/1` | 8.0 ms，9.7 MiB | 18 ms，9.7 MiB |
+| `/inject/5` | 40 ms，26.4 MiB | 116 ms，26.4 MiB |
+| `/inject/20` | 160 ms，89.0 MiB | 398 ms，89.0 MiB |
+| `/inject/40` | 内存不足，0.12 秒后（0.32 秒，172.6 MiB） | 内存不足，0.26 秒后（0.71 秒，172.6 MiB） |
+| `/json/1999` | 1.2 ms，6.1 MiB | 2.9 ms，6.1 MiB |
 | `/json/2001` | `RangeError: JSON nesting too deep`，1 ms 后 | `RangeError: JSON nesting too deep`，2 ms 后 |
-| `/table/1000` | 205 ms，34.0 MiB | 485 ms，34.0 MiB |
-| `/table/5000` | 内存不足，0.71 秒后（1.1 秒，146.9 MiB） | 内存不足，1.7 秒后（2.5 秒，146.9 MiB） |
-| `/table/10000` | 内存不足，0.66 秒后（2.2 秒，288.2 MiB） | 内存不足，1.4 秒后（5.2 秒，288.2 MiB） |
-| `/providers/200` | 3.3 ms，5.9 MiB | 1.8 ms，5.9 MiB |
-| `/providers/500` | 1.3 ms，6.2 MiB | 2.9 ms，6.2 MiB |
-| `/providers/1000` | 2.5 ms，6.7 MiB | 5.0 ms，6.7 MiB |
-| `/charts/12` | 197 ms，12.6 MiB | 377 ms，12.6 MiB |
-| `/markdown/200` | 1,026 ms，10.2 MiB | 2,321 ms，10.2 MiB |
-| `/markdown/1000` | 内存不足，0.87 秒后（5.3 秒，16.2 MiB） | 内存不足，2.0 秒后（13 秒，16.2 MiB） |
-| `/markdown/2000` | 内存不足，0.84 秒后（10 秒，789.0 MiB） | 内存不足，2.0 秒后（25 秒，789.0 MiB） |
-| `/i18n/3000` | 180 ms，15.8 MiB | 412 ms，15.8 MiB |
-| `/mall/zh-CN` | 115 ms，14.4 MiB | 260 ms，14.4 MiB |
-| `/mall/en-US` | 117 ms，13.8 MiB | 259 ms，13.8 MiB |
-| `/console/100` | 1,257 ms，31.6 MiB | 2,781 ms，31.6 MiB |
+| `/table/1000` | 156 ms，29.5 MiB | 444 ms，29.5 MiB |
+| `/table/5000` | 内存不足，0.68 秒后（0.82 秒，125.0 MiB） | 内存不足，1.9 秒后（2.2 秒，125.0 MiB） |
+| `/table/10000` | 内存不足，0.63 秒后（1.7 秒，244.4 MiB） | 内存不足，1.7 秒后（4.5 秒，244.4 MiB） |
+| `/providers/200` | 0.6 ms，5.7 MiB | 1.4 ms，5.7 MiB |
+| `/providers/500` | 0.9 ms，5.9 MiB | 2.6 ms，5.9 MiB |
+| `/providers/1000` | 1.7 ms，6.1 MiB | 6.6 ms，6.1 MiB |
+| `/charts/12` | 131 ms，12.4 MiB | 297 ms，12.4 MiB |
+| `/markdown/200` | 883 ms，86.7 MiB | 2,148 ms，86.7 MiB |
+| `/markdown/1000` | 内存不足，0.80 秒后（4.4 秒，383.1 MiB） | 内存不足，2.0 秒后（11 秒，383.1 MiB） |
+| `/markdown/2000` | 内存不足，0.84 秒后（9.5 秒，789.1 MiB） | 内存不足，2.1 秒后（23 秒，789.1 MiB） |
+| `/i18n/3000` | 135 ms，14.9 MiB | 377 ms，14.9 MiB |
+| `/mall/zh-CN` | 77 ms，14.3 MiB | 195 ms，14.3 MiB |
+| `/mall/en-US` | 76 ms，13.5 MiB | 188 ms，13.5 MiB |
+| `/console/100` | 1,114 ms，21.2 MiB | 2,601 ms，21.9 MiB |
 
 - **每次失败都干净。** 没有哪一档让程序退出或卡住。每次失败都是时间预算内的 500，VM 换新，下一个页面照常渲染。`TestExtremeApp` 还要求程序跑完所有档位始终不超过 1 GiB。
-- **大数据和长列表先用完内存**：注入 20 MB 数据、5000 行的表、长 Markdown。**长 Markdown 和后台忙碌的一天（300 条 Markdown 回复）先用完时间**：`/markdown/200` 和 `/console/100` 在 M4 上用 1.0 到 1.3 秒，在 EPYC 上用 2.3 到 2.8 秒，接近 `ssr.timeout` 的 3 秒。
+- **大数据和长列表先用完内存**：注入 40 MB 数据、5000 行的表、长 Markdown。**长 Markdown 和后台忙碌的一天（300 条 Markdown 回复）先用完时间**：`/markdown/200` 和 `/console/100` 在 M4 上用 0.9 到 1.1 秒，在 EPYC 上用 2.1 到 2.6 秒，接近 `ssr.timeout` 的 3 秒。
 - **Markdown 几行是修 micromark 之后的数字。** react-markdown 底下的解析器 micromark 4.0.3 每应用一次编辑就把整个文档的事件拷一遍，时间随文档体积的平方涨（[micromark#246](https://github.com/micromark/micromark/issues/246)，还没修）。触发它的是列表，高亮只占页面时间约 2%。本仓库的应用打了补丁（`patches/micromark-util-edit-map@1.0.0.patch`，即那个 issue 里提的改法），表里的行都带着补丁：在 EPYC 上，改用 1 GiB 和 60 秒时，200 KB 要 2.3 秒，1 MB 要 13 秒，2 MB 要 25 秒，每 KB 约 11 到 13 ms。不打补丁时同样三行是 2.7 秒、22 秒和超过 60 秒，用的是 slowjs main 0c8c338。用 react-markdown 渲染长 Markdown 的应用也要打同样的补丁，或者用 micromark 4.0.2，等 micromark 发版修好。
-- **长 Markdown 的内存峰值约为每 KB 0.45 MiB**，在已加载 VM 的占用之上：100 KB 要 45 MiB，400 KB 要 171 MiB，1 MB 要 447 MiB。默认的 128 MiB 大约够到 270 KB。表格里的内存是渲染结束后读的，结束前刚好做过一次 GC 时会偏低（`/markdown/1000` 的 16 MiB 就是这样，它在 VM 里的峰值是 452 MiB）。大头来自这些库：解析器在读完整篇文档之前把每个 token 都留着，Node 跑同样的库也要差不多的量（堆峰值每 KB 0.3 到 0.5 MiB，400 KB 要 138 MiB，1 MB 要 281 MiB）。引擎的峰值到 200 KB 和 Node 相当，从 400 KB 到 1 MB 是 Node 的 1.3 到 1.6 倍。原因是解析器留着不放的那些数据在引擎里占的内存是 V8 里的 2.2 到 2.6 倍（一个对象 64 字节，属性另放一块），而 Node 留着更多等 GC 的垃圾。
+- **长 Markdown 的内存峰值约为每 KB 0.45 MiB**，在已加载 VM 的占用之上：100 KB 要 45 MiB，400 KB 要 171 MiB，1 MB 要 447 MiB。默认的 128 MiB 大约够到 270 KB。表格里的内存是渲染结束后读的，渲染中做过 GC 时会低于峰值。大头来自这些库：解析器在读完整篇文档之前把每个 token 都留着，Node 跑同样的库也要差不多的量（堆峰值每 KB 0.3 到 0.5 MiB，400 KB 要 138 MiB，1 MB 要 281 MiB）。引擎的峰值到 200 KB 和 Node 相当，从 400 KB 到 1 MB 是 Node 的 1.3 到 1.6 倍。原因是解析器留着不放的那些数据在引擎里占的内存是 V8 里的 2.2 到 2.6 倍（一个对象 64 字节，属性另放一块），而 Node 留着更多等 GC 的垃圾。
 - **JSON 最多嵌套 2000 层**，所以 `/json/2001` 在 1 到 2 ms 后失败，报 `RangeError: JSON nesting too deep`，C 引擎之前的引擎能解析它。
 - **深层调用**占的是 goroutine 栈，不是 VM 内存。渲染时 goroutine 栈的增长：500 到 1000 层组件或 Provider、400 到 600 层嵌套 `div` 涨 1 到 4 MiB，5000 层和 10000 层组件涨 8 MiB，两台机器一样。宽而不深的页面最多涨 512 KiB。
-- **注入数据**：在 M4 上，带 5 MB 数据的页面渲染用 64 ms，其中 32 ms 花在 VM 里解析数据。渲染之前，Go 加载数据并写成 JSON 用 21 ms，转义用 2 ms。
+- **注入数据**：在 M4 上，带 5 MB 数据的页面渲染用 40 ms，其中 32 ms 花在 VM 里解析数据。渲染之前，Go 加载数据并写成 JSON 用 21 ms，转义用 2 ms。长的数据文本由 Go 在 VM 渲染完之后写进页面（[数据协议](build.zh-CN.md#数据协议)），VM 里只留解析出来的数据：20 MB 渲染用 160 ms，其中 131 ms 是解析，40 MB 在解析时用完内存。
 - **一个 VM 被停下会让别人慢几毫秒**：在 M4 上开 4 个 VM，其中 3 个渲染 `/table/25`，单独跑时 P99 是 5 到 6 ms，第 4 个渲染 `/markdown/200` 时是 5 到 6 ms，第 4 个在十秒里被停下并换新 7 次时是 9 到 10 ms（`TestExtremeIsolation`，跑三次）。测试允许一次停下多加 5 ms。
 
 ## 压缩
