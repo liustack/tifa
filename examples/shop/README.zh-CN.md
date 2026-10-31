@@ -39,7 +39,7 @@ go test ./...
 hooks.go                       拦截跨站的写请求，记录意外错误
 components/                    shadcn/ui 组件在 ui/，它们用到的 hook 在 hooks/，用 @/components/... 引用
 app/
-  route.go  layout.tsx         根 Layout：侧栏、顶栏、文档外壳和全站 404，还有把 / 跳到第一家店铺的 GET
+  route.go  layout.tsx         工作台的根 Layout：侧栏、顶栏、文档外壳和全站 404，还有把 / 跳到第一家店铺的 GET
   styles.css                   Tailwind CSS 和店铺的主题
   format.ts                    中文的金额和时间，按店铺时区
   animated-number.tsx          数据变化时补间的数字
@@ -60,6 +60,7 @@ app/
   store/
     store.go                   店面共用的部分：两种语言、各自的币种和时区、价格
     route.go                   /store：GET 跳到浏览器偏好的语言
+    layout_.tsx                店面外面不套工作台，并用两种语言显示店面没有的语言的 404
     i18n.ts  locales/          i18next 和两种语言的文案，金额和日期按语言格式化
     product-card.tsx           各个列表共用的商品卡片、商品图和价格
     images.ts  images/         商品、首页和手记的配图，AVIF 格式
@@ -86,7 +87,7 @@ app/
 
 Go 把时间作为时刻发给页面，页面用 `Intl` 按店铺时区格式化，时区由店铺 Layout 一起给出。浏览器在别的时区，看到的时间也和服务端渲染的一样。
 
-店面从 URL 的第一段取语言。Go 按这种语言准备文案，按它的币种给出价格，店面 Layout 把币种和时区交给 i18next，由它用 `Intl` 格式化金额、日期和复数。表单的检查按同样的规则写两份：浏览器里是 zod schema，Go 里是 `Validate`。两边给出同样的消息键，由页面翻译。商品领域是 `products`，`cart` 要给商品行定价，所以 import 它。`lang+` 下的页面用 `store.FindLocale` 找到自己的语言。店面 Layout 的 `head` 用 `htmlAttributes` 把这种语言设到 `<html>` 上，盖过根 Layout 的 `zh-CN`，切到另一种语言时浏览器跟着改。它还给每一页链接两种语言的同一页，并把中文那页作为 `x-default`。店面没有的路径在店面 Layout 里显示 404，用的是 URL 里的语言。`/store` 跳到浏览器的 `Accept-Language` 要的语言，用 `golang.org/x/text/language` 匹配，两种都不要时跳到中文。
+店面从 URL 的第一段取语言。Go 按这种语言准备文案，按它的币种给出价格，店面 Layout 把币种和时区交给 i18next，由它用 `Intl` 格式化金额、日期和复数。表单的检查按同样的规则写两份：浏览器里是 zod schema，Go 里是 `Validate`。两边给出同样的消息键，由页面翻译。商品领域是 `products`，`cart` 要给商品行定价，所以 import 它。`lang+` 下的页面用 `store.FindLocale` 找到自己的语言。店面 Layout 的 `head` 用 `htmlAttributes` 把这种语言设到 `<html>` 上，盖过根 Layout 的 `zh-CN`，切到另一种语言时浏览器跟着改。它还给每一页链接两种语言的同一页，并把中文那页作为 `x-default`。店面没有的路径在店面 Layout 里显示 404，用的是 URL 里的语言。`app/store` 放了 `layout_.tsx`，所以店面外面不套工作台，根 Layout 的 `Layout` 也不为它执行：工作台的数据不会进店面的页面。这个 `layout_.tsx` 只渲染 `<Outlet />`，它的 `Error` 显示店面没有的语言（比如 `/store/xx`）的 404，用中英两种语言写，并分别链接到两种语言的店面，因为这时不知道访客要哪种语言。`/store` 跳到浏览器的 `Accept-Language` 要的语言，用 `golang.org/x/text/language` 匹配，两种都不要时跳到中文。
 
 ## 可以试试
 

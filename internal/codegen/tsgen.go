@@ -28,6 +28,7 @@ type tsNode struct {
 	dir      string // the directory under the application root
 	file     string // "route" for a page, "layout" for a Layout
 	tsx      bool
+	replace  bool // a Layout in layout_.tsx
 	exports  []string
 	load     *analyze.Load
 	handlers []analyze.Handler // the method handlers of a route, which get handler functions
@@ -54,9 +55,13 @@ type tsRoute struct {
 	children []*tsRoute
 }
 
-// tsxFile is the name of the component file of the node: page.tsx for a page, layout.tsx for a Layout.
+// tsxFile is the name of the component file of the node: page.tsx for a page, layout.tsx or
+// layout_.tsx for a Layout.
 func (n *tsNode) tsxFile() string {
-	if n.file == "layout" {
+	switch {
+	case n.file == "layout" && n.replace:
+		return "layout_.tsx"
+	case n.file == "layout":
 		return "layout.tsx"
 	}
 	return "page.tsx"
@@ -206,7 +211,8 @@ const tsconfig = `{
 `
 
 // buildTree places pages and the Layouts that have pages in scope under the framework's root, a
-// Layout under its nearest ancestor Layout in the tree and a page under its nearest Layout.
+// Layout under its nearest ancestor Layout in the tree and a page under its nearest Layout. A
+// Layout in layout_.tsx has no parent Layout, so it goes right under the framework's root.
 func buildTree(root string, m *analyze.Manifest, exportsOf Exports) (*tsNode, []*tsNode, error) {
 	pages := map[string]bool{}
 	for _, r := range m.Routes {
@@ -232,7 +238,7 @@ func buildTree(root string, m *analyze.Manifest, exportsOf Exports) (*tsNode, []
 		for p := l.Parent; p != ""; p = parentOf(m, p) {
 			chain = append([]string{p}, chain...)
 		}
-		n := &tsNode{id: l.ID, dir: l.Dir, file: "layout", tsx: l.TSX, load: l.Load, parent: nearest(chain), segs: segments(l.Path)}
+		n := &tsNode{id: l.ID, dir: l.Dir, file: "layout", tsx: l.TSX, replace: l.Replace, load: l.Load, parent: nearest(chain), segs: segments(l.Path)}
 		byID[l.ID] = n
 		nodes = append(nodes, n)
 	}
@@ -791,7 +797,8 @@ declare module "@tanstack/react-router" {
 }
 
 // routePrefixes writes the paths a URL may start with to be matched, in full or in part, by a route
-// below the root Layout: the path of every Layout and page but the root Layout and the pages in
+// below the root Layout, or below a layout_.tsx outside it: the path of every Layout and page but
+// the root Layout and the pages in
 // the directory of their Layout, which the router matches only at the Layout's URL. A path for
 // the rest of the URL counts up to that rest. A literal is its text, a parameter null.
 func routePrefixes(nodes []*tsNode) string {

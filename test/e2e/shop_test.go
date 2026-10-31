@@ -157,7 +157,11 @@ func TestShopApp(t *testing.T) {
 	checkCompressed(t, base, dir, built.BuildID, body[strings.Index(body, built.Head):strings.Index(body, "<!--tifa-head-->")])
 
 	// 404 at each level: the order inside the project Layout, the project and an unknown URL
-	// inside the root Layout. Each one keeps a title, the last from the root Layout's documentHead.
+	// inside the root Layout, whose sidebar lists the shops. Each one keeps a title, the last from
+	// the root Layout's documentHead.
+	if _, _, body := get(t, base+"/nowhere"); !strings.Contains(body, ">周末小店</span>") {
+		t.Errorf("the 404 of an unknown URL lists no shops in the sidebar:\n%s", body)
+	}
 	for _, tc := range []struct {
 		path, want  string
 		withSidebar bool
@@ -303,8 +307,10 @@ func checkStorefront(t *testing.T, base, buildID string) {
 	}
 	// The head of the language Layout sets the language of <html> from the locale its Go
 	// function checked, over the root Layout's zh-CN, also on the 404 pages inside it. A path no
-	// page of the store has is a 404 inside it too, with no page of its own for it. A language the
-	// store does not have is the root's 404, in the root's language.
+	// page of the store has is a 404 inside it too, with no page of its own for it. The store
+	// Layout in app/store is in layout_.tsx, so a language the store does not have is its 404,
+	// written in both languages, in the language of the root Layout's htmlAttributes, without the
+	// workbench.
 	for _, tc := range []struct {
 		path   string
 		status int
@@ -313,7 +319,8 @@ func checkStorefront(t *testing.T, base, buildID string) {
 	}{
 		{"/store/en-US", 200, "en-US", "Free delivery"},
 		{"/store/zh-CN", 200, "zh-CN", "秋天的第一壶茶"},
-		{"/store/xx", 404, "zh-CN", "没有找到这个页面"},
+		{"/store/xx", 404, "zh-CN", "We could not find this page"},
+		{"/store/xx/products", 404, "zh-CN", "没有找到这个页面"},
 		{"/store/zh-CN/products/nope", 404, "zh-CN", "没有找到这个页面"},
 		{"/store/en-US/journal/nope", 404, "en-US", "We could not find this page"},
 		{"/store/en-US/nope/deeper", 404, "en-US", "We could not find this page"},
@@ -321,9 +328,15 @@ func checkStorefront(t *testing.T, base, buildID string) {
 		{"/store/zh-CN/journal/x/y", 404, "zh-CN", "没有找到这个页面"},
 	} {
 		status, _, page := get(t, base+tc.path)
-		if start := `<!DOCTYPE html><html lang="` + tc.lang + `"><head>`; status != tc.status || !strings.HasPrefix(page, start) || !strings.Contains(rendered(page), tc.text) {
+		if start := `<!DOCTYPE html><html lang="` + tc.lang + `"><head>`; status != tc.status || !strings.HasPrefix(page, start) || !strings.Contains(rendered(page), tc.text) || strings.Contains(page, sidebar) {
 			t.Errorf("%s: %d, want %d with %s in a document starting %s:\n%.120s", tc.path, status, tc.status, tc.text, start, page)
 		}
+	}
+	// The 404 of a language the store does not have names both languages and links to both
+	// storefronts, since the visitor's language is not known.
+	if _, _, page := get(t, base+"/store/xx"); !strings.Contains(rendered(page), "没有找到这个页面") ||
+		!strings.Contains(page, `href="/store/zh-CN"`) || !strings.Contains(page, `href="/store/en-US"`) || strings.Contains(page, "Page not found") {
+		t.Errorf("/store/xx is not the 404 of the store in both languages:\n%s", rendered(page))
 	}
 	// /store sends the visitor to the language their browser prefers.
 	for accept, want := range map[string]string{"en-GB,en;q=0.9": "/store/en-US", "zh-CN": "/store/zh-CN", "": "/store/zh-CN"} {
@@ -349,6 +362,13 @@ func checkStorefront(t *testing.T, base, buildID string) {
 	status, _, data := get(t, base+"/store/zh-CN", "X-Tifa-Route", "app/store/lang+/layout,app/store/lang+/route", "X-Tifa-Build", buildID)
 	if want := `"app/store/lang+/layout":{"status":200,"data":{"locale":{"code":"zh-CN"`; status != 200 || !strings.Contains(data, want) {
 		t.Errorf("navigation data of /store/zh-CN: %d, want %s:\n%.300s", status, want, data)
+	}
+	// The root Layout does not wrap the store, so the store has no data of it, neither for a page
+	// nor for a URL of the store that no page has.
+	for _, path := range []string{"/store/zh-CN", "/store/zh-CN/nope"} {
+		if status, _, data := get(t, base+path, "X-Tifa-Route", "app/layout", "X-Tifa-Build", buildID); status != 400 {
+			t.Errorf("navigation data of the root Layout at %s: %d, want 400:\n%.300s", path, status, data)
+		}
 	}
 
 	// The cart lives in the server's memory, and the first change sets a cookie with its ID.

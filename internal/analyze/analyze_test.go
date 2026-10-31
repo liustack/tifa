@@ -389,6 +389,13 @@ func TestViolations(t *testing.T) {
 			{"app/layout.go:13:", "Cache is read from route.go only", "layout.go"},
 			{"app/mixed/extra.go:3:", "Cache is read from route.go only", "extra.go"},
 		}},
+		{"replacebad", [][]string{
+			{"app/layout_.tsx:1:", "layout_.tsx drops the layouts above it", "app/ has none", "rename it to layout.tsx"},
+			{"app/both/layout_.tsx:1:", "layout.tsx and layout_.tsx are both in app/both", "keep layout.tsx"},
+			{"app/shop/alone/route.go:8:", "tifa.Use(c, shop.Layout)", "app/shop/alone/layout_.tsx drops the layout of app/shop", "does not run for app/shop/alone", "rename"},
+			{"app/shop/alone/deep/route.go:13:", "tifa.Use(c, app.Layout)", "app/shop/alone/layout_.tsx drops the layout of app,", "does not run for app/shop/alone/deep"},
+			{"app/shell/layout.tsx:1:", "every page below this layout is below app/shell/inner/layout_.tsx"},
+		}},
 		{"oldroute", [][]string{
 			{"app/route.tsx:1:", "route.tsx is not a page file any more", "rename it to page.tsx"},
 		}},
@@ -731,6 +738,56 @@ func TestModuleLeftOutOfGoWork(t *testing.T) {
 // A route.go with only Layout gives the pages below it their layout data. It is no API route:
 // without a method handler or a page.tsx the directory has no route. With a method handler as
 // well, the directory is an API route and has a Layout.
+// A layout_.tsx shows its folder and the folders below it without the Layouts above: their
+// chains start at its Layout, which has no parent, and the Layouts above neither wrap those
+// routes nor pass them LayoutSSR. Layouts below it nest inside it as usual, and a deeper
+// layout_.tsx cuts again.
+func TestReplaceLayouts(t *testing.T) {
+	m, err := analyzeApp(t, "replace")
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	const lang = "app/store/lang+"
+	type layoutInfo struct {
+		id, parent   string
+		replace, tsx bool
+		routes       []string
+	}
+	var layouts []layoutInfo
+	for _, l := range m.Layouts {
+		layouts = append(layouts, layoutInfo{l.ID, l.Parent, l.Replace, l.TSX, l.Routes})
+	}
+	wantLayouts := []layoutInfo{
+		{"app/layout", "", false, true, []string{"app/route"}},
+		{lang + "/layout", "", true, true, []string{lang + "/route", lang + "/account/route", lang + "/api/route", lang + "/cart/route"}},
+		{lang + "/account/layout", lang + "/layout", false, true, []string{lang + "/account/route"}},
+		{lang + "/account/print/layout", "", true, true, []string{lang + "/account/print/route"}},
+	}
+	if !reflect.DeepEqual(layouts, wantLayouts) {
+		t.Errorf("Layouts =\n%+v\nwant\n%+v", layouts, wantLayouts)
+	}
+	type routeInfo struct {
+		id      string
+		ssr     bool
+		layouts []string
+	}
+	var routes []routeInfo
+	for _, r := range m.Routes {
+		routes = append(routes, routeInfo{r.ID, r.SSR, r.Layouts})
+	}
+	wantRoutes := []routeInfo{
+		{"app/route", false, []string{"app/layout"}},
+		{lang + "/route", true, []string{lang + "/layout"}},
+		{lang + "/account/route", true, []string{lang + "/layout", lang + "/account/layout"}},
+		{lang + "/account/print/route", true, []string{lang + "/account/print/layout"}},
+		{lang + "/api/route", true, []string{lang + "/layout"}},
+		{lang + "/cart/route", true, []string{lang + "/layout"}},
+	}
+	if !reflect.DeepEqual(routes, wantRoutes) {
+		t.Errorf("Routes =\n%+v\nwant\n%+v", routes, wantRoutes)
+	}
+}
+
 func TestRouteGoWithLayoutOnlyAndWithHandler(t *testing.T) {
 	m, err := analyzeApp(t, "layoutonly")
 	if err != nil {
