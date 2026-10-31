@@ -1,6 +1,6 @@
 // Package app is the root Layout, the sidebar with the projects and the top bar around the pages
 // of the workbench, and sends visitors of the site root to the first project. The storefront
-// shows its pages without it (app/store/lang+/layout_.tsx), so this does not run there.
+// shows its pages without it (app/store/layout_.tsx), so this does not run there.
 package app
 
 import (
