@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -287,8 +288,8 @@ func checkStorefront(t *testing.T, base, buildID string) {
 	}
 	// The head of the language Layout sets the language of <html> from the locale its Go
 	// function checked, over the root Layout's zh-CN, also on the 404 pages inside it. A path no
-	// page of the store has is a 404 inside it too. A language the store does not have is the
-	// root's 404, in the root's language.
+	// page of the store has is a 404 inside it too, with no page of its own for it. A language the
+	// store does not have is the root's 404, in the root's language.
 	for _, tc := range []struct {
 		path   string
 		status int
@@ -307,6 +308,24 @@ func checkStorefront(t *testing.T, base, buildID string) {
 		status, _, page := get(t, base+tc.path)
 		if start := `<!DOCTYPE html><html lang="` + tc.lang + `"><head>`; status != tc.status || !strings.HasPrefix(page, start) || !strings.Contains(rendered(page), tc.text) {
 			t.Errorf("%s: %d, want %d with %s in a document starting %s:\n%.120s", tc.path, status, tc.status, tc.text, start, page)
+		}
+	}
+	// /store sends the visitor to the language their browser prefers.
+	for accept, want := range map[string]string{"en-GB,en;q=0.9": "/store/en-US", "zh-CN": "/store/zh-CN", "": "/store/zh-CN"} {
+		req, err := http.NewRequest("GET", base+"/store", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if accept != "" {
+			req.Header.Set("Accept-Language", accept)
+		}
+		res, err := (&http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if res.StatusCode != 302 || res.Header.Get("Location") != want || !slices.Contains(res.Header.Values("Vary"), "Accept-Language") {
+			t.Errorf("/store with Accept-Language %q: %d %v, want %s", accept, res.StatusCode, res.Header, want)
 		}
 	}
 	// A link from /store/en-US to /store/zh-CN loads the language Layout again, its Go function
