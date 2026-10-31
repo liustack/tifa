@@ -486,6 +486,8 @@ tifa c729ad2 加 slowjs v0.28.6、它的 Go 汇编解释器和 PGO，渲染这�
 ### 构建
 
 - **把静态 JSX 提到组件外**，像 Babel 的 transform-react-constant-elements：shop 的页面每次少建 44 到 83 个元素，渲染只快 0.5% 到 0.9%，几乎全静态的页面快 5.4%。每少建一个元素约省 0.8 µs，时间主要花在 React 遍历和拼字符串上。它管不到 `node_modules` 里库的 JSX，要么得装 Babel，要么得自己写一个转换。提上去的元素被一个 VM 的所有请求共用，某个库要是改了它，改动会带到下一个请求。
+- **构建时把参数全是字面量的 `cn`、`clsx`、`cva` 调用折成字符串**：example shop 的 SSR 包里 143 处 `cn` 调用只有 1 处全是字面量（`cn("min-h-[50vh] border")`），MUI 测试应用的 99 处 `clsx` 调用没有，bench 应用也没有。其余的参数是 prop（`className`）、条件或成员（`classes.root`）。shop 的 6 处 `cva` 调用参数全是字面量，但每处在模块加载时只跑一次，返回的函数拿变量里的 props 调用（`buttonVariants({ variant, size })`）。一次渲染里没有可折的调用。
+- **按字符串参数缓存 `clsx` 和 `cn` 的结果**：`cn` 0.5 已经按最近几次调用的参数和合并的字符串缓存。在它前面再加一层缓存的原型，shop 工作台页面多执行 0.47% 的指令，店面页面多 0.19%。`clsx`（MUI 测试应用 99.9% 的调用只有字符串和假值）的缓存包装要用参数拼 key 再查 `Map`，用 MUI 页面的参数形状做微基准，每次 390 到 650 ns，`clsx` 自己只要 315 到 400 ns。用字符串拼 key 的花费和 `clsx` 拼这些字符串差不多。把拼接写成不带循环的形式反而有收益，见[构建](#构建)。
 - **降低 SSR 包的语法目标**：ES2021 到 ES2018 差 1% 以内。从 ES2017 起对象展开变成辅助函数，shop 慢 33% 到 45%。目标保持 ES2022。
 - **SSR 包不压缩**：包本来就压缩了。在加店面之前的 shop 上，不压缩时渲染慢约 1%，包从 772 KB 变成 1,799 KB，VM 加载后从 7,634 KiB 变成 9,133 KiB。
 - **在 `createElement` 和 `cloneElement` 的展开前用 JavaScript 先检查**：插件先检查 config（原型、symbol、`__proto__`、`__self` 和 `__source`、`key` 背后有没有 getter），再用解构的 rest 拷贝。检查每次调用要 310 到 380 ns，比 React 的循环处理没有键、1 个键或 2 个键的 config 还多，那些元素最多慢到 1.57 倍，页面最好也只有 0.99（少跑 1.6% 到 2.5% 的指令）。Proxy、会删掉后面键的 getter、以及页面在 React 加载后给 `Object.prototype` 加的 setter，它也排除不了。引擎里的函数用 C 做同样的检查，这几处都排除了，少跑 2.1% 到 4.1% 的指令。
