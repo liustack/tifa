@@ -243,7 +243,7 @@ The pool replaces a VM in the background when its live size after a collection c
 
 ## Extreme pages
 
-How large can a page get before rendering fails, and does it fail cleanly? [Extreme pages](testing.md#extreme-pages-testappsextreme) in the testing doc describes the app and its scenarios. Measured on 2026-10-29 with the default settings (128 MiB per VM, 3 seconds per render), without PGO, on slowjs 0cc6d332, the C engine:
+How large can a page get before rendering fails, and does it fail cleanly? [Extreme pages](testing.md#extreme-pages-testappsextreme) in the testing doc describes the app and its scenarios. Measured on 2026-11-01 with the default settings (128 MiB per VM, 3 seconds per render), without PGO, on slowjs v0.29.6, the C engine:
 
 - **M4**: an Apple M4 (darwin/arm64).
 - **EPYC**: one thread of the AMD EPYC 7B13 described above, the other thread of its core idle (linux/amd64).
@@ -252,42 +252,43 @@ Each cell gives the P50 of 5 warm renders and the VM's memory right after a rend
 
 | Page | M4 | EPYC |
 | --- | --- | --- |
-| `/dom/10000` | 26 ms, 7.5 MiB | 59 ms, 7.5 MiB |
-| `/dom/50000` | 139 ms, 14.0 MiB | 305 ms, 14.0 MiB |
-| `/dom/100000` | 281 ms, 22.2 MiB | 615 ms, 22.2 MiB |
-| `/nest/500` | 0.9 ms, 5.8 MiB | 1.9 ms, 5.8 MiB |
-| `/nest/1000` | 1.3 ms, 5.8 MiB | 2.9 ms, 5.8 MiB |
-| `/nest/5000` | 6.1 ms, 6.6 MiB | 15 ms, 6.6 MiB |
-| `/nest/10000` | 12 ms, 8.7 MiB | 29 ms, 8.7 MiB |
-| `/deep/400` | 1.2 ms, 5.8 MiB | 2.6 ms, 5.8 MiB |
-| `/deep/600` | 1.6 ms, 5.8 MiB | 3.4 ms, 5.8 MiB |
-| `/inject/1` | 11 ms, 10.0 MiB | 21 ms, 10.0 MiB |
-| `/inject/5` | 64 ms, 27.3 MiB | 141 ms, 27.3 MiB |
-| `/inject/20` | out of memory after 0.18 s (0.27 s, 92.2 MiB) | out of memory after 0.38 s (0.52 s, 92.2 MiB) |
-| `/json/1999` | 1.7 ms, 6.2 MiB | 3.5 ms, 6.2 MiB |
+| `/dom/10000` | 17 ms, 7.2 MiB | 48 ms, 7.2 MiB |
+| `/dom/50000` | 86 ms, 13.6 MiB | 222 ms, 13.6 MiB |
+| `/dom/100000` | 180 ms, 21.5 MiB | 472 ms, 21.5 MiB |
+| `/nest/500` | 0.6 ms, 5.6 MiB | 1.6 ms, 5.6 MiB |
+| `/nest/1000` | 1.0 ms, 5.6 MiB | 2.5 ms, 5.6 MiB |
+| `/nest/5000` | 3.9 ms, 5.8 MiB | 14 ms, 5.8 MiB |
+| `/nest/10000` | 7.6 ms, 6.7 MiB | 29 ms, 6.7 MiB |
+| `/deep/400` | 0.8 ms, 5.7 MiB | 2.0 ms, 5.7 MiB |
+| `/deep/600` | 1.1 ms, 5.7 MiB | 2.6 ms, 5.7 MiB |
+| `/inject/1` | 8.0 ms, 9.7 MiB | 18 ms, 9.7 MiB |
+| `/inject/5` | 40 ms, 26.4 MiB | 116 ms, 26.4 MiB |
+| `/inject/20` | 160 ms, 89.0 MiB | 398 ms, 89.0 MiB |
+| `/inject/40` | out of memory after 0.12 s (0.32 s, 172.6 MiB) | out of memory after 0.26 s (0.71 s, 172.6 MiB) |
+| `/json/1999` | 1.2 ms, 6.1 MiB | 2.9 ms, 6.1 MiB |
 | `/json/2001` | `RangeError: JSON nesting too deep` after 1 ms | `RangeError: JSON nesting too deep` after 2 ms |
-| `/table/1000` | 205 ms, 34.0 MiB | 485 ms, 34.0 MiB |
-| `/table/5000` | out of memory after 0.71 s (1.1 s, 146.9 MiB) | out of memory after 1.7 s (2.5 s, 146.9 MiB) |
-| `/table/10000` | out of memory after 0.66 s (2.2 s, 288.2 MiB) | out of memory after 1.4 s (5.2 s, 288.2 MiB) |
-| `/providers/200` | 3.3 ms, 5.9 MiB | 1.8 ms, 5.9 MiB |
-| `/providers/500` | 1.3 ms, 6.2 MiB | 2.9 ms, 6.2 MiB |
-| `/providers/1000` | 2.5 ms, 6.7 MiB | 5.0 ms, 6.7 MiB |
-| `/charts/12` | 197 ms, 12.6 MiB | 377 ms, 12.6 MiB |
-| `/markdown/200` | 1,026 ms, 10.2 MiB | 2,321 ms, 10.2 MiB |
-| `/markdown/1000` | out of memory after 0.87 s (5.3 s, 16.2 MiB) | out of memory after 2.0 s (13 s, 16.2 MiB) |
-| `/markdown/2000` | out of memory after 0.84 s (10 s, 789.0 MiB) | out of memory after 2.0 s (25 s, 789.0 MiB) |
-| `/i18n/3000` | 180 ms, 15.8 MiB | 412 ms, 15.8 MiB |
-| `/mall/zh-CN` | 115 ms, 14.4 MiB | 260 ms, 14.4 MiB |
-| `/mall/en-US` | 117 ms, 13.8 MiB | 259 ms, 13.8 MiB |
-| `/console/100` | 1,257 ms, 31.6 MiB | 2,781 ms, 31.6 MiB |
+| `/table/1000` | 156 ms, 29.5 MiB | 444 ms, 29.5 MiB |
+| `/table/5000` | out of memory after 0.68 s (0.82 s, 125.0 MiB) | out of memory after 1.9 s (2.2 s, 125.0 MiB) |
+| `/table/10000` | out of memory after 0.63 s (1.7 s, 244.4 MiB) | out of memory after 1.7 s (4.5 s, 244.4 MiB) |
+| `/providers/200` | 0.6 ms, 5.7 MiB | 1.4 ms, 5.7 MiB |
+| `/providers/500` | 0.9 ms, 5.9 MiB | 2.6 ms, 5.9 MiB |
+| `/providers/1000` | 1.7 ms, 6.1 MiB | 6.6 ms, 6.1 MiB |
+| `/charts/12` | 131 ms, 12.4 MiB | 297 ms, 12.4 MiB |
+| `/markdown/200` | 883 ms, 86.7 MiB | 2,148 ms, 86.7 MiB |
+| `/markdown/1000` | out of memory after 0.80 s (4.4 s, 383.1 MiB) | out of memory after 2.0 s (11 s, 383.1 MiB) |
+| `/markdown/2000` | out of memory after 0.84 s (9.5 s, 789.1 MiB) | out of memory after 2.1 s (23 s, 789.1 MiB) |
+| `/i18n/3000` | 135 ms, 14.9 MiB | 377 ms, 14.9 MiB |
+| `/mall/zh-CN` | 77 ms, 14.3 MiB | 195 ms, 14.3 MiB |
+| `/mall/en-US` | 76 ms, 13.5 MiB | 188 ms, 13.5 MiB |
+| `/console/100` | 1,114 ms, 21.2 MiB | 2,601 ms, 21.9 MiB |
 
 - **Every failure is clean.** No size made the program exit or hang. Each failure was a 500 within the time budget, the VM was replaced, and the next page rendered. `TestExtremeApp` also keeps the program under 1 GiB over all the sizes.
-- **Memory runs out first** for large data and long lists: 20 MB of injected data, a table of 5,000 rows, a long Markdown document. **Time runs out first** for long Markdown and for the admin day, which has 300 replies in Markdown: `/markdown/200` and `/console/100` take 1.0 to 1.3 s on the M4 and 2.3 to 2.8 s on the EPYC, close to the 3 seconds of `ssr.timeout`.
+- **Memory runs out first** for large data and long lists: 40 MB of injected data, a table of 5,000 rows, a long Markdown document. **Time runs out first** for long Markdown and for the admin day, which has 300 replies in Markdown: `/markdown/200` and `/console/100` take 0.9 to 1.1 s on the M4 and 2.1 to 2.6 s on the EPYC, close to the 3 seconds of `ssr.timeout`.
 - **The Markdown rows are after a fix of micromark.** micromark 4.0.3, the parser under react-markdown, copies every event of the document on each edit it applies, so its time grows with the square of the document's size ([micromark#246](https://github.com/micromark/micromark/issues/246), open). Lists set it off, and highlighting takes only about 2% of the page. The apps of this repository patch it (`patches/micromark-util-edit-map@1.0.0.patch`, the change proposed in that issue), and the rows are with the patch: on the EPYC, 200 KB takes 2.3 s, 1 MB 13 s and 2 MB 25 s to render with 1 GiB and 60 seconds, about 11 to 13 ms per KB. Without the patch the same rows took 2.7 s, 22 s and over 60 s, measured on slowjs main at 0c8c338. An app that renders long Markdown with react-markdown needs the same patch, or micromark 4.0.2, until micromark releases a fix.
-- **Long Markdown holds about 0.45 MiB per KB at its peak**, above what a loaded VM holds: 45 MiB at 100 KB, 171 MiB at 400 KB and 447 MiB at 1 MB. The default 128 MiB fits up to about 270 KB. The memory in the cells is read after the render, and a GC just before the end can make it low (16 MiB for `/markdown/1000`, whose peak is 452 MiB in the VM). Most of this is the libraries: the parser keeps every token of the document alive until it has read all of it, and Node needs a similar amount for the same libraries (its heap peaks at 0.3 to 0.5 MiB per KB, 138 MiB at 400 KB and 281 MiB at 1 MB). The engine's peak is the same as Node's up to 200 KB and 1.3 to 1.6 times it from 400 KB to 1 MB. What the parser keeps alive takes 2.2 to 2.6 times the memory it takes in V8 (an object is 64 bytes with its properties in another block), while Node leaves more garbage waiting for a GC.
+- **Long Markdown holds about 0.45 MiB per KB at its peak**, above what a loaded VM holds: 45 MiB at 100 KB, 171 MiB at 400 KB and 447 MiB at 1 MB. The default 128 MiB fits up to about 270 KB. The memory in the cells is read after the render, so a GC during the render can leave it below the peak. Most of this is the libraries: the parser keeps every token of the document alive until it has read all of it, and Node needs a similar amount for the same libraries (its heap peaks at 0.3 to 0.5 MiB per KB, 138 MiB at 400 KB and 281 MiB at 1 MB). The engine's peak is the same as Node's up to 200 KB and 1.3 to 1.6 times it from 400 KB to 1 MB. What the parser keeps alive takes 2.2 to 2.6 times the memory it takes in V8 (an object is 64 bytes with its properties in another block), while Node leaves more garbage waiting for a GC.
 - **JSON nests 2,000 levels at most**, so `/json/2001` fails with `RangeError: JSON nesting too deep` after 1 to 2 ms, where the engine before the C engine parsed it.
 - **Deep calls cost goroutine stack**, not VM memory. During a render the goroutine stack grows by 1 to 4 MiB for 500 to 1,000 levels of components or providers and for 400 to 600 nested `div`s, and by 8 MiB for 5,000 and 10,000 levels of components, on both machines. Pages that are wide rather than deep grow it by at most 512 KiB.
-- **Injected data**: on the M4, the render of the page with 5 MB of data took 64 ms, 32 ms of which went to parsing the data in the VM. Before the render, Go took 21 ms to load the data and write it as JSON, and 2 ms to escape it.
+- **Injected data**: on the M4, the render of the page with 5 MB of data took 40 ms, 32 ms of which went to parsing the data in the VM. Before the render, Go took 21 ms to load the data and write it as JSON, and 2 ms to escape it. Go writes long data texts into the page after the VM is done ([Data protocol](build.md#data-protocol)), so the VM keeps only the parsed data: 20 MB renders in 160 ms, 131 ms of which is parsing, and 40 MB runs out of memory while parsing.
 - **A stopped VM slows others by a few milliseconds**: on the M4, with 4 VMs, the P99 of `/table/25` on three of them was 5 to 6 ms alone, 5 to 6 ms while the fourth rendered `/markdown/200`, and 9 to 10 ms while the fourth was stopped and replaced 7 times in ten seconds (`TestExtremeIsolation`, three runs). The test lets a stop add 5 ms.
 
 ## Compression

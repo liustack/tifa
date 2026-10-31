@@ -57,6 +57,7 @@ var extremeSizes = []struct{ url, route, want string }{
 	{"/inject/1", "app/inject/mb+/route", `id="items"`},
 	{"/inject/5", "app/inject/mb+/route", `id="items"`},
 	{"/inject/20", "app/inject/mb+/route", `id="items"`},
+	{"/inject/40", "app/inject/mb+/route", `id="items"`},
 	{"/json/1999", "app/json/n+/route", `id="levels">1998<`},
 	{"/json/2001", "app/json/n+/route", `id="levels">2000<`},
 	{"/table/1000", "app/table/rows+/route", `SH-200999`},
@@ -156,13 +157,13 @@ func renderOnce(t testing.TB, bytecode *slowjs.SharedBytecode, cfg config.SSR, i
 	if err != nil {
 		t.Fatal(err)
 	}
-	input := renderInput(t, in)
+	in, input := serverInput(t, in)
 	done := make(chan once)
 	go func() {
 		runtime.GC()
 		before := goStacks()
 		begin := time.Now()
-		html, err := ssr.RenderVM(vm, input, in.Texts, cfg.Timeout)
+		html, err := renderVM(vm, in, input, cfg.Timeout)
 		took := time.Since(begin)
 		r := once{html: html, err: err, took: took, stack: goStacks() - before}
 		// A render that failed leaves the VM good only for Close, as RenderVM says.

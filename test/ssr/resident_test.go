@@ -217,7 +217,8 @@ func engineMemory(t *testing.T, source string, pages []shopPage, rounds int) {
 	report("loaded")
 	for i := range rounds * len(pages) {
 		page := pages[i%len(pages)]
-		html, err := ssr.RenderVM(vm, renderInput(t, page.input), page.input.Texts, cfg.Timeout)
+		in, input := serverInput(t, page.input)
+		html, err := renderVM(vm, in, input, cfg.Timeout)
 		if err != nil {
 			t.Fatal(err)
 		}

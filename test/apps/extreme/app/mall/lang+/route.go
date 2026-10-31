@@ -163,7 +163,7 @@ type Page struct {
 	Compare      []Card        `json:"compare"`
 	CompareRows  [][]string    `json:"compareRows"`
 	Specs        []SpecGroup   `json:"specs"`
-	BrandModules       []BrandModule `json:"brandModules"`
+	BrandModules []BrandModule `json:"brandModules"`
 	Carousels    []Carousel    `json:"carousels"`
 
 	Histogram []int      `json:"histogram"`
@@ -302,7 +302,7 @@ func Build(lang string) Page {
 		rating := []int{5, 5, 5, 5, 4, 4, 3, 2, 1}[r.IntN(9)]
 		rv := Review{
 			ID: fmt.Sprintf("R%07d", 3000000+i), Rating: rating, Date: seed.Ago(r, 400), Verified: r.IntN(5) > 0, Helpful: r.IntN(400),
-			Title: in(reviewTitles[rating][r.IntN(len(reviewTitles[rating]))]),
+			Title:   in(reviewTitles[rating][r.IntN(len(reviewTitles[rating]))]),
 			Variant: fmt.Sprintf("%s · %s", seed.Pick(r, p.Colors).Name, seed.Pick(r, p.Sizes)),
 		}
 		if lang == "en-US" {
