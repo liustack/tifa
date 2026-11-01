@@ -114,6 +114,17 @@ go tool tifa build
 ./bin/shop           # http://127.0.0.1:9527
 ```
 
+## 配合编程 agent 使用
+
+[skills/tifa](skills/tifa) 是给 Claude Code 用的 agent skill。它告诉 agent 一个 tifa 应用怎么组织、哪些写法会被构建或服务端渲染拒绝，以及怎么测试和部署。把这个文件夹复制到项目的 `.claude/skills/` 下（想让所有项目都能用，就复制到 `~/.claude/skills/`）：
+
+```sh
+git clone --depth 1 https://github.com/liustack/tifa.git tifa-src
+mkdir -p .claude/skills && cp -r tifa-src/skills/tifa .claude/skills/tifa
+```
+
+`tifa new` 生成的应用本来就带一份 `AGENTS.md`。这个 skill 讲的是同一批内容，更细，并链到文档。
+
 ## 文档
 
 | 文档 | 什么时候读 |

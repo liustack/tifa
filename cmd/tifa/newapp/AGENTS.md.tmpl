@@ -33,13 +33,13 @@ Never edit `.tifa/`. It is generated, and the Go tools skip it.
 
 | Returned | A page (`Load`, `Layout`) | A method handler |
 | --- | --- | --- |
-| `tifa.ErrNotFound`, or a `tifa.Error` with Status 404 | 404 with the first `NotFound` going up from the page (from the Layout one level up when a `Layout` returns it) | 404 as JSON |
+| `tifa.ErrNotFound`, or a `tifa.Error` with Status 404 | 404 shown by the first `Error` going up from the page (from the Layout one level up when a `Layout` returns it), which gets a `RouteError` with `status` 404 | 404 as JSON |
 | `tifa.Error{Status, Message}`, Status 400 to 599 but not 404 | That status, shown by the nearest `Error` | That status as JSON `{"error": message}` |
 | `tifa.Fields{"field": "message"}` | 422, shown by the nearest `Error` | 422 as JSON with `"fields"` |
 | `c.Redirect(url, code)` | A redirect | Called from the browser, the browser goes there: through the router for a URL of this site, a full page load for another. Otherwise a 3xx |
 | Any other error, a panic, or a `tifa.Error` with another status | `OnError`, or a logged 500 without one | `OnError`, or a logged 500 without one |
 
-`Validate` on a handler input runs before the handler. A `tifa.Error` or `tifa.Fields` it returns is answered as in the table. Any other error, also `tifa.ErrNotFound` or a `c.Redirect`, is answered with 400 and `err.Error()` as the message. A URL that matches no page shows the `NotFound` of the root `layout.tsx`, without the root Layout around it.
+`Validate` on a handler input runs before the handler. A `tifa.Error` or `tifa.Fields` it returns is answered as in the table. Any other error, also `tifa.ErrNotFound` or a `c.Redirect`, is answered with 400 and `err.Error()` as the message. A URL that matches no page shows the `Error` of the deepest Layout it matches (the root `layout.tsx` here), inside that Layout, as a `RouteError` with `status` 404. `NotFound` is no export: exporting it fails the build.
 
 ## Load and Ctx
 
