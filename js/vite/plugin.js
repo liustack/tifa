@@ -808,9 +808,18 @@ const reviewedKeyPathUnits = new Map([
   ['murmurhash3_32_gc', '8afba653b94e'],
   ['pushTreeContext', 'e07cc5262a55'],
 ])
-// The files of React's production JSX runtime, by the SHA-256 of their text, for which the elements
-// that jsx makes were read to the end, see inlineElements. React 19.3.1 has the file of 19.3.0.
-const reviewedJsxRuntimes = new Map([['1e46f15002696985e80c61d47aaa30dabb03c954270a690f5f7dfbbacfa9002b', 'react 19.3.0 and 19.3.1']])
+// The pieces of React's production JSX runtime that decide what the element jsx returns is, as React
+// 19.3.0 and 19.3.1 have them, by the name of the piece and its text (see jsxRuntimePieces): the
+// symbol that marks an element, the function that makes one and the two exports that are that
+// function. See inlineElements, which writes the elements these make. The text is written as
+// normalizedText gives it, without comments and white space: React's own is in
+// react/cjs/react-jsx-runtime.production.js.
+const reviewedJsxPieces = new Map([
+  ['REACT_ELEMENT_TYPE', 'REACT_ELEMENT_TYPE=Symbol.for("react.transitional.element")'],
+  ['jsxProd', 'function jsxProd(type,config,maybeKey){var key=null;void 0!==maybeKey&&(key=""+maybeKey);void 0!==config.key&&(key=""+config.key);if("key"in config){maybeKey={};for(var propName in config)"key"!==propName&&(maybeKey[propName]=config[propName]);}else maybeKey=config;config=maybeKey.ref;return{$$typeof:REACT_ELEMENT_TYPE,type:type,key:key,ref:void 0!==config?config:null,props:maybeKey};}'],
+  ['exports.jsx', 'exports.jsx=jsxProd'],
+  ['exports.jsxs', 'exports.jsxs=jsxProd'],
+])
 // guardedCases is the fewest string cases a switch needs for the tifa plugin to put a Set check in
 // front of it, and switchCases the prefix of the names of those Sets.
 const guardedCases = 8
@@ -1326,12 +1335,13 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         return source.replace(murmur2Source, () => hashInGo(murmur2Source))
       }
       if (reactJsxRuntime.test(id)) {
-        const known = reviewedJsxRuntimes.has(createHash('sha256').update(fs.readFileSync(id)).digest('hex'))
-        jsxRuntimes.set(id, known)
-        if (!known) {
+        const text = fs.readFileSync(id, 'utf8')
+        const unread = unreadJsxPieces(this.parse(text), text)
+        jsxRuntimes.set(id, unread.length === 0)
+        if (unread.length > 0) {
           this.warn(
             notRecognized +
-            `react ${packageVersion(path.resolve(id, '..', '..'))}: ${id} has a jsx the tifa plugin does not know, so ` +
+            `react ${packageVersion(path.resolve(id, '..', '..'))}: ${id} has a jsx the tifa plugin does not know (${unread.join(', ')}), so ` +
               'the tifa plugin does not write the elements of JSX as objects in place of calls of jsx. Pages render ' +
               'the same, but take longer to render',
           )
@@ -2967,6 +2977,57 @@ export function plainNamespaces(code, ids) {
   return { code: changed.slice(0, end) + helper + changed.slice(end) }
 }
 
+// jsxRuntimePieces returns the pieces of React's production JSX runtime that decide what the element
+// jsx returns is, as a map of each piece's name to its normalizedText, for program, the syntax tree
+// of source. The pieces are the declaration of REACT_ELEMENT_TYPE, the function jsxProd, and the
+// assignments to exports.jsx and exports.jsxs. A piece that comes twice, a name that is assigned
+// to again, and any other use of exports (a replaced module.exports, Object.defineProperty on
+// it) have pieces of a name no release has, so the pieces are not reviewedJsxPieces. What else the
+// file holds (the license, the Fragment symbol, other exports) is not read.
+export function jsxRuntimePieces(program, source) {
+  const pieces = new Map()
+  const add = (name, node) => {
+    while (pieces.has(name)) name += '#'
+    pieces.set(name, normalizedText(source, node))
+  }
+  for (const statement of program.body) {
+    if (statement.type === 'FunctionDeclaration' && statement.id.name === 'jsxProd') add('jsxProd', statement)
+    if (statement.type === 'VariableDeclaration') {
+      for (const d of statement.declarations) {
+        if (d.id.type === 'Identifier' && d.id.name === 'REACT_ELEMENT_TYPE') add('REACT_ELEMENT_TYPE', d)
+      }
+    }
+  }
+  const exported = (node) => node.type === 'MemberExpression' && !node.computed && node.object.type === 'Identifier' && node.object.name === 'exports'
+  visitNodes(program, (node, parent, key) => {
+    if (node.type === 'AssignmentExpression') {
+      if (exported(node.left) && (node.left.property.name === 'jsx' || node.left.property.name === 'jsxs')) {
+        add(`exports.${node.left.property.name}`, node)
+      }
+      if (node.left.type === 'Identifier' && (node.left.name === 'jsxProd' || node.left.name === 'REACT_ELEMENT_TYPE')) {
+        add(`${node.left.name} assigned`, node)
+      }
+    }
+    if (node.type === 'UpdateExpression' && node.argument.type === 'Identifier' && (node.argument.name === 'jsxProd' || node.argument.name === 'REACT_ELEMENT_TYPE')) {
+      add(`${node.argument.name} updated`, node)
+    }
+    // exports as anything but the object of an assignment to one of its names, or module.exports.
+    if (node.type === 'Identifier' && node.name === 'exports' && !(parent.type === 'MemberExpression' && key === 'object' && !parent.computed)) {
+      add('exports used', parent)
+    }
+    if (node.type === 'MemberExpression' && node.object.type === 'Identifier' && node.object.name === 'module') add('module used', node)
+  })
+  return pieces
+}
+
+// unreadJsxPieces returns the names of the pieces of React's JSX runtime, program parsed from
+// source, that are not as reviewedJsxPieces has them, or missing.
+function unreadJsxPieces(program, source) {
+  const pieces = jsxRuntimePieces(program, source)
+  const names = new Set([...reviewedJsxPieces.keys(), ...pieces.keys()])
+  return [...names].filter((name) => pieces.get(name) !== reviewedJsxPieces.get(name))
+}
+
 // inlineElements returns code, a chunk of the SSR bundle before it is minified, with calls of jsx
 // and jsxs of React's JSX runtime written as the objects they return. React 19.3 in production
 // has one function for both. It returns { $$typeof, type, key, ref, props }: $$typeof is
@@ -2989,7 +3050,7 @@ export function plainNamespaces(code, ids) {
 // require_jsx_runtime(), which rolldown writes for react/jsx-runtime, or that module's wrapper
 // written in its place, with __toESM or the function of plainNamespaces around it or not, where the
 // wrapper requires the production file of React. The caller makes sure
-// the text of that file is one the plugin knows. The symbol is taken once, in a variable declared
+// the pieces of that file are ones the plugin knows, see jsxRuntimePieces. The symbol is taken once, in a variable declared
 // before the first statement, on the line of the statement. Each line of code stays where it was.
 // A jsx reads the config through its prototype, so a program that sets Object.prototype.ref or
 // .key sees what jsx made but not the objects. parse gives the syntax tree of a source. It returns

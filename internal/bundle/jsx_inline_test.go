@@ -229,10 +229,10 @@ func TestSSRWritesTheElementsOfJSXAsObjects(t *testing.T) {
 			if printed != "" {
 				t.Errorf("the build prints:\n%s", printed)
 			}
-			rootUnknown := reactJSXRuntimeWithChanged(t, func(source string) string { return source + "// changed\n" })
+			rootUnknown := reactJSXRuntimeWithChanged(t, jsxProdReadsRefOtherwise)
 			writeTree(t, rootUnknown, map[string]string{"jsx.tsx": page})
 			unknown, printed := buildPrinting(t, rootUnknown, "jsx.tsx")
-			if !strings.Contains(printed, "has a jsx the tifa plugin does not know") {
+			if !strings.Contains(printed, notRecognized) || !strings.Contains(printed, "has a jsx the tifa plugin does not know") {
 				t.Errorf("the build of a JSX runtime the plugin does not know prints:\n%s", printed)
 			}
 			if got := strings.Count(known, "$$typeof") - strings.Count(unknown, "$$typeof"); got != c.calls {
@@ -264,6 +264,12 @@ func reactJSXRuntimeWithChanged(t *testing.T, change func(string) string) string
 	return withChangedPackage(t, "react", filepath.Join("cjs", "react-jsx-runtime.production.js"), change)
 }
 
+// jsxProdReadsRefOtherwise reads the ref of the config of jsx with a string where React reads it
+// with a dot. It gives the same elements, and a text the plugin has not read.
+func jsxProdReadsRefOtherwise(source string) string {
+	return strings.Replace(source, "config = maybeKey.ref;", `config = maybeKey["ref"];`, 1)
+}
+
 // A JSX runtime of which the plugin has not read the production function keeps the calls of jsx,
 // and the build says so once: with the function changed, with the function replaced by another
 // one and with a file of another size. The same runtime read again does not warn.
@@ -276,7 +282,22 @@ func TestSSRKeepsTheCallsOfAJSXRuntimeItDoesNotKnow(t *testing.T) {
 		name   string
 		change func(string) string
 	}{
-		{"a comment", func(s string) string { return s + "// changed\n" }},
+		{"a changed spelling of the function", jsxProdReadsRefOtherwise},
+		{"another symbol for elements", func(s string) string {
+			return strings.Replace(s, `Symbol.for("react.transitional.element")`, `Symbol.for("react.element")`, 1)
+		}},
+		{"a jsxs that is another function", func(s string) string {
+			return strings.Replace(s, "exports.jsxs = jsxProd;", "exports.jsxs = function (type, config, key) {\n  return jsxProd(type, config, key);\n};", 1)
+		}},
+		{"a jsx that is set again later", func(s string) string {
+			return s + "exports.jsx = function (type, config) {\n  return jsxProd(type, config);\n};\n"
+		}},
+		{"a jsxProd that is set again later", func(s string) string {
+			return s + "jsxProd = function (type, config) {\n  return { type: type, props: config };\n};\n"
+		}},
+		{"exports that are replaced", func(s string) string {
+			return s + "module.exports = { jsx: jsxProd, jsxs: jsxProd };\n"
+		}},
 		{"a changed function", func(s string) string {
 			return strings.Replace(s, `void 0 !== maybeKey && (key = "" + maybeKey);`, `void 0 !== maybeKey && (key = "k" + maybeKey);`, 1)
 		}},
@@ -311,6 +332,62 @@ func TestSSRKeepsTheCallsOfAJSXRuntimeItDoesNotKnow(t *testing.T) {
 			plain, _ := buildPrinting(t, known, "jsx.tsx")
 			if got := strings.Count(plain, "$$typeof") - strings.Count(code, "$$typeof"); got != 2 {
 				t.Errorf("the bundle has %d objects with $$typeof less than with the runtime the plugin knows, want 2", got)
+			}
+		})
+	}
+}
+
+// Only the pieces of the JSX runtime that decide what jsx returns are read: a comment, other white
+// space, another Fragment and new exports leave the calls written as objects, with no warning.
+func TestSSRWritesTheElementsOfAJSXRuntimeWithOtherChanges(t *testing.T) {
+	page := jsxPage([]string{
+		"add('plain', () => jsx('div', { a: 1 }))",
+		"add('key', () => { const k: any = keys.str; return jsx('div', { a: 1 }, k) })",
+	})
+	known := copyTestdata(t, "ssr", true)
+	writeTree(t, known, map[string]string{"jsx.tsx": page})
+	want, printed := buildPrinting(t, known, "jsx.tsx")
+	if printed != "" {
+		t.Fatalf("the build prints:\n%s", printed)
+	}
+	for _, c := range []struct {
+		name   string
+		change func(string) string
+	}{
+		{"a comment at the end", func(s string) string { return s + "// changed\n" }},
+		{"a new license", func(s string) string { return strings.Replace(s, "@license React", "@license React (changed)", 1) }},
+		{"other white space", func(s string) string {
+			return strings.Replace(strings.Replace(s, "function jsxProd(type, config, maybeKey) {\n  var key = null;", "function jsxProd(type,   config, maybeKey)\n{\n\n      var key = null;", 1), `REACT_ELEMENT_TYPE = Symbol.for(`, "REACT_ELEMENT_TYPE =\n  Symbol.for(", 1)
+		}},
+		{"comments inside the function", func(s string) string {
+			return strings.Replace(s, "var key = null;", "var key = null; // it's the key\n  /* \"quoted\" */", 1)
+		}},
+		{"another fragment", func(s string) string {
+			return strings.Replace(s, `REACT_FRAGMENT_TYPE = Symbol.for("react.fragment")`, `REACT_FRAGMENT_TYPE = Symbol.for("react.fragment.v2")`, 1)
+		}},
+		{"a new export", func(s string) string { return s + "exports.extra = function () {};\n" }},
+		{"a new function", func(s string) string {
+			return strings.Replace(s, "exports.Fragment", "function tifaOther(a) {\n  return a;\n}\nexports.Fragment", 1)
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			root := reactJSXRuntimeWithChanged(t, func(s string) string {
+				changed := c.change(s)
+				if changed == s {
+					t.Fatal("the change did not change the file")
+				}
+				return changed
+			})
+			writeTree(t, root, map[string]string{"jsx.tsx": page})
+			code, printed := buildPrinting(t, root, "jsx.tsx")
+			if printed != "" {
+				t.Errorf("the build prints:\n%s", printed)
+			}
+			if got, wantN := strings.Count(code, "$$typeof"), strings.Count(want, "$$typeof"); got != wantN {
+				t.Errorf("the bundle has %d objects with $$typeof, want %d", got, wantN)
+			}
+			if got, wantHTML := evalResult(t, code), evalResult(t, want); got != wantHTML {
+				t.Errorf("the page renders otherwise:\n%s\nwant:\n%s", got, wantHTML)
 			}
 		})
 	}
