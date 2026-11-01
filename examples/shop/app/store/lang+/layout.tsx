@@ -23,15 +23,18 @@ const languages = ['zh-CN', 'en-US']
 // The language of every page of the store, from the locale the Go function checked, and links to
 // the same page in each language, the default one for a browser that asks for neither. Without
 // the locale, when the Layout failed, the page keeps the root Layout's language. matches holds
-// the routes of the page, the page last.
-export const head = ({ loaderData, matches }: { loaderData?: LayoutData; matches: Array<{ pathname: string }> }) => {
+// the routes of the page, the page last. A page that shows an error has no links: a URL that
+// answers 404 is no page to point search engines to, in any language. A route failed when its
+// status is not success, and the deepest Layout of a URL that no page has is marked _notFound.
+export const head = ({ loaderData, matches }: { loaderData?: LayoutData; matches: Array<{ pathname: string; status: string; _notFound?: unknown }> }) => {
   if (!loaderData) return {}
   const { code } = loaderData.locale
+  const common = { htmlAttributes: { lang: code }, meta: [{ title: i18nFor(loaderData.locale).t('home.title') }] }
+  if (matches.some((match) => match.status !== 'success' || match._notFound)) return common
   const page = matches[matches.length - 1].pathname.replace(/\/$/, '').slice(`/store/${code}`.length)
   const url = (lang: string) => `${site}/store/${lang}${page}`
   return {
-    htmlAttributes: { lang: code },
-    meta: [{ title: i18nFor(loaderData.locale).t('home.title') }],
+    ...common,
     links: [
       ...languages.map((lang) => ({ rel: 'alternate', hrefLang: lang, href: url(lang) })),
       { rel: 'alternate', hrefLang: 'x-default', href: url(languages[0]) },

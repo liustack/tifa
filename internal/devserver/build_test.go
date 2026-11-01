@@ -19,6 +19,8 @@ type fakePipeline struct {
 	detail      string // what Bundle adds to its log line
 	// goBuild, when set, holds GoBuild until it is closed.
 	goBuild chan struct{}
+	// embedded is what Embedded returns, nothing when nil.
+	embedded func(string) bool
 }
 
 func (p *fakePipeline) step(name string) error {
@@ -43,6 +45,12 @@ func (p *fakePipeline) GoBuild(context.Context) error {
 	return p.step("GoBuild")
 }
 func (p *fakePipeline) PollFiles(context.Context) (bool, error) { return true, nil }
+func (p *fakePipeline) Embedded() func(string) bool {
+	if p.embedded == nil {
+		return func(string) bool { return false }
+	}
+	return p.embedded
+}
 
 var all = []string{"Analyze", "Generate", "Bundle", "GoBuild"}
 
@@ -90,7 +98,7 @@ func TestRebuildMatrix(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			b, p := built(t)
 			p.fingerprint = tc.fingerprint
-			ran, err := b.build(context.Background(), plan(tc.changes), nil)
+			ran, err := b.build(context.Background(), plan(tc.changes, nil), nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -113,7 +121,7 @@ func TestRebuildMatrix(t *testing.T) {
 
 func TestPlanIgnoresOtherFiles(t *testing.T) {
 	for _, path := range []string{"README.md", "app/logo.png", "app/tifa.yaml", "app/notes.txt", "app/.env", ".envrc"} {
-		if s := plan([]change{{path, modified}}); s != (steps{}) {
+		if s := plan([]change{{path, modified}}, nil); s != (steps{}) {
 			t.Errorf("%s planned %+v, want nothing", path, s)
 		}
 	}
@@ -135,19 +143,19 @@ func TestFailedStepsCarryOver(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			b, p := built(t)
 			p.fingerprint, p.fail = tc.fp, tc.fail
-			_, err := b.build(context.Background(), plan(tc.first), nil)
+			_, err := b.build(context.Background(), plan(tc.first, nil), nil)
 			if err == nil {
 				t.Fatal("build succeeded, want the error of " + tc.fail)
 			}
 			p.calls, p.fail = nil, ""
-			if _, err := b.build(context.Background(), plan([]change{{"app/a.tsx", modified}}), nil); err != nil {
+			if _, err := b.build(context.Background(), plan([]change{{"app/a.tsx", modified}}, nil), nil); err != nil {
 				t.Fatal(err)
 			}
 			if !slices.Equal(p.calls, tc.ranNext) {
 				t.Fatalf("next build ran %v, want %v", p.calls, tc.ranNext)
 			}
 			p.calls = nil
-			if _, err := b.build(context.Background(), plan([]change{{"app/a.tsx", modified}}), nil); err != nil {
+			if _, err := b.build(context.Background(), plan([]change{{"app/a.tsx", modified}}, nil), nil); err != nil {
 				t.Fatal(err)
 			}
 			if !slices.Equal(p.calls, []string{"Bundle"}) {
@@ -160,7 +168,7 @@ func TestFailedStepsCarryOver(t *testing.T) {
 func TestBuildErrorNamesTheStep(t *testing.T) {
 	b, p := built(t)
 	p.fail = "GoBuild"
-	_, err := b.build(context.Background(), plan([]change{{"app/a.go", modified}}), nil)
+	_, err := b.build(context.Background(), plan([]change{{"app/a.go", modified}}, nil), nil)
 	if err == nil || err.Error() != "go build: GoBuild broke" {
 		t.Fatalf("got %v, want the go build error", err)
 	}
@@ -175,7 +183,7 @@ func TestBuildLogsEachStep(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines = nil
-	if _, err := b.build(context.Background(), plan([]change{{"app/a.go", modified}}), nil); err != nil {
+	if _, err := b.build(context.Background(), plan([]change{{"app/a.go", modified}}, nil), nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(lines) != 3 || !strings.HasPrefix(lines[0], "static analysis done in ") ||
@@ -194,7 +202,7 @@ func TestBuildLogsTheBundleDetail(t *testing.T) {
 	}
 	for _, detail := range []string{"", "tailwind 75ms"} {
 		lines, p.detail = nil, detail
-		if _, err := b.build(context.Background(), plan([]change{{"app/a.tsx", modified}}), nil); err != nil {
+		if _, err := b.build(context.Background(), plan([]change{{"app/a.tsx", modified}}, nil), nil); err != nil {
 			t.Fatal(err)
 		}
 		want := `^bundle done in \d+m?s$`
@@ -250,5 +258,63 @@ func TestBuildLogsTheProgressOfASlowStep(t *testing.T) {
 	// Fast steps print no progress.
 	if strings.Contains(log.String(), "static analysis still running") || strings.Contains(log.String(), "bundle still running") {
 		t.Errorf("a fast step printed progress:\n%s", log.String())
+	}
+}
+
+// A file the Go code embeds with go:embed is part of the program: a change builds it again, and
+// the file need not be Go. The analysis is only needed when the set of embedded files may change,
+// so a file that appears or disappears.
+func TestPlanEmbeddedFiles(t *testing.T) {
+	embedded := func(p string) bool { return strings.HasPrefix(p, "app/posts/") || p == "app/schema.json" }
+	cases := []struct {
+		name   string
+		change change
+		want   steps
+	}{
+		{"edited markdown", change{"app/posts/a.md", modified}, steps{goBuild: true}},
+		{"new markdown", change{"app/posts/b.md", created}, steps{analyze: true, goBuild: true}},
+		{"removed markdown", change{"app/posts/a.md", removed}, steps{analyze: true, goBuild: true}},
+		{"markdown nothing embeds", change{"docs/a.md", modified}, steps{}},
+		// Also a file for the front end: both the bundle and the program change.
+		{"embedded json", change{"app/schema.json", modified}, steps{bundle: true, goBuild: true}},
+		{"new embedded json", change{"app/schema.json", created}, steps{analyze: true, bundle: true, goBuild: true}},
+		{"json nothing embeds", change{"app/other.json", modified}, steps{bundle: true}},
+		{"embedded tsx", change{"app/posts/Card.tsx", modified}, steps{bundle: true, goBuild: true}},
+		// A page that is also embedded changes the routes as it would anyway.
+		{"embedded page", change{"app/posts/page.tsx", created}, everything},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := plan([]change{tc.change}, embedded); got != tc.want {
+				t.Errorf("planned %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+// The builder asks the pipeline which files the program embeds after each analysis that worked,
+// and not when the analysis failed: the last answer stays.
+func TestBuilderLearnsEmbeddedFilesFromTheAnalysis(t *testing.T) {
+	p := &fakePipeline{fingerprint: "v1", embedded: func(p string) bool { return p == "a.md" }}
+	var learned []func(string) bool
+	b := &builder{p: p, log: t.Logf, learn: func(f func(string) bool) { learned = append(learned, f) }}
+	if _, err := b.build(context.Background(), steps{bundle: true}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(learned) != 0 {
+		t.Fatal("learned before any analysis")
+	}
+	if _, err := b.build(context.Background(), everything, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(learned) != 1 || !learned[0]("a.md") || learned[0]("b.md") {
+		t.Fatalf("learned %d times from the first analysis", len(learned))
+	}
+	p.fail = "Analyze"
+	if _, err := b.build(context.Background(), steps{analyze: true}, nil); err == nil {
+		t.Fatal("the analysis should fail")
+	}
+	if len(learned) != 1 {
+		t.Fatal("learned from an analysis that failed")
 	}
 }

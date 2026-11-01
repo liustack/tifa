@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -200,6 +201,11 @@ type watcher struct {
 	warned   map[string]bool   // the warnings given, by their text, to give each once
 	was      map[string]string // while renew runs, the checksums of the files it dropped
 	changes  *changes
+	embedded atomic.Pointer[func(string) bool] // says which files the Go code embeds, nil before the first analysis
+	reclass  chan reclassify                   // setEmbedded sends here, so run looks at the directories again
+	stopped  chan struct{}                     // closed once run returned
+	adopt    func(rel string) bool             // while run looks at the directories again: the files the old rules left out and the new ones take in
+	forget   func(rel string) bool             // and those the old rules took and the new ones leave out. Neither is a change
 }
 
 // nodeKind is what a path in the snapshot is.
@@ -251,7 +257,7 @@ func prepareWatcher(root string, ignore []string, warn func(string)) (*watcher, 
 		return nil, err
 	}
 	w := &watcher{
-		root: abs, rootReal: rootReal, warn: warn, changes: newChanges(), short: make(chan struct{}),
+		root: abs, rootReal: rootReal, warn: warn, changes: newChanges(), short: make(chan struct{}), reclass: make(chan reclassify), stopped: make(chan struct{}),
 		budget: watchBudget(), watches: map[string]bool{}, minPoll: minPollInterval,
 		nodes: map[string]*node{}, kids: map[string]map[string]bool{}, owner: map[string]string{},
 		polled: map[string]bool{}, dirty: map[string]bool{}, warned: map[string]bool{},
@@ -323,6 +329,7 @@ func (w *watcher) pollInterval(took time.Duration) time.Duration {
 // run handles file events and polls until ctx is done, then stops watching.
 func (w *watcher) run(ctx context.Context) error {
 	defer w.close()
+	defer close(w.stopped)
 	links := time.NewTicker(linkPoll)
 	defer links.Stop()
 	poll := time.NewTimer(w.minPoll)
@@ -346,6 +353,12 @@ func (w *watcher) run(ctx context.Context) error {
 				return err
 			}
 			w.listAt = time.Now().Add(time.Since(start) * pollCostFactor)
+		case r := <-w.reclass:
+			err := w.recover(w.reclassify(r.before))
+			close(r.done)
+			if err != nil {
+				return err
+			}
 		case <-links.C:
 			if err := w.recover(w.checkLinks()); err != nil {
 				return err
@@ -499,7 +512,7 @@ func (w *watcher) look(rel string, h how) error {
 		return err
 	case info.IsDir():
 		return w.lookDir(rel, info, link, h)
-	case info.Mode().IsRegular() && kindOf(rel) != other:
+	case info.Mode().IsRegular() && w.tracked(rel):
 		return w.check(rel, info, link, h)
 	default:
 		w.setLink(rel, link)
@@ -670,7 +683,9 @@ func (w *watcher) check(rel string, info os.FileInfo, link bool, h how) error {
 	if sum != n.sum {
 		old := n.sum
 		n.sum = sum
-		w.changes.add(rel, old, sum)
+		if old != "" || w.adopt == nil || !w.adopt(rel) {
+			w.changes.add(rel, old, sum)
+		}
 	}
 	return nil
 }
@@ -691,7 +706,7 @@ func (w *watcher) drop(rel string) {
 		switch {
 		case w.was != nil:
 			w.was[rel] = n.sum
-		case n.sum != "":
+		case n.sum != "" && !(w.forget != nil && w.forget(rel) && w.exists(rel)):
 			w.changes.add(rel, n.sum, "")
 		}
 	case dirNode:
@@ -967,4 +982,75 @@ func checksum(name string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// setEmbedded tells the watcher which files the Go code embeds with go:embed: it tracks them
+// like sources, though they may be of any kind. It may be called from any goroutine, and run
+// then looks at the directories again, and setEmbedded returns once it did, so a change made
+// after that is not missed. embedded must answer for a file that does not exist yet too, so a
+// new file is reported as created.
+func (w *watcher) setEmbedded(embedded func(rel string) bool) {
+	before := w.embedded.Swap(&embedded)
+	r := reclassify{before: before, done: make(chan struct{})}
+	select {
+	case w.reclass <- r:
+		<-r.done
+	case <-w.stopped:
+	}
+}
+
+// tracked reports whether the watcher keeps the regular file rel in its snapshot: plan cares
+// about its kind, or the Go code embeds it.
+func (w *watcher) tracked(rel string) bool {
+	if kindOf(rel) != other {
+		return true
+	}
+	embedded := w.embedded.Load()
+	return embedded != nil && (*embedded)(rel)
+}
+
+// reclassify is what setEmbedded asks run to do: look at the directories again, after the rules
+// before, and close done when it did.
+type reclassify struct {
+	before *func(string) bool
+	done   chan struct{}
+}
+
+// trackedBy reports whether a file is in the snapshot under the rules where embedded answers for
+// the files the Go code embeds.
+func trackedBy(embedded *func(string) bool, rel string) bool {
+	return kindOf(rel) != other || embedded != nil && (*embedded)(rel)
+}
+
+// reclassify lists every directory again after setEmbedded changed the rules from before to
+// those now in force, so the files that are embedded now join the snapshot and those that are not
+// any more leave it. That is no change of their content, so it reports none. Everything else is
+// reported as always: a source file or an embedded file that is new since the last look, a file
+// that looks different, a file that is gone.
+func (w *watcher) reclassify(before *func(string) bool) error {
+	w.adopt = func(rel string) bool { return !trackedBy(before, rel) && w.tracked(rel) }
+	w.forget = func(rel string) bool { return trackedBy(before, rel) && !w.tracked(rel) }
+	defer func() { w.adopt, w.forget = nil, nil }()
+	var dirs []string
+	for rel, n := range w.nodes {
+		if n.kind == dirNode {
+			dirs = append(dirs, rel)
+		}
+	}
+	slices.Sort(dirs)
+	for _, dir := range dirs {
+		if n := w.nodes[dir]; n == nil || n.kind != dirNode {
+			continue // gone with a directory before it
+		}
+		if err := w.list(dir, listed); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// exists reports whether something is at rel on the disk.
+func (w *watcher) exists(rel string) bool {
+	_, err := os.Lstat(w.abs(rel))
+	return err == nil
 }

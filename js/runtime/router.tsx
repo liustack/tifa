@@ -94,6 +94,10 @@ const routeErrorAdapter = createSerializationAdapter({
   fromSerializable: (value: { status: number; message: string }) => new RouteError(value.status, value.message),
 })
 
+// A redirect a Load asked for carries this option, so that the server render can tell it from the
+// one the router throws itself for a URL it spells differently (see canonicalStatus in server.tsx).
+export const askedByLoad = 'tifaAskedByLoad'
+
 // load is the loader of every route with a Go Load: it asks the source for the route's result
 // at the URL being loaded. A redirect becomes redirect(), a failure, 404 included, a RouteError
 // for the Error components.
@@ -104,7 +108,9 @@ export async function load<T>(
 ): Promise<T> {
   const result = await context.source(location.pathname + location.searchStr, id)
   if (result.status === 200) return result.data as T
-  if (result.location !== undefined) throw redirect({ href: result.location, statusCode: result.status })
+  if (result.location !== undefined) {
+    throw redirect({ href: result.location, statusCode: result.status, [askedByLoad]: true } as Parameters<typeof redirect>[0])
+  }
   throw new RouteError(result.status, result.error ?? `route ${id} failed with status ${result.status}`)
 }
 

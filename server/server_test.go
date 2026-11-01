@@ -450,7 +450,7 @@ func TestMuxRedirectsGoThroughOnRequest(t *testing.T) {
 	}
 	for _, tc := range cases {
 		w := send(s, "GET", tc.target, "")
-		if w.Code != http.StatusTemporaryRedirect || w.Header().Get("Location") != tc.location {
+		if w.Code != http.StatusPermanentRedirect || w.Header().Get("Location") != tc.location {
 			t.Errorf("%s: %d %q", tc.target, w.Code, w.Header().Get("Location"))
 		}
 	}
@@ -458,7 +458,7 @@ func TestMuxRedirectsGoThroughOnRequest(t *testing.T) {
 	if strings.Join(seen, ",") != strings.Join(want, ",") {
 		t.Fatalf("OnRequest saw %q", seen)
 	}
-	if w := send(newServer(Hooks{}), "GET", "/orders//1", ""); w.Code != http.StatusTemporaryRedirect {
+	if w := send(newServer(Hooks{}), "GET", "/orders//1", ""); w.Code != http.StatusPermanentRedirect {
 		t.Fatalf("without OnRequest: %d", w.Code)
 	}
 }
@@ -819,7 +819,7 @@ func TestRootCatchAllCoexistsWithUnmatchedHandling(t *testing.T) {
 	if w := send(s, "GET", "/orders/7", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"id":"7"`) {
 		t.Errorf("/orders/7: %d %q", w.Code, w.Body.String())
 	}
-	if w := send(s, "GET", "/orders//7", ""); w.Code != http.StatusTemporaryRedirect {
+	if w := send(s, "GET", "/orders//7", ""); w.Code != http.StatusPermanentRedirect {
 		t.Errorf("/orders//7: %d", w.Code)
 	}
 	want := "/{rest...},/orders/{orderId},"

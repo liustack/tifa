@@ -156,14 +156,16 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 	}
 	// ServeMux answers the other requests with its own handler: a redirect for a non-canonical path (double
 	// slash, dot segment, missing trailing slash), or its 404 when no route matches. A redirect reaches
-	// OnRequest as the result of Next. Anything else is an unmatched URL.
+	// OnRequest as the result of Next. Anything else is an unmatched URL. ServeMux writes 307, a
+	// temporary redirect, but the path is only another spelling of the page, so it goes out as 308,
+	// the permanent one that keeps the method and that search engines take as the canonical URL.
 	probe := &redirectProbe{header: http.Header{}}
 	h.ServeHTTP(probe, r)
 	location := probe.header.Get("Location")
 	switch probe.code {
 	case http.StatusMovedPermanently, http.StatusFound, http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
 		if location != "" {
-			redirect := &core.RedirectError{URL: location, Code: probe.code}
+			redirect := &core.RedirectError{URL: location, Code: http.StatusPermanentRedirect}
 			s.serve(w, r, "", false, func(*tifa.Ctx) error { return redirect })
 			return
 		}

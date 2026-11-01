@@ -35,6 +35,8 @@ type buildPipeline struct {
 	// bundling, when set, gets a channel each Bundle waits on until the test closes it.
 	bundling chan chan struct{}
 	manifest string // what Analyze returns, "routes" when empty
+	// embedded tells which files the program embeds, nothing when nil.
+	embedded func(string) bool
 }
 
 func (p *buildPipeline) step(name string) error {
@@ -81,6 +83,12 @@ func (p *buildPipeline) Analyze(context.Context) (string, error) {
 	return manifest, p.step("Analyze")
 }
 func (p *buildPipeline) Generate(context.Context) error { return p.step("Generate") }
+func (p *buildPipeline) Embedded() func(string) bool {
+	if p.embedded == nil {
+		return func(string) bool { return false }
+	}
+	return p.embedded
+}
 func (p *buildPipeline) Bundle(context.Context) (string, error) {
 	p.mu.Lock()
 	bundling := p.bundling
@@ -805,4 +813,32 @@ func newRequest(t *testing.T, method, url, body string, header ...string) *http.
 		req.Header.Set(header[i], header[i+1])
 	}
 	return req
+}
+
+// Files the Go code embeds are part of the program. A markdown file that go:embed takes in
+// builds and restarts the app when it changes, though no Go source changed.
+func TestRunRebuildsWhenAnEmbeddedFileChanges(t *testing.T) {
+	d := startDev(t, "", func(p *buildPipeline) {
+		p.embedded = func(rel string) bool { return strings.HasPrefix(rel, "app/posts/") }
+	})
+	v1 := d.waitVersionAfter(t, "")
+	expectSteps(t, d.p, "Analyze", "Generate", "Bundle", "GoBuild")
+
+	// A new file the patterns take: the set of embedded files changes, so the analysis runs.
+	writeFile(t, d.dir, "app/posts/a.md", "# A")
+	v2 := d.waitVersionAfter(t, v1)
+	expectSteps(t, d.p, "Analyze", "GoBuild")
+	expectPage(t, d.url+"/", "build 2")
+
+	// Edited, it only needs the build. The program reads the file when it is compiled.
+	writeFile(t, d.dir, "app/posts/a.md", "# A edited")
+	v3 := d.waitVersionAfter(t, v2)
+	expectSteps(t, d.p, "GoBuild")
+	expectPage(t, d.url+"/", "build 3")
+
+	// A markdown file nothing embeds still triggers nothing.
+	writeFile(t, d.dir, "README.md", "# readme")
+	writeFile(t, d.dir, "app/list/route.tsx", "export const x = 1")
+	d.waitStatus(t, func(st status) bool { return st.Version == v3 && st.Error == "" })
+	expectSteps(t, d.p, "Bundle")
 }

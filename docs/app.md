@@ -392,20 +392,22 @@ func Layout(c *tifa.Ctx) (Shell, error) {
 
 - The shop puts a `layout_.tsx` in `app/store`, the folder above, so the storefront shows without the workbench around it (see [A Layout without the Layouts above](#a-layout-without-the-layouts-above)). It renders only an `<Outlet />`, and its `Error` shows the 404 of a language the store does not have in both languages, with a link to the storefront in each, since the visitor's language is not known.
 - Pages and components take the language from that data, through `layout.useLoaderData()` or a context the Layout component provides, not from `params`: the Go function checked it, so whatever someone types into the URL does not end up as the language of the page. A `Load` below the Layout checks it the same way, or reads the Layout's result with `tifa.Use`.
-- The `head` of the Layout writes `lang` on `<html>` and links to the same page in each language, which search engines read: one per language, the page's own included, and `x-default` for a browser that asks for none of them, here the default language. Search engines want these URLs in full. `matches` holds the routes of the page, the page last:
+- The `head` of the Layout writes `lang` on `<html>` and links to the same page in each language, which search engines read: one per language, the page's own included, and `x-default` for a browser that asks for none of them, here the default language. Search engines want these URLs in full. `matches` holds the routes of the page, the page last. When any of them has a `status` other than `success` (a `Load` failed), or is marked `_notFound` (no page has the URL, and the deepest Layout it matches shows the 404), the page shows an error and the head leaves the links out: a URL that answers 404 is no page to point search engines to, in any language. The `lang` stays. The head:
 
 ```tsx
 // app/store/lang+/layout.tsx
 const site = 'https://shop.example.com' // where the store is served
 const languages = ['zh-CN', 'en-US'] // the languages of the store, the default one first
 
-export const head = ({ loaderData, matches }: { loaderData?: LayoutData; matches: Array<{ pathname: string }> }) => {
+export const head = ({ loaderData, matches }: { loaderData?: LayoutData; matches: Array<{ pathname: string; status: string; _notFound?: unknown }> }) => {
   if (!loaderData) return {}
   const { code } = loaderData.locale
+  const common = { htmlAttributes: { lang: code } }
+  if (matches.some((match) => match.status !== 'success' || match._notFound)) return common
   const page = matches[matches.length - 1].pathname.replace(/\/$/, '').slice(`/store/${code}`.length)
   const url = (lang: string) => `${site}/store/${lang}${page}`
   return {
-    htmlAttributes: { lang: code },
+    ...common,
     links: [
       ...languages.map((lang) => ({ rel: 'alternate', hrefLang: lang, href: url(lang) })),
       { rel: 'alternate', hrefLang: 'x-default', href: url(languages[0]) },

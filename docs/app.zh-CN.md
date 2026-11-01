@@ -392,20 +392,22 @@ func Layout(c *tifa.Ctx) (Shell, error) {
 
 - shop 在上一层的 `app/store` 放了 `layout_.tsx`，店面外面就不套工作台（见[不套外层的 Layout](#不套外层的-layout)）。它只渲染 `<Outlet />`，它的 `Error` 用中英两种语言显示店面没有的语言的 404，并分别链接到两种语言的店面，因为这时不知道访客要哪种语言。
 - 页面和组件从这份数据取语言，经 `layout.useLoaderData()` 或 Layout 组件提供的 context，不从 `params` 取：Go 函数检查过它，别人在 URL 里随便写的字不会变成页面的语言。Layout 下面的 `Load` 也这样检查，或者用 `tifa.Use` 读 Layout 的结果。
-- Layout 的 `head` 在 `<html>` 上写 `lang`，再链接到同一页的各语言版本，供搜索引擎读：每种语言一个，包括页面自己的，再加一个 `x-default`，给哪种语言都不要的浏览器，这里用默认语言。搜索引擎要完整的 URL。`matches` 是页面的各层路由，页面在最后：
+- Layout 的 `head` 在 `<html>` 上写 `lang`，再链接到同一页的各语言版本，供搜索引擎读：每种语言一个，包括页面自己的，再加一个 `x-default`，给哪种语言都不要的浏览器，这里用默认语言。搜索引擎要完整的 URL。`matches` 是页面的各层路由，页面在最后。其中任何一层的 `status` 不是 `success`（`Load` 失败），或带 `_notFound` 标记（这个 URL 没有页面，由匹配到的最深 Layout 显示 404）时，页面显示的是错误，head 就不写这些链接：回 404 的 URL 不该让搜索引擎指向它，不论哪种语言。`lang` 照旧写。head 是这样写的：
 
 ```tsx
 // app/store/lang+/layout.tsx
 const site = 'https://shop.example.com' // 店面的网址
 const languages = ['zh-CN', 'en-US'] // 店面的语言，默认语言在前
 
-export const head = ({ loaderData, matches }: { loaderData?: LayoutData; matches: Array<{ pathname: string }> }) => {
+export const head = ({ loaderData, matches }: { loaderData?: LayoutData; matches: Array<{ pathname: string; status: string; _notFound?: unknown }> }) => {
   if (!loaderData) return {}
   const { code } = loaderData.locale
+  const common = { htmlAttributes: { lang: code } }
+  if (matches.some((match) => match.status !== 'success' || match._notFound)) return common
   const page = matches[matches.length - 1].pathname.replace(/\/$/, '').slice(`/store/${code}`.length)
   const url = (lang: string) => `${site}/store/${lang}${page}`
   return {
-    htmlAttributes: { lang: code },
+    ...common,
     links: [
       ...languages.map((lang) => ({ rel: 'alternate', hrefLang: lang, href: url(lang) })),
       { rel: 'alternate', hrefLang: 'x-default', href: url(languages[0]) },

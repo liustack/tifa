@@ -275,7 +275,7 @@ func TestErrorFlowInTheVM(t *testing.T) {
 				t.Fatal(err)
 			}
 			res.Body.Close()
-			if res.StatusCode != 307 || res.Header.Get("Location") != "/ssr" || res.Header.Get("ETag") != "" {
+			if res.StatusCode != 308 || res.Header.Get("Location") != "/ssr" || res.Header.Get("ETag") != "" {
 				t.Errorf("request %d: %d %v", i, res.StatusCode, res.Header)
 			}
 			_, header, _ := get(t, base+"/ssr")

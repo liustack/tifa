@@ -10,6 +10,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"golang.org/x/tools/go/packages"
 )
 
 func analyzeApp(t *testing.T, name string) (*Manifest, error) {
@@ -825,5 +827,95 @@ func TestRouteGoWithLayoutOnlyAndWithHandler(t *testing.T) {
 	}
 	if !reflect.DeepEqual(routes, wantRoutes) {
 		t.Errorf("Routes = %+v, want %+v", routes, wantRoutes)
+	}
+}
+
+// The files and patterns of go:embed lines are what tifa dev watches besides the sources: a
+// change to one rebuilds the program. testdata/embed embeds a folder, a folder with all:, a file
+// and a glob, one of them in a package outside app/.
+func TestManifestKnowsTheEmbeddedFiles(t *testing.T) {
+	m, err := analyzeApp(t, "embed")
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	for _, rel := range []string{
+		"app/notes/posts/a.md", "app/notes/posts/b.md", "app/notes/schema.json",
+		"app/notes/data/x.txt", "app/notes/raw/.keep", "app/notes/raw/_x.txt",
+		"internal/mail/templates/welcome.html",
+	} {
+		if !m.Embedded.Has(rel) {
+			t.Errorf("%s is embedded and Has says it is not", rel)
+		}
+	}
+	// The files the go command leaves out: a name that starts with . or _ below an embedded
+	// folder (all: keeps them), a file no pattern names and one outside every package.
+	for _, rel := range []string{
+		"app/notes/posts/_draft.md", "app/notes/posts/.hidden", "app/notes/data/z.csv",
+		"app/notes/route.go", "app/notes/page.tsx", "internal/mail/mail.go", "README.md",
+	} {
+		if m.Embedded.Has(rel) {
+			t.Errorf("%s is not embedded and Has says it is", rel)
+		}
+	}
+	// A file that does not exist yet but the patterns would take, which tifa dev learns when it
+	// is created.
+	for _, rel := range []string{"app/notes/posts/new.md", "app/notes/posts/2026/c.md", "app/notes/data/w.txt", "app/notes/raw/_new.txt", "internal/mail/templates/bye.html"} {
+		if !m.Embedded.Has(rel) {
+			t.Errorf("%s would be embedded and Has says it would not", rel)
+		}
+	}
+	for _, rel := range []string{"app/notes/posts/2026/_c.md", "app/notes/data/sub/w.txt", "app/notes/schema2.json", "app/other/posts/a.md"} {
+		if m.Embedded.Has(rel) {
+			t.Errorf("%s would not be embedded and Has says it would", rel)
+		}
+	}
+}
+
+func TestEmbeddedIsEmptyWhenNothingIsEmbedded(t *testing.T) {
+	m, err := analyzeApp(t, "valid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Embedded.Has("app/projects/data.json") {
+		t.Error("valid embeds nothing")
+	}
+}
+
+// A folder named by a go:embed pattern holds every file below it except the names that start with
+// . or _ and the folders that are another module, which the go command leaves out. Files that do
+// not exist yet follow the same rules.
+func TestEmbeddedStopsAtANestedModule(t *testing.T) {
+	root := t.TempDir()
+	for name, body := range map[string]string{
+		"go.mod":             "module example.com/repro\n\ngo 1.27.0\n",
+		"main.go":            "package repro\n\nimport \"embed\"\n\n//go:embed assets\nvar F embed.FS\n",
+		"assets/a.txt":       "included",
+		"assets/sub/go.mod":  "module example.com/sub\n\ngo 1.27.0\n",
+		"assets/sub/b.txt":   "excluded",
+		"assets/sub/in/c.go": "package in\n",
+		"assets/deep/d.txt":  "included",
+	} {
+		p := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pkgs, err := packages.Load(&packages.Config{Dir: root, Mode: packages.NeedName | packages.NeedFiles | packages.NeedEmbedFiles | packages.NeedEmbedPatterns}, "./...")
+	if err != nil || packages.PrintErrors(pkgs) > 0 {
+		t.Fatalf("load: %v", err)
+	}
+	e := (&analyzer{root: root}).embedded(pkgs)
+	for _, rel := range []string{"assets/a.txt", "assets/deep/d.txt", "assets/new.txt", "assets/deep/more/e.txt"} {
+		if !e.Has(rel) {
+			t.Errorf("%s is embedded and Has says it is not", rel)
+		}
+	}
+	for _, rel := range []string{"assets/sub/b.txt", "assets/sub/in/c.go", "assets/sub/new.txt", "assets/sub/go.mod"} {
+		if e.Has(rel) {
+			t.Errorf("%s is in another module and Has says it is embedded", rel)
+		}
 	}
 }

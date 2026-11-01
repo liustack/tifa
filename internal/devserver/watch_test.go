@@ -478,3 +478,69 @@ func TestWatcherFollowsARetargetedLink(t *testing.T) {
 	writeFile(t, second, "kit/a/b/new.tsx", "export const edited = 1")
 	expectBatch(t, dir, w, change{"app/kit/a/b/new.tsx", modified})
 }
+
+// A file the Go code embeds is tracked from the moment the watcher is told, without a report for
+// the files it picks up, and is dropped, again without a report, once nothing embeds it.
+func TestWatcherTracksEmbeddedFiles(t *testing.T) {
+	dir := newApp(t)
+	writeFile(t, dir, "app/posts/a.md", "# A")
+	writeFile(t, dir, "app/posts/_draft.md", "# draft")
+	w := startWatcher(t, dir)
+	// Nothing says the markdown is embedded yet.
+	writeFile(t, dir, "app/posts/a.md", "# A edited")
+	expectBatch(t, dir, w)
+
+	posts := func(rel string) bool { return strings.HasPrefix(rel, "app/posts/") && !strings.Contains(rel, "/_") }
+	w.setEmbedded(posts)
+	writeFile(t, dir, "app/posts/a.md", "# A edited again")
+	expectBatch(t, dir, w, change{"app/posts/a.md", modified})
+	writeFile(t, dir, "app/posts/b.md", "# B")
+	expectBatch(t, dir, w, change{"app/posts/b.md", created})
+	writeFile(t, dir, "app/posts/_draft.md", "# draft edited")
+	expectBatch(t, dir, w)
+	if err := os.Remove(filepath.Join(dir, "app/posts/b.md")); err != nil {
+		t.Fatal(err)
+	}
+	expectBatch(t, dir, w, change{"app/posts/b.md", removed})
+
+	// A file that is not embedded any more is not a removed file.
+	w.setEmbedded(func(rel string) bool { return false })
+	writeFile(t, dir, "app/posts/a.md", "# A last")
+	expectBatch(t, dir, w)
+}
+
+// A source file saved while the embedded files are being learned is still a new file: only the
+// files the old rules left out and the new rules take in are adopted without a report.
+func TestReclassifyReportsNewFilesThatWereTrackedBefore(t *testing.T) {
+	dir := newApp(t)
+	w, err := newWatcher(dir, nil, func(s string) { t.Log(s) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.close()
+	posts := func(rel string) bool { return strings.HasPrefix(rel, "app/posts/") }
+	w.embedded.Store(&posts)
+	// New since the snapshot: a page (tracked by kind), a post the old rules already took, and a
+	// file only the new rules take.
+	writeFile(t, dir, "app/new/page.tsx", "export default function Page() { return null }")
+	writeFile(t, dir, "app/posts/new.md", "# new")
+	writeFile(t, dir, "app/notes/n.md", "# note")
+	notes := func(rel string) bool {
+		return strings.HasPrefix(rel, "app/posts/") || strings.HasPrefix(rel, "app/notes/")
+	}
+	w.embedded.Store(&notes)
+	if err := w.reclassify(&posts); err != nil {
+		t.Fatal(err)
+	}
+	// The events of the files arrive after the listing.
+	for _, rel := range []string{"app/new/page.tsx", "app/posts/new.md", "app/notes/n.md"} {
+		if err := w.handle(w.abs(rel), fsnotify.Create); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := w.changes.take()
+	want := []change{{"app/new/page.tsx", created}, {"app/posts/new.md", created}}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
