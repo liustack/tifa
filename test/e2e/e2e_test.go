@@ -108,6 +108,13 @@ func buildAt(t *testing.T, dir string) (exe string) {
 // executable.
 func buildWith(t *testing.T, dir, path string) (exe string) {
 	t.Helper()
+	exe, _ = buildWithOutput(t, dir, path)
+	return exe
+}
+
+// buildWithOutput is buildWith that also returns what the build printed.
+func buildWithOutput(t *testing.T, dir, path string) (exe, output string) {
+	t.Helper()
 	app := filepath.Base(dir)
 	exe = filepath.Join(t.TempDir(), app)
 	// go mod tidy keeps every module the generated main needs, because the app lists
@@ -121,7 +128,8 @@ func buildWith(t *testing.T, dir, path string) (exe string) {
 	cmd := exec.Command(cli(t), "build", "--dir", dir, "-o", exe)
 	// The flags of the caller stay.
 	cmd.Env = append(os.Environ(), "PATH="+path, "GOFLAGS="+strings.TrimSpace(os.Getenv("GOFLAGS")+" -mod=readonly"))
-	if out, err := cmd.CombinedOutput(); err != nil {
+	out, err := cmd.CombinedOutput()
+	if err != nil {
 		t.Fatalf("tifa build %s: %v\n%s", app, err, out)
 	}
 	if after := moduleFiles(t, dir); after != before {
@@ -131,7 +139,7 @@ func buildWith(t *testing.T, dir, path string) (exe string) {
 	if err != nil || !info.Mode().IsRegular() {
 		t.Fatalf("tifa build did not produce %s: %v", exe, err)
 	}
-	return exe
+	return exe, string(out)
 }
 
 // buildPGO returns the profile go build optimized exe with, from its build info, empty for none.

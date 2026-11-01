@@ -830,6 +830,11 @@ const plainESM =
   '__getOwnPropDesc(mod, key)) || desc.enumerable }); } return target; }'
 const nodeBuiltins = new Set(builtinModules)
 
+// notRecognized starts every warning that says a rewrite did not recognize the code it was to change,
+// so that a check can look for this text alone: internal/bundle and test/e2e fail on it, and so does
+// the scheduled CI job that builds with the latest React. Do not reword it.
+const notRecognized = 'tifa rewrite not recognized: '
+
 // pollInterval is how often, in milliseconds, Vite's watcher looks at each file once it polls.
 // Polling 10,000 files every second takes about 8% of one CPU core.
 const pollInterval = 1000
@@ -965,6 +970,7 @@ export function lazyRoutes(environments = ['client']) {
           if (!unknownKind) {
             unknownKind = true
             this.warn(
+              notRecognized +
               'tifa: this Vite does not say whether an import is static, so the route modules that export head ' +
                 'are part of the entry script of the browser. tifa is tested with the Vite that tifa new writes into package.json',
             )
@@ -1206,6 +1212,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
           const unknown = Object.keys(lucideFiles).find((file) => lucideFileHash(path.join(dir, file)) !== lucideFiles[file])
           if (unknown) {
             this.warn(
+              notRecognized +
               `lucide-react ${packageVersion(path.resolve(dir, '..', '..'))}: ${path.join(dir, unknown)} has a form the tifa ` +
                 'plugin does not know, so the tifa plugin does not cache the icons lucide-react builds. Pages render the ' +
                 'same, but icons take longer to render',
@@ -1221,6 +1228,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         const merged = radixMergeProps(source)
         if (!merged && source.includes('function mergeProps(')) {
           this.warn(
+            notRecognized +
             `@radix-ui/react-slot ${packageVersion(path.resolve(id, '..', '..'))}: ${id} has no mergeProps the tifa ` +
               'plugin knows, so Slot tests a regexp for each prop it merges and builds class names with filter and ' +
               'join. Pages render the same, but take longer to render',
@@ -1232,6 +1240,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         const faster = clsxFast(fs.readFileSync(id, 'utf8'))
         if (!faster) {
           this.warn(
+            notRecognized +
             `clsx ${packageVersion(path.resolve(id, '..', '..'))}: ${id} has a form the tifa plugin does not know, so ` +
               'clsx reads each argument with a call of a function even for a string. Pages render the same, but ' +
               'take longer to render. clsx 2.0.1 to 2.1.1 is changed',
@@ -1244,6 +1253,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         const copied = reactI18nextCopy(source)
         if (!copied && source.includes('createI18nWrapper')) {
           this.warn(
+            notRecognized +
             `react-i18next ${packageVersion(path.resolve(id, '..', '..', '..'))}: ${id} has no createI18nWrapper the ` +
               'tifa plugin knows, so useTranslation copies the whole i18n object on every call. Pages render the ' +
               'same, but take longer to render',
@@ -1257,12 +1267,14 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         const { source, unknown } = i18nextFaster(original)
         if (unknown.includes('fixedT')) {
           this.warn(
+            notRecognized +
             `${i18next} has no fixedT the tifa plugin knows, so the functions getFixedT returns copy all ` +
               'options on every call. Pages render the same, but translations take longer',
           )
         }
         if (unknown.includes('looksLikeObjectPath')) {
           this.warn(
+            notRecognized +
             `${i18next} has no looksLikeObjectPath the tifa plugin knows, so it builds its regexp on every ` +
               'call. Pages render the same, but translations take longer',
           )
@@ -1272,6 +1284,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         const cached = i18nextCache(faster ?? original)
         if (cached === undefined) {
           this.warn(
+            notRecognized +
             `${i18next} has a form the tifa plugin does not know, so the tifa plugin does not cache its translations ` +
               'as build.i18next_cache, on by default, asks. Pages render the same, but translations take longer. ' +
               'i18next 25.5 to 26.5 is cached, and build.i18next_cache: false in tifa.yaml builds without this warning',
@@ -1283,6 +1296,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         const source = fs.readFileSync(id, 'utf8')
         if (source.split(murmur2Source).length !== 2) {
           this.warn(
+            notRecognized +
             `@emotion/hash ${packageVersion(path.resolve(id, '..', '..'))}: ${id} has no murmur2 the tifa plugin knows, ` +
               'so emotion hashes its styles in JavaScript. Pages render the same, but styles take longer to serialize',
           )
@@ -1295,6 +1309,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         jsxRuntimes.set(id, known)
         if (!known) {
           this.warn(
+            notRecognized +
             `react ${packageVersion(path.resolve(id, '..', '..'))}: ${id} has a jsx the tifa plugin does not know, so ` +
               'the tifa plugin does not write the elements of JSX as objects in place of calls of jsx. Pages render ' +
               'the same, but take longer to render',
@@ -1307,6 +1322,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         const { source, missing } = nativeCopyProps(fs.readFileSync(id, 'utf8'))
         for (const name of missing) {
           this.warn(
+            notRecognized +
             `${react} has no ${name} in the form the tifa plugin knows, so React copies the config of each ` +
               `element it makes with ${name} one key at a time. Pages render the same, but those elements ` +
               'take longer to make',
@@ -1323,6 +1339,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
           source = asked
         } else {
           this.warn(
+            notRecognized +
             `${react} has no matchHtmlRegExp and escapeTextForBrowser in the form the tifa plugin knows, so ` +
               'the tifa plugin does not ask the engine to escape the HTML React writes. Pages render the same, ' +
               'but texts and attribute values take longer to render',
@@ -1333,6 +1350,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
           source = joined
         } else {
           this.warn(
+            notRecognized +
             `${react} has no loops over the chunks of a segment in flushSubtree in the form the tifa plugin ` +
               'knows, so the tifa plugin does not join the chunks of a segment before it writes them. Pages ' +
               'render the same, but take longer to render',
@@ -1343,6 +1361,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
           source = inlined
         } else {
           this.warn(
+            notRecognized +
             `${react} has no pushStringAttribute, pushAttribute and isAttributeNameSafe in the form the tifa ` +
               'plugin knows, so the tifa plugin does not write the common attributes without calling the ' +
               'functions that write one string attribute and check an attribute name. Pages render the same, ' +
@@ -1354,6 +1373,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
           source = attributeNames
         } else if (inlined) {
           this.warn(
+            notRecognized +
             `${react} has no pushAttribute in the form the tifa plugin knows, so the tifa plugin does not keep the ` +
               'names of the attributes it has seen. Pages render the same, but take longer to render',
           )
@@ -1373,12 +1393,14 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
             keyPathsDropped = true
           } else {
             this.warn(
+              notRecognized +
               `${react} ${used || 'has no key paths in the form the tifa plugin knows'}, so the tifa plugin does not ` +
                 'leave out the key paths of the elements. Pages render the same, but take longer to render',
             )
           }
         } else {
           this.warn(
+            notRecognized +
             `${react} ${read || `has no "${keyPathName.trim().split('\n')[0]}" the tifa plugin knows`}, ` +
               'so the tifa plugin does not leave the names of components out of their key paths. Pages render the ' +
               'same, but take longer to render',
@@ -1389,6 +1411,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
           source = guarded.code
         } else {
           this.warn(
+            notRecognized +
             `${react} has no switch the tifa plugin can put a Set check in front of, so a name that matches ` +
               'none of the cases of a switch is compared with each of them. Pages render the same, but take ' +
               'longer to render',
@@ -1400,6 +1423,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         // call reports to its own onError, so a render inside a render keeps its errors.
         if (source.split(ignoredErrors).length !== 2) {
           this.warn(
+            notRecognized +
             `${react} has no "${ignoredErrors}" the tifa plugin knows, so a server render that fails inside ` +
               'a Suspense boundary cannot say why',
           )
@@ -1412,6 +1436,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
           source = unstacked
         } else {
           this.warn(
+            notRecognized +
             `${react} ${stacksRead || 'has no pushComponentStack in the form the tifa plugin knows'}, so the tifa ` +
               'plugin does not keep React from building component stacks. Pages render the ' +
               'same, but take longer to render',
@@ -1422,6 +1447,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
           source = forwarded
         } else if (unstacked) {
           this.warn(
+            notRecognized +
             `${react} has no renderNodeDestructive in the form the tifa plugin knows, or no call of it to write out, ` +
               'so the tifa plugin does not hand nodes to retryNode without calling it. Pages render the same, but take ' +
               'longer to render',
@@ -1451,6 +1477,7 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
         const trimmed = reactServerExports(this.parse(source))
         if (!trimmed) {
           this.warn(
+            notRecognized +
             `react-dom ${packageVersion(path.dirname(id))}: ${id} has a form the tifa plugin does not know, ` +
               'so the SSR bundle keeps both React server renderers. Pages render the same, but the bundle is ' +
               'larger and each VM takes longer to start',
@@ -1477,6 +1504,7 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
       // QuickJS never frees, so the VMs would grow with every render.
       if (coreJSState && !coreJSAdapted) {
         this.warn(
+          notRecognized +
           `core-js ${packageVersion(coreJS)} at ${coreJS}: internals/internal-state.js no longer loads ` +
             'internals/weak-map-basic-detection, so the tifa plugin cannot switch core-js from WeakMap to ' +
             'property-backed state. QuickJS does not free WeakMap entries whose values point back to their ' +
@@ -1491,7 +1519,7 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
     },
     renderChunk(code, chunk) {
       const plain = plainNamespaces(code, chunk.moduleIds)
-      if (plain.warning) this.warn(plain.warning)
+      if (plain.warning) this.warn(notRecognized + plain.warning)
       // Only with a JSX runtime of which every file is known: with another, the elements might differ.
       const elements =
         jsxRuntimes.size > 0 && [...jsxRuntimes.values()].every(Boolean)
@@ -1504,7 +1532,7 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
       } catch (err) {
         small.warning = `the tifa plugin could not write out the calls of small functions: ${err.stack ?? err}`
       }
-      if (small.warning) this.warn(small.warning)
+      if (small.warning) this.warn(notRecognized + small.warning)
       // The code keeps the lines it had, so the source map fits it as it is.
       return small.code === code ? null : { code: small.code, map: null }
     },
@@ -1818,6 +1846,7 @@ export function prerenderPlugin() {
         const waiting = prerenderToString(code)
         if (waiting) return { code: waiting, map: null }
         this.warn(
+          notRecognized +
           `react-dom ${packageVersion(path.resolve(id, '..', '..'))}: ${id} has no renderToStringImpl the tifa plugin ` +
             'knows, so the server does not wait for a component that suspends, such as a React.lazy one: a page with ' +
             'one fails to render on the server',
@@ -1874,6 +1903,7 @@ export function serovalPlugin() {
           source = source.replace(serovalLength, 'const MIN_JSON_STRINGIFY_LENGTH = 2;')
         } else {
           this.warn(
+            notRecognized +
             `${name} has no "${serovalLength}" the tifa plugin knows, so seroval escapes strings shorter than ` +
               '64 code units one character at a time. Pages render the same, but the data of small pages takes ' +
               'longer to write',
@@ -1889,6 +1919,7 @@ export function serovalPlugin() {
           source = arrays.source
         } else {
           this.warn(
+            notRecognized +
             `${name} has no ${arrays.missing.join(' and no ')} in the form the tifa plugin knows, so the tifa ` +
               'plugin changes neither, and seroval takes an array as an array before it asks its plugins. Pages ' +
               'render the same, but the data of a route that is an array takes longer to write',
@@ -1902,6 +1933,7 @@ export function serovalPlugin() {
       // seroval moved the code the plugin changes to another file.
       if (seroval && !serovalMain) {
         this.warn(
+          notRecognized +
           `seroval ${packageVersion(seroval)} at ${seroval}: the SSR bundle loads neither dist/index.js nor ` +
             'dist/index.cjs, so the tifa plugin does not change seroval, which escapes strings shorter than 64 ' +
             'code units one character at a time and takes an array as an array before it asks its plugins. Pages ' +

@@ -40,7 +40,26 @@ func buildPrinting(t *testing.T, root, entry string) (string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	requireMarked(t, output.String())
 	return code, output.String()
+}
+
+// notRecognized starts every build warning that says a rewrite of the plugin did not recognize the
+// code it was to change. internal/bundle, test/e2e and the scheduled CI job look for this text.
+const notRecognized = "tifa rewrite not recognized: "
+
+// requireMarked fails the test when a warning of a build that says "the tifa plugin" does not
+// know, cannot or does not do something does not start with notRecognized, which every such
+// warning must so that one text finds them all. The warning about $$FORM_ACTION says what a module
+// has and not what the plugin failed to read, and is the one that has no mark.
+func requireMarked(t *testing.T, printed string) {
+	t.Helper()
+	for _, warning := range strings.Split(printed, "[plugin ")[1:] {
+		_, text, _ := strings.Cut(warning, "] ")
+		if strings.Contains(text, "the tifa plugin") && !strings.Contains(text, "$$FORM_ACTION") && !strings.HasPrefix(text, notRecognized) {
+			t.Errorf("a warning that the plugin did not recognize its code does not start with %q:\n%s", notRecognized, text)
+		}
+	}
 }
 
 func hasModule(modules []string, suffix string) bool {
