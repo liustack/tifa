@@ -627,6 +627,52 @@ const f = (a) => a + 1
 function g() { log("g"); return f(1) }
 function run() { return early }
 `},
+		{name: "an argument that is a later parameter, read by a closure in a default value", source: `
+function f(a) { return 1 }
+function run(a = (() => f(b))(), b = 2) { return a }
+`},
+		{name: "an argument that is a later binding of a catch pattern", source: `
+function f(a) { return 1 }
+function run() {
+  try { throw {} }
+  catch ({ a = f(b), b = 2 }) { return a }
+}
+`},
+		{name: "an argument that is a var a generator sets after the call", source: `
+function f(a, b) { return [a, b, a] }
+function run() {
+  function* gen() {
+    yield () => f(x, it.next().done)
+    var x = 2
+  }
+  const it = gen()
+  return it.next().value()
+}
+`},
+		{name: "a class as a property value gets no name", want: 1, contains: []string{"(0, "}, source: `
+function f(a) { return { a } }
+function run() {
+  return f(class {
+    static { log(this.name) }
+  }).a.name
+}
+`},
+		{name: "an arrow as a property value gets no name", want: 1, contains: []string{"(0, "}, source: `
+function f(a) { return { a } }
+function run() { return f(() => 1).a.name }
+`},
+		{name: "an arrow that the call passes on to a constant gets no name", want: 1, contains: []string{"(0, "}, source: `
+function f(a) { return a }
+function run() {
+  const x = f(() => 1)
+  return x.name
+}
+`},
+		{name: "an arrow that the call assigns to a property gets no name", want: 1, contains: []string{"(0, "}, source: `
+var obj = {}
+function f(a) { return obj.x = a }
+function run() { return f(() => 1).name }
+`},
 		{name: "a direct eval", source: `
 function isA(x) { return x === 'a'; }
 function run() { return isA('a') + eval('1'); }

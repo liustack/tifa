@@ -4375,7 +4375,7 @@ function isPureArgument(arg, scopes) {
     case 'Identifier': {
       const ref = scopes.refs.get(arg)
       if (ref === undefined) return false
-      return ref.binding ? stableBinding(ref.binding) && initialized(ref, scopes, false) : arg.name === 'undefined'
+      return ref.binding ? stableBinding(ref.binding) && initialized(ref, scopes) : arg.name === 'undefined'
     }
     case 'UnaryExpression': {
       // An operator that throws for the value is no pure one: +1n does.
@@ -4389,18 +4389,24 @@ function isPureArgument(arg, scopes) {
 }
 
 // initialized reports whether code at the reference ref surely finds its binding set, so that a read
-// does not throw and a variable that holds a function holds it. A let, a const and a class are set
-// once the code after their statement runs, and so is a var when strict says its value matters. That
-// code is the rest of the list of statements that holds the declaration. A function declared in
-// the list can run from anywhere in it, so a read inside one that starts after the declaration
-// counts only if every use of that function is in the rest of the list too, directly or inside
-// another function of that kind. Anything else is known to be set: parameters, functions, catch
-// variables.
-function initialized(ref, scopes, strict) {
+// does not throw, finds the value it keeps and finds it again later, and a variable that holds a
+// function holds it. A var, a let, a const and a class are set once the code after their statement
+// runs. That code is the rest of the list of statements that holds the declaration. A function
+// declared in the list can run from anywhere in it, so a read inside one that starts after the
+// declaration counts only if every use of that function is in the rest of the list too, directly or
+// inside another function of that kind. A parameter with a default value or a pattern is set
+// after the ones before it, so it counts only in the body, and so does a binding of a catch
+// pattern. Other bindings are known to be set: functions, plain parameters, catch variables.
+function initialized(ref, scopes) {
   const b = ref.binding
-  const lexical = b.kind === 'let' || b.kind === 'const' || b.kind === 'class'
-  if (!lexical && !(strict && b.kind === 'var')) return true
   const def = b.defs[0]
+  if (b.kind === 'param') {
+    if (b.scope.kind !== 'params') return true
+    for (let s = ref.scope; s; s = s.parent) if (s.kind === 'function' && s.node === b.scope.node) return true
+    return false
+  }
+  if (b.kind === 'catch') return def.catch.param.type === 'Identifier' || ref.id.start >= def.catch.body.start
+  if (!['var', 'let', 'const', 'class'].includes(b.kind)) return true
   const range = scopes.safeRange.get(def.declarator ?? def.pattern ?? def.class)
   return range !== undefined && runsAfter(ref, range, scopes, new Set())
 }
@@ -4437,7 +4443,7 @@ function canWriteOut(call, ref, info, scopes) {
   // An argument beyond the parameters is worked out for its effects, which the body would lose.
   if (args.slice(fn.params.length).some((_, i) => !pure[fn.params.length + i])) return false
   // A function that a variable holds does not exist before the declaration of the variable runs.
-  if (!initialized(ref, scopes, true)) return false
+  if (!initialized(ref, scopes)) return false
   // A default value of a parameter may read a parameter that is not set yet.
   for (let s = ref.scope; s.kind !== 'function' && s.kind !== 'module'; s = s.parent) {
     if (s.kind === 'params') return false
@@ -4485,7 +4491,9 @@ function bodyText(code, call, info, scopes) {
   const argText = fn.params.map((_, i) => {
     const a = call.arguments[i]
     if (!a) return '(void 0)'
-    return atom(a) ? raw(a) : `(${raw(a)})`
+    // A function or class with no name takes the name of the property or variable it is given to, unless a comma sits in front.
+    const unnamed = (a.type === 'FunctionExpression' || a.type === 'ClassExpression') && !a.id
+    return atom(a) ? raw(a) : unnamed || a.type === 'ArrowFunctionExpression' ? `(0, ${raw(a)})` : `(${raw(a)})`
   })
   // The source of a part of the body with the parameters replaced. A part that stands alone
   // (level 'top') needs no parentheses, a part of a list or a branch ('item') only if it is a
