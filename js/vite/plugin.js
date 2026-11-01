@@ -778,36 +778,6 @@ const keyPathMakers = [
 // a page never run in renderToString, and the others are those of useActionState and of a
 // Suspense fallback.
 const keyPathUses = '11 0 2'
-// The parts of React's string renderer that can see a key path, by the name of the part and the
-// fingerprint of its structure (see keyPathUnits and fingerprintOf), as React DOM 19.3.0 and 19.3.1
-// have them. The counts of keyPathUses cannot tell a read of a key path that is new, such as its
-// length, or one through another name, so the plugin makes no key path only when every part that
-// sees one is a part whose code was read to the end for what it does with a key path, and
-// unchanged, and when keyPathUnits can follow every key path to the parts that see it. A release
-// that changes one of them, or adds another, turns the change off with a warning that names the part.
-// A release that changes nothing else keeps it: React DOM 19.3.1 differs from 19.3.0 in the line
-// of its version alone.
-const reviewedKeyPathUnits = new Map([
-  ['currentlyRenderingKeyPath', '1a874f3f11ef'],
-  ['resetHooksState', '16b43e2f55f7'],
-  ['useActionState', '10468385f41b'],
-  ['createRenderTask', '71f1d39352b0'],
-  ['createReplayTask', '4c6d02d4e24b'],
-  ['renderSuspenseListRows', '3d0b8c86f921'],
-  ['renderWithHooks', 'd84aadb4f05f'],
-  ['finishFunctionComponent', '64966c3a9c0c'],
-  ['renderElement', '227176a91e46'],
-  ['retryNode', 'fd2d62c08b50'],
-  ['renderChildrenArray', '499fca6b8ea5'],
-  ['trackPostponedBoundary', '47b9af818eb5'],
-  ['trackPostpone', '4f57b5b50fc6'],
-  ['untrackBoundary', '821f85ed9ed3'],
-  ['spawnNewSuspendedReplayTask', 'ecd85272e009'],
-  ['spawnNewSuspendedRenderTask', '5dc680de516b'],
-  ['renderNode', '45c7241d6f80'],
-  ['finishedTask', 'c17bc32ba3af'],
-  ['addToReplayParent', '29532bc8c8ae'],
-])
 // The pieces of React's production JSX runtime that decide what the element jsx returns is, as React
 // 19.3.0 and 19.3.1 have them, by the name of the piece and the fingerprint of its structure (see
 // jsxRuntimePieces): the symbol that marks an element, the function that makes one and the two
@@ -1363,8 +1333,8 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
       if (reactStringRenderer.test(id)) {
         const react = `react-dom ${packageVersion(path.resolve(id, '..', '..'))}: ${id}`
         let source = fs.readFileSync(id, 'utf8')
-        // The parts that see a key path are read in the text as React wrote it, before the changes below.
-        const unreadParts = unreadKeyPathUnits(this.parse(source), source)
+        // The parts of the file are read in the text as React wrote it, before the changes below.
+        const { unread, problems: unreadable } = unreadReactDOMUnits(this.parse(source), source)
         const asked = askEngineToEscape(source)
         if (asked) {
           source = asked
@@ -1412,33 +1382,41 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         // A syntax tree goes only with the source it was parsed from: each change below parses
         // the source the changes before it left.
         const parse = (code) => this.parse(code)
-        const read = keyPathNamesRead(parse(source))
-        const unnamed = !read && dropKeyPathNames(source)
-        if (unnamed) {
-          source = unnamed
-          namesDropped = true
-          const used =
-            unreadParts.length > 0
-              ? `has parts that use key paths in a form the tifa plugin has not read: ${unreadParts.join(', ')}`
-              : keyPathsUsed(parse(source))
-          const unkeyed = !used && dropKeyPaths(source)
-          if (unkeyed) {
-            source = unkeyed
-            keyPathsDropped = true
+        // One decision for the names of components and for the key paths: both are left out only when
+        // every part of the file is one that was read to the end (reviewedReactDOM).
+        if (unread.length > 0 || unreadable.length > 0) {
+          this.warn(
+            notRecognized +
+              `${react} has ${unread.length > 0 ? `${unread.length} parts the tifa plugin has not read: ${namesOfUnits(unread)}` : unreadable.join(', ')}, ` +
+              'so the tifa plugin does not leave the names of components or the key paths out of the elements. Pages render the ' +
+              'same, but take longer to render. docs/build.md says how to read a new release',
+          )
+        } else {
+          const read = keyPathNamesRead(parse(source))
+          const unnamed = !read && dropKeyPathNames(source)
+          if (unnamed) {
+            source = unnamed
+            namesDropped = true
+            const used = keyPathsUsed(parse(source))
+            const unkeyed = !used && dropKeyPaths(source)
+            if (unkeyed) {
+              source = unkeyed
+              keyPathsDropped = true
+            } else {
+              this.warn(
+                notRecognized +
+                  `${react} ${used || 'has no key paths in the form the tifa plugin knows'}, so the tifa plugin does not ` +
+                  'leave out the key paths of the elements. Pages render the same, but take longer to render',
+              )
+            }
           } else {
             this.warn(
               notRecognized +
-              `${react} ${used || 'has no key paths in the form the tifa plugin knows'}, so the tifa plugin does not ` +
-                'leave out the key paths of the elements. Pages render the same, but take longer to render',
+                `${react} ${read || `has no "${keyPathName.trim().split('\n')[0]}" the tifa plugin knows`}, ` +
+                'so the tifa plugin does not leave the names of components out of their key paths. Pages render the ' +
+                'same, but take longer to render',
             )
           }
-        } else {
-          this.warn(
-            notRecognized +
-            `${react} ${read || `has no "${keyPathName.trim().split('\n')[0]}" the tifa plugin knows`}, ` +
-              'so the tifa plugin does not leave the names of components out of their key paths. Pages render the ' +
-              'same, but take longer to render',
-          )
         }
         const guarded = guardSwitches(source, parse)
         if (guarded.switches.length > 0) {
@@ -2598,509 +2576,65 @@ function fingerprintOf(node, scopes, declared) {
   return createHash('sha256').update(out.join('')).digest('hex').slice(0, 12)
 }
 
-// The names that mean a key path: any with keyPath in it, as a name, as a string that names a
-// property (task["keyPath"], {"keyPath": p}) or in a template.
-const keyPathWord = /[kK]eyPath/
-function mentionsKeyPath(node) {
-  switch (node.type) {
-    case 'Identifier':
-      return keyPathWord.test(node.name)
-    case 'Literal':
-      return typeof node.value === 'string' && keyPathWord.test(node.value)
-    case 'TemplateElement':
-      return keyPathWord.test(node.value.cooked ?? node.value.raw)
-    default:
-      return false
-  }
-}
-
-// The methods of Map, Set and Array that the plugin lets a key path reach. A lookup keeps nothing.
-// A store keeps the key path in the object it is called on, which then holds one.
-const keyPathLookups = new Set(['get', 'has', 'delete', 'indexOf', 'includes'])
-const keyPathStores = new Set(['set', 'add', 'push', 'unshift'])
-// The functions of the global object that a key path may be given to: they keep nothing.
-const keyPathPure = new Set(['JSON.stringify', 'Array.isArray', 'Object.is', 'String'])
-
-// keyPathUnits returns what to check before the key paths of React's string renderer are left out,
-// for program, the syntax tree of source: { units, problems }. trace, if given, collects why each
-// value is thought to hold a key path.
-//
-// units is a map of the name of each part of the file that can see a key path to the fingerprint of
-// the part. The parts are the function declarations, the declarators of variables and the other
-// statements at the top of the file, and a part can see one when it
-//   - has a name, a string or a template with keyPath in it (task.keyPath, task["keyPath"],
-//     {"keyPath": p}, and the names of variables, parameters and properties), or
-//   - uses a variable that holds one, or a parameter that is given one, or calls a function that
-//     returns one, or reads a property that one was put into.
-// The values that hold one are found by following them through the file until nothing new turns
-// up: a variable that is set to one, a parameter of a function that is called with one, what a
-// function returns, a property or a Map, Set or array that one is put into, and what is made of
-// them (an array, an object, a conditional, a member). A variable holds one at a place when a set
-// before that place gave it one, and no set after that and before the place, in a block that holds
-// the place, gave it another value. A key path is [parent key path, a name, a key or an index], so
-// its parts 1 and 2, its length and anything made of them are strings and numbers, not key paths.
-// A function is found for a call through the name of a function declaration, a variable that is
-// set once to another name or to a function, and the method of an object that a variable is set
-// to once.
-//
-// problems says why that cannot be done for this file, one text for each place: a value that holds
-// one reaches a call of something the plugin cannot find the code of, is stored in a property
-// whose name is worked out while the program runs, is given to a function that reads `arguments`,
-// or the file has something that scopes do not tell (a with statement, a direct eval). With a
-// problem the file is not one whose key paths the plugin can follow. What the plugin does not
-// follow is a key path that gets to a part by a property name worked out while the program runs,
-// by an enumeration of an object (Object.keys, a spread) or by a container it cannot tell apart
-// from another that goes through the same property name: the counts of keyPathUses are the net for
-// those.
-export function keyPathUnits(program, source, trace = null) {
+// reactDomUnits reads React's string renderer, program parsed from source, as { units, problems }.
+// units are the parts of the file, each with a name for messages, the fingerprint of its structure
+// (fingerprintOf) and where it is in the source: every function declaration, every declarator of a
+// variable and every other statement at the top of the file, and one more that stands for their
+// order and kinds, since the top of the file runs in that order. problems say why the file cannot be
+// read (a with statement, a direct eval).
+export function reactDomUnits(program, source) {
   const scopes = analyzeScopes(program, source)
-  if (scopes.unsupported) return { units: new Map(), problems: [`the file has ${scopes.unsupported}`] }
-  const declared = new Map() // a declaring identifier to its binding
+  if (scopes.unsupported) return { units: [], problems: [`the file has ${scopes.unsupported}`] }
+  const declared = new Map()
   for (const binding of scopes.all) for (const id of binding.ids) declared.set(id, binding)
-  const bindingOf = (id) => declared.get(id) ?? scopes.refs.get(id)?.binding ?? null
-
-  const parts = []
+  const units = []
+  const order = []
+  const add = (name, node) => {
+    const fingerprint = fingerprintOf(node, scopes, declared)
+    units.push({ name, fingerprint, start: node.start, end: node.end })
+    return fingerprint
+  }
   for (const statement of program.body) {
     if (statement.type === 'FunctionDeclaration') {
-      parts.push({ name: statement.id.name, node: statement })
+      add(statement.id.name, statement)
+      order.push(`function ${statement.id.name}`)
     } else if (statement.type === 'VariableDeclaration') {
-      for (const d of statement.declarations) parts.push({ name: d.id.type === 'Identifier' ? d.id.name : `(${d.id.type})`, node: d })
+      order.push(statement.kind)
+      for (const d of statement.declarations) order.push(add(`${statement.kind} ${d.id.type === 'Identifier' ? d.id.name : '(pattern)'}`, d))
     } else {
-      parts.push({ name: statement.type, node: statement })
+      order.push(add(statement.type, statement))
     }
   }
-
-  // One walk over the file: the parent of each node, the function around it, what the file does with
-  // values (events), where each variable is set (sets), and the names of the methods it defines.
-  const parentOf = new Map()
-  const functionOf = new Map()
-  const events = []
-  const sets = new Map() // a binding to the places that set it: { node, start, value, fn }
-  // The names of the methods that the file defines in an object or a class: a call of a store with
-  // one of these names may run code of the file, and not the method of a Map. The descriptors that
-  // Object.defineProperty is given (get, set) are no methods that a call reaches by name.
-  const defined = new Set()
-  const descriptors = new Set()
-  // seeded: the pattern gives the name a property with keyPath in its name, {keyPath: p}.
-  const addSet = (pattern, value, node, fn, part, seeded = false) => {
-    switch (pattern?.type) {
-      case 'Identifier': {
-        const binding = bindingOf(pattern)
-        if (!binding) break
-        if (!sets.has(binding)) sets.set(binding, [])
-        sets.get(binding).push({ node, start: node.start, end: node.end, value, fn, part, seeded })
-        break
-      }
-      case 'ArrayPattern':
-        for (const e of pattern.elements) addSet(e, value, node, fn, part, seeded)
-        break
-      case 'ObjectPattern':
-        for (const p of pattern.properties) {
-          if (p.type === 'Property') addSet(p.value, value, node, fn, part, seeded || mentionsKeyPath(p.key))
-          else addSet(p, value, node, fn, part, seeded)
-        }
-        break
-      case 'AssignmentPattern':
-        addSet(pattern.left, value, node, fn, part, seeded)
-        break
-      case 'RestElement':
-        addSet(pattern.argument, value, node, fn, part, seeded)
-        break
-    }
-  }
-  for (const part of parts) {
-    const walk = (node, parent, fn) => {
-      parentOf.set(node, parent)
-      functionOf.set(node, fn)
-      switch (node.type) {
-        case 'Property':
-          if (!node.computed && !descriptors.has(parent) && (node.method || node.kind !== 'init' || /Function/.test(node.value?.type))) {
-            defined.add(node.key.name ?? node.key.value)
-          }
-          break
-        case 'MethodDefinition':
-          if (!node.computed) defined.add(node.key.name ?? node.key.value)
-          break
-        case 'CallExpression':
-          if (node.callee.type === 'MemberExpression' && /^(defineProperty|defineProperties|create)$/.test(node.callee.property.name ?? '')) {
-            for (const a of node.arguments) descriptors.add(a)
-          }
-          events.push({ part, node, fn })
-          break
-        case 'NewExpression':
-        case 'ObjectPattern':
-        case 'ReturnStatement':
-          events.push({ part, node, fn })
-          break
-        case 'VariableDeclarator':
-          if (node.init) addSet(node.id, node.init, node, fn, part)
-          events.push({ part, node, fn })
-          break
-        case 'AssignmentExpression':
-          if (node.left.type !== 'MemberExpression') addSet(node.left, node.right, node, fn, part)
-          events.push({ part, node, fn })
-          break
-        case 'ForOfStatement':
-          addSet(node.left.type === 'VariableDeclaration' ? node.left.declarations[0].id : node.left, node.right, node, fn, part)
-          events.push({ part, node, fn })
-          break
-      }
-      const inner = functionTypes.has(node.type) ? node : fn
-      if (node.type === 'ArrowFunctionExpression' && node.body.type !== 'BlockStatement') events.push({ part, node, fn: node })
-      for (const child of childNodes(node)) walk(child, node, inner)
-    }
-    walk(part.node, null, null)
-  }
-
-  // A parameter with keyPath in its name is given one, whoever calls the function.
-  const givenKeyPath = new Set(scopes.all.filter((b) => b.kind === 'param' && keyPathWord.test(b.name)))
-  const problems = []
-  const problem = (part, text) => {
-    const message = `${part.name}: ${text}`
-    if (!problems.includes(message)) problems.push(message)
-  }
-  const holding = new Set() // the variables that hold a container a key path was put into
-  const heldProps = new Set() // the names of the properties a key path was put into
-  const returning = new Set() // the functions that return one
-  let changed = false
-
-  // The functions a name stands for, or null: a function declaration, or a variable set once to a
-  // function or to another such name.
-  const functionsOfBinding = (binding) => {
-    const seen = new Set()
-    while (binding && !seen.has(binding)) {
-      seen.add(binding)
-      if (binding.defs.length !== 1 || binding.assigns !== 0 || binding.loop) return null
-      const def = binding.defs[0]
-      if (def.function) return [def.function]
-      const init = def.declarator?.init
-      if (!init) return null
-      if (init.type === 'FunctionExpression' || init.type === 'ArrowFunctionExpression') return [init]
-      if (init.type !== 'Identifier') return null
-      binding = scopes.refs.get(init)?.binding ?? null
-    }
-    return null
-  }
-  const propertyName = (member) => {
-    if (!member.computed && member.property.type === 'Identifier') return member.property.name
-    if (member.computed && member.property.type === 'Literal' && typeof member.property.value === 'string') return member.property.value
-    return null
-  }
-  // The root of a chain of member accesses: a.b.c is a.
-  const rootOf = (node) => {
-    while (node.type === 'MemberExpression') node = node.object
-    return node
-  }
-  // What a call can run: { functions }, { pure }, { container, store } for a method of Map, Set or
-  // Array on an object, or null.
-  const resolve = (callee) => {
-    if (callee.type === 'FunctionExpression' || callee.type === 'ArrowFunctionExpression') return { functions: [callee] }
-    if (callee.type === 'Identifier') {
-      const binding = bindingOf(callee)
-      if (binding === null) return keyPathPure.has(callee.name) ? { pure: true } : null
-      const functions = functionsOfBinding(binding)
-      return functions && { functions }
-    }
-    if (callee.type !== 'MemberExpression') return null
-    const method = propertyName(callee)
-    if (method === null) return null
-    if (callee.object.type === 'Identifier' && bindingOf(callee.object) === null && keyPathPure.has(`${callee.object.name}.${method}`)) {
-      return { pure: true }
-    }
-    if (callee.object.type === 'Identifier') {
-      // A method of an object that a variable is set to once.
-      const binding = bindingOf(callee.object)
-      const init = binding && binding.defs.length === 1 && binding.assigns === 0 ? binding.defs[0].declarator?.init : null
-      if (init?.type === 'ObjectExpression') {
-        const found = init.properties.filter((p) => p.type === 'Property' && !p.computed && (p.key.name ?? p.key.value) === method)
-        if (found.length === 1 && /Function/.test(found[0].value.type) && found[0].kind === 'init') return { functions: [found[0].value] }
-      }
-    }
-    if (!defined.has(method) && (keyPathLookups.has(method) || keyPathStores.has(method))) {
-      return { container: rootOf(callee.object), store: keyPathStores.has(method) }
-    }
-    return null
-  }
-
-  // Whether the statement that holds node runs whenever the statements after it in its block do:
-  // it is not inside a condition, a loop, a try or a function on the way up to the block.
-  // It returns the block, or null.
-  const unconditionalBlocks = (node) => {
-    const out = []
-    let child = node
-    for (let p = parentOf.get(child); p; child = p, p = parentOf.get(child)) {
-      switch (p.type) {
-        case 'BlockStatement':
-        case 'Program':
-          out.push(p)
-          return out
-        case 'SequenceExpression':
-          // What a sequence runs after this element is run after it.
-          out.push(p)
-          break
-        case 'ExpressionStatement':
-        case 'VariableDeclaration':
-        case 'VariableDeclarator':
-          break
-        case 'AssignmentExpression':
-          if (p.right !== child) return out
-          break
-        default:
-          return out
-      }
-    }
-    return out
-  }
-
-  // Whether the value that variable binding has where the identifier ref reads it is, or holds, a key
-  // path. A place that sets it before ref may be the one that gave it, unless a later one in a block
-  // around ref, that gives no key path, sets it again before ref. Where ref and a place that sets it
-  // share a loop, the place may come after ref in time. A parameter has the value it was given.
-  const busy = new Set()
-  const bindingHolds = (binding, ref) => {
-    if (holding.has(binding)) return true
-    const kinds = binding.kind
-    const places = sets.get(binding) ?? []
-    const refFn = functionOf.get(ref)
-    const given = givenKeyPath.has(binding)
-    const loopOf = (node) => {
-      for (let p = parentOf.get(node); p; p = parentOf.get(p)) {
-        if (/^(For|ForIn|ForOf|While|DoWhile)Statement$/.test(p.type)) return p
-        if (functionTypes.has(p.type)) return null
-      }
-      return null
-    }
-    const kills = (place, from) => {
-      if (place.start <= from) return false
-      return (
-        place.start < ref.start &&
-        !holdsValue(place) &&
-        unconditionalBlocks(place.node).some((block) => block.start <= ref.start && ref.end <= block.end)
-      )
-    }
-    const holdsValue = (place) => {
-      if (place.seeded) return true
-      if (busy.has(place)) return false
-      busy.add(place)
-      try {
-        return holds(place.value)
-      } finally {
-        busy.delete(place)
-      }
-    }
-    const reaches = (place) => {
-      if (place.fn !== refFn || kinds === 'catch') return true // a closure: the order is not known
-      if (place.start < ref.start) return true
-      for (let l = loopOf(ref); l; l = loopOf(l)) if (l.start <= place.start && place.end <= l.end) return true
-      return false
-    }
-    if (given && !places.some((place) => place.fn === refFn && place.start < ref.start && kills(place, -1))) return true
-    for (const place of places) {
-      if (!reaches(place) || !holdsValue(place)) continue
-      if (places.some((other) => other !== place && kills(other, place.start))) continue
-      return true
-    }
-    return false
-  }
-
-  // Whether the value of an expression is, or holds, a key path.
-  const holds = (e) => {
-    if (!e) return false
-    switch (e.type) {
-      case 'Identifier': {
-        const binding = bindingOf(e)
-        return binding !== null && bindingHolds(binding, e)
-      }
-      case 'Literal':
-        return mentionsKeyPath(e)
-      case 'MemberExpression':
-        // A key path is [parent key path or null, a name, a key or index]: its parts 1 and 2 and its
-        // properties (length) are strings and numbers, and what is made of them gives no key path.
-        if (!e.computed) return mentionsKeyPath(e.property) || heldProps.has(e.property.name)
-        if (e.property.type === 'Literal' && (e.property.value === 1 || e.property.value === 2)) return false
-        return holds(e.object) || holds(e.property) || mentionsKeyPath(e.property)
-      case 'ArrayExpression':
-        return e.elements.some(holds)
-      case 'ObjectExpression':
-        // A value under a name with keyPath in it is read back by that name, which is a place the
-        // plugin sees. Under another name it is a way to carry one out unseen.
-        return e.properties.some((p) =>
-          p.type === 'SpreadElement' ? holds(p.argument) : (p.computed && holds(p.key)) || (!mentionsKeyPath(p.key) && holds(p.value)),
-        )
-      case 'ConditionalExpression':
-        return holds(e.consequent) || holds(e.alternate)
-      case 'LogicalExpression':
-        return holds(e.left) || holds(e.right)
-      case 'SequenceExpression':
-        return holds(e.expressions.at(-1))
-      case 'AssignmentExpression':
-        return holds(e.right)
-      case 'SpreadElement':
-      case 'AwaitExpression':
-        return holds(e.argument)
-      case 'ChainExpression':
-        return holds(e.expression)
-      case 'CallExpression':
-      case 'NewExpression': {
-        if (e.callee.type === 'MemberExpression' && holds(e.callee.object)) return true
-        const found = resolve(e.callee)
-        return found?.functions ? found.functions.some((f) => returning.has(f)) : false
-      }
-      default:
-        return false
-    }
-  }
-
-  // The bindings a pattern in a declaration or an assignment sets.
-  const targets = (pattern, part, out = []) => {
-    switch (pattern?.type) {
-      case 'Identifier':
-        out.push(bindingOf(pattern))
-        break
-      case 'ArrayPattern':
-        for (const e of pattern.elements) targets(e, part, out)
-        break
-      case 'ObjectPattern':
-        for (const p of pattern.properties) targets(p.type === 'Property' ? p.value : p, part, out)
-        break
-      case 'AssignmentPattern':
-        targets(pattern.left, part, out)
-        break
-      case 'RestElement':
-        targets(pattern.argument, part, out)
-        break
-      case 'MemberExpression':
-        out.push(null)
-        break
-    }
-    return out
-  }
-  const mark = (set, item, why) => {
-    if (item && !set.has(item)) {
-      trace?.push(why)
-      set.add(item)
-      changed = true
-    }
-  }
-
-  const text = (node) => source.slice(node.start, Math.min(node.end, node.start + 40)).replace(/\s+/g, ' ')
-  for (let round = 0; round < 100; round++) {
-    changed = false
-    for (const { part, node, fn } of events) {
-      switch (node.type) {
-        case 'ObjectPattern':
-          // {keyPath: p} gets the key path of the object into p.
-          for (const p of node.properties) {
-            if (p.type === 'Property' && mentionsKeyPath(p.key)) for (const b of targets(p.value, part)) mark(givenKeyPath, b, `${b?.name} <- ${part.name}: {keyPath: }`)
-          }
-          break
-        case 'AssignmentExpression': {
-          if (node.left.type === 'ArrayPattern' || node.left.type === 'ObjectPattern') {
-            // A key path taken apart into properties of objects.
-            if (!holds(node.right)) break
-            const stores = (pattern) => {
-              if (!pattern) return
-              if (pattern.type === 'MemberExpression') {
-                const name = propertyName(pattern)
-                if (name === null) problem(part, `a key path is stored in ${text(pattern)}`)
-                else if (!mentionsKeyPath(pattern.property)) mark(heldProps, name, `.${name} <- ${part.name}: ${text(node)}`)
-              } else if (pattern.type === 'ArrayPattern') pattern.elements.forEach(stores)
-              else if (pattern.type === 'ObjectPattern') pattern.properties.forEach((p) => stores(p.type === 'Property' ? p.value : p.argument))
-              else if (pattern.type === 'AssignmentPattern') stores(pattern.left)
-              else if (pattern.type === 'RestElement') stores(pattern.argument)
-            }
-            stores(node.left)
-            break
-          }
-          if (node.left.type !== 'MemberExpression' || !holds(node.right) || mentionsKeyPath(node.left.property)) break
-          // A property of another name: it holds one now, and so it is a name to look for.
-          const name = propertyName(node.left)
-          if (name !== null) mark(heldProps, name, `.${name} <- ${part.name}: ${text(node)}`)
-          else problem(part, `a key path is stored in ${text(node.left)}`)
-          break
-        }
-        case 'ReturnStatement':
-          if (fn && holds(node.argument)) mark(returning, fn, `return of ${part.name}`)
-          break
-        case 'ArrowFunctionExpression':
-          if (holds(node.body)) mark(returning, node, `return of ${part.name}`)
-          break
-        case 'CallExpression':
-        case 'NewExpression': {
-          const given = node.arguments.map(holds)
-          if (!given.some(Boolean)) break
-          // A method of a key path itself, such as slice, hands back a value made of it.
-          if (node.callee.type === 'MemberExpression' && holds(node.callee.object)) break
-          const found = resolve(node.callee)
-          if (found?.functions) {
-            if (node.arguments.some((a) => a.type === 'SpreadElement')) problem(part, `a key path is spread into ${text(node.callee)}`)
-            for (const f of found.functions) {
-              if (scopes.functions.get(f)?.vars.get('arguments')?.refs.length) problem(part, `${text(node.callee)} reads arguments`)
-              for (const [i, held] of given.entries()) {
-                if (!held) continue
-                const param = f.params[i] ?? (f.params.at(-1)?.type === 'RestElement' ? f.params.at(-1) : null)
-                if (param) for (const b of targets(param, part)) mark(givenKeyPath, b, `${b?.name} <- ${part.name}: call ${text(node.callee)}`)
-              }
-            }
-          } else if (found?.container) {
-            if (found.store) {
-              const receiver = node.callee.object
-              if (receiver.type === 'Identifier' && bindingOf(receiver)) mark(holding, bindingOf(receiver), `${receiver.name} <- ${part.name}: ${text(node.callee)}`)
-              else if (receiver.type === 'MemberExpression' && propertyName(receiver) !== null) mark(heldProps, propertyName(receiver), `.${propertyName(receiver)} <- ${part.name}: ${text(node.callee)}`)
-              else problem(part, `a key path is stored in ${text(node.callee)}`)
-            }
-          } else if (!found?.pure) {
-            problem(part, `a key path is given to ${text(node.callee)}, whose code the plugin cannot find`)
-          }
-          break
-        }
-      }
-    }
-    if (!changed) break
-    if (round === 99) problems.push('the key paths could not be followed to an end')
-  }
-  // The parts that see a key path.
-  const units = new Map()
-  const add = (part) => {
-    let name = part.name
-    while (units.has(name)) name += '#'
-    units.set(name, fingerprintOf(part.node, scopes, declared))
-  }
-  for (const part of parts) {
-    let sees = false
-    const look = (node, parent, key) => {
-      if (sees) return
-      if (mentionsKeyPath(node)) sees = true
-      else if (node.type === 'Identifier' && !isReference(parent, key) && heldProps.has(node.name)) sees = true
-      else if (node.type === 'Identifier') {
-        const binding = isReference(parent, key) ? bindingOf(node) : declared.get(node)
-        if (binding && (givenKeyPath.has(binding) || (isReference(parent, key) && bindingHolds(binding, node)))) sees = true
-      } else if (node.type === 'CallExpression' || node.type === 'NewExpression') {
-        const found = resolve(node.callee)
-        if (found?.functions?.some((f) => returning.has(f))) sees = true
-      }
-      for (const k in node) {
-        if (k === 'type' || k === 'start' || k === 'end') continue
-        const value = node[k]
-        for (const child of Array.isArray(value) ? value : [value]) {
-          if (child && typeof child.type === 'string') look(child, node, k)
-        }
-      }
-    }
-    look(part.node, null, null)
-    if (sees) add(part)
-  }
-  return { units, problems }
+  units.push({ name: 'the order of the top level', fingerprint: createHash('sha256').update(order.join('\n')).digest('hex').slice(0, 12), start: 0, end: 0 })
+  return { units, problems: [] }
 }
 
-// unreadKeyPathUnits returns why the key paths of React's string renderer, program parsed from
-// source, are not ones the plugin has read: the names of the parts that see a key path and are not as
-// reviewedKeyPathUnits has them, and the problems of keyPathUnits. It returns an empty list when
-// they are.
-function unreadKeyPathUnits(program, source) {
-  const { units, problems } = keyPathUnits(program, source)
-  const unread = [...units].filter(([name, print]) => reviewedKeyPathUnits.get(name) !== print).map(([name]) => name)
-  return [...unread, ...problems]
+// The fingerprints of reviewedReactDOM, at the end of this file, as a map to the names.
+let reviewedUnits = null
+export function reviewedReactDOMUnits() {
+  if (!reviewedUnits) {
+    reviewedUnits = new Map()
+    for (const line of reviewedReactDOM.split('\n')) {
+      const [fingerprint, ...name] = line.trim().split(' ')
+      if (fingerprint) reviewedUnits.set(fingerprint, name.join(' '))
+    }
+  }
+  return reviewedUnits
+}
+
+// unreadReactDOMUnits returns the units of React's string renderer, program parsed from source, that
+// are not in reviewedReactDOM, and the problems of reactDomUnits. When the list is empty, every part
+// of the file is one that was read to the end for what it does with a key path.
+export function unreadReactDOMUnits(program, source) {
+  const { units, problems } = reactDomUnits(program, source)
+  const reviewed = reviewedReactDOMUnits()
+  return { unread: units.filter((u) => !reviewed.has(u.fingerprint)), problems }
+}
+
+// namesOfUnits writes the names of units for a warning: the first twenty, then how many more.
+function namesOfUnits(units) {
+  const names = units.map((u) => u.name ?? u)
+  return names.length <= 20 ? names.join(', ') : `${names.slice(0, 20).join(', ')} and ${names.length - 20} more`
 }
 
 // keyPathNamesRead returns why program, React's string renderer, may read the names of components
@@ -5237,3 +4771,277 @@ export function inlineSmallFunctions(source, parse) {
     count += next.count
   }
 }
+
+// reviewedReactDOM is the parts of React's string renderer, react-dom-server-legacy.browser.production.js,
+// that were read to the end for what they do with a key path, by the fingerprint of their structure
+// (fingerprintOf) and a name for messages. It is the union of the parts of every version that was
+// read: React DOM 19.3.0 and 19.3.1. The plugin leaves the names of components and the key paths out
+// only when every part of the file is in it, so a release that changes a function, adds one or
+// changes the order of the top of the file keeps both. A comment, white space, brackets, quotes and
+// the names a part declares do not change a fingerprint. See "Reviewing a new React" in docs/build.md.
+const reviewedReactDOM = `
+5f9a49f5957c ExpressionStatement
+cabd180d5036 var React
+a18ecbf18d71 var ReactDOM
+ed29811fe2c2 formatProdErrorMessage
+0ab98ba119d2 var REACT_ELEMENT_TYPE
+90b665218edd var REACT_PORTAL_TYPE
+e45a423912da var REACT_FRAGMENT_TYPE
+fef1d983ba11 var REACT_STRICT_MODE_TYPE
+4a491d60e4f4 var REACT_PROFILER_TYPE
+f08beafd3a7a var REACT_CONSUMER_TYPE
+7b40e02350b9 var REACT_CONTEXT_TYPE
+62daef5eb741 var REACT_FORWARD_REF_TYPE
+21dfb8621cc0 var REACT_SUSPENSE_TYPE
+60f13b181aa6 var REACT_SUSPENSE_LIST_TYPE
+7b26339ff7e3 var REACT_MEMO_TYPE
+29a40641c853 var REACT_LAZY_TYPE
+f1e47de9af92 var REACT_SCOPE_TYPE
+a2dfcf9833d2 var REACT_ACTIVITY_TYPE
+bd40d6e17632 var REACT_LEGACY_HIDDEN_TYPE
+db935584e0c5 var REACT_MEMO_CACHE_SENTINEL
+d1bb8ee20e94 var REACT_VIEW_TRANSITION_TYPE
+cd53040814aa var REACT_RECOVERABLE_TYPE
+16affa8d660f var MAYBE_ITERATOR_SYMBOL
+d44321ea3f31 getIteratorFn
+875241de6e79 var REACT_OPTIMISTIC_KEY
+8513e482a12f var isArrayImpl
+b05a53df50c8 murmurhash3_32_gc
+62a8ba22fbba var assign
+3666fc74894c var hasOwnProperty
+f78b6d778ddc var VALID_ATTRIBUTE_NAME_REGEX
+bba81056b403 var illegalAttributeNameCache
+828e144d697b var validatedAttributeNameCache
+a23c76a779b7 isAttributeNameSafe
+9f9bdc238fa0 var unitlessNumbers
+01491c691ce0 var aliases
+2b531192e2f5 var matchHtmlRegExp
+76ca748aa2e2 escapeTextForBrowser
+4d854d34a5f9 var uppercasePattern
+1d2f94195a31 var msPattern
+85d8128656c9 var isJavaScriptProtocol
+13e955663f01 sanitizeURL
+df7e6a08558b var ReactSharedInternals
+4b7e720c43a3 var ReactDOMSharedInternals
+ffab9b05e975 var sharedNotPendingObject
+57b3b1f81307 var previousDispatcher
+9a2790ec85b2 ExpressionStatement
+69a6983860d5 var PRELOAD_NO_CREDS
+4e2e84366ee8 var currentlyFlushingRenderState
+cf94bc69b674 var scriptRegex
+7535aa887463 scriptReplacer
+c6deadc88428 createResumableState
+048afce938a8 createFormatContext
+5b1d053bfa22 getChildFormatContext
+05976c892453 getSuspenseViewTransition
+29a449389537 getSuspenseFallbackFormatContext
+02a742819e41 getSuspenseContentFormatContext
+c66a5c495e64 makeId
+0eed888afcde pushViewTransitionAttributes
+98df3d1aa9a5 var styleNameCache
+1953870e1a22 pushStyleAttribute
+716d94842101 pushBooleanAttribute
+0aa84577f447 pushStringAttribute
+53c63ec8142a var actionJavaScriptURL
+a5857d2b13db pushAdditionalFormField
+d7bb7afe5ac1 validateAdditionalFormField
+b11b5bc12d67 getCustomFormFields
+c230d701ac3f pushFormActionAttribute
+73db916dd96d pushAttribute
+d039c52b1d34 pushInnerHTML
+be12141bb26e flattenOptionChildren
+9399d66e1594 injectFormReplayingRuntime
+51cb24778c09 pushLinkImpl
+85a352410248 var styleRegex
+0cb2c3e520d4 styleReplacer
+54fb3bd7e1fd pushSelfClosing
+91971158b031 pushTitleImpl
+bbf5fbef5032 pushScriptImpl
+4b087fb1f926 pushStartSingletonElement
+77ae7c46e034 pushStartGenericElement
+bd975359093f var VALID_TAG_REGEX
+cc0e7336f060 var validatedTagCache
+64876d5bfa9c startChunkForTag
+0961ceedef65 pushStartInstance
+11da83b8ed99 var endTagCache
+04e460fb5af6 endChunkForTag
+0e9c2cc97758 hoistPreambleState
+a102185f46f0 writeBootstrap
+5029993bf806 writeStartPendingSuspenseBoundary
+f77c7bcf40db writeStartSegment
+d5fd46739706 writeEndSegment
+3d67f9ed4eca var regexForJSStringsInInstructionScripts
+6239c5554cd6 escapeJSStringsForInstructionScripts
+2fc443390748 var regexForJSStringsInScripts
+22ed1ac6399e escapeJSObjectForInstructionScripts
+5a411f7cbb83 var currentlyRenderingBoundaryHasStylesToHoist
+f4f68912cbb7 var destinationHasCapacity
+65f4e10a3f89 flushStyleTagsLateForBoundary
+7315dce680cd hasStylesToHoist
+77736b971690 writeHoistablesForBoundary
+30e336a33fb3 flushResource
+a91bdf7e80f1 var stylesheetFlushingQueue
+32d230b21a45 flushStyleInPreamble
+d6dd7f3243ee flushStylesInPreamble
+e457ef3abbcf preloadLateStyle
+d91063e54c42 preloadLateStyles
+f6b8400e18bc pushCompletedShellIdAttribute
+6b025e9cb756 writeStyleResourceDependenciesInJS
+77f1a4e2207b writeStyleResourceAttributeInJS
+56f79ce33c69 createHoistableState
+ca5d0ed4c7b9 prefetchDNS
+a7a49fec9d25 preconnect
+025cdba91c1f preload
+5d045d5388e1 preloadModule
+27ffc79b2d1f preinitStyle
+fdcb718f52c9 preinitScript
+1fffd1583320 preinitModuleScript
+bf8027b45f83 adoptPreloadCredentials
+ca687caccca7 getPreloadAsHeader
+8c6b13715c43 var regexForHrefInLinkHeaderURLContext
+f56026007529 escapeHrefForLinkHeaderURLContextReplacer
+3fff18222ea4 var regexForLinkHeaderQuotedParamValueContext
+9d27fa656acc escapeStringForLinkHeaderQuotedParamValueContextReplacer
+f76032dd99f3 hoistStyleQueueDependency
+b1c0b97350cd hoistStylesheetDependency
+a1db8159fa44 hoistHoistables
+c6b1244c33c2 createRenderState
+b46a30d3b308 pushTextInstance
+f6d407e171d4 pushSegmentFinale
+f7c320ad751c var bind
+5c8b02adf753 var REACT_CLIENT_REFERENCE
+fc2b2c384364 getComponentNameFromType
+639e8371248a var emptyContextObject
+e7c7e5d7ae8c var currentActiveSnapshot
+1f21a2564c4c popToNearestCommonAncestor
+4d4cb979b4d1 popAllPrevious
+8ee19eb91490 pushAllNext
+8c5b06ccf6c7 popPreviousToCommonLevel
+5b843b2334a5 popNextToCommonLevel
+030ed7616d5e switchContext
+c298c4368349 var classComponentUpdater
+cb26567bf4f9 var emptyTreeContext
+1511e5585420 getTreeId
+b7717f4897a4 pushTreeContext
+e3e3151bc1fe var clz32
+76bf4249a645 var log
+7525b1def290 var LN2
+b4e3b1acceb9 clz32Fallback
+e594ad272ac6 noop
+4fc6eb3b99c4 var SuspenseException
+60b5ebab7794 trackUsedThenable
+3c74fda29156 var suspendedThenable
+35a90bbcaee0 getSuspendedThenable
+0c2d9109fc65 is
+3d9f1119f46d var objectIs
+94d5a2debe99 var currentlyRenderingComponent
+cdc491846a9b var currentlyRenderingTask
+0b16c55291c0 var currentlyRenderingRequest
+1a874f3f11ef var currentlyRenderingKeyPath
+765962988708 var firstWorkInProgressHook
+2e34e89e25fe var workInProgressHook
+055086c2e742 var isReRender
+ffac8bbcfb59 var didScheduleRenderPhaseUpdate
+b578fb131ca9 var localIdCounter
+aaf29222b0e3 var actionStateCounter
+d548086dfb2c var actionStateMatchingIndex
+7f221e05cd42 var thenableIndexCounter
+e1705fe8a076 var thenableState
+be0ecfae74b7 createRecoverableError
+02a78bb857db isRecoverableError
+9aa4e94c62bc cloneRecoverableErrorAsFatal
+caea8d0bef08 var renderPhaseUpdates
+34fd04d5ff95 var numberOfReRenders
+1d51708a0a81 resolveCurrentlyRenderingComponent
+28ced1da848e createHook
+cf9790394521 createWorkInProgressHook
+21356f64b603 getThenableStateAfterSuspending
+16b43e2f55f7 resetHooksState
+42d7531d7863 basicStateReducer
+27f2e9e97d7e useReducer
+49255f793ddb useMemo
+24002e844813 dispatchAction
+e09e336c8446 throwOnUseEffectEventCall
+104eb7dae8e0 unsupportedStartTransition
+13dd7ad7f237 unsupportedSetOptimisticState
+10468385f41b useActionState
+8b195aae2ee8 unwrapThenable
+0eb38df0e806 unsupportedRefresh
+a3220db31c23 var HooksDispatcher
+2a6e5ba2788f var currentResumableState
+1bda6a71b435 var DefaultAsyncDispatcher
+6f4f06adfffc var prefix
+1ad1d8e2e53c var suffix
+8f3e6f745575 describeBuiltInComponentFrame
+4f1b7d9fd18d var reentry
+86500d7e04c1 describeNativeComponentFrame
+ef1bf89a6018 describeComponentStackByType
+9c4f3608f990 isEligibleForOutlining
+ef32962e0907 defaultErrorHandler
+f16067ba2d40 RequestInstance
+499cf2d65262 createRequest
+5b035ae95a69 var currentRequest
+4262b40bb79c pingTask
+9b91ee15e551 createSuspenseBoundary
+71f1d39352b0 createRenderTask
+4c6d02d4e24b createReplayTask
+743eb612c276 createPendingSegment
+18773d950b9c pushComponentStack
+9b04f51e58e6 replaceSuspenseComponentStackWithSuspenseFallbackStack
+79871a366950 getThrownInfo
+f68cef14888a logRecoverableError
+a79cce3f167d fatalError
+98226d26bdf7 finishSuspenseListRow
+9f519f05b968 unblockSuspenseListRow
+38d824c226a8 tryToResolveTogetherRow
+4fbb26271ee5 createSuspenseListRow
+3d0b8c86f921 renderSuspenseListRows
+d84aadb4f05f renderWithHooks
+64966c3a9c0c finishFunctionComponent
+227176a91e46 renderElement
+965db6b33da8 resumeNode
+8fd195fe5a74 renderNodeDestructive
+fd2d62c08b50 retryNode
+499fca6b8ea5 renderChildrenArray
+47b9af818eb5 trackPostponedBoundary
+4f57b5b50fc6 trackPostpone
+821f85ed9ed3 untrackBoundary
+ecd85272e009 spawnNewSuspendedReplayTask
+5dc680de516b spawnNewSuspendedRenderTask
+45c7241d6f80 renderNode
+37bd924b1b83 abortTaskSoft
+c60f6345f3b8 abortRemainingReplayNodes
+1c776670265f abortTask
+9e539b788b67 finishAbortedTask
+9794b5238474 safelyEmitEarlyPreloads
+66eeeeda01b2 completeShell
+b512a0b5c6ba completeAll
+52ac25d76e26 queueCompletedSegment
+c17bc32ba3af finishedTask
+eed59fde7cba performWork
+affcbc8c50bd preparePreambleFromSubtree
+444b5e0603da preparePreambleFromSegment
+9f91bc35d59c preparePreamble
+8be43808a737 flushSubtree
+93b074ebed6f var flushedByteSize
+4a70cacc95ef flushSegment
+3a884232f150 flushSegmentContainer
+3b0529cd0c4c flushCompletedBoundary
+aef7f7fb0fae flushPartiallyCompletedSegment
+39bb0e12d64f var flushingPartialBoundaries
+685387c5ffe2 flushCompletedQueues
+4ec5305cc6e8 enqueueFlush
+2daf393b89f8 startFlowing
+42a52636d27e finishAbort
+f409d5a289de endRenderLifetime
+4422b7a67a7d abort
+29532bc8c8ae addToReplayParent
+51e2b44dcb2d onError
+010262a3504d renderToStringImpl
+ebc7beacf0f1 ExpressionStatement
+ab01264de148 ExpressionStatement
+f79f069a566c ExpressionStatement
+5830fe4f41c6 the order of the top level
+d7d505ba2961 ExpressionStatement
+54301f8e7ab9 the order of the top level
+`
