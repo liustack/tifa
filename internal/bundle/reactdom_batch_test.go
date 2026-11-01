@@ -75,7 +75,7 @@ func TestSSRWritesAttributesByTheirNames(t *testing.T) {
 	if attributeLookup.MatchString(code) {
 		t.Error("the bundle looks up the names of attributes in a React DOM it does not know")
 	}
-	if !strings.Contains(printed, "react-dom 19.3.0: ") || !strings.Contains(printed, "does not keep the names of the attributes it has seen") {
+	if !strings.Contains(printed, installedReact(t, "react-dom")+": ") || !strings.Contains(printed, "does not keep the names of the attributes it has seen") {
 		t.Errorf("the build prints:\n%s", printed)
 	}
 	if got := evalResult(t, code); got != written {
@@ -162,7 +162,7 @@ func TestSSRHandsNodesOnWithoutAnExtraCall(t *testing.T) {
 	changed := withReactDOM(t, "function renderNodeDestructive(request, task, node, childIndex) {", "function renderNodeDestructive(request, task, node, childIndex) /* changed */ {")
 	writeTree(t, changed, map[string]string{"nodes.tsx": nodesPage})
 	plain, printed := buildPrinting(t, changed, "nodes.tsx")
-	if !strings.Contains(printed, "react-dom 19.3.0: ") || !strings.Contains(printed, "does not hand nodes to retryNode without calling it") {
+	if !strings.Contains(printed, installedReact(t, "react-dom")+": ") || !strings.Contains(printed, "does not hand nodes to retryNode without calling it") {
 		t.Errorf("the build prints:\n%s", printed)
 	}
 	if retryNodeCalls(code) <= retryNodeCalls(plain) {

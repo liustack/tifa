@@ -217,6 +217,7 @@ func i18nextApp(t *testing.T, root, page, settings string) (string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	requireMarked(t, output.String())
 	return string(code), output.String()
 }
 

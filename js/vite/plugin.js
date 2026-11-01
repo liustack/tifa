@@ -778,18 +778,17 @@ const keyPathMakers = [
 // a page never run in renderToString, and the others are those of useActionState and of a
 // Suspense fallback.
 const keyPathUses = '11 0 2'
-// The files of React's string renderer, by the SHA-256 of their text, for which the uses of key
-// paths were read to the end, every read of a key path in its code and whether it can run in
-// renderToString. The counts of keyPathUses cannot tell a read of a key path that is new, such as
-// its length, or one through another name, so the plugin makes no key path only in these files.
-// React DOM 19.3.1 differs from 19.3.0 in the line of its version alone.
-const reviewedRenderers = new Map([
-  ['5528f58d28f5e035dccbf0ebec7e593ed0b97cebae830b838756c27c100a8caa', 'react-dom 19.3.0'],
-  ['a470866a7a27a7f4fa69ef04e9bfdea0514fc9defdcc48bda43516b9ae2dfadd', 'react-dom 19.3.1'],
+// The pieces of React's production JSX runtime that decide what the element jsx returns is, as React
+// 19.3.0 and 19.3.1 have them, by the name of the piece and the fingerprint of its structure (see
+// jsxRuntimePieces): the symbol that marks an element, the function that makes one and the two
+// exports that are that function. See inlineElements, which writes the elements these make. React's
+// own text is in react/cjs/react-jsx-runtime.production.js.
+const reviewedJsxPieces = new Map([
+  ['REACT_ELEMENT_TYPE', '0ab98ba119d2'],
+  ['jsxProd', '1ada34b9dc5b'],
+  ['exports.jsx', 'c77445f51117'],
+  ['exports.jsxs', 'db32306fd41f'],
 ])
-// The files of React's production JSX runtime, by the SHA-256 of their text, for which the elements
-// that jsx makes were read to the end, see inlineElements. React 19.3.1 has the file of 19.3.0.
-const reviewedJsxRuntimes = new Map([['1e46f15002696985e80c61d47aaa30dabb03c954270a690f5f7dfbbacfa9002b', 'react 19.3.0 and 19.3.1']])
 // guardedCases is the fewest string cases a switch needs for the tifa plugin to put a Set check in
 // front of it, and switchCases the prefix of the names of those Sets.
 const guardedCases = 8
@@ -829,6 +828,11 @@ const plainESM =
   '(!__hasOwnProp.call(target, key)) __defProp(target, key, { value: mod[key], enumerable: !(desc = ' +
   '__getOwnPropDesc(mod, key)) || desc.enumerable }); } return target; }'
 const nodeBuiltins = new Set(builtinModules)
+
+// notRecognized starts every warning that says a rewrite did not recognize the code it was to change,
+// so that a check can look for this text alone: internal/bundle and test/e2e fail on it, and so does
+// the scheduled CI job that builds with the latest React. Do not reword it.
+const notRecognized = 'tifa rewrite not recognized: '
 
 // pollInterval is how often, in milliseconds, Vite's watcher looks at each file once it polls.
 // Polling 10,000 files every second takes about 8% of one CPU core.
@@ -965,6 +969,7 @@ export function lazyRoutes(environments = ['client']) {
           if (!unknownKind) {
             unknownKind = true
             this.warn(
+              notRecognized +
               'tifa: this Vite does not say whether an import is static, so the route modules that export head ' +
                 'are part of the entry script of the browser. tifa is tested with the Vite that tifa new writes into package.json',
             )
@@ -1206,6 +1211,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
           const unknown = Object.keys(lucideFiles).find((file) => lucideFileHash(path.join(dir, file)) !== lucideFiles[file])
           if (unknown) {
             this.warn(
+              notRecognized +
               `lucide-react ${packageVersion(path.resolve(dir, '..', '..'))}: ${path.join(dir, unknown)} has a form the tifa ` +
                 'plugin does not know, so the tifa plugin does not cache the icons lucide-react builds. Pages render the ' +
                 'same, but icons take longer to render',
@@ -1221,6 +1227,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         const merged = radixMergeProps(source)
         if (!merged && source.includes('function mergeProps(')) {
           this.warn(
+            notRecognized +
             `@radix-ui/react-slot ${packageVersion(path.resolve(id, '..', '..'))}: ${id} has no mergeProps the tifa ` +
               'plugin knows, so Slot tests a regexp for each prop it merges and builds class names with filter and ' +
               'join. Pages render the same, but take longer to render',
@@ -1232,6 +1239,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         const faster = clsxFast(fs.readFileSync(id, 'utf8'))
         if (!faster) {
           this.warn(
+            notRecognized +
             `clsx ${packageVersion(path.resolve(id, '..', '..'))}: ${id} has a form the tifa plugin does not know, so ` +
               'clsx reads each argument with a call of a function even for a string. Pages render the same, but ' +
               'take longer to render. clsx 2.0.1 to 2.1.1 is changed',
@@ -1244,6 +1252,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         const copied = reactI18nextCopy(source)
         if (!copied && source.includes('createI18nWrapper')) {
           this.warn(
+            notRecognized +
             `react-i18next ${packageVersion(path.resolve(id, '..', '..', '..'))}: ${id} has no createI18nWrapper the ` +
               'tifa plugin knows, so useTranslation copies the whole i18n object on every call. Pages render the ' +
               'same, but take longer to render',
@@ -1257,12 +1266,14 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         const { source, unknown } = i18nextFaster(original)
         if (unknown.includes('fixedT')) {
           this.warn(
+            notRecognized +
             `${i18next} has no fixedT the tifa plugin knows, so the functions getFixedT returns copy all ` +
               'options on every call. Pages render the same, but translations take longer',
           )
         }
         if (unknown.includes('looksLikeObjectPath')) {
           this.warn(
+            notRecognized +
             `${i18next} has no looksLikeObjectPath the tifa plugin knows, so it builds its regexp on every ` +
               'call. Pages render the same, but translations take longer',
           )
@@ -1272,6 +1283,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         const cached = i18nextCache(faster ?? original)
         if (cached === undefined) {
           this.warn(
+            notRecognized +
             `${i18next} has a form the tifa plugin does not know, so the tifa plugin does not cache its translations ` +
               'as build.i18next_cache, on by default, asks. Pages render the same, but translations take longer. ' +
               'i18next 25.5 to 26.5 is cached, and build.i18next_cache: false in tifa.yaml builds without this warning',
@@ -1283,6 +1295,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         const source = fs.readFileSync(id, 'utf8')
         if (source.split(murmur2Source).length !== 2) {
           this.warn(
+            notRecognized +
             `@emotion/hash ${packageVersion(path.resolve(id, '..', '..'))}: ${id} has no murmur2 the tifa plugin knows, ` +
               'so emotion hashes its styles in JavaScript. Pages render the same, but styles take longer to serialize',
           )
@@ -1291,11 +1304,13 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         return source.replace(murmur2Source, () => hashInGo(murmur2Source))
       }
       if (reactJsxRuntime.test(id)) {
-        const known = reviewedJsxRuntimes.has(createHash('sha256').update(fs.readFileSync(id)).digest('hex'))
-        jsxRuntimes.set(id, known)
-        if (!known) {
+        const text = fs.readFileSync(id, 'utf8')
+        const unread = unreadJsxPieces(this.parse(text), text)
+        jsxRuntimes.set(id, unread.length === 0)
+        if (unread.length > 0) {
           this.warn(
-            `react ${packageVersion(path.resolve(id, '..', '..'))}: ${id} has a jsx the tifa plugin does not know, so ` +
+            notRecognized +
+            `react ${packageVersion(path.resolve(id, '..', '..'))}: ${id} has a jsx the tifa plugin does not know (${unread.join(', ')}), so ` +
               'the tifa plugin does not write the elements of JSX as objects in place of calls of jsx. Pages render ' +
               'the same, but take longer to render',
           )
@@ -1307,6 +1322,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         const { source, missing } = nativeCopyProps(fs.readFileSync(id, 'utf8'))
         for (const name of missing) {
           this.warn(
+            notRecognized +
             `${react} has no ${name} in the form the tifa plugin knows, so React copies the config of each ` +
               `element it makes with ${name} one key at a time. Pages render the same, but those elements ` +
               'take longer to make',
@@ -1317,12 +1333,14 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
       if (reactStringRenderer.test(id)) {
         const react = `react-dom ${packageVersion(path.resolve(id, '..', '..'))}: ${id}`
         let source = fs.readFileSync(id, 'utf8')
-        const reviewed = reviewedRenderers.has(createHash('sha256').update(source).digest('hex'))
+        // The parts of the file are read in the text as React wrote it, before the changes below.
+        const { unread, problems: unreadable } = unreadReactDOMUnits(this.parse(source), source)
         const asked = askEngineToEscape(source)
         if (asked) {
           source = asked
         } else {
           this.warn(
+            notRecognized +
             `${react} has no matchHtmlRegExp and escapeTextForBrowser in the form the tifa plugin knows, so ` +
               'the tifa plugin does not ask the engine to escape the HTML React writes. Pages render the same, ' +
               'but texts and attribute values take longer to render',
@@ -1333,6 +1351,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
           source = joined
         } else {
           this.warn(
+            notRecognized +
             `${react} has no loops over the chunks of a segment in flushSubtree in the form the tifa plugin ` +
               'knows, so the tifa plugin does not join the chunks of a segment before it writes them. Pages ' +
               'render the same, but take longer to render',
@@ -1343,6 +1362,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
           source = inlined
         } else {
           this.warn(
+            notRecognized +
             `${react} has no pushStringAttribute, pushAttribute and isAttributeNameSafe in the form the tifa ` +
               'plugin knows, so the tifa plugin does not write the common attributes without calling the ' +
               'functions that write one string attribute and check an attribute name. Pages render the same, ' +
@@ -1354,6 +1374,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
           source = attributeNames
         } else if (inlined) {
           this.warn(
+            notRecognized +
             `${react} has no pushAttribute in the form the tifa plugin knows, so the tifa plugin does not keep the ` +
               'names of the attributes it has seen. Pages render the same, but take longer to render',
           )
@@ -1361,34 +1382,48 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         // A syntax tree goes only with the source it was parsed from: each change below parses
         // the source the changes before it left.
         const parse = (code) => this.parse(code)
-        const read = keyPathNamesRead(parse(source))
-        const unnamed = !read && dropKeyPathNames(source)
-        if (unnamed) {
-          source = unnamed
-          namesDropped = true
-          const used = reviewed ? keyPathsUsed(parse(source)) : 'is not a file of React DOM whose key paths the tifa plugin has read'
-          const unkeyed = !used && dropKeyPaths(source)
-          if (unkeyed) {
-            source = unkeyed
-            keyPathsDropped = true
+        // One decision for the names of components and for the key paths: both are left out only when
+        // every part of the file is one that was read to the end (reviewedReactDOM).
+        if (unread.length > 0 || unreadable.length > 0) {
+          this.warn(
+            notRecognized +
+              `${react} has ${unread.length > 0 ? `${unread.length} parts the tifa plugin has not read: ${namesOfUnits(unread)}` : unreadable.join(', ')}, ` +
+              'so the tifa plugin does not leave the names of components or the key paths out of the elements. Pages render the ' +
+              'same, but take longer to render. docs/build.md says how to read a new release',
+          )
+        } else {
+          const read = keyPathNamesRead(parse(source))
+          const unnamed = !read && dropKeyPathNames(source)
+          if (unnamed) {
+            source = unnamed
+            namesDropped = true
+            const used = keyPathsUsed(parse(source))
+            const unkeyed = !used && dropKeyPaths(source)
+            if (unkeyed) {
+              source = unkeyed
+              keyPathsDropped = true
+            } else {
+              this.warn(
+                notRecognized +
+                  `${react} ${used || 'has no key paths in the form the tifa plugin knows'}, so the tifa plugin does not ` +
+                  'leave out the key paths of the elements. Pages render the same, but take longer to render',
+              )
+            }
           } else {
             this.warn(
-              `${react} ${used || 'has no key paths in the form the tifa plugin knows'}, so the tifa plugin does not ` +
-                'leave out the key paths of the elements. Pages render the same, but take longer to render',
+              notRecognized +
+                `${react} ${read || `has no "${keyPathName.trim().split('\n')[0]}" the tifa plugin knows`}, ` +
+                'so the tifa plugin does not leave the names of components out of their key paths. Pages render the ' +
+                'same, but take longer to render',
             )
           }
-        } else {
-          this.warn(
-            `${react} ${read || `has no "${keyPathName.trim().split('\n')[0]}" the tifa plugin knows`}, ` +
-              'so the tifa plugin does not leave the names of components out of their key paths. Pages render the ' +
-              'same, but take longer to render',
-          )
         }
         const guarded = guardSwitches(source, parse)
         if (guarded.switches.length > 0) {
           source = guarded.code
         } else {
           this.warn(
+            notRecognized +
             `${react} has no switch the tifa plugin can put a Set check in front of, so a name that matches ` +
               'none of the cases of a switch is compared with each of them. Pages render the same, but take ' +
               'longer to render',
@@ -1400,6 +1435,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         // call reports to its own onError, so a render inside a render keeps its errors.
         if (source.split(ignoredErrors).length !== 2) {
           this.warn(
+            notRecognized +
             `${react} has no "${ignoredErrors}" the tifa plugin knows, so a server render that fails inside ` +
               'a Suspense boundary cannot say why',
           )
@@ -1412,6 +1448,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
           source = unstacked
         } else {
           this.warn(
+            notRecognized +
             `${react} ${stacksRead || 'has no pushComponentStack in the form the tifa plugin knows'}, so the tifa ` +
               'plugin does not keep React from building component stacks. Pages render the ' +
               'same, but take longer to render',
@@ -1422,6 +1459,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
           source = forwarded
         } else if (unstacked) {
           this.warn(
+            notRecognized +
             `${react} has no renderNodeDestructive in the form the tifa plugin knows, or no call of it to write out, ` +
               'so the tifa plugin does not hand nodes to retryNode without calling it. Pages render the same, but take ' +
               'longer to render',
@@ -1451,6 +1489,7 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
         const trimmed = reactServerExports(this.parse(source))
         if (!trimmed) {
           this.warn(
+            notRecognized +
             `react-dom ${packageVersion(path.dirname(id))}: ${id} has a form the tifa plugin does not know, ` +
               'so the SSR bundle keeps both React server renderers. Pages render the same, but the bundle is ' +
               'larger and each VM takes longer to start',
@@ -1477,6 +1516,7 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
       // QuickJS never frees, so the VMs would grow with every render.
       if (coreJSState && !coreJSAdapted) {
         this.warn(
+          notRecognized +
           `core-js ${packageVersion(coreJS)} at ${coreJS}: internals/internal-state.js no longer loads ` +
             'internals/weak-map-basic-detection, so the tifa plugin cannot switch core-js from WeakMap to ' +
             'property-backed state. QuickJS does not free WeakMap entries whose values point back to their ' +
@@ -1491,7 +1531,7 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
     },
     renderChunk(code, chunk) {
       const plain = plainNamespaces(code, chunk.moduleIds)
-      if (plain.warning) this.warn(plain.warning)
+      if (plain.warning) this.warn(notRecognized + plain.warning)
       // Only with a JSX runtime of which every file is known: with another, the elements might differ.
       const elements =
         jsxRuntimes.size > 0 && [...jsxRuntimes.values()].every(Boolean)
@@ -1504,7 +1544,7 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
       } catch (err) {
         small.warning = `the tifa plugin could not write out the calls of small functions: ${err.stack ?? err}`
       }
-      if (small.warning) this.warn(small.warning)
+      if (small.warning) this.warn(notRecognized + small.warning)
       // The code keeps the lines it had, so the source map fits it as it is.
       return small.code === code ? null : { code: small.code, map: null }
     },
@@ -1818,6 +1858,7 @@ export function prerenderPlugin() {
         const waiting = prerenderToString(code)
         if (waiting) return { code: waiting, map: null }
         this.warn(
+          notRecognized +
           `react-dom ${packageVersion(path.resolve(id, '..', '..'))}: ${id} has no renderToStringImpl the tifa plugin ` +
             'knows, so the server does not wait for a component that suspends, such as a React.lazy one: a page with ' +
             'one fails to render on the server',
@@ -1874,6 +1915,7 @@ export function serovalPlugin() {
           source = source.replace(serovalLength, 'const MIN_JSON_STRINGIFY_LENGTH = 2;')
         } else {
           this.warn(
+            notRecognized +
             `${name} has no "${serovalLength}" the tifa plugin knows, so seroval escapes strings shorter than ` +
               '64 code units one character at a time. Pages render the same, but the data of small pages takes ' +
               'longer to write',
@@ -1889,6 +1931,7 @@ export function serovalPlugin() {
           source = arrays.source
         } else {
           this.warn(
+            notRecognized +
             `${name} has no ${arrays.missing.join(' and no ')} in the form the tifa plugin knows, so the tifa ` +
               'plugin changes neither, and seroval takes an array as an array before it asks its plugins. Pages ' +
               'render the same, but the data of a route that is an array takes longer to write',
@@ -1902,6 +1945,7 @@ export function serovalPlugin() {
       // seroval moved the code the plugin changes to another file.
       if (seroval && !serovalMain) {
         this.warn(
+          notRecognized +
           `seroval ${packageVersion(seroval)} at ${seroval}: the SSR bundle loads neither dist/index.js nor ` +
             'dist/index.cjs, so the tifa plugin does not change seroval, which escapes strings shorter than 64 ' +
             'code units one character at a time and takes an array as an array before it asks its plugins. Pages ' +
@@ -2482,6 +2526,156 @@ function keyPathsUsed(program) {
     : `reads [0] or [2] of a key path ${ends} times, sets trackedPostpones to something but null ${tracked} times and calls createReplayTask ${replays} times, which the tifa plugin does not know`
 }
 
+// fingerprintOf returns the first 12 digits of the SHA-256 of the structure of node, a part of the
+// program that scopes (analyzeScopes) read. The structure is the syntax tree without its places, its
+// comments, the quotes of its strings and the brackets round its expressions, so it is the same for
+// two texts that mean the same, and different for two that parse differently: what a line break
+// does to `return`, or what a letter next to a keyword does to it, shows in the tree. A name that a
+// declaration inside node gives (a parameter, a variable, a function inside) is written as the
+// number of its first place in node, so the numbers React's compiler puts on such names do not
+// matter, and two names stay two, except the names that are seen from outside (those of functions
+// and classes, the name of a variable that an anonymous function is set to, a name that both a
+// catch parameter and a var of its body declare), which stay. Every other name is written as it is, with a mark for the
+// kind: a property name (.a$1), a name that a declaration outside node gives (a$1@o), and a name no
+// declaration gives (a$1@g), so a global that an outer declaration comes to hide differs.
+function fingerprintOf(node, scopes, declared) {
+  const local = (scope) => scope.kind !== 'module' && scope.node && scope.node.start >= node.start && scope.node.end <= node.end
+  const numbers = new Map()
+  const out = []
+  // The local names that stay as they are, since renaming them would change what code can see or do:
+  //   - the name of a function or class (its `name` property), also the name that a variable gives
+  //     to the anonymous function or class it is set to,
+  //   - a name that a catch clause has as its parameter and a var of its body declares, since the
+  //     var's initializer writes the parameter and not the variable of the function.
+  const verbatim = new Set()
+  const anonymous = (e) => (e.type === 'FunctionExpression' || e.type === 'ClassExpression') && !e.id || e.type === 'ArrowFunctionExpression'
+  const bindingOf = (id) => declared.get(id) ?? scopes.refs.get(id)?.binding ?? null
+  const find = (n) => {
+    if (n.type === 'VariableDeclarator' && n.id.type === 'Identifier' && n.init && anonymous(n.init)) verbatim.add(bindingOf(n.id))
+    if ((n.type === 'AssignmentExpression' || n.type === 'AssignmentPattern') && (n.left.type === 'Identifier') && anonymous(n.right)) {
+      verbatim.add(bindingOf(n.left))
+    }
+    for (const child of childNodes(n)) find(child)
+  }
+  find(node)
+  for (const binding of scopes.all) {
+    if (binding.kind === 'function' || binding.kind === 'class' || binding.kind === 'funcname') verbatim.add(binding)
+    if (binding.kind !== 'catch' || !local(binding.scope)) continue
+    const body = binding.defs[0].catch.body
+    for (let scope = binding.scope.parent; scope; scope = scope.parent) {
+      const other = scope.vars.get(binding.name)
+      if (!other) continue
+      if (other.kind === 'var' && other.ids.some((id) => id.start >= body.start && id.end <= body.end)) {
+        verbatim.add(binding)
+        verbatim.add(other)
+      }
+      break
+    }
+  }
+  const identifier = (id, parent, key) => {
+    if (!isReference(parent, key)) return `.${id.name}`
+    const binding = bindingOf(id)
+    if (binding === null) return `${id.name}@g`
+    if (!local(binding.scope)) return `${id.name}@o`
+    if (verbatim.has(binding)) return `${id.name}@v`
+    if (!numbers.has(binding)) numbers.set(binding, numbers.size)
+    return `#${numbers.get(binding)}`
+  }
+  const visit = (value, parent, key) => {
+    if (value === null || value === undefined) {
+      out.push('~')
+    } else if (typeof value !== 'object') {
+      out.push(`${typeof value}:${typeof value === 'string' ? JSON.stringify(value) : String(value)}`)
+    } else if (Array.isArray(value)) {
+      out.push('[')
+      for (const element of value) {
+        visit(element, parent, key)
+        out.push(',')
+      }
+      out.push(']')
+    } else if (value.type === 'Identifier') {
+      out.push(identifier(value, parent, key))
+    } else {
+      out.push('(', value.type ?? '')
+      for (const k of Object.keys(value).sort()) {
+        // The raw text of a literal is its spelling, which its value says. That of a template is not.
+        if (k === 'type' || k === 'start' || k === 'end' || (k === 'raw' && value.type === 'Literal')) continue
+        out.push(' ', k, '=')
+        visit(value[k], value, k)
+      }
+      out.push(')')
+    }
+  }
+  visit(node, null, null)
+  return createHash('sha256').update(out.join('')).digest('hex').slice(0, 12)
+}
+
+// reactDomUnits reads React's string renderer, program parsed from source, as { units, problems }.
+// units are the parts of the file, each with a name for messages, the fingerprint of its structure
+// (fingerprintOf) and where it is in the source: every function declaration, every declarator of a
+// variable and every other statement at the top of the file, and one more that stands for their
+// order and kinds, since the top of the file runs in that order. problems say why the file cannot be
+// read (a with statement, a direct eval).
+export function reactDomUnits(program, source) {
+  const scopes = analyzeScopes(program, source)
+  if (scopes.unsupported) return { units: [], problems: [`the file has ${scopes.unsupported}`] }
+  const declared = new Map()
+  for (const binding of scopes.all) for (const id of binding.ids) declared.set(id, binding)
+  const units = []
+  const order = []
+  const add = (name, node) => {
+    const fingerprint = fingerprintOf(node, scopes, declared)
+    units.push({ name, fingerprint, start: node.start, end: node.end })
+    return fingerprint
+  }
+  for (const statement of program.body) {
+    if (statement.type === 'FunctionDeclaration') {
+      add(statement.id.name, statement)
+      order.push(`function ${statement.id.name}`)
+    } else if (statement.type === 'VariableDeclaration') {
+      order.push(statement.kind)
+      for (const d of statement.declarations) order.push(add(`${statement.kind} ${d.id.type === 'Identifier' ? d.id.name : '(pattern)'}`, d))
+    } else {
+      order.push(add(statement.type, statement))
+    }
+  }
+  units.push({ name: 'the order of the top level', fingerprint: createHash('sha256').update(order.join('\n')).digest('hex').slice(0, 12), start: 0, end: 0 })
+  return { units, problems: [] }
+}
+
+// The pairs of reviewedReactDOM, at the end of this file, as a map of each name to the set of its
+// fingerprints: a name has more than one when versions differ in it. A unit is reviewed when its
+// name and its fingerprint are a pair of the table, so a body that is the reviewed body of another
+// name is not.
+let reviewedUnits = null
+export function reviewedReactDOMUnits() {
+  if (!reviewedUnits) {
+    reviewedUnits = new Map()
+    for (const line of reviewedReactDOM.split('\n')) {
+      const [fingerprint, ...name] = line.trim().split(' ')
+      if (!fingerprint) continue
+      if (!reviewedUnits.has(name.join(' '))) reviewedUnits.set(name.join(' '), new Set())
+      reviewedUnits.get(name.join(' ')).add(fingerprint)
+    }
+  }
+  return reviewedUnits
+}
+
+// unreadReactDOMUnits returns the units of React's string renderer, program parsed from source, whose
+// name and fingerprint are not a pair of reviewedReactDOM, and the problems of reactDomUnits. When the list is empty, every part
+// of the file is one that was read to the end for what it does with a key path.
+export function unreadReactDOMUnits(program, source) {
+  const { units, problems } = reactDomUnits(program, source)
+  const reviewed = reviewedReactDOMUnits()
+  return { unread: units.filter((u) => !reviewed.get(u.name)?.has(u.fingerprint)), problems }
+}
+
+// namesOfUnits writes the names of units for a warning: the first twenty, then how many more.
+function namesOfUnits(units) {
+  const names = units.map((u) => u.name ?? u)
+  return names.length <= 20 ? names.join(', ') : `${names.slice(0, 20).join(', ')} and ${names.length - 20} more`
+}
+
 // keyPathNamesRead returns why program, React's string renderer, may read the names of components
 // in their key paths, or '' when it does not in renderToString. It reads them only as
 // keyPathReaders has it, and creates each request without a form state: RequestInstance and
@@ -2780,6 +2974,97 @@ export function plainNamespaces(code, ids) {
   return { code: changed.slice(0, end) + helper + changed.slice(end) }
 }
 
+// jsxRuntimePieces reads the production file of React's JSX runtime, program parsed from source, and
+// returns { pieces, problems }: the pieces inlineElements depends on, each with the fingerprint of
+// its structure, and why the file is not one whose pieces can be trusted. The pieces are the
+// declaration of REACT_ELEMENT_TYPE, the function jsxProd and the statements
+// `exports.jsx = jsxProd` and `exports.jsxs = jsxProd` (reviewedJsxPieces has them). Nothing else may touch them, or run before them, so the file may
+// only hold, at its top, these statements:
+//   - a directive such as "use strict",
+//   - a function declaration (it only runs when something calls it, and nothing at the top does),
+//   - a variable that is given nothing, a literal or Symbol.for("a string"),
+//   - `exports.name = value`, where value is a name, a function or a literal.
+// Anything else at the top is run in a place where it could change the pieces (a call, a condition,
+// a loop, an assignment to another object). Every use of exports, module or arguments, and every
+// top-level `this`, which is exports in a CommonJS module, must be one of the export statements.
+// REACT_ELEMENT_TYPE and jsxProd are set once and never again, by a pattern or an update or in any
+// other place.
+export function jsxRuntimePieces(program, source) {
+  const scopes = analyzeScopes(program, source)
+  if (scopes.unsupported) return { pieces: new Map(), problems: [`the file has ${scopes.unsupported}`] }
+  const declared = new Map()
+  for (const binding of scopes.all) for (const id of binding.ids) declared.set(id, binding)
+  const problems = []
+  const pieces = new Map()
+  const piece = (name, node) => {
+    while (pieces.has(name)) name += '#'
+    pieces.set(name, fingerprintOf(node, scopes, declared))
+  }
+  const free = (id) => !declared.has(id) && !scopes.refs.get(id)?.binding
+  const allowed = new Set() // the identifiers `exports` of the export statements
+  const symbolFor = (e) =>
+    e.type === 'CallExpression' &&
+    e.callee.type === 'MemberExpression' &&
+    !e.callee.computed &&
+    e.callee.object.type === 'Identifier' &&
+    e.callee.object.name === 'Symbol' &&
+    e.callee.property.name === 'for' &&
+    e.arguments.every((a) => a.type === 'Literal' && typeof a.value === 'string')
+  for (const statement of program.body) {
+    const e = statement.expression
+    if (statement.type === 'ExpressionStatement' && typeof statement.directive === 'string') {
+      continue
+    } else if (statement.type === 'FunctionDeclaration') {
+      if (statement.id.name === 'jsxProd') piece('jsxProd', statement)
+    } else if (statement.type === 'VariableDeclaration') {
+      for (const d of statement.declarations) {
+        const plain = !d.init || (d.init.type === 'Literal' && !d.init.regex) || symbolFor(d.init)
+        if (d.id.type !== 'Identifier' || !plain) problems.push('a variable at the top of the file with a value that runs code')
+        if (d.id.type === 'Identifier' && d.id.name === 'REACT_ELEMENT_TYPE') piece('REACT_ELEMENT_TYPE', d)
+      }
+    } else if (
+      statement.type === 'ExpressionStatement' &&
+      e.type === 'AssignmentExpression' &&
+      e.operator === '=' &&
+      e.left.type === 'MemberExpression' &&
+      !e.left.computed &&
+      e.left.object.type === 'Identifier' &&
+      e.left.object.name === 'exports' &&
+      free(e.left.object) &&
+      /^(Identifier|FunctionExpression|ArrowFunctionExpression|Literal)$/.test(e.right.type)
+    ) {
+      allowed.add(e.left.object)
+      if (e.left.property.name === 'jsx' || e.left.property.name === 'jsxs') piece(`exports.${e.left.property.name}`, statement)
+    } else {
+      problems.push(`a statement at the top of the file that is ${statement.type}`)
+    }
+  }
+  for (const [id, ref] of scopes.refs) {
+    if (ref.binding) continue
+    if ((id.name === 'exports' && !allowed.has(id)) || id.name === 'module' || id.name === 'arguments') problems.push(`a use of ${id.name}`)
+  }
+  const thisAtTop = (node, inFunction) => {
+    if (node.type === 'ThisExpression' && !inFunction) problems.push('a use of this at the top of the file')
+    const inside = inFunction || (functionTypes.has(node.type) && node.type !== 'ArrowFunctionExpression')
+    for (const child of childNodes(node)) thisAtTop(child, inside)
+  }
+  thisAtTop(program, false)
+  for (const name of ['jsxProd', 'REACT_ELEMENT_TYPE']) {
+    const binding = scopes.root.vars.get(name)
+    if (!binding || binding.defs.length !== 1 || binding.assigns !== 0 || binding.loop) problems.push(`${name} is not declared once and never set`)
+  }
+  return { pieces, problems: [...new Set(problems)] }
+}
+
+// unreadJsxPieces returns the names of the pieces of the JSX runtime that are not as
+// reviewedJsxPieces has them, and the problems of jsxRuntimePieces: empty when inlineElements may
+// write the elements of the runtime.
+function unreadJsxPieces(program, source) {
+  const { pieces, problems } = jsxRuntimePieces(program, source)
+  const names = new Set([...reviewedJsxPieces.keys(), ...pieces.keys()])
+  return [...[...names].filter((name) => pieces.get(name) !== reviewedJsxPieces.get(name)), ...problems]
+}
+
 // inlineElements returns code, a chunk of the SSR bundle before it is minified, with calls of jsx
 // and jsxs of React's JSX runtime written as the objects they return. React 19.3 in production
 // has one function for both. It returns { $$typeof, type, key, ref, props }: $$typeof is
@@ -2802,7 +3087,7 @@ export function plainNamespaces(code, ids) {
 // require_jsx_runtime(), which rolldown writes for react/jsx-runtime, or that module's wrapper
 // written in its place, with __toESM or the function of plainNamespaces around it or not, where the
 // wrapper requires the production file of React. The caller makes sure
-// the text of that file is one the plugin knows. The symbol is taken once, in a variable declared
+// the pieces of that file are ones the plugin knows, see unreadJsxPieces. The symbol is taken once, in a variable declared
 // before the first statement, on the line of the statement. Each line of code stays where it was.
 // A jsx reads the config through its prototype, so a program that sets Object.prototype.ref or
 // .key sees what jsx made but not the objects. parse gives the syntax tree of a source. It returns
@@ -3581,18 +3866,20 @@ const smallFunctionRounds = 2
 // scopeOf makes a scope. kind is 'module', 'function' (also the scope of a static block or a field),
 // 'block', 'funcname' (the name of a function expression, seen only inside it) or 'class'.
 function scopeOf(parent, kind, node = null) {
-  return { parent, kind, node, vars: new Map() }
+  return { parent, kind, node, vars: new Map(), all: parent ? parent.all : [] }
 }
 
 // declare adds a declaration of name to scope and returns the binding it belongs to. A name
 // declared twice in a scope is one binding with two definitions. def says what declared it:
 // { function }, { declarator }, { param }, { pattern }, { loop }, { class } or { implicit }.
-function declare(scope, name, kind, def) {
+function declare(scope, name, kind, def, id = null) {
   let binding = scope.vars.get(name)
   if (!binding) {
-    binding = { name, scope, kind, defs: [], assigns: 0, loop: false, refs: [] }
+    binding = { name, scope, kind, defs: [], assigns: 0, loop: false, refs: [], ids: [] }
     scope.vars.set(name, binding)
+    scope.all.push(binding)
   }
+  if (id) binding.ids.push(id)
   binding.defs.push(def)
   if (def.loop) binding.loop = true
   return binding
@@ -3653,7 +3940,7 @@ function analyzeScopes(program, code) {
   const declared = new Map() // a function declaration to its binding
   const safeRange = new Map() // a declarator or class to where code surely runs after it has run
   const risky = new Set() // where an expression statement starts that the line before may run into
-  const result = { root, refs, unresolved, calls, callParents, declared, safeRange, risky, functions: new Map(), unsupported: null }
+  const result = { root, all: root.all, refs, unresolved, calls, callParents, declared, safeRange, risky, functions: new Map(), unsupported: null }
   let hoisted = null // the function declarations around the code being read, innermost first
   let loops = 0 // the loops around the code being read, inside its function
 
@@ -3682,11 +3969,11 @@ function analyzeScopes(program, code) {
       if (!s) continue
       if (end >= 0 && s.type === 'VariableDeclaration') for (const d of s.declarations) safeRange.set(d, [outer.end, end])
       if (end >= 0 && s.type === 'ClassDeclaration') safeRange.set(s, [outer.end, end])
-      if (s.type === 'FunctionDeclaration' && s.id) declare(scope, s.id.name, 'function', { function: s })
-      else if (s.type === 'ClassDeclaration' && s.id) declare(scope, s.id.name, 'class', { class: s })
+      if (s.type === 'FunctionDeclaration' && s.id) declare(scope, s.id.name, 'function', { function: s }, s.id)
+      else if (s.type === 'ClassDeclaration' && s.id) declare(scope, s.id.name, 'class', { class: s }, s.id)
       else if (s.type === 'VariableDeclaration' && s.kind !== 'var') declareVariables(s, scope, s.kind)
       else if (s.type === 'ImportDeclaration') {
-        for (const spec of s.specifiers) declare(scope, spec.local.name, 'import', { import: spec })
+        for (const spec of s.specifiers) declare(scope, spec.local.name, 'import', { import: spec }, spec.local)
       }
     }
   }
@@ -3702,7 +3989,7 @@ function analyzeScopes(program, code) {
     for (const d of declaration.declarations) {
       for (const id of boundIdentifiers(d.id)) {
         const def = d.id.type === 'Identifier' ? { declarator: d, loop } : { pattern: d, loop }
-        declare(scope, id.name, kind, def)
+        declare(scope, id.name, kind, def, id)
       }
     }
   }
@@ -3811,7 +4098,7 @@ function analyzeScopes(program, code) {
     let outer = scope
     if (node.type === 'FunctionExpression' && node.id) {
       outer = scopeOf(scope, 'funcname', node)
-      declare(outer, node.id.name, 'funcname', { function: node })
+      declare(outer, node.id.name, 'funcname', { function: node }, node.id)
     }
     // With a parameter that is a pattern or has a default value, the parameters have a scope of
     // their own, and the body a scope inside it that the default values do not see.
@@ -3820,7 +4107,7 @@ function analyzeScopes(program, code) {
     const fs = plain ? ps : scopeOf(ps, 'function', node)
     ps.arrow = fs.arrow = node.type === 'ArrowFunctionExpression'
     if (!ps.arrow) declare(ps, 'arguments', 'arguments', { implicit: true })
-    for (const p of node.params) for (const id of boundIdentifiers(p)) declare(ps, id.name, 'param', { param: node })
+    for (const p of node.params) for (const id of boundIdentifiers(p)) declare(ps, id.name, 'param', { param: node }, id)
     if (node.body.type === 'BlockStatement') {
       declareLexical(node.body.body, fs, node.body.end)
       hoistVars(node.body, fs)
@@ -3840,7 +4127,7 @@ function analyzeScopes(program, code) {
 
   const visitClass = (node, scope) => {
     const cs = scopeOf(scope, 'class', node)
-    if (node.id) declare(cs, node.id.name, 'class', { class: node })
+    if (node.id) declare(cs, node.id.name, 'class', { class: node }, node.id)
     if (node.superClass) visit(node.superClass, cs, node, 'superClass')
     for (const m of node.body.body) {
       if (m.computed) visit(m.key, cs, m, 'key')
@@ -3930,7 +4217,7 @@ function analyzeScopes(program, code) {
       case 'CatchClause': {
         const cs = scopeOf(scope, 'block', node)
         if (node.param) {
-          for (const id of boundIdentifiers(node.param)) declare(cs, id.name, 'catch', { catch: node })
+          for (const id of boundIdentifiers(node.param)) declare(cs, id.name, 'catch', { catch: node }, id)
           visitPatternExpressions(node.param, cs)
         }
         visit(node.body, cs, node, 'body')
@@ -4523,3 +4810,278 @@ export function inlineSmallFunctions(source, parse) {
     count += next.count
   }
 }
+
+// reviewedReactDOM is the parts of React's string renderer, react-dom-server-legacy.browser.production.js,
+// that were read to the end for what they do with a key path, by the fingerprint of their structure
+// (fingerprintOf) and a name for messages. It is the union of the parts of every version that was
+// read: React DOM 19.3.0 and 19.3.1. The plugin leaves the names of components and the key paths out
+// only when every part of the file is in it, so a release that changes a function, adds one or
+// changes the order of the top of the file keeps both. A comment, white space, brackets, quotes and
+// the names a part declares inside it do not change a fingerprint. The name of a part itself and the
+// names of the other parts it uses are in it as they are. See "Reviewing a new React" in docs/build.md.
+const reviewedReactDOM = `
+5f9a49f5957c ExpressionStatement
+cabd180d5036 var React
+a18ecbf18d71 var ReactDOM
+ed29811fe2c2 formatProdErrorMessage
+0ab98ba119d2 var REACT_ELEMENT_TYPE
+90b665218edd var REACT_PORTAL_TYPE
+e45a423912da var REACT_FRAGMENT_TYPE
+fef1d983ba11 var REACT_STRICT_MODE_TYPE
+4a491d60e4f4 var REACT_PROFILER_TYPE
+f08beafd3a7a var REACT_CONSUMER_TYPE
+7b40e02350b9 var REACT_CONTEXT_TYPE
+62daef5eb741 var REACT_FORWARD_REF_TYPE
+21dfb8621cc0 var REACT_SUSPENSE_TYPE
+60f13b181aa6 var REACT_SUSPENSE_LIST_TYPE
+7b26339ff7e3 var REACT_MEMO_TYPE
+29a40641c853 var REACT_LAZY_TYPE
+f1e47de9af92 var REACT_SCOPE_TYPE
+a2dfcf9833d2 var REACT_ACTIVITY_TYPE
+bd40d6e17632 var REACT_LEGACY_HIDDEN_TYPE
+db935584e0c5 var REACT_MEMO_CACHE_SENTINEL
+d1bb8ee20e94 var REACT_VIEW_TRANSITION_TYPE
+cd53040814aa var REACT_RECOVERABLE_TYPE
+16affa8d660f var MAYBE_ITERATOR_SYMBOL
+d44321ea3f31 getIteratorFn
+875241de6e79 var REACT_OPTIMISTIC_KEY
+8513e482a12f var isArrayImpl
+b05a53df50c8 murmurhash3_32_gc
+62a8ba22fbba var assign
+3666fc74894c var hasOwnProperty
+f78b6d778ddc var VALID_ATTRIBUTE_NAME_REGEX
+bba81056b403 var illegalAttributeNameCache
+828e144d697b var validatedAttributeNameCache
+a23c76a779b7 isAttributeNameSafe
+9f9bdc238fa0 var unitlessNumbers
+01491c691ce0 var aliases
+2b531192e2f5 var matchHtmlRegExp
+76ca748aa2e2 escapeTextForBrowser
+4d854d34a5f9 var uppercasePattern
+1d2f94195a31 var msPattern
+85d8128656c9 var isJavaScriptProtocol
+13e955663f01 sanitizeURL
+df7e6a08558b var ReactSharedInternals
+4b7e720c43a3 var ReactDOMSharedInternals
+ffab9b05e975 var sharedNotPendingObject
+57b3b1f81307 var previousDispatcher
+9a2790ec85b2 ExpressionStatement
+69a6983860d5 var PRELOAD_NO_CREDS
+4e2e84366ee8 var currentlyFlushingRenderState
+cf94bc69b674 var scriptRegex
+7535aa887463 scriptReplacer
+c6deadc88428 createResumableState
+048afce938a8 createFormatContext
+5b1d053bfa22 getChildFormatContext
+05976c892453 getSuspenseViewTransition
+29a449389537 getSuspenseFallbackFormatContext
+02a742819e41 getSuspenseContentFormatContext
+c66a5c495e64 makeId
+0eed888afcde pushViewTransitionAttributes
+98df3d1aa9a5 var styleNameCache
+1953870e1a22 pushStyleAttribute
+716d94842101 pushBooleanAttribute
+0aa84577f447 pushStringAttribute
+53c63ec8142a var actionJavaScriptURL
+a5857d2b13db pushAdditionalFormField
+d7bb7afe5ac1 validateAdditionalFormField
+b11b5bc12d67 getCustomFormFields
+c230d701ac3f pushFormActionAttribute
+73db916dd96d pushAttribute
+d039c52b1d34 pushInnerHTML
+be12141bb26e flattenOptionChildren
+9399d66e1594 injectFormReplayingRuntime
+51cb24778c09 pushLinkImpl
+85a352410248 var styleRegex
+0cb2c3e520d4 styleReplacer
+54fb3bd7e1fd pushSelfClosing
+91971158b031 pushTitleImpl
+bbf5fbef5032 pushScriptImpl
+4b087fb1f926 pushStartSingletonElement
+77ae7c46e034 pushStartGenericElement
+bd975359093f var VALID_TAG_REGEX
+cc0e7336f060 var validatedTagCache
+64876d5bfa9c startChunkForTag
+0961ceedef65 pushStartInstance
+11da83b8ed99 var endTagCache
+04e460fb5af6 endChunkForTag
+0e9c2cc97758 hoistPreambleState
+a102185f46f0 writeBootstrap
+5029993bf806 writeStartPendingSuspenseBoundary
+f77c7bcf40db writeStartSegment
+d5fd46739706 writeEndSegment
+3d67f9ed4eca var regexForJSStringsInInstructionScripts
+6239c5554cd6 escapeJSStringsForInstructionScripts
+2fc443390748 var regexForJSStringsInScripts
+22ed1ac6399e escapeJSObjectForInstructionScripts
+5a411f7cbb83 var currentlyRenderingBoundaryHasStylesToHoist
+f4f68912cbb7 var destinationHasCapacity
+65f4e10a3f89 flushStyleTagsLateForBoundary
+7315dce680cd hasStylesToHoist
+77736b971690 writeHoistablesForBoundary
+30e336a33fb3 flushResource
+a91bdf7e80f1 var stylesheetFlushingQueue
+32d230b21a45 flushStyleInPreamble
+d6dd7f3243ee flushStylesInPreamble
+e457ef3abbcf preloadLateStyle
+d91063e54c42 preloadLateStyles
+f6b8400e18bc pushCompletedShellIdAttribute
+6b025e9cb756 writeStyleResourceDependenciesInJS
+77f1a4e2207b writeStyleResourceAttributeInJS
+56f79ce33c69 createHoistableState
+ca5d0ed4c7b9 prefetchDNS
+a7a49fec9d25 preconnect
+025cdba91c1f preload
+5d045d5388e1 preloadModule
+27ffc79b2d1f preinitStyle
+fdcb718f52c9 preinitScript
+1fffd1583320 preinitModuleScript
+bf8027b45f83 adoptPreloadCredentials
+ca687caccca7 getPreloadAsHeader
+8c6b13715c43 var regexForHrefInLinkHeaderURLContext
+f56026007529 escapeHrefForLinkHeaderURLContextReplacer
+3fff18222ea4 var regexForLinkHeaderQuotedParamValueContext
+9d27fa656acc escapeStringForLinkHeaderQuotedParamValueContextReplacer
+f76032dd99f3 hoistStyleQueueDependency
+b1c0b97350cd hoistStylesheetDependency
+a1db8159fa44 hoistHoistables
+c6b1244c33c2 createRenderState
+b46a30d3b308 pushTextInstance
+f6d407e171d4 pushSegmentFinale
+f7c320ad751c var bind
+5c8b02adf753 var REACT_CLIENT_REFERENCE
+fc2b2c384364 getComponentNameFromType
+639e8371248a var emptyContextObject
+e7c7e5d7ae8c var currentActiveSnapshot
+1f21a2564c4c popToNearestCommonAncestor
+4d4cb979b4d1 popAllPrevious
+8ee19eb91490 pushAllNext
+8c5b06ccf6c7 popPreviousToCommonLevel
+5b843b2334a5 popNextToCommonLevel
+030ed7616d5e switchContext
+c298c4368349 var classComponentUpdater
+cb26567bf4f9 var emptyTreeContext
+1511e5585420 getTreeId
+b7717f4897a4 pushTreeContext
+e3e3151bc1fe var clz32
+76bf4249a645 var log
+7525b1def290 var LN2
+b4e3b1acceb9 clz32Fallback
+e594ad272ac6 noop
+4fc6eb3b99c4 var SuspenseException
+60b5ebab7794 trackUsedThenable
+3c74fda29156 var suspendedThenable
+35a90bbcaee0 getSuspendedThenable
+0c2d9109fc65 is
+3d9f1119f46d var objectIs
+94d5a2debe99 var currentlyRenderingComponent
+cdc491846a9b var currentlyRenderingTask
+0b16c55291c0 var currentlyRenderingRequest
+1a874f3f11ef var currentlyRenderingKeyPath
+765962988708 var firstWorkInProgressHook
+2e34e89e25fe var workInProgressHook
+055086c2e742 var isReRender
+ffac8bbcfb59 var didScheduleRenderPhaseUpdate
+b578fb131ca9 var localIdCounter
+aaf29222b0e3 var actionStateCounter
+d548086dfb2c var actionStateMatchingIndex
+7f221e05cd42 var thenableIndexCounter
+e1705fe8a076 var thenableState
+be0ecfae74b7 createRecoverableError
+02a78bb857db isRecoverableError
+9aa4e94c62bc cloneRecoverableErrorAsFatal
+caea8d0bef08 var renderPhaseUpdates
+34fd04d5ff95 var numberOfReRenders
+1d51708a0a81 resolveCurrentlyRenderingComponent
+28ced1da848e createHook
+cf9790394521 createWorkInProgressHook
+21356f64b603 getThenableStateAfterSuspending
+16b43e2f55f7 resetHooksState
+42d7531d7863 basicStateReducer
+27f2e9e97d7e useReducer
+49255f793ddb useMemo
+24002e844813 dispatchAction
+e09e336c8446 throwOnUseEffectEventCall
+104eb7dae8e0 unsupportedStartTransition
+13dd7ad7f237 unsupportedSetOptimisticState
+cb01673d66fc useActionState
+8b195aae2ee8 unwrapThenable
+0eb38df0e806 unsupportedRefresh
+a3220db31c23 var HooksDispatcher
+2a6e5ba2788f var currentResumableState
+1bda6a71b435 var DefaultAsyncDispatcher
+6f4f06adfffc var prefix
+1ad1d8e2e53c var suffix
+8f3e6f745575 describeBuiltInComponentFrame
+4f1b7d9fd18d var reentry
+960281e90919 describeNativeComponentFrame
+ef1bf89a6018 describeComponentStackByType
+9c4f3608f990 isEligibleForOutlining
+ef32962e0907 defaultErrorHandler
+f16067ba2d40 RequestInstance
+499cf2d65262 createRequest
+5b035ae95a69 var currentRequest
+4262b40bb79c pingTask
+9b91ee15e551 createSuspenseBoundary
+71f1d39352b0 createRenderTask
+4c6d02d4e24b createReplayTask
+743eb612c276 createPendingSegment
+18773d950b9c pushComponentStack
+9b04f51e58e6 replaceSuspenseComponentStackWithSuspenseFallbackStack
+79871a366950 getThrownInfo
+f68cef14888a logRecoverableError
+a79cce3f167d fatalError
+98226d26bdf7 finishSuspenseListRow
+9f519f05b968 unblockSuspenseListRow
+38d824c226a8 tryToResolveTogetherRow
+4fbb26271ee5 createSuspenseListRow
+3d0b8c86f921 renderSuspenseListRows
+d84aadb4f05f renderWithHooks
+64966c3a9c0c finishFunctionComponent
+227176a91e46 renderElement
+965db6b33da8 resumeNode
+8fd195fe5a74 renderNodeDestructive
+fd2d62c08b50 retryNode
+499fca6b8ea5 renderChildrenArray
+47b9af818eb5 trackPostponedBoundary
+4f57b5b50fc6 trackPostpone
+821f85ed9ed3 untrackBoundary
+ecd85272e009 spawnNewSuspendedReplayTask
+5dc680de516b spawnNewSuspendedRenderTask
+45c7241d6f80 renderNode
+37bd924b1b83 abortTaskSoft
+c60f6345f3b8 abortRemainingReplayNodes
+1c776670265f abortTask
+9e539b788b67 finishAbortedTask
+9794b5238474 safelyEmitEarlyPreloads
+66eeeeda01b2 completeShell
+b512a0b5c6ba completeAll
+52ac25d76e26 queueCompletedSegment
+c17bc32ba3af finishedTask
+eed59fde7cba performWork
+affcbc8c50bd preparePreambleFromSubtree
+444b5e0603da preparePreambleFromSegment
+9f91bc35d59c preparePreamble
+8be43808a737 flushSubtree
+93b074ebed6f var flushedByteSize
+4a70cacc95ef flushSegment
+3a884232f150 flushSegmentContainer
+3b0529cd0c4c flushCompletedBoundary
+aef7f7fb0fae flushPartiallyCompletedSegment
+39bb0e12d64f var flushingPartialBoundaries
+685387c5ffe2 flushCompletedQueues
+4ec5305cc6e8 enqueueFlush
+2daf393b89f8 startFlowing
+42a52636d27e finishAbort
+f409d5a289de endRenderLifetime
+4422b7a67a7d abort
+29532bc8c8ae addToReplayParent
+51e2b44dcb2d onError
+010262a3504d renderToStringImpl
+ebc7beacf0f1 ExpressionStatement
+ab01264de148 ExpressionStatement
+f79f069a566c ExpressionStatement
+5830fe4f41c6 the order of the top level
+d7d505ba2961 ExpressionStatement
+54301f8e7ab9 the order of the top level
+`

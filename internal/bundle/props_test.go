@@ -260,7 +260,7 @@ func TestSSRCopiesPropsLikeReact(t *testing.T) {
 	loopOfClone := [2]string{"!hasOwnProperty.call(config, propName) ||", "!hasOwnProperty.call(config, propName) /* changed */ ||"}
 	// React with both loops changed: the plugin leaves it as it is.
 	plain, printed, plainCode := propsRun(t, reactWithChanged(t, loopOfCreate, loopOfClone), nil)
-	if strings.Count(printed, "react 19.3.0") != 2 {
+	if strings.Count(printed, installedReact(t, "react")) != 2 {
 		t.Errorf("the build prints for a React it does not know:\n%s", printed)
 	}
 	if strings.Contains(plainCode, "__tifa_copy_props") {
@@ -290,7 +290,7 @@ func TestSSRCopiesPropsLikeReact(t *testing.T) {
 					setup = engineCopyProps(t)
 				}
 				got, printed, code := propsRun(t, c.root, setup)
-				if n := strings.Count(printed, "react 19.3.0"); n != c.warning {
+				if n := strings.Count(printed, installedReact(t, "react")); n != c.warning {
 					t.Errorf("the build prints %d warnings, want %d:\n%s", n, c.warning, printed)
 				}
 				if !strings.Contains(code, "__tifa_copy_props") {
