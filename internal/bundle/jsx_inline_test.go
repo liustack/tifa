@@ -295,6 +295,21 @@ func TestSSRKeepsTheCallsOfAJSXRuntimeItDoesNotKnow(t *testing.T) {
 		{"a jsxProd that is set again later", func(s string) string {
 			return s + "jsxProd = function (type, config) {\n  return { type: type, props: config };\n};\n"
 		}},
+		// What a review found to pass a check of the assignments alone.
+		{"jsx set through a pattern", func(s string) string { return s + "[exports.jsx] = [() => 42];\n" }},
+		{"jsx deleted", func(s string) string { return s + "delete exports.jsx;\n" }},
+		{"the symbol set through a pattern", func(s string) string { return s + "[REACT_ELEMENT_TYPE] = [Symbol.for(\"changed\")];\n" }},
+		{"the symbol set by a sequence", func(s string) string { return s + "REACT_ELEMENT_TYPE = Symbol.for(\"changed\"), 0;\n" }},
+		{"an export that runs twice", func(s string) string { return s + "exports.jsx = jsxProd;\n" }},
+		{"an export in a sequence", func(s string) string {
+			return strings.Replace(s, "exports.jsxs = jsxProd;", "exports.jsxs = jsxProd, (exports.jsx = function () {});", 1)
+		}},
+		{"an export defined by a call", func(s string) string {
+			return s + "Object.defineProperty(exports, \"jsx\", { value: function () {} });\n"
+		}},
+		{"an export set through this", func(s string) string { return s + "this.jsx = function () {};\n" }},
+		{"exports given to a function", func(s string) string { return s + "(function (e) { e.jsx = 1; })(exports);\n" }},
+		{"a call at the top of the file", func(s string) string { return s + "Symbol.for = function () {};\n" }},
 		{"exports that are replaced", func(s string) string {
 			return s + "module.exports = { jsx: jsxProd, jsxs: jsxProd };\n"
 		}},
@@ -334,6 +349,18 @@ func TestSSRKeepsTheCallsOfAJSXRuntimeItDoesNotKnow(t *testing.T) {
 				t.Errorf("the bundle has %d objects with $$typeof less than with the runtime the plugin knows, want 2", got)
 			}
 		})
+	}
+}
+
+// An export that does not run is a runtime whose jsx is not jsxProd, and the build says so once.
+func TestSSRKeepsTheCallsOfAJSXRuntimeWhoseExportDoesNotRun(t *testing.T) {
+	root := reactJSXRuntimeWithChanged(t, func(s string) string {
+		return strings.Replace(s, "exports.jsx = jsxProd;", "if (false) exports.jsx = jsxProd;", 1)
+	})
+	writeTree(t, root, map[string]string{"jsx.tsx": jsxPage([]string{"add('plain', () => jsx('div', { a: 1 }))"})})
+	_, printed := buildPrinting(t, root, "jsx.tsx")
+	if n := strings.Count(printed, notRecognized+installedReact(t, "react")); n != 1 || !strings.Contains(printed, "has a jsx the tifa plugin does not know") {
+		t.Errorf("the build prints:\n%s", printed)
 	}
 }
 

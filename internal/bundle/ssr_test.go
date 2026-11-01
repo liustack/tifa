@@ -659,7 +659,7 @@ const unreviewedKeyPaths = "use key paths in a form the tifa plugin has not read
 // changeKeyPathReader changes how renderWithHooks hands a key path on, in a way that changes
 // nothing a page can see. It is the smallest change of a function that reads key paths.
 func changeKeyPathReader(s string) string {
-	return strings.Replace(s, "currentlyRenderingKeyPath = keyPath;", "currentlyRenderingKeyPath = (keyPath);", 1)
+	return strings.Replace(s, "currentlyRenderingKeyPath = keyPath;", "currentlyRenderingKeyPath = (0, keyPath);", 1)
 }
 
 // React makes a key path for each element it renders, which only useActionState with a server
@@ -738,6 +738,14 @@ func TestSSRMakesNoKeyPathsWhenOtherPartsOfTheRendererChange(t *testing.T) {
 		"other white space inside a reader": func(s string) string {
 			return strings.Replace(s, "currentlyRenderingKeyPath = keyPath;", "currentlyRenderingKeyPath =\n    keyPath ;", 1)
 		},
+		"brackets round a read": func(s string) string {
+			return strings.Replace(s, "currentlyRenderingKeyPath = keyPath;", "currentlyRenderingKeyPath = (keyPath);", 1)
+		},
+		"other names for the variables of a reader": func(s string) string {
+			start := strings.Index(s, "function renderChildrenArray(")
+			end := start + strings.Index(s[start+1:], "\nfunction ") + 1
+			return s[:start] + strings.ReplaceAll(s[start:end], "prevKeyPath", "savedPath") + s[end:]
+		},
 		"other numbers on the names the compiler made": func(s string) string {
 			return regexp.MustCompile(`\bprevKeyPath\$(\d+)\b`).ReplaceAllString(s, "prevKeyPath$$9${1}")
 		},
@@ -775,29 +783,43 @@ func TestSSRKeepsKeyPathsWhenAFunctionThatReadsThemChanged(t *testing.T) {
 	for _, c := range []struct {
 		name, function string
 		change         func(string) string
+		samePage       bool // the change leaves the page as it was, with the key paths made
 	}{
-		{"a function that hands a key path on", "renderWithHooks", changeKeyPathReader},
+		{"a function that hands a key path on", "renderWithHooks", changeKeyPathReader, true},
 		{"a function the plugin rewrites", "renderChildrenArray", func(s string) string {
-			return strings.Replace(s, "var prevKeyPath = task.keyPath;\n  if (\n    -1 !== childIndex", "var prevKeyPath = (task.keyPath);\n  if (\n    -1 !== childIndex", 1)
-		}},
+			return strings.Replace(s, "var prevKeyPath = task.keyPath;\n  if (\n    -1 !== childIndex", "var prevKeyPath = (0, task.keyPath);\n  if (\n    -1 !== childIndex", 1)
+		}, true},
 		{"the function that makes the key path of an element", "retryNode", func(s string) string {
-			return strings.Replace(s, "task.keyPath = key;", "task.keyPath = (key);", 1)
-		}},
+			return strings.Replace(s, "task.keyPath = key;", "task.keyPath = (0, key);", 1)
+		}, true},
 		{"the function that makes the key path of a fallback", "renderElement", func(s string) string {
-			return strings.Replace(s, "task.keyPath = fallbackKeyPath;", "task.keyPath = (fallbackKeyPath);", 1)
-		}},
+			return strings.Replace(s, "task.keyPath = fallbackKeyPath;", "task.keyPath = (0, fallbackKeyPath);", 1)
+		}, true},
 		{"a variable that holds a key path", "currentlyRenderingKeyPath", func(s string) string {
-			return strings.Replace(s, "currentlyRenderingKeyPath = null,", "currentlyRenderingKeyPath = (null),", 1)
-		}},
+			return strings.Replace(s, "currentlyRenderingKeyPath = null,", "currentlyRenderingKeyPath = (0, null),", 1)
+		}, true},
 		{"a new function that reads one", "tifaLength", func(s string) string {
 			return strings.Replace(s, "function onError() {}", "function tifaLength(task) {\n  return task.keyPath.length;\n}\nfunction onError() {}", 1)
-		}},
-		{"a function that is given a key path under another name", "pushTreeContext", func(s string) string {
-			return strings.Replace(s, "var baseIdWithLeadingBit = baseContext.id;", "var baseIdWithLeadingBit = baseContext.id, tifaLength = baseContext.length;", 1)
-		}},
+		}, true},
+		// The next ones are what a review found to pass a fingerprint of the text of a function.
+		{"a read of the key path by the name in a string", "getTreeId", func(s string) string {
+			return strings.Replace(s, "function getTreeId(context) {\n", "function getTreeId(context) {\n  void context[\"keyPath\"];\n", 1)
+		}, true},
+		{"a read of the key path by a destructuring key in a string", "getTreeId", func(s string) string {
+			return strings.Replace(s, "function getTreeId(context) {\n", "function getTreeId(context) {\n  var { \"keyPath\": tifaPath } = context;\n  void tifaPath;\n", 1)
+		}, true},
+		{"a read of the key path by a template", "getTreeId", func(s string) string {
+			return strings.Replace(s, "function getTreeId(context) {\n", "function getTreeId(context) {\n  void context[`keyPath`];\n", 1)
+		}, true},
+		{"a return that a line break ends", "renderWithHooks", func(s string) string {
+			return strings.Replace(s, "  resetHooksState();\n  return request;\n}\nfunction finishFunctionComponent", "  resetHooksState();\n  return\n  request;\n}\nfunction finishFunctionComponent", 1)
+		}, false},
+		{"a keyword that a letter runs into", "renderWithHooks", func(s string) string {
+			return strings.Replace(s, "  resetHooksState();\n  return request;\n}\nfunction finishFunctionComponent", "  resetHooksState();\n  returnα;\n}\nfunction finishFunctionComponent", 1)
+		}, false},
 		{"a changed line of a function that reads one", "renderSuspenseListRows", func(s string) string {
 			return strings.Replace(s, "task.keyPath = keyPath;\n  keyPath = rows.length;", "task.keyPath = keyPath;\n  keyPath = rows.length + 0;", 1)
-		}},
+		}, true},
 	} {
 		changed := withChangedReactDOM(t, func(s string) string {
 			changed := c.change(s)
@@ -816,6 +838,9 @@ func TestSSRKeepsKeyPathsWhenAFunctionThatReadsThemChanged(t *testing.T) {
 		}
 		if !strings.Contains(printed, unreviewedKeyPaths+": "+c.function) || !strings.Contains(printed, "does not leave out the key paths of the elements") {
 			t.Errorf("%s: the build prints:\n%s", c.name, printed)
+		}
+		if !c.samePage {
+			continue
 		}
 		if got := evalResult(t, code); got != reviewed {
 			t.Errorf("%s: the page renders otherwise:\n%s\nwant:\n%s", c.name, got, reviewed)

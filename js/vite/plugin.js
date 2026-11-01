@@ -778,47 +778,46 @@ const keyPathMakers = [
 // a page never run in renderToString, and the others are those of useActionState and of a
 // Suspense fallback.
 const keyPathUses = '11 0 2'
-// The parts of React's string renderer that can see a key path, by the name of the part and a
-// fingerprint of its text (see keyPathUnits), as React DOM 19.3.0 and 19.3.1 have them. The counts
-// of keyPathUses cannot tell a read of a key path that is new, such as its length, or one through
-// another name, so the plugin makes no key path only when every part that sees one is a part
-// whose code was read to the end for what it does with a key path, and unchanged. A release that
-// changes one of them, or adds another, turns the change off with a warning that names the part.
+// The parts of React's string renderer that can see a key path, by the name of the part and the
+// fingerprint of its structure (see keyPathUnits and fingerprintOf), as React DOM 19.3.0 and 19.3.1
+// have them. The counts of keyPathUses cannot tell a read of a key path that is new, such as its
+// length, or one through another name, so the plugin makes no key path only when every part that
+// sees one is a part whose code was read to the end for what it does with a key path, and
+// unchanged, and when keyPathUnits can follow every key path to the parts that see it. A release
+// that changes one of them, or adds another, turns the change off with a warning that names the part.
 // A release that changes nothing else keeps it: React DOM 19.3.1 differs from 19.3.0 in the line
 // of its version alone.
 const reviewedKeyPathUnits = new Map([
-  ['currentlyRenderingKeyPath', '0e5be69b6007'],
-  ['resetHooksState', '63afae45ffc9'],
-  ['useActionState', '932cd1878077'],
-  ['createRenderTask', '8de1f51739a6'],
-  ['createReplayTask', '7ed053ba47f4'],
-  ['renderSuspenseListRows', '9d9c34da5502'],
-  ['renderWithHooks', 'a8a7c2001757'],
-  ['finishFunctionComponent', 'cd262eed970e'],
-  ['renderElement', 'f8a50a237a6d'],
-  ['retryNode', 'c0345e1dc4bd'],
-  ['renderChildrenArray', 'ae7ac53c336b'],
-  ['trackPostponedBoundary', '94147f9bc0e7'],
-  ['trackPostpone', 'cfe3242d1318'],
-  ['untrackBoundary', '606d87c290a9'],
-  ['spawnNewSuspendedReplayTask', '4136741125e0'],
-  ['spawnNewSuspendedRenderTask', '7411276b7d77'],
-  ['renderNode', '996503961cb0'],
-  ['addToReplayParent', '187176dfae88'],
-  ['murmurhash3_32_gc', '8afba653b94e'],
-  ['pushTreeContext', 'e07cc5262a55'],
+  ['currentlyRenderingKeyPath', '1a874f3f11ef'],
+  ['resetHooksState', '16b43e2f55f7'],
+  ['useActionState', '10468385f41b'],
+  ['createRenderTask', '71f1d39352b0'],
+  ['createReplayTask', '4c6d02d4e24b'],
+  ['renderSuspenseListRows', '3d0b8c86f921'],
+  ['renderWithHooks', 'd84aadb4f05f'],
+  ['finishFunctionComponent', '64966c3a9c0c'],
+  ['renderElement', '227176a91e46'],
+  ['retryNode', 'fd2d62c08b50'],
+  ['renderChildrenArray', '499fca6b8ea5'],
+  ['trackPostponedBoundary', '47b9af818eb5'],
+  ['trackPostpone', '4f57b5b50fc6'],
+  ['untrackBoundary', '821f85ed9ed3'],
+  ['spawnNewSuspendedReplayTask', 'ecd85272e009'],
+  ['spawnNewSuspendedRenderTask', '5dc680de516b'],
+  ['renderNode', '45c7241d6f80'],
+  ['finishedTask', 'c17bc32ba3af'],
+  ['addToReplayParent', '29532bc8c8ae'],
 ])
 // The pieces of React's production JSX runtime that decide what the element jsx returns is, as React
-// 19.3.0 and 19.3.1 have them, by the name of the piece and its text (see jsxRuntimePieces): the
-// symbol that marks an element, the function that makes one and the two exports that are that
-// function. See inlineElements, which writes the elements these make. The text is written as
-// normalizedText gives it, without comments and white space: React's own is in
-// react/cjs/react-jsx-runtime.production.js.
+// 19.3.0 and 19.3.1 have them, by the name of the piece and the fingerprint of its structure (see
+// jsxRuntimePieces): the symbol that marks an element, the function that makes one and the two
+// exports that are that function. See inlineElements, which writes the elements these make. React's
+// own text is in react/cjs/react-jsx-runtime.production.js.
 const reviewedJsxPieces = new Map([
-  ['REACT_ELEMENT_TYPE', 'REACT_ELEMENT_TYPE=Symbol.for("react.transitional.element")'],
-  ['jsxProd', 'function jsxProd(type,config,maybeKey){var key=null;void 0!==maybeKey&&(key=""+maybeKey);void 0!==config.key&&(key=""+config.key);if("key"in config){maybeKey={};for(var propName in config)"key"!==propName&&(maybeKey[propName]=config[propName]);}else maybeKey=config;config=maybeKey.ref;return{$$typeof:REACT_ELEMENT_TYPE,type:type,key:key,ref:void 0!==config?config:null,props:maybeKey};}'],
-  ['exports.jsx', 'exports.jsx=jsxProd'],
-  ['exports.jsxs', 'exports.jsxs=jsxProd'],
+  ['REACT_ELEMENT_TYPE', '0ab98ba119d2'],
+  ['jsxProd', '1ada34b9dc5b'],
+  ['exports.jsx', 'c77445f51117'],
+  ['exports.jsxs', 'db32306fd41f'],
 ])
 // guardedCases is the fewest string cases a switch needs for the tifa plugin to put a Set check in
 // front of it, and switchCases the prefix of the names of those Sets.
@@ -2549,134 +2548,559 @@ function keyPathsUsed(program) {
     : `reads [0] or [2] of a key path ${ends} times, sets trackedPostpones to something but null ${tracked} times and calls createReplayTask ${replays} times, which the tifa plugin does not know`
 }
 
-// anyNode reports whether test is true of node or of a node inside it.
-function anyNode(node, test) {
-  if (test(node)) return true
-  for (const value of Object.values(node)) {
-    for (const child of Array.isArray(value) ? value : [value]) {
-      if (child && typeof child.type === 'string' && anyNode(child, test)) return true
+// fingerprintOf returns the first 12 digits of the SHA-256 of the structure of node, a part of the
+// program that scopes (analyzeScopes) read. The structure is the syntax tree without its places, its
+// comments, the quotes of its strings and the brackets round its expressions, so it is the same for
+// two texts that mean the same, and different for two that parse differently: what a line break
+// does to `return`, or what a letter next to a keyword does to it, shows in the tree. A name that a
+// declaration inside node gives (a parameter, a variable, a function inside) is written as the
+// number of its first place in node, so the numbers React's compiler puts on such names do not
+// matter, and two names stay two. Every other name is written as it is, with a mark for the
+// kind: a property name (.a$1), a name that a declaration outside node gives (a$1@o), and a name no
+// declaration gives (a$1@g), so a global that an outer declaration comes to hide differs.
+function fingerprintOf(node, scopes, declared) {
+  const local = (scope) => scope.kind !== 'module' && scope.node && scope.node.start >= node.start && scope.node.end <= node.end
+  const numbers = new Map()
+  const out = []
+  const identifier = (id, parent, key) => {
+    if (!isReference(parent, key)) return `.${id.name}`
+    const binding = declared.get(id) ?? scopes.refs.get(id)?.binding ?? null
+    if (binding === null) return `${id.name}@g`
+    if (!local(binding.scope)) return `${id.name}@o`
+    if (!numbers.has(binding)) numbers.set(binding, numbers.size)
+    return `#${numbers.get(binding)}`
+  }
+  const visit = (value, parent, key) => {
+    if (value === null || value === undefined) {
+      out.push('~')
+    } else if (typeof value !== 'object') {
+      out.push(`${typeof value}:${typeof value === 'string' ? JSON.stringify(value) : String(value)}`)
+    } else if (Array.isArray(value)) {
+      out.push('[')
+      for (const element of value) {
+        visit(element, parent, key)
+        out.push(',')
+      }
+      out.push(']')
+    } else if (value.type === 'Identifier') {
+      out.push(identifier(value, parent, key))
+    } else {
+      out.push('(', value.type ?? '')
+      for (const k of Object.keys(value).sort()) {
+        if (k === 'type' || k === 'start' || k === 'end' || k === 'raw') continue
+        out.push(' ', k, '=')
+        visit(value[k], value, k)
+      }
+      out.push(')')
     }
   }
-  return false
+  visit(node, null, null)
+  return createHash('sha256').update(out.join('')).digest('hex').slice(0, 12)
 }
 
-// normalizedText returns the text of node in source without comments and with the white space that
-// is no token of its own taken away: a space stays only between two names or numbers, and where
-// taking it away would make one token or a comment of two. Strings, templates and regular
-// expressions are left as they are. It also takes off the numbers that the compiler of React puts
-// on the names it makes unique: prevKeyPath$43 and prevKeyPath$jscomp$0 are numbered by where they
-// come in the whole file, so a release that adds a variable somewhere else renumbers them. Each
-// such name gets the number of its first place in the text, in its kind, so two names that were
-// different stay different. Two nodes with the same text do the same.
-function normalizedText(source, node) {
-  const literals = []
-  anyNode(node, (n) => {
-    if (n.type === 'Literal' || n.type === 'TemplateElement') literals.push([n.start, n.end])
-    return false
-  })
-  literals.sort((a, b) => a[0] - b[0])
-  const numbers = new Map() // the names the compiler numbered to their number in this text
-  const kinds = new Map() // the name without its number to how many it has had
-  const word = (c) => /[\w$]/.test(c)
-  // Between two literals only code and comments are left, so a comment ends where its text does.
-  // before and after are the characters of the literals on either side, or empty.
-  const code = (text, before, after) => {
-    text = text
-      .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, ' ')
-      .replace(/\s+/g, ' ')
-      .replace(/(?<![\w$])([A-Za-z_]\w*?)(\$jscomp)?\$(\d+)(?![\w$])/g, (name, base, jscomp = '') => {
-        if (!numbers.has(name)) {
-          const kind = base + jscomp
-          numbers.set(name, kinds.get(kind) ?? 0)
-          kinds.set(kind, (kinds.get(kind) ?? 0) + 1)
-        }
-        return `${base}${jscomp}$${numbers.get(name)}`
-      })
-    let out = ''
-    for (let i = 0; i < text.length; i++) {
-      if (text[i] !== ' ') {
-        out += text[i]
-        continue
+// The names that mean a key path: any with keyPath in it, as a name, as a string that names a
+// property (task["keyPath"], {"keyPath": p}) or in a template.
+const keyPathWord = /[kK]eyPath/
+function mentionsKeyPath(node) {
+  switch (node.type) {
+    case 'Identifier':
+      return keyPathWord.test(node.name)
+    case 'Literal':
+      return typeof node.value === 'string' && keyPathWord.test(node.value)
+    case 'TemplateElement':
+      return keyPathWord.test(node.value.cooked ?? node.value.raw)
+    default:
+      return false
+  }
+}
+
+// The methods of Map, Set and Array that the plugin lets a key path reach. A lookup keeps nothing.
+// A store keeps the key path in the object it is called on, which then holds one.
+const keyPathLookups = new Set(['get', 'has', 'delete', 'indexOf', 'includes'])
+const keyPathStores = new Set(['set', 'add', 'push', 'unshift'])
+// The functions of the global object that a key path may be given to: they keep nothing.
+const keyPathPure = new Set(['JSON.stringify', 'Array.isArray', 'Object.is', 'String'])
+
+// keyPathUnits returns what to check before the key paths of React's string renderer are left out,
+// for program, the syntax tree of source: { units, problems }. trace, if given, collects why each
+// value is thought to hold a key path.
+//
+// units is a map of the name of each part of the file that can see a key path to the fingerprint of
+// the part. The parts are the function declarations, the declarators of variables and the other
+// statements at the top of the file, and a part can see one when it
+//   - has a name, a string or a template with keyPath in it (task.keyPath, task["keyPath"],
+//     {"keyPath": p}, and the names of variables, parameters and properties), or
+//   - uses a variable that holds one, or a parameter that is given one, or calls a function that
+//     returns one, or reads a property that one was put into.
+// The values that hold one are found by following them through the file until nothing new turns
+// up: a variable that is set to one, a parameter of a function that is called with one, what a
+// function returns, a property or a Map, Set or array that one is put into, and what is made of
+// them (an array, an object, a conditional, a member). A variable holds one at a place when a set
+// before that place gave it one, and no set after that and before the place, in a block that holds
+// the place, gave it another value. A key path is [parent key path, a name, a key or an index], so
+// its parts 1 and 2, its length and anything made of them are strings and numbers, not key paths.
+// A function is found for a call through the name of a function declaration, a variable that is
+// set once to another name or to a function, and the method of an object that a variable is set
+// to once.
+//
+// problems says why that cannot be done for this file, one text for each place: a value that holds
+// one reaches a call of something the plugin cannot find the code of, is stored in a property
+// whose name is worked out while the program runs, is given to a function that reads `arguments`,
+// or the file has something that scopes do not tell (a with statement, a direct eval). With a
+// problem the file is not one whose key paths the plugin can follow. What the plugin does not
+// follow is a key path that gets to a part by a property name worked out while the program runs,
+// by an enumeration of an object (Object.keys, a spread) or by a container it cannot tell apart
+// from another that goes through the same property name: the counts of keyPathUses are the net for
+// those.
+export function keyPathUnits(program, source, trace = null) {
+  const scopes = analyzeScopes(program, source)
+  if (scopes.unsupported) return { units: new Map(), problems: [`the file has ${scopes.unsupported}`] }
+  const declared = new Map() // a declaring identifier to its binding
+  for (const binding of scopes.all) for (const id of binding.ids) declared.set(id, binding)
+  const bindingOf = (id) => declared.get(id) ?? scopes.refs.get(id)?.binding ?? null
+
+  const parts = []
+  for (const statement of program.body) {
+    if (statement.type === 'FunctionDeclaration') {
+      parts.push({ name: statement.id.name, node: statement })
+    } else if (statement.type === 'VariableDeclaration') {
+      for (const d of statement.declarations) parts.push({ name: d.id.type === 'Identifier' ? d.id.name : `(${d.id.type})`, node: d })
+    } else {
+      parts.push({ name: statement.type, node: statement })
+    }
+  }
+
+  // One walk over the file: the parent of each node, the function around it, what the file does with
+  // values (events), where each variable is set (sets), and the names of the methods it defines.
+  const parentOf = new Map()
+  const functionOf = new Map()
+  const events = []
+  const sets = new Map() // a binding to the places that set it: { node, start, value, fn }
+  // The names of the methods that the file defines in an object or a class: a call of a store with
+  // one of these names may run code of the file, and not the method of a Map. The descriptors that
+  // Object.defineProperty is given (get, set) are no methods that a call reaches by name.
+  const defined = new Set()
+  const descriptors = new Set()
+  // seeded: the pattern gives the name a property with keyPath in its name, {keyPath: p}.
+  const addSet = (pattern, value, node, fn, part, seeded = false) => {
+    switch (pattern?.type) {
+      case 'Identifier': {
+        const binding = bindingOf(pattern)
+        if (!binding) break
+        if (!sets.has(binding)) sets.set(binding, [])
+        sets.get(binding).push({ node, start: node.start, end: node.end, value, fn, part, seeded })
+        break
       }
-      const left = text[i - 1] ?? before
-      const right = text[i + 1] ?? after
-      if ((word(left) && word(right)) || joinsTokens(left, right)) out += ' '
+      case 'ArrayPattern':
+        for (const e of pattern.elements) addSet(e, value, node, fn, part, seeded)
+        break
+      case 'ObjectPattern':
+        for (const p of pattern.properties) {
+          if (p.type === 'Property') addSet(p.value, value, node, fn, part, seeded || mentionsKeyPath(p.key))
+          else addSet(p, value, node, fn, part, seeded)
+        }
+        break
+      case 'AssignmentPattern':
+        addSet(pattern.left, value, node, fn, part, seeded)
+        break
+      case 'RestElement':
+        addSet(pattern.argument, value, node, fn, part, seeded)
+        break
+    }
+  }
+  for (const part of parts) {
+    const walk = (node, parent, fn) => {
+      parentOf.set(node, parent)
+      functionOf.set(node, fn)
+      switch (node.type) {
+        case 'Property':
+          if (!node.computed && !descriptors.has(parent) && (node.method || node.kind !== 'init' || /Function/.test(node.value?.type))) {
+            defined.add(node.key.name ?? node.key.value)
+          }
+          break
+        case 'MethodDefinition':
+          if (!node.computed) defined.add(node.key.name ?? node.key.value)
+          break
+        case 'CallExpression':
+          if (node.callee.type === 'MemberExpression' && /^(defineProperty|defineProperties|create)$/.test(node.callee.property.name ?? '')) {
+            for (const a of node.arguments) descriptors.add(a)
+          }
+          events.push({ part, node, fn })
+          break
+        case 'NewExpression':
+        case 'ObjectPattern':
+        case 'ReturnStatement':
+          events.push({ part, node, fn })
+          break
+        case 'VariableDeclarator':
+          if (node.init) addSet(node.id, node.init, node, fn, part)
+          events.push({ part, node, fn })
+          break
+        case 'AssignmentExpression':
+          if (node.left.type !== 'MemberExpression') addSet(node.left, node.right, node, fn, part)
+          events.push({ part, node, fn })
+          break
+        case 'ForOfStatement':
+          addSet(node.left.type === 'VariableDeclaration' ? node.left.declarations[0].id : node.left, node.right, node, fn, part)
+          events.push({ part, node, fn })
+          break
+      }
+      const inner = functionTypes.has(node.type) ? node : fn
+      if (node.type === 'ArrowFunctionExpression' && node.body.type !== 'BlockStatement') events.push({ part, node, fn: node })
+      for (const child of childNodes(node)) walk(child, node, inner)
+    }
+    walk(part.node, null, null)
+  }
+
+  // A parameter with keyPath in its name is given one, whoever calls the function.
+  const givenKeyPath = new Set(scopes.all.filter((b) => b.kind === 'param' && keyPathWord.test(b.name)))
+  const problems = []
+  const problem = (part, text) => {
+    const message = `${part.name}: ${text}`
+    if (!problems.includes(message)) problems.push(message)
+  }
+  const holding = new Set() // the variables that hold a container a key path was put into
+  const heldProps = new Set() // the names of the properties a key path was put into
+  const returning = new Set() // the functions that return one
+  let changed = false
+
+  // The functions a name stands for, or null: a function declaration, or a variable set once to a
+  // function or to another such name.
+  const functionsOfBinding = (binding) => {
+    const seen = new Set()
+    while (binding && !seen.has(binding)) {
+      seen.add(binding)
+      if (binding.defs.length !== 1 || binding.assigns !== 0 || binding.loop) return null
+      const def = binding.defs[0]
+      if (def.function) return [def.function]
+      const init = def.declarator?.init
+      if (!init) return null
+      if (init.type === 'FunctionExpression' || init.type === 'ArrowFunctionExpression') return [init]
+      if (init.type !== 'Identifier') return null
+      binding = scopes.refs.get(init)?.binding ?? null
+    }
+    return null
+  }
+  const propertyName = (member) => {
+    if (!member.computed && member.property.type === 'Identifier') return member.property.name
+    if (member.computed && member.property.type === 'Literal' && typeof member.property.value === 'string') return member.property.value
+    return null
+  }
+  // The root of a chain of member accesses: a.b.c is a.
+  const rootOf = (node) => {
+    while (node.type === 'MemberExpression') node = node.object
+    return node
+  }
+  // What a call can run: { functions }, { pure }, { container, store } for a method of Map, Set or
+  // Array on an object, or null.
+  const resolve = (callee) => {
+    if (callee.type === 'FunctionExpression' || callee.type === 'ArrowFunctionExpression') return { functions: [callee] }
+    if (callee.type === 'Identifier') {
+      const binding = bindingOf(callee)
+      if (binding === null) return keyPathPure.has(callee.name) ? { pure: true } : null
+      const functions = functionsOfBinding(binding)
+      return functions && { functions }
+    }
+    if (callee.type !== 'MemberExpression') return null
+    const method = propertyName(callee)
+    if (method === null) return null
+    if (callee.object.type === 'Identifier' && bindingOf(callee.object) === null && keyPathPure.has(`${callee.object.name}.${method}`)) {
+      return { pure: true }
+    }
+    if (callee.object.type === 'Identifier') {
+      // A method of an object that a variable is set to once.
+      const binding = bindingOf(callee.object)
+      const init = binding && binding.defs.length === 1 && binding.assigns === 0 ? binding.defs[0].declarator?.init : null
+      if (init?.type === 'ObjectExpression') {
+        const found = init.properties.filter((p) => p.type === 'Property' && !p.computed && (p.key.name ?? p.key.value) === method)
+        if (found.length === 1 && /Function/.test(found[0].value.type) && found[0].kind === 'init') return { functions: [found[0].value] }
+      }
+    }
+    if (!defined.has(method) && (keyPathLookups.has(method) || keyPathStores.has(method))) {
+      return { container: rootOf(callee.object), store: keyPathStores.has(method) }
+    }
+    return null
+  }
+
+  // Whether the statement that holds node runs whenever the statements after it in its block do:
+  // it is not inside a condition, a loop, a try or a function on the way up to the block.
+  // It returns the block, or null.
+  const unconditionalBlocks = (node) => {
+    const out = []
+    let child = node
+    for (let p = parentOf.get(child); p; child = p, p = parentOf.get(child)) {
+      switch (p.type) {
+        case 'BlockStatement':
+        case 'Program':
+          out.push(p)
+          return out
+        case 'SequenceExpression':
+          // What a sequence runs after this element is run after it.
+          out.push(p)
+          break
+        case 'ExpressionStatement':
+        case 'VariableDeclaration':
+        case 'VariableDeclarator':
+          break
+        case 'AssignmentExpression':
+          if (p.right !== child) return out
+          break
+        default:
+          return out
+      }
     }
     return out
   }
-  let text = ''
-  let at = node.start
-  let before = ''
-  for (const [start, end] of literals) {
-    if (start < at) continue // inside a literal already taken
-    text += code(source.slice(at, start), before, source[start]) + source.slice(start, end)
-    before = source[end - 1]
-    at = end
-  }
-  return text + code(source.slice(at, node.end), before, '')
-}
 
-// joinsTokens reports whether the symbols left and right of a space would be read as one token, or
-// as a comment, without it.
-function joinsTokens(left, right) {
-  return (
-    (left === right && (left === '+' || left === '-')) ||
-    left + right === '<!' ||
-    left + right === '//' ||
-    left + right === '/*' ||
-    (/\d/.test(left) && right === '.')
-  )
-}
+  // Whether the value that variable binding has where the identifier ref reads it is, or holds, a key
+  // path. A place that sets it before ref may be the one that gave it, unless a later one in a block
+  // around ref, that gives no key path, sets it again before ref. Where ref and a place that sets it
+  // share a loop, the place may come after ref in time. A parameter has the value it was given.
+  const busy = new Set()
+  const bindingHolds = (binding, ref) => {
+    if (holding.has(binding)) return true
+    const kinds = binding.kind
+    const places = sets.get(binding) ?? []
+    const refFn = functionOf.get(ref)
+    const given = givenKeyPath.has(binding)
+    const loopOf = (node) => {
+      for (let p = parentOf.get(node); p; p = parentOf.get(p)) {
+        if (/^(For|ForIn|ForOf|While|DoWhile)Statement$/.test(p.type)) return p
+        if (functionTypes.has(p.type)) return null
+      }
+      return null
+    }
+    const kills = (place, from) => {
+      if (place.start <= from) return false
+      return (
+        place.start < ref.start &&
+        !holdsValue(place) &&
+        unconditionalBlocks(place.node).some((block) => block.start <= ref.start && ref.end <= block.end)
+      )
+    }
+    const holdsValue = (place) => {
+      if (place.seeded) return true
+      if (busy.has(place)) return false
+      busy.add(place)
+      try {
+        return holds(place.value)
+      } finally {
+        busy.delete(place)
+      }
+    }
+    const reaches = (place) => {
+      if (place.fn !== refFn || kinds === 'catch') return true // a closure: the order is not known
+      if (place.start < ref.start) return true
+      for (let l = loopOf(ref); l; l = loopOf(l)) if (l.start <= place.start && place.end <= l.end) return true
+      return false
+    }
+    if (given && !places.some((place) => place.fn === refFn && place.start < ref.start && kills(place, -1))) return true
+    for (const place of places) {
+      if (!reaches(place) || !holdsValue(place)) continue
+      if (places.some((other) => other !== place && kills(other, place.start))) continue
+      return true
+    }
+    return false
+  }
 
-// keyPathUnits returns the parts of React's string renderer that can see a key path, as a map of
-// each part's name to the fingerprint of its text, for program, the syntax tree of source. A part
-// is a function declaration of the file, or a variable it declares, that has a name with
-// "keyPath" in it, and each function the first kind calls with such a name or a key path in an
-// argument, since it may hand it on under another name. Key paths pass through a function or are
-// kept in a variable, so these are the places that can read one, and a copy of a key path under
-// another name is made inside one of them. The fingerprint is the first 12 digits of the SHA-256 of
-// normalizedText.
-export function keyPathUnits(program, source) {
-  const mentions = (node) => node.type === 'Identifier' && /[kK]eyPath/.test(node.name)
-  const functions = new Map()
-  for (const statement of program.body) {
-    if (statement.type === 'FunctionDeclaration') functions.set(statement.id.name, statement)
-  }
-  const units = new Map()
-  const add = (name, node) => {
-    // A second part with a name gets a name no release has.
-    while (units.has(name)) name += '#'
-    units.set(name, createHash('sha256').update(normalizedText(source, node)).digest('hex').slice(0, 12))
-  }
-  const called = new Set()
-  for (const statement of program.body) {
-    const parts =
-      statement.type === 'FunctionDeclaration'
-        ? [[statement.id.name, statement]]
-        : statement.type === 'VariableDeclaration'
-          ? statement.declarations.map((d) => [d.id.type === 'Identifier' ? d.id.name : `(${d.id.type})`, d])
-          : [[statement.type, statement]]
-    for (const [name, node] of parts) {
-      if (!anyNode(node, mentions)) continue
-      add(name, node)
-      anyNode(node, (n) => {
-        if ((n.type === 'CallExpression' || n.type === 'NewExpression') && n.callee.type === 'Identifier') {
-          if (n.arguments.some((arg) => anyNode(arg, mentions))) called.add(n.callee.name)
-        }
+  // Whether the value of an expression is, or holds, a key path.
+  const holds = (e) => {
+    if (!e) return false
+    switch (e.type) {
+      case 'Identifier': {
+        const binding = bindingOf(e)
+        return binding !== null && bindingHolds(binding, e)
+      }
+      case 'Literal':
+        return mentionsKeyPath(e)
+      case 'MemberExpression':
+        // A key path is [parent key path or null, a name, a key or index]: its parts 1 and 2 and its
+        // properties (length) are strings and numbers, and what is made of them gives no key path.
+        if (!e.computed) return mentionsKeyPath(e.property) || heldProps.has(e.property.name)
+        if (e.property.type === 'Literal' && (e.property.value === 1 || e.property.value === 2)) return false
+        return holds(e.object) || holds(e.property) || mentionsKeyPath(e.property)
+      case 'ArrayExpression':
+        return e.elements.some(holds)
+      case 'ObjectExpression':
+        // A value under a name with keyPath in it is read back by that name, which is a place the
+        // plugin sees. Under another name it is a way to carry one out unseen.
+        return e.properties.some((p) =>
+          p.type === 'SpreadElement' ? holds(p.argument) : (p.computed && holds(p.key)) || (!mentionsKeyPath(p.key) && holds(p.value)),
+        )
+      case 'ConditionalExpression':
+        return holds(e.consequent) || holds(e.alternate)
+      case 'LogicalExpression':
+        return holds(e.left) || holds(e.right)
+      case 'SequenceExpression':
+        return holds(e.expressions.at(-1))
+      case 'AssignmentExpression':
+        return holds(e.right)
+      case 'SpreadElement':
+      case 'AwaitExpression':
+        return holds(e.argument)
+      case 'ChainExpression':
+        return holds(e.expression)
+      case 'CallExpression':
+      case 'NewExpression': {
+        if (e.callee.type === 'MemberExpression' && holds(e.callee.object)) return true
+        const found = resolve(e.callee)
+        return found?.functions ? found.functions.some((f) => returning.has(f)) : false
+      }
+      default:
         return false
-      })
     }
   }
-  for (const name of called) {
-    if (functions.has(name) && !units.has(name)) add(name, functions.get(name))
+
+  // The bindings a pattern in a declaration or an assignment sets.
+  const targets = (pattern, part, out = []) => {
+    switch (pattern?.type) {
+      case 'Identifier':
+        out.push(bindingOf(pattern))
+        break
+      case 'ArrayPattern':
+        for (const e of pattern.elements) targets(e, part, out)
+        break
+      case 'ObjectPattern':
+        for (const p of pattern.properties) targets(p.type === 'Property' ? p.value : p, part, out)
+        break
+      case 'AssignmentPattern':
+        targets(pattern.left, part, out)
+        break
+      case 'RestElement':
+        targets(pattern.argument, part, out)
+        break
+      case 'MemberExpression':
+        out.push(null)
+        break
+    }
+    return out
   }
-  return units
+  const mark = (set, item, why) => {
+    if (item && !set.has(item)) {
+      trace?.push(why)
+      set.add(item)
+      changed = true
+    }
+  }
+
+  const text = (node) => source.slice(node.start, Math.min(node.end, node.start + 40)).replace(/\s+/g, ' ')
+  for (let round = 0; round < 100; round++) {
+    changed = false
+    for (const { part, node, fn } of events) {
+      switch (node.type) {
+        case 'ObjectPattern':
+          // {keyPath: p} gets the key path of the object into p.
+          for (const p of node.properties) {
+            if (p.type === 'Property' && mentionsKeyPath(p.key)) for (const b of targets(p.value, part)) mark(givenKeyPath, b, `${b?.name} <- ${part.name}: {keyPath: }`)
+          }
+          break
+        case 'AssignmentExpression': {
+          if (node.left.type === 'ArrayPattern' || node.left.type === 'ObjectPattern') {
+            // A key path taken apart into properties of objects.
+            if (!holds(node.right)) break
+            const stores = (pattern) => {
+              if (!pattern) return
+              if (pattern.type === 'MemberExpression') {
+                const name = propertyName(pattern)
+                if (name === null) problem(part, `a key path is stored in ${text(pattern)}`)
+                else if (!mentionsKeyPath(pattern.property)) mark(heldProps, name, `.${name} <- ${part.name}: ${text(node)}`)
+              } else if (pattern.type === 'ArrayPattern') pattern.elements.forEach(stores)
+              else if (pattern.type === 'ObjectPattern') pattern.properties.forEach((p) => stores(p.type === 'Property' ? p.value : p.argument))
+              else if (pattern.type === 'AssignmentPattern') stores(pattern.left)
+              else if (pattern.type === 'RestElement') stores(pattern.argument)
+            }
+            stores(node.left)
+            break
+          }
+          if (node.left.type !== 'MemberExpression' || !holds(node.right) || mentionsKeyPath(node.left.property)) break
+          // A property of another name: it holds one now, and so it is a name to look for.
+          const name = propertyName(node.left)
+          if (name !== null) mark(heldProps, name, `.${name} <- ${part.name}: ${text(node)}`)
+          else problem(part, `a key path is stored in ${text(node.left)}`)
+          break
+        }
+        case 'ReturnStatement':
+          if (fn && holds(node.argument)) mark(returning, fn, `return of ${part.name}`)
+          break
+        case 'ArrowFunctionExpression':
+          if (holds(node.body)) mark(returning, node, `return of ${part.name}`)
+          break
+        case 'CallExpression':
+        case 'NewExpression': {
+          const given = node.arguments.map(holds)
+          if (!given.some(Boolean)) break
+          // A method of a key path itself, such as slice, hands back a value made of it.
+          if (node.callee.type === 'MemberExpression' && holds(node.callee.object)) break
+          const found = resolve(node.callee)
+          if (found?.functions) {
+            if (node.arguments.some((a) => a.type === 'SpreadElement')) problem(part, `a key path is spread into ${text(node.callee)}`)
+            for (const f of found.functions) {
+              if (scopes.functions.get(f)?.vars.get('arguments')?.refs.length) problem(part, `${text(node.callee)} reads arguments`)
+              for (const [i, held] of given.entries()) {
+                if (!held) continue
+                const param = f.params[i] ?? (f.params.at(-1)?.type === 'RestElement' ? f.params.at(-1) : null)
+                if (param) for (const b of targets(param, part)) mark(givenKeyPath, b, `${b?.name} <- ${part.name}: call ${text(node.callee)}`)
+              }
+            }
+          } else if (found?.container) {
+            if (found.store) {
+              const receiver = node.callee.object
+              if (receiver.type === 'Identifier' && bindingOf(receiver)) mark(holding, bindingOf(receiver), `${receiver.name} <- ${part.name}: ${text(node.callee)}`)
+              else if (receiver.type === 'MemberExpression' && propertyName(receiver) !== null) mark(heldProps, propertyName(receiver), `.${propertyName(receiver)} <- ${part.name}: ${text(node.callee)}`)
+              else problem(part, `a key path is stored in ${text(node.callee)}`)
+            }
+          } else if (!found?.pure) {
+            problem(part, `a key path is given to ${text(node.callee)}, whose code the plugin cannot find`)
+          }
+          break
+        }
+      }
+    }
+    if (!changed) break
+    if (round === 99) problems.push('the key paths could not be followed to an end')
+  }
+  // The parts that see a key path.
+  const units = new Map()
+  const add = (part) => {
+    let name = part.name
+    while (units.has(name)) name += '#'
+    units.set(name, fingerprintOf(part.node, scopes, declared))
+  }
+  for (const part of parts) {
+    let sees = false
+    const look = (node, parent, key) => {
+      if (sees) return
+      if (mentionsKeyPath(node)) sees = true
+      else if (node.type === 'Identifier' && !isReference(parent, key) && heldProps.has(node.name)) sees = true
+      else if (node.type === 'Identifier') {
+        const binding = isReference(parent, key) ? bindingOf(node) : declared.get(node)
+        if (binding && (givenKeyPath.has(binding) || (isReference(parent, key) && bindingHolds(binding, node)))) sees = true
+      } else if (node.type === 'CallExpression' || node.type === 'NewExpression') {
+        const found = resolve(node.callee)
+        if (found?.functions?.some((f) => returning.has(f))) sees = true
+      }
+      for (const k in node) {
+        if (k === 'type' || k === 'start' || k === 'end') continue
+        const value = node[k]
+        for (const child of Array.isArray(value) ? value : [value]) {
+          if (child && typeof child.type === 'string') look(child, node, k)
+        }
+      }
+    }
+    look(part.node, null, null)
+    if (sees) add(part)
+  }
+  return { units, problems }
 }
 
-// unreadKeyPathUnits returns the names of the parts of React's string renderer that see a key path
-// and are not as reviewedKeyPathUnits has them: in another form, or new.
+// unreadKeyPathUnits returns why the key paths of React's string renderer, program parsed from
+// source, are not ones the plugin has read: the names of the parts that see a key path and are not as
+// reviewedKeyPathUnits has them, and the problems of keyPathUnits. It returns an empty list when
+// they are.
 function unreadKeyPathUnits(program, source) {
-  return [...keyPathUnits(program, source)].filter(([name, print]) => reviewedKeyPathUnits.get(name) !== print).map(([name]) => name)
+  const { units, problems } = keyPathUnits(program, source)
+  const unread = [...units].filter(([name, print]) => reviewedKeyPathUnits.get(name) !== print).map(([name]) => name)
+  return [...unread, ...problems]
 }
 
 // keyPathNamesRead returns why program, React's string renderer, may read the names of components
@@ -2977,55 +3401,95 @@ export function plainNamespaces(code, ids) {
   return { code: changed.slice(0, end) + helper + changed.slice(end) }
 }
 
-// jsxRuntimePieces returns the pieces of React's production JSX runtime that decide what the element
-// jsx returns is, as a map of each piece's name to its normalizedText, for program, the syntax tree
-// of source. The pieces are the declaration of REACT_ELEMENT_TYPE, the function jsxProd, and the
-// assignments to exports.jsx and exports.jsxs. A piece that comes twice, a name that is assigned
-// to again, and any other use of exports (a replaced module.exports, Object.defineProperty on
-// it) have pieces of a name no release has, so the pieces are not reviewedJsxPieces. What else the
-// file holds (the license, the Fragment symbol, other exports) is not read.
+// jsxRuntimePieces reads the production file of React's JSX runtime, program parsed from source, and
+// returns { pieces, problems }: the pieces inlineElements depends on, each with the fingerprint of
+// its structure, and why the file is not one whose pieces can be trusted. The pieces are the
+// declaration of REACT_ELEMENT_TYPE, the function jsxProd and the statements
+// `exports.jsx = jsxProd` and `exports.jsxs = jsxProd` (reviewedJsxPieces has them). Nothing else may touch them, or run before them, so the file may
+// only hold, at its top, these statements:
+//   - a directive such as "use strict",
+//   - a function declaration (it only runs when something calls it, and nothing at the top does),
+//   - a variable that is given nothing, a literal or Symbol.for("a string"),
+//   - `exports.name = value`, where value is a name, a function or a literal.
+// Anything else at the top is run in a place where it could change the pieces (a call, a condition,
+// a loop, an assignment to another object). Every use of exports, module or arguments, and every
+// top-level `this`, which is exports in a CommonJS module, must be one of the export statements.
+// REACT_ELEMENT_TYPE and jsxProd are set once and never again, by a pattern or an update or in any
+// other place.
 export function jsxRuntimePieces(program, source) {
+  const scopes = analyzeScopes(program, source)
+  if (scopes.unsupported) return { pieces: new Map(), problems: [`the file has ${scopes.unsupported}`] }
+  const declared = new Map()
+  for (const binding of scopes.all) for (const id of binding.ids) declared.set(id, binding)
+  const problems = []
   const pieces = new Map()
-  const add = (name, node) => {
+  const piece = (name, node) => {
     while (pieces.has(name)) name += '#'
-    pieces.set(name, normalizedText(source, node))
+    pieces.set(name, fingerprintOf(node, scopes, declared))
   }
+  const free = (id) => !declared.has(id) && !scopes.refs.get(id)?.binding
+  const allowed = new Set() // the identifiers `exports` of the export statements
+  const symbolFor = (e) =>
+    e.type === 'CallExpression' &&
+    e.callee.type === 'MemberExpression' &&
+    !e.callee.computed &&
+    e.callee.object.type === 'Identifier' &&
+    e.callee.object.name === 'Symbol' &&
+    e.callee.property.name === 'for' &&
+    e.arguments.every((a) => a.type === 'Literal' && typeof a.value === 'string')
   for (const statement of program.body) {
-    if (statement.type === 'FunctionDeclaration' && statement.id.name === 'jsxProd') add('jsxProd', statement)
-    if (statement.type === 'VariableDeclaration') {
+    const e = statement.expression
+    if (statement.type === 'ExpressionStatement' && typeof statement.directive === 'string') {
+      continue
+    } else if (statement.type === 'FunctionDeclaration') {
+      if (statement.id.name === 'jsxProd') piece('jsxProd', statement)
+    } else if (statement.type === 'VariableDeclaration') {
       for (const d of statement.declarations) {
-        if (d.id.type === 'Identifier' && d.id.name === 'REACT_ELEMENT_TYPE') add('REACT_ELEMENT_TYPE', d)
+        const plain = !d.init || (d.init.type === 'Literal' && !d.init.regex) || symbolFor(d.init)
+        if (d.id.type !== 'Identifier' || !plain) problems.push('a variable at the top of the file with a value that runs code')
+        if (d.id.type === 'Identifier' && d.id.name === 'REACT_ELEMENT_TYPE') piece('REACT_ELEMENT_TYPE', d)
       }
+    } else if (
+      statement.type === 'ExpressionStatement' &&
+      e.type === 'AssignmentExpression' &&
+      e.operator === '=' &&
+      e.left.type === 'MemberExpression' &&
+      !e.left.computed &&
+      e.left.object.type === 'Identifier' &&
+      e.left.object.name === 'exports' &&
+      free(e.left.object) &&
+      /^(Identifier|FunctionExpression|ArrowFunctionExpression|Literal)$/.test(e.right.type)
+    ) {
+      allowed.add(e.left.object)
+      if (e.left.property.name === 'jsx' || e.left.property.name === 'jsxs') piece(`exports.${e.left.property.name}`, statement)
+    } else {
+      problems.push(`a statement at the top of the file that is ${statement.type}`)
     }
   }
-  const exported = (node) => node.type === 'MemberExpression' && !node.computed && node.object.type === 'Identifier' && node.object.name === 'exports'
-  visitNodes(program, (node, parent, key) => {
-    if (node.type === 'AssignmentExpression') {
-      if (exported(node.left) && (node.left.property.name === 'jsx' || node.left.property.name === 'jsxs')) {
-        add(`exports.${node.left.property.name}`, node)
-      }
-      if (node.left.type === 'Identifier' && (node.left.name === 'jsxProd' || node.left.name === 'REACT_ELEMENT_TYPE')) {
-        add(`${node.left.name} assigned`, node)
-      }
-    }
-    if (node.type === 'UpdateExpression' && node.argument.type === 'Identifier' && (node.argument.name === 'jsxProd' || node.argument.name === 'REACT_ELEMENT_TYPE')) {
-      add(`${node.argument.name} updated`, node)
-    }
-    // exports as anything but the object of an assignment to one of its names, or module.exports.
-    if (node.type === 'Identifier' && node.name === 'exports' && !(parent.type === 'MemberExpression' && key === 'object' && !parent.computed)) {
-      add('exports used', parent)
-    }
-    if (node.type === 'MemberExpression' && node.object.type === 'Identifier' && node.object.name === 'module') add('module used', node)
-  })
-  return pieces
+  for (const [id, ref] of scopes.refs) {
+    if (ref.binding) continue
+    if ((id.name === 'exports' && !allowed.has(id)) || id.name === 'module' || id.name === 'arguments') problems.push(`a use of ${id.name}`)
+  }
+  const thisAtTop = (node, inFunction) => {
+    if (node.type === 'ThisExpression' && !inFunction) problems.push('a use of this at the top of the file')
+    const inside = inFunction || (functionTypes.has(node.type) && node.type !== 'ArrowFunctionExpression')
+    for (const child of childNodes(node)) thisAtTop(child, inside)
+  }
+  thisAtTop(program, false)
+  for (const name of ['jsxProd', 'REACT_ELEMENT_TYPE']) {
+    const binding = scopes.root.vars.get(name)
+    if (!binding || binding.defs.length !== 1 || binding.assigns !== 0 || binding.loop) problems.push(`${name} is not declared once and never set`)
+  }
+  return { pieces, problems: [...new Set(problems)] }
 }
 
-// unreadJsxPieces returns the names of the pieces of React's JSX runtime, program parsed from
-// source, that are not as reviewedJsxPieces has them, or missing.
+// unreadJsxPieces returns the names of the pieces of the JSX runtime that are not as
+// reviewedJsxPieces has them, and the problems of jsxRuntimePieces: empty when inlineElements may
+// write the elements of the runtime.
 function unreadJsxPieces(program, source) {
-  const pieces = jsxRuntimePieces(program, source)
+  const { pieces, problems } = jsxRuntimePieces(program, source)
   const names = new Set([...reviewedJsxPieces.keys(), ...pieces.keys()])
-  return [...names].filter((name) => pieces.get(name) !== reviewedJsxPieces.get(name))
+  return [...[...names].filter((name) => pieces.get(name) !== reviewedJsxPieces.get(name)), ...problems]
 }
 
 // inlineElements returns code, a chunk of the SSR bundle before it is minified, with calls of jsx
@@ -3050,7 +3514,7 @@ function unreadJsxPieces(program, source) {
 // require_jsx_runtime(), which rolldown writes for react/jsx-runtime, or that module's wrapper
 // written in its place, with __toESM or the function of plainNamespaces around it or not, where the
 // wrapper requires the production file of React. The caller makes sure
-// the pieces of that file are ones the plugin knows, see jsxRuntimePieces. The symbol is taken once, in a variable declared
+// the pieces of that file are ones the plugin knows, see unreadJsxPieces. The symbol is taken once, in a variable declared
 // before the first statement, on the line of the statement. Each line of code stays where it was.
 // A jsx reads the config through its prototype, so a program that sets Object.prototype.ref or
 // .key sees what jsx made but not the objects. parse gives the syntax tree of a source. It returns
@@ -3829,18 +4293,20 @@ const smallFunctionRounds = 2
 // scopeOf makes a scope. kind is 'module', 'function' (also the scope of a static block or a field),
 // 'block', 'funcname' (the name of a function expression, seen only inside it) or 'class'.
 function scopeOf(parent, kind, node = null) {
-  return { parent, kind, node, vars: new Map() }
+  return { parent, kind, node, vars: new Map(), all: parent ? parent.all : [] }
 }
 
 // declare adds a declaration of name to scope and returns the binding it belongs to. A name
 // declared twice in a scope is one binding with two definitions. def says what declared it:
 // { function }, { declarator }, { param }, { pattern }, { loop }, { class } or { implicit }.
-function declare(scope, name, kind, def) {
+function declare(scope, name, kind, def, id = null) {
   let binding = scope.vars.get(name)
   if (!binding) {
-    binding = { name, scope, kind, defs: [], assigns: 0, loop: false, refs: [] }
+    binding = { name, scope, kind, defs: [], assigns: 0, loop: false, refs: [], ids: [] }
     scope.vars.set(name, binding)
+    scope.all.push(binding)
   }
+  if (id) binding.ids.push(id)
   binding.defs.push(def)
   if (def.loop) binding.loop = true
   return binding
@@ -3901,7 +4367,7 @@ function analyzeScopes(program, code) {
   const declared = new Map() // a function declaration to its binding
   const safeRange = new Map() // a declarator or class to where code surely runs after it has run
   const risky = new Set() // where an expression statement starts that the line before may run into
-  const result = { root, refs, unresolved, calls, callParents, declared, safeRange, risky, functions: new Map(), unsupported: null }
+  const result = { root, all: root.all, refs, unresolved, calls, callParents, declared, safeRange, risky, functions: new Map(), unsupported: null }
   let hoisted = null // the function declarations around the code being read, innermost first
   let loops = 0 // the loops around the code being read, inside its function
 
@@ -3930,11 +4396,11 @@ function analyzeScopes(program, code) {
       if (!s) continue
       if (end >= 0 && s.type === 'VariableDeclaration') for (const d of s.declarations) safeRange.set(d, [outer.end, end])
       if (end >= 0 && s.type === 'ClassDeclaration') safeRange.set(s, [outer.end, end])
-      if (s.type === 'FunctionDeclaration' && s.id) declare(scope, s.id.name, 'function', { function: s })
-      else if (s.type === 'ClassDeclaration' && s.id) declare(scope, s.id.name, 'class', { class: s })
+      if (s.type === 'FunctionDeclaration' && s.id) declare(scope, s.id.name, 'function', { function: s }, s.id)
+      else if (s.type === 'ClassDeclaration' && s.id) declare(scope, s.id.name, 'class', { class: s }, s.id)
       else if (s.type === 'VariableDeclaration' && s.kind !== 'var') declareVariables(s, scope, s.kind)
       else if (s.type === 'ImportDeclaration') {
-        for (const spec of s.specifiers) declare(scope, spec.local.name, 'import', { import: spec })
+        for (const spec of s.specifiers) declare(scope, spec.local.name, 'import', { import: spec }, spec.local)
       }
     }
   }
@@ -3950,7 +4416,7 @@ function analyzeScopes(program, code) {
     for (const d of declaration.declarations) {
       for (const id of boundIdentifiers(d.id)) {
         const def = d.id.type === 'Identifier' ? { declarator: d, loop } : { pattern: d, loop }
-        declare(scope, id.name, kind, def)
+        declare(scope, id.name, kind, def, id)
       }
     }
   }
@@ -4059,7 +4525,7 @@ function analyzeScopes(program, code) {
     let outer = scope
     if (node.type === 'FunctionExpression' && node.id) {
       outer = scopeOf(scope, 'funcname', node)
-      declare(outer, node.id.name, 'funcname', { function: node })
+      declare(outer, node.id.name, 'funcname', { function: node }, node.id)
     }
     // With a parameter that is a pattern or has a default value, the parameters have a scope of
     // their own, and the body a scope inside it that the default values do not see.
@@ -4068,7 +4534,7 @@ function analyzeScopes(program, code) {
     const fs = plain ? ps : scopeOf(ps, 'function', node)
     ps.arrow = fs.arrow = node.type === 'ArrowFunctionExpression'
     if (!ps.arrow) declare(ps, 'arguments', 'arguments', { implicit: true })
-    for (const p of node.params) for (const id of boundIdentifiers(p)) declare(ps, id.name, 'param', { param: node })
+    for (const p of node.params) for (const id of boundIdentifiers(p)) declare(ps, id.name, 'param', { param: node }, id)
     if (node.body.type === 'BlockStatement') {
       declareLexical(node.body.body, fs, node.body.end)
       hoistVars(node.body, fs)
@@ -4088,7 +4554,7 @@ function analyzeScopes(program, code) {
 
   const visitClass = (node, scope) => {
     const cs = scopeOf(scope, 'class', node)
-    if (node.id) declare(cs, node.id.name, 'class', { class: node })
+    if (node.id) declare(cs, node.id.name, 'class', { class: node }, node.id)
     if (node.superClass) visit(node.superClass, cs, node, 'superClass')
     for (const m of node.body.body) {
       if (m.computed) visit(m.key, cs, m, 'key')
@@ -4178,7 +4644,7 @@ function analyzeScopes(program, code) {
       case 'CatchClause': {
         const cs = scopeOf(scope, 'block', node)
         if (node.param) {
-          for (const id of boundIdentifiers(node.param)) declare(cs, id.name, 'catch', { catch: node })
+          for (const id of boundIdentifiers(node.param)) declare(cs, id.name, 'catch', { catch: node }, id)
           visitPatternExpressions(node.param, cs)
         }
         visit(node.body, cs, node, 'body')
