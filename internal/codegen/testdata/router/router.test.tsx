@@ -843,17 +843,22 @@ test('a redirect of the server reaches every route as a redirect', async () => {
 })
 
 // browser stubs a window whose location counts reloads, with a sessionStorage that outlives
-// resetReloads, as the storage of a tab outlives the reload of its page. blocked makes the
-// storage throw, as it does when the browser refuses site data.
-function browser(blocked = false) {
+// resetReloads, as the storage of a tab outlives the reload of its page. 'blocked' makes the
+// storage throw, as it does when the browser refuses site data, and 'forgets' takes what it is
+// given and keeps nothing. name is what the app keeps in window.name.
+function browser(storage: 'works' | 'blocked' | 'forgets' = 'works', name = '') {
   const items = new Map<string, string>()
   let reloads = 0
   const state = { reloads: () => reloads, items, listeners: {} as Record<string, (event: any) => void> }
   ;(globalThis as any).window = {
+    name,
     location: { reload: () => reloads++, assign: () => {} },
     get sessionStorage() {
-      if (blocked) throw new DOMException('The operation is insecure.', 'SecurityError')
-      return { getItem: (key: string) => items.get(key) ?? null, setItem: (key: string, value: string) => void items.set(key, value) }
+      if (storage === 'blocked') throw new DOMException('The operation is insecure.', 'SecurityError')
+      return {
+        getItem: (key: string) => items.get(key) ?? null,
+        setItem: (key: string, value: string) => void (storage === 'works' && items.set(key, value)),
+      }
     },
     addEventListener: (type: string, listener: (event: any) => void) => void (state.listeners[type] = listener),
   }
@@ -917,15 +922,51 @@ test('a 409 without a build in it, from an old server, reloads once too', async 
   assert(win.reloads() === 1 && again === 'RouteError 409', `reloads ${win.reloads()}, ${again}`)
 })
 
-test('with the storage blocked a page reloads once and its later 409s wait for that reload', async () => {
-  const win = browser(true)
-  stubFetch(409, { error: 'the application was updated' }, { 'X-Tifa-Build': 'new' })
+// A page that cannot keep a mark of its reload does not reload: the build may go on disagreeing,
+// and each reload would bring back the page that disagrees. Every signal shows its failure.
+test('with the storage blocked or forgetful a page never reloads, in any document', async () => {
+  for (const storage of ['blocked', 'forgets'] as const) {
+    const win = browser(storage)
+    stubFetch(409, { error: 'the application was updated, reload the page' }, { 'X-Tifa-Build': 'new' })
+    const source = collector(() => 'old')
+    for (let document = 1; document <= 3; document++) {
+      resetReloads() // the next document of the tab, which the visitor reloaded or the browser did
+      const failed = await standing(source('/page', 'app/a/layout'))
+      assert(failed === 'RouteError 409' && win.reloads() === 0, `${storage}, document ${document}: ${failed}, reloads ${win.reloads()}`)
+    }
+    watchChunks(() => 'b1')
+    const chunk = preloadError(chunkMessage)
+    win.listeners['vite:preloadError'](chunk)
+    assert(!chunk.defaultPrevented && win.reloads() === 0, `${storage}: chunk prevented ${chunk.defaultPrevented}, reloads ${win.reloads()}`)
+    assert(/reload the page/.test(chunk.payload.message) && chunk.payload.message.includes(chunkMessage), `${storage}: message ${chunk.payload.message}`)
+  }
+})
+
+test('a build that keeps disagreeing reloads the page once in the first document and not in the next', async () => {
+  const win = browser()
+  stubFetch(409, { error: 'the application was updated, reload the page' }, { 'X-Tifa-Build': 'new' })
   const source = collector(() => 'old')
-  void source('/first', 'app/a/layout')
-  await settle()
-  void source('/second', 'app/a/layout')
+  for (let document = 1; document <= 3; document++) {
+    resetReloads()
+    const failed = await standing(source('/page', 'app/a/layout'))
+    // The first document waits for its reload. The reloaded ones show the failure.
+    assert(failed === (document === 1 ? 'pending' : 'RouteError 409') && win.reloads() === 1, `document ${document}: ${failed}, reloads ${win.reloads()}`)
+  }
+})
+
+test('nothing outside sessionStorage keeps the first reload from happening', async () => {
+  // window.name holds what an app or another page left there, the mark among it.
+  const win = browser('works', 'tifa-reload:new tifa-reload:chunk:b1')
+  stubFetch(409, { error: 'the application was updated' }, { 'X-Tifa-Build': 'new' })
+  void collector(() => 'old')('/page', 'app/a/layout')
   await settle()
   assert(win.reloads() === 1, `reloads ${win.reloads()}`)
+  assert((globalThis as any).window.name === 'tifa-reload:new tifa-reload:chunk:b1', 'the name of the window was written')
+  resetReloads()
+  watchChunks(() => 'b1')
+  const chunk = preloadError(chunkMessage)
+  win.listeners['vite:preloadError'](chunk)
+  assert(chunk.defaultPrevented && win.reloads() === 2, `chunk: prevented ${chunk.defaultPrevented}, reloads ${win.reloads()}`)
 })
 
 // vite:preloadError event: the one Vite sends when a dynamic import fails.

@@ -223,4 +223,21 @@ answer = staleBuild
 const rawStale = await PUT({ params: { note: '1' } })
 assert(rawStale.status === 409 && reloads() === 2, `raw 409: ${rawStale.status}, reloads ${reloads()}`)
 
+// Where the page cannot keep a mark of its reload it does not reload, and the call fails with
+// the message that says to reload it.
+resetReloads()
+const kept = (globalThis as any).window.sessionStorage
+Object.defineProperty((globalThis as any).window, 'sessionStorage', {
+  configurable: true,
+  get() {
+    throw new DOMException('The operation is insecure.', 'SecurityError')
+  },
+})
+answer = staleBuild
+const reloadsBefore = reloads()
+const unkept = await caught(POST({ params: { note: '1' }, input: { text: 'hi', next: null } }))
+assert(unkept instanceof TifaError && unkept.status === 409 && /reload the page/.test(unkept.message), `409 with the storage blocked: ${unkept}`)
+assert(reloads() === reloadsBefore, `409 with the storage blocked reloaded ${reloads() - reloadsBefore} times`)
+Object.defineProperty((globalThis as any).window, 'sessionStorage', { configurable: true, value: kept })
+
 console.log('call: ok')

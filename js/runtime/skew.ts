@@ -14,20 +14,25 @@ let reloading = false
 
 // reloadForBuild reloads the page unless it was reloaded for target before, and reports whether
 // the reload is under way. target names the build the page is stale against: the build the
-// server reported, or for a chunk the page's own build. A false return means the reload did not
-// fix it: the caller fails as it would without this module.
+// server reported, or for a chunk the page's own build. A false return means there is no reload:
+// either the page reloaded for this target already and the reload did not fix it, or the mark of
+// the reload cannot be kept. The caller then fails as it would without this module, and its error
+// says to reload the page.
 //
-// The tab remembers the reloads in sessionStorage, which survives a reload. When the storage is
-// blocked or full, a page still reloads once, but the page it brings back knows nothing of it
-// and may reload once more, for as long as the build keeps disagreeing.
+// sessionStorage is the only memory, since it survives a reload of the tab and belongs to the
+// site. The mark is written and read back before the page reloads. When the storage is blocked,
+// full or does not keep what it was given, a reload could repeat for as long as the build keeps
+// disagreeing, so the page does not reload and leaves that to the visitor.
 export function reloadForBuild(target: string): boolean {
   if (reloading) return true
-  const key = reloaded(target)
   try {
-    if (window.sessionStorage.getItem(key) !== null) return false
-    window.sessionStorage.setItem(key, '1')
+    const key = reloaded(target)
+    const storage = window.sessionStorage
+    if (storage.getItem(key) !== null) return false
+    storage.setItem(key, '1')
+    if (storage.getItem(key) === null) return false
   } catch {
-    // The storage is not there to ask, which is no reason not to reload.
+    return false
   }
   reloading = true
   window.location.reload()
@@ -48,7 +53,8 @@ export function resetReloads() {
 // A page that has reloaded already leaves the event alone, so the import fails and the error
 // reaches the Error of the route or the code that imported. TanStack Router reloads a page by
 // itself, once for each message, when the module of a lazy route is missing. That reload would
-// be a second one, so the message of the error changes to one the router does not know.
+// be a second one, or one the page could not keep a mark of, so the message of the error changes
+// to one the router does not know, and says to reload the page.
 export function watchChunks(build: () => string) {
   window.addEventListener('vite:preloadError', (event) => {
     if (reloadForBuild('chunk:' + build())) {
@@ -56,6 +62,6 @@ export function watchChunks(build: () => string) {
       return
     }
     const error = (event as Event & { payload?: unknown }).payload
-    if (error instanceof Error) error.message = `The code of this page could not be loaded (${error.message})`
+    if (error instanceof Error) error.message = `The application was updated, reload the page (${error.message})`
   })
 }
