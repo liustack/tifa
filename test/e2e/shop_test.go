@@ -216,8 +216,31 @@ func TestShopApp(t *testing.T) {
 			t.Errorf("list data after shipping: %d lacks %s\n%s", status, want, body)
 		}
 	}
-	if status, _, _ := get(t, base+"/projects/studio", "X-Tifa-Route", "app/projects/project+/layout", "X-Tifa-Build", "old"); status != 409 {
-		t.Errorf("data request of another build: %d", status)
+	// A page of another build is told which build the server runs, so its browser reloads once for it.
+	if status, header, _ := get(t, base+"/projects/studio", "X-Tifa-Route", "app/projects/project+/layout", "X-Tifa-Build", "old"); status != 409 || header.Get("X-Tifa-Build") != built.BuildID {
+		t.Errorf("data request of another build: %d, build %q", status, header.Get("X-Tifa-Build"))
+	}
+	// So is a handler function of that page, before the handler runs: the order stays as it was.
+	callFrom := func(build string) (int, string) {
+		req, err := http.NewRequest("POST", order, strings.NewReader(ship))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Tifa-Call", "1")
+		req.Header.Set("X-Tifa-Build", build)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		return res.StatusCode, res.Header.Get("X-Tifa-Build")
+	}
+	if status, named := callFrom("old"); status != 409 || named != built.BuildID {
+		t.Errorf("handler call of another build: %d, build %q", status, named)
+	}
+	if status, named := callFrom(built.BuildID); status != 409 || named != "" {
+		t.Errorf("handler call of this build: %d, build %q (the order shipped already, which is the handler's own 409)", status, named)
 	}
 
 	checkStorefront(t, base, built.BuildID)

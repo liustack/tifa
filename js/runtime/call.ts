@@ -1,7 +1,8 @@
 // The runtime of the handler functions that tifa build writes into each route.gen module, one per
 // method handler of route.go: GET, POST, PUT, PATCH and DELETE.
 
-import { callHeader, isRedirected, redirectHeader } from './data'
+import { buildHeader, callHeader, isRedirected, redirectHeader } from './data'
+import { reloadForBuild } from './skew'
 
 // TifaError is what a handler function throws when the server answers with an error. message is
 // the public message of the answer, fields the messages per input field of a tifa.Fields.
@@ -46,10 +47,13 @@ interface Router {
 }
 
 let router: Router | undefined
+let pageBuild: () => string = () => ''
 
-// setRouter receives the router of the page once the browser has taken it over.
-export function setRouter(r: Router) {
+// setRouter receives the router of the page once the browser has taken it over, and build, which
+// returns the build ID the page was rendered with ('' until the browser has read it).
+export function setRouter(r: Router, build: () => string) {
   router = r
+  pageBuild = build
 }
 
 // call sends one request to a method handler. url is the path with the parameters in it. GET
@@ -65,6 +69,10 @@ export async function call(
   // The server answers a redirect of a call that carries callHeader as JSON. fetch would follow
   // a 3xx to the HTML of its target, and send the body of a 307 or 308 along.
   const headers: Record<string, string> = { Accept: 'application/json', [callHeader]: '1' }
+  // The server refuses a call from a page of another build, whose types may not be the ones its
+  // handler reads any more.
+  const build = pageBuild()
+  if (build !== '') headers[buildHeader] = build
   const init: RequestInit = { method, signal: options.signal, headers, redirect: 'manual' }
   if (options.input !== undefined) {
     if (method === 'GET' || method === 'DELETE') {
@@ -76,6 +84,10 @@ export async function call(
     }
   }
   const response = await fetch(url, init)
+  // A 409 that names a build is that refusal, no 409 of the handler. The page reloads, once per
+  // build. The write is not sent again, since the new page may mean another input by it. The
+  // call fails as any other with the message, which shows until the page is gone.
+  if (response.status === 409 && response.headers.has(buildHeader)) reloadForBuild(response.headers.get(buildHeader)!)
   if (response.type === 'opaqueredirect')
     throw new Error(
       `${method} ${url} was answered with a redirect the browser cannot read, from a proxy or from a handler that wrote it itself: return c.Redirect(url, code) from the handler or OnRequest instead`,

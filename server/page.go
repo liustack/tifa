@@ -534,10 +534,18 @@ func (s *Server) dataRequest(c *tifa.Ctx, chain []load, key string) error {
 	return writeData(c.Writer(), http.StatusOK, items)
 }
 
+// buildChanged is the 409 for a request from a page of another build. It names the build the
+// server runs in X-Tifa-Build, which tells it from a 409 of the app, and the browser reloads the
+// page once for that build (js/runtime/skew.ts).
+func (s *Server) buildChanged(c *tifa.Ctx) error {
+	c.SetHeader(buildHeader, s.front.Load().build.ID)
+	return tifa.Error{Status: http.StatusConflict, Message: "the application was updated, reload the page"}
+}
+
 // listedLoads returns the Loads of chain that a data request lists in X-Tifa-Route, each once.
 func (s *Server) listedLoads(c *tifa.Ctx, chain []load) ([]load, error) {
 	if c.Header(buildHeader) != s.front.Load().build.ID {
-		return nil, tifa.Error{Status: http.StatusConflict, Message: "the application was updated, reload the page"}
+		return nil, s.buildChanged(c)
 	}
 	var selected []load
 	for _, id := range strings.Split(c.Header(routeHeader), ",") {

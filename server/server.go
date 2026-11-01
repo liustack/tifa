@@ -131,6 +131,10 @@ func (h routeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			methodNotAllowed(c.Writer(), h.methods)
 			return nil
 		}
+		// A page sends the build it was rendered with along with its calls. Other clients do not.
+		if build := c.Header(buildHeader); build != "" && c.Header(callHeader) != "" && h.s.pagesServed() && build != h.s.front.Load().build.ID {
+			return h.s.buildChanged(c)
+		}
 		return recovered(func() error { return handle(c) })
 	})
 }

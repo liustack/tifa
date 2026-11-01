@@ -1,5 +1,5 @@
 ---
-summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、不套外层的 Layout（layout_.tsx）、hooks.go、404 和错误、多语言网站、SSR 与缓存开关、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数，以及数据、入参和结果的 JSON 规则'
+summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、不套外层的 Layout（layout_.tsx）、hooks.go、404 和错误、多语言网站、SSR 与缓存开关、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数，访客开着旧页面时你部署新版本，浏览器会怎么做，以及数据、入参和结果的 JSON 规则'
 read_when:
   - 新建一个 tifa 应用，或给应用加页面、Layout、API 路由
   - 构建报 Ctx 用法或 Load 返回类型的错误，想知道怎么改
@@ -8,6 +8,7 @@ read_when:
   - 给 Load、Layout 函数、方法函数或 OnRequest 写 Go 测试
   - 给应用加 CSS、Tailwind CSS 或 shadcn/ui
   - 在页面里格式化数字或日期，或者 tifa dev 对某个 Intl 调用报警
+  - 访客开着一个页面时你部署了新版本，想知道浏览器会怎么做，或者看到带 `X-Tifa-Build` 的 409
   - 页面在服务端渲染失败或水合不一致，想知道服务端有哪些浏览器 API 和库的能力
   - 某个组件要等浏览器画出来才有内容（比如图表、地图），想知道要不要在服务端渲染它
 ---
@@ -215,7 +216,7 @@ async function ship() {
 - 函数接收一个对象。`params` 是路径参数，目录没有参数时不写。`name++` 目录的键是 `_splat`。会把请求带到别的路径的值在发请求前就被拒绝，promise 失败：`name+` 参数的空值、`.`、`..`，以及 `_splat` 里的 `.`、`..` 段和末尾以外的空段。`_splat` 为空没问题。`input` 是处理函数的入参，没有入参时不写。`signal` 用来取消请求。
 - GET、DELETE 把入参放进查询字符串，其他方法发 JSON 请求体。返回值的类型来自 Go 的返回值，并为重定向（见下文）加上 `| undefined`：`func(c, in) (Out, error)` 得到 `Promise<POSTOutput | undefined>`。`func(c, in) error` 得到 `void`。`func(c) error` 自己写响应，它的调用函数原样交回 `Response`，错误状态码也一样。
 - POST、PUT、PATCH、DELETE 成功后，先重新取当前页面和它的 Layout 的数据，再兑现 promise。传 `invalidate: false` 可以不刷新。失败和 GET 都不刷新。
-- 错误回答抛出 `TifaError`，带 `status`、`message` 和 `fields`（`tifa.Fields` 的消息，其他情况为空）。网络错误照 `fetch` 的样子抛出。
+- 错误回答抛出 `TifaError`，带 `status`、`message` 和 `fields`（`tifa.Fields` 的消息，其他情况为空）。网络错误照 `fetch` 的样子抛出。页面的构建比服务器旧时，调用以状态 409 失败，见[部署时还开着的页面](#部署时还开着的页面)。
 - 处理函数或 `OnRequest` 返回 `c.Redirect(url, code)` 时，浏览器去那个 URL：本站的 URL 经路由器跳转，页面不重新加载，别的站点整页加载。POST、PUT、PATCH、DELETE 之后（除非传了 `invalidate: false`），路由器里已有的数据先标为过期，所以新页面和它的 Layout 显示的是新数据。重定向到正在显示的页面时，和没有重定向的调用一样重新取这一页的数据。路径、hash 和查询参数的值都相同就算同一页，查询参数的顺序和编码不论。promise 在新页面显示出来后兑现为 `undefined`，有返回值的处理函数也一样。一次调用是否被重定向，要等回答来了才知道（`OnRequest` 可以重定向任何请求），所以有返回值的处理函数，返回类型都带 `undefined`。自己写响应的处理函数，调用函数拿到这次重定向的 `Response`（`ok` 为真，状态码在 `X-Tifa-Redirect` 里）。相对 URL 按处理函数的 URL 解析，不按页面的 URL。处理函数经 `c.Writer()` 自己写的 3xx，或者代理写的 3xx，浏览器读不到，promise 以 `Error` 失败。
 - 在事件处理函数或 effect 里调用。服务器渲染页面期间调用会抛错。
 - `route.gen` 还为有入参或返回值的处理函数导出 `POSTInput`、`POSTOutput` 等类型。
@@ -458,6 +459,18 @@ const LayoutSSR = false // 本目录的 Layout，默认 true
 - 共用的那次渲染失败时，等它的每个请求都拿到同一个错误并交给 `OnError`，panic 也一样。失败的结果不缓存，下一个请求重新渲染。客户端断开的请求立刻停止等待，连接被中断，不发响应：`OnRequest` 里 `c.Next()` 返回一个匹配 `context.Canceled` 的错误，但不调 `OnError`，也不打日志。渲染继续给其他请求用。请求自己的 deadline 在等待时到了，和别的错误一样处理。没有请求再等时，还在等 VM 的渲染就此放弃，已经在跑的跑完放进缓存。这时如果渲染失败，没有请求把它交给 `OnError`，所以错误写进日志。
 - 页面响应都带 ETag，数据没变的第二次请求带 `If-None-Match` 时答 304，和 `Cache` 无关。
 - 应用的每个回答（页面、304、404 页面、导航数据、方法处理函数、重定向）默认带 `Cache-Control: private, no-cache`，你自己设过 `Cache-Control` 的除外。CDN 和代理不会存它，因为页面可能只属于某一位访客。浏览器可以存下来，下次带着 ETag 回来问，页面没变就答 304。要改的话，在 `OnRequest`、`Load`、`Layout` 或方法处理函数里用 `c.SetHeader("Cache-Control", "...")`，你设的值原样发出。JSON 错误（包括 405 和关机时的 503）、Go 写的纯错误页、渲染失败后带错误重新渲染的页面和过载回答都是 `no-store`，你在出错之前设过 `Cache-Control` 的除外。应用渲染的 404 页面仍用默认值。`/assets/` 下的文件保持长期缓存，`public/` 里的文件保持 `no-cache`（见[页面请求](build.zh-CN.md#页面请求)）。`Cache = true` 只缓存进程内的渲染结果，不改这个头。
+
+## 部署时还开着的页面
+
+访客可能开着一个页面，你却部署了新版本，页面是旧构建的，服务器是新的。页面在数据请求和处理函数调用里带上它渲染时的构建（`X-Tifa-Build`），构建不同时服务器答 409。访客会看到：
+
+- 点链接：浏览器刷新当前页面，由新构建显示。不管有多少个请求收到 409，都只刷新一次。
+- 调用处理函数：调用以状态 409 的 `TifaError` 失败，浏览器刷新页面。调用在处理函数运行前就被拒绝，也不会再发一次，因为新页面对这个入参的含义可能已经变了。访客在新页面上重做一次。你自己的处理函数返回的 409 没有 `X-Tifa-Build` 头，不会刷新任何东西。不带这个头的调用（curl 或别的程序）不检查。
+- 加载代码：懒加载路由或 `import()` 请求新构建已经没有的代码块时，浏览器刷新页面（这是 Vite 的 `vite:preloadError`）。
+
+每个构建只刷新一次。刷新后回来的页面仍然和服务器不一致时（缓存又给了旧页面），它不会再刷新第二次。数据请求带着 409 失败，由路由的 `Error` 显示，调用抛出这个 409，失败的 import 交给路由的 `Error` 或发起 import 的代码。标签页用 `sessionStorage` 记住刷新过的构建。页面写下标记并读回来之后才会刷新。浏览器禁用存储，或者存进去的东西没有留下时，页面不刷新：上面的失败照常显示，消息是「the application was updated, reload the page」，由访客手动刷新。记不住的刷新，会在构建持续不一致时一直重复。
+
+HTML 是旧的、入口脚本已经没有的页面，页面自己救不了：没有任何代码在运行。tifa 发出的页面带 `Cache-Control: private, no-cache`，CDN 不会留着，所以只有你在 `OnRequest` 里让 CDN 缓存页面时才会碰到。那就在部署时清掉 CDN 里的页面。
 
 ## 服务端渲染时有什么
 
