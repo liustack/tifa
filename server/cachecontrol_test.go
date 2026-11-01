@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/liustack/tifa"
@@ -30,9 +31,7 @@ func TestPagesAnswerPrivateNoCache(t *testing.T) {
 		{"page of the HTML cache, again", get(s, "/stats"), 200},
 		{"page conditional", get(s, "/projects/p1", "If-None-Match", page.Header().Get("ETag")), 304},
 		{"data request", get(s, "/projects/p1", data...), 200},
-		{"data request of another build", get(s, "/projects/p1", "X-Tifa-Route", "app/layout", "X-Tifa-Build", "old"), 409},
 		{"404 page", get(s, "/nowhere"), 404},
-		{"405", send(s, "DELETE", "/projects/p1", ""), 405},
 	} {
 		if tc.w.Code != tc.code || cacheControl(tc.w) != defaultCache {
 			t.Errorf("%s: %d, Cache-Control %q", tc.name, tc.w.Code, cacheControl(tc.w))
@@ -61,15 +60,12 @@ func TestHandlersAnswerPrivateNoCache(t *testing.T) {
 			c.Writer().WriteHeader(201)
 			return nil
 		})
-		s.Handle("GET", "/fail", func(c *tifa.Ctx) error { return tifa.Error{Status: 409, Message: "taken"} })
-		s.Handle("GET", "/missing", func(c *tifa.Ctx) error { return tifa.ErrNotFound })
 		for _, tc := range []struct {
 			method, target string
 			code           int
 		}{
 			{"GET", "/json", 200}, {"GET", "/text", 200}, {"POST", "/none", 204}, {"GET", "/redirect", 302},
-			{"GET", "/own", 200}, {"GET", "/own-status", 201}, {"GET", "/fail", 409}, {"GET", "/missing", 404},
-			{"GET", "/nowhere", 404}, {"POST", "/json", 405}, {"GET", "/a//json", 308},
+			{"GET", "/own", 200}, {"GET", "/own-status", 201}, {"GET", "/a//json", 308},
 		} {
 			w := send(s, tc.method, tc.target, "")
 			if w.Code != tc.code || cacheControl(w) != defaultCache {
@@ -78,6 +74,8 @@ func TestHandlersAnswerPrivateNoCache(t *testing.T) {
 		}
 	}
 }
+
+// JSON errors are not in the two tests above: they say no-store, see TestErrorAnswersSayNoStore.
 
 // The default only fills a gap. A value the application set in OnRequest, a Load or a method
 // handler stays, and so does one set before a handler writes by hand.
@@ -139,5 +137,72 @@ func TestDefaultCacheControlLeavesFilesAlone(t *testing.T) {
 		if got := cacheControl(get(s, name)); got != want {
 			t.Errorf("%s: Cache-Control %q, want %q", name, got, want)
 		}
+	}
+}
+
+// A failed answer is not meant to be kept by anyone: JSON errors, the plain page of Go and the 503
+// of a server that is shutting down say no-store. A Cache-Control the application set before the
+// error stays.
+func TestErrorAnswersSayNoStore(t *testing.T) {
+	for _, set := range []string{"", "public, max-age=60"} {
+		want := "no-store"
+		if set != "" {
+			want = set
+		}
+		app := frontApp()
+		app.Hooks.OnRequest = func(c *tifa.Ctx) error {
+			if set != "" {
+				c.SetHeader("Cache-Control", set)
+			}
+			return c.Next()
+		}
+		app.Hooks.OnError = func(c *tifa.Ctx, err error) tifa.Error { return tifa.Error{Status: 500, Message: "oops"} }
+		app.Routes = append(app.Routes,
+			Route{ID: "app/api", Path: "/api", GET: func(c *tifa.Ctx) error { return tifa.Error{Status: 409, Message: "taken"} }, POST: func(c *tifa.Ctx) error {
+				return tifa.Fields{"name": "required"}
+			}, PUT: func(c *tifa.Ctx) error { return tifa.ErrNotFound }, PATCH: func(c *tifa.Ctx) error { return errDatabase }},
+		)
+		s, _ := newFrontServer(t, app)
+		for _, tc := range []struct {
+			name string
+			w    *httptest.ResponseRecorder
+			code int
+		}{
+			{"409", send(s, "GET", "/api", ""), 409},
+			{"422", send(s, "POST", "/api", "{}"), 422},
+			{"404", send(s, "PUT", "/api", "{}"), 404},
+			{"500", send(s, "PATCH", "/api", "{}"), 500},
+			{"405", send(s, "DELETE", "/api", ""), 405},
+			{"data request of another build", get(s, "/projects/p1", "X-Tifa-Route", "app/layout", "X-Tifa-Build", "old"), 409},
+		} {
+			if tc.w.Code != tc.code || cacheControl(tc.w) != want {
+				t.Errorf("set %q, %s: %d, Cache-Control %q, want %q", set, tc.name, tc.code, cacheControl(tc.w), want)
+			}
+		}
+		w := httptest.NewRecorder()
+		if set != "" {
+			w.Header().Set("Cache-Control", set)
+		}
+		writeFallback(w, tifa.Error{Status: 500, Message: "down"})
+		if cacheControl(w) != want {
+			t.Errorf("set %q, plain page: Cache-Control %q, want %q", set, cacheControl(w), want)
+		}
+		// The 503 serveBoth writes by itself while the server shuts down.
+		w = httptest.NewRecorder()
+		writeJSON(w, 503, map[string]string{"error": "Service Unavailable"})
+		if cacheControl(w) != "no-store" {
+			t.Errorf("shutdown 503: Cache-Control %q", cacheControl(w))
+		}
+	}
+}
+
+// The plain page a Go-only failure ends in, such as a failing OnRequest on a page.
+func TestPlainErrorPageSaysNoStore(t *testing.T) {
+	app := frontApp()
+	app.Hooks.OnRequest = func(c *tifa.Ctx) error { return tifa.Error{Status: 429, Message: "slow down"} }
+	s, _ := newFrontServer(t, app)
+	w := get(s, "/projects/p1")
+	if w.Code != 429 || !strings.Contains(w.Body.String(), "<h1>429") || cacheControl(w) != "no-store" {
+		t.Errorf("%d, Cache-Control %q, %s", w.Code, cacheControl(w), w.Body.String())
 	}
 }

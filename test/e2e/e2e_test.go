@@ -402,8 +402,12 @@ func TestInterfaceApp(t *testing.T) {
 		if status != tc.status || body != tc.want {
 			t.Errorf("%s %s: %d %s, want %d %s", tc.method, tc.path, status, body, tc.status, tc.want)
 		}
-		if got := header.Get("Cache-Control"); got != "private, no-cache" {
-			t.Errorf("%s %s: Cache-Control %q", tc.method, tc.path, got)
+		wantCache := "private, no-cache"
+		if tc.status >= 400 {
+			wantCache = "no-store"
+		}
+		if got := header.Get("Cache-Control"); got != wantCache {
+			t.Errorf("%s %s: Cache-Control %q, want %q", tc.method, tc.path, got, wantCache)
 		}
 		if tc.path == "/orders/7" && header.Get("X-Pattern") != "/orders/{order}" {
 			t.Errorf("OnRequest saw pattern %q", header.Get("X-Pattern"))

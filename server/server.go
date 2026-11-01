@@ -369,12 +369,24 @@ func recovered(f func() error) (err error) {
 	return f()
 }
 
+// noStoreUnlessSet makes an error answer say no-store, unless the application set a
+// Cache-Control before the error, which then stays.
+func noStoreUnlessSet(h http.Header) {
+	if len(h.Values("Cache-Control")) == 0 {
+		h.Set("Cache-Control", "no-store")
+	}
+}
+
+// writeJSON writes the JSON answers of the framework: the body of every error that is not a page,
+// 405, the 503 of a server that is shutting down, and the redirect a handler call of the browser
+// gets. They are all failures or moves, so none is kept (see noStoreUnlessSet).
 func writeJSON(w http.ResponseWriter, status int, value any) {
 	data, err := json.Marshal(value)
 	if err != nil {
 		http.Error(w, "JSON encoding failed", 500)
 		return
 	}
+	noStoreUnlessSet(w.Header())
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(status)

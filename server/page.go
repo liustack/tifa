@@ -927,6 +927,7 @@ func writeFallback(w http.ResponseWriter, e tifa.Error) {
 	title := html.EscapeString(fmt.Sprintf("%d %s", e.Status, http.StatusText(e.Status)))
 	page := fmt.Sprintf(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>%s</title></head><body><h1>%s</h1><p>%s</p></body></html>`,
 		title, title, html.EscapeString(e.Message))
+	noStoreUnlessSet(w.Header())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Length", strconv.Itoa(len(page)))
 	w.WriteHeader(e.Status)
