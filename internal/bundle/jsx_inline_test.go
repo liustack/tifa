@@ -320,7 +320,7 @@ func TestSSRKeepsTheCallsOfAJSXRuntimeItDoesNotKnow(t *testing.T) {
 			}
 			writeTree(t, root, map[string]string{"jsx.tsx": page})
 			code, printed := buildPrinting(t, root, "jsx.tsx")
-			if n := strings.Count(printed, "has a jsx the tifa plugin does not know"); n != 1 || !strings.Contains(printed, "react 19.3.0") {
+			if n := strings.Count(printed, "has a jsx the tifa plugin does not know"); n != 1 || !strings.Contains(printed, installedReact(t, "react")) {
 				t.Errorf("the build prints:\n%s", printed)
 			}
 			if !strings.Contains(printed, "Pages render the same, but take longer to render") {

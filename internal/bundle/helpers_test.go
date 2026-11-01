@@ -1,6 +1,7 @@
 package bundle
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -24,6 +25,27 @@ func testModules(t *testing.T) string {
 		t.Skipf("needs npm packages: run pnpm install --frozen-lockfile in internal/bundle/testdata (%v)", err)
 	}
 	return dir
+}
+
+// installedVersion is the version of the npm package name in testModules.
+func installedVersion(t *testing.T, name string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(testModules(t), name, "package.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pkg struct{ Version string }
+	if err := json.Unmarshal(data, &pkg); err != nil {
+		t.Fatal(err)
+	}
+	return pkg.Version
+}
+
+// installedReact is how the warnings of a build name the installed package name of React, such as
+// "react-dom 19.3.0", so the tests hold with the React the scheduled job installs.
+func installedReact(t *testing.T, name string) string {
+	t.Helper()
+	return name + " " + installedVersion(t, name)
 }
 
 // testdata is the directory that holds testModules.

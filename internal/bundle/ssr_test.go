@@ -198,7 +198,7 @@ func TestSSRAsksTheEngineToEscape(t *testing.T) {
 		}
 		writeTree(t, unknown, map[string]string{"escapes.tsx": page})
 		unchanged, unknownPrinted := buildPrinting(t, unknown, "escapes.tsx")
-		if !strings.Contains(unknownPrinted, "react-dom 19.3.0: ") || !strings.Contains(unknownPrinted, "the tifa plugin does not ask the engine to escape") {
+		if !strings.Contains(unknownPrinted, installedReact(t, "react-dom")+": ") || !strings.Contains(unknownPrinted, "the tifa plugin does not ask the engine to escape") {
 			t.Errorf("%s: the build of a React DOM it does not know prints:\n%s", name, unknownPrinted)
 		}
 		want := evalResult(t, unchanged)
@@ -221,7 +221,7 @@ func TestSSRDoesNotAskTheEngineWhereTheEscapeIsCalledEarly(t *testing.T) {
 	changed := withReactDOM(t, "function getIteratorFn(maybeIterable) {", "var tifaEarly = escapeTextForBrowser(\"<\");\nfunction getIteratorFn(maybeIterable) {")
 	writeTree(t, changed, map[string]string{"escapes.tsx": escapesPage})
 	code, printed := buildPrinting(t, changed, "escapes.tsx")
-	if !strings.Contains(printed, "react-dom 19.3.0: ") || !strings.Contains(printed, "the tifa plugin does not ask the engine to escape") {
+	if !strings.Contains(printed, installedReact(t, "react-dom")+": ") || !strings.Contains(printed, "the tifa plugin does not ask the engine to escape") {
 		t.Errorf("the build prints:\n%s", printed)
 	}
 	if strings.Contains(code, "__tifa_escape") {
@@ -293,7 +293,7 @@ func TestSSRWritesAttributesWithFewerCalls(t *testing.T) {
 		if literalPush.MatchString(code) {
 			t.Errorf("%s: the bundle writes className in one chunk of a React DOM it does not know", name)
 		}
-		if !strings.Contains(printed, "react-dom 19.3.0: ") || !strings.Contains(printed, "the tifa plugin does not write the common attributes") {
+		if !strings.Contains(printed, installedReact(t, "react-dom")+": ") || !strings.Contains(printed, "the tifa plugin does not write the common attributes") {
 			t.Errorf("%s: the build prints:\n%s", name, printed)
 		}
 		if got := evalResult(t, code); got != written {
@@ -374,7 +374,7 @@ func TestSSRJoinsTheChunksOfEachSegment(t *testing.T) {
 	if joinedChunks.MatchString(code) {
 		t.Error("the bundle joins the chunks of a segment of a React DOM it does not know")
 	}
-	if !strings.Contains(printed, "react-dom 19.3.0: ") || !strings.Contains(printed, "the tifa plugin does not join the chunks") {
+	if !strings.Contains(printed, installedReact(t, "react-dom")+": ") || !strings.Contains(printed, "the tifa plugin does not join the chunks") {
 		t.Errorf("the build prints:\n%s", printed)
 	}
 	if got := evalResult(t, code); got != joined {
@@ -580,7 +580,7 @@ func TestSSRLeavesComponentNamesOutOfKeyPaths(t *testing.T) {
 		if !namesInKeyPaths(t, code) {
 			t.Errorf("%s: the bundle leaves the names of components out of their key paths", name)
 		}
-		if !strings.Contains(printed, "react-dom 19.3.0: ") || !strings.Contains(printed, "the tifa plugin does not leave the names of components out") {
+		if !strings.Contains(printed, installedReact(t, "react-dom")+": ") || !strings.Contains(printed, "the tifa plugin does not leave the names of components out") {
 			t.Errorf("%s: the build prints:\n%s", name, printed)
 		}
 		if got := evalResult(t, code); got != unnamed {
@@ -726,7 +726,7 @@ func TestSSRMakesNoKeyPathsWhenOtherPartsOfTheRendererChange(t *testing.T) {
 	for name, change := range map[string]func(string) string{
 		"a space at the end": func(s string) string { return s + " " },
 		"a byte of the version": func(s string) string {
-			return strings.Replace(s, `exports.version = "19.3.0"`, `exports.version = "19.3.9"`, 1)
+			return strings.Replace(s, `exports.version = "`+installedVersion(t, "react-dom")+`"`, `exports.version = "99.0.0"`, 1)
 		},
 		"a comment at the start": func(s string) string { return "/**/" + s },
 		"a function that reads no key path": func(s string) string {
@@ -811,7 +811,7 @@ func TestSSRKeepsKeyPathsWhenAFunctionThatReadsThemChanged(t *testing.T) {
 		if keyPathCondition.MatchString(code) {
 			t.Errorf("%s: the bundle leaves key paths out of a renderer whose reader the plugin has not read", c.name)
 		}
-		if n := strings.Count(printed, notRecognized); n != 1 || !strings.Contains(printed, "react-dom 19.3.0: ") {
+		if n := strings.Count(printed, notRecognized); n != 1 || !strings.Contains(printed, installedReact(t, "react-dom")+": ") {
 			t.Errorf("%s: the build prints:\n%s", c.name, printed)
 		}
 		if !strings.Contains(printed, unreviewedKeyPaths+": "+c.function) || !strings.Contains(printed, "does not leave out the key paths of the elements") {
@@ -978,7 +978,7 @@ func TestSSRGuardsTheSwitchesOfReact(t *testing.T) {
 	if guardedSwitch.MatchString(code) {
 		t.Error("the bundle of a React DOM without switches on names has a switch with a Set check")
 	}
-	if !strings.Contains(printed, "react-dom 19.3.0: ") || !strings.Contains(printed, "has no switch the tifa plugin can put a Set check in front of") {
+	if !strings.Contains(printed, installedReact(t, "react-dom")+": ") || !strings.Contains(printed, "has no switch the tifa plugin can put a Set check in front of") {
 		t.Errorf("the build prints:\n%s", printed)
 	}
 	got := strings.Split(evalResult(t, code), "\n")
