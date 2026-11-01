@@ -7,6 +7,7 @@ import { createAppRouter, load, unmatched } from './.tifa/runtime/router'
 import { serve, type RenderResult } from './.tifa/runtime/server'
 import { headHTML, headTags } from './.tifa/runtime/head'
 import { collector, RouteError, type InjectedResult, type RouteResult } from './.tifa/runtime/data'
+import { resetReloads, watchChunks } from './.tifa/runtime/skew'
 
 const tests: Array<[string, () => Promise<void>]> = []
 const test = (name: string, fn: () => Promise<void>) => tests.push([name, fn])
@@ -800,13 +801,13 @@ test('preloaded data never goes stale by itself', async () => {
 })
 
 // stubFetch answers every request with status and body and records the requests.
-function stubFetch(status: number, body: unknown) {
+function stubFetch(status: number, body: unknown, headers: Record<string, string> = {}) {
   const seen: string[] = []
   const options: RequestInit[] = []
   globalThis.fetch = (async (url: string, init: RequestInit) => {
     seen.push(url)
     options.push(init)
-    return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+    return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...headers } })
   }) as typeof fetch
   return Object.assign(seen, { options })
 }
@@ -841,18 +842,136 @@ test('a redirect of the server reaches every route as a redirect', async () => {
   assert(isRedirect(thrown) && thrown.options.href === '/login', `loader threw ${thrown}`)
 })
 
-test('a 409 reloads the current page once', async () => {
-  const location = { reloads: 0, assigned: [] as string[] }
+// browser stubs a window whose location counts reloads, with a sessionStorage that outlives
+// resetReloads, as the storage of a tab outlives the reload of its page. blocked makes the
+// storage throw, as it does when the browser refuses site data.
+function browser(blocked = false) {
+  const items = new Map<string, string>()
+  let reloads = 0
+  const state = { reloads: () => reloads, items, listeners: {} as Record<string, (event: any) => void> }
   ;(globalThis as any).window = {
-    location: { reload: () => location.reloads++, assign: (url: string) => location.assigned.push(url) },
+    location: { reload: () => reloads++, assign: () => {} },
+    get sessionStorage() {
+      if (blocked) throw new DOMException('The operation is insecure.', 'SecurityError')
+      return { getItem: (key: string) => items.get(key) ?? null, setItem: (key: string, value: string) => void items.set(key, value) }
+    },
+    addEventListener: (type: string, listener: (event: any) => void) => void (state.listeners[type] = listener),
   }
+  resetReloads()
+  return state
+}
+
+// settle lets the collector send its batch and handle the answer.
+const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
+
+// standing reports how a promise stands after the answers came: 'pending', or what it settled as.
+async function standing(promise: Promise<unknown>) {
+  let result = 'pending'
+  promise.then(
+    () => (result = 'resolved'),
+    (error) => (result = error instanceof RouteError ? `RouteError ${error.status}` : String(error)),
+  )
+  await settle()
+  return result
+}
+
+test('a 409 reloads the current page once', async () => {
+  const win = browser()
+  stubFetch(409, { error: 'the application was updated' }, { 'X-Tifa-Build': 'new' })
+  const source = collector(() => 'old')
+  const hovered = source('/hovered', 'app/a/layout')
+  void source('/clicked', 'app/b/layout')
+  assert((await standing(hovered)) === 'pending', 'the loaders of the old build were answered')
+  assert(win.reloads() === 1, `reloads ${win.reloads()}`)
+  assert(win.items.get('tifa-reload:new') === '1', `storage ${[...win.items.keys()]}`)
+})
+
+test('the page reloaded for a build shows the error when that build disagrees again', async () => {
+  const win = browser()
+  stubFetch(409, { error: 'the application was updated' }, { 'X-Tifa-Build': 'new' })
+  const source = collector(() => 'old')
+  void source('/first', 'app/a/layout')
+  await settle()
+  assert(win.reloads() === 1, `first reload ${win.reloads()}`)
+  // The reload brought a page of the same old build, from a cache. Its memory is new, the tab's
+  // storage is the same.
+  resetReloads()
+  const again = await standing(source('/second', 'app/a/layout'))
+  assert(win.reloads() === 1 && again === 'RouteError 409', `second: reloads ${win.reloads()}, ${again}`)
+  // Another build is another reason to reload.
+  resetReloads()
+  stubFetch(409, { error: 'the application was updated' }, { 'X-Tifa-Build': 'newer' })
+  void source('/third', 'app/a/layout')
+  await settle()
+  assert(win.reloads() === 2, `reload for another build ${win.reloads()}`)
+})
+
+test('a 409 without a build in it, from an old server, reloads once too', async () => {
+  const win = browser()
   stubFetch(409, { error: 'the application was updated' })
   const source = collector(() => 'old')
-  void source('/hovered', 'app/a/layout')
-  void source('/clicked', 'app/b/layout')
-  await new Promise((resolve) => setTimeout(resolve, 20))
-  assert(location.reloads === 1, `reloads ${location.reloads}`)
-  assert(location.assigned.length === 0, `assigned ${location.assigned}`)
+  void source('/first', 'app/a/layout')
+  await settle()
+  resetReloads()
+  const again = await standing(source('/second', 'app/a/layout'))
+  assert(win.reloads() === 1 && again === 'RouteError 409', `reloads ${win.reloads()}, ${again}`)
+})
+
+test('with the storage blocked a page reloads once and its later 409s wait for that reload', async () => {
+  const win = browser(true)
+  stubFetch(409, { error: 'the application was updated' }, { 'X-Tifa-Build': 'new' })
+  const source = collector(() => 'old')
+  void source('/first', 'app/a/layout')
+  await settle()
+  void source('/second', 'app/a/layout')
+  await settle()
+  assert(win.reloads() === 1, `reloads ${win.reloads()}`)
+})
+
+// vite:preloadError event: the one Vite sends when a dynamic import fails.
+function preloadError(message: string) {
+  return {
+    payload: new TypeError(message),
+    defaultPrevented: false,
+    preventDefault() {
+      this.defaultPrevented = true
+    },
+  }
+}
+const chunkMessage = 'Failed to fetch dynamically imported module: http://tifa.test/assets/chunk-1.js'
+
+test('a code chunk that fails to load reloads the page once for its build', async () => {
+  const win = browser()
+  watchChunks(() => 'b1')
+  const first = preloadError(chunkMessage)
+  win.listeners['vite:preloadError'](first)
+  assert(first.defaultPrevented && win.reloads() === 1, `first: prevented ${first.defaultPrevented}, reloads ${win.reloads()}`)
+  // Several chunks of one page fail together.
+  const together = preloadError(chunkMessage)
+  win.listeners['vite:preloadError'](together)
+  assert(together.defaultPrevented && win.reloads() === 1, `together: prevented ${together.defaultPrevented}, reloads ${win.reloads()}`)
+  // The reloaded page is the same build, so it throws the error instead.
+  resetReloads()
+  const second = preloadError(chunkMessage)
+  win.listeners['vite:preloadError'](second)
+  assert(!second.defaultPrevented && win.reloads() === 1, `second: prevented ${second.defaultPrevented}, reloads ${win.reloads()}`)
+  assert(second.payload.message.includes(chunkMessage), `the message lost the URL: ${second.payload.message}`)
+  // A page of another build has its own turn.
+  resetReloads()
+  watchChunks(() => 'b2')
+  const other = preloadError(chunkMessage)
+  win.listeners['vite:preloadError'](other)
+  assert(other.defaultPrevented && win.reloads() === 2, `other build: prevented ${other.defaultPrevented}, reloads ${win.reloads()}`)
+})
+
+test('a chunk failure and a 409 on one page reload it once', async () => {
+  const win = browser()
+  watchChunks(() => 'b1')
+  win.listeners['vite:preloadError'](preloadError(chunkMessage))
+  stubFetch(409, { error: 'the application was updated' }, { 'X-Tifa-Build': 'new' })
+  void collector(() => 'b1')('/x', 'app/a/layout')
+  await settle()
+  assert(win.reloads() === 1, `reloads ${win.reloads()}`)
 })
 
 let failed = 0

@@ -3,6 +3,7 @@
 import { DELETE, GET, POST, PUT } from './app/api/notes/note+/route.gen'
 import { GET as file } from './app/api/files/path++/route.gen'
 import { setRouter } from './.tifa/runtime/call'
+import { resetReloads } from './.tifa/runtime/skew'
 import { TifaError } from 'tifa/client'
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -30,8 +31,12 @@ const router = {
 }
 const invalidated = () => refreshes
 const assigned: string[] = []
+let reloadCount = 0
+const reloads = () => reloadCount
+const storage = new Map<string, string>()
 ;(globalThis as any).window = {
-  location: { href: 'http://shop.test/notes/1', origin: 'http://shop.test', assign: (url: string) => assigned.push(url) },
+  location: { href: 'http://shop.test/notes/1', origin: 'http://shop.test', assign: (url: string) => assigned.push(url), reload: () => reloadCount++ },
+  sessionStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => void storage.set(key, value) },
 }
 const caught = (p: Promise<unknown>) => p.then(() => undefined, (e: unknown) => e)
 
@@ -53,7 +58,7 @@ answer = redirected('/notes/2')
 const early = await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
 assert(early === undefined && assigned.join() === 'http://shop.test/notes/2', `before the router: ${early} ${assigned}`)
 assigned.splice(0)
-setRouter(router)
+setRouter(router, () => 'b1')
 
 // GET puts the input in the query string, reads the JSON and refreshes nothing.
 answer = () => Response.json([{ text: 'hi', next: null }])
@@ -187,5 +192,35 @@ for (const send of [() => POST({ params: { note: '1' }, input: { text: 'hi', nex
   const opaque = await caught(send())
   assert(opaque instanceof Error && !(opaque instanceof TifaError) && /c\.Redirect/.test(opaque.message), `opaque redirect: ${opaque}`)
 }
+
+// The page sends the build it was rendered with, for the server to tell a call of another build.
+answer = () => Response.json({ text: 'saved', next: null })
+await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
+assert(new Headers(last().init.headers).get('X-Tifa-Build') === 'b1', `build header ${JSON.stringify(last().init.headers)}`)
+
+// A 409 that names a build is the server refusing a page of another one. The page reloads and
+// the call fails with the message, since the write is not sent again: the page may mean
+// another input by it now. The 409 of a handler names no build and is a result like any other.
+const staleBuild = () => Response.json({ error: 'the application was updated, reload the page' }, { status: 409, headers: { 'X-Tifa-Build': 'b2' } })
+answer = staleBuild
+before = invalidated()
+const sentBeforeStale = requests.length
+const updated = await caught(POST({ params: { note: '1' }, input: { text: 'hi', next: null } }))
+assert(updated instanceof TifaError && updated.status === 409 && /reload the page/.test(updated.message), `409 of another build: ${updated}`)
+assert(reloads() === 1 && requests.length === sentBeforeStale + 1 && invalidated() === before, `409 of another build: reloads ${reloads()}, requests ${requests.length - sentBeforeStale}`)
+// A page that reloaded for that build and meets it again shows the failure and does not reload.
+resetReloads()
+const stillStale = await caught(POST({ params: { note: '1' }, input: { text: 'hi', next: null } }))
+assert(stillStale instanceof TifaError && stillStale.status === 409 && reloads() === 1, `409 of the same build again: ${stillStale}, reloads ${reloads()}`)
+resetReloads()
+answer = () => Response.json({ error: 'shipped already' }, { status: 409 })
+const handlerConflict = await caught(POST({ params: { note: '1' }, input: { text: 'hi', next: null } }))
+assert(handlerConflict instanceof TifaError && handlerConflict.message === 'shipped already' && reloads() === 1, `409 of the handler: ${handlerConflict}, reloads ${reloads()}`)
+// A handler that writes its own response gets the Response, and the page reloads as well.
+resetReloads()
+storage.clear()
+answer = staleBuild
+const rawStale = await PUT({ params: { note: '1' } })
+assert(rawStale.status === 409 && reloads() === 2, `raw 409: ${rawStale.status}, reloads ${reloads()}`)
 
 console.log('call: ok')

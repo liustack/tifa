@@ -5,6 +5,7 @@ import { createAppRouter } from './router'
 import { bootElementId, collector, injected, RouteError, rootElementId, sameURL, type Boot, type Source } from './data'
 import { defaultHTMLAttributes, followHead, noteHTMLAttributes, syncHead, syncHTMLAttributes, type HTMLAttributes } from './head'
 import { setRouter } from './call'
+import { watchChunks } from './skew'
 
 // rootOptions has React report on the console what an error boundary catches, as it does by
 // default, but for a 404: that is an answer of Go, which the Error of its route shows, no bug.
@@ -22,12 +23,14 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
   const root = document.getElementById(rootElementId)
   if (!root) throw new Error(`the page has no element #${rootElementId} to render into`)
   const boot = document.getElementById(bootElementId)
+  // The build ID of the page: its dehydrated data has it, or the data of a page without SSR.
+  let buildId = ''
+  watchChunks(() => buildId)
   if (!boot) {
-    let buildId = ''
     const router = createAppRouter(routeTree, collector(() => buildId), {
       onHydrate: (id) => (buildId = id),
     })
-    setRouter(router)
+    setRouter(router, () => buildId)
     const hydrated = takeOver(router, htmlAttributes)
     // What TanStack's RouterClient renders, with the promise of takeOver in place of its own.
     hydrateRoot(root, <Await promise={hydrated}>{() => <RouterProvider router={router} />}</Await>, rootOptions)
@@ -37,7 +40,8 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
   // of the root Layout at once, and those of the routes once they have loaded.
   syncHTMLAttributes([], htmlAttributes)
   const input: Boot = JSON.parse(boot.textContent ?? '')
-  const live = collector(() => input.buildId)
+  buildId = input.buildId
+  const live = collector(() => buildId)
   const local = injected(input)
   let first = true
   // The first load reads the injected data. Later loads, invalidations included, ask the server.
@@ -47,7 +51,7 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
   void router.load().then(() => {
     first = false
     followHead(router, htmlAttributes)
-    setRouter(router)
+    setRouter(router, () => buildId)
     syncHead(router.stores.matches.get())
     syncHTMLAttributes(router.stores.matches.get(), htmlAttributes)
     createRoot(root, rootOptions).render(<RouterProvider router={router} />)

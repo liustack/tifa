@@ -5,7 +5,9 @@
 // with the header X-Tifa-Route listing the route IDs and X-Tifa-Build carrying the build ID the
 // page was rendered with. The answer is a JSON object of RouteResult by route ID, each route
 // read on its own whatever the HTTP status. A redirect comes as 200 and Redirected. A server
-// built from other sources answers 409, and the browser reloads the current page.
+// built from other sources answers 409, and the browser reloads the current page (skew.ts).
+
+import { reloadForBuild } from './skew'
 
 // RouteResult is the outcome of one Load. status is 200 with data, 404 when the Load returned
 // tifa.ErrNotFound, a redirect status with location when it returned c.Redirect, or the status
@@ -66,6 +68,9 @@ export class RouteError extends Error {
 }
 
 export const routeHeader = 'X-Tifa-Route'
+
+// buildHeader carries the build ID of the page on its requests, the data requests and the calls
+// of handler functions. A server of another build answers 409 with its own build ID in it.
 export const buildHeader = 'X-Tifa-Build'
 
 // A handler function of call.ts sends callHeader. A redirect then comes as 200 and Redirected,
@@ -134,13 +139,12 @@ export function collector(buildId: () => string): Source {
           [buildHeader]: buildId(),
         },
       })
-      if (response.status === 409) {
-        // The server runs another build. Reload the current page from it, once however many
-        // requests got 409, and leave the loaders pending, so the router commits no state for
-        // the old build meanwhile. A late 409 of a preload never leaves the current page.
-        reloadOnce()
-        return
-      }
+      // The server runs another build and names it in buildHeader (a server of before did not).
+      // Reload the current page from it, once however many requests got 409, and leave the
+      // loaders pending, so the router commits no state for the old build meanwhile. A late 409
+      // of a preload never leaves the current page. A page that has reloaded for that build
+      // falls through: the answer is no grouped result, so every loader fails with the 409.
+      if (response.status === 409 && reloadForBuild(response.headers.get(buildHeader) ?? '')) return
       if (response.type === 'opaqueredirect') {
         window.location.assign(url)
         return
@@ -177,14 +181,6 @@ export function collector(buildId: () => string): Source {
         setTimeout(flush, 0)
       }
     })
-}
-
-let reloading = false
-
-function reloadOnce() {
-  if (reloading) return
-  reloading = true
-  window.location.reload()
 }
 
 // Redirected is the answer to a data request that OnRequest, a Load the middleware let

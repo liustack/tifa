@@ -2,11 +2,12 @@
 // they do in the browser, with the reactive stores the head code subscribes to, against a
 // document that has just what that code uses.
 import { readFileSync } from 'node:fs'
-import { createMemoryHistory } from '@tanstack/react-router'
+import { createMemoryHistory, lazyRouteComponent } from '@tanstack/react-router'
 import { htmlAttributes, routeTree } from './.tifa/routes'
 import { createAppRouter } from './.tifa/runtime/router'
 import { bootElementId, collector, rootElementId, type RouteResult } from './.tifa/runtime/data'
 import { setRouter } from './.tifa/runtime/call'
+import { resetReloads, watchChunks } from './.tifa/runtime/skew'
 import { POST } from './app/api/notes/note+/route.gen'
 import { hydrate, takeOver } from './.tifa/runtime/browser'
 import { attributes, followHead, headHTML, htmlAttributesOf, setAttributes, syncHead, syncHTMLAttributes, type Tag } from './.tifa/runtime/head'
@@ -410,7 +411,7 @@ test('a write resolves once the page shows its new data', async () => {
   try {
     const router = createAppRouter(routeTree, collector(() => 'b1'), { history: createMemoryHistory({ initialEntries: ['/a/two'] }) })
     await router.load()
-    setRouter(router)
+    setRouter(router, () => 'b1')
     const shown = () => router.state.matches.map((m) => m.loaderData).filter((d) => d !== undefined).join(', ')
     assert(shown() === 'app/layout 1, app/a/layout 1, app/a/two/route 1', `first load ${shown()}`)
     await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
@@ -442,7 +443,7 @@ test('a redirect of a handler call loads the target once, with fresh data', asyn
   try {
     const router = createAppRouter(routeTree, collector(() => 'b1'), { history: createMemoryHistory({ initialEntries: ['/a/one'] }) })
     await router.load()
-    setRouter(router)
+    setRouter(router, () => 'b1')
     fetched.splice(0)
     // shown is the data of the page once the promise resolved.
     const shown = () =>
@@ -488,7 +489,7 @@ test('a redirect to the page that shows, spelled another way, reloads its data i
     const history = createMemoryHistory({ initialEntries: ['/a/two?b=x+y&a=1'] })
     const router = createAppRouter(routeTree, collector(() => 'b1'), { history })
     await router.load()
-    setRouter(router)
+    setRouter(router, () => 'b1')
     fetched.splice(0)
     const href = router.state.location.href
     const entries = history.length
@@ -497,6 +498,58 @@ test('a redirect to the page that shows, spelled another way, reloads its data i
     assert(fetched.length === 1 && fetched[0].startsWith('/a/two?'), `requests ${fetched.join(' | ')}`)
     assert(shown() === 'app/layout 1, app/a/layout 1, app/a/two/route 1', `shown ${shown()}`)
     assert(router.state.location.href === href && history.length === entries, `at ${router.state.location.href}, ${history.length} entries`)
+  } finally {
+    Object.assign(g, saved)
+  }
+})
+
+// TanStack Router reloads the page by itself, once for each message, when the module of a lazy
+// route is missing. That reload is the page's, so a page that has reloaded for its build must
+// not reload a second time because of it: the failure goes to the Error of the route.
+test('a route chunk that still fails after the reload shows its error and the router does not reload again', async () => {
+  const saved = { location: g.location, sessionStorage: g.sessionStorage, addEventListener: g.addEventListener }
+  const items = new Map<string, string>()
+  let reloads = 0
+  let listener: (event: any) => void = () => {}
+  g.location = { reload: () => reloads++ }
+  g.sessionStorage = { getItem: (key: string) => items.get(key) ?? null, setItem: (key: string, value: string) => void items.set(key, value) }
+  g.addEventListener = (type: string, fn: (event: any) => void) => void (type === 'vite:preloadError' && (listener = fn))
+  resetReloads()
+  try {
+    watchChunks(() => 'b1')
+    const failure = () => new TypeError('Failed to fetch dynamically imported module: http://tifa.test/assets/chunk-1.js')
+    const event = () => ({ payload: failure(), defaultPrevented: false, preventDefault() { this.defaultPrevented = true } })
+    // What the router does with a failed module on its own: it reloads, then suspends for good.
+    const alone = failure()
+    const Alone: any = lazyRouteComponent(() => Promise.reject(alone))
+    await Alone.preload()
+    let thrown: unknown
+    try {
+      Alone({})
+    } catch (error) {
+      thrown = error
+    }
+    assert(thrown instanceof Promise && reloads === 1, `the router alone: thrown ${thrown}, reloads ${reloads}`)
+    items.clear()
+    reloads = 0
+    // The first failure of the page reloads it. The reloaded page, with a storage that knows it,
+    // gets the failure as an error.
+    const first = event()
+    listener(first)
+    assert(first.defaultPrevented && reloads === 1, `first: prevented ${first.defaultPrevented}, reloads ${reloads}`)
+    resetReloads()
+    const second = event()
+    listener(second)
+    assert(!second.defaultPrevented && reloads === 1, `second: prevented ${second.defaultPrevented}, reloads ${reloads}`)
+    const Lazy: any = lazyRouteComponent(() => Promise.reject(second.payload))
+    await Lazy.preload()
+    thrown = undefined
+    try {
+      Lazy({})
+    } catch (error) {
+      thrown = error
+    }
+    assert(thrown === second.payload && reloads === 1, `the router after the page reloaded: thrown ${thrown}, reloads ${reloads}`)
   } finally {
     Object.assign(g, saved)
   }
