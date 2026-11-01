@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -188,6 +189,8 @@ func TestEveryRequestComputesAndRenders(t *testing.T) {
 	targets := env.Targets()
 	tifa := targets[0]
 	tifa.Prog = exe
+	countsAddr := freeAddr(t)
+	tifa.Env = append(tifa.Env, "COMPARE_COUNTS_ADDR="+countsAddr)
 
 	perPage := map[string]map[string]int64{} // server -> page -> calls of ordersOf for one request
 	for _, target := range []compare.Target{tifa, targets[1], targets[3]} {
@@ -196,11 +199,15 @@ func TestEveryRequestComputesAndRenders(t *testing.T) {
 			t.Fatal(err)
 		}
 		node := target.Name != "tifa"
+		counts := server.Base
+		if !node {
+			counts = "http://" + countsAddr
+		}
 		perPage[target.Name] = map[string]int64{}
 		for _, page := range compare.Pages {
-			before := readCounts(t, server.Base)
+			before := readCounts(t, counts)
 			render := fetchRender(t, server.Base, page)
-			one := diffCounts(before, readCounts(t, server.Base))
+			one := diffCounts(before, readCounts(t, counts))
 			if one["ordersOf"] <= 0 {
 				t.Errorf("%s, %s: one request made no query of the orders: %v", target.Name, page.Name, one)
 			}
@@ -215,13 +222,13 @@ func TestEveryRequestComputesAndRenders(t *testing.T) {
 				t.Errorf("%s, %s: X-Tifa-Render is %q, want vm", target.Name, page.Name, render)
 			}
 
-			before = readCounts(t, server.Base)
+			before = readCounts(t, counts)
 			for range requests {
 				if r := fetchRender(t, server.Base, page); !node && r != "vm" {
 					t.Errorf("%s, %s: X-Tifa-Render is %q, want vm", target.Name, page.Name, r)
 				}
 			}
-			many := diffCounts(before, readCounts(t, server.Base))
+			many := diffCounts(before, readCounts(t, counts))
 			for key, n := range many {
 				if n != requests*one[key] {
 					t.Errorf("%s, %s: %d requests made %d of %s, want %d", target.Name, page.Name, requests, n, key, requests*one[key])
@@ -331,4 +338,15 @@ func fetchRender(t *testing.T, base string, page compare.Page) string {
 		t.Fatal(err)
 	}
 	return header.Get("X-Tifa-Render")
+}
+
+// freeAddr returns a loopback address with a port no one listens on now.
+func freeAddr(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	return ln.Addr().String()
 }
