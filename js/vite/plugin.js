@@ -737,47 +737,6 @@ const keyOrIndexSource = `            name = null,
                   ? 0
                   : childIndex
                 : key;`
-// escapeCacheSize is how much the cache of escapes holds in each VM, in UTF-16 code units: the
-// strings and their escapes, and escapeEntrySize more for each entry, which stands for the memory
-// an entry of the Map takes besides its strings. So many short strings cannot take more memory
-// than a few long ones. Full, the cache takes about 0.5 to 2 MB of VM memory, the most for strings
-// of a little over 8,192 code units outside Latin-1.
-const escapeCacheSize = 1 << 18
-const escapeEntrySize = 64
-// The loop of escapeTextForBrowser in React's string renderer that escapes a string one character
-// at a time.
-const escapeLoop = `  var match = matchHtmlRegExp.exec(text);
-  if (match) {
-    var html = "",
-      index,
-      lastIndex = 0;
-    for (index = match.index; index < text.length; index++) {
-      switch (text.charCodeAt(index)) {
-        case 34:
-          match = "&quot;";
-          break;
-        case 38:
-          match = "&amp;";
-          break;
-        case 39:
-          match = "&#x27;";
-          break;
-        case 60:
-          match = "&lt;";
-          break;
-        case 62:
-          match = "&gt;";
-          break;
-        default:
-          continue;
-      }
-      lastIndex !== index && (html += text.slice(lastIndex, index));
-      lastIndex = index + 1;
-      html += match;
-    }
-    text = lastIndex !== index ? html + text.slice(lastIndex, index) : html;
-  }
-  return text;`
 // The function of React's string renderer that puts an element on the component stack of a task,
 // and the code in renderNodeDestructive that puts each node on it and takes it off again.
 const stackPush = `function pushComponentStack(task) {
@@ -1368,25 +1327,14 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         const react = `react-dom ${packageVersion(path.resolve(id, '..', '..'))}: ${id}`
         let source = fs.readFileSync(id, 'utf8')
         const reviewed = reviewedRenderers.has(createHash('sha256').update(source).digest('hex'))
-        const cached = cacheEscapes(source)
-        if (cached) {
-          source = cached
+        const asked = askEngineToEscape(source)
+        if (asked) {
+          source = asked
         } else {
           this.warn(
             `${react} has no matchHtmlRegExp and escapeTextForBrowser in the form the tifa plugin knows, so ` +
-              'the tifa plugin does not cache the escapes of the HTML React writes or ask the engine to escape ' +
-              'them. Pages render the same, but texts and attribute values take longer to render',
-          )
-        }
-        const chained = chainEscapes(source)
-        if (chained) {
-          source = chained
-        } else {
-          this.warn(
-            `${react} has no loop over the characters of a text in escapeTextForBrowser in the form the tifa ` +
-              'plugin knows, so the tifa plugin does not escape them with replaceAll. Pages render the same, but ' +
-              'texts and attribute values with & < > " or \' in them that the cache of escapes does not hold take ' +
-              'longer to render',
+              'the tifa plugin does not ask the engine to escape the HTML React writes. Pages render the same, ' +
+              'but texts and attribute values take longer to render',
           )
         }
         const joined = joinSegmentChunks(source)
@@ -2022,51 +1970,23 @@ function nativeCopyProps(source) {
   return { source: out + propsNative, missing }
 }
 
-// cacheEscapes returns the source of React's string renderer with escapeTextForBrowser asking the
-// engine first, and with a cache in front of it when the VM has no engine escape, or null when the
-// source does not have it in the form it knows. React escapes every text and attribute value it
-// writes. __tifa_escape, which internal/ssr defines in each VM, is that function written in C in
-// the engine and gives the same text for every argument (the tests compare it with React's function
-// on every UTF-16 code unit, among other things). escapeTextForBrowser becomes the engine's
-// function itself when the VM has it, so a call of it is one call, and the function below
-// otherwise, which is how the bundle runs where the VM has none. That is a variable and not a
-// function declaration, so the plugin changes the source only when its name does not come before
-// the declaration, which would call it before it holds the function.
-//
-// The function below is the cache. A string with nothing to escape costs one search of the regular
-// expression, but one with & < > " or ' goes through a loop over each character, which takes long
-// in QuickJS. Such strings are mostly the same from render to render, like the class names of
-// Tailwind CSS ([&_svg]:size-4, has-[>svg]:px-3), so the cache keeps their escapes, keyed by the
-// string. It holds escapeCacheSize code units, and when the next string does not fit it starts over
-// empty: texts of the data, which differ in each request, fill it, and the strings every render
-// writes come back at the next render. A string larger than the whole cache is not kept. The cache
-// lives in the module, so each VM has its own. It searches with exec, which takes less time in
-// QuickJS than test: test looks up exec and calls it.
-function cacheEscapes(source) {
+// askEngineToEscape returns the source of React's string renderer with escapeTextForBrowser asking
+// the engine first, or null when the source does not have it in the form it knows. React escapes
+// every text and attribute value it writes. __tifa_escape, which internal/ssr defines in each VM, is
+// that function written in C in the engine and gives the same text for every argument (the tests
+// compare it with React's function on every UTF-16 code unit, among other things).
+// escapeTextForBrowser becomes the engine's function itself when the VM has it, so a call of it is
+// one call, and React's own function otherwise, which is how the bundle runs where the VM has none.
+// That is a variable and not a function declaration, so the plugin changes the source only when its
+// name does not come before the declaration, which would call it before it holds the function.
+function askEngineToEscape(source) {
   if (source.split(escapeSource).length !== 2) return null
   // The name's first place in the source is the declaration's.
   if (source.indexOf('escapeTextForBrowser') !== source.indexOf(escapeSource) + escapeSource.indexOf('escapeTextForBrowser')) return null
-  const cached = `matchHtmlRegExp = /["'&<>]/;
-var tifaEscapes = new Map(),
-  tifaEscapesSize = 0;
-function tifaCachedEscapeText(text) {
-  if ("string" !== typeof text) return tifaEscapeTextForBrowser(text);
-  if (null === matchHtmlRegExp.exec(text)) return text;
-  var escaped = tifaEscapes.get(text);
-  if (void 0 === escaped) {
-    escaped = tifaEscapeTextForBrowser(text);
-    var size = text.length + escaped.length + ${escapeEntrySize};
-    if (size <= ${escapeCacheSize}) {
-      tifaEscapesSize + size > ${escapeCacheSize} && (tifaEscapes.clear(), (tifaEscapesSize = 0));
-      tifaEscapes.set(text, escaped);
-      tifaEscapesSize += size;
-    }
-  }
-  return escaped;
-}
-var escapeTextForBrowser = "function" === typeof __tifa_escape ? __tifa_escape : tifaCachedEscapeText;
+  const asked = `matchHtmlRegExp = /["'&<>]/;
+var escapeTextForBrowser = "function" === typeof __tifa_escape ? __tifa_escape : tifaEscapeTextForBrowser;
 function tifaEscapeTextForBrowser(text) {`
-  return source.replace(escapeSource, () => sameLines(escapeSource, cached))
+  return source.replace(escapeSource, () => sameLines(escapeSource, asked))
 }
 
 // hashInGo returns the source of murmur2, source, asking __tifa_murmur2__ first, which hashes a
@@ -2325,26 +2245,6 @@ function clsxFast(source) {
     'export function clsx(a,b,c,d,e,g){if(arguments.length>6)return tifaClsx.apply(null,arguments);var s="",t;' +
     `${join('a', true)}${join('b')}${join('c')}${join('d')}${join('e')}${join('g')}return s}`
   return source.replace('export function clsx(){for(var ', () => `${fast}function tifaClsx(){for(var `)
-}
-
-// chainEscapes returns the source of React's string renderer with escapeTextForBrowser escaping
-// each of the five characters it escapes with one replaceAll, or null when the source does not
-// have its loop over the characters in the form it knows. The loop handles one character at a
-// time, which takes long in QuickJS, and replaceAll runs in the engine. Both give the same text:
-// each character becomes its entity, & first, so the & of the other entities stays as it is, and
-// no entity has any of the other four characters in it. A string without them comes back as it
-// is, without a call of replaceAll.
-function chainEscapes(source) {
-  if (source.split(escapeLoop).length !== 2) return null
-  const chained = `  null !== matchHtmlRegExp.exec(text) &&
-    (text = text
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#x27;"));
-  return text;`
-  return source.replace(escapeLoop, () => sameLines(escapeLoop, chained))
 }
 
 // inlineAttributeCalls returns the source of React's string renderer with pushAttribute writing the
