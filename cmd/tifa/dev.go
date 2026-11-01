@@ -145,6 +145,9 @@ func (p *devPipeline) Analyze(context.Context) (string, error) {
 	return fingerprint(files), nil
 }
 
+// Embedded says which files the Go code embeds, as the last analysis saw them.
+func (p *devPipeline) Embedded() func(string) bool { return p.m.Embedded.Has }
+
 // PollFiles makes Vite's dev server poll the files, see bundle.Dev.PollFiles.
 func (p *devPipeline) PollFiles(context.Context) (bool, error) { return p.front.PollFiles() }
 

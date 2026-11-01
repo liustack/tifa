@@ -478,3 +478,33 @@ func TestWatcherFollowsARetargetedLink(t *testing.T) {
 	writeFile(t, second, "kit/a/b/new.tsx", "export const edited = 1")
 	expectBatch(t, dir, w, change{"app/kit/a/b/new.tsx", modified})
 }
+
+// A file the Go code embeds is tracked from the moment the watcher is told, without a report for
+// the files it picks up, and is dropped, again without a report, once nothing embeds it.
+func TestWatcherTracksEmbeddedFiles(t *testing.T) {
+	dir := newApp(t)
+	writeFile(t, dir, "app/posts/a.md", "# A")
+	writeFile(t, dir, "app/posts/_draft.md", "# draft")
+	w := startWatcher(t, dir)
+	// Nothing says the markdown is embedded yet.
+	writeFile(t, dir, "app/posts/a.md", "# A edited")
+	expectBatch(t, dir, w)
+
+	posts := func(rel string) bool { return strings.HasPrefix(rel, "app/posts/") && !strings.Contains(rel, "/_") }
+	w.setEmbedded(posts)
+	writeFile(t, dir, "app/posts/a.md", "# A edited again")
+	expectBatch(t, dir, w, change{"app/posts/a.md", modified})
+	writeFile(t, dir, "app/posts/b.md", "# B")
+	expectBatch(t, dir, w, change{"app/posts/b.md", created})
+	writeFile(t, dir, "app/posts/_draft.md", "# draft edited")
+	expectBatch(t, dir, w)
+	if err := os.Remove(filepath.Join(dir, "app/posts/b.md")); err != nil {
+		t.Fatal(err)
+	}
+	expectBatch(t, dir, w, change{"app/posts/b.md", removed})
+
+	// A file that is not embedded any more is not a removed file.
+	w.setEmbedded(func(rel string) bool { return false })
+	writeFile(t, dir, "app/posts/a.md", "# A last")
+	expectBatch(t, dir, w)
+}

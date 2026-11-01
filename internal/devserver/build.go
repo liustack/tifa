@@ -23,6 +23,12 @@ type Pipeline interface {
 	Bundle(ctx context.Context) (detail string, err error)
 	// GoBuild builds the application executable that Options.App runs.
 	GoBuild(ctx context.Context) error
+	// Embedded reports whether the Go code of the application embeds the file rel with go:embed.
+	// rel is relative to the application directory and uses forward slashes, and also names a
+	// file that does not exist yet but that a pattern would take. It answers for the last analysis
+	// that worked, so call it after Analyze returned without an error. The function is never nil
+	// and may be called from any goroutine.
+	Embedded() func(rel string) bool
 	// PollFiles makes Vite's dev server poll the files too, once tifa dev's watcher found the
 	// system short of watches. It may run while a step runs. polling reports whether the dev
 	// server polls, it does not when its watcher takes no watch per file.
@@ -93,20 +99,30 @@ func kindOf(p string) kind {
 	return other
 }
 
-// plan decides the steps for a batch of changes:
+// plan decides the steps for a batch of changes. embedded, when not nil, says which files the Go code
+// embeds:
 //   - TypeScript, JavaScript and CSS only need a new bundle.
 //   - Go needs a new analysis and a go build. The builder adds code generation and a bundle
 //     when the analysis returns a new route manifest.
 //   - A page.tsx, layout.tsx or layout_.tsx that appears or disappears changes the manifest, so
 //     does tifa.yaml.
+//   - A file the Go code embeds is part of the program, whatever its kind, so it needs a go build.
+//     A file that appears or disappears may change which files are embedded, so it needs the
+//     analysis too. An embedded front end file needs the bundle as well.
 //   - A restart of Vite's dev server needs a new bundle, as a file outside the root may have
 //     changed meanwhile with no event.
-func plan(changes []change) steps {
+func plan(changes []change, embedded func(rel string) bool) steps {
 	var s steps
 	for _, c := range changes {
 		if c.op == restarted {
 			s.bundle = true
 			continue
+		}
+		if embedded != nil && embedded(c.path) {
+			s.goBuild = true
+			if c.op != modified {
+				s.analyze = true
+			}
 		}
 		switch kindOf(c.path) {
 		case goSource:
@@ -129,7 +145,9 @@ type builder struct {
 	p        Pipeline
 	log      func(format string, args ...any) // one line per step that ran
 	manifest string                           // fingerprint of the last successful analysis
-	pending  steps                            // steps a failed rebuild left undone, run again with the next one
+	// learn, when not nil, gets what Pipeline.Embedded answers after each analysis that worked.
+	learn   func(embedded func(rel string) bool)
+	pending steps // steps a failed rebuild left undone, run again with the next one
 	// A step that takes longer than slow logs that it still runs, then again every every.
 	// Zero means defaultSlow and defaultEvery.
 	slow, every time.Duration
@@ -212,6 +230,9 @@ func (b *builder) build(ctx context.Context, s steps, needBundle func()) (steps,
 		})
 		if err != nil {
 			return steps{}, err
+		}
+		if b.learn != nil {
+			b.learn(b.p.Embedded())
 		}
 		if fp != b.manifest {
 			b.log("route manifest changed")

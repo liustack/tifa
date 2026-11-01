@@ -114,6 +114,7 @@ type analyzer struct {
 	pkgs   []*packages.Package // app packages and the root package
 	byDir  map[string]*packages.Package
 	rootPk *packages.Package // nil without hooks.go
+	embed  *Embedded         // what the packages of the module embed with go:embed
 	broken map[string]bool   // directory IDs of packages skipped because they or their imports do not type check
 	// appPkgs holds the import paths of pkgs, modulePkgs those of every package in the module.
 	appPkgs, modulePkgs map[string]bool
@@ -230,7 +231,7 @@ func (a *analyzer) load() error {
 	a.fset = token.NewFileSet()
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedImports | packages.NeedSyntax |
-			packages.NeedTypes | packages.NeedTypesInfo | packages.NeedModule,
+			packages.NeedTypes | packages.NeedTypesInfo | packages.NeedModule | packages.NeedEmbedFiles | packages.NeedEmbedPatterns,
 		Dir:  a.root,
 		Fset: a.fset,
 		// The application is built with cgo off, so the same files are analyzed.
@@ -264,6 +265,7 @@ func (a *analyzer) load() error {
 			roots = append(roots, p)
 		}
 	}
+	a.embed = a.embedded(pkgs)
 	a.byDir = map[string]*packages.Package{}
 	a.broken = map[string]bool{}
 	a.appPkgs = map[string]bool{}
@@ -454,7 +456,7 @@ func (a *analyzer) build() *Manifest {
 	a.checkDirectCalls()
 	a.propagateQuery(routes, layouts)
 
-	m := &Manifest{Module: a.module, Hooks: a.hooks()}
+	m := &Manifest{Module: a.module, Hooks: a.hooks(), Embedded: a.embed}
 	for _, l := range layouts {
 		m.Layouts = append(m.Layouts, l.Layout)
 	}

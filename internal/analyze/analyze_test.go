@@ -827,3 +827,54 @@ func TestRouteGoWithLayoutOnlyAndWithHandler(t *testing.T) {
 		t.Errorf("Routes = %+v, want %+v", routes, wantRoutes)
 	}
 }
+
+// The files and patterns of go:embed lines are what tifa dev watches besides the sources: a
+// change to one rebuilds the program. testdata/embed embeds a folder, a folder with all:, a file
+// and a glob, one of them in a package outside app/.
+func TestManifestKnowsTheEmbeddedFiles(t *testing.T) {
+	m, err := analyzeApp(t, "embed")
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	for _, rel := range []string{
+		"app/notes/posts/a.md", "app/notes/posts/b.md", "app/notes/schema.json",
+		"app/notes/data/x.txt", "app/notes/raw/.keep", "app/notes/raw/_x.txt",
+		"internal/mail/templates/welcome.html",
+	} {
+		if !m.Embedded.Has(rel) {
+			t.Errorf("%s is embedded and Has says it is not", rel)
+		}
+	}
+	// The files the go command leaves out: a name that starts with . or _ below an embedded
+	// folder (all: keeps them), a file no pattern names and one outside every package.
+	for _, rel := range []string{
+		"app/notes/posts/_draft.md", "app/notes/posts/.hidden", "app/notes/data/z.csv",
+		"app/notes/route.go", "app/notes/page.tsx", "internal/mail/mail.go", "README.md",
+	} {
+		if m.Embedded.Has(rel) {
+			t.Errorf("%s is not embedded and Has says it is", rel)
+		}
+	}
+	// A file that does not exist yet but the patterns would take, which tifa dev learns when it
+	// is created.
+	for _, rel := range []string{"app/notes/posts/new.md", "app/notes/posts/2026/c.md", "app/notes/data/w.txt", "app/notes/raw/_new.txt", "internal/mail/templates/bye.html"} {
+		if !m.Embedded.Has(rel) {
+			t.Errorf("%s would be embedded and Has says it would not", rel)
+		}
+	}
+	for _, rel := range []string{"app/notes/posts/2026/_c.md", "app/notes/data/sub/w.txt", "app/notes/schema2.json", "app/other/posts/a.md"} {
+		if m.Embedded.Has(rel) {
+			t.Errorf("%s would not be embedded and Has says it would", rel)
+		}
+	}
+}
+
+func TestEmbeddedIsEmptyWhenNothingIsEmbedded(t *testing.T) {
+	m, err := analyzeApp(t, "valid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Embedded.Has("app/projects/data.json") {
+		t.Error("valid embeds nothing")
+	}
+}

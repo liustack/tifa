@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/liustack/tifa/js"
@@ -206,6 +207,10 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 		}
 	}()
 
+	d.b.learn = func(embedded func(string) bool) {
+		d.embedded.Store(&embedded)
+		w.setEmbedded(embedded)
+	}
 	w.changes.setBuilding(true)
 	d.rebuild(ctx, everything)
 	close(d.first)
@@ -214,7 +219,7 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 		for _, c := range batch {
 			d.log.Printf("%s %s", c.path, c.op)
 		}
-		d.rebuild(ctx, plan(batch))
+		d.rebuild(ctx, plan(batch, d.isEmbedded))
 	})
 
 	d.mu.Lock()
@@ -299,6 +304,9 @@ type dev struct {
 	hub       *hub
 	log       *log.Logger
 	nonce     string // makes versions unique across runs of tifa dev
+	// embedded says which files the Go code embeds, as the last analysis that worked saw it. Nil
+	// before the first one.
+	embedded atomic.Pointer[func(string) bool]
 
 	mu       sync.Mutex
 	gen      int    // generation of the newest app started
@@ -310,6 +318,12 @@ type dev struct {
 	// bundling is closed once the rebuild of the SSR bundle that runs now has an app serving it,
 	// nil when none runs.
 	bundling chan struct{}
+}
+
+// isEmbedded reports whether the Go code embeds the file rel, as the last analysis that worked saw it.
+func (d *dev) isEmbedded(rel string) bool {
+	embedded := d.embedded.Load()
+	return embedded != nil && (*embedded)(rel)
 }
 
 // busy returns a channel that is closed once the SSR bundle being rebuilt is served, nil when

@@ -591,3 +591,58 @@ func TestDevRebuildsAfterViteRestarts(t *testing.T) {
 	writeFunc(t)(card, "export const card = 'outside-two'\n")
 	waitBody(t, d.base+"/", "outside-two", d)
 }
+
+// A file the Go code embeds with go:embed is part of the program, whatever its kind: editing a
+// markdown file builds and restarts the app, though no Go source changed.
+func TestDevEmbeddedFiles(t *testing.T) {
+	skipUnlessEnabled(t)
+	if runtime.GOOS == "windows" {
+		t.Skip("tifa dev needs interrupts, which Windows lacks")
+	}
+	dir := devApp(t)
+	write := func(name, content string) {
+		t.Helper()
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("app/shops/shop+/notes.go", "package shop\n\nimport \"embed\"\n\n//go:embed notes\nvar notes embed.FS\n")
+	write("app/shops/shop+/notes/a.md", "first")
+	route, err := os.ReadFile(filepath.Join(dir, "app/shops/shop+/route.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const name = `Name: "Shop " + id`
+	if !strings.Contains(string(route), name) {
+		t.Fatalf("route.go lacks %q", name)
+	}
+	write("app/shops/shop+/route.go", strings.Replace(string(route), name, "Name: \"Shop \" + id + \" \" + note()", 1)+
+		"\nfunc note() string {\n\ta, _ := notes.ReadFile(\"notes/a.md\")\n\tb, _ := notes.ReadFile(\"notes/b.md\")\n\treturn string(a) + string(b)\n}\n")
+
+	d := startDev(t, dir)
+	d.waitLog(t, 0, ready)
+	v1 := d.waitStatus(t, func(st devStatus) bool { return st.Version != "" && st.Error == "" }).Version
+	expectBody(t, d.base+"/shops/north", "Shop north first")
+
+	// An edit of the markdown needs go build and nothing else.
+	mark := d.edit(t, "app/shops/shop+/notes/a.md", "first", "second")
+	expectSteps(t, "markdown edit", d.waitLog(t, mark, ready), "go build")
+	v2 := d.waitStatus(t, func(st devStatus) bool { return st.Version != v1 && st.Error == "" }).Version
+	expectBody(t, d.base+"/shops/north", "Shop north second")
+
+	// A new file in the embedded folder may change what is embedded, so the analysis runs too.
+	mark = len(d.log.String())
+	write("app/shops/shop+/notes/b.md", "!")
+	expectSteps(t, "new markdown", d.waitLog(t, mark, ready), "static analysis", "go build")
+	d.waitStatus(t, func(st devStatus) bool { return st.Version != v2 && st.Error == "" })
+	expectBody(t, d.base+"/shops/north", "Shop north second!")
+
+	// A markdown file nothing embeds triggers nothing.
+	write("README.md", "# readme")
+	mark = d.edit(t, "app/page.tsx", "North shop", "North store")
+	expectSteps(t, "unrelated markdown", d.waitLog(t, mark, ready), "bundle")
+}
