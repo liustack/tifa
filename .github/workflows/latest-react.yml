@@ -74,6 +74,12 @@ jobs:
             (cd "$dir" && node -p "'$dir: react ' + require('react/package.json').version + ', react-dom ' + require('react-dom/package.json').version")
           done
 
+      # What a reviewer reads when a release changes React DOM: the parts of its string renderer that
+      # the table of the plugin does not have, with their lines and the lines to add to the table.
+      # See "Reviewing a new React" in docs/build.md. It never fails the job: the build below does.
+      - name: List the parts of the new React DOM to read
+        run: TIFA_REACT_UNITS=1 go test -count=1 -run TestListUnreviewedReactDOMUnits -v ./internal/bundle
+
       - name: Build the shop with the latest React and compare its pages
         run: |
           "$RUNNER_TEMP/tifa" build --dir examples/shop -o "$RUNNER_TEMP/shop-latest" 2>&1 | tee "$RUNNER_TEMP/shop-latest.log"
