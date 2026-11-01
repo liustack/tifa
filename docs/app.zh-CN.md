@@ -369,6 +369,7 @@ export function Error({ error }: { error: unknown }) {
 - 页面的状态码取最外层失败的那一层。
 - 服务器渲染页面时组件抛错，算意外错误：`OnError` 只看到它一次，由它决定状态码（没定义 `OnError` 时是 500）和公开的消息。接着页面带着这个错误再渲染一次，错误以 `RouteError` 放在页面的位置，于是从页面往上第一个 `Error` 在各层 Layout 里面显示它。这次渲染如果也失败（`Error` 或包着它的 Layout 抛错），错误就往上挪一层，放到页面所在 Layout 的位置，这样一直挪到最外层的 Layout，即根 Layout 或 `layout_.tsx`。错误放在那一层的位置还失败时，浏览器才拿到 Go 写的简单错误页，只有状态码和公开的消息。浏览器按服务器放错误的位置 hydrate，不再运行抛错的那个路由。这种回答不进缓存。错误栈只在 `tifa dev` 下显示，盖在显示 `Error` 的页面上，保存修复后页面自动刷新（见 [tifa dev](dev.zh-CN.md#页面渲染失败)）。
 - 服务器渲染用完 `ssr.vm_memory` 或超过 `ssr.timeout`（见 [config.zh-CN.md](config.zh-CN.md)）时当场停下。你的代码和库里的 `catch`、`finally`、promise 处理函数都不会为它运行，所以页面接不住它，也没法改成显示别的内容。VM 换成新的。用完 `ssr.vm_memory` 的渲染照上面那样在新的 VM 上带着错误再渲染。超过 `ssr.timeout` 或者遇上所有 VM 都忙的渲染不再重来，Go 立刻回答简单错误页。同一个请求的几次渲染共用一个 `ssr.timeout`，从第一次开始算，带着错误的渲染用完了它就不再往上试。无限递归的代码得到 `RangeError: Maximum call stack size exceeded`，和 Node 一样，`catch` 能接住（见[栈深度](config.zh-CN.md#栈深度)）。没有代码接住时，它和其他错误一样让渲染失败。
+- 显示错误的页面，head 和 `Load` 失败的页面一样。被错误顶替的那个路由在没有数据的情况下运行它的 `head`，它下面的路由不再添加标签，它上面每个路由的 `head` 会在现在的 matches 上重新运行一遍，所以 `status` 能告诉它有路由失败了（见[多语言网站](#多语言网站)）。路由为没渲染出来的页面给出的标签和 `htmlAttributes` 不会出现在错误页上。浏览器 hydrate 时算出的 head 也是同一份。
 - 浏览器接管之后组件抛错，显示最近的 `Error`，和 `Load` 失败一样。
 - 无论哪里失败，文档外壳都是完整的，页面照样加载脚本和样式。
 
@@ -392,7 +393,7 @@ func Layout(c *tifa.Ctx) (Shell, error) {
 
 - shop 在上一层的 `app/store` 放了 `layout_.tsx`，店面外面就不套工作台（见[不套外层的 Layout](#不套外层的-layout)）。它只渲染 `<Outlet />`，它的 `Error` 用中英两种语言显示店面没有的语言的 404，并分别链接到两种语言的店面，因为这时不知道访客要哪种语言。
 - 页面和组件从这份数据取语言，经 `layout.useLoaderData()` 或 Layout 组件提供的 context，不从 `params` 取：Go 函数检查过它，别人在 URL 里随便写的字不会变成页面的语言。Layout 下面的 `Load` 也这样检查，或者用 `tifa.Use` 读 Layout 的结果。
-- Layout 的 `head` 在 `<html>` 上写 `lang`，再链接到同一页的各语言版本，供搜索引擎读：每种语言一个，包括页面自己的，再加一个 `x-default`，给哪种语言都不要的浏览器，这里用默认语言。搜索引擎要完整的 URL。`matches` 是页面的各层路由，页面在最后。其中任何一层的 `status` 不是 `success`（`Load` 失败），或带 `_notFound` 标记（这个 URL 没有页面，由匹配到的最深 Layout 显示 404）时，页面显示的是错误，head 就不写这些链接：回 404 的 URL 不该让搜索引擎指向它，不论哪种语言。`lang` 照旧写。head 是这样写的：
+- Layout 的 `head` 在 `<html>` 上写 `lang`，再链接到同一页的各语言版本，供搜索引擎读：每种语言一个，包括页面自己的，再加一个 `x-default`，给哪种语言都不要的浏览器，这里用默认语言。搜索引擎要完整的 URL。`matches` 是页面的各层路由，页面在最后。其中任何一层的 `status` 不是 `success`（`Load` 失败，或组件在服务器渲染页面时抛错），或带 `_notFound` 标记（这个 URL 没有页面，由匹配到的最深 Layout 显示 404）时，页面显示的是错误，head 就不写这些链接：回 404 的 URL 不该让搜索引擎指向它，不论哪种语言。`lang` 照旧写。head 是这样写的：
 
 ```tsx
 // app/store/lang+/layout.tsx
