@@ -778,14 +778,35 @@ const keyPathMakers = [
 // a page never run in renderToString, and the others are those of useActionState and of a
 // Suspense fallback.
 const keyPathUses = '11 0 2'
-// The files of React's string renderer, by the SHA-256 of their text, for which the uses of key
-// paths were read to the end, every read of a key path in its code and whether it can run in
-// renderToString. The counts of keyPathUses cannot tell a read of a key path that is new, such as
-// its length, or one through another name, so the plugin makes no key path only in these files.
-// React DOM 19.3.1 differs from 19.3.0 in the line of its version alone.
-const reviewedRenderers = new Map([
-  ['5528f58d28f5e035dccbf0ebec7e593ed0b97cebae830b838756c27c100a8caa', 'react-dom 19.3.0'],
-  ['a470866a7a27a7f4fa69ef04e9bfdea0514fc9defdcc48bda43516b9ae2dfadd', 'react-dom 19.3.1'],
+// The parts of React's string renderer that can see a key path, by the name of the part and a
+// fingerprint of its text (see keyPathUnits), as React DOM 19.3.0 and 19.3.1 have them. The counts
+// of keyPathUses cannot tell a read of a key path that is new, such as its length, or one through
+// another name, so the plugin makes no key path only when every part that sees one is a part
+// whose code was read to the end for what it does with a key path, and unchanged. A release that
+// changes one of them, or adds another, turns the change off with a warning that names the part.
+// A release that changes nothing else keeps it: React DOM 19.3.1 differs from 19.3.0 in the line
+// of its version alone.
+const reviewedKeyPathUnits = new Map([
+  ['currentlyRenderingKeyPath', '0e5be69b6007'],
+  ['resetHooksState', '63afae45ffc9'],
+  ['useActionState', '932cd1878077'],
+  ['createRenderTask', '8de1f51739a6'],
+  ['createReplayTask', '7ed053ba47f4'],
+  ['renderSuspenseListRows', '9d9c34da5502'],
+  ['renderWithHooks', 'a8a7c2001757'],
+  ['finishFunctionComponent', 'cd262eed970e'],
+  ['renderElement', 'f8a50a237a6d'],
+  ['retryNode', 'c0345e1dc4bd'],
+  ['renderChildrenArray', 'ae7ac53c336b'],
+  ['trackPostponedBoundary', '94147f9bc0e7'],
+  ['trackPostpone', 'cfe3242d1318'],
+  ['untrackBoundary', '606d87c290a9'],
+  ['spawnNewSuspendedReplayTask', '4136741125e0'],
+  ['spawnNewSuspendedRenderTask', '7411276b7d77'],
+  ['renderNode', '996503961cb0'],
+  ['addToReplayParent', '187176dfae88'],
+  ['murmurhash3_32_gc', '8afba653b94e'],
+  ['pushTreeContext', 'e07cc5262a55'],
 ])
 // The files of React's production JSX runtime, by the SHA-256 of their text, for which the elements
 // that jsx makes were read to the end, see inlineElements. React 19.3.1 has the file of 19.3.0.
@@ -1333,7 +1354,8 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
       if (reactStringRenderer.test(id)) {
         const react = `react-dom ${packageVersion(path.resolve(id, '..', '..'))}: ${id}`
         let source = fs.readFileSync(id, 'utf8')
-        const reviewed = reviewedRenderers.has(createHash('sha256').update(source).digest('hex'))
+        // The parts that see a key path are read in the text as React wrote it, before the changes below.
+        const unreadParts = unreadKeyPathUnits(this.parse(source), source)
         const asked = askEngineToEscape(source)
         if (asked) {
           source = asked
@@ -1386,7 +1408,10 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         if (unnamed) {
           source = unnamed
           namesDropped = true
-          const used = reviewed ? keyPathsUsed(parse(source)) : 'is not a file of React DOM whose key paths the tifa plugin has read'
+          const used =
+            unreadParts.length > 0
+              ? `has parts that use key paths in a form the tifa plugin has not read: ${unreadParts.join(', ')}`
+              : keyPathsUsed(parse(source))
           const unkeyed = !used && dropKeyPaths(source)
           if (unkeyed) {
             source = unkeyed
@@ -2512,6 +2537,136 @@ function keyPathsUsed(program) {
   return `${ends} ${tracked} ${replays}` === keyPathUses
     ? ''
     : `reads [0] or [2] of a key path ${ends} times, sets trackedPostpones to something but null ${tracked} times and calls createReplayTask ${replays} times, which the tifa plugin does not know`
+}
+
+// anyNode reports whether test is true of node or of a node inside it.
+function anyNode(node, test) {
+  if (test(node)) return true
+  for (const value of Object.values(node)) {
+    for (const child of Array.isArray(value) ? value : [value]) {
+      if (child && typeof child.type === 'string' && anyNode(child, test)) return true
+    }
+  }
+  return false
+}
+
+// normalizedText returns the text of node in source without comments and with the white space that
+// is no token of its own taken away: a space stays only between two names or numbers, and where
+// taking it away would make one token or a comment of two. Strings, templates and regular
+// expressions are left as they are. It also takes off the numbers that the compiler of React puts
+// on the names it makes unique: prevKeyPath$43 and prevKeyPath$jscomp$0 are numbered by where they
+// come in the whole file, so a release that adds a variable somewhere else renumbers them. Each
+// such name gets the number of its first place in the text, in its kind, so two names that were
+// different stay different. Two nodes with the same text do the same.
+function normalizedText(source, node) {
+  const literals = []
+  anyNode(node, (n) => {
+    if (n.type === 'Literal' || n.type === 'TemplateElement') literals.push([n.start, n.end])
+    return false
+  })
+  literals.sort((a, b) => a[0] - b[0])
+  const numbers = new Map() // the names the compiler numbered to their number in this text
+  const kinds = new Map() // the name without its number to how many it has had
+  const word = (c) => /[\w$]/.test(c)
+  // Between two literals only code and comments are left, so a comment ends where its text does.
+  // before and after are the characters of the literals on either side, or empty.
+  const code = (text, before, after) => {
+    text = text
+      .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, ' ')
+      .replace(/\s+/g, ' ')
+      .replace(/(?<![\w$])([A-Za-z_]\w*?)(\$jscomp)?\$(\d+)(?![\w$])/g, (name, base, jscomp = '') => {
+        if (!numbers.has(name)) {
+          const kind = base + jscomp
+          numbers.set(name, kinds.get(kind) ?? 0)
+          kinds.set(kind, (kinds.get(kind) ?? 0) + 1)
+        }
+        return `${base}${jscomp}$${numbers.get(name)}`
+      })
+    let out = ''
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] !== ' ') {
+        out += text[i]
+        continue
+      }
+      const left = text[i - 1] ?? before
+      const right = text[i + 1] ?? after
+      if ((word(left) && word(right)) || joinsTokens(left, right)) out += ' '
+    }
+    return out
+  }
+  let text = ''
+  let at = node.start
+  let before = ''
+  for (const [start, end] of literals) {
+    if (start < at) continue // inside a literal already taken
+    text += code(source.slice(at, start), before, source[start]) + source.slice(start, end)
+    before = source[end - 1]
+    at = end
+  }
+  return text + code(source.slice(at, node.end), before, '')
+}
+
+// joinsTokens reports whether the symbols left and right of a space would be read as one token, or
+// as a comment, without it.
+function joinsTokens(left, right) {
+  return (
+    (left === right && (left === '+' || left === '-')) ||
+    left + right === '<!' ||
+    left + right === '//' ||
+    left + right === '/*' ||
+    (/\d/.test(left) && right === '.')
+  )
+}
+
+// keyPathUnits returns the parts of React's string renderer that can see a key path, as a map of
+// each part's name to the fingerprint of its text, for program, the syntax tree of source. A part
+// is a function declaration of the file, or a variable it declares, that has a name with
+// "keyPath" in it, and each function the first kind calls with such a name or a key path in an
+// argument, since it may hand it on under another name. Key paths pass through a function or are
+// kept in a variable, so these are the places that can read one, and a copy of a key path under
+// another name is made inside one of them. The fingerprint is the first 12 digits of the SHA-256 of
+// normalizedText.
+export function keyPathUnits(program, source) {
+  const mentions = (node) => node.type === 'Identifier' && /[kK]eyPath/.test(node.name)
+  const functions = new Map()
+  for (const statement of program.body) {
+    if (statement.type === 'FunctionDeclaration') functions.set(statement.id.name, statement)
+  }
+  const units = new Map()
+  const add = (name, node) => {
+    // A second part with a name gets a name no release has.
+    while (units.has(name)) name += '#'
+    units.set(name, createHash('sha256').update(normalizedText(source, node)).digest('hex').slice(0, 12))
+  }
+  const called = new Set()
+  for (const statement of program.body) {
+    const parts =
+      statement.type === 'FunctionDeclaration'
+        ? [[statement.id.name, statement]]
+        : statement.type === 'VariableDeclaration'
+          ? statement.declarations.map((d) => [d.id.type === 'Identifier' ? d.id.name : `(${d.id.type})`, d])
+          : [[statement.type, statement]]
+    for (const [name, node] of parts) {
+      if (!anyNode(node, mentions)) continue
+      add(name, node)
+      anyNode(node, (n) => {
+        if ((n.type === 'CallExpression' || n.type === 'NewExpression') && n.callee.type === 'Identifier') {
+          if (n.arguments.some((arg) => anyNode(arg, mentions))) called.add(n.callee.name)
+        }
+        return false
+      })
+    }
+  }
+  for (const name of called) {
+    if (functions.has(name) && !units.has(name)) add(name, functions.get(name))
+  }
+  return units
+}
+
+// unreadKeyPathUnits returns the names of the parts of React's string renderer that see a key path
+// and are not as reviewedKeyPathUnits has them: in another form, or new.
+function unreadKeyPathUnits(program, source) {
+  return [...keyPathUnits(program, source)].filter(([name, print]) => reviewedKeyPathUnits.get(name) !== print).map(([name]) => name)
 }
 
 // keyPathNamesRead returns why program, React's string renderer, may read the names of components

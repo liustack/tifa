@@ -652,9 +652,15 @@ const suspensePage = "import './host'\n" +
 // the bundle makes it only if a variable says so.
 var keyPathCondition = regexp.MustCompile(`[\w$]+\?\[[\w$]+\.keyPath,[\w$]+,[\w$]+\]:null`)
 
-// unreviewedKeyPaths is what the build prints for a string renderer whose text the plugin has not
-// read for its key paths.
-const unreviewedKeyPaths = "is not a file of React DOM whose key paths the tifa plugin has read"
+// unreviewedKeyPaths is what the build prints for a string renderer that has a function reading key
+// paths in a form the plugin has not read.
+const unreviewedKeyPaths = "use key paths in a form the tifa plugin has not read"
+
+// changeKeyPathReader changes how renderWithHooks hands a key path on, in a way that changes
+// nothing a page can see. It is the smallest change of a function that reads key paths.
+func changeKeyPathReader(s string) string {
+	return strings.Replace(s, "currentlyRenderingKeyPath = keyPath;", "currentlyRenderingKeyPath = (keyPath);", 1)
+}
 
 // React makes a key path for each element it renders, which only useActionState with a server
 // action and the fallback of a Suspense boundary read. The tifa plugin makes them only when a
@@ -709,10 +715,10 @@ func TestSSRKeyOfAServerActionKeepsItsKeyPath(t *testing.T) {
 	}
 }
 
-// The plugin makes no key path only in a string renderer whose text it has read to the end: with
-// one byte of the file changed, the build prints a warning and React makes its key paths, as it
-// does with the names left out, and pages render the same.
-func TestSSRKeepsKeyPathsOfAnUnreviewedRenderer(t *testing.T) {
+// The plugin makes no key path only in a string renderer whose functions that read key paths it has
+// read to the end. A change anywhere else in the file does not matter: a comment, another version
+// line, new functions, other numbers on the names the compiler made.
+func TestSSRMakesNoKeyPathsWhenOtherPartsOfTheRendererChange(t *testing.T) {
 	root := copyTestdata(t, "ssr", true)
 	writeTree(t, root, map[string]string{"keys.tsx": keyPathsPage})
 	code, _ := buildPrinting(t, root, "keys.tsx")
@@ -722,19 +728,97 @@ func TestSSRKeepsKeyPathsOfAnUnreviewedRenderer(t *testing.T) {
 		"a byte of the version": func(s string) string {
 			return strings.Replace(s, `exports.version = "19.3.0"`, `exports.version = "19.3.9"`, 1)
 		},
-		"a byte of a comment": func(s string) string { return "/**/" + s },
+		"a comment at the start": func(s string) string { return "/**/" + s },
+		"a function that reads no key path": func(s string) string {
+			return strings.Replace(s, "function onError() {}", "function onError() {}\nfunction tifaUnrelated(a) {\n  return a + 1;\n}", 1)
+		},
+		"a changed function that reads no key path": func(s string) string {
+			return strings.Replace(s, "function pushTreeContext(", "var tifaUnrelated = 1;\nfunction pushTreeContext(", 1)
+		},
+		"other white space inside a reader": func(s string) string {
+			return strings.Replace(s, "currentlyRenderingKeyPath = keyPath;", "currentlyRenderingKeyPath =\n    keyPath ;", 1)
+		},
+		"other numbers on the names the compiler made": func(s string) string {
+			return regexp.MustCompile(`\bprevKeyPath\$(\d+)\b`).ReplaceAllString(s, "prevKeyPath$$9${1}")
+		},
 	} {
-		changed := withChangedReactDOM(t, change)
+		changed := withChangedReactDOM(t, func(s string) string {
+			c := change(s)
+			if c == s {
+				t.Fatalf("%s: the change did not change the file", name)
+			}
+			return c
+		})
 		writeTree(t, changed, map[string]string{"keys.tsx": keyPathsPage})
 		code, printed := buildPrinting(t, changed, "keys.tsx")
-		if keyPathCondition.MatchString(code) {
-			t.Errorf("%s: the bundle leaves key paths out of a renderer the plugin has not read", name)
+		if !keyPathCondition.MatchString(code) {
+			t.Errorf("%s: the bundle makes every key path", name)
 		}
-		if !strings.Contains(printed, unreviewedKeyPaths) || !strings.Contains(printed, "does not leave out the key paths of the elements") {
+		if printed != "" {
 			t.Errorf("%s: the build prints:\n%s", name, printed)
 		}
 		if got := evalResult(t, code); got != reviewed {
 			t.Errorf("%s: the page renders otherwise:\n%s\nwant:\n%s", name, got, reviewed)
+		}
+	}
+}
+
+// A string renderer with a function that reads key paths changed, or a new one, is not one the
+// plugin has read: with a byte of such a function changed the build prints a warning that names the
+// function and React makes its key paths, as it does with the names left out, and pages render the
+// same.
+func TestSSRKeepsKeyPathsWhenAFunctionThatReadsThemChanged(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"keys.tsx": keyPathsPage})
+	code, _ := buildPrinting(t, root, "keys.tsx")
+	reviewed := evalResult(t, code)
+	for _, c := range []struct {
+		name, function string
+		change         func(string) string
+	}{
+		{"a function that hands a key path on", "renderWithHooks", changeKeyPathReader},
+		{"a function the plugin rewrites", "renderChildrenArray", func(s string) string {
+			return strings.Replace(s, "var prevKeyPath = task.keyPath;\n  if (\n    -1 !== childIndex", "var prevKeyPath = (task.keyPath);\n  if (\n    -1 !== childIndex", 1)
+		}},
+		{"the function that makes the key path of an element", "retryNode", func(s string) string {
+			return strings.Replace(s, "task.keyPath = key;", "task.keyPath = (key);", 1)
+		}},
+		{"the function that makes the key path of a fallback", "renderElement", func(s string) string {
+			return strings.Replace(s, "task.keyPath = fallbackKeyPath;", "task.keyPath = (fallbackKeyPath);", 1)
+		}},
+		{"a variable that holds a key path", "currentlyRenderingKeyPath", func(s string) string {
+			return strings.Replace(s, "currentlyRenderingKeyPath = null,", "currentlyRenderingKeyPath = (null),", 1)
+		}},
+		{"a new function that reads one", "tifaLength", func(s string) string {
+			return strings.Replace(s, "function onError() {}", "function tifaLength(task) {\n  return task.keyPath.length;\n}\nfunction onError() {}", 1)
+		}},
+		{"a function that is given a key path under another name", "pushTreeContext", func(s string) string {
+			return strings.Replace(s, "var baseIdWithLeadingBit = baseContext.id;", "var baseIdWithLeadingBit = baseContext.id, tifaLength = baseContext.length;", 1)
+		}},
+		{"a changed line of a function that reads one", "renderSuspenseListRows", func(s string) string {
+			return strings.Replace(s, "task.keyPath = keyPath;\n  keyPath = rows.length;", "task.keyPath = keyPath;\n  keyPath = rows.length + 0;", 1)
+		}},
+	} {
+		changed := withChangedReactDOM(t, func(s string) string {
+			changed := c.change(s)
+			if changed == s {
+				t.Fatalf("%s: the change did not change the file", c.name)
+			}
+			return changed
+		})
+		writeTree(t, changed, map[string]string{"keys.tsx": keyPathsPage})
+		code, printed := buildPrinting(t, changed, "keys.tsx")
+		if keyPathCondition.MatchString(code) {
+			t.Errorf("%s: the bundle leaves key paths out of a renderer whose reader the plugin has not read", c.name)
+		}
+		if n := strings.Count(printed, notRecognized); n != 1 || !strings.Contains(printed, "react-dom 19.3.0: ") {
+			t.Errorf("%s: the build prints:\n%s", c.name, printed)
+		}
+		if !strings.Contains(printed, unreviewedKeyPaths+": "+c.function) || !strings.Contains(printed, "does not leave out the key paths of the elements") {
+			t.Errorf("%s: the build prints:\n%s", c.name, printed)
+		}
+		if got := evalResult(t, code); got != reviewed {
+			t.Errorf("%s: the page renders otherwise:\n%s\nwant:\n%s", c.name, got, reviewed)
 		}
 	}
 }
@@ -744,7 +828,7 @@ func TestSSRKeepsKeyPathsOfAnUnreviewedRenderer(t *testing.T) {
 // bundle makes none) and with actions that have $$FORM_ACTION (it makes them all, and each key is
 // what it was).
 func TestSSRSuspenseFallbacksRenderTheSameWithoutKeyPaths(t *testing.T) {
-	unreviewed := func(s string) string { return s + " " }
+	unreviewed := changeKeyPathReader
 	for _, c := range []struct {
 		name, module string
 		flagged      bool
@@ -927,8 +1011,8 @@ func TestSSRGuardsTheSwitchesAfterTheOtherChanges(t *testing.T) {
 	if got := len(guardedSwitch.FindAllString(code, -1)); got != len(switches)+1 {
 		t.Errorf("the bundle has %d switches with a Set check, want %d", got, len(switches)+1)
 	}
-	// The renderer is changed, so the plugin warns that it has not read its key paths.
-	if rest := strings.ReplaceAll(printed, unreviewedWarning(printed), ""); strings.TrimSpace(rest) != "" || !strings.Contains(printed, unreviewedKeyPaths) {
+	// The new function reads no key path, so the plugin still leaves them out and has nothing to warn of.
+	if printed != "" {
 		t.Errorf("the build prints:\n%s", printed)
 	}
 	if got := evalResult(t, code); !strings.HasSuffix(got, "\n1") {
@@ -1945,18 +2029,6 @@ func TestSSRWarnsOfManyRequiresInTime(t *testing.T) {
 	if elapsed > 3*time.Second {
 		t.Errorf("the build took %s", elapsed)
 	}
-}
-
-// unreviewedWarning returns the lines of printed about a string renderer whose key paths the plugin
-// has not read.
-func unreviewedWarning(printed string) string {
-	var lines []string
-	for _, l := range strings.Split(printed, "\n") {
-		if strings.Contains(l, unreviewedKeyPaths) {
-			lines = append(lines, l)
-		}
-	}
-	return strings.Join(lines, "\n")
 }
 
 // serovalStringsPage serializes each string of strings.json with seroval alone, as seroval writes a
