@@ -1567,8 +1567,16 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
         jsxRuntimes.size > 0 && [...jsxRuntimes.values()].every(Boolean)
           ? inlineElements(plain.code, (source) => this.parse(source))
           : { code: plain.code }
+      // The calls of small functions, last, so the functions are the ones the rewrites above left.
+      let small = { code: elements.code, warning: '' }
+      try {
+        small = inlineSmallFunctions(elements.code, (source) => this.parse(source))
+      } catch (err) {
+        small.warning = `the tifa plugin could not write out the calls of small functions: ${err.stack ?? err}`
+      }
+      if (small.warning) this.warn(small.warning)
       // The code keeps the lines it had, so the source map fits it as it is.
-      return elements.code === code ? null : { code: elements.code, map: null }
+      return small.code === code ? null : { code: small.code, map: null }
     },
     async generateBundle(_, bundle) {
       const chunks = Object.values(bundle).filter((output) => output.type === 'chunk')
@@ -3688,5 +3696,865 @@ function findPackage(root, name) {
     const pkg = path.join(dir, 'node_modules', name)
     if (fs.existsSync(path.join(pkg, 'package.json'))) return fs.realpathSync(pkg)
     if (path.dirname(dir) === dir) return ''
+  }
+}
+
+// ---- Writing out the calls of small functions
+
+// A function whose body has at most this many syntax nodes counts as small.
+const smallFunctionNodes = 32
+
+// The most times inlineSmallFunctions goes over the code. A call in the body of a small function, or
+// in an argument of a call, is written out in a later round.
+const smallFunctionRounds = 2
+
+// scopeOf makes a scope. kind is 'module', 'function' (also the scope of a static block or a field),
+// 'block', 'funcname' (the name of a function expression, seen only inside it) or 'class'.
+function scopeOf(parent, kind, node = null) {
+  return { parent, kind, node, vars: new Map() }
+}
+
+// declare adds a declaration of name to scope and returns the binding it belongs to. A name
+// declared twice in a scope is one binding with two definitions. def says what declared it:
+// { function }, { declarator }, { param }, { pattern }, { loop }, { class } or { implicit }.
+function declare(scope, name, kind, def) {
+  let binding = scope.vars.get(name)
+  if (!binding) {
+    binding = { name, scope, kind, defs: [], assigns: 0, loop: false, refs: [] }
+    scope.vars.set(name, binding)
+  }
+  binding.defs.push(def)
+  if (def.loop) binding.loop = true
+  return binding
+}
+
+// stableBinding reports whether the value of binding is the same wherever it is read once it has
+// one: a single declaration, set once with its value, a parameter or a function nobody assigns to.
+function stableBinding(binding) {
+  return binding !== null && binding.defs.length === 1 && binding.assigns === 0 && !binding.loop && binding.kind !== 'import'
+}
+
+// boundIdentifiers returns the identifier nodes that the pattern node declares or assigns.
+function boundIdentifiers(pattern, out = []) {
+  switch (pattern?.type) {
+    case 'Identifier':
+      out.push(pattern)
+      break
+    case 'ArrayPattern':
+      for (const e of pattern.elements) boundIdentifiers(e, out)
+      break
+    case 'ObjectPattern':
+      for (const p of pattern.properties) boundIdentifiers(p.type === 'Property' ? p.value : p, out)
+      break
+    case 'AssignmentPattern':
+      boundIdentifiers(pattern.left, out)
+      break
+    case 'RestElement':
+      boundIdentifiers(pattern.argument, out)
+      break
+  }
+  return out
+}
+
+// analyzeScopes reads the syntax tree program of an ES module and gives its scopes: for each
+// reference to a name (refs, by the identifier node) the binding it reaches, for each binding what
+// declares it and how many times code assigns to it, the names that no declaration gives
+// (unresolved), the calls whose callee is a name (calls), and the functions that a declaration
+// or a variable names (named, by the function node). It stops at what it does not know (a with
+// statement, a direct eval) with unsupported set, since names are not what they look like there.
+// A function's parameters and its body share a scope, which only ever shows more names to a call
+// in a default value than the language does.
+function analyzeScopes(program) {
+  const root = scopeOf(null, 'module', program)
+  const refs = new Map()
+  const unresolved = new Set()
+  const calls = []
+  const callParents = new Map()
+  const named = new Map()
+  const result = { root, refs, unresolved, calls, callParents, named, functions: new Map(), unsupported: null }
+
+  const lookup = lookupBinding
+  const addRef = (id, scope, assign, parent, key) => {
+    const binding = lookup(scope, id.name)
+    const ref = { id, scope, binding, assign, parent, key }
+    refs.set(id, ref)
+    if (binding) {
+      binding.refs.push(ref)
+      if (assign) binding.assigns++
+    } else {
+      unresolved.add(id.name)
+    }
+    return ref
+  }
+
+  // The declarations of a list of statements that belong to its scope: let, const, class and
+  // function declarations, and what an import brings.
+  const declareLexical = (list, scope) => {
+    for (let s of list) {
+      if (s.type === 'ExportNamedDeclaration' || s.type === 'ExportDefaultDeclaration') s = s.declaration
+      if (!s) continue
+      if (s.type === 'FunctionDeclaration' && s.id) declare(scope, s.id.name, 'function', { function: s })
+      else if (s.type === 'ClassDeclaration' && s.id) declare(scope, s.id.name, 'class', { class: s })
+      else if (s.type === 'VariableDeclaration' && s.kind !== 'var') declareVariables(s, scope, s.kind)
+      else if (s.type === 'ImportDeclaration') {
+        for (const spec of s.specifiers) declare(scope, spec.local.name, 'import', { import: spec })
+      }
+    }
+  }
+  const declareVariables = (declaration, scope, kind, loop = false) => {
+    for (const d of declaration.declarations) {
+      for (const id of boundIdentifiers(d.id)) {
+        const def = d.id.type === 'Identifier' ? { declarator: d, loop } : { pattern: d, loop }
+        declare(scope, id.name, kind, def)
+      }
+    }
+  }
+  // The var declarations anywhere in the statements of a function or module, not in the functions
+  // and classes inside them.
+  const hoistVars = (node, scope) => {
+    if (!node) return
+    switch (node.type) {
+      case 'VariableDeclaration':
+        if (node.kind === 'var') declareVariables(node, scope, 'var')
+        break
+      case 'BlockStatement':
+      case 'StaticBlock':
+        for (const s of node.body) hoistVars(s, scope)
+        break
+      case 'IfStatement':
+        hoistVars(node.consequent, scope)
+        hoistVars(node.alternate, scope)
+        break
+      case 'ForStatement':
+        hoistVars(node.init, scope)
+        hoistVars(node.body, scope)
+        break
+      case 'ForInStatement':
+      case 'ForOfStatement':
+        if (node.left.type === 'VariableDeclaration' && node.left.kind === 'var') declareVariables(node.left, scope, 'var', true)
+        hoistVars(node.body, scope)
+        break
+      case 'WhileStatement':
+      case 'DoWhileStatement':
+      case 'LabeledStatement':
+        hoistVars(node.body, scope)
+        break
+      case 'TryStatement':
+        hoistVars(node.block, scope)
+        hoistVars(node.handler?.body, scope)
+        hoistVars(node.finalizer, scope)
+        break
+      case 'SwitchStatement':
+        for (const c of node.cases) for (const s of c.consequent) hoistVars(s, scope)
+        break
+      case 'ExportNamedDeclaration':
+        hoistVars(node.declaration, scope)
+        break
+      case 'WithStatement':
+        result.unsupported ??= 'a with statement'
+        break
+    }
+  }
+
+  // The expressions inside a declaration's pattern: default values and computed keys.
+  const visitPatternExpressions = (pattern, scope) => {
+    switch (pattern?.type) {
+      case 'ArrayPattern':
+        for (const e of pattern.elements) visitPatternExpressions(e, scope)
+        break
+      case 'ObjectPattern':
+        for (const p of pattern.properties) {
+          if (p.type === 'RestElement') visitPatternExpressions(p.argument, scope)
+          else {
+            if (p.computed) visit(p.key, scope, p, 'key')
+            visitPatternExpressions(p.value, scope)
+          }
+        }
+        break
+      case 'AssignmentPattern':
+        visitPatternExpressions(pattern.left, scope)
+        visit(pattern.right, scope, pattern, 'right')
+        break
+      case 'RestElement':
+        visitPatternExpressions(pattern.argument, scope)
+        break
+    }
+  }
+  // A pattern that code assigns to: its names are written, the rest of it is read.
+  const visitTarget = (pattern, scope, parent, key) => {
+    switch (pattern?.type) {
+      case 'Identifier':
+        addRef(pattern, scope, true, parent, key)
+        break
+      case 'ArrayPattern':
+        for (const e of pattern.elements) visitTarget(e, scope, pattern, 'elements')
+        break
+      case 'ObjectPattern':
+        for (const p of pattern.properties) {
+          if (p.type === 'RestElement') visitTarget(p.argument, scope, p, 'argument')
+          else {
+            if (p.computed) visit(p.key, scope, p, 'key')
+            visitTarget(p.value, scope, p, 'value')
+          }
+        }
+        break
+      case 'AssignmentPattern':
+        visitTarget(pattern.left, scope, pattern, 'left')
+        visit(pattern.right, scope, pattern, 'right')
+        break
+      case 'RestElement':
+        visitTarget(pattern.argument, scope, pattern, 'argument')
+        break
+      default:
+        visit(pattern, scope, parent, key)
+    }
+  }
+
+  const visitFunction = (node, scope, parent, key) => {
+    let outer = scope
+    if (node.type === 'FunctionExpression' && node.id) {
+      outer = scopeOf(scope, 'funcname', node)
+      declare(outer, node.id.name, 'funcname', { function: node })
+    }
+    const fs = scopeOf(outer, 'function', node)
+    fs.arrow = node.type === 'ArrowFunctionExpression'
+    if (!fs.arrow) declare(fs, 'arguments', 'arguments', { implicit: true })
+    for (const p of node.params) for (const id of boundIdentifiers(p)) declare(fs, id.name, 'param', { param: node })
+    if (node.body.type === 'BlockStatement') {
+      declareLexical(node.body.body, fs)
+      hoistVars(node.body, fs)
+    }
+    result.functions.set(node, fs)
+    for (const p of node.params) visitPatternExpressions(p, fs)
+    if (node.body.type === 'BlockStatement') for (const s of node.body.body) visit(s, fs, node.body, 'body')
+    else visit(node.body, fs, node, 'body')
+    if (node.type === 'FunctionDeclaration' && node.id) {
+      named.set(node, { binding: scope.vars.get(node.id.name), declarator: null, scope })
+    }
+  }
+
+  const visitClass = (node, scope) => {
+    const cs = scopeOf(scope, 'class', node)
+    if (node.id) declare(cs, node.id.name, 'class', { class: node })
+    if (node.superClass) visit(node.superClass, cs, node, 'superClass')
+    for (const m of node.body.body) {
+      if (m.computed) visit(m.key, cs, m, 'key')
+      if (m.type === 'StaticBlock') {
+        const fs = scopeOf(cs, 'function', m)
+        declareLexical(m.body, fs)
+        hoistVars(m, fs)
+        for (const s of m.body) visit(s, fs, m, 'body')
+      } else if (m.type === 'MethodDefinition') {
+        visit(m.value, cs, m, 'value')
+      } else if (m.value) {
+        const fs = scopeOf(cs, 'function', m)
+        visit(m.value, fs, m, 'value')
+      }
+    }
+  }
+
+  const visitChildren = (node, scope) => {
+    for (const key in node) {
+      if (key === 'type' || key === 'start' || key === 'end') continue
+      const value = node[key]
+      if (Array.isArray(value)) {
+        for (const child of value) if (child && typeof child.type === 'string') visit(child, scope, node, key)
+      } else if (value && typeof value.type === 'string') {
+        visit(value, scope, node, key)
+      }
+    }
+  }
+
+  const visit = (node, scope, parent, key) => {
+    switch (node.type) {
+      case 'Identifier':
+        if (isReference(parent, key)) addRef(node, scope, false, parent, key)
+        return
+      case 'FunctionDeclaration':
+      case 'FunctionExpression':
+      case 'ArrowFunctionExpression':
+        visitFunction(node, scope, parent, key)
+        return
+      case 'ClassDeclaration':
+      case 'ClassExpression':
+        visitClass(node, scope)
+        return
+      case 'BlockStatement': {
+        const bs = scopeOf(scope, 'block', node)
+        declareLexical(node.body, bs)
+        for (const s of node.body) visit(s, bs, node, 'body')
+        return
+      }
+      case 'ForStatement': {
+        const bs = scopeOf(scope, 'block', node)
+        if (node.init?.type === 'VariableDeclaration') declareLexical([node.init], bs)
+        visitChildren(node, bs)
+        return
+      }
+      case 'ForInStatement':
+      case 'ForOfStatement': {
+        const bs = scopeOf(scope, 'block', node)
+        if (node.left.type === 'VariableDeclaration') {
+          if (node.left.kind !== 'var') declareVariables(node.left, bs, node.left.kind, true)
+          for (const d of node.left.declarations) visitPatternExpressions(d.id, bs)
+        } else {
+          visitTarget(node.left, bs, node, 'left')
+        }
+        visit(node.right, bs, node, 'right')
+        visit(node.body, bs, node, 'body')
+        return
+      }
+      case 'SwitchStatement': {
+        visit(node.discriminant, scope, node, 'discriminant')
+        const bs = scopeOf(scope, 'block', node)
+        declareLexical(
+          node.cases.flatMap((c) => c.consequent),
+          bs,
+        )
+        for (const c of node.cases) {
+          if (c.test) visit(c.test, bs, c, 'test')
+          for (const s of c.consequent) visit(s, bs, c, 'consequent')
+        }
+        return
+      }
+      case 'CatchClause': {
+        const cs = scopeOf(scope, 'block', node)
+        if (node.param) {
+          for (const id of boundIdentifiers(node.param)) declare(cs, id.name, 'catch', { catch: node })
+          visitPatternExpressions(node.param, cs)
+        }
+        visit(node.body, cs, node, 'body')
+        return
+      }
+      case 'VariableDeclaration':
+        for (const d of node.declarations) {
+          visitPatternExpressions(d.id, scope)
+          if (d.init) visit(d.init, scope, d, 'init')
+          if (d.id.type === 'Identifier' && d.init && functionTypes.has(d.init.type)) {
+            named.set(d.init, { binding: lookup(scope, d.id.name), declarator: d, scope })
+          }
+        }
+        return
+      case 'AssignmentExpression':
+        visitTarget(node.left, scope, node, 'left')
+        visit(node.right, scope, node, 'right')
+        return
+      case 'UpdateExpression':
+        visitTarget(node.argument, scope, node, 'argument')
+        return
+      case 'Property':
+        if (node.shorthand) visit(node.value, scope, node, 'value')
+        else visitChildren(node, scope)
+        return
+      case 'MetaProperty':
+      case 'ImportDeclaration':
+        return
+      case 'ExportNamedDeclaration':
+        if (node.declaration) visit(node.declaration, scope, node, 'declaration')
+        else if (!node.source) for (const spec of node.specifiers) visit(spec.local, scope, spec, 'local')
+        return
+      case 'WithStatement':
+        result.unsupported ??= 'a with statement'
+        return
+      case 'CallExpression':
+        if (node.callee.type === 'Identifier') {
+          calls.push(node)
+          callParents.set(node, parent)
+          if (node.callee.name === 'eval' && !lookup(scope, 'eval')) result.unsupported ??= 'a direct eval'
+        }
+        visitChildren(node, scope)
+        return
+      default:
+        visitChildren(node, scope)
+    }
+  }
+
+  declareLexical(program.body, root)
+  for (const s of program.body) hoistVars(s, root)
+  for (const s of program.body) visit(s, root, program, 'body')
+  return result
+}
+
+// unresolvedNames returns the sorted names that code reads or sets and no declaration of it gives.
+// A bundle that runs with the same globals must keep the same list when a rewrite is right.
+export function unresolvedNames(code, parse) {
+  return [...analyzeScopes(parse(code)).unresolved].sort()
+}
+
+class CannotCopy extends Error {}
+
+// bodyAsExpression gives the value that a call of function node fn returns as one expression, with
+// the kind of body: 'expr' (an arrow with an expression), 'stmt' (statements that are all
+// expressions, so the call gives nothing), 'empty' or 'return'. It gives null for another form.
+// A block with one return, a block of expression statements and a chain of ifs that returns in
+// every branch are the forms. The chain becomes a conditional expression.
+function bodyAsExpression(fn) {
+  const nothing = { type: 'UnaryExpression', operator: 'void', argument: { type: 'Literal', value: 0 } }
+  if (fn.body.type !== 'BlockStatement') return { expr: fn.body, kind: 'expr' }
+  const list = fn.body.body.filter((s) => !(s.type === 'ExpressionStatement' && typeof s.directive === 'string'))
+  if (list.length === 0) return { expr: nothing, kind: 'empty' }
+  if (list.every((s) => s.type === 'ExpressionStatement')) {
+    const exprs = list.map((s) => s.expression)
+    return { expr: exprs.length === 1 ? exprs[0] : { type: 'SequenceExpression', expressions: exprs }, kind: 'stmt' }
+  }
+  // The value of a list of statements that returns on every path, or null. At the top level the
+  // end of the list returns nothing, inside an if it would go on with what follows the if.
+  const returned = (stmts, top) => {
+    for (const [i, s] of stmts.entries()) {
+      if (s.type === 'ReturnStatement') return s.argument ?? nothing
+      if (s.type === 'BlockStatement') return returned(s.body, false)
+      if (s.type !== 'IfStatement') return null
+      const consequent = returned([s.consequent], false)
+      const alternate = s.alternate ? returned([s.alternate], false) : returned(stmts.slice(i + 1), top)
+      return consequent && alternate ? { type: 'ConditionalExpression', test: s.test, consequent, alternate } : null
+    }
+    return top ? nothing : null
+  }
+  const expr = returned(list, true)
+  return expr ? { expr, kind: 'return' } : null
+}
+
+// childNodes returns the syntax nodes directly under node.
+function childNodes(node) {
+  const out = []
+  for (const key in node) {
+    if (key === 'type' || key === 'start' || key === 'end') continue
+    const value = node[key]
+    if (Array.isArray(value)) {
+      for (const child of value) if (child && typeof child.type === 'string') out.push(child)
+    } else if (value && typeof value.type === 'string') {
+      out.push(value)
+    }
+  }
+  return out
+}
+
+// countNodes returns how many syntax nodes node has, itself among them.
+function countNodes(node) {
+  let n = 1
+  for (const child of childNodes(node)) n += countNodes(child)
+  return n
+}
+
+// hasOptional reports whether node has an optional call or member access, `?.`, in it.
+function hasOptional(node) {
+  return node.optional === true || childNodes(node).some(hasOptional)
+}
+
+// smallFunctionOf reads the function node fn that binding names and gives what its calls need: the
+// expression of its body (expr, with its kind), what the expression does in the order it does it
+// (events), where it uses each parameter (uses) and the names it reads that are no parameter
+// (free). It gives only why when the calls of fn cannot be written out. standIn says whether a
+// binding belongs to a stand-in of a Node module.
+function smallFunctionOf(fn, binding, scopes, standIn) {
+  if (!stableBinding(binding)) return { why: 'the name is set again' }
+  if (fn.async || fn.generator) return { why: 'async or a generator' }
+  if (fn.params.some((p) => p.type !== 'Identifier')) return { why: 'a parameter that is no plain name' }
+  if (new Set(fn.params.map((p) => p.name)).size !== fn.params.length) return { why: 'two parameters of one name' }
+  for (const { parent, key } of binding.refs) {
+    if (parent?.type === 'NewExpression' && key === 'callee') return { why: 'called with new' }
+    if (parent?.type === 'MemberExpression' && key === 'object' && !parent.computed && parent.property.name === 'prototype') return { why: 'has a prototype' }
+  }
+  const body = bodyAsExpression(fn)
+  if (!body) return { why: 'a body of another form' }
+  const { expr, kind } = body
+  if (countNodes(expr) > smallFunctionNodes) return { why: 'a big body' }
+  const fscope = scopes.functions.get(fn)
+  const events = []
+  const uses = fn.params.map(() => [])
+  const free = []
+  // The index of the parameter that the name node is, or -1 for a name of the code around.
+  const parameterOf = (id) => {
+    const ref = scopes.refs.get(id)
+    if (!ref) throw new CannotCopy('a name without a reference')
+    const b = ref.binding
+    if (b === binding) throw new CannotCopy('a function that calls itself')
+    if (b && b.scope === fscope && b.kind === 'param') return fn.params.findIndex((p) => p.name === id.name)
+    if (b && (b.scope === fscope || b.scope.node === fn)) throw new CannotCopy('a name of the function itself')
+    // The error of a stand-in of a Node module names the place that called it (see nodeModuleCode),
+    // and a function written out has no place of its own.
+    if (b && standIn(b)) throw new CannotCopy('a stand-in of a Node module')
+    free.push(ref)
+    return -1
+  }
+  const privateName = (member) => {
+    if (member.property.type === 'PrivateIdentifier') throw new CannotCopy('a private name')
+  }
+  // cond: whether the expression may not be worked out at all.
+  const go = (e, cond) => {
+    switch (e.type) {
+      case 'Literal':
+        if (e.regex) events.push({ t: 'new' })
+        return
+      case 'TemplateLiteral':
+        for (const x of e.expressions) go(x, cond)
+        if (e.expressions.length > 0) events.push({ t: 'coerce' })
+        return
+      case 'Identifier': {
+        const i = parameterOf(e)
+        if (i >= 0) {
+          uses[i].push({ at: events.length, cond })
+          events.push({ t: 'use' })
+        } else {
+          events.push({ t: 'read' })
+        }
+        return
+      }
+      case 'MemberExpression':
+        privateName(e)
+        go(e.object, cond)
+        if (e.computed) go(e.property, cond)
+        events.push({ t: 'get' })
+        return
+      case 'ChainExpression':
+        return go(e.expression, cond || hasOptional(e.expression))
+      case 'CallExpression':
+      case 'NewExpression':
+        if (e.callee.type === 'MemberExpression') {
+          privateName(e.callee)
+          go(e.callee.object, cond)
+          if (e.callee.computed) go(e.callee.property, cond)
+          events.push({ t: 'get' })
+        } else {
+          go(e.callee, cond)
+        }
+        for (const a of e.arguments) {
+          if (a.type === 'SpreadElement') throw new CannotCopy('a spread')
+          go(a, cond)
+        }
+        events.push({ t: e.type === 'NewExpression' ? 'new' : 'call' })
+        return
+      case 'BinaryExpression':
+        go(e.left, cond)
+        go(e.right, cond)
+        events.push({ t: e.operator === '===' || e.operator === '!==' ? 'compare' : e.operator === 'in' || e.operator === 'instanceof' ? 'call' : 'coerce' })
+        return
+      case 'UnaryExpression':
+        if (e.operator === 'delete') {
+          if (e.argument.type !== 'MemberExpression') throw new CannotCopy('a delete of a name')
+          privateName(e.argument)
+          go(e.argument.object, cond)
+          if (e.argument.computed) go(e.argument.property, cond)
+          events.push({ t: 'assign' })
+          return
+        }
+        go(e.argument, cond)
+        if (e.operator === '-' || e.operator === '+' || e.operator === '~') events.push({ t: 'coerce' })
+        return
+      case 'LogicalExpression':
+        go(e.left, cond)
+        go(e.right, true)
+        return
+      case 'ConditionalExpression':
+        go(e.test, cond)
+        go(e.consequent, true)
+        go(e.alternate, true)
+        return
+      case 'SequenceExpression':
+        for (const x of e.expressions) go(x, cond)
+        return
+      case 'ArrayExpression':
+        for (const x of e.elements) {
+          if (!x) continue
+          if (x.type === 'SpreadElement') throw new CannotCopy('a spread')
+          go(x, cond)
+        }
+        events.push({ t: 'new' })
+        return
+      case 'ObjectExpression':
+        for (const p of e.properties) {
+          if (p.type !== 'Property' || p.kind !== 'init' || p.method) throw new CannotCopy('a member of an object that is no plain value')
+          if (p.computed) go(p.key, cond)
+          go(p.value, cond)
+        }
+        events.push({ t: 'new' })
+        return
+      case 'AssignmentExpression':
+      case 'UpdateExpression': {
+        const target = e.type === 'UpdateExpression' ? e.argument : e.left
+        const compound = e.type === 'UpdateExpression' || e.operator !== '='
+        const logical = e.type === 'AssignmentExpression' && ['||=', '&&=', '??='].includes(e.operator)
+        if (target.type === 'Identifier') {
+          if (parameterOf(target) >= 0) throw new CannotCopy('an assignment to a parameter')
+        } else if (target.type === 'MemberExpression') {
+          privateName(target)
+          go(target.object, cond)
+          if (target.computed) go(target.property, cond)
+        } else {
+          throw new CannotCopy('an assignment to a pattern')
+        }
+        if (compound) events.push({ t: 'get' })
+        if (e.type === 'AssignmentExpression') go(e.right, cond || logical)
+        if (compound && !logical) events.push({ t: 'coerce' })
+        events.push({ t: 'assign' })
+        return
+      }
+      default:
+        throw new CannotCopy(e.type)
+    }
+  }
+  try {
+    go(expr, false)
+  } catch (err) {
+    if (!(err instanceof CannotCopy)) throw err
+    return { why: err.message }
+  }
+  return { fn, expr, kind, events, uses, free }
+}
+
+// isPureArgument says whether the argument node of a call can be written in the body of the
+// function as often as the body uses it, or not at all, with nothing else changing: a value, or a
+// name that does not change. A name that no declaration gives would have thrown at the call, and
+// only undefined does not.
+function isPureArgument(arg, scopes) {
+  switch (arg.type) {
+    case 'Literal':
+      return !arg.regex
+    case 'TemplateLiteral':
+      return arg.expressions.length === 0
+    case 'Identifier': {
+      const ref = scopes.refs.get(arg)
+      return ref !== undefined && (ref.binding ? stableBinding(ref.binding) : arg.name === 'undefined')
+    }
+    case 'UnaryExpression':
+      return ['void', '!', '-', '+', 'typeof'].includes(arg.operator) && arg.argument.type === 'Literal' && !arg.argument.regex
+    default:
+      return false
+  }
+}
+
+// canWriteOut says whether the call node, whose callee is the name reference ref, can be replaced
+// by the body of the small function info. The value, the effects and their order must stay, the
+// names of the body must mean the same at the call, and each argument must be worked out as often
+// as before and in the same order.
+function canWriteOut(call, ref, info, scopes) {
+  const args = call.arguments
+  if (call.optional || args.some((a) => a.type === 'SpreadElement')) return false
+  const { fn, events, uses, free } = info
+  // A name that no declaration gives throws a ReferenceError when the call works it out, unless the body does not use it.
+  if (args.some((a) => a.type === 'Identifier' && a.name !== 'undefined' && !scopes.refs.get(a)?.binding)) return false
+  const pure = args.map((a) => isPureArgument(a, scopes))
+  // An argument beyond the parameters is worked out for its effects, which the body would lose.
+  if (args.slice(fn.params.length).some((_, i) => !pure[fn.params.length + i])) return false
+  // A function that a variable holds does not exist before the declaration of the variable runs.
+  const { declarator, scope } = scopes.named.get(fn)
+  if (declarator && call.start < declarator.end && functionScopeOf(ref.scope) === functionScopeOf(scope)) return false
+  for (const f of free) {
+    if (lookupBinding(ref.scope, f.id.name) !== f.binding) return false
+  }
+  let previous = -1
+  for (let p = 0; p < fn.params.length; p++) {
+    if (p >= args.length || pure[p]) continue
+    // An argument with effects is used once, in the place among the others where it was worked
+    // out, and not in a branch that the body may not take.
+    const [use] = uses[p]
+    if (uses[p].length !== 1 || use.cond || use.at < previous) return false
+    previous = use.at
+  }
+  // Before the last of them the body may only read. A call, a conversion or an assignment would
+  // happen before the argument is worked out, where the call works it out first. A read of a name
+  // or a property goes before it too, which the plugin accepts.
+  for (let i = 0; i < previous; i++) {
+    if (!readEvents.has(events[i].t)) return false
+  }
+  return true
+}
+
+const readEvents = new Set(['use', 'read', 'get', 'compare'])
+
+// lookupBinding returns the binding that name means in scope, or null for a name that no
+// declaration gives.
+function lookupBinding(scope, name) {
+  for (let s = scope; s; s = s.parent) {
+    const binding = s.vars.get(name)
+    if (binding) return binding
+  }
+  return null
+}
+
+// functionScopeOf returns the nearest scope of a function, or the module, around scope.
+function functionScopeOf(scope) {
+  let s = scope
+  while (s.kind !== 'function' && s.kind !== 'module') s = s.parent
+  return s
+}
+
+// bodyText returns the text that stands for the call node in the code: the body of the small
+// function info with each parameter replaced by its argument, in parentheses. code is the source
+// that holds the function and the call.
+function bodyText(code, call, info, scopes) {
+  const { fn, expr, kind } = info
+  const raw = (a) => code.slice(a.start, a.end)
+  const atom = (a) => a.type === 'Identifier' || (a.type === 'Literal' && !a.regex)
+  const argText = fn.params.map((_, i) => {
+    const a = call.arguments[i]
+    if (!a) return '(void 0)'
+    return atom(a) ? raw(a) : `(${raw(a)})`
+  })
+  // The source of a part of the body with the parameters replaced. A part that stands alone
+  // (level 'top') needs no parentheses, a part of a list or a branch ('item') only if it is a
+  // sequence, and a part of anything else ('operand') unless it is a name or a value.
+  const render = (node, level) => {
+    if (node.start === undefined) {
+      switch (node.type) {
+        case 'ConditionalExpression':
+          return `${render(node.test, 'operand')} ? ${render(node.consequent, 'item')} : ${render(node.alternate, 'item')}`
+        case 'SequenceExpression':
+          return node.expressions.map((x) => render(x, 'item')).join(', ')
+        default:
+          return 'void 0'
+      }
+    }
+    const edits = new Map()
+    const walk = (n, parent) => {
+      if (n.type === 'Identifier') {
+        const b = scopes.refs.get(n)?.binding
+        if (!b || b.kind !== 'param' || b.scope.node !== fn) return
+        const i = fn.params.findIndex((p) => p.name === n.name)
+        const arg = call.arguments[i]
+        let text = argText[i]
+        if (parent?.type === 'CallExpression' && parent.callee === n && arg?.type !== 'Identifier') {
+          // A parameter that is called has an empty this: the member of an argument would give it its object.
+          text = `(0, ${arg && arg.type !== 'SequenceExpression' ? raw(arg) : text})`
+        } else if (parent?.type === 'MemberExpression' && parent.object === n && !parent.computed && arg?.type === 'Literal' && typeof arg.value !== 'string') {
+          text = `(${text})` // 1.x is no member of a number
+        }
+        if (parent?.type === 'Property' && parent.shorthand) text = `${n.name}: ${text}`
+        edits.set(n.start, { start: n.start, end: n.end, text })
+        return
+      }
+      for (const child of childNodes(n)) walk(child, n)
+    }
+    walk(node, null)
+    let text = code.slice(node.start, node.end)
+    for (const e of [...edits.values()].sort((a, b) => b.start - a.start)) {
+      text = text.slice(0, e.start - node.start) + e.text + text.slice(e.end - node.start)
+    }
+    const bare = level === 'top' || atom(node) || (level === 'item' && node.type !== 'SequenceExpression')
+    return bare ? text : `(${text})`
+  }
+  const inner = render(expr, 'top')
+  const parent = scopes.callParents.get(call)
+  // A call of a function of statements gives nothing, which a statement or a part of a sequence that
+  // is not its last does not use.
+  const used = parent?.type !== 'ExpressionStatement' && !(parent?.type === 'SequenceExpression' && parent.expressions.at(-1) !== call)
+  const value = kind === 'stmt' && used ? `(${inner}, void 0)` : `(${inner})`
+  // A value that is called keeps an empty this, also when it is a member, and delete takes it as
+  // a name, not a value.
+  const keepsThis =
+    (parent?.type === 'CallExpression' && parent.callee === call) ||
+    (parent?.type === 'TaggedTemplateExpression' && parent.tag === call) ||
+    (parent?.type === 'UnaryExpression' && parent.operator === 'delete')
+  return keepsThis ? `(0, ${value})` : value
+}
+
+// keepLines returns text, which replaces from, with as many lines as from, or null when it cannot
+// have them. A text with fewer lines gets empty lines after it, which no token takes for the end of
+// a statement: a line in front of it could end a return before the value. A text with more has its
+// lines joined, which a comment of a line, a template or a line continuation would not survive.
+function keepLines(from, text) {
+  const want = from.split('\n').length - 1
+  const have = text.split('\n').length - 1
+  if (have <= want) return text + '\n'.repeat(want - have)
+  if (/\/\/|`|\\|[\r\u2028\u2029]/.test(text)) return null
+  return text.replace(/[ \t]*\n[ \t]*/g, ' ') + '\n'.repeat(want)
+}
+
+// startsAfterAnotherLine reports whether the text at position at of code could be taken for the
+// call of what the line before it ends with: a text in parentheses on a line of its own, after a
+// line that is no statement or block that ends, where no semicolon ended the statement.
+function startsAfterAnotherLine(code, at) {
+  let i = at - 1
+  while (i >= 0 && /\s/.test(code[i])) i--
+  if (i < 0 || !code.slice(i + 1, at).includes('\n')) return false
+  return !';{}([,=:?&|!+-*<>%^~'.includes(code[i])
+}
+
+// standInTest returns a function that says whether a binding is declared in a region of code that
+// holds a stand-in of a Node module, which nodeModuleCode makes: its region starts with the ID of
+// the module, \0tifa-node:, and ends where the next region starts.
+function standInTest(code) {
+  const regions = []
+  if (code.includes('tifa-node')) {
+    const open = /^\/\/(?:#region)? \\0tifa-node:/gm
+    const close = /^\/\/(?:#endregion|#region)/gm
+    for (let m; (m = open.exec(code)); ) {
+      close.lastIndex = m.index + 1
+      regions.push([m.index, close.exec(code)?.index ?? code.length])
+    }
+  }
+  return (binding) => {
+    if (regions.length === 0) return false
+    const def = binding.defs[0]
+    const node = def.declarator ?? def.pattern ?? def.function ?? def.class ?? def.param ?? def.import ?? def.catch ?? binding.scope.node
+    return regions.some(([from, to]) => node.start >= from && node.start < to)
+  }
+}
+
+// writeOutRound writes out the calls of small functions in code as far as one round does, and gives
+// the new code with the number of calls it wrote out. scopes is analyzeScopes of the code.
+function writeOutRound(code, scopes) {
+  const standIn = standInTest(code)
+  const infos = new Map() // function node to what smallFunctionOf found
+  const chosen = []
+  for (const call of scopes.calls) {
+    const ref = scopes.refs.get(call.callee)
+    const binding = ref?.binding
+    if (!binding || !['function', 'var', 'let', 'const'].includes(binding.kind) || binding.defs.length !== 1) continue
+    const def = binding.defs[0]
+    const fn = def.function ?? (functionTypes.has(def.declarator?.init?.type) ? def.declarator.init : null)
+    if (!fn) continue
+    let info = infos.get(fn)
+    if (!info) infos.set(fn, (info = smallFunctionOf(fn, binding, scopes, standIn)))
+    if (info.expr && canWriteOut(call, ref, info, scopes)) chosen.push({ call, info })
+  }
+  // A call with another call in it waits for the next round, when the call in it is written out.
+  chosen.sort((a, b) => a.call.start - b.call.start || b.call.end - a.call.end)
+  const edits = []
+  for (const [i, { call, info }] of chosen.entries()) {
+    let holds = false
+    for (let j = i + 1; j < chosen.length && chosen[j].call.start < call.end && !holds; j++) holds = chosen[j].call.end <= call.end
+    if (holds) continue
+    const text = keepLines(code.slice(call.start, call.end), bodyText(code, call, info, scopes))
+    if (text === null || startsAfterAnotherLine(code, call.start)) continue
+    edits.push({ start: call.start, end: call.end, text })
+  }
+  let out = ''
+  let at = 0
+  for (const edit of edits) {
+    out += code.slice(at, edit.start) + edit.text
+    at = edit.end
+  }
+  return { code: out + code.slice(at), count: edits.length }
+}
+
+// inlineSmallFunctions returns code, the SSR bundle before it is minified, with the calls of
+// small functions written out as their body. A function with a body of an expression, a few
+// assignments or a chain of ifs that return, of up to smallFunctionNodes syntax nodes, that no
+// code sets again, costs a call in QuickJS: a frame, the arguments, a return. The rules are about the
+// shape of the function and the call, not about any library. The code keeps its lines. It checks
+// its work: if the names that no declaration gives are not the same after, it gives the code as it
+// was, with a warning. parse gives the syntax tree of a source. The result has the code, the
+// number of calls written out and the warning, which is empty when there is none.
+export function inlineSmallFunctions(source, parse) {
+  let accepted = { code: source, count: 0, warning: '' }
+  let code = source
+  let count = 0
+  let names = null
+  for (let round = 0; ; round++) {
+    const scopes = analyzeScopes(parse(code))
+    const unresolved = [...scopes.unresolved].sort()
+    if (names === null) {
+      if (scopes.unsupported) return { ...accepted, warning: `the tifa plugin does not write out small functions: the bundle has ${scopes.unsupported}` }
+      names = unresolved.join(',')
+    } else if (unresolved.join(',') !== names) {
+      return { ...accepted, warning: `writing out small functions changed the names that no declaration gives (${names} to ${unresolved.join(',')}), so the tifa plugin left the calls as they were` }
+    }
+    accepted = { code, count, warning: '' }
+    if (round === smallFunctionRounds) return accepted
+    const next = writeOutRound(code, scopes)
+    if (next.count === 0) return accepted
+    code = next.code
+    count += next.count
   }
 }
