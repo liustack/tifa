@@ -3756,27 +3756,41 @@ function boundIdentifiers(pattern, out = []) {
   return out
 }
 
-// analyzeScopes reads the syntax tree program of an ES module and gives its scopes: for each
-// reference to a name (refs, by the identifier node) the binding it reaches, for each binding what
-// declares it and how many times code assigns to it, the names that no declaration gives
-// (unresolved), the calls whose callee is a name (calls), and the functions that a declaration
-// or a variable names (named, by the function node). It stops at what it does not know (a with
-// statement, a direct eval) with unsupported set, since names are not what they look like there.
-// A function's parameters and its body share a scope, which only ever shows more names to a call
-// in a default value than the language does.
-function analyzeScopes(program) {
+// endsStatement reports whether the statement node, which the source code holds, ends in a way that
+// the next line cannot run into: a semicolon, or the closing brace of a block, a function, a class,
+// a try or a switch. The end of a node is exact, so a semicolon in a comment is not one.
+function endsStatement(node, code) {
+  const last = code[node.end - 1]
+  if (last === ';') return true
+  const inner = node.type.startsWith('Export') && node.declaration ? node.declaration : node
+  return last === '}' && ['BlockStatement', 'FunctionDeclaration', 'ClassDeclaration', 'TryStatement', 'SwitchStatement'].includes(inner.type)
+}
+
+// analyzeScopes reads the syntax tree program of an ES module, whose source is code, and gives its
+// scopes: for each reference to a name (refs, by the identifier node) the binding it reaches, for
+// each binding what declares it and how many times code assigns to it, the names that no declaration
+// gives (unresolved), the calls whose callee is a name (calls), where code surely runs after a
+// declaration (safeRange), and where a statement starts that the line before may run into
+// (risky). A function with a parameter that is a pattern or has a default value has a scope for its
+// parameters and one inside it for its body. It stops at what it does not know (a with statement, a
+// direct eval) with unsupported set, since names are not what they look like there.
+function analyzeScopes(program, code) {
   const root = scopeOf(null, 'module', program)
   const refs = new Map()
   const unresolved = new Set()
   const calls = []
   const callParents = new Map()
-  const named = new Map()
-  const result = { root, refs, unresolved, calls, callParents, named, functions: new Map(), unsupported: null }
+  const declared = new Map() // a function declaration to its binding
+  const safeRange = new Map() // a declarator or class to where code surely runs after it has run
+  const risky = new Set() // where an expression statement starts that the line before may run into
+  const result = { root, refs, unresolved, calls, callParents, declared, safeRange, risky, functions: new Map(), unsupported: null }
+  let hoisted = null // the function declarations around the code being read, innermost first
+  let loops = 0 // the loops around the code being read, inside its function
 
   const lookup = lookupBinding
   const addRef = (id, scope, assign, parent, key) => {
     const binding = lookup(scope, id.name)
-    const ref = { id, scope, binding, assign, parent, key }
+    const ref = { id, scope, binding, assign, parent, key, hoisted }
     refs.set(id, ref)
     if (binding) {
       binding.refs.push(ref)
@@ -3789,16 +3803,29 @@ function analyzeScopes(program) {
 
   // The declarations of a list of statements that belong to its scope: let, const, class and
   // function declarations, and what an import brings.
-  const declareLexical = (list, scope) => {
-    for (let s of list) {
+  // end is where the list ends, or -1 when the code after a statement of it may not run.
+  const declareLexical = (list, scope, end) => {
+    for (const [i, outer] of list.entries()) {
+      let s = outer
       if (s.type === 'ExportNamedDeclaration' || s.type === 'ExportDefaultDeclaration') s = s.declaration
+      if (outer.type === 'ExpressionStatement' && i > 0 && !endsStatement(list[i - 1], code)) risky.add(outer.start)
       if (!s) continue
+      if (end >= 0 && s.type === 'VariableDeclaration') for (const d of s.declarations) safeRange.set(d, [outer.end, end])
+      if (end >= 0 && s.type === 'ClassDeclaration') safeRange.set(s, [outer.end, end])
       if (s.type === 'FunctionDeclaration' && s.id) declare(scope, s.id.name, 'function', { function: s })
       else if (s.type === 'ClassDeclaration' && s.id) declare(scope, s.id.name, 'class', { class: s })
       else if (s.type === 'VariableDeclaration' && s.kind !== 'var') declareVariables(s, scope, s.kind)
       else if (s.type === 'ImportDeclaration') {
         for (const spec of s.specifiers) declare(scope, spec.local.name, 'import', { import: spec })
       }
+    }
+  }
+  // A var that something sets again, or whose initializer sets another variable of its name, is
+  // not a variable of one value: all the variables of the name around are marked.
+  const unsteady = (scope, name) => {
+    for (let s = scope; s; s = s.parent) {
+      const b = s.vars.get(name)
+      if (b) b.loop = true
     }
   }
   const declareVariables = (declaration, scope, kind, loop = false) => {
@@ -3916,21 +3943,29 @@ function analyzeScopes(program) {
       outer = scopeOf(scope, 'funcname', node)
       declare(outer, node.id.name, 'funcname', { function: node })
     }
-    const fs = scopeOf(outer, 'function', node)
-    fs.arrow = node.type === 'ArrowFunctionExpression'
-    if (!fs.arrow) declare(fs, 'arguments', 'arguments', { implicit: true })
-    for (const p of node.params) for (const id of boundIdentifiers(p)) declare(fs, id.name, 'param', { param: node })
+    // With a parameter that is a pattern or has a default value, the parameters have a scope of
+    // their own, and the body a scope inside it that the default values do not see.
+    const plain = node.params.every((p) => p.type === 'Identifier')
+    const ps = scopeOf(outer, plain ? 'function' : 'params', node)
+    const fs = plain ? ps : scopeOf(ps, 'function', node)
+    ps.arrow = fs.arrow = node.type === 'ArrowFunctionExpression'
+    if (!ps.arrow) declare(ps, 'arguments', 'arguments', { implicit: true })
+    for (const p of node.params) for (const id of boundIdentifiers(p)) declare(ps, id.name, 'param', { param: node })
     if (node.body.type === 'BlockStatement') {
-      declareLexical(node.body.body, fs)
+      declareLexical(node.body.body, fs, node.body.end)
       hoistVars(node.body, fs)
     }
-    result.functions.set(node, fs)
-    for (const p of node.params) visitPatternExpressions(p, fs)
+    result.functions.set(node, ps)
+    if (node.type === 'FunctionDeclaration' && node.id) declared.set(node, scope.vars.get(node.id.name))
+    const outerHoisted = hoisted
+    const outerLoops = loops
+    if (node.type === 'FunctionDeclaration') hoisted = { node, up: hoisted }
+    loops = 0
+    for (const p of node.params) visitPatternExpressions(p, ps)
     if (node.body.type === 'BlockStatement') for (const s of node.body.body) visit(s, fs, node.body, 'body')
     else visit(node.body, fs, node, 'body')
-    if (node.type === 'FunctionDeclaration' && node.id) {
-      named.set(node, { binding: scope.vars.get(node.id.name), declarator: null, scope })
-    }
+    hoisted = outerHoisted
+    loops = outerLoops
   }
 
   const visitClass = (node, scope) => {
@@ -3941,7 +3976,7 @@ function analyzeScopes(program) {
       if (m.computed) visit(m.key, cs, m, 'key')
       if (m.type === 'StaticBlock') {
         const fs = scopeOf(cs, 'function', m)
-        declareLexical(m.body, fs)
+        declareLexical(m.body, fs, m.end)
         hoistVars(m, fs)
         for (const s of m.body) visit(s, fs, m, 'body')
       } else if (m.type === 'MethodDefinition') {
@@ -3981,14 +4016,16 @@ function analyzeScopes(program) {
         return
       case 'BlockStatement': {
         const bs = scopeOf(scope, 'block', node)
-        declareLexical(node.body, bs)
+        declareLexical(node.body, bs, node.end)
         for (const s of node.body) visit(s, bs, node, 'body')
         return
       }
       case 'ForStatement': {
         const bs = scopeOf(scope, 'block', node)
-        if (node.init?.type === 'VariableDeclaration') declareLexical([node.init], bs)
+        if (node.init?.type === 'VariableDeclaration') declareLexical([node.init], bs, -1)
+        loops++
         visitChildren(node, bs)
+        loops--
         return
       }
       case 'ForInStatement':
@@ -4001,7 +4038,9 @@ function analyzeScopes(program) {
           visitTarget(node.left, bs, node, 'left')
         }
         visit(node.right, bs, node, 'right')
+        loops++
         visit(node.body, bs, node, 'body')
+        loops--
         return
       }
       case 'SwitchStatement': {
@@ -4010,6 +4049,7 @@ function analyzeScopes(program) {
         declareLexical(
           node.cases.flatMap((c) => c.consequent),
           bs,
+          -1,
         )
         for (const c of node.cases) {
           if (c.test) visit(c.test, bs, c, 'test')
@@ -4026,12 +4066,23 @@ function analyzeScopes(program) {
         visit(node.body, cs, node, 'body')
         return
       }
+      case 'WhileStatement':
+      case 'DoWhileStatement':
+        loops++
+        visitChildren(node, scope)
+        loops--
+        return
       case 'VariableDeclaration':
         for (const d of node.declarations) {
           visitPatternExpressions(d.id, scope)
           if (d.init) visit(d.init, scope, d, 'init')
-          if (d.id.type === 'Identifier' && d.init && functionTypes.has(d.init.type)) {
-            named.set(d.init, { binding: lookup(scope, d.id.name), declarator: d, scope })
+          if (node.kind === 'var') {
+            for (const id of boundIdentifiers(d.id)) {
+              const b = lookup(scope, id.name)
+              // In a loop the variable is set again. In a catch clause with a parameter of the same name
+              // the initializer sets the parameter and the variable stays undefined.
+              if (loops > 0 || (d.init && !b?.defs.some((def) => def.declarator === d || def.pattern === d))) unsteady(scope, id.name)
+            }
           }
         }
         return
@@ -4069,7 +4120,7 @@ function analyzeScopes(program) {
     }
   }
 
-  declareLexical(program.body, root)
+  declareLexical(program.body, root, program.end)
   for (const s of program.body) hoistVars(s, root)
   for (const s of program.body) visit(s, root, program, 'body')
   return result
@@ -4078,7 +4129,7 @@ function analyzeScopes(program) {
 // unresolvedNames returns the sorted names that code reads or sets and no declaration of it gives.
 // A bundle that runs with the same globals must keep the same list when a rewrite is right.
 export function unresolvedNames(code, parse) {
-  return [...analyzeScopes(parse(code)).unresolved].sort()
+  return [...analyzeScopes(parse(code), code).unresolved].sort()
 }
 
 class CannotCopy extends Error {}
@@ -4187,8 +4238,11 @@ function smallFunctionOf(fn, binding, scopes, standIn) {
         if (e.regex) events.push({ t: 'new' })
         return
       case 'TemplateLiteral':
-        for (const x of e.expressions) go(x, cond)
-        if (e.expressions.length > 0) events.push({ t: 'coerce' })
+        // Each value becomes a string when the next one is worked out.
+        for (const x of e.expressions) {
+          go(x, cond)
+          events.push({ t: 'coerce' })
+        }
         return
       case 'Identifier': {
         const i = parameterOf(e)
@@ -4264,7 +4318,12 @@ function smallFunctionOf(fn, binding, scopes, standIn) {
       case 'ObjectExpression':
         for (const p of e.properties) {
           if (p.type !== 'Property' || p.kind !== 'init' || p.method) throw new CannotCopy('a member of an object that is no plain value')
-          if (p.computed) go(p.key, cond)
+          if (p.computed) {
+            go(p.key, cond)
+            events.push({ t: 'coerce' }) // the name becomes a property key before the value is worked out
+          }
+          // { __proto__ } is an own property, which { __proto__: value } is not
+          if (p.shorthand && p.key.name === '__proto__') throw new CannotCopy('a shorthand __proto__')
           go(p.value, cond)
         }
         events.push({ t: 'new' })
@@ -4304,8 +4363,9 @@ function smallFunctionOf(fn, binding, scopes, standIn) {
 
 // isPureArgument says whether the argument node of a call can be written in the body of the
 // function as often as the body uses it, or not at all, with nothing else changing: a value, or a
-// name that does not change. A name that no declaration gives would have thrown at the call, and
-// only undefined does not.
+// name that does not change and that the read finds set. A name that no declaration gives would
+// have thrown at the call, and only undefined does not. Nor may the argument throw when it is
+// worked out.
 function isPureArgument(arg, scopes) {
   switch (arg.type) {
     case 'Literal':
@@ -4314,13 +4374,53 @@ function isPureArgument(arg, scopes) {
       return arg.expressions.length === 0
     case 'Identifier': {
       const ref = scopes.refs.get(arg)
-      return ref !== undefined && (ref.binding ? stableBinding(ref.binding) : arg.name === 'undefined')
+      if (ref === undefined) return false
+      return ref.binding ? stableBinding(ref.binding) && initialized(ref, scopes, false) : arg.name === 'undefined'
     }
-    case 'UnaryExpression':
-      return ['void', '!', '-', '+', 'typeof'].includes(arg.operator) && arg.argument.type === 'Literal' && !arg.argument.regex
+    case 'UnaryExpression': {
+      // An operator that throws for the value is no pure one: +1n does.
+      const value = arg.argument
+      if (value.type !== 'Literal' || value.regex) return false
+      return ['void', '!', 'typeof'].includes(arg.operator) || ((arg.operator === '-' || arg.operator === '+') && typeof value.value === 'number')
+    }
     default:
       return false
   }
+}
+
+// initialized reports whether code at the reference ref surely finds its binding set, so that a read
+// does not throw and a variable that holds a function holds it. A let, a const and a class are set
+// once the code after their statement runs, and so is a var when strict says its value matters. That
+// code is the rest of the list of statements that holds the declaration. A function declared in
+// the list can run from anywhere in it, so a read inside one that starts after the declaration
+// counts only if every use of that function is in the rest of the list too, directly or inside
+// another function of that kind. Anything else is known to be set: parameters, functions, catch
+// variables.
+function initialized(ref, scopes, strict) {
+  const b = ref.binding
+  const lexical = b.kind === 'let' || b.kind === 'const' || b.kind === 'class'
+  if (!lexical && !(strict && b.kind === 'var')) return true
+  const def = b.defs[0]
+  const range = scopes.safeRange.get(def.declarator ?? def.pattern ?? def.class)
+  return range !== undefined && runsAfter(ref, range, scopes, new Set())
+}
+
+// runsAfter reports whether the reference ref in the range [from, to] of the source runs only after
+// the code before from has run. visiting holds the functions being asked about, which only call
+// each other and so add no way in from before.
+function runsAfter(ref, [from, to], scopes, visiting) {
+  if (ref.id.start < from || ref.id.end > to) return false
+  for (let h = ref.hoisted; h; h = h.up) {
+    if (h.node.start < from || visiting.has(h.node)) continue
+    const binding = scopes.declared.get(h.node)
+    if (!binding) return false
+    visiting.add(h.node)
+    // A function of the module may also be called from outside after the module has run, which is later than the range.
+    const ok = binding.refs.every((r) => runsAfter(r, [from, to], scopes, visiting))
+    visiting.delete(h.node)
+    if (!ok) return false
+  }
+  return true
 }
 
 // canWriteOut says whether the call node, whose callee is the name reference ref, can be replaced
@@ -4337,8 +4437,11 @@ function canWriteOut(call, ref, info, scopes) {
   // An argument beyond the parameters is worked out for its effects, which the body would lose.
   if (args.slice(fn.params.length).some((_, i) => !pure[fn.params.length + i])) return false
   // A function that a variable holds does not exist before the declaration of the variable runs.
-  const { declarator, scope } = scopes.named.get(fn)
-  if (declarator && call.start < declarator.end && functionScopeOf(ref.scope) === functionScopeOf(scope)) return false
+  if (!initialized(ref, scopes, true)) return false
+  // A default value of a parameter may read a parameter that is not set yet.
+  for (let s = ref.scope; s.kind !== 'function' && s.kind !== 'module'; s = s.parent) {
+    if (s.kind === 'params') return false
+  }
   for (const f of free) {
     if (lookupBinding(ref.scope, f.id.name) !== f.binding) return false
   }
@@ -4370,13 +4473,6 @@ function lookupBinding(scope, name) {
     if (binding) return binding
   }
   return null
-}
-
-// functionScopeOf returns the nearest scope of a function, or the module, around scope.
-function functionScopeOf(scope) {
-  let s = scope
-  while (s.kind !== 'function' && s.kind !== 'module') s = s.parent
-  return s
 }
 
 // bodyText returns the text that stands for the call node in the code: the body of the small
@@ -4439,12 +4535,12 @@ function bodyText(code, call, info, scopes) {
   // is not its last does not use.
   const used = parent?.type !== 'ExpressionStatement' && !(parent?.type === 'SequenceExpression' && parent.expressions.at(-1) !== call)
   const value = kind === 'stmt' && used ? `(${inner}, void 0)` : `(${inner})`
-  // A value that is called keeps an empty this, also when it is a member, and delete takes it as
-  // a name, not a value.
+  // A value that is called keeps an empty this, also when it is a member. delete and typeof take a
+  // name in parentheses as a name, which delete would not delete as a value and typeof would not throw for.
   const keepsThis =
     (parent?.type === 'CallExpression' && parent.callee === call) ||
     (parent?.type === 'TaggedTemplateExpression' && parent.tag === call) ||
-    (parent?.type === 'UnaryExpression' && parent.operator === 'delete')
+    (parent?.type === 'UnaryExpression' && (parent.operator === 'delete' || parent.operator === 'typeof'))
   return keepsThis ? `(0, ${value})` : value
 }
 
@@ -4458,16 +4554,6 @@ function keepLines(from, text) {
   if (have <= want) return text + '\n'.repeat(want - have)
   if (/\/\/|`|\\|[\r\u2028\u2029]/.test(text)) return null
   return text.replace(/[ \t]*\n[ \t]*/g, ' ') + '\n'.repeat(want)
-}
-
-// startsAfterAnotherLine reports whether the text at position at of code could be taken for the
-// call of what the line before it ends with: a text in parentheses on a line of its own, after a
-// line that is no statement or block that ends, where no semicolon ended the statement.
-function startsAfterAnotherLine(code, at) {
-  let i = at - 1
-  while (i >= 0 && /\s/.test(code[i])) i--
-  if (i < 0 || !code.slice(i + 1, at).includes('\n')) return false
-  return !';{}([,=:?&|!+-*<>%^~'.includes(code[i])
 }
 
 // standInTest returns a function that says whether a binding is declared in a region of code that
@@ -4516,7 +4602,8 @@ function writeOutRound(code, scopes) {
     for (let j = i + 1; j < chosen.length && chosen[j].call.start < call.end && !holds; j++) holds = chosen[j].call.end <= call.end
     if (holds) continue
     const text = keepLines(code.slice(call.start, call.end), bodyText(code, call, info, scopes))
-    if (text === null || startsAfterAnotherLine(code, call.start)) continue
+    // A text in parentheses at the start of a line the line before may run into would be a call of it.
+    if (text === null || scopes.risky.has(call.start)) continue
     edits.push({ start: call.start, end: call.end, text })
   }
   let out = ''
@@ -4542,7 +4629,7 @@ export function inlineSmallFunctions(source, parse) {
   let count = 0
   let names = null
   for (let round = 0; ; round++) {
-    const scopes = analyzeScopes(parse(code))
+    const scopes = analyzeScopes(parse(code), code)
     const unresolved = [...scopes.unresolved].sort()
     if (names === null) {
       if (scopes.unsupported) return { ...accepted, warning: `the tifa plugin does not write out small functions: the bundle has ${scopes.unsupported}` }

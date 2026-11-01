@@ -232,7 +232,7 @@ function run() { return next() + next(); }
 function seen() { return typeof nope; }
 function run() { return seen(); }
 `},
-		{name: "a call in a method and in a default value", want: 2, source: `
+		{name: "a call in a method, not one in a default value", want: 1, source: `
 function pred(x) { return x > 0; }
 class C { m() { return pred(1); } }
 function run() { var f = (a = pred(2)) => a; return new C().m() && f(); }
@@ -258,6 +258,18 @@ const e0 = (p) => { throw new Error('stand-in'); };
 const read = (p) => p + 1;
 //#endregion
 function run() { return read(1); }
+`},
+		{name: "a function of the module that only runs after the constant is set", want: 1, source: `
+const f = (a) => a + 1
+function g() { log("g"); return f(1) }
+var late = g()
+function run() { return late }
+`},
+		{name: "functions of the module that call each other and run after the constant is set", want: 1, source: `
+const f = (a) => a + 1
+function g(n) { log("g"); return n ? h(n - 1) : f(1) }
+function h(n) { log("h"); return g(n) }
+function run() { return g(2) }
 `},
 		{name: "after a statement, in a branch", want: 1, source: `
 var a = 0;
@@ -489,6 +501,131 @@ const e0 = (p) => { throw new Error('stand-in'); };
 const read = (p) => e0(p);
 //#endregion
 function run() { return read(1); }
+`},
+		{name: "a default value does not see the declarations of the body", source: `
+function f() { return 1 }
+function run(a = f()) {
+  function f() { return 2 }
+  return a
+}
+`},
+		{name: "a closure in a default value does not see the declarations of the body", want: 1, source: `
+function f() { return 1 }
+function run(a = () => f()) {
+  var f = () => 2
+  return a()
+}
+`},
+		{name: "a call in a default value that reads a later parameter", source: `
+function f(a) { return 1 }
+function run(a = f(b), b = 2) { return a }
+`},
+		{name: "a function set in a branch that does not run", source: `
+function run() {
+  if (false) {
+    var f = () => 1
+  }
+  return f()
+}
+`},
+		{name: "a function called by a closure before the constant is set", source: `
+function run() {
+  function g() { log("g"); return f() }
+  try { g() } catch (e) { return e.name }
+  const f = () => 1
+  return "ok"
+}
+`},
+		{name: "a call after an object that ends the line before", source: `
+function f() { return 2 }
+function run() {
+  var o = {}
+  f()
+  return o
+}
+`},
+		{name: "a call after a line with a semicolon in a comment", source: `
+function f() { return 2 }
+function run() {
+  var x = 1 // ;
+  f()
+  return x
+}
+`},
+		{name: "an argument that is read before its let is set", source: `
+function f(a) { return 1 }
+function run() {
+  return f(x)
+  let x = 2
+}
+`},
+		{name: "an argument read through a variable that a loop sets again", source: `
+function f(a, b) { return [a, b, a] }
+function run() {
+  function* gen() {
+    for (var i of [1, 2]) {
+      var x = i
+      yield () => f(x, it.next().done)
+    }
+  }
+  const it = gen()
+  return it.next().value()
+}
+`},
+		{name: "a template that converts each value in its place", source: `
+function f(a, b) { return ` + "`${a}${b}`" + ` }
+function run() {
+  var a = { toString() { log("convert"); return "a" } }
+  return f(a, log("b"))
+}
+`},
+		{name: "a computed name that converts before the value", source: `
+function f(a, b) { return { [a]: b } }
+function run() {
+  var a = { toString() { log("convert"); return "a" } }
+  return f(a, log("b"))
+}
+`},
+		{name: "a shorthand __proto__ that sets the prototype", source: `
+function box(__proto__) { return { __proto__ } }
+function run() {
+  var o = { x: 1 }
+  return Object.hasOwn(box(o), "__proto__")
+}
+`},
+		{name: "a shorthand __proto__ with no argument", source: `
+function box(__proto__) { return { __proto__ } }
+function run() { return Object.hasOwn(box(), "__proto__") }
+`},
+		{name: "a typeof of a call whose body reads a missing name", want: 1, contains: []string{"typeof (0, "}, source: `
+function f() { return missing }
+function run() { return typeof f() }
+`},
+		{name: "a variable of catch with a var of its name", source: `
+function run() {
+  try { throw 0 }
+  catch (f) { var f = () => 2 }
+  return f()
+}
+`},
+		{name: "an argument that throws, +1n", source: `
+function f(x) { return 1 }
+function run() { return f(+1n) }
+`},
+		{name: "a function of the module that runs before the constant it calls is set", source: `
+var early
+try { early = g() } catch (e) { early = e.name }
+const f = (a) => a + 1
+function g() { log("g"); return f(1) }
+function run() { return early }
+`},
+		{name: "a function of the module that another function of it calls before the constant is set", source: `
+var early
+function h() { log("h"); return g() }
+try { early = h() } catch (e) { early = e.name }
+const f = (a) => a + 1
+function g() { log("g"); return f(1) }
+function run() { return early }
 `},
 		{name: "a direct eval", source: `
 function isA(x) { return x === 'a'; }
