@@ -133,9 +133,7 @@ func TestSSRReportsTheErrorsOfEachRenderToItsOwnOnError(t *testing.T) {
 
 // escapes.tsx renders, three times over, texts and attribute values that need escaping and some
 // that do not: every character React escapes, text that is not ASCII and a lone surrogate, values
-// that are not strings, among them an object whose text changes on every call, enough escaped text
-// to fill the tifa plugin's cache of React's escapes past its limit, and a text larger than that
-// limit.
+// that are not strings, among them an object whose text changes on every call, and long texts.
 const escapesPage = "import './host'\n" +
 	"import { renderToString } from 'react-dom/server.edge'\n" +
 	"const texts = ['plain', '', '&', '<>', `\"'`, 'a & b < c > d \" e \\' f', '订单 & 🙂', '\\ud800 & lone', 'x'.repeat(5000) + '&']\n" +
@@ -151,54 +149,6 @@ const escapesPage = "import './host'\n" +
 	"  </div>\n" +
 	"}\n" +
 	"globalThis.result = [0, 1, 2].map(() => renderToString(<Page />)).join('\\n')\n"
-
-// escapeCacheChars is the size of the plugin's cache of escapes, in UTF-16 code units. The
-// minified bundle keeps it as a number, so it shows whether the cache is in the bundle.
-const escapeCacheChars = "262144"
-
-// searchedWithExec finds the search of the cache of escapes for a character to escape, with exec,
-// in a minified bundle.
-var searchedWithExec = regexp.MustCompile(`if\(\w+\.exec\(\w+\)===null\)return \w+;var \w+=\w+\.get\(`)
-
-// The tifa plugin caches the escapes of React's string renderer, and pages render the same with
-// the cache as without it.
-func TestSSRCachesTheEscapesOfReact(t *testing.T) {
-	root := copyTestdata(t, "ssr", true)
-	writeTree(t, root, map[string]string{"escapes.tsx": escapesPage})
-	code, printed := buildPrinting(t, root, "escapes.tsx")
-	if !strings.Contains(code, escapeCacheChars) {
-		t.Error("the bundle has no cache of escapes")
-	}
-	if !searchedWithExec.MatchString(code) {
-		t.Error("the cache of escapes does not search with exec")
-	}
-	if strings.Contains(printed, "escape") {
-		t.Errorf("the build prints:\n%s", printed)
-	}
-	cached := evalResult(t, code)
-	for _, want := range []string{"<p class=\"a &amp; b &lt; c &gt; d &quot; e &#x27; f\">", "call 0 &amp; &lt;", "call 5 &amp; &lt;", strings.Repeat("a&amp;", 3)} {
-		if !strings.Contains(cached, want) {
-			t.Errorf("the page has no %s", want)
-		}
-	}
-	for name, change := range map[string][2]string{
-		"function": {"function escapeTextForBrowser(text) {", "function escapeTextForBrowser(text) /* changed */ {"},
-		"regexp":   {"matchHtmlRegExp = /[\"'&<>]/;", "matchHtmlRegExp = /[<>\"'&]/;"},
-	} {
-		changed := withReactDOM(t, change[0], change[1])
-		writeTree(t, changed, map[string]string{"escapes.tsx": escapesPage})
-		code, printed := buildPrinting(t, changed, "escapes.tsx")
-		if strings.Contains(code, escapeCacheChars) {
-			t.Errorf("%s: the bundle has a cache of escapes", name)
-		}
-		if !strings.Contains(printed, "react-dom 19.3.0: ") || !strings.Contains(printed, "the tifa plugin does not cache the escapes") {
-			t.Errorf("%s: the build prints:\n%s", name, printed)
-		}
-		if got := evalResult(t, code); got != cached {
-			t.Errorf("%s: the page renders otherwise without the cache", name)
-		}
-	}
-}
 
 // engineEscape makes a VM give a bundle the escape of the engine as the pool of internal/ssr does,
 // under the name __tifa_escape, and count its calls in globalThis.escapeCalls.
@@ -216,8 +166,8 @@ func engineEscape(t *testing.T) func(*slowjs.VM) {
 }
 
 // The tifa plugin makes the escape of React's string renderer the __tifa_escape of the VM when the
-// VM has one. Pages render the same HTML with it, without it (then the cache and replaceAll
-// escape) and in a React DOM the plugin cannot change.
+// VM has one. Pages render the same HTML with it, without it (then React's own function escapes)
+// and in a React DOM the plugin cannot change, which the build warns of.
 func TestSSRAsksTheEngineToEscape(t *testing.T) {
 	root := copyTestdata(t, "ssr", true)
 	unknown := withReactDOM(t, "function escapeTextForBrowser(text) {", "function escapeTextForBrowser(text) /* changed */ {")
@@ -228,7 +178,10 @@ func TestSSRAsksTheEngineToEscape(t *testing.T) {
 			t.Errorf("%s: the build prints:\n%s", name, printed)
 		}
 		writeTree(t, unknown, map[string]string{"escapes.tsx": page})
-		unchanged, _ := buildPrinting(t, unknown, "escapes.tsx")
+		unchanged, unknownPrinted := buildPrinting(t, unknown, "escapes.tsx")
+		if !strings.Contains(unknownPrinted, "react-dom 19.3.0: ") || !strings.Contains(unknownPrinted, "the tifa plugin does not ask the engine to escape") {
+			t.Errorf("%s: the build of a React DOM it does not know prints:\n%s", name, unknownPrinted)
+		}
 		want := evalResult(t, unchanged)
 		if got := evalResult(t, code); got != want {
 			t.Errorf("%s: the page renders otherwise without __tifa_escape", name)
@@ -249,7 +202,7 @@ func TestSSRDoesNotAskTheEngineWhereTheEscapeIsCalledEarly(t *testing.T) {
 	changed := withReactDOM(t, "function getIteratorFn(maybeIterable) {", "var tifaEarly = escapeTextForBrowser(\"<\");\nfunction getIteratorFn(maybeIterable) {")
 	writeTree(t, changed, map[string]string{"escapes.tsx": escapesPage})
 	code, printed := buildPrinting(t, changed, "escapes.tsx")
-	if !strings.Contains(printed, "react-dom 19.3.0: ") || !strings.Contains(printed, "the tifa plugin does not cache the escapes") {
+	if !strings.Contains(printed, "react-dom 19.3.0: ") || !strings.Contains(printed, "the tifa plugin does not ask the engine to escape") {
 		t.Errorf("the build prints:\n%s", printed)
 	}
 	if strings.Contains(code, "__tifa_escape") {
@@ -332,8 +285,7 @@ func TestSSRWritesAttributesWithFewerCalls(t *testing.T) {
 
 // everyEscapePage renders, as text and as attribute values, every UTF-16 code unit between two
 // ampersands, all of them in a row, and 3,000 strings of up to 40 code units drawn from the
-// characters React escapes, letters, lone surrogates and characters outside Latin-1. The cache of
-// escapes has seen none of them, so React escapes each one itself.
+// characters React escapes, letters, lone surrogates and characters outside Latin-1.
 const everyEscapePage = "import './host'\n" +
 	"import { renderToString } from 'react-dom/server.edge'\n" +
 	"const units = Array.from({ length: 0x10000 }, (_, c) => String.fromCharCode(c))\n" +
@@ -347,77 +299,6 @@ const everyEscapePage = "import './host'\n" +
 	"  texts.push(s)\n" +
 	"}\n" +
 	"globalThis.result = renderToString(<div>{texts.map((t, i) => <p key={i} title={t}>{t}</p>)}</div>)\n"
-
-// escapedAtOnce finds the escape of & with replaceAll in a minified bundle.
-var escapedAtOnce = regexp.MustCompile("\\.replaceAll\\(`&`,`&amp;`\\)")
-
-// React's string renderer escapes a string one character at a time. The tifa plugin escapes it
-// with replaceAll, once for each character React escapes, and pages render the same as without
-// that.
-func TestSSREscapesEachCharacterAtOnce(t *testing.T) {
-	root := copyTestdata(t, "ssr", true)
-	writeTree(t, root, map[string]string{"escapes.tsx": everyEscapePage})
-	code, printed := buildPrinting(t, root, "escapes.tsx")
-	if !escapedAtOnce.MatchString(code) {
-		t.Error("the bundle does not escape with replaceAll")
-	}
-	if strings.Contains(printed, "react-dom") {
-		t.Errorf("the build prints:\n%s", printed)
-	}
-	escaped := evalResult(t, code)
-	for _, want := range []string{"&amp;&lt;&amp;", "&amp;&gt;&amp;", "&amp;&quot;&amp;", "&amp;&#x27;&amp;", "&amp;amp;"} {
-		if !strings.Contains(escaped, want) {
-			t.Errorf("the page has no %s", want)
-		}
-	}
-	changed := withReactDOM(t, "for (index = match.index; index < text.length; index++) {", "for (index = match.index; text.length > index; index++) {")
-	writeTree(t, changed, map[string]string{"escapes.tsx": everyEscapePage})
-	code, printed = buildPrinting(t, changed, "escapes.tsx")
-	if escapedAtOnce.MatchString(code) {
-		t.Error("the bundle escapes with replaceAll in a React DOM it does not know")
-	}
-	if !strings.Contains(printed, "react-dom 19.3.0: ") || !strings.Contains(printed, "the tifa plugin does not escape them with replaceAll") {
-		t.Errorf("the build prints:\n%s", printed)
-	}
-	if got := evalResult(t, code); got != escaped {
-		t.Error("the page renders otherwise with React's loop over the characters")
-	}
-}
-
-// shortEscapesPage renders 36,920 short texts that need escaping, all different, and drops the
-// HTML. It keeps renderToString, as the runtime does, so React's module and the tifa plugin's cache
-// of escapes in it stay in the VM. A text takes 2 code units and its escape 5: counted by their
-// code units alone, all of them would fit in the cache, in about 5 MB.
-const shortEscapesPage = "import './host'\n" +
-	"import { renderToString } from 'react-dom/server.edge'\n" +
-	"const texts = Array.from({ length: 36920 }, (_, i) => '<' + String.fromCharCode(0x100 + i))\n" +
-	"renderToString(<div>{texts.map((t, i) => <i key={i}>{t}</i>)}</div>)\n" +
-	"globalThis.render = renderToString\n" +
-	"globalThis.result = 'done'\n"
-
-// Many short strings take no more memory in the cache of escapes than a few long ones.
-func TestSSRCachesShortEscapesInLittleMemory(t *testing.T) {
-	root := copyTestdata(t, "ssr", true)
-	writeTree(t, root, map[string]string{"escapes.tsx": shortEscapesPage})
-	cached, _ := buildPrinting(t, root, "escapes.tsx")
-	plain := withReactDOM(t, "function escapeTextForBrowser(text) {", "function escapeTextForBrowser(text) /* changed */ {")
-	writeTree(t, plain, map[string]string{"escapes.tsx": shortEscapesPage})
-	uncached, _ := buildPrinting(t, plain, "escapes.tsx")
-	memory := func(code string) int64 {
-		vm, err := slowjs.NewVM()
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer vm.Close()
-		if err := evalModule(vm, code); err != nil {
-			t.Fatalf("evaluate bundle: %v", err)
-		}
-		return ssr.VMMemory(vm, true).MallocSize
-	}
-	if grown := memory(cached) - memory(uncached); grown > 1<<20 {
-		t.Errorf("the cache of escapes takes %d KiB, want at most 1 MiB", grown>>10)
-	}
-}
 
 // segmentsPage renders, three times over, Suspense boundaries side by side, nested in each other,
 // at the start and the end of their parents and one whose content never arrives, with text,

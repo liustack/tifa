@@ -172,34 +172,3 @@ func TestSSRHandsNodesOnWithoutAnExtraCall(t *testing.T) {
 		t.Error("the page renders otherwise without the change")
 	}
 }
-
-// keyOrIndexTest finds, in a minified bundle, the key of an element worked out only when the key path
-// or a replay reads it.
-var keyOrIndexTest = regexp.MustCompile("=[\\w$]+\\|\\|[\\w$]+\\.replay!==null\\?[\\w$]+==null\\|\\|[\\w$]+===[\\w$]+\\?")
-
-// retryNode works out the key of an element, or its index among its siblings, for the key path and for
-// code that resumes a render, and the string renderer needs neither: the tifa plugin makes it only
-// when the key path is made or a task has a replay. Pages render the same as in a React DOM the plugin
-// does not know, which keeps the key path and the key of every element, for elements with keys that
-// are strings, numbers or missing.
-func TestSSRWorksOutTheKeyOfAnElementOnlyWhenItIsRead(t *testing.T) {
-	root := copyTestdata(t, "ssr", true)
-	writeTree(t, root, map[string]string{"nodes.tsx": nodesPage})
-	code, printed := buildPrinting(t, root, "nodes.tsx")
-	if !keyOrIndexTest.MatchString(code) {
-		t.Error("the bundle works out the key of every element")
-	}
-	if strings.Contains(printed, "react-dom") {
-		t.Errorf("the build prints:\n%s", printed)
-	}
-	written := evalResult(t, code)
-	changed := withReactDOM(t, "null == key || key === REACT_OPTIMISTIC_KEY\n", "null == key || key === REACT_OPTIMISTIC_KEY /* changed */\n")
-	writeTree(t, changed, map[string]string{"nodes.tsx": nodesPage})
-	plain, _ := buildPrinting(t, changed, "nodes.tsx")
-	if keyOrIndexTest.MatchString(plain) {
-		t.Error("the bundle works out the key only when it is read in a React DOM the plugin does not know")
-	}
-	if got := evalResult(t, plain); got != written {
-		t.Error("the page renders otherwise without the change")
-	}
-}
