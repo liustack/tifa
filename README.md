@@ -114,6 +114,17 @@ go tool tifa build
 ./bin/shop           # http://127.0.0.1:9527
 ```
 
+## Use it with a coding agent
+
+[skills/tifa](skills/tifa) is an agent skill for Claude Code. It tells the agent how a tifa app is laid out, which mistakes the build and the server render punish, and how to test and deploy. Copy the folder into your project's `.claude/skills/` (or into `~/.claude/skills/` for all projects):
+
+```sh
+git clone --depth 1 https://github.com/liustack/tifa.git tifa-src
+mkdir -p .claude/skills && cp -r tifa-src/skills/tifa .claude/skills/tifa
+```
+
+A new app also gets an `AGENTS.md` from `tifa new`. The skill covers the same ground with more detail and links to the docs.
+
 ## Documentation
 
 | Doc | Read it when |
