@@ -728,15 +728,6 @@ var tifaAttributeChunks = new Map([["tabIndex", ' tabindex="'], ["dir", ' dir="'
 const nodeForwarder =
   'function renderNodeDestructive(request, task, node, childIndex) { null !== task.replay && "number" === typeof task.replay.slots ? ' +
   'resumeNode(request, task, task.replay.slots, node, childIndex) : ((task.node = node), (task.childIndex = childIndex), retryNode(request, task)); }'
-// Where retryNode in React's string renderer works out the key of an element, after dropKeyPathNames:
-// keyOrIndex, which only the key path and the code that resumes a render read.
-const keyOrIndexSource = `            name = null,
-            keyOrIndex =
-              null == key || key === REACT_OPTIMISTIC_KEY
-                ? -1 === childIndex
-                  ? 0
-                  : childIndex
-                : key;`
 // The function of React's string renderer that puts an element on the component stack of a task,
 // and the code in renderNodeDestructive that puts each node on it and takes it off again.
 const stackPush = `function pushComponentStack(task) {
@@ -1380,15 +1371,6 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
           if (unkeyed) {
             source = unkeyed
             keyPathsDropped = true
-            const worked = leaveOutUnusedKeys(source)
-            if (worked) {
-              source = worked
-            } else {
-              this.warn(
-                `${react} has no key of an element in the form the tifa plugin knows, so the tifa plugin does not work it ` +
-                  'out only when something reads it. Pages render the same, but take longer to render',
-              )
-            }
           } else {
             this.warn(
               `${react} ${used || 'has no key paths in the form the tifa plugin knows'}, so the tifa plugin does not ` +
@@ -2409,18 +2391,6 @@ function inlineNodeCalls(source, parse) {
     code = code.slice(0, start) + sameLines(code.slice(start, end), text) + code.slice(end)
   }
   return code
-}
-
-// leaveOutUnusedKeys returns the source of React's string renderer, after dropKeyPaths, with retryNode
-// working out the key of an element only when something reads it, or null when the source does not
-// work it out in the form it knows. The key, or the index of the element, goes into the key path, which
-// dropKeyPaths makes only when tifaKeyPaths is true, and into the code that resumes a render, which runs
-// only for a task with a replay. Every element had it worked out, three tests of the key and the index.
-function leaveOutUnusedKeys(source) {
-  if (source.split(keyOrIndexSource).length !== 2) return null
-  const worked =
-    'name = null, keyOrIndex = tifaKeyPaths || null !== task.replay ? (null == key || key === REACT_OPTIMISTIC_KEY ? (-1 === childIndex ? 0 : childIndex) : key) : null;'
-  return source.replace(keyOrIndexSource, () => sameLines(keyOrIndexSource, worked))
 }
 
 // dropComponentStacks returns the source of React's string renderer without the component stacks
