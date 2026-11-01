@@ -84,6 +84,38 @@ func TestKeyPathFingerprintsTellCodeApart(t *testing.T) {
 	}
 }
 
+// What a review found the fingerprint of the first versions to miss: a catch parameter and a var of
+// its body that have one name, a raw template, and the name of a function that code can read.
+func TestUnitFingerprintsKeepWhatCodeCanSeeOfANameOrATemplate(t *testing.T) {
+	for _, c := range []struct{ name, a, b string }{
+		{"a catch parameter that a var of its body names", "function f() { var x = 1; try { throw 2 } catch (e) { var x = 3 } return x }", "function f() { var x = 1; try { throw 2 } catch (x) { var x = 3 } return x }"},
+		{"a catch parameter that a var of its body names, in a read", "function f() { var x = 1; try { throw 2 } catch (e) { var x = 3; return x } }", "function f() { var x = 1; try { throw 2 } catch (x) { var x = 3; return x } }"},
+		{"a raw template", "function f() { return String.raw`a` }", "function f() { return String.raw`\\x61` }"},
+		{"the name of a function declaration", "function f() { function a() {} return a.name }", "function f() { function b() {} return b.name }"},
+		{"the name of a class", "function f() { class A {} return A.name }", "function f() { class B {} return B.name }"},
+		{"the name of a named function expression", "function f() { var h = function a() {}; return h.name }", "function f() { var h = function b() {}; return h.name }"},
+		{"the name of a variable that an anonymous function is set to", "function f() { var a = function () {}; return a.name }", "function f() { var b = function () {}; return b.name }"},
+		{"the name of a variable that an arrow is set to", "function f() { var a = () => 1; return a.name }", "function f() { var b = () => 1; return b.name }"},
+		{"the name of a variable that a function is assigned to", "function f() { var a; a = function () {}; return a.name }", "function f() { var b; b = function () {}; return b.name }"},
+		{"the name of a parameter that a function is the default of", "function f(a = function () {}) { return a.name }", "function f(b = function () {}) { return b.name }"},
+	} {
+		got := unitsOnNode(t, []string{c.a, c.b})
+		if got[0]["f"] == "" || got[0]["f"] == got[1]["f"] {
+			t.Errorf("%s: fingerprints %q and %q, want two", c.name, got[0]["f"], got[1]["f"])
+		}
+	}
+	// A plain variable and a parameter are still numbered, and a cooked template is the same cooked.
+	same := unitsOnNode(t, []string{
+		"function f(a) { var b = a + 1; return b }",
+		"function f(c) { var d = c + 1; return d }",
+		"function f() { var a = function () {}; return a() }",
+		"function f() { var a = function () {}; return a() }",
+	})
+	if same[0]["f"] != same[1]["f"] || same[2]["f"] != same[3]["f"] {
+		t.Errorf("a plain variable or parameter is not numbered: %v", same)
+	}
+}
+
 // A part is known by its name as well as its body. The name of a function or a variable, and the
 // names of the other top-level parts it uses, are in its fingerprint as they are, and only the names
 // it declares inside itself are numbered. So a body under another name, or a call of another

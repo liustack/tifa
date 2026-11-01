@@ -932,6 +932,28 @@ func TestSSRKeepsKeyPathsAndNamesWhenReviewedPartsAreInTheWrongPlace(t *testing.
 	}
 }
 
+// describeNativeComponentFrame has a catch (x) whose body declares var control. With control renamed
+// x, the var initializer writes the parameter of the catch clause and no variable of the function,
+// and the stack the function reads changes. The fingerprint tells the two apart, so the build warns
+// and keeps the key paths and the names of components.
+func TestSSRKeepsKeyPathsAndNamesWhenAVarMeetsACatchParameter(t *testing.T) {
+	changed := withChangedReactDOM(t, func(s string) string {
+		text := topLevelFunction(t, s, "describeNativeComponentFrame")
+		if !strings.Contains(text, "catch (x) {") {
+			t.Fatal("describeNativeComponentFrame has no catch (x)")
+		}
+		return strings.Replace(s, text, regexp.MustCompile(`\bcontrol\b`).ReplaceAllString(text, "x"), 1)
+	})
+	writeTree(t, changed, map[string]string{"keys.tsx": keyPathsPage})
+	code, printed := buildPrinting(t, changed, "keys.tsx")
+	if keyPathCondition.MatchString(code) || !namesInKeyPaths(t, code) {
+		t.Error("the bundle leaves out key paths or names of a renderer with a var that a catch parameter hides")
+	}
+	if strings.Count(printed, notRecognized) != 1 || !strings.Contains(printed, unreviewedKeyPaths+": describeNativeComponentFrame") {
+		t.Errorf("the build prints:\n%s", printed)
+	}
+}
+
 // A warning that names parts lists twenty and then counts the rest.
 func TestSSRNamesAtMostTwentyPartsOfARendererItHasNotRead(t *testing.T) {
 	changed := withChangedReactDOM(t, func(s string) string {

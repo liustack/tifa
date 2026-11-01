@@ -2533,18 +2533,51 @@ function keyPathsUsed(program) {
 // does to `return`, or what a letter next to a keyword does to it, shows in the tree. A name that a
 // declaration inside node gives (a parameter, a variable, a function inside) is written as the
 // number of its first place in node, so the numbers React's compiler puts on such names do not
-// matter, and two names stay two. Every other name is written as it is, with a mark for the
+// matter, and two names stay two, except the names that are seen from outside (those of functions
+// and classes, the name of a variable that an anonymous function is set to, a name that both a
+// catch parameter and a var of its body declare), which stay. Every other name is written as it is, with a mark for the
 // kind: a property name (.a$1), a name that a declaration outside node gives (a$1@o), and a name no
 // declaration gives (a$1@g), so a global that an outer declaration comes to hide differs.
 function fingerprintOf(node, scopes, declared) {
   const local = (scope) => scope.kind !== 'module' && scope.node && scope.node.start >= node.start && scope.node.end <= node.end
   const numbers = new Map()
   const out = []
+  // The local names that stay as they are, since renaming them would change what code can see or do:
+  //   - the name of a function or class (its `name` property), also the name that a variable gives
+  //     to the anonymous function or class it is set to,
+  //   - a name that a catch clause has as its parameter and a var of its body declares, since the
+  //     var's initializer writes the parameter and not the variable of the function.
+  const verbatim = new Set()
+  const anonymous = (e) => (e.type === 'FunctionExpression' || e.type === 'ClassExpression') && !e.id || e.type === 'ArrowFunctionExpression'
+  const bindingOf = (id) => declared.get(id) ?? scopes.refs.get(id)?.binding ?? null
+  const find = (n) => {
+    if (n.type === 'VariableDeclarator' && n.id.type === 'Identifier' && n.init && anonymous(n.init)) verbatim.add(bindingOf(n.id))
+    if ((n.type === 'AssignmentExpression' || n.type === 'AssignmentPattern') && (n.left.type === 'Identifier') && anonymous(n.right)) {
+      verbatim.add(bindingOf(n.left))
+    }
+    for (const child of childNodes(n)) find(child)
+  }
+  find(node)
+  for (const binding of scopes.all) {
+    if (binding.kind === 'function' || binding.kind === 'class' || binding.kind === 'funcname') verbatim.add(binding)
+    if (binding.kind !== 'catch' || !local(binding.scope)) continue
+    const body = binding.defs[0].catch.body
+    for (let scope = binding.scope.parent; scope; scope = scope.parent) {
+      const other = scope.vars.get(binding.name)
+      if (!other) continue
+      if (other.kind === 'var' && other.ids.some((id) => id.start >= body.start && id.end <= body.end)) {
+        verbatim.add(binding)
+        verbatim.add(other)
+      }
+      break
+    }
+  }
   const identifier = (id, parent, key) => {
     if (!isReference(parent, key)) return `.${id.name}`
-    const binding = declared.get(id) ?? scopes.refs.get(id)?.binding ?? null
+    const binding = bindingOf(id)
     if (binding === null) return `${id.name}@g`
     if (!local(binding.scope)) return `${id.name}@o`
+    if (verbatim.has(binding)) return `${id.name}@v`
     if (!numbers.has(binding)) numbers.set(binding, numbers.size)
     return `#${numbers.get(binding)}`
   }
@@ -2565,7 +2598,8 @@ function fingerprintOf(node, scopes, declared) {
     } else {
       out.push('(', value.type ?? '')
       for (const k of Object.keys(value).sort()) {
-        if (k === 'type' || k === 'start' || k === 'end' || k === 'raw') continue
+        // The raw text of a literal is its spelling, which its value says. That of a template is not.
+        if (k === 'type' || k === 'start' || k === 'end' || (k === 'raw' && value.type === 'Literal')) continue
         out.push(' ', k, '=')
         visit(value[k], value, k)
       }
@@ -4970,7 +5004,7 @@ cf9790394521 createWorkInProgressHook
 e09e336c8446 throwOnUseEffectEventCall
 104eb7dae8e0 unsupportedStartTransition
 13dd7ad7f237 unsupportedSetOptimisticState
-10468385f41b useActionState
+cb01673d66fc useActionState
 8b195aae2ee8 unwrapThenable
 0eb38df0e806 unsupportedRefresh
 a3220db31c23 var HooksDispatcher
@@ -4980,7 +5014,7 @@ a3220db31c23 var HooksDispatcher
 1ad1d8e2e53c var suffix
 8f3e6f745575 describeBuiltInComponentFrame
 4f1b7d9fd18d var reentry
-86500d7e04c1 describeNativeComponentFrame
+960281e90919 describeNativeComponentFrame
 ef1bf89a6018 describeComponentStackByType
 9c4f3608f990 isEligibleForOutlining
 ef32962e0907 defaultErrorHandler
