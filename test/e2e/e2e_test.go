@@ -402,6 +402,13 @@ func TestInterfaceApp(t *testing.T) {
 		if status != tc.status || body != tc.want {
 			t.Errorf("%s %s: %d %s, want %d %s", tc.method, tc.path, status, body, tc.status, tc.want)
 		}
+		wantCache := "private, no-cache"
+		if tc.status >= 400 {
+			wantCache = "no-store"
+		}
+		if got := header.Get("Cache-Control"); got != wantCache {
+			t.Errorf("%s %s: Cache-Control %q, want %q", tc.method, tc.path, got, wantCache)
+		}
 		if tc.path == "/orders/7" && header.Get("X-Pattern") != "/orders/{order}" {
 			t.Errorf("OnRequest saw pattern %q", header.Get("X-Pattern"))
 		}
@@ -482,6 +489,10 @@ func TestPagesApp(t *testing.T) {
 	if status != 200 || header.Get("X-Tifa-Render") != "vm" || !slices.Contains(header.Values("Vary"), "X-Tifa-Route") {
 		t.Errorf("page: %d %v", status, header)
 	}
+	// No Cache-Control from the app: a shared cache must not store the page.
+	if got := header.Get("Cache-Control"); got != "private, no-cache" {
+		t.Errorf("page Cache-Control %q", got)
+	}
 	// The data goes into the page as JSON through the tifa.data adapter.
 	for _, want := range []string{"<html", "Apple", "Shop north", built.Head, `$_TSR.t.get("tifa.data")("{\"id\":\"north\",\"name\":\"Shop north\"}")`} {
 		if !strings.Contains(body, want) {
@@ -553,13 +564,16 @@ func TestPagesApp(t *testing.T) {
 		}
 	}
 	// The same data gives the same ETag, answered 304.
-	if status, _, _ := get(t, base+"/shops/north/items/apple", "If-None-Match", header.Get("ETag")); status != 304 {
-		t.Errorf("If-None-Match: %d", status)
+	if status, notModified, _ := get(t, base+"/shops/north/items/apple", "If-None-Match", header.Get("ETag")); status != 304 || notModified.Get("Cache-Control") != "private, no-cache" {
+		t.Errorf("If-None-Match: %d %v", status, notModified)
 	}
 	// SSR = false skips the VM and carries the data.
 	status, header, body = get(t, base+"/account/login")
 	if status != 200 || header.Get("X-Tifa-Render") != "none" || !strings.Contains(body, `id="tifa-data"`) || !strings.Contains(body, built.Head) {
 		t.Errorf("SSR = false: %d %v\n%s", status, header, body)
+	}
+	if got := header.Get("Cache-Control"); got != "private, no-cache" {
+		t.Errorf("SSR = false Cache-Control %q", got)
 	}
 	// Cache = true renders once.
 	_, first, _ := get(t, base+"/shops/south")
@@ -574,6 +588,9 @@ func TestPagesApp(t *testing.T) {
 	status, header, body = get(t, base+"/shops/north/items/apple", "X-Tifa-Route", "app/shops/shop+/layout,app/shops/shop+/items/item+/route", "X-Tifa-Build", built.BuildID)
 	if status != 200 || !slices.Contains(header.Values("Vary"), "X-Tifa-Route") || body != `{"app/shops/shop+/items/item+/route":{"status":200,"data":{"id":"apple","title":"Apple","price":1.5,"tags":["fruit"]}},"app/shops/shop+/layout":{"status":200,"data":{"id":"north","name":"Shop north"}}}` {
 		t.Errorf("data request: %d %v %s", status, header, body)
+	}
+	if got := header.Get("Cache-Control"); got != "private, no-cache" {
+		t.Errorf("data request Cache-Control %q", got)
 	}
 	if status, _, _ := get(t, base+"/shops/north", "X-Tifa-Route", "app/shops/shop+/layout", "X-Tifa-Build", "old"); status != 409 {
 		t.Errorf("other build: %d", status)

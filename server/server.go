@@ -369,20 +369,38 @@ func recovered(f func() error) (err error) {
 	return f()
 }
 
+// noStoreUnlessSet makes an error answer say no-store, unless the application set a
+// Cache-Control before the error, which then stays.
+func noStoreUnlessSet(h http.Header) {
+	if len(h.Values("Cache-Control")) == 0 {
+		h.Set("Cache-Control", "no-store")
+	}
+}
+
+// writeJSON writes the JSON answers of the framework: the body of every error that is not a page,
+// 405, the 503 of a server that is shutting down, and the redirect a handler call of the browser
+// gets. They are all failures or moves, so none is kept (see noStoreUnlessSet).
 func writeJSON(w http.ResponseWriter, status int, value any) {
 	data, err := json.Marshal(value)
 	if err != nil {
 		http.Error(w, "JSON encoding failed", 500)
 		return
 	}
+	noStoreUnlessSet(w.Header())
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(status)
 	_, _ = w.Write(data)
 }
 
+// defaultCacheControl is what an answer says when the application set no Cache-Control. It
+// keeps a shared cache (a CDN, a proxy) from storing an answer that may be meant for one visitor,
+// and still lets the browser keep it and ask again with its ETag, which ends in a 304.
+const defaultCacheControl = "private, no-cache"
+
 // writer records whether the response is committed, so a late error does not write a second response.
-// Every call that can commit goes through commit, the one place that decides.
+// Every call that can commit goes through commit, the one place that decides. It is also where an
+// answer without a Cache-Control gets defaultCacheControl, once, as the final header goes out.
 type writer struct {
 	http.ResponseWriter
 	wrote bool
@@ -391,9 +409,13 @@ type writer struct {
 
 // commit runs call on the underlying writer. The response counts as committed only when call returns
 // normally and reports that it committed. A panic leaves the state untouched and propagates.
-func (w *writer) commit(call func() bool) {
+// final is false for a 1xx header, which precedes the real response and does not fix its headers.
+func (w *writer) commit(final bool, call func() bool) {
 	if w.plain {
 		w.Header().Del(gzhttp.HeaderNoCompression)
+	}
+	if final && !w.wrote && len(w.Header().Values("Cache-Control")) == 0 {
+		w.Header().Set("Cache-Control", defaultCacheControl)
 	}
 	if call() {
 		w.wrote = true
@@ -403,7 +425,7 @@ func (w *writer) commit(call func() bool) {
 // WriteHeader commits on final statuses. Like net/http, 1xx other than 101 is informational and may
 // precede the real response.
 func (w *writer) WriteHeader(code int) {
-	w.commit(func() bool {
+	w.commit(code >= 200, func() bool {
 		w.ResponseWriter.WriteHeader(code)
 		return code < 100 || code > 199 || code == http.StatusSwitchingProtocols
 	})
@@ -411,7 +433,7 @@ func (w *writer) WriteHeader(code int) {
 
 // Write commits once it succeeds, even with no bytes since that sends the header, or once any byte went out.
 func (w *writer) Write(b []byte) (n int, err error) {
-	w.commit(func() bool {
+	w.commit(true, func() bool {
 		n, err = w.ResponseWriter.Write(b)
 		return err == nil || n > 0
 	})
@@ -421,7 +443,7 @@ func (w *writer) Write(b []byte) (n int, err error) {
 // WriteString hands s on whole to a writer that takes strings, as net/http's does, so a page
 // is not copied into a byte slice on the way.
 func (w *writer) WriteString(s string) (n int, err error) {
-	w.commit(func() bool {
+	w.commit(true, func() bool {
 		n, err = io.WriteString(w.ResponseWriter, s)
 		return err == nil || n > 0
 	})
@@ -433,7 +455,7 @@ func (w *writer) WriteString(s string) (n int, err error) {
 func (w *writer) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 func (w *writer) FlushError() (err error) {
-	w.commit(func() bool {
+	w.commit(true, func() bool {
 		err = http.NewResponseController(w.ResponseWriter).Flush()
 		return err == nil
 	})
@@ -443,7 +465,7 @@ func (w *writer) FlushError() (err error) {
 func (w *writer) Flush() { _ = w.FlushError() }
 
 func (w *writer) Hijack() (conn net.Conn, rw *bufio.ReadWriter, err error) {
-	w.commit(func() bool {
+	w.commit(false, func() bool {
 		conn, rw, err = http.NewResponseController(w.ResponseWriter).Hijack()
 		return err == nil
 	})
