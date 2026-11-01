@@ -310,6 +310,16 @@ func checkStorefront(t *testing.T, base, buildID string) {
 			}
 		}
 	}
+	// A page that shows an error is no page to link in other languages: a 404 would send search
+	// engines to a URL that does not exist, in each language. Its head keeps the language and the
+	// title and has no alternates.
+	for _, path := range []string{"/store/en-US/products/does-not-exist", "/store/zh-CN/journal/nope", "/store/en-US/nope", "/store/en-US/nope/deeper"} {
+		status, _, page := get(t, base+path)
+		head := page[:strings.Index(page, "</head>")]
+		if status != 404 || strings.Contains(head, `rel="alternate"`) || strings.Contains(head, "hrefLang") || !strings.Contains(head, "<title>") {
+			t.Errorf("%s: %d, the head of a 404 must have a title and no alternate links:\n%.600s", path, status, head)
+		}
+	}
 	// The head of the language Layout sets the language of <html> from the locale its Go
 	// function checked, over the root Layout's zh-CN, also on the 404 pages inside it. A path no
 	// page of the store has is a 404 inside it too, with no page of its own for it. The store
