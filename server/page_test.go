@@ -487,9 +487,9 @@ func TestDevFailedErrorPageShowsBothErrors(t *testing.T) {
 
 func TestRouterRedirectIsAnswered(t *testing.T) {
 	s, r := newFrontServer(t, frontApp())
-	r.result = func(ssr.Input) (string, error) { return "", &ssr.RedirectError{Location: "/projects/a", Status: 307} }
+	r.result = func(ssr.Input) (string, error) { return "", &ssr.RedirectError{Location: "/projects/a", Status: 308} }
 	w := get(s, "/projects/%61")
-	if w.Code != 307 || w.Header().Get("Location") != "/projects/a" {
+	if w.Code != 308 || w.Header().Get("Location") != "/projects/a" {
 		t.Errorf("%d %v", w.Code, w.Header())
 	}
 }
@@ -500,16 +500,16 @@ func TestRouterRedirectCarriesNoETag(t *testing.T) {
 	s, r := newFrontServer(t, frontApp())
 	r.result = func(in ssr.Input) (string, error) {
 		if strings.Contains(in.URL, "%") {
-			return "", &ssr.RedirectError{Location: "/projects/p1", Status: 307}
+			return "", &ssr.RedirectError{Location: "/projects/p1", Status: 308}
 		}
 		return "<html>" + in.URL + "</html>", nil
 	}
 	w := get(s, "/projects/%701")
-	if w.Code != 307 || w.Header().Get("ETag") != "" {
+	if w.Code != 308 || w.Header().Get("ETag") != "" {
 		t.Fatalf("redirect: %d %v", w.Code, w.Header())
 	}
 	etag := get(s, "/projects/p1").Header().Get("ETag")
-	if w := get(s, "/projects/%701", "If-None-Match", etag); w.Code != 307 || w.Header().Get("Location") != "/projects/p1" {
+	if w := get(s, "/projects/%701", "If-None-Match", etag); w.Code != 308 || w.Header().Get("Location") != "/projects/p1" {
 		t.Errorf("with the ETag of the target: %d %v", w.Code, w.Header())
 	}
 }

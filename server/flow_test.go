@@ -200,3 +200,27 @@ func TestHandlerCallRedirectOfOnRequestIsJSON(t *testing.T) {
 		t.Errorf("%d %v %s", w.Code, w.Header(), w.Body.String())
 	}
 }
+
+// A path ServeMux cleans (a double slash, a dot segment) is another spelling of the same page.
+// Search engines take only a permanent redirect as a sign of the canonical URL, and 308 keeps the
+// method, where the 301 of ServeMux turns a POST into a GET.
+func TestPathCleaningRedirectIsPermanent(t *testing.T) {
+	var reported []error
+	s, _ := newFrontServer(t, secretApp(nil, &reported))
+	for _, tc := range []struct{ target, want string }{
+		{"/./secret", "/secret"},
+		{"/a/../secret?x=1", "/secret?x=1"},
+		{"//secret", "/secret"},
+	} {
+		w := get(s, tc.target)
+		if w.Code != 308 || w.Header().Get("Location") != tc.want {
+			t.Errorf("%s: %d %v", tc.target, w.Code, w.Header())
+		}
+	}
+	r := httptest.NewRequest("POST", "/api//health", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, r)
+	if w.Code != 308 {
+		t.Errorf("POST: %d %v", w.Code, w.Header())
+	}
+}

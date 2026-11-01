@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { prerenderToString } from 'react-dom/server.edge'
 import { RouterProvider, type AnyRoute } from '@tanstack/react-router'
 import { attachRouterServerSsrUtils } from '@tanstack/react-router/ssr/server'
-import { createAppRouter } from './router'
+import { askedByLoad, createAppRouter } from './router'
 import { injected, rootElementId, RouteError, type Injected, type InjectedResult, type Source } from './data'
 import {
   attributes,
@@ -112,6 +112,15 @@ function renderSource(input: RenderInput, texts: string[]): Source {
   return injected({ url: input.url, buildId: input.buildId, data })
 }
 
+// canonicalStatus is the status of a redirect the router threw. The router throws one for a URL it
+// spells differently (/%61 for /a, /a/ for /a) with the temporary status 307. That URL is only another
+// spelling of the page, so it answers 308: the permanent redirect that keeps the method and that
+// search engines take as the sign of the canonical URL. A redirect a Load asked for keeps its status.
+function canonicalStatus(redirect: Response) {
+  const asked = (redirect as { options?: Record<string, unknown> }).options?.[askedByLoad]
+  return asked ? redirect.status : 308
+}
+
 // serve installs startRender, which the Go VM pool calls with the JSON of a RenderInput and, as
 // the arguments after it, the JSON text of the data of each successful Load, which the results
 // of the input number. It leaves the HTML, or the JSON of {"redirect": {location, status}} or
@@ -148,7 +157,7 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
         const result = router._serverResult
         if (result?.type === 'redirect') {
           globalThis.renderResult = JSON.stringify({
-            redirect: { location: result.redirect.headers.get('Location'), status: result.redirect.status },
+            redirect: { location: result.redirect.headers.get('Location'), status: canonicalStatus(result.redirect) },
           })
           return
         }

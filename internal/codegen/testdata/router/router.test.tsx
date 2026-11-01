@@ -141,7 +141,7 @@ test('literal segments match the URLs ServeMux matches', async () => {
   contains(await render('/e', appData), 'PAGE_ENCODED')
   // The router spells /%65 as /e and redirects there, Go then serves the redirect.
   const redirected = await renderResult('/%65', appData)
-  assert(redirected.redirect?.location === '/e', `render /%65: ${JSON.stringify(redirected)}`)
+  assert(redirected.redirect?.location === '/e' && redirected.redirect.status === 308, `render /%65: ${JSON.stringify(redirected)}`)
 })
 
 test('the document around the React root is written as a string', async () => {
@@ -401,7 +401,7 @@ test('the rest of the path may be empty, written without the trailing slash', as
   contains(await render('/docs', { ...appData, 'app/docs/path++/route': ok('') }), 'DOC [<!-- -->]')
   // Go also answers /docs/, which the router writes as /docs.
   const slash = await renderResult('/docs/', { ...appData, 'app/docs/path++/route': ok('') })
-  assert(slash.redirect?.location === '/docs', `/docs/ gives ${JSON.stringify(slash)}`)
+  assert(slash.redirect?.location === '/docs' && slash.redirect.status === 308, `/docs/ gives ${JSON.stringify(slash)}`)
   // Below a Layout without a page, the rest of the path takes the Layout's URL.
   contains(await render('/media', appData), 'MEDIA_LAYOUT', 'MEDIA_FILE')
   // Also when the rest of the path has a Layout of its own.
@@ -736,6 +736,9 @@ test('404, redirect and RouteError results keep their paths', async () => {
   assert(notFound instanceof RouteError && notFound.status === 404 && notFound.message === 'Not Found', `404 after hydration ${notFound}`)
   const redirected = await renderResult('/hello', { 'app/layout': { status: 302, location: '/login' } })
   assert(JSON.stringify(redirected.redirect) === '{"location":"/login","status":302}', `redirect ${JSON.stringify(redirected)}`)
+  // A redirect a Load asked for keeps the status it asked for, 307 included.
+  const temporary = await renderResult('/hello', { 'app/layout': { status: 307, location: '/login' } })
+  assert(JSON.stringify(temporary.redirect) === '{"location":"/login","status":307}', `307 redirect ${JSON.stringify(temporary)}`)
   const failed = await render('/hello', { 'app/layout': { status: 403, error: 'no' } })
   const hydrated = await hydrateFrom(failed, '/hello')
   const error = hydrated.router.state.matches[1].error
