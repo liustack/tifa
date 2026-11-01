@@ -554,12 +554,9 @@ func (s *Server) listedLoads(c *tifa.Ctx, chain []load) ([]load, error) {
 }
 
 // writeData writes the answer of a data request. A Cache-Control of OnRequest or a Load, such
-// as private, no-store, wins over the default. The Loads have returned, so the header map is
-// no longer shared.
+// as private, no-store, wins over the default of the writer (defaultCacheControl). The Loads have
+// returned, so the header map is no longer shared.
 func writeData(w http.ResponseWriter, status int, value any) error {
-	if w.Header().Get("Cache-Control") == "" {
-		w.Header().Set("Cache-Control", "no-cache")
-	}
 	data, err := json.Marshal(value)
 	if err != nil {
 		return err
