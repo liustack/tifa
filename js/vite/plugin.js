@@ -2609,26 +2609,31 @@ export function reactDomUnits(program, source) {
   return { units, problems: [] }
 }
 
-// The fingerprints of reviewedReactDOM, at the end of this file, as a map to the names.
+// The pairs of reviewedReactDOM, at the end of this file, as a map of each name to the set of its
+// fingerprints: a name has more than one when versions differ in it. A unit is reviewed when its
+// name and its fingerprint are a pair of the table, so a body that is the reviewed body of another
+// name is not.
 let reviewedUnits = null
 export function reviewedReactDOMUnits() {
   if (!reviewedUnits) {
     reviewedUnits = new Map()
     for (const line of reviewedReactDOM.split('\n')) {
       const [fingerprint, ...name] = line.trim().split(' ')
-      if (fingerprint) reviewedUnits.set(fingerprint, name.join(' '))
+      if (!fingerprint) continue
+      if (!reviewedUnits.has(name.join(' '))) reviewedUnits.set(name.join(' '), new Set())
+      reviewedUnits.get(name.join(' ')).add(fingerprint)
     }
   }
   return reviewedUnits
 }
 
-// unreadReactDOMUnits returns the units of React's string renderer, program parsed from source, that
-// are not in reviewedReactDOM, and the problems of reactDomUnits. When the list is empty, every part
+// unreadReactDOMUnits returns the units of React's string renderer, program parsed from source, whose
+// name and fingerprint are not a pair of reviewedReactDOM, and the problems of reactDomUnits. When the list is empty, every part
 // of the file is one that was read to the end for what it does with a key path.
 export function unreadReactDOMUnits(program, source) {
   const { units, problems } = reactDomUnits(program, source)
   const reviewed = reviewedReactDOMUnits()
-  return { unread: units.filter((u) => !reviewed.has(u.fingerprint)), problems }
+  return { unread: units.filter((u) => !reviewed.get(u.name)?.has(u.fingerprint)), problems }
 }
 
 // namesOfUnits writes the names of units for a warning: the first twenty, then how many more.
@@ -4778,7 +4783,8 @@ export function inlineSmallFunctions(source, parse) {
 // read: React DOM 19.3.0 and 19.3.1. The plugin leaves the names of components and the key paths out
 // only when every part of the file is in it, so a release that changes a function, adds one or
 // changes the order of the top of the file keeps both. A comment, white space, brackets, quotes and
-// the names a part declares do not change a fingerprint. See "Reviewing a new React" in docs/build.md.
+// the names a part declares inside it do not change a fingerprint. The name of a part itself and the
+// names of the other parts it uses are in it as they are. See "Reviewing a new React" in docs/build.md.
 const reviewedReactDOM = `
 5f9a49f5957c ExpressionStatement
 cabd180d5036 var React

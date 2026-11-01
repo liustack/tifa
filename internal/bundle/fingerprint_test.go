@@ -84,6 +84,35 @@ func TestKeyPathFingerprintsTellCodeApart(t *testing.T) {
 	}
 }
 
+// A part is known by its name as well as its body. The name of a function or a variable, and the
+// names of the other top-level parts it uses, are in its fingerprint as they are, and only the names
+// it declares inside itself are numbered. So a body under another name, or a call of another
+// function, is not the part that was reviewed.
+func TestUnitFingerprintsKeepTheNamesOfTheTopLevel(t *testing.T) {
+	for _, c := range []struct {
+		name, a, b string
+		unitA      string
+		unitB      string
+		same       bool
+	}{
+		{"a body under another name", "function f(a) { return a + 1 }", "function g(a) { return a + 1 }", "f", "g", false},
+		{"a variable under another name", "var a = 1;", "var b = 1;", "var a", "var b", false},
+		{"a call of another function", "function g() {}\nfunction h() {}\nfunction f() { return g() }", "function g() {}\nfunction h() {}\nfunction f() { return h() }", "f", "f", false},
+		{"a call of itself and of another", "function g() {}\nfunction f() { return f() }", "function g() {}\nfunction f() { return g() }", "f", "f", false},
+		{"a use of another variable", "var a = 1, b = 1;\nfunction f() { return a }", "var a = 1, b = 1;\nfunction f() { return b }", "f", "f", false},
+		{"the same part", "function g() {}\nfunction f(x) { var y = x; return g(y) }", "function g() {}\nfunction f(p) { var q = p; return g(q) }", "f", "f", true},
+	} {
+		got := unitsOnNode(t, []string{c.a, c.b})
+		if got[0][c.unitA] == "" || got[1][c.unitB] == "" {
+			t.Errorf("%s: parts %v and %v", c.name, got[0], got[1])
+			continue
+		}
+		if same := got[0][c.unitA] == got[1][c.unitB]; same != c.same {
+			t.Errorf("%s: same fingerprint = %v, want %v", c.name, same, c.same)
+		}
+	}
+}
+
 // The top of the file runs in order, so the order and the kind of its statements are a part of their own.
 func TestReactDOMUnitsIncludeTheOrderOfTheTopLevel(t *testing.T) {
 	const order = "the order of the top level"
@@ -101,6 +130,11 @@ func TestReactDOMUnitsIncludeTheOrderOfTheTopLevel(t *testing.T) {
 		if got[0][order] == got[i+1][order] {
 			t.Errorf("%s: the same order part", what)
 		}
+	}
+	// The names are in the order part, not only the kinds of the statements.
+	names := unitsOnNode(t, []string{"function a() {}\nfunction b() {}", "function b() {}\nfunction a() {}", "function a() {}\nfunction c() {}", "var a = 1;\nvar b = 1;", "var b = 1;\nvar a = 1;"})
+	if names[0][order] == names[1][order] || names[0][order] == names[2][order] || names[3][order] == names[4][order] {
+		t.Errorf("the order part does not tell function names or variable names apart: %v", names)
 	}
 	if got[0][order] != got[4][order] {
 		t.Error("a comment and a blank line change the order part")
@@ -133,9 +167,8 @@ func TestListUnreviewedReactDOMUnits(t *testing.T) {
 		"const program = parseAst(source)\n" +
 		"const { units } = plugin.reactDomUnits(program, source)\n" +
 		"const reviewed = plugin.reviewedReactDOMUnits()\n" +
-		"const names = new Set([...reviewed.values()])\n" +
 		"const line = (at) => source.slice(0, at).split('\\n').length\n" +
-		"process.stdout.write(JSON.stringify(units.map((u) => ({ name: u.name, fingerprint: u.fingerprint, from: u.end ? line(u.start) : 0, to: u.end ? line(u.end) : 0, known: reviewed.has(u.fingerprint), named: names.has(u.name) }))))\n"
+		"process.stdout.write(JSON.stringify(units.map((u) => ({ name: u.name, fingerprint: u.fingerprint, from: u.end ? line(u.start) : 0, to: u.end ? line(u.end) : 0, known: !!reviewed.get(u.name)?.has(u.fingerprint), named: reviewed.has(u.name) }))))\n"
 	cmd := exec.Command("node", "--input-type=module", "-e", script, plugin, file)
 	cmd.Dir = testdata(t)
 	out, err := cmd.Output()

@@ -859,6 +859,79 @@ func TestSSRKeepsKeyPathsAndNamesWhenAPartOfTheRendererChanged(t *testing.T) {
 	}
 }
 
+// topLevelFunction returns the text of the function declaration name at the top of source, from
+// "function" to its closing brace.
+func topLevelFunction(t *testing.T, source, name string) string {
+	t.Helper()
+	start := strings.Index(source, "\nfunction "+name+"(")
+	if start < 0 {
+		t.Fatalf("the string renderer has no function %s", name)
+	}
+	start++
+	end := start + strings.Index(source[start:], "\n}\n") + len("\n}")
+	return source[start:end]
+}
+
+// The plugin knows a part by its name and its body together. Parts that were reviewed, put where
+// they were not, are not: two functions with their bodies swapped, a function with a copy of the
+// body of another that was reviewed, two functions that change places, two variables at the top that
+// change places. The build warns, and React keeps the key paths and the names of components.
+func TestSSRKeepsKeyPathsAndNamesWhenReviewedPartsAreInTheWrongPlace(t *testing.T) {
+	root := copyTestdata(t, "ssr", true)
+	writeTree(t, root, map[string]string{"keys.tsx": keyPathsPage})
+	code, _ := buildPrinting(t, root, "keys.tsx")
+	if !keyPathCondition.MatchString(code) || namesInKeyPaths(t, code) {
+		t.Fatal("the renderer as it is does not leave out the key paths and the names")
+	}
+	// A function's text after its name, its parameters and its body.
+	after := func(text, name string) string { return strings.TrimPrefix(text, "function "+name) }
+	for _, c := range []struct {
+		name, part string
+		change     func(string) string
+	}{
+		{"two bodies swapped", "getTreeId", func(s string) string {
+			a, b := topLevelFunction(t, s, "getTreeId"), topLevelFunction(t, s, "pushTreeContext")
+			s = strings.Replace(s, a, "@@A@@", 1)
+			s = strings.Replace(s, b, "function pushTreeContext"+after(a, "getTreeId"), 1)
+			return strings.Replace(s, "@@A@@", "function getTreeId"+after(b, "pushTreeContext"), 1)
+		}},
+		{"a body replaced with another reviewed body", "getTreeId", func(s string) string {
+			a, b := topLevelFunction(t, s, "getTreeId"), topLevelFunction(t, s, "pushTreeContext")
+			return strings.Replace(s, a, "function getTreeId"+after(b, "pushTreeContext"), 1)
+		}},
+		{"two functions that change places", "the order of the top level", func(s string) string {
+			a, b := topLevelFunction(t, s, "getTreeId"), topLevelFunction(t, s, "pushTreeContext")
+			return strings.Replace(s, a+"\n"+b, b+"\n"+a, 1)
+		}},
+		{"two variables that change places", "the order of the top level", func(s string) string {
+			a := "var regexForJSStringsInInstructionScripts = /[<\\u2028\\u2029]/g;"
+			b := "var regexForJSStringsInScripts = /[&><\\u2028\\u2029]/g;"
+			if !strings.Contains(s, a) || !strings.Contains(s, b) {
+				t.Fatal("the string renderer has not the two variables")
+			}
+			s = strings.Replace(s, a, "@@A@@", 1)
+			s = strings.Replace(s, b, a, 1)
+			return strings.Replace(s, "@@A@@", b, 1)
+		}},
+	} {
+		changed := withChangedReactDOM(t, func(s string) string {
+			changed := c.change(s)
+			if changed == s {
+				t.Fatalf("%s: the change did not change the file", c.name)
+			}
+			return changed
+		})
+		writeTree(t, changed, map[string]string{"keys.tsx": keyPathsPage})
+		code, printed := buildPrinting(t, changed, "keys.tsx")
+		if keyPathCondition.MatchString(code) || !namesInKeyPaths(t, code) {
+			t.Errorf("%s: the bundle leaves out key paths or names of a renderer with parts in the wrong place", c.name)
+		}
+		if strings.Count(printed, notRecognized) != 1 || !strings.Contains(printed, unreviewedKeyPaths+": ") || !strings.Contains(printed, c.part) {
+			t.Errorf("%s: the build prints:\n%s", c.name, printed)
+		}
+	}
+}
+
 // A warning that names parts lists twenty and then counts the rest.
 func TestSSRNamesAtMostTwentyPartsOfARendererItHasNotRead(t *testing.T) {
 	changed := withChangedReactDOM(t, func(s string) string {
