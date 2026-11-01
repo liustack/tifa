@@ -1,0 +1,97 @@
+# Builds and tests with the latest release of React, not the one the lock files pin, so that a
+# release that turns a rewrite of the Vite plugin off, or changes a page, is found within a week.
+# See "CI" in docs/testing.md for what it runs.
+name: latest-react
+
+on:
+  schedule:
+    # Mondays at 05:23 UTC.
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+# A newer run stops the older one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  latest-react:
+    # A scheduled run is for this repository only, not for forks.
+    if: github.repository == 'liustack/tifa'
+    name: react@latest (linux/amd64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    # bash -eo pipefail, so a failing build is not hidden by the tee behind it.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            internal/bundle/testdata/pnpm-lock.yaml
+            test/apps/*/pnpm-lock.yaml
+            examples/shop/pnpm-lock.yaml
+
+      - name: Install the packages of the tests as locked
+        run: |
+          for dir in internal/bundle/testdata test/apps/pages test/apps/mui test/apps/bench examples/shop; do
+            (cd "$dir" && pnpm install --frozen-lockfile)
+          done
+
+      # The shop with the React the lock file pins, crawled to keep its pages. The same crawl of the
+      # shop with the latest React must give the same HTML, byte for byte.
+      - name: Build the shop and keep its pages with the locked React
+        run: |
+          go build -o "$RUNNER_TEMP/tifa" ./cmd/tifa
+          "$RUNNER_TEMP/tifa" build --dir examples/shop -o "$RUNNER_TEMP/shop-locked"
+          TIFA_SSR_CRAWL="write:$RUNNER_TEMP/pages-locked" TIFA_SSR_CRAWL_BIN="$RUNNER_TEMP/shop-locked" \
+            go test -count=1 -run ShopCrawl -v ./test/ssr
+
+      # TanStack Router stays as it is: tifa refuses to build with a version it is not tested with,
+      # and that check is its own, not the one of this job.
+      - name: Move react and react-dom to the latest release
+        run: |
+          for dir in internal/bundle/testdata test/apps/pages test/apps/mui test/apps/bench examples/shop; do
+            (cd "$dir" && pnpm add react@latest react-dom@latest)
+          done
+      - name: Show the versions
+        run: |
+          for dir in internal/bundle/testdata test/apps/pages test/apps/mui test/apps/bench examples/shop; do
+            (cd "$dir" && node -p "'$dir: react ' + require('react/package.json').version + ', react-dom ' + require('react-dom/package.json').version")
+          done
+
+      - name: Build the shop with the latest React and compare its pages
+        run: |
+          "$RUNNER_TEMP/tifa" build --dir examples/shop -o "$RUNNER_TEMP/shop-latest" 2>&1 | tee "$RUNNER_TEMP/shop-latest.log"
+          if grep -F "tifa rewrite not recognized: " "$RUNNER_TEMP/shop-latest.log"; then
+            exit 1
+          fi
+          TIFA_SSR_CRAWL="compare:$RUNNER_TEMP/pages-locked" TIFA_SSR_CRAWL_BIN="$RUNNER_TEMP/shop-latest" \
+            go test -count=1 -run ShopCrawl -v ./test/ssr
+
+      # The bundle tests render pages with each rewrite and without it and compare the HTML, and
+      # TestSSRBuildRecognizesEveryRewrite fails on the text every warning of a rewrite that
+      # found nothing it knows starts with.
+      - name: Bundle tests
+        run: go test -count=1 ./internal/bundle
+
+      # TestBuildsRecognizeEveryRewrite builds the shop, MUI and bench apps and fails on the same
+      # text. The others check the pages the apps write.
+      - name: End-to-end tests of the apps
+        run: go test -count=1 ./test/e2e/ -run 'TestBuildsRecognizeEveryRewrite|TestPagesApp|TestMUIApp|TestBenchApp|TestShopApp' -v -timeout 40m
+        env:
+          TIFA_E2E: "1"
