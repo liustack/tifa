@@ -399,6 +399,36 @@ v0.27.2 as a whole, against v0.27.1 under the same tifa and the same SSR bundles
 | Write the calls of small functions as their body, in the SSR bundle before it is minified: a function that is set once and has a body of up to 32 syntax nodes (one expression, a few assignments, or ifs that return), by its shape and not by its name ([Frontend output](build.md#frontend-output)) | 0.63% fewer instructions on the shop's workbench pages, 2.63% on its storefront pages, 1.58% on the MUI pages and 0.83% on the bench pages (page by page 0.44% to 0.81%, 0.32% to 6.23%, 1.49% to 1.61% and 0.04% to 1.80%). Timed at 4 code positions over 3 rounds, the workbench pages take 0.994 of the time (0.991 to 1.002 by position), the storefront pages 0.980 (0.975 to 0.993, the journal page 0.947 at all 4 positions), the MUI pages 0.985 (0.981 to 0.992) and the bench pages 0.995 (0.980 to 1.040), none of the sums a change by the rule for code positions. |
 | Compile the program with a profile of page renders (PGO) | About 3% less on linux/amd64 with slowjs v0.28.6 and its Go assembly interpreter: the workbench, storefront and MUI pages take 0.97 to 0.98 of the time (0.96 to 0.98 over 5 rounds, each page 0.95 to 0.98). 2.4% less with quickjs v0.26.15, and 7% less on darwin/arm64 (Apple M4) with v0.26.13. **None with the C engine of slowjs 0cc6d332**, which is Go assembly that PGO does not change: with a profile collected again, on the AMD EPYC 7B13 with one VM on one core, 8 code positions and 3 rounds in turn, the six workbench pages of the shop take 0.998 of the time with it (0.987 to 1.007 over the positions, each page 0.997 to 1.002), the three MUI pages 0.999 (0.994 to 1.008) and the two bench pages 1.004 (0.986 to 1.010), none of them a change by the rule of [Code positions](https://github.com/liustack/slowjs/blob/main/docs/performance.md#code-positions). Under callgrind a render executes 0.9987 (shop `/projects/weekend/stats`), 0.9995 (MUI `/`) and 1.0003 (bench `/table`) of the instructions with it. On darwin/arm64 (Apple M4), with the profile from linux/amd64, the shop's pages take 1.002 of the time (0.993 to 1.006 by page, 4 rounds in turn, one code position). `tifa build` no longer installs a profile |
 
+**The plugin's rewrites on the C engine.** Each rewrite was turned off on its own and the SSR bundle built again (slowjs v0.29.8, tifa with the small function step, AMD EPYC 7B13, linux/amd64, no PGO). A cell gives the instructions a render of every page of an app runs more with the rewrite off, in percent of the full build (callgrind, one VM that collects nothing, the difference of a run of 3 rounds and one of 1 over 2, `GOGC=off`), and where a rewrite was under 3% on every app, also the time of a render with it off over the time with it on (one VM on one core with its hyperthread sibling idle, 4 code positions, 3 rounds in turn, the median over positions of the paired ratios). Two runs of one bundle differ by up to 0.11% in instructions, and the positions of the unchanged bundle by 1.1% to 2.5% in time. No rewrite renders faster with it turned off: the lowest ratio is 0.997 (the `Slot` and seroval rows on the bench app, which does not use `Slot` and has little to escape), inside the spread of the positions. The HTML of all sixteen pages is the same byte for byte with each rewrite on or off, except that without the array row the table page of the bench app carries its rows another way. The three rewrites that did not pay (the escape cache and `replaceAll` chain, and the lazy key of an element) are in [What was tried and not done](#what-was-tried-and-not-done). Three rewrites turn off others that need them: the common attributes take the name lookup, the component stacks take `renderNodeDestructive`, and the key path names take the key paths. Keeping both React server renderers in the bundle (110 KB more, trimmed to one by the rewrite that keeps only the string renderer) leaves a render within 0.2% of the instructions and adds 4.9% to the load of the shop's bundle, 10.7% to that of the MUI bundle and 33% to that of the bench bundle.
+
+| Rewrite | Shop workbench | Shop storefront | MUI | Bench |
+| --- | --- | --- | --- | --- |
+| Join the chunks of a segment | +10.10% | +9.11% | +2.75% | +19.61% |
+| `Set` check before the `switch` statements | +1.96% / 1.011 | +1.09% / 1.005 | +0.79% / 1.010 | +10.31% / 1.098 |
+| `escapeTextForBrowser` is the engine function (against the JavaScript cache it replaced) | +3.19% | +3.13% | +0.78% | +6.15% |
+| Copy the props of `createElement` and `cloneElement` in the engine | +3.29% | +2.72% | +4.56% | -0.03% |
+| Common attributes written in `pushAttribute` (turned off with the next row) | +3.86% | +3.53% | +0.89% | +3.35% |
+| One lookup of an attribute name in `pushAttribute` | +2.60% / 1.024 | +2.57% / 1.025 | +0.43% / 1.000 | +1.81% / 1.023 |
+| Elements of `jsx` and `jsxs` written as objects | +1.48% / 1.016 | +1.26% / 1.020 | +0.25% / 1.007 | +3.47% / 1.054 |
+| No component stacks (turned off with the next row) | +4.65% | +3.03% | +3.41% | +8.82% |
+| `renderNodeDestructive` written out | +1.26% / 1.016 | +0.89% / 1.009 | +0.91% / 1.014 | +2.49% / 1.020 |
+| Plain namespaces in place of getters | +2.55% / 1.029 | +1.69% / 1.014 | +2.90% / 1.026 | +0.04% / 1.001 |
+| No names in key paths, with the next row | +3.75% / 1.040 | +2.04% / 1.030 | +2.38% / 1.034 | +4.35% / 1.059 |
+| Key paths only for a bundle with `$$FORM_ACTION` | +1.13% / 1.017 | +0.62% / 1.013 | +0.81% / 1.007 | +2.30% / 1.029 |
+| seroval escapes from 2 code units with `JSON.stringify` | +0.66% / 1.000 | +0.27% / 1.000 | +0.29% / 1.010 | +0.50% / 0.997 |
+| seroval asks its plugins about arrays | -0.08% | +0.07% | -0.01% | +46.87% |
+| `@emotion/hash` hashes in Go | - | - | +78.51% | - |
+| Statements `a && b;` turned into `if` | +0.32% / 1.012 | +0.37% / 1.006 | +0.63% / 1.007 | +0.53% / 1.005 |
+| Icons of lucide-react kept | +3.35% | +8.98% | - | - |
+| i18next copies its options only for a function key | -0.18% / 1.002 | +0.64% / 1.009 | - | - |
+| i18next keeps the regexp of `looksLikeObjectPath` | -0.03% / 1.004 | +1.23% / 1.017 | - | - |
+| i18next keeps translated strings (`build.i18next_cache`) | +0.08% | +23.49% | - | - |
+| react-i18next copies the i18n object from a list of keys | +0.04% | +7.93% | - | - |
+| `Slot` of react-slot merges props with a loop | +0.67% / 1.012 | +0.31% / 1.003 | - | - |
+| `clsx` joins up to six arguments without a loop | +0.05% / 0.999 | +0.14% / 1.003 | +0.42% / 1.019 | - |
+
+The rewrites under 1% on every app and in time (the `Slot`, `clsx`, seroval string and i18next rows) stay: each passes 0.2% on at least one app, and the audit rule removes a rewrite only when it does not.
+
 The array and the surrogate rows were measured on the machine above with one VM on cpu 0, the build before and after in turn, 3 to 4 rounds. The table is the table page of [eknkc/ssr-benchmark](https://github.com/eknkc/ssr-benchmark) with fixed rows.
 
 The emotion row was measured on the machine above without PGO, one VM pinned to one core, the build before and after in turn, over 3 layouts of the code and 6 rounds.
