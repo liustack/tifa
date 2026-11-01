@@ -10,6 +10,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"golang.org/x/tools/go/packages"
 )
 
 func analyzeApp(t *testing.T, name string) (*Manifest, error) {
@@ -876,5 +878,44 @@ func TestEmbeddedIsEmptyWhenNothingIsEmbedded(t *testing.T) {
 	}
 	if m.Embedded.Has("app/projects/data.json") {
 		t.Error("valid embeds nothing")
+	}
+}
+
+// A folder named by a go:embed pattern holds every file below it except the names that start with
+// . or _ and the folders that are another module, which the go command leaves out. Files that do
+// not exist yet follow the same rules.
+func TestEmbeddedStopsAtANestedModule(t *testing.T) {
+	root := t.TempDir()
+	for name, body := range map[string]string{
+		"go.mod":             "module example.com/repro\n\ngo 1.27.0\n",
+		"main.go":            "package repro\n\nimport \"embed\"\n\n//go:embed assets\nvar F embed.FS\n",
+		"assets/a.txt":       "included",
+		"assets/sub/go.mod":  "module example.com/sub\n\ngo 1.27.0\n",
+		"assets/sub/b.txt":   "excluded",
+		"assets/sub/in/c.go": "package in\n",
+		"assets/deep/d.txt":  "included",
+	} {
+		p := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pkgs, err := packages.Load(&packages.Config{Dir: root, Mode: packages.NeedName | packages.NeedFiles | packages.NeedEmbedFiles | packages.NeedEmbedPatterns}, "./...")
+	if err != nil || packages.PrintErrors(pkgs) > 0 {
+		t.Fatalf("load: %v", err)
+	}
+	e := (&analyzer{root: root}).embedded(pkgs)
+	for _, rel := range []string{"assets/a.txt", "assets/deep/d.txt", "assets/new.txt", "assets/deep/more/e.txt"} {
+		if !e.Has(rel) {
+			t.Errorf("%s is embedded and Has says it is not", rel)
+		}
+	}
+	for _, rel := range []string{"assets/sub/b.txt", "assets/sub/in/c.go", "assets/sub/new.txt", "assets/sub/go.mod"} {
+		if e.Has(rel) {
+			t.Errorf("%s is in another module and Has says it is embedded", rel)
+		}
 	}
 }

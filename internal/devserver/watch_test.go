@@ -508,3 +508,39 @@ func TestWatcherTracksEmbeddedFiles(t *testing.T) {
 	writeFile(t, dir, "app/posts/a.md", "# A last")
 	expectBatch(t, dir, w)
 }
+
+// A source file saved while the embedded files are being learned is still a new file: only the
+// files the old rules left out and the new rules take in are adopted without a report.
+func TestReclassifyReportsNewFilesThatWereTrackedBefore(t *testing.T) {
+	dir := newApp(t)
+	w, err := newWatcher(dir, nil, func(s string) { t.Log(s) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.close()
+	posts := func(rel string) bool { return strings.HasPrefix(rel, "app/posts/") }
+	w.embedded.Store(&posts)
+	// New since the snapshot: a page (tracked by kind), a post the old rules already took, and a
+	// file only the new rules take.
+	writeFile(t, dir, "app/new/page.tsx", "export default function Page() { return null }")
+	writeFile(t, dir, "app/posts/new.md", "# new")
+	writeFile(t, dir, "app/notes/n.md", "# note")
+	notes := func(rel string) bool {
+		return strings.HasPrefix(rel, "app/posts/") || strings.HasPrefix(rel, "app/notes/")
+	}
+	w.embedded.Store(&notes)
+	if err := w.reclassify(&posts); err != nil {
+		t.Fatal(err)
+	}
+	// The events of the files arrive after the listing.
+	for _, rel := range []string{"app/new/page.tsx", "app/posts/new.md", "app/notes/n.md"} {
+		if err := w.handle(w.abs(rel), fsnotify.Create); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := w.changes.take()
+	want := []change{{"app/new/page.tsx", created}, {"app/posts/new.md", created}}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
