@@ -5,6 +5,7 @@ import { hydrate } from '@tanstack/react-router/ssr/client'
 import { htmlAttributes, routeTree } from './.tifa/routes'
 import { createAppRouter, load, unmatched } from './.tifa/runtime/router'
 import { serve, type RenderResult } from './.tifa/runtime/server'
+import { headHTML, headTags } from './.tifa/runtime/head'
 import { collector, RouteError, type InjectedResult, type RouteResult } from './.tifa/runtime/data'
 
 const tests: Array<[string, () => Promise<void>]> = []
@@ -264,6 +265,50 @@ test('a render that failed reports its levels, and renders again with the error 
   contains(await placed(2), 'Something went wrong', 'down')
   const beyond = JSON.parse(await placed(3))
   assert(typeof beyond.error === 'string' && beyond.error.includes('no level 3'), `level 3: ${JSON.stringify(beyond)}`)
+})
+
+// placedRender renders url again with an error placed at a level, as the Go server does after a
+// render failed, and returns what the render left.
+async function placedRender(url: string, data: Record<string, RouteResult | InjectedResult>, level: number) {
+  globalThis.renderResult = undefined
+  const input = inject(data)
+  globalThis.startRender(JSON.stringify({ url, buildId: 'b1', data: input.data, error: { status: 503, message: 'down', level } }), ...input.texts)
+  for (let i = 0; i < 1000 && globalThis.renderResult === undefined; i++) await new Promise((resolve) => setTimeout(resolve, 0))
+  return globalThis.renderResult!
+}
+
+const headOf = (html: string) => html.slice(html.indexOf('<head>'), html.indexOf('</head>'))
+
+test('an error placed at a level takes the head of the routes it replaces, as a failed Load does', async () => {
+  const data = { ...appData, 'app/crash/layout': ok('shell'), 'app/crash/boom/route': ok('page') }
+  const thrown = await renderResult('/crash/boom', data)
+  assert(thrown.html === undefined && thrown.error?.includes('CRASH_PAGE_THROWS'), `the page throws: ${JSON.stringify(thrown).slice(0, 200)}`)
+  // The page is replaced: its head runs without data, as when its Load fails, and gives nothing.
+  // The Layout around it keeps its tags, its language and its title.
+  const page = await placedRender('/crash/boom', data, 0)
+  const failedLoad = await render('/crash/boom', { ...data, 'app/crash/boom/route': { status: 503, error: 'down' } })
+  contains(headOf(page), '<title>CRASH_LAYOUT_TITLE</title>', '<link rel="alternate" href="/crash/layout">')
+  lacks(headOf(page), 'CRASH_PAGE_TITLE', 'rel="canonical"')
+  contains(documentStart(page), 'lang="crash"')
+  lacks(documentStart(page), 'dir="rtl"')
+  assert(headOf(page) === headOf(failedLoad), `head of the placed error:\n${headOf(page)}\nhead of the failed Load:\n${headOf(failedLoad)}`)
+  assert(documentStart(page) === documentStart(failedLoad), `<html> of the placed error: ${documentStart(page)}\nof the failed Load: ${documentStart(failedLoad)}`)
+  // The Layout is replaced too, so only the root Layout's tags and language are left.
+  const layout = await placedRender('/crash/boom', data, 1)
+  const failedLayout = await render('/crash/boom', { ...data, 'app/crash/layout': { status: 503, error: 'down' } })
+  contains(headOf(layout), '<title>APP_TITLE &amp; &lt;x&gt;</title>')
+  lacks(headOf(layout), 'CRASH_', 'rel="alternate"', 'rel="canonical"')
+  contains(documentStart(layout), 'lang="xx"')
+  assert(headOf(layout) === headOf(failedLayout), `head of the placed error:\n${headOf(layout)}\nhead of the failed Layout:\n${headOf(failedLayout)}`)
+  assert(documentStart(layout) === documentStart(failedLayout), `<html>: ${documentStart(layout)} and ${documentStart(failedLayout)}`)
+  // The browser takes the page as the server wrote it: its head is the one in the page.
+  for (const [html, level] of [[page, 0], [layout, 1]] as const) {
+    const { router, calls } = await hydrateFrom(html, '/crash/boom')
+    assert(calls.length === 0, `hydration requested ${JSON.stringify(calls)} at level ${level}`)
+    const tags = headHTML(headTags(router.state.matches))
+    const written = headOf(html).replace(/^<head>.*?<!--tifa-head-->/s, '').replace(/<!--\/tifa-head-->$/, '')
+    assert(tags === written, `level ${level}: the browser's head:\n${tags}\nthe server's:\n${written}`)
+  }
 })
 
 test('a failed root Load keeps the document', async () => {

@@ -163,7 +163,7 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
         }
         const shown = shownAt(router.stores.matches.get())
         levels = shown + 1
-        if (input.error) placed(router, shown, input.error)
+        if (input.error) await placed(router, shown, input.error)
         await router.serverSsr!.dehydrate()
         const errors: unknown[] = []
         const stop = new AbortController()
@@ -219,16 +219,44 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
 
 // placed makes the match at error.level above the shown one fail with the error, so that it renders
 // its errorComponent in its place and the browser hydrates it so. The matches below it stay as they
-// loaded, and nothing renders them.
-function placed(router: ReturnType<typeof createAppRouter>, shown: number, error: PlacedError) {
+// loaded, and nothing renders them. The head follows: the match that fails is a route whose Load
+// failed, so it has no data, and the head functions run again over the matches as they are now,
+// exactly as the router runs them for a page whose Load fails, and as the browser runs them when it
+// hydrates the page. The tags the head functions gave before the error do not stay, and the routes
+// below the match give none (see presented in head.ts).
+async function placed(router: ReturnType<typeof createAppRouter>, shown: number, error: PlacedError) {
   const at = shown - error.level
-  const matches = router.stores.matches.get()
   if (error.level < 0 || at < 0) throw new Error(`the matches have no level ${error.level} to show the error at`)
-  router.stores.setMatches(
-    matches.map((match, i) =>
-      i === at ? { ...match, status: 'error', error: new RouteError(error.status, error.message), _notFound: undefined } : match,
-    ),
+  const matches = router.stores.matches.get().map((match, i) =>
+    i === at
+      ? { ...match, status: 'error' as const, error: new RouteError(error.status, error.message), loaderData: undefined, _notFound: undefined }
+      : i < at
+        ? { ...match }
+        : match,
   )
+  // The router's own projectLane, in load-server.ts and load-client.ts: it stops after the first
+  // match that did not load, the one that fails here. It sets the head on copies, so the store keeps
+  // its matches until setMatches.
+  for (const match of matches.slice(0, at + 1)) {
+    const route = router.routesById[match.routeId]
+    if (!route.options.head) continue
+    try {
+      const head = await route.options.head({
+        ssr: router.options.ssr,
+        matches,
+        match,
+        params: match.params,
+        loaderData: match.loaderData,
+      } as never)
+      match.meta = head?.meta
+      match.links = head?.links
+      match.headScripts = head?.scripts
+      match.styles = head?.styles
+    } catch (cause) {
+      console.error(cause)
+    }
+  }
+  router.stores.setMatches(matches)
 }
 
 // scriptsHTML writes the router's hydration scripts as React would: their source as it is.

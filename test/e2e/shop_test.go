@@ -634,6 +634,33 @@ func init() { os.WriteFile(`+"`"+marker+"`"+`, []byte("init ran"), 0o644) }
 	}
 }
 
+// A storefront page whose component throws while it renders answers 500 with the Error of the
+// store, and the head of that page is the head of a page that shows an error: the language and the
+// title of the language Layout, no links to the page in other languages. The head of the Layout
+// ran over a page that rendered, so the links were there before the page was rendered again with
+// the error.
+func TestShopStorefrontErrorPageHasNoAlternates(t *testing.T) {
+	skipUnlessEnabled(t)
+	app := copyShop(t)
+	write(t, filepath.Join(app, "app", "store", "lang+", "crash", "page.tsx"), `export default function Crash(): never {
+  throw new Error('the page cannot render')
+}
+`)
+	base, _, _ := start(t, buildAt(t, app))
+	for _, lang := range []string{"en-US", "zh-CN"} {
+		status, _, page := get(t, base+"/store/"+lang+"/crash")
+		head := page[:strings.Index(page, "</head>")]
+		if status != 500 || !strings.Contains(page, `<html lang="`+lang+`"`) || !strings.Contains(head, "<title>") ||
+			strings.Contains(head, `rel="alternate"`) || strings.Contains(head, "hrefLang") {
+			t.Errorf("/store/%s/crash: %d, the head of the 500 must have the language and a title and no alternate links:\n%.600s", lang, status, head)
+		}
+		// The store still renders its own pages beside it.
+		if status, _, _ := get(t, base+"/store/"+lang); status != 200 {
+			t.Errorf("/store/%s: %d after the crash", lang, status)
+		}
+	}
+}
+
 // Every convention violation fails tifa build with the file and line, using the analyzer's fixtures.
 func TestBuildReportsViolations(t *testing.T) {
 	skipUnlessEnabled(t)
