@@ -1,11 +1,12 @@
 ---
-summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、不套外层的 Layout（layout_.tsx）、hooks.go、404 和错误、多语言网站、SSR 与缓存开关、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数，访客开着旧页面时你部署新版本，浏览器会怎么做，以及数据、入参和结果的 JSON 规则'
+summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、不套外层的 Layout（layout_.tsx）、hooks.go、会话（存在服务器上的登录状态、它的 cookie 和存放位置）、404 和错误、多语言网站、SSR 与缓存开关、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数，访客开着旧页面时你部署新版本，浏览器会怎么做，以及数据、入参和结果的 JSON 规则'
 read_when:
   - 新建一个 tifa 应用，或给应用加页面、Layout、API 路由
   - 构建报 Ctx 用法或 Load 返回类型的错误，想知道怎么改
   - 改 internal/analyze 的规则，需要知道对用户承诺了什么
   - 改 examples/shop 或 test/apps 里的应用
   - 给 Load、Layout 函数、方法函数或 OnRequest 写 Go 测试
+  - 让用户登录登出、读谁登录了，或把会话放到 Redis、SQL 里
   - 给应用加 CSS、Tailwind CSS 或 shadcn/ui
   - 在页面里格式化数字或日期，或者 tifa dev 对某个 Intl 调用报警
   - 访客开着一个页面时你部署了新版本，想知道浏览器会怎么做，或者看到带 `X-Tifa-Build` 的 409
@@ -729,7 +730,7 @@ tifa 每条日志现取 `slog.Default()`，所以之后再调 `slog.SetDefault` 
 
 ### 在 OnStart 里装配
 
-`OnStart` 是应用装配整个进程共用的东西的地方：日志 Handler 和普通的 `net/http` 中间件。
+`OnStart` 是应用装配整个进程共用的东西的地方：日志 Handler、普通的 `net/http` 中间件和[会话存储](#会话存在哪)。
 
 ```go
 import (
@@ -754,6 +755,106 @@ func OnStart() error {
 ```
 
 `tifa.SetHTTPHandler(wrap)` 拿到 tifa 的 handler，返回要对外服务的 handler。这层包在最外面，静态文件、跨站检查和路由都在它里面。它看得到每个请求，拿到的是原始的 `http.ResponseWriter`，被拒绝的跨站写请求的 403 也看得到。挂上去的是普通 `net/http`，所以它自己处理的路径（比如上面的 `/debug/pprof/`）不走 `OnRequest`、`OnError` 和跨站检查，要自己加访问控制，或者放到另一个监听端口上。关停时仍会等它包着的请求。只能在 `OnStart` 里调，服务开始监听后再调会 panic。`tifa.SetHTTPHandler(nil)` 去掉这层包装。
+
+## 会话
+
+会话是「谁登录了」的记录，存在服务器上，靠一个 cookie 找到。tifa 管记录、token、cookie 和过期。验证密码、决定什么时候登录或登出，是你的代码的事。
+
+```go
+// auth/session.go
+type Session struct {
+	UserID int64  `json:"userId"`
+	Name   string `json:"name"`
+}
+
+// app/login/route.go
+func POST(c *tifa.Ctx, in Login) error {
+	u, err := users.CheckPassword(c.Context(), in.Email, in.Password)
+	if err != nil {
+		return tifa.Error{Status: 401, Message: "邮箱或密码不对"}
+	}
+	if err := tifa.SetSession(c, &auth.Session{UserID: u.ID, Name: u.Name}); err != nil {
+		return err
+	}
+	return c.Redirect("/", 303)
+}
+
+// 任何拿得到 Ctx 的地方：OnRequest、方法处理函数、Load
+s := tifa.Session[auth.Session](c) // 没登录是 nil
+
+// app/logout/route.go
+err := tifa.ClearSession(c)
+```
+
+- `tifa.SetSession(c, &s)` 让这个请求登录。它生成一个新的随机 token（32 字节，43 个字符），把 `s` 按 JSON 存在 token 的 SHA-256 下面，删掉请求原来带的会话，再设 cookie。每次调用都换新 token，所以登录之后不会沿用攻击者事先塞进来的 token。旧会话删不掉时，登录失败并返回错误，不发 cookie。
+- `tifa.Session[S](c)` 返回本请求的会话，没有就是 nil。服务器在 `OnRequest` 之前就读好了，所以每个钩子、`Load` 和方法处理函数都读得到。第一次调用时解码进 `S`，同时在跑的 `Load` 共用同一个指针，当成只读用。整个应用用同一个类型 `S`，换别的类型调用会 panic。存着的记录对不上 `S` 时，记录被删掉，cookie 被清掉，这个请求按没登录处理。
+- `tifa.ClearSession(c)` 删记录，清 cookie，之后 `Session` 返回 nil。没登录时什么都不做。存储删不掉记录时，cookie 仍然会清，返回的错误会说明记录在过期前仍然有效。
+- 记录加上 tifa 包在外面的信封不能超过 4 KiB。里面放一个 ID 和几个展示用的字段，其余放在你自己的数据库里。能写这个存储的人可以让任何人登录，所以要像保护数据库一样保护它。
+
+### cookie
+
+cookie 叫 `__Host-tifa_session`，带 `HttpOnly`、`Secure`、`SameSite=Lax`、`Path=/`，没有 `Domain`。会话从 `SetSession` 起算 30 天，不续期，所以请求从不写存储。名字和时长用 `session.cookie` 和 `session.max_age` 改（见[配置](config.zh-CN.md#配置项)）。`tifa dev` 下 cookie 叫 `tifa_session`，不带 `Secure`，因为 dev 在 localhost 上跑普通 HTTP。不是 43 个 `A-Z a-z 0-9 - _` 字符的 cookie 会被直接丢掉，不去问存储。存储里已经没有记录的 cookie（过期了，或者用内存存储时进程重启过）也会被丢掉，这个请求按没登录处理。
+
+设置或清除 cookie 的回答，不管应用设了什么，都以 `Cache-Control: no-store` 发出，不带 `ETag` 和 `Last-Modified`，状态码保持原样，永远不会变成 304。
+
+### 会话存在哪
+
+不设存储时，会话放在进程的内存里，上限是 `session.memory_limit`（64 MiB）。满了就先挤掉最早过期的，重启后所有人都要重新登录。服务器启动时会打一行日志说明这一点。`tifa dev` 在你改 Go 代码后会重启，那时你会被登出。如果应用允许没登录的访客开会话，要在入口限流，否则灌满它会把真正的会话挤出去。
+
+想把会话放到别处，比如 Redis 或 SQL，在 `OnStart` 里给它一个存储：
+
+```go
+func OnStart() error {
+	tifa.SetSessionStore(redisStore{client})
+	return nil
+}
+```
+
+`tifa.SetSessionStore` 和 `tifa.SetHTTPHandler` 一样，服务开始监听后再调会 panic。存储实现 `tifa.SessionStore`：
+
+```go
+type SessionStore interface {
+	Get(ctx context.Context, token string) (data []byte, found bool, err error)
+	Put(ctx context.Context, token string, data []byte, expiry time.Time) error
+	Delete(ctx context.Context, token string) error
+}
+```
+
+- `token` 是 cookie 里 token 的 SHA-256（base64url），不是 cookie 本身。
+- 键不存在、已过期或无效时，`Get` 返回 `found == false` 和 nil 错误。只有存储自己出了故障才返回错误。这时请求按意外错误走 `OnError`，不会当成没登录继续，那样会把故障藏起来。
+- `Put` 新建或覆盖记录，`expiry` 之后 `Get` 不能再返回它。键不存在时 `Delete` 返回 nil。
+- 三个方法会被很多请求同时调用。`Put` 不能留着 `data` 切片，`Get` 不能返回存储还在用的切片。`ctx` 结束时都要返回错误。
+
+`tifatest.TestSessionStore(t, store)` 对你的存储跑这些检查。
+
+### 哪里能调什么
+
+| 位置 | `Session` | `SetSession`、`ClearSession` |
+| --- | --- | --- |
+| `OnRequest` 里 `next` 之前 | 可以 | 可以 |
+| `OnRequest` 里 `next` 返回之后 | 可以 | 返回错误 |
+| 方法处理函数 | 可以 | 可以 |
+| `Load`、`Layout`、`OnError` | 可以 | 返回错误 |
+| 响应发出之后 | 可以 | 返回错误 |
+
+`Load` 跑在 GET 上，GET 不该改任何东西，所以登录放在方法处理函数或 `OnRequest` 里。
+
+### 和登录库的分工
+
+tifa 存会话。用户是谁由你的应用或登录库来认：密码哈希（bcrypt、argon2）、OAuth 授权码流程和它的 `state` 校验（`golang.org/x/oauth2`）、两步验证。认证成功后调 `tifa.SetSession`。这类库自带的临时状态，比如 OAuth 的 `state`，放在库自己的短命 cookie 里。鉴权在 Go 里读 `tifa.Session` 来做。
+
+从别的网站发来的写请求会在这一切之前被拒绝（见[跨站写请求](config.zh-CN.md#跨站写请求)），cookie 又是 `SameSite=Lax`，所以别的网站上的表单不能替用户登出或操作。要让这一点成立，GET、HEAD 和 OPTIONS 都不能改任何东西，登出用 POST。
+
+### 测试会话
+
+`tifatest.NewCtx(t, r)` 给 `Ctx` 配了一个只属于这个测试的内存存储，所以 `SetSession` 和 `ClearSession` 能用，recorder 里有 `Set-Cookie`。同一个测试的所有 `Ctx` 共用这个存储，所以一个 `Ctx` 拿到的 cookie 可以让下一个登录：用 `r.AddCookie` 加到请求里。要测一个需要登录状态的函数，不用走 cookie：
+
+```go
+c, _ := tifatest.NewCtx(t, httptest.NewRequest("GET", "/", nil))
+tifatest.WithSession(c, &auth.Session{UserID: 1})
+```
+
+`WithSession` 只设请求的状态，不验证 cookie 和存储的流程，那部分由 tifa 自己的测试覆盖。
 
 ## 测试
 

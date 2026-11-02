@@ -1,11 +1,12 @@
 ---
-summary: 'How to write a tifa app: folder layout, how folders become URLs, the three files of a folder (route.go, page.tsx, layout.tsx), Layouts, a Layout without the Layouts above (layout_.tsx), hooks.go, 404s and errors, a site in several languages, the SSR and cache switches, what the server render has, which libraries render differently there and which components to load only in the browser, using Intl and Temporal so hydration matches, styles with Tailwind CSS and shadcn/ui, how to test Go route code, how Load may use Ctx, method handlers with typed input and result, what a page open in a browser does when you deploy a new version, and the JSON rules for data, inputs and results'
+summary: 'How to write a tifa app: folder layout, how folders become URLs, the three files of a folder (route.go, page.tsx, layout.tsx), Layouts, a Layout without the Layouts above (layout_.tsx), hooks.go, sessions (sign-in state kept on the server, its cookie and where it is stored), 404s and errors, a site in several languages, the SSR and cache switches, what the server render has, which libraries render differently there and which components to load only in the browser, using Intl and Temporal so hydration matches, styles with Tailwind CSS and shadcn/ui, how to test Go route code, how Load may use Ctx, method handlers with typed input and result, what a page open in a browser does when you deploy a new version, and the JSON rules for data, inputs and results'
 read_when:
   - Creating a tifa app, or adding pages, Layouts or API routes to one
   - The build reports an error about Ctx usage or a Load return type and you want to fix it
   - Changing the rules in internal/analyze and you need to know what users were promised
   - Changing the apps in examples/shop or test/apps
   - Writing Go tests for a Load, a Layout function, a method handler or OnRequest
+  - Signing users in and out, reading who is signed in, or keeping sessions in Redis or SQL
   - Adding CSS, Tailwind CSS or shadcn/ui to an app
   - Formatting numbers or dates in a page, or tifa dev warns about an Intl call
   - A visitor keeps a page open while you deploy, and you want to know what the browser does, or a 409 with `X-Tifa-Build` shows up
@@ -727,7 +728,7 @@ tifa looks up `slog.Default()` for each message, so a later `slog.SetDefault` al
 
 ### Setting up in OnStart
 
-`OnStart` is where the app wires what the whole process shares: the log handler and plain `net/http` middleware.
+`OnStart` is where the app wires what the whole process shares: the log handler, plain `net/http` middleware and the [session store](#where-to-store-sessions).
 
 ```go
 import (
@@ -752,6 +753,106 @@ func OnStart() error {
 ```
 
 `tifa.SetHTTPHandler(wrap)` gets tifa's handler and returns the one to serve. The wrapper is outside everything else: static files, the cross-site check and the routes. It sees every request with the original `http.ResponseWriter`, including the 403 of a refused cross-site write. It is plain `net/http`, so `OnRequest`, `OnError` and the cross-site check do not apply to the paths it serves itself, such as `/debug/pprof/` above. Put such paths behind your own check, or keep them on another listener. A shutdown still waits for the requests it wraps. Call it in `OnStart` only: it panics once the server listens. `tifa.SetHTTPHandler(nil)` removes the wrapper.
+
+## Sessions
+
+A session is the record of who is signed in, kept on the server and found by a cookie. tifa keeps the record, the token, the cookie and the expiry. Your code checks the password and says when someone is signed in or out.
+
+```go
+// auth/session.go
+type Session struct {
+	UserID int64  `json:"userId"`
+	Name   string `json:"name"`
+}
+
+// app/login/route.go
+func POST(c *tifa.Ctx, in Login) error {
+	u, err := users.CheckPassword(c.Context(), in.Email, in.Password)
+	if err != nil {
+		return tifa.Error{Status: 401, Message: "Wrong email or password"}
+	}
+	if err := tifa.SetSession(c, &auth.Session{UserID: u.ID, Name: u.Name}); err != nil {
+		return err
+	}
+	return c.Redirect("/", 303)
+}
+
+// anywhere that has the Ctx: OnRequest, a method handler, a Load
+s := tifa.Session[auth.Session](c) // nil when nobody is signed in
+
+// app/logout/route.go
+err := tifa.ClearSession(c)
+```
+
+- `tifa.SetSession(c, &s)` signs the request in. It makes a new random token (32 bytes, 43 characters), stores `s` as JSON under the SHA-256 of the token, deletes the session the request came with, and sets the cookie. Every call makes a new token, so a sign-in never keeps a token an attacker planted. If the old session cannot be deleted, the sign-in fails with an error and no cookie goes out.
+- `tifa.Session[S](c)` returns the session of the request, or nil. The server reads it before `OnRequest`, so every hook, `Load` and method handler sees it. It decodes into `S` on the first call, and `Load` functions that run at once share the one pointer, so treat it as read-only. Use one type `S` for the whole app: a call with another type panics. A stored record that does not fit `S` is deleted, the cookie is dropped, and the request is signed out.
+- `tifa.ClearSession(c)` deletes the record, drops the cookie and makes `Session` return nil. It does nothing when nobody is signed in. If the store cannot delete the record, the cookie is still dropped and the error says the record stays valid until it expires.
+- The record, with the envelope tifa adds around it, may not pass 4 KiB. Keep an ID and a few display fields in it, and the rest in your database. Whoever can write to the store can sign anyone in, so protect it like the database.
+
+### The cookie
+
+The cookie is `__Host-tifa_session` with `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, and no `Domain`. A session lasts 30 days from `SetSession`. It does not renew, so a request never writes to the store. Change the name and the lifetime with `session.cookie` and `session.max_age` (see [Configuration](config.md#settings)). Under `tifa dev` the cookie is `tifa_session` without `Secure`, since dev serves plain HTTP on localhost. A cookie that is not 43 characters of `A-Z a-z 0-9 - _` is dropped without asking the store. A cookie whose record the store no longer has, because it expired or the process restarted with the memory store, is dropped too, and the request is signed out.
+
+An answer that sets or drops the cookie goes out as `Cache-Control: no-store` without `ETag` or `Last-Modified`, whatever the app set, and it keeps its status: it is never turned into a 304.
+
+### Where to store sessions
+
+Without a store, sessions live in the memory of the process, up to `session.memory_limit` (64 MiB). A full store drops the sessions that expire first, and a restart signs everyone out. The server logs one line about this at start. `tifa dev` restarts when your Go code changes, so you are signed out then. If your app lets visitors who are not signed in start a session, limit that at the entry, since flooding it pushes real sessions out.
+
+To keep sessions somewhere else, such as Redis or SQL, give `OnStart` a store:
+
+```go
+func OnStart() error {
+	tifa.SetSessionStore(redisStore{client})
+	return nil
+}
+```
+
+`tifa.SetSessionStore` panics once the server listens, like `tifa.SetHTTPHandler`. A store implements `tifa.SessionStore`:
+
+```go
+type SessionStore interface {
+	Get(ctx context.Context, token string) (data []byte, found bool, err error)
+	Put(ctx context.Context, token string, data []byte, expiry time.Time) error
+	Delete(ctx context.Context, token string) error
+}
+```
+
+- `token` is the SHA-256 of the cookie's token in base64url, never the cookie itself.
+- `Get` returns `found == false` with a nil error for a key that is missing, expired or not valid. Return an error only when the store itself fails. The request then fails through `OnError` as an unexpected error: carrying on as signed out would hide the fault.
+- `Put` creates or replaces the record, and `Get` must not return it after `expiry`. `Delete` returns nil for a key that does not exist.
+- The three methods run on many requests at once. `Put` must not keep the `data` slice, and `Get` must not return a slice the store still uses. They return an error when `ctx` is done.
+
+`tifatest.TestSessionStore(t, store)` runs these checks against your store.
+
+### Where to call what
+
+| Where | `Session` | `SetSession`, `ClearSession` |
+| --- | --- | --- |
+| `OnRequest` before `next` | works | works |
+| `OnRequest` after `next` returned | works | returns an error |
+| A method handler | works | works |
+| `Load`, `Layout`, `OnError` | works | returns an error |
+| After the response is sent | works | returns an error |
+
+A `Load` runs for a GET, which must not change anything, so signing in belongs in a method handler or in `OnRequest`.
+
+### Sign-in libraries
+
+tifa stores the session. Your app or a library checks who the user is: password hashes (bcrypt, argon2), the OAuth code flow and its `state` check (`golang.org/x/oauth2`), two-step verification. When that succeeds, call `tifa.SetSession`. The temporary state of such a library, an OAuth `state` for instance, goes in a short cookie of the library's own. Check access in Go by reading `tifa.Session`.
+
+Writes from other sites are refused before any of this runs (see [Cross-site writes](config.md#cross-site-writes)), and the cookie is `SameSite=Lax`, so a form on another site cannot sign a user out or act for them. For that to hold, make sure GET, HEAD and OPTIONS never change anything: sign out with a POST.
+
+### Testing sessions
+
+`tifatest.NewCtx(t, r)` gives the `Ctx` a memory store that belongs to the test, so `SetSession` and `ClearSession` work and the recorder holds the `Set-Cookie`. All the `Ctx` of one test share the store, so the cookie from one can sign in the next: add it to the request with `r.AddCookie`. To test a function that needs someone signed in, skip the cookie:
+
+```go
+c, _ := tifatest.NewCtx(t, httptest.NewRequest("GET", "/", nil))
+tifatest.WithSession(c, &auth.Session{UserID: 1})
+```
+
+`WithSession` only sets the state of the request. It does not check the cookie and store flow, which tifa's own tests cover.
 
 ## Testing
 

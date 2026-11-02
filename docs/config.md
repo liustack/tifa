@@ -1,6 +1,7 @@
 ---
 summary: 'Every setting of a tifa app: where each one can be set, which source wins, the default, the flag and environment variable names, the value formats and the errors a bad value gives, how to serve HTTPS with certificates the program gets itself or with your own, and how the program refuses writes that a browser sends from another site and how to let chosen origins or paths through'
 read_when:
+  - Changing how long a session lasts, the session cookie name, or how much memory the default session store may use
   - Deploying a tifa app, or changing its port, body limit, compression, VM count, VM stack depth, render timeout, render queue or page cache
   - Serving HTTPS from the program itself, with Let's Encrypt or your own certificate, or deciding whether to
   - The program cannot listen on port 80 or 443, or gets no certificate
@@ -73,6 +74,9 @@ Run `./bin/app config` to print the merged settings of all sources as a commente
 | `ssr.queue_limit` | `32` | `--ssr-queue-limit`, `TIFA_SSR_QUEUE_LIMIT` | Renders allowed to wait for a VM, excluding renders already running. `0` rejects immediately when no VM is idle. A full queue answers 503 with `Retry-After: 1` |
 | `ssr.wait_timeout` | `1s` | `--ssr-wait-timeout`, `TIFA_SSR_WAIT_TIMEOUT` | Maximum wait for a VM. Expiry answers 503 with `Retry-After: 1`, without starting or replacing a VM. Separate from `ssr.timeout`, which starts after a VM is acquired |
 | `cache.size` | `64MiB` | `--cache-size`, `TIFA_CACHE_SIZE` | Size of the HTML cache of pages with `Cache = true`, counting the gzip and zstd forms it keeps with `server.compress` on. `0` turns it off, though requests that miss the same page at the same time still share one render (see [SSR and cache](app.md#ssr-and-cache)) |
+| `session.cookie` | `__Host-tifa_session` | `--session-cookie`, `TIFA_SESSION_COOKIE` | Name of the session cookie. Under `tifa dev` the `__Host-` prefix is dropped, see [Sessions](app.md#sessions) |
+| `session.max_age` | `720h` | `--session-max-age`, `TIFA_SESSION_MAX_AGE` | How long a session lasts from the moment `tifa.SetSession` makes it, at least one second. It does not renew |
+| `session.memory_limit` | `64MiB` | `--session-memory-limit`, `TIFA_SESSION_MEMORY_LIMIT` | Bytes the in-memory session store may hold, used when `OnStart` sets no store with `tifa.SetSessionStore`. A full store drops the sessions that expire first |
 
 ## Render queue
 
