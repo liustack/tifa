@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/klauspost/compress/gzhttp"
 	"github.com/liustack/tifa"
@@ -737,8 +738,16 @@ func (s *Server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 	}
 	got, err := s.cache.fetch(c.Request().Context(), key, unheard, func(ctx context.Context) (cachedPage, bool, error) {
 		html, err := f.render(ctx, in)
-		if err != nil || !s.cache.holds(html) {
+		if err != nil {
 			return cachedPage{html: html}, false, err
+		}
+		if s.dev != nil {
+			if warned, differs := s.devRenderTwice(ctx, f, in, html, method, path); differs {
+				return cachedPage{html: warned}, false, nil
+			}
+		}
+		if !s.cache.holds(html) {
+			return cachedPage{html: html}, false, nil
 		}
 		page := cachedPage{html: html}
 		if s.cfg.Compress {
@@ -757,6 +766,47 @@ func (s *Server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 		return writeHTML(c, status, got.page.html)
 	}
 	return writeCached(c, status, got.page, s.formEncoding(c))
+}
+
+// devRenderTwice is what tifa dev adds to the render of a page that the render cache keeps: it
+// renders the same input again, and when the HTML differs, the page read the time or a random
+// number while rendering, which the cache would freeze. It then returns the page with the warning
+// in the overlay of the dev client and true, and the terminal gets the warning with the place where
+// the two renders part. The page is not cached, so each request warns until the page is fixed.
+// A second render that fails is left alone: the first one is what the request gets.
+func (s *Server) devRenderTwice(ctx context.Context, f *front, in ssr.Input, first, method, path string) (string, bool) {
+	second, err := f.render(ctx, in)
+	if err != nil || second == first {
+		return "", false
+	}
+	i := 0
+	for i < len(first) && i < len(second) && first[i] == second[i] {
+		i++
+	}
+	text := "This page read the time or a random number while rendering, so two renders of the same data differ. " +
+		"Change the component so it renders the same, or write RenderCache = false in route.go. " +
+		"The built app would keep the first render for later requests.\n\n" +
+		"First render:  " + around(first, i) + "\nSecond render: " + around(second, i)
+	core.Logger().Warn("tifa: "+text, "method", method, "path", path)
+	shown, _ := json.Marshal(map[string]string{"title": "The page renders differently each time", "text": text})
+	script := fmt.Sprintf(`<script>window.__tifaDevPageError = %s</script>`, shown)
+	if j := strings.LastIndex(first, "</body>"); j >= 0 {
+		return first[:j] + script + first[j:], true
+	}
+	return first + script, true
+}
+
+// around returns the part of html near byte i, which starts at a rune and ends at one.
+func around(html string, i int) string {
+	const margin = 60
+	start, end := max(i-margin, 0), min(i+margin, len(html))
+	for start < len(html) && start > 0 && !utf8.RuneStart(html[start]) {
+		start++
+	}
+	for end < len(html) && !utf8.RuneStart(html[end]) {
+		end++
+	}
+	return strings.ReplaceAll(html[start:end], "\n", " ")
 }
 
 // renderFailed answers a render that returned err: a redirect of the router, or failed with err

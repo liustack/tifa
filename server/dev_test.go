@@ -269,3 +269,58 @@ func TestDevReloadKeepsServingPages(t *testing.T) {
 		t.Errorf("a page during the reloads: %s", f)
 	}
 }
+
+// Under tifa dev a page that cached its render is rendered twice, and when the two differ the
+// page says so in the overlay of the dev client, the terminal says so, and the page is not cached.
+// A built app renders once and keeps the page. A page with RenderCache = false is rendered once.
+func TestDevWarnsAboutAPageThatRendersDifferently(t *testing.T) {
+	defer log.SetOutput(os.Stderr)
+	const warning = "This page read the time or a random number while rendering"
+	app := frontApp()
+	for _, tc := range []struct {
+		name       string
+		dev        bool
+		text, path string
+		warned     bool
+		render     string // X-Tifa-Render of the second request
+	}{
+		{"dev, random", true, `' + Math.random() + '`, "/stats", true, "vm"},
+		{"dev, steady", true, "same", "/stats", false, "cache"},
+		{"dev, RenderCache = false", true, `' + Math.random() + '`, "/live", false, "vm"},
+		{"built, random", false, `' + Math.random() + '`, "/stats", false, "cache"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var logs syncBuffer
+			log.SetOutput(&logs)
+			dir := t.TempDir()
+			writeBundle(t, dir, tc.text)
+			base := serveApp(t, app, tc.dev, "--dist", dir)
+			var second *http.Response
+			var body string
+			for range 2 {
+				resp, err := http.Get(base + tc.path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				b, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				second, body = resp, string(b)
+			}
+			if got := strings.Contains(body, "__tifaDevPageError") && strings.Contains(body, warning); got != tc.warned {
+				t.Errorf("overlay warning %t, want %t:\n%s", got, tc.warned, body)
+			}
+			if got := strings.Contains(logs.String(), warning); got != tc.warned {
+				t.Errorf("terminal warning %t, want %t:\n%s", got, tc.warned, logs.String())
+			}
+			if tc.warned && (!strings.Contains(body, "RenderCache = false") || !strings.Contains(logs.String(), "<p>")) {
+				t.Errorf("the warning names no fix or no place:\n%s\n%s", body, logs.String())
+			}
+			if got := second.Header.Get("X-Tifa-Render"); got != tc.render {
+				t.Errorf("second request rendered by %q, want %q", got, tc.render)
+			}
+			if second.StatusCode != 200 || strings.Contains(body, "__tifaDevErrorPage") {
+				t.Errorf("%d, a warning is no error page:\n%s", second.StatusCode, body)
+			}
+		})
+	}
+}
