@@ -7,7 +7,11 @@ import (
 	"fmt"
 	"runtime/debug"
 	"sync"
+	"time"
 )
+
+// cacheNow is the clock of the whole-page cache. Tests set it.
+var cacheNow = time.Now
 
 // htmlCache keeps rendered pages by the hash of their render input, up
 // to size bytes of HTML and its compressed forms. It drops the least recently used pages first.
@@ -47,9 +51,21 @@ type cached struct {
 type cachedPage struct {
 	html       string
 	gzip, zstd []byte
+	// whole is set for a page of the whole-page cache: what it stands for besides the HTML.
+	whole *wholePage
 }
 
-func (p cachedPage) size() int64 { return int64(len(p.html) + len(p.gzip) + len(p.zstd)) }
+func (p cachedPage) size() int64 {
+	n := int64(len(p.html) + len(p.gzip) + len(p.zstd))
+	if p.whole != nil {
+		n += p.whole.size()
+	}
+	return n
+}
+
+// fresh reports whether a page may be served at now: a page of the render cache always may, a
+// page of the whole-page cache until its time is over.
+func (p cachedPage) fresh(now time.Time) bool { return p.whole == nil || now.Before(p.whole.expires) }
 
 func newHTMLCache(size int64) *htmlCache {
 	return &htmlCache{size: size, order: list.New(), pages: map[string]*list.Element{}, flights: map[string]*flight{}}
@@ -79,11 +95,7 @@ func (c *htmlCache) put(key string, page cachedPage) {
 }
 
 func (c *htmlCache) putLocked(key string, page cachedPage) {
-	if e, ok := c.pages[key]; ok {
-		c.used -= e.Value.(*cached).page.size()
-		c.order.Remove(e)
-		delete(c.pages, key)
-	}
+	c.removeLocked(key)
 	if page.size() > c.size {
 		page.gzip, page.zstd = nil, nil
 	}
@@ -98,6 +110,14 @@ func (c *htmlCache) putLocked(key string, page cachedPage) {
 		c.order.Remove(oldest)
 		delete(c.pages, entry.key)
 		c.used -= entry.page.size()
+	}
+}
+
+func (c *htmlCache) removeLocked(key string) {
+	if e, ok := c.pages[key]; ok {
+		c.used -= e.Value.(*cached).page.size()
+		c.order.Remove(e)
+		delete(c.pages, key)
 	}
 }
 
@@ -128,7 +148,7 @@ func (c *htmlCache) fetch(ctx context.Context, key string, unheard func(error), 
 		c.fetching()
 	}
 	c.mu.Lock()
-	if e, ok := c.pages[key]; ok {
+	if e, ok := c.pages[key]; ok && e.Value.(*cached).page.fresh(cacheNow()) {
 		c.order.MoveToFront(e)
 		c.mu.Unlock()
 		return fetched{page: e.Value.(*cached).page, held: true, how: "cache"}, nil
