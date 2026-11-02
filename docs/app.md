@@ -221,6 +221,8 @@ async function ship() {
 - Call these functions from event handlers or effects. Calling one while the page renders on the server throws.
 - `route.gen` also exports `POSTInput`, `POSTOutput` and so on for the types of each handler that has them.
 
+The error that `c.Redirect` returns is a `*tifa.RedirectError` with the fields `URL` and `Code`. In `OnRequest` or a test, recognize it with `errors.As`.
+
 To go to the page of what a handler created, return a redirect from the handler, or return the result and navigate yourself. Pass `invalidate: false` in the second case, so the current page does not load its data again just before you leave it. Data the router already holds, such as that of a Layout both pages share, then stays as it was:
 
 ```go

@@ -6,6 +6,7 @@
 
 ### 变更
 
+- 导出 `tifa.RedirectError`，即 `c.Redirect` 返回的错误的类型。`OnRequest` 和应用的测试可以用 `errors.As(err, &redirect)` 认出重定向，并读到它的 `URL` 和 `Code`。
 - 访客开着的页面碰到部署后，不管是哪种不一致，都为新构建刷新一次。导航数据请求的 409 本来就会刷新，现在它还在响应头 `X-Tifa-Build` 里写上服务器运行的构建。处理函数带上页面的构建，服务器在处理函数运行前用同样的 409 拒绝来自别的构建的调用，所以旧页面不会再按新处理函数已经读不懂的类型去写。调用抛出状态 409 的 `TifaError`，页面刷新，调用不会再发一次。你自己的处理函数返回的 409 不会刷新任何东西，不带 `X-Tifa-Build` 的调用（比如 curl）不检查。代码块加载失败（Vite 的 `vite:preloadError`）也会刷新页面。每个构建只刷新一次，记在 `sessionStorage` 里，页面写下标记并读回来之后才会刷新。浏览器禁用存储时页面不刷新，直接显示失败，消息会说刷新一下页面。刷新后回来的页面仍然是旧的，就不再刷新：导航数据带着 409 失败，调用抛出这个 409，失败的 import 交给路由的 `Error`（见[部署时还开着的页面](docs/app.zh-CN.md#部署时还开着的页面)）。
 - 应用的每个回答默认带 `Cache-Control: private, no-cache`，应用自己设了 `Cache-Control` 的除外。页面、304、404 页面、导航数据、方法处理函数的回答和重定向以前都不带这个头（导航数据带的是 `no-cache`）。CloudFront 默认策略这类 CDN 会把没有 `Cache-Control` 的回答存一天以上，Azure Front Door 会存好几天，属于某位访客的页面可能被发给别人。现在共享缓存什么都不存，浏览器仍可以存下页面，下次带着 ETag 回来问，没变就答 304。想用别的值，在 `OnRequest`、`Load`、`Layout` 或处理函数里设 `Cache-Control`。出错的回答（JSON 错误、Go 写的纯错误页、带错误的页面和过载回答）发 `no-store`，应用在出错之前设过 `Cache-Control` 的除外。应用的 404 页面用默认值。`/assets/` 和 `public/` 下的文件头不变（见 [SSR 与缓存](docs/app.zh-CN.md#ssr-与缓存)）。
 - Vite 插件对 SSR 包少做三项改写，HTML 不变，渲染时间也不变。React 转义 HTML 用的 JavaScript 缓存和 `replaceAll` 链是给没有引擎转义函数的 VM 准备的，池里每个 VM 都有这个函数，所以没有哪次渲染跑过它们。只在有东西要读时才算元素的 key，省下的比同一个包两次运行相差的 0.11% 还少。其余每项改写都在 slowjs v0.29.8 的 C 引擎上重新测过，仍然划算，见[性能](docs/performance.zh-CN.md#构建)。

@@ -14,6 +14,9 @@ type Error = core.Error
 // answered with 422 and the messages as "fields" in the JSON, without calling OnError.
 type Fields = core.Fields
 
+// RedirectError is what Ctx.Redirect returns. OnRequest and tests can match it with errors.As.
+type RedirectError = core.RedirectError
+
 // ErrNotFound makes the server answer 404 without calling OnError.
 var ErrNotFound = core.ErrNotFound
 

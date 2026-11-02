@@ -221,6 +221,8 @@ async function ship() {
 - 在事件处理函数或 effect 里调用。服务器渲染页面期间调用会抛错。
 - `route.gen` 还为有入参或返回值的处理函数导出 `POSTInput`、`POSTOutput` 等类型。
 
+`c.Redirect` 返回的错误是 `*tifa.RedirectError`，字段有 `URL` 和 `Code`。在 `OnRequest` 或测试里用 `errors.As` 认出它。
+
 要在创建之后去新建内容的页面，可以让处理函数返回重定向，也可以返回结果再自己导航。第二种写法要传 `invalidate: false`，免得当前页面在离开前又取一次数据。路由器里已有的数据（比如两个页面共用的 Layout 的数据）这时保持原样：
 
 ```go
