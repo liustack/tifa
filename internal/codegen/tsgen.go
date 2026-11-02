@@ -1008,23 +1008,23 @@ func urlTemplate(segs []pathSeg) string {
 	return b.String()
 }
 
-// sessionModule writes session.gen.ts: SessionData is the JSON of what the Browser method of the
+// sessionModule writes session.gen.ts: SessionData is the JSON of what the Exposed method of the
 // session type returns, and never when the app has no session or the type has no such method.
 func sessionModule(s *analyze.Session) ([]byte, error) {
 	var b strings.Builder
 	b.WriteString(tsHeader + "\n")
 	b.WriteString("// SessionEnabled is true when the app calls tifa.SetSession.\n")
 	fmt.Fprintf(&b, "export type SessionEnabled = %t\n\n", s != nil)
-	if s == nil || !s.Browser {
-		b.WriteString("// The app has no session type with a Browser method.\nexport type SessionData = never\n")
+	if s == nil || !s.Exposed {
+		b.WriteString("// The app has no session type with an Exposed method.\nexport type SessionData = never\n")
 		return []byte(b.String()), nil
 	}
-	if s.BrowserResult == nil {
-		return nil, fmt.Errorf("codegen: the manifest carries no Browser result type, analyze the application in this process")
+	if s.ExposedResult == nil {
+		return nil, fmt.Errorf("codegen: the manifest carries no Exposed result type, analyze the application in this process")
 	}
-	shape, decls, err := analyze.TSShape(s.BrowserResult)
+	shape, decls, err := analyze.TSShape(s.ExposedResult)
 	if err != nil {
-		return nil, fmt.Errorf("codegen: session Browser result: %w", err)
+		return nil, fmt.Errorf("codegen: session Exposed result: %w", err)
 	}
 	for _, d := range decls {
 		b.WriteString(d + "\n")
@@ -1032,7 +1032,7 @@ func sessionModule(s *analyze.Session) ([]byte, error) {
 	if len(decls) > 0 {
 		b.WriteString("\n")
 	}
-	b.WriteString("// SessionData is what the Browser method of the session type returns, as JSON.\n")
+	b.WriteString("// SessionData is what the Exposed method of the session type returns, as JSON.\n")
 	fmt.Fprintf(&b, "export type SessionData = %s\n", shape)
 	return []byte(b.String()), nil
 }

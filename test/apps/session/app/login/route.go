@@ -14,7 +14,7 @@ type Me struct {
 	Name string `json:"name"`
 }
 
-func (a Account) Browser() Me { return Me{Name: a.Name} }
+func (a Account) Exposed() Me { return Me{Name: a.Name} }
 
 type Credentials struct {
 	Name string `json:"name"`

@@ -264,8 +264,8 @@ type Session struct {
 	Name   string `json:"name"`
 }
 
-// Browser is the part the browser may keep: a name, an avatar, no secrets (optional)
-func (s Session) Browser() Me { return Me{Name: s.Name} }
+// Exposed goes to the browser: page HTML and localStorage. No secrets, no credentials (optional)
+func (s Session) Exposed() Me { return Me{Name: s.Name} }
 
 // app/login/route.go: a method handler
 func POST(c *tifa.Ctx, in Login) error {
@@ -294,7 +294,7 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 - `tifa.Session[S](c)` returns the session or nil, in `OnRequest`, `Load`, `Layout` and handlers. Treat it as read-only, and use one type `S` for the whole app. `SetSession` and `ClearSession` work in `OnRequest` before `next` and in method handlers, and return an error in `Load` and `Layout` (the build also rejects them there). Sign in and out with a POST, never a GET.
 - Without a store, sessions live in the memory of the process (up to `session.memory_limit`) and a restart signs everyone out. To keep them in Redis or SQL, call `tifa.SetSessionStore(store)` in `OnStart`, with a type that has `Get`, `Put` and `Delete` (`tifa.SessionStore`). `tifatest.TestSessionStore(t, store)` checks it.
 - The cookie is `__Host-tifa_session`, `HttpOnly`, `Secure`, `SameSite=Lax`, for 30 days (`session.cookie` and `session.max_age` change it). Under `tifa dev` it is `tifa_session` without `Secure`. Keep the record under 4 KiB: an ID and a few display fields.
-- In the browser, `useSession()` from `tifa/client` returns `{ signedIn, data, ready }`, where `data` is what `Browser()` returned (type `SessionData` from `.tifa/session.gen`). `<Session.In>` and `<Session.Out>` show their children only for a signed-in or signed-out visitor, and any element with `data-session="in"` or `data-session="out"` does the same. The server writes `<html data-session="in">`, so the first paint is right before any script runs. The copy only decides what to show, so check access in Go.
+- In the browser, `useSession()` from `tifa/client` returns `{ signedIn, data, ready }`, where `data` is what `Exposed()` returned (type `SessionData` from `.tifa/session.gen`). `<Session.In>` and `<Session.Out>` show their children only for a signed-in or signed-out visitor, and any element with `data-session="in"` or `data-session="out"` does the same. The server writes `<html data-session="in">`, so the first paint is right before any script runs. The copy only decides what to show, so check access in Go.
 - A call to a handler that signs in or out brings the new session, and the page and its Layouts load again. A redirect from the handler goes through the router.
 - Writing `Cache-Control` on an answer that carries the session: only `no-store`, or `private, no-cache`. Anything else fails the request.
 - On a page with `Cache`, `tifa.Session` is nil whoever asks, `SetSession` and `ClearSession` fail (sign-in and OAuth callbacks belong on routes without `Cache`), and the HTML carries no session. The browser gets it after the page has loaded: `useSession` and the `data-session` elements follow the copy in `localStorage`, and the navigation data of the page carries the session of that browser. Known limits: the render cache keys a page by its data and the visitor's session, so it never serves one visitor's page to another. Another tab shows the old state until its next answer. A fetch of your own that changes the session needs `router.invalidate()`.

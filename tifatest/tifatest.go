@@ -71,7 +71,7 @@ func sessionEnv(t testing.TB) *core.SessionEnv {
 // WithSession makes the request of c signed in with s, as tifa.Session[S] returns it, without a
 // cookie and without the store. Use it to set up the signed-in state of a Load, a method handler or
 // OnRequest. It does not check that the cookie and store flow works, which the framework's own
-// tests do. S needs no Browser method or anything else to be used here.
+// tests do. S needs no Exposed method or anything else to be used here.
 func WithSession[S any](c *tifa.Ctx, s *S) { core.InjectSession(c, s) }
 
 // committer tells the session functions whether the response is out, as the server's writer does:

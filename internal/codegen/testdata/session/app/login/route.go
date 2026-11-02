@@ -16,7 +16,7 @@ type Public struct {
 	Boss  *Public `json:"boss"`
 }
 
-func (a *Account) Browser() Public { return Public{Name: a.Email} }
+func (a *Account) Exposed() Public { return Public{Name: a.Email} }
 
 func Load(c *tifa.Ctx) (string, error) { return "x", nil }
 

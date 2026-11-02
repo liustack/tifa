@@ -881,13 +881,13 @@ Writes from other sites are refused before any of this runs (see [Cross-site wri
 - `Load` or `Layout`, or a function they pass the Ctx to, calls `SetSession` or `ClearSession`
 - a page or API route path starts with `/__tifa/`, or `public/__tifa/` holds a file (`/__tifa/session` is the path of the session answer)
 
-The session type may have a method `Browser() M` (a pointer receiver works too), which gives the part of the session a browser may see. `M` follows the rules of a `Load` result, and the build writes its TypeScript type to `.tifa/session.gen.ts`:
+The session type may have a method `Exposed() M` (a pointer receiver works too). It returns the part of the session that may go to the browser. It is written into the page HTML and kept in the browser's `localStorage`, so every field in it must be fine to stay on the visitor's device for a long time. Put no credentials and no secrets in it, and always check access with the server-side session. `M` follows the rules of a `Load` result, and the build writes its TypeScript type to `.tifa/session.gen.ts`:
 
 ```tsx
 import type { SessionData } from '@/.tifa/session.gen'
 ```
 
-The same file exports `SessionEnabled`, which is `true` when the app calls `tifa.SetSession` and `false` otherwise. `SessionData` is `never` when the type has no `Browser` method or the app has no session. A `Browser` with parameters, with more than one result, or whose result cannot be JSON fails the build.
+The same file exports `SessionEnabled`, which is `true` when the app calls `tifa.SetSession` and `false` otherwise. `SessionData` is `never` when the type has no `Exposed` method or the app has no session. A `Exposed` with parameters, with more than one result, or whose result cannot be JSON fails the build.
 
 ### In the browser
 
@@ -907,12 +907,12 @@ function Header() {
 }
 ```
 
-- `useSession()` returns `{ signedIn, data, ready }`. `data` is what the `Browser` method returned (its type is `SessionData`), and `undefined` when the type has no `Browser` or nobody is signed in. Calling it in an app that never calls `tifa.SetSession` is a type error, and throws.
+- `useSession()` returns `{ signedIn, data, ready }`. `data` is what the `Exposed` method returned (its type is `SessionData`), and `undefined` when the type has no `Exposed` or nobody is signed in. Calling it in an app that never calls `tifa.SetSession` is a type error, and throws.
 - `Session.In` and `Session.Out` are a `<span>` with `data-session="in"` or `data-session="out"`. Any element can carry the attribute instead, such as `<a href="/login" data-session="out">`. A style tifa puts at the start of the head hides `data-session="in"` elements unless someone is signed in, and `data-session="out"` elements when someone is. You write no CSS.
 - `ready` is `true` once the browser knows which state it shows. For a page rendered for the visitor it is `true` from the first render. See below for the pages that come without a session.
 - The copy decides what to show, never what someone may do. Check access in Go.
 
-The session reaches the browser with every answer that is meant for one visitor, in the shape `{ "signedIn": true, "data": ... }` (`data` only when the type has `Browser`, and `{ "signedIn": false }` when nobody is signed in):
+The session reaches the browser with every answer that is meant for one visitor, in the shape `{ "signedIn": true, "data": ... }` (`data` only when the type has `Exposed`, and `{ "signedIn": false }` when nobody is signed in):
 
 | Answer | What it carries |
 | --- | --- |
@@ -942,7 +942,7 @@ style-src 'sha256-dutb67YDz+meUugqDFx3RsopE/hCQ31NRHukbTNY+OQ='
 
 These are for the default cookie `__Host-tifa_session`. The script holds the name of the `localStorage` key, so it has another hash when you set `session.cookie`, and under `tifa dev`, where the cookie is `tifa_session` (the script's hash is `sha256-RXrgEYZIzBu7H8LtSsupWFiD5XE/6dvi74b6rHR+nVg=`). Read the script out of a page of your build and hash it.
 
-**What it cannot do.** Another tab shows the old state until its next answer with a session, and a form submitted there already uses the new cookie. After you sign out on another device, a page that comes from `localStorage` shows the old name until the check comes back. Going back to a page of the browser's back-forward cache after signing in as someone else shows the old page as it was. A preload that was running when you switched accounts can bring the old account's data. A `fetch` you write yourself that changes the session is unknown to tifa: call `router.invalidate()` after it. Keep `Browser()` to what the browser may keep on the device, such as a name and an avatar, and no credentials, e-mail address or phone number.
+**What it cannot do.** Another tab shows the old state until its next answer with a session, and a form submitted there already uses the new cookie. After you sign out on another device, a page that comes from `localStorage` shows the old name until the check comes back. Going back to a page of the browser's back-forward cache after signing in as someone else shows the old page as it was. A preload that was running when you switched accounts can bring the old account's data. A `fetch` you write yourself that changes the session is unknown to tifa: call `router.invalidate()` after it. Keep `Exposed()` to what the browser may keep on the device, such as a name and an avatar, and no credentials, e-mail address or phone number.
 
 ### Testing sessions
 

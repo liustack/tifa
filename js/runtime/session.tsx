@@ -15,7 +15,7 @@ import type { SessionData, SessionEnabled } from '../session.gen'
 import { buildHeader } from './data'
 import { reloadForBuild } from './skew'
 
-// SessionEnvelope is the session as the server sends it. data is what the Browser method of the
+// SessionEnvelope is the session as the server sends it. data is what the Exposed method of the
 // session type returned, left out when the type has none.
 export interface SessionEnvelope {
   signedIn: boolean
@@ -185,7 +185,7 @@ export const SessionContext = createContext<Snapshot | undefined>(undefined)
 
 export interface SessionResult {
   signedIn: boolean
-  // What the Browser method of the session type returns, undefined when the type has none or
+  // What the Exposed method of the session type returns, undefined when the type has none or
   // nobody is signed in.
   data: SessionData | undefined
   // true once the browser has settled which session it shows.

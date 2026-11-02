@@ -27,7 +27,7 @@ type wireMe struct {
 	Name string `json:"name"`
 }
 
-func (u wireUser) Browser() wireMe { return wireMe{Name: u.Name} }
+func (u wireUser) Exposed() wireMe { return wireMe{Name: u.Name} }
 
 type loginInput struct {
 	Name string `json:"name"`

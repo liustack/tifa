@@ -432,17 +432,17 @@ func TestViolations(t *testing.T) {
 		{"sessionnotstruct", [][]string{
 			{"app/page/route.go:7:", "session type int", "struct"},
 		}},
-		{"sessionbrowserargs", [][]string{
-			{"app/page/route.go:11:", "Browser", "func() M"},
+		{"sessionexposedargs", [][]string{
+			{"app/page/route.go:11:", "Exposed", "func() M"},
 		}},
-		{"sessionbrowsermulti", [][]string{
-			{"app/page/route.go:11:", "Browser", "func() M"},
+		{"sessionexposedmulti", [][]string{
+			{"app/page/route.go:11:", "Exposed", "func() M"},
 		}},
-		{"sessionbrowseriface", [][]string{
-			{"app/page/route.go:11:", "Browser result", "interface"},
+		{"sessionexposediface", [][]string{
+			{"app/page/route.go:11:", "Exposed result", "interface"},
 		}},
-		{"sessionbrowserchan", [][]string{
-			{"app/page/route.go:12:", "Browser result", "Public.Ch", "chan"},
+		{"sessionexposedchan", [][]string{
+			{"app/page/route.go:12:", "Exposed result", "Public.Ch", "chan"},
 		}},
 		{"sessionload", [][]string{
 			{"app/route.go:5:", "tifa.ClearSession", "Layout", "OnRequest"},
@@ -1006,15 +1006,15 @@ func TestSessionInManifest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Analyze: %v", err)
 	}
-	if m.Session == nil || m.Session.Type != "example.com/sessionok/app/page.A" || !m.Session.Browser ||
-		m.Session.BrowserType != "example.com/sessionok/app/page.Public" || m.Session.BrowserResult == nil {
+	if m.Session == nil || m.Session.Type != "example.com/sessionok/app/page.A" || !m.Session.Exposed ||
+		m.Session.ExposedType != "example.com/sessionok/app/page.Public" || m.Session.ExposedResult == nil {
 		t.Errorf("Session = %+v", m.Session)
 	}
 	m, err = analyzeApp(t, "sessionplain")
 	if err != nil {
 		t.Fatalf("Analyze: %v", err)
 	}
-	if m.Session == nil || m.Session.Type != "example.com/sessionplain/app/page.A" || m.Session.Browser || m.Session.BrowserResult != nil {
+	if m.Session == nil || m.Session.Type != "example.com/sessionplain/app/page.A" || m.Session.Exposed || m.Session.ExposedResult != nil {
 		t.Errorf("Session = %+v", m.Session)
 	}
 	m, err = analyzeApp(t, "valid")

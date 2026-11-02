@@ -243,7 +243,7 @@ func waitFor(t *testing.T, what string, ok func() bool) {
 
 // sessionAfterRestart starts the program twice on the same file of sessions. The second process has
 // served nothing yet, and its first request, with the cookie of the first, already carries the data
-// of the Browser method.
+// of the Exposed method.
 func sessionAfterRestart(t *testing.T, exe string) {
 	t.Setenv("SESSION_FILE", filepath.Join(t.TempDir(), "sessions.json"))
 	first, cmd, _ := start(t, exe)

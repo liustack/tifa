@@ -882,13 +882,13 @@ tifa 存会话。用户是谁由你的应用或登录库来认：密码哈希（
 - `Load`、`Layout`，或者它们传下 Ctx 的函数调用了 `SetSession` 或 `ClearSession`
 - 页面或 API 路由的路径以 `/__tifa/` 开头，或者 `public/__tifa/` 下有文件（`/__tifa/session` 是会话回答的路径）
 
-会话类型可以有方法 `Browser() M`（指针接收者也行），给出会话里允许浏览器看到的部分。`M` 遵守 `Load` 结果的规则，构建把它的 TypeScript 类型写进 `.tifa/session.gen.ts`：
+会话类型可以有方法 `Exposed() M`（指针接收者也行）。`Exposed` 返回允许交给浏览器的那部分 session。它会写进页面 HTML，并保存在浏览器的 localStorage 里。放进这里的字段要能接受长期留在访客的设备上。不要放凭据和需要保密的信息。权限判断永远用服务端的 session。`M` 遵守 `Load` 结果的规则，构建把它的 TypeScript 类型写进 `.tifa/session.gen.ts`：
 
 ```tsx
 import type { SessionData } from '@/.tifa/session.gen'
 ```
 
-同一个文件还导出 `SessionEnabled`：应用调用了 `tifa.SetSession` 时是 `true`，否则是 `false`。类型没有 `Browser` 方法，或应用没有会话时，`SessionData` 是 `never`。`Browser` 带参数、有多个返回值，或者返回值不能是 JSON，构建会失败。
+同一个文件还导出 `SessionEnabled`：应用调用了 `tifa.SetSession` 时是 `true`，否则是 `false`。类型没有 `Exposed` 方法，或应用没有会话时，`SessionData` 是 `never`。`Exposed` 带参数、有多个返回值，或者返回值不能是 JSON，构建会失败。
 
 ### 在浏览器里
 
@@ -908,12 +908,12 @@ function Header() {
 }
 ```
 
-- `useSession()` 返回 `{ signedIn, data, ready }`。`data` 是 `Browser` 方法返回的值（类型是 `SessionData`），类型没有 `Browser` 或没人登录时是 `undefined`。在从不调用 `tifa.SetSession` 的应用里调用它是类型错误，运行时也会抛错。
+- `useSession()` 返回 `{ signedIn, data, ready }`。`data` 是 `Exposed` 方法返回的值（类型是 `SessionData`），类型没有 `Exposed` 或没人登录时是 `undefined`。在从不调用 `tifa.SetSession` 的应用里调用它是类型错误，运行时也会抛错。
 - `Session.In` 和 `Session.Out` 是带 `data-session="in"` 或 `data-session="out"` 的 `<span>`。任何元素也可以直接带这个属性，比如 `<a href="/login" data-session="out">`。tifa 放在 head 最前面的一条样式会在没人登录时隐藏 `data-session="in"` 的元素，有人登录时隐藏 `data-session="out"` 的元素，你不用写 CSS。
 - `ready` 在浏览器知道自己该显示哪个状态之后是 `true`。为访客渲染的页面从第一次渲染起就是 `true`。不带会话的页面见下文。
 - 副本只决定显示什么，不决定谁能做什么。权限在 Go 里检查。
 
-凡是只给一个访客的回答都带会话，形状是 `{ "signedIn": true, "data": ... }`（只有类型有 `Browser` 才有 `data`，没人登录时是 `{ "signedIn": false }`）：
+凡是只给一个访客的回答都带会话，形状是 `{ "signedIn": true, "data": ... }`（只有类型有 `Exposed` 才有 `data`，没人登录时是 `{ "signedIn": false }`）：
 
 | 回答 | 带什么 |
 | --- | --- |
@@ -943,7 +943,7 @@ style-src 'sha256-dutb67YDz+meUugqDFx3RsopE/hCQ31NRHukbTNY+OQ='
 
 这是默认 cookie `__Host-tifa_session` 的哈希。脚本里写着 `localStorage` 键的名字，所以设了 `session.cookie` 之后脚本的哈希会变，`tifa dev` 下 cookie 是 `tifa_session`，脚本的哈希是 `sha256-RXrgEYZIzBu7H8LtSsupWFiD5XE/6dvi74b6rHR+nVg=`。从你的构建出的页面里取出脚本再算哈希。
 
-**做不到的事。** 另一个标签页在它下一次带会话的回答到来之前显示旧状态，在那里提交的表单已经用新的 cookie。在别的设备上登出后，从 `localStorage` 出来的页面会先显示旧名字，直到核对的回答回来。在同一个标签页登录成别人之后按后退，浏览器的前进后退缓存里恢复的是原样的旧页面。切换账号时正在进行的预加载，可能带回旧账号的数据。你自己写的 `fetch` 改了会话，tifa 不知道，在它之后调 `router.invalidate()`。`Browser()` 只放允许留在设备上的东西，比如名字和头像，不要放凭证、邮箱或手机号。
+**做不到的事。** 另一个标签页在它下一次带会话的回答到来之前显示旧状态，在那里提交的表单已经用新的 cookie。在别的设备上登出后，从 `localStorage` 出来的页面会先显示旧名字，直到核对的回答回来。在同一个标签页登录成别人之后按后退，浏览器的前进后退缓存里恢复的是原样的旧页面。切换账号时正在进行的预加载，可能带回旧账号的数据。你自己写的 `fetch` 改了会话，tifa 不知道，在它之后调 `router.invalidate()`。`Exposed()` 只放允许留在设备上的东西，比如名字和头像，不要放凭证、邮箱或手机号。
 
 ### 测试会话
 

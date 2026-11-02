@@ -101,7 +101,7 @@ func generateGo(m *analyze.Manifest, configName string, dev bool) (map[string][]
 	}
 	main.WriteString("Layouts: layouts,\nRoutes: routes,\nDist: dist,\n")
 	// The session type is registered when the process starts, so that a request which holds a
-	// session from before a restart gets its Browser data too.
+	// session from before a restart gets its Exposed data too.
 	if m.Session != nil {
 		fmt.Fprintf(&main, "Session: server.SessionOf[sessiontype.%s],\n", m.Session.Name)
 	}

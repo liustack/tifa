@@ -9,7 +9,7 @@ type Public struct {
 	Ch   chan int
 }
 
-func (a *A) Browser() Public { return Public{} }
+func (a *A) Exposed() Public { return Public{} }
 
 func Load(c *tifa.Ctx) (string, error) { return "x", nil }
 

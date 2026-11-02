@@ -10,18 +10,18 @@ import (
 )
 
 // BrowserSession is the session as the browser gets it: whether anyone is signed in and, when the
-// session type has a Browser method, what it returns.
+// session type has an Exposed method, what it returns.
 type BrowserSession struct {
 	SignedIn bool            `json:"signedIn"`
 	Data     json.RawMessage `json:"data,omitempty"`
 }
 
 // sessionKind is what the framework needs to know about the session type S to build a
-// BrowserSession from a record: how to read the session as S, and how to call Browser.
+// BrowserSession from a record: how to read the session as S, and how to call Exposed.
 type sessionKind struct {
 	t       reflect.Type
 	load    func(c *Ctx) any                           // Session[S], nil when there is no session
-	browser func(v any) (json.RawMessage, bool, error) // nil when S has no Browser method
+	exposed func(v any) (json.RawMessage, bool, error) // nil when S has no Exposed method
 }
 
 var (
@@ -51,20 +51,20 @@ func newKind[S any]() *sessionKind {
 		}
 		return nil
 	}}
-	m, ok := reflect.TypeFor[*S]().MethodByName("Browser")
+	m, ok := reflect.TypeFor[*S]().MethodByName("Exposed")
 	if !ok || m.Type.NumIn() != 1 || m.Type.NumOut() != 1 {
 		return k
 	}
-	k.browser = func(v any) (data json.RawMessage, ok bool, err error) {
+	k.exposed = func(v any) (data json.RawMessage, ok bool, err error) {
 		defer func() {
 			if p := recover(); p != nil {
-				err = fmt.Errorf("tifa: Browser of the session panicked: %v", p)
+				err = fmt.Errorf("tifa: Exposed of the session panicked: %v", p)
 			}
 		}()
 		out := reflect.ValueOf(v).Method(m.Index).Call(nil)[0]
 		data, err = json.Marshal(out.Interface())
 		if err != nil {
-			return nil, false, fmt.Errorf("tifa: encoding the result of Browser: %w", err)
+			return nil, false, fmt.Errorf("tifa: encoding the result of Exposed: %w", err)
 		}
 		return data, string(data) != "null", nil
 	}
@@ -97,8 +97,8 @@ func BrowserSessionOf(c *Ctx) (BrowserSession, error) {
 		return BrowserSession{}, nil // the record did not fit S and was dropped
 	}
 	out := BrowserSession{SignedIn: true}
-	if kind.browser != nil {
-		data, ok, err := kind.browser(v)
+	if kind.exposed != nil {
+		data, ok, err := kind.exposed(v)
 		if err != nil {
 			return BrowserSession{}, err
 		}

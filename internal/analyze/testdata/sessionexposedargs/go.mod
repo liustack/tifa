@@ -1,4 +1,4 @@
-module example.com/sessionbrowseriface
+module example.com/sessionexposedargs
 
 go 1.27.0
 
