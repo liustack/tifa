@@ -17,6 +17,8 @@ type Manifest struct {
 	Module string `json:"module"`
 	// Hooks lists the hooks defined in the root package, in the order OnStart, OnShutdown, OnRequest, OnError.
 	Hooks []string `json:"hooks"`
+	// Session is the session type of the app, nil when nothing calls tifa.SetSession.
+	Session *Session `json:"session"`
 	// Embedded is what the go:embed lines of the module's packages bring in. It is not part of the
 	// route manifest, so it is not written out.
 	Embedded *Embedded `json:"-"`

@@ -401,6 +401,37 @@ func TestViolations(t *testing.T) {
 			{"app/shop/alone/deep/route.go:13:", "tifa.Use(c, app.Layout)", "app/shop/alone/layout_.tsx drops the layout of app,", "does not run for app/shop/alone/deep"},
 			{"app/shell/layout.tsx:1:", "every page below this layout is below app/shell/inner/layout_.tsx"},
 		}},
+		{"sessionmismatch", [][]string{
+			{"app/page/route.go:10:", "tifa.Session[page.B]", "app/page/route.go:16", "tifa.SetSession[page.A]", "one session type"},
+		}},
+		{"sessiongeneric", [][]string{
+			{"app/page/route.go:7:", "tifa.Session", "type parameter", "generic"},
+			{"app/page/route.go:10:", "generic function", "page.current"},
+		}},
+		{"sessionmissing", [][]string{
+			{"app/page/route.go:8:", "tifa.Session", "no call of tifa.SetSession"},
+		}},
+		{"sessionbadtype", [][]string{
+			{"app/page/route.go:12:", "session", "A.Ch", "chan"},
+		}},
+		{"sessionnotstruct", [][]string{
+			{"app/page/route.go:7:", "session type int", "struct"},
+		}},
+		{"sessionbrowserargs", [][]string{
+			{"app/page/route.go:11:", "Browser", "func() M"},
+		}},
+		{"sessionbrowsermulti", [][]string{
+			{"app/page/route.go:11:", "Browser", "func() M"},
+		}},
+		{"sessionbrowseriface", [][]string{
+			{"app/page/route.go:11:", "Browser result", "interface"},
+		}},
+		{"sessionbrowserchan", [][]string{
+			{"app/page/route.go:12:", "Browser result", "Public.Ch", "chan"},
+		}},
+		{"sessionhidden", [][]string{
+			{"app/page/route.go:8:", "tifa.SetSession", "type parameter"},
+		}},
 		{"oldroute", [][]string{
 			{"app/route.tsx:1:", "route.tsx is not a page file any more", "rename it to page.tsx"},
 		}},
@@ -922,3 +953,29 @@ func TestEmbeddedStopsAtANestedModule(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionInManifest(t *testing.T) {
+	m, err := analyzeApp(t, "sessionok")
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	if m.Session == nil || m.Session.Type != "example.com/sessionok/app/page.A" || !m.Session.Browser ||
+		m.Session.BrowserType != "example.com/sessionok/app/page.Public" || m.Session.BrowserResult == nil {
+		t.Errorf("Session = %+v", m.Session)
+	}
+	m, err = analyzeApp(t, "sessionplain")
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	if m.Session == nil || m.Session.Type != "example.com/sessionplain/app/page.A" || m.Session.Browser || m.Session.BrowserResult != nil {
+		t.Errorf("Session = %+v", m.Session)
+	}
+	m, err = analyzeApp(t, "valid")
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	if m.Session != nil {
+		t.Errorf("an app without SetSession has Session = %+v", m.Session)
+	}
+}
+

@@ -107,15 +107,16 @@ func modulePath(root string) (string, error) {
 }
 
 type analyzer struct {
-	root   string
-	module string
-	fset   *token.FileSet
-	dirs   map[string]*dirInfo // by ID
-	pkgs   []*packages.Package // app packages and the root package
-	byDir  map[string]*packages.Package
-	rootPk *packages.Package // nil without hooks.go
-	embed  *Embedded         // what the packages of the module embed with go:embed
-	broken map[string]bool   // directory IDs of packages skipped because they or their imports do not type check
+	root           string
+	module         string
+	fset           *token.FileSet
+	dirs           map[string]*dirInfo // by ID
+	pkgs           []*packages.Package // app packages and the root package
+	byDir          map[string]*packages.Package
+	rootPk         *packages.Package   // nil without hooks.go
+	embed          *Embedded           // what the packages of the module embed with go:embed
+	modulePackages []*packages.Package // every package of the module that type checked, tests left out
+	broken         map[string]bool     // directory IDs of packages skipped because they or their imports do not type check
 	// appPkgs holds the import paths of pkgs, modulePkgs those of every package in the module.
 	appPkgs, modulePkgs map[string]bool
 	funcs               map[string]funcSource // functions of module packages that type check, by full name
@@ -260,6 +261,9 @@ func (a *analyzer) load() error {
 			continue
 		}
 		a.modulePkgs[p.PkgPath] = true
+		if len(p.Errors) == 0 && !p.IllTyped && p.TypesInfo != nil {
+			a.modulePackages = append(a.modulePackages, p)
+		}
 		id := a.id(filepath.Dir(p.GoFiles[0]))
 		if id == "app" || strings.HasPrefix(id, "app/") || id == "." && hasHooks {
 			roots = append(roots, p)
@@ -456,7 +460,7 @@ func (a *analyzer) build() *Manifest {
 	a.checkDirectCalls()
 	a.propagateQuery(routes, layouts)
 
-	m := &Manifest{Module: a.module, Hooks: a.hooks(), Embedded: a.embed}
+	m := &Manifest{Module: a.module, Hooks: a.hooks(), Embedded: a.embed, Session: a.session(a.modulePackages)}
 	for _, l := range layouts {
 		m.Layouts = append(m.Layouts, l.Layout)
 	}
