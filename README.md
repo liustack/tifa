@@ -39,7 +39,7 @@ So I started hacking on tifa. Once it is done, deploying should mean copying one
 | Reverse proxy and certificates | nginx + certbot | The Go HTTP server in the binary, which gets its own Let's Encrypt certificate and speaks HTTP/2 |
 | Runtime and process manager | Node.js + PM2 | One Go executable |
 | React SSR | TanStack Start | TanStack Router, rendered by a pure Go QuickJS inside the Go process |
-| Cache | Redis | An in-process HTML cache, plus whatever you keep in Go memory |
+| Cache | Redis | In-process caches for rendered pages and whole pages, plus whatever you keep in Go memory |
 | Queues and scheduled jobs | BullMQ + cron | Goroutines you start in `OnStart` |
 | Database | SQLite | SQLite, with a pure Go driver so CGO stays off |
 
