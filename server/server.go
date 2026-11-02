@@ -155,6 +155,7 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 	if s.serveDev(w, r) || s.serveStatic(w, r) {
 		return
 	}
+	r = core.SplitData(r)
 	if s.sess.enabled && r.URL.Path == sessionPath {
 		s.serve(w, r, sessionPath, false, s.sessionHandler)
 		return
@@ -210,9 +211,13 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, pattern string, p
 	// the request it passed on. ServeMux sets its own spelling, such as /{$} for the home page.
 	if pattern != "" {
 		r.Pattern = pattern
+		if d := core.DataOf(r); d != nil {
+			d.Original.Pattern = pattern
+		}
 	}
 	c := core.New(tw, r, pattern, s.cfg.BodyLimit)
 	tw.noStore = func() bool { return core.NoStore(c) }
+	tw.data = func() bool { return core.DataOf(r) != nil }
 	tw.session = pattern == sessionPath
 	defer func() {
 		if err := core.Finish(c); err != nil {
@@ -301,8 +306,8 @@ func (s *Server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 		core.Logger().ErrorContext(r.Context(), "tifa: request failed after the response was written", "method", r.Method, "path", r.URL.Path, "err", err)
 		return
 	}
-	// Only the collector sends X-Tifa-Route. It also reaches a redirect of ServeMux, which has
-	// no pattern.
+	// Only the collector sends _tifa. It also reaches a redirect of ServeMux, which has no
+	// pattern.
 	data := c.IsData() && s.pagesServed() && (r.Method == "GET" || r.Method == "HEAD")
 	switch {
 	case failure != nil && failure.data:
@@ -467,6 +472,10 @@ type writer struct {
 	// noStore reports that the answer sets the session cookie or answers a failed session store: it
 	// goes out as no-store, without validators.
 	noStore func() bool
+	// data reports a navigation data request, whose answer is for one visitor and is never
+	// public: it goes out private, no-cache whatever the application set, unless that is
+	// stricter (no-store, or private with no-cache).
+	data func() bool
 	// session is set for /__tifa/session: whatever wrote the answer, a middleware that answered on
 	// its own included, it goes out as private, no-store, without validators.
 	session bool
@@ -495,6 +504,10 @@ func (w *writer) commit(final bool, call func() bool) {
 			h.Set("Cache-Control", "no-store")
 			h.Del("ETag")
 			h.Del("Last-Modified")
+		case w.data != nil && w.data():
+			if len(h.Values("Cache-Control")) == 0 || !cacheControlHoldsSession(h) {
+				h.Set("Cache-Control", defaultCacheControl)
+			}
 		case len(h.Values("Cache-Control")) == 0:
 			h.Set("Cache-Control", defaultCacheControl)
 		}

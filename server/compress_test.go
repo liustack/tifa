@@ -108,7 +108,7 @@ func TestPagesAreCompressed(t *testing.T) {
 		if body := decoded(t, w); body != plain.Body.String() {
 			t.Errorf("%s: the page reads %q", tc.accept, body)
 		}
-		if !varies(w, "Accept-Encoding") || !varies(w, "X-Tifa-Route") {
+		if !varies(w, "Accept-Encoding") {
 			t.Errorf("%s: Vary %v", tc.accept, w.Header().Values("Vary"))
 		}
 		etag := w.Header().Get("ETag")
@@ -133,7 +133,7 @@ func TestJSONIsCompressedFromTheThreshold(t *testing.T) {
 			POST: func(c *tifa.Ctx) error { return c.JSON(200, strings.Repeat("order ", 400)) }},
 	)
 	s := newBigServer(t, config.Default(), app)
-	data := get(s, "/big", "Accept-Encoding", "gzip", "X-Tifa-Route", "app/big", "X-Tifa-Build", "b1")
+	data := getData(s, "/big", "b1", "01", "Accept-Encoding", "gzip")
 	if data.Header().Get("Content-Encoding") != "gzip" || !strings.Contains(decoded(t, data), `"app/big":{"status":200,"data":"order order`) {
 		t.Errorf("navigation data: %v", data.Header())
 	}
@@ -144,7 +144,7 @@ func TestJSONIsCompressedFromTheThreshold(t *testing.T) {
 	if api.Code != 200 || api.Header().Get("Content-Encoding") != "gzip" {
 		t.Errorf("API answer: %d %v", api.Code, api.Header())
 	}
-	small := get(s, "/projects/p1", "Accept-Encoding", "gzip", "X-Tifa-Route", "app/layout", "X-Tifa-Build", "b1")
+	small := getData(s, "/projects/p1", "b1", "100", "Accept-Encoding", "gzip")
 	if small.Header().Get("Content-Encoding") != "" || small.Header().Get("Content-Length") != strconv.Itoa(small.Body.Len()) || !varies(small, "Accept-Encoding") {
 		t.Errorf("small answer: %v", small.Header())
 	}

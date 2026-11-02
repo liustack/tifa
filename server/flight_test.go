@@ -181,7 +181,7 @@ func TestBurstKeepsTheHeadersOfEachRequest(t *testing.T) {
 		if cookies := h.Values("Set-Cookie"); len(cookies) != 1 || cookies[0] != "visitor="+visitor(i) || h.Get("X-Visitor") != visitor(i) {
 			t.Errorf("request %d: %v", i, h)
 		}
-		if !varies(w, "Cookie") || !varies(w, "X-Tifa-Route") || !varies(w, "Accept-Encoding") {
+		if !varies(w, "Cookie") || !varies(w, "Accept-Encoding") {
 			t.Errorf("request %d: Vary %v", i, h.Values("Vary"))
 		}
 	}

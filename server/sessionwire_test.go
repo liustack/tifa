@@ -194,8 +194,7 @@ func TestPageWithoutSSRCarriesTheSession(t *testing.T) {
 
 func TestNavigationAnswerIsAnEnvelope(t *testing.T) {
 	s, _ := wireServer(t, wireApp())
-	data := []string{"X-Tifa-Route", "app/layout", "X-Tifa-Build", "b1"}
-	w := get(s, "/projects/p1", data...)
+	w := getData(s, "/projects/p1", "b1", "100")
 	m := decodeBody(t, w)
 	if len(m) != 2 || string(m["session"]) != `{"signedIn":false}` || !strings.Contains(string(m["routes"]), `"app/layout":{"status":200`) {
 		t.Errorf("signed out: %s", w.Body.String())
@@ -203,13 +202,13 @@ func TestNavigationAnswerIsAnEnvelope(t *testing.T) {
 	if cc := w.Header().Get("Cache-Control"); cc != "private, no-cache" {
 		t.Errorf("Cache-Control %q", cc)
 	}
-	w = get(s, "/projects/p1", append(data, "Cookie", signedIn(t, s, "Ann"))...)
+	w = getData(s, "/projects/p1", "b1", "100", "Cookie", signedIn(t, s, "Ann"))
 	if m := decodeBody(t, w); string(m["session"]) != `{"signedIn":true,"data":{"name":"Ann"}}` {
 		t.Errorf("signed in: %s", w.Body.String())
 	}
 	// An app without sessions has no session field.
 	plain, _ := newFrontServer(t, frontApp())
-	if m := decodeBody(t, get(plain, "/projects/p1", data...)); len(m) != 1 || m["routes"] == nil {
+	if m := decodeBody(t, getData(plain, "/projects/p1", "b1", "100")); len(m) != 1 || m["routes"] == nil {
 		t.Errorf("no sessions: %v", m)
 	}
 }
@@ -220,11 +219,11 @@ func TestNavigationFailureAndRedirectCarryTheSessionToo(t *testing.T) {
 		Load: func(c *tifa.Ctx) (any, error) { return nil, c.Redirect("/elsewhere", 303) }})
 	s, _ := wireServer(t, app)
 	cookie := signedIn(t, s, "Ann")
-	w := get(s, "/bounce", "X-Tifa-Route", "app/bounce", "X-Tifa-Build", "b1", "Cookie", cookie)
+	w := getData(s, "/bounce", "b1", "01", "Cookie", cookie)
 	if m := decodeBody(t, w); !strings.Contains(string(m["routes"]), `"location":"/elsewhere"`) || !strings.Contains(string(m["session"]), `"signedIn":true`) {
 		t.Errorf("redirect Load: %s", w.Body.String())
 	}
-	w = get(s, "/projects/p9/missing", "X-Tifa-Route", "app/projects", "X-Tifa-Build", "b1")
+	w = getData(s, "/projects/p9/missing", "b1", "01")
 	if m := decodeBody(t, w); w.Code != 404 || m["session"] == nil || m["routes"] == nil {
 		t.Errorf("unmatched URL: %d %s", w.Code, w.Body.String())
 	}
@@ -499,7 +498,7 @@ func TestSharableAnswerWithSessionIsAnError(t *testing.T) {
 			t.Errorf("%s: OnError ran %d times", page, reported.Load())
 		}
 	}
-	check("navigation", get(s, "/projects/p1?share=private", "X-Tifa-Route", "app/layout", "X-Tifa-Build", "b1"), false)
+	check("navigation", getData(s, "/projects/p1?share=private", "b1", "100"), false)
 	check("call", postJSON(s, "/in", `{"name":"Ann"}`, "X-Tifa-Call", "1", "X-Share", `private="x", no-cache`), false)
 	// Compliant values pass, and an app without sessions is not checked.
 	if w := get(s, "/projects/p1?share=private,+no-cache"); w.Code != 200 || w.Header().Get("Cache-Control") != "private, no-cache" {
@@ -527,9 +526,7 @@ func TestNavigationRedirectWithSessionIsNotShareable(t *testing.T) {
 	}
 	s, _ := wireServer(t, app)
 	for _, method := range []string{"GET", "HEAD"} {
-		r := httptest.NewRequest(method, "/projects/p1?go=1", nil)
-		r.Header.Set("X-Tifa-Route", "app/layout")
-		r.Header.Set("X-Tifa-Build", "b1")
+		r := httptest.NewRequest(method, dataURL("/projects/p1?go=1", "b1", "100"), nil)
 		w := httptest.NewRecorder()
 		s.ServeHTTP(w, r)
 		if w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("ETag") != "" || w.Header().Get("Last-Modified") != "" {

@@ -213,14 +213,14 @@ func TestShopApp(t *testing.T) {
 		t.Errorf("change the recipient of a shipped order: %d", status)
 	}
 	// The navigation data of the list now carries the new totals, in one response for all routes.
-	status, _, body = get(t, base+"/projects/studio", "X-Tifa-Route", "app/layout,app/projects/project+/layout,app/projects/project+/route", "X-Tifa-Build", built.BuildID)
+	status, _, body = get(t, dataURL(base+"/projects/studio", built.BuildID, "111"))
 	for _, want := range []string{`"app/projects/project+/layout":{"status":200,"data":{"id":"studio","name":"山海工作室"`, `"pending":1`, `"shipped":41`, `"app/layout":{"status":200`} {
 		if status != 200 || !strings.Contains(body, want) {
 			t.Errorf("list data after shipping: %d lacks %s\n%s", status, want, body)
 		}
 	}
 	// A page of another build is told which build the server runs, so its browser reloads once for it.
-	if status, header, _ := get(t, base+"/projects/studio", "X-Tifa-Route", "app/projects/project+/layout", "X-Tifa-Build", "old"); status != 409 || header.Get("X-Tifa-Build") != built.BuildID {
+	if status, header, _ := get(t, dataURL(base+"/projects/studio", "old", "010")); status != 409 || header.Get("X-Tifa-Build") != built.BuildID {
 		t.Errorf("data request of another build: %d, build %q", status, header.Get("X-Tifa-Build"))
 	}
 	// So is a handler function of that page, before the handler runs: the order stays as it was.
@@ -401,14 +401,15 @@ func checkStorefront(t *testing.T, base, buildID string) {
 	// A link from /store/en-US to /store/zh-CN loads the language Layout again, its Go function
 	// reads the language: the browser's request gets the zh-CN locale, from which the head sets
 	// lang="zh-CN" on <html> (the runtime's head tests check that it does).
-	status, _, data := get(t, base+"/store/zh-CN", "X-Tifa-Route", "app/store/lang+/layout,app/store/lang+/route", "X-Tifa-Build", buildID)
+	status, _, data := get(t, dataURL(base+"/store/zh-CN", buildID, "11"))
 	if want := `"app/store/lang+/layout":{"status":200,"data":{"locale":{"code":"zh-CN"`; status != 200 || !strings.Contains(data, want) {
 		t.Errorf("navigation data of /store/zh-CN: %d, want %s:\n%.300s", status, want, data)
 	}
-	// The root Layout does not wrap the store, so the store has no data of it, neither for a page
-	// nor for a URL of the store that no page has.
-	for _, path := range []string{"/store/zh-CN", "/store/zh-CN/nope"} {
-		if status, _, data := get(t, base+path, "X-Tifa-Route", "app/layout", "X-Tifa-Build", buildID); status != 400 {
+	// The root Layout does not wrap the store, so the store has no data of it: the chain of a page
+	// of the store has two Loads and that of a URL of the store that no page has one, and a request
+	// that counts the root Layout in has one digit too many.
+	for path, layers := range map[string]string{"/store/zh-CN": "111", "/store/zh-CN/nope": "11"} {
+		if status, _, data := get(t, dataURL(base+path, buildID, layers)); status != 400 {
 			t.Errorf("navigation data of the root Layout at %s: %d, want 400:\n%.300s", path, status, data)
 		}
 	}
@@ -831,7 +832,7 @@ func checkCompressed(t *testing.T, base, dir, buildID, head string) {
 		order.Header.Get("Content-Length") != strconv.Itoa(len(body)) || !strings.Contains(gunzip(body), "SH-1042") {
 		t.Errorf("cached order with gzip: %v, %d bytes", order.Header, len(body))
 	}
-	data, body := fetch("/projects/studio", "gzip", "X-Tifa-Route", "app/layout,app/projects/project+/layout,app/projects/project+/route", "X-Tifa-Build", buildID)
+	data, body := fetch(dataURL("/projects/studio", buildID, "111"), "gzip")
 	if data.Header.Get("Content-Encoding") != "gzip" || !strings.Contains(gunzip(body), `"app/layout":{"status":200`) {
 		t.Errorf("navigation data: %v", data.Header)
 	}

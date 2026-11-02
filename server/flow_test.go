@@ -34,7 +34,9 @@ func secretApp(onRequest func(c *tifa.Ctx, next func(*tifa.Ctx) error) error, on
 	}
 }
 
-var secretData = []string{"X-Tifa-Route", "app/layout,app/secret", "X-Tifa-Build", "b1"}
+func getSecret(s *Server, target string, header ...string) *httptest.ResponseRecorder {
+	return getData(s, target, "b1", "11", header...)
+}
 
 // A middleware that refuses any request whose Load failed refuses the data request as it
 // refuses the page.
@@ -50,7 +52,7 @@ func TestDataRequestFailsNextLikeThePage(t *testing.T) {
 		return nil
 	}, &reported))
 	page := get(s, "/secret?deny=1")
-	data := get(s, "/secret?deny=1", secretData...)
+	data := getSecret(s, "/secret?deny=1")
 	for name, w := range map[string]int{"page": page.Code, "data": data.Code} {
 		if w != 403 {
 			t.Errorf("%s: %d", name, w)
@@ -84,7 +86,7 @@ func TestDataRequestAnswersByRouteWhenNextFailsUnhandled(t *testing.T) {
 		return onError(c, err)
 	}
 	s, _ := newFrontServer(t, app)
-	w := get(s, "/secret?deny=1", secretData...)
+	w := getSecret(s, "/secret?deny=1")
 	got := routesOf(t, w)
 	if w.Code != 200 || got["app/layout"].Status != 500 || got["app/layout"].Error != "reported" || got["app/secret"].Status != 200 {
 		t.Errorf("%d %s", w.Code, w.Body.String())
@@ -108,7 +110,7 @@ func TestDataRequestRedirectIsJSON(t *testing.T) {
 		}
 		return next(c)
 	}, &reported))
-	w := get(s, "/secret", secretData...)
+	w := getSecret(s, "/secret")
 	if w.Code != 200 || w.Header().Get("Location") != "" || strings.TrimSpace(w.Body.String()) != `{"redirect":"/login","status":302}` {
 		t.Errorf("data request: %d %v %s", w.Code, w.Header(), w.Body.String())
 	}
@@ -116,7 +118,7 @@ func TestDataRequestRedirectIsJSON(t *testing.T) {
 		t.Errorf("page: %d %v", w.Code, w.Header())
 	}
 	// ServeMux redirects a non-canonical path the same way.
-	if w := get(s, "/./secret", append([]string{"Cookie", "session=1"}, secretData...)...); w.Code != 200 || !strings.Contains(w.Body.String(), `"redirect":"/secret"`) {
+	if w := getSecret(s, "/./secret", "Cookie", "session=1"); w.Code != 200 || !strings.Contains(w.Body.String(), `"redirect":"/secret"`) {
 		t.Errorf("non-canonical path: %d %v %s", w.Code, w.Header(), w.Body.String())
 	}
 }
@@ -151,7 +153,7 @@ func TestDataRequestResolvesARelativeRedirect(t *testing.T) {
 		}
 		return next(c)
 	}, &reported))
-	w := get(s, "/secret?away=1", secretData...)
+	w := getSecret(s, "/secret?away=1")
 	if w.Code != 200 || strings.TrimSpace(w.Body.String()) != `{"redirect":"/login?next=1","status":302}` {
 		t.Errorf("OnRequest: %d %s", w.Code, w.Body.String())
 	}
@@ -165,7 +167,7 @@ func TestDataRequestResolvesARelativeRedirect(t *testing.T) {
 			Load: func(c *tifa.Ctx) (any, error) { return nil, c.Redirect("../other/orders", 303) }}},
 	}
 	s, _ = newFrontServer(t, app)
-	w = get(s, "/projects/p1/orders", "X-Tifa-Route", "app/projects/orders", "X-Tifa-Build", "b1")
+	w = getData(s, "/projects/p1/orders", "b1", "1")
 	got := routesOf(t, w)
 	if r := got["app/projects/orders"]; r.Status != 303 || r.Location != "/projects/other/orders" {
 		t.Errorf("Load: %d %s", w.Code, w.Body.String())

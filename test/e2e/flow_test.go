@@ -282,18 +282,18 @@ func TestErrorFlowInTheVM(t *testing.T) {
 		}
 	})
 
-	dataHeaders := []string{"X-Tifa-Route", "app/layout,app/secret/layout,app/secret/route", "X-Tifa-Build", b.BuildID}
+	secretData := func(path string) string { return dataURL(base+path, b.BuildID, "111") }
 	t.Run("a middleware refuses the data request as it refuses the page", func(t *testing.T) {
 		code, _, body := get(t, base+"/secret?deny=1&strict=1")
 		if code != 403 || strings.Contains(body, "PRIVATE_SECRET") {
 			t.Errorf("page: %d %s", code, body)
 		}
-		code, _, body = get(t, base+"/secret?deny=1&strict=1", dataHeaders...)
+		code, _, body = get(t, secretData("/secret?deny=1&strict=1"))
 		if code != 403 || strings.Contains(body, "PRIVATE_SECRET") || !strings.Contains(body, "refused by the middleware") {
 			t.Errorf("data: %d %s", code, body)
 		}
 		// Passed through unchanged, the data request is answered by route.
-		code, _, body = get(t, base+"/secret?deny=1", dataHeaders...)
+		code, _, body = get(t, secretData("/secret?deny=1"))
 		var answer struct {
 			Routes map[string]struct{ Status int }
 		}
@@ -304,7 +304,7 @@ func TestErrorFlowInTheVM(t *testing.T) {
 	})
 
 	t.Run("a middleware redirect reaches a data request as JSON", func(t *testing.T) {
-		code, header, body := get(t, base+"/members", "X-Tifa-Route", "app/layout", "X-Tifa-Build", b.BuildID)
+		code, header, body := get(t, dataURL(base+"/members", b.BuildID, "1"))
 		if code != 200 || header.Get("Location") != "" || strings.TrimSpace(body) != `{"redirect":"/","status":302}` {
 			t.Errorf("%d %v %s", code, header, body)
 		}

@@ -111,12 +111,10 @@ func extremeApp(t testing.TB) (source string, page func(url, route, want string)
 	}
 	base := startProgram(t, filepath.Join(extremeDir, "bin", "extremetest"))
 	return string(data), func(url, route, want string) extremePage {
-		req, err := http.NewRequest("GET", base+url, nil)
+		req, err := http.NewRequest("GET", base+dataURL(url, built.BuildID, route), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		req.Header.Set("X-Tifa-Route", route)
-		req.Header.Set("X-Tifa-Build", built.BuildID)
 		begin := time.Now()
 		res, err := http.DefaultClient.Do(req)
 		if err != nil {
