@@ -76,7 +76,7 @@ A folder has at most three convention files:
 
 | File | What it holds |
 | --- | --- |
-| `route.go` | Every Go name of the folder: `Layout`, `LayoutSSR`, `Load`, `SSR`, `Cache` and the method handlers |
+| `route.go` | Every Go name of the folder: `Layout`, `LayoutSSR`, `Load`, `SSR`, `RenderCache` and the method handlers |
 | `page.tsx` | The page component. A folder with `page.tsx` is a page |
 | `layout.tsx` | The Layout component |
 | `layout_.tsx` | The Layout component in place of `layout.tsx`, shown without the Layouts above it (see [A Layout without the Layouts above](#a-layout-without-the-layouts-above)) |
@@ -258,7 +258,7 @@ func Layout(c *tifa.Ctx) (projects.Project, error) {
 const LayoutSSR = false // optional, default true
 ```
 
-- `Layout` and `LayoutSSR` go in `route.go`, next to `Load`, `SSR`, `Cache` and the method handlers of the same folder. Declaring one of them in any other file of the package, a `layout.go` for example, fails the build. A `route.go` with only a `Layout` is no API route.
+- `Layout` and `LayoutSSR` go in `route.go`, next to `Load`, `SSR`, `RenderCache` and the method handlers of the same folder. Declaring one of them in any other file of the package, a `layout.go` for example, fails the build. A `route.go` with only a `Layout` is no API route.
 - A Layout's `c.Param` may only read parameters of its own folder path. `Layout` in `app/projects/project+/route.go` may read `project`, not `order`. A page's `Load` is held to its own path the same way.
 - When you switch between pages under the same Layout, the Layout component is not remounted and keeps its state. When a parameter the Layout function reads changes (for example, you move to another project), the Layout remounts and its state resets. When a parameter it does not read changes, the state is kept. Pages work the same way.
 - Pages and Layouts can call `tifa.Use(c, project.Layout)` to get the result of a Layout that wraps them, for the current request: the Layout of the same folder or of an ancestor folder, unless a `layout_.tsx` between drops it. The same `Layout` runs only once per request. Any other Layout fails the build, and so does an argument that is not a package-level `Layout` function, such as a closure. A `Layout` function cannot use its own Layout, directly or through a helper.
@@ -450,19 +450,21 @@ func GET(c *tifa.Ctx) error {
 ## SSR and cache
 
 ```go
-const SSR = false       // the page, default true
-const Cache = true      // the page, default false
-const LayoutSSR = false // the Layout of the folder, default true
+const SSR = false         // the page, default true
+const RenderCache = false // the page, turns the render cache off, default on
+const LayoutSSR = false   // the Layout of the folder, default true
 ```
 
-`SSR` and `Cache` apply to the page of `page.tsx`. In a `route.go` without one they fail the build.
+`SSR` and `RenderCache` apply to the page of `page.tsx`. In a `route.go` without one they fail the build. `RenderCache` can only be `false`: the render cache is on by default, so you never write `true`. Write the names with the capitals shown. A constant named `ssr`, `cache`, `rendercache` or `layoutssr` fails the build, since it would be skipped. `Cache`, the old switch of this cache, fails the build too: delete `Cache = true`.
 
 - `SSR = false`: middleware and every `Load` run as usual, but QuickJS is skipped. The response is a minimal document with the data, and the browser renders it. `LayoutSSR = false` applies to every page the Layout wraps.
-- `Cache = true`: the rendered result is cached by build version, URL and data, in a cache of `cache.size` (see [config.md](config.md)). When the data has not changed, the HTML is returned directly. Components must not read values that change on every call, such as `Date.now()` or `Math.random()`, while rendering. Hydration requires this too.
-- When requests for a `Cache = true` page miss the cache at the same time with the same build version, URL and data, such as a burst of visitors right after a deploy, they share one render. Each request still runs its middleware and `Load`s, keeps the headers they set, such as `Set-Cookie` and `Vary`, and gets the encoding it accepts. This also holds with `cache.size` 0 and for a page too large for the cache, and under `tifa dev`. Requests with other data render on their own, and pages without `Cache` render for every request, since their HTML may differ by user.
+- The render cache is on for every page. Each request runs its middleware, its `Load`s and its Layouts. The rendered HTML is then kept by build version, SSR bundle, URL, the data of every `Load` and Layout, and the session the browser gets, in a cache of `cache.size` (see [config.md](config.md)). When none of these changed, the HTML is returned without a render. The answer says which: `X-Tifa-Render` is `vm` for a render of this request, `cache` for a hit and `shared` for a render another request started (see [Page requests](build.md#page-requests)). `cache.size` 0 turns the cache off, and shared renders stay.
+- Components must not put a value into the HTML that changes on every render, such as `Date.now()` or `Math.random()`. Hydration needs this too, and the cache would freeze such a value for later visitors. Under `tifa dev` every page is rendered twice, and when the two differ the terminal and the dev overlay say so and show the first place where they part. The page is then not cached until it is fixed. If a page has to show such a value on purpose, such as the time of the server, write `const RenderCache = false` in its `route.go`. That page renders for every request. The check does not run in a built app.
+- A request that carries a render clock (`tifa.WithRenderClock`) skips the cache: it neither reads nor stores a page, because its HTML depends on a time the key does not hold.
+- When requests miss the cache at the same time with the same build version, URL and data, such as a burst of visitors right after a deploy, they share one render. Each request still runs its middleware and `Load`s, keeps the headers they set, such as `Set-Cookie` and `Vary`, and gets the encoding it accepts. This also holds with `cache.size` 0, for a page too large for the cache, and under `tifa dev`. Requests with other data or another session render on their own, and a page with `RenderCache = false` renders for every request.
 - When that shared render fails, every request that waited for it gets the same error and goes to `OnError`, a panic included. Nothing is cached, so the next request renders again. A request whose client goes away stops waiting at once and its connection is cut, with no answer sent: `next(c)` in `OnRequest` returns an error that matches `context.Canceled`, but `OnError` is not called and nothing is logged. The render goes on for the others. A request whose own deadline passes while it waits fails like any other error. Once no request waits, a render still waiting for a VM is dropped, and one that already runs finishes and goes into the cache. If it fails then, no request reports it to `OnError`, so the error is logged.
-- Every page response carries an ETag. A second request with `If-None-Match` gets 304 when the data has not changed. This has nothing to do with `Cache`.
-- Every answer of the app (pages, 304s, 404 pages, navigation data, method handlers, redirects) is sent with `Cache-Control: private, no-cache` unless you set `Cache-Control` yourself. A CDN or proxy does not store it, since the page may be meant for one visitor. The browser may keep it and asks again with the ETag, so an unchanged page ends in a 304. To change it, set the header in `OnRequest`, a `Load`, a `Layout` or a method handler with `c.SetHeader("Cache-Control", "...")`. Your value is sent as it is. JSON errors (including 405 and the 503 while the server shuts down), the plain error page from Go, the page with an error that the server renders again, and the busy answer are `no-store`, unless you set `Cache-Control` before the error. A 404 page that the app renders keeps the default. Files under `/assets/` keep their long cache, and files from `public/` keep `no-cache` (see [Page requests](build.md#page-requests)). `Cache = true` only caches the render inside the process and does not change the header.
+- Every page response carries an ETag, a hash of the same things as the cache key. A second request with `If-None-Match` gets 304 when none of them changed, without a render and before the cache is asked. The ETag and the cache are separate: the ETag saves the transfer to a browser that has the page, the cache saves the render for everyone else. A page with `RenderCache = false` and a request with a render clock get no ETag, since their HTML is not a function of those things, and always render.
+- Every answer of the app (pages, 304s, 404 pages, navigation data, method handlers, redirects) is sent with `Cache-Control: private, no-cache` unless you set `Cache-Control` yourself. A CDN or proxy does not store it, since the page may be meant for one visitor. The browser may keep it and asks again with the ETag, so an unchanged page ends in a 304. To change it, set the header in `OnRequest`, a `Load`, a `Layout` or a method handler with `c.SetHeader("Cache-Control", "...")`. Your value is sent as it is. JSON errors (including 405 and the 503 while the server shuts down), the plain error page from Go, the page with an error that the server renders again, and the busy answer are `no-store`, unless you set `Cache-Control` before the error. A 404 page that the app renders keeps the default. Files under `/assets/` keep their long cache, and files from `public/` keep `no-cache` (see [Page requests](build.md#page-requests)). The render cache only keeps the render inside the process and does not change the header.
 
 ## Pages open while you deploy
 
@@ -971,7 +973,7 @@ Without `WithRenderClock` the clock stays live. A fixed clock does not make a re
 
 Module top-level code runs during VM prewarming, before a request, on the live clock. Time values captured there are not recomputed. A Date.now function, Temporal.Now method or Intl formatter saved at module load reads the current render's clock when called during that render.
 
-The clock is not a cache key. A cache hit skips rendering, and requests with the same key may share a render. Return displayed times from `Load` so SSR, caching and browser hydration use the same data. `tifatest.NewCtx` preserves the request context but does not run SSR itself. Call `OnRequest` with a closure for `next` to test middleware passing this context, and use server requests to check full HTML.
+The clock is not a cache key, so a request with a clock skips the render cache and shared renders and gets no ETag: it always renders with its own clock. Return displayed times from `Load` so SSR, caching and browser hydration use the same data. `tifatest.NewCtx` preserves the request context but does not run SSR itself. Call `OnRequest` with a closure for `next` to test middleware passing this context, and use server requests to check full HTML.
 
 ## How Load may use Ctx
 
