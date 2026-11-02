@@ -237,7 +237,8 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error // the only middle
 func OnError(c *tifa.Ctx, err error) tifa.Error // report unexpected errors, pick what users see
 ```
 
-- `OnRequest` runs for pages, navigation data requests, API routes and unmatched URLs. Not for static files. A cross-site write is refused before it.
+- `OnRequest` runs for pages, navigation data requests, API routes and unmatched URLs. Not for static files. A cross-site write is refused before it. On a page with `Cache` it sees an anonymous request: no cookie, `Authorization` or session, and only a short list of headers. Redirect by login state in `OnRequest` on routes without `Cache`.
+- `tifa.SetHTTPHandler(wrap)` in `OnStart` wraps the whole program in `net/http` middleware (metrics, tracing, `/debug/pprof/`). It runs outside `OnRequest`, `OnError`, the cross-site check and the anonymous request of a `Cache` page, so do not recognize visitors there. It panics once the server listens.
 - `OnError` gets errors that are not `ErrNotFound`, `tifa.Error`, `tifa.Fields` or a redirect, and panics. Writing one replaces the default (log and 500). Return a message that is safe for users.
 - Auth example, with the session below (see [Sessions](#sessions)):
 
@@ -297,7 +298,7 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 - In the browser, `useSession()` from `tifa/client` returns `{ signedIn, data, ready }`, where `data` is what `Browser()` returned (type `SessionData` from `.tifa/session.gen`). `<Session.In>` and `<Session.Out>` show their children only for a signed-in or signed-out visitor, and any element with `data-session="in"` or `data-session="out"` does the same. The server writes `<html data-session="in">`, so the first paint is right before any script runs. The copy only decides what to show, so check access in Go.
 - A call to a handler that signs in or out brings the new session, and the page and its Layouts load again. A redirect from the handler goes through the router.
 - Writing `Cache-Control` on an answer that carries the session: only `no-store`, or `private, no-cache`. Anything else fails the request.
-- Known limits: the render cache keys a page by its data and the visitor's session, so it never serves one visitor's page to another. A later whole-page cache is planned to render a page once for everyone without the session, so keep what a page and the Layouts above it load the same for every visitor where you can, and take the user from `useSession`. Another tab shows the old state until its next answer. A fetch of your own that changes the session needs `router.invalidate()`.
+- On a page with `Cache`, `tifa.Session` is nil whoever asks, `SetSession` and `ClearSession` fail (sign-in and OAuth callbacks belong on routes without `Cache`), and the HTML carries no session. The browser gets it after the page has loaded: `useSession` and the `data-session` elements follow the copy in `localStorage`, and the navigation data of the page carries the session of that browser. Known limits: the render cache keys a page by its data and the visitor's session, so it never serves one visitor's page to another. Another tab shows the old state until its next answer. A fetch of your own that changes the session needs `router.invalidate()`.
 - The shop in `examples/shop` is a worked example (a demo account, `OnRequest` sending visitors to `/login?next=...`, the header with `Session.In` and `Session.Out`).
 
 Full docs: [Sessions](https://github.com/liustack/tifa/blob/main/docs/app.md#sessions).
