@@ -1,0 +1,36 @@
+import { LogIn, LogOut } from 'lucide-react'
+import { Session, useSession } from 'tifa/client'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Button } from '@/components/ui/button'
+import { POST as signOut } from './logout/route.gen'
+
+// Account is who is signed in, on the right of the top bar, or the link to sign in. The server
+// writes which of the two shows on <html>, so the first paint is right before any script runs.
+export function Account() {
+  const { data } = useSession()
+  return (
+    <>
+      <Session.Out>
+        <Button variant="outline" size="sm" asChild>
+          <a href="/login">
+            <LogIn />
+            登录
+          </a>
+        </Button>
+      </Session.Out>
+      <Session.In className="flex items-center gap-2">
+        <Avatar className="size-7 rounded-none">
+          <AvatarFallback className="rounded-none bg-primary text-xs text-primary-foreground">{data?.initials}</AvatarFallback>
+        </Avatar>
+        <span className="hidden text-sm font-medium sm:inline" data-testid="account-name">
+          {data?.name}
+        </span>
+        <Button variant="ghost" size="sm" onClick={() => void signOut()}>
+          <LogOut />
+          <span className="hidden sm:inline">退出登录</span>
+          <span className="sr-only sm:hidden">退出登录</span>
+        </Button>
+      </Session.In>
+    </>
+  )
+}
