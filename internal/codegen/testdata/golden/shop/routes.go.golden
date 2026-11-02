@@ -66,6 +66,7 @@ var routes = []server.Route{
 		Page:    true,
 		SSR:     true,
 		Cache:   600000000000, // 10m0s
+		Query:   []string{"lang"},
 		Layouts: []string{"app/layout", "app/auth/layout"},
 	},
 	{

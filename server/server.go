@@ -43,6 +43,10 @@ type Server struct {
 	pages  map[string]bool                             // paths whose GET renders a page
 	// pageCache holds the whole-page cache time of the pages that have one, by path.
 	pageCache map[string]time.Duration
+	// pageQuery holds the query parameters the Loads of a page read, by path: the whole-page
+	// cache keeps them even when cache.ignore_query names them.
+	pageQuery map[string][]string
+	ignore    queryFilter
 	// modules holds, by the path of a page, the IDs of its Layouts and route, outermost first,
 	// and by the ID of a Layout, the IDs of the Layouts from the root down to it.
 	modules map[string][]string
@@ -71,7 +75,7 @@ type Server struct {
 func New(cfg config.Config, hooks Hooks) *Server {
 	s := &Server{
 		cfg: cfg.Server, hooks: hooks, mux: http.NewServeMux(),
-		routes: map[string]map[string]func(*tifa.Ctx) error{}, pages: map[string]bool{}, pageCache: map[string]time.Duration{},
+		routes: map[string]map[string]func(*tifa.Ctx) error{}, pages: map[string]bool{}, pageCache: map[string]time.Duration{}, pageQuery: map[string][]string{}, ignore: newQueryFilter(cfg.Cache.IgnoreQuery),
 		modules: map[string][]string{}, layouts: map[string]layoutChain{}, cache: newHTMLCache(cfg.Cache.Size),
 	}
 	s.crossSite = crossSiteProtection(cfg.Server)

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -299,7 +300,7 @@ func TestFileMustHoldOneDocument(t *testing.T) {
 }
 
 func TestKeysListEverySetting(t *testing.T) {
-	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache server.addr server.body_limit server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout cache.size session.cookie session.max_age session.memory_limit"
+	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache server.addr server.body_limit server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout cache.size cache.ignore_query session.cookie session.max_age session.memory_limit"
 	if got := strings.Join(Keys(), " "); got != want {
 		t.Fatalf("Keys: %s, want %s", got, want)
 	}
@@ -727,5 +728,58 @@ func TestSessionSettingErrors(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// cache.ignore_query starts as the list of tracking parameters, and each setting adds names to it
+// or takes them out, so a layer needs to say only what it changes.
+func TestCacheIgnoreQueryAddsAndRemoves(t *testing.T) {
+	defaults := Default().Cache.IgnoreQuery
+	for _, name := range []string{"utm_*", "gclid", "fbclid", "msclkid", "twclid", "ttclid", "yclid", "gbraid", "wbraid", "mc_cid", "mc_eid"} {
+		if !slices.Contains(defaults, name) {
+			t.Errorf("the default list lacks %s: %v", name, defaults)
+		}
+	}
+	cases := map[string]struct {
+		args, environ []string
+		want          []string // names that must be in the list
+		gone          []string // names that must not
+	}{
+		"add":        {args: []string{"--cache-ignore-query", "ref, _hsenc"}, want: []string{"ref", "_hsenc", "gclid"}},
+		"remove":     {args: []string{"--cache-ignore-query", "-gclid,-utm_*"}, want: []string{"fbclid"}, gone: []string{"gclid", "utm_*"}},
+		"env":        {environ: []string{"TIFA_CACHE_IGNORE_QUERY=ref,-yclid"}, want: []string{"ref"}, gone: []string{"yclid"}},
+		"remove all": {args: []string{"--cache-ignore-query", "-*,ref"}, want: []string{"ref"}, gone: []string{"gclid", "utm_*"}},
+		"file":       {args: []string{"--config", writeFile(t, "prod.yaml", "cache:\n  ignore_query: ref\n")}, want: []string{"ref", "gclid"}},
+		"twice":      {args: []string{"--config", writeFile(t, "prod.yaml", "cache:\n  ignore_query: ref\n"), "--cache-ignore-query", "-ref"}, gone: []string{"ref"}, want: []string{"gclid"}},
+	}
+	for name, tc := range cases {
+		c, err := load(t, tc.args, tc.environ, "", "")
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		for _, w := range tc.want {
+			if !slices.Contains(c.Cache.IgnoreQuery, w) {
+				t.Errorf("%s: %v lacks %s", name, c.Cache.IgnoreQuery, w)
+			}
+		}
+		for _, g := range tc.gone {
+			if slices.Contains(c.Cache.IgnoreQuery, g) {
+				t.Errorf("%s: %v still has %s", name, c.Cache.IgnoreQuery, g)
+			}
+		}
+	}
+	// Loading does not change the defaults for the next load.
+	if !slices.Equal(Default().Cache.IgnoreQuery, defaults) {
+		t.Error("a load changed the default list")
+	}
+}
+
+func TestCacheIgnoreQueryRefusesBadNames(t *testing.T) {
+	for _, bad := range []string{"a=b", "a&b", "*x", "a*b", "a b", "?a", "a,,b"} {
+		_, err := load(t, []string{"--cache-ignore-query", bad}, nil, "", "")
+		if err == nil || !strings.Contains(err.Error(), "cache.ignore_query") {
+			t.Errorf("%q: got %v", bad, err)
+		}
 	}
 }

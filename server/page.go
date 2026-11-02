@@ -681,7 +681,7 @@ func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status in
 	s.rendering.RLock()
 	defer s.rendering.RUnlock()
 	f := s.front.Load()
-	in := ssr.Input{BuildID: f.build.ID, URL: r.URL.RequestURI(), Data: data, Texts: texts, Preload: f.preloadOf(key, items),
+	in := ssr.Input{BuildID: f.build.ID, URL: s.renderURI(c), Data: data, Texts: texts, Preload: f.preloadOf(key, items),
 		Session: sess.json, SessionKey: sess.key, SessionHead: sess.head}
 	failed := &renderError{f: f, in: in, key: key}
 	// A render clock makes the HTML depend on a time that is no part of the key, so such a request
@@ -865,7 +865,7 @@ func (s *Server) dataOnly(c *tifa.Ctx, items map[string]routeResult, status int,
 			return err
 		}
 	}
-	bootData := map[string]any{"url": c.Request().URL.RequestURI(), "buildId": f.build.ID, "data": injected}
+	bootData := map[string]any{"url": s.renderURI(c), "buildId": f.build.ID, "data": injected}
 	if sess.json != nil {
 		bootData["session"], bootData["sessionKey"] = sess.json, sess.key
 	}
@@ -1083,4 +1083,14 @@ func writeFallback(w http.ResponseWriter, e tifa.Error) {
 	w.Header().Set("Content-Length", strconv.Itoa(len(page)))
 	w.WriteHeader(e.Status)
 	_, _ = io.WriteString(w, page)
+}
+
+// renderURI is the URL a page is rendered for. A page with the whole-page cache gets the cleaned
+// one (pageURI), the URL its cache entry stands for. The others get the URL as it came.
+func (s *Server) renderURI(c *tifa.Ctx) string {
+	r := c.Request()
+	if anonymityOf(r) != nil {
+		return s.pageURI(r, c.Pattern())
+	}
+	return r.URL.RequestURI()
 }

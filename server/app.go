@@ -65,6 +65,10 @@ type Route struct {
 	NoRenderCache bool
 	// Cache is the whole-page cache time of the page, route.go's const Cache, zero for none.
 	Cache time.Duration
+	// Query lists the query parameters the Loads of the page and of the Layouts around it read,
+	// sorted. The whole-page cache keeps them in its key and in the URL it renders for, even
+	// those cache.ignore_query names.
+	Query []string
 	// Layouts lists the IDs of the enclosing Layouts, outermost first.
 	Layouts []string
 }
@@ -110,6 +114,7 @@ func (s *Server) register(layouts []Layout, routes []Route) {
 		s.path(r.Path)
 		if r.Page && r.Cache > 0 {
 			s.pageCache[r.Path] = r.Cache
+			s.pageQuery[r.Path] = r.Query
 		}
 		if r.Page {
 			if r.GET != nil {

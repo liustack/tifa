@@ -702,3 +702,20 @@ func TestMainRegistersTheSessionType(t *testing.T) {
 		t.Errorf("unexported session type: %v", err)
 	}
 }
+
+// The whole-page cache of a route keeps the query parameters that the Load of the route and the
+// Layouts around it read.
+func TestCacheQueryCollectsTheLoadsAroundTheRoute(t *testing.T) {
+	m := &analyze.Manifest{Layouts: []analyze.Layout{
+		{ID: "app/layout", Load: &analyze.Load{AllQuery: []string{"lang", "utm_source"}}},
+		{ID: "app/blog/layout"},
+		{ID: "app/other/layout", Load: &analyze.Load{AllQuery: []string{"nope"}}},
+	}}
+	r := analyze.Route{Layouts: []string{"app/layout", "app/blog/layout"}, Load: &analyze.Load{AllQuery: []string{"page", "lang"}}}
+	if got := cacheQuery(m, r); !slices.Equal(got, []string{"lang", "page", "utm_source"}) {
+		t.Errorf("got %v", got)
+	}
+	if got := cacheQuery(m, analyze.Route{}); got != nil {
+		t.Errorf("a route without Loads: %v", got)
+	}
+}
