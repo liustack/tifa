@@ -161,6 +161,10 @@ func (a *analyzer) scan() error {
 			return nil
 		}
 		id := a.id(filepath.Dir(path))
+		if reservedDir(id) {
+			a.errorInFile(id, name, "the path /__tifa/ is reserved for tifa itself, such as its dev server: rename the directory")
+			return nil
+		}
 		if skipped := skippedDir(id); skipped != "" {
 			a.errorInFile(id, name, "the go command skips %s because its name starts with . or _ or is testdata, so this file is never built: rename the directory", skipped)
 			return nil
@@ -198,6 +202,13 @@ func (a *analyzer) scan() error {
 		}
 	}
 	return nil
+}
+
+// reservedDir reports whether the directory ID id, below app, is the URL /__tifa or below it, which
+// the framework answers itself.
+func reservedDir(id string) bool {
+	parts := strings.Split(id, "/")
+	return len(parts) > 1 && parts[1] == "__tifa"
 }
 
 // skippedDir returns the outermost directory of the directory ID id, below app, that the go
