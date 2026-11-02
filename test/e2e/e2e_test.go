@@ -580,11 +580,17 @@ func TestPagesApp(t *testing.T) {
 	if got := header.Get("Cache-Control"); got != "private, no-cache" {
 		t.Errorf("SSR = false Cache-Control %q", got)
 	}
-	// Cache = true renders once.
+	// A page renders once.
 	_, first, _ := get(t, base+"/shops/south")
 	_, second, _ := get(t, base+"/shops/south")
 	if first.Get("X-Tifa-Render") != "vm" || second.Get("X-Tifa-Render") != "cache" {
-		t.Errorf("Cache = true: %s then %s", first.Get("X-Tifa-Render"), second.Get("X-Tifa-Render"))
+		t.Errorf("render cache: %s then %s", first.Get("X-Tifa-Render"), second.Get("X-Tifa-Render"))
+	}
+	// RenderCache = false renders on every request.
+	_, roll1, rollBody1 := get(t, base+"/dice")
+	_, roll2, rollBody2 := get(t, base+"/dice")
+	if roll1.Get("X-Tifa-Render") != "vm" || roll2.Get("X-Tifa-Render") != "vm" || rollBody1 == rollBody2 {
+		t.Errorf("RenderCache = false: %s then %s, equal pages: %v", roll1.Get("X-Tifa-Render"), roll2.Get("X-Tifa-Render"), rollBody1 == rollBody2)
 	}
 	// Requests that miss the cache at the same time share one render. Those that come after it
 	// find the cache.
@@ -647,7 +653,7 @@ func TestPagesApp(t *testing.T) {
 
 }
 
-// checkBurst sends n requests for the Cache = true page at url at once, with a cold cache. One
+// checkBurst sends n requests for the page at url at once, with a cold cache. One
 // of them renders in the VM, and the others get the same page.
 func checkBurst(t *testing.T, url string, n int) {
 	t.Helper()

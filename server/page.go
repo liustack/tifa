@@ -475,7 +475,7 @@ func sameError(a, b error) bool {
 
 // pageHandler answers GET for a page:
 //   - with X-Tifa-Route, the data of the listed routes as JSON
-//   - with SSR on its chain, the HTML the VM renders, or 304, or the cached HTML for Cache = true
+//   - with SSR on its chain, the HTML the VM renders, or 304, or the cached HTML (unless RenderCache = false)
 //   - with SSR = false somewhere on its chain, a minimal document carrying the data
 //
 // When a Load fails it returns a *loadFailure, for OnRequest to see as the error of Next.
@@ -498,7 +498,7 @@ func (s *Server) pageHandler(r Route, chain []load) func(*tifa.Ctx) error {
 		case !r.SSR:
 			return s.dataOnly(c, items, http.StatusOK, r.Path)
 		}
-		return s.renderPage(c, items, http.StatusOK, r.Cache, r.Path)
+		return s.renderPage(c, items, http.StatusOK, !r.NoRenderCache, r.Path)
 	}
 }
 
@@ -677,11 +677,11 @@ func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status in
 }
 
 // errClientGone is what Next returns for a request whose client went away while it waited for
-// the render of a Cache = true page. Server.fail cuts the connection of such a request, without an
+// the render of a page. Server.fail cuts the connection of such a request, without an
 // answer, without OnError and without a log line.
 var errClientGone = fmt.Errorf("tifa: the client went away: %w", context.Canceled)
 
-// renderCached answers a page of a Cache = true route from the HTML cache, or from the render
+// renderCached answers a page from the HTML cache, or from the render
 // that every request missing the same key at the time waits for (htmlCache.fetch). Each request
 // writes the page with its own headers and in its own encoding, as a cache hit does. With
 // server.compress the render compresses the page into both its forms once, so no request

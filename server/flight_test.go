@@ -108,7 +108,7 @@ func renderedBy(out []*httptest.ResponseRecorder) map[string]int {
 	return by
 }
 
-// Requests for a Cache = true page that miss the cache at the same time wait for one render.
+// Requests for a page that miss the cache at the same time wait for one render.
 func TestBurstOfACachedPageRendersOnce(t *testing.T) {
 	s, g := newHeldServer(t, config.Default(), frontApp())
 	out := burst(t, s, g, 20, "/stats", nil)
@@ -131,7 +131,7 @@ func TestBurstOfACachedPageRendersOnce(t *testing.T) {
 // Requests whose Loads return other data are answered with their own renders.
 func TestBurstWithOtherDataRendersEach(t *testing.T) {
 	app := frontApp()
-	app.Routes = append(app.Routes, Route{ID: "app/report", Path: "/report", Page: true, SSR: true, Cache: true,
+	app.Routes = append(app.Routes, Route{ID: "app/report", Path: "/report", Page: true, SSR: true,
 		Layouts: []string{"app/layout"}, Load: func(c *tifa.Ctx) (any, error) { return c.Header("X-Group"), nil }})
 	s, g := newHeldServer(t, config.Default(), app)
 	g.result = func(_ context.Context, in ssr.Input) (string, error) {
@@ -149,10 +149,10 @@ func TestBurstWithOtherDataRendersEach(t *testing.T) {
 	}
 }
 
-// Requests for a page without Cache each render, since its HTML may differ by user.
+// Requests for a page with RenderCache = false each render, since its HTML may differ by request.
 func TestBurstOfAnUncachedPageRendersEach(t *testing.T) {
 	s, g := newHeldServer(t, config.Default(), frontApp())
-	out := burst(t, s, g, 10, "/projects/p1", nil)
+	out := burst(t, s, g, 10, "/live", nil)
 	if g.renders() != 10 {
 		t.Errorf("%d renders for 10 requests", g.renders())
 	}

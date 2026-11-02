@@ -44,7 +44,6 @@ func OnError(c *tifa.Ctx, err error) tifa.Error {
 	return tifa.Error{Status: 500, Message: "reported"}
 }
 `,
-	"app/throws/route.go": "package throws\n\nconst Cache = true\n",
 	"app/throws/page.tsx": "export default function Throws(): never {\n  throw new Error('PAGE_THROWS')\n}\n",
 	"app/fails/page.tsx": "export default function Fails(): never {\n  throw new globalThis.Error('PAGE_FAILS')\n}\n\n" +
 		"export function Error(): never {\n  throw new globalThis.Error('ERROR_FAILS')\n}\n",

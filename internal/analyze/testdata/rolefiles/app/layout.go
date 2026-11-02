@@ -10,4 +10,4 @@ func POST(c *tifa.Ctx) error { return nil }
 
 const SSR = false
 
-const Cache = true
+const RenderCache = false

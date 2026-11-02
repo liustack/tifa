@@ -9,9 +9,6 @@ import (
 	"github.com/liustack/tifa"
 )
 
-// The page is cached, so the HTML cache and the compressed forms of the page hold the data too.
-const Cache = true
-
 type Notes struct {
 	Script    string   `json:"script"`
 	Separator string   `json:"separator"`

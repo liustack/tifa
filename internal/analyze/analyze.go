@@ -515,7 +515,7 @@ func (a *analyzer) dirPath(d *dirInfo) ([]segment, bool) {
 
 // routeNames are the names that only route.go declares: the Layout of the directory, the Load of
 // its page, the switches, and the method handlers.
-var routeNames = append([]string{"Layout", "LayoutSSR", "Load", "SSR", "Cache"}, methods...)
+var routeNames = append([]string{"Layout", "LayoutSSR", "Load", "SSR", "RenderCache"}, methods...)
 
 // checkPackageNames reports Path, which the directory replaces, and each name of route.go that
 // is declared in another file of the package. The files are read by name, so a Load in
@@ -529,6 +529,7 @@ func (a *analyzer) checkPackageNames(d *dirInfo) {
 	if obj := scope.Lookup("Path"); obj != nil {
 		a.errorAt(obj.Pos(), "Path is not declared: the directory under app/ is the URL, write {name} as the directory name+ and {name...} as name++")
 	}
+	a.checkSwitchNames(scope)
 	for _, name := range routeNames {
 		obj := scope.Lookup(name)
 		if obj == nil {
@@ -536,6 +537,39 @@ func (a *analyzer) checkPackageNames(d *dirInfo) {
 		}
 		if file := filepath.Base(a.fset.Position(obj.Pos()).Filename); file != "route.go" {
 			a.errorAt(obj.Pos(), "%s is read from route.go only, move it there from %s", name, file)
+		}
+	}
+}
+
+// removedCache is the error for Cache, the switch of the render cache before it was on for
+// every page. The name stays refused, since a later release gives it another meaning.
+const removedCache = "the render cache is on by default now, delete Cache = true. To turn it off for this page write RenderCache = false"
+
+// switchSpellings maps the lower case spelling of each switch to the advice for a constant that
+// spells it so: the names of route.go are read as written, so a lower case one would be ignored.
+var switchSpellings = map[string]string{
+	"cache":       "RenderCache = false turns the render cache off for the page, it is on by default",
+	"rendercache": "write RenderCache = false to turn the render cache off for the page",
+	"ssr":         "write SSR",
+	"layoutssr":   "write LayoutSSR",
+}
+
+// checkSwitchNames reports the bool constants of route.go that spell a switch in the wrong case,
+// and the removed Cache. Such a constant is a mistake rather than an ordinary name, since it would
+// otherwise be skipped without a word. A constant of another type, or one in another file, such
+// as const cache = "redis", is the app's own and is left alone.
+func (a *analyzer) checkSwitchNames(scope *types.Scope) {
+	for _, name := range scope.Names() {
+		c, ok := scope.Lookup(name).(*types.Const)
+		if !ok || c.Val().Kind() != constant.Bool || filepath.Base(a.fset.Position(c.Pos()).Filename) != "route.go" {
+			continue
+		}
+		if name == "Cache" {
+			a.errorAt(c.Pos(), "%s", removedCache)
+			continue
+		}
+		if advice, ok := switchSpellings[name]; ok {
+			a.errorAt(c.Pos(), "%s is not a switch: names are read as written and need a capital letter. %s", name, advice)
 		}
 	}
 }
@@ -561,7 +595,7 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 	if !d.routeGo {
 		file = "page.tsx"
 	}
-	r := &route{Route: Route{ID: d.id + "/route", Dir: d.id, Page: d.pageTSX, SSR: true}, file: file}
+	r := &route{Route: Route{ID: d.id + "/route", Dir: d.id, Page: d.pageTSX, SSR: true, RenderCache: true}, file: file}
 	if !d.routeGo {
 		if !d.pageTSX {
 			return nil
@@ -583,7 +617,7 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 	if load := scope.Lookup("Load"); load != nil && !d.pageTSX {
 		a.errorAt(load.Pos(), "Load is not allowed without page.tsx: Load loads the data of a page, an API route answers GET with a GET function")
 	}
-	for _, name := range []string{"SSR", "Cache"} {
+	for _, name := range []string{"SSR", "RenderCache"} {
 		if obj := scope.Lookup(name); obj != nil && !d.pageTSX {
 			a.errorAt(obj.Pos(), "%s is not allowed without page.tsx: it applies to the page of the folder only (a Layout declares LayoutSSR)", name)
 		}
@@ -609,7 +643,7 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 		}
 	}
 	r.SSR = a.boolConst(pkg, "SSR", true)
-	r.Cache = a.boolConst(pkg, "Cache", false)
+	r.RenderCache = a.renderCacheConst(pkg)
 	return r
 }
 
@@ -634,6 +668,21 @@ func (a *analyzer) layout(d *dirInfo, pkg *packages.Package) *layout {
 		return nil
 	}
 	return l
+}
+
+// renderCacheConst reads RenderCache, which can only be false: the render cache is on for every
+// page, and the switch turns it off for one.
+func (a *analyzer) renderCacheConst(pkg *packages.Package) bool {
+	obj := pkg.Types.Scope().Lookup("RenderCache")
+	if obj == nil {
+		return true
+	}
+	c, ok := obj.(*types.Const)
+	if !ok || c.Val().Kind() != constant.Bool || constant.BoolVal(c.Val()) {
+		a.errorAt(obj.Pos(), "RenderCache can only be false, which turns the render cache off for this page. It is on by default, so delete the line to keep it on")
+		return true
+	}
+	return false
 }
 
 func (a *analyzer) boolConst(pkg *packages.Package, name string, def bool) bool {

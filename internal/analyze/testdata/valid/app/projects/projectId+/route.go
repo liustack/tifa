@@ -5,7 +5,7 @@ import (
 	"github.com/liustack/tifa"
 )
 
-const Cache = true
+const RenderCache = false
 
 // The page in the Layout's own directory uses the Layout function of its own package.
 func Load(c *tifa.Ctx) ([]string, error) {

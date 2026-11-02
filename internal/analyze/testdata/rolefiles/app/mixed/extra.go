@@ -1,3 +1,3 @@
 package mixed
 
-const Cache = true
+const RenderCache = false

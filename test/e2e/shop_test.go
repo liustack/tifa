@@ -148,12 +148,12 @@ func TestShopApp(t *testing.T) {
 			t.Errorf("the 404 page %s preloads more than the head:\n%s", path, page)
 		}
 	}
-	// Same data, same ETag: 304. The order page sets Cache = true: the next request skips the VM.
+	// Same data, same ETag: 304. Pages are cached by default: the next request skips the VM.
 	if status, _, _ := get(t, detail, "If-None-Match", header.Get("ETag")); status != 304 {
 		t.Errorf("If-None-Match: %d", status)
 	}
 	if _, again, _ := get(t, detail); again.Get("X-Tifa-Render") != "cache" {
-		t.Errorf("second request of a Cache = true page: %s", again.Get("X-Tifa-Render"))
+		t.Errorf("second request of a page: %s", again.Get("X-Tifa-Render"))
 	}
 
 	// The files the order page loads besides its own HTML: the head of the build and its preloads.
@@ -825,7 +825,7 @@ func checkCompressed(t *testing.T, base, dir, buildID, head string) {
 	if page, body := fetch("/projects/studio", "identity"); page.Header.Get("Content-Encoding") != "" || page.Header.Get("Content-Length") != strconv.Itoa(len(body)) {
 		t.Errorf("order list without compression: %v, %d bytes", page.Header, len(body))
 	}
-	// The order page sets Cache = true: a hit goes out as the gzip form the cache stored, with its length.
+	// A hit goes out as the gzip form the cache stored, with its length.
 	fetch("/projects/studio/orders/SH-1042", "gzip")
 	if order, body := fetch("/projects/studio/orders/SH-1042", "gzip"); order.Header.Get("X-Tifa-Render") != "cache" || order.Header.Get("Content-Encoding") != "gzip" ||
 		order.Header.Get("Content-Length") != strconv.Itoa(len(body)) || !strings.Contains(gunzip(body), "SH-1042") {

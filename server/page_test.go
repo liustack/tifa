@@ -68,12 +68,15 @@ var dist = fstest.MapFS{
 	"ssr.js":                 {Data: []byte("// bundle")},
 }
 
-// frontApp is testApp with a page that skips SSR and a page whose HTML is cached.
+// frontApp is testApp with a page that skips SSR, a page with a Load of a constant and a page that
+// turns the render cache off (RenderCache = false).
 func frontApp() App {
 	app := testApp()
 	app.Routes = append(app.Routes,
 		Route{ID: "app/login", Path: "/login", Page: true, SSR: false, Layouts: []string{"app/layout"}},
-		Route{ID: "app/stats", Path: "/stats", Page: true, SSR: true, Cache: true, Layouts: []string{"app/layout"},
+		Route{ID: "app/stats", Path: "/stats", Page: true, SSR: true, Layouts: []string{"app/layout"},
+			Load: func(c *tifa.Ctx) (any, error) { return 42, nil }},
+		Route{ID: "app/live", Path: "/live", Page: true, SSR: true, NoRenderCache: true, Layouts: []string{"app/layout"},
 			Load: func(c *tifa.Ctx) (any, error) { return 42, nil }},
 	)
 	return app
@@ -229,10 +232,31 @@ func TestCachedPageRendersOnce(t *testing.T) {
 	if first.Body.String() != second.Body.String() {
 		t.Error("the cached page differs")
 	}
-	get(s, "/projects/p1")
-	get(s, "/projects/p1")
-	if r.count() != 3 {
-		t.Errorf("a page without Cache was cached: %d renders", r.count())
+	if r.count() != 1 {
+		t.Errorf("%d renders for the first two requests", r.count())
+	}
+}
+
+// Every page is cached, with no switch of its own. RenderCache = false turns it off for one page.
+func TestEveryPageIsCachedUnlessItTurnsTheCacheOff(t *testing.T) {
+	s, r := newFrontServer(t, frontApp())
+	for range 2 {
+		get(s, "/projects/p1")
+	}
+	if r.count() != 1 {
+		t.Errorf("a page with no switch rendered %d times for 2 requests", r.count())
+	}
+	if w := get(s, "/projects/p1"); w.Header().Get("X-Tifa-Render") != "cache" {
+		t.Errorf("third request: %v", w.Header())
+	}
+	before := r.count()
+	for range 2 {
+		if w := get(s, "/live"); w.Header().Get("X-Tifa-Render") != "vm" {
+			t.Errorf("RenderCache = false page: %v", w.Header())
+		}
+	}
+	if r.count() != before+2 {
+		t.Errorf("a page with RenderCache = false rendered %d times for 2 requests", r.count()-before)
 	}
 }
 
@@ -668,7 +692,7 @@ func TestDataRequestKeepsTheCacheControlOfTheApplication(t *testing.T) {
 	}
 }
 
-// A failed render of a Cache = true page goes to OnError and is never cached.
+// A failed render of a page goes to OnError and is never cached.
 func TestFailedRenderIsNotCached(t *testing.T) {
 	var reported []error
 	app := frontApp()

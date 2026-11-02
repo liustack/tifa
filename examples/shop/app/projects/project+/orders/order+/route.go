@@ -9,10 +9,6 @@ import (
 	"github.com/liustack/tifa/examples/shop/app/projects/project+/orders"
 )
 
-// Detail pages change only when an order ships or a recipient changes, and the cache keys the HTML
-// by the data, so their HTML is cached.
-const Cache = true
-
 // Detail is the order with the carriers the shipping form offers.
 type Detail struct {
 	Order    orders.Order     `json:"order"`

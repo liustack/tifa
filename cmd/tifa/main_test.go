@@ -30,10 +30,10 @@ func TestRoutesPrintsTable(t *testing.T) {
 		t.Fatalf("routes: %v", err)
 	}
 	for _, line := range [][]string{
-		{"ROUTE", "PATH", "LAYOUTS", "METHODS", "SSR", "CACHE"},
-		{"app/projects/projectId+/orders/orderId+", "/projects/{projectId}/orders/{orderId}", "app > app/projects/projectId+", "page POST DELETE", "false", "false"},
-		{"app/projects/projectId+", "/projects/{projectId}", "app > app/projects/projectId+", "page", "false", "true"},
-		{"app/api/health", "/api/health", "app", "GET", "true", "false"},
+		{"ROUTE", "PATH", "LAYOUTS", "METHODS", "SSR", "RENDERCACHE"},
+		{"app/projects/projectId+/orders/orderId+", "/projects/{projectId}/orders/{orderId}", "app > app/projects/projectId+", "page POST DELETE", "false", "true"},
+		{"app/projects/projectId+", "/projects/{projectId}", "app > app/projects/projectId+", "page", "false", "false"},
+		{"app/api/health", "/api/health", "app", "GET", "true", "true"},
 		{"LAYOUT", "PATH", "PARENT", "SSR"},
 		{"app/projects/projectId+", "/projects/{projectId}", "app", "false"},
 	} {
