@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### 新增
+
+- `tifa dev` 把浏览器里的错误显示在页面角落的小面板里：`Hydration mismatch`（带 React 给出的差异和组件栈）、`Recoverable error`、`Uncaught error` 和 `Unhandled rejection`。同一个错误再次出现只增加计数，面板保留最近 20 个，每条都可以关掉。面板不挡页面，构建错误的浮层仍在它上面。构建出的应用没有这些代码（见 [tifa dev](docs/dev.zh-CN.md#浏览器里的错误)）。
+
 ### 变更
 
 - **不兼容：**处理函数的调用在 POST、PUT、PATCH、DELETE 成功之后不再重新取页面数据，调用的 `invalidate` 选项也没有了。调用只发出请求，并应用回答里的会话。重定向只做导航，重定向到正在显示的页面时页面留在原处。tifa 不猜测一次写操作改了什么，TanStack Router 也不猜。想让页面显示写操作的结果，在调用之后调用 `router.invalidate()`（`await router.invalidate({ sync: true })` 会等到页面显示出新数据），或者更新你自己的状态。升级时删掉调用里的 `invalidate: false`，并在页面该显示写入结果的调用之后加上 `await router.invalidate({ sync: true })`。

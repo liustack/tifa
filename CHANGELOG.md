@@ -4,6 +4,10 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 
 ## [Unreleased]
 
+### Added
+
+- `tifa dev` shows errors of the browser in a small panel in the corner of the page: `Hydration mismatch` (with React's diff and the component stack), `Recoverable error`, `Uncaught error` and `Unhandled rejection`. The same error again raises a counter, the panel keeps the last 20, and each can be dismissed. The panel leaves the page usable, and the overlay of a build error stays on top of it. Built apps have none of this code (see [tifa dev](docs/dev.md#errors-in-the-browser)).
+
 ### Changed
 
 - **Breaking:** a handler function no longer loads the page data again after a successful POST, PUT, PATCH or DELETE, and the `invalidate` option of the call is gone. A call only sends its request and applies the session of the answer. A redirect only navigates, and a redirect to the page that is showing stays where it is. tifa does not guess what a write changes, as TanStack Router does not. To show the result of a write, call `router.invalidate()` after the call (`await router.invalidate({ sync: true })` waits until the page shows the new data), or `refresh` your own state. To update, delete `invalidate: false` from calls, and add `await router.invalidate({ sync: true })` after each call whose page should show what it wrote.
