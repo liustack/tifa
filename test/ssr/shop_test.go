@@ -95,21 +95,24 @@ func shopBundle(t testing.TB) (string, []shopPage) {
 	return string(source), pages
 }
 
-// injectedInput turns the answer of a navigation data request into the data a whole-page render
+// injectedInput turns the answer of a navigation data request, {routes, session}, into the data a whole-page render
 // gets, as the server writes it: the statuses, errors and redirects as JSON, and the data of each
 // successful route as JSON text of its own, with the escapes of ssr.EscapeAboveFFFF the server
 // writes into it. A result says the number of its text, which follows the order of the route IDs.
 func injectedInput(t testing.TB, answer []byte) (json.RawMessage, []string) {
 	t.Helper()
-	var routes map[string]struct {
-		Status   int             `json:"status"`
-		Data     json.RawMessage `json:"data,omitempty"`
-		Error    string          `json:"error,omitempty"`
-		Location string          `json:"location,omitempty"`
+	var envelope struct {
+		Routes map[string]struct {
+			Status   int             `json:"status"`
+			Data     json.RawMessage `json:"data,omitempty"`
+			Error    string          `json:"error,omitempty"`
+			Location string          `json:"location,omitempty"`
+		} `json:"routes"`
 	}
-	if err := json.Unmarshal(answer, &routes); err != nil {
+	if err := json.Unmarshal(answer, &envelope); err != nil {
 		t.Fatal(err)
 	}
+	routes := envelope.Routes
 	type result struct {
 		Status   int    `json:"status"`
 		Text     *int   `json:"text,omitempty"`
