@@ -46,6 +46,9 @@ func TestShopApp(t *testing.T) {
 		}
 	}
 
+	// The workbench needs the demo account. SHOP_OPEN lets the checks below in, and the sign-in checks
+	// run last, on the shop as it is deployed.
+	t.Setenv("SHOP_OPEN", "1")
 	base, _, _ := start(t, exe)
 	var built struct{ BuildID, Head string }
 	readJSON(t, filepath.Join(dir, ".tifa", "dist", "build.json"), &built)
@@ -250,6 +253,7 @@ func TestShopApp(t *testing.T) {
 	checkOrderPageModules(t, base)
 	checkStatsPanels(t, base)
 	checkCartAndCheckoutModules(t, base)
+	t.Run("sign in", func(t *testing.T) { checkShopSignIn(t, exe) })
 }
 
 // rendered returns the part of a page React rendered, without the data written after it.
@@ -366,7 +370,7 @@ func checkStorefront(t *testing.T, base, buildID string) {
 		{"/store/zh-CN/journal/x/y", 404, "zh-CN", "没有找到这个页面"},
 	} {
 		status, _, page := get(t, base+tc.path)
-		if start := `<!DOCTYPE html><html lang="` + tc.lang + `"><head>`; status != tc.status || !strings.HasPrefix(page, start) || !strings.Contains(rendered(page), tc.text) || strings.Contains(page, sidebar) {
+		if start := `<!DOCTYPE html><html data-session="out" lang="` + tc.lang + `"><head>`; status != tc.status || !strings.HasPrefix(page, start) || !strings.Contains(rendered(page), tc.text) || strings.Contains(page, sidebar) {
 			t.Errorf("%s: %d, want %d with %s in a document starting %s:\n%.120s", tc.path, status, tc.status, tc.text, start, page)
 		}
 	}
@@ -537,7 +541,7 @@ func checkStorefrontKeepsCustomersApart(t *testing.T, base string) {
 	// workbench's pages have, as JSON in a script string.
 	_, _, home := get(t, base+"/store/zh-CN")
 	_, _, workbench := get(t, base+"/projects/studio")
-	for _, owner := range []string{`\"name\":\"店主\"`, "周末小店", `\"pending\":`} {
+	for _, owner := range []string{`\"sidebarOpen\":`, "周末小店", `\"pending\":`} {
 		if strings.Contains(home, owner) || !strings.Contains(workbench, owner) {
 			t.Errorf("the storefront carries %s, or the workbench lacks it", owner)
 		}
@@ -673,7 +677,7 @@ func TestShopStorefrontErrorPageHasNoAlternates(t *testing.T) {
 	for _, lang := range []string{"en-US", "zh-CN"} {
 		status, _, page := get(t, base+"/store/"+lang+"/crash")
 		head := page[:strings.Index(page, "</head>")]
-		if status != 500 || !strings.Contains(page, `<html lang="`+lang+`"`) || !strings.Contains(head, "<title>") ||
+		if status != 500 || !strings.Contains(page, `<html data-session="out" lang="`+lang+`"`) || !strings.Contains(head, "<title>") ||
 			strings.Contains(head, `rel="alternate"`) || strings.Contains(head, "hrefLang") {
 			t.Errorf("/store/%s/crash: %d, the head of the 500 must have the language and a title and no alternate links:\n%.600s", lang, status, head)
 		}

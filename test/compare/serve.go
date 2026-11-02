@@ -36,7 +36,7 @@ func (e Env) Targets() []Target {
 		{
 			Name: "tifa", Dir: e.Shop, Prog: filepath.Join(e.Shop, "bin", "shop"),
 			Args: []string{"--server-addr", "127.0.0.1:%PORT%", "--ssr-vms", "1", "--cache-size", "0"},
-			Env:  []string{"GOMAXPROCS=1"},
+			Env:  []string{"GOMAXPROCS=1", "SHOP_OPEN=1"},
 		},
 		{
 			Name: "nextjs", Dir: e.Next, Prog: "node",

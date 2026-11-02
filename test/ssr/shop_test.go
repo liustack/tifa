@@ -159,13 +159,15 @@ var listening = regexp.MustCompile(`listening on (http://\S+)`)
 // startShop runs the shop's program built by tifa build and returns its base URL.
 func startShop(t testing.TB) string {
 	t.Helper()
-	return startProgram(t, filepath.Join(shopDir, "bin", "shop"))
+	// SHOP_OPEN lets these requests into the workbench without signing in.
+	return startProgram(t, filepath.Join(shopDir, "bin", "shop"), "SHOP_OPEN=1")
 }
 
 // startProgram runs a program built by tifa build and returns its base URL. The system ends the
 // program when this process ends (see testproc.Start), also when a panic in another goroutine or a
 // timeout ends it without running t.Cleanup.
-func startProgram(t testing.TB, exe string) string {
+// env is added to the variables the program runs with.
+func startProgram(t testing.TB, exe string, env ...string) string {
 	t.Helper()
 	cmd := exec.Command(exe, "--server-addr", "127.0.0.1:0")
 	// The program rejects unknown TIFA_* variables as settings, TIFA_SSR_SHOP among them.
@@ -174,6 +176,7 @@ func startProgram(t testing.TB, exe string) string {
 			cmd.Env = append(cmd.Env, kv)
 		}
 	}
+	cmd.Env = append(cmd.Env, env...)
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		t.Fatal(err)
