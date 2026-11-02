@@ -17,6 +17,10 @@ type Session struct {
 	// Browser reports whether S or *S has the method Browser() M, and BrowserType is M.
 	Browser     bool   `json:"browser"`
 	BrowserType string `json:"browserType,omitempty"`
+	// Package and Name tell the generated code how to write S when it can: S is a named type
+	// of a package, exported, and not generic. Both are empty for any other S.
+	Package string `json:"package,omitempty"`
+	Name    string `json:"name,omitempty"`
 	// BrowserResult is M for code generation inside the same process. It satisfies the rules of checkTS.
 	BrowserResult types.Type `json:"-"`
 }
@@ -106,6 +110,11 @@ func (a *analyzer) session(pkgs []*packages.Package) *Session {
 		ok = false
 	}
 	out := &Session{Type: typeString(s)}
+	if n, ok := types.Unalias(s).(*types.Named); ok {
+		if obj := n.Obj(); obj.Pkg() != nil && obj.Exported() && n.TypeArgs().Len() == 0 && obj.Parent() == obj.Pkg().Scope() {
+			out.Package, out.Name = obj.Pkg().Path(), obj.Name()
+		}
+	}
 	if fn := browserMethod(s); fn != nil {
 		sig := fn.Signature()
 		if sig.Params().Len() != 0 || sig.Results().Len() != 1 || sig.Variadic() {
