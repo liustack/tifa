@@ -530,7 +530,16 @@ func (s *Server) dataRequest(c *tifa.Ctx, chain []load, key string) error {
 	if err != nil {
 		return err
 	}
-	return s.writeData(c, http.StatusOK, items)
+	session, err := s.browserSession(c)
+	if err != nil {
+		return err
+	}
+	if session != nil {
+		if err := checkSessionCache(c.Writer().Header()); err != nil {
+			return err
+		}
+	}
+	return writeDataBody(c.Writer(), http.StatusOK, dataAnswer{Routes: items, Session: session})
 }
 
 // buildChanged is the 409 for a request from a page of another build. It names the build the
@@ -571,7 +580,11 @@ type dataAnswer struct {
 // as private, no-store, wins over the default of the writer (defaultCacheControl). The Loads have
 // returned, so the header map is no longer shared.
 func (s *Server) writeData(c *tifa.Ctx, status int, items map[string]routeResult) error {
-	return writeDataBody(c.Writer(), status, dataAnswer{Routes: items, Session: s.answerSession(c)})
+	session := s.answerSession(c)
+	if session != nil {
+		s.sealSessionAnswer(c) // this answer is already an error flow
+	}
+	return writeDataBody(c.Writer(), status, dataAnswer{Routes: items, Session: session})
 }
 
 func writeDataBody(w http.ResponseWriter, status int, value any) error {
@@ -612,6 +625,11 @@ func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status in
 	sess, err := s.pageSession(c)
 	if err != nil {
 		return err
+	}
+	if sess.json != nil {
+		if err := checkSessionCache(c.Writer().Header()); err != nil {
+			return err
+		}
 	}
 	// The render runs on the pool of f, which swapFront closes only after this returns. Only
 	// tifa dev swaps the front end, so in production the lock is never contended.
@@ -749,6 +767,11 @@ func (s *Server) dataOnly(c *tifa.Ctx, items map[string]routeResult, status int,
 	sess, err := s.pageSession(c)
 	if err != nil {
 		return err
+	}
+	if sess.json != nil {
+		if err := checkSessionCache(c.Writer().Header()); err != nil {
+			return err
+		}
 	}
 	bootData := map[string]any{"url": c.Request().URL.RequestURI(), "buildId": f.build.ID, "data": injected}
 	if sess.json != nil {

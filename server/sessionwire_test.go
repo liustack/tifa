@@ -4,11 +4,13 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/liustack/tifa"
@@ -175,7 +177,7 @@ func TestPageWithoutSSRCarriesTheSession(t *testing.T) {
 	s, _ := wireServer(t, wireApp())
 	out := get(s, "/login")
 	body := out.Body.String()
-	if strings.Contains(body, "<html data-session") || !strings.Contains(body, `"session":{"signedIn":false}`) ||
+	if !strings.HasPrefix(body, `<!DOCTYPE html><html data-session="out"><head>`) || !strings.Contains(body, `"session":{"signedIn":false}`) ||
 		!strings.Contains(body, `"sessionKey":"__Host-tifa_session:v1"`) || !strings.Contains(body, `html:not([data-session="in"])`) {
 		t.Errorf("signed out: %s", body)
 	}
@@ -416,6 +418,224 @@ func TestSessionHeadHashesAreInTheDocs(t *testing.T) {
 					t.Errorf("docs/%s lacks %s of %.60s", name, hash, text)
 				}
 			}
+		}
+	}
+}
+
+func TestSessionAnswerCacheControlRules(t *testing.T) {
+	for value, want := range map[string]bool{
+		"":                                   true,
+		"no-store":                           true,
+		"private, no-cache":                  true,
+		"No-Cache, PRIVATE":                  true,
+		"private, no-cache, max-age=0":       true,
+		"public, no-store":                   true,
+		"private":                            false,
+		"no-cache":                           false,
+		"public, max-age=600":                false,
+		"s-maxage=60, private, no-cache":     true,
+		`private="Set-Cookie", no-cache`:     false,
+		`private, no-cache="Set-Cookie"`:     false,
+		"private, no-cache, must-understand": false,
+		"no-store, must-understand":          false,
+		`private, no-cache, x="a,b`:          false,
+		"private, no-cache, =1":              false,
+		"private, , no-cache":                false,
+		"private no-cache":                   false,
+	} {
+		h := http.Header{}
+		if value != "" {
+			h.Set("Cache-Control", value)
+		}
+		if got := cacheControlHoldsSession(h); got != want {
+			t.Errorf("%q: got %v, want %v", value, got, want)
+		}
+	}
+	// Several fields merge into one list.
+	h := http.Header{}
+	h.Add("Cache-Control", "private")
+	h.Add("Cache-Control", "no-cache")
+	if !cacheControlHoldsSession(h) {
+		t.Error("two fields that together say private, no-cache")
+	}
+	h = http.Header{}
+	h.Add("Cache-Control", "no-cache")
+	h.Add("Cache-Control", `private="x"`)
+	if cacheControlHoldsSession(h) {
+		t.Error("a private with a field list")
+	}
+}
+
+// An app that makes an answer carrying the session shareable gets an unexpected error instead.
+func TestSharableAnswerWithSessionIsAnError(t *testing.T) {
+	var reported atomic.Int32
+	app := wireApp()
+	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+		if c.Query("share") != "" || c.Header("X-Share") != "" {
+			c.SetHeader("Cache-Control", c.Query("share")+c.Header("X-Share"))
+			c.SetHeader("Last-Modified", "Mon, 02 Jan 2006 15:04:05 GMT")
+		}
+		return next(c)
+	}
+	app.Hooks.OnError = func(c *tifa.Ctx, err error) tifa.Error {
+		reported.Add(1)
+		c.SetHeader("Cache-Control", "public, max-age=60") // OnError cannot make it shareable again
+		c.SetHeader("ETag", `"x"`)
+		return tifa.Error{Status: 500, Message: "reported"}
+	}
+	s, _ := wireServer(t, app)
+	check := func(name string, w *httptest.ResponseRecorder, html bool) {
+		t.Helper()
+		ct := w.Header().Get("Content-Type")
+		if w.Code != 500 || w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("ETag") != "" || w.Header().Get("Last-Modified") != "" ||
+			strings.HasPrefix(ct, "text/html") != html {
+			t.Errorf("%s: %d %v %s", name, w.Code, w.Header(), w.Body.String())
+		}
+	}
+	for _, page := range []string{"/projects/p1", "/login"} {
+		reported.Store(0)
+		check("page "+page, get(s, page+"?share=public,+max-age=600"), true)
+		if reported.Load() != 1 {
+			t.Errorf("%s: OnError ran %d times", page, reported.Load())
+		}
+	}
+	check("navigation", get(s, "/projects/p1?share=private", "X-Tifa-Route", "app/layout", "X-Tifa-Build", "b1"), false)
+	check("call", postJSON(s, "/in", `{"name":"Ann"}`, "X-Tifa-Call", "1", "X-Share", `private="x", no-cache`), false)
+	// Compliant values pass, and an app without sessions is not checked.
+	if w := get(s, "/projects/p1?share=private,+no-cache"); w.Code != 200 || w.Header().Get("Cache-Control") != "private, no-cache" {
+		t.Errorf("compliant: %d %v", w.Code, w.Header())
+	}
+	plain, _ := newFrontServer(t, frontApp())
+	plain.hooks.OnRequest = app.Hooks.OnRequest
+	if w := get(plain, "/projects/p1?share=public"); w.Code != 200 || w.Header().Get("Cache-Control") != "public" {
+		t.Errorf("app without sessions: %d %v", w.Code, w.Header())
+	}
+}
+
+// An OnRequest that sets a shareable header and then redirects: the JSON answer to a navigation
+// carries the session, so it is never shareable and keeps no validator.
+func TestNavigationRedirectWithSessionIsNotShareable(t *testing.T) {
+	app := wireApp()
+	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+		if c.Query("go") != "" {
+			c.SetHeader("Cache-Control", "public, max-age=600")
+			c.SetHeader("ETag", `"v"`)
+			c.SetHeader("Last-Modified", "Mon, 02 Jan 2006 15:04:05 GMT")
+			return c.Redirect("/elsewhere", 302)
+		}
+		return next(c)
+	}
+	s, _ := wireServer(t, app)
+	for _, method := range []string{"GET", "HEAD"} {
+		r := httptest.NewRequest(method, "/projects/p1?go=1", nil)
+		r.Header.Set("X-Tifa-Route", "app/layout")
+		r.Header.Set("X-Tifa-Build", "b1")
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, r)
+		if w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("ETag") != "" || w.Header().Get("Last-Modified") != "" {
+			t.Errorf("%s: %d %v", method, w.Code, w.Header())
+		}
+		if method == "GET" && !strings.Contains(w.Body.String(), `"session":{"signedIn":false}`) {
+			t.Errorf("body %s", w.Body.String())
+		}
+	}
+}
+
+// A page for someone signed out says so: the head script reads the copy only on a page that
+// carries no session.
+func TestPageWithSessionWritesOutWhenSignedOut(t *testing.T) {
+	s, _ := wireServer(t, wireApp())
+	body := get(s, "/login").Body.String()
+	if !strings.HasPrefix(body, `<!DOCTYPE html><html data-session="out"><head>`) {
+		t.Errorf("boot page: %.120s", body)
+	}
+}
+
+func TestCallAnswersVaryOnTheCallHeader(t *testing.T) {
+	s, _ := wireServer(t, wireApp())
+	for _, call := range [][]string{nil, {"X-Tifa-Call", "1"}} {
+		for name, w := range map[string]*httptest.ResponseRecorder{
+			"result": get(s, "/out", call...), "input": postJSON(s, "/same", `{}`, call...), "both": postJSON(s, "/inout", `{"name":"a"}`, call...),
+		} {
+			if !varies(w, "X-Tifa-Call") {
+				t.Errorf("%s %v: Vary %v", name, call, w.Header().Values("Vary"))
+			}
+		}
+	}
+	// A Vary the app set stays.
+	app := wireApp()
+	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+		c.Writer().Header().Add("Vary", "Cookie")
+		return next(c)
+	}
+	s2, _ := wireServer(t, app)
+	if w := get(s2, "/out"); !varies(w, "Cookie") || !varies(w, "X-Tifa-Call") {
+		t.Errorf("Vary %v", w.Header().Values("Vary"))
+	}
+}
+
+func TestSessionEndpointAnswersAreNeverStored(t *testing.T) {
+	app := wireApp()
+	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+		c.SetHeader("Cache-Control", "public, max-age=600")
+		c.SetHeader("ETag", `"v"`)
+		c.SetHeader("Last-Modified", "Mon, 02 Jan 2006 15:04:05 GMT")
+		switch c.Query("do") {
+		case "deny":
+			return tifa.Error{Status: 401, Message: "sign in"}
+		case "boom":
+			return errors.New("boom")
+		case "redirect":
+			return c.Redirect("/login", 302)
+		}
+		return next(c)
+	}
+	s, _ := wireServer(t, app)
+	cases := []struct {
+		name, method, target string
+		header               []string
+		code                 int
+	}{
+		{"GET", "GET", "/__tifa/session", nil, 200},
+		{"HEAD", "HEAD", "/__tifa/session", nil, 200},
+		{"405", "POST", "/__tifa/session", nil, 405},
+		{"409", "GET", "/__tifa/session", []string{"X-Tifa-Build", "old"}, 409},
+		{"early 401", "GET", "/__tifa/session?do=deny", nil, 401},
+		{"error", "GET", "/__tifa/session?do=boom", nil, 500},
+		{"redirect", "GET", "/__tifa/session?do=redirect", nil, 302},
+	}
+	for _, tc := range cases {
+		r := httptest.NewRequest(tc.method, tc.target, nil)
+		for i := 0; i < len(tc.header); i += 2 {
+			r.Header.Set(tc.header[i], tc.header[i+1])
+		}
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, r)
+		if w.Code != tc.code || w.Header().Get("Cache-Control") != "private, no-store" || w.Header().Get("ETag") != "" || w.Header().Get("Last-Modified") != "" {
+			t.Errorf("%s: %d %v", tc.name, w.Code, w.Header())
+		}
+	}
+}
+
+// A middleware that writes the answer to /__tifa/session itself reaches neither the handler nor the
+// error flow. The answer still goes out as private, no-store.
+func TestSessionEndpointAnswerOfTheMiddlewareIsNeverStored(t *testing.T) {
+	app := wireApp()
+	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+		if c.Request().URL.Path == "/__tifa/session" {
+			c.SetHeader("Cache-Control", "public, max-age=600")
+			c.SetHeader("ETag", `"v"`)
+			c.SetHeader("Last-Modified", "Mon, 02 Jan 2006 15:04:05 GMT")
+			return c.JSON(401, map[string]string{"error": "sign in"})
+		}
+		return next(c)
+	}
+	s, _ := wireServer(t, app)
+	for _, method := range []string{"GET", "HEAD"} {
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, httptest.NewRequest(method, "/__tifa/session", nil))
+		if w.Code != 401 || w.Header().Get("Cache-Control") != "private, no-store" || w.Header().Get("ETag") != "" || w.Header().Get("Last-Modified") != "" {
+			t.Errorf("%s: %d %v", method, w.Code, w.Header())
 		}
 	}
 }

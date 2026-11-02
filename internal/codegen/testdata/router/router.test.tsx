@@ -1068,6 +1068,15 @@ test('the app cannot set data-session on <html>', async () => {
     }
 })
 
+test('a root Layout that sets data-session stops the bundle as it loads, and says why', async () => {
+  try {
+    serve(routeTree, { lang: 'en', 'data-session': 'in' })
+    assert(false, 'serve accepted data-session')
+  } catch (error) {
+    assert(error instanceof Error && /htmlAttributes cannot set data-session on <html>: tifa keeps it/.test(error.message), `error ${error}`)
+  }
+})
+
 let failed = 0
 for (const [name, fn] of tests) {
   try {

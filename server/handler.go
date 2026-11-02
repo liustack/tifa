@@ -31,11 +31,22 @@ func calledSession(c *tifa.Ctx) (*core.BrowserSession, error) {
 		return nil, nil
 	}
 	v, err := core.BrowserSessionOf(c)
-	return &v, err
+	if err != nil {
+		return nil, err
+	}
+	if err := checkSessionCache(c.Writer().Header()); err != nil {
+		return nil, err
+	}
+	return &v, nil
 }
+
+// varyOnCall tells caches that the answer to a call and to the same request without callHeader
+// have different shapes.
+func varyOnCall(c *tifa.Ctx) { c.Writer().Header().Add("Vary", callHeader) }
 
 // writeResult answers with the result of a handler.
 func writeResult(c *tifa.Ctx, out any) error {
+	varyOnCall(c)
 	if c.Header(callHeader) == "" {
 		return c.JSON(http.StatusOK, out)
 	}
@@ -57,6 +68,7 @@ func Input[In any](h func(*tifa.Ctx, In) error, bind func(*tifa.Ctx, any) error)
 		if err := h(c, in); err != nil {
 			return err
 		}
+		varyOnCall(c)
 		session, err := calledSession(c)
 		if err != nil {
 			return err

@@ -208,6 +208,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, pattern string, p
 	tw := &writer{ResponseWriter: w, plain: !s.cfg.Compress}
 	c := core.New(tw, r, pattern, s.cfg.BodyLimit)
 	tw.noStore = func() bool { return core.NoStore(c) }
+	tw.session = pattern == sessionPath
 	defer func() {
 		if err := core.Finish(c); err != nil {
 			core.Logger().WarnContext(r.Context(), "tifa: removing the multipart files failed", "method", r.Method, "path", r.URL.Path, "err", err)
@@ -276,6 +277,21 @@ func (s *Server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 	} else {
 		redirect, e = s.classify(c, err)
 	}
+	if c.Pattern() == sessionPath {
+		// Whatever failed, the answer about the session is never stored.
+		h := w.Header()
+		h.Del("ETag")
+		h.Del("Last-Modified")
+		h.Set("Cache-Control", "private, no-store")
+	}
+	var shared *sessionCacheError
+	if errors.As(err, &shared) {
+		// Whatever OnError set, the answer to this error is never stored.
+		h := w.Header()
+		h.Del("ETag")
+		h.Del("Last-Modified")
+		h.Set("Cache-Control", "no-store")
+	}
 	if w.wrote {
 		core.Logger().ErrorContext(r.Context(), "tifa: request failed after the response was written", "method", r.Method, "path", r.URL.Path, "err", err)
 		return
@@ -289,7 +305,11 @@ func (s *Server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 	case missing != nil && missing.data && data:
 		_ = s.writeData(c, http.StatusNotFound, missing.items)
 	case redirect != nil && data:
-		_ = writeDataBody(w, http.StatusOK, dataRedirect{Redirect: redirect.URL, Status: redirect.Code, Session: s.answerSession(c)})
+		session := s.answerSession(c)
+		if session != nil {
+			s.sealSessionAnswer(c)
+		}
+		_ = writeDataBody(w, http.StatusOK, dataRedirect{Redirect: redirect.URL, Status: redirect.Code, Session: session})
 	case redirect != nil && r.Header.Get(callHeader) != "":
 		// The app's caching headers would let a cache hand this JSON to a page load.
 		w.Header().Set("Cache-Control", "no-store")
@@ -442,6 +462,9 @@ type writer struct {
 	// noStore reports that the answer sets the session cookie or answers a failed session store: it
 	// goes out as no-store, without validators.
 	noStore func() bool
+	// session is set for /__tifa/session: whatever wrote the answer, a middleware that answered on
+	// its own included, it goes out as private, no-store, without validators.
+	session bool
 }
 
 // Committed reports whether the response is on its way out. SetSession asks it.
@@ -457,6 +480,10 @@ func (w *writer) commit(final bool, call func() bool) {
 	if final && !w.wrote {
 		h := w.Header()
 		switch {
+		case w.session:
+			h.Set("Cache-Control", "private, no-store")
+			h.Del("ETag")
+			h.Del("Last-Modified")
 		case w.noStore != nil && w.noStore():
 			// A cache must not keep or share an answer that sets or drops a session, and a
 			// validator would let a browser turn the next one into a 304 without the cookie.

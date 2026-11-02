@@ -20,10 +20,6 @@ const sessionPath = "/__tifa/session"
 // SessionOf is the App.Session of an app whose session type is S.
 func SessionOf[S any]() { core.RegisterSessionType[S]() }
 
-// SessionUsed is the App.Session of an app whose session type the generated code cannot name,
-// such as an unexported type. The type is learned from the first request that reads or sets it.
-func SessionUsed() {}
-
 // enableSessions turns on the session in the pages and answers, and registers the session type.
 func (s *Server) enableSessions(register func()) {
 	if register != nil {
@@ -110,12 +106,25 @@ func sessionHead(key string) string {
 // marked data-session="out" when someone is.
 const sessionStyle = `<style>html:not([data-session="in"]) [data-session="in"],html[data-session="in"] [data-session="out"]{display:none}</style>`
 
-// htmlTag is the opening tag of the document of a page that skips SSR.
+// htmlTag is the opening tag of the document of a page that skips SSR. A page that carries the
+// session says in or out, so that the head script reads the copy only on a page that carries none.
 func (p pageSession) htmlTag() string {
-	if p.signed {
+	switch {
+	case p.signed:
 		return `<html data-session="in">`
+	case p.json != nil:
+		return `<html data-session="out">`
 	}
 	return "<html>"
+}
+
+// sealSessionAnswer makes the answer of an error flow that carries the session unstorable: a
+// header that would let a shared cache keep it is replaced, and logged.
+func (s *Server) sealSessionAnswer(c *tifa.Ctx) {
+	if err := checkSessionCache(c.Writer().Header()); err != nil {
+		core.Logger().ErrorContext(c.Context(), "tifa: an answer with the session was made no-store", "method", c.Request().Method, "path", c.Request().URL.Path, "err", err)
+		c.Writer().Header().Set("Cache-Control", "no-store")
+	}
 }
 
 // sessionHandler answers GET and HEAD of /__tifa/session with the session of the request. It runs
@@ -133,6 +142,8 @@ func (s *Server) sessionHandler(c *tifa.Ctx) error {
 	if err != nil {
 		return err
 	}
+	c.Writer().Header().Del("ETag")
+	c.Writer().Header().Del("Last-Modified")
 	c.SetHeader("Cache-Control", "private, no-store")
 	return c.JSON(http.StatusOK, v)
 }
