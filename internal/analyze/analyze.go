@@ -40,7 +40,7 @@ var hooks = []struct {
 }{
 	{"OnStart", nil, []string{"error"}, "func() error"},
 	{"OnShutdown", []string{"context.Context"}, []string{"error"}, "func(ctx context.Context) error"},
-	{"OnRequest", []string{ctxType}, []string{"error"}, "func(c *tifa.Ctx) error"},
+	{"OnRequest", []string{ctxType, "func(" + ctxType + ") error"}, []string{"error"}, "func(c *tifa.Ctx, next func(*tifa.Ctx) error) error"},
 	{"OnError", []string{ctxType, "error"}, []string{corePath + ".Error"}, "func(c *tifa.Ctx, err error) tifa.Error"},
 }
 
@@ -662,6 +662,17 @@ func typeString(t types.Type) string {
 	t = types.Unalias(t)
 	if p, ok := t.(*types.Pointer); ok {
 		return "*" + typeString(p.Elem())
+	}
+	if sig, ok := t.(*types.Signature); ok {
+		out := "func(" + strings.Join(tupleTypes(sig.Params()), ", ") + ")"
+		switch sig.Results().Len() {
+		case 0:
+		case 1:
+			out += " " + typeString(sig.Results().At(0).Type())
+		default:
+			out += " (" + strings.Join(tupleTypes(sig.Results()), ", ") + ")"
+		}
+		return out
 	}
 	return types.TypeString(t, nil)
 }

@@ -20,9 +20,9 @@ func OnShutdown(ctx context.Context) error {
 // Two more hooks are optional. Write them only when you need them: an OnError replaces the
 // default, which logs the error and answers 500.
 //
-// OnRequest runs before every page and API route, for auth or logging. Call c.Next() to go on.
+// OnRequest runs before every page and API route, for auth or logging. Call next(c) to go on.
 //
-//	func OnRequest(c *tifa.Ctx) error
+//	func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error
 //
 // OnError gets the unexpected errors and panics, to report them and pick what users see.
 //

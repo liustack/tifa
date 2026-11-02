@@ -111,17 +111,16 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 | --- | --- |
 | `c.Param(name)`, `c.Query(name)`, `c.QueryAll(name)` | Path parameter, first query value (`""` when absent), every value of a repeated query key |
 | `c.Header(name)`, `c.Cookie(name)` | Request header, request cookie |
-| `c.Context()`, `c.SetContext(ctx)` | Request context, and replacing it to carry request-scoped values |
+| `c.Context()`, `c.WithContext(ctx)` | Request context, and a copy of `c` that carries another one (`c` does not change) |
 | `c.Pattern()` | The matched route, such as `/projects/{project}` |
 | `c.IsData()` | True for the browser router's navigation data request |
 | `c.SetHeader(k, v)`, `c.SetCookie(cookie)` | Response header and cookie. Allowed in `Load` too |
 | `c.JSON(code, v)`, `c.Text(code, s)`, `c.NoContent(code)` | Write the response. Not allowed in `Load` or `Layout` |
 | `c.Redirect(url, code)` | Returns an error value. Return it to redirect |
 | `c.Bind(&v)`, `c.BindQuery(&v)` | Decode body or query into a struct. Not in `Load` |
-| `c.Next()` | In `OnRequest`, run the matched route |
 | `c.Request()`, `c.Writer()` | Raw request and writer. Method handlers and `OnRequest` only |
 
-Request-scoped values (the signed-in user) ride on the standard context: `OnRequest` calls `c.SetContext(context.WithValue(...))` and a domain package offers a typed getter. Domain code takes `context.Context`, not `*tifa.Ctx`.
+Request-scoped values (the signed-in user) ride on the standard context: `OnRequest` passes `c.WithContext(context.WithValue(...))` to `next` and a domain package offers a typed getter. Domain code takes `context.Context`, not `*tifa.Ctx`.
 
 ## What Load and Layout may do with Ctx
 
@@ -234,7 +233,7 @@ If the build rejects a type, the error names the file and line. Convert to a pla
 ```go
 func OnStart() error                            // before listening: open the database, etc.
 func OnShutdown(ctx context.Context) error      // after a stop signal, once requests finish
-func OnRequest(c *tifa.Ctx) error               // the only middleware, call c.Next() to continue
+func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error // the only middleware, call next(c) to continue
 func OnError(c *tifa.Ctx, err error) tifa.Error // report unexpected errors, pick what users see
 ```
 
@@ -243,13 +242,13 @@ func OnError(c *tifa.Ctx, err error) tifa.Error // report unexpected errors, pic
 - Auth example. `signedIn` is the app's own function:
 
 ```go
-func OnRequest(c *tifa.Ctx) error {
+func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 	if strings.HasPrefix(c.Pattern(), "/admin") && !signedIn(c) {
 		return c.Redirect("/login", http.StatusFound)
 	}
-	return c.Next()
+	return next(c)
 }
 ```
 
-- `c.Next()` returns the outermost `Load` error. Return it unchanged (or wrapped once with `%w`) to let the framework handle it. Returning another error makes the middleware win.
+- `next(c)` returns the outermost `Load` error. Return it unchanged (or wrapped once with `%w`) to let the framework handle it. Returning another error makes the middleware win.
 - Use `OnStart` for background goroutines too (jobs, mail queues) and stop them in `OnShutdown`. Do not use `init()`.

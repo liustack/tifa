@@ -285,11 +285,11 @@ func TestFailedPagesRenderWithTheErrorStatus(t *testing.T) {
 		unexpected = append(unexpected, err)
 		return tifa.Error{Status: 503, Message: "later"}
 	}
-	app.Hooks.OnRequest = func(c *tifa.Ctx) error {
+	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		if c.Query("deny") != "" {
 			return tifa.Error{Status: 401, Message: "sign in"}
 		}
-		return c.Next()
+		return next(c)
 	}
 	s, r := newFrontServer(t, app)
 
@@ -447,7 +447,9 @@ func TestDevFailedRenderShowsTheError(t *testing.T) {
 func TestDevFailedRequestShowsTheError(t *testing.T) {
 	app := frontApp()
 	app.Hooks.OnError = func(c *tifa.Ctx, err error) tifa.Error { return tifa.Error{Status: 503, Message: "Try again later"} }
-	app.Hooks.OnRequest = func(c *tifa.Ctx) error { return errors.New("open the session store: <dial> refused") }
+	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+		return errors.New("open the session store: <dial> refused")
+	}
 	s, _ := newFrontServer(t, app)
 	s.dev = http.NotFoundHandler()
 	w := get(s, "/projects/p1")
@@ -517,9 +519,9 @@ func TestRouterRedirectCarriesNoETag(t *testing.T) {
 func TestStaticFilesSkipOnRequest(t *testing.T) {
 	app := frontApp()
 	var requests int
-	app.Hooks.OnRequest = func(c *tifa.Ctx) error {
+	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		requests++
-		return c.Next()
+		return next(c)
 	}
 	s, _ := newFrontServer(t, app)
 	w := get(s, "/assets/app-1.js")
@@ -623,9 +625,9 @@ func TestFrontWithoutPagesKeepsJSONErrors(t *testing.T) {
 // The page answer varies on X-Tifa-Route as well as on whatever the application varies on.
 func TestPageKeepsTheVaryOfTheApplication(t *testing.T) {
 	app := frontApp()
-	app.Hooks.OnRequest = func(c *tifa.Ctx) error {
+	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		c.SetHeader("Vary", "Cookie")
-		return c.Next()
+		return next(c)
 	}
 	s, _ := newFrontServer(t, app)
 	for _, header := range [][]string{nil, {"X-Tifa-Route", "app/layout", "X-Tifa-Build", "b1"}} {
@@ -640,11 +642,11 @@ func TestPageKeepsTheVaryOfTheApplication(t *testing.T) {
 // A data request keeps the Cache-Control the application set, and gets private, no-cache otherwise.
 func TestDataRequestKeepsTheCacheControlOfTheApplication(t *testing.T) {
 	app := frontApp()
-	app.Hooks.OnRequest = func(c *tifa.Ctx) error {
+	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		if c.Query("private") != "" {
 			c.SetHeader("Cache-Control", "private, no-store")
 		}
-		return c.Next()
+		return next(c)
 	}
 	s, _ := newFrontServer(t, app)
 	data := []string{"X-Tifa-Route", "app/layout", "X-Tifa-Build", "b1"}

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func newCtx(method, body, contentType string, limit int64) (*Ctx, *httptest.ResponseRecorder) {
@@ -173,37 +174,38 @@ func TestRedirectIsAnErrorValue(t *testing.T) {
 	}
 }
 
-func TestNextOnlyInsideMiddleware(t *testing.T) {
+type userKey struct{}
+
+func TestWithContextReturnsACopyAndKeepsTheOriginal(t *testing.T) {
 	c, _ := newCtx("GET", "", "", 1024)
-	if err := c.Next(); err == nil {
-		t.Fatal("Next outside OnRequest must fail")
+	d := c.WithContext(context.WithValue(c.Context(), userKey{}, "lin"))
+	if d == c {
+		t.Fatal("WithContext returned the same Ctx")
 	}
-	want := errors.New("handler failed")
-	SetNext(c, func() error { return want })
-	if err := c.Next(); !errors.Is(err, want) {
-		t.Fatalf("Next returned %v", err)
+	if c.Context().Value(userKey{}) != nil {
+		t.Fatal("WithContext changed the original")
 	}
-	if err := c.Next(); err == nil {
-		t.Fatal("second Next must fail")
+	if d.Context().Value(userKey{}) != "lin" || d.Param("id") != c.Param("id") || d.Query("tab") != "all" || d.Pattern() != "/orders/{id}" {
+		t.Fatal("the copy lost the request")
 	}
 }
 
-type userKey struct{}
+var sharedLoadRuns int
 
-func TestSetContextIsSeenByHandler(t *testing.T) {
+func sharedLoad(*Ctx) (int, error) { sharedLoadRuns++; return 1, nil }
+
+// A Load that ran for the Ctx before WithContext does not run again for the copy.
+func TestWithContextCopiesShareTheRequestState(t *testing.T) {
 	c, _ := newCtx("GET", "", "", 1024)
-	SetNext(c, func() error {
-		if c.Context().Value(userKey{}) != "lin" || c.Param("id") != "" || c.Query("tab") != "all" {
-			return errors.New("context lost")
+	sharedLoadRuns = 0
+	d := c.WithContext(context.WithValue(c.Context(), userKey{}, "lin"))
+	for _, x := range []*Ctx{c, d} {
+		if _, err := Use(x, sharedLoad); err != nil {
+			t.Fatal(err)
 		}
-		return nil
-	})
-	c.SetContext(context.WithValue(c.Context(), userKey{}, "lin"))
-	if err := c.Next(); err != nil {
-		t.Fatal(err)
 	}
-	if c.Pattern() != "/orders/{id}" {
-		t.Fatalf("pattern %q", c.Pattern())
+	if sharedLoadRuns != 1 {
+		t.Fatalf("Load ran %d times", sharedLoadRuns)
 	}
 }
 
@@ -336,6 +338,89 @@ func TestWholeBodiesCarryTheirLength(t *testing.T) {
 		}
 		if got, want := w.Header().Get("Content-Length"), strconv.Itoa(w.Body.Len()); got != want {
 			t.Errorf("%s: Content-Length %q, body %s bytes", name, got, want)
+		}
+	}
+}
+
+// The copies of a Ctx share one body limit, whichever of them SetBodyLimit is called on and
+// whichever reads.
+func TestBodyLimitIsSharedByCopies(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		bodySize      int
+		limit         int64
+		setOnOriginal bool
+		wantErr       bool
+	}{
+		{"lower on the original, read from the copy", 20, 10, true, true},
+		{"lower on the copy, read from the original", 20, 10, false, true},
+		{"higher on the original, read from the copy", 100, 1000, true, false},
+		{"higher on the copy, read from the original", 100, 1000, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := newCtx("POST", strings.Repeat("x", tc.bodySize), "", 50)
+			d := c.WithContext(context.WithValue(c.Context(), userKey{}, "lin"))
+			set, read := d, c
+			if tc.setOnOriginal {
+				set, read = c, d
+			}
+			if err := set.SetBodyLimit(tc.limit); err != nil {
+				t.Fatal(err)
+			}
+			_, err := io.ReadAll(read.Request().Body)
+			var tooLarge *http.MaxBytesError
+			if tc.wantErr != errors.As(err, &tooLarge) || tc.wantErr && tooLarge.Limit != tc.limit {
+				t.Fatalf("read: %v", err)
+			}
+		})
+	}
+	// Reading from either copy ends the time to change the limit, for both.
+	c, _ := newCtx("POST", strings.Repeat("x", 100), "", 50)
+	d := c.WithContext(context.WithValue(c.Context(), userKey{}, "lin"))
+	_, _ = io.ReadAll(d.Request().Body)
+	if err := c.SetBodyLimit(1000); err == nil {
+		t.Fatal("SetBodyLimit worked after the copy read")
+	}
+}
+
+// WithContext and SetBodyLimit may run at the same time on different goroutines (a Load that
+// calls WithContext, say). -race finds no unsynchronized read of the body, and every copy made
+// after SetBodyLimit returned has the new reader.
+func TestWithContextRacesWithSetBodyLimit(t *testing.T) {
+	c, _ := newCtx("POST", strings.Repeat("x", 100), "", 50)
+	var set atomic.Bool
+	stop := make(chan struct{})
+	made := make(chan []*Ctx, 1)
+	go func() {
+		var late []*Ctx // copies that began after SetBodyLimit returned
+		for {
+			select {
+			case <-stop:
+				made <- late
+				return
+			default:
+			}
+			wasSet := set.Load()
+			d := c.WithContext(context.WithValue(c.Context(), userKey{}, "lin"))
+			if wasSet {
+				late = append(late, d)
+			}
+		}
+	}()
+	time.Sleep(time.Millisecond)
+	if err := c.SetBodyLimit(1000); err != nil {
+		t.Fatal(err)
+	}
+	set.Store(true)
+	time.Sleep(time.Millisecond)
+	close(stop)
+	late := <-made
+	if len(late) == 0 {
+		t.Fatal("no copy was made after SetBodyLimit")
+	}
+	for i, d := range late {
+		if d.Request().Body != c.Request().Body {
+			t.Fatalf("copy %d of %d made after SetBodyLimit has an older body reader", i, len(late))
 		}
 	}
 }

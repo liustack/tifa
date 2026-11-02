@@ -39,7 +39,3 @@ func NewCtx(t testing.TB, r *http.Request) (*tifa.Ctx, *httptest.ResponseRecorde
 	})
 	return c, w
 }
-
-// SetNext makes c the Ctx of OnRequest: Ctx.Next calls next once, as it is, and returns its
-// error. next stands in for the route, so it does not recover a panic or write a result.
-func SetNext(c *tifa.Ctx, next func() error) { core.SetNext(c, next) }

@@ -156,7 +156,7 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 | `c.Query(name)` | 查询参数的第一个值，没有时为 `""` |
 | `c.QueryAll(name)` | 查询参数的全部值，比如 `?tag=a&tag=b` 得到 `["a", "b"]`，没有时为 `nil` |
 | `c.Header(name)`、`c.Cookie(name)` | 请求头、请求 cookie（没有时返回 `http.ErrNoCookie`） |
-| `c.Context()`、`c.SetContext(ctx)` | 请求 context，替换它来存请求级的值 |
+| `c.Context()`、`c.WithContext(ctx)` | 请求 context，以及带着另一个 context 的 `c` 的副本，用来存请求级的值。`c` 本身不变 |
 | `c.Pattern()` | 匹配到的路由路径，比如 `/projects/{project}`，没匹配时为 `""` |
 | `c.IsData()` | 是不是浏览器路由的导航数据请求，而不是整页加载 |
 | `c.SetHeader(key, value)`、`c.SetCookie(cookie)` | 响应头、响应 cookie。`Load` 里也能用 |
@@ -164,7 +164,6 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 | `c.Redirect(url, code)` | 返回一个错误值，把它 return 出去就会重定向 |
 | `c.Bind(&v)`、`c.BindQuery(&v)` | 把请求体或查询字符串解码进结构体，见上文。`Load` 里不能用 |
 | `c.SetBodyLimit(n)` | 改这次请求的请求体上限（默认 `server.body_limit`）。要在读请求体之前调用，通常在 `OnRequest` 里。开始读以后调用会返回错误 |
-| `c.Next()` | 在 `OnRequest` 里执行匹配到的路由，只能调一次 |
 | `c.Request()`、`c.Writer()` | 原始的 `*http.Request` 和 `http.ResponseWriter`，只给方法函数和 `OnRequest` 用 |
 
 ## page.tsx
@@ -350,7 +349,7 @@ app/teams/new/page.tsx
 | `/teams/new/x` | 根 Layout 里：`new` 是字面段，`teams/new` 胜过 `teams/team+`，而这个页面在根 Layout 里 |
 
 - `name++` 目录里的页面接住它下面的所有 URL，所以这类 URL 匹配的是那个页面，回答什么由它的 `Load` 决定。
-- 没有匹配页面的 URL 也会经过 `OnRequest`，这时 `c.Pattern()` 为空。`c.Next()` 执行各层 Layout，返回 `tifa.ErrNotFound`。`OnRequest` 不调用 `c.Next()`、自己返回 `tifa.ErrNotFound` 时，任何 Layout 都不执行，页面显示得和这个 URL 最外层的 `Layout` 返回 `tifa.ErrNotFound` 时一样：根 Layout，或者它上面那个 `layout_.tsx` 的 Layout。
+- 没有匹配页面的 URL 也会经过 `OnRequest`，这时 `c.Pattern()` 为空。`next(c)` 执行各层 Layout，返回 `tifa.ErrNotFound`。`OnRequest` 不调用 `next`、自己返回 `tifa.ErrNotFound` 时，任何 Layout 都不执行，页面显示得和这个 URL 最外层的 `Layout` 返回 `tifa.ErrNotFound` 时一样：根 Layout，或者它上面那个 `layout_.tsx` 的 Layout。
 - Layout 的 `Error` 只会显示在它下面某个路由的位置，也就是这个 Layout 的 `Outlet` 里，所以它能读这个 Layout 的数据和它的组件提供的 context。Layout 失败时显示上一层 Layout 的 `Error`，根 Layout 或 `layout_.tsx` 的 Layout 失败时显示框架默认页面。
 - `page.tsx` 或 `layout.tsx` 导出 `NotFound` 时构建报错。把它显示的内容挪进 `Error`，放在 `error.status === 404` 的分支里。
 
@@ -458,7 +457,7 @@ const LayoutSSR = false // 本目录的 Layout，默认 true
 - `SSR = false`：照常执行中间件和所有 `Load`，不进 QuickJS，返回带数据的最简文档，浏览器直接渲染。`LayoutSSR = false` 作用于这个 Layout 套到的所有页面。
 - `Cache = true`：渲染结果按构建版本、URL 和数据缓存，缓存大小是 `cache.size`（见 [config.zh-CN.md](config.zh-CN.md)），数据没变时直接返回 HTML。组件渲染时不能读 `Date.now()`、`Math.random()` 这类每次不同的值，这也是 hydration 的要求。
 - `Cache = true` 的页面同时有多个请求没命中缓存，并且构建版本、URL 和数据都相同时（比如刚部署完涌进来一批访客），它们共用一次渲染。每个请求照样跑自己的中间件和 `Load`，保留它们设的响应头（比如 `Set-Cookie` 和 `Vary`），拿到自己接受的编码。`cache.size` 为 0、页面大到缓存放不下、在 `tifa dev` 下也都这样。数据不同的请求各自渲染，没有 `Cache` 的页面每个请求都渲染，因为它的 HTML 可能因用户而不同。
-- 共用的那次渲染失败时，等它的每个请求都拿到同一个错误并交给 `OnError`，panic 也一样。失败的结果不缓存，下一个请求重新渲染。客户端断开的请求立刻停止等待，连接被中断，不发响应：`OnRequest` 里 `c.Next()` 返回一个匹配 `context.Canceled` 的错误，但不调 `OnError`，也不打日志。渲染继续给其他请求用。请求自己的 deadline 在等待时到了，和别的错误一样处理。没有请求再等时，还在等 VM 的渲染就此放弃，已经在跑的跑完放进缓存。这时如果渲染失败，没有请求把它交给 `OnError`，所以错误写进日志。
+- 共用的那次渲染失败时，等它的每个请求都拿到同一个错误并交给 `OnError`，panic 也一样。失败的结果不缓存，下一个请求重新渲染。客户端断开的请求立刻停止等待，连接被中断，不发响应：`OnRequest` 里 `next(c)` 返回一个匹配 `context.Canceled` 的错误，但不调 `OnError`，也不打日志。渲染继续给其他请求用。请求自己的 deadline 在等待时到了，和别的错误一样处理。没有请求再等时，还在等 VM 的渲染就此放弃，已经在跑的跑完放进缓存。这时如果渲染失败，没有请求把它交给 `OnError`，所以错误写进日志。
 - 页面响应都带 ETag，数据没变的第二次请求带 `If-None-Match` 时答 304，和 `Cache` 无关。
 - 应用的每个回答（页面、304、404 页面、导航数据、方法处理函数、重定向）默认带 `Cache-Control: private, no-cache`，你自己设过 `Cache-Control` 的除外。CDN 和代理不会存它，因为页面可能只属于某一位访客。浏览器可以存下来，下次带着 ETag 回来问，页面没变就答 304。要改的话，在 `OnRequest`、`Load`、`Layout` 或方法处理函数里用 `c.SetHeader("Cache-Control", "...")`，你设的值原样发出。JSON 错误（包括 405 和关机时的 503）、Go 写的纯错误页、渲染失败后带错误重新渲染的页面和过载回答都是 `no-store`，你在出错之前设过 `Cache-Control` 的除外。应用渲染的 404 页面仍用默认值。`/assets/` 下的文件保持长期缓存，`public/` 里的文件保持 `no-cache`（见[页面请求](build.zh-CN.md#页面请求)）。`Cache = true` 只缓存进程内的渲染结果，不改这个头。
 
@@ -706,13 +705,14 @@ pnpm dlx shadcn@latest add button card
 ```go
 func OnStart() error                            // 开始监听之前，打开数据库、日志等
 func OnShutdown(ctx context.Context) error      // 收到退出信号、在途请求完成之后
-func OnRequest(c *tifa.Ctx) error              // 唯一的中间件，调用 c.Next() 继续
+func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error // 唯一的中间件，调用 next(c) 继续
 func OnError(c *tifa.Ctx, err error) tifa.Error // 意外错误：上报，返回能给用户看的错误
 ```
 
-- `OnRequest` 作用于页面、导航数据请求、API 路由和没匹配的 URL，不作用于静态文件，也看不到浏览器从别的网站发来的写请求：程序先用 403 拒绝它（见[跨站写请求](config.zh-CN.md#跨站写请求)）。没匹配时 `c.Pattern()` 为空，`c.Next()` 执行它的 404 所在的各层 Layout（见 [404](#404)）。
+- `OnRequest` 作用于页面、导航数据请求、API 路由和没匹配的 URL，不作用于静态文件，也看不到浏览器从别的网站发来的写请求：程序先用 403 拒绝它（见[跨站写请求](config.zh-CN.md#跨站写请求)）。没匹配时 `c.Pattern()` 为空，`next(c)` 执行它的 404 所在的各层 Layout（见 [404](#404)）。
 - 整个应用共享的资源，比如数据库连接、日志，放在应用根目录、和 `hooks.go` 并列的文件里，比如 `db.go`、`middleware.go`。每个文件构建一个包级变量或一个函数：在 `OnStart` 里初始化，在 `OnShutdown` 里释放，其他地方直接用，比如 import `example.com/myapp` 之后写 `myapp.DB`。`app/` 下的领域 import 根包来用它们。按约定，根包不 import `app/` 下的任何包，所以这样永远不会构成循环引用。模型和查询留在各自的领域里。路由代码只在函数里用这些资源，不在包级变量初始化时读。不用 `init()` 做初始化。见 [import 的方向](structure.zh-CN.md#import-的方向)。
-- 请求级的值用标准 context 写入：`c.SetContext(context.WithValue(...))`，业务包提供带类型的读取函数。
+- `next` 执行匹配到的路由，只能调一次，再调返回错误。传给它路由该看到的 `*tifa.Ctx`：`next(c)`，或者用 `next(c.WithContext(ctx))` 把请求级的值存进标准 context，和 `r.WithContext(ctx)` 对请求做的一样。`c.WithContext` 返回副本，`c` 不变。业务包提供带类型的读取函数。
+- `next` 返回的错误可以用 `errors.Is`、`errors.As` 认，重定向是 `*tifa.RedirectError`。
 
 ## 测试
 
@@ -736,7 +736,7 @@ func TestLoad(t *testing.T) {
 - `c.Param` 读的就是路径参数，用 `r.SetPathValue` 设置解码后的值。`c.Pattern()` 是调用 `NewCtx` 时的 `r.Pattern`。
 - `Load` 和 `Layout` 通过 `tifa.Use(c, Load)` 调用，这样跑起来的规则和服务端一样：同一个请求只跑一次，写响应体会失败。`Load` 里 `tifa.Use` 的 Layout 在同一个请求上跑。只有函数用 `tifa.Use` 要的 Layout 才会跑。
 - 方法函数直接调用：`POST(c)`，有入参就是 `POST(c, in)`。入参就是你传的值，所以 `Validate` 单独测。`Validate` 会改入参时，传改过的入参。
-- 测 `OnRequest` 时，`tifatest.SetNext(c, next)` 设置 `c.Next()` 调用什么：`next` 原样跑一次，它的错误就是 `c.Next()` 的返回值。它代替的是路由，所以不恢复 panic，也不写出结果。
+- 测 `OnRequest` 时直接调用它，`next` 传一个闭包：`OnRequest(c, func(c *tifa.Ctx) error { got = c.Context(); return nil })`。闭包代替的是路由，所以不恢复 panic，也不写出结果。
 - 请求体上限是 `server.body_limit` 的默认值 1 MiB，可以用 `c.SetBodyLimit` 改。测试结束时会清理请求的 multipart 临时文件。
 - `tifa build` 不读 `_test.go` 文件，所以测试可以放在 `app/` 下任何目录里。
 
@@ -747,8 +747,7 @@ func TestLoad(t *testing.T) {
 ```go
 at := time.Date(2026, 10, 22, 12, 0, 0, 123456789, time.UTC)
 ctx := tifa.WithRenderClock(c.Context(), func() time.Time { return at })
-c.SetContext(ctx)
-return c.Next()
+return next(c.WithContext(ctx))
 ```
 
 Date 和 Intl 取向下舍入的毫秒，Temporal 保留纳秒。这个时钟覆盖整个渲染，包括 promise 和 queueMicrotask，归还或替换 VM 前会清除。传 nil 恢复实时时钟。回调不能阻塞，多次渲染共用回调时必须保证并发安全。它不改变 Go 的 time.Now、超时或浏览器时钟。
@@ -757,7 +756,7 @@ Date 和 Intl 取向下舍入的毫秒，Temporal 保留纳秒。这个时钟覆
 
 模块顶层代码在 VM 预热时执行，早于请求，用的是实时时钟。顶层保存的时间值不会重新计算。顶层保存的 Date.now 函数、Temporal.Now 方法和 Intl formatter 在渲染时调用，则会读当前渲染的时钟。
 
-时钟不参与缓存键。缓存命中会跳过渲染，同键请求也可能共用一次渲染。需要显示并水合的时间应从 `Load` 返回，让服务端、缓存和浏览器使用同一份数据。`tifatest.NewCtx` 保留请求的 context，但自身不执行 SSR。可用 `tifatest.SetNext` 测试中间件传递这个 context，完整 HTML 应通过服务端请求验证。
+时钟不参与缓存键。缓存命中会跳过渲染，同键请求也可能共用一次渲染。需要显示并水合的时间应从 `Load` 返回，让服务端、缓存和浏览器使用同一份数据。`tifatest.NewCtx` 保留请求的 context，但自身不执行 SSR。可以给 `OnRequest` 传一个闭包当 `next`，测试中间件传递这个 context，完整 HTML 应通过服务端请求验证。
 
 ## Load 里 Ctx 的用法
 
@@ -775,7 +774,7 @@ Date 和 Intl 取向下舍入的毫秒，Temporal 保留纳秒。这个时钟覆
 4. 用 `:=` 或 `var x T = ...` 赋给类型完全相同的新局部变量，这个变量同样受这些规则约束。
 5. 取地址，得到的指针仍是能持有 Ctx 的类型。
 
-其他用法都会构建报错，并指出文件和行号，比如：转换成别的类型或接口，赋给已有变量，多个值一起赋值，`return` 它，放进切片、map、数组或通道，`range`，包级变量，`defer`，`go` 语句，传给泛型函数、接口方法、函数变量或模块外的函数（标准库和第三方库）。`return c.Redirect(...)`、`return c.Next()` 不受影响，返回的是方法调用的结果，不是 Ctx 本身。
+其他用法都会构建报错，并指出文件和行号，比如：转换成别的类型或接口，赋给已有变量，多个值一起赋值，`return` 它，放进切片、map、数组或通道，`range`，包级变量，`defer`，`go` 语句，传给泛型函数、接口方法、函数变量或模块外的函数（标准库和第三方库）。`return c.Redirect(...)` 不受影响，返回的是方法调用的结果，不是 Ctx 本身。
 
 `Load`、`Layout` 和它们调用的函数里不能调用 `c.Request()` 和 `c.Writer()`，通过原始请求读的参数 tifa 看不到。改用 `c.Param`、`c.Query`、`c.QueryAll`、`c.Header`、`c.Cookie` 或 `c.Context()`。这两个方法只在方法函数和 `OnRequest` 里用。
 

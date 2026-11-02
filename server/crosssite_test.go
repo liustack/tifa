@@ -18,9 +18,9 @@ import (
 // the requests it sees.
 func crossSiteApp(seen *atomic.Int32, mutate func(*config.Server)) *Server {
 	app := testApp()
-	app.Hooks.OnRequest = func(c *tifa.Ctx) error {
+	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		seen.Add(1)
-		return c.Next()
+		return next(c)
 	}
 	cfg := config.Default()
 	if mutate != nil {

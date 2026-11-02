@@ -15,9 +15,8 @@ import (
 // Exercise the public helper through middleware, tifatest and an HTTP page.
 func TestRenderClockFromMiddleware(t *testing.T) {
 	at := time.Date(2026, 10, 22, 12, 0, 0, 123456789, time.UTC)
-	middleware := func(c *tifa.Ctx) error {
-		c.SetContext(tifa.WithRenderClock(c.Context(), func() time.Time { return at }))
-		return c.Next()
+	middleware := func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+		return next(c.WithContext(tifa.WithRenderClock(c.Context(), func() time.Time { return at })))
 	}
 	cfg := config.Default().SSR
 	cfg.VMs = 1
@@ -37,7 +36,7 @@ func TestRenderClockFromMiddleware(t *testing.T) {
 	})
 	c, _ := tifatest.NewCtx(t, httptest.NewRequest("GET", "/", nil))
 	calls := 0
-	tifatest.SetNext(c, func() error {
+	err = middleware(c, func(c *tifa.Ctx) error {
 		calls++
 		html, err := pool.Render(c.Context(), ssr.Input{URL: "/"})
 		if err != nil || html != "<p>true|true|true|true</p>" {
@@ -45,7 +44,7 @@ func TestRenderClockFromMiddleware(t *testing.T) {
 		}
 		return nil
 	})
-	if err := middleware(c); err != nil {
+	if err != nil {
 		t.Fatal(err)
 	}
 	if calls != 1 {

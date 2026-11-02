@@ -90,11 +90,11 @@ func send(s *Server, method, target, body string) *httptest.ResponseRecorder {
 func TestRedirectAndNotFoundSkipOnError(t *testing.T) {
 	var onError atomic.Int32
 	s := newServer(Hooks{
-		OnRequest: func(c *tifa.Ctx) error {
+		OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 			if c.Pattern() == "" && c.Request().URL.Path == "/legacy" {
 				return c.Redirect("/orders/7", 308)
 			}
-			return c.Next()
+			return next(c)
 		},
 		OnError: func(c *tifa.Ctx, err error) tifa.Error {
 			onError.Add(1)
@@ -131,13 +131,13 @@ func TestRedirectAndNotFoundSkipOnError(t *testing.T) {
 // target. Other clients still get the 3xx.
 func TestHandlerCallRedirectIsJSON(t *testing.T) {
 	s := newServer(Hooks{
-		OnRequest: func(c *tifa.Ctx) error {
+		OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 			// An app that sets a cache header for every answer, which a redirect must not keep.
 			c.SetHeader("Cache-Control", "public, max-age=60")
 			if c.Request().URL.Path == "/private" {
 				return c.Redirect("/login?next=%2Fprivate", 302)
 			}
-			return c.Next()
+			return next(c)
 		},
 	})
 	s.Handle("POST", "/orders/{orderId}/ship", func(c *tifa.Ctx) error { return c.Redirect("../8", 303) })
@@ -220,9 +220,9 @@ func TestWithoutOnErrorUnexpectedErrorsAre500(t *testing.T) {
 
 func TestRootPathIsTheExactHomePage(t *testing.T) {
 	var patterns []string
-	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx) error {
+	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		patterns = append(patterns, c.Pattern())
-		return c.Next()
+		return next(c)
 	}})
 	s.Handle("GET", "/", func(c *tifa.Ctx) error { return c.Text(200, "home") })
 	if w := send(s, "GET", "/", ""); w.Code != 200 || w.Body.String() != "home" {
@@ -238,8 +238,8 @@ func TestRootPathIsTheExactHomePage(t *testing.T) {
 
 func TestNextReturnsHandlerError(t *testing.T) {
 	var got error
-	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx) error {
-		got = c.Next()
+	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+		got = next(c)
 		if errors.Is(got, errDatabase) {
 			return c.JSON(502, map[string]string{"error": "handled by middleware"})
 		}
@@ -255,11 +255,24 @@ func TestNextReturnsHandlerError(t *testing.T) {
 	}
 }
 
+func TestNextRunsTheRouteOnce(t *testing.T) {
+	var first, second error
+	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+		first = next(c)
+		second = next(c.WithContext(c.Context()))
+		return first
+	}})
+	send(s, "GET", "/orders/missing", "")
+	if !errors.Is(first, tifa.ErrNotFound) || second == nil || errors.Is(second, tifa.ErrNotFound) {
+		t.Fatalf("first next returned %v, second %v", first, second)
+	}
+}
+
 func TestPatternIsEmptyForUnmatchedURL(t *testing.T) {
 	var patterns []string
-	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx) error {
+	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		patterns = append(patterns, c.Pattern())
-		err := c.Next()
+		err := next(c)
 		if c.Pattern() == "" && !errors.Is(err, tifa.ErrNotFound) {
 			t.Errorf("Next on an unmatched URL returned %v", err)
 		}
@@ -279,13 +292,13 @@ func TestPatternIsEmptyForUnmatchedURL(t *testing.T) {
 }
 
 func TestBodyLimitAppliesToBind(t *testing.T) {
-	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx) error {
+	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		if c.Pattern() == "/uploads" {
 			if err := c.SetBodyLimit(1 << 10); err != nil {
 				return err
 			}
 		}
-		return c.Next()
+		return next(c)
 	}})
 	large := `{"note":"` + strings.Repeat("x", 100) + `"}`
 	if w := send(s, "POST", "/orders/1", large); w.Code != http.StatusRequestEntityTooLarge {
@@ -364,14 +377,15 @@ func TestRunStopsWhenOnStartFails(t *testing.T) {
 
 type ctxKey struct{}
 
-func TestMultipartTempFilesAreRemovedAfterSetContext(t *testing.T) {
+func TestMultipartTempFilesAreRemovedAfterWithContext(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("TMPDIR", tmp)
 	cfg := config.Default()
 	cfg.Server.BodyLimit = 64 << 20
-	s := New(cfg, Hooks{OnRequest: func(c *tifa.Ctx) error {
-		c.SetContext(context.WithValue(c.Context(), ctxKey{}, "user"))
-		return c.Next()
+	s := New(cfg, Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+		// Two copies, both of which may hold multipart files.
+		c = c.WithContext(context.WithValue(c.Context(), ctxKey{}, "user"))
+		return next(c.WithContext(context.WithValue(c.Context(), ctxKey{}, "again")))
 	}})
 	s.Handle("POST", "/bind", func(c *tifa.Ctx) error {
 		var in order
@@ -437,8 +451,8 @@ func TestInformationalResponseDoesNotCountAsWritten(t *testing.T) {
 
 func TestMuxRedirectsGoThroughOnRequest(t *testing.T) {
 	var seen []string
-	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx) error {
-		err := c.Next()
+	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+		err := next(c)
 		seen = append(seen, c.Request().URL.Path+" "+c.Pattern())
 		return err
 	}})
@@ -549,9 +563,9 @@ func TestFlushCountsAsWritten(t *testing.T) {
 
 func TestMuxNotFoundIsAnUnmatchedURL(t *testing.T) {
 	var patterns []string
-	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx) error {
+	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		patterns = append(patterns, c.Pattern())
-		return c.Next()
+		return next(c)
 	}})
 	r := httptest.NewRequest("CONNECT", "example.com:443", nil)
 	w := httptest.NewRecorder()
@@ -808,9 +822,9 @@ func TestRunRefusesLegacyServeMux(t *testing.T) {
 // specific routes still win.
 func TestRootCatchAllCoexistsWithUnmatchedHandling(t *testing.T) {
 	var patterns []string
-	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx) error {
+	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		patterns = append(patterns, c.Pattern())
-		return c.Next()
+		return next(c)
 	}})
 	s.Handle("GET", "/{rest...}", func(c *tifa.Ctx) error { return c.Text(200, "rest="+c.Param("rest")) })
 	if w := send(s, "GET", "/any/where", ""); w.Code != 200 || w.Body.String() != "rest=any/where" {

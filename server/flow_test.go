@@ -15,7 +15,7 @@ var errDenied = errors.New("permission denied")
 
 // secretApp has a root Layout whose Load refuses ?deny=1 and a page whose own Load does not
 // depend on it and returns sensitive data.
-func secretApp(onRequest func(c *tifa.Ctx) error, onError *[]error) App {
+func secretApp(onRequest func(c *tifa.Ctx, next func(*tifa.Ctx) error) error, onError *[]error) App {
 	return App{
 		Hooks: Hooks{
 			OnRequest: onRequest,
@@ -42,8 +42,8 @@ var secretData = []string{"X-Tifa-Route", "app/layout,app/secret", "X-Tifa-Build
 func TestDataRequestFailsNextLikeThePage(t *testing.T) {
 	var reported []error
 	var seen []error
-	s, _ := newFrontServer(t, secretApp(func(c *tifa.Ctx) error {
-		err := c.Next()
+	s, _ := newFrontServer(t, secretApp(func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+		err := next(c)
 		seen = append(seen, err)
 		if err != nil {
 			return tifa.Error{Status: 403, Message: "denied"}
@@ -74,8 +74,8 @@ func TestDataRequestFailsNextLikeThePage(t *testing.T) {
 func TestDataRequestAnswersByRouteWhenNextFailsUnhandled(t *testing.T) {
 	var reported []error
 	var order []string
-	app := secretApp(func(c *tifa.Ctx) error {
-		err := c.Next()
+	app := secretApp(func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+		err := next(c)
 		order = append(order, "OnRequest returns")
 		return err
 	}, &reported)
@@ -106,11 +106,11 @@ func TestDataRequestAnswersByRouteWhenNextFailsUnhandled(t *testing.T) {
 // which fetch would follow with the headers of the old page.
 func TestDataRequestRedirectIsJSON(t *testing.T) {
 	var reported []error
-	s, _ := newFrontServer(t, secretApp(func(c *tifa.Ctx) error {
+	s, _ := newFrontServer(t, secretApp(func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		if _, err := c.Cookie("session"); err != nil {
 			return c.Redirect("/login", 302)
 		}
-		return c.Next()
+		return next(c)
 	}, &reported))
 	w := get(s, "/secret", secretData...)
 	if w.Code != 200 || w.Header().Get("Location") != "" || strings.TrimSpace(w.Body.String()) != `{"redirect":"/login","status":302}` {
@@ -149,11 +149,11 @@ func TestFailedErrorPageGoesToOnError(t *testing.T) {
 // something else.
 func TestDataRequestResolvesARelativeRedirect(t *testing.T) {
 	var reported []error
-	s, _ := newFrontServer(t, secretApp(func(c *tifa.Ctx) error {
+	s, _ := newFrontServer(t, secretApp(func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		if c.Query("away") != "" {
 			return c.Redirect("login?next=1", 302)
 		}
-		return c.Next()
+		return next(c)
 	}, &reported))
 	w := get(s, "/secret?away=1", secretData...)
 	if w.Code != 200 || strings.TrimSpace(w.Body.String()) != `{"redirect":"/login?next=1","status":302}` {
@@ -186,11 +186,11 @@ func TestDataRequestResolvesARelativeRedirect(t *testing.T) {
 // with pages too, not the 3xx a page request gets.
 func TestHandlerCallRedirectOfOnRequestIsJSON(t *testing.T) {
 	var reported []error
-	s, _ := newFrontServer(t, secretApp(func(c *tifa.Ctx) error {
+	s, _ := newFrontServer(t, secretApp(func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		if _, err := c.Cookie("session"); err != nil {
 			return c.Redirect("/login", 303)
 		}
-		return c.Next()
+		return next(c)
 	}, &reported))
 	r := httptest.NewRequest("POST", "/secret", strings.NewReader("{}"))
 	r.Header.Set("X-Tifa-Call", "1")

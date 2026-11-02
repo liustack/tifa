@@ -37,7 +37,7 @@ func Load(c *tifa.Ctx) (string, error) {
 	x = c
 	global = c
 	g := global.Query("g")
-	defer x.Next()
+	defer x.SetBodyLimit(1)
 	defer takeAny(c)
 	got, _ := twice(c)
 	ret := func() *tifa.Ctx { return c }

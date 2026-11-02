@@ -81,11 +81,11 @@ func TestHandlersAnswerPrivateNoCache(t *testing.T) {
 // handler stays, and so does one set before a handler writes by hand.
 func TestApplicationCacheControlIsNotReplaced(t *testing.T) {
 	app := frontApp()
-	app.Hooks.OnRequest = func(c *tifa.Ctx) error {
+	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		if c.Query("hook") != "" {
 			c.SetHeader("Cache-Control", "public, max-age=60")
 		}
-		return c.Next()
+		return next(c)
 	}
 	app.Routes = append(app.Routes, Route{ID: "app/loaded", Path: "/loaded", Page: true, SSR: true, Layouts: []string{"app/layout"},
 		Load: func(c *tifa.Ctx) (any, error) {
@@ -150,11 +150,11 @@ func TestErrorAnswersSayNoStore(t *testing.T) {
 			want = set
 		}
 		app := frontApp()
-		app.Hooks.OnRequest = func(c *tifa.Ctx) error {
+		app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 			if set != "" {
 				c.SetHeader("Cache-Control", set)
 			}
-			return c.Next()
+			return next(c)
 		}
 		app.Hooks.OnError = func(c *tifa.Ctx, err error) tifa.Error { return tifa.Error{Status: 500, Message: "oops"} }
 		app.Routes = append(app.Routes,
@@ -199,7 +199,9 @@ func TestErrorAnswersSayNoStore(t *testing.T) {
 // The plain page a Go-only failure ends in, such as a failing OnRequest on a page.
 func TestPlainErrorPageSaysNoStore(t *testing.T) {
 	app := frontApp()
-	app.Hooks.OnRequest = func(c *tifa.Ctx) error { return tifa.Error{Status: 429, Message: "slow down"} }
+	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+		return tifa.Error{Status: 429, Message: "slow down"}
+	}
 	s, _ := newFrontServer(t, app)
 	w := get(s, "/projects/p1")
 	if w.Code != 429 || !strings.Contains(w.Body.String(), "<h1>429") || cacheControl(w) != "no-store" {

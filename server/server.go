@@ -31,7 +31,7 @@ import (
 type Hooks struct {
 	OnStart    func() error
 	OnShutdown func(ctx context.Context) error
-	OnRequest  func(c *tifa.Ctx) error
+	OnRequest  func(c *tifa.Ctx, next func(*tifa.Ctx) error) error
 	OnError    func(c *tifa.Ctx, err error) tifa.Error
 }
 
@@ -210,8 +210,20 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, pattern string, p
 	if s.hooks.OnRequest == nil {
 		err = route(c)
 	} else {
-		core.SetNext(c, func() error { return route(c) })
-		err = recovered(func() error { return s.hooks.OnRequest(c) })
+		var called atomic.Bool
+		var routed atomic.Pointer[tifa.Ctx]
+		next := func(nc *tifa.Ctx) error {
+			if !called.CompareAndSwap(false, true) {
+				return errors.New("tifa: next called more than once")
+			}
+			routed.Store(nc)
+			return route(nc)
+		}
+		err = recovered(func() error { return s.hooks.OnRequest(c, next) })
+		// The error flow sees what the route saw: the Ctx that OnRequest gave to next.
+		if rc := routed.Load(); rc != nil {
+			c = rc
+		}
 	}
 	if err != nil {
 		page = page && s.pagesServed() && (r.Method == "GET" || r.Method == "HEAD") && !c.IsData()

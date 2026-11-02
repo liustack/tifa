@@ -78,22 +78,22 @@ cache:
 
 所有 VM 都忙时，最多允许 `ssr.queue_limit` 次渲染等待空闲 VM，每次最多等 `ssr.wait_timeout`。先碰到哪项限制，就按哪项拒绝。默认最多排队 32 次，最多等待 1 秒。`ssr.timeout` 仍然只限制 VM 内的执行时间，默认 3 秒。客户端取消或池关闭也会结束等待。
 
-过载响应由 Go 写出简单的 HTML，状态码为 503，带 `Retry-After: 1` 和 `Cache-Control: no-store`，不带 ETag。它不会进入缓存，不会再次调用 VM，也不会交给 `OnError`。`OnRequest` 可以处理 `Next` 返回的错误。404 和错误页的渲染使用相同限制。真正的渲染失败和渲染超时仍交给 `OnError`。
+过载响应由 Go 写出简单的 HTML，状态码为 503，带 `Retry-After: 1` 和 `Cache-Control: no-store`，不带 ETag。它不会进入缓存，不会再次调用 VM，也不会交给 `OnError`。`OnRequest` 可以处理 `next(c)` 返回的错误。404 和错误页的渲染使用相同限制。真正的渲染失败和渲染超时仍交给 `OnError`。
 
 应用代码可用 `errors.Is(err, tifa.ErrSSRBusy)` 判断渲染是否被拒绝，错误被包装后也能匹配。例如在 `OnRequest` 中记录过载：
 
 ```go
 import (
     "errors"
-    "log"
+    "log/slog"
 
     "github.com/liustack/tifa"
 )
 
-func OnRequest(c *tifa.Ctx) error {
-    err := c.Next()
+func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+    err := next(c)
     if errors.Is(err, tifa.ErrSSRBusy) {
-        log.Printf("SSR queue busy: %s", c.Request().URL.Path)
+        slog.WarnContext(c.Context(), "SSR queue busy", "path", c.Request().URL.Path)
     }
     return err
 }

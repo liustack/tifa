@@ -79,7 +79,7 @@ func TestLoadNotFound(t *testing.T) {
 
 ## Middleware
 
-For `OnRequest`, `tifatest.SetNext(c, next)` sets what `c.Next()` calls. `next` runs once, as given, and its error is what `c.Next()` returns. It stands in for the route, so it does not recover a panic or write a result.
+Call `OnRequest` directly and pass a closure as `next`. The closure stands in for the route, so it does not recover a panic or write a result.
 
 ```go
 func TestOnRequestRedirectsAnonymous(t *testing.T) {
@@ -87,8 +87,7 @@ func TestOnRequestRedirectsAnonymous(t *testing.T) {
 	r.Pattern = "/admin"
 	c, _ := tifatest.NewCtx(t, r)
 	called := false
-	tifatest.SetNext(c, func() error { called = true; return nil })
-	if err := OnRequest(c); err == nil || called {
+	if err := OnRequest(c, func(*tifa.Ctx) error { called = true; return nil }); err == nil || called {
 		t.Fatal("want a redirect and no route run")
 	}
 }
@@ -100,8 +99,7 @@ Only for tests and apps that need a fixed time in server renders. Set a clock on
 
 ```go
 at := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
-c.SetContext(tifa.WithRenderClock(c.Context(), func() time.Time { return at }))
-return c.Next()
+return next(c.WithContext(tifa.WithRenderClock(c.Context(), func() time.Time { return at })))
 ```
 
 It covers `Date`, `Temporal.Now` and Intl formatting without a date for the whole render. It does not change Go's `time.Now`. Returning displayed times from `Load` is still the right way to keep SSR, cache and hydration equal.

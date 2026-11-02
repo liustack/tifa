@@ -14,7 +14,7 @@ import (
 // flowFiles extend a copy of test/apps/pages with the failures the error flow must handle in
 // the real QuickJS VM: a page component that throws, one whose Error throws too, a root Error
 // that never returns for a 404, a Layout Load that refuses, a middleware that redirects and one
-// that refuses on any error of Next.
+// that refuses on any error of next.
 var flowFiles = map[string]string{
 	"tifa.yaml": "ssr:\n  timeout: 1s\n",
 	"hooks.go": `package pagestest
@@ -26,13 +26,13 @@ import (
 	"github.com/liustack/tifa"
 )
 
-func OnRequest(c *tifa.Ctx) error {
+func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 	if c.Request().URL.Path == "/members" {
 		if _, err := c.Cookie("session"); err != nil {
 			return c.Redirect("/", 302)
 		}
 	}
-	err := c.Next()
+	err := next(c)
 	if err != nil && c.Query("strict") != "" && strings.Contains(err.Error(), "permission denied") {
 		return tifa.Error{Status: 403, Message: "refused by the middleware"}
 	}

@@ -55,8 +55,8 @@ func TestBusyRenderAnswers503(t *testing.T) {
 
 func TestMiddlewareCanHandleBusyRender(t *testing.T) {
 	var reported []error
-	app := secretApp(func(c *tifa.Ctx) error {
-		if err := c.Next(); errors.Is(err, tifa.ErrSSRBusy) {
+	app := secretApp(func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+		if err := next(c); errors.Is(err, tifa.ErrSSRBusy) {
 			return tifa.Error{Status: 429, Message: "try later"}
 		} else {
 			return err

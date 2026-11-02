@@ -78,22 +78,22 @@ Run `./bin/app config` to print the merged settings of all sources as a commente
 
 When every VM is busy, at most `ssr.queue_limit` renders wait for up to `ssr.wait_timeout`. The first limit reached rejects the render. The default is 32 waiting renders and a 1 second wait. `ssr.timeout` still limits only execution in a VM, to 3 seconds by default. A client cancel or pool shutdown also ends a wait.
 
-Overload answers use a small HTML page written by Go, status 503, `Retry-After: 1` and `Cache-Control: no-store`, without an ETag. They are not cached, rendered again or sent to `OnError`. `OnRequest` can handle the error returned by `Next`. A render of a 404 or an error page uses the same limits. An actual render failure or render timeout still goes to `OnError`.
+Overload answers use a small HTML page written by Go, status 503, `Retry-After: 1` and `Cache-Control: no-store`, without an ETag. They are not cached, rendered again or sent to `OnError`. `OnRequest` can handle the error returned by `next(c)`. A render of a 404 or an error page uses the same limits. An actual render failure or render timeout still goes to `OnError`.
 
 App code can match a rejected render with `errors.Is(err, tifa.ErrSSRBusy)`, including wrapped errors. For example, record overload in `OnRequest`:
 
 ```go
 import (
     "errors"
-    "log"
+    "log/slog"
 
     "github.com/liustack/tifa"
 )
 
-func OnRequest(c *tifa.Ctx) error {
-    err := c.Next()
+func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+    err := next(c)
     if errors.Is(err, tifa.ErrSSRBusy) {
-        log.Printf("SSR queue busy: %s", c.Request().URL.Path)
+        slog.WarnContext(c.Context(), "SSR queue busy", "path", c.Request().URL.Path)
     }
     return err
 }
