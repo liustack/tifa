@@ -187,3 +187,9 @@ func containsTypeParam(t types.Type) bool {
 	return found
 }
 
+// isSessionWrite reports whether fn is tifa.SetSession or tifa.ClearSession, which change the
+// cookie of the response and so cannot run in Load, Layout or what they call.
+func isSessionWrite(fn *types.Func) bool {
+	return fn.Pkg() != nil && fn.Pkg().Path() == tifaPath && fn.Signature().Recv() == nil &&
+		(fn.Name() == "SetSession" || fn.Name() == "ClearSession")
+}

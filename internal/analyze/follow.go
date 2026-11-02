@@ -3,7 +3,9 @@ package analyze
 import (
 	"go/ast"
 	"go/constant"
+	"go/token"
 	"go/types"
+	"slices"
 	"strings"
 
 	"golang.org/x/tools/go/packages"
@@ -24,6 +26,7 @@ type loadWalk struct {
 	load    *Load
 	uses    []paramUse
 	visited map[string]bool // followed functions by full name, against recursion
+	unrun   []*ast.FuncLit  // closures of the body being walked that are declared and not called on the spot
 }
 
 // useCall is a tifa.Use call in a helper, checked against the directory of the Load that reaches it.
@@ -46,6 +49,9 @@ func (a *analyzer) walkLoad(pkg *packages.Package, owner string, layout bool, lo
 }
 
 func (w *loadWalk) body(info *types.Info, body *ast.BlockStmt, helper bool) {
+	saved := w.unrun
+	defer func() { w.unrun = saved }()
+	w.unrun = unrunClosures(body)
 	ast.Inspect(body, func(n ast.Node) bool {
 		switch n := n.(type) {
 		case *ast.GoStmt:
@@ -94,6 +100,10 @@ func (w *loadWalk) call(info *types.Info, call *ast.CallExpr, helper bool) {
 	if fn, ok := typeutil.Callee(info, call).(*types.Func); ok {
 		if why := refusedInLoad(fn); why != "" {
 			a.errorAt(call.Pos(), "%s", why)
+			return
+		}
+		if isSessionWrite(fn) && !w.inUnrunClosure(call.Pos()) {
+			a.errorAt(call.Pos(), "tifa.%s cannot run in Load, Layout or the functions they call: it changes the cookie of the response, and a page load or a data request must not sign anyone in or out. Call it in OnRequest before next, or in a method handler (POST, PUT, PATCH, DELETE)", fn.Name())
 			return
 		}
 	}
@@ -255,4 +265,29 @@ func refusedInLoad(fn *types.Func) string {
 		return `c.Bind reads the request body, which a page load and the data request of a navigation do not have: in Load and the functions it calls, read query parameters with c.Query("name") or c.QueryAll("name"). c.Bind is for the POST, PUT, PATCH and DELETE handlers`
 	}
 	return ""
+}
+
+// unrunClosures returns the function literals in body that nothing calls where they are written.
+// What such a closure does depends on who runs it, which the analyzer does not follow, so a
+// sign-in or sign-out inside it is not a violation of the Load.
+func unrunClosures(body *ast.BlockStmt) []*ast.FuncLit {
+	called := map[*ast.FuncLit]bool{}
+	var lits []*ast.FuncLit
+	ast.Inspect(body, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.CallExpr:
+			if lit, ok := ast.Unparen(n.Fun).(*ast.FuncLit); ok {
+				called[lit] = true
+			}
+		case *ast.FuncLit:
+			lits = append(lits, n)
+		}
+		return true
+	})
+	return slices.DeleteFunc(lits, func(l *ast.FuncLit) bool { return called[l] })
+}
+
+// inUnrunClosure reports whether pos is inside a closure of the body that is not called where it is written.
+func (w *loadWalk) inUnrunClosure(pos token.Pos) bool {
+	return slices.ContainsFunc(w.unrun, func(l *ast.FuncLit) bool { return l.Pos() <= pos && pos < l.End() })
 }

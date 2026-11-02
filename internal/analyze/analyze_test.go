@@ -429,6 +429,14 @@ func TestViolations(t *testing.T) {
 		{"sessionbrowserchan", [][]string{
 			{"app/page/route.go:12:", "Browser result", "Public.Ch", "chan"},
 		}},
+		{"sessionload", [][]string{
+			{"app/route.go:5:", "tifa.ClearSession", "Layout", "OnRequest"},
+			{"app/page/route.go:12:", "tifa.SetSession", "Load", "method handler"},
+			{"internal/auth/auth.go:5:", "tifa.ClearSession", "Load"},
+		}},
+		{"sessionliveclosure", [][]string{
+			{"app/page/route.go:8:", "tifa.ClearSession", "Load"},
+		}},
 		{"sessionhidden", [][]string{
 			{"app/page/route.go:8:", "tifa.SetSession", "type parameter"},
 		}},
@@ -979,3 +987,9 @@ func TestSessionInManifest(t *testing.T) {
 	}
 }
 
+// A closure that Load declares and never runs does not sign anyone in or out.
+func TestSessionWriteInUnrunClosure(t *testing.T) {
+	if _, err := analyzeApp(t, "sessiondeadclosure"); err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+}
