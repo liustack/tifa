@@ -23,7 +23,12 @@ import (
 // render. After that the next request makes a new one, the requests that come meanwhile wait for it,
 // and when making it fails the old one stands in for a day.
 
-const ()
+const (
+	// staleIfError is how long after its time an entry may stand in for a page that fails.
+	staleIfError = 24 * time.Hour
+	// hitForMiss is how long requests skip the cache of a page whose result cannot be stored.
+	hitForMiss = 2 * time.Minute
+)
 
 // wholePage is what an entry of the whole-page cache stands for besides the HTML.
 type wholePage struct {
@@ -35,8 +40,9 @@ type wholePage struct {
 	etag string
 	// routes holds the data of every Load of the page as JSON text, in the order of the chain.
 	routes []wholeRoute
-	// created is when the entry was made and expires when its time is over.
-	created, expires time.Time
+	// created is when the entry was made, expires when its time is over and staleUntil when it
+	// stops standing in for a failed page.
+	created, expires, staleUntil time.Time
 }
 
 // wholeRoute is the JSON text of the data of one Load, by route ID.
@@ -104,7 +110,11 @@ func (s *Server) cachedPageRequest(c *tifa.Ctx, route Route, chain []load, ttl t
 	}
 	var got fetched
 	var err error
-	{
+	if s.cache.bypassed(key, cacheNow()) {
+		var page cachedPage
+		page, _, err = generate(rq.Context())
+		got = fetched{page: page, how: "vm"}
+	} else {
 		unheard := func(err error) {
 			core.Logger().ErrorContext(c.Context(), "tifa: a page was being made for the cache and no request waits for it", "method", rq.Method, "path", rq.URL.Path, "err", err)
 		}
@@ -114,9 +124,39 @@ func (s *Server) cachedPageRequest(c *tifa.Ctx, route Route, chain []load, ttl t
 		if errors.Is(err, context.Canceled) && rq.Context().Err() != nil {
 			return errClientGone
 		}
-		return s.pageFailure(c, err, selected)
+		old, ok := s.cache.stale(key, cacheNow())
+		if !ok || !regenerationFailed(err) {
+			return s.pageFailure(c, err, selected)
+		}
+		core.Logger().WarnContext(c.Context(), "tifa: making the page failed, the old page is served", "method", rq.Method, "path", rq.URL.Path, "err", err)
+		got = fetched{page: old, held: true, how: "cache"}
 	}
 	return s.respondPage(c, got, selected)
+}
+
+// regenerationFailed reports whether err means making a page failed, as opposed to the answer of
+// the page: a redirect, a 404 or another error the app returns on purpose is the page.
+func regenerationFailed(err error) bool {
+	var lf *loadFailure
+	if errors.As(err, &lf) {
+		return loadFailed(lf.errs[lf.failed])
+	}
+	var re *renderError
+	return errors.As(err, &re) || errors.Is(err, tifa.ErrSSRBusy) || errors.Is(err, context.DeadlineExceeded)
+}
+
+// loadFailed reports whether the error of a Load is a failure and not an answer: anything but a
+// redirect, tifa.ErrNotFound, field errors and a tifa.Error below 500.
+func loadFailed(err error) bool {
+	var redirect *core.RedirectError
+	var e tifa.Error
+	switch {
+	case errors.As(err, &redirect), errors.Is(err, tifa.ErrNotFound), isFields(err):
+		return false
+	case asPublic(err, &e):
+		return e.Status >= http.StatusInternalServerError
+	}
+	return true
 }
 
 // pageFailure turns the error of making a page into the error this request answers. The failure of
@@ -170,7 +210,7 @@ func (s *Server) generate(ctx context.Context, base *http.Request, pattern strin
 	c := core.New(&headerOnly{h: headers}, rq, pattern, s.cfg.BodyLimit)
 	core.SetAnonymous(c)
 	created := cacheNow()
-	entry := &wholePage{created: created, expires: created.Add(ttl)}
+	entry := &wholePage{created: created, expires: created.Add(ttl), staleUntil: created.Add(ttl + staleIfError)}
 
 	items, err := runChain(c, chain, route.SSR, route.Path)
 	if err != nil {
@@ -180,6 +220,11 @@ func (s *Server) generate(ctx context.Context, base *http.Request, pattern strin
 			if errors.As(lf.errs[lf.failed], &redirect) {
 				entry.status, entry.location = redirect.Code, redirectLocation(rq, redirect.URL, redirect.Code)
 				return s.redirectEntry(key, entry, appStorable, headers)
+			}
+			if !loadFailed(lf.errs[lf.failed]) {
+				// An answer of the app, a 404 for one, replaces the page that was kept.
+				s.cache.markBypass(key, created.Add(hitForMiss))
+				s.cache.remove(key)
 			}
 		}
 		return cachedPage{}, false, err
@@ -236,13 +281,21 @@ func (s *Server) generate(ctx context.Context, base *http.Request, pattern strin
 	}
 	entry.status = http.StatusOK
 	page.whole = entry
-	return page, held && appStorable && headersStorable(headers), nil
+	storable := appStorable && headersStorable(headers)
+	if !storable {
+		s.cache.markBypass(key, created.Add(hitForMiss))
+	}
+	return page, held && storable, nil
 }
 
 // redirectEntry returns the entry of a redirect. It is kept when its status is one that is stored and
-// the headers of the app allow it.
+// the headers of the app allow it. Otherwise requests skip the cache of the page for a while.
 func (s *Server) redirectEntry(key string, entry *wholePage, appStorable bool, headers http.Header) (cachedPage, bool, error) {
-	return cachedPage{whole: entry}, storableStatus(entry.status) && appStorable && headersStorable(headers), nil
+	storable := storableStatus(entry.status) && appStorable && headersStorable(headers)
+	if !storable {
+		s.cache.markBypass(key, entry.created.Add(hitForMiss))
+	}
+	return cachedPage{whole: entry}, storable, nil
 }
 
 // renderEntry renders the page of an entry, through the render cache unless the page turned it

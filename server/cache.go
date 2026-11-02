@@ -24,6 +24,9 @@ type htmlCache struct {
 	pages map[string]*list.Element
 	// flights holds the renders of pages not in the cache yet, by key.
 	flights map[string]*flight
+	// bypass holds, by page key, until when requests skip the cache of that page: its last result
+	// could not be stored, see markBypass.
+	bypass map[string]time.Time
 	// Hooks of the tests, nil otherwise: fetching runs as fetch starts, landing between storing
 	// a render and ending its flight.
 	fetching, landing func()
@@ -68,7 +71,7 @@ func (p cachedPage) size() int64 {
 func (p cachedPage) fresh(now time.Time) bool { return p.whole == nil || now.Before(p.whole.expires) }
 
 func newHTMLCache(size int64) *htmlCache {
-	return &htmlCache{size: size, order: list.New(), pages: map[string]*list.Element{}, flights: map[string]*flight{}}
+	return &htmlCache{size: size, order: list.New(), pages: map[string]*list.Element{}, flights: map[string]*flight{}, bypass: map[string]time.Time{}}
 }
 
 func (c *htmlCache) get(key string) (cachedPage, bool) {
@@ -120,6 +123,66 @@ func (c *htmlCache) removeLocked(key string) {
 		delete(c.pages, key)
 	}
 }
+
+// remove drops the page of key.
+func (c *htmlCache) remove(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.removeLocked(key)
+}
+
+// stale returns the page of key even when its time is over, as long as it is within the time a
+// page may stand in for a failed one (staleIfError after its time ended). Only pages of the
+// whole-page cache qualify.
+func (c *htmlCache) stale(key string, now time.Time) (cachedPage, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.pages[key]
+	if !ok {
+		return cachedPage{}, false
+	}
+	page := e.Value.(*cached).page
+	if page.whole == nil || !now.Before(page.whole.staleUntil) {
+		return cachedPage{}, false
+	}
+	c.order.MoveToFront(e)
+	return page, true
+}
+
+// markBypass has requests for key skip the cache until the time given: a page whose result cannot
+// be stored would otherwise make every request wait for the one before it (Varnish calls this
+// hit-for-miss).
+func (c *htmlCache) markBypass(key string, until time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.bypass) >= maxBypass {
+		now := cacheNow()
+		for k, t := range c.bypass {
+			if !now.Before(t) {
+				delete(c.bypass, k)
+			}
+		}
+		if len(c.bypass) >= maxBypass {
+			return
+		}
+	}
+	c.bypass[key] = until
+}
+
+// bypassed reports whether requests for key skip the cache at now.
+func (c *htmlCache) bypassed(key string, now time.Time) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	until, ok := c.bypass[key]
+	if ok && !now.Before(until) {
+		delete(c.bypass, key)
+		return false
+	}
+	return ok
+}
+
+// maxBypass bounds the pages whose cache is skipped.
+const maxBypass = 4096
 
 // fetched is a page fetch answers with. held reports that the cache keeps it or could, and how
 // says where it came from: cache, vm for a render the request started, or shared for one another
@@ -199,6 +262,10 @@ func (c *htmlCache) fly(ctx context.Context, key string, f *flight, unheard func
 		c.mu.Lock()
 		if f.err == nil && f.held {
 			c.putLocked(key, f.page)
+		} else if f.err == nil {
+			// A result that cannot be kept replaces the page it came instead of: the page is
+			// gone or has changed to something else, and must not come back as the old one.
+			c.removeLocked(key)
 		}
 		if c.landing != nil {
 			c.landing()

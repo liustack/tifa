@@ -1,6 +1,9 @@
 package server
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -12,6 +15,7 @@ import (
 
 	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/internal/config"
+	"github.com/liustack/tifa/internal/ssr"
 )
 
 // cacheClock replaces the clock of the whole-page cache and moves only when told to.
@@ -173,8 +177,102 @@ func TestExpiredPageIsMadeAgainOnceWhileRequestsWait(t *testing.T) {
 
 // When making the page fails after its time is over, the old page is served: for a Load that
 // fails, a render that fails, one that runs out of time and an overloaded pool.
+func TestFailedRemakeServesTheOldPage(t *testing.T) {
+	for name, fail := range map[string]func(e *pageEnv){
+		"Load fails": func(e *pageEnv) {
+			e.setLoad(func(c *tifa.Ctx, n int64) (any, error) { return nil, errors.New("database down") })
+		},
+		"Load fails with a 503": func(e *pageEnv) {
+			e.setLoad(func(c *tifa.Ctx, n int64) (any, error) { return nil, tifa.Error{Status: 503, Message: "busy"} })
+		},
+		"render fails": func(e *pageEnv) {
+			e.r.result = func(in ssr.Input) (string, error) { return "", errors.New("component threw") }
+		},
+		"render times out": func(e *pageEnv) {
+			e.r.result = func(in ssr.Input) (string, error) { return "", fmt.Errorf("render: %w", context.DeadlineExceeded) }
+		},
+		"pool is busy": func(e *pageEnv) {
+			e.r.result = func(in ssr.Input) (string, error) { return "", tifa.ErrSSRBusy }
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newPageEnv(t)
+			old := get(e.s, "/news")
+			oldData := getData(e.s, "/news", "b1", "11")
+			e.clock.advance(61 * time.Second)
+			fail(e)
+			w := get(e.s, "/news")
+			if w.Code != 200 || w.Body.String() != old.Body.String() {
+				t.Fatalf("%d %s, %v", w.Code, w.Body.String(), w.Header())
+			}
+			// The navigation gets the old data too.
+			d := getData(e.s, "/news", "b1", "11")
+			if d.Code != 200 {
+				t.Errorf("data: %d %s", d.Code, d.Body.String())
+			}
+			if routesOf(t, d)["app/news"].Data.(map[string]any)["n"].(float64) != routesOf(t, oldData)["app/news"].Data.(map[string]any)["n"].(float64) {
+				t.Errorf("data %s, was %s", d.Body.String(), oldData.Body.String())
+			}
+			// When it works again the page is new.
+			e.r.result = nil
+			e.setLoad(func(c *tifa.Ctx, n int64) (any, error) { return map[string]int64{"n": 100}, nil })
+			if w := get(e.s, "/news"); w.Code != 200 || !strings.Contains(w.Body.String(), `"n":100`) {
+				t.Errorf("after the fix: %d %s %v", w.Code, w.Body.String(), w.Header())
+			}
+		})
+	}
+}
+
+func TestFailedRemakeWithoutAnOldPageIsAnError(t *testing.T) {
+	e := newPageEnv(t)
+	e.setLoad(func(c *tifa.Ctx, n int64) (any, error) { return nil, errors.New("database down") })
+	if w := get(e.s, "/news"); w.Code != 500 || w.Header().Get("Cache-Control") == "" || strings.Contains(w.Header().Get("Cache-Control"), "public") {
+		t.Errorf("%d %v", w.Code, w.Header())
+	}
+	if w := get(e.s, "/news"); w.Code != 500 {
+		t.Errorf("an error was kept: %d", w.Code)
+	}
+}
+
 // An answer the app gives on purpose is the page, not a failure, so the old one is not served
 // in its place, and it does not come back later.
+func TestAnswersOfTheAppReplaceTheOldPage(t *testing.T) {
+	e := newPageEnv(t)
+	get(e.s, "/news")
+	e.clock.advance(61 * time.Second)
+	e.setLoad(func(c *tifa.Ctx, n int64) (any, error) { return nil, tifa.ErrNotFound })
+	if w := get(e.s, "/news"); w.Code != 404 {
+		t.Fatalf("404: %d %v", w.Code, w.Header())
+	}
+	// The page then fails: the deleted page does not return as the old one.
+	e.setLoad(func(c *tifa.Ctx, n int64) (any, error) { return nil, errors.New("database down") })
+	if w := get(e.s, "/news"); w.Code != 500 {
+		t.Errorf("after a 404 the failure gave %d", w.Code)
+	}
+	// A redirect is an answer too.
+	e2 := newPageEnv(t)
+	get(e2.s, "/news")
+	e2.clock.advance(61 * time.Second)
+	e2.setLoad(func(c *tifa.Ctx, n int64) (any, error) { return nil, c.Redirect("/moved", 307) })
+	if w := get(e2.s, "/news"); w.Code != 307 || w.Header().Get("Location") != "/moved" {
+		t.Errorf("redirect: %d %v", w.Code, w.Header())
+	}
+}
+
+func TestOldPageStandsInForADayOnly(t *testing.T) {
+	e := newPageEnv(t)
+	get(e.s, "/news")
+	e.setLoad(func(c *tifa.Ctx, n int64) (any, error) { return nil, errors.New("database down") })
+	e.clock.advance(time.Minute + 24*time.Hour - time.Second)
+	if w := get(e.s, "/news"); w.Code != 200 {
+		t.Errorf("just inside the day: %d %v", w.Code, w.Header())
+	}
+	e.clock.advance(2 * time.Second)
+	if w := get(e.s, "/news"); w.Code != 500 {
+		t.Errorf("past the day: %d", w.Code)
+	}
+}
+
 func TestPageIsNotKeptWhenTheAnswerCannotBeShared(t *testing.T) {
 	for name, set := range map[string]func(c *tifa.Ctx){
 		"private":          func(c *tifa.Ctx) { c.SetHeader("Cache-Control", "private, max-age=60") },
@@ -261,6 +359,39 @@ func TestStatusesAreKeptOrNot(t *testing.T) {
 	w := getData(e.s, "/news", "b1", "11")
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"redirect":"/to"`) || !strings.Contains(w.Body.String(), `"status":302`) || e.loads.Load() != 1 {
 		t.Errorf("data: %d %s, %d Loads", w.Code, w.Body.String(), e.loads.Load())
+	}
+}
+
+func TestResultsThatAreNotKeptDoNotQueue(t *testing.T) {
+	e := newPageEnv(t)
+	e.setLoad(func(c *tifa.Ctx, n int64) (any, error) { return nil, tifa.ErrNotFound })
+	get(e.s, "/news") // not kept: the key is marked
+	started := make(chan struct{}, 4)
+	release := make(chan struct{})
+	e.setLoad(func(c *tifa.Ctx, n int64) (any, error) {
+		started <- struct{}{}
+		<-release
+		return nil, tifa.ErrNotFound
+	})
+	var wg sync.WaitGroup
+	for range 3 {
+		wg.Go(func() { get(e.s, "/news") })
+	}
+	for range 3 {
+		select {
+		case <-started:
+		case <-time.After(2 * time.Second):
+			t.Fatal("requests wait for each other")
+		}
+	}
+	close(release)
+	wg.Wait()
+	// Two minutes later the cache is used again.
+	e.clock.advance(hitForMiss + time.Second)
+	e.setLoad(func(c *tifa.Ctx, n int64) (any, error) { return n, nil })
+	get(e.s, "/news")
+	if w := get(e.s, "/news"); w.Header().Get("X-Tifa-Render") != "cache" {
+		t.Errorf("after the mark: %q", w.Header().Get("X-Tifa-Render"))
 	}
 }
 
