@@ -90,9 +90,26 @@ func shopBundle(t testing.TB) (string, []shopPage) {
 			t.Fatalf("data of %s: %d %v %s (rebuild the shop when its build.json changed)", r.url, res.StatusCode, err, body)
 		}
 		data, texts := injectedInput(t, body)
-		pages = append(pages, shopPage{ssr.Input{BuildID: built.BuildID, URL: r.url, Data: data, Texts: texts}, r.want, r.forbidden})
+		input := ssr.Input{BuildID: built.BuildID, URL: r.url, Data: data, Texts: texts, Session: sessionOf(t, body), SessionKey: "__Host-tifa_session:v1"}
+		pages = append(pages, shopPage{input, r.want, r.forbidden})
 	}
 	return string(source), pages
+}
+
+// sessionOf is the session of a navigation data answer, which the shop has because its workbench has
+// sign-in. The page of a visitor with none says so.
+func sessionOf(t testing.TB, answer []byte) json.RawMessage {
+	t.Helper()
+	var envelope struct {
+		Session json.RawMessage `json:"session"`
+	}
+	if err := json.Unmarshal(answer, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(envelope.Session) == 0 {
+		return json.RawMessage(`{"signedIn":false}`)
+	}
+	return envelope.Session
 }
 
 // injectedInput turns the answer of a navigation data request, {routes, session}, into the data a whole-page render
