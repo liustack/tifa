@@ -25,7 +25,6 @@ export { NotFound } from './errors.ts'
 export { counts } from './counts.ts'
 
 export interface Shell {
-  viewer: { name: string; initials: string }
   projects: Project[]
   // sidebarOpen is the state the sidebar was left in, which its component keeps in the cookie sidebar_state.
   sidebarOpen: boolean
@@ -43,7 +42,7 @@ export interface Detail {
 
 export function loadShell(sidebarState: string | undefined): Shell {
   counts.shell++
-  return { viewer: { name: '店主', initials: '店' }, projects: listProjects(), sidebarOpen: sidebarState !== 'false' }
+  return { projects: listProjects(), sidebarOpen: sidebarState !== 'false' }
 }
 
 export function loadProject(id: string): Project {
