@@ -109,7 +109,7 @@ It covers `Date`, `Temporal.Now` and Intl formatting without a date for the whol
 `tifatest` cannot render. To see the HTTP answer, hydration and navigation:
 
 1. `go tool tifa build`, then run `./bin/<app> --server-addr 127.0.0.1:9600` in the background and note its PID. Or use `go tool tifa dev` and stop it by its PID when done. Only stop what you started.
-2. `curl -si http://127.0.0.1:9600/path` shows the status, headers (`ETag`, `X-Tifa-Render`) and the HTML a crawler sees. For the navigation data a page fetches, send the request header `X-Tifa-Route` (see the data protocol in [build.md](https://github.com/liustack/tifa/blob/main/docs/build.md#data-protocol)).
+2. `curl -si http://127.0.0.1:9600/path` shows the status, headers (`ETag`, `X-Tifa-Render`) and the HTML a crawler sees. For the navigation data a page fetches, send the request headers `X-Tifa-Route` and `X-Tifa-Build`. The answer is `{"routes": {route ID: result}}`, with a `session` next to `routes` in an app that has sessions (see the data protocol in [build.md](https://github.com/liustack/tifa/blob/main/docs/build.md#data-protocol)).
 3. For hydration and clicks, open the page in a browser tool and watch the console. A hydration mismatch is reported there.
 4. A POST from `curl` has no `Sec-Fetch-Site` or `Origin`, so it passes the cross-site check. A POST from a page on another origin gets 403.
 

@@ -1,5 +1,5 @@
 ---
-summary: 'How to write a tifa app: folder layout, how folders become URLs, the three files of a folder (route.go, page.tsx, layout.tsx), Layouts, a Layout without the Layouts above (layout_.tsx), hooks.go, sessions (sign-in state kept on the server, its cookie and where it is stored), 404s and errors, a site in several languages, the SSR and cache switches, what the server render has, which libraries render differently there and which components to load only in the browser, using Intl and Temporal so hydration matches, styles with Tailwind CSS and shadcn/ui, how to test Go route code, how Load may use Ctx, method handlers with typed input and result, what a page open in a browser does when you deploy a new version, and the JSON rules for data, inputs and results'
+summary: 'How to write a tifa app: folder layout, how folders become URLs, the three files of a folder (route.go, page.tsx, layout.tsx), Layouts, a Layout without the Layouts above (layout_.tsx), hooks.go, sessions (sign-in state kept on the server, its cookie, where it is stored, and how the browser shows who is signed in), 404s and errors, a site in several languages, the SSR and cache switches, what the server render has, which libraries render differently there and which components to load only in the browser, using Intl and Temporal so hydration matches, styles with Tailwind CSS and shadcn/ui, how to test Go route code, how Load may use Ctx, method handlers with typed input and result, what a page open in a browser does when you deploy a new version, and the JSON rules for data, inputs and results'
 read_when:
   - Creating a tifa app, or adding pages, Layouts or API routes to one
   - The build reports an error about Ctx usage or a Load return type and you want to fix it
@@ -7,6 +7,7 @@ read_when:
   - Changing the apps in examples/shop or test/apps
   - Writing Go tests for a Load, a Layout function, a method handler or OnRequest
   - Signing users in and out, reading who is signed in, or keeping sessions in Redis or SQL
+  - Showing the name of the signed-in user in a header, `useSession`, `Session.In`, `data-session`, or a CSP that blocks the script at the start of the head
   - Adding CSS, Tailwind CSS or shadcn/ui to an app
   - Formatting numbers or dates in a page, or tifa dev warns about an Intl call
   - A visitor keeps a page open while you deploy, and you want to know what the browser does, or a 409 with `X-Tifa-Build` shows up
@@ -851,7 +852,7 @@ Writes from other sites are refused before any of this runs (see [Cross-site wri
 - `Session` or `ClearSession` is called and nothing calls `SetSession`
 - the type is not a struct, or cannot be read back from JSON
 - `Load` or `Layout`, or a function they pass the Ctx to, calls `SetSession` or `ClearSession`
-- a page or API route path starts with `/__tifa/`, or `public/__tifa/` holds a file
+- a page or API route path starts with `/__tifa/`, or `public/__tifa/` holds a file (`/__tifa/session` is the path of the session answer)
 
 The session type may have a method `Browser() M` (a pointer receiver works too), which gives the part of the session a browser may see. `M` follows the rules of a `Load` result, and the build writes its TypeScript type to `.tifa/session.gen.ts`:
 
@@ -860,6 +861,59 @@ import type { SessionData } from '@/.tifa/session.gen'
 ```
 
 The same file exports `SessionEnabled`, which is `true` when the app calls `tifa.SetSession` and `false` otherwise. `SessionData` is `never` when the type has no `Browser` method or the app has no session. A `Browser` with parameters, with more than one result, or whose result cannot be JSON fails the build.
+
+### In the browser
+
+The browser keeps a copy of who is signed in and shows it from the first paint, before any script of the page has run. Pages read it with `useSession`, and any element can show or hide itself by it.
+
+```tsx
+import { Session, useSession } from 'tifa/client'
+
+function Header() {
+	const { signedIn, data, ready } = useSession()
+	return (
+		<header>
+			<Session.Out><a href="/login">Sign in</a></Session.Out>
+			<Session.In>Hello, {data?.name}</Session.In>
+		</header>
+	)
+}
+```
+
+- `useSession()` returns `{ signedIn, data, ready }`. `data` is what the `Browser` method returned (its type is `SessionData`), and `undefined` when the type has no `Browser` or nobody is signed in. Calling it in an app that never calls `tifa.SetSession` is a type error, and throws.
+- `Session.In` and `Session.Out` are a `<span>` with `data-session="in"` or `data-session="out"`. Any element can carry the attribute instead, such as `<a href="/login" data-session="out">`. A style tifa puts at the start of the head hides `data-session="in"` elements unless someone is signed in, and `data-session="out"` elements when someone is. You write no CSS.
+- `ready` is `true` once the browser knows which state it shows. For a page rendered for the visitor it is `true` from the first render. See below for the pages that come without a session.
+- The copy decides what to show, never what someone may do. Check access in Go.
+
+The session reaches the browser with every answer that is meant for one visitor, in the shape `{ "signedIn": true, "data": ... }` (`data` only when the type has `Browser`, and `{ "signedIn": false }` when nobody is signed in):
+
+| Answer | What it carries |
+| --- | --- |
+| A page | The session in the page, and `<html data-session="in">` or `<html data-session="out">` written by the server. With `SSR = false` the session is in the boot data |
+| Navigation data | `{ "routes": { ... }, "session": ... }`, so a link click brings the current session |
+| A call of a handler function that signed someone in or out | `{ "result": ..., "session": ... }`. Without a result, `{ "session": ... }` instead of 204. A call that left the session alone has no `session` and keeps its 204. A redirect carries it too, an error does not |
+| `GET /__tifa/session` | The session of the request, `Cache-Control: private, no-store`. It runs inside `OnRequest`, so a middleware that signs visitors in must let it through |
+
+A request without the header `X-Tifa-Call` (curl, a form, another program) gets the answer it always got.
+
+The browser keeps the session in memory and in `localStorage` under the cookie name and `:v1`, such as `__Host-tifa_session:v1`. Whatever answer arrives with a session writes both copies: signed in writes, signed out clears them, an answer without a session leaves them alone, and `<html data-session>` follows. The session a page carries wins over `localStorage`. If `localStorage` fails in any step, as in a private window, the copy in memory is used and nothing stops. When requests cross, the answer to the one sent last wins.
+
+A page the server answers for every visitor alike carries no session and no `data-session`. Only there, a script at the start of the head sets `data-session="in"` from `localStorage` before the first paint, `useSession` renders signed out until the page has hydrated, and then switches to the copy in `localStorage` and asks `/__tifa/session` once to check it. With no copy it asks nothing. If `localStorage` cannot be read it asks once too.
+
+Calling a handler function from the browser updates the copy when the call changed the session, and the data reload after it brings the session again. Use an input or a result type for sign-in and sign-out handlers (`func POST(c *tifa.Ctx, in Login) error`). A handler that writes its own response (`func POST(c *tifa.Ctx) error`) cannot carry the session in its answer.
+
+`data-session` is an attribute tifa keeps on `<html>`. A root Layout whose `htmlAttributes` sets it stops the server when it starts (the VMs fail to prewarm, and `tifa dev` shows the error), and a route whose `htmlAttributes` sets it fails the render.
+
+**Content Security Policy.** The script and the style are inline and the same on every page. With a CSP in a `<meta>` tag they are not affected, since they come before the tag. With a CSP in a header, allow their hashes:
+
+```text
+script-src 'sha256-NWjzg1BGj/5CJBw80xzDV4Gmw6vQUG2ExZLUcX4mWkE='
+style-src 'sha256-dutb67YDz+meUugqDFx3RsopE/hCQ31NRHukbTNY+OQ='
+```
+
+These are for the default cookie `__Host-tifa_session`. The script holds the name of the `localStorage` key, so it has another hash when you set `session.cookie`, and under `tifa dev`, where the cookie is `tifa_session` (the script's hash is `sha256-RXrgEYZIzBu7H8LtSsupWFiD5XE/6dvi74b6rHR+nVg=`). Read the script out of a page of your build and hash it.
+
+**What it cannot do.** Another tab shows the old state until its next answer with a session, and a form submitted there already uses the new cookie. After you sign out on another device, a page that comes from `localStorage` shows the old name until the check comes back. Going back to a page of the browser's back-forward cache after signing in as someone else shows the old page as it was. A preload that was running when you switched accounts can bring the old account's data. A `fetch` you write yourself that changes the session is unknown to tifa: call `router.invalidate()` after it. Keep `Browser()` to what the browser may keep on the device, such as a name and an avatar, and no credentials, e-mail address or phone number.
 
 ### Testing sessions
 

@@ -420,12 +420,12 @@ React 和 React DOM 至少要 19.3.0。Vite 插件是按 19.3 的写法改写 Re
 - 路由 ID 指一个 `Load` 或 `Layout` 函数：页面和 API 路由（目录里的 `page.tsx` 和 `route.go`）是目录加 `/route`，Layout 是目录加 `/layout`，比如 `app/layout`、`app/projects/project+/route`。
 - 整页渲染的 VM 输入是 `{url, buildId, data: {路由 ID: 结果}, preload}`，与 `internal/ssr.Input` 一致。结果里有 `status`、`error` 和 `location`，成功的 `Load` 还有它的 JSON 文本的编号 `text`。文本本身不在输入里，而是 `startRender(json, ...texts)` 里输入之后的参数，按路由 ID 的顺序排列，所以 Go 不用把它们转义进输入的 JSON，VM 也不用再从里面解析出来。
 - 客户端导航时，同一轮事件循环里对同一 URL 的 loader 调用合并成一个 GET：请求头 `X-Tifa-Route: <路由 ID>,<路由 ID>` 与 `X-Tifa-Build: <构建 ID>`，`fetch` 不自动跟随重定向（`redirect: "manual"`）。回答有三种：
-  - `{路由 ID: 结果}`：不论 HTTP 状态码，浏览器逐项分发。
-  - `{"redirect": "<URL>", "status": <3xx>}`：`OnRequest` 返回 `c.Redirect`、URL 的写法不规范（ServeMux 的重定向，状态码 308）等整个请求要跳转的情况，HTTP 状态码是 200。请求里每个路由都收到这个重定向，loader 抛出 TanStack 的 `redirect()`。
+  - `{"routes": {路由 ID: 结果}, "session": ...}`：不论 HTTP 状态码，浏览器把 `routes` 逐项分发。应用有会话时才有 `session`，见[回答里的会话](#回答里的会话)。
+  - `{"redirect": "<URL>", "status": <3xx>}`（应用有会话时带上本次请求的 `session`）：`OnRequest` 返回 `c.Redirect`、URL 的写法不规范（ServeMux 的重定向，状态码 308）等整个请求要跳转的情况，HTTP 状态码是 200。请求里每个路由都收到这个重定向，loader 抛出 TanStack 的 `redirect()`。
   - 其他：`OnRequest` 拒绝了整个请求，回答是 `{"error": 消息}` 与错误的状态码，同批 loader 一起以这个状态失败。
   
   构建 ID 不一致时服务器答 409，并在响应头 `X-Tifa-Build` 里写上自己的构建 ID，浏览器为这个构建刷新当前页面一次（多个 409 只刷新一次，迟到的预加载 409 不会跳到预加载的目标）。已经为这个构建刷新过的页面再收到 409 时不再刷新：这一批的每个 loader 都以这个 409 失败。浏览器把它记在 `sessionStorage` 的 `tifa-reload:<构建 ID>` 下，见[部署时还开着的页面](app.zh-CN.md#部署时还开着的页面)。仍然收到 3xx（比如来自代理）时，浏览器按整页加载这个 URL。
-- `route.gen` 模块里的处理函数（见 [app.zh-CN.md](app.zh-CN.md#在浏览器里调用方法函数)）发请求头 `X-Tifa-Call: 1`，并在 `X-Tifa-Build` 里带上页面的构建 ID，不让 `fetch` 跟随重定向。有页面的服务器在 `OnRequest` 之后、处理函数之前比较两者，不同就答 409，并在响应头 `X-Tifa-Build` 里写上自己的构建 ID，浏览器和数据请求一样刷新页面一次。函数抛出 `TifaError`，不会再发一次调用。应用的处理函数也可以返回 409，那个回答没有 `X-Tifa-Build` 头，函数不会为它刷新页面。不带 `X-Tifa-Build` 的请求不检查。处理函数或 `OnRequest` 返回 `c.Redirect` 时，这样的请求答 200、`Cache-Control: no-store`、`X-Tifa-Redirect: <3xx>`，正文和数据请求一样是 `{"redirect": "<URL>", "status": <3xx>}`。处理函数的结果可能长得一样，所以调用函数只在有这个响应头时才当作重定向。不带 `X-Tifa-Call` 的请求（curl 或别的程序）照旧收到 3xx。两种回答都带 `Vary: X-Tifa-Call`。
+- `route.gen` 模块里的处理函数（见 [app.zh-CN.md](app.zh-CN.md#在浏览器里调用方法函数)）发请求头 `X-Tifa-Call: 1`，并在 `X-Tifa-Build` 里带上页面的构建 ID，不让 `fetch` 跟随重定向。有页面的服务器在 `OnRequest` 之后、处理函数之前比较两者，不同就答 409，并在响应头 `X-Tifa-Build` 里写上自己的构建 ID，浏览器和数据请求一样刷新页面一次。函数抛出 `TifaError`，不会再发一次调用。应用的处理函数也可以返回 409，那个回答没有 `X-Tifa-Build` 头，函数不会为它刷新页面。不带 `X-Tifa-Build` 的请求不检查。处理函数或 `OnRequest` 返回 `c.Redirect` 时，这样的请求答 200、`Cache-Control: no-store`、`X-Tifa-Redirect: <3xx>`，正文和数据请求一样是 `{"redirect": "<URL>", "status": <3xx>}`。处理函数的结果可能长得一样，所以调用函数只在有这个响应头时才当作重定向。其他成功的调用，回答都是 `{"result"?: ..., "session"?: ...}`（见[回答里的会话](#回答里的会话)），自己写响应的处理函数的回答原样交给调用方。不带 `X-Tifa-Call` 的请求（curl 或别的程序）照旧收到 3xx。两种回答都带 `Vary: X-Tifa-Call`。
 - 整页渲染时，每个 `Load` 的数据随路由的 dehydrate 脚本进入浏览器。Go 把每个成功的 `Load` 的数据按它写出的 JSON 文本交给渲染，作为 `startRender` 自己的一个参数（输入里该结果的 `text` 给它编号，即 `js/runtime/server.tsx` 的 `RenderResult`），渲染时解析这段文本。这段文本里 U+FFFF 以上的字符，Go 写成它代理对的转义，比如 😀 写成 `\ud83d\ude00`，表示的还是同一个字符：把文本写进页面的 seroval 只对不含代理项的字符串用 `JSON.stringify`，含代理项的逐个码元处理，这在 QuickJS 里慢得多。不转义的话，`examples/shop` 一个订单列表的数据里只要有一个 emoji，渲染就慢 9%，一个 1,000 行的表格里有一个，渲染慢到 2.3 倍。对象和数组原样带着这段文本进页面，经 TanStack 的 serialization adapter（键 `tifa.data`）写成一个 JSON 字符串，浏览器用 `JSON.parse` 读回。VM 自己不把这段字符串写进页面，文本达到 4,096 个码元时它在原处写一个槽：一个 `~`、本次渲染的 nonce、一个点、文本的编号、再一个点。VM 空出来之后，`Pool.Render` 把每个槽填成对应的文本，写法和 seroval 把字符串写进脚本时一样：引号和反斜杠转义，换行、制表符、退格、换页写成字母，`<` 写成 `\x3C`（这样没有 `</script` 或 `<!--` 能结束或藏起这个元素），U+2028 和 U+2029 写成转义，每个不是 UTF-8 的字节写成 U+FFFD。`Pool.Render` 是页面离开 VM 的唯一出口，所以每条发送、缓存或压缩页面的路径拿到的都是填好的页面。nonce 是 128 位随机数，`Pool.Render` 在各个 `Load` 跑完之后为每次渲染抽一个，所以没有哪份数据能拼出槽。页面里只要有 `~` 加 nonce 出现在完整的槽之外，这个页面就不会发出去（`ssr.ErrSlot`）。槽只填在 seroval 写它的地方：作为 adapter 调用的整个字符串参数 `$_TSR.t.get("tifa.data")("<槽>")`，位于还没结束、里面是 JavaScript 的 `<script>` 元素内。JavaScript 字符串的转义在别的地方都不对，所以组件把真槽抄进属性或页面正文，或抄进脚本的其他位置，同样是 `ssr.ErrSlot`。这就是信任边界：页面的代码照旧可以写任何 HTML，但不能让数据文本被写进它自己挑的上下文。检查只看每个槽前面的几 KB，在 221 KB 的页面上花不到 1 µs。输入里没有 nonce 时，bundle 照旧自己写文本。把字符串写在 VM 里，每字节数据要花 100 到 180 条指令（扫一遍找要转义的字符，带转义拷一份，页面回到 Go 时再多拷一份）。Go 填槽要把页面再拷贝一遍，130 KB 的页面约 60 µs，所以短于 4,096 个码元的文本仍由 VM 自己写。router 为超过 16K 个码元的文本另起一个 script 标签，短槽不再需要这样，所以带这种文本的页面少两个 script 标签：页面小 80 字节，浏览器按同样的顺序执行同样的语句。
 所以浏览器读到的值和服务端渲染时完全一样，`-0` 和 `__proto__` 键都保留，用它们格式化出的文字（比如 Intl 写出的 `-¥0.00`）水合时也和渲染时一致。TanStack 默认的序列化器处理同样的数据，在 VM 里要多花几倍时间。代价是页面略大，因为 JSON 字符串要转义引号：`examples/shop` 的页面压缩前大约大 3%。字符串、数字等单个值仍走默认序列化器。路由构造函数的类型把 adapter 留给 TanStack Start，单独使用路由时设置它没有文档（TanStack/router#7796），所以 `TestGeneratedRouterBehaves` 检查页面用的是 `tifa.data`，并且数据经过 hydration 后不变，`tifa build` 再检查应用装的 TanStack Router 正是这些测试用的版本（见[应用的 tsconfig 与 Vite 配置](#应用的-tsconfig-与-vite-配置)）。
 - 浏览器从 TanStack 的 dehydrate 数据里拿到构建 ID。
@@ -455,9 +455,9 @@ React 和 React DOM 至少要 19.3.0。Vite 插件是按 19.3 的写法改写 Re
 
 | 请求 | 回答 |
 | --- | --- |
-| 无 `X-Tifa-Route` | 并发执行匹配链上所有 `Load`。构建 ID、SSR 包、URL 与结果的哈希作 ETag，`If-None-Match` 命中答 304。`Cache = true` 的页面先查 HTML 缓存（按字节计的 LRU，容量 `cache.size`，0 关闭），未命中才进 VM，同一个键同时未命中的请求只进一次 |
-| 同上，匹配链上有 `SSR = false` | 不进 VM，返回最简文档：资源标签与 `<script type="application/json" id="tifa-data">` 里的注入数据（各个 `Load` 的结果，JSON 文本在各自的 `json` 里），浏览器直接渲染，不再请求数据 |
-| 有 `X-Tifa-Route` | 只执行所列路由的 `Load` 或 `Layout`（`tifa.Use` 在本次请求内去重），答 200 与 `{路由 ID: 结果}`，每项带自己的状态。`X-Tifa-Build` 不是当前构建时答 409，所列路由不在匹配链上时答 400。出错与重定向见下文 |
+| 无 `X-Tifa-Route` | 并发执行匹配链上所有 `Load`。构建 ID、SSR 包、URL、访客的会话与结果的哈希作 ETag，`If-None-Match` 命中答 304。`Cache = true` 的页面先查 HTML 缓存（按字节计的 LRU，容量 `cache.size`，0 关闭），未命中才进 VM，同一个键同时未命中的请求只进一次 |
+| 同上，匹配链上有 `SSR = false` | 不进 VM，返回最简文档：资源标签与 `<script type="application/json" id="tifa-data">` 里的注入数据（各个 `Load` 的结果，JSON 文本在各自的 `json` 里，还有访客的会话 `session`），浏览器直接渲染，不再请求数据 |
+| 有 `X-Tifa-Route` | 只执行所列路由的 `Load` 或 `Layout`（`tifa.Use` 在本次请求内去重），答 200 与 `{"routes": {路由 ID: 结果}, "session": ...}`，每个路由带自己的状态。`X-Tifa-Build` 不是当前构建时答 409，所列路由不在匹配链上时答 400。出错与重定向见下文 |
 
 所有走路由的回答（整页、304、数据请求、方法处理函数和重定向）都带 `Cache-Control: private, no-cache`，应用在 `OnRequest`、`Load`、`Layout` 或处理函数里自己设置过 `Cache-Control` 时保留应用的值。框架只在最终响应头发出时加这一次。JSON 错误、纯错误页、带错误的页面和过载回答发 `no-store`，应用在出错之前设过 `Cache-Control` 的除外。应用的 404 页面用默认值。
 
@@ -466,7 +466,7 @@ React 和 React DOM 至少要 19.3.0。Vite 插件是按 19.3 的写法改写 Re
 出错时，`Load` 的错误先沿 `next` 交给 `OnRequest`，`OnRequest` 返回之后框架才处理：
 
 - 有 `Load` 失败时，整页请求与数据请求的 `next` 都返回所执行 `Load` 里最外层的那个错误（数据请求只执行所列路由，所以是所列路由里最外层的）。成功的 `Load` 不写任何响应，中间件可以据此拒绝整个请求。
-- `OnRequest` 原样返回这个错误（包括用 `%w` 包一层）：框架这时才把每个错误分类，意外错误交给 `OnError`，多个 `Load` 经 `tifa.Use` 共享同一个错误时只交一次。整页请求用全部结果和最外层错误的状态码（404 或 `tifa.Error` 的状态码，意外错误用 `OnError` 的结果）渲染整页，路由器显示对应层级的 `Error`。最外层错误是重定向时答重定向。数据请求答 200 与 `{路由 ID: 结果}`，每项带自己的状态。
+- `OnRequest` 原样返回这个错误（包括用 `%w` 包一层）：框架这时才把每个错误分类，意外错误交给 `OnError`，多个 `Load` 经 `tifa.Use` 共享同一个错误时只交一次。整页请求用全部结果和最外层错误的状态码（404 或 `tifa.Error` 的状态码，意外错误用 `OnError` 的结果）渲染整页，路由器显示对应层级的 `Error`。最外层错误是重定向时答重定向。数据请求答 200 与 `{"routes": {路由 ID: 结果}}`，每项带自己的状态。
 - `OnRequest` 返回别的错误：以中间件为准，按错误本身处理（重定向、`ErrNotFound`、`tifa.Error` 直接处理，其他交给 `OnError`）。整页请求返回 Go 写的简单错误页，数据请求答 `{"error": 消息}` 与状态码，不再输出各项数据。`OnRequest` 自己写了响应时框架不再写。
 - 数据请求遇到整个请求的重定向（`OnRequest` 返回 `c.Redirect`，或 URL 写法不规范）答 200 与 `{"redirect", "status"}`，不发 3xx。这个 JSON 里的 URL，以及 `Load` 重定向的路由结果里的 `location`，和 3xx 会带的一样：`../list` 这样的相对 URL 按请求的路径解析，与 `http.Redirect` 相同。
 - 未匹配的 URL（有页面的应用收到 GET 或 HEAD）：Go 找出 URL 能匹配上的最深一层 Layout（规则见 [404](app.zh-CN.md#404)），把它路径里的参数设到请求上。`next` 从根往下执行到这一层的 `Layout` 函数，返回 `tifa.ErrNotFound`。整页请求用它们的结果和状态码 404 渲染，有 Layout 失败时用它的状态码，和页面一样。导航数据请求只执行其中列出的那些，回答它们的结果和 404，有一个失败时回答 200，和页面一样。列出不在其中的路由回答 400。这些 Layout 有一个是 `LayoutSSR = false` 时，Go 写带它们数据的最简文档。别的方法和没有页面的应用回答 JSON 的 404。
@@ -474,6 +474,17 @@ React 和 React DOM 至少要 19.3.0。Vite 插件是按 19.3 的写法改写 Re
 - 失败时 SSR 入口报出 `levels`：匹配到的路由里，从它显示的最深一条往上到根路由，有几条能显示这个错误。服务端带着输入里的 `error: {status, message, level}` 再渲染，状态码和公开消息取自 `OnError`。入口在路由器脱水之前，把显示的最深一条往上第 `level` 条的匹配换成失败的匹配，里面是一个 `RouteError`，于是由这条路由的 `errorComponent` 显示错误，浏览器也按同一棵树 hydrate。第一次重试的 level 是 0，每失败一次往上挪一层。回答带 `OnError` 的状态码、`Cache-Control: no-store`，不带 ETag。在 `tifa dev` 下 dev 客户端把错误盖在页面上显示。失败的渲染会让它的 VM 退役，所以每次重试都在新的 VM 上。所有重试共用第一次渲染开始后 `ssr.timeout` 的截止时间，和第一次渲染一样，遇上超时、所有 VM 都忙或请求取消就停下。用完 `ssr.vm_memory` 的渲染报不出 levels，服务端就按页面的路由数再加两层（根路由和一条加出来的路由）去试。两样都不是的失败当场停下。
 - 路由器对 URL 有不同写法（`/%61` 写成 `/a`）时 VM 返回重定向，服务器照样答重定向，状态码 308，不带 ETag。末尾斜杠（`/a/` 写成 `/a`）也一样。这些 URL 只是同一个页面的另一种写法，所以用永久重定向：搜索引擎把永久重定向当作规范 URL，临时重定向则不是，而且 308 保留请求方法。ServeMux 对要清理的路径（`/a//b`、`/a/./b`）或要补斜杠的路径写 307，服务器对这些也答 308。`Load` 或 `OnRequest` 用 `c.Redirect` 要求的重定向保留它给的状态码。渲染只取决于构建 ID、SSR 包、URL 与数据，同一个 ETag 不会既属于 200 又属于重定向，所以客户端拿不到能把这个重定向变成 304 的 ETag。
 - 非 GET 请求、接口路由与没有页面的应用仍答 JSON。
+
+### 回答里的会话
+
+调用了 `tifa.SetSession` 的应用，会把本次请求的会话以 `{"signedIn": bool, "data"?: ...}` 的形状交给浏览器，`data` 是会话类型的 `Browser` 方法返回的值（清单把类型告诉服务器，生成的 `main.go` 用 `Session: server.SessionOf[T]` 注册它，所以带着旧会话启动的程序在第一个请求之前就知道类型。`T` 写不进 main 时构建失败：它必须是导出的具名 struct 类型，不能是泛型。请求带着会话而没有登记类型时，请求以错误失败）。只有给一个访客的回答才带它：
+
+- 整页：`ssr.Input` 有 `session`（上面的 JSON）、`sessionKey`（cookie 名加 `:v1`，浏览器存副本的地方）和 `sessionHead`（head 最前面的脚本和样式，见[会话](app.zh-CN.md#在浏览器里)）。渲染时在 `<html>` 上写 `data-session="in"` 或 `"out"`，通过路由的 dehydrate 数据（`buildId` 旁边的 `session` 和 `sessionKey`）交给浏览器，并在服务端把它交给 `useSession`。`SSR = false` 的页面把 `session` 和 `sessionKey` 放在启动数据里，`<html data-session="in">` 或 `"out"` 和 head 脚本由 Go 自己写。ETag 和 HTML 缓存的键都包含会话的哈希，所以两个访客除非浏览器拿到相同的会话，否则不会共用 ETag 或缓存条目。
+- 导航数据：`{"routes": ..., "session": ...}`，404 和有 `Load` 失败的回答也一样。
+- 带 `X-Tifa-Call` 的调用：`Output` 或 `InputOutput` 处理函数答 `{"result": ..., "session"?: ...}`。`Input` 处理函数答 204，调用让某人登录或登出时（`SetSession` 或 `ClearSession` 无错返回）改答 200 与 `{"session": ...}`。同样的情况下，重定向的 JSON 里也加上 `session`。错误回答没有。不带这个请求头的请求，得到的还是原来的结果、204 或重定向。这些回答加 `Vary: X-Tifa-Call`，因为两种形状不同。
+- `GET /__tifa/session`，HEAD 也行：本次请求的会话，`Cache-Control: private, no-store`，没有校验器。它的每个回答，包括错误、405、409 和 `OnRequest` 提前给出的回答，都是 `Cache-Control: private, no-store`，没有 `ETag` 和 `Last-Modified`。请求头 `X-Tifa-Build` 是别的构建时答 409 并带 `X-Tifa-Build`，其他方法答 405，没有会话的应用答 404。它在 `OnRequest` 里运行，匹配的 pattern 是 `/__tifa/session`。
+
+浏览器发每个这样的请求时给它编号，取最后发出的那个请求的回答里的会话（`js/runtime/session.tsx`）。`data-session` 是 `<html>` 上的保留属性：`htmlAttributes` 设它会抛错。
 
 ### 压缩
 

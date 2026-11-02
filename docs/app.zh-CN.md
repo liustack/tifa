@@ -1,5 +1,5 @@
 ---
-summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、不套外层的 Layout（layout_.tsx）、hooks.go、会话（存在服务器上的登录状态、它的 cookie 和存放位置）、404 和错误、多语言网站、SSR 与缓存开关、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数，访客开着旧页面时你部署新版本，浏览器会怎么做，以及数据、入参和结果的 JSON 规则'
+summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、不套外层的 Layout（layout_.tsx）、hooks.go、会话（存在服务器上的登录状态、它的 cookie、存放位置，以及浏览器怎么显示谁登录了）、404 和错误、多语言网站、SSR 与缓存开关、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数，访客开着旧页面时你部署新版本，浏览器会怎么做，以及数据、入参和结果的 JSON 规则'
 read_when:
   - 新建一个 tifa 应用，或给应用加页面、Layout、API 路由
   - 构建报 Ctx 用法或 Load 返回类型的错误，想知道怎么改
@@ -7,6 +7,7 @@ read_when:
   - 改 examples/shop 或 test/apps 里的应用
   - 给 Load、Layout 函数、方法函数或 OnRequest 写 Go 测试
   - 让用户登录登出、读谁登录了，或把会话放到 Redis、SQL 里
+  - 在页头显示登录用户的名字，`useSession`、`Session.In`、`data-session`，或者 CSP 拦住了 head 最前面的脚本
   - 给应用加 CSS、Tailwind CSS 或 shadcn/ui
   - 在页面里格式化数字或日期，或者 tifa dev 对某个 Intl 调用报警
   - 访客开着一个页面时你部署了新版本，想知道浏览器会怎么做，或者看到带 `X-Tifa-Build` 的 409
@@ -853,7 +854,7 @@ tifa 存会话。用户是谁由你的应用或登录库来认：密码哈希（
 - 有 `Session` 或 `ClearSession` 的调用，却没有任何地方调用 `SetSession`
 - 类型不是 struct，或者不能从 JSON 读回来
 - `Load`、`Layout`，或者它们传下 Ctx 的函数调用了 `SetSession` 或 `ClearSession`
-- 页面或 API 路由的路径以 `/__tifa/` 开头，或者 `public/__tifa/` 下有文件
+- 页面或 API 路由的路径以 `/__tifa/` 开头，或者 `public/__tifa/` 下有文件（`/__tifa/session` 是会话回答的路径）
 
 会话类型可以有方法 `Browser() M`（指针接收者也行），给出会话里允许浏览器看到的部分。`M` 遵守 `Load` 结果的规则，构建把它的 TypeScript 类型写进 `.tifa/session.gen.ts`：
 
@@ -862,6 +863,59 @@ import type { SessionData } from '@/.tifa/session.gen'
 ```
 
 同一个文件还导出 `SessionEnabled`：应用调用了 `tifa.SetSession` 时是 `true`，否则是 `false`。类型没有 `Browser` 方法，或应用没有会话时，`SessionData` 是 `never`。`Browser` 带参数、有多个返回值，或者返回值不能是 JSON，构建会失败。
+
+### 在浏览器里
+
+浏览器里存着一份「谁登录了」的副本，第一次绘制时就按它显示，那时页面上的脚本还没跑。页面用 `useSession` 读它，任何元素都可以按它显示或隐藏自己。
+
+```tsx
+import { Session, useSession } from 'tifa/client'
+
+function Header() {
+	const { signedIn, data, ready } = useSession()
+	return (
+		<header>
+			<Session.Out><a href="/login">登录</a></Session.Out>
+			<Session.In>你好，{data?.name}</Session.In>
+		</header>
+	)
+}
+```
+
+- `useSession()` 返回 `{ signedIn, data, ready }`。`data` 是 `Browser` 方法返回的值（类型是 `SessionData`），类型没有 `Browser` 或没人登录时是 `undefined`。在从不调用 `tifa.SetSession` 的应用里调用它是类型错误，运行时也会抛错。
+- `Session.In` 和 `Session.Out` 是带 `data-session="in"` 或 `data-session="out"` 的 `<span>`。任何元素也可以直接带这个属性，比如 `<a href="/login" data-session="out">`。tifa 放在 head 最前面的一条样式会在没人登录时隐藏 `data-session="in"` 的元素，有人登录时隐藏 `data-session="out"` 的元素，你不用写 CSS。
+- `ready` 在浏览器知道自己该显示哪个状态之后是 `true`。为访客渲染的页面从第一次渲染起就是 `true`。不带会话的页面见下文。
+- 副本只决定显示什么，不决定谁能做什么。权限在 Go 里检查。
+
+凡是只给一个访客的回答都带会话，形状是 `{ "signedIn": true, "data": ... }`（只有类型有 `Browser` 才有 `data`，没人登录时是 `{ "signedIn": false }`）：
+
+| 回答 | 带什么 |
+| --- | --- |
+| 页面 | 页面里带着会话，服务器在 `<html>` 上写 `data-session="in"` 或 `data-session="out"`。`SSR = false` 时会话在启动数据里 |
+| 导航数据 | `{ "routes": { ... }, "session": ... }`，点链接就拿到当前的会话 |
+| 让某人登录或登出的处理函数调用 | `{ "result": ..., "session": ... }`。没有结果时是 `{ "session": ... }`，不再是 204。没动会话的调用没有 `session`，仍然是 204。重定向也带，错误不带 |
+| `GET /__tifa/session` | 本次请求的会话，`Cache-Control: private, no-store`。它在 `OnRequest` 里运行，所以让访客先登录才能通过的中间件必须放行它 |
+
+不带 `X-Tifa-Call` 请求头的请求（curl、表单、别的程序）得到的回答和以前一样。
+
+浏览器把会话存在内存里，也存在 `localStorage` 里，键是 cookie 名加 `:v1`，比如 `__Host-tifa_session:v1`。凡是带会话的回答到了，两处副本一起写：登录了就写，登出了就清，回答里没有会话就不动，`<html data-session>` 跟着改。页面自带的会话优先于 `localStorage`。`localStorage` 任何一步失败（比如无痕窗口），就只用内存里的副本，不会出错中断。请求交错时，以最后发出的那个请求的回答为准。
+
+服务器对所有访客回答得一样的页面不带会话，也没有 `data-session`。只有这样的页面里，head 最前面的脚本在第一次绘制前按 `localStorage` 设好 `data-session="in"`，`useSession` 在页面水合完成前按未登录渲染，之后切到 `localStorage` 里的副本，并向 `/__tifa/session` 问一次来核对。没有副本就不问。`localStorage` 读不了时也问一次。
+
+在浏览器里调用处理函数，如果这次调用改了会话，副本随之更新，调用之后的数据重取也会再带回一次会话。登录、登出的处理函数要有入参类型或结果类型（`func POST(c *tifa.Ctx, in Login) error`）。自己写响应的处理函数（`func POST(c *tifa.Ctx) error`）没法把会话放进回答里。
+
+`data-session` 是 tifa 在 `<html>` 上管的属性。根 Layout 的 `htmlAttributes` 设了它，服务器启动时就会停下（VM 预热失败，`tifa dev` 会显示错误）。路由的 `htmlAttributes` 设了它，渲染会失败。
+
+**内容安全策略（CSP）。** 脚本和样式都是内联的，每个页面都一样。CSP 写在 `<meta>` 标签里时它们不受影响，因为它们排在标签前面。CSP 写在响应头里时，放行它们的哈希：
+
+```text
+script-src 'sha256-NWjzg1BGj/5CJBw80xzDV4Gmw6vQUG2ExZLUcX4mWkE='
+style-src 'sha256-dutb67YDz+meUugqDFx3RsopE/hCQ31NRHukbTNY+OQ='
+```
+
+这是默认 cookie `__Host-tifa_session` 的哈希。脚本里写着 `localStorage` 键的名字，所以设了 `session.cookie` 之后脚本的哈希会变，`tifa dev` 下 cookie 是 `tifa_session`，脚本的哈希是 `sha256-RXrgEYZIzBu7H8LtSsupWFiD5XE/6dvi74b6rHR+nVg=`。从你的构建出的页面里取出脚本再算哈希。
+
+**做不到的事。** 另一个标签页在它下一次带会话的回答到来之前显示旧状态，在那里提交的表单已经用新的 cookie。在别的设备上登出后，从 `localStorage` 出来的页面会先显示旧名字，直到核对的回答回来。在同一个标签页登录成别人之后按后退，浏览器的前进后退缓存里恢复的是原样的旧页面。切换账号时正在进行的预加载，可能带回旧账号的数据。你自己写的 `fetch` 改了会话，tifa 不知道，在它之后调 `router.invalidate()`。`Browser()` 只放允许留在设备上的东西，比如名字和头像，不要放凭证、邮箱或手机号。
 
 ### 测试会话
 

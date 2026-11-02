@@ -1,6 +1,8 @@
 package server
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -387,6 +389,33 @@ process.stdout.write(attrs.get("data-session") ?? "")`
 		out, err := cmd.CombinedOutput()
 		if err != nil || string(out) != tc.want {
 			t.Errorf("%s: got %q, want %q (%v)", tc.name, out, tc.want, err)
+		}
+	}
+}
+
+// The CSP hashes in docs/app.md are those of the script and the style the server writes. This
+// fails when either changes, so the docs get the new hashes.
+func TestSessionHeadHashesAreInTheDocs(t *testing.T) {
+	doc, err := os.ReadFile("../docs/app.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	zh, err := os.ReadFile("../docs/app.zh-CN.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"__Host-tifa_session:v1", "tifa_session:v1"} {
+		head := sessionHead(key)
+		script := head[len("<script>"):strings.Index(head, "</script>")]
+		style := head[strings.Index(head, "<style>")+len("<style>") : strings.Index(head, "</style>")]
+		for _, text := range []string{script, style} {
+			sum := sha256.Sum256([]byte(text))
+			hash := "sha256-" + base64.StdEncoding.EncodeToString(sum[:])
+			for name, d := range map[string][]byte{"app.md": doc, "app.zh-CN.md": zh} {
+				if !strings.Contains(string(d), hash) {
+					t.Errorf("docs/%s lacks %s of %.60s", name, hash, text)
+				}
+			}
 		}
 	}
 }
