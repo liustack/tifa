@@ -683,3 +683,20 @@ func TestPublicMayNotHoldTifaPaths(t *testing.T) {
 		t.Fatalf("checkPublic: %v", err)
 	}
 }
+
+// The generated main tells the server the session type, so that the pages and answers carry the
+// session. A type the generated code cannot name fails the build.
+func TestMainRegistersTheSessionType(t *testing.T) {
+	main := string(generate(t, "session", false)["main.go"])
+	if !strings.Contains(main, "Session: server.SessionOf[sessiontype.Account],") || !strings.Contains(main, `sessiontype "example.com/session/app/login"`) {
+		t.Errorf("main.go of an app with a session type:\n%s", main)
+	}
+	if main := string(generate(t, "bare", false)["main.go"]); strings.Contains(main, "Session") {
+		t.Errorf("main.go of an app without sessions:\n%s", main)
+	}
+	// A type the generated main cannot name fails the build.
+	_, err := generateGo(&analyze.Manifest{Module: "example.com/m", Session: &analyze.Session{Type: "example.com/m/auth.account"}}, "", false)
+	if err == nil || !strings.Contains(err.Error(), "exported named struct") {
+		t.Errorf("unexported session type: %v", err)
+	}
+}

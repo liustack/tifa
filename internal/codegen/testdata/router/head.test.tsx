@@ -403,10 +403,10 @@ test('a write resolves once the page shows its new data', async () => {
   const saved = { fetch: g.fetch }
   let answers = 0
   g.fetch = async (url: string, init: RequestInit) => {
-    if (init.method === 'POST') return Response.json({ text: 'saved', next: null })
+    if (init.method === 'POST') return Response.json({ result: { text: 'saved', next: null } })
     const routes = (new Headers(init.headers).get('X-Tifa-Route') ?? '').split(',')
     answers++
-    return Response.json(Object.fromEntries(routes.map((id) => [id, ok(`${id} ${answers}`)])))
+    return Response.json({ routes: Object.fromEntries(routes.map((id) => [id, ok(`${id} ${answers}`)])) })
   }
   try {
     const router = createAppRouter(routeTree, collector(() => 'b1'), { history: createMemoryHistory({ initialEntries: ['/a/two'] }) })
@@ -437,7 +437,7 @@ test('a redirect of a handler call loads the target once, with fresh data', asyn
     const routes = (headers.get('X-Tifa-Route') ?? '').split(',').sort()
     fetched.push(url + ' ' + routes.join(','))
     // Each answer is new data, so the page shows which request its data came from.
-    return Response.json(Object.fromEntries(routes.map((id) => [id, ok(`${id} ${fetched.length}`)])))
+    return Response.json({ routes: Object.fromEntries(routes.map((id) => [id, ok(`${id} ${fetched.length}`)])) })
   }
   g.location = { ...saved.location, assign: (url: string) => fetched.push('assign ' + url) }
   try {
@@ -482,7 +482,7 @@ test('a redirect to the page that shows, spelled another way, reloads its data i
     if (headers.get('X-Tifa-Call')) return Response.json({ redirect: '/a/two?a=1&b=x%20y', status: 303 }, { headers: { 'X-Tifa-Redirect': '303' } })
     const routes = (headers.get('X-Tifa-Route') ?? '').split(',').sort()
     fetched.push(url + ' ' + routes.join(','))
-    return Response.json(Object.fromEntries(routes.map((id) => [id, ok(`${id} ${fetched.length}`)])))
+    return Response.json({ routes: Object.fromEntries(routes.map((id) => [id, ok(`${id} ${fetched.length}`)])) })
   }
   g.location = { ...saved.location, assign: (url: string) => fetched.push('assign ' + url) }
   try {

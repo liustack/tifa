@@ -5,6 +5,7 @@ import { GET as file } from './app/api/files/path++/route.gen'
 import { setRouter } from './.tifa/runtime/call'
 import { resetReloads } from './.tifa/runtime/skew'
 import { TifaError } from 'tifa/client'
+import { sessionSnapshot, startSession } from './.tifa/runtime/session'
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message)
@@ -38,6 +39,14 @@ const storage = new Map<string, string>()
   location: { href: 'http://shop.test/notes/1', origin: 'http://shop.test', assign: (url: string) => assigned.push(url), reload: () => reloadCount++ },
   sessionStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => void storage.set(key, value) },
 }
+// The session of the page, kept in a localStorage and on <html> that remember what they are given.
+const mirror = new Map<string, string>()
+const htmlAttributes = new Map<string, string>()
+;(globalThis as any).window.localStorage = {
+  getItem: (key: string) => mirror.get(key) ?? null,
+  setItem: (key: string, value: string) => void mirror.set(key, value),
+  removeItem: (key: string) => void mirror.delete(key),
+}
 const caught = (p: Promise<unknown>) => p.then(() => undefined, (e: unknown) => e)
 
 const last = () => requests[requests.length - 1]
@@ -47,7 +56,12 @@ const refused = await caught(GET({ params: { note: '1' }, input: { tag: '', tags
 assert(refused instanceof Error && /browser/.test(refused.message), `server render: ${refused}`)
 assert(requests.length === 0, 'a refused call made a request')
 
-globalThis.document = {} as Document
+globalThis.document = {
+  documentElement: {
+    setAttribute: (name: string, value: string) => void htmlAttributes.set(name, value),
+    removeAttribute: (name: string) => void htmlAttributes.delete(name),
+  },
+} as unknown as Document
 
 // redirected is how the server answers a call that a handler or OnRequest redirected.
 const redirected = (location: string, status = 303) => () =>
@@ -61,14 +75,14 @@ assigned.splice(0)
 setRouter(router, () => 'b1')
 
 // GET puts the input in the query string, reads the JSON and refreshes nothing.
-answer = () => Response.json([{ text: 'hi', next: null }])
+answer = () => Response.json({ result: [{ text: 'hi', next: null }] })
 const notes = await GET({ params: { note: 'a/b c' }, input: { tag: 'x&y', tags: ['1', '2'], limit: 3 } })
 assert(last().url === '/api/notes/a%2Fb%20c?tag=x%26y&tags=1&tags=2&limit=3', `GET url ${last().url}`)
 assert(last().init.method === 'GET' && last().init.body === undefined, 'GET has no body')
 assert(notes?.[0].text === 'hi' && invalidated() === 0, `GET result ${JSON.stringify(notes)} ${invalidated()}`)
 
 // POST sends JSON and refreshes the router once it succeeds.
-answer = () => Response.json({ text: 'saved', next: null })
+answer = () => Response.json({ result: { text: 'saved', next: null } })
 const saved = await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
 const headers = new Headers(last().init.headers)
 assert(last().url === '/api/notes/1' && last().init.body === '{"text":"hi","next":null}', `POST ${last().url} ${last().init.body}`)
@@ -111,7 +125,7 @@ await file({ params: { _splat: 'a b/c.txt' } })
 assert(last().url === '/api/files/a%20b/c.txt', `wildcard url ${last().url}`)
 
 // A parameter that would send the request to another path is refused before any request.
-answer = () => Response.json([])
+answer = () => Response.json({ result: [] })
 const sent = requests.length
 for (const note of ['', '.', '..']) {
   const moved = await caught(GET({ params: { note }, input: { tag: '', tags: null } }))
@@ -181,7 +195,7 @@ const script = await caught(POST({ params: { note: '1' }, input: { text: 'hi', n
 assert(script instanceof Error && !(script instanceof TifaError) && /javascript:/.test(script.message), `javascript: ${script}`)
 assert(navigations.length === routed && assigned.length === 2, 'javascript: was followed')
 // A result shaped like a redirect, without the header, is a result.
-answer = () => Response.json({ redirect: '/x', status: 1 })
+answer = () => Response.json({ result: { redirect: '/x', status: 1 } })
 before = invalidated()
 const lookalike: unknown = await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
 assert(JSON.stringify(lookalike) === '{"redirect":"/x","status":1}' && navigations.length === routed, `lookalike ${JSON.stringify(lookalike)}`)
@@ -194,7 +208,7 @@ for (const send of [() => POST({ params: { note: '1' }, input: { text: 'hi', nex
 }
 
 // The page sends the build it was rendered with, for the server to tell a call of another build.
-answer = () => Response.json({ text: 'saved', next: null })
+answer = () => Response.json({ result: { text: 'saved', next: null } })
 await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
 assert(new Headers(last().init.headers).get('X-Tifa-Build') === 'b1', `build header ${JSON.stringify(last().init.headers)}`)
 
@@ -239,5 +253,40 @@ const unkept = await caught(POST({ params: { note: '1' }, input: { text: 'hi', n
 assert(unkept instanceof TifaError && unkept.status === 409 && /reload the page/.test(unkept.message), `409 with the storage blocked: ${unkept}`)
 assert(reloads() === reloadsBefore, `409 with the storage blocked reloaded ${reloads() - reloadsBefore} times`)
 Object.defineProperty((globalThis as any).window, 'sessionStorage', { configurable: true, value: kept })
+
+// A call that changed the session brings it in the answer: with the result, alone for a call that
+// has none, and with a redirect. The copy follows, and the router reloads as after any write.
+startSession({ key: 'app_sid:v1', injected: { signedIn: false }, buildId: () => 'b1' })
+answer = () => Response.json({ result: { text: 'hi', next: null }, session: { signedIn: true, data: { name: 'Ann' } } })
+const signedIn = await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
+assert(signedIn?.text === 'hi' && JSON.stringify(sessionSnapshot()) === '{"signedIn":true,"data":{"name":"Ann"},"ready":true}', `result with session: ${JSON.stringify(sessionSnapshot())}`)
+assert(mirror.get('app_sid:v1') === '{"signedIn":true,"data":{"name":"Ann"}}' && htmlAttributes.get('data-session') === 'in', `mirror ${[...mirror]} ${[...htmlAttributes]}`)
+before = invalidated()
+answer = () => Response.json({ session: { signedIn: false } })
+const signedOut: void = await DELETE({ params: { note: '1' }, input: { tag: '', tags: null } })
+assert(signedOut === undefined && !sessionSnapshot().signedIn && !mirror.has('app_sid:v1') && htmlAttributes.get('data-session') === 'out', 'session alone')
+assert(invalidated() === before + 1, 'session alone did not refresh')
+answer = () => Response.json({ redirect: '/welcome', status: 303, session: { signedIn: true } }, { headers: { 'X-Tifa-Redirect': '303' } })
+await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
+assert(sessionSnapshot().signedIn && mirror.get('app_sid:v1') === '{"signedIn":true}' && navigations.at(-1) === '/welcome', `redirect with session: ${JSON.stringify(sessionSnapshot())} ${navigations}`)
+// A call that did not change the session leaves the copy alone, and so does a failure.
+answer = () => Response.json({ result: { text: 'x', next: null } })
+await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
+answer = () => Response.json({ error: 'no', session: { signedIn: false } }, { status: 400 })
+await caught(POST({ params: { note: '1' }, input: { text: 'hi', next: null } }))
+assert(sessionSnapshot().signedIn, 'a call without a session, or a failed one, changed the copy')
+// An answer to an earlier call that comes after the answer to a later one is dropped.
+const slow: Array<(r: Response) => void> = []
+globalThis.fetch = (async (url: string, init: RequestInit) => {
+  requests.push({ url, init })
+  return new Promise<Response>((resolve) => slow.push(resolve))
+}) as typeof fetch
+const first = POST({ params: { note: '1' }, input: { text: 'a', next: null } })
+const second = POST({ params: { note: '1' }, input: { text: 'b', next: null } })
+slow[1]!(Response.json({ result: { text: 'b', next: null }, session: { signedIn: true, data: { name: 'Bo' } } }))
+await second
+slow[0]!(Response.json({ result: { text: 'a', next: null }, session: { signedIn: false } }))
+await first
+assert(sessionSnapshot().signedIn && (sessionSnapshot().data as any).name === 'Bo', `late answer won: ${JSON.stringify(sessionSnapshot())}`)
 
 console.log('call: ok')

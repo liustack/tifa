@@ -55,15 +55,17 @@ func (e Env) GoData(ctx context.Context) (PageData, error) {
 		if err != nil || res.StatusCode != 200 {
 			return nil, fmt.Errorf("data of %s: %d %v %s", page.URL, res.StatusCode, err, body)
 		}
-		var routes map[string]struct {
-			Status int
-			Data   any
+		var answer struct {
+			Routes map[string]struct {
+				Status int
+				Data   any
+			}
 		}
-		if err := json.Unmarshal(body, &routes); err != nil {
+		if err := json.Unmarshal(body, &answer); err != nil {
 			return nil, fmt.Errorf("data of %s: %w", page.URL, err)
 		}
 		out[page.URL] = map[string]any{}
-		for id, r := range routes {
+		for id, r := range answer.Routes {
 			if r.Status != 200 {
 				return nil, fmt.Errorf("data of %s: route %s answered %d", page.URL, id, r.Status)
 			}

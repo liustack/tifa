@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http/httptest"
 	"strings"
@@ -86,10 +85,7 @@ func TestDataRequestAnswersByRouteWhenNextFailsUnhandled(t *testing.T) {
 	}
 	s, _ := newFrontServer(t, app)
 	w := get(s, "/secret?deny=1", secretData...)
-	var got map[string]routeResult
-	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
-		t.Fatalf("%d %s", w.Code, w.Body.String())
-	}
+	got := routesOf(t, w)
 	if w.Code != 200 || got["app/layout"].Status != 500 || got["app/layout"].Error != "reported" || got["app/secret"].Status != 200 {
 		t.Errorf("%d %s", w.Code, w.Body.String())
 	}
@@ -170,10 +166,7 @@ func TestDataRequestResolvesARelativeRedirect(t *testing.T) {
 	}
 	s, _ = newFrontServer(t, app)
 	w = get(s, "/projects/p1/orders", "X-Tifa-Route", "app/projects/orders", "X-Tifa-Build", "b1")
-	var got map[string]routeResult
-	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
-		t.Fatalf("%d %s", w.Code, w.Body.String())
-	}
+	got := routesOf(t, w)
 	if r := got["app/projects/orders"]; r.Status != 303 || r.Location != "/projects/other/orders" {
 		t.Errorf("Load: %d %s", w.Code, w.Body.String())
 	}

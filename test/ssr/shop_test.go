@@ -95,21 +95,24 @@ func shopBundle(t testing.TB) (string, []shopPage) {
 	return string(source), pages
 }
 
-// injectedInput turns the answer of a navigation data request into the data a whole-page render
+// injectedInput turns the answer of a navigation data request, {routes, session}, into the data a whole-page render
 // gets, as the server writes it: the statuses, errors and redirects as JSON, and the data of each
 // successful route as JSON text of its own, with the escapes of ssr.EscapeAboveFFFF the server
 // writes into it. A result says the number of its text, which follows the order of the route IDs.
 func injectedInput(t testing.TB, answer []byte) (json.RawMessage, []string) {
 	t.Helper()
-	var routes map[string]struct {
-		Status   int             `json:"status"`
-		Data     json.RawMessage `json:"data,omitempty"`
-		Error    string          `json:"error,omitempty"`
-		Location string          `json:"location,omitempty"`
+	var envelope struct {
+		Routes map[string]struct {
+			Status   int             `json:"status"`
+			Data     json.RawMessage `json:"data,omitempty"`
+			Error    string          `json:"error,omitempty"`
+			Location string          `json:"location,omitempty"`
+		} `json:"routes"`
 	}
-	if err := json.Unmarshal(answer, &routes); err != nil {
+	if err := json.Unmarshal(answer, &envelope); err != nil {
 		t.Fatal(err)
 	}
+	routes := envelope.Routes
 	type result struct {
 		Status   int    `json:"status"`
 		Text     *int   `json:"text,omitempty"`
@@ -142,7 +145,7 @@ func injectedInput(t testing.TB, answer []byte) (json.RawMessage, []string) {
 // injectedInput writes the data of a route as the server does, characters above U+FFFF as the
 // escapes of their surrogate pairs among it, and apart from the JSON that numbers it.
 func TestInjectedInputIsWhatTheServerInjects(t *testing.T) {
-	data, texts := injectedInput(t, []byte(`{"app/route":{"status":200,"data":{"s":"a😀"}},"app/gone":{"status":404,"error":"Not Found"},"app/other":{"status":200,"data":[1]}}`))
+	data, texts := injectedInput(t, []byte(`{"routes":{"app/route":{"status":200,"data":{"s":"a😀"}},"app/gone":{"status":404,"error":"Not Found"},"app/other":{"status":200,"data":[1]}}}`))
 	if want := `{"app/gone":{"status":404,"error":"Not Found"},"app/other":{"status":200,"text":0},"app/route":{"status":200,"text":1}}`; string(data) != want {
 		t.Errorf("data = %s, want %s", data, want)
 	}

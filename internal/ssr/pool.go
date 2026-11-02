@@ -34,6 +34,13 @@ type Input struct {
 	// Preload is the module preloads of the matched Layouts and route, which the document
 	// carries after the tags of the browser entry.
 	Preload string `json:"preload,omitempty"`
+	// Session is the session of the request as the browser gets it, {"signedIn": bool, "data"?}. It
+	// is set when the app has sessions, and the page carries it to the browser. SessionKey is where
+	// the browser keeps its copy, and SessionHead the script and the style that hide what the copy
+	// says to hide, which the document carries at the start of its head.
+	Session     json.RawMessage `json:"session,omitempty"`
+	SessionKey  string          `json:"sessionKey,omitempty"`
+	SessionHead string          `json:"sessionHead,omitempty"`
 	// Nonce is drawn by Render for each render, and Render ignores one a caller sets. The bundle
 	// writes a slot that holds it in place of each long text of a Load's data in the hydration script,
 	// and Render fills the slots once the VM is free (see slots.go). A bundle that does not know

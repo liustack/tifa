@@ -9,14 +9,19 @@ import {
   type RouterHistory,
 } from '@tanstack/react-router'
 import { goJSON, RouteError, type Source } from './data'
+import type { SessionEnvelope } from './session'
 
 // RouterContext is the context of the root route. Loaders read their data through source.
 export interface RouterContext {
   source: Source
 }
 
-interface Dehydrated {
+// Dehydrated is what the page carries from the server render to the browser besides the data:
+// the build, and for an app with sessions the key of the copy and the session of the request.
+export interface Dehydrated {
   buildId: string
+  sessionKey?: string
+  session?: SessionEnvelope
 }
 
 export interface RouterOptions {
@@ -24,8 +29,12 @@ export interface RouterOptions {
   buildId?: string
   // The URL of a server render. Without it the router runs in the browser.
   serverURL?: string
-  // Receives the build ID of the page when the browser hydrates it.
-  onHydrate?: (buildId: string) => void
+  // The key of the browser's copy of the session, and the session of the request, which the page
+  // carries to the browser. An app without sessions has neither.
+  sessionKey?: string
+  session?: SessionEnvelope
+  // Receives what the page carried when the browser hydrates it.
+  onHydrate?: (dehydrated: Dehydrated) => void
   // The history of a browser router, the browser's own by default. Tests pass a memory history.
   history?: RouterHistory
 }
@@ -35,7 +44,7 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
   source: Source,
   options: RouterOptions,
 ) {
-  const { buildId, serverURL, onHydrate } = options
+  const { buildId, serverURL, onHydrate, sessionKey, session } = options
   const router = createRouter({
     routeTree,
     context: { source },
@@ -57,10 +66,13 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
     scrollRestoration: true,
     dehydrate: (): Dehydrated => {
       if (buildId === undefined) throw new Error('a server render needs the build ID')
-      return { buildId }
+      const out: Dehydrated = { buildId }
+      if (sessionKey !== undefined) out.sessionKey = sessionKey
+      if (session !== undefined) out.session = session
+      return out
     },
     hydrate: (dehydrated: Dehydrated) => {
-      if (onHydrate) onHydrate(dehydrated.buildId)
+      if (onHydrate) onHydrate(dehydrated)
     },
   })
   // The constructor options leave serialization adapters to TanStack Start, the router reads

@@ -3,9 +3,9 @@ import { writeFileSync } from 'node:fs'
 import { createMemoryHistory, isRedirect } from '@tanstack/react-router'
 import { hydrate } from '@tanstack/react-router/ssr/client'
 import { htmlAttributes, routeTree } from './.tifa/routes'
-import { createAppRouter, load, unmatched } from './.tifa/runtime/router'
+import { createAppRouter, load, unmatched, type Dehydrated } from './.tifa/runtime/router'
 import { serve, type RenderResult } from './.tifa/runtime/server'
-import { headHTML, headTags } from './.tifa/runtime/head'
+import { headHTML, headTags, htmlAttributesOf } from './.tifa/runtime/head'
 import { collector, RouteError, type InjectedResult, type RouteResult } from './.tifa/runtime/data'
 import { resetReloads, watchChunks } from './.tifa/runtime/skew'
 
@@ -39,10 +39,10 @@ function inject(data: Record<string, RouteResult | InjectedResult>) {
 }
 
 // renderResult runs one whole-page render through the SSR entry, as the Go VM pool does.
-async function renderResult(url: string, data: Record<string, RouteResult | InjectedResult>, preload?: string, nonce?: string, slotMin?: number) {
+async function renderResult(url: string, data: Record<string, RouteResult | InjectedResult>, preload?: string, nonce?: string, slotMin?: number, extra: object = {}) {
   globalThis.renderResult = undefined
   const input = inject(data)
-  globalThis.startRender(JSON.stringify({ url, buildId: 'b1', data: input.data, preload, nonce, slotMin }), ...input.texts)
+  globalThis.startRender(JSON.stringify({ url, buildId: 'b1', data: input.data, preload, nonce, slotMin, ...extra }), ...input.texts)
   for (let i = 0; i < 1000 && globalThis.renderResult === undefined; i++)
     await new Promise((resolve) => setTimeout(resolve, 0))
   const result = globalThis.renderResult ?? '{"error":"render did not finish"}'
@@ -55,8 +55,8 @@ async function renderResult(url: string, data: Record<string, RouteResult | Inje
   }
 }
 
-async function render(url: string, data: Record<string, RouteResult | InjectedResult>, preload?: string, nonce?: string, slotMin?: number): Promise<string> {
-  const result = await renderResult(url, data, preload, nonce, slotMin)
+async function render(url: string, data: Record<string, RouteResult | InjectedResult>, preload?: string, nonce?: string, slotMin?: number, extra: object = {}): Promise<string> {
+  const result = await renderResult(url, data, preload, nonce, slotMin, extra)
   if (result.html === undefined) throw new Error(`render ${url}: ${JSON.stringify(result)}`)
   return result.html
 }
@@ -456,7 +456,7 @@ test('the rest of the path may be empty, written without the trailing slash', as
 
 // hydrateFrom runs the scripts of a server-rendered page the way a browser does and hydrates a
 // browser router from them.
-async function hydrateFrom(html: string, url: string) {
+async function hydrateFrom(html: string, url: string, onHydrate?: (dehydrated: Dehydrated) => void) {
   const g = globalThis as any
   const saved = { window: g.window, self: g.self, document: g.document }
   g.window = g.self = globalThis
@@ -473,7 +473,7 @@ async function hydrateFrom(html: string, url: string) {
         calls.push([u, id])
         return ok(id)
       },
-      { history: createMemoryHistory({ initialEntries: [url] }) },
+      { history: createMemoryHistory({ initialEntries: [url] }), onHydrate },
     )
     await hydrate(r)
     return { router: r, calls }
@@ -813,7 +813,7 @@ function stubFetch(status: number, body: unknown, headers: Record<string, string
 }
 
 test('a grouped answer reaches every route whatever the HTTP status', async () => {
-  stubFetch(404, { 'app/teams/team+/layout': ok('x'), 'app/teams/team+/one/route': missing })
+  stubFetch(404, { routes: { 'app/teams/team+/layout': ok('x'), 'app/teams/team+/one/route': missing } })
   const source = collector(() => 'b1')
   const [team, one] = await Promise.all([source('/teams/x/one', 'app/teams/team+/layout'), source('/teams/x/one', 'app/teams/team+/one/route')])
   assert(team.status === 200 && team.data === 'x', `team ${JSON.stringify(team)}`)
@@ -1013,6 +1013,68 @@ test('a chunk failure and a 409 on one page reload it once', async () => {
   void collector(() => 'b1')('/x', 'app/a/layout')
   await settle()
   assert(win.reloads() === 1, `reloads ${win.reloads()}`)
+})
+
+// The session of the request reaches the render as part of its input. The document says
+// data-session="in" for someone signed in, "out" for someone who is not and nothing on a page that carries no session, begins its head with the script and
+// the style Go wrote, and the page reads the session with useSession.
+const sessionHead = '<script>/* HEAD_SCRIPT */</script><style>/* HEAD_STYLE */</style>'
+const sessionInput = (session?: object) => ({ sessionKey: 'app_sid:v1', sessionHead, ...(session ? { session } : {}) })
+
+test('a page for someone signed in says so on <html> and reads the session', async () => {
+  const html = await render('/session', appData, undefined, undefined, undefined, sessionInput({ signedIn: true, data: { name: 'Ann' } }))
+  assert(html.startsWith('<!DOCTYPE html><html data-session="in" lang="xx" data-theme="a&quot;b" class="h-full"><head><meta charset="utf-8">' + sessionHead + '<link'), `document start: ${html.slice(0, 200)}`)
+  contains(html, 'SESSION <b>true</b>', 'NAME <b>Ann</b>', 'READY <b>true</b>', '<span class="menu" data-session="in">IN_ONLY</span>', '<span data-session="out">OUT_ONLY</span>')
+  // The page carries the session and where the browser keeps it, for the hydration.
+  contains(html, 'app_sid:v1', 'Ann')
+  let dehydrated: Dehydrated | undefined
+  const { calls } = await hydrateFrom(html, '/session', (d) => (dehydrated = d))
+  assert(calls.length === 0, `hydration requested ${JSON.stringify(calls)}`)
+  assert(JSON.stringify(dehydrated) === '{"buildId":"b1","sessionKey":"app_sid:v1","session":{"signedIn":true,"data":{"name":"Ann"}}}', `dehydrated ${JSON.stringify(dehydrated)}`)
+})
+
+test('a page for someone signed out says out on <html>', async () => {
+  const html = await render('/session', appData, undefined, undefined, undefined, sessionInput({ signedIn: false }))
+  assert(html.startsWith('<!DOCTYPE html><html data-session="out" lang="xx" data-theme="a&quot;b" class="h-full"><head>'), `document start: ${html.slice(0, 80)}`)
+  contains(html, 'SESSION <b>false</b>', 'NAME <b>nobody</b>', 'READY <b>true</b>')
+  lacks(html, 'data-session="in" lang')
+})
+
+test('a page that carries no session renders signed out and not ready', async () => {
+  // What a page the server answers for every visitor alike looks like: the key and no session.
+  const html = await render('/session', appData, undefined, undefined, undefined, sessionInput())
+  lacks(html.slice(0, 40), 'data-session')
+  contains(html, 'SESSION <b>false</b>', 'READY <b>false</b>')
+  let dehydrated: Dehydrated | undefined
+  await hydrateFrom(html, '/session', (d) => (dehydrated = d))
+  assert(JSON.stringify(dehydrated) === '{"buildId":"b1","sessionKey":"app_sid:v1"}', `dehydrated ${JSON.stringify(dehydrated)}`)
+})
+
+test('useSession fails in an app render that has no session', async () => {
+  const result = await renderResult('/session', appData)
+  assert(result.html === undefined && /useSession needs a session/.test(result.error ?? ''), `result ${JSON.stringify(result).slice(0, 300)}`)
+  // A page that does not read the session renders the same with or without one.
+  contains(await render('/hello', appData), 'PAGE_LOWER')
+  lacks(await render('/hello', appData), 'data-session')
+})
+
+test('the app cannot set data-session on <html>', async () => {
+  for (const attrs of [{ 'data-session': 'in' }, { 'Data-Session': 'in' }])
+    try {
+      htmlAttributesOf([], attrs)
+      assert(false, 'data-session was accepted')
+    } catch (error) {
+      assert(error instanceof Error && /data-session/.test(error.message), `error ${error}`)
+    }
+})
+
+test('a root Layout that sets data-session stops the bundle as it loads, and says why', async () => {
+  try {
+    serve(routeTree, { lang: 'en', 'data-session': 'in' })
+    assert(false, 'serve accepted data-session')
+  } catch (error) {
+    assert(error instanceof Error && /htmlAttributes cannot set data-session on <html>: tifa keeps it/.test(error.message), `error ${error}`)
+  }
 })
 
 let failed = 0

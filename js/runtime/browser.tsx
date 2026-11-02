@@ -1,7 +1,8 @@
 import { createRoot, hydrateRoot } from 'react-dom/client'
 import { Await, RouterProvider, type AnyRoute, type AnyRouter } from '@tanstack/react-router'
 import { hydrate as hydrateRouter } from '@tanstack/react-router/ssr/client'
-import { createAppRouter } from './router'
+import { createAppRouter, type Dehydrated } from './router'
+import { SessionContext, settleSession, startSession, type Snapshot } from './session'
 import { bootElementId, collector, injected, RouteError, rootElementId, sameURL, type Boot, type Source } from './data'
 import { defaultHTMLAttributes, followHead, noteHTMLAttributes, syncHead, syncHTMLAttributes, type HTMLAttributes } from './head'
 import { setRouter } from './call'
@@ -25,15 +26,34 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
   const boot = document.getElementById(bootElementId)
   // The build ID of the page: its dehydrated data has it, or the data of a page without SSR.
   let buildId = ''
+  // What the session shows before the browser has settled it, and what the hydration renders.
+  let shown: Snapshot | undefined
   watchChunks(() => buildId)
   if (!boot) {
     const router = createAppRouter(routeTree, collector(() => buildId), {
-      onHydrate: (id) => (buildId = id),
+      onHydrate: (dehydrated: Dehydrated) => {
+        buildId = dehydrated.buildId
+        if (dehydrated.sessionKey !== undefined)
+          shown = startSession({ key: dehydrated.sessionKey, injected: dehydrated.session, buildId: () => buildId })
+      },
     })
     setRouter(router, () => buildId)
     const hydrated = takeOver(router, htmlAttributes)
     // What TanStack's RouterClient renders, with the promise of takeOver in place of its own.
-    hydrateRoot(root, <Await promise={hydrated}>{() => <RouterProvider router={router} />}</Await>, rootOptions)
+    hydrateRoot(
+      root,
+      <Await promise={hydrated}>
+        {() => (
+          <SessionContext.Provider value={shown}>
+            <RouterProvider router={router} />
+          </SessionContext.Provider>
+        )}
+      </Await>,
+      rootOptions,
+    )
+    // A page the server answered for every visitor alike carries no session. React renders the
+    // server snapshot while it hydrates and then the one that settling gives.
+    void hydrated.then(settleSession, () => {})
     return
   }
   // Go writes the document of a page without SSR, the attributes of <html> come from here: those
@@ -41,6 +61,8 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
   syncHTMLAttributes([], htmlAttributes)
   const input: Boot = JSON.parse(boot.textContent ?? '')
   buildId = input.buildId
+  if (input.sessionKey !== undefined)
+    shown = startSession({ key: input.sessionKey, injected: input.session, buildId: () => buildId })
   const live = collector(() => buildId)
   const local = injected(input)
   let first = true
@@ -54,7 +76,11 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
     setRouter(router, () => buildId)
     syncHead(router.stores.matches.get())
     syncHTMLAttributes(router.stores.matches.get(), htmlAttributes)
-    createRoot(root, rootOptions).render(<RouterProvider router={router} />)
+    createRoot(root, rootOptions).render(
+      <SessionContext.Provider value={shown}>
+        <RouterProvider router={router} />
+      </SessionContext.Provider>,
+    )
   })
 }
 

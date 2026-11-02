@@ -64,6 +64,9 @@ func run(ctx context.Context, app App, args, environ []string, stdout, stderr io
 		}
 		s := New(cfg, app.Hooks)
 		s.register(app.Layouts, app.Routes)
+		if app.Session != nil {
+			s.enableSessions(app.Session)
+		}
 		if dist, err := frontFiles(app, distDir); err != nil {
 			return err
 		} else if dist != nil {

@@ -511,10 +511,13 @@ func TestPagesApp(t *testing.T) {
 	// Data made of what could break a page reaches it, and the browser, as the text Go wrote: the
 	// server fills the page with the data after the VM wrote it, in every form the page goes out in.
 	_, _, answer := get(t, base+"/hostile", "X-Tifa-Route", "app/hostile/route", "X-Tifa-Build", built.BuildID)
-	var hostile map[string]struct{ Data json.RawMessage }
-	if err := json.Unmarshal([]byte(answer), &hostile); err != nil || len(hostile["app/hostile/route"].Data) == 0 {
+	var hostileAnswer struct {
+		Routes map[string]struct{ Data json.RawMessage }
+	}
+	if err := json.Unmarshal([]byte(answer), &hostileAnswer); err != nil || len(hostileAnswer.Routes["app/hostile/route"].Data) == 0 {
 		t.Fatalf("data request: %v %s", err, answer)
 	}
+	hostile := hostileAnswer.Routes
 	written := `$_TSR.t.get("tifa.data")("` + ssr.ScriptString(string(ssr.EscapeAboveFFFF(hostile["app/hostile/route"].Data))) + `")`
 	_, firstHeader, hostileFirst := get(t, base+"/hostile")
 	_, secondHeader, hostileSecond := get(t, base+"/hostile")
@@ -540,11 +543,13 @@ func TestPagesApp(t *testing.T) {
 	// The error page of a Load that failed below a Layout keeps the data of the Layout, which is long
 	// enough to be a slot, and carries it as the VM would have written it.
 	_, _, banner := get(t, base+"/hostile/gone", "X-Tifa-Route", "app/hostile/layout", "X-Tifa-Build", built.BuildID)
-	var layout map[string]struct{ Data json.RawMessage }
-	if err := json.Unmarshal([]byte(banner), &layout); err != nil || len(layout["app/hostile/layout"].Data) == 0 {
+	var layoutAnswer struct {
+		Routes map[string]struct{ Data json.RawMessage }
+	}
+	if err := json.Unmarshal([]byte(banner), &layoutAnswer); err != nil || len(layoutAnswer.Routes["app/hostile/layout"].Data) == 0 {
 		t.Fatalf("data request of the Layout: %v %s", err, banner)
 	}
-	bannerWritten := `$_TSR.t.get("tifa.data")("` + ssr.ScriptString(string(ssr.EscapeAboveFFFF(layout["app/hostile/layout"].Data))) + `")`
+	bannerWritten := `$_TSR.t.get("tifa.data")("` + ssr.ScriptString(string(ssr.EscapeAboveFFFF(layoutAnswer.Routes["app/hostile/layout"].Data))) + `")`
 	status, _, gone := get(t, base+"/hostile/gone")
 	if status != 404 {
 		t.Errorf("/hostile/gone: status %d", status)
@@ -586,7 +591,7 @@ func TestPagesApp(t *testing.T) {
 	checkBurst(t, base+"/shops/south?sort=desc", 20)
 	// A navigation asks for the listed routes and gets their results by route ID.
 	status, header, body = get(t, base+"/shops/north/items/apple", "X-Tifa-Route", "app/shops/shop+/layout,app/shops/shop+/items/item+/route", "X-Tifa-Build", built.BuildID)
-	if status != 200 || !slices.Contains(header.Values("Vary"), "X-Tifa-Route") || body != `{"app/shops/shop+/items/item+/route":{"status":200,"data":{"id":"apple","title":"Apple","price":1.5,"tags":["fruit"]}},"app/shops/shop+/layout":{"status":200,"data":{"id":"north","name":"Shop north"}}}` {
+	if status != 200 || !slices.Contains(header.Values("Vary"), "X-Tifa-Route") || body != `{"routes":{"app/shops/shop+/items/item+/route":{"status":200,"data":{"id":"apple","title":"Apple","price":1.5,"tags":["fruit"]}},"app/shops/shop+/layout":{"status":200,"data":{"id":"north","name":"Shop north"}}}}` {
 		t.Errorf("data request: %d %v %s", status, header, body)
 	}
 	if got := header.Get("Cache-Control"); got != "private, no-cache" {

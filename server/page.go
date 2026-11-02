@@ -530,7 +530,16 @@ func (s *Server) dataRequest(c *tifa.Ctx, chain []load, key string) error {
 	if err != nil {
 		return err
 	}
-	return writeData(c.Writer(), http.StatusOK, items)
+	session, err := s.browserSession(c)
+	if err != nil {
+		return err
+	}
+	if session != nil {
+		if err := checkSessionCache(c.Writer().Header()); err != nil {
+			return err
+		}
+	}
+	return writeDataBody(c.Writer(), http.StatusOK, dataAnswer{Routes: items, Session: session})
 }
 
 // buildChanged is the 409 for a request from a page of another build. It names the build the
@@ -560,10 +569,25 @@ func (s *Server) listedLoads(c *tifa.Ctx, chain []load) ([]load, error) {
 	return selected, nil
 }
 
+// dataAnswer is the body of a data request: the results of the routes by route ID, and the session
+// of the request when the app has sessions.
+type dataAnswer struct {
+	Routes  map[string]routeResult `json:"routes"`
+	Session *core.BrowserSession   `json:"session,omitempty"`
+}
+
 // writeData writes the answer of a data request. A Cache-Control of OnRequest or a Load, such
 // as private, no-store, wins over the default of the writer (defaultCacheControl). The Loads have
 // returned, so the header map is no longer shared.
-func writeData(w http.ResponseWriter, status int, value any) error {
+func (s *Server) writeData(c *tifa.Ctx, status int, items map[string]routeResult) error {
+	session := s.answerSession(c)
+	if session != nil {
+		s.sealSessionAnswer(c) // this answer is already an error flow
+	}
+	return writeDataBody(c.Writer(), status, dataAnswer{Routes: items, Session: session})
+}
+
+func writeDataBody(w http.ResponseWriter, status int, value any) error {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return err
@@ -580,8 +604,9 @@ func writeData(w http.ResponseWriter, status int, value any) error {
 // the routes of the old page. A handler call of the browser gets the same JSON, marked with
 // redirectHeader, since the result of a handler may look like it.
 type dataRedirect struct {
-	Redirect string `json:"redirect"`
-	Status   int    `json:"status"`
+	Redirect string               `json:"redirect"`
+	Status   int                  `json:"status"`
+	Session  *core.BrowserSession `json:"session,omitempty"`
 }
 
 // renderPage renders the document in the VM. A successful page gets an ETag from the hash of
@@ -597,19 +622,32 @@ func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status in
 	if err != nil {
 		return err
 	}
+	sess, err := s.pageSession(c)
+	if err != nil {
+		return err
+	}
+	if sess.json != nil {
+		if err := checkSessionCache(c.Writer().Header()); err != nil {
+			return err
+		}
+	}
 	// The render runs on the pool of f, which swapFront closes only after this returns. Only
 	// tifa dev swaps the front end, so in production the lock is never contended.
 	s.rendering.RLock()
 	defer s.rendering.RUnlock()
 	f := s.front.Load()
 	// The preloads follow from the build, the matched path, which the URL picks, and the results
-	// of the Loads, so the ETag and the HTML cache need not cover more.
-	in := ssr.Input{BuildID: f.build.ID, URL: r.URL.RequestURI(), Data: data, Texts: texts, Preload: f.preloadOf(key, items)}
+	// of the Loads, so the ETag and the HTML cache need not cover more than those and the session.
+	in := ssr.Input{BuildID: f.build.ID, URL: r.URL.RequestURI(), Data: data, Texts: texts, Preload: f.preloadOf(key, items),
+		Session: sess.json, SessionKey: sess.key, SessionHead: sess.head}
 	failed := &renderError{f: f, in: in, key: key}
 	var tag string
 	if status == http.StatusOK {
 		sum := sha256.New()
 		io.WriteString(sum, in.BuildID+"\x00"+f.build.bundle+"\x00"+in.URL+"\x00"+string(data))
+		// The session is part of what the page is made from: two visitors never share an ETag or
+		// an entry of the HTML cache unless the browser gets the same session.
+		io.WriteString(sum, "\x00"+string(in.Session)+"\x00"+in.SessionKey)
 		for _, text := range texts {
 			io.WriteString(sum, "\x00"+text)
 		}
@@ -726,14 +764,26 @@ func (s *Server) dataOnly(c *tifa.Ctx, items map[string]routeResult, status int,
 	if err != nil {
 		return err
 	}
-	boot, err := json.Marshal(map[string]any{
-		"url": c.Request().URL.RequestURI(), "buildId": f.build.ID, "data": injected,
-	})
+	sess, err := s.pageSession(c)
+	if err != nil {
+		return err
+	}
+	if sess.json != nil {
+		if err := checkSessionCache(c.Writer().Header()); err != nil {
+			return err
+		}
+	}
+	bootData := map[string]any{"url": c.Request().URL.RequestURI(), "buildId": f.build.ID, "data": injected}
+	if sess.json != nil {
+		bootData["session"], bootData["sessionKey"] = sess.json, sess.key
+	}
+	boot, err := json.Marshal(bootData)
 	if err != nil {
 		return err
 	}
 	var b strings.Builder
-	b.WriteString(`<!DOCTYPE html><html><head><meta charset="utf-8">`)
+	b.WriteString(`<!DOCTYPE html>` + sess.htmlTag() + `<head><meta charset="utf-8">`)
+	b.WriteString(sess.head)
 	b.WriteString(f.build.Head)
 	b.WriteString(f.preloadOf(key, items))
 	b.WriteString(`</head><body><div id="tifa-root"></div>`)

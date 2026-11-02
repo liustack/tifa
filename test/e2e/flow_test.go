@@ -295,8 +295,11 @@ func TestErrorFlowInTheVM(t *testing.T) {
 		}
 		// Passed through unchanged, the data request is answered by route.
 		code, _, body = get(t, base+"/secret?deny=1", dataHeaders...)
-		var got map[string]struct{ Status int }
-		if err := json.Unmarshal([]byte(body), &got); err != nil || code != 200 || got["app/secret/layout"].Status != 500 || got["app/secret/route"].Status != 200 {
+		var answer struct {
+			Routes map[string]struct{ Status int }
+		}
+		got := &answer.Routes
+		if err := json.Unmarshal([]byte(body), &answer); err != nil || code != 200 || (*got)["app/secret/layout"].Status != 500 || (*got)["app/secret/route"].Status != 200 {
 			t.Errorf("passed through: %d %s", code, body)
 		}
 	})
