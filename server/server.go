@@ -155,6 +155,10 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 	if s.serveDev(w, r) || s.serveStatic(w, r) {
 		return
 	}
+	if s.sess.enabled && r.URL.Path == sessionPath {
+		s.serve(w, r, sessionPath, false, s.sessionHandler)
+		return
+	}
 	h, _ := s.mux.Handler(r)
 	if _, ok := h.(routeHandler); ok {
 		s.mux.ServeHTTP(w, r)
@@ -281,17 +285,17 @@ func (s *Server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 	data := c.IsData() && s.pagesServed() && (r.Method == "GET" || r.Method == "HEAD")
 	switch {
 	case failure != nil && failure.data:
-		_ = writeData(w, http.StatusOK, items)
+		_ = s.writeData(c, http.StatusOK, items)
 	case missing != nil && missing.data && data:
-		_ = writeData(w, http.StatusNotFound, missing.items)
+		_ = s.writeData(c, http.StatusNotFound, missing.items)
 	case redirect != nil && data:
-		_ = writeData(w, http.StatusOK, dataRedirect{Redirect: redirect.URL, Status: redirect.Code})
+		_ = writeDataBody(w, http.StatusOK, dataRedirect{Redirect: redirect.URL, Status: redirect.Code, Session: s.answerSession(c)})
 	case redirect != nil && r.Header.Get(callHeader) != "":
 		// The app's caching headers would let a cache hand this JSON to a page load.
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set(redirectHeader, strconv.Itoa(redirect.Code))
 		w.Header().Add("Vary", callHeader)
-		writeJSON(w, http.StatusOK, dataRedirect{Redirect: redirect.URL, Status: redirect.Code})
+		writeJSON(w, http.StatusOK, dataRedirect{Redirect: redirect.URL, Status: redirect.Code, Session: s.callSession(c)})
 	case redirect != nil:
 		w.Header().Add("Vary", callHeader)
 		http.Redirect(w, r, redirect.URL, redirect.Code)

@@ -89,6 +89,16 @@ func newFrontServer(t *testing.T, app App) (*Server, *renders) {
 	return s, r
 }
 
+// routesOf reads the results of the routes out of the envelope of a data request.
+func routesOf(t *testing.T, w *httptest.ResponseRecorder) map[string]routeResult {
+	t.Helper()
+	var envelope dataAnswer
+	if err := json.Unmarshal(w.Body.Bytes(), &envelope); err != nil || envelope.Routes == nil {
+		t.Fatalf("%d %s: %v", w.Code, w.Body.String(), err)
+	}
+	return envelope.Routes
+}
+
 func get(s *Server, target string, header ...string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest("GET", target, nil)
 	for i := 0; i < len(header); i += 2 {
@@ -258,10 +268,7 @@ func TestDataRequestAnswersTheListedRoutes(t *testing.T) {
 	if w.Code != 200 || !varies(w, "X-Tifa-Route") || r.count() != 0 {
 		t.Fatalf("%d %v %s", w.Code, w.Header(), w.Body.String())
 	}
-	var got map[string]routeResult
-	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
-		t.Fatal(err)
-	}
+	got := routesOf(t, w)
 	if len(got) != 2 || got["app/projects"].Status != 200 || got["app/projects/orders"].Status != 200 {
 		t.Errorf("%s", w.Body.String())
 	}

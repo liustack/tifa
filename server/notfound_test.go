@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http/httptest"
 	"strings"
@@ -83,8 +82,8 @@ func TestUnmatchedURLRunsItsLayouts(t *testing.T) {
 	}
 
 	w = get(s, "/projects/p9/missing", routeHeader, "app/projects", buildHeader, "b1")
-	var items map[string]routeResult
-	if err := json.Unmarshal(w.Body.Bytes(), &items); err != nil || w.Code != 404 || len(items) != 1 || items["app/projects"].Status != 200 {
+	items := routesOf(t, w)
+	if w.Code != 404 || len(items) != 1 || items["app/projects"].Status != 200 {
 		t.Errorf("data request: %d %s", w.Code, w.Body.String())
 	}
 	if w := get(s, "/projects/p9/missing", routeHeader, "app/projects/orders", buildHeader, "b1"); w.Code != 400 {
@@ -100,7 +99,7 @@ func TestUnmatchedURLRunsItsLayouts(t *testing.T) {
 		t.Errorf("failed Layout: %d %v", w.Code, data)
 	}
 	w = get(s, "/projects/broken/missing", routeHeader, "app/layout,app/projects", buildHeader, "b1")
-	if err := json.Unmarshal(w.Body.Bytes(), &items); err != nil || w.Code != 200 || items["app/projects"].Status != 503 {
+	if items = routesOf(t, w); w.Code != 200 || items["app/projects"].Status != 503 {
 		t.Errorf("data request with a failed Layout: %d %s", w.Code, w.Body.String())
 	}
 }

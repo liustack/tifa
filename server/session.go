@@ -16,6 +16,9 @@ type sessionState struct {
 	once  sync.Once
 	env   *core.SessionEnv
 	owned *core.MemoryStore // the default store sessionEnv made, closed by Close
+	// enabled is set for an app that calls tifa.SetSession (App.Session): its pages, navigation
+	// answers and calls carry the session to the browser.
+	enabled bool
 }
 
 // sessionEnv returns the environment of every request. Under tifa dev the cookie has no Secure

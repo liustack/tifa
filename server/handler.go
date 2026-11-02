@@ -5,13 +5,49 @@ import (
 	"net/http"
 
 	"github.com/liustack/tifa"
+	"github.com/liustack/tifa/internal/core"
 )
 
 // The generated routes.go registers a method handler that takes an input or returns a result
 // through these adapters. bind is (*tifa.Ctx).Bind for a request body and (*tifa.Ctx).BindQuery
 // for the query string of GET and DELETE.
 
-// Input decodes the input with bind, validates it, calls h and answers 204 when h succeeds.
+// callAnswer is the body of the answer to a call from the browser (a request with callHeader):
+// the result of the handler, and the session when the call changed it. A request without the
+// header gets the result alone, or 204, as before.
+type callAnswer struct {
+	Result  any                  `json:"result"`
+	Session *core.BrowserSession `json:"session,omitempty"`
+}
+
+// sessionAnswer is the body of the answer to a call that has no result but changed the session.
+type sessionAnswer struct {
+	Session *core.BrowserSession `json:"session"`
+}
+
+// calledSession returns the session of a call from the browser when the call changed it.
+func calledSession(c *tifa.Ctx) (*core.BrowserSession, error) {
+	if c.Header(callHeader) == "" || !core.SessionChanged(c) {
+		return nil, nil
+	}
+	v, err := core.BrowserSessionOf(c)
+	return &v, err
+}
+
+// writeResult answers with the result of a handler.
+func writeResult(c *tifa.Ctx, out any) error {
+	if c.Header(callHeader) == "" {
+		return c.JSON(http.StatusOK, out)
+	}
+	session, err := calledSession(c)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, callAnswer{Result: out, Session: session})
+}
+
+// Input decodes the input with bind, validates it, calls h and answers 204 when h succeeds. A call
+// from the browser that changed the session gets 200 and the session instead.
 func Input[In any](h func(*tifa.Ctx, In) error, bind func(*tifa.Ctx, any) error) func(*tifa.Ctx) error {
 	return func(c *tifa.Ctx) error {
 		var in In
@@ -20,6 +56,13 @@ func Input[In any](h func(*tifa.Ctx, In) error, bind func(*tifa.Ctx, any) error)
 		}
 		if err := h(c, in); err != nil {
 			return err
+		}
+		session, err := calledSession(c)
+		if err != nil {
+			return err
+		}
+		if session != nil {
+			return c.JSON(http.StatusOK, sessionAnswer{Session: session})
 		}
 		return c.NoContent(http.StatusNoContent)
 	}
@@ -32,7 +75,7 @@ func Output[Out any](h func(*tifa.Ctx) (Out, error)) func(*tifa.Ctx) error {
 		if err != nil {
 			return err
 		}
-		return c.JSON(http.StatusOK, out)
+		return writeResult(c, out)
 	}
 }
 
@@ -48,7 +91,7 @@ func InputOutput[In, Out any](h func(*tifa.Ctx, In) (Out, error), bind func(*tif
 		if err != nil {
 			return err
 		}
-		return c.JSON(http.StatusOK, out)
+		return writeResult(c, out)
 	}
 }
 

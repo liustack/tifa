@@ -20,6 +20,9 @@ type App struct {
 	// Config is the file's content. It is the layer below --config and above the defaults.
 	ConfigName string
 	Config     []byte
+	// Session is set when the app calls tifa.SetSession: it tells the process the session type
+	// (SessionOf), and the pages, navigation answers and calls carry the session to the browser.
+	Session func()
 	// Dist is the .tifa directory's embedded dist/ (the FS holds dist/ at its root): build.json,
 	// the SSR bundle, the browser assets and the public files that tifa build writes.
 	Dist fs.FS
