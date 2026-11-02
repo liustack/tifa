@@ -18,9 +18,9 @@ import (
 // the requests it sees.
 func crossSiteApp(seen *atomic.Int32, mutate func(*config.Server)) *Server {
 	app := testApp()
-	app.Hooks.OnRequest = func(c *tifa.Ctx) error {
+	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		seen.Add(1)
-		return c.Next()
+		return next(c)
 	}
 	cfg := config.Default()
 	if mutate != nil {
@@ -190,7 +190,7 @@ func TestCrossSiteRefusalIsOneLogLine(t *testing.T) {
 	if strings.Count(got, "\n") != 1 || strings.ContainsRune(got, 0x1b) || strings.Contains(got, "secret") {
 		t.Fatalf("log %q", got)
 	}
-	for _, want := range []string{`refused POST "/w\nFAKE\x1b[2J"`, `Origin "https://evil.test"`, `Sec-Fetch-Site "cross-site"`, `Host "shop.example"`} {
+	for _, want := range []string{`method=POST`, `path="/w\nFAKE\x1b[2J"`, `origin=https://evil.test`, `sec_fetch_site=cross-site`, `host=shop.example`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("log %q lacks %s", got, want)
 		}

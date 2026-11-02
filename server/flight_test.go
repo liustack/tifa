@@ -164,11 +164,11 @@ func TestBurstOfAnUncachedPageRendersEach(t *testing.T) {
 // Requests that share a render keep the headers OnRequest gave each of them.
 func TestBurstKeepsTheHeadersOfEachRequest(t *testing.T) {
 	app := frontApp()
-	app.Hooks.OnRequest = func(c *tifa.Ctx) error {
+	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		c.Writer().Header().Add("Set-Cookie", "visitor="+c.Header("X-Visitor"))
 		c.Writer().Header().Add("Vary", "Cookie")
 		c.SetHeader("X-Visitor", c.Header("X-Visitor"))
-		return c.Next()
+		return next(c)
 	}
 	s, g := newHeldServer(t, config.Default(), app)
 	visitor := func(i int) string { return fmt.Sprintf("v%d", i) }
@@ -291,13 +291,14 @@ func TestRequestThatStopsWaitingLeavesTheRender(t *testing.T) {
 			var logged bytes.Buffer
 			log.SetOutput(&logged)
 			defer log.SetOutput(os.Stderr)
-			var reported, next error
+			var reported, seen error
 			app := frontApp()
 			app.Hooks.OnError = func(c *tifa.Ctx, err error) tifa.Error { reported = err; return tifa.Error{Status: 500} }
-			app.Hooks.OnRequest = func(c *tifa.Ctx) error {
-				err := c.Next()
+			app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+				// The route runs on a copy of c, as it does behind middleware that sets a value.
+				err := next(c.WithContext(c.Context()))
 				if c.Request().Header.Get("X-First") != "" {
-					next = err
+					seen = err
 				}
 				return err
 			}
@@ -333,8 +334,8 @@ func TestRequestThatStopsWaitingLeavesTheRender(t *testing.T) {
 				cancel()
 			}
 			a := <-left
-			if !errors.Is(next, tc.next) || !errors.Is(reported, tc.reported) || (reported == nil) != (tc.reported == nil) {
-				t.Errorf("Next returned %v, OnError got %v", next, reported)
+			if !errors.Is(seen, tc.next) || !errors.Is(reported, tc.reported) || (reported == nil) != (tc.reported == nil) {
+				t.Errorf("next returned %v, OnError got %v", seen, reported)
 			}
 			// A client that went away has its connection cut: net/http catches ErrAbortHandler
 			// and sends nothing (TestClientThatLeavesIsCutOff).
@@ -541,9 +542,9 @@ func TestFailureNoRequestWaitsForIsLogged(t *testing.T) {
 		want   []string
 	}{
 		{"error", func(context.Context, ssr.Input) (string, error) { return "", errors.New("Error: a component threw") },
-			[]string{"tifa: GET /stats: ", "a component threw"}},
+			[]string{"a render failed and no request waits for it", "path=/stats", "a component threw"}},
 		{"panic", func(context.Context, ssr.Input) (string, error) { panic("the engine broke") },
-			[]string{"tifa: GET /stats: ", "tifa: panic: the engine broke", "(*heldRender).render"}},
+			[]string{"a render failed and no request waits for it", "path=/stats", "tifa: panic: the engine broke", "(*heldRender).render"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var mu sync.Mutex

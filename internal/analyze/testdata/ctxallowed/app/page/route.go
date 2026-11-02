@@ -15,7 +15,7 @@ func Load(c *tifa.Ctx) (string, error) {
 	d := db.Deep{R: r, Ptr: &db.Req{}}
 	inline := func(k *tifa.Ctx) string { return k.Query("inline") }(c)
 	later := func() string { return c.Query("closure") }
-	if err := c.Next(); err != nil {
+	if err := c.SetBodyLimit(1); err != nil {
 		return "", err
 	}
 	return r.Page() + r.Sort() + d.Size() + db.Read(c, r) + (c).Query("paren") + inline + later(), nil

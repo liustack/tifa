@@ -195,9 +195,9 @@ func TestApplicationETagsTurnWeakWhenCompressed(t *testing.T) {
 // is *, stays as it is.
 func TestVaryKeepsAcceptEncoding(t *testing.T) {
 	app := frontApp()
-	app.Hooks.OnRequest = func(c *tifa.Ctx) error {
+	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		c.SetHeader("Vary", c.Request().URL.Query().Get("vary"))
-		return c.Next()
+		return next(c)
 	}
 	s := newBigServer(t, config.Default(), app)
 	s.Handle("GET", "/api", func(c *tifa.Ctx) error {
@@ -252,9 +252,9 @@ func TestCompressOff(t *testing.T) {
 // gzhttp removes it when compression is on.
 func TestCompressOffDropsNoGzipCompression(t *testing.T) {
 	app := frontApp()
-	app.Hooks.OnRequest = func(c *tifa.Ctx) error {
+	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		c.SetHeader(gzhttp.HeaderNoCompression, "1")
-		return c.Next()
+		return next(c)
 	}
 	cfg := config.Default()
 	cfg.Server.Compress = false
@@ -484,11 +484,11 @@ func TestFlushBeforeTheBodySendsTheHeader(t *testing.T) {
 // get the HTML.
 func TestCacheHitsSendTheirStoredCompression(t *testing.T) {
 	app := frontApp()
-	app.Hooks.OnRequest = func(c *tifa.Ctx) error {
+	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		if c.Request().URL.Query().Has("plain") {
 			c.SetHeader(gzhttp.HeaderNoCompression, "1")
 		}
-		return c.Next()
+		return next(c)
 	}
 	s := New(config.Default(), app.Hooks)
 	s.register(app.Layouts, app.Routes)
@@ -585,11 +585,11 @@ func TestCacheMissesSendTheFormTheyStore(t *testing.T) {
 // page whose forms do not fit is kept as HTML, and hits compress it as they send it.
 func TestCacheMissCompressesBothFormsOnce(t *testing.T) {
 	app := frontApp()
-	app.Hooks.OnRequest = func(c *tifa.Ctx) error {
+	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		if c.Header("X-Plain") != "" {
 			c.SetHeader(gzhttp.HeaderNoCompression, "1")
 		}
-		return c.Next()
+		return next(c)
 	}
 	stored := func(s *Server) cachedPage {
 		t.Helper()

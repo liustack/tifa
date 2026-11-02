@@ -263,6 +263,9 @@ func TestViolations(t *testing.T) {
 			{"app/page/route.go:12:", "package-level function", "closure"},
 			{"app/page/route.go:13:", "package-level function", "method"},
 		}},
+		{"badhook", [][]string{
+			{"hooks.go:", "OnRequest must have the signature func(c *tifa.Ctx, next func(*tifa.Ctx) error) error"},
+		}},
 		{"badtype", [][]string{
 			{"app/page/route.go:56:", "Data.Updates", "chan int"},
 			{"app/page/route.go:56:", "Data.ByScore", "map[float64]string"},

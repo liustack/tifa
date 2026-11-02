@@ -18,9 +18,9 @@ func OnShutdown(ctx context.Context) error {
 	return nil
 }
 
-func OnRequest(c *tifa.Ctx) error {
+func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 	c.SetHeader("X-Pattern", c.Pattern())
-	return c.Next()
+	return next(c)
 }
 
 func OnError(c *tifa.Ctx, err error) tifa.Error {

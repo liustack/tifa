@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -31,13 +30,14 @@ import (
 type Hooks struct {
 	OnStart    func() error
 	OnShutdown func(ctx context.Context) error
-	OnRequest  func(c *tifa.Ctx) error
+	OnRequest  func(c *tifa.Ctx, next func(*tifa.Ctx) error) error
 	OnError    func(c *tifa.Ctx, err error) tifa.Error
 }
 
 type Server struct {
 	cfg    config.Server
 	hooks  Hooks
+	root   http.Handler // what the listener serves: s wrapped by tifa.SetHTTPHandler, set by Run
 	mux    *http.ServeMux
 	routes map[string]map[string]func(*tifa.Ctx) error // path, then method
 	pages  map[string]bool                             // paths whose GET renders a page
@@ -203,15 +203,27 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, pattern string, p
 	c := core.New(tw, r, pattern, s.cfg.BodyLimit)
 	defer func() {
 		if err := core.Finish(c); err != nil {
-			log.Printf("tifa: %s %s: %v", r.Method, r.URL.Path, err)
+			core.Logger().WarnContext(r.Context(), "tifa: removing the multipart files failed", "method", r.Method, "path", r.URL.Path, "err", err)
 		}
 	}()
 	var err error
 	if s.hooks.OnRequest == nil {
 		err = route(c)
 	} else {
-		core.SetNext(c, func() error { return route(c) })
-		err = recovered(func() error { return s.hooks.OnRequest(c) })
+		var called atomic.Bool
+		var routed atomic.Pointer[tifa.Ctx]
+		next := func(nc *tifa.Ctx) error {
+			if !called.CompareAndSwap(false, true) {
+				return errors.New("tifa: next called more than once")
+			}
+			routed.Store(nc)
+			return route(nc)
+		}
+		err = recovered(func() error { return s.hooks.OnRequest(c, next) })
+		// The error flow sees what the route saw: the Ctx that OnRequest gave to next.
+		if rc := routed.Load(); rc != nil {
+			c = rc
+		}
 	}
 	if err != nil {
 		page = page && s.pagesServed() && (r.Method == "GET" || r.Method == "HEAD") && !c.IsData()
@@ -248,7 +260,7 @@ func (s *Server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 		redirect, e = s.classify(c, err)
 	}
 	if w.wrote {
-		log.Printf("tifa: %s %s: %v after the response was written", r.Method, r.URL.Path, err)
+		core.Logger().ErrorContext(r.Context(), "tifa: request failed after the response was written", "method", r.Method, "path", r.URL.Path, "err", err)
 		return
 	}
 	// Only the collector sends X-Tifa-Route. It also reaches a redirect of ServeMux, which has
@@ -316,7 +328,7 @@ func (s *Server) classify(c *tifa.Ctx, err error) (*core.RedirectError, tifa.Err
 // publicError asks OnError what to show for an unexpected error. Without OnError it logs the error and answers 500.
 func (s *Server) publicError(c *tifa.Ctx, err error) tifa.Error {
 	if s.hooks.OnError == nil {
-		log.Printf("tifa: %s %s: %v", c.Request().Method, c.Request().URL.Path, err)
+		core.Logger().ErrorContext(c.Context(), "tifa: request failed", "method", c.Request().Method, "path", c.Request().URL.Path, "err", err)
 		return tifa.Error{Status: http.StatusInternalServerError, Message: http.StatusText(http.StatusInternalServerError)}
 	}
 	e := s.hooks.OnError(c, err)
@@ -492,6 +504,10 @@ func (s *Server) Run(ctx context.Context) error {
 			return fmt.Errorf("tifa: OnStart: %w", err)
 		}
 	}
+	// After OnStart, which is where an app calls tifa.SetHTTPHandler.
+	root, release := core.SealHTTPHandler(s)
+	defer release()
+	s.root = root
 	ln, err := net.Listen("tcp", s.cfg.Addr)
 	if err != nil {
 		return listenError("server.addr", err)
@@ -510,12 +526,12 @@ func (s *Server) Run(ctx context.Context) error {
 		if tlsConfig != nil {
 			scheme = "https"
 		}
-		log.Printf("tifa: listening on %s://%s", scheme, ln.Addr())
+		core.Logger().Info("tifa: listening on " + scheme + "://" + ln.Addr().String())
 		if tlsConfig != nil {
 			warnLoopback(ln.Addr())
 		}
 		if plainLn != nil {
-			log.Printf("tifa: listening on http://%s, which redirects to HTTPS", plainLn.Addr())
+			core.Logger().Info("tifa: listening on http://"+plainLn.Addr().String(), "redirects_to", "https")
 		}
 	}
 	ready()
@@ -606,6 +622,10 @@ func (s *Server) serveBoth(ctx context.Context, ln net.Listener, tlsConfig *tls.
 		return err
 	}
 	var g gate
+	var root http.Handler = s
+	if s.root != nil {
+		root = s.root
+	}
 	base, cancelRequests := context.WithCancel(context.Background())
 	defer cancelRequests()
 	srv := &http.Server{
@@ -623,7 +643,7 @@ func (s *Server) serveBoth(ctx context.Context, ln net.Listener, tlsConfig *tls.
 				return
 			}
 			defer g.leave()
-			s.ServeHTTP(w, r)
+			root.ServeHTTP(w, r)
 		}),
 		BaseContext:       func(net.Listener) context.Context { return base },
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second,

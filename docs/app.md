@@ -156,7 +156,7 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 | `c.Query(name)` | The first value of a query parameter, `""` when absent |
 | `c.QueryAll(name)` | Every value of a query parameter, such as `["a", "b"]` for `?tag=a&tag=b`, `nil` when absent |
 | `c.Header(name)`, `c.Cookie(name)` | A request header, a request cookie (`http.ErrNoCookie` when absent) |
-| `c.Context()`, `c.SetContext(ctx)` | The request context, and replacing it to store request-scoped values |
+| `c.Context()`, `c.WithContext(ctx)` | The request context, and a copy of `c` that carries another one, to store request-scoped values. `c` itself does not change |
 | `c.Pattern()` | The path of the matched route, such as `/projects/{project}`, `""` when no route matched |
 | `c.IsData()` | Whether this is a navigation data request of the browser router rather than a page load |
 | `c.SetHeader(key, value)`, `c.SetCookie(cookie)` | A response header, a response cookie. Allowed in `Load` too |
@@ -164,7 +164,6 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 | `c.Redirect(url, code)` | Returns an error value. Return it to redirect |
 | `c.Bind(&v)`, `c.BindQuery(&v)` | Decodes the body or the query string into a struct, see above. Not allowed in `Load` |
 | `c.SetBodyLimit(n)` | Changes the body limit of this request (`server.body_limit` by default). Call it before anything reads the body, usually in `OnRequest`. Once reading has started it returns an error |
-| `c.Next()` | Runs the matched route from `OnRequest`, once |
 | `c.Request()`, `c.Writer()` | The raw `*http.Request` and `http.ResponseWriter`, for method handlers and `OnRequest` only |
 
 ## page.tsx
@@ -220,6 +219,8 @@ async function ship() {
 - When the handler or `OnRequest` returns `c.Redirect(url, code)`, the browser goes to that URL: through the router for a URL of this site, without reloading the page, and as a whole page load for another site. After a POST, PUT, PATCH or DELETE (unless `invalidate: false`) the data the router holds goes stale first, so the new page and its Layouts show fresh data. A redirect to the page that is showing loads its data again, as a call without a redirect does. It counts as the same page when the path, the hash and the query values match, whatever the order and encoding of the query. The promise resolves once the new page shows, to `undefined`, also for a handler with a result. Whether a call is redirected is only known from its answer, since `OnRequest` may redirect any request, so the result type of every handler function with a result includes `undefined`. The function of a handler that writes its own response gets the `Response` of the redirect (`ok`, with the status in `X-Tifa-Redirect`). A relative URL is resolved against the URL of the handler, not of the page. A 3xx the handler wrote itself through `c.Writer()`, or one a proxy wrote, cannot be read in the browser and rejects the promise with an `Error`.
 - Call these functions from event handlers or effects. Calling one while the page renders on the server throws.
 - `route.gen` also exports `POSTInput`, `POSTOutput` and so on for the types of each handler that has them.
+
+The error that `c.Redirect` returns is a `*tifa.RedirectError` with the fields `URL` and `Code`. In `OnRequest` or a test, recognize it with `errors.As`.
 
 To go to the page of what a handler created, return a redirect from the handler, or return the result and navigate yourself. Pass `invalidate: false` in the second case, so the current page does not load its data again just before you leave it. Data the router already holds, such as that of a Layout both pages share, then stays as it was:
 
@@ -348,7 +349,7 @@ app/teams/new/page.tsx
 | `/teams/new/x` | the root Layout: `new` is a literal, so `teams/new` wins over `teams/team+`, and that page is in the root Layout |
 
 - A page in a `name++` folder takes every URL below it, so such a URL matches that page, and its `Load` decides what to answer.
-- `OnRequest` runs for a URL that matches no page with an empty `c.Pattern()`. `c.Next()` runs the Layouts and returns `tifa.ErrNotFound`. When `OnRequest` returns `tifa.ErrNotFound` itself, without calling `c.Next()`, no Layout runs, and the page shows as when the outermost `Layout` of that URL returns `tifa.ErrNotFound`: the root one, or that of the `layout_.tsx` above it.
+- `OnRequest` runs for a URL that matches no page with an empty `c.Pattern()`. `next(c)` runs the Layouts and returns `tifa.ErrNotFound`. When `OnRequest` returns `tifa.ErrNotFound` itself, without calling `next`, no Layout runs, and the page shows as when the outermost `Layout` of that URL returns `tifa.ErrNotFound`: the root one, or that of the `layout_.tsx` above it.
 - The `Error` of a Layout only ever shows in place of a route below it, in the Layout's `Outlet`, so it can read the Layout's data and the context its component provides. When a Layout fails, the `Error` of the Layout above shows, and when the root Layout or a Layout in `layout_.tsx` fails, the framework's default page.
 - A `NotFound` export in `page.tsx` or `layout.tsx` fails the build. Move what it shows into `Error`, under `error.status === 404`.
 
@@ -456,7 +457,7 @@ const LayoutSSR = false // the Layout of the folder, default true
 - `SSR = false`: middleware and every `Load` run as usual, but QuickJS is skipped. The response is a minimal document with the data, and the browser renders it. `LayoutSSR = false` applies to every page the Layout wraps.
 - `Cache = true`: the rendered result is cached by build version, URL and data, in a cache of `cache.size` (see [config.md](config.md)). When the data has not changed, the HTML is returned directly. Components must not read values that change on every call, such as `Date.now()` or `Math.random()`, while rendering. Hydration requires this too.
 - When requests for a `Cache = true` page miss the cache at the same time with the same build version, URL and data, such as a burst of visitors right after a deploy, they share one render. Each request still runs its middleware and `Load`s, keeps the headers they set, such as `Set-Cookie` and `Vary`, and gets the encoding it accepts. This also holds with `cache.size` 0 and for a page too large for the cache, and under `tifa dev`. Requests with other data render on their own, and pages without `Cache` render for every request, since their HTML may differ by user.
-- When that shared render fails, every request that waited for it gets the same error and goes to `OnError`, a panic included. Nothing is cached, so the next request renders again. A request whose client goes away stops waiting at once and its connection is cut, with no answer sent: `c.Next()` in `OnRequest` returns an error that matches `context.Canceled`, but `OnError` is not called and nothing is logged. The render goes on for the others. A request whose own deadline passes while it waits fails like any other error. Once no request waits, a render still waiting for a VM is dropped, and one that already runs finishes and goes into the cache. If it fails then, no request reports it to `OnError`, so the error is logged.
+- When that shared render fails, every request that waited for it gets the same error and goes to `OnError`, a panic included. Nothing is cached, so the next request renders again. A request whose client goes away stops waiting at once and its connection is cut, with no answer sent: `next(c)` in `OnRequest` returns an error that matches `context.Canceled`, but `OnError` is not called and nothing is logged. The render goes on for the others. A request whose own deadline passes while it waits fails like any other error. Once no request waits, a render still waiting for a VM is dropped, and one that already runs finishes and goes into the cache. If it fails then, no request reports it to `OnError`, so the error is logged.
 - Every page response carries an ETag. A second request with `If-None-Match` gets 304 when the data has not changed. This has nothing to do with `Cache`.
 - Every answer of the app (pages, 304s, 404 pages, navigation data, method handlers, redirects) is sent with `Cache-Control: private, no-cache` unless you set `Cache-Control` yourself. A CDN or proxy does not store it, since the page may be meant for one visitor. The browser may keep it and asks again with the ETag, so an unchanged page ends in a 304. To change it, set the header in `OnRequest`, a `Load`, a `Layout` or a method handler with `c.SetHeader("Cache-Control", "...")`. Your value is sent as it is. JSON errors (including 405 and the 503 while the server shuts down), the plain error page from Go, the page with an error that the server renders again, and the busy answer are `no-store`, unless you set `Cache-Control` before the error. A 404 page that the app renders keeps the default. Files under `/assets/` keep their long cache, and files from `public/` keep `no-cache` (see [Page requests](build.md#page-requests)). `Cache = true` only caches the render inside the process and does not change the header.
 
@@ -702,13 +703,55 @@ Then point the aliases of `components.json` into `components/`, so the app root 
 ```go
 func OnStart() error                            // before listening: open the database, logs, etc.
 func OnShutdown(ctx context.Context) error      // after an exit signal, once in-flight requests finish
-func OnRequest(c *tifa.Ctx) error              // the only middleware, call c.Next() to continue
+func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error // the only middleware, call next(c) to continue
 func OnError(c *tifa.Ctx, err error) tifa.Error // unexpected errors: report, return an error users may see
 ```
 
-- `OnRequest` runs for pages, navigation data requests, API routes and unmatched URLs. It does not run for static files, and it does not see a write that a browser sends from another site: the program refuses that with 403 first (see [Cross-site writes](config.md#cross-site-writes)). For an unmatched URL, `c.Pattern()` is empty, and `c.Next()` runs the Layouts its 404 shows inside (see [404](#404)).
+- `OnRequest` runs for pages, navigation data requests, API routes and unmatched URLs. It does not run for static files, and it does not see a write that a browser sends from another site: the program refuses that with 403 first (see [Cross-site writes](config.md#cross-site-writes)). For an unmatched URL, `c.Pattern()` is empty, and `next(c)` runs the Layouts its 404 shows inside (see [404](#404)).
 - Resources the whole app shares, such as a database connection or a logger, go in files at the app root next to `hooks.go`, for example `db.go` or `middleware.go`. Each one builds a package-level variable or a function: set it up in `OnStart`, release it in `OnShutdown`, and use it directly anywhere, for example `myapp.DB` after importing `example.com/myapp`. Domains under `app/` import the root package for this. By convention the root package imports nothing under `app/`, so this never closes an import cycle. Models and queries stay in their domains. Route code uses these resources only inside functions, never while package-level variables are initialized. Do not use `init()` for setup. See [which way imports go](structure.md#which-way-imports-go).
-- Store request-scoped values with the standard context: `c.SetContext(context.WithValue(...))`. Business packages provide typed getters.
+- `next` runs the matched route, once. A second call returns an error. Pass it the `*tifa.Ctx` the route should see: `next(c)`, or `next(c.WithContext(ctx))` to store request-scoped values in the standard context, as `r.WithContext(ctx)` does for a request. `c.WithContext` returns a copy and leaves `c` alone. Business packages provide typed getters.
+- The error `next` returns can be recognized with `errors.Is` and `errors.As`, a redirect as `*tifa.RedirectError`.
+
+### Changing the log handler
+
+tifa logs its own messages with `log/slog`, at a level and with fields: a failed request is `ERROR` with `method`, `path` and `err`, a refused cross-site write is `WARN`, the address it listens on is `INFO`. The lines about startup, such as the address, are written after `OnStart` returns, so a handler set there already gets them. To change where they go, set the default handler in `OnStart`:
+
+```go
+func OnStart() error {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+	return nil
+}
+```
+
+tifa looks up `slog.Default()` for each message, so a later `slog.SetDefault` also works.
+
+### Setting up in OnStart
+
+`OnStart` is where the app wires what the whole process shares: the log handler and plain `net/http` middleware.
+
+```go
+import (
+	"log/slog"
+	"net/http"
+	"net/http/pprof"
+	"os"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+)
+
+func OnStart() error {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+	tifa.SetHTTPHandler(func(app http.Handler) http.Handler {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/debug/pprof/", pprof.Index)
+		mux.Handle("/", otelhttp.NewHandler(app, "tifa"))
+		return mux
+	})
+	return nil
+}
+```
+
+`tifa.SetHTTPHandler(wrap)` gets tifa's handler and returns the one to serve. The wrapper is outside everything else: static files, the cross-site check and the routes. It sees every request with the original `http.ResponseWriter`, including the 403 of a refused cross-site write. It is plain `net/http`, so `OnRequest`, `OnError` and the cross-site check do not apply to the paths it serves itself, such as `/debug/pprof/` above. Put such paths behind your own check, or keep them on another listener. A shutdown still waits for the requests it wraps. Call it in `OnStart` only: it panics once the server listens. `tifa.SetHTTPHandler(nil)` removes the wrapper.
 
 ## Testing
 
@@ -732,7 +775,7 @@ This tests the function, not the HTTP answer. Check what the function returns: t
 - Path parameters are what `c.Param` reads: set the decoded values with `r.SetPathValue`. `c.Pattern()` is `r.Pattern` as it is when `NewCtx` is called.
 - Run `Load` and `Layout` through `tifa.Use(c, Load)`. It runs them under the rules of the server: once per request, and writing the response body fails. A `tifa.Use` of a Layout inside `Load` runs that Layout for the same request. Only the Layouts the function asks for with `tifa.Use` run.
 - Call a method handler directly: `POST(c)`, or `POST(c, in)` with a typed input. The input is the value you pass, so test `Validate` on its own, and if `Validate` changes the input, pass the changed input.
-- For `OnRequest`, `tifatest.SetNext(c, next)` sets what `c.Next()` calls: `next` runs once, as it is, and its error is what `c.Next()` returns. It stands in for the route, so it neither recovers a panic nor writes a result.
+- Call `OnRequest` directly with a closure for `next`: `OnRequest(c, func(c *tifa.Ctx) error { got = c.Context(); return nil })`. The closure stands in for the route, so it neither recovers a panic nor writes a result.
 - The body limit is the default `server.body_limit`, 1 MiB, unless `c.SetBodyLimit` changes it. The test removes the multipart files of the request when it ends.
 - `tifa build` reads no `_test.go` files, so tests may sit in any folder under `app/`.
 
@@ -743,8 +786,7 @@ Set the clock through the context in `OnRequest`, or give an `httptest` request 
 ```go
 at := time.Date(2026, 10, 22, 12, 0, 0, 123456789, time.UTC)
 ctx := tifa.WithRenderClock(c.Context(), func() time.Time { return at })
-c.SetContext(ctx)
-return c.Next()
+return next(c.WithContext(ctx))
 ```
 
 Date and Intl round down to milliseconds. Temporal keeps nanoseconds. The clock covers the whole render, including promises and queueMicrotask, and is cleared before VM reuse or replacement. Pass nil to restore the live clock. The callback must not block and must be safe for concurrent calls when renders share it. It does not change Go's time.Now, timeouts or the browser clock.
@@ -753,7 +795,7 @@ Without `WithRenderClock` the clock stays live. A fixed clock does not make a re
 
 Module top-level code runs during VM prewarming, before a request, on the live clock. Time values captured there are not recomputed. A Date.now function, Temporal.Now method or Intl formatter saved at module load reads the current render's clock when called during that render.
 
-The clock is not a cache key. A cache hit skips rendering, and requests with the same key may share a render. Return displayed times from `Load` so SSR, caching and browser hydration use the same data. `tifatest.NewCtx` preserves the request context but does not run SSR itself. Use `tifatest.SetNext` to test middleware passing this context, and server requests to check full HTML.
+The clock is not a cache key. A cache hit skips rendering, and requests with the same key may share a render. Return displayed times from `Load` so SSR, caching and browser hydration use the same data. `tifatest.NewCtx` preserves the request context but does not run SSR itself. Call `OnRequest` with a closure for `next` to test middleware passing this context, and use server requests to check full HTML.
 
 ## How Load may use Ctx
 
@@ -771,7 +813,7 @@ A value that holds a Ctx may only appear in these five places:
 4. Assigned with `:=` or `var x T = ...` to a new local variable of exactly the same type. That variable follows the same rules.
 5. With its address taken, where the resulting pointer is still a type that may hold Ctx.
 
-Any other use fails the build and names the file and line. For example: converting it to another type or an interface, assigning it to an existing variable, assigning several values at once, `return`ing it, putting it in a slice, map, array or channel, `range`, package-level variables, `defer`, `go` statements, or passing it to a generic function, an interface method, a function variable or a function outside the module (the standard library and third-party libraries). `return c.Redirect(...)` and `return c.Next()` are fine, because they return the result of a method call, not the Ctx itself.
+Any other use fails the build and names the file and line. For example: converting it to another type or an interface, assigning it to an existing variable, assigning several values at once, `return`ing it, putting it in a slice, map, array or channel, `range`, package-level variables, `defer`, `go` statements, or passing it to a generic function, an interface method, a function variable or a function outside the module (the standard library and third-party libraries). `return c.Redirect(...)` is fine, because they return the result of a method call, not the Ctx itself.
 
 `Load`, `Layout` and the functions they call must not call `c.Request()` or `c.Writer()`. tifa cannot see parameters read through the raw request. Use `c.Param`, `c.Query`, `c.QueryAll`, `c.Header`, `c.Cookie` or `c.Context()` instead. `c.Request()` and `c.Writer()` are only for method handlers and `OnRequest`.
 

@@ -85,34 +85,26 @@ func TestBodyLimitIsTheDefault(t *testing.T) {
 	}
 }
 
-func onRequest(c *tifa.Ctx) error {
+func onRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 	if c.Header("Authorization") == "" {
 		return tifa.Error{Status: 401, Message: "sign in"}
 	}
-	return c.Next()
+	return next(c)
 }
 
-func TestNextRunsTheRouteOfOnRequest(t *testing.T) {
+func TestOnRequestTakesNextAsAParameter(t *testing.T) {
 	r := httptest.NewRequest("GET", "/", nil)
 	c, _ := tifatest.NewCtx(t, r)
 	ran := false
-	tifatest.SetNext(c, func() error { ran = true; return nil })
+	next := func(*tifa.Ctx) error { ran = true; return nil }
 	var e tifa.Error
-	if err := onRequest(c); !errors.As(err, &e) || e.Status != 401 || ran {
+	if err := onRequest(c, next); !errors.As(err, &e) || e.Status != 401 || ran {
 		t.Fatalf("without a token: %v, route ran %v", err, ran)
 	}
 	r.Header.Set("Authorization", "Bearer x")
 	c, _ = tifatest.NewCtx(t, r)
-	tifatest.SetNext(c, func() error { ran = true; return nil })
-	if err := onRequest(c); err != nil || !ran {
+	if err := onRequest(c, next); err != nil || !ran {
 		t.Fatalf("with a token: %v, route ran %v", err, ran)
-	}
-}
-
-func TestNextOutsideOnRequestFails(t *testing.T) {
-	c, _ := tifatest.NewCtx(t, httptest.NewRequest("GET", "/", nil))
-	if err := c.Next(); err == nil {
-		t.Fatal("Next without tifatest.Next must fail as it does in a handler")
 	}
 }
 

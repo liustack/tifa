@@ -58,9 +58,9 @@ func TestUnmatchedURLRunsItsLayouts(t *testing.T) {
 	var patterns []string
 	var nexts []error
 	app := frontApp()
-	app.Hooks.OnRequest = func(c *tifa.Ctx) error {
+	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		patterns = append(patterns, c.Pattern())
-		err := c.Next()
+		err := next(c)
 		nexts = append(nexts, err)
 		return err
 	}
@@ -109,7 +109,7 @@ func TestUnmatchedURLRunsItsLayouts(t *testing.T) {
 // each Load of the Layouts the URL shows its 404 inside counts as a 404.
 func TestUnmatchedURLThatOnRequestRefuses(t *testing.T) {
 	app := frontApp()
-	app.Hooks.OnRequest = func(c *tifa.Ctx) error { return tifa.ErrNotFound }
+	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error { return tifa.ErrNotFound }
 	s, r := newFrontServer(t, app)
 	w := get(s, "/projects/p9/missing")
 	if data := r.last(t); w.Code != 404 || len(data) != 2 || data["app/layout"].Status != 404 || data["app/projects"].Status != 404 {

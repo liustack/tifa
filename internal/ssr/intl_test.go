@@ -139,10 +139,10 @@ func intlMap() []byte {
 func TestDevWarnsAboutIntlDefaults(t *testing.T) {
 	var mu sync.Mutex
 	var logs []string
-	defer swap(&logf, func(format string, args ...any) {
+	defer captureLogs(func(msg string) {
 		mu.Lock()
 		defer mu.Unlock()
-		logs = append(logs, fmt.Sprintf(format, args...))
+		logs = append(logs, msg)
 	})()
 	p, err := NewPool(intlBundle, intlMap(), testConfig(2), true)
 	if err != nil {
@@ -189,7 +189,7 @@ func TestDevWarnsAboutIntlDefaults(t *testing.T) {
 
 // A built program does not check.
 func TestProductionDoesNotWarnAboutIntlDefaults(t *testing.T) {
-	defer swap(&logf, func(format string, args ...any) { t.Errorf("logged "+format, args...) })()
+	defer captureLogs(func(msg string) { t.Errorf("logged %s", msg) })()
 	p, err := NewPool(intlBundle, intlMap(), testConfig(1), false)
 	if err != nil {
 		t.Fatal(err)

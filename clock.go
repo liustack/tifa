@@ -9,7 +9,7 @@ import (
 
 // WithRenderClock returns a context whose server render reads now for Date,
 // Temporal.Now and Intl's current time. nil restores the live clock.
-// Set it before rendering, for example in OnRequest with c.SetContext.
+// Set it before rendering, for example in OnRequest with c.WithContext.
 // The clock runs on the rendering goroutine and must not block. If requests
 // share it, it must be safe for concurrent calls. It does not change Go's
 // time.Now, deadlines, or module initialization during VM prewarming.

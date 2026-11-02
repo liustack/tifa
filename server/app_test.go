@@ -106,9 +106,9 @@ func TestRegisterServesInterfaceRoutes(t *testing.T) {
 func TestRegisterRouteWithoutHandlers(t *testing.T) {
 	var pattern string
 	app := testApp()
-	app.Hooks.OnRequest = func(c *tifa.Ctx) error {
+	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		pattern = c.Pattern()
-		return c.Next()
+		return next(c)
 	}
 	s := newAppServer(t, app)
 	if w := send(s, "GET", "/api/nothing", ""); w.Code != 405 || pattern != "/api/nothing" {
@@ -120,9 +120,9 @@ func TestRegisterRouteWithoutHandlers(t *testing.T) {
 func TestRegisterHomePage(t *testing.T) {
 	var pattern string
 	app := testApp()
-	app.Hooks.OnRequest = func(c *tifa.Ctx) error {
+	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		pattern = c.Pattern()
-		return c.Next()
+		return next(c)
 	}
 	s := newAppServer(t, app)
 	if w := send(s, "GET", "/", ""); w.Code != 200 || pattern != "/" {

@@ -87,7 +87,7 @@ func GetTodo(ctx context.Context, id int64) (Todo, error) {
 }
 ```
 
-- Request values (the signed-in user) ride on the standard context: `OnRequest` calls `c.SetContext(context.WithValue(...))`, and the domain provides a typed getter.
+- Request values (the signed-in user) ride on the standard context: `OnRequest` passes `c.WithContext(context.WithValue(...))` to `next`, and the domain provides a typed getter.
 - Pass arguments when only some callers use another value (a clock, a limit, a client).
 - Tests replace the variable or pass a fake. See [testing.md](testing.md).
 - No `init()` for setup, and no reading a resource while package-level variables are initialized. Resources exist only after `OnStart`.

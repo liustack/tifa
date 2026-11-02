@@ -17,7 +17,6 @@ type mode int
 
 const (
 	modeHandler mode = iota
-	modeMiddleware
 	modeLoad
 )
 
@@ -28,23 +27,23 @@ type Ctx struct {
 	pattern string
 	req     *request
 	mode    mode
-	next    func() error
 	load    uintptr // key of the Load running on this context, 0 outside Load
 }
 
 // request is shared by every Ctx of the same HTTP request, including the copies handed to concurrent Loads.
 type request struct {
 	mu    sync.Mutex
-	body  *watchedBody // nil when the request has no body
+	body  *watchedBody  // nil when the request has no body
+	orig  *http.Request // the request the server got, whose Body SetBodyLimit sets with the one of each copy
 	loads map[uintptr]*loadCall
-	// copies made by SetContext. net/http only removes the multipart temp files of the original request.
+	// copies made by WithContext. net/http only removes the multipart temp files of the original request.
 	copies []*http.Request
 }
 
 // New builds the context for one request. pattern is the matched route pattern, empty when no route matched.
 // The request body is limited to bodyLimit bytes unless SetBodyLimit changes it before the first read.
 func New(w http.ResponseWriter, r *http.Request, pattern string, bodyLimit int64) *Ctx {
-	c := &Ctx{w: w, r: r, pattern: pattern, req: &request{loads: map[uintptr]*loadCall{}}}
+	c := &Ctx{w: w, r: r, pattern: pattern, req: &request{orig: r, loads: map[uintptr]*loadCall{}}}
 	if r.Body != nil && r.Body != http.NoBody {
 		c.req.body = &watchedBody{ReadCloser: r.Body}
 		r.Body = http.MaxBytesReader(w, c.req.body, bodyLimit)
@@ -52,20 +51,21 @@ func New(w http.ResponseWriter, r *http.Request, pattern string, bodyLimit int64
 	return c
 }
 
-// SetNext turns c into the context of OnRequest. Ctx.Next runs next once.
-func SetNext(c *Ctx, next func() error) {
-	c.mode = modeMiddleware
-	c.next = next
-}
-
 func (c *Ctx) Context() context.Context { return c.r.Context() }
 
-// SetContext replaces the request context, for middleware that stores request-scoped values.
-func (c *Ctx) SetContext(ctx context.Context) {
-	c.r = c.r.WithContext(ctx)
+// WithContext returns a shallow copy of c whose request carries ctx, as http.Request.WithContext does.
+// c is not changed. Both share the response and the state of the request: Loads run once for either,
+// and the multipart files of the copy are removed when the request ends.
+func (c *Ctx) WithContext(ctx context.Context) *Ctx {
+	d := *c
+	// Copying the request reads its Body, which SetBodyLimit sets under the lock. Copying and
+	// registering in one critical section means a copy either has the new reader or is registered
+	// in time to get it.
 	c.req.mu.Lock()
-	c.req.copies = append(c.req.copies, c.r)
+	d.r = c.r.WithContext(ctx)
+	c.req.copies = append(c.req.copies, d.r)
 	c.req.mu.Unlock()
+	return &d
 }
 
 // Finish releases what the request copies hold. The server calls it once the request is done.
@@ -108,7 +108,16 @@ func (c *Ctx) SetBodyLimit(n int64) error {
 	if c.req.body.started {
 		return errors.New("tifa: SetBodyLimit called after the request body was read")
 	}
-	c.r.Body = http.MaxBytesReader(c.w, c.req.body, n)
+	// Every copy made by WithContext reads the same body, so each gets the new reader. A MaxBytesReader
+	// itself, and not a wrapper, because ParseForm looks for one to leave out its own cap.
+	body := http.MaxBytesReader(c.w, c.req.body, n)
+	c.req.mu.Lock()
+	defer c.req.mu.Unlock()
+	c.req.orig.Body = body
+	for _, r := range c.req.copies {
+		r.Body = body
+	}
+	c.r.Body = body
 	return nil
 }
 
@@ -171,21 +180,6 @@ func (c *Ctx) Redirect(url string, code int) error {
 		return fmt.Errorf("tifa: redirect to %s with non-3xx status %d", url, code)
 	}
 	return &RedirectError{URL: url, Code: code}
-}
-
-// Next runs the matched route from OnRequest and returns its error. It may be called once.
-func (c *Ctx) Next() error {
-	if c.mode != modeMiddleware {
-		return errors.New("tifa: Next can only be called from OnRequest")
-	}
-	if c.next == nil {
-		return errors.New("tifa: Next called more than once")
-	}
-	next := c.next
-	c.next = nil
-	c.mode = modeHandler
-	defer func() { c.mode = modeMiddleware }()
-	return next()
 }
 
 func (c *Ctx) Request() *http.Request      { return c.r }

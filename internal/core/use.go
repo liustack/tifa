@@ -35,7 +35,7 @@ func Use[T any](c *Ctx, load func(*Ctx) (T, error)) (T, error) {
 		<-call.done
 	} else {
 		lc := *c
-		lc.mode, lc.next, lc.load = modeLoad, nil, key
+		lc.mode, lc.load = modeLoad, key
 		call.value, call.err = run(&lc, load)
 		close(call.done)
 	}

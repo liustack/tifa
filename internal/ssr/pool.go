@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
@@ -162,7 +161,6 @@ const fullGCEvery = 256
 
 // Replaced by tests.
 var (
-	logf       = log.Printf
 	retryDelay = time.Second
 	loadVM     = openVM
 )
@@ -303,7 +301,7 @@ func (p *Pool) renderInVM(ctx context.Context, in Input) (string, error) {
 	if p.dev {
 		// A warning must not fail the page. A VM that cannot list them is replaced.
 		if warnErr := p.warnIntl(vm.VM.VM); warnErr != nil {
-			logf("tifa: ssr: read the Intl warnings: %v", warnErr)
+			core.Logger().Warn("tifa: ssr: could not read the Intl warnings", "err", warnErr)
 			return html, err
 		}
 	}
@@ -401,7 +399,7 @@ func (p *Pool) refill() {
 			p.putIdle(vm)
 			return
 		}
-		logf("tifa: ssr: replace VM: %v, retrying in %s", p.sources.explain(err, true), delay)
+		core.Logger().Error("tifa: ssr: could not replace a VM, retrying", "err", p.sources.explain(err, true), "delay", delay)
 		timer := time.NewTimer(delay)
 		select {
 		case <-p.done:
@@ -493,7 +491,7 @@ func (p *Pool) collect(vm *pooledVM, engineGC bool) {
 	default:
 	}
 	if err := p.runGC(vm, engineGC); err != nil {
-		logf("tifa: ssr: GC between renders: %v, replacing the VM", err)
+		core.Logger().Error("tifa: ssr: GC between renders failed, replacing the VM", "err", err)
 		p.closeVM(vm)
 		p.refill()
 		return
@@ -575,7 +573,7 @@ func (p *Pool) trimIdle() {
 			}
 		} else if vm.dirty {
 			if err := p.giveBack(vm); err != nil {
-				logf("tifa: ssr: give memory back from an idle VM: %v, replacing the VM", err)
+				core.Logger().Warn("tifa: ssr: giving memory back from an idle VM failed, replacing the VM", "err", err)
 				p.closeVM(vm)
 				p.refill()
 				continue
@@ -716,7 +714,7 @@ func (p *Pool) replaceGrown() {
 		if fresh != nil {
 			p.counts.replaced++
 			p.mu.Unlock()
-			logf("tifa: ssr: replaced growing VM: baseline=%d live=%d bound=%d fresh=%d bytes", old.baseline, old.live, old.memoryBound(p.memory), freshLive)
+			core.Logger().Warn("tifa: ssr: replaced a growing VM", "baseline_bytes", old.baseline, "live_bytes", old.live, "bound_bytes", old.memoryBound(p.memory), "fresh_bytes", freshLive)
 			fresh = nil
 			p.closeVM(old)
 			delay, warned = retryDelay, false
@@ -731,7 +729,7 @@ func (p *Pool) replaceGrown() {
 			continue
 		}
 		if !warned {
-			logf("tifa: ssr: replace growing VM: %v, retrying with backoff", p.sources.explain(err, true))
+			core.Logger().Error("tifa: ssr: could not replace a growing VM, retrying with backoff", "err", p.sources.explain(err, true))
 			warned = true
 		}
 		timer := time.NewTimer(delay)
