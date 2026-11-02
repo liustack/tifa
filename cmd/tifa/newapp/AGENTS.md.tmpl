@@ -66,7 +66,7 @@ Writing the response is checked when the request runs instead: in `Load` and `La
 
 `hooks.go` in the root package, all optional:
 
-- `OnStart()` runs before the app listens. An error stops the app.
+- `OnStart(ctx)` runs before the app listens. An error stops the app.
 - `OnShutdown(ctx)` runs after a stop signal, once the requests in flight have finished. Requests still running after `server.shutdown_timeout` are canceled and get one more `shutdown_timeout` to return. `OnShutdown` is skipped if they do not, and either way the app exits with status 1.
 - `OnRequest(c, next)` runs before pages, navigation data requests, API routes and unmatched URLs, not static files. Call `next(c)` to go on, or `next(c.WithContext(ctx))` to pass a request-scoped value.
 - `OnError(c, err)` gets unexpected errors and panics. Writing one replaces the default, which logs and answers 500.

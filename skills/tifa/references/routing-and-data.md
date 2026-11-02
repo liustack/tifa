@@ -231,7 +231,7 @@ If the build rejects a type, the error names the file and line. Convert to a pla
 `hooks.go` sits in the root package. All four functions are optional:
 
 ```go
-func OnStart() error                            // before listening: open the database, etc.
+func OnStart(ctx context.Context) error         // before listening: open the database, etc.
 func OnShutdown(ctx context.Context) error      // after a stop signal, once requests finish
 func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error // the only middleware, call next(c) to continue
 func OnError(c *tifa.Ctx, err error) tifa.Error // report unexpected errors, pick what users see

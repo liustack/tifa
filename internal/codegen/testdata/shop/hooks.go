@@ -1,7 +1,11 @@
 package shop
 
-import "github.com/liustack/tifa"
+import (
+	"context"
 
-func OnStart() error { return nil }
+	"github.com/liustack/tifa"
+)
+
+func OnStart(ctx context.Context) error { return nil }
 
 func OnError(c *tifa.Ctx, err error) tifa.Error { return tifa.Error{Status: 500, Message: "oops"} }

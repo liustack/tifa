@@ -241,7 +241,7 @@ func TestRunFailsOnCertificateFilesThatDoNotLoad(t *testing.T) {
 	writeFile(t, keyPath, otherKey)
 	cfg.Server.Addr = "127.0.0.1:0"
 	started := false
-	err := New(cfg, Hooks{OnStart: func() error { started = true; return nil }}).Run(context.Background())
+	err := New(cfg, Hooks{OnStart: func(context.Context) error { started = true; return nil }}).Run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "server.tls_cert") || started {
 		t.Fatalf("err %v, OnStart ran: %v", err, started)
 	}
@@ -258,7 +258,7 @@ func TestRunChecksTheHTTPSSettings(t *testing.T) {
 	cfg.Server.Addr = "127.0.0.1:0"
 	cfg.Server.TLSDomains = []string{testDomain}
 	started := false
-	err := New(cfg, Hooks{OnStart: func() error { started = true; return nil }}).Run(context.Background())
+	err := New(cfg, Hooks{OnStart: func(context.Context) error { started = true; return nil }}).Run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "server.tls_cache") || started {
 		t.Fatalf("err %v, OnStart ran: %v", err, started)
 	}
@@ -440,7 +440,7 @@ func TestHTTPSOnTheLoopbackWarns(t *testing.T) {
 	log.SetOutput(writerFunc(func(b []byte) (int, error) { mu.Lock(); defer mu.Unlock(); return out.Write(b) }))
 	defer log.SetOutput(os.Stderr)
 	ctx, cancel := context.WithCancel(context.Background())
-	if err := New(cfg, Hooks{OnStart: func() error { cancel(); return nil }}).Run(ctx); err != nil {
+	if err := New(cfg, Hooks{OnStart: func(context.Context) error { cancel(); return nil }}).Run(ctx); err != nil {
 		t.Fatal(err)
 	}
 	mu.Lock()
@@ -645,7 +645,7 @@ func TestHTTPAddrOff(t *testing.T) {
 	started := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
-		done <- New(cfg, Hooks{OnStart: func() error { close(started); return nil }}).Run(ctx)
+		done <- New(cfg, Hooks{OnStart: func(context.Context) error { close(started); return nil }}).Run(ctx)
 	}()
 	<-started
 	cancel()
@@ -676,7 +676,7 @@ func TestDevServesPlainHTTP(t *testing.T) {
 		"server:\n  tls_cert: %s\n  tls_key: %s\n  hsts: true\n", filepath.Join(t.TempDir(), "missing.pem"), filepath.Join(t.TempDir(), "missing.key")))}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	app.Hooks.OnStart = func() error { cancel(); return nil }
+	app.Hooks.OnStart = func(context.Context) error { cancel(); return nil }
 	if err := run(ctx, app, []string{"--server-addr", "127.0.0.1:0"}, nil, io.Discard, io.Discard, reloader); err != nil {
 		t.Fatalf("dev: %v", err)
 	}

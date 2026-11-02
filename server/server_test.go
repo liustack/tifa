@@ -369,7 +369,7 @@ func TestServeFinishesInFlightRequestsBeforeOnShutdown(t *testing.T) {
 func TestRunStopsWhenOnStartFails(t *testing.T) {
 	cfg := config.Default()
 	cfg.Server.Addr = "127.0.0.1:0"
-	s := New(cfg, Hooks{OnStart: func() error { return errDatabase }})
+	s := New(cfg, Hooks{OnStart: func(context.Context) error { return errDatabase }})
 	if err := s.Run(context.Background()); !errors.Is(err, errDatabase) {
 		t.Fatalf("Run returned %v", err)
 	}
@@ -789,7 +789,7 @@ func TestRunRefusesLegacyServeMux(t *testing.T) {
 		cfg := config.Default()
 		cfg.Server.Addr = "127.0.0.1:0"
 		started := false
-		err := New(cfg, Hooks{OnStart: func() error { started = true; return nil }}).Run(context.Background())
+		err := New(cfg, Hooks{OnStart: func(context.Context) error { started = true; return nil }}).Run(context.Background())
 		fmt.Printf("started=%t err=%v\n", started, err)
 		ln, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
@@ -839,5 +839,45 @@ func TestRootCatchAllCoexistsWithUnmatchedHandling(t *testing.T) {
 	want := "/{rest...},/orders/{orderId},"
 	if got := strings.Join(patterns, ","); got != want {
 		t.Errorf("OnRequest saw patterns %q, want %q", got, want)
+	}
+}
+
+// OnStart gets the context Run was given, so a slow start ends when the program is stopped.
+func TestOnStartGetsTheContextOfRun(t *testing.T) {
+	cfg := config.Default()
+	cfg.Server.Addr = "127.0.0.1:0"
+	gotCh := make(chan context.Context, 1)
+	s := New(cfg, Hooks{OnStart: func(ctx context.Context) error { gotCh <- ctx; return nil }})
+	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), ctxKey{}, "run"))
+	done := make(chan error, 1)
+	go func() { done <- s.Run(ctx) }()
+	got := <-gotCh
+	if got.Value(ctxKey{}) != "run" {
+		t.Fatalf("OnStart got a context that is not the one Run was given: %v", got)
+	}
+	if got.Err() != nil {
+		t.Fatalf("the context was done before the program was stopped: %v", got.Err())
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if got.Err() == nil {
+		t.Fatal("the context of OnStart was not done after the program was stopped")
+	}
+}
+
+// A start that waits for something is cut short by the signal that stops the program.
+func TestOnStartEndsWhenRunIsStopped(t *testing.T) {
+	cfg := config.Default()
+	cfg.Server.Addr = "127.0.0.1:0"
+	ctx, cancel := context.WithCancel(context.Background())
+	s := New(cfg, Hooks{OnStart: func(ctx context.Context) error {
+		cancel()
+		<-ctx.Done()
+		return ctx.Err()
+	}})
+	if err := s.Run(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run returned %v, want context.Canceled", err)
 	}
 }

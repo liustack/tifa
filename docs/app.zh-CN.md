@@ -730,13 +730,13 @@ pnpm dlx shadcn@latest add button card
 项目根目录的 `hooks.go`，四个函数都可选：
 
 ```go
-func OnStart() error                            // 开始监听之前，打开数据库、日志等
+func OnStart(ctx context.Context) error         // 开始监听之前，打开数据库、日志等
 func OnShutdown(ctx context.Context) error      // 收到退出信号、在途请求完成之后
 func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error // 唯一的中间件，调用 next(c) 继续
 func OnError(c *tifa.Ctx, err error) tifa.Error // 意外错误：上报，返回能给用户看的错误
 ```
 
-- `OnRequest` 作用于页面、导航数据请求、API 路由和没匹配的 URL，不作用于静态文件，也看不到浏览器从别的网站发来的写请求：程序先用 403 拒绝它（见[跨站写请求](config.zh-CN.md#跨站写请求)）。没匹配时 `c.Pattern()` 为空，`next(c)` 执行它的 404 所在的各层 Layout（见 [404](#404)）。在开了 `Cache` 的页面上它看到的是匿名请求，没有 cookie、会话，也只有很少几个请求头（见[整页缓存](#整页缓存)）。
+- `OnStart` 收到的是程序的 context：程序收到 SIGINT 或 SIGTERM 时它就结束。把它传给可能要等的调用，比如 `db.PingContext(ctx)`，这样连不上的数据库不会让 Ctrl-C 一直等下去。`OnStart` 返回错误时程序停止。`OnStart` 返回之后不要再留着 `ctx`，之后的工作用请求的 context 或 `OnShutdown` 的 context。- `OnRequest` 作用于页面、导航数据请求、API 路由和没匹配的 URL，不作用于静态文件，也看不到浏览器从别的网站发来的写请求：程序先用 403 拒绝它（见[跨站写请求](config.zh-CN.md#跨站写请求)）。没匹配时 `c.Pattern()` 为空，`next(c)` 执行它的 404 所在的各层 Layout（见 [404](#404)）。在开了 `Cache` 的页面上它看到的是匿名请求，没有 cookie、会话，也只有很少几个请求头（见[整页缓存](#整页缓存)）。
 - 整个应用共享的资源，比如数据库连接、日志，放在应用根目录、和 `hooks.go` 并列的文件里，比如 `db.go`、`middleware.go`。每个文件构建一个包级变量或一个函数：在 `OnStart` 里初始化，在 `OnShutdown` 里释放，其他地方直接用，比如 import `example.com/myapp` 之后写 `myapp.DB`。`app/` 下的领域 import 根包来用它们。按约定，根包不 import `app/` 下的任何包，所以这样永远不会构成循环引用。模型和查询留在各自的领域里。路由代码只在函数里用这些资源，不在包级变量初始化时读。不用 `init()` 做初始化。见 [import 的方向](structure.zh-CN.md#import-的方向)。
 - `next` 执行匹配到的路由，只能调一次，再调返回错误。传给它路由该看到的 `*tifa.Ctx`：`next(c)`，或者用 `next(c.WithContext(ctx))` 把请求级的值存进标准 context，和 `r.WithContext(ctx)` 对请求做的一样。`c.WithContext` 返回副本，`c` 不变。业务包提供带类型的读取函数。
 - `next` 返回的错误可以用 `errors.Is`、`errors.As` 认，重定向是 `*tifa.RedirectError`。
@@ -746,7 +746,7 @@ func OnError(c *tifa.Ctx, err error) tifa.Error // 意外错误：上报，返�
 tifa 自己的日志走 `log/slog`，带级别和字段：请求失败是 `ERROR`，带 `method`、`path` 和 `err`，拒绝跨站写请求是 `WARN`，监听的地址是 `INFO`。监听地址这类启动日志在 `OnStart` 返回之后才写，所以在 `OnStart` 里设好的 Handler 能收到它们。要换去处，在 `OnStart` 里设默认 Handler：
 
 ```go
-func OnStart() error {
+func OnStart(ctx context.Context) error {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 	return nil
 }
@@ -768,7 +768,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
-func OnStart() error {
+func OnStart(ctx context.Context) error {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 	tifa.SetHTTPHandler(func(app http.Handler) http.Handler {
 		mux := http.NewServeMux()
@@ -830,7 +830,7 @@ cookie 叫 `__Host-tifa_session`，带 `HttpOnly`、`Secure`、`SameSite=Lax`、
 想把会话放到别处，比如 Redis 或 SQL，在 `OnStart` 里给它一个存储：
 
 ```go
-func OnStart() error {
+func OnStart(ctx context.Context) error {
 	tifa.SetSessionStore(redisStore{client})
 	return nil
 }

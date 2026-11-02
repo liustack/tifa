@@ -67,7 +67,7 @@ func TestSetHTTPHandlerWrapsEveryRequest(t *testing.T) {
 	var mu sync.Mutex
 	seen := map[string]int{}
 	app := frontApp()
-	app.Hooks.OnStart = func() error {
+	app.Hooks.OnStart = func(context.Context) error {
 		tifa.SetHTTPHandler(func(next http.Handler) http.Handler {
 			mux := http.NewServeMux()
 			mux.HandleFunc("/debug/pprof/", pprof.Index)

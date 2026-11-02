@@ -28,7 +28,7 @@ import (
 
 // Hooks are the optional functions of the application's hooks.go.
 type Hooks struct {
-	OnStart    func() error
+	OnStart    func(ctx context.Context) error
 	OnShutdown func(ctx context.Context) error
 	OnRequest  func(c *tifa.Ctx, next func(*tifa.Ctx) error) error
 	OnError    func(c *tifa.Ctx, err error) tifa.Error
@@ -594,7 +594,7 @@ func (w *writer) Hijack() (conn net.Conn, rw *bufio.ReadWriter, err error) {
 	return conn, rw, err
 }
 
-// Run calls OnStart, listens on the configured addresses and serves until ctx is done. With
+// Run calls OnStart with ctx, listens on the configured addresses and serves until ctx is done. With
 // HTTPS on, server.addr serves HTTPS and server.http_addr, unless it is off, plain HTTP that
 // answers the challenges of the ACME server and redirects the rest to HTTPS.
 func (s *Server) Run(ctx context.Context) error {
@@ -606,7 +606,7 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	}
 	if s.hooks.OnStart != nil {
-		if err := s.hooks.OnStart(); err != nil {
+		if err := s.hooks.OnStart(ctx); err != nil {
 			return fmt.Errorf("tifa: OnStart: %w", err)
 		}
 	}

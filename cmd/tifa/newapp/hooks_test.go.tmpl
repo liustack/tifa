@@ -10,7 +10,7 @@ import (
 func TestOnStartOpensTheDatabaseAtDBPath(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "todos.db")
 	t.Setenv("DB_PATH", path)
-	if err := OnStart(); err != nil {
+	if err := OnStart(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(path); err != nil {

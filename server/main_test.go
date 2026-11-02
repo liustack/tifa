@@ -60,7 +60,7 @@ func TestServeIsTheDefaultCommand(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			app := App{Hooks: Hooks{
-				OnStart: func() error {
+				OnStart: func(context.Context) error {
 					events = append(events, "start")
 					cancel()
 					return nil

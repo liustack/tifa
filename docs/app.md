@@ -729,13 +729,13 @@ Then point the aliases of `components.json` into `components/`, so the app root 
 `hooks.go` in the project root. All four functions are optional:
 
 ```go
-func OnStart() error                            // before listening: open the database, logs, etc.
+func OnStart(ctx context.Context) error         // before listening: open the database, logs, etc.
 func OnShutdown(ctx context.Context) error      // after an exit signal, once in-flight requests finish
 func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error // the only middleware, call next(c) to continue
 func OnError(c *tifa.Ctx, err error) tifa.Error // unexpected errors: report, return an error users may see
 ```
 
-- `OnRequest` runs for pages, navigation data requests, API routes and unmatched URLs. It does not run for static files, and it does not see a write that a browser sends from another site: the program refuses that with 403 first (see [Cross-site writes](config.md#cross-site-writes)). For an unmatched URL, `c.Pattern()` is empty, and `next(c)` runs the Layouts its 404 shows inside (see [404](#404)). On a page with `Cache` it sees an anonymous request, with no cookie, session or most headers (see [The whole-page cache](#the-whole-page-cache)).
+- `OnStart` gets the context of the program: it is done when the program gets SIGINT or SIGTERM. Pass it to the calls that can wait, such as `db.PingContext(ctx)`, so Ctrl-C does not wait for a database that never answers. If `OnStart` returns an error, the program stops. Do not keep `ctx` for after `OnStart` returns, use the context of a request, or of `OnShutdown`, for later work.- `OnRequest` runs for pages, navigation data requests, API routes and unmatched URLs. It does not run for static files, and it does not see a write that a browser sends from another site: the program refuses that with 403 first (see [Cross-site writes](config.md#cross-site-writes)). For an unmatched URL, `c.Pattern()` is empty, and `next(c)` runs the Layouts its 404 shows inside (see [404](#404)). On a page with `Cache` it sees an anonymous request, with no cookie, session or most headers (see [The whole-page cache](#the-whole-page-cache)).
 - Resources the whole app shares, such as a database connection or a logger, go in files at the app root next to `hooks.go`, for example `db.go` or `middleware.go`. Each one builds a package-level variable or a function: set it up in `OnStart`, release it in `OnShutdown`, and use it directly anywhere, for example `myapp.DB` after importing `example.com/myapp`. Domains under `app/` import the root package for this. By convention the root package imports nothing under `app/`, so this never closes an import cycle. Models and queries stay in their domains. Route code uses these resources only inside functions, never while package-level variables are initialized. Do not use `init()` for setup. See [which way imports go](structure.md#which-way-imports-go).
 - `next` runs the matched route, once. A second call returns an error. Pass it the `*tifa.Ctx` the route should see: `next(c)`, or `next(c.WithContext(ctx))` to store request-scoped values in the standard context, as `r.WithContext(ctx)` does for a request. `c.WithContext` returns a copy and leaves `c` alone. Business packages provide typed getters.
 - The error `next` returns can be recognized with `errors.Is` and `errors.As`, a redirect as `*tifa.RedirectError`.
@@ -745,7 +745,7 @@ func OnError(c *tifa.Ctx, err error) tifa.Error // unexpected errors: report, re
 tifa logs its own messages with `log/slog`, at a level and with fields: a failed request is `ERROR` with `method`, `path` and `err`, a refused cross-site write is `WARN`, the address it listens on is `INFO`. The lines about startup, such as the address, are written after `OnStart` returns, so a handler set there already gets them. To change where they go, set the default handler in `OnStart`:
 
 ```go
-func OnStart() error {
+func OnStart(ctx context.Context) error {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 	return nil
 }
@@ -767,7 +767,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
-func OnStart() error {
+func OnStart(ctx context.Context) error {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 	tifa.SetHTTPHandler(func(app http.Handler) http.Handler {
 		mux := http.NewServeMux()
@@ -829,7 +829,7 @@ Without a store, sessions live in the memory of the process, up to `session.memo
 To keep sessions somewhere else, such as Redis or SQL, give `OnStart` a store:
 
 ```go
-func OnStart() error {
+func OnStart(ctx context.Context) error {
 	tifa.SetSessionStore(redisStore{client})
 	return nil
 }

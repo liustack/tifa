@@ -105,7 +105,7 @@ When two domains need each other, move what one needs into the other, or into a 
 
   ```go
   // hooks.go
-  func OnStart() error                       { return openDB() }
+  func OnStart(ctx context.Context) error    { return openDB(ctx) }
   func OnShutdown(ctx context.Context) error { return DB.Close() }
   ```
 

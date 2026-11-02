@@ -39,7 +39,7 @@ var hooks = []struct {
 	params, results []string
 	signature       string
 }{
-	{"OnStart", nil, []string{"error"}, "func() error"},
+	{"OnStart", []string{"context.Context"}, []string{"error"}, "func(ctx context.Context) error"},
 	{"OnShutdown", []string{"context.Context"}, []string{"error"}, "func(ctx context.Context) error"},
 	{"OnRequest", []string{ctxType, "func(" + ctxType + ") error"}, []string{"error"}, "func(c *tifa.Ctx, next func(*tifa.Ctx) error) error"},
 	{"OnError", []string{ctxType, "error"}, []string{corePath + ".Error"}, "func(c *tifa.Ctx, err error) tifa.Error"},

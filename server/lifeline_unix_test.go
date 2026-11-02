@@ -38,7 +38,7 @@ func TestDevMainStopsWhenTheLifelineEnds(t *testing.T) {
 	started := make(chan struct{})
 	var events []string
 	app := App{Hooks: Hooks{
-		OnStart: func() error {
+		OnStart: func(context.Context) error {
 			close(started)
 			return nil
 		},

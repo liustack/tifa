@@ -114,7 +114,7 @@ func TestDevMainReloadsTheSSRBundle(t *testing.T) {
 	writeBundle(t, dir, "first")
 	var starts atomic.Int32
 	app := frontApp()
-	app.Hooks.OnStart = func() error {
+	app.Hooks.OnStart = func(context.Context) error {
 		starts.Add(1)
 		return nil
 	}
