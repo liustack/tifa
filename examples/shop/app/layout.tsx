@@ -47,7 +47,8 @@ import {
   SidebarTrigger,
 } from '@/components/ui/sidebar'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { RouteError } from 'tifa/client'
+import { RouteError, useSession } from 'tifa/client'
+import { Account } from './account'
 import { layout, type LayoutData } from './route.gen'
 import './styles.css'
 
@@ -73,6 +74,9 @@ function where(pathname: string) {
 
 export default function AppLayout() {
   const shell = layout.useLoaderData()
+  // Who is signed in is not in the data of the Layout, which is the same for everyone. Without a
+  // session, as in the open workbench of the comparison, the footer shows the owner.
+  const { data: me } = useSession()
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const loading = useRouterState({ select: (state) => state.isLoading })
 
@@ -170,11 +174,11 @@ export default function AppLayout() {
             <div className="flex items-center gap-2 p-1">
               <Avatar className="size-8 rounded-none">
                 <AvatarFallback className="rounded-none bg-sidebar-primary text-sidebar-primary-foreground">
-                  {shell.viewer.initials}
+                  {me?.initials ?? '店'}
                 </AvatarFallback>
               </Avatar>
               <div className="grid leading-tight group-data-[collapsible=icon]:hidden">
-                <span className="text-sm font-medium">{shell.viewer.name}</span>
+                <span className="text-sm font-medium">{me?.name ?? '店主'}</span>
                 <span className="text-xs text-sidebar-foreground/60">让小生意，慢慢生长。</span>
               </div>
             </div>
@@ -195,6 +199,7 @@ export default function AppLayout() {
                   查看店面
                 </Link>
               </Button>
+              <Account />
             </div>
             {loading && (
               <div role="status" aria-label="正在加载页面" className="absolute inset-x-0 bottom-0 h-0.5 animate-pulse bg-primary" />

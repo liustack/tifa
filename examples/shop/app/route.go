@@ -12,18 +12,14 @@ func GET(c *tifa.Ctx) error {
 	return c.Redirect("/projects/studio", 302)
 }
 
+// Shell is what every visitor of the workbench gets alike. The page of an order is cached, so nothing
+// about the signed-in user goes here: the name and the avatar come from useSession in the browser.
 type Shell struct {
-	Viewer   Viewer             `json:"viewer"`
 	Projects []projects.Project `json:"projects"`
 	// SidebarOpen is the state the sidebar was left in. The sidebar component keeps it in the
 	// cookie sidebar_state, and the server renders the sidebar that way, so it does not jump
 	// after a reload.
 	SidebarOpen bool `json:"sidebarOpen"`
-}
-
-type Viewer struct {
-	Name     string `json:"name"`
-	Initials string `json:"initials"`
 }
 
 func Layout(c *tifa.Ctx) (Shell, error) {
@@ -32,7 +28,6 @@ func Layout(c *tifa.Ctx) (Shell, error) {
 		open = false
 	}
 	return Shell{
-		Viewer:      Viewer{Name: "店主", Initials: "店"},
 		Projects:    projects.ListProjects(),
 		SidebarOpen: open,
 	}, nil

@@ -1,6 +1,6 @@
 # Routing and data
 
-Contents: URLs from folders, `route.go`, `Load`, Layouts and `tifa.Use`, method handlers, `Ctx`, what `Load` may do with `Ctx`, the page side (`route.gen`), JSON rules, `hooks.go`.
+Contents: URLs from folders, `route.go`, `Load`, Layouts and `tifa.Use`, method handlers, `Ctx`, what `Load` may do with `Ctx`, the page side (`route.gen`), JSON rules, `hooks.go`, sessions.
 
 Full docs: [app.md](https://github.com/liustack/tifa/blob/main/docs/app.md).
 
@@ -239,11 +239,11 @@ func OnError(c *tifa.Ctx, err error) tifa.Error // report unexpected errors, pic
 
 - `OnRequest` runs for pages, navigation data requests, API routes and unmatched URLs. Not for static files. A cross-site write is refused before it.
 - `OnError` gets errors that are not `ErrNotFound`, `tifa.Error`, `tifa.Fields` or a redirect, and panics. Writing one replaces the default (log and 500). Return a message that is safe for users.
-- Auth example. `signedIn` is the app's own function:
+- Auth example, with the session below (see [Sessions](#sessions)):
 
 ```go
 func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
-	if strings.HasPrefix(c.Pattern(), "/admin") && !signedIn(c) {
+	if strings.HasPrefix(c.Pattern(), "/admin") && tifa.Session[auth.Session](c) == nil {
 		return c.Redirect("/login", http.StatusFound)
 	}
 	return next(c)
@@ -252,3 +252,52 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 
 - `next(c)` returns the outermost `Load` error. Return it unchanged (or wrapped once with `%w`) to let the framework handle it. Returning another error makes the middleware win.
 - Use `OnStart` for background goroutines too (jobs, mail queues) and stop them in `OnShutdown`. Do not use `init()`.
+
+## Sessions
+
+A session is who is signed in, kept on the server and found by a cookie. tifa keeps the record, the token, the cookie and the expiry. Your code checks the password and says when someone signs in or out. It needs no setup:
+
+```go
+// auth/session.go: one session type for the whole app
+type Session struct {
+	UserID int64  `json:"userId"`
+	Name   string `json:"name"`
+}
+
+// Browser is the part the browser may keep: a name, an avatar, no secrets (optional)
+func (s Session) Browser() Me { return Me{Name: s.Name} }
+
+// app/login/route.go: a method handler
+func POST(c *tifa.Ctx, in Login) error {
+	u, err := users.CheckPassword(c.Context(), in.Email, in.Password) // your own check
+	if err != nil {
+		return tifa.Error{Status: 401, Message: "Wrong email or password"}
+	}
+	if err := tifa.SetSession(c, &auth.Session{UserID: u.ID, Name: u.Name}); err != nil {
+		return err
+	}
+	return c.Redirect("/", 303)
+}
+
+// app/logout/route.go
+func POST(c *tifa.Ctx) error { return tifa.ClearSession(c) }
+
+// hooks.go: keep visitors out of a part of the site
+func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+	if strings.HasPrefix(c.Request().URL.Path, "/admin") && tifa.Session[auth.Session](c) == nil {
+		return c.Redirect("/login?next="+url.QueryEscape(c.Request().URL.RequestURI()), 302)
+	}
+	return next(c)
+}
+```
+
+- `tifa.Session[S](c)` returns the session or nil, in `OnRequest`, `Load`, `Layout` and handlers. Treat it as read-only, and use one type `S` for the whole app. `SetSession` and `ClearSession` work in `OnRequest` before `next` and in method handlers, and return an error in `Load` and `Layout` (the build also rejects them there). Sign in and out with a POST, never a GET.
+- Without a store, sessions live in the memory of the process (up to `session.memory_limit`) and a restart signs everyone out. To keep them in Redis or SQL, call `tifa.SetSessionStore(store)` in `OnStart`, with a type that has `Get`, `Put` and `Delete` (`tifa.SessionStore`). `tifatest.TestSessionStore(t, store)` checks it.
+- The cookie is `__Host-tifa_session`, `HttpOnly`, `Secure`, `SameSite=Lax`, for 30 days (`session.cookie` and `session.max_age` change it). Under `tifa dev` it is `tifa_session` without `Secure`. Keep the record under 4 KiB: an ID and a few display fields.
+- In the browser, `useSession()` from `tifa/client` returns `{ signedIn, data, ready }`, where `data` is what `Browser()` returned (type `SessionData` from `.tifa/session.gen`). `<Session.In>` and `<Session.Out>` show their children only for a signed-in or signed-out visitor, and any element with `data-session="in"` or `data-session="out"` does the same. The server writes `<html data-session="in">`, so the first paint is right before any script runs. The copy only decides what to show, so check access in Go.
+- A call to a handler that signs in or out brings the new session, and the page and its Layouts load again. A redirect from the handler goes through the router.
+- Writing `Cache-Control` on an answer that carries the session: only `no-store`, or `private, no-cache`. Anything else fails the request.
+- Known limits: the render cache today keys a page by its data and the visitor's session, so it never serves one visitor's page to another. Planned: a page with `Cache = true` will be rendered once for everyone and will not see the session, so keep what a cached page and the Layouts above it load the same for every visitor, and take the user from `useSession`. Follow that rule now. Another tab shows the old state until its next answer. A fetch of your own that changes the session needs `router.invalidate()`.
+- The shop in `examples/shop` is a worked example (a demo account, `OnRequest` sending visitors to `/login?next=...`, the header with `Session.In` and `Session.Out`).
+
+Full docs: [Sessions](https://github.com/liustack/tifa/blob/main/docs/app.md#sessions).

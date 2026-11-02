@@ -389,6 +389,7 @@ func TestBodyLimitIsSharedByCopies(t *testing.T) {
 func TestWithContextRacesWithSetBodyLimit(t *testing.T) {
 	c, _ := newCtx("POST", strings.Repeat("x", 100), "", 50)
 	var set atomic.Bool
+	var lateMade atomic.Int64
 	stop := make(chan struct{})
 	made := make(chan []*Ctx, 1)
 	go func() {
@@ -404,6 +405,7 @@ func TestWithContextRacesWithSetBodyLimit(t *testing.T) {
 			d := c.WithContext(context.WithValue(c.Context(), userKey{}, "lin"))
 			if wasSet {
 				late = append(late, d)
+				lateMade.Add(1)
 			}
 		}
 	}()
@@ -412,7 +414,14 @@ func TestWithContextRacesWithSetBodyLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	set.Store(true)
-	time.Sleep(time.Millisecond)
+	// Wait for a copy made after SetBodyLimit instead of sleeping a fixed time: on a loaded
+	// machine the goroutine may not run for a while, and a fixed sleep then finds no late copy.
+	for deadline := time.Now().Add(5 * time.Second); lateMade.Load() == 0; {
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(100 * time.Microsecond)
+	}
 	close(stop)
 	late := <-made
 	if len(late) == 0 {

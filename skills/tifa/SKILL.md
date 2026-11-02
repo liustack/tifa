@@ -83,6 +83,11 @@ Go side:
 12. Letting the root package import anything under `app/`. Domains import the root package for `DB` and friends, so that import would close a cycle.
 13. Using your own environment variables that start with `TIFA_`. An unknown one stops the program.
 
+Sessions (see `references/routing-and-data.md`):
+
+- Rolling your own sign-in cookie or session table. `tifa.SetSession(c, &s)`, `tifa.Session[S](c)` and `tifa.ClearSession(c)` need no setup, keep the record in memory without a store, and `tifa.SetSessionStore` in `OnStart` moves it to Redis or SQL. Call `SetSession` and `ClearSession` in a method handler or `OnRequest`, never in `Load` or `Layout`, and sign out with a POST.
+- Showing who is signed in from the data of a `Load`. Use `useSession()`, `<Session.In>` and `<Session.Out>` from `tifa/client`, or the `data-session="in"` and `data-session="out"` attributes, which the server writes on `<html>` so the first paint is right. Give the session type a `Browser()` method that returns only what the browser may keep, and read it as `data`. Keep the Layouts above a page with `Cache = true` free of personal data, since a cached page is planned to be anonymous (the render cache today keys pages by data and session, so it does not mix up visitors). Take the user from `useSession`.
+
 Names the build rejects: a `route.tsx` (rename to `page.tsx`), exporting `NotFound` or `Document`, declaring `const Path`, a `form` struct tag, `layout.tsx` and `layout_.tsx` in one folder. A 404 is shown by the `Error` export, with a check `error instanceof RouteError && error.status === 404`.
 
 Build and deploy:
@@ -99,11 +104,11 @@ Read the one that matches the task. Each is short and links to the full docs.
 
 | File | Read when |
 | --- | --- |
-| [references/routing-and-data.md](references/routing-and-data.md) | Adding a page, a Layout or an API route. Writing `Load`, `Layout`, `tifa.Use`, method handlers with input and result, calling them from the browser, JSON rules, `hooks.go`, auth with `OnRequest`, or the build complains about `Ctx` usage |
+| [references/routing-and-data.md](references/routing-and-data.md) | Adding a page, a Layout or an API route. Writing `Load`, `Layout`, `tifa.Use`, method handlers with input and result, calling them from the browser, JSON rules, `hooks.go`, auth and sessions with `OnRequest`, or the build complains about `Ctx` usage |
 | [references/rendering.md](references/rendering.md) | A page fails to render on the server or does not hydrate. Using a library, date, number, chart or browser API in a page. `head` tags, `SSR` and `Cache` switches, Tailwind or shadcn/ui |
 | [references/errors-and-404.md](references/errors-and-404.md) | Showing a 404, a 403 or a failed `Load`. Redirects. Choosing between `tifa.ErrNotFound`, `tifa.Error`, `tifa.Fields` and `OnError` |
 | [references/i18n.md](references/i18n.md) | A site in several languages, language in the URL, `lang` on `<html>`, translations with i18next |
-| [references/testing.md](references/testing.md) | Writing or running tests for `Load`, `Layout`, handlers or `OnRequest`, and checking the real HTML |
+| [references/testing.md](references/testing.md) | Writing or running tests for `Load`, `Layout`, handlers, `OnRequest` or code that needs a signed-in user, and checking the real HTML |
 | [references/structure.md](references/structure.md) | Deciding where a type, a query or a shared resource goes, or the go command reports an import cycle |
 | [references/build-and-deploy.md](references/build-and-deploy.md) | `tifa dev` or `tifa build` problems, settings in `tifa.yaml` and `TIFA_*`, building for Linux, HTTPS, running behind a CDN, container or systemd, sizing CPU and memory |
 

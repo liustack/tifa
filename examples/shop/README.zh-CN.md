@@ -23,7 +23,7 @@ go tool tifa build
 ./bin/shop
 ```
 
-打开 <http://127.0.0.1:9527>，会跳到第一家店铺的订单列表。店面在 <http://127.0.0.1:9527/store/zh-CN> 和 <http://127.0.0.1:9527/store/en-US>。`./bin/shop --server-addr 127.0.0.1:9528` 换端口。`bin/shop` 是单个可执行文件，前端产物已经嵌在里面，拷到别的机器上直接运行。
+打开 <http://127.0.0.1:9527>，会先到登录页，登录后跳到第一家店铺的订单列表。店面在 <http://127.0.0.1:9527/store/zh-CN> 和 <http://127.0.0.1:9527/store/en-US>。`./bin/shop --server-addr 127.0.0.1:9528` 换端口。`bin/shop` 是单个可执行文件，前端产物已经嵌在里面，拷到别的机器上直接运行。
 
 检查与测试，一条命令：
 
@@ -31,13 +31,29 @@ go tool tifa build
 go tool tifa check
 ```
 
+## 登录
+
+工作台是给店主用的，`/projects` 下的每个页面都要登录，店面不用。演示账号：
+
+| 邮箱 | 密码 |
+| --- | --- |
+| `owner@shanhai.example` | `shanhai-demo` |
+
+没登录的访客会被 `hooks.go` 里的 `OnRequest` 带到 `/login?next=...`，登录后回到原来要看的页面。顶栏和侧栏显示名字（Layout 的数据对所有人一样，因为订单页有缓存），顶栏有退出按钮或登录链接，都用 `tifa/client` 的 `Session.In`、`Session.Out` 和 `useSession`。应用没有调用 `tifa.SetSessionStore`，会话放在进程内存里，重启后所有人要重新登录。密码和 `session.go` 里的 bcrypt 哈希比对，真实的店铺会从数据库里读它。
+
+想不登录就看工作台，用 `SHOP_OPEN=1` 启动程序。和 Next.js、TanStack Start 的对比以及页面压测不能登录，用的就是它。它放行整个工作台，包括发货这类写操作，只给对比和压测用，不要在服务器上设置。
+
 ## 目录
 
 ```text
-hooks.go                       记录意外错误
+hooks.go                       OnRequest 把没登录的访客挡在工作台外，OnError 记录意外错误
+session.go                     会话类型、演示账号和密码校验
 components/                    shadcn/ui 组件在 ui/，它们用到的 hook 在 hooks/，用 @/components/... 引用
 app/
   route.go  layout.tsx         工作台的根 Layout：侧栏、顶栏、文档外壳和全站 404，还有把 / 跳到第一家店铺的 GET
+  account.tsx                  顶栏里显示谁登录了，以及退出按钮
+  login/                       /login：不带工作台的 layout_.tsx、登录表单，和负责登录的 POST
+  logout/                      /logout：负责退出的 POST
   styles.css                   Tailwind CSS 和店铺的主题
   format.ts                    中文的金额和时间，按店铺时区
   animated-number.tsx          数据变化时补间的数字
@@ -81,7 +97,7 @@ app/
         post+/                 /store/{lang}/journal/{post}
 ```
 
-每个领域放在 `app/` 下自己的目录里，和展示它的页面、它的测试在一起：`app/projects` 是店铺领域，`app/projects/project+/orders` 是订单领域，放在单个订单目录的上一层，而不是放进单个订单的目录里。根包只放钩子。存储放在内存里，自带演示数据，代替数据库表，重启后恢复初始值。`app/` 下每层目录是 URL 的一段，`route.go` 放这个目录所有的 Go 名字：调用领域包的 `Load`，店铺和店面目录的 `Layout` 函数，订单页的 `POST` 和 `PATCH`，它们的入参用 `Validate` 自己检查。`page.tsx` 写界面，用 `./route.gen` 读 `Load` 的结果。订单页和统计页通过店铺 Layout 读店铺：`tifa.Use(c, project.Layout)`。`app/route.go` 放根 Layout，它的 `GET` 把 `/` 重定向到店铺 `studio`，所以 `/` 是 API 路由。店铺领域要统计待发货的订单，所以 `projects` import `orders`，而 `orders` 既不 import `projects`，也不 import 页面。为什么这样组织见[哲学](../../docs/philosophy.zh-CN.md)，包之间按什么方向 import 见[应用的代码结构](../../docs/structure.zh-CN.md)。
+每个领域放在 `app/` 下自己的目录里，和展示它的页面、它的测试在一起：`app/projects` 是店铺领域，`app/projects/project+/orders` 是订单领域，放在单个订单目录的上一层，而不是放进单个订单的目录里。根包只放钩子和会话。存储放在内存里，自带演示数据，代替数据库表，重启后恢复初始值。`app/` 下每层目录是 URL 的一段，`route.go` 放这个目录所有的 Go 名字：调用领域包的 `Load`，店铺和店面目录的 `Layout` 函数，订单页的 `POST` 和 `PATCH`，它们的入参用 `Validate` 自己检查。`page.tsx` 写界面，用 `./route.gen` 读 `Load` 的结果。订单页和统计页通过店铺 Layout 读店铺：`tifa.Use(c, project.Layout)`。`app/route.go` 放根 Layout，它的 `GET` 把 `/` 重定向到店铺 `studio`，所以 `/` 是 API 路由。店铺领域要统计待发货的订单，所以 `projects` import `orders`，而 `orders` 既不 import `projects`，也不 import 页面。为什么这样组织见[哲学](../../docs/philosophy.zh-CN.md)，包之间按什么方向 import 见[应用的代码结构](../../docs/structure.zh-CN.md)。
 
 Go 把时间作为时刻发给页面，页面用 `Intl` 按店铺时区格式化，时区由店铺 Layout 一起给出。浏览器在别的时区，看到的时间也和服务端渲染的一样。
 

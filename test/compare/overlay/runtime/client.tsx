@@ -22,3 +22,18 @@ export class RouteError extends Error {
     this.status = status
   }
 }
+
+// The session of tifa/client, for the shop's own app/account.tsx and app/layout.tsx. The comparison
+// runs the shop open, with nobody signed in. Session.In and Session.Out are spans with the
+// data-session attribute, as tifa's, and both are in the page, since tifa renders both and a style
+// hides one.
+export function useSession(): { signedIn: boolean; data: { name: string; initials: string } | undefined; ready: boolean } {
+  return { signedIn: false, data: undefined, ready: true }
+}
+
+type SpanProps = React.HTMLAttributes<HTMLSpanElement>
+
+export const Session = {
+  In: (props: SpanProps) => <span data-session="in" {...props} />,
+  Out: (props: SpanProps) => <span data-session="out" {...props} />,
+}

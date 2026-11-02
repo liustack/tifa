@@ -59,7 +59,7 @@ slowjs v0.29 换掉了把 QuickJS 从 C 翻译成 Go 的那个引擎。C 引擎�
 - **单次渲染**：一个热 VM 跑在一个核的一个线程上，另一个线程空着，渲染方式和 `test/ssr` 的 `BenchmarkShop` 相同。先热 256 次，再测 500 次（工作台）、300 次（店面）或 200 次（MUI），跑 5 轮，取每轮 P50 的中位数。
 - **Node**：Node 24.13.0 跑同一份 `ssr.js`，给同样的输入，跑在另一个空闲的核上，先热 600 次，再跑 5 轮、每轮 200 次。HTML 和 tifa 的相同。
 - **C QuickJS**：QuickJS 2026-06-04，由 slowjs 的[引擎对比](https://github.com/liustack/slowjs/blob/main/docs/benchmarks.md)工具构建和运行，用同样的包。C 没有 `Intl`，要用的页面跑 FormatJS polyfill。
-- **完整请求**：构建出的 `bin/shop` 加 `--cache-size 0`，让每个页面请求都渲染，用 [oha](https://github.com/hatoo/oha) 从别的核上压测。没有另外说明时页面以 gzip 发出。每一档先热几秒，再测 15 到 20 秒，跑两到三轮。
+- **完整请求**：构建出的 `bin/shop`，用 `SHOP_OPEN=1` 启动（否则工作台要登录），加 `--cache-size 0`，让每个页面请求都渲染，用 [oha](https://github.com/hatoo/oha) 从别的核上压测。没有另外说明时页面以 gzip 发出。每一档先热几秒，再测 15 到 20 秒，跑两到三轮。
 
 ## 一个页面渲染多快
 
@@ -567,7 +567,7 @@ tifa c729ad2 加 slowjs v0.28.6、它的 Go 汇编解释器和 PGO，渲染这�
 - 比较两个构建每个页面的 HTML。路由会把渲染的时刻写进每个 match（`u:` 后面跟 13 位数字），先遮掉它。
 - 只有 1 个 VM 的基准看不出 VM 之间的争用。改动碰到内存分配时，还要同时用多个 VM 渲染，看 mutex profile。
 
-完整请求：构建 `examples/shop`，用 `taskset` 把 `bin/shop --server-addr 127.0.0.1:0 --cache-size 0` 钉在几个核上，从另一个物理核压测，在途请求数等于 VM 数。每次先热几秒，测扩展曲线时服务钉的 CPU 数等于 VM 数。
+完整请求：构建 `examples/shop`，用 `taskset` 把环境里有 `SHOP_OPEN=1` 的 `bin/shop --server-addr 127.0.0.1:0 --cache-size 0` 钉在几个核上，从另一个物理核压测，在途请求数等于 VM 数。每次先热几秒，测扩展曲线时服务钉的 CPU 数等于 VM 数。
 
 Next.js 和 TanStack Start：`go run ./test/compare/cmd/compare measure` 构建三个应用并按这个方法测，核位置用参数给（见[测试文档](testing.md#comparison-with-nextjs-and-tanstack-start-testcompare)，英文）。
 

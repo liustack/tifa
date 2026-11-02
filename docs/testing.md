@@ -218,6 +218,8 @@ TIFA_SSR_CRAWL=write:/tmp/pages-a TIFA_SSR_CRAWL_BIN=$PWD/examples/shop/bin/shop
 TIFA_SSR_CRAWL=compare:/tmp/pages-a TIFA_SSR_CRAWL_BIN=$PWD/examples/shop/bin/shop-b go test -run ShopCrawl -v ./test/ssr
 ```
 
+The crawl signs in as the demo account of the shop first, since the workbench needs it. The other shop tests in `test/ssr` and the benchmarks start `bin/shop` with `SHOP_OPEN=1`.
+
 | Test | What it measures |
 | --- | --- |
 | `TestShopVMResident` | What one VM costs the process. It starts its test binary twice as `TestShopVMResidentChild`, with 1 VM and with `TIFA_SSR_VMS` (8), and each child renders every page with every VM, 32 rounds (`TIFA_SSR_ROUNDS`). The memory of one VM is `(VmRSS with N VMs - VmRSS with 1 VM) / (N - 1)`, after loading, after rendering and after the pool has waited 1.5 seconds with its VMs idle. Two processes, because in one the second pool would count pages the first left in the Go heap. The child with 1 VM also prints what the engine counts (malloc, footprint, chunks, what a release would give back) after loading, rendering, a full GC and a release, and every child prints its `vmhwm-kb:` peak. It reads `/proc/self/status`, so it skips where that file does not exist, as on macOS |

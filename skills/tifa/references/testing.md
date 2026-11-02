@@ -1,6 +1,6 @@
 # Testing a tifa app
 
-Contents: the check command, testing domain code, testing route code with `tifatest`, middleware, the render clock, checking the real HTML.
+Contents: the check command, testing domain code, testing route code with `tifatest`, middleware, signed-in requests, the render clock, checking the real HTML.
 
 Full docs: [app.md](https://github.com/liustack/tifa/blob/main/docs/app.md#testing). The `docs/testing.md` of the tifa repository is about developing tifa itself, not about testing an app.
 
@@ -90,6 +90,17 @@ func TestOnRequestRedirectsAnonymous(t *testing.T) {
 	if err := OnRequest(c, func(*tifa.Ctx) error { called = true; return nil }); err == nil || called {
 		t.Fatal("want a redirect and no route run")
 	}
+}
+```
+
+To test code that needs someone signed in, skip the cookie and call `tifatest.WithSession(c, &auth.Session{UserID: 1, Name: "Ann"})` after `NewCtx`. It sets the state of the request only, so `tifa.Session[auth.Session](c)` returns it in `OnRequest`, `Load` and `Layout`. `NewCtx` also gives each test a memory session store, so `SetSession` and `ClearSession` work and the recorder holds the `Set-Cookie`. `tifatest.TestSessionStore(t, store)` checks a store of your own.
+
+```go
+func TestLayoutShowsTheUser(t *testing.T) {
+	c, _ := tifatest.NewCtx(t, httptest.NewRequest("GET", "/", nil))
+	tifatest.WithSession(c, &auth.Session{UserID: 1, Name: "Ann"})
+	shell, err := tifa.Use(c, Layout)
+	// check shell.User and err
 }
 ```
 

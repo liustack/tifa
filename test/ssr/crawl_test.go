@@ -91,6 +91,26 @@ func TestCrawlHelpers(t *testing.T) {
 	}
 }
 
+// crawlSignIn signs in as the demo account of the shop, whose workbench needs it, and returns the
+// Cookie header of the session. The cookie is Secure, so a cookie jar would not send it over http.
+func crawlSignIn(t *testing.T, base string) string {
+	t.Helper()
+	body := `{"email":"owner@shanhai.example","password":"shanhai-demo"}`
+	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	res, err := noFollow.Post(base+"/login", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	for _, c := range res.Cookies() {
+		if strings.HasSuffix(c.Name, "tifa_session") {
+			return c.Name + "=" + c.Value
+		}
+	}
+	t.Fatalf("signing in: %d, no session cookie", res.StatusCode)
+	return ""
+}
+
 func TestShopCrawl(t *testing.T) {
 	mode, dir, ok := strings.Cut(os.Getenv("TIFA_SSR_CRAWL"), ":")
 	if !ok || (mode != "write" && mode != "compare") || dir == "" {
@@ -101,6 +121,7 @@ func TestShopCrawl(t *testing.T) {
 		exe = filepath.Join(shopDir, "bin", "shop")
 	}
 	base := startProgram(t, exe)
+	cookie := crawlSignIn(t, base)
 	if mode == "write" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
@@ -116,7 +137,12 @@ func TestShopCrawl(t *testing.T) {
 			continue
 		}
 		seen[url] = true
-		res, err := http.Get(base + url)
+		req, err := http.NewRequest("GET", base+url, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Cookie", cookie)
+		res, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}

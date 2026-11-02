@@ -51,7 +51,7 @@ func (e Env) BuildCounted(ctx context.Context, log io.Writer, dir string) (strin
 	// The counter is in order.go itself, since tifa reads the files of the app from the disk when
 	// it checks the conventions and a file that only the overlay has would not be found.
 	// The path that answers with the counter is served on a listener of its own, at the address in
-	// COMPARE_COUNTS_ADDR: the shop has no OnRequest to add it to, and tifa finds hooks by reading
+	// COMPARE_COUNTS_ADDR: the shop's OnRequest only guards the workbench, and tifa finds hooks by reading
 	// the files on the disk, which the overlay does not change.
 	edits := [][2]string{
 		{"\t\"sync\"\n", "\t\"net\"\n\t\"net/http\"\n\t\"os\"\n\t\"strconv\"\n\t\"sync\"\n\t\"sync/atomic\"\n"},
