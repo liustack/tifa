@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/liustack/tifa/internal/analyze"
 	"github.com/spf13/cobra"
@@ -43,7 +44,7 @@ func printTable(cmd *cobra.Command, m *analyze.Manifest) error {
 		dirs[l.ID] = l.Dir
 	}
 	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "ROUTE\tPATH\tLAYOUTS\tMETHODS\tSSR\tRENDERCACHE")
+	fmt.Fprintln(w, "ROUTE\tPATH\tLAYOUTS\tMETHODS\tSSR\tRENDERCACHE\tCACHE")
 	for _, r := range m.Routes {
 		var methods []string
 		if r.Page {
@@ -56,8 +57,8 @@ func printTable(cmd *cobra.Command, m *analyze.Manifest) error {
 		for i, id := range r.Layouts {
 			layouts[i] = dirs[id]
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%t\t%t\n", r.Dir, r.Path, dash(strings.Join(layouts, " > ")),
-			dash(strings.Join(methods, " ")), r.SSR, r.RenderCache)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%t\t%t\t%s\n", r.Dir, r.Path, dash(strings.Join(layouts, " > ")),
+			dash(strings.Join(methods, " ")), r.SSR, r.RenderCache, cacheText(r.Cache))
 	}
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "LAYOUT\tPATH\tPARENT\tSSR")
@@ -72,4 +73,12 @@ func dash(s string) string {
 		return "-"
 	}
 	return s
+}
+
+// cacheText writes the whole-page cache time of a route, - for none.
+func cacheText(d time.Duration) string {
+	if d == 0 {
+		return "-"
+	}
+	return d.String()
 }

@@ -44,6 +44,9 @@ func generateGo(m *analyze.Manifest, configName string, dev bool) (map[string][]
 		if !r.RenderCache {
 			routes.WriteString("NoRenderCache: true,\n")
 		}
+		if r.Cache > 0 {
+			fmt.Fprintf(&routes, "Cache: %d, // %s\n", int64(r.Cache), r.Cache)
+		}
 		fmt.Fprintf(&routes, "Layouts: %s,\n},\n", stringSlice(r.Layouts))
 	}
 	routes.WriteString("}\n")

@@ -65,6 +65,7 @@ var routes = []server.Route{
 		Path:    "/auth/register",
 		Page:    true,
 		SSR:     true,
+		Cache:   600000000000, // 10m0s
 		Layouts: []string{"app/layout", "app/auth/layout"},
 	},
 	{

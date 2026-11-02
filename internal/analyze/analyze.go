@@ -17,6 +17,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"golang.org/x/mod/module"
 	"golang.org/x/tools/go/packages"
@@ -519,7 +520,7 @@ func (a *analyzer) dirPath(d *dirInfo) ([]segment, bool) {
 
 // routeNames are the names that only route.go declares: the Layout of the directory, the Load of
 // its page, the switches, and the method handlers.
-var routeNames = append([]string{"Layout", "LayoutSSR", "Load", "SSR", "RenderCache"}, methods...)
+var routeNames = append([]string{"Layout", "LayoutSSR", "Load", "SSR", "RenderCache", "Cache"}, methods...)
 
 // checkPackageNames reports Path, which the directory replaces, and each name of route.go that
 // is declared in another file of the package. The files are read by name, so a Load in
@@ -539,20 +540,23 @@ func (a *analyzer) checkPackageNames(d *dirInfo) {
 		if obj == nil {
 			continue
 		}
+		if _, isConst := obj.(*types.Const); name == "Cache" && !isConst {
+			continue // a type or variable named Cache in another file is the domain code's own
+		}
 		if file := filepath.Base(a.fset.Position(obj.Pos()).Filename); file != "route.go" {
 			a.errorAt(obj.Pos(), "%s is read from route.go only, move it there from %s", name, file)
 		}
 	}
 }
 
-// removedCache is the error for Cache, the switch of the render cache before it was on for
-// every page. The name stays refused, since a later release gives it another meaning.
-const removedCache = "the render cache is on by default now, delete Cache = true. To turn it off for this page write RenderCache = false"
+// boolCache is the error for Cache written as a bool, the switch of the render cache before it was
+// on for every page. Cache is a duration now, the whole-page cache.
+const boolCache = "Cache is a duration, such as Cache = 10 * time.Minute, which turns on the whole-page cache. The render cache is on by default now, delete Cache = true. To turn it off for this page write RenderCache = false"
 
 // switchSpellings maps the lower case spelling of each switch to the advice for a constant that
 // spells it so: the names of route.go are read as written, so a lower case one would be ignored.
 var switchSpellings = map[string]string{
-	"cache":       "RenderCache = false turns the render cache off for the page, it is on by default",
+	"cache":       "Cache = 10 * time.Minute turns on the whole-page cache, RenderCache = false turns the render cache off for the page",
 	"rendercache": "write RenderCache = false to turn the render cache off for the page",
 	"ssr":         "write SSR",
 	"layoutssr":   "write LayoutSSR",
@@ -569,7 +573,7 @@ func (a *analyzer) checkSwitchNames(scope *types.Scope) {
 			continue
 		}
 		if name == "Cache" {
-			a.errorAt(c.Pos(), "%s", removedCache)
+			a.errorAt(c.Pos(), "%s", boolCache)
 			continue
 		}
 		if advice, ok := switchSpellings[name]; ok {
@@ -621,7 +625,7 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 	if load := scope.Lookup("Load"); load != nil && !d.pageTSX {
 		a.errorAt(load.Pos(), "Load is not allowed without page.tsx: Load loads the data of a page, an API route answers GET with a GET function")
 	}
-	for _, name := range []string{"SSR", "RenderCache"} {
+	for _, name := range []string{"SSR", "RenderCache", "Cache"} {
 		if obj := scope.Lookup(name); obj != nil && !d.pageTSX {
 			a.errorAt(obj.Pos(), "%s is not allowed without page.tsx: it applies to the page of the folder only (a Layout declares LayoutSSR)", name)
 		}
@@ -648,6 +652,7 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 	}
 	r.SSR = a.boolConst(pkg, "SSR", true)
 	r.RenderCache = a.renderCacheConst(pkg)
+	r.Cache = a.cacheConst(pkg)
 	return r
 }
 
@@ -1258,4 +1263,33 @@ func (a *analyzer) hooks() []string {
 		}
 	}
 	return found
+}
+
+// cacheConst reads Cache, the whole-page cache time of the page: a time.Duration constant of at
+// least a second, such as 10 * time.Minute. Zero when the page does not set it. A bool Cache is
+// the switch of the render cache from before, which checkSwitchNames reports.
+func (a *analyzer) cacheConst(pkg *packages.Package) time.Duration {
+	obj := pkg.Types.Scope().Lookup("Cache")
+	if obj == nil {
+		return 0
+	}
+	c, isConst := obj.(*types.Const)
+	if isConst && c.Val().Kind() == constant.Bool {
+		return 0 // checkSwitchNames reports it
+	}
+	named, isNamed := types.Unalias(obj.Type()).(*types.Named)
+	isDuration := isNamed && named.Obj().Pkg() != nil && named.Obj().Pkg().Path() == "time" && named.Obj().Name() == "Duration"
+	if !isConst && !isDuration {
+		return 0 // a type or a function named Cache is the domain code's own
+	}
+	if !isConst || !isDuration {
+		a.errorAt(obj.Pos(), "Cache must be a time.Duration constant, such as const Cache = 10 * time.Minute")
+		return 0
+	}
+	ns, exact := constant.Int64Val(c.Val())
+	if !exact || time.Duration(ns) < time.Second {
+		a.errorAt(obj.Pos(), "Cache must be at least one second, such as const Cache = 10 * time.Minute")
+		return 0
+	}
+	return time.Duration(ns)
 }

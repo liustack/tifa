@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/liustack/tifa"
 )
@@ -62,6 +63,8 @@ type Route struct {
 	// NoRenderCache is true when route.go sets RenderCache = false. The HTML of the page is not cached
 	// and its renders are not shared. The zero value keeps the render cache on.
 	NoRenderCache bool
+	// Cache is the whole-page cache time of the page, route.go's const Cache, zero for none.
+	Cache time.Duration
 	// Layouts lists the IDs of the enclosing Layouts, outermost first.
 	Layouts []string
 }
