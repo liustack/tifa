@@ -85,9 +85,9 @@ func (c *Ctx) Param(name string) string  { return c.r.PathValue(name) }
 func (c *Ctx) Query(name string) string  { return c.r.URL.Query().Get(name) }
 func (c *Ctx) Header(name string) string { return c.r.Header.Get(name) }
 
-// QueryAll returns every value of the query parameter name, in order, and nil when there is
+// QueryValues returns every value of the query parameter name, in order, and nil when there is
 // none. Query returns only the first.
-func (c *Ctx) QueryAll(name string) []string { return c.r.URL.Query()[name] }
+func (c *Ctx) QueryValues(name string) []string { return c.r.URL.Query()[name] }
 
 func (c *Ctx) Cookie(name string) (*http.Cookie, error) { return c.r.Cookie(name) }
 

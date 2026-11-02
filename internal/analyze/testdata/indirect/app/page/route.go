@@ -26,7 +26,7 @@ func Load(c *tifa.Ctx) (string, error) {
 func POST(c *tifa.Ctx) error {
 	param := c.Param
 	_ = param
-	all := c.QueryAll
+	all := c.QueryValues
 	_ = all
 	return nil
 }

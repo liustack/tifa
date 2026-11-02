@@ -109,7 +109,7 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 
 | Method | What it does |
 | --- | --- |
-| `c.Param(name)`, `c.Query(name)`, `c.QueryAll(name)` | Path parameter, first query value (`""` when absent), every value of a repeated query key |
+| `c.Param(name)`, `c.Query(name)`, `c.QueryValues(name)` | Path parameter, first query value (`""` when absent), every value of a repeated query key |
 | `c.Header(name)`, `c.Cookie(name)` | Request header, request cookie |
 | `c.Context()`, `c.WithContext(ctx)` | Request context, and a copy of `c` that carries another one (`c` does not change) |
 | `c.Pattern()` | The matched route, such as `/projects/{project}` |
@@ -125,7 +125,7 @@ Request-scoped values (the signed-in user) ride on the standard context: `OnRequ
 
 At build time tifa reads `Load`, `Layout` and the module functions they call, to find which path parameters, query parameters and Layouts each page depends on. That decides when the browser must fetch data again. So:
 
-- Pass `c.Param`, `c.Query` and `c.QueryAll` a constant string: `c.Param("order")`. A variable name fails the build.
+- Pass `c.Param`, `c.Query` and `c.QueryValues` a constant string: `c.Param("order")`. A variable name fails the build.
 - Call them and `tifa.Use` directly. Storing the method in a variable or passing it as a value fails.
 - Do not call `c.Request()`, `c.Writer()`, `c.Bind` or `c.BindQuery`. Read each query value with `c.Query("name")`. A body does not exist in a page load.
 - `*tifa.Ctx` may be passed to a plain (non-generic) function of this module or of tifa, or used for a direct method call. Converting it, returning it, putting it in a slice, map or channel, assigning to an existing variable, `go` or `defer` with it, passing it to an interface, a function variable, a generic function or a library function all fail the build, and the error names the file and line.
