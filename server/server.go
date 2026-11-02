@@ -206,6 +206,11 @@ func redirectLocation(r *http.Request, url string, code int) string {
 // page, or no route matched.
 func (s *Server) serve(w http.ResponseWriter, r *http.Request, pattern string, page bool, route func(*tifa.Ctx) error) {
 	tw := &writer{ResponseWriter: w, plain: !s.cfg.Compress}
+	// The same template as c.Pattern(), for a middleware of tifa.SetHTTPHandler that reads it from
+	// the request it passed on. ServeMux sets its own spelling, such as /{$} for the home page.
+	if pattern != "" {
+		r.Pattern = pattern
+	}
 	c := core.New(tw, r, pattern, s.cfg.BodyLimit)
 	tw.noStore = func() bool { return core.NoStore(c) }
 	tw.session = pattern == sessionPath
