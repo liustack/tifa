@@ -218,13 +218,6 @@ func (c *htmlCache) removeLocked(key string) {
 	}
 }
 
-// remove drops the page of key.
-func (c *htmlCache) remove(key string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.removeLocked(key)
-}
-
 // stale returns the page of key even when its time is over, as long as it is within the time a
 // page may stand in for a failed one (staleIfError after its time ended). Only pages of the
 // whole-page cache qualify.
@@ -243,15 +236,9 @@ func (c *htmlCache) stale(key string, now time.Time) (cachedPage, bool) {
 	return page, true
 }
 
-// markBypass has requests for key skip the cache until the time given: a page whose result cannot
-// be stored would otherwise make every request wait for the one before it (Varnish calls this
-// hit-for-miss).
-func (c *htmlCache) markBypass(key string, until time.Time) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.markBypassLocked(key, until)
-}
-
+// markBypassLocked has requests for key skip the cache until the time given: a page whose result
+// cannot be stored would otherwise make every request wait for the one before it (Varnish calls
+// this hit-for-miss).
 func (c *htmlCache) markBypassLocked(key string, until time.Time) {
 	if len(c.bypass) >= maxBypass {
 		now := cacheNow()

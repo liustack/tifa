@@ -192,7 +192,7 @@ func (ca *fakeACME) handle(w http.ResponseWriter, r *http.Request) {
 		der, _ := base64.RawURLEncoding.DecodeString(req.CSR)
 		csr, err := x509.ParseCertificateRequest(der)
 		if o.status != "ready" || err != nil {
-			http.Error(w, fmt.Sprintf("order %s, CSR %v", o.status, err), 403)
+			http.Error(w, fmt.Sprintf("order %s, CSR %v", o.status, err), http.StatusForbidden)
 			return
 		}
 		serial, _ := rand.Int(rand.Reader, big.NewInt(1<<62))

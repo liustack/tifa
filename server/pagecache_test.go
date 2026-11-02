@@ -77,8 +77,6 @@ func (e *pageEnv) setLoad(f func(c *tifa.Ctx, n int64) (any, error)) {
 	e.mu.Unlock()
 }
 
-func (e *pageEnv) body(w *httptest.ResponseRecorder) string { return w.Body.String() }
-
 func TestCachedPageIsServedWithoutLoadOrRender(t *testing.T) {
 	e := newPageEnv(t)
 	first := get(e.s, "/news")

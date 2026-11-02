@@ -143,7 +143,7 @@ func readManifest(dist string) (string, map[string][]string, error) {
 	}
 	var manifest map[string]manifestEntry
 	if err := json.Unmarshal(data, &manifest); err != nil {
-		return "", nil, fmt.Errorf("Vite's manifest: %w", err)
+		return "", nil, fmt.Errorf("the manifest of Vite: %w", err)
 	}
 	head, err := headTags(manifest)
 	if err != nil {
@@ -198,7 +198,7 @@ func routePreloads(manifest map[string]manifestEntry) map[string][]string {
 func headTags(manifest map[string]manifestEntry) (string, error) {
 	entry, ok := manifest[clientEntry]
 	if !ok || !entry.IsEntry {
-		return "", fmt.Errorf("Vite's manifest has no entry %s, check the tifa plugin in vite.config.ts", clientEntry)
+		return "", fmt.Errorf("the manifest of Vite has no entry %s, check the tifa plugin in vite.config.ts", clientEntry)
 	}
 	var styles, preloads []string
 	seen := map[string]bool{}

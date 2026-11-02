@@ -1,6 +1,9 @@
 package core
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestFieldsErr(t *testing.T) {
 	if err := (Fields{}).Err(); err != nil {
@@ -15,5 +18,13 @@ func TestFieldsErr(t *testing.T) {
 	got, ok := err.(Fields)
 	if !ok || got["carrier"] != "pick one" {
 		t.Fatalf("Err() = %#v, want the Fields itself", err)
+	}
+}
+
+func TestErrorTextsStartWithTifa(t *testing.T) {
+	for _, err := range []error{ErrNotFound, ErrSSRBusy} {
+		if got := err.Error(); !strings.HasPrefix(got, "tifa: ") {
+			t.Errorf("%q does not start with %q", got, "tifa: ")
+		}
 	}
 }

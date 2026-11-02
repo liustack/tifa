@@ -10,7 +10,7 @@ import (
 	"github.com/liustack/tifa/examples/shop/app/projects/project+/orders"
 )
 
-// A project is one shop of the workspace.
+// Project is one shop of the workspace.
 type Project struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`

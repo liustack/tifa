@@ -64,7 +64,7 @@ type Options struct {
 
 var errOptions = errors.New("tifa dev: incomplete options")
 
-var errFirstBuild = errors.New("tifa dev is building the app for the first time. This page reloads when it is ready.")
+var errFirstBuild = errors.New("tifa dev is building the app for the first time, this page reloads when it is ready")
 
 // firstBuildWait is how long a browser request waits for the first build before it gets a page
 // that says the build runs. A tifa dev with Go's build cache warm is ready by then.

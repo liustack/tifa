@@ -25,7 +25,7 @@ type valueBrowser struct {
 	Name string `json:"name"`
 }
 
-func (u valueBrowser) Browser() browserMe { return browserMe{Name: u.Name} }
+func (u valueBrowser) Browser() browserMe { return browserMe(u) }
 
 func viewOf(t *testing.T, c *Ctx) string {
 	t.Helper()

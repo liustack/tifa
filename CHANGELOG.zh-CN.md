@@ -6,6 +6,7 @@
 
 ### 变更
 
+- `tifa.ErrSSRBusy` 的文本改为 `tifa: render queue busy`，原来是 `ssr: render queue busy`，这样 tifa 的所有错误值都以 `tifa: ` 开头。按旧文本匹配的脚本或告警要改成新文本。
 - **不兼容：**`c.QueryAll(name)` 改名为 `c.QueryValues(name)`。它返回切片，而 Go 1.23 起带 `All` 的函数返回迭代器，比如 `maps.All` 和 `slices.All`。标准库里最接近的名字是 `http.Header.Values`。更新应用时重命名调用即可，构建检查不变（见[Load 里 Ctx 的用法](docs/app.zh-CN.md#load-里-ctx-的用法)）。
 - **不兼容：**重定向改成包级函数 `tifa.Redirect(url, status)`，原来的 `c.Redirect(url, code)` 是 `Ctx` 的方法，却从不用 `c`。`status` 不是 3xx 时它会 panic，和 `WriteHeader` 遇到发不出去的状态码一样，以前它返回一个普通错误，最后变成 500。`tifa.RedirectError` 的 `Code` 字段改叫 `Status`，和 `tifa.Error` 一致。`c.Redirect` 删除。更新应用时把 `c.Redirect(` 换成 `tifa.Redirect(`，把 `redirect.Code` 换成 `redirect.Status`。给浏览器的回答不变（见 [route.go](docs/app.zh-CN.md#routego)）。
 - **不兼容：**`OnStart` 的签名是 `func OnStart(ctx context.Context) error`，和 `OnShutdown` 一致。这个 context 是程序运行用的那个，收到 SIGINT 或 SIGTERM 时结束，所以等数据库的启动过程可以在程序被停止时中断。更新应用时加上这个参数。构建会拒绝旧签名（见 [hooks.go](docs/app.zh-CN.md#hooksgo)）。
