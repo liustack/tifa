@@ -12,5 +12,4 @@ function CountedLayout() {
 export const Route = createFileRoute('/_app')({
   component: CountedLayout,
   loader: () => shellFn(),
-  staleTime: Infinity,
 })

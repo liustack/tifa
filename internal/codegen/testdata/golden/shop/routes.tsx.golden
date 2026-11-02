@@ -35,8 +35,6 @@ const r1 = createRoute({
   notFoundComponent: n1,
   loader: ({ context, location, preload }) => load<D1>(context, "app/layout", location, preload),
   staticData: { load: "app/layout" },
-  staleTime: Infinity,
-  preloadStaleTime: Infinity,
   loaderDeps: ({ search }) => pick(search, ["lang"]),
   remountDeps: ({ search }) => [pick(search, ["lang"])],
 })
@@ -57,8 +55,6 @@ const r3 = createRoute({
   notFoundComponent: n3,
   loader: ({ context, location, preload }) => load<D3>(context, "app/projects/projectId+/layout", location, preload),
   staticData: { load: "app/projects/projectId+/layout" },
-  staleTime: Infinity,
-  preloadStaleTime: Infinity,
   loaderDeps: ({ search }) => pick(search, ["currency", "lang"]),
   remountDeps: ({ params, search }) => [params.projectId, pick(search, ["currency", "lang"])],
 })
@@ -92,8 +88,6 @@ const r7 = createRoute({
   errorComponent: e3,
   loader: ({ context, location, preload }) => load<D7>(context, "app/projects/projectId+/route", location, preload),
   staticData: { load: "app/projects/projectId+/route" },
-  staleTime: Infinity,
-  preloadStaleTime: Infinity,
   loaderDeps: ({ search }) => pick(search, ["currency", "lang", "sort"]),
   remountDeps: ({ params, search }) => [params.projectId, pick(search, ["currency", "lang", "sort"])],
 })
@@ -105,8 +99,6 @@ const r8 = createRoute({
   errorComponent: e8,
   loader: ({ context, location, preload }) => load<D8>(context, "app/projects/projectId+/orders/orderId+/route", location, preload),
   staticData: { load: "app/projects/projectId+/orders/orderId+/route" },
-  staleTime: Infinity,
-  preloadStaleTime: Infinity,
   remountDeps: ({ params }) => [params.projectId, params.orderId],
 })
 

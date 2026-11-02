@@ -140,7 +140,7 @@ function Checkout({ view }: { view: PageData }) {
       if (fields.length === 0) form.setError('root', { message: e.message })
       // The cart this page showed is gone and the server dropped its cookie: load the page
       // again, so the summary shows the cart an order would now be placed from.
-      if (e.status === 409 && e.message === 'cartExpired') await router.invalidate()
+      if (e.status === 409 && e.message === 'cartExpired') await router.invalidate({ sync: true })
     }
   }
 

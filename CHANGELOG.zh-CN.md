@@ -6,6 +6,8 @@
 
 ### 变更
 
+- **不兼容：**处理函数的调用在 POST、PUT、PATCH、DELETE 成功之后不再重新取页面数据，调用的 `invalidate` 选项也没有了。调用只发出请求，并应用回答里的会话。重定向只做导航，重定向到正在显示的页面时页面留在原处。tifa 不猜测一次写操作改了什么，TanStack Router 也不猜。想让页面显示写操作的结果，在调用之后调用 `router.invalidate()`（`await router.invalidate({ sync: true })` 会等到页面显示出新数据），或者更新你自己的状态。升级时删掉调用里的 `invalidate: false`，并在页面该显示写入结果的调用之后加上 `await router.invalidate({ sync: true })`。
+- **不兼容：**`tifa build` 生成的路由改用 TanStack Router 默认的新鲜度，以前是 `staleTime: Infinity` 和 `preloadStaleTime: Infinity`，路由器也不再设 `defaultStaleReloadMode: 'blocking'`。数据立刻算作过期，所以回到访问过的页面时先显示缓存的数据，同时在后台发一个 `?_tifa=` 请求重新取，预加载的数据复用 30 秒。登出之后不该让下一个人看到旧数据的应用，调用 `router.clearCache()`。
 - **不兼容：**`tifa/client` 的 `Session.In` 和 `Session.Out` 换成 `SignedIn` 和 `SignedOut`。它们各接收正好一个元素作子节点，自己不产生节点，只在有人登录或没人登录时显示这个元素，而旧组件会用一个 `<span>` 包住子内容。组件名拼错会让构建失败，而手写的 `data-session` 属性拼错是无声的，所以这个属性现在由 tifa 私有，文档也不再教你手写它。开发模式下，不把 props 传给自己 DOM 元素的子组件会在挂载时报错并说明原因。更新应用时，把 `<Session.In className="x">…</Session.In>` 换成 `<SignedIn><div className="x">…</div></SignedIn>`，`Session.Out` 同理（见[在浏览器里](docs/app.zh-CN.md#在浏览器里)）。
 - **不兼容：**会话类型里交给浏览器那部分的方法改名为 `Exposed() M`，原来是 `Browser() M`。新名字说明了它的作用：返回的内容会写进页面 HTML，并保存在访客的 `localStorage` 里，所以不能放凭据和需要保密的信息。更新应用时重命名方法即可，构建检查不变（见[会话](docs/app.zh-CN.md#会话)）。
 - `tifa.ErrSSRBusy` 的文本改为 `tifa: render queue busy`，原来是 `ssr: render queue busy`，这样 tifa 的所有错误值都以 `tifa: ` 开头。按旧文本匹配的脚本或告警要改成新文本。

@@ -9,6 +9,7 @@ import { useHydrated } from '../use-hydrated'
 import { useStore } from './i18n'
 import { photo, photoSet, picture, type View, type Width } from './images'
 import { POST } from './lang+/products/product+/route.gen'
+import { refreshMine } from './mine'
 
 export type Card = {
   slug: string
@@ -354,6 +355,7 @@ function QuickAdd({ product, lang }: { product: Card; lang: string }) {
     setState('adding')
     try {
       await POST({ params: { lang, product: product.slug }, input: { color: product.colors?.[0]?.id ?? '', size: '', quantity: 1 } })
+      void refreshMine(lang)
       setState('added')
     } catch {
       setState('failed')

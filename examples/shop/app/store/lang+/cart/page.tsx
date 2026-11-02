@@ -1,6 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Link } from '@tanstack/react-router'
 import { Gift, Headset, Lock, Minus, Plus, RotateCcw, ShieldCheck, ShoppingBag, Tag, Trash2, Truck } from 'lucide-react'
+import { useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { TifaError } from 'tifa/client'
@@ -189,6 +190,7 @@ type Line = NonNullable<PageData['cart']['lines']>[number]
 function CartLine({ line }: { line: Line }) {
   const { t, locale, money } = useStore()
   const hydrated = useHydrated()
+  const router = useRouter()
   const [busy, setBusy] = useState(false)
   // error is the key of the message for the last change that failed, shown under the line.
   const [error, setError] = useState('')
@@ -196,9 +198,9 @@ function CartLine({ line }: { line: Line }) {
     setBusy(true)
     setError('')
     try {
-      // The page and the store Layout load again before this resolves, so the totals and the
-      // count in the header follow.
       await PATCH({ params: { lang: locale.code }, input: { line: line.id, quantity } })
+      // Load the page and the store Layout again, so the totals and the count in the header follow.
+      await router.invalidate({ sync: true })
     } catch (e) {
       if (!(e instanceof TifaError)) setError('network')
       else if (e.status === 404) setError('lineGone')
@@ -276,10 +278,12 @@ function CartLine({ line }: { line: Line }) {
 function CouponForm({ coupon }: { coupon: string }) {
   const { t, locale } = useStore()
   const hydrated = useHydrated()
+  const router = useRouter()
   const form = useForm<{ code: string }>({ resolver: zodResolver(couponSchema), defaultValues: { code: coupon } })
   async function onSubmit({ code }: { code: string }) {
     try {
       await POST({ params: { lang: locale.code }, input: { code } })
+      await router.invalidate({ sync: true })
     } catch (e) {
       form.setError('code', { message: e instanceof TifaError ? (e.fields.code ?? e.message) : 'network' })
     }
@@ -315,11 +319,13 @@ function Offers() {
   const { offers, cart } = page.useLoaderData()
   const { t, locale } = useStore()
   const hydrated = useHydrated()
+  const router = useRouter()
   const [failed, setFailed] = useState(false)
   async function use(code: string) {
     setFailed(false)
     try {
       await POST({ params: { lang: locale.code }, input: { code } })
+      await router.invalidate({ sync: true })
     } catch {
       setFailed(true)
     }

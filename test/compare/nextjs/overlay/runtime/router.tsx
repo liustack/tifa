@@ -66,3 +66,9 @@ export function useMatchRoute() {
   const pathname = usePathname()
   return ({ to, params }: { to: string; params?: Params }) => (pathname === buildPath(to, params) ? params ?? {} : false)
 }
+
+// The pages ask for the router to load their data again after a write or to forget what it loaded.
+// The comparison apps call no handler, so there is nothing to reload.
+export function useRouter() {
+  return { invalidate: async (_options?: { sync?: boolean }) => {}, clearCache: () => {} }
+}

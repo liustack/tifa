@@ -16,7 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from 'cn'
 import { useHydrated } from '../../../../use-hydrated'
 import { storeTitle, useStore } from '../../../i18n'
-import { rememberProduct, useMine } from '../../../mine'
+import { refreshMine, rememberProduct, useMine } from '../../../mine'
 import { photo, photoSet, type View } from '../../../images'
 import { CardBadges, catalogueNo, Price, ProductCard, ProductGrid, ProductImage, Stars } from '../../../product-card'
 import { layout } from '../../route.gen'
@@ -298,6 +298,7 @@ function AddToCart() {
   async function onSubmit(input: POSTInput) {
     try {
       const result = await POST({ params: { lang: locale.code, product: product.slug }, input })
+      void refreshMine(locale.code)
       if (result) setAdded(result.count)
     } catch (e) {
       if (!(e instanceof TifaError)) {
@@ -442,6 +443,10 @@ function Bundle() {
       setState('added')
     } catch {
       setState('failed')
+    } finally {
+      // A failure halfway still put the earlier items into the cart, so the header refreshes
+      // either way.
+      void refreshMine(lang)
     }
   }
 

@@ -702,9 +702,7 @@ func routesModule(nodes []*tsNode) ([]byte, error) {
 			opts = append(opts,
 				fmt.Sprintf("loader: ({ context, location, preload }) => load<D%d>(context, %s, location, preload)", i, jsString(n.id)),
 				// The router finds the Loads of a URL from the staticData of the routes it matches.
-				fmt.Sprintf("staticData: { load: %s }", jsString(n.id)),
-				"staleTime: Infinity",
-				"preloadStaleTime: Infinity")
+				fmt.Sprintf("staticData: { load: %s }", jsString(n.id)))
 			if len(query) > 0 {
 				runtime["pick"] = true
 				opts = append(opts, fmt.Sprintf("loaderDeps: ({ search }) => pick(search, %s)", jsStrings(query)))

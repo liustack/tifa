@@ -9,6 +9,5 @@ export const Route = createFileRoute('/_app/projects/$project')({
   head,
   notFoundComponent: notFoundWith(Error),
   loader: ({ params }) => projectFn({ data: params.project }),
-  staleTime: Infinity,
   remountDeps: ({ params }) => [params.project],
 })

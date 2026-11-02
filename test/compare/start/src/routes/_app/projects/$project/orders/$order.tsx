@@ -9,6 +9,5 @@ export const Route = createFileRoute('/_app/projects/$project/orders/$order')({
   notFoundComponent: notFoundWith(Error),
   loader: async ({ params, parentMatchPromise }) =>
     orderFn({ data: { project: (await parentMatchPromise).loaderData!, order: params.order } }),
-  staleTime: Infinity,
   remountDeps: ({ params }) => [params.project, params.order],
 })

@@ -1,4 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useRouter } from '@tanstack/react-router'
 import { useForm } from 'react-hook-form'
 import { StickyNote } from 'lucide-react'
 import { TifaError } from 'tifa/client'
@@ -20,12 +21,14 @@ export function Notes() {
   const { order } = page.useLoaderData()
   const { timeZone } = project.useLoaderData()
   const hydrated = useHydrated()
+  const router = useRouter()
   const form = useForm<PUTInput>({ resolver: zodResolver(noteSchema), defaultValues: { text: '' } })
   const notes = order.notes ?? []
 
   async function onSubmit(input: PUTInput) {
     try {
       await PUT({ params: { project: order.projectId, order: order.id }, input })
+      await router.invalidate({ sync: true })
       form.reset()
     } catch (e) {
       if (!(e instanceof TifaError)) {
