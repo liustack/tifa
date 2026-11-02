@@ -519,7 +519,7 @@ func TestPagesApp(t *testing.T) {
 	}
 	// Data made of what could break a page reaches it, and the browser, as the text Go wrote: the
 	// server fills the page with the data after the VM wrote it, in every form the page goes out in.
-	_, _, answer := get(t, dataURL(base+"/hostile", built.BuildID, "1"))
+	_, _, answer := get(t, dataURL(base+"/hostile", built.BuildID, "001"))
 	var hostileAnswer struct {
 		Routes map[string]struct{ Data json.RawMessage }
 	}
@@ -551,7 +551,7 @@ func TestPagesApp(t *testing.T) {
 	}
 	// The error page of a Load that failed below a Layout keeps the data of the Layout, which is long
 	// enough to be a slot, and carries it as the VM would have written it.
-	_, _, banner := get(t, dataURL(base+"/hostile/gone", built.BuildID, "1"))
+	_, _, banner := get(t, dataURL(base+"/hostile/gone", built.BuildID, "010"))
 	var layoutAnswer struct {
 		Routes map[string]struct{ Data json.RawMessage }
 	}
@@ -605,7 +605,7 @@ func TestPagesApp(t *testing.T) {
 	// find the cache.
 	checkBurst(t, base+"/shops/south?sort=desc", 20)
 	// A navigation asks for the listed routes and gets their results by route ID.
-	status, header, body = get(t, dataURL(base+"/shops/north/items/apple", built.BuildID, "11"))
+	status, header, body = get(t, dataURL(base+"/shops/north/items/apple", built.BuildID, "011"))
 	if status != 200 || body != `{"routes":{"app/shops/shop+/items/item+/route":{"status":200,"data":{"id":"apple","title":"Apple","price":1.5,"tags":["fruit"]}},"app/shops/shop+/layout":{"status":200,"data":{"id":"north","name":"Shop north"}}}}` {
 		t.Errorf("data request: %d %v %s", status, header, body)
 	}
