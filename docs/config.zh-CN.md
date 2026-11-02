@@ -2,7 +2,7 @@
 summary: 'tifa 应用的全部配置：每项能在哪设置、谁优先、默认值、参数和环境变量名、值的写法、写错时的报错，怎样用程序自己申请的证书或你自己的证书提供 HTTPS，以及程序怎样拒绝浏览器从别的网站发来的写请求、怎样放行指定的来源或路径'
 read_when:
   - 想改会话能用多久、会话 cookie 的名字，或默认会话存储能用多少内存
-  - 部署 tifa 应用，或要改端口、请求体上限、压缩、VM 数量、VM 栈深度、渲染超时、渲染队列、页面缓存
+  - 部署 tifa 应用，或要改端口、请求体上限、压缩、VM 数量、VM 栈深度、渲染超时、渲染队列、渲染缓存、整页缓存
   - 想让程序自己提供 HTTPS，用 Let's Encrypt 或自己的证书，或者在犹豫要不要这样做
   - 程序监听不了 80 或 443 端口，或者拿不到证书
   - POST、PUT、PATCH 或 DELETE 收到 403 和 `cross-origin request detected`，或者要放行另一个网站的页面或第三方的回调
@@ -73,7 +73,7 @@ cache:
 | `ssr.timeout` | `3s` | `--ssr-timeout`、`TIFA_SSR_TIMEOUT` | 一次渲染的时间预算。超时的渲染被停下，按意外错误处理，交给 `OnError`。页面代码接不住它 |
 | `ssr.queue_limit` | `32` | `--ssr-queue-limit`、`TIFA_SSR_QUEUE_LIMIT` | 最多有多少次渲染等待空闲 VM，不包含正在运行的渲染。`0` 表示没有空闲 VM 就立即拒绝。队列满时返回 503 和 `Retry-After: 1` |
 | `ssr.wait_timeout` | `1s` | `--ssr-wait-timeout`、`TIFA_SSR_WAIT_TIMEOUT` | 等待 VM 的最长时间。超时返回 503 和 `Retry-After: 1`，不启动渲染，也不替换 VM。它与取得 VM 后才开始的 `ssr.timeout` 分开计算 |
-| `cache.size` | `64MiB` | `--cache-size`、`TIFA_CACHE_SIZE` | 渲染出的页面的 HTML 缓存和[整页缓存](app.zh-CN.md#整页缓存)的页面共用的大小，是同一个 LRU，`server.compress` 开着时存的 gzip 和 zstd 版本也算在内，`0` 把两者都关闭，但同时没命中同一个页面的请求仍然共用一次渲染（见 [SSR 与缓存](app.zh-CN.md#ssr-与缓存)）。页面可以用 `RenderCache = false` 给自己关掉渲染缓存 |
+| `cache.size` | `64MiB` | `--cache-size`、`TIFA_CACHE_SIZE` | 渲染缓存里的页面和[整页缓存](app.zh-CN.md#整页缓存)的页面共用的大小，是同一个 LRU，`server.compress` 开着时存的 gzip 和 zstd 版本也算在内，`0` 把两者都关闭，但同时没命中同一个页面的请求仍然共用一次渲染（见 [SSR 与缓存](app.zh-CN.md#ssr-与缓存)）。页面可以用 `RenderCache = false` 给自己关掉渲染缓存 |
 | `cache.ignore_query` | `utm_*,gclid,gbraid,wbraid,fbclid,msclkid,twclid,ttclid,yclid,mc_cid,mc_eid` | `--cache-ignore-query`、`TIFA_CACHE_IGNORE_QUERY` | 整页缓存的键和渲染用的 URL 里要去掉的查询参数。写一个名字是加进名单，`-名字` 是去掉一个，`-*` 清空，以 `*` 结尾的名字按前缀匹配。页面的 `Load` 读的参数不管这里怎么写都保留 |
 | `session.cookie` | `__Host-tifa_session` | `--session-cookie`、`TIFA_SESSION_COOKIE` | 会话 cookie 的名字。`tifa dev` 下去掉 `__Host-` 前缀，见[会话](app.zh-CN.md#会话) |
 | `session.max_age` | `720h` | `--session-max-age`、`TIFA_SESSION_MAX_AGE` | 会话从 `tifa.SetSession` 创建起能用多久，至少一秒，不续期 |
@@ -163,7 +163,7 @@ sudo setcap cap_net_bind_service=+ep ./bin/myapp
 
 ### HTTP/2 下有什么不同
 
-- 压缩、构建写好的 `.gz` 文件、HTML 缓存、ETag、跳转和 server-sent events 都和 HTTP/1.1 下一样，flush 会把写好的内容马上发出去。
+- 压缩、构建写好的 `.gz` 文件、渲染缓存、整页缓存、ETag、跳转和 server-sent events 都和 HTTP/1.1 下一样，flush 会把写好的内容马上发出去。
 - 在 HTTP/2 连接上 `Hijack` 返回 `http.ErrNotSupported`，因为这条连接上还有别的请求。除非设了 `GODEBUG=http2xconnect=1`，服务端不在 HTTP/2 上提供 WebSocket，浏览器会另开一条 HTTP/1.1 连接来建 WebSocket，那里 `Hijack` 照常能用。
 - 走 HTTPS 时压缩可能泄露什么，见[压缩](build.zh-CN.md#压缩)。
 

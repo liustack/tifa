@@ -17,7 +17,7 @@ const (
 
 // checkShopSignIn starts the shop as it is deployed, without SHOP_OPEN, and checks that the
 // workbench needs the demo account and the storefront does not.
-func checkShopSignIn(t *testing.T, exe string) {
+func checkShopSignIn(t *testing.T, exe, buildID string) {
 	t.Setenv("SHOP_OPEN", "")
 	base, _, _ := start(t, exe)
 	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
@@ -100,6 +100,9 @@ func checkShopSignIn(t *testing.T, exe string) {
 	if status != 200 || !strings.Contains(page, `data-session="in"`) || !strings.Contains(rendered(page), demoName) || !strings.Contains(rendered(page), "退出登录") {
 		t.Errorf("workbench signed in: %d, lacks the account", status)
 	}
+	// The storefront pages are cached for everyone, so the signed-in visitor gets the anonymous HTML
+	// there, with the session in the navigation data.
+	checkStorefrontPageCacheSignedIn(t, base, buildID, cookie)
 	// Signing out ends the session on the server: the old cookie opens nothing.
 	status, header, _ = send("POST", "/logout", cookie, "")
 	if status != 303 || header.Get("Location") != "/login" {

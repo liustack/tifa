@@ -68,7 +68,9 @@ Common settings (full table in config.md):
 | `ssr.vm_memory` | `128MiB` | `TIFA_SSR_VM_MEMORY` | Limit per VM |
 | `ssr.timeout` | `3s` | `TIFA_SSR_TIMEOUT` | One render. Over it is an unexpected error |
 | `ssr.queue_limit`, `ssr.wait_timeout` | `32`, `1s` | `TIFA_SSR_QUEUE_LIMIT`, `TIFA_SSR_WAIT_TIMEOUT` | Renders allowed to wait for a VM. Beyond that, 503 with `Retry-After: 1` |
-| `cache.size` | `64MiB` | `--cache-size`, `TIFA_CACHE_SIZE` | HTML cache of rendered pages, 0 turns it off |
+| `cache.size` | `64MiB` | `--cache-size`, `TIFA_CACHE_SIZE` | One size for the render cache and the pages of the whole-page cache (`Cache`), 0 turns both off |
+| `cache.ignore_query` | `utm_*,gclid,fbclid` and the like | `TIFA_CACHE_IGNORE_QUERY` | Tracking parameters the whole-page cache leaves out of its key. `name` adds, `-name` removes, a trailing `*` is a prefix. A parameter a `Load` reads is always kept |
+| `session.cookie`, `session.max_age`, `session.memory_limit` | `__Host-tifa_session`, `720h`, `64MiB` | `TIFA_SESSION_COOKIE`, `TIFA_SESSION_MAX_AGE`, `TIFA_SESSION_MEMORY_LIMIT` | Name and lifetime of the session cookie, and the memory of the default session store |
 | `build.target` | `es2020` | project file only | Browser bundle target, such as `es2019,chrome90,safari14` |
 | `build.public` | `public` | project file only | Folder of static files served from `/` |
 
@@ -132,7 +134,7 @@ server:
 
 - CPU: about 73 page renders a second per physical core for workbench-style pages, about 34 for heavier storefront pages. A cloud vCPU is often one hyperthread, so plan on about 0.63 of that per vCPU. Leave `ssr.vms` at the default (the CPU count, which follows a container's CPU limit). More VMs than CPUs only slows each render.
 - Memory: about 45 MiB for the process plus 12 to 16 MiB per VM. Heavier pages need up to about 21 MiB per VM.
-- Only a full page load renders. Browser navigation fetches JSON that Go writes without a VM. API routes, render cache hits and 304 answers do not render either.
+- Only a full page load renders. Browser navigation fetches JSON that Go writes without a VM. API routes, render cache hits, pages answered by `Cache` and 304 answers do not render either. A hit of `Cache` runs no `Load` either.
 - Overload answers 503 with `Retry-After: 1` from Go, without a VM and without calling `OnError`. `errors.Is(err, tifa.ErrSSRBusy)` matches it in `OnRequest`.
 - Code that recurses without end can add up to about 26 MB per VM for a moment. On a small machine lower `ssr.vm_stack_depth` (2000 keeps normal pages working).
 

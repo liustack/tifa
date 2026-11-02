@@ -43,7 +43,7 @@ func TestLayoutKeepsTheSidebarAsTheUserLeftIt(t *testing.T) {
 	}
 }
 
-// The page of an order is cached, so the Layout above it holds what is the same for everyone. The
+// The Layout is the same for everyone, so a page below it can be cached. The
 // signed-in user reaches the page through useSession, not through the data of the Layout.
 func TestLayoutDataIsTheSameForEveryone(t *testing.T) {
 	r := httptest.NewRequest("GET", "/projects/studio", nil)

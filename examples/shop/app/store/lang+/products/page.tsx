@@ -31,6 +31,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useHydrated } from '../../../use-hydrated'
 import { message, storeTitle, useStore } from '../../i18n'
+import { useMine } from '../../mine'
 import { JournalCover, ProductCard, ProductGrid, ProductImage } from '../../product-card'
 import { layout } from '../route.gen'
 import { filterSchema, sorts, type FilterValues } from './filter-schema'
@@ -89,6 +90,7 @@ export default function ProductList() {
   const shell = layout.useLoaderData()
   const { t, locale } = useStore()
   const lang = locale.code
+  const seen = useMine(lang)?.seen ?? []
   const [view, setView] = useState<View>('grid4')
   // The filters come from the URL, which anyone can write: the form shows them as they are and
   // marks what the schema refuses, such as a minimum above the maximum.
@@ -256,10 +258,10 @@ export default function ProductList() {
         </section>
       </div>
 
-      {(results.seen ?? []).length > 0 && (
+      {seen.length > 0 && (
         <Strip id="list-seen" title={t('list.seen')}>
           <ProductGrid className="md:grid-cols-4 xl:grid-cols-4">
-            {(results.seen ?? []).slice(0, 4).map((p) => (
+            {seen.slice(0, 4).map((p) => (
               <ProductCard key={p.slug} product={p} lang={lang} />
             ))}
           </ProductGrid>
@@ -433,7 +435,7 @@ function ServiceNotes() {
   const { t } = useStore()
   const shell = layout.useLoaderData()
   const notes = [
-    { icon: Truck, text: t('list.serviceShip', { amount: shell.cart.freeShippingCents / 100 }) },
+    { icon: Truck, text: t('list.serviceShip', { amount: shell.freeShippingCents / 100 }) },
     { icon: RotateCcw, text: t('list.serviceReturn') },
     { icon: ShieldCheck, text: t('list.serviceWarranty') },
     { icon: Headset, text: t('list.serviceHelp') },

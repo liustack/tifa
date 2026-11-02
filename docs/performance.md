@@ -162,7 +162,7 @@ The pages in turn, gzip, as many VMs as cores and as many requests in flight as 
 - Fewer VMs than CPUs does not help either: on the same 7 CPUs, 4 VMs answered 235 requests a second at a P50 of 11.9 ms, because the system still puts two of them on the hyperthreads of one core. Giving the program as many CPUs as physical cores is better on both counts: 4 VMs on 4 physical cores answered 279 at 9.6 ms.
 - A cpuset, such as Docker's `--cpuset-cpus`, can pin the program to one hyperthread of each core, but cannot keep other programs off the siblings. The static CPU manager policy of Kubernetes hands out whole cores, both hyperthreads, which is the busy hyperthread case above. A plain CPU quota, such as Docker's `--cpus`, does not pin threads. That case was not measured.
 
-Only a full page load renders. Navigating in the browser fetches JSON that Go writes without a VM, and API routes and cached pages do not render either. The render cache is on for every page unless it writes `RenderCache = false`, and a hit is about 80 times faster than a render: with one VM and one request in flight, 2,865 requests a second against 38 (see [the study](studies/nextjs-and-tanstack-start.md#cache-hit-against-cache-hit)). A hit still runs the `Load` functions and hashes their data, which the table shows as 0.15 ms of CPU. 6 VMs on 3 physical cores (6 hyperthreads), 64 requests in flight, gzip:
+Only a full page load renders. Navigating in the browser fetches JSON that Go writes without a VM, and API routes and pages answered by the whole-page cache (`Cache`, see [App](app.md#the-whole-page-cache)) do not render either. The whole-page cache runs no `Load` either, and is not measured yet. The render cache is on for every page unless it writes `RenderCache = false`, and a hit is about 80 times faster than a render: with one VM and one request in flight, 2,865 requests a second against 38 (see [the study](studies/nextjs-and-tanstack-start.md#cache-hit-against-cache-hit)). A hit still runs the `Load` functions and hashes their data, which the table shows as 0.15 ms of CPU. 6 VMs on 3 physical cores (6 hyperthreads), 64 requests in flight, gzip:
 
 | Request | Requests/s | P50 | P99 | CPU per request |
 | --- | --- | --- | --- | --- |
@@ -303,7 +303,7 @@ What compressing one page takes, on one core, with the encoders reused as the se
 | Order | 39 to 40 KB | 8.4 to 8.6 KB in 181 to 185 µs | 8.7 to 8.8 KB in 128 to 131 µs | gzip 2.2%, zstd 1.5% |
 | Stats | 35 KB | 7.1 to 7.2 KB in 133 to 138 µs | 7.4 to 7.5 KB in 109 to 111 µs | gzip 1.9%, zstd 1.5% |
 
-Whole requests, the server on one physical core (both hyperthreads, 2 VMs) and oha on another, 15 seconds per step, two rounds. Pages render with `--cache-size 0`, and the cached order pages, two in turn, come from the HTML cache. The zstd column asks with `Accept-Encoding: gzip, zstd`:
+Whole requests, the server on one physical core (both hyperthreads, 2 VMs) and oha on another, 15 seconds per step, two rounds. Pages render with `--cache-size 0`, and the cached order pages, two in turn, come from the render cache. The zstd column asks with `Accept-Encoding: gzip, zstd`:
 
 | Request | Uncompressed | zstd | gzip |
 | --- | --- | --- | --- |
@@ -582,4 +582,5 @@ The time of one render is nearly all the cost: HTTP, compression and the rest ta
 3. **Making and freeing objects.** React makes an object for every element, hook and component on the stack. The plugin already keeps React from building component stacks no one reads. The rest only the engine can fix.
 4. **Kept shapes with less memory.** Keeping the shapes of object literals saves render time but costs memory in each VM. A change in the C, such as a reference from each child shape to its parent, could give the same speed with less memory. A candidate for upstream.
 5. **New Go versions.** The engine is assembly that depends on how Go lays out stacks and registers. When a Go version ships, run the checks listed in slowjs's `docs/upgrading.md`, and measure again.
-6. **Comparisons not made yet.** Next.js and TanStack Start on two or more cores, with compression and for start-up on the redesigned pages, on more than two cores, and with the storefront's pages, and the whole shop on a 1-core VPS with 1 GB of memory.
+6. **Whole-page cache hits.** Measure a hit of `Cache` against a hit of Next.js ISR, the same idea of a page kept for everyone for a time, on the storefront pages of the shop (the home page, a product and a journal post), which have `Cache`. A hit of the render cache (the 80 times above) still runs the `Load` functions, a hit of `Cache` does not, so the two tifa numbers must not be mixed up. Compare on one core with and without compression.
+7. **Comparisons not made yet.** Next.js and TanStack Start on two or more cores, with compression and for start-up on the redesigned pages, on more than two cores, and with the storefront's pages, and the whole shop on a 1-core VPS with 1 GB of memory.

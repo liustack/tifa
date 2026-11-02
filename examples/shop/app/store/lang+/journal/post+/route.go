@@ -2,6 +2,8 @@
 package post
 
 import (
+	"time"
+
 	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/examples/shop/app/store"
 	"github.com/liustack/tifa/examples/shop/app/store/lang+/journal"
@@ -21,6 +23,9 @@ var shown = map[string][]string{
 	"stock-sync-api": {"oak-tray", "canvas-tote", "dot-notebook", "enamel-mug"},
 	"theme-css":      {"walnut-pen", "linen-coasters", "stoneware-vase", "reading-candle"},
 }
+
+// Cache keeps a post for an hour. A post changes when its text is edited, not by the minute.
+const Cache = time.Hour
 
 func Load(c *tifa.Ctx) (Article, error) {
 	l, err := store.FindLocale(c.Param("lang"))

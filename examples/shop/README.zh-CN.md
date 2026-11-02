@@ -39,7 +39,7 @@ go tool tifa check
 | --- | --- |
 | `owner@shanhai.example` | `shanhai-demo` |
 
-没登录的访客会被 `hooks.go` 里的 `OnRequest` 带到 `/login?next=...`，登录后回到原来要看的页面。顶栏和侧栏显示名字（Layout 的数据对所有人一样，因为订单页有缓存），顶栏有退出按钮或登录链接，都用 `tifa/client` 的 `Session.In`、`Session.Out` 和 `useSession`。应用没有调用 `tifa.SetSessionStore`，会话放在进程内存里，重启后所有人要重新登录。密码和 `session.go` 里的 bcrypt 哈希比对，真实的店铺会从数据库里读它。
+没登录的访客会被 `hooks.go` 里的 `OnRequest` 带到 `/login?next=...`，登录后回到原来要看的页面。顶栏和侧栏显示名字（Layout 的数据对所有人一样，名字来自浏览器里的会话），顶栏有退出按钮或登录链接，都用 `tifa/client` 的 `Session.In`、`Session.Out` 和 `useSession`。应用没有调用 `tifa.SetSessionStore`，会话放在进程内存里，重启后所有人要重新登录。密码和 `session.go` 里的 bcrypt 哈希比对，真实的店铺会从数据库里读它。
 
 想不登录就看工作台，用 `SHOP_OPEN=1` 启动程序。和 Next.js、TanStack Start 的对比以及页面压测不能登录，用的就是它。它放行整个工作台，包括发货这类写操作，只给对比和压测用，不要在服务器上设置。
 
@@ -79,12 +79,13 @@ app/
     product-card.tsx           各个列表共用的商品卡片、商品图和价格
     images.ts  images/         商品、首页和手记的配图，AVIF 格式
     lang+/                     /store/{lang}
-      route.go  layout.tsx  page.tsx   店面 Layout（分类菜单、搜索、语言切换、购物车抽屉、页脚）和首页
+      route.go  layout.tsx  page.tsx   店面 Layout（分类菜单、搜索、语言切换、购物车抽屉、页脚）和首页，缓存 10 分钟
+      mine/                    /store/{lang}/mine：GET 给出访客的购物车和最近看过的商品，POST 记下一个商品
       products/
         product.go  catalogue.go  review.go    商品领域：商品、搜索、筛选和各项计数、评价、规格、最近看过
-        route.go  page.tsx      商品列表，筛选条件放在查询字符串里
+        route.go  page.tsx      商品列表，筛选条件放在查询字符串里，缓存 5 分钟
         filter-schema.ts       筛选表单的 zod schema
-        product+/              /store/{lang}/products/{product}：商品详情，POST 加入购物车
+        product+/              /store/{lang}/products/{product}：商品详情，缓存 10 分钟，POST 加入购物车
       cart/
         cart.go  checkout.go   购物车领域：商品行、优惠码、配送、订单的检查和下单
         recent.go              放在内存里的购物车和已下订单，有数量上限，过期就丢掉
@@ -94,7 +95,7 @@ app/
       journal/
         post.go  posts/        手记领域：Markdown 文章，每种语言一个文件
         markdown.tsx           带 GitHub 表格和代码高亮的 Markdown
-        post+/                 /store/{lang}/journal/{post}
+        post+/                 /store/{lang}/journal/{post}，缓存 1 小时
 ```
 
 每个领域放在 `app/` 下自己的目录里，和展示它的页面、它的测试在一起：`app/projects` 是店铺领域，`app/projects/project+/orders` 是订单领域，放在单个订单目录的上一层，而不是放进单个订单的目录里。根包只放钩子和会话。存储放在内存里，自带演示数据，代替数据库表，重启后恢复初始值。`app/` 下每层目录是 URL 的一段，`route.go` 放这个目录所有的 Go 名字：调用领域包的 `Load`，店铺和店面目录的 `Layout` 函数，订单页的 `POST` 和 `PATCH`，它们的入参用 `Validate` 自己检查。`page.tsx` 写界面，用 `./route.gen` 读 `Load` 的结果。订单页和统计页通过店铺 Layout 读店铺：`tifa.Use(c, project.Layout)`。`app/route.go` 放根 Layout，它的 `GET` 把 `/` 重定向到店铺 `studio`，所以 `/` 是 API 路由。店铺领域要统计待发货的订单，所以 `projects` import `orders`，而 `orders` 既不 import `projects`，也不 import 页面。为什么这样组织见[哲学](../../docs/philosophy.zh-CN.md)，包之间按什么方向 import 见[应用的代码结构](../../docs/structure.zh-CN.md)。
@@ -102,6 +103,20 @@ app/
 Go 把时间作为时刻发给页面，页面用 `Intl` 按店铺时区格式化，时区由店铺 Layout 一起给出。浏览器在别的时区，看到的时间也和服务端渲染的一样。
 
 店面从 URL 的第一段取语言。Go 按这种语言准备文案，按它的币种给出价格，店面 Layout 把币种和时区交给 i18next，由它用 `Intl` 格式化金额、日期和复数。表单的检查按同样的规则写两份：浏览器里是 zod schema，Go 里是 `Validate`。两边给出同样的消息键，由页面翻译。商品领域是 `products`，`cart` 要给商品行定价，所以 import 它。`lang+` 下的页面用 `store.FindLocale` 找到自己的语言。店面 Layout 的 `head` 用 `htmlAttributes` 把这种语言设到 `<html>` 上，盖过根 Layout 的 `zh-CN`，切到另一种语言时浏览器跟着改。它还给每一页链接两种语言的同一页，并把中文那页作为 `x-default`。店面没有的路径在店面 Layout 里显示 404，用的是 URL 里的语言。`app/store` 放了 `layout_.tsx`，所以店面外面不套工作台，根 Layout 的 `Layout` 也不为它执行：工作台的数据不会进店面的页面。这个 `layout_.tsx` 只渲染 `<Outlet />`，它的 `Error` 显示店面没有的语言（比如 `/store/xx`）的 404，用中英两种语言写，并分别链接到两种语言的店面，因为这时不知道访客要哪种语言。`/store` 跳到浏览器的 `Accept-Language` 要的语言，用 `golang.org/x/text/language` 匹配，两种都不要时跳到中文。
+
+## 店面的整页缓存
+
+店面的页面对每个访客都一样，所以它们的 `route.go` 里都写了 `const Cache`（见[整页缓存](../../docs/app.zh-CN.md#整页缓存)）：首页、手记列表和商品页缓存 10 分钟，商品列表缓存 5 分钟，手记文章缓存 1 小时。这段时间内程序直接从内存回答，不跑 `Load`，也不渲染，前面的 CDN 也可以把页面存同样久。页面语言来自 URL（`lang+`），所以每种语言各有一条缓存。`/store` 按 `Accept-Language` 选语言，它是 GET 处理函数，没有 `Cache`。
+
+缓存的页面看不到 cookie，所以属于某个访客的东西不在页面里。店面 Layout 只有语言、菜单和包邮门槛。顶栏的购物车和「最近看过」是浏览器在页面加载后向 `/store/{lang}/mine` 要的，每次改动后再要一次。商品页用一次 POST 告诉这个路由现在打开的是哪个商品。
+
+想看它怎么起作用，把一个页面的响应头看两次：
+
+```sh
+curl -si http://127.0.0.1:9527/store/zh-CN/journal | grep -i '^cache-status\|^age\|^x-tifa-render'
+```
+
+第一次是 `Cache-Status: tifa; fwd=miss` 和 `X-Tifa-Render: vm`，第二次是 `Cache-Status: tifa; hit`，带 `Age` 和 `X-Tifa-Render: cache`。请求里带 cookie 不改变结果，带 `utm_source` 这样的跟踪参数也一样。工作台的页面没有 `Cache`，响应头是 `Cache-Control: private, no-cache`。
 
 ## 可以试试
 
@@ -120,6 +135,7 @@ Go 把时间作为时刻发给页面，页面用 `Intl` 按店铺时区格式化
 - 选一种颜色把商品加入购物车，在购物车里改数量，试试优惠码 `SHANHAI10` 和 `WELCOME30`。第一次改动时，你会拿到自己的购物车。它存在程序内存里，cookie 里只放它的编号。改动失败时，比如断网了，那一行下面会给出提示。
 - 下一单，再在无痕窗口里打开它的确认页。会返回 404：确认页上有邮箱地址，所以只有下单的那个购物车能看到。
 - 不填表单、填一个格式不对的邮编，或者填一个校验位不对的卡号，再去结算。错误按字段显示，请求绕过浏览器时 Go 也返回同样的错误。
+- 打开一个商品页，再打开商品列表。「最近看过」里有刚才那个商品，它是页面加载后浏览器从 `/store/zh-CN/mine` 取来的，而页面本身来自缓存。
 - 打开一篇手记，代码块的高亮已经在服务器发来的 HTML 里。
 
 更多约定见 [构建与生成代码](../../docs/build.zh-CN.md) 和 [应用怎么写](../../docs/app.zh-CN.md)。
