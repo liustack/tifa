@@ -464,6 +464,11 @@ func TestViolations(t *testing.T) {
 			{"app/variable/route.go:5:", "Cache must be a time.Duration constant"},
 			{"app/api/route.go:9:", "Cache is not allowed without page.tsx"},
 		}},
+		{"cacheidentity", [][]string{
+			{"app/route.go:5:", "c.Header sees only Host", "every other header is always empty", "app/feed has Cache", "Remove Cache"},
+			{"app/news/route.go:14:", "tifa.Session is always empty here", "app/news has Cache"},
+			{"internal/auth/auth.go:6:", "c.Cookie is always empty here", "app/feed has Cache"},
+		}},
 		{"rendercachevalue", [][]string{
 			{"app/page/route.go:3:", "RenderCache", "can only be false"},
 			{"app/other/route.go:3:", "RenderCache", "can only be false"},

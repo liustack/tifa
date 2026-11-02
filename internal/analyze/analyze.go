@@ -56,7 +56,7 @@ func Analyze(dir string) (*Manifest, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &analyzer{root: root, dirs: map[string]*dirInfo{}, used: usedLoads{}}
+	a := &analyzer{root: root, dirs: map[string]*dirInfo{}, used: usedLoads{}, identity: map[*Load][]identityRead{}}
 	if a.module, err = modulePath(root); err != nil {
 		return nil, err
 	}
@@ -126,6 +126,7 @@ type analyzer struct {
 	helperUses          []useCall
 	errs                Errors
 	used                usedLoads
+	identity            map[*Load][]identityRead // the reads of cookies, headers and the session by each Load
 }
 
 // dirInfo records the convention files found in one directory under app/. replaceTSX is a
@@ -475,6 +476,7 @@ func (a *analyzer) build() *Manifest {
 	a.checkUses(layouts)
 	a.checkDirectCalls()
 	a.propagateQuery(routes, layouts)
+	a.checkCacheIdentity(routes, layouts)
 
 	m := &Manifest{Module: a.module, Hooks: a.hooks(), Embedded: a.embed, Session: a.session(a.modulePackages)}
 	for _, l := range layouts {
@@ -1292,4 +1294,44 @@ func (a *analyzer) cacheConst(pkg *packages.Package) time.Duration {
 		return 0
 	}
 	return time.Duration(ns)
+}
+
+// checkCacheIdentity reports the reads of cookies, headers and the session in the Load of a page
+// with Cache and in the Layout function of each Layout around it, the functions they call included.
+// The request of such a page is anonymous, so the read is always empty, which is a mistake in the
+// code and not a visitor without a cookie. A Layout shared with a page that has no Cache is
+// still reported, since it also runs for the page that has.
+func (a *analyzer) checkCacheIdentity(routes []*route, layouts []*layout) {
+	byID := map[string]*layout{}
+	for _, l := range layouts {
+		byID[l.ID] = l
+	}
+	reported := map[token.Pos]bool{}
+	for _, r := range routes {
+		if r.Cache == 0 || !r.Page || r.broken {
+			continue
+		}
+		loads := []*Load{r.Load}
+		for _, id := range r.Layouts {
+			if l := byID[id]; l != nil {
+				loads = append(loads, l.Load)
+			}
+		}
+		for _, load := range loads {
+			if load == nil {
+				continue
+			}
+			for _, read := range a.identity[load] {
+				if reported[read.pos] {
+					continue
+				}
+				reported[read.pos] = true
+				why := read.what + " is always empty here"
+				if read.what == "c.Header" {
+					why = "c.Header sees only Host, Accept-Encoding, If-None-Match, If-Modified-Since, Cache-Control, Pragma, Content-Length, Connection, Origin and Sec-Fetch-* here, every other header is always empty"
+				}
+				a.errorAt(read.pos, "%s: %s has Cache, so its requests are anonymous and the answer is kept for everyone. Remove Cache from %s, or move what depends on the visitor into the browser, where the page can read it after it loads", why, r.Dir, r.Dir)
+			}
+		}
+	}
 }
