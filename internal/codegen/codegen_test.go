@@ -625,3 +625,24 @@ func TestRouteGenHoldsLayoutAndHandlersOfOneDirectory(t *testing.T) {
 		t.Errorf("app/desk/inbox/route.gen.ts:\n%s", inbox)
 	}
 }
+func TestPublicMayNotHoldTifaPaths(t *testing.T) {
+	m, err := analyze.Analyze(filepath.Join("testdata", "bare"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "public", "__tifa", "vite", "client.js"), "x")
+	_, err = Generate(root, m, false, fakeExports)
+	if err == nil || !strings.Contains(err.Error(), "public/__tifa/vite/client.js") || !strings.Contains(err.Error(), "/__tifa/") {
+		t.Fatalf("Generate = %v, want an error naming public/__tifa/vite/client.js", err)
+	}
+	// Other files in public and an empty __tifa folder are fine.
+	other := t.TempDir()
+	writeFile(t, filepath.Join(other, "public", "robots.txt"), "x")
+	if err := os.MkdirAll(filepath.Join(other, "public", "__tifa"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkPublic(other, "public"); err != nil {
+		t.Fatalf("checkPublic: %v", err)
+	}
+}

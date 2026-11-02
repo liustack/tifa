@@ -45,6 +45,9 @@ func Generate(root string, m *analyze.Manifest, dev bool, exports Exports) (map[
 	if err != nil {
 		return nil, err
 	}
+	if err := checkPublic(root, settings.Build.Public); err != nil {
+		return nil, err
+	}
 	target, err := viteTarget(settings.Build.Target)
 	if err != nil {
 		return nil, err
@@ -194,6 +197,37 @@ func removeEmptyDirs(dir string) error {
 				return err
 			}
 		}
+	}
+	return nil
+}
+
+// checkPublic refuses a file under __tifa in the public folder: tifa answers /__tifa/ itself, so
+// the file would never be served.
+func checkPublic(root, public string) error {
+	dir := filepath.Join(root, public, "__tifa")
+	var found string
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) && path == dir {
+				return filepath.SkipAll
+			}
+			return err
+		}
+		if !d.IsDir() {
+			found = path
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if found != "" {
+		rel, err := filepath.Rel(root, found)
+		if err != nil {
+			rel = found
+		}
+		return fmt.Errorf("%s: the path /__tifa/ is reserved for tifa itself, so a file there is never served: move it out of the __tifa folder of the public folder", filepath.ToSlash(rel))
 	}
 	return nil
 }
