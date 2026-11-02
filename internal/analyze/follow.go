@@ -98,6 +98,9 @@ func (w *loadWalk) call(info *types.Info, call *ast.CallExpr, helper bool) {
 		return
 	}
 	if fn, ok := typeutil.Callee(info, call).(*types.Func); ok {
+		if what := identityCall(fn); what != "" {
+			a.identity[w.load] = append(a.identity[w.load], identityRead{pos: call.Pos(), what: what})
+		}
 		if why := refusedInLoad(fn); why != "" {
 			a.errorAt(call.Pos(), "%s", why)
 			return
@@ -290,4 +293,27 @@ func unrunClosures(body *ast.BlockStmt) []*ast.FuncLit {
 // inUnrunClosure reports whether pos is inside a closure of the body that is not called where it is written.
 func (w *loadWalk) inUnrunClosure(pos token.Pos) bool {
 	return slices.ContainsFunc(w.unrun, func(l *ast.FuncLit) bool { return l.Pos() <= pos && pos < l.End() })
+}
+
+// identityRead is a call in the body of a Load, or of a function it calls, that reads who the
+// visitor is: c.Cookie, c.Header or tifa.Session. A page with Cache answers every visitor alike, so
+// these reads there always see an anonymous request.
+type identityRead struct {
+	pos  token.Pos
+	what string // as the user writes it: c.Cookie, c.Header, tifa.Session
+}
+
+// identityCall returns the name of fn as the user writes it when it reads the cookie, a header or
+// the session of the request, and an empty string for any other function.
+func identityCall(fn *types.Func) string {
+	if recv := fn.Signature().Recv(); recv != nil {
+		if named, ok := types.Unalias(derefType(recv.Type())).(*types.Named); ok && isCtxNamed(named) && (fn.Name() == "Cookie" || fn.Name() == "Header") {
+			return "c." + fn.Name()
+		}
+		return ""
+	}
+	if fn.Pkg() != nil && fn.Pkg().Path() == tifaPath && fn.Name() == "Session" {
+		return "tifa.Session"
+	}
+	return ""
 }

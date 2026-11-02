@@ -2,7 +2,7 @@
 summary: 'Every setting of a tifa app: where each one can be set, which source wins, the default, the flag and environment variable names, the value formats and the errors a bad value gives, how to serve HTTPS with certificates the program gets itself or with your own, and how the program refuses writes that a browser sends from another site and how to let chosen origins or paths through'
 read_when:
   - Changing how long a session lasts, the session cookie name, or how much memory the default session store may use
-  - Deploying a tifa app, or changing its port, body limit, compression, VM count, VM stack depth, render timeout, render queue or page cache
+  - Deploying a tifa app, or changing its port, body limit, compression, VM count, VM stack depth, render timeout, render queue, page cache or the tracking parameters the cache ignores
   - Serving HTTPS from the program itself, with Let's Encrypt or your own certificate, or deciding whether to
   - The program cannot listen on port 80 or 443, or gets no certificate
   - A POST, PUT, PATCH or DELETE gets 403 with `cross-origin request detected`, or a page of another site or a provider's callback must be allowed to send one
@@ -73,7 +73,8 @@ Run `./bin/app config` to print the merged settings of all sources as a commente
 | `ssr.timeout` | `3s` | `--ssr-timeout`, `TIFA_SSR_TIMEOUT` | Time budget of one render. A render that runs longer is stopped and handled as an unexpected error, which goes to `OnError`. Page code cannot catch it |
 | `ssr.queue_limit` | `32` | `--ssr-queue-limit`, `TIFA_SSR_QUEUE_LIMIT` | Renders allowed to wait for a VM, excluding renders already running. `0` rejects immediately when no VM is idle. A full queue answers 503 with `Retry-After: 1` |
 | `ssr.wait_timeout` | `1s` | `--ssr-wait-timeout`, `TIFA_SSR_WAIT_TIMEOUT` | Maximum wait for a VM. Expiry answers 503 with `Retry-After: 1`, without starting or replacing a VM. Separate from `ssr.timeout`, which starts after a VM is acquired |
-| `cache.size` | `64MiB` | `--cache-size`, `TIFA_CACHE_SIZE` | Size of the HTML cache of rendered pages, counting the gzip and zstd forms it keeps with `server.compress` on. `0` turns it off, though requests that miss the same page at the same time still share one render. A page turns the cache off for itself with `RenderCache = false` (see [SSR and cache](app.md#ssr-and-cache)) |
+| `cache.size` | `64MiB` | `--cache-size`, `TIFA_CACHE_SIZE` | Size of the HTML cache of rendered pages and of the pages of the [whole-page cache](app.md#the-whole-page-cache), one LRU for both, counting the gzip and zstd forms it keeps with `server.compress` on. `0` turns both off, though requests that miss the same page at the same time still share one render. A page turns the render cache off for itself with `RenderCache = false` (see [SSR and cache](app.md#ssr-and-cache)) |
+| `cache.ignore_query` | `utm_*,gclid,gbraid,wbraid,fbclid,msclkid,twclid,ttclid,yclid,mc_cid,mc_eid` | `--cache-ignore-query`, `TIFA_CACHE_IGNORE_QUERY` | The query parameters the whole-page cache leaves out of its key and of the URL it renders for. A name adds to the list, `-name` takes one out, `-*` empties it, and a name ending in `*` is a prefix. A parameter that a `Load` of the page reads is kept whatever this says |
 | `session.cookie` | `__Host-tifa_session` | `--session-cookie`, `TIFA_SESSION_COOKIE` | Name of the session cookie. Under `tifa dev` the `__Host-` prefix is dropped, see [Sessions](app.md#sessions) |
 | `session.max_age` | `720h` | `--session-max-age`, `TIFA_SESSION_MAX_AGE` | How long a session lasts from the moment `tifa.SetSession` makes it, at least one second. It does not renew |
 | `session.memory_limit` | `64MiB` | `--session-memory-limit`, `TIFA_SESSION_MEMORY_LIMIT` | Bytes the in-memory session store may hold, used when `OnStart` sets no store with `tifa.SetSessionStore`. A full store drops the sessions that expire first |
@@ -212,6 +213,7 @@ What a lower depth breaks:
 ## Value formats
 
 - Sizes are whole numbers with an optional unit: `B`, `KiB`, `MiB` or `GiB`, such as `512KiB`. A plain number is bytes. Only `cache.size` may be 0.
+- `cache.ignore_query` is a comma-separated list of changes to the default list: `ref,-gclid` adds `ref` and takes `gclid` out. Names are matched without regard to case and may not hold `=`, `&`, `?` or spaces. A `*` may only end a name. Each source changes the list the sources below it left.
 - Durations use Go's format and must be positive: `500ms`, `3s`, `1m30s`.
 - `ssr.vms` is a whole number of at least 1.
 - `ssr.queue_limit` is a whole number of at least 0. `ssr.wait_timeout` must be positive even with a queue limit of 0.

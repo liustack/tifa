@@ -44,6 +44,12 @@ func generateGo(m *analyze.Manifest, configName string, dev bool) (map[string][]
 		if !r.RenderCache {
 			routes.WriteString("NoRenderCache: true,\n")
 		}
+		if r.Cache > 0 {
+			fmt.Fprintf(&routes, "Cache: %d, // %s\n", int64(r.Cache), r.Cache)
+			if names := cacheQuery(m, r); len(names) > 0 {
+				fmt.Fprintf(&routes, "Query: %s,\n", stringSlice(names))
+			}
+		}
 		fmt.Fprintf(&routes, "Layouts: %s,\n},\n", stringSlice(r.Layouts))
 	}
 	routes.WriteString("}\n")
@@ -181,4 +187,22 @@ func gofmt(name, src string) ([]byte, error) {
 		return nil, fmt.Errorf("codegen: %s does not parse: %w\n%s", name, err, src)
 	}
 	return out, nil
+}
+
+// cacheQuery lists the query parameters read by the Load of the route and by the Layout functions
+// around it, sorted: the whole-page cache of the route keeps them whatever cache.ignore_query says.
+func cacheQuery(m *analyze.Manifest, r analyze.Route) []string {
+	var names []string
+	if r.Load != nil {
+		names = append(names, r.Load.AllQuery...)
+	}
+	for _, id := range r.Layouts {
+		for _, l := range m.Layouts {
+			if l.ID == id && l.Load != nil {
+				names = append(names, l.Load.AllQuery...)
+			}
+		}
+	}
+	slices.Sort(names)
+	return slices.Compact(names)
 }

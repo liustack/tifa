@@ -41,6 +41,12 @@ type Server struct {
 	mux    *http.ServeMux
 	routes map[string]map[string]func(*tifa.Ctx) error // path, then method
 	pages  map[string]bool                             // paths whose GET renders a page
+	// pageCache holds the whole-page cache time of the pages that have one, by path.
+	pageCache map[string]time.Duration
+	// pageQuery holds the query parameters the Loads of a page read, by path: the whole-page
+	// cache keeps them even when cache.ignore_query names them.
+	pageQuery map[string][]string
+	ignore    queryFilter
 	// modules holds, by the path of a page, the IDs of its Layouts and route, outermost first,
 	// and by the ID of a Layout, the IDs of the Layouts from the root down to it.
 	modules map[string][]string
@@ -69,7 +75,7 @@ type Server struct {
 func New(cfg config.Config, hooks Hooks) *Server {
 	s := &Server{
 		cfg: cfg.Server, hooks: hooks, mux: http.NewServeMux(),
-		routes: map[string]map[string]func(*tifa.Ctx) error{}, pages: map[string]bool{},
+		routes: map[string]map[string]func(*tifa.Ctx) error{}, pages: map[string]bool{}, pageCache: map[string]time.Duration{}, pageQuery: map[string][]string{}, ignore: newQueryFilter(cfg.Cache.IgnoreQuery),
 		modules: map[string][]string{}, layouts: map[string]layoutChain{}, cache: newHTMLCache(cfg.Cache.Size),
 	}
 	s.crossSite = crossSiteProtection(cfg.Server)
@@ -215,20 +221,35 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, pattern string, p
 			d.Original.Pattern = pattern
 		}
 	}
+	// A page with the whole-page cache answers every visitor alike: its GET and HEAD, and the
+	// navigation data of it, are made anonymous before anything of the app sees them.
+	anon := s.anonymousRequest(pattern, r)
+	var anonErr error
+	if anon {
+		r, anonErr = s.anonymize(r)
+	}
 	c := core.New(tw, r, pattern, s.cfg.BodyLimit)
 	tw.noStore = func() bool { return core.NoStore(c) }
 	tw.data = func() bool { return core.DataOf(r) != nil }
 	tw.session = pattern == sessionPath
+	// The cookie of an HTML answer would be kept and sent to everyone. A navigation answer is for
+	// one browser and may set one.
+	tw.noCookies = anon && !c.IsData()
+	if anon {
+		core.SetAnonymous(c)
+	}
 	defer func() {
 		if err := core.Finish(c); err != nil {
 			core.Logger().WarnContext(r.Context(), "tifa: removing the multipart files failed", "method", r.Method, "path", r.URL.Path, "err", err)
 		}
 	}()
-	// TODO(cache): a page with a whole-page cache must be anonymous. When the whole-page cache flow lands, its
-	// requests skip this, drop Cookie and Authorization before OnRequest, and Session is always nil there.
 	// The session is read before OnRequest, so every hook, Load and handler sees it. A store
-	// that fails is an unexpected error: carrying on as signed out would hide the fault.
-	err := core.AttachSession(c, s.sessionEnv())
+	// that fails is an unexpected error: carrying on as signed out would hide the fault. An
+	// anonymous request has none to read.
+	err := anonErr
+	if !anon {
+		err = core.AttachSession(c, s.sessionEnv())
+	}
 	if err != nil && errors.Is(err, context.Canceled) && r.Context().Err() != nil {
 		err = errClientGone
 	}
@@ -479,6 +500,9 @@ type writer struct {
 	// session is set for /__tifa/session: whatever wrote the answer, a middleware that answered on
 	// its own included, it goes out as private, no-store, without validators.
 	session bool
+	// noCookies drops the Set-Cookie headers of the answer: it is the HTML of a page with the
+	// whole-page cache, which every visitor gets.
+	noCookies bool
 }
 
 // Committed reports whether the response is on its way out. SetSession asks it.
@@ -493,6 +517,9 @@ func (w *writer) commit(final bool, call func() bool) {
 	}
 	if final && !w.wrote {
 		h := w.Header()
+		if w.noCookies {
+			h.Del("Set-Cookie")
+		}
 		switch {
 		case w.session:
 			h.Set("Cache-Control", "private, no-store")

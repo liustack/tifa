@@ -39,6 +39,9 @@ func (s *Server) browserSession(c *tifa.Ctx) (*core.BrowserSession, error) {
 	if !s.sess.enabled {
 		return nil, nil
 	}
+	if a := anonymityOf(c.Request()); a != nil {
+		return a.session, a.err
+	}
 	v, err := core.BrowserSessionOf(c)
 	if err != nil {
 		return nil, err
@@ -74,6 +77,12 @@ type pageSession struct {
 }
 
 func (s *Server) pageSession(c *tifa.Ctx) (pageSession, error) {
+	if anonymityOf(c.Request()) != nil && s.sess.enabled {
+		// A page every visitor gets carries no session. The head script reads the copy the
+		// browser keeps, and the browser asks the server once it has started.
+		key := s.sessionKey()
+		return pageSession{key: key, head: sessionHead(key)}, nil
+	}
 	v, err := s.browserSession(c)
 	if err != nil || v == nil {
 		return pageSession{}, err

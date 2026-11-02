@@ -52,7 +52,7 @@ myapp/
 
 | File | Holds |
 | --- | --- |
-| `route.go` | All Go names of the folder: `Load`, `Layout`, `LayoutSSR`, `SSR`, `RenderCache`, and the method handlers `GET`, `POST`, `PUT`, `PATCH`, `DELETE`. They are read from this file only |
+| `route.go` | All Go names of the folder: `Load`, `Layout`, `LayoutSSR`, `SSR`, `RenderCache`, `Cache`, and the method handlers `GET`, `POST`, `PUT`, `PATCH`, `DELETE`. They are read from this file only |
 | `page.tsx` | The page component (default export), and optional `head` and `Error` exports |
 | `layout.tsx` | The Layout component. It renders `<Outlet />` where the child page goes |
 | `layout_.tsx` | Like `layout.tsx`, but drops every Layout above it, the root one too |
@@ -95,7 +95,7 @@ Build and deploy:
 14. Forgetting to reload page data after a write. After a successful `POST`, `PUT`, `PATCH` or `DELETE` function from `route.gen`, the page data reloads by itself. After a write by any other means, call TanStack's `router.invalidate()`.
 15. Cross-compiling with `GOOS=linux go tool tifa build`. That also applies to building the tifa command. Use `GOOS=linux GOARCH=amd64 $(go tool -n tifa) build`.
 16. Changing the React or TanStack Router versions by hand. tifa needs React 19.3 or later and the TanStack Router version it was tested with, and the build stops with the versions when they are wrong.
-17. Setting `Cache-Control: public` on pages or navigation data, or telling a CDN to ignore the origin's cache headers. Every answer is `private, no-cache` by default (`no-store` for error answers), and a page and its navigation data share one URL, so a CDN that caches it can serve JSON to a page load. Let a CDN cache only `/assets/` and `public/`. See `references/build-and-deploy.md`.
+17. Setting `Cache-Control: public` on pages or navigation data, or telling a CDN to ignore the origin's cache headers. Every answer is `private, no-cache` by default (`no-store` for error answers), and a CDN that caches a page of one visitor shows it to another. A page that is the same for everyone opts in with `const Cache = 10 * time.Minute` in its `route.go`, and tifa then sends the public headers itself. Navigation data is never public. See `references/build-and-deploy.md`.
 18. Editing `schema.sql` of a `tifa new` app and expecting `tifa dev` to pick it up. It does not watch that file, so restart it.
 
 ## References

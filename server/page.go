@@ -486,6 +486,9 @@ func (s *Server) pageHandler(r Route, chain []load) func(*tifa.Ctx) error {
 		if !s.pagesServed() {
 			return loadsAsJSON(c, chain)
 		}
+		if ttl := s.pageCache[r.Path]; ttl > 0 && anonymityOf(c.Request()) != nil {
+			return s.cachedPageRequest(c, r, chain, ttl)
+		}
 		if c.IsData() {
 			return s.dataRequest(c, chain, r.Path)
 		}
@@ -681,7 +684,7 @@ func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status in
 	s.rendering.RLock()
 	defer s.rendering.RUnlock()
 	f := s.front.Load()
-	in := ssr.Input{BuildID: f.build.ID, URL: r.URL.RequestURI(), Data: data, Texts: texts, Preload: f.preloadOf(key, items),
+	in := ssr.Input{BuildID: f.build.ID, URL: s.renderURI(c), Data: data, Texts: texts, Preload: f.preloadOf(key, items),
 		Session: sess.json, SessionKey: sess.key, SessionHead: sess.head}
 	failed := &renderError{f: f, in: in, key: key}
 	// A render clock makes the HTML depend on a time that is no part of the key, so such a request
@@ -738,23 +741,7 @@ func (s *Server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 		}
 	}
 	got, err := s.cache.fetch(c.Request().Context(), key, unheard, func(ctx context.Context) (cachedPage, bool, error) {
-		html, err := f.render(ctx, in)
-		if err != nil {
-			return cachedPage{html: html}, false, err
-		}
-		if s.dev != nil {
-			if warned, differs := s.devRenderTwice(ctx, f, in, html, method, path); differs {
-				return cachedPage{html: warned}, false, nil
-			}
-		}
-		if !s.cache.holds(html) {
-			return cachedPage{html: html}, false, nil
-		}
-		page := cachedPage{html: html}
-		if s.cfg.Compress {
-			page.gzip, page.zstd = compressPage(html)
-		}
-		return page, true, nil
+		return s.renderOne(ctx, f, in, true, method, path)
 	})
 	if err != nil {
 		if errors.Is(err, context.Canceled) && errors.Is(c.Request().Context().Err(), context.Canceled) {
@@ -767,6 +754,29 @@ func (s *Server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 		return writeHTML(c, status, got.page.html)
 	}
 	return writeCached(c, status, got.page, s.formEncoding(c))
+}
+
+// renderOne renders in and returns the page as the cache keeps it, and whether the cache can keep
+// it. twice has tifa dev render a page the render cache keeps once more to find out whether it
+// reads the time or a random number, see devRenderTwice.
+func (s *Server) renderOne(ctx context.Context, f *front, in ssr.Input, twice bool, method, path string) (cachedPage, bool, error) {
+	html, err := f.render(ctx, in)
+	if err != nil {
+		return cachedPage{html: html}, false, err
+	}
+	if twice && s.dev != nil {
+		if warned, differs := s.devRenderTwice(ctx, f, in, html, method, path); differs {
+			return cachedPage{html: warned}, false, nil
+		}
+	}
+	if !s.cache.holds(html) {
+		return cachedPage{html: html}, false, nil
+	}
+	page := cachedPage{html: html, body: new(bodyID)}
+	if s.cfg.Compress {
+		page.gzip, page.zstd = compressPage(html)
+	}
+	return page, true, nil
 }
 
 // devRenderTwice is what tifa dev adds to the render of a page that the render cache keeps: it
@@ -852,10 +862,6 @@ func etagMatches(header, etag string) bool {
 // renders into #tifa-root and writes the head of the routes, the viewport meta among it.
 func (s *Server) dataOnly(c *tifa.Ctx, items map[string]routeResult, status int, key string) error {
 	f := s.front.Load()
-	injected, err := injectedResults(items)
-	if err != nil {
-		return err
-	}
 	sess, err := s.pageSession(c)
 	if err != nil {
 		return err
@@ -865,13 +871,28 @@ func (s *Server) dataOnly(c *tifa.Ctx, items map[string]routeResult, status int,
 			return err
 		}
 	}
-	bootData := map[string]any{"url": c.Request().URL.RequestURI(), "buildId": f.build.ID, "data": injected}
+	doc, err := dataOnlyDocument(f, items, key, s.renderURI(c), sess)
+	if err != nil {
+		return err
+	}
+	c.SetHeader(renderHeader, "none")
+	return writeHTML(c, status, doc)
+}
+
+// dataOnlyDocument is the document of a page that skips SSR for the page at uri: it loads the
+// browser bundle and carries the results of the Loads and the session of the request.
+func dataOnlyDocument(f *front, items map[string]routeResult, key, uri string, sess pageSession) (string, error) {
+	injected, err := injectedResults(items)
+	if err != nil {
+		return "", err
+	}
+	bootData := map[string]any{"url": uri, "buildId": f.build.ID, "data": injected}
 	if sess.json != nil {
 		bootData["session"], bootData["sessionKey"] = sess.json, sess.key
 	}
 	boot, err := json.Marshal(bootData)
 	if err != nil {
-		return err
+		return "", err
 	}
 	var b strings.Builder
 	b.WriteString(`<!DOCTYPE html>` + sess.htmlTag() + `<head><meta charset="utf-8">`)
@@ -881,8 +902,7 @@ func (s *Server) dataOnly(c *tifa.Ctx, items map[string]routeResult, status int,
 	b.WriteString(`</head><body><div id="tifa-root"></div>`)
 	// json.Marshal escapes <, >, &, U+2028 and U+2029, so the data cannot close the script element.
 	fmt.Fprintf(&b, `<script type="application/json" id="tifa-data">%s</script></body></html>`, boot)
-	c.SetHeader(renderHeader, "none")
-	return writeHTML(c, status, b.String())
+	return b.String(), nil
 }
 
 // writeCached writes a page of the HTML cache in its form for encoding (formEncoding), and as
@@ -1083,4 +1103,14 @@ func writeFallback(w http.ResponseWriter, e tifa.Error) {
 	w.Header().Set("Content-Length", strconv.Itoa(len(page)))
 	w.WriteHeader(e.Status)
 	_, _ = io.WriteString(w, page)
+}
+
+// renderURI is the URL a page is rendered for. A page with the whole-page cache gets the cleaned
+// one (pageURI), the URL its cache entry stands for. The others get the URL as it came.
+func (s *Server) renderURI(c *tifa.Ctx) string {
+	r := c.Request()
+	if anonymityOf(r) != nil {
+		return s.pageURI(r, c.Pattern())
+	}
+	return r.URL.RequestURI()
 }

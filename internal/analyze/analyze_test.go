@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/tools/go/packages"
 )
@@ -99,6 +100,16 @@ func TestValidApp(t *testing.T) {
 		if r.Dir != w.dir || r.Path != w.path || r.Page != w.page || r.SSR != w.ssr || r.RenderCache != w.renderCache ||
 			!reflect.DeepEqual(handlerMethods(r), w.methods) || !reflect.DeepEqual(r.Layouts, w.layouts) {
 			t.Errorf("route %s = %+v, want %+v", w.id, r, w)
+		}
+	}
+
+	for id, r := range routes {
+		want := time.Duration(0)
+		if id == "app/auth/register/route" {
+			want = 10 * time.Minute
+		}
+		if r.Cache != want {
+			t.Errorf("route %s Cache = %v, want %v", id, r.Cache, want)
 		}
 	}
 
@@ -446,6 +457,17 @@ func TestViolations(t *testing.T) {
 		}},
 		{"cacheremoved", [][]string{
 			{"app/page/route.go:3:", "render cache is on by default", "delete Cache = true", "RenderCache = false"},
+		}},
+		{"cachevalue", [][]string{
+			{"app/untyped/route.go:3:", "Cache must be a time.Duration constant"},
+			{"app/short/route.go:5:", "Cache must be at least one second"},
+			{"app/variable/route.go:5:", "Cache must be a time.Duration constant"},
+			{"app/api/route.go:9:", "Cache is not allowed without page.tsx"},
+		}},
+		{"cacheidentity", [][]string{
+			{"app/route.go:5:", "c.Header sees only Host", "every other header is always empty", "app/feed has Cache", "Remove Cache"},
+			{"app/news/route.go:14:", "tifa.Session is always empty here", "app/news has Cache"},
+			{"internal/auth/auth.go:6:", "c.Cookie is always empty here", "app/feed has Cache"},
 		}},
 		{"rendercachevalue", [][]string{
 			{"app/page/route.go:3:", "RenderCache", "can only be false"},

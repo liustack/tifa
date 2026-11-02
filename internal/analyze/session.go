@@ -61,8 +61,7 @@ func (a *analyzer) sessionCalls(pkgs []*packages.Package) []sessionCall {
 
 // session finds the session type of the application and checks it. pkgs are the packages of
 // the module that type check.
-// Not checked yet: a Load or Layout of a page with Cache that reads tifa.Session, which is always nil
-// there. This waits for the whole-page cache.
+// A Load or Layout of a page with Cache that reads tifa.Session is reported by checkCacheIdentity.
 func (a *analyzer) session(pkgs []*packages.Package) *Session {
 	calls := a.sessionCalls(pkgs)
 	var first *sessionCall // the first SetSession, which names the session type

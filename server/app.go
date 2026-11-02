@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/liustack/tifa"
 )
@@ -62,6 +63,12 @@ type Route struct {
 	// NoRenderCache is true when route.go sets RenderCache = false. The HTML of the page is not cached
 	// and its renders are not shared. The zero value keeps the render cache on.
 	NoRenderCache bool
+	// Cache is the whole-page cache time of the page, route.go's const Cache, zero for none.
+	Cache time.Duration
+	// Query lists the query parameters the Loads of the page and of the Layouts around it read,
+	// sorted. The whole-page cache keeps them in its key and in the URL it renders for, even
+	// those cache.ignore_query names.
+	Query []string
 	// Layouts lists the IDs of the enclosing Layouts, outermost first.
 	Layouts []string
 }
@@ -105,6 +112,10 @@ func (s *Server) register(layouts []Layout, routes []Route) {
 			chain = append(chain, load{id: r.ID, run: r.Load})
 		}
 		s.path(r.Path)
+		if r.Page && r.Cache > 0 {
+			s.pageCache[r.Path] = r.Cache
+			s.pageQuery[r.Path] = r.Query
+		}
 		if r.Page {
 			if r.GET != nil {
 				panic(fmt.Sprintf("tifa: page %s defines GET", r.ID))

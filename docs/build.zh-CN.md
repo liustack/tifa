@@ -459,6 +459,15 @@ React 和 React DOM 至少要 19.3.0。Vite 插件是按 19.3 的写法改写 Re
 | 同上，匹配链上有 `SSR = false` | 不进 VM，返回最简文档：资源标签与 `<script type="application/json" id="tifa-data">` 里的注入数据（各个 `Load` 的结果，JSON 文本在各自的 `json` 里，还有访客的会话 `session`），浏览器直接渲染，不再请求数据 |
 | 有 `_tifa=<构建 ID>.<位图>[.p]` | 只执行位图里是 `1` 的路由的 `Load` 或 `Layout`（`tifa.Use` 在本次请求内去重），答 200 与 `{"routes": {路由 ID: 结果}, "session": ...}`，每个路由带自己的状态。构建 ID 不是当前构建时答 409，值的形式不对或位数不等于匹配链上 `Load` 的个数时答 400。出错与重定向见下文 |
 
+开了 `Cache`（见[整页缓存](app.zh-CN.md#整页缓存)）的页面，GET、HEAD 和带 `_tifa` 的请求回答方式不同。这些请求是匿名的：进 `OnRequest` 之前去掉 `Cookie` 和 `Authorization`，HTML 上的 `Set-Cookie` 也会去掉。回答来自处理过的 URL 对应的条目：
+
+| 请求 | 回答 |
+| --- | --- |
+| 无 `_tifa`，条目还新鲜 | 存着的 HTML，不跑 `Load`，不渲染。ETag 是条目的，`If-None-Match` 命中时由条目答 304。`Cache-Control: public, max-age=0, s-maxage=<Cache 的秒数>, stale-if-error=86400`，`Age: <生成后过了几秒>`，`Cache-Status: tifa; hit`，`X-Tifa-Render: cache` |
+| 无 `_tifa`，没有条目或时间到了 | 执行链上所有 `Load` 并渲染，等它的请求共用一次，结果存下来。`Cache-Status: tifa; fwd=miss`。失败时，如果有条目且过期不到一天，就答这个条目，`Cache-Status: tifa; fwd=stale`。否则错误按下文的流程处理 |
+| 有 `_tifa` | 从同一个条目里读列出的路由，没有就先生成，答 200，内容同上，并带上浏览器的 `session`，服务器在丢掉 cookie 之前先读出它。永远是 `private, no-cache` |
+| 存不下的结果 | 像没开 `Cache` 的页面一样回答，带 `private, no-cache` 和 `Cache-Status` 的 `fwd=miss`，这个 URL 的请求两分钟内跳过缓存（`Cache-Status: tifa; fwd=bypass`） |
+
 所有走路由的回答（整页、304、数据请求、方法处理函数和重定向）都带 `Cache-Control: private, no-cache`，应用在 `OnRequest`、`Load`、`Layout` 或处理函数里自己设置过 `Cache-Control` 时保留应用的值。导航数据的回答（带 `_tifa` 的请求，不管状态码，409 和重定向也算）例外，它永远不是 public：应用设的值如果不是 `no-store`，也不是同时有 `private` 和 `no-cache`，就换成 `private, no-cache`。框架只在最终响应头发出时加这一次。JSON 错误、纯错误页、带错误的页面和过载回答发 `no-store`，应用在出错之前设过 `Cache-Control` 的除外。应用的 404 页面用默认值。
 
 页面和它的导航数据是不同的 URL，只按 URL 做键的缓存会把两者分开，不需要为此加 `Vary`。回答保留应用设置的 `Vary`（比如 `OnRequest` 里的 `Vary: Cookie`）。`X-Tifa-Render: vm|shared|cache|none` 说明这次是 VM 渲染、共用同时到的另一个请求发起的渲染、缓存命中还是没进 VM。页面和 JSON 回答不压缩发出时带 `Content-Length`。

@@ -52,6 +52,9 @@ type sessionState struct {
 	phase   atomic.Uint32
 	noStore atomic.Bool // the answer sets or clears the cookie, or comes from a failed store
 	changed atomic.Bool // SetSession or ClearSession ran, see SessionChanged
+	// anonymous is set for a request of a page with the whole-page cache: it has no session and
+	// cannot make one, see SetAnonymous.
+	anonymous atomic.Bool
 
 	mu      sync.Mutex // guards what follows, and is held while the store is called
 	env     *SessionEnv
@@ -62,6 +65,14 @@ type sessionState struct {
 	value   any             // *S
 	vtype   reflect.Type    // S, set by the first Session or SetSession
 }
+
+// SetAnonymous makes the request anonymous: the server dropped its Cookie and Authorization headers
+// and read no session, so Session is nil, and SetSession and ClearSession fail. A page with the
+// whole-page cache answers every visitor alike, so nothing of the visitor may reach it.
+func SetAnonymous(c *Ctx) { c.req.sess.anonymous.Store(true) }
+
+// Anonymous reports whether the request was made anonymous, see SetAnonymous.
+func Anonymous(c *Ctx) bool { return c.req.sess.anonymous.Load() }
 
 // NoStore reports whether the answer to c must not be stored or turned into a 304: it sets or
 // clears the session cookie, or it is the answer to a session store that failed.
@@ -180,6 +191,8 @@ func (c *Ctx) committed() bool {
 func (c *Ctx) sessionWritable(fn string) error {
 	st := &c.req.sess
 	switch {
+	case st.anonymous.Load():
+		return fmt.Errorf("tifa: %s cannot be called while a page with Cache is served: that request is anonymous and its answer is kept for everyone. Sign in and OAuth callbacks belong on routes without Cache", fn)
 	case st.env == nil:
 		return fmt.Errorf("tifa: %s has no session store: the request was not made by the server", fn)
 	case c.mode == modeLoad:

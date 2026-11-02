@@ -450,12 +450,13 @@ func GET(c *tifa.Ctx) error {
 ## SSR 与缓存
 
 ```go
-const SSR = false         // 页面，默认 true
-const RenderCache = false // 页面，关掉渲染缓存，默认开
-const LayoutSSR = false   // 本目录的 Layout，默认 true
+const SSR = false              // 页面，默认 true
+const RenderCache = false      // 页面，关掉渲染缓存，默认开
+const Cache = 10 * time.Minute // 页面，10 分钟内所有人拿到同一份回答，默认关
+const LayoutSSR = false        // 本目录的 Layout，默认 true
 ```
 
-`SSR` 和 `RenderCache` 只作用于 `page.tsx` 的页面。没有 `page.tsx` 的 `route.go` 里写了它们，构建会报错。`RenderCache` 只能写 `false`：渲染缓存默认就是开的，不用写 `true`。名字要照上面的大小写写，包级常量叫 `ssr`、`cache`、`rendercache` 或 `layoutssr` 会构建报错，因为它们会被悄悄跳过。旧开关 `Cache` 也会构建报错，删掉 `Cache = true` 即可。
+`SSR`、`RenderCache` 和 `Cache` 只作用于 `page.tsx` 的页面。没有 `page.tsx` 的 `route.go` 里写了它们，构建会报错。`RenderCache` 只能写 `false`：渲染缓存默认就是开的，不用写 `true`。`Cache` 是至少一秒的 `time.Duration` 常量，见[整页缓存](#整页缓存)。名字要照上面的大小写写，包级常量叫 `ssr`、`cache`、`rendercache` 或 `layoutssr` 会构建报错，因为它们会被悄悄跳过。`Cache = true` 是 `Cache` 还是渲染缓存开关时的写法，现在也会构建报错，删掉即可。
 
 - `SSR = false`：中间件和所有 `Load` 照常执行，但跳过 QuickJS，响应是带数据的最小文档，由浏览器渲染。`LayoutSSR = false` 作用于该 Layout 包着的所有页面。
 - 所有页面都开着渲染缓存。每个请求照样跑自己的中间件、`Load` 和 Layout，然后把渲染出的 HTML 按构建版本、SSR 包、URL、每个 `Load` 和 Layout 的数据、浏览器拿到的会话存起来，缓存大小是 `cache.size`（见 [config.zh-CN.md](config.zh-CN.md)）。这些都没变时，不渲染直接返回 HTML。响应头 `X-Tifa-Render` 说明是哪种：`vm` 是这个请求自己渲染，`cache` 是命中，`shared` 是共用了别的请求发起的渲染（见[页面请求](build.zh-CN.md#页面请求)）。`cache.size` 为 0 时缓存关闭，共用渲染照旧。
@@ -464,7 +465,28 @@ const LayoutSSR = false   // 本目录的 Layout，默认 true
 - 多个请求同时没命中缓存，并且构建版本、URL 和数据都相同时（比如刚部署完涌进来一批访客），它们共用一次渲染。每个请求照样跑自己的中间件和 `Load`，保留它们设的响应头（比如 `Set-Cookie` 和 `Vary`），拿到自己接受的编码。`cache.size` 为 0、页面大到缓存放不下、在 `tifa dev` 下也都这样。数据或会话不同的请求各自渲染，写了 `RenderCache = false` 的页面每个请求都渲染。
 - 共用的那次渲染失败时，等它的每个请求都拿到同一个错误并交给 `OnError`，panic 也一样。失败的结果不缓存，下一个请求重新渲染。客户端断开的请求立刻停止等待，连接被中断，不发响应：`OnRequest` 里 `next(c)` 返回一个匹配 `context.Canceled` 的错误，但不调 `OnError`，也不打日志。渲染继续给其他请求用。请求自己的 deadline 在等待时到了，和别的错误一样处理。没有请求再等时，还在等 VM 的渲染就此放弃，已经在跑的跑完放进缓存。这时如果渲染失败，没有请求把它交给 `OnError`，所以错误写进日志。
 - 页面响应都带 ETag，它是和缓存键同样内容的哈希。这些都没变的第二次请求带 `If-None-Match` 时答 304，不渲染，也不查缓存。ETag 和缓存是两件事：ETag 省下已经有这个页面的浏览器的传输，缓存省下其他人的渲染。写了 `RenderCache = false` 的页面和带渲染时钟的请求没有 ETag，因为它们的 HTML 不由这些内容决定，总是重新渲染。
-- 应用的每个回答（页面、304、404 页面、导航数据、方法处理函数、重定向）默认带 `Cache-Control: private, no-cache`，你自己设过 `Cache-Control` 的除外。CDN 和代理不会存它，因为页面可能只属于某一位访客。浏览器可以存下来，下次带着 ETag 回来问，页面没变就答 304。要改的话，在 `OnRequest`、`Load`、`Layout` 或方法处理函数里用 `c.SetHeader("Cache-Control", "...")`，你设的值原样发出，只有导航数据（带 `_tifa` 的请求）例外，它永远不是 public：不是 `no-store`、也不是同时有 `private` 和 `no-cache` 的值会换成 `private, no-cache`。JSON 错误（包括 405 和关机时的 503）、Go 写的纯错误页、渲染失败后带错误重新渲染的页面和过载回答都是 `no-store`，你在出错之前设过 `Cache-Control` 的除外。应用渲染的 404 页面仍用默认值。`/assets/` 下的文件保持长期缓存，`public/` 里的文件保持 `no-cache`（见[页面请求](build.zh-CN.md#页面请求)）。渲染缓存只在进程内存渲染结果，不改这个头。
+- 应用的每个回答（页面、304、404 页面、导航数据、方法处理函数、重定向）默认带 `Cache-Control: private, no-cache`，你自己设过 `Cache-Control` 的除外。开了 `Cache` 的页面里被存下来的回答是例外，见[整页缓存](#整页缓存)。CDN 和代理不会存它，因为页面可能只属于某一位访客。浏览器可以存下来，下次带着 ETag 回来问，页面没变就答 304。要改的话，在 `OnRequest`、`Load`、`Layout` 或方法处理函数里用 `c.SetHeader("Cache-Control", "...")`，你设的值原样发出，只有导航数据（带 `_tifa` 的请求）例外，它永远不是 public：不是 `no-store`、也不是同时有 `private` 和 `no-cache` 的值会换成 `private, no-cache`。JSON 错误（包括 405 和关机时的 503）、Go 写的纯错误页、渲染失败后带错误重新渲染的页面和过载回答都是 `no-store`，你在出错之前设过 `Cache-Control` 的除外。应用渲染的 404 页面仍用默认值。`/assets/` 下的文件保持长期缓存，`public/` 里的文件保持 `no-cache`（见[页面请求](build.zh-CN.md#页面请求)）。渲染缓存只在进程内存渲染结果，不改这个头。
+
+### 整页缓存
+
+```go
+// app/blog/slug+/route.go
+const Cache = 10 * time.Minute
+```
+
+开了 `Cache` 的页面，在这段时间里所有人拿到同一份回答，直接从内存给出，不跑 `Load`，也不渲染。适合公开、很多人看的页面：文章、文档、商品页和落地页。访客看到改动最多晚 `Cache` 这么久。
+
+- **所有人都是匿名的。** 页面的 GET 和 HEAD，以及浏览器导航到它时为取数据发的请求，在进 `OnRequest` 之前就被去掉除一份短名单以外的所有请求头：`Host`、`Accept-Encoding`、`If-None-Match`、`If-Modified-Since`、`Cache-Control`、`Pragma`、`Content-Length`、`Connection`、`Origin` 和 `Sec-Fetch-*`。`Cookie` 和 `Authorization` 会去掉，`Accept-Language`、`User-Agent`、`Referer`、`Forwarded`、`X-Forwarded-*` 以及代理或登录网关设的 `X-User-ID` 这类头也一样，所以它们没法经 `OnRequest` 和 context 传到 `Load`。`tifa.Session` 返回 nil，`c.Cookie` 找不到东西，`c.Header` 和 `c.Request().Header` 里只有名单上的头，`c.Request()` 拿到的也是这份请求。`tifa.SetSession` 和 `tifa.ClearSession` 返回错误，信息说登录和 OAuth 回调要放在不开 `Cache` 的路由上。页面要共用，说的内容就不能取决于是谁在问。这类页面 HTML 上的 `Set-Cookie` 会被去掉，因为共享回答里的 cookie 会发给每一位访客。导航请求（带 `_tifa` 的）的回答只给一个浏览器，保留 `Set-Cookie`，并带上这个浏览器的会话（见[会话](#在浏览器里)）。同一个 URL 上的方法处理函数，比如 POST，不匿名，也不缓存。
+- **匿名的边界。** tifa 保证的是请求头：在开了 `Cache` 的页面上，`OnRequest`、`Load` 和 `Layout` 看到的请求只有名单上的头，`tifa.Session` 是 nil。用 `tifa.SetHTTPHandler` 挂的 `net/http` 中间件在 tifa 外面运行，拿到的是原来的请求，它放进请求 context 的值会原样到达 `OnRequest` 和 `Load`。不要在那里认人，认人放在不开 `Cache` 的路由的 `OnRequest` 里。连接地址和 TLS 信息也仍然保留，外层中间件放进 context 的值和白名单里的头（例如 `Origin`）也能区分请求，这些都不得用来生成个性化的共享内容。
+- **构建会检查。** 这类页面的 `Load`、外层 `Layout` 的 `Layout` 函数，或它们调用的函数读了 `c.Cookie`、`c.Header` 或 `tifa.Session`，构建就失败并指出那一行，因为这样的读取只会看到匿名请求。`c.Header` 的报错会写出有哪几个头。需要知道谁登录了的页面不要用 `Cache`。取决于访客的内容放到浏览器里，页面加载后由浏览器去读（见[在浏览器里](#在浏览器里)）。开了 `Cache` 的页面外面那几层 Layout，只放对所有人都一样的数据。
+- **`OnRequest` 能做什么。** 每个请求都跑，命中的也跑，看到的是匿名请求。适合按路径做的事：重定向、安全头、日志、计数、按地址限流。它看不到谁登录了，所以按登录状态重定向的 `OnRequest` 要用在不开 `Cache` 的路由上，在没看到 cookie 时就发一个 cookie 的中间件，会在每次导航时都发。它在 HTML 上设的 cookie 会被去掉。
+- **多语言。** 多语言页面按 URL 缓存，每个语言目录一份条目。按 cookie 或 `Accept-Language` 选语言再跳转的入口，是不开 `Cache` 的路由上的 GET 处理函数（开了 `Cache` 的页面两样都读不到），它跳去的页面把语言写在 URL 里（见[多语言站点](#多语言站点)）。
+- **键**是协议、`Host` 请求头（不信 `X-Forwarded-Host`）、路径，以及去掉跟踪参数后的查询串，其余参数按名字排序。`cache.ignore_query` 列出跟踪参数（`utm_*`、`gclid`、`fbclid` 等，见 [config.zh-CN.md](config.zh-CN.md)）。页面链上有 `Load` 读的参数一律保留。页面用同样处理过的 URL 渲染，所以访客看到的内容不会取决于键忽略掉的参数。
+- **存什么。** GET 和 HEAD 共用一份。只存状态码 200、301、302 和 308 的回答。以下情况这次不存，并且这个 URL 的请求两分钟内跳过缓存，免得排队：`Cache-Control` 里有 `private`、`no-store` 或 `no-cache`（由 `OnRequest` 或 `Load` 设的），`Vary` 里有 `Accept-Encoding` 以外的值，以及其他状态码，404 也算。请求里的强制刷新（`Cache-Control: no-cache` 或 `Pragma`）绕不过缓存。
+- **时间到了**以后谁都拿不到旧页。下一个请求重新生成，同时到的请求等它。数据没变时渲染缓存直接命中，不用重新渲染。
+- **重新生成失败时**，比如 `Load` 返回错误、渲染失败或超时、所有 VM 都忙，就给旧页，最多到过期后一天。再往后照实返回错误。`Load` 返回 `tifa.ErrNotFound`、重定向或 500 以下的其他 `tifa.Error`，是业务上的回答而不是失败，会取代旧页。
+- **响应头。** `Load` 和 `Layout` 设的响应头（除了 tifa 自己写的 `Set-Cookie`、`Cache-Control`、`Vary`、`Age`、`ETag` 和 `Content-Length`）随条目存下，用这个条目答的每个回答都带上。`Load` 或 `Layout` 设了 `private`、`no-store` 或 `no-cache` 的 `Cache-Control`，或 `Accept-Encoding` 以外的 `Vary`，这个页面就不进缓存，这些头会随回答发出，盖过 `OnRequest` 设的 `public`。存下来的页面带 `Cache-Control: public, max-age=0, s-maxage=<Cache 的秒数>, stale-if-error=86400` 和 `Age`。浏览器每次都来问，ETag 匹配时从条目回 304，所以部署后马上就能看到新版。`Age` 是页面生成后过了几秒，前面的 CDN 会用 `s-maxage` 减去它，两层加起来不会超过 `Cache`。`Cache-Status: tifa; hit`、`tifa; fwd=miss` 或 `tifa; fwd=stale` 说明回答从哪来，`X-Tifa-Render` 照旧。导航数据仍是 `private, no-cache`。CDN 里要怎么设，见 tifa skill 的部署说明。
+- 条目和渲染缓存共用 `cache.size`。`cache.size` 为 0 时什么都不存，同时没命中的请求仍然共用一次生成。
 
 ## 部署时还开着的页面
 
@@ -758,7 +780,7 @@ func OnStart() error {
 }
 ```
 
-`tifa.SetHTTPHandler(wrap)` 拿到 tifa 的 handler，返回要对外服务的 handler。这层包在最外面，静态文件、跨站检查和路由都在它里面。它看得到每个请求，拿到的是原始的 `http.ResponseWriter`，被拒绝的跨站写请求的 403 也看得到。它包着的 handler 返回之后，这个请求的 `r.Pattern` 就是路由模板，和 `c.Pattern()` 相同（如 `/projects/{project}`，没有路由匹配时为空），所以指标中间件可以按路由而不是按 URL 计数。浏览器用 `_tifa` 参数请求一次导航的数据，`.p` 标记预加载。不要用这些请求统计页面浏览量：预加载的结果可以不再发请求就用于导航，重新加载又会多一次。数浏览器完成的客户端导航，加整页请求（见[页面请求](build.zh-CN.md#页面请求)）。挂上去的是普通 `net/http`，所以它自己处理的路径（比如上面的 `/debug/pprof/`）不走 `OnRequest`、`OnError` 和跨站检查，要自己加访问控制，或者放到另一个监听端口上。关停时仍会等它包着的请求。只能在 `OnStart` 里调，服务开始监听后再调会 panic。`tifa.SetHTTPHandler(nil)` 去掉这层包装。
+`tifa.SetHTTPHandler(wrap)` 拿到 tifa 的 handler，返回要对外服务的 handler。这层包在最外面，静态文件、跨站检查和路由都在它里面。它看得到每个请求，拿到的是原始的 `http.ResponseWriter`，被拒绝的跨站写请求的 403 也看得到。它包着的 handler 返回之后，这个请求的 `r.Pattern` 就是路由模板，和 `c.Pattern()` 相同（如 `/projects/{project}`，没有路由匹配时为空），所以指标中间件可以按路由而不是按 URL 计数。浏览器用 `_tifa` 参数请求一次导航的数据，`.p` 标记预加载。不要用这些请求统计页面浏览量：预加载的结果可以不再发请求就用于导航，重新加载又会多一次。数浏览器完成的客户端导航，加整页请求（见[页面请求](build.zh-CN.md#页面请求)）。挂上去的是普通 `net/http`，所以它自己处理的路径（比如上面的 `/debug/pprof/`）不走 `OnRequest`、`OnError` 和跨站检查，要自己加访问控制，或者放到另一个监听端口上。关停时仍会等它包着的请求。只能在 `OnStart` 里调，服务开始监听后再调会 panic。`tifa.SetHTTPHandler(nil)` 去掉这层包装。它在开了 `Cache` 的页面的匿名请求之外运行（见[整页缓存](#整页缓存)）：它放进请求 context 的值会到达这类页面的 `OnRequest` 和 `Load`，所以不要在这里认人，认人放在 `OnRequest` 里。
 
 ## 会话
 
@@ -842,6 +864,8 @@ type SessionStore interface {
 | 响应发出之后 | 可以 | 返回错误 |
 
 `Load` 跑在 GET 上，GET 不该改任何东西，所以登录放在方法处理函数或 `OnRequest` 里。
+
+开了 `Cache` 的页面，GET 和 HEAD 请求是匿名的：不管谁来，`Session` 都是 nil，`SetSession` 和 `ClearSession` 返回错误。这个承诺说的是 tifa 交给你的代码的请求头。用 `tifa.SetHTTPHandler` 挂的 `net/http` 中间件放进 context 的值仍会到达，所以认人放在 `OnRequest` 里，不要放在那个中间件里（见[整页缓存](#整页缓存)）。
 
 ### 和登录库的分工
 

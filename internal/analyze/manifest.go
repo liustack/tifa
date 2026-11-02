@@ -8,6 +8,7 @@ import (
 	"go/token"
 	"go/types"
 	"strings"
+	"time"
 )
 
 // Manifest is the route manifest of one application. Code generation, bundling and the server
@@ -77,6 +78,9 @@ type Route struct {
 	SSR bool `json:"ssr"`
 	// RenderCache is false when route.go sets RenderCache = false, and true otherwise.
 	RenderCache bool `json:"renderCache"`
+	// Cache is the whole-page cache time of the page, Cache = 10 * time.Minute in route.go, zero when
+	// absent.
+	Cache time.Duration `json:"cache"`
 	// Layouts lists the IDs of the Layouts in Dir and above it, outermost first.
 	Layouts []string `json:"layouts"`
 }
