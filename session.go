@@ -44,12 +44,17 @@ func SetSessionStore(s SessionStore) { core.SetSessionStore(s) }
 // next returned, and after the response is sent. Call it in OnRequest before next, or in a method handler.
 //
 // S must be the same type in every call of SetSession and Session, or the call panics.
+//
+// A page with Cache in its route.go is served anonymously: its GET and HEAD requests have no
+// session and SetSession returns an error there. Put sign-in and OAuth callbacks on routes
+// without Cache.
 func SetSession[S any](c *Ctx, s *S) error { return core.SetSession(c, s) }
 
 // Session returns the session of the request, nil when nobody is signed in. The server reads it
 // before OnRequest runs, so every hook, Load and method handler can call it, and the Loads that run
 // at once share the one value: treat it as read-only. The record is decoded into S on the first call.
 // A record that does not fit S is deleted and its cookie dropped, and the request is signed out.
+// On a page with Cache in its route.go, GET and HEAD requests are anonymous and Session is nil.
 func Session[S any](c *Ctx) *S { return core.Session[S](c) }
 
 // ClearSession signs the request out: it deletes the record, drops the cookie, and Session returns nil

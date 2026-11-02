@@ -108,6 +108,9 @@ func (s *Server) register(layouts []Layout, routes []Route) {
 			chain = append(chain, load{id: r.ID, run: r.Load})
 		}
 		s.path(r.Path)
+		if r.Page && r.Cache > 0 {
+			s.pageCache[r.Path] = r.Cache
+		}
 		if r.Page {
 			if r.GET != nil {
 				panic(fmt.Sprintf("tifa: page %s defines GET", r.ID))
