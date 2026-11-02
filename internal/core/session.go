@@ -51,6 +51,7 @@ func SetSessionPhase(c *Ctx, p Phase) { c.req.sess.phase.Store(uint32(p)) }
 type sessionState struct {
 	phase   atomic.Uint32
 	noStore atomic.Bool // the answer sets or clears the cookie, or comes from a failed store
+	changed atomic.Bool // SetSession or ClearSession ran, see SessionChanged
 
 	mu      sync.Mutex // guards what follows, and is held while the store is called
 	env     *SessionEnv
@@ -209,6 +210,7 @@ func SetSession[S any](c *Ctx, s *S) error {
 	if string(data) == "null" {
 		return errors.New("tifa: the session encodes as null")
 	}
+	RegisterSessionType[S]()
 	st := &c.req.sess
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -239,11 +241,13 @@ func SetSession[S any](c *Ctx, s *S) error {
 	c.writeSessionCookie(token, int(st.env.MaxAge/time.Second))
 	st.hash, st.have, st.data = hash, true, data
 	st.decoded, st.value, st.vtype = false, nil, t
+	st.changed.Store(true)
 	return nil
 }
 
 // Session returns the session of the request, nil when there is none. See tifa.Session.
 func Session[S any](c *Ctx) *S {
+	RegisterSessionType[S]()
 	st := &c.req.sess
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -281,6 +285,7 @@ func ClearSession(c *Ctx) error {
 	defer st.mu.Unlock()
 	hash := st.hash
 	st.have, st.decoded, st.data, st.value, st.hash = false, false, nil, nil, ""
+	st.changed.Store(true)
 	if hash == "" {
 		return nil
 	}
