@@ -488,6 +488,19 @@ A page with `Cache` is answered to everyone alike for that long, from memory, wi
 - **Headers.** The headers a `Load` or `Layout` sets (not `Set-Cookie`, `Cache-Control`, `Vary`, `Age`, `ETag` or `Content-Length`, which tifa writes) are kept with the entry and sent with every answer made from it. A `Cache-Control` of `private`, `no-store` or `no-cache`, or a `Vary` beyond `Accept-Encoding`, from a `Load` or `Layout` keeps the page out of the cache and goes out with the answer, over a `public` that `OnRequest` set. A kept page carries `Cache-Control: public, max-age=0, s-maxage=<Cache in seconds>, stale-if-error=86400` and `Age`. The browser asks every time and gets a 304 from the entry when the ETag matches, so a deploy shows at once. `Age` counts the seconds since the page was made and a CDN in front subtracts it from `s-maxage`, so the two together never keep a page longer than `Cache`. `Cache-Status: tifa; hit`, `tifa; fwd=miss` or `tifa; fwd=stale` says where the answer came from, and `X-Tifa-Render` says as before. Navigation data is still `private, no-cache`. For what to set in a CDN, see the deployment notes of the tifa skill.
 - Entries share `cache.size` with the render cache. `cache.size` 0 keeps nothing, and requests that miss at the same time still share one make.
 
+### User-independent pages and private data
+
+A full page is a user-independent page plus private data. tifa splits by the kind of data, not by component:
+
+- **Data that is the same for everyone.** `Load` and Layout see no user, so the page can be kept in the whole-page cache and in a CDN.
+- **The session.** Who is signed in and a small `Exposed` part of the session, carried by the session system (see [Sessions](#sessions)). It is written into the page, and the browser keeps a copy.
+- **Other private data.** A cart, recommendations, an unread count. It can be large, and the browser may write to it. Put it behind an API route of your app and fetch it from the browser.
+
+Other systems draw the same line: HTTP caches call it `public` against `private`, Magento calls it private content, and donut caching keeps the shared page whole and fills in the holes.
+
+For the third kind, make an API route (a `route.go` with a `GET` handler and no `page.tsx`). Its generated `GET` function is typed and works from the browser. Call it when the page needs the data: after the page has loaded, when a panel opens, or on hover to fetch ahead. The generated functions plug straight into TanStack Query if the app wants a cache. `examples/shop/app/store/mine.ts` is a worked example: the storefront pages are cached and the same for everyone, and this module calls the `GET` of `/store/{lang}/mine` after a page has loaded to fill in the cart and the products the visitor looked at last, and calls it again after a write.
+
+
 ## Pages open while you deploy
 
 A visitor can keep a page open while you deploy a new version, so the page is from the old build and the server is the new one. The page sends the build it was rendered with along with its data requests (in the `_tifa` query parameter) and its handler calls (`X-Tifa-Build`), and the server answers 409 for another build. What the visitor sees:

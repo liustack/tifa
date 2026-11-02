@@ -487,6 +487,19 @@ const Cache = 10 * time.Minute
 - **响应头。** `Load` 和 `Layout` 设的响应头（除了 tifa 自己写的 `Set-Cookie`、`Cache-Control`、`Vary`、`Age`、`ETag` 和 `Content-Length`）随条目存下，用这个条目答的每个回答都带上。`Load` 或 `Layout` 设了 `private`、`no-store` 或 `no-cache` 的 `Cache-Control`，或 `Accept-Encoding` 以外的 `Vary`，这个页面就不进缓存，这些头会随回答发出，盖过 `OnRequest` 设的 `public`。存下来的页面带 `Cache-Control: public, max-age=0, s-maxage=<Cache 的秒数>, stale-if-error=86400` 和 `Age`。浏览器每次都来问，ETag 匹配时从条目回 304，所以部署后马上就能看到新版。`Age` 是页面生成后过了几秒，前面的 CDN 会用 `s-maxage` 减去它，两层加起来不会超过 `Cache`。`Cache-Status: tifa; hit`、`tifa; fwd=miss` 或 `tifa; fwd=stale` 说明回答从哪来，`X-Tifa-Render` 照旧。导航数据仍是 `private, no-cache`。CDN 里要怎么设，见 tifa skill 的部署说明。
 - 条目和渲染缓存共用 `cache.size`。`cache.size` 为 0 时什么都不存，同时没命中的请求仍然共用一次生成。
 
+### 用户无关性页面与私有数据
+
+一个完整的页面 = 用户无关性页面 + 私有数据。tifa 按数据的种类来分，不按组件分：
+
+- **对所有人相同的数据。** `Load` 和 Layout 看不到用户，所以页面可以放进整页缓存和 CDN。
+- **会话。** 谁登录了，以及会话里很小的 `Exposed` 部分，由会话系统携带（见[会话](#会话)）。它会写进页面，浏览器也保存一份副本。
+- **其他私有数据。** 购物车、推荐、未读数。量可以很大，浏览器还可能写它。把它放在应用自己的 API 路由后面，由浏览器去取。
+
+别的系统也是这样分的：HTTP 缓存叫 `public` 和 `private`，Magento 叫 private content，donut caching 则是共用的页面保持完整，再把空洞填上。
+
+第三种数据的做法：写一个 API 路由（有 `GET` 处理函数、没有 `page.tsx` 的 `route.go`）。它生成的 `GET` 函数有类型，可以直接在浏览器里调用。什么时候调由页面决定：页面加载后、面板打开时，或者鼠标悬停时提前取。如果应用想要缓存，生成的函数可以直接接进 TanStack Query。`examples/shop/app/store/mine.ts` 是一个完整的例子：店面页面有缓存、对所有人相同，这个模块在页面加载后调用 `/store/{lang}/mine` 的 `GET`，填上购物车和访客最近看过的商品，写入之后再调用一次。
+
+
 ## 部署时还开着的页面
 
 访客可能开着一个页面，你却部署了新版本，页面是旧构建的，服务器是新的。页面在数据请求（查询参数 `_tifa`）和处理函数调用（`X-Tifa-Build`）里带上它渲染时的构建，构建不同时服务器答 409。访客会看到：
