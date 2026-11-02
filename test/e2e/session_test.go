@@ -99,7 +99,7 @@ func TestSessionApp(t *testing.T) {
 		Routes  map[string]json.RawMessage `json:"routes"`
 		Session json.RawMessage            `json:"session"`
 	}
-	_, _, body = get(t, base+"/", "Cookie", cookie, "X-Tifa-Route", "app/layout", "X-Tifa-Build", buildID(t, dir))
+	_, _, body = get(t, dataURL(base+"/", buildID(t, dir), "1"), "Cookie", cookie)
 	if err := json.Unmarshal([]byte(body), &nav); err != nil || string(nav.Session) != `{"signedIn":true,"data":{"name":"Ann"}}` {
 		t.Errorf("navigation answer: %s (%v)", body, err)
 	}

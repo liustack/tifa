@@ -13,7 +13,7 @@ import (
 // that build. An app's own 409 does not carry the header.
 func TestBuildMismatchNamesTheCurrentBuild(t *testing.T) {
 	s, _ := newFrontServer(t, frontApp())
-	w := get(s, "/projects/p1", "X-Tifa-Route", "app/layout", "X-Tifa-Build", "old")
+	w := getData(s, "/projects/p1", "old", "100")
 	if w.Code != 409 || w.Header().Get("X-Tifa-Build") != "b1" {
 		t.Errorf("data request of another build: %d %v", w.Code, w.Header())
 	}

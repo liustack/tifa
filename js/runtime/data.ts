@@ -2,8 +2,9 @@
 //
 // Every Load result travels as a RouteResult. A whole-page render gets them injected by Go
 // (Injected), a client navigation asks for them with one request per URL: a GET of the page URL
-// with the header X-Tifa-Route listing the route IDs and X-Tifa-Build carrying the build ID the
-// page was rendered with. The answer is an envelope {routes, session}: routes holds a
+// with the query parameter _tifa=<build ID>.<digits>, the build the page was rendered with and one
+// digit for each Load on the chain of the URL, from the root Layout down, 1 for the ones asked for.
+// A router preload adds .p. The answer is an envelope {routes, session}: routes holds a
 // RouteResult by route ID, each route read on its own whatever the HTTP status, and session the
 // session of the request when the app has sessions (session.tsx). A redirect comes as 200 and Redirected. A server
 // built from other sources answers 409, and the browser reloads the current page (skew.ts).
@@ -60,8 +61,16 @@ export const bootElementId = 'tifa-data'
 // rootElementId is the id of the element in <body> that React renders the application into.
 export const rootElementId = 'tifa-root'
 
+// Slot is where a Load stands in a request: chain lists the IDs of every Load of the URL, from the
+// root Layout down, and preload is true for a request of the router's preloading. The chain is
+// worked out when it is read, which a server render never does.
+export interface Slot {
+  chain: () => string[]
+  preload: boolean
+}
+
 // Source answers the RouteResult of one route at one URL.
-export type Source = (url: string, id: string) => Promise<RouteResult>
+export type Source = (url: string, id: string, slot: Slot) => Promise<RouteResult>
 
 // RouteError is what a loader throws for a failed Load. Error components receive it.
 export class RouteError extends Error {
@@ -73,10 +82,12 @@ export class RouteError extends Error {
   }
 }
 
-export const routeHeader = 'X-Tifa-Route'
+// dataParam is the query parameter of a data request. The server takes it off the URL.
+export const dataParam = '_tifa'
 
-// buildHeader carries the build ID of the page on its requests, the data requests and the calls
-// of handler functions. A server of another build answers 409 with its own build ID in it.
+// buildHeader carries the build ID of the page on the calls of handler functions and on the
+// session request, and a server of another build answers 409 with its own build ID in it, to a data
+// request too.
 export const buildHeader = 'X-Tifa-Build'
 
 // A handler function of call.ts sends callHeader. A redirect then comes as 200 and Redirected,
@@ -119,32 +130,45 @@ export function sameURL(a: string, b: string) {
 interface Waiter {
   resolve: (result: RouteResult) => void
   reject: (error: unknown) => void
+  preload: boolean
+}
+
+// Batch is the loads asked for one URL in one turn. They share a chain, since one URL has one.
+interface Batch {
+  url: string
+  chain: string[]
+  waiters: Map<string, Waiter[]>
+}
+
+// dataURL is the URL of the data request for the routes of batch: the page URL, and _tifa with the
+// build, a digit for each Load of the chain and .p when every load is a preload.
+function dataURL(batch: Batch, build: string) {
+  const digits = batch.chain.map((id) => (batch.waiters.has(id) ? '1' : '0')).join('')
+  const preload = [...batch.waiters.values()].every((list) => list.every((w) => w.preload))
+  const sep = batch.url.includes('?') ? '&' : '?'
+  return `${batch.url}${sep}${dataParam}=${build}.${digits}${preload ? '.p' : ''}`
 }
 
 // collector merges the loader calls made in one turn of the event loop into one request per URL.
 // buildId returns the build the page was rendered with.
 export function collector(buildId: () => string): Source {
-  let pending = new Map<string, Map<string, Waiter[]>>()
+  let pending = new Map<string, Batch>()
   let scheduled = false
   const flush = () => {
-    const batch = pending
+    const batches = pending
     pending = new Map()
     scheduled = false
-    for (const [url, waiters] of batch) void request(url, waiters)
+    for (const batch of batches.values()) void request(batch)
   }
-  const request = async (url: string, waiters: Map<string, Waiter[]>) => {
+  const request = async ({ url, waiters, ...rest }: Batch) => {
     const seq = beginSession()
     try {
       // A redirect of the server arrives as JSON (Redirected). One that still comes as 3xx,
-      // from a proxy say, is not followed with the headers of this page: the browser loads
+      // from a proxy say, is not followed with the parameter of this request: the browser loads
       // the URL as a whole page and follows it there.
-      const response = await fetch(url, {
+      const response = await fetch(dataURL({ url, waiters, ...rest }, buildId()), {
         redirect: 'manual',
-        headers: {
-          Accept: 'application/json',
-          [routeHeader]: [...waiters.keys()].join(','),
-          [buildHeader]: buildId(),
-        },
+        headers: { Accept: 'application/json' },
       })
       // The server runs another build and names it in buildHeader (a server of before did not).
       // Reload the current page from it, once however many requests got 409, and leave the
@@ -178,13 +202,17 @@ export function collector(buildId: () => string): Source {
       for (const list of waiters.values()) for (const waiter of list) waiter.reject(error)
     }
   }
-  return (url, id) =>
+  return (url, id, slot) =>
     new Promise<RouteResult>((resolve, reject) => {
-      let ids = pending.get(url)
-      if (!ids) pending.set(url, (ids = new Map()))
-      let list = ids.get(id)
-      if (!list) ids.set(id, (list = []))
-      list.push({ resolve, reject })
+      const { preload } = slot
+      const chain = slot.chain()
+      if (!chain.includes(id)) return reject(new Error(`route ${id} is not on the chain of ${url}: ${chain.join(', ')}`))
+      const key = url + '\n' + chain.join(',')
+      let batch = pending.get(key)
+      if (!batch) pending.set(key, (batch = { url, chain, waiters: new Map() }))
+      let list = batch.waiters.get(id)
+      if (!list) batch.waiters.set(id, (list = []))
+      list.push({ resolve, reject, preload })
       if (!scheduled) {
         scheduled = true
         setTimeout(flush, 0)

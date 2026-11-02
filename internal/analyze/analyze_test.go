@@ -343,6 +343,10 @@ func TestViolations(t *testing.T) {
 			{"filter/filter.go:12:", "c.BindQuery"},
 			{"app/list/route.go:20:", "c.Bind", "request body", "c.Query"},
 		}},
+		{"reservedquery", [][]string{
+			{"app/list/route.go:9:", `"_tifa"`, "reserved"},
+			{"app/list/route.go:9:", `"_tifa"`, "reserved"},
+		}},
 		{"ctxflow", [][]string{
 			{"app/page/route.go:26:", "element of map[int]*tifa.Ctx"},
 			{"app/page/route.go:27:", "converted to any"},

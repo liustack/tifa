@@ -17,7 +17,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -302,6 +301,16 @@ func start(t *testing.T, exe string, args ...string) (base string, cmd *exec.Cmd
 	return base, cmd, output
 }
 
+// dataURL is the URL of the navigation data of url: the page URL and `_tifa=<build>.<layers>`, with a
+// digit for each Load on the chain of the page, from the root Layout down, 1 for the ones it asks for.
+func dataURL(url, build, layers string) string {
+	sep := "?"
+	if strings.Contains(url, "?") {
+		sep = "&"
+	}
+	return url + sep + "_tifa=" + build + "." + layers
+}
+
 func get(t *testing.T, url string, header ...string) (int, http.Header, string) {
 	t.Helper()
 	req, err := http.NewRequest("GET", url, nil)
@@ -486,7 +495,7 @@ func TestPagesApp(t *testing.T) {
 
 	// A page renders in the VM with the Loads' data.
 	status, header, body := get(t, base+"/shops/north/items/apple")
-	if status != 200 || header.Get("X-Tifa-Render") != "vm" || !slices.Contains(header.Values("Vary"), "X-Tifa-Route") {
+	if status != 200 || header.Get("X-Tifa-Render") != "vm" {
 		t.Errorf("page: %d %v", status, header)
 	}
 	// No Cache-Control from the app: a shared cache must not store the page.
@@ -510,7 +519,7 @@ func TestPagesApp(t *testing.T) {
 	}
 	// Data made of what could break a page reaches it, and the browser, as the text Go wrote: the
 	// server fills the page with the data after the VM wrote it, in every form the page goes out in.
-	_, _, answer := get(t, base+"/hostile", "X-Tifa-Route", "app/hostile/route", "X-Tifa-Build", built.BuildID)
+	_, _, answer := get(t, dataURL(base+"/hostile", built.BuildID, "001"))
 	var hostileAnswer struct {
 		Routes map[string]struct{ Data json.RawMessage }
 	}
@@ -542,7 +551,7 @@ func TestPagesApp(t *testing.T) {
 	}
 	// The error page of a Load that failed below a Layout keeps the data of the Layout, which is long
 	// enough to be a slot, and carries it as the VM would have written it.
-	_, _, banner := get(t, base+"/hostile/gone", "X-Tifa-Route", "app/hostile/layout", "X-Tifa-Build", built.BuildID)
+	_, _, banner := get(t, dataURL(base+"/hostile/gone", built.BuildID, "010"))
 	var layoutAnswer struct {
 		Routes map[string]struct{ Data json.RawMessage }
 	}
@@ -596,14 +605,14 @@ func TestPagesApp(t *testing.T) {
 	// find the cache.
 	checkBurst(t, base+"/shops/south?sort=desc", 20)
 	// A navigation asks for the listed routes and gets their results by route ID.
-	status, header, body = get(t, base+"/shops/north/items/apple", "X-Tifa-Route", "app/shops/shop+/layout,app/shops/shop+/items/item+/route", "X-Tifa-Build", built.BuildID)
-	if status != 200 || !slices.Contains(header.Values("Vary"), "X-Tifa-Route") || body != `{"routes":{"app/shops/shop+/items/item+/route":{"status":200,"data":{"id":"apple","title":"Apple","price":1.5,"tags":["fruit"]}},"app/shops/shop+/layout":{"status":200,"data":{"id":"north","name":"Shop north"}}}}` {
+	status, header, body = get(t, dataURL(base+"/shops/north/items/apple", built.BuildID, "011"))
+	if status != 200 || body != `{"routes":{"app/shops/shop+/items/item+/route":{"status":200,"data":{"id":"apple","title":"Apple","price":1.5,"tags":["fruit"]}},"app/shops/shop+/layout":{"status":200,"data":{"id":"north","name":"Shop north"}}}}` {
 		t.Errorf("data request: %d %v %s", status, header, body)
 	}
 	if got := header.Get("Cache-Control"); got != "private, no-cache" {
 		t.Errorf("data request Cache-Control %q", got)
 	}
-	if status, _, _ := get(t, base+"/shops/north", "X-Tifa-Route", "app/shops/shop+/layout", "X-Tifa-Build", "old"); status != 409 {
+	if status, _, _ := get(t, dataURL(base+"/shops/north", "old", "1")); status != 409 {
 		t.Errorf("other build: %d", status)
 	}
 	// 404 at every level renders the right Error with status 404.

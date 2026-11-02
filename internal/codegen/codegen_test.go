@@ -228,13 +228,15 @@ func TestRemountFollowsTheParametersLoadReads(t *testing.T) {
 	}
 	tree := string(files["routes.tsx"])
 	for _, want := range []string{
-		`load<D3>(context, "app/projects/projectId+/route", location),
+		`load<D3>(context, "app/projects/projectId+/route", location, preload),
+  staticData: { load: "app/projects/projectId+/route" },
   staleTime: Infinity,
   preloadStaleTime: Infinity,
   remountDeps: ({ params }) => [params.projectId],`,
 		`remountDeps: ({ params }) => [params.orderId],`,
 		`remountDeps: ({ params }) => [params._splat],`,
-		`load<D2>(context, "app/projects/projectId+/layout", location),
+		`load<D2>(context, "app/projects/projectId+/layout", location, preload),
+  staticData: { load: "app/projects/projectId+/layout" },
   staleTime: Infinity,
   preloadStaleTime: Infinity,
   remountDeps: ({ params }) => [params.projectId],`,

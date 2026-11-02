@@ -28,10 +28,10 @@ import (
 	"github.com/liustack/tifa/internal/ssr"
 )
 
-// Headers of the navigation data protocol, see js/runtime/data.ts.
+// Headers of the page protocol, see js/runtime/data.ts. A navigation data request has no header
+// of its own: it is the URL of the page with the query parameter core.DataParam.
 const (
-	routeHeader  = "X-Tifa-Route"
-	buildHeader  = "X-Tifa-Build"
+	buildHeader  = "X-Tifa-Build"  // the build a call comes from, and the build a 409 names
 	renderHeader = "X-Tifa-Render" // how a page was answered: vm, shared, cache or none
 )
 
@@ -475,7 +475,7 @@ func sameError(a, b error) bool {
 }
 
 // pageHandler answers GET for a page:
-//   - with X-Tifa-Route, the data of the listed routes as JSON
+//   - with the _tifa parameter, the data of the routes it asks for as JSON
 //   - with SSR on its chain, the HTML the VM renders, or 304, or the cached HTML (unless RenderCache = false)
 //   - with SSR = false somewhere on its chain, a minimal document carrying the data
 //
@@ -486,9 +486,6 @@ func (s *Server) pageHandler(r Route, chain []load) func(*tifa.Ctx) error {
 		if !s.pagesServed() {
 			return loadsAsJSON(c, chain)
 		}
-		// Added, not set: the Vary of OnRequest, such as Cookie, must stay for caches to keep
-		// the answers of two users apart. No Load runs yet, so the header map is not shared.
-		c.Writer().Header().Add("Vary", routeHeader)
 		if c.IsData() {
 			return s.dataRequest(c, chain, r.Path)
 		}
@@ -518,7 +515,7 @@ func loadsAsJSON(c *tifa.Ctx, chain []load) error {
 	return c.JSON(http.StatusOK, data)
 }
 
-// dataRequest answers a client navigation: the results of the routes listed in X-Tifa-Route,
+// dataRequest answers a client navigation: the results of the routes that _tifa asks for,
 // each with its own status. A browser running another build gets 409 and reloads the page.
 // When a listed Load fails, Next returns the failure as it does for the page, and the answer
 // is written once OnRequest has returned (see Server.fail).
@@ -551,19 +548,23 @@ func (s *Server) buildChanged(c *tifa.Ctx) error {
 	return tifa.Error{Status: http.StatusConflict, Message: "the application was updated, reload the page"}
 }
 
-// listedLoads returns the Loads of chain that a data request lists in X-Tifa-Route, each once.
+// listedLoads returns the Loads of chain that a data request asks for with the digits of _tifa,
+// one for each Load of the chain. A different number of digits is a 400, since the page and the
+// server then do not mean the same chain.
 func (s *Server) listedLoads(c *tifa.Ctx, chain []load) ([]load, error) {
-	if c.Header(buildHeader) != s.front.Load().build.ID {
+	d := core.Data(c)
+	if d.Valid && d.Build != s.front.Load().build.ID {
 		return nil, s.buildChanged(c)
 	}
+	if !d.Valid {
+		return nil, tifa.Error{Status: http.StatusBadRequest, Message: "the query parameter _tifa is not <build>.<digits>"}
+	}
+	if len(d.Layers) != len(chain) {
+		return nil, tifa.Error{Status: http.StatusBadRequest, Message: fmt.Sprintf("_tifa has %d digits, the data of this URL has %d routes", len(d.Layers), len(chain))}
+	}
 	var selected []load
-	for _, id := range strings.Split(c.Header(routeHeader), ",") {
-		id = strings.TrimSpace(id)
-		i := slices.IndexFunc(chain, func(l load) bool { return l.id == id })
-		if i < 0 {
-			return nil, tifa.Error{Status: http.StatusBadRequest, Message: fmt.Sprintf("route %q has no data at this URL", id)}
-		}
-		if !slices.ContainsFunc(selected, func(l load) bool { return l.id == id }) {
+	for i, bit := range []byte(d.Layers) {
+		if bit == '1' {
 			selected = append(selected, chain[i])
 		}
 	}

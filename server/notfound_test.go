@@ -77,19 +77,15 @@ func TestUnmatchedURLRunsItsLayouts(t *testing.T) {
 	if len(patterns) != 1 || patterns[0] != "" || !errors.Is(nexts[0], tifa.ErrNotFound) {
 		t.Errorf("OnRequest saw patterns %q and %v", patterns, nexts)
 	}
-	if v := w.Header().Values("Vary"); !strings.Contains(strings.Join(v, ","), routeHeader) {
-		t.Errorf("Vary %q", v)
-	}
-
-	w = get(s, "/projects/p9/missing", routeHeader, "app/projects", buildHeader, "b1")
+	w = getData(s, "/projects/p9/missing", "b1", "01")
 	items := routesOf(t, w)
 	if w.Code != 404 || len(items) != 1 || items["app/projects"].Status != 200 {
 		t.Errorf("data request: %d %s", w.Code, w.Body.String())
 	}
-	if w := get(s, "/projects/p9/missing", routeHeader, "app/projects/orders", buildHeader, "b1"); w.Code != 400 {
+	if w := getData(s, "/projects/p9/missing", "b1", "001"); w.Code != 400 {
 		t.Errorf("data request for a route the URL does not load: %d %s", w.Code, w.Body.String())
 	}
-	if w := get(s, "/projects/p9/missing", routeHeader, "app/projects", buildHeader, "old"); w.Code != 409 {
+	if w := getData(s, "/projects/p9/missing", "old", "01"); w.Code != 409 {
 		t.Errorf("data request of another build: %d %s", w.Code, w.Body.String())
 	}
 
@@ -98,7 +94,7 @@ func TestUnmatchedURLRunsItsLayouts(t *testing.T) {
 	if data := r.last(t); w.Code != 503 || data["app/projects"].Status != 503 || data["app/layout"].Status != 200 {
 		t.Errorf("failed Layout: %d %v", w.Code, data)
 	}
-	w = get(s, "/projects/broken/missing", routeHeader, "app/layout,app/projects", buildHeader, "b1")
+	w = getData(s, "/projects/broken/missing", "b1", "11")
 	if items = routesOf(t, w); w.Code != 200 || items["app/projects"].Status != 503 {
 		t.Errorf("data request with a failed Layout: %d %s", w.Code, w.Body.String())
 	}

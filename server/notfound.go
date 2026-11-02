@@ -156,15 +156,14 @@ func (p *notFoundPage) Error() string { return tifa.ErrNotFound.Error() }
 func (p *notFoundPage) Unwrap() error { return tifa.ErrNotFound }
 
 // unmatched answers a URL that matches no route. A GET or HEAD of an application with pages runs
-// the Loads of the Layouts its 404 shows inside (notFoundAt), all of them for a page and those listed
-// in X-Tifa-Route for a data request, as a page runs those of its chain. Anything else is
+// the Loads of the Layouts its 404 shows inside (notFoundAt), all of them for a page and those that
+// _tifa asks for in a data request, as a page runs those of its chain. Anything else is
 // tifa.ErrNotFound. c.Pattern() stays empty.
 func (s *Server) unmatched(c *tifa.Ctx) error {
 	r := c.Request()
 	if !s.pagesServed() || r.Method != "GET" && r.Method != "HEAD" {
 		return tifa.ErrNotFound
 	}
-	c.Writer().Header().Add("Vary", routeHeader)
 	layout := s.notFoundAt(r)
 	at := s.layouts[layout]
 	if c.IsData() {

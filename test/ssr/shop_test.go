@@ -50,6 +50,16 @@ var shopRoutes = []struct{ url, routes, want, forbidden string }{
 	{"/projects/weekend/stats", "app/layout,app/projects/project+/layout,app/projects/project+/stats/route", "¥1,689.00", "¥14,134.00"},
 }
 
+// dataURL is the URL of the navigation data of url: the browser asks for every Load of the chain
+// of the page, which routes lists by route ID, with one digit for each.
+func dataURL(url, build, routes string) string {
+	sep := "?"
+	if strings.Contains(url, "?") {
+		sep = "&"
+	}
+	return url + sep + "_tifa=" + build + "." + strings.Repeat("1", strings.Count(routes, ",")+1)
+}
+
 // shopBundle returns the shop's SSR bundle and its comparison pages. The data of each
 // page is what the shop's own program injects: the test runs bin/shop and asks it for the
 // navigation data of each page, and writes the data of each route as JSON text, as the program
@@ -74,12 +84,10 @@ func shopBundle(t testing.TB) (string, []shopPage) {
 	base := startShop(t)
 	var pages []shopPage
 	for _, r := range shopRoutes {
-		req, err := http.NewRequest("GET", base+r.url, nil)
+		req, err := http.NewRequest("GET", base+dataURL(r.url, built.BuildID, r.routes), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		req.Header.Set("X-Tifa-Route", r.routes)
-		req.Header.Set("X-Tifa-Build", built.BuildID)
 		res, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)

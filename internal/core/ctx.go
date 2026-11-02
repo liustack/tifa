@@ -96,7 +96,7 @@ func (c *Ctx) Cookie(name string) (*http.Cookie, error) { return c.r.Cookie(name
 func (c *Ctx) Pattern() string { return c.pattern }
 
 // IsData reports whether this is a client navigation asking for route data.
-func (c *Ctx) IsData() bool { return c.r.Header.Get("X-Tifa-Route") != "" }
+func (c *Ctx) IsData() bool { return DataOf(c.r) != nil }
 
 // SetBodyLimit changes the request body limit. Call it before anything reads the body, on the goroutine
 // that handles the request, usually in OnRequest. Once reading has started it returns an error and the

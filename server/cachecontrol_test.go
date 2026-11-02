@@ -18,7 +18,6 @@ func cacheControl(w *httptest.ResponseRecorder) string { return w.Header().Get("
 // CDN that caches answers without a Cache-Control never keeps a page meant for one visitor.
 func TestPagesAnswerPrivateNoCache(t *testing.T) {
 	s, r := newFrontServer(t, frontApp())
-	data := []string{"X-Tifa-Route", "app/layout", "X-Tifa-Build", "b1"}
 	page := get(s, "/projects/p1")
 	for _, tc := range []struct {
 		name string
@@ -30,7 +29,7 @@ func TestPagesAnswerPrivateNoCache(t *testing.T) {
 		{"page of the HTML cache, first", get(s, "/stats"), 200},
 		{"page of the HTML cache, again", get(s, "/stats"), 200},
 		{"page conditional", get(s, "/projects/p1", "If-None-Match", page.Header().Get("ETag")), 304},
-		{"data request", get(s, "/projects/p1", data...), 200},
+		{"data request", getData(s, "/projects/p1", "b1", "100"), 200},
 		{"404 page", get(s, "/nowhere"), 404},
 	} {
 		if tc.w.Code != tc.code || cacheControl(tc.w) != defaultCache {
@@ -82,7 +81,11 @@ func TestHandlersAnswerPrivateNoCache(t *testing.T) {
 func TestApplicationCacheControlIsNotReplaced(t *testing.T) {
 	app := frontApp()
 	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
-		if c.Query("hook") != "" {
+		switch c.Query("hook") {
+		case "":
+		case "2":
+			c.SetHeader("Cache-Control", "no-store")
+		default:
 			c.SetHeader("Cache-Control", "public, max-age=60")
 		}
 		return next(c)
@@ -104,17 +107,22 @@ func TestApplicationCacheControlIsNotReplaced(t *testing.T) {
 		}},
 	)
 	s, _ := newFrontServer(t, app)
-	data := []string{"X-Tifa-Route", "app/layout", "X-Tifa-Build", "b1"}
 	for _, tc := range []struct {
 		name string
 		w    *httptest.ResponseRecorder
 		want string
 	}{
 		{"OnRequest, page", get(s, "/projects/p1?hook=1"), "public, max-age=60"},
-		{"OnRequest, data request", get(s, "/projects/p1?hook=1", data...), "public, max-age=60"},
+		// A navigation answer is never public, whatever sets it and however it ends. no-store stays.
+		{"OnRequest, data request", getData(s, "/projects/p1?hook=1", "b1", "100"), "private, no-cache"},
+		{"OnRequest, data request, no-store", getData(s, "/projects/p1?hook=2", "b1", "100"), "no-store"},
+		{"OnRequest, data request of an unknown URL", getData(s, "/nowhere?hook=1", "b1", "1"), "private, no-cache"},
+		{"OnRequest, data request of another build", getData(s, "/projects/p1?hook=1", "old", "100"), "private, no-cache"},
+		{"OnRequest, data request with wrong digits", getData(s, "/projects/p1?hook=1", "b1", "1"), "private, no-cache"},
+		{"OnRequest, data request redirected by ServeMux", getData(s, "/./projects/p1?hook=1", "b1", "100"), "private, no-cache"},
 		{"OnRequest, 404 page", get(s, "/nowhere?hook=1"), "public, max-age=60"},
 		{"Load, page", get(s, "/loaded"), "public, max-age=30"},
-		{"Load, data request", get(s, "/loaded", "X-Tifa-Route", "app/loaded", "X-Tifa-Build", "b1"), "public, max-age=30"},
+		{"Load, data request", getData(s, "/loaded", "b1", "01"), "private, no-cache"},
 		{"method handler", send(s, "POST", "/handled", "{}"), "no-store"},
 		{"handler writing by hand", get(s, "/own"), "max-age=5"},
 	} {
@@ -173,11 +181,18 @@ func TestErrorAnswersSayNoStore(t *testing.T) {
 			{"404", send(s, "PUT", "/api", "{}"), 404},
 			{"500", send(s, "PATCH", "/api", "{}"), 500},
 			{"405", send(s, "DELETE", "/api", ""), 405},
-			{"data request of another build", get(s, "/projects/p1", "X-Tifa-Route", "app/layout", "X-Tifa-Build", "old"), 409},
 		} {
 			if tc.w.Code != tc.code || cacheControl(tc.w) != want {
 				t.Errorf("set %q, %s: %d, Cache-Control %q, want %q", set, tc.name, tc.code, cacheControl(tc.w), want)
 			}
+		}
+		// A navigation answer is never public, so a public value of the application gives way.
+		dataWant := want
+		if set != "" {
+			dataWant = "private, no-cache"
+		}
+		if w := getData(s, "/projects/p1", "old", "100"); w.Code != 409 || cacheControl(w) != dataWant {
+			t.Errorf("set %q, data request of another build: %d, Cache-Control %q, want %q", set, w.Code, cacheControl(w), dataWant)
 		}
 		w := httptest.NewRecorder()
 		if set != "" {

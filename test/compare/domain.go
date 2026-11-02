@@ -40,12 +40,12 @@ func (e Env) GoData(ctx context.Context) (PageData, error) {
 
 	out := PageData{}
 	for _, page := range Pages {
-		req, err := http.NewRequestWithContext(ctx, "GET", shop.Base+page.URL, nil)
+		// Every Load of the chain, which Routes lists: a digit 1 for each.
+		url := shop.Base + page.URL + "?_tifa=" + built.BuildID + "." + strings.Repeat("1", strings.Count(page.Routes, ",")+1)
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 		if err != nil {
 			return nil, err
 		}
-		req.Header.Set("X-Tifa-Route", page.Routes)
-		req.Header.Set("X-Tifa-Build", built.BuildID)
 		res, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return nil, err

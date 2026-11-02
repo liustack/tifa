@@ -102,6 +102,20 @@ func routesOf(t *testing.T, w *httptest.ResponseRecorder) map[string]routeResult
 	return envelope.Routes
 }
 
+// getData requests the navigation data of target. layers has a digit for each Load on the chain of
+// the page, from the root Layout down, and a 1 asks for that Load.
+func getData(s *Server, target, build, layers string, header ...string) *httptest.ResponseRecorder {
+	return get(s, dataURL(target, build, layers), header...)
+}
+
+func dataURL(target, build, layers string) string {
+	sep := "?"
+	if strings.Contains(target, "?") {
+		sep = "&"
+	}
+	return target + sep + "_tifa=" + build + "." + layers
+}
+
 func get(s *Server, target string, header ...string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest("GET", target, nil)
 	for i := 0; i < len(header); i += 2 {
@@ -118,7 +132,7 @@ func TestPageRendersWithTheResultsOfItsChain(t *testing.T) {
 	if w.Code != 200 || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/html") || w.Header().Get("X-Tifa-Render") != "vm" {
 		t.Fatalf("%d %v %s", w.Code, w.Header(), w.Body.String())
 	}
-	if !varies(w, "X-Tifa-Route") || w.Header().Get("ETag") == "" {
+	if w.Header().Get("ETag") == "" {
 		t.Errorf("headers %v", w.Header())
 	}
 	in := r.inputs[0]
@@ -288,8 +302,8 @@ func TestPageWithoutSSRCarriesItsData(t *testing.T) {
 
 func TestDataRequestAnswersTheListedRoutes(t *testing.T) {
 	s, r := newFrontServer(t, frontApp())
-	w := get(s, "/projects/p1", "X-Tifa-Route", "app/projects/orders, app/projects", "X-Tifa-Build", "b1")
-	if w.Code != 200 || !varies(w, "X-Tifa-Route") || r.count() != 0 {
+	w := getData(s, "/projects/p1", "b1", "011")
+	if w.Code != 200 || r.count() != 0 {
 		t.Fatalf("%d %v %s", w.Code, w.Header(), w.Body.String())
 	}
 	got := routesOf(t, w)
@@ -297,14 +311,14 @@ func TestDataRequestAnswersTheListedRoutes(t *testing.T) {
 		t.Errorf("%s", w.Body.String())
 	}
 
-	w = get(s, "/projects/p1?site=missing", "X-Tifa-Route", "app/layout,app/projects", "X-Tifa-Build", "b1")
+	w = getData(s, "/projects/p1?site=missing", "b1", "110")
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"app/layout":{"status":404`) {
 		t.Errorf("per-route status: %d %s", w.Code, w.Body.String())
 	}
-	if w := get(s, "/projects/p1", "X-Tifa-Route", "app/layout", "X-Tifa-Build", "old"); w.Code != 409 {
+	if w := getData(s, "/projects/p1", "old", "100"); w.Code != 409 {
 		t.Errorf("other build: %d %s", w.Code, w.Body.String())
 	}
-	if w := get(s, "/projects/p1", "X-Tifa-Route", "app/login", "X-Tifa-Build", "b1"); w.Code != 400 {
+	if w := getData(s, "/projects/p1", "b1", "1000"); w.Code != 400 {
 		t.Errorf("route outside the chain: %d %s", w.Code, w.Body.String())
 	}
 }
@@ -653,7 +667,7 @@ func TestFrontWithoutPagesKeepsJSONErrors(t *testing.T) {
 	}
 }
 
-// The page answer varies on X-Tifa-Route as well as on whatever the application varies on.
+// The page answer and the navigation data both keep the Vary of the application.
 func TestPageKeepsTheVaryOfTheApplication(t *testing.T) {
 	app := frontApp()
 	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
@@ -661,11 +675,11 @@ func TestPageKeepsTheVaryOfTheApplication(t *testing.T) {
 		return next(c)
 	}
 	s, _ := newFrontServer(t, app)
-	for _, header := range [][]string{nil, {"X-Tifa-Route", "app/layout", "X-Tifa-Build", "b1"}} {
-		w := get(s, "/projects/p1", header...)
+	for _, target := range []string{"/projects/p1", dataURL("/projects/p1", "b1", "100")} {
+		w := get(s, target)
 		vary := strings.Join(w.Header().Values("Vary"), ", ")
-		if !strings.Contains(vary, "Cookie") || !strings.Contains(vary, "X-Tifa-Route") {
-			t.Errorf("%v: Vary %q", header, vary)
+		if !strings.Contains(vary, "Cookie") || strings.Contains(vary, "X-Tifa") {
+			t.Errorf("%s: Vary %q", target, vary)
 		}
 	}
 }
@@ -680,14 +694,13 @@ func TestDataRequestKeepsTheCacheControlOfTheApplication(t *testing.T) {
 		return next(c)
 	}
 	s, _ := newFrontServer(t, app)
-	data := []string{"X-Tifa-Route", "app/layout", "X-Tifa-Build", "b1"}
-	if w := get(s, "/projects/p1?private=1", data...); w.Header().Get("Cache-Control") != "private, no-store" {
+	if w := getData(s, "/projects/p1?private=1", "b1", "100"); w.Header().Get("Cache-Control") != "private, no-store" {
 		t.Errorf("data request: %v", w.Header())
 	}
 	if w := get(s, "/projects/p1?private=1"); w.Header().Get("Cache-Control") != "private, no-store" {
 		t.Errorf("page: %v", w.Header())
 	}
-	if w := get(s, "/projects/p1", data...); w.Header().Get("Cache-Control") != "private, no-cache" {
+	if w := getData(s, "/projects/p1", "b1", "100"); w.Header().Get("Cache-Control") != "private, no-cache" {
 		t.Errorf("default: %v", w.Header())
 	}
 }
@@ -820,8 +833,8 @@ func TestPagesAndJSONCarryTheirLength(t *testing.T) {
 		{"page from the cache", func() *httptest.ResponseRecorder { get(s, "/stats"); return get(s, "/stats") }(), 200},
 		{"page without SSR", get(s, "/login"), 200},
 		{"404 page", get(s, "/nowhere"), 404},
-		{"data request", get(s, "/projects/p1", "X-Tifa-Route", "app/layout", "X-Tifa-Build", "b1"), 200},
-		{"data request of another build", get(s, "/projects/p1", "X-Tifa-Route", "app/layout", "X-Tifa-Build", "old"), 409},
+		{"data request", getData(s, "/projects/p1", "b1", "100"), 200},
+		{"data request of another build", getData(s, "/projects/p1", "old", "100"), 409},
 		{"API error", send(newServer(Hooks{}), "GET", "/orders/missing", ""), 404},
 	} {
 		if got, want := tc.w.Header().Get("Content-Length"), strconv.Itoa(tc.w.Body.Len()); tc.w.Code != tc.status || got != want {

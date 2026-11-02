@@ -419,7 +419,7 @@ React 和 React DOM 至少要 19.3.0。Vite 插件是按 19.3 的写法改写 Re
 - 每个 `Load` 的结果是 `{status, data?, error?}`：成功为 200 带 `data`，`tifa.ErrNotFound` 为 404，其他错误带状态码与公开消息。
 - 路由 ID 指一个 `Load` 或 `Layout` 函数：页面和 API 路由（目录里的 `page.tsx` 和 `route.go`）是目录加 `/route`，Layout 是目录加 `/layout`，比如 `app/layout`、`app/projects/project+/route`。
 - 整页渲染的 VM 输入是 `{url, buildId, data: {路由 ID: 结果}, preload}`，与 `internal/ssr.Input` 一致。结果里有 `status`、`error` 和 `location`，成功的 `Load` 还有它的 JSON 文本的编号 `text`。文本本身不在输入里，而是 `startRender(json, ...texts)` 里输入之后的参数，按路由 ID 的顺序排列，所以 Go 不用把它们转义进输入的 JSON，VM 也不用再从里面解析出来。
-- 客户端导航时，同一轮事件循环里对同一 URL 的 loader 调用合并成一个 GET：请求头 `X-Tifa-Route: <路由 ID>,<路由 ID>` 与 `X-Tifa-Build: <构建 ID>`，`fetch` 不自动跟随重定向（`redirect: "manual"`）。回答有三种：
+- 客户端导航时，同一轮事件循环里对同一 URL 的 loader 调用合并成一个 GET：页面 URL 加保留的查询参数 `_tifa=<构建 ID>.<位图>`，例如 `/projects/studio?_tifa=1f3a9c.011`。位图的每一位对应这个 URL 链上的一个 `Load` 或 `Layout`，从根 Layout 到页面（没有函数的 Layout 或页面不占位），`1` 表示要这一层的数据。位数不等于链上 `Load` 的个数时服务器答 400。请求不带 tifa 的请求头，`fetch` 不自动跟随重定向（`redirect: "manual"`）。路由器预加载页面时（链接被鼠标悬停，`defaultPreload: 'intent'`），值以 `.p` 结尾，如 `_tifa=1f3a9c.011.p`。服务器照常回答，只有 URL 能区分（日志里能看出哪些请求是预加载）。这个标记不能让请求数等于页面浏览量：预加载的结果之后可以直接用于导航而不再发请求，数据失效后的重新加载又会多发一次。要准确统计浏览量，数浏览器完成的客户端导航（路由器事件）加整页请求。框架在你的代码运行前就把 `_tifa` 从请求里拿掉：`c.Query`、`c.QueryAll`、`c.Request().URL`、渲染用的 URL、ETag 和渲染缓存键里都没有它，所以 `OnRequest` 看到的页面和它的数据路径相同。`Load` 读名为 `_tifa` 的查询参数会让构建失败。用 `tifa.SetHTTPHandler` 挂的中间件看到的是原样的请求，带着 `_tifa`。回答有三种：
   - `{"routes": {路由 ID: 结果}, "session": ...}`：不论 HTTP 状态码，浏览器把 `routes` 逐项分发。应用有会话时才有 `session`，见[回答里的会话](#回答里的会话)。
   - `{"redirect": "<URL>", "status": <3xx>}`（应用有会话时带上本次请求的 `session`）：`OnRequest` 返回 `c.Redirect`、URL 的写法不规范（ServeMux 的重定向，状态码 308）等整个请求要跳转的情况，HTTP 状态码是 200。请求里每个路由都收到这个重定向，loader 抛出 TanStack 的 `redirect()`。
   - 其他：`OnRequest` 拒绝了整个请求，回答是 `{"error": 消息}` 与错误的状态码，同批 loader 一起以这个状态失败。
@@ -455,13 +455,13 @@ React 和 React DOM 至少要 19.3.0。Vite 插件是按 19.3 的写法改写 Re
 
 | 请求 | 回答 |
 | --- | --- |
-| 无 `X-Tifa-Route` | 并发执行匹配链上所有 `Load`。构建 ID、SSR 包、URL、访客的会话与结果的哈希作 ETag（写了 `RenderCache = false` 的页面和带渲染时钟的请求没有 ETag，总是渲染），`If-None-Match` 命中答 304。除了写了 `RenderCache = false` 的页面和带渲染时钟的请求，先查 HTML 缓存（按字节计的 LRU，容量 `cache.size`，0 关闭），未命中才进 VM，同一个键同时未命中的请求只进一次 |
+| 无 `_tifa` | 并发执行匹配链上所有 `Load`。构建 ID、SSR 包、URL、访客的会话与结果的哈希作 ETag（写了 `RenderCache = false` 的页面和带渲染时钟的请求没有 ETag，总是渲染），`If-None-Match` 命中答 304。除了写了 `RenderCache = false` 的页面和带渲染时钟的请求，先查 HTML 缓存（按字节计的 LRU，容量 `cache.size`，0 关闭），未命中才进 VM，同一个键同时未命中的请求只进一次 |
 | 同上，匹配链上有 `SSR = false` | 不进 VM，返回最简文档：资源标签与 `<script type="application/json" id="tifa-data">` 里的注入数据（各个 `Load` 的结果，JSON 文本在各自的 `json` 里，还有访客的会话 `session`），浏览器直接渲染，不再请求数据 |
-| 有 `X-Tifa-Route` | 只执行所列路由的 `Load` 或 `Layout`（`tifa.Use` 在本次请求内去重），答 200 与 `{"routes": {路由 ID: 结果}, "session": ...}`，每个路由带自己的状态。`X-Tifa-Build` 不是当前构建时答 409，所列路由不在匹配链上时答 400。出错与重定向见下文 |
+| 有 `_tifa=<构建 ID>.<位图>[.p]` | 只执行位图里是 `1` 的路由的 `Load` 或 `Layout`（`tifa.Use` 在本次请求内去重），答 200 与 `{"routes": {路由 ID: 结果}, "session": ...}`，每个路由带自己的状态。构建 ID 不是当前构建时答 409，值的形式不对或位数不等于匹配链上 `Load` 的个数时答 400。出错与重定向见下文 |
 
-所有走路由的回答（整页、304、数据请求、方法处理函数和重定向）都带 `Cache-Control: private, no-cache`，应用在 `OnRequest`、`Load`、`Layout` 或处理函数里自己设置过 `Cache-Control` 时保留应用的值。框架只在最终响应头发出时加这一次。JSON 错误、纯错误页、带错误的页面和过载回答发 `no-store`，应用在出错之前设过 `Cache-Control` 的除外。应用的 404 页面用默认值。
+所有走路由的回答（整页、304、数据请求、方法处理函数和重定向）都带 `Cache-Control: private, no-cache`，应用在 `OnRequest`、`Load`、`Layout` 或处理函数里自己设置过 `Cache-Control` 时保留应用的值。导航数据的回答（带 `_tifa` 的请求，不管状态码，409 和重定向也算）例外，它永远不是 public：应用设的值如果不是 `no-store`，也不是同时有 `private` 和 `no-cache`，就换成 `private, no-cache`。框架只在最终响应头发出时加这一次。JSON 错误、纯错误页、带错误的页面和过载回答发 `no-store`，应用在出错之前设过 `Cache-Control` 的除外。应用的 404 页面用默认值。
 
-页面响应都在应用设置的 `Vary`（比如 `OnRequest` 里的 `Vary: Cookie`）之外再加一行 `Vary: X-Tifa-Route`，并用 `X-Tifa-Render: vm|shared|cache|none` 说明这次是 VM 渲染、共用同时到的另一个请求发起的渲染、缓存命中还是没进 VM。页面和 JSON 回答不压缩发出时带 `Content-Length`。
+页面和它的导航数据是不同的 URL，只按 URL 做键的缓存会把两者分开，不需要为此加 `Vary`。回答保留应用设置的 `Vary`（比如 `OnRequest` 里的 `Vary: Cookie`）。`X-Tifa-Render: vm|shared|cache|none` 说明这次是 VM 渲染、共用同时到的另一个请求发起的渲染、缓存命中还是没进 VM。页面和 JSON 回答不压缩发出时带 `Content-Length`。
 
 出错时，`Load` 的错误先沿 `next` 交给 `OnRequest`，`OnRequest` 返回之后框架才处理：
 

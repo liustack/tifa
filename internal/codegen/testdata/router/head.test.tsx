@@ -397,6 +397,22 @@ test('the head follows data the router refetches in the background', async () =>
   })
 })
 
+// asked reads a data request the way the server does: the page URL, and the Loads of its chain
+// that the digits of _tifa ask for. The chains are those of the pages of the test app.
+const chains: Record<string, string[]> = {
+  '/a/one': ['app/layout', 'app/a/layout'],
+  '/a/two': ['app/layout', 'app/a/layout', 'app/a/two/route'],
+}
+function asked(url: string) {
+  const parsed = new URL(url, 'http://tifa.test')
+  const value = parsed.searchParams.get('_tifa') ?? ''
+  parsed.searchParams.delete('_tifa')
+  const digits = value.split('.')[1] ?? ''
+  const chain = chains[parsed.pathname]
+  assert(chain !== undefined && digits.length === chain.length, `data request ${url}`)
+  return { url: parsed.pathname + parsed.search, routes: chain.filter((_, i) => digits[i] === '1') }
+}
+
 // The router of a browser build loads in the background, which the Node build of
 // router.test.tsx does not.
 test('a write resolves once the page shows its new data', async () => {
@@ -404,7 +420,7 @@ test('a write resolves once the page shows its new data', async () => {
   let answers = 0
   g.fetch = async (url: string, init: RequestInit) => {
     if (init.method === 'POST') return Response.json({ result: { text: 'saved', next: null } })
-    const routes = (new Headers(init.headers).get('X-Tifa-Route') ?? '').split(',')
+    const { routes } = asked(url)
     answers++
     return Response.json({ routes: Object.fromEntries(routes.map((id) => [id, ok(`${id} ${answers}`)])) })
   }
@@ -434,8 +450,9 @@ test('a redirect of a handler call loads the target once, with fresh data', asyn
   g.fetch = async (url: string, init: RequestInit) => {
     const headers = new Headers(init.headers)
     if (headers.get('X-Tifa-Call')) return Response.json({ redirect: target, status: 303 }, { headers: { 'X-Tifa-Redirect': '303' } })
-    const routes = (headers.get('X-Tifa-Route') ?? '').split(',').sort()
-    fetched.push(url + ' ' + routes.join(','))
+    const { url: page, routes } = asked(url)
+    routes.sort()
+    fetched.push(page + ' ' + routes.join(','))
     // Each answer is new data, so the page shows which request its data came from.
     return Response.json({ routes: Object.fromEntries(routes.map((id) => [id, ok(`${id} ${fetched.length}`)])) })
   }
@@ -480,8 +497,9 @@ test('a redirect to the page that shows, spelled another way, reloads its data i
     const headers = new Headers(init.headers)
     // The server writes the query of the page in another order and encoding than the router.
     if (headers.get('X-Tifa-Call')) return Response.json({ redirect: '/a/two?a=1&b=x%20y', status: 303 }, { headers: { 'X-Tifa-Redirect': '303' } })
-    const routes = (headers.get('X-Tifa-Route') ?? '').split(',').sort()
-    fetched.push(url + ' ' + routes.join(','))
+    const { url: page, routes } = asked(url)
+    routes.sort()
+    fetched.push(page + ' ' + routes.join(','))
     return Response.json({ routes: Object.fromEntries(routes.map((id) => [id, ok(`${id} ${fetched.length}`)])) })
   }
   g.location = { ...saved.location, assign: (url: string) => fetched.push('assign ' + url) }
