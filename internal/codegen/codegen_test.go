@@ -625,6 +625,43 @@ func TestRouteGenHoldsLayoutAndHandlersOfOneDirectory(t *testing.T) {
 		t.Errorf("app/desk/inbox/route.gen.ts:\n%s", inbox)
 	}
 }
+
+// session.gen.ts holds SessionData: what Browser returns when the session type has the method,
+// never when it has none or the app has no session.
+func TestSessionGen(t *testing.T) {
+	want := map[string]string{
+		"session": tsHeader + `
+// SessionEnabled is true when the app calls tifa.SetSession.
+export type SessionEnabled = true
+
+type GoPublic = { name: string; admin: boolean; boss: GoPublic | null }
+
+// SessionData is what the Browser method of the session type returns, as JSON.
+export type SessionData = GoPublic
+`,
+		"plain": tsHeader + `
+// SessionEnabled is true when the app calls tifa.SetSession.
+export type SessionEnabled = true
+
+// The app has no session type with a Browser method.
+export type SessionData = never
+`,
+		"bare": tsHeader + `
+// SessionEnabled is true when the app calls tifa.SetSession.
+export type SessionEnabled = false
+
+// The app has no session type with a Browser method.
+export type SessionData = never
+`,
+	}
+	for app, text := range want {
+		files := generate(t, app, false)
+		if got := string(files["session.gen.ts"]); got != text {
+			t.Errorf("%s: session.gen.ts =\n%s\nwant\n%s", app, got, text)
+		}
+	}
+}
+
 func TestPublicMayNotHoldTifaPaths(t *testing.T) {
 	m, err := analyze.Analyze(filepath.Join("testdata", "bare"))
 	if err != nil {
