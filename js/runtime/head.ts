@@ -78,6 +78,9 @@ function withHTMLAttributes(head: HeadResult): unknown {
   return { ...rest, meta: [...(rest.meta ?? []), { [htmlKey]: htmlAttributes }] }
 }
 
+// data-session is kept on <html> by tifa, from the session of the request (session.tsx).
+const reservedAttribute = 'htmlAttributes cannot set data-session on <html>: tifa keeps it, from the session of the request'
+
 // htmlAttributesOf merges the htmlAttributes of the matches over base, attribute by attribute,
 // the deepest route that gives an attribute winning, as the title does. Only the matches the
 // page shows count, the first one that did not load included. Attributes are one when React DOM
@@ -90,6 +93,7 @@ export function htmlAttributesOf(all: ReadonlyArray<HeadMatch>, base: HTMLAttrib
     for (const key of Object.keys(attrs)) {
       const value = attrs[key]
       if (value === undefined || key === '__proto__') continue
+      if (key.toLowerCase() === 'data-session') throw new Error(reservedAttribute)
       merged.set((aliases.get(key) ?? key).toLowerCase(), [key, value])
     }
   }

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -338,5 +340,53 @@ func TestCallRedirectCarriesTheSessionAndAnErrorDoesNot(t *testing.T) {
 	w = postJSON(s, "/fail", `{}`, call...)
 	if w.Code != 400 || strings.Contains(w.Body.String(), "session") {
 		t.Errorf("error: %d %s", w.Code, w.Body.String())
+	}
+}
+
+// The script at the start of the head sets data-session="in" from the mirror, and only when the
+// server wrote no data-session. It runs in Node against a fake document and localStorage.
+func TestSessionHeadScript(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed")
+	}
+	head := sessionHead("__Host-tifa_session:v1")
+	script := strings.TrimSuffix(strings.TrimPrefix(head[:strings.Index(head, "</script>")], "<script>"), "</script>")
+	if strings.Contains(script, "<") {
+		t.Fatalf("script %s", script)
+	}
+	cases := []struct {
+		name, attribute, stored string // stored "THROW" makes localStorage throw, "" has no record
+		want                    string
+	}{
+		{"mirror says signed in", "", `{"signedIn":true,"data":{"name":"Ann"}}`, "in"},
+		{"signed in without data", "", `{"signedIn":true}`, "in"},
+		{"no record", "", "", ""},
+		{"signed out record", "", `{"signedIn":false}`, ""},
+		{"broken record", "", `not json`, ""},
+		{"not an envelope", "", `[true]`, ""},
+		{"null record", "", `null`, ""},
+		{"localStorage throws", "", "THROW", ""},
+		{"the server wrote in", "in", "", "in"},
+		{"the server wrote something else", "out", `{"signedIn":true}`, "out"},
+	}
+	for _, tc := range cases {
+		program := `
+const attrs = new Map(); if (process.env.ATTR) attrs.set("data-session", process.env.ATTR)
+const stored = process.env.STORED
+globalThis.document = { documentElement: {
+  hasAttribute: (n) => attrs.has(n), setAttribute: (n, v) => attrs.set(n, v), getAttribute: (n) => attrs.get(n) ?? null } }
+globalThis.localStorage = { getItem: (k) => {
+  if (k !== "__Host-tifa_session:v1") throw new Error("wrong key " + k)
+  if (stored === "THROW") throw new Error("denied")
+  return stored === "" ? null : stored } }
+eval(process.env.SCRIPT)
+process.stdout.write(attrs.get("data-session") ?? "")`
+		cmd := exec.Command(node, "-e", program)
+		cmd.Env = append(os.Environ(), "ATTR="+tc.attribute, "STORED="+tc.stored, "SCRIPT="+script)
+		out, err := cmd.CombinedOutput()
+		if err != nil || string(out) != tc.want {
+			t.Errorf("%s: got %q, want %q (%v)", tc.name, out, tc.want, err)
+		}
 	}
 }

@@ -3,6 +3,7 @@ import { prerenderToString } from 'react-dom/server.edge'
 import { RouterProvider, type AnyRoute } from '@tanstack/react-router'
 import { attachRouterServerSsrUtils } from '@tanstack/react-router/ssr/server'
 import { askedByLoad, createAppRouter } from './router'
+import { initialSnapshot, SessionContext, type SessionEnvelope } from './session'
 import { injected, rootElementId, RouteError, type Injected, type InjectedResult, type Source } from './data'
 import {
   attributes,
@@ -71,6 +72,12 @@ export type RenderInput = Omit<Injected, 'data'> & {
   nonce?: string
   // The length from which a text goes into the page as a slot, slotMin below unless a test sets it.
   slotMin?: number
+  // For an app with sessions: where the browser keeps its copy, the session of the request (none
+  // for a page the server answers for every visitor alike), and the script and the style that go
+  // at the start of the head, written by Go (sessionHead in server/sessionwire.go).
+  sessionKey?: string
+  session?: SessionEnvelope
+  sessionHead?: string
   // An error the page shows in place of what failed at a level of its matches, set when a render of
   // the page failed (see placed).
   error?: PlacedError
@@ -137,7 +144,15 @@ function canonicalStatus(redirect: Response) {
 // scripts are written as strings, so a page that failed at any level still comes as a whole
 // document.
 export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defaultHTMLAttributes) {
-  const documentStart = (attrs: HTMLAttributes) => '<!DOCTYPE html><html' + attributes(attrs) + '><head><meta charset="utf-8">'
+  // data-session is "in" or "out" on a page that carries the session, and absent on a page that
+  // carries none: only that page lets the head script read the copy in the browser.
+  // htmlAttributesOf refuses a data-session of the app.
+  const documentStart = (attrs: HTMLAttributes, input?: RenderInput) =>
+    '<!DOCTYPE html><html' +
+    (input?.session ? (input.session.signedIn ? ' data-session="in"' : ' data-session="out"') : '') +
+    attributes(attrs) +
+    '><head><meta charset="utf-8">' +
+    (input?.sessionHead ?? '')
   // The root Layout's attributes fail here, when the bundle loads, rather than in every render.
   documentStart(htmlAttributesOf([], htmlAttributes))
   const assetTags = __TIFA_ASSETS__
@@ -147,6 +162,8 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
     const router = createAppRouter(routeTree, renderSource(input, texts), {
       buildId: input.buildId,
       serverURL: input.url,
+      sessionKey: input.sessionKey,
+      session: input.session,
     })
     attachRouterServerSsrUtils({ router, manifest: undefined })
     globalThis.renderResult = undefined
@@ -168,10 +185,16 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
         const errors: unknown[] = []
         const stop = new AbortController()
         globalThis.stopRender = () => stop.abort()
-        const root = await prerenderToString(<RouterProvider router={router} />, {
-          onError: (error) => errors.push(error),
-          signal: stop.signal,
-        })
+        const rendered = input.sessionKey === undefined ? undefined : initialSnapshot(input.session)
+        const root = await prerenderToString(
+          <SessionContext.Provider value={rendered}>
+            <RouterProvider router={router} />
+          </SessionContext.Provider>,
+          {
+            onError: (error) => errors.push(error),
+            signal: stop.signal,
+          },
+        )
         globalThis.stopRender = undefined
         // React swallows an error thrown inside a Suspense boundary, and the router
         // wraps the routes in one: the boundary renders its fallback and leaves the marker of a
@@ -189,7 +212,7 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
         router.serverSsr!.setRenderFinished()
         const matches = router.stores.matches.get()
         const html =
-          documentStart(htmlAttributesOf(matches, htmlAttributes)) +
+          documentStart(htmlAttributesOf(matches, htmlAttributes), input) +
           assetTags +
           (input.preload ?? '') +
           headStart +

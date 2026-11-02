@@ -2,6 +2,7 @@
 // method handler of route.go: GET, POST, PUT, PATCH and DELETE.
 
 import { buildHeader, callHeader, isRedirected, redirectHeader } from './data'
+import { acceptSession, beginSession } from './session'
 import { reloadForBuild } from './skew'
 
 // TifaError is what a handler function throws when the server answers with an error. message is
@@ -26,8 +27,9 @@ export interface CallOptions {
   invalidate?: boolean
 }
 
-// How the answer of a handler is read: its JSON result, nothing (204), or the Response itself
-// for a handler that writes its own response.
+// How the answer of a handler is read: its JSON result, nothing (204 or the session alone), or the
+// Response itself for a handler that writes its own response. An answer that is read comes as
+// {result?, session?}: the session is there when the call signed someone in or out.
 export type Answer = 'json' | 'none' | 'raw'
 
 // Router is what a handler function needs of the router of the page: reloading the loaded data
@@ -83,6 +85,7 @@ export async function call(
       init.body = JSON.stringify(options.input)
     }
   }
+  const seq = beginSession()
   const response = await fetch(url, init)
   // A 409 that names a build is that refusal, no 409 of the handler. The page reloads, once per
   // build. The write is not sent again, since the new page may mean another input by it. The
@@ -95,6 +98,7 @@ export async function call(
   if (response.headers.has(redirectHeader)) {
     const body: unknown = await response.clone().json()
     if (!isRedirected(body)) throw new Error(`${method} ${url} was answered with a redirect without a URL`)
+    acceptSession(seq, body.session)
     await follow(body.redirect, method, options)
     return answer === 'raw' ? response : undefined
   }
@@ -103,7 +107,14 @@ export async function call(
     return response
   }
   if (!response.ok) throw await failure(response)
-  const result = answer === 'json' ? await response.json() : undefined
+  let result: unknown
+  // 204 is a call that changed nothing of the session. Anything else is the envelope.
+  if (response.status !== 204) {
+    const body: unknown = await response.json()
+    if (typeof body !== 'object' || body === null) throw new Error(`${method} ${url} was answered with something other than {result, session}`)
+    acceptSession(seq, (body as { session?: unknown }).session)
+    if (answer === 'json') result = (body as { result?: unknown }).result
+  }
   await refresh(method, options)
   return result
 }

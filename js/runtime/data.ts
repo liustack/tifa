@@ -3,10 +3,12 @@
 // Every Load result travels as a RouteResult. A whole-page render gets them injected by Go
 // (Injected), a client navigation asks for them with one request per URL: a GET of the page URL
 // with the header X-Tifa-Route listing the route IDs and X-Tifa-Build carrying the build ID the
-// page was rendered with. The answer is a JSON object of RouteResult by route ID, each route
-// read on its own whatever the HTTP status. A redirect comes as 200 and Redirected. A server
+// page was rendered with. The answer is an envelope {routes, session}: routes holds a
+// RouteResult by route ID, each route read on its own whatever the HTTP status, and session the
+// session of the request when the app has sessions (session.tsx). A redirect comes as 200 and Redirected. A server
 // built from other sources answers 409, and the browser reloads the current page (skew.ts).
 
+import { acceptSession, beginSession, type SessionEnvelope } from './session'
 import { reloadForBuild } from './skew'
 
 // RouteResult is the outcome of one Load. status is 200 with data, 404 when the Load returned
@@ -43,6 +45,10 @@ export interface Injected {
   url: string
   buildId: string
   data: Record<string, InjectedResult>
+  // Where the browser keeps its copy of the session, and the session of the request. Only an app
+  // with sessions sends a key.
+  sessionKey?: string
+  session?: SessionEnvelope
 }
 
 // Boot is what a page rendered without SSR carries in <script id="tifa-data">: the results of
@@ -127,6 +133,7 @@ export function collector(buildId: () => string): Source {
     for (const [url, waiters] of batch) void request(url, waiters)
   }
   const request = async (url: string, waiters: Map<string, Waiter[]>) => {
+    const seq = beginSession()
     try {
       // A redirect of the server arrives as JSON (Redirected). One that still comes as 3xx,
       // from a proxy say, is not followed with the headers of this page: the browser loads
@@ -151,15 +158,17 @@ export function collector(buildId: () => string): Source {
       }
       const body: unknown = await response.json().catch(() => undefined)
       if (isRedirected(body)) {
+        acceptSession(seq, body.session)
         // Every route of the request gets the redirect, and its loader throws redirect().
         for (const list of waiters.values())
           for (const waiter of list) waiter.resolve({ status: body.status, location: body.redirect })
         return
       }
-      if (!isGrouped(body)) throw new RouteError(response.status, errorMessage(response, body))
+      if (!isEnvelope(body)) throw new RouteError(response.status, errorMessage(response, body))
+      acceptSession(seq, body.session)
       // Each route gets its own result, whatever the HTTP status of the whole answer.
       for (const [id, list] of waiters) {
-        const result = body[id]
+        const result = body.routes[id]
         for (const waiter of list) {
           if (result) waiter.resolve(result)
           else waiter.reject(new Error(`response for ${url} has no data for route ${id}`))
@@ -189,6 +198,8 @@ export function collector(buildId: () => string): Source {
 export interface Redirected {
   redirect: string
   status: number
+  // The session of the request, see session.tsx.
+  session?: SessionEnvelope
 }
 
 export function isRedirected(body: unknown): body is Redirected {
@@ -200,13 +211,22 @@ export function isRedirected(body: unknown): body is Redirected {
   )
 }
 
-// isGrouped reports whether body is the answer to a data request: RouteResult by route ID.
-function isGrouped(body: unknown): body is Record<string, RouteResult> {
+// DataAnswer is the answer to a data request.
+interface DataAnswer {
+  routes: Record<string, RouteResult>
+  session?: unknown
+}
+
+// isEnvelope reports whether body is the answer to a data request: RouteResult by route ID, and
+// the session.
+function isEnvelope(body: unknown): body is DataAnswer {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) return false
+  const routes = (body as { routes?: unknown }).routes
   return (
-    typeof body === 'object' &&
-    body !== null &&
-    !Array.isArray(body) &&
-    Object.values(body).every((item) => typeof item === 'object' && item !== null && typeof item.status === 'number')
+    typeof routes === 'object' &&
+    routes !== null &&
+    !Array.isArray(routes) &&
+    Object.values(routes).every((item) => typeof item === 'object' && item !== null && typeof item.status === 'number')
   )
 }
 
