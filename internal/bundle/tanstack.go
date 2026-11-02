@@ -74,8 +74,30 @@ func findPackage(dir, name string) (string, string, error) {
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", "", fmt.Errorf("%s is not installed, run the install of your package manager in the app root", name)
+			return "", "", notInstalledError{name}
 		}
 		dir = parent
 	}
+}
+
+// notInstalledError says that findPackage found no package of that name.
+type notInstalledError struct{ name string }
+
+func (e notInstalledError) Error() string {
+	return fmt.Sprintf("%s is not installed, run the install of your package manager in the app root", e.name)
+}
+
+// ViteInstalled reports whether Vite resolves from the app at root, in its node_modules or in one
+// above it. It is false for an app whose packages were never installed.
+func ViteInstalled(root string) (bool, error) {
+	root, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return false, err
+	}
+	_, _, err = findPackage(root, "vite")
+	var missing notInstalledError
+	if errors.As(err, &missing) {
+		return false, nil
+	}
+	return err == nil, err
 }
