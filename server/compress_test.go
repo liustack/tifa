@@ -29,9 +29,9 @@ func bigPage(in ssr.Input) (string, error) {
 }
 
 // newBigServer is newFrontServer with pages of bigPage, built with cfg.
-func newBigServer(t *testing.T, cfg config.Config, app App) *Server {
+func newBigServer(t *testing.T, cfg config.Config, app App) *server {
 	t.Helper()
-	s := New(cfg, app.Hooks)
+	s := newServer(cfg, app.Hooks)
 	s.register(app.Layouts, app.Routes)
 	if err := s.setFront(dist, (&renders{result: bigPage}).render); err != nil {
 		t.Fatal(err)
@@ -153,13 +153,13 @@ func TestJSONIsCompressedFromTheThreshold(t *testing.T) {
 // Only text formats are compressed: a PNG is compressed already.
 func TestOnlyTextIsCompressed(t *testing.T) {
 	cfg := config.Default()
-	s := New(cfg, Hooks{})
-	s.Handle("GET", "/image", func(c *tifa.Ctx) error {
+	s := newServer(cfg, Hooks{})
+	s.handle("GET", "/image", func(c *tifa.Ctx) error {
 		c.SetHeader("Content-Type", "image/png")
 		_, err := c.Writer().Write(bytes.Repeat([]byte{0x89, 'P', 'N', 'G'}, 1000))
 		return err
 	})
-	s.Handle("GET", "/feed", func(c *tifa.Ctx) error {
+	s.handle("GET", "/feed", func(c *tifa.Ctx) error {
 		c.SetHeader("Content-Type", "application/rss+xml")
 		_, err := io.WriteString(c.Writer(), strings.Repeat("<item/>", 500))
 		return err
@@ -174,9 +174,9 @@ func TestOnlyTextIsCompressed(t *testing.T) {
 
 // An ETag the application sets turns weak when the answer is compressed, and a weak one stays.
 func TestApplicationETagsTurnWeakWhenCompressed(t *testing.T) {
-	s := New(config.Default(), Hooks{})
+	s := newServer(config.Default(), Hooks{})
 	for path, etag := range map[string]string{"/strong": `"v1"`, "/weak": `W/"v1"`} {
-		s.Handle("GET", path, func(c *tifa.Ctx) error {
+		s.handle("GET", path, func(c *tifa.Ctx) error {
 			c.SetHeader("ETag", etag)
 			return c.Text(200, strings.Repeat("tifa ", 500))
 		})
@@ -201,7 +201,7 @@ func TestVaryKeepsAcceptEncoding(t *testing.T) {
 		return next(c)
 	}
 	s := newBigServer(t, config.Default(), app)
-	s.Handle("GET", "/api", func(c *tifa.Ctx) error {
+	s.handle("GET", "/api", func(c *tifa.Ctx) error {
 		c.SetHeader("Vary", "Origin")
 		return c.Text(200, strings.Repeat("tifa ", 1000))
 	})
@@ -260,8 +260,8 @@ func TestCompressOffDropsNoGzipCompression(t *testing.T) {
 	cfg := config.Default()
 	cfg.Server.Compress = false
 	s := newBigServer(t, cfg, app)
-	s.Handle("GET", "/api", func(c *tifa.Ctx) error { return c.Text(200, "ok") })
-	s.Handle("GET", "/stream", func(c *tifa.Ctx) error { return http.NewResponseController(c.Writer()).Flush() })
+	s.handle("GET", "/api", func(c *tifa.Ctx) error { return c.Text(200, "ok") })
+	s.handle("GET", "/stream", func(c *tifa.Ctx) error { return http.NewResponseController(c.Writer()).Flush() })
 	for _, path := range []string{"/projects/p1", "/stats", "/stats", "/api", "/stream", "/nowhere"} {
 		if w := get(s, path, "Accept-Encoding", "gzip"); w.Header().Get(gzhttp.HeaderNoCompression) != "" {
 			t.Errorf("%s: %d %v", path, w.Code, w.Header())
@@ -275,7 +275,7 @@ func TestCompressionOverTheWire(t *testing.T) {
 	s := newBigServer(t, config.Default(), frontApp())
 	flushed := make(chan struct{})
 	var release sync.Once
-	s.Handle("GET", "/events", func(c *tifa.Ctx) error {
+	s.handle("GET", "/events", func(c *tifa.Ctx) error {
 		c.SetHeader("Content-Type", "text/event-stream")
 		io.WriteString(c.Writer(), "data: first\n\n")
 		if err := http.NewResponseController(c.Writer()).Flush(); err != nil {
@@ -284,7 +284,7 @@ func TestCompressionOverTheWire(t *testing.T) {
 		<-flushed
 		return nil
 	})
-	s.Handle("GET", "/hijack", func(c *tifa.Ctx) error {
+	s.handle("GET", "/hijack", func(c *tifa.Ctx) error {
 		conn, rw, err := http.NewResponseController(c.Writer()).Hijack()
 		if err != nil {
 			return err
@@ -362,7 +362,7 @@ func TestBundleFilesGoOutPrecompressed(t *testing.T) {
 	for _, compress := range []bool{true, false} {
 		cfg := config.Default()
 		cfg.Server.Compress = compress
-		s := New(cfg, Hooks{})
+		s := newServer(cfg, Hooks{})
 		if err := s.setFront(files, nil); err != nil {
 			t.Fatal(err)
 		}
@@ -412,7 +412,7 @@ func TestBundleFilesGoOutPrecompressed(t *testing.T) {
 // whose pages come out larger than gzip's.
 func TestZstdUsesItsDefaultLevel(t *testing.T) {
 	app := frontApp()
-	s := New(config.Default(), app.Hooks)
+	s := newServer(config.Default(), app.Hooks)
 	s.register(app.Layouts, app.Routes)
 	// A table of orders, varied the way real pages are, where the levels differ.
 	r := rand.New(rand.NewPCG(1, 2))
@@ -439,7 +439,7 @@ func TestZstdUsesItsDefaultLevel(t *testing.T) {
 // once: a Flush before any byte of the body sends the answer uncompressed. gzhttp alone would
 // hold the header until the first bytes, since it picks the encoding from them.
 func TestFlushBeforeTheBodySendsTheHeader(t *testing.T) {
-	s := New(config.Default(), Hooks{})
+	s := newServer(config.Default(), Hooks{})
 	release := make(chan struct{})
 	var once sync.Once
 	stream := func(writeHeader bool) func(*tifa.Ctx) error {
@@ -456,8 +456,8 @@ func TestFlushBeforeTheBodySendsTheHeader(t *testing.T) {
 			return err
 		}
 	}
-	s.Handle("GET", "/events", stream(true))
-	s.Handle("GET", "/events-no-status", stream(false))
+	s.handle("GET", "/events", stream(true))
+	s.handle("GET", "/events-no-status", stream(false))
 	srv := httptest.NewServer(s)
 	defer srv.Close()
 	defer once.Do(func() { close(release) }) // before Close, which waits for the handlers
@@ -491,7 +491,7 @@ func TestCacheHitsSendTheirStoredCompression(t *testing.T) {
 		}
 		return next(c)
 	}
-	s := New(config.Default(), app.Hooks)
+	s := newServer(config.Default(), app.Hooks)
 	s.register(app.Layouts, app.Routes)
 	r := &renders{result: bigPage}
 	if err := s.setFront(dist, r.render); err != nil {
@@ -592,7 +592,7 @@ func TestCacheMissCompressesBothFormsOnce(t *testing.T) {
 		}
 		return next(c)
 	}
-	stored := func(s *Server) cachedPage {
+	stored := func(s *server) cachedPage {
 		t.Helper()
 		s.cache.mu.Lock()
 		defer s.cache.mu.Unlock()
@@ -605,17 +605,17 @@ func TestCacheMissCompressesBothFormsOnce(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		size  int64
-		first func(*Server)
+		first func(*server)
 	}{
-		{"no Accept-Encoding", 64 << 20, func(s *Server) { get(s, "/stats") }},
-		{"No-Gzip-Compression", 64 << 20, func(s *Server) { get(s, "/stats", "Accept-Encoding", "gzip", "X-Plain", "1") }},
-		{"HEAD", 64 << 20, func(s *Server) {
+		{"no Accept-Encoding", 64 << 20, func(s *server) { get(s, "/stats") }},
+		{"No-Gzip-Compression", 64 << 20, func(s *server) { get(s, "/stats", "Accept-Encoding", "gzip", "X-Plain", "1") }},
+		{"HEAD", 64 << 20, func(s *server) {
 			r := httptest.NewRequest("HEAD", "/stats", nil)
 			r.Header.Set("Accept-Encoding", "gzip")
 			s.ServeHTTP(httptest.NewRecorder(), r)
 		}},
-		{"gzip", 64 << 20, func(s *Server) { get(s, "/stats", "Accept-Encoding", "gzip") }},
-		{"forms that do not fit", int64(len(html)) + 10, func(s *Server) { get(s, "/stats") }},
+		{"gzip", 64 << 20, func(s *server) { get(s, "/stats", "Accept-Encoding", "gzip") }},
+		{"forms that do not fit", int64(len(html)) + 10, func(s *server) { get(s, "/stats") }},
 	} {
 		cfg := config.Default()
 		cfg.Cache.Size = tc.size

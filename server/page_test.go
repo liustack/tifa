@@ -82,7 +82,7 @@ func frontApp() App {
 	return app
 }
 
-func newFrontServer(t *testing.T, app App) (*Server, *renders) {
+func newFrontServer(t *testing.T, app App) (*server, *renders) {
 	t.Helper()
 	s := newAppServer(t, app)
 	r := &renders{}
@@ -104,7 +104,7 @@ func routesOf(t *testing.T, w *httptest.ResponseRecorder) map[string]routeResult
 
 // getData requests the navigation data of target. layers has a digit for each Load on the chain of
 // the page, from the root Layout down, and a 1 asks for that Load.
-func getData(s *Server, target, build, layers string, header ...string) *httptest.ResponseRecorder {
+func getData(s *server, target, build, layers string, header ...string) *httptest.ResponseRecorder {
 	return get(s, dataURL(target, build, layers), header...)
 }
 
@@ -116,7 +116,7 @@ func dataURL(target, build, layers string) string {
 	return target + sep + "_tifa=" + build + "." + layers
 }
 
-func get(s *Server, target string, header ...string) *httptest.ResponseRecorder {
+func get(s *server, target string, header ...string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest("GET", target, nil)
 	for i := 0; i < len(header); i += 2 {
 		r.Header.Set(header[i], header[i+1])
@@ -654,7 +654,7 @@ func TestDistFlagReadsTheFrontEndFromDisk(t *testing.T) {
 
 // An application without pages serves its public files and answers unmatched URLs with JSON.
 func TestFrontWithoutPagesKeepsJSONErrors(t *testing.T) {
-	s := New(config.Default(), Hooks{})
+	s := newServer(config.Default(), Hooks{})
 	s.register(nil, []Route{{ID: "app/health", Path: "/health", SSR: true, GET: func(c *tifa.Ctx) error { return c.Text(200, "ok") }}})
 	if err := s.setFront(fstest.MapFS{"build.json": {Data: []byte(`{"buildId":"b2"}`)}, "public/robots.txt": {Data: []byte("x")}}, nil); err != nil {
 		t.Fatal(err)
@@ -835,7 +835,7 @@ func TestPagesAndJSONCarryTheirLength(t *testing.T) {
 		{"404 page", get(s, "/nowhere"), 404},
 		{"data request", getData(s, "/projects/p1", "b1", "100"), 200},
 		{"data request of another build", getData(s, "/projects/p1", "old", "100"), 409},
-		{"API error", send(newServer(Hooks{}), "GET", "/orders/missing", ""), 404},
+		{"API error", send(newTestServer(Hooks{}), "GET", "/orders/missing", ""), 404},
 	} {
 		if got, want := tc.w.Header().Get("Content-Length"), strconv.Itoa(tc.w.Body.Len()); tc.w.Code != tc.status || got != want {
 			t.Errorf("%s: %d, Content-Length %q, body %s bytes", tc.name, tc.w.Code, got, want)

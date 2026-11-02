@@ -65,7 +65,7 @@ func wireApp() App {
 }
 
 // signedIn returns the Cookie header of a user who signed in on s.
-func signedIn(t *testing.T, s *Server, name string) string {
+func signedIn(t *testing.T, s *server, name string) string {
 	t.Helper()
 	w := postJSON(s, "/in", `{"name":"`+name+`"}`)
 	c := cookieOf(w, prodCookie)
@@ -75,7 +75,7 @@ func signedIn(t *testing.T, s *Server, name string) string {
 	return prodCookie + "=" + c.Value
 }
 
-func postJSON(s *Server, target, body string, header ...string) *httptest.ResponseRecorder {
+func postJSON(s *server, target, body string, header ...string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest("POST", target, strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
 	for i := 0; i < len(header); i += 2 {
@@ -86,7 +86,7 @@ func postJSON(s *Server, target, body string, header ...string) *httptest.Respon
 	return w
 }
 
-func wireServer(t *testing.T, app App) (*Server, *renders) {
+func wireServer(t *testing.T, app App) (*server, *renders) {
 	t.Helper()
 	s, r := newFrontServer(t, app)
 	s.enableSessions(app.Session)

@@ -77,7 +77,7 @@ type httpsServer struct {
 	stop        func() error // cancels serving and returns what serve returned
 }
 
-func startHTTPS(t *testing.T, s *Server) httpsServer {
+func startHTTPS(t *testing.T, s *server) httpsServer {
 	t.Helper()
 	tlsConfig, plain, ready, err := s.https()
 	if err != nil {
@@ -170,8 +170,8 @@ func hello(c *tifa.Ctx) error {
 // With server.tls_cert, browsers get HTTP/2, which they speak only over TLS.
 func TestOwnCertificateServesHTTP2(t *testing.T) {
 	cfg, _, _, certPEM, serial := certConfig(t)
-	s := New(cfg, Hooks{})
-	s.Handle("GET", "/hello", hello)
+	s := newServer(cfg, Hooks{})
+	s.handle("GET", "/hello", hello)
 	srv := startHTTPS(t, s)
 	res, body, got := getTLS(t, h2Client(pool(t, certPEM)), "https://"+srv.main+"/hello")
 	if res.StatusCode != 200 || res.ProtoMajor != 2 || body != "hello over HTTP/2.0" {
@@ -190,8 +190,8 @@ func TestOwnCertificateServesHTTP2(t *testing.T) {
 // load, such as a certificate written before its key, leave the certificate loaded before.
 func TestCertificateFilesLoadAgainWhenTheyChange(t *testing.T) {
 	cfg, certPath, keyPath, firstPEM, first := certConfig(t)
-	s := New(cfg, Hooks{})
-	s.Handle("GET", "/hello", hello)
+	s := newServer(cfg, Hooks{})
+	s.handle("GET", "/hello", hello)
 	srv := startHTTPS(t, s)
 	url := "https://" + srv.main + "/hello"
 	if _, _, got := getTLS(t, h2Client(pool(t, firstPEM)), url); got.Cmp(first) != 0 {
@@ -241,12 +241,12 @@ func TestRunFailsOnCertificateFilesThatDoNotLoad(t *testing.T) {
 	writeFile(t, keyPath, otherKey)
 	cfg.Server.Addr = "127.0.0.1:0"
 	started := false
-	err := New(cfg, Hooks{OnStart: func(context.Context) error { started = true; return nil }}).Run(context.Background())
+	err := newServer(cfg, Hooks{OnStart: func(context.Context) error { started = true; return nil }}).run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "server.tls_cert") || started {
 		t.Fatalf("err %v, OnStart ran: %v", err, started)
 	}
 	cfg.Server.TLSCert = filepath.Join(t.TempDir(), "missing.pem")
-	err = New(cfg, Hooks{}).Run(context.Background())
+	err = newServer(cfg, Hooks{}).run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "missing.pem") {
 		t.Fatalf("missing file: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestRunChecksTheHTTPSSettings(t *testing.T) {
 	cfg.Server.Addr = "127.0.0.1:0"
 	cfg.Server.TLSDomains = []string{testDomain}
 	started := false
-	err := New(cfg, Hooks{OnStart: func(context.Context) error { started = true; return nil }}).Run(context.Background())
+	err := newServer(cfg, Hooks{OnStart: func(context.Context) error { started = true; return nil }}).run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "server.tls_cache") || started {
 		t.Fatalf("err %v, OnStart ran: %v", err, started)
 	}
@@ -271,8 +271,8 @@ func TestRunChecksTheHTTPSSettings(t *testing.T) {
 func TestPlainHTTPRedirectsToHTTPS(t *testing.T) {
 	cfg, certPath, keyPath, _, _ := certConfig(t)
 	cfg.Server.HSTS = true
-	s := New(cfg, Hooks{})
-	s.Handle("GET", "/hello", hello)
+	s := newServer(cfg, Hooks{})
+	s.handle("GET", "/hello", hello)
 	srv := startHTTPS(t, s)
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	redirect := func(method, host, path string) *http.Response {
@@ -381,7 +381,7 @@ func TestCertificateSwapUnderConcurrentHandshakes(t *testing.T) {
 	cfg := config.Default()
 	cfg.Server.Addr = "127.0.0.1:0"
 	cfg.Server.TLSCert, cfg.Server.TLSKey = filepath.Join(dir, "tls.crt"), filepath.Join(dir, "tls.key")
-	srv := startHTTPS(t, New(cfg, Hooks{}))
+	srv := startHTTPS(t, newServer(cfg, Hooks{}))
 	roots := pool(t, append(append([]byte{}, first...), second...))
 
 	handshake := func() (*big.Int, error) {
@@ -440,7 +440,7 @@ func TestHTTPSOnTheLoopbackWarns(t *testing.T) {
 	log.SetOutput(writerFunc(func(b []byte) (int, error) { mu.Lock(); defer mu.Unlock(); return out.Write(b) }))
 	defer log.SetOutput(os.Stderr)
 	ctx, cancel := context.WithCancel(context.Background())
-	if err := New(cfg, Hooks{OnStart: func(context.Context) error { cancel(); return nil }}).Run(ctx); err != nil {
+	if err := newServer(cfg, Hooks{OnStart: func(context.Context) error { cancel(); return nil }}).run(ctx); err != nil {
 		t.Fatal(err)
 	}
 	mu.Lock()
@@ -460,8 +460,8 @@ func TestHSTS(t *testing.T) {
 	for _, on := range []bool{false, true} {
 		cfg, _, _, certPEM, _ := certConfig(t)
 		cfg.Server.HSTS = on
-		s := New(cfg, Hooks{})
-		s.Handle("GET", "/hello", hello)
+		s := newServer(cfg, Hooks{})
+		s.handle("GET", "/hello", hello)
 		srv := startHTTPS(t, s)
 		for _, path := range []string{"/hello", "/nowhere"} {
 			res, _, _ := getTLS(t, h2Client(pool(t, certPEM)), "https://"+srv.main+path)
@@ -485,7 +485,7 @@ func TestCompressionAndStreamsOverHTTP2(t *testing.T) {
 	release := make(chan struct{})
 	var once sync.Once
 	defer once.Do(func() { close(release) })
-	s.Handle("GET", "/events", func(c *tifa.Ctx) error {
+	s.handle("GET", "/events", func(c *tifa.Ctx) error {
 		c.SetHeader("Content-Type", "text/event-stream")
 		if err := http.NewResponseController(c.Writer()).Flush(); err != nil {
 			return err
@@ -498,7 +498,7 @@ func TestCompressionAndStreamsOverHTTP2(t *testing.T) {
 		return nil
 	})
 	hijack := make(chan error, 1)
-	s.Handle("GET", "/hijack", func(c *tifa.Ctx) error {
+	s.handle("GET", "/hijack", func(c *tifa.Ctx) error {
 		_, _, err := http.NewResponseController(c.Writer()).Hijack()
 		hijack <- err
 		return err
@@ -549,8 +549,8 @@ func TestCompressionAndStreamsOverHTTP2(t *testing.T) {
 func TestShutdownStopsBothAddresses(t *testing.T) {
 	cfg, _, _, certPEM, _ := certConfig(t)
 	inFlight, finish := make(chan struct{}), make(chan struct{})
-	s := New(cfg, Hooks{})
-	s.Handle("GET", "/slow", func(c *tifa.Ctx) error {
+	s := newServer(cfg, Hooks{})
+	s.handle("GET", "/slow", func(c *tifa.Ctx) error {
 		close(inFlight)
 		<-finish
 		_, err := io.WriteString(c.Writer(), "done")
@@ -589,7 +589,7 @@ func TestShutdownStopsBothAddresses(t *testing.T) {
 
 // With HTTPS off, the default, nothing of it is set up and server.http_addr is not used.
 func TestHTTPSOffSetsUpNothing(t *testing.T) {
-	tlsConfig, plain, ready, err := New(config.Default(), Hooks{}).https()
+	tlsConfig, plain, ready, err := newServer(config.Default(), Hooks{}).https()
 	if tlsConfig != nil || plain != nil || err != nil {
 		t.Fatalf("%v %v %v", tlsConfig, plain, err)
 	}
@@ -602,10 +602,10 @@ func TestRunServesBothAddresses(t *testing.T) {
 	cfg.Server.Addr, cfg.Server.HTTPAddr = freeAddr(t), freeAddr(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	s := New(cfg, Hooks{})
-	s.Handle("GET", "/hello", hello)
+	s := newServer(cfg, Hooks{})
+	s.handle("GET", "/hello", hello)
 	done := make(chan error, 1)
-	go func() { done <- s.Run(ctx) }()
+	go func() { done <- s.run(ctx) }()
 	client := h2Client(pool(t, certPEM))
 	var res *http.Response
 	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
@@ -645,7 +645,7 @@ func TestHTTPAddrOff(t *testing.T) {
 	started := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
-		done <- New(cfg, Hooks{OnStart: func(context.Context) error { close(started); return nil }}).Run(ctx)
+		done <- newServer(cfg, Hooks{OnStart: func(context.Context) error { close(started); return nil }}).run(ctx)
 	}()
 	<-started
 	cancel()
@@ -663,7 +663,7 @@ func TestBusyHTTPAddrNamesTheSetting(t *testing.T) {
 	defer busy.Close()
 	cfg, _, _, _, _ := certConfig(t)
 	cfg.Server.Addr, cfg.Server.HTTPAddr = freeAddr(t), busy.Addr().String()
-	err = New(cfg, Hooks{}).Run(context.Background())
+	err = newServer(cfg, Hooks{}).run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "server.http_addr") {
 		t.Fatalf("got %v", err)
 	}

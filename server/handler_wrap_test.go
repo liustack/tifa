@@ -142,10 +142,10 @@ func TestShutdownWaitsForWrappedRequests(t *testing.T) {
 	})
 	cfg := config.Default()
 	cfg.Server.Addr = freeAddr(t)
-	s := New(cfg, Hooks{})
+	s := newServer(cfg, Hooks{})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- s.Run(ctx) }()
+	go func() { done <- s.run(ctx) }()
 	got := make(chan int, 1)
 	go func() {
 		for i := 0; i < 500; i++ {
@@ -185,10 +185,10 @@ func TestSetHTTPHandlerStaysSealedWhileAnyServerRuns(t *testing.T) {
 	start := func(addr string) (stop func() error) {
 		cfg := config.Default()
 		cfg.Server.Addr = addr
-		s := New(cfg, Hooks{})
+		s := newServer(cfg, Hooks{})
 		ctx, cancel := context.WithCancel(context.Background())
 		done := make(chan error, 1)
-		go func() { done <- s.Run(ctx) }()
+		go func() { done <- s.run(ctx) }()
 		return func() error { cancel(); return <-done }
 	}
 	listening := func(addr string) {

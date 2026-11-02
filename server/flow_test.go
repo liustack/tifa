@@ -34,7 +34,7 @@ func secretApp(onRequest func(c *tifa.Ctx, next func(*tifa.Ctx) error) error, on
 	}
 }
 
-func getSecret(s *Server, target string, header ...string) *httptest.ResponseRecorder {
+func getSecret(s *server, target string, header ...string) *httptest.ResponseRecorder {
 	return getData(s, target, "b1", "11", header...)
 }
 

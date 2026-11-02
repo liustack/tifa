@@ -33,7 +33,7 @@ func Main(app App) {
 
 // start runs the command line of app. dev, set only by DevMain, gives the server the handler
 // of the requests tifa dev sends to the app, and the app the flag that ties it to tifa dev.
-func start(app App, dev func(*Server, fs.FS, config.SSR) http.Handler) {
+func start(app App, dev func(*server, fs.FS, config.SSR) http.Handler) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := run(ctx, app, os.Args[1:], os.Environ(), os.Stdout, os.Stderr, dev); err != nil {
@@ -42,7 +42,7 @@ func start(app App, dev func(*Server, fs.FS, config.SSR) http.Handler) {
 	}
 }
 
-func run(ctx context.Context, app App, args, environ []string, stdout, stderr io.Writer, dev func(*Server, fs.FS, config.SSR) http.Handler) error {
+func run(ctx context.Context, app App, args, environ []string, stdout, stderr io.Writer, dev func(*server, fs.FS, config.SSR) http.Handler) error {
 	var distDir string
 	lifelineFD := -1 // set by tifa dev, see watchLifeline
 	serve := func(cmd *cobra.Command, _ []string) (err error) {
@@ -62,7 +62,7 @@ func run(ctx context.Context, app App, args, environ []string, stdout, stderr io
 		if dev != nil {
 			cfg.Server = withoutHTTPS(cfg.Server)
 		}
-		s := New(cfg, app.Hooks)
+		s := newServer(cfg, app.Hooks)
 		s.register(app.Layouts, app.Routes)
 		if app.Session != nil {
 			s.enableSessions(app.Session)
@@ -79,7 +79,7 @@ func run(ctx context.Context, app App, args, environ []string, stdout, stderr io
 			}
 			defer func() { err = errors.Join(err, s.closeFront()) }()
 		}
-		return s.Run(ctx)
+		return s.run(ctx)
 	}
 	root := &cobra.Command{
 		Use:           filepath.Base(os.Args[0]),

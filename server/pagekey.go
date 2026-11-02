@@ -63,7 +63,7 @@ func (f queryFilter) clean(raw string, keep []string) string {
 
 // pageURI is the request URI the whole-page cache keys by and renders for: the path as the visitor
 // wrote it, and the query cleaned by queryFilter.clean.
-func (s *Server) pageURI(r *http.Request, pattern string) string {
+func (s *server) pageURI(r *http.Request, pattern string) string {
 	u := url.URL{Path: r.URL.Path, RawPath: r.URL.RawPath, RawQuery: s.ignore.clean(r.URL.RawQuery, s.pageQuery[pattern])}
 	return u.RequestURI()
 }
@@ -72,7 +72,7 @@ func (s *Server) pageURI(r *http.Request, pattern string) string {
 // can depend on without looking at the visitor: the scheme, the Host header (never
 // X-Forwarded-Host), the path and the cleaned query. The build and the SSR bundle come first,
 // since the page is made by them.
-func (s *Server) pageKey(r *http.Request, pattern string, f *front) string {
+func (s *server) pageKey(r *http.Request, pattern string, f *front) string {
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"

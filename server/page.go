@@ -79,7 +79,7 @@ type front struct {
 // readFront reads the front end in dist: dist/build.json names the build and its assets,
 // dist/assets and dist/public are served as files. render runs the SSR bundle, nil when the
 // application has no pages.
-func (s *Server) readFront(dist fs.FS, render func(context.Context, ssr.Input) (string, error)) (*front, error) {
+func (s *server) readFront(dist fs.FS, render func(context.Context, ssr.Input) (string, error)) (*front, error) {
 	data, err := fs.ReadFile(dist, "build.json")
 	if err != nil {
 		return nil, fmt.Errorf("tifa: read the build: %w", err)
@@ -182,7 +182,7 @@ func (f *front) preloadOf(key string, items map[string]routeResult) string {
 }
 
 // setFront serves the front end in dist with render, see readFront.
-func (s *Server) setFront(dist fs.FS, render func(context.Context, ssr.Input) (string, error)) error {
+func (s *server) setFront(dist fs.FS, render func(context.Context, ssr.Input) (string, error)) error {
 	f, err := s.readFront(dist, render)
 	if err != nil {
 		return err
@@ -195,7 +195,7 @@ func (s *Server) setFront(dist fs.FS, render func(context.Context, ssr.Input) (s
 // end it served before, which tifa dev does after it rebuilt the SSR bundle (see DevMain).
 // When it fails, the front end served before stays. Under tifa dev (s.dev set) the pool logs
 // the Intl calls that leave the locale or the time zone to the defaults.
-func (s *Server) openFront(dist fs.FS, cfg config.SSR) error {
+func (s *server) openFront(dist fs.FS, cfg config.SSR) error {
 	source, err := fs.ReadFile(dist, "ssr.js")
 	if errors.Is(err, fs.ErrNotExist) {
 		return s.setFront(dist, nil)
@@ -221,7 +221,7 @@ func (s *Server) openFront(dist fs.FS, cfg config.SSR) error {
 
 // swapFront serves f from now on and closes the VM pool of the front end it replaces. It waits
 // for the renders that run on that pool, so no render uses a closed pool.
-func (s *Server) swapFront(f *front) error {
+func (s *server) swapFront(f *front) error {
 	s.rendering.Lock()
 	old := s.front.Load()
 	s.front.Store(f)
@@ -230,7 +230,7 @@ func (s *Server) swapFront(f *front) error {
 }
 
 // closeFront closes the VM pool of the front end, after the server stopped.
-func (s *Server) closeFront() error {
+func (s *server) closeFront() error {
 	return s.front.Load().close()
 }
 
@@ -242,7 +242,7 @@ func (f *front) close() error {
 }
 
 // pagesServed reports whether the server renders pages, see front.pages.
-func (s *Server) pagesServed() bool {
+func (s *server) pagesServed() bool {
 	f := s.front.Load()
 	return f != nil && f.pages
 }
@@ -251,7 +251,7 @@ func (s *Server) pagesServed() bool {
 // public directory, before routing and without OnRequest. It reports whether it answered.
 // Bundle files carry a content hash in their names and are cached for good. A name under
 // /assets/ that the bundle lacks may still be a public file, such as public/assets/logo.svg.
-func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) bool {
+func (s *server) serveStatic(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method != "GET" && r.Method != "HEAD" {
 		return false
 	}
@@ -434,7 +434,7 @@ func runChain(c *tifa.Ctx, chain []load, ssr bool, key string) (map[string]route
 // results sorts the errors of a failure with classify and returns the results by route ID and
 // the sorted outermost failure. Loads that share a failure through tifa.Use return the same
 // error, which classify sees once, so OnError reports it once.
-func (s *Server) results(c *tifa.Ctx, f *loadFailure) (items map[string]routeResult, redirect *core.RedirectError, public tifa.Error) {
+func (s *server) results(c *tifa.Ctx, f *loadFailure) (items map[string]routeResult, redirect *core.RedirectError, public tifa.Error) {
 	items = make(map[string]routeResult, len(f.chain))
 	type sorted struct {
 		err      error
@@ -481,7 +481,7 @@ func sameError(a, b error) bool {
 //
 // When a Load fails it returns a *loadFailure, for OnRequest to see as the error of Next.
 // Without a front end it answers the chain's data as JSON by route ID.
-func (s *Server) pageHandler(r Route, chain []load) func(*tifa.Ctx) error {
+func (s *server) pageHandler(r Route, chain []load) func(*tifa.Ctx) error {
 	return func(c *tifa.Ctx) error {
 		if !s.pagesServed() {
 			return loadsAsJSON(c, chain)
@@ -522,7 +522,7 @@ func loadsAsJSON(c *tifa.Ctx, chain []load) error {
 // each with its own status. A browser running another build gets 409 and reloads the page.
 // When a listed Load fails, Next returns the failure as it does for the page, and the answer
 // is written once OnRequest has returned (see Server.fail).
-func (s *Server) dataRequest(c *tifa.Ctx, chain []load, key string) error {
+func (s *server) dataRequest(c *tifa.Ctx, chain []load, key string) error {
 	selected, err := s.listedLoads(c, chain)
 	if err != nil {
 		return err
@@ -546,7 +546,7 @@ func (s *Server) dataRequest(c *tifa.Ctx, chain []load, key string) error {
 // buildChanged is the 409 for a request from a page of another build. It names the build the
 // server runs in X-Tifa-Build, which tells it from a 409 of the app, and the browser reloads the
 // page once for that build (js/runtime/skew.ts).
-func (s *Server) buildChanged(c *tifa.Ctx) error {
+func (s *server) buildChanged(c *tifa.Ctx) error {
 	c.SetHeader(buildHeader, s.front.Load().build.ID)
 	return tifa.Error{Status: http.StatusConflict, Message: "the application was updated, reload the page"}
 }
@@ -554,7 +554,7 @@ func (s *Server) buildChanged(c *tifa.Ctx) error {
 // listedLoads returns the Loads of chain that a data request asks for with the digits of _tifa,
 // one for each Load of the chain. A different number of digits is a 400, since the page and the
 // server then do not mean the same chain.
-func (s *Server) listedLoads(c *tifa.Ctx, chain []load) ([]load, error) {
+func (s *server) listedLoads(c *tifa.Ctx, chain []load) ([]load, error) {
 	d := core.Data(c)
 	if d.Valid && d.Build != s.front.Load().build.ID {
 		return nil, s.buildChanged(c)
@@ -584,7 +584,7 @@ type dataAnswer struct {
 // writeData writes the answer of a data request. A Cache-Control of OnRequest or a Load, such
 // as private, no-store, wins over the default of the writer (defaultCacheControl). The Loads have
 // returned, so the header map is no longer shared.
-func (s *Server) writeData(c *tifa.Ctx, status int, items map[string]routeResult) error {
+func (s *server) writeData(c *tifa.Ctx, status int, items map[string]routeResult) error {
 	session := s.answerSession(c)
 	if session != nil {
 		s.sealSessionAnswer(c) // this answer is already an error flow
@@ -664,7 +664,7 @@ func renderKey(in ssr.Input, bundle string) string {
 // server.compress the ETag is weak: the page goes out in several encodings under it, and the 304,
 // which is answered before the encoding is known, carries the same ETag as the 200. key is the key
 // of the page's preloads (see front.preload).
-func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status int, cache bool, key string) error {
+func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, status int, cache bool, key string) error {
 	r := c.Request()
 	data, texts, err := renderInput(items)
 	if err != nil {
@@ -732,7 +732,7 @@ var errClientGone = fmt.Errorf("tifa: the client went away: %w", context.Cancele
 // writes the page with its own headers and in its own encoding, as a cache hit does. With
 // server.compress the render compresses the page into both its forms once, so no request
 // compresses it again, whatever encoding the request that started the render takes.
-func (s *Server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, status int, failed *renderError) error {
+func (s *server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, status int, failed *renderError) error {
 	method, path := c.Request().Method, c.Request().URL.Path
 	// A render that fails once no request waits has no OnError to go to, so it is logged.
 	unheard := func(err error) {
@@ -759,7 +759,7 @@ func (s *Server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 // renderOne renders in and returns the page as the cache keeps it, and whether the cache can keep
 // it. twice has tifa dev render a page the render cache keeps once more to find out whether it
 // reads the time or a random number, see devRenderTwice.
-func (s *Server) renderOne(ctx context.Context, f *front, in ssr.Input, twice bool, method, path string) (cachedPage, bool, error) {
+func (s *server) renderOne(ctx context.Context, f *front, in ssr.Input, twice bool, method, path string) (cachedPage, bool, error) {
 	html, err := f.render(ctx, in)
 	if err != nil {
 		return cachedPage{html: html}, false, err
@@ -785,7 +785,7 @@ func (s *Server) renderOne(ctx context.Context, f *front, in ssr.Input, twice bo
 // in the overlay of the dev client and true, and the terminal gets the warning with the place where
 // the two renders part. The page is not cached, so each request warns until the page is fixed.
 // A second render that fails is left alone: the first one is what the request gets.
-func (s *Server) devRenderTwice(ctx context.Context, f *front, in ssr.Input, first, method, path string) (string, bool) {
+func (s *server) devRenderTwice(ctx context.Context, f *front, in ssr.Input, first, method, path string) (string, bool) {
 	second, err := f.render(ctx, in)
 	if err != nil || second == first {
 		return "", false
@@ -839,7 +839,7 @@ func renderFailed(c *tifa.Ctx, err error, failed *renderError) error {
 
 // formEncoding is the encoding a page of the HTML cache goes out in to c: the one compressed would
 // pick, and none with server.compress off or No-Gzip-Compression set.
-func (s *Server) formEncoding(c *tifa.Ctx) string {
+func (s *server) formEncoding(c *tifa.Ctx) string {
 	if !s.cfg.Compress || len(c.Writer().Header()[gzhttp.HeaderNoCompression]) > 0 {
 		return ""
 	}
@@ -860,7 +860,7 @@ func etagMatches(header, etag string) bool {
 // dataOnly answers a page that skips SSR: a document that loads the browser bundle and carries
 // the data, so the browser renders it without a data request (Boot in data.ts). The browser
 // renders into #tifa-root and writes the head of the routes, the viewport meta among it.
-func (s *Server) dataOnly(c *tifa.Ctx, items map[string]routeResult, status int, key string) error {
+func (s *server) dataOnly(c *tifa.Ctx, items map[string]routeResult, status int, key string) error {
 	f := s.front.Load()
 	sess, err := s.pageSession(c)
 	if err != nil {
@@ -946,7 +946,7 @@ func writeHTML(c *tifa.Ctx, status int, page string) error {
 // else, a failed OnRequest for one, gets a plain page from Go (see fallback). A page whose render
 // fails, after OnError has seen that failure, renders again with that error (see rescue). err is
 // the error that e stands for.
-func (s *Server) errorPage(c *tifa.Ctx, e tifa.Error, err error, items map[string]routeResult, ssrOn bool, key string) {
+func (s *server) errorPage(c *tifa.Ctx, e tifa.Error, err error, items map[string]routeResult, ssrOn bool, key string) {
 	if items == nil {
 		if c.Pattern() != "" || e.Status != http.StatusNotFound {
 			s.fallback(c, e, err)
@@ -984,7 +984,7 @@ func (s *Server) errorPage(c *tifa.Ctx, e tifa.Error, err error, items map[strin
 // error of the page's code or of the VM's memory, the page comes from Go (see fallback). The tries
 // share the time budget of the first render, ssr.timeout, so a render that ran out of it is not
 // tried again. The answer is never cached.
-func (s *Server) rescue(c *tifa.Ctx, e tifa.Error, err error, failed *renderError) {
+func (s *server) rescue(c *tifa.Ctx, e tifa.Error, err error, failed *renderError) {
 	c.Writer().Header().Del("ETag")
 	levels, ok := ssr.Levels(failed.err)
 	if !ok && errors.Is(failed.err, ssr.ErrOutOfMemory) {
@@ -1044,7 +1044,7 @@ func retriedNot(err error) bool {
 // devPageError adds to the page of a failed render under tifa dev what the plain page of fallback
 // shows, in the overlay of the dev client, and marks it as an error page, which reloads after a
 // rebuild serves a fix.
-func (s *Server) devPageError(c *tifa.Ctx, e tifa.Error, err error, page string) string {
+func (s *server) devPageError(c *tifa.Ctx, e tifa.Error, err error, page string) string {
 	r := c.Request()
 	text := fmt.Sprintf("%s %s failed while rendering on the server.\n", r.Method, r.URL.RequestURI())
 	if e.Message != http.StatusText(e.Status) {
@@ -1064,7 +1064,7 @@ func (s *Server) devPageError(c *tifa.Ctx, e tifa.Error, err error, page string)
 // fallback answers with the plain page of e. Under tifa dev the page also names the request
 // and shows err, the error behind e, and it loads the dev client, which reloads the page once
 // a rebuild serves a fix. A built app never shows err.
-func (s *Server) fallback(c *tifa.Ctx, e tifa.Error, err error) {
+func (s *server) fallback(c *tifa.Ctx, e tifa.Error, err error) {
 	if s.dev == nil {
 		writeFallback(c.Writer(), e)
 		return
@@ -1107,7 +1107,7 @@ func writeFallback(w http.ResponseWriter, e tifa.Error) {
 
 // renderURI is the URL a page is rendered for. A page with the whole-page cache gets the cleaned
 // one (pageURI), the URL its cache entry stands for. The others get the URL as it came.
-func (s *Server) renderURI(c *tifa.Ctx) string {
+func (s *server) renderURI(c *tifa.Ctx) string {
 	r := c.Request()
 	if anonymityOf(r) != nil {
 		return s.pageURI(r, c.Pattern())

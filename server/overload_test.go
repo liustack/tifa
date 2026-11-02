@@ -102,7 +102,7 @@ func TestSharedRequestsTakeOnePoolWaitSlot(t *testing.T) {
 		go func() { _, err := pool.Render(ctx, ssr.Input{}); held <- err }()
 		synctest.Wait()
 		app := frontApp()
-		s := New(cfg, app.Hooks)
+		s := newServer(cfg, app.Hooks)
 		s.register(app.Layouts, app.Routes)
 		if err := s.setFront(dist, pool.Render); err != nil {
 			t.Fatal(err)

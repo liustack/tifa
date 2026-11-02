@@ -336,8 +336,8 @@ func TestAutomaticCertificate(t *testing.T) {
 			cache := filepath.Join(t.TempDir(), "certs")
 			cfg := autoConfig(ca, cache)
 
-			s := New(cfg, Hooks{})
-			s.Handle("GET", "/hello", hello)
+			s := newServer(cfg, Hooks{})
+			s.handle("GET", "/hello", hello)
 			tlsConfig, plain, ready, err := s.https()
 			if err != nil {
 				t.Fatal(err)
@@ -364,8 +364,8 @@ func TestAutomaticCertificate(t *testing.T) {
 			}
 			waitForCachedCertificate(t, filepath.Join(cache, testDomain))
 
-			s = New(cfg, Hooks{})
-			s.Handle("GET", "/hello", hello)
+			s = newServer(cfg, Hooks{})
+			s.handle("GET", "/hello", hello)
 			tlsConfig, plain, ready, err = s.https()
 			if err != nil {
 				t.Fatal(err)
@@ -388,7 +388,7 @@ func TestAutomaticCertificate(t *testing.T) {
 func TestOtherNamesGetNoCertificate(t *testing.T) {
 	ca := newFakeACME(t, "tls-alpn-01")
 	trustACME(t, ca)
-	s := New(autoConfig(ca, t.TempDir()), Hooks{})
+	s := newServer(autoConfig(ca, t.TempDir()), Hooks{})
 	tlsConfig, plain, _, err := s.https()
 	if err != nil {
 		t.Fatal(err)
@@ -413,7 +413,7 @@ func TestOtherNamesGetNoCertificate(t *testing.T) {
 func TestCertificatesAreAskedForAtStart(t *testing.T) {
 	ca := newFakeACME(t, "http-01")
 	trustACME(t, ca)
-	s := New(autoConfig(ca, t.TempDir()), Hooks{})
+	s := newServer(autoConfig(ca, t.TempDir()), Hooks{})
 	tlsConfig, plain, ready, err := s.https()
 	if err != nil {
 		t.Fatal(err)
@@ -472,7 +472,7 @@ func TestTLSCacheThatCannotBeCreatedFails(t *testing.T) {
 	cfg := config.Default()
 	cfg.Server.Addr = "127.0.0.1:0"
 	cfg.Server.TLSDomains, cfg.Server.TLSCache = []string{testDomain}, filepath.Join(file, "certs")
-	_, _, _, err := New(cfg, Hooks{}).https()
+	_, _, _, err := newServer(cfg, Hooks{}).https()
 	if err == nil || !strings.Contains(err.Error(), "server.tls_cache") {
 		t.Fatalf("got %v", err)
 	}
@@ -484,7 +484,7 @@ func TestTLSCacheThatCannotBeCreatedFails(t *testing.T) {
 func TestAutomaticCertificatesRedirectOnlyTheirDomains(t *testing.T) {
 	ca := newFakeACME(t, "http-01")
 	trustACME(t, ca)
-	s := New(autoConfig(ca, t.TempDir()), Hooks{})
+	s := newServer(autoConfig(ca, t.TempDir()), Hooks{})
 	tlsConfig, plain, _, err := s.https()
 	if err != nil {
 		t.Fatal(err)

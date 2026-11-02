@@ -45,9 +45,9 @@ func (g *heldRender) render(ctx context.Context, in ssr.Input) (string, error) {
 
 func (g *heldRender) renders() int { return int(g.count.Load()) }
 
-func newHeldServer(t *testing.T, cfg config.Config, app App) (*Server, *heldRender) {
+func newHeldServer(t *testing.T, cfg config.Config, app App) (*server, *heldRender) {
 	t.Helper()
-	s := New(cfg, app.Hooks)
+	s := newServer(cfg, app.Hooks)
 	s.register(app.Layouts, app.Routes)
 	g := newHeldRender()
 	if err := s.setFront(dist, g.render); err != nil {
@@ -57,7 +57,7 @@ func newHeldServer(t *testing.T, cfg config.Config, app App) (*Server, *heldRend
 }
 
 // waiting is the number of requests that wait for a render of the HTML cache.
-func waiting(s *Server) int {
+func waiting(s *server) int {
 	s.cache.mu.Lock()
 	defer s.cache.mu.Unlock()
 	n := 0
@@ -79,7 +79,7 @@ func until(t *testing.T, what string, cond func() bool) {
 
 // burst sends n requests for path at once, the headers of request i from header, and opens the
 // heldRender once every request renders or waits for a render. It returns the answers in order.
-func burst(t *testing.T, s *Server, g *heldRender, n int, path string, header func(i int) []string) []*httptest.ResponseRecorder {
+func burst(t *testing.T, s *server, g *heldRender, n int, path string, header func(i int) []string) []*httptest.ResponseRecorder {
 	t.Helper()
 	out := make([]*httptest.ResponseRecorder, n)
 	var wg sync.WaitGroup
@@ -385,7 +385,7 @@ func TestBurstGoexit(t *testing.T) {
 // When the last request stops waiting, the render stops waiting for a VM, and the next request
 // starts a render of its own.
 func TestRenderStopsWhenNoRequestWaits(t *testing.T) {
-	s := New(config.Default(), frontApp().Hooks)
+	s := newServer(config.Default(), frontApp().Hooks)
 	app := frontApp()
 	s.register(app.Layouts, app.Routes)
 	var count atomic.Int32
@@ -491,7 +491,7 @@ func TestBurstAnswersHEAD(t *testing.T) {
 }
 
 // serve is ServeHTTP that returns what the handler panicked with, which net/http would catch.
-func serve(s *Server, r *http.Request) (w *httptest.ResponseRecorder, panicked any) {
+func serve(s *server, r *http.Request) (w *httptest.ResponseRecorder, panicked any) {
 	w = httptest.NewRecorder()
 	defer func() { panicked = recover() }()
 	s.ServeHTTP(w, r)

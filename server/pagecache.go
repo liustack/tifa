@@ -103,7 +103,7 @@ func headersStorable(h http.Header) bool {
 
 // cachedPageRequest answers a page with the whole-page cache: GET, HEAD or the navigation data of
 // it, with the entry of its cleaned URL, which it makes when there is none that is fresh.
-func (s *Server) cachedPageRequest(c *tifa.Ctx, route Route, chain []load, ttl time.Duration) error {
+func (s *server) cachedPageRequest(c *tifa.Ctx, route Route, chain []load, ttl time.Duration) error {
 	rq := c.Request()
 	var selected []load
 	if c.IsData() {
@@ -359,7 +359,7 @@ func loadFailed(err error) bool {
 
 // pageFailure turns the error of making a page into the error this request answers. The failure of
 // the Loads is the one of the whole chain, and the request answers for the Loads it asked for.
-func (s *Server) pageFailure(c *tifa.Ctx, err error, selected []load) error {
+func (s *server) pageFailure(c *tifa.Ctx, err error, selected []load) error {
 	var lf *loadFailure
 	if !errors.As(err, &lf) {
 		return err
@@ -400,7 +400,7 @@ func (s *Server) pageFailure(c *tifa.Ctx, err error, selected []load) error {
 // returns it, and whether the cache keeps it. A result that is not the page, a 404 or another
 // answer of the app, is returned as an error for each request to answer with. Requests skip the
 // cache of key for a while after a result that cannot be stored.
-func (s *Server) generate(ctx context.Context, base *http.Request, pattern string, route Route, chain []load, f *front, ttl time.Duration) (cachedPage, bool, error) {
+func (s *server) generate(ctx context.Context, base *http.Request, pattern string, route Route, chain []load, f *front, ttl time.Duration) (cachedPage, bool, error) {
 	rq := base.Clone(ctx)
 	rq.URL.RawQuery = s.ignore.clean(rq.URL.RawQuery, s.pageQuery[pattern])
 	rq.RequestURI = rq.URL.RequestURI()
@@ -485,7 +485,7 @@ func (s *Server) generate(ctx context.Context, base *http.Request, pattern strin
 }
 
 // madeFailed returns the error of a make with the headers its Loads set and what it does to the cache.
-func (s *Server) madeFailed(err error, headers http.Header, fx effects) (cachedPage, bool, error) {
+func (s *server) madeFailed(err error, headers http.Header, fx effects) (cachedPage, bool, error) {
 	kept, unshared := keptHeaders(headers)
 	fx.set, fx.unshared = true, unshared
 	return cachedPage{}, false, &madeError{err: err, headers: kept, fx: fx}
@@ -493,7 +493,7 @@ func (s *Server) madeFailed(err error, headers http.Header, fx effects) (cachedP
 
 // redirectEntry returns the entry of a redirect. It is kept when its status is one that is stored and
 // the headers of the app allow it. Otherwise requests skip the cache of the page for a while.
-func (s *Server) redirectEntry(entry *wholePage, headers http.Header) (cachedPage, bool, error) {
+func (s *server) redirectEntry(entry *wholePage, headers http.Header) (cachedPage, bool, error) {
 	entry.headers, entry.fx.unshared = keptHeaders(headers)
 	storable := storableStatus(entry.status) && !entry.fx.unshared
 	entry.fx.set, entry.fx.bypass = true, !storable
@@ -502,7 +502,7 @@ func (s *Server) redirectEntry(entry *wholePage, headers http.Header) (cachedPag
 
 // renderEntry renders the page of an entry, through the render cache unless the page turned it
 // off, and returns it as the cache keeps it.
-func (s *Server) renderEntry(ctx context.Context, rq *http.Request, f *front, in ssr.Input, route Route) (cachedPage, bool, error) {
+func (s *server) renderEntry(ctx context.Context, rq *http.Request, f *front, in ssr.Input, route Route) (cachedPage, bool, error) {
 	method, path := rq.Method, rq.URL.Path
 	if route.NoRenderCache {
 		return s.renderOne(ctx, f, in, false, method, path)
@@ -529,7 +529,7 @@ func contentTag(html string) string {
 }
 
 // respondPage answers a request from an entry. status is the Cache-Status of the answer.
-func (s *Server) respondPage(c *tifa.Ctx, got fetched, status string, selected []load) error {
+func (s *server) respondPage(c *tifa.Ctx, got fetched, status string, selected []load) error {
 	entry := got.page.whole
 	replayHeaders(c.Writer().Header(), entry.headers)
 	c.SetHeader("Cache-Status", status)
@@ -574,7 +574,7 @@ func (s *Server) respondPage(c *tifa.Ctx, got fetched, status string, selected [
 }
 
 // writeDataAnswer writes the answer of a navigation: the results given, and the session of the browser.
-func (s *Server) writeDataAnswer(c *tifa.Ctx, items map[string]routeResult) error {
+func (s *server) writeDataAnswer(c *tifa.Ctx, items map[string]routeResult) error {
 	session, err := s.browserSession(c)
 	if err != nil {
 		return err
@@ -592,7 +592,7 @@ func (s *Server) writeDataAnswer(c *tifa.Ctx, items map[string]routeResult) erro
 // s-maxage is the whole time of the page and Age the seconds since it was made, and a cache in front of
 // tifa subtracts one from the other (RFC 9111), so the two together never keep a page longer than
 // Cache. An old page that stands in for a failed one has an Age past s-maxage and is not fresh there.
-func (s *Server) setCacheHeaders(c *tifa.Ctx, entry *wholePage, now time.Time) {
+func (s *server) setCacheHeaders(c *tifa.Ctx, entry *wholePage, now time.Time) {
 	h := c.Writer().Header()
 	age := max(0, int64(now.Sub(entry.created)/time.Second))
 	h.Set("Age", strconv.FormatInt(age, 10))

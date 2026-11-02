@@ -90,7 +90,7 @@ func notFoundCandidates(layouts []Layout, routes []Route) []candidate {
 // values of that Layout's parameters on r, for its Loads to read. It is the Layout of the candidate
 // whose path starts the path of r and matches it best: comparing segment by segment, a literal
 // beats a parameter, and a parameter beats the end of the path.
-func (s *Server) notFoundAt(r *http.Request) string {
+func (s *server) notFoundAt(r *http.Request) string {
 	var parts []string
 	for _, p := range strings.Split(strings.TrimPrefix(r.URL.EscapedPath(), "/"), "/") {
 		if v, err := url.PathUnescape(p); err == nil {
@@ -159,7 +159,7 @@ func (p *notFoundPage) Unwrap() error { return tifa.ErrNotFound }
 // the Loads of the Layouts its 404 shows inside (notFoundAt), all of them for a page and those that
 // _tifa asks for in a data request, as a page runs those of its chain. Anything else is
 // tifa.ErrNotFound. c.Pattern() stays empty.
-func (s *Server) unmatched(c *tifa.Ctx) error {
+func (s *server) unmatched(c *tifa.Ctx) error {
 	r := c.Request()
 	if !s.pagesServed() || r.Method != "GET" && r.Method != "HEAD" {
 		return tifa.ErrNotFound

@@ -51,7 +51,7 @@ func serveApp(t *testing.T, app App, dev bool, args ...string) string {
 	addr := freeAddr(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	var entry func(*Server, fs.FS, config.SSR) http.Handler
+	var entry func(*server, fs.FS, config.SSR) http.Handler
 	if dev {
 		entry = reloader
 	}

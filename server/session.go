@@ -26,7 +26,7 @@ type sessionState struct {
 // sessionEnv returns the environment of every request. Under tifa dev the cookie has no Secure
 // attribute and no __Host- prefix, because dev serves plain HTTP on localhost, where browsers may
 // refuse such a cookie.
-func (s *Server) sessionEnv() *core.SessionEnv {
+func (s *server) sessionEnv() *core.SessionEnv {
 	s.sess.once.Do(func() {
 		if s.sess.store == nil {
 			s.sess.owned = core.NewMemoryStore(s.sess.cfg.MemoryLimit)
@@ -44,7 +44,7 @@ func (s *Server) sessionEnv() *core.SessionEnv {
 
 // startSessions picks the store once OnStart has returned: what the app set, or a store in memory
 // with the line that says so. It returns the function that stops what it made.
-func (s *Server) startSessions() (stop func()) {
+func (s *server) startSessions() (stop func()) {
 	if store := core.SealedSessionStore(); store != nil {
 		s.sess.store = store
 		return func() {}
@@ -55,9 +55,9 @@ func (s *Server) startSessions() (stop func()) {
 	return m.Close
 }
 
-// Close releases what the server made for itself: the default session store a server that did not go
+// close releases what the server made for itself: the default session store a server that did not go
 // through Run made on its first request. Run closes its own on return.
-func (s *Server) Close() {
+func (s *server) close() {
 	if s.sess.owned != nil {
 		s.sess.owned.Close()
 	}
@@ -65,7 +65,7 @@ func (s *Server) Close() {
 
 // anonymousRequest reports whether the request is for a page with the whole-page cache and
 // asks for it to be read: GET and HEAD, with or without the navigation parameter.
-func (s *Server) anonymousRequest(pattern string, r *http.Request) bool {
+func (s *server) anonymousRequest(pattern string, r *http.Request) bool {
 	return pattern != "" && (r.Method == http.MethodGet || r.Method == http.MethodHead) && s.pageCache[pattern] > 0
 }
 
@@ -88,7 +88,7 @@ func anonymityOf(r *http.Request) *anonymity {
 // anonymize returns r without the Cookie and Authorization headers. For a navigation data request
 // of an app with sessions it first reads the session cookie, because the answer carries the
 // session of the browser, and that is all the cookie is used for.
-func (s *Server) anonymize(r *http.Request) (*http.Request, error) {
+func (s *server) anonymize(r *http.Request) (*http.Request, error) {
 	a := &anonymity{}
 	if s.sess.enabled && core.DataOf(r) != nil {
 		a.session, a.err = s.sessionOfCookie(r)
@@ -124,7 +124,7 @@ func (w *headerOnly) Write(b []byte) (int, error) { return len(b), nil }
 
 // sessionOfCookie reads the session of the cookie of r in a request of its own, whose cookie
 // handling (dropping a dead cookie) goes nowhere.
-func (s *Server) sessionOfCookie(r *http.Request) (*core.BrowserSession, error) {
+func (s *server) sessionOfCookie(r *http.Request) (*core.BrowserSession, error) {
 	read := *r
 	read.Body = http.NoBody
 	c := core.New(&headerOnly{h: http.Header{}}, &read, "", 0)

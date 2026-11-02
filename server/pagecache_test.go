@@ -42,7 +42,7 @@ type pageEnv struct {
 	mu    sync.Mutex
 	load  func(c *tifa.Ctx, n int64) (any, error)
 	clock *cacheClock
-	s     *Server
+	s     *server
 	r     *renders
 }
 
@@ -593,8 +593,8 @@ func TestWholePageCacheFollowsCacheSize(t *testing.T) {
 	release := make(chan struct{})
 	app.Routes = append(app.Routes, Route{ID: "app/news", Path: "/news", Page: true, SSR: true, Cache: time.Minute, Layouts: []string{"app/layout"},
 		Load: func(c *tifa.Ctx) (any, error) { loads.Add(1); <-release; return 1, nil }})
-	s := New(cfg, app.Hooks)
-	t.Cleanup(s.Close)
+	s := newServer(cfg, app.Hooks)
+	t.Cleanup(s.close)
 	s.register(app.Layouts, app.Routes)
 	if err := s.setFront(dist, (&renders{}).render); err != nil {
 		t.Fatal(err)

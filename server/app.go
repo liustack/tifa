@@ -75,7 +75,7 @@ type Route struct {
 
 // register adds the Layouts and routes of an application. Like http.ServeMux it panics on an
 // inconsistent registration, which the generated code never produces.
-func (s *Server) register(layouts []Layout, routes []Route) {
+func (s *server) register(layouts []Layout, routes []Route) {
 	byID := map[string]Layout{}
 	for _, l := range layouts {
 		if _, dup := byID[l.ID]; dup {
@@ -122,14 +122,14 @@ func (s *Server) register(layouts []Layout, routes []Route) {
 			}
 			s.pages[r.Path] = true
 			s.modules[r.Path] = append(slices.Clone(r.Layouts), r.ID)
-			s.Handle("GET", r.Path, s.pageHandler(r, chain))
+			s.handle("GET", r.Path, s.pageHandler(r, chain))
 		}
 		for _, h := range []struct {
 			method string
 			fn     func(*tifa.Ctx) error
 		}{{"GET", r.GET}, {"POST", r.POST}, {"PUT", r.PUT}, {"PATCH", r.PATCH}, {"DELETE", r.DELETE}} {
 			if h.fn != nil {
-				s.Handle(h.method, r.Path, h.fn)
+				s.handle(h.method, r.Path, h.fn)
 			}
 		}
 	}

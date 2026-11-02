@@ -22,11 +22,11 @@ func publicDist() fstest.MapFS {
 	}
 }
 
-func publicServer(t *testing.T, compress bool) *Server {
+func publicServer(t *testing.T, compress bool) *server {
 	t.Helper()
 	cfg := config.Default()
 	cfg.Server.Compress = compress
-	s := New(cfg, Hooks{})
+	s := newServer(cfg, Hooks{})
 	if err := s.setFront(publicDist(), nil); err != nil {
 		t.Fatal(err)
 	}
