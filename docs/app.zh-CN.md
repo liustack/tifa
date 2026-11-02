@@ -194,7 +194,8 @@ import { clientOnly } from 'tifa/client'
 const OrderActions = clientOnly(() => import('./actions.client'), <button disabled>正在准备操作…</button>)
 ```
 
-- 不经过调用函数（见下）的写操作之后，调用 TanStack 的 `router.invalidate()`，当前页面和所有 Layout 的数据重新取一次，合并成一个请求，它返回的 promise 在页面显示出新数据后兑现。
+- tifa 不会替你重新取页面数据。写操作之后，不管是处理函数还是你自己的 `fetch`，页面在你开口之前都显示原来的内容：调用 TanStack 的 `router.invalidate()`，当前页面和所有 Layout 的数据重新取一次，合并成一个请求。`await router.invalidate({ sync: true })` 在页面显示出新数据后兑现。只写 `await router.invalidate()` 会立刻兑现，页面在后台更新。见[在浏览器里调用方法处理函数](#在浏览器里调用方法函数)。
+- 路由器已经持有的数据遵循 TanStack 的默认值：它立刻算作过期，所以回到访问过的页面时先显示缓存的数据，再在后台重新取一次（`GET <url>?_tifa=…`），鼠标悬停或聚焦时预加载的链接，30 秒内直接使用。
 
 ### 在浏览器里调用方法函数
 
@@ -215,16 +216,16 @@ async function ship() {
 
 - 函数接收一个对象。`params` 是路径参数，目录没有参数时不写。`name++` 目录的键是 `_splat`。会把请求带到别的路径的值在发请求前就被拒绝，promise 失败：`name+` 参数的空值、`.`、`..`，以及 `_splat` 里的 `.`、`..` 段和末尾以外的空段。`_splat` 为空没问题。`input` 是处理函数的入参，没有入参时不写。`signal` 用来取消请求。
 - GET、DELETE 把入参放进查询字符串，其他方法发 JSON 请求体。返回值的类型来自 Go 的返回值，并为重定向（见下文）加上 `| undefined`：`func(c, in) (Out, error)` 得到 `Promise<POSTOutput | undefined>`。`func(c, in) error` 得到 `void`。`func(c) error` 自己写响应，它的调用函数原样交回 `Response`，错误状态码也一样。
-- POST、PUT、PATCH、DELETE 成功后，先重新取当前页面和它的 Layout 的数据，再兑现 promise。传 `invalidate: false` 可以不刷新。失败和 GET 都不刷新。
+- 调用只发出请求，回答带着会话时应用会话（见下）。它不重新取任何页面的数据，成功失败都一样，任何方法都一样。想让页面显示写操作的结果，在调用之后调用 `router.invalidate()`（见下面的例子）。
 - 错误回答抛出 `TifaError`，带 `status`、`message` 和 `fields`（`tifa.Fields` 的消息，其他情况为空）。网络错误照 `fetch` 的样子抛出。页面的构建比服务器旧时，调用以状态 409 失败，见[部署时还开着的页面](#部署时还开着的页面)。
-- 处理函数或 `OnRequest` 返回 `tifa.Redirect(url, status)` 时，浏览器去那个 URL：本站的 URL 经路由器跳转，页面不重新加载，别的站点整页加载。POST、PUT、PATCH、DELETE 之后（除非传了 `invalidate: false`），路由器里已有的数据先标为过期，所以新页面和它的 Layout 显示的是新数据。重定向到正在显示的页面时，和没有重定向的调用一样重新取这一页的数据。路径、hash 和查询参数的值都相同就算同一页，查询参数的顺序和编码不论。promise 在新页面显示出来后兑现为 `undefined`，有返回值的处理函数也一样。一次调用是否被重定向，要等回答来了才知道（`OnRequest` 可以重定向任何请求），所以有返回值的处理函数，返回类型都带 `undefined`。自己写响应的处理函数，调用函数拿到这次重定向的 `Response`（`ok` 为真，状态码在 `X-Tifa-Redirect` 里）。相对 URL 按处理函数的 URL 解析，不按页面的 URL。处理函数经 `c.Writer()` 自己写的 3xx，或者代理写的 3xx，浏览器读不到，promise 以 `Error` 失败。
+- 处理函数或 `OnRequest` 返回 `tifa.Redirect(url, status)` 时，浏览器去那个 URL：本站的 URL 经路由器跳转，页面不重新加载，别的站点整页加载。新页面显示路由器已有的数据，缺的再去取，和任何一次导航一样。重定向到正在显示的页面时，页面留在原处，什么都不取。路径、hash 和查询参数的值都相同就算同一页，查询参数的顺序和编码不论。promise 在导航结束后兑现为 `undefined`，有返回值的处理函数也一样。一次调用是否被重定向，要等回答来了才知道（`OnRequest` 可以重定向任何请求），所以有返回值的处理函数，返回类型都带 `undefined`。自己写响应的处理函数，调用函数拿到这次重定向的 `Response`（`ok` 为真，状态码在 `X-Tifa-Redirect` 里）。相对 URL 按处理函数的 URL 解析，不按页面的 URL。处理函数经 `c.Writer()` 自己写的 3xx，或者代理写的 3xx，浏览器读不到，promise 以 `Error` 失败。
 - 让某人登录或登出的调用，回答里带着新的会话，浏览器里的会话副本随之更新（见[会话在浏览器里](#在浏览器里)）。
 - 在事件处理函数或 effect 里调用。服务器渲染页面期间调用会抛错。
 - `route.gen` 还为有入参或返回值的处理函数导出 `POSTInput`、`POSTOutput` 等类型。
 
 `tifa.Redirect` 返回的错误是 `*tifa.RedirectError`，字段有 `URL` 和 `Status`。在 `OnRequest` 或测试里用 `errors.As` 认出它。
 
-要在创建之后去新建内容的页面，可以让处理函数返回重定向，也可以返回结果再自己导航。第二种写法要传 `invalidate: false`，免得当前页面在离开前又取一次数据。路由器里已有的数据（比如两个页面共用的 Layout 的数据）这时保持原样：
+要在创建之后去新建内容的页面，可以让处理函数返回重定向，也可以返回结果再自己导航。调用不重新取数据，所以离开前当前页面不会再取一次。写操作的结果要在当前页面上看到的话，用 `router.invalidate()` 来要：
 
 ```go
 func POST(c *tifa.Ctx, in AddInput) error {
@@ -239,7 +240,7 @@ func POST(c *tifa.Ctx, in AddInput) error {
 ```tsx
 const router = useRouter() // 来自 @tanstack/react-router
 // 在事件处理函数里，这里的 POST 返回 (Todo, error)：
-const todo = await POST({ input: { title }, invalidate: false })
+const todo = await POST({ input: { title } })
 if (todo) await router.navigate({ to: '/todos/$todo', params: { todo: todo.id } }) // undefined 表示已被重定向
 ```
 
@@ -941,7 +942,7 @@ function Header() {
 
 服务器对所有访客回答得一样的页面，比如开了 `Cache` 的页面（见[整页缓存](#整页缓存)），不带会话，也没有 `data-session`。只有这样的页面里，head 最前面的脚本在第一次绘制前按 `localStorage` 设好 `data-session="in"`，`useSession` 在页面水合完成前按未登录渲染，之后切到 `localStorage` 里的副本，并向 `/__tifa/session` 问一次来核对。没有副本就不问。`localStorage` 读不了时也问一次。
 
-在浏览器里调用处理函数，如果这次调用改了会话，副本随之更新，调用之后的数据重取也会再带回一次会话。登录、登出的处理函数要有入参类型或结果类型（`func POST(c *tifa.Ctx, in Login) error`）。自己写响应的处理函数（`func POST(c *tifa.Ctx) error`）没法把会话放进回答里。
+在浏览器里调用处理函数，如果这次调用改了会话，副本随之更新。之后导航的数据请求也会带回会话。登录、登出的处理函数要有入参类型或结果类型（`func POST(c *tifa.Ctx, in Login) error`）。自己写响应的处理函数（`func POST(c *tifa.Ctx) error`）没法把会话放进回答里。
 
 带着会话的回答，`Cache-Control` 必须是 `no-store`，或者同时有 `private` 和 `no-cache`，两个都不带字段列表（`private="Set-Cookie"` 不算），也不能有 `must-understand`。不设这个头，它就是 `private, no-cache`。`OnRequest`、`Load` 或处理函数在页面、页面的启动数据或调用的信封上设了别的值，请求按意外错误交给 `OnError`，错误回答是 `no-store`，没有 `ETag` 和 `Last-Modified`。导航重定向和已经在报错的导航回答不再抛一次：服务器记日志、清验证器、改成 `no-store`。`/__tifa/session` 永远是不带验证器的 `private, no-store`，中间件自己回答它时也一样。自己写响应的处理函数不检查。
 
@@ -956,7 +957,7 @@ style-src 'sha256-dutb67YDz+meUugqDFx3RsopE/hCQ31NRHukbTNY+OQ='
 
 这是默认 cookie `__Host-tifa_session` 的哈希。脚本里写着 `localStorage` 键的名字，所以设了 `session.cookie` 之后脚本的哈希会变，`tifa dev` 下 cookie 是 `tifa_session`，脚本的哈希是 `sha256-RXrgEYZIzBu7H8LtSsupWFiD5XE/6dvi74b6rHR+nVg=`。从你的构建出的页面里取出脚本再算哈希。
 
-**做不到的事。** 另一个标签页在它下一次带会话的回答到来之前显示旧状态，在那里提交的表单已经用新的 cookie。在别的设备上登出后，从 `localStorage` 出来的页面会先显示旧名字，直到核对的回答回来。在同一个标签页登录成别人之后按后退，浏览器的前进后退缓存里恢复的是原样的旧页面。切换账号时正在进行的预加载，可能带回旧账号的数据。你自己写的 `fetch` 改了会话，tifa 不知道，在它之后调 `router.invalidate()`。`Exposed()` 只放允许留在设备上的东西，比如名字和头像，不要放凭证、邮箱或手机号。
+**做不到的事。** 另一个标签页在它下一次带会话的回答到来之前显示旧状态，在那里提交的表单已经用新的 cookie。在别的设备上登出后，从 `localStorage` 出来的页面会先显示旧名字，直到核对的回答回来。在同一个标签页登录成别人之后按后退，浏览器的前进后退缓存里恢复的是原样的旧页面。切换账号时正在进行的预加载，可能带回旧账号的数据。你自己写的 `fetch` 改了会话，tifa 不知道，在它之后调 `router.invalidate()`，路由器留着的页面不该给下一个人看时再调 `router.clearCache()`。`Exposed()` 只放允许留在设备上的东西，比如名字和头像，不要放凭证、邮箱或手机号。
 
 ### 测试会话
 

@@ -92,7 +92,7 @@ Names the build rejects: a `route.tsx` (rename to `page.tsx`), exporting `NotFou
 
 Build and deploy:
 
-14. Forgetting to reload page data after a write. After a successful `POST`, `PUT`, `PATCH` or `DELETE` function from `route.gen`, the page data reloads by itself. After a write by any other means, call TanStack's `router.invalidate()`.
+14. Forgetting to reload page data after a write. tifa never reloads it for you, not after a `POST`, `PUT`, `PATCH` or `DELETE` function from `route.gen` either. Call TanStack's `router.invalidate()` after the write, with `{ sync: true }` to wait until the page shows the new data.
 15. Cross-compiling with `GOOS=linux go tool tifa build`. That also applies to building the tifa command. Use `GOOS=linux GOARCH=amd64 $(go tool -n tifa) build`.
 16. Changing the React or TanStack Router versions by hand. tifa needs React 19.3 or later and the TanStack Router version it was tested with, and the build stops with the versions when they are wrong.
 17. Setting `Cache-Control: public` on pages or navigation data, or telling a CDN to ignore the origin's cache headers. Every answer is `private, no-cache` by default (`no-store` for error answers), and a CDN that caches a page of one visitor shows it to another. A page that is the same for everyone opts in with `const Cache = 10 * time.Minute` in its `route.go` (a duration of at least a second, never `true`), and tifa then sends the public headers itself, with `Age` and `Cache-Status: tifa; hit` or `fwd=miss`. Navigation data is never public. `RenderCache = false` is the other switch: it only turns the render cache off for a page that shows the time or a random value. See `references/build-and-deploy.md`.

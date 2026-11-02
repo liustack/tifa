@@ -5,6 +5,5 @@ import { orderListFn } from '../../../../compare/fns'
 export const Route = createFileRoute('/_app/projects/$project/')({
   component: OrdersPage,
   loader: async ({ parentMatchPromise }) => orderListFn({ data: (await parentMatchPromise).loaderData! }),
-  staleTime: Infinity,
   remountDeps: ({ params }) => [params.project],
 })

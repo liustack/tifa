@@ -22,9 +22,6 @@ export class TifaError extends Error {
 export interface CallOptions {
   // Aborts the request.
   signal?: AbortSignal
-  // false keeps the loaded data after a successful POST, PUT, PATCH or DELETE, which otherwise
-  // reloads the data of the current page and its Layouts.
-  invalidate?: boolean
 }
 
 // How the answer of a handler is read: its JSON result, nothing (204 or the session alone), or the
@@ -32,8 +29,6 @@ export interface CallOptions {
 // {result?, session?}: the session is there when the call signed someone in or out.
 export type Answer = 'json' | 'none' | 'raw'
 
-// Router is what a handler function needs of the router of the page: reloading the loaded data
-// after a write, and going to the target of a redirect.
 // Location is the part of a location of TanStack Router that tells which page it is.
 interface Location {
   pathname: string
@@ -41,8 +36,9 @@ interface Location {
   hash: string
 }
 
+// Router is what a handler function needs of the router of the page: going to the target of a
+// redirect. A call never reloads the data of the page.
 interface Router {
-  invalidate(): Promise<void>
   navigate(options: { href: string }): Promise<void>
   parseLocation(location: { href: string; pathname: string; search: string; hash: string; state: object }): Location
   state: { location: Location }
@@ -99,13 +95,10 @@ export async function call(
     const body: unknown = await response.clone().json()
     if (!isRedirected(body)) throw new Error(`${method} ${url} was answered with a redirect without a URL`)
     acceptSession(seq, body.session)
-    await follow(body.redirect, method, options)
+    await follow(body.redirect, method)
     return answer === 'raw' ? response : undefined
   }
-  if (answer === 'raw') {
-    if (response.ok) await refresh(method, options)
-    return response
-  }
+  if (answer === 'raw') return response
   if (!response.ok) throw await failure(response)
   let result: unknown
   // 204 is a call that changed nothing of the session. Anything else is the envelope.
@@ -115,17 +108,14 @@ export async function call(
     acceptSession(seq, (body as { session?: unknown }).session)
     if (answer === 'json') result = (body as { result?: unknown }).result
   }
-  await refresh(method, options)
   return result
 }
 
 // follow goes to the target of a redirect: through the router for a URL of this site, so the
 // page does not reload, and as a whole page for another site or before the router took over.
-// After a write the loaded data goes stale first, so the target and its Layouts load it again,
-// in the same request as the navigation. A redirect to the page that is showing reloads its
-// data as a call without a redirect does, since the router would show the stale data at once
-// and load the new data after.
-async function follow(location: string, method: string, options: CallOptions) {
+// What the target shows follows the router's defaults, as after any navigation. A redirect to the
+// page that is showing stays where it is and loads nothing.
+async function follow(location: string, method: string) {
   const target = new URL(location, window.location.href)
   if (target.protocol !== 'http:' && target.protocol !== 'https:')
     throw new Error(`${method} was redirected to ${location}, which is not an http or https URL`)
@@ -137,8 +127,7 @@ async function follow(location: string, method: string, options: CallOptions) {
   // The router reads the URL, so a query spelled another way, in another order or encoding,
   // is the same page.
   const parsed = router.parseLocation({ href, pathname: target.pathname, search: target.search, hash: target.hash, state: {} })
-  if (samePage(parsed, router.state.location)) return refresh(method, options)
-  if (method !== 'GET' && options.invalidate !== false) void router.invalidate()
+  if (samePage(parsed, router.state.location)) return
   await router.navigate({ href })
 }
 
@@ -156,11 +145,6 @@ function sameValue(a: unknown, b: unknown): boolean {
     keys.length === Object.keys(b).length &&
     keys.every((key) => Object.hasOwn(other, key) && sameValue((a as Record<string, unknown>)[key], other[key]))
   )
-}
-
-async function refresh(method: string, options: CallOptions) {
-  // Before the router takes over the page there is no loaded data to reload.
-  if (method !== 'GET' && options.invalidate !== false && router) await router.invalidate()
 }
 
 async function failure(response: Response): Promise<TifaError> {

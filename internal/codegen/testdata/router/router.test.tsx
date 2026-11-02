@@ -791,12 +791,13 @@ test('404, redirect and RouteError results keep their paths', async () => {
   assert(error instanceof RouteError && error.status === 403 && error.message === 'no', `root error ${error}`)
 })
 
-test('preloaded data never goes stale by itself', async () => {
+test('loaders keep the freshness defaults of the router, stale at once and loaded again in the background', async () => {
   const { router } = await client('/hello')
+  assert(router.options.defaultStaleReloadMode !== 'blocking', `stale reload mode ${router.options.defaultStaleReloadMode}`)
   for (const route of Object.values(router.routesById) as Array<{ id: string; options: any }>) {
     if (!route.options.loader || route.options.loader === unmatched) continue
-    assert(route.options.staleTime === Infinity, `${route.id} staleTime ${route.options.staleTime}`)
-    assert(route.options.preloadStaleTime === Infinity, `${route.id} preloadStaleTime ${route.options.preloadStaleTime}`)
+    assert(route.options.staleTime === undefined, `${route.id} staleTime ${route.options.staleTime}`)
+    assert(route.options.preloadStaleTime === undefined, `${route.id} preloadStaleTime ${route.options.preloadStaleTime}`)
   }
 })
 

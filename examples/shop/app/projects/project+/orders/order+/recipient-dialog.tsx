@@ -1,4 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useRouter } from '@tanstack/react-router'
 import { PencilLine } from 'lucide-react'
 import { useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
@@ -39,6 +40,7 @@ const recipientSchema = z.object({
 export function RecipientDialog() {
   const { order } = page.useLoaderData()
   const hydrated = useHydrated()
+  const router = useRouter()
   const [open, setOpen] = useState(false)
   const current = { customer: order.customer, phone: order.phone, address: order.address }
   const form = useForm<PATCHInput>({ resolver: zodResolver(recipientSchema), defaultValues: current })
@@ -52,6 +54,7 @@ export function RecipientDialog() {
   async function onSubmit(input: PATCHInput) {
     try {
       await PATCH({ params: { project: order.projectId, order: order.id }, input })
+      await router.invalidate({ sync: true })
       setOpen(false)
     } catch (e) {
       if (!(e instanceof TifaError)) {

@@ -89,17 +89,18 @@ assert(last().url === '/api/notes/1' && last().init.body === '{"text":"hi","next
 assert(headers.get('Content-Type') === 'application/json', 'POST content type')
 // Every call asks for a redirect as JSON, and fetch follows no 3xx to the HTML of its target.
 assert(headers.get('X-Tifa-Call') === '1' && last().init.redirect === 'manual', `call headers ${JSON.stringify(last().init)}`)
-assert(saved?.text === 'saved' && invalidated() === 1, `POST result ${JSON.stringify(saved)} ${invalidated()}`)
+assert(saved?.text === 'saved' && invalidated() === 0, `POST result ${JSON.stringify(saved)} ${invalidated()}`)
 
-// invalidate: false keeps the data.
-await POST({ params: { note: '1' }, input: { text: 'hi', next: null }, invalidate: false })
-assert(invalidated() === 1, 'invalidate: false refreshed')
+// A write sends one request, the call itself. Nothing reloads the data of the page after it.
+const sentBeforeWrite = requests.length
+await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
+assert(requests.length === sentBeforeWrite + 1 && invalidated() === 0, `a write sent ${requests.length - sentBeforeWrite} requests, router reloads ${invalidated()}`)
 
 // An error answer throws TifaError and refreshes nothing.
 answer = () => Response.json({ error: 'Unprocessable Entity', fields: { text: 'write something' } }, { status: 422 })
 const failed = await caught(POST({ params: { note: '1' }, input: { text: '', next: null } }))
 assert(failed instanceof TifaError && failed.status === 422 && failed.fields.text === 'write something', `422: ${failed}`)
-assert(invalidated() === 1, 'a failure refreshed')
+assert(invalidated() === 0, "a failure reloaded")
 answer = () => new Response('bad gateway', { status: 502, statusText: 'Bad Gateway' })
 const gateway = await caught(POST({ params: { note: '1' }, input: { text: '', next: null } }))
 assert(gateway instanceof TifaError && gateway.status === 502 && gateway.message === 'Bad Gateway', `502: ${gateway}`)
@@ -112,12 +113,12 @@ assert(nullBody instanceof TifaError && nullBody.status === 502, `JSON null erro
 // DELETE without a result resolves to undefined, and the empty query values stay out.
 answer = () => new Response(null, { status: 204 })
 const removed: void = await DELETE({ params: { note: '1' }, input: { tag: '', tags: null } })
-assert(removed === undefined && last().url === '/api/notes/1?tag=' && invalidated() === 2, `DELETE ${last().url} ${invalidated()}`)
+assert(removed === undefined && last().url === '/api/notes/1?tag=' && invalidated() === 0, `DELETE ${last().url} ${invalidated()}`)
 
 // A handler that writes its own response hands back the Response, also for an error.
 answer = () => new Response('gone', { status: 410 })
 const raw = await PUT({ params: { note: '1' } })
-assert(raw.status === 410 && invalidated() === 2, `PUT raw ${raw.status} ${invalidated()}`)
+assert(raw.status === 410 && invalidated() === 0, `PUT raw ${raw.status} ${invalidated()}`)
 
 // The rest of the path keeps its slashes.
 answer = () => new Response('ok')
@@ -143,32 +144,30 @@ for (const [_splat, url] of [['', '/api/files/'], ['a/', '/api/files/a/'], ['.a/
   assert(last().url === url, `_splat ${JSON.stringify(_splat)}: ${last().url}`)
 }
 
-// A redirect sends the router to the target. After a write the loaded data goes stale first, so
-// the target and its Layouts load again. The promise resolves once the target shows.
+// A redirect sends the router to the target and nothing reloads the data. The promise resolves once
+// the navigation has finished.
 navigations.splice(0)
-let before = invalidated()
 answer = redirected('/notes/8?tab=items#top')
 const removedThenMoved = await DELETE({ params: { note: '1' }, input: { tag: '', tags: null } })
 assert(removedThenMoved === undefined && navigations.join() === '/notes/8?tab=items#top', `DELETE redirect ${navigations}`)
-assert(invalidated() === before + 1, `DELETE redirect invalidated ${invalidated() - before}`)
+assert(invalidated() === 0, `DELETE redirect invalidated`)
 answer = redirected('/notes/9')
 const savedThenMoved = await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
-assert(savedThenMoved === undefined && navigations.at(-1) === '/notes/9' && invalidated() === before + 2, `POST redirect ${savedThenMoved}`)
+assert(savedThenMoved === undefined && navigations.at(-1) === '/notes/9' && invalidated() === 0, `POST redirect ${savedThenMoved}`)
 // The result type says a redirect resolves to undefined: tsc refuses this line otherwise.
 const redirectedResult: Awaited<ReturnType<typeof POST>> = undefined
 assert(redirectedResult === savedThenMoved, 'redirect result')
-// A redirect to the page that shows reloads its data and does not navigate.
+// A redirect to the page that shows neither reloads nor navigates: the page stays as it is.
 answer = redirected('/notes/1')
 await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
-assert(navigations.length === 2 && invalidated() === before + 3, `redirect to the same page ${navigations} ${invalidated() - before}`)
-before = invalidated()
-// invalidate: false and GET only navigate.
+assert(navigations.length === 2 && invalidated() === 0, `redirect to the same page ${navigations}`)
+// A GET navigates the same way.
 answer = redirected('/notes/12')
-await POST({ params: { note: '1' }, input: { text: 'hi', next: null }, invalidate: false })
+await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
 answer = redirected('/login', 302)
 const listed = await GET({ params: { note: '1' }, input: { tag: '', tags: null } })
 assert(listed === undefined && navigations.join() === '/notes/8?tab=items#top,/notes/9,/notes/12,/login', `GET redirect ${navigations}`)
-assert(invalidated() === before, `invalidate: false or GET invalidated ${invalidated() - before}`)
+assert(invalidated() === 0, `a redirect reloaded`)
 // A handler that writes its own response gets the Response of the redirect, unread.
 answer = redirected('/notes/10')
 const rawMoved = await PUT({ params: { note: '1' } })
@@ -177,7 +176,7 @@ assert(navigations.at(-1) === '/notes/10', `PUT redirect ${navigations}`)
 // The same site written in full goes through the router, another site loads as a whole page,
 // also when written without a scheme.
 answer = redirected('http://shop.test/notes/11')
-await POST({ params: { note: '1' }, input: { text: 'hi', next: null }, invalidate: false })
+await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
 assert(navigations.at(-1) === '/notes/11' && assigned.join() === '', `same site ${navigations} ${assigned}`)
 const routed = navigations.length
 for (const [location, url] of [
@@ -196,10 +195,9 @@ assert(script instanceof Error && !(script instanceof TifaError) && /javascript:
 assert(navigations.length === routed && assigned.length === 2, 'javascript: was followed')
 // A result shaped like a redirect, without the header, is a result.
 answer = () => Response.json({ result: { redirect: '/x', status: 1 } })
-before = invalidated()
 const lookalike: unknown = await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
 assert(JSON.stringify(lookalike) === '{"redirect":"/x","status":1}' && navigations.length === routed, `lookalike ${JSON.stringify(lookalike)}`)
-assert(invalidated() === before + 1, 'lookalike did not refresh')
+assert(invalidated() === 0, 'lookalike reloaded')
 // A 3xx that tifa did not write as JSON cannot be read in the browser, and the call fails.
 answer = () => ({ type: 'opaqueredirect', ok: false, status: 0, statusText: '', headers: new Headers() }) as unknown as Response
 for (const send of [() => POST({ params: { note: '1' }, input: { text: 'hi', next: null } }), () => PUT({ params: { note: '1' } })]) {
@@ -217,11 +215,10 @@ assert(new Headers(last().init.headers).get('X-Tifa-Build') === 'b1', `build hea
 // another input by it now. The 409 of a handler names no build and is a result like any other.
 const staleBuild = () => Response.json({ error: 'the application was updated, reload the page' }, { status: 409, headers: { 'X-Tifa-Build': 'b2' } })
 answer = staleBuild
-before = invalidated()
 const sentBeforeStale = requests.length
 const updated = await caught(POST({ params: { note: '1' }, input: { text: 'hi', next: null } }))
 assert(updated instanceof TifaError && updated.status === 409 && /reload the page/.test(updated.message), `409 of another build: ${updated}`)
-assert(reloads() === 1 && requests.length === sentBeforeStale + 1 && invalidated() === before, `409 of another build: reloads ${reloads()}, requests ${requests.length - sentBeforeStale}`)
+assert(reloads() === 1 && requests.length === sentBeforeStale + 1 && invalidated() === 0, `409 of another build: reloads ${reloads()}, requests ${requests.length - sentBeforeStale}`)
 // A page that reloaded for that build and meets it again shows the failure and does not reload.
 resetReloads()
 const stillStale = await caught(POST({ params: { note: '1' }, input: { text: 'hi', next: null } }))
@@ -255,17 +252,16 @@ assert(reloads() === reloadsBefore, `409 with the storage blocked reloaded ${rel
 Object.defineProperty((globalThis as any).window, 'sessionStorage', { configurable: true, value: kept })
 
 // A call that changed the session brings it in the answer: with the result, alone for a call that
-// has none, and with a redirect. The copy follows, and the router reloads as after any write.
+// has none, and with a redirect. The copy follows, and the router reloads nothing.
 startSession({ key: 'app_sid:v1', injected: { signedIn: false }, buildId: () => 'b1' })
 answer = () => Response.json({ result: { text: 'hi', next: null }, session: { signedIn: true, data: { name: 'Ann' } } })
 const signedIn = await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
 assert(signedIn?.text === 'hi' && JSON.stringify(sessionSnapshot()) === '{"signedIn":true,"data":{"name":"Ann"},"ready":true}', `result with session: ${JSON.stringify(sessionSnapshot())}`)
 assert(mirror.get('app_sid:v1') === '{"signedIn":true,"data":{"name":"Ann"}}' && htmlAttributes.get('data-session') === 'in', `mirror ${[...mirror]} ${[...htmlAttributes]}`)
-before = invalidated()
 answer = () => Response.json({ session: { signedIn: false } })
 const signedOut: void = await DELETE({ params: { note: '1' }, input: { tag: '', tags: null } })
 assert(signedOut === undefined && !sessionSnapshot().signedIn && !mirror.has('app_sid:v1') && htmlAttributes.get('data-session') === 'out', 'session alone')
-assert(invalidated() === before + 1, 'session alone did not refresh')
+assert(invalidated() === 0, 'session alone reloaded')
 answer = () => Response.json({ redirect: '/welcome', status: 303, session: { signedIn: true } }, { headers: { 'X-Tifa-Redirect': '303' } })
 await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
 assert(sessionSnapshot().signedIn && mirror.get('app_sid:v1') === '{"signedIn":true}' && navigations.at(-1) === '/welcome', `redirect with session: ${JSON.stringify(sessionSnapshot())} ${navigations}`)

@@ -415,46 +415,50 @@ function asked(url: string) {
 
 // The router of a browser build loads in the background, which the Node build of
 // router.test.tsx does not.
-test('a write resolves once the page shows its new data', async () => {
+test('a write sends its own request and reloads nothing until the app invalidates', async () => {
   const saved = { fetch: g.fetch }
-  let answers = 0
+  const fetched: string[] = []
   g.fetch = async (url: string, init: RequestInit) => {
+    fetched.push(init.method === 'POST' ? 'POST ' + url : url)
     if (init.method === 'POST') return Response.json({ result: { text: 'saved', next: null } })
     const { routes } = asked(url)
-    answers++
-    return Response.json({ routes: Object.fromEntries(routes.map((id) => [id, ok(`${id} ${answers}`)])) })
+    return Response.json({ routes: Object.fromEntries(routes.map((id) => [id, ok(`${id} ${fetched.length}`)])) })
   }
   try {
     const router = createAppRouter(routeTree, collector(() => 'b1'), { history: createMemoryHistory({ initialEntries: ['/a/two'] }) })
     await router.load()
     setRouter(router, () => 'b1')
+    fetched.splice(0)
     const shown = () => router.state.matches.map((m) => m.loaderData).filter((d) => d !== undefined).join(', ')
-    assert(shown() === 'app/layout 1, app/a/layout 1, app/a/two/route 1', `first load ${shown()}`)
+    const before = shown()
     await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
-    assert(shown() === 'app/layout 2, app/a/layout 2, app/a/two/route 2', `after the write ${shown()}`)
-    // So does an app's own invalidate after a write that does not go through a handler.
-    await router.invalidate()
-    assert(shown() === 'app/layout 3, app/a/layout 3, app/a/two/route 3', `after invalidate ${shown()}`)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    assert(fetched.join(' | ') === 'POST /api/notes/1', `requests ${fetched.join(' | ')}`)
+    assert(shown() === before, `the write changed the page: ${before} -> ${shown()}`)
+    // The app's own invalidate loads the page's Loads again, merged into one request.
+    await router.invalidate({ sync: true })
+    assert(fetched.length === 2 && fetched[1].startsWith('/a/two?_tifa=b1.'), `requests ${fetched.join(' | ')}`)
+    assert(shown() !== before, `invalidate kept the old data: ${shown()}`)
   } finally {
     Object.assign(g, saved)
   }
 })
 
-// The router of a browser build navigates, which the Node build of router.test.tsx does not.
-test('a redirect of a handler call loads the target once, with fresh data', async () => {
+// A redirect of a call is a navigation. The data of the routes already loaded follows the
+// router's defaults: shown at once, loaded again in the background.
+test('a redirect of a handler call navigates, and a revisit shows the cached data while it loads again in the background', async () => {
   const saved = { fetch: g.fetch, location: g.location }
   const fetched: string[] = []
-  // A function, so TypeScript does not narrow the length from one assert to the next.
-  const requests = () => fetched.length
   let target = '/a/two'
+  let answers = 0
   g.fetch = async (url: string, init: RequestInit) => {
     const headers = new Headers(init.headers)
     if (headers.get('X-Tifa-Call')) return Response.json({ redirect: target, status: 303 }, { headers: { 'X-Tifa-Redirect': '303' } })
     const { url: page, routes } = asked(url)
     routes.sort()
     fetched.push(page + ' ' + routes.join(','))
-    // Each answer is new data, so the page shows which request its data came from.
-    return Response.json({ routes: Object.fromEntries(routes.map((id) => [id, ok(`${id} ${fetched.length}`)])) })
+    answers++
+    return Response.json({ routes: Object.fromEntries(routes.map((id) => [id, ok(`${id} ${answers}`)])) })
   }
   g.location = { ...saved.location, assign: (url: string) => fetched.push('assign ' + url) }
   try {
@@ -462,35 +466,91 @@ test('a redirect of a handler call loads the target once, with fresh data', asyn
     await router.load()
     setRouter(router, () => 'b1')
     fetched.splice(0)
-    // shown is the data of the page once the promise resolved.
     const shown = () =>
       router.state.location.pathname + ' ' + router.state.matches.map((m) => m.loaderData).filter((d) => d !== undefined).join(', ')
-    // The Layouts the two pages share were loaded for /a/one, and the write made them stale.
+    // The call marks nothing stale. The Layouts the target shares with the page stay as they are,
+    // and only the Load that is new asks the server.
     await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
-    assert(fetched.join(' | ') === '/a/two app/a/layout,app/a/two/route,app/layout', `requests ${fetched.join(' | ')}`)
-    assert(shown() === '/a/two app/layout 1, app/a/layout 1, app/a/two/route 1', `shown ${shown()}`)
-    // Back to the page it is on, as a form that posts and comes back does.
-    await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
-    assert(requests() === 2 && fetched[1] === '/a/two app/a/layout,app/a/two/route,app/layout', `requests ${fetched.join(' | ')}`)
-    assert(shown() === '/a/two app/layout 2, app/a/layout 2, app/a/two/route 2', `shown ${shown()}`)
-    // Without invalidating, only what is not loaded yet loads.
-    target = '/a/one'
-    await POST({ params: { note: '1' }, input: { text: 'hi', next: null }, invalidate: false })
-    assert(requests() === 2, `requests ${fetched.join(' | ')}`)
-    assert(shown() === '/a/one app/layout 2, app/a/layout 2', `shown ${shown()}`)
-    // Back to a page loaded before, after a write: its cached data loads again too.
-    target = '/a/two'
-    await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
-    assert(requests() === 3 && fetched[2] === '/a/two app/a/layout,app/a/two/route,app/layout', `requests ${fetched.join(' | ')}`)
-    assert(shown() === '/a/two app/layout 3, app/a/layout 3, app/a/two/route 3', `shown ${shown()}`)
     await new Promise((resolve) => setTimeout(resolve, 20))
-    assert(requests() === 3, `requests after the promise resolved: ${fetched.join(' | ')}`)
+    assert(fetched.join(' | ') === '/a/two app/a/two/route', `requests ${fetched.join(' | ')}`)
+    assert(shown() === '/a/two app/layout 1, app/a/layout 1, app/a/two/route 2', `shown ${shown()}`)
+    // Leaving for a page whose Loads are all loaded asks for nothing.
+    target = '/a/one'
+    fetched.splice(0)
+    await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    assert(fetched.length === 0 && shown() === '/a/one app/layout 1, app/a/layout 1', `leaving: ${fetched.join(' | ')} ${shown()}`)
+    // Back to a page visited before: the router shows its data at once and loads it again in the
+    // background (stale-while-revalidate).
+    target = '/a/two'
+    const visit = POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
+    await visit
+    assert(shown().startsWith('/a/two ') && shown().includes('app/a/two/route 2'), `revisit shown at once ${shown()}`)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    assert(fetched.join(' | ') === '/a/two app/a/two/route', `revisit requests ${fetched.join(' | ')}`)
+    assert(shown() === '/a/two app/layout 1, app/a/layout 1, app/a/two/route 3', `revisit shown after ${shown()}`)
   } finally {
     Object.assign(g, saved)
   }
 })
 
-test('a redirect to the page that shows, spelled another way, reloads its data in place', async () => {
+// A revalidation in the background that is still on its way when the user moves on must not
+// leave the page with the data of the page behind, lose the answer of the next navigation, or
+// make a request nobody waits for fail loudly.
+test('background revalidations still out when the user moves on and back settle cleanly', async () => {
+  const saved = { fetch: g.fetch }
+  const pending: Array<{ page: string; routes: string[]; answer: () => void }> = []
+  let seq = 0
+  g.fetch = (url: string) => {
+    const { url: page, routes } = asked(url)
+    const n = ++seq
+    return new Promise<Response>((resolve) => {
+      pending.push({ page, routes, answer: () => resolve(Response.json({ routes: Object.fromEntries(routes.map((id) => [id, ok(`${id} ${n}`)])) })) })
+    })
+  }
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 10))
+  try {
+    const router = createAppRouter(routeTree, collector(() => 'b1'), { history: createMemoryHistory({ initialEntries: ['/a/one'] }) })
+    const first = router.load()
+    await tick()
+    pending.shift()!.answer()
+    await first
+    const shown = () =>
+      router.state.location.pathname + ' ' + router.state.matches.map((m) => m.loaderData).filter((d) => d !== undefined).join(', ')
+    assert(shown() === '/a/one app/layout 1, app/a/layout 1', `first ${shown()}`)
+    // Visit /a/two once, so that its data is cached, and leave it.
+    const toTwo = router.navigate({ to: '/a/two' })
+    await tick()
+    assert(pending.length === 1 && pending[0].routes.join() === 'app/a/two/route', `first visit asked ${pending.map((p) => p.routes)}`)
+    pending.shift()!.answer()
+    await toTwo
+    await router.navigate({ to: '/a/one' })
+    // The revisit shows the cached data and asks again in the background. The user leaves before the
+    // answer arrives and comes back, so the page asks a second time while the first is still out.
+    await router.navigate({ to: '/a/two' })
+    await tick()
+    assert(shown() === '/a/two app/layout 1, app/a/layout 1, app/a/two/route 2', `revisit ${shown()}`)
+    assert(pending.length === 1, `background revalidation did not ask: ${pending.length}`)
+    await router.navigate({ to: '/a/one' })
+    await router.navigate({ to: '/a/two' })
+    await tick()
+    // Answers arrive in the reverse order they were asked in.
+    for (const request of pending.splice(0).reverse()) request.answer()
+    await tick()
+    for (let i = 0; i < 20 && pending.length > 0; i++) {
+      pending.splice(0).forEach((request) => request.answer())
+      await tick()
+    }
+    await tick()
+    assert(router.state.location.pathname === '/a/two', `ended at ${router.state.location.pathname}`)
+    assert(router.state.status === 'idle' && router.state.matches.every((m) => m.status === 'success'), `state ${router.state.status} ${router.state.matches.map((m) => m.status)}`)
+    assert(router.state.matches.map((m) => m.loaderData).filter((d) => d !== undefined).length === 3, `data ${shown()}`)
+  } finally {
+    Object.assign(g, saved)
+  }
+})
+
+test('a redirect to the page that shows, spelled another way, stays where it is and loads nothing', async () => {
   const saved = { fetch: g.fetch, location: g.location }
   const fetched: string[] = []
   g.fetch = async (url: string, init: RequestInit) => {
@@ -512,9 +572,11 @@ test('a redirect to the page that shows, spelled another way, reloads its data i
     const href = router.state.location.href
     const entries = history.length
     const shown = () => router.state.matches.map((m) => m.loaderData).filter((d) => d !== undefined).join(', ')
+    const before = shown()
     await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
-    assert(fetched.length === 1 && fetched[0].startsWith('/a/two?'), `requests ${fetched.join(' | ')}`)
-    assert(shown() === 'app/layout 1, app/a/layout 1, app/a/two/route 1', `shown ${shown()}`)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    assert(fetched.length === 0, `requests ${fetched.join(' | ')}`)
+    assert(shown() === before, `shown ${shown()}`)
     assert(router.state.location.href === href && history.length === entries, `at ${router.state.location.href}, ${history.length} entries`)
   } finally {
     Object.assign(g, saved)

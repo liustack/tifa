@@ -32,7 +32,7 @@ export async function refreshMine(lang: string) {
 // rememberProduct tells the server the visitor looked at a product, then asks again.
 export async function rememberProduct(lang: string, slug: string) {
   try {
-    await POST({ params: { lang }, input: { slug }, invalidate: false })
+    await POST({ params: { lang }, input: { slug } })
   } catch {
     // Not remembering a product is no reason to bother the visitor.
   }

@@ -20,8 +20,6 @@ const r1 = createRoute({
   notFoundComponent: n0,
   loader: ({ context, location, preload }) => load<D1>(context, "app/docs/layout", location, preload),
   staticData: { load: "app/docs/layout" },
-  staleTime: Infinity,
-  preloadStaleTime: Infinity,
 })
 
 const r2 = createRoute({
@@ -38,8 +36,6 @@ const r3 = createRoute({
   errorComponent: DefaultError,
   loader: ({ context, location, preload }) => load<D3>(context, "app/files/path++/route", location, preload),
   staticData: { load: "app/files/path++/route" },
-  staleTime: Infinity,
-  preloadStaleTime: Infinity,
   loaderDeps: ({ search }) => pick(search, ["rev"]),
   remountDeps: ({ params, search }) => [params._splat, pick(search, ["rev"])],
 })

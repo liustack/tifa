@@ -5,8 +5,10 @@ import (
 	"io"
 	"net/http"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 const (
@@ -181,6 +183,38 @@ func shopSignInInBrowser(t *testing.T, base string) {
 	if s["path"] != "/projects/studio/stats" || s["attribute"] != "in" || s["nameShown"] != true {
 		t.Errorf("signed in: %v", s)
 	}
+
+	// A write does not reload the page by itself: the order page asks for its data again only
+	// because the note form invalidates the router, and a page visited before shows at once and
+	// asks again in the background.
+	dataRequests := func() int {
+		t.Helper()
+		out := pw("eval", `() => performance.getEntriesByType("resource").filter((e) => e.name.includes("_tifa=")).length`)
+		_, result, ok := strings.Cut(out, "### Result\n")
+		if !ok {
+			t.Fatalf("no result in %s", out)
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(strings.SplitN(result, "\n", 2)[0]))
+		if err != nil {
+			t.Fatalf("result %q: %v", result, err)
+		}
+		return n
+	}
+	text := func() string { return pw("eval", `() => document.body.innerText`) }
+	pw("click", ref(`link "订单"`))
+	waitFor(t, "the order list", func() bool { s = state(); return s["path"] == "/projects/studio" })
+	pw("click", ref(`link "SH-1041"`))
+	waitFor(t, "the order page", func() bool { s = state(); return s["path"] == "/projects/studio/orders/SH-1041" })
+	pw("fill", ref(`textbox "写一条备注"`), "e2e-note-from-the-form")
+	pw("click", ref(`button "添加备注"`))
+	waitFor(t, "the note on the order page", func() bool { return strings.Contains(text(), "e2e-note-from-the-form") })
+	pw("click", ref(`link "统计"`))
+	waitFor(t, "the stats page", func() bool { s = state(); return s["path"] == "/projects/studio/stats" })
+	time.Sleep(500 * time.Millisecond)
+	before := dataRequests()
+	pw("click", ref(`link "订单"`))
+	waitFor(t, "the order list again", func() bool { s = state(); return s["path"] == "/projects/studio" })
+	waitFor(t, "the revalidation of the order list", func() bool { return dataRequests() > before })
 
 	pw("click", ref(`button "退出登录"`))
 	waitFor(t, "the sign-in page", func() bool { s = state(); return s["form"] == true })

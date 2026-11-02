@@ -181,9 +181,9 @@ async function ship() {
 }
 ```
 
-- The function takes one object: `params` (left out when the folder has none, `_splat` for a `name++` folder), `input` (left out when the handler takes none), `signal`, and `invalidate`.
+- The function takes one object: `params` (left out when the folder has none, `_splat` for a `name++` folder), `input` (left out when the handler takes none), and `signal`.
 - GET and DELETE send the input in the query string, the others as a JSON body.
-- After a successful POST, PUT, PATCH or DELETE the data of the current page and its Layouts loads again before the promise resolves. Pass `invalidate: false` to skip it. After a write that bypasses these functions, call `router.invalidate()`.
+- A call never reloads page data. After a write, call `router.invalidate()` (`await router.invalidate({ sync: true })` to wait until the page shows the new data). Revisiting a page shows its cached data and loads it again in the background, the router's default.
 - An error answer throws `TifaError` with `status`, `message` and `fields` (the `tifa.Fields` messages, empty otherwise).
 - When the handler (or `OnRequest`) returns `tifa.Redirect(...)`, the browser follows it, and the promise resolves to `undefined`. So the result type of a handler with a result includes `undefined`: check it before use.
 - A handler that writes its own response (`func POST(c) error`) gives back the `Response`, also for 4xx and 5xx. Check `response.ok`.

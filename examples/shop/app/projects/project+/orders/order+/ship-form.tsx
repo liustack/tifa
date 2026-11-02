@@ -1,4 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useRouter } from '@tanstack/react-router'
 import { Controller, useForm } from 'react-hook-form'
 import { TifaError } from 'tifa/client'
 import { z } from 'zod'
@@ -23,6 +24,7 @@ const shipSchema = z.object({
 export function ShipForm() {
   const { order, carriers } = page.useLoaderData()
   const hydrated = useHydrated()
+  const router = useRouter()
   const form = useForm<POSTInput>({
     resolver: zodResolver(shipSchema),
     defaultValues: { carrier: '', trackingNo: '' },
@@ -30,9 +32,9 @@ export function ShipForm() {
 
   async function onSubmit(input: POSTInput) {
     try {
-      // The page and its Layouts load their data again before this resolves, so the order shows
-      // as shipped and this form goes away.
       await POST({ params: { project: order.projectId, order: order.id }, input })
+      // Load the page and its Layouts again, so the order shows as shipped and this form goes away.
+      await router.invalidate({ sync: true })
     } catch (e) {
       if (!(e instanceof TifaError)) {
         form.setError('root', { message: '网络异常，请重试' })

@@ -1,3 +1,4 @@
+import { useRouter } from '@tanstack/react-router'
 import { LogIn, LogOut } from 'lucide-react'
 import { SignedIn, SignedOut, useSession } from 'tifa/client'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -8,6 +9,7 @@ import { POST as signOut } from './logout/route.gen'
 // writes which of the two shows on <html>, so the first paint is right before any script runs.
 export function Account() {
   const { data } = useSession()
+  const router = useRouter()
   return (
     <>
       <SignedOut>
@@ -26,7 +28,7 @@ export function Account() {
           <span className="hidden text-sm font-medium sm:inline" data-testid="account-name">
             {data?.name}
           </span>
-          <Button variant="ghost" size="sm" onClick={() => void signOut()}>
+          <Button variant="ghost" size="sm" onClick={() => void signOut().then(() => router.clearCache())}>
             <LogOut />
             <span className="hidden sm:inline">退出登录</span>
             <span className="sr-only sm:hidden">退出登录</span>

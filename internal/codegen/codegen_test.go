@@ -230,15 +230,11 @@ func TestRemountFollowsTheParametersLoadReads(t *testing.T) {
 	for _, want := range []string{
 		`load<D3>(context, "app/projects/projectId+/route", location, preload),
   staticData: { load: "app/projects/projectId+/route" },
-  staleTime: Infinity,
-  preloadStaleTime: Infinity,
   remountDeps: ({ params }) => [params.projectId],`,
 		`remountDeps: ({ params }) => [params.orderId],`,
 		`remountDeps: ({ params }) => [params._splat],`,
 		`load<D2>(context, "app/projects/projectId+/layout", location, preload),
   staticData: { load: "app/projects/projectId+/layout" },
-  staleTime: Infinity,
-  preloadStaleTime: Infinity,
   remountDeps: ({ params }) => [params.projectId],`,
 	} {
 		if !strings.Contains(tree, want) {
