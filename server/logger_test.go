@@ -16,10 +16,10 @@ func runUntilListening(t *testing.T, onStart func(), out *syncBuffer) {
 	t.Helper()
 	cfg := config.Default()
 	cfg.Server.Addr = "127.0.0.1:0"
-	s := New(cfg, Hooks{OnStart: func() error { onStart(); return nil }})
+	s := newServer(cfg, Hooks{OnStart: func(context.Context) error { onStart(); return nil }})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- s.Run(ctx) }()
+	go func() { done <- s.run(ctx) }()
 	until(t, "the listening line", func() bool { return strings.Contains(out.String(), "tifa: listening on http://") })
 	cancel()
 	select {

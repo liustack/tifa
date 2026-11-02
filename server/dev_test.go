@@ -51,7 +51,7 @@ func serveApp(t *testing.T, app App, dev bool, args ...string) string {
 	addr := freeAddr(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	var entry func(*Server, fs.FS, config.SSR) http.Handler
+	var entry func(*server, fs.FS, config.SSR) http.Handler
 	if dev {
 		entry = reloader
 	}
@@ -114,7 +114,7 @@ func TestDevMainReloadsTheSSRBundle(t *testing.T) {
 	writeBundle(t, dir, "first")
 	var starts atomic.Int32
 	app := frontApp()
-	app.Hooks.OnStart = func() error {
+	app.Hooks.OnStart = func(context.Context) error {
 		starts.Add(1)
 		return nil
 	}

@@ -323,7 +323,7 @@ func TestViolations(t *testing.T) {
 		{"paramname", [][]string{
 			{"app/items/key+/route.go:13:", `"id"`, `"/items/{key}"`},
 			{"app/items/key+/route.go:13:", "c.Query must", "constant"},
-			{"app/items/key+/route.go:13:", "c.QueryAll must", "constant"},
+			{"app/items/key+/route.go:13:", "c.QueryValues must", "constant"},
 		}},
 		{"indirect", [][]string{
 			{"app/page/route.go:17:", "c.Query", "called directly"},
@@ -332,7 +332,7 @@ func TestViolations(t *testing.T) {
 			{"app/page/route.go:20:", "tifa.Use", "called directly"},
 			{"app/page/route.go:21:", "use", "function value"},
 			{"app/page/route.go:27:", "c.Param", "called directly"},
-			{"app/page/route.go:29:", "c.QueryAll", "called directly"},
+			{"app/page/route.go:29:", "c.QueryValues", "called directly"},
 		}},
 		{"ifacectx", [][]string{
 			{"app/page/route.go:18:", "converted to interface{Query(string) string}", "call its methods directly"},
@@ -350,7 +350,7 @@ func TestViolations(t *testing.T) {
 			{"db/db.go:10:", "c.Writer"},
 		}},
 		{"bindquery", [][]string{
-			{"app/list/route.go:12:", "c.BindQuery", "c.Query(\"name\")", "c.QueryAll(\"name\")"},
+			{"app/list/route.go:12:", "c.BindQuery", "c.Query(\"name\")", "c.QueryValues(\"name\")"},
 			{"filter/filter.go:12:", "c.BindQuery"},
 			{"app/list/route.go:20:", "c.Bind", "request body", "c.Query"},
 		}},
@@ -742,7 +742,7 @@ func TestFollowHelpers(t *testing.T) {
 		!reflect.DeepEqual(list.AllQuery, []string{"depth", "dir", "page", "site", "sort"}) {
 		t.Errorf("list Load = %+v", list)
 	}
-	// c.QueryAll counts as a query parameter, also through a helper, and through tifa.Use of a
+	// c.QueryValues counts as a query parameter, also through a helper, and through tifa.Use of a
 	// Layout (list above).
 	if len(other.Params) != 0 || !reflect.DeepEqual(other.Query, []string{"dir", "sort", "tag"}) || len(other.Uses) != 0 ||
 		!reflect.DeepEqual(other.AllQuery, []string{"dir", "sort", "tag"}) {

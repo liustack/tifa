@@ -29,7 +29,7 @@ import (
 func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 	if c.Request().URL.Path == "/members" {
 		if _, err := c.Cookie("session"); err != nil {
-			return c.Redirect("/", 302)
+			return tifa.Redirect("/", 302)
 		}
 	}
 	err := next(c)

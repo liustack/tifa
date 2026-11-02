@@ -121,7 +121,7 @@ When an error is returned:
 | Returned | Result |
 | --- | --- |
 | `tifa.ErrNotFound` | 404 |
-| `c.Redirect(url, code)` | A redirect. Page loads and navigation follow it, and so does a handler function called from the browser (see below) |
+| `tifa.Redirect(url, status)` | A redirect. Page loads and navigation follow it, and so does a handler function called from the browser (see below). Panics when `status` is not 3xx |
 | `tifa.Error{Status, Message}` | Answered with its status code and message, does not go to `OnError`. A status outside 400 to 599 is handled as an unexpected error |
 | `tifa.Fields{"carrier": "pick a carrier"}` | 422 with a message per input field by its json name, does not go to `OnError` |
 | Any other error, a panic | Goes to `OnError`. Without one, it is logged and answered with 500 |
@@ -144,7 +144,7 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 - The input is a struct, not a pointer to one. POST, PUT and PATCH decode it from the request body: JSON, or a URL-encoded or multipart form. A form fills only fields that are strings, numbers, bools or slices of them, and a form value for any other field is answered with 400. GET and DELETE decode it from the query string, so its fields may only be strings, numbers, bools or slices of them, with no embedded fields and no types with `MarshalText` or `UnmarshalText`, also on the input type itself.
 - Fields are named by their `json` tags, in a form body and the query string too. A `form` tag fails the build. Path parameters, headers and cookies still come from `c`.
 - The input and the result follow the JSON rules below, the same as the result of `Load`. The input must also read back from the JSON its TypeScript type describes: a type that is a string because of `MarshalText` needs `UnmarshalText([]byte) error` too, a type with `UnmarshalText` must be a string in TypeScript unless it is a map key (a key is always a JSON string), and `UnmarshalJSON` is not accepted (except on `time.Time`).
-- When the input type has a method `Validate` (it must be `func() error`), it runs after decoding and before the handler. `nil` goes on. A `tifa.Error` or `tifa.Fields` is answered as is, so return `tifa.Fields` to mark single fields. Any other error is answered with 400 and its `err.Error()` as the message, which the user sees.
+- When the input type has a method `Validate` (it must be `func() error`), it runs after decoding and before the handler. `nil` goes on. A `tifa.Error` or `tifa.Fields` is answered as is, so return `tifa.Fields` to mark single fields. Collect them in a `tifa.Fields{}` and end with `return fields.Err()`, which is nil when nothing was added (an empty `tifa.Fields` is still an error). Any other error is answered with 400 and its `err.Error()` as the message, which the user sees.
 - A POST, PUT, PATCH or DELETE that a browser sends from another site, a form or multipart included, is answered with 403 before the handler runs, so a handler needs no check of its own for it. `server.trusted_origins` and `server.cross_site_paths` let chosen origins and paths through (see [Cross-site writes](config.md#cross-site-writes)).
 - A body or query string that does not decode is answered with 400 (413 for a body over the limit, 415 for another content type or none), and the handler does not run.
 - A handler that writes its own response decodes input with `c.Bind(&in)` for the body and `c.BindQuery(&in)` for the query string. These name a field by its `form` tag first, then its `json` tag, then its Go name.
@@ -157,14 +157,13 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 | --- | --- |
 | `c.Param(name)` | A path parameter, decoded, such as `c.Param("order")` for the folder `order+` |
 | `c.Query(name)` | The first value of a query parameter, `""` when absent |
-| `c.QueryAll(name)` | Every value of a query parameter, such as `["a", "b"]` for `?tag=a&tag=b`, `nil` when absent |
+| `c.QueryValues(name)` | Every value of a query parameter, such as `["a", "b"]` for `?tag=a&tag=b`, `nil` when absent |
 | `c.Header(name)`, `c.Cookie(name)` | A request header, a request cookie (`http.ErrNoCookie` when absent) |
 | `c.Context()`, `c.WithContext(ctx)` | The request context, and a copy of `c` that carries another one, to store request-scoped values. `c` itself does not change |
 | `c.Pattern()` | The path of the matched route, such as `/projects/{project}`, `""` when no route matched |
 | `c.IsData()` | Whether this is a navigation data request of the browser router rather than a page load |
 | `c.SetHeader(key, value)`, `c.SetCookie(cookie)` | A response header, a response cookie. Allowed in `Load` too |
 | `c.JSON(code, v)`, `c.Text(code, s)`, `c.NoContent(code)` | Writes the response. Not allowed in `Load` |
-| `c.Redirect(url, code)` | Returns an error value. Return it to redirect |
 | `c.Bind(&v)`, `c.BindQuery(&v)` | Decodes the body or the query string into a struct, see above. Not allowed in `Load` |
 | `c.SetBodyLimit(n)` | Changes the body limit of this request (`server.body_limit` by default). Call it before anything reads the body, usually in `OnRequest`. Once reading has started it returns an error |
 | `c.Request()`, `c.Writer()` | The raw `*http.Request` and `http.ResponseWriter`, for method handlers and `OnRequest` only |
@@ -219,12 +218,12 @@ async function ship() {
 - GET and DELETE send the input in the query string, the other methods as a JSON body. The result is typed from the Go result, with `| undefined` for a redirect (below): `func(c, in) (Out, error)` gives `Promise<POSTOutput | undefined>`. `func(c, in) error` gives `void`. `func(c) error` writes its own response, so its function gives back the `Response` as it is, also for an error status.
 - After a POST, PUT, PATCH or DELETE succeeds, the data of the current page and its Layouts is loaded again before the promise resolves. Pass `invalidate: false` to keep it. A failure and a GET never reload.
 - An error answer throws `TifaError` with `status`, `message` and `fields` (the messages of a `tifa.Fields`, empty otherwise). A network failure throws as `fetch` does. A call from a page of an older build than the server fails with status 409, see [Pages open while you deploy](#pages-open-while-you-deploy).
-- When the handler or `OnRequest` returns `c.Redirect(url, code)`, the browser goes to that URL: through the router for a URL of this site, without reloading the page, and as a whole page load for another site. After a POST, PUT, PATCH or DELETE (unless `invalidate: false`) the data the router holds goes stale first, so the new page and its Layouts show fresh data. A redirect to the page that is showing loads its data again, as a call without a redirect does. It counts as the same page when the path, the hash and the query values match, whatever the order and encoding of the query. The promise resolves once the new page shows, to `undefined`, also for a handler with a result. Whether a call is redirected is only known from its answer, since `OnRequest` may redirect any request, so the result type of every handler function with a result includes `undefined`. The function of a handler that writes its own response gets the `Response` of the redirect (`ok`, with the status in `X-Tifa-Redirect`). A relative URL is resolved against the URL of the handler, not of the page. A 3xx the handler wrote itself through `c.Writer()`, or one a proxy wrote, cannot be read in the browser and rejects the promise with an `Error`.
+- When the handler or `OnRequest` returns `tifa.Redirect(url, status)`, the browser goes to that URL: through the router for a URL of this site, without reloading the page, and as a whole page load for another site. After a POST, PUT, PATCH or DELETE (unless `invalidate: false`) the data the router holds goes stale first, so the new page and its Layouts show fresh data. A redirect to the page that is showing loads its data again, as a call without a redirect does. It counts as the same page when the path, the hash and the query values match, whatever the order and encoding of the query. The promise resolves once the new page shows, to `undefined`, also for a handler with a result. Whether a call is redirected is only known from its answer, since `OnRequest` may redirect any request, so the result type of every handler function with a result includes `undefined`. The function of a handler that writes its own response gets the `Response` of the redirect (`ok`, with the status in `X-Tifa-Redirect`). A relative URL is resolved against the URL of the handler, not of the page. A 3xx the handler wrote itself through `c.Writer()`, or one a proxy wrote, cannot be read in the browser and rejects the promise with an `Error`.
 - A call that signs someone in or out brings the new session in its answer, and the copy of the session in the browser follows (see [Sessions in the browser](#in-the-browser)).
 - Call these functions from event handlers or effects. Calling one while the page renders on the server throws.
 - `route.gen` also exports `POSTInput`, `POSTOutput` and so on for the types of each handler that has them.
 
-The error that `c.Redirect` returns is a `*tifa.RedirectError` with the fields `URL` and `Code`. In `OnRequest` or a test, recognize it with `errors.As`.
+The error that `tifa.Redirect` returns is a `*tifa.RedirectError` with the fields `URL` and `Status`. In `OnRequest` or a test, recognize it with `errors.As`.
 
 To go to the page of what a handler created, return a redirect from the handler, or return the result and navigate yourself. Pass `invalidate: false` in the second case, so the current page does not load its data again just before you leave it. Data the router already holds, such as that of a Layout both pages share, then stays as it was:
 
@@ -234,7 +233,7 @@ func POST(c *tifa.Ctx, in AddInput) error {
 	if err != nil {
 		return err
 	}
-	return c.Redirect("/todos/"+todo.ID, http.StatusSeeOther)
+	return tifa.Redirect("/todos/"+todo.ID, http.StatusSeeOther)
 }
 ```
 
@@ -435,14 +434,14 @@ var matcher = language.NewMatcher([]language.Tag{language.MustParse(codes[0]), l
 func GET(c *tifa.Ctx) error {
 	c.Writer().Header().Add("Vary", "Cookie, Accept-Language")
 	if picked, err := c.Cookie("lang"); err == nil && slices.Contains(codes, picked.Value) {
-		return c.Redirect("/store/"+picked.Value, http.StatusFound) // the language the visitor picked
+		return tifa.Redirect("/store/"+picked.Value, http.StatusFound) // the language the visitor picked
 	}
 	tags, _, _ := language.ParseAcceptLanguage(c.Header("Accept-Language"))
 	_, i, confidence := matcher.Match(tags...)
 	if confidence == language.No {
 		i = 0 // none of the languages is close: the default one
 	}
-	return c.Redirect("/store/"+codes[i], http.StatusFound)
+	return tifa.Redirect("/store/"+codes[i], http.StatusFound)
 }
 ```
 
@@ -729,13 +728,13 @@ Then point the aliases of `components.json` into `components/`, so the app root 
 `hooks.go` in the project root. All four functions are optional:
 
 ```go
-func OnStart() error                            // before listening: open the database, logs, etc.
+func OnStart(ctx context.Context) error         // before listening: open the database, logs, etc.
 func OnShutdown(ctx context.Context) error      // after an exit signal, once in-flight requests finish
 func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error // the only middleware, call next(c) to continue
 func OnError(c *tifa.Ctx, err error) tifa.Error // unexpected errors: report, return an error users may see
 ```
 
-- `OnRequest` runs for pages, navigation data requests, API routes and unmatched URLs. It does not run for static files, and it does not see a write that a browser sends from another site: the program refuses that with 403 first (see [Cross-site writes](config.md#cross-site-writes)). For an unmatched URL, `c.Pattern()` is empty, and `next(c)` runs the Layouts its 404 shows inside (see [404](#404)). On a page with `Cache` it sees an anonymous request, with no cookie, session or most headers (see [The whole-page cache](#the-whole-page-cache)).
+- `OnStart` gets the context of the program: it is done when the program gets SIGINT or SIGTERM. Pass it to the calls that can wait, such as `db.PingContext(ctx)`, so Ctrl-C does not wait for a database that never answers. If `OnStart` returns an error, the program stops. Do not keep `ctx` for after `OnStart` returns, use the context of a request, or of `OnShutdown`, for later work.- `OnRequest` runs for pages, navigation data requests, API routes and unmatched URLs. It does not run for static files, and it does not see a write that a browser sends from another site: the program refuses that with 403 first (see [Cross-site writes](config.md#cross-site-writes)). For an unmatched URL, `c.Pattern()` is empty, and `next(c)` runs the Layouts its 404 shows inside (see [404](#404)). On a page with `Cache` it sees an anonymous request, with no cookie, session or most headers (see [The whole-page cache](#the-whole-page-cache)).
 - Resources the whole app shares, such as a database connection or a logger, go in files at the app root next to `hooks.go`, for example `db.go` or `middleware.go`. Each one builds a package-level variable or a function: set it up in `OnStart`, release it in `OnShutdown`, and use it directly anywhere, for example `myapp.DB` after importing `example.com/myapp`. Domains under `app/` import the root package for this. By convention the root package imports nothing under `app/`, so this never closes an import cycle. Models and queries stay in their domains. Route code uses these resources only inside functions, never while package-level variables are initialized. Do not use `init()` for setup. See [which way imports go](structure.md#which-way-imports-go).
 - `next` runs the matched route, once. A second call returns an error. Pass it the `*tifa.Ctx` the route should see: `next(c)`, or `next(c.WithContext(ctx))` to store request-scoped values in the standard context, as `r.WithContext(ctx)` does for a request. `c.WithContext` returns a copy and leaves `c` alone. Business packages provide typed getters.
 - The error `next` returns can be recognized with `errors.Is` and `errors.As`, a redirect as `*tifa.RedirectError`.
@@ -745,7 +744,7 @@ func OnError(c *tifa.Ctx, err error) tifa.Error // unexpected errors: report, re
 tifa logs its own messages with `log/slog`, at a level and with fields: a failed request is `ERROR` with `method`, `path` and `err`, a refused cross-site write is `WARN`, the address it listens on is `INFO`. The lines about startup, such as the address, are written after `OnStart` returns, so a handler set there already gets them. To change where they go, set the default handler in `OnStart`:
 
 ```go
-func OnStart() error {
+func OnStart(ctx context.Context) error {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 	return nil
 }
@@ -767,7 +766,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
-func OnStart() error {
+func OnStart(ctx context.Context) error {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 	tifa.SetHTTPHandler(func(app http.Handler) http.Handler {
 		mux := http.NewServeMux()
@@ -801,7 +800,7 @@ func POST(c *tifa.Ctx, in Login) error {
 	if err := tifa.SetSession(c, &auth.Session{UserID: u.ID, Name: u.Name}); err != nil {
 		return err
 	}
-	return c.Redirect("/", 303)
+	return tifa.Redirect("/", 303)
 }
 
 // anywhere that has the Ctx: OnRequest, a method handler, a Load
@@ -829,7 +828,7 @@ Without a store, sessions live in the memory of the process, up to `session.memo
 To keep sessions somewhere else, such as Redis or SQL, give `OnStart` a store:
 
 ```go
-func OnStart() error {
+func OnStart(ctx context.Context) error {
 	tifa.SetSessionStore(redisStore{client})
 	return nil
 }
@@ -1002,9 +1001,9 @@ The clock is not a cache key, so a request with a clock skips the render cache a
 
 ## How Load may use Ctx
 
-This section covers `Load`, `Layout` and the functions they call. At build time, tifa starts from each `Load` and `Layout` function and finds the route parameters (`c.Param`), query parameters (`c.Query` and `c.QueryAll`) and Layouts (`tifa.Use`) it reads. When `Load` passes `*tifa.Ctx` to a function in this module, tifa follows the call level by level, across packages too, and counts every parameter it finds toward that `Load`. A helper called by several `Load` functions counts toward each of them. tifa does not follow into its own functions.
+This section covers `Load`, `Layout` and the functions they call. At build time, tifa starts from each `Load` and `Layout` function and finds the route parameters (`c.Param`), query parameters (`c.Query` and `c.QueryValues`) and Layouts (`tifa.Use`) it reads. When `Load` passes `*tifa.Ctx` to a function in this module, tifa follows the call level by level, across packages too, and counts every parameter it finds toward that `Load`. A helper called by several `Load` functions counts toward each of them. tifa does not follow into its own functions.
 
-So that tifa finds everything, Ctx may only be used where tifa can see it. Pass `c.Param`, `c.Query` and `c.QueryAll` a constant string, such as `c.Param("order")`, and call them and `tifa.Use` directly: storing one in a variable or passing it as a value fails the build.
+So that tifa finds everything, Ctx may only be used where tifa can see it. Pass `c.Param`, `c.Query` and `c.QueryValues` a constant string, such as `c.Param("order")`, and call them and `tifa.Use` directly: storing one in a variable or passing it as a value fails the build.
 
 The only types that may hold a Ctx are: `*tifa.Ctx`, `tifa.Ctx`, non-generic structs declared in this module (whose fields hold Ctx only through these types, directly, embedded or indirectly), and pointers to such structs.
 
@@ -1016,11 +1015,11 @@ A value that holds a Ctx may only appear in these five places:
 4. Assigned with `:=` or `var x T = ...` to a new local variable of exactly the same type. That variable follows the same rules.
 5. With its address taken, where the resulting pointer is still a type that may hold Ctx.
 
-Any other use fails the build and names the file and line. For example: converting it to another type or an interface, assigning it to an existing variable, assigning several values at once, `return`ing it, putting it in a slice, map, array or channel, `range`, package-level variables, `defer`, `go` statements, or passing it to a generic function, an interface method, a function variable or a function outside the module (the standard library and third-party libraries). `return c.Redirect(...)` is fine, because they return the result of a method call, not the Ctx itself.
+Any other use fails the build and names the file and line. For example: converting it to another type or an interface, assigning it to an existing variable, assigning several values at once, `return`ing it, putting it in a slice, map, array or channel, `range`, package-level variables, `defer`, `go` statements, or passing it to a generic function, an interface method, a function variable or a function outside the module (the standard library and third-party libraries).
 
-`Load`, `Layout` and the functions they call must not call `c.Request()` or `c.Writer()`. tifa cannot see parameters read through the raw request. Use `c.Param`, `c.Query`, `c.QueryAll`, `c.Header`, `c.Cookie` or `c.Context()` instead. `c.Request()` and `c.Writer()` are only for method handlers and `OnRequest`.
+`Load`, `Layout` and the functions they call must not call `c.Request()` or `c.Writer()`. tifa cannot see parameters read through the raw request. Use `c.Param`, `c.Query`, `c.QueryValues`, `c.Header`, `c.Cookie` or `c.Context()` instead. `c.Request()` and `c.Writer()` are only for method handlers and `OnRequest`.
 
-They must not call `c.BindQuery` or `c.Bind` either. tifa cannot name the query parameters a struct decodes, so the page would not load again when they change, and a page load or the data request of a navigation has no body. Read each query parameter with `c.Query("name")`, or `c.QueryAll("name")` for a repeated one.
+They must not call `c.BindQuery` or `c.Bind` either. tifa cannot name the query parameters a struct decodes, so the page would not load again when they change, and a page load or the data request of a navigation has no body. Read each query parameter with `c.Query("name")`, or `c.QueryValues("name")` for a repeated one.
 
 When you hit one of these errors, call Ctx methods directly, or pass it to a plain function. If you only need the request context, pass `c.Context()`. A helper that only calls `c.Context()` (such as `auth.User(c)`) collects nothing when tifa follows it.
 

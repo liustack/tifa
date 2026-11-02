@@ -32,7 +32,7 @@ func crossSiteProtection(cfg config.Server) *http.CrossOriginProtection {
 // every other error of the app has. The request goes no further: OnRequest does not see it and no
 // route runs. No hook has set the headers of the answer, so it is marked not to be stored: a cache
 // must not hand it to the same-origin request that comes next.
-func (s *Server) refuseCrossSite(w http.ResponseWriter, r *http.Request, reason error) {
+func (s *server) refuseCrossSite(w http.ResponseWriter, r *http.Request, reason error) {
 	// A line for each refusal, with the headers the check read, tells a proxy that rewrites Host
 	// from a real attack.
 	core.Logger().WarnContext(r.Context(), "tifa: refused a cross-site write", "method", r.Method, "path", r.URL.Path,

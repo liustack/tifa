@@ -163,14 +163,13 @@ func TestBindRespectsBodyLimit(t *testing.T) {
 }
 
 func TestRedirectIsAnErrorValue(t *testing.T) {
-	c, _ := newCtx("GET", "", "", 1024)
-	err := c.Redirect("/login", 302)
+	err := Redirect("/login", 302)
 	var redirect *RedirectError
-	if !errors.As(err, &redirect) || redirect.URL != "/login" || redirect.Code != 302 {
+	if !errors.As(err, &redirect) || redirect.URL != "/login" || redirect.Status != 302 {
 		t.Fatalf("got %v", err)
 	}
-	if err := c.Redirect("/login", 200); errors.As(err, &redirect) {
-		t.Fatal("non-3xx code must not become a redirect")
+	if msg := panicOf(func() { Redirect("/login", 200) }); !strings.Contains(msg, "200") {
+		t.Fatalf("a non-3xx status must panic, recovered %q", msg)
 	}
 }
 
@@ -308,17 +307,17 @@ func TestBindQuery(t *testing.T) {
 	}
 }
 
-func TestQueryAll(t *testing.T) {
+func TestQueryValues(t *testing.T) {
 	r := httptest.NewRequest("GET", "/notes?tag=a&tag=b&empty=&tag=c", nil)
 	c := New(httptest.NewRecorder(), r, "/notes", 1024)
-	if got := c.QueryAll("tag"); !slices.Equal(got, []string{"a", "b", "c"}) {
-		t.Errorf("QueryAll(tag) = %q", got)
+	if got := c.QueryValues("tag"); !slices.Equal(got, []string{"a", "b", "c"}) {
+		t.Errorf("QueryValues(tag) = %q", got)
 	}
-	if got := c.QueryAll("empty"); !slices.Equal(got, []string{""}) {
-		t.Errorf("QueryAll(empty) = %q", got)
+	if got := c.QueryValues("empty"); !slices.Equal(got, []string{""}) {
+		t.Errorf("QueryValues(empty) = %q", got)
 	}
-	if got := c.QueryAll("none"); got != nil {
-		t.Errorf("QueryAll(none) = %#v, want nil", got)
+	if got := c.QueryValues("none"); got != nil {
+		t.Errorf("QueryValues(none) = %#v, want nil", got)
 	}
 	if got := c.Query("tag"); got != "a" {
 		t.Errorf("Query(tag) = %q, want the first value", got)

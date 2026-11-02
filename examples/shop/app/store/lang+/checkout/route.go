@@ -59,5 +59,5 @@ func POST(c *tifa.Ctx, in cart.Order) error {
 	if err != nil {
 		return err
 	}
-	return c.Redirect("/store/"+c.Param("lang")+"/checkout?placed="+id, http.StatusSeeOther)
+	return tifa.Redirect("/store/"+c.Param("lang")+"/checkout?placed="+id, http.StatusSeeOther)
 }

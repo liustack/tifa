@@ -30,12 +30,12 @@ type order struct {
 
 var errDatabase = errors.New("database down")
 
-// newServer registers the routes a generated main would register for an interface-only app.
-func newServer(hooks Hooks) *Server {
+// newTestServer registers the routes a generated main would register for an interface-only app.
+func newTestServer(hooks Hooks) *server {
 	cfg := config.Default()
 	cfg.Server.BodyLimit = 64
-	s := New(cfg, hooks)
-	s.Handle("GET", "/orders/{orderId}", func(c *tifa.Ctx) error {
+	s := newServer(cfg, hooks)
+	s.handle("GET", "/orders/{orderId}", func(c *tifa.Ctx) error {
 		switch id := c.Param("orderId"); id {
 		case "missing":
 			return tifa.ErrNotFound
@@ -59,25 +59,25 @@ func newServer(hooks Hooks) *Server {
 			return c.JSON(200, order{ID: id})
 		}
 	})
-	s.Handle("POST", "/orders/{orderId}", func(c *tifa.Ctx) error {
+	s.handle("POST", "/orders/{orderId}", func(c *tifa.Ctx) error {
 		var in order
 		if err := c.Bind(&in); err != nil {
 			return err
 		}
 		return c.JSON(200, in)
 	})
-	s.Handle("POST", "/uploads", func(c *tifa.Ctx) error {
+	s.handle("POST", "/uploads", func(c *tifa.Ctx) error {
 		var in order
 		if err := c.Bind(&in); err != nil {
 			return err
 		}
 		return c.NoContent(204)
 	})
-	s.Handle("GET", "/old", func(c *tifa.Ctx) error { return c.Redirect("/orders/1", 301) })
+	s.handle("GET", "/old", func(c *tifa.Ctx) error { return tifa.Redirect("/orders/1", 301) })
 	return s
 }
 
-func send(s *Server, method, target, body string) *httptest.ResponseRecorder {
+func send(s *server, method, target, body string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, target, strings.NewReader(body))
 	if body != "" {
 		r.Header.Set("Content-Type", "application/json")
@@ -89,10 +89,10 @@ func send(s *Server, method, target, body string) *httptest.ResponseRecorder {
 
 func TestRedirectAndNotFoundSkipOnError(t *testing.T) {
 	var onError atomic.Int32
-	s := newServer(Hooks{
+	s := newTestServer(Hooks{
 		OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 			if c.Pattern() == "" && c.Request().URL.Path == "/legacy" {
-				return c.Redirect("/orders/7", 308)
+				return tifa.Redirect("/orders/7", 308)
 			}
 			return next(c)
 		},
@@ -130,18 +130,18 @@ func TestRedirectAndNotFoundSkipOnError(t *testing.T) {
 // the function follows with the router, not as a 3xx fetch would follow to the HTML of the
 // target. Other clients still get the 3xx.
 func TestHandlerCallRedirectIsJSON(t *testing.T) {
-	s := newServer(Hooks{
+	s := newTestServer(Hooks{
 		OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 			// An app that sets a cache header for every answer, which a redirect must not keep.
 			c.SetHeader("Cache-Control", "public, max-age=60")
 			if c.Request().URL.Path == "/private" {
-				return c.Redirect("/login?next=%2Fprivate", 302)
+				return tifa.Redirect("/login?next=%2Fprivate", 302)
 			}
 			return next(c)
 		},
 	})
-	s.Handle("POST", "/orders/{orderId}/ship", func(c *tifa.Ctx) error { return c.Redirect("../8", 303) })
-	s.Handle("POST", "/orders/{orderId}/copy", func(c *tifa.Ctx) error { return c.Redirect("/orders/9", 303) })
+	s.handle("POST", "/orders/{orderId}/ship", func(c *tifa.Ctx) error { return tifa.Redirect("../8", 303) })
+	s.handle("POST", "/orders/{orderId}/copy", func(c *tifa.Ctx) error { return tifa.Redirect("/orders/9", 303) })
 	cases := []struct {
 		target, location string
 		status           int
@@ -170,7 +170,7 @@ func TestHandlerCallRedirectIsJSON(t *testing.T) {
 
 func TestUnexpectedErrorsGoThroughOnError(t *testing.T) {
 	var seen []error
-	s := newServer(Hooks{OnError: func(c *tifa.Ctx, err error) tifa.Error {
+	s := newTestServer(Hooks{OnError: func(c *tifa.Ctx, err error) tifa.Error {
 		seen = append(seen, err)
 		return tifa.Error{Status: 503, Message: "稍后再试"}
 	}})
@@ -187,11 +187,11 @@ func TestUnexpectedErrorsGoThroughOnError(t *testing.T) {
 
 func TestPublicErrorsSkipOnError(t *testing.T) {
 	var onError atomic.Int32
-	withHook := newServer(Hooks{OnError: func(c *tifa.Ctx, err error) tifa.Error {
+	withHook := newTestServer(Hooks{OnError: func(c *tifa.Ctx, err error) tifa.Error {
 		onError.Add(1)
 		return tifa.Error{Status: 503, Message: "稍后再试"}
 	}})
-	for _, s := range []*Server{withHook, newServer(Hooks{})} {
+	for _, s := range []*server{withHook, newTestServer(Hooks{})} {
 		for _, target := range []string{"/orders/public", "/orders/wrapped-public", "/orders/pointer-public", "/orders/wrapped-pointer-public"} {
 			w := send(s, "GET", target, "")
 			if w.Code != 409 || !strings.Contains(w.Body.String(), "订单已发货") {
@@ -209,7 +209,7 @@ func TestPublicErrorsSkipOnError(t *testing.T) {
 }
 
 func TestWithoutOnErrorUnexpectedErrorsAre500(t *testing.T) {
-	s := newServer(Hooks{})
+	s := newTestServer(Hooks{})
 	for _, target := range []string{"/orders/broken", "/orders/panic"} {
 		w := send(s, "GET", target, "")
 		if w.Code != 500 || strings.Contains(w.Body.String(), "database") || strings.Contains(w.Body.String(), "nil order") {
@@ -220,11 +220,11 @@ func TestWithoutOnErrorUnexpectedErrorsAre500(t *testing.T) {
 
 func TestRootPathIsTheExactHomePage(t *testing.T) {
 	var patterns []string
-	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+	s := newTestServer(Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		patterns = append(patterns, c.Pattern())
 		return next(c)
 	}})
-	s.Handle("GET", "/", func(c *tifa.Ctx) error { return c.Text(200, "home") })
+	s.handle("GET", "/", func(c *tifa.Ctx) error { return c.Text(200, "home") })
 	if w := send(s, "GET", "/", ""); w.Code != 200 || w.Body.String() != "home" {
 		t.Fatalf("home: %d %s", w.Code, w.Body.String())
 	}
@@ -238,7 +238,7 @@ func TestRootPathIsTheExactHomePage(t *testing.T) {
 
 func TestNextReturnsHandlerError(t *testing.T) {
 	var got error
-	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+	s := newTestServer(Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		got = next(c)
 		if errors.Is(got, errDatabase) {
 			return c.JSON(502, map[string]string{"error": "handled by middleware"})
@@ -257,7 +257,7 @@ func TestNextReturnsHandlerError(t *testing.T) {
 
 func TestNextRunsTheRouteOnce(t *testing.T) {
 	var first, second error
-	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+	s := newTestServer(Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		first = next(c)
 		second = next(c.WithContext(c.Context()))
 		return first
@@ -270,7 +270,7 @@ func TestNextRunsTheRouteOnce(t *testing.T) {
 
 func TestPatternIsEmptyForUnmatchedURL(t *testing.T) {
 	var patterns []string
-	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+	s := newTestServer(Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		patterns = append(patterns, c.Pattern())
 		err := next(c)
 		if c.Pattern() == "" && !errors.Is(err, tifa.ErrNotFound) {
@@ -292,7 +292,7 @@ func TestPatternIsEmptyForUnmatchedURL(t *testing.T) {
 }
 
 func TestBodyLimitAppliesToBind(t *testing.T) {
-	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+	s := newTestServer(Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		if c.Pattern() == "/uploads" {
 			if err := c.SetBodyLimit(1 << 10); err != nil {
 				return err
@@ -317,14 +317,14 @@ func TestServeFinishesInFlightRequestsBeforeOnShutdown(t *testing.T) {
 	var events []string
 	cfg := config.Default()
 	cfg.Server.ShutdownTimeout = 5 * time.Second
-	s := New(cfg, Hooks{OnShutdown: func(ctx context.Context) error {
+	s := newServer(cfg, Hooks{OnShutdown: func(ctx context.Context) error {
 		if _, ok := ctx.Deadline(); !ok {
 			t.Error("OnShutdown context has no deadline")
 		}
 		events = append(events, "shutdown")
 		return nil
 	}})
-	s.Handle("GET", "/slow", func(c *tifa.Ctx) error {
+	s.handle("GET", "/slow", func(c *tifa.Ctx) error {
 		close(started)
 		<-release
 		events = append(events, "request")
@@ -336,7 +336,7 @@ func TestServeFinishesInFlightRequestsBeforeOnShutdown(t *testing.T) {
 	}
 	ctx, stop := context.WithCancel(context.Background())
 	served := make(chan error, 1)
-	go func() { served <- s.Serve(ctx, ln) }()
+	go func() { served <- s.serveListener(ctx, ln) }()
 	body := make(chan string, 1)
 	go func() {
 		resp, err := http.Get("http://" + ln.Addr().String() + "/slow")
@@ -369,8 +369,8 @@ func TestServeFinishesInFlightRequestsBeforeOnShutdown(t *testing.T) {
 func TestRunStopsWhenOnStartFails(t *testing.T) {
 	cfg := config.Default()
 	cfg.Server.Addr = "127.0.0.1:0"
-	s := New(cfg, Hooks{OnStart: func() error { return errDatabase }})
-	if err := s.Run(context.Background()); !errors.Is(err, errDatabase) {
+	s := newServer(cfg, Hooks{OnStart: func(context.Context) error { return errDatabase }})
+	if err := s.run(context.Background()); !errors.Is(err, errDatabase) {
 		t.Fatalf("Run returned %v", err)
 	}
 }
@@ -382,19 +382,19 @@ func TestMultipartTempFilesAreRemovedAfterWithContext(t *testing.T) {
 	t.Setenv("TMPDIR", tmp)
 	cfg := config.Default()
 	cfg.Server.BodyLimit = 64 << 20
-	s := New(cfg, Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+	s := newServer(cfg, Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		// Two copies, both of which may hold multipart files.
 		c = c.WithContext(context.WithValue(c.Context(), ctxKey{}, "user"))
 		return next(c.WithContext(context.WithValue(c.Context(), ctxKey{}, "again")))
 	}})
-	s.Handle("POST", "/bind", func(c *tifa.Ctx) error {
+	s.handle("POST", "/bind", func(c *tifa.Ctx) error {
 		var in order
 		if err := c.Bind(&in); err != nil {
 			return err
 		}
 		return c.NoContent(204)
 	})
-	s.Handle("POST", "/raw", func(c *tifa.Ctx) error {
+	s.handle("POST", "/raw", func(c *tifa.Ctx) error {
 		if err := c.Request().ParseMultipartForm(0); err != nil {
 			return err
 		}
@@ -431,8 +431,8 @@ func TestMultipartTempFilesAreRemovedAfterWithContext(t *testing.T) {
 }
 
 func TestInformationalResponseDoesNotCountAsWritten(t *testing.T) {
-	s := New(config.Default(), Hooks{})
-	s.Handle("GET", "/hint", func(c *tifa.Ctx) error {
+	s := newServer(config.Default(), Hooks{})
+	s.handle("GET", "/hint", func(c *tifa.Ctx) error {
 		c.Writer().Header().Set("Link", "</app.css>; rel=preload")
 		c.Writer().WriteHeader(http.StatusEarlyHints)
 		return tifa.ErrNotFound
@@ -451,12 +451,12 @@ func TestInformationalResponseDoesNotCountAsWritten(t *testing.T) {
 
 func TestMuxRedirectsGoThroughOnRequest(t *testing.T) {
 	var seen []string
-	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+	s := newTestServer(Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		err := next(c)
 		seen = append(seen, c.Request().URL.Path+" "+c.Pattern())
 		return err
 	}})
-	s.Handle("GET", "/docs/", func(c *tifa.Ctx) error { return c.Text(200, "docs") })
+	s.handle("GET", "/docs/", func(c *tifa.Ctx) error { return c.Text(200, "docs") })
 	cases := []struct{ target, location string }{
 		{"/orders//1?tab=all", "/orders/1?tab=all"},
 		{"/orders/../old", "/old"},
@@ -472,7 +472,7 @@ func TestMuxRedirectsGoThroughOnRequest(t *testing.T) {
 	if strings.Join(seen, ",") != strings.Join(want, ",") {
 		t.Fatalf("OnRequest saw %q", seen)
 	}
-	if w := send(newServer(Hooks{}), "GET", "/orders//1", ""); w.Code != http.StatusPermanentRedirect {
+	if w := send(newTestServer(Hooks{}), "GET", "/orders//1", ""); w.Code != http.StatusPermanentRedirect {
 		t.Fatalf("without OnRequest: %d", w.Code)
 	}
 }
@@ -482,9 +482,9 @@ func startSlow(t *testing.T, timeout time.Duration, slow func(c *tifa.Ctx), onSh
 	t.Helper()
 	cfg := config.Default()
 	cfg.Server.ShutdownTimeout = timeout
-	s := New(cfg, Hooks{OnShutdown: func(context.Context) error { onShutdown(); return nil }})
+	s := newServer(cfg, Hooks{OnShutdown: func(context.Context) error { onShutdown(); return nil }})
 	started := make(chan struct{})
-	s.Handle("GET", "/slow", func(c *tifa.Ctx) error {
+	s.handle("GET", "/slow", func(c *tifa.Ctx) error {
 		close(started)
 		slow(c)
 		return c.Text(200, "done")
@@ -495,7 +495,7 @@ func startSlow(t *testing.T, timeout time.Duration, slow func(c *tifa.Ctx), onSh
 	}
 	ctx, stop := context.WithCancel(context.Background())
 	served = make(chan error, 1)
-	go func() { served <- s.Serve(ctx, ln) }()
+	go func() { served <- s.serveListener(ctx, ln) }()
 	go func() {
 		if resp, err := http.Get("http://" + ln.Addr().String() + "/slow"); err == nil {
 			resp.Body.Close()
@@ -542,14 +542,14 @@ func TestOnShutdownIsSkippedWhileHandlersNeverReturn(t *testing.T) {
 }
 
 func TestFlushCountsAsWritten(t *testing.T) {
-	s := New(config.Default(), Hooks{})
-	s.Handle("GET", "/stream", func(c *tifa.Ctx) error {
+	s := newServer(config.Default(), Hooks{})
+	s.handle("GET", "/stream", func(c *tifa.Ctx) error {
 		if err := http.NewResponseController(c.Writer()).Flush(); err != nil {
 			return err
 		}
 		return errDatabase
 	})
-	s.Handle("GET", "/legacy-flush", func(c *tifa.Ctx) error {
+	s.handle("GET", "/legacy-flush", func(c *tifa.Ctx) error {
 		c.Writer().(http.Flusher).Flush()
 		return tifa.ErrNotFound
 	})
@@ -563,7 +563,7 @@ func TestFlushCountsAsWritten(t *testing.T) {
 
 func TestMuxNotFoundIsAnUnmatchedURL(t *testing.T) {
 	var patterns []string
-	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+	s := newTestServer(Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		patterns = append(patterns, c.Pattern())
 		return next(c)
 	}})
@@ -575,7 +575,7 @@ func TestMuxNotFoundIsAnUnmatchedURL(t *testing.T) {
 	}
 }
 
-func serveForShutdown(t *testing.T, s *Server) (addr string, stop func(), served chan error) {
+func serveForShutdown(t *testing.T, s *server) (addr string, stop func(), served chan error) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -583,7 +583,7 @@ func serveForShutdown(t *testing.T, s *Server) (addr string, stop func(), served
 	}
 	ctx, stop := context.WithCancel(context.Background())
 	served = make(chan error, 1)
-	go func() { served <- s.Serve(ctx, ln) }()
+	go func() { served <- s.serveListener(ctx, ln) }()
 	return ln.Addr().String(), stop, served
 }
 
@@ -604,8 +604,8 @@ func TestRequestInTheEntryWindowNeverRunsAfterOnShutdown(t *testing.T) {
 	record := func(e string) { mu.Lock(); events = append(events, e); mu.Unlock() }
 	cfg := config.Default()
 	cfg.Server.ShutdownTimeout = 50 * time.Millisecond
-	s := New(cfg, Hooks{OnShutdown: func(context.Context) error { record("shutdown"); return nil }})
-	s.Handle("GET", "/work", func(c *tifa.Ctx) error {
+	s := newServer(cfg, Hooks{OnShutdown: func(context.Context) error { record("shutdown"); return nil }})
+	s.handle("GET", "/work", func(c *tifa.Ctx) error {
 		record("business")
 		return c.NoContent(204)
 	})
@@ -633,9 +633,9 @@ func TestHijackedHandlerIsCanceledBeforeOnShutdown(t *testing.T) {
 	record := func(e string) { mu.Lock(); events = append(events, e); mu.Unlock() }
 	cfg := config.Default()
 	cfg.Server.ShutdownTimeout = time.Second
-	s := New(cfg, Hooks{OnShutdown: func(context.Context) error { record("shutdown"); return nil }})
+	s := newServer(cfg, Hooks{OnShutdown: func(context.Context) error { record("shutdown"); return nil }})
 	hijacked := make(chan struct{})
-	s.Handle("GET", "/socket", func(c *tifa.Ctx) error {
+	s.handle("GET", "/socket", func(c *tifa.Ctx) error {
 		conn, _, err := http.NewResponseController(c.Writer()).Hijack()
 		if err != nil {
 			return err
@@ -710,14 +710,14 @@ func (h *hijackWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 func TestFailedCommitDoesNotCountAsWritten(t *testing.T) {
 	cfg := config.Default()
 	cfg.Server.Compress = false
-	s := New(cfg, Hooks{})
-	s.Handle("GET", "/flush", func(c *tifa.Ctx) error {
+	s := newServer(cfg, Hooks{})
+	s.handle("GET", "/flush", func(c *tifa.Ctx) error {
 		if err := http.NewResponseController(c.Writer()).Flush(); !errors.Is(err, http.ErrNotSupported) {
 			t.Errorf("Flush returned %v", err)
 		}
 		return errDatabase
 	})
-	s.Handle("GET", "/bad-status", func(c *tifa.Ctx) error { return c.NoContent(0) })
+	s.handle("GET", "/bad-status", func(c *tifa.Ctx) error { return c.NoContent(0) })
 	for _, target := range []string{"/flush", "/bad-status"} {
 		w := newPlainWriter()
 		s.ServeHTTP(w, httptest.NewRequest("GET", target, nil))
@@ -731,8 +731,8 @@ func TestErrorAfterHijackWritesNothing(t *testing.T) {
 	server, client := net.Pipe()
 	defer server.Close()
 	defer client.Close()
-	s := New(config.Default(), Hooks{})
-	s.Handle("GET", "/socket", func(c *tifa.Ctx) error {
+	s := newServer(config.Default(), Hooks{})
+	s.handle("GET", "/socket", func(c *tifa.Ctx) error {
 		if _, _, err := http.NewResponseController(c.Writer()).Hijack(); err != nil {
 			return err
 		}
@@ -751,9 +751,9 @@ func TestListenerFailureShutsDownLikeCancel(t *testing.T) {
 	record := func(e string) { mu.Lock(); events = append(events, e); mu.Unlock() }
 	cfg := config.Default()
 	cfg.Server.ShutdownTimeout = 100 * time.Millisecond
-	s := New(cfg, Hooks{OnShutdown: func(context.Context) error { record("shutdown"); return nil }})
+	s := newServer(cfg, Hooks{OnShutdown: func(context.Context) error { record("shutdown"); return nil }})
 	started := make(chan struct{})
-	s.Handle("GET", "/slow", func(c *tifa.Ctx) error {
+	s.handle("GET", "/slow", func(c *tifa.Ctx) error {
 		close(started)
 		<-c.Context().Done()
 		record("handler returned")
@@ -764,7 +764,7 @@ func TestListenerFailureShutsDownLikeCancel(t *testing.T) {
 		t.Fatal(err)
 	}
 	served := make(chan error, 1)
-	go func() { served <- s.Serve(context.Background(), ln) }()
+	go func() { served <- s.serveListener(context.Background(), ln) }()
 	go func() {
 		if resp, err := http.Get("http://" + ln.Addr().String() + "/slow"); err == nil {
 			resp.Body.Close()
@@ -789,13 +789,13 @@ func TestRunRefusesLegacyServeMux(t *testing.T) {
 		cfg := config.Default()
 		cfg.Server.Addr = "127.0.0.1:0"
 		started := false
-		err := New(cfg, Hooks{OnStart: func() error { started = true; return nil }}).Run(context.Background())
+		err := newServer(cfg, Hooks{OnStart: func(context.Context) error { started = true; return nil }}).run(context.Background())
 		fmt.Printf("started=%t err=%v\n", started, err)
 		ln, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatal(err)
 		}
-		serveErr := New(cfg, Hooks{}).Serve(context.Background(), ln)
+		serveErr := newServer(cfg, Hooks{}).serveListener(context.Background(), ln)
 		conn, dialErr := net.Dial("tcp", ln.Addr().String())
 		if dialErr == nil {
 			conn.Close()
@@ -822,11 +822,11 @@ func TestRunRefusesLegacyServeMux(t *testing.T) {
 // specific routes still win.
 func TestRootCatchAllCoexistsWithUnmatchedHandling(t *testing.T) {
 	var patterns []string
-	s := newServer(Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+	s := newTestServer(Hooks{OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		patterns = append(patterns, c.Pattern())
 		return next(c)
 	}})
-	s.Handle("GET", "/{rest...}", func(c *tifa.Ctx) error { return c.Text(200, "rest="+c.Param("rest")) })
+	s.handle("GET", "/{rest...}", func(c *tifa.Ctx) error { return c.Text(200, "rest="+c.Param("rest")) })
 	if w := send(s, "GET", "/any/where", ""); w.Code != 200 || w.Body.String() != "rest=any/where" {
 		t.Errorf("/any/where: %d %q", w.Code, w.Body.String())
 	}
@@ -839,5 +839,45 @@ func TestRootCatchAllCoexistsWithUnmatchedHandling(t *testing.T) {
 	want := "/{rest...},/orders/{orderId},"
 	if got := strings.Join(patterns, ","); got != want {
 		t.Errorf("OnRequest saw patterns %q, want %q", got, want)
+	}
+}
+
+// OnStart gets the context Run was given, so a slow start ends when the program is stopped.
+func TestOnStartGetsTheContextOfRun(t *testing.T) {
+	cfg := config.Default()
+	cfg.Server.Addr = "127.0.0.1:0"
+	gotCh := make(chan context.Context, 1)
+	s := newServer(cfg, Hooks{OnStart: func(ctx context.Context) error { gotCh <- ctx; return nil }})
+	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), ctxKey{}, "run"))
+	done := make(chan error, 1)
+	go func() { done <- s.run(ctx) }()
+	got := <-gotCh
+	if got.Value(ctxKey{}) != "run" {
+		t.Fatalf("OnStart got a context that is not the one Run was given: %v", got)
+	}
+	if got.Err() != nil {
+		t.Fatalf("the context was done before the program was stopped: %v", got.Err())
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if got.Err() == nil {
+		t.Fatal("the context of OnStart was not done after the program was stopped")
+	}
+}
+
+// A start that waits for something is cut short by the signal that stops the program.
+func TestOnStartEndsWhenRunIsStopped(t *testing.T) {
+	cfg := config.Default()
+	cfg.Server.Addr = "127.0.0.1:0"
+	ctx, cancel := context.WithCancel(context.Background())
+	s := newServer(cfg, Hooks{OnStart: func(ctx context.Context) error {
+		cancel()
+		<-ctx.Done()
+		return ctx.Err()
+	}})
+	if err := s.run(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run returned %v, want context.Canceled", err)
 	}
 }

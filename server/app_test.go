@@ -75,10 +75,10 @@ func testApp() App {
 	}
 }
 
-func newAppServer(t *testing.T, app App) *Server {
+func newAppServer(t *testing.T, app App) *server {
 	t.Helper()
-	s := New(config.Default(), app.Hooks)
-	t.Cleanup(s.Close)
+	s := newServer(config.Default(), app.Hooks)
+	t.Cleanup(s.close)
 	s.register(app.Layouts, app.Routes)
 	return s
 }

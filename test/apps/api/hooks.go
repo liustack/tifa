@@ -8,7 +8,7 @@ import (
 	"github.com/liustack/tifa"
 )
 
-func OnStart() error {
+func OnStart(ctx context.Context) error {
 	fmt.Println("apitest: started")
 	return nil
 }

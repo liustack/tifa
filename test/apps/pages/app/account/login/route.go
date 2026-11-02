@@ -4,4 +4,4 @@ import "github.com/liustack/tifa"
 
 const SSR = false
 
-func POST(c *tifa.Ctx) error { return c.Redirect("/", 303) }
+func POST(c *tifa.Ctx) error { return tifa.Redirect("/", 303) }

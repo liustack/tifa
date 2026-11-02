@@ -38,9 +38,9 @@ func Load(c *tifa.Ctx) (List, error) {
 		Results: Search(Filter{
 			Query:     c.Query("q"),
 			Category:  c.Query("category"),
-			Colors:    c.QueryAll("color"),
-			Materials: c.QueryAll("material"),
-			Badges:    c.QueryAll("badge"),
+			Colors:    c.QueryValues("color"),
+			Materials: c.QueryValues("material"),
+			Badges:    c.QueryValues("badge"),
 			Rating:    number(c.Query("rating")),
 			Min:       number(c.Query("min")),
 			Max:       number(c.Query("max")),

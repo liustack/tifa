@@ -19,7 +19,7 @@ var open = os.Getenv("SHOP_OPEN") == "1"
 func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 	path := c.Request().URL.Path
 	if !open && (path == "/projects" || strings.HasPrefix(path, "/projects/")) && tifa.Session[Session](c) == nil {
-		return c.Redirect("/login?next="+url.QueryEscape(c.Request().URL.RequestURI()), 302)
+		return tifa.Redirect("/login?next="+url.QueryEscape(c.Request().URL.RequestURI()), 302)
 	}
 	return next(c)
 }

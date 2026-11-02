@@ -472,10 +472,6 @@ func stringOptionType(t types.Type) bool {
 	return ok && b.Info()&(types.IsBoolean|types.IsInteger|types.IsFloat|types.IsString) != 0 && b.Kind() != types.UnsafePointer
 }
 
-func hasOption(opts, name string) bool {
-	return slices.Contains(strings.Split(opts, ","), name)
-}
-
 // validTagName is isValidTag of encoding/json.
 func validTagName(s string) bool {
 	if s == "" {

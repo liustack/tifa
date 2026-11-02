@@ -21,7 +21,7 @@ const sessionPath = "/__tifa/session"
 func SessionOf[S any]() { core.RegisterSessionType[S]() }
 
 // enableSessions turns on the session in the pages and answers, and registers the session type.
-func (s *Server) enableSessions(register func()) {
+func (s *server) enableSessions(register func()) {
 	if register != nil {
 		register()
 	}
@@ -30,12 +30,12 @@ func (s *Server) enableSessions(register func()) {
 
 // sessionKey is where the browser keeps its copy of the session: the cookie name and the version
 // of the format.
-func (s *Server) sessionKey() string {
+func (s *server) sessionKey() string {
 	return s.sessionEnv().Cookie + ":v1"
 }
 
 // browserSession returns the session of the request for the browser, nil when the app has none.
-func (s *Server) browserSession(c *tifa.Ctx) (*core.BrowserSession, error) {
+func (s *server) browserSession(c *tifa.Ctx) (*core.BrowserSession, error) {
 	if !s.sess.enabled {
 		return nil, nil
 	}
@@ -51,7 +51,7 @@ func (s *Server) browserSession(c *tifa.Ctx) (*core.BrowserSession, error) {
 
 // answerSession is browserSession for an answer that is already an error or a redirect: a session
 // that cannot be built is logged and left out, since the answer is not to be turned into another.
-func (s *Server) answerSession(c *tifa.Ctx) *core.BrowserSession {
+func (s *server) answerSession(c *tifa.Ctx) *core.BrowserSession {
 	v, err := s.browserSession(c)
 	if err != nil {
 		core.Logger().ErrorContext(c.Context(), "tifa: building the session for the browser failed", "method", c.Request().Method, "path", c.Request().URL.Path, "err", err)
@@ -61,7 +61,7 @@ func (s *Server) answerSession(c *tifa.Ctx) *core.BrowserSession {
 }
 
 // callSession is the session an answer to a call carries: only when the call changed it.
-func (s *Server) callSession(c *tifa.Ctx) *core.BrowserSession {
+func (s *server) callSession(c *tifa.Ctx) *core.BrowserSession {
 	if !core.SessionChanged(c) {
 		return nil
 	}
@@ -76,7 +76,7 @@ type pageSession struct {
 	signed bool
 }
 
-func (s *Server) pageSession(c *tifa.Ctx) (pageSession, error) {
+func (s *server) pageSession(c *tifa.Ctx) (pageSession, error) {
 	if anonymityOf(c.Request()) != nil && s.sess.enabled {
 		// A page every visitor gets carries no session. The head script reads the copy the
 		// browser keeps, and the browser asks the server once it has started.
@@ -129,7 +129,7 @@ func (p pageSession) htmlTag() string {
 
 // sealSessionAnswer makes the answer of an error flow that carries the session unstorable: a
 // header that would let a shared cache keep it is replaced, and logged.
-func (s *Server) sealSessionAnswer(c *tifa.Ctx) {
+func (s *server) sealSessionAnswer(c *tifa.Ctx) {
 	if err := checkSessionCache(c.Writer().Header()); err != nil {
 		core.Logger().ErrorContext(c.Context(), "tifa: an answer with the session was made no-store", "method", c.Request().Method, "path", c.Request().URL.Path, "err", err)
 		c.Writer().Header().Set("Cache-Control", "no-store")
@@ -138,7 +138,7 @@ func (s *Server) sealSessionAnswer(c *tifa.Ctx) {
 
 // sessionHandler answers GET and HEAD of /__tifa/session with the session of the request. It runs
 // inside OnRequest, so a middleware that signs visitors in must let it through.
-func (s *Server) sessionHandler(c *tifa.Ctx) error {
+func (s *server) sessionHandler(c *tifa.Ctx) error {
 	r := c.Request()
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		c.SetHeader("Allow", "GET, HEAD")

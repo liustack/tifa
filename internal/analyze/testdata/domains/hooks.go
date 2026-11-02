@@ -1,3 +1,5 @@
 package domains
 
-func OnStart() error { return nil }
+import "context"
+
+func OnStart(ctx context.Context) error { return nil }

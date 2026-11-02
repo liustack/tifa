@@ -23,7 +23,7 @@ import (
 // server.http_addr, and ready, which Run calls once both listen. tlsConfig and plain are nil
 // when HTTPS is off. Settings that do not go together and certificate files that do not load
 // fail here, before OnStart.
-func (s *Server) https() (tlsConfig *tls.Config, plain http.Handler, ready func(), err error) {
+func (s *server) https() (tlsConfig *tls.Config, plain http.Handler, ready func(), err error) {
 	c := s.cfg
 	if !c.HTTPS() {
 		return nil, nil, func() {}, nil

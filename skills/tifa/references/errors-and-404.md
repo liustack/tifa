@@ -9,7 +9,7 @@ Full docs: [app.md](https://github.com/liustack/tifa/blob/main/docs/app.md#404) 
 | Return | Result |
 | --- | --- |
 | `tifa.ErrNotFound` | 404 |
-| `c.Redirect(url, code)` | A redirect. Page loads, browser navigation and handler calls from the browser all follow it |
+| `tifa.Redirect(url, status)` | A redirect. Page loads, browser navigation and handler calls from the browser all follow it |
 | `tifa.Error{Status: 403, Message: "No access"}` | That status and message. Does not go to `OnError`. Status must be 400 to 599 |
 | `tifa.Fields{"carrier": "pick a carrier"}` | 422 with a message per input field, by json name. Does not go to `OnError` |
 | Any other error, or a panic | Goes to `OnError`. Without one it is logged and answered 500 |
@@ -74,4 +74,4 @@ It gets every unexpected error and panic once. Report it there. The returned `ti
 
 ## Redirects
 
-Return `c.Redirect("/login", http.StatusFound)` from `Load`, `Layout`, a handler or `OnRequest`. From a handler called in the browser, the router follows it without a page reload for URLs of this site. A redirect that depends on the request (cookie, `Accept-Language`) uses 302 and should add `Vary` (`c.Writer().Header().Add("Vary", "Cookie, Accept-Language")` in a method handler).
+Return `tifa.Redirect("/login", http.StatusFound)` from `Load`, `Layout`, a handler or `OnRequest`. From a handler called in the browser, the router follows it without a page reload for URLs of this site. A redirect that depends on the request (cookie, `Accept-Language`) uses 302 and should add `Vary` (`c.Writer().Header().Add("Vary", "Cookie, Accept-Language")` in a method handler).

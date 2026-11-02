@@ -204,7 +204,7 @@ assert(invalidated() === before + 1, 'lookalike did not refresh')
 answer = () => ({ type: 'opaqueredirect', ok: false, status: 0, statusText: '', headers: new Headers() }) as unknown as Response
 for (const send of [() => POST({ params: { note: '1' }, input: { text: 'hi', next: null } }), () => PUT({ params: { note: '1' } })]) {
   const opaque = await caught(send())
-  assert(opaque instanceof Error && !(opaque instanceof TifaError) && /c\.Redirect/.test(opaque.message), `opaque redirect: ${opaque}`)
+  assert(opaque instanceof Error && !(opaque instanceof TifaError) && /tifa\.Redirect/.test(opaque.message), `opaque redirect: ${opaque}`)
 }
 
 // The page sends the build it was rendered with, for the server to tell a call of another build.

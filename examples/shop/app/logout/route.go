@@ -9,5 +9,5 @@ func POST(c *tifa.Ctx) error {
 	if err := tifa.ClearSession(c); err != nil {
 		return err
 	}
-	return c.Redirect("/login", 303)
+	return tifa.Redirect("/login", 303)
 }

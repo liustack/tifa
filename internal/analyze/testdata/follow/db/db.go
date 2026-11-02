@@ -10,7 +10,7 @@ func order(c *tifa.Ctx) string { return c.Query("sort") + dir(c) }
 func dir(c *tifa.Ctx) string { return c.Query("dir") }
 
 // Tags reads a repeated query parameter.
-func Tags(c *tifa.Ctx) []string { return c.QueryAll("tag") }
+func Tags(c *tifa.Ctx) []string { return c.QueryValues("tag") }
 
 // Walk is recursive.
 func Walk(c *tifa.Ctx, n int) string {

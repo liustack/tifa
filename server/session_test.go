@@ -79,7 +79,7 @@ func sessionApp(log *sessionLog) App {
 			if err := tifa.SetSession(c, &sessUser{ID: 7, Name: "Ann"}); err != nil {
 				return err
 			}
-			return c.Redirect("/", 303)
+			return tifa.Redirect("/", 303)
 		}},
 		Route{ID: "app/logout", Path: "/signout", POST: func(c *tifa.Ctx) error {
 			if err := tifa.ClearSession(c); err != nil {
@@ -108,7 +108,7 @@ func sessionApp(log *sessionLog) App {
 
 type errBox struct{ err error }
 
-func sessionServer(t *testing.T, app App, store tifa.SessionStore) *Server {
+func sessionServer(t *testing.T, app App, store tifa.SessionStore) *server {
 	t.Helper()
 	s, _ := newFrontServer(t, app)
 	s.sess.store = store
@@ -130,7 +130,7 @@ func cookieOf(w *httptest.ResponseRecorder, name string) *http.Cookie {
 	return nil
 }
 
-func do(s *Server, method, target string, header ...string) *httptest.ResponseRecorder {
+func do(s *server, method, target string, header ...string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, target, nil)
 	for i := 0; i < len(header); i += 2 {
 		r.Header.Set(header[i], header[i+1])
@@ -371,7 +371,7 @@ func TestSessionDefaultsToMemory(t *testing.T) {
 		t.Errorf("%s", w.Body.String())
 	}
 	// Close stops the cleanup goroutine of the store the server made.
-	s.Close()
+	s.close()
 	until(t, "the store's goroutine to stop", func() bool { return runtime.NumGoroutine() <= before })
 }
 

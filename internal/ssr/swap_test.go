@@ -369,9 +369,7 @@ func TestMemorySwapDefersExchangeForQueuedRequest(t *testing.T) {
 	p.putIdle(vm)
 	close(finish)
 	awaitSwap(t, loaded)
-	select {
-	case <-time.After(20 * time.Millisecond):
-	}
+	time.Sleep(20 * time.Millisecond)
 	if s := p.stats(); s.closed != 0 || s.replaced != 0 {
 		t.Fatalf("exchanged with a queued request: %+v", s)
 	}

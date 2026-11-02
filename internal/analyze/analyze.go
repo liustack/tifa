@@ -39,7 +39,7 @@ var hooks = []struct {
 	params, results []string
 	signature       string
 }{
-	{"OnStart", nil, []string{"error"}, "func() error"},
+	{"OnStart", []string{"context.Context"}, []string{"error"}, "func(ctx context.Context) error"},
 	{"OnShutdown", []string{"context.Context"}, []string{"error"}, "func(ctx context.Context) error"},
 	{"OnRequest", []string{ctxType, "func(" + ctxType + ") error"}, []string{"error"}, "func(c *tifa.Ctx, next func(*tifa.Ctx) error) error"},
 	{"OnError", []string{ctxType, "error"}, []string{corePath + ".Error"}, "func(c *tifa.Ctx, err error) tifa.Error"},
@@ -440,7 +440,7 @@ const reservedQuery = "_tifa"
 
 // paramUse is one c.Param or c.Query call with a constant name inside Load.
 type paramUse struct {
-	method string // "Param", "Query" or "QueryAll"
+	method string // "Param", "Query" or "QueryValues"
 	name   string
 	pos    token.Pos
 }
@@ -807,7 +807,7 @@ func (a *analyzer) funcDecl(pkg *packages.Package, fn *types.Func) *ast.FuncDecl
 	panic("analyze: no declaration for " + fn.FullName()) // fn comes from this package's own scope
 }
 
-// ctxMethod returns "Param", "Query" or "QueryAll" when call invokes that method of tifa.Ctx, also through
+// ctxMethod returns "Param", "Query" or "QueryValues" when call invokes that method of tifa.Ctx, also through
 // a struct that embeds the Ctx, and an empty string for any other call.
 func ctxMethod(info *types.Info, call *ast.CallExpr) string {
 	sel, ok := ast.Unparen(call.Fun).(*ast.SelectorExpr)
@@ -820,11 +820,11 @@ func ctxMethod(info *types.Info, call *ast.CallExpr) string {
 	return paramMethod(info.Uses[sel.Sel])
 }
 
-// paramMethod returns "Param", "Query" or "QueryAll" when obj is that method of tifa.Ctx.
-// QueryAll reads a query parameter like Query.
+// paramMethod returns "Param", "Query" or "QueryValues" when obj is that method of tifa.Ctx.
+// QueryValues reads a query parameter like Query.
 func paramMethod(obj types.Object) string {
 	fn, ok := obj.(*types.Func)
-	if !ok || fn.Signature().Recv() == nil || fn.Name() != "Param" && fn.Name() != "Query" && fn.Name() != "QueryAll" {
+	if !ok || fn.Signature().Recv() == nil || fn.Name() != "Param" && fn.Name() != "Query" && fn.Name() != "QueryValues" {
 		return ""
 	}
 	named, ok := types.Unalias(derefType(fn.Signature().Recv().Type())).(*types.Named)
@@ -859,7 +859,7 @@ func calleeIdent(call *ast.CallExpr) *ast.Ident {
 	return nil
 }
 
-// checkDirectCalls requires c.Param, c.Query, c.QueryAll and tifa.Use to be called directly, in every loaded
+// checkDirectCalls requires c.Param, c.Query, c.QueryValues and tifa.Use to be called directly, in every loaded
 // package. The analyzer reads parameter names and Use arguments at the call site, so a method
 // value (f := c.Query), a method expression ((*tifa.Ctx).Query(c, "x")) or tifa.Use stored in a
 // variable or passed as an argument would hide them.

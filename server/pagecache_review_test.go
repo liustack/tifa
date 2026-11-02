@@ -119,7 +119,7 @@ func TestUnsharedHeadersOfLoadsReachTheAnswer(t *testing.T) {
 		}, 404},
 		"private on a redirect": {func(c *tifa.Ctx, n int64) (any, error) {
 			c.SetHeader("Cache-Control", "private")
-			return nil, c.Redirect("/to", 302)
+			return nil, tifa.Redirect("/to", 302)
 		}, 302},
 	} {
 		t.Run(name, func(t *testing.T) {

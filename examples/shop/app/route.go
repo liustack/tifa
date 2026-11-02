@@ -9,7 +9,7 @@ import (
 )
 
 func GET(c *tifa.Ctx) error {
-	return c.Redirect("/projects/studio", 302)
+	return tifa.Redirect("/projects/studio", 302)
 }
 
 // Shell is what every visitor of the workbench gets alike. The page of an order is cached, so nothing

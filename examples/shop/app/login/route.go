@@ -34,7 +34,7 @@ func POST(c *tifa.Ctx, in Credentials) error {
 	if err := tifa.SetSession(c, &s); err != nil {
 		return err
 	}
-	return c.Redirect(safeNext(in.Next), 303)
+	return tifa.Redirect(safeNext(in.Next), 303)
 }
 
 // safeNext keeps the address on this site, and sends everything else to the workbench. It must be

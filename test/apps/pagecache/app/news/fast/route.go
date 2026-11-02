@@ -26,7 +26,7 @@ func Load(c *tifa.Ctx) (Data, error) {
 	case "notfound":
 		return Data{}, tifa.ErrNotFound
 	case "redirect":
-		return Data{}, c.Redirect("/news", 302)
+		return Data{}, tifa.Redirect("/news", 302)
 	}
 	return Data{N: n}, nil
 }

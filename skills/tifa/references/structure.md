@@ -70,7 +70,7 @@ func openDB() (err error) {
 
 ```go
 // hooks.go
-func OnStart() error                       { return openDB() }
+func OnStart(ctx context.Context) error    { return openDB(ctx) }
 func OnShutdown(ctx context.Context) error { return DB.Close() }
 ```
 

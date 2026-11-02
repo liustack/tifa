@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -86,9 +85,9 @@ func (c *Ctx) Param(name string) string  { return c.r.PathValue(name) }
 func (c *Ctx) Query(name string) string  { return c.r.URL.Query().Get(name) }
 func (c *Ctx) Header(name string) string { return c.r.Header.Get(name) }
 
-// QueryAll returns every value of the query parameter name, in order, and nil when there is
+// QueryValues returns every value of the query parameter name, in order, and nil when there is
 // none. Query returns only the first.
-func (c *Ctx) QueryAll(name string) []string { return c.r.URL.Query()[name] }
+func (c *Ctx) QueryValues(name string) []string { return c.r.URL.Query()[name] }
 
 func (c *Ctx) Cookie(name string) (*http.Cookie, error) { return c.r.Cookie(name) }
 
@@ -173,14 +172,6 @@ func (c *Ctx) checkWrite() error {
 		return errors.New("tifa: Load cannot write the response body, it may only set headers and cookies")
 	}
 	return nil
-}
-
-// Redirect returns an error value. Returning it from Load, a method handler or OnRequest makes the server redirect.
-func (c *Ctx) Redirect(url string, code int) error {
-	if code < 300 || code > 399 {
-		return fmt.Errorf("tifa: redirect to %s with non-3xx status %d", url, code)
-	}
-	return &RedirectError{URL: url, Code: code}
 }
 
 func (c *Ctx) Request() *http.Request      { return c.r }

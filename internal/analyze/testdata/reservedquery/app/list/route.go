@@ -6,5 +6,5 @@ import "github.com/liustack/tifa"
 
 func Load(c *tifa.Ctx) (string, error) {
 	ok := c.Query("page")
-	return ok + c.Query("_tifa") + c.QueryAll("_tifa")[0], nil
+	return ok + c.Query("_tifa") + c.QueryValues("_tifa")[0], nil
 }

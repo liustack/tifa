@@ -65,7 +65,7 @@ func (s *fileStore) Delete(ctx context.Context, key string) error {
 }
 
 // OnStart keeps the sessions in the file named by SESSION_FILE when it is set.
-func OnStart() error {
+func OnStart(ctx context.Context) error {
 	if path := os.Getenv("SESSION_FILE"); path != "" {
 		tifa.SetSessionStore(&fileStore{path: path})
 	}

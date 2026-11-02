@@ -31,7 +31,7 @@ func DevMain(app App) {
 }
 
 // reloader answers tifa dev's requests to the app for the front end in dist.
-func reloader(s *Server, dist fs.FS, cfg config.SSR) http.Handler {
+func reloader(s *server, dist fs.FS, cfg config.SSR) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != reloadPath || r.Method != "POST" {
 			http.NotFound(w, r)
@@ -46,7 +46,7 @@ func reloader(s *Server, dist fs.FS, cfg config.SSR) http.Handler {
 }
 
 // serveDev answers a request of tifa dev and reports whether it did. Only DevMain sets s.dev.
-func (s *Server) serveDev(w http.ResponseWriter, r *http.Request) bool {
+func (s *server) serveDev(w http.ResponseWriter, r *http.Request) bool {
 	if s.dev == nil || !strings.HasPrefix(r.URL.Path, devPrefix) {
 		return false
 	}

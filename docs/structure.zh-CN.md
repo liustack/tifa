@@ -105,7 +105,7 @@ Go 的规则：一个包不能依赖它自己。A 包直接或经过别的包 im
 
   ```go
   // hooks.go
-  func OnStart() error                       { return openDB() }
+  func OnStart(ctx context.Context) error    { return openDB(ctx) }
   func OnShutdown(ctx context.Context) error { return DB.Close() }
   ```
 

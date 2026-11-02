@@ -29,7 +29,7 @@ func TestNavigationParameterIsInvisibleToTheApp(t *testing.T) {
 			mu.Lock()
 			defer mu.Unlock()
 			queries = append(queries, c.Query("_tifa")+"|"+c.Query("a"))
-			all = append(all, strings.Join(c.QueryAll("_tifa"), ",")+"|"+c.Request().URL.RawQuery)
+			all = append(all, strings.Join(c.QueryValues("_tifa"), ",")+"|"+c.Request().URL.RawQuery)
 			return 1, nil
 		}})
 	s, r := newFrontServer(t, app)

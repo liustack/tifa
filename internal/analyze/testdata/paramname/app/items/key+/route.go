@@ -10,5 +10,5 @@ import (
 
 func Load(c *tifa.Ctx) (string, error) {
 	name := "tab"
-	return c.Param("id") + c.Query(name) + strings.Join(c.QueryAll(name), ","), nil
+	return c.Param("id") + c.Query(name) + strings.Join(c.QueryValues(name), ","), nil
 }

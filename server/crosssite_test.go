@@ -16,7 +16,7 @@ import (
 
 // crossSiteApp has a page that takes writes, an API with a DELETE, and an OnRequest that counts
 // the requests it sees.
-func crossSiteApp(seen *atomic.Int32, mutate func(*config.Server)) *Server {
+func crossSiteApp(seen *atomic.Int32, mutate func(*config.Server)) *server {
 	app := testApp()
 	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		seen.Add(1)
@@ -26,12 +26,12 @@ func crossSiteApp(seen *atomic.Int32, mutate func(*config.Server)) *Server {
 	if mutate != nil {
 		mutate(&cfg.Server)
 	}
-	s := New(cfg, app.Hooks)
+	s := newServer(cfg, app.Hooks)
 	s.register(app.Layouts, app.Routes)
 	return s
 }
 
-func crossSiteRequest(s *Server, method, target, body string, header map[string]string) *httptest.ResponseRecorder {
+func crossSiteRequest(s *server, method, target, body string, header map[string]string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, target, strings.NewReader(body))
 	r.Host = "shop.example"
 	for k, v := range header {
@@ -166,8 +166,8 @@ func TestCrossSitePathsAcceptCrossSiteWrites(t *testing.T) {
 // The check is on by default and no setting turns it off: a program built with the default
 // settings refuses.
 func TestCrossSiteCheckIsOnWithDefaultSettings(t *testing.T) {
-	s := New(config.Default(), Hooks{})
-	s.Handle("POST", "/w", func(c *tifa.Ctx) error { return c.NoContent(204) })
+	s := newServer(config.Default(), Hooks{})
+	s.handle("POST", "/w", func(c *tifa.Ctx) error { return c.NoContent(204) })
 	r := httptest.NewRequest("POST", "/w", nil)
 	r.Header.Set("Sec-Fetch-Site", "cross-site")
 	w := httptest.NewRecorder()
