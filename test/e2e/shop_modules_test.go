@@ -44,14 +44,17 @@ func checkShopModules(t *testing.T, base string) {
 			}
 		}
 	}
-	// A product page remembers the product in a cookie, and the list shows it under "Recently viewed".
+	// The product page is the same for everyone and sets no cookie. The browser tells the mine route
+	// which product is open, which remembers it in a cookie, and the same route gives the list back.
 	s := newShopper(t, base)
-	if _, header, _ := s.do("GET", "/store/en-US/products/ceramic-cup", ""); !strings.Contains(strings.Join(header.Values("Set-Cookie"), ";"), "shop_seen=ceramic-cup") {
-		t.Errorf("the product page does not set shop_seen: %v", header.Values("Set-Cookie"))
+	if _, header, _ := s.do("GET", "/store/en-US/products/ceramic-cup", ""); len(header.Values("Set-Cookie")) != 0 {
+		t.Errorf("the product page sets a cookie: %v", header.Values("Set-Cookie"))
 	}
-	_, _, list := s.do("GET", "/store/en-US/products", "")
-	if i := strings.Index(rendered(list), "Recently viewed"); i < 0 || !strings.Contains(rendered(list)[i:], "Handmade Ceramic Cup") {
-		t.Error("the list does not show the product just seen")
+	if status, header, _ := s.do("POST", "/store/en-US/mine", `{"slug":"ceramic-cup"}`); status != 204 || !strings.Contains(strings.Join(header.Values("Set-Cookie"), ";"), "shop_seen=ceramic-cup") {
+		t.Errorf("remember a product: %d %v", status, header.Values("Set-Cookie"))
+	}
+	if _, _, mine := s.do("GET", "/store/en-US/mine", ""); !strings.Contains(mine, `"name":"Handmade Ceramic Cup"`) || !strings.Contains(mine, `"cart":{`) {
+		t.Errorf("the visitor's own data lacks the product just seen: %.300s", mine)
 	}
 }
 

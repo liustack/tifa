@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Link } from '@tanstack/react-router'
 import { BadgeCheck, ChevronRight, CircleCheck, CreditCard, Gift, Heart, MessageCircleQuestion, Minus, Plus, RotateCcw, Share2, ShieldCheck, Store, ThumbsUp, Truck } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { TifaError } from 'tifa/client'
 import { z } from 'zod'
@@ -16,6 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from 'cn'
 import { useHydrated } from '../../../../use-hydrated'
 import { storeTitle, useStore } from '../../../i18n'
+import { rememberProduct, useMine } from '../../../mine'
 import { photo, photoSet, type View } from '../../../images'
 import { CardBadges, catalogueNo, Price, ProductCard, ProductGrid, ProductImage, Stars } from '../../../product-card'
 import { layout } from '../../route.gen'
@@ -44,6 +45,12 @@ export default function ProductPage() {
   const { product, related } = data
   const { t, locale } = useStore()
   const lang = locale.code
+  const seen = (useMine(lang)?.seen ?? []).filter((p) => p.slug !== product.slug)
+  // The products the visitor looked at are theirs, so the page cannot say them: the browser
+  // tells the server which one is open and shows the others.
+  useEffect(() => {
+    void rememberProduct(lang, product.slug)
+  }, [lang, product.slug])
   const origin = (product.specs ?? []).find((s) => s.label === t('product.originLabel'))?.value
   return (
     <div className="flex flex-col gap-14">
@@ -123,10 +130,10 @@ export default function ProductPage() {
       <Reviews />
       <Questions />
 
-      {(data.seen ?? []).length > 0 && (
+      {seen.length > 0 && (
         <Row id="seen-title" title={t('list.seen')}>
           <ProductGrid>
-            {(data.seen ?? []).slice(0, 4).map((p) => (
+            {seen.slice(0, 4).map((p) => (
               <ProductCard key={p.slug} product={p} lang={lang} />
             ))}
           </ProductGrid>
@@ -162,7 +169,7 @@ function Services() {
   const { t } = useStore()
   const shell = layout.useLoaderData()
   const items = [
-    { id: 'delivery', icon: Truck, title: t('product.svcDelivery'), body: t('product.svcDeliveryBody', { amount: shell.cart.freeShippingCents / 100 }) },
+    { id: 'delivery', icon: Truck, title: t('product.svcDelivery'), body: t('product.svcDeliveryBody', { amount: shell.freeShippingCents / 100 }) },
     { id: 'returns', icon: RotateCcw, title: t('product.svcReturns'), body: t('product.svcReturnsBody') },
     { id: 'warranty', icon: ShieldCheck, title: t('product.svcWarranty'), body: t('product.svcWarrantyBody') },
     { id: 'pay', icon: CreditCard, title: t('product.svcPay'), body: t('product.svcPayBody') },
@@ -267,7 +274,7 @@ function Delivery() {
           })}
         </p>
         <p className="text-muted-foreground">
-          {t('product.shippingBody', { amount: shell.cart.freeShippingCents / 100, express: delivery.priceCents / 100 })}
+          {t('product.shippingBody', { amount: shell.freeShippingCents / 100, express: delivery.priceCents / 100 })}
         </p>
       </div>
     </div>
@@ -571,7 +578,7 @@ function Details() {
           </div>
         </TabsContent>
         <TabsContent value="shipping" forceMount className="max-w-2xl text-sm text-muted-foreground data-[state=inactive]:hidden">
-          {t('product.shippingBody', { amount: shell.cart.freeShippingCents / 100, express: delivery.priceCents / 100 })}
+          {t('product.shippingBody', { amount: shell.freeShippingCents / 100, express: delivery.priceCents / 100 })}
         </TabsContent>
       </Tabs>
     </section>

@@ -14,7 +14,7 @@ export default function StoreHome() {
   const shell = layout.useLoaderData()
   const { t, locale } = useStore()
   const lang = locale.code
-  const free = shell.cart.freeShippingCents / 100
+  const free = shell.freeShippingCents / 100
   const promises = [
     { icon: Truck, title: t('home.promise1Title'), body: t('home.promise1Body', { amount: free }) },
     { icon: RotateCcw, title: t('home.promise2Title'), body: t('home.promise2Body') },
@@ -227,7 +227,7 @@ function Hero() {
     {
       kicker: t('home.kicker'),
       title: t('home.heroTitle'),
-      body: t('home.heroBody', { amount: shell.cart.freeShippingCents / 100 }),
+      body: t('home.heroBody', { amount: shell.freeShippingCents / 100 }),
       image: { small: picture('home/hero-800'), large: picture('home/hero-1600') },
       caption: t('home.heroCaption'),
       cta: (

@@ -1,6 +1,6 @@
-import { Link, Outlet, useRouterState } from '@tanstack/react-router'
+import { Link, Outlet, useRouter, useRouterState } from '@tanstack/react-router'
 import { ArrowRight, ChevronDown, Globe, Menu, Search, SearchX, ShoppingBag, User } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { I18nextProvider } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
@@ -9,6 +9,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { cn } from 'cn'
 import { i18nFor, LocaleContext, useStore } from '../i18n'
+import { refreshMine, useMine } from '../mine'
 import { catalogueNo, Price, ProductImage } from '../product-card'
 import { RouteError } from 'tifa/client'
 import { layout, type LayoutData } from './route.gen'
@@ -44,6 +45,14 @@ export const head = ({ loaderData, matches }: { loaderData?: LayoutData; matches
 
 export default function StoreLayout() {
   const shell = layout.useLoaderData()
+  const router = useRouter()
+  const code = shell.locale.code
+  // The page is the same for everyone. The cart in the header is asked for after it has loaded,
+  // and again each time the router has settled on a page, such as after a change to the cart.
+  useEffect(() => {
+    void refreshMine(code)
+    return router.subscribe('onResolved', () => void refreshMine(code))
+  }, [router, code])
   return (
     <LocaleContext.Provider value={shell.locale}>
       <I18nextProvider i18n={i18nFor(shell.locale)}>
@@ -67,7 +76,7 @@ function Announcement() {
   const { t } = useStore()
   return (
     <p className="bg-foreground px-4 py-2 text-center text-[11px] tracking-[0.08em] text-background dark:bg-card dark:text-muted-foreground">
-      {t('shell.announce', { amount: shell.cart.freeShippingCents / 100 })}
+      {t('shell.announce', { amount: shell.freeShippingCents / 100 })}
     </p>
   )
 }
@@ -264,9 +273,10 @@ function SearchBox({ menu }: { menu: Group[] }) {
 
 // CartDrawer opens the cart at the side of the page without leaving it.
 function CartDrawer() {
-  const { cart } = layout.useLoaderData()
+  const shell = layout.useLoaderData()
   const { t, locale, money } = useStore()
   const lang = locale.code
+  const cart = useMine(lang)?.cart ?? { lines: [], count: 0, subtotalCents: 0, discountCents: 0, freeShippingCents: shell.freeShippingCents }
   const lines = cart.lines ?? []
   const left = cart.freeShippingCents - (cart.subtotalCents - cart.discountCents)
   return (

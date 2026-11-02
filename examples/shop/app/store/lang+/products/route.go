@@ -1,19 +1,24 @@
 package products
 
 import (
+	"time"
+
 	"strconv"
 
 	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/examples/shop/app/store"
 )
 
-// List is the product list page: one page of the search, and two rows below it, the products the
-// visitor looked at last and the best rated ones.
+// List is the product list page: one page of the search, and a row below it with the best rated
+// products.
 type List struct {
 	Results
-	Seen  []Card `json:"seen"`
 	Picks []Card `json:"picks"`
 }
+
+// Cache keeps a list for five minutes, a result of a filter in the query string included. Stock
+// and ratings change faster than articles do.
+const Cache = 5 * time.Minute
 
 // Load searches the catalogue with the filters in the query string. A filter that does not parse
 // is left out, as if it were not there.
@@ -43,7 +48,6 @@ func Load(c *tifa.Ctx) (List, error) {
 			Sort:      c.Query("sort"),
 			Page:      number(c.Query("page")),
 		}, l),
-		Seen:  Seen(c, "", l),
 		Picks: TopRated(6, l),
 	}, nil
 }

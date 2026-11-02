@@ -248,12 +248,13 @@ func TestShopApp(t *testing.T) {
 
 	checkStorefront(t, base, built.BuildID)
 	checkStorefrontKeepsCustomersApart(t, base)
+	checkStorefrontPageCache(t, base)
 	checkShopModules(t, base)
 	checkProductPageCounts(t, base)
 	checkOrderPageModules(t, base)
 	checkStatsPanels(t, base)
 	checkCartAndCheckoutModules(t, base)
-	t.Run("sign in", func(t *testing.T) { checkShopSignIn(t, exe) })
+	t.Run("sign in", func(t *testing.T) { checkShopSignIn(t, exe, built.BuildID) })
 }
 
 // rendered returns the part of a page React rendered, without the data written after it.
@@ -358,19 +359,26 @@ func checkStorefront(t *testing.T, base, buildID string) {
 		status int
 		lang   string
 		text   string
+		// cached is a URL of a page with Cache, whose HTML is the same for every visitor and so
+		// carries no data-session. The other 404s are made for the visitor.
+		cached bool
 	}{
-		{"/store/en-US", 200, "en-US", "Free delivery"},
-		{"/store/zh-CN", 200, "zh-CN", "秋天的第一壶茶"},
-		{"/store/xx", 404, "zh-CN", "We could not find this page"},
-		{"/store/xx/products", 404, "zh-CN", "没有找到这个页面"},
-		{"/store/zh-CN/products/nope", 404, "zh-CN", "没有找到这个页面"},
-		{"/store/en-US/journal/nope", 404, "en-US", "We could not find this page"},
-		{"/store/en-US/nope/deeper", 404, "en-US", "We could not find this page"},
-		{"/store/en-US/nope", 404, "en-US", "We could not find this page"},
-		{"/store/zh-CN/journal/x/y", 404, "zh-CN", "没有找到这个页面"},
+		{"/store/en-US", 200, "en-US", "Free delivery", true},
+		{"/store/zh-CN", 200, "zh-CN", "秋天的第一壶茶", true},
+		{"/store/xx", 404, "zh-CN", "We could not find this page", true},
+		{"/store/xx/products", 404, "zh-CN", "没有找到这个页面", true},
+		{"/store/zh-CN/products/nope", 404, "zh-CN", "没有找到这个页面", true},
+		{"/store/en-US/journal/nope", 404, "en-US", "We could not find this page", true},
+		{"/store/en-US/nope/deeper", 404, "en-US", "We could not find this page", false},
+		{"/store/en-US/nope", 404, "en-US", "We could not find this page", false},
+		{"/store/zh-CN/journal/x/y", 404, "zh-CN", "没有找到这个页面", false},
 	} {
 		status, _, page := get(t, base+tc.path)
-		if start := `<!DOCTYPE html><html data-session="out" lang="` + tc.lang + `"><head>`; status != tc.status || !strings.HasPrefix(page, start) || !strings.Contains(rendered(page), tc.text) || strings.Contains(page, sidebar) {
+		attr := ` data-session="out"`
+		if tc.cached {
+			attr = ""
+		}
+		if start := `<!DOCTYPE html><html` + attr + ` lang="` + tc.lang + `"><head>`; status != tc.status || !strings.HasPrefix(page, start) || !strings.Contains(rendered(page), tc.text) || strings.Contains(page, sidebar) {
 			t.Errorf("%s: %d, want %d with %s in a document starting %s:\n%.120s", tc.path, status, tc.status, tc.text, start, page)
 		}
 	}
