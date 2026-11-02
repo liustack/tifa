@@ -145,7 +145,7 @@ func injectedInput(t testing.TB, answer []byte) (json.RawMessage, []string) {
 // injectedInput writes the data of a route as the server does, characters above U+FFFF as the
 // escapes of their surrogate pairs among it, and apart from the JSON that numbers it.
 func TestInjectedInputIsWhatTheServerInjects(t *testing.T) {
-	data, texts := injectedInput(t, []byte(`{"app/route":{"status":200,"data":{"s":"a😀"}},"app/gone":{"status":404,"error":"Not Found"},"app/other":{"status":200,"data":[1]}}`))
+	data, texts := injectedInput(t, []byte(`{"routes":{"app/route":{"status":200,"data":{"s":"a😀"}},"app/gone":{"status":404,"error":"Not Found"},"app/other":{"status":200,"data":[1]}}}`))
 	if want := `{"app/gone":{"status":404,"error":"Not Found"},"app/other":{"status":200,"text":0},"app/route":{"status":200,"text":1}}`; string(data) != want {
 		t.Errorf("data = %s, want %s", data, want)
 	}
