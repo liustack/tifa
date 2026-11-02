@@ -1,5 +1,5 @@
 import { LogIn, LogOut } from 'lucide-react'
-import { Session, useSession } from 'tifa/client'
+import { SignedIn, SignedOut, useSession } from 'tifa/client'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { POST as signOut } from './logout/route.gen'
@@ -10,27 +10,29 @@ export function Account() {
   const { data } = useSession()
   return (
     <>
-      <Session.Out>
+      <SignedOut>
         <Button variant="outline" size="sm" asChild>
           <a href="/login">
             <LogIn />
             登录
           </a>
         </Button>
-      </Session.Out>
-      <Session.In className="flex items-center gap-2">
-        <Avatar className="size-7 rounded-none">
-          <AvatarFallback className="rounded-none bg-primary text-xs text-primary-foreground">{data?.initials}</AvatarFallback>
-        </Avatar>
-        <span className="hidden text-sm font-medium sm:inline" data-testid="account-name">
-          {data?.name}
-        </span>
-        <Button variant="ghost" size="sm" onClick={() => void signOut()}>
-          <LogOut />
-          <span className="hidden sm:inline">退出登录</span>
-          <span className="sr-only sm:hidden">退出登录</span>
-        </Button>
-      </Session.In>
+      </SignedOut>
+      <SignedIn>
+        <div className="flex items-center gap-2">
+          <Avatar className="size-7 rounded-none">
+            <AvatarFallback className="rounded-none bg-primary text-xs text-primary-foreground">{data?.initials}</AvatarFallback>
+          </Avatar>
+          <span className="hidden text-sm font-medium sm:inline" data-testid="account-name">
+            {data?.name}
+          </span>
+          <Button variant="ghost" size="sm" onClick={() => void signOut()}>
+            <LogOut />
+            <span className="hidden sm:inline">退出登录</span>
+            <span className="sr-only sm:hidden">退出登录</span>
+          </Button>
+        </div>
+      </SignedIn>
     </>
   )
 }

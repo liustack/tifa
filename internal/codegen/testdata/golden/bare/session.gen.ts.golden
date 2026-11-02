@@ -3,5 +3,5 @@
 // SessionEnabled is true when the app calls tifa.SetSession.
 export type SessionEnabled = false
 
-// The app has no session type with a Browser method.
+// The app has no session type with an Exposed method.
 export type SessionData = never

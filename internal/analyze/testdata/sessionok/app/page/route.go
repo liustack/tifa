@@ -11,7 +11,7 @@ type Public struct {
 	Name string `json:"name"`
 }
 
-func (a *A) Browser() Public { return Public{Name: a.Email} }
+func (a *A) Exposed() Public { return Public{Name: a.Email} }
 
 func Load(c *tifa.Ctx) (string, error) {
 	if tifa.Session[A](c) == nil {

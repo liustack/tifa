@@ -33,7 +33,7 @@ for (const [entry, platform, lazy] of entries) {
     logLevel: 'warn',
     plugins: lazy ? [generated(), lazyRoutes(['ssr']), serovalPlugin(), prerenderPlugin()] : [generated(), serovalPlugin(), prerenderPlugin()],
     resolve: { tsconfigPaths: true },
-    define: { 'process.env.NODE_ENV': '"production"', __TIFA_ASSETS__: JSON.stringify(assets), __LAZY_ROUTES__: String(lazy) },
+    define: { 'process.env.NODE_ENV': '"production"', 'import.meta.env.DEV': 'true', __TIFA_ASSETS__: JSON.stringify(assets), __LAZY_ROUTES__: String(lazy) },
     environments: { ssr: { resolve: { noExternal: true, conditions: [platform, 'import', 'module', 'default'] } } },
     build: {
       ssr: entry,

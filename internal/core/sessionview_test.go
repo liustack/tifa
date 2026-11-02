@@ -19,13 +19,13 @@ type browserMe struct {
 	Name string `json:"name"`
 }
 
-func (u *browserUser) Browser() browserMe { return browserMe{Name: u.Name} }
+func (u *browserUser) Exposed() browserMe { return browserMe{Name: u.Name} }
 
 type valueBrowser struct {
 	Name string `json:"name"`
 }
 
-func (u valueBrowser) Browser() browserMe { return browserMe(u) }
+func (u valueBrowser) Exposed() browserMe { return browserMe(u) }
 
 func viewOf(t *testing.T, c *Ctx) string {
 	t.Helper()
@@ -82,7 +82,7 @@ type lateUser struct {
 	Pass string `json:"pass"`
 }
 
-func (u lateUser) Browser() browserMe { return browserMe{Name: "late " + u.Name} }
+func (u lateUser) Exposed() browserMe { return browserMe{Name: "late " + u.Name} }
 
 // A request that holds a record, before any code of the request has read the session as S, gets
 // the data of the registered type (the generated code of the app does that when it starts).

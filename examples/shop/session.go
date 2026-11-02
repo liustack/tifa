@@ -21,7 +21,7 @@ type Me struct {
 	Initials string `json:"initials"`
 }
 
-func (s Session) Browser() Me { return Me{Name: s.Name, Initials: s.Initials} }
+func (s Session) Exposed() Me { return Me{Name: s.Name, Initials: s.Initials} }
 
 // account is a user of the workbench. The password is kept as a bcrypt hash, as a real shop keeps
 // it in its database.

@@ -39,7 +39,7 @@ go tool tifa check
 | --- | --- |
 | `owner@shanhai.example` | `shanhai-demo` |
 
-没登录的访客会被 `hooks.go` 里的 `OnRequest` 带到 `/login?next=...`，登录后回到原来要看的页面。顶栏和侧栏显示名字（Layout 的数据对所有人一样，名字来自浏览器里的会话），顶栏有退出按钮或登录链接，都用 `tifa/client` 的 `Session.In`、`Session.Out` 和 `useSession`。应用没有调用 `tifa.SetSessionStore`，会话放在进程内存里，重启后所有人要重新登录。密码和 `session.go` 里的 bcrypt 哈希比对，真实的店铺会从数据库里读它。
+没登录的访客会被 `hooks.go` 里的 `OnRequest` 带到 `/login?next=...`，登录后回到原来要看的页面。顶栏和侧栏显示名字（Layout 的数据对所有人一样，名字来自浏览器里的会话），顶栏有退出按钮或登录链接，都用 `tifa/client` 的 `SignedIn`、`SignedOut` 和 `useSession`。应用没有调用 `tifa.SetSessionStore`，会话放在进程内存里，重启后所有人要重新登录。密码和 `session.go` 里的 bcrypt 哈希比对，真实的店铺会从数据库里读它。
 
 想不登录就看工作台，用 `SHOP_OPEN=1` 启动程序。和 Next.js、TanStack Start 的对比以及页面压测不能登录，用的就是它。它放行整个工作台，包括发货这类写操作，只给对比和压测用，不要在服务器上设置。
 

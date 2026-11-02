@@ -1,4 +1,4 @@
-module example.com/sessionbrowsermulti
+module example.com/sessionexposedmulti
 
 go 1.27.0
 

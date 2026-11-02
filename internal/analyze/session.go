@@ -14,15 +14,15 @@ import (
 type Session struct {
 	// Type is the Go type S, qualified by full import paths.
 	Type string `json:"type"`
-	// Browser reports whether S or *S has the method Browser() M, and BrowserType is M.
-	Browser     bool   `json:"browser"`
-	BrowserType string `json:"browserType,omitempty"`
+	// Exposed reports whether S or *S has the method Exposed() M, and ExposedType is M.
+	Exposed     bool   `json:"exposed"`
+	ExposedType string `json:"exposedType,omitempty"`
 	// Package and Name tell the generated code how to write S when it can: S is a named type
 	// of a package, exported, and not generic. Both are empty for any other S.
 	Package string `json:"package,omitempty"`
 	Name    string `json:"name,omitempty"`
-	// BrowserResult is M for code generation inside the same process. It satisfies the rules of checkTS.
-	BrowserResult types.Type `json:"-"`
+	// ExposedResult is M for code generation inside the same process. It satisfies the rules of checkTS.
+	ExposedResult types.Type `json:"-"`
 }
 
 // sessionCall is one use of tifa.SetSession, tifa.Session or tifa.ClearSession.
@@ -114,18 +114,18 @@ func (a *analyzer) session(pkgs []*packages.Package) *Session {
 			out.Package, out.Name = obj.Pkg().Path(), obj.Name()
 		}
 	}
-	if fn := browserMethod(s); fn != nil {
+	if fn := exposedMethod(s); fn != nil {
 		sig := fn.Signature()
 		if sig.Params().Len() != 0 || sig.Results().Len() != 1 || sig.Variadic() {
-			a.errorAt(fn.Pos(), "Browser must have the signature func() M: it gives the part of the session the browser may see, as one value")
+			a.errorAt(fn.Pos(), "Exposed must have the signature func() M: it gives the part of the session the browser may see, as one value")
 			return nil
 		}
 		m := sig.Results().At(0).Type()
 		if problems := checkTS(m); len(problems) > 0 {
-			a.reportTS(fn.Pos(), "Browser result", problems)
+			a.reportTS(fn.Pos(), "Exposed result", problems)
 			ok = false
 		}
-		out.Browser, out.BrowserType, out.BrowserResult = true, typeString(m), m
+		out.Exposed, out.ExposedType, out.ExposedResult = true, typeString(m), m
 	}
 	if !ok {
 		return nil
@@ -133,9 +133,9 @@ func (a *analyzer) session(pkgs []*packages.Package) *Session {
 	return out
 }
 
-// browserMethod returns the method Browser of s or *s, nil when there is none.
-func browserMethod(s types.Type) *types.Func {
-	obj, _, _ := types.LookupFieldOrMethod(s, true, nil, "Browser")
+// exposedMethod returns the method Exposed of s or *s, nil when there is none.
+func exposedMethod(s types.Type) *types.Func {
+	obj, _, _ := types.LookupFieldOrMethod(s, true, nil, "Exposed")
 	fn, _ := obj.(*types.Func)
 	return fn
 }

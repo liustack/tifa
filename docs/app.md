@@ -7,7 +7,7 @@ read_when:
   - Changing the apps in examples/shop or test/apps
   - Writing Go tests for a Load, a Layout function, a method handler or OnRequest
   - Signing users in and out, reading who is signed in, or keeping sessions in Redis or SQL
-  - Showing the name of the signed-in user in a header, `useSession`, `Session.In`, `data-session`, or a CSP that blocks the script at the start of the head
+  - Showing the name of the signed-in user in a header, `useSession`, `SignedIn`, `data-session`, or a CSP that blocks the script at the start of the head
   - Keeping a public page in memory for a few minutes with `const Cache`, what becomes anonymous on it, or the build error about reading a cookie or the session on such a page
   - Adding CSS, Tailwind CSS or shadcn/ui to an app
   - Formatting numbers or dates in a page, or tifa dev warns about an Intl call
@@ -488,6 +488,19 @@ A page with `Cache` is answered to everyone alike for that long, from memory, wi
 - **Headers.** The headers a `Load` or `Layout` sets (not `Set-Cookie`, `Cache-Control`, `Vary`, `Age`, `ETag` or `Content-Length`, which tifa writes) are kept with the entry and sent with every answer made from it. A `Cache-Control` of `private`, `no-store` or `no-cache`, or a `Vary` beyond `Accept-Encoding`, from a `Load` or `Layout` keeps the page out of the cache and goes out with the answer, over a `public` that `OnRequest` set. A kept page carries `Cache-Control: public, max-age=0, s-maxage=<Cache in seconds>, stale-if-error=86400` and `Age`. The browser asks every time and gets a 304 from the entry when the ETag matches, so a deploy shows at once. `Age` counts the seconds since the page was made and a CDN in front subtracts it from `s-maxage`, so the two together never keep a page longer than `Cache`. `Cache-Status: tifa; hit`, `tifa; fwd=miss` or `tifa; fwd=stale` says where the answer came from, and `X-Tifa-Render` says as before. Navigation data is still `private, no-cache`. For what to set in a CDN, see the deployment notes of the tifa skill.
 - Entries share `cache.size` with the render cache. `cache.size` 0 keeps nothing, and requests that miss at the same time still share one make.
 
+### User-independent pages and private data
+
+A full page is a user-independent page plus private data. tifa splits by the kind of data, not by component:
+
+- **Data that is the same for everyone.** `Load` and Layout see no user, so the page can be kept in the whole-page cache and in a CDN.
+- **The session.** Who is signed in and a small `Exposed` part of the session, carried by the session system (see [Sessions](#sessions)). It is written into the page, and the browser keeps a copy.
+- **Other private data.** A cart, recommendations, an unread count. It can be large, and the browser may write to it. Put it behind an API route of your app and fetch it from the browser.
+
+Other systems draw the same line: HTTP caches call it `public` against `private`, Magento calls it private content, and donut caching keeps the shared page whole and fills in the holes.
+
+For the third kind, make an API route (a `route.go` with a `GET` handler and no `page.tsx`). Its generated `GET` function is typed and works from the browser. Call it when the page needs the data: after the page has loaded, when a panel opens, or on hover to fetch ahead. The generated functions plug straight into TanStack Query if the app wants a cache. `examples/shop/app/store/mine.ts` is a worked example: the storefront pages are cached and the same for everyone, and this module calls the `GET` of `/store/{lang}/mine` after a page has loaded to fill in the cart and the products the visitor looked at last, and calls it again after a write.
+
+
 ## Pages open while you deploy
 
 A visitor can keep a page open while you deploy a new version, so the page is from the old build and the server is the new one. The page sends the build it was rendered with along with its data requests (in the `_tifa` query parameter) and its handler calls (`X-Tifa-Build`), and the server answers 409 for another build. What the visitor sees:
@@ -881,38 +894,38 @@ Writes from other sites are refused before any of this runs (see [Cross-site wri
 - `Load` or `Layout`, or a function they pass the Ctx to, calls `SetSession` or `ClearSession`
 - a page or API route path starts with `/__tifa/`, or `public/__tifa/` holds a file (`/__tifa/session` is the path of the session answer)
 
-The session type may have a method `Browser() M` (a pointer receiver works too), which gives the part of the session a browser may see. `M` follows the rules of a `Load` result, and the build writes its TypeScript type to `.tifa/session.gen.ts`:
+The session type may have a method `Exposed() M` (a pointer receiver works too). It returns the part of the session that may go to the browser. It is written into the page HTML and kept in the browser's `localStorage`, so every field in it must be fine to stay on the visitor's device for a long time. Put no credentials and no secrets in it, and always check access with the server-side session. `M` follows the rules of a `Load` result, and the build writes its TypeScript type to `.tifa/session.gen.ts`:
 
 ```tsx
 import type { SessionData } from '@/.tifa/session.gen'
 ```
 
-The same file exports `SessionEnabled`, which is `true` when the app calls `tifa.SetSession` and `false` otherwise. `SessionData` is `never` when the type has no `Browser` method or the app has no session. A `Browser` with parameters, with more than one result, or whose result cannot be JSON fails the build.
+The same file exports `SessionEnabled`, which is `true` when the app calls `tifa.SetSession` and `false` otherwise. `SessionData` is `never` when the type has no `Exposed` method or the app has no session. A `Exposed` with parameters, with more than one result, or whose result cannot be JSON fails the build.
 
 ### In the browser
 
-The browser keeps a copy of who is signed in and shows it from the first paint, before any script of the page has run. Pages read it with `useSession`, and any element can show or hide itself by it.
+The browser keeps a copy of who is signed in and shows it from the first paint, before any script of the page has run. Pages read it with `useSession`, and `SignedIn` and `SignedOut` show or hide an element by it.
 
 ```tsx
-import { Session, useSession } from 'tifa/client'
+import { SignedIn, SignedOut, useSession } from 'tifa/client'
 
 function Header() {
 	const { signedIn, data, ready } = useSession()
 	return (
 		<header>
-			<Session.Out><a href="/login">Sign in</a></Session.Out>
-			<Session.In>Hello, {data?.name}</Session.In>
+			<SignedOut><a href="/login">Sign in</a></SignedOut>
+			<SignedIn><span>Hello, {data?.name}</span></SignedIn>
 		</header>
 	)
 }
 ```
 
-- `useSession()` returns `{ signedIn, data, ready }`. `data` is what the `Browser` method returned (its type is `SessionData`), and `undefined` when the type has no `Browser` or nobody is signed in. Calling it in an app that never calls `tifa.SetSession` is a type error, and throws.
-- `Session.In` and `Session.Out` are a `<span>` with `data-session="in"` or `data-session="out"`. Any element can carry the attribute instead, such as `<a href="/login" data-session="out">`. A style tifa puts at the start of the head hides `data-session="in"` elements unless someone is signed in, and `data-session="out"` elements when someone is. You write no CSS.
+- `useSession()` returns `{ signedIn, data, ready }`. `data` is what the `Exposed` method returned (its type is `SessionData`), and `undefined` when the type has no `Exposed` or nobody is signed in. Calling it in an app that never calls `tifa.SetSession` is a type error, and throws.
+- `SignedIn` and `SignedOut` show their child only to someone signed in or signed out. Each takes exactly one element as its child and renders no element of its own. The child must pass its props on to its DOM element, as `<a>`, `<div>` and components that spread `...props` do. In development a child that does not fails with a message when it mounts. A style tifa puts at the start of the head hides the wrong one from the first paint, so you write no CSS.
 - `ready` is `true` once the browser knows which state it shows. For a page rendered for the visitor it is `true` from the first render. See below for the pages that come without a session.
 - The copy decides what to show, never what someone may do. Check access in Go.
 
-The session reaches the browser with every answer that is meant for one visitor, in the shape `{ "signedIn": true, "data": ... }` (`data` only when the type has `Browser`, and `{ "signedIn": false }` when nobody is signed in):
+The session reaches the browser with every answer that is meant for one visitor, in the shape `{ "signedIn": true, "data": ... }` (`data` only when the type has `Exposed`, and `{ "signedIn": false }` when nobody is signed in):
 
 | Answer | What it carries |
 | --- | --- |
@@ -942,7 +955,7 @@ style-src 'sha256-dutb67YDz+meUugqDFx3RsopE/hCQ31NRHukbTNY+OQ='
 
 These are for the default cookie `__Host-tifa_session`. The script holds the name of the `localStorage` key, so it has another hash when you set `session.cookie`, and under `tifa dev`, where the cookie is `tifa_session` (the script's hash is `sha256-RXrgEYZIzBu7H8LtSsupWFiD5XE/6dvi74b6rHR+nVg=`). Read the script out of a page of your build and hash it.
 
-**What it cannot do.** Another tab shows the old state until its next answer with a session, and a form submitted there already uses the new cookie. After you sign out on another device, a page that comes from `localStorage` shows the old name until the check comes back. Going back to a page of the browser's back-forward cache after signing in as someone else shows the old page as it was. A preload that was running when you switched accounts can bring the old account's data. A `fetch` you write yourself that changes the session is unknown to tifa: call `router.invalidate()` after it. Keep `Browser()` to what the browser may keep on the device, such as a name and an avatar, and no credentials, e-mail address or phone number.
+**What it cannot do.** Another tab shows the old state until its next answer with a session, and a form submitted there already uses the new cookie. After you sign out on another device, a page that comes from `localStorage` shows the old name until the check comes back. Going back to a page of the browser's back-forward cache after signing in as someone else shows the old page as it was. A preload that was running when you switched accounts can bring the old account's data. A `fetch` you write yourself that changes the session is unknown to tifa: call `router.invalidate()` after it. Keep `Exposed()` to what the browser may keep on the device, such as a name and an avatar, and no credentials, e-mail address or phone number.
 
 ### Testing sessions
 

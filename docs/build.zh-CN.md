@@ -62,7 +62,7 @@ tifa build [--dir 应用根目录] [-o 输出路径]
 - `tifa.SetSession` 和 `tifa.Session` 用了不同的类型，或者在泛型函数里用类型参数调用。错误会写出两处位置。模块里每个包的调用都算，模块外的包不读。
 - 有 `tifa.Session` 或 `tifa.ClearSession` 的调用，却没有任何地方调用 `tifa.SetSession`。
 - 会话类型不是 struct，或者不能从 JSON 读回来（通道、函数、接口字段，以及 [JSON 规则](app.zh-CN.md#json-规则)拒绝的其他类型）。
-- 会话类型有 `Browser` 方法，但签名不是 `func() M`，或者 `M` 没有对应的 TypeScript JSON 形式。
+- 会话类型有 `Exposed` 方法，但签名不是 `func() M`，或者 `M` 没有对应的 TypeScript JSON 形式。
 - `Load` 或 `Layout` 能走到 `tifa.SetSession` 或 `tifa.ClearSession`，不论是直接调用，还是经过它们传下 Ctx 的函数。
 - 页面或 API 路由的路径以 `/__tifa/` 开头，或者 `public/__tifa/` 下有文件。这个路径由 tifa 自己回答。
 
@@ -218,7 +218,7 @@ go tool tifa build
 | `routes.go` | `layouts` 与 `routes` 两个包级变量，每个 `Load` 与 `Layout` 函数包成 `func(c *tifa.Ctx) (any, error) { return tifa.Use(c, pkg.Load) }`，Layout 用 `pkg.Layout`。带入参或返回值的方法函数经过 `server.Input`、`server.Output` 或 `server.InputOutput`，它们用 `(*tifa.Ctx).Bind`（GET、DELETE 用 `(*tifa.Ctx).BindQuery`）解码入参，执行 `Validate`，写出结果 |
 | `tifa.yaml` 或 `tifa.json` | 项目配置的副本（`go:embed` 不能引用上级目录）。构建时先按运行时规则校验一遍 |
 | `routes.tsx` | TanStack 路由树与 `Register` 类型注册 |
-| `session.gen.ts` | `SessionData`：会话类型的 `Browser` 方法返回的 JSON 的类型。还有 `SessionEnabled`（应用调用了 `tifa.SetSession` 时是 `true`）。应用没有会话，或会话类型没有 `Browser` 时，`SessionData` 是 `never`。页面用 `@/.tifa/session.gen` 导入（见[会话](app.zh-CN.md#会话)） |
+| `session.gen.ts` | `SessionData`：会话类型的 `Exposed` 方法返回的 JSON 的类型。还有 `SessionEnabled`（应用调用了 `tifa.SetSession` 时是 `true`）。应用没有会话，或会话类型没有 `Exposed` 时，`SessionData` 是 `never`。页面用 `@/.tifa/session.gen` 导入（见[会话](app.zh-CN.md#会话)） |
 | `app/<目录>/route.gen.ts` | 每个有页面、Layout 或方法函数的目录生成一份。有页面就导出 `page`，有 Layout 就导出 `layout`（都是 TanStack 的路由对象），再导出 `PageData`、`LayoutData`（`Load` 和 `Layout` 的结果类型）、`Params`，并按方法函数各导出一个调用函数和它的 `<METHOD>Input`、`<METHOD>Output` 类型。这些函数调用 `runtime/call.ts` |
 | `server.ts`、`client.ts` | SSR 入口与浏览器入口。`tifa dev` 的浏览器入口另外引入 `runtime/dev-client.js` |
 | `tsconfig.json` | 见下文 |
@@ -486,7 +486,7 @@ React 和 React DOM 至少要 19.3.0。Vite 插件是按 19.3 的写法改写 Re
 
 ### 回答里的会话
 
-调用了 `tifa.SetSession` 的应用，会把本次请求的会话以 `{"signedIn": bool, "data"?: ...}` 的形状交给浏览器，`data` 是会话类型的 `Browser` 方法返回的值（清单把类型告诉服务器，生成的 `main.go` 用 `Session: server.SessionOf[T]` 注册它，所以带着旧会话启动的程序在第一个请求之前就知道类型。`T` 写不进 main 时构建失败：它必须是导出的具名 struct 类型，不能是泛型。请求带着会话而没有登记类型时，请求以错误失败）。只有给一个访客的回答才带它：
+调用了 `tifa.SetSession` 的应用，会把本次请求的会话以 `{"signedIn": bool, "data"?: ...}` 的形状交给浏览器，`data` 是会话类型的 `Exposed` 方法返回的值（清单把类型告诉服务器，生成的 `main.go` 用 `Session: server.SessionOf[T]` 注册它，所以带着旧会话启动的程序在第一个请求之前就知道类型。`T` 写不进 main 时构建失败：它必须是导出的具名 struct 类型，不能是泛型。请求带着会话而没有登记类型时，请求以错误失败）。只有给一个访客的回答才带它：
 
 - 整页：`ssr.Input` 有 `session`（上面的 JSON）、`sessionKey`（cookie 名加 `:v1`，浏览器存副本的地方）和 `sessionHead`（head 最前面的脚本和样式，见[会话](app.zh-CN.md#在浏览器里)）。渲染时在 `<html>` 上写 `data-session="in"` 或 `"out"`，通过路由的 dehydrate 数据（`buildId` 旁边的 `session` 和 `sessionKey`）交给浏览器，并在服务端把它交给 `useSession`。`SSR = false` 的页面把 `session` 和 `sessionKey` 放在启动数据里，`<html data-session="in">` 或 `"out"` 和 head 脚本由 Go 自己写。ETag 和渲染缓存的键都包含会话的哈希，所以两个访客除非浏览器拿到相同的会话，否则不会共用 ETag 或缓存条目。开了 `Cache` 的页面，HTML 里没有这些，因为 HTML 对所有人都一样（见[整页缓存](app.zh-CN.md#整页缓存)）：head 最前面的脚本在浏览器里设好 `data-session`，它的导航数据带的是那个浏览器的会话。
 - 导航数据：`{"routes": ..., "session": ...}`，404 和有 `Load` 失败的回答也一样。

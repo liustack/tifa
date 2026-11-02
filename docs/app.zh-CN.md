@@ -7,7 +7,7 @@ read_when:
   - 改 examples/shop 或 test/apps 里的应用
   - 给 Load、Layout 函数、方法函数或 OnRequest 写 Go 测试
   - 让用户登录登出、读谁登录了，或把会话放到 Redis、SQL 里
-  - 在页头显示登录用户的名字，`useSession`、`Session.In`、`data-session`，或者 CSP 拦住了 head 最前面的脚本
+  - 在页头显示登录用户的名字，`useSession`、`SignedIn`、`data-session`，或者 CSP 拦住了 head 最前面的脚本
   - 给应用加 CSS、Tailwind CSS 或 shadcn/ui
   - 在页面里格式化数字或日期，或者 tifa dev 对某个 Intl 调用报警
   - 访客开着一个页面时你部署了新版本，想知道浏览器会怎么做，或者看到带 `X-Tifa-Build` 的 409
@@ -487,6 +487,19 @@ const Cache = 10 * time.Minute
 - **响应头。** `Load` 和 `Layout` 设的响应头（除了 tifa 自己写的 `Set-Cookie`、`Cache-Control`、`Vary`、`Age`、`ETag` 和 `Content-Length`）随条目存下，用这个条目答的每个回答都带上。`Load` 或 `Layout` 设了 `private`、`no-store` 或 `no-cache` 的 `Cache-Control`，或 `Accept-Encoding` 以外的 `Vary`，这个页面就不进缓存，这些头会随回答发出，盖过 `OnRequest` 设的 `public`。存下来的页面带 `Cache-Control: public, max-age=0, s-maxage=<Cache 的秒数>, stale-if-error=86400` 和 `Age`。浏览器每次都来问，ETag 匹配时从条目回 304，所以部署后马上就能看到新版。`Age` 是页面生成后过了几秒，前面的 CDN 会用 `s-maxage` 减去它，两层加起来不会超过 `Cache`。`Cache-Status: tifa; hit`、`tifa; fwd=miss` 或 `tifa; fwd=stale` 说明回答从哪来，`X-Tifa-Render` 照旧。导航数据仍是 `private, no-cache`。CDN 里要怎么设，见 tifa skill 的部署说明。
 - 条目和渲染缓存共用 `cache.size`。`cache.size` 为 0 时什么都不存，同时没命中的请求仍然共用一次生成。
 
+### 用户无关性页面与私有数据
+
+一个完整的页面 = 用户无关性页面 + 私有数据。tifa 按数据的种类来分，不按组件分：
+
+- **对所有人相同的数据。** `Load` 和 Layout 看不到用户，所以页面可以放进整页缓存和 CDN。
+- **会话。** 谁登录了，以及会话里很小的 `Exposed` 部分，由会话系统携带（见[会话](#会话)）。它会写进页面，浏览器也保存一份副本。
+- **其他私有数据。** 购物车、推荐、未读数。量可以很大，浏览器还可能写它。把它放在应用自己的 API 路由后面，由浏览器去取。
+
+别的系统也是这样分的：HTTP 缓存叫 `public` 和 `private`，Magento 叫 private content，donut caching 则是共用的页面保持完整，再把空洞填上。
+
+第三种数据的做法：写一个 API 路由（有 `GET` 处理函数、没有 `page.tsx` 的 `route.go`）。它生成的 `GET` 函数有类型，可以直接在浏览器里调用。什么时候调由页面决定：页面加载后、面板打开时，或者鼠标悬停时提前取。如果应用想要缓存，生成的函数可以直接接进 TanStack Query。`examples/shop/app/store/mine.ts` 是一个完整的例子：店面页面有缓存、对所有人相同，这个模块在页面加载后调用 `/store/{lang}/mine` 的 `GET`，填上购物车和访客最近看过的商品，写入之后再调用一次。
+
+
 ## 部署时还开着的页面
 
 访客可能开着一个页面，你却部署了新版本，页面是旧构建的，服务器是新的。页面在数据请求（查询参数 `_tifa`）和处理函数调用（`X-Tifa-Build`）里带上它渲染时的构建，构建不同时服务器答 409。访客会看到：
@@ -882,38 +895,38 @@ tifa 存会话。用户是谁由你的应用或登录库来认：密码哈希（
 - `Load`、`Layout`，或者它们传下 Ctx 的函数调用了 `SetSession` 或 `ClearSession`
 - 页面或 API 路由的路径以 `/__tifa/` 开头，或者 `public/__tifa/` 下有文件（`/__tifa/session` 是会话回答的路径）
 
-会话类型可以有方法 `Browser() M`（指针接收者也行），给出会话里允许浏览器看到的部分。`M` 遵守 `Load` 结果的规则，构建把它的 TypeScript 类型写进 `.tifa/session.gen.ts`：
+会话类型可以有方法 `Exposed() M`（指针接收者也行）。`Exposed` 返回允许交给浏览器的那部分 session。它会写进页面 HTML，并保存在浏览器的 localStorage 里。放进这里的字段要能接受长期留在访客的设备上。不要放凭据和需要保密的信息。权限判断永远用服务端的 session。`M` 遵守 `Load` 结果的规则，构建把它的 TypeScript 类型写进 `.tifa/session.gen.ts`：
 
 ```tsx
 import type { SessionData } from '@/.tifa/session.gen'
 ```
 
-同一个文件还导出 `SessionEnabled`：应用调用了 `tifa.SetSession` 时是 `true`，否则是 `false`。类型没有 `Browser` 方法，或应用没有会话时，`SessionData` 是 `never`。`Browser` 带参数、有多个返回值，或者返回值不能是 JSON，构建会失败。
+同一个文件还导出 `SessionEnabled`：应用调用了 `tifa.SetSession` 时是 `true`，否则是 `false`。类型没有 `Exposed` 方法，或应用没有会话时，`SessionData` 是 `never`。`Exposed` 带参数、有多个返回值，或者返回值不能是 JSON，构建会失败。
 
 ### 在浏览器里
 
-浏览器里存着一份「谁登录了」的副本，第一次绘制时就按它显示，那时页面上的脚本还没跑。页面用 `useSession` 读它，任何元素都可以按它显示或隐藏自己。
+浏览器里存着一份「谁登录了」的副本，第一次绘制时就按它显示，那时页面上的脚本还没跑。页面用 `useSession` 读它，用 `SignedIn` 和 `SignedOut` 按它显示或隐藏元素。
 
 ```tsx
-import { Session, useSession } from 'tifa/client'
+import { SignedIn, SignedOut, useSession } from 'tifa/client'
 
 function Header() {
 	const { signedIn, data, ready } = useSession()
 	return (
 		<header>
-			<Session.Out><a href="/login">登录</a></Session.Out>
-			<Session.In>你好，{data?.name}</Session.In>
+			<SignedOut><a href="/login">登录</a></SignedOut>
+			<SignedIn><span>你好，{data?.name}</span></SignedIn>
 		</header>
 	)
 }
 ```
 
-- `useSession()` 返回 `{ signedIn, data, ready }`。`data` 是 `Browser` 方法返回的值（类型是 `SessionData`），类型没有 `Browser` 或没人登录时是 `undefined`。在从不调用 `tifa.SetSession` 的应用里调用它是类型错误，运行时也会抛错。
-- `Session.In` 和 `Session.Out` 是带 `data-session="in"` 或 `data-session="out"` 的 `<span>`。任何元素也可以直接带这个属性，比如 `<a href="/login" data-session="out">`。tifa 放在 head 最前面的一条样式会在没人登录时隐藏 `data-session="in"` 的元素，有人登录时隐藏 `data-session="out"` 的元素，你不用写 CSS。
+- `useSession()` 返回 `{ signedIn, data, ready }`。`data` 是 `Exposed` 方法返回的值（类型是 `SessionData`），类型没有 `Exposed` 或没人登录时是 `undefined`。在从不调用 `tifa.SetSession` 的应用里调用它是类型错误，运行时也会抛错。
+- `SignedIn` 和 `SignedOut` 只在有人登录或没人登录时显示它们的子元素。它们必须正好有一个元素作子节点，自己不产生任何元素。子元素要把收到的 props 传给自己的 DOM 元素，`<a>`、`<div>` 和展开 `...props` 的组件都可以。开发模式下，不这样做的子元素在挂载时会报错并说明原因。tifa 放在 head 最前面的一条样式会从第一次绘制起隐藏不该显示的那个，你不用写 CSS。
 - `ready` 在浏览器知道自己该显示哪个状态之后是 `true`。为访客渲染的页面从第一次渲染起就是 `true`。不带会话的页面见下文。
 - 副本只决定显示什么，不决定谁能做什么。权限在 Go 里检查。
 
-凡是只给一个访客的回答都带会话，形状是 `{ "signedIn": true, "data": ... }`（只有类型有 `Browser` 才有 `data`，没人登录时是 `{ "signedIn": false }`）：
+凡是只给一个访客的回答都带会话，形状是 `{ "signedIn": true, "data": ... }`（只有类型有 `Exposed` 才有 `data`，没人登录时是 `{ "signedIn": false }`）：
 
 | 回答 | 带什么 |
 | --- | --- |
@@ -943,7 +956,7 @@ style-src 'sha256-dutb67YDz+meUugqDFx3RsopE/hCQ31NRHukbTNY+OQ='
 
 这是默认 cookie `__Host-tifa_session` 的哈希。脚本里写着 `localStorage` 键的名字，所以设了 `session.cookie` 之后脚本的哈希会变，`tifa dev` 下 cookie 是 `tifa_session`，脚本的哈希是 `sha256-RXrgEYZIzBu7H8LtSsupWFiD5XE/6dvi74b6rHR+nVg=`。从你的构建出的页面里取出脚本再算哈希。
 
-**做不到的事。** 另一个标签页在它下一次带会话的回答到来之前显示旧状态，在那里提交的表单已经用新的 cookie。在别的设备上登出后，从 `localStorage` 出来的页面会先显示旧名字，直到核对的回答回来。在同一个标签页登录成别人之后按后退，浏览器的前进后退缓存里恢复的是原样的旧页面。切换账号时正在进行的预加载，可能带回旧账号的数据。你自己写的 `fetch` 改了会话，tifa 不知道，在它之后调 `router.invalidate()`。`Browser()` 只放允许留在设备上的东西，比如名字和头像，不要放凭证、邮箱或手机号。
+**做不到的事。** 另一个标签页在它下一次带会话的回答到来之前显示旧状态，在那里提交的表单已经用新的 cookie。在别的设备上登出后，从 `localStorage` 出来的页面会先显示旧名字，直到核对的回答回来。在同一个标签页登录成别人之后按后退，浏览器的前进后退缓存里恢复的是原样的旧页面。切换账号时正在进行的预加载，可能带回旧账号的数据。你自己写的 `fetch` 改了会话，tifa 不知道，在它之后调 `router.invalidate()`。`Exposed()` 只放允许留在设备上的东西，比如名字和头像，不要放凭证、邮箱或手机号。
 
 ### 测试会话
 

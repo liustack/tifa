@@ -55,7 +55,7 @@ func TestOpenWorkbenchSkipsSignIn(t *testing.T) {
 
 func TestCheckPassword(t *testing.T) {
 	s, ok := CheckPassword(" Owner@Shanhai.example ", DemoPassword)
-	if !ok || s.Name != "顾遥" || s.Browser().Initials != "顾" {
+	if !ok || s.Name != "顾遥" || s.Exposed().Initials != "顾" {
 		t.Errorf("demo account: %+v %v", s, ok)
 	}
 	for _, tc := range [][2]string{{DemoEmail, "wrong"}, {"nobody@shanhai.example", DemoPassword}, {"", ""}} {

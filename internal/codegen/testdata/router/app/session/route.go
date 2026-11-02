@@ -12,6 +12,6 @@ type Me struct {
 	Name string `json:"name"`
 }
 
-func (u User) Browser() Me { return Me{Name: u.Name} }
+func (u User) Exposed() Me { return Me{Name: u.Name} }
 
 func POST(c *tifa.Ctx) error { return tifa.SetSession(c, &User{Name: "Ann", Secret: "x"}) }

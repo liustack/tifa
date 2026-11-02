@@ -8,8 +8,12 @@ import {
   settleSession,
   startSession,
   subscribeSession,
+  SignedIn,
+  SignedOut,
   type SessionEnvelope,
 } from './.tifa/runtime/session'
+import { createElement, type ReactElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { collector } from './.tifa/runtime/data'
 import { resetReloads } from './.tifa/runtime/skew'
 
@@ -283,6 +287,73 @@ test('refreshing asks for the session without the build header when there is non
   startSession({ key, buildId: () => '' })
   await refreshSession()
   assert(requests.length === 1 && !('X-Tifa-Build' in requests[0]!.headers), JSON.stringify(requests))
+})
+
+// SignedIn and SignedOut add data-session to their one child and make no node of their own.
+const Plain = (props: Record<string, unknown>) => createElement('p', props, 'x')
+const Lost = () => createElement('p', null, 'x')
+const withRef = (el: ReactElement) => (el.props as { ref: (node: unknown) => void }).ref
+
+test('SignedIn and SignedOut put the attribute on their child and render nothing else', async () => {
+  const html = renderToStaticMarkup(createElement('div', null, createElement(SignedIn, null, createElement(Plain, { className: 'a' })), createElement(SignedOut, null, createElement('span', null, 'y'))))
+  assert(html === '<div><p class="a" data-session="in">x</p><span data-session="out">y</span></div>', html)
+})
+
+test('SignedIn takes exactly one element', async () => {
+  const two = [createElement('p', { key: 1 }), createElement('p', { key: 2 })] as unknown as ReactElement
+  let message = ''
+  try {
+    SignedIn({ children: two })
+  } catch (error) {
+    message = String(error)
+  }
+  assert(/only/.test(message), `two children: ${message}`)
+  message = ''
+  try {
+    SignedOut({ children: 'text' as unknown as ReactElement })
+  } catch (error) {
+    message = String(error)
+  }
+  assert(message !== '', 'text child was accepted')
+})
+
+test('a child that sets data-session itself is an error', async () => {
+  let message = ''
+  try {
+    SignedIn({ children: createElement('p', { 'data-session': 'out' }) })
+  } catch (error) {
+    message = String(error)
+  }
+  assert(/SignedIn sets data-session/.test(message), message)
+})
+
+test('in development the mounted element is checked and the ref of the child still runs', async () => {
+  const seen: unknown[] = []
+  const mine = (node: unknown) => void seen.push(node)
+  const el = SignedIn({ children: createElement(Plain, { ref: mine } as Record<string, unknown>) })
+  const ref = withRef(el)
+  const good = { getAttribute: (name: string) => (name === 'data-session' ? 'in' : null) }
+  ref(good)
+  ref(null)
+  assert(seen.length === 2 && seen[0] === good && seen[1] === null, `child ref saw ${seen.length}`)
+  const object = { current: undefined as unknown }
+  withRef(SignedOut({ children: createElement(Lost, { ref: object } as Record<string, unknown>) }))({ getAttribute: () => 'out' })
+  assert(object.current !== undefined, 'object ref was not set')
+  let message = ''
+  try {
+    withRef(SignedIn({ children: createElement(Lost) }))({ getAttribute: () => null })
+  } catch (error) {
+    message = String(error)
+  }
+  assert(/must pass its props on/.test(message), `lost attribute: ${message}`)
+})
+
+test('in development a ref that is not an element is left unchecked', async () => {
+  const seen: unknown[] = []
+  const el = SignedIn({ children: createElement(Lost, { ref: (i: unknown) => void seen.push(i) } as Record<string, unknown>) })
+  const instance = { focus: () => undefined }
+  withRef(el)(instance)
+  assert(seen.length === 1 && seen[0] === instance, 'the instance did not reach the ref of the child')
 })
 
 let failed = 0

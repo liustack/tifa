@@ -1,4 +1,4 @@
-module example.com/sessionbrowserchan
+module example.com/sessionexposediface
 
 go 1.27.0
 

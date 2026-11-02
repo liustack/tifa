@@ -8,7 +8,7 @@ type Public struct {
 	Name string
 }
 
-func (a *A) Browser() (Public, error) { return Public{}, nil }
+func (a *A) Exposed() (Public, error) { return Public{}, nil }
 
 func Load(c *tifa.Ctx) (string, error) { return "x", nil }
 
