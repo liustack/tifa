@@ -59,7 +59,7 @@ All numbers before [What made it faster](#what-made-it-faster) were measured on 
 - **One render**: one warm VM on one thread of a core whose other thread is idle, as `BenchmarkShop` in `test/ssr` renders. 256 renders to warm up, then 500 (workbench), 300 (storefront) or 200 (MUI) timed, five rounds, the median of the per-round P50.
 - **Node**: Node 24.13.0 runs the same `ssr.js` with the same inputs on another idle core, 600 renders to warm up, then five rounds of 200. The HTML is the same as tifa's.
 - **C QuickJS**: QuickJS 2026-06-04, built and run by slowjs's [engine comparison](https://github.com/liustack/slowjs/blob/main/docs/benchmarks.md), on the same bundles. C has no `Intl`, so it runs the FormatJS polyfill on pages that need it.
-- **Whole requests**: the built `bin/shop` with `--cache-size 0`, so every page request renders, loaded with [oha](https://github.com/hatoo/oha) from other cores. Pages go out as gzip unless a table says otherwise. Each step warms up for a few seconds and runs for 15 to 20 seconds, two or three rounds.
+- **Whole requests**: the built `bin/shop` started with `SHOP_OPEN=1` (the workbench needs a sign-in otherwise) and `--cache-size 0`, so every page request renders, loaded with [oha](https://github.com/hatoo/oha) from other cores. Pages go out as gzip unless a table says otherwise. Each step warms up for a few seconds and runs for 15 to 20 seconds, two or three rounds.
 
 ## How fast a page renders
 
@@ -567,7 +567,7 @@ Weighed for the engine and never built:
 - Compare the HTML of every page between the two builds. The router writes the time of the render into each match (`u:` followed by 13 digits), so mask that first.
 - A benchmark with one VM cannot see contention between VMs. For a change near memory allocation, also render with several VMs at once and read the mutex profile.
 
-Whole requests: build `examples/shop`, start `bin/shop --server-addr 127.0.0.1:0 --cache-size 0` pinned to some cores with `taskset`, and load it from another physical core with as many requests in flight as VMs. Warm up for a few seconds before each run, and for the scaling curve pin the service to as many CPUs as VMs.
+Whole requests: build `examples/shop`, start `bin/shop --server-addr 127.0.0.1:0 --cache-size 0` with `SHOP_OPEN=1` in its environment, pinned to some cores with `taskset`, and load it from another physical core with as many requests in flight as VMs. Warm up for a few seconds before each run, and for the scaling curve pin the service to as many CPUs as VMs.
 
 Next.js and TanStack Start: `go run ./test/compare/cmd/compare measure` builds the three apps and runs this method with the cores as flags (see [Testing](testing.md#comparison-with-nextjs-and-tanstack-start-testcompare)).
 
