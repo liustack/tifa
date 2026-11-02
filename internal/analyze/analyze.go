@@ -432,6 +432,10 @@ type layout struct {
 // usedLoads maps a Load to the import paths of the packages whose Layout function it passes to tifa.Use.
 type usedLoads map[*Load][]string
 
+// reservedQuery is the query parameter of the navigation data requests (see docs/build.md). The
+// server takes it off the URL, so a Load could never read it.
+const reservedQuery = "_tifa"
+
 // paramUse is one c.Param or c.Query call with a constant name inside Load.
 type paramUse struct {
 	method string // "Param", "Query" or "QueryAll"
@@ -772,6 +776,9 @@ func (a *analyzer) readLoad(pkg *packages.Package, owner, name string) (*Load, [
 		if u.method == "Param" {
 			load.Params = append(load.Params, u.name)
 		} else {
+			if u.name == reservedQuery {
+				a.errorAt(u.pos, "the query parameter %q is reserved for tifa: the browser asks for the data of a navigation with it, and the server removes it before any code sees the request. Rename the parameter", u.name)
+			}
 			load.Query = append(load.Query, u.name)
 		}
 	}
