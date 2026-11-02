@@ -4,6 +4,10 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 
 ## [Unreleased]
 
+### Added
+
+- `tifa dev` shows errors of the browser in a small panel in the corner of the page: `Hydration mismatch` (with React's diff and the component stack), `Recoverable error`, `Uncaught error` and `Unhandled rejection`. The same error again raises a counter, the panel keeps the last 20, and each can be dismissed. The panel leaves the page usable, and the overlay of a build error stays on top of it. Built apps have none of this code (see [tifa dev](docs/dev.md#errors-in-the-browser)).
+
 ### Changed
 
 - **Breaking:** `Session.In` and `Session.Out` of `tifa/client` are replaced by `SignedIn` and `SignedOut`. Each takes exactly one element as its child, renders no node of its own, and shows that element only to a signed-in or signed-out visitor, where the old components wrapped their children in a `<span>`. A typo in a component name fails the build, and a misspelled `data-session` attribute by hand failed without a word, so the attribute is now private to tifa and the docs no longer tell you to write it. In development a child component that does not pass its props on to its DOM element fails when it mounts, with a message that says so. To update an app, replace `<Session.In className="x">…</Session.In>` with `<SignedIn><div className="x">…</div></SignedIn>`, and the same for `Session.Out` (see [In the browser](docs/app.md#in-the-browser)).

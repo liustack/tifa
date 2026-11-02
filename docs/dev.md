@@ -1,5 +1,5 @@
 ---
-summary: 'How to use tifa dev: how pages update after each kind of change, which steps run, how Vite fits in, how to read the log, what the page and the app do when a build fails, where dev output goes, and how large apps are watched'
+summary: 'How to use tifa dev: how pages update after each kind of change, which steps run, how Vite fits in, how to read the log, what the page and the app do when a build fails, how errors of the browser show, where dev output goes, and how large apps are watched'
 read_when:
   - Running a tifa app locally for the first time
   - Changing internal/devserver, the dev command in cmd/tifa, or the dev build in internal/bundle
@@ -93,6 +93,16 @@ tifa dev renders each page twice. When the two renders of the same data differ, 
 - If the running app cannot load a rebuilt SSR bundle, such as one QuickJS cannot compile, or one whose top-level code throws, the overlay title is `The app did not load the SSR bundle`. The app keeps serving the bundle it had. The stack trace gives places in the source files, and a package that calls `require`, which QuickJS does not have, is named with what to do.
 
 You can close the overlay. Closing it does not affect later reloads.
+
+## Errors in the browser
+
+Errors that happen in the browser show in a small panel in the bottom right corner. It leaves the page usable, and the overlay of a build error covers it and stays on top.
+
+- `Hydration mismatch`: React could not reuse the server HTML and rendered the page again in the browser. The panel shows React's message with the difference, and the component stack. Other errors React recovers from by itself are titled `Recoverable error`.
+- `Uncaught error`: a component threw with no error boundary around it, or any other error reached `window`.
+- `Unhandled rejection`: a promise failed and nothing handled it.
+
+The same error again adds to a counter (`×3`) instead of adding an entry. The panel keeps the last 20 different errors. Each can be dismissed, and a reload clears them. Errors that an `Error` component caught are not shown, as before they only reach the console. A built app has none of this: the code is only in the dev build.
 
 ## When a page fails to render
 

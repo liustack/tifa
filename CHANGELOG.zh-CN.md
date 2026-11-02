@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### 新增
+
+- `tifa dev` 把浏览器里的错误显示在页面角落的小面板里：`Hydration mismatch`（带 React 给出的差异和组件栈）、`Recoverable error`、`Uncaught error` 和 `Unhandled rejection`。同一个错误再次出现只增加计数，面板保留最近 20 个，每条都可以关掉。面板不挡页面，构建错误的浮层仍在它上面。构建出的应用没有这些代码（见 [tifa dev](docs/dev.zh-CN.md#浏览器里的错误)）。
+
 ### 变更
 
 - **不兼容：**`tifa/client` 的 `Session.In` 和 `Session.Out` 换成 `SignedIn` 和 `SignedOut`。它们各接收正好一个元素作子节点，自己不产生节点，只在有人登录或没人登录时显示这个元素，而旧组件会用一个 `<span>` 包住子内容。组件名拼错会让构建失败，而手写的 `data-session` 属性拼错是无声的，所以这个属性现在由 tifa 私有，文档也不再教你手写它。开发模式下，不把 props 传给自己 DOM 元素的子组件会在挂载时报错并说明原因。更新应用时，把 `<Session.In className="x">…</Session.In>` 换成 `<SignedIn><div className="x">…</div></SignedIn>`，`Session.Out` 同理（见[在浏览器里](docs/app.zh-CN.md#在浏览器里)）。
