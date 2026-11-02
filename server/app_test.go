@@ -78,6 +78,7 @@ func testApp() App {
 func newAppServer(t *testing.T, app App) *Server {
 	t.Helper()
 	s := New(config.Default(), app.Hooks)
+	t.Cleanup(s.Close)
 	s.register(app.Layouts, app.Routes)
 	return s
 }

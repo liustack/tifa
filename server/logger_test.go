@@ -49,3 +49,10 @@ func TestStartupLogsGoToTheDefaultSetInOnStart(t *testing.T) {
 		t.Fatalf("the handler set in OnStart got:\n%s", after.String())
 	}
 }
+
+// logDefault makes out the destination of slog.Default and returns the function that restores it.
+func logDefault(out *syncBuffer) (restore func()) {
+	old := slog.Default()
+	slog.SetDefault(slog.New(textHandler(out)))
+	return func() { slog.SetDefault(old) }
+}
