@@ -59,3 +59,24 @@ func callWrap(wrap func(http.Handler) http.Handler, app http.Handler) (root http
 	defer func() { panicked = recover() }()
 	return wrap(app), nil
 }
+
+var sessionStore SessionStore // guarded by httpWrap.mu
+
+// SetSessionStore sets the store of sessions, nil for the default in-memory one. It panics while a
+// server listens, like SetHTTPHandler.
+func SetSessionStore(s SessionStore) {
+	httpWrap.mu.Lock()
+	defer httpWrap.mu.Unlock()
+	if httpWrap.active > 0 {
+		panic("tifa: SetSessionStore must be called in OnStart, before the server listens")
+	}
+	sessionStore = s
+}
+
+// SealedSessionStore returns what SetSessionStore set, nil for none. A server calls it after
+// SealHTTPHandler, which is when SetSessionStore starts to panic.
+func SealedSessionStore() SessionStore {
+	httpWrap.mu.Lock()
+	defer httpWrap.mu.Unlock()
+	return sessionStore
+}
