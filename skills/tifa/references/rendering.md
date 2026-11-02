@@ -146,15 +146,17 @@ Exporting `Document` fails the build. Files in the `public/` folder (set by `bui
 In `route.go` next to a `page.tsx`:
 
 ```go
-const SSR = false         // the page, default true
-const RenderCache = false // the page, turns the render cache off, default on
-const LayoutSSR = false   // the Layout of the folder, default true
+const SSR = false              // the page, default true
+const RenderCache = false      // the page, turns the render cache off, default on
+const Cache = 10 * time.Minute // the page, the same answer for everyone for 10 minutes, default off
+const LayoutSSR = false        // the Layout of the folder, default true
 ```
 
 - `SSR = false`: `OnRequest` and every `Load` still run, QuickJS is skipped, and the browser renders a minimal document with the data. `LayoutSSR = false` applies to every page the Layout wraps. Use it for pages behind a login that need no SEO, or components that cannot render on the server.
 - The render cache is on for every page: the HTML is kept by build, URL, session and the data of the `Load` and Layout functions, which still run on every request. Do not let `Date.now()`, `Math.random()` and the like reach the HTML. `tifa dev` renders each page twice and says when the two differ. A page that shows the time or a random number on purpose writes `RenderCache = false`, which only accepts `false`. Burst requests for a cold page share one render. `Cache = true` from an older tifa fails the build: delete it. `SSR` and `RenderCache` fail the build in a `route.go` with no `page.tsx`, and the names need their capitals.
 - A successful page response has an ETag, and `If-None-Match` gets 304 when the data is unchanged. This is separate from the render cache. The render cache does not change `Cache-Control`, which is `private, no-cache` unless your code sets it.
-- `cache.size` in `tifa.yaml` sizes the cache (default 64MiB, 0 turns it off).
+- `Cache` (a `time.Duration`) keeps the whole answer of a public page for that long, without running its `Load` or rendering. Use it for articles, docs and landing pages. Such a page is anonymous: `Cookie` and `Authorization` are dropped before `OnRequest`, `tifa.Session` is nil, `SetSession` fails, and the build fails when its `Load`, a Layout around it or a function they call reads `c.Cookie`, `c.Header` or `tifa.Session`. Do not use it on pages that depend on who is signed in. If the new page cannot be made, the old one is served for up to a day. Tracking parameters (`utm_*`, `gclid`, `fbclid`, see `cache.ignore_query`) are left out of its key. See the whole-page cache in docs/app.md.
+- `cache.size` in `tifa.yaml` sizes the render cache and the whole-page cache together (default 64MiB, 0 turns both off).
 
 ## Styles
 

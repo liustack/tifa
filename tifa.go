@@ -38,5 +38,7 @@ func Use[T any](c *Ctx, load func(*Ctx) (T, error)) (T, error) { return core.Use
 // wrapper sees every request, static files and the 403 of a cross-site write included, with the
 // original http.ResponseWriter, and does not go through OnRequest, OnError or the cross-site check.
 // A shutdown waits for the requests it wraps. Call it in OnStart: it panics once the server listens.
-// nil removes the wrapper.
+// nil removes the wrapper. It runs outside the anonymous request of a page with Cache: the values it
+// puts into the context of the request reach OnRequest and Load of such a page, so do not recognize
+// visitors in it, do it in OnRequest.
 func SetHTTPHandler(wrap func(app http.Handler) http.Handler) { core.SetHTTPHandler(wrap) }

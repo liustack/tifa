@@ -73,7 +73,8 @@ cache:
 | `ssr.timeout` | `3s` | `--ssr-timeout`、`TIFA_SSR_TIMEOUT` | 一次渲染的时间预算。超时的渲染被停下，按意外错误处理，交给 `OnError`。页面代码接不住它 |
 | `ssr.queue_limit` | `32` | `--ssr-queue-limit`、`TIFA_SSR_QUEUE_LIMIT` | 最多有多少次渲染等待空闲 VM，不包含正在运行的渲染。`0` 表示没有空闲 VM 就立即拒绝。队列满时返回 503 和 `Retry-After: 1` |
 | `ssr.wait_timeout` | `1s` | `--ssr-wait-timeout`、`TIFA_SSR_WAIT_TIMEOUT` | 等待 VM 的最长时间。超时返回 503 和 `Retry-After: 1`，不启动渲染，也不替换 VM。它与取得 VM 后才开始的 `ssr.timeout` 分开计算 |
-| `cache.size` | `64MiB` | `--cache-size`、`TIFA_CACHE_SIZE` | 渲染出的页面的 HTML 缓存大小，`server.compress` 开着时它存的 gzip 和 zstd 版本也算在内，`0` 关闭，但同时没命中同一个页面的请求仍然共用一次渲染（见 [SSR 与缓存](app.zh-CN.md#ssr-与缓存)）。页面可以用 `RenderCache = false` 给自己关掉缓存 |
+| `cache.size` | `64MiB` | `--cache-size`、`TIFA_CACHE_SIZE` | 渲染出的页面的 HTML 缓存和[整页缓存](app.zh-CN.md#整页缓存)的页面共用的大小，是同一个 LRU，`server.compress` 开着时存的 gzip 和 zstd 版本也算在内，`0` 把两者都关闭，但同时没命中同一个页面的请求仍然共用一次渲染（见 [SSR 与缓存](app.zh-CN.md#ssr-与缓存)）。页面可以用 `RenderCache = false` 给自己关掉渲染缓存 |
+| `cache.ignore_query` | `utm_*,gclid,gbraid,wbraid,fbclid,msclkid,twclid,ttclid,yclid,mc_cid,mc_eid` | `--cache-ignore-query`、`TIFA_CACHE_IGNORE_QUERY` | 整页缓存的键和渲染用的 URL 里要去掉的查询参数。写一个名字是加进名单，`-名字` 是去掉一个，`-*` 清空，以 `*` 结尾的名字按前缀匹配。页面的 `Load` 读的参数不管这里怎么写都保留 |
 | `session.cookie` | `__Host-tifa_session` | `--session-cookie`、`TIFA_SESSION_COOKIE` | 会话 cookie 的名字。`tifa dev` 下去掉 `__Host-` 前缀，见[会话](app.zh-CN.md#会话) |
 | `session.max_age` | `720h` | `--session-max-age`、`TIFA_SESSION_MAX_AGE` | 会话从 `tifa.SetSession` 创建起能用多久，至少一秒，不续期 |
 | `session.memory_limit` | `64MiB` | `--session-memory-limit`、`TIFA_SESSION_MEMORY_LIMIT` | 内存会话存储最多放多少字节，`OnStart` 没用 `tifa.SetSessionStore` 设存储时才用。满了先挤掉最早过期的 |
@@ -212,6 +213,7 @@ sudo setcap cap_net_bind_service=+ep ./bin/myapp
 ## 值的写法
 
 - 大小写成整数加可选单位：`B`、`KiB`、`MiB` 或 `GiB`，比如 `512KiB`。不带单位就是字节。只有 `cache.size` 可以是 0。
+- `cache.ignore_query` 是逗号分隔的名单改动，作用在默认名单上：`ref,-gclid` 加上 `ref`，去掉 `gclid`。名字不分大小写，不能含 `=`、`&`、`?` 和空格，`*` 只能放在名字末尾。每一层来源都在下一层留下的名单上改。
 - 时长用 Go 的写法，必须为正：`500ms`、`3s`、`1m30s`。
 - `ssr.vms` 是不小于 1 的整数。
 - `ssr.queue_limit` 是不小于 0 的整数。即使队列限制为 0，`ssr.wait_timeout` 也必须为正数。
