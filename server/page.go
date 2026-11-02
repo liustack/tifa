@@ -609,6 +609,49 @@ type dataRedirect struct {
 	Session  *core.BrowserSession `json:"session,omitempty"`
 }
 
+// renderKey is the quoted hash of everything the HTML of a page is made from, which is the ETag
+// of the page and the key of the render cache. The HTML is a function of ssr.Input, the SSR
+// bundle and the render clock (a request with a clock skips the cache, see renderPage), and
+// TestRenderKeyCoversEveryFieldOfTheInput fails for a field of the input that is neither in the key
+// nor listed there with the reason it cannot change the HTML of a cached page.
+//
+// What the framework writes into a page that does not come from the data of the Loads:
+//   - the build ID, in the data the page hands to the browser: BuildID
+//   - the tags of the scripts and styles of the build, in the SSR bundle: bundle, which holds the
+//     asset names, and the same bundle always writes the same ones
+//   - the module preloads: Preload, which follows from the build, the matched path and the results
+//   - the data of the Loads, in the hydration script and in the markup: Data and Texts
+//   - the session envelope, the data-session attribute of <html> and the script and style that
+//     read the browser's copy: Session, SessionKey and SessionHead, so two visitors share a page
+//     only when the browser gets the same session
+//   - the head of the matched routes, from their head functions over the data and the URL:
+//     Data, Texts and URL
+//   - the nonce of the slots that stand for long texts: replaced by the texts before the page
+//     leaves the pool, so none stays in the HTML
+//
+// What the application's own code does is another matter: a component that reads the time or a
+// random number makes its page differ from one render to the next. tifa dev renders each page
+// twice to say so, and RenderCache = false turns the cache off for such a page.
+//
+// The URL in the key is the request URI as it came, so two spellings of the same query, or a
+// tracking parameter, make two entries. That costs hits and never serves a wrong page, since the
+// render reads the same URI. Sorting the query and dropping tracking parameters belongs to the
+// whole-page cache, which keys by URL.
+func renderKey(in ssr.Input, bundle string) string {
+	sum := sha256.New()
+	for _, part := range []string{in.BuildID, bundle, in.URL, string(in.Data), in.Preload, string(in.Session), in.SessionKey, in.SessionHead} {
+		io.WriteString(sum, part)
+		sum.Write([]byte{0})
+	}
+	// Each text is written with its length, so moving a character from one text to the next
+	// makes another key.
+	for _, text := range in.Texts {
+		fmt.Fprintf(sum, "%d:", len(text))
+		io.WriteString(sum, text)
+	}
+	return `"` + hex.EncodeToString(sum.Sum(nil)[:16]) + `"`
+}
+
 // renderPage renders the document in the VM. A successful page gets an ETag from the hash of
 // the build ID, the SSR bundle, the URL and the data, which are all the render depends on. A matching
 // If-None-Match is answered 304, and with cache the HTML of an earlier render is reused, or of the
@@ -636,22 +679,20 @@ func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status in
 	s.rendering.RLock()
 	defer s.rendering.RUnlock()
 	f := s.front.Load()
-	// The preloads follow from the build, the matched path, which the URL picks, and the results
-	// of the Loads, so the ETag and the HTML cache need not cover more than those and the session.
 	in := ssr.Input{BuildID: f.build.ID, URL: r.URL.RequestURI(), Data: data, Texts: texts, Preload: f.preloadOf(key, items),
 		Session: sess.json, SessionKey: sess.key, SessionHead: sess.head}
 	failed := &renderError{f: f, in: in, key: key}
+	// A render clock makes the HTML depend on a time that is no part of the key, so such a request
+	// neither reads the cache nor writes to it, and shares no render.
+	if core.RenderClock(r.Context()) != nil {
+		cache = false
+	}
+	// The ETag and the 304 before the render stand on the HTML being a function of the key. A page
+	// with RenderCache = false says it is not, and a request with a clock is not either, so they get
+	// no ETag and always render: a hash of the input would answer 304 for HTML that has changed.
 	var tag string
-	if status == http.StatusOK {
-		sum := sha256.New()
-		io.WriteString(sum, in.BuildID+"\x00"+f.build.bundle+"\x00"+in.URL+"\x00"+string(data))
-		// The session is part of what the page is made from: two visitors never share an ETag or
-		// an entry of the HTML cache unless the browser gets the same session.
-		io.WriteString(sum, "\x00"+string(in.Session)+"\x00"+in.SessionKey)
-		for _, text := range texts {
-			io.WriteString(sum, "\x00"+text)
-		}
-		tag = `"` + hex.EncodeToString(sum.Sum(nil)[:16]) + `"`
+	if status == http.StatusOK && cache {
+		tag = renderKey(in, f.build.bundle)
 		etag := tag
 		if s.cfg.Compress {
 			etag = "W/" + tag

@@ -87,8 +87,8 @@ func varies(w *httptest.ResponseRecorder, name string) bool {
 // If-None-Match carries the same ETag as the 200 (RFC 9110, 15.4.5). The page turns the render
 // cache off, so every encoding is made as the page is sent.
 func TestPagesAreCompressed(t *testing.T) {
-	s := newBigServer(t, config.Default(), frontApp())
-	plain := get(s, "/live")
+	s := newBigServer(t, noCache(), frontApp())
+	plain := get(s, "/projects/p1")
 	if plain.Header().Get("Content-Encoding") != "" || !varies(plain, "Accept-Encoding") || !strings.HasPrefix(plain.Header().Get("ETag"), `W/"`) {
 		t.Fatalf("without Accept-Encoding: %v", plain.Header())
 	}
@@ -100,7 +100,7 @@ func TestPagesAreCompressed(t *testing.T) {
 		{"gzip;q=0", ""},
 		{"identity", ""},
 	} {
-		w := get(s, "/live", "Accept-Encoding", tc.accept)
+		w := get(s, "/projects/p1", "Accept-Encoding", tc.accept)
 		if got := w.Header().Get("Content-Encoding"); w.Code != 200 || got != tc.want {
 			t.Errorf("%s: %d, Content-Encoding %q, want %q", tc.accept, w.Code, got, tc.want)
 			continue
@@ -116,7 +116,7 @@ func TestPagesAreCompressed(t *testing.T) {
 			t.Errorf("%s: ETag %q, Content-Length %q", tc.accept, etag, w.Header().Get("Content-Length"))
 		}
 		for _, sent := range []string{etag, strings.TrimPrefix(etag, "W/")} {
-			again := get(s, "/live", "Accept-Encoding", tc.accept, "If-None-Match", sent)
+			again := get(s, "/projects/p1", "Accept-Encoding", tc.accept, "If-None-Match", sent)
 			if again.Code != 304 || again.Body.Len() != 0 || again.Header().Get("ETag") != etag {
 				t.Errorf("%s: If-None-Match %s: %d %v %q", tc.accept, sent, again.Code, again.Header(), again.Body.String())
 			}
@@ -640,4 +640,10 @@ func TestCacheMissCompressesBothFormsOnce(t *testing.T) {
 			t.Errorf("%s: a hit compressed forms that do not fit", tc.name)
 		}
 	}
+}
+
+func noCache() config.Config {
+	cfg := config.Default()
+	cfg.Cache.Size = 0
+	return cfg
 }
