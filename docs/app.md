@@ -121,7 +121,7 @@ When an error is returned:
 | Returned | Result |
 | --- | --- |
 | `tifa.ErrNotFound` | 404 |
-| `c.Redirect(url, code)` | A redirect. Page loads and navigation follow it, and so does a handler function called from the browser (see below) |
+| `tifa.Redirect(url, status)` | A redirect. Page loads and navigation follow it, and so does a handler function called from the browser (see below). Panics when `status` is not 3xx |
 | `tifa.Error{Status, Message}` | Answered with its status code and message, does not go to `OnError`. A status outside 400 to 599 is handled as an unexpected error |
 | `tifa.Fields{"carrier": "pick a carrier"}` | 422 with a message per input field by its json name, does not go to `OnError` |
 | Any other error, a panic | Goes to `OnError`. Without one, it is logged and answered with 500 |
@@ -164,7 +164,6 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 | `c.IsData()` | Whether this is a navigation data request of the browser router rather than a page load |
 | `c.SetHeader(key, value)`, `c.SetCookie(cookie)` | A response header, a response cookie. Allowed in `Load` too |
 | `c.JSON(code, v)`, `c.Text(code, s)`, `c.NoContent(code)` | Writes the response. Not allowed in `Load` |
-| `c.Redirect(url, code)` | Returns an error value. Return it to redirect |
 | `c.Bind(&v)`, `c.BindQuery(&v)` | Decodes the body or the query string into a struct, see above. Not allowed in `Load` |
 | `c.SetBodyLimit(n)` | Changes the body limit of this request (`server.body_limit` by default). Call it before anything reads the body, usually in `OnRequest`. Once reading has started it returns an error |
 | `c.Request()`, `c.Writer()` | The raw `*http.Request` and `http.ResponseWriter`, for method handlers and `OnRequest` only |
@@ -219,12 +218,12 @@ async function ship() {
 - GET and DELETE send the input in the query string, the other methods as a JSON body. The result is typed from the Go result, with `| undefined` for a redirect (below): `func(c, in) (Out, error)` gives `Promise<POSTOutput | undefined>`. `func(c, in) error` gives `void`. `func(c) error` writes its own response, so its function gives back the `Response` as it is, also for an error status.
 - After a POST, PUT, PATCH or DELETE succeeds, the data of the current page and its Layouts is loaded again before the promise resolves. Pass `invalidate: false` to keep it. A failure and a GET never reload.
 - An error answer throws `TifaError` with `status`, `message` and `fields` (the messages of a `tifa.Fields`, empty otherwise). A network failure throws as `fetch` does. A call from a page of an older build than the server fails with status 409, see [Pages open while you deploy](#pages-open-while-you-deploy).
-- When the handler or `OnRequest` returns `c.Redirect(url, code)`, the browser goes to that URL: through the router for a URL of this site, without reloading the page, and as a whole page load for another site. After a POST, PUT, PATCH or DELETE (unless `invalidate: false`) the data the router holds goes stale first, so the new page and its Layouts show fresh data. A redirect to the page that is showing loads its data again, as a call without a redirect does. It counts as the same page when the path, the hash and the query values match, whatever the order and encoding of the query. The promise resolves once the new page shows, to `undefined`, also for a handler with a result. Whether a call is redirected is only known from its answer, since `OnRequest` may redirect any request, so the result type of every handler function with a result includes `undefined`. The function of a handler that writes its own response gets the `Response` of the redirect (`ok`, with the status in `X-Tifa-Redirect`). A relative URL is resolved against the URL of the handler, not of the page. A 3xx the handler wrote itself through `c.Writer()`, or one a proxy wrote, cannot be read in the browser and rejects the promise with an `Error`.
+- When the handler or `OnRequest` returns `tifa.Redirect(url, status)`, the browser goes to that URL: through the router for a URL of this site, without reloading the page, and as a whole page load for another site. After a POST, PUT, PATCH or DELETE (unless `invalidate: false`) the data the router holds goes stale first, so the new page and its Layouts show fresh data. A redirect to the page that is showing loads its data again, as a call without a redirect does. It counts as the same page when the path, the hash and the query values match, whatever the order and encoding of the query. The promise resolves once the new page shows, to `undefined`, also for a handler with a result. Whether a call is redirected is only known from its answer, since `OnRequest` may redirect any request, so the result type of every handler function with a result includes `undefined`. The function of a handler that writes its own response gets the `Response` of the redirect (`ok`, with the status in `X-Tifa-Redirect`). A relative URL is resolved against the URL of the handler, not of the page. A 3xx the handler wrote itself through `c.Writer()`, or one a proxy wrote, cannot be read in the browser and rejects the promise with an `Error`.
 - A call that signs someone in or out brings the new session in its answer, and the copy of the session in the browser follows (see [Sessions in the browser](#in-the-browser)).
 - Call these functions from event handlers or effects. Calling one while the page renders on the server throws.
 - `route.gen` also exports `POSTInput`, `POSTOutput` and so on for the types of each handler that has them.
 
-The error that `c.Redirect` returns is a `*tifa.RedirectError` with the fields `URL` and `Code`. In `OnRequest` or a test, recognize it with `errors.As`.
+The error that `tifa.Redirect` returns is a `*tifa.RedirectError` with the fields `URL` and `Status`. In `OnRequest` or a test, recognize it with `errors.As`.
 
 To go to the page of what a handler created, return a redirect from the handler, or return the result and navigate yourself. Pass `invalidate: false` in the second case, so the current page does not load its data again just before you leave it. Data the router already holds, such as that of a Layout both pages share, then stays as it was:
 
@@ -234,7 +233,7 @@ func POST(c *tifa.Ctx, in AddInput) error {
 	if err != nil {
 		return err
 	}
-	return c.Redirect("/todos/"+todo.ID, http.StatusSeeOther)
+	return tifa.Redirect("/todos/"+todo.ID, http.StatusSeeOther)
 }
 ```
 
@@ -435,14 +434,14 @@ var matcher = language.NewMatcher([]language.Tag{language.MustParse(codes[0]), l
 func GET(c *tifa.Ctx) error {
 	c.Writer().Header().Add("Vary", "Cookie, Accept-Language")
 	if picked, err := c.Cookie("lang"); err == nil && slices.Contains(codes, picked.Value) {
-		return c.Redirect("/store/"+picked.Value, http.StatusFound) // the language the visitor picked
+		return tifa.Redirect("/store/"+picked.Value, http.StatusFound) // the language the visitor picked
 	}
 	tags, _, _ := language.ParseAcceptLanguage(c.Header("Accept-Language"))
 	_, i, confidence := matcher.Match(tags...)
 	if confidence == language.No {
 		i = 0 // none of the languages is close: the default one
 	}
-	return c.Redirect("/store/"+codes[i], http.StatusFound)
+	return tifa.Redirect("/store/"+codes[i], http.StatusFound)
 }
 ```
 
@@ -801,7 +800,7 @@ func POST(c *tifa.Ctx, in Login) error {
 	if err := tifa.SetSession(c, &auth.Session{UserID: u.ID, Name: u.Name}); err != nil {
 		return err
 	}
-	return c.Redirect("/", 303)
+	return tifa.Redirect("/", 303)
 }
 
 // anywhere that has the Ctx: OnRequest, a method handler, a Load
@@ -1016,7 +1015,7 @@ A value that holds a Ctx may only appear in these five places:
 4. Assigned with `:=` or `var x T = ...` to a new local variable of exactly the same type. That variable follows the same rules.
 5. With its address taken, where the resulting pointer is still a type that may hold Ctx.
 
-Any other use fails the build and names the file and line. For example: converting it to another type or an interface, assigning it to an existing variable, assigning several values at once, `return`ing it, putting it in a slice, map, array or channel, `range`, package-level variables, `defer`, `go` statements, or passing it to a generic function, an interface method, a function variable or a function outside the module (the standard library and third-party libraries). `return c.Redirect(...)` is fine, because they return the result of a method call, not the Ctx itself.
+Any other use fails the build and names the file and line. For example: converting it to another type or an interface, assigning it to an existing variable, assigning several values at once, `return`ing it, putting it in a slice, map, array or channel, `range`, package-level variables, `defer`, `go` statements, or passing it to a generic function, an interface method, a function variable or a function outside the module (the standard library and third-party libraries).
 
 `Load`, `Layout` and the functions they call must not call `c.Request()` or `c.Writer()`. tifa cannot see parameters read through the raw request. Use `c.Param`, `c.Query`, `c.QueryAll`, `c.Header`, `c.Cookie` or `c.Context()` instead. `c.Request()` and `c.Writer()` are only for method handlers and `OnRequest`.
 

@@ -116,7 +116,6 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 | `c.IsData()` | True for the browser router's navigation data request |
 | `c.SetHeader(k, v)`, `c.SetCookie(cookie)` | Response header and cookie. Allowed in `Load` too |
 | `c.JSON(code, v)`, `c.Text(code, s)`, `c.NoContent(code)` | Write the response. Not allowed in `Load` or `Layout` |
-| `c.Redirect(url, code)` | Returns an error value. Return it to redirect |
 | `c.Bind(&v)`, `c.BindQuery(&v)` | Decode body or query into a struct. Not in `Load` |
 | `c.Request()`, `c.Writer()` | Raw request and writer. Method handlers and `OnRequest` only |
 
@@ -186,7 +185,7 @@ async function ship() {
 - GET and DELETE send the input in the query string, the others as a JSON body.
 - After a successful POST, PUT, PATCH or DELETE the data of the current page and its Layouts loads again before the promise resolves. Pass `invalidate: false` to skip it. After a write that bypasses these functions, call `router.invalidate()`.
 - An error answer throws `TifaError` with `status`, `message` and `fields` (the `tifa.Fields` messages, empty otherwise).
-- When the handler (or `OnRequest`) returns `c.Redirect(...)`, the browser follows it, and the promise resolves to `undefined`. So the result type of a handler with a result includes `undefined`: check it before use.
+- When the handler (or `OnRequest`) returns `tifa.Redirect(...)`, the browser follows it, and the promise resolves to `undefined`. So the result type of a handler with a result includes `undefined`: check it before use.
 - A handler that writes its own response (`func POST(c) error`) gives back the `Response`, also for 4xx and 5xx. Check `response.ok`.
 - Call these from event handlers or effects. Calling one during the server render throws.
 
@@ -198,7 +197,7 @@ func POST(c *tifa.Ctx, in AddInput) error {
 	if err != nil {
 		return err
 	}
-	return c.Redirect("/todos/"+todo.ID, http.StatusSeeOther)
+	return tifa.Redirect("/todos/"+todo.ID, http.StatusSeeOther)
 }
 ```
 
@@ -245,7 +244,7 @@ func OnError(c *tifa.Ctx, err error) tifa.Error // report unexpected errors, pic
 ```go
 func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 	if strings.HasPrefix(c.Pattern(), "/admin") && tifa.Session[auth.Session](c) == nil {
-		return c.Redirect("/login", http.StatusFound)
+		return tifa.Redirect("/login", http.StatusFound)
 	}
 	return next(c)
 }
@@ -277,7 +276,7 @@ func POST(c *tifa.Ctx, in Login) error {
 	if err := tifa.SetSession(c, &auth.Session{UserID: u.ID, Name: u.Name}); err != nil {
 		return err
 	}
-	return c.Redirect("/", 303)
+	return tifa.Redirect("/", 303)
 }
 
 // app/logout/route.go
@@ -286,7 +285,7 @@ func POST(c *tifa.Ctx) error { return tifa.ClearSession(c) }
 // hooks.go: keep visitors out of a part of the site
 func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 	if strings.HasPrefix(c.Request().URL.Path, "/admin") && tifa.Session[auth.Session](c) == nil {
-		return c.Redirect("/login?next="+url.QueryEscape(c.Request().URL.RequestURI()), 302)
+		return tifa.Redirect("/login?next="+url.QueryEscape(c.Request().URL.RequestURI()), 302)
 	}
 	return next(c)
 }

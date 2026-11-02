@@ -416,7 +416,7 @@ func (s *Server) generate(ctx context.Context, base *http.Request, pattern strin
 		if errors.As(err, &lf) {
 			var redirect *core.RedirectError
 			if errors.As(lf.errs[lf.failed], &redirect) {
-				entry.status, entry.location = redirect.Code, redirectLocation(rq, redirect.URL, redirect.Code)
+				entry.status, entry.location = redirect.Status, redirectLocation(rq, redirect.URL, redirect.Status)
 				return s.redirectEntry(entry, headers)
 			}
 			if !loadFailed(lf.errs[lf.failed]) {

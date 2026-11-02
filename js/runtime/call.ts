@@ -93,7 +93,7 @@ export async function call(
   if (response.status === 409 && response.headers.has(buildHeader)) reloadForBuild(response.headers.get(buildHeader)!)
   if (response.type === 'opaqueredirect')
     throw new Error(
-      `${method} ${url} was answered with a redirect the browser cannot read, from a proxy or from a handler that wrote it itself: return c.Redirect(url, code) from the handler or OnRequest instead`,
+      `${method} ${url} was answered with a redirect the browser cannot read, from a proxy or from a handler that wrote it itself: return tifa.Redirect(url, status) from the handler or OnRequest instead`,
     )
   if (response.headers.has(redirectHeader)) {
     const body: unknown = await response.clone().json()

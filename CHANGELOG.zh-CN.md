@@ -6,6 +6,7 @@
 
 ### 变更
 
+- **不兼容：**重定向改成包级函数 `tifa.Redirect(url, status)`，原来的 `c.Redirect(url, code)` 是 `Ctx` 的方法，却从不用 `c`。`status` 不是 3xx 时它会 panic，和 `WriteHeader` 遇到发不出去的状态码一样，以前它返回一个普通错误，最后变成 500。`tifa.RedirectError` 的 `Code` 字段改叫 `Status`，和 `tifa.Error` 一致。`c.Redirect` 删除。更新应用时把 `c.Redirect(` 换成 `tifa.Redirect(`，把 `redirect.Code` 换成 `redirect.Status`。给浏览器的回答不变（见 [route.go](docs/app.zh-CN.md#routego)）。
 - **不兼容：**`OnStart` 的签名是 `func OnStart(ctx context.Context) error`，和 `OnShutdown` 一致。这个 context 是程序运行用的那个，收到 SIGINT 或 SIGTERM 时结束，所以等数据库的启动过程可以在程序被停止时中断。更新应用时加上这个参数。构建会拒绝旧签名（见 [hooks.go](docs/app.zh-CN.md#hooksgo)）。
 - 新增 `Fields.Err()`，把 `Fields` 当作错误返回，没有任何条目时返回 nil。校验函数把消息收进 `tifa.Fields{}`，最后写 `return fields.Err()` 即可，不用再判断 `len`。直接返回空的 `tifa.Fields` 时服务端仍然答 422，因为它是一个错误（见[带入参和返回值的方法函数](docs/app.zh-CN.md#带入参和返回值的方法函数)）。
 - 示例 shop 的店面用上了整页缓存。首页、手记列表和商品页缓存 10 分钟，商品列表缓存 5 分钟，手记文章缓存 1 小时，访客打开缓存的页面时直接从内存得到答案，带 `Cache-Status: tifa; hit`，不跑任何 `Load`。页面里不再有属于访客的东西：店面 Layout 只有语言、菜单和包邮价，顶栏的购物车和「最近看过」来自新的 `/store/{lang}/mine` 路由，由浏览器在页面加载后去要。商品页会告诉它现在打开的是哪个商品。见[店面的整页缓存](examples/shop/README.zh-CN.md#店面的整页缓存)。

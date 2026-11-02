@@ -79,7 +79,7 @@ func sessionApp(log *sessionLog) App {
 			if err := tifa.SetSession(c, &sessUser{ID: 7, Name: "Ann"}); err != nil {
 				return err
 			}
-			return c.Redirect("/", 303)
+			return tifa.Redirect("/", 303)
 		}},
 		Route{ID: "app/logout", Path: "/signout", POST: func(c *tifa.Ctx) error {
 			if err := tifa.ClearSession(c); err != nil {

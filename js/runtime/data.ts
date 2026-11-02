@@ -13,7 +13,7 @@ import { acceptSession, beginSession, type SessionEnvelope } from './session'
 import { reloadForBuild } from './skew'
 
 // RouteResult is the outcome of one Load. status is 200 with data, 404 when the Load returned
-// tifa.ErrNotFound, a redirect status with location when it returned c.Redirect, or the status
+// tifa.ErrNotFound, a redirect status with location when it returned tifa.Redirect, or the status
 // of the error with its public message.
 export interface RouteResult {
   status: number

@@ -60,7 +60,7 @@ func TestPOSTRedirectKeepsNextOnThisSite(t *testing.T) {
 		c, _ := tifatest.NewCtx(t, httptest.NewRequest("POST", "/login", nil))
 		err := POST(c, Credentials{Email: shop.DemoEmail, Password: shop.DemoPassword, Next: next})
 		var r *tifa.RedirectError
-		if !errors.As(err, &r) || r.URL != want || r.Code != 303 {
+		if !errors.As(err, &r) || r.URL != want || r.Status != 303 {
 			t.Errorf("POST next %q: %v, want a redirect to %q", next, err, want)
 		}
 	}
@@ -70,7 +70,7 @@ func TestPOSTSignsInAndGoesBack(t *testing.T) {
 	c, rec := tifatest.NewCtx(t, httptest.NewRequest("POST", "/login", nil))
 	err := POST(c, Credentials{Email: shop.DemoEmail, Password: shop.DemoPassword, Next: "/projects/weekend"})
 	var r *tifa.RedirectError
-	if !errors.As(err, &r) || r.URL != "/projects/weekend" || r.Code != 303 {
+	if !errors.As(err, &r) || r.URL != "/projects/weekend" || r.Status != 303 {
 		t.Fatalf("POST = %v", err)
 	}
 	if s := tifa.Session[shop.Session](c); s == nil || s.Name != "顾遥" {

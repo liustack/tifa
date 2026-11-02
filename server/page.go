@@ -456,7 +456,7 @@ func (s *Server) results(c *tifa.Ctx, f *loadFailure) (items map[string]routeRes
 		}
 		x := seen[j]
 		if x.redirect != nil {
-			items[l.id] = routeResult{Status: x.redirect.Code, Location: x.redirect.URL}
+			items[l.id] = routeResult{Status: x.redirect.Status, Location: x.redirect.URL}
 		} else {
 			items[l.id] = routeResult{Status: x.public.Status, Error: x.public.Message}
 		}

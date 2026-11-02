@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -173,14 +172,6 @@ func (c *Ctx) checkWrite() error {
 		return errors.New("tifa: Load cannot write the response body, it may only set headers and cookies")
 	}
 	return nil
-}
-
-// Redirect returns an error value. Returning it from Load, a method handler or OnRequest makes the server redirect.
-func (c *Ctx) Redirect(url string, code int) error {
-	if code < 300 || code > 399 {
-		return fmt.Errorf("tifa: redirect to %s with non-3xx status %d", url, code)
-	}
-	return &RedirectError{URL: url, Code: code}
 }
 
 func (c *Ctx) Request() *http.Request      { return c.r }

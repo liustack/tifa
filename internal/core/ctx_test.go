@@ -163,14 +163,13 @@ func TestBindRespectsBodyLimit(t *testing.T) {
 }
 
 func TestRedirectIsAnErrorValue(t *testing.T) {
-	c, _ := newCtx("GET", "", "", 1024)
-	err := c.Redirect("/login", 302)
+	err := Redirect("/login", 302)
 	var redirect *RedirectError
-	if !errors.As(err, &redirect) || redirect.URL != "/login" || redirect.Code != 302 {
+	if !errors.As(err, &redirect) || redirect.URL != "/login" || redirect.Status != 302 {
 		t.Fatalf("got %v", err)
 	}
-	if err := c.Redirect("/login", 200); errors.As(err, &redirect) {
-		t.Fatal("non-3xx code must not become a redirect")
+	if msg := panicOf(func() { Redirect("/login", 200) }); !strings.Contains(msg, "200") {
+		t.Fatalf("a non-3xx status must panic, recovered %q", msg)
 	}
 }
 

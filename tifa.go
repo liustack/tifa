@@ -18,8 +18,13 @@ type Error = core.Error
 // answered with 422 and the messages as "fields" in the JSON, without calling OnError.
 type Fields = core.Fields
 
-// RedirectError is what Ctx.Redirect returns. OnRequest and tests can match it with errors.As.
+// RedirectError is what Redirect returns. OnRequest and tests can match it with errors.As.
 type RedirectError = core.RedirectError
+
+// Redirect returns an error that makes the server redirect to url with status, such as
+// http.StatusSeeOther. Return it from Load, a method handler or OnRequest. It panics when status is
+// not 3xx, which is a mistake in the code and not a condition at run time.
+func Redirect(url string, status int) error { return core.Redirect(url, status) }
 
 // ErrNotFound makes the server answer 404 without calling OnError.
 var ErrNotFound = core.ErrNotFound

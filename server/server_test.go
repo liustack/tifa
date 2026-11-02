@@ -73,7 +73,7 @@ func newServer(hooks Hooks) *Server {
 		}
 		return c.NoContent(204)
 	})
-	s.Handle("GET", "/old", func(c *tifa.Ctx) error { return c.Redirect("/orders/1", 301) })
+	s.Handle("GET", "/old", func(c *tifa.Ctx) error { return tifa.Redirect("/orders/1", 301) })
 	return s
 }
 
@@ -92,7 +92,7 @@ func TestRedirectAndNotFoundSkipOnError(t *testing.T) {
 	s := newServer(Hooks{
 		OnRequest: func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 			if c.Pattern() == "" && c.Request().URL.Path == "/legacy" {
-				return c.Redirect("/orders/7", 308)
+				return tifa.Redirect("/orders/7", 308)
 			}
 			return next(c)
 		},
@@ -135,13 +135,13 @@ func TestHandlerCallRedirectIsJSON(t *testing.T) {
 			// An app that sets a cache header for every answer, which a redirect must not keep.
 			c.SetHeader("Cache-Control", "public, max-age=60")
 			if c.Request().URL.Path == "/private" {
-				return c.Redirect("/login?next=%2Fprivate", 302)
+				return tifa.Redirect("/login?next=%2Fprivate", 302)
 			}
 			return next(c)
 		},
 	})
-	s.Handle("POST", "/orders/{orderId}/ship", func(c *tifa.Ctx) error { return c.Redirect("../8", 303) })
-	s.Handle("POST", "/orders/{orderId}/copy", func(c *tifa.Ctx) error { return c.Redirect("/orders/9", 303) })
+	s.Handle("POST", "/orders/{orderId}/ship", func(c *tifa.Ctx) error { return tifa.Redirect("../8", 303) })
+	s.Handle("POST", "/orders/{orderId}/copy", func(c *tifa.Ctx) error { return tifa.Redirect("/orders/9", 303) })
 	cases := []struct {
 		target, location string
 		status           int

@@ -50,7 +50,7 @@ func TestHandlersAnswerPrivateNoCache(t *testing.T) {
 		s.Handle("GET", "/json", func(c *tifa.Ctx) error { return c.JSON(200, map[string]int{"a": 1}) })
 		s.Handle("GET", "/text", func(c *tifa.Ctx) error { return c.Text(200, "ok") })
 		s.Handle("POST", "/none", func(c *tifa.Ctx) error { return c.NoContent(204) })
-		s.Handle("GET", "/redirect", func(c *tifa.Ctx) error { return c.Redirect("/json", 302) })
+		s.Handle("GET", "/redirect", func(c *tifa.Ctx) error { return tifa.Redirect("/json", 302) })
 		s.Handle("GET", "/own", func(c *tifa.Ctx) error {
 			_, err := c.Writer().Write([]byte("written by hand"))
 			return err

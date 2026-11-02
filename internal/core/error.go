@@ -55,10 +55,21 @@ func publicError(status int, message string) Error {
 	return Error{Status: status, Message: message}
 }
 
-// RedirectError is returned by Ctx.Redirect. The server performs the redirect without calling OnError.
+// RedirectError is what Redirect returns. The server performs the redirect without calling OnError.
 type RedirectError struct {
-	URL  string
-	Code int
+	URL    string
+	Status int
 }
 
-func (e *RedirectError) Error() string { return fmt.Sprintf("tifa: redirect %d to %s", e.Code, e.URL) }
+func (e *RedirectError) Error() string {
+	return fmt.Sprintf("tifa: redirect %d to %s", e.Status, e.URL)
+}
+
+// Redirect returns an error that makes the server redirect to url with status. Return it from Load,
+// a method handler or OnRequest. It panics when status is not 3xx.
+func Redirect(url string, status int) error {
+	if status < 300 || status > 399 {
+		panic(fmt.Sprintf("tifa: Redirect to %s with non-3xx status %d", url, status))
+	}
+	return &RedirectError{URL: url, Status: status}
+}

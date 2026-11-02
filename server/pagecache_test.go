@@ -306,7 +306,7 @@ func TestAnswersOfTheAppReplaceTheOldPage(t *testing.T) {
 	e2 := newPageEnv(t)
 	get(e2.s, "/news")
 	e2.clock.advance(61 * time.Second)
-	e2.setLoad(func(c *tifa.Ctx, n int64) (any, error) { return nil, c.Redirect("/moved", 307) })
+	e2.setLoad(func(c *tifa.Ctx, n int64) (any, error) { return nil, tifa.Redirect("/moved", 307) })
 	if w := get(e2.s, "/news"); w.Code != 307 || w.Header().Get("Location") != "/moved" {
 		t.Errorf("redirect: %d %v", w.Code, w.Header())
 	}
@@ -390,7 +390,7 @@ func TestStatusesAreKeptOrNot(t *testing.T) {
 				if tc.err != nil {
 					return nil, tc.err
 				}
-				return nil, c.Redirect("/to", tc.code)
+				return nil, tifa.Redirect("/to", tc.code)
 			})
 			first := get(e.s, "/news")
 			second := get(e.s, "/news")
@@ -407,7 +407,7 @@ func TestStatusesAreKeptOrNot(t *testing.T) {
 	}
 	// HTML cached for the redirect page also serves the navigation, as a redirect.
 	e := newPageEnv(t)
-	e.setLoad(func(c *tifa.Ctx, n int64) (any, error) { return nil, c.Redirect("/to", 302) })
+	e.setLoad(func(c *tifa.Ctx, n int64) (any, error) { return nil, tifa.Redirect("/to", 302) })
 	get(e.s, "/news")
 	w := getData(e.s, "/news", "b1", "11")
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"redirect":"/to"`) || !strings.Contains(w.Body.String(), `"status":302`) || e.loads.Load() != 1 {

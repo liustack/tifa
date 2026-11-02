@@ -106,7 +106,7 @@ func TestDataRequestRedirectIsJSON(t *testing.T) {
 	var reported []error
 	s, _ := newFrontServer(t, secretApp(func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		if _, err := c.Cookie("session"); err != nil {
-			return c.Redirect("/login", 302)
+			return tifa.Redirect("/login", 302)
 		}
 		return next(c)
 	}, &reported))
@@ -149,7 +149,7 @@ func TestDataRequestResolvesARelativeRedirect(t *testing.T) {
 	var reported []error
 	s, _ := newFrontServer(t, secretApp(func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		if c.Query("away") != "" {
-			return c.Redirect("login?next=1", 302)
+			return tifa.Redirect("login?next=1", 302)
 		}
 		return next(c)
 	}, &reported))
@@ -164,7 +164,7 @@ func TestDataRequestResolvesARelativeRedirect(t *testing.T) {
 	app := App{
 		Layouts: []Layout{{ID: "app/layout", Path: "/", SSR: true}},
 		Routes: []Route{{ID: "app/projects/orders", Path: "/projects/{project}/orders", Page: true, SSR: true, Layouts: []string{"app/layout"},
-			Load: func(c *tifa.Ctx) (any, error) { return nil, c.Redirect("../other/orders", 303) }}},
+			Load: func(c *tifa.Ctx) (any, error) { return nil, tifa.Redirect("../other/orders", 303) }}},
 	}
 	s, _ = newFrontServer(t, app)
 	w = getData(s, "/projects/p1/orders", "b1", "1")
@@ -183,7 +183,7 @@ func TestHandlerCallRedirectOfOnRequestIsJSON(t *testing.T) {
 	var reported []error
 	s, _ := newFrontServer(t, secretApp(func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 		if _, err := c.Cookie("session"); err != nil {
-			return c.Redirect("/login", 303)
+			return tifa.Redirect("/login", 303)
 		}
 		return next(c)
 	}, &reported))

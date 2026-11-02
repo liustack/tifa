@@ -52,7 +52,7 @@ func wireApp() App {
 			if err := tifa.SetSession(c, &wireUser{ID: 1, Name: "Ann"}); err != nil {
 				return err
 			}
-			return c.Redirect("/", 303)
+			return tifa.Redirect("/", 303)
 		}},
 		Route{ID: "app/fail", Path: "/fail", POST: Input(func(c *tifa.Ctx, in loginInput) error {
 			if err := tifa.SetSession(c, &wireUser{ID: 1, Name: "Ann"}); err != nil {
@@ -216,7 +216,7 @@ func TestNavigationAnswerIsAnEnvelope(t *testing.T) {
 func TestNavigationFailureAndRedirectCarryTheSessionToo(t *testing.T) {
 	app := wireApp()
 	app.Routes = append(app.Routes, Route{ID: "app/bounce", Path: "/bounce", Page: true, SSR: true, Layouts: []string{"app/layout"},
-		Load: func(c *tifa.Ctx) (any, error) { return nil, c.Redirect("/elsewhere", 303) }})
+		Load: func(c *tifa.Ctx) (any, error) { return nil, tifa.Redirect("/elsewhere", 303) }})
 	s, _ := wireServer(t, app)
 	cookie := signedIn(t, s, "Ann")
 	w := getData(s, "/bounce", "b1", "01", "Cookie", cookie)
@@ -520,7 +520,7 @@ func TestNavigationRedirectWithSessionIsNotShareable(t *testing.T) {
 			c.SetHeader("Cache-Control", "public, max-age=600")
 			c.SetHeader("ETag", `"v"`)
 			c.SetHeader("Last-Modified", "Mon, 02 Jan 2006 15:04:05 GMT")
-			return c.Redirect("/elsewhere", 302)
+			return tifa.Redirect("/elsewhere", 302)
 		}
 		return next(c)
 	}
@@ -583,7 +583,7 @@ func TestSessionEndpointAnswersAreNeverStored(t *testing.T) {
 		case "boom":
 			return errors.New("boom")
 		case "redirect":
-			return c.Redirect("/login", 302)
+			return tifa.Redirect("/login", 302)
 		}
 		return next(c)
 	}

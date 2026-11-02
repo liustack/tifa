@@ -182,7 +182,7 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 	switch probe.code {
 	case http.StatusMovedPermanently, http.StatusFound, http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
 		if location != "" {
-			redirect := &core.RedirectError{URL: location, Code: http.StatusPermanentRedirect}
+			redirect := &core.RedirectError{URL: location, Status: http.StatusPermanentRedirect}
 			s.serve(w, r, "", false, func(*tifa.Ctx) error { return redirect })
 			return
 		}
@@ -340,16 +340,16 @@ func (s *Server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 		if session != nil {
 			s.sealSessionAnswer(c)
 		}
-		_ = writeDataBody(w, http.StatusOK, dataRedirect{Redirect: redirect.URL, Status: redirect.Code, Session: session})
+		_ = writeDataBody(w, http.StatusOK, dataRedirect{Redirect: redirect.URL, Status: redirect.Status, Session: session})
 	case redirect != nil && r.Header.Get(callHeader) != "":
 		// The app's caching headers would let a cache hand this JSON to a page load.
 		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set(redirectHeader, strconv.Itoa(redirect.Code))
+		w.Header().Set(redirectHeader, strconv.Itoa(redirect.Status))
 		w.Header().Add("Vary", callHeader)
-		writeJSON(w, http.StatusOK, dataRedirect{Redirect: redirect.URL, Status: redirect.Code, Session: s.callSession(c)})
+		writeJSON(w, http.StatusOK, dataRedirect{Redirect: redirect.URL, Status: redirect.Status, Session: s.callSession(c)})
 	case redirect != nil:
 		w.Header().Add("Vary", callHeader)
-		http.Redirect(w, r, redirect.URL, redirect.Code)
+		http.Redirect(w, r, redirect.URL, redirect.Status)
 	case !page:
 		body := errorBody{Error: e.Message}
 		body.Fields, _ = fieldsOf(err)
@@ -373,7 +373,7 @@ func (s *Server) classify(c *tifa.Ctx, err error) (*core.RedirectError, tifa.Err
 	var e tifa.Error
 	switch {
 	case errors.As(err, &redirect):
-		return &core.RedirectError{URL: redirectLocation(c.Request(), redirect.URL, redirect.Code), Code: redirect.Code}, e
+		return &core.RedirectError{URL: redirectLocation(c.Request(), redirect.URL, redirect.Status), Status: redirect.Status}, e
 	case errors.Is(err, tifa.ErrSSRBusy):
 		c.SetHeader("Retry-After", "1")
 		c.SetHeader("Cache-Control", "no-store")
