@@ -95,3 +95,24 @@ func TestSealHTTPHandlerCountsSeals(t *testing.T) {
 	b()
 	SetHTTPHandler(nil)
 }
+
+func TestSetSessionStoreIsSealedWhileListening(t *testing.T) {
+	defer SetSessionStore(nil)
+	defer SetHTTPHandler(nil)
+	SetHTTPHandler(nil)
+	first := NewMemoryStore(1 << 10)
+	defer first.Close()
+	SetSessionStore(first)
+	_, release := SealHTTPHandler(http.NewServeMux())
+	if got := SealedSessionStore(); got != SessionStore(first) {
+		t.Fatalf("sealed store %v", got)
+	}
+	if msg := panicOf(func() { SetSessionStore(NewMemoryStore(1 << 10)) }); !strings.Contains(msg, "OnStart") {
+		t.Fatalf("panic %q", msg)
+	}
+	release()
+	SetSessionStore(nil)
+	if got := SealedSessionStore(); got != nil {
+		t.Fatalf("store after reset %v", got)
+	}
+}

@@ -61,6 +61,7 @@ type Server struct {
 	// crossSite refuses the writes a browser sends from another site, before anything else
 	// sees the request, see refuseCrossSite.
 	crossSite *http.CrossOriginProtection
+	sess      sessionState
 }
 
 // New builds a server without routes. The ServeMux holds only the application's routes, so a
@@ -72,6 +73,7 @@ func New(cfg config.Config, hooks Hooks) *Server {
 		modules: map[string][]string{}, layouts: map[string]layoutChain{}, cache: newHTMLCache(cfg.Cache.Size),
 	}
 	s.crossSite = crossSiteProtection(cfg.Server)
+	s.sess.cfg = cfg.Session
 	s.handler = http.HandlerFunc(s.route)
 	if cfg.Server.Compress {
 		s.handler = compressed(s.handler)
@@ -201,15 +203,25 @@ func redirectLocation(r *http.Request, url string, code int) string {
 func (s *Server) serve(w http.ResponseWriter, r *http.Request, pattern string, page bool, route func(*tifa.Ctx) error) {
 	tw := &writer{ResponseWriter: w, plain: !s.cfg.Compress}
 	c := core.New(tw, r, pattern, s.cfg.BodyLimit)
+	tw.noStore = func() bool { return core.NoStore(c) }
 	defer func() {
 		if err := core.Finish(c); err != nil {
 			core.Logger().WarnContext(r.Context(), "tifa: removing the multipart files failed", "method", r.Method, "path", r.URL.Path, "err", err)
 		}
 	}()
-	var err error
-	if s.hooks.OnRequest == nil {
+	// TODO(cache): a page with Cache = true must be anonymous. When the whole-page cache flow lands, its
+	// requests skip this, drop Cookie and Authorization before OnRequest, and Session is always nil there.
+	// The session is read before OnRequest, so every hook, Load and handler sees it. A store
+	// that fails is an unexpected error: carrying on as signed out would hide the fault.
+	err := core.AttachSession(c, s.sessionEnv())
+	if err != nil && errors.Is(err, context.Canceled) && r.Context().Err() != nil {
+		err = errClientGone
+	}
+	switch {
+	case err != nil:
+	case s.hooks.OnRequest == nil:
 		err = route(c)
-	} else {
+	default:
 		var called atomic.Bool
 		var routed atomic.Pointer[tifa.Ctx]
 		next := func(nc *tifa.Ctx) error {
@@ -217,6 +229,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, pattern string, p
 				return errors.New("tifa: next called more than once")
 			}
 			routed.Store(nc)
+			defer core.SetSessionPhase(nc, core.PhaseAfterNext)
 			return route(nc)
 		}
 		err = recovered(func() error { return s.hooks.OnRequest(c, next) })
@@ -331,6 +344,7 @@ func (s *Server) publicError(c *tifa.Ctx, err error) tifa.Error {
 		core.Logger().ErrorContext(c.Context(), "tifa: request failed", "method", c.Request().Method, "path", c.Request().URL.Path, "err", err)
 		return tifa.Error{Status: http.StatusInternalServerError, Message: http.StatusText(http.StatusInternalServerError)}
 	}
+	core.SetSessionPhase(c, core.PhaseError)
 	e := s.hooks.OnError(c, err)
 	if !validStatus(e.Status) {
 		e.Status = http.StatusInternalServerError
@@ -421,7 +435,13 @@ type writer struct {
 	http.ResponseWriter
 	wrote bool
 	plain bool // server.compress is off: No-Gzip-Compression goes, as gzhttp removes it when it is on
+	// noStore reports that the answer sets the session cookie or answers a failed session store: it
+	// goes out as no-store, without validators.
+	noStore func() bool
 }
+
+// Committed reports whether the response is on its way out. SetSession asks it.
+func (w *writer) Committed() bool { return w.wrote }
 
 // commit runs call on the underlying writer. The response counts as committed only when call returns
 // normally and reports that it committed. A panic leaves the state untouched and propagates.
@@ -430,8 +450,18 @@ func (w *writer) commit(final bool, call func() bool) {
 	if w.plain {
 		w.Header().Del(gzhttp.HeaderNoCompression)
 	}
-	if final && !w.wrote && len(w.Header().Values("Cache-Control")) == 0 {
-		w.Header().Set("Cache-Control", defaultCacheControl)
+	if final && !w.wrote {
+		h := w.Header()
+		switch {
+		case w.noStore != nil && w.noStore():
+			// A cache must not keep or share an answer that sets or drops a session, and a
+			// validator would let a browser turn the next one into a 304 without the cookie.
+			h.Set("Cache-Control", "no-store")
+			h.Del("ETag")
+			h.Del("Last-Modified")
+		case len(h.Values("Cache-Control")) == 0:
+			h.Set("Cache-Control", defaultCacheControl)
+		}
 	}
 	if call() {
 		w.wrote = true
@@ -504,10 +534,11 @@ func (s *Server) Run(ctx context.Context) error {
 			return fmt.Errorf("tifa: OnStart: %w", err)
 		}
 	}
-	// After OnStart, which is where an app calls tifa.SetHTTPHandler.
+	// After OnStart, which is where an app calls tifa.SetHTTPHandler and tifa.SetSessionStore.
 	root, release := core.SealHTTPHandler(s)
 	defer release()
 	s.root = root
+	defer s.startSessions()()
 	ln, err := net.Listen("tcp", s.cfg.Addr)
 	if err != nil {
 		return listenError("server.addr", err)

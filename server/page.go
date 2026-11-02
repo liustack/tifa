@@ -619,7 +619,9 @@ func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status in
 			etag = "W/" + tag
 		}
 		c.SetHeader("ETag", etag)
-		if etagMatches(c.Header("If-None-Match"), tag) {
+		// An answer that sets the session cookie keeps its status: the cookie must reach the
+		// browser, and a 304 is answered to a request that has no use for it.
+		if !core.NoStore(c) && etagMatches(c.Header("If-None-Match"), tag) {
 			c.SetHeader(renderHeader, "none")
 			return c.NoContent(http.StatusNotModified)
 		}
