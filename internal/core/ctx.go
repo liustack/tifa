@@ -38,6 +38,7 @@ type request struct {
 	loads map[uintptr]*loadCall
 	// copies made by WithContext. net/http only removes the multipart temp files of the original request.
 	copies []*http.Request
+	sess   sessionState
 }
 
 // New builds the context for one request. pattern is the matched route pattern, empty when no route matched.

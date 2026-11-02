@@ -28,3 +28,32 @@ func NewMemoryStore(maxBytes int64) *MemoryStore { return core.NewMemoryStore(ma
 // the in-memory one. Call it in OnStart: it panics once the server listens. nil restores the
 // in-memory store.
 func SetSessionStore(s SessionStore) { core.SetSessionStore(s) }
+
+// SetSession signs the request in. It stores s as the session under a new random token, deletes the
+// session the request came with, and sets the session cookie, which lasts 30 days (session.max_age)
+// from now and is not renewed. Session[S](c) returns the new value for the rest of the request. Every
+// call makes a new token, so calling it again after a sign-in changes the token again.
+//
+// s is encoded as JSON, and the record, with the framework's envelope, must not pass 4 KiB: keep
+// an ID and a few display fields in it, and the rest in your database. The record is trusted: a
+// store that others can write to can sign anyone in.
+//
+// It returns an error, and changes nothing, when the store cannot be written. When the old
+// session cannot be deleted the sign-in is not done either, so the old session is not left behind
+// next to the new one. It also returns an error in a Load, a Layout and OnError, in OnRequest once
+// next returned, and after the response is sent. Call it in OnRequest before next, or in a method handler.
+//
+// S must be the same type in every call of SetSession and Session, or the call panics.
+func SetSession[S any](c *Ctx, s *S) error { return core.SetSession(c, s) }
+
+// Session returns the session of the request, nil when nobody is signed in. The server reads it
+// before OnRequest runs, so every hook, Load and method handler can call it, and the Loads that run
+// at once share the one value: treat it as read-only. The record is decoded into S on the first call.
+// A record that does not fit S is deleted and its cookie dropped, and the request is signed out.
+func Session[S any](c *Ctx) *S { return core.Session[S](c) }
+
+// ClearSession signs the request out: it deletes the record, drops the cookie, and Session returns nil
+// from now on. It does nothing when the request has no session. When the record cannot be deleted
+// the cookie is still dropped, and the error says the record stays valid until it expires.
+// Where it may be called is the same as for SetSession.
+func ClearSession(c *Ctx) error { return core.ClearSession(c) }
