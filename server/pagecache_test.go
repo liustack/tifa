@@ -118,6 +118,56 @@ func TestCachedPageIgnoresForcedRefresh(t *testing.T) {
 	}
 }
 
+func TestCachedPageSharesTheEntryWithHEAD(t *testing.T) {
+	e := newPageEnv(t)
+	r := httptest.NewRequest("HEAD", "/news", nil)
+	w := httptest.NewRecorder()
+	e.s.ServeHTTP(w, r)
+	if w.Code != 200 || w.Header().Get("Cache-Status") != "tifa; fwd=miss" {
+		t.Fatalf("HEAD: %d %v", w.Code, w.Header())
+	}
+	if g := get(e.s, "/news"); g.Header().Get("X-Tifa-Render") != "cache" || g.Body.Len() == 0 {
+		t.Errorf("GET after HEAD: %v", g.Header())
+	}
+	w = httptest.NewRecorder()
+	e.s.ServeHTTP(w, httptest.NewRequest("HEAD", "/news", nil))
+	if w.Header().Get("Cache-Status") != "tifa; hit" || e.loads.Load() != 1 {
+		t.Errorf("HEAD after GET: %v, %d Loads", w.Header(), e.loads.Load())
+	}
+}
+
+func TestCachedPageHeaders(t *testing.T) {
+	e := newPageEnv(t)
+	w := get(e.s, "/news")
+	if cc := w.Header().Get("Cache-Control"); cc != "public, max-age=0, s-maxage=60, stale-if-error=86400" {
+		t.Errorf("first Cache-Control %q", cc)
+	}
+	if w.Header().Get("Age") != "0" || w.Header().Get("Cache-Status") != "tifa; fwd=miss" {
+		t.Errorf("first: Age %q, Cache-Status %q", w.Header().Get("Age"), w.Header().Get("Cache-Status"))
+	}
+	e.clock.advance(25 * time.Second)
+	w = get(e.s, "/news")
+	if cc := w.Header().Get("Cache-Control"); cc != "public, max-age=0, s-maxage=60, stale-if-error=86400" {
+		t.Errorf("hit Cache-Control %q", cc)
+	}
+	if w.Header().Get("Age") != "25" || w.Header().Get("Cache-Status") != "tifa; hit" {
+		t.Errorf("hit: Age %q, Cache-Status %q", w.Header().Get("Age"), w.Header().Get("Cache-Status"))
+	}
+	// 304 from the entry, with the same headers and no render or Load.
+	tag := w.Header().Get("ETag")
+	n := e.r.count()
+	w = get(e.s, "/news", "If-None-Match", tag)
+	if w.Code != 304 || w.Body.Len() != 0 || e.r.count() != n || e.loads.Load() != 1 {
+		t.Errorf("If-None-Match: %d, %d bytes, %d renders, %d Loads", w.Code, w.Body.Len(), e.r.count()-n, e.loads.Load())
+	}
+	if w.Header().Get("Cache-Status") != "tifa; hit" || !strings.HasPrefix(w.Header().Get("Cache-Control"), "public, max-age=0, s-maxage=60") || w.Header().Get("ETag") != tag {
+		t.Errorf("304 headers %v", w.Header())
+	}
+	if w := get(e.s, "/news", "If-None-Match", `"other"`); w.Code != 200 {
+		t.Errorf("another tag: %d", w.Code)
+	}
+}
+
 func TestExpiredPageIsMadeAgainOnceWhileRequestsWait(t *testing.T) {
 	e := newPageEnv(t)
 	get(e.s, "/news")
@@ -202,8 +252,11 @@ func TestFailedRemakeServesTheOldPage(t *testing.T) {
 			e.clock.advance(61 * time.Second)
 			fail(e)
 			w := get(e.s, "/news")
-			if w.Code != 200 || w.Body.String() != old.Body.String() {
+			if w.Code != 200 || w.Body.String() != old.Body.String() || w.Header().Get("Cache-Status") != "tifa; fwd=stale" {
 				t.Fatalf("%d %s, %v", w.Code, w.Body.String(), w.Header())
+			}
+			if cc := w.Header().Get("Cache-Control"); !strings.Contains(cc, "s-maxage=60") || w.Header().Get("Age") != "61" {
+				t.Errorf("stale: Cache-Control %q, Age %q", cc, w.Header().Get("Age"))
 			}
 			// The navigation gets the old data too.
 			d := getData(e.s, "/news", "b1", "11")
@@ -216,7 +269,7 @@ func TestFailedRemakeServesTheOldPage(t *testing.T) {
 			// When it works again the page is new.
 			e.r.result = nil
 			e.setLoad(func(c *tifa.Ctx, n int64) (any, error) { return map[string]int64{"n": 100}, nil })
-			if w := get(e.s, "/news"); w.Code != 200 || !strings.Contains(w.Body.String(), `"n":100`) {
+			if w := get(e.s, "/news"); w.Code != 200 || !strings.Contains(w.Body.String(), `"n":100`) || w.Header().Get("Cache-Status") != "tifa; fwd=miss" {
 				t.Errorf("after the fix: %d %s %v", w.Code, w.Body.String(), w.Header())
 			}
 		})
@@ -241,7 +294,7 @@ func TestAnswersOfTheAppReplaceTheOldPage(t *testing.T) {
 	get(e.s, "/news")
 	e.clock.advance(61 * time.Second)
 	e.setLoad(func(c *tifa.Ctx, n int64) (any, error) { return nil, tifa.ErrNotFound })
-	if w := get(e.s, "/news"); w.Code != 404 {
+	if w := get(e.s, "/news"); w.Code != 404 || w.Header().Get("Cache-Status") != "" || strings.Contains(w.Header().Get("Cache-Control"), "public") {
 		t.Fatalf("404: %d %v", w.Code, w.Header())
 	}
 	// The page then fails: the deleted page does not return as the old one.
@@ -264,7 +317,7 @@ func TestOldPageStandsInForADayOnly(t *testing.T) {
 	get(e.s, "/news")
 	e.setLoad(func(c *tifa.Ctx, n int64) (any, error) { return nil, errors.New("database down") })
 	e.clock.advance(time.Minute + 24*time.Hour - time.Second)
-	if w := get(e.s, "/news"); w.Code != 200 {
+	if w := get(e.s, "/news"); w.Code != 200 || w.Header().Get("Cache-Status") != "tifa; fwd=stale" {
 		t.Errorf("just inside the day: %d %v", w.Code, w.Header())
 	}
 	e.clock.advance(2 * time.Second)
@@ -485,6 +538,50 @@ func TestNavigationDataOfAFailedPageIsTheError(t *testing.T) {
 }
 
 // A cache that only knows the URL, as a CDN does, never mixes up the HTML of a page and its data.
+func TestAUrlOnlyCacheNeverMixesHTMLAndData(t *testing.T) {
+	e := newPageEnv(t)
+	type stored struct{ contentType, body string }
+	cdn := map[string]stored{}
+	fetch := func(target string) stored {
+		if v, ok := cdn[target]; ok {
+			return v
+		}
+		w := get(e.s, target)
+		v := stored{w.Header().Get("Content-Type"), w.Body.String()}
+		if strings.Contains(w.Header().Get("Cache-Control"), "public") {
+			cdn[target] = v
+		}
+		return v
+	}
+	page := dataURL("/news", "b1", "11")
+	for range 3 {
+		if v := fetch("/news"); !strings.HasPrefix(v.contentType, "text/html") {
+			t.Fatalf("page: %v", v.contentType)
+		}
+		if v := fetch(page); !strings.HasPrefix(v.contentType, "application/json") {
+			t.Fatalf("data: %v", v.contentType)
+		}
+	}
+	if _, ok := cdn[page]; ok {
+		t.Error("the navigation data is public")
+	}
+	if _, ok := cdn["/news"]; !ok {
+		t.Error("the page is not public")
+	}
+}
+
+func TestPageWithoutRenderCacheStillHasATagAndAnEntry(t *testing.T) {
+	e := newPageEnv(t)
+	first := get(e.s, "/livepage")
+	second := get(e.s, "/livepage")
+	if first.Header().Get("ETag") == "" || second.Header().Get("X-Tifa-Render") != "cache" || e.r.count() != 1 {
+		t.Errorf("%v, %d renders", second.Header(), e.r.count())
+	}
+	if w := get(e.s, "/livepage", "If-None-Match", first.Header().Get("ETag")); w.Code != 304 {
+		t.Errorf("304: %d", w.Code)
+	}
+}
+
 func TestWholePageCacheFollowsCacheSize(t *testing.T) {
 	// With cache.size 0 nothing is kept, and requests that come at the same time still share a render.
 	clock := useCacheClock(t)

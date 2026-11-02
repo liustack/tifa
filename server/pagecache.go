@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,6 +41,12 @@ type wholePage struct {
 	etag string
 	// routes holds the data of every Load of the page as JSON text, in the order of the chain.
 	routes []wholeRoute
+	// headers are the response headers the Load and Layout functions set, except those the
+	// framework writes itself (ownedHeader). Cache-Control and Vary are here only when they make the
+	// answer not for everyone, and then the page is not kept and these headers go out with it.
+	headers http.Header
+	// fx is what making the entry does to the cache besides storing it.
+	fx effects
 	// created is when the entry was made, expires when its time is over and staleUntil when it
 	// stops standing in for a failed page.
 	created, expires, staleUntil time.Time
@@ -52,6 +59,12 @@ func (w *wholePage) size() int64 {
 	n := int64(len(w.location) + len(w.etag) + 128)
 	for _, r := range w.routes {
 		n += int64(len(r.id) + len(r.text) + 32)
+	}
+	for name, values := range w.headers {
+		n += int64(len(name)) + 32
+		for _, v := range values {
+			n += int64(len(v)) + 16
+		}
 	}
 	return n
 }
@@ -102,23 +115,37 @@ func (s *Server) cachedPageRequest(c *tifa.Ctx, route Route, chain []load, ttl t
 	// The render holds the lock for reading, so the pool it uses is not closed meanwhile.
 	f := s.front.Load()
 	key := s.pageKey(rq, c.Pattern(), f)
-	appStorable := headersStorable(c.Writer().Header())
+	// A request whose own OnRequest made the answer not for everyone neither reads nor feeds the
+	// cache: it makes its page alone.
+	own := !headersStorable(c.Writer().Header())
 	base := rq.WithContext(rq.Context())
 	pattern := c.Pattern()
 	generate := func(ctx context.Context) (cachedPage, bool, error) {
-		return s.generate(ctx, base, pattern, route, chain, f, key, ttl, appStorable)
+		return s.generate(ctx, base, pattern, route, chain, f, ttl)
+	}
+	alone := func() (fetched, error) {
+		page, _, err := generate(rq.Context())
+		return fetched{page: page, how: "vm"}, err
 	}
 	var got fetched
 	var err error
-	if s.cache.bypassed(key, cacheNow()) {
-		var page cachedPage
-		page, _, err = generate(rq.Context())
-		got = fetched{page: page, how: "vm"}
-	} else {
+	status := "tifa; hit"
+	switch {
+	case own || s.cache.bypassed(key, cacheNow()):
+		got, err = alone()
+		status = "tifa; fwd=bypass"
+	default:
 		unheard := func(err error) {
 			core.Logger().ErrorContext(c.Context(), "tifa: a page was being made for the cache and no request waits for it", "method", rq.Method, "path", rq.URL.Path, "err", err)
 		}
 		got, err = s.cache.fetch(rq.Context(), key, unheard, generate)
+		if got.how == "retry" {
+			// What the request that made the page got is not for everyone, so this one makes its own.
+			got, err = alone()
+		}
+		if got.how != "cache" {
+			status = "tifa; fwd=miss"
+		}
 	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) && rq.Context().Err() != nil {
@@ -126,12 +153,183 @@ func (s *Server) cachedPageRequest(c *tifa.Ctx, route Route, chain []load, ttl t
 		}
 		old, ok := s.cache.stale(key, cacheNow())
 		if !ok || !regenerationFailed(err) {
+			var made *madeError
+			if errors.As(err, &made) {
+				replayHeaders(c.Writer().Header(), made.headers)
+				err = made.err
+			}
 			return s.pageFailure(c, err, selected)
 		}
 		core.Logger().WarnContext(c.Context(), "tifa: making the page failed, the old page is served", "method", rq.Method, "path", rq.URL.Path, "err", err)
-		got = fetched{page: old, held: true, how: "cache"}
+		got, status = fetched{page: old, held: true, how: "cache"}, "tifa; fwd=stale"
 	}
-	return s.respondPage(c, got, selected)
+	return s.respondPage(c, got, status, selected)
+}
+
+// ownedHeader reports whether the framework writes the header itself on a page of the whole-page
+// cache, so a Load or Layout cannot keep it in an entry.
+func ownedHeader(name string) bool {
+	switch http.CanonicalHeaderKey(name) {
+	case "Set-Cookie", "Cache-Control", "Vary", "Age", "Etag", "Content-Length", "Content-Encoding", "Content-Type":
+		return true
+	}
+	return false
+}
+
+// keptHeaders returns the headers of a make to keep with the entry and to send with every answer made
+// from it, and whether they say the answer is not for everyone. A Cache-Control and a Vary count only
+// when they say so.
+func keptHeaders(h http.Header) (kept http.Header, unshared bool) {
+	unshared = !headersStorable(h)
+	kept = http.Header{}
+	hop := hopByHop(h)
+	for name, values := range h {
+		if hop[http.CanonicalHeaderKey(name)] {
+			continue
+		}
+		if !ownedHeader(name) || unshared && (name == "Cache-Control" || name == "Vary") {
+			kept[name] = slices.Clone(values)
+		}
+	}
+	return kept, unshared
+}
+
+// hopByHop returns the names of the headers that belong to one connection and are not kept in an
+// entry or sent again from it (RFC 9111 section 3.1): Connection and the fields it lists, Keep-Alive,
+// TE, Trailer, Transfer-Encoding, Upgrade, Proxy-Authenticate, Proxy-Authorization and Proxy-Connection.
+func hopByHop(h http.Header) map[string]bool {
+	hop := map[string]bool{}
+	for _, name := range []string{"Connection", "Keep-Alive", "Proxy-Authenticate", "Proxy-Authorization", "Proxy-Connection", "TE", "Trailer", "Transfer-Encoding", "Upgrade"} {
+		hop[http.CanonicalHeaderKey(name)] = true
+	}
+	for name, values := range h {
+		if http.CanonicalHeaderKey(name) == "Connection" {
+			for _, v := range values {
+				for _, field := range strings.Split(v, ",") {
+					if field = strings.TrimSpace(field); field != "" {
+						hop[http.CanonicalHeaderKey(field)] = true
+					}
+				}
+			}
+		}
+	}
+	return hop
+}
+
+// mergeCacheControl merges the Cache-Control fields of the two sides by directive. no-store alone
+// wins over everything. private and no-cache are separate limits and each stays when either side has it,
+// without a list of fields when either side has it so (that is the stronger). max-age and s-maxage take the
+// smaller, and the other directives are the union. A field that cannot be read counts as no-store.
+func mergeCacheControl(a, b http.Header) string {
+	type limit struct {
+		present, bare bool
+		fields        []string
+	}
+	var private, noCache limit
+	maxAge, sMaxAge := int64(-1), int64(-1)
+	var others []string
+	seen := map[string]bool{}
+	for _, h := range []http.Header{a, b} {
+		for _, value := range h.Values("Cache-Control") {
+			directives, ok := splitDirectives(value)
+			if !ok {
+				return "no-store"
+			}
+			for _, d := range directives {
+				name, arg, hasArg := strings.Cut(d, "=")
+				name = strings.ToLower(strings.TrimSpace(name))
+				arg = strings.Trim(strings.TrimSpace(arg), `"`)
+				switch name {
+				case "no-store":
+					return "no-store"
+				case "private", "no-cache":
+					l := &private
+					if name == "no-cache" {
+						l = &noCache
+					}
+					l.present = true
+					if !hasArg {
+						l.bare = true
+					} else {
+						for _, f := range strings.Split(arg, ",") {
+							if f = strings.TrimSpace(f); f != "" && !slices.Contains(l.fields, f) {
+								l.fields = append(l.fields, f)
+							}
+						}
+					}
+				case "max-age", "s-maxage":
+					n, err := strconv.ParseInt(arg, 10, 64)
+					if err != nil || n < 0 {
+						continue
+					}
+					p := &maxAge
+					if name == "s-maxage" {
+						p = &sMaxAge
+					}
+					if *p < 0 || n < *p {
+						*p = n
+					}
+				default:
+					if !seen[name] {
+						seen[name] = true
+						others = append(others, d)
+					}
+				}
+			}
+		}
+	}
+	var out []string
+	for _, l := range []struct {
+		name string
+		l    limit
+	}{{"private", private}, {"no-cache", noCache}} {
+		switch {
+		case !l.l.present:
+		case l.l.bare || len(l.l.fields) == 0:
+			out = append(out, l.name)
+		default:
+			out = append(out, l.name+`="`+strings.Join(l.l.fields, ", ")+`"`)
+		}
+	}
+	if private.present && seen["public"] {
+		others = slices.DeleteFunc(others, func(d string) bool { return strings.EqualFold(d, "public") })
+	}
+	slices.Sort(others)
+	out = append(out, others...)
+	if maxAge >= 0 {
+		out = append(out, "max-age="+strconv.FormatInt(maxAge, 10))
+	}
+	if sMaxAge >= 0 {
+		out = append(out, "s-maxage="+strconv.FormatInt(sMaxAge, 10))
+	}
+	return strings.Join(out, ", ")
+}
+
+// replayHeaders sets the headers a Load or Layout set on the response. The headers of OnRequest are
+// already there. A Cache-Control that makes the answer not for everyone replaces a public one, and Vary
+// only grows.
+func replayHeaders(h http.Header, saved http.Header) {
+	// The Cache-Control of OnRequest and of the Loads merge by directive (mergeCacheControl), whichever
+	// was set first and whatever the order of the map. Vary is the union.
+	vary := h.Values("Vary")
+	for name, values := range saved {
+		switch name {
+		case "Cache-Control", "Vary":
+		default:
+			h[name] = slices.Clone(values)
+		}
+	}
+	if len(saved["Cache-Control"]) > 0 {
+		h.Set("Cache-Control", mergeCacheControl(h, saved))
+	}
+	if values := saved["Vary"]; len(values) > 0 {
+		for _, v := range values {
+			if !slices.Contains(vary, v) {
+				vary = append(slices.Clone(vary), v)
+			}
+		}
+		h["Vary"] = vary
+	}
 }
 
 // regenerationFailed reports whether err means making a page failed, as opposed to the answer of
@@ -202,7 +400,7 @@ func (s *Server) pageFailure(c *tifa.Ctx, err error, selected []load) error {
 // returns it, and whether the cache keeps it. A result that is not the page, a 404 or another
 // answer of the app, is returned as an error for each request to answer with. Requests skip the
 // cache of key for a while after a result that cannot be stored.
-func (s *Server) generate(ctx context.Context, base *http.Request, pattern string, route Route, chain []load, f *front, key string, ttl time.Duration, appStorable bool) (cachedPage, bool, error) {
+func (s *Server) generate(ctx context.Context, base *http.Request, pattern string, route Route, chain []load, f *front, ttl time.Duration) (cachedPage, bool, error) {
 	rq := base.Clone(ctx)
 	rq.URL.RawQuery = s.ignore.clean(rq.URL.RawQuery, s.pageQuery[pattern])
 	rq.RequestURI = rq.URL.RequestURI()
@@ -219,20 +417,19 @@ func (s *Server) generate(ctx context.Context, base *http.Request, pattern strin
 			var redirect *core.RedirectError
 			if errors.As(lf.errs[lf.failed], &redirect) {
 				entry.status, entry.location = redirect.Code, redirectLocation(rq, redirect.URL, redirect.Code)
-				return s.redirectEntry(key, entry, appStorable, headers)
+				return s.redirectEntry(entry, headers)
 			}
 			if !loadFailed(lf.errs[lf.failed]) {
 				// An answer of the app, a 404 for one, replaces the page that was kept.
-				s.cache.markBypass(key, created.Add(hitForMiss))
-				s.cache.remove(key)
+				return s.madeFailed(err, headers, effects{set: true, remove: true, bypass: true})
 			}
 		}
-		return cachedPage{}, false, err
+		return s.madeFailed(err, headers, effects{})
 	}
 	for _, l := range chain {
 		text, err := loaderText(items[l.id].Data)
 		if err != nil {
-			return cachedPage{}, false, err
+			return s.madeFailed(err, headers, effects{})
 		}
 		entry.routes = append(entry.routes, wholeRoute{id: l.id, text: text})
 	}
@@ -247,9 +444,9 @@ func (s *Server) generate(ctx context.Context, base *http.Request, pattern strin
 	if !route.SSR {
 		doc, err := dataOnlyDocument(f, items, route.Path, s.pageURI(rq, pattern), sess)
 		if err != nil {
-			return cachedPage{}, false, err
+			return s.madeFailed(err, headers, effects{})
 		}
-		page, held = cachedPage{html: doc}, s.cache.holds(doc)
+		page, held = cachedPage{html: doc, body: new(bodyID)}, s.cache.holds(doc)
 		if held && s.cfg.Compress {
 			page.gzip, page.zstd = compressPage(doc)
 		}
@@ -257,7 +454,7 @@ func (s *Server) generate(ctx context.Context, base *http.Request, pattern strin
 	} else {
 		data, texts, err := renderInput(items)
 		if err != nil {
-			return cachedPage{}, false, err
+			return s.madeFailed(err, headers, effects{})
 		}
 		s.rendering.RLock()
 		defer s.rendering.RUnlock()
@@ -269,10 +466,10 @@ func (s *Server) generate(ctx context.Context, base *http.Request, pattern strin
 			var redirect *ssr.RedirectError
 			if errors.As(err, &redirect) {
 				entry.status, entry.location = redirect.Status, redirect.Location
-				return s.redirectEntry(key, entry, appStorable, headers)
+				return s.redirectEntry(entry, headers)
 			}
 			failed.err = err
-			return cachedPage{}, false, failed
+			return s.madeFailed(failed, headers, effects{})
 		}
 		entry.etag = renderKey(in, f.build.bundle)
 		if route.NoRenderCache {
@@ -280,21 +477,26 @@ func (s *Server) generate(ctx context.Context, base *http.Request, pattern strin
 		}
 	}
 	entry.status = http.StatusOK
+	entry.headers, entry.fx.unshared = keptHeaders(headers)
+	storable := !entry.fx.unshared
+	entry.fx.set, entry.fx.bypass = true, !storable
 	page.whole = entry
-	storable := appStorable && headersStorable(headers)
-	if !storable {
-		s.cache.markBypass(key, created.Add(hitForMiss))
-	}
 	return page, held && storable, nil
+}
+
+// madeFailed returns the error of a make with the headers its Loads set and what it does to the cache.
+func (s *Server) madeFailed(err error, headers http.Header, fx effects) (cachedPage, bool, error) {
+	kept, unshared := keptHeaders(headers)
+	fx.set, fx.unshared = true, unshared
+	return cachedPage{}, false, &madeError{err: err, headers: kept, fx: fx}
 }
 
 // redirectEntry returns the entry of a redirect. It is kept when its status is one that is stored and
 // the headers of the app allow it. Otherwise requests skip the cache of the page for a while.
-func (s *Server) redirectEntry(key string, entry *wholePage, appStorable bool, headers http.Header) (cachedPage, bool, error) {
-	storable := storableStatus(entry.status) && appStorable && headersStorable(headers)
-	if !storable {
-		s.cache.markBypass(key, entry.created.Add(hitForMiss))
-	}
+func (s *Server) redirectEntry(entry *wholePage, headers http.Header) (cachedPage, bool, error) {
+	entry.headers, entry.fx.unshared = keptHeaders(headers)
+	storable := storableStatus(entry.status) && !entry.fx.unshared
+	entry.fx.set, entry.fx.bypass = true, !storable
 	return cachedPage{whole: entry}, storable, nil
 }
 
@@ -326,9 +528,11 @@ func contentTag(html string) string {
 	return `"` + hex.EncodeToString(sum[:16]) + `"`
 }
 
-// respondPage answers a request from an entry.
-func (s *Server) respondPage(c *tifa.Ctx, got fetched, selected []load) error {
+// respondPage answers a request from an entry. status is the Cache-Status of the answer.
+func (s *Server) respondPage(c *tifa.Ctx, got fetched, status string, selected []load) error {
 	entry := got.page.whole
+	replayHeaders(c.Writer().Header(), entry.headers)
+	c.SetHeader("Cache-Status", status)
 	if c.IsData() {
 		c.SetHeader(renderHeader, got.how)
 		if entry.status != http.StatusOK {
@@ -349,6 +553,10 @@ func (s *Server) respondPage(c *tifa.Ctx, got fetched, selected []load) error {
 		}
 		return s.writeDataAnswer(c, items)
 	}
+	now := cacheNow()
+	if got.held {
+		s.setCacheHeaders(c, entry, now)
+	}
 	c.SetHeader(renderHeader, got.how)
 	if entry.status != http.StatusOK {
 		http.Redirect(c.Writer(), c.Request(), entry.location, entry.status)
@@ -359,6 +567,9 @@ func (s *Server) respondPage(c *tifa.Ctx, got fetched, selected []load) error {
 		etag = "W/" + etag
 	}
 	c.SetHeader("ETag", etag)
+	if etagMatches(c.Header("If-None-Match"), entry.etag) {
+		return c.NoContent(http.StatusNotModified)
+	}
 	return writeCached(c, http.StatusOK, got.page, s.formEncoding(c))
 }
 
@@ -374,4 +585,20 @@ func (s *Server) writeDataAnswer(c *tifa.Ctx, items map[string]routeResult) erro
 		}
 	}
 	return writeDataBody(c.Writer(), http.StatusOK, dataAnswer{Routes: items, Session: session})
+}
+
+// setCacheHeaders says how long the entry may be kept by a shared cache in front of tifa. The
+// browser revalidates every time (max-age=0) and asks tifa, which answers 304 from the entry.
+// s-maxage is the whole time of the page and Age the seconds since it was made, and a cache in front of
+// tifa subtracts one from the other (RFC 9111), so the two together never keep a page longer than
+// Cache. An old page that stands in for a failed one has an Age past s-maxage and is not fresh there.
+func (s *Server) setCacheHeaders(c *tifa.Ctx, entry *wholePage, now time.Time) {
+	h := c.Writer().Header()
+	age := max(0, int64(now.Sub(entry.created)/time.Second))
+	h.Set("Age", strconv.FormatInt(age, 10))
+	if !headersStorable(h) {
+		return // the app asked for the answer not to be shared
+	}
+	ttl := int64(entry.expires.Sub(entry.created) / time.Second)
+	h.Set("Cache-Control", "public, max-age=0, s-maxage="+strconv.FormatInt(ttl, 10)+", stale-if-error="+strconv.FormatInt(int64(staleIfError/time.Second), 10))
 }

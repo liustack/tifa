@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -27,6 +28,9 @@ type htmlCache struct {
 	// bypass holds, by page key, until when requests skip the cache of that page: its last result
 	// could not be stored, see markBypass.
 	bypass map[string]time.Time
+	// bodies counts, for the pages that share their HTML and compressed forms (the render cache
+	// and the whole-page cache keep the same render), how many pages use each, so the bytes count once.
+	bodies map[*bodyID]*bodyUse
 	// Hooks of the tests, nil otherwise: fetching runs as fetch starts, landing between storing
 	// a render and ending its flight.
 	fetching, landing func()
@@ -41,6 +45,40 @@ type flight struct {
 	page cachedPage
 	held bool
 	err  error
+	// unshared is set when the result belongs to the request that made it: its headers say it is
+	// not for everyone, so the requests that waited make their own, see effects.
+	unshared bool
+}
+
+// effects are what the result of making a page of the whole-page cache does to the cache besides
+// being stored. They are applied when the flight ends, and only if it is still the flight of its
+// key: a make that every request gave up on, and another one replaced, must not touch what the
+// newer one did.
+type effects struct {
+	set      bool // the other fields are meant
+	remove   bool // the old page is gone: an answer of the app replaces it
+	bypass   bool // requests skip the cache for a while, see markBypass
+	unshared bool
+}
+
+// madeError is the error of making a page of the whole-page cache. headers are the response headers the
+// Load and Layout functions set before it failed.
+type madeError struct {
+	err     error
+	headers http.Header
+	fx      effects
+}
+
+func (e *madeError) Error() string { return e.err.Error() }
+func (e *madeError) Unwrap() error { return e.err }
+
+// bodyID stands for the HTML and compressed forms one render made. It is not empty, because Go may
+// give every pointer to an empty value the same address, and the pages would count as one.
+type bodyID struct{ _ byte }
+
+type bodyUse struct {
+	refs  int
+	bytes int64
 }
 
 type cached struct {
@@ -54,16 +92,41 @@ type cached struct {
 type cachedPage struct {
 	html       string
 	gzip, zstd []byte
+	// body is shared by the pages made from one render, see htmlCache.bodies. Nil for a page that
+	// shares nothing.
+	body *bodyID
 	// whole is set for a page of the whole-page cache: what it stands for besides the HTML.
 	whole *wholePage
 }
 
 func (p cachedPage) size() int64 {
-	n := int64(len(p.html) + len(p.gzip) + len(p.zstd))
+	n := p.bodySize()
 	if p.whole != nil {
 		n += p.whole.size()
 	}
 	return n
+}
+
+func (p cachedPage) bodySize() int64 { return int64(len(p.html) + len(p.gzip) + len(p.zstd)) }
+
+// meta is what the page costs besides its HTML and compressed forms.
+func (p cachedPage) meta() int64 {
+	if p.whole != nil {
+		return p.whole.size()
+	}
+	return 0
+}
+
+// effects returns what the result of a make does to the cache, from its page or its error.
+func effectsOf(page cachedPage, err error) effects {
+	var made *madeError
+	switch {
+	case page.whole != nil:
+		return page.whole.fx
+	case errors.As(err, &made):
+		return made.fx
+	}
+	return effects{}
 }
 
 // fresh reports whether a page may be served at now: a page of the render cache always may, a
@@ -71,7 +134,7 @@ func (p cachedPage) size() int64 {
 func (p cachedPage) fresh(now time.Time) bool { return p.whole == nil || now.Before(p.whole.expires) }
 
 func newHTMLCache(size int64) *htmlCache {
-	return &htmlCache{size: size, order: list.New(), pages: map[string]*list.Element{}, flights: map[string]*flight{}, bypass: map[string]time.Time{}}
+	return &htmlCache{size: size, order: list.New(), pages: map[string]*list.Element{}, flights: map[string]*flight{}, bypass: map[string]time.Time{}, bodies: map[*bodyID]*bodyUse{}}
 }
 
 func (c *htmlCache) get(key string) (cachedPage, bool) {
@@ -100,25 +163,56 @@ func (c *htmlCache) put(key string, page cachedPage) {
 func (c *htmlCache) putLocked(key string, page cachedPage) {
 	c.removeLocked(key)
 	if page.size() > c.size {
-		page.gzip, page.zstd = nil, nil
+		// The forms the other pages share are dropped from this one, so it keeps a body of its own.
+		page.gzip, page.zstd, page.body = nil, nil, nil
 	}
 	if page.size() > c.size {
 		return
 	}
 	c.pages[key] = c.order.PushFront(&cached{key: key, page: page})
-	c.used += page.size()
+	c.charge(page)
 	for c.used > c.size {
 		oldest := c.order.Back()
 		entry := oldest.Value.(*cached)
 		c.order.Remove(oldest)
 		delete(c.pages, entry.key)
-		c.used -= entry.page.size()
+		c.refund(entry.page)
+	}
+}
+
+// charge counts a page that enters the cache. Its HTML and compressed forms count once for all the
+// pages that share them.
+func (c *htmlCache) charge(p cachedPage) {
+	c.used += p.meta()
+	if p.body == nil {
+		c.used += p.bodySize()
+		return
+	}
+	if u := c.bodies[p.body]; u != nil {
+		u.refs++
+		return
+	}
+	c.bodies[p.body] = &bodyUse{refs: 1, bytes: p.bodySize()}
+	c.used += p.bodySize()
+}
+
+// refund undoes charge for a page that leaves.
+func (c *htmlCache) refund(p cachedPage) {
+	c.used -= p.meta()
+	if p.body == nil {
+		c.used -= p.bodySize()
+		return
+	}
+	u := c.bodies[p.body]
+	if u.refs--; u.refs == 0 {
+		c.used -= u.bytes
+		delete(c.bodies, p.body)
 	}
 }
 
 func (c *htmlCache) removeLocked(key string) {
 	if e, ok := c.pages[key]; ok {
-		c.used -= e.Value.(*cached).page.size()
+		c.refund(e.Value.(*cached).page)
 		c.order.Remove(e)
 		delete(c.pages, key)
 	}
@@ -155,6 +249,10 @@ func (c *htmlCache) stale(key string, now time.Time) (cachedPage, bool) {
 func (c *htmlCache) markBypass(key string, until time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.markBypassLocked(key, until)
+}
+
+func (c *htmlCache) markBypassLocked(key string, until time.Time) {
 	if len(c.bypass) >= maxBypass {
 		now := cacheNow()
 		for k, t := range c.bypass {
@@ -230,6 +328,9 @@ func (c *htmlCache) fetch(ctx context.Context, key string, unheard func(error), 
 	c.mu.Unlock()
 	select {
 	case <-f.done:
+		if f.unshared && how == "shared" {
+			return fetched{how: "retry"}, nil
+		}
 		return fetched{page: f.page, held: f.held, how: how}, f.err
 	case <-ctx.Done():
 		c.mu.Lock()
@@ -260,12 +361,23 @@ func (c *htmlCache) fly(ctx context.Context, key string, f *flight, unheard func
 			f.page, f.held = cachedPage{}, false
 		}
 		c.mu.Lock()
-		if f.err == nil && f.held {
-			c.putLocked(key, f.page)
-		} else if f.err == nil {
-			// A result that cannot be kept replaces the page it came instead of: the page is
-			// gone or has changed to something else, and must not come back as the old one.
-			c.removeLocked(key)
+		fx := effectsOf(f.page, f.err)
+		f.unshared = fx.unshared
+		// A make that was given up on and replaced leaves the cache as the newer one made it.
+		if current := c.flights[key] == f; current || !(fx.set || f.page.whole != nil) {
+			if f.err == nil && f.held {
+				c.putLocked(key, f.page)
+			} else if f.err == nil {
+				// A result that cannot be kept replaces the page it came instead of: the page is
+				// gone or has changed to something else, and must not come back as the old one.
+				c.removeLocked(key)
+			}
+			if fx.remove {
+				c.removeLocked(key)
+			}
+			if fx.bypass {
+				c.markBypassLocked(key, cacheNow().Add(hitForMiss))
+			}
 		}
 		if c.landing != nil {
 			c.landing()

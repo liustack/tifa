@@ -772,7 +772,7 @@ func (s *Server) renderOne(ctx context.Context, f *front, in ssr.Input, twice bo
 	if !s.cache.holds(html) {
 		return cachedPage{html: html}, false, nil
 	}
-	page := cachedPage{html: html}
+	page := cachedPage{html: html, body: new(bodyID)}
 	if s.cfg.Compress {
 		page.gzip, page.zstd = compressPage(html)
 	}
