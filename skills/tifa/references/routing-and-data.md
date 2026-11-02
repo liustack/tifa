@@ -100,7 +100,7 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 
 - The input is a struct (not a pointer). POST, PUT and PATCH decode it from the body: JSON, or a URL-encoded or multipart form. GET and DELETE decode it from the query string, so only strings, numbers, bools and slices of them.
 - Fields are named by their `json` tags. A `form` tag fails the build.
-- If the input type has `Validate() error`, it runs before the handler. Return `tifa.Fields{"carrier": "pick a carrier"}` for a message per field (422). Any other plain error answers 400 with its text, which the user sees.
+- If the input type has `Validate() error`, it runs before the handler. Return `tifa.Fields{"carrier": "pick a carrier"}` for a message per field (422). Collect into a `tifa.Fields{}` and end with `return fields.Err()`, which is nil when empty. Any other plain error answers 400 with its text, which the user sees.
 - A body that does not decode answers 400 (413 over the body limit, 415 for another content type). The handler does not run.
 - A handler that writes its own response reads input with `c.Bind(&in)` or `c.BindQuery(&in)`, and answers with `c.JSON`, `c.Text` or `c.NoContent`.
 - A POST, PUT, PATCH or DELETE sent by a browser from another site gets 403 before your code runs. See [build-and-deploy.md](build-and-deploy.md) for letting chosen origins through.

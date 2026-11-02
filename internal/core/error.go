@@ -28,6 +28,17 @@ func (e Error) Error() string { return fmt.Sprintf("%d %s", e.Status, e.Message)
 // "fields". It is a separate type so that Error stays comparable.
 type Fields map[string]string
 
+// Err returns f, or nil when f has no entries. An empty Fields is still a non-nil error, so a
+// validator that fills a Fields ends with it:
+//
+//	return fields.Err()
+func (f Fields) Err() error {
+	if len(f) == 0 {
+		return nil
+	}
+	return f
+}
+
 func (f Fields) Error() string {
 	names := slices.Sorted(maps.Keys(f))
 	parts := make([]string, len(names))

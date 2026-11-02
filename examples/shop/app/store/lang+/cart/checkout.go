@@ -185,10 +185,7 @@ func (o Order) Validate() error {
 	if !o.Terms {
 		f["terms"] = "terms"
 	}
-	if len(f) > 0 {
-		return f
-	}
-	return nil
+	return f.Err()
 }
 
 // luhn reports whether a card number, with spaces, passes the Luhn check and has 13 to 19 digits.

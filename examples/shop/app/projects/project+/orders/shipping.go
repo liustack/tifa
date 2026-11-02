@@ -72,11 +72,7 @@ func CheckShipment(carrier, tracking string) error {
 	if !trackingNo.MatchString(strings.TrimSpace(tracking)) {
 		fields["trackingNo"] = "运单号是 8 到 20 位字母或数字"
 	}
-	if len(fields) > 0 {
-		return fields
-	}
-	// An empty tifa.Fields is still an error value, so say nil.
-	return nil
+	return fields.Err()
 }
 
 // ShipOrder records that the order left at at with carrier under tracking. An order ships once,
@@ -125,10 +121,7 @@ func CheckRecipient(customer, phone, address string) error {
 	case utf8.RuneCountInString(address) > 100:
 		fields["address"] = "收货地址最多 100 个字"
 	}
-	if len(fields) > 0 {
-		return fields
-	}
-	return nil
+	return fields.Err()
 }
 
 // UpdateRecipient changes who receives the order and where, until it ships. The caller checks the
