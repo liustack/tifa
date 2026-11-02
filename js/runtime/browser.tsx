@@ -67,8 +67,8 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
   const local = injected(input)
   let first = true
   // The first load reads the injected data. Later loads, invalidations included, ask the server.
-  const source: Source = (url, id) =>
-    first && id in input.data && sameURL(url, input.url) ? local(url, id) : live(url, id)
+  const source: Source = (url, id, slot) =>
+    first && id in input.data && sameURL(url, input.url) ? local(url, id, slot) : live(url, id, slot)
   const router = createAppRouter(routeTree, source, { buildId: input.buildId })
   void router.load().then(() => {
     first = false

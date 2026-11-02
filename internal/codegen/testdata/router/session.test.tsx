@@ -13,6 +13,8 @@ import {
 import { collector } from './.tifa/runtime/data'
 import { resetReloads } from './.tifa/runtime/skew'
 
+const alone = (id: string) => ({ chain: () => [id], preload: false })
+
 const tests: Array<[string, () => Promise<void>]> = []
 const test = (name: string, fn: () => Promise<void>) => tests.push([name, fn])
 
@@ -251,22 +253,22 @@ test('the collector takes the session of a data answer', async () => {
   start({ signedIn: false })
   respond = () =>
     Response.json({ routes: { 'app/layout': { status: 200, data: 'L' } }, session: { signedIn: true, data: { name: 'Ann' } } })
-  const result = await collector(() => 'b1')('/x', 'app/layout')
+  const result = await collector(() => 'b1')('/x', 'app/layout', alone('app/layout'))
   assert(result.data === 'L' && snap() === '{"signedIn":true,"data":{"name":"Ann"},"ready":true}', `${JSON.stringify(result)} ${snap()}`)
   // A redirect and an answer with no session.
   respond = () => Response.json({ redirect: '/y', status: 303, session: { signedIn: false } })
-  const moved = await collector(() => 'b1')('/x', 'app/layout')
+  const moved = await collector(() => 'b1')('/x', 'app/layout', alone('app/layout'))
   assert(moved.status === 303 && !sessionSnapshot().signedIn, `redirect ${JSON.stringify(moved)} ${snap()}`)
   acceptSession(beginSession(), { signedIn: true })
   respond = () => Response.json({ routes: { 'app/layout': { status: 200, data: 'M' } } })
-  await collector(() => 'b1')('/x', 'app/layout')
+  await collector(() => 'b1')('/x', 'app/layout', alone('app/layout'))
   assert(sessionSnapshot().signedIn, 'an answer without a session changed the copy')
   // The answers of two requests that cross: the one sent later wins.
   const held: Array<(r: Response) => void> = []
   respond = () => new Promise<Response>((resolve) => held.push(resolve))
-  const a = collector(() => 'b1')('/a', 'app/layout')
+  const a = collector(() => 'b1')('/a', 'app/layout', alone('app/layout'))
   await flush()
-  const b = collector(() => 'b1')('/b', 'app/layout')
+  const b = collector(() => 'b1')('/b', 'app/layout', alone('app/layout'))
   await flush()
   assert(held.length === 2, `requests ${held.length}`)
   held[1]!(Response.json({ routes: { 'app/layout': { status: 200, data: 'B' } }, session: { signedIn: true, data: { name: 'B' } } }))

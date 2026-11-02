@@ -812,15 +812,67 @@ function stubFetch(status: number, body: unknown, headers: Record<string, string
   return Object.assign(seen, { options })
 }
 
+test('the router names the Loads of a URL from the root Layout down', async () => {
+  const { router } = await client('/a/one')
+  const chain = (path: string) => router.options.context.chain(path).join(',')
+  assert(chain('/a/one') === 'app/layout,app/a/layout', `/a/one: ${chain('/a/one')}`)
+  assert(chain('/a/two') === 'app/layout,app/a/layout,app/a/two/route', `/a/two: ${chain('/a/two')}`)
+  // A URL below a Layout that no page has shows the Layout's 404 after the Layouts above it.
+  assert(chain('/a/nowhere') === 'app/layout,app/a/layout', `/a/nowhere: ${chain('/a/nowhere')}`)
+  // So does a URL that only starts with a page's path: the page is not on the chain, and neither
+  // is the Load of a page below the Layout that shows the 404.
+  assert(chain('/a/two/x') === 'app/layout,app/a/layout', `/a/two/x: ${chain('/a/two/x')}`)
+  assert(chain('/a/two/') === 'app/layout,app/a/layout,app/a/two/route', `/a/two/: ${chain('/a/two/')}`)
+  // The collector counts its digits against that chain.
+  const requests = stubFetch(200, { routes: { 'app/a/layout': ok('x') } })
+  await collector(() => 'b1')('/a/two/x', 'app/a/layout', { chain: () => router.options.context.chain('/a/two/x'), preload: false })
+  assert(requests[0] === '/a/two/x?_tifa=b1.01', `request ${requests[0]}`)
+})
+
+// alone is the slot of a load whose URL has no other Load. teamChain is that of /teams/x/one.
+const alone = (id: string, preload = false) => ({ chain: () => [id], preload })
+const teamChain = { chain: () => ['app/layout', 'app/teams/team+/layout', 'app/teams/team+/one/route'], preload: false }
+
+test('a data request is the page URL with _tifa and no header of tifa', async () => {
+  const requests = stubFetch(200, {
+    routes: { 'app/layout': ok('x'), 'app/teams/team+/layout': ok('t'), 'app/teams/team+/one/route': ok('y') },
+  })
+  const source = collector(() => 'b1')
+  await Promise.all([source('/teams/x/one', 'app/layout', teamChain), source('/teams/x/one', 'app/teams/team+/one/route', teamChain)])
+  assert(requests.length === 1 && requests[0] === '/teams/x/one?_tifa=b1.101', `requests ${requests}`)
+  const headers = new Headers(requests.options[0].headers)
+  assert([...headers.keys()].join() === 'accept', `headers ${[...headers.keys()]}`)
+
+  // A query stays as it is, the parameter comes after it.
+  await source('/teams/x/one?a=1&b=x+y', 'app/teams/team+/layout', teamChain)
+  assert(requests[1] === '/teams/x/one?a=1&b=x+y&_tifa=b1.010', `query ${requests[1]}`)
+
+  // A preload adds .p. A load that is not a preload in the same request makes it a plain one.
+  await source('/teams/x/one', 'app/layout', { ...teamChain, preload: true })
+  assert(requests[2] === '/teams/x/one?_tifa=b1.100.p', `preload ${requests[2]}`)
+  await Promise.all([
+    source('/teams/x/one', 'app/layout', { ...teamChain, preload: true }),
+    source('/teams/x/one', 'app/teams/team+/layout', teamChain),
+  ])
+  assert(requests[3] === '/teams/x/one?_tifa=b1.110', `a preload and a navigation ${requests[3]}`)
+
+  // A load that is not on the chain of its URL is a bug of the page, not a request.
+  const off = await source('/teams/x/one', 'app/other', teamChain).then(
+    () => undefined,
+    (error) => error,
+  )
+  assert(off instanceof Error && [...requests].length === 4, `off the chain: ${off}, requests ${requests}`)
+})
+
 test('a grouped answer reaches every route whatever the HTTP status', async () => {
   stubFetch(404, { routes: { 'app/teams/team+/layout': ok('x'), 'app/teams/team+/one/route': missing } })
   const source = collector(() => 'b1')
-  const [team, one] = await Promise.all([source('/teams/x/one', 'app/teams/team+/layout'), source('/teams/x/one', 'app/teams/team+/one/route')])
+  const [team, one] = await Promise.all([source('/teams/x/one', 'app/teams/team+/layout', teamChain), source('/teams/x/one', 'app/teams/team+/one/route', teamChain)])
   assert(team.status === 200 && team.data === 'x', `team ${JSON.stringify(team)}`)
   assert(one.status === 404, `one ${JSON.stringify(one)}`)
 
   stubFetch(500, { error: 'down' })
-  const failed = await source('/teams/x/one', 'app/teams/team+/layout').then(
+  const failed = await source('/teams/x/one', 'app/teams/team+/layout', alone('app/teams/team+/layout')).then(
     () => undefined,
     (error) => error,
   )
@@ -830,12 +882,12 @@ test('a grouped answer reaches every route whatever the HTTP status', async () =
 test('a redirect of the server reaches every route as a redirect', async () => {
   const requests = stubFetch(200, { redirect: '/login', status: 302 })
   const source = collector(() => 'b1')
-  const results = await Promise.all([source('/teams/x/one', 'app/teams/team+/layout'), source('/teams/x/one', 'app/teams/team+/one/route')])
+  const results = await Promise.all([source('/teams/x/one', 'app/teams/team+/layout', teamChain), source('/teams/x/one', 'app/teams/team+/one/route', teamChain)])
   for (const result of results)
     assert(result.status === 302 && result.location === '/login', `result ${JSON.stringify(result)}`)
   assert(requests.options[0]?.redirect === 'manual', `fetch follows redirects: ${JSON.stringify(requests.options[0])}`)
   // The loader turns it into a router redirect to the target.
-  const thrown = await load({ source: async () => results[0] }, 'app/teams/team+/layout', { pathname: '/teams/x/one', searchStr: '' }).then(
+  const thrown = await load({ source: async () => results[0], chain: () => [] }, 'app/teams/team+/layout', { pathname: '/teams/x/one', searchStr: '' }, false).then(
     () => undefined,
     (error) => error,
   )
@@ -884,8 +936,8 @@ test('a 409 reloads the current page once', async () => {
   const win = browser()
   stubFetch(409, { error: 'the application was updated' }, { 'X-Tifa-Build': 'new' })
   const source = collector(() => 'old')
-  const hovered = source('/hovered', 'app/a/layout')
-  void source('/clicked', 'app/b/layout')
+  const hovered = source('/hovered', 'app/a/layout', alone('app/a/layout'))
+  void source('/clicked', 'app/b/layout', alone('app/b/layout'))
   assert((await standing(hovered)) === 'pending', 'the loaders of the old build were answered')
   assert(win.reloads() === 1, `reloads ${win.reloads()}`)
   assert(win.items.get('tifa-reload:new') === '1', `storage ${[...win.items.keys()]}`)
@@ -895,18 +947,18 @@ test('the page reloaded for a build shows the error when that build disagrees ag
   const win = browser()
   stubFetch(409, { error: 'the application was updated' }, { 'X-Tifa-Build': 'new' })
   const source = collector(() => 'old')
-  void source('/first', 'app/a/layout')
+  void source('/first', 'app/a/layout', alone('app/a/layout'))
   await settle()
   assert(win.reloads() === 1, `first reload ${win.reloads()}`)
   // The reload brought a page of the same old build, from a cache. Its memory is new, the tab's
   // storage is the same.
   resetReloads()
-  const again = await standing(source('/second', 'app/a/layout'))
+  const again = await standing(source('/second', 'app/a/layout', alone('app/a/layout')))
   assert(win.reloads() === 1 && again === 'RouteError 409', `second: reloads ${win.reloads()}, ${again}`)
   // Another build is another reason to reload.
   resetReloads()
   stubFetch(409, { error: 'the application was updated' }, { 'X-Tifa-Build': 'newer' })
-  void source('/third', 'app/a/layout')
+  void source('/third', 'app/a/layout', alone('app/a/layout'))
   await settle()
   assert(win.reloads() === 2, `reload for another build ${win.reloads()}`)
 })
@@ -915,10 +967,10 @@ test('a 409 without a build in it, from an old server, reloads once too', async 
   const win = browser()
   stubFetch(409, { error: 'the application was updated' })
   const source = collector(() => 'old')
-  void source('/first', 'app/a/layout')
+  void source('/first', 'app/a/layout', alone('app/a/layout'))
   await settle()
   resetReloads()
-  const again = await standing(source('/second', 'app/a/layout'))
+  const again = await standing(source('/second', 'app/a/layout', alone('app/a/layout')))
   assert(win.reloads() === 1 && again === 'RouteError 409', `reloads ${win.reloads()}, ${again}`)
 })
 
@@ -931,7 +983,7 @@ test('with the storage blocked or forgetful a page never reloads, in any documen
     const source = collector(() => 'old')
     for (let document = 1; document <= 3; document++) {
       resetReloads() // the next document of the tab, which the visitor reloaded or the browser did
-      const failed = await standing(source('/page', 'app/a/layout'))
+      const failed = await standing(source('/page', 'app/a/layout', alone('app/a/layout')))
       assert(failed === 'RouteError 409' && win.reloads() === 0, `${storage}, document ${document}: ${failed}, reloads ${win.reloads()}`)
     }
     watchChunks(() => 'b1')
@@ -948,7 +1000,7 @@ test('a build that keeps disagreeing reloads the page once in the first document
   const source = collector(() => 'old')
   for (let document = 1; document <= 3; document++) {
     resetReloads()
-    const failed = await standing(source('/page', 'app/a/layout'))
+    const failed = await standing(source('/page', 'app/a/layout', alone('app/a/layout')))
     // The first document waits for its reload. The reloaded ones show the failure.
     assert(failed === (document === 1 ? 'pending' : 'RouteError 409') && win.reloads() === 1, `document ${document}: ${failed}, reloads ${win.reloads()}`)
   }
@@ -958,7 +1010,7 @@ test('nothing outside sessionStorage keeps the first reload from happening', asy
   // window.name holds what an app or another page left there, the mark among it.
   const win = browser('works', 'tifa-reload:new tifa-reload:chunk:b1')
   stubFetch(409, { error: 'the application was updated' }, { 'X-Tifa-Build': 'new' })
-  void collector(() => 'old')('/page', 'app/a/layout')
+  void collector(() => 'old')('/page', 'app/a/layout', alone('app/a/layout'))
   await settle()
   assert(win.reloads() === 1, `reloads ${win.reloads()}`)
   assert((globalThis as any).window.name === 'tifa-reload:new tifa-reload:chunk:b1', 'the name of the window was written')
@@ -1010,7 +1062,7 @@ test('a chunk failure and a 409 on one page reload it once', async () => {
   watchChunks(() => 'b1')
   win.listeners['vite:preloadError'](preloadError(chunkMessage))
   stubFetch(409, { error: 'the application was updated' }, { 'X-Tifa-Build': 'new' })
-  void collector(() => 'b1')('/x', 'app/a/layout')
+  void collector(() => 'b1')('/x', 'app/a/layout', alone('app/a/layout'))
   await settle()
   assert(win.reloads() === 1, `reloads ${win.reloads()}`)
 })

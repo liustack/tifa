@@ -5,15 +5,19 @@ import {
   createSerializationAdapter,
   redirect,
   type AnyRoute,
+  type AnyRouter,
   type ErrorComponentProps,
   type RouterHistory,
 } from '@tanstack/react-router'
 import { goJSON, RouteError, type Source } from './data'
 import type { SessionEnvelope } from './session'
 
-// RouterContext is the context of the root route. Loaders read their data through source.
+// RouterContext is the context of the root route. Loaders read their data through source, and
+// chain says which Loads a path has: the IDs of the routes with a Go Load that the router matches
+// there, from the root Layout down, which is what a data request counts its digits against.
 export interface RouterContext {
   source: Source
+  chain: (pathname: string) => string[]
 }
 
 // Dehydrated is what the page carries from the server render to the browser besides the data:
@@ -45,9 +49,13 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
   options: RouterOptions,
 ) {
   const { buildId, serverURL, onHydrate, sessionKey, session } = options
+  const context: RouterContext = {
+    source,
+    chain: (pathname) => loadsAt(router, pathname),
+  }
   const router = createRouter({
     routeTree,
-    context: { source },
+    context,
     isServer: serverURL !== undefined,
     history: serverURL ? createMemoryHistory({ initialEntries: [serverURL] }) : options.history,
     // ServeMux matches paths case-sensitively and reads query values as strings.
@@ -110,15 +118,47 @@ const routeErrorAdapter = createSerializationAdapter({
 // one the router throws itself for a URL it spells differently (see canonicalStatus in server.tsx).
 export const askedByLoad = 'tifaAskedByLoad'
 
+// loadsAt lists the IDs of the Loads the router runs for pathname, from the root Layout down. A URL
+// the router does not match whole shows a 404 inside one Layout, as it decides in
+// matchRoutesInternal (the deepest matched route with a notFoundComponent, else the deepest with
+// children), and only the Layouts down to that one load. Go finds the same Layout for that URL
+// (notFoundAt in server/notfound.go) and runs the Loads of its chain.
+function loadsAt(router: AnyRouter, pathname: string): string[] {
+  const [matched, params, found] = router.getMatchedRoutes(pathname)
+  const missing = found ? found.path !== '/' && params['**'] : pathname.replace(/\/+$/, '') !== ''
+  let routes = matched
+  if (missing) {
+    const last = (keep: (route: AnyRoute) => unknown) => {
+      for (let i = matched.length - 1; i >= 0; i--) if (keep(matched[i])) return i
+      return -1
+    }
+    const end = last((route) => route.options.notFoundComponent)
+    routes = matched.slice(0, Math.max(end >= 0 ? end : last((route) => route.children), 0) + 1)
+  }
+  return routes
+    .map((route) => (route.options.staticData as Partial<LoadData> | undefined)?.load)
+    .filter((id): id is string => id !== undefined)
+}
+
+// LoadData is the staticData of a route with a Go Load: the ID of that Load.
+interface LoadData {
+  load: string
+}
+
 // load is the loader of every route with a Go Load: it asks the source for the route's result
-// at the URL being loaded. A redirect becomes redirect(), a failure, 404 included, a RouteError
-// for the Error components.
+// at the URL being loaded. preload is true when the router loads it ahead of a navigation. A
+// redirect becomes redirect(), a failure, 404 included, a RouteError for the Error components.
 export async function load<T>(
   context: RouterContext,
   id: string,
   location: { pathname: string; searchStr: string },
+  preload: boolean,
 ): Promise<T> {
-  const result = await context.source(location.pathname + location.searchStr, id)
+  const result = await context.source(location.pathname + location.searchStr, id, {
+    // Only a request from the browser needs it, a server render has its data injected.
+    chain: () => context.chain(location.pathname),
+    preload,
+  })
   if (result.status === 200) return result.data as T
   if (result.location !== undefined) {
     throw redirect({ href: result.location, statusCode: result.status, [askedByLoad]: true } as Parameters<typeof redirect>[0])
