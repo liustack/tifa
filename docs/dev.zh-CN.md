@@ -16,6 +16,8 @@ tifa dev [--dir 应用根目录] [--addr 127.0.0.1:9527]
 
 启动后先打印 `tifa dev: serving http://<地址>`，然后做一次完整构建（步骤同 [tifa build](build.zh-CN.md)，应用的第一次构建要几秒到一分钟，见[日志](#日志)），启动应用。浏览器只连 `--addr`。tifa dev 把页面和数据请求转给应用，把 `/__tifa/vite/` 下的请求（浏览器模块和 Vite 的 HMR websocket）转给 Vite 的开发服务器。应用重启或换 SSR 包期间，页面请求会等它。Ctrl-C、SIGTERM 和 SIGHUP（终端关闭时会发出）停掉应用、Vite 和 tifa dev。用 `nohup` 启动的 tifa dev 会忽略 SIGHUP。Vite 的构建或插件一直不结束时，最多再等 5 秒就停掉 Vite。tifa dev 自己被强行杀掉时，应用和 Vite 也会自行退出：应用像收到 SIGTERM 一样关停，Vite 在这 5 秒内退出。tifa dev 只把点名要给应用和 Vite 的文件交给它们，自己继承来的文件（比如脚本用 `flock` 持有的锁）不会传下去。
 
+有 `package.json` 的应用要先装好 npm 包。刚克隆下来时没有 `node_modules`，tifa dev（`tifa build` 也一样）会在启动任何东西之前停下，并打印要运行的命令：PATH 里有 pnpm 就是 `pnpm install`，否则是 `npm install`。没有页面的应用没有 `package.json`，也不需要 Node。
+
 tifa dev 暂不支持 Windows，请用 WSL。
 
 tifa dev 提供明文 HTTP。项目文件里的 [HTTPS 配置](config.zh-CN.md#https)只对构建出的程序生效，开发程序不管它们。
