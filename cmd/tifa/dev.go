@@ -51,6 +51,9 @@ build keeps the running app and shows the error in the page.`,
 			if err != nil {
 				return err
 			}
+			if err := checkInstalled(root); err != nil {
+				return err
+			}
 			settings, err := codegen.ProjectSettings(root)
 			if err != nil {
 				return err

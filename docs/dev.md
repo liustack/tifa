@@ -16,6 +16,8 @@ tifa dev [--dir app-root] [--addr 127.0.0.1:9527]
 
 On start it prints `tifa dev: serving http://<address>`, then runs a full build (the same steps as [tifa build](build.md), and the first one of an app takes several seconds to a minute, see [Log](#log)) and starts the app. The browser connects to `--addr` only. tifa dev forwards page and data requests to the app, and requests under `/__tifa/vite/`, the browser modules and Vite's HMR websocket, to Vite's dev server. While the app restarts or loads a new SSR bundle, page requests wait for it. Ctrl-C, SIGTERM and SIGHUP, which a terminal sends when it closes, stop the app, Vite and tifa dev. A tifa dev started with `nohup` ignores SIGHUP. A Vite build or plugin that does not end gets 5 seconds, then Vite is stopped. If tifa dev itself is killed, the app and Vite stop on their own: the app shuts down as it does on SIGTERM, and Vite within the same 5 seconds. tifa dev hands the app and Vite only the files it names for them, not the ones it inherited, such as the lock a script holds with `flock`.
 
+An app with a `package.json` needs its npm packages first. Right after a clone, `node_modules` is missing, and tifa dev (like `tifa build`) stops before it starts anything and prints the command to run: `pnpm install` when pnpm is on PATH, `npm install` otherwise. An app without pages has no `package.json` and needs no Node.
+
 tifa dev does not run on Windows yet. Use WSL.
 
 tifa dev serves plain HTTP. The [HTTPS settings](config.md#https) of the project file apply to the built program only: the dev program ignores them.

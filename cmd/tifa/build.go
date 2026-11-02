@@ -33,6 +33,9 @@ Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 			if err != nil {
 				return err
 			}
+			if err := checkInstalled(root); err != nil {
+				return err
+			}
 			// 1. Static analysis.
 			m, err := analyzeApp(cmd, root)
 			if err != nil {
