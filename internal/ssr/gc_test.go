@@ -338,7 +338,7 @@ func TestGCBetweenRendersUnderALowLimit(t *testing.T) {
 // VM.
 func TestGCPanicReplacesTheVM(t *testing.T) {
 	logs := make(chan string, 10)
-	defer swap(&logf, func(format string, args ...any) { logs <- fmt.Sprintf(format, args...) })()
+	defer captureLogs(func(msg string) { logs <- msg })()
 	p := newTestPool(t, testSource(t), testConfig(1))
 	p.collecting = func(*pooledVM) { panic("gc failed") }
 	for i := 0; p.stats().created == 1; i++ {

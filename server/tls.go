@@ -6,7 +6,6 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -15,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/liustack/tifa/internal/core"
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
 )
@@ -37,7 +37,8 @@ func (s *Server) https() (tlsConfig *tls.Config, plain http.Handler, ready func(
 			return nil, nil, nil, err
 		}
 		// net/http adds h2 and http/1.1 to NextProtos, so browsers get HTTP/2.
-		return &tls.Config{GetCertificate: files.get}, redirectToHTTPS(files.serves), func() {}, nil
+		// The line about the certificate waits for ready, which runs after OnStart.
+		return &tls.Config{GetCertificate: files.get}, redirectToHTTPS(files.serves), files.announce, nil
 	}
 	if err := os.MkdirAll(c.TLSCache, 0o700); err != nil {
 		return nil, nil, nil, fmt.Errorf("tifa: server.tls_cache: %w", err)
@@ -88,10 +89,10 @@ func obtain(m *autocert.Manager, domains []string) {
 			SupportedCurves:  []tls.CurveID{tls.CurveP256},
 		})
 		if err != nil {
-			log.Printf("tifa: no certificate for %s yet, a connection after a minute asks again: %v", d, err)
+			core.Logger().Warn("tifa: no certificate yet, a connection after a minute asks again", "domain", d, "err", err)
 			continue
 		}
-		log.Printf("tifa: certificate for %s, valid until %s", d, cert.Leaf.NotAfter.UTC().Format(time.DateOnly))
+		core.Logger().Info("tifa: certificate", "domain", d, "valid_until", cert.Leaf.NotAfter.UTC().Format(time.DateOnly))
 	}
 }
 
@@ -99,7 +100,7 @@ func obtain(m *autocert.Manager, domains []string) {
 // reaches. It starts anyway, since that may be a test on this machine.
 func warnLoopback(addr net.Addr) {
 	if a, ok := addr.(*net.TCPAddr); ok && a.IP.IsLoopback() {
-		log.Printf("tifa: HTTPS listens on the loopback address %s, which no other machine reaches, Let's Encrypt included: set server.addr to the address browsers connect to, usually :443", addr)
+		core.Logger().Warn("tifa: HTTPS listens on a loopback address, which no other machine reaches, Let's Encrypt included: set server.addr to the address browsers connect to, usually :443", "addr", addr.String())
 	}
 }
 
@@ -186,8 +187,19 @@ func (f *certFiles) load(ci, ki os.FileInfo) error {
 		}
 	}
 	f.cert, f.certInfo, f.keyInfo = &cert, ci, ki
-	log.Printf("tifa: certificate %s for %s, valid until %s", f.certPath, certNames(cert.Leaf), cert.Leaf.NotAfter.UTC().Format(time.DateOnly))
 	return nil
+}
+
+// announce logs the certificate in use. Run calls it once OnStart has returned, so the line goes
+// to the logger the app set there. The reload in get logs for itself.
+func (f *certFiles) announce() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.logCert()
+}
+
+func (f *certFiles) logCert() {
+	core.Logger().Info("tifa: certificate loaded", "file", f.certPath, "names", certNames(f.cert.Leaf), "valid_until", f.cert.Leaf.NotAfter.UTC().Format(time.DateOnly))
 }
 
 func (f *certFiles) get(*tls.ClientHelloInfo) (*tls.Certificate, error) {
@@ -198,7 +210,7 @@ func (f *certFiles) get(*tls.ClientHelloInfo) (*tls.Certificate, error) {
 	case err != nil:
 		if err.Error() != f.statErr {
 			f.statErr = err.Error()
-			log.Printf("tifa: keeping the certificate loaded before: %v", err)
+			core.Logger().Warn("tifa: keeping the certificate loaded before", "err", err)
 		}
 	case sameFile(ci, f.certInfo) && sameFile(ki, f.keyInfo):
 	case sameFile(ci, f.failCert) && sameFile(ki, f.failKey):
@@ -206,7 +218,9 @@ func (f *certFiles) get(*tls.ClientHelloInfo) (*tls.Certificate, error) {
 		f.statErr = ""
 		if err := f.load(ci, ki); err != nil {
 			f.failCert, f.failKey = ci, ki
-			log.Printf("tifa: keeping the certificate loaded before, %s and %s do not load: %v", f.certPath, f.keyPath, err)
+			core.Logger().Warn("tifa: keeping the certificate loaded before, the new files do not load", "cert", f.certPath, "key", f.keyPath, "err", err)
+		} else {
+			f.logCert()
 		}
 	}
 	return f.cert, nil

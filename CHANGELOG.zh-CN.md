@@ -6,6 +6,7 @@
 
 ### 变更
 
+- tifa 的日志从 `log` 改走 `log/slog`，带级别和字段。请求失败是 `ERROR`，带 `method`、`path` 和 `err`，拒绝跨站写请求是 `WARN`，监听地址是 `INFO`，有请求时把请求的 context 一起交给 Handler，Handler 可以据此加 trace id。启动期的日志在 `OnStart` 返回之后才写，所以在 `OnStart` 里调 `slog.SetDefault`，它们都走新 Handler，tifa 每条日志都现取 `slog.Default()`。日志行的格式变成 `msg key=value`，按旧格式读日志的脚本要改，但监听那行仍然含 `tifa: listening on http://地址`（见[换日志 Handler](docs/app.zh-CN.md#换日志-handler)）。
 - **破坏性变更：** `OnRequest` 的签名改为 `func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error`。原来的 `c.Next()` 换成 `next(c)`，执行匹配到的路由，只能调一次。`c.SetContext` 换成 `c.WithContext(ctx)`：它返回带着 `ctx` 的 `c` 的副本，`c` 本身不变，和 `http.Request.WithContext` 一样，写法是 `return next(c.WithContext(ctx))`。`c.Next`、`c.SetContext` 和 `tifatest.SetNext` 都删掉了，测试时直接调 `OnRequest(c, func(c *tifa.Ctx) error { ... })`，`next` 传自己的闭包。升级应用时，改签名，把 `c.Next()` 换成 `next(c)`，把传给 `c.SetContext` 的 context 改成传给 `next(c.WithContext(ctx))`。旧签名会让构建报错（见 [hooks.go](docs/app.zh-CN.md#hooksgo)）。
 - 导出 `tifa.RedirectError`，即 `c.Redirect` 返回的错误的类型。`OnRequest` 和应用的测试可以用 `errors.As(err, &redirect)` 认出重定向，并读到它的 `URL` 和 `Code`。
 - 访客开着的页面碰到部署后，不管是哪种不一致，都为新构建刷新一次。导航数据请求的 409 本来就会刷新，现在它还在响应头 `X-Tifa-Build` 里写上服务器运行的构建。处理函数带上页面的构建，服务器在处理函数运行前用同样的 409 拒绝来自别的构建的调用，所以旧页面不会再按新处理函数已经读不懂的类型去写。调用抛出状态 409 的 `TifaError`，页面刷新，调用不会再发一次。你自己的处理函数返回的 409 不会刷新任何东西，不带 `X-Tifa-Build` 的调用（比如 curl）不检查。代码块加载失败（Vite 的 `vite:preloadError`）也会刷新页面。每个构建只刷新一次，记在 `sessionStorage` 里，页面写下标记并读回来之后才会刷新。浏览器禁用存储时页面不刷新，直接显示失败，消息会说刷新一下页面。刷新后回来的页面仍然是旧的，就不再刷新：导航数据带着 409 失败，调用抛出这个 409，失败的 import 交给路由的 `Error`（见[部署时还开着的页面](docs/app.zh-CN.md#部署时还开着的页面)）。

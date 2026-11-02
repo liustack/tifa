@@ -10,7 +10,6 @@ import (
 	"html"
 	"io"
 	"io/fs"
-	"log"
 	"maps"
 	"mime"
 	"net/http"
@@ -652,7 +651,7 @@ func (s *Server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 	// A render that fails once no request waits has no OnError to go to, so it is logged.
 	unheard := func(err error) {
 		if !errors.As(err, new(*ssr.RedirectError)) {
-			log.Printf("tifa: %s %s: %v, and no request waits for the render", method, path, &renderError{err: err, f: f, in: in})
+			core.Logger().ErrorContext(c.Context(), "tifa: a render failed and no request waits for it", "method", method, "path", path, "err", &renderError{err: err, f: f, in: in})
 		}
 	}
 	got, err := s.cache.fetch(c.Request().Context(), key, unheard, func(ctx context.Context) (cachedPage, bool, error) {
@@ -867,7 +866,7 @@ func (s *Server) rescue(c *tifa.Ctx, e tifa.Error, err error, failed *renderErro
 		}
 	}
 	tries := errors.Join(errs...)
-	log.Printf("tifa: %s %s: the page with the error failed too: %v", c.Request().Method, c.Request().URL.Path, tries)
+	core.Logger().ErrorContext(c.Context(), "tifa: the page with the error failed too", "method", c.Request().Method, "path", c.Request().URL.Path, "err", tries)
 	s.fallback(c, e, errors.Join(err, tries))
 }
 

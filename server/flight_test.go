@@ -542,9 +542,9 @@ func TestFailureNoRequestWaitsForIsLogged(t *testing.T) {
 		want   []string
 	}{
 		{"error", func(context.Context, ssr.Input) (string, error) { return "", errors.New("Error: a component threw") },
-			[]string{"tifa: GET /stats: ", "a component threw"}},
+			[]string{"a render failed and no request waits for it", "path=/stats", "a component threw"}},
 		{"panic", func(context.Context, ssr.Input) (string, error) { panic("the engine broke") },
-			[]string{"tifa: GET /stats: ", "tifa: panic: the engine broke", "(*heldRender).render"}},
+			[]string{"a render failed and no request waits for it", "path=/stats", "tifa: panic: the engine broke", "(*heldRender).render"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var mu sync.Mutex

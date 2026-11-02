@@ -212,7 +212,7 @@ func TestMemorySwapFailedLoadBacksOffAndLogsOnce(t *testing.T) {
 	var calls atomic.Int32
 	messages := make(chan string, 8)
 	attempts := make(chan time.Time, 3)
-	defer swap(&logf, func(f string, a ...any) { messages <- fmt.Sprintf(f, a...) })()
+	defer captureLogs(func(msg string) { messages <- msg })()
 	defer swap(&loadVM, func(p *Pool) (*pooledVM, error) {
 		attempts <- time.Now()
 		if calls.Add(1) <= 2 {

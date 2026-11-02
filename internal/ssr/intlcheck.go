@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/liustack/slowjs"
+	"github.com/liustack/tifa/internal/core"
 )
 
 // intlWarning is a call intlcheck.js wrote down: what was called, whether it had no locale and
@@ -62,7 +63,7 @@ func (p *Pool) warnIntl(vm *slowjs.VM) error {
 			line, column := placeOf(place)
 			return p.sources.name(line, column)
 		})
-		logf("tifa: ssr: %s without %s at %s. %s\n%s", w.Call, missing, place, intlAdvice, stack)
+		core.Logger().Warn("tifa: ssr: "+w.Call+" without "+missing+" at "+place+". "+intlAdvice, "stack", stack)
 	}
 	return nil
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"regexp"
 	"strconv"
@@ -387,7 +388,7 @@ func TestCloseWaitsForReplacement(t *testing.T) {
 // A failed replacement is logged and retried, so the pool does not lose a VM silently.
 func TestFailedReplacementIsLoggedAndRetried(t *testing.T) {
 	logs := make(chan string, 16)
-	defer swap(&logf, func(format string, args ...any) { logs <- fmt.Sprintf(format, args...) })()
+	defer captureLogs(func(msg string) { logs <- msg })()
 	defer swap(&retryDelay, time.Millisecond)()
 	p := newTestPool(t, testSource(t), testConfig(1))
 	failures := 2
@@ -418,9 +419,9 @@ func TestFailedReplacementIsLoggedAndRetried(t *testing.T) {
 // Close stops a replacement that keeps failing instead of waiting for it forever.
 func TestCloseStopsRetryingReplacement(t *testing.T) {
 	logs := make(chan string, 16)
-	defer swap(&logf, func(format string, args ...any) {
+	defer captureLogs(func(msg string) {
 		select {
-		case logs <- fmt.Sprintf(format, args...):
+		case logs <- msg:
 		default:
 		}
 	})()
@@ -440,6 +441,28 @@ func TestCloseStopsRetryingReplacement(t *testing.T) {
 	if s := p.stats(); s.created != s.closed {
 		t.Fatalf("VMs left open: %+v", s)
 	}
+}
+
+// logSink is a slog.Handler that hands each record to f as its message followed by its attributes
+// as key=value. f may be called from several goroutines.
+type logSink struct{ f func(string) }
+
+func (logSink) Enabled(context.Context, slog.Level) bool { return true }
+func (h logSink) Handle(_ context.Context, r slog.Record) error {
+	var b strings.Builder
+	b.WriteString(r.Message)
+	r.Attrs(func(a slog.Attr) bool { fmt.Fprintf(&b, " %s=%v", a.Key, a.Value); return true })
+	h.f(b.String())
+	return nil
+}
+func (h logSink) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h logSink) WithGroup(string) slog.Handler      { return h }
+
+// captureLogs sends what the pool logs to f until the returned func runs.
+func captureLogs(f func(string)) (restore func()) {
+	old := slog.Default()
+	slog.SetDefault(slog.New(logSink{f}))
+	return func() { slog.SetDefault(old) }
 }
 
 func swap[T any](target *T, value T) (restore func()) {

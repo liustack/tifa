@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -203,7 +202,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, pattern string, p
 	c := core.New(tw, r, pattern, s.cfg.BodyLimit)
 	defer func() {
 		if err := core.Finish(c); err != nil {
-			log.Printf("tifa: %s %s: %v", r.Method, r.URL.Path, err)
+			core.Logger().WarnContext(r.Context(), "tifa: removing the multipart files failed", "method", r.Method, "path", r.URL.Path, "err", err)
 		}
 	}()
 	var err error
@@ -260,7 +259,7 @@ func (s *Server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 		redirect, e = s.classify(c, err)
 	}
 	if w.wrote {
-		log.Printf("tifa: %s %s: %v after the response was written", r.Method, r.URL.Path, err)
+		core.Logger().ErrorContext(r.Context(), "tifa: request failed after the response was written", "method", r.Method, "path", r.URL.Path, "err", err)
 		return
 	}
 	// Only the collector sends X-Tifa-Route. It also reaches a redirect of ServeMux, which has
@@ -328,7 +327,7 @@ func (s *Server) classify(c *tifa.Ctx, err error) (*core.RedirectError, tifa.Err
 // publicError asks OnError what to show for an unexpected error. Without OnError it logs the error and answers 500.
 func (s *Server) publicError(c *tifa.Ctx, err error) tifa.Error {
 	if s.hooks.OnError == nil {
-		log.Printf("tifa: %s %s: %v", c.Request().Method, c.Request().URL.Path, err)
+		core.Logger().ErrorContext(c.Context(), "tifa: request failed", "method", c.Request().Method, "path", c.Request().URL.Path, "err", err)
 		return tifa.Error{Status: http.StatusInternalServerError, Message: http.StatusText(http.StatusInternalServerError)}
 	}
 	e := s.hooks.OnError(c, err)
@@ -522,12 +521,12 @@ func (s *Server) Run(ctx context.Context) error {
 		if tlsConfig != nil {
 			scheme = "https"
 		}
-		log.Printf("tifa: listening on %s://%s", scheme, ln.Addr())
+		core.Logger().Info("tifa: listening on " + scheme + "://" + ln.Addr().String())
 		if tlsConfig != nil {
 			warnLoopback(ln.Addr())
 		}
 		if plainLn != nil {
-			log.Printf("tifa: listening on http://%s, which redirects to HTTPS", plainLn.Addr())
+			core.Logger().Info("tifa: listening on http://"+plainLn.Addr().String(), "redirects_to", "https")
 		}
 	}
 	ready()

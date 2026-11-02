@@ -190,7 +190,7 @@ func TestCrossSiteRefusalIsOneLogLine(t *testing.T) {
 	if strings.Count(got, "\n") != 1 || strings.ContainsRune(got, 0x1b) || strings.Contains(got, "secret") {
 		t.Fatalf("log %q", got)
 	}
-	for _, want := range []string{`refused POST "/w\nFAKE\x1b[2J"`, `Origin "https://evil.test"`, `Sec-Fetch-Site "cross-site"`, `Host "shop.example"`} {
+	for _, want := range []string{`method=POST`, `path="/w\nFAKE\x1b[2J"`, `origin=https://evil.test`, `sec_fetch_site=cross-site`, `host=shop.example`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("log %q lacks %s", got, want)
 		}
