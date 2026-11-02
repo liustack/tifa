@@ -905,6 +905,8 @@ function Header() {
 
 在浏览器里调用处理函数，如果这次调用改了会话，副本随之更新，调用之后的数据重取也会再带回一次会话。登录、登出的处理函数要有入参类型或结果类型（`func POST(c *tifa.Ctx, in Login) error`）。自己写响应的处理函数（`func POST(c *tifa.Ctx) error`）没法把会话放进回答里。
 
+带着会话的回答，`Cache-Control` 必须是 `no-store`，或者同时有 `private` 和 `no-cache`，两个都不带字段列表（`private="Set-Cookie"` 不算），也不能有 `must-understand`。不设这个头，它就是 `private, no-cache`。`OnRequest`、`Load` 或处理函数在页面、页面的启动数据或调用的信封上设了别的值，请求按意外错误交给 `OnError`，错误回答是 `no-store`，没有 `ETag` 和 `Last-Modified`。导航重定向和已经在报错的导航回答不再抛一次：服务器记日志、清验证器、改成 `no-store`。`/__tifa/session` 永远是不带验证器的 `private, no-store`，中间件自己回答它时也一样。自己写响应的处理函数不检查。
+
 `data-session` 是 tifa 在 `<html>` 上管的属性。根 Layout 的 `htmlAttributes` 设了它，服务器启动时就会停下（VM 预热失败，`tifa dev` 会显示错误）。路由的 `htmlAttributes` 设了它，渲染会失败。
 
 **内容安全策略（CSP）。** 脚本和样式都是内联的，每个页面都一样。CSP 写在 `<meta>` 标签里时它们不受影响，因为它们排在标签前面。CSP 写在响应头里时，放行它们的哈希：

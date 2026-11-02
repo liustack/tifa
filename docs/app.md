@@ -903,6 +903,8 @@ A page the server answers for every visitor alike carries no session and no `dat
 
 Calling a handler function from the browser updates the copy when the call changed the session, and the data reload after it brings the session again. Use an input or a result type for sign-in and sign-out handlers (`func POST(c *tifa.Ctx, in Login) error`). A handler that writes its own response (`func POST(c *tifa.Ctx) error`) cannot carry the session in its answer.
 
+An answer that carries the session must say `Cache-Control: no-store`, or `private` and `no-cache` together, both without a list of fields (`private="Set-Cookie"` does not count), and no `must-understand`. Leave the header alone and it is `private, no-cache`. If `OnRequest`, a `Load` or a handler sets anything else on a page, a page's boot data or the envelope of a call, the request fails as an unexpected error through `OnError`, and the error answer is `no-store` without `ETag` or `Last-Modified`. A navigation redirect, and a navigation answer that is already reporting an error, are not raised again: the server logs it, clears the validators and sends `no-store`. `/__tifa/session` is always `private, no-store` without validators, also when a middleware answers it itself. Handlers that write their own response are not checked.
+
 `data-session` is an attribute tifa keeps on `<html>`. A root Layout whose `htmlAttributes` sets it stops the server when it starts (the VMs fail to prewarm, and `tifa dev` shows the error), and a route whose `htmlAttributes` sets it fails the render.
 
 **Content Security Policy.** The script and the style are inline and the same on every page. With a CSP in a `<meta>` tag they are not affected, since they come before the tag. With a CSP in a header, allow their hashes:
