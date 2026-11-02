@@ -1,7 +1,11 @@
 // Package tifa is the API that application code imports: the request context, errors and Layout data reuse.
 package tifa
 
-import "github.com/liustack/tifa/internal/core"
+import (
+	"net/http"
+
+	"github.com/liustack/tifa/internal/core"
+)
 
 // Ctx wraps one request and its response. Load, the method handlers and OnRequest receive it.
 type Ctx = core.Ctx
@@ -28,3 +32,11 @@ var ErrSSRBusy = core.ErrSSRBusy
 // directory or of a directory above it: tifa.Use(c, project.Layout).
 // Each function runs at most once per request, a second caller waits for the first run.
 func Use[T any](c *Ctx, load func(*Ctx) (T, error)) (T, error) { return core.Use(c, load) }
+
+// SetHTTPHandler wraps the handler of the whole server with wrap, which gets tifa's handler and
+// returns the handler to serve. Use it for plain net/http middleware, such as pprof or OpenTelemetry. The
+// wrapper sees every request, static files and the 403 of a cross-site write included, with the
+// original http.ResponseWriter, and does not go through OnRequest, OnError or the cross-site check.
+// A shutdown waits for the requests it wraps. Call it in OnStart: it panics once the server listens.
+// nil removes the wrapper.
+func SetHTTPHandler(wrap func(app http.Handler) http.Handler) { core.SetHTTPHandler(wrap) }

@@ -727,6 +727,34 @@ func OnStart() error {
 
 tifa 每条日志现取 `slog.Default()`，所以之后再调 `slog.SetDefault` 也生效。
 
+### 在 OnStart 里装配
+
+`OnStart` 是应用装配整个进程共用的东西的地方：日志 Handler 和普通的 `net/http` 中间件。
+
+```go
+import (
+	"log/slog"
+	"net/http"
+	"net/http/pprof"
+	"os"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+)
+
+func OnStart() error {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+	tifa.SetHTTPHandler(func(app http.Handler) http.Handler {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/debug/pprof/", pprof.Index)
+		mux.Handle("/", otelhttp.NewHandler(app, "tifa"))
+		return mux
+	})
+	return nil
+}
+```
+
+`tifa.SetHTTPHandler(wrap)` 拿到 tifa 的 handler，返回要对外服务的 handler。这层包在最外面，静态文件、跨站检查和路由都在它里面。它看得到每个请求，拿到的是原始的 `http.ResponseWriter`，被拒绝的跨站写请求的 403 也看得到。挂上去的是普通 `net/http`，所以它自己处理的路径（比如上面的 `/debug/pprof/`）不走 `OnRequest`、`OnError` 和跨站检查，要自己加访问控制，或者放到另一个监听端口上。关停时仍会等它包着的请求。只能在 `OnStart` 里调，服务开始监听后再调会 panic。`tifa.SetHTTPHandler(nil)` 去掉这层包装。
+
 ## 测试
 
 `Load`、`Layout`、方法函数和 `OnRequest` 都是普通的 Go 函数，在代码旁边用 `go test` 测。`tifatest.NewCtx(t, r)` 把一个 `httptest` 请求变成函数要的 `*tifa.Ctx`，同时返回记录函数写出内容的 recorder：

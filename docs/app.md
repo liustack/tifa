@@ -725,6 +725,34 @@ func OnStart() error {
 
 tifa looks up `slog.Default()` for each message, so a later `slog.SetDefault` also works.
 
+### Setting up in OnStart
+
+`OnStart` is where the app wires what the whole process shares: the log handler and plain `net/http` middleware.
+
+```go
+import (
+	"log/slog"
+	"net/http"
+	"net/http/pprof"
+	"os"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+)
+
+func OnStart() error {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+	tifa.SetHTTPHandler(func(app http.Handler) http.Handler {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/debug/pprof/", pprof.Index)
+		mux.Handle("/", otelhttp.NewHandler(app, "tifa"))
+		return mux
+	})
+	return nil
+}
+```
+
+`tifa.SetHTTPHandler(wrap)` gets tifa's handler and returns the one to serve. The wrapper is outside everything else: static files, the cross-site check and the routes. It sees every request with the original `http.ResponseWriter`, including the 403 of a refused cross-site write. It is plain `net/http`, so `OnRequest`, `OnError` and the cross-site check do not apply to the paths it serves itself, such as `/debug/pprof/` above. Put such paths behind your own check, or keep them on another listener. A shutdown still waits for the requests it wraps. Call it in `OnStart` only: it panics once the server listens. `tifa.SetHTTPHandler(nil)` removes the wrapper.
+
 ## Testing
 
 `Load`, `Layout`, the method handlers and `OnRequest` are plain Go functions, so test them with `go test` next to the code. `tifatest.NewCtx(t, r)` turns an `httptest` request into the `*tifa.Ctx` the function takes, and returns the recorder that holds what the function writes:

@@ -37,6 +37,7 @@ type Hooks struct {
 type Server struct {
 	cfg    config.Server
 	hooks  Hooks
+	root   http.Handler // what the listener serves: s wrapped by tifa.SetHTTPHandler, set by Run
 	mux    *http.ServeMux
 	routes map[string]map[string]func(*tifa.Ctx) error // path, then method
 	pages  map[string]bool                             // paths whose GET renders a page
@@ -503,6 +504,10 @@ func (s *Server) Run(ctx context.Context) error {
 			return fmt.Errorf("tifa: OnStart: %w", err)
 		}
 	}
+	// After OnStart, which is where an app calls tifa.SetHTTPHandler.
+	root, release := core.SealHTTPHandler(s)
+	defer release()
+	s.root = root
 	ln, err := net.Listen("tcp", s.cfg.Addr)
 	if err != nil {
 		return listenError("server.addr", err)
@@ -617,6 +622,10 @@ func (s *Server) serveBoth(ctx context.Context, ln net.Listener, tlsConfig *tls.
 		return err
 	}
 	var g gate
+	var root http.Handler = s
+	if s.root != nil {
+		root = s.root
+	}
 	base, cancelRequests := context.WithCancel(context.Background())
 	defer cancelRequests()
 	srv := &http.Server{
@@ -634,7 +643,7 @@ func (s *Server) serveBoth(ctx context.Context, ln net.Listener, tlsConfig *tls.
 				return
 			}
 			defer g.leave()
-			s.ServeHTTP(w, r)
+			root.ServeHTTP(w, r)
 		}),
 		BaseContext:       func(net.Listener) context.Context { return base },
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second,
