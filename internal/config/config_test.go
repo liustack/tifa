@@ -299,7 +299,7 @@ func TestFileMustHoldOneDocument(t *testing.T) {
 }
 
 func TestKeysListEverySetting(t *testing.T) {
-	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache server.addr server.body_limit server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout cache.size"
+	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache server.addr server.body_limit server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout cache.size session.cookie session.max_age session.memory_limit"
 	if got := strings.Join(Keys(), " "); got != want {
 		t.Fatalf("Keys: %s, want %s", got, want)
 	}
@@ -685,5 +685,47 @@ func TestExampleHoldsTheCrossSiteSettings(t *testing.T) {
 	back, err := load(t, nil, nil, "x.yaml", out)
 	if err != nil || !reflect.DeepEqual(back.Server.TrustedOrigins, c.Server.TrustedOrigins) {
 		t.Fatalf("round trip: %+v, %v", back.Server, err)
+	}
+}
+
+func TestSessionSettings(t *testing.T) {
+	d := Default().Session
+	if d.Cookie != "__Host-tifa_session" || d.MaxAge != 720*time.Hour || d.MemoryLimit != 64<<20 {
+		t.Fatalf("defaults %+v", d)
+	}
+	c, err := load(t, []string{"--session-cookie", "app_sid"}, []string{"TIFA_SESSION_MAX_AGE=24h"}, "tifa.yaml", "session:\n  memory_limit: 8MiB\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Session.Cookie != "app_sid" || c.Session.MaxAge != 24*time.Hour || c.Session.MemoryLimit != 8<<20 {
+		t.Fatalf("%+v", c.Session)
+	}
+}
+
+func TestSessionSettingErrors(t *testing.T) {
+	cases := []struct {
+		name, file string
+		want       []string
+	}{
+		{"cookie name", "session:\n  cookie: \"a b\"\n", []string{"session.cookie", "cookie name"}},
+		{"cookie semicolon", "session:\n  cookie: \"a;b\"\n", []string{"session.cookie"}},
+		{"cookie empty", "session:\n  cookie: \"\"\n", []string{"session.cookie"}},
+		{"max age zero", "session:\n  max_age: 0s\n", []string{"session.max_age"}},
+		{"max age under a second", "session:\n  max_age: 500ms\n", []string{"session.max_age"}},
+		{"memory limit unit", "session:\n  memory_limit: 8MB\n", []string{"session.memory_limit"}},
+		{"memory limit zero", "session:\n  memory_limit: 0\n", []string{"session.memory_limit"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := load(t, []string{"--config", writeFile(t, "prod.yaml", tc.file)}, nil, "", "")
+			if err == nil {
+				t.Fatal("no error")
+			}
+			for _, w := range tc.want {
+				if !strings.Contains(err.Error(), w) {
+					t.Errorf("%v lacks %q", err, w)
+				}
+			}
+		})
 	}
 }

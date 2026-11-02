@@ -38,3 +38,8 @@
 
 # cache:
 #   size: 64MiB             # HTML cache of pages with Cache = true, 0 turns it off
+
+# session:
+#   cookie: __Host-tifa_session  # name of the session cookie, tifa dev drops the __Host- prefix
+#   max_age: 720h           # how long a session lasts from the moment tifa.SetSession makes it
+#   memory_limit: 64MiB     # bytes the default in-memory session store may hold

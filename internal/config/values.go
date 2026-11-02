@@ -336,6 +336,39 @@ func (v durationValue) Set(s string) error {
 func (v durationValue) String() string { return v.p.String() }
 func (v durationValue) kind() string   { return "duration" }
 
+// ageValue is session.max_age: a duration of at least a second, the unit of the cookie's Max-Age.
+type ageValue struct{ p *time.Duration }
+
+func (v ageValue) Set(s string) error {
+	d, err := time.ParseDuration(s)
+	if err != nil || d < time.Second {
+		return fmt.Errorf("invalid duration %q, use at least one second, such as 720h", s)
+	}
+	*v.p = d
+	return nil
+}
+func (v ageValue) String() string { return v.p.String() }
+func (v ageValue) kind() string   { return "duration" }
+
+// cookieNameValue is session.cookie: a cookie name is a token (RFC 6265), so no spaces, control
+// characters, separators or non-ASCII.
+type cookieNameValue struct{ p *string }
+
+func (v cookieNameValue) Set(s string) error {
+	if s == "" {
+		return errors.New("must not be empty")
+	}
+	for _, r := range s {
+		if r <= ' ' || r >= 0x7f || strings.ContainsRune("()<>@,;:\\\"/[]?={}", r) {
+			return fmt.Errorf("invalid cookie name %q, use letters, digits and - _ . only", s)
+		}
+	}
+	*v.p = s
+	return nil
+}
+func (v cookieNameValue) String() string { return *v.p }
+func (v cookieNameValue) kind() string   { return "string" }
+
 var sizeUnits = []struct {
 	name string
 	n    int64

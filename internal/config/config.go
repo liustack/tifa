@@ -22,10 +22,11 @@ import (
 )
 
 type Config struct {
-	Build  Build
-	Server Server
-	SSR    SSR
-	Cache  Cache
+	Build   Build
+	Server  Server
+	SSR     SSR
+	Cache   Cache
+	Session Session
 }
 
 // Build is read by the tifa CLI only. It may appear in the project tifa.yaml and nowhere else.
@@ -118,6 +119,18 @@ type Cache struct {
 	Size int64
 }
 
+// Session holds the settings of tifa.SetSession. Cookie is the name of the session cookie, MaxAge
+// how long a session lasts from the moment SetSession makes it, and MemoryLimit the bytes the
+// default in-memory store may hold.
+type Session struct {
+	Cookie      string
+	MaxAge      time.Duration
+	MemoryLimit int64
+}
+
+// DefaultSessionCookie is the cookie name of a production server. tifa dev uses the name without the __Host- prefix.
+const DefaultSessionCookie = "__Host-tifa_session"
+
 // MaxVMStackDepth is the default and the largest ssr.vm_stack_depth: the deepest the engine lets calls
 // nest, which internal/ssr checks. Code that recurses without end takes a few KB of stack
 // per level before it throws, and the engine does not nest calls deeper than this.
@@ -129,10 +142,11 @@ const DefaultAddr = "127.0.0.1:9527"
 // Default holds values sized for small machines. ssr.vms follows GOMAXPROCS, which honours container CPU limits, with no cap.
 func Default() Config {
 	return Config{
-		Build:  Build{Target: "es2020", Public: "public", I18nextCache: true},
-		Server: Server{Addr: DefaultAddr, BodyLimit: 1 << 20, ShutdownTimeout: 10 * time.Second, Compress: true, TLSCA: LetsEncrypt, HTTPAddr: ":80"},
-		SSR:    SSR{VMs: runtime.GOMAXPROCS(0), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second, QueueLimit: 32, WaitTimeout: time.Second},
-		Cache:  Cache{Size: 64 << 20},
+		Build:   Build{Target: "es2020", Public: "public", I18nextCache: true},
+		Server:  Server{Addr: DefaultAddr, BodyLimit: 1 << 20, ShutdownTimeout: 10 * time.Second, Compress: true, TLSCA: LetsEncrypt, HTTPAddr: ":80"},
+		SSR:     SSR{VMs: runtime.GOMAXPROCS(0), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second, QueueLimit: 32, WaitTimeout: time.Second},
+		Cache:   Cache{Size: 64 << 20},
+		Session: Session{Cookie: DefaultSessionCookie, MaxAge: 30 * 24 * time.Hour, MemoryLimit: 64 << 20},
 	}
 }
 
@@ -179,6 +193,9 @@ func fields(c *Config) []field {
 		{"ssr.queue_limit", "Requests allowed to wait for a VM, 0 rejects when all VMs are busy", intValue{p: &c.SSR.QueueLimit, min: 0}},
 		{"ssr.wait_timeout", "Maximum time waiting for a VM before answering 503", durationValue{&c.SSR.WaitTimeout}},
 		{"cache.size", "Rendered page cache size, 0 disables it", sizeValue{&c.Cache.Size, 0}},
+		{"session.cookie", "Name of the session cookie", cookieNameValue{&c.Session.Cookie}},
+		{"session.max_age", "How long a session lasts, from the moment it is set", ageValue{&c.Session.MaxAge}},
+		{"session.memory_limit", "Bytes the default in-memory session store may hold", sizeValue{&c.Session.MemoryLimit, 1}},
 	}
 }
 
@@ -424,7 +441,7 @@ func yamlType(tag string) string {
 }
 
 func knownSection(name string) bool {
-	return slices.Contains([]string{"build", "server", "ssr", "cache"}, name)
+	return slices.Contains([]string{"build", "server", "ssr", "cache", "session"}, name)
 }
 
 func sortedKeys[V any](m map[string]V) []string {
