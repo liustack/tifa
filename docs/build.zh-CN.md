@@ -57,6 +57,15 @@ tifa build [--dir 应用根目录] [-o 输出路径]
 3. 用应用自己装的 Vite 打包，它跑在 Node 上，产物写进 `.tifa/dist/`，见下文「前端产物」。整个构建只起一个 Node 进程，不管 shell 里设了什么，它的 `NODE_ENV` 都是 `production`，所以构建总用 React 的生产版。第 2 步读 `page.tsx`、`layout.tsx` 的导出也用 Vite 的解析器。没有页面的应用构建时不需要 Node。可执行文件始终不需要 Node。
 4. `CGO_ENABLED=0 go build -o <输出> -ldflags=-w ./.tifa`，默认输出 `bin/<模块路径最后一段>`。生成的 main 用 `//go:embed all:dist` 把 `.tifa/dist/` 嵌进可执行文件。`-w` 去掉调试信息，见下文「调试信息」。
 
+静态分析还会检查应用的会话（见[会话](app.zh-CN.md#会话)）。`tifa build` 和 `tifa check` 在下面每一种情况下都会停下：
+
+- `tifa.SetSession` 和 `tifa.Session` 用了不同的类型，或者在泛型函数里用类型参数调用。错误会写出两处位置。模块里每个包的调用都算，模块外的包不读。
+- 有 `tifa.Session` 或 `tifa.ClearSession` 的调用，却没有任何地方调用 `tifa.SetSession`。
+- 会话类型不是 struct，或者不能从 JSON 读回来（通道、函数、接口字段，以及 [JSON 规则](app.zh-CN.md#json-规则)拒绝的其他类型）。
+- 会话类型有 `Browser` 方法，但签名不是 `func() M`，或者 `M` 没有对应的 TypeScript JSON 形式。
+- `Load` 或 `Layout` 能走到 `tifa.SetSession` 或 `tifa.ClearSession`，不论是直接调用，还是经过它们传下 Ctx 的函数。
+- 页面或 API 路由的路径以 `/__tifa/` 开头，或者 `public/__tifa/` 下有文件。这个路径由 tifa 自己回答。
+
 ### 调试信息
 
 `tifa build` 给 `go build` 传 `-ldflags=-w`，程序里不带 DWARF 调试信息。`examples/shop` 在 Apple M4（darwin/arm64）上的程序从 26.4 MB 降到 21.2 MB，小了约 20%。
@@ -209,6 +218,7 @@ go tool tifa build
 | `routes.go` | `layouts` 与 `routes` 两个包级变量，每个 `Load` 与 `Layout` 函数包成 `func(c *tifa.Ctx) (any, error) { return tifa.Use(c, pkg.Load) }`，Layout 用 `pkg.Layout`。带入参或返回值的方法函数经过 `server.Input`、`server.Output` 或 `server.InputOutput`，它们用 `(*tifa.Ctx).Bind`（GET、DELETE 用 `(*tifa.Ctx).BindQuery`）解码入参，执行 `Validate`，写出结果 |
 | `tifa.yaml` 或 `tifa.json` | 项目配置的副本（`go:embed` 不能引用上级目录）。构建时先按运行时规则校验一遍 |
 | `routes.tsx` | TanStack 路由树与 `Register` 类型注册 |
+| `session.gen.ts` | `SessionData`：会话类型的 `Browser` 方法返回的 JSON 的类型。还有 `SessionEnabled`（应用调用了 `tifa.SetSession` 时是 `true`）。应用没有会话，或会话类型没有 `Browser` 时，`SessionData` 是 `never`。页面用 `@/.tifa/session.gen` 导入（见[会话](app.zh-CN.md#会话)） |
 | `app/<目录>/route.gen.ts` | 每个有页面、Layout 或方法函数的目录生成一份。有页面就导出 `page`，有 Layout 就导出 `layout`（都是 TanStack 的路由对象），再导出 `PageData`、`LayoutData`（`Load` 和 `Layout` 的结果类型）、`Params`，并按方法函数各导出一个调用函数和它的 `<METHOD>Input`、`<METHOD>Output` 类型。这些函数调用 `runtime/call.ts` |
 | `server.ts`、`client.ts` | SSR 入口与浏览器入口。`tifa dev` 的浏览器入口另外引入 `runtime/dev-client.js` |
 | `tsconfig.json` | 见下文 |

@@ -57,6 +57,15 @@ tifa build [--dir app-root] [-o output-path]
 3. Bundles with the app's own Vite, which runs on Node, and writes the output to `.tifa/dist/`. See "Frontend output" below. tifa runs one Node process for the whole build, with `NODE_ENV=production` whatever the shell sets, so the build always uses the production build of React. It also reads the exports of `page.tsx` and `layout.tsx` with Vite's parser for step 2. An app without pages builds without Node. The executable never needs Node.
 4. Runs `CGO_ENABLED=0 go build -o <output> -ldflags=-w ./.tifa`. The default output is `bin/<last segment of the module path>`. The generated main embeds `.tifa/dist/` into the executable with `//go:embed all:dist`. `-w` leaves out the debug info, see "Debug info" below.
 
+The analysis also checks the session of the app (see [Sessions](app.md#sessions)). `tifa build` and `tifa check` stop on each of these:
+
+- `tifa.SetSession` and `tifa.Session` are called with different types, or with a type parameter inside a generic function. The error names both places. Every call in a package of the module counts, and packages outside the module are not read.
+- `tifa.Session` or `tifa.ClearSession` is called and nothing calls `tifa.SetSession`.
+- The session type is not a struct, or cannot be read back from JSON (a channel, a function, an interface field, and the other types [Load results](app.md#json-rules) refuse).
+- The session type has a `Browser` method that is not `func() M`, or `M` has no JSON form in TypeScript.
+- `tifa.SetSession` or `tifa.ClearSession` is reached from `Load` or `Layout`, directly or through the functions they pass the Ctx to.
+- A page or an API route has a path that starts with `/__tifa/`, or `public/__tifa/` holds a file. tifa answers that path itself.
+
 ### Debug info
 
 `tifa build` passes `-ldflags=-w` to `go build`, which leaves the DWARF debug info out of the program. For `examples/shop` on an Apple M4 (darwin/arm64), the program goes from 26.4 MB to 21.2 MB, about 20% smaller.
@@ -209,6 +218,7 @@ go tool tifa build
 | `routes.go` | Two package-level variables, `layouts` and `routes`. Each `Load` and `Layout` function is wrapped as `func(c *tifa.Ctx) (any, error) { return tifa.Use(c, pkg.Load) }`, and `pkg.Layout` for a Layout. A method handler with an input or a result goes through `server.Input`, `server.Output` or `server.InputOutput`, which decode the input with `(*tifa.Ctx).Bind` or, for GET and DELETE, `(*tifa.Ctx).BindQuery`, run its `Validate` and write the result |
 | `tifa.yaml` or `tifa.json` | A copy of the project config (`go:embed` cannot reach parent folders). It is checked against the runtime rules at build time first |
 | `routes.tsx` | The TanStack route tree and the `Register` type registration |
+| `session.gen.ts` | `SessionData`, the JSON that the `Browser` method of the session type returns, and `SessionEnabled` (`true` when the app calls `tifa.SetSession`). `SessionData` is `never` when the app has no session or its type has no `Browser`. Pages import it as `@/.tifa/session.gen` (see [Sessions](app.md#sessions)) |
 | `app/<folder>/route.gen.ts` | One module for each folder with a page, a Layout or a method handler. It exports `page` for the page and `layout` for the Layout (the TanStack route objects, only when the folder has them), `PageData` and `LayoutData` (the result types of `Load` and `Layout`), `Params`, and a function per method handler with its `<METHOD>Input` and `<METHOD>Output` types. The functions call `runtime/call.ts` |
 | `server.ts`, `client.ts` | The SSR entry and the browser entry. Under `tifa dev`, the browser entry also imports `runtime/dev-client.js` |
 | `tsconfig.json` | See below |

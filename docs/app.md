@@ -843,6 +843,24 @@ tifa stores the session. Your app or a library checks who the user is: password 
 
 Writes from other sites are refused before any of this runs (see [Cross-site writes](config.md#cross-site-writes)), and the cookie is `SameSite=Lax`, so a form on another site cannot sign a user out or act for them. For that to hold, make sure GET, HEAD and OPTIONS never change anything: sign out with a POST.
 
+### Checks at build time
+
+`tifa build` and `tifa check` read every call of `tifa.SetSession`, `tifa.Session` and `tifa.ClearSession` in your module and fail when:
+
+- the calls do not all use one session type (the error shows both places), or one is made with a type parameter in a generic function
+- `Session` or `ClearSession` is called and nothing calls `SetSession`
+- the type is not a struct, or cannot be read back from JSON
+- `Load` or `Layout`, or a function they pass the Ctx to, calls `SetSession` or `ClearSession`
+- a page or API route path starts with `/__tifa/`, or `public/__tifa/` holds a file
+
+The session type may have a method `Browser() M` (a pointer receiver works too), which gives the part of the session a browser may see. `M` follows the rules of a `Load` result, and the build writes its TypeScript type to `.tifa/session.gen.ts`:
+
+```tsx
+import type { SessionData } from '@/.tifa/session.gen'
+```
+
+The same file exports `SessionEnabled`, which is `true` when the app calls `tifa.SetSession` and `false` otherwise. `SessionData` is `never` when the type has no `Browser` method or the app has no session. A `Browser` with parameters, with more than one result, or whose result cannot be JSON fails the build.
+
 ### Testing sessions
 
 `tifatest.NewCtx(t, r)` gives the `Ctx` a memory store that belongs to the test, so `SetSession` and `ClearSession` work and the recorder holds the `Set-Cookie`. All the `Ctx` of one test share the store, so the cookie from one can sign in the next: add it to the request with `r.AddCookie`. To test a function that needs someone signed in, skip the cookie:

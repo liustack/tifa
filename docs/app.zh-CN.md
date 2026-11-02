@@ -845,6 +845,24 @@ tifa 存会话。用户是谁由你的应用或登录库来认：密码哈希（
 
 从别的网站发来的写请求会在这一切之前被拒绝（见[跨站写请求](config.zh-CN.md#跨站写请求)），cookie 又是 `SameSite=Lax`，所以别的网站上的表单不能替用户登出或操作。要让这一点成立，GET、HEAD 和 OPTIONS 都不能改任何东西，登出用 POST。
 
+### 构建时的检查
+
+`tifa build` 和 `tifa check` 会读模块里每一处 `tifa.SetSession`、`tifa.Session` 和 `tifa.ClearSession` 的调用，遇到下面的情况就失败：
+
+- 调用用的不是同一个会话类型（错误会写出两处位置），或者在泛型函数里用类型参数调用
+- 有 `Session` 或 `ClearSession` 的调用，却没有任何地方调用 `SetSession`
+- 类型不是 struct，或者不能从 JSON 读回来
+- `Load`、`Layout`，或者它们传下 Ctx 的函数调用了 `SetSession` 或 `ClearSession`
+- 页面或 API 路由的路径以 `/__tifa/` 开头，或者 `public/__tifa/` 下有文件
+
+会话类型可以有方法 `Browser() M`（指针接收者也行），给出会话里允许浏览器看到的部分。`M` 遵守 `Load` 结果的规则，构建把它的 TypeScript 类型写进 `.tifa/session.gen.ts`：
+
+```tsx
+import type { SessionData } from '@/.tifa/session.gen'
+```
+
+同一个文件还导出 `SessionEnabled`：应用调用了 `tifa.SetSession` 时是 `true`，否则是 `false`。类型没有 `Browser` 方法，或应用没有会话时，`SessionData` 是 `never`。`Browser` 带参数、有多个返回值，或者返回值不能是 JSON，构建会失败。
+
 ### 测试会话
 
 `tifatest.NewCtx(t, r)` 给 `Ctx` 配了一个只属于这个测试的内存存储，所以 `SetSession` 和 `ClearSession` 能用，recorder 里有 `Set-Cookie`。同一个测试的所有 `Ctx` 共用这个存储，所以一个 `Ctx` 拿到的 cookie 可以让下一个登录：用 `r.AddCookie` 加到请求里。要测一个需要登录状态的函数，不用走 cookie：
