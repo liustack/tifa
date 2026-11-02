@@ -9,7 +9,7 @@ import { bootElementId, collector, rootElementId, type RouteResult } from './.ti
 import { setRouter } from './.tifa/runtime/call'
 import { resetReloads, watchChunks } from './.tifa/runtime/skew'
 import { POST } from './app/api/notes/note+/route.gen'
-import { hydrate, takeOver } from './.tifa/runtime/browser'
+import { browserErrorEvent, hydrate, rootOptions, takeOver } from './.tifa/runtime/browser'
 import { attributes, followHead, headHTML, htmlAttributesOf, setAttributes, syncHead, syncHTMLAttributes, type Tag } from './.tifa/runtime/head'
 
 const tests: Array<[string, () => Promise<void>]> = []
@@ -570,6 +570,35 @@ test('a route chunk that still fails after the reload shows its error and the ro
     assert(thrown === second.payload && reloads === 1, `the router after the page reloaded: thrown ${thrown}, reloads ${reloads}`)
   } finally {
     Object.assign(g, saved)
+  }
+})
+
+// A hydration mismatch needs a real DOM, which this harness does not have, so the callbacks
+// React calls are called by hand with what React hands them.
+test('a dev build tells the overlay about the errors React reports', async () => {
+  const saved = { dispatchEvent: g.dispatchEvent, error: console.error }
+  const seen: any[] = []
+  const logged: unknown[][] = []
+  g.dispatchEvent = (event: any) => seen.push(event)
+  console.error = (...args: unknown[]) => logged.push(args)
+  try {
+    const onRecoverableError = (rootOptions as any).onRecoverableError
+    const onUncaughtError = (rootOptions as any).onUncaughtError
+    assert(typeof onRecoverableError === 'function' && typeof onUncaughtError === 'function', 'a dev build sets no callbacks')
+    const mismatch = new Error("Hydration failed because the server rendered HTML didn't match the client.")
+    onRecoverableError(mismatch, { componentStack: '\n    at Clock' })
+    onUncaughtError(new Error('boom'), {})
+    onUncaughtError('plain', {})
+    assert(seen.length === 3 && seen.every((e) => e.type === browserErrorEvent), `events ${seen.map((e) => e.type)}`)
+    assert(browserErrorEvent === 'tifa:browser-error', browserErrorEvent)
+    const [a, b, c] = seen.map((e) => e.detail)
+    assert(a.kind === 'recoverable' && a.message === mismatch.message && a.stack.includes('Hydration failed') && a.componentStack === '\n    at Clock', JSON.stringify(a))
+    assert(b.kind === 'uncaught' && b.message === 'boom' && b.componentStack === '', JSON.stringify(b))
+    assert(c.kind === 'uncaught' && c.message === 'plain' && c.stack === '', JSON.stringify(c))
+    assert(logged.length === 3, `console.error called ${logged.length} times`)
+  } finally {
+    Object.assign(g, { dispatchEvent: saved.dispatchEvent })
+    console.error = saved.error
   }
 })
 

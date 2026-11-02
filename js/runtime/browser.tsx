@@ -10,11 +10,32 @@ import { watchChunks } from './skew'
 
 // rootOptions has React report on the console what an error boundary catches, as it does by
 // default, but for a 404: that is an answer of Go, which the Error of its route shows, no bug.
-const rootOptions = {
+// The event on window that carries the errors React hands to rootOptions to the overlay of
+// tifa dev (js/dev/client.js). Only a dev build wires it.
+export const browserErrorEvent = 'tifa:browser-error'
+
+// reportBrowserError logs an error as React does by default and tells the dev overlay.
+export function reportBrowserError(kind: 'recoverable' | 'uncaught', error: unknown, info: { componentStack?: string }) {
+  console.error(error, info.componentStack ?? '')
+  const e = error instanceof Error ? error : undefined
+  window.dispatchEvent(
+    new CustomEvent(browserErrorEvent, {
+      detail: { kind, message: e ? e.message : String(error), stack: e?.stack ?? '', componentStack: info.componentStack ?? '' },
+    }),
+  )
+}
+
+export const rootOptions = {
   onCaughtError: (error: unknown, info: { componentStack?: string }) => {
     if (error instanceof RouteError && error.status === 404) return
     console.error(error, info.componentStack ?? '')
   },
+  // Hydration mismatches arrive as recoverable errors, with the diff in the message. Setting
+  // either callback replaces React's default, which would also raise a window error event.
+  ...(import.meta.env.DEV && {
+    onRecoverableError: (error: unknown, info: { componentStack?: string }) => reportBrowserError('recoverable', error, info),
+    onUncaughtError: (error: unknown, info: { componentStack?: string }) => reportBrowserError('uncaught', error, info),
+  }),
 }
 
 // hydrate takes over the application root the server rendered. A page rendered without SSR
