@@ -9,7 +9,7 @@ import (
 	"sync"
 )
 
-// htmlCache keeps rendered pages of Cache = true routes by the hash of their render input, up
+// htmlCache keeps rendered pages by the hash of their render input, up
 // to size bytes of HTML and its compressed forms. It drops the least recently used pages first.
 // Requests that miss the same page at the same time wait for one render of it (fetch).
 type htmlCache struct {

@@ -79,6 +79,8 @@ tifa dev: 07:36:30 ready in 58.3s, open http://127.0.0.1:9527
 
 渲染时调用 Intl 或 `toLocale*` 方法却没传 locale，或者格式化日期没传 `timeZone`，应用会打一条 `tifa: ssr:` 警告，指出它在源码里的位置，每个位置只打一次。页面照常渲染。见 [tifa dev 下的报警](app.zh-CN.md#tifa-dev-下的报警)。
 
+tifa dev 把每个页面渲染两次。同样的数据两次渲染不同，说明页面渲染时读了时间或随机数，渲染缓存会把这个值固定下来。终端和页面上的浮层会提示，并给出两次渲染第一处不同的位置附近的 HTML。请改组件，或者在这个页面的 `route.go` 里写 `RenderCache = false`（见 [SSR 与缓存](app.zh-CN.md#ssr-与缓存)）。改好之前这个页面不进缓存。构建出的程序不会渲染两次。
+
 ## 构建失败
 
 - 失败时旧版本继续运行，日志打印 `build failed: <原因>`，打开的页面盖上错误浮层，显示 Go 编译器或 Vite 的原文。

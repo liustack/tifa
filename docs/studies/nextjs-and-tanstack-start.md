@@ -1,5 +1,5 @@
 ---
-summary: 'How tifa compares with Next.js and TanStack Start on whole page requests of the same shop: where the apps are and how they are kept equal, throughput on one core on the redesigned workbench pages, how much of a tifa request is the render, and from the run before the redesign, two cores, compression, memory, start-up and warm-up'
+summary: 'How tifa compares with Next.js and TanStack Start on whole page requests of the same shop, including a cache hit against a cache hit: where the apps are and how they are kept equal, throughput on one core on the redesigned workbench pages, how much of a tifa request is the render, and from the run before the redesign, two cores, compression, memory, start-up and warm-up'
 read_when:
   - Quoting or updating the comparison with Next.js and TanStack Start in performance.md
   - Running the comparison again after a change to the engine, the server, the SSR bundle or the workbench pages of the shop
@@ -33,6 +33,7 @@ The numbers are from the main run of 2026-10-29 on one core, one request at a ti
 - **Doing the data work in Node costs the two apps a little.** In the first run of the day, which looked the data up, Next.js answered 83.5 and 85.0 requests a second and Start 104.7 and 112.0. With the port they answer 80.8 to 82.9 and 102.4 to 105.0, about 3% to 5% fewer. tifa's number did not change (29 where it was 27 to 29). The ported code takes 0.02 to 0.3 ms of a request when warm.
 - **Every request does the work, shown by counting.** In all three, a request for a page queries the orders 4 times for an order list, 6 for an order and 5 for the stats, renders the page once, and a second request does it all again. See How it was measured.
 - **tifa got faster with the C engine, the others did not change.** On the old pages tifa answered 87 to 90 requests a second with slowjs v0.29.0 where it answered 74 with v0.28.6 (about 20% more), and Next.js 178 to 185 where it answered 185 to 186.
+- **A cache hit against a cache hit: tifa answers 4.6 times as many requests as Next.js.** 2,865 against 622 requests a second with one request in flight and 2,960 against 635 with 64, at a fifth of the memory, and each tifa hit still runs the `Load` functions, where a Next.js hit runs no data code. See [Cache hit against cache hit](#cache-hit-against-cache-hit).
 - **From the run of 2026-10-24, not measured again:** two cores, compression, start-up and warm-up, and four requests in flight. They are in [the run of 2026-10-24](#the-run-of-2026-10-24-before-the-redesign). On the old pages, tifa scaled 2.00 times to two cores against 1.67 times for Next.js and 1.77 for Start, was warm 337 ms after it started where Next.js took 662 ms, and lost 1.6% of its requests to gzip where Next.js lost 16%.
 
 ## The apps
@@ -273,7 +274,7 @@ The three servers answer the same six pages with the same text, query the orders
 - **Answers.** tifa writes the whole page with a `Content-Length`, and Next.js and Start stream it in chunks. oha times whole answers, so streaming's earlier first byte does not show. Before it renders, tifa hashes what the render depends on (the build, the URL and the data of the `Load` and `Layout` functions, not the HTML) into an `ETag`, so a request with a matching `If-None-Match` gets a 304 without a render. oha sends no `If-None-Match`, so every request renders. The hash covers the data, 3 to 11 KB of JSON on these pages, and was not timed on its own.
 - **Middleware.** tifa runs the app's `OnRequest` hook (a check of the method), its compression layer (which passes an uncompressed answer through, and writes `Vary: Accept-Encoding`) and its `Vary` and `X-Content-Type-Options` headers. The two Node servers have none of that. Next.js writes `Cache-Control: private, no-cache, no-store, max-age=0, must-revalidate` and a `Link` header that preloads the first photos, and Start writes nothing besides the content type. All of it is a few microseconds, against tifa in the first case and against Next.js in the second, and none was timed.
 - **Compression.** No server compresses in the measurement: oha sends `Accept-Encoding: identity`. tifa's and Next.js's defaults would compress, and Start's would not (see the run of 2026-10-24).
-- **HTML cache.** The order page in the Go code is marked `Cache = true`, and tifa's cache is off here with `--cache-size 0`. The Node apps cache nothing, and the count test shows it.
+- **HTML cache.** tifa's cache is off here with `--cache-size 0`. The Node apps cache nothing, and the count test shows it. In the runs before 2026-11-02 only the order page of the Go code had `Cache = true` (the switch is gone, the cache now covers every page), and requests for it that arrived together shared one render even with the cache off. Now that holds for every page, so a run with several requests in flight no longer renders for each of them.
 - **Time zones.** The stats page reads the hour and weekday of each order in the shop's time zone. Go does it with `time.In`, the port with a cached `Intl.DateTimeFormat`, which costs Node more for the 42 orders of the first shop. It leans against Node, and was not timed on its own.
 - **The seed.** Both build the same 54 orders in memory when they start, from the same rules. The data work in Node takes 0.02 to 0.3 ms a request when warm (on a Mac, outside this run).
 - **Handlers.** Not ported. The pages render forms and dialogs, and a submit fails.
@@ -289,6 +290,39 @@ The three servers answer the same six pages with the same text, query the orders
 - The comparison is in [Performance](../performance.md#at-a-glance), with the gap stated plainly.
 - tifa does not try to close the gap to Node with JIT: an interpreter cannot. Work goes into render time, which every request pays (see [Where to continue](../performance.md#where-to-continue)), and the numbers here are run again when it changes.
 - Memory, start-up, scaling and one file to deploy are where tifa is ahead, and they are what tifa is built for.
+
+## Cache hit against cache hit
+
+Measured on 2026-11-02 on the same 8 vCPU machine, with tifa 6cf6015 (slowjs v0.29.8) and Next.js 16.4.2. The server is pinned to one thread (`GOMAXPROCS=1`, one VM), oha to its sibling thread, `Accept-Encoding: identity`, 10 seconds of warm-up, 15 seconds measured, the six pages in turn, two rounds, a fresh server for each round. In the table the requests per second are the two rounds, and P50, P99 and RSS the range over both. RSS is the peak of the server process and its children.
+
+The two caches are not the same thing. tifa's render cache runs the `Layout` and `Load` functions on every request, hashes their data, and reuses the stored HTML when the hash is known. Next.js's cache (ISR) is keyed by the path, and a hit runs no data code and no render. The counters of the count test read 0 after a run of hits. So the tifa side does more work for each request, and a multiple in tifa's favor is conservative. A whole-page cache by URL is not part of tifa, so how far it would go was not measured.
+
+| In flight | Cache | Requests/s | P50 | P99 | Peak RSS |
+| --- | --- | --- | --- | --- | --- |
+| 1 | tifa, every request renders | 38.0, 38.5 | 21.3 to 21.4 ms | 52.6 to 53.0 ms | 56 MiB |
+| 1 | Next.js, `force-dynamic` | 85.2, 84.8 | 10.1 ms | 30.0 to 30.6 ms | 469 to 474 MiB |
+| 1 | tifa, render cache hit | 2,864.9, 2,863.5 | 0.29 ms | 1.15 to 1.44 ms | 61 to 63 MiB |
+| 1 | Next.js, ISR hit | 622.4, 622.8 | 1.32 ms | 5.5 to 5.6 ms | 313 to 316 MiB |
+| 64 | tifa, every request renders (queue widened) | 36.3, 37.5 | 1,680 to 1,761 ms | 1,889 to 1,893 ms | 66 to 67 MiB |
+| 64 | Next.js, `force-dynamic` | 80.8, 82.8 | 789 to 792 ms | 878 to 888 ms | 516 to 555 MiB |
+| 64 | tifa, render cache hit | 2,960.6, 2,924.1 | 21.7 to 22.0 ms | 54.6 to 56.3 ms | 71 to 72 MiB |
+| 64 | Next.js, ISR hit | 635.3, 635.2 | 95.3 to 95.7 ms | 191.4 to 196.0 ms | 295 to 320 MiB |
+
+- A tifa hit answers 4.6 times as many requests as a Next.js hit (4.60 with 1 in flight, 4.60 to 4.66 with 64), at a fifth of the memory. Read the 4.6 as a conservative figure, for the reason above.
+- A hit is 74 to 77 times faster than a render in tifa with 1 in flight, and 78 to 81 times with 64. In Next.js it is 7.3 times, and 7.7 to 7.9 times.
+- Without a cache Next.js answers 2.2 to 2.3 times as many requests as tifa with 1 in flight.
+- The pages are 119 KB to 223 KB, 147 KB on average. At these rates the copy of the bytes is a large part of a hit, about 420 MB/s for tifa.
+
+How the Next.js side was made a cache. In a copy of the Next.js app, `export const dynamic = 'force-dynamic'` became `export const revalidate = 3600` in the five files that had it, and the three pages and the project Layout got `generateStaticParams` for the two projects and two orders. The root Layout stopped reading the `sidebar_state` cookie, because reading a cookie makes the whole route dynamic, and the requests carry no cookie, so the pages do not change. With only `revalidate` the build still marked the routes dynamic. Every page answered `x-nextjs-cache: HIT` and `s-maxage=3600`. The tifa side is `examples/shop` of that commit, where only the order page had the cache switch, with `Cache = true` added to the order list and the stats page. Each page showed `X-Tifa-Render: vm` once and `cache` after. The "every request renders" row is a build with the switch off on all three, run with `--cache-size 0`. A page with the switch on and `--cache-size 0` still shares a render between requests that arrive together, and answered 441 requests a second with 64 in flight. With 64 in flight its queue was widened (`--ssr-queue-limit 64 --ssr-wait-timeout 30s`), since the default of 32 places and 1 second answers 503 for a render that takes 21 ms.
+
+Limits:
+
+- Two rounds for each row, no A/A run, and no cross-check against other work on the machine. The two rounds differ by 0.05% for tifa hits and 0.1% for Next.js hits.
+- 64 in flight widened the queue of the tifa row that renders every request, which the default would answer with 503.
+- The Next.js pages are rendered at build time, so the first request, and the regeneration after an hour, were not measured.
+- Two projects and two orders make few cache entries, so nothing is evicted.
+- Only HTML without compression. Compressed, a tifa hit sends the form stored with the page, which was not measured here.
+- The Next.js app without the cookie read is a different app: its cache cannot vary with a cookie, and tifa's does not need the change.
 
 ## Not measured
 

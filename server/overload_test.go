@@ -19,7 +19,7 @@ func TestBusyRenderAnswers503(t *testing.T) {
 		t.Run(path, func(t *testing.T) {
 			var reported []error
 			app := secretApp(nil, &reported)
-			app.Routes = append(app.Routes, Route{ID: "app/stats", Path: "/stats", Page: true, SSR: true, Cache: true})
+			app.Routes = append(app.Routes, Route{ID: "app/stats", Path: "/stats", Page: true, SSR: true})
 			s, r := newFrontServer(t, app)
 			r.result = func(ssr.Input) (string, error) { return "", fmt.Errorf("waiting: %w", tifa.ErrSSRBusy) }
 			for range 2 {

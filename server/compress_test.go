@@ -84,9 +84,10 @@ func varies(w *httptest.ResponseRecorder, name string) bool {
 
 // A page goes out in the encoding the client prefers, zstd when it takes zstd and gzip alike.
 // One page goes out in several encodings, so its ETag is weak in each of them, and the 304 of
-// If-None-Match carries the same ETag as the 200 (RFC 9110, 15.4.5).
+// If-None-Match carries the same ETag as the 200 (RFC 9110, 15.4.5). The page turns the render
+// cache off, so every encoding is made as the page is sent.
 func TestPagesAreCompressed(t *testing.T) {
-	s := newBigServer(t, config.Default(), frontApp())
+	s := newBigServer(t, noCache(), frontApp())
 	plain := get(s, "/projects/p1")
 	if plain.Header().Get("Content-Encoding") != "" || !varies(plain, "Accept-Encoding") || !strings.HasPrefix(plain.Header().Get("ETag"), `W/"`) {
 		t.Fatalf("without Accept-Encoding: %v", plain.Header())
@@ -639,4 +640,10 @@ func TestCacheMissCompressesBothFormsOnce(t *testing.T) {
 			t.Errorf("%s: a hit compressed forms that do not fit", tc.name)
 		}
 	}
+}
+
+func noCache() config.Config {
+	cfg := config.Default()
+	cfg.Cache.Size = 0
+	return cfg
 }

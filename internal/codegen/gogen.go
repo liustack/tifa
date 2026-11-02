@@ -40,7 +40,11 @@ func generateGo(m *analyze.Manifest, configName string, dev bool) (map[string][]
 		for _, h := range r.Handlers {
 			fmt.Fprintf(&routes, "%s: %s,\n", h.Method, imports.handler(r.Package, r.Dir, h))
 		}
-		fmt.Fprintf(&routes, "SSR: %t,\nCache: %t,\nLayouts: %s,\n},\n", r.SSR, r.Cache, stringSlice(r.Layouts))
+		fmt.Fprintf(&routes, "SSR: %t,\n", r.SSR)
+		if !r.RenderCache {
+			routes.WriteString("NoRenderCache: true,\n")
+		}
+		fmt.Fprintf(&routes, "Layouts: %s,\n},\n", stringSlice(r.Layouts))
 	}
 	routes.WriteString("}\n")
 

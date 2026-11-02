@@ -5,7 +5,7 @@ import (
 	"github.com/liustack/tifa"
 )
 
-const Cache = true
+const RenderCache = false
 
 func Load(c *tifa.Ctx) ([]string, error) {
 	p, err := tifa.Use(c, Layout)

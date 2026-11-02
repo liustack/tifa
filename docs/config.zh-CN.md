@@ -73,7 +73,7 @@ cache:
 | `ssr.timeout` | `3s` | `--ssr-timeout`、`TIFA_SSR_TIMEOUT` | 一次渲染的时间预算。超时的渲染被停下，按意外错误处理，交给 `OnError`。页面代码接不住它 |
 | `ssr.queue_limit` | `32` | `--ssr-queue-limit`、`TIFA_SSR_QUEUE_LIMIT` | 最多有多少次渲染等待空闲 VM，不包含正在运行的渲染。`0` 表示没有空闲 VM 就立即拒绝。队列满时返回 503 和 `Retry-After: 1` |
 | `ssr.wait_timeout` | `1s` | `--ssr-wait-timeout`、`TIFA_SSR_WAIT_TIMEOUT` | 等待 VM 的最长时间。超时返回 503 和 `Retry-After: 1`，不启动渲染，也不替换 VM。它与取得 VM 后才开始的 `ssr.timeout` 分开计算 |
-| `cache.size` | `64MiB` | `--cache-size`、`TIFA_CACHE_SIZE` | `Cache = true` 页面的 HTML 缓存大小，`server.compress` 开着时它存的 gzip 和 zstd 版本也算在内，`0` 关闭，但同时没命中同一个页面的请求仍然共用一次渲染（见 [SSR 与缓存](app.zh-CN.md#ssr-与缓存)） |
+| `cache.size` | `64MiB` | `--cache-size`、`TIFA_CACHE_SIZE` | 渲染出的页面的 HTML 缓存大小，`server.compress` 开着时它存的 gzip 和 zstd 版本也算在内，`0` 关闭，但同时没命中同一个页面的请求仍然共用一次渲染（见 [SSR 与缓存](app.zh-CN.md#ssr-与缓存)）。页面可以用 `RenderCache = false` 给自己关掉缓存 |
 | `session.cookie` | `__Host-tifa_session` | `--session-cookie`、`TIFA_SESSION_COOKIE` | 会话 cookie 的名字。`tifa dev` 下去掉 `__Host-` 前缀，见[会话](app.zh-CN.md#会话) |
 | `session.max_age` | `720h` | `--session-max-age`、`TIFA_SESSION_MAX_AGE` | 会话从 `tifa.SetSession` 创建起能用多久，至少一秒，不续期 |
 | `session.memory_limit` | `64MiB` | `--session-memory-limit`、`TIFA_SESSION_MEMORY_LIMIT` | 内存会话存储最多放多少字节，`OnStart` 没用 `tifa.SetSessionStore` 设存储时才用。满了先挤掉最早过期的 |

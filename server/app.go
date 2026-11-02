@@ -59,8 +59,9 @@ type Route struct {
 	GET, POST, PUT, PATCH, DELETE func(c *tifa.Ctx) error
 	// SSR is false when the route or a Layout in its chain sets SSR = false.
 	SSR bool
-	// Cache is the route's Cache constant.
-	Cache bool
+	// NoRenderCache is true when route.go sets RenderCache = false. The HTML of the page is not cached
+	// and its renders are not shared. The zero value keeps the render cache on.
+	NoRenderCache bool
 	// Layouts lists the IDs of the enclosing Layouts, outermost first.
 	Layouts []string
 }

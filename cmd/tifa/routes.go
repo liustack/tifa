@@ -43,7 +43,7 @@ func printTable(cmd *cobra.Command, m *analyze.Manifest) error {
 		dirs[l.ID] = l.Dir
 	}
 	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "ROUTE\tPATH\tLAYOUTS\tMETHODS\tSSR\tCACHE")
+	fmt.Fprintln(w, "ROUTE\tPATH\tLAYOUTS\tMETHODS\tSSR\tRENDERCACHE")
 	for _, r := range m.Routes {
 		var methods []string
 		if r.Page {
@@ -57,7 +57,7 @@ func printTable(cmd *cobra.Command, m *analyze.Manifest) error {
 			layouts[i] = dirs[id]
 		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%t\t%t\n", r.Dir, r.Path, dash(strings.Join(layouts, " > ")),
-			dash(strings.Join(methods, " ")), r.SSR, r.Cache)
+			dash(strings.Join(methods, " ")), r.SSR, r.RenderCache)
 	}
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "LAYOUT\tPATH\tPARENT\tSSR")

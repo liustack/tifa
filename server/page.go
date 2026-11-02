@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/klauspost/compress/gzhttp"
 	"github.com/liustack/tifa"
@@ -475,7 +476,7 @@ func sameError(a, b error) bool {
 
 // pageHandler answers GET for a page:
 //   - with X-Tifa-Route, the data of the listed routes as JSON
-//   - with SSR on its chain, the HTML the VM renders, or 304, or the cached HTML for Cache = true
+//   - with SSR on its chain, the HTML the VM renders, or 304, or the cached HTML (unless RenderCache = false)
 //   - with SSR = false somewhere on its chain, a minimal document carrying the data
 //
 // When a Load fails it returns a *loadFailure, for OnRequest to see as the error of Next.
@@ -498,7 +499,7 @@ func (s *Server) pageHandler(r Route, chain []load) func(*tifa.Ctx) error {
 		case !r.SSR:
 			return s.dataOnly(c, items, http.StatusOK, r.Path)
 		}
-		return s.renderPage(c, items, http.StatusOK, r.Cache, r.Path)
+		return s.renderPage(c, items, http.StatusOK, !r.NoRenderCache, r.Path)
 	}
 }
 
@@ -609,6 +610,49 @@ type dataRedirect struct {
 	Session  *core.BrowserSession `json:"session,omitempty"`
 }
 
+// renderKey is the quoted hash of everything the HTML of a page is made from, which is the ETag
+// of the page and the key of the render cache. The HTML is a function of ssr.Input, the SSR
+// bundle and the render clock (a request with a clock skips the cache, see renderPage), and
+// TestRenderKeyCoversEveryFieldOfTheInput fails for a field of the input that is neither in the key
+// nor listed there with the reason it cannot change the HTML of a cached page.
+//
+// What the framework writes into a page that does not come from the data of the Loads:
+//   - the build ID, in the data the page hands to the browser: BuildID
+//   - the tags of the scripts and styles of the build, in the SSR bundle: bundle, which holds the
+//     asset names, and the same bundle always writes the same ones
+//   - the module preloads: Preload, which follows from the build, the matched path and the results
+//   - the data of the Loads, in the hydration script and in the markup: Data and Texts
+//   - the session envelope, the data-session attribute of <html> and the script and style that
+//     read the browser's copy: Session, SessionKey and SessionHead, so two visitors share a page
+//     only when the browser gets the same session
+//   - the head of the matched routes, from their head functions over the data and the URL:
+//     Data, Texts and URL
+//   - the nonce of the slots that stand for long texts: replaced by the texts before the page
+//     leaves the pool, so none stays in the HTML
+//
+// What the application's own code does is another matter: a component that reads the time or a
+// random number makes its page differ from one render to the next. tifa dev renders each page
+// twice to say so, and RenderCache = false turns the cache off for such a page.
+//
+// The URL in the key is the request URI as it came, so two spellings of the same query, or a
+// tracking parameter, make two entries. That costs hits and never serves a wrong page, since the
+// render reads the same URI. Sorting the query and dropping tracking parameters belongs to the
+// whole-page cache, which keys by URL.
+func renderKey(in ssr.Input, bundle string) string {
+	sum := sha256.New()
+	for _, part := range []string{in.BuildID, bundle, in.URL, string(in.Data), in.Preload, string(in.Session), in.SessionKey, in.SessionHead} {
+		io.WriteString(sum, part)
+		sum.Write([]byte{0})
+	}
+	// Each text is written with its length, so moving a character from one text to the next
+	// makes another key.
+	for _, text := range in.Texts {
+		fmt.Fprintf(sum, "%d:", len(text))
+		io.WriteString(sum, text)
+	}
+	return `"` + hex.EncodeToString(sum.Sum(nil)[:16]) + `"`
+}
+
 // renderPage renders the document in the VM. A successful page gets an ETag from the hash of
 // the build ID, the SSR bundle, the URL and the data, which are all the render depends on. A matching
 // If-None-Match is answered 304, and with cache the HTML of an earlier render is reused, or of the
@@ -636,22 +680,20 @@ func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status in
 	s.rendering.RLock()
 	defer s.rendering.RUnlock()
 	f := s.front.Load()
-	// The preloads follow from the build, the matched path, which the URL picks, and the results
-	// of the Loads, so the ETag and the HTML cache need not cover more than those and the session.
 	in := ssr.Input{BuildID: f.build.ID, URL: r.URL.RequestURI(), Data: data, Texts: texts, Preload: f.preloadOf(key, items),
 		Session: sess.json, SessionKey: sess.key, SessionHead: sess.head}
 	failed := &renderError{f: f, in: in, key: key}
+	// A render clock makes the HTML depend on a time that is no part of the key, so such a request
+	// neither reads the cache nor writes to it, and shares no render.
+	if core.RenderClock(r.Context()) != nil {
+		cache = false
+	}
+	// The ETag and the 304 before the render stand on the HTML being a function of the key. A page
+	// with RenderCache = false says it is not, and a request with a clock is not either, so they get
+	// no ETag and always render: a hash of the input would answer 304 for HTML that has changed.
 	var tag string
-	if status == http.StatusOK {
-		sum := sha256.New()
-		io.WriteString(sum, in.BuildID+"\x00"+f.build.bundle+"\x00"+in.URL+"\x00"+string(data))
-		// The session is part of what the page is made from: two visitors never share an ETag or
-		// an entry of the HTML cache unless the browser gets the same session.
-		io.WriteString(sum, "\x00"+string(in.Session)+"\x00"+in.SessionKey)
-		for _, text := range texts {
-			io.WriteString(sum, "\x00"+text)
-		}
-		tag = `"` + hex.EncodeToString(sum.Sum(nil)[:16]) + `"`
+	if status == http.StatusOK && cache {
+		tag = renderKey(in, f.build.bundle)
 		etag := tag
 		if s.cfg.Compress {
 			etag = "W/" + tag
@@ -677,11 +719,11 @@ func (s *Server) renderPage(c *tifa.Ctx, items map[string]routeResult, status in
 }
 
 // errClientGone is what Next returns for a request whose client went away while it waited for
-// the render of a Cache = true page. Server.fail cuts the connection of such a request, without an
+// the render of a page. Server.fail cuts the connection of such a request, without an
 // answer, without OnError and without a log line.
 var errClientGone = fmt.Errorf("tifa: the client went away: %w", context.Canceled)
 
-// renderCached answers a page of a Cache = true route from the HTML cache, or from the render
+// renderCached answers a page from the HTML cache, or from the render
 // that every request missing the same key at the time waits for (htmlCache.fetch). Each request
 // writes the page with its own headers and in its own encoding, as a cache hit does. With
 // server.compress the render compresses the page into both its forms once, so no request
@@ -696,8 +738,16 @@ func (s *Server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 	}
 	got, err := s.cache.fetch(c.Request().Context(), key, unheard, func(ctx context.Context) (cachedPage, bool, error) {
 		html, err := f.render(ctx, in)
-		if err != nil || !s.cache.holds(html) {
+		if err != nil {
 			return cachedPage{html: html}, false, err
+		}
+		if s.dev != nil {
+			if warned, differs := s.devRenderTwice(ctx, f, in, html, method, path); differs {
+				return cachedPage{html: warned}, false, nil
+			}
+		}
+		if !s.cache.holds(html) {
+			return cachedPage{html: html}, false, nil
 		}
 		page := cachedPage{html: html}
 		if s.cfg.Compress {
@@ -716,6 +766,47 @@ func (s *Server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 		return writeHTML(c, status, got.page.html)
 	}
 	return writeCached(c, status, got.page, s.formEncoding(c))
+}
+
+// devRenderTwice is what tifa dev adds to the render of a page that the render cache keeps: it
+// renders the same input again, and when the HTML differs, the page read the time or a random
+// number while rendering, which the cache would freeze. It then returns the page with the warning
+// in the overlay of the dev client and true, and the terminal gets the warning with the place where
+// the two renders part. The page is not cached, so each request warns until the page is fixed.
+// A second render that fails is left alone: the first one is what the request gets.
+func (s *Server) devRenderTwice(ctx context.Context, f *front, in ssr.Input, first, method, path string) (string, bool) {
+	second, err := f.render(ctx, in)
+	if err != nil || second == first {
+		return "", false
+	}
+	i := 0
+	for i < len(first) && i < len(second) && first[i] == second[i] {
+		i++
+	}
+	text := "This page read the time or a random number while rendering, so two renders of the same data differ. " +
+		"Change the component so it renders the same, or write RenderCache = false in route.go. " +
+		"The built app would keep the first render for later requests.\n\n" +
+		"First render:  " + around(first, i) + "\nSecond render: " + around(second, i)
+	core.Logger().Warn("tifa: "+text, "method", method, "path", path)
+	shown, _ := json.Marshal(map[string]string{"title": "The page renders differently each time", "text": text})
+	script := fmt.Sprintf(`<script>window.__tifaDevPageError = %s</script>`, shown)
+	if j := strings.LastIndex(first, "</body>"); j >= 0 {
+		return first[:j] + script + first[j:], true
+	}
+	return first + script, true
+}
+
+// around returns the part of html near byte i, which starts at a rune and ends at one.
+func around(html string, i int) string {
+	const margin = 60
+	start, end := max(i-margin, 0), min(i+margin, len(html))
+	for start < len(html) && start > 0 && !utf8.RuneStart(html[start]) {
+		start++
+	}
+	for end < len(html) && !utf8.RuneStart(html[end]) {
+		end++
+	}
+	return strings.ReplaceAll(html[start:end], "\n", " ")
 }
 
 // renderFailed answers a render that returned err: a redirect of the router, or failed with err

@@ -80,23 +80,23 @@ func TestValidApp(t *testing.T) {
 		t.Fatalf("got %d routes: %+v", len(m.Routes), m.Routes)
 	}
 	wantRoutes := []struct {
-		id, dir, path    string
-		page, ssr, cache bool
-		methods, layouts []string
+		id, dir, path          string
+		page, ssr, renderCache bool
+		methods, layouts       []string
 	}{
-		{"app/route", "app", "/", true, true, false, nil, []string{"app/layout"}},
-		{"app/auth/login/route", "app/auth/login", "/auth/login", true, true, false, []string{"POST"}, []string{"app/layout", "app/auth/layout"}},
-		{"app/auth/register/route", "app/auth/register", "/auth/register", true, true, false, nil, []string{"app/layout", "app/auth/layout"}},
-		{project + "/route", project, "/projects/{projectId}", true, false, true, nil, []string{"app/layout", project + "/layout"}},
-		{project + "/orders/orderId+/route", project + "/orders/orderId+", "/projects/{projectId}/orders/{orderId}", true, false, false,
+		{"app/route", "app", "/", true, true, true, nil, []string{"app/layout"}},
+		{"app/auth/login/route", "app/auth/login", "/auth/login", true, true, true, []string{"POST"}, []string{"app/layout", "app/auth/layout"}},
+		{"app/auth/register/route", "app/auth/register", "/auth/register", true, true, true, nil, []string{"app/layout", "app/auth/layout"}},
+		{project + "/route", project, "/projects/{projectId}", true, false, false, nil, []string{"app/layout", project + "/layout"}},
+		{project + "/orders/orderId+/route", project + "/orders/orderId+", "/projects/{projectId}/orders/{orderId}", true, false, true,
 			[]string{"POST", "DELETE"}, []string{"app/layout", project + "/layout"}},
-		{"app/files/path++/route", "app/files/path++", "/files/{path...}", true, true, false, nil, []string{"app/layout", "app/files/layout"}},
-		{"app/api/health/route", "app/api/health", "/api/health", false, true, false, []string{"GET"}, []string{"app/layout"}},
-		{project + "/export/route", project + "/export", "/projects/{projectId}/export", false, false, false, []string{"GET"}, []string{"app/layout", project + "/layout"}},
+		{"app/files/path++/route", "app/files/path++", "/files/{path...}", true, true, true, nil, []string{"app/layout", "app/files/layout"}},
+		{"app/api/health/route", "app/api/health", "/api/health", false, true, true, []string{"GET"}, []string{"app/layout"}},
+		{project + "/export/route", project + "/export", "/projects/{projectId}/export", false, false, true, []string{"GET"}, []string{"app/layout", project + "/layout"}},
 	}
 	for _, w := range wantRoutes {
 		r := routes[w.id]
-		if r.Dir != w.dir || r.Path != w.path || r.Page != w.page || r.SSR != w.ssr || r.Cache != w.cache ||
+		if r.Dir != w.dir || r.Path != w.path || r.Page != w.page || r.SSR != w.ssr || r.RenderCache != w.renderCache ||
 			!reflect.DeepEqual(handlerMethods(r), w.methods) || !reflect.DeepEqual(r.Layouts, w.layouts) {
 			t.Errorf("route %s = %+v, want %+v", w.id, r, w)
 		}
@@ -391,8 +391,8 @@ func TestViolations(t *testing.T) {
 			{"app/layout.go:7:", "Load is read from route.go only", "layout.go"},
 			{"app/layout.go:9:", "POST is read from route.go only", "layout.go"},
 			{"app/layout.go:11:", "SSR is read from route.go only", "layout.go"},
-			{"app/layout.go:13:", "Cache is read from route.go only", "layout.go"},
-			{"app/mixed/extra.go:3:", "Cache is read from route.go only", "extra.go"},
+			{"app/layout.go:13:", "RenderCache is read from route.go only", "layout.go"},
+			{"app/mixed/extra.go:3:", "RenderCache is read from route.go only", "extra.go"},
 		}},
 		{"replacebad", [][]string{
 			{"app/layout_.tsx:1:", "layout_.tsx drops the layouts above it", "app/ has none", "rename it to layout.tsx"},
@@ -440,6 +440,19 @@ func TestViolations(t *testing.T) {
 		{"sessionhidden", [][]string{
 			{"app/page/route.go:8:", "tifa.SetSession", "type parameter"},
 		}},
+		{"cacheremoved", [][]string{
+			{"app/page/route.go:3:", "render cache is on by default", "delete Cache = true", "RenderCache = false"},
+		}},
+		{"rendercachevalue", [][]string{
+			{"app/page/route.go:3:", "RenderCache", "can only be false"},
+			{"app/other/route.go:3:", "RenderCache", "can only be false"},
+		}},
+		{"casednames", [][]string{
+			{"app/page/route.go:3:", "cache", "capital letter", "RenderCache = false"},
+			{"app/page/route.go:5:", "rendercache", "capital letter", "RenderCache = false"},
+			{"app/other/route.go:3:", "ssr", "capital letter", "SSR"},
+			// helper.go has const cache = "redis", a string in another file: no error.
+		}},
 		{"oldroute", [][]string{
 			{"app/route.tsx:1:", "route.tsx is not a page file any more", "rename it to page.tsx"},
 		}},
@@ -448,7 +461,7 @@ func TestViolations(t *testing.T) {
 			{"app/empty/route.go:7:", "Load is not allowed without page.tsx"},
 			{"app/empty/route.go:1:", "no pages"},
 			{"app/api/route.go:7:", "SSR is not allowed without page.tsx"},
-			{"app/api/route.go:9:", "Cache is not allowed without page.tsx"},
+			{"app/api/route.go:9:", "RenderCache is not allowed without page.tsx"},
 			{"app/both/route.go:9:", "Layout", "func(c *tifa.Ctx) (T, error)"},
 			{"app/_hidden/route.go:1:", "app/_hidden", "rename"},
 			{"app/testdata/x/layout.tsx:1:", "app/testdata", "rename"},

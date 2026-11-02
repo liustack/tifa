@@ -80,7 +80,7 @@ func TestFailedRenderShowsTheErrorAtTheFirstLevelThatRenders(t *testing.T) {
 	}
 	r.mu.Unlock()
 
-	// A Cache = true page renders again on every request.
+	// A page that fails to render is never cached: it renders again on every request.
 	for range 2 {
 		if w := get(s, "/stats"); w.Code != 502 || w.Header().Get(renderHeader) != "vm" {
 			t.Errorf("cached page: %d %v", w.Code, w.Header())

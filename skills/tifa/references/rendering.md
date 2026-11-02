@@ -1,6 +1,6 @@
 # Rendering on the server
 
-Contents: how a render works, what the server has and lacks, dates and numbers that must match, Temporal, browser-only components, libraries, `head` and the document shell, `SSR` and `Cache`, styles.
+Contents: how a render works, what the server has and lacks, dates and numbers that must match, Temporal, browser-only components, libraries, `head` and the document shell, `SSR` and `RenderCache`, styles.
 
 Full docs: [app.md](https://github.com/liustack/tifa/blob/main/docs/app.md).
 
@@ -141,19 +141,19 @@ export const documentHead = {
 
 Exporting `Document` fails the build. Files in the `public/` folder (set by `build.public`) are served from `/`.
 
-## SSR and Cache switches
+## SSR and RenderCache switches
 
 In `route.go` next to a `page.tsx`:
 
 ```go
-const SSR = false       // the page, default true
-const Cache = true      // the page, default false
-const LayoutSSR = false // the Layout of the folder, default true
+const SSR = false         // the page, default true
+const RenderCache = false // the page, turns the render cache off, default on
+const LayoutSSR = false   // the Layout of the folder, default true
 ```
 
 - `SSR = false`: `OnRequest` and every `Load` still run, QuickJS is skipped, and the browser renders a minimal document with the data. `LayoutSSR = false` applies to every page the Layout wraps. Use it for pages behind a login that need no SEO, or components that cannot render on the server.
-- `Cache = true`: the rendered HTML is cached by build, URL and data. Use it only when the page shows nothing but what `Load` and the Layouts return, and `Date.now()`, `Math.random()` and the like are not read while rendering. Burst requests for a cold page share one render. `SSR` and `Cache` fail the build in a `route.go` with no `page.tsx`.
-- A successful page response has an ETag, and `If-None-Match` gets 304 when the data is unchanged. This is separate from `Cache`. `Cache` also does not change `Cache-Control`, which is `private, no-cache` unless your code sets it.
+- The render cache is on for every page: the HTML is kept by build, URL, session and the data of the `Load` and Layout functions, which still run on every request. Do not let `Date.now()`, `Math.random()` and the like reach the HTML. `tifa dev` renders each page twice and says when the two differ. A page that shows the time or a random number on purpose writes `RenderCache = false`, which only accepts `false`. Burst requests for a cold page share one render. `Cache = true` from an older tifa fails the build: delete it. `SSR` and `RenderCache` fail the build in a `route.go` with no `page.tsx`, and the names need their capitals.
+- A successful page response has an ETag, and `If-None-Match` gets 304 when the data is unchanged. This is separate from the render cache. The render cache does not change `Cache-Control`, which is `private, no-cache` unless your code sets it.
 - `cache.size` in `tifa.yaml` sizes the cache (default 64MiB, 0 turns it off).
 
 ## Styles

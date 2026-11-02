@@ -39,7 +39,6 @@ var routes = []server.Route{
 		Path:    "/",
 		Page:    true,
 		SSR:     true,
-		Cache:   false,
 		Layouts: []string{"app/layout"},
 	},
 	{
@@ -51,7 +50,6 @@ var routes = []server.Route{
 		PUT:     server.Output(app_api_health.PUT),
 		DELETE:  server.Input(app_api_health.DELETE, (*tifa.Ctx).BindQuery),
 		SSR:     true,
-		Cache:   false,
 		Layouts: []string{"app/layout"},
 	},
 	{
@@ -60,7 +58,6 @@ var routes = []server.Route{
 		Page:    true,
 		POST:    app_auth_login.POST,
 		SSR:     false,
-		Cache:   false,
 		Layouts: []string{"app/layout", "app/auth/layout"},
 	},
 	{
@@ -68,17 +65,16 @@ var routes = []server.Route{
 		Path:    "/auth/register",
 		Page:    true,
 		SSR:     true,
-		Cache:   false,
 		Layouts: []string{"app/layout", "app/auth/layout"},
 	},
 	{
-		ID:      "app/projects/projectId+/route",
-		Path:    "/projects/{projectId}",
-		Page:    true,
-		Load:    func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app_projects_projectId_.Load) },
-		SSR:     true,
-		Cache:   true,
-		Layouts: []string{"app/layout", "app/projects/projectId+/layout"},
+		ID:            "app/projects/projectId+/route",
+		Path:          "/projects/{projectId}",
+		Page:          true,
+		Load:          func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app_projects_projectId_.Load) },
+		SSR:           true,
+		NoRenderCache: true,
+		Layouts:       []string{"app/layout", "app/projects/projectId+/layout"},
 	},
 	{
 		ID:      "app/projects/projectId+/orders/orderId+/route",
@@ -87,7 +83,6 @@ var routes = []server.Route{
 		Load:    func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app_projects_projectId__orders_orderId_.Load) },
 		POST:    server.InputOutput(app_projects_projectId__orders_orderId_.POST, (*tifa.Ctx).Bind),
 		SSR:     true,
-		Cache:   false,
 		Layouts: []string{"app/layout", "app/projects/projectId+/layout"},
 	},
 }

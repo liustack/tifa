@@ -68,13 +68,13 @@ Common settings (full table in config.md):
 | `ssr.vm_memory` | `128MiB` | `TIFA_SSR_VM_MEMORY` | Limit per VM |
 | `ssr.timeout` | `3s` | `TIFA_SSR_TIMEOUT` | One render. Over it is an unexpected error |
 | `ssr.queue_limit`, `ssr.wait_timeout` | `32`, `1s` | `TIFA_SSR_QUEUE_LIMIT`, `TIFA_SSR_WAIT_TIMEOUT` | Renders allowed to wait for a VM. Beyond that, 503 with `Retry-After: 1` |
-| `cache.size` | `64MiB` | `--cache-size`, `TIFA_CACHE_SIZE` | HTML cache of `Cache = true` pages, 0 turns it off |
+| `cache.size` | `64MiB` | `--cache-size`, `TIFA_CACHE_SIZE` | HTML cache of rendered pages, 0 turns it off |
 | `build.target` | `es2020` | project file only | Browser bundle target, such as `es2019,chrome90,safari14` |
 | `build.public` | `public` | project file only | Folder of static files served from `/` |
 
 Sizes are whole numbers with `B`, `KiB`, `MiB` or `GiB`. Durations use Go's format (`500ms`, `3s`). An unknown key or a `TIFA_*` variable stops the program, and a deployment file cannot set `build.*` keys. `./bin/app config` prints the merged settings as a commented file, a good start for a deployment file. `./bin/app version` prints versions.
 
-Cache headers: every answer that goes through routing (pages, 304s, 404 pages, navigation data, method handlers, redirects) is sent with `Cache-Control: private, no-cache` unless your code sets `Cache-Control` itself. JSON errors, the plain error page from Go, the page with an error and the busy 503 are sent with `no-store`. Files under `/assets/` are content-hashed with `Cache-Control: public, max-age=31536000, immutable`. Files from `public/` get `no-cache` and an ETag. `Cache = true` caches the render inside the process only and does not change the header.
+Cache headers: every answer that goes through routing (pages, 304s, 404 pages, navigation data, method handlers, redirects) is sent with `Cache-Control: private, no-cache` unless your code sets `Cache-Control` itself. JSON errors, the plain error page from Go, the page with an error and the busy 503 are sent with `no-store`. Files under `/assets/` are content-hashed with `Cache-Control: public, max-age=31536000, immutable`. Files from `public/` get `no-cache` and an ETag. The render cache keeps the render inside the process only and does not change the header.
 
 ## Building for Linux and running it
 
@@ -131,7 +131,7 @@ server:
 
 - CPU: about 73 page renders a second per physical core for workbench-style pages, about 34 for heavier storefront pages. A cloud vCPU is often one hyperthread, so plan on about 0.63 of that per vCPU. Leave `ssr.vms` at the default (the CPU count, which follows a container's CPU limit). More VMs than CPUs only slows each render.
 - Memory: about 45 MiB for the process plus 12 to 16 MiB per VM. Heavier pages need up to about 21 MiB per VM.
-- Only a full page load renders. Browser navigation fetches JSON that Go writes without a VM. API routes, `Cache = true` hits and 304 answers do not render either.
+- Only a full page load renders. Browser navigation fetches JSON that Go writes without a VM. API routes, render cache hits and 304 answers do not render either.
 - Overload answers 503 with `Retry-After: 1` from Go, without a VM and without calling `OnError`. `errors.Is(err, tifa.ErrSSRBusy)` matches it in `OnRequest`.
 - Code that recurses without end can add up to about 26 MB per VM for a moment. On a small machine lower `ssr.vm_stack_depth` (2000 keeps normal pages working).
 

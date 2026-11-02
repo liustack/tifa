@@ -31,7 +31,7 @@ A tifa program runs with no proxy in front, so it has to compress its own answer
 - **Codecs alone:** the six pages of the example shop and the navigation data of a list, an order and the stats, each compressed in one process with the encoders reused as the server reuses them, the mean of 200 runs, two rounds. The bundle files were compressed once at the best level of each codec, for size only.
 - **Whole requests:** the built shop with `--cache-size 0`, `GOMAXPROCS=2` and 2 VMs pinned to cpus 0 and 4 (one physical core), oha pinned to cpus 1 and 5 with 2 worker threads. Each step warmed up for 3 seconds and ran 15 seconds, two rounds. The server's CPU came from `/proc/<pid>/stat` before and after each step. The other four cpus were 0% to 3% busy during the steps.
 - **Encodings asked for:** `identity`, `gzip, zstd` (which gets zstd) and `gzip`.
-- **Cache:** the two order pages, which have `Cache = true`, in turn from the HTML cache, two rounds before and two after the commit that keeps the compressed forms (f8c3283), on the same machine and setup.
+- **Cache:** the two order pages, which had `Cache = true` then, in turn from the HTML cache, two rounds before and two after the commit that keeps the compressed forms (f8c3283), on the same machine and setup.
 
 ## Data
 

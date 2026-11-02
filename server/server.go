@@ -214,7 +214,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, pattern string, p
 			core.Logger().WarnContext(r.Context(), "tifa: removing the multipart files failed", "method", r.Method, "path", r.URL.Path, "err", err)
 		}
 	}()
-	// TODO(cache): a page with Cache = true must be anonymous. When the whole-page cache flow lands, its
+	// TODO(cache): a page with a whole-page cache must be anonymous. When the whole-page cache flow lands, its
 	// requests skip this, drop Cookie and Authorization before OnRequest, and Session is always nil there.
 	// The session is read before OnRequest, so every hook, Load and handler sees it. A store
 	// that fails is an unexpected error: carrying on as signed out would hide the fault.

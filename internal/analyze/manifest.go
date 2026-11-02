@@ -75,8 +75,8 @@ type Route struct {
 	Handlers []Handler `json:"handlers"`
 	// SSR is false when the route or any Layout in its chain sets SSR = false.
 	SSR bool `json:"ssr"`
-	// Cache is the route's Cache constant, false when absent.
-	Cache bool `json:"cache"`
+	// RenderCache is false when route.go sets RenderCache = false, and true otherwise.
+	RenderCache bool `json:"renderCache"`
 	// Layouts lists the IDs of the Layouts in Dir and above it, outermost first.
 	Layouts []string `json:"layouts"`
 }
