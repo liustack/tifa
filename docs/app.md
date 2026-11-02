@@ -7,7 +7,7 @@ read_when:
   - Changing the apps in examples/shop or test/apps
   - Writing Go tests for a Load, a Layout function, a method handler or OnRequest
   - Signing users in and out, reading who is signed in, or keeping sessions in Redis or SQL
-  - Showing the name of the signed-in user in a header, `useSession`, `Session.In`, `data-session`, or a CSP that blocks the script at the start of the head
+  - Showing the name of the signed-in user in a header, `useSession`, `SignedIn`, `data-session`, or a CSP that blocks the script at the start of the head
   - Keeping a public page in memory for a few minutes with `const Cache`, what becomes anonymous on it, or the build error about reading a cookie or the session on such a page
   - Adding CSS, Tailwind CSS or shadcn/ui to an app
   - Formatting numbers or dates in a page, or tifa dev warns about an Intl call
@@ -891,24 +891,24 @@ The same file exports `SessionEnabled`, which is `true` when the app calls `tifa
 
 ### In the browser
 
-The browser keeps a copy of who is signed in and shows it from the first paint, before any script of the page has run. Pages read it with `useSession`, and any element can show or hide itself by it.
+The browser keeps a copy of who is signed in and shows it from the first paint, before any script of the page has run. Pages read it with `useSession`, and `SignedIn` and `SignedOut` show or hide an element by it.
 
 ```tsx
-import { Session, useSession } from 'tifa/client'
+import { SignedIn, SignedOut, useSession } from 'tifa/client'
 
 function Header() {
 	const { signedIn, data, ready } = useSession()
 	return (
 		<header>
-			<Session.Out><a href="/login">Sign in</a></Session.Out>
-			<Session.In>Hello, {data?.name}</Session.In>
+			<SignedOut><a href="/login">Sign in</a></SignedOut>
+			<SignedIn><span>Hello, {data?.name}</span></SignedIn>
 		</header>
 	)
 }
 ```
 
 - `useSession()` returns `{ signedIn, data, ready }`. `data` is what the `Exposed` method returned (its type is `SessionData`), and `undefined` when the type has no `Exposed` or nobody is signed in. Calling it in an app that never calls `tifa.SetSession` is a type error, and throws.
-- `Session.In` and `Session.Out` are a `<span>` with `data-session="in"` or `data-session="out"`. Any element can carry the attribute instead, such as `<a href="/login" data-session="out">`. A style tifa puts at the start of the head hides `data-session="in"` elements unless someone is signed in, and `data-session="out"` elements when someone is. You write no CSS.
+- `SignedIn` and `SignedOut` show their child only to someone signed in or signed out. Each takes exactly one element as its child and renders no element of its own. The child must pass its props on to its DOM element, as `<a>`, `<div>` and components that spread `...props` do. In development a child that does not fails with a message when it mounts. A style tifa puts at the start of the head hides the wrong one from the first paint, so you write no CSS.
 - `ready` is `true` once the browser knows which state it shows. For a page rendered for the visitor it is `true` from the first render. See below for the pages that come without a session.
 - The copy decides what to show, never what someone may do. Check access in Go.
 

@@ -2,5 +2,5 @@
 export { clientOnly } from './client-only'
 export { RouteError } from './data'
 export { TifaError } from './call'
-export { Session, useSession } from './session'
+export { SignedIn, SignedOut, useSession } from './session'
 export type { SessionResult } from './session'

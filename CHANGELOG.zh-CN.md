@@ -6,6 +6,7 @@
 
 ### 变更
 
+- **不兼容：**`tifa/client` 的 `Session.In` 和 `Session.Out` 换成 `SignedIn` 和 `SignedOut`。它们各接收正好一个元素作子节点，自己不产生节点，只在有人登录或没人登录时显示这个元素，而旧组件会用一个 `<span>` 包住子内容。组件名拼错会让构建失败，而手写的 `data-session` 属性拼错是无声的，所以这个属性现在由 tifa 私有，文档也不再教你手写它。开发模式下，不把 props 传给自己 DOM 元素的子组件会在挂载时报错并说明原因。更新应用时，把 `<Session.In className="x">…</Session.In>` 换成 `<SignedIn><div className="x">…</div></SignedIn>`，`Session.Out` 同理（见[在浏览器里](docs/app.zh-CN.md#在浏览器里)）。
 - **不兼容：**会话类型里交给浏览器那部分的方法改名为 `Exposed() M`，原来是 `Browser() M`。新名字说明了它的作用：返回的内容会写进页面 HTML，并保存在访客的 `localStorage` 里，所以不能放凭据和需要保密的信息。更新应用时重命名方法即可，构建检查不变（见[会话](docs/app.zh-CN.md#会话)）。
 - `tifa.ErrSSRBusy` 的文本改为 `tifa: render queue busy`，原来是 `ssr: render queue busy`，这样 tifa 的所有错误值都以 `tifa: ` 开头。按旧文本匹配的脚本或告警要改成新文本。
 - **不兼容：**`c.QueryAll(name)` 改名为 `c.QueryValues(name)`。它返回切片，而 Go 1.23 起带 `All` 的函数返回迭代器，比如 `maps.All` 和 `slices.All`。标准库里最接近的名字是 `http.Header.Values`。更新应用时重命名调用即可，构建检查不变（见[Load 里 Ctx 的用法](docs/app.zh-CN.md#load-里-ctx-的用法)）。

@@ -6,10 +6,14 @@
 // The copy only decides what to show. It is never used to decide what someone may do.
 
 import {
+  Children,
+  cloneElement,
   createContext,
+  isValidElement,
   useContext,
   useSyncExternalStore,
-  type ComponentPropsWithoutRef,
+  type ReactElement,
+  type Ref,
 } from 'react'
 import type { SessionData, SessionEnabled } from '../session.gen'
 import { buildHeader } from './data'
@@ -203,17 +207,46 @@ export function useSession(
   return useSyncExternalStore(subscribeSession, sessionSnapshot, () => rendered) as SessionResult
 }
 
-type SpanProps = Omit<ComponentPropsWithoutRef<'span'>, 'data-session'>
+type Marked = { ref?: Ref<unknown>; 'data-session'?: string }
 
-// Session.In shows its children to someone signed in, Session.Out to someone who is not. They
-// are a span with the attribute data-session, so the style at the start of the head hides the
-// wrong one from the first paint, before any script of the page has run.
-function In(props: SpanProps) {
-  return <span {...props} data-session="in" />
+// mark gives the only child of SignedIn or SignedOut the attribute data-session, so the style at
+// the start of the head hides the wrong one from the first paint, before any script of the page
+// has run. The components add no node of their own. The attribute is private to tifa.
+function mark(name: string, value: 'in' | 'out', children: ReactElement): ReactElement {
+  const child: unknown = Children.only(children)
+  if (!isValidElement<Marked>(child)) throw new Error(`${name} needs one React element as its child`)
+  if (child.props['data-session'] !== undefined) {
+    throw new Error(`${name} sets data-session on its child itself: remove data-session from the child`)
+  }
+  const props: Marked = { 'data-session': value }
+  if (import.meta.env.DEV) props.ref = checkedRef(name, value, child.props.ref)
+  return cloneElement(child, props)
 }
 
-function Out(props: SpanProps) {
-  return <span {...props} data-session="out" />
+// checkedRef, in development only, looks at the DOM element once it is mounted. A child component
+// that does not pass its props on to an element would lose the attribute, and the wrong block
+// would show to everyone. It runs the ref the child had as well. Refs do not run while rendering
+// on the server, and a production build has none of this.
+function checkedRef(name: string, value: string, inner: Ref<unknown> | undefined): Ref<unknown> {
+  return (node: unknown) => {
+    // A class instance or a useImperativeHandle handle is not an element: nothing to check there.
+    const el = node as Element | null
+    if (el !== null && typeof el.getAttribute === 'function' && el.getAttribute(attributeName) !== value) {
+      throw new Error(
+        `${name}: the DOM element of its child has no data-session. The child component must pass its props on to the DOM element (a function component takes ...props and spreads them), or wrap it in an element such as <div>.`,
+      )
+    }
+    if (typeof inner === 'function') return inner(node)
+    if (inner) inner.current = node
+  }
 }
 
-export const Session = { In, Out }
+// SignedIn shows its child to someone signed in. Its child is one element, which gets the attribute.
+export function SignedIn({ children }: { children: ReactElement }) {
+  return mark('SignedIn', 'in', children)
+}
+
+// SignedOut shows its child to someone who is not signed in.
+export function SignedOut({ children }: { children: ReactElement }) {
+  return mark('SignedOut', 'out', children)
+}

@@ -1076,7 +1076,7 @@ const sessionInput = (session?: object) => ({ sessionKey: 'app_sid:v1', sessionH
 test('a page for someone signed in says so on <html> and reads the session', async () => {
   const html = await render('/session', appData, undefined, undefined, undefined, sessionInput({ signedIn: true, data: { name: 'Ann' } }))
   assert(html.startsWith('<!DOCTYPE html><html data-session="in" lang="xx" data-theme="a&quot;b" class="h-full"><head><meta charset="utf-8">' + sessionHead + '<link'), `document start: ${html.slice(0, 200)}`)
-  contains(html, 'SESSION <b>true</b>', 'NAME <b>Ann</b>', 'READY <b>true</b>', '<span class="menu" data-session="in">IN_ONLY</span>', '<span data-session="out">OUT_ONLY</span>')
+  contains(html, 'SESSION <b>true</b>', 'NAME <b>Ann</b>', 'READY <b>true</b>', '<p class="menu" data-session="in">IN_ONLY</p>', '<p data-session="out">OUT_ONLY</p>')
   // The page carries the session and where the browser keeps it, for the hydration.
   contains(html, 'app_sid:v1', 'Ann')
   let dehydrated: Dehydrated | undefined

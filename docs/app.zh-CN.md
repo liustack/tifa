@@ -7,7 +7,7 @@ read_when:
   - 改 examples/shop 或 test/apps 里的应用
   - 给 Load、Layout 函数、方法函数或 OnRequest 写 Go 测试
   - 让用户登录登出、读谁登录了，或把会话放到 Redis、SQL 里
-  - 在页头显示登录用户的名字，`useSession`、`Session.In`、`data-session`，或者 CSP 拦住了 head 最前面的脚本
+  - 在页头显示登录用户的名字，`useSession`、`SignedIn`、`data-session`，或者 CSP 拦住了 head 最前面的脚本
   - 给应用加 CSS、Tailwind CSS 或 shadcn/ui
   - 在页面里格式化数字或日期，或者 tifa dev 对某个 Intl 调用报警
   - 访客开着一个页面时你部署了新版本，想知道浏览器会怎么做，或者看到带 `X-Tifa-Build` 的 409
@@ -892,24 +892,24 @@ import type { SessionData } from '@/.tifa/session.gen'
 
 ### 在浏览器里
 
-浏览器里存着一份「谁登录了」的副本，第一次绘制时就按它显示，那时页面上的脚本还没跑。页面用 `useSession` 读它，任何元素都可以按它显示或隐藏自己。
+浏览器里存着一份「谁登录了」的副本，第一次绘制时就按它显示，那时页面上的脚本还没跑。页面用 `useSession` 读它，用 `SignedIn` 和 `SignedOut` 按它显示或隐藏元素。
 
 ```tsx
-import { Session, useSession } from 'tifa/client'
+import { SignedIn, SignedOut, useSession } from 'tifa/client'
 
 function Header() {
 	const { signedIn, data, ready } = useSession()
 	return (
 		<header>
-			<Session.Out><a href="/login">登录</a></Session.Out>
-			<Session.In>你好，{data?.name}</Session.In>
+			<SignedOut><a href="/login">登录</a></SignedOut>
+			<SignedIn><span>你好，{data?.name}</span></SignedIn>
 		</header>
 	)
 }
 ```
 
 - `useSession()` 返回 `{ signedIn, data, ready }`。`data` 是 `Exposed` 方法返回的值（类型是 `SessionData`），类型没有 `Exposed` 或没人登录时是 `undefined`。在从不调用 `tifa.SetSession` 的应用里调用它是类型错误，运行时也会抛错。
-- `Session.In` 和 `Session.Out` 是带 `data-session="in"` 或 `data-session="out"` 的 `<span>`。任何元素也可以直接带这个属性，比如 `<a href="/login" data-session="out">`。tifa 放在 head 最前面的一条样式会在没人登录时隐藏 `data-session="in"` 的元素，有人登录时隐藏 `data-session="out"` 的元素，你不用写 CSS。
+- `SignedIn` 和 `SignedOut` 只在有人登录或没人登录时显示它们的子元素。它们必须正好有一个元素作子节点，自己不产生任何元素。子元素要把收到的 props 传给自己的 DOM 元素，`<a>`、`<div>` 和展开 `...props` 的组件都可以。开发模式下，不这样做的子元素在挂载时会报错并说明原因。tifa 放在 head 最前面的一条样式会从第一次绘制起隐藏不该显示的那个，你不用写 CSS。
 - `ready` 在浏览器知道自己该显示哪个状态之后是 `true`。为访客渲染的页面从第一次渲染起就是 `true`。不带会话的页面见下文。
 - 副本只决定显示什么，不决定谁能做什么。权限在 Go 里检查。
 

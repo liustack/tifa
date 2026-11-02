@@ -2,6 +2,7 @@
 // shop's generated code), TifaError is what a handler function throws, RouteError what the Error
 // components of the shop's routes receive.
 export { clientOnly } from './client-only'
+import { cloneElement, type ReactElement } from 'react'
 
 export class TifaError extends Error {
   readonly status: number
@@ -24,16 +25,14 @@ export class RouteError extends Error {
 }
 
 // The session of tifa/client, for the shop's own app/account.tsx and app/layout.tsx. The comparison
-// runs the shop open, with nobody signed in. Session.In and Session.Out are spans with the
-// data-session attribute, as tifa's, and both are in the page, since tifa renders both and a style
+// runs the shop open, with nobody signed in. SignedIn and SignedOut put the data-session attribute
+// on their child, as tifa's do, and both are in the page, since tifa renders both and a style
 // hides one.
 export function useSession(): { signedIn: boolean; data: { name: string; initials: string } | undefined; ready: boolean } {
   return { signedIn: false, data: undefined, ready: true }
 }
 
-type SpanProps = React.HTMLAttributes<HTMLSpanElement>
+const mark = (value: string, child: ReactElement<Record<string, unknown>>) => cloneElement(child, { 'data-session': value })
 
-export const Session = {
-  In: (props: SpanProps) => <span data-session="in" {...props} />,
-  Out: (props: SpanProps) => <span data-session="out" {...props} />,
-}
+export const SignedIn = ({ children }: { children: ReactElement<Record<string, unknown>> }) => mark('in', children)
+export const SignedOut = ({ children }: { children: ReactElement<Record<string, unknown>> }) => mark('out', children)
