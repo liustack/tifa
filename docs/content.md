@@ -1,16 +1,18 @@
 ---
-summary: 'How an app keeps posts, docs and other writing as Markdown files under content/ and reads them in Go: declaring a collection in content.go, which files are entries, IDs, slugs, paths and translations, the front matter keys a schema struct allows, drafts and dates, what tifa build writes, how to read content in tests, and the errors and warnings'
+summary: 'How an app keeps posts, docs and other writing as Markdown files under content/ and reads them in Go: declaring a collection in content.go, which files are entries, IDs, slugs, paths and translations, the front matter keys a schema struct allows, drafts and dates, how the body becomes HTML (the steps, remark and rehype plugins, images and links, headings) and how a page shows it, what tifa build writes, how to read content in tests, and the errors and warnings'
 read_when:
   - Adding a blog, docs or other Markdown content to a tifa app
   - Writing or changing content.go, or a schema type that embeds content.Entry
   - The build reports an error about content.Define, a folder under content/ or the front matter of a file
+  - Showing the body of an entry with Body and <HTML>, a table of contents from Headings, or adding remark or rehype plugins to tifa() in vite.config.ts
+  - An image or link of a body is not found, or a plugin fails the conversion
   - Writing Go tests that read a collection, with tifatest.LoadContent or tifatest.SetContent
-  - Changing the content package, internal/content or the content checks in internal/analyze
+  - Changing the content package, internal/content, the content checks in internal/analyze or the Markdown steps of js/vite/plugin.js
 ---
 
 # Content
 
-A collection is a folder of Markdown files under `content/` that the app reads in Go as typed values. The build reads the files, checks every front matter against a Go struct and puts the entries into the program. At run time a `Load` or a handler reads them like any other data: no file is opened and nothing is parsed.
+A collection is a folder of Markdown files under `content/` that the app reads in Go as typed values. The build reads the files, checks every front matter against a Go struct, turns each body into HTML and puts it all into the program. At run time a `Load` or a handler reads the entries like any other data, and nothing is parsed.
 
 ## Declaring a collection
 
@@ -184,9 +186,119 @@ func Published(lang string) []myblog.Post {
 
 The content is loaded before `OnStart`, so `OnStart` can read it. Reading a collection while packages are initialized panics. Work out what depends on the content in the function that needs it, such as the RSS handler, rather than keeping a copy from `OnStart`.
 
+## Showing the body
+
+`Body()` and `Headings()` are methods of `content.Entry`, not fields, so a list of entries in the data of a page carries none of the bodies. An article page puts them in its data itself:
+
+```go
+type Page struct {
+	Post     myblog.Post       `json:"post"`
+	Body     tifa.HTML         `json:"body"`
+	Headings []content.Heading `json:"headings"`
+}
+
+func Load(c *tifa.Ctx) (Page, error) {
+	// ...
+	return Page{Post: p, Body: p.Body(), Headings: p.Headings()}, nil
+}
+```
+
+```tsx
+import { HTML } from 'tifa/client'
+
+export default function PostPage() {
+  const { post, body, headings } = page.useLoaderData()
+  return (
+    <article>
+      <h1>{post.title}</h1>
+      <nav>
+        {(headings ?? []).filter((h) => h.depth === 2).map((h) => (
+          <a key={h.id} href={`#${h.id}`}>{h.text}</a>
+        ))}
+      </nav>
+      <HTML value={body} className="prose" />
+    </article>
+  )
+}
+```
+
+- `Body() tifa.HTML` reads the HTML of the entry from the program each time it is called (`tifa dev` reads it from `.tifa/dist`) and keeps no copy. A page shows it with `<HTML>`, see [Showing HTML the app trusts](app.md#showing-html-the-app-trusts).
+- `Headings() []content.Heading` lists the `h1` to `h6` of the body in order, each as `{Depth, ID, Text}`: its level, the `id` it has in the HTML and its text.
+- `Words` counts the Markdown, so it needs no conversion. A reading time is the app's own sum, such as `Math.max(1, Math.ceil(words / 300))` minutes.
+
+## Markdown to HTML
+
+`tifa build` turns the Markdown of every entry into HTML with [unified](https://unifiedjs.com/), in the tifa plugin of `vite.config.ts`. An app with collections installs these packages, of these major versions:
+
+```sh
+pnpm add -D unified@11 remark-parse@11 remark-gfm@4 remark-rehype@11 rehype-raw@7 rehype-stringify@10
+```
+
+A missing package, or one of another major version, fails the build with the command that installs it. tifa loads them only for an app with collections. Converting needs Vite, so an app whose collections have entries needs pages. `tifa check` reads the front matter without Node.
+
+Each entry goes through these steps in this order:
+
+1. The front matter becomes the same number of empty lines, so line numbers in errors are those of the file.
+2. `remark-parse` and `remark-gfm` (tables, strikethrough, task lists, autolinks).
+3. The `remarkPlugins` of the app.
+4. `remark-rehype` and `rehype-raw`: HTML written in the Markdown stays as it is. The content is part of the repository and is trusted, so nothing is filtered.
+5. HTML comments are removed, so notes for the author stay out of the page.
+6. Each `h1` to `h6` without an `id` gets the one GitHub gives it, the same as `rehype-slug`: the text in lower case without punctuation, spaces become `-`, and a repeat gets `-1`, `-2` and so on. An `id` written in the HTML stays.
+7. The `rehypePlugins` of the app. They run after the ids, so a plugin such as `rehype-autolink-headings` can use them.
+8. Relative URLs are rewritten, see below.
+9. The headings are collected for `Headings()`, with the ids they end up with.
+10. `rehype-stringify`.
+
+The plugins of the app go into `tifa()` in `vite.config.ts`, each written as unified takes it, a plugin or `[plugin, options]`:
+
+```ts
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import rehypeShiki from '@shikijs/rehype'
+import pangu from 'remark-pangu'
+import tifa from './.tifa/vite.js'
+
+export default defineConfig({
+  plugins: [
+    tifa({
+      markdown: {
+        remarkPlugins: [pangu],
+        rehypePlugins: [[rehypeShiki, { theme: 'github-light' }]],
+      },
+    }),
+    react(),
+  ],
+})
+```
+
+- The steps of tifa cannot be turned off. To undo one, such as the links GFM makes of bare URLs, add a plugin of your own.
+- The vfile of each entry has `file.path`, the full path of the Markdown file, and `file.data.tifa`, which is `{ collection, lang, id, frontmatter }` with the front matter as the JSON of the schema. A plugin that reads a file next to the entry finds it from `file.path`.
+- An error a plugin throws fails the build with the file, the place the plugin gives and the name of the plugin. A warning it adds is printed.
+- MDX is not supported: a body is HTML and cannot hold React components. Put components in the page.
+- `tifa build` converts every entry each time. `tifa dev` converts every entry on each build of the bundle.
+
+### Images and links
+
+The relative URLs of a body (not starting with `/`, `#` or a scheme such as `https:`) are rewritten in these places: the `src` of `img`, `video`, `audio` and `source`, the `poster` of `video` and the `href` of `a`.
+
+- The file is looked for next to the Markdown file. When it is not there, it is looked for next to the version of the entry in the default language, so an image is kept once, next to the default language, and a translation that needs another one puts its own of the same name next to it.
+- The file goes out with the browser bundle as `/assets/<name>-<hash>.<ext>`, with the long cache of the other assets. A file used by several entries is one file. Under `tifa dev` the URL points at the file through Vite's dev server.
+- The file must be inside the folder of the collection: a URL with `..` or a symbolic link that leads out of it fails the build.
+- A query or a `#fragment` stays on the new URL.
+- A relative link to a `.md` file fails the build. A Markdown file has no URL of its own: the app's routes give the page its URL, so link to that, such as `/zh-CN/blog/b`.
+- URLs in the front matter are plain strings and are not rewritten. Local images get no `width`, `height` or `srcset`: add them with a rehype plugin of your own when you need them.
+
 ## What the build writes
 
-`tifa build` writes `dist/content.json`, which the program embeds with the rest of `dist/`. It holds the entries of every collection that are not drafts: the fields of `content.Entry`, the translation key and the front matter converted to JSON by the schema. The generated `main` imports the root package when the app has `content.go`, and reads the file before `OnStart`. `tifa dev` writes the same file into `.tifa/dist/` and the app reads it when it starts.
+`tifa build` writes `dist/content.json` and `dist/content/`, which the program embeds with the rest of `dist/`:
+
+| Output | What it holds |
+| --- | --- |
+| `dist/content.json` | The entries of every collection that are not drafts: the fields of `content.Entry`, the translation key, the file of the body, its headings and the front matter converted to JSON by the schema |
+| `dist/content/<collection>/<lang>/<ID>.html` | The body of each entry, without the language folder for a collection without languages. The server does not serve these files and the build does not compress them. A draft is never converted, so its text is not in the program |
+| `dist/assets/<name>-<hash>.<ext>` | The files the bodies refer to |
+
+An ID whose body file go:embed would refuse, such as one with `'` in it, fails the build. The generated `main` imports the root package when the app has `content.go`, and reads `content.json` before `OnStart`. `tifa dev` writes the same files into `.tifa/dist/` and the app reads them from there.
 
 ## Tests
 
@@ -209,6 +321,7 @@ func TestTagged(t *testing.T) {
 
 - `tifatest.LoadContent(t)` finds the app by going up from the current folder to `go.mod`, reads `content/` with the same scan and checks as the build, leaves out drafts, hides entries whose date is to come and runs `Validate`. A problem fails the test with the message the build gives.
 - `tifatest.SetContent(t, c, entries...)` makes the given entries the content of one collection. The fields of `content.Entry` are the ones you write, apart from `Translations`, which links entries with the same ID. Entries dated in the future are hidden. `Validate` does not run.
+- Tests have no build, so there is no HTML: `Body()` of an entry of either function returns the placeholder `<p>tifatest: body of blog zh-CN/202608/free-search</p>` (the collection, the language and the ID), and `Headings()` returns nil. An article page's `Load` runs in a test all the same. To check the HTML itself, test the built program.
 - Both put the collections back as they were when the test ends.
 - The collections are shared by the whole test binary, so a test that calls either cannot run in parallel. It fails when the test or one of its parents called `t.Parallel`, and calling `t.Parallel` after it panics.
 - Using a collection in a test without either of them panics:
@@ -247,6 +360,17 @@ content/blog/zh-CN/202608/free-search/index.md:9:1: "tag" is not a field of mybl
 content/blog/en/202608/free-search/index.md:1:1: front matter has no "title", which myblog.Post.Title needs. Make the field a pointer or add omitempty to make it optional
 content/blog/en/202608/free-search/index.md:2:7: slug: "free/search" is not one URL segment: it holds /
 content/docs/en/guide/index.md: the ID guide is also the ID of content/docs/en/guide.md
+```
+
+Converting Markdown, in `tifa build` and `tifa dev`:
+
+```text
+the app has content collections, so tifa build turns Markdown into HTML with unified: pnpm add -D unified@11 remark-parse@11 remark-gfm@4 remark-rehype@11 rehype-raw@7 rehype-stringify@10
+remark-gfm 5.0.0 is not a version tifa is tested with: pnpm add -D remark-gfm@4
+content/blog/en/202608/free-search/index.md:43:1: image ./cover.jpg not found: looked at content/blog/en/202608/free-search/cover.jpg and content/blog/zh-CN/202608/free-search/cover.jpg
+content/blog/zh-CN/a/index.md:12:5: ./b.md is a Markdown file and has no URL of its own: link to the page that shows it, such as /zh-CN/blog/b
+content/blog/zh-CN/a/index.md:14:1: image ../../../notes/x.png leads to content/notes/x.png, which is outside content/blog: a collection holds only its own files
+content/blog/zh-CN/a/index.md:18:1: rehype plugin rehypeContentImages: https://static.example.com/assets/0f/0f9c.jpg is not in the assets.yaml of this entry
 ```
 
 When the program starts:
