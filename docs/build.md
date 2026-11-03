@@ -214,9 +214,8 @@ go tool tifa build
 
 | File | Contents |
 | --- | --- |
-| `main.go` | Calls `server.Main` (`server.DevMain` under [tifa dev](dev.md)), filling in only the hooks that actually exist in `hooks.go`. Embeds the frontend output `dist/` with `go:embed`, and the project config too when there is one |
+| `main.go` | Calls `server.Main` (`server.DevMain` under [tifa dev](dev.md)), filling in only the hooks that actually exist in `hooks.go`. Embeds the frontend output `dist/` with `go:embed`. Holds the runtime settings of `tifa.yaml` as Go code (`Settings`), and imports the root package when its `config.go` defines settings and there is no `hooks.go` |
 | `routes.go` | Two package-level variables, `layouts` and `routes`. Each `Load` and `Layout` function is wrapped as `func(c *tifa.Ctx) (any, error) { return tifa.Use(c, pkg.Load) }`, and `pkg.Layout` for a Layout. A method handler with an input or a result goes through `server.Input`, `server.Output` or `server.InputOutput`, which decode the input with `(*tifa.Ctx).Bind` or, for GET and DELETE, `(*tifa.Ctx).BindQuery`, run its `Validate` and write the result |
-| `tifa.yaml` or `tifa.json` | A copy of the project config (`go:embed` cannot reach parent folders). It is checked against the runtime rules at build time first |
 | `routes.tsx` | The TanStack route tree and the `Register` type registration |
 | `session.gen.ts` | `SessionData`, the JSON that the `Exposed` method of the session type returns, and `SessionEnabled` (`true` when the app calls `tifa.SetSession`). `SessionData` is `never` when the app has no session or its type has no `Exposed`. Pages import it as `@/.tifa/session.gen` (see [Sessions](app.md#sessions)) |
 | `app/<folder>/route.gen.ts` | One module for each folder with a page, a Layout or a method handler. It exports `page` for the page and `layout` for the Layout (the TanStack route objects, only when the folder has them), `PageData` and `LayoutData` (the result types of `Load` and `Layout`), `Params`, and a function per method handler with its `<METHOD>Input` and `<METHOD>Output` types. The functions call `runtime/call.ts` |
@@ -438,14 +437,14 @@ Defined in `js/runtime/data.ts`. The Go side implements it:
 | Command | What it does |
 | --- | --- |
 | `serve` (default) | Loads the config, sets up [HTTPS](config.md#https) when it is on, runs `OnStart`, listens on `server.addr` (and with HTTPS on `server.http_addr`), and on SIGINT or SIGTERM shuts down gracefully and runs `OnShutdown`. Both addresses stop accepting and finish their requests together |
-| `config` | Prints a commented deployment config file, merged from all config layers |
+| `config` | Prints every setting, of tifa and of the app, with its value and where the value comes from, as a commented YAML file a deployment can pass with `-c` |
 | `version` | Prints the versions of the app module, the tifa module and Go |
 
-Config priority, from highest to lowest: command-line flags, `TIFA_*` environment variables, the file given with `--config`, the embedded project config, defaults. An unknown `TIFA_*` environment variable makes the program exit with an error.
+Settings come from, highest first: command-line flags, environment variables, the `.env` file of the working folder, the file given with `-c` (or `--config`), the values of `tifa.yaml` built into the program, and the defaults. The program does not read `tifa.yaml` itself. Flags, variables and file keys that are no setting are left alone. See [Configuration](config.md#where-settings-come-from).
 
 In the VMs the local time of `Date` is always UTC, whatever zone the program was started in, so a page renders the same on every machine. The process's zone is left alone: `time.Local` in the app's Go code is the zone of the machine or of `TZ`, as in any Go program. Intl and Temporal in the VMs use the time zone data built into slowjs and never read the system's zoneinfo. The generated `main.go` imports `time/tzdata`, so `time.LoadLocation` in the app's Go code finds every time zone even where the system has no zoneinfo, as in a `scratch` container. It makes the program about 450 KB larger.
 
-`serve` also has a dev flag, `--dist <dir>`: it reads the frontend output from that folder instead of the embedded `dist/`. [`tifa dev`](dev.md) points it at `.tifa/dist`. After a rebuild of the SSR bundle alone, the dev program (`server.DevMain`) loads the bundle again from there without a restart, and after other rebuilds tifa dev restarts it. It is not a deployment setting, is not part of the config layers, and has no `TIFA_*` variable. At startup the program reads `ssr.js`, compiles it and prewarms the VM pool, and reads `build.json` for the build ID and the head tags.
+`serve` also has a dev flag, `--dist <dir>`: it reads the frontend output from that folder instead of the embedded `dist/`. [`tifa dev`](dev.md) points it at `.tifa/dist`. After a rebuild of the SSR bundle alone, the dev program (`server.DevMain`) loads the bundle again from there without a restart, and after other rebuilds tifa dev restarts it. It is not a setting and has no environment variable. At startup the program reads `ssr.js`, compiles it and prewarms the VM pool, and reads `build.json` for the build ID and the head tags.
 
 ## Page requests
 

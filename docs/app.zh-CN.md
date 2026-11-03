@@ -27,6 +27,7 @@ read_when:
 myapp/
   go.mod
   hooks.go                          进程与请求钩子（可选）
+  config.go                         应用的配置，见配置文档（可选）
   db.go                             整个应用共享的资源：包级变量和函数（可选）
   app/
     route.go  layout.tsx            根 Layout（route.go 里的 Layout），套到所有页面，以及 /（route.go 里的 GET）
