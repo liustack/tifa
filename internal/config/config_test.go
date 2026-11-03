@@ -720,11 +720,11 @@ func TestCacheIgnoreQueryAddsAndRemoves(t *testing.T) {
 		gone          []string // names that must not
 	}{
 		"add":        {args: []string{"--cache-ignore-query", "ref, _hsenc"}, want: []string{"ref", "_hsenc", "gclid"}},
-		"remove":     {args: []string{"--cache-ignore-query", "-gclid,-utm_*"}, want: []string{"fbclid"}, gone: []string{"gclid", "utm_*"}},
+		"remove":     {args: []string{"--cache-ignore-query=-gclid,-utm_*"}, want: []string{"fbclid"}, gone: []string{"gclid", "utm_*"}},
 		"env":        {environ: []string{"CACHE_IGNORE_QUERY=ref,-yclid"}, want: []string{"ref"}, gone: []string{"yclid"}},
-		"remove all": {args: []string{"--cache-ignore-query", "-*,ref"}, want: []string{"ref"}, gone: []string{"gclid", "utm_*"}},
+		"remove all": {args: []string{"--cache-ignore-query=-*,ref"}, want: []string{"ref"}, gone: []string{"gclid", "utm_*"}},
 		"file":       {args: []string{"--config", writeFile(t, "prod.yaml", "cache:\n  ignore_query: ref\n")}, want: []string{"ref", "gclid"}},
-		"twice":      {args: []string{"--config", writeFile(t, "prod.yaml", "cache:\n  ignore_query: ref\n"), "--cache-ignore-query", "-ref"}, gone: []string{"ref"}, want: []string{"gclid"}},
+		"twice":      {args: []string{"--config", writeFile(t, "prod.yaml", "cache:\n  ignore_query: ref\n"), "--cache-ignore-query=-ref"}, gone: []string{"ref"}, want: []string{"gclid"}},
 	}
 	for name, tc := range cases {
 		c, err := load(t, tc.args, tc.environ, "", "")

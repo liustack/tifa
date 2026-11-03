@@ -91,38 +91,37 @@ func cutArgs(args []string) []string {
 	return args
 }
 
-// configFlag returns the path given with -c or --config, the last one when there are several.
+// isValue reports whether the argument after a flag can be its value. A word that starts with -
+// is a flag, so a value that starts with - is written after =, such as --ssr-vms=-1.
+func isValue(args []string, i int) bool { return i < len(args) && !strings.HasPrefix(args[i], "-") }
+
+// configFlag returns the path given with -c path, -c=path, --config path or --config=path, the
+// last one when there are several.
 func configFlag(args []string) (string, error) {
 	args = cutArgs(args)
 	path := ""
 	for i := 0; i < len(args); i++ {
 		a := args[i]
-		var rest string
 		switch {
 		case a == "-c" || a == "--config":
-			if i+1 == len(args) {
+			if !isValue(args, i+1) {
 				return "", fmt.Errorf("config: flag %s needs a file", a)
 			}
 			i++
 			path = args[i]
-			continue
 		case strings.HasPrefix(a, "--config="):
-			rest = strings.TrimPrefix(a, "--config=")
+			path = strings.TrimPrefix(a, "--config=")
 		case strings.HasPrefix(a, "-c="):
-			rest = strings.TrimPrefix(a, "-c=")
-		case strings.HasPrefix(a, "-c") && !strings.HasPrefix(a, "--"):
-			rest = strings.TrimPrefix(a, "-c")
-		default:
-			continue
+			path = strings.TrimPrefix(a, "-c=")
 		}
-		path = rest
 	}
 	return path, nil
 }
 
 // flag returns the value of the flag --name in the arguments, the last one when it is given
 // several times. A bool flag takes its value only after =, such as --server-hsts=false, and is
-// true without one. Another flag takes the next argument when it has no =.
+// true without one. Another flag takes the next argument when it has no =, unless that starts
+// with -, see isValue.
 func (s *Sources) flag(name string, isBool bool) (raw string, ok bool, err error) {
 	args := cutArgs(s.args)
 	for i := 0; i < len(args); i++ {
@@ -139,7 +138,7 @@ func (s *Sources) flag(name string, isBool bool) (raw string, ok bool, err error
 			raw = v
 		case isBool:
 			raw = "true"
-		case i+1 < len(args):
+		case isValue(args, i+1):
 			i++
 			raw = args[i]
 		default:

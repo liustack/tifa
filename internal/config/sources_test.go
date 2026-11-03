@@ -326,3 +326,40 @@ func TestClashOfTwoAppKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A word that starts with - is a flag and never the value of another one, so a value that
+// starts with - is written after =.
+func TestAFlagIsNeverTheValueOfAnother(t *testing.T) {
+	for _, args := range [][]string{
+		{"--server-tls-key", "--server-hsts"},
+		{"--server-tls-key", "-cert.pem"},
+		{"--server-tls-key", "-"},
+		{"--server-tls-key"},
+	} {
+		_, _, err := Load(Read(args, nil, ""), nil)
+		if err == nil || !strings.Contains(err.Error(), "flag --server-tls-key needs a value") {
+			t.Errorf("%q: %v", args, err)
+		}
+	}
+	src := Read([]string{"--server-tls-key", "--server-hsts"}, nil, "")
+	if err := src.Err(); err != nil {
+		t.Errorf("-c read from a flag of another: %v", err)
+	}
+	c, _, _ := Load(src, nil)
+	if !c.Server.HSTS {
+		t.Error("--server-hsts did not count")
+	}
+	c, _, err := Load(Read([]string{"--server-tls-key=-cert.pem", "--server-tls-cert=c.pem", "--server-addr=:443"}, nil, ""), nil)
+	if err != nil || c.Server.TLSKey != "-cert.pem" {
+		t.Errorf("a value after =: %q, %v", c.Server.TLSKey, err)
+	}
+	for _, args := range [][]string{{"-c", "--server-hsts"}, {"--config", "-x.yaml"}} {
+		if err := Read(args, nil, "").Err(); err == nil || !strings.Contains(err.Error(), "needs a file") {
+			t.Errorf("%q: %v", args, err)
+		}
+	}
+	// -cpath is not -c path.
+	if err := Read([]string{"-cert.pem"}, nil, "").Err(); err != nil {
+		t.Errorf("-cert.pem: %v", err)
+	}
+}
