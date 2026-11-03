@@ -16,6 +16,7 @@ import (
 	"github.com/liustack/tifa/internal/bundle"
 	"github.com/liustack/tifa/internal/codegen"
 	"github.com/liustack/tifa/internal/config"
+	"github.com/liustack/tifa/internal/content"
 	"github.com/spf13/cobra"
 )
 
@@ -67,7 +68,11 @@ Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 			if err := checkReact(root, pages); err != nil {
 				return err
 			}
-			id, err := bundle.App(node, root, filepath.Join(root, settings.Public), pages)
+			extra, err := contentFiles(m)
+			if err != nil {
+				return err
+			}
+			id, err := bundle.App(node, root, filepath.Join(root, settings.Public), pages, extra...)
 			if err != nil {
 				return err
 			}
@@ -121,7 +126,8 @@ func checkReact(root string, pages bool) error {
 	return bundle.CheckReact(root)
 }
 
-// analyzeApp runs the static analysis and prints each convention violation on its own line.
+// analyzeApp runs the static analysis and prints each convention violation on its own line, and
+// the warnings about the content, such as entries without a translation.
 func analyzeApp(cmd *cobra.Command, root string) (*analyze.Manifest, error) {
 	m, err := analyze.Analyze(root)
 	var violations analyze.Errors
@@ -131,7 +137,25 @@ func analyzeApp(cmd *cobra.Command, root string) (*analyze.Manifest, error) {
 		}
 		return nil, fmt.Errorf("found %d convention violation(s)", len(violations))
 	}
+	if err == nil && m.Content != nil {
+		for _, w := range m.Content.Warnings {
+			fmt.Fprintf(cmd.ErrOrStderr(), "tifa: content: %s (warning)\n", w)
+		}
+	}
 	return m, err
+}
+
+// contentFiles returns dist/content.json with the entries of the content collections, none for
+// an app without collections.
+func contentFiles(m *analyze.Manifest) ([]bundle.File, error) {
+	if m.Content == nil {
+		return nil, nil
+	}
+	data, err := m.Content.File.Marshal()
+	if err != nil {
+		return nil, err
+	}
+	return []bundle.File{{Name: content.FileName, Data: data}}, nil
 }
 
 // goBuild compiles the generated main of the application at root into output with

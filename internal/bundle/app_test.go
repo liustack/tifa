@@ -139,6 +139,27 @@ func TestAppWithoutPagesOrPublic(t *testing.T) {
 	}
 }
 
+// The entries of the content collections go into dist/content.json, and they are part of the
+// build: other entries give another build ID.
+func TestAppWritesTheContentFile(t *testing.T) {
+	root := t.TempDir()
+	n := NewNode(root, io.Discard)
+	defer n.Close()
+	build := func(data string) string {
+		id, err := App(n, root, filepath.Join(root, "public"), false, File{Name: "content.json", Data: []byte(data)})
+		if err != nil {
+			t.Fatalf("App: %v", err)
+		}
+		if got, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "content.json")); err != nil || string(got) != data {
+			t.Errorf("content.json = %q, %v", got, err)
+		}
+		return id
+	}
+	if build(`{"blog":[]}`) == build(`{"blog":[{"id":"a"}]}`) {
+		t.Error("other entries give the same build ID")
+	}
+}
+
 // Two different file trees never share an ID, even when one file holds what the separators of
 // the other would look like.
 func TestDistIDTellsFileTreesApart(t *testing.T) {
