@@ -75,7 +75,7 @@ export SESSION_MAX_AGE=24h   # a line may start with export
 GREETING="Hello # not a comment\n"
 ```
 
-- Lines starting with `#` and blank lines are skipped. An unquoted value ends at a ` #` and loses the spaces around it.
+- Lines starting with `#` and blank lines are skipped. An unquoted value ends at a `#` after a space or a tab and loses the spaces around it, so `TLS_CERT= # none` is empty and `COLOR=#fff` is `#fff`.
 - A value in double quotes may hold `\n`, `\t`, `\"` and `\\`. A value in single quotes is taken as it is. A quoted value stays on one line.
 - A line it cannot read stops the program with its line number.
 

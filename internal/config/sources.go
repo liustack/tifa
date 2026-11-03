@@ -323,8 +323,8 @@ var envKey = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // parseDotenv reads a .env file: lines of NAME=value, blank lines and lines starting with #.
 // A line may start with export. A value in double quotes may hold \n, \t, \" and \\, one in
-// single quotes is taken as it is, and an unquoted one ends at a # after a space and loses
-// the spaces around it.
+// single quotes is taken as it is, and an unquoted one ends at a # after a space or a tab,
+// which may be right after the =, and loses the spaces around it.
 func parseDotenv(data []byte) (map[string]string, error) {
 	vars := map[string]string{}
 	for n, line := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
@@ -341,6 +341,7 @@ func parseDotenv(data []byte) (map[string]string, error) {
 		if !ok || !envKey.MatchString(name) {
 			return nil, fmt.Errorf("%s: expected NAME=value", where)
 		}
+		raw := value
 		value = strings.TrimSpace(value)
 		var err error
 		switch {
@@ -355,9 +356,7 @@ func parseDotenv(data []byte) (map[string]string, error) {
 				value = value[1 : end+1]
 			}
 		default:
-			if i := strings.Index(value, " #"); i >= 0 {
-				value = strings.TrimSpace(value[:i])
-			}
+			value = strings.TrimSpace(cutComment(raw))
 		}
 		if err != nil {
 			return nil, fmt.Errorf("%s: %s: %w", where, name, err)
@@ -365,6 +364,16 @@ func parseDotenv(data []byte) (map[string]string, error) {
 		vars[name] = value
 	}
 	return vars, nil
+}
+
+// cutComment drops a comment from an unquoted value: a # after a space or a tab.
+func cutComment(value string) string {
+	for i := 1; i < len(value); i++ {
+		if value[i] == '#' && (value[i-1] == ' ' || value[i-1] == '\t') {
+			return value[:i]
+		}
+	}
+	return value
 }
 
 func doubleQuoted(value string) (string, error) {

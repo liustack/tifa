@@ -363,3 +363,16 @@ func TestAFlagIsNeverTheValueOfAnother(t *testing.T) {
 		t.Errorf("-cert.pem: %v", err)
 	}
 }
+
+// A comment after an empty value leaves the value empty.
+func TestDotenvCommentAfterAnEmptyValue(t *testing.T) {
+	vars, err := parseDotenv([]byte("A= # turn it off\nB=\t# tab\nC=#kept\nD=x\t# tab\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, v := range map[string]string{"A": "", "B": "", "C": "#kept", "D": "x"} {
+		if got, ok := vars[k]; !ok || got != v {
+			t.Errorf("%s = %q, want %q", k, got, v)
+		}
+	}
+}
