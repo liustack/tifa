@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/liustack/tifa/internal/content"
 	"github.com/liustack/tifa/internal/content/scan"
+	"golang.org/x/mod/module"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -26,6 +28,8 @@ type Content struct {
 	File content.File
 	// Warnings are problems that do not stop a build, such as entries without a translation.
 	Warnings []string
+	// Markdown lists the entries of File for the Vite plugin to turn into HTML.
+	Markdown []content.Markdown
 }
 
 // Collection is one var X = content.Define[T](content.Source{...}) of content.go.
@@ -156,8 +160,23 @@ func (a *analyzer) content() *Content {
 	}
 	res := scan.Scan(a.root, colls, declared, scan.Options{})
 	a.scanErrors(res.Errors)
-	c.File, c.Warnings = res.File, res.Warnings
+	c.File, c.Warnings, c.Markdown = res.File, res.Warnings, res.Markdown
+	a.errs = append(a.errs, bodyFileErrors(c.File)...)
 	return c
+}
+
+// bodyFileErrors reports the entries whose body would go into a file of dist that go:embed does
+// not take, which allows the names of module.CheckFilePath only.
+func bodyFileErrors(f content.File) []Error {
+	var errs []Error
+	for _, name := range slices.Sorted(maps.Keys(f)) {
+		for _, r := range f[name] {
+			if err := module.CheckFilePath(r.File); err != nil {
+				errs = append(errs, Error{Pos: token.Position{Filename: r.Source}, Msg: fmt.Sprintf("the body of this entry goes into %s, a name go:embed refuses: %v. Rename the file", r.File, err)})
+			}
+		}
+	}
+	return errs
 }
 
 // scanErrors reports the errors of a scan of content/.

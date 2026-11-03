@@ -11,6 +11,7 @@ warning: 3 entries of docs have no zh-CN version: guide, guide/data, guide/routi
       "date": "2026-08-02T00:00:00Z",
       "words": 38,
       "source": "content/blog/zh-CN/202608/free-search/index.md",
+      "file": "content/blog/zh-CN/202608/free-search.html",
       "data": {
         "title": "免费给模型加上联网搜索",
         "description": "装一个免费的能力包，模型就能搜网页、读链接，答案条条带来源。",
@@ -31,6 +32,7 @@ warning: 3 entries of docs have no zh-CN version: guide, guide/data, guide/routi
       "date": "2026-08-02T00:00:00Z",
       "words": 12,
       "source": "content/blog/en/202608/free-search/index.md",
+      "file": "content/blog/en/202608/free-search.html",
       "data": {
         "title": "Free web search for your model",
         "description": "One free skill pack lets the model search the web and cite every answer.",
@@ -48,6 +50,7 @@ warning: 3 entries of docs have no zh-CN version: guide, guide/data, guide/routi
       "date": "2026-11-20T09:00:00+08:00",
       "words": 5,
       "source": "content/blog/zh-CN/202611/launch/index.md",
+      "file": "content/blog/zh-CN/202611/launch.html",
       "data": {
         "title": "新版本发布",
         "description": "定时发布"
@@ -62,6 +65,7 @@ warning: 3 entries of docs have no zh-CN version: guide, guide/data, guide/routi
       "date": "2026-11-20T09:00:00+08:00",
       "words": 3,
       "source": "content/blog/en/202611/release-notes/index.md",
+      "file": "content/blog/en/202611/release-notes.html",
       "data": {
         "title": "Release notes",
         "description": "Scheduled"
@@ -75,6 +79,7 @@ warning: 3 entries of docs have no zh-CN version: guide, guide/data, guide/routi
       "group": "about",
       "words": 5,
       "source": "content/blog/zh-CN/about.md",
+      "file": "content/blog/zh-CN/about.html",
       "data": {
         "title": "关于",
         "description": "一篇散文件"
@@ -90,6 +95,7 @@ warning: 3 entries of docs have no zh-CN version: guide, guide/data, guide/routi
       "group": "guide",
       "words": 2,
       "source": "content/docs/en/guide.md",
+      "file": "content/docs/en/guide.html",
       "data": {
         "title": "Guide",
         "order": 2
@@ -103,6 +109,7 @@ warning: 3 entries of docs have no zh-CN version: guide, guide/data, guide/routi
       "group": "guide/data",
       "words": 4,
       "source": "content/docs/en/guide/data.md",
+      "file": "content/docs/en/guide/data.html",
       "data": {
         "title": "Data",
         "order": 4
@@ -116,6 +123,7 @@ warning: 3 entries of docs have no zh-CN version: guide, guide/data, guide/routi
       "group": "guide/routing",
       "words": 4,
       "source": "content/docs/en/guide/routing.md",
+      "file": "content/docs/en/guide/routing.html",
       "data": {
         "title": "Routing",
         "order": 3
@@ -129,6 +137,7 @@ warning: 3 entries of docs have no zh-CN version: guide, guide/data, guide/routi
       "group": "index",
       "words": 5,
       "source": "content/docs/zh-CN/index.md",
+      "file": "content/docs/zh-CN/index.html",
       "data": {
         "title": "文档"
       }
@@ -141,6 +150,7 @@ warning: 3 entries of docs have no zh-CN version: guide, guide/data, guide/routi
       "group": "index",
       "words": 2,
       "source": "content/docs/en/index.md",
+      "file": "content/docs/en/index.html",
       "data": {
         "title": "Docs"
       }
@@ -153,6 +163,7 @@ warning: 3 entries of docs have no zh-CN version: guide, guide/data, guide/routi
       "group": "install",
       "words": 3,
       "source": "content/docs/zh-CN/install.md",
+      "file": "content/docs/zh-CN/install.html",
       "data": {
         "title": "安装",
         "order": 1
@@ -166,6 +177,7 @@ warning: 3 entries of docs have no zh-CN version: guide, guide/data, guide/routi
       "group": "install",
       "words": 2,
       "source": "content/docs/en/install.md",
+      "file": "content/docs/en/install.html",
       "data": {
         "title": "Install",
         "order": 1

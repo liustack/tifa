@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/liustack/tifa/internal/content"
 )
 
 func TestContentCollections(t *testing.T) {
@@ -92,5 +94,22 @@ func TestContentDeclarationsBreakingTheRules(t *testing.T) {
 	}
 	if t.Failed() {
 		t.Logf("errors:\n%s", got)
+	}
+}
+
+// go:embed takes only the names module.CheckFilePath allows, and the body of an entry is a file
+// named by its ID.
+func TestBodyFilesMustBeNamesGoEmbeds(t *testing.T) {
+	f := content.File{"notes": {
+		{ID: "what's-new", Source: "content/notes/what's-new.md", File: "content/notes/what's-new.html"},
+		{ID: "新版本", Source: "content/notes/新版本.md", File: "content/notes/新版本.html"},
+	}}
+	var got []string
+	for _, e := range bodyFileErrors(f) {
+		got = append(got, e.Error())
+	}
+	want := []string{`content/notes/what's-new.md: the body of this entry goes into content/notes/what's-new.html, a name go:embed refuses: malformed file path "content/notes/what's-new.html": invalid char '\''. Rename the file`}
+	if !slices.Equal(got, want) {
+		t.Errorf("errors\n%q\nwant\n%q", got, want)
 	}
 }

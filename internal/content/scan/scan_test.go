@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/liustack/tifa/content"
+	internalcontent "github.com/liustack/tifa/internal/content"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden files")
@@ -111,6 +112,57 @@ func TestScanBlogAndDocs(t *testing.T) {
 	golden(t, "blog", res)
 	if data, _ := res.File.Marshal(); strings.Contains(string(data), "DRAFT") || strings.Contains(string(data), "wip") {
 		t.Errorf("a draft is in content.json:\n%s", data)
+	}
+}
+
+// Each entry that goes into the build is handed to the Vite plugin with its front matter left as
+// empty lines, where its body goes in dist, and the folder of its version in the default language.
+func TestScanListsTheMarkdownToConvert(t *testing.T) {
+	res := Scan(filepath.Join("testdata", "blog"), []Collection{
+		collection(t, "blog", post{}, []string{"zh-CN", "en"}, ""),
+	}, []string{"blog", "docs"}, Options{})
+	if len(res.Errors) > 0 {
+		t.Fatal(res.Errors)
+	}
+	byOut := map[string]internalcontent.Markdown{}
+	for _, m := range res.Markdown {
+		byOut[m.Out] = m
+	}
+	if len(byOut) != len(res.File["blog"]) {
+		t.Errorf("%d entries to convert for %d records", len(byOut), len(res.File["blog"]))
+	}
+	for _, r := range res.File["blog"] {
+		if _, ok := byOut[r.File]; !ok || r.File != internalcontent.BodyFile("blog", r.Lang, r.ID) {
+			t.Errorf("record %s %s has the file %q, which is not converted", r.Lang, r.ID, r.File)
+		}
+	}
+	en := byOut["content/blog/en/202608/free-search.html"]
+	want := internalcontent.Markdown{
+		Collection: "blog", Lang: "en", ID: "202608/free-search",
+		Source:   "content/blog/en/202608/free-search/index.md",
+		Fallback: "content/blog/zh-CN/202608/free-search",
+		Out:      "content/blog/en/202608/free-search.html",
+		Text:     strings.Repeat("\n", 8) + "\n![Architecture](./diagram.png)\n\nThe model reasons well but doesn't know what happened today. See <https://example.org/search>.\n\n    indented code does not count\n",
+	}
+	got := en
+	got.Frontmatter = nil
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("entry to convert\n%+v\nwant\n%+v", got, want)
+	}
+	if !strings.Contains(string(en.Frontmatter), `"title":"Free web search for your model"`) {
+		t.Errorf("front matter %s", en.Frontmatter)
+	}
+	// Translations linked by translationKey fall back to each other's folder.
+	if m := byOut["content/blog/en/202611/release-notes.html"]; m.Fallback != "content/blog/zh-CN/202611/launch" {
+		t.Errorf("release-notes falls back to %q", m.Fallback)
+	}
+	if m := byOut["content/blog/zh-CN/202608/free-search.html"]; m.Fallback != "" {
+		t.Errorf("an entry of the default language falls back to %q", m.Fallback)
+	}
+	for _, m := range res.Markdown {
+		if strings.Contains(m.Text, "DRAFT") {
+			t.Errorf("the draft %s is converted", m.Source)
+		}
 	}
 }
 

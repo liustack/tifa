@@ -7,6 +7,7 @@
       "group": "a/one",
       "words": 10,
       "source": "content/notes/a/one/index.md",
+      "file": "content/notes/a/one.html",
       "data": {
         "title": "One"
       }
@@ -18,6 +19,7 @@
       "group": "a/two",
       "words": 6,
       "source": "content/notes/a/two.md",
+      "file": "content/notes/a/two.html",
       "data": {
         "title": "Two"
       }
@@ -29,6 +31,7 @@
       "group": "b/c/three",
       "words": 5,
       "source": "content/notes/b/c/three/index.md",
+      "file": "content/notes/b/c/three.html",
       "data": {
         "title": "Three"
       }
@@ -40,6 +43,7 @@
       "group": "index",
       "words": 15,
       "source": "content/notes/index.md",
+      "file": "content/notes/index.html",
       "data": {
         "title": "Home"
       }
