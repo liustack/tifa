@@ -84,7 +84,7 @@ The step names are `static analysis`, `code generation`, `bundle` and `go build`
 
 When a render calls Intl or a `toLocale*` method without a locale, or for a date without a `timeZone`, the app logs a `tifa: ssr:` warning that names the place in your sources, once per place. The page renders as usual. See [Warnings in tifa dev](app.md#warnings-in-tifa-dev).
 
-tifa dev renders each page twice. When the two renders of the same data differ, the page read the time or a random number while rendering, and the render cache would freeze that value. The terminal and an overlay on the page say so, with the HTML around the first place where the renders part. Change the component, or write `RenderCache = false` in the `route.go` of the page (see [SSR and cache](app.md#ssr-and-cache)). Such a page is not cached until it is fixed. A built program does not render twice.
+tifa dev renders each page twice, the second time with the clock 36 hours on. When the two renders of the same data differ, the page read the time or a random number while rendering, and the render cache would freeze that value. The terminal and an overlay on the page say so, with the HTML around the first place where the renders part and the places in your code that read the time (`Date.now()`, `new Date()`, `Date()`) or a random number (`Math.random()`, `crypto`). Reads inside packages are named by the line of your code that called them, and those of React, TanStack Router and tifa are left out. Change the component, or write `RenderCache = false` in the `route.go` of the page (see [SSR and cache](app.md#ssr-and-cache)). Such a page is not cached until it is fixed. A built program does not render twice.
 
 ## When a build fails
 
