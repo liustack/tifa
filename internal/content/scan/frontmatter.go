@@ -107,6 +107,21 @@ func yamlError(err error) posError {
 	return posError{pos{1, 1}, "the front matter is not YAML: " + strings.TrimPrefix(msg, "yaml: ")}
 }
 
+// kindTag is the tag of n as the checks read it: that of a scalar, which an explicit tag such as
+// !!bool sets, and !!seq or !!map for a list or a map whatever tag it was given, so that an
+// explicit tag cannot make a list pass for a string.
+func kindTag(n *yaml.Node) string {
+	switch n.Kind {
+	case yaml.ScalarNode:
+		return n.ShortTag()
+	case yaml.SequenceNode:
+		return "!!seq"
+	case yaml.MappingNode:
+		return "!!map"
+	}
+	return ""
+}
+
 // resolve follows an alias to the node it names.
 func resolve(n *yaml.Node) *yaml.Node {
 	for n.Kind == yaml.AliasNode && n.Alias != nil {
@@ -178,11 +193,10 @@ func (c *converter) object(n *yaml.Node, t *Node, path string, top bool) []byte 
 				}
 				continue
 			case key == keyDraft:
-				if v.ShortTag() != "!!bool" {
-					c.errorAt(v, "draft: want true or false, got %s", c.got(v, true))
-					continue
+				b, ok := c.bool(v, key)
+				if ok {
+					c.m.draft = b
 				}
-				c.m.draft, _ = strconv.ParseBool(v.Value)
 				continue
 			case key == keySlug:
 				s, ok := c.name(v, key)
@@ -216,7 +230,7 @@ func (c *converter) object(n *yaml.Node, t *Node, path string, top bool) []byte 
 			c.errorAt(k, "%s", c.unknown(key, t, path))
 			continue
 		}
-		if v.ShortTag() == "!!null" && !f.Required && f.Node.Kind != Pointer && f.Node.Kind != Slice && f.Node.Kind != Map {
+		if kindTag(v) == "!!null" && !f.Required && f.Node.Kind != Pointer && f.Node.Kind != Slice && f.Node.Kind != Map {
 			continue // an optional field with no value keeps its zero value
 		}
 		if out, ok := c.value(raw, f.Node, join(path, key)); ok {
@@ -309,7 +323,7 @@ func distance(a, b string) int {
 
 // name reads a scalar that names something, a slug or a translation key. Numbers are names too.
 func (c *converter) name(v *yaml.Node, key string) (string, bool) {
-	switch v.ShortTag() {
+	switch kindTag(v) {
 	case "!!str", "!!int", "!!float":
 		return v.Value, true
 	}
@@ -340,7 +354,7 @@ func segmentProblem(s string) string {
 
 // date reads a date: 2006-01-02, which is midnight UTC, or RFC 3339.
 func (c *converter) date(v *yaml.Node, path string) (time.Time, bool) {
-	tag := v.ShortTag()
+	tag := kindTag(v)
 	if tag != "!!timestamp" && tag != "!!str" {
 		c.errorAt(v, "%s: want a date, got %s", path, c.got(v, false))
 		return time.Time{}, false
@@ -391,7 +405,7 @@ func (c *converter) value(n *yaml.Node, t *Node, path string) ([]byte, bool) {
 		c.open[n] = true
 		defer delete(c.open, n)
 	}
-	tag := n.ShortTag()
+	tag := kindTag(n)
 	if tag == "!!null" {
 		switch t.Kind {
 		case Pointer, Slice, Map:
@@ -419,11 +433,10 @@ func (c *converter) value(n *yaml.Node, t *Node, path string) ([]byte, bool) {
 		}
 		return out, true
 	case Bool:
-		if tag != "!!bool" {
-			c.errorAt(n, "%s: want true or false, got %s", path, c.got(n, true))
+		b, ok := c.bool(n, path)
+		if !ok {
 			return nil, false
 		}
-		b, _ := strconv.ParseBool(n.Value)
 		return strconv.AppendBool(nil, b), true
 	case Int, Uint, Float:
 		return c.number(n, t, path)
@@ -490,18 +503,39 @@ func (c *converter) value(n *yaml.Node, t *Node, path string) ([]byte, bool) {
 	panic(fmt.Sprintf("scan: no conversion for kind %d", t.Kind))
 }
 
+// bool reads true or false. An explicit !!bool tag does not make other text a bool.
+func (c *converter) bool(n *yaml.Node, path string) (bool, bool) {
+	var b bool
+	if kindTag(n) != "!!bool" || n.Decode(&b) != nil {
+		c.errorAt(n, "%s: want true or false, got %s", path, c.got(n, true))
+		return false, false
+	}
+	return b, true
+}
+
+// integer matches the integers of YAML, which may be too large for a Go integer.
+var integer = regexp.MustCompile(`^[-+]?(0b[01_]+|0o[0-7_]+|0x[0-9a-fA-F_]+|[0-9][0-9_]*)$`)
+
 // number converts a YAML number into the JSON of an Int, Uint or Float of t.Bits.
 func (c *converter) number(n *yaml.Node, t *Node, path string) ([]byte, bool) {
-	tag := n.ShortTag()
+	tag := kindTag(n)
 	if tag != "!!int" && (tag != "!!float" || t.Kind != Float) {
 		c.errorAt(n, "%s: want %s, got %s", path, want(t), c.got(n, true))
 		return nil, false
+	}
+	// decodeFailed reports a value an explicit tag gave a type it does not have.
+	decodeFailed := func() {
+		if integer.MatchString(n.Value) {
+			c.errorAt(n, "%s: %s is out of range: want %s", path, n.Value, want(t))
+		} else {
+			c.errorAt(n, "%s: want %s, got %s", path, want(t), c.got(n, true))
+		}
 	}
 	switch t.Kind {
 	case Int:
 		var i int64
 		if err := n.Decode(&i); err != nil {
-			c.errorAt(n, "%s: %s is out of range: want %s", path, n.Value, want(t))
+			decodeFailed()
 			return nil, false
 		}
 		lo, hi := -int64(1)<<(t.Bits-1), int64(1)<<(t.Bits-1)-1
@@ -513,7 +547,7 @@ func (c *converter) number(n *yaml.Node, t *Node, path string) ([]byte, bool) {
 	case Uint:
 		var u uint64
 		if err := n.Decode(&u); err != nil {
-			c.errorAt(n, "%s: %s is out of range: want %s", path, n.Value, want(t))
+			decodeFailed()
 			return nil, false
 		}
 		if t.Bits < 64 && u > uint64(1)<<t.Bits-1 {
@@ -523,7 +557,11 @@ func (c *converter) number(n *yaml.Node, t *Node, path string) ([]byte, bool) {
 		return strconv.AppendUint(nil, u, 10), true
 	}
 	var f float64
-	if err := n.Decode(&f); err != nil || math.IsInf(f, 0) || math.IsNaN(f) {
+	if err := n.Decode(&f); err != nil {
+		c.errorAt(n, "%s: want %s, got %s", path, want(t), c.got(n, true))
+		return nil, false
+	}
+	if math.IsInf(f, 0) || math.IsNaN(f) {
 		c.errorAt(n, "%s: %s is not a number JSON can hold", path, n.Value)
 		return nil, false
 	}
@@ -591,7 +629,7 @@ func (c *converter) got(n *yaml.Node, quote bool) string {
 	case yaml.MappingNode:
 		return "a map"
 	}
-	switch n.ShortTag() {
+	switch kindTag(n) {
 	case "!!str":
 		return "a string"
 	case "!!int", "!!float":
