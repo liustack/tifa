@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/liustack/tifa/internal/codegen"
 )
 
 func run(t *testing.T, args ...string) (stdout, stderr string, err error) {
@@ -92,7 +94,14 @@ func TestBuildStopsAtConventionViolations(t *testing.T) {
 	if !strings.Contains(stderr, "app/page/route.go:12:") {
 		t.Errorf("stderr lacks the violation position:\n%s", stderr)
 	}
-	if _, statErr := os.Stat(filepath.Join(dir, ".tifa")); !os.IsNotExist(statErr) {
-		t.Errorf("build generated code for an invalid app: %v", statErr)
+	// The lock file is the only thing build may leave in .tifa.
+	if entries, readErr := os.ReadDir(filepath.Join(dir, ".tifa")); readErr != nil && !os.IsNotExist(readErr) {
+		t.Fatal(readErr)
+	} else {
+		for _, e := range entries {
+			if e.Name() != codegen.LockFile {
+				t.Errorf("build generated %s for an invalid app", e.Name())
+			}
+		}
 	}
 }
