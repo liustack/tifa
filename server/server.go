@@ -363,11 +363,11 @@ func (s *server) fail(c *tifa.Ctx, w *writer, err error, page bool) {
 	case failed != nil:
 		s.rescue(c, e, err, failed)
 	case failure != nil:
-		s.errorPage(c, e, err, items, failure.ssr, failure.key)
+		s.errorPage(c, e, err, items, failure.loads, failure.ssr, failure.key)
 	case missing != nil:
-		s.errorPage(c, e, err, missing.items, missing.ssr, missing.layout)
+		s.errorPage(c, e, err, missing.items, missing.loads, missing.ssr, missing.layout)
 	default:
-		s.errorPage(c, e, err, nil, false, "")
+		s.errorPage(c, e, err, nil, time.Time{}, false, "")
 	}
 }
 

@@ -396,20 +396,22 @@ type loadFailure struct {
 	failed int  // index of the outermost failure in chain
 	data   bool // a data request, answered by route as JSON
 	ssr    bool
-	key    string // the key of the page's preloads, see front.preload
+	key    string    // the key of the page's preloads, see front.preload
+	loads  time.Time // when the Loads started, see runChain
 }
 
 func (f *loadFailure) Error() string { return f.errs[f.failed].Error() }
 func (f *loadFailure) Unwrap() error { return f.errs[f.failed] }
 
-// renderError is a failed SSR render of in on the pool of f, which started at start. Server.rescue
-// renders the page again with the error shown at a level of the route tree, and when that fails
-// too the error page comes from Go, not from the VM.
+// renderError is a failed SSR render of in on the pool of f, which started at start, of data whose
+// Loads started at loads. Server.rescue renders the page again with the error shown at a level of
+// the route tree, and when that fails too the error page comes from Go, not from the VM.
 type renderError struct {
 	err   error
 	f     *front
 	in    ssr.Input
 	start time.Time
+	loads time.Time
 	key   string
 }
 
@@ -417,19 +419,22 @@ func (e *renderError) Error() string { return "tifa: render page: " + e.err.Erro
 func (e *renderError) Unwrap() error { return e.err }
 
 // runChain runs the Loads of chain and returns their results by route ID, or a *loadFailure
-// when one failed. key is the key of the page's preloads.
-func runChain(c *tifa.Ctx, chain []load, ssr bool, key string) (map[string]routeResult, error) {
+// when one failed. key is the key of the page's preloads. loads is when the first Load of the
+// request started, a Load that OnRequest ran through tifa.Use included: the data of the page is no
+// older than that (see setDataAge).
+func runChain(c *tifa.Ctx, chain []load, ssr bool, key string) (items map[string]routeResult, loads time.Time, err error) {
+	loads = core.StartLoads(c)
 	values, errs := runLoads(c, chain)
 	for i, err := range errs {
 		if err != nil {
-			return nil, &loadFailure{chain: chain, values: values, errs: errs, failed: i, data: c.IsData(), ssr: ssr, key: key}
+			return nil, loads, &loadFailure{chain: chain, values: values, errs: errs, failed: i, data: c.IsData(), ssr: ssr, key: key, loads: loads}
 		}
 	}
-	items := make(map[string]routeResult, len(chain))
+	items = make(map[string]routeResult, len(chain))
 	for i, l := range chain {
 		items[l.id] = routeResult{Status: http.StatusOK, Data: values[i]}
 	}
-	return items, nil
+	return items, loads, nil
 }
 
 // results sorts the errors of a failure with classify and returns the results by route ID and
@@ -493,14 +498,14 @@ func (s *server) pageHandler(r Route, chain []load) func(*tifa.Ctx) error {
 		if c.IsData() {
 			return s.dataRequest(c, chain, r.Path)
 		}
-		items, err := runChain(c, chain, r.SSR, r.Path)
+		items, loads, err := runChain(c, chain, r.SSR, r.Path)
 		switch {
 		case err != nil:
 			return err
 		case !r.SSR:
 			return s.dataOnly(c, items, http.StatusOK, r.Path)
 		}
-		return s.renderPage(c, items, http.StatusOK, !r.NoRenderCache, r.Path)
+		return s.renderPage(c, items, loads, http.StatusOK, !r.NoRenderCache, r.Path)
 	}
 }
 
@@ -528,7 +533,7 @@ func (s *server) dataRequest(c *tifa.Ctx, chain []load, key string) error {
 	if err != nil {
 		return err
 	}
-	items, err := runChain(c, selected, false, key)
+	items, _, err := runChain(c, selected, false, key)
 	if err != nil {
 		return err
 	}
@@ -665,7 +670,7 @@ func renderKey(in ssr.Input, bundle string) string {
 // server.compress the ETag is weak: the page goes out in several encodings under it, and the 304,
 // which is answered before the encoding is known, carries the same ETag as the 200. key is the key
 // of the page's preloads (see front.preload).
-func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, status int, cache bool, key string) error {
+func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, since time.Time, status int, cache bool, key string) error {
 	r := c.Request()
 	data, texts, err := renderInput(items)
 	if err != nil {
@@ -687,7 +692,7 @@ func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, status in
 	f := s.front.Load()
 	in := ssr.Input{BuildID: f.build.ID, URL: s.renderURI(c), Data: data, Texts: texts, Preload: f.preloadOf(key, items),
 		Session: sess.json, SessionKey: sess.key, SessionHead: sess.head}
-	failed := &renderError{f: f, in: in, key: key}
+	failed := &renderError{f: f, in: in, key: key, loads: since}
 	// A render clock makes the HTML depend on a time that is no part of the key, so such a request
 	// neither reads the cache nor writes to it, and shares no render.
 	if core.RenderClock(r.Context()) != nil {
@@ -708,19 +713,36 @@ func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, status in
 		// browser, and a 304 is answered to a request that has no use for it.
 		if !core.NoStore(c) && etagMatches(c.Header("If-None-Match"), tag) {
 			c.SetHeader(renderHeader, "none")
+			setDataAge(c.Writer().Header(), time.Since(since))
 			return c.NoContent(http.StatusNotModified)
 		}
 	}
 	failed.start = time.Now()
 	if cache && tag != "" {
-		return s.renderCached(c, f, in, tag, status, failed)
+		return s.renderCached(c, f, in, tag, status, failed, since)
 	}
 	page, err := f.render(r.Context(), in)
 	if err != nil {
 		return renderFailed(c, err, failed)
 	}
 	c.SetHeader(renderHeader, "vm")
+	setDataAge(c.Writer().Header(), time.Since(since))
 	return writeHTML(c, status, page)
+}
+
+// dataAgeMetric is the Server-Timing metric that says how old the data of a page may be when the
+// answer goes out, in milliseconds: from the start of the first Load that made it. The browser dates
+// the matches of the page by it (datePage in js/runtime/browser.tsx), and the time Go writes into the
+// page would not do: it is fixed, so that the page depends only on its input, and the clock of the
+// server is not the clock of the browser. Navigation data does not carry it: the router dates what
+// the browser fetches itself.
+const dataAgeMetric = "tifa-age"
+
+// setDataAge adds the age of the data of a page to the Server-Timing of its answer, rounded up to a
+// millisecond so that the data never looks newer than it is. Other values of the header stay.
+func setDataAge(h http.Header, age time.Duration) {
+	ms := (max(age, 0) + time.Millisecond - 1) / time.Millisecond
+	h.Add("Server-Timing", dataAgeMetric+";dur="+strconv.FormatInt(int64(ms), 10))
 }
 
 // errClientGone is what Next returns for a request whose client went away while it waited for
@@ -733,7 +755,7 @@ var errClientGone = fmt.Errorf("tifa: the client went away: %w", context.Cancele
 // writes the page with its own headers and in its own encoding, as a cache hit does. With
 // server.compress the render compresses the page into both its forms once, so no request
 // compresses it again, whatever encoding the request that started the render takes.
-func (s *server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, status int, failed *renderError) error {
+func (s *server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, status int, failed *renderError, since time.Time) error {
 	method, path := c.Request().Method, c.Request().URL.Path
 	// A render that fails once no request waits has no OnError to go to, so it is logged.
 	unheard := func(err error) {
@@ -751,6 +773,7 @@ func (s *server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 		return renderFailed(c, err, failed)
 	}
 	c.SetHeader(renderHeader, got.how)
+	setDataAge(c.Writer().Header(), time.Since(since))
 	if !got.held {
 		return writeHTML(c, status, got.page.html)
 	}
@@ -945,17 +968,21 @@ func writeHTML(c *tifa.Ctx, status int, page string) error {
 //   - a Load of the chain failed: the page with the results of the whole chain (items)
 //   - no page matched: the 404 inside the Layouts the URL shows it inside, with their results
 //
-// key is the key of the page's preloads. When OnRequest answers a URL that matches no page with
-// tifa.ErrNotFound itself, no Load ran, and every Load of those Layouts counts as a 404. Anything
-// else, a failed OnRequest for one, gets a plain page from Go (see fallback). A page whose render
+// key is the key of the page's preloads, and loads when the Loads of items started. When OnRequest
+// answers a URL that matches no page with tifa.ErrNotFound itself, no Load ran, and every Load of
+// those Layouts counts as a 404. Anything else, a failed OnRequest for one, gets a plain page from
+// Go (see fallback). A page whose render
 // fails, after OnError has seen that failure, renders again with that error (see rescue). err is
 // the error that e stands for.
-func (s *server) errorPage(c *tifa.Ctx, e tifa.Error, err error, items map[string]routeResult, ssrOn bool, key string) {
+func (s *server) errorPage(c *tifa.Ctx, e tifa.Error, err error, items map[string]routeResult, loads time.Time, ssrOn bool, key string) {
 	if items == nil {
 		if c.Pattern() != "" || e.Status != http.StatusNotFound {
 			s.fallback(c, e, err)
 			return
 		}
+		// The results stand for the Loads of the Layouts and are made now, which the age of the data
+		// of the page counts from.
+		loads = time.Now()
 		key = s.notFoundAt(c.Request())
 		at := s.layouts[key]
 		items, ssrOn = make(map[string]routeResult, len(at.chain)), at.ssr
@@ -965,7 +992,7 @@ func (s *server) errorPage(c *tifa.Ctx, e tifa.Error, err error, items map[strin
 	}
 	var renderErr error
 	if ssrOn {
-		renderErr = s.renderPage(c, items, e.Status, false, key)
+		renderErr = s.renderPage(c, items, loads, e.Status, false, key)
 	} else {
 		renderErr = s.dataOnly(c, items, e.Status, key)
 	}
@@ -1022,6 +1049,7 @@ func (s *server) rescue(c *tifa.Ctx, e tifa.Error, err error, failed *renderErro
 			}
 			c.SetHeader("Cache-Control", "no-store")
 			c.SetHeader(renderHeader, "vm")
+			setDataAge(c.Writer().Header(), time.Since(failed.loads))
 			_ = writeHTML(c, e.Status, page)
 			return
 		}

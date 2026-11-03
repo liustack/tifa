@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/liustack/tifa"
 )
@@ -147,6 +148,7 @@ func (s *server) notFoundAt(r *http.Request) string {
 // 404 inside those Layouts, as JSON for a data request.
 type notFoundPage struct {
 	items  map[string]routeResult
+	loads  time.Time // when the Loads started, see runChain
 	ssr    bool
 	layout string
 	data   bool
@@ -171,15 +173,15 @@ func (s *server) unmatched(c *tifa.Ctx) error {
 		if err != nil {
 			return err
 		}
-		items, err := runChain(c, selected, false, layout)
+		items, _, err := runChain(c, selected, false, layout)
 		if err != nil {
 			return err
 		}
 		return &notFoundPage{items: items, data: true}
 	}
-	items, err := runChain(c, at.chain, at.ssr, layout)
+	items, loads, err := runChain(c, at.chain, at.ssr, layout)
 	if err != nil {
 		return err
 	}
-	return &notFoundPage{items: items, ssr: at.ssr, layout: layout}
+	return &notFoundPage{items: items, loads: loads, ssr: at.ssr, layout: layout}
 }

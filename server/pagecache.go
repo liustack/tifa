@@ -410,7 +410,7 @@ func (s *server) generate(ctx context.Context, base *http.Request, pattern strin
 	created := cacheNow()
 	entry := &wholePage{created: created, expires: created.Add(ttl), staleUntil: created.Add(ttl + staleIfError)}
 
-	items, err := runChain(c, chain, route.SSR, route.Path)
+	items, loads, err := runChain(c, chain, route.SSR, route.Path)
 	if err != nil {
 		var lf *loadFailure
 		if errors.As(err, &lf) {
@@ -460,7 +460,7 @@ func (s *server) generate(ctx context.Context, base *http.Request, pattern strin
 		defer s.rendering.RUnlock()
 		in := ssr.Input{BuildID: f.build.ID, URL: s.pageURI(rq, pattern), Data: data, Texts: texts, Preload: f.preloadOf(route.Path, items),
 			SessionKey: sess.key, SessionHead: sess.head}
-		failed := &renderError{f: f, in: in, key: route.Path, start: time.Now()}
+		failed := &renderError{f: f, in: in, key: route.Path, start: time.Now(), loads: loads}
 		page, held, err = s.renderEntry(ctx, rq, f, in, route)
 		if err != nil {
 			var redirect *ssr.RedirectError
@@ -562,6 +562,8 @@ func (s *server) respondPage(c *tifa.Ctx, got fetched, status string, selected [
 		http.Redirect(c.Writer(), c.Request(), entry.location, entry.status)
 		return nil
 	}
+	// The data of the entry is as old as the entry, which was made just before its Loads ran.
+	setDataAge(c.Writer().Header(), now.Sub(entry.created))
 	etag := entry.etag
 	if s.cfg.Compress {
 		etag = "W/" + etag

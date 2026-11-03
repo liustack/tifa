@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -235,6 +236,31 @@ func TestProxyTagsAnswersWithTheVersion(t *testing.T) {
 	resp.Body.Close()
 	if got := resp.Header.Get("Server-Timing"); got != `tifa-dev;desc="v7", tifa-dev-render;desc="3"` {
 		t.Fatalf("error page Server-Timing %q", got)
+	}
+}
+
+// The Server-Timing of the app, such as the age of the data of a page, goes on to the browser
+// next to the one that names the build.
+func TestProxyKeepsTheServerTimingOfTheApp(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Server-Timing", "tifa-age;dur=12")
+	})}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+	p := newProxy(t, ln.Addr().String(), time.Second, nil)
+	resp, err := http.Get(p.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	got := resp.Header.Values("Server-Timing")
+	want := []string{"tifa-age;dur=12", `tifa-dev;desc="v7", tifa-dev-render;desc="3"`}
+	if !slices.Equal(got, want) {
+		t.Fatalf("Server-Timing %q, want %q", got, want)
 	}
 }
 
