@@ -47,6 +47,19 @@ func TestAppWithoutContentHasNone(t *testing.T) {
 	}
 }
 
+// TestContentFoldersNeedACollection checks content/ of an app without content.go: every folder in
+// it needs a collection all the same.
+func TestContentFoldersNeedACollection(t *testing.T) {
+	m, err := analyzeApp(t, "contentundeclared")
+	if err == nil {
+		t.Fatalf("no error, Content = %+v", m.Content)
+	}
+	want := "content/notes: no collection reads this folder: declare one in content.go, or move the folder out of content/"
+	if got := err.Error(); got != want {
+		t.Errorf("error:\n%s\nwant:\n%s", got, want)
+	}
+}
+
 func TestContentDeclarationsBreakingTheRules(t *testing.T) {
 	_, err := analyzeApp(t, "contentbad")
 	if err == nil {

@@ -130,6 +130,9 @@ func (a *analyzer) content() *Content {
 		}
 	}
 	if len(decls) == 0 {
+		// content/ belongs to tifa even without content.go: each folder in it needs a
+		// collection. Without content/ this is one failed ReadDir.
+		a.scanErrors(scan.Scan(a.root, nil, nil, scan.Options{}).Errors)
 		return nil
 	}
 	slices.SortFunc(decls, func(x, y declaration) int { return int(x.name.Pos() - y.name.Pos()) })
@@ -152,11 +155,16 @@ func (a *analyzer) content() *Content {
 		})
 	}
 	res := scan.Scan(a.root, colls, declared, scan.Options{})
-	for _, e := range res.Errors {
-		a.errs = append(a.errs, Error{Pos: token.Position{Filename: e.File, Line: e.Line, Column: e.Col}, Msg: e.Msg})
-	}
+	a.scanErrors(res.Errors)
 	c.File, c.Warnings = res.File, res.Warnings
 	return c
+}
+
+// scanErrors reports the errors of a scan of content/.
+func (a *analyzer) scanErrors(errs []scan.Error) {
+	for _, e := range errs {
+		a.errs = append(a.errs, Error{Pos: token.Position{Filename: e.File, Line: e.Line, Column: e.Col}, Msg: e.Msg})
+	}
 }
 
 func typeArg(call *ast.CallExpr) ast.Expr {
