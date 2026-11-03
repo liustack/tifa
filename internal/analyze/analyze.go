@@ -238,9 +238,12 @@ func (a *analyzer) id(dir string) string {
 // go command skips excluded. Calls that pass the Ctx out of a Load are followed into helpers in
 // any of them, so packages outside app/, such as internal/, need their syntax too.
 func (a *analyzer) load() error {
-	hasHooks := false
+	hasHooks, hasConfig := false, false
 	if _, err := os.Stat(filepath.Join(a.root, "hooks.go")); err == nil {
 		hasHooks = true
+	}
+	if _, err := os.Stat(filepath.Join(a.root, "config.go")); err == nil {
+		hasConfig = true
 	}
 	a.fset = token.NewFileSet()
 	cfg := &packages.Config{
@@ -265,8 +268,9 @@ func (a *analyzer) load() error {
 			return fmt.Errorf("go list in %s: %v\n%s", a.root, err, strings.TrimSpace(string(out)))
 		}
 	}
-	// The application is the packages under app/ and, with hooks.go, the root package. Other
-	// packages of the module matter only through what the application imports.
+	// The application is the packages under app/ and, with hooks.go or config.go, the root
+	// package, which the generated main imports. Other packages of the module matter only
+	// through what the application imports.
 	var roots []*packages.Package
 	a.modulePkgs = map[string]bool{}
 	for _, p := range pkgs {
@@ -278,7 +282,7 @@ func (a *analyzer) load() error {
 			a.modulePackages = append(a.modulePackages, p)
 		}
 		id := a.id(filepath.Dir(p.GoFiles[0]))
-		if id == "app" || strings.HasPrefix(id, "app/") || id == "." && hasHooks {
+		if id == "app" || strings.HasPrefix(id, "app/") || id == "." && (hasHooks || hasConfig) {
 			roots = append(roots, p)
 		}
 	}
@@ -329,7 +333,7 @@ func (a *analyzer) load() error {
 		a.pkgs = append(a.pkgs, p)
 		a.appPkgs[p.PkgPath] = true
 		a.byDir[id] = p
-		if id == "." {
+		if id == "." && hasHooks {
 			a.rootPk = p
 		}
 	}

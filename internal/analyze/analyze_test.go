@@ -1044,6 +1044,15 @@ func TestSettingsOfTheApp(t *testing.T) {
 	}
 }
 
+// config.go is type checked without hooks.go and with no page importing the root package: the
+// generated main imports it to define the settings, so its errors would break the build later.
+func TestTypeErrorOfConfigWithoutHooks(t *testing.T) {
+	_, err := analyzeApp(t, "badconfigtype")
+	if err == nil || !strings.Contains(err.Error(), "config.go:6:") {
+		t.Fatalf("error %v does not name config.go:6", err)
+	}
+}
+
 func TestSettingsBreakingTheRules(t *testing.T) {
 	_, err := analyzeApp(t, "badsettings")
 	if err == nil {
