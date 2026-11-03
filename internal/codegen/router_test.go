@@ -74,11 +74,32 @@ func TestGeneratedRouterBehaves(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "disabled.ts"), []byte("import { useSession } from 'tifa/client'\nuseSession()\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// A tifa.HTML value is no string.
+	raw := "import type { PageData } from './.tifa/app/article/route.gen'\n" +
+		"export const text: string = ({} as PageData).body\n" +
+		"export const length: number = ({} as PageData).body.length\n"
+	if err := os.WriteFile(filepath.Join(root, "raw.ts"), []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// <HTML> holds markup only in the elements as names.
+	script := "import { HTML } from 'tifa/client'\nimport type { PageData } from './.tifa/app/article/route.gen'\n" +
+		"export const script = <HTML value={({} as PageData).body} as=\"script\" />\n"
+	if err := os.WriteFile(filepath.Join(root, "script.tsx"), []byte(script), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	tsc = exec.Command(node, filepath.Join(modules, "typescript", "bin", "tsc"), "--noEmit", "-p", ".")
 	tsc.Dir = root
 	output, err := tsc.CombinedOutput()
 	if err == nil || !strings.Contains(string(output), "disabled.ts(2,1): error TS2554") {
 		t.Fatalf("useSession in an app without sessions: err %v, output\n%s", err, output)
+	}
+	for _, want := range []string{"raw.ts(2,", "raw.ts(3,"} {
+		if !strings.Contains(string(output), want) {
+			t.Errorf("a tifa.HTML value used as a string type-checks (no error at %s):\n%s", want, output)
+		}
+	}
+	if !strings.Contains(string(output), "script.tsx(3,") {
+		t.Errorf(`<HTML as="script"> type-checks:%s`, output)
 	}
 }
 

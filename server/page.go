@@ -318,6 +318,9 @@ type routeResult struct {
 	JSON     string `json:"json,omitempty"`
 	Error    string `json:"error,omitempty"`
 	Location string `json:"location,omitempty"`
+	// html is the html of the load of the result: its data may hold tifa.HTML values, which a page
+	// the server renders carries as markers (pageText).
+	html bool
 }
 
 // loaderText writes the data of a Load as the JSON text a page carries. The render parses that
@@ -362,8 +365,11 @@ func injectedResults(items map[string]routeResult) (map[string]routeResult, erro
 // in it: its JSON text is the argument of startRender that Text numbers, counting from the first
 // text.
 type renderResult struct {
-	Status   int    `json:"status"`
-	Text     *int   `json:"text,omitzero"`
+	Status int  `json:"status"`
+	Text   *int `json:"text,omitzero"`
+	// Page is true when the page carries another text than the render reads, with markers in
+	// place of tifa.HTML values (pageText). That text always goes into the page as a slot.
+	Page     bool   `json:"page,omitzero"`
 	Error    string `json:"error,omitempty"`
 	Location string `json:"location,omitempty"`
 }
@@ -372,8 +378,10 @@ type renderResult struct {
 // statuses, errors and redirects, and the JSON text of the data of each successful one (loaderText),
 // which goes to the VM as it is, apart from the JSON, as an argument of its own. Neither Go has
 // to escape each text into the outer JSON nor the VM to parse it out of there. The texts follow
-// the order of the route IDs, so the same results always give the same input.
-func renderInput(items map[string]routeResult) (data []byte, texts []string, err error) {
+// the order of the route IDs, so the same results always give the same input. pageTexts are the
+// texts the page carries in their place (ssr.Input.PageTexts), nil when they are the same: the data
+// of a Load the build marked has a marker in place of each tifa.HTML value there.
+func renderInput(items map[string]routeResult) (data []byte, texts, pageTexts []string, err error) {
 	results := make(map[string]renderResult, len(items))
 	for _, id := range slices.Sorted(maps.Keys(items)) {
 		item := items[id]
@@ -381,16 +389,29 @@ func renderInput(items map[string]routeResult) (data []byte, texts []string, err
 		if item.Status == http.StatusOK {
 			text, err := loaderText(item.Data)
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
 			number := len(texts)
 			result.Text = &number
 			texts = append(texts, text)
+			page, differs := text, false
+			if item.html {
+				if page, differs, err = pageText(item.Data, text); err != nil {
+					return nil, nil, nil, err
+				}
+			}
+			if differs && pageTexts == nil {
+				pageTexts = slices.Clone(texts[:number])
+			}
+			if pageTexts != nil {
+				pageTexts = append(pageTexts, page)
+			}
+			result.Page = differs
 		}
 		results[id] = result
 	}
 	data, err = core.MarshalJSON(results)
-	return data, texts, err
+	return data, texts, pageTexts, err
 }
 
 // loadFailure is what a page returns from Next when a Load of the loaded routes failed. Its
@@ -440,7 +461,7 @@ func runChain(c *tifa.Ctx, chain []load, ssr bool, key string) (items map[string
 	}
 	items = make(map[string]routeResult, len(chain))
 	for i, l := range chain {
-		items[l.id] = routeResult{Status: http.StatusOK, Data: values[i]}
+		items[l.id] = routeResult{Status: http.StatusOK, Data: values[i], html: l.html}
 	}
 	return items, loads, nil
 }
@@ -459,7 +480,7 @@ func (s *server) results(c *tifa.Ctx, f *loadFailure) (items map[string]routeRes
 	for i, l := range f.chain {
 		err := f.errs[i]
 		if err == nil {
-			items[l.id] = routeResult{Status: http.StatusOK, Data: f.values[i]}
+			items[l.id] = routeResult{Status: http.StatusOK, Data: f.values[i], html: l.html}
 			continue
 		}
 		j := slices.IndexFunc(seen, func(x sorted) bool { return sameError(x.err, err) })
@@ -680,7 +701,7 @@ func renderKey(in ssr.Input, bundle string) string {
 // of the page's preloads (see front.preload).
 func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, since time.Time, status int, cache bool, key string) error {
 	r := c.Request()
-	data, texts, err := renderInput(items)
+	data, texts, pageTexts, err := renderInput(items)
 	if err != nil {
 		return err
 	}
@@ -698,7 +719,7 @@ func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, since tim
 	s.rendering.RLock()
 	defer s.rendering.RUnlock()
 	f := s.front.Load()
-	in := ssr.Input{BuildID: f.build.ID, URL: s.renderURI(c), Data: data, Texts: texts, Preload: f.preloadOf(key, items),
+	in := ssr.Input{BuildID: f.build.ID, URL: s.renderURI(c), Data: data, Texts: texts, PageTexts: pageTexts, Preload: f.preloadOf(key, items),
 		Session: sess.json, SessionKey: sess.key, SessionHead: sess.head}
 	failed := &renderError{f: f, in: in, key: key, loads: since}
 	// A render clock makes the HTML depend on a time that is no part of the key, so such a request

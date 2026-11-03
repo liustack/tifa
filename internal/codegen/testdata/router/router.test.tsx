@@ -1,6 +1,8 @@
 // Run by TestGeneratedRouterBehaves in Node, against the route tree generated for this app.
 import { writeFileSync } from 'node:fs'
-import { createMemoryHistory, isRedirect } from '@tanstack/react-router'
+import type { ReactNode } from 'react'
+import { renderToString } from 'react-dom/server'
+import { createMemoryHistory, isRedirect, RouterProvider } from '@tanstack/react-router'
 import { hydrate } from '@tanstack/react-router/ssr/client'
 import { htmlAttributes, routeTree } from './.tifa/routes'
 import { createAppRouter, load, unmatched, type Dehydrated } from './.tifa/runtime/router'
@@ -8,6 +10,8 @@ import { serve, type RenderResult } from './.tifa/runtime/server'
 import { headHTML, headTags, htmlAttributesOf } from './.tifa/runtime/head'
 import { collector, RouteError, type InjectedResult, type RouteResult } from './.tifa/runtime/data'
 import { resetReloads, watchChunks } from './.tifa/runtime/skew'
+import { SessionContext } from './.tifa/runtime/session'
+import { HTML, type HTML as HTMLValue } from './.tifa/runtime/html'
 
 const tests: Array<[string, () => Promise<void>]> = []
 const test = (name: string, fn: () => Promise<void>) => tests.push([name, fn])
@@ -471,8 +475,8 @@ test('the rest of the path may be empty, written without the trailing slash', as
 })
 
 // hydrateFrom runs the scripts of a server-rendered page the way a browser does and hydrates a
-// browser router from them.
-async function hydrateFrom(html: string, url: string, onHydrate?: (dehydrated: Dehydrated) => void) {
+// browser router from them. Loads the router asks for later get answer, or else ok(id).
+async function hydrateFrom(html: string, url: string, onHydrate?: (dehydrated: Dehydrated) => void, answer: (id: string) => RouteResult = ok) {
   const g = globalThis as any
   const saved = { window: g.window, self: g.self, document: g.document }
   g.window = g.self = globalThis
@@ -487,7 +491,7 @@ async function hydrateFrom(html: string, url: string, onHydrate?: (dehydrated: D
       routeTree,
       async (u, id) => {
         calls.push([u, id])
-        return ok(id)
+        return answer(id)
       },
       { history: createMemoryHistory({ initialEntries: [url] }), onHydrate },
     )
@@ -1140,6 +1144,180 @@ test('a root Layout that sets data-session stops the bundle as it loads, and say
     assert(false, 'serve accepted data-session')
   } catch (error) {
     assert(error instanceof Error && /htmlAttributes cannot set data-session on <html>: tifa keeps it/.test(error.message), `error ${error}`)
+  }
+})
+
+// A page whose Load returns tifa.HTML values carries each one once, in the markup <HTML> renders:
+// the VM reads the whole text, the result is marked page, its text goes into the page as a slot
+// however short, and Go fills the slot with the text that has a marker in place of each value
+// (pageText in server/htmltext.go).
+const articleData = { title: 'T', body: '<p>BODY &amp; <b>bold</b></p>', notes: ['<em>NOTE</em>'] }
+const articlePageText = JSON.stringify({ title: 'T', body: { $tifa: 'html' }, notes: [{ $tifa: 'html' }] })
+
+// renderArticle renders /article, with error placed at its level when given, and fills the slots
+// that remain as Go does.
+async function renderArticle(error?: { status: number; message: string; level: number }) {
+  globalThis.renderResult = undefined
+  const data = { 'app/layout': { status: 200, text: 0 }, 'app/article/route': { status: 200, text: 1, page: true } }
+  globalThis.startRender(JSON.stringify({ url: '/article', buildId: 'b1', data, nonce: slotNonce, error }), '{"name":"router"}', JSON.stringify(articleData))
+  for (let i = 0; i < 1000 && globalThis.renderResult === undefined; i++) await new Promise((resolve) => setTimeout(resolve, 0))
+  const html = globalThis.renderResult ?? ''
+  assert(html.startsWith('<'), `render /article: ${html.slice(0, 300)}`)
+  if (error === undefined)
+    assert(html.split(slotNonce).length === 2 && html.includes(`$_TSR.t.get("tifa.data")("~${slotNonce}.1.")`), `the slots of /article: ${html}`)
+  return html.replace(`~${slotNonce}.1.`, () => JSON.stringify(articlePageText).slice(1, -1))
+}
+
+// shownHTML lists the elements <HTML> rendered into html: the ID it names each one by and its markup.
+function shownHTML(html: string) {
+  return [...html.matchAll(/<(\w+) [^>]*?data-tifa-html="([^"]*)"[^>]*>([\s\S]*?)<\/\1>/g)].map(([, tag, id, inner]) => ({ tag, id, inner }))
+}
+
+// pageDocument stands for the document of the browser that holds html, as far as <HTML> reads it,
+// and counts the reads of innerHTML.
+function pageDocument(html: string) {
+  let reads = 0
+  const elements = shownHTML(html).map(({ id, inner }) => ({
+    getAttribute: (name: string) => (name === 'data-tifa-html' ? id : null),
+    get innerHTML() {
+      reads++
+      return inner
+    },
+  }))
+  return { document: { querySelectorAll: (selector: string) => (selector === '[data-tifa-html]' ? elements : []) }, reads: () => reads }
+}
+
+// inBrowser renders node as the browser would, with document as the page of the browser.
+function inBrowser(node: ReactNode, document: unknown) {
+  const g = globalThis as any
+  const saved = g.document
+  g.document = document
+  try {
+    return renderToString(node)
+  } finally {
+    g.document = saved
+  }
+}
+
+const routerRoot = (router: any) => (
+  <SessionContext.Provider value={undefined}>
+    <RouterProvider router={router} />
+  </SessionContext.Provider>
+)
+
+test('a tifa.HTML value comes once in the page, and the browser reads it back from the markup', async () => {
+  const html = await renderArticle()
+  for (const part of ['<p>BODY &amp; <b>bold</b></p>', '<em>NOTE</em>']) assert(html.split(part).length === 2, `the page holds ${part} ${html.split(part).length - 1} times:\n${html}`)
+  contains(html, 'ARTICLE <!-- -->T', '<article class="prose" data-tifa-html="', '\\"body\\":{\\"$tifa\\":\\"html\\"}')
+  const server = shownHTML(html)
+  assert(server.length === 2 && server[0].id !== server[1].id, `elements of <HTML>: ${JSON.stringify(server)}`)
+  const { router, calls } = await hydrateFrom(html, '/article')
+  assert(calls.length === 0, `hydration requested ${JSON.stringify(calls)}`)
+  const post = router.state.matches[router.state.matches.length - 1].loaderData
+  assert(JSON.stringify(post) === articlePageText, `data after hydration ${JSON.stringify(post)}`)
+  // The browser renders the markup the server did, under the same IDs, from the elements it finds.
+  const page = pageDocument(html)
+  const browser = inBrowser(routerRoot(router), page.document)
+  assert(JSON.stringify(shownHTML(browser)) === JSON.stringify(server), `the browser renders\n${browser}\nthe server rendered\n${JSON.stringify(server)}`)
+  assert(page.reads() === 2, `innerHTML read ${page.reads()} times`)
+  // A value that came as a string, as navigation data carries it, renders as it is.
+  const loaded = inBrowser(<HTML value={articleData.body as unknown as HTMLValue} as="section" id="x" />, undefined)
+  assert(/^<section id="x" data-tifa-html="[^"]+"><p>BODY &amp; <b>bold<\/b><\/p><\/section>$/.test(loaded), `a string renders ${loaded}`)
+})
+
+test('a tifa.HTML value of the page shows from what was read after the page left the document', async () => {
+  const html = await renderArticle()
+  const { router } = await hydrateFrom(html, '/article')
+  const page = pageDocument(html)
+  const first = inBrowser(routerRoot(router), page.document)
+  // Back on the page later, the router shows the data it keeps, with the markers in it. The markup
+  // is no longer in the document, and the values read before stand in.
+  const again = inBrowser(routerRoot(router), { querySelectorAll: () => [] })
+  assert(again === first, `the page shown again:\n${again}\nfirst:\n${first}`)
+  const post = router.state.matches[router.state.matches.length - 1].loaderData as { body: HTMLValue }
+  const alone = inBrowser(<HTML value={post.body} />, undefined)
+  contains(alone, '<p>BODY &amp; <b>bold</b></p>')
+  assert(page.reads() === 2, `innerHTML read ${page.reads()} times`)
+})
+
+// The Loads of /article as navigation data carries them, with the strings.
+const articleAnswer = (id: string) => (id === 'app/article/route' ? ok(articleData) : id === 'app/layout' ? ok({ name: 'router' }) : missing)
+
+test('a page with an error placed above or at a tifa.HTML route carries no data of that route', async () => {
+  // At level 1 the root Layout shows the error and nothing renders the article. The router writes
+  // the matches only down to the one that failed, so the page has no data of the article, and no
+  // marker that the browser could not read back. At level 0 the article itself is replaced.
+  for (const [level, shows] of [[1, 'Something went wrong'], [0, 'APP_ERROR <!-- -->503 down']] as const) {
+    const html = await renderArticle({ status: 503, message: 'down', level })
+    contains(html, shows)
+    lacks(html, 'ARTICLE', 'data-tifa-html', '$tifa', 'BODY', `~${slotNonce}`)
+    const { router, calls } = await hydrateFrom(html, '/article', undefined, articleAnswer)
+    assert(calls.length === 0, `level ${level}: hydration requested ${JSON.stringify(calls)}`)
+    const article = router.state.matches[router.state.matches.length - 1]
+    assert(article.loaderData === undefined, `level ${level}: the router keeps ${JSON.stringify(article.loaderData)} for the article`)
+    // Shown again, the article loads its data, with the strings, and shows it with no markup of
+    // the page to read from.
+    await router.invalidate({ sync: true })
+    assert(JSON.stringify(calls.map(([, id]) => id).sort()) === '["app/article/route","app/layout"]', `level ${level}: loads ${JSON.stringify(calls)}`)
+    for (let i = 0; i < 2; i++) contains(inBrowser(routerRoot(router), { querySelectorAll: () => [] }), 'ARTICLE <!-- -->T', '<p>BODY &amp; <b>bold</b></p>', '<em>NOTE</em>')
+  }
+})
+
+test('<HTML> throws when the server rendered no <HTML> for its marker, and says how to render it', async () => {
+  const html = await renderArticle()
+  const notRendered =
+    'tifa: this tifa.HTML value came with the page, which carries it only in the markup the server rendered, and the server rendered no <HTML> for it here. ' +
+    'Render <HTML value={...}> on the server every time: not behind an effect, a click or a state only the browser has, and not in a .client component'
+  // The page has elements of <HTML>, but none under the ID of this one, and a page that has none.
+  for (const document of [pageDocument(html).document, { querySelectorAll: () => [] }]) {
+    let message = ''
+    try {
+      inBrowser(
+        <div>
+          <p />
+          <HTML value={JSON.parse('{"$tifa":"html"}') as HTMLValue} />
+        </div>,
+        document,
+      )
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error)
+    }
+    assert(message === notRendered, `the error says: ${message}`)
+  }
+  for (const value of [42, null, { $tifa: 'other' }, ['<p>']]) {
+    let message = ''
+    try {
+      inBrowser(<HTML value={value as unknown as HTMLValue} />, undefined)
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error)
+    }
+    assert(message === 'tifa: <HTML> got a value that is not tifa.HTML', `${JSON.stringify(value)}: the error says: ${message}`)
+  }
+})
+
+test('<HTML> leaves out children and dangerouslySetInnerHTML that come in a spread', async () => {
+  const value = '<b>MARKUP</b>' as unknown as HTMLValue
+  const spread = { children: 'CHILD', dangerouslySetInnerHTML: { __html: 'OTHER' }, title: 't' } as object
+  const shown = inBrowser(<HTML value={value} {...spread} />, undefined)
+  assert(/^<div title="t" data-tifa-html="[^"]+"><b>MARKUP<\/b><\/div>$/.test(shown), `<HTML> with a spread renders ${shown}`)
+})
+
+test('<HTML> holds its markup only in elements of flow or phrasing content', async () => {
+  const value = '<b>MARKUP</b>' as unknown as HTMLValue
+  const allowed = ['div', 'article', 'section', 'main', 'aside', 'header', 'footer', 'nav', 'figure', 'blockquote', 'li', 'td', 'span', 'p']
+  for (const as of allowed) {
+    const shown = inBrowser(<HTML value={value} as={as as never} />, undefined)
+    assert(shown.startsWith(`<${as} data-tifa-html="`) && shown.endsWith(`"><b>MARKUP</b></${as}>`), `as="${as}" renders ${shown}`)
+  }
+  for (const as of ['script', 'style', 'iframe', 'template', 'textarea', 'noscript', 'object', 'svg', 'math', 'DIV', 'toString', '']) {
+    let message = ''
+    try {
+      inBrowser(<HTML value={value} as={as as never} />, undefined)
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error)
+    }
+    const want = `tifa: <HTML as="${as}"> cannot hold markup: as takes one of ${allowed.join(', ')}`
+    assert(message === want, `as="${as}": the error says: ${message}`)
   }
 })
 

@@ -452,13 +452,13 @@ func (s *server) generate(ctx context.Context, base *http.Request, pattern strin
 		}
 		entry.etag = contentTag(doc)
 	} else {
-		data, texts, err := renderInput(items)
+		data, texts, pageTexts, err := renderInput(items)
 		if err != nil {
 			return s.madeFailed(err, headers, effects{})
 		}
 		s.rendering.RLock()
 		defer s.rendering.RUnlock()
-		in := ssr.Input{BuildID: f.build.ID, URL: s.pageURI(rq, pattern), Data: data, Texts: texts, Preload: f.preloadOf(route.Path, items),
+		in := ssr.Input{BuildID: f.build.ID, URL: s.pageURI(rq, pattern), Data: data, Texts: texts, PageTexts: pageTexts, Preload: f.preloadOf(route.Path, items),
 			SessionKey: sess.key, SessionHead: sess.head}
 		failed := &renderError{f: f, in: in, key: route.Path, start: time.Now(), loads: loads}
 		page, held, err = s.renderEntry(ctx, rq, f, in, route)

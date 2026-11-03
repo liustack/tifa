@@ -29,6 +29,7 @@ func TestLinkToAPublicFileLoadsTheFile(t *testing.T) {
 	write("public/robots.txt", "User-agent: *\nDisallow:\n")
 	// A Layout without a page at its URL cannot sit next to a root parameter folder.
 	write("app/account/page.tsx", "export default function Account() {\n  return <p>account</p>\n}\n")
+	write("app/article/page.tsx", "export default function Articles() {\n  return <p>articles</p>\n}\n")
 	write("app/section+/route.go", `package section
 
 import "github.com/liustack/tifa"

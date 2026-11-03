@@ -3,6 +3,7 @@ package codegen
 import (
 	"bytes"
 	"flag"
+	"go/token"
 	"go/types"
 	"maps"
 	"os"
@@ -746,5 +747,58 @@ func TestMainImportsTheRootPackageForItsContent(t *testing.T) {
 	}
 	if !strings.Contains(string(files["main.go"]), `_ "example.com/m"`) {
 		t.Fatalf("main.go:\n%s", files["main.go"])
+	}
+}
+
+// A Load whose result may hold tifa.HTML is marked in routes.go, which the server reads to give the
+// page markers in place of the values, and its route.gen module types them as HTML of the runtime.
+func TestHTMLMarksTheLoadAndImportsItsType(t *testing.T) {
+	root := t.TempDir()
+	for _, f := range []string{"app/layout.tsx", "app/post/page.tsx", "app/news/page.tsx"} {
+		writeFile(t, filepath.Join(root, f), "export default function C() { return null }\n")
+	}
+	tifaPkg := types.NewPackage("github.com/liustack/tifa", "tifa")
+	html := types.NewNamed(types.NewTypeName(token.NoPos, tifaPkg, "HTML", nil), types.Typ[types.String], nil)
+	post := types.NewStruct([]*types.Var{types.NewField(token.NoPos, nil, "Body", html, false)}, []string{`json:"body"`})
+	m := &analyze.Manifest{
+		Module: "example.com/x",
+		Layouts: []analyze.Layout{{ID: "app/layout", Dir: "app", Package: "example.com/x/app", Path: "/", TSX: true, SSR: true,
+			Load: &analyze.Load{Result: post, HTML: true}, Routes: []string{"app/news/route", "app/post/route"}}},
+		Routes: []analyze.Route{
+			{ID: "app/news/route", Dir: "app/news", Package: "example.com/x/app/news", Path: "/news", Page: true, SSR: true,
+				RenderCache: true, Layouts: []string{"app/layout"}, Load: &analyze.Load{Result: types.Typ[types.String]}},
+			{ID: "app/post/route", Dir: "app/post", Package: "example.com/x/app/post", Path: "/post", Page: true, SSR: true,
+				RenderCache: true, Layouts: []string{"app/layout"}, Load: &analyze.Load{Result: post, HTML: true}},
+		},
+	}
+	files, err := Generate(root, m, false, fakeExports)
+	if err != nil {
+		t.Fatal(err)
+	}
+	routes := string(files["routes.go"])
+	for _, id := range []string{"app/layout", "app/post/route"} {
+		at := strings.Index(routes, `"`+id+`",`)
+		end := -1
+		if at >= 0 {
+			end = strings.Index(routes[at:], "\n\t},")
+		}
+		if end < 0 || !strings.Contains(routes[at:at+end], "HTML: ") {
+			t.Errorf("routes.go does not mark %s:\n%s", id, routes)
+		}
+	}
+	if n := strings.Count(routes, "HTML: "); n != 2 {
+		t.Errorf("routes.go marks %d Loads, want 2:\n%s", n, routes)
+	}
+	for _, name := range []string{"app/post/route.gen.ts", "app/route.gen.ts"} {
+		mod := string(files[name])
+		runtime := strings.Repeat("../", strings.Count(name, "/")) + "runtime/html"
+		for _, want := range []string{`import type { HTML } from "` + runtime + `"`, "Data = { body: HTML }"} {
+			if !strings.Contains(mod, want) {
+				t.Errorf("%s lacks %s:\n%s", name, want, mod)
+			}
+		}
+	}
+	if news := string(files["app/news/route.gen.ts"]); strings.Contains(news, "runtime/html") {
+		t.Errorf("app/news/route.gen.ts imports HTML:\n%s", news)
 	}
 }

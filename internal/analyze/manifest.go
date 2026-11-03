@@ -105,6 +105,9 @@ type Load struct {
 	// A result computed from a used Load changes with that Load's query parameters too, so
 	// loaderDeps and remountDeps are generated from AllQuery.
 	AllQuery []string `json:"allQuery"`
+	// HTML reports whether the JSON of the result may hold a tifa.HTML value. A page the server
+	// renders carries the data of such a Load with a marker in place of each one.
+	HTML bool `json:"html"`
 	// Result is T for code generation inside the same process. It satisfies the rules of checkTS.
 	Result types.Type `json:"-"`
 }

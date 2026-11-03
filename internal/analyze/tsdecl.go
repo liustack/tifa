@@ -13,18 +13,19 @@ import (
 // and is referred to by name. A declared name is the Go name with the prefix Go, so it never
 // shadows a TypeScript keyword, a built-in type such as Record or a name of the generated
 // module, and gains a number when two types share a name (GoNode, GoNode2). The result is the
-// same for the same t. Types that checkTS rejects return an error.
-func TSShape(t types.Type) (ts string, decls []string, err error) {
-	shapes, decls, err := TSShapes([]types.Type{t})
+// same for the same t. Types that checkTS rejects return an error. html reports whether the type
+// refers to HTML, the TypeScript type of tifa.HTML, which the module must import from the runtime.
+func TSShape(t types.Type) (ts string, decls []string, html bool, err error) {
+	shapes, decls, html, err := TSShapes([]types.Type{t})
 	if err != nil {
-		return "", nil, err
+		return "", nil, false, err
 	}
-	return shapes[0], decls, nil
+	return shapes[0], decls, html, nil
 }
 
 // TSShapes is TSShape for several types written into one module: the declarations of their
 // recursive types are shared, so a type that two of them hold is declared once.
-func TSShapes(ts []types.Type) (shapes, decls []string, err error) {
+func TSShapes(ts []types.Type) (shapes, decls []string, html bool, err error) {
 	d := &tsDecls{names: map[tsKey]string{}, declared: map[tsKey]string{}, bodies: map[[2]string]string{}}
 	var errs []error
 	for _, t := range ts {
@@ -35,9 +36,9 @@ func TSShapes(ts []types.Type) (shapes, decls []string, err error) {
 		}
 	}
 	if len(errs) > 0 {
-		return nil, nil, errors.Join(errs...)
+		return nil, nil, false, errors.Join(errs...)
 	}
-	return shapes, d.decls, nil
+	return shapes, d.decls, d.html, nil
 }
 
 // tsDecls collects the declarations of recursive named types while a type is written.
@@ -47,6 +48,7 @@ type tsDecls struct {
 	bodies   map[[2]string]string // declared name by Go type and TypeScript body
 	taken    []string
 	decls    []string
+	html     bool // a type refers to tifa.HTML
 }
 
 // name returns the declared name of the type with key, choosing it on first use.

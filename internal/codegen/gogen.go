@@ -29,6 +29,9 @@ func generateGo(m *analyze.Manifest, settings map[string]string, dev bool) (map[
 		fmt.Fprintf(&routes, "{\nID: %q,\nPath: %q,\n", l.ID, l.Path)
 		if l.Load != nil {
 			fmt.Fprintf(&routes, "Load: %s,\n", imports.load(l.Package, l.Dir, "Layout"))
+			if l.Load.HTML {
+				routes.WriteString("HTML: true,\n")
+			}
 		}
 		fmt.Fprintf(&routes, "SSR: %t,\n},\n", l.SSR)
 	}
@@ -51,7 +54,11 @@ func generateGo(m *analyze.Manifest, settings map[string]string, dev bool) (map[
 				fmt.Fprintf(&routes, "Query: %s,\n", stringSlice(names))
 			}
 		}
-		fmt.Fprintf(&routes, "Layouts: %s,\n},\n", stringSlice(r.Layouts))
+		fmt.Fprintf(&routes, "Layouts: %s,\n", stringSlice(r.Layouts))
+		if r.Load != nil && r.Load.HTML {
+			routes.WriteString("HTML: true,\n")
+		}
+		routes.WriteString("},\n")
 	}
 	routes.WriteString("}\n")
 

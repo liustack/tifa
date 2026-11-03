@@ -42,6 +42,9 @@ type Layout struct {
 	Load func(c *tifa.Ctx) (any, error)
 	// SSR is the Layout's own LayoutSSR constant.
 	SSR bool
+	// HTML is true when the result of the Layout function may hold a tifa.HTML value: a page the
+	// server renders carries its data with a marker in place of each one (see pageText).
+	HTML bool
 }
 
 // Route is one directory holding page.tsx, or a route.go that declares a method handler, or both.
@@ -71,6 +74,8 @@ type Route struct {
 	Query []string
 	// Layouts lists the IDs of the enclosing Layouts, outermost first.
 	Layouts []string
+	// HTML is true when the result of Load may hold a tifa.HTML value, as Layout.HTML.
+	HTML bool
 }
 
 // register adds the Layouts and routes of an application. Like http.ServeMux it panics on an
@@ -100,7 +105,7 @@ func (s *server) register(layouts []Layout, routes []Route) {
 				panic(fmt.Sprintf("tifa: route %s names unknown Layout %s", r.ID, id))
 			}
 			if l.Load != nil {
-				chain = append(chain, load{id: l.ID, run: l.Load})
+				chain = append(chain, load{id: l.ID, run: l.Load, html: l.HTML})
 			}
 			ssrOn = ssrOn && l.SSR
 			if _, ok := s.layouts[id]; !ok {
@@ -109,7 +114,7 @@ func (s *server) register(layouts []Layout, routes []Route) {
 			}
 		}
 		if r.Load != nil {
-			chain = append(chain, load{id: r.ID, run: r.Load})
+			chain = append(chain, load{id: r.ID, run: r.Load, html: r.HTML})
 		}
 		s.path(r.Path)
 		if r.Page && r.Cache > 0 {
@@ -153,6 +158,8 @@ func (s *server) register(layouts []Layout, routes []Route) {
 type load struct {
 	id  string
 	run func(c *tifa.Ctx) (any, error)
+	// html is true when the result may hold a tifa.HTML value, see Route.HTML.
+	html bool
 }
 
 // runLoads runs the Loads concurrently and returns their results and errors in chain order.
