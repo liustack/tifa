@@ -382,10 +382,11 @@ test('what scripts of the page set on <html> stays until a route changes that at
   })
 })
 
-// The server writes 0 as the time each match loaded at. A hydrated page dates its matches by the
-// age of the data Go sends in Server-Timing, counted back from when the browser sent the request,
-// and leaves them at 0, data of unknown age, when it cannot read the age or the page came from the
-// history.
+// The server writes 0 as the time each match loaded at, and the hydrated router keeps it, so React
+// hydrates what the server rendered. Just before the router first loads or preloads, it dates them
+// by the age of the data Go sends in Server-Timing, counted back from when the browser sent the
+// request, and leaves them at 0, data of unknown age, when it cannot read the age or the page came
+// from the history.
 test('a hydrated page dates its matches by the age of its data', async () => {
   const real = performance.getEntriesByType
   const navigation = (entry: object) => {
@@ -393,7 +394,12 @@ test('a hydrated page dates its matches by the age of its data', async () => {
   }
   const dates = async () => {
     const { router } = await takeOverPage('hello.html', '/hello')
-    return router.stores.matches.get().map((match: { updatedAt: number }) => match.updatedAt)
+    const matches = router.stores.matches.get()
+    const hydrated = matches.map((match: { updatedAt: number }) => match.updatedAt)
+    assert(hydrated.length > 1 && hydrated.every((at: number) => at === 0), `hydrated with dates ${hydrated}`)
+    // The first load or preload dates them, here a preload of another page.
+    await router.preloadRoute({ to: '/a/one' })
+    return matches.map((match: { updatedAt: number }) => match.updatedAt)
   }
   const age = { name: 'tifa-age', duration: 30, description: '' }
   try {

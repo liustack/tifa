@@ -135,6 +135,30 @@ function datePage(matches: ReadonlyArray<{ updatedAt: number }>) {
   for (const match of matches) if (match.updatedAt === 0) match.updatedAt = at
 }
 
+// dateBeforeLoads has the router date the matches it hydrated (datePage) just before it first loads
+// or preloads: only load and preloadRoute read when a match loaded, for staleTime and gcTime, and an
+// invalidation and a navigation go through load. Until then the matches keep the 0 the server
+// rendered, so React hydrates what the server wrote. An effect would date them too early: React
+// commits the page before it hydrates the inside of a Suspense boundary, such as the one around the
+// routes under the root route, and that later hydration would read the new time.
+function dateBeforeLoads(router: AnyRouter) {
+  const { load, preloadRoute } = router
+  let dated = false
+  const date = () => {
+    if (dated) return
+    dated = true
+    datePage(router.stores.matches.get())
+  }
+  router.load = ((opts) => {
+    date()
+    return load(opts)
+  }) as typeof load
+  router.preloadRoute = ((opts) => {
+    date()
+    return preloadRoute(opts)
+  }) as typeof preloadRoute
+}
+
 // takeOver hydrates the router from the scripts of the page the server rendered, as TanStack's
 // RouterClient does, then has the head and the attributes of <html> follow its matches. It first
 // syncs the head with the matches the server rendered, which changes nothing on the page, and
@@ -146,7 +170,7 @@ export function takeOver(router: AnyRouter, htmlAttributes: HTMLAttributes): Pro
     .finally(() => window.$_TSR!.h())
     .then(() => {
       const matches = router.stores.matches.get()
-      datePage(matches)
+      dateBeforeLoads(router)
       syncHead(matches)
       noteHTMLAttributes(matches, htmlAttributes)
       followHead(router, htmlAttributes)

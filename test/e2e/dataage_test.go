@@ -33,10 +33,11 @@ const readDating = `() => {
 }`
 
 // expectDatesInBrowser opens url in a browser with playwright-cli, under the session name, and
-// checks the Server-Timing of the page for the metrics in want. When dated, the page carries the
-// age of its data and every match the router hydrated is dated by it, within the last minute.
-// Otherwise it carries no age and the matches stay undated (0). It closes the browser before it
-// returns.
+// checks the Server-Timing of the page for the metrics in want. The page hydrates without an error
+// and with its matches undated (0), as the server wrote them. After a preload of the page, when
+// dated, the page carries the age of its data and every match the router hydrated is dated by it,
+// within the last minute. Otherwise it carries no age and the matches stay undated. It closes the
+// browser before it returns.
 func expectDatesInBrowser(t *testing.T, name, url string, dated bool, want ...string) {
 	t.Helper()
 	if _, err := exec.LookPath("playwright-cli"); err != nil {
@@ -59,6 +60,20 @@ func expectDatesInBrowser(t *testing.T, name, url string, dated bool, want ...st
 	waitFor(t, "the page to hydrate", func() bool {
 		return strings.Contains(pw("eval", `() => document.readyState === "complete" && window.__TSR_ROUTER__?.stores.matches.get().length > 0`), "true")
 	})
+	// React hydrates the inside of a Suspense boundary after the rest, and marks each element it
+	// hydrated with a property of its own.
+	waitFor(t, "React to hydrate the whole page", func() bool {
+		return strings.Contains(pw("eval", `() => [...document.getElementById("tifa-root").querySelectorAll("*")].every((e) => Object.keys(e).some((key) => key.startsWith("__reactFiber$")))`), "true")
+	})
+	// React reports a hydration that does not match the server with an error, minified in a
+	// production build (#418 and #425 are those of a text that differs).
+	if out := pw("console", "warning"); strings.Contains(strings.ToLower(out), "hydrat") || strings.Contains(out, "did not match") || strings.Contains(out, "Minified React error") {
+		t.Errorf("console of %s: %s", url, out)
+	}
+	if out := pw("eval", `() => window.__TSR_ROUTER__.stores.matches.get().every((match) => match.updatedAt === 0)`); !strings.Contains(out, "true") {
+		t.Errorf("%s: the router dated its matches before it loaded anything: %s", url, out)
+	}
+	pw("eval", `async () => { await window.__TSR_ROUTER__.preloadRoute({ to: location.pathname }); return true }`)
 	out := pw("eval", readDating)
 	_, result, _ := strings.Cut(out, "### Result\n")
 	line, _, _ := strings.Cut(result, "\n")
