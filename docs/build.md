@@ -27,7 +27,8 @@ Writes a small working app into `dir`, which must be missing or empty: a todo li
 | File | What it holds |
 | --- | --- |
 | `go.mod` | tifa, the tifa command as a tool, `modernc.org/sqlite`, a SQLite driver in pure Go, and `ignore node_modules` |
-| `db.go`, `schema.sql` | At the root: `var DB`, `OpenDB` with WAL, `busy_timeout` and foreign keys turned on, and the tables of every domain, created at every start with `CREATE TABLE IF NOT EXISTS`. The file is `app.db` in the folder the app runs in, or `$DB_PATH` |
+| `db.go`, `schema.sql` | At the root: `var DB`, `OpenDB` with WAL, `busy_timeout` and foreign keys turned on, and the tables of every domain, created at every start with `CREATE TABLE IF NOT EXISTS`. The file is `app.db` in the folder the app runs in, or the setting `db.path` (`DB_PATH`, `--db-path`) |
+| `config.go` | At the root: the settings of the app, `var DBPath = tifa.String("db.path", "app.db", ...)`, see [Settings of the app](config.md#settings-of-the-app) |
 | `hooks.go` | `OnStart` opens the database, `OnShutdown` closes it. `OnRequest` and `OnError` are described in comments only, since writing an `OnError` replaces the default |
 | `app/layout.tsx` | The root Layout with a nav, and an `Error` that also shows the 404 of unknown URLs |
 | `app/route.go`, `app/page.tsx` | `/`: the list, and a form whose `POST` takes an input with a `Validate` method. The page shows the messages of the `tifa.Fields` it returns |

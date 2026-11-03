@@ -89,7 +89,7 @@ func TestNewWritesAnApp(t *testing.T) {
 		"app/about/page.tsx", "app/layout.tsx", "app/page.tsx", "app/route.go", "app/route_test.go", "app/styles.css",
 		"app/todos/todo+/page.tsx", "app/todos/todo+/route.go", "app/todos/todo+/route_test.go",
 		"app/todos/todo.go", "app/todos/todo_test.go",
-		"db.go", "db_test.go", "go.mod", "hooks.go", "hooks_test.go", "package.json", "schema.sql",
+		"config.go", "db.go", "db_test.go", "go.mod", "hooks.go", "hooks_test.go", "package.json", "schema.sql",
 		"tifa.yaml", "tsconfig.json", "vite.config.ts",
 	}
 	if !reflect.DeepEqual(files, want) {

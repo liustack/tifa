@@ -27,7 +27,8 @@ tifa new <目录> [--module 模块路径]
 | 文件 | 内容 |
 | --- | --- |
 | `go.mod` | tifa、登记为工具的 tifa 命令、纯 Go 的 SQLite 驱动 `modernc.org/sqlite`，以及 `ignore node_modules` |
-| `db.go`、`schema.sql` | 在根目录：`var DB`、打开 WAL、`busy_timeout` 和外键检查的 `OpenDB`，以及所有领域的表，每次启动都用 `CREATE TABLE IF NOT EXISTS` 建。数据库文件是应用运行目录下的 `app.db`，或者 `$DB_PATH` |
+| `db.go`、`schema.sql` | 在根目录：`var DB`、打开 WAL、`busy_timeout` 和外键检查的 `OpenDB`，以及所有领域的表，每次启动都用 `CREATE TABLE IF NOT EXISTS` 建。数据库文件是应用运行目录下的 `app.db`，或者配置 `db.path`（`DB_PATH`、`--db-path`）给的路径 |
+| `config.go` | 在根目录：应用的配置，`var DBPath = tifa.String("db.path", "app.db", ...)`，见[应用的配置](config.zh-CN.md#应用的配置) |
 | `hooks.go` | `OnStart` 打开数据库，`OnShutdown` 关闭它。`OnRequest` 和 `OnError` 只在注释里说明，因为写了 `OnError` 就会替换默认处理 |
 | `app/layout.tsx` | 带导航的根 Layout，和一个 `Error`，未知地址的 404 也由它显示 |
 | `app/route.go`、`app/page.tsx` | `/`：清单，加一个表单，它的 `POST` 收一个带 `Validate` 方法的输入。页面显示返回的 `tifa.Fields` 里每个字段的提示 |

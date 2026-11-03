@@ -103,7 +103,7 @@ On the server:
 SERVER_ADDR=0.0.0.0:9527 ./myapp
 ```
 
-- Run it from the folder it keeps data in. A relative path such as the `app.db` of the `tifa new` template (or `$DB_PATH`) is resolved against the working directory. Back up or mount that folder.
+- Run it from the folder it keeps data in. A relative path such as the `app.db` of the `tifa new` template (or the setting `db.path`, `DB_PATH`) is resolved against the working directory. Back up or mount that folder.
 - SIGINT and SIGTERM stop it gracefully: new connections stop, in-flight requests finish within `server.shutdown_timeout`, then `OnShutdown` runs. A systemd unit or a container needs nothing more than the executable, the environment and a writable data folder.
 - `FROM scratch` containers work: the program embeds the time zone database.
 - Ports below 1024 on Linux need `sudo setcap cap_net_bind_service=+ep ./myapp` after each copy, or `AmbientCapabilities=CAP_NET_BIND_SERVICE` in a systemd unit, or high ports published by the container (`-p 443:8443`).

@@ -79,7 +79,7 @@ Writing the response is checked when the request runs instead: in `Load` and `La
 ## Settings and data
 
 - `tifa.yaml` lists every setting commented out at its default, with an example for `ssr.vms`, whose default is GOMAXPROCS. See `docs/config.md`. A setting `server.addr` is also the flag `--server-addr` and the environment variable `SERVER_ADDR`, and the app defines its own settings in `config.go` with `tifa.String`, `tifa.Int` and the like.
-- The database is `app.db` (or `$DB_PATH`). `schema.sql` runs at every start, so keep its statements safe to repeat (`CREATE TABLE IF NOT EXISTS`). A new domain adds its tables there. `tifa dev` does not watch `schema.sql`: after changing it, restart `tifa dev`.
+- The database is `app.db`, or what the setting `db.path` of `config.go` says (`DB_PATH`, `--db-path`). `schema.sql` runs at every start, so keep its statements safe to repeat (`CREATE TABLE IF NOT EXISTS`). A new domain adds its tables there. `tifa dev` does not watch `schema.sql`: after changing it, restart `tifa dev`.
 - Under `tifa dev`, a page whose server render fails, or whose `OnRequest` returns an unexpected error, answers with its status and the whole error, a render error with its stack trace in the source files. `curl -i` on the page shows them. A built app shows only the status and the public message.
 - Build and generated files: `docs/build.md`. `tifa dev`: `docs/dev.md`.
 
@@ -89,7 +89,7 @@ Writing the response is checked when the request runs instead: in `Load` and `La
 
 - Code is grouped by domain, and a domain is a folder under `app/`. Its types, queries and rules sit next to its pages, with their tests. `app/todos/todo.go` (`package todos`) is the todo list. The home page (`app/route.go`) and the page of one todo (`app/todos/todo+/route.go`) import `{{.Module}}/app/todos`.
 - A new domain gets a folder under `app/` and a file named after it, such as `app/notes/note.go` (`package notes`). When it has a list page and a page per item, its code goes in the list folder, not in the `name+` folder of one item.
-- The root package (`package {{.Package}}`, at the module root) holds only the hooks (`hooks.go`) and what the whole app shares (`db.go`: `var DB`, and `schema.sql` with the tables of every domain). Domains import it as `"{{.Module}}"` and write `{{.Package}}.DB`. By convention it imports nothing under `app/`: Go refuses import cycles, so once a domain uses `{{.Package}}.DB`, the root package could not import that domain or a page that imports it.
+- The root package (`package {{.Package}}`, at the module root) holds only the hooks (`hooks.go`), the settings (`config.go`: `var DBPath`) and what the whole app shares (`db.go`: `var DB`, and `schema.sql` with the tables of every domain). Domains import it as `"{{.Module}}"` and write `{{.Package}}.DB`. By convention it imports nothing under `app/`: Go refuses import cycles, so once a domain uses `{{.Package}}.DB`, the root package could not import that domain or a page that imports it.
 - A domain may import another one that does not depend on it: if `notes` imports `todos`, directly or through other packages, `todos` cannot import `notes`. There are no `models/`, `services/` or `handlers/` packages. See `docs/structure.md`.
 - This app wires dependencies by hand: package-level variables such as `DB`, set up in `OnStart`, not in `init()`.
 
