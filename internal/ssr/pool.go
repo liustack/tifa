@@ -32,6 +32,10 @@ type Input struct {
 	// Go escapes it into the JSON of the input nor the VM parses it out of that JSON. The VM
 	// reads each text once, with JSON.parse, and the page carries the same text to the browser.
 	Texts []string `json:"-"`
+	// PageTexts, when not nil, are what the page carries in place of Texts, text for text: a text
+	// that holds tifa.HTML values has a marker in place of each, since the page holds them in its
+	// markup. The VM reads Texts.
+	PageTexts []string `json:"-"`
 	// Preload is the module preloads of the matched Layouts and route, which the document
 	// carries after the tags of the browser entry.
 	Preload string `json:"preload,omitempty"`
@@ -239,7 +243,11 @@ func (p *Pool) Render(ctx context.Context, in Input) (string, error) {
 	if html == "" {
 		return html, err
 	}
-	filled, fillErr := FillSlots(html, in.Nonce, in.Texts)
+	texts := in.Texts
+	if in.PageTexts != nil {
+		texts = in.PageTexts
+	}
+	filled, fillErr := FillSlots(html, in.Nonce, texts)
 	if fillErr != nil {
 		return "", fillErr
 	}

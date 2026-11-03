@@ -14,9 +14,10 @@ import (
 func TestRenderKeyCoversEveryFieldOfTheInput(t *testing.T) {
 	// Fields that are not in the key, and why that is safe.
 	notKeyed := map[string]string{
-		"Nonce":    "Render draws it for each render and fills the slots it names before the page leaves, so no trace of it stays in the HTML",
-		"Deadline": "a time budget for the render, not a part of the page",
-		"Error":    "set only to render a page again after a failed render, whose answer is never cached or tagged",
+		"Nonce":     "Render draws it for each render and fills the slots it names before the page leaves, so no trace of it stays in the HTML",
+		"Deadline":  "a time budget for the render, not a part of the page",
+		"PageTexts": "the texts of Texts with markers in place of their tifa.HTML values, which follow from those texts",
+		"Error":     "set only to render a page again after a failed render, whose answer is never cached or tagged",
 	}
 	base := ssr.Input{BuildID: "b", URL: "/p", Data: []byte(`{}`), Texts: []string{"t"}, Preload: "p", Session: []byte(`{"signedIn":false}`), SessionKey: "k", SessionHead: "h"}
 	want := renderKey(base, "bundle")
