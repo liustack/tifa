@@ -25,6 +25,7 @@ import (
 	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/internal/config"
 	"github.com/liustack/tifa/internal/core"
+	"github.com/liustack/tifa/internal/deverrors"
 	"github.com/liustack/tifa/internal/ssr"
 )
 
@@ -799,6 +800,9 @@ func (s *server) devRenderTwice(ctx context.Context, f *front, in ssr.Input, fir
 		"The built app would keep the first render for later requests.\n\n" +
 		"First render:  " + around(first, i) + "\nSecond render: " + around(second, i)
 	core.Logger().Warn("tifa: "+text, "method", method, "path", path)
+	if s.devErrors != nil {
+		s.devErrors.renders.Add(deverrors.Render{Method: method, URL: in.URL, Text: text})
+	}
 	shown, _ := json.Marshal(map[string]string{"title": "The page renders differently each time", "text": text})
 	script := fmt.Sprintf(`<script>window.__tifaDevPageError = %s</script>`, shown)
 	if j := strings.LastIndex(first, "</body>"); j >= 0 {

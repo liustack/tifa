@@ -62,8 +62,12 @@ type server struct {
 	front     atomic.Pointer[front]
 	rendering sync.RWMutex
 	cache     *htmlCache
-	// dev answers the requests of tifa dev under /__tifa/dev/, set only by DevMain.
+	// dev answers the requests of tifa dev under /__tifa/dev/, set only by DevMain for an app with
+	// pages.
 	dev http.Handler
+	// devErrors keeps the errors tifa dev asks for at deverrors.Path, set only by DevMain, also for
+	// an app without pages.
+	devErrors *devErrors
 	// handler is route, wrapped by compressed when server.compress is on.
 	handler http.Handler
 	// crossSite refuses the writes a browser sends from another site, before anything else
@@ -396,7 +400,14 @@ func (s *server) classify(c *tifa.Ctx, err error) (*core.RedirectError, tifa.Err
 }
 
 // publicError asks OnError what to show for an unexpected error. Without OnError it logs the error and answers 500.
+// Under tifa dev it also notes the error for `tifa errors`.
 func (s *server) publicError(c *tifa.Ctx, err error) tifa.Error {
+	e := s.askOnError(c, err)
+	s.devRequestError(c, e, err)
+	return e
+}
+
+func (s *server) askOnError(c *tifa.Ctx, err error) tifa.Error {
 	if s.hooks.OnError == nil {
 		core.Logger().ErrorContext(c.Context(), "tifa: request failed", "method", c.Request().Method, "path", c.Request().URL.Path, "err", err)
 		return tifa.Error{Status: http.StatusInternalServerError, Message: http.StatusText(http.StatusInternalServerError)}

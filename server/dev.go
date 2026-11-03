@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/internal/config"
+	"github.com/liustack/tifa/internal/deverrors"
 )
 
 // devPrefix holds the paths of tifa dev's requests to the app. The dev server never forwards
@@ -45,11 +47,51 @@ func reloader(s *server, dist fs.FS, cfg config.SSR) http.Handler {
 	})
 }
 
-// serveDev answers a request of tifa dev and reports whether it did. Only DevMain sets s.dev.
+// serveDev answers a request of tifa dev and reports whether it did. Only DevMain sets s.dev and
+// s.devErrors.
 func (s *server) serveDev(w http.ResponseWriter, r *http.Request) bool {
-	if s.dev == nil || !strings.HasPrefix(r.URL.Path, devPrefix) {
+	if !strings.HasPrefix(r.URL.Path, devPrefix) {
+		return false
+	}
+	if s.devErrors != nil && r.URL.Path == deverrors.Path {
+		s.devErrors.ServeHTTP(w, r)
+		return true
+	}
+	if s.dev == nil {
 		return false
 	}
 	s.dev.ServeHTTP(w, r)
 	return true
+}
+
+// devErrors keeps what tifa dev reports to `tifa errors` from the app: the unexpected errors of
+// requests and the pages whose two renders differ. tifa dev forgets them (DELETE) when a build
+// starts.
+type devErrors struct {
+	requests deverrors.Requests
+	renders  deverrors.Renders
+}
+
+func (d *devErrors) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, http.StatusOK, deverrors.App{Requests: d.requests.List(), Renders: d.renders.List()})
+	case http.MethodDelete:
+		d.requests.Clear()
+		d.renders.Clear()
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		w.Header().Set("Allow", "GET, DELETE")
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+	}
+}
+
+// devRequestError notes under tifa dev the unexpected error of the request of c, which OnError
+// answered with e. The error text is the one the dev error page shows.
+func (s *server) devRequestError(c *tifa.Ctx, e tifa.Error, err error) {
+	if s.devErrors == nil {
+		return
+	}
+	r := c.Request()
+	s.devErrors.requests.Add(deverrors.Request{Method: r.Method, URL: r.URL.RequestURI(), Status: e.Status, Message: e.Message, Error: err.Error()})
 }
