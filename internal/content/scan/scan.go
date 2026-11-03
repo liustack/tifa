@@ -87,6 +87,9 @@ type scanner struct {
 	root string
 	opts Options
 	res  Result
+	// limit is the real path of the folder of the collection being read, which its links must
+	// not lead out of, and limitName its path in messages, such as content/blog.
+	limit, limitName string
 }
 
 func (s *scanner) fail(file string, format string, args ...any) {
@@ -103,20 +106,11 @@ func (s *scanner) undeclared(declared []string) {
 		return // each collection reports its missing folder
 	}
 	for _, e := range entries {
-		if skipped(e.Name()) || !s.isDir(filepath.Join(s.root, Dir, e.Name()), e) || slices.Contains(declared, e.Name()) {
+		if skipped(e.Name()) || !isDir(filepath.Join(s.root, Dir, e.Name())) || slices.Contains(declared, e.Name()) {
 			continue
 		}
 		s.fail(Dir+"/"+e.Name(), "no collection reads this folder: declare one in content.go, or move the folder out of content/")
 	}
-}
-
-// isDir reports whether e, at p, is a folder, following a symbolic link.
-func (s *scanner) isDir(p string, e os.DirEntry) bool {
-	if e.Type()&os.ModeSymlink != 0 {
-		info, err := os.Stat(p)
-		return err == nil && info.IsDir()
-	}
-	return e.IsDir()
 }
 
 // candidate is a Markdown file that may be an entry.
@@ -127,17 +121,74 @@ type candidate struct {
 	bundle bool   // index.md of a folder of its own
 }
 
+// abs returns the file of p, a path relative to the app root with forward slashes.
+func (s *scanner) abs(p string) string { return filepath.Join(s.root, filepath.FromSlash(p)) }
+
+// link resolves the symbolic link at p, a path relative to the app root, and checks that it leads
+// to a file or folder inside limit, a real path whose name in messages is limitName. ok is false
+// when the link is broken or leads elsewhere, which is reported for a link that leads outside. The
+// files of a collection go into the program, so a link must not bring in files from elsewhere.
+func (s *scanner) link(p, limit, limitName string) (real string, ok bool) {
+	target, err := os.Readlink(s.abs(p))
+	if err != nil {
+		s.fail(p, "%v", err)
+		return "", false
+	}
+	real, err = filepath.EvalSymlinks(s.abs(p))
+	if err != nil {
+		s.fail(p, "links to %s, which does not exist", filepath.ToSlash(target))
+		return "", false
+	}
+	if !within(limit, real) {
+		s.fail(p, "links to %s, which is outside %s: a collection holds only its own files", filepath.ToSlash(target), limitName)
+		return "", false
+	}
+	return real, true
+}
+
+// within reports whether the real path p is dir or below it.
+func within(dir, p string) bool {
+	rel, err := filepath.Rel(dir, p)
+	return err == nil && (rel == "." || filepath.IsLocal(rel))
+}
+
+// realDir returns the real path of the folder at p, a path relative to the app root.
+func (s *scanner) realDir(p string) (string, bool) {
+	real, err := filepath.EvalSymlinks(s.abs(p))
+	if err != nil {
+		s.fail(p, "%v", err)
+		return "", false
+	}
+	return real, true
+}
+
 func (s *scanner) collection(c Collection) {
 	dir := path.Join(Dir, c.Name)
-	info, err := os.Stat(filepath.Join(s.root, filepath.FromSlash(dir)))
+	info, err := os.Lstat(s.abs(dir))
+	if err == nil && info.Mode()&os.ModeSymlink != 0 {
+		top, ok := s.realDir(Dir)
+		if !ok {
+			return
+		}
+		if _, ok := s.link(dir, top, Dir+"/"); !ok {
+			return
+		}
+		info, err = os.Stat(s.abs(dir))
+	}
 	if err != nil || !info.IsDir() {
 		s.fail("", "%s does not exist: create it, or fix Dir", dir)
 		return
 	}
+	s.limit, err = filepath.EvalSymlinks(s.abs(dir))
+	if err != nil {
+		s.fail(dir, "%v", err)
+		return
+	}
+	s.limitName = dir
 	before := len(s.res.Errors)
 	var cands []candidate
 	if len(c.Languages) == 0 {
-		cands = s.walk(dir, "", "")
+		cands = s.walk(dir, "", "", []string{s.limit})
 	} else {
 		entries, err := os.ReadDir(filepath.Join(s.root, filepath.FromSlash(dir)))
 		if err != nil {
@@ -151,14 +202,20 @@ func (s *scanner) collection(c Collection) {
 		byLang := map[string][]candidate{}
 		for _, e := range entries {
 			name, p := e.Name(), dir+"/"+e.Name()
+			if skipped(name) {
+				continue
+			}
+			real, ok := s.follow(p, e, s.limit)
+			if !ok {
+				continue
+			}
 			switch {
-			case skipped(name):
-			case s.isDir(filepath.Join(s.root, filepath.FromSlash(p)), e):
+			case isDir(real):
 				if !slices.Contains(c.Languages, name) {
 					s.fail(p, "not a language of the collection %s (%s), set in %s", c.Name, strings.Join(c.Languages, ", "), at)
 					continue
 				}
-				byLang[name] = s.walk(p, name, "")
+				byLang[name] = s.walk(p, name, "", []string{s.limit, real})
 			case strings.HasSuffix(name, ".mdx"):
 				s.mdx(p)
 			case strings.HasSuffix(name, ".md"):
@@ -188,12 +245,44 @@ func (s *scanner) collection(c Collection) {
 	s.missing(c, recs)
 }
 
+// follow returns the real path of e, at p in the folder whose real path is parent. A symbolic link
+// must lead inside the collection, see link.
+func (s *scanner) follow(p string, e os.DirEntry, parent string) (string, bool) {
+	if e.Type()&os.ModeSymlink == 0 {
+		return filepath.Join(parent, e.Name()), true
+	}
+	return s.link(p, s.limit, s.limitName)
+}
+
+// inside reports whether the file at p, a path relative to the app root, is a file of the
+// collection: a file that is not a symbolic link, or a link that leads inside the collection.
+func (s *scanner) inside(p string) bool {
+	info, err := os.Lstat(s.abs(p))
+	if err != nil {
+		s.fail(p, "%v", err)
+		return false
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		return true
+	}
+	_, ok := s.link(p, s.limit, s.limitName)
+	return ok
+}
+
+// isDir reports whether the real path p is a folder.
+func isDir(p string) bool {
+	info, err := os.Stat(p)
+	return err == nil && info.IsDir()
+}
+
 // walk lists the candidates below the folder base (relative to the app root), whose path below
 // the language folder starts with rel. A folder holding index.md is one entry, and nothing below
-// it is another. base itself is never such a folder.
-func (s *scanner) walk(base, lang, rel string) []candidate {
+// it is another. base itself is never such a folder. folders holds the real paths of the folders
+// from the collection folder down to this one, which a link must not lead back to.
+func (s *scanner) walk(base, lang, rel string, folders []string) []candidate {
 	dir := path.Join(base, rel)
-	entries, err := os.ReadDir(filepath.Join(s.root, filepath.FromSlash(dir)))
+	here := folders[len(folders)-1]
+	entries, err := os.ReadDir(here)
 	if err != nil {
 		s.fail(dir, "%v", err)
 		return nil
@@ -206,14 +295,25 @@ func (s *scanner) walk(base, lang, rel string) []candidate {
 		}
 		r := path.Join(rel, name)
 		p := path.Join(base, r)
-		if s.isDir(filepath.Join(s.root, filepath.FromSlash(p)), e) {
+		real, ok := s.follow(p, e, here)
+		if !ok {
+			continue
+		}
+		if isDir(real) {
+			if slices.Contains(folders, real) {
+				target, _ := os.Readlink(s.abs(p))
+				s.fail(p, "links to %s, a folder that holds it", filepath.ToSlash(target))
+				continue
+			}
 			switch {
-			case fileExists(filepath.Join(s.root, filepath.FromSlash(p), "index.md")):
-				out = append(out, candidate{lang: lang, rel: r + "/index.md", file: p + "/index.md", bundle: true})
-			case fileExists(filepath.Join(s.root, filepath.FromSlash(p), "index.mdx")):
+			case fileExists(filepath.Join(real, "index.md")):
+				if s.inside(p + "/index.md") {
+					out = append(out, candidate{lang: lang, rel: r + "/index.md", file: p + "/index.md", bundle: true})
+				}
+			case fileExists(filepath.Join(real, "index.mdx")):
 				s.mdx(p + "/index.mdx")
 			default:
-				out = append(out, s.walk(base, lang, r)...)
+				out = append(out, s.walk(base, lang, r, append(slices.Clip(folders), real))...)
 			}
 			continue
 		}
