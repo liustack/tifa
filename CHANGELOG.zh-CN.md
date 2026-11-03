@@ -18,7 +18,7 @@
 - **不兼容：**配置的环境变量去掉了 `TIFA_` 前缀：`TIFA_SERVER_ADDR` 改为 `SERVER_ADDR`，`TIFA_SSR_VMS` 改为 `SSR_VMS`。`tifa dev` 用 `SERVER_ADDR` 把地址传给应用。升级部署时把每个变量的前缀去掉。
 - **不兼容：**程序只读自己的配置。不是配置的文件键、环境变量和参数一律不管，以前未知的键或 `TIFA_*` 变量会让程序退出。拼错的名字现在什么也不改，用 `./bin/app config` 检查。`-c` 的文件里的 `build.*` 也不管。
 - **不兼容：**配置只支持 YAML。不再读 `tifa.json` 和 JSON 部署文件：把 `tifa.json` 改名为 `tifa.yaml`，按 YAML 写（JSON 也是合法的 YAML）。`tifa build` 校验 `tifa.yaml`，把它的值写成 Go 代码编进程序，不再嵌入这个文件。
-- **不兼容：**Vite 不读 `.env`（`envDir: false`），`VITE_` 变量不再进浏览器包，这类值改由 `Load` 传。`tifa dev` 不再为 `.env.*` 文件重新打包。
+- **不兼容：**Vite 不读 `.env`（`envDir: false`），`.env` 文件里的 `VITE_` 变量不再进浏览器包，这类值改由 `Load` 传。`tifa dev` 不再为 `.env.*` 文件重新打包。
 - 示例商店把 `SHOP_OPEN` 改成它 `config.go` 里的配置 `shop.open`，`./bin/shop config` 能列出它，`--shop-open` 也能用。
 - **不兼容：**处理函数的调用在 POST、PUT、PATCH、DELETE 成功之后不再重新取页面数据，调用的 `invalidate` 选项也没有了。调用只发出请求，并应用回答里的会话。重定向只做导航，重定向到正在显示的页面时页面留在原处。tifa 不猜测一次写操作改了什么，TanStack Router 也不猜。想让页面显示写操作的结果，在调用之后调用 `router.invalidate()`（`await router.invalidate({ sync: true })` 会等到页面显示出新数据），或者更新你自己的状态。升级时删掉调用里的 `invalidate: false`，并在页面该显示写入结果的调用之后加上 `await router.invalidate({ sync: true })`。
 - **不兼容：**`tifa build` 生成的路由改用 TanStack Router 默认的新鲜度，以前是 `staleTime: Infinity` 和 `preloadStaleTime: Infinity`，路由器也不再设 `defaultStaleReloadMode: 'blocking'`。数据立刻算作过期，所以回到访问过的页面时先显示缓存的数据，同时在后台发一个 `?_tifa=` 请求重新取，预加载的数据复用 30 秒。登出之后不该让下一个人看到旧数据的应用，调用 `router.clearCache()`。

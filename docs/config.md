@@ -79,7 +79,7 @@ GREETING="Hello # not a comment\n"
 - A value in double quotes may hold `\n`, `\t`, `\"` and `\\`. A value in single quotes is taken as it is. A quoted value stays on one line.
 - A line it cannot read stops the program with its line number.
 
-`tifa dev` runs the app in the app root, so the app reads the `.env` there, and a change of `.env` starts the app again. Vite does not read `.env` (`envDir: false`), so `VITE_` variables do not reach the browser: a page gets the values it needs from its `Load`.
+`tifa dev` runs the app in the app root, so the app reads the `.env` there, and a change of `.env` starts the app again. Vite does not read `.env` (`envDir: false`): a page gets the values it needs from its `Load`.
 
 ### PORT and HOST
 
