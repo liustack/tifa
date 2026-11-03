@@ -52,7 +52,7 @@ The build reads `content.go` without running it, so:
 - `content.Define` is written only as the value of a package-level `var` in `content.go`. Anywhere else (another file, a function, `init()`, an assignment) fails the build.
 - The argument is a `content.Source{...}` literal written in place, with its fields named. `Dir` and `Match` are string literals and `Languages` is a `[]string{...}` of string literals, not constants or variables.
 - The type is a named struct of the app's module that embeds `content.Entry` (not a pointer to it).
-- Two collections cannot read the same `Dir`. A folder under `content/` that no collection reads fails the build, which catches a typo in the folder name. Folders whose names start with `.` or `_` are left alone.
+- Two collections cannot read the same `Dir`. A folder under `content/` that no collection reads fails the build, in an app without `content.go` too, which catches a typo in the folder name. Folders whose names start with `.` or `_` are left alone.
 
 The root package does not import the packages under `app/` (see [Structure](structure.md)), so the schema types live in `content.go` or in a shared package that imports no domain. The queries of a collection (`Published`, `BySlug` and the like) live in the domain package, which reads `myblog.Blog` the way it reads `myblog.DB`.
 
@@ -80,6 +80,8 @@ In this order:
 3. Every other `.md` file is an entry of its own.
 4. With `Match`, only the files from the two rules above that match it are entries. The pattern starts below the language folder (or the collection folder when there are no languages), its segments are split by `/` and written like `path.Match`, and `**` matches any number of folders. `Match: "*/*/index.md"` keeps page bundles two folders deep and leaves out single files.
 5. An `.mdx` file fails the build. Files with other extensions are not entries.
+
+A symbolic link may point to a file or folder inside the collection folder. A link that leads outside it, or to a folder that holds the link, fails the build, so that no file from elsewhere ends up in the program.
 
 For the front page of a group of docs, write a file named like the folder (`guide.md` next to `guide/`). A `guide/index.md` would make all of `guide/` one page bundle, and having both fails the build with a duplicate ID.
 
