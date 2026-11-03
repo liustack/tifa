@@ -32,11 +32,12 @@ const readDating = `() => {
   })
 }`
 
-// expectDatedInBrowser opens url in a browser with playwright-cli, under the session name, and
-// checks that the page carries the age of its data in Server-Timing, with the metrics in want, and
-// that every match the router hydrated is dated by it, within the last minute. It closes the
-// browser before it returns.
-func expectDatedInBrowser(t *testing.T, name, url string, want ...string) {
+// expectDatesInBrowser opens url in a browser with playwright-cli, under the session name, and
+// checks the Server-Timing of the page for the metrics in want. When dated, the page carries the
+// age of its data and every match the router hydrated is dated by it, within the last minute.
+// Otherwise it carries no age and the matches stay undated (0). It closes the browser before it
+// returns.
+func expectDatesInBrowser(t *testing.T, name, url string, dated bool, want ...string) {
 	t.Helper()
 	if _, err := exec.LookPath("playwright-cli"); err != nil {
 		t.Log("playwright-cli is not installed: the dates of a hydrated page are not checked")
@@ -68,6 +69,12 @@ func expectDatedInBrowser(t *testing.T, name, url string, want ...string) {
 	}
 	if err := json.Unmarshal([]byte(text), &got); err != nil {
 		t.Fatalf("eval: %v\n%s", err, text)
+	}
+	if !dated {
+		if slices.Contains(got.Names, "tifa-age") || len(got.Dates) == 0 || slices.ContainsFunc(got.Dates, func(date float64) bool { return date != 0 }) {
+			t.Errorf("%s: Server-Timing %q, matches dated %v, want no age and undated matches", url, got.Names, got.Dates)
+		}
+		return
 	}
 	for _, metric := range append([]string{"tifa-age"}, want...) {
 		if !slices.Contains(got.Names, metric) {

@@ -562,7 +562,8 @@ func (s *server) respondPage(c *tifa.Ctx, got fetched, status string, selected [
 		http.Redirect(c.Writer(), c.Request(), entry.location, entry.status)
 		return nil
 	}
-	// The data of the entry is as old as the entry, which was made just before its Loads ran.
+	// The data of the entry is as old as the entry, which was made just before its Loads ran. A held
+	// entry goes out public, which a cache may keep, so only a page the cache did not keep says it.
 	setDataAge(c.Writer().Header(), now.Sub(entry.created))
 	etag := entry.etag
 	if s.cfg.Compress {

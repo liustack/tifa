@@ -241,7 +241,7 @@ func TestDev(t *testing.T) {
 	expectNoErrors(t, dir, "after the first build")
 	// The browser reads the age of the data of the page next to the build tifa dev names, and the
 	// hydration reports nothing.
-	expectDatedInBrowser(t, "tifa-e2e-da", d.base+"/shops/north", "tifa-dev", "tifa-dev-render")
+	expectDatesInBrowser(t, "tifa-e2e-da", d.base+"/shops/north", true, "tifa-dev", "tifa-dev-render")
 	expectNoErrors(t, dir, "after a browser opened a page")
 
 	// Pages load the modules from Vite's dev server, with the React refresh preamble first.

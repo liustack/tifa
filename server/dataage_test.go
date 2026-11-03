@@ -1,6 +1,7 @@
 package server
 
 import (
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
@@ -93,26 +94,77 @@ func TestPageSendsTheAgeOfItsData(t *testing.T) {
 	}
 }
 
-// A page of the whole-page cache is as old as the entry it comes from, counted from the start of
-// the Loads that made the entry, on a hit and on a 304. Its navigation data does not carry it.
-func TestCachedPageSendsTheAgeOfItsEntry(t *testing.T) {
+// A page of the whole-page cache may be kept by a CDN, which would serve the age it was sent with
+// minutes later, so a page the cache keeps carries no age, on a miss, a hit and a 304, and the
+// browser takes its data as of unknown age. A request that bypasses the cache with an answer for
+// one visitor carries the age of the entry it made.
+func TestCachedPageSendsNoAge(t *testing.T) {
 	e := newPageEnv(t)
 	first := get(e.s, "/news")
-	if age, ok := dataAgeOf(t, first.Header().Values("Server-Timing")); first.Code != 200 || !ok || age != 0 {
-		t.Fatalf("miss: %d, age %d %t", first.Code, age, ok)
-	}
 	e.clock.advance(7 * time.Second)
 	hit := get(e.s, "/news")
-	if age, ok := dataAgeOf(t, hit.Header().Values("Server-Timing")); hit.Header().Get("Cache-Status") != "tifa; hit" || !ok || age != 7000 {
-		t.Errorf("hit: %v, age %d %t", hit.Header(), age, ok)
-	}
-	e.clock.advance(1500 * time.Millisecond)
 	same := get(e.s, "/news", "If-None-Match", first.Header().Get("ETag"))
-	if age, ok := dataAgeOf(t, same.Header().Values("Server-Timing")); same.Code != 304 || !ok || age != 8500 {
-		t.Errorf("304: %d, age %d %t", same.Code, age, ok)
+	for name, w := range map[string]*httptest.ResponseRecorder{"miss": first, "hit": hit, "304": same} {
+		if _, ok := dataAgeOf(t, w.Header().Values("Server-Timing")); ok || w.Header().Get("Cache-Control") == "" {
+			t.Errorf("%s: %d %v", name, w.Code, w.Header())
+		}
+	}
+	if hit.Header().Get("Cache-Status") != "tifa; hit" || same.Code != 304 {
+		t.Errorf("hit %v, 304 %d", hit.Header(), same.Code)
 	}
 	w := getData(e.s, "/news", "b1", "11")
 	if _, ok := dataAgeOf(t, w.Header().Values("Server-Timing")); w.Code != 200 || ok {
 		t.Errorf("navigation data: %d %q", w.Code, w.Header().Values("Server-Timing"))
+	}
+
+	own := newPageEnv(t, func(app *App) {
+		app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+			c.SetHeader("Cache-Control", "private, no-cache")
+			return next(c)
+		}
+	})
+	w = get(own.s, "/news")
+	if age, ok := dataAgeOf(t, w.Header().Values("Server-Timing")); w.Code != 200 || w.Header().Get("Cache-Status") != "tifa; fwd=bypass" || !ok || age != 0 {
+		t.Errorf("bypass: %d %v, age %d %t", w.Code, w.Header(), age, ok)
+	}
+}
+
+// A page carries its age only when no cache may reuse the answer without asking the server: its
+// Cache-Control says no-cache or no-store, or the app set none and the answer goes out as private,
+// no-cache.
+func TestPageSendsItsAgeOnlyWhenEveryCacheAsksAgain(t *testing.T) {
+	var cacheControl string
+	app := App{
+		Layouts: []Layout{{ID: "app/layout", Path: "/", SSR: true}},
+		Routes: []Route{{ID: "app/page", Path: "/p", Page: true, SSR: true, Layouts: []string{"app/layout"},
+			Load: func(c *tifa.Ctx) (any, error) {
+				if cacheControl != "" {
+					c.SetHeader("Cache-Control", cacheControl)
+				}
+				return 1, nil
+			}}},
+	}
+	s, _ := newFrontServer(t, app)
+	for _, tc := range []struct {
+		cacheControl string
+		aged         bool
+	}{
+		{"", true},
+		{"no-cache", true},
+		{"public, no-cache", true},
+		{"No-Store", true},
+		{"private, max-age=0, no-cache", true},
+		{"public, max-age=60", false},
+		{"private, max-age=60", false},
+		{"public, s-maxage=600", false},
+		{"max-age=0", false},
+		{`no-cache="Set-Cookie", max-age=60`, false},
+		{`no-cache="a`, false},
+	} {
+		cacheControl = tc.cacheControl
+		w := get(s, "/p")
+		if _, ok := dataAgeOf(t, w.Header().Values("Server-Timing")); w.Code != 200 || ok != tc.aged {
+			t.Errorf("Cache-Control %q: %d, age %t, want %t", tc.cacheControl, w.Code, ok, tc.aged)
+		}
 	}
 }

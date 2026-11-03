@@ -735,14 +735,49 @@ func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, since tim
 // the matches of the page by it (datePage in js/runtime/browser.tsx), and the time Go writes into the
 // page would not do: it is fixed, so that the page depends only on its input, and the clock of the
 // server is not the clock of the browser. Navigation data does not carry it: the router dates what
-// the browser fetches itself.
+// the browser fetches itself. An answer that a cache may keep and serve again without asking tifa
+// does not carry it either (see revalidated): the cache would hand out an age that has grown since.
 const dataAgeMetric = "tifa-age"
 
 // setDataAge adds the age of the data of a page to the Server-Timing of its answer, rounded up to a
-// millisecond so that the data never looks newer than it is. Other values of the header stay.
+// millisecond so that the data never looks newer than it is, when the answer is revalidated. Other
+// values of the header stay. It runs after the Loads, OnRequest and the layouts set their headers.
 func setDataAge(h http.Header, age time.Duration) {
+	if !revalidated(h) {
+		return
+	}
 	ms := (max(age, 0) + time.Millisecond - 1) / time.Millisecond
 	h.Add("Server-Timing", dataAgeMetric+";dur="+strconv.FormatInt(int64(ms), 10))
+}
+
+// revalidated reports whether no cache may reuse an answer with headers h without asking tifa
+// first: its Cache-Control (RFC 9111 section 5.2) says no-store, or no-cache without a list of
+// fields, or the answer has none and writer.commit sends defaultCacheControl. The writer only ever
+// adds the default or makes the header stricter, so h already decides it. A malformed header does
+// not count.
+func revalidated(h http.Header) bool {
+	values := h.Values("Cache-Control")
+	if len(values) == 0 {
+		return true
+	}
+	for _, value := range values {
+		directives, ok := splitDirectives(value)
+		if !ok {
+			return false
+		}
+		for _, d := range directives {
+			name, _, hasArg := strings.Cut(d, "=")
+			switch strings.ToLower(strings.TrimSpace(name)) {
+			case "no-store":
+				return true
+			case "no-cache":
+				if !hasArg {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // errClientGone is what Next returns for a request whose client went away while it waited for

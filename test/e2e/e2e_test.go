@@ -486,7 +486,7 @@ func TestPagesApp(t *testing.T) {
 
 	base, _, _ := start(t, exe)
 	// A browser dates the matches it hydrates by the age of the data the server sends.
-	expectDatedInBrowser(t, "tifa-e2e-pa", base+"/shops/north")
+	expectDatesInBrowser(t, "tifa-e2e-pa", base+"/shops/north", true)
 	var built struct{ BuildID, Head string }
 	readJSON(t, filepath.Join(dir, ".tifa", "dist", "build.json"), &built)
 	// The head loads the stylesheet, the shared chunks and the entry, in that order.
