@@ -103,6 +103,12 @@ var wantTrees = map[string]string{
     children slice struct (seen)
     parent pointer struct (seen)
 `,
+	"RecursiveNamed": `struct
+  nodes slice slice (seen)
+  tree map map (seen)
+  ring slice pointer slice (seen)
+  again slice (seen)
+`,
 	"Optional": `struct
   a string
   b int64
@@ -122,7 +128,11 @@ var wantProblems = map[string][]string{
 		"schemas.Reserved.Key has the json name \"translationKey\", which tifa reads to link the translations of an entry",
 		"schemas.Reserved.Words has the json name \"words\", which content.Entry uses for the number of words of the body",
 	},
-	"NoEntry": nil,
+	"NoEntry":        nil,
+	"RecursiveNamed": nil,
+	"SelfPointer": {
+		"schemas.SelfPointer.Loop has the type schemas.Loop, a pointer that points to itself, which front matter cannot hold: " + holdable,
+	},
 	"BadEmbedding": {
 		"schemas.BadEmbedding.Image is an embedded pointer: embed the struct itself, or give the field a name",
 		"schemas.BadEmbedding.Status is embedded and is not a struct whose fields front matter holds: give it a json name",
@@ -153,7 +163,13 @@ func dump(n *Node) string {
 		case Time:
 			b.WriteString("time\n")
 		case Pointer, Slice, Map:
-			b.WriteString([]string{Pointer: "pointer", Slice: "slice", Map: "map"}[n.Kind] + " ")
+			name := []string{Pointer: "pointer", Slice: "slice", Map: "map"}[n.Kind]
+			if seen[n] {
+				b.WriteString(name + " (seen)\n")
+				return
+			}
+			seen[n] = true
+			b.WriteString(name + " ")
 			walk(n.Elem, indent)
 		case Struct:
 			if seen[n] {

@@ -11,18 +11,20 @@ import (
 
 // All lists a value of each schema type by its name.
 var All = map[string]any{
-	"Basic":        Basic{},
-	"Nested":       Nested{},
-	"Embedding":    Embedding{},
-	"Recursive":    Recursive{},
-	"Optional":     Optional{},
-	"Named":        Named{},
-	"BadTags":      BadTags{},
-	"BadTypes":     BadTypes{},
-	"BadEmbedding": BadEmbedding{},
-	"Reserved":     Reserved{},
-	"Clash":        Clash{},
-	"NoEntry":      NoEntry{},
+	"Basic":          Basic{},
+	"Nested":         Nested{},
+	"Embedding":      Embedding{},
+	"Recursive":      Recursive{},
+	"RecursiveNamed": RecursiveNamed{},
+	"SelfPointer":    SelfPointer{},
+	"Optional":       Optional{},
+	"Named":          Named{},
+	"BadTags":        BadTags{},
+	"BadTypes":       BadTypes{},
+	"BadEmbedding":   BadEmbedding{},
+	"Reserved":       Reserved{},
+	"Clash":          Clash{},
+	"NoEntry":        NoEntry{},
 }
 
 type Basic struct {
@@ -82,6 +84,26 @@ type Node struct {
 type Recursive struct {
 	content.Entry
 	Root Node `json:"root"`
+}
+
+type (
+	Nodes []Nodes
+	Tree  map[string]Tree
+	Loop  *Loop
+	Ring  []*Ring
+)
+
+type RecursiveNamed struct {
+	content.Entry
+	Nodes Nodes `json:"nodes"`
+	Tree  Tree  `json:"tree"`
+	Ring  Ring  `json:"ring"`
+	Again Nodes `json:"again"`
+}
+
+type SelfPointer struct {
+	content.Entry
+	Loop Loop `json:"loop"`
 }
 
 type Optional struct {

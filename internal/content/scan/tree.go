@@ -158,20 +158,50 @@ func (b *builder) node(t goType, name string) *Node {
 		b.problem("%s has the type %s, which reads its own JSON, so front matter cannot be checked against it: %s", name, t, holdable)
 		return nil
 	}
+	id := t.id()
+	if id == nil {
+		return b.shape(t, name, &Node{})
+	}
+	// A named type is registered before its parts are read, so that a type met again inside
+	// itself, as in type Nodes []Nodes, is the same *Node.
+	n := &Node{}
+	b.named[id] = n
+	if b.shape(t, name, n) == nil {
+		delete(b.named, id)
+		return nil
+	}
+	for e := n; e.Kind == Pointer; {
+		if e = e.Elem; e == n {
+			b.problem("%s has the type %s, a pointer that points to itself, which front matter cannot hold: %s", name, t, holdable)
+			delete(b.named, id)
+			return nil
+		}
+	}
+	return n
+}
+
+// shape fills in n, the tree of t, and returns it, or nil after reporting a problem.
+func (b *builder) shape(t goType, name string, n *Node) *Node {
 	switch k := t.kind(); k {
 	case reflect.String:
-		return &Node{Kind: String}
+		*n = Node{Kind: String}
+		return n
 	case reflect.Bool:
-		return &Node{Kind: Bool}
+		*n = Node{Kind: Bool}
+		return n
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return &Node{Kind: Int, Bits: t.bits()}
+		*n = Node{Kind: Int, Bits: t.bits()}
+		return n
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return &Node{Kind: Uint, Bits: t.bits()}
+		*n = Node{Kind: Uint, Bits: t.bits()}
+		return n
 	case reflect.Float32, reflect.Float64:
-		return &Node{Kind: Float, Bits: t.bits()}
+		*n = Node{Kind: Float, Bits: t.bits()}
+		return n
 	case reflect.Pointer:
 		if e := b.node(t.elem(), name); e != nil {
-			return &Node{Kind: Pointer, Elem: e}
+			*n = Node{Kind: Pointer, Elem: e}
+			return n
 		}
 		return nil
 	case reflect.Slice:
@@ -180,7 +210,8 @@ func (b *builder) node(t goType, name string) *Node {
 			return nil
 		}
 		if e := b.node(t.elem(), name+"[]"); e != nil {
-			return &Node{Kind: Slice, Elem: e}
+			*n = Node{Kind: Slice, Elem: e}
+			return n
 		}
 		return nil
 	case reflect.Map:
@@ -189,14 +220,12 @@ func (b *builder) node(t goType, name string) *Node {
 			return nil
 		}
 		if e := b.node(t.elem(), name+"[]"); e != nil {
-			return &Node{Kind: Map, Elem: e}
+			*n = Node{Kind: Map, Elem: e}
+			return n
 		}
 		return nil
 	case reflect.Struct:
-		n := &Node{Kind: Struct}
-		if id := t.id(); id != nil {
-			b.named[id] = n
-		}
+		n.Kind = Struct
 		b.fields(n, t, name, false)
 		return n
 	}
