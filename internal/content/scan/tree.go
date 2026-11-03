@@ -237,8 +237,9 @@ func (b *builder) shape(t goType, name string, n *Node) *Node {
 // root is true for the schema type itself, whose embedded content.Entry is tifa's.
 func (b *builder) fields(n *Node, t goType, name string, root bool) {
 	byKey := map[string]string{}
-	var walk func(t goType, name string)
-	walk = func(t goType, name string) {
+	entry := false // whether tifa's content.Entry was met
+	var walk func(t goType, name string, top bool)
+	walk = func(t goType, name string, top bool) {
 		for i := range t.numField() {
 			f := t.field(i)
 			b.pos = f.pos
@@ -246,6 +247,16 @@ func (b *builder) fields(n *Node, t goType, name string, root bool) {
 			jsonTag, hasJSON := f.tag.Lookup("json")
 			if _, ok := f.tag.Lookup("yaml"); ok {
 				b.problem("%s has a yaml tag: front matter keys are the json names, remove the yaml tag", goName)
+			}
+			if root && f.embedded && f.typ.is(entryPkg, entryName) {
+				// The schema embeds content.Entry once, as its own field, so that the methods of
+				// Entry are those of the schema.
+				if top && !entry {
+					entry = true
+				} else {
+					b.problem("%s is a second embedded content.Entry: a schema embeds it once, as its own field", goName)
+				}
+				continue
 			}
 			if jsonTag == "-" {
 				continue
@@ -271,9 +282,6 @@ func (b *builder) fields(n *Node, t goType, name string, root bool) {
 				continue
 			}
 			if f.embedded && key == "" {
-				if root && f.typ.is(entryPkg, entryName) {
-					continue
-				}
 				switch {
 				case !f.exported:
 					b.problem("%s is an unexported embedded field: export its type, or give the field a name", goName)
@@ -284,7 +292,7 @@ func (b *builder) fields(n *Node, t goType, name string, root bool) {
 				case hasJSON && opts != "":
 					b.problem("%s is embedded with json options: give it a json name", goName)
 				default:
-					walk(f.typ, goName)
+					walk(f.typ, goName, false)
 				}
 				continue
 			}
@@ -318,7 +326,7 @@ func (b *builder) fields(n *Node, t goType, name string, root bool) {
 			})
 		}
 	}
-	walk(t, name)
+	walk(t, name, true)
 }
 
 // Keys returns the keys of the fields of a Struct, in order.

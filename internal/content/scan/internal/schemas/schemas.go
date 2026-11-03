@@ -25,6 +25,8 @@ var All = map[string]any{
 	"Reserved":       Reserved{},
 	"Clash":          Clash{},
 	"NoEntry":        NoEntry{},
+	"TwiceEntry":     TwiceEntry{},
+	"DeepEntry":      DeepEntry{},
 }
 
 type Basic struct {
@@ -177,6 +179,24 @@ type Clash struct {
 	content.Entry
 	Meta
 	Author string `json:"author"`
+}
+
+type E = content.Entry
+
+type TwiceEntry struct {
+	content.Entry
+	E     `json:"-"`
+	Title string `json:"title"`
+}
+
+type WithEntry struct {
+	content.Entry
+	Author string `json:"author"`
+}
+
+type DeepEntry struct {
+	content.Entry
+	WithEntry
 }
 
 type NoEntry struct {

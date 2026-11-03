@@ -18,6 +18,18 @@ type post struct {
 	Tags  []string `json:"tags"`
 }
 
+type sameEntry = Entry
+
+type twiceEntry struct {
+	Entry
+	sameEntry `json:"-"`
+}
+
+type deepEntry struct {
+	Entry
+	post
+}
+
 func (p post) Validate() error {
 	if p.Title == "bad" {
 		return errors.New("title must not be bad")
@@ -177,6 +189,8 @@ func TestDefinePanicsOnWhatItSees(t *testing.T) {
 	}{
 		{"no Entry", func() { Define[struct{ Title string }](Source{Dir: "x1"}) }, "must be a struct type that embeds content.Entry"},
 		{"pointer", func() { Define[*post](Source{Dir: "x2"}) }, "must be a struct type that embeds content.Entry"},
+		{"Entry twice", func() { Define[twiceEntry](Source{Dir: "x4"}) }, "content.Define: content.twiceEntry embeds content.Entry more than once: a schema embeds it once, as its own field"},
+		{"Entry deeper", func() { Define[deepEntry](Source{Dir: "x5"}) }, "content.Define: content.deepEntry embeds content.Entry more than once: a schema embeds it once, as its own field"},
 		{"bad Dir", func() { Define[post](Source{Dir: "a/b"}) }, `Dir "a/b" must be the name of one folder`},
 		{"language twice", func() { Define[post](Source{Dir: "x3", Languages: []string{"en", "en"}}) }, `Languages has "en" twice`},
 		{"Dir twice", func() { Define[post](Source{Dir: "testblog"}) }, "two collections read content/testblog"},

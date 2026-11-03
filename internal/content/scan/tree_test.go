@@ -130,6 +130,12 @@ var wantProblems = map[string][]string{
 	},
 	"NoEntry":        nil,
 	"RecursiveNamed": nil,
+	"TwiceEntry": {
+		"schemas.TwiceEntry.E is a second embedded content.Entry: a schema embeds it once, as its own field",
+	},
+	"DeepEntry": {
+		"schemas.DeepEntry.WithEntry.Entry is a second embedded content.Entry: a schema embeds it once, as its own field",
+	},
 	"SelfPointer": {
 		"schemas.SelfPointer.Loop has the type schemas.Loop, a pointer that points to itself, which front matter cannot hold: " + holdable,
 	},

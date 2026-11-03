@@ -154,14 +154,32 @@ var entryType = reflect.TypeFor[Entry]()
 
 // checkSchema checks that t is a struct that embeds Entry, not a pointer to it.
 func checkSchema(t reflect.Type) error {
-	if t.Kind() == reflect.Struct {
-		for i := range t.NumField() {
-			if f := t.Field(i); f.Anonymous && f.Type == entryType {
-				return nil
-			}
+	if t.Kind() != reflect.Struct || !slices.ContainsFunc(reflect.VisibleFields(t), func(f reflect.StructField) bool {
+		return f.Anonymous && len(f.Index) == 1 && f.Type == entryType
+	}) {
+		return fmt.Errorf("content.Define: %s must be a struct type that embeds content.Entry, not a pointer to it", t)
+	}
+	if embeddedEntries(t) > 1 {
+		return fmt.Errorf("content.Define: %s embeds content.Entry more than once: a schema embeds it once, as its own field", t)
+	}
+	return nil
+}
+
+// embeddedEntries counts the content.Entry fields that t embeds, directly or through embedded
+// structs. A struct cannot embed itself other than through a pointer, which is not followed.
+func embeddedEntries(t reflect.Type) int {
+	n := 0
+	for i := range t.NumField() {
+		f := t.Field(i)
+		switch {
+		case !f.Anonymous:
+		case f.Type == entryType:
+			n++
+		case f.Type.Kind() == reflect.Struct:
+			n += embeddedEntries(f.Type)
 		}
 	}
-	return fmt.Errorf("content.Define: %s must be a struct type that embeds content.Entry, not a pointer to it", t)
+	return n
 }
 
 func entryOf[T any](v *T) *Entry {
