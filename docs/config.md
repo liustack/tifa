@@ -160,7 +160,7 @@ var (
 - The packages that the root package imports cannot read these variables (it would be an import cycle): `OnStart` passes the values to them, such as `store.Open(DBURL)`.
 - An app that needs more can run its own configuration in `OnStart`.
 
-`tifa build` fails, naming the file and line, when `tifa.String` and the like are called anywhere but as the value of a package-level `var` in `config.go` at the root, when a key is not a string literal or does not follow the rule of [Names](#names), and when two settings, of the app or of tifa, would have the same flag or environment variable, such as `a.b_c` and `a_b.c`.
+`tifa build` fails, naming the file and line, when `tifa.String` and the like are called anywhere but as the value of a package-level `var` in `config.go` at the root, when a key is not a string literal or does not follow the rule of [Names](#names), and when two settings, of the app or of tifa, would have the same flag or environment variable, such as `a.b_c` and `a_b.c`, and when one key is a section of another, such as `db.url` next to `db.url.timeout`, or `server.addr.port` next to `server.addr` of tifa. The program panics on the same mistakes if they get past the build.
 
 ## Render queue
 

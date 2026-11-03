@@ -1065,6 +1065,7 @@ func TestSettingsBreakingTheRules(t *testing.T) {
 		"config.go:12:", "settings a_b.c and a.b_c both have the flag --a-b-c",
 		"config.go:13:", "setting a.b_c is defined twice",
 		"config.go:14:", "config.go:17:", "config.go:19:",
+		"config.go:21:", "settings a.b_c.d and a.b_c make a.b_c a value and a section",
 		"other.go:5:", "internal/store/store.go:5:",
 		"only in a package-level var of config.go in the root of the app",
 	} {

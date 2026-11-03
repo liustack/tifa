@@ -436,7 +436,8 @@ func EnvName(key string) string { return strings.ToUpper(strings.ReplaceAll(key,
 var ReservedFlags = []string{"config", "dist", "lifeline-fd", "help"}
 
 // Clash reports why key cannot be a setting of the app next to the keys of others: its flag or
-// environment variable is that of another key, of tifa or of the app, or a flag of the program.
+// environment variable is that of another key, of tifa or of the app, or a flag of the program,
+// or one of the two keys is a section of the other, as db.url is of db.url.timeout.
 func Clash(key string, others []string) error {
 	flag, env := FlagName(key), EnvName(key)
 	if slices.Contains(ReservedFlags, flag) {
@@ -446,6 +447,9 @@ func Clash(key string, others []string) error {
 		switch {
 		case other == key:
 			return fmt.Errorf("setting %s is defined twice, or is a setting of tifa", key)
+		case strings.HasPrefix(key, other+"."), strings.HasPrefix(other, key+"."):
+			// A key is a value in YAML and in ./app config, so it cannot also hold other keys.
+			return fmt.Errorf("settings %s and %s make %s a value and a section", key, other, min(key, other))
 		case FlagName(other) == flag:
 			return fmt.Errorf("settings %s and %s both have the flag --%s", key, other, flag)
 		case EnvName(other) == env:

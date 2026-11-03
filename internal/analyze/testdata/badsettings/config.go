@@ -17,3 +17,5 @@ var (
 var define = tifa.Bool
 
 func f() bool { return tifa.Bool("in.body", false, "") }
+
+var Inner = tifa.Int("a.b_c.d", 1, "inside a.b_c")

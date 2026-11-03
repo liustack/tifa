@@ -298,7 +298,7 @@ func TestInvalidAppValuesAreRecordedAndGiveTheDefault(t *testing.T) {
 }
 
 func TestBadAppKeysPanic(t *testing.T) {
-	for _, keys := range [][]string{{"db"}, {"db.url", "db.url"}, {"db.url", "db_url.x", "db.url_x"}, {"server.addr"}} {
+	for _, keys := range [][]string{{"db"}, {"db.url", "db.url"}, {"db.url", "db_url.x", "db.url_x"}, {"server.addr"}, {"db.url", "db.url.timeout"}} {
 		func() {
 			defer func() {
 				if recover() == nil {
@@ -324,6 +324,36 @@ func TestTestBinaryKeepsTheDefaults(t *testing.T) {
 func TestClashOfTwoAppKeys(t *testing.T) {
 	if err := Clash("db.url_x", []string{"db_url.x"}); err == nil || !strings.Contains(err.Error(), "both have") {
 		t.Fatal(err)
+	}
+}
+
+// A key cannot hold a value and a section at once: db.url next to db.url.timeout.
+func TestKeyInsideAnotherClashes(t *testing.T) {
+	for _, tc := range []struct {
+		key    string
+		others []string
+	}{
+		{"db.url.timeout", []string{"db.url"}},
+		{"db.url", []string{"db.url.timeout"}},
+		{"server.addr.port", nil},
+		{"ssr.vms.count", nil},
+	} {
+		err := Clash(tc.key, tc.others)
+		if err == nil || !strings.Contains(err.Error(), "a value and a section") {
+			t.Errorf("%s next to %q: %v", tc.key, tc.others, err)
+		}
+	}
+	for _, tc := range []struct {
+		key    string
+		others []string
+	}{
+		{"db.url_timeout", []string{"db.url"}},
+		{"db.urls.timeout", []string{"db.url"}},
+		{"server.tls.x", nil},
+	} {
+		if err := Clash(tc.key, tc.others); err != nil {
+			t.Errorf("%s next to %q: %v", tc.key, tc.others, err)
+		}
 	}
 }
 

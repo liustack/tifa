@@ -160,7 +160,7 @@ var (
 - 根包导入的包读不到这些变量（会成环），由 `OnStart` 把值传进去，比如 `store.Open(DBURL)`。
 - 应用嫌不够，可以在 `OnStart` 里用自己的配置系统。
 
-以下情况 `tifa build` 报错并指出文件和行：`tifa.String` 等不是写在根目录 `config.go` 的包级 `var` 的值里，键不是字符串字面量或不符合[名字](#名字)的规则，两项配置（应用的或 tifa 的）推出来的参数或环境变量相同，比如 `a.b_c` 和 `a_b.c`。
+以下情况 `tifa build` 报错并指出文件和行：`tifa.String` 等不是写在根目录 `config.go` 的包级 `var` 的值里，键不是字符串字面量或不符合[名字](#名字)的规则，两项配置（应用的或 tifa 的）推出来的参数或环境变量相同，比如 `a.b_c` 和 `a_b.c`，一个键是另一个键所在的那一节，比如 `db.url` 和 `db.url.timeout`，或者 `server.addr.port` 和 tifa 的 `server.addr`。漏过构建的同样错误，程序会在启动时 panic。
 
 ## 渲染队列
 
