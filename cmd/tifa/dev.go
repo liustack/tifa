@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"maps"
 	"net"
@@ -26,6 +27,7 @@ import (
 	"github.com/liustack/tifa/internal/bundle"
 	"github.com/liustack/tifa/internal/codegen"
 	"github.com/liustack/tifa/internal/config"
+	"github.com/liustack/tifa/internal/content"
 	"github.com/liustack/tifa/internal/devserver"
 	"github.com/spf13/cobra"
 )
@@ -211,8 +213,27 @@ func (p *devPipeline) Bundle(ctx context.Context) (string, error) {
 	if err := checkReact(p.root, pages); err != nil {
 		return "", err
 	}
-	_, err = p.front.Build(ctx, filepath.Join(p.root, settings.Public), pages)
-	return "", err
+	if _, err = p.front.Build(ctx, filepath.Join(p.root, settings.Public), pages); err != nil {
+		return "", err
+	}
+	return "", p.writeContent()
+}
+
+// writeContent writes the entries of the last analysis into .tifa/dist/content.json, which the
+// app reads at startup, and removes the file when the app has no collections.
+func (p *devPipeline) writeContent() error {
+	name := filepath.Join(p.root, codegen.Dir, codegen.DistDir, content.FileName)
+	files, err := contentFiles(p.m)
+	if err != nil {
+		return err
+	}
+	if len(files) == 0 {
+		if err := os.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	return os.WriteFile(name, files[0].Data, 0o644)
 }
 
 // GoBuild builds the executable that tifa dev runs. Its compiler messages go into the error, which

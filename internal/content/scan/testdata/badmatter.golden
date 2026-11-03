@@ -1,0 +1,21 @@
+content/blog/zh-CN/a/index.md:1:1: no front matter: an entry starts with --- and the keys of scan.richPost
+content/blog/zh-CN/b/index.md:4:7: date: "2026-13-02" is not a date: want 2006-01-02 or RFC 3339 such as 2026-11-20T09:00:00+08:00
+content/blog/zh-CN/c/index.md:4:8: draft: want true or false, got "yes"
+content/blog/zh-CN/d/index.md:4:1: "tag" is not a field of scan.richPost. Did you mean "tags"? Fields: title, description, updated, tags, cover, count, ratio, meta, image
+content/blog/zh-CN/d/index.md:5:1: "Title" is not a field of scan.richPost. Did you mean "title"? Fields: title, description, updated, tags, cover, count, ratio, meta, image
+content/blog/zh-CN/e/index.md:1:1: front matter has no "title", which scan.richPost.Title needs. Make the field a pointer or add omitempty to make it optional
+content/blog/zh-CN/f/index.md:4:7: tags: want a list of strings, got a string
+content/blog/zh-CN/g/index.md:3:1: "words" is set by tifa and cannot be written in front matter
+content/blog/zh-CN/g/index.md:5:1: "id" is set by tifa and cannot be written in front matter
+content/blog/zh-CN/h/index.md:2:7: slug: "free/search" is not one URL segment: it holds /
+content/blog/zh-CN/i/index.md:2: the front matter is not YAML: did not find expected ',' or ']'
+content/blog/zh-CN/j/index.md:1:1: the front matter has no line --- after it
+content/blog/zh-CN/k/index.md:2:8: title: want a string, got "2026": write it in quotes
+content/blog/zh-CN/k/index.md:4:10: updated: "tomorrow" is not a date: want 2006-01-02 or RFC 3339 such as 2026-11-20T09:00:00+08:00
+content/blog/zh-CN/k/index.md:5:8: count: 300 is out of range: want an integer from -128 to 127
+content/blog/zh-CN/k/index.md:7:10: meta.stars: want an integer, got "many"
+content/blog/zh-CN/k/index.md:10:3: image has no "src", which scan.richPost.Image.Src needs. Make the field a pointer or add omitempty to make it optional
+content/blog/zh-CN/k/index.md:10:10: image.width: want an integer, got "wide"
+content/blog/zh-CN/k/index.md:11:3: "alt" is not a key of image. Fields: src, width
+content/blog/zh-CN/l/index.md:4:1: "title" is written twice, first on line 2
+content/blog/zh-CN/m/index.md:2:1: the front matter must be keys and values, such as title: Hello

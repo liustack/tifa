@@ -735,3 +735,16 @@ func TestMainImportsTheRootPackageForItsSettings(t *testing.T) {
 		t.Fatalf("with hooks: %v\n%s", err, files["main.go"])
 	}
 }
+
+// content.go declares the collections when the root package starts, before the server loads
+// their entries, so the main imports the root package for them too.
+func TestMainImportsTheRootPackageForItsContent(t *testing.T) {
+	m := &analyze.Manifest{Module: "example.com/m", Content: &analyze.Content{Collections: []analyze.Collection{{Var: "Blog", Dir: "blog"}}}}
+	files, err := generateGo(m, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(files["main.go"]), `_ "example.com/m"`) {
+		t.Fatalf("main.go:\n%s", files["main.go"])
+	}
+}

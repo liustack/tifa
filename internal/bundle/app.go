@@ -42,6 +42,13 @@ type Build struct {
 	Public map[string]string `json:"public,omitempty"`
 }
 
+// File is a file that App writes into dist next to the bundles.
+type File struct {
+	// Name is the path in dist, such as content.json.
+	Name string
+	Data []byte
+}
+
 // clientEntry is the browser entry tifa generates, as Vite's manifest names it.
 const clientEntry = ".tifa/client.ts"
 
@@ -58,7 +65,9 @@ const clientEntry = ".tifa/client.ts"
 // (js/vite/plugin.js), on Node through n. pages is false for an application without page.tsx,
 // which gets no bundles and needs no Node. The generated entries must exist under .tifa. The same
 // input gives the same files and ID.
-func App(n *Node, root, public string, pages bool) (string, error) {
+//
+// files are written into dist as they are, such as content.json, and count in the ID.
+func App(n *Node, root, public string, pages bool, files ...File) (string, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return "", err
@@ -93,6 +102,11 @@ func App(n *Node, root, public string, pages bool) (string, error) {
 	}
 	if b.Public, err = publicHashes(filepath.Join(dist, "public")); err != nil {
 		return "", err
+	}
+	for _, f := range files {
+		if err := os.WriteFile(filepath.Join(dist, f.Name), f.Data, 0o644); err != nil {
+			return "", err
+		}
 	}
 	if b.ID, err = distID(dist, ""); err != nil {
 		return "", err

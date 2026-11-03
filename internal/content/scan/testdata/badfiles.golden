@@ -1,0 +1,10 @@
+content/missing does not exist: create it, or fix Dir
+content/blog/en/202611/release-notes/index.md:5:17: translationKey "launch-2026-11" is also used by content/blog/en/202611/launch/index.md: a language has one entry per translation
+content/blog/en/a/index.md:2:7: the path free-search is also the path of content/blog/en/free-search.md
+content/blog/fr: not a language of the collection blog (zh-CN, en), set in content.go:9:60
+content/blog/notes.md: the collection blog has languages, so its files go in a language folder, such as content/blog/zh-CN/notes.md
+content/blog/zh-CN/202610/demo/index.mdx: MDX is not supported: a body becomes HTML at build time and cannot hold React components. Rename it to index.md and put the components in the page
+content/blog/zh-CN/50%.md: the slug "50%", the last segment of the ID, is not one URL segment: it holds %. Rename the file, or set slug in the front matter
+content/blog/zh-CN/loose.mdx: MDX is not supported: a body becomes HTML at build time and cannot hold React components. Rename it to loose.md and put the components in the page
+content/docs/en/guide/index.md: the ID guide is also the ID of content/docs/en/guide.md
+content/notes: no collection reads this folder: declare one in content.go, or move the folder out of content/
