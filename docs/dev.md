@@ -20,6 +20,8 @@ An app with a `package.json` needs its npm packages first. Right after a clone, 
 
 tifa dev does not run on Windows yet. Use WSL.
 
+A second `tifa dev` in the same app does not start. It prints `tifa dev: already running at http://<address> (pid <N>)` and exits with an error, before it starts Vite. `tifa build` stops the same way while a tifa dev runs, since both write `.tifa/dist`. The lock is `.tifa/dev.lock`, and it goes away with the process that holds it. Without `--addr`, a taken port 9527 moves tifa dev on to 9528 and up, ten ports in all, and the `serving` line names the one it took. With `--addr`, tifa dev uses exactly that address and fails when it is taken.
+
 tifa dev serves plain HTTP. The [HTTPS settings](config.md#https) of the project file apply to the built program only: the dev program ignores them.
 
 ## Vite

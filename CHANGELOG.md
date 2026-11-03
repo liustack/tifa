@@ -6,6 +6,7 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 
 ### Added
 
+- A second `tifa dev` in the same app no longer starts Vite and fails with a bare `address already in use`. It prints `tifa dev: already running at http://<address> (pid <N>)` and exits with an error. `tifa build` stops the same way while a tifa dev runs, since both write `.tifa/dist`. Without `--addr`, a taken port 9527 moves tifa dev on to 9528 and up (ten ports in all), and a taken `--addr` fails with the address in the message. The lock is the file `.tifa/dev.lock` (see [tifa dev](docs/dev.md)).
 - `tifa dev` shows errors of the browser in a small panel in the corner of the page: `Hydration mismatch` (with React's diff and the component stack), `Recoverable error`, `Uncaught error` and `Unhandled rejection`. The same error again raises a counter, the panel keeps the last 20, and each can be dismissed. The panel leaves the page usable, and the overlay of a build error stays on top of it. Built apps have none of this code (see [tifa dev](docs/dev.md#errors-in-the-browser)).
 
 ### Changed

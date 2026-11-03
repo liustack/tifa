@@ -6,6 +6,7 @@
 
 ### 新增
 
+- 同一个应用里再启动第二个 `tifa dev`，不再先起 Vite 再报一句光秃秃的 `address already in use`。现在它打印 `tifa dev: already running at http://<地址> (pid <N>)` 并报错退出。有 tifa dev 在运行时 `tifa build` 也会这样停下，因为两者都写 `.tifa/dist`。没传 `--addr` 时，9527 被占用就依次试 9528 往后（一共十个端口），传了 `--addr` 而被占用则报错，信息里带着这个地址。锁是文件 `.tifa/dev.lock`（见 [tifa dev](docs/dev.zh-CN.md)）。
 - `tifa dev` 把浏览器里的错误显示在页面角落的小面板里：`Hydration mismatch`（带 React 给出的差异和组件栈）、`Recoverable error`、`Uncaught error` 和 `Unhandled rejection`。同一个错误再次出现只增加计数，面板保留最近 20 个，每条都可以关掉。面板不挡页面，构建错误的浮层仍在它上面。构建出的应用没有这些代码（见 [tifa dev](docs/dev.zh-CN.md#浏览器里的错误)）。
 
 ### 变更
