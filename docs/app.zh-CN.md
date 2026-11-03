@@ -1,5 +1,5 @@
 ---
-summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、不套外层的 Layout（layout_.tsx）、hooks.go、会话（存在服务器上的登录状态、它的 cookie、存放位置，以及浏览器怎么显示谁登录了）、404 和错误、多语言网站、SSR 与缓存开关、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数，访客开着旧页面时你部署新版本，浏览器会怎么做，以及数据、入参和结果的 JSON 规则'
+summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、不套外层的 Layout（layout_.tsx）、hooks.go、会话（存在服务器上的登录状态、它的 cookie、存放位置，以及浏览器怎么显示谁登录了）、404 和错误、多语言网站、SSR 与缓存开关、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数、用 tifa.HTML 显示应用信任的 HTML，访客开着旧页面时你部署新版本，浏览器会怎么做，以及数据、入参和结果的 JSON 规则'
 read_when:
   - 新建一个 tifa 应用，或给应用加页面、Layout、API 路由
   - 构建报 Ctx 用法或 Load 返回类型的错误，想知道怎么改
@@ -197,6 +197,33 @@ const OrderActions = clientOnly(() => import('./actions.client'), <button disabl
 
 - tifa 不会替你重新取页面数据。写操作之后，不管是处理函数还是你自己的 `fetch`，页面在你开口之前都显示原来的内容：调用 TanStack 的 `router.invalidate()`，当前页面和所有 Layout 的数据重新取一次，合并成一个请求。`await router.invalidate({ sync: true })` 在页面显示出新数据后兑现。只写 `await router.invalidate()` 会立刻兑现，页面在后台更新。见[在浏览器里调用方法处理函数](#在浏览器里调用方法函数)。
 - 路由器已经持有的数据遵循 TanStack 的默认值：它立刻算作过期，所以回到访问过的页面时先显示缓存的数据，再在后台重新取一次（`GET <url>?_tifa=…`），鼠标悬停或聚焦时预加载的链接，30 秒内直接使用。
+
+### 显示应用信任的 HTML
+
+`tifa.HTML` 类型的字段装的是页面原样显示的标记，比如构建时从 Markdown 转成 HTML 的文章。用 `tifa/client` 的 `HTML` 组件显示它：
+
+```go
+type Post struct {
+	Title string    `json:"title"`
+	Body  tifa.HTML `json:"body"`
+}
+```
+
+```tsx
+import { HTML } from 'tifa/client'
+import { page } from './route.gen'
+
+export default function PostPage() {
+  const post = page.useLoaderData()
+  return <HTML value={post.body} as="article" className="prose" />
+}
+```
+
+- 标记不经转义直接进页面。`tifa.HTML` 只用来装你自己写的或生成的 HTML。用户提交的 HTML 要先用清理库过滤，再转成 `tifa.HTML`。
+- 在 TypeScript 里它的类型是 `HTML`，不是 `string`，只有 `<HTML>` 能显示它。`as` 指定装标记的元素（默认 `div`）。其他属性都给这个元素，`children` 和 `dangerouslySetInnerHTML` 除外。
+- 服务器渲染的页面里每个值只带一份：在标记里。水合用的数据在它的位置放一个小标记，`<HTML>` 从页面读回标记。所以一篇文章不会发两遍。导航数据和 `SSR = false` 的页面带的是字符串。
+- 所以显示页面里的值时，`<HTML value={...}>` 每次都要在服务器上渲染出来：不要等 effect、点击或只有浏览器才有的状态之后才渲染，也不要放在 `.client.tsx` 组件里。否则浏览器会抛出 `tifa: this tifa.HTML value came with the page, which carries it only in the markup the server rendered, and the server rendered no <HTML> for it here`。
+- `tifa.HTML` 不能做 map 的键，不能放在方法函数的入参或会话里。那里用 `string`，过滤之后再转换。
 
 ### 在浏览器里调用方法函数
 
@@ -1051,6 +1078,7 @@ tifa 只检查 `Load` 和 `Layout` 能到达的代码。在 `OnRequest`、方法
 | `bool` | `boolean` |
 | 整数、浮点数、`json.Number` | `number` |
 | `string`、`time.Time` | `string` |
+| `tifa.HTML` | `tifa/client` 的 `HTML`，见[显示应用信任的 HTML](#显示应用信任的-html)。不能做 map 的键，不能放在入参或会话里 |
 | 指针 | `T \| null` |
 | 切片 | `T[]`。nil 切片写成 `[]` |
 | `[]byte`、`[N]byte`（元素就是 `byte` 或 `uint8`） | `string`，写成 base64。nil 的 `[]byte` 是 `""`。元素是具名 byte 类型的切片或数组是普通的数字数组 |

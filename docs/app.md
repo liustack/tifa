@@ -1,5 +1,5 @@
 ---
-summary: 'How to write a tifa app: folder layout, how folders become URLs, the three files of a folder (route.go, page.tsx, layout.tsx), Layouts, a Layout without the Layouts above (layout_.tsx), hooks.go, sessions (sign-in state kept on the server, its cookie, where it is stored, and how the browser shows who is signed in), 404s and errors, a site in several languages, the SSR and cache switches and the whole-page cache (a page that is the same for everyone, kept for a set time), what the server render has, which libraries render differently there and which components to load only in the browser, using Intl and Temporal so hydration matches, styles with Tailwind CSS and shadcn/ui, how to test Go route code, how Load may use Ctx, method handlers with typed input and result, what a page open in a browser does when you deploy a new version, and the JSON rules for data, inputs and results'
+summary: 'How to write a tifa app: folder layout, how folders become URLs, the three files of a folder (route.go, page.tsx, layout.tsx), Layouts, a Layout without the Layouts above (layout_.tsx), hooks.go, sessions (sign-in state kept on the server, its cookie, where it is stored, and how the browser shows who is signed in), 404s and errors, a site in several languages, the SSR and cache switches and the whole-page cache (a page that is the same for everyone, kept for a set time), what the server render has, which libraries render differently there and which components to load only in the browser, using Intl and Temporal so hydration matches, styles with Tailwind CSS and shadcn/ui, how to test Go route code, how Load may use Ctx, method handlers with typed input and result, showing HTML the app trusts with tifa.HTML, what a page open in a browser does when you deploy a new version, and the JSON rules for data, inputs and results'
 read_when:
   - Creating a tifa app, or adding pages, Layouts or API routes to one
   - The build reports an error about Ctx usage or a Load return type and you want to fix it
@@ -198,6 +198,33 @@ const OrderActions = clientOnly(() => import('./actions.client'), <button disabl
 
 - tifa never reloads page data for you. After a write, a handler function or a `fetch` of your own, the page shows what it showed before until you ask: call TanStack's `router.invalidate()` to load the data of the current page and all its Layouts again, merged into one request. `await router.invalidate({ sync: true })` resolves once the page shows the new data. A plain `await router.invalidate()` resolves at once and the page updates in the background. See [Calling method handlers from the browser](#calling-method-handlers-from-the-browser).
 - Data the router already holds follows TanStack's defaults. It counts as stale at once, so going back to a page you visited shows the cached data and loads it again in the background (`GET <url>?_tifa=…`), and a link preloaded on hover or focus is reused for 30 seconds.
+
+### Showing HTML the app trusts
+
+A field of type `tifa.HTML` holds markup that the page shows as it is, such as an article your build turned from Markdown into HTML. Show it with the `HTML` component of `tifa/client`:
+
+```go
+type Post struct {
+	Title string    `json:"title"`
+	Body  tifa.HTML `json:"body"`
+}
+```
+
+```tsx
+import { HTML } from 'tifa/client'
+import { page } from './route.gen'
+
+export default function PostPage() {
+  const post = page.useLoaderData()
+  return <HTML value={post.body} as="article" className="prose" />
+}
+```
+
+- The markup goes into the page without escaping. Use `tifa.HTML` only for HTML you wrote or made yourself. HTML from users must be cleaned with a sanitizer first, and only then converted to `tifa.HTML`.
+- In TypeScript the value has the type `HTML`, not `string`, so only `<HTML>` shows it. `as` picks the element that holds the markup (`div` by default). The other props go to that element, except `children` and `dangerouslySetInnerHTML`.
+- A page the server renders carries each value once: in its markup. Its data for hydration holds a small marker in its place, and `<HTML>` reads the markup back from the page. So an article is not sent twice. Navigation data and pages with `SSR = false` carry the string.
+- So render `<HTML value={...}>` on the server every time it shows a value of the page: not only after an effect, a click or a state only the browser has, and not in a `.client.tsx` component. Otherwise the browser throws `tifa: this tifa.HTML value came with the page, which carries it only in the markup the server rendered, and the server rendered no <HTML> for it here`.
+- `tifa.HTML` cannot be a map key, a handler input or part of the session. Take a `string` there and convert it after you sanitize it.
 
 ### Calling method handlers from the browser
 
@@ -1050,6 +1077,7 @@ The value `Load` or a `Layout` function returns, and the input and result of a m
 | `bool` | `boolean` |
 | integers, floats, `json.Number` | `number` |
 | `string`, `time.Time` | `string` |
+| `tifa.HTML` | `HTML` of `tifa/client`, see [Showing HTML the app trusts](#showing-html-the-app-trusts). Not a map key, a handler input or in the session |
 | pointer | `T \| null` |
 | slice | `T[]`. A nil slice is written as `[]` |
 | `[]byte`, `[N]byte` (the element is exactly `byte` or `uint8`) | `string`, written as base64. A nil `[]byte` is `""`. A slice or array of a named byte type is an ordinary array of numbers |
