@@ -56,5 +56,8 @@ export type HTMLProps = Omit<HTMLAttributes<HTMLElement>, 'children' | 'dangerou
 
 export function HTML({ value, as = 'div', ...rest }: HTMLProps) {
   const id = useId()
-  return createElement(as, { ...rest, 'data-tifa-html': id, dangerouslySetInnerHTML: { __html: markup(value, id) } })
+  // The type keeps both out, but a spread of an object brings them in, and React throws for children
+  // next to dangerouslySetInnerHTML.
+  const { children: _children, dangerouslySetInnerHTML: _inner, ...props } = rest as typeof rest & { children?: unknown; dangerouslySetInnerHTML?: unknown }
+  return createElement(as, { ...props, 'data-tifa-html': id, dangerouslySetInnerHTML: { __html: markup(value, id) } })
 }

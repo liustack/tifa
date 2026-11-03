@@ -1295,6 +1295,13 @@ test('<HTML> throws when the server rendered no <HTML> for its marker, and says 
   }
 })
 
+test('<HTML> leaves out children and dangerouslySetInnerHTML that come in a spread', async () => {
+  const value = '<b>MARKUP</b>' as unknown as HTMLValue
+  const spread = { children: 'CHILD', dangerouslySetInnerHTML: { __html: 'OTHER' }, title: 't' } as object
+  const shown = inBrowser(<HTML value={value} {...spread} />, undefined)
+  assert(/^<div title="t" data-tifa-html="[^"]+"><b>MARKUP<\/b><\/div>$/.test(shown), `<HTML> with a spread renders ${shown}`)
+})
+
 let failed = 0
 for (const [name, fn] of tests) {
   try {
