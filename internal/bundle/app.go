@@ -236,8 +236,10 @@ func headTags(manifest map[string]manifestEntry) (string, error) {
 	return b.String(), nil
 }
 
+// writeBuild writes build.json with its map keys sorted, so the same build makes the same file,
+// and with it the same program.
 func writeBuild(dist string, b Build) error {
-	data, err := json.Marshal(b)
+	data, err := json.Marshal(b, json.Deterministic(true))
 	if err != nil {
 		return err
 	}
