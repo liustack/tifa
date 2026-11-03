@@ -4,7 +4,7 @@ package sessiontest
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"os"
 	"sync"
 	"time"

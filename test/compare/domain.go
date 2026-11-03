@@ -3,7 +3,7 @@ package compare
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,7 +24,9 @@ type PageData map[string]map[string]any
 // GoData starts bin/shop and asks it, as the browser router does, for the data of the Layouts and
 // the page of each of the six pages.
 func (e Env) GoData(ctx context.Context) (PageData, error) {
-	var built struct{ BuildID string }
+	var built struct {
+		BuildID string `json:"buildId"`
+	}
 	data, err := os.ReadFile(filepath.Join(e.Shop, ".tifa", "dist", "build.json"))
 	if err != nil {
 		return nil, fmt.Errorf("build the shop first: %w", err)
@@ -57,9 +59,9 @@ func (e Env) GoData(ctx context.Context) (PageData, error) {
 		}
 		var answer struct {
 			Routes map[string]struct {
-				Status int
-				Data   any
-			}
+				Status int `json:"status"`
+				Data   any `json:"data"`
+			} `json:"routes"`
 		}
 		if err := json.Unmarshal(body, &answer); err != nil {
 			return nil, fmt.Errorf("data of %s: %w", page.URL, err)
