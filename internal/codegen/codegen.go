@@ -17,7 +17,6 @@ import (
 
 	"github.com/liustack/tifa/internal/analyze"
 	tifaconfig "github.com/liustack/tifa/internal/config"
-	"github.com/spf13/pflag"
 )
 
 // Dir is the directory, relative to the application root, that holds the generated files.
@@ -33,15 +32,8 @@ type Exports func(files []string) (map[string][]string, error)
 // exports of page.tsx and layout.tsx. It is not called for an application without pages.
 func Generate(root string, m *analyze.Manifest, dev bool, exports Exports) (map[string][]byte, error) {
 	files := map[string][]byte{}
-	configName, config, err := projectConfig(root)
-	if err != nil {
-		return nil, err
-	}
-	if configName != "" {
-		files[configName] = config
-	}
-	// Check the file now rather than when the built program starts.
-	settings, err := loadConfig(configName, config)
+	// The file is checked now, and its runtime settings go into the generated main.
+	settings, runtimeSettings, err := project(root)
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +44,7 @@ func Generate(root string, m *analyze.Manifest, dev bool, exports Exports) (map[
 	if err != nil {
 		return nil, err
 	}
-	goFiles, err := generateGo(m, configName, dev)
+	goFiles, err := generateGo(m, runtimeSettings, dev)
 	if err != nil {
 		return nil, err
 	}
@@ -65,54 +57,27 @@ func Generate(root string, m *analyze.Manifest, dev bool, exports Exports) (map[
 	return files, nil
 }
 
-// BuildSettings returns the build section of the project tifa.yaml or tifa.json, the defaults
-// without one.
+// BuildSettings returns the build section of the project tifa.yaml, the defaults without one.
 func BuildSettings(root string) (tifaconfig.Build, error) {
-	name, data, err := projectConfig(root)
-	if err != nil {
-		return tifaconfig.Build{}, err
-	}
-	cfg, err := loadConfig(name, data)
+	cfg, _, err := project(root)
 	return cfg.Build, err
 }
 
-// ProjectSettings returns the whole project configuration from tifa.yaml or tifa.json, the
-// defaults without one. tifa dev reads the server section to know how long the app may take to stop.
+// ProjectSettings returns the settings of the project tifa.yaml over the defaults. tifa dev
+// reads the server section to know how long the app may take to stop.
 func ProjectSettings(root string) (tifaconfig.Config, error) {
-	name, data, err := projectConfig(root)
-	if err != nil {
-		return tifaconfig.Config{}, err
-	}
-	return loadConfig(name, data)
+	cfg, _, err := project(root)
+	return cfg, err
 }
 
-// loadConfig reads a project config file the way the built program does, with no other layer.
-func loadConfig(name string, data []byte) (tifaconfig.Config, error) {
-	fs := pflag.NewFlagSet("tifa", pflag.ContinueOnError)
-	tifaconfig.AddFlags(fs)
-	if err := fs.Parse(nil); err != nil {
-		return tifaconfig.Config{}, err
+// project reads tifa.yaml in the application root, see tifaconfig.Project. Without one it gives
+// the defaults.
+func project(root string) (tifaconfig.Config, map[string]string, error) {
+	data, err := os.ReadFile(filepath.Join(root, "tifa.yaml"))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return tifaconfig.Config{}, nil, err
 	}
-	return tifaconfig.Load(fs, nil, name, data)
-}
-
-// projectConfig reads tifa.yaml or tifa.json from the application root. The generated main embeds
-// a copy, because go:embed cannot reach a parent directory.
-func projectConfig(root string) (name string, data []byte, err error) {
-	for _, candidate := range []string{"tifa.yaml", "tifa.json"} {
-		content, err := os.ReadFile(filepath.Join(root, candidate))
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return "", nil, err
-		}
-		if name != "" {
-			return "", nil, fmt.Errorf("%s: both tifa.yaml and tifa.json exist, keep one", root)
-		}
-		name, data = candidate, content
-	}
-	return name, data, nil
+	return tifaconfig.Project(data)
 }
 
 // DistDir is the directory under Dir that the bundle step owns. Write leaves it alone.

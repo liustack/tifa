@@ -8,19 +8,32 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/spf13/pflag"
 )
 
-func load(t *testing.T, args, environ []string, embeddedName, embedded string) (Config, error) {
+// load merges the settings of tifa from args, environ and a project tifa.yaml, empty for none,
+// as tifa build and the program do between them. name is tifa.yaml or empty.
+func load(t *testing.T, args, environ []string, name, project string) (Config, error) {
 	t.Helper()
-	fs := pflag.NewFlagSet("serve", pflag.ContinueOnError)
-	AddFlags(fs)
-	if err := fs.Parse(args); err != nil {
-		t.Fatal(err)
+	build := Default().Build
+	var settings map[string]string
+	if name != "" {
+		c, s, err := Project([]byte(project))
+		if err != nil {
+			return c, err
+		}
+		build, settings = c.Build, s
 	}
-	return Load(fs, environ, embeddedName, []byte(embedded))
+	src := Read(args, environ, "")
+	if err := src.Err(); err != nil {
+		return Config{}, err
+	}
+	c, _, err := Load(src, settings)
+	c.Build = build
+	return c, err
 }
+
+// printed prints c with no settings of the app.
+func printed(c Config) []byte { return Print(c, nil, nil) }
 
 func writeFile(t *testing.T, name, content string) string {
 	t.Helper()
@@ -49,7 +62,7 @@ ssr:
   vms: 5
   timeout: 5s
 `)
-	environ := []string{"PATH=/bin", "TIFA_SSR_VMS=7", "TIFA_SSR_TIMEOUT=6s"}
+	environ := []string{"PATH=/bin", "SSR_VMS=7", "SSR_TIMEOUT=6s"}
 	c, err := load(t, []string{"--config", file, "--ssr-timeout", "7s"}, environ, "tifa.yaml", embedded)
 	if err != nil {
 		t.Fatal(err)
@@ -74,16 +87,6 @@ ssr:
 	}
 }
 
-func TestEmbeddedJSONIsAccepted(t *testing.T) {
-	c, err := load(t, nil, nil, "tifa.json", `{"server":{"addr":":9528","shutdown_timeout":"2s"},"ssr":{"vms":1}}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c.Server.Addr != ":9528" || c.Server.ShutdownTimeout != 2*time.Second || c.SSR.VMs != 1 {
-		t.Fatalf("%+v", c)
-	}
-}
-
 // build.skip_tanstack_check is a true or false of the project file, off by default.
 func TestSkipTanStackCheckIsABoolOfTheProjectFile(t *testing.T) {
 	if Default().Build.SkipTanStackCheck {
@@ -91,7 +94,6 @@ func TestSkipTanStackCheckIsABoolOfTheProjectFile(t *testing.T) {
 	}
 	for name, content := range map[string]string{
 		"tifa.yaml": "build:\n  skip_tanstack_check: true\n",
-		"tifa.json": `{"build":{"skip_tanstack_check":true}}`,
 	} {
 		c, err := load(t, nil, nil, name, content)
 		if err != nil || !c.Build.SkipTanStackCheck {
@@ -103,14 +105,13 @@ func TestSkipTanStackCheckIsABoolOfTheProjectFile(t *testing.T) {
 	}
 	for name, content := range map[string]string{
 		"tifa.yaml": "build:\n  skip_tanstack_check: \"yes\"\n",
-		"tifa.json": `{"build":{"skip_tanstack_check":1}}`,
 	} {
 		if _, err := load(t, nil, nil, name, content); err == nil || !strings.Contains(err.Error(), "build.skip_tanstack_check") || !strings.Contains(err.Error(), "expected a bool value") {
 			t.Errorf("%s: got %v", name, err)
 		}
 	}
-	_, err := load(t, []string{"--config", writeFile(t, "prod.yaml", "build:\n  skip_tanstack_check: true\n")}, nil, "", "")
-	if err == nil || !strings.Contains(err.Error(), "build settings belong in the project tifa.yaml") {
+	// A deployment file has no build settings: they are left alone like any other key.
+	if _, err := load(t, []string{"--config", writeFile(t, "prod.yaml", "build:\n  skip_tanstack_check: true\n")}, nil, "", ""); err != nil {
 		t.Errorf("in a deployment file: %v", err)
 	}
 }
@@ -122,7 +123,6 @@ func TestDebugInfoIsABoolOfTheProjectFile(t *testing.T) {
 	}
 	for name, content := range map[string]string{
 		"tifa.yaml": "build:\n  debug_info: true\n",
-		"tifa.json": `{"build":{"debug_info":true}}`,
 	} {
 		c, err := load(t, nil, nil, name, content)
 		if err != nil || !c.Build.DebugInfo {
@@ -132,8 +132,8 @@ func TestDebugInfoIsABoolOfTheProjectFile(t *testing.T) {
 	if _, err := load(t, nil, nil, "tifa.yaml", "build:\n  debug_info: \"yes\"\n"); err == nil || !strings.Contains(err.Error(), "build.debug_info") || !strings.Contains(err.Error(), "expected a bool value") {
 		t.Errorf("a string: %v", err)
 	}
-	_, err := load(t, []string{"--config", writeFile(t, "prod.yaml", "build:\n  debug_info: true\n")}, nil, "", "")
-	if err == nil || !strings.Contains(err.Error(), "build settings belong in the project tifa.yaml") {
+	// A deployment file has no build settings: they are left alone like any other key.
+	if _, err := load(t, []string{"--config", writeFile(t, "prod.yaml", "build:\n  debug_info: true\n")}, nil, "", ""); err != nil {
 		t.Errorf("in a deployment file: %v", err)
 	}
 }
@@ -145,7 +145,6 @@ func TestI18nextCacheIsABoolOfTheProjectFile(t *testing.T) {
 	}
 	for name, content := range map[string]string{
 		"tifa.yaml": "build:\n  i18next_cache: false\n",
-		"tifa.json": `{"build":{"i18next_cache":false}}`,
 	} {
 		c, err := load(t, nil, nil, name, content)
 		if err != nil || c.Build.I18nextCache {
@@ -155,8 +154,8 @@ func TestI18nextCacheIsABoolOfTheProjectFile(t *testing.T) {
 	if _, err := load(t, nil, nil, "tifa.yaml", "build:\n  i18next_cache: \"yes\"\n"); err == nil || !strings.Contains(err.Error(), "build.i18next_cache") || !strings.Contains(err.Error(), "expected a bool value") {
 		t.Errorf("a string: %v", err)
 	}
-	_, err := load(t, []string{"--config", writeFile(t, "prod.yaml", "build:\n  i18next_cache: false\n")}, nil, "", "")
-	if err == nil || !strings.Contains(err.Error(), "build settings belong in the project tifa.yaml") {
+	// A deployment file has no build settings: they are left alone like any other key.
+	if _, err := load(t, []string{"--config", writeFile(t, "prod.yaml", "build:\n  i18next_cache: false\n")}, nil, "", ""); err != nil {
 		t.Errorf("in a deployment file: %v", err)
 	}
 }
@@ -182,17 +181,12 @@ func TestErrorsNameLayerAndKey(t *testing.T) {
 	}{
 		{name: "flag type", args: []string{"--ssr-vms", "two"}, want: []string{"flag --ssr-vms", "ssr.vms", `"two"`}},
 		{name: "flag unit", args: []string{"--server-body-limit", "1MB"}, want: []string{"flag --server-body-limit", "server.body_limit", `"1MB"`}},
-		{name: "env type", environ: []string{"TIFA_SERVER_SHUTDOWN_TIMEOUT=soon"}, want: []string{"env TIFA_SERVER_SHUTDOWN_TIMEOUT", "server.shutdown_timeout"}},
-		{name: "env unknown", environ: []string{"TIFA_SERVER_ADR=:1"}, want: []string{"env TIFA_SERVER_ADR", "unknown key"}},
-		{name: "env build", environ: []string{"TIFA_BUILD_TARGET=es2022"}, want: []string{"env TIFA_BUILD_TARGET", "unknown key"}},
-		{name: "file unknown", file: "server:\n  adr: :1\n", want: []string{"file prod.yaml line 2", `unknown key "server.adr"`}},
-		{name: "file section", file: "sever:\n  addr: :1\n", want: []string{"file prod.yaml line 1", `unknown key "sever"`}},
+		{name: "env type", environ: []string{"SERVER_SHUTDOWN_TIMEOUT=soon"}, want: []string{"env SERVER_SHUTDOWN_TIMEOUT", "server.shutdown_timeout"}},
 		{name: "file unit", file: "cache:\n  size: 64MB\n", want: []string{"file prod.yaml line 2", "cache.size", `"64MB"`}},
 		{name: "file range", file: "ssr:\n  vms: 0\n", want: []string{"file prod.yaml line 2", "ssr.vms"}},
 		{name: "file list", file: "server:\n  addr: [a, b]\n", want: []string{"file prod.yaml line 2", "server.addr"}},
-		{name: "file build", file: "build:\n  target: es2022\n", want: []string{"file prod.yaml line 2", "build settings"}},
-		{name: "embedded type", embedded: "ssr:\n  timeout: 3\n", want: []string{"embedded tifa.yaml line 2", "ssr.timeout"}},
-		{name: "embedded syntax", embedded: "ssr: [\n", want: []string{"embedded tifa.yaml"}},
+		{name: "embedded type", embedded: "ssr:\n  timeout: 3\n", want: []string{"tifa.yaml line 2", "ssr.timeout"}},
+		{name: "embedded syntax", embedded: "ssr: [\n", want: []string{"tifa.yaml"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -213,25 +207,13 @@ func TestErrorsNameLayerAndKey(t *testing.T) {
 	}
 }
 
-func TestJSONFileErrorsNameKey(t *testing.T) {
-	file := writeFile(t, "prod.json", `{"ssr":{"vm_memory":true}}`)
-	_, err := load(t, []string{"--config", file}, nil, "", "")
-	if err == nil || !strings.Contains(err.Error(), "file prod.json") || !strings.Contains(err.Error(), "ssr.vm_memory") {
-		t.Fatalf("got %v", err)
-	}
-	file = writeFile(t, "prod.toml", "")
-	if _, err := load(t, []string{"--config", file}, nil, "", ""); err == nil {
-		t.Fatal("unsupported format must fail")
-	}
-}
-
 func TestExampleLoadsBackToSameValues(t *testing.T) {
 	c := Default()
 	c.Server.Addr = "0.0.0.0:80"
 	c.Cache.Size = 3 << 30
 	c.SSR.VMMemory = 1536 << 10
-	example := Example(c)
-	for _, want := range []string{"--server-addr", "TIFA_SERVER_ADDR", "server:", "body_limit: 1MiB"} {
+	example := printed(c)
+	for _, want := range []string{"--server-addr", "SERVER_ADDR", "server:", "body_limit: 1MiB"} {
 		if !strings.Contains(string(example), want) {
 			t.Errorf("example lacks %q:\n%s", want, example)
 		}
@@ -257,10 +239,6 @@ func TestFileValuesMustHaveTheRightType(t *testing.T) {
 		{"yaml quoted vms", "prod.yaml", "ssr:\n  vms: \"2\"\n", "ssr.vms"},
 		{"yaml bool size", "prod.yaml", "cache:\n  size: true\n", "cache.size"},
 		{"yaml number timeout", "prod.yaml", "ssr:\n  timeout: 3\n", "ssr.timeout"},
-		{"json number addr", "prod.json", `{"server":{"addr":9527}}`, "server.addr"},
-		{"json string vms", "prod.json", `{"ssr":{"vms":"2"}}`, "ssr.vms"},
-		{"json null addr", "prod.json", `{"server":{"addr":null}}`, "server.addr"},
-		{"json fraction vms", "prod.json", `{"ssr":{"vms":1.5}}`, "ssr.vms"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -276,14 +254,10 @@ func TestFileValuesMustHaveTheRightType(t *testing.T) {
 			t.Errorf("%q: %v", content, err)
 		}
 	}
-	if _, err := load(t, []string{"--config", writeFile(t, "ok.json", `{"server":{"body_limit":1048576}}`)}, nil, "", ""); err != nil {
-		t.Errorf("json byte count: %v", err)
-	}
 }
 
 func TestFileMustHoldOneDocument(t *testing.T) {
 	cases := map[string]string{
-		"prod.json": `{} {"ssr":{"vms":0}}`,
 		"prod.yaml": "server:\n  addr: :1\n---\nssr:\n  vms: 0\n",
 	}
 	for name, content := range cases {
@@ -315,7 +289,7 @@ func TestCompressIsOnUnlessTurnedOff(t *testing.T) {
 		args, environ []string
 	}{
 		"flag": {args: []string{"--server-compress=false"}},
-		"env":  {environ: []string{"TIFA_SERVER_COMPRESS=false"}},
+		"env":  {environ: []string{"SERVER_COMPRESS=false"}},
 		"file": {args: []string{"--config", writeFile(t, "prod.yaml", "server:\n  compress: false\n")}},
 	} {
 		c, err := load(t, tc.args, tc.environ, "", "")
@@ -323,7 +297,7 @@ func TestCompressIsOnUnlessTurnedOff(t *testing.T) {
 			t.Errorf("%s: compress %v, %v", name, c.Server.Compress, err)
 		}
 	}
-	if _, err := load(t, nil, []string{"TIFA_SERVER_COMPRESS=gzip"}, "", ""); err == nil || !strings.Contains(err.Error(), "server.compress") {
+	if _, err := load(t, nil, []string{"SERVER_COMPRESS=gzip"}, "", ""); err == nil || !strings.Contains(err.Error(), "server.compress") {
 		t.Errorf("a word that is not a bool: %v", err)
 	}
 }
@@ -355,7 +329,7 @@ func TestVMStackDepth(t *testing.T) {
 		file          string
 	}{
 		{"flag", "flag --ssr-vm-stack-depth", []string{"--ssr-vm-stack-depth", "10001"}, nil, ""},
-		{"env", "env TIFA_SSR_VM_STACK_DEPTH", nil, []string{"TIFA_SSR_VM_STACK_DEPTH=10001"}, ""},
+		{"env", "env SSR_VM_STACK_DEPTH", nil, []string{"SSR_VM_STACK_DEPTH=10001"}, ""},
 		{"file", "file prod.yaml", nil, nil, "ssr:\n  vm_stack_depth: 100000\n"},
 	} {
 		args := tc.args
@@ -374,18 +348,18 @@ func TestVMStackDepth(t *testing.T) {
 		}
 	}
 	_, err = load(t, nil, nil, "tifa.yaml", "ssr:\n  vm_stack_depth: 20000\n")
-	if err == nil || !strings.Contains(err.Error(), "embedded tifa.yaml") || !strings.Contains(err.Error(), "above the maximum 10000") {
+	if err == nil || !strings.Contains(err.Error(), "tifa.yaml line 2") || !strings.Contains(err.Error(), "above the maximum 10000") {
 		t.Errorf("project file: %v", err)
 	}
-	c, err = load(t, []string{"--ssr-vm-stack-depth", "3000"}, []string{"TIFA_SSR_VM_STACK_DEPTH=2000"}, "tifa.yaml", "ssr:\n  vm_stack_depth: 1000\n")
+	c, err = load(t, []string{"--ssr-vm-stack-depth", "3000"}, []string{"SSR_VM_STACK_DEPTH=2000"}, "tifa.yaml", "ssr:\n  vm_stack_depth: 1000\n")
 	if err != nil || c.SSR.VMStackDepth != 3000 {
 		t.Fatalf("flag: %d, %v", c.SSR.VMStackDepth, err)
 	}
-	c, err = load(t, nil, []string{"TIFA_SSR_VM_STACK_DEPTH=2000"}, "tifa.yaml", "ssr:\n  vm_stack_depth: 1000\n")
+	c, err = load(t, nil, []string{"SSR_VM_STACK_DEPTH=2000"}, "tifa.yaml", "ssr:\n  vm_stack_depth: 1000\n")
 	if err != nil || c.SSR.VMStackDepth != 2000 {
 		t.Fatalf("env: %d, %v", c.SSR.VMStackDepth, err)
 	}
-	_, err = load(t, nil, []string{"TIFA_SSR_VM_STACK_DEPTH=0"}, "", "")
+	_, err = load(t, nil, []string{"SSR_VM_STACK_DEPTH=0"}, "", "")
 	if err == nil || !strings.Contains(err.Error(), "ssr.vm_stack_depth") || !strings.Contains(err.Error(), "below the minimum 1") {
 		t.Fatalf("0: %v", err)
 	}
@@ -407,7 +381,7 @@ func TestHTTPSIsOffByDefault(t *testing.T) {
 }
 
 func TestHTTPSSettingsComeFromEveryLayer(t *testing.T) {
-	c, err := load(t, nil, []string{"TIFA_SERVER_TLS_DOMAINS=example.com, www.Example.com"}, "tifa.yaml",
+	c, err := load(t, nil, []string{"SERVER_TLS_DOMAINS=example.com, www.Example.com"}, "tifa.yaml",
 		"server:\n  addr: :443\n  tls_cache: /var/lib/app/certs\n  tls_email: ops@example.com\n  http_addr: off\n  hsts: true\n")
 	if err != nil {
 		t.Fatal(err)
@@ -427,7 +401,7 @@ func TestHTTPSSettingsComeFromEveryLayer(t *testing.T) {
 	// An empty value from a higher layer turns off what a lower one set, so a deployment can
 	// use its own files where the project file asks for Let's Encrypt.
 	c, err = load(t, []string{"--server-addr", ":443", "--server-tls-cert", "cert.pem", "--server-tls-key", "key.pem"},
-		[]string{"TIFA_SERVER_TLS_DOMAINS=", "TIFA_SERVER_TLS_CACHE="}, "tifa.yaml", "server:\n  tls_domains: example.com\n  tls_cache: certs\n")
+		[]string{"SERVER_TLS_DOMAINS=", "SERVER_TLS_CACHE="}, "tifa.yaml", "server:\n  tls_domains: example.com\n  tls_cache: certs\n")
 	if err != nil || c.Server.TLSDomains != nil || c.Server.CheckHTTPS() != nil {
 		t.Fatalf("unset domains: %+v, %v", c.Server, err)
 	}
@@ -469,15 +443,15 @@ func TestHTTPSSettingsThatDoNotGoTogetherFail(t *testing.T) {
 
 func TestBadHTTPSValuesFailWithTheirLayer(t *testing.T) {
 	for _, tc := range []struct{ env, want string }{
-		{"TIFA_SERVER_TLS_DOMAINS=*.example.com", "wildcard"},
-		{"TIFA_SERVER_TLS_DOMAINS=https://example.com", "scheme"},
-		{"TIFA_SERVER_TLS_DOMAINS=example.com:443", "port"},
-		{"TIFA_SERVER_TLS_DOMAINS=203.0.113.7", "IP address"},
-		{"TIFA_SERVER_TLS_DOMAINS=203.0.113.7.", "IP address"},
-		{"TIFA_SERVER_TLS_DOMAINS=localhost", "dot"},
-		{"TIFA_SERVER_TLS_DOMAINS=example.com,,www.example.com", "empty"},
-		{"TIFA_SERVER_TLS_CA=http://acme.example.com/directory", "https"},
-		{"TIFA_SERVER_HSTS=yes please", "server.hsts"},
+		{"SERVER_TLS_DOMAINS=*.example.com", "wildcard"},
+		{"SERVER_TLS_DOMAINS=https://example.com", "scheme"},
+		{"SERVER_TLS_DOMAINS=example.com:443", "port"},
+		{"SERVER_TLS_DOMAINS=203.0.113.7", "IP address"},
+		{"SERVER_TLS_DOMAINS=203.0.113.7.", "IP address"},
+		{"SERVER_TLS_DOMAINS=localhost", "dot"},
+		{"SERVER_TLS_DOMAINS=example.com,,www.example.com", "empty"},
+		{"SERVER_TLS_CA=http://acme.example.com/directory", "https"},
+		{"SERVER_HSTS=yes please", "server.hsts"},
 	} {
 		name, _, _ := strings.Cut(tc.env, "=")
 		_, err := load(t, nil, []string{tc.env}, "", "")
@@ -492,8 +466,8 @@ func TestExampleHoldsTheHTTPSSettings(t *testing.T) {
 	c.Server.TLSDomains = []string{"example.com", "www.example.com"}
 	c.Server.TLSCache = "/var/lib/app/certs"
 	c.Server.HTTPAddr = "off"
-	example := Example(c)
-	for _, want := range []string{`tls_domains: "example.com,www.example.com"`, "TIFA_SERVER_TLS_CERT", `tls_cert: ""`, `http_addr: "off"`, "hsts: false"} {
+	example := printed(c)
+	for _, want := range []string{`tls_domains: "example.com,www.example.com"`, "SERVER_TLS_CERT", `tls_cert: ""`, `http_addr: "off"`, "hsts: false"} {
 		if !strings.Contains(string(example), want) {
 			t.Errorf("example lacks %q:\n%s", want, example)
 		}
@@ -508,7 +482,7 @@ func TestExampleHoldsTheHTTPSSettings(t *testing.T) {
 // HostWhitelist cannot convert would otherwise be dropped without a word, and a final dot would
 // never match the name a browser sends.
 func TestTLSDomainsAreStoredAsASCII(t *testing.T) {
-	c, err := load(t, nil, []string{"TIFA_SERVER_TLS_DOMAINS=Example.com., bücher.example, www.example.com"}, "", "")
+	c, err := load(t, nil, []string{"SERVER_TLS_DOMAINS=Example.com., bücher.example, www.example.com"}, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -516,7 +490,7 @@ func TestTLSDomainsAreStoredAsASCII(t *testing.T) {
 		t.Fatalf("%q, want %q", c.Server.TLSDomains, want)
 	}
 	for _, bad := range []string{"a_b.example.com", "-x.example.com", "exa mple.com", "example..com", "example.com.."} {
-		_, err := load(t, nil, []string{"TIFA_SERVER_TLS_DOMAINS=" + bad}, "", "")
+		_, err := load(t, nil, []string{"SERVER_TLS_DOMAINS=" + bad}, "", "")
 		if err == nil || !strings.Contains(err.Error(), "server.tls_domains") {
 			t.Errorf("%q: %v", bad, err)
 		}
@@ -526,7 +500,7 @@ func TestTLSDomainsAreStoredAsASCII(t *testing.T) {
 // server.http_addr is an address or off, in lower case like the other words of the settings.
 func TestHTTPAddrIsAnAddressOrOff(t *testing.T) {
 	for _, good := range []string{":80", "0.0.0.0:80", "[::]:8080", "off"} {
-		c, err := load(t, nil, []string{"TIFA_SERVER_HTTP_ADDR=" + good}, "", "")
+		c, err := load(t, nil, []string{"SERVER_HTTP_ADDR=" + good}, "", "")
 		if err != nil || c.Server.HTTPAddr != good {
 			t.Errorf("%q: %q, %v", good, c.Server.HTTPAddr, err)
 		}
@@ -534,7 +508,7 @@ func TestHTTPAddrIsAnAddressOrOff(t *testing.T) {
 	for _, tc := range []struct{ value, want string }{
 		{"OFF", "write off"}, {"false", "write off"}, {"none", "write off"}, {"80", "such as :80"}, {"example.com", "such as :80"},
 	} {
-		_, err := load(t, nil, []string{"TIFA_SERVER_HTTP_ADDR=" + tc.value}, "", "")
+		_, err := load(t, nil, []string{"SERVER_HTTP_ADDR=" + tc.value}, "", "")
 		if err == nil || !strings.Contains(err.Error(), "server.http_addr") || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%q: %v", tc.value, err)
 		}
@@ -544,7 +518,7 @@ func TestHTTPAddrIsAnAddressOrOff(t *testing.T) {
 // With HTTPS on, server.addr must be set: the default only listens on the loopback, where no
 // browser and no Let's Encrypt reaches it. An address set by hand, loopback or not, is kept.
 func TestHTTPSNeedsServerAddr(t *testing.T) {
-	c, err := load(t, nil, []string{"TIFA_SERVER_TLS_CERT=c.pem", "TIFA_SERVER_TLS_KEY=k.pem"}, "", "")
+	c, err := load(t, nil, []string{"SERVER_TLS_CERT=c.pem", "SERVER_TLS_KEY=k.pem"}, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -553,7 +527,7 @@ func TestHTTPSNeedsServerAddr(t *testing.T) {
 		t.Fatalf("default addr: %v", err)
 	}
 	// Written out by hand it is the same address, and the error reads right for it too.
-	c, err = load(t, []string{"--server-addr", "127.0.0.1:9527"}, []string{"TIFA_SERVER_TLS_CERT=c.pem", "TIFA_SERVER_TLS_KEY=k.pem"}, "", "")
+	c, err = load(t, []string{"--server-addr", "127.0.0.1:9527"}, []string{"SERVER_TLS_CERT=c.pem", "SERVER_TLS_KEY=k.pem"}, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -575,7 +549,7 @@ func TestSSRQueueSettings(t *testing.T) {
 		t.Fatalf("defaults: %+v", c.SSR)
 	}
 	file := writeFile(t, "deploy.yaml", "ssr:\n  queue_limit: 8\n  wait_timeout: 800ms\n")
-	c, err = load(t, []string{"--config", file, "--ssr-queue-limit", "0", "--ssr-wait-timeout", "200ms"}, []string{"TIFA_SSR_QUEUE_LIMIT=4", "TIFA_SSR_WAIT_TIMEOUT=400ms"}, "tifa.yaml", "ssr:\n  queue_limit: 16\n  wait_timeout: 2s\n")
+	c, err = load(t, []string{"--config", file, "--ssr-queue-limit", "0", "--ssr-wait-timeout", "200ms"}, []string{"SSR_QUEUE_LIMIT=4", "SSR_WAIT_TIMEOUT=400ms"}, "tifa.yaml", "ssr:\n  queue_limit: 16\n  wait_timeout: 2s\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -599,7 +573,7 @@ func TestCrossSiteSettingsComeFromEveryLayer(t *testing.T) {
 		t.Fatalf("defaults: %+v, %v", c.Server, err)
 	}
 	c, err = load(t, []string{"--server-cross-site-paths", "POST /auth/apple/callback"},
-		[]string{"TIFA_SERVER_TRUSTED_ORIGINS=https://admin.example.com, http://localhost:3000"},
+		[]string{"SERVER_TRUSTED_ORIGINS=https://admin.example.com, http://localhost:3000"},
 		"tifa.yaml", "server:\n  trusted_origins: https://old.example.com\n  cross_site_paths: /hooks/{name}, GET /x\n")
 	if err != nil {
 		t.Fatal(err)
@@ -610,7 +584,7 @@ func TestCrossSiteSettingsComeFromEveryLayer(t *testing.T) {
 	if want := []string{"POST /auth/apple/callback"}; !reflect.DeepEqual(c.Server.CrossSitePaths, want) {
 		t.Errorf("cross-site paths %q, want %q", c.Server.CrossSitePaths, want)
 	}
-	c, err = load(t, nil, []string{"TIFA_SERVER_TRUSTED_ORIGINS=", "TIFA_SERVER_CROSS_SITE_PATHS="},
+	c, err = load(t, nil, []string{"SERVER_TRUSTED_ORIGINS=", "SERVER_CROSS_SITE_PATHS="},
 		"tifa.yaml", "server:\n  trusted_origins: https://old.example.com\n  cross_site_paths: /hooks/{name}\n")
 	if err != nil || c.Server.TrustedOrigins != nil || c.Server.CrossSitePaths != nil {
 		t.Fatalf("emptied: %+v, %v", c.Server, err)
@@ -622,7 +596,7 @@ func TestCrossSiteSettingsComeFromEveryLayer(t *testing.T) {
 // browser writes another way, such as one with letters outside ASCII or an IP address not in its
 // shortest form, fails and names the form to write, since the server compares the text.
 func TestTrustedOriginsAreWrittenTheWayABrowserSendsThem(t *testing.T) {
-	c, err := load(t, nil, []string{"TIFA_SERVER_TRUSTED_ORIGINS=HTTPS://Admin.Example.com:443, http://localhost:3000, http://a.test:80, https://[2001:DB8::1]:8443, http://192.0.2.1, http://example.0xg"}, "", "")
+	c, err := load(t, nil, []string{"SERVER_TRUSTED_ORIGINS=HTTPS://Admin.Example.com:443, http://localhost:3000, http://a.test:80, https://[2001:DB8::1]:8443, http://192.0.2.1, http://example.0xg"}, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -652,7 +626,7 @@ func TestTrustedOriginsAreWrittenTheWayABrowserSendsThem(t *testing.T) {
 		{"http://example.com..", "empty part"},
 		{"https://a.test:99999", "port"},
 	} {
-		_, err := load(t, nil, []string{"TIFA_SERVER_TRUSTED_ORIGINS=" + tc.value}, "", "")
+		_, err := load(t, nil, []string{"SERVER_TRUSTED_ORIGINS=" + tc.value}, "", "")
 		if err == nil || !strings.Contains(err.Error(), "server.trusted_origins") || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%q: %v, want a message with %q", tc.value, err, tc.want)
 		}
@@ -662,12 +636,12 @@ func TestTrustedOriginsAreWrittenTheWayABrowserSendsThem(t *testing.T) {
 // A path pattern that http.ServeMux would panic on fails at load, with the layer and the key.
 func TestCrossSitePathsAreServeMuxPatterns(t *testing.T) {
 	for _, good := range []string{"/auth/callback", "POST /auth/callback", "/hooks/{name}", "/files/{path...}", "/a, POST /b"} {
-		if _, err := load(t, nil, []string{"TIFA_SERVER_CROSS_SITE_PATHS=" + good}, "", ""); err != nil {
+		if _, err := load(t, nil, []string{"SERVER_CROSS_SITE_PATHS=" + good}, "", ""); err != nil {
 			t.Errorf("%q: %v", good, err)
 		}
 	}
 	for _, bad := range []string{"POST", "/a/{", "/a/{b}/{b}", "/a,,/b", "/a, /a"} {
-		_, err := load(t, nil, []string{"TIFA_SERVER_CROSS_SITE_PATHS=" + bad}, "", "")
+		_, err := load(t, nil, []string{"SERVER_CROSS_SITE_PATHS=" + bad}, "", "")
 		if err == nil || !strings.Contains(err.Error(), "server.cross_site_paths") {
 			t.Errorf("%q: %v", bad, err)
 		}
@@ -677,8 +651,8 @@ func TestCrossSitePathsAreServeMuxPatterns(t *testing.T) {
 func TestExampleHoldsTheCrossSiteSettings(t *testing.T) {
 	c := Default()
 	c.Server.TrustedOrigins = []string{"https://admin.example.com", "http://localhost:3000"}
-	out := string(Example(c))
-	for _, want := range []string{`trusted_origins: "https://admin.example.com,http://localhost:3000"`, "TIFA_SERVER_CROSS_SITE_PATHS", `cross_site_paths: ""`} {
+	out := string(printed(c))
+	for _, want := range []string{`trusted_origins: "https://admin.example.com,http://localhost:3000"`, "SERVER_CROSS_SITE_PATHS", `cross_site_paths: ""`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("example lacks %s:\n%s", want, out)
 		}
@@ -694,7 +668,7 @@ func TestSessionSettings(t *testing.T) {
 	if d.Cookie != "__Host-tifa_session" || d.MaxAge != 720*time.Hour || d.MemoryLimit != 64<<20 {
 		t.Fatalf("defaults %+v", d)
 	}
-	c, err := load(t, []string{"--session-cookie", "app_sid"}, []string{"TIFA_SESSION_MAX_AGE=24h"}, "tifa.yaml", "session:\n  memory_limit: 8MiB\n")
+	c, err := load(t, []string{"--session-cookie", "app_sid"}, []string{"SESSION_MAX_AGE=24h"}, "tifa.yaml", "session:\n  memory_limit: 8MiB\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -747,7 +721,7 @@ func TestCacheIgnoreQueryAddsAndRemoves(t *testing.T) {
 	}{
 		"add":        {args: []string{"--cache-ignore-query", "ref, _hsenc"}, want: []string{"ref", "_hsenc", "gclid"}},
 		"remove":     {args: []string{"--cache-ignore-query", "-gclid,-utm_*"}, want: []string{"fbclid"}, gone: []string{"gclid", "utm_*"}},
-		"env":        {environ: []string{"TIFA_CACHE_IGNORE_QUERY=ref,-yclid"}, want: []string{"ref"}, gone: []string{"yclid"}},
+		"env":        {environ: []string{"CACHE_IGNORE_QUERY=ref,-yclid"}, want: []string{"ref"}, gone: []string{"yclid"}},
 		"remove all": {args: []string{"--cache-ignore-query", "-*,ref"}, want: []string{"ref"}, gone: []string{"gclid", "utm_*"}},
 		"file":       {args: []string{"--config", writeFile(t, "prod.yaml", "cache:\n  ignore_query: ref\n")}, want: []string{"ref", "gclid"}},
 		"twice":      {args: []string{"--config", writeFile(t, "prod.yaml", "cache:\n  ignore_query: ref\n"), "--cache-ignore-query", "-ref"}, gone: []string{"ref"}, want: []string{"gclid"}},

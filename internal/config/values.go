@@ -409,7 +409,8 @@ func (v sizeValue) String() string {
 }
 func (v sizeValue) kind() string { return "size" }
 
-// rawValue keeps the flag text so that parsing errors carry the layer and key like every other layer.
+// rawValue is the flag of a setting in a pflag.FlagSet, which keeps the text and checks nothing:
+// settings are read from the Sources.
 type rawValue struct {
 	s   string
 	typ string

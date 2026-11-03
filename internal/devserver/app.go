@@ -28,13 +28,13 @@ type app struct {
 	stderr tail
 }
 
-// startApp runs command in dir with TIFA_SERVER_ADDR set to addr, which the application's
+// startApp runs command in dir with SERVER_ADDR set to addr, which the application's
 // configuration reads as server.addr. It also gives the app a lifeline (see lifeline), so that the
 // app stops when this process ends, however it ends.
 func startApp(command []string, dir, addr string, stdout, stderr io.Writer) (*app, error) {
 	cmd := exec.Command(command[0], command[1:]...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "TIFA_SERVER_ADDR="+addr)
+	cmd.Env = append(os.Environ(), "SERVER_ADDR="+addr)
 	a := &app{cmd: cmd, done: make(chan struct{})}
 	// Wait returns once the output is copied, so the tail is complete when done is closed.
 	cmd.Stdout, cmd.Stderr = stdout, io.MultiWriter(stderr, &a.stderr)

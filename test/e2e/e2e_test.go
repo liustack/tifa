@@ -255,9 +255,8 @@ func start(t *testing.T, exe string, args ...string) (base string, cmd *exec.Cmd
 	t.Helper()
 	output = &lockedBuffer{drained: make(chan struct{})}
 	cmd = exec.Command(exe, append([]string{"--server-addr", "127.0.0.1:0"}, args...)...)
-	// The app rejects unknown TIFA_* variables as settings, TIFA_E2E among them.
 	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "TIFA_") && !strings.HasPrefix(kv, "PATH=") {
+		if !strings.HasPrefix(kv, "PATH=") {
 			cmd.Env = append(cmd.Env, kv)
 		}
 	}

@@ -108,14 +108,7 @@ func (t Target) Start(ctx context.Context, cpus string) (*Server, error) {
 	}
 	cmd := exec.Command(prog, args...)
 	cmd.Dir = t.Dir
-	// A tifa program takes every TIFA_* variable for a setting and rejects the unknown ones,
-	// TIFA_COMPARE among them.
-	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "TIFA_") {
-			cmd.Env = append(cmd.Env, kv)
-		}
-	}
-	cmd.Env = append(cmd.Env, t.Env...)
+	cmd.Env = append(os.Environ(), t.Env...)
 	for i := range cmd.Env {
 		cmd.Env[i] = strings.ReplaceAll(cmd.Env[i], "%PORT%", strconv.Itoa(port))
 	}

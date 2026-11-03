@@ -18,7 +18,7 @@ import (
 // TestMain turns the test binary into a small application when TIFA_FAKE_APP is set, so the tests
 // can start, proxy and stop a real process:
 //
-//	TIFA_SERVER_ADDR          address to listen on, as tifa dev passes it
+//	SERVER_ADDR               address to listen on, as tifa dev passes it
 //	TIFA_FAKE_APP_VERSION     file whose content, read at start, is the answer to GET /
 //	TIFA_FAKE_APP_BUNDLE      file whose content, read at start and on each POST /__tifa/dev/reload,
 //	                          is the answer to GET /bundle. A reload of the content "broken" fails.
@@ -106,7 +106,7 @@ func fakeApp() error {
 	}
 	interrupts := make(chan os.Signal, 1)
 	signal.Notify(interrupts, os.Interrupt)
-	ln, err := net.Listen("tcp", os.Getenv("TIFA_SERVER_ADDR"))
+	ln, err := net.Listen("tcp", os.Getenv("SERVER_ADDR"))
 	if err != nil {
 		return err
 	}

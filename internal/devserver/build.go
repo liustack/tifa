@@ -68,7 +68,7 @@ const (
 	other    kind = iota
 	goSource      // .go, go.mod, go.sum
 	frontend      // TypeScript, JavaScript, CSS and JSON imported by them, Vite's .env files, and what Vite loads from outside the root
-	config        // tifa.yaml or tifa.json in the application directory
+	config        // tifa.yaml in the application directory
 )
 
 func kindOf(p string) kind {
@@ -79,7 +79,7 @@ func kindOf(p string) kind {
 		return frontend
 	}
 	switch p {
-	case "tifa.yaml", "tifa.json":
+	case "tifa.yaml":
 		return config
 	case "go.mod", "go.sum":
 		return goSource

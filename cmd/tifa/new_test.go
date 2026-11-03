@@ -20,8 +20,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spf13/pflag"
-
 	"github.com/liustack/tifa/internal/bundle"
 	"github.com/liustack/tifa/internal/config"
 )
@@ -512,7 +510,7 @@ func TestNewTifaYAMLListsEverySetting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c, err := config.Load(pflag.NewFlagSet("serve", pflag.ContinueOnError), nil, "tifa.yaml", data); err != nil || !reflect.DeepEqual(c, config.Default()) {
+	if c, _, err := config.Project(data); err != nil || !reflect.DeepEqual(c, config.Default()) {
 		t.Fatalf("tifa.yaml as written: %+v, %v, want the defaults", c, err)
 	}
 	setting := regexp.MustCompile(`^# ( *)([a-z0-9_]+):`)
@@ -532,7 +530,7 @@ func TestNewTifaYAMLListsEverySetting(t *testing.T) {
 	if !reflect.DeepEqual(keys, config.Keys()) {
 		t.Fatalf("tifa.yaml lists %q, want %q", keys, config.Keys())
 	}
-	c, err := config.Load(pflag.NewFlagSet("serve", pflag.ContinueOnError), nil, "tifa.yaml", []byte(strings.Join(lines, "\n")))
+	c, _, err := config.Project([]byte(strings.Join(lines, "\n")))
 	if err != nil {
 		t.Fatalf("tifa.yaml with the settings turned on: %v", err)
 	}

@@ -195,13 +195,7 @@ func startShop(t testing.TB) string {
 func startProgram(t testing.TB, exe string, env ...string) string {
 	t.Helper()
 	cmd := exec.Command(exe, "--server-addr", "127.0.0.1:0")
-	// The program rejects unknown TIFA_* variables as settings, TIFA_SSR_SHOP among them.
-	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "TIFA_") {
-			cmd.Env = append(cmd.Env, kv)
-		}
-	}
-	cmd.Env = append(cmd.Env, env...)
+	cmd.Env = append(os.Environ(), env...)
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		t.Fatal(err)

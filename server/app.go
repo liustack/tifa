@@ -12,15 +12,15 @@ import (
 )
 
 // App is the application as the generated main describes it: the hooks of hooks.go, the
-// Layouts and routes found by the tifa CLI, and the project tifa.yaml embedded at build time.
+// Layouts and routes found by the tifa CLI, and the settings of the project tifa.yaml.
 type App struct {
 	Hooks   Hooks
 	Layouts []Layout
 	Routes  []Route
-	// ConfigName is "tifa.yaml" or "tifa.json" when the project has a config file, empty otherwise.
-	// Config is the file's content. It is the layer below --config and above the defaults.
-	ConfigName string
-	Config     []byte
+	// Settings holds the runtime settings the project tifa.yaml sets, by key, as text, such as
+	// "server.addr": "0.0.0.0:9527". tifa build checked them. They are the source below the file
+	// of -c and above the defaults.
+	Settings map[string]string
 	// Session is set when the app calls tifa.SetSession: it tells the process the session type
 	// (SessionOf), and the pages, navigation answers and calls carry the session to the browser.
 	Session func()

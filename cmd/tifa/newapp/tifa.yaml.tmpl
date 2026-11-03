@@ -1,8 +1,9 @@
-# Settings of the app. tifa build embeds this file into the program. Every setting is shown at
-# its default, with an example where the default depends on the machine. Remove the "# " in
-# front of a line (and its section) to change it. Flags and
-# TIFA_* environment variables override this file when the program starts, such as
-# --server-addr 0.0.0.0:9527 or TIFA_SERVER_ADDR=0.0.0.0:9527.
+# Settings of tifa. tifa build checks this file and builds its values into the program. Every
+# setting is shown at its default, with an example where the default depends on the machine.
+# Remove the "# " in front of a line (and its section) to change it. When the program starts,
+# flags, environment variables, a .env file and a file given with -c override this file, such
+# as --server-addr 0.0.0.0:9527 or SERVER_ADDR=0.0.0.0:9527. The settings of the app are
+# defined in config.go.
 # More: https://github.com/liustack/tifa/blob/main/docs/config.md
 
 # build:

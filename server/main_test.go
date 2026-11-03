@@ -16,23 +16,25 @@ func runApp(t *testing.T, ctx context.Context, app App, environ []string, args .
 }
 
 func TestConfigCommandPrintsMergedSettings(t *testing.T) {
-	app := App{ConfigName: "tifa.yaml", Config: []byte("server:\n  addr: 127.0.0.1:9000\n  body_limit: 2MiB\n")}
-	out, _, err := runApp(t, context.Background(), app, []string{"TIFA_SERVER_BODY_LIMIT=3MiB"}, "config", "--ssr-vms", "5")
+	app := App{Settings: map[string]string{"server.addr": "127.0.0.1:9000", "server.body_limit": "2MiB"}}
+	out, _, err := runApp(t, context.Background(), app, []string{"SERVER_BODY_LIMIT=3MiB", "TIFA_SSR_VMS=9"}, "config", "--ssr-vms", "5", "--app-flag", "x")
 	if err != nil {
 		t.Fatalf("config: %v", err)
 	}
-	for _, want := range []string{"addr: \"127.0.0.1:9000\"", "body_limit: 3MiB", "vms: 5"} {
+	for _, want := range []string{"addr: \"127.0.0.1:9000\"", "From tifa.yaml.", "body_limit: 3MiB", "From env SERVER_BODY_LIMIT.", "vms: 5", "From flag --ssr-vms."} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}
 	}
 }
 
-func TestInvalidEmbeddedConfigFailsWithItsLayer(t *testing.T) {
-	app := App{ConfigName: "tifa.yaml", Config: []byte("server:\n  port: 80\n")}
-	_, _, err := runApp(t, context.Background(), app, nil, "config")
-	if err == nil || !strings.Contains(err.Error(), "embedded tifa.yaml") || !strings.Contains(err.Error(), "server.port") {
-		t.Fatalf("got %v", err)
+// The program lists every invalid setting at once.
+func TestInvalidSettingsAreAllListed(t *testing.T) {
+	_, _, err := runApp(t, context.Background(), App{}, []string{"SSR_TIMEOUT=soon"}, "--ssr-vms", "two", "--server-hsts", "-c", "missing.yaml")
+	for _, want := range []string{"env SSR_TIMEOUT", "flag --ssr-vms", "missing.yaml"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%v lacks %q", err, want)
+		}
 	}
 }
 
