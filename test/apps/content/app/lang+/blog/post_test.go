@@ -37,6 +37,21 @@ func TestBySlugFindsTheTranslation(t *testing.T) {
 	}
 }
 
+// go test has no build, so a body is a placeholder that names the entry, and there are no headings.
+func TestBodyInTests(t *testing.T) {
+	tifatest.LoadContent(t)
+	p, err := BySlug("zh-CN", "free-search")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := p.Body(); got != "<p>tifatest: body of blog zh-CN/202608/free-search</p>" {
+		t.Errorf("Body() = %q", got)
+	}
+	if p.Headings() != nil {
+		t.Errorf("Headings() = %+v", p.Headings())
+	}
+}
+
 func TestTagged(t *testing.T) {
 	tifatest.SetContent(t, contenttest.Blog,
 		contenttest.Post{Entry: content.Entry{ID: "a", Lang: "en", Slug: "a", Path: "a"}, Tags: []string{"go"}},

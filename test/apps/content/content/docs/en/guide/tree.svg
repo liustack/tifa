@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="120" viewBox="0 0 240 120" font-family="sans-serif" font-size="13">
+  <rect x="10" y="10" width="70" height="28" rx="4" fill="#d6e6f4" stroke="#1f4e79"/>
+  <text x="45" y="29" text-anchor="middle">app/</text>
+  <rect x="90" y="46" width="90" height="28" rx="4" fill="#d6e6f4" stroke="#1f4e79"/>
+  <text x="135" y="65" text-anchor="middle">lang+/</text>
+  <rect x="140" y="82" width="90" height="28" rx="4" fill="#d6e6f4" stroke="#1f4e79"/>
+  <text x="185" y="101" text-anchor="middle">blog/</text>
+  <path d="M45 38 V60 H90 M135 74 V96 H140" fill="none" stroke="#1f4e79"/>
+</svg>

@@ -17,8 +17,9 @@ type NavItem struct {
 }
 
 type Page struct {
-	Doc contenttest.Doc `json:"doc"`
-	Nav []NavItem       `json:"nav"`
+	Doc  contenttest.Doc `json:"doc"`
+	Body tifa.HTML       `json:"body"`
+	Nav  []NavItem       `json:"nav"`
 }
 
 func Load(c *tifa.Ctx) (Page, error) {
@@ -36,5 +37,5 @@ func Load(c *tifa.Ctx) (Page, error) {
 	for _, x := range docs {
 		nav = append(nav, NavItem{ID: x.ID, Title: x.Title})
 	}
-	return Page{Doc: d, Nav: nav}, nil
+	return Page{Doc: d, Body: d.Body(), Nav: nav}, nil
 }

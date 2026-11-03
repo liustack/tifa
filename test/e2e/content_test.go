@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -44,7 +45,112 @@ func TestContentApp(t *testing.T) {
 		t.Errorf("content.json lacks the post still to come:\n%s", data)
 	}
 
+	// The body of each entry is a file of dist/content, without a compressed copy. No file of dist
+	// holds the draft, which is never converted.
+	var drafts, gz []string
+	diagrams := 0
+	err = filepath.WalkDir(filepath.Join(dir, ".tifa", "dist"), func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		rel := filepath.ToSlash(strings.TrimPrefix(p, filepath.Join(dir, ".tifa", "dist")+string(filepath.Separator)))
+		if bytes.Contains(data, []byte("DRAFT-TEXT-MUST-NOT-SHIP")) || bytes.Contains(data, []byte("写了一半的草稿")) {
+			drafts = append(drafts, rel)
+		}
+		if strings.HasPrefix(rel, "content/") && strings.HasSuffix(rel, ".gz") {
+			gz = append(gz, rel)
+		}
+		if strings.HasPrefix(rel, "assets/diagram-") {
+			diagrams++
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(drafts) > 0 || len(gz) > 0 {
+		t.Errorf("files of dist with the draft: %q, compressed bodies: %q", drafts, gz)
+	}
+	// The English post uses the image of the Chinese one, which is one file.
+	if diagrams != 1 {
+		t.Errorf("dist/assets has %d diagrams, want 1", diagrams)
+	}
+	html, err := os.ReadFile(filepath.Join(dir, ".tifa", "dist", "content", "blog", "zh-CN", "202608", "free-search.html"))
+	if err != nil || !bytes.Contains(html, []byte(`<h2 id="怎么装">怎么装</h2>`)) {
+		t.Errorf("the body of free-search: %v\n%s", err, html)
+	}
+	for _, want := range []string{
+		`"file":"content/blog/zh-CN/202608/free-search.html"`,
+		`"headings":[{"depth":2,"id":"怎么装","text":"怎么装"},{"depth":2,"id":"为什么免费","text":"为什么免费"},{"depth":3,"id":"搜索从哪来","text":"搜索从哪来"}]`,
+	} {
+		if !bytes.Contains(data, []byte(want)) {
+			t.Errorf("content.json lacks %s:\n%s", want, data)
+		}
+	}
+
 	base, _, _ := start(t, exe)
+
+	t.Run("post", func(t *testing.T) {
+		code, _, body := get(t, base+"/zh-CN/blog/free-search")
+		if code != 200 {
+			t.Fatalf("GET /zh-CN/blog/free-search: %d\n%s", code, body)
+		}
+		for _, want := range []string{
+			`<h1 id="title">免费给模型加上联网搜索</h1>`,
+			`<nav id="toc"><a href="#怎么装">怎么装</a><a href="#为什么免费">为什么免费</a></nav>`,
+			`<h2 id="怎么装">怎么装</h2>`, `<h2 id="为什么免费">为什么免费</h2>`, `<h3 id="搜索从哪来">搜索从哪来</h3>`,
+			`<td>问一个今天的问题</td>`,
+			`<a href="/zh-CN/docs/install">文档</a>`, `<a href="https://example.org/search">官方说明</a>`,
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("the post lacks %s:\n%s", want, body)
+			}
+		}
+		// The body is in the markup once: the hydration data has a marker in its place.
+		if n := strings.Count(body, "搜索走公开接口"); n != 1 {
+			t.Errorf("the page has the body %d times:\n%s", n, body)
+		}
+		if strings.Contains(body, "作者笔记") {
+			t.Errorf("the post has the comment of the author:\n%s", body)
+		}
+		img := regexp.MustCompile(`<img src="(/assets/diagram-[A-Za-z0-9_-]+\.png)" alt="架构图" loading="lazy">`).FindStringSubmatch(body)
+		if img == nil {
+			t.Fatalf("the post has no image under /assets/ with a hash:\n%s", body)
+		}
+		code, header, png := get(t, base+img[1])
+		want, err := os.ReadFile(filepath.Join(dir, "content", "blog", "zh-CN", "202608", "free-search", "diagram.png"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if code != 200 || png != string(want) || header.Get("Content-Type") != "image/png" || !strings.Contains(header.Get("Cache-Control"), "immutable") {
+			t.Errorf("GET %s: %d %q %q, %d bytes", img[1], code, header.Get("Content-Type"), header.Get("Cache-Control"), len(png))
+		}
+
+		code, _, body = get(t, base+"/en/blog/free-web-search")
+		if code != 200 {
+			t.Fatalf("GET /en/blog/free-web-search: %d\n%s", code, body)
+		}
+		for _, want := range []string{
+			`<img src="` + img[1] + `" alt="Architecture" loading="lazy">`,
+			`<nav id="toc"><a href="#how-to-install">How to install</a><a href="#how-to-install-1">How to install</a></nav>`,
+			`<h2 id="how-to-install">How to install</h2>`, `<h2 id="how-to-install-1">How to install</h2>`,
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("the English post lacks %s:\n%s", want, body)
+			}
+		}
+		// The bodies are read by the program and not served.
+		if code, _, _ := get(t, base+"/content/blog/zh-CN/202608/free-search.html"); code != 404 {
+			t.Errorf("GET a body file: %d", code)
+		}
+		if code, _, _ := get(t, base+"/zh-CN/blog/wip"); code != 404 {
+			t.Errorf("GET the draft: %d", code)
+		}
+	})
 
 	t.Run("list", func(t *testing.T) {
 		code, _, body := get(t, base+"/en/blog")
@@ -111,7 +217,9 @@ func TestContentApp(t *testing.T) {
 		if install < 0 || guide < install || routing < guide {
 			t.Errorf("the side bar is not in the order of the docs:\n%s", body)
 		}
-		if code, _, body := get(t, base+"/en/docs/guide/routing"); code != 200 || !strings.Contains(body, `<h1 id="doc">Routing</h1>`) {
+		code, _, body = get(t, base+"/en/docs/guide/routing")
+		if code != 200 || !strings.Contains(body, `<h1 id="doc">Routing</h1>`) || !strings.Contains(body, `<h2 id="parameters">Parameters</h2>`) ||
+			!regexp.MustCompile(`<img src="/assets/tree-[A-Za-z0-9_-]+\.svg" alt="The folders of an app" loading="lazy">`).MatchString(body) {
 			t.Errorf("GET /en/docs/guide/routing: %d\n%s", code, body)
 		}
 		if code, _, _ := get(t, base+"/zh-CN/docs/guide"); code != 404 {

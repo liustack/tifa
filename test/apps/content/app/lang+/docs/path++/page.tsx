@@ -1,8 +1,9 @@
 import { Link } from '@tanstack/react-router'
+import { HTML } from 'tifa/client'
 import { page } from './route.gen'
 
 export default function DocPage() {
-  const { doc, nav } = page.useLoaderData()
+  const { doc, body, nav } = page.useLoaderData()
   return (
     <div className="docs">
       <aside id="nav">
@@ -13,6 +14,7 @@ export default function DocPage() {
         ))}
       </aside>
       <h1 id="doc">{doc.title}</h1>
+      <HTML as="article" id="body" value={body} />
     </div>
   )
 }
