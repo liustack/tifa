@@ -103,7 +103,6 @@ build keeps the running app and shows the error in the page.`,
 			return devserver.Run(ctx, ln, devserver.Options{
 				Dir:     root,
 				Ignore:  []string{devOutput},
-				Public:  publicDir(settings.Build.Public),
 				App:     []string{exe, "serve", "--dist", filepath.Join(root, codegen.Dir, codegen.DistDir)},
 				Vite:    net.JoinHostPort("127.0.0.1", strconv.Itoa(vitePort)),
 				Outside: outside,
@@ -139,6 +138,8 @@ type devPipeline struct {
 	front *bundle.Dev
 	m     *analyze.Manifest // the last successful analysis
 	files map[string][]byte // the generated files of that analysis, as written last
+	// public is build.public of that analysis, see Public.
+	public string
 }
 
 // Analyze runs the static analysis and generates the code in memory. The fingerprint covers the
@@ -161,12 +162,19 @@ func (p *devPipeline) Analyze(context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	p.m, p.files = m, files
+	settings, err := codegen.BuildSettings(p.root)
+	if err != nil {
+		return "", err
+	}
+	p.m, p.files, p.public = m, files, publicDir(settings.Public)
 	return fingerprint(files), nil
 }
 
 // Embedded says which files the Go code embeds, as the last analysis saw them.
 func (p *devPipeline) Embedded() func(string) bool { return p.m.Embedded.Has }
+
+// Public says which folder holds the static files, as the last analysis saw it.
+func (p *devPipeline) Public() string { return p.public }
 
 // PollFiles makes Vite's dev server poll the files, see bundle.Dev.PollFiles.
 func (p *devPipeline) PollFiles(context.Context) (bool, error) { return p.front.PollFiles() }

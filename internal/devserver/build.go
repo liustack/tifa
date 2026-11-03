@@ -29,6 +29,11 @@ type Pipeline interface {
 	// that worked, so call it after Analyze returned without an error. The function is never nil
 	// and may be called from any goroutine.
 	Embedded() func(rel string) bool
+	// Public returns the folder of static files, relative to the application directory with forward
+	// slashes, empty when there is none or it lies outside the application directory. The generated
+	// code lists its files, so one that appears or goes needs a new bundle. Like Embedded it
+	// answers for the last analysis that worked, which reads tifa.yaml.
+	Public() string
 	// PollFiles makes Vite's dev server poll the files too, once tifa dev's watcher found the
 	// system short of watches. It may run while a step runs. polling reports whether the dev
 	// server polls, it does not when its watcher takes no watch per file.

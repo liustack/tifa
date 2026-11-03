@@ -29,6 +29,25 @@ func TestRunBundlesWhenAPublicFileAppearsOrGoes(t *testing.T) {
 	waitSteps(t, d.p, "Bundle")
 }
 
+// A change of build.public in tifa.yaml moves the folder tifa dev watches and plans with: files of
+// the new folder rebundle, files of the old one no longer do.
+func TestRunFollowsAChangeOfThePublicFolder(t *testing.T) {
+	d := startDev(t, "", func(p *buildPipeline) { p.public = "public" })
+	d.waitVersionAfter(t, "")
+	expectSteps(t, d.p, "Analyze", "Generate", "Bundle", "GoBuild")
+
+	d.p.setPublic("static")
+	writeFile(t, d.dir, "tifa.yaml", "build:\n  public: static\n")
+	waitSteps(t, d.p, "Analyze", "Generate", "Bundle", "GoBuild")
+
+	writeFile(t, d.dir, "static/logo.svg", "<svg/>")
+	waitSteps(t, d.p, "Bundle")
+
+	writeFile(t, d.dir, "public/logo.svg", "<svg/>")
+	time.Sleep(300 * time.Millisecond)
+	expectSteps(t, d.p)
+}
+
 // waitSteps waits until the pipeline has run steps since the last look, then checks that they
 // are want. A bundle alone keeps the version, so there is no version to wait for.
 func waitSteps(t *testing.T, p *buildPipeline, want ...string) {

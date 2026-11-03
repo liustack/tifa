@@ -42,10 +42,6 @@ type Options struct {
 	// to listen on in SERVER_ADDR. After a rebuild of the SSR bundle alone it gets POST
 	// /__tifa/dev/reload instead of a restart, which server.DevMain answers with 204 once it
 	// loaded the new bundle.
-	// Public is the folder of static files, relative to Dir. A file that appears in it or goes
-	// needs a new bundle, which writes the generated code again, for the code lists the files. Empty
-	// means no folder.
-	Public   string
 	App      []string
 	Pipeline Pipeline
 	// Vite is the address of Vite's dev server, which Pipeline.Bundle starts. Requests under
@@ -217,7 +213,9 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 	d.b.learn = func(embedded func(string) bool) {
 		d.embedded.Store(&embedded)
 		// The watcher also keeps the public files in its snapshot, to see one appear or go.
-		w.setEmbedded(func(rel string) bool { return embedded(rel) || inPublic(o.Public, rel) })
+		public := o.Pipeline.Public()
+		d.public.Store(&public)
+		w.setEmbedded(func(rel string) bool { return embedded(rel) || inPublic(public, rel) })
 	}
 	w.changes.setBuilding(true)
 	d.rebuild(ctx, everything)
@@ -227,7 +225,7 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 		for _, c := range batch {
 			d.log.Printf("%s %s", c.path, c.op)
 		}
-		d.rebuild(ctx, planPublic(batch, d.isEmbedded, o.Public))
+		d.rebuild(ctx, planPublic(batch, d.isEmbedded, d.publicDir()))
 	})
 
 	d.mu.Lock()
@@ -315,6 +313,9 @@ type dev struct {
 	// embedded says which files the Go code embeds, as the last analysis that worked saw it. Nil
 	// before the first one.
 	embedded atomic.Pointer[func(string) bool]
+	// public is the folder of static files as the last analysis that worked saw it. Nil before the
+	// first one.
+	public atomic.Pointer[string]
 	// browser keeps the errors pages reported since the last build started.
 	browser deverrors.BrowserErrors
 
@@ -332,6 +333,14 @@ type dev struct {
 	building chan struct{}
 	// started counts the rebuilds started, the first build included.
 	started int
+}
+
+// publicDir returns the public folder, empty before the first analysis or when there is none.
+func (d *dev) publicDir() string {
+	if p := d.public.Load(); p != nil {
+		return *p
+	}
+	return ""
 }
 
 // isEmbedded reports whether the Go code embeds the file rel, as the last analysis that worked saw it.

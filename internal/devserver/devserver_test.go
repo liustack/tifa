@@ -37,7 +37,7 @@ type buildPipeline struct {
 	manifest string // what Analyze returns, "routes" when empty
 	// embedded tells which files the program embeds, nothing when nil.
 	embedded func(string) bool
-	// public is the folder of static files for Options.Public.
+	// public is what Public returns, guarded by mu.
 	public string
 }
 
@@ -140,7 +140,6 @@ func startDev(t *testing.T, failFirst string, setup ...func(*buildPipeline)) *de
 		Outside:     outside,
 		Dir:         dir,
 		App:         fakeAppCommand(t),
-		Public:      p.public,
 		Pipeline:    p,
 		Debounce:    20 * time.Millisecond,
 		StopTimeout: 5 * time.Second,
@@ -858,4 +857,16 @@ func TestRunRestartsTheAppWhenDotenvChanges(t *testing.T) {
 	if _, again := get(t, d.url+"/pid"); again == pid {
 		t.Fatalf("the app still runs as %s", pid)
 	}
+}
+
+func (p *buildPipeline) Public() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.public
+}
+
+func (p *buildPipeline) setPublic(dir string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.public = dir
 }
