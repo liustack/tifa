@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/liustack/slowjs"
+	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/internal/config"
 	"github.com/liustack/tifa/internal/ssr"
 	"github.com/liustack/tifa/internal/testproc"
@@ -264,16 +265,45 @@ func TestShopRendersReadyData(t *testing.T) {
 }
 
 var (
-	renderTime = regexp.MustCompile(`u:\d{13}`)
 	// scriptBreak is where the router starts a script tag of its own for a text over 16K code units.
 	scriptBreak = `</script><script data-tsr-stream-part="">`
 	slotLeft    = regexp.MustCompile(`~[0-9a-f]{32}\.\d+\.`)
 )
 
-// sameButTheTime makes two renders of the same page comparable: the router writes the time of the
-// render into each match, and splits its hydration script where a text is long.
-func sameButTheTime(html string) string {
-	return strings.ReplaceAll(renderTime.ReplaceAllString(html, "u:T"), scriptBreak, ";")
+// joinedScripts makes a page with slots comparable with the page the VM writes by itself: the router
+// splits its hydration script where a text is long, and a slot is short.
+func joinedScripts(html string) string {
+	return strings.ReplaceAll(html, scriptBreak, ";")
+}
+
+// The page is a function of its input: the same data renders the same HTML under any clock, which
+// the render cache, the ETag and the check of tifa dev stand on. The router stamps each match with
+// the time it loaded, and the page carries 0 in its place.
+func TestShopRendersTheSameAtAnyTime(t *testing.T) {
+	source, pages := shopBundle(t)
+	p := newPool(t, source, shopConfig(1))
+	at := func(now time.Time) context.Context {
+		return tifa.WithRenderClock(context.Background(), func() time.Time { return now })
+	}
+	now := time.Now()
+	for _, page := range pages {
+		first, err := p.Render(at(now), page.input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		second, err := p.Render(at(now.Add(36*time.Hour+7*time.Minute+13*time.Second)), page.input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		page.check(t, first)
+		if first != second {
+			i := 0
+			for i < len(first) && i < len(second) && first[i] == second[i] {
+				i++
+			}
+			t.Errorf("%s renders differently at another time, from byte %d:\n%.200s\n%.200s", page.input.URL, i, first[max(i-80, 0):], second[max(i-80, 0):])
+		}
+	}
 }
 
 // The pool has the VM write a slot where the page carries the text of a Load's data and fills it
@@ -328,7 +358,7 @@ func TestShopSlotsGiveTheSamePageAsTheVMDoes(t *testing.T) {
 		if in.URL == "/projects/studio" && !strings.Contains(raw, "~"+slotted.Nonce) {
 			t.Errorf("%s: the VM wrote no slot", in.URL)
 		}
-		if sameButTheTime(got) != sameButTheTime(want) {
+		if joinedScripts(got) != joinedScripts(want) {
 			t.Errorf("%s: the page differs from the page the VM writes by itself (%d and %d bytes)", in.URL, len(got), len(want))
 		}
 	}
@@ -575,7 +605,7 @@ func TestShopSlotsAtTheLengthWhereTheyStart(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if slotLeft.MatchString(got) || sameButTheTime(got) != sameButTheTime(plain) {
+				if slotLeft.MatchString(got) || joinedScripts(got) != joinedScripts(plain) {
 					t.Errorf("the page differs from the page the VM writes by itself (%d and %d bytes)", len(got), len(plain))
 				}
 				// The VM writes a slot for each object or array of 4,096 code units or more, no other.
