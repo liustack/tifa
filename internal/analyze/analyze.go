@@ -788,6 +788,15 @@ func (a *analyzer) readLoad(pkg *packages.Package, owner, name string) (*Load, [
 	problems, html := checkTSHTML(result)
 	a.reportTS(fieldTypePos(decl.Type.Results, 0), name+" result", problems)
 	load.HTML = html
+	// The page leaves only data that is an object to the JSON text Go wrote (goJSON in
+	// js/runtime/data.ts), so a marker in place of a bare value would never be used.
+	bare := types.Unalias(result)
+	for p, ok := bare.(*types.Pointer); ok; p, ok = bare.(*types.Pointer) {
+		bare = types.Unalias(p.Elem())
+	}
+	if isNamed(bare, tifaPath, "HTML") {
+		a.errorAt(fieldTypePos(decl.Type.Results, 0), "%s result: a tifa.HTML on its own would come with the page twice, in its markup and in its data: put it in a struct field, and the data carries only a marker in its place", name)
+	}
 
 	uses := a.walkLoad(pkg, owner, name == "Layout", load, decl)
 	for _, u := range uses {

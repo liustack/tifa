@@ -224,7 +224,7 @@ export default function PostPage() {
 - In TypeScript the value has the type `HTML`, not `string`, so only `<HTML>` shows it. `as` picks the element that holds the markup (`div` by default). The other props go to that element, except `children` and `dangerouslySetInnerHTML`.
 - A page the server renders carries each value once: in its markup. Its data for hydration holds a small marker in its place, and `<HTML>` reads the markup back from the page. So an article is not sent twice. Navigation data and pages with `SSR = false` carry the string.
 - So render `<HTML value={...}>` on the server every time it shows a value of the page: not only after an effect, a click or a state only the browser has, and not in a `.client.tsx` component. Otherwise the browser throws `tifa: this tifa.HTML value came with the page, which carries it only in the markup the server rendered, and the server rendered no <HTML> for it here`.
-- `tifa.HTML` cannot be a map key, a handler input or part of the session. Take a `string` there and convert it after you sanitize it.
+- `tifa.HTML` cannot be a map key, a handler input or part of the session. Take a `string` there and convert it after you sanitize it. A `Load` or `Layout` cannot return a `tifa.HTML` on its own: put it in a struct field.
 
 ### Calling method handlers from the browser
 
@@ -1077,7 +1077,7 @@ The value `Load` or a `Layout` function returns, and the input and result of a m
 | `bool` | `boolean` |
 | integers, floats, `json.Number` | `number` |
 | `string`, `time.Time` | `string` |
-| `tifa.HTML` | `HTML` of `tifa/client`, see [Showing HTML the app trusts](#showing-html-the-app-trusts). Not a map key, a handler input or in the session |
+| `tifa.HTML` | `HTML` of `tifa/client`, see [Showing HTML the app trusts](#showing-html-the-app-trusts). Not a map key, a handler input, in the session or a whole result |
 | pointer | `T \| null` |
 | slice | `T[]`. A nil slice is written as `[]` |
 | `[]byte`, `[N]byte` (the element is exactly `byte` or `uint8`) | `string`, written as base64. A nil `[]byte` is `""`. A slice or array of a named byte type is an ordinary array of numbers |

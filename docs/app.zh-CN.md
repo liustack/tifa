@@ -223,7 +223,7 @@ export default function PostPage() {
 - 在 TypeScript 里它的类型是 `HTML`，不是 `string`，只有 `<HTML>` 能显示它。`as` 指定装标记的元素（默认 `div`）。其他属性都给这个元素，`children` 和 `dangerouslySetInnerHTML` 除外。
 - 服务器渲染的页面里每个值只带一份：在标记里。水合用的数据在它的位置放一个小标记，`<HTML>` 从页面读回标记。所以一篇文章不会发两遍。导航数据和 `SSR = false` 的页面带的是字符串。
 - 所以显示页面里的值时，`<HTML value={...}>` 每次都要在服务器上渲染出来：不要等 effect、点击或只有浏览器才有的状态之后才渲染，也不要放在 `.client.tsx` 组件里。否则浏览器会抛出 `tifa: this tifa.HTML value came with the page, which carries it only in the markup the server rendered, and the server rendered no <HTML> for it here`。
-- `tifa.HTML` 不能做 map 的键，不能放在方法函数的入参或会话里。那里用 `string`，过滤之后再转换。
+- `tifa.HTML` 不能做 map 的键，不能放在方法函数的入参或会话里。那里用 `string`，过滤之后再转换。`Load` 和 `Layout` 不能直接返回一个 `tifa.HTML`，要放进结构体的字段里。
 
 ### 在浏览器里调用方法函数
 
@@ -1078,7 +1078,7 @@ tifa 只检查 `Load` 和 `Layout` 能到达的代码。在 `OnRequest`、方法
 | `bool` | `boolean` |
 | 整数、浮点数、`json.Number` | `number` |
 | `string`、`time.Time` | `string` |
-| `tifa.HTML` | `tifa/client` 的 `HTML`，见[显示应用信任的 HTML](#显示应用信任的-html)。不能做 map 的键，不能放在入参或会话里 |
+| `tifa.HTML` | `tifa/client` 的 `HTML`，见[显示应用信任的 HTML](#显示应用信任的-html)。不能做 map 的键，不能放在入参或会话里，不能是整个结果 |
 | 指针 | `T \| null` |
 | 切片 | `T[]`。nil 切片写成 `[]` |
 | `[]byte`、`[N]byte`（元素就是 `byte` 或 `uint8`） | `string`，写成 base64。nil 的 `[]byte` 是 `""`。元素是具名 byte 类型的切片或数组是普通的数字数组 |
