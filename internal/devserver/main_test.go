@@ -2,6 +2,7 @@ package devserver
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/liustack/tifa/internal/deverrors"
 )
 
 // TestMain turns the test binary into a small application when TIFA_FAKE_APP is set, so the tests
@@ -28,7 +31,8 @@ import (
 //	TIFA_FAKE_APP_DETACHED_CHILD start a child outside the process group that keeps stdout open,
 //	                          and print its PID first
 //
-// POST requests get their body back, GET /exit makes the app print "fatal: the disk is full" to
+// GET /fail answers 500 and adds a request error to what GET /__tifa/dev/errors answers, which
+// DELETE empties. POST requests get their body back, GET /exit makes the app print "fatal: the disk is full" to
 // stderr and exit with status 3, GET /pid answers the process ID, GET /cwd the working directory.
 // The app prints "shutdown done" once it stopped after an interrupt.
 func TestMain(m *testing.M) {
@@ -110,6 +114,8 @@ func fakeApp() error {
 	if err != nil {
 		return err
 	}
+	var errsMu sync.Mutex
+	errs := []deverrors.Request{}
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/exit" {
 			fmt.Fprintln(os.Stderr, "fatal: the disk is full")
@@ -126,6 +132,22 @@ func fakeApp() error {
 				return
 			}
 			_, _ = io.WriteString(w, wd)
+			return
+		case r.URL.Path == "/fail":
+			errsMu.Lock()
+			defer errsMu.Unlock()
+			errs = append(errs, deverrors.Request{Method: r.Method, URL: r.URL.RequestURI(), Status: 500, Message: "Internal Server Error", Error: "the disk is full", Count: 1})
+			http.Error(w, "Internal Server Error", 500)
+			return
+		case r.URL.Path == deverrors.Path:
+			errsMu.Lock()
+			defer errsMu.Unlock()
+			if r.Method == "DELETE" {
+				errs = []deverrors.Request{}
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(deverrors.App{Requests: errs, Renders: []deverrors.Render{}})
 			return
 		case r.URL.Path == "/bundle":
 			bundleMu.Lock()
