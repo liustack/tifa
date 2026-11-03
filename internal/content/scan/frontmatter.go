@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json/jsontext"
 	"fmt"
+	"io"
 	"math"
 	"regexp"
 	"strconv"
@@ -76,9 +77,23 @@ func parseMatter(src []byte, schema *Node, typeName string) *matter {
 		m.errs = append(m.errs, posError{pos{1, 1}, "the front matter has no line --- after it"})
 		return m
 	}
-	var doc yaml.Node
-	if err := yaml.Unmarshal(yamlText, &doc); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(yamlText))
+	var doc, next yaml.Node
+	if err := dec.Decode(&doc); err != nil && err != io.EOF {
 		m.errs = append(m.errs, yamlError(err))
+		return m
+	}
+	switch err := dec.Decode(&next); {
+	case err == io.EOF:
+	case err != nil:
+		m.errs = append(m.errs, yamlError(err))
+		return m
+	default:
+		n := &next
+		if len(next.Content) > 0 {
+			n = next.Content[0]
+		}
+		m.errs = append(m.errs, posError{at(n), "the front matter holds a second YAML document: write all its keys in one map, without ... or --- between them"})
 		return m
 	}
 	c := &converter{m: m, typeName: typeName}
