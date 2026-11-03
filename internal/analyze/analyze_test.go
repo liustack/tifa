@@ -295,6 +295,7 @@ func TestViolations(t *testing.T) {
 			{"app/page/route.go:9:", "Data.ByHTML", "tifa.HTML", "map key"},
 			{"app/api/route.go:9:", "POST input", "Input.Body", "tifa.HTML", "sanitize"},
 			{"app/bare/route.go:5:", "Load result", "tifa.HTML", "struct field"},
+			{"app/named/route.go:7:", "Load result", "tifa.HTML", "struct field"},
 			{"app/ptr/route.go:5:", "Layout result", "tifa.HTML", "struct field"},
 		}},
 		{"badshape", [][]string{

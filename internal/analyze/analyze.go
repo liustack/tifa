@@ -790,8 +790,9 @@ func (a *analyzer) readLoad(pkg *packages.Package, owner, name string) (*Load, [
 	load.HTML = html
 	// The page leaves only data that is an object to the JSON text Go wrote (goJSON in
 	// js/runtime/data.ts), so a marker in place of a bare value would never be used.
+	// Pointers are written as what they point to, also those of a named pointer type.
 	bare := types.Unalias(result)
-	for p, ok := bare.(*types.Pointer); ok; p, ok = bare.(*types.Pointer) {
+	for p, ok := bare.Underlying().(*types.Pointer); ok; p, ok = bare.Underlying().(*types.Pointer) {
 		bare = types.Unalias(p.Elem())
 	}
 	if isNamed(bare, tifaPath, "HTML") {
