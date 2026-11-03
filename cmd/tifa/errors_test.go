@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -25,6 +27,7 @@ func fakeDev(t *testing.T, report string) string {
 			http.NotFound(w, r)
 			return
 		}
+		w.Header().Set(deverrors.PIDHeader, strconv.Itoa(os.Getpid()))
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(report))
 	}))
@@ -124,49 +127,43 @@ func TestErrorsWithoutErrors(t *testing.T) {
 }
 
 // Without a tifa dev that listens in the app, tifa errors says so and exits with status 2: no
-// lock file, a lock no one holds, a holder without an address (tifa build, or a tifa dev that does
-// not listen yet), and an address that does not answer.
+// lock file, a record without an address (tifa build, or a tifa dev that does not listen yet), a
+// holder that is gone, an address where nothing answers, and an answer that does not come from
+// the tifa dev of the record, such as another program that took the port.
 func TestErrorsWithoutTifaDev(t *testing.T) {
-	const notRunning = "tifa dev is not running in this app. Start it with go tool tifa dev"
+	const notRunning = "tifa dev is not running in this app"
+	// record writes .tifa/dev.lock as a holder leaves it, without holding the lock.
+	record := func(holder lockHolder) string {
+		root := t.TempDir()
+		data, err := json.Marshal(holder)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(root, codegen.Dir, codegen.LockFile), string(data))
+		return root
+	}
+	exited := exec.Command("true")
+	if err := exited.Run(); err != nil {
+		t.Fatal(err)
+	}
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"failure":null,"requests":[],"browser":[],"renders":[]}`))
+	}))
+	t.Cleanup(other.Close)
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closed.Close()
 	noFile := t.TempDir()
 
-	free := t.TempDir()
-	l, err := lockApp(free)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := l.SetURL("http://127.0.0.1:1"); err != nil {
-		t.Fatal(err)
-	}
-	l.Close()
-
-	building := t.TempDir()
-	l, err = lockApp(building)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { l.Close() })
-
-	gone := t.TempDir()
-	l2, err := lockApp(gone)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { l2.Close() })
-	srv := httptest.NewServer(http.NotFoundHandler())
-	srv.Close()
-	if err := l2.SetURL(srv.URL); err != nil {
-		t.Fatal(err)
-	}
-
-	for _, tc := range []struct{ name, root, want string }{
-		{"no lock file", noFile, notRunning},
-		{"a free lock", free, notRunning},
-		{"no address", building, notRunning},
-		{"no answer", gone, "cannot reach tifa dev at " + srv.URL},
+	for _, tc := range []struct{ name, root string }{
+		{"no lock file", noFile},
+		{"no address", record(lockHolder{PID: os.Getpid()})},
+		{"a record that does not parse", record(lockHolder{})},
+		{"a holder that exited", record(lockHolder{PID: exited.Process.Pid, URL: other.URL})},
+		{"nothing answers", record(lockHolder{PID: os.Getpid(), URL: closed.URL})},
+		{"another program answers", record(lockHolder{PID: os.Getpid(), URL: other.URL})},
 	} {
 		out, _, err := run(t, "errors", "--dir", tc.root)
-		if code := exitCodeOf(err); code != 2 || !strings.Contains(err.Error(), tc.want) || out != "" {
+		if code := exitCodeOf(err); code != 2 || !strings.Contains(err.Error(), notRunning) || out != "" {
 			t.Errorf("%s: exit %d, %v, stdout %q", tc.name, code, err, out)
 		}
 	}
@@ -174,10 +171,30 @@ func TestErrorsWithoutTifaDev(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(noFile, codegen.Dir)); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf(".tifa after tifa errors: %v", err)
 	}
-	// Nor does it take the lock: tifa dev can start after it.
-	again, err := lockApp(free)
+}
+
+// tifa errors only reads .tifa/dev.lock: a tifa dev or tifa build that starts while it looks can
+// take the lock.
+func TestErrorsLeavesTheLockAlone(t *testing.T) {
+	root := t.TempDir()
+	l, err := lockApp(root)
 	if err != nil {
-		t.Fatalf("lock after tifa errors: %v", err)
+		t.Fatal(err)
 	}
-	again.Close()
+	if err := l.SetURL("http://127.0.0.1:1"); err != nil {
+		t.Fatal(err)
+	}
+	l.Close() // the record stays, no one holds the lock
+	var lockErr error
+	testHookDevRecord = func() {
+		var again *appLock
+		if again, lockErr = lockApp(root); lockErr == nil {
+			again.Close()
+		}
+	}
+	t.Cleanup(func() { testHookDevRecord = nil })
+	run(t, "errors", "--dir", root)
+	if lockErr != nil {
+		t.Fatalf("a tifa dev starting while tifa errors looked: %v", lockErr)
+	}
 }

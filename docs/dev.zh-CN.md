@@ -143,7 +143,7 @@ Hydration mismatch in the browser: http://127.0.0.1:9527/orders (×3)
   ...
 ```
 
-没有错误时打印 `No errors since the last build.`。退出码：没有错误是 0，有错误是 1，应用里没有 tifa dev 在运行（没人持有 `.tifa/dev.lock`，或者 tifa dev 还没开始监听）或 tifa dev 没有应答是 2。`--json` 以 JSON 打印同样的内容，空的字段也都在：
+没有错误时打印 `No errors since the last build.`。退出码：没有错误是 0，有错误是 1，应用里没有 tifa dev 在运行是 2：`.tifa/dev.lock` 记下的进程已经不在，或者还没开始监听，或者它的地址上没有它的应答。`--json` 以 JSON 打印同样的内容，空的字段也都在：
 
 ```json
 {
@@ -156,7 +156,7 @@ Hydration mismatch in the browser: http://127.0.0.1:9527/orders (×3)
 
 构建和运行都正常时 `failure` 是 `null`。`kind` 是 `recoverable`、`uncaught` 或 `rejection`。
 
-命令向 `.tifa/dev.lock` 记下的地址请求 tifa dev 的 `/__tifa/dev/errors`。tifa dev 只在 `localhost` 或 IP 地址下回答这个路径，也只收自己页面报上来的浏览器错误，每条最多 128 KiB。应用自己的错误由应用回答给 tifa dev。构建出的应用没有这些。
+命令读取 tifa dev 写进 `.tifa/dev.lock` 的进程号和地址，不去拿锁，所以同时启动的 tifa dev 或 tifa build 不受影响。它向这个地址请求 `/__tifa/dev/errors`，回答的 `X-Tifa-Dev-Pid` 是同一个进程才采用。tifa dev 只在 `localhost` 或 IP 地址下回答这个路径，也只收自己页面报上来的浏览器错误，每条最多 128 KiB。应用自己的错误由应用回答给 tifa dev。构建出的应用没有这些。
 
 ## 文件放在哪
 

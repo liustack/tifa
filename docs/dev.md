@@ -143,7 +143,7 @@ Hydration mismatch in the browser: http://127.0.0.1:9527/orders (×3)
   ...
 ```
 
-Without errors it prints `No errors since the last build.` It exits with status 0 without errors, 1 with errors, and 2 when no tifa dev runs in the app (no one holds `.tifa/dev.lock`, or tifa dev does not listen yet) or tifa dev does not answer. `--json` prints the same as JSON, with every field also when it is empty:
+Without errors it prints `No errors since the last build.` It exits with status 0 without errors, 1 with errors, and 2 when no tifa dev runs in the app: the process that `.tifa/dev.lock` names is gone, it does not listen yet, or nothing at its address answers for it. `--json` prints the same as JSON, with every field also when it is empty:
 
 ```json
 {
@@ -156,7 +156,7 @@ Without errors it prints `No errors since the last build.` It exits with status 
 
 `failure` is `null` when everything builds and runs. `kind` is `recoverable`, `uncaught` or `rejection`.
 
-The command asks tifa dev at `/__tifa/dev/errors`, on the address that `.tifa/dev.lock` records. tifa dev answers there only under `localhost` or an IP address, and takes the reports of the browser only from its own pages, up to 128 KiB each. The app answers tifa dev for its own errors. A built app has none of this.
+The command reads the process ID and the address that tifa dev wrote into `.tifa/dev.lock`, without taking the lock, so a tifa dev or tifa build can start at the same time. It asks that address for `/__tifa/dev/errors` and takes the answer only when it names the same process in `X-Tifa-Dev-Pid`. tifa dev answers there only under `localhost` or an IP address, and takes the reports of the browser only from its own pages, up to 128 KiB each. The app answers tifa dev for its own errors. A built app has none of this.
 
 ## Where files go
 

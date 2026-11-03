@@ -15,6 +15,10 @@ import (
 // tifa dev never forwards a browser request under /__tifa/dev/ to the app.
 const Path = "/__tifa/dev/errors"
 
+// PIDHeader is the header in which tifa dev names its process ID when it answers at Path, so that
+// `tifa errors` knows the answer comes from the tifa dev that .tifa/dev.lock names.
+const PIDHeader = "X-Tifa-Dev-Pid"
+
 // Max is how many different errors each list keeps, as the panel of the page does.
 const Max = 20
 

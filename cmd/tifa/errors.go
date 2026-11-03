@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -42,14 +43,14 @@ runs in the application.`,
 			if err != nil {
 				return err
 			}
-			url, err := devURL(root)
+			holder, err := devRecord(root)
 			if err != nil {
 				return &exitError{code: 2, err: err}
 			}
-			if url == "" {
-				return &exitError{code: 2, err: errors.New("tifa dev is not running in this app. Start it with go tool tifa dev")}
+			if holder.URL == "" || !processAlive(holder.PID) {
+				return &exitError{code: 2, err: errNotRunning}
 			}
-			report, err := askDev(url)
+			report, err := askDev(holder)
 			if err != nil {
 				return &exitError{code: 2, err: err}
 			}
@@ -79,42 +80,48 @@ runs in the application.`,
 	return cmd
 }
 
-// devURL returns the address of the tifa dev that runs in the app at root, empty when none does:
-// no one holds the lock, or its holder has no address, as tifa build or a tifa dev that does not
-// listen yet. It neither creates .tifa nor keeps the lock.
-func devURL(root string) (string, error) {
-	f, err := os.Open(filepath.Join(root, codegen.Dir, codegen.LockFile))
-	if errors.Is(err, fs.ErrNotExist) {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	// Closing the file drops a lock that tryLock took.
-	defer f.Close()
-	free, err := tryLock(f)
-	if err != nil || free {
-		return "", err
-	}
+// testHookDevRecord lets tests act once tifa errors has looked at .tifa/dev.lock.
+var testHookDevRecord func()
+
+// errNotRunning says that no tifa dev runs in the app.
+var errNotRunning = errors.New("tifa dev is not running in this app. Start it with go tool tifa dev")
+
+// devRecord reads what the holder of the lock of the app at root wrote into .tifa/dev.lock. It does
+// not take the lock, which a tifa dev or tifa build that starts meanwhile would then fail to get,
+// and does not create .tifa. The record stays after its holder ended: a zero record means there is
+// none, and the caller checks that its process lives and that the address answers for it.
+func devRecord(root string) (lockHolder, error) {
 	var holder lockHolder
-	data, err := io.ReadAll(f)
+	data, err := os.ReadFile(filepath.Join(root, codegen.Dir, codegen.LockFile))
+	if testHookDevRecord != nil {
+		testHookDevRecord()
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return holder, nil
+	}
 	if err != nil {
-		return "", err
+		return holder, err
 	}
 	// A holder that is still writing its record leaves one that does not parse: no address yet.
 	_ = json.Unmarshal(data, &holder)
-	return holder.URL, nil
+	return holder, nil
 }
 
-// askDev gets the report of the tifa dev at url.
-func askDev(url string) (deverrors.Report, error) {
+// askDev gets the report of the tifa dev that holder names. An address where nothing answers, or
+// an answer that does not name the process of holder, as from a program that took the port of a
+// tifa dev that ended, means no tifa dev runs.
+func askDev(holder lockHolder) (deverrors.Report, error) {
 	var report deverrors.Report
+	url := holder.URL
 	client := &http.Client{Timeout: errorsWait}
 	resp, err := client.Get(url + deverrors.Path)
 	if err != nil {
-		return report, fmt.Errorf("cannot reach tifa dev at %s: %w", url, err)
+		return report, fmt.Errorf("%w (nothing answers at %s: %v)", errNotRunning, url, err)
 	}
 	defer resp.Body.Close()
+	if resp.Header.Get(deverrors.PIDHeader) != strconv.Itoa(holder.PID) {
+		return report, fmt.Errorf("%w (the program at %s is not the tifa dev of .tifa/dev.lock)", errNotRunning, url)
+	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return report, fmt.Errorf("reading the answer of tifa dev at %s: %w", url, err)

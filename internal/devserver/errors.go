@@ -9,6 +9,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,6 +31,7 @@ var testHookCollectErrors func()
 // During a build it waits for the build to end. A build that starts while the report is read
 // drops what it read, so the report waits for that build too and is read again.
 func (d *dev) serveErrors(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set(deverrors.PIDHeader, strconv.Itoa(os.Getpid()))
 	if !plainHost(r.Host) {
 		http.Error(w, "tifa dev answers only under localhost or an IP address", http.StatusForbidden)
 		return
