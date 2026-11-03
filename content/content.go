@@ -159,6 +159,11 @@ func checkSchema(t reflect.Type) error {
 	}) {
 		return fmt.Errorf("content.Define: %s must be a struct type that embeds content.Entry, not a pointer to it", t)
 	}
+	for _, m := range []string{"UnmarshalJSON", "UnmarshalJSONFrom", "UnmarshalText"} {
+		if _, ok := reflect.PointerTo(t).MethodByName(m); ok {
+			return fmt.Errorf("content.Define: %s reads its own JSON, so front matter cannot be checked against it: remove its UnmarshalJSON, UnmarshalJSONFrom or UnmarshalText method", t)
+		}
+	}
 	if embeddedEntries(t) > 1 {
 		return fmt.Errorf("content.Define: %s embeds content.Entry more than once: a schema embeds it once, as its own field", t)
 	}

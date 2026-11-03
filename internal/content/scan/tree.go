@@ -91,6 +91,8 @@ type goType interface {
 	// unmarshals reports whether the type or its pointer has a method json v2 would call
 	// instead of reading the value field by field.
 	unmarshals() bool
+	// pos is where a named type is declared, token.NoPos from reflect.
+	pos() token.Pos
 }
 
 type goField struct {
@@ -117,6 +119,11 @@ func build(t goType) (*Node, []Problem) {
 	b := &builder{named: map[any]*Node{}}
 	if t.kind() != reflect.Struct {
 		b.problem("%s must be a struct type that embeds content.Entry, not a pointer to it", t)
+		return nil, b.problems
+	}
+	if t.unmarshals() {
+		b.pos = t.pos()
+		b.problem("%s reads its own JSON, so front matter cannot be checked against it: remove its UnmarshalJSON, UnmarshalJSONFrom or UnmarshalText method", t)
 		return nil, b.problems
 	}
 	root := &Node{Kind: Struct}
@@ -366,9 +373,10 @@ func (r reflectType) bits() int {
 	}
 	return r.t.Bits()
 }
-func (r reflectType) elem() goType  { return reflectType{r.t.Elem()} }
-func (r reflectType) key() goType   { return reflectType{r.t.Key()} }
-func (r reflectType) numField() int { return r.t.NumField() }
+func (r reflectType) pos() token.Pos { return token.NoPos }
+func (r reflectType) elem() goType   { return reflectType{r.t.Elem()} }
+func (r reflectType) key() goType    { return reflectType{r.t.Key()} }
+func (r reflectType) numField() int  { return r.t.NumField() }
 func (r reflectType) is(pkg, name string) bool {
 	return r.t.PkgPath() == pkg && r.t.Name() == name
 }
@@ -476,6 +484,12 @@ func (g typesType) field(i int) goField {
 	s := g.under().(*types.Struct)
 	f := s.Field(i)
 	return goField{name: f.Name(), exported: f.Exported(), embedded: f.Embedded(), tag: reflect.StructTag(s.Tag(i)), typ: typesType{f.Type()}, pos: f.Pos()}
+}
+func (g typesType) pos() token.Pos {
+	if n, ok := types.Unalias(g.t).(*types.Named); ok {
+		return n.Obj().Pos()
+	}
+	return token.NoPos
 }
 func (g typesType) is(pkg, name string) bool {
 	n, ok := types.Unalias(g.t).(*types.Named)

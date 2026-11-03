@@ -130,6 +130,9 @@ var wantProblems = map[string][]string{
 	},
 	"NoEntry":        nil,
 	"RecursiveNamed": nil,
+	"RootJSON":       {"schemas.RootJSON reads its own JSON, so front matter cannot be checked against it: remove its UnmarshalJSON, UnmarshalJSONFrom or UnmarshalText method"},
+	"RootText":       {"schemas.RootText reads its own JSON, so front matter cannot be checked against it: remove its UnmarshalJSON, UnmarshalJSONFrom or UnmarshalText method"},
+	"RootFrom":       {"schemas.RootFrom reads its own JSON, so front matter cannot be checked against it: remove its UnmarshalJSON, UnmarshalJSONFrom or UnmarshalText method"},
 	"TwiceEntry": {
 		"schemas.TwiceEntry.E is a second embedded content.Entry: a schema embeds it once, as its own field",
 	},

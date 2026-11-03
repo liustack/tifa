@@ -1,6 +1,7 @@
 package content
 
 import (
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"slices"
@@ -29,6 +30,18 @@ type deepEntry struct {
 	Entry
 	post
 }
+
+type ownJSON struct{ Entry }
+
+func (ownJSON) UnmarshalJSON([]byte) error { return nil }
+
+type ownText struct{ Entry }
+
+func (*ownText) UnmarshalText([]byte) error { return nil }
+
+type ownFrom struct{ Entry }
+
+func (*ownFrom) UnmarshalJSONFrom(*jsontext.Decoder) error { return nil }
 
 func (p post) Validate() error {
 	if p.Title == "bad" {
@@ -190,6 +203,9 @@ func TestDefinePanicsOnWhatItSees(t *testing.T) {
 		{"no Entry", func() { Define[struct{ Title string }](Source{Dir: "x1"}) }, "must be a struct type that embeds content.Entry"},
 		{"pointer", func() { Define[*post](Source{Dir: "x2"}) }, "must be a struct type that embeds content.Entry"},
 		{"Entry twice", func() { Define[twiceEntry](Source{Dir: "x4"}) }, "content.Define: content.twiceEntry embeds content.Entry more than once: a schema embeds it once, as its own field"},
+		{"UnmarshalJSON", func() { Define[ownJSON](Source{Dir: "x6"}) }, "content.Define: content.ownJSON reads its own JSON, so front matter cannot be checked against it: remove its UnmarshalJSON, UnmarshalJSONFrom or UnmarshalText method"},
+		{"UnmarshalText", func() { Define[ownText](Source{Dir: "x7"}) }, "content.Define: content.ownText reads its own JSON"},
+		{"UnmarshalJSONFrom", func() { Define[ownFrom](Source{Dir: "x8"}) }, "content.Define: content.ownFrom reads its own JSON"},
 		{"Entry deeper", func() { Define[deepEntry](Source{Dir: "x5"}) }, "content.Define: content.deepEntry embeds content.Entry more than once: a schema embeds it once, as its own field"},
 		{"bad Dir", func() { Define[post](Source{Dir: "a/b"}) }, `Dir "a/b" must be the name of one folder`},
 		{"language twice", func() { Define[post](Source{Dir: "x3", Languages: []string{"en", "en"}}) }, `Languages has "en" twice`},

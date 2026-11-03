@@ -4,6 +4,7 @@ package schemas
 
 import (
 	"encoding/json"
+	"encoding/json/jsontext"
 	"time"
 
 	"github.com/liustack/tifa/content"
@@ -27,6 +28,9 @@ var All = map[string]any{
 	"NoEntry":        NoEntry{},
 	"TwiceEntry":     TwiceEntry{},
 	"DeepEntry":      DeepEntry{},
+	"RootJSON":       RootJSON{},
+	"RootText":       RootText{},
+	"RootFrom":       RootFrom{},
 }
 
 type Basic struct {
@@ -198,6 +202,27 @@ type DeepEntry struct {
 	content.Entry
 	WithEntry
 }
+
+type RootJSON struct {
+	content.Entry
+	Title string `json:"title"`
+}
+
+func (RootJSON) UnmarshalJSON([]byte) error { return nil }
+
+type RootText struct {
+	content.Entry
+	Title string `json:"title"`
+}
+
+func (*RootText) UnmarshalText([]byte) error { return nil }
+
+type RootFrom struct {
+	content.Entry
+	Title string `json:"title"`
+}
+
+func (*RootFrom) UnmarshalJSONFrom(*jsontext.Decoder) error { return nil }
 
 type NoEntry struct {
 	Title string `json:"title"`
