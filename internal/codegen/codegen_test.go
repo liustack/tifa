@@ -719,3 +719,19 @@ func TestCacheQueryCollectsTheLoadsAroundTheRoute(t *testing.T) {
 		t.Errorf("a route without Loads: %v", got)
 	}
 }
+
+// The settings of the app are defined when its root package starts, so the main imports the
+// root package also when it has no hooks.
+func TestMainImportsTheRootPackageForItsSettings(t *testing.T) {
+	files, err := generateGo(&analyze.Manifest{Module: "example.com/m", Settings: []string{"db.url"}}, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(files["main.go"]), `_ "example.com/m"`) {
+		t.Fatalf("main.go:\n%s", files["main.go"])
+	}
+	files, err = generateGo(&analyze.Manifest{Module: "example.com/m", Hooks: []string{"OnStart"}, Settings: []string{"db.url"}}, nil, false)
+	if err != nil || strings.Contains(string(files["main.go"]), `_ "example.com/m"`) {
+		t.Fatalf("with hooks: %v\n%s", err, files["main.go"])
+	}
+}

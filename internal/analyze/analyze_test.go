@@ -1032,3 +1032,35 @@ func TestSessionWriteInUnrunClosure(t *testing.T) {
 		t.Fatalf("Analyze: %v", err)
 	}
 }
+
+func TestSettingsOfTheApp(t *testing.T) {
+	m, err := analyzeApp(t, "settings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"db.url", "feed.hosts", "jobs.workers", "shop.open", "db.pool.idle", "upload.limit"}
+	if !reflect.DeepEqual(m.Settings, want) {
+		t.Fatalf("Settings = %q, want %q", m.Settings, want)
+	}
+}
+
+func TestSettingsBreakingTheRules(t *testing.T) {
+	_, err := analyzeApp(t, "badsettings")
+	if err == nil {
+		t.Fatal("no error")
+	}
+	for _, want := range []string{
+		"config.go:8:", "key of tifa.String must be a string literal",
+		"config.go:9:", `"name" is not a setting key`,
+		"config.go:10:", "setting server.addr is defined twice, or is a setting of tifa",
+		"config.go:12:", "settings a_b.c and a.b_c both have the flag --a-b-c",
+		"config.go:13:", "setting a.b_c is defined twice",
+		"config.go:14:", "config.go:17:", "config.go:19:",
+		"other.go:5:", "internal/store/store.go:5:",
+		"only in a package-level var of config.go in the root of the app",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error lacks %q:\n%v", want, err)
+		}
+	}
+}

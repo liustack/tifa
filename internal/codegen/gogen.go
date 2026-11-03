@@ -79,6 +79,9 @@ func generateGo(m *analyze.Manifest, settings map[string]string, dev bool) (map[
 	main.WriteString("\"github.com/liustack/tifa/server\"\n")
 	if len(m.Hooks) > 0 {
 		fmt.Fprintf(&main, "\nhooks %q\n", m.Module)
+	} else if len(m.Settings) > 0 {
+		// config.go defines the settings of the app when the package starts.
+		fmt.Fprintf(&main, "\n_ %q\n", m.Module)
 	}
 	if m.Session != nil && m.Session.Name != "" {
 		fmt.Fprintf(&main, "\nsessiontype %q\n", m.Session.Package)
