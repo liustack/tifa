@@ -71,6 +71,21 @@ for (const [form, memo] of [['esm', esmMemo], ['cjs', cjsMemo]] as [string, Memo
     call(g)
     call(Object.defineProperties({}, Object.getOwnPropertyDescriptors(g)))
   })
+  direct(memo, form, 'a getter on a shared prototype', (call) => {
+    const colors = new WeakMap<object, unknown>()
+    const proto = { get palette() { return colors.get(this) } }
+    const red = Object.assign(Object.create(proto), { spacing })
+    const blue = Object.assign(Object.create(proto), { spacing })
+    colors.set(red, { main: 'red' })
+    colors.set(blue, { main: 'blue' })
+    call(red)
+    call(blue)
+  })
+  direct(memo, form, 'two objects of one class', (call) => {
+    class Theme { palette = palette; spacing = spacing }
+    call(new Theme())
+    call(new Theme())
+  })
   direct(memo, form, 'back and forth', (call) => { call(A); call(B); call({ ...A }); call({ ...B }) })
   direct(memo, form, 'no theme', (call) => { call(undefined); call(undefined) })
   direct(memo, form, 'a style function that throws', (call) => { const t = { ...A, boom: true }; call(t); call({ ...t }) })
@@ -243,6 +258,8 @@ func TestSSRMemoThemeTakesThemesOfTheSameContentAsOne(t *testing.T) {
 		"a hidden key":                      {2, 2},
 		"a symbol key":                      {2, 1},
 		"a getter":                          {2, 2},
+		"a getter on a shared prototype":    {2, 2},
+		"two objects of one class":          {2, 2},
 		"back and forth":                    {4, 4},
 		"no theme":                          {1, 1},
 		"a style function that throws":      {2, 2},
@@ -253,7 +270,7 @@ func TestSSRMemoThemeTakesThemesOfTheSameContentAsOne(t *testing.T) {
 		"nested ThemeProviders":             {6, 5},
 		"CSS variables":                     {2, 2},
 	}
-	if len(plain) != len(changed) || len(changed) != 2*18+3 {
+	if len(plain) != len(changed) || len(changed) != 2*20+3 {
 		t.Fatalf("%d cases, and %d without the change", len(changed), len(plain))
 	}
 	for i, p := range plain {

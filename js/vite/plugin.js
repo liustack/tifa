@@ -2318,9 +2318,12 @@ function clsxFast(source) {
 
 // memoThemeByContent returns the source of memoTheme of @mui/system with styleMemoized comparing,
 // in place of the theme, the first theme it saw with the same content, or undefined when the source
-// does not have unstable_memoTheme in a form it knows. Two themes have the same content when they
-// have the same prototype and the same own keys in the same order, each a data property with the
-// same enumerability and the same value (Object.is). ThemeProvider of MUI makes such a theme on each
+// does not have unstable_memoTheme in a form it knows. Only a plain object, whose prototype is
+// Object.prototype, as every theme of MUI is, is compared by content: a prototype of its own may
+// have getters that read something of each theme, such as a WeakMap keyed by it, so any other
+// theme stands for itself, as before. Two plain themes have the same content when they have the
+// same own keys in the same order, each a data property with the same enumerability and the same
+// value (Object.is). ThemeProvider of MUI makes such a theme on each
 // render on the server, with the same objects in it, so the styles memoTheme made on the first
 // render are taken again. That needs what memoTheme in the browser and MUI already ask: that a theme
 // and the objects in it do not change after a render used them. A theme with an accessor is its own
@@ -2342,8 +2345,9 @@ export function memoThemeByContent(source) {
 }
 const memoThemeHelpers = `
 var tifaThemes = [], tifaThemeLast, tifaThemeLastSame;
-var tifaThemeKeys = Reflect.ownKeys, tifaThemeProto = Reflect.getPrototypeOf, tifaThemeOwn = Reflect.getOwnPropertyDescriptor, tifaThemeIs = Object.is;
+var tifaThemeKeys = Reflect.ownKeys, tifaThemeProto = Reflect.getPrototypeOf, tifaThemeOwn = Reflect.getOwnPropertyDescriptor, tifaThemeIs = Object.is, tifaThemeObject = Object.prototype;
 function tifaThemeContent(theme) {
+  if (tifaThemeProto(theme) !== tifaThemeObject) return null;
   const keys = tifaThemeKeys(theme), values = [], hidden = [];
   for (let i = 0; i < keys.length; i++) {
     const d = tifaThemeOwn(theme, keys[i]);
@@ -2351,11 +2355,11 @@ function tifaThemeContent(theme) {
     values[i] = d.value;
     hidden[i] = !d.enumerable;
   }
-  return { proto: tifaThemeProto(theme), keys, values, hidden };
+  return { keys, values, hidden };
 }
 function tifaThemeSameContent(a, b) {
   const n = a.keys.length;
-  if (a.proto !== b.proto || b.keys.length !== n) return false;
+  if (b.keys.length !== n) return false;
   for (let i = 0; i < n; i++) if (a.keys[i] !== b.keys[i] || a.hidden[i] !== b.hidden[i] || !tifaThemeIs(a.values[i], b.values[i])) return false;
   return true;
 }
