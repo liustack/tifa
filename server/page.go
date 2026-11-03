@@ -816,7 +816,7 @@ const devClockShift = 36*time.Hour + 7*time.Minute + 13*time.Second
 // so each request warns until the page is fixed. A second render that fails is left alone: the
 // first one is what the request gets.
 func (s *server) devRenderTwice(ctx context.Context, f *front, in ssr.Input, first, method, path string) (string, bool) {
-	later := core.WithRenderClock(ctx, func() time.Time { return time.Now().Add(devClockShift) })
+	later, reads := ssr.WithReads(core.WithRenderClock(ctx, func() time.Time { return time.Now().Add(devClockShift) }))
 	second, err := f.render(later, in)
 	if err != nil || second == first {
 		return "", false
@@ -830,6 +830,9 @@ func (s *server) devRenderTwice(ctx context.Context, f *front, in ssr.Input, fir
 		"Change the component so it renders the same, or write RenderCache = false in route.go. " +
 		"The built app would keep the first render for later requests.\n\n" +
 		"First render:  " + around(first, i) + "\nSecond render: " + around(second, i)
+	if places := reads.Places(); len(places) > 0 {
+		text += "\n\nThe code of the app read them here:\n  " + strings.Join(places, "\n  ")
+	}
 	core.Logger().Warn("tifa: "+text, "method", method, "path", path)
 	if s.devErrors != nil {
 		s.devErrors.renders.Add(deverrors.Render{Method: method, URL: in.URL, Text: text})

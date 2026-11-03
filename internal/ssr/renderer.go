@@ -70,7 +70,7 @@ const (
 // too: the engine's offset from UTC is always 0, and the zone of the process, which the app's
 // Go code uses, is left alone. intl.Register only puts stand-ins on the VM: the first use of Intl or a
 // toLocale* method installs the rest, so a VM whose pages never format costs a few KB more.
-// dev runs intlcheck.js too, which installs Intl at once to watch it.
+// dev runs intlcheck.js too, which installs Intl at once to watch it, and readcheck.js.
 // Temporal is lazy too. Date, Temporal and Intl share the VM clock, live during
 // prewarming. Pool.Render may set a request clock after loading. Values already
 // captured by module initialization stay unchanged. The default zone follows Intl.
@@ -114,11 +114,18 @@ func Load(bytecode *slowjs.SharedBytecode, memory, stack uintptr, timeout time.D
 	if err == nil && dev {
 		_, err = vm.Eval(intlCheck, slowjs.EvalGlobal)
 	}
+	if err == nil && dev {
+		_, err = vm.Eval(readCheck, slowjs.EvalGlobal)
+	}
 	if err == nil {
 		_, err = vm.EvalSharedBytecode(bytecode)
 	}
 	if err == nil {
 		err = vm.takeFunctions()
+	}
+	if err == nil && dev {
+		// What the bundle read as it loaded is the same for every render.
+		_, err = vm.Eval(takeReads, slowjs.EvalGlobal)
 	}
 	if err != nil {
 		return nil, errors.Join(err, vm.VM.Close())
@@ -139,6 +146,12 @@ func Load(bytecode *slowjs.SharedBytecode, memory, stack uintptr, timeout time.D
 //
 //go:embed intlcheck.js
 var intlCheck string
+
+// readCheck is what tifa dev runs on each VM to find where a render reads the time or a random
+// number, see Reads.
+//
+//go:embed readcheck.js
+var readCheck string
 
 // VM is a VM of the bundle, made by Load, with the functions RenderVM calls.
 type VM struct {

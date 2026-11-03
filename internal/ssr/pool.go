@@ -311,6 +311,10 @@ func (p *Pool) renderInVM(ctx context.Context, in Input) (string, error) {
 			core.Logger().Warn("tifa: ssr: could not read the Intl warnings", "err", warnErr)
 			return html, err
 		}
+		if readErr := p.takeReads(ctx, vm.VM.VM); readErr != nil {
+			core.Logger().Warn("tifa: ssr: could not read where the render read the time", "err", readErr)
+			return html, err
+		}
 	}
 	// A redirect is an answer, not a failure: the VM goes back to the pool.
 	keep = true
