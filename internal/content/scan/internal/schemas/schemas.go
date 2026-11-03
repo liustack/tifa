@@ -31,6 +31,8 @@ var All = map[string]any{
 	"RootJSON":       RootJSON{},
 	"RootText":       RootText{},
 	"RootFrom":       RootFrom{},
+	"BadNames":       BadNames{},
+	"OddNames":       OddNames{},
 }
 
 type Basic struct {
@@ -119,6 +121,7 @@ type Optional struct {
 	C       *int   `json:"c"`
 	D       string `json:"-"`
 	E       string `json:"-,"`
+	F       string `json:"f,omitempty,omitempty"`
 	private string
 }
 
@@ -223,6 +226,17 @@ type RootFrom struct {
 }
 
 func (*RootFrom) UnmarshalJSONFrom(*jsontext.Decoder) error { return nil }
+
+type BadNames struct {
+	content.Entry
+	Quoted string `json:"'title'"`
+}
+
+type OddNames struct {
+	content.Entry
+	A string `json:"a b"`
+	B string `json:"x-y.z"`
+}
 
 type NoEntry struct {
 	Title string `json:"title"`

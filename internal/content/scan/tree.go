@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"unicode"
 )
 
 // Kind is the shape of a value of the front matter.
@@ -269,20 +270,36 @@ func (b *builder) fields(n *Node, t goType, name string, root bool) {
 				continue
 			}
 			if !f.exported && !f.embedded {
+				if hasJSON {
+					b.problem("%s is unexported and has a json tag, which json v2 refuses: export the field, remove the tag or tag it json:\"-\"", goName)
+				}
 				continue
 			}
-			key, opts, _ := strings.Cut(jsonTag, ",")
+			// The tag rules are those the analysis applies to Load results (tstype.go), with
+			// only omitempty and omitzero for options.
+			key, opts, hasOpts := strings.Cut(jsonTag, ",")
+			if key != "" && !validTagName(key) {
+				b.problem("%s has the json name %q, which json v2 refuses: use letters, digits and the punctuation !#$%%&()*+-./:;<=>?@[]^_{|}~ or space", goName, key)
+				continue
+			}
 			optional := false
 			bad := false
-			if opts != "" {
+			if hasOpts {
+				seen := map[string]bool{}
 				for o := range strings.SplitSeq(opts, ",") {
-					switch o {
-					case "omitempty", "omitzero":
-						optional = true
-					default:
+					switch {
+					case o == "":
+						b.problem("%s has a json tag with an empty option, which json v2 refuses: remove the extra comma", goName)
+						bad = true
+					case o != "omitempty" && o != "omitzero":
 						b.problem("%s has the json option %q: a schema field takes only omitempty and omitzero", goName, o)
 						bad = true
+					case seen[o]:
+						b.problem("%s has the json option %q twice", goName, o)
+						bad = true
 					}
+					seen[o] = true
+					optional = true
 				}
 			}
 			if bad {
@@ -334,6 +351,19 @@ func (b *builder) fields(n *Node, t goType, name string, root bool) {
 		}
 	}
 	walk(t, name, true)
+}
+
+// validTagName reports whether json v2 takes s as the name of a field, as the analysis checks the
+// fields of Load results (validTagName in internal/analyze/tstype.go).
+func validTagName(s string) bool {
+	for _, c := range s {
+		switch {
+		case strings.ContainsRune("!#$%&()*+-./:;<=>?@[]^_{|}~ ", c):
+		case !unicode.IsLetter(c) && !unicode.IsDigit(c):
+			return false
+		}
+	}
+	return s != ""
 }
 
 // Keys returns the keys of the fields of a Struct, in order.

@@ -11,12 +11,18 @@ import (
 	"golang.org/x/tools/go/packages"
 
 	"github.com/liustack/tifa/internal/content/scan/internal/schemas"
+	vetless "github.com/liustack/tifa/internal/content/scan/testdata/schemas"
 )
 
 // TestTreesOfReflectAndTypesAgree reads each type of package schemas with reflect and with
 // go/types and checks that both give the same tree and the same problems.
 func TestTreesOfReflectAndTypesAgree(t *testing.T) {
-	const path = "github.com/liustack/tifa/internal/content/scan/internal/schemas"
+	compareTrees(t, "github.com/liustack/tifa/internal/content/scan/internal/schemas", schemas.All)
+	compareTrees(t, "github.com/liustack/tifa/internal/content/scan/testdata/schemas", vetless.All)
+}
+
+// compareTrees compares the trees of the types all lists, which package path declares.
+func compareTrees(t *testing.T, path string, all map[string]any) {
 	pkgs, err := packages.Load(&packages.Config{Mode: packages.NeedTypes | packages.NeedName}, path)
 	if err != nil {
 		t.Fatal(err)
@@ -26,7 +32,7 @@ func TestTreesOfReflectAndTypesAgree(t *testing.T) {
 	}
 	scope := pkgs[0].Types.Scope()
 	for _, name := range slices.Sorted(func(yield func(string) bool) {
-		for k := range schemas.All {
+		for k := range all {
 			if !yield(k) {
 				return
 			}
@@ -38,7 +44,7 @@ func TestTreesOfReflectAndTypesAgree(t *testing.T) {
 				t.Fatalf("no type %s in %s", name, path)
 			}
 			fromTypes, typesProblems := FromTypes(obj.(*types.TypeName).Type())
-			fromReflect, reflectProblems := FromReflect(reflect.TypeOf(schemas.All[name]))
+			fromReflect, reflectProblems := FromReflect(reflect.TypeOf(all[name]))
 			if a, b := dump(fromTypes), dump(fromReflect); a != b {
 				t.Errorf("trees differ\ngo/types:\n%s\nreflect:\n%s", a, b)
 			}
@@ -109,11 +115,14 @@ var wantTrees = map[string]string{
   ring slice pointer slice (seen)
   again slice (seen)
 `,
+	"OddNames": `struct
+  a b! string
+  x-y.z! string
+`,
 	"Optional": `struct
   a string
   b int64
   c pointer int64
-  -! string
 `,
 }
 
@@ -130,9 +139,20 @@ var wantProblems = map[string][]string{
 	},
 	"NoEntry":        nil,
 	"RecursiveNamed": nil,
-	"RootJSON":       {"schemas.RootJSON reads its own JSON, so front matter cannot be checked against it: remove its UnmarshalJSON, UnmarshalJSONFrom or UnmarshalText method"},
-	"RootText":       {"schemas.RootText reads its own JSON, so front matter cannot be checked against it: remove its UnmarshalJSON, UnmarshalJSONFrom or UnmarshalText method"},
-	"RootFrom":       {"schemas.RootFrom reads its own JSON, so front matter cannot be checked against it: remove its UnmarshalJSON, UnmarshalJSONFrom or UnmarshalText method"},
+	"UnexportedTag": {
+		"schemas.UnexportedTag.note is unexported and has a json tag, which json v2 refuses: export the field, remove the tag or tag it json:\"-\"",
+	},
+	"BadNames": {
+		"schemas.BadNames.Quoted has the json name \"'title'\", which json v2 refuses: use letters, digits and the punctuation !#$%&()*+-./:;<=>?@[]^_{|}~ or space",
+	},
+	"OddNames": nil,
+	"Optional": {
+		"schemas.Optional.E has a json tag with an empty option, which json v2 refuses: remove the extra comma",
+		"schemas.Optional.F has the json option \"omitempty\" twice",
+	},
+	"RootJSON": {"schemas.RootJSON reads its own JSON, so front matter cannot be checked against it: remove its UnmarshalJSON, UnmarshalJSONFrom or UnmarshalText method"},
+	"RootText": {"schemas.RootText reads its own JSON, so front matter cannot be checked against it: remove its UnmarshalJSON, UnmarshalJSONFrom or UnmarshalText method"},
+	"RootFrom": {"schemas.RootFrom reads its own JSON, so front matter cannot be checked against it: remove its UnmarshalJSON, UnmarshalJSONFrom or UnmarshalText method"},
 	"TwiceEntry": {
 		"schemas.TwiceEntry.E is a second embedded content.Entry: a schema embeds it once, as its own field",
 	},
