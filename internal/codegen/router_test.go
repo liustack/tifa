@@ -53,7 +53,7 @@ for (const [entry, platform, lazy] of entries) {
 //
 //	(cd test/apps/pages && pnpm install --frozen-lockfile)
 func TestGeneratedRouterBehaves(t *testing.T) {
-	node, root, modules, run := routerApp(t, filepath.Join("testdata", "router"), routerBuild)
+	node, root, modules, run := routerApp(t, filepath.Join("testdata", "router"), routerBuild, nil)
 	run("build.mjs")
 	for _, name := range []string{"router.test", "head.test", "call.test", "session.test", "lazy/router.test", "lazy/head.test"} {
 		run(filepath.Join("out", filepath.FromSlash(name)+".mjs"))
@@ -88,7 +88,7 @@ var publicBuild = strings.Replace(routerBuild, "const entries = [['router.test.t
 // TestGeneratedRouterLeavesPublicFiles runs testdata/routerpublic/public.test.tsx against an app
 // with a parameter folder at the root of app/, where /favicon.svg also matches the route /{lang}.
 func TestGeneratedRouterLeavesPublicFiles(t *testing.T) {
-	node, root, modules, run := routerApp(t, filepath.Join("testdata", "routerpublic"), publicBuild)
+	node, root, modules, run := routerApp(t, filepath.Join("testdata", "routerpublic"), publicBuild, map[string]string{"public/a?b.txt": "x"})
 	run("build.mjs")
 	run(filepath.Join("out", "public.test.mjs"))
 	tsc := exec.Command(node, filepath.Join(modules, "typescript", "bin", "tsc"), "--noEmit", "-p", ".")
@@ -98,10 +98,10 @@ func TestGeneratedRouterLeavesPublicFiles(t *testing.T) {
 	}
 }
 
-// routerApp generates the app in src into a temporary directory, links the packages of
+// routerApp generates the app in src, with the files of extra added, in a temporary directory, links the packages of
 // test/apps/pages there and writes build as build.mjs. It returns node, the directory, the
 // packages and a function that runs a script in the directory.
-func routerApp(t *testing.T, src, build string) (node, root, modules string, run func(args ...string)) {
+func routerApp(t *testing.T, src, build string, extra map[string]string) (node, root, modules string, run func(args ...string)) {
 	t.Helper()
 	node, err := exec.LookPath("node")
 	if err != nil {
@@ -116,18 +116,37 @@ func routerApp(t *testing.T, src, build string) (node, root, modules string, run
 		t.Skip("run pnpm install --frozen-lockfile in test/apps/pages first")
 	}
 
-	m, err := analyze.Analyze(src)
+	// The app is generated from a copy, so that files whose names a Go module cannot hold (see
+	// module.CheckFilePath) are made here and not checked in.
+	root = t.TempDir()
+	if err := os.CopyFS(root, os.DirFS(src)); err != nil {
+		t.Fatal(err)
+	}
+	repo, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gomod := filepath.Join(root, "go.mod")
+	data, err := os.ReadFile(gomod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(gomod, []byte(strings.Replace(string(data), "=> ../../../..", "=> "+repo, 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for name, text := range extra {
+		if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(name)), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m, err := analyze.Analyze(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	front := bundle.NewNode(pages, io.Discard)
 	defer front.Close()
-	files, err := Generate(src, m, false, front.Exports)
+	files, err := Generate(root, m, false, front.Exports)
 	if err != nil {
-		t.Fatal(err)
-	}
-	root = t.TempDir()
-	if err := os.CopyFS(root, os.DirFS(src)); err != nil {
 		t.Fatal(err)
 	}
 	if err := Write(root, files); err != nil {
