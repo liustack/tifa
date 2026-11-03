@@ -16,6 +16,20 @@
 
 ### 变更
 
+- **不兼容：**tifa 改用 `encoding/json/v2` 读写应用的 JSON（`Load` 和 `Layout` 的数据、处理函数的入参和结果、`c.JSON`、`c.Bind` 和会话），生成的 TypeScript 类型跟着变。应用会看到这些变化（见 [JSON 规则](docs/app.zh-CN.md#json-规则)）：
+  - nil 切片写成 `[]`，nil map 写成 `{}`，以前两者都是 `null`。它们的 TypeScript 类型去掉了 `| null`，`days?: string[] | null` 变成 `days: string[]`。
+  - `[N]byte` 数组和 `[]byte` 一样写成 base64 字符串，以前是数字数组。元素是具名 byte 类型的切片或数组仍是数字数组。
+  - 指针接收者上有 `MarshalText` 的类型，不论放在哪里都写成字符串，字段或切片里的值也一样，以前只有指向它的指针才这样。这类类型可以做 map 的键。
+  - `omitempty` 只省掉 `null`、`""`、`[]` 和 `{}`，不再省掉 `false` 和 `0`。要省掉零值用 `omitzero`。
+  - `string` 选项只能用在数字字段上。
+  - 构建拒绝 `time.Duration`，json v2 写不了它。请返回你要的单位的整数，或者字符串。
+  - 构建拒绝 json v2 会出错的结构体：同一个结构体里两个字段 JSON 名字相同，未导出字段带 json tag，有字段却没有导出字段也没有 tag，嵌入非结构体类型却没写 JSON 名字，嵌入的结构体带 tag 选项或带 JSON、文本方法。
+  - JSON 回答和页面数据里的 `<`、`>`、`&` 原样写出，以前写成 `<`、`>`、`&`。tifa 把 JSON 放进页面 HTML 的地方照旧转义它们。
+  - 字符串里不是 UTF-8 的字节照旧写成 U+FFFD。
+  - 读取变严格。`c.Bind` 和处理函数的入参遇到这些情况回 400：名字和字段只是大小写不同，一个对象里同一个名字出现两次，字符串不是 UTF-8，时间不是 RFC 3339，base64 里有换行，Go 数组的长度对不上。
+  - 存在外部存储里的会话记录按这些规则读不回来时，访客会被登出。
+  - 不再支持 `GOEXPERIMENT=nojsonv2`。
+  - `tifa routes --json` 和 `tifa errors --json` 输出的 JSON 用 `[]` 代替 `null`，也不再有 `<` 转义。
 - **不兼容：**配置的环境变量去掉了 `TIFA_` 前缀：`TIFA_SERVER_ADDR` 改为 `SERVER_ADDR`，`TIFA_SSR_VMS` 改为 `SSR_VMS`。`tifa dev` 用 `SERVER_ADDR` 把地址传给应用。升级部署时把每个变量的前缀去掉。
 - **不兼容：**程序只读自己的配置。不是配置的文件键、环境变量和参数一律不管，以前未知的键或 `TIFA_*` 变量会让程序退出。拼错的名字现在什么也不改，用 `./bin/app config` 检查。`-c` 的文件里的 `build.*` 也不管。
 - **不兼容：**配置只支持 YAML。不再读 `tifa.json` 和 JSON 部署文件：把 `tifa.json` 改名为 `tifa.yaml`，按 YAML 写（JSON 也是合法的 YAML）。`tifa build` 校验 `tifa.yaml`，把它的值写成 Go 代码编进程序，不再嵌入这个文件。

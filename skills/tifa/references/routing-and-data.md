@@ -211,17 +211,18 @@ What `Load`, `Layout` and handlers return or take travels as JSON, and tifa writ
 | integers, floats, `json.Number` | `number` |
 | `string`, `time.Time` | `string` |
 | pointer | `T \| null` |
-| slice | `T[] \| null` (`[]byte` becomes a base64 `string \| null`) |
+| slice | `T[]`, `[]` when nil (`[]byte` and `[N]byte` become a base64 `string`) |
 | array | `T[]` |
-| map | `Record<string, V> \| null` |
+| map | `Record<string, V>`, `{}` when nil |
 | struct | object of its exported fields |
 
 - No interfaces anywhere (fields, elements, map keys), no chan, func, complex numbers or `unsafe.Pointer`.
 - A type with a method or field named `MarshalJSON`, `MarshalJSONTo`, `AppendText` or `AppendJSON` is rejected (except `time.Time` and `json.Number`). Rename it or return another type.
-- `MarshalText() ([]byte, error)` on the value receiver makes a type a string. A handler input with `MarshalText` also needs `UnmarshalText`.
+- `MarshalText() ([]byte, error)` on the value or pointer receiver makes a type a string. `time.Duration` is not accepted: return an integer such as milliseconds. A handler input with `MarshalText` also needs `UnmarshalText`.
 - Embedded exported structs without a json name are flattened. Unexported embedded fields are not accepted.
-- Tags: `omitempty`, `omitzero` and `string` are the only options. `omitempty` or `omitzero` make the field optional in TypeScript.
-- Go's nil slice or map becomes `null`. Write `data.items ?? []` in TSX.
+- Tags: `omitempty`, `omitzero` and `string` are the only options. `omitempty` or `omitzero` make the field optional in TypeScript. `omitempty` leaves out only `null`, `""`, `[]` and `{}`, so use `omitzero` for `false` and `0`. `string` works on number fields only.
+- Two fields of one struct may not share a JSON name, and an unexported field may not have a json tag.
+- tifa writes JSON with `encoding/json/v2`: map keys sorted, `<` `>` `&` not escaped (tifa escapes them where data goes into the page). Input is read strictly: exact names, also in case, no duplicate names, valid UTF-8.
 
 If the build rejects a type, the error names the file and line. Convert to a plain struct in the route package rather than adding methods.
 

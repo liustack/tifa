@@ -16,6 +16,20 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
 
 ### Changed
 
+- **Breaking:** tifa writes and reads the JSON of apps with `encoding/json/v2` (the data of `Load` and `Layout`, the arguments and results of handler functions, `c.JSON`, `c.Bind` and sessions). The generated TypeScript types follow it. What changes for apps (see [JSON rules](docs/app.md#json-rules)):
+  - A nil slice is written as `[]` and a nil map as `{}`, where both were `null`. Their TypeScript types lose `| null`, so `days?: string[] | null` is `days: string[]`.
+  - A `[N]byte` array is a base64 string, as `[]byte` is, where it was an array of numbers. A slice or array whose element is a named byte type stays an array of numbers.
+  - A type whose `MarshalText` has a pointer receiver is written as a string wherever it sits, also as a value in a field or slice, where only pointers to it were. Such types may be map keys.
+  - `omitempty` leaves out only `null`, `""`, `[]` and `{}`, so it no longer drops `false` and `0`. Use `omitzero` to leave out zero values.
+  - The `string` option is accepted only on number fields.
+  - The build rejects `time.Duration`, which json v2 cannot write. Return a number in the unit you want, or a string.
+  - The build rejects structs json v2 would fail on: two fields with the same JSON name in one struct, an unexported field with a json tag, a struct with fields but no exported field and no tag, an embedded field of a non-struct type without a JSON name, and an embedded struct with tag options or with JSON or text methods.
+  - `<`, `>` and `&` are written as they are in JSON answers and page data, where they were `<`, `>` and `&`. Where tifa puts JSON into the page HTML it still escapes them.
+  - Bytes in a string that are not UTF-8 are written as U+FFFD, as before.
+  - Reading is strict. `c.Bind` and handler arguments answer 400 for a name that matches a field only in another case, a name twice in one object, a string that is not UTF-8, a time that is not RFC 3339, base64 with line breaks, or an array of the wrong length for a Go array.
+  - A session record kept in an outside store that does not read back under these rules signs the visitor out.
+  - `GOEXPERIMENT=nojsonv2` is not supported.
+  - The JSON of `tifa routes --json` and `tifa errors --json` has `[]` in place of `null` and no `<` escapes.
 - **Breaking:** environment variables of settings have no `TIFA_` prefix: `TIFA_SERVER_ADDR` is `SERVER_ADDR`, `TIFA_SSR_VMS` is `SSR_VMS`. `tifa dev` gives the app its address in `SERVER_ADDR`. To update a deployment, drop the prefix from each variable.
 - **Breaking:** the program reads only its own settings. A file key, an environment variable or a flag that is no setting is left alone, where an unknown key or `TIFA_*` variable stopped the program. A misspelt name now changes nothing, so check with `./bin/app config`. A `build.*` key in the file of `-c` is left alone too.
 - **Breaking:** settings are YAML only. `tifa.json` and JSON deployment files are no longer read: rename `tifa.json` to `tifa.yaml` and write it as YAML (JSON is valid YAML). `tifa build` checks `tifa.yaml` and builds its values into the program as Go code, and no longer embeds the file.
