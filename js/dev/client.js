@@ -3,7 +3,7 @@
 // fix in TSX. A page that shows its Error component for a failed server render carries that
 // failure in window.__tifaDevPageError, {title, text}, which the overlay shows while no build
 // error does. Errors of the browser (hydration mismatches, uncaught errors and rejections) show in a
-// corner panel, see below.
+// corner panel and go to tifa dev for `tifa errors`, see below.
 // It needs no imports and no exports, so it works bundled into the dev client entry or as a plain script.
 (() => {
   if (window.__tifaDev) return;
@@ -112,17 +112,39 @@
   function noteBrowserError(kind, message, stack, componentStack) {
     message = String(message || "");
     stack = String(stack || "");
+    let text = stack.includes(message) ? stack : message + (stack ? "\n" + stack : "");
+    if (componentStack) text += "\n\nComponent stack:" + componentStack;
+    const title = browserTitle(kind, message);
+    sendBrowserError({ kind, title, message, stack, text });
     const key = kind + "\n" + message + "\n" + stack;
     const seen = browserErrors.find((entry) => entry.key === key);
     if (seen) {
       seen.count++;
     } else {
-      let text = stack.includes(message) ? stack : message + (stack ? "\n" + stack : "");
-      if (componentStack) text += "\n\nComponent stack:" + componentStack;
-      browserErrors.push({ key, title: browserTitle(kind, message), text, count: 1 });
+      browserErrors.push({ key, title, text, count: 1 });
       if (browserErrors.length > maxBrowserErrors) browserErrors.shift();
     }
     renderBrowserErrors();
+  }
+
+  // tifa dev keeps the errors of its pages too, for `tifa errors`, and counts repeats the way the
+  // panel does. Long texts are cut so the report stays under the 128 KiB tifa dev takes.
+  function sendBrowserError(report) {
+    const cut = (s, n) => (s.length > n ? s.slice(0, n) + "\n[cut]" : s);
+    const body = JSON.stringify({
+      kind: report.kind,
+      title: report.title,
+      message: cut(report.message, 4000),
+      stack: cut(report.stack, 8000),
+      text: cut(report.text, 16000),
+      url: location.href,
+    });
+    fetch(base + "errors", { method: "POST", headers: { "Content-Type": "application/json" }, body }).then(
+      (resp) => {
+        if (!resp.ok) console.warn("tifa dev: tifa dev did not take the error report: " + resp.status);
+      },
+      (err) => console.warn("tifa dev: could not report the error to tifa dev", err),
+    );
   }
 
   function renderBrowserErrors() {
