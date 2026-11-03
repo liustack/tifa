@@ -1,7 +1,7 @@
 package bundle
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,7 +23,7 @@ func TypeScriptCompiler(root string) (string, error) {
 	var meta struct {
 		Bin map[string]string `json:"bin"`
 	}
-	if err := json.Unmarshal(data, &meta); err != nil {
+	if err := json.Unmarshal(data, &meta, packageJSON); err != nil {
 		return "", fmt.Errorf("%s: %w", file, err)
 	}
 	tsc, ok := meta.Bin["tsc"]

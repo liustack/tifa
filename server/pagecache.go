@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"net/http"
 	"slices"
@@ -547,7 +547,7 @@ func (s *server) respondPage(c *tifa.Ctx, got fetched, status string, selected [
 			i := slices.IndexFunc(entry.routes, func(r wholeRoute) bool { return r.id == l.id })
 			result := routeResult{Status: http.StatusOK}
 			if text := entry.routes[i].text; text != "null" {
-				result.Data = json.RawMessage(text)
+				result.Data = jsontext.Value(text)
 			}
 			items[l.id] = result
 		}

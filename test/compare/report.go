@@ -1,14 +1,15 @@
 package compare
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
 )
 
 // JSON is the report as JSON.
-func (r *Report) JSON() ([]byte, error) { return json.MarshalIndent(r, "", " ") }
+func (r *Report) JSON() ([]byte, error) { return json.Marshal(r, jsontext.WithIndent(" ")) }
 
 func (r *Report) servers() []string {
 	var names []string

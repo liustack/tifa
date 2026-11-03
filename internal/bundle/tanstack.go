@@ -1,7 +1,7 @@
 package bundle
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -63,7 +63,7 @@ func findPackage(dir, name string) (string, string, error) {
 			var meta struct {
 				Version string `json:"version"`
 			}
-			if err := json.Unmarshal(data, &meta); err != nil {
+			if err := json.Unmarshal(data, &meta, packageJSON); err != nil {
 				return "", "", fmt.Errorf("%s: %w", filepath.Join(pkg, "package.json"), err)
 			}
 			real, err := filepath.EvalSymlinks(pkg)

@@ -186,7 +186,7 @@ export const head = ({ loaderData }: { loaderData?: PageData }) => ({
 - 只放界面，不取数。`./route.gen` 是生成的模块，每个目录一个，导出 `page` 和 `layout`（页面和 Layout 的 TanStack 路由，目录里有才导出）、`PageData` 和 `LayoutData`（`Load` 和 `Layout` 的返回类型）、`Params`，以及每个方法函数一个调用函数。同目录的子组件同样 import `./route.gen`。Layout 的数据来自它所在目录的 `route.gen`：`layout.tsx` 从 `'./route.gen'` import `layout`，页面读项目 Layout 的数据时从比如 `'../../route.gen'` import `layout`。有谁 import 了一个没有生成模块的目录的 `route.gen`，构建就会报错。
 - 默认导出是页面组件。可选导出 `head` 和 `Error`。404 也显示在 `Error` 里（见 [404](#404)），导出 `NotFound` 构建报错。
 - 在浏览器里，每个 `page.tsx`，以及根 Layout 以外的每个 `layout.tsx` 或 `layout_.tsx`，连同它 import 的一切（含 `head`）各自是一个 chunk。路由第一次用到时才加载，路由器等它加载完才显示页面、运行 `head`。页面的 HTML 预加载它的 Layout 和路由的 chunk，所以它们和入口脚本一起到。文件顶层的代码（含只为副作用的 import）在这时运行，而不是应用启动时，所以每个页面都需要的初始化放在根 Layout 里，或放在它 import 的模块里。见[浏览器里的路由模块](build.zh-CN.md#浏览器里的路由模块)。
-- Go 的切片和 map 在 TypeScript 里带 `| null`（Go 的 nil 编码成 `null`），用之前写 `?? []`。
+- Go 的切片和 map 不会是 `null`：nil 切片到浏览器是 `[]`，nil map 是 `{}`，它们的 TypeScript 类型不带 `| null`（见 [JSON 规则](#json-规则)）。
 - 模块顶层就要用浏览器能力的组件放进 `.client.tsx`，用 `tifa/client` 的 `clientOnly` 延迟加载。它不进 SSR 包，首屏显示占位内容。能渲染、但要等浏览器画出来才有内容的组件也适合这样放，见[只在浏览器里绘制的组件](#只在浏览器里绘制的组件)：
 
 ```tsx
@@ -586,7 +586,7 @@ const SalesChart = clientOnly(() => import('./sales-chart.client'), <div classNa
 
 export default function StatsPage() {
   const { days } = page.useLoaderData()
-  return <SalesChart days={days ?? []} />
+  return <SalesChart days={days} />
 }
 ```
 
@@ -1044,7 +1044,7 @@ tifa 只检查 `Load` 和 `Layout` 能到达的代码。在 `OnRequest`、方法
 
 ## JSON 规则
 
-`Load` 和 `Layout` 函数的返回值、方法函数的入参和结果都以 JSON 传输，tifa 按它们生成 TypeScript 类型。为了在 Go 1.27 的两种 `encoding/json` 实现下（默认实现和 `GOEXPERIMENT=nojsonv2`）输出一致，只接受下面这些类型。
+`Load` 和 `Layout` 函数的返回值、方法函数的入参和结果都以 JSON 传输，tifa 按它们生成 TypeScript 类型。tifa 用 `encoding/json/v2` 及其默认设置读写这些 JSON，所以构建只接受下面这些类型：json v2 写它们不会出错，写出来的样子和 TypeScript 类型一致。`c.JSON`、`c.Bind` 和会话用同样的规则。
 
 | Go | TypeScript |
 | --- | --- |
@@ -1052,14 +1052,20 @@ tifa 只检查 `Load` 和 `Layout` 能到达的代码。在 `OnRequest`、方法
 | 整数、浮点数、`json.Number` | `number` |
 | `string`、`time.Time` | `string` |
 | 指针 | `T \| null` |
-| 切片 | `T[] \| null`。元素就是 `byte` 或 `uint8` 的 `[]byte` 输出 base64，为 `string \| null`。元素是具名 byte 类型的切片不接受 |
+| 切片 | `T[]`。nil 切片写成 `[]` |
+| `[]byte`、`[N]byte`（元素就是 `byte` 或 `uint8`） | `string`，写成 base64。nil 的 `[]byte` 是 `""`。元素是具名 byte 类型的切片或数组是普通的数字数组 |
 | 数组 | `T[]`，长度为 0 时为 `[]` |
-| map | `Record<string, V> \| null` |
+| map | `Record<string, V>`。nil map 写成 `{}` |
 | 结构体 | 导出字段组成的对象 |
 
-- map 的键必须是不带 `MarshalText` 的 string 或整数类型，或者是按下面规则输出 string 的类型。接口和指针不能做键。
-- 导出的嵌入结构体（也可以是指针）没写 json 名字时，字段提升到外层，经由嵌入指针到达的字段是可选的。未导出的嵌入字段不接受，除非标了 `json:"-"`。
-- json tag 的名字只能用字母、数字、空格和 `` !#$%&()*+-./:;<=>?@[]^_{|}~ ``。选项只能用 `omitempty`、`omitzero` 和 `string`，用了 `omitempty` 或 `omitzero` 的字段是可选的。`string` 选项只能用在 bool、预声明的数字类型或 string 字段上，或者指向它们的非具名指针上。
+- map 的键按顺序排好再写，同一个值总是写出同样的文本。键必须是 string 或整数类型，或者是按下面 `MarshalText` 规则输出 string 的类型。接口和指针不能做键。
+- 导出的嵌入结构体（也可以是指针）没写 json 名字时，字段提升到外层，经由嵌入指针到达的字段是可选的。不同结构体里的字段同名时，层级最浅的胜出，其次是带 json tag 的，还分不出来就全部丢掉。嵌入字段的类型不是结构体时要写 json 名字，嵌入的结构体不能带 json tag 选项，也不能有名为 `MarshalJSON`、`MarshalJSONTo`、`MarshalText`、`AppendText`、`UnmarshalJSON`、`UnmarshalJSONFrom` 或 `UnmarshalText` 的方法。未导出的嵌入字段不接受，除非标了 `json:"-"`。
+- 同一个结构体里的两个字段不能有相同的 JSON 名字。未导出字段不能带 `json:"-"` 以外的 json tag，有字段的结构体至少要有一个导出字段或一个 json tag。
+- json tag 的名字只能用字母、数字、空格和 `` !#$%&()*+-./:;<=>?@[]^_{|}~ ``。选项只能用 `omitempty`、`omitzero` 和 `string`，用了 `omitempty` 或 `omitzero` 的字段是可选的。`omitzero` 省掉 Go 类型的零值。`omitempty` 省掉 JSON 为空的值：`null`、`""`、`[]` 或 `{}`，所以不会省掉 `false` 和 `0`。`string` 选项只能用在预声明的数字类型字段上，或者指向它们的非具名指针上，把数字写成字符串。
+- 不接受 `time.Duration`，做 map 的键也不行，json v2 没有它的写法。请返回你要的单位的整数（比如毫秒），或者字符串。
 - 类型的值或指针上有名为 `MarshalJSON`、`MarshalJSONTo`、`AppendText` 或 `AppendJSON` 的方法或字段时，不论签名一律拒绝（`time.Time` 和 `json.Number` 除外）。请改名，或换一个不带这些方法的类型返回。
-- 类型自己在值接收者上声明了签名正好是 `MarshalText() ([]byte, error)` 的方法时，输出 string。声明在指针接收者上时，只有通过指针持有才输出 string。签名不对、从嵌入字段提升而来、或被同名字段遮住时，一律拒绝。
+- 类型自己声明了签名正好是 `MarshalText() ([]byte, error)` 的方法时，不论在值接收者还是指针接收者上，都输出 string。签名不对、从嵌入字段提升而来、或被同名字段遮住时，一律拒绝。
 - 接口出现在任何位置都不接受，包括字段、元素和 map 键。chan、func、复数、`unsafe.Pointer` 和类型参数也不接受。
+- `<`、`>` 和 `&` 原样写出，页面数据里也一样。tifa 把数据放进页面的地方会转义它们，应用的文本不会提前结束 script 元素。
+- 字符串里不是 UTF-8 的字节，每个写成一个 U+FFFD，和浏览器显示的一样，页面不会因此失败。
+- 读入参时很严格：名字必须和 json 名字完全一致（大小写也算），一个对象里同一个名字只能出现一次，字符串必须是 UTF-8，`time.Time` 必须是 RFC 3339，base64 里不能有换行，数组长度必须等于 Go 数组的长度。不符合的回 400。类型里没有的名字会跳过。会话记录按这些规则读不回来时，访客会被登出。

@@ -1,7 +1,7 @@
 package ssr
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 
@@ -39,7 +39,7 @@ func (p *Pool) warnIntl(vm *slowjs.VM) error {
 		return fmt.Errorf("got %T, want a JSON string", value)
 	}
 	var warnings []intlWarning
-	if err := json.Unmarshal([]byte(text), &warnings); err != nil {
+	if err := json.Unmarshal([]byte(text), &warnings, fromVM); err != nil {
 		return err
 	}
 	for _, w := range warnings {

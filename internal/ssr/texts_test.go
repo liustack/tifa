@@ -2,7 +2,9 @@ package ssr
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -49,7 +51,7 @@ func TestRenderGivesTheTextsToStartRenderAsArguments(t *testing.T) {
 		"",
 		strings.Repeat(`{"k":["v","</script>"]},`, 20000),
 	}
-	in := Input{BuildID: "b1", URL: "/orders/1", Data: json.RawMessage(`{"app/a":{"status":200,"text":0},"app/b":{"status":200,"text":1}}`), Texts: texts, Preload: "<link>"}
+	in := Input{BuildID: "b1", URL: "/orders/1", Data: jsontext.Value(`{"app/a":{"status":200,"text":0},"app/b":{"status":200,"text":1}}`), Texts: texts, Preload: "<link>"}
 	got := renderArguments(t, p, in)
 	if got.Count != 1+len(texts) {
 		t.Fatalf("startRender got %d arguments, want %d", got.Count, 1+len(texts))
@@ -61,7 +63,7 @@ func TestRenderGivesTheTextsToStartRenderAsArguments(t *testing.T) {
 			}
 		}
 	}
-	// What the input holds is the JSON of Input without its texts. Go escapes <, > and & in it.
+	// What the input holds is the JSON of Input without its texts, as json v2 writes it.
 	want, err := json.Marshal(Input{BuildID: "b1", URL: "/orders/1", Data: in.Data, Preload: "<link>"})
 	if err != nil {
 		t.Fatal(err)
@@ -78,13 +80,13 @@ func TestRenderGivesTheTextsToStartRenderAsArguments(t *testing.T) {
 // the next one on the same VM.
 func TestRenderPassesNoTextsWhenThereAreNone(t *testing.T) {
 	p := newTestPool(t, argumentsBundle, testConfig(1))
-	first := renderArguments(t, p, Input{URL: "/a", Data: json.RawMessage(`{"app/a":{"status":200,"text":0}}`), Texts: []string{`{"a":1}`, `{"b":2}`}})
+	first := renderArguments(t, p, Input{URL: "/a", Data: jsontext.Value(`{"app/a":{"status":200,"text":0}}`), Texts: []string{`{"a":1}`, `{"b":2}`}})
 	if first.Count != 3 {
 		t.Fatalf("startRender got %d arguments, want 3", first.Count)
 	}
 	for _, in := range []Input{
-		{URL: "/b", Data: json.RawMessage(`{}`)},
-		{URL: "/c", Data: json.RawMessage(`{"app/a":{"status":404}}`), Texts: []string{}},
+		{URL: "/b", Data: jsontext.Value(`{}`)},
+		{URL: "/c", Data: jsontext.Value(`{"app/a":{"status":404}}`), Texts: []string{}},
 	} {
 		got := renderArguments(t, p, in)
 		if got.Count != 1 || len(got.Texts) != 0 {
@@ -98,16 +100,25 @@ func TestRenderPassesNoTextsWhenThereAreNone(t *testing.T) {
 func TestRenderReplacesBytesThatAreNoUTF8InTexts(t *testing.T) {
 	p := newTestPool(t, argumentsBundle, testConfig(1))
 	bad := "{\"k\":\"a\xffb\xc3\"}"
-	viaInput, err := json.Marshal(map[string]string{"text": bad})
-	if err != nil {
-		t.Fatal(err)
+	want := "{\"k\":\"a\uFFFDb\uFFFD\"}"
+	got := renderArguments(t, p, Input{URL: "/a", Data: jsontext.Value(`{}`), Texts: []string{bad}})
+	if len(got.Texts) != 1 || got.Texts[0] != want {
+		t.Errorf("text = %q, want %q", got.Texts, want)
 	}
-	var want struct{ Text string }
-	if err := json.Unmarshal(viaInput, &want); err != nil {
-		t.Fatal(err)
-	}
-	got := renderArguments(t, p, Input{URL: "/a", Data: json.RawMessage(`{}`), Texts: []string{bad}})
-	if len(got.Texts) != 1 || got.Texts[0] != want.Text {
-		t.Errorf("text = %q, want %q", got.Texts, want.Text)
+}
+
+// A JavaScript string may hold a lone surrogate, which JSON.stringify writes as an escape. The
+// result of a render reads it as U+FFFD, as a string that crosses from the VM does, and does not
+// fail to decode.
+func TestRenderResultReadsALoneSurrogate(t *testing.T) {
+	const bundle = `globalThis.startRender = function () {
+  globalThis.renderResult = JSON.stringify({ error: 'broken \ud800 text' })
+}
+`
+	p := newTestPool(t, bundle, testConfig(1))
+	_, err := p.Render(context.Background(), Input{URL: "/a", Data: jsontext.Value(`{}`)})
+	var script *scriptError
+	if !errors.As(err, &script) || script.text != "broken � text" {
+		t.Fatalf("got %v, want the script error with U+FFFD", err)
 	}
 }

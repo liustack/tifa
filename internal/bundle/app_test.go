@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -338,6 +339,45 @@ func TestAppKeepsTheSourceMapSettingOfTheConfig(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dist, "ssr.js")); err != nil {
 		t.Error(err)
+	}
+}
+
+// build.json is embedded in the program, so the same build writes the same bytes: the keys of
+// Preload and Public come sorted, not in the order of a map.
+func TestBuildJSONIsTheSameEachTime(t *testing.T) {
+	b := Build{ID: "b1", Head: "<script>", Preload: map[string][]string{}, Public: map[string]string{}}
+	var keys []string
+	for i := range 20 {
+		key := "k" + strconv.Itoa(100+i)
+		keys = append(keys, key)
+		b.Preload["app/"+key] = []string{"/assets/" + key + ".js"}
+		b.Public[key+".txt"] = key
+	}
+	dist := t.TempDir()
+	var first []byte
+	for i := range 10 {
+		if err := writeBuild(dist, b); err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(filepath.Join(dist, "build.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if i == 0 {
+			first = data
+		} else if string(data) != string(first) {
+			t.Fatalf("write %d differs:\n%s\n%s", i, data, first)
+		}
+	}
+	for _, prefix := range []string{`"app/`, `"`} {
+		at := -1
+		for _, key := range keys {
+			next := strings.Index(string(first), prefix+key)
+			if next < at {
+				t.Fatalf("%s%s comes before the key above it: %s", prefix, key, first)
+			}
+			at = next
+		}
 	}
 }
 

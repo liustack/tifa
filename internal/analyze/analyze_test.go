@@ -252,11 +252,12 @@ func TestViolations(t *testing.T) {
 			{"app/more/route.go:19:", "PUT result", "chan"},
 			{"app/more/route.go:21:", "PATCH input", "Deep.Inner.N", "form tag"},
 			{"app/more/route.go:23:", "DELETE must have one of the signatures"},
-			{"app/text/route.go:57:", "POST input", "Input.ID", "UnmarshalText"},
-			{"app/text/route.go:57:", "POST input", "Input.Codes[]", "UnmarshalText", "not string"},
-			{"app/text/route.go:57:", "POST input", "Input.Raw", "UnmarshalJSON"},
-			{"app/text/route.go:57:", "POST input", "Input.ByID[key]", "UnmarshalText"},
-			{"app/text/route.go:97:", "GET input", "text.Word", "MarshalText", "query string"},
+			{"app/text/route.go:58:", "POST input", "Input.ID", "UnmarshalText"},
+			{"app/text/route.go:58:", "POST input", "Input.Codes[]", "UnmarshalText", "not string"},
+			{"app/text/route.go:58:", "POST input", "Input.Raw", "UnmarshalJSON"},
+			{"app/text/route.go:58:", "POST input", "Input.ByID[key]", "UnmarshalText"},
+			{"app/text/route.go:58:", "POST input", "Input.ByDur", "time.Duration"},
+			{"app/text/route.go:98:", "GET input", "text.Word", "MarshalText", "query string"},
 		}},
 		{"dirnames", [][]string{
 			{"app/a%b/page.tsx:1:", `"%"`},
@@ -282,7 +283,7 @@ func TestViolations(t *testing.T) {
 			{"app/page/route.go:56:", "Data.ByScore", "map[float64]string"},
 			{"app/page/route.go:56:", "Data.Items[].Extra", "any"},
 			{"app/page/route.go:56:", "Data.Raw", "json.RawMessage", "MarshalJSON"},
-			{"app/page/route.go:56:", "Data.Bytes", "named byte"},
+			{"app/page/route.go:56:", "Data.Bytes[]", "MarshalJSON"},
 			{"app/page/route.go:56:", "Data.Ptrs[]", "MarshalJSON"},
 			{"app/page/route.go:56:", "Data.Text", "interface"},
 			{"app/page/route.go:56:", "Data.Bad", "bad'name"},
@@ -290,27 +291,34 @@ func TestViolations(t *testing.T) {
 			{"app/page/route.go:56:", "Data.Stream", "MarshalJSONTo"},
 		}},
 		{"badshape", [][]string{
-			{"app/page/route.go:100:", "Data.Both", "MarshalJSONTo"},
-			{"app/page/route.go:100:", "Data.Bytes", "named byte"},
-			{"app/page/route.go:100:", "Data.Plain", "named byte"},
-			{"app/page/route.go:100:", "Data.Embed", `"embed"`},
-			{"app/page/route.go:100:", "Data.Hex", `"format:hex"`},
-			{"app/page/route.go:100:", "Data.Oops", `"string:oops"`},
-			{"app/page/route.go:100:", "Data.Unknown", `"inline"`},
-			{"app/page/route.go:100:", "Data.Comma", `""`},
-			{"app/page/route.go:100:", "Data.Twice", "twice"},
-			{"app/page/route.go:100:", "Data.Named", "string option"},
-			{"app/page/route.go:100:", "Data.ByText", "interface"},
-			{"app/page/route.go:100:", "Data.Wrong", "MarshalJSONTo", "rename"},
-			{"app/page/route.go:100:", "Data.Shadow", "MarshalText", "signature"},
-			{"app/page/route.go:100:", "Data.Prom", "MarshalText", "embedded"},
-			{"app/page/route.go:100:", "Data.Ptr", "MarshalText", "pointer"},
-			{"app/page/route.go:100:", "Data.ByKey", "MarshalText"},
-			{"app/page/route.go:100:", "Data.App", "AppendJSON"},
-			{"app/page/route.go:100:", "Data.Stamp", "MarshalJSON"},
-			{"app/page/route.go:100:", "Data.Num", "string option"},
-			{"app/page/route.go:100:", "Data.ByPtr", "pointer"},
-			{"app/page/route.go:100:", "Data.secret", "unexported embedded"},
+			{"app/page/route.go:120:", "Data.Both", "MarshalJSONTo"},
+			{"app/page/route.go:120:", "Data.Bytes[]", "AppendText"},
+			{"app/page/route.go:120:", "Data.Embed", `"embed"`},
+			{"app/page/route.go:120:", "Data.Hex", `"format:hex"`},
+			{"app/page/route.go:120:", "Data.Oops", `"string:oops"`},
+			{"app/page/route.go:120:", "Data.Unknown", `"inline"`},
+			{"app/page/route.go:120:", "Data.Comma", `""`},
+			{"app/page/route.go:120:", "Data.Twice", "twice"},
+			{"app/page/route.go:120:", "Data.Named", "string option"},
+			{"app/page/route.go:120:", "Data.ByText", "interface"},
+			{"app/page/route.go:120:", "Data.Wrong", "MarshalJSONTo", "rename"},
+			{"app/page/route.go:120:", "Data.Shadow", "MarshalText", "signature"},
+			{"app/page/route.go:120:", "Data.Prom", "MarshalText", "embedded"},
+			{"app/page/route.go:120:", "Data.App", "AppendJSON"},
+			{"app/page/route.go:120:", "Data.Stamp", "MarshalJSON"},
+			{"app/page/route.go:120:", "Data.Num", "string option"},
+			{"app/page/route.go:120:", "Data.ByPtr", "pointer"},
+			{"app/page/route.go:120:", "Data.secret", "unexported embedded"},
+			{"app/page/route.go:120:", "Data.Dur", "time.Duration"},
+			{"app/page/route.go:120:", "Data.Flag", "string option"},
+			{"app/page/route.go:120:", "Data.Text", "string option"},
+			{"app/page/route.go:120:", "Data.Dup2", "Dup1", "share the JSON name"},
+			{"app/page/route.go:120:", "Data.tagged", "unexported field", "json tag"},
+			{"app/page/route.go:120:", "Data.Locked", "none json v2 can write"},
+			{"app/page/route.go:120:", "Data.Wrap.Status", "not a struct"},
+			{"app/page/route.go:120:", "Data.Reads.Parsed", "UnmarshalText", "embedded struct"},
+			{"app/page/route.go:120:", "Data.Opts.Extra", "tag options"},
+			{"app/page/route.go:120:", "Data.ByDur", "time.Duration"},
 		}},
 		{"badpath", [][]string{
 			{"app/a/b+/route.go:1:", `"/a/{b}"`, `"/{a}/b"`, "conflicts"},
@@ -663,7 +671,7 @@ func TestQueryThroughEmbeddedCtx(t *testing.T) {
 	}
 }
 
-// The TypeScript form follows what encoding/json writes, field selection and method sets included.
+// The TypeScript form follows what json v2 writes, field selection and method sets included.
 func TestLoadResultShape(t *testing.T) {
 	m, err := analyzeApp(t, "jsonshape")
 	if err != nil {
@@ -673,13 +681,13 @@ func TestLoadResultShape(t *testing.T) {
 	if len(problems) > 0 {
 		t.Fatalf("problems: %+v", problems)
 	}
-	want := "{ id: string; Kind: string; note?: string; X: string; \"dash-name\": number; quoted: string | null; " +
-		"flag: string; text: string; bytes4: number[]; count: string; " +
-		"opt?: boolean | null; byNum: Record<string, string> | null; byCode: Record<string, number> | null; " +
-		"level: string; num: number; numP: number | null; raw: string | null; list: number[] | null; grid: boolean[]; empty: []; none: []; " +
-		"when: string; tree: { name: string; kids: (Node | null)[] | null } | null; " +
-		"dur: number; pt: string | null; pts: (string | null)[] | null; st: string; byStatus: Record<string, number> | null; " +
-		"tags: string[] | null; o2?: number }"
+	want := "{ id: string; note?: string; Label?: string; Kind: number; \"dash-name\": number; quoted: string | null; count: string; " +
+		"bytes4: string; bytes0: string; octets: number[]; opt?: boolean | null; byNum: Record<string, string>; " +
+		"byCode: Record<string, number>; byLevel: Record<string, number>; byKey: Record<string, number>; byPtr: Record<string, boolean>; " +
+		"level: string; num: number; numP: number | null; raw: string; list: number[]; grid: boolean[]; empty: []; none: []; " +
+		"when: string; tree: { name: string; kids: (Node | null)[] } | null; " +
+		"pt: string | null; ptv: string; pts: (string | null)[]; st: string; byStatus: Record<string, number>; " +
+		"tags: string[]; o1?: number; o2?: number; gone?: {} }"
 	if got != want {
 		t.Errorf("tsType =\n%s\nwant\n%s", got, want)
 	}

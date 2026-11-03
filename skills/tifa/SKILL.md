@@ -78,7 +78,7 @@ Go side:
 6. Putting `Load`, `Layout`, `RenderCache`, a handler and so on in a file other than `route.go` of the folder. The build fails. A `Load` needs a `page.tsx` beside it, and a folder with `page.tsx` cannot declare `GET`.
 7. Calling `c.Request()`, `c.Writer()`, `c.Bind` or `c.BindQuery` in `Load`, in `Layout`, or in helpers they call. Use `c.Param("x")`, `c.Query("x")`, `c.QueryValues("x")`, `c.Header`, `c.Cookie`, `c.Context()`. Pass these a constant string, and do not store, return or convert `c` (see `references/routing-and-data.md`).
 8. Doing permission checks only in a `Layout`. On browser navigation a cached Layout does not run again. Check in `OnRequest`, or make each page's `Load` call `tifa.Use(c, theCheckingLayout)`.
-9. Returning types that cannot become JSON and TypeScript: interfaces, funcs, channels, a `MarshalJSON` method. Remember that Go slices and maps arrive as `T[] | null`, so write `?? []` in TSX.
+9. Returning types that cannot become JSON and TypeScript: interfaces, funcs, channels, a `MarshalJSON` method. Go slices and maps arrive as `[]` and `{}`, never `null`, and `time.Duration` is not accepted.
 10. Changing state in a `GET`. The cross-site write check covers POST, PUT, PATCH and DELETE only.
 11. Writing a `main`, editing anything in `.tifa/`, or setting things up in `init()`. Open resources in `OnStart`, close them in `OnShutdown`.
 12. Letting the root package import anything under `app/`. Domains import the root package for `DB` and friends, so that import would close a cycle.

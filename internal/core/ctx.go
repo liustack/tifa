@@ -4,7 +4,6 @@ package core
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -140,7 +139,7 @@ func (c *Ctx) JSON(code int, v any) error {
 	if err := c.checkWrite(); err != nil {
 		return err
 	}
-	data, err := json.Marshal(v)
+	data, err := MarshalJSON(v)
 	if err != nil {
 		return err
 	}

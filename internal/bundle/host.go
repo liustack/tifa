@@ -53,8 +53,8 @@ func scriptAs(vite, dir, file, format string, output io.Writer) (string, []strin
 	n := NewNode(vite, output)
 	defer n.Close()
 	var result struct {
-		Code    string
-		Modules []string
+		Code    string   `json:"code"`
+		Modules []string `json:"modules"`
 	}
 	if err := n.call("script", map[string]any{"dir": dir, "file": file, "plugin": plugin.Name(), "format": format}, &result); err != nil {
 		return "", nil, err

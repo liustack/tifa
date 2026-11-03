@@ -1,7 +1,7 @@
 package server
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"net/http"
 	"strings"
 
@@ -70,7 +70,7 @@ func (s *server) callSession(c *tifa.Ctx) *core.BrowserSession {
 
 // pageSession is what a whole page carries of the session.
 type pageSession struct {
-	json   json.RawMessage // the session of the request, nil when the app has none
+	json   jsontext.Value // the session of the request, nil when the app has none
 	key    string
 	head   string // the script and the style at the start of the head
 	signed bool
@@ -87,7 +87,7 @@ func (s *server) pageSession(c *tifa.Ctx) (pageSession, error) {
 	if err != nil || v == nil {
 		return pageSession{}, err
 	}
-	data, err := json.Marshal(v)
+	data, err := core.MarshalJSON(v)
 	if err != nil {
 		return pageSession{}, err
 	}
@@ -101,8 +101,8 @@ func (s *server) pageSession(c *tifa.Ctx) (pageSession, error) {
 // signed in, and the style that hides what is marked for the other state. The browser keeps the
 // copy under key. The script is the same on every page, so one hash of it serves a CSP.
 func sessionHead(key string) string {
-	// json.Marshal escapes <, > and & so the key cannot end the script element.
-	k, _ := json.Marshal(key)
+	// htmlJSON escapes <, > and & so the key cannot end the script element.
+	k, _ := htmlJSON(key)
 	var b strings.Builder
 	b.WriteString(`<script>(function(){var h=document.documentElement;if(h.hasAttribute("data-session"))return;try{var v=JSON.parse(localStorage.getItem(`)
 	b.Write(k)

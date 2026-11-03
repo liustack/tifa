@@ -2,7 +2,8 @@ package bundle
 
 import (
 	"bufio"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -147,6 +148,14 @@ type Notices interface {
 }
 
 // notice is a line the driver writes without a request, see Notices.
+// fromNode reads the JSON lines of the driver. A JavaScript string may hold a lone surrogate,
+// which JSON.stringify writes as an escape such as \ud800: it becomes U+FFFD instead of failing.
+var fromNode = jsontext.AllowInvalidUTF8(true)
+
+// packageJSON reads a package.json of node_modules the way Node does, which takes the last of
+// two members with the same name.
+var packageJSON = jsontext.AllowDuplicateNames(true)
+
 type notice struct {
 	Notice string `json:"notice"`
 	File   string `json:"file"`
@@ -159,7 +168,7 @@ func (n *Node) readAnswers() {
 	for n.answers.Scan() {
 		line := slices.Clone(n.answers.Bytes())
 		var nt notice
-		if json.Unmarshal(line, &nt) == nil && (nt.Notice == "changed" || nt.Notice == "restarted") {
+		if json.Unmarshal(line, &nt, fromNode) == nil && (nt.Notice == "changed" || nt.Notice == "restarted") {
 			switch {
 			case n.notices == nil:
 			case nt.Notice == "changed":
@@ -179,7 +188,7 @@ func (n *Node) read(v any) error {
 	if !n.answers.Scan() {
 		return n.lost(n.answers.Err())
 	}
-	return json.Unmarshal(n.answers.Bytes(), v)
+	return json.Unmarshal(n.answers.Bytes(), v, fromNode)
 }
 
 // lost returns why the driver's answers stopped: err, the error of reading them, or else how the
@@ -232,7 +241,7 @@ func (n *Node) call(op string, req map[string]any, result any) error {
 		return n.fail(n.lost(n.readErr))
 	}
 	var a answer
-	if err := json.Unmarshal(raw, &a); err != nil {
+	if err := json.Unmarshal(raw, &a, fromNode); err != nil {
 		return err
 	}
 	if a.ID != n.next {
@@ -244,7 +253,7 @@ func (n *Node) call(op string, req map[string]any, result any) error {
 	if result == nil {
 		return nil
 	}
-	return json.Unmarshal(raw, result)
+	return json.Unmarshal(raw, result, fromNode)
 }
 
 // fail ends the process after err, and returns the error of every later request. When Close
@@ -329,7 +338,9 @@ func (n *Node) Exports(files []string) (map[string][]string, error) {
 			return nil, err
 		}
 	}
-	var result struct{ Exports map[string][]string }
+	var result struct {
+		Exports map[string][]string `json:"exports"`
+	}
 	if err := n.call("exports", map[string]any{"files": abs}, &result); err != nil {
 		return nil, err
 	}

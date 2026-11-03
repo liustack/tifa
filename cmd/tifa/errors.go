@@ -1,7 +1,8 @@
 package main
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -56,13 +57,11 @@ runs in the application.`,
 			}
 			out := cmd.OutOrStdout()
 			if asJSON {
-				var indented strings.Builder
-				enc := json.NewEncoder(&indented)
-				enc.SetIndent("", "  ")
-				if err := enc.Encode(report.Normal()); err != nil {
+				indented, err := json.Marshal(report.Normal(), jsontext.WithIndent("  "))
+				if err != nil {
 					return err
 				}
-				_, err = io.WriteString(out, indented.String())
+				_, err = out.Write(append(indented, '\n'))
 			} else {
 				_, err = io.WriteString(out, errorsText(report))
 			}

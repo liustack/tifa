@@ -52,7 +52,7 @@ func TestTSShapeDeclaresRecursiveTypes(t *testing.T) {
 		t.Errorf("shape\n got %s\nwant %s", ts, want)
 	}
 	wantDecls := []string{
-		"type GoNode = { name: string; children: GoNode[] | null }",
+		"type GoNode = { name: string; children: GoNode[] }",
 		"type GoNode2 = { next: GoNode2 | null }",
 	}
 	if strings.Join(decls, "\n") != strings.Join(wantDecls, "\n") {

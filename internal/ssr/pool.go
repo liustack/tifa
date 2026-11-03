@@ -9,7 +9,8 @@ package ssr
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"sync"
@@ -23,9 +24,9 @@ import (
 // Input is the page data passed to JavaScript. Pool.Render takes the clock
 // separately from its context. Cacheable HTML must depend only on Input.
 type Input struct {
-	BuildID string          `json:"buildId"`
-	URL     string          `json:"url"`
-	Data    json.RawMessage `json:"data"` // the results of the Loads, already JSON, without the data of the successful ones
+	BuildID string         `json:"buildId"`
+	URL     string         `json:"url"`
+	Data    jsontext.Value `json:"data"` // the results of the Loads, already JSON, without the data of the successful ones
 	// Texts are the JSON texts of the data of the successful Loads, which Data refers to by
 	// their number. Each goes to startRender as an argument of its own, as it is, so that neither
 	// Go escapes it into the JSON of the input nor the VM parses it out of that JSON. The VM
@@ -38,9 +39,9 @@ type Input struct {
 	// is set when the app has sessions, and the page carries it to the browser. SessionKey is where
 	// the browser keeps its copy, and SessionHead the script and the style that hide what the copy
 	// says to hide, which the document carries at the start of its head.
-	Session     json.RawMessage `json:"session,omitempty"`
-	SessionKey  string          `json:"sessionKey,omitempty"`
-	SessionHead string          `json:"sessionHead,omitempty"`
+	Session     jsontext.Value `json:"session,omitzero"`
+	SessionKey  string         `json:"sessionKey,omitempty"`
+	SessionHead string         `json:"sessionHead,omitempty"`
 	// Nonce is drawn by Render for each render, and Render ignores one a caller sets. The bundle
 	// writes a slot that holds it in place of each long text of a Load's data in the hydration script,
 	// and Render fills the slots once the VM is free (see slots.go). A bundle that does not know
@@ -48,7 +49,7 @@ type Input struct {
 	Nonce string `json:"nonce,omitempty"`
 	// Error, when set, renders the page with this error shown at a level of its route tree in
 	// place of what failed there, as the server does once a render of the page failed.
-	Error *PlacedError `json:"error,omitempty"`
+	Error *PlacedError `json:"error,omitzero"`
 	// Deadline, when set, ends the render at that time if ssr.timeout would end it later. A
 	// render whose deadline has passed fails as timed out without taking a VM.
 	Deadline time.Time `json:"-"`
@@ -278,7 +279,7 @@ func (p *Pool) renderInVM(ctx context.Context, in Input) (string, error) {
 		}
 	}
 	// Do not keep another copy of the input while waiting or encode rejected work.
-	input, err := json.Marshal(in)
+	input, err := json.Marshal(in, core.JSONWrite)
 	if err != nil {
 		p.putIdle(vm)
 		return "", fmt.Errorf("ssr: encode input: %w", err)

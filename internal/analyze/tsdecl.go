@@ -9,7 +9,7 @@ import (
 
 // TSShape returns the TypeScript type of the JSON that json.Marshal writes for a Load result of
 // type t, following the rules of checkTS. A named type that refers to itself cannot be written
-// inline, so each one gets a declaration such as "type GoNode = { children: GoNode[] | null }"
+// inline, so each one gets a declaration such as "type GoNode = { children: GoNode[] }"
 // and is referred to by name. A declared name is the Go name with the prefix Go, so it never
 // shadows a TypeScript keyword, a built-in type such as Record or a name of the generated
 // module, and gains a number when two types share a name (GoNode, GoNode2). The result is the
@@ -29,7 +29,7 @@ func TSShapes(ts []types.Type) (shapes, decls []string, err error) {
 	var errs []error
 	for _, t := range ts {
 		c := tsChecker{active: map[tsKey]bool{}, decls: d}
-		shapes = append(shapes, c.encode(t, rootLabel(t), false, false))
+		shapes = append(shapes, c.encode(t, rootLabel(t), false))
 		for _, p := range c.problems {
 			errs = append(errs, errors.New(p.path+": "+p.msg))
 		}

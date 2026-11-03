@@ -36,7 +36,7 @@ export interface Detail {
   others: OrderRow[]
   count: number
   spentCents: number
-  sameProduct: OrderRow[] | null
+  sameProduct: OrderRow[]
   carrierStats: CarrierSales[]
 }
 
@@ -59,11 +59,9 @@ export function loadOrder(project: Project, orderId: string): Detail {
   counts.page++
   const o = getOrder(project.id, orderId)
   const { others, count, spentCents } = customerOrders(project.id, o.id)
-  // Go returns a nil slice, which is written as null, when no order holds the product.
-  const same = ordersWith(project.id, o.items[0].slug, o.id, 4)
   return {
     order: o, carriers, others, count, spentCents,
-    sameProduct: same.length > 0 ? same : null, carrierStats: carrierStats(project.id),
+    sameProduct: ordersWith(project.id, o.items[0].slug, o.id, 4), carrierStats: carrierStats(project.id),
   }
 }
 

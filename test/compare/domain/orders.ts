@@ -49,7 +49,7 @@ export interface Order {
   shipment: Shipment | null
   payment: Payment
   log: LogEntry[]
-  notes: { author: string; text: string; at: string }[] | null
+  notes: { author: string; text: string; at: string }[]
   packing: PackLine[]
 }
 
@@ -138,7 +138,7 @@ function view(o: OrderRecord): Order {
     id: o.id, projectId: o.projectId, customer: o.customer, initials: initials(o.customer),
     phone: o.phone, email: o.email, address: o.address, note: o.note, placedAt: rfc3339(o.placedAt), status: status(o),
     totalCents: total(o), items: [], shipment: null, payment: payment(o), log: logOf(o), packing: packing(o),
-    notes: o.notes ? o.notes.map((n) => ({ author: n.author, text: n.text, at: rfc3339(n.at) })) : null,
+    notes: (o.notes ?? []).map((n) => ({ author: n.author, text: n.text, at: rfc3339(n.at) })),
   }
   const s = o.shipment
   if (s) {
