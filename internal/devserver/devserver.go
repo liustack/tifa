@@ -325,6 +325,8 @@ type dev struct {
 	bundling chan struct{}
 	// building is closed once the rebuild that runs now ended, nil when none runs.
 	building chan struct{}
+	// started counts the rebuilds started, the first build included.
+	started int
 }
 
 // isEmbedded reports whether the Go code embeds the file rel, as the last analysis that worked saw it.
@@ -333,12 +335,12 @@ func (d *dev) isEmbedded(rel string) bool {
 	return embedded != nil && (*embedded)(rel)
 }
 
-// buildRunning returns a channel that is closed once the rebuild that runs now ended, nil when
-// none runs.
-func (d *dev) buildRunning() chan struct{} {
+// buildState returns the count of rebuilds started and a channel that is closed once the one that
+// runs now ended, nil when none runs.
+func (d *dev) buildState() (int, chan struct{}) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.building
+	return d.started, d.building
 }
 
 // busy returns a channel that is closed once the SSR bundle being rebuilt is served, nil when
@@ -401,6 +403,7 @@ func (d *dev) rebuild(ctx context.Context, s steps) {
 	building := make(chan struct{})
 	d.mu.Lock()
 	d.building = building
+	d.started++
 	d.mu.Unlock()
 	defer func() {
 		d.mu.Lock()

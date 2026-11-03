@@ -21,9 +21,13 @@ const maxBrowserReport = 128 << 10
 // askAppWait bounds how long tifa dev waits for the app to answer for its errors or forget them.
 const askAppWait = 5 * time.Second
 
+// testHookCollectErrors lets tests act between the wait for a build and the reading of a report.
+var testHookCollectErrors func()
+
 // serveErrors answers `tifa errors` with the errors since the last build started: the failure the
 // overlay shows, the request errors and render warnings of the app and the errors pages reported.
-// During a build it waits for the build to end.
+// During a build it waits for the build to end. A build that starts while the report is read
+// drops what it read, so the report waits for that build too and is read again.
 func (d *dev) serveErrors(w http.ResponseWriter, r *http.Request) {
 	if !plainHost(r.Host) {
 		http.Error(w, "tifa dev answers only under localhost or an IP address", http.StatusForbidden)
@@ -34,31 +38,51 @@ func (d *dev) serveErrors(w http.ResponseWriter, r *http.Request) {
 	case <-r.Context().Done():
 		return
 	}
-	if building := d.buildRunning(); building != nil {
-		select {
-		case <-building:
-		case <-r.Context().Done():
+	for {
+		started, building := d.buildState()
+		if building != nil {
+			select {
+			case <-building:
+				continue
+			case <-r.Context().Done():
+				return
+			}
+		}
+		if testHookCollectErrors != nil {
+			testHookCollectErrors()
+		}
+		report, err := d.collectErrors(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
+		if again, _ := d.buildState(); again != started {
+			continue
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(report.Normal())
+		return
 	}
+}
+
+// collectErrors reads the errors of the browser, of the app and the failure the overlay shows.
+func (d *dev) collectErrors(ctx context.Context) (deverrors.Report, error) {
 	report := deverrors.Report{Browser: d.browser.List()}
 	if d.running() {
-		app, err := d.askApp(r.Context())
+		app, err := d.askApp(ctx)
 		switch {
 		case err == nil:
 			report.Requests, report.Renders = app.Requests, app.Renders
 		case d.running():
-			http.Error(w, "asking the app for its errors: "+err.Error(), http.StatusBadGateway)
-			return
+			return report, fmt.Errorf("asking the app for its errors: %w", err)
 		}
 		// An app that stopped meanwhile has no errors to give, and its exit is the failure below.
 	}
 	if st := d.hub.current(); st.Error != "" {
 		report.Failure = &deverrors.Failure{Title: st.Title, Error: st.Error}
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "no-store")
-	_ = json.NewEncoder(w).Encode(report.Normal())
+	return report, nil
 }
 
 // takeBrowserError keeps an error a page of tifa dev reports, see js/dev/client.js. Only a page

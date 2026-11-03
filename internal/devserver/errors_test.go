@@ -212,3 +212,35 @@ func TestErrorsWaitsForTheBuild(t *testing.T) {
 		t.Fatal("no report within 5s after the build")
 	}
 }
+
+// A build that starts while the report is put together drops what the report read, so the report
+// waits for that build and reads again: it never answers with the errors of a build that a newer
+// one already dropped.
+func TestErrorsReadsAgainAfterABuildStarts(t *testing.T) {
+	d := startDev(t, "")
+	d.waitVersionAfter(t, "")
+	bundling := make(chan chan struct{})
+	d.p.mu.Lock()
+	d.p.bundling = bundling
+	d.p.broken = true
+	d.p.mu.Unlock()
+	once := false
+	testHookCollectErrors = func() {
+		if once {
+			return
+		}
+		once = true
+		// A change starts a build, which drops the errors, before the report is read.
+		writeFile(t, d.dir, "app/list/route.tsx", "export const x = 3")
+		release := <-bundling
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			close(release)
+		}()
+	}
+	t.Cleanup(func() { testHookCollectErrors = nil })
+	r := report(t, d.url)
+	if r.Failure == nil || r.Failure.Title != "The app did not load the SSR bundle" {
+		t.Fatalf("report = %+v, want the failure of the build that started while it was read", r)
+	}
+}
