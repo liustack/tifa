@@ -14,6 +14,7 @@ import (
 	"syscall"
 
 	"github.com/liustack/tifa/internal/config"
+	"github.com/liustack/tifa/internal/content"
 	"github.com/spf13/cobra"
 )
 
@@ -76,9 +77,16 @@ func runSources(ctx context.Context, app App, src *config.Sources, stdout, stder
 		if app.Session != nil {
 			s.enableSessions(app.Session)
 		}
-		if dist, err := frontFiles(app, distDir); err != nil {
+		dist, err := frontFiles(app, distDir)
+		if err != nil {
 			return err
-		} else if dist != nil {
+		}
+		// The content collections get their entries before OnStart, which may read them. An entry
+		// that fails Validate stops the program here.
+		if err := content.Load(dist); err != nil {
+			return err
+		}
+		if dist != nil {
 			// openFront reads s.dev to turn on the checks of tifa dev.
 			if dev != nil {
 				s.dev = dev(s, dist, cfg.SSR)

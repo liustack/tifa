@@ -7,7 +7,6 @@ package content
 import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
-	"errors"
 	"fmt"
 	"io/fs"
 	"reflect"
@@ -88,6 +87,14 @@ func Register(c *Collection) error {
 	return nil
 }
 
+// Unregister removes the collection whose Value is v. Only tests use it, for a collection that
+// must not outlive the test that defines it.
+func Unregister(v any) {
+	mu.Lock()
+	defer mu.Unlock()
+	collections = slices.DeleteFunc(collections, func(c *Collection) bool { return c.Value == v })
+}
+
 // Collections returns the declared collections in the order they were declared.
 func Collections() []*Collection {
 	mu.Lock()
@@ -107,15 +114,12 @@ func Lookup(v any) *Collection {
 	return nil
 }
 
-// Load reads content.json from dist and makes it the data of every declared collection. dist is
-// nil for a program without a front end. Either every collection gets its data, or none does.
+// Load reads content.json from dist and makes it the data of every declared collection. Either
+// every collection gets its data, or none does. dist is nil only for an App without the files of
+// tifa build, as in the tests of the server, and then Load does nothing.
 func Load(dist fs.FS) error {
-	cs := Collections()
-	if len(cs) == 0 {
+	if dist == nil || len(Collections()) == 0 {
 		return nil
-	}
-	if dist == nil {
-		return errors.New("tifa: content: the app declares content collections and runs without the files of tifa build")
 	}
 	data, err := fs.ReadFile(dist, FileName)
 	if err != nil {
