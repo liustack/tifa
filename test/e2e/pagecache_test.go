@@ -346,4 +346,6 @@ func pageCacheInBrowser(t *testing.T, base string) {
 	if out := pw("eval", `() => document.getElementById("news")?.textContent ?? ""`); !strings.Contains(out, "page=2") {
 		t.Errorf("page text %s", out)
 	}
+	// A page of the whole-page cache is dated by the age of its entry.
+	expectDatedInBrowser(t, "tifa-e2e-ca", base+"/news")
 }

@@ -105,6 +105,36 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
   })
 }
 
+// dataAge is the Server-Timing metric in which Go sends how old the data of a page may be when the
+// answer leaves the server, in milliseconds (setDataAge in server/page.go).
+const dataAge = 'tifa-age'
+
+// pageLoadedAt is when the data of the page was loaded, on the clock of the browser: the time the
+// browser sent the request, less the age Go sends with the page. Counting from the request and not
+// from the answer takes the time on the network as age too, as caches count it (RFC 9111 4.2.3),
+// so the data never looks newer than it is, and no clock of the server is involved. It is
+// undefined when the browser cannot say: Firefox gives Server-Timing only to secure contexts, and a
+// page from the history may come from the HTTP cache with the header of an earlier answer.
+function pageLoadedAt(): number | undefined {
+  const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined
+  if (!nav || nav.type === 'back_forward') return undefined
+  const age = nav.serverTiming?.find((entry) => entry.name === dataAge)
+  if (!age) return undefined
+  return performance.timeOrigin + nav.requestStart - age.duration
+}
+
+// datePage dates the matches the server rendered, which it wrote with 0 as the time they loaded at
+// (undated in server.tsx), by pageLoadedAt. The router compares the time with staleTime and gcTime.
+// A match left at 0 counts as old: the router loads it again when the page is entered again. A
+// match the browser loaded itself has its own time and keeps it. router-core keeps the same match
+// objects in its store and in what it committed, and has no API to change one, so the time is
+// written on them, as the router writes it when a loader settles.
+function datePage(matches: ReadonlyArray<{ updatedAt: number }>) {
+  const at = pageLoadedAt()
+  if (at === undefined) return
+  for (const match of matches) if (match.updatedAt === 0) match.updatedAt = at
+}
+
 // takeOver hydrates the router from the scripts of the page the server rendered, as TanStack's
 // RouterClient does, then has the head and the attributes of <html> follow its matches. It first
 // syncs the head with the matches the server rendered, which changes nothing on the page, and
@@ -116,6 +146,7 @@ export function takeOver(router: AnyRouter, htmlAttributes: HTMLAttributes): Pro
     .finally(() => window.$_TSR!.h())
     .then(() => {
       const matches = router.stores.matches.get()
+      datePage(matches)
       syncHead(matches)
       noteHTMLAttributes(matches, htmlAttributes)
       followHead(router, htmlAttributes)

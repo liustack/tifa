@@ -239,6 +239,10 @@ func TestDev(t *testing.T) {
 	v1 := d.waitStatus(t, func(st devStatus) bool { return st.Version != "" && st.Error == "" }).Version
 	expectBody(t, d.base+"/", "North shop")
 	expectNoErrors(t, dir, "after the first build")
+	// The browser reads the age of the data of the page next to the build tifa dev names, and the
+	// hydration reports nothing.
+	expectDatedInBrowser(t, "tifa-e2e-da", d.base+"/shops/north", "tifa-dev", "tifa-dev-render")
+	expectNoErrors(t, dir, "after a browser opened a page")
 
 	// Pages load the modules from Vite's dev server, with the React refresh preamble first.
 	expectBody(t, d.base+"/", `import { injectIntoGlobalHook } from "/__tifa/vite/@react-refresh"`)
