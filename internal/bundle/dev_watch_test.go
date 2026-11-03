@@ -235,7 +235,10 @@ func TestDevServerStartsPolling(t *testing.T) {
 	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	var watcher struct{ Polling, FSEvents bool }
+	var watcher struct {
+		Polling  bool `json:"polling"`
+		FSEvents bool `json:"fsEvents"`
+	}
 	if err := d.node.call("pollFiles", nil, &watcher); err != nil {
 		t.Fatal(err)
 	}
