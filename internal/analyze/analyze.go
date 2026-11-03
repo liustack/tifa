@@ -246,6 +246,10 @@ func (a *analyzer) load() error {
 	if _, err := os.Stat(filepath.Join(a.root, "config.go")); err == nil {
 		hasConfig = true
 	}
+	// content.go declares the content collections, which the generated main imports too.
+	if _, err := os.Stat(filepath.Join(a.root, "content.go")); err == nil {
+		hasConfig = true
+	}
 	a.fset = token.NewFileSet()
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedImports | packages.NeedSyntax |
@@ -483,7 +487,7 @@ func (a *analyzer) build() *Manifest {
 	a.propagateQuery(routes, layouts)
 	a.checkCacheIdentity(routes, layouts)
 
-	m := &Manifest{Module: a.module, Hooks: a.hooks(), Embedded: a.embed, Session: a.session(a.modulePackages), Settings: a.settings()}
+	m := &Manifest{Module: a.module, Hooks: a.hooks(), Embedded: a.embed, Session: a.session(a.modulePackages), Settings: a.settings(), Content: a.content()}
 	for _, l := range layouts {
 		m.Layouts = append(m.Layouts, l.Layout)
 	}

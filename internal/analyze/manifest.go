@@ -26,6 +26,9 @@ type Manifest struct {
 	// Embedded is what the go:embed lines of the module's packages bring in. It is not part of the
 	// route manifest, so it is not written out.
 	Embedded *Embedded `json:"-"`
+	// Content is the content collections of content.go and their entries, nil without any. The
+	// build writes the entries into dist/content.json.
+	Content *Content `json:"-"`
 	// Layouts is sorted by Dir, so a Layout always comes after its parent.
 	Layouts []Layout `json:"layouts"`
 	// Routes is sorted by Dir.
@@ -130,6 +133,9 @@ type Error struct {
 func (e Error) Error() string {
 	if e.Pos.Filename == "" {
 		return e.Msg
+	}
+	if e.Pos.Line == 0 { // a whole file or folder, such as content/notes
+		return e.Pos.Filename + ": " + e.Msg
 	}
 	if e.Pos.Column > 0 {
 		return fmt.Sprintf("%s:%d:%d: %s", e.Pos.Filename, e.Pos.Line, e.Pos.Column, e.Msg)
