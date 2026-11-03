@@ -81,7 +81,7 @@ Go side:
 10. Changing state in a `GET`. The cross-site write check covers POST, PUT, PATCH and DELETE only.
 11. Writing a `main`, editing anything in `.tifa/`, or setting things up in `init()`. Open resources in `OnStart`, close them in `OnShutdown`.
 12. Letting the root package import anything under `app/`. Domains import the root package for `DB` and friends, so that import would close a cycle.
-13. Using your own environment variables that start with `TIFA_`. An unknown one stops the program.
+13. Reading settings with `os.Getenv` or your own flags. Define them in `config.go` at the root with `tifa.String`, `tifa.Int`, `tifa.Bool` and the like, so `./bin/app config` lists them and a bad value stops the program before `OnStart`.
 
 Sessions (see `references/routing-and-data.md`):
 
@@ -110,6 +110,6 @@ Read the one that matches the task. Each is short and links to the full docs.
 | [references/i18n.md](references/i18n.md) | A site in several languages, language in the URL, `lang` on `<html>`, translations with i18next |
 | [references/testing.md](references/testing.md) | Writing or running tests for `Load`, `Layout`, handlers, `OnRequest` or code that needs a signed-in user, and checking the real HTML |
 | [references/structure.md](references/structure.md) | Deciding where a type, a query or a shared resource goes, or the go command reports an import cycle |
-| [references/build-and-deploy.md](references/build-and-deploy.md) | `tifa dev` or `tifa build` problems, settings in `tifa.yaml` and `TIFA_*`, building for Linux, HTTPS, running behind a CDN, container or systemd, sizing CPU and memory |
+| [references/build-and-deploy.md](references/build-and-deploy.md) | `tifa dev` or `tifa build` problems, settings in `tifa.yaml`, `config.go`, `.env` and environment variables, building for Linux, HTTPS, running behind a CDN, container or systemd, sizing CPU and memory |
 
 The full docs are at https://github.com/liustack/tifa/tree/main/docs and the example app (a shop with a workbench and a two-language storefront) is at https://github.com/liustack/tifa/tree/main/examples/shop.

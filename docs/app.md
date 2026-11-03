@@ -28,6 +28,7 @@ For a complete example, see [examples/shop](../examples/shop). For the build, th
 myapp/
   go.mod
   hooks.go                          process and request hooks (optional)
+  config.go                         settings of the app, see Configuration (optional)
   db.go                             resources the whole app shares: package-level variables and functions (optional)
   app/
     route.go  layout.tsx            root Layout (Layout in route.go), wraps every page, and / (GET in route.go)

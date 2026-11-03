@@ -1,6 +1,8 @@
 ---
-summary: 'tifa 应用的全部配置：每项能在哪设置、谁优先、默认值、参数和环境变量名、值的写法、写错时的报错，怎样用程序自己申请的证书或你自己的证书提供 HTTPS，以及程序怎样拒绝浏览器从别的网站发来的写请求、怎样放行指定的来源或路径'
+summary: 'tifa 应用的全部配置和应用怎样定义自己的配置：每项能在哪设置（参数、环境变量、.env、-c 的文件、tifa.yaml）、谁优先、怎样读 PORT 和 HOST、默认值、参数和环境变量名、值的写法、写错时的报错，怎样用程序自己申请的证书或你自己的证书提供 HTTPS，以及程序怎样拒绝浏览器从别的网站发来的写请求、怎样放行指定的来源或路径'
 read_when:
+  - 用 tifa.String 等定义应用的配置，或在 OnStart 里读它
+  - 写 .env 文件，或部署到会设 PORT 的平台
   - 想改会话能用多久、会话 cookie 的名字，或默认会话存储能用多少内存
   - 部署 tifa 应用，或要改端口、请求体上限、压缩、VM 数量、VM 栈深度、渲染超时、渲染队列、渲染缓存、整页缓存
   - 想让程序自己提供 HTTPS，用 Let's Encrypt 或自己的证书，或者在犹豫要不要这样做
@@ -21,13 +23,16 @@ tifa 应用的默认值按小机器定好了，需要时才改。
 
 优先级从高到低：
 
-1. `serve` 的命令行参数，比如 `--server-addr 0.0.0.0:9527`。
-2. `TIFA_*` 环境变量，比如 `TIFA_SERVER_ADDR`。
-3. `--config path.yaml` 指定的部署文件（`.yaml`、`.yml` 或 `.json`）。
-4. 应用根目录的项目文件 `tifa.yaml` 或 `tifa.json`，`tifa build` 时嵌进程序。
-5. 下表的默认值。
+1. 命令行参数，比如 `--server-addr 0.0.0.0:9527`。
+2. 环境变量，比如 `SERVER_ADDR=0.0.0.0:9527`。
+3. 程序运行目录下的 `.env` 文件。
+4. `-c path.yaml`（或 `--config path.yaml`）指定的部署文件。
+5. 应用根目录的项目文件 `tifa.yaml`。`tifa build` 读它，把里面的值编进程序。
+6. 默认值：tifa 的配置用下表的默认值，[应用的配置](#应用的配置)用 `config.go` 里写的。
 
-项目文件在构建时读取，`build.*` 只能写在这里。项目文件只留一个：`tifa.yaml` 和 `tifa.json` 同时存在会构建报错。
+每个来源只改它写到的键，所以部署文件只写要改的项。程序只读自己的键：文件里别的键、别的环境变量和别的参数一律不管。
+
+`tifa.yaml` 写的是 tifa 配置的值。`build.*` 只能写在这里，类型或格式写错时 `tifa build` 报错。程序运行时不读这个文件，改了要重新构建。
 
 ```yaml
 # tifa.yaml
@@ -42,7 +47,50 @@ cache:
   size: 128MiB
 ```
 
-运行 `./bin/app config` 会把各来源合并后的配置打印成带注释的文件，可以拿来当部署文件的起点。
+运行 `./bin/app config` 会列出全部配置（tifa 的和应用的）、最终值和值的来源（`default`、`tifa.yaml`、`file prod.yaml`、`.env SSR_VMS`、`env PORT`、`flag --ssr-vms` 等）。输出是带注释的 YAML 文件，可以拿来当部署文件的起点。
+
+### 名字
+
+每项配置有一个键、一个参数和一个环境变量，按同一条规则推出来：
+
+| 键 | 参数 | 环境变量 |
+| --- | --- | --- |
+| `db.url` | `--db-url` | `DB_URL` |
+| `server.body_limit` | `--server-body-limit` | `SERVER_BODY_LIMIT` |
+
+- 键由小写字母、数字和下划线组成，用点分成至少两段。
+- 参数把点和下划线换成连字符。环境变量把点换成下划线，全部大写，不加前缀。
+- 在 YAML 文件里，键的每一段是一层：`db.url` 就是 `db:` 下面的 `url`。
+- 参数的值写在空格后或 `=` 后：`--ssr-vms 4` 或 `--ssr-vms=4`。以 `-` 开头的词永远是参数，不会当成值，所以以 `-` 开头的值（比如负数，或 `cache.ignore_query` 的 `-gclid`）要写在 `=` 后：`--cache-ignore-query=-gclid`。缺值的参数会报错。`--` 之后的参数一律不读。
+
+### .env
+
+程序读运行目录下的 `.env` 文件，每行一个 `NAME=value`。真实的环境变量优先于 `.env` 里的同名变量。没有这个文件不报错。`tifa build` 不把它打进程序。每台机器一份 `.env`，没有 `.env.local`、`.env.production` 这类变体，不要提交到 git。
+
+```sh
+# .env
+DB_URL=/var/lib/shop/shop.db
+SERVER_ADDR=0.0.0.0:9527
+export SESSION_MAX_AGE=24h   # 行首可以写 export
+GREETING="Hello # 这不是注释\n"
+```
+
+- 以 `#` 开头的行和空行跳过。不加引号的值到空格或制表符后面的 `#` 为止，去掉两边的空格，所以 `TLS_CERT= # 不用` 的值为空，`COLOR=#fff` 的值是 `#fff`。
+- 双引号里的值可以写 `\n`、`\t`、`\"` 和 `\\`。单引号里的值原样取。带引号的值只能写在一行里。
+- 读不懂的行会让程序报出行号后退出。
+
+`tifa dev` 在应用根目录运行应用，所以应用读的是那里的 `.env`，改了 `.env` 应用会重启。Vite 不读 `.env`（`envDir: false`），页面要用的值由它的 `Load` 给。
+
+### PORT 和 HOST
+
+Cloud Run、Heroku、Render、Railway、Fly 这类托管平台用 `PORT` 告诉程序端口。程序为 `server.addr` 读 `PORT` 和 `HOST`（不读 `HOSTNAME`，shell 和 Docker 会把它设成机器名）：
+
+- 它们排在 `SERVER_ADDR` 后面：`--server-addr` > `SERVER_ADDR` > `PORT` 和 `HOST` > `-c` 的文件 > `tifa.yaml` > 默认值。`.env` 里也可以写，排在真实变量后面。
+- 只有 `PORT` 时监听所有网卡：`PORT=8080` 就是 `:8080`，这些平台要求这样。
+- 只有 `HOST` 时只换主机，端口用下层来源给的 `server.addr`。
+- 值为空等于没设。
+
+`tifa dev` 用 `SERVER_ADDR` 把地址传给应用，所以 shell 里的 `PORT` 不会把它挪走。`tifa dev` 自己监听 `--addr`，不读 `PORT`。
 
 ## 配置项
 
@@ -53,31 +101,66 @@ cache:
 | `build.skip_tanstack_check` | `false` | 只能写在项目文件 | 设为 `true` 时，TanStack Router 不是 tifa 测过的版本也照样构建，页面在浏览器里可能白屏。见 [build.zh-CN.md](build.zh-CN.md#应用的-tsconfig-与-vite-配置) |
 | `build.debug_info` | `false` | 只能写在项目文件 | 设为 `true` 时，程序里保留 DWARF 调试信息，给 Delve 这类调试器用。不设的话，`tifa build` 用 `-ldflags=-w` 去掉调试信息，示例商店的程序因此小约 20%。两种情况下 panic 都照样给出每一帧的文件和行号。`tifa dev` 总是保留。见 [build.zh-CN.md](build.zh-CN.md#调试信息) |
 | `build.i18next_cache` | `true` | 只能写在项目文件 | 服务端渲染记住 i18next 翻译出的字符串，同样的键和选项再来时直接给出，于是每次渲染都翻译同样文案的页面更快：shop 的店面页面只用原来 0.798 的时间。设为 `false` 关掉。应用在第一次渲染之后绕开 i18next 的 API 改资源或选项，或者交给 i18next 的函数（格式化函数和后处理器以外）会读请求里的东西时，要关掉它，否则页面可能显示过期的翻译。见 [build.zh-CN.md](build.zh-CN.md#i18next-缓存) |
-| `server.addr` | `127.0.0.1:9527` | `--server-addr`、`TIFA_SERVER_ADDR` | 监听地址。容器里用 `0.0.0.0:9527`。开了 [HTTPS](#https) 时这里提供 HTTPS，而且必须设置，一般设成 `:443` |
-| `server.body_limit` | `1MiB` | `--server-body-limit`、`TIFA_SERVER_BODY_LIMIT` | 请求体上限，超过答 413 |
-| `server.shutdown_timeout` | `10s` | `--server-shutdown-timeout`、`TIFA_SERVER_SHUTDOWN_TIMEOUT` | 收到退出信号后，先给在途请求的时间，再给 `OnShutdown` 的时间。到时仍在运行的请求会被取消，再给它们一个 `shutdown_timeout` 返回。都返回了就执行 `OnShutdown`，没返回就跳过它。两种情况程序都以状态码 1 退出 |
-| `server.compress` | `true` | `--server-compress`、`TIFA_SERVER_COMPRESS` | 对接受压缩的客户端用 gzip 或 zstd 发文本回答，浏览器包直接发 `tifa build` 写好的 gzip 文件，见[压缩](build.zh-CN.md#压缩)。前面有代理负责压缩时设为 `false`，比如用 brotli 的 nginx |
-| `server.tls_domains` | 无 | `--server-tls-domains`、`TIFA_SERVER_TLS_DOMAINS` | 开启 [HTTPS](#https)，为这些域名向 Let's Encrypt 申请证书，逗号分隔，比如 `example.com,www.example.com` |
-| `server.tls_email` | 无 | `--server-tls-email`、`TIFA_SERVER_TLS_EMAIL` | 配合 `tls_domains` 交给 Let's Encrypt 的联系邮箱，可不填 |
-| `server.tls_cache` | 无 | `--server-tls-cache`、`TIFA_SERVER_TLS_CACHE` | 保存 `tls_domains` 证书的目录，重启后接着用。配了 `tls_domains` 就必须配，而且重新部署也不能丢 |
-| `server.tls_ca` | `https://acme-v02.api.letsencrypt.org/directory` | `--server-tls-ca`、`TIFA_SERVER_TLS_CA` | `tls_domains` 申请证书用的 ACME 目录地址，默认是 Let's Encrypt |
-| `server.tls_cert` | 无 | `--server-tls-cert`、`TIFA_SERVER_TLS_CERT` | 改用你自己的证书文件开启 [HTTPS](#https)，PEM 格式，文件变了会重新加载 |
-| `server.tls_key` | 无 | `--server-tls-key`、`TIFA_SERVER_TLS_KEY` | `tls_cert` 的私钥文件，PEM 格式 |
-| `server.http_addr` | `:80` | `--server-http-addr`、`TIFA_SERVER_HTTP_ADDR` | 开了 HTTPS 时的明文 HTTP 地址，回应 Let's Encrypt 的验证，其余请求跳转到 HTTPS。`off` 表示不开。没开 HTTPS 时不用 |
-| `server.hsts` | `false` | `--server-hsts`、`TIFA_SERVER_HSTS` | 给 `server.addr` 的回答加上 `Strict-Transport-Security: max-age=31536000`，浏览器一年内只走 HTTPS |
-| `server.trusted_origins` | 无 | `--server-trusted-origins`、`TIFA_SERVER_TRUSTED_ORIGINS` | 这些来源的页面可以从别的网站发写请求（POST、PUT、PATCH、DELETE），逗号分隔，比如 `https://admin.example.com,http://localhost:3000`。见[跨站写请求](#跨站写请求) |
-| `server.cross_site_paths` | 无 | `--server-cross-site-paths`、`TIFA_SERVER_CROSS_SITE_PATHS` | 这些路径模式的写请求不检查来自哪个网站，逗号分隔，比如 `POST /auth/apple/callback`。见[跨站写请求](#跨站写请求) |
-| `ssr.vms` | CPU 数（`GOMAXPROCS`） | `--ssr-vms`、`TIFA_SSR_VMS` | 预热的 JavaScript VM 数，也就是同时能渲染几个页面。容器里跟随 CPU 限额。什么时候该改见[机器怎么配](performance.zh-CN.md#机器怎么配) |
-| `ssr.vm_memory` | `128MiB` | `--ssr-vm-memory`、`TIFA_SSR_VM_MEMORY` | 每个 VM 的内存上限。渲染时内存用尽则这次渲染失败，VM 换成新的。页面代码接不住它。引擎留住再用的形状也算在这里，最坏每个 VM 约 6 MiB（按 2048 个形状、每个 32 个键、键名约十个字符算，键名更长会更多），调低时要留出这部分（见[内存](performance.zh-CN.md#内存)） |
-| `ssr.vm_stack_depth` | `10000` | `--ssr-vm-stack-depth`、`TIFA_SSR_VM_STACK_DEPTH` | 每个 VM 里 JavaScript 调用最多嵌套多深，大约一次调用一层。更深的调用抛出 `RangeError: Maximum call stack size exceeded`，和 Node 停下的深度差不多。可设 1 到 10000，见[栈深度](#栈深度) |
-| `ssr.timeout` | `3s` | `--ssr-timeout`、`TIFA_SSR_TIMEOUT` | 一次渲染的时间预算。超时的渲染被停下，按意外错误处理，交给 `OnError`。页面代码接不住它 |
-| `ssr.queue_limit` | `32` | `--ssr-queue-limit`、`TIFA_SSR_QUEUE_LIMIT` | 最多有多少次渲染等待空闲 VM，不包含正在运行的渲染。`0` 表示没有空闲 VM 就立即拒绝。队列满时返回 503 和 `Retry-After: 1` |
-| `ssr.wait_timeout` | `1s` | `--ssr-wait-timeout`、`TIFA_SSR_WAIT_TIMEOUT` | 等待 VM 的最长时间。超时返回 503 和 `Retry-After: 1`，不启动渲染，也不替换 VM。它与取得 VM 后才开始的 `ssr.timeout` 分开计算 |
-| `cache.size` | `64MiB` | `--cache-size`、`TIFA_CACHE_SIZE` | 渲染缓存里的页面和[整页缓存](app.zh-CN.md#整页缓存)的页面共用的大小，是同一个 LRU，`server.compress` 开着时存的 gzip 和 zstd 版本也算在内，`0` 把两者都关闭，但同时没命中同一个页面的请求仍然共用一次渲染（见 [SSR 与缓存](app.zh-CN.md#ssr-与缓存)）。页面可以用 `RenderCache = false` 给自己关掉渲染缓存 |
-| `cache.ignore_query` | `utm_*,gclid,gbraid,wbraid,fbclid,msclkid,twclid,ttclid,yclid,mc_cid,mc_eid` | `--cache-ignore-query`、`TIFA_CACHE_IGNORE_QUERY` | 整页缓存的键和渲染用的 URL 里要去掉的查询参数。写一个名字是加进名单，`-名字` 是去掉一个，`-*` 清空，以 `*` 结尾的名字按前缀匹配。页面的 `Load` 读的参数不管这里怎么写都保留 |
-| `session.cookie` | `__Host-tifa_session` | `--session-cookie`、`TIFA_SESSION_COOKIE` | 会话 cookie 的名字。`tifa dev` 下去掉 `__Host-` 前缀，见[会话](app.zh-CN.md#会话) |
-| `session.max_age` | `720h` | `--session-max-age`、`TIFA_SESSION_MAX_AGE` | 会话从 `tifa.SetSession` 创建起能用多久，至少一秒，不续期 |
-| `session.memory_limit` | `64MiB` | `--session-memory-limit`、`TIFA_SESSION_MEMORY_LIMIT` | 内存会话存储最多放多少字节，`OnStart` 没用 `tifa.SetSessionStore` 设存储时才用。满了先挤掉最早过期的 |
+| `server.addr` | `127.0.0.1:9527` | `--server-addr`、`SERVER_ADDR` | 监听地址。容器里用 `0.0.0.0:9527`。开了 [HTTPS](#https) 时这里提供 HTTPS，而且必须设置，一般设成 `:443` |
+| `server.body_limit` | `1MiB` | `--server-body-limit`、`SERVER_BODY_LIMIT` | 请求体上限，超过答 413 |
+| `server.shutdown_timeout` | `10s` | `--server-shutdown-timeout`、`SERVER_SHUTDOWN_TIMEOUT` | 收到退出信号后，先给在途请求的时间，再给 `OnShutdown` 的时间。到时仍在运行的请求会被取消，再给它们一个 `shutdown_timeout` 返回。都返回了就执行 `OnShutdown`，没返回就跳过它。两种情况程序都以状态码 1 退出 |
+| `server.compress` | `true` | `--server-compress`、`SERVER_COMPRESS` | 对接受压缩的客户端用 gzip 或 zstd 发文本回答，浏览器包直接发 `tifa build` 写好的 gzip 文件，见[压缩](build.zh-CN.md#压缩)。前面有代理负责压缩时设为 `false`，比如用 brotli 的 nginx |
+| `server.tls_domains` | 无 | `--server-tls-domains`、`SERVER_TLS_DOMAINS` | 开启 [HTTPS](#https)，为这些域名向 Let's Encrypt 申请证书，逗号分隔，比如 `example.com,www.example.com` |
+| `server.tls_email` | 无 | `--server-tls-email`、`SERVER_TLS_EMAIL` | 配合 `tls_domains` 交给 Let's Encrypt 的联系邮箱，可不填 |
+| `server.tls_cache` | 无 | `--server-tls-cache`、`SERVER_TLS_CACHE` | 保存 `tls_domains` 证书的目录，重启后接着用。配了 `tls_domains` 就必须配，而且重新部署也不能丢 |
+| `server.tls_ca` | `https://acme-v02.api.letsencrypt.org/directory` | `--server-tls-ca`、`SERVER_TLS_CA` | `tls_domains` 申请证书用的 ACME 目录地址，默认是 Let's Encrypt |
+| `server.tls_cert` | 无 | `--server-tls-cert`、`SERVER_TLS_CERT` | 改用你自己的证书文件开启 [HTTPS](#https)，PEM 格式，文件变了会重新加载 |
+| `server.tls_key` | 无 | `--server-tls-key`、`SERVER_TLS_KEY` | `tls_cert` 的私钥文件，PEM 格式 |
+| `server.http_addr` | `:80` | `--server-http-addr`、`SERVER_HTTP_ADDR` | 开了 HTTPS 时的明文 HTTP 地址，回应 Let's Encrypt 的验证，其余请求跳转到 HTTPS。`off` 表示不开。没开 HTTPS 时不用 |
+| `server.hsts` | `false` | `--server-hsts`、`SERVER_HSTS` | 给 `server.addr` 的回答加上 `Strict-Transport-Security: max-age=31536000`，浏览器一年内只走 HTTPS |
+| `server.trusted_origins` | 无 | `--server-trusted-origins`、`SERVER_TRUSTED_ORIGINS` | 这些来源的页面可以从别的网站发写请求（POST、PUT、PATCH、DELETE），逗号分隔，比如 `https://admin.example.com,http://localhost:3000`。见[跨站写请求](#跨站写请求) |
+| `server.cross_site_paths` | 无 | `--server-cross-site-paths`、`SERVER_CROSS_SITE_PATHS` | 这些路径模式的写请求不检查来自哪个网站，逗号分隔，比如 `POST /auth/apple/callback`。见[跨站写请求](#跨站写请求) |
+| `ssr.vms` | CPU 数（`GOMAXPROCS`） | `--ssr-vms`、`SSR_VMS` | 预热的 JavaScript VM 数，也就是同时能渲染几个页面。容器里跟随 CPU 限额。什么时候该改见[机器怎么配](performance.zh-CN.md#机器怎么配) |
+| `ssr.vm_memory` | `128MiB` | `--ssr-vm-memory`、`SSR_VM_MEMORY` | 每个 VM 的内存上限。渲染时内存用尽则这次渲染失败，VM 换成新的。页面代码接不住它。引擎留住再用的形状也算在这里，最坏每个 VM 约 6 MiB（按 2048 个形状、每个 32 个键、键名约十个字符算，键名更长会更多），调低时要留出这部分（见[内存](performance.zh-CN.md#内存)） |
+| `ssr.vm_stack_depth` | `10000` | `--ssr-vm-stack-depth`、`SSR_VM_STACK_DEPTH` | 每个 VM 里 JavaScript 调用最多嵌套多深，大约一次调用一层。更深的调用抛出 `RangeError: Maximum call stack size exceeded`，和 Node 停下的深度差不多。可设 1 到 10000，见[栈深度](#栈深度) |
+| `ssr.timeout` | `3s` | `--ssr-timeout`、`SSR_TIMEOUT` | 一次渲染的时间预算。超时的渲染被停下，按意外错误处理，交给 `OnError`。页面代码接不住它 |
+| `ssr.queue_limit` | `32` | `--ssr-queue-limit`、`SSR_QUEUE_LIMIT` | 最多有多少次渲染等待空闲 VM，不包含正在运行的渲染。`0` 表示没有空闲 VM 就立即拒绝。队列满时返回 503 和 `Retry-After: 1` |
+| `ssr.wait_timeout` | `1s` | `--ssr-wait-timeout`、`SSR_WAIT_TIMEOUT` | 等待 VM 的最长时间。超时返回 503 和 `Retry-After: 1`，不启动渲染，也不替换 VM。它与取得 VM 后才开始的 `ssr.timeout` 分开计算 |
+| `cache.size` | `64MiB` | `--cache-size`、`CACHE_SIZE` | 渲染缓存里的页面和[整页缓存](app.zh-CN.md#整页缓存)的页面共用的大小，是同一个 LRU，`server.compress` 开着时存的 gzip 和 zstd 版本也算在内，`0` 把两者都关闭，但同时没命中同一个页面的请求仍然共用一次渲染（见 [SSR 与缓存](app.zh-CN.md#ssr-与缓存)）。页面可以用 `RenderCache = false` 给自己关掉渲染缓存 |
+| `cache.ignore_query` | `utm_*,gclid,gbraid,wbraid,fbclid,msclkid,twclid,ttclid,yclid,mc_cid,mc_eid` | `--cache-ignore-query`、`CACHE_IGNORE_QUERY` | 整页缓存的键和渲染用的 URL 里要去掉的查询参数。写一个名字是加进名单，`-名字` 是去掉一个，`-*` 清空，以 `*` 结尾的名字按前缀匹配。页面的 `Load` 读的参数不管这里怎么写都保留 |
+| `session.cookie` | `__Host-tifa_session` | `--session-cookie`、`SESSION_COOKIE` | 会话 cookie 的名字。`tifa dev` 下去掉 `__Host-` 前缀，见[会话](app.zh-CN.md#会话) |
+| `session.max_age` | `720h` | `--session-max-age`、`SESSION_MAX_AGE` | 会话从 `tifa.SetSession` 创建起能用多久，至少一秒，不续期 |
+| `session.memory_limit` | `64MiB` | `--session-memory-limit`、`SESSION_MEMORY_LIMIT` | 内存会话存储最多放多少字节，`OnStart` 没用 `tifa.SetSessionStore` 设存储时才用。满了先挤掉最早过期的 |
+
+## 应用的配置
+
+应用在根目录的 `config.go` 里用包级变量定义自己的配置：
+
+```go
+// config.go
+package shop
+
+import (
+	"time"
+
+	"github.com/liustack/tifa"
+)
+
+var (
+	DBURL   = tifa.String("db.url", "app.db", "Database file")
+	Workers = tifa.Int("jobs.workers", 4, "Background workers")
+	Hosts   = tifa.Strings("feed.hosts", nil, "Hosts the feed is read from")
+	Open    = tifa.Bool("shop.open", false, "Let visitors in without signing in")
+	Idle    = tifa.Duration("db.idle", time.Minute, "How long an idle connection stays open")
+	Upload  = tifa.Size("upload.limit", 8<<20, "Largest upload")
+)
+```
+
+- 参数依次是键、默认值和一行说明。返回的是普通值：读就用 `shop.DBURL`，测试里直接赋值 `shop.DBURL = "test.db"`。
+- 值和 tifa 的配置来自同样的来源：参数 `--db-url`、环境变量 `DB_URL`、`.env`、`-c` 的文件，最后是默认值。`tifa.yaml` 只写 tifa 的配置。
+- 类型有 `String`（`string`）、`Strings`（`[]string`）、`Int`（`int`）、`Bool`（`bool`）、`Duration`（`time.Duration`）和 `Size`（`int64`，字节数）。值的写法和 tifa 的配置一样，见[值的写法](#值的写法)。`Strings` 写成逗号分隔的一行，比如 `FEED_HOSTS=a.example,b.example`。
+- 值只能是单个值。结构化的数据放进应用自己的文件，配置里放它的路径。
+- 值不合法时变量取默认值，程序把它和别的不合法配置一起列出来，在 `OnStart` 之前退出。
+- `go test` 里配置一律是默认值，不管参数、环境变量和 `.env` 是什么。
+- 根包导入的包读不到这些变量（会成环），由 `OnStart` 把值传进去，比如 `store.Open(DBURL)`。
+- 应用嫌不够，可以在 `OnStart` 里用自己的配置系统。
+
+以下情况 `tifa build` 报错并指出文件和行：`tifa.String` 等不是写在根目录 `config.go` 的包级 `var` 的值里，键不是字符串字面量或不符合[名字](#名字)的规则，两项配置（应用的或 tifa 的）推出来的参数或环境变量相同，比如 `a.b_c` 和 `a_b.c`，一个键是另一个键所在的那一节，比如 `db.url` 和 `db.url.timeout`，或者 `server.addr.port` 和 tifa 的 `server.addr`。漏过构建的同样错误，程序会在启动时 panic。
 
 ## 渲染队列
 
@@ -214,22 +297,24 @@ sudo setcap cap_net_bind_service=+ep ./bin/myapp
 
 - 大小写成整数加可选单位：`B`、`KiB`、`MiB` 或 `GiB`，比如 `512KiB`。不带单位就是字节。只有 `cache.size` 可以是 0。
 - `cache.ignore_query` 是逗号分隔的名单改动，作用在默认名单上：`ref,-gclid` 加上 `ref`，去掉 `gclid`。名字不分大小写，不能含 `=`、`&`、`?` 和空格，`*` 只能放在名字末尾。每一层来源都在下一层留下的名单上改。
-- 时长用 Go 的写法，必须为正：`500ms`、`3s`、`1m30s`。
+- 时长用 Go 的写法，必须为正：`500ms`、`3s`、`1m30s`。应用的 `tifa.Duration` 也可以是 0 或负数。
+- YAML 文件里，整数配置写成数字（`vms: 2`，不是 `"2"`），`true` 或 `false` 的配置写成布尔值，其余都写成文本。大小可以写字节数，也可以写带单位的文本。
 - `ssr.vms` 是不小于 1 的整数。
 - `ssr.queue_limit` 是不小于 0 的整数。即使队列限制为 0，`ssr.wait_timeout` 也必须为正数。
 - `ssr.vm_stack_depth` 是 1 到 10000 的整数，10000 是引擎允许的最深调用嵌套。
-- `build.skip_tanstack_check`、`build.debug_info`、`build.i18next_cache`、`server.compress` 和 `server.hsts` 是 `true` 或 `false`，不加引号。参数要用 `=` 带值：`--server-compress=false`。
-- `server.trusted_origins` 和 `server.cross_site_paths` 是逗号分隔的列表，里面不要加括号或引号，可以为空。高优先级的来源可以清空低优先级设的值：`TIFA_SERVER_TRUSTED_ORIGINS=` 会清掉项目文件里的来源。来源要有 `http` 或 `https` 和主机名，不能带路径、查询串或用户名，写错会报出错在哪。`http.ServeMux` 不接受的模式，或和列表里别的模式冲突的，也会报错。
+- `build.skip_tanstack_check`、`build.debug_info`、`build.i18next_cache`、`server.compress` 和 `server.hsts` 是 `true` 或 `false`，文件里不加引号。参数单独写就是 `true`，要别的值只能用 `=` 带上：`--server-compress=false`，不会吃掉后面的词。
+- `server.trusted_origins` 和 `server.cross_site_paths` 是逗号分隔的列表，里面不要加括号或引号，可以为空。高优先级的来源可以清空低优先级设的值：`SERVER_TRUSTED_ORIGINS=` 会清掉项目文件里的来源。来源要有 `http` 或 `https` 和主机名，不能带路径、查询串或用户名，写错会报出错在哪。`http.ServeMux` 不接受的模式，或和列表里别的模式冲突的，也会报错。
 - `server.tls_domains` 是逗号分隔的主机名，不带协议、端口和路径，每个都要有点号。`server.tls_ca` 是 `https` 网址。`server.http_addr` 是带端口的地址，比如 `:80` 或 `0.0.0.0:80`，或者小写的 `off`。像开关的词，比如 `OFF`、`false`、`none`，会报错并告诉你该写什么。
-- `server.tls_domains`、`server.tls_email`、`server.tls_cache`、`server.tls_cert` 和 `server.tls_key` 可以为空，表示关掉低优先级来源设的值：项目文件要 Let's Encrypt 时，用 `TIFA_SERVER_TLS_DOMAINS=` 加 `--server-tls-cert` 就能改用自己的证书。
+- `server.tls_domains`、`server.tls_email`、`server.tls_cache`、`server.tls_cert` 和 `server.tls_key` 可以为空，表示关掉低优先级来源设的值：项目文件要 Let's Encrypt 时，用 `SERVER_TLS_DOMAINS=` 加 `--server-tls-cert` 就能改用自己的证书。
 
 ## 报错
 
-项目文件写错时 `tifa build` 直接失败。下面几种情况程序拒绝启动，并指出来源和键：
+`tifa.yaml` 里的值类型或格式写错时，`tifa build` 报错并指出行号。把某项配置写成一节或一个列表（比如 `ssr: {vms: {count: 2}}`）也算类型写错。下面几种情况程序拒绝启动，一次列出全部问题，每条都带来源和键：
 
-- 文件或环境变量里有未知的键，比如 `TIFA_SERVER_PORT`。
-- 值的类型或格式不对，比如 `ssr.timeout: 3`。
-- 部署文件里写了 `build.*`。`build.*` 没有对应的参数，也没有 `TIFA_BUILD_*` 环境变量。
+- tifa 或应用的某项配置的值类型或格式不对，比如 `ssr.timeout: 3`、`SHOP_OPEN=maybe`，或者 `-c` 的文件里 `ssr.vms` 下面又写了一节。
+- `-c` 的文件读不了或不是 YAML，或者 `.env` 有读不懂的行。
+
+不是配置的键、变量和参数不算错，所以拼错的名字（比如 `SERVER_PORT`）什么也不改，用 `./bin/app config` 看每项配置最后是什么值。`build.*` 只从 `tifa.yaml` 读：部署文件、`BUILD_*` 变量和 `--build-*` 参数都改不了它。
 
 下面几种情况程序也拒绝启动，在 `OnStart` 之前停下，并指出是哪几项配置：
 

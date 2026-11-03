@@ -4,21 +4,16 @@ package shop
 import (
 	"log/slog"
 	"net/url"
-	"os"
 	"strings"
 
 	"github.com/liustack/tifa"
 )
 
-// open lets the workbench be seen without signing in. SHOP_OPEN=1 is for the comparison with
-// Next.js and TanStack Start and for load tests, which cannot sign in. Do not set it on a server.
-var open = os.Getenv("SHOP_OPEN") == "1"
-
 // OnRequest keeps visitors who are not signed in out of the workbench and sends them to the
 // sign-in page, which sends them back afterwards. The storefront needs no sign-in.
 func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 	path := c.Request().URL.Path
-	if !open && (path == "/projects" || strings.HasPrefix(path, "/projects/")) && tifa.Session[Session](c) == nil {
+	if !Open && (path == "/projects" || strings.HasPrefix(path, "/projects/")) && tifa.Session[Session](c) == nil {
 		return tifa.Redirect("/login?next="+url.QueryEscape(c.Request().URL.RequestURI()), 302)
 	}
 	return next(c)

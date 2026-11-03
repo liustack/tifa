@@ -95,8 +95,8 @@ func TestDevMainRefusesALifelineThatIsNotOpen(t *testing.T) {
 
 // Only the main of tifa dev has the flag, a program of tifa build does not.
 func TestMainHasNoLifelineFlag(t *testing.T) {
-	_, _, err := runApp(t, context.Background(), App{}, nil, "--lifeline-fd", "3")
-	if err == nil || !strings.Contains(err.Error(), "unknown flag") {
-		t.Fatalf("Main accepted --lifeline-fd: %v", err)
+	out, _, err := runApp(t, context.Background(), App{}, nil, "serve", "--help")
+	if err != nil || !strings.Contains(out, "--dist") || strings.Contains(out, "lifeline") {
+		t.Fatalf("Main has --lifeline-fd: %v\n%s", err, out)
 	}
 }

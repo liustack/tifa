@@ -868,6 +868,8 @@ export function tifa(settings = {}) {
         base: command === 'serve' ? devBase : '/',
         appType: 'custom',
         publicDir: false,
+        // The program reads .env when it starts. A page gets what it needs from its Load.
+        envDir: false,
         clearScreen: false,
         server: {
           watch: {

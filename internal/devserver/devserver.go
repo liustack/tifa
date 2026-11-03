@@ -38,7 +38,7 @@ type Options struct {
 	Ignore []string
 	// App runs the application that Pipeline.GoBuild builds: the executable, then its arguments.
 	// The application runs in Dir, so give the executable as an absolute path. It gets the address
-	// to listen on in TIFA_SERVER_ADDR. After a rebuild of the SSR bundle alone it gets POST
+	// to listen on in SERVER_ADDR. After a rebuild of the SSR bundle alone it gets POST
 	// /__tifa/dev/reload instead of a restart, which server.DevMain answers with 204 once it
 	// loaded the new bundle.
 	App      []string

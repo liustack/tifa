@@ -1,0 +1,10 @@
+package {{.Package}}
+
+import "github.com/liustack/tifa"
+
+// The settings of the app. Each is also a flag and an environment variable: db.path is
+// --db-path and DB_PATH. See "Settings of the app" in docs/config.md.
+var (
+	// DBPath is the SQLite database file, relative to the folder the app runs in.
+	DBPath = tifa.String("db.path", "app.db", "SQLite database file")
+)

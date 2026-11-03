@@ -97,12 +97,6 @@ func startDevWith(t *testing.T, dir string, extra []*os.File) *devRun {
 	cmd := exec.Command(cli(t), "dev", "--dir", dir, "--addr", "127.0.0.1:0")
 	cmd.ExtraFiles = extra
 	d.cmd = cmd
-	// The app rejects unknown TIFA_* variables as settings, TIFA_E2E among them.
-	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "TIFA_") {
-			cmd.Env = append(cmd.Env, kv)
-		}
-	}
 	cmd.Stdout = d.log
 	cmd.Stderr = d.log
 	if err := testproc.Start(cmd); err != nil {

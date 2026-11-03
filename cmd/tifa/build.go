@@ -36,17 +36,17 @@ Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 			if err := checkInstalled(root); err != nil {
 				return err
 			}
+			// 1. Static analysis. It only reads, so a failed one leaves no .tifa behind.
+			m, err := analyzeApp(cmd, root)
+			if err != nil {
+				return err
+			}
 			// tifa dev writes into .tifa/dist too.
 			lock, err := lockApp(root)
 			if err != nil {
 				return err
 			}
 			defer lock.Close()
-			// 1. Static analysis.
-			m, err := analyzeApp(cmd, root)
-			if err != nil {
-				return err
-			}
 			// Node runs the application's Vite. It starts only for an application with pages.
 			node := bundle.NewNode(root, cmd.ErrOrStderr())
 			defer node.Close()

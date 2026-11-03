@@ -6,7 +6,6 @@ package {{.Package}}
 import (
 	"database/sql"
 	_ "embed"
-	"os"
 
 	// The SQLite driver is pure Go, so the app builds with CGO_ENABLED=0.
 	_ "modernc.org/sqlite"
@@ -18,14 +17,6 @@ var DB *sql.DB
 
 //go:embed schema.sql
 var schema string
-
-// dbPath is where the database lives: $DB_PATH, or app.db in the folder the app runs in.
-func dbPath() string {
-	if path := os.Getenv("DB_PATH"); path != "" {
-		return path
-	}
-	return "app.db"
-}
 
 // OpenDB opens the SQLite database at path, creating the file when it is missing, and creates
 // the tables of schema.sql that do not exist yet.

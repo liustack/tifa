@@ -6,11 +6,20 @@
 
 ### 新增
 
+- 应用在根目录的 `config.go` 里定义自己的配置：`var DBURL = tifa.String("db.url", "app.db", "Database file")`，另有 `tifa.Strings`（逗号分隔的一行）、`tifa.Int`、`tifa.Bool`、`tifa.Duration` 和 `tifa.Size`。每个都返回普通值，和 tifa 的配置一样从参数 `--db-url`、环境变量 `DB_URL`、`.env` 和 `-c` 的文件读取，`go test` 里是默认值。值不合法时程序在 `OnStart` 之前退出，并一次列出全部不合法的值。`./bin/app config` 列出 tifa 的和应用的配置、最终值和来源。在别处调用、键不是字符串字面量或不合规、两项配置的参数或环境变量相同，`tifa build` 都会报错（见[应用的配置](docs/config.zh-CN.md#应用的配置)）。
+- 程序读运行目录下的 `.env` 文件，排在真实环境变量后面。每台机器一份，没有变体，不打包进程序。`tifa dev` 下应用读应用根目录的 `.env`，改了它应用会重启，不重新构建（见 [.env](docs/config.zh-CN.md#env)）。
+- 程序为 `server.addr` 读托管平台的 `PORT` 和 `HOST`，排在 `SERVER_ADDR` 后面。只有 `PORT` 时监听所有网卡，Cloud Run 这类平台要求这样（见 [PORT 和 HOST](docs/config.zh-CN.md#port-和-host)）。
+- `-c` 是 `--config` 的短参数。
 - 同一个应用里再启动第二个 `tifa dev`，不再先起 Vite 再报一句光秃秃的 `address already in use`。现在它打印 `tifa: tifa dev is already running in this app at http://<地址> (pid <N>)` 并报错退出。有 tifa dev 在运行时 `tifa build` 也会这样停下，因为两者都写 `.tifa/dist`。没传 `--addr` 时，9527 被占用就依次试 9528 往后（一共十个端口），传了 `--addr` 而被占用则报错，信息里带着这个地址。锁是文件 `.tifa/dev.lock`（见 [tifa dev](docs/dev.zh-CN.md)）。
 - `tifa dev` 把浏览器里的错误显示在页面角落的小面板里：`Hydration mismatch`（带 React 给出的差异和组件栈）、`Recoverable error`、`Uncaught error` 和 `Unhandled rejection`。同一个错误再次出现只增加计数，面板保留最近 20 个，每条都可以关掉。面板不挡页面，构建错误的浮层仍在它上面。构建出的应用没有这些代码（见 [tifa dev](docs/dev.zh-CN.md#浏览器里的错误)）。
 
 ### 变更
 
+- **不兼容：**配置的环境变量去掉了 `TIFA_` 前缀：`TIFA_SERVER_ADDR` 改为 `SERVER_ADDR`，`TIFA_SSR_VMS` 改为 `SSR_VMS`。`tifa dev` 用 `SERVER_ADDR` 把地址传给应用。升级部署时把每个变量的前缀去掉。
+- **不兼容：**程序只读自己的配置。不是配置的文件键、环境变量和参数一律不管，以前未知的键或 `TIFA_*` 变量会让程序退出。拼错的名字现在什么也不改，用 `./bin/app config` 检查。`-c` 的文件里的 `build.*` 也不管。
+- **不兼容：**配置只支持 YAML。不再读 `tifa.json` 和 JSON 部署文件：把 `tifa.json` 改名为 `tifa.yaml`，按 YAML 写（JSON 也是合法的 YAML）。`tifa build` 校验 `tifa.yaml`，把它的值写成 Go 代码编进程序，不再嵌入这个文件。
+- **不兼容：**Vite 不读 `.env`（`envDir: false`），`.env` 文件里的 `VITE_` 变量不再进浏览器包，这类值改由 `Load` 传。`tifa dev` 不再为 `.env.*` 文件重新打包。
+- 示例商店把 `SHOP_OPEN` 改成它 `config.go` 里的配置 `shop.open`，`./bin/shop config` 能列出它，`--shop-open` 也能用。
 - **不兼容：**处理函数的调用在 POST、PUT、PATCH、DELETE 成功之后不再重新取页面数据，调用的 `invalidate` 选项也没有了。调用只发出请求，并应用回答里的会话。重定向只做导航，重定向到正在显示的页面时页面留在原处。tifa 不猜测一次写操作改了什么，TanStack Router 也不猜。想让页面显示写操作的结果，在调用之后调用 `router.invalidate()`（`await router.invalidate({ sync: true })` 会等到页面显示出新数据），或者更新你自己的状态。升级时删掉调用里的 `invalidate: false`，并在页面该显示写入结果的调用之后加上 `await router.invalidate({ sync: true })`。
 - **不兼容：**`tifa build` 生成的路由改用 TanStack Router 默认的新鲜度，以前是 `staleTime: Infinity` 和 `preloadStaleTime: Infinity`，路由器也不再设 `defaultStaleReloadMode: 'blocking'`。数据立刻算作过期，所以回到访问过的页面时先显示缓存的数据，同时在后台发一个 `?_tifa=` 请求重新取，预加载的数据复用 30 秒。登出之后不该让下一个人看到旧数据的应用，调用 `router.clearCache()`。
 - **不兼容：**`tifa/client` 的 `Session.In` 和 `Session.Out` 换成 `SignedIn` 和 `SignedOut`。它们各接收正好一个元素作子节点，自己不产生节点，只在有人登录或没人登录时显示这个元素，而旧组件会用一个 `<span>` 包住子内容。组件名拼错会让构建失败，而手写的 `data-session` 属性拼错是无声的，所以这个属性现在由 tifa 私有，文档也不再教你手写它。开发模式下，不把 props 传给自己 DOM 元素的子组件会在挂载时报错并说明原因。更新应用时，把 `<Session.In className="x">…</Session.In>` 换成 `<SignedIn><div className="x">…</div></SignedIn>`，`Session.Out` 同理（见[在浏览器里](docs/app.zh-CN.md#在浏览器里)）。

@@ -9,7 +9,10 @@ import (
 
 func TestOnStartOpensTheDatabaseAtDBPath(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "todos.db")
-	t.Setenv("DB_PATH", path)
+	// Settings keep their defaults in tests, so the test sets the variable itself.
+	old := DBPath
+	DBPath = path
+	t.Cleanup(func() { DBPath = old })
 	if err := OnStart(context.Background()); err != nil {
 		t.Fatal(err)
 	}

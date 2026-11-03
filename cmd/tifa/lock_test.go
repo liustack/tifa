@@ -73,7 +73,15 @@ func TestCodegenWriteKeepsTheLock(t *testing.T) {
 
 func holdDevLock(t *testing.T) string {
 	t.Helper()
-	root := t.TempDir()
+	// tifa build analyzes the app before it locks it, so the app is one that passes analysis.
+	repo, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := fakeApp(t, repo)
+	if err := os.Mkdir(filepath.Join(root, "app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	l, err := lockApp(root)
 	if err != nil {
 		t.Fatal(err)

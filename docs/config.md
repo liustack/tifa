@@ -1,6 +1,8 @@
 ---
-summary: 'Every setting of a tifa app: where each one can be set, which source wins, the default, the flag and environment variable names, the value formats and the errors a bad value gives, how to serve HTTPS with certificates the program gets itself or with your own, and how the program refuses writes that a browser sends from another site and how to let chosen origins or paths through'
+summary: 'Every setting of a tifa app and how an app defines its own: where each one can be set (flags, environment variables, .env, the file of -c, tifa.yaml), which source wins, how PORT and HOST are read, the default, the flag and environment variable names, the value formats and the errors a bad value gives, how to serve HTTPS with certificates the program gets itself or with your own, and how the program refuses writes that a browser sends from another site and how to let chosen origins or paths through'
 read_when:
+  - Defining a setting of the app with tifa.String and the like, or reading one in OnStart
+  - Writing a .env file, or deploying on a platform that sets PORT
   - Changing how long a session lasts, the session cookie name, or how much memory the default session store may use
   - Deploying a tifa app, or changing its port, body limit, compression, VM count, VM stack depth, render timeout, render queue, render cache, whole-page cache or the tracking parameters the cache ignores
   - Serving HTTPS from the program itself, with Let's Encrypt or your own certificate, or deciding whether to
@@ -21,13 +23,16 @@ A tifa app runs with sensible defaults for a small machine. Change a setting onl
 
 From highest to lowest priority:
 
-1. Command-line flags of `serve`, such as `--server-addr 0.0.0.0:9527`.
-2. `TIFA_*` environment variables, such as `TIFA_SERVER_ADDR`.
-3. The deployment file given with `--config path.yaml` (`.yaml`, `.yml` or `.json`).
-4. The project file `tifa.yaml` or `tifa.json` in the app root, embedded into the program by `tifa build`.
-5. The defaults below.
+1. Command-line flags, such as `--server-addr 0.0.0.0:9527`.
+2. Environment variables, such as `SERVER_ADDR=0.0.0.0:9527`.
+3. The `.env` file in the folder the program runs in.
+4. The deployment file given with `-c path.yaml` (or `--config path.yaml`).
+5. The project file `tifa.yaml` in the app root. `tifa build` reads it and builds its values into the program.
+6. The defaults: those in the table below for the settings of tifa, those in `config.go` for the [settings of the app](#settings-of-the-app).
 
-The project file is read at build time and is the only place for `build.*` settings. Keep one project file: having both `tifa.yaml` and `tifa.json` fails the build.
+A source sets only the keys it names, so a deployment file holds just what it changes. The program reads only its own keys: other keys of a file, other environment variables and other flags are left alone.
+
+`tifa.yaml` holds values of the settings of tifa. `build.*` settings can only be set here, and `tifa build` fails on a value of the wrong type or format. The program does not read the file: change it and build again.
 
 ```yaml
 # tifa.yaml
@@ -42,7 +47,50 @@ cache:
   size: 128MiB
 ```
 
-Run `./bin/app config` to print the merged settings of all sources as a commented file. It is a good starting point for a deployment file.
+Run `./bin/app config` to print every setting, of tifa and of the app, with its value and where the value comes from (`default`, `tifa.yaml`, `file prod.yaml`, `.env SSR_VMS`, `env PORT`, `flag --ssr-vms` and so on). The output is a commented YAML file, a good starting point for a deployment file.
+
+### Names
+
+Each setting has a key, a flag and an environment variable, all from one rule:
+
+| Key | Flag | Environment variable |
+| --- | --- | --- |
+| `db.url` | `--db-url` | `DB_URL` |
+| `server.body_limit` | `--server-body-limit` | `SERVER_BODY_LIMIT` |
+
+- A key is lower case letters, digits and underscores, in at least two parts joined with dots.
+- The flag replaces dots and underscores with hyphens. The environment variable replaces dots with underscores and is in upper case. There is no prefix.
+- In a YAML file each part of the key is one level: `db.url` is `url` under `db:`.
+- A flag takes its value after a space or after `=`: `--ssr-vms 4` or `--ssr-vms=4`. A word that starts with `-` is always a flag and never a value, so a value that starts with `-`, such as a negative number or `-gclid` of `cache.ignore_query`, goes after `=`: `--cache-ignore-query=-gclid`. A flag without its value fails. The program reads no flag after `--`.
+
+### .env
+
+The program reads the file `.env` in the folder it runs in, with lines of `NAME=value`. A real environment variable wins over the same name in `.env`. Without the file nothing happens. `tifa build` does not put it into the program, and there is one `.env` per machine, with no `.env.local` or `.env.production`: keep it out of git.
+
+```sh
+# .env
+DB_URL=/var/lib/shop/shop.db
+SERVER_ADDR=0.0.0.0:9527
+export SESSION_MAX_AGE=24h   # a line may start with export
+GREETING="Hello # not a comment\n"
+```
+
+- Lines starting with `#` and blank lines are skipped. An unquoted value ends at a `#` after a space or a tab and loses the spaces around it, so `TLS_CERT= # none` is empty and `COLOR=#fff` is `#fff`.
+- A value in double quotes may hold `\n`, `\t`, `\"` and `\\`. A value in single quotes is taken as it is. A quoted value stays on one line.
+- A line it cannot read stops the program with its line number.
+
+`tifa dev` runs the app in the app root, so the app reads the `.env` there, and a change of `.env` starts the app again. Vite does not read `.env` (`envDir: false`): a page gets the values it needs from its `Load`.
+
+### PORT and HOST
+
+Hosting platforms such as Cloud Run, Heroku, Render, Railway and Fly tell the program its port in `PORT`. The program reads `PORT` and `HOST` for `server.addr` (not `HOSTNAME`, which shells and Docker set to the machine name):
+
+- Their place is below `SERVER_ADDR`: `--server-addr` > `SERVER_ADDR` > `PORT` and `HOST` > the file of `-c` > `tifa.yaml` > the default. `.env` may hold them too, below the real variables.
+- `PORT` alone listens on every interface: `PORT=8080` is `:8080`, as those platforms need.
+- `HOST` alone changes the host and keeps the port of `server.addr` from the sources below.
+- Empty ones count as not set.
+
+`tifa dev` gives the app its address in `SERVER_ADDR`, so a `PORT` in your shell does not move it. `tifa dev` itself listens on `--addr` and does not read `PORT`.
 
 ## Settings
 
@@ -53,31 +101,66 @@ Run `./bin/app config` to print the merged settings of all sources as a commente
 | `build.skip_tanstack_check` | `false` | project file only | `true` builds an app whose TanStack Router is not the version tifa is tested with, which may leave pages blank in the browser. See [build.md](build.md#the-apps-tsconfig-and-vite-config) |
 | `build.debug_info` | `false` | project file only | `true` keeps the DWARF debug info in the program, for debuggers such as Delve. Without it, `tifa build` leaves the debug info out with `-ldflags=-w`, which makes the example shop's program about 20% smaller. Panics still give the file and line of each frame either way. `tifa dev` always keeps it. See [build.md](build.md#debug-info) |
 | `build.i18next_cache` | `true` | project file only | The server render keeps the strings i18next translates and gives them again for the same key and options, so pages that translate the same texts on every render take less time: the shop's storefront pages 0.798 of it. `false` turns it off. Turn it off when the app changes i18next's resources or options after the first render without i18next's API, or gives i18next functions other than formatters and post-processors that read something of the request, or pages may show stale translations. See [build.md](build.md#i18next-cache) |
-| `server.addr` | `127.0.0.1:9527` | `--server-addr`, `TIFA_SERVER_ADDR` | Address to listen on. Use `0.0.0.0:9527` in a container. With [HTTPS](#https) on it serves HTTPS and must be set, usually to `:443` |
-| `server.body_limit` | `1MiB` | `--server-body-limit`, `TIFA_SERVER_BODY_LIMIT` | Largest request body. A bigger one is answered with 413 |
-| `server.shutdown_timeout` | `10s` | `--server-shutdown-timeout`, `TIFA_SERVER_SHUTDOWN_TIMEOUT` | After a stop signal, the time in-flight requests get to finish, and then the time `OnShutdown` gets. Requests still running when it ends are canceled and get one more `shutdown_timeout` to return. `OnShutdown` runs once they have returned and is skipped if they have not. Either way the program exits with status 1 |
-| `server.compress` | `true` | `--server-compress`, `TIFA_SERVER_COMPRESS` | Sends text answers with gzip or zstd to clients that accept them, and the browser bundle as the gzip files `tifa build` wrote, see [Compression](build.md#compression). Set it to `false` when a proxy in front compresses, such as nginx with brotli |
-| `server.tls_domains` | none | `--server-tls-domains`, `TIFA_SERVER_TLS_DOMAINS` | Turns on [HTTPS](#https) with certificates from Let's Encrypt for these domains, comma-separated, such as `example.com,www.example.com` |
-| `server.tls_email` | none | `--server-tls-email`, `TIFA_SERVER_TLS_EMAIL` | Contact address given to Let's Encrypt with `tls_domains`. Optional |
-| `server.tls_cache` | none | `--server-tls-cache`, `TIFA_SERVER_TLS_CACHE` | Folder that keeps the certificates of `tls_domains` across restarts. Needed with `tls_domains`, and must survive new deployments |
-| `server.tls_ca` | `https://acme-v02.api.letsencrypt.org/directory` | `--server-tls-ca`, `TIFA_SERVER_TLS_CA` | ACME directory that `tls_domains` get their certificates from. Let's Encrypt by default |
-| `server.tls_cert` | none | `--server-tls-cert`, `TIFA_SERVER_TLS_CERT` | Turns on [HTTPS](#https) with your own certificate file instead, in PEM, loaded again when it changes |
-| `server.tls_key` | none | `--server-tls-key`, `TIFA_SERVER_TLS_KEY` | Private key file of `tls_cert`, in PEM |
-| `server.http_addr` | `:80` | `--server-http-addr`, `TIFA_SERVER_HTTP_ADDR` | With HTTPS on, the plain HTTP address that answers the checks of Let's Encrypt and redirects everything else to HTTPS. `off` for none. Not used without HTTPS |
-| `server.hsts` | `false` | `--server-hsts`, `TIFA_SERVER_HSTS` | Adds `Strict-Transport-Security: max-age=31536000` to the answers of `server.addr`, so browsers keep to HTTPS for a year |
-| `server.trusted_origins` | none | `--server-trusted-origins`, `TIFA_SERVER_TRUSTED_ORIGINS` | Origins whose pages may send writes (POST, PUT, PATCH, DELETE) from another site, comma-separated, such as `https://admin.example.com,http://localhost:3000`. See [Cross-site writes](#cross-site-writes) |
-| `server.cross_site_paths` | none | `--server-cross-site-paths`, `TIFA_SERVER_CROSS_SITE_PATHS` | Path patterns whose writes are not checked for the site they come from, comma-separated, such as `POST /auth/apple/callback`. See [Cross-site writes](#cross-site-writes) |
-| `ssr.vms` | the CPU count (`GOMAXPROCS`) | `--ssr-vms`, `TIFA_SSR_VMS` | Prewarmed JavaScript VMs, which is how many pages render at once. In a container it follows the CPU limit. [Sizing a machine](performance.md#sizing-a-machine) says when to change it |
-| `ssr.vm_memory` | `128MiB` | `--ssr-vm-memory`, `TIFA_SSR_VM_MEMORY` | Memory limit of each VM. A render that runs out of memory fails, and the VM is replaced with a fresh one. Page code cannot catch it. The shapes the engine keeps for reuse count here too, up to about 6 MiB per VM at worst (2048 shapes of 32 keys of about ten characters, more with longer keys), so leave room for them when you lower it (see [Memory](performance.md#memory)) |
-| `ssr.vm_stack_depth` | `10000` | `--ssr-vm-stack-depth`, `TIFA_SSR_VM_STACK_DEPTH` | How deep JavaScript calls may nest in each VM, about one level per call. Deeper calls throw `RangeError: Maximum call stack size exceeded`, at about the depth Node does. From 1 to 10000, see [Stack depth](#stack-depth) |
-| `ssr.timeout` | `3s` | `--ssr-timeout`, `TIFA_SSR_TIMEOUT` | Time budget of one render. A render that runs longer is stopped and handled as an unexpected error, which goes to `OnError`. Page code cannot catch it |
-| `ssr.queue_limit` | `32` | `--ssr-queue-limit`, `TIFA_SSR_QUEUE_LIMIT` | Renders allowed to wait for a VM, excluding renders already running. `0` rejects immediately when no VM is idle. A full queue answers 503 with `Retry-After: 1` |
-| `ssr.wait_timeout` | `1s` | `--ssr-wait-timeout`, `TIFA_SSR_WAIT_TIMEOUT` | Maximum wait for a VM. Expiry answers 503 with `Retry-After: 1`, without starting or replacing a VM. Separate from `ssr.timeout`, which starts after a VM is acquired |
-| `cache.size` | `64MiB` | `--cache-size`, `TIFA_CACHE_SIZE` | Size of the render cache of rendered pages and of the pages of the [whole-page cache](app.md#the-whole-page-cache), one LRU for both, counting the gzip and zstd forms it keeps with `server.compress` on. `0` turns both off, though requests that miss the same page at the same time still share one render. A page turns the render cache off for itself with `RenderCache = false` (see [SSR and cache](app.md#ssr-and-cache)) |
-| `cache.ignore_query` | `utm_*,gclid,gbraid,wbraid,fbclid,msclkid,twclid,ttclid,yclid,mc_cid,mc_eid` | `--cache-ignore-query`, `TIFA_CACHE_IGNORE_QUERY` | The query parameters the whole-page cache leaves out of its key and of the URL it renders for. A name adds to the list, `-name` takes one out, `-*` empties it, and a name ending in `*` is a prefix. A parameter that a `Load` of the page reads is kept whatever this says |
-| `session.cookie` | `__Host-tifa_session` | `--session-cookie`, `TIFA_SESSION_COOKIE` | Name of the session cookie. Under `tifa dev` the `__Host-` prefix is dropped, see [Sessions](app.md#sessions) |
-| `session.max_age` | `720h` | `--session-max-age`, `TIFA_SESSION_MAX_AGE` | How long a session lasts from the moment `tifa.SetSession` makes it, at least one second. It does not renew |
-| `session.memory_limit` | `64MiB` | `--session-memory-limit`, `TIFA_SESSION_MEMORY_LIMIT` | Bytes the in-memory session store may hold, used when `OnStart` sets no store with `tifa.SetSessionStore`. A full store drops the sessions that expire first |
+| `server.addr` | `127.0.0.1:9527` | `--server-addr`, `SERVER_ADDR` | Address to listen on. Use `0.0.0.0:9527` in a container. With [HTTPS](#https) on it serves HTTPS and must be set, usually to `:443` |
+| `server.body_limit` | `1MiB` | `--server-body-limit`, `SERVER_BODY_LIMIT` | Largest request body. A bigger one is answered with 413 |
+| `server.shutdown_timeout` | `10s` | `--server-shutdown-timeout`, `SERVER_SHUTDOWN_TIMEOUT` | After a stop signal, the time in-flight requests get to finish, and then the time `OnShutdown` gets. Requests still running when it ends are canceled and get one more `shutdown_timeout` to return. `OnShutdown` runs once they have returned and is skipped if they have not. Either way the program exits with status 1 |
+| `server.compress` | `true` | `--server-compress`, `SERVER_COMPRESS` | Sends text answers with gzip or zstd to clients that accept them, and the browser bundle as the gzip files `tifa build` wrote, see [Compression](build.md#compression). Set it to `false` when a proxy in front compresses, such as nginx with brotli |
+| `server.tls_domains` | none | `--server-tls-domains`, `SERVER_TLS_DOMAINS` | Turns on [HTTPS](#https) with certificates from Let's Encrypt for these domains, comma-separated, such as `example.com,www.example.com` |
+| `server.tls_email` | none | `--server-tls-email`, `SERVER_TLS_EMAIL` | Contact address given to Let's Encrypt with `tls_domains`. Optional |
+| `server.tls_cache` | none | `--server-tls-cache`, `SERVER_TLS_CACHE` | Folder that keeps the certificates of `tls_domains` across restarts. Needed with `tls_domains`, and must survive new deployments |
+| `server.tls_ca` | `https://acme-v02.api.letsencrypt.org/directory` | `--server-tls-ca`, `SERVER_TLS_CA` | ACME directory that `tls_domains` get their certificates from. Let's Encrypt by default |
+| `server.tls_cert` | none | `--server-tls-cert`, `SERVER_TLS_CERT` | Turns on [HTTPS](#https) with your own certificate file instead, in PEM, loaded again when it changes |
+| `server.tls_key` | none | `--server-tls-key`, `SERVER_TLS_KEY` | Private key file of `tls_cert`, in PEM |
+| `server.http_addr` | `:80` | `--server-http-addr`, `SERVER_HTTP_ADDR` | With HTTPS on, the plain HTTP address that answers the checks of Let's Encrypt and redirects everything else to HTTPS. `off` for none. Not used without HTTPS |
+| `server.hsts` | `false` | `--server-hsts`, `SERVER_HSTS` | Adds `Strict-Transport-Security: max-age=31536000` to the answers of `server.addr`, so browsers keep to HTTPS for a year |
+| `server.trusted_origins` | none | `--server-trusted-origins`, `SERVER_TRUSTED_ORIGINS` | Origins whose pages may send writes (POST, PUT, PATCH, DELETE) from another site, comma-separated, such as `https://admin.example.com,http://localhost:3000`. See [Cross-site writes](#cross-site-writes) |
+| `server.cross_site_paths` | none | `--server-cross-site-paths`, `SERVER_CROSS_SITE_PATHS` | Path patterns whose writes are not checked for the site they come from, comma-separated, such as `POST /auth/apple/callback`. See [Cross-site writes](#cross-site-writes) |
+| `ssr.vms` | the CPU count (`GOMAXPROCS`) | `--ssr-vms`, `SSR_VMS` | Prewarmed JavaScript VMs, which is how many pages render at once. In a container it follows the CPU limit. [Sizing a machine](performance.md#sizing-a-machine) says when to change it |
+| `ssr.vm_memory` | `128MiB` | `--ssr-vm-memory`, `SSR_VM_MEMORY` | Memory limit of each VM. A render that runs out of memory fails, and the VM is replaced with a fresh one. Page code cannot catch it. The shapes the engine keeps for reuse count here too, up to about 6 MiB per VM at worst (2048 shapes of 32 keys of about ten characters, more with longer keys), so leave room for them when you lower it (see [Memory](performance.md#memory)) |
+| `ssr.vm_stack_depth` | `10000` | `--ssr-vm-stack-depth`, `SSR_VM_STACK_DEPTH` | How deep JavaScript calls may nest in each VM, about one level per call. Deeper calls throw `RangeError: Maximum call stack size exceeded`, at about the depth Node does. From 1 to 10000, see [Stack depth](#stack-depth) |
+| `ssr.timeout` | `3s` | `--ssr-timeout`, `SSR_TIMEOUT` | Time budget of one render. A render that runs longer is stopped and handled as an unexpected error, which goes to `OnError`. Page code cannot catch it |
+| `ssr.queue_limit` | `32` | `--ssr-queue-limit`, `SSR_QUEUE_LIMIT` | Renders allowed to wait for a VM, excluding renders already running. `0` rejects immediately when no VM is idle. A full queue answers 503 with `Retry-After: 1` |
+| `ssr.wait_timeout` | `1s` | `--ssr-wait-timeout`, `SSR_WAIT_TIMEOUT` | Maximum wait for a VM. Expiry answers 503 with `Retry-After: 1`, without starting or replacing a VM. Separate from `ssr.timeout`, which starts after a VM is acquired |
+| `cache.size` | `64MiB` | `--cache-size`, `CACHE_SIZE` | Size of the render cache of rendered pages and of the pages of the [whole-page cache](app.md#the-whole-page-cache), one LRU for both, counting the gzip and zstd forms it keeps with `server.compress` on. `0` turns both off, though requests that miss the same page at the same time still share one render. A page turns the render cache off for itself with `RenderCache = false` (see [SSR and cache](app.md#ssr-and-cache)) |
+| `cache.ignore_query` | `utm_*,gclid,gbraid,wbraid,fbclid,msclkid,twclid,ttclid,yclid,mc_cid,mc_eid` | `--cache-ignore-query`, `CACHE_IGNORE_QUERY` | The query parameters the whole-page cache leaves out of its key and of the URL it renders for. A name adds to the list, `-name` takes one out, `-*` empties it, and a name ending in `*` is a prefix. A parameter that a `Load` of the page reads is kept whatever this says |
+| `session.cookie` | `__Host-tifa_session` | `--session-cookie`, `SESSION_COOKIE` | Name of the session cookie. Under `tifa dev` the `__Host-` prefix is dropped, see [Sessions](app.md#sessions) |
+| `session.max_age` | `720h` | `--session-max-age`, `SESSION_MAX_AGE` | How long a session lasts from the moment `tifa.SetSession` makes it, at least one second. It does not renew |
+| `session.memory_limit` | `64MiB` | `--session-memory-limit`, `SESSION_MEMORY_LIMIT` | Bytes the in-memory session store may hold, used when `OnStart` sets no store with `tifa.SetSessionStore`. A full store drops the sessions that expire first |
+
+## Settings of the app
+
+An app defines its own settings in `config.go` at its root, as package-level variables:
+
+```go
+// config.go
+package shop
+
+import (
+	"time"
+
+	"github.com/liustack/tifa"
+)
+
+var (
+	DBURL   = tifa.String("db.url", "app.db", "Database file")
+	Workers = tifa.Int("jobs.workers", 4, "Background workers")
+	Hosts   = tifa.Strings("feed.hosts", nil, "Hosts the feed is read from")
+	Open    = tifa.Bool("shop.open", false, "Let visitors in without signing in")
+	Idle    = tifa.Duration("db.idle", time.Minute, "How long an idle connection stays open")
+	Upload  = tifa.Size("upload.limit", 8<<20, "Largest upload")
+)
+```
+
+- The arguments are the key, the default and a line of help. Each returns a plain value: read `shop.DBURL`, and a test sets `shop.DBURL = "test.db"`.
+- The value comes from the same sources as the settings of tifa: the flag `--db-url`, the variable `DB_URL`, `.env`, the file of `-c`, then the default. `tifa.yaml` holds only settings of tifa.
+- The types: `String` (`string`), `Strings` (`[]string`), `Int` (`int`), `Bool` (`bool`), `Duration` (`time.Duration`) and `Size` (`int64` bytes). Their values are written as for the settings of tifa, see [Value formats](#value-formats). `Strings` is comma-separated text, such as `FEED_HOSTS=a.example,b.example`.
+- Values are single values. Structured data goes into a file of the app, and a setting holds its path.
+- An invalid value gives the default, and the program lists it with the other invalid settings and stops before `OnStart`.
+- In `go test` the settings keep their defaults, whatever the flags, variables and `.env` are.
+- The packages that the root package imports cannot read these variables (it would be an import cycle): `OnStart` passes the values to them, such as `store.Open(DBURL)`.
+- An app that needs more can run its own configuration in `OnStart`.
+
+`tifa build` fails, naming the file and line, when `tifa.String` and the like are called anywhere but as the value of a package-level `var` in `config.go` at the root, when a key is not a string literal or does not follow the rule of [Names](#names), and when two settings, of the app or of tifa, would have the same flag or environment variable, such as `a.b_c` and `a_b.c`, and when one key is a section of another, such as `db.url` next to `db.url.timeout`, or `server.addr.port` next to `server.addr` of tifa. The program panics on the same mistakes if they get past the build.
 
 ## Render queue
 
@@ -214,22 +297,24 @@ What a lower depth breaks:
 
 - Sizes are whole numbers with an optional unit: `B`, `KiB`, `MiB` or `GiB`, such as `512KiB`. A plain number is bytes. Only `cache.size` may be 0.
 - `cache.ignore_query` is a comma-separated list of changes to the default list: `ref,-gclid` adds `ref` and takes `gclid` out. Names are matched without regard to case and may not hold `=`, `&`, `?` or spaces. A `*` may only end a name. Each source changes the list the sources below it left.
-- Durations use Go's format and must be positive: `500ms`, `3s`, `1m30s`.
+- Durations use Go's format and must be positive: `500ms`, `3s`, `1m30s`. A `tifa.Duration` of the app may also be 0 or negative.
+- In a YAML file a whole number setting is a number (`vms: 2`, not `"2"`), a `true` or `false` setting a bool, and every other setting text. A size may be a number of bytes or text with a unit.
 - `ssr.vms` is a whole number of at least 1.
 - `ssr.queue_limit` is a whole number of at least 0. `ssr.wait_timeout` must be positive even with a queue limit of 0.
 - `ssr.vm_stack_depth` is a whole number from 1 to 10000, the deepest the engine lets calls nest.
-- `build.skip_tanstack_check`, `build.debug_info`, `build.i18next_cache`, `server.compress` and `server.hsts` are `true` or `false`, without quotes. The flag takes its value after `=`: `--server-compress=false`.
-- `server.trusted_origins` and `server.cross_site_paths` are comma-separated lists, without brackets or quotes inside, and may be empty. A higher source can empty what a lower one set: `TIFA_SERVER_TRUSTED_ORIGINS=` clears the origins of the project file. An origin needs `http` or `https`, a host and no path, query or user name, and a bad one fails with what is wrong. A pattern that `http.ServeMux` rejects, or that conflicts with another of the list, fails too.
+- `build.skip_tanstack_check`, `build.debug_info`, `build.i18next_cache`, `server.compress` and `server.hsts` are `true` or `false`, without quotes in a file. The flag alone is `true` and takes another value only after `=`: `--server-compress=false`. It never takes the next word.
+- `server.trusted_origins` and `server.cross_site_paths` are comma-separated lists, without brackets or quotes inside, and may be empty. A higher source can empty what a lower one set: `SERVER_TRUSTED_ORIGINS=` clears the origins of the project file. An origin needs `http` or `https`, a host and no path, query or user name, and a bad one fails with what is wrong. A pattern that `http.ServeMux` rejects, or that conflicts with another of the list, fails too.
 - `server.tls_domains` is a comma-separated list of host names, without scheme, port or path. Each needs a dot. `server.tls_ca` is an `https` URL. `server.http_addr` is an address with a port, such as `:80` or `0.0.0.0:80`, or `off` in lower case. Words that read as a switch, such as `OFF`, `false` or `none`, fail with what to write.
-- `server.tls_domains`, `server.tls_email`, `server.tls_cache`, `server.tls_cert` and `server.tls_key` may be empty, which turns off what a lower source set: `TIFA_SERVER_TLS_DOMAINS=` with `--server-tls-cert` serves your own certificate where the project file asks for Let's Encrypt.
+- `server.tls_domains`, `server.tls_email`, `server.tls_cache`, `server.tls_cert` and `server.tls_key` may be empty, which turns off what a lower source set: `SERVER_TLS_DOMAINS=` with `--server-tls-cert` serves your own certificate where the project file asks for Let's Encrypt.
 
 ## Errors
 
-`tifa build` fails on a bad project file. The program refuses to start and names the source and the key when:
+`tifa build` fails on a value of the wrong type or format in `tifa.yaml`, naming its line. A setting written as a section or a list, such as `ssr: {vms: {count: 2}}`, is a value of the wrong type too. The program refuses to start and lists every problem, each with its source and key, when:
 
-- a file or variable names an unknown key, such as `TIFA_SERVER_PORT`,
-- a value has the wrong type or format, such as `ssr.timeout: 3`,
-- a deployment file sets a `build.*` key. There are no `build.*` flags or `TIFA_BUILD_*` variables.
+- a value of a setting of tifa or of the app has the wrong type or format, such as `ssr.timeout: 3`, `SHOP_OPEN=maybe` or a section under `ssr.vms` in the file of `-c`,
+- the file of `-c` cannot be read or is not YAML, or a line of `.env` cannot be read.
+
+A key, variable or flag that is no setting is not an error, so a misspelt one such as `SERVER_PORT` changes nothing: `./bin/app config` shows what each setting ended up as. `build.*` settings are read only from `tifa.yaml`: a deployment file, a `BUILD_*` variable or a `--build-*` flag does not change them.
 
 It also refuses to start, before `OnStart`, and names the settings when:
 

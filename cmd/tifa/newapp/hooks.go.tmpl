@@ -4,7 +4,7 @@ import "context"
 
 // OnStart runs once before the app listens. A returned error stops the app.
 func OnStart(context.Context) error {
-	db, err := OpenDB(dbPath())
+	db, err := OpenDB(DBPath)
 	if err != nil {
 		return err
 	}

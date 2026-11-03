@@ -11,7 +11,7 @@ go tool tifa dev [--dir app-root] [--addr 127.0.0.1:9527]
 ```
 
 - The first build compiles QuickJS and SQLite, so it takes several seconds up to a minute. Later builds use Go's build cache. A page opened during the first build waits 2 seconds, then shows "building" and reloads on its own.
-- What an edit triggers: `.ts`, `.tsx`, `.css`, `.json` update open pages in place through Vite (React Fast Refresh) and rebuild the SSR bundle without a restart. `.go`, `go.mod` and `go:embed` files rebuild the Go program and reload the page. A new or removed `page.tsx`, `layout.tsx` or `layout_.tsx`, or a changed `tifa.yaml`, runs every step.
+- What an edit triggers: `.ts`, `.tsx`, `.css`, `.json` update open pages in place through Vite (React Fast Refresh) and rebuild the SSR bundle without a restart. `.go`, `go.mod` and `go:embed` files rebuild the Go program and reload the page. A new or removed `page.tsx`, `layout.tsx` or `layout_.tsx`, or a changed `tifa.yaml`, runs every step. A changed `.env` only restarts the app.
 - A failed build keeps the old version running and shows the original compiler or Vite error as an overlay. Fix it and the overlay goes away.
 - If the app exits at start or does not listen within 30 seconds, the overlay says `The app did not start` with the last stderr lines. An `OnStart` error and a panic are there.
 - It does not watch `node_modules`, `.git`, `.tifa`, `bin/`, or `schema.sql` of a `tifa new` app (restart it after changing the schema). It serves plain HTTP and ignores the HTTPS settings.
@@ -43,7 +43,7 @@ Everything under `.tifa/` is generated. Do not edit it, and keep it out of git (
 
 ## Settings
 
-Order of precedence, highest first: command-line flags of the program, `TIFA_*` environment variables, a deployment file passed with `--config path.yaml`, the `tifa.yaml` (or `tifa.json`) in the app root (embedded at build time), the defaults. Keep one project file.
+Order of precedence, highest first: command-line flags of the program, environment variables, the `.env` file of the folder the program runs in, a deployment file passed with `-c path.yaml`, the `tifa.yaml` in the app root (its values are built into the program), the defaults. A key `server.body_limit` is the flag `--server-body-limit` and the variable `SERVER_BODY_LIMIT`, with no prefix. `PORT` and `HOST` of hosting platforms set `server.addr` below `SERVER_ADDR`, and `PORT` alone listens on every interface.
 
 ```yaml
 # tifa.yaml
@@ -60,21 +60,29 @@ Common settings (full table in config.md):
 
 | Key | Default | Flag and env | Notes |
 | --- | --- | --- | --- |
-| `server.addr` | `127.0.0.1:9527` | `--server-addr`, `TIFA_SERVER_ADDR` | Use `0.0.0.0:9527` in a container |
-| `server.body_limit` | `1MiB` | `--server-body-limit`, `TIFA_SERVER_BODY_LIMIT` | Larger body gets 413 |
-| `server.compress` | `true` | `--server-compress=false`, `TIFA_SERVER_COMPRESS` | Set false when a proxy or CDN compresses |
-| `server.shutdown_timeout` | `10s` | `TIFA_SERVER_SHUTDOWN_TIMEOUT` | Time for in-flight requests after SIGTERM, then for `OnShutdown` |
-| `ssr.vms` | CPU count | `--ssr-vms`, `TIFA_SSR_VMS` | How many pages render at once. Leave it at the default |
-| `ssr.vm_memory` | `128MiB` | `TIFA_SSR_VM_MEMORY` | Limit per VM |
-| `ssr.timeout` | `3s` | `TIFA_SSR_TIMEOUT` | One render. Over it is an unexpected error |
-| `ssr.queue_limit`, `ssr.wait_timeout` | `32`, `1s` | `TIFA_SSR_QUEUE_LIMIT`, `TIFA_SSR_WAIT_TIMEOUT` | Renders allowed to wait for a VM. Beyond that, 503 with `Retry-After: 1` |
-| `cache.size` | `64MiB` | `--cache-size`, `TIFA_CACHE_SIZE` | One size for the render cache and the pages of the whole-page cache (`Cache`), 0 turns both off |
-| `cache.ignore_query` | `utm_*,gclid,fbclid` and the like | `TIFA_CACHE_IGNORE_QUERY` | Tracking parameters the whole-page cache leaves out of its key. `name` adds, `-name` removes, a trailing `*` is a prefix. A parameter a `Load` reads is always kept |
-| `session.cookie`, `session.max_age`, `session.memory_limit` | `__Host-tifa_session`, `720h`, `64MiB` | `TIFA_SESSION_COOKIE`, `TIFA_SESSION_MAX_AGE`, `TIFA_SESSION_MEMORY_LIMIT` | Name and lifetime of the session cookie, and the memory of the default session store |
+| `server.addr` | `127.0.0.1:9527` | `--server-addr`, `SERVER_ADDR` | Use `0.0.0.0:9527` in a container |
+| `server.body_limit` | `1MiB` | `--server-body-limit`, `SERVER_BODY_LIMIT` | Larger body gets 413 |
+| `server.compress` | `true` | `--server-compress=false`, `SERVER_COMPRESS` | Set false when a proxy or CDN compresses |
+| `server.shutdown_timeout` | `10s` | `SERVER_SHUTDOWN_TIMEOUT` | Time for in-flight requests after SIGTERM, then for `OnShutdown` |
+| `ssr.vms` | CPU count | `--ssr-vms`, `SSR_VMS` | How many pages render at once. Leave it at the default |
+| `ssr.vm_memory` | `128MiB` | `SSR_VM_MEMORY` | Limit per VM |
+| `ssr.timeout` | `3s` | `SSR_TIMEOUT` | One render. Over it is an unexpected error |
+| `ssr.queue_limit`, `ssr.wait_timeout` | `32`, `1s` | `SSR_QUEUE_LIMIT`, `SSR_WAIT_TIMEOUT` | Renders allowed to wait for a VM. Beyond that, 503 with `Retry-After: 1` |
+| `cache.size` | `64MiB` | `--cache-size`, `CACHE_SIZE` | One size for the render cache and the pages of the whole-page cache (`Cache`), 0 turns both off |
+| `cache.ignore_query` | `utm_*,gclid,fbclid` and the like | `CACHE_IGNORE_QUERY` | Tracking parameters the whole-page cache leaves out of its key. `name` adds, `-name` removes, a trailing `*` is a prefix. A parameter a `Load` reads is always kept |
+| `session.cookie`, `session.max_age`, `session.memory_limit` | `__Host-tifa_session`, `720h`, `64MiB` | `SESSION_COOKIE`, `SESSION_MAX_AGE`, `SESSION_MEMORY_LIMIT` | Name and lifetime of the session cookie, and the memory of the default session store |
 | `build.target` | `es2020` | project file only | Browser bundle target, such as `es2019,chrome90,safari14` |
 | `build.public` | `public` | project file only | Folder of static files served from `/` |
 
-Sizes are whole numbers with `B`, `KiB`, `MiB` or `GiB`. Durations use Go's format (`500ms`, `3s`). An unknown key or a `TIFA_*` variable stops the program, and a deployment file cannot set `build.*` keys. `./bin/app config` prints the merged settings as a commented file, a good start for a deployment file. `./bin/app version` prints versions.
+Sizes are whole numbers with `B`, `KiB`, `MiB` or `GiB`. Durations use Go's format (`500ms`, `3s`). A bad value stops the program before `OnStart`, listing every one. Keys, variables and flags that are no setting are left alone, so a misspelt name changes nothing. `build.*` keys are read only from `tifa.yaml`. `./bin/app config` prints every setting with its value and its source, as a commented file that is a good start for a deployment file.
+
+The app defines its own settings in `config.go` at the root, as package-level variables, and reads them as plain values:
+
+```go
+var DBURL = tifa.String("db.url", "app.db", "Database file") // --db-url, DB_URL
+```
+
+`tifa.Strings` (comma-separated), `tifa.Int`, `tifa.Bool`, `tifa.Duration` and `tifa.Size` work the same way. They come from the same sources (not `tifa.yaml`), keep their defaults in `go test`, and may only be written there: `tifa build` reports any other place, a key that is no string literal and names that clash. Packages the root package imports get the values from `OnStart`. `./bin/app version` prints versions.
 
 Cache headers: a page with `const Cache = <duration>` in its `route.go` sends `Cache-Control: public, max-age=0, s-maxage=<Cache in seconds>, stale-if-error=86400`, `Age` and `Cache-Status` on the answers it keeps (GET and HEAD, status 200, 301, 302, 308). Every other answer that goes through routing (pages, 304s, 404 pages, navigation data, method handlers, redirects) is sent with `Cache-Control: private, no-cache` unless your code sets `Cache-Control` itself. JSON errors, the plain error page from Go, the page with an error and the busy 503 are sent with `no-store`. Files under `/assets/` are content-hashed with `Cache-Control: public, max-age=31536000, immutable`. Files from `public/` get `no-cache` and an ETag. The render cache keeps the render inside the process only and does not change the header.
 
@@ -92,10 +100,10 @@ scp bin/myapp-linux server:/srv/myapp/myapp
 On the server:
 
 ```sh
-TIFA_SERVER_ADDR=0.0.0.0:9527 ./myapp
+SERVER_ADDR=0.0.0.0:9527 ./myapp
 ```
 
-- Run it from the folder it keeps data in. A relative path such as the `app.db` of the `tifa new` template (or `$DB_PATH`) is resolved against the working directory. Back up or mount that folder.
+- Run it from the folder it keeps data in. A relative path such as the `app.db` of the `tifa new` template (or the setting `db.path`, `DB_PATH`) is resolved against the working directory. Back up or mount that folder.
 - SIGINT and SIGTERM stop it gracefully: new connections stop, in-flight requests finish within `server.shutdown_timeout`, then `OnShutdown` runs. A systemd unit or a container needs nothing more than the executable, the environment and a writable data folder.
 - `FROM scratch` containers work: the program embeds the time zone database.
 - Ports below 1024 on Linux need `sudo setcap cap_net_bind_service=+ep ./myapp` after each copy, or `AmbientCapabilities=CAP_NET_BIND_SERVICE` in a systemd unit, or high ports published by the container (`-p 443:8443`).

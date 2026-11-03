@@ -672,8 +672,8 @@ func TestBusyHTTPAddrNamesTheSetting(t *testing.T) {
 // tifa dev serves plain HTTP whatever the HTTPS settings say: its proxy talks to the app over
 // plain HTTP, and certificates of the deployment do not belong on a laptop.
 func TestDevServesPlainHTTP(t *testing.T) {
-	app := App{ConfigName: "tifa.yaml", Config: []byte(fmt.Sprintf(
-		"server:\n  tls_cert: %s\n  tls_key: %s\n  hsts: true\n", filepath.Join(t.TempDir(), "missing.pem"), filepath.Join(t.TempDir(), "missing.key")))}
+	app := App{Settings: map[string]string{
+		"server.tls_cert": filepath.Join(t.TempDir(), "missing.pem"), "server.tls_key": filepath.Join(t.TempDir(), "missing.key"), "server.hsts": "true"}}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	app.Hooks.OnStart = func(context.Context) error { cancel(); return nil }

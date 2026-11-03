@@ -15,7 +15,6 @@ import (
 
 	"github.com/liustack/tifa/internal/config"
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 )
 
 // Main is the entry point of a generated main. It runs the command line of the application:
@@ -24,9 +23,10 @@ import (
 //	config   print the merged runtime settings as a commented YAML file
 //	version  print the module versions the program was built from
 //
-// Settings come from flags, TIFA_* environment variables, the file named by --config, the project
-// tifa.yaml embedded at build time and the defaults, in that order. Main exits the process with
-// status 1 on any error.
+// Settings come from flags, environment variables, the .env file of the working directory, the
+// file named by -c, the project tifa.yaml and the defaults, in that order. The settings of the
+// app, which its config.go defines, were read from the same sources when its package started.
+// Main exits the process with status 1 on any error, after listing every invalid setting.
 func Main(app App) {
 	start(app, nil)
 }
@@ -36,16 +36,22 @@ func Main(app App) {
 func start(app App, dev func(*server, fs.FS, config.SSR) http.Handler) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := run(ctx, app, os.Args[1:], os.Environ(), os.Stdout, os.Stderr, dev); err != nil {
+	if err := runSources(ctx, app, config.Process(), os.Stdout, os.Stderr, dev); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
+// run is runSources with the sources read from args and environ, without a .env file.
 func run(ctx context.Context, app App, args, environ []string, stdout, stderr io.Writer, dev func(*server, fs.FS, config.SSR) http.Handler) error {
+	return runSources(ctx, app, config.Read(args, environ, ""), stdout, stderr, dev)
+}
+
+// runSources runs the command line of src.Args with the settings of src.
+func runSources(ctx context.Context, app App, src *config.Sources, stdout, stderr io.Writer, dev func(*server, fs.FS, config.SSR) http.Handler) error {
 	var distDir string
 	lifelineFD := -1 // set by tifa dev, see watchLifeline
-	serve := func(cmd *cobra.Command, _ []string) (err error) {
+	serve := func(_ *cobra.Command, _ []string) (err error) {
 		if lifelineFD >= 0 {
 			var stop context.CancelFunc
 			ctx, stop = context.WithCancel(ctx)
@@ -55,7 +61,7 @@ func run(ctx context.Context, app App, args, environ []string, stdout, stderr io
 				return err
 			}
 		}
-		cfg, err := loadConfig(cmd.Flags(), app, environ)
+		cfg, _, err := loadConfig(app, src)
 		if err != nil {
 			return err
 		}
@@ -92,14 +98,14 @@ func run(ctx context.Context, app App, args, environ []string, stdout, stderr io
 	serveCmd := &cobra.Command{Use: "serve", Short: "Serve the application (default)", Args: cobra.NoArgs, RunE: serve}
 	configCmd := &cobra.Command{
 		Use:   "config",
-		Short: "Print the merged runtime settings as a deployment config file",
+		Short: "Print every setting, its value and where the value comes from",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, err := loadConfig(cmd.Flags(), app, environ)
+			cfg, from, err := loadConfig(app, src)
 			if err != nil {
 				return err
 			}
-			_, err = cmd.OutOrStdout().Write(config.Example(cfg))
+			_, err = cmd.OutOrStdout().Write(config.Print(cfg, from, config.AppSettings()))
 			return err
 		},
 	}
@@ -112,11 +118,15 @@ func run(ctx context.Context, app App, args, environ []string, stdout, stderr io
 			return err
 		},
 	}
+	for _, cmd := range []*cobra.Command{root, serveCmd, configCmd, versionCmd} {
+		// Flags the program does not know belong to someone else, see config.Sources.
+		cmd.FParseErrWhitelist.UnknownFlags = true
+	}
 	for _, cmd := range []*cobra.Command{root, serveCmd, configCmd} {
 		config.AddFlags(cmd.Flags())
 	}
-	// --dist is a development switch, not a deployment setting, so it stays out of the config
-	// layers and has no TIFA_ variable.
+	// --dist is a development switch, not a deployment setting, so it is no setting and has no
+	// environment variable.
 	for _, cmd := range []*cobra.Command{root, serveCmd} {
 		cmd.Flags().StringVar(&distDir, "dist", "", "serve the front end from this directory instead of the embedded one (tifa dev)")
 	}
@@ -127,7 +137,7 @@ func run(ctx context.Context, app App, args, environ []string, stdout, stderr io
 		}
 	}
 	root.AddCommand(serveCmd, configCmd, versionCmd)
-	root.SetArgs(args)
+	root.SetArgs(src.Args())
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	return root.ExecuteContext(ctx)
@@ -154,8 +164,12 @@ func withoutHTTPS(c config.Server) config.Server {
 	return c
 }
 
-func loadConfig(fs *pflag.FlagSet, app App, environ []string) (config.Config, error) {
-	return config.Load(fs, environ, app.ConfigName, app.Config)
+// loadConfig merges the settings of tifa from src and app.Settings. Its error lists every
+// problem of the sources, of the settings of tifa and of those of the app, which were read when
+// the app started.
+func loadConfig(app App, src *config.Sources) (config.Config, map[string]string, error) {
+	cfg, from, err := config.Load(src, app.Settings)
+	return cfg, from, errors.Join(src.Err(), err, config.AppErr())
 }
 
 // version reports the application module and the tifa module from the build information.

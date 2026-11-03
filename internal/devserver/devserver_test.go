@@ -842,3 +842,17 @@ func TestRunRebuildsWhenAnEmbeddedFileChanges(t *testing.T) {
 	d.waitStatus(t, func(st status) bool { return st.Version == v3 && st.Error == "" })
 	expectSteps(t, d.p, "Bundle")
 }
+
+// The app reads .env when it starts, so a change of .env starts the app again and builds nothing.
+func TestRunRestartsTheAppWhenDotenvChanges(t *testing.T) {
+	d := startDev(t, "")
+	v1 := d.waitVersionAfter(t, "")
+	d.p.took()
+	_, pid := get(t, d.url+"/pid")
+	writeFile(t, d.dir, ".env", "SHOP_OPEN=1\n")
+	d.waitVersionAfter(t, v1)
+	expectSteps(t, d.p)
+	if _, again := get(t, d.url+"/pid"); again == pid {
+		t.Fatalf("the app still runs as %s", pid)
+	}
+}

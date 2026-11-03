@@ -21,6 +21,7 @@ A domain lives in its folder under `app/`, next to the pages that show it. The r
 myapp/
   go.mod
   hooks.go                  OnStart, OnShutdown, OnRequest, OnError
+  config.go                 the settings of the app: var DBPath = tifa.String(...)
   db.go                     var DB, opened in OnStart and closed in OnShutdown
   schema.sql                the tables of every domain
   app/

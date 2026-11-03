@@ -427,20 +427,24 @@ func TestLiteralSegmentsMatchLikeServeMux(t *testing.T) {
 	}
 }
 
-func TestProjectConfigIsEmbedded(t *testing.T) {
+// The runtime settings of tifa.yaml become Go code in the generated main, and the file is not
+// copied: the program does not read it. A bad value fails the build.
+func TestProjectSettingsGoIntoTheMain(t *testing.T) {
 	files := generate(t, "shop", false)
-	if string(files["tifa.yaml"]) != "server:\n  addr: 127.0.0.1:8090\n" {
-		t.Errorf("tifa.yaml copy: %q", files["tifa.yaml"])
+	if _, ok := files["tifa.yaml"]; ok {
+		t.Error("tifa.yaml is copied into .tifa")
+	}
+	if main := string(files["main.go"]); !strings.Contains(main, `"server.addr": "127.0.0.1:8090",`) || strings.Contains(main, "go:embed tifa") {
+		t.Errorf("main.go:\n%s", main)
 	}
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "tifa.yaml"), "")
-	writeFile(t, filepath.Join(root, "tifa.json"), "{}")
-	if _, err := Generate(root, &analyze.Manifest{Module: "example.com/x"}, false, fakeExports); err == nil {
-		t.Error("Generate accepted tifa.yaml next to tifa.json")
+	writeFile(t, filepath.Join(root, "tifa.yaml"), "server:\n  port: 80\nshop:\n  open: true\n")
+	if _, err := Generate(root, &analyze.Manifest{Module: "example.com/x"}, false, fakeExports); err != nil {
+		t.Errorf("keys that are not settings of tifa: %v", err)
 	}
 	bad := t.TempDir()
-	writeFile(t, filepath.Join(bad, "tifa.yaml"), "server:\n  port: 80\n")
-	if _, err := Generate(bad, &analyze.Manifest{Module: "example.com/x"}, false, fakeExports); err == nil || !strings.Contains(err.Error(), "server.port") {
+	writeFile(t, filepath.Join(bad, "tifa.yaml"), "ssr:\n  timeout: 3\n")
+	if _, err := Generate(bad, &analyze.Manifest{Module: "example.com/x"}, false, fakeExports); err == nil || !strings.Contains(err.Error(), "tifa.yaml line 2: ssr.timeout") {
 		t.Errorf("invalid tifa.yaml: %v", err)
 	}
 }
@@ -693,7 +697,7 @@ func TestMainRegistersTheSessionType(t *testing.T) {
 		t.Errorf("main.go of an app without sessions:\n%s", main)
 	}
 	// A type the generated main cannot name fails the build.
-	_, err := generateGo(&analyze.Manifest{Module: "example.com/m", Session: &analyze.Session{Type: "example.com/m/auth.account"}}, "", false)
+	_, err := generateGo(&analyze.Manifest{Module: "example.com/m", Session: &analyze.Session{Type: "example.com/m/auth.account"}}, nil, false)
 	if err == nil || !strings.Contains(err.Error(), "exported named struct") {
 		t.Errorf("unexported session type: %v", err)
 	}
@@ -713,5 +717,21 @@ func TestCacheQueryCollectsTheLoadsAroundTheRoute(t *testing.T) {
 	}
 	if got := cacheQuery(m, analyze.Route{}); got != nil {
 		t.Errorf("a route without Loads: %v", got)
+	}
+}
+
+// The settings of the app are defined when its root package starts, so the main imports the
+// root package also when it has no hooks.
+func TestMainImportsTheRootPackageForItsSettings(t *testing.T) {
+	files, err := generateGo(&analyze.Manifest{Module: "example.com/m", Settings: []string{"db.url"}}, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(files["main.go"]), `_ "example.com/m"`) {
+		t.Fatalf("main.go:\n%s", files["main.go"])
+	}
+	files, err = generateGo(&analyze.Manifest{Module: "example.com/m", Hooks: []string{"OnStart"}, Settings: []string{"db.url"}}, nil, false)
+	if err != nil || strings.Contains(string(files["main.go"]), `_ "example.com/m"`) {
+		t.Fatalf("with hooks: %v\n%s", err, files["main.go"])
 	}
 }
