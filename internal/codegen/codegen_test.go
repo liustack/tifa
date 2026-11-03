@@ -512,9 +512,9 @@ func TestProjectSettingsReadsTheServerSection(t *testing.T) {
 func TestBuildTargetReachesVite(t *testing.T) {
 	m := &analyze.Manifest{Module: "example.com/x", Routes: []analyze.Route{{ID: "app/page/route", Dir: "app/page", Path: "/page", Page: true, SSR: true}}}
 	for target, want := range map[string]string{
-		"":                           `tifa({ target: ["es2020"], i18nextCache: true })`, // the default
-		"es2020":                     `tifa({ target: ["es2020"], i18nextCache: true })`,
-		" ES2019, chrome90,safari14": `tifa({ target: ["es2019","chrome90","safari14"], i18nextCache: true })`,
+		"":                           `const settings = { target: ["es2020"], i18nextCache: true }`, // the default
+		"es2020":                     `const settings = { target: ["es2020"], i18nextCache: true }`,
+		" ES2019, chrome90,safari14": `const settings = { target: ["es2019","chrome90","safari14"], i18nextCache: true }`,
 	} {
 		root := t.TempDir()
 		writeFile(t, filepath.Join(root, "app/page/page.tsx"), "export default function P() { return null }\n")
@@ -543,9 +543,9 @@ func TestBuildTargetReachesVite(t *testing.T) {
 func TestBuildI18nextCacheReachesVite(t *testing.T) {
 	m := &analyze.Manifest{Module: "example.com/x", Routes: []analyze.Route{{ID: "app/page/route", Dir: "app/page", Path: "/page", Page: true, SSR: true}}}
 	for config, want := range map[string]string{
-		"":                                 `tifa({ target: ["es2020"], i18nextCache: true })`,
-		"build:\n  i18next_cache: true\n":  `tifa({ target: ["es2020"], i18nextCache: true })`,
-		"build:\n  i18next_cache: false\n": `tifa({ target: ["es2020"] })`,
+		"":                                 `const settings = { target: ["es2020"], i18nextCache: true }`,
+		"build:\n  i18next_cache: true\n":  `const settings = { target: ["es2020"], i18nextCache: true }`,
+		"build:\n  i18next_cache: false\n": `const settings = { target: ["es2020"] }`,
 	} {
 		root := t.TempDir()
 		writeFile(t, filepath.Join(root, "app/page/page.tsx"), "export default function P() { return null }\n")

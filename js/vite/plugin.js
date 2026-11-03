@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { builtinModules, createRequire } from 'node:module'
+import { pathToFileURL } from 'node:url'
 
 // devBase is where the Vite dev server serves modules under tifa dev. tifa dev sends every
 // request under it to Vite and every other one to the application.
@@ -954,7 +955,442 @@ export function tifa(settings = {}) {
       })
     },
   }
-  return [plugin, generated(), lazyRoutes(), ssrPlugin(() => root, () => import('vite'), { i18nextCache: settings.i18nextCache })]
+  return [
+    plugin,
+    generated(),
+    lazyRoutes(),
+    markdownPlugin(() => root, settings.markdown),
+    ssrPlugin(() => root, () => import('vite'), { i18nextCache: settings.i18nextCache }),
+  ]
+}
+
+// markdownPackages are the packages the Markdown of content collections turns into HTML with, and
+// the major version tifa is tested with of each. The app installs them: they are loaded from its
+// root, and only when it has collections.
+export const markdownPackages = [
+  ['unified', 11],
+  ['remark-parse', 11],
+  ['remark-gfm', 4],
+  ['remark-rehype', 11],
+  ['rehype-raw', 7],
+  ['rehype-stringify', 10],
+]
+
+// contentEntries is the file of .tifa where the build lists the entries to convert, contentHeadings
+// the one the plugin writes the headings of each into, by the file of its body (EntriesFile and
+// HeadingsFile of internal/content).
+const contentEntries = 'content/entries.json'
+const contentHeadings = 'content/headings.json'
+
+/**
+ * markdownPlugin turns the Markdown of the content collections into HTML. tifa build lists the
+ * entries in .tifa/content/entries.json, and the plugin writes the body of each into .tifa/dist
+ * and its headings into .tifa/content/headings.json, which tifa build puts into content.json.
+ * Without the list, as for an app without collections, it does nothing and loads no package.
+ *
+ * In tifa build it converts at the end of the browser build, which outputs the files the bodies
+ * refer to as assets. Under tifa dev the driver calls api.convert, and the bodies refer to the
+ * files through Vite's dev server.
+ *
+ * markdown is the markdown option of tifa(): remarkPlugins and rehypePlugins, see markdownProcessor.
+ */
+export function markdownPlugin(getRoot, markdown) {
+  let command = ''
+  return {
+    name: 'tifa:markdown',
+    configResolved(config) {
+      command = config.command
+    },
+    async generateBundle() {
+      if (command !== 'build' || this.environment?.name !== 'client') return
+      const root = getRoot()
+      const entries = readContentEntries(root)
+      if (!entries) return
+      const urls = new Map() // real path of a file to its URL
+      const result = await convertContent(root, entries, {
+        markdown,
+        command: 'tifa build',
+        asset: (file) => {
+          let url = urls.get(file)
+          if (url === undefined) {
+            const ref = this.emitFile({ type: 'asset', name: assetName(path.basename(file)), source: fs.readFileSync(file) })
+            url = '/' + encodePath(this.getFileName(ref))
+            urls.set(file, url)
+          }
+          return url
+        },
+      })
+      for (const w of result.warnings) this.warn(w)
+      writeContent(root, result)
+    },
+    api: {
+      // convert turns the entries of .tifa/content/entries.json into HTML for tifa dev, whose
+      // bodies load their files from Vite's dev server. It returns the warnings of the plugins.
+      async convert() {
+        const root = getRoot()
+        const entries = readContentEntries(root)
+        if (!entries) return []
+        const real = fs.realpathSync(root)
+        const result = await convertContent(root, entries, {
+          markdown,
+          command: 'tifa dev',
+          asset: (file) => devBase + encodePath(path.relative(real, file).split(path.sep).join('/')),
+        })
+        writeContent(root, result)
+        return result.warnings
+      },
+    },
+  }
+}
+
+// readContentEntries returns the entries tifa lists in .tifa/content/entries.json, null without
+// the file.
+function readContentEntries(root) {
+  let text
+  try {
+    text = fs.readFileSync(path.join(root, '.tifa', contentEntries), 'utf8')
+  } catch (err) {
+    if (err.code === 'ENOENT') return null
+    throw err
+  }
+  return JSON.parse(text).entries
+}
+
+// writeContent writes the HTML of each entry into .tifa/dist, in place of the bodies there, and
+// the headings into .tifa/content/headings.json.
+function writeContent(root, result) {
+  const dist = path.join(root, '.tifa', 'dist')
+  fs.rmSync(path.join(dist, 'content'), { recursive: true, force: true })
+  for (const [out, html] of Object.entries(result.html)) {
+    const file = path.join(dist, out)
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, html)
+  }
+  fs.writeFileSync(path.join(root, '.tifa', contentHeadings), JSON.stringify(result.headings))
+}
+
+// encodePath writes a path with / between its parts as the path of a URL.
+function encodePath(p) {
+  return p.split('/').map(encodeURIComponent).join('/')
+}
+
+// assetName is name with the characters go:embed refuses in a file name replaced by _, so that the
+// program can embed the asset.
+export function assetName(name) {
+  return name.replace(/[^\p{L}0-9._-]/gu, '_')
+}
+
+/**
+ * loadMarkdown loads the packages of markdownPackages from the app at root. It fails, with the
+ * command that installs them, when one is missing or has another major version. command is the
+ * tifa command that converts, for the message.
+ */
+export async function loadMarkdown(root, command) {
+  const require = createRequire(path.join(root, 'package.json'))
+  const missing = []
+  const wrong = []
+  const dirs = []
+  for (const [name, major] of markdownPackages) {
+    const dir = (require.resolve.paths(name) ?? []).map((d) => path.join(d, name)).find((d) => fs.existsSync(path.join(d, 'package.json')))
+    if (!dir) {
+      missing.push(`${name}@${major}`)
+      continue
+    }
+    const { version } = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'))
+    if (Number(String(version).split('.')[0]) !== major) wrong.push(`${name} ${version} is not a version tifa is tested with: pnpm add -D ${name}@${major}`)
+    dirs.push(dir)
+  }
+  const problems = []
+  if (missing.length > 0) {
+    problems.push(`the app has content collections, so ${command} turns Markdown into HTML with unified: pnpm add -D ${missing.join(' ')}`)
+  }
+  if (problems.length + wrong.length > 0) throw new Error([...problems, ...wrong].join('\n'))
+  const load = async (name) => {
+    const module = await import(pathToFileURL(require.resolve(name)).href)
+    return module.default ?? module
+  }
+  const [{ unified }, remarkParse, remarkGfm, remarkRehype, rehypeRaw, rehypeStringify] = await Promise.all([
+    import(pathToFileURL(require.resolve('unified')).href),
+    load('remark-parse'),
+    load('remark-gfm'),
+    load('remark-rehype'),
+    load('rehype-raw'),
+    load('rehype-stringify'),
+  ])
+  return { unified, remarkParse, remarkGfm, remarkRehype, rehypeRaw, rehypeStringify }
+}
+
+// contentFiles holds what the steps of tifa learn about the file they convert, by the data of its
+// vfile.
+const contentFiles = new WeakMap()
+
+/**
+ * markdownProcessor returns the unified processor that turns the Markdown of an entry into HTML,
+ * with the packages p of loadMarkdown. The steps come in this order, and only the plugins of the
+ * app can be left out or changed:
+ *
+ *  1. remark-parse and remark-gfm
+ *  2. markdown.remarkPlugins
+ *  3. remark-rehype with allowDangerousHtml and rehype-raw: HTML in the Markdown stays as written
+ *  4. tifa: HTML comments are removed
+ *  5. tifa: h1 to h6 without an id get the id GitHub gives them
+ *  6. markdown.rehypePlugins
+ *  7. tifa: relative URLs become the URLs of their files, see rewriteURLs
+ *  8. tifa: the headings are collected
+ *  9. rehype-stringify
+ *
+ * A plugin is written as unified takes it: a function, or [function, ...options]. An error a
+ * plugin of the app throws names it.
+ */
+export function markdownProcessor(p, markdown = {}) {
+  const plugins = (kind) => {
+    const list = markdown?.[kind] ?? []
+    if (!Array.isArray(list)) throw new Error(`tifa({ markdown }): ${kind} must be a list of plugins, such as [remarkPangu, [rehypeShiki, { theme: 'github-light' }]]`)
+    return list.map((item) => namedPlugin(kind === 'remarkPlugins' ? 'remark' : 'rehype', item))
+  }
+  return p
+    .unified()
+    .use(p.remarkParse)
+    .use(p.remarkGfm)
+    .use(plugins('remarkPlugins'))
+    .use(p.remarkRehype, { allowDangerousHtml: true })
+    .use(p.rehypeRaw)
+    .use(dropComments)
+    .use(headingIDs)
+    .use(plugins('rehypePlugins'))
+    .use(rewriteURLs)
+    .use(collectHeadings)
+    .use(p.rehypeStringify)
+}
+
+// namedPlugin wraps a plugin of the app so that an error of its transform names it, such as
+// "rehype plugin rehypeShiki".
+function namedPlugin(kind, item) {
+  const [attacher, ...options] = Array.isArray(item) ? item : [item]
+  if (typeof attacher !== 'function') return item // a preset
+  const name = `${kind} plugin ${attacher.name || 'without a name'}`
+  const tag = (err) => {
+    if (err && typeof err === 'object' && !err.tifaPlugin) err.tifaPlugin = name
+    return err
+  }
+  function plugin(...args) {
+    const transform = attacher.apply(this, args)
+    if (typeof transform !== 'function') return transform
+    // unified passes a callback to a transform with three parameters, and this one has three.
+    return function (tree, file, next) {
+      let result
+      try {
+        if (transform.length >= 3) return transform.call(this, tree, file, (err, ...rest) => next(tag(err), ...rest))
+        result = transform.call(this, tree, file)
+      } catch (err) {
+        return next(tag(err))
+      }
+      if (result instanceof Error) return next(tag(result))
+      if (result && typeof result.then === 'function') return result.then((tree) => next(undefined, tree), (err) => next(tag(err)))
+      next(undefined, result)
+    }
+  }
+  Object.defineProperty(plugin, 'name', { value: attacher.name })
+  return [plugin, ...options]
+}
+
+// eachElement calls f for each element below node, parents before their children.
+function eachElement(node, f) {
+  for (const child of node.children ?? []) {
+    if (child.type === 'element') f(child)
+    eachElement(child, f)
+  }
+}
+
+// dropComments removes the HTML comments of the body, such as notes for the author.
+function dropComments() {
+  const drop = (node) => {
+    if (!node.children) return
+    node.children = node.children.filter((child) => child.type !== 'comment')
+    node.children.forEach(drop)
+  }
+  return drop
+}
+
+const headingTag = /^h[1-6]$/
+
+// textOf is the text of node: its text nodes, in order, as hast-util-to-string reads it.
+function textOf(node) {
+  if (node.type === 'text') return node.value
+  return (node.children ?? []).map(textOf).join('')
+}
+
+// slugRemoved is what github-slugger removes from the text of a heading: everything that is no
+// letter, mark, decimal digit or connector, space or -. github-slugger writes the same as a list of
+// the characters of Unicode 13, so a character added to Unicode later is kept here.
+const slugRemoved = /[^\p{Alphabetic}\p{M}\p{Nd}\p{Pc} -]/gu
+
+// headingIDs gives each h1 to h6 without an id the id GitHub gives it, as rehype-slug does: the
+// text in lower case without punctuation, spaces as -, and -1, -2 and so on for a repeat.
+function headingIDs() {
+  return (tree) => {
+    const seen = new Map()
+    eachElement(tree, (node) => {
+      if (!headingTag.test(node.tagName) || node.properties?.id) return
+      const base = textOf(node).toLowerCase().replace(slugRemoved, '').replace(/ /g, '-')
+      let id = base
+      while (seen.has(id)) {
+        const n = seen.get(base) + 1
+        seen.set(base, n)
+        id = `${base}-${n}`
+      }
+      seen.set(id, 0)
+      node.properties = { ...node.properties, id }
+    })
+  }
+}
+
+// urlProperties lists the properties of the elements whose relative URLs rewriteURLs rewrites,
+// with what a message calls each.
+const urlProperties = {
+  img: [['src', 'image']],
+  a: [['href', 'link']],
+  video: [
+    ['src', 'video'],
+    ['poster', 'poster'],
+  ],
+  audio: [['src', 'audio']],
+  source: [['src', 'source']],
+}
+
+// notRelative matches a URL that starts with /, # or a scheme, which rewriteURLs leaves alone.
+const notRelative = /^(?:[/#]|[a-zA-Z][a-zA-Z0-9+.-]*:)/
+
+// rewriteURLs replaces the relative URLs of the body with the URLs of their files: a file next to
+// the Markdown, or else next to the version of the entry in the default language. The file must be
+// inside the folder of the collection. A link to a Markdown file is an error: its URL is the one
+// of the page that shows it, which only the app knows.
+function rewriteURLs() {
+  return (tree, file) => {
+    const state = contentFiles.get(file.data)
+    if (!state) return // a processor outside convertContent
+    eachElement(tree, (node) => {
+      for (const [prop, kind] of urlProperties[node.tagName] ?? []) {
+        const value = node.properties?.[prop]
+        if (typeof value !== 'string' || value === '' || notRelative.test(value)) continue
+        const url = state.resolve(value, kind, node.position?.start)
+        if (url !== undefined) node.properties[prop] = url
+      }
+    })
+    if (state.problems.length > 0) {
+      const err = new Error(state.problems.join('\n'))
+      err.tifaLines = state.problems
+      throw err
+    }
+  }
+}
+
+// collectHeadings records the depth, the id and the text of each h1 to h6, in order.
+function collectHeadings() {
+  return (tree, file) => {
+    const state = contentFiles.get(file.data)
+    if (!state) return
+    eachElement(tree, (node) => {
+      if (headingTag.test(node.tagName)) {
+        state.headings.push({ depth: Number(node.tagName[1]), id: String(node.properties?.id ?? ''), text: textOf(node) })
+      }
+    })
+  }
+}
+
+// within reports whether p is dir or a path below it.
+function within(dir, p) {
+  const rel = path.relative(dir, p)
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
+}
+
+/**
+ * convertContent turns entries, as tifa lists them in .tifa/content/entries.json, into HTML. It
+ * returns the HTML and the headings of each by its out, and the warnings of the plugins. asset
+ * returns the URL of a file a relative URL leads to, given its real path. Every problem of every
+ * entry fails it at once, one line each, as file:line:col: reason.
+ */
+export async function convertContent(root, entries, { markdown, command, asset, packages }) {
+  const processor = markdownProcessor(packages ?? (await loadMarkdown(root, command)), markdown)
+  const realRoot = fs.realpathSync(root)
+  const result = { html: {}, headings: {}, warnings: [] }
+  const problems = []
+  for (const entry of entries) {
+    const collection = path.join(root, 'content', entry.collection)
+    const state = {
+      headings: [],
+      problems: [],
+      resolve(url, kind, at) {
+        const place = at ? `${entry.source}:${at.line}:${at.column}` : entry.source
+        const fail = (msg) => {
+          state.problems.push(`${place}: ${msg}`)
+        }
+        const cut = url.search(/[?#]/)
+        const rest = cut < 0 ? '' : url.slice(cut)
+        let rel
+        try {
+          rel = decodeURIComponent(cut < 0 ? url : url.slice(0, cut))
+        } catch {
+          return fail(`${kind} ${url} is not a valid URL`)
+        }
+        if (/\.md$/i.test(rel)) {
+          let stem = path.posix.basename(rel, path.posix.extname(rel))
+          if (stem === 'index') stem = path.posix.basename(path.posix.dirname(path.posix.normalize(rel))) || stem
+          const page = ['', entry.lang, entry.collection, stem].filter((s, i) => i === 0 || s).join('/')
+          return fail(`${url} is a Markdown file and has no URL of its own: link to the page that shows it, such as ${page}`)
+        }
+        const places = [path.join(root, path.dirname(entry.source), rel)]
+        if (entry.fallback) places.push(path.join(root, entry.fallback, rel))
+        const shown = (p) => path.relative(root, p).split(path.sep).join('/')
+        for (const p of places) {
+          if (!within(collection, p)) return fail(`${kind} ${url} leads to ${shown(p)}, which is outside content/${entry.collection}: a collection holds only its own files`)
+        }
+        for (const p of places) {
+          let stat
+          try {
+            stat = fs.statSync(p)
+          } catch {
+            continue
+          }
+          if (stat.isDirectory()) return fail(`${kind} ${url} is a folder, which has no URL of its own`)
+          const real = fs.realpathSync(p)
+          if (!within(fs.realpathSync(collection), real)) {
+            return fail(`${kind} ${url} links to ${real}, which is outside content/${entry.collection}: a collection holds only its own files`)
+          }
+          return asset(real) + rest
+        }
+        fail(`${kind} ${url} not found: looked at ${places.map(shown).join(' and ')}`)
+      },
+    }
+    // The vfile unified makes keeps this data object, by which the steps of tifa find state.
+    const data = { tifa: { collection: entry.collection, lang: entry.lang, id: entry.id, frontmatter: entry.frontmatter } }
+    contentFiles.set(data, state)
+    let out
+    try {
+      out = await processor.process({ value: entry.text, path: path.join(realRoot, entry.source), data })
+    } catch (err) {
+      problems.push(...contentError(entry, err))
+      continue
+    }
+    result.html[entry.out] = String(out)
+    result.headings[entry.out] = state.headings
+    for (const m of out.messages) result.warnings.push(`${messagePlace(entry, m)}: ${m.reason ?? m.message}`)
+  }
+  if (problems.length > 0) throw new Error(problems.join('\n'))
+  return result
+}
+
+// messagePlace is file:line:col of a message of unified, file alone when it has no place.
+function messagePlace(entry, m) {
+  const at = m.place?.start ?? m.place ?? (m.line ? { line: m.line, column: m.column } : undefined)
+  return at?.line ? `${entry.source}:${at.line}:${at.column ?? 1}` : entry.source
+}
+
+// contentError returns the lines that say why the conversion of entry failed with err.
+function contentError(entry, err) {
+  if (Array.isArray(err?.tifaLines)) return err.tifaLines
+  const reason = err?.reason ?? err?.message ?? String(err)
+  return [`${messagePlace(entry, err ?? {})}: ${err?.tifaPlugin ? err.tifaPlugin + ': ' : ''}${reason}`]
 }
 
 // lazyRoute is the prefix of the ID of a stand-in for a route module, see lazyRoutes.

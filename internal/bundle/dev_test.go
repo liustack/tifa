@@ -84,7 +84,7 @@ func TestDevRunsOneNodeProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true, nil); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	if n := nodeChildren(t) - before; n != 1 {
@@ -112,7 +112,7 @@ func TestAppIgnoresInheritedNodeEnv(t *testing.T) {
 	root := devApp(t)
 	n := NewNode(root, io.Discard)
 	defer n.Close()
-	if _, err := App(n, root, filepath.Join(root, "public"), true); err != nil {
+	if _, err := App(n, root, filepath.Join(root, "public"), true, nil); err != nil {
 		t.Fatalf("App: %v", err)
 	}
 	code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
@@ -136,7 +136,7 @@ func TestDevIgnoresInheritedNodeEnv(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer d.Close()
-			if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+			if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true, nil); err != nil {
 				t.Fatalf("Build: %v", err)
 			}
 			if !strings.Contains(d.head, "@react-refresh") {
@@ -170,7 +170,7 @@ func TestDevSSRUsesTheDevServerURLsOfAssets(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true, nil); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
@@ -213,7 +213,7 @@ func TestDevHeadLinksTheStylesheetsOfTheServerRender(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true, nil); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	link := `<link rel="stylesheet" href="` + DevBase + `app/page/page.css" data-vite-dev-id="` +
@@ -276,7 +276,7 @@ func TestAppResolvesImportsByTheTsconfigPaths(t *testing.T) {
 	root := aliasApp(t)
 	n := NewNode(root, io.Discard)
 	defer n.Close()
-	if _, err := App(n, root, filepath.Join(root, "public"), true); err != nil {
+	if _, err := App(n, root, filepath.Join(root, "public"), true, nil); err != nil {
 		t.Fatalf("App: %v", err)
 	}
 	code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
@@ -312,7 +312,7 @@ func TestDevResolvesImportsByTheTsconfigPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true, nil); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
@@ -351,7 +351,7 @@ func TestDevWarnsOfTheRequiresLeftInTheBundle(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer d.Close()
-		if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+		if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true, nil); err != nil {
 			t.Fatalf("Build: %v", err)
 		}
 		// What Node printed is complete once it exited.
@@ -416,7 +416,7 @@ func TestDevPrintsAllTheSSRWorkerPrinted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, buildErr := d.Build(context.Background(), filepath.Join(root, "public"), true)
+	_, buildErr := d.Build(context.Background(), filepath.Join(root, "public"), true, nil)
 	if err := d.Close(); err != nil || buildErr != nil {
 		t.Fatalf("build: %v, close: %v", buildErr, err)
 	}
@@ -435,7 +435,7 @@ func devBuild(t *testing.T, root string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, buildErr := d.Build(context.Background(), filepath.Join(root, "public"), true)
+	_, buildErr := d.Build(context.Background(), filepath.Join(root, "public"), true, nil)
 	if err := d.Close(); err != nil || buildErr != nil {
 		t.Fatalf("build: %v, close: %v", buildErr, err)
 	}

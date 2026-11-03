@@ -52,7 +52,7 @@ func TestDevServerWatchesTheRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true, nil); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	if code := viteModule(t, port, "app/real/card.tsx"); !strings.Contains(code, "card-one") {
@@ -92,7 +92,7 @@ func TestDevReportsChangesOutsideTheRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true, nil); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	card, err := filepath.EvalSymlinks(filepath.Join(shared, "card.ts"))
@@ -156,7 +156,7 @@ func TestDevReportsRestartsAndKeepsWatchingOutside(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true, nil); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	card, err := filepath.EvalSymlinks(filepath.Join(shared, "card.ts"))
@@ -199,7 +199,7 @@ func TestDevServerPollsWhenTold(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true, nil); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	polling, err := d.PollFiles()
@@ -232,7 +232,7 @@ func TestDevServerStartsPolling(t *testing.T) {
 	if polling, err := d.PollFiles(); err != nil || polling {
 		t.Fatalf("PollFiles before the dev server runs = %v, %v", polling, err)
 	}
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true, nil); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	var watcher struct {
@@ -289,7 +289,7 @@ func TestDevSSRWaitsForARestart(t *testing.T) {
 	defer d.Close()
 	result := func() string {
 		t.Helper()
-		if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+		if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true, nil); err != nil {
 			t.Fatalf("Build: %v", err)
 		}
 		code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
@@ -334,7 +334,7 @@ func TestDevServerTriesPollingAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true, nil); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	polls := func() string { return strings.TrimSpace(viteModule(t, port, "__test/watcher")) }
@@ -392,7 +392,7 @@ func TestDevServerSurvivesARestartThatCannotListen(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true, nil); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	viteModule(t, port, "__test/enospc")
@@ -410,7 +410,7 @@ func TestDevServerSurvivesARestartThatCannotListen(t *testing.T) {
 	}
 	time.Sleep(2 * time.Second) // the new server tries to listen meanwhile, and fails
 	taken.Close()
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true, nil); err != nil {
 		t.Fatalf("Build after the failed restart: %v", err)
 	}
 	writeTree(t, root, map[string]string{"vite.config.ts": config("two")})
@@ -462,7 +462,7 @@ func TestDevServerWaitsForItsWatcher(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true, nil); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	if polling, err := d.PollFiles(); err != nil || !polling {

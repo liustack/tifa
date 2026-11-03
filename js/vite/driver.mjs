@@ -18,6 +18,8 @@
 //	                             that load Vite's client and the React refresh runtime. With
 //	                             pollFiles it then restarts with a watcher that polls, unless the
 //	                             watcher uses FSEvents
+//	{op: "content"}             converts the Markdown of the content collections with the tifa
+//	                             plugin of the running dev server, see markdownPlugin
 //	{op: "pollFiles"}            makes the running dev server's watcher poll, unless it uses
 //	                             FSEvents, and answers with polling and fsEvents
 //	{op: "script", dir, file, plugin, format}
@@ -312,6 +314,15 @@ const ops = {
     const html = await server.transformIndexHtml('/', '<html><head></head><body></body></html>')
     const head = html.slice(html.indexOf('<head>') + 6, html.indexOf('</head>'))
     return { head: head.trim() }
+  },
+
+  async content() {
+    if (!server) throw new Error("the content is converted by Vite's dev server, which is not running")
+    await restartsDone()
+    const plugin = server.config.plugins.find((p) => p.name === 'tifa:markdown')
+    if (!plugin) throw new Error('vite.config.ts does not use the tifa plugin, which converts the content')
+    for (const warning of await plugin.api.convert()) logger.warn(warning)
+    return {}
   },
 
   async pollFiles() {

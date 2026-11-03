@@ -187,15 +187,29 @@ import { htmlAttributes, routeTree } from "./routes"
 	}
 	files["vite.js"] = []byte(tsHeader + `import { tifa } from "./vite/plugin.js"
 
+// The settings of tifa.yaml the plugins use.
+const settings = ` + settingsJS + `
+
 // The Vite plugins of tifa, for the plugins of vite.config.ts.
-export default function () {
-  return tifa(` + settingsJS + `)
+export default function (options = {}) {
+  return tifa({ ...settings, markdown: options.markdown })
 }
 `)
 	files["vite.d.ts"] = []byte(tsHeader + `import type { PluginOption } from "vite"
 
+export interface Options {
+  // How tifa turns the Markdown of content collections into HTML. Each list is written as unified
+  // takes it: a plugin, or [plugin, options].
+  markdown?: {
+    // Run on the Markdown, after remark-gfm.
+    remarkPlugins?: readonly unknown[]
+    // Run on the HTML, after tifa gave the headings their ids.
+    rehypePlugins?: readonly unknown[]
+  }
+}
+
 // The Vite plugins of tifa, for the plugins of vite.config.ts.
-export default function tifa(): PluginOption
+export default function tifa(options?: Options): PluginOption
 `)
 	err = fs.WalkDir(js.Runtime, "runtime", func(name string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {

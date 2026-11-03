@@ -210,7 +210,7 @@ func i18nextApp(t *testing.T, root, page, settings string) (string, string) {
 	var output strings.Builder
 	n := NewNode(root, &output)
 	defer n.Close()
-	if _, err := App(n, root, filepath.Join(root, "public"), true); err != nil {
+	if _, err := App(n, root, filepath.Join(root, "public"), true, nil); err != nil {
 		t.Fatalf("App: %v\n%s", err, output.String())
 	}
 	code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
