@@ -81,6 +81,12 @@ func TestGeneratedRouterBehaves(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "raw.ts"), []byte(raw), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// <HTML> holds markup only in the elements as names.
+	script := "import { HTML } from 'tifa/client'\nimport type { PageData } from './.tifa/app/article/route.gen'\n" +
+		"export const script = <HTML value={({} as PageData).body} as=\"script\" />\n"
+	if err := os.WriteFile(filepath.Join(root, "script.tsx"), []byte(script), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	tsc = exec.Command(node, filepath.Join(modules, "typescript", "bin", "tsc"), "--noEmit", "-p", ".")
 	tsc.Dir = root
 	output, err := tsc.CombinedOutput()
@@ -91,6 +97,9 @@ func TestGeneratedRouterBehaves(t *testing.T) {
 		if !strings.Contains(string(output), want) {
 			t.Errorf("a tifa.HTML value used as a string type-checks (no error at %s):\n%s", want, output)
 		}
+	}
+	if !strings.Contains(string(output), "script.tsx(3,") {
+		t.Errorf(`<HTML as="script"> type-checks:%s`, output)
 	}
 }
 

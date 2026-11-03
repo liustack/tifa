@@ -9,7 +9,7 @@
 // (diffHydratedGenericElement of react-dom-bindings), and sets innerHTML on an update only when
 // __html changes (setProp), so reading the markup back keeps both quiet and leaves the DOM as the
 // server wrote it. Navigation data and a page that skips SSR carry the value as a string.
-import { createElement, useId, type HTMLAttributes, type JSX } from 'react'
+import { createElement, useId, type HTMLAttributes } from 'react'
 
 declare const htmlBrand: unique symbol
 
@@ -51,10 +51,18 @@ export type HTMLProps = Omit<HTMLAttributes<HTMLElement>, 'children' | 'dangerou
   // The tifa.HTML value of the data of the page.
   value: HTML
   // The element that holds the markup, div unless it says another.
-  as?: keyof JSX.IntrinsicElements
+  as?: HTMLHolder
 }
 
+// holders are the elements as may name: those that hold flow or phrasing content. An element whose
+// content runs or is not markup (script, style, iframe, template, textarea and the like) would make
+// the cleaning of the markup useless or show it as text.
+const holders = ['div', 'article', 'section', 'main', 'aside', 'header', 'footer', 'nav', 'figure', 'blockquote', 'li', 'td', 'span', 'p'] as const
+
+export type HTMLHolder = (typeof holders)[number]
+
 export function HTML({ value, as = 'div', ...rest }: HTMLProps) {
+  if (!(holders as readonly string[]).includes(as)) throw new Error(`tifa: <HTML as="${as}"> cannot hold markup: as takes one of ${holders.join(', ')}`)
   const id = useId()
   // The type keeps both out, but a spread of an object brings them in, and React throws for children
   // next to dangerouslySetInnerHTML.

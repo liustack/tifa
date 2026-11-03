@@ -1302,6 +1302,25 @@ test('<HTML> leaves out children and dangerouslySetInnerHTML that come in a spre
   assert(/^<div title="t" data-tifa-html="[^"]+"><b>MARKUP<\/b><\/div>$/.test(shown), `<HTML> with a spread renders ${shown}`)
 })
 
+test('<HTML> holds its markup only in elements of flow or phrasing content', async () => {
+  const value = '<b>MARKUP</b>' as unknown as HTMLValue
+  const allowed = ['div', 'article', 'section', 'main', 'aside', 'header', 'footer', 'nav', 'figure', 'blockquote', 'li', 'td', 'span', 'p']
+  for (const as of allowed) {
+    const shown = inBrowser(<HTML value={value} as={as as never} />, undefined)
+    assert(shown.startsWith(`<${as} data-tifa-html="`) && shown.endsWith(`"><b>MARKUP</b></${as}>`), `as="${as}" renders ${shown}`)
+  }
+  for (const as of ['script', 'style', 'iframe', 'template', 'textarea', 'noscript', 'object', 'svg', 'math', 'DIV', 'toString', '']) {
+    let message = ''
+    try {
+      inBrowser(<HTML value={value} as={as as never} />, undefined)
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error)
+    }
+    const want = `tifa: <HTML as="${as}"> cannot hold markup: as takes one of ${allowed.join(', ')}`
+    assert(message === want, `as="${as}": the error says: ${message}`)
+  }
+})
+
 let failed = 0
 for (const [name, fn] of tests) {
   try {
