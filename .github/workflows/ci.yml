@@ -94,7 +94,7 @@ jobs:
 
       - name: Install the packages of the apps
         run: |
-          for app in test/apps/pages test/apps/tailwind test/apps/mui test/apps/bench test/apps/session examples/shop; do
+          for app in test/apps/pages test/apps/tailwind test/apps/mui test/apps/bench test/apps/session test/apps/pagecache examples/shop; do
             (cd "$app" && pnpm install --frozen-lockfile)
           done
       - name: Test
