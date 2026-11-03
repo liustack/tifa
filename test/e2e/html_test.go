@@ -53,6 +53,12 @@ func TestHTMLPages(t *testing.T) {
 	if strings.Contains(broken, "BODY_START") || !strings.Contains(broken, `id="article-error"`) || strings.Count(broken, marker) != 1 {
 		t.Errorf("/article/broken:\n%s", broken)
 	}
+	// A Layout above the article fails on the server: nothing renders the article, and the page has
+	// no data of it, so no marker of it either.
+	shaky := once("/article/shaky", 500, "vm", "SHELF_NOTE")
+	if strings.Contains(shaky, "BODY_START") || strings.Contains(shaky, `id="shaky"`) || !strings.Contains(shaky, `id="article-error"`) || strings.Count(shaky, marker) != 1 {
+		t.Errorf("/article/shaky:\n%s", shaky)
+	}
 	// A page without SSR carries the strings, as it renders in the browser.
 	plain := once("/article/plain", 200, "none", "SHELF_NOTE", "BODY_END")
 	if strings.Contains(plain, "$tifa") || strings.Contains(plain, "data-tifa-html") {
@@ -85,8 +91,8 @@ func TestHTMLPagesInDev(t *testing.T) {
 
 // htmlInBrowser opens the article pages of base in Chromium and checks that each shows its markup
 // without a warning of React: hydrated from the page, after a move through the router, back on a
-// page the router keeps, and rendered only in the browser. withBroken also opens the page whose
-// component fails on the server.
+// page the router keeps, and rendered only in the browser. withBroken also opens the pages whose
+// components fail on the server.
 func htmlInBrowser(t *testing.T, name, base string, withBroken bool) {
 	t.Helper()
 	if _, err := exec.LookPath("playwright-cli"); err != nil {
@@ -169,5 +175,20 @@ func htmlInBrowser(t *testing.T, name, base string, withBroken bool) {
 			return is(`() => document.getElementById("article-error") !== null && document.getElementById("note").innerHTML.includes("SHELF_NOTE")`)
 		})
 		quiet("opening /article/broken")
+		// The Layout above the article fails on the server only. After a move away, back on the page
+		// the browser renders the article from data it loads, with no markup of the page to read.
+		pw("goto", base+"/article/shaky")
+		hydrated("/article/shaky to hydrate")
+		waitFor(t, "the error of /article/shaky", func() bool {
+			return is(`() => document.getElementById("article-error") !== null && document.getElementById("note").innerHTML.includes("SHELF_NOTE")`)
+		})
+		pw("eval", `() => { window.__sameDocument = true; document.getElementById("error-to-read").click(); return true }`)
+		shows("the router to show /article/read from the error", "/article/read")
+		pw("eval", `() => { history.back(); return true }`)
+		shows("the article below the Layout that failed on the server", "/article/shaky")
+		if !is(`() => window.__sameDocument === true && document.getElementById("shaky") !== null && document.getElementById("article-error") === null`) {
+			t.Error("/article/shaky after going back: not the page the router rendered")
+		}
+		quiet("going back to /article/shaky")
 	}
 }

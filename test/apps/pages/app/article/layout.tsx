@@ -1,5 +1,5 @@
 import { HTML, RouteError } from 'tifa/client'
-import { Outlet } from '@tanstack/react-router'
+import { Link, Outlet } from '@tanstack/react-router'
 import { layout } from './route.gen'
 
 export default function Shelf() {
@@ -13,5 +13,12 @@ export default function Shelf() {
 }
 
 export function Error({ error }: { error: unknown }) {
-  return <p id="article-error">{error instanceof RouteError ? error.message : 'The article failed.'}</p>
+  return (
+    <p id="article-error">
+      {error instanceof RouteError ? error.message : 'The article failed.'}{' '}
+      <Link id="error-to-read" to="/article/read">
+        read
+      </Link>
+    </p>
+  )
 }

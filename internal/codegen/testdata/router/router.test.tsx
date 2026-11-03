@@ -475,8 +475,8 @@ test('the rest of the path may be empty, written without the trailing slash', as
 })
 
 // hydrateFrom runs the scripts of a server-rendered page the way a browser does and hydrates a
-// browser router from them.
-async function hydrateFrom(html: string, url: string, onHydrate?: (dehydrated: Dehydrated) => void) {
+// browser router from them. Loads the router asks for later get answer, or else ok(id).
+async function hydrateFrom(html: string, url: string, onHydrate?: (dehydrated: Dehydrated) => void, answer: (id: string) => RouteResult = ok) {
   const g = globalThis as any
   const saved = { window: g.window, self: g.self, document: g.document }
   g.window = g.self = globalThis
@@ -491,7 +491,7 @@ async function hydrateFrom(html: string, url: string, onHydrate?: (dehydrated: D
       routeTree,
       async (u, id) => {
         calls.push([u, id])
-        return ok(id)
+        return answer(id)
       },
       { history: createMemoryHistory({ initialEntries: [url] }), onHydrate },
     )
@@ -1154,14 +1154,17 @@ test('a root Layout that sets data-session stops the bundle as it loads, and say
 const articleData = { title: 'T', body: '<p>BODY &amp; <b>bold</b></p>', notes: ['<em>NOTE</em>'] }
 const articlePageText = JSON.stringify({ title: 'T', body: { $tifa: 'html' }, notes: [{ $tifa: 'html' }] })
 
-async function renderArticle() {
+// renderArticle renders /article, with error placed at its level when given, and fills the slots
+// that remain as Go does.
+async function renderArticle(error?: { status: number; message: string; level: number }) {
   globalThis.renderResult = undefined
   const data = { 'app/layout': { status: 200, text: 0 }, 'app/article/route': { status: 200, text: 1, page: true } }
-  globalThis.startRender(JSON.stringify({ url: '/article', buildId: 'b1', data, nonce: slotNonce }), '{"name":"router"}', JSON.stringify(articleData))
+  globalThis.startRender(JSON.stringify({ url: '/article', buildId: 'b1', data, nonce: slotNonce, error }), '{"name":"router"}', JSON.stringify(articleData))
   for (let i = 0; i < 1000 && globalThis.renderResult === undefined; i++) await new Promise((resolve) => setTimeout(resolve, 0))
   const html = globalThis.renderResult ?? ''
   assert(html.startsWith('<'), `render /article: ${html.slice(0, 300)}`)
-  assert(html.split(slotNonce).length === 2 && html.includes(`$_TSR.t.get("tifa.data")("~${slotNonce}.1.")`), `the slots of /article: ${html}`)
+  if (error === undefined)
+    assert(html.split(slotNonce).length === 2 && html.includes(`$_TSR.t.get("tifa.data")("~${slotNonce}.1.")`), `the slots of /article: ${html}`)
   return html.replace(`~${slotNonce}.1.`, () => JSON.stringify(articlePageText).slice(1, -1))
 }
 
@@ -1235,6 +1238,29 @@ test('a tifa.HTML value of the page shows from what was read after the page left
   const alone = inBrowser(<HTML value={post.body} />, undefined)
   contains(alone, '<p>BODY &amp; <b>bold</b></p>')
   assert(page.reads() === 2, `innerHTML read ${page.reads()} times`)
+})
+
+// The Loads of /article as navigation data carries them, with the strings.
+const articleAnswer = (id: string) => (id === 'app/article/route' ? ok(articleData) : id === 'app/layout' ? ok({ name: 'router' }) : missing)
+
+test('a page with an error placed above or at a tifa.HTML route carries no data of that route', async () => {
+  // At level 1 the root Layout shows the error and nothing renders the article. The router writes
+  // the matches only down to the one that failed, so the page has no data of the article, and no
+  // marker that the browser could not read back. At level 0 the article itself is replaced.
+  for (const [level, shows] of [[1, 'Something went wrong'], [0, 'APP_ERROR <!-- -->503 down']] as const) {
+    const html = await renderArticle({ status: 503, message: 'down', level })
+    contains(html, shows)
+    lacks(html, 'ARTICLE', 'data-tifa-html', '$tifa', 'BODY', `~${slotNonce}`)
+    const { router, calls } = await hydrateFrom(html, '/article', undefined, articleAnswer)
+    assert(calls.length === 0, `level ${level}: hydration requested ${JSON.stringify(calls)}`)
+    const article = router.state.matches[router.state.matches.length - 1]
+    assert(article.loaderData === undefined, `level ${level}: the router keeps ${JSON.stringify(article.loaderData)} for the article`)
+    // Shown again, the article loads its data, with the strings, and shows it with no markup of
+    // the page to read from.
+    await router.invalidate({ sync: true })
+    assert(JSON.stringify(calls.map(([, id]) => id).sort()) === '["app/article/route","app/layout"]', `level ${level}: loads ${JSON.stringify(calls)}`)
+    for (let i = 0; i < 2; i++) contains(inBrowser(routerRoot(router), { querySelectorAll: () => [] }), 'ARTICLE <!-- -->T', '<p>BODY &amp; <b>bold</b></p>', '<em>NOTE</em>')
+  }
 })
 
 test('<HTML> throws when the server rendered no <HTML> for its marker, and says how to render it', async () => {
