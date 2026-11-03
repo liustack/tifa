@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -22,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/liustack/tifa/internal/deverrors"
 	"github.com/liustack/tifa/internal/testproc"
 )
 
@@ -236,6 +238,7 @@ func TestDev(t *testing.T) {
 	expectSteps(t, "first build", out, "static analysis", "code generation", "bundle", "go build")
 	v1 := d.waitStatus(t, func(st devStatus) bool { return st.Version != "" && st.Error == "" }).Version
 	expectBody(t, d.base+"/", "North shop")
+	expectNoErrors(t, dir, "after the first build")
 
 	// Pages load the modules from Vite's dev server, with the React refresh preamble first.
 	expectBody(t, d.base+"/", `import { injectIntoGlobalHook } from "/__tifa/vite/@react-refresh"`)
@@ -270,10 +273,21 @@ func TestDev(t *testing.T) {
 			t.Fatalf("a throwing component: %d, want 500 with %q:\n%.2000s", status, want, body)
 		}
 	}
+	// tifa errors names the request with the error and its place in the source.
+	code, out := tifaErrors(t, dir, true)
+	var report deverrors.Report
+	if err := json.Unmarshal([]byte(out), &report); err != nil || code != 1 || len(report.Requests) != 1 {
+		t.Fatalf("tifa errors --json after a failed render: %d %v\n%s", code, err, out)
+	}
+	if e := report.Requests[0]; e.Method != "GET" || e.URL != "/" || e.Status != 500 || !strings.Contains(e.Error, "home is broken") || !strings.Contains(e.Error, "app/page.tsx") {
+		t.Fatalf("request error %+v", e)
+	}
 	mark = d.edit(t, "app/page.tsx", broken, "export default function Home() {\n")
 	d.waitLog(t, mark, ready)
 	d.waitStatus(t, func(st devStatus) bool { return st.Version == v2 && st.Render > before && st.Error == "" })
 	expectBody(t, d.base+"/", "North store")
+	// The build of the fix dropped the error.
+	expectNoErrors(t, dir, "after the fix")
 
 	// A Go function body: analysis finds the same routes, go build without a bundle.
 	mark = d.edit(t, "app/shops/shop+/route.go", `"Shop " + id`, `"Store " + id`)
@@ -303,6 +317,9 @@ func TestDev(t *testing.T) {
 	failed := d.waitStatus(t, func(st devStatus) bool { return st.Error != "" })
 	if failed.Version != v4 || failed.Title != "Build failed" || !strings.Contains(failed.Error, "route.go") {
 		t.Fatalf("status %+v", failed)
+	}
+	if code, out := tifaErrors(t, dir, false); code != 1 || !strings.HasPrefix(out, "Build failed\n") || !strings.Contains(out, "route.go") {
+		t.Fatalf("tifa errors after a failed build: %d %s", code, out)
 	}
 	expectBody(t, d.base+"/shops/north", "Store north")
 
@@ -639,4 +656,45 @@ func TestDevEmbeddedFiles(t *testing.T) {
 	write("README.md", "# readme")
 	mark = d.edit(t, "app/page.tsx", "North shop", "North store")
 	expectSteps(t, "unrelated markdown", d.waitLog(t, mark, ready), "bundle")
+}
+
+// tifaErrors runs tifa errors in the app at dir and returns its exit status and output.
+func tifaErrors(t *testing.T, dir string, asJSON bool) (int, string) {
+	t.Helper()
+	args := []string{"errors", "--dir", dir}
+	if asJSON {
+		args = append(args, "--json")
+	}
+	cmd := exec.Command(cli(t), args...)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	var exit *exec.ExitError
+	switch {
+	case err == nil:
+		return 0, string(out)
+	case errors.As(err, &exit):
+		return exit.ExitCode(), string(out) + stderr.String()
+	}
+	t.Fatalf("tifa errors: %v", err)
+	return 0, ""
+}
+
+// expectNoErrors checks that tifa errors reports no failure, request error or browser error. A
+// page may be listed as rendering differently: TanStack Router writes the time each match loaded
+// (updatedAt) into the page, so the two renders of tifa dev differ when a millisecond passes
+// between them.
+func expectNoErrors(t *testing.T, dir, when string) {
+	t.Helper()
+	code, out := tifaErrors(t, dir, true)
+	var r deverrors.Report
+	err := json.Unmarshal([]byte(out), &r)
+	if err != nil || r.Failure != nil || len(r.Requests) != 0 || len(r.Browser) != 0 || (code == 0) != r.Empty() {
+		t.Fatalf("tifa errors %s: %d %v\n%s", when, code, err, out)
+	}
+	if r.Empty() {
+		if code, out := tifaErrors(t, dir, false); code != 0 || out != "No errors since the last build.\n" {
+			t.Fatalf("tifa errors %s: %d %s", when, code, out)
+		}
+	}
 }
