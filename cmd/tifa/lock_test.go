@@ -96,12 +96,12 @@ func TestBuildStopsWhenDevRuns(t *testing.T) {
 func TestDevStopsWhenDevRuns(t *testing.T) {
 	root := holdDevLock(t)
 	_, stderr, err := run(t, "dev", "--dir", root)
-	if err == nil {
-		t.Fatal("dev started twice")
+	want := "tifa dev is already running in this app at http://127.0.0.1:9527 (pid " + strconv.Itoa(os.Getpid()) + ")"
+	if err == nil || err.Error() != want {
+		t.Fatalf("dev: %v, want %q", err, want)
 	}
-	want := "tifa dev: already running at http://127.0.0.1:9527 (pid " + strconv.Itoa(os.Getpid()) + ")"
-	if !strings.Contains(stderr, want) {
-		t.Fatalf("stderr = %q, want %q", stderr, want)
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want nothing besides the error", stderr)
 	}
 }
 

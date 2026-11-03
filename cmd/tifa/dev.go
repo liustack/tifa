@@ -58,8 +58,7 @@ build keeps the running app and shows the error in the page.`,
 			lock, err := lockApp(root)
 			var busy *busyError
 			if errors.As(err, &busy) {
-				fmt.Fprintln(cmd.ErrOrStderr(), strings.TrimSpace("tifa dev: already running "+busy.Detail()))
-				return errors.New("not started")
+				return errors.New(strings.TrimSpace("tifa dev is already running in this app " + busy.Detail()))
 			}
 			if err != nil {
 				return err
