@@ -29,6 +29,11 @@ type Pipeline interface {
 	// that worked, so call it after Analyze returned without an error. The function is never nil
 	// and may be called from any goroutine.
 	Embedded() func(rel string) bool
+	// Public returns the folder of static files, relative to the application directory with forward
+	// slashes, empty when there is none or it lies outside the application directory. The generated
+	// code lists its files, so one that appears or goes needs a new bundle. Like Embedded it
+	// answers for the last analysis that worked, which reads tifa.yaml.
+	Public() string
 	// PollFiles makes Vite's dev server poll the files too, once tifa dev's watcher found the
 	// system short of watches. It may run while a step runs. polling reports whether the dev
 	// server polls, it does not when its watcher takes no watch per file.
@@ -136,6 +141,25 @@ func plan(changes []change, embedded func(rel string) bool) steps {
 			if c.op != modified && (base == "page.tsx" || base == "layout.tsx" || base == "layout_.tsx") {
 				s = s.or(everything)
 			}
+		}
+	}
+	return s
+}
+
+// inPublic reports whether rel is a file in the public folder, given relative to the application
+// directory. An empty folder holds nothing.
+func inPublic(public, rel string) bool {
+	return public != "" && strings.HasPrefix(rel, path.Clean(public)+"/")
+}
+
+// planPublic is plan with the public folder: the generated code lists the files in it, so a file
+// that appears or goes needs a new bundle, which generates the code again. Changing the content
+// of one needs nothing more than before.
+func planPublic(changes []change, embedded func(rel string) bool, public string) steps {
+	s := plan(changes, embedded)
+	for _, c := range changes {
+		if c.op != modified && inPublic(public, c.path) {
+			s.bundle = true
 		}
 	}
 	return s

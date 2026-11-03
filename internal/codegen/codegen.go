@@ -49,7 +49,11 @@ func Generate(root string, m *analyze.Manifest, dev bool, exports Exports) (map[
 		return nil, err
 	}
 	maps.Copy(files, goFiles)
-	tsFiles, err := generateTS(root, m, dev, exports, viteSettings{target, settings.Build.I18nextCache})
+	public, err := publicPaths(root, settings.Build.Public)
+	if err != nil {
+		return nil, err
+	}
+	tsFiles, err := generateTS(root, m, dev, exports, viteSettings{target, settings.Build.I18nextCache}, public)
 	if err != nil {
 		return nil, err
 	}

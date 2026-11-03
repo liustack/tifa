@@ -16,6 +16,8 @@ import type { SessionEnvelope } from './session'
 // chain says which Loads a path has: the IDs of the routes with a Go Load that the router matches
 // there, from the root Layout down, which is what a data request counts its digits against.
 export interface RouterContext {
+  // False in a server render.
+  browser: boolean
   source: Source
   chain: (pathname: string) => string[]
 }
@@ -50,6 +52,7 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
 ) {
   const { buildId, serverURL, onHydrate, sessionKey, session } = options
   const context: RouterContext = {
+    browser: serverURL === undefined,
     source,
     chain: (pathname) => loadsAt(router, pathname),
   }
@@ -160,6 +163,53 @@ export async function load<T>(
     throw redirect({ href: result.location, statusCode: result.status, [askedByLoad]: true } as Parameters<typeof redirect>[0])
   }
   throw new RouteError(result.status, result.error ?? `route ${id} failed with status ${result.status}`)
+}
+
+// PageData is the staticData of a route with a page.tsx. Nothing else carries the marker, so a
+// URL is a page when the route that matches it whole has one.
+interface PageData {
+  page?: true
+}
+
+// RootData is the staticData of the root route: the URL paths of the files in the public folder.
+interface RootData {
+  publicPaths: readonly string[]
+}
+
+// servedByGo says whether Go answers pathname with something other than a page: the files of the
+// public folder, which it serves before it routes, the bundle under /assets/ and what tifa keeps
+// under /__tifa/. A router that took one for a page, as /favicon.svg is for an app with a
+// parameter folder at the root of app/, would ask for navigation data instead of the file.
+function servedByGo(publicPaths: readonly string[], pathname: string) {
+  if (pathname.startsWith('/assets/') || pathname.startsWith('/__tifa/')) return true
+  // The router keeps the path escaped, the list holds the names of the files, and Go compares the
+  // decoded path. A malformed escape names no file.
+  try {
+    return publicPaths.includes(decodeURIComponent(pathname))
+  } catch {
+    return false
+  }
+}
+
+// leave is the beforeLoad of the root route. A navigation in the browser to a path Go serves as a
+// file loads the document instead, and so does a preload of it, which the router drops. A server
+// render does not: Go renders a path under /assets/ or /__tifa/ that no file answers, and a page
+// may live there, so a redirect would send the browser to the same URL again and again.
+export function leave(publicPaths: readonly string[]) {
+  return ({ context, location }: { context: RouterContext; location: { pathname: string; href: string } }) => {
+    if (context.browser && servedByGo(publicPaths, location.pathname)) throw redirect({ href: location.href, reloadDocument: true })
+  }
+}
+
+// isPage says whether pathname is a page of the app: a path Go serves as a file is none, nor is a
+// URL that no route with a page matches whole. API routes and URLs that show a 404 are no pages.
+export function isPage(router: AnyRouter, pathname: string): boolean {
+  const { publicPaths } = router.routeTree.options.staticData as RootData
+  if (servedByGo(publicPaths, pathname)) return false
+  // A URL that only starts with the path of a route matches that route with the rest in **.
+  const [, params, found] = router.getMatchedRoutes(pathname)
+  if (params['**'] !== undefined) return false
+  return (found?.options.staticData as PageData | undefined)?.page === true
 }
 
 // notFoundMessage is the public message of a 404, the one Go gives tifa.ErrNotFound.

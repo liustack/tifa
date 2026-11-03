@@ -318,3 +318,5 @@ func TestBuilderLearnsEmbeddedFilesFromTheAnalysis(t *testing.T) {
 		t.Fatal("learned from an analysis that failed")
 	}
 }
+
+func (p *fakePipeline) Public() string { return "public" }

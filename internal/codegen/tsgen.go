@@ -76,6 +76,30 @@ type viteSettings struct {
 	i18nextCache bool
 }
 
+// publicPaths lists the URL paths of the regular files under the public folder of the build,
+// sorted. tifa build copies the folder to dist/public as it is, and the server answers these
+// paths before it routes, so the router must not take them for pages.
+func publicPaths(root, public string) ([]string, error) {
+	dir := filepath.Join(root, public)
+	var paths []string
+	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if errors.Is(err, fs.ErrNotExist) && p == dir {
+			return filepath.SkipAll
+		}
+		if err != nil || !d.Type().IsRegular() {
+			return err
+		}
+		rel, err := filepath.Rel(dir, p)
+		if err != nil {
+			return err
+		}
+		paths = append(paths, "/"+filepath.ToSlash(rel))
+		return nil
+	})
+	slices.Sort(paths)
+	return paths, err
+}
+
 // js returns the settings as the object literal vite.js passes. It names i18nextCache only when
 // it is on, which it is by default. Without it the plugin leaves i18next without the cache.
 func (s viteSettings) js() (string, error) {
@@ -92,7 +116,7 @@ func (s viteSettings) js() (string, error) {
 // generateTS writes the route tree, a route.gen module for every directory with a page, a Layout
 // or a method handler, the two entries, the tsconfig and the runtime.
 // An application without pages has no TypeScript and gets none.
-func generateTS(root string, m *analyze.Manifest, dev bool, exportsOf Exports, vite viteSettings) (map[string][]byte, error) {
+func generateTS(root string, m *analyze.Manifest, dev bool, exportsOf Exports, vite viteSettings, public []string) (map[string][]byte, error) {
 	if !slices.ContainsFunc(m.Routes, func(r analyze.Route) bool { return r.Page }) {
 		return nil, nil
 	}
@@ -100,7 +124,7 @@ func generateTS(root string, m *analyze.Manifest, dev bool, exportsOf Exports, v
 	if err != nil {
 		return nil, err
 	}
-	routes, err := routesModule(nodes)
+	routes, err := routesModule(nodes, public)
 	if err != nil {
 		return nil, err
 	}
@@ -546,7 +570,7 @@ func jsStrings(values []string) string {
 // module itself. The browser build loads these head modules lazily too: lazyRoutes in
 // js/vite/plugin.js hands routes.tsx a stand-in for each, so only the root Layout is in the
 // entry script.
-func routesModule(nodes []*tsNode) ([]byte, error) {
+func routesModule(nodes []*tsNode, public []string) ([]byte, error) {
 	routes, err := tanstackRoutes(nodes)
 	if err != nil {
 		return nil, err
@@ -665,6 +689,12 @@ func routesModule(nodes []*tsNode) ([]byte, error) {
 			n.route.opts = append(n.route.opts,
 				"errorComponent: DefaultError",
 				"notFoundComponent: "+notFoundOf(n))
+			// The public files, which Go answers before it routes. A navigation to one, or to a path
+			// under /assets/ or /__tifa/, loads the document, see leave in router.tsx.
+			runtime["leave"] = true
+			n.route.opts = append(n.route.opts,
+				"beforeLoad: leave(publicPaths)",
+				"staticData: { publicPaths }")
 			// The root Layout's documentHead is the head of every page, a URL no route matches
 			// and a failed root Load included.
 			if app != nil && app.exported("documentHead") {
@@ -695,18 +725,30 @@ func routesModule(nodes []*tsNode) ([]byte, error) {
 		} else {
 			opts = append(opts, errorComponent(errorFrom(n))...)
 		}
+		// The router finds the Loads of a URL from the staticData of the routes it matches, and
+		// whether a URL is a page from the page marker: a route with a page.tsx. A Layout, the
+		// routes tifa adds for a URL below a Layout that nothing matches, and an API route are no page.
+		var static []string
+		if n.file == "route" && n.tsx {
+			static = append(static, "page: true")
+		}
+		if n.load != nil {
+			static = append(static, "load: "+jsString(n.id))
+		}
+		staticData := "staticData: { " + strings.Join(static, ", ") + " }"
 		var query []string
 		if n.load != nil {
 			query = n.load.AllQuery
 			runtime["load"] = true
 			opts = append(opts,
 				fmt.Sprintf("loader: ({ context, location, preload }) => load<D%d>(context, %s, location, preload)", i, jsString(n.id)),
-				// The router finds the Loads of a URL from the staticData of the routes it matches.
-				fmt.Sprintf("staticData: { load: %s }", jsString(n.id)))
+				staticData)
 			if len(query) > 0 {
 				runtime["pick"] = true
 				opts = append(opts, fmt.Sprintf("loaderDeps: ({ search }) => pick(search, %s)", jsStrings(query)))
 			}
+		} else if len(static) > 0 {
+			opts = append(opts, staticData)
 		}
 		var args, deps []string
 		if keys := readParams(n, byID); len(keys) > 0 {
@@ -739,6 +781,7 @@ func routesModule(nodes []*tsNode) ([]byte, error) {
 	}
 
 	var body strings.Builder
+	fmt.Fprintf(&body, "const publicPaths: string[] = %s\n\n", jsStrings(public))
 	if shared.Len() > 0 {
 		body.WriteString(shared.String() + "\n")
 	}
@@ -785,7 +828,7 @@ declare module "@tanstack/react-router" {
 	}
 	fmt.Fprintf(&out, `import { %s } from "@tanstack/react-router"`+"\n", router)
 	var names []string
-	for _, name := range []string{"createAppRouter", "DefaultError", "load", "missing", "outside", "pick", "unmatched"} {
+	for _, name := range []string{"createAppRouter", "DefaultError", "leave", "load", "missing", "outside", "pick", "unmatched"} {
 		if runtime[name] {
 			names = append(names, name)
 		}

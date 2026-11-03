@@ -901,7 +901,7 @@ test('a redirect of the server reaches every route as a redirect', async () => {
     assert(result.status === 302 && result.location === '/login', `result ${JSON.stringify(result)}`)
   assert(requests.options[0]?.redirect === 'manual', `fetch follows redirects: ${JSON.stringify(requests.options[0])}`)
   // The loader turns it into a router redirect to the target.
-  const thrown = await load({ source: async () => results[0], chain: () => [] }, 'app/teams/team+/layout', { pathname: '/teams/x/one', searchStr: '' }, false).then(
+  const thrown = await load({ browser: true, source: async () => results[0], chain: () => [] }, 'app/teams/team+/layout', { pathname: '/teams/x/one', searchStr: '' }, false).then(
     () => undefined,
     (error) => error,
   )
