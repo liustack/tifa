@@ -283,6 +283,33 @@ const radixMergePropsSource = radixMergePropsOldSource.replace(
 const clsxModule = /[/\\]clsx[/\\]dist[/\\]clsx\.mjs$/
 const clsxSource =
   'function r(e){var t,f,n="";if("string"==typeof e||"number"==typeof e)n+=e;else if("object"==typeof e)if(Array.isArray(e)){var o=e.length;for(t=0;t<o;t++)e[t]&&(f=r(e[t]))&&(n&&(n+=" "),n+=f)}else for(f in e)e[f]&&(n&&(n+=" "),n+=f);return n}export function clsx(){for(var e,t,f=0,n="",o=arguments.length;f<o;f++)(e=arguments[f])&&(t=r(e))&&(n&&(n+=" "),n+=t);return n}export default clsx;'
+// memoTheme of @mui/system keeps the styles a function makes from the theme as long as the theme is
+// the same object. On the server ThemeProvider spreads the theme into a new object on every render,
+// so each memoized style is made again on each render. The tifa plugin changes memoTheme.mjs and
+// memoTheme.js (esm/memoTheme.js and modern/memoTheme.js in v6 and v7), see memoThemeByContent.
+// memoThemeSource is unstable_memoTheme of @mui/system 6.1 to 9.5, with the call of
+// preprocessStyles written as the ES module (preprocessStyles) or the CommonJS file
+// ((0, _preprocessStyles.default)) has it.
+export const memoThemeModule = /[/\\]@mui[/\\]system[/\\](?:esm[/\\]|modern[/\\])?memoTheme\.m?js$/
+const memoThemeSource = (preprocess) => `function unstable_memoTheme(styleFn) {
+  let lastValue;
+  let lastTheme;
+  return function styleMemoized(props) {
+    let value = lastValue;
+    if (value === undefined || props.theme !== lastTheme) {
+      arg.theme = props.theme;
+      value = ${preprocess}(styleFn(arg));
+      lastValue = value;
+      lastTheme = props.theme;
+    }
+    return value;
+  };
+}`
+const memoThemeArg = `const arg = {
+  theme: undefined
+};`
+// memoThemeSize is how many themes memoThemeByContent keeps.
+const memoThemeSize = 8
 // react-i18next gives each call of useTranslation a copy of the whole i18n object, which takes about
 // 40 property descriptors a call in QuickJS and runs for every component that translates. The tifa
 // plugin changes dist/es/useTranslation.js and dist/commonjs/useTranslation.js, see
@@ -1248,6 +1275,20 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
           )
         }
         return faster ?? null
+      }
+      if (memoThemeModule.test(id)) {
+        const source = fs.readFileSync(id, 'utf8')
+        const byContent = memoThemeByContent(source)
+        if (!byContent && source.includes('unstable_memoTheme')) {
+          const pkg = path.resolve(id, '..', ...(/[/\\](?:esm|modern)[/\\]memoTheme\.js$/.test(id) ? ['..'] : []))
+          this.warn(
+            notRecognized +
+            `@mui/system ${packageVersion(pkg)}: ${id} has no memoTheme the tifa plugin knows, so memoTheme makes ` +
+              'the styles of MUI again for each new theme object, which ThemeProvider makes on every render. Pages ' +
+              'render the same, but take longer to render',
+          )
+        }
+        return byContent ?? null
       }
       if (reactI18nextModule.test(id)) {
         const source = fs.readFileSync(id, 'utf8')
@@ -2274,6 +2315,86 @@ function clsxFast(source) {
     `${join('a', true)}${join('b')}${join('c')}${join('d')}${join('e')}${join('g')}return s}`
   return source.replace('export function clsx(){for(var ', () => `${fast}function tifaClsx(){for(var `)
 }
+
+// memoThemeByContent returns the source of memoTheme of @mui/system with styleMemoized comparing,
+// in place of the theme, the first theme it saw with the same content, or undefined when the source
+// does not have unstable_memoTheme in a form it knows. Only a plain object, whose prototype is
+// Object.prototype, as every theme of MUI is, is compared by content: a prototype of its own may
+// have getters that read something of each theme, such as a WeakMap keyed by it, so any other
+// theme stands for itself, as before. Two plain themes have the same content when they have the
+// same own keys in the same order, each a data property with the same enumerability and the same
+// value (Object.is). ThemeProvider of MUI makes such a theme on each
+// render on the server, with the same objects in it, so the styles memoTheme made on the first
+// render are taken again. That needs what memoTheme in the browser and MUI already ask: that a theme
+// and the objects in it do not change after a render used them. A theme with an accessor is its own
+// theme, as before. tifaSameTheme keeps the last memoThemeSize themes it saw, the one it saw last at
+// the front, with the theme each stands for and its content when it was first seen. A theme it no
+// longer keeps that comes again stands for the first kept theme of its content, or for itself, so
+// the styles are made again at worst. The rest of memoTheme stays, and each change stays on its line.
+export function memoThemeByContent(source) {
+  if (source.split(memoThemeArg).length !== 2) return undefined
+  const known = ['preprocessStyles', '(0, _preprocessStyles.default)']
+    .map(memoThemeSource)
+    .find((text) => source.split(text).length === 2)
+  if (!known) return undefined
+  const changed = known
+    .replace('    let value = lastValue;\n', () => '    let value = lastValue, tifaTheme = tifaSameTheme(props.theme);\n')
+    .replace('props.theme !== lastTheme', () => 'tifaTheme !== lastTheme')
+    .replace('      lastTheme = props.theme;\n', () => '      lastTheme = tifaTheme;\n')
+  return source.replace(known, () => changed) + memoThemeHelpers
+}
+const memoThemeHelpers = `
+var tifaThemes = [], tifaThemeLast, tifaThemeLastSame;
+var tifaThemeKeys = Reflect.ownKeys, tifaThemeProto = Reflect.getPrototypeOf, tifaThemeOwn = Reflect.getOwnPropertyDescriptor, tifaThemeIs = Object.is, tifaThemeObject = Object.prototype;
+function tifaThemeContent(theme) {
+  if (tifaThemeProto(theme) !== tifaThemeObject) return null;
+  const keys = tifaThemeKeys(theme), values = [], hidden = [];
+  for (let i = 0; i < keys.length; i++) {
+    const d = tifaThemeOwn(theme, keys[i]);
+    if (!('value' in d)) return null;
+    values[i] = d.value;
+    hidden[i] = !d.enumerable;
+  }
+  return { keys, values, hidden };
+}
+function tifaThemeSameContent(a, b) {
+  const n = a.keys.length;
+  if (b.keys.length !== n) return false;
+  for (let i = 0; i < n; i++) if (a.keys[i] !== b.keys[i] || a.hidden[i] !== b.hidden[i] || !tifaThemeIs(a.values[i], b.values[i])) return false;
+  return true;
+}
+function tifaSameTheme(theme) {
+  if (theme === tifaThemeLast) return tifaThemeLastSame;
+  if (typeof theme !== 'object' || theme === null) return theme;
+  const themes = tifaThemes;
+  let entry;
+  for (let i = 0; i < themes.length; i++) {
+    if (themes[i].theme === theme) {
+      entry = themes[i];
+      if (i > 0) { themes.splice(i, 1); themes.unshift(entry); }
+      break;
+    }
+  }
+  if (entry === undefined) {
+    entry = { theme, same: theme, content: tifaThemeContent(theme) };
+    if (entry.content !== null) {
+      for (let i = 0; i < themes.length; i++) {
+        const seen = themes[i];
+        if (seen.content !== null && tifaThemeSameContent(seen.content, entry.content)) {
+          entry.same = seen.same;
+          entry.content = seen.content;
+          break;
+        }
+      }
+    }
+    themes.unshift(entry);
+    if (themes.length > ${memoThemeSize}) themes.pop();
+  }
+  tifaThemeLast = theme;
+  tifaThemeLastSame = entry.same;
+  return entry.same;
+}
+`
 
 // inlineAttributeCalls returns the source of React's string renderer with pushAttribute writing the
 // attributes that go through pushStringAttribute without calling it, and checking the name of an

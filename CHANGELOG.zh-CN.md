@@ -121,6 +121,7 @@
 
 ### 性能
 
+- MUI 页面的服务端渲染更快：`@mui/system` 的 `memoTheme` 按主题生成的样式在多次渲染之间沿用。`ThemeProvider` 每次渲染都把主题展开成一个新对象，`memoTheme` 只对同一个对象沿用样式，所以每次都重新生成。现在插件把自有键和值都与见过的某个主题相同的普通对象主题当作那个主题。MUI 测试应用的 107 份这样的样式每个 VM 只生成一次，页面耗时是原来的 0.917，执行的指令少 9.3%（linux/amd64，16 个代码位置），HTML 不变。应用在渲染之后改了主题里面的某个对象，再传一个装着同一批对象的新主题对象时，会一直用旧样式，所以要换主题就造一个新的。`memoTheme` 的文本不同时，构建打印警告，代码保持原样（[build.zh-CN.md](docs/build.zh-CN.md#前端产物)）。
 - 只有包里有某个模块的代码带 `$$FORM_ACTION` 时，React 才建叫 key path 的数组，原来它渲染的每个元素都要建一个。页面渲染出的 HTML 一样，shop 工作台页面少执行 1.2% 的指令，店面页面和 MUI 测试应用少 0.7%，bench 应用少 1.8%。这项改动只用于插件读过原文的 React DOM 19.3.0 和 19.3.1 的字符串渲染器，换成别的文件，构建会打印警告，key path 照建。包里有模块的文本含 `$$FORM_ACTION` 时（插件就靠这个判断），`useActionState` 写进带 server action 的表单的键和以前一样。运行时才拼出来的属性名认不出来，这样的键按空 key path 算哈希。tifa 自己没有 server action（见[构建](docs/build.zh-CN.md#前端产物)）。
 - 页面渲染略快一点，HTML 不变。React DOM 对几乎每个属性都要问三次值是不是函数、symbol 或布尔值，这三种它都不写。tifa 插件先问值是不是字符串，几乎每次都是，别的类型才接着问。渲染一次，示例 shop 工作台页面少跑 0.30% 的指令，店面页面少 0.24%，bench 应用少 0.19%，MUI 测试应用少 0.07%。React DOM 里的代码和 19.3 不同时，构建打印警告，渲染和以前一样。
 - React 的 `createElement` 和 `cloneElement` 把 config 拷进元素 props 的活改在引擎里跑。slowjs 里有做这件事的循环，是一个 C 函数（`RegisterCopyProps`），池里每个 VM 都以 `__tifa_copy_props` 的名字拥有它，构建让这两个函数先问它，再走自己的循环。它只拷循环不可能做出别的结果的 config，其余的（Proxy、有 getter 的、类的实例、数组、超过 32 个键的）仍走 React 的循环。渲染一次，示例应用 shop 的工作台页面少跑 2.9% 的指令，店面页面少 2.1%，MUI 测试应用少 4.1%，HTML 不变。在 linux/amd64 上按 8 个代码位置计时，页面渲染花原来的 0.988、0.989 和 0.980，在各位置的差距之内，所以结论看指令数。没有这个函数的 VM，以及插件不认识的 React，仍走 React 的循环（[build.zh-CN.md](docs/build.zh-CN.md#前端产物)）。它需要带 `RegisterCopyProps` 的 slowjs 版本。
