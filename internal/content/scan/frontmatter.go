@@ -90,6 +90,7 @@ func parseMatter(src []byte, schema *Node, typeName string) *matter {
 		c.errorAt(top, "the front matter must be keys and values, such as title: Hello")
 		return m
 	}
+	c.open = map[*yaml.Node]bool{top: true}
 	m.data = c.object(top, schema, "", true)
 	return m
 }
@@ -117,6 +118,29 @@ func resolve(n *yaml.Node) *yaml.Node {
 type converter struct {
 	m        *matter
 	typeName string
+	// open holds the maps and lists being converted, which an alias inside them must not name.
+	open map[*yaml.Node]bool
+	// values counts the values converted, and aliased those converted through an alias, to stop
+	// a front matter whose aliases expand into a huge tree. tooMany is set once that is reported.
+	values, aliased, aliasDepth int
+	tooMany, toldTooMany        bool
+}
+
+// tooManyAliases reports whether the aliases have expanded too much, with the ratio go.yaml.in/yaml/v3
+// allows when it decodes into Go values: from 99% of 400,000 values down to 10% of 4,000,000.
+func (c *converter) tooManyAliases() bool {
+	if c.aliased <= 100 || c.values <= 1000 {
+		return false
+	}
+	const lo, hi = 400_000, 4_000_000
+	ratio := 0.99
+	switch {
+	case c.values >= hi:
+		ratio = 0.10
+	case c.values > lo:
+		ratio = 0.99 - 0.89*float64(c.values-lo)/(hi-lo)
+	}
+	return float64(c.aliased)/float64(c.values) > ratio
 }
 
 // at is the position of n in the file: the front matter starts on line 2.
@@ -132,7 +156,10 @@ func (c *converter) object(n *yaml.Node, t *Node, path string, top bool) []byte 
 	values := map[string][]byte{}
 	seen := map[string]int{}
 	for i := 0; i+1 < len(n.Content); i += 2 {
-		k, v := resolve(n.Content[i]), resolve(n.Content[i+1])
+		// raw is converted by value, which follows an alias with its checks. The keys tifa
+		// reads are single values, so v is enough for them.
+		k, raw := resolve(n.Content[i]), n.Content[i+1]
+		v := resolve(raw)
 		if k.Kind != yaml.ScalarNode {
 			c.errorAt(k, "a key of the front matter must be a name, such as title")
 			continue
@@ -192,7 +219,7 @@ func (c *converter) object(n *yaml.Node, t *Node, path string, top bool) []byte 
 		if v.ShortTag() == "!!null" && !f.Required && f.Node.Kind != Pointer && f.Node.Kind != Slice && f.Node.Kind != Map {
 			continue // an optional field with no value keeps its zero value
 		}
-		if out, ok := c.value(v, f.Node, join(path, key)); ok {
+		if out, ok := c.value(raw, f.Node, join(path, key)); ok {
 			values[key] = out
 		}
 	}
@@ -328,8 +355,42 @@ func (c *converter) date(v *yaml.Node, path string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// value converts n into the JSON of t. path names it in messages.
+// value converts n into the JSON of t. path names it in messages. An alias is converted as the
+// value it names, which must not hold the alias.
 func (c *converter) value(n *yaml.Node, t *Node, path string) ([]byte, bool) {
+	if c.tooMany {
+		return nil, false
+	}
+	if n.Kind == yaml.AliasNode && n.Alias != nil {
+		if c.open[n.Alias] {
+			c.errorAt(n, "%s: the alias *%s names a value that holds it", path, n.Value)
+			return nil, false
+		}
+		c.aliasDepth++
+		defer func() { c.aliasDepth-- }()
+		alias := n
+		out, ok := c.value(n.Alias, t, path)
+		if c.tooMany && !c.toldTooMany {
+			c.toldTooMany = true
+			c.errorAt(alias, "the front matter expands its aliases into too many values")
+		}
+		return out, ok
+	}
+	c.values++
+	if c.aliasDepth > 0 {
+		c.aliased++
+	}
+	if c.tooManyAliases() {
+		c.tooMany = true
+		return nil, false
+	}
+	if n.Kind == yaml.MappingNode || n.Kind == yaml.SequenceNode {
+		if c.open == nil {
+			c.open = map[*yaml.Node]bool{}
+		}
+		c.open[n] = true
+		defer delete(c.open, n)
+	}
 	tag := n.ShortTag()
 	if tag == "!!null" {
 		switch t.Kind {
@@ -379,7 +440,7 @@ func (c *converter) value(n *yaml.Node, t *Node, path string) ([]byte, bool) {
 		}
 		out, ok := []byte{'['}, true
 		for i, item := range n.Content {
-			v, good := c.value(resolve(item), t.Elem, fmt.Sprintf("%s[%d]", path, i))
+			v, good := c.value(item, t.Elem, fmt.Sprintf("%s[%d]", path, i))
 			ok = ok && good
 			if i > 0 {
 				out = append(out, ',')
@@ -395,7 +456,7 @@ func (c *converter) value(n *yaml.Node, t *Node, path string) ([]byte, bool) {
 		out, ok := []byte{'{'}, true
 		seen := map[string]bool{}
 		for i := 0; i+1 < len(n.Content); i += 2 {
-			k, v := resolve(n.Content[i]), resolve(n.Content[i+1])
+			k, v := resolve(n.Content[i]), n.Content[i+1]
 			if k.Kind != yaml.ScalarNode {
 				c.errorAt(k, "%s: a key must be a name", path)
 				ok = false
