@@ -78,7 +78,7 @@ func TestPageTextIsLoaderTextWithMarkers(t *testing.T) {
 	if !strings.Contains(want, `"empty":"",`) {
 		t.Fatalf("the full text lacks the empty value: %s", full)
 	}
-	want = strings.Replace(want, `"empty":"",`, `"empty":`+htmlMarker+`,`, 1)
+	// An empty value is the same text in both, as omitempty sees it.
 	if page != want {
 		t.Errorf("page text\n%s\nwant\n%s", page, want)
 	}
@@ -100,6 +100,35 @@ func TestPageTextIsLoaderTextWithMarkers(t *testing.T) {
 	}
 	if page, differs, err := pageText(plain{Title: "x"}, full); err != nil || differs || page != full {
 		t.Errorf("pageText of %s = %s, differs %v, %v", full, page, differs, err)
+	}
+}
+
+// An empty tifa.HTML value is "" in the page text too, so that omitempty, which looks at the JSON
+// written, leaves out the same fields of both texts. A value that is not empty is a marker.
+func TestPageTextWritesAnEmptyValueAsItIs(t *testing.T) {
+	type fields struct {
+		Plain     tifa.HTML `json:"plain"`
+		OmitEmpty tifa.HTML `json:"omitEmpty,omitempty"`
+		OmitZero  tifa.HTML `json:"omitZero,omitzero"`
+	}
+	empty := fields{}
+	full, err := loaderText(empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if full != `{"plain":""}` {
+		t.Fatalf("the full text of empty values: %s", full)
+	}
+	if page, differs, err := pageText(empty, full); err != nil || differs || page != full {
+		t.Errorf("pageText of %s = %s, differs %v, %v", full, page, differs, err)
+	}
+	set := fields{Plain: "<p>a</p>", OmitEmpty: "<p>b</p>", OmitZero: "<p>c</p>"}
+	if full, err = loaderText(set); err != nil {
+		t.Fatal(err)
+	}
+	want := `{"plain":` + htmlMarker + `,"omitEmpty":` + htmlMarker + `,"omitZero":` + htmlMarker + `}`
+	if page, differs, err := pageText(set, full); err != nil || !differs || page != want {
+		t.Errorf("pageText of %s = %s, differs %v, %v, want %s", full, page, differs, err, want)
 	}
 }
 
