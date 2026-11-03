@@ -82,16 +82,17 @@ type Data struct {
 	Num     json.Number      `json:"num,string"`
 	ByPtr   map[*PtrText]int `json:"byPtr"`
 	secret
-	Dur    time.Duration `json:"dur"`
-	Flag   bool          `json:"flag,string"`
-	Text   string        `json:"text,string"`
-	Dup1   int           `json:"dup"`
-	Dup2   int           `json:"dup"`
-	tagged int           `json:"tagged"`
-	Locked Opaque        `json:"locked"`
-	Wrap   Wrapper       `json:"wrap"`
-	Reads  Reader        `json:"reads"`
-	Opts   WithOpts      `json:"opts"`
+	Dur    time.Duration            `json:"dur"`
+	Flag   bool                     `json:"flag,string"`
+	Text   string                   `json:"text,string"`
+	Dup1   int                      `json:"dup"`
+	Dup2   int                      `json:"dup"`
+	tagged int                      `json:"tagged"`
+	Locked Opaque                   `json:"locked"`
+	Wrap   Wrapper                  `json:"wrap"`
+	Reads  Reader                   `json:"reads"`
+	Opts   WithOpts                 `json:"opts"`
+	ByDur  map[time.Duration]string `json:"byDur"`
 }
 
 // Opaque has fields but none json v2 can write.

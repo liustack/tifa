@@ -22,7 +22,7 @@ What changed in tifa that apps and their users can see. tifa has no releases yet
   - A type whose `MarshalText` has a pointer receiver is written as a string wherever it sits, also as a value in a field or slice, where only pointers to it were. Such types may be map keys.
   - `omitempty` leaves out only `null`, `""`, `[]` and `{}`, so it no longer drops `false` and `0`. Use `omitzero` to leave out zero values.
   - The `string` option is accepted only on number fields.
-  - The build rejects `time.Duration`, which json v2 cannot write. Return a number in the unit you want, or a string.
+  - The build rejects `time.Duration`, also as a map key, which json v2 cannot write. Return a number in the unit you want, or a string.
   - The build rejects structs json v2 would fail on: two fields with the same JSON name in one struct, an unexported field with a json tag, a struct with fields but no exported field and no tag, an embedded field of a non-struct type without a JSON name, and an embedded struct with tag options or with JSON or text methods.
   - `<`, `>` and `&` are written as they are in JSON answers and page data, where they were `<`, `>` and `&`. Where tifa puts JSON into the page HTML it still escapes them.
   - Bytes in a string that are not UTF-8 are written as U+FFFD, as before.

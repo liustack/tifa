@@ -258,6 +258,11 @@ func mapKeyProblem(key types.Type) string {
 	if _, ok := key.Underlying().(*types.Pointer); ok {
 		return "the key " + name + " is a pointer"
 	}
+	if isNamed(key, "time", "Duration") {
+		// Its underlying int64 would pass below, but json v2 fails on it as a key as well, once
+		// the map holds one.
+		return "the key time.Duration has no JSON form in json v2: use an integer of the unit you mean, such as milliseconds, or a string"
+	}
 	for _, m := range encoderMethods {
 		if _, _, found := lookupName(key, m); found {
 			return "the key " + name + " has a method or field named " + m

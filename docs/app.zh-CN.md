@@ -1062,7 +1062,7 @@ tifa 只检查 `Load` 和 `Layout` 能到达的代码。在 `OnRequest`、方法
 - 导出的嵌入结构体（也可以是指针）没写 json 名字时，字段提升到外层，经由嵌入指针到达的字段是可选的。不同结构体里的字段同名时，层级最浅的胜出，其次是带 json tag 的，还分不出来就全部丢掉。嵌入字段的类型不是结构体时要写 json 名字，嵌入的结构体不能带 json tag 选项，也不能有名为 `MarshalJSON`、`MarshalJSONTo`、`MarshalText`、`AppendText`、`UnmarshalJSON`、`UnmarshalJSONFrom` 或 `UnmarshalText` 的方法。未导出的嵌入字段不接受，除非标了 `json:"-"`。
 - 同一个结构体里的两个字段不能有相同的 JSON 名字。未导出字段不能带 `json:"-"` 以外的 json tag，有字段的结构体至少要有一个导出字段或一个 json tag。
 - json tag 的名字只能用字母、数字、空格和 `` !#$%&()*+-./:;<=>?@[]^_{|}~ ``。选项只能用 `omitempty`、`omitzero` 和 `string`，用了 `omitempty` 或 `omitzero` 的字段是可选的。`omitzero` 省掉 Go 类型的零值。`omitempty` 省掉 JSON 为空的值：`null`、`""`、`[]` 或 `{}`，所以不会省掉 `false` 和 `0`。`string` 选项只能用在预声明的数字类型字段上，或者指向它们的非具名指针上，把数字写成字符串。
-- 不接受 `time.Duration`，json v2 没有它的写法。请返回你要的单位的整数（比如毫秒），或者字符串。
+- 不接受 `time.Duration`，做 map 的键也不行，json v2 没有它的写法。请返回你要的单位的整数（比如毫秒），或者字符串。
 - 类型的值或指针上有名为 `MarshalJSON`、`MarshalJSONTo`、`AppendText` 或 `AppendJSON` 的方法或字段时，不论签名一律拒绝（`time.Time` 和 `json.Number` 除外）。请改名，或换一个不带这些方法的类型返回。
 - 类型自己声明了签名正好是 `MarshalText() ([]byte, error)` 的方法时，不论在值接收者还是指针接收者上，都输出 string。签名不对、从嵌入字段提升而来、或被同名字段遮住时，一律拒绝。
 - 接口出现在任何位置都不接受，包括字段、元素和 map 键。chan、func、复数、`unsafe.Pointer` 和类型参数也不接受。

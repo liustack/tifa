@@ -44,14 +44,15 @@ func (p *Pair) UnmarshalText(b []byte) error { return nil }
 func (n *Name) UnmarshalText(b []byte) error { return nil }
 
 type Input struct {
-	ID    ID               `json:"id"`
-	Codes []Code           `json:"codes"`
-	Raw   *Raw             `json:"raw"`
-	ByID  map[Point]string `json:"byId"`
-	Slug  Slug             `json:"slug"`
-	Name  Name             `json:"name"`
-	At    time.Time        `json:"at"`
-	Keys  map[Pair]string  `json:"keys"`
+	ID    ID                       `json:"id"`
+	Codes []Code                   `json:"codes"`
+	Raw   *Raw                     `json:"raw"`
+	ByID  map[Point]string         `json:"byId"`
+	Slug  Slug                     `json:"slug"`
+	Name  Name                     `json:"name"`
+	At    time.Time                `json:"at"`
+	Keys  map[Pair]string          `json:"keys"`
+	ByDur map[time.Duration]string `json:"byDur"`
 }
 
 func POST(c *tifa.Ctx, in Input) error { return nil }

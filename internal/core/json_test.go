@@ -9,6 +9,22 @@ import (
 	"time"
 )
 
+// json v2 has no form for time.Duration, also as a map key, which the build rejects for that
+// reason. An empty map hides it: only a map with a key fails, on the way out and on the way in.
+// Should a later Go give Duration a form, this fails and the build may accept it again.
+func TestDurationMapKeysFailOnlyWhenTheMapHoldsAKey(t *testing.T) {
+	if _, err := MarshalJSON(map[time.Duration]string{}); err != nil {
+		t.Errorf("an empty map failed: %v", err)
+	}
+	if _, err := MarshalJSON(map[time.Duration]string{time.Second: "x"}); err == nil {
+		t.Error("a map with a time.Duration key was written")
+	}
+	var in map[time.Duration]string
+	if err := UnmarshalJSON([]byte(`{"1s":"x"}`), &in); err == nil {
+		t.Errorf("a map with a time.Duration key was read: %v", in)
+	}
+}
+
 // c.JSON, and with it the result of a method handler, writes json v2: a nil slice is [], a nil map
 // is {}, <, > and & stay as they are, map keys are sorted, and a byte that is no UTF-8 becomes
 // U+FFFD instead of failing.
