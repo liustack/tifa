@@ -1,7 +1,10 @@
 package e2e
 
 import (
+	"encoding/json"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -77,6 +80,7 @@ func TestHTMLPages(t *testing.T) {
 		}
 	}
 	htmlInBrowser(t, "tifa-e2e-html", base, true)
+	htmlLinksInBrowser(t, "tifa-links", base)
 }
 
 // In tifa dev React checks the markup it hydrates against __html, and warns when they differ.
@@ -87,6 +91,7 @@ func TestHTMLPagesInDev(t *testing.T) {
 	}
 	d := startDev(t, devApp(t))
 	htmlInBrowser(t, "tifa-e2e-html-dev", d.base, false)
+	htmlLinksInBrowser(t, "tifa-links-dev", d.base)
 }
 
 // htmlInBrowser opens the article pages of base in Chromium and checks that each shows its markup
@@ -190,5 +195,62 @@ func htmlInBrowser(t *testing.T, name, base string, withBroken bool) {
 			t.Error("/article/shaky after going back: not the page the router rendered")
 		}
 		quiet("going back to /article/shaky")
+	}
+}
+
+// linkChecks is the number of checks in testdata/htmllinks.js.
+const linkChecks = 31
+
+// htmlLinksInBrowser runs the checks of testdata/htmllinks.js on /article/links of base in
+// Chromium: which links inside <HTML> the router follows in the same document, which the browser
+// follows itself, and that a hover, a touch or a focus preloads the page of a link once.
+func htmlLinksInBrowser(t *testing.T, name, base string) {
+	t.Helper()
+	if _, err := exec.LookPath("playwright-cli"); err != nil {
+		t.Log("playwright-cli is not installed: the links of the article pages are not checked in a browser")
+		return
+	}
+	code, err := os.ReadFile(filepath.Join("testdata", "htmllinks.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "htmllinks.js"),[]byte(strings.ReplaceAll(string(code), "__BASE__", base)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pw := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("playwright-cli", append([]string{"-s=" + name}, args...)...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("playwright-cli %v: %v\n%s", args, err, out)
+		}
+		return string(out)
+	}
+	pw("open", "about:blank")
+	defer exec.Command("playwright-cli", "-s="+name, "close").Run()
+	// A path relative to the folder: playwright-cli reads files only below it, as it spells it.
+	out := pw("run-code", "--filename=htmllinks.js")
+	// The result is the string the script returns, written as JSON.
+	_, result, _ := strings.Cut(out, "### Result\n")
+	result, _, _ = strings.Cut(result, "\n")
+	var lines string
+	if err := json.Unmarshal([]byte(strings.TrimSpace(result)), &lines); err != nil {
+		t.Fatalf("playwright-cli run-code: %v\n%s", err, out)
+	}
+	passed := 0
+	for _, line := range strings.Split(lines, "\n") {
+		switch {
+		case strings.HasPrefix(line, "PASS "):
+			passed++
+		case strings.HasPrefix(line, "FAIL "):
+			t.Error(line)
+		default:
+			t.Errorf("not a check: %q", line)
+		}
+	}
+	if !t.Failed() && passed != linkChecks {
+		t.Errorf("%d checks passed, want %d:\n%s", passed, linkChecks, lines)
 	}
 }

@@ -9,7 +9,12 @@
 // (diffHydratedGenericElement of react-dom-bindings), and sets innerHTML on an update only when
 // __html changes (setProp), so reading the markup back keeps both quiet and leaves the DOM as the
 // server wrote it. Navigation data and a page that skips SSR carry the value as a string.
-import { createElement, useId, type HTMLAttributes } from 'react'
+//
+// Links in the markup go through the router: a click on a link to a page of the app navigates, and
+// a hover or a focus preloads it, as a Link does. HTML handles the events on its own element only.
+import { createElement, useId, useRef, type FocusEvent, type HTMLAttributes, type MouseEvent, type SyntheticEvent, type TouchEvent } from 'react'
+import { useRouter, type AnyRouter } from '@tanstack/react-router'
+import { isPage } from './router'
 
 declare const htmlBrand: unique symbol
 
@@ -61,11 +66,92 @@ const holders = ['div', 'article', 'section', 'main', 'aside', 'header', 'footer
 
 export type HTMLHolder = (typeof holders)[number]
 
-export function HTML({ value, as = 'div', ...rest }: HTMLProps) {
+export function HTML({ value, as = 'div', onClick, onMouseOver, onMouseOut, onFocus, onBlur, onTouchStart, ...rest }: HTMLProps) {
   if (!(holders as readonly string[]).includes(as)) throw new Error(`tifa: <HTML as="${as}"> cannot hold markup: as takes one of ${holders.join(', ')}`)
   const id = useId()
+  const router = useRouter()
+  // The preload a hover or a focus waits to start.
+  const waiting = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const preload = (event: SyntheticEvent<HTMLElement>, delay: number) => {
+    clearTimeout(waiting.current)
+    const href = routerHref(router, event.currentTarget, event.target)
+    if (href === null) return
+    // As a Link of TanStack does, a preload that fails only warns: the click loads again. The type
+    // of preloadRoute wants a to, which href takes the place of at run time as in navigate.
+    const start = () => void router.preloadRoute({ href } as Parameters<typeof router.preloadRoute>[0]).catch((error: unknown) => console.warn(error))
+    if (delay === 0) start()
+    else waiting.current = setTimeout(start, delay)
+  }
+  const cancel = () => clearTimeout(waiting.current)
   // The type keeps both out, but a spread of an object brings them in, and React throws for children
   // next to dangerouslySetInnerHTML.
   const { children: _children, dangerouslySetInnerHTML: _inner, ...props } = rest as typeof rest & { children?: unknown; dangerouslySetInnerHTML?: unknown }
-  return createElement(as, { ...props, 'data-tifa-html': id, dangerouslySetInnerHTML: { __html: markup(value, id) } })
+  // The handlers of the app run first. One that calls preventDefault keeps the router out.
+  return createElement(as, {
+    ...props,
+    'data-tifa-html': id,
+    dangerouslySetInnerHTML: { __html: markup(value, id) },
+    onClick: (event: MouseEvent<HTMLElement>) => {
+      onClick?.(event)
+      const href = routerHref(router, event.currentTarget, event.target, event.nativeEvent)
+      if (href === null) return
+      event.preventDefault()
+      cancel()
+      void router.navigate({ href })
+    },
+    onMouseOver: (event: MouseEvent<HTMLElement>) => {
+      onMouseOver?.(event)
+      preload(event, intentDelay)
+    },
+    onMouseOut: (event: MouseEvent<HTMLElement>) => {
+      onMouseOut?.(event)
+      cancel()
+    },
+    onFocus: (event: FocusEvent<HTMLElement>) => {
+      onFocus?.(event)
+      preload(event, intentDelay)
+    },
+    onBlur: (event: FocusEvent<HTMLElement>) => {
+      onBlur?.(event)
+      cancel()
+    },
+    onTouchStart: (event: TouchEvent<HTMLElement>) => {
+      onTouchStart?.(event)
+      preload(event, 0)
+    },
+  })
+}
+
+// intentDelay is how long a hover or a focus stays on a link before its page preloads, the
+// defaultPreloadDelay of TanStack Router.
+const intentDelay = 50
+
+// Click is what routerHref reads of a click.
+export type Click = Pick<globalThis.MouseEvent, 'button' | 'defaultPrevented' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey'>
+
+// routerHref returns the URL the router goes to for an event on target inside container, an
+// element of <HTML>, or null when the browser follows the link itself: a click that the app took
+// or that is not a plain left click, no link with an href inside container, a link with a target
+// other than _self, download or rel="external", another origin or scheme, a hash on the page that
+// shows, a file Go serves and a path without a page, such as an API route. A hover or a focus
+// passes no click.
+export function routerHref(router: AnyRouter, container: Element, target: EventTarget | null, click?: Click): string | null {
+  if (click && (click.defaultPrevented || click.button !== 0 || click.ctrlKey || click.metaKey || click.shiftKey || click.altKey)) return null
+  if (!(target instanceof Element)) return null
+  const link = target.closest('a[href], area[href]')
+  if (link === null || !container.contains(link)) return null
+  const linkTarget = link.getAttribute('target')
+  if ((linkTarget && linkTarget !== '_self') || link.hasAttribute('download')) return null
+  if ((link.getAttribute('rel') ?? '').split(/\s+/).includes('external')) return null
+  // The markup is the app's, and an href that is no URL is the browser's to handle.
+  let url: URL
+  try {
+    url = new URL(link.getAttribute('href')!, document.baseURI)
+  } catch {
+    return null
+  }
+  if (url.origin !== location.origin) return null
+  if (url.hash !== '' && url.pathname === location.pathname && url.search === location.search) return null
+  if (!isPage(router, url.pathname)) return null
+  return url.pathname + url.search + url.hash
 }

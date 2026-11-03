@@ -30,3 +30,17 @@ func Read() Post {
 	b.WriteString(`<hr/><p>BODY_END</p>`)
 	return Post{Title: "Article", Body: tifa.HTML(b.String()), Notes: []tifa.HTML{`<b>NOTE_ONE</b>`, `<i>NOTE_TWO</i>`}}
 }
+
+// Links returns an article of links of every kind, each with its own text: to pages of the app,
+// to an anchor of itself, to other sites and schemes, and to what Go answers without a page. The
+// public file /guide/notes.txt also matches the page /guide/{lang}.
+func Links() Post {
+	return Post{Title: "Links", Body:`<p>LINKS_START <a href="/article/read">next <em>article</em></a>, ` +
+		`<a href="/article/cached#intro">cached intro</a>, <a href="/">home page</a>, <a href="#end">to the end</a>.</p>` +
+		`<p><a href="https://tanstack.com/router">TanStack</a>, <a href="//example.com/x">example</a>, <a href="mailto:a@example.com">write</a>, ` +
+		`<a href="/article/plain" target="_blank">new tab</a>, <a href="/guide/notes.txt" download>download notes</a>, ` +
+		`<a href="/article/read" rel="external">reload read</a>, <a href="/article/read" data-own>own handler</a>.</p>` +
+		`<p><a href="/guide/notes.txt">notes file</a>, <a href="/assets/missing.js">missing asset</a>, <a href="/api/ping">ping</a>, ` +
+		`<a href="/nowhere/at/all">nowhere</a>, <a href="/__tifa/nothing">tifa path</a>.</p>` +
+		`<p style="height:1500px">Spacer.</p><h2 id="end">End</h2><p>LINKS_END</p>`}
+}

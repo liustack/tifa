@@ -103,15 +103,17 @@ func TestGeneratedRouterBehaves(t *testing.T) {
 	}
 }
 
-// publicBuild is routerBuild for the one test of testdata/routerpublic.
-var publicBuild = strings.Replace(routerBuild, "const entries = [['router.test.tsx', 'node', false], ['head.test.tsx', 'browser', false], ['call.test.ts', 'node', false],\n  ['session.test.tsx', 'node', false], ['router.test.tsx', 'node', true], ['head.test.tsx', 'browser', true]]", "const entries = [['public.test.tsx', 'node', false]]", 1)
+// publicBuild is routerBuild for the tests of testdata/routerpublic.
+var publicBuild = strings.Replace(routerBuild, "const entries = [['router.test.tsx', 'node', false], ['head.test.tsx', 'browser', false], ['call.test.ts', 'node', false],\n  ['session.test.tsx', 'node', false], ['router.test.tsx', 'node', true], ['head.test.tsx', 'browser', true]]", "const entries = [['public.test.tsx', 'node', false], ['links.test.tsx', 'node', false]]", 1)
 
-// TestGeneratedRouterLeavesPublicFiles runs testdata/routerpublic/public.test.tsx against an app
-// with a parameter folder at the root of app/, where /favicon.svg also matches the route /{lang}.
+// TestGeneratedRouterLeavesPublicFiles runs testdata/routerpublic/public.test.tsx and
+// links.test.tsx against an app with a parameter folder at the root of app/, where /favicon.svg
+// also matches the route /{lang}.
 func TestGeneratedRouterLeavesPublicFiles(t *testing.T) {
 	node, root, modules, run := routerApp(t, filepath.Join("testdata", "routerpublic"), publicBuild, map[string]string{"public/a?b.txt": "x"})
 	run("build.mjs")
 	run(filepath.Join("out", "public.test.mjs"))
+	run(filepath.Join("out", "links.test.mjs"))
 	tsc := exec.Command(node, filepath.Join(modules, "typescript", "bin", "tsc"), "--noEmit", "-p", ".")
 	tsc.Dir = root
 	if output, err := tsc.CombinedOutput(); err != nil {
