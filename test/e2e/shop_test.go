@@ -715,15 +715,9 @@ func TestBuildReportsViolations(t *testing.T) {
 		if err == nil || !strings.HasPrefix(string(out), tc.want) && !strings.Contains(string(out), "\n"+tc.want) {
 			t.Errorf("%s: %v, want a failure naming %s\n%s", tc.fixture, err, tc.want, out)
 		}
-		// The lock file is the only thing a failed build may leave in .tifa.
-		entries, err := os.ReadDir(filepath.Join(dir, ".tifa"))
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			t.Fatal(err)
-		}
-		for _, e := range entries {
-			if e.Name() != "dev.lock" {
-				t.Errorf("%s: a failed analysis generated .tifa/%s", tc.fixture, e.Name())
-			}
+		// A failed analysis takes no lock and generates nothing, so the fixture stays clean.
+		if _, err := os.Stat(filepath.Join(dir, ".tifa")); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("%s: a failed analysis generated .tifa: %v", tc.fixture, err)
 		}
 	}
 }
