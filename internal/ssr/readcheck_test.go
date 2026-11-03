@@ -74,3 +74,28 @@ func TestBuiltRendersNameNoReads(t *testing.T) {
 		t.Errorf("places %q", got)
 	}
 }
+
+// A subclass of Date keeps its prototype under the check of tifa dev, also when a page puts it in
+// place of Date.
+func TestDevKeepsSubclassesOfDate(t *testing.T) {
+	const bundle = `globalThis.startRender = () => {
+  class CustomDate extends Date { hi() { return 'hi' } }
+  const saved = globalThis.Date
+  globalThis.Date = CustomDate
+  const d = new Date(0)
+  globalThis.Date = saved
+  const e = new CustomDate(0)
+  globalThis.renderResult = '<p>' + (d instanceof CustomDate) + ' ' + (d instanceof Date) + ' ' + d.hi() + ' ' + (e instanceof CustomDate) + ' ' + e.getTime() + '</p>'
+}`
+	for _, dev := range []bool{false, true} {
+		p, err := NewPool(bundle, nil, testConfig(1), dev)
+		if err != nil {
+			t.Fatal(err)
+		}
+		html, err := p.Render(context.Background(), Input{URL: "/"})
+		p.Close()
+		if err != nil || html != "<p>true true hi true 0</p>" {
+			t.Errorf("dev %t: %q %v", dev, html, err)
+		}
+	}
+}

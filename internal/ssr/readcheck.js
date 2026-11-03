@@ -34,19 +34,21 @@
     writable: true,
     configurable: true,
   })
-  g.Date = new Proxy(RealDate, {
+  const WrappedDate = new Proxy(RealDate, {
     construct: function __tifaReadConstruct(target, args, newTarget) {
       if (args.length === 0) __tifaReadRecord('new Date()')
-      return Reflect.construct(target, args, newTarget === g.Date ? target : newTarget)
+      // new Date() gives the wrapper as newTarget, a subclass gives itself and keeps its prototype.
+      return Reflect.construct(target, args, newTarget === WrappedDate ? target : newTarget)
     },
     apply: function __tifaReadApply(target, self, args) {
       __tifaReadRecord('Date()')
       return Reflect.apply(target, self, args)
     },
   })
+  g.Date = WrappedDate
   // A date names the wrapped Date as its constructor, so that code comparing the constructor of a
   // value with Date, as seroval does, sees a date as before.
-  Object.defineProperty(RealDate.prototype, 'constructor', { value: g.Date, writable: true, configurable: true })
+  Object.defineProperty(RealDate.prototype, 'constructor', { value: WrappedDate, writable: true, configurable: true })
 
   const random = Math.random
   Object.defineProperty(Math, 'random', {
