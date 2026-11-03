@@ -101,6 +101,9 @@ func TestErrorsTakesReportsOnlyFromItsPages(t *testing.T) {
 		{"too large", d.url, "", `{"kind":"uncaught","text":"` + strings.Repeat("x", maxBrowserReport) + `"}`, http.StatusRequestEntityTooLarge},
 		{"not JSON", d.url, "", "boom", http.StatusBadRequest},
 		{"no kind", d.url, "", `{"text":"x"}`, http.StatusBadRequest},
+		// The whole body counts: a second value or a long tail after the report is refused too.
+		{"a second value", d.url, "", `{"kind":"uncaught","text":"x"} {"kind":"uncaught"}`, http.StatusBadRequest},
+		{"a long tail", d.url, "", `{"kind":"uncaught","text":"x"}` + strings.Repeat(" ", maxBrowserReport), http.StatusRequestEntityTooLarge},
 		{"localhost", "http://localhost" + port, "localhost" + port, hydration, http.StatusNoContent},
 	} {
 		if got := sendBrowserError(t, d.url, tc.origin, tc.host, tc.body); got != tc.want {

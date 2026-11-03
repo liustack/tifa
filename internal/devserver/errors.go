@@ -69,15 +69,21 @@ func (d *dev) takeBrowserError(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "tifa dev takes errors only from its own pages", http.StatusForbidden)
 		return
 	}
-	var e deverrors.BrowserReport
-	err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBrowserReport)).Decode(&e)
+	// The whole body is read, so that the limit and the check of the JSON cover all of it.
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBrowserReport))
 	var tooLarge *http.MaxBytesError
 	switch {
 	case errors.As(err, &tooLarge):
 		http.Error(w, fmt.Sprintf("an error report takes at most %d bytes", maxBrowserReport), http.StatusRequestEntityTooLarge)
 		return
 	case err != nil:
-		http.Error(w, "the error report is not JSON: "+err.Error(), http.StatusBadRequest)
+		http.Error(w, "reading the error report: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	var e deverrors.BrowserReport
+	// Unmarshal takes one value and white space around it, nothing after it.
+	if err := json.Unmarshal(body, &e); err != nil {
+		http.Error(w, "the error report is not one JSON object: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	switch e.Kind {
