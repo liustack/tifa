@@ -2,7 +2,8 @@ package devserver
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -64,7 +65,8 @@ func (d *dev) serveErrors(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
-		_ = json.NewEncoder(w).Encode(report.Normal())
+		data, _ := json.Marshal(report.Normal())
+		_, _ = w.Write(append(data, '\n'))
 		return
 	}
 }
@@ -108,8 +110,9 @@ func (d *dev) takeBrowserError(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var e deverrors.BrowserReport
-	// Unmarshal takes one value and white space around it, nothing after it.
-	if err := json.Unmarshal(body, &e); err != nil {
+	// Unmarshal takes one value and white space around it, nothing after it. The text of the browser
+	// may hold a lone surrogate, which becomes U+FFFD.
+	if err := json.Unmarshal(body, &e, jsontext.AllowInvalidUTF8(true)); err != nil {
 		http.Error(w, "the error report is not one JSON object: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -167,7 +170,7 @@ func (d *dev) askApp(ctx context.Context) (deverrors.App, error) {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 		return app, fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(string(body)))
 	}
-	err = json.NewDecoder(resp.Body).Decode(&app)
+	err = json.UnmarshalRead(resp.Body, &app)
 	return app, err
 }
 

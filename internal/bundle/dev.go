@@ -78,7 +78,9 @@ func (d *Dev) PollFiles() (polling bool, err error) {
 	if !running {
 		return false, nil
 	}
-	var result struct{ Polling bool }
+	var result struct {
+		Polling bool `json:"polling"`
+	}
 	err = d.node.call("pollFiles", nil, &result)
 	return result.Polling, err
 }
@@ -111,7 +113,9 @@ func (d *Dev) Build(ctx context.Context, public string, pages bool) (string, err
 	if pages {
 		d.mu.Lock()
 		if d.head == "" {
-			var result struct{ Head string }
+			var result struct {
+				Head string `json:"head"`
+			}
 			if err := d.node.call("serve", map[string]any{"port": d.port, "pollFiles": d.poll}, &result); err != nil {
 				d.mu.Unlock()
 				return "", fmt.Errorf("starting Vite's dev server: %w", err)
@@ -121,7 +125,9 @@ func (d *Dev) Build(ctx context.Context, public string, pages bool) (string, err
 		}
 		d.mu.Unlock()
 		for {
-			var result struct{ Styles string }
+			var result struct {
+				Styles string `json:"styles"`
+			}
 			// Unminified, so that errors in the server render point at readable code.
 			if err := d.node.call("ssr", map[string]any{"assets": d.styles + d.head, "minify": false}, &result); err != nil {
 				return "", err

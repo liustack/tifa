@@ -2,7 +2,8 @@ package analyze
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"go/ast"
 	"go/constant"
@@ -90,9 +91,9 @@ func modulePath(root string) (string, error) {
 		return "", err
 	}
 	// In a workspace the go command lists every module of go.work.
-	for dec := json.NewDecoder(bytes.NewReader(out)); ; {
+	for dec := jsontext.NewDecoder(bytes.NewReader(out)); ; {
 		var m struct{ Path, Dir string }
-		if err := dec.Decode(&m); err == io.EOF {
+		if err := json.UnmarshalDecode(dec, &m); err == io.EOF {
 			break
 		} else if err != nil {
 			return "", fmt.Errorf("go list -m in %s: %w", root, err)

@@ -1,7 +1,8 @@
 package main
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"strconv"
 	"strings"
@@ -25,9 +26,12 @@ func newRoutesCmd() *cobra.Command {
 				return err
 			}
 			if asJSON {
-				enc := json.NewEncoder(cmd.OutOrStdout())
-				enc.SetIndent("", "  ")
-				return enc.Encode(m)
+				data, err := json.Marshal(m, nanoseconds, jsontext.WithIndent("  "))
+				if err != nil {
+					return err
+				}
+				_, err = cmd.OutOrStdout().Write(append(data, '\n'))
+				return err
 			}
 			return printTable(cmd, m)
 		},
@@ -36,6 +40,12 @@ func newRoutesCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print the route manifest as JSON")
 	return cmd
 }
+
+// nanoseconds writes a time.Duration, the Cache of a route, as a number of nanoseconds, which json
+// v2 has no default form for.
+var nanoseconds = json.WithMarshalers(json.MarshalToFunc(func(enc *jsontext.Encoder, d time.Duration) error {
+	return enc.WriteToken(jsontext.Int(int64(d)))
+}))
 
 // printTable names routes and Layouts by their directories, which is where people look for them.
 func printTable(cmd *cobra.Command, m *analyze.Manifest) error {

@@ -2,7 +2,7 @@ package codegen
 
 import (
 	"cmp"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"go/types"
