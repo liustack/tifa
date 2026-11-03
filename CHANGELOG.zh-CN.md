@@ -6,6 +6,7 @@
 
 ### 新增
 
+- 新命令 `go tool tifa errors` 打印应用里正在运行的 `tifa dev` 上次构建以来的错误，看不到浏览器也看不到终端的编程 agent 可以用它检查改动：构建失败，或应用没起来、停了、没能加载 SSR 包，请求的意外错误（带状态、用户看到的消息和映射回源码的堆栈），打开着的页面在浏览器里的错误（水合不一致、未捕获的错误、未处理的 rejection，带页面地址），以及两次渲染不一致的页面。每类保留最近 20 条，重复的计次数，构建一开始就清掉之前的错误，构建进行中运行它会等构建结束。没有错误时退出码 0，有错误时 1，没有 `tifa dev` 在运行时 2，`--json` 输出全部字段。开发客户端现在也把面板里的错误报给 `tifa dev`。构建出的应用没有这些。`tifa new` 写的 `AGENTS.md` 会让 agent 运行它（见 [tifa errors](docs/dev.zh-CN.md#tifa-errors)）。
 - 应用在根目录的 `config.go` 里定义自己的配置：`var DBURL = tifa.String("db.url", "app.db", "Database file")`，另有 `tifa.Strings`（逗号分隔的一行）、`tifa.Int`、`tifa.Bool`、`tifa.Duration` 和 `tifa.Size`。每个都返回普通值，和 tifa 的配置一样从参数 `--db-url`、环境变量 `DB_URL`、`.env` 和 `-c` 的文件读取，`go test` 里是默认值。值不合法时程序在 `OnStart` 之前退出，并一次列出全部不合法的值。`./bin/app config` 列出 tifa 的和应用的配置、最终值和来源。在别处调用、键不是字符串字面量或不合规、两项配置的参数或环境变量相同，`tifa build` 都会报错（见[应用的配置](docs/config.zh-CN.md#应用的配置)）。
 - 程序读运行目录下的 `.env` 文件，排在真实环境变量后面。每台机器一份，没有变体，不打包进程序。`tifa dev` 下应用读应用根目录的 `.env`，改了它应用会重启，不重新构建（见 [.env](docs/config.zh-CN.md#env)）。
 - 程序为 `server.addr` 读托管平台的 `PORT` 和 `HOST`，排在 `SERVER_ADDR` 后面。只有 `PORT` 时监听所有网卡，Cloud Run 这类平台要求这样（见 [PORT 和 HOST](docs/config.zh-CN.md#port-和-host)）。

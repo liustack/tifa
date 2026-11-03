@@ -15,6 +15,7 @@ Run `go tool tifa docs`. It prints the folder with the docs of the tifa version 
 | --- | --- |
 | `{{.Install}}` | Install the npm packages (React, TanStack Router, TypeScript, Vite). Keep `@tanstack/react-router` at the version in `package.json`: `tifa build` refuses another one, since tifa is tested with that version only |
 | `go tool tifa dev` | Run at http://127.0.0.1:9527. A TSX or CSS edit updates the open page in place through Vite, a Go or `tifa.yaml` edit rebuilds and reloads it |
+| `go tool tifa errors` | While `tifa dev` runs, print the errors since the last build: a failed build, unexpected request errors, errors of the browser (hydration mismatches, uncaught errors, unhandled rejections) and pages that render differently each time. Run it after you change code and after you open or reload the pages you changed. It exits with 1 when there are errors, 2 when no `tifa dev` runs. `--json` prints JSON |
 | `go tool tifa build` | Generate `.tifa/`, bundle the front end with Vite and build `bin/` |
 | `go tool tifa check` | The one command to run before you finish. It checks the routing conventions, generates `.tifa/`, then runs `go vet ./...`, `go test ./...` and the TypeScript type check with the app's own TypeScript. It stops at the first step that fails and says which |
 | `go tool tifa routes` | List the routes |
@@ -80,7 +81,7 @@ Writing the response is checked when the request runs instead: in `Load` and `La
 
 - `tifa.yaml` lists every setting commented out at its default, with an example for `ssr.vms`, whose default is GOMAXPROCS. See `docs/config.md`. A setting `server.addr` is also the flag `--server-addr` and the environment variable `SERVER_ADDR`, and the app defines its own settings in `config.go` with `tifa.String`, `tifa.Int` and the like.
 - The database is `app.db`, or what the setting `db.path` of `config.go` says (`DB_PATH`, `--db-path`). `schema.sql` runs at every start, so keep its statements safe to repeat (`CREATE TABLE IF NOT EXISTS`). A new domain adds its tables there. `tifa dev` does not watch `schema.sql`: after changing it, restart `tifa dev`.
-- Under `tifa dev`, a page whose server render fails, or whose `OnRequest` returns an unexpected error, answers with its status and the whole error, a render error with its stack trace in the source files. `curl -i` on the page shows them. A built app shows only the status and the public message.
+- Under `tifa dev`, a page whose server render fails, or whose `OnRequest` returns an unexpected error, answers with its status and the whole error, a render error with its stack trace in the source files. `curl -i` on the page shows them. `go tool tifa errors` lists them too. A built app shows only the status and the public message.
 - Build and generated files: `docs/build.md`. `tifa dev`: `docs/dev.md`.
 
 <!-- tifa:end -->

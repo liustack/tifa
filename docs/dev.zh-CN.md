@@ -1,9 +1,10 @@
 ---
-summary: 'tifa dev 怎么用：每类改动后页面怎么更新、执行哪些步骤、Vite 在其中做什么、日志怎么读、构建失败时页面和应用怎样、开发产物放在哪、大应用怎么监视'
+summary: 'tifa dev 怎么用：每类改动后页面怎么更新、执行哪些步骤、Vite 在其中做什么、日志怎么读、构建失败时页面和应用怎样、浏览器里的错误怎么显示、`tifa errors` 怎么打印上次构建以来的错误、开发产物放在哪、大应用怎么监视'
 read_when:
   - 第一次在本地跑 tifa 应用
   - 改 internal/devserver、cmd/tifa 的 dev 命令或 internal/bundle 的开发构建
   - tifa dev 改了文件页面却没更新，或报出看不懂的错误
+  - 想在脚本或编程 agent 里查改动有没有弄坏构建、请求或浏览器里的页面，或者要改 `tifa errors`
 ---
 
 [English](dev.md) · 简体中文
@@ -106,7 +107,7 @@ tifa dev 把每个页面渲染两次。同样的数据两次渲染不同，说�
 - `Uncaught error`：组件抛出了错误且外面没有错误边界，或其他错误冒到了 `window`。
 - `Unhandled rejection`：一个 promise 失败了，没有人处理。
 
-同一个错误再次出现时，计数加一（`×3`），不会多出一条。面板保留最近 20 个不同的错误。每条都可以关掉，刷新页面会清空。`Error` 组件接住的错误不会显示，它们和以前一样只进控制台。构建出的应用没有这些代码，它们只在开发构建里。
+同一个错误再次出现时，计数加一（`×3`），不会多出一条。面板保留最近 20 个不同的错误。每条都可以关掉，刷新页面会清空。`Error` 组件接住的错误不会显示，它们和以前一样只进控制台。tifa dev 也会留下同样的错误，供 [tifa errors](#tifa-errors) 查看。构建出的应用没有这些代码，它们只在开发构建里。
 
 ## 页面渲染失败
 
@@ -115,6 +116,47 @@ tifa dev 把每个页面渲染两次。同样的数据两次渲染不同，说�
 这些页会露出内部错误。tifa dev 默认只听 `127.0.0.1`，用 `--addr 0.0.0.0:<端口>` 时局域网里的其他机器也看得到。
 
 刷新和浮层走 tifa dev 自己的连接 `/__tifa/dev/events`，不走 Vite 的 HMR websocket。Vite 开发服务器要到第一次 bundle 步骤才启动，排在静态分析和代码生成之后，没有页面的应用根本不启动它。没有应用在跑的时候（首次构建失败或应用崩溃）返回的那个页面，照样要显示错误、修好后自动刷新，这只有 tifa dev 从一开始就自己提供的连接做得到。同一个浏览器的所有标签页通过 SharedWorker 共用这一条连接。
+
+## tifa errors
+
+```sh
+tifa errors [--dir 应用根目录] [--json]
+```
+
+tifa dev 运行时，`go tool tifa errors` 打印上次构建开始以来的错误。看不到浏览器、也看不到 tifa dev 终端的编程 agent 靠它知道改动有没有出错。改完代码、打开或刷新过改动的页面之后运行它：浏览器里的错误只来自打开着的页面。
+
+它列出：
+
+- 浮层显示的内容：`Build failed` 加 Go 编译器或 Vite 的原文，`The app did not start`、`The app stopped` 或 `The app did not load the SSR bundle`。它一直留着，直到下一次构建结束。
+- 请求的意外错误，也就是交给 `OnError` 的那些（没有 `OnError` 时记日志并答 500 的那些）：请求、状态和用户看到的消息，以及错误本身和映射回源码的堆栈，和 tifa dev 下错误页显示的一样。API 路由的请求也算，没有页面的应用也一样。
+- 页面报上来的浏览器错误：`Hydration mismatch`、`Recoverable error`、`Uncaught error` 和 `Unhandled rejection`，名字和面板一致，每条带最先报告它的页面地址。
+- 两次渲染不一致的页面（见[日志](#日志)）。
+
+每类保留最近 20 个不同的错误，同一个错误再次出现时计数加一，和面板一样。构建一开始，之前的错误就清掉。构建进行中运行这个命令，它会等构建结束再回答。
+
+```text
+Request failed: GET /orders?page=2, 503 Service Unavailable (×2)
+  Users see: Come back later
+  tifa: render page: ...
+
+Hydration mismatch in the browser: http://127.0.0.1:9527/orders (×3)
+  ...
+```
+
+没有错误时打印 `No errors since the last build.`。退出码：没有错误是 0，有错误是 1，应用里没有 tifa dev 在运行（没人持有 `.tifa/dev.lock`，或者 tifa dev 还没开始监听）或 tifa dev 没有应答是 2。`--json` 以 JSON 打印同样的内容，空的字段也都在：
+
+```json
+{
+  "failure": {"title": "Build failed", "error": "..."},
+  "requests": [{"method": "GET", "url": "/orders?page=2", "status": 503, "message": "Come back later", "error": "...", "count": 2}],
+  "browser": [{"kind": "recoverable", "title": "Hydration mismatch", "url": "http://127.0.0.1:9527/orders", "text": "...", "count": 3}],
+  "renders": [{"method": "GET", "url": "/stats", "text": "...", "count": 1}]
+}
+```
+
+构建和运行都正常时 `failure` 是 `null`。`kind` 是 `recoverable`、`uncaught` 或 `rejection`。
+
+命令向 `.tifa/dev.lock` 记下的地址请求 tifa dev 的 `/__tifa/dev/errors`。tifa dev 只在 `localhost` 或 IP 地址下回答这个路径，也只收自己页面报上来的浏览器错误，每条最多 128 KiB。应用自己的错误由应用回答给 tifa dev。构建出的应用没有这些。
 
 ## 文件放在哪
 
