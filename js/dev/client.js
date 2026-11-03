@@ -128,17 +128,41 @@
   }
 
   // tifa dev keeps the errors of its pages too, for `tifa errors`, and counts repeats the way the
-  // panel does. Long texts are cut so the report stays under the 128 KiB tifa dev takes.
+  // panel does. Long texts are cut so the report stays within the 128 KiB tifa dev takes. The
+  // limit is on the bytes of the JSON, where a control character takes six, so the texts are cut
+  // shorter until the report fits.
+  const maxReportBytes = 128 * 1024;
+
+  // utf8Length is the length of s in UTF-8. JSON.stringify writes a lone surrogate as an escape,
+  // so in its output a surrogate always comes in a pair.
+  function utf8Length(s) {
+    let n = 0;
+    for (let i = 0; i < s.length; i++) {
+      const c = s.charCodeAt(i);
+      if (c < 0x80) n += 1;
+      else if (c < 0x800) n += 2;
+      else if (c >= 0xd800 && c < 0xdc00) {
+        n += 4;
+        i++;
+      } else n += 3;
+    }
+    return n;
+  }
+
   function sendBrowserError(report) {
     const cut = (s, n) => (s.length > n ? s.slice(0, n) + "\n[cut]" : s);
-    const body = JSON.stringify({
-      kind: report.kind,
-      title: report.title,
-      message: cut(report.message, 4000),
-      stack: cut(report.stack, 8000),
-      text: cut(report.text, 16000),
-      url: location.href,
-    });
+    let body;
+    for (let n = 16000; ; n = Math.floor(n / 2)) {
+      body = JSON.stringify({
+        kind: report.kind,
+        title: cut(report.title, 200),
+        message: cut(report.message, Math.floor(n / 4)),
+        stack: cut(report.stack, Math.floor(n / 2)),
+        text: cut(report.text, n),
+        url: cut(location.href, 2000),
+      });
+      if (n === 0 || utf8Length(body) <= maxReportBytes) break;
+    }
     fetch(base + "errors", { method: "POST", headers: { "Content-Type": "application/json" }, body }).then(
       (resp) => {
         if (!resp.ok) console.warn("tifa dev: tifa dev did not take the error report: " + resp.status);

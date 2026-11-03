@@ -211,6 +211,20 @@ const report = (fire, message, stack = '', kind = 'uncaught') => fire('tifa:brow
   check(new TextEncoder().encode(long).length <= 128 * 1024 && JSON.parse(long).kind === 'rejection', `long report of ${long.length} bytes`)
 }
 
+{
+  // The limit is on the bytes of the JSON: control characters, which JSON writes as \u0000, and
+  // characters of several bytes are cut until the report fits.
+  const { fire, make, sent } = boot()
+  fire('error', { error: make("new Error('\\u0000'.repeat(20000))") })
+  fire('error', { error: make("new Error('汉'.repeat(60000) + '😀'.repeat(20000))") })
+  for (const report of sent) {
+    const bytes = new TextEncoder().encode(report.init.body).length
+    const body = JSON.parse(report.init.body)
+    check(bytes <= 128 * 1024 && body.kind === 'uncaught' && body.text.length > 1000, `a report of ${bytes} bytes, text of ${body.text.length}`)
+  }
+  check(sent.length === 2, `${sent.length} reports`)
+}
+
 if (failures.length > 0) {
   console.error(failures.join('\n'))
   process.exit(1)
