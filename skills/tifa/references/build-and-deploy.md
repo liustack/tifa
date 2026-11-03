@@ -15,6 +15,7 @@ go tool tifa dev [--dir app-root] [--addr 127.0.0.1:9527]
 - A failed build keeps the old version running and shows the original compiler or Vite error as an overlay. Fix it and the overlay goes away.
 - If the app exits at start or does not listen within 30 seconds, the overlay says `The app did not start` with the last stderr lines. An `OnStart` error and a panic are there.
 - It does not watch `node_modules`, `.git`, `.tifa`, `bin/`, or `schema.sql` of a `tifa new` app (restart it after changing the schema). It serves plain HTTP and ignores the HTTPS settings.
+- `go tool tifa errors` prints the errors since the last build: a failed build or an app that did not start, unexpected request errors with their stack in your sources, errors the open pages had in the browser and pages whose two renders differ. Run it after a change and after you open or reload the pages you changed, since browser errors come only from open pages. It waits for a build that runs, exits with 1 when there are errors and 2 when no `tifa dev` runs, and `--json` prints JSON (see [tifa errors](https://github.com/liustack/tifa/blob/main/docs/dev.md#tifa-errors)).
 - After you install a different TanStack Router, React or React DOM, restart `tifa dev`.
 - Stop it with Ctrl-C or SIGTERM. If you started it in the background, kill only that PID.
 

@@ -1,9 +1,10 @@
 ---
-summary: 'How to use tifa dev: how pages update after each kind of change, which steps run, how Vite fits in, how to read the log, what the page and the app do when a build fails, how errors of the browser show, where dev output goes, and how large apps are watched'
+summary: 'How to use tifa dev: how pages update after each kind of change, which steps run, how Vite fits in, how to read the log, what the page and the app do when a build fails, how errors of the browser show, how `tifa errors` prints the errors since the last build, where dev output goes, and how large apps are watched'
 read_when:
   - Running a tifa app locally for the first time
   - Changing internal/devserver, the dev command in cmd/tifa, or the dev build in internal/bundle
   - tifa dev did not update the page after a file change, or reports an error you do not understand
+  - Checking from a script or a coding agent whether a change broke the build, a request or a page in the browser, or changing `tifa errors`
 ---
 
 English · [简体中文](dev.zh-CN.md)
@@ -106,7 +107,7 @@ Errors that happen in the browser show in a small panel in the bottom right corn
 - `Uncaught error`: a component threw with no error boundary around it, or any other error reached `window`.
 - `Unhandled rejection`: a promise failed and nothing handled it.
 
-The same error again adds to a counter (`×3`) instead of adding an entry. The panel keeps the last 20 different errors. Each can be dismissed, and a reload clears them. Errors that an `Error` component caught are not shown, as before they only reach the console. A built app has none of this: the code is only in the dev build.
+The same error again adds to a counter (`×3`) instead of adding an entry. The panel keeps the last 20 different errors. Each can be dismissed, and a reload clears them. Errors that an `Error` component caught are not shown, as before they only reach the console. tifa dev keeps the same errors for [tifa errors](#tifa-errors). A built app has none of this: the code is only in the dev build.
 
 ## When a page fails to render
 
@@ -115,6 +116,47 @@ When a component throws while the page renders on the server, the app renders th
 These pages show internal errors. tifa dev listens on `127.0.0.1` by default. With `--addr 0.0.0.0:<port>`, other machines on the network can see them.
 
 Reloads and the overlay come over tifa dev's own connection, `/__tifa/dev/events`, not Vite's HMR websocket. Vite's dev server only starts in the first bundle step, after static analysis and code generation, and an app without pages never starts it. The page that answers while no app runs, after a first build that failed or a crash, must still show the error and reload once things are fixed, and that works only over a connection that tifa dev itself serves from the start. Every tab of a browser shares this connection through a SharedWorker.
+
+## tifa errors
+
+```sh
+tifa errors [--dir app-root] [--json]
+```
+
+While tifa dev runs, `go tool tifa errors` prints the errors since the last build started. A coding agent that sees neither the browser nor the terminal of tifa dev learns from it whether a change works. Run it after you change code and after you open or reload the pages you changed: errors of the browser come only from pages that are open.
+
+It lists:
+
+- What the overlay shows: `Build failed` with the original message of the Go compiler or of Vite, `The app did not start`, `The app stopped` or `The app did not load the SSR bundle`. It stays until the next build ends.
+- Unexpected errors of requests, the ones that go to `OnError` (or are logged as a 500 without it): the request, the status and the message users see, and the error with its stack trace in your source files, as the error page shows them under tifa dev. Requests of API routes count too, also in an app without pages.
+- Errors of the browser that pages reported: `Hydration mismatch`, `Recoverable error`, `Uncaught error` and `Unhandled rejection`, as the panel names them, with the page that reported each first.
+- Pages whose two renders differ (see [Log](#log)).
+
+Each kind keeps the last 20 different errors, and the same error again raises its count, as in the panel. When a build starts, the errors from before it are dropped. Asked during a build, the command waits for the build to end.
+
+```text
+Request failed: GET /orders?page=2, 503 Service Unavailable (×2)
+  Users see: Come back later
+  tifa: render page: ...
+
+Hydration mismatch in the browser: http://127.0.0.1:9527/orders (×3)
+  ...
+```
+
+Without errors it prints `No errors since the last build.` It exits with status 0 without errors, 1 with errors, and 2 when no tifa dev runs in the app: the process that `.tifa/dev.lock` names is gone, it does not listen yet, or nothing at its address answers for it. `--json` prints the same as JSON, with every field also when it is empty:
+
+```json
+{
+  "failure": {"title": "Build failed", "error": "..."},
+  "requests": [{"method": "GET", "url": "/orders?page=2", "status": 503, "message": "Come back later", "error": "...", "count": 2}],
+  "browser": [{"kind": "recoverable", "title": "Hydration mismatch", "url": "http://127.0.0.1:9527/orders", "text": "...", "count": 3}],
+  "renders": [{"method": "GET", "url": "/stats", "text": "...", "count": 1}]
+}
+```
+
+`failure` is `null` when everything builds and runs. `kind` is `recoverable`, `uncaught` or `rejection`.
+
+The command reads the process ID and the address that tifa dev wrote into `.tifa/dev.lock`, without taking the lock, so a tifa dev or tifa build can start at the same time. It asks that address for `/__tifa/dev/errors` and takes the answer only when it names the same process in `X-Tifa-Dev-Pid`. tifa dev answers there only under `localhost` or an IP address, and takes the reports of the browser only from its own pages, up to 128 KiB each. The app answers tifa dev for its own errors. A built app has none of this.
 
 ## Where files go
 

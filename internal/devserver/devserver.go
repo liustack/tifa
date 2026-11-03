@@ -20,6 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/liustack/tifa/internal/deverrors"
 	"github.com/liustack/tifa/js"
 )
 
@@ -135,6 +136,8 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 		script(served+js.DevClient).ServeHTTP(w, r)
 	}))
 	mux.Handle("GET "+workerPath, script(js.DevWorker))
+	mux.HandleFunc("GET "+deverrors.Path, d.serveErrors)
+	mux.HandleFunc("POST "+deverrors.Path, d.takeBrowserError)
 	mux.Handle(devPrefix, http.NotFoundHandler())
 	if o.Vite != "" {
 		mux.Handle(VitePath, viteProxy(o.Vite))
@@ -307,6 +310,8 @@ type dev struct {
 	// embedded says which files the Go code embeds, as the last analysis that worked saw it. Nil
 	// before the first one.
 	embedded atomic.Pointer[func(string) bool]
+	// browser keeps the errors pages reported since the last build started.
+	browser deverrors.BrowserErrors
 
 	mu       sync.Mutex
 	gen      int    // generation of the newest app started
@@ -318,12 +323,24 @@ type dev struct {
 	// bundling is closed once the rebuild of the SSR bundle that runs now has an app serving it,
 	// nil when none runs.
 	bundling chan struct{}
+	// building is closed once the rebuild that runs now ended, nil when none runs.
+	building chan struct{}
+	// started counts the rebuilds started, the first build included.
+	started int
 }
 
 // isEmbedded reports whether the Go code embeds the file rel, as the last analysis that worked saw it.
 func (d *dev) isEmbedded(rel string) bool {
 	embedded := d.embedded.Load()
 	return embedded != nil && (*embedded)(rel)
+}
+
+// buildState returns the count of rebuilds started and a channel that is closed once the one that
+// runs now ended, nil when none runs.
+func (d *dev) buildState() (int, chan struct{}) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.started, d.building
 }
 
 // busy returns a channel that is closed once the SSR bundle being rebuilt is served, nil when
@@ -383,6 +400,19 @@ func (d *dev) rebuild(ctx context.Context, s steps) {
 		return
 	}
 	start := time.Now()
+	building := make(chan struct{})
+	d.mu.Lock()
+	d.building = building
+	d.started++
+	d.mu.Unlock()
+	defer func() {
+		d.mu.Lock()
+		d.building = nil
+		d.mu.Unlock()
+		close(building)
+	}()
+	// What failed before this build may be fixed by it.
+	d.forgetErrors(ctx)
 	var done chan struct{}
 	holdPages := func() {
 		if done == nil {

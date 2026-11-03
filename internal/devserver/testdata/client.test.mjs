@@ -60,12 +60,17 @@ function boot() {
   const listeners = {}
   const sources = []
   const html = new El('html')
+  const sent = []
   const win = {
     __tifaDevServed: 'v1',
     __tifaDevRendered: 1,
     document: { createElement: (tag) => new El(tag), documentElement: html },
     performance: { getEntriesByType: () => [] },
-    location: { reload() {} },
+    location: { href: 'http://127.0.0.1:9527/orders?page=2', reload() {} },
+    fetch: (url, init) => {
+      sent.push({ url, init })
+      return Promise.resolve({ ok: true, status: 204 })
+    },
     EventSource: class {
       constructor() {
         sources.push(this)
@@ -87,7 +92,7 @@ function boot() {
   const fire = (type, event) => (listeners[type] ?? []).forEach((fn) => fn(event))
   const make = (src) => vm.runInContext(src, win)
   const status = (s) => sources[0].handlers.status({ data: JSON.stringify({ version: 'v1', render: 1, ...s }) })
-  return { html, fire, make, status }
+  return { html, fire, make, status, sent }
 }
 
 const failures = []
@@ -186,6 +191,38 @@ const report = (fire, message, stack = '', kind = 'uncaught') => fire('tifa:brow
   check(entries(html).length === 2 && tags() === 'tifa-dev-errors,tifa-dev-overlay', 'a new browser error hid the build overlay: ' + tags())
   status({})
   check(tags() === 'tifa-dev-errors' && entries(html).length === 2, 'the panel did not survive the fix: ' + tags())
+}
+
+{
+  // Each error the panel shows goes to tifa dev too, repeats included, with the page it happened
+  // on. A long text is cut so that the report stays under the limit of tifa dev.
+  const { fire, sent } = boot()
+  fire('tifa:browser-error', { detail: { kind: 'recoverable', message: 'Hydration failed', stack: 'Error: Hydration failed\n    at a', componentStack: '\n    at Clock' } })
+  fire('tifa:browser-error', { detail: { kind: 'recoverable', message: 'Hydration failed', stack: 'Error: Hydration failed\n    at a', componentStack: '\n    at Clock' } })
+  fire('unhandledrejection', { reason: 'x'.repeat(200000) })
+  check(sent.length === 3, `${sent.length} reports sent`)
+  const first = sent[0]
+  check(first.url === '/__tifa/dev/errors' && first.init.method === 'POST' && first.init.headers['Content-Type'] === 'application/json', `request ${JSON.stringify(first)}`)
+  const body = JSON.parse(first.init.body)
+  const want = { kind: 'recoverable', title: 'Hydration mismatch', message: 'Hydration failed', stack: 'Error: Hydration failed\n    at a', text: 'Error: Hydration failed\n    at a\n\nComponent stack:\n    at Clock', url: 'http://127.0.0.1:9527/orders?page=2' }
+  check(JSON.stringify(body) === JSON.stringify(want), `body ${first.init.body}`)
+  check(sent[1].init.body === first.init.body, 'a repeat was not sent the same')
+  const long = sent[2].init.body
+  check(new TextEncoder().encode(long).length <= 128 * 1024 && JSON.parse(long).kind === 'rejection', `long report of ${long.length} bytes`)
+}
+
+{
+  // The limit is on the bytes of the JSON: control characters, which JSON writes as \u0000, and
+  // characters of several bytes are cut until the report fits.
+  const { fire, make, sent } = boot()
+  fire('error', { error: make("new Error('\\u0000'.repeat(20000))") })
+  fire('error', { error: make("new Error('汉'.repeat(60000) + '😀'.repeat(20000))") })
+  for (const report of sent) {
+    const bytes = new TextEncoder().encode(report.init.body).length
+    const body = JSON.parse(report.init.body)
+    check(bytes <= 128 * 1024 && body.kind === 'uncaught' && body.text.length > 1000, `a report of ${bytes} bytes, text of ${body.text.length}`)
+  }
+  check(sent.length === 2, `${sent.length} reports`)
 }
 
 if (failures.length > 0) {

@@ -78,6 +78,13 @@ func (h *hub) close() {
 	}
 }
 
+// current returns the status that the browsers show now.
+func (h *hub) current() status {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.st
+}
+
 func (h *hub) subscribe() chan status {
 	h.mu.Lock()
 	defer h.mu.Unlock()

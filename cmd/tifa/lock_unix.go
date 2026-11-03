@@ -17,3 +17,13 @@ func tryLock(f *os.File) (bool, error) {
 	}
 	return err == nil, err
 }
+
+// processAlive reports whether a process with the ID pid runs. A process of another user that
+// refuses the signal runs too.
+func processAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
+}

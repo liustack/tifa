@@ -210,6 +210,6 @@ Then point the aliases in `components.json` into `components/` so the app root k
 
 ## Debugging a render
 
-- Under `tifa dev`, a failed render shows an overlay with the stack in your source files, and `curl -i` on the page shows the status and error. A built app shows only the status and the public message.
+- Under `tifa dev`, a failed render shows an overlay with the stack in your source files, and `curl -i` on the page shows the status and error. `go tool tifa errors` lists failed requests, hydration mismatches and other browser errors of the open pages, and pages whose two renders differ. A built app shows only the status and the public message.
 - Look at the HTML: `curl -s http://127.0.0.1:9527/path`. The response header `X-Tifa-Render` says `vm`, `shared`, `cache` or `none`, and a page with `Cache` also sends `Cache-Status: tifa; hit`, `fwd=miss` or `fwd=stale`.
 - Hydration mismatch: search the page code for the causes above, in this order: current time or randomness, locale or time zone defaults, local-time `Date` methods, browser-only values read while rendering, data that differs between the server and browser (a user-specific value from a cookie that `Load` did not return).

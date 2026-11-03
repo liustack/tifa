@@ -23,6 +23,7 @@ Run them in the app root (the folder with `go.mod` and `app/`). They need Go 1.2
 | --- | --- |
 | `go run github.com/liustack/tifa/cmd/tifa@latest new myapp` | Write a small working app (a todo list on SQLite) into `myapp/`. Then `cd myapp`, `go mod tidy`, `pnpm install`. Add `--module example.com/myapp` to set the module path |
 | `go tool tifa dev` | Dev server at http://127.0.0.1:9527 (`--addr` changes it). TSX and CSS edits update the open page in place, Go edits rebuild and reload |
+| `go tool tifa errors` | While `tifa dev` runs, print the errors since the last build: a failed build, unexpected request errors with their stack in your sources, browser errors of open pages (hydration mismatches, uncaught errors, unhandled rejections) and pages that render differently each time. Run it after you change code and after you open or reload the pages you changed. Exit status 0 means no error, 1 errors, 2 no `tifa dev`. `--json` prints JSON |
 | `go tool tifa build` | Analyze, generate `.tifa/`, bundle with Vite, build `bin/<app>` with the front end embedded |
 | `go tool tifa check` | The one command to run before you finish. It runs the tifa analysis, generates `.tifa/`, then `go vet ./...`, `go test ./...` and the TypeScript check. It stops at the first step that fails |
 | `go tool tifa routes` | List the routes. `--json` prints the full manifest with Go types |

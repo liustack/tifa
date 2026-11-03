@@ -3,6 +3,8 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -17,7 +19,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/internal/config"
+	"github.com/liustack/tifa/internal/deverrors"
 )
 
 // writeBundle writes a dist directory to dir whose SSR bundle renders <p>text</p>.
@@ -322,5 +326,90 @@ func TestDevWarnsAboutAPageThatRendersDifferently(t *testing.T) {
 				t.Errorf("%d, a warning is no error page:\n%s", second.StatusCode, body)
 			}
 		})
+	}
+}
+
+// askDevErrors reads what the app under DevMain answers tifa dev at deverrors.Path.
+func askDevErrors(t *testing.T, base string) deverrors.App {
+	t.Helper()
+	code, body := fetch(t, "GET", base+deverrors.Path)
+	if code != 200 {
+		t.Fatalf("GET %s: %d %s", deverrors.Path, code, body)
+	}
+	var got deverrors.App
+	if err := json.Unmarshal([]byte(body), &got); err != nil || got.Requests == nil || got.Renders == nil {
+		t.Fatalf("GET %s: %v\n%s", deverrors.Path, err, body)
+	}
+	return got
+}
+
+// Under DevMain the app keeps its unexpected request errors, with the request, the status OnError
+// gave and the error, and the pages whose two renders differ, for tifa dev to ask for. The same
+// error counts up. DELETE forgets them. Expected errors, such as a tifa.Error, are not kept. An
+// app without pages keeps its errors too.
+func TestDevMainKeepsRequestErrors(t *testing.T) {
+	defer log.SetOutput(os.Stderr)
+	log.SetOutput(io.Discard)
+	app := frontApp()
+	app.Routes = append(app.Routes,
+		Route{ID: "app/api/disk", Path: "/api/disk", SSR: true, Layouts: []string{"app/layout"},
+			GET: func(c *tifa.Ctx) error { return errors.New("the disk is full") }},
+		Route{ID: "app/broken", Path: "/broken", Page: true, SSR: true, Layouts: []string{"app/layout"},
+			Load: func(c *tifa.Ctx) (any, error) { return nil, errors.New("the orders table is gone") }},
+	)
+	app.Hooks.OnError = func(c *tifa.Ctx, err error) tifa.Error {
+		if strings.Contains(err.Error(), "orders table") {
+			return tifa.Error{Status: 503, Message: "Come back later"}
+		}
+		return tifa.Error{Status: 500}
+	}
+	dir := t.TempDir()
+	writeBundle(t, dir, `' + Math.random() + '`)
+	base := serveApp(t, app, true, "--dist", dir)
+	if got := askDevErrors(t, base); len(got.Requests) != 0 || len(got.Renders) != 0 {
+		t.Fatalf("errors before any request: %+v", got)
+	}
+	for _, path := range []string{"/api/disk", "/api/disk", "/broken?x=1", "/stats"} {
+		fetch(t, "GET", base+path)
+	}
+	fetch(t, "DELETE", base+"/api/health") // a tifa.Error 409
+	got := askDevErrors(t, base)
+	if len(got.Requests) != 2 {
+		t.Fatalf("requests = %+v", got.Requests)
+	}
+	disk, broken := got.Requests[0], got.Requests[1]
+	if disk.Method != "GET" || disk.URL != "/api/disk" || disk.Status != 500 || disk.Message != "Internal Server Error" || disk.Error != "the disk is full" || disk.Count != 2 {
+		t.Errorf("first = %+v", disk)
+	}
+	if broken.URL != "/broken?x=1" || broken.Status != 503 || broken.Message != "Come back later" || !strings.Contains(broken.Error, "the orders table is gone") || broken.Count != 1 {
+		t.Errorf("second = %+v", broken)
+	}
+	if len(got.Renders) != 1 || got.Renders[0].URL != "/stats" || got.Renders[0].Method != "GET" ||
+		!strings.Contains(got.Renders[0].Text, "read the time or a random number") || got.Renders[0].Count != 1 {
+		t.Errorf("renders = %+v", got.Renders)
+	}
+	if code, body := fetch(t, "DELETE", base+deverrors.Path); code != http.StatusNoContent {
+		t.Fatalf("DELETE: %d %s", code, body)
+	}
+	if got := askDevErrors(t, base); len(got.Requests) != 0 || len(got.Renders) != 0 {
+		t.Fatalf("errors after DELETE: %+v", got)
+	}
+
+	api := App{Routes: []Route{{ID: "app/api/disk", Path: "/api/disk", SSR: true,
+		GET: func(c *tifa.Ctx) error { return errors.New("the disk is full") }}}}
+	base = serveApp(t, api, true)
+	fetch(t, "GET", base+"/api/disk")
+	if got := askDevErrors(t, base); len(got.Requests) != 1 || got.Requests[0].Error != "the disk is full" {
+		t.Fatalf("app without pages: %+v", got)
+	}
+}
+
+// Main keeps no errors: the path is an ordinary URL of the application.
+func TestMainKeepsNoRequestErrors(t *testing.T) {
+	dir := t.TempDir()
+	writeBundle(t, dir, "page")
+	base := serveApp(t, frontApp(), false, "--dist", dir)
+	if code, body := fetch(t, "GET", base+deverrors.Path); code == 200 && strings.Contains(body, "requests") {
+		t.Fatalf("a production app answered %s: %s", deverrors.Path, body)
 	}
 }

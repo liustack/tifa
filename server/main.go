@@ -69,6 +69,9 @@ func runSources(ctx context.Context, app App, src *config.Sources, stdout, stder
 			cfg.Server = withoutHTTPS(cfg.Server)
 		}
 		s := newServer(cfg, app.Hooks)
+		if dev != nil {
+			s.devErrors = &devErrors{}
+		}
 		s.register(app.Layouts, app.Routes)
 		if app.Session != nil {
 			s.enableSessions(app.Session)
