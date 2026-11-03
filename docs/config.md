@@ -309,9 +309,9 @@ What a lower depth breaks:
 
 ## Errors
 
-`tifa build` fails on a value of the wrong type or format in `tifa.yaml`, naming its line. The program refuses to start and lists every problem, each with its source and key, when:
+`tifa build` fails on a value of the wrong type or format in `tifa.yaml`, naming its line. A setting written as a section or a list, such as `ssr: {vms: {count: 2}}`, is a value of the wrong type too. The program refuses to start and lists every problem, each with its source and key, when:
 
-- a value of a setting of tifa or of the app has the wrong type or format, such as `ssr.timeout: 3` or `SHOP_OPEN=maybe`,
+- a value of a setting of tifa or of the app has the wrong type or format, such as `ssr.timeout: 3`, `SHOP_OPEN=maybe` or a section under `ssr.vms` in the file of `-c`,
 - the file of `-c` cannot be read or is not YAML, or a line of `.env` cannot be read.
 
 A key, variable or flag that is no setting is not an error, so a misspelt one such as `SERVER_PORT` changes nothing: `./bin/app config` shows what each setting ended up as. `build.*` settings are read only from `tifa.yaml`: a deployment file, a `BUILD_*` variable or a `--build-*` flag does not change them.

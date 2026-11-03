@@ -309,9 +309,9 @@ sudo setcap cap_net_bind_service=+ep ./bin/myapp
 
 ## 报错
 
-`tifa.yaml` 里的值类型或格式写错时，`tifa build` 报错并指出行号。下面几种情况程序拒绝启动，一次列出全部问题，每条都带来源和键：
+`tifa.yaml` 里的值类型或格式写错时，`tifa build` 报错并指出行号。把某项配置写成一节或一个列表（比如 `ssr: {vms: {count: 2}}`）也算类型写错。下面几种情况程序拒绝启动，一次列出全部问题，每条都带来源和键：
 
-- tifa 或应用的某项配置的值类型或格式不对，比如 `ssr.timeout: 3` 或 `SHOP_OPEN=maybe`。
+- tifa 或应用的某项配置的值类型或格式不对，比如 `ssr.timeout: 3`、`SHOP_OPEN=maybe`，或者 `-c` 的文件里 `ssr.vms` 下面又写了一节。
 - `-c` 的文件读不了或不是 YAML，或者 `.env` 有读不懂的行。
 
 不是配置的键、变量和参数不算错，所以拼错的名字（比如 `SERVER_PORT`）什么也不改，用 `./bin/app config` 看每项配置最后是什么值。`build.*` 只从 `tifa.yaml` 读：部署文件、`BUILD_*` 变量和 `--build-*` 参数都改不了它。

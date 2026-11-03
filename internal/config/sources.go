@@ -293,6 +293,8 @@ func yamlEntries(data []byte) (map[string]entry, error) {
 			key := prefix + k.Value
 			switch v.Kind {
 			case yaml.MappingNode:
+				// A section is no setting, so its entry counts only when its key is one.
+				entries[key] = entry{line: k.Line, err: errors.New("expected a single value")}
 				walk(key+".", v)
 			case yaml.ScalarNode:
 				entries[key] = entry{raw: v.Value, typ: yamlType(v.ShortTag()), line: k.Line}

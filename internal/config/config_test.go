@@ -185,7 +185,10 @@ func TestErrorsNameLayerAndKey(t *testing.T) {
 		{name: "file unit", file: "cache:\n  size: 64MB\n", want: []string{"file prod.yaml line 2", "cache.size", `"64MB"`}},
 		{name: "file range", file: "ssr:\n  vms: 0\n", want: []string{"file prod.yaml line 2", "ssr.vms"}},
 		{name: "file list", file: "server:\n  addr: [a, b]\n", want: []string{"file prod.yaml line 2", "server.addr"}},
+		{name: "file mapping", file: "ssr:\n  vms:\n    count: 2\n", want: []string{"file prod.yaml line 2", "ssr.vms", "expected a single value"}},
 		{name: "embedded type", embedded: "ssr:\n  timeout: 3\n", want: []string{"tifa.yaml line 2", "ssr.timeout"}},
+		{name: "embedded mapping", embedded: "ssr:\n  vms: {count: 2}\n", want: []string{"tifa.yaml line 2", "ssr.vms", "expected a single value"}},
+		{name: "embedded list", embedded: "server:\n  tls_domains:\n    - a.com\n", want: []string{"tifa.yaml line 2", "server.tls_domains", "expected a single value"}},
 		{name: "embedded syntax", embedded: "ssr: [\n", want: []string{"tifa.yaml"}},
 	}
 	for _, tc := range cases {
