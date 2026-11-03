@@ -17,7 +17,7 @@ import (
 // header gets the result alone, or 204, as before.
 type callAnswer struct {
 	Result  any                  `json:"result"`
-	Session *core.BrowserSession `json:"session,omitempty"`
+	Session *core.BrowserSession `json:"session,omitzero"`
 }
 
 // sessionAnswer is the body of the answer to a call that has no result but changed the session.

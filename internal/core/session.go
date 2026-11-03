@@ -5,7 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"net/http"
@@ -58,12 +58,12 @@ type sessionState struct {
 
 	mu      sync.Mutex // guards what follows, and is held while the store is called
 	env     *SessionEnv
-	hash    string          // store key of the token the request holds, empty for none
-	have    bool            // the request has a session
-	data    json.RawMessage // its data, as the envelope holds it
-	decoded bool            // value holds data decoded as vtype
-	value   any             // *S
-	vtype   reflect.Type    // S, set by the first Session or SetSession
+	hash    string         // store key of the token the request holds, empty for none
+	have    bool           // the request has a session
+	data    jsontext.Value // its data, as the envelope holds it
+	decoded bool           // value holds data decoded as vtype
+	value   any            // *S
+	vtype   reflect.Type   // S, set by the first Session or SetSession
 }
 
 // SetAnonymous makes the request anonymous: the server dropped its Cookie and Authorization headers
@@ -79,9 +79,9 @@ func Anonymous(c *Ctx) bool { return c.req.sess.anonymous.Load() }
 func NoStore(c *Ctx) bool { return c.req.sess.noStore.Load() }
 
 type sessionRecord struct {
-	V       int             `json:"v"`
-	Expires time.Time       `json:"expires"`
-	Data    json.RawMessage `json:"data"`
+	V       int            `json:"v"`
+	Expires time.Time      `json:"expires"`
+	Data    jsontext.Value `json:"data"`
 }
 
 // AttachSession reads the session cookie of the request and loads its session from the store.
@@ -112,7 +112,7 @@ func AttachSession(c *Ctx, env *SessionEnv) error {
 		return nil
 	}
 	var rec sessionRecord
-	switch err := json.Unmarshal(data, &rec); {
+	switch err := UnmarshalJSON(data, &rec); {
 	case err != nil:
 		c.dropSession("the record is not valid JSON", err)
 	case rec.V != 1:
@@ -216,7 +216,7 @@ func SetSession[S any](c *Ctx, s *S) error {
 	if s == nil {
 		return errors.New("tifa: SetSession needs a session, got nil")
 	}
-	data, err := json.Marshal(s)
+	data, err := MarshalJSON(s)
 	if err != nil {
 		return fmt.Errorf("tifa: encoding the session: %w", err)
 	}
@@ -228,7 +228,7 @@ func SetSession[S any](c *Ctx, s *S) error {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	expires := sessionNow().Add(st.env.MaxAge).UTC().Truncate(time.Second)
-	record, err := json.Marshal(sessionRecord{V: 1, Expires: expires, Data: data})
+	record, err := MarshalJSON(sessionRecord{V: 1, Expires: expires, Data: data})
 	if err != nil {
 		return fmt.Errorf("tifa: encoding the session: %w", err)
 	}
@@ -275,7 +275,7 @@ func Session[S any](c *Ctx) *S {
 		return st.value.(*S)
 	}
 	v := new(S)
-	if err := json.Unmarshal(st.data, v); err != nil {
+	if err := UnmarshalJSON(st.data, v); err != nil {
 		c.dropSession(fmt.Sprintf("the data does not fit %s", t), err)
 		return nil
 	}

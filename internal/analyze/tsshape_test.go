@@ -4,17 +4,15 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// The derived shape must describe what encoding/json really writes. testdata/jsonshape/encode
-// marshals sample values of the fixture's Load result with json.Marshal, under the default
-// implementation of this toolchain (json v2 with v1 options since Go 1.27) and under the
-// classic v1 implementation (GOEXPERIMENT=nojsonv2). Every document must match the shape.
+// The derived shape must describe what tifa really writes. testdata/jsonshape/encode writes sample
+// values of the fixture's Load result with c.JSON, which writes them as the data of a Load is
+// written (json v2 with core.JSONWrite). Every document must match the shape.
 func TestLoadResultShapeMatchesEncodingJSON(t *testing.T) {
 	m, err := analyzeApp(t, "jsonshape")
 	if err != nil {
@@ -31,35 +29,26 @@ func TestLoadResultShapeMatchesEncodingJSON(t *testing.T) {
 	// Node is written by name where it recurs, so it resolves to the object inside tree.
 	refs := map[string]*tsNode{"Node": shape.prop("tree").alts[0]}
 
-	outputs := map[string]string{}
-	for _, experiment := range []string{"", "nojsonv2"} {
-		cmd := exec.Command("go", "run", "./encode")
-		cmd.Dir = filepath.Join("testdata", "jsonshape")
-		cmd.Env = append(os.Environ(), "GOEXPERIMENT="+experiment)
-		var stderr bytes.Buffer
-		cmd.Stderr = &stderr
-		out, err := cmd.Output()
-		if err != nil {
-			t.Fatalf("GOEXPERIMENT=%s go run ./encode: %v\n%s", experiment, err, stderr.String())
-		}
-		outputs[experiment] = string(out)
-		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-		if len(lines) < 3 {
-			t.Fatalf("GOEXPERIMENT=%s: want 3 documents, got:\n%s", experiment, out)
-		}
-		for _, line := range lines {
-			var v any
-			if err := json.Unmarshal([]byte(line), &v); err != nil {
-				t.Fatalf("decode %s: %v", line, err)
-			}
-			if err := shape.match(v, "$", refs); err != nil {
-				t.Errorf("GOEXPERIMENT=%s: %v\nJSON  %s\nshape %s", experiment, err, line, ts)
-			}
-		}
+	cmd := exec.Command("go", "run", "./encode")
+	cmd.Dir = filepath.Join("testdata", "jsonshape")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("go run ./encode: %v\n%s", err, stderr.String())
 	}
-	// Accepted types are written the same way by both implementations, byte for byte.
-	if outputs[""] != outputs["nojsonv2"] {
-		t.Errorf("the two implementations differ:\ndefault  %s\nnojsonv2 %s", outputs[""], outputs["nojsonv2"])
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) < 3 {
+		t.Fatalf("want 3 documents, got:\n%s", out)
+	}
+	for _, line := range lines {
+		var v any
+		if err := json.Unmarshal([]byte(line), &v); err != nil {
+			t.Fatalf("decode %s: %v", line, err)
+		}
+		if err := shape.match(v, "$", refs); err != nil {
+			t.Errorf("%v\nJSON  %s\nshape %s", err, line, ts)
+		}
 	}
 }
 

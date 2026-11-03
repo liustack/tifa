@@ -2,7 +2,7 @@ package ssr
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 	"sync"
@@ -76,7 +76,7 @@ func (p *Pool) takeReads(ctx context.Context, vm *slowjs.VM) error {
 		return nil
 	}
 	var reads []read
-	if err := json.Unmarshal([]byte(text), &reads); err != nil {
+	if err := json.Unmarshal([]byte(text), &reads, fromVM); err != nil {
 		return err
 	}
 	for _, r := range reads {

@@ -2,7 +2,7 @@
 import { getRouteApi } from "@tanstack/react-router"
 
 // LayoutData is what the Go Layout function of app/docs returns, as JSON.
-export type LayoutData = Record<string, number> | null
+export type LayoutData = Record<string, number>
 
 export type Params = Record<string, never>
 

@@ -9,9 +9,9 @@ import (
 
 // The directory is the URL.
 
-type encoder struct{} // stands in for jsontext.Encoder, absent under GOEXPERIMENT=nojsonv2
+type encoder struct{} // stands in for jsontext.Encoder
 
-// Both is written by MarshalJSONTo under json v2 and by MarshalText under json v1.
+// Both has MarshalJSONTo and MarshalText.
 type Both struct{}
 
 func (*Both) MarshalText() ([]byte, error)   { return []byte("v1"), nil }
@@ -22,13 +22,10 @@ type AppendByte byte
 
 func (AppendByte) AppendText(b []byte) ([]byte, error) { return append(b, "v2"...), nil }
 
-// PlainByte is a named byte without methods.
-type PlainByte byte
-
 // Text is an interface used as a map key.
 type Text interface{ MarshalText() ([]byte, error) }
 
-// WrongTo has a MarshalJSONTo that neither implementation calls.
+// WrongTo has a MarshalJSONTo that json v2 does not call.
 type WrongTo struct{ X int }
 
 func (WrongTo) MarshalJSONTo() string { return "" }
@@ -56,11 +53,6 @@ type PtrText struct{}
 
 func (*PtrText) MarshalText() ([]byte, error) { return []byte("p"), nil }
 
-// Key is a string kind with MarshalText, which json v1 ignores for map keys.
-type Key string
-
-func (Key) MarshalText() ([]byte, error) { return []byte("k"), nil }
-
 // Appender has a method named AppendJSON.
 type Appender struct{}
 
@@ -74,7 +66,6 @@ type Status string
 type Data struct {
 	Both    *Both            `json:"both"`
 	Bytes   []AppendByte     `json:"bytes"`
-	Plain   []PlainByte      `json:"plain"`
 	Embed   struct{ X int }  `json:",embed"`
 	Hex     int              `json:"hex,format:hex"`
 	Oops    int              `json:"oops,string:oops"`
@@ -86,14 +77,42 @@ type Data struct {
 	Wrong   WrongTo          `json:"wrong"`
 	Shadow  Shadow           `json:"shadow"`
 	Prom    Promoted         `json:"prom"`
-	Ptr     PtrText          `json:"ptr"`
-	ByKey   map[Key]int      `json:"byKey"`
 	App     Appender         `json:"app"`
 	Stamp   Stamp            `json:"stamp"`
 	Num     json.Number      `json:"num,string"`
 	ByPtr   map[*PtrText]int `json:"byPtr"`
 	secret
+	Dur    time.Duration `json:"dur"`
+	Flag   bool          `json:"flag,string"`
+	Text   string        `json:"text,string"`
+	Dup1   int           `json:"dup"`
+	Dup2   int           `json:"dup"`
+	tagged int           `json:"tagged"`
+	Locked Opaque        `json:"locked"`
+	Wrap   Wrapper       `json:"wrap"`
+	Reads  Reader        `json:"reads"`
+	Opts   WithOpts      `json:"opts"`
 }
+
+// Opaque has fields but none json v2 can write.
+type Opaque struct{ a int }
+
+// Wrapper embeds a type that is not a struct without a json name.
+type Wrapper struct{ Status }
+
+// Reader embeds a struct that json v2 could read with UnmarshalText.
+type Reader struct{ Parsed }
+
+type Parsed struct{ X int }
+
+func (*Parsed) UnmarshalText([]byte) error { return nil }
+
+// WithOpts embeds a struct with a tag option.
+type WithOpts struct {
+	Extra `json:",omitempty"`
+}
+
+type Extra struct{ Y int }
 
 type secret struct{ Y int }
 

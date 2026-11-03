@@ -3,7 +3,8 @@ package ssr
 import (
 	"context"
 	_ "embed"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
@@ -13,6 +14,11 @@ import (
 	"github.com/liustack/slowjs/intl"
 	"github.com/liustack/slowjs/temporal"
 )
+
+// fromVM reads JSON the VM wrote with JSON.stringify. A JavaScript string may hold a lone
+// surrogate, which JSON.stringify writes as an escape such as \ud800: it becomes U+FFFD, as it
+// does when a string crosses from the VM to Go, instead of failing.
+var fromVM = jsontext.AllowInvalidUTF8(true)
 
 // Compile, Load and RenderVM are the steps a Pool takes, exported so that measurements outside
 // the package can time and inspect each one. Code that serves pages uses a Pool.
@@ -275,7 +281,7 @@ func RenderVM(vm *VM, input []byte, texts []string, timeout time.Duration) (stri
 		Error    string         `json:"error"`
 		Levels   int            `json:"levels"`
 	}
-	if err := json.Unmarshal([]byte(text), &result); err != nil {
+	if err := json.Unmarshal([]byte(text), &result, fromVM); err != nil {
 		return "", fmt.Errorf("ssr: decode result: %w", err)
 	}
 	if result.Error != "" {

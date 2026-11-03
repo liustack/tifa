@@ -22,14 +22,14 @@ type Data struct {
 	Stream  Streamer           `json:"stream"`
 }
 
-type encoder struct{} // stands in for jsontext.Encoder, absent under GOEXPERIMENT=nojsonv2
+type encoder struct{} // stands in for jsontext.Encoder
 
-// Streamer writes itself through json v2's MarshalJSONTo, which json v1 ignores.
+// Streamer has a MarshalJSONTo whose output the analyzer cannot know.
 type Streamer struct{}
 
 func (Streamer) MarshalJSONTo(*encoder) error { return nil }
 
-// AppendOnly is written by AppendText under json v2 and as a number under json v1.
+// AppendOnly is written by AppendText.
 type AppendOnly int
 
 func (AppendOnly) AppendText(b []byte) ([]byte, error) { return append(b, "x"...), nil }
@@ -46,7 +46,7 @@ type B byte
 
 func (B) MarshalJSON() ([]byte, error) { return []byte(`{}`), nil }
 
-// PtrMarshal marshals itself through a pointer receiver, which applies to addressable values only.
+// PtrMarshal marshals itself through a pointer receiver.
 type PtrMarshal struct {
 	V int `json:"v"`
 }

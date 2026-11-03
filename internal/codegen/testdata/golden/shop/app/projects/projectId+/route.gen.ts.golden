@@ -7,7 +7,7 @@ type GoProject = { id: string; name: string; parent: GoProject | null }
 export type LayoutData = GoProject
 
 // PageData is what the Go Load function of app/projects/projectId+ returns, as JSON.
-export type PageData = string[] | null
+export type PageData = string[]
 
 export type Params = { projectId: string }
 

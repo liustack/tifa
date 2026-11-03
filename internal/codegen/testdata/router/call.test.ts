@@ -52,7 +52,7 @@ const caught = (p: Promise<unknown>) => p.then(() => undefined, (e: unknown) => 
 const last = () => requests[requests.length - 1]
 
 // During a server render there is no document, and a call is refused before any request.
-const refused = await caught(GET({ params: { note: '1' }, input: { tag: '', tags: null } }))
+const refused = await caught(GET({ params: { note: '1' }, input: { tag: '', tags: [] } }))
 assert(refused instanceof Error && /browser/.test(refused.message), `server render: ${refused}`)
 assert(requests.length === 0, 'a refused call made a request')
 
@@ -112,7 +112,7 @@ assert(nullBody instanceof TifaError && nullBody.status === 502, `JSON null erro
 
 // DELETE without a result resolves to undefined, and the empty query values stay out.
 answer = () => new Response(null, { status: 204 })
-const removed: void = await DELETE({ params: { note: '1' }, input: { tag: '', tags: null } })
+const removed: void = await DELETE({ params: { note: '1' }, input: { tag: '', tags: [] } })
 assert(removed === undefined && last().url === '/api/notes/1?tag=' && invalidated() === 0, `DELETE ${last().url} ${invalidated()}`)
 
 // A handler that writes its own response hands back the Response, also for an error.
@@ -129,7 +129,7 @@ assert(last().url === '/api/files/a%20b/c.txt', `wildcard url ${last().url}`)
 answer = () => Response.json({ result: [] })
 const sent = requests.length
 for (const note of ['', '.', '..']) {
-  const moved = await caught(GET({ params: { note }, input: { tag: '', tags: null } }))
+  const moved = await caught(GET({ params: { note }, input: { tag: '', tags: [] } }))
   assert(moved instanceof Error && !(moved instanceof TifaError) && /path/.test(moved.message), `note ${JSON.stringify(note)}: ${moved}`)
 }
 for (const _splat of ['..', 'a/../b', './a', 'a/.', 'a//b', '/a']) {
@@ -137,7 +137,7 @@ for (const _splat of ['..', 'a/../b', './a', 'a/.', 'a//b', '/a']) {
   assert(moved instanceof Error && /path/.test(moved.message), `_splat ${JSON.stringify(_splat)}: ${moved}`)
 }
 assert(requests.length === sent, 'a refused parameter made a request')
-await GET({ params: { note: '...' }, input: { tag: '', tags: null } })
+await GET({ params: { note: '...' }, input: { tag: '', tags: [] } })
 assert(last().url === '/api/notes/...?tag=', `three dots ${last().url}`)
 for (const [_splat, url] of [['', '/api/files/'], ['a/', '/api/files/a/'], ['.a/b.', '/api/files/.a/b.']]) {
   await file({ params: { _splat } })
@@ -148,7 +148,7 @@ for (const [_splat, url] of [['', '/api/files/'], ['a/', '/api/files/a/'], ['.a/
 // the navigation has finished.
 navigations.splice(0)
 answer = redirected('/notes/8?tab=items#top')
-const removedThenMoved = await DELETE({ params: { note: '1' }, input: { tag: '', tags: null } })
+const removedThenMoved = await DELETE({ params: { note: '1' }, input: { tag: '', tags: [] } })
 assert(removedThenMoved === undefined && navigations.join() === '/notes/8?tab=items#top', `DELETE redirect ${navigations}`)
 assert(invalidated() === 0, `DELETE redirect invalidated`)
 answer = redirected('/notes/9')
@@ -165,7 +165,7 @@ assert(navigations.length === 2 && invalidated() === 0, `redirect to the same pa
 answer = redirected('/notes/12')
 await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
 answer = redirected('/login', 302)
-const listed = await GET({ params: { note: '1' }, input: { tag: '', tags: null } })
+const listed = await GET({ params: { note: '1' }, input: { tag: '', tags: [] } })
 assert(listed === undefined && navigations.join() === '/notes/8?tab=items#top,/notes/9,/notes/12,/login', `GET redirect ${navigations}`)
 assert(invalidated() === 0, `a redirect reloaded`)
 // A handler that writes its own response gets the Response of the redirect, unread.
@@ -259,7 +259,7 @@ const signedIn = await POST({ params: { note: '1' }, input: { text: 'hi', next: 
 assert(signedIn?.text === 'hi' && JSON.stringify(sessionSnapshot()) === '{"signedIn":true,"data":{"name":"Ann"},"ready":true}', `result with session: ${JSON.stringify(sessionSnapshot())}`)
 assert(mirror.get('app_sid:v1') === '{"signedIn":true,"data":{"name":"Ann"}}' && htmlAttributes.get('data-session') === 'in', `mirror ${[...mirror]} ${[...htmlAttributes]}`)
 answer = () => Response.json({ session: { signedIn: false } })
-const signedOut: void = await DELETE({ params: { note: '1' }, input: { tag: '', tags: null } })
+const signedOut: void = await DELETE({ params: { note: '1' }, input: { tag: '', tags: [] } })
 assert(signedOut === undefined && !sessionSnapshot().signedIn && !mirror.has('app_sid:v1') && htmlAttributes.get('data-session') === 'out', 'session alone')
 assert(invalidated() === 0, 'session alone reloaded')
 answer = () => Response.json({ redirect: '/welcome', status: 303, session: { signedIn: true } }, { headers: { 'X-Tifa-Redirect': '303' } })

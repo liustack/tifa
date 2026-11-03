@@ -4,7 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"html"
@@ -311,7 +312,7 @@ func serveFile(w http.ResponseWriter, r *http.Request, fsys fs.FS, name, cache, 
 // routeResult is the outcome of one Load as the browser reads it (RouteResult in data.ts).
 type routeResult struct {
 	Status int `json:"status"`
-	Data   any `json:"data,omitempty"`
+	Data   any `json:"data,omitzero"`
 	// JSON holds Data as the JSON text Go writes, in place of Data, in the results Go puts into
 	// a page (InjectedResult in data.ts), see injectedResults.
 	JSON     string `json:"json,omitempty"`
@@ -325,11 +326,18 @@ type routeResult struct {
 // would then hydrate other text than the server rendered. A character above U+FFFF goes into the
 // text as the escapes of its surrogate pair, see ssr.EscapeAboveFFFF.
 func loaderText(data any) (string, error) {
-	text, err := json.Marshal(data)
+	text, err := core.MarshalJSON(data)
 	if err != nil {
 		return "", err
 	}
 	return string(ssr.EscapeAboveFFFF(text)), nil
+}
+
+// htmlJSON writes v as JSON that a script element can hold: like the JSON of the app
+// (core.JSONWrite), with <, >, & and U+2028 and U+2029 written as escapes, so that no </script or
+// <!-- can end the element.
+func htmlJSON(v any) ([]byte, error) {
+	return json.Marshal(v, core.JSONWrite, jsontext.EscapeForHTML(true), jsontext.EscapeForJS(true))
 }
 
 // injectedResults gives each successful result its data as the JSON text Go writes (loaderText),
@@ -355,7 +363,7 @@ func injectedResults(items map[string]routeResult) (map[string]routeResult, erro
 // text.
 type renderResult struct {
 	Status   int    `json:"status"`
-	Text     *int   `json:"text,omitempty"`
+	Text     *int   `json:"text,omitzero"`
 	Error    string `json:"error,omitempty"`
 	Location string `json:"location,omitempty"`
 }
@@ -381,7 +389,7 @@ func renderInput(items map[string]routeResult) (data []byte, texts []string, err
 		}
 		results[id] = result
 	}
-	data, err = json.Marshal(results)
+	data, err = core.MarshalJSON(results)
 	return data, texts, err
 }
 
@@ -584,7 +592,7 @@ func (s *server) listedLoads(c *tifa.Ctx, chain []load) ([]load, error) {
 // of the request when the app has sessions.
 type dataAnswer struct {
 	Routes  map[string]routeResult `json:"routes"`
-	Session *core.BrowserSession   `json:"session,omitempty"`
+	Session *core.BrowserSession   `json:"session,omitzero"`
 }
 
 // writeData writes the answer of a data request. A Cache-Control of OnRequest or a Load, such
@@ -599,7 +607,7 @@ func (s *server) writeData(c *tifa.Ctx, status int, items map[string]routeResult
 }
 
 func writeDataBody(w http.ResponseWriter, status int, value any) error {
-	data, err := json.Marshal(value)
+	data, err := core.MarshalJSON(value)
 	if err != nil {
 		return err
 	}
@@ -617,7 +625,7 @@ func writeDataBody(w http.ResponseWriter, status int, value any) error {
 type dataRedirect struct {
 	Redirect string               `json:"redirect"`
 	Status   int                  `json:"status"`
-	Session  *core.BrowserSession `json:"session,omitempty"`
+	Session  *core.BrowserSession `json:"session,omitzero"`
 }
 
 // renderKey is the quoted hash of everything the HTML of a page is made from, which is the ETag
@@ -872,7 +880,7 @@ func (s *server) devRenderTwice(ctx context.Context, f *front, in ssr.Input, fir
 	if s.devErrors != nil {
 		s.devErrors.renders.Add(deverrors.Render{Method: method, URL: in.URL, Text: text})
 	}
-	shown, _ := json.Marshal(map[string]string{"title": "The page renders differently each time", "text": text})
+	shown, _ := htmlJSON(map[string]string{"title": "The page renders differently each time", "text": text})
 	script := fmt.Sprintf(`<script>window.__tifaDevPageError = %s</script>`, shown)
 	if j := strings.LastIndex(first, "</body>"); j >= 0 {
 		return first[:j] + script + first[j:], true
@@ -963,7 +971,7 @@ func dataOnlyDocument(f *front, items map[string]routeResult, key, uri string, s
 	if sess.json != nil {
 		bootData["session"], bootData["sessionKey"] = sess.json, sess.key
 	}
-	boot, err := json.Marshal(bootData)
+	boot, err := htmlJSON(bootData)
 	if err != nil {
 		return "", err
 	}
@@ -973,7 +981,7 @@ func dataOnlyDocument(f *front, items map[string]routeResult, key, uri string, s
 	b.WriteString(f.build.Head)
 	b.WriteString(f.preloadOf(key, items))
 	b.WriteString(`</head><body><div id="tifa-root"></div>`)
-	// json.Marshal escapes <, >, &, U+2028 and U+2029, so the data cannot close the script element.
+	// htmlJSON escapes <, >, &, U+2028 and U+2029, so the data cannot close the script element.
 	fmt.Fprintf(&b, `<script type="application/json" id="tifa-data">%s</script></body></html>`, boot)
 	return b.String(), nil
 }
@@ -1129,8 +1137,8 @@ func (s *server) devPageError(c *tifa.Ctx, e tifa.Error, err error, page string)
 		text += "Users see: " + e.Message + "\n"
 	}
 	text += "The page shows the Error component for it. It reloads after you save a fix. The built app shows only the status and the public message.\n\n" + err.Error()
-	// json.Marshal escapes <, >, &, U+2028 and U+2029, so the text cannot close the script element.
-	shown, _ := json.Marshal(map[string]string{"title": fmt.Sprintf("%d %s", e.Status, http.StatusText(e.Status)), "text": text})
+	// htmlJSON escapes <, >, &, U+2028 and U+2029, so the text cannot close the script element.
+	shown, _ := htmlJSON(map[string]string{"title": fmt.Sprintf("%d %s", e.Status, http.StatusText(e.Status)), "text": text})
 	script := fmt.Sprintf(`<script>window.__tifaDevErrorPage = true; window.__tifaDevPageError = %s</script><script src="%s"></script>`, shown, clientPath)
 	i := strings.LastIndex(page, "</body>")
 	if i < 0 {

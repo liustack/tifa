@@ -1,7 +1,7 @@
 package core
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"reflect"
@@ -12,16 +12,16 @@ import (
 // BrowserSession is the session as the browser gets it: whether anyone is signed in and, when the
 // session type has an Exposed method, what it returns.
 type BrowserSession struct {
-	SignedIn bool            `json:"signedIn"`
-	Data     json.RawMessage `json:"data,omitempty"`
+	SignedIn bool           `json:"signedIn"`
+	Data     jsontext.Value `json:"data,omitzero"`
 }
 
 // sessionKind is what the framework needs to know about the session type S to build a
 // BrowserSession from a record: how to read the session as S, and how to call Exposed.
 type sessionKind struct {
 	t       reflect.Type
-	load    func(c *Ctx) any                           // Session[S], nil when there is no session
-	exposed func(v any) (json.RawMessage, bool, error) // nil when S has no Exposed method
+	load    func(c *Ctx) any                          // Session[S], nil when there is no session
+	exposed func(v any) (jsontext.Value, bool, error) // nil when S has no Exposed method
 }
 
 var (
@@ -55,14 +55,14 @@ func newKind[S any]() *sessionKind {
 	if !ok || m.Type.NumIn() != 1 || m.Type.NumOut() != 1 {
 		return k
 	}
-	k.exposed = func(v any) (data json.RawMessage, ok bool, err error) {
+	k.exposed = func(v any) (data jsontext.Value, ok bool, err error) {
 		defer func() {
 			if p := recover(); p != nil {
 				err = fmt.Errorf("tifa: Exposed of the session panicked: %v", p)
 			}
 		}()
 		out := reflect.ValueOf(v).Method(m.Index).Call(nil)[0]
-		data, err = json.Marshal(out.Interface())
+		data, err = MarshalJSON(out.Interface())
 		if err != nil {
 			return nil, false, fmt.Errorf("tifa: encoding the result of Exposed: %w", err)
 		}

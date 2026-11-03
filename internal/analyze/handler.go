@@ -188,7 +188,7 @@ var textUnmarshalSig = types.NewSignatureType(nil, nil, nil,
 	types.NewTuple(types.NewVar(token.NoPos, nil, "", types.NewSlice(types.Typ[types.Byte]))),
 	types.NewTuple(types.NewVar(token.NoPos, nil, "", types.Universe.Lookup("error").Type())), false)
 
-// decodeProblem tells why encoding/json would not read a value of type t from the JSON its
+// decodeProblem tells why json v2 would not read a value of type t from the JSON its
 // TypeScript type describes, or returns "". checkTS has accepted t, so a MarshalText it finds
 // is the one that makes t a string. A map key is a JSON string whatever its kind, so an
 // UnmarshalText reads it when key is true.

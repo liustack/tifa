@@ -7,7 +7,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
-	"encoding/json"
+
 	"errors"
 	"fmt"
 	"io"
@@ -479,7 +479,7 @@ func noStoreUnlessSet(h http.Header) {
 // 405, the 503 of a server that is shutting down, and the redirect a handler call of the browser
 // gets. They are all failures or moves, so none is kept (see noStoreUnlessSet).
 func writeJSON(w http.ResponseWriter, status int, value any) {
-	data, err := json.Marshal(value)
+	data, err := core.MarshalJSON(value)
 	if err != nil {
 		http.Error(w, "JSON encoding failed", 500)
 		return
