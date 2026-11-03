@@ -46,8 +46,8 @@ func TestWorkbenchNeedsSignIn(t *testing.T) {
 }
 
 func TestOpenWorkbenchSkipsSignIn(t *testing.T) {
-	open = true
-	t.Cleanup(func() { open = false })
+	Open = true
+	t.Cleanup(func() { Open = false })
 	if redirect, reached := request(t, "/projects/studio", false); redirect != "" || !reached {
 		t.Errorf("redirect %q, reached %v", redirect, reached)
 	}
