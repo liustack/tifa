@@ -89,8 +89,7 @@ func TestRebuildMatrix(t *testing.T) {
 		{"new replacing layout", []change{{"app/orders/layout_.tsx", created}}, "v1", all},
 		{"replacing layout", []change{{"app/orders/layout_.tsx", modified}}, "v1", []string{"Bundle"}},
 		{"config", []change{{"tifa.yaml", modified}}, "v1", all},
-		{"env", []change{{".env", modified}}, "v1", []string{"Bundle"}},
-		{"env of a mode", []change{{".env.production.local", created}}, "v1", []string{"Bundle"}},
+		{"env", []change{{".env", modified}}, "v1", nil},
 		{"loaded from outside the root", []change{{"../shared/value.txt", modified}}, "v1", []string{"Bundle"}},
 		{"go and tsx", []change{{"app/orders/store.go", modified}, {"app/app.css", modified}}, "v1", []string{"Analyze", "Bundle", "GoBuild"}},
 	}
@@ -111,6 +110,7 @@ func TestRebuildMatrix(t *testing.T) {
 				generate: slices.Contains(tc.want, "Generate"),
 				bundle:   slices.Contains(tc.want, "Bundle"),
 				goBuild:  slices.Contains(tc.want, "GoBuild"),
+				restart:  tc.name == "env",
 			}
 			if ran != want {
 				t.Fatalf("build returned %+v, want %+v", ran, want)
@@ -120,7 +120,7 @@ func TestRebuildMatrix(t *testing.T) {
 }
 
 func TestPlanIgnoresOtherFiles(t *testing.T) {
-	for _, path := range []string{"README.md", "app/logo.png", "app/tifa.yaml", "app/notes.txt", "app/.env", ".envrc"} {
+	for _, path := range []string{"README.md", "app/logo.png", "app/tifa.yaml", "app/notes.txt", "app/.env", ".envrc", ".env.local", ".env.production"} {
 		if s := plan([]change{{path, modified}}, nil); s != (steps{}) {
 			t.Errorf("%s planned %+v, want nothing", path, s)
 		}

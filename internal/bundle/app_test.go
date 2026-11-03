@@ -390,3 +390,22 @@ func TestAppWithoutPublicFilesHasNoHashes(t *testing.T) {
 		t.Errorf("public hashes %v", b.Public)
 	}
 }
+
+// Vite reads no .env: the values of .env are for the program when it starts, and a page gets
+// what it needs from its Load.
+func TestAppReadsNoDotenv(t *testing.T) {
+	root := fakeApp(t, `["es2022"]`)
+	writeTree(t, root, map[string]string{
+		".env":              "VITE_SECRET=from-dotenv\n",
+		".env.production":   "VITE_SECRET=from-dotenv\n",
+		"app/page/page.tsx": "import { page } from './route.gen'\nimport './page.css'\nexport default page + ' ' + import.meta.env.VITE_SECRET\n",
+	})
+	buildApp(t, root)
+	ssr, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(ssr), "from-dotenv") {
+		t.Fatal("the SSR bundle holds a value of .env")
+	}
+}

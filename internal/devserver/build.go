@@ -53,13 +53,14 @@ type change struct {
 	op   op
 }
 
-// steps is the work one rebuild does. Steps always run in the order of the fields.
-type steps struct{ analyze, generate, bundle, goBuild bool }
+// steps is the work one rebuild does. Steps always run in the order of the fields. restart builds
+// nothing: the app starts again, as it does after every build but one of the bundle alone.
+type steps struct{ analyze, generate, bundle, goBuild, restart bool }
 
-var everything = steps{true, true, true, true}
+var everything = steps{analyze: true, generate: true, bundle: true, goBuild: true}
 
 func (s steps) or(t steps) steps {
-	return steps{s.analyze || t.analyze, s.generate || t.generate, s.bundle || t.bundle, s.goBuild || t.goBuild}
+	return steps{s.analyze || t.analyze, s.generate || t.generate, s.bundle || t.bundle, s.goBuild || t.goBuild, s.restart || t.restart}
 }
 
 type kind int
@@ -67,8 +68,9 @@ type kind int
 const (
 	other    kind = iota
 	goSource      // .go, go.mod, go.sum
-	frontend      // TypeScript, JavaScript, CSS and JSON imported by them, Vite's .env files, and what Vite loads from outside the root
+	frontend      // TypeScript, JavaScript, CSS and JSON imported by them, and what Vite loads from outside the root
 	config        // tifa.yaml in the application directory
+	dotenv        // .env in the application directory, which the app reads when it starts
 )
 
 func kindOf(p string) kind {
@@ -84,11 +86,7 @@ func kindOf(p string) kind {
 	case "go.mod", "go.sum":
 		return goSource
 	case ".env":
-		return frontend
-	}
-	if strings.HasPrefix(p, ".env.") && !strings.Contains(p, "/") {
-		// .env.local, .env.production and the like, which Vite loads into import.meta.env.
-		return frontend
+		return dotenv
 	}
 	switch path.Ext(p) {
 	case ".go":
@@ -111,6 +109,7 @@ func kindOf(p string) kind {
 //     analysis too. An embedded front end file needs the bundle as well.
 //   - A restart of Vite's dev server needs a new bundle, as a file outside the root may have
 //     changed meanwhile with no event.
+//   - .env needs only a restart of the app, which reads it when it starts.
 func plan(changes []change, embedded func(rel string) bool) steps {
 	var s steps
 	for _, c := range changes {
@@ -128,12 +127,14 @@ func plan(changes []change, embedded func(rel string) bool) steps {
 		case goSource:
 			s.analyze, s.goBuild = true, true
 		case config:
-			s = everything
+			s = s.or(everything)
+		case dotenv:
+			s.restart = true
 		case frontend:
 			s.bundle = true
 			base := path.Base(c.path)
 			if c.op != modified && (base == "page.tsx" || base == "layout.tsx" || base == "layout_.tsx") {
-				s = everything
+				s = s.or(everything)
 			}
 		}
 	}
