@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -20,7 +21,9 @@ const (
 // checkShopSignIn starts the shop as it is deployed, without SHOP_OPEN, and checks that the
 // workbench needs the demo account and the storefront does not.
 func checkShopSignIn(t *testing.T, exe, buildID string) {
+	// t.Setenv restores SHOP_OPEN when the test ends. An empty SHOP_OPEN would be an invalid bool.
 	t.Setenv("SHOP_OPEN", "")
+	os.Unsetenv("SHOP_OPEN")
 	base, _, _ := start(t, exe)
 	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	send := func(method, path, cookie, body string, header ...string) (int, http.Header, string) {
