@@ -1,0 +1,48 @@
+{
+  "notes": [
+    {
+      "id": "a/one",
+      "slug": "一",
+      "path": "a/一",
+      "group": "a/one",
+      "words": 10,
+      "source": "content/notes/a/one/index.md",
+      "data": {
+        "title": "One"
+      }
+    },
+    {
+      "id": "a/two",
+      "slug": "two",
+      "path": "a/two",
+      "group": "a/two",
+      "words": 6,
+      "source": "content/notes/a/two.md",
+      "data": {
+        "title": "Two"
+      }
+    },
+    {
+      "id": "b/c/three",
+      "slug": "three",
+      "path": "b/c/three",
+      "group": "b/c/three",
+      "words": 5,
+      "source": "content/notes/b/c/three/index.md",
+      "data": {
+        "title": "Three"
+      }
+    },
+    {
+      "id": "index",
+      "slug": "index",
+      "path": "index",
+      "group": "index",
+      "words": 15,
+      "source": "content/notes/index.md",
+      "data": {
+        "title": "Home"
+      }
+    }
+  ]
+}
