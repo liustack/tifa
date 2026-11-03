@@ -287,17 +287,30 @@ func TestDevWarnsAboutAPageThatRendersDifferently(t *testing.T) {
 		text, path string
 		warned     bool
 		render     string // X-Tifa-Render of the second request
+		// read is where the warning says the app read the time, from the source map of the bundle,
+		// which maps the bundle to app/page.tsx when read is set.
+		read string
 	}{
-		{"dev, random", true, `' + Math.random() + '`, "/stats", true, "vm"},
-		{"dev, steady", true, "same", "/stats", false, "cache"},
-		{"dev, RenderCache = false", true, `' + Math.random() + '`, "/live", false, "vm"},
-		{"built, random", false, `' + Math.random() + '`, "/stats", false, "cache"},
+		{"dev, random", true, `' + Math.random() + '`, "/stats", true, "vm", ""},
+		{"dev, random, with a source map", true, `' + Math.random() + '`, "/stats", true, "vm", "Math.random() at app/page.tsx:1:1"},
+		// A page that shows the time to the minute renders the same twice in a row, almost always: the
+		// second render runs with the clock moved on.
+		{"dev, the time to the minute", true, `' + new Date().toISOString().slice(0, 16) + '`, "/stats", true, "vm", "new Date() at app/page.tsx:1:1"},
+		{"dev, steady", true, "same", "/stats", false, "cache", ""},
+		{"dev, RenderCache = false", true, `' + Math.random() + '`, "/live", false, "vm", ""},
+		{"built, random", false, `' + Math.random() + '`, "/stats", false, "cache", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var logs syncBuffer
 			log.SetOutput(&logs)
 			dir := t.TempDir()
 			writeBundle(t, dir, tc.text)
+			if tc.read != "" {
+				sourceMap := `{"version":3,"sources":["app/page.tsx"],"names":[],"mappings":"AAAA"}`
+				if err := os.WriteFile(filepath.Join(dir, "ssr.js.map"), []byte(sourceMap), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
 			base := serveApp(t, app, tc.dev, "--dist", dir)
 			var second *http.Response
 			var body string
@@ -318,6 +331,9 @@ func TestDevWarnsAboutAPageThatRendersDifferently(t *testing.T) {
 			}
 			if tc.warned && (!strings.Contains(body, "RenderCache = false") || !strings.Contains(logs.String(), "<p>")) {
 				t.Errorf("the warning names no fix or no place:\n%s\n%s", body, logs.String())
+			}
+			if tc.read != "" && (!strings.Contains(body, tc.read) || !strings.Contains(logs.String(), tc.read)) {
+				t.Errorf("the warning does not say %q:\n%s\n%s", tc.read, body, logs.String())
 			}
 			if got := second.Header.Get("X-Tifa-Render"); got != tc.render {
 				t.Errorf("second request rendered by %q, want %q", got, tc.render)

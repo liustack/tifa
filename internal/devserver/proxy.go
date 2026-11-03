@@ -97,12 +97,13 @@ type retryTransport struct {
 }
 
 // send makes one attempt and tags a response with the build that was running when the attempt
-// started. Only that app listens: the next one starts after it stopped.
+// started. Only that app listens: the next one starts after it stopped. The Server-Timing of the
+// app, the age of the data of a page among it, stays.
 func (t *retryTransport) send(req *http.Request) (*http.Response, error) {
 	v := t.timing()
 	resp, err := t.base.RoundTrip(req)
 	if err == nil {
-		resp.Header.Set("Server-Timing", v)
+		resp.Header.Add("Server-Timing", v)
 	}
 	return resp, err
 }

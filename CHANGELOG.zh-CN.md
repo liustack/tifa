@@ -63,6 +63,7 @@
 - 服务端渲染改用 slowjs v0.29.3，HTML 不变。页面卡在一次很长的调用里时，渲染超时（`ssr.timeout`）现在几次轮询之内就能让它停下，包括：遍历字符串、数组、Map 或 Set 而每项不调用别的函数（`Object.fromEntries`、展开 Set、`Iterator.prototype.toArray`、`Set` 的各个方法），用字符串做模式的 `replace` 或 `replaceAll`，切出一百万字符以上的 `slice`、`substring`、`trim` 或 `split`，以及键有几百万字符的 Map 或 Set 操作。以前这样的调用要跑到结束，或跑到 VM 被强制终止。
 - 服务端渲染改用 slowjs v0.29.2，HTML 不变。页面卡在一次很长的 `split`、`padStart`、`padEnd`、`trim`、`isWellFormed`、`toWellFormed`、`encodeURI`、`decodeURI` 一类调用、`Array.from` 或类型化数组构造里，或在拼接、比较用 `+` 拼出的长字符串时，渲染超时（`ssr.timeout`）现在几千个字符或元素之内就能让它停下，以前要跑到这次调用结束。对象展开（`{...o}`）、解构的剩余部分和 `Object.assign` 和 Node 一样，轮到每个键时再查一次：前面的 getter 删掉后面的键或把它改成不可枚举，这个键不再被复制，把后面的键改成可枚举，这个键会被复制。
 - 服务端渲染改用 slowjs v0.29 的 C 引擎，它是唯一的引擎：用 C 写的 QuickJS，编译成随模块发布的 Go 汇编。构建不需要 C 编译器，`CGO_ENABLED=0` 照旧。页面渲染出的 HTML 一样，用的时间更少（见下面的性能）。应用能看到的变化：
+- `tifa dev` 第二次渲染页面时把时钟往后拨 36 小时，显示日期、精确到分钟的时间或「3 小时前」的页面也查得出来，以前连着渲染两次几乎查不出。提示里还按文件和行列出你的代码读时间或随机数（`Date.now()`、`new Date()`、`Date()`、`Math.random()`、`crypto`）的位置，React、TanStack Router 和 tifa 自己的读取不列（见[日志](docs/dev.zh-CN.md#日志)）。
   - 应用只能为 linux/amd64 和 darwin/arm64 构建。为别的目标构建，比如 windows、darwin/amd64 或 linux/arm64，会停在 slowjs 报的错上，错误里写明这两个平台。
   - 一次渲染里 `JSON.parse` 最多嵌套 2000 层，数据嵌套更深的页面原来能渲染，现在会失败，报 `RangeError: JSON nesting too deep`。
   - `ssr.vm_stack_depth` 默认仍是 10000，最大也仍是 10000。它现在数的是调用次数，原来的引擎数的是自己栈上的槽位。渲染里普通递归能到的深度仍和 Node 一样。无限递归的渲染让进程在 linux/amd64 上最多涨 26 MB，在 darwin/arm64 上涨 14 MB，原来最多涨 24 MB 的 goroutine 栈（见[栈深度](docs/config.zh-CN.md#栈深度)）。
@@ -158,6 +159,7 @@
 - 公共目录的文件有了 ETag，浏览器重新验证时拿到 304，不再整个重下。这些文件带 `Cache-Control: no-cache`，但嵌进程序的副本没有修改时间，也没有 ETag，每次验证都把文件完整下载一遍。现在 `tifa build` 把每个公共文件的内容哈希写进 `build.json`，服务器把它作为强 ETag 发出，文件压缩后发出时变成弱 ETag（`W/"…"`）。浏览器包的文件不变，`tifa dev` 照旧用它所服务文件的修改时间。
 - quickjs v0.26.17：Intl 按 ECMA-402 转换选项、值和语言列表，该给字符串或数字的地方给了 Symbol 或 BigInt 会抛 `TypeError`，`Intl.NumberFormat` 格式化包装起来的 BigInt 时不再经过 double 舍入，而是原样精确输出。页面改了 `Array.prototype`、`JSON` 或别的内置对象，不再影响 Intl。Intl 的函数和内置函数的样子一样，格式化器由进程里所有 VM 共用，所以用过 Intl 的 VM 少占几 KB。
 - SSR bundle 保持 React DOM 每一行的位置不变，渲染报错栈里的位置指向正确的行。
+- 页面里不再带数据加载的时间。TanStack Router 把渲染时的时间写进每个页面，所以 `tifa dev` 说每个开了渲染缓存的页面都读了时间，渲染缓存还把第一次渲染的时间给了之后的访客，他们回到页面时浏览器会丢掉本来能留着的数据。现在页面里写固定的时间，响应在 `Server-Timing: tifa-age;dur=<毫秒>` 里说明数据可能有多旧，浏览器把发出请求的时间减去这个时长当作数据加载的时间。只有每个缓存都得先问服务器才能重用的响应才带它，所以整页缓存给的页面，以及 `Cache-Control` 允许缓存存下来的页面，都不带。响应不带它或浏览器读不到它时（Firefox 走普通 HTTP，或者从前进后退历史打开的页面），数据按旧数据处理，回到页面时重新加载（见 [SSR 与缓存](docs/app.zh-CN.md#ssr-与缓存)）。
 
 ## 2026-10-19
 

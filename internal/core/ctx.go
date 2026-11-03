@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"time"
 )
 
 type mode int
@@ -35,6 +36,8 @@ type request struct {
 	body  *watchedBody  // nil when the request has no body
 	orig  *http.Request // the request the server got, whose Body SetBodyLimit sets with the one of each copy
 	loads map[uintptr]*loadCall
+	// loadsStart is when the first Load of the request started, zero before one did (see StartLoads).
+	loadsStart time.Time
 	// copies made by WithContext. net/http only removes the multipart temp files of the original request.
 	copies []*http.Request
 	sess   sessionState

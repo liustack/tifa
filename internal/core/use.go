@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"runtime/debug"
+	"time"
 )
 
 type loadCall struct {
@@ -29,6 +30,7 @@ func Use[T any](c *Ctx, load func(*Ctx) (T, error)) (T, error) {
 	if !running {
 		call = &loadCall{done: make(chan struct{})}
 		c.req.loads[key] = call
+		c.req.startLoad()
 	}
 	c.req.mu.Unlock()
 	if running {
@@ -44,6 +46,24 @@ func Use[T any](c *Ctx, load func(*Ctx) (T, error)) (T, error) {
 	}
 	value, _ := call.value.(T) // a nil interface result stays the zero value
 	return value, nil
+}
+
+// startLoad notes that a Load of the request starts now, unless one started before. The caller
+// holds r.mu.
+func (r *request) startLoad() {
+	if r.loadsStart.IsZero() {
+		r.loadsStart = time.Now()
+	}
+}
+
+// StartLoads notes that the Loads of a page start now and returns when the first Load of the
+// request started: now, or earlier for a Load that OnRequest ran through Use. The data of the page
+// is no older than that.
+func StartLoads(c *Ctx) time.Time {
+	c.req.mu.Lock()
+	defer c.req.mu.Unlock()
+	c.req.startLoad()
+	return c.req.loadsStart
 }
 
 func run[T any](c *Ctx, load func(*Ctx) (T, error)) (value any, err error) {

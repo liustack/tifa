@@ -170,11 +170,27 @@ test('the module preloads Go gives for the matched routes follow the asset tags'
   const preload = '<link rel="modulepreload" href="/assets/chunk-team.js"><link rel="modulepreload" href="/assets/chunk-one.js">'
   const html = await render('/teams/x/one', data, preload)
   contains(html, '<script type="module" src="/assets/app.js"></script>' + preload + '<!--tifa-head-->')
-  // Without preloads the document is the one written before there were any, apart from the
-  // times the router stamps its matches with.
-  const stamps = (page: string) => page.replace(/\bu:\d+/g, 'u:0')
+  // Without preloads the document is the one written before there were any.
   const plain = await render('/teams/x/one', data)
-  assert(stamps(html.replace(preload, '')) === stamps(plain), `the preloads change more than their place:\n${html}\n${plain}`)
+  assert(html.replace(preload, '') === plain, `the preloads change more than their place:\n${html}\n${plain}`)
+})
+
+// The router stamps each match with the time it loaded and writes that time into the page. The
+// render writes 0 instead, so the page is a function of its input, which the render cache and
+// the ETag stand on, and the browser dates the matches itself.
+test('two renders of the same data at different times write the same page', async () => {
+  const data = { ...appData, 'app/teams/team+/layout': ok('x'), 'app/teams/team+/one/route': ok('one') }
+  const first = await render('/teams/x/one', data)
+  const now = Date.now
+  Date.now = () => now() + 130033000
+  let second: string
+  try {
+    second = await render('/teams/x/one', data)
+  } finally {
+    Date.now = now
+  }
+  assert(first === second, `the pages differ:\n${first}\n${second}`)
+  assert(/\bu:0\b/.test(first) && !/\bu:[1-9]/.test(first), `the matches carry a time: ${first}`)
 })
 
 test('the head holds the tags of the deepest route, escaped', async () => {
@@ -619,9 +635,6 @@ test('loader JSON text reaches the page as it was given, and the browser reads t
 // rendered without a nonce, byte for byte, and the browser reads the same data from it.
 const slotNonce = '0123456789abcdef0123456789abcdef'
 
-// The router writes the time of the render into each match, so two renders differ there.
-const sameTime = (html: string) => html.replace(/u:\d{13}/g, 'u:0')
-
 test('with a nonce the data text is a slot, and the rest of the page is the page without one', async () => {
   const url = '/teams/x/one'
   const texts = [
@@ -634,8 +647,8 @@ test('with a nonce the data text is a slot, and the rest of the page is the page
     'app/teams/team+/layout': { status: 200, json: texts[1] },
     'app/teams/team+/one/route': { status: 200, json: texts[2] },
   }
-  const plain = sameTime(await render(url, data))
-  const slotted = sameTime(await render(url, data, undefined, slotNonce, 0))
+  const plain = await render(url, data)
+  const slotted = await render(url, data, undefined, slotNonce, 0)
   const slots = texts.map((_, number) => `~${slotNonce}.${number}.`)
   for (const slot of slots) contains(slotted, `$_TSR.t.get("tifa.data")("${slot}")`)
   lacks(slotted, 'quote', 'accent', 'emoji')
@@ -714,8 +727,8 @@ test('only a long text becomes a slot', async () => {
 // in the page, nonce or not. Only an object or an array is a slot.
 test('a nonce changes nothing for data that is no object', async () => {
   const data = { 'app/layout': { status: 200, json: '"a \\"string\\" with </script>"' }, 'app/teams/team+/layout': { status: 200, json: '42' }, 'app/teams/team+/one/route': { status: 200, json: 'null' } }
-  const plain = sameTime(await render('/teams/x/one', data))
-  const slots = sameTime(await render('/teams/x/one', data, undefined, slotNonce, 0))
+  const plain = await render('/teams/x/one', data)
+  const slots = await render('/teams/x/one', data, undefined, slotNonce, 0)
   assert(plain === slots, 'the pages differ')
   lacks(slots, slotNonce)
 })

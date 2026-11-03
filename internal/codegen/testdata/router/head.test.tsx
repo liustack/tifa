@@ -382,6 +382,47 @@ test('what scripts of the page set on <html> stays until a route changes that at
   })
 })
 
+// The server writes 0 as the time each match loaded at, and the hydrated router keeps it, so React
+// hydrates what the server rendered. Just before the router first loads or preloads, it dates them
+// by the age of the data Go sends in Server-Timing, counted back from when the browser sent the
+// request, and leaves them at 0, data of unknown age, when it cannot read the age or the page came
+// from the history.
+test('a hydrated page dates its matches by the age of its data', async () => {
+  const real = performance.getEntriesByType
+  const navigation = (entry: object) => {
+    ;(performance as any).getEntriesByType = (type: string) => (type === 'navigation' ? [entry] : [])
+  }
+  const dates = async () => {
+    const { router } = await takeOverPage('hello.html', '/hello')
+    const matches = router.stores.matches.get()
+    const hydrated = matches.map((match: { updatedAt: number }) => match.updatedAt)
+    assert(hydrated.length > 1 && hydrated.every((at: number) => at === 0), `hydrated with dates ${hydrated}`)
+    // The first load or preload dates them, here a preload of another page.
+    await router.preloadRoute({ to: '/a/one' })
+    return matches.map((match: { updatedAt: number }) => match.updatedAt)
+  }
+  const age = { name: 'tifa-age', duration: 30, description: '' }
+  try {
+    await withDocument(async () => {
+      navigation({ type: 'navigate', requestStart: 120, serverTiming: [{ name: 'tifa-dev', duration: 0, description: 'v1' }, age] })
+      const dated = await dates()
+      const want = performance.timeOrigin + 120 - 30
+      assert(dated.length > 1 && dated.every((at) => at === want), `dates ${dated}, want ${want}`)
+      for (const entry of [
+        { type: 'navigate', requestStart: 120 },
+        { type: 'navigate', requestStart: 120, serverTiming: [] },
+        { type: 'back_forward', requestStart: 120, serverTiming: [age] },
+      ]) {
+        navigation(entry)
+        const undated = await dates()
+        assert(undated.length > 1 && undated.every((at) => at === 0), `dates ${undated} for ${JSON.stringify(entry)}`)
+      }
+    })
+  } finally {
+    performance.getEntriesByType = real
+  }
+})
+
 test('the head follows data the router refetches in the background', async () => {
   await withDocument(async () => {
     let team = 'x'

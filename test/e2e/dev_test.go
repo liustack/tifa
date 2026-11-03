@@ -239,6 +239,10 @@ func TestDev(t *testing.T) {
 	v1 := d.waitStatus(t, func(st devStatus) bool { return st.Version != "" && st.Error == "" }).Version
 	expectBody(t, d.base+"/", "North shop")
 	expectNoErrors(t, dir, "after the first build")
+	// The browser reads the age of the data of the page next to the build tifa dev names, and the
+	// hydration reports nothing.
+	expectDatesInBrowser(t, "tifa-e2e-da", d.base+"/shops/north", true, "tifa-dev", "tifa-dev-render")
+	expectNoErrors(t, dir, "after a browser opened a page")
 
 	// Pages load the modules from Vite's dev server, with the React refresh preamble first.
 	expectBody(t, d.base+"/", `import { injectIntoGlobalHook } from "/__tifa/vite/@react-refresh"`)
@@ -680,21 +684,16 @@ func tifaErrors(t *testing.T, dir string, asJSON bool) (int, string) {
 	return 0, ""
 }
 
-// expectNoErrors checks that tifa errors reports no failure, request error or browser error. A
-// page may be listed as rendering differently: TanStack Router writes the time each match loaded
-// (updatedAt) into the page, so the two renders of tifa dev differ when a millisecond passes
-// between them.
+// expectNoErrors checks that tifa errors reports no failure, request error, browser error or page
+// whose two renders differ.
 func expectNoErrors(t *testing.T, dir, when string) {
 	t.Helper()
 	code, out := tifaErrors(t, dir, true)
 	var r deverrors.Report
-	err := json.Unmarshal([]byte(out), &r)
-	if err != nil || r.Failure != nil || len(r.Requests) != 0 || len(r.Browser) != 0 || (code == 0) != r.Empty() {
+	if err := json.Unmarshal([]byte(out), &r); err != nil || code != 0 || !r.Empty() {
 		t.Fatalf("tifa errors %s: %d %v\n%s", when, code, err, out)
 	}
-	if r.Empty() {
-		if code, out := tifaErrors(t, dir, false); code != 0 || out != "No errors since the last build.\n" {
-			t.Fatalf("tifa errors %s: %d %s", when, code, out)
-		}
+	if code, out := tifaErrors(t, dir, false); code != 0 || out != "No errors since the last build.\n" {
+		t.Fatalf("tifa errors %s: %d %s", when, code, out)
 	}
 }

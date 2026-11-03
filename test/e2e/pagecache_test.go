@@ -346,4 +346,6 @@ func pageCacheInBrowser(t *testing.T, base string) {
 	if out := pw("eval", `() => document.getElementById("news")?.textContent ?? ""`); !strings.Contains(out, "page=2") {
 		t.Errorf("page text %s", out)
 	}
+	// A page of the whole-page cache may come from a CDN, so it carries no age and stays undated.
+	expectDatesInBrowser(t, "tifa-e2e-ca", base+"/news", false)
 }

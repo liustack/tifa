@@ -7,10 +7,9 @@ package ssr_test
 //	TIFA_SSR_CRAWL=write:/tmp/pages-a TIFA_SSR_CRAWL_BIN=$PWD/examples/shop/bin/shop-a go test -run ShopCrawl -v ./test/ssr
 //	TIFA_SSR_CRAWL=compare:/tmp/pages-a TIFA_SSR_CRAWL_BIN=$PWD/examples/shop/bin/shop-b go test -run ShopCrawl -v ./test/ssr
 //
-// TIFA_SSR_CRAWL_BIN is the program (default bin/shop of examples/shop). A page carries the time its data was
-// loaded (the router's "u:" in milliseconds) and the loaders of the shop write the time they ran into some
-// pages as RFC 3339 text, so a page that differs only there counts as the same after those times are masked,
-// and the run says how many it masked. Any other difference fails the test and
+// TIFA_SSR_CRAWL_BIN is the program (default bin/shop of examples/shop). The loaders of the shop write the
+// time they ran into some pages as RFC 3339 text, so a page that differs only there counts as the same after
+// those times are masked, and the run says how many it masked. Any other difference fails the test and
 // names the URL.
 
 import (
@@ -40,9 +39,8 @@ const crawlLimit = 160
 var (
 	crawlHref = regexp.MustCompile(`href="(/(?:store|projects)[^"#]*)"`)
 	// crawlStamp matches the times that differ between two runs of the same program: RFC 3339 text
-	// from the Go loaders, and the "u:" field of the router's state in the page, the Unix time in
-	// milliseconds at which a route's data was loaded.
-	crawlStamp = regexp.MustCompile(`20\d\d-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)|\bu:1\d{12}\b`)
+	// from the Go loaders, which is data of the app.
+	crawlStamp = regexp.MustCompile(`20\d\d-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)`)
 )
 
 // crawlName is the file a URL is kept in.
@@ -75,9 +73,9 @@ func TestCrawlHelpers(t *testing.T) {
 	if len(got) != 2 || got[0] != "/store/en-US/products?color=moss&sort=price-asc" || got[1] != "/projects/studio" {
 		t.Errorf("links = %q", got)
 	}
-	a := []byte("<p>2026-06-01T08:00:00Z and 2026-06-02T09:10:11.123+08:00</p>{i:\"__root__#\",u:1793200923427,s:1}")
-	b := []byte("<p>2026-07-09T01:02:03Z and 2026-07-10T02:03:04.5+08:00</p>{i:\"__root__#\",u:1793200987768,s:1}")
-	if v, n := crawlSame(a, b); v != "masked" || n != 3 {
+	a := []byte("<p>2026-06-01T08:00:00Z and 2026-06-02T09:10:11.123+08:00</p>{i:\"__root__#\",u:0,s:1}")
+	b := []byte("<p>2026-07-09T01:02:03Z and 2026-07-10T02:03:04.5+08:00</p>{i:\"__root__#\",u:0,s:1}")
+	if v, n := crawlSame(a, b); v != "masked" || n != 2 {
 		t.Errorf("same = %s %d", v, n)
 	}
 	if v, _ := crawlSame(a, a); v != "same" {
@@ -85,6 +83,11 @@ func TestCrawlHelpers(t *testing.T) {
 	}
 	if v, _ := crawlSame(a, []byte("<p>other</p>")); v != "differ" {
 		t.Errorf("same = %s", v)
+	}
+	// The time the router stamps a match with is no data of the app: a page that carries one differs.
+	stamped := []byte("<p>2026-06-01T08:00:00Z and 2026-06-02T09:10:11.123+08:00</p>{i:\"__root__#\",u:1793200923427,s:1}")
+	if v, _ := crawlSame(a, stamped); v != "differ" {
+		t.Errorf("same = %s for a page with a load time", v)
 	}
 	if crawlName("/a") == crawlName("/b") || !strings.HasSuffix(crawlName("/a"), ".html") {
 		t.Error("crawlName")
