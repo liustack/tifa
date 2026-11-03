@@ -20,6 +20,8 @@ tifa dev [--dir 应用根目录] [--addr 127.0.0.1:9527]
 
 tifa dev 暂不支持 Windows，请用 WSL。
 
+同一个应用里再启动一个 `tifa dev` 会启动不了：它在启动 Vite 之前打印 `tifa: tifa dev is already running in this app at http://<地址> (pid <N>)` 并报错退出。有 tifa dev 在运行时 `tifa build` 也会这样停下，因为两者都写 `.tifa/dist`。锁是 `.tifa/dev.lock`，持有它的进程一结束锁就没了。没传 `--addr` 时，9527 被占用，tifa dev 就依次试 9528 往后，一共十个端口，`serving` 那一行写出实际用的地址。传了 `--addr` 就严格用这个地址，被占用就报错。
+
 tifa dev 提供明文 HTTP。项目文件里的 [HTTPS 配置](config.zh-CN.md#https)只对构建出的程序生效，开发程序不管它们。
 
 ## Vite

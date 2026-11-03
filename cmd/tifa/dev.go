@@ -54,6 +54,27 @@ build keeps the running app and shows the error in the page.`,
 			if err := checkInstalled(root); err != nil {
 				return err
 			}
+			// Everything below writes into .tifa, so the lock comes first.
+			lock, err := lockApp(root)
+			var busy *busyError
+			// Only tifa dev records an address: a holder without one may be tifa build.
+			if errors.As(err, &busy) && busy.holder.URL != "" {
+				return errors.New("tifa dev is already running in this app " + busy.Detail())
+			}
+			if err != nil {
+				return err
+			}
+			defer lock.Close()
+			// Without --addr the default port moves on when taken. A named address does not.
+			ln, err := listenDev(addr, cmd.Flags().Changed("addr"))
+			if err != nil {
+				return err
+			}
+			defer ln.Close()
+			if err := lock.SetURL("http://" + ln.Addr().String()); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.ErrOrStderr(), "tifa dev: serving http://%s\n", ln.Addr())
 			settings, err := codegen.ProjectSettings(root)
 			if err != nil {
 				return err
@@ -79,11 +100,6 @@ build keeps the running app and shows the error in the page.`,
 			}
 			defer front.Close()
 			exe := filepath.Join(root, devOutput, "tifa-dev")
-			ln, err := net.Listen("tcp", addr)
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.ErrOrStderr(), "tifa dev: serving http://%s\n", ln.Addr())
 			return devserver.Run(ctx, ln, devserver.Options{
 				Dir:     root,
 				Ignore:  []string{devOutput},

@@ -118,7 +118,10 @@ func projectConfig(root string) (name string, data []byte, err error) {
 // DistDir is the directory under Dir that the bundle step owns. Write leaves it alone.
 const DistDir = "dist"
 
-// Write makes root/.tifa hold exactly files besides dist/: it writes the files whose content
+// LockFile is the file under Dir that tifa dev and tifa build lock, see cmd/tifa. Write leaves it alone.
+const LockFile = "dev.lock"
+
+// Write makes root/.tifa hold exactly files besides dist/ and the lock file: it writes the files whose content
 // changed and removes the files that are no longer generated, so tools watching the directory
 // see only real changes.
 func Write(root string, files map[string][]byte) error {
@@ -140,6 +143,9 @@ func Write(root string, files map[string][]byte) error {
 		rel, err := filepath.Rel(dir, path)
 		if err != nil {
 			return err
+		}
+		if rel == LockFile {
+			return nil
 		}
 		if _, ok := files[filepath.ToSlash(rel)]; !ok {
 			stale = append(stale, path)
