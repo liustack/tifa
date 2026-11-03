@@ -16,6 +16,8 @@ import type { SessionEnvelope } from './session'
 // chain says which Loads a path has: the IDs of the routes with a Go Load that the router matches
 // there, from the root Layout down, which is what a data request counts its digits against.
 export interface RouterContext {
+  // False in a server render.
+  browser: boolean
   source: Source
   chain: (pathname: string) => string[]
 }
@@ -50,6 +52,7 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
 ) {
   const { buildId, serverURL, onHydrate, sessionKey, session } = options
   const context: RouterContext = {
+    browser: serverURL === undefined,
     source,
     chain: (pathname) => loadsAt(router, pathname),
   }
@@ -178,14 +181,23 @@ interface RootData {
 // under /__tifa/. A router that took one for a page, as /favicon.svg is for an app with a
 // parameter folder at the root of app/, would ask for navigation data instead of the file.
 function servedByGo(publicPaths: readonly string[], pathname: string) {
-  return pathname.startsWith('/assets/') || pathname.startsWith('/__tifa/') || publicPaths.includes(pathname)
+  if (pathname.startsWith('/assets/') || pathname.startsWith('/__tifa/')) return true
+  // The router keeps the path escaped, the list holds the names of the files, and Go compares the
+  // decoded path. A malformed escape names no file.
+  try {
+    return publicPaths.includes(decodeURIComponent(pathname))
+  } catch {
+    return false
+  }
 }
 
 // leave is the beforeLoad of the root route. A navigation in the browser to a path Go serves as a
-// file loads the document instead, and so does a preload of it, which the router drops.
+// file loads the document instead, and so does a preload of it, which the router drops. A server
+// render does not: Go renders a path under /assets/ or /__tifa/ that no file answers, and a page
+// may live there, so a redirect would send the browser to the same URL again and again.
 export function leave(publicPaths: readonly string[]) {
-  return ({ location }: { location: { pathname: string; href: string } }) => {
-    if (servedByGo(publicPaths, location.pathname)) throw redirect({ href: location.href, reloadDocument: true })
+  return ({ context, location }: { context: RouterContext; location: { pathname: string; href: string } }) => {
+    if (context.browser && servedByGo(publicPaths, location.pathname)) throw redirect({ href: location.href, reloadDocument: true })
   }
 }
 

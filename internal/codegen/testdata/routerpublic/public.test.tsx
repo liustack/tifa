@@ -1,9 +1,12 @@
 // Run by TestGeneratedRouterLeavesPublicFiles in Node, against the route tree generated for this
 // app: a parameter folder at the root of app/, so /favicon.svg also matches /{lang}.
 import { createMemoryHistory, isRedirect } from '@tanstack/react-router'
-import { routeTree } from './.tifa/routes'
+import { htmlAttributes, routeTree } from './.tifa/routes'
 import { createAppRouter, isPage } from './.tifa/runtime/router'
+import { serve } from './.tifa/runtime/server'
 import type { RouteResult } from './.tifa/runtime/data'
+
+serve(routeTree, htmlAttributes)
 
 const tests: Array<[string, () => Promise<void>]> = []
 const test = (name: string, fn: () => Promise<void>) => tests.push([name, fn])
@@ -68,13 +71,15 @@ test('navigating to a public file asks for a document load and for no data', asy
   const beforeLoad = (routeTree.options as { beforeLoad: (a: unknown) => void }).beforeLoad
   let thrown: unknown
   try {
-    beforeLoad({ location: { pathname: '/favicon.svg', href: '/favicon.svg?v=1' } })
+    beforeLoad({ context: { browser: true }, location: { pathname: '/favicon.svg', href: '/favicon.svg?v=1' } })
   } catch (error) {
     thrown = error
   }
   const options = (thrown as { options?: { href?: string; reloadDocument?: boolean } } | undefined)?.options
   assert(isRedirect(thrown) && options?.reloadDocument === true && options.href === '/favicon.svg?v=1', `threw ${JSON.stringify(options)}`)
-  beforeLoad({ location: { pathname: '/about', href: '/about' } })
+  beforeLoad({ context: { browser: true }, location: { pathname: '/about', href: '/about' } })
+  // A server render has nowhere to go: Go renders what no file answers.
+  beforeLoad({ context: { browser: false }, location: { pathname: '/favicon.svg', href: '/favicon.svg' } })
 })
 
 
@@ -92,6 +97,36 @@ test('preloading a public file asks for no data and loads no document', async ()
   await router.preloadRoute({ to: '/favicon.svg' as never })
   assert(calls.length === 0, `asked for ${JSON.stringify(calls)}`)
   assert(documents.length === 0, `documents ${JSON.stringify(documents)}`)
+})
+
+// The router keeps the path as the browser writes it, with reserved characters escaped, while the
+// list holds the names of the files. Go compares the decoded path.
+test('a public file with reserved characters in its name is no page', async () => {
+  const { router } = await client('/en')
+  for (const path of ['/a%23b.txt', '/a%25b.txt', '/a%3Fb.txt', '/a%20b.txt', '/%E4%B8%AD%E6%96%87.txt'])
+    assert(!isPage(router, path), `${path} is a page`)
+  // A path that merely looks like one is still a page.
+  assert(isPage(router, '/a%2523b'), '/a%2523b is no page')
+})
+
+test('navigating to a public file with a # in its name asks for no data', async () => {
+  const { router, calls } = await client('/en')
+  router.history.push('/a%23b.txt')
+  await router.load()
+  assert(calls.length === 0, `asked for ${JSON.stringify(calls)}`)
+})
+
+// Go renders what no file answers, so the server must not send such a path to a document load,
+// which the browser would then repeat for good.
+test('a render of a path under /assets/ that no file answers redirects nowhere', async () => {
+  for (const url of ['/assets/missing', '/assets/report', '/__tifa/missing']) {
+    globalThis.renderResult = undefined
+    const data = { 'app/assets/report/route': { status: 200, text: 0 }, 'app/lang+/route': { status: 404, error: 'Not Found' } }
+    globalThis.startRender(JSON.stringify({ url, buildId: 'b1', data }), '"report"')
+    for (let i = 0; i < 1000 && globalThis.renderResult === undefined; i++) await new Promise((resolve) => setTimeout(resolve, 0))
+    const result = globalThis.renderResult ?? ''
+    assert(result.startsWith('<'), `${url} gave ${result.slice(0, 200)}`)
+  }
 })
 
 let failed = 0
