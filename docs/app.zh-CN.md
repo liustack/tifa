@@ -223,6 +223,7 @@ export default function PostPage() {
 - 在 TypeScript 里它的类型是 `HTML`，不是 `string`：要字符串的地方（比如当文本用、读 `.length`）TypeScript 会报错。只用 `<HTML>` 显示它。放进 `dangerouslySetInnerHTML` 时 TypeScript 拦不住，而服务器渲染的页面里它在那里只是一个标记。`as` 指定装标记的元素，只能是 `div`、`article`、`section`、`main`、`aside`、`header`、`footer`、`nav`、`figure`、`blockquote`、`li`、`td`、`span` 或 `p`（默认 `div`）。这些元素装的是普通内容。内容会被执行或不当作标记的元素，比如 `script`、`style`、`iframe`、`textarea`，会让过滤 HTML 失去作用，所以别的名字 TypeScript 会报错，`<HTML>` 也会抛错。其他属性都给这个元素，`children` 和 `dangerouslySetInnerHTML` 除外，展开对象带进来的也会被去掉。
 - 服务器渲染的页面里每个值只带一份：在标记里。水合用的数据在它的位置放一个小标记，`<HTML>` 从页面读回标记。所以一篇文章不会发两遍。导航数据和 `SSR = false` 的页面带的是字符串。
 - 所以显示页面里的值时，`<HTML value={...}>` 每次都要在服务器上渲染出来：不要等 effect、点击或只有浏览器才有的状态之后才渲染，也不要放在 `.client.tsx` 组件里。否则浏览器会抛出 `tifa: this tifa.HTML value came with the page, which carries it only in the markup the server rendered, and the server rendered no <HTML> for it here`。
+- 标记里的链接和 `Link` 一样：点击指向应用页面的链接，路由直接显示那个页面，不重新加载整个文档。鼠标悬停或获得焦点 50 ms 后，或者手指一碰，就预加载它。以下情况由浏览器自己跳转：按着修饰键或用别的鼠标键点击，链接的 `target` 不是 `_self`，带 `download` 或 `rel="external"`，指向别的网站或 `mailto:` 这类协议，只是当前页面的 `#锚点`，public 文件，`/assets/` 或 `/__tifa/` 下的路径，以及没有页面的路径（比如 API 路由）。站内某个链接要整页跳转（比如同一域名下不是 tifa 的服务），就写 `rel="external"`。`<HTML>` 只管它自己元素里的链接。写在 `<HTML>` 上的 `onClick` 等处理函数先执行，其中调用了 `event.preventDefault()` 就不走路由。
 - `tifa.HTML` 不能做 map 的键，不能放在方法函数的入参或会话里。那里用 `string`，过滤之后再转换。`Load` 和 `Layout` 不能直接返回一个 `tifa.HTML`，要放进结构体的字段里。
 
 ### 在浏览器里调用方法函数
