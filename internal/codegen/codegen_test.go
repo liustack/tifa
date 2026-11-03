@@ -229,7 +229,7 @@ func TestRemountFollowsTheParametersLoadReads(t *testing.T) {
 	tree := string(files["routes.tsx"])
 	for _, want := range []string{
 		`load<D3>(context, "app/projects/projectId+/route", location, preload),
-  staticData: { load: "app/projects/projectId+/route" },
+  staticData: { page: true, load: "app/projects/projectId+/route" },
   remountDeps: ({ params }) => [params.projectId],`,
 		`remountDeps: ({ params }) => [params.orderId],`,
 		`remountDeps: ({ params }) => [params._splat],`,
@@ -358,8 +358,8 @@ func TestErrorBoundaries(t *testing.T) {
 			t.Errorf("routes.tsx lacks %q:\n%s", want, tree)
 		}
 	}
-	if strings.Contains(tree, "NotFound") || strings.Contains(tree, "beforeLoad") {
-		t.Errorf("the route tree still has a NotFound or beforeLoad:\n%s", tree)
+	if strings.Contains(tree, "NotFound") || strings.Count(tree, "beforeLoad") != 1 {
+		t.Errorf("the route tree has a NotFound, or a beforeLoad besides the root route one:\n%s", tree)
 	}
 }
 

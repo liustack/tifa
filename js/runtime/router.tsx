@@ -162,6 +162,44 @@ export async function load<T>(
   throw new RouteError(result.status, result.error ?? `route ${id} failed with status ${result.status}`)
 }
 
+// PageData is the staticData of a route with a page.tsx. Nothing else carries the marker, so a
+// URL is a page when the route that matches it whole has one.
+interface PageData {
+  page?: true
+}
+
+// RootData is the staticData of the root route: the URL paths of the files in the public folder.
+interface RootData {
+  publicPaths: readonly string[]
+}
+
+// servedByGo says whether Go answers pathname with something other than a page: the files of the
+// public folder, which it serves before it routes, the bundle under /assets/ and what tifa keeps
+// under /__tifa/. A router that took one for a page, as /favicon.svg is for an app with a
+// parameter folder at the root of app/, would ask for navigation data instead of the file.
+function servedByGo(publicPaths: readonly string[], pathname: string) {
+  return pathname.startsWith('/assets/') || pathname.startsWith('/__tifa/') || publicPaths.includes(pathname)
+}
+
+// leave is the beforeLoad of the root route. A navigation in the browser to a path Go serves as a
+// file loads the document instead, and so does a preload of it, which the router drops.
+export function leave(publicPaths: readonly string[]) {
+  return ({ location }: { location: { pathname: string; href: string } }) => {
+    if (servedByGo(publicPaths, location.pathname)) throw redirect({ href: location.href, reloadDocument: true })
+  }
+}
+
+// isPage says whether pathname is a page of the app: a path Go serves as a file is none, nor is a
+// URL that no route with a page matches whole. API routes and URLs that show a 404 are no pages.
+export function isPage(router: AnyRouter, pathname: string): boolean {
+  const { publicPaths } = router.routeTree.options.staticData as RootData
+  if (servedByGo(publicPaths, pathname)) return false
+  // A URL that only starts with the path of a route matches that route with the rest in **.
+  const [, params, found] = router.getMatchedRoutes(pathname)
+  if (params['**'] !== undefined) return false
+  return (found?.options.staticData as PageData | undefined)?.page === true
+}
+
 // notFoundMessage is the public message of a 404, the one Go gives tifa.ErrNotFound.
 const notFoundMessage = 'Not Found'
 
