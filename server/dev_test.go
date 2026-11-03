@@ -289,6 +289,9 @@ func TestDevWarnsAboutAPageThatRendersDifferently(t *testing.T) {
 		render     string // X-Tifa-Render of the second request
 	}{
 		{"dev, random", true, `' + Math.random() + '`, "/stats", true, "vm"},
+		// A page that shows the time to the minute renders the same twice in a row, almost always: the
+		// second render runs with the clock moved on.
+		{"dev, the time to the minute", true, `' + new Date().toISOString().slice(0, 16) + '`, "/stats", true, "vm"},
 		{"dev, steady", true, "same", "/stats", false, "cache"},
 		{"dev, RenderCache = false", true, `' + Math.random() + '`, "/live", false, "vm"},
 		{"built, random", false, `' + Math.random() + '`, "/stats", false, "cache"},

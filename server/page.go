@@ -803,14 +803,21 @@ func (s *server) renderOne(ctx context.Context, f *front, in ssr.Input, twice bo
 	return page, true, nil
 }
 
+// devClockShift is how far tifa dev moves the clock of the second render of a page (see
+// devRenderTwice): more than a day, and not a round number of minutes or hours, so that a page
+// that shows the date, the time to the minute or "3 hours ago" renders differently.
+const devClockShift = 36*time.Hour + 7*time.Minute + 13*time.Second
+
 // devRenderTwice is what tifa dev adds to the render of a page that the render cache keeps: it
-// renders the same input again, and when the HTML differs, the page read the time or a random
-// number while rendering, which the cache would freeze. It then returns the page with the warning
-// in the overlay of the dev client and true, and the terminal gets the warning with the place where
-// the two renders part. The page is not cached, so each request warns until the page is fixed.
-// A second render that fails is left alone: the first one is what the request gets.
+// renders the same input again, with the clock of the VM moved on by devClockShift, and when the
+// HTML differs, the page read the time or a random number while rendering, which the cache would
+// freeze. It then returns the page with the warning in the overlay of the dev client and true, and
+// the terminal gets the warning with the place where the two renders part. The page is not cached,
+// so each request warns until the page is fixed. A second render that fails is left alone: the
+// first one is what the request gets.
 func (s *server) devRenderTwice(ctx context.Context, f *front, in ssr.Input, first, method, path string) (string, bool) {
-	second, err := f.render(ctx, in)
+	later := core.WithRenderClock(ctx, func() time.Time { return time.Now().Add(devClockShift) })
+	second, err := f.render(later, in)
 	if err != nil || second == first {
 		return "", false
 	}
@@ -819,6 +826,7 @@ func (s *server) devRenderTwice(ctx context.Context, f *front, in ssr.Input, fir
 		i++
 	}
 	text := "This page read the time or a random number while rendering, so two renders of the same data differ. " +
+		"tifa dev renders the page a second time with the clock 36 hours on, and the two differ. " +
 		"Change the component so it renders the same, or write RenderCache = false in route.go. " +
 		"The built app would keep the first render for later requests.\n\n" +
 		"First render:  " + around(first, i) + "\nSecond render: " + around(second, i)
