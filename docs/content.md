@@ -208,6 +208,7 @@ func TestTagged(t *testing.T) {
 - `tifatest.LoadContent(t)` finds the app by going up from the current folder to `go.mod`, reads `content/` with the same scan and checks as the build, leaves out drafts, hides entries whose date is to come and runs `Validate`. A problem fails the test with the message the build gives.
 - `tifatest.SetContent(t, c, entries...)` makes the given entries the content of one collection. The fields of `content.Entry` are the ones you write, apart from `Translations`, which links entries with the same ID. Entries dated in the future are hidden. `Validate` does not run.
 - Both put the collections back as they were when the test ends.
+- The collections are shared by the whole test binary, so a test that calls either cannot run in parallel. It fails when the test or one of its parents called `t.Parallel`, and calling `t.Parallel` after it panics.
 - Using a collection in a test without either of them panics:
 
 ```text

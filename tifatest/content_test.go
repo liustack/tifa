@@ -86,6 +86,22 @@ func TestSetContent(t *testing.T) {
 	}
 }
 
+func TestContentRefusesParallelTests(t *testing.T) {
+	for name, f := range map[string]func(testing.TB){
+		"LoadContent": LoadContent,
+		"SetContent":  func(t testing.TB) { SetContent(t, testBlog) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			msg := fatal(t, f)
+			want := "tifatest." + name + ": the content of a collection is shared by the whole test binary, so a test that sets it cannot run in parallel: remove t.Parallel from this test and its parents"
+			if msg != want {
+				t.Errorf("message %q\nwant    %q", msg, want)
+			}
+		})
+	}
+}
+
 // fatal runs f with a testing.TB whose Fatal stops f, and returns the message it got.
 func fatal(t *testing.T, f func(testing.TB)) string {
 	t.Helper()
