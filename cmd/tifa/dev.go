@@ -103,6 +103,7 @@ build keeps the running app and shows the error in the page.`,
 			return devserver.Run(ctx, ln, devserver.Options{
 				Dir:     root,
 				Ignore:  []string{devOutput},
+				Public:  publicDir(settings.Build.Public),
 				App:     []string{exe, "serve", "--dist", filepath.Join(root, codegen.Dir, codegen.DistDir)},
 				Vite:    net.JoinHostPort("127.0.0.1", strconv.Itoa(vitePort)),
 				Outside: outside,
@@ -214,6 +215,15 @@ func (p *devPipeline) GoBuild(ctx context.Context) error {
 		return fmt.Errorf("%s\n%w", strings.TrimSpace(printed), err)
 	}
 	return nil
+}
+
+// publicDir gives build.public as tifa dev watches it: relative to the application directory with
+// forward slashes. A folder outside the application directory is not watched.
+func publicDir(public string) string {
+	if !filepath.IsLocal(public) {
+		return ""
+	}
+	return filepath.ToSlash(filepath.Clean(public))
 }
 
 // fingerprint hashes file names and contents in name order. Lengths keep the boundaries apart.

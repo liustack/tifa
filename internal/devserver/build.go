@@ -141,6 +141,25 @@ func plan(changes []change, embedded func(rel string) bool) steps {
 	return s
 }
 
+// inPublic reports whether rel is a file in the public folder, given relative to the application
+// directory. An empty folder holds nothing.
+func inPublic(public, rel string) bool {
+	return public != "" && strings.HasPrefix(rel, path.Clean(public)+"/")
+}
+
+// planPublic is plan with the public folder: the generated code lists the files in it, so a file
+// that appears or goes needs a new bundle, which generates the code again. Changing the content
+// of one needs nothing more than before.
+func planPublic(changes []change, embedded func(rel string) bool, public string) steps {
+	s := plan(changes, embedded)
+	for _, c := range changes {
+		if c.op != modified && inPublic(public, c.path) {
+			s.bundle = true
+		}
+	}
+	return s
+}
+
 // builder runs the steps of each rebuild against the pipeline and remembers what the next one needs.
 type builder struct {
 	p        Pipeline

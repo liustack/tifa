@@ -37,6 +37,8 @@ type buildPipeline struct {
 	manifest string // what Analyze returns, "routes" when empty
 	// embedded tells which files the program embeds, nothing when nil.
 	embedded func(string) bool
+	// public is the folder of static files for Options.Public.
+	public string
 }
 
 func (p *buildPipeline) step(name string) error {
@@ -138,6 +140,7 @@ func startDev(t *testing.T, failFirst string, setup ...func(*buildPipeline)) *de
 		Outside:     outside,
 		Dir:         dir,
 		App:         fakeAppCommand(t),
+		Public:      p.public,
 		Pipeline:    p,
 		Debounce:    20 * time.Millisecond,
 		StopTimeout: 5 * time.Second,
