@@ -558,7 +558,10 @@ globalThis.grow = (count) => {
 `
 
 // The cache counts the calls of a formatter of the app without adding to each formatter i18next
-// keeps, so a VM grows about as much with the cache as without it.
+// keeps, so a VM grows about as much with the cache as without it. The growth is what the objects
+// that javascript can still reach take, counted one by one. The memory the allocator holds for them
+// also depends on where earlier allocations put them, and moved by 140 KB when the VM got two more
+// functions it never called.
 func TestSSRI18nextCacheAddsNothingToTheFormattersOfI18next(t *testing.T) {
 	grown := func(settings string) int64 {
 		code, _ := i18nextApp(t, copyTestdata(t, "ssr", true), i18nextFormatsPage, settings)
@@ -576,12 +579,12 @@ func TestSSRI18nextCacheAddsNothingToTheFormattersOfI18next(t *testing.T) {
 			t.Fatal(err)
 		}
 		vm.RunGC()
-		before := vm.MemorySize()
+		before := vm.MemoryUsage().MemoryUsedSize
 		if _, err := vm.Eval("grow(5000)", slowjs.EvalGlobal); err != nil {
 			t.Fatal(err)
 		}
 		vm.RunGC()
-		return int64(vm.MemorySize()) - int64(before)
+		return vm.MemoryUsage().MemoryUsedSize - before
 	}
 	plain, cached := grown(`{ target: ["es2022"] }`), grown(`{ target: ["es2022"], i18nextCache: true }`)
 	if cached-plain > 100<<10 {
