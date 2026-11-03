@@ -43,7 +43,7 @@ func TestTSShapeDeclaresRecursiveTypes(t *testing.T) {
 		"Chain", `json:"chain"`, otherNode,
 		"Count", `json:"count"`, types.Typ[types.Int])
 
-	ts, decls, err := TSShape(data)
+	ts, decls, _, err := TSShape(data)
 	if err != nil {
 		t.Fatalf("TSShape: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestTSShapeNamesNeverShadowTypeScript(t *testing.T) {
 		data.SetUnderlying(types.NewStruct([]*types.Var{
 			types.NewField(token.NoPos, pkg, "Next", types.NewPointer(data), false),
 		}, []string{`json:"next"`}))
-		ts, decls, err := TSShape(data)
+		ts, decls, _, err := TSShape(data)
 		if err != nil {
 			t.Fatalf("TSShape: %v", err)
 		}
@@ -81,7 +81,7 @@ func TestTSShapeNamesNeverShadowTypeScript(t *testing.T) {
 }
 
 func TestTSShapeRejectsTypesWithoutJSONForm(t *testing.T) {
-	if _, _, err := TSShape(types.NewChan(types.SendRecv, types.Typ[types.Int])); err == nil {
+	if _, _, _, err := TSShape(types.NewChan(types.SendRecv, types.Typ[types.Int])); err == nil {
 		t.Fatal("TSShape accepted a channel")
 	}
 }

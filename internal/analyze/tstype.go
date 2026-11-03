@@ -19,6 +19,9 @@ import (
 //   - bool is boolean. Integer kinds (uintptr included) and float kinds are number. string is string.
 //   - time.Time is string. json.Number (of encoding/json) is number. time.Duration is rejected:
 //     json v2 has no form for it.
+//   - tifa.HTML is HTML, the opaque type of tifa/client that only <HTML> shows. It is a string in
+//     the JSON. It is rejected as a map key, and in what is decoded: the input of a method handler
+//     and the session, since markup the server trusts never comes from a request.
 //   - A pointer is T | null.
 //   - A slice is T[], because a nil slice is []. A slice or array whose elements are the
 //     predeclared byte or uint8 is string (base64, "" for a nil slice). The elements of a named
@@ -51,8 +54,16 @@ import (
 // Rejected besides: every interface type, wherever it appears, chan, func, complex numbers,
 // unsafe.Pointer and type parameters.
 func checkTS(t types.Type) []tsProblem {
-	_, problems := tsType(t)
+	problems, _ := checkTSHTML(t)
 	return problems
+}
+
+// checkTSHTML is checkTS that also reports whether the JSON of t may hold a tifa.HTML value, which
+// a page carries as a marker (see Load.HTML).
+func checkTSHTML(t types.Type) (problems []tsProblem, html bool) {
+	c := tsChecker{active: map[tsKey]bool{}}
+	c.encode(t, rootLabel(t), false)
+	return c.problems, c.html
 }
 
 // checkInputTS is checkTS for the input of a method handler, which is decoded from that JSON.
@@ -92,12 +103,18 @@ type tsChecker struct {
 	// method handler. Only what the JSON holds is checked: a field dropped or shadowed, the
 	// inside of a type that is a string, and the element of an empty array are not.
 	decode bool
+	// html is set once a tifa.HTML is written.
+	html bool
 }
 
 func (c *tsChecker) fail(path, msg string) string {
 	c.problems = append(c.problems, tsProblem{path: path, msg: msg, field: c.field})
 	return "never"
 }
+
+// tsHTML is the TypeScript type of tifa.HTML, which the generated module imports from the runtime
+// of tifa/client.
+const tsHTML = "HTML"
 
 // encoderMethods are the method names that json v2 calls
 // instead of encoding a value by its kind, besides MarshalText.
@@ -166,6 +183,15 @@ func (c *tsChecker) encode(t types.Type, path string, quoted bool) (ts string) {
 		return "number"
 	case isNamed(t, "time", "Duration"):
 		return c.fail(path, "time.Duration has no JSON form in json v2: use an integer of the unit you mean, such as milliseconds, or a string")
+	case isNamed(t, tifaPath, "HTML"):
+		if c.decode {
+			return c.fail(path, "tifa.HTML is markup the server trusts, which an input or the session never holds: take a string, and convert it to tifa.HTML only after you sanitize it")
+		}
+		c.html = true
+		if c.decls != nil {
+			c.decls.html = true
+		}
+		return tsHTML
 	}
 	if _, isPtr := t.Underlying().(*types.Pointer); !isPtr {
 		for _, name := range encoderMethods {
@@ -257,6 +283,9 @@ func mapKeyProblem(key types.Type) string {
 	}
 	if _, ok := key.Underlying().(*types.Pointer); ok {
 		return "the key " + name + " is a pointer"
+	}
+	if isNamed(key, tifaPath, "HTML") {
+		return "the key tifa.HTML is markup, which cannot be a map key: use string"
 	}
 	if isNamed(key, "time", "Duration") {
 		// Its underlying int64 would pass below, but json v2 fails on it as a key as well, once

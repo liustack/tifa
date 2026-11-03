@@ -3,6 +3,7 @@ package analyze
 import (
 	"encoding/json"
 	"errors"
+	"go/types"
 	"net/http"
 	"os"
 	"os/exec"
@@ -289,6 +290,10 @@ func TestViolations(t *testing.T) {
 			{"app/page/route.go:56:", "Data.Bad", "bad'name"},
 			{"app/page/route.go:56:", "Data.Append", "AppendText"},
 			{"app/page/route.go:56:", "Data.Stream", "MarshalJSONTo"},
+		}},
+		{"htmlbad", [][]string{
+			{"app/page/route.go:9:", "Data.ByHTML", "tifa.HTML", "map key"},
+			{"app/api/route.go:9:", "POST input", "Input.Body", "tifa.HTML", "sanitize"},
 		}},
 		{"badshape", [][]string{
 			{"app/page/route.go:120:", "Data.Both", "MarshalJSONTo"},
@@ -690,6 +695,47 @@ func TestLoadResultShape(t *testing.T) {
 		"tags: string[]; o1?: number; o2?: number; gone?: {} }"
 	if got != want {
 		t.Errorf("tsType =\n%s\nwant\n%s", got, want)
+	}
+}
+
+// tifa.HTML is the type HTML of tifa/client wherever JSON writes it, and the manifest marks the
+// Loads whose JSON may hold one, which a page carries with markers.
+func TestHTMLInLoadResults(t *testing.T) {
+	m, err := analyzeApp(t, "htmltype")
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	loads := map[string]*Load{}
+	for _, l := range m.Layouts {
+		loads[l.ID] = l.Load
+	}
+	for _, r := range m.Routes {
+		loads[r.ID] = r.Load
+	}
+	for id, want := range map[string]bool{"app/layout": false, "app/post/route": true, "app/none/route": false} {
+		if got := loads[id].HTML; got != want {
+			t.Errorf("%s: HTML = %v, want %v", id, got, want)
+		}
+	}
+	got, _ := tsType(loads["app/post/route"].Result)
+	if want := "{ summary: HTML; title: string; body: HTML; parts: (HTML | null)[]; byLang: Record<string, HTML> }"; got != want {
+		t.Errorf("tsType =\n%s\nwant\n%s", got, want)
+	}
+	shapes, _, html, err := TSShapes([]types.Type{loads["app/none/route"].Result})
+	if err != nil || html || shapes[0] != "{ title: string; empty: [] }" {
+		t.Errorf("TSShapes of none = %q, html %v, %v", shapes, html, err)
+	}
+	var api Route
+	for _, r := range m.Routes {
+		if r.ID == "app/api/route" {
+			api = r
+		}
+	}
+	if len(api.Handlers) != 1 {
+		t.Fatalf("api handlers: %+v", api.Handlers)
+	}
+	if _, _, html, err := TSShapes([]types.Type{api.Handlers[0].OutputType}); err != nil || !html {
+		t.Errorf("POST result: html %v, %v", html, err)
 	}
 }
 

@@ -47,3 +47,14 @@ func Use[T any](c *Ctx, load func(*Ctx) (T, error)) (T, error) { return core.Use
 // puts into the context of the request reach OnRequest and Load of such a page, so do not recognize
 // visitors in it, do it in OnRequest.
 func SetHTTPHandler(wrap func(app http.Handler) http.Handler) { core.SetHTTPHandler(wrap) }
+
+// HTML is markup the app trusts, such as an article the build turned from Markdown into HTML or
+// HTML a CMS returns, which a page shows as it is with <HTML value={...}> of tifa/client. It may be
+// in the data of Load and Layout and in the result of a method handler, and is written as a JSON
+// string, but it cannot be a map key or part of an input or the session. Only put markup you trust
+// into it: sanitize HTML a user wrote before converting it, as with template.HTML of html/template.
+//
+// A page the server renders carries such a value once, in its markup: its hydration data holds a
+// marker in place of the value, and <HTML> reads the markup back from the page when the browser
+// hydrates it. Navigation data and a page with SSR = false carry the string.
+type HTML string

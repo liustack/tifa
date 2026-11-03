@@ -785,7 +785,9 @@ func (a *analyzer) readLoad(pkg *packages.Package, owner, name string) (*Load, [
 	load := &Load{Type: typeString(result), Result: result}
 
 	decl := a.funcDecl(pkg, fn)
-	a.reportTS(fieldTypePos(decl.Type.Results, 0), name+" result", checkTS(result))
+	problems, html := checkTSHTML(result)
+	a.reportTS(fieldTypePos(decl.Type.Results, 0), name+" result", problems)
+	load.HTML = html
 
 	uses := a.walkLoad(pkg, owner, name == "Layout", load, decl)
 	for _, u := range uses {

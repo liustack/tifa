@@ -921,7 +921,7 @@ func routeModule(g *routeGen) ([]byte, error) {
 			}
 		}
 	}
-	shapes, decls, err := analyze.TSShapes(goTypes)
+	shapes, decls, html, err := analyze.TSShapes(goTypes)
 	if err != nil {
 		return nil, fmt.Errorf("codegen: %s: %w", g.dir, err)
 	}
@@ -947,6 +947,11 @@ func routeModule(g *routeGen) ([]byte, error) {
 		}
 		runtime := strings.Repeat("../", strings.Count(g.dir, "/")+1) + "runtime/call"
 		fmt.Fprintf(&b, "import { %s, type CallOptions } from %s\n", strings.Join(names, ", "), jsString(runtime))
+	}
+	if html {
+		// The type of tifa.HTML, the one tifa/client exports.
+		runtime := strings.Repeat("../", strings.Count(g.dir, "/")+1) + "runtime/html"
+		fmt.Fprintf(&b, "import type { HTML } from %s\n", jsString(runtime))
 	}
 	b.WriteString("\n")
 	for _, d := range decls {
@@ -1063,9 +1068,12 @@ func sessionModule(s *analyze.Session) ([]byte, error) {
 	if s.ExposedResult == nil {
 		return nil, fmt.Errorf("codegen: the manifest carries no Exposed result type, analyze the application in this process")
 	}
-	shape, decls, err := analyze.TSShape(s.ExposedResult)
+	shape, decls, html, err := analyze.TSShape(s.ExposedResult)
 	if err != nil {
 		return nil, fmt.Errorf("codegen: session Exposed result: %w", err)
+	}
+	if html {
+		b.WriteString("import type { HTML } from \"./runtime/html\"\n\n")
 	}
 	for _, d := range decls {
 		b.WriteString(d + "\n")
