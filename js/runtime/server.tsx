@@ -181,6 +181,7 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
         const shown = shownAt(router.stores.matches.get())
         levels = shown + 1
         if (input.error) await placed(router, shown, input.error)
+        undated(router)
         await router.serverSsr!.dehydrate()
         const errors: unknown[] = []
         const stop = new AbortController()
@@ -238,6 +239,17 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
       }
     })()
   }
+}
+
+// undated sets the time each match loaded at to 0 before the router writes the matches into the
+// page. The router stamps a match with Date.now() and dehydrates the stamp (u in dehydrateMatch of
+// ssr-server.js), so two renders of the same input would differ by the time, and the render cache
+// would give the time of the first render to every later visitor. The page is then a function of
+// its input. The browser reads 0 as data of unknown age, and dates the matches by the age of the
+// data that Go sends with the page (datePage in browser.tsx). router-core has no API to change a
+// match, so the matches go back to the store as copies, as placed does.
+function undated(router: ReturnType<typeof createAppRouter>) {
+  router.stores.setMatches(router.stores.matches.get().map((match) => ({ ...match, updatedAt: 0 })))
 }
 
 // placed makes the match at error.level above the shown one fail with the error, so that it renders
