@@ -57,8 +57,9 @@ build keeps the running app and shows the error in the page.`,
 			// Everything below writes into .tifa, so the lock comes first.
 			lock, err := lockApp(root)
 			var busy *busyError
-			if errors.As(err, &busy) {
-				return errors.New(strings.TrimSpace("tifa dev is already running in this app " + busy.Detail()))
+			// Only tifa dev records an address: a holder without one may be tifa build.
+			if errors.As(err, &busy) && busy.holder.URL != "" {
+				return errors.New("tifa dev is already running in this app " + busy.Detail())
 			}
 			if err != nil {
 				return err

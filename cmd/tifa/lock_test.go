@@ -105,6 +105,20 @@ func TestDevStopsWhenDevRuns(t *testing.T) {
 	}
 }
 
+func TestDevStopsWhileBuildRuns(t *testing.T) {
+	root := t.TempDir()
+	l, err := lockApp(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { l.Close() })
+	_, _, err = run(t, "dev", "--dir", root)
+	want := "tifa dev or tifa build is running in this app (pid " + strconv.Itoa(os.Getpid()) + "). Stop it first: both write .tifa/dist"
+	if err == nil || err.Error() != want {
+		t.Fatalf("dev: %v, want %q", err, want)
+	}
+}
+
 // holdPorts listens on count consecutive loopback ports and returns the first.
 func holdPorts(t *testing.T, count int) int {
 	t.Helper()
