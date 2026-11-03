@@ -220,7 +220,7 @@ export default function PostPage() {
 ```
 
 - 标记不经转义直接进页面。`tifa.HTML` 只用来装你自己写的或生成的 HTML。用户提交的 HTML 要先用清理库过滤，再转成 `tifa.HTML`。
-- 在 TypeScript 里它的类型是 `HTML`，不是 `string`，只有 `<HTML>` 能显示它。`as` 指定装标记的元素（默认 `div`）。其他属性都给这个元素，`children` 和 `dangerouslySetInnerHTML` 除外。
+- 在 TypeScript 里它的类型是 `HTML`，不是 `string`：要字符串的地方（比如当文本用、读 `.length`）TypeScript 会报错。只用 `<HTML>` 显示它。放进 `dangerouslySetInnerHTML` 时 TypeScript 拦不住，而服务器渲染的页面里它在那里只是一个标记。`as` 指定装标记的元素（默认 `div`）。其他属性都给这个元素，`children` 和 `dangerouslySetInnerHTML` 除外。
 - 服务器渲染的页面里每个值只带一份：在标记里。水合用的数据在它的位置放一个小标记，`<HTML>` 从页面读回标记。所以一篇文章不会发两遍。导航数据和 `SSR = false` 的页面带的是字符串。
 - 所以显示页面里的值时，`<HTML value={...}>` 每次都要在服务器上渲染出来：不要等 effect、点击或只有浏览器才有的状态之后才渲染，也不要放在 `.client.tsx` 组件里。否则浏览器会抛出 `tifa: this tifa.HTML value came with the page, which carries it only in the markup the server rendered, and the server rendered no <HTML> for it here`。
 - `tifa.HTML` 不能做 map 的键，不能放在方法函数的入参或会话里。那里用 `string`，过滤之后再转换。`Load` 和 `Layout` 不能直接返回一个 `tifa.HTML`，要放进结构体的字段里。

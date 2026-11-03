@@ -13,8 +13,8 @@ import { createElement, useId, type HTMLAttributes, type JSX } from 'react'
 
 declare const htmlBrand: unique symbol
 
-// HTML is the type of tifa.HTML in the data of a page. It is no string: only the component HTML
-// shows it.
+// HTML is the type of tifa.HTML in the data of a page. It is no string, so TypeScript refuses it
+// where a string goes. The component HTML shows it.
 export type HTML = { readonly [htmlBrand]: true }
 
 const notHTML = 'tifa: <HTML> got a value that is not tifa.HTML'
