@@ -179,7 +179,8 @@ func TestReactDOMUnitsIncludeTheOrderOfTheTopLevel(t *testing.T) {
 //
 //	TIFA_REACT_UNITS=1 go test -run TestListUnreviewedReactDOMUnits -v ./internal/bundle
 //
-// With TIFA_REACT_UNITS=all it lists every part, which is how the table is first made.
+// With TIFA_REACT_UNITS=all it lists every part, which is how the table is first made. It also names
+// the parts of reviewedEmitPieces that differ, for which the engine does not write the tags.
 func TestListUnreviewedReactDOMUnits(t *testing.T) {
 	mode := os.Getenv("TIFA_REACT_UNITS")
 	if mode == "" {
@@ -200,22 +201,30 @@ func TestListUnreviewedReactDOMUnits(t *testing.T) {
 		"const { units } = plugin.reactDomUnits(program, source)\n" +
 		"const reviewed = plugin.reviewedReactDOMUnits()\n" +
 		"const line = (at) => source.slice(0, at).split('\\n').length\n" +
-		"process.stdout.write(JSON.stringify(units.map((u) => ({ name: u.name, fingerprint: u.fingerprint, from: u.end ? line(u.start) : 0, to: u.end ? line(u.end) : 0, known: !!reviewed.get(u.name)?.has(u.fingerprint), named: reviewed.has(u.name) }))))\n"
+		"process.stdout.write(JSON.stringify({ emit: plugin.unreadEmitPieces(units), units: units.map((u) => ({ name: u.name, fingerprint: u.fingerprint, from: u.end ? line(u.start) : 0, to: u.end ? line(u.end) : 0, known: !!reviewed.get(u.name)?.has(u.fingerprint), named: reviewed.has(u.name) })) }))\n"
 	cmd := exec.Command("node", "--input-type=module", "-e", script, plugin, file)
 	cmd.Dir = testdata(t)
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	var units []struct {
-		Name, Fingerprint string
-		From, To          int
-		Known, Named      bool
+	var listed struct {
+		Emit  []string
+		Units []struct {
+			Name, Fingerprint string
+			From, To          int
+			Known, Named      bool
+		}
 	}
-	if err := json.Unmarshal(out, &units); err != nil {
+	if err := json.Unmarshal(out, &listed); err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}
+	units := listed.Units
 	version := installedVersion(t, "react-dom")
+	if len(listed.Emit) > 0 {
+		t.Logf("react-dom %s: the engine does not write the start and end tags, since these parts differ from reviewedEmitPieces: %s. "+
+			"The C functions of slowjs must do what they do before the table takes their new fingerprints (docs/build.md)", version, strings.Join(listed.Emit, ", "))
+	}
 	var lines []string
 	for _, u := range units {
 		if u.Known && mode != "all" {

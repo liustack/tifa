@@ -844,7 +844,13 @@ func TestSSRKeepsKeyPathsAndNamesWhenAPartOfTheRendererChanged(t *testing.T) {
 		if !namesInKeyPaths(t, code) {
 			t.Errorf("%s: the bundle leaves the names of components out of a renderer with a part the plugin has not read", c.name)
 		}
-		if n := strings.Count(printed, notRecognized); n != 1 || !strings.Contains(printed, installedReact(t, "react-dom")+": ") {
+		// renderElement is also a part the start and end tags of the engine stand for, which gives a
+		// warning of its own.
+		warnings := 1
+		if c.part == "renderElement" {
+			warnings = 2
+		}
+		if n := strings.Count(printed, notRecognized); n != warnings || !strings.Contains(printed, installedReact(t, "react-dom")+": ") {
 			t.Errorf("%s: the build prints:\n%s", c.name, printed)
 		}
 		if !strings.Contains(printed, unreviewedKeyPaths+": ") || !strings.Contains(printed, c.part) || !strings.Contains(printed, "does not leave the names of components or the key paths out") {

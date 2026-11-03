@@ -817,6 +817,48 @@ const reviewedJsxPieces = new Map([
   ['exports.jsx', 'c77445f51117'],
   ['exports.jsxs', 'db32306fd41f'],
 ])
+// The parts of React's string renderer that the engine's start and end tags (__tifa_start_tag and
+// __tifa_end_tag, which internal/ssr defines in each VM) do the work of, by the name reactDomUnits
+// gives them and the fingerprint of their structure in React DOM 19.3.0 and 19.3.1, which are the
+// same in these parts: pushStartGenericElement and every function and variable it uses on the way
+// to the text of a tag, endChunkForTag with its cache, and the two functions whose calls of them
+// emitInEngine changes, pushStartInstance and renderElement. The C functions were written from these
+// texts, so the plugin changes the calls only when each part is the one here. See "Reviewing a new
+// React" in docs/build.md.
+const reviewedEmitPieces = new Map([
+  ['var hasOwnProperty', '3666fc74894c'],
+  ['var VALID_ATTRIBUTE_NAME_REGEX', 'f78b6d778ddc'],
+  ['var illegalAttributeNameCache', 'bba81056b403'],
+  ['var validatedAttributeNameCache', '828e144d697b'],
+  ['isAttributeNameSafe', 'a23c76a779b7'],
+  ['var unitlessNumbers', '9f9bdc238fa0'],
+  ['var aliases', '01491c691ce0'],
+  ['var matchHtmlRegExp', '2b531192e2f5'],
+  ['escapeTextForBrowser', '76ca748aa2e2'],
+  ['var uppercasePattern', '4d854d34a5f9'],
+  ['var msPattern', '1d2f94195a31'],
+  ['var isJavaScriptProtocol', '85d8128656c9'],
+  ['sanitizeURL', '13e955663f01'],
+  ['pushViewTransitionAttributes', '0eed888afcde'],
+  ['var styleNameCache', '98df3d1aa9a5'],
+  ['pushStyleAttribute', '1953870e1a22'],
+  ['pushBooleanAttribute', '716d94842101'],
+  ['pushStringAttribute', '0aa84577f447'],
+  ['pushAttribute', '73db916dd96d'],
+  ['pushInnerHTML', 'd039c52b1d34'],
+  ['pushStartGenericElement', '77ae7c46e034'],
+  ['var VALID_TAG_REGEX', 'bd975359093f'],
+  ['var validatedTagCache', 'cc0e7336f060'],
+  ['startChunkForTag', '64876d5bfa9c'],
+  ['pushStartInstance', '0961ceedef65'],
+  ['var endTagCache', '11da83b8ed99'],
+  ['endChunkForTag', '04e460fb5af6'],
+  ['renderElement', '227176a91e46'],
+])
+// The last line of pushStartInstance, which hands every element no case of its switch takes to
+// pushStartGenericElement, and the line of renderElement that ends such an element.
+const startTagCall = '  return pushStartGenericElement(target$jscomp$0, props, type, formatContext);\n}\nvar endTagCache = new Map();'
+const endTagCall = '        target.push(endChunkForTag(type));\n'
 // guardedCases is the fewest string cases a switch needs for the tifa plugin to put a Set check in
 // front of it, and switchCases the prefix of the names of those Sets.
 const guardedCases = 8
@@ -1622,7 +1664,10 @@ function resolveRouteModule(ctx, root, source, importer) {
 // where it may load a module at run time. Its source map names sources
 // relative to the application root. It comes with serovalPlugin, which changes seroval. With
 // settings.i18nextCache, build.i18next_cache, it also adds a cache to i18next, see i18nextCache.
+// TIFA_EMIT_CHECK=1 in the environment of the build builds the test hook of the start and end tags
+// (see emitInEngine and docs/testing.md), which no build of an app is to have.
 export function ssrPlugin(getRoot, loadVite, settings = {}) {
+  const emitCheck = process.env.TIFA_EMIT_CHECK === '1'
   const reactTargets = new Map() // server.edge.js path to the renderer modules it imports
   let coreJS // real directory of the core-js package the application resolves, '' for none
   let coreJSState = false // whether the internal state module of coreJS is in the bundle
@@ -1855,7 +1900,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
         const react = `react-dom ${packageVersion(path.resolve(id, '..', '..'))}: ${id}`
         let source = fs.readFileSync(id, 'utf8')
         // The parts of the file are read in the text as React wrote it, before the changes below.
-        const { unread, problems: unreadable } = unreadReactDOMUnits(this.parse(source), source)
+        const { unread, problems: unreadable, units } = unreadReactDOMUnits(this.parse(source), source)
         const asked = askEngineToEscape(source)
         if (asked) {
           source = asked
@@ -1865,6 +1910,21 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
             `${react} has no matchHtmlRegExp and escapeTextForBrowser in the form the tifa plugin knows, so ` +
               'the tifa plugin does not ask the engine to escape the HTML React writes. Pages render the same, ' +
               'but texts and attribute values take longer to render',
+          )
+        }
+        const emitUnread = unreadable.length > 0 ? unreadable : unreadEmitPieces(units)
+        const emitted = emitUnread.length === 0 && emitInEngine(source, emitCheck)
+        if (emitted) {
+          source = emitted
+        } else {
+          this.warn(
+            notRecognized +
+              `${react} ${
+                emitUnread.length > 0
+                  ? `has ${emitUnread.length} parts that differ from those the engine's start and end tags were written from: ${namesOfUnits(emitUnread)}`
+                  : 'has no calls of pushStartGenericElement and endChunkForTag in the form the tifa plugin knows'
+              }, so the tifa plugin does not ask the engine to write the start and end tags of elements. Pages render ` +
+              'the same, but take longer to render. docs/build.md says how to read a new release',
           )
         }
         const joined = joinSegmentChunks(source)
@@ -2534,6 +2594,79 @@ function askEngineToEscape(source) {
 var escapeTextForBrowser = "function" === typeof __tifa_escape ? __tifa_escape : tifaEscapeTextForBrowser;
 function tifaEscapeTextForBrowser(text) {`
   return source.replace(escapeSource, () => sameLines(escapeSource, asked))
+}
+
+// unreadEmitPieces returns the names of the parts of reviewedEmitPieces that units, the parts of
+// React's string renderer as reactDomUnits reads them, do not have with the fingerprint there, or
+// have more than once.
+export function unreadEmitPieces(units) {
+  const found = new Map()
+  for (const u of units) {
+    if (reviewedEmitPieces.has(u.name)) found.set(u.name, found.has(u.name) ? null : u.fingerprint)
+  }
+  return [...reviewedEmitPieces].filter(([name, fingerprint]) => found.get(name) !== fingerprint).map(([name]) => name)
+}
+
+// emitInEngine returns the source of React's string renderer with the start tag of each element
+// that pushStartInstance hands to pushStartGenericElement, and its end tag in renderElement, asking
+// the engine first, or null when the source does not have these calls in the form it knows. The
+// caller checks the parts first (unreadEmitPieces). __tifa_start_tag writes the whole start tag, as
+// pushStartGenericElement would, into one string, or returns tifaDecline, having changed nothing,
+// and then React's function writes it. __tifa_end_tag is endChunkForTag. A VM without them gets
+// null, and React writes every tag. The calls are made in place and not through a function of the
+// module, since a call of a JavaScript function costs about as much as the C function saves on a
+// small tag. The lines stay where they were.
+//
+// With check, the test hook of docs/testing.md, React writes every tag, and each start tag is also
+// written by the engine into an array of its own and the two compared, as is each end tag. Each
+// comparison goes to __tifa_emit_check, which only a program built with the tag tifa_emit_check
+// defines (internal/ssr/emitcheck.go), so such a bundle fails to load anywhere else.
+function emitInEngine(source, check) {
+  if (source.split(startTagCall).length !== 2 || source.split(endTagCall).length !== 2) return null
+  const generic = 'return pushStartGenericElement(target$jscomp$0, props, type, formatContext);'
+  const start = check
+    ? `if (null !== tifaStartTag) return tifaCheckStart(target$jscomp$0, props, type, formatContext); ${generic}`
+    : 'if (null !== tifaStartTag) { var tifaStart = tifaStartTag(target$jscomp$0, props, type, formatContext, hasOwnProperty, tifaDecline); ' +
+      `if (tifaStart !== tifaDecline) return tifaStart; } ${generic}`
+  const end = check ? 'target.push(tifaCheckEnd(type));' : 'target.push(null !== tifaEndTag ? tifaEndTag(type) : endChunkForTag(type));'
+  let tail = `
+var tifaStartTag = "function" === typeof __tifa_start_tag ? __tifa_start_tag : null,
+  tifaEndTag = "function" === typeof __tifa_end_tag ? __tifa_end_tag : null,
+  tifaDecline = {};
+`
+  if (check) {
+    tail += `var tifaEmitCheck = __tifa_emit_check;
+function tifaPropsOf(props) {
+  return Object.keys(props).map(function (key) { var value = props[key]; return key + ":" + (null === value ? "null" : Array.isArray(value) ? "array" : typeof value); }).join(" ");
+}
+function tifaCheckStart(target, props, type, formatContext) {
+  var engine = [],
+    started = tifaStartTag(engine, props, type, formatContext, hasOwnProperty, tifaDecline),
+    at = target.length,
+    react = pushStartGenericElement(target, props, type, formatContext);
+  if (started === tifaDecline) tifaEmitCheck("declined", type, tifaPropsOf(props), "", "");
+  else {
+    var c = engine.join(""), js = target.slice(at).join("");
+    if (c !== js || started !== react) tifaEmitCheck("differ", type, tifaPropsOf(props) + (started !== react ? " (returns differ)" : ""), c, js);
+    else tifaEmitCheck("same", type, "", "", "");
+  }
+  return react;
+}
+function tifaCheckEnd(type) {
+  var react = endChunkForTag(type);
+  if (null !== tifaEndTag) {
+    var c = tifaEndTag(type);
+    c !== react && tifaEmitCheck("differ", "/" + type, "", c, react);
+  }
+  return react;
+}
+`
+  }
+  return (
+    source
+      .replace(startTagCall, () => startTagCall.replace(`  ${generic}`, `  ${start}`))
+      .replace(endTagCall, () => `        ${end}\n`) + tail
+  )
 }
 
 // hashInGo returns the source of murmur2, source, asking __tifa_murmur2__ first, which hashes a
@@ -3264,11 +3397,12 @@ export function reviewedReactDOMUnits() {
 
 // unreadReactDOMUnits returns the units of React's string renderer, program parsed from source, whose
 // name and fingerprint are not a pair of reviewedReactDOM, and the problems of reactDomUnits. When the list is empty, every part
-// of the file is one that was read to the end for what it does with a key path.
+// of the file is one that was read to the end for what it does with a key path. units are all the
+// parts of the file.
 export function unreadReactDOMUnits(program, source) {
   const { units, problems } = reactDomUnits(program, source)
   const reviewed = reviewedReactDOMUnits()
-  return { unread: units.filter((u) => !reviewed.get(u.name)?.has(u.fingerprint)), problems }
+  return { unread: units.filter((u) => !reviewed.get(u.name)?.has(u.fingerprint)), problems, units }
 }
 
 // namesOfUnits writes the names of units for a warning: the first twenty, then how many more.

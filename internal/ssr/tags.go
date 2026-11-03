@@ -17,3 +17,6 @@ func registerTags(vm *slowjs.VM) error {
 	return vm.RegisterEndTag("__tifa_end_tag")
 }
 
+// emitCheck, when set, defines on each VM what a bundle built with TIFA_EMIT_CHECK=1 reports its
+// comparisons of the tags to. Only a build with the tag tifa_emit_check sets it, see emitcheck.go.
+var emitCheck func(vm *slowjs.VM) error
