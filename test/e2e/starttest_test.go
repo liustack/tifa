@@ -97,3 +97,61 @@ func TestStartPagesInAnApp(t *testing.T) {
 		}
 	}
 }
+
+// tailwindRequestTest renders the home page of the tailwind app with tifatest.StartPages.
+const tailwindRequestTest = `package requests_test
+
+import (
+	"testing"
+
+	"example.com/tailwindtest/.tifa/tifaapp"
+	"github.com/liustack/tifa/tifatest"
+)
+
+func TestHomeRenders(t *testing.T) {
+	srv := tifatest.StartPages(t, tifaapp.App)
+	res, err := srv.Client().Get(srv.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != 200 {
+		t.Errorf("the home page: %d", res.StatusCode)
+	}
+}
+`
+
+// The files a stylesheet reads without being a module are inputs of the build too: a stylesheet
+// it imports, which Vite inlines, and a file Tailwind scans for class names. A change to either
+// makes StartPages fail.
+func TestStartPagesSeesTheFilesOfTheStylesheets(t *testing.T) {
+	skipUnlessEnabled(t)
+	dir := copyApp(t, "tailwind")
+	replaceIn(t, filepath.Join(dir, "app", "site.css"), "@import \"tailwindcss\";\n", "@import \"tailwindcss\";\n@import \"./theme.css\";\n@source \"../extra\";\n")
+	write(t, filepath.Join(dir, "app", "theme.css"), "@theme {\n  --color-brand: oklch(0.6 0.2 30);\n}\n")
+	write(t, filepath.Join(dir, "extra", "classes.html"), "<p class=\"underline decoration-dotted\"></p>\n")
+	write(t, filepath.Join(dir, "requests", "request_test.go"), tailwindRequestTest)
+	goTest := func() (string, error) {
+		cmd := exec.Command("go", "test", "-count=1", "./requests/")
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	build := exec.Command(cli(t), "build", "--dir", dir, "-o", filepath.Join(t.TempDir(), "tailwind"))
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("tifa build: %v\n%s", err, out)
+	}
+	if out, err := goTest(); err != nil {
+		t.Fatalf("go test after the build: %v\n%s", err, out)
+	}
+	for _, change := range []struct{ file, text string }{
+		{"app/theme.css", "@theme {\n  --color-brand: oklch(0.5 0.2 30);\n}\n"},
+		{"extra/classes.html", "<p class=\"underline decoration-wavy\"></p>\n"},
+	} {
+		write(t, filepath.Join(dir, filepath.FromSlash(change.file)), change.text)
+		out, err := goTest()
+		if err == nil || !strings.Contains(out, change.file) || !strings.Contains(out, "run tifa build again") {
+			t.Fatalf("go test after a change to %s: %v\n%s", change.file, err, out)
+		}
+	}
+}

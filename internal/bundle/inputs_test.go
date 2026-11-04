@@ -109,3 +109,19 @@ func TestInputsListTheModulesOfTheBrowserBundle(t *testing.T) {
 		}
 	}
 }
+
+// A file the build read without making it a module is an input too, such as a stylesheet that
+// another one imports, which Vite inlines.
+func TestInputsListTheFilesThatStylesheetsImport(t *testing.T) {
+	root := fakeApp(t, `["es2022"]`)
+	writeTree(t, root, map[string]string{
+		"app/page/page.css":  "@import './theme.css';\n.page { color: red }\n",
+		"app/page/theme.css": ".theme { color: blue }\n",
+	})
+	buildApp(t, root)
+	var in inputs
+	readJSON(t, filepath.Join(root, ".tifa", "dist", InputsFile), &in)
+	if _, ok := in.Files["app/page/theme.css"]; !ok {
+		t.Errorf("inputs.json has no app/page/theme.css: %v", in.Files)
+	}
+}

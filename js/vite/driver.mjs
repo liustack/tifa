@@ -387,19 +387,60 @@ const ops = {
   },
 }
 
-// inputsPlugin adds to modules the files of the modules of the build of the environment named env
-// outside node_modules, which tifa records so that tifatest can tell a front end older than its
-// sources. The SSR worker thread runs its source text, so it uses only its arguments.
+// inputsPlugin adds to modules the files the build of the environment named env read outside
+// node_modules, which tifa records so that tifatest can tell a front end older than its sources:
+// the modules, and the files a plugin says the build depends on with this.addWatchFile, such as a
+// stylesheet another one imports, which Vite inlines, or the sources Tailwind scans for class
+// names. Rolldown keeps no list of those that a plugin can read, so inputsPlugin wraps the build
+// hooks of every plugin to see the calls. The SSR worker thread runs its source text, so it uses
+// only its arguments.
 function inputsPlugin(env, modules) {
+  const add = (id) => {
+    if (typeof id !== 'string' || id.startsWith('\0')) return
+    const file = id.split('?')[0]
+    if (!file.split(/[\\/]/).includes('node_modules')) modules.add(file)
+  }
+  // A plugin object can outlive a build, when a Vite config reuses it, so its hooks are wrapped
+  // once and tell the inputsPlugin of the build that runs now, kept on the plugin under seen.
+  const seen = Symbol.for('tifa:inputs')
+  const watching = (plugin, handler) => {
+    const wrapped = function (...args) {
+      const context = this
+      const record = plugin[seen]
+      const watched = new Proxy(context, {
+        get(target, prop) {
+          if (prop === 'addWatchFile') {
+            return (id) => {
+              record?.(id)
+              return target.addWatchFile(id)
+            }
+          }
+          const value = Reflect.get(target, prop, target)
+          return typeof value === 'function' ? value.bind(target) : value
+        },
+      })
+      return handler.apply(watched, args)
+    }
+    wrapped[seen] = true
+    return wrapped
+  }
   return {
     name: 'tifa:inputs',
     applyToEnvironment: (environment) => environment.name === env,
-    generateBundle() {
-      for (const id of this.getModuleIds()) {
-        if (id.startsWith('\0')) continue
-        const file = id.split('?')[0]
-        if (!file.split(/[\\/]/).includes('node_modules')) modules.add(file)
+    configResolved(config) {
+      for (const plugin of config.plugins) {
+        plugin[seen] = add
+        for (const name of ['buildStart', 'resolveId', 'load', 'transform', 'buildEnd']) {
+          const hook = plugin[name]
+          if (typeof hook === 'function' && !hook[seen]) plugin[name] = watching(plugin, hook)
+          else if (typeof hook?.handler === 'function' && !hook.handler[seen]) {
+            plugin[name] = { ...hook, handler: watching(plugin, hook.handler) }
+          }
+        }
       }
+    },
+    generateBundle() {
+      for (const id of this.getModuleIds()) add(id)
     },
   }
 }
