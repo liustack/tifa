@@ -502,6 +502,8 @@ func TestBadSecretFailsWithoutItsValue(t *testing.T) {
 	}{
 		{Read(nil, nil, dotenvDir(t, "SMTP_PASSWORD=\"s3cret\"more-s3cret\n")), []string{".env line 1", "SMTP_PASSWORD", "after the closing quote"}},
 		{Read([]string{"-c", writeFile(t, "prod.yaml", "smtp:\n  password: *s3cret\n")}, nil, ""), []string{"file prod.yaml", "starts with *", "quotes"}},
+		{Read([]string{"-c", writeFile(t, "prod.yaml", "smtp:\n  host: mail\n---\nsmtp:\n  password: *s3cret\n")}, nil, ""), []string{"file prod.yaml", "starts with *", "quotes"}},
+		{Read([]string{"-c", writeFile(t, "prod.yaml", "smtp:\n  host: mail\n---\n---\nsmtp:\n  password: *s3cret\n")}, nil, ""), []string{"file prod.yaml", "only one YAML document"}},
 	} {
 		msg := tc.src.Err().Error()
 		for _, want := range tc.want {

@@ -269,23 +269,30 @@ func (e entry) check(kind string, secret bool) error {
 	return nil
 }
 
+// decodeYAML reads the next document of dec into n. Every document of a file is read with it, so
+// that no error carries text of the file: the errors of the YAML parser hold none, but for the one
+// of an alias that names no anchor, which quotes the name, and an unquoted password may start
+// with *. io.EOF comes back as it is.
+func decodeYAML(dec *yaml.Decoder, n *yaml.Node) error {
+	err := dec.Decode(n)
+	if err != nil && strings.HasPrefix(err.Error(), "yaml: unknown anchor ") {
+		return errors.New("a value starts with *, which YAML reads as an alias of an anchor the file does not have: put the value in quotes")
+	}
+	return err
+}
+
 // yamlEntries reads a YAML file of nested mappings into entries by dotted key: server.addr is
 // the key addr in the mapping server.
 func yamlEntries(data []byte) (map[string]entry, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	var doc yaml.Node
-	if err := dec.Decode(&doc); err == io.EOF {
+	if err := decodeYAML(dec, &doc); err == io.EOF {
 		return nil, nil
 	} else if err != nil {
-		// The errors of the YAML parser hold no text of the file, but for this one, which
-		// quotes the name of the alias: an unquoted password that starts with *.
-		if strings.HasPrefix(err.Error(), "yaml: unknown anchor ") {
-			return nil, errors.New("a value starts with *, which YAML reads as an alias of an anchor the file does not have: put the value in quotes")
-		}
 		return nil, err
 	}
 	var extra yaml.Node
-	if err := dec.Decode(&extra); err != io.EOF {
+	if err := decodeYAML(dec, &extra); err != io.EOF {
 		if err == nil {
 			err = fmt.Errorf("line %d: only one YAML document is allowed", extra.Line)
 		}
