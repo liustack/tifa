@@ -11,6 +11,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -225,7 +226,8 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 		for _, c := range batch {
 			d.log.Printf("%s %s", c.path, c.op)
 		}
-		d.rebuild(ctx, planPublic(batch, d.isEmbedded, d.publicDir()))
+		d.b.noteContent(batch)
+		d.rebuild(ctx, planApp(batch, d.isEmbedded, d.publicDir(), o.Pipeline.HasPages()))
 	})
 
 	d.mu.Lock()
@@ -326,6 +328,9 @@ type dev struct {
 	live     *app   // app once it listens, its exit from then on is a crash
 	downErr  error  // why no application runs and none will until the next build
 	rendered int    // the count of builds served, see status
+	// reloads counts the times the app loaded new content in place, which gives open pages a new
+	// version, so that they reload.
+	reloads int
 	// bundling is closed once the rebuild of the SSR bundle that runs now has an app serving it,
 	// nil when none runs.
 	bundling chan struct{}
@@ -404,7 +409,8 @@ func (d *dev) fail(title string, err error) {
 // rebuild runs the steps, restarts the application and tells the browsers to reload. When only
 // the bundle was rebuilt, the running application loads it instead of restarting, so its state
 // stays. Vite has updated the pages already and they stay too: the version stays the same, and
-// only the server render changes.
+// only the server render changes. New content is loaded in place too, and open pages reload, as
+// Vite knows nothing of it.
 //
 // Page requests wait for the end of a rebuild that makes a new SSR bundle, from the moment the
 // bundle is known to be needed: at the start, also for a bundle a failed rebuild left undone, or
@@ -451,18 +457,32 @@ func (d *dev) rebuild(ctx context.Context, s steps) {
 		}
 		return
 	}
-	if ran == (steps{bundle: true}) && d.running() {
-		if err := d.reloadBundle(ctx); err != nil {
+	if ran.inPlace() && d.running() {
+		if err := d.reload(ctx, ran.bundle, ran.content); err != nil {
 			if ctx.Err() == nil {
-				d.fail("The app did not load the SSR bundle", err)
+				title := "The app did not load the SSR bundle"
+				if errors.As(err, new(contentError)) {
+					title = "The app did not load the content"
+				}
+				d.fail(title, err)
 			}
 			return
+		}
+		if ran.content {
+			d.mu.Lock()
+			d.reloads++
+			d.serving = d.nonce + "-" + strconv.Itoa(d.gen) + "." + strconv.Itoa(d.reloads)
+			d.mu.Unlock()
+			d.contentLoaded()
 		}
 	} else if err := d.restart(ctx, d.version() == "" || ran != steps{bundle: true}); err != nil {
 		if ctx.Err() == nil {
 			d.fail("The app did not start", err)
 		}
 		return
+	} else {
+		// The app read the content when it started.
+		d.contentLoaded()
 	}
 	d.mu.Lock()
 	d.rendered++
@@ -478,6 +498,14 @@ func (d *dev) rebuild(ctx context.Context, s steps) {
 	d.log.Printf("ready in %s", took)
 }
 
+// contentLoaded tells the pipeline that the app loaded the last content. Files that stay are no
+// error of the build.
+func (d *dev) contentLoaded() {
+	if err := d.b.p.ContentLoaded(); err != nil {
+		d.log.Printf("removing the files of old content: %v", err)
+	}
+}
+
 // running reports whether an application listens.
 func (d *dev) running() bool {
 	d.mu.Lock()
@@ -485,12 +513,24 @@ func (d *dev) running() bool {
 	return d.live != nil
 }
 
-// reloadBundle asks the running application to load the rebuilt SSR bundle, see
-// server.DevMain. It keeps running with its state, and its version stays.
-func (d *dev) reloadBundle(ctx context.Context) error {
+// contentError is the error of a reload whose content the app did not load, such as an entry
+// that fails Validate.
+type contentError struct{ error }
+
+// reload asks the running application to load the rebuilt SSR bundle, the new content or both,
+// see server.DevMain. It keeps running with its state. An error from the content is a
+// contentError.
+func (d *dev) reload(ctx context.Context, bundle, content bool) error {
 	ctx, cancel := context.WithTimeout(ctx, d.o.ProxyWait)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, "POST", "http://"+d.appAddr+reloadPath, nil)
+	q := url.Values{}
+	if bundle {
+		q.Set("bundle", "1")
+	}
+	if content {
+		q.Set("content", "1")
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", "http://"+d.appAddr+reloadPath+"?"+q.Encode(), nil)
 	if err != nil {
 		return err
 	}
@@ -501,7 +541,11 @@ func (d *dev) reloadBundle(ctx context.Context) error {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-		return fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(string(body)))
+		err := errors.New(strings.TrimSpace(string(body)))
+		if resp.Header.Get(reloadFailedHeader) == "content" {
+			return contentError{err}
+		}
+		return fmt.Errorf("%s: %w", resp.Status, err)
 	}
 	return nil
 }

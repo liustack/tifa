@@ -82,7 +82,9 @@ func runSources(ctx context.Context, app App, src *config.Sources, stdout, stder
 			return err
 		}
 		// The content collections get their entries before OnStart, which may read them. An entry
-		// that fails Validate stops the program here.
+		// that fails Validate stops the program here. tifa dev shows the entries whose date is
+		// still to come.
+		content.ShowFuture(dev != nil)
 		if err := content.Load(dist); err != nil {
 			return err
 		}

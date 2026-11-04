@@ -113,7 +113,7 @@ func App(n *Node, root, public string, pages bool, c *Content) (string, error) {
 	if err := finishContent(root, dist, c); err != nil {
 		return "", err
 	}
-	if b.ID, err = distID(dist, ""); err != nil {
+	if b.ID, err = distID(dist, nil); err != nil {
 		return "", err
 	}
 	return b.ID, writeBuild(dist, b)
@@ -320,13 +320,14 @@ func copyDir(src, dst string) error {
 }
 
 // distID hashes the relative name and content of every file under dist in sorted order, except
-// skip, each prefixed with its length, and returns the first 16 hex digits.
-func distID(dist, skip string) (string, error) {
+// those skip reports (skip may be nil), each prefixed with its length, and returns the first 16
+// hex digits.
+func distID(dist string, skip func(name string) bool) (string, error) {
 	var names []string
 	err := filepath.WalkDir(dist, func(path string, d fs.DirEntry, err error) error {
 		if err == nil && d.Type().IsRegular() {
 			rel, err := filepath.Rel(dist, path)
-			if name := filepath.ToSlash(rel); name != skip {
+			if name := filepath.ToSlash(rel); skip == nil || !skip(name) {
 				names = append(names, name)
 			}
 			return err

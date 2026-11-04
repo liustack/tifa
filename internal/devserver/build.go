@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"slices"
 	"strings"
 	"time"
 )
@@ -21,6 +22,22 @@ type Pipeline interface {
 	// Bundle builds the front end: under tifa dev the SSR bundle, while Vite's dev server serves
 	// the browser modules. A detail that is not empty goes at the end of the step's log line.
 	Bundle(ctx context.Context) (detail string, err error)
+	// Content scans content/ again and converts the entries that changed into the files the app
+	// reads, without go build: those whose Markdown changed, and those near one of the files of
+	// changed (relative to the application directory with forward slashes), which also names the
+	// folders that appeared or went. With all it converts
+	// every entry, as after a change of the Vite config. It runs after Bundle, which starts Vite's
+	// dev server. A detail that is not empty goes at the end of the step's log line.
+	Content(ctx context.Context, all bool, changed []string) (detail string, err error)
+	// HasContent reports whether the app has content collections, as the last analysis that worked
+	// saw it. Content then runs after every analysis, which may have changed the collections.
+	HasContent() bool
+	// ContentLoaded says that the app loaded the content the last Content that worked wrote, when
+	// it started or in place. The files of older content, which the app no longer reads, may go.
+	ContentLoaded() error
+	// HasPages reports whether the app has a page.tsx, as the last analysis that worked saw it.
+	// Only then does Vite's dev server run.
+	HasPages() bool
 	// GoBuild builds the application executable that Options.App runs.
 	GoBuild(ctx context.Context) error
 	// Embedded reports whether the Go code of the application embeds the file rel with go:embed.
@@ -58,24 +75,37 @@ type change struct {
 	op   op
 }
 
-// steps is the work one rebuild does. Steps always run in the order of the fields. restart builds
-// nothing: the app starts again, as it does after every build but one of the bundle alone.
-type steps struct{ analyze, generate, bundle, goBuild, restart bool }
+// steps is the work one rebuild does. Steps always run in the order of the fields. content
+// converts the entries that changed, contentAll makes it convert every entry. restart builds
+// nothing: the app starts again, as it does after every build but one of the bundle or the content
+// alone, which the running app loads in place.
+type steps struct{ analyze, generate, bundle, content, contentAll, goBuild, restart bool }
 
-var everything = steps{analyze: true, generate: true, bundle: true, goBuild: true}
+var everything = steps{analyze: true, generate: true, bundle: true, content: true, contentAll: true, goBuild: true}
 
 func (s steps) or(t steps) steps {
-	return steps{s.analyze || t.analyze, s.generate || t.generate, s.bundle || t.bundle, s.goBuild || t.goBuild, s.restart || t.restart}
+	return steps{s.analyze || t.analyze, s.generate || t.generate, s.bundle || t.bundle, s.content || t.content,
+		s.contentAll || t.contentAll, s.goBuild || t.goBuild, s.restart || t.restart}
 }
+
+// inPlace reports whether the running app can load what s built without a restart: a new SSR
+// bundle, new content or both.
+func (s steps) inPlace() bool {
+	return (s.bundle || s.content) && !s.analyze && !s.generate && !s.goBuild && !s.restart
+}
+
+// contentDir is the folder of the content collections, see internal/content/scan.
+const contentDir = "content/"
 
 type kind int
 
 const (
-	other    kind = iota
-	goSource      // .go, go.mod, go.sum
-	frontend      // TypeScript, JavaScript, CSS and JSON imported by them, and what Vite loads from outside the root
-	config        // tifa.yaml in the application directory
-	dotenv        // .env in the application directory, which the app reads when it starts
+	other       kind = iota
+	goSource         // .go, go.mod, go.sum
+	frontend         // TypeScript, JavaScript, CSS and JSON imported by them, and what Vite loads from outside the root
+	config           // tifa.yaml in the application directory
+	dotenv           // .env in the application directory, which the app reads when it starts
+	contentFile      // any file under content/: an entry of a collection or a file of one
 )
 
 func kindOf(p string) kind {
@@ -84,6 +114,11 @@ func kindOf(p string) kind {
 		// because a module loaded it, such as source of the workspace or a text file imported with
 		// ?raw. Whatever its name, the SSR bundle may contain it.
 		return frontend
+	}
+	if strings.HasPrefix(p, contentDir) {
+		// Whatever its name, such as data.json or page.tsx: the content step reads it, Vite and
+		// Go do not.
+		return contentFile
 	}
 	switch p {
 	case "tifa.yaml":
@@ -113,13 +148,17 @@ func kindOf(p string) kind {
 //     A file that appears or disappears may change which files are embedded, so it needs the
 //     analysis too. An embedded front end file needs the bundle as well.
 //   - A restart of Vite's dev server needs a new bundle, as a file outside the root may have
-//     changed meanwhile with no event.
+//     changed meanwhile with no event, and every entry of the content converted again, as the
+//     Vite config or a plugin it imports may have changed.
+//   - A file under content/ needs the content step, whatever its name: the scan, and the
+//     conversion of the entries it changes. It needs no go build, as the app reads the content
+//     from its files.
 //   - .env needs only a restart of the app, which reads it when it starts.
 func plan(changes []change, embedded func(rel string) bool) steps {
 	var s steps
 	for _, c := range changes {
 		if c.op == restarted {
-			s.bundle = true
+			s.bundle, s.content, s.contentAll = true, true, true
 			continue
 		}
 		if embedded != nil && embedded(c.path) {
@@ -135,6 +174,8 @@ func plan(changes []change, embedded func(rel string) bool) steps {
 			s = s.or(everything)
 		case dotenv:
 			s.restart = true
+		case contentFile:
+			s.content = true
 		case frontend:
 			s.bundle = true
 			base := path.Base(c.path)
@@ -165,6 +206,23 @@ func planPublic(changes []change, embedded func(rel string) bool, public string)
 	return s
 }
 
+// planApp is planPublic for an app that has pages or not. An app without pages runs no dev server
+// of Vite, which would restart on a change of its config: its front end files, outside the public
+// folder, are the Vite config, the plugins that imports and package.json, so a change of one
+// converts every entry of the content.
+func planApp(changes []change, embedded func(rel string) bool, public string, pages bool) steps {
+	s := planPublic(changes, embedded, public)
+	if pages {
+		return s
+	}
+	for _, c := range changes {
+		if kindOf(c.path) == frontend && !inPublic(public, c.path) {
+			s.content, s.contentAll = true, true
+		}
+	}
+	return s
+}
+
 // builder runs the steps of each rebuild against the pipeline and remembers what the next one needs.
 type builder struct {
 	p        Pipeline
@@ -173,6 +231,9 @@ type builder struct {
 	// learn, when not nil, gets what Pipeline.Embedded answers after each analysis that worked.
 	learn   func(embedded func(rel string) bool)
 	pending steps // steps a failed rebuild left undone, run again with the next one
+	// contentFiles are the files under content/ that changed since the last content step that
+	// worked, for Pipeline.Content.
+	contentFiles []string
 	// A step that takes longer than slow logs that it still runs, then again every every.
 	// Zero means defaultSlow and defaultEvery.
 	slow, every time.Duration
@@ -236,16 +297,32 @@ func (b *builder) progress(name string, start time.Time) func() {
 	}
 }
 
+// noteContent records the files of changes that are under content/, for the next content step.
+func (b *builder) noteContent(changes []change) {
+	for _, c := range changes {
+		if strings.HasPrefix(c.path, contentDir) && !slices.Contains(b.contentFiles, c.path) {
+			b.contentFiles = append(b.contentFiles, c.path)
+		}
+	}
+}
+
 // build runs s plus the steps a failed rebuild left undone, and returns the steps that ran. An
-// analysis that returns a new fingerprint adds code generation, the bundle and go build.
-// needBundle, when not nil, is called once it is known that the bundle step runs: at the start,
-// or once the analysis finds a new fingerprint.
+// analysis that returns a new fingerprint adds code generation, the bundle and go build, and in
+// an app with content the content step. needBundle, when not nil, is called once it is known that
+// the bundle or the content step runs: at the start, or once the analysis adds one.
 func (b *builder) build(ctx context.Context, s steps, needBundle func()) (steps, error) {
 	s = s.or(b.pending)
 	b.pending = s
 	ran := s
-	if s.bundle && needBundle != nil {
-		needBundle()
+	held := false
+	hold := func() {
+		if !held && needBundle != nil {
+			held = true
+			needBundle()
+		}
+	}
+	if s.bundle || s.content {
+		hold()
 	}
 	if s.analyze {
 		var fp string
@@ -261,14 +338,18 @@ func (b *builder) build(ctx context.Context, s steps, needBundle func()) (steps,
 		}
 		if fp != b.manifest {
 			b.log("route manifest changed")
-			if !s.bundle && needBundle != nil {
-				needBundle()
-			}
+			hold()
 			s.generate, s.bundle, s.goBuild = true, true, true
 			ran = ran.or(s)
 			b.manifest = fp
 		} else {
 			b.log("route manifest unchanged")
+		}
+		// The analysis may have changed the collections or their schema types.
+		if b.p.HasContent() {
+			hold()
+			s.content = true
+			ran = ran.or(s)
 		}
 		s.analyze = false
 		b.pending = s
@@ -287,6 +368,18 @@ func (b *builder) build(ctx context.Context, s steps, needBundle func()) (steps,
 		s.bundle = false
 		b.pending = s
 	}
+	if s.content && (len(b.contentFiles) > 0 || b.p.HasContent()) {
+		err := b.stepDetail("content", func() (string, error) { return b.p.Content(ctx, s.contentAll, b.contentFiles) })
+		if err != nil {
+			return steps{}, err
+		}
+		b.contentFiles = nil
+	} else if s.content {
+		// An app without collections and no file under content/ changed: nothing to scan.
+		ran.content, ran.contentAll = false, false
+	}
+	s.content, s.contentAll = false, false
+	b.pending = s
 	if s.goBuild {
 		if err := b.step("go build", func() error { return b.p.GoBuild(ctx) }); err != nil {
 			return steps{}, err

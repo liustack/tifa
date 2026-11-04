@@ -581,8 +581,20 @@ func (w *watcher) takeDir(rel string, info os.FileInfo, link bool, real string) 
 	if !watched {
 		w.polled[rel] = true
 	}
+	if strings.HasPrefix(rel, contentDir) {
+		// The scan of the content reports a folder no collection declares, also an empty one.
+		old := w.was[rel]
+		delete(w.was, rel)
+		if old != folderSum {
+			w.changes.add(rel, old, folderSum)
+		}
+	}
 	return w.list(rel, rescan)
 }
+
+// folderSum stands for the checksum of a folder under content/, which the watcher reports when it
+// appears or goes, see takeDir.
+const folderSum = "folder"
 
 // relist lists the directory node dir again, once a look at dir itself found it unchanged.
 func (w *watcher) relist(dir string) error {
@@ -710,6 +722,13 @@ func (w *watcher) drop(rel string) {
 			w.changes.add(rel, n.sum, "")
 		}
 	case dirNode:
+		switch {
+		case !strings.HasPrefix(rel, contentDir):
+		case w.was != nil:
+			w.was[rel] = folderSum
+		default:
+			w.changes.add(rel, folderSum, "")
+		}
 		w.dropWatch(n.real)
 		delete(w.polled, rel)
 		delete(w.dirty, rel)

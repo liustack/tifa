@@ -25,6 +25,9 @@ import (
 //	TIFA_FAKE_APP_VERSION     file whose content, read at start, is the answer to GET /
 //	TIFA_FAKE_APP_BUNDLE      file whose content, read at start and on each POST /__tifa/dev/reload,
 //	                          is the answer to GET /bundle. A reload of the content "broken" fails.
+//	TIFA_FAKE_APP_CONTENT     file whose content, read at start and on each POST /__tifa/dev/reload
+//	                          with content=1, is the answer to GET /content. A reload of the content
+//	                          "invalid" fails, as for an entry that fails Validate.
 //	TIFA_FAKE_APP_ON_INTERRUPT "ignore" to keep running after an interrupt
 //	TIFA_FAKE_APP_EXIT        exit right away with this message instead of serving
 //	TIFA_FAKE_APP_PANIC       print this many lines to stderr, then panic deep in the stack
@@ -108,6 +111,30 @@ func fakeApp() error {
 	if err := loadBundle(); err != nil {
 		return err
 	}
+	content := ""
+	loadContent := func() error {
+		name := os.Getenv("TIFA_FAKE_APP_CONTENT")
+		if name == "" {
+			return nil
+		}
+		data, err := os.ReadFile(name)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if string(data) == "invalid" {
+			return errors.New("tifa: content: content/blog/a.md: Validate: title must not be empty")
+		}
+		bundleMu.Lock()
+		content = string(data)
+		bundleMu.Unlock()
+		return nil
+	}
+	if err := loadContent(); err != nil {
+		return err
+	}
 	interrupts := make(chan os.Signal, 1)
 	signal.Notify(interrupts, os.Interrupt)
 	ln, err := net.Listen("tcp", os.Getenv("SERVER_ADDR"))
@@ -154,10 +181,24 @@ func fakeApp() error {
 			defer bundleMu.Unlock()
 			_, _ = io.WriteString(w, bundle)
 			return
+		case r.URL.Path == "/content":
+			bundleMu.Lock()
+			defer bundleMu.Unlock()
+			_, _ = io.WriteString(w, content)
+			return
 		case r.Method == "POST" && r.URL.Path == reloadPath:
-			if err := loadBundle(); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+			if r.URL.Query().Get("bundle") == "1" {
+				if err := loadBundle(); err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+			}
+			if r.URL.Query().Get("content") == "1" {
+				if err := loadContent(); err != nil {
+					w.Header().Set(reloadFailedHeader, "content")
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
 			}
 			w.WriteHeader(http.StatusNoContent)
 			return

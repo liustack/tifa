@@ -1,6 +1,9 @@
 package analyze
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -36,6 +39,72 @@ func TestContentCollections(t *testing.T) {
 	}
 	if want := []string{"1 entry of blog has no en version: about"}; !slices.Equal(c.Warnings, want) {
 		t.Errorf("Warnings = %q, want %q", c.Warnings, want)
+	}
+}
+
+// TestScanContentAgain checks the scan tifa dev repeats after a file under content/ changed: it
+// sees the new front matter and the new entries, keeps drafts with Options.Drafts, and reports
+// the problems the analysis would.
+func TestScanContentAgain(t *testing.T) {
+	root := t.TempDir()
+	if err := os.CopyFS(filepath.Join(root, "content"), os.DirFS(filepath.Join("testdata", "content", "content"))); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name, text string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("content/blog/zh-CN/about.md", "---\ntitle: 关于我们\n---\n")
+	write("content/blog/zh-CN/wip.md", "---\ntitle: 草稿\ndraft: true\n---\n")
+	titles := func(c *Content) []string {
+		var got []string
+		for _, r := range c.File["blog"] {
+			if r.Lang == "zh-CN" {
+				got = append(got, fmt.Sprintf("%s %s %v", r.ID, r.Data, r.Draft))
+			}
+		}
+		return got
+	}
+	for _, drafts := range []bool{false, true} {
+		m, err := AnalyzeWith(filepath.Join("testdata", "content"), Options{Drafts: drafts})
+		if err != nil {
+			t.Fatal(err)
+		}
+		c, err := ScanContent(root, m.Content)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []string{`202608/hello {"title":"你好"} false`, `about {"title":"关于我们"} false`}
+		if drafts {
+			want = append(want, `wip {"title":"草稿"} true`)
+		}
+		if got := titles(c); !slices.Equal(got, want) {
+			t.Errorf("drafts %v: zh-CN entries %q, want %q", drafts, got, want)
+		}
+		if c.Fingerprint() != m.Content.Fingerprint() || c.Fingerprint() == "" {
+			t.Errorf("drafts %v: the fingerprint changed with the files", drafts)
+		}
+	}
+	m, err := analyzeApp(t, "content")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write("content/blog/zh-CN/about.md", "---\ntitel: 关于\n---\n")
+	write("content/notes/a.md", "---\n---\n")
+	_, err = ScanContent(root, m.Content)
+	want := "content/blog/zh-CN/about.md:1:1: front matter has no \"title\", which site.Post.Title needs. Make the field a pointer or add omitempty to make it optional\n" +
+		"content/blog/zh-CN/about.md:2:1: \"titel\" is not a field of site.Post. Did you mean \"title\"? Fields: title, updated\n" +
+		"content/notes: no collection reads this folder: declare one in content.go, or move the folder out of content/"
+	if err == nil || err.Error() != want {
+		t.Errorf("error:\n%v\nwant:\n%s", err, want)
+	}
+	if _, err := ScanContent(root, nil); err == nil || !strings.Contains(err.Error(), "content/blog: no collection reads this folder") {
+		t.Errorf("without collections: %v", err)
 	}
 }
 

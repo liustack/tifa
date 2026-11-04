@@ -41,7 +41,17 @@ func prepareContent(root string, c *Content, pages bool) error {
 			return err
 		}
 	}
-	data, err := json.Marshal(content.Entries{Entries: c.Markdown})
+	return writeEntries(root, c.Markdown)
+}
+
+// writeEntries lists entries in .tifa/content/entries.json for the tifa Vite plugin to convert,
+// and removes the headings of an earlier conversion.
+func writeEntries(root string, entries []content.Markdown) error {
+	dir := filepath.Join(root, ".tifa", "content")
+	if err := os.Remove(filepath.Join(root, ".tifa", filepath.FromSlash(content.HeadingsFile))); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	data, err := json.Marshal(content.Entries{Entries: entries})
 	if err != nil {
 		return err
 	}
@@ -101,23 +111,39 @@ func finishContent(root, dist string, c *Content) error {
 	}
 	headings := map[string][]content.Heading{}
 	if len(c.Markdown) > 0 {
-		data, err := os.ReadFile(filepath.Join(root, ".tifa", filepath.FromSlash(content.HeadingsFile)))
-		if errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("the tifa plugin of Vite wrote no %s: check that vite.config.ts uses it", content.HeadingsFile)
-		}
-		if err != nil {
+		var err error
+		if headings, err = readHeadings(root); err != nil {
 			return err
 		}
-		if err := json.Unmarshal(data, &headings); err != nil {
-			return fmt.Errorf("%s: %w", content.HeadingsFile, err)
-		}
 	}
-	if err := c.File.AddHeadings(headings); err != nil {
+	return writeContentFile(dist, c.File, headings)
+}
+
+// readHeadings reads the headings the tifa Vite plugin wrote for the entries it converted.
+func readHeadings(root string) (map[string][]content.Heading, error) {
+	data, err := os.ReadFile(filepath.Join(root, ".tifa", filepath.FromSlash(content.HeadingsFile)))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("the tifa plugin of Vite wrote no %s: check that vite.config.ts uses it", content.HeadingsFile)
+	}
+	if err != nil {
+		return nil, err
+	}
+	headings := map[string][]content.Heading{}
+	if err := json.Unmarshal(data, &headings); err != nil {
+		return nil, fmt.Errorf("%s: %w", content.HeadingsFile, err)
+	}
+	return headings, nil
+}
+
+// writeContentFile writes dist/content.json: the entries of f with the headings of each, by the
+// file of its body.
+func writeContentFile(dist string, f content.File, headings map[string][]content.Heading) error {
+	if err := f.AddHeadings(headings); err != nil {
 		return err
 	}
-	data, err := c.File.Marshal()
+	data, err := f.Marshal()
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(name, data, 0o644)
+	return os.WriteFile(filepath.Join(dist, content.FileName), data, 0o644)
 }

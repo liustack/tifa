@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -128,7 +129,7 @@ func TestDevMainReloadsTheSSRBundle(t *testing.T) {
 	}
 
 	writeBundle(t, dir, "second")
-	if code, body := fetch(t, "POST", base+reloadPath); code != http.StatusNoContent {
+	if code, body := fetch(t, "POST", base+reloadPath+"?bundle=1"); code != http.StatusNoContent {
 		t.Fatalf("reload: %d %s", code, body)
 	}
 	if code, body := fetch(t, "GET", base+"/"); code != 200 || body != "<p>second</p>" {
@@ -139,7 +140,7 @@ func TestDevMainReloadsTheSSRBundle(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "ssr.js"), []byte("globalThis.startRender = ("), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if code, body := fetch(t, "POST", base+reloadPath); code != http.StatusInternalServerError || !strings.Contains(body, "SyntaxError") {
+	if code, body := fetch(t, "POST", base+reloadPath+"?bundle=1"); code != http.StatusInternalServerError || !strings.Contains(body, "SyntaxError") {
 		t.Fatalf("reload of a broken bundle: %d %s", code, body)
 	}
 	if code, body := fetch(t, "GET", base+"/"); code != 200 || body != "<p>second</p>" {
@@ -221,7 +222,7 @@ func TestMainDoesNotReloadTheSSRBundle(t *testing.T) {
 	writeBundle(t, dir, "first")
 	base := serveApp(t, frontApp(), false, "--dist", dir)
 	writeBundle(t, dir, "second")
-	if code, _ := fetch(t, "POST", base+reloadPath); code == http.StatusNoContent {
+	if code, _ := fetch(t, "POST", base+reloadPath+"?bundle=1"); code == http.StatusNoContent {
 		t.Fatal("a production app answered the reload request")
 	}
 	if code, body := fetch(t, "GET", base+"/"); code != 200 || body != "<p>first</p>" {
@@ -262,7 +263,7 @@ func TestDevReloadKeepsServingPages(t *testing.T) {
 	}
 	for i := 1; i <= 5; i++ {
 		writeBundle(t, dir, fmt.Sprintf("v%d", i))
-		if code, body := fetch(t, "POST", base+reloadPath); code != http.StatusNoContent {
+		if code, body := fetch(t, "POST", base+reloadPath+"?bundle=1"); code != http.StatusNoContent {
 			t.Errorf("reload %d: %d %s", i, code, body)
 		}
 	}
@@ -427,5 +428,90 @@ func TestMainKeepsNoRequestErrors(t *testing.T) {
 	base := serveApp(t, frontApp(), false, "--dist", dir)
 	if code, body := fetch(t, "GET", base+deverrors.Path); code == 200 && strings.Contains(body, "requests") {
 		t.Fatalf("a production app answered %s: %s", deverrors.Path, body)
+	}
+}
+
+// tifa dev asks the running app to load the content it converted again. The app swaps the data
+// of the collections in place, shows the entries whose date is to come, keeps what it had when an
+// entry fails Validate, and the pages of the whole-page cache expire.
+func TestDevMainReloadsTheContent(t *testing.T) {
+	posts := definePosts(t)
+	dir := t.TempDir()
+	writeBundle(t, dir, "posts")
+	writePosts := func(titles ...string) {
+		t.Helper()
+		var recs []string
+		for i, title := range titles {
+			id := fmt.Sprintf("p%d", i)
+			recs = append(recs, fmt.Sprintf(`{"id":%q,"slug":%q,"path":%q,"group":%q,"date":"2999-01-01T00:00:00Z","words":2,"source":"content/serverposts/%s.md","data":{"title":%q}}`, id, id, id, id, id, title))
+		}
+		data := `{"serverposts":[` + strings.Join(recs, ",") + `]}`
+		if err := os.WriteFile(filepath.Join(dir, "content.json"), []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writePosts("A")
+	var loads atomic.Int32
+	var starts atomic.Int32
+	app := frontApp()
+	app.Hooks.OnStart = func(context.Context) error {
+		starts.Add(1)
+		return nil
+	}
+	app.Routes = append(app.Routes, Route{ID: "app/posts", Path: "/posts", Page: true, SSR: true, Cache: time.Minute, Layouts: []string{"app/layout"},
+		Load: func(c *tifa.Ctx) (any, error) {
+			loads.Add(1)
+			return len(posts.All()), nil
+		}})
+	base := serveApp(t, app, true, "--dist", dir)
+	titles := func() []string {
+		var got []string
+		for _, p := range posts.All() {
+			got = append(got, p.Title)
+		}
+		return got
+	}
+	if got := titles(); !slices.Equal(got, []string{"A"}) {
+		t.Fatalf("titles %q: want the post dated in the future", got)
+	}
+	for range 2 {
+		if code, body := fetch(t, "GET", base+"/posts"); code != 200 {
+			t.Fatalf("page: %d %s", code, body)
+		}
+	}
+	if n := loads.Load(); n != 1 {
+		t.Fatalf("Load ran %d times, want once and a cache hit", n)
+	}
+
+	writePosts("A", "B")
+	if code, body := fetch(t, "POST", base+reloadPath+"?content=1"); code != http.StatusNoContent {
+		t.Fatalf("reload: %d %s", code, body)
+	}
+	if got := titles(); !slices.Equal(got, []string{"A", "B"}) {
+		t.Fatalf("titles after the reload %q", got)
+	}
+	if code, body := fetch(t, "GET", base+"/posts"); code != 200 || loads.Load() != 2 {
+		t.Fatalf("page after the reload: %d %s, Load ran %d times: want the cached page expired", code, body, loads.Load())
+	}
+
+	writePosts("A", "")
+	req, err := http.NewRequest("POST", base+reloadPath+"?content=1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusInternalServerError || resp.Header.Get(reloadFailedHeader) != "content" || !strings.Contains(string(body), "content/serverposts/p1.md: Validate: title is empty") {
+		t.Fatalf("reload of content that fails Validate: %d %q %s", resp.StatusCode, resp.Header.Get(reloadFailedHeader), body)
+	}
+	if got := titles(); !slices.Equal(got, []string{"A", "B"}) {
+		t.Fatalf("titles after a failed reload %q", got)
+	}
+	if n := starts.Load(); n != 1 {
+		t.Fatalf("OnStart ran %d times", n)
 	}
 }

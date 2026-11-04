@@ -60,7 +60,8 @@ type Entry struct {
 	// Path is ID with its last segment replaced by Slug.
 	Path string `json:"path"`
 	// Date is the date of the front matter, zero without one: a date alone is midnight UTC. An
-	// entry whose date is still to come is hidden until that moment.
+	// entry whose date is still to come is hidden until that moment, except under tifa dev, which
+	// shows it.
 	Date time.Time `json:"date,omitzero"`
 	// Draft is true for an entry whose front matter has draft: true, which only tifa dev shows.
 	Draft bool `json:"draft,omitzero"`
@@ -310,7 +311,7 @@ func (c *Collection[T]) commit(items []item[T]) func() {
 		return cmp.Or(cmp.Compare(x.ID, y.ID), cmp.Compare(c.langIndex(x.Lang), c.langIndex(y.Lang)))
 	})
 	return func() {
-		c.data.Store(&data[T]{items: items, view: c.makeView(items, content.Now())})
+		c.data.Store(&data[T]{items: items, view: c.makeView(items, content.VisibleAt())})
 	}
 }
 

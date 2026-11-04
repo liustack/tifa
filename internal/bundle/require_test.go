@@ -175,7 +175,7 @@ func TestDevRequireCases(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true, nil); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
 		t.Fatal(err)
 	}
 	// What Node printed is complete once it exited.
