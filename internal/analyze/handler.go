@@ -102,6 +102,15 @@ func (a *analyzer) checkInput(method string, in types.Type, pos token.Pos) (ok, 
 		f := st.Field(i)
 		if f.Exported() && !f.Embedded() && jsonName(st.Tag(i)) != "-" && fileType(f.Type()) {
 			files[f] = true
+			// A type that reads or writes itself as text is a string in TypeScript, so the page
+			// would send text where the server waits for a file.
+			for _, name := range []string{"MarshalText", "UnmarshalText"} {
+				if _, _, found := lookupName(f.Type(), name); found {
+					a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s.%s is a file of type %s, which has %s: a file comes as a part of a form, never as text, so a file type cannot have MarshalText or UnmarshalText. Remove the method, or use *multipart.FileHeader or []*multipart.FileHeader", label, rootLabel(in), f.Name(), types.TypeString(f.Type(), shortQualifier), name), f))
+					ok = false
+					break
+				}
+			}
 		}
 	}
 	form = len(files) > 0

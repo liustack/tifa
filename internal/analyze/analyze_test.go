@@ -322,6 +322,7 @@ func TestViolations(t *testing.T) {
 			{"app/nested/route.go:27:", "PUT input", "Value.File", "*multipart.FileHeader"},
 			{"app/nested/route.go:29:", "PATCH input", "Mapped.Files", "field of the input itself"},
 			{"app/mixed/route.go:18:", "POST input", "Mixed.Meta", "holds a file", "strings, numbers, bools"},
+			{"app/texted/route.go:19:", "POST input", "Input.Files", "MarshalText", "UnmarshalText", "file"},
 			{"app/result/route.go:13:", "Load result", "Data.File", "multipart.FileHeader", "input"},
 			{"app/result/route.go:15:", "POST result", "multipart.FileHeader", "input"},
 			{"app/limits/route.go:9:", "BodyLimit", "greater than 0"},
