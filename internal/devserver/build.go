@@ -98,7 +98,7 @@ const (
 	frontend         // TypeScript, JavaScript, CSS and JSON imported by them, and what Vite loads from outside the root
 	config           // tifa.yaml in the application directory
 	dotenv           // .env in the application directory, which the app reads when it starts
-	contentFile      // any other file under content/: an entry of a collection or a file of one
+	contentFile      // any file under content/: an entry of a collection or a file of one
 )
 
 func kindOf(p string) kind {
@@ -107,6 +107,11 @@ func kindOf(p string) kind {
 		// because a module loaded it, such as source of the workspace or a text file imported with
 		// ?raw. Whatever its name, the SSR bundle may contain it.
 		return frontend
+	}
+	if strings.HasPrefix(p, contentDir) {
+		// Whatever its name, such as data.json or page.tsx: the content step reads it, Vite and
+		// Go do not.
+		return contentFile
 	}
 	switch p {
 	case "tifa.yaml":
@@ -121,9 +126,6 @@ func kindOf(p string) kind {
 		return goSource
 	case ".ts", ".tsx", ".js", ".jsx", ".mjs", ".css", ".json":
 		return frontend
-	}
-	if strings.HasPrefix(p, contentDir) {
-		return contentFile
 	}
 	return other
 }
@@ -141,8 +143,9 @@ func kindOf(p string) kind {
 //   - A restart of Vite's dev server needs a new bundle, as a file outside the root may have
 //     changed meanwhile with no event, and every entry of the content converted again, as the
 //     Vite config or a plugin it imports may have changed.
-//   - A file under content/ needs the content step: the scan, and the conversion of the entries
-//     it changes. It needs no go build, as the app reads the content from its files.
+//   - A file under content/ needs the content step, whatever its name: the scan, and the
+//     conversion of the entries it changes. It needs no go build, as the app reads the content
+//     from its files.
 //   - .env needs only a restart of the app, which reads it when it starts.
 func plan(changes []change, embedded func(rel string) bool) steps {
 	var s steps
@@ -150,9 +153,6 @@ func plan(changes []change, embedded func(rel string) bool) steps {
 		if c.op == restarted {
 			s.bundle, s.content, s.contentAll = true, true, true
 			continue
-		}
-		if strings.HasPrefix(c.path, contentDir) {
-			s.content = true
 		}
 		if embedded != nil && embedded(c.path) {
 			s.goBuild = true
@@ -167,6 +167,8 @@ func plan(changes []change, embedded func(rel string) bool) steps {
 			s = s.or(everything)
 		case dotenv:
 			s.restart = true
+		case contentFile:
+			s.content = true
 		case frontend:
 			s.bundle = true
 			base := path.Base(c.path)

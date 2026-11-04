@@ -142,6 +142,11 @@ func TestRebuildContent(t *testing.T) {
 		{"new post", []change{{"content/blog/en/b/index.md", created}}, true, []string{"Content"}, []string{"false [content/blog/en/b/index.md]"}},
 		{"image", []change{{"content/blog/zh-CN/a/diagram.png", modified}}, true, []string{"Content"}, []string{"false [content/blog/zh-CN/a/diagram.png]"}},
 		{"new folder without collections", []change{{"content/notes/a.md", created}}, false, []string{"Content"}, []string{"false [content/notes/a.md]"}},
+		// Whatever its name, a file under content/ is content, such as one a body shows.
+		{"json of a body", []change{{"content/blog/en/a/data.json", modified}}, true, []string{"Content"}, []string{"false [content/blog/en/a/data.json]"}},
+		{"css of a body", []change{{"content/blog/en/a/styles.css", modified}}, true, []string{"Content"}, []string{"false [content/blog/en/a/styles.css]"}},
+		{"page.tsx under content", []change{{"content/blog/en/a/page.tsx", created}}, true, []string{"Content"}, []string{"false [content/blog/en/a/page.tsx]"}},
+		{"go under content", []change{{"content/blog/en/a/main.go", modified}}, true, []string{"Content"}, []string{"false [content/blog/en/a/main.go]"}},
 		{"content.go", []change{{"content.go", modified}}, true, []string{"Analyze", "Content", "GoBuild"}, []string{"false []"}},
 		{"go without content", []change{{"app/a.go", modified}}, false, []string{"Analyze", "GoBuild"}, nil},
 		{"vite restarted", []change{{viteServer, restarted}}, true, []string{"Bundle", "Content"}, []string{"true []"}},
