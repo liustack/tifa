@@ -5,6 +5,8 @@ package sessiontest
 import (
 	"context"
 	"encoding/json/v2"
+	"errors"
+	"io/fs"
 	"os"
 	"sync"
 	"time"
@@ -22,12 +24,20 @@ type fileRecord struct {
 	Expires time.Time `json:"expires"`
 }
 
-func (s *fileStore) load() map[string]fileRecord {
+// load reads the records. A file that does not exist yet holds none.
+func (s *fileStore) load() (map[string]fileRecord, error) {
 	records := map[string]fileRecord{}
-	if data, err := os.ReadFile(s.path); err == nil {
-		_ = json.Unmarshal(data, &records)
+	data, err := os.ReadFile(s.path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return records, nil
 	}
-	return records
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(data, &records); err != nil {
+		return nil, err
+	}
+	return records, nil
 }
 
 func (s *fileStore) save(records map[string]fileRecord) error {
@@ -39,9 +49,16 @@ func (s *fileStore) save(records map[string]fileRecord) error {
 }
 
 func (s *fileStore) Get(ctx context.Context, key string) ([]byte, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	r, ok := s.load()[key]
+	records, err := s.load()
+	if err != nil {
+		return nil, false, err
+	}
+	r, ok := records[key]
 	if !ok || !time.Now().Before(r.Expires) {
 		return nil, false, nil
 	}
@@ -49,17 +66,29 @@ func (s *fileStore) Get(ctx context.Context, key string) ([]byte, bool, error) {
 }
 
 func (s *fileStore) Put(ctx context.Context, key string, data []byte, expiry time.Time) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	records := s.load()
+	records, err := s.load()
+	if err != nil {
+		return err
+	}
 	records[key] = fileRecord{Data: append([]byte(nil), data...), Expires: expiry}
 	return s.save(records)
 }
 
 func (s *fileStore) Delete(ctx context.Context, key string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	records := s.load()
+	records, err := s.load()
+	if err != nil {
+		return err
+	}
 	delete(records, key)
 	return s.save(records)
 }
