@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### 变更
+
+- `tifa new` 固定 `github.com/liustack/sqlite` v0.1.2，它支持 Go 1.26.6 到 1.27，遇到更新的 Go 会停止编译。升级 Go 之后也要升级驱动。
+
 ## [0.0.3] - 2026-11-05
 
 ### 变更

@@ -4,6 +4,10 @@ What changed in tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Changed
+
+- `tifa new` pins `github.com/liustack/sqlite` v0.1.2, which builds with Go 1.26.6 to 1.27 and stops the build on a newer Go. After upgrading Go, upgrade the driver too.
+
 ## [0.0.3] - 2026-11-05
 
 ### Changed
