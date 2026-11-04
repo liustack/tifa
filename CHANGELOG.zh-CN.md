@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### 变更
+
+- `tifa new` 模板改用 SQLite 驱动 `github.com/liustack/sqlite`，不再用 `modernc.org/sqlite`。它是纯 Go 的，需要 Go 1.27 或更高版本，支持 Linux 和 macOS（amd64 和 arm64）以及 Windows（amd64）。已有应用从 `modernc.org/sqlite` 迁过来要查两处。驱动会拒绝不认识的 DSN 参数，所以 `_foreign_keys=1` 之类要改成 `_pragma=foreign_keys(1)`。SQL 里的双引号只表示列名和表名，写成 `"text"` 的字符串值要改成 `'text'`。两个驱动都注册名字 `sqlite`，旧的导入必须删干净。
+
 ## [0.0.2] - 2026-11-04
 
 ### 新增

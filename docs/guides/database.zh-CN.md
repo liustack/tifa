@@ -17,7 +17,9 @@ tifa 没有数据库层。应用在 `OnStart` 里打开数据库，用 `database
 
 ## 驱动
 
-用 `modernc.org/sqlite`。它是翻译成 Go 的 SQLite，所以应用仍然能用 `CGO_ENABLED=0` 编译成一个文件（见[哲学](../philosophy.zh-CN.md#按-go-的方式)）。cgo 驱动 `github.com/mattn/go-sqlite3` 需要 C 编译器，会破坏这一点。`tifa new` 已经在 `go.mod` 里固定了纯 Go 驱动的一个版本。
+用 [`github.com/liustack/sqlite`](https://github.com/liustack/sqlite)。它把 SQLite 当 Go 代码运行，所以应用仍然能用 `CGO_ENABLED=0` 编译成一个文件（见[哲学](../philosophy.zh-CN.md#按-go-的方式)）。cgo 驱动 `github.com/mattn/go-sqlite3` 需要 C 编译器，会破坏这一点。在驱动自己的[评测](https://github.com/liustack/sqlite/blob/main/README.zh-CN.md)里，它读得比 cgo 驱动和其他纯 Go 驱动都快，只在完全在 SQLite 内部完成的工作（比如连接查询）上落后。它支持 amd64 和 arm64 上的 Linux 和 macOS，以及 amd64 上的 Windows。`tifa new` 已经在 `go.mod` 里固定了一个版本。
+
+有两个习惯和别的驱动不同。DSN 里除了 `_pragma` 和 `_txlock` 的参数都会报错，所以别的驱动那种 `_foreign_keys=1` 的写法不能用。SQL 里的双引号只表示列名和表名，字符串值要写成单引号。同一个程序里不要再导入另一个叫 `sqlite` 的驱动（比如 `modernc.org/sqlite`），两者注册同一个名字，程序启动时会 panic。
 
 ## 在 OnStart 里打开
 
@@ -32,23 +34,23 @@ import (
 	"database/sql"
 	"net/url"
 
-	_ "modernc.org/sqlite"
+	_ "github.com/liustack/sqlite"
 )
 
 // DB is the database of the app. OnStart opens it and OnShutdown closes it.
 var DB *sql.DB
 
 func OpenDB(ctx context.Context, path string) (*sql.DB, error) {
-	// The pragmas apply to every connection of the pool. WAL lets reads go on during a write,
-	// busy_timeout makes a write wait up to 5s for another one instead of failing at once, and
-	// SQLite checks foreign keys only when asked to. A transaction that reads first and then
+	// The pragmas run on every connection of the pool. WAL lets reads go on during a write, and
+	// SQLite checks foreign keys only when asked to. A write waits up to 5s for another one by
+	// default (change it with _pragma=busy_timeout(ms)). A transaction that reads first and then
 	// writes can fail with SQLITE_BUSY even with a timeout, so _txlock=immediate makes every
 	// transaction take the write lock as it starts.
 	q := url.Values{
-		"_pragma": {"journal_mode(WAL)", "busy_timeout(5000)", "foreign_keys(ON)", "synchronous(NORMAL)"},
+		"_pragma": {"journal_mode(WAL)", "synchronous(NORMAL)", "foreign_keys(1)"},
 		"_txlock": {"immediate"},
 	}
-	db, err := sql.Open("sqlite", path+"?"+q.Encode())
+	db, err := sql.Open("sqlite", "file:"+path+"?"+q.Encode())
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +76,7 @@ func OnStart(ctx context.Context) error {
 func OnShutdown(ctx context.Context) error { return DB.Close() }
 ```
 
-`?` 后面的参数由驱动读取（见[驱动文档](https://pkg.go.dev/modernc.org/sqlite#Driver.Open)）。`OnShutdown` 在处理中的请求结束后才运行，所以关闭 `DB` 时没有人在用它。
+`?` 后面的参数由驱动读取（见[驱动说明](https://github.com/liustack/sqlite#readme)）。`_pragma=name(value)` 会在每个新连接上执行 `PRAGMA name = value`。`OnShutdown` 在处理中的请求结束后才运行，所以关闭 `DB` 时没有人在用它。
 
 ## 文件放哪
 

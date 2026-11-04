@@ -91,4 +91,4 @@ func GetTodo(ctx context.Context, id int64) (Todo, error) {
 - Pass arguments when only some callers use another value (a clock, a limit, a client).
 - Tests replace the variable or pass a fake. See [testing.md](testing.md).
 - No `init()` for setup, and no reading a resource while package-level variables are initialized. Resources exist only after `OnStart`.
-- The SQLite driver `modernc.org/sqlite` is pure Go, so `CGO_ENABLED=0` stays. Pick pure Go drivers for any dependency, because the build is `CGO_ENABLED=0`.
+- The SQLite driver `github.com/liustack/sqlite` is pure Go, so `CGO_ENABLED=0` stays. Pick pure Go drivers for any dependency, because the build is `CGO_ENABLED=0`.
