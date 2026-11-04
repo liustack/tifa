@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/liustack/slowjs"
@@ -99,6 +100,11 @@ type Pool struct {
 	warned   map[string]bool // the Intl warnings logged
 	swapping bool            // one load-first replacement, including retries and closing the old VM
 	swapWake chan struct{}
+
+	// What Stats reports. Every render counts, so these are atomic and take no lock: busy is the
+	// renders in a VM now, rendered and failed count the renders that ended and those that retired
+	// their VM, renderTime is their time in nanoseconds, and rejected counts ErrSSRBusy.
+	busy, rendered, failed, renderTime, rejected atomic.Int64
 
 	renders   sync.WaitGroup
 	refills   sync.WaitGroup
@@ -296,10 +302,16 @@ func (p *Pool) renderInVM(ctx context.Context, in Input) (string, error) {
 	// is replaced, also when a Go panic, from the engine or a Go function the bundle calls,
 	// leaves Render: the panic goes on up and the pool keeps its size.
 	keep := false
+	p.busy.Add(1)
+	start := time.Now()
 	defer func() {
+		p.renderTime.Add(int64(time.Since(start)))
+		p.rendered.Add(1)
+		p.busy.Add(-1)
 		if keep {
 			p.release(vm)
 		} else {
+			p.failed.Add(1)
 			p.retire(vm)
 		}
 	}()
@@ -354,11 +366,15 @@ func (p *Pool) acquire(ctx context.Context, deadline time.Time) (*pooledVM, erro
 		}()
 	default:
 		p.mu.Unlock()
+		p.rejected.Add(1)
 		return nil, fmt.Errorf("%w: queue is full", core.ErrSSRBusy)
 	}
 	// The wait ends after ssr.wait_timeout, or at the render's deadline when that comes first.
 	end := time.Now().Add(p.waitTimeout)
-	late := func() error { return fmt.Errorf("%w: wait exceeded %s", core.ErrSSRBusy, p.waitTimeout) }
+	late := func() error {
+		p.rejected.Add(1)
+		return fmt.Errorf("%w: wait exceeded %s", core.ErrSSRBusy, p.waitTimeout)
+	}
 	if !deadline.IsZero() && deadline.Before(end) {
 		end = deadline
 		late = func() error { return timedOut(p.timeout, nil) }
@@ -820,6 +836,18 @@ func (p *Pool) closeVM(vm *pooledVM) {
 	p.counts.closed++
 	if err != nil {
 		p.failure = errors.Join(p.failure, fmt.Errorf("ssr: close VM: %w", err))
+	}
+}
+
+// Stats returns the state of the pool now and what it did since it started.
+func (p *Pool) Stats() core.SSRStats {
+	p.mu.Lock()
+	vms := p.counts.created - p.counts.closed
+	p.mu.Unlock()
+	return core.SSRStats{
+		VMs: vms, Busy: int(p.busy.Load()), Queued: len(p.waiters),
+		Renders: uint64(p.rendered.Load()), Failed: uint64(p.failed.Load()), RenderTime: time.Duration(p.renderTime.Load()),
+		Rejected: uint64(p.rejected.Load()),
 	}
 }
 

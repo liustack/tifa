@@ -7,8 +7,12 @@ import (
 	"fmt"
 	"net/http"
 	"runtime/debug"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/liustack/tifa/internal/core"
 )
 
 // cacheNow is the clock of the whole-page cache. Tests set it.
@@ -34,6 +38,12 @@ type htmlCache struct {
 	// madeAfter is the moment the content collections last changed: a page of the whole-page
 	// cache made before it is no longer fresh, see expireMadeBefore.
 	madeAfter time.Time
+	// entries counts the pages kept, by kind (kindOf), under mu. hits, misses and shared count what
+	// fetch found, and staleSent the old pages of the whole-page cache sent for a failed one. Every
+	// request counts, so these are atomic, and Stats reads them without the lock.
+	entries              [2]int
+	hits, misses, shared [2]atomic.Uint64
+	staleSent            atomic.Uint64
 	// Hooks of the tests, nil otherwise: fetching runs as fetch starts, landing between storing
 	// a render and ending its flight.
 	fetching, landing func()
@@ -87,6 +97,20 @@ type bodyUse struct {
 type cached struct {
 	key  string
 	page cachedPage
+}
+
+// Kinds of keys, see kindOf.
+const (
+	renderKind = iota
+	pageKind
+)
+
+// kindOf says which cache a key is of: the render cache or the whole-page cache.
+func kindOf(key string) int {
+	if strings.HasPrefix(key, pageKeyPrefix) {
+		return pageKind
+	}
+	return renderKind
 }
 
 // cachedPage is a rendered page as the cache keeps it: the HTML and, with server.compress, its
@@ -153,6 +177,20 @@ func (c *htmlCache) expireMadeBefore(t time.Time) {
 	clear(c.flights)
 }
 
+// stats returns what the render cache and the whole-page cache hold and did, and the bytes they
+// share.
+func (c *htmlCache) stats() (render, page core.CacheStats, used int64) {
+	c.mu.Lock()
+	entries, used := c.entries, c.used
+	c.mu.Unlock()
+	of := func(kind int) core.CacheStats {
+		return core.CacheStats{Entries: entries[kind], Hits: c.hits[kind].Load(), Misses: c.misses[kind].Load(), Shared: c.shared[kind].Load()}
+	}
+	render, page = of(renderKind), of(pageKind)
+	page.Stale = c.staleSent.Load()
+	return render, page, used
+}
+
 func newHTMLCache(size int64) *htmlCache {
 	return &htmlCache{size: size, order: list.New(), pages: map[string]*list.Element{}, flights: map[string]*flight{}, bypass: map[string]time.Time{}, bodies: map[*bodyID]*bodyUse{}}
 }
@@ -190,13 +228,10 @@ func (c *htmlCache) putLocked(key string, page cachedPage) {
 		return
 	}
 	c.pages[key] = c.order.PushFront(&cached{key: key, page: page})
+	c.entries[kindOf(key)]++
 	c.charge(page)
 	for c.used > c.size {
-		oldest := c.order.Back()
-		entry := oldest.Value.(*cached)
-		c.order.Remove(oldest)
-		delete(c.pages, entry.key)
-		c.refund(entry.page)
+		c.removeLocked(c.order.Back().Value.(*cached).key)
 	}
 }
 
@@ -235,6 +270,7 @@ func (c *htmlCache) removeLocked(key string) {
 		c.refund(e.Value.(*cached).page)
 		c.order.Remove(e)
 		delete(c.pages, key)
+		c.entries[kindOf(key)]--
 	}
 }
 
@@ -315,16 +351,19 @@ func (c *htmlCache) fetch(ctx context.Context, key string, unheard func(error), 
 	if c.fetching != nil {
 		c.fetching()
 	}
+	kind := kindOf(key)
 	c.mu.Lock()
 	if e, ok := c.pages[key]; ok && e.Value.(*cached).page.fresh(cacheNow(), c.madeAfter) {
 		c.order.MoveToFront(e)
 		c.mu.Unlock()
+		c.hits[kind].Add(1)
 		return fetched{page: e.Value.(*cached).page, held: true, how: "cache"}, nil
 	}
 	how := "shared"
+	counter := &c.shared[kind]
 	f := c.flights[key]
 	if f == nil {
-		how = "vm"
+		how, counter = "vm", &c.misses[kind]
 		f = &flight{done: make(chan struct{})}
 		var flightCtx context.Context
 		flightCtx, f.cancel = context.WithCancel(context.WithoutCancel(ctx))
@@ -333,6 +372,7 @@ func (c *htmlCache) fetch(ctx context.Context, key string, unheard func(error), 
 	}
 	f.waiters++
 	c.mu.Unlock()
+	counter.Add(1)
 	select {
 	case <-f.done:
 		if f.unshared && how == "shared" {

@@ -68,6 +68,10 @@ func (s *server) pageURI(r *http.Request, pattern string) string {
 	return u.RequestURI()
 }
 
+// pageKeyPrefix starts every key of the whole-page cache, which the keys of the render cache, a
+// hash in hex, never do.
+const pageKeyPrefix = "page\x00"
+
 // pageKey is the key of the entry of the whole-page cache for the request. It holds what the page
 // can depend on without looking at the visitor: the scheme, the Host header (never
 // X-Forwarded-Host), the path and the cleaned query. The build and the SSR bundle come first,
@@ -77,5 +81,5 @@ func (s *server) pageKey(r *http.Request, pattern string, f *front) string {
 	if r.TLS != nil {
 		scheme = "https"
 	}
-	return "page\x00" + f.build.ID + "\x00" + f.build.bundle + "\x00" + scheme + "://" + strings.ToLower(r.Host) + s.pageURI(r, pattern)
+	return pageKeyPrefix + f.build.ID + "\x00" + f.build.bundle + "\x00" + scheme + "://" + strings.ToLower(r.Host) + s.pageURI(r, pattern)
 }

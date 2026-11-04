@@ -133,6 +133,7 @@ func (s *server) cachedPageRequest(c *tifa.Ctx, route Route, chain []load, ttl t
 	status := "tifa; hit"
 	switch {
 	case own || s.cache.bypassed(key, cacheNow()):
+		s.cache.misses[pageKind].Add(1)
 		got, err = alone()
 		status = "tifa; fwd=bypass"
 	default:
@@ -162,6 +163,7 @@ func (s *server) cachedPageRequest(c *tifa.Ctx, route Route, chain []load, ttl t
 			return s.pageFailure(c, err, selected)
 		}
 		core.Logger().WarnContext(c.Context(), "tifa: making the page failed, the old page is served", "method", rq.Method, "path", rq.URL.Path, "err", err)
+		s.cache.staleSent.Add(1)
 		got, status = fetched{page: old, held: true, how: "cache"}, "tifa; fwd=stale"
 	}
 	return s.respondPage(c, got, status, selected)
@@ -172,6 +174,18 @@ func (s *server) cachedPageRequest(c *tifa.Ctx, route Route, chain []load, ttl t
 // next request: its Loads may have read what changed. A page whose data did not change is answered
 // by the render cache, without a render.
 func (s *server) contentChanged() { s.cache.expireMadeBefore(cacheNow()) }
+
+// Stats is tifa.Stats for this server.
+func (s *server) Stats() core.Stats {
+	var out core.Stats
+	out.RenderCache, out.PageCache, out.CacheBytes = s.cache.stats()
+	out.CacheSize = s.cache.size
+	// Only tifa dev replaces the front end, and with it the pool and its counts.
+	if f := s.front.Load(); f != nil && f.pool != nil {
+		out.SSR = f.pool.Stats()
+	}
+	return out
+}
 
 // ownedHeader reports whether the framework writes the header itself on a page of the whole-page
 // cache, so a Load or Layout cannot keep it in an entry.
