@@ -167,6 +167,7 @@
 
 ### 修复
 
+- `tifa dev` 的 head 里不再放 Vite 插件用 `transformIndexHtml` 加的标签，只保留 Vite 客户端和 React 刷新运行时。`tifa build` 从不跑这个钩子，这类标签以前在 `tifa dev` 里有、上线后悄悄消失。现在 tifa dev 会为每个省掉的标签打印警告并写出标签。要在两边都有，把标签写进根 `layout.tsx` 的 `head`。
 - `tifa dev` 的 SSR 包也像 `tifa build` 一样把 React 和 React DOM 命名空间的导出换成直接的值，不再打印 `tifa rewrite not recognized: react, react-dom`。`tifa dev` 的包不压缩，留着 React 的许可注释，改写因此认不出 React 的模块，dev 下页面每读一个导出都要调一次 getter。
 - `app/` 根下有参数文件夹（比如 `app/lang+`）的应用里，指向公共目录文件的链接不再去请求导航数据。浏览器里的路由把 `/favicon.svg` 当成页面 `/{lang}`，而服务器是先回答公共文件的，所以 `<Link to="/favicon.svg">` 和 `router.navigate` 会为它取页面数据。现在生成的路由列着公共文件，导航到其中任何一个、或到 `/assets/`、`/__tifa/` 下的路径，都会整页加载。每条页面路由还带一个标记，运行时新增的 `isPage(router, pathname)` 能把页面和这些路径、显示 404 的 URL 区分开（见[路由树](docs/build.zh-CN.md#路由树)）。
 - 公共目录里新增或删除文件时，`tifa dev` 会跑打包这一步，因为生成的代码列着这些文件。只改文件内容仍然不构建（见[改动触发什么](docs/dev.zh-CN.md#改动触发什么)）。
