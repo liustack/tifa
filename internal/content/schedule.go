@@ -15,7 +15,8 @@ import (
 
 // An entry whose date is still to come is hidden until that moment. Each collection keeps the
 // entries that can be seen now (see Collection.Show), and one timer for the first date still to
-// come shows the entries of that moment, tells the watchers and sets itself for the next date.
+// come, a minute at most (maxWait), shows the entries whose date has come by the wall clock,
+// tells the watchers and sets itself for the next date.
 
 // Clock judges which entries can be seen, and wakes the program when the next one can.
 type Clock struct {
@@ -144,8 +145,13 @@ func refreshLocked(published bool) {
 	}
 }
 
-// setTimerLocked sets the timer for at, or stops it for the zero time. Without watchers, or with a
-// clock that does not move, there is no timer.
+// maxWait is the longest a timer waits before it judges the entries again. A timer waits on the
+// monotonic clock, and the dates are on the wall clock: when the clock of the machine is set, or
+// the monotonic clock stands still while the machine sleeps, an entry comes out at most this late.
+const maxWait = time.Minute
+
+// setTimerLocked sets the timer for at, or for maxWait when at is further, or stops it for the zero
+// time. Without watchers, or with a clock that does not move, there is no timer.
 func setTimerLocked(at time.Time) {
 	if stopTimer != nil {
 		stopTimer()
@@ -157,7 +163,7 @@ func setTimerLocked(at time.Time) {
 		return
 	}
 	gen := generation
-	stopTimer = c.AfterFunc(at.Sub(c.Now()), func() { fire(gen) })
+	stopTimer = c.AfterFunc(min(at.Sub(c.Now()), maxWait), func() { fire(gen) })
 }
 
 func notifyLocked() {

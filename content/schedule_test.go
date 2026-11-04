@@ -13,16 +13,19 @@ import (
 	"github.com/liustack/tifa/internal/content"
 )
 
-// fakeClock is a clock that moves only when the test says so. Its timers fire, in the order of
-// their times, in the goroutine of advance.
+// fakeClock is a clock that moves only when the test says so. Like the clock of Go, it has a wall
+// clock, which jump can move alone, and a monotonic one that timers wait on. Its timers fire, in
+// the order of their times, in the goroutine of advance.
 type fakeClock struct {
-	mu     sync.Mutex
-	now    time.Time
-	timers []*fakeTimer
+	mu      sync.Mutex
+	start   time.Time
+	elapsed time.Duration // on the monotonic clock
+	offset  time.Duration // of the wall clock
+	timers  []*fakeTimer
 }
 
 type fakeTimer struct {
-	at      time.Time
+	at      time.Duration // on the monotonic clock
 	f       func()
 	stopped bool
 }
@@ -30,7 +33,7 @@ type fakeTimer struct {
 // useClock makes a fake clock at start the clock of the collections until t ends.
 func useClock(t *testing.T, start time.Time) *fakeClock {
 	t.Helper()
-	c := &fakeClock{now: start}
+	c := &fakeClock{start: start}
 	t.Cleanup(content.SetClock(content.Clock{Now: c.Now, AfterFunc: c.AfterFunc}))
 	return c
 }
@@ -38,13 +41,13 @@ func useClock(t *testing.T, start time.Time) *fakeClock {
 func (c *fakeClock) Now() time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.now
+	return c.start.Add(c.elapsed + c.offset)
 }
 
 func (c *fakeClock) AfterFunc(d time.Duration, f func()) func() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	tm := &fakeTimer{at: c.now.Add(d), f: f}
+	tm := &fakeTimer{at: c.elapsed + d, f: f}
 	c.timers = append(c.timers, tm)
 	return func() bool {
 		c.mu.Lock()
@@ -55,41 +58,50 @@ func (c *fakeClock) AfterFunc(d time.Duration, f func()) func() bool {
 	}
 }
 
-// pending returns the times of the timers that have neither fired nor been stopped.
+// pending returns the wall times at which the timers that have neither fired nor been stopped
+// fire, as long as the wall clock does not jump.
 func (c *fakeClock) pending() []time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	var at []time.Time
 	for _, tm := range c.timers {
 		if !tm.stopped {
-			at = append(at, tm.at)
+			at = append(at, c.start.Add(tm.at+c.offset))
 		}
 	}
 	return at
 }
 
-// advance moves the clock by d and fires the timers whose time has come.
+// advance moves both clocks by d and fires the timers whose time comes, each at its time.
 func (c *fakeClock) advance(d time.Duration) {
 	c.mu.Lock()
-	c.now = c.now.Add(d)
+	end := c.elapsed + d
 	c.mu.Unlock()
 	for {
 		c.mu.Lock()
 		var due *fakeTimer
 		for _, tm := range c.timers {
-			if !tm.stopped && !tm.at.After(c.now) && (due == nil || tm.at.Before(due.at)) {
+			if !tm.stopped && tm.at <= end && (due == nil || tm.at < due.at) {
 				due = tm
 			}
 		}
-		if due != nil {
-			due.stopped = true
-		}
-		c.mu.Unlock()
 		if due == nil {
+			c.elapsed = end
+			c.mu.Unlock()
 			return
 		}
+		due.stopped = true
+		c.elapsed = max(c.elapsed, due.at)
+		c.mu.Unlock()
 		due.f()
 	}
+}
+
+// jump moves the wall clock alone, as when the clock of the machine is set.
+func (c *fakeClock) jump(d time.Duration) {
+	c.mu.Lock()
+	c.offset += d
+	c.mu.Unlock()
 }
 
 // captureLog sends the log of the program to a buffer until t ends.
@@ -158,8 +170,9 @@ func TestEntriesArePublishedAtTheirDate(t *testing.T) {
 	if _, err := blog.Get("en", "202611/release-notes"); !errors.Is(err, tifa.ErrNotFound) {
 		t.Errorf("Get before the date: %v", err)
 	}
-	if got := clock.pending(); len(got) != 1 || !got[0].Equal(at9) {
-		t.Fatalf("timers %v, want one at %v", got, at9)
+	// The timer waits a minute at most, and judges the entries again when it fires.
+	if got := clock.pending(); len(got) != 1 || !got[0].Equal(start.Add(time.Minute)) {
+		t.Fatalf("timers %v, want one at 00:01", got)
 	}
 
 	clock.advance(time.Hour - time.Nanosecond)
@@ -182,9 +195,9 @@ func TestEntriesArePublishedAtTheirDate(t *testing.T) {
 	if want := "level=INFO msg=\"tifa: content: testblog en/202611/more and en/202611/release-notes are published (date 2026-11-20 09:00 +08:00)\"\n"; log.String() != want {
 		t.Errorf("log %q\nwant %q", log.String(), want)
 	}
-	// The timer is set for the next date.
-	if got := clock.pending(); len(got) != 1 || !got[0].Equal(start.Add(2*time.Hour)) {
-		t.Fatalf("timers %v, want one at 02:00", got)
+	// The timer is set for the next date, a minute at most.
+	if got := clock.pending(); len(got) != 1 || !got[0].Equal(start.Add(time.Hour+time.Minute)) {
+		t.Fatalf("timers %v, want one at 01:01", got)
 	}
 	log.Reset()
 	clock.advance(time.Hour)
@@ -196,23 +209,28 @@ func TestEntriesArePublishedAtTheirDate(t *testing.T) {
 	}
 }
 
-// A timer that fires late, as after the machine slept, publishes every entry whose date has come.
-func TestLateTimerPublishesEverythingDue(t *testing.T) {
+// When the clock of the machine is set forward past a date, or the machine slept and its
+// monotonic clock stood still, the timer of the next minute publishes every entry whose date has
+// come.
+func TestWallClockJumpPublishesAtTheNextMinute(t *testing.T) {
 	clock := useClock(t, start)
 	captureLog(t)
 	if err := load(t, content.File{"testblog": {
-		record("a", "en", "a", "a", start.Add(time.Minute), "A"),
-		record("b", "en", "b", "b", start.Add(2*time.Minute), "B"),
+		record("a", "en", "a", "a", start.Add(time.Hour), "A"),
+		record("b", "en", "b", "b", start.Add(90*time.Minute), "B"),
+		record("c", "en", "c", "c", start.Add(3*time.Hour), "C"),
 	}}); err != nil {
 		t.Fatal(err)
 	}
 	published := watch(t)
-	clock.mu.Lock()
-	clock.now = clock.now.Add(time.Hour)
-	clock.mu.Unlock()
-	clock.advance(0)
-	if len(blog.All()) != 2 || published() != 1 || len(clock.pending()) != 0 {
-		t.Errorf("%q, %d calls, timers %v", ids(blog.All()), published(), clock.pending())
+	clock.advance(5 * time.Minute)
+	clock.jump(2 * time.Hour)
+	if len(blog.All()) != 0 {
+		t.Fatalf("the entries came out before a timer fired: %q", ids(blog.All()))
+	}
+	clock.advance(time.Minute)
+	if got := ids(blog.All()); !slices.Equal(got, []string{"en/a", "en/b"}) || published() != 1 || len(clock.pending()) != 1 {
+		t.Errorf("a minute after the jump: %q, %d calls, timers %v", got, published(), clock.pending())
 	}
 }
 
