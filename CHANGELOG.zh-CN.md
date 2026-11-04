@@ -6,6 +6,7 @@
 
 ### 修复
 
+- 用 systemd socket activation 开 HTTPS 时，systemd 交来 `server.addr` 的套接字后可以不设 `server.addr`。之前程序会因为这个它根本不监听的默认地址拒绝启动。
 - 开了 HTTPS 时，`server.http_addr` 的明文 HTTP 地址现在和 `server.addr` 一样按 `server.read_timeout`、`server.write_timeout` 读写。之前不管它们怎么设都是 10 秒。
 
 ## [0.0.3] - 2026-11-05

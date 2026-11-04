@@ -115,7 +115,7 @@ Service=shop.service
 WantedBy=sockets.target
 ```
 
-`shop.service` 的 `Requires=` 和 `After=` 写上这两个 unit，`[Service]` 里加上 `Sockets=shop-https.socket shop-http.socket`。设置里保留 `server.addr: :443`，这是 [HTTPS](config.zh-CN.md#https) 要求的。叫 `server.addr` 或 `server.http_addr` 的套接字给对应的设置用，只有一个套接字且没有名字或叫别的名字时，给 `server.addr` 用。有多个时必须分别叫 `server.addr` 和 `server.http_addr`，没开 HTTPS 却传了 `server.http_addr` 的套接字，程序报错退出。systemd 没给套接字的地址，程序自己监听。
+`shop.service` 的 `Requires=` 和 `After=` 写上这两个 unit，`[Service]` 里加上 `Sockets=shop-https.socket shop-http.socket`。`server.addr` 可以不设：只有程序自己监听这个地址时，[HTTPS](config.zh-CN.md#https) 才要求设它。叫 `server.addr` 或 `server.http_addr` 的套接字给对应的设置用，只有一个套接字且没有名字或叫别的名字时，给 `server.addr` 用。有多个时必须分别叫 `server.addr` 和 `server.http_addr`，没开 HTTPS 却传了 `server.http_addr` 的套接字，程序报错退出。systemd 没给套接字的地址，程序自己监听。
 
 ## 端口和 HTTPS
 

@@ -6,6 +6,7 @@ What changed in tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Fixed
 
+- Under systemd socket activation with HTTPS, `server.addr` may stay unset when systemd passes its socket. The program refused to start on the default address, which it does not listen on then.
 - With HTTPS on, the plain HTTP address `server.http_addr` now reads and writes under `server.read_timeout` and `server.write_timeout`, like `server.addr`. It kept 10 seconds whatever they said.
 
 ## [0.0.3] - 2026-11-05

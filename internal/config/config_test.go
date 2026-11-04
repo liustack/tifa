@@ -538,12 +538,17 @@ func TestHTTPAddrIsAnAddressOrOff(t *testing.T) {
 
 // With HTTPS on, server.addr must be set: the default only listens on the loopback, where no
 // browser and no Let's Encrypt reaches it. An address set by hand, loopback or not, is kept.
+// CheckHTTPSAddr says so, apart from CheckHTTPS, since a socket systemd passes for server.addr
+// takes the place of the address and the server then does not ask.
 func TestHTTPSNeedsServerAddr(t *testing.T) {
 	c, err := load(t, nil, []string{"SERVER_TLS_CERT=c.pem", "SERVER_TLS_KEY=k.pem"}, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = c.Server.CheckHTTPS()
+	if err := c.Server.CheckHTTPS(); err != nil {
+		t.Fatalf("CheckHTTPS on the default addr: %v", err)
+	}
+	err = c.Server.CheckHTTPSAddr()
 	if err == nil || !strings.Contains(err.Error(), "server.addr is 127.0.0.1:9527, the default") || !strings.Contains(err.Error(), ":443") {
 		t.Fatalf("default addr: %v", err)
 	}
@@ -552,11 +557,11 @@ func TestHTTPSNeedsServerAddr(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Server.CheckHTTPS(); err == nil || !strings.Contains(err.Error(), "server.addr is 127.0.0.1:9527, the default") {
+	if err := c.Server.CheckHTTPSAddr(); err == nil || !strings.Contains(err.Error(), "server.addr is 127.0.0.1:9527, the default") {
 		t.Fatalf("default addr written out: %v", err)
 	}
 	c.Server.Addr = "127.0.0.1:8443"
-	if err := c.Server.CheckHTTPS(); err != nil {
+	if err := c.Server.CheckHTTPSAddr(); err != nil {
 		t.Fatalf("loopback set by hand: %v", err)
 	}
 }

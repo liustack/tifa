@@ -98,7 +98,15 @@ func (s Server) CheckHTTPS() error {
 		return errors.New("config: server.tls_email is only used with server.tls_domains")
 	case len(s.TLSDomains) == 0 && s.TLSCache != "":
 		return errors.New("config: server.tls_cache is only used with server.tls_domains")
-	case s.HTTPS() && s.Addr == DefaultAddr:
+	}
+	return nil
+}
+
+// CheckHTTPSAddr reports HTTPS on the default Addr, which only this machine reaches. It is apart
+// from CheckHTTPS because it is about the address the program listens on: serve does not call it
+// when systemd passes the socket of server.addr, which is listened on in its place.
+func (s Server) CheckHTTPSAddr() error {
+	if s.HTTPS() && s.Addr == DefaultAddr {
 		return fmt.Errorf("config: HTTPS is on, but server.addr is %s, the default, which only this machine reaches: set it to the address browsers connect to, usually addr: :443", DefaultAddr)
 	}
 	return nil
