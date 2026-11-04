@@ -44,7 +44,7 @@ export default function Orders() {
   const [selected, setSelected] = useState<string[]>([])
   const [query, setQuery] = useState('')
   const [channel, setChannel] = useState('all')
-  const rows = (page.orders ?? []).filter(
+  const rows = page.orders.filter(
     (o) => (channel === 'all' || o.channel === channel) && (query === '' || o.customer.toLowerCase().includes(query.toLowerCase())),
   )
   const toggle = (id: string) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
@@ -138,7 +138,7 @@ export default function Orders() {
                   <TableCell>
                     <Chip size="small" label={o.status} color={statusColor[o.status as keyof typeof statusColor]} />
                   </TableCell>
-                  <TableCell align="right">{(o.items ?? []).reduce((n, i) => n + i.quantity, 0)}</TableCell>
+                  <TableCell align="right">{o.items.reduce((n, i) => n + i.quantity, 0)}</TableCell>
                   <TableCell align="right">{money(o.totalCents)}</TableCell>
                   <TableCell padding="checkbox">
                     <Tooltip title="More">
