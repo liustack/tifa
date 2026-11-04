@@ -4,6 +4,7 @@ import "github.com/liustack/tifa/internal/core"
 
 // ServerStats is what Stats returns: the VM pool that renders pages, the render cache and the
 // whole-page cache. Counts run from the start of the program, the other fields are the state now.
+// Under tifa dev the counts of SSR start again when the front end is rebuilt.
 //
 //	SSR          the VM pool, see SSRStats
 //	RenderCache  renders of pages: Hits skip the VM

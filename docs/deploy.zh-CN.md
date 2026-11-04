@@ -115,7 +115,7 @@ func GET(c *tifa.Ctx) error {
 
 ### 指标
 
-`tifa.Stats()` 返回 VM 池、渲染缓存和整页缓存现在的状态，以及程序启动以来做了什么。它读的是原子计数，不拿渲染要等的锁，监控系统多频繁地读都可以。下面这个路由不用任何库，把它写成 Prometheus 读的文本格式：
+`tifa.Stats()` 返回 VM 池、渲染缓存和整页缓存现在的状态，以及程序启动以来做了什么。计数是原子的，读条目数和 VM 数时会短暂加锁，每几秒读一次的开销测不出来。`tifa dev` 下每次重建前端，VM 池的计数都从零开始。下面这个路由不用任何库，把它写成 Prometheus 读的文本格式：
 
 ```go
 // app/metrics/route.go
@@ -170,7 +170,7 @@ func GET(c *tifa.Ctx) error {
 | --- | --- | --- |
 | `tifa_renders_rejected_total` 在涨 | 渲染遇到队列已满，或等过了 `ssr.wait_timeout`，回了 503 | 加 CPU 和 `ssr.vms`，或者多用缓存（见[机器怎么配](performance.zh-CN.md#机器怎么配)和[渲染队列](config.zh-CN.md#渲染队列)） |
 | `tifa_vms_busy` 大部分时间等于 `tifa_vms`，`tifa_renders_queued` 大于 0 | 每个 VM 都在渲染，还有渲染在等 | 同上：程序到上限了 |
-| `rate(tifa_render_seconds_total) / rate(tifa_renders_total)` | 一次渲染的平均时间 | 变长时，找出变慢的页面 |
+| `rate(tifa_render_seconds_total[5m]) / rate(tifa_renders_total[5m])` | 一次渲染的平均时间 | 变长时，找出变慢的页面 |
 | `tifa_renders_failed_total` 在涨 | 渲染抛错、超过 `ssr.timeout` 或用完 `ssr.vm_memory` | 日志里有每次失败 |
 | 命中比未命中少很多，`tifa_cache_bytes` 接近 `tifa_cache_size_bytes` | 页面还没被再次请求就被缓存挤掉了 | 调大 `cache.size` |
 | `tifa_page_cache_stale_total` 在涨 | 开了 `Cache` 的页面重新生成失败，发出的是旧页 | 日志里有每次生成失败的错误 |

@@ -115,7 +115,7 @@ func GET(c *tifa.Ctx) error {
 
 ### Metrics
 
-`tifa.Stats()` returns the state of the VM pool, the render cache and the whole-page cache, and what they did since the program started. It reads atomic counts and takes no lock that renders wait for, so a monitoring system may read it as often as it likes. This route writes it in the text format Prometheus reads, with no library:
+`tifa.Stats()` returns the state of the VM pool, the render cache and the whole-page cache, and what they did since the program started. The counts are atomic, and reading the number of entries and VMs takes a short lock, so reading it every few seconds costs nothing you can measure. Under `tifa dev` the counts of the VM pool start again from zero each time the front end is rebuilt. This route writes it in the text format Prometheus reads, with no library:
 
 ```go
 // app/metrics/route.go
@@ -170,7 +170,7 @@ What to read, and what to change:
 | --- | --- | --- |
 | `tifa_renders_rejected_total` grows | Renders found the queue full or waited past `ssr.wait_timeout`, and got 503 | More CPU and `ssr.vms`, or more caching (see [Sizing a machine](performance.md#sizing-a-machine) and [Render queue](config.md#render-queue)) |
 | `tifa_vms_busy` is `tifa_vms` most of the time, `tifa_renders_queued` above 0 | Every VM renders and others wait | The same: the program is at its limit |
-| `rate(tifa_render_seconds_total) / rate(tifa_renders_total)` | The mean time of a render | When it grows, find the page that got slower |
+| `rate(tifa_render_seconds_total[5m]) / rate(tifa_renders_total[5m])` | The mean time of a render | When it grows, find the page that got slower |
 | `tifa_renders_failed_total` grows | Renders throw, run past `ssr.timeout` or use up `ssr.vm_memory` | The log has each failure |
 | Hits low next to misses, `tifa_cache_bytes` near `tifa_cache_size_bytes` | The caches drop pages before they are asked for again | A larger `cache.size` |
 | `tifa_page_cache_stale_total` grows | Pages with `Cache` fail to make again and the old page is sent | The log has the error of each failed make |
