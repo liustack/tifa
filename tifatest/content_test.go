@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/liustack/tifa/content"
 )
@@ -86,10 +88,59 @@ func TestSetContent(t *testing.T) {
 	}
 }
 
+func TestSetContentTime(t *testing.T) {
+	t.Chdir(filepath.Join("testdata", "contentapp", "content"))
+	later := time.Date(2999, 1, 1, 0, 0, 0, 0, time.UTC) // the date of en/later, a date alone
+	visible := func() []string {
+		var got []string
+		for _, p := range testBlog.All() {
+			got = append(got, p.Lang+"/"+p.ID)
+		}
+		return got
+	}
+	t.Run("after LoadContent", func(t *testing.T) {
+		LoadContent(t)
+		t.Run("at the date", func(t *testing.T) {
+			SetContentTime(t, later)
+			if got := visible(); !slices.Equal(got, []string{"zh-CN/hello", "en/hello", "en/later"}) {
+				t.Errorf("at %v: %q", later, got)
+			}
+		})
+		// The time is the real one again after the test that set it.
+		if got := visible(); !slices.Equal(got, []string{"zh-CN/hello", "en/hello"}) {
+			t.Errorf("after the test: %q", got)
+		}
+		t.Run("a second before", func(t *testing.T) {
+			SetContentTime(t, later.Add(-time.Second))
+			if got := visible(); !slices.Equal(got, []string{"zh-CN/hello", "en/hello"}) {
+				t.Errorf("a second before %v: %q", later, got)
+			}
+		})
+	})
+	t.Run("before LoadContent", func(t *testing.T) {
+		SetContentTime(t, later)
+		LoadContent(t)
+		if got := visible(); len(got) != 3 {
+			t.Errorf("%q", got)
+		}
+	})
+	t.Run("with SetContent", func(t *testing.T) {
+		SetContent(t, testBlog, testPost{Entry: content.Entry{ID: "a", Lang: "en", Slug: "a", Path: "a", Date: later}})
+		if got := visible(); len(got) != 0 {
+			t.Errorf("before the date: %q", got)
+		}
+		SetContentTime(t, later)
+		if got := visible(); !slices.Equal(got, []string{"en/a"}) {
+			t.Errorf("at the date: %q", got)
+		}
+	})
+}
+
 func TestContentRefusesParallelTests(t *testing.T) {
 	for name, f := range map[string]func(testing.TB){
-		"LoadContent": LoadContent,
-		"SetContent":  func(t testing.TB) { SetContent(t, testBlog) },
+		"LoadContent":    LoadContent,
+		"SetContent":     func(t testing.TB) { SetContent(t, testBlog) },
+		"SetContentTime": func(t testing.TB) { SetContentTime(t, time.Now()) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
