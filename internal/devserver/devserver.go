@@ -148,7 +148,14 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 	if o.Vite != "" {
 		mux.Handle(VitePath, viteProxy(o.Vite))
 	}
-	app := proxy(appAddr, o.ProxyWait, d.down, d.timing)
+	// A request that waits for the app to listen stops waiting once Run stops: no app comes.
+	down := func() error {
+		if ctx.Err() != nil {
+			return errStopping
+		}
+		return d.down()
+	}
+	app := proxy(appAddr, o.ProxyWait, down, d.timing)
 	catchUp, changes := w.sync, w.changes
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Before the first build there is no app. A page the browser loads waits for a build that

@@ -441,6 +441,49 @@ func TestRunEndsWaitingRequestsWhenItStops(t *testing.T) {
 	}
 }
 
+// A request that waits for the app to listen, such as one that came while the app restarts,
+// ends when tifa dev stops, as no app comes, so the stop does not wait for it. A request let go
+// by a rebuild that ended as tifa dev stopped gets here too.
+func TestRunEndsRequestsWaitingForTheAppWhenItStops(t *testing.T) {
+	d := startDev(t, "")
+	d.waitVersionAfter(t, "")
+	// The app the Go change starts listens only once it is stopped or after a minute.
+	t.Setenv("TIFA_FAKE_APP_LISTEN_DELAY", "1m")
+	writeFile(t, d.dir, "app/store.go", "package app // edited")
+	deadline := time.Now().Add(10 * time.Second)
+	for !strings.Contains(d.out.String(), "shutdown done") {
+		if time.Now().After(deadline) {
+			t.Fatalf("the old app did not stop:\n%s", d.out.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	stopped := make(chan error, 1)
+	var once sync.Once
+	testHookRetry = func() { once.Do(func() { go func() { stopped <- d.stop() }() }) }
+	defer func() { testHookRetry = nil }()
+	answered := make(chan int, 1)
+	go func() {
+		resp, err := http.Get(d.url + "/")
+		if err != nil {
+			answered <- 0
+			return
+		}
+		resp.Body.Close()
+		answered <- resp.StatusCode
+	}()
+	select {
+	case status := <-answered:
+		if status != http.StatusServiceUnavailable {
+			t.Fatalf("the request got %d, want 503", status)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the request still waits for the app 5s after tifa dev began to stop")
+	}
+	if err := <-stopped; err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+}
+
 // A Go change whose analysis finds a new route manifest rebuilds the SSR bundle too. Page
 // requests wait for it as soon as the bundle step is known, as they do for a front end change.
 func TestRunHoldsPagesWhileTheAnalysisAddsABundle(t *testing.T) {

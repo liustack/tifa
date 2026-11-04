@@ -42,8 +42,12 @@ func proxy(appAddr string, wait time.Duration, down func() error, timing func() 
 			if errors.Is(err, context.Canceled) {
 				return // the browser went away
 			}
+			status := http.StatusBadGateway
+			if errors.Is(err, errStopping) {
+				status = http.StatusServiceUnavailable
+			}
 			w.Header().Set("Server-Timing", timing())
-			unavailable(w, http.StatusBadGateway, err)
+			unavailable(w, status, err)
 		},
 	}
 }

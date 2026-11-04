@@ -29,6 +29,7 @@ import (
 //	                          with content=1, is the answer to GET /content. A reload of the content
 //	                          "invalid" fails, as for an entry that fails Validate.
 //	TIFA_FAKE_APP_ON_INTERRUPT "ignore" to keep running after an interrupt
+//	TIFA_FAKE_APP_LISTEN_DELAY wait this long, such as "3s", before listening, or until an interrupt
 //	TIFA_FAKE_APP_EXIT        exit right away with this message instead of serving
 //	TIFA_FAKE_APP_PANIC       print this many lines to stderr, then panic deep in the stack
 //	TIFA_FAKE_APP_DETACHED_CHILD start a child outside the process group that keeps stdout open,
@@ -137,6 +138,17 @@ func fakeApp() error {
 	}
 	interrupts := make(chan os.Signal, 1)
 	signal.Notify(interrupts, os.Interrupt)
+	if delay := os.Getenv("TIFA_FAKE_APP_LISTEN_DELAY"); delay != "" {
+		d, err := time.ParseDuration(delay)
+		if err != nil {
+			return err
+		}
+		select {
+		case <-time.After(d):
+		case <-interrupts:
+			return nil
+		}
+	}
 	ln, err := net.Listen("tcp", os.Getenv("SERVER_ADDR"))
 	if err != nil {
 		return err
