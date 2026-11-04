@@ -38,9 +38,11 @@ var tests struct {
 // that every StartTest of the process with the same bundle shares, at most testVMs of them. Without
 // it, pages answer the results of their Loads as JSON.
 //
-// stop ends what StartTest began: it closes the channel of tifa.ShuttingDown, calls closeServer,
-// which stops srv and waits for the requests in flight, runs OnShutdown and puts back what the
-// server changed in the process. One server runs at a time: StartTest fails while another has
+// stop ends what StartTest began: it closes the channel of tifa.ShuttingDown, cancels the
+// contexts of the requests in flight, stops srv and waits up to server.shutdown_timeout for the
+// handlers to return. Then it runs OnShutdown, calls closeServer and puts back what the server
+// changed in the process. A handler still running then skips OnShutdown and closeServer, which
+// would wait for it, and stop reports it. One server runs at a time: StartTest fails while another has
 // not stopped, as the session store, SetHTTPHandler and the content are those of the process.
 func StartTest(ctx context.Context, app App, srv *http.Server) (stop func(closeServer func()) error, err error) {
 	tests.mu.Lock()
@@ -113,26 +115,26 @@ func StartTest(ctx context.Context, app App, srv *http.Server) (stop func(closeS
 	s.root = root
 	undo = append(undo, s.startSessions())
 
+	g := new(gate)
 	stopping := make(chan struct{})
 	base, cancelRequests := context.WithCancel(core.WithShutdown(context.Background(), stopping))
-	srv.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		s.setHSTS(w)
-		root.ServeHTTP(w, r)
-	})
+	srv.Handler = s.gated(g, root)
 	srv.BaseContext = func(net.Listener) context.Context { return base }
 	srv.ReadHeaderTimeout, srv.ReadTimeout, srv.WriteTimeout, srv.IdleTimeout = readHeaderTimeout, s.cfg.ReadTimeout, s.cfg.WriteTimeout, idleTimeout
 	var once sync.Once
 	return func(closeServer func()) (err error) {
 		once.Do(func() {
-			close(stopping)
-			closeServer()
-			cancelRequests()
-			if s.hooks.OnShutdown != nil {
-				hookCtx, cancel := context.WithTimeout(context.Background(), s.cfg.ShutdownTimeout)
-				defer cancel()
-				if hookErr := s.hooks.OnShutdown(hookCtx); hookErr != nil {
-					err = fmt.Errorf("OnShutdown: %w", hookErr)
-				}
+			// The stop of the program, on srv, but the test that sent the requests is over, so their
+			// contexts are cancelled at once and not after server.shutdown_timeout. OnShutdown runs
+			// once the handlers have returned.
+			drain := func(ctx context.Context) error {
+				cancelRequests()
+				return srv.Shutdown(ctx)
+			}
+			err = s.shutdown(stopping, g, cancelRequests, drain, func() { _ = srv.Close() })
+			// closeServer waits for every connection, which a handler that never returns holds.
+			if !errors.Is(err, errHandlersRunning) {
+				closeServer()
 			}
 			unwind()
 		})

@@ -735,11 +735,25 @@ const (
 	idleTimeout       = 60 * time.Second
 )
 
-// setHSTS asks browsers to use HTTPS for the site from now on, when server.hsts is on.
-func (s *server) setHSTS(w http.ResponseWriter) {
-	if s.cfg.HSTS {
-		w.Header().Set("Strict-Transport-Security", "max-age=31536000")
-	}
+// gated serves root through g: with HSTS when server.hsts is on, and 503 once the shutdown has
+// closed g, without running handler code.
+func (s *server) gated(g *gate, root http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if testHookEntry != nil {
+			testHookEntry("before")
+			defer testHookEntry("done")
+		}
+		if s.cfg.HSTS {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+		}
+		if !g.enter() {
+			w.Header().Set("Connection", "close")
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": http.StatusText(http.StatusServiceUnavailable)})
+			return
+		}
+		defer g.leave()
+		root.ServeHTTP(w, r)
+	})
 }
 
 // serveListener serves plain HTTP on ln until ctx is done or ln fails, then shuts down the same way in both cases:
@@ -779,20 +793,7 @@ func (s *server) serveBoth(ctx context.Context, ln net.Listener, tlsConfig *tls.
 	base, cancelRequests := context.WithCancel(core.WithShutdown(context.Background(), stopping))
 	defer cancelRequests()
 	srv := &http.Server{
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if testHookEntry != nil {
-				testHookEntry("before")
-				defer testHookEntry("done")
-			}
-			s.setHSTS(w)
-			if !g.enter() {
-				w.Header().Set("Connection", "close")
-				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": http.StatusText(http.StatusServiceUnavailable)})
-				return
-			}
-			defer g.leave()
-			root.ServeHTTP(w, r)
-		}),
+		Handler:     s.gated(&g, root),
 		BaseContext: func(net.Listener) context.Context { return base },
 		// A handler that needs longer than the timeouts, an upload or a stream, lifts them for
 		// itself with http.ResponseController, which reaches the connection through Unwrap.
@@ -825,34 +826,50 @@ func (s *server) serveBoth(ctx context.Context, ln net.Listener, tlsConfig *tls.
 		running--
 	case <-ctx.Done():
 	}
+	err := s.shutdown(stopping, &g, cancelRequests, func(drain context.Context) error {
+		plainDone := make(chan error, 1)
+		if plainSrv != nil {
+			go func() { plainDone <- plainSrv.Shutdown(drain) }()
+		} else {
+			plainDone <- nil
+		}
+		err := srv.Shutdown(drain)
+		if plainErr := <-plainDone; err == nil {
+			err = plainErr
+		}
+		return err
+	}, func() {
+		_ = srv.Close()
+		if plainSrv != nil {
+			_ = plainSrv.Close()
+		}
+		for ; running > 0; running-- {
+			<-served // http.ErrServerClosed
+		}
+	})
+	return errors.Join(serveErr, err)
+}
+
+// errHandlersRunning is the error of shutdown when a handler did not return in time.
+var errHandlersRunning = errors.New("tifa: handlers still running after shutdown, OnShutdown skipped")
+
+// shutdown runs steps 1 to 5 of serveListener once serving has to end: drain stops accepting and
+// waits for the connections until its context ends, and closeAll closes the connections that
+// remain. stopping is the channel of tifa.ShuttingDown, g the gate of the handlers and
+// cancelRequests cancels the contexts of the requests.
+func (s *server) shutdown(stopping chan struct{}, g *gate, cancelRequests func(), drain func(context.Context) error, closeAll func()) error {
 	close(stopping)
-	drain, cancel := context.WithTimeout(context.Background(), s.cfg.ShutdownTimeout)
-	plainDone := make(chan error, 1)
-	if plainSrv != nil {
-		go func() { plainDone <- plainSrv.Shutdown(drain) }()
-	} else {
-		plainDone <- nil
-	}
-	err := srv.Shutdown(drain)
-	if plainErr := <-plainDone; err == nil {
-		err = plainErr
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), s.cfg.ShutdownTimeout)
+	err := drain(ctx)
 	cancel()
 	if err != nil {
 		err = fmt.Errorf("tifa: waiting for in-flight requests: %w", err)
 	}
-	err = errors.Join(serveErr, err)
 	g.close()
 	cancelRequests()
-	_ = srv.Close()
-	if plainSrv != nil {
-		_ = plainSrv.Close()
-	}
-	for ; running > 0; running-- {
-		<-served // http.ErrServerClosed
-	}
+	closeAll()
 	if !g.wait(s.cfg.ShutdownTimeout) {
-		return errors.Join(err, errors.New("tifa: handlers still running after shutdown, OnShutdown skipped"))
+		return errors.Join(err, errHandlersRunning)
 	}
 	if s.hooks.OnShutdown != nil {
 		hookCtx, cancel := context.WithTimeout(context.Background(), s.cfg.ShutdownTimeout)
