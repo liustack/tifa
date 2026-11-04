@@ -44,19 +44,8 @@ func expectDatesInBrowser(t *testing.T, name, url string, dated bool, want ...st
 		t.Log("playwright-cli is not installed: the dates of a hydrated page are not checked")
 		return
 	}
-	dir := t.TempDir()
-	pw := func(args ...string) string {
-		t.Helper()
-		cmd := exec.Command("playwright-cli", append([]string{"-s=" + name}, args...)...)
-		cmd.Dir = dir
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("playwright-cli %v: %v\n%s", args, err, out)
-		}
-		return string(out)
-	}
+	pw, _ := openBrowser(t, name)
 	pw("open", url)
-	defer exec.Command("playwright-cli", "-s="+name, "close").Run()
 	waitFor(t, "the page to hydrate", func() bool {
 		return strings.Contains(pw("eval", `() => document.readyState === "complete" && window.__TSR_ROUTER__?.stores.matches.get().length > 0`), "true")
 	})

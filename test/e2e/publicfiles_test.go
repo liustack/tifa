@@ -66,20 +66,8 @@ export default function Section() {
 	if _, err := exec.LookPath("playwright-cli"); err != nil {
 		t.Skip("playwright-cli is not installed")
 	}
-	name := "e2e-pf"
-	work := t.TempDir()
-	pw := func(args ...string) string {
-		t.Helper()
-		cmd := exec.Command("playwright-cli", append([]string{"-s=" + name}, args...)...)
-		cmd.Dir = work
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("playwright-cli %v: %v\n%s", args, err, out)
-		}
-		return string(out)
-	}
+	pw, _ := openBrowser(t, "e2e-pf")
 	pw("open", base+"/hello")
-	t.Cleanup(func() { exec.Command("playwright-cli", "-s="+name, "close").Run() })
 	// The page records every fetch it makes in sessionStorage, which the file's document shares.
 	pw("eval", `() => {
   const fetched = []

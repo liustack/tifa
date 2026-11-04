@@ -126,18 +126,7 @@ func shopSignInInBrowser(t *testing.T, base string) {
 	if _, err := exec.LookPath("playwright-cli"); err != nil {
 		t.Skip("playwright-cli is not installed")
 	}
-	name := "e2e-shop"
-	dir := t.TempDir()
-	pw := func(args ...string) string {
-		t.Helper()
-		cmd := exec.Command("playwright-cli", append([]string{"-s=" + name}, args...)...)
-		cmd.Dir = dir
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("playwright-cli %v: %v\n%s", args, err, out)
-		}
-		return string(out)
-	}
+	pw, _ := openBrowser(t, "e2e-shop")
 	state := func() map[string]any {
 		t.Helper()
 		out := pw("eval", `() => JSON.stringify({
@@ -174,7 +163,6 @@ func shopSignInInBrowser(t *testing.T, base string) {
 	}
 
 	pw("open", base+"/projects/studio/stats")
-	t.Cleanup(func() { exec.Command("playwright-cli", "-s="+name, "close").Run() })
 	s := state()
 	if s["path"] != "/login?next=%2Fprojects%2Fstudio%2Fstats" || s["form"] != true || s["attribute"] != "out" {
 		t.Fatalf("signed out visitor of the workbench: %v", s)

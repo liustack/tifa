@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -36,6 +37,10 @@ var (
 
 func TestMain(m *testing.M) {
 	code := m.Run()
+	if left := leftDaemons(); len(left) > 0 {
+		fmt.Fprintf(os.Stderr, "playwright-cli daemons of this run still running: %v\n", left)
+		code = 1
+	}
 	if cliPath != "" {
 		os.RemoveAll(filepath.Dir(cliPath))
 	}

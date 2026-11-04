@@ -24,18 +24,7 @@ func TestShopPagesInBrowser(t *testing.T) {
 	t.Setenv("SHOP_OPEN", "1")
 	base, _, _ := start(t, exe)
 
-	name := "e2e-shop-pg"
-	work := t.TempDir()
-	pw := func(args ...string) string {
-		t.Helper()
-		cmd := exec.Command("playwright-cli", append([]string{"-s=" + name}, args...)...)
-		cmd.Dir = work
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("playwright-cli %v: %v\n%s", args, err, out)
-		}
-		return string(out)
-	}
+	pw, _ := openBrowser(t, "e2e-shop-pg")
 	// eval runs a function in the page and returns its JSON result.
 	eval := func(fn string) any {
 		t.Helper()
@@ -81,7 +70,6 @@ func TestShopPagesInBrowser(t *testing.T) {
 	} {
 		if tc.page == "/login" {
 			pw("open", base+tc.page)
-			t.Cleanup(func() { exec.Command("playwright-cli", "-s="+name, "close").Run() })
 		} else {
 			pw("goto", base+tc.page)
 		}
