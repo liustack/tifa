@@ -121,7 +121,8 @@ func StartTest(ctx context.Context, app App, srv *http.Server) (stop func(closeS
 	base, cancelRequests := context.WithCancel(core.WithShutdown(context.Background(), stopping))
 	srv.Handler = s.gated(g, root)
 	srv.BaseContext = func(net.Listener) context.Context { return base }
-	srv.ReadHeaderTimeout, srv.ReadTimeout, srv.WriteTimeout, srv.IdleTimeout = readHeaderTimeout, s.cfg.ReadTimeout, s.cfg.WriteTimeout, idleTimeout
+	limits := s.httpServer(nil)
+	srv.ReadHeaderTimeout, srv.ReadTimeout, srv.WriteTimeout, srv.IdleTimeout = limits.ReadHeaderTimeout, limits.ReadTimeout, limits.WriteTimeout, limits.IdleTimeout
 	var once sync.Once
 	return func(closeServer func()) (err error) {
 		once.Do(func() {
@@ -176,7 +177,7 @@ func (s *server) openSharedFront(dist fs.FS, cfg config.SSR) error {
 		}
 		tests.pool, tests.poolKey = pool, key
 	}
-	f, err := s.readFront(dist, pool.Render)
+	f, err := s.readFront(dist, pool.RenderPage)
 	if err != nil {
 		return err
 	}

@@ -17,7 +17,7 @@ tifa 没有数据库层。应用在 `OnStart` 里打开数据库，用 `database
 
 ## 驱动
 
-用 [`github.com/liustack/sqlite`](https://github.com/liustack/sqlite)。它把 SQLite 当 Go 代码运行，所以应用仍然能用 `CGO_ENABLED=0` 编译成一个文件（见[哲学](../philosophy.zh-CN.md#按-go-的方式)）。cgo 驱动 `github.com/mattn/go-sqlite3` 需要 C 编译器，会破坏这一点。在驱动自己的[评测](https://github.com/liustack/sqlite/blob/main/README.zh-CN.md)里，它读得比 cgo 驱动和其他纯 Go 驱动都快，只在完全在 SQLite 内部完成的工作（比如连接查询）上落后。它支持 amd64 和 arm64 上的 Linux 和 macOS，以及 amd64 上的 Windows。`tifa new` 已经在 `go.mod` 里固定了一个版本。
+用 [`github.com/liustack/sqlite`](https://github.com/liustack/sqlite)。它把 SQLite 当 Go 代码运行，所以应用仍然能用 `CGO_ENABLED=0` 编译成一个文件（见[哲学](../philosophy.zh-CN.md#按-go-的方式)）。cgo 驱动 `github.com/mattn/go-sqlite3` 需要 C 编译器，会破坏这一点。在驱动自己的[评测](https://github.com/liustack/sqlite/blob/main/README.zh-CN.md)里，它读得比 cgo 驱动和其他纯 Go 驱动都快，只在完全在 SQLite 内部完成的工作（比如连接查询）上落后。它支持 amd64 和 arm64 上的 Linux 和 macOS，以及 amd64 上的 Windows。`tifa new` 已经在 `go.mod` 里固定了一个版本。每个版本写明测过的 Go 版本，遇到更新的 Go 会拒绝编译，所以升级 Go 之后也要升级驱动。
 
 有两个习惯和别的驱动不同。DSN 里除了 `_pragma` 和 `_txlock` 的参数都会报错，所以别的驱动那种 `_foreign_keys=1` 的写法不能用。SQL 里的双引号只表示列名和表名，字符串值要写成单引号。同一个程序里不要再导入另一个叫 `sqlite` 的驱动（比如 `modernc.org/sqlite`），两者注册同一个名字，程序启动时会 panic。
 
@@ -342,6 +342,6 @@ func OpenDB(ctx context.Context, url string) (*sql.DB, error) {
 }
 ```
 
-这篇其余的部分形状不变：在 `OnStart` 里打开的 `DB` 变量，地址的设置（`db.url`，密码放环境变量，见[发送邮件](email.zh-CN.md#设置)），通过 `database/sql` 查询。会变的是：占位符写成 `$1`、`$2`，pragma 没有了，上面的迁移执行器是为 SQLite 写的，所以改用 goose 这样的库。测试这时需要一个真的 Postgres，用一项设置把它交给测试，没设就跳过。
+这篇其余的部分形状不变：在 `OnStart` 里打开的 `DB` 变量，地址的设置（`db.url`，这时它带着密码，改用 `tifa.Secret`，见[发送邮件](email.zh-CN.md#设置)），通过 `database/sql` 查询。会变的是：占位符写成 `$1`、`$2`，pragma 没有了，上面的迁移执行器是为 SQLite 写的，所以改用 goose 这样的库。测试这时需要一个真的 Postgres，用一项设置把它交给测试，没设就跳过。
 
 会话也可以放在同一个数据库里：见[会话](../sessions.zh-CN.md#会话存在哪)。

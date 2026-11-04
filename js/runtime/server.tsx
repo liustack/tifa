@@ -73,6 +73,10 @@ export type RenderInput = Omit<Injected, 'data'> & {
   // The nonce of the render, which Go draws for it. The page carries a slot, a ~, the nonce and the number
   // of the text, where the JSON text of a Load's data goes, and Go fills it (internal/ssr/slots.go).
   nonce?: string
+  // Set when the page goes out under a Content-Security-Policy: the scripts and styles the render
+  // writes carry the nonce as their first attribute, the router's through its ssr option, and Go
+  // takes it out again and hashes their content (internal/ssr/csp.go).
+  csp?: boolean
   // The length from which a text goes into the page as a slot, slotMin below unless a test sets it.
   slotMin?: number
   // For an app with sessions: where the browser keeps its copy, the session of the request (none
@@ -163,11 +167,13 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
   const bodyStart = headEnd + '</head><body><div id="' + rootElementId + '">'
   globalThis.startRender = (json: string, ...texts: string[]) => {
     const input: RenderInput = JSON.parse(json)
+    const nonce = input.csp ? input.nonce : undefined
     const router = createAppRouter(routeTree, renderSource(input, texts), {
       buildId: input.buildId,
       serverURL: input.url,
       sessionKey: input.sessionKey,
       session: input.session,
+      nonce,
     })
     attachRouterServerSsrUtils({ router, manifest: undefined })
     globalThis.renderResult = undefined
@@ -221,7 +227,7 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
           assetTags +
           (input.preload ?? '') +
           headStart +
-          headHTML(headTags(matches)) +
+          headHTML(headTags(matches), nonce) +
           bodyStart +
           root +
           '</div>' +

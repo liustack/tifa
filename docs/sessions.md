@@ -296,7 +296,7 @@ An answer that carries the session must say `Cache-Control: no-store`, or `priva
 
 `data-session` is an attribute tifa keeps on `<html>`. A root Layout whose `htmlAttributes` sets it stops the server when it starts (the VMs fail to prewarm, and `tifa dev` shows the error), and a route whose `htmlAttributes` sets it fails the render.
 
-**Content Security Policy.** The script and the style are inline and the same on every page. With a CSP in a `<meta>` tag they are not affected, since they come before the tag. With a CSP in a header, allow their hashes:
+**Content Security Policy.** The script and the style are inline and the same on every page. With `server.csp`, tifa puts their hashes into the policy of each page itself (see [Content-Security-Policy](config.md#content-security-policy)). With a CSP in a `<meta>` tag they are not affected, since they come before the tag. With a CSP of your own in a header, allow their hashes:
 
 ```text
 script-src 'sha256-NWjzg1BGj/5CJBw80xzDV4Gmw6vQUG2ExZLUcX4mWkE='

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json/jsontext"
 	"errors"
+	"io"
 	"net/http"
 	"slices"
 	"strconv"
@@ -476,11 +477,11 @@ func (s *server) generate(ctx context.Context, base *http.Request, pattern strin
 		if err != nil {
 			return s.madeFailed(err, headers, effects{})
 		}
-		page, held = cachedPage{html: doc, body: new(bodyID)}, s.cache.holds(doc)
+		page, held = cachedPage{html: doc, policy: s.documentPolicy(doc), body: new(bodyID)}, s.cache.holds(doc)
 		if held && s.cfg.Compress {
 			page.gzip, page.zstd = compressPage(doc)
 		}
-		entry.etag = contentTag(doc)
+		entry.etag = contentTag(doc, s.policyKey())
 	} else {
 		data, texts, pageTexts, err := renderInput(items)
 		if err != nil {
@@ -489,7 +490,7 @@ func (s *server) generate(ctx context.Context, base *http.Request, pattern strin
 		s.rendering.RLock()
 		defer s.rendering.RUnlock()
 		in := ssr.Input{BuildID: f.build.ID, URL: s.pageURI(rq, pattern), Data: data, Texts: texts, PageTexts: pageTexts, Preload: f.preloadOf(route.Path, items),
-			SessionKey: sess.key, SessionHead: sess.head}
+			SessionKey: sess.key, SessionHead: sess.head, CSP: s.policyHeader() != ""}
 		failed := &renderError{f: f, in: in, key: route.Path, start: time.Now(), loads: loads}
 		page, held, err = s.renderEntry(ctx, rq, f, in, route)
 		if err != nil {
@@ -501,9 +502,9 @@ func (s *server) generate(ctx context.Context, base *http.Request, pattern strin
 			failed.err = err
 			return s.madeFailed(failed, headers, effects{})
 		}
-		entry.etag = renderKey(in, f.build.bundle)
+		entry.etag = renderKey(in, f.build.bundle, s.policyKey())
 		if route.NoRenderCache {
-			entry.etag = contentTag(page.html)
+			entry.etag = contentTag(page.html, s.policyKey())
 		}
 	}
 	entry.status = http.StatusOK
@@ -542,7 +543,7 @@ func (s *server) renderEntry(ctx context.Context, rq *http.Request, f *front, in
 			core.Logger().ErrorContext(ctx, "tifa: a render failed and no request waits for it", "method", method, "path", path, "err", &renderError{err: err, f: f, in: in})
 		}
 	}
-	got, err := s.cache.fetch(ctx, renderKey(in, f.build.bundle), unheard, func(ctx context.Context) (cachedPage, bool, error) {
+	got, err := s.cache.fetch(ctx, renderKey(in, f.build.bundle, s.policyKey()), unheard, func(ctx context.Context) (cachedPage, bool, error) {
 		return s.renderOne(ctx, f, in, true, method, path)
 	})
 	if err != nil {
@@ -551,11 +552,14 @@ func (s *server) renderEntry(ctx context.Context, rq *http.Request, f *front, in
 	return got.page, got.held, nil
 }
 
-// contentTag is the quoted tag of a page made from its content, for a page that has no
-// render key to stand on.
-func contentTag(html string) string {
-	sum := sha256.Sum256([]byte(html))
-	return `"` + hex.EncodeToString(sum[:16]) + `"`
+// contentTag is the quoted tag of a page made from its content and policy (see policyKey), for a
+// page that has no render key to stand on.
+func contentTag(html, policy string) string {
+	sum := sha256.New()
+	io.WriteString(sum, policy)
+	sum.Write([]byte{0})
+	io.WriteString(sum, html)
+	return `"` + hex.EncodeToString(sum.Sum(nil)[:16]) + `"`
 }
 
 // respondPage answers a request from an entry. status is the Cache-Status of the answer.
@@ -601,8 +605,11 @@ func (s *server) respondPage(c *tifa.Ctx, got fetched, status string, selected [
 	}
 	c.SetHeader("ETag", etag)
 	if etagMatches(c.Header("If-None-Match"), entry.etag) {
+		// The 304 carries no policy, see dropPagePolicy.
+		s.dropPagePolicy(c.Writer().Header())
 		return c.NoContent(http.StatusNotModified)
 	}
+	s.setPagePolicy(c.Writer().Header(), got.page.policy)
 	return writeCached(c, http.StatusOK, got.page, s.formEncoding(c))
 }
 

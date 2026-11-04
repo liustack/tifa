@@ -159,7 +159,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // route answers a request of tifa dev, a static file, or a request for a route.
 func (s *server) route(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("X-Content-Type-Options", "nosniff")
+	s.setDefaultHeaders(w.Header())
 	if err := s.crossSite.Check(r); err != nil {
 		s.refuseCrossSite(w, r, err)
 		return
@@ -614,17 +614,24 @@ func (s *server) run(ctx context.Context) error {
 	if err := checkServeMux(); err != nil {
 		return err
 	}
-	tlsConfig, plain, ready, err := s.https()
-	if err != nil {
-		return err
-	}
 	// The sockets of systemd socket activation, which systemd keeps open while the program
-	// restarts: the connections that arrive meanwhile wait for the next one.
+	// restarts: the connections that arrive meanwhile wait for the next one. They are read
+	// first, since a socket for server.addr is listened on in place of the address, which HTTPS
+	// then does not need set.
 	sockets, err := takeSystemdSockets()
 	if err != nil {
 		return err
 	}
 	defer closeAll(sockets) // those still here when run fails before it listens
+	if sockets[socketAddr] == nil {
+		if err := s.cfg.CheckHTTPSAddr(); err != nil {
+			return err
+		}
+	}
+	tlsConfig, plain, ready, err := s.https()
+	if err != nil {
+		return err
+	}
 	plainHTTP := tlsConfig != nil && s.cfg.HTTPAddr != "off"
 	if err := unusedSocket(sockets, plainHTTP); err != nil {
 		return err
@@ -685,6 +692,9 @@ func checkServeMux() error {
 
 // testHookEntry lets tests pause a request between net/http handing it over and the gate admitting it.
 var testHookEntry func(stage string)
+
+// testHookServer lets tests see each http.Server that serveBoth starts.
+var testHookServer func(*http.Server)
 
 // gate is the one boundary between net/http and handler code. Admitting a request and closing the gate
 // take the same lock, so once close returns no handler code can start, and every handler that did start
@@ -792,15 +802,10 @@ func (s *server) serveBoth(ctx context.Context, ln net.Listener, tlsConfig *tls.
 	stopping := make(chan struct{})
 	base, cancelRequests := context.WithCancel(core.WithShutdown(context.Background(), stopping))
 	defer cancelRequests()
-	srv := &http.Server{
-		Handler:     s.gated(&g, root),
-		BaseContext: func(net.Listener) context.Context { return base },
-		// A handler that needs longer than the timeouts, an upload or a stream, lifts them for
-		// itself with http.ResponseController, which reaches the connection through Unwrap.
-		ReadHeaderTimeout: readHeaderTimeout, ReadTimeout: s.cfg.ReadTimeout, WriteTimeout: s.cfg.WriteTimeout, IdleTimeout: idleTimeout,
-		// ServeTLS adds h2 and http/1.1 to NextProtos and turns HTTP/2 on.
-		TLSConfig: tlsConfig,
-	}
+	srv := s.httpServer(s.gated(&g, root))
+	srv.BaseContext = func(net.Listener) context.Context { return base }
+	// ServeTLS adds h2 and http/1.1 to NextProtos and turns HTTP/2 on.
+	srv.TLSConfig = tlsConfig
 	served := make(chan error, 2)
 	go func() {
 		if tlsConfig != nil {
@@ -812,10 +817,7 @@ func (s *server) serveBoth(ctx context.Context, ln net.Listener, tlsConfig *tls.
 	running := 1
 	var plainSrv *http.Server
 	if plainLn != nil {
-		plainSrv = &http.Server{
-			Handler:           plain,
-			ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second,
-		}
+		plainSrv = s.httpServer(plain)
 		go func() { served <- plainSrv.Serve(plainLn) }()
 		running++
 	}
@@ -879,6 +881,22 @@ func (s *server) shutdown(stopping chan struct{}, g *gate, cancelRequests func()
 		}
 	}
 	return err
+}
+
+// httpServer is an http.Server for h with the limits of the settings, the one place they are
+// written: the server of server.addr, the plain one of server.http_addr and the server of a test
+// all read and write under server.read_timeout and server.write_timeout. A handler that needs
+// longer, an upload or a stream, lifts them for itself with http.ResponseController, which
+// reaches the connection through Unwrap.
+func (s *server) httpServer(h http.Handler) *http.Server {
+	srv := &http.Server{
+		Handler:           h,
+		ReadHeaderTimeout: readHeaderTimeout, ReadTimeout: s.cfg.ReadTimeout, WriteTimeout: s.cfg.WriteTimeout, IdleTimeout: idleTimeout,
+	}
+	if testHookServer != nil {
+		testHookServer(srv)
+	}
+	return srv
 }
 
 // errorBody is the JSON answer for a failed request that is not a page.

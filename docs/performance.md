@@ -321,6 +321,10 @@ Whole requests, the server on one physical core (both hyperthreads, 2 VMs) and o
 - A cache hit sends the gzip or zstd form the cache stored with the page, so a compressed hit takes less CPU than an uncompressed one, since there are fewer bytes to write. A miss that takes compression compresses the page in both forms and sends one of them. Requests that share that render never compress the page again.
 - The bundle sent as its `.gz` file answers about 2 times the requests a second of the file itself, since there are fewer bytes to write.
 
+## Content-Security-Policy
+
+With `server.csp` on, Go takes the marks out of each page the VM renders and hashes the scripts and styles they mark (see [Content-Security-Policy](config.md#content-security-policy)). `BenchmarkTakeMarks` in `internal/ssr`, a page of 140 KB with five marked elements, one of them holding 6 KB of data, takes about 31 µs on the Apple M4, most of it one more copy of the page and the search for the nonce. A render of a workbench page of the shop takes tens of milliseconds on one core, so this is about 0.1% of a render. A hit of the render cache or of the whole-page cache keeps the header with the page and costs nothing more. With `server.csp` off a render does none of it.
+
 ## What made it faster
 
 All changes leave the HTML the same byte for byte. Effects are the time a render of the shop's pages takes, measured on the machine above unless the row says otherwise.

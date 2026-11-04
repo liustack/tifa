@@ -481,7 +481,8 @@ async function hydrateFrom(html: string, url: string, onHydrate?: (dehydrated: D
   const saved = { window: g.window, self: g.self, document: g.document }
   g.window = g.self = globalThis
   try {
-    for (const [, code] of html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)) {
+    for (const [tag, code] of html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)) {
+      if (tag.startsWith('<script type="application/ld+json"')) continue
       if (code.trim() === '') continue
       g.document = { currentScript: { previousElementSibling: null, remove() {} }, querySelector: () => null }
       new Function(code)()
@@ -689,6 +690,31 @@ test('with a nonce the data text is a slot, and the rest of the page is the page
 // The scripts of a page split where the router splits them: a text over 16K code units goes into a
 // script tag of its own. A slot is short, so the same page has fewer tags, and its data is the
 // same in the browser.
+// Under a Content-Security-Policy every script and style the render writes, those of the head
+// functions, the router's hydration scripts and the scroll restoration script in the root, carries
+// the nonce of the render as its first attribute, which Go takes out again to hash the element. A
+// script of JSON carries none, nor do the tags of the build, whose hashes Go knows. Without the
+// marks the page is the page rendered without a policy.
+test('under a CSP the scripts and styles of the render carry the nonce first', async () => {
+  const url = '/teams/x/one'
+  const data = { ...appData, 'app/teams/team+/layout': ok('x'), 'app/teams/team+/one/route': ok('one') }
+  const plain = await render(url, data, undefined, slotNonce)
+  const marked = await render(url, data, undefined, slotNonce, undefined, { csp: true })
+  const mark = ` nonce="${slotNonce}"`
+  assert(marked.split(slotNonce).length === marked.split(mark).length, `the nonce is outside a mark:\n${marked}`)
+  assert(marked.split(mark).join('') === plain, `the page without the marks differs:\n${marked}\n${plain}`)
+  const written = marked.slice(marked.indexOf('<!--tifa-head-->'))
+  const tags = written.match(/<(script|style)\b[^>]*>/g) ?? []
+  assert(tags.length >= 5, `tags ${JSON.stringify(tags)}`)
+  for (const tag of tags)
+    assert(tag.startsWith('<script' + mark) || tag.startsWith('<style' + mark) || tag === '<script type="application/ld+json">', `${tag} carries no mark`)
+  contains(written, '<script' + mark + '>window.ONE = 1</script>', '<style' + mark + '>.one{color:teal}</style>')
+  const root = marked.slice(marked.indexOf('<div id="tifa-root">'), marked.lastIndexOf('</div>'))
+  contains(root, '<script' + mark + '>')
+  lacks(marked.slice(0, marked.indexOf('<!--tifa-head-->')), mark)
+  lacks(plain, slotNonce + '"')
+})
+
 test('a page with a large text in a slot hydrates to the same data', async () => {
   const url = '/teams/x/one'
   const rows = Array.from({ length: 3000 }, (_, i) => ({ id: i, name: `row ${i}`, note: 'a "b" c\\d' }))

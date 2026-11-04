@@ -54,7 +54,7 @@ func TestRenderClockFromMiddleware(t *testing.T) {
 	app := frontApp()
 	app.Hooks.OnRequest = middleware
 	s := newAppServer(t, app)
-	if err := s.setFront(dist, pool.Render); err != nil {
+	if err := s.setFront(dist, pool.RenderPage); err != nil {
 		t.Fatal(err)
 	}
 	w := get(s, "/projects/p1")

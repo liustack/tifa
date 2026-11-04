@@ -50,7 +50,7 @@ func newHeldServer(t *testing.T, cfg config.Config, app App) (*server, *heldRend
 	s := newServer(cfg, app.Hooks)
 	s.register(app.Layouts, app.Routes)
 	g := newHeldRender()
-	if err := s.setFront(dist, g.render); err != nil {
+	if err := s.setFront(dist, htmlOnly(g.render)); err != nil {
 		t.Fatal(err)
 	}
 	return s, g
@@ -390,14 +390,14 @@ func TestRenderStopsWhenNoRequestWaits(t *testing.T) {
 	s.register(app.Layouts, app.Routes)
 	var count atomic.Int32
 	stopped := make(chan error, 1)
-	if err := s.setFront(dist, func(ctx context.Context, in ssr.Input) (string, error) {
+	if err := s.setFront(dist, htmlOnly(func(ctx context.Context, in ssr.Input) (string, error) {
 		if count.Add(1) == 1 {
 			<-ctx.Done() // waits for a VM that never comes
 			stopped <- ctx.Err()
 			return "", ctx.Err()
 		}
 		return bigPage(in)
-	}); err != nil {
+	})); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())

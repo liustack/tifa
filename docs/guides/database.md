@@ -17,7 +17,7 @@ The code is from a scratch app made with `tifa new`, module `example.com/notes`.
 
 ## The driver
 
-Use [`github.com/liustack/sqlite`](https://github.com/liustack/sqlite). It runs SQLite as Go code, so the app still builds with `CGO_ENABLED=0` into one file ([Philosophy](../philosophy.md#do-things-the-go-way)). The cgo driver `github.com/mattn/go-sqlite3` needs a C compiler and breaks that. In the driver's own [benchmarks](https://github.com/liustack/sqlite#benchmarks) it reads faster than the cgo driver and than the other pure Go drivers, and loses on work that stays inside SQLite, such as a join. It supports Linux and macOS on amd64 and arm64, and Windows on amd64. `tifa new` already pins a version in `go.mod`.
+Use [`github.com/liustack/sqlite`](https://github.com/liustack/sqlite). It runs SQLite as Go code, so the app still builds with `CGO_ENABLED=0` into one file ([Philosophy](../philosophy.md#do-things-the-go-way)). The cgo driver `github.com/mattn/go-sqlite3` needs a C compiler and breaks that. In the driver's own [benchmarks](https://github.com/liustack/sqlite#benchmarks) it reads faster than the cgo driver and than the other pure Go drivers, and loses on work that stays inside SQLite, such as a join. It supports Linux and macOS on amd64 and arm64, and Windows on amd64. `tifa new` already pins a version in `go.mod`. Each release names the Go versions it was tested with and refuses to build with a newer one, so after upgrading Go, upgrade the driver too.
 
 Two habits differ from other drivers. Parameters in the DSN other than `_pragma` and `_txlock` are an error, so the `_foreign_keys=1` style of other drivers does not work. And double quotes in SQL only name columns and tables, so write string values in single quotes. Do not import another driver named `sqlite` (such as `modernc.org/sqlite`) in the same program, because the two register the same name and the program panics at start.
 
@@ -342,6 +342,6 @@ func OpenDB(ctx context.Context, url string) (*sql.DB, error) {
 }
 ```
 
-Everything else in this guide keeps its shape: a `DB` variable opened in `OnStart`, a setting for the address (`db.url`, with the password in the environment, see [Sending email](email.md#settings)), queries through `database/sql`. What changes: placeholders are `$1`, `$2`, the pragmas go away, and the migration runner above is SQLite's, so use a library such as goose. Tests then need a real Postgres, so give them one through a setting and skip when it is not set.
+Everything else in this guide keeps its shape: a `DB` variable opened in `OnStart`, a setting for the address (`db.url`, now a `tifa.Secret` since it holds the password, see [Sending email](email.md#settings)), queries through `database/sql`. What changes: placeholders are `$1`, `$2`, the pragmas go away, and the migration runner above is SQLite's, so use a library such as goose. Tests then need a real Postgres, so give them one through a setting and skip when it is not set.
 
 Sessions can live in the same database: [Sessions](../sessions.md#where-to-store-sessions).

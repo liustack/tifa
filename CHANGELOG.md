@@ -6,15 +6,21 @@ What changed in tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Added
 
+- `tifa.Secret("smtp.password", "SMTP password")` defines a setting of the app for a password, a token or a key. It comes from the environment, `.env` or the file of `-c`, a flag for it stops the program and says where to put it, and `./bin/app config` writes where it came from and not its value. The [email guide](docs/guides/email.md) uses it.
+- `server.csp: on` sends a Content-Security-Policy that lets only the site's own scripts run. tifa adds the hashes of the inline scripts it writes into a page to the policy of that page, so pages hydrate, and the render cache, the whole-page cache and ETags work as before. `server.csp_policy` changes the policy, and `report-only` only reports (see [Content-Security-Policy](docs/config.md#content-security-policy)).
 - `tifatest.Start(t, tifaapp.App)` runs the whole app in `go test` and returns an `*httptest.Server`, so a test can walk through what a browser does: open a protected page and get the redirect, sign in, see the session cookie, and read the page. `OnStart`, `OnRequest`, decoding, `Validate`, sessions, redirects and `OnError` run as in the program, `OnShutdown` runs when the test ends, and the client keeps cookies and does not follow redirects. Without a front end, pages answer the data of their Loads as JSON by route ID. `tifatest.StartPages` also renders the pages with the front end of `tifa build` or `tifa dev`, on at most two VMs in the test binary, which later tests with the same build reuse, and fails the test when `.tifa/dist` is missing or a file it was built from has changed since. Import the app from a test in a package of its own, such as `package login_test` (see [Testing a whole request](docs/app.md#testing-a-whole-request)).
 - `tifa build` and `tifa dev` write `.tifa/dist/inputs.json`: a hash of each file the front end was built from, which `StartPages` checks.
 
 ### Changed
 
+- Every answer now carries `Referrer-Policy: strict-origin-when-cross-origin` and `Content-Security-Policy: frame-ancestors 'self'`, next to `X-Content-Type-Options: nosniff`. Another site can no longer show the pages in a frame: change the header in `OnRequest` for pages that a partner shows (see [Security headers](docs/config.md#security-headers)).
+- `tifa new` pins `github.com/liustack/sqlite` v0.1.2, which builds with Go 1.26.6 to 1.27 and stops the build on a newer Go. After upgrading Go, upgrade the driver too.
 - The generated table of routes moved from `.tifa/routes.go` into the package `.tifa/tifaapp`, as `tifaapp.App`, so tests can import it. `.tifa/main.go` serves `tifaapp.App`. A test that imports it needs `.tifa`, so in a fresh checkout `go vet`, `go test` and `go mod tidy` fail until `tifa check`, `tifa build` or `tifa dev` has run.
 
 ### Fixed
 
+- Under systemd socket activation with HTTPS, `server.addr` may stay unset when systemd passes its socket. The program refused to start on the default address, which it does not listen on then.
+- With HTTPS on, the plain HTTP address `server.http_addr` now reads and writes under `server.read_timeout` and `server.write_timeout`, like `server.addr`. It kept 10 seconds whatever they said.
 - A handler under `tifatest.NewCtx` that wrote a 1xx status, such as `103 Early Hints`, before `SetSession` and its answer left the recorder with the 1xx and without the `Set-Cookie`: `httptest.ResponseRecorder` takes any status as the final one. The recorder now keeps 1xx statuses out, as the server sends them before the answer.
 - The test in [Sign-in](docs/guides/sign-in.md) read two requests from one recorder, whose `Result()` keeps the headers of its first call, so it never saw the cookie of the second. It now makes a `NewCtx` per request.
 

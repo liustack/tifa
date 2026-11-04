@@ -47,6 +47,9 @@ type Input struct {
 	Session     jsontext.Value `json:"session,omitzero"`
 	SessionKey  string         `json:"sessionKey,omitempty"`
 	SessionHead string         `json:"sessionHead,omitempty"`
+	// CSP has the bundle mark the scripts and styles it writes, whose hashes RenderPage returns
+	// (see csp.go).
+	CSP bool `json:"csp,omitempty"`
 	// Nonce is drawn by Render for each render, and Render ignores one a caller sets. The bundle
 	// writes a slot that holds it in place of each long text of a Load's data in the hydration script,
 	// and Render fills the slots once the VM is free (see slots.go). A bundle that does not know
@@ -244,10 +247,17 @@ func NewPool(source string, sourceMap []byte, cfg config.SSR, dev bool) (*Pool, 
 // The VM writes a slot where the page carries the text of a Load's data, and Render fills the slots
 // once the VM is back in the pool (see slots.go), so the page it returns is the whole document.
 func (p *Pool) Render(ctx context.Context, in Input) (string, error) {
+	page, err := p.RenderPage(ctx, in)
+	return page.HTML, err
+}
+
+// RenderPage is Render with the hashes of the scripts and styles the bundle wrote when in.CSP is set
+// (see csp.go). The page is the one Render returns.
+func (p *Pool) RenderPage(ctx context.Context, in Input) (Page, error) {
 	in.Nonce = NewNonce()
 	html, err := p.renderInVM(ctx, in)
 	if html == "" {
-		return html, err
+		return Page{}, err
 	}
 	texts := in.Texts
 	if in.PageTexts != nil {
@@ -255,9 +265,16 @@ func (p *Pool) Render(ctx context.Context, in Input) (string, error) {
 	}
 	filled, fillErr := FillSlots(html, in.Nonce, texts)
 	if fillErr != nil {
-		return "", fillErr
+		return Page{}, fillErr
 	}
-	return filled, err
+	if !in.CSP {
+		return Page{HTML: filled}, err
+	}
+	page, markErr := takeMarks(filled, in.Nonce)
+	if markErr != nil {
+		return Page{}, markErr
+	}
+	return page, err
 }
 
 // renderInVM is Render up to the VM's answer, with the slots still in it.

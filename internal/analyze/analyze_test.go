@@ -1095,7 +1095,7 @@ func TestSettingsOfTheApp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"db.url", "feed.hosts", "jobs.workers", "shop.open", "db.pool.idle", "upload.limit"}
+	want := []string{"db.url", "feed.hosts", "jobs.workers", "shop.open", "smtp.password", "db.pool.idle", "upload.limit"}
 	if !reflect.DeepEqual(m.Settings, want) {
 		t.Fatalf("Settings = %q, want %q", m.Settings, want)
 	}

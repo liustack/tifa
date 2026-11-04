@@ -30,14 +30,23 @@ type renders struct {
 	result func(in ssr.Input) (string, error)
 }
 
-func (r *renders) render(_ context.Context, in ssr.Input) (string, error) {
+func (r *renders) render(_ context.Context, in ssr.Input) (ssr.Page, error) {
 	r.mu.Lock()
 	r.inputs = append(r.inputs, in)
 	r.mu.Unlock()
 	if r.result != nil {
-		return r.result(in)
+		html, err := r.result(in)
+		return ssr.Page{HTML: html}, err
 	}
-	return "<html>" + in.URL + " " + string(in.Data) + " " + strings.Join(in.Texts, " ") + "</html>", nil
+	return ssr.Page{HTML: "<html>" + in.URL + " " + string(in.Data) + " " + strings.Join(in.Texts, " ") + "</html>"}, nil
+}
+
+// htmlOnly is the render function of a fake SSR bundle that returns the page as HTML alone.
+func htmlOnly(render func(context.Context, ssr.Input) (string, error)) func(context.Context, ssr.Input) (ssr.Page, error) {
+	return func(ctx context.Context, in ssr.Input) (ssr.Page, error) {
+		html, err := render(ctx, in)
+		return ssr.Page{HTML: html}, err
+	}
 }
 
 func (r *renders) count() int {
