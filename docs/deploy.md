@@ -1,11 +1,13 @@
 ---
-summary: 'How to put a built tifa program on a server: building for Linux, running it with its settings and data folder, stopping it cleanly, containers, ports and HTTPS, what to set when a CDN or proxy stands in front (Host and Origin, compression, which answers to cache), and what happens to open pages when you deploy'
+summary: 'How to put a built tifa program on a server: building for Linux, running it with its settings and data folder, stopping it cleanly, containers, ports and HTTPS, what to set when a CDN or proxy stands in front (Host and Origin, compression, which answers to cache), a health check route, metrics for Prometheus from tifa.Stats and what to read in them, and what happens to open pages when you deploy'
 read_when:
   - Putting a tifa app on a VPS or in a container for the first time
   - Putting a CDN or a reverse proxy such as nginx, Cloudflare or CloudFront in front of a tifa app
   - A POST gets 403 with `cross-origin request detected` only behind the proxy
   - Pages show old content or a missing script after a deploy
   - Deciding what a systemd unit or a Dockerfile for a tifa app needs
+  - Adding a health check for a load balancer, a container or Kubernetes
+  - Watching the VM pool and the caches with Prometheus or another monitoring system, or deciding from them whether the machine needs more CPU or a larger `cache.size`
 ---
 
 English · [简体中文](deploy.zh-CN.md)
@@ -87,6 +89,91 @@ Checked against the vendors' own documentation on 2026-11-04. Names and defaults
 - **Cache key.** For a backend service the default key is the whole URI with its query string. Do not set a query string include or exclude list that leaves `_tifa` out ([caching](https://docs.cloud.google.com/cdn/docs/caching)).
 - **Host and client address.** The load balancer keeps the `Host` of the request. It appends `<client address>,<load balancer address>` to `X-Forwarded-For`, and does not check what was there before ([external Application Load Balancer](https://docs.cloud.google.com/load-balancing/docs/https)).
 - **Compression.** Dynamic compression is off by default, needs a `Content-Length`, and skips answers that have a `Content-Encoding` ([dynamic compression](https://docs.cloud.google.com/cdn/docs/dynamic-compression)).
+
+## Health checks and metrics
+
+tifa has no health route or metrics route of its own. Add the ones you need as API routes.
+
+### Health check
+
+A `GET` that answers 204 while the program can serve. Check what it cannot work without, such as the database of [the database guide](guides/database.md), and answer 503 when that is down:
+
+```go
+// app/healthz/route.go
+package healthz
+
+func GET(c *tifa.Ctx) error {
+	if err := notes.DB.PingContext(c.Context()); err != nil {
+		return tifa.Error{Status: 503, Message: "database unreachable"}
+	}
+	return c.NoContent(204)
+}
+```
+
+- Point the load balancer, the `HEALTHCHECK` of a container or a Kubernetes probe at `/healthz`. The program listens only once `OnStart` is done and the VMs are loaded, so the first 204 means it can render. When it is told to stop, new connections fail and the check goes red.
+- The route renders nothing, so a full render queue does not fail it, and a busy program is not restarted for being busy. Watch `tifa_renders_rejected_total` in the metrics below for that.
+
+### Metrics
+
+`tifa.Stats()` returns the state of the VM pool, the render cache and the whole-page cache, and what they did since the program started. It reads atomic counts and takes no lock that renders wait for, so a monitoring system may read it as often as it likes. This route writes it in the text format Prometheus reads, with no library:
+
+```go
+// app/metrics/route.go
+package metrics
+
+import (
+	"fmt"
+	"io"
+	"strings"
+
+	"github.com/liustack/tifa"
+)
+
+func GET(c *tifa.Ctx) error {
+	s := tifa.Stats()
+	var b strings.Builder
+	metric := func(name, kind, help string, value float64) {
+		fmt.Fprintf(&b, "# HELP %s %s\n# TYPE %s %s\n%s %g\n", name, help, name, kind, name, value)
+	}
+	metric("tifa_vms", "gauge", "VMs loaded.", float64(s.SSR.VMs))
+	metric("tifa_vms_busy", "gauge", "VMs rendering.", float64(s.SSR.Busy))
+	metric("tifa_renders_queued", "gauge", "Renders waiting for a VM.", float64(s.SSR.Queued))
+	metric("tifa_renders_total", "counter", "Renders that ran in a VM.", float64(s.SSR.Renders))
+	metric("tifa_renders_failed_total", "counter", "Renders that failed.", float64(s.SSR.Failed))
+	metric("tifa_render_seconds_total", "counter", "Time the renders took.", s.SSR.RenderTime.Seconds())
+	metric("tifa_renders_rejected_total", "counter", "Renders answered 503 as busy.", float64(s.SSR.Rejected))
+	for _, cache := range []struct {
+		name  string
+		stats tifa.CacheStats
+	}{{"render_cache", s.RenderCache}, {"page_cache", s.PageCache}} {
+		metric("tifa_"+cache.name+"_entries", "gauge", "Entries kept.", float64(cache.stats.Entries))
+		metric("tifa_"+cache.name+"_hits_total", "counter", "Answered from an entry.", float64(cache.stats.Hits))
+		metric("tifa_"+cache.name+"_misses_total", "counter", "Made by the request.", float64(cache.stats.Misses))
+		metric("tifa_"+cache.name+"_shared_total", "counter", "Waited for another request.", float64(cache.stats.Shared))
+	}
+	metric("tifa_page_cache_stale_total", "counter", "Old pages sent for a failed one.", float64(s.PageCache.Stale))
+	metric("tifa_cache_bytes", "gauge", "Bytes the caches hold.", float64(s.CacheBytes))
+	metric("tifa_cache_size_bytes", "gauge", "Bytes the caches may hold.", float64(s.CacheSize))
+	c.SetHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	_, err := io.WriteString(c.Writer(), b.String())
+	return err
+}
+```
+
+- An app that already uses `client_golang` can write a `prometheus.Collector` instead, whose `Collect` reads `tifa.Stats()` once and sends each value with `prometheus.MustNewConstMetric`.
+- The numbers say nothing about visitors, but they say how loaded the program is. Keep the route away from the public: let the proxy in front refuse `/metrics` from outside, or check a token in the handler.
+- Before the server starts and after it stops, `tifa.Stats()` returns zeros. An app without pages has no VMs. The counts start at zero with each start of the program, which Prometheus reads as a restart.
+
+What to read, and what to change:
+
+| What you see | What it means | What to do |
+| --- | --- | --- |
+| `tifa_renders_rejected_total` grows | Renders found the queue full or waited past `ssr.wait_timeout`, and got 503 | More CPU and `ssr.vms`, or more caching (see [Sizing a machine](performance.md#sizing-a-machine) and [Render queue](config.md#render-queue)) |
+| `tifa_vms_busy` is `tifa_vms` most of the time, `tifa_renders_queued` above 0 | Every VM renders and others wait | The same: the program is at its limit |
+| `rate(tifa_render_seconds_total) / rate(tifa_renders_total)` | The mean time of a render | When it grows, find the page that got slower |
+| `tifa_renders_failed_total` grows | Renders throw, run past `ssr.timeout` or use up `ssr.vm_memory` | The log has each failure |
+| Hits low next to misses, `tifa_cache_bytes` near `tifa_cache_size_bytes` | The caches drop pages before they are asked for again | A larger `cache.size` |
+| `tifa_page_cache_stale_total` grows | Pages with `Cache` fail to make again and the old page is sent | The log has the error of each failed make |
 
 ## After a deploy
 

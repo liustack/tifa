@@ -42,6 +42,8 @@
 - 程序自己提供 HTTPS，默认关闭。`server.tls_domains` 向 Let's Encrypt 申请并续期证书，存在 `server.tls_cache`。`server.tls_cert` 和 `server.tls_key` 用你自己的证书，文件变了不用重启就重新加载。开了 HTTPS 时浏览器能用 HTTP/2，`server.http_addr`（`:80`）回应 Let's Encrypt 的验证，并把 HTTPS 有证书的名字用 308 跳转到 HTTPS，`server.hsts` 加上 Strict-Transport-Security。开了 HTTPS 还用默认的 `server.addr` 时拒绝启动，并提示设成 `addr: :443`，设成别的回环地址能启动但会打一行警告。`tifa dev` 仍走明文 HTTP。
 - 示例应用多了给顾客的中英文店面，在 `/store` 下：商品搜索和筛选、商品详情、购物车、结算表单，以及用 Markdown 写、代码带高亮的手记。
 - 路由的 `head` 可以返回 `htmlAttributes`，即这些页面 `<html>` 的属性，比如多语言网站的 `lang`。它们逐个属性合并到根 Layout 的 `htmlAttributes` 上，最深的路由优先，`null` 去掉属性。浏览器每次跳转后同步这些属性，不走 SSR 的页面也一样。tifa 只在它要的值变了时才写某个属性，也只去掉自己写过的属性，所以页面脚本设的 class 或 `lang` 一直保留，直到某个路由要另一个值。不用这个功能的应用 HTML 不变，在浏览器里 tifa 也和以前一样，首次渲染之后不再碰 `<html>`，页面脚本在上面改什么都保留。示例店面这样设置自己的语言，店面没有的路径用 URL 里的语言回答 404。
+- `tifa.ExpirePages("/blog/"+slug, "/blog")` 让整页缓存在这些页面的下一个请求时重新生成，每个路径的所有查询串、Host 和协议都算。一次写入改了开了 `Cache` 的页面显示的内容，就在写入后调它。用调用之前读到的数据做出来的页面不会存下，重新生成失败时旧页照常顶上。它只清程序内存里的，不清前面的 CDN（见[写入后重新生成页面](docs/app.zh-CN.md#写入后重新生成页面)）。
+- `tifa.Stats()` 返回 VM 池的情况（加载了几个 VM、几个在渲染、几个渲染在等，渲染次数、失败次数、总耗时，以及回了 503 的渲染），还有渲染缓存和整页缓存的命中、未命中、共用生成次数和条目数，以及两者占的字节。渲染和缓存查找用原子计数，不加新锁。[部署](docs/deploy.zh-CN.md#健康检查和指标)里给了健康检查路由，和一个不用库就给 Prometheus 写出这些数的路由，以及该看哪些数。
 
 ### 变更
 
@@ -185,6 +187,7 @@
 - quickjs v0.26.17：Intl 按 ECMA-402 转换选项、值和语言列表，该给字符串或数字的地方给了 Symbol 或 BigInt 会抛 `TypeError`，`Intl.NumberFormat` 格式化包装起来的 BigInt 时不再经过 double 舍入，而是原样精确输出。页面改了 `Array.prototype`、`JSON` 或别的内置对象，不再影响 Intl。Intl 的函数和内置函数的样子一样，格式化器由进程里所有 VM 共用，所以用过 Intl 的 VM 少占几 KB。
 - SSR bundle 保持 React DOM 每一行的位置不变，渲染报错栈里的位置指向正确的行。
 - 页面里不再带数据加载的时间。TanStack Router 把渲染时的时间写进每个页面，所以 `tifa dev` 说每个开了渲染缓存的页面都读了时间，渲染缓存还把第一次渲染的时间给了之后的访客，他们回到页面时浏览器会丢掉本来能留着的数据。现在页面里写固定的时间，响应在 `Server-Timing: tifa-age;dur=<毫秒>` 里说明数据可能有多旧，浏览器把发出请求的时间减去这个时长当作数据加载的时间。只有每个缓存都得先问服务器才能重用的响应才带它，所以整页缓存给的页面，以及 `Cache-Control` 允许缓存存下来的页面，都不带。响应不带它或浏览器读不到它时（Firefox 走普通 HTTP，或者从前进后退历史打开的页面），数据按旧数据处理，回到页面时重新加载（见 [SSR 与缓存](docs/app.zh-CN.md#ssr-与缓存)）。
+- 开了 `Cache` 的页面被内容条目提前作废后，如果重新生成失败、发出的是旧页，它的 `s-maxage` 仍是整段时间，前面的 CDN 会把它当成新鲜的，一直存到那段时间结束。现在它的 `s-maxage` 不大于 `Age`。
 
 ## 2026-10-19
 

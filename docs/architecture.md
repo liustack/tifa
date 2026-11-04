@@ -217,5 +217,7 @@ flowchart TD
 - **ETag.** It is a hash of the same things as the render key. A matching `If-None-Match` is answered before the cache is asked. The ETag saves the transfer to a browser, and the cache saves the render for everyone else.
 - **Whole-page cache.** Only a page with `const Cache` has it. The request is made anonymous, the key is the scheme, host, path and the query without tracking parameters, and an entry lives for `Cache`. A hit runs no `Load` and no render. A miss makes the page once for every waiting request, through the render cache. When making it fails, the old entry is served for up to a day.
 - A content entry that reaches its date expires every whole page made before it (`contentChanged`).
+- `tifa.ExpirePages` marks the entries of the paths it gets as expired, whatever their host, scheme and query, and drops the makes of those paths under way from the shared ones, so what they read before the call is not kept (`expirePaths`). An expired entry still stands in for a make that fails.
+- `tifa.Stats` reads the counts of the pool and the two caches. Renders and cache lookups count with atomics, under no new lock.
 
 Rules for apps are in [SSR and cache](app.md#ssr-and-cache) and [The whole-page cache](app.md#the-whole-page-cache). The answers tifa sends for each case are in [Page requests](build.md#page-requests).

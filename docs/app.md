@@ -1,5 +1,5 @@
 ---
-summary: 'How to write a tifa app: folder layout, how folders become URLs, the three files of a folder (route.go, page.tsx, layout.tsx), Layouts, a Layout without the Layouts above (layout_.tsx), hooks.go, 404s and errors, a site in several languages, the SSR and cache switches and the whole-page cache (a page that is the same for everyone, kept for a set time), what the server render has, which libraries render differently there and which components to load only in the browser, using Intl and Temporal so hydration matches, styles with Tailwind CSS and shadcn/ui, how to test Go route code, how Load may use Ctx, method handlers with typed input and result, showing HTML the app trusts with tifa.HTML, what a page open in a browser does when you deploy a new version, and the JSON rules for data, inputs and results'
+summary: 'How to write a tifa app: folder layout, how folders become URLs, the three files of a folder (route.go, page.tsx, layout.tsx), Layouts, a Layout without the Layouts above (layout_.tsx), hooks.go, 404s and errors, a site in several languages, the SSR and cache switches and the whole-page cache (a page that is the same for everyone, kept for a set time) and making such a page again after a write, what the server render has, which libraries render differently there and which components to load only in the browser, using Intl and Temporal so hydration matches, styles with Tailwind CSS and shadcn/ui, how to test Go route code, how Load may use Ctx, method handlers with typed input and result, showing HTML the app trusts with tifa.HTML, what a page open in a browser does when you deploy a new version, and the JSON rules for data, inputs and results'
 read_when:
   - Creating a tifa app, or adding pages, Layouts or API routes to one
   - The build reports an error about Ctx usage or a Load return type and you want to fix it
@@ -7,6 +7,7 @@ read_when:
   - Changing the apps in examples/shop or test/apps
   - Writing Go tests for a Load, a Layout function, a method handler or OnRequest
   - Keeping a public page in memory for a few minutes with `const Cache`, what becomes anonymous on it, or the build error about reading a cookie or the session on such a page
+  - A write changes what a page with `Cache` shows, and the page should show it at once with `tifa.ExpirePages`
   - Showing HTML the app made or trusts, such as an article, with `tifa.HTML` and `<HTML>`, or links inside it
   - Adding CSS, Tailwind CSS or shadcn/ui to an app
   - Formatting numbers or dates in a page, or tifa dev warns about an Intl call
@@ -504,7 +505,7 @@ const LayoutSSR = false        // the Layout of the folder, default true
 const Cache = 10 * time.Minute
 ```
 
-A page with `Cache` is answered to everyone alike for that long, from memory, without running its `Load` or rendering it. Use it for pages that are public and that many visitors read: articles, docs, product and landing pages. A visitor sees a change up to `Cache` late.
+A page with `Cache` is answered to everyone alike for that long, from memory, without running its `Load` or rendering it. Use it for pages that are public and that many visitors read: articles, docs, product and landing pages. A visitor sees a change up to `Cache` late, unless the app expires the page after the write (see [Making a page again after a write](#making-a-page-again-after-a-write)).
 
 - **Everyone is anonymous.** The GET and HEAD of the page, and the requests the browser sends for its data when you navigate to it, lose all request headers but a short list before `OnRequest`: `Host`, `Accept-Encoding`, `If-None-Match`, `If-Modified-Since`, `Cache-Control`, `Pragma`, `Content-Length`, `Connection`, `Origin` and `Sec-Fetch-*`. `Cookie` and `Authorization` go, and so do `Accept-Language`, `User-Agent`, `Referer`, `Forwarded`, `X-Forwarded-*` and a header that a proxy or login gateway sets such as `X-User-ID`, so none of them can reach a `Load` through `OnRequest` and the context. `tifa.Session` returns nil, `c.Cookie` finds nothing, `c.Header` and `c.Request().Header` have only the list, and the request is the same for `c.Request()`. `tifa.SetSession` and `tifa.ClearSession` return an error that says sign-in and OAuth callbacks belong on routes without `Cache`. A page can only be shared if what it says does not depend on who asks. A `Set-Cookie` on the HTML of such a page is removed, since a cookie in a shared answer would reach every visitor. The answer to a navigation (the request with `_tifa`) is for one browser and keeps its `Set-Cookie`, and it carries the session of that browser (see [Sessions](sessions.md#in-the-browser)). Method handlers of the same URL, a POST say, are not anonymous and not cached.
 - **The edge of anonymous.** What tifa guarantees is the request headers: on a page with `Cache`, `OnRequest`, `Load` and `Layout` see a request with only the headers of the list, and `tifa.Session` is nil. A `net/http` middleware set with `tifa.SetHTTPHandler` runs outside tifa and gets the request as it came, and what it puts into the context of the request reaches `OnRequest` and the `Load` unchanged. Do not recognize visitors there: do it in `OnRequest` on routes without `Cache`. The address of the connection and the TLS state also remain, and values an outer middleware puts into the context and headers on the list (such as `Origin`) can still tell requests apart. None of them may be used to build personalized shared content.
@@ -516,8 +517,32 @@ A page with `Cache` is answered to everyone alike for that long, from memory, wi
 - **When the time is over** nobody gets the old page. The next request makes a new one and the others wait for it. If the data did not change, the render cache answers and nothing is rendered again.
 - **When a content entry comes out at its date**, every page made before that moment counts as over its time, so a list of posts shows the new one at once (see [Drafts and dates](content.md#drafts-and-dates)).
 - **When making the new page fails**, because a `Load` returns an error, the render fails or runs out of time, or all VMs are busy, the old page is served for up to a day after its time ended. After that the error is answered. A `Load` that returns `tifa.ErrNotFound`, a redirect or another `tifa.Error` below 500 is an answer, not a failure, and it replaces the old page.
-- **Headers.** The headers a `Load` or `Layout` sets (not `Set-Cookie`, `Cache-Control`, `Vary`, `Age`, `ETag` or `Content-Length`, which tifa writes) are kept with the entry and sent with every answer made from it. A `Cache-Control` of `private`, `no-store` or `no-cache`, or a `Vary` beyond `Accept-Encoding`, from a `Load` or `Layout` keeps the page out of the cache and goes out with the answer, over a `public` that `OnRequest` set. A kept page carries `Cache-Control: public, max-age=0, s-maxage=<Cache in seconds>, stale-if-error=86400` and `Age`. The browser asks every time and gets a 304 from the entry when the ETag matches, so a deploy shows at once. `Age` counts the seconds since the page was made and a CDN in front subtracts it from `s-maxage`, so the two together never keep a page longer than `Cache`. `Cache-Status: tifa; hit`, `tifa; fwd=miss` or `tifa; fwd=stale` says where the answer came from, and `X-Tifa-Render` says as before. Navigation data is still `private, no-cache`. For what to set in a CDN, see the deployment notes of the tifa skill.
+- **Headers.** The headers a `Load` or `Layout` sets (not `Set-Cookie`, `Cache-Control`, `Vary`, `Age`, `ETag` or `Content-Length`, which tifa writes) are kept with the entry and sent with every answer made from it. A `Cache-Control` of `private`, `no-store` or `no-cache`, or a `Vary` beyond `Accept-Encoding`, from a `Load` or `Layout` keeps the page out of the cache and goes out with the answer, over a `public` that `OnRequest` set. A kept page carries `Cache-Control: public, max-age=0, s-maxage=<Cache in seconds>, stale-if-error=86400` and `Age`. The browser asks every time and gets a 304 from the entry when the ETag matches, so a deploy shows at once. `Age` counts the seconds since the page was made and a CDN in front subtracts it from `s-maxage`, so the two together never keep a page longer than `Cache`. An old page sent because making the new one failed has an `s-maxage` no larger than its `Age`, so a CDN does not count it as fresh. `Cache-Status: tifa; hit`, `tifa; fwd=miss` or `tifa; fwd=stale` says where the answer came from, and `X-Tifa-Render` says as before. Navigation data is still `private, no-cache`. For what to set in a CDN, see the deployment notes of the tifa skill.
 - Entries share `cache.size` with the render cache. `cache.size` 0 keeps nothing, and requests that miss at the same time still share one make.
+
+#### Making a page again after a write
+
+When a write changes what pages with `Cache` show, call `tifa.ExpirePages` with their paths once the write succeeded. The next request for each runs its `Load`s and renders it, as when its time is over:
+
+```go
+// app/admin/posts/post+/route.go
+func PUT(c *tifa.Ctx, in PostInput) (posts.Post, error) {
+	p, err := posts.Update(c.Context(), c.Param("post"), in)
+	if err != nil {
+		return posts.Post{}, err
+	}
+	tifa.ExpirePages("/blog/"+p.Slug, "/blog", "/")
+	return p, nil
+}
+```
+
+- tifa does not guess what a write changed. Name every page that shows it: here the post, the list of posts and the home page that shows the latest ones, and in a site in several languages, the page of each language.
+- A path is the path of the URL, decoded as `c.Request().URL.Path` has it: `/blog/café`, not `/blog/caf%C3%A9`. It expires the page for every query string, host and scheme, so `/blog` also expires `/blog?page=2`. Paths match exactly: `/blog` and `/blog/` are two pages, and neither expires the pages below it.
+- A request that started before the call may still get the old page. A page made from data read before the call is not kept, and requests after the call do not wait for it.
+- When the data did not change, the new page is the old one: the render cache answers without a render, and a browser that has the page gets a 304 for its ETag.
+- When making the new page fails, the old page stands in as when its time is over, up to a day after its `Cache` time ends.
+- Call it from anywhere in the program: a method handler, a background job, `OnStart`. Before the server starts and after it stops it does nothing. A path that does not start with `/` makes it panic.
+- It expires the pages in the memory of this program only. A CDN in front keeps its copy until its `s-maxage` runs out. With several copies of the program, each has its own cache, and the call reaches only the copy that makes it.
 
 ### User-independent pages and private data
 
