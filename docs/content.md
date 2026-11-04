@@ -166,7 +166,7 @@ tifa: content: content/blog/zh-CN/202608/free-search/index.md: Validate: cover m
 - `draft: true` is a draft. `tifa build` leaves it out, so its text is not in the program.
 - An entry whose `date` is still to come is in the program, but `All`, `In` and `Get` do not return it and other entries' `Translations` do not list it. At that moment it shows up by itself, without a new build or a restart. Entries with the same date come out together.
 - A date alone (`2026-11-20`) is midnight UTC. For an exact time, write RFC 3339 with a zone: `2026-11-20T09:00:00+08:00`.
-- The program goes by the clock of the machine (`time.Now`), not by the render clock of `tifa.WithRenderClock`.
+- The program goes by the clock of the machine (`time.Now`), not by the render clock of `tifa.WithRenderClock`. When that clock is set, or the machine wakes from sleep, an entry whose date has passed comes out within a minute.
 
 `tifa build` and `tifa check` list the entries that wait for their date, so you can check the dates before you ship:
 

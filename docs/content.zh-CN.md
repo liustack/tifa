@@ -166,7 +166,7 @@ tifa: content: content/blog/zh-CN/202608/free-search/index.md: Validate: cover m
 - `draft: true` 是草稿。`tifa build` 不收它，所以它的文字不在程序里。
 - `date` 还没到的条目在程序里，但 `All`、`In`、`Get` 不返回它，别的条目的 `Translations` 也不列它。到了那一刻它自己出现，不用重新构建，也不用重启。日期相同的条目一起出现。
 - 只写日期（`2026-11-20`）按 UTC 零点算。要精确到点，写带时区的 RFC 3339：`2026-11-20T09:00:00+08:00`。
-- 程序按机器的时钟（`time.Now`）判断，和 `tifa.WithRenderClock` 的渲染时钟无关。
+- 程序按机器的时钟（`time.Now`）判断，和 `tifa.WithRenderClock` 的渲染时钟无关。机器时钟被调整过，或者机器从睡眠中醒来，日期已过的条目一分钟内出现。
 
 `tifa build` 和 `tifa check` 列出等待发布的条目，上线前可以核对时间写得对不对：
 
