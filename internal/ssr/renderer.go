@@ -115,6 +115,12 @@ func Load(bytecode *slowjs.SharedBytecode, memory, stack uintptr, timeout time.D
 		err = registerCopyProps(vm.VM)
 	}
 	if err == nil {
+		err = registerTags(vm.VM)
+	}
+	if err == nil && emitCheck != nil {
+		err = emitCheck(vm.VM)
+	}
+	if err == nil {
 		err = registerAsyncContext(vm.VM)
 	}
 	if err == nil && dev {
