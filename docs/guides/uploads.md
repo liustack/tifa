@@ -69,8 +69,34 @@ const ReadTimeout = 5 * time.Minute
 - A body over `BodyLimit` is answered with 413 and the handler does not run. The limit counts the whole body: the file, the other fields and the multipart framing. A file a little under the limit can still be refused.
 - `ReadTimeout` counts from the moment the route is matched. A body still coming when it is over is answered with 408. The answer gets `server.write_timeout` after it.
 - Both hold for the requests the method handlers of this `route.go` answer, and the GET of the page keeps the settings. A variable is read once when the app starts, so `--upload-limit 8MiB` works.
-- A multipart body keeps up to 32 MiB of file content in memory, and up to 10 MiB more for the text fields and the names and headers of the parts. A file that does not fit goes to a temporary file, which tifa removes when the request ends, but up to 32 MiB of it passes through a buffer in memory first. So one upload may hold around 40 MiB for a moment, wherever its files end up. A body limit above that is fine: what is over it goes to disk, not to memory. Uploads at the same time each take that much, so on a small machine count them: ten large ones at once can hold about 400 MiB.
 - A proxy or CDN in front of the app has a body limit and timeouts of its own. Raise them to match, or the visitor gets its error and not yours.
+
+### How much memory an upload takes
+
+The form is parsed with the budget of Go's `mime/multipart`. Up to 32 MiB of file content stays in memory, and the text fields and the names and headers of the parts share one budget of about 42 MiB with it. A file that does not fit goes to a temporary file, which tifa removes when the request ends. A body limit above that is fine: the rest goes to disk.
+
+The budget is not the peak. A file that ends on disk is first read into a buffer of up to 32 MiB, which grows as it fills, so one large file can take about 64 MiB for a moment, and each upload at the same time takes its own. On a machine with little memory, let only a few uploads read their form at once. The rest of `hooks.go`, which also imports `github.com/liustack/tifa`:
+
+```go
+// parsing lets two uploads read their form at a time. The others wait here, before their body is
+// read, so a burst of uploads does not hold the memory of all of them at once.
+var parsing = make(chan struct{}, 2)
+
+func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+	if c.Request().Method == "POST" && c.Pattern() == "/photos" {
+		select {
+		case parsing <- struct{}{}:
+			defer func() { <-parsing }()
+		case <-c.Context().Done():
+			return c.Context().Err()
+		}
+	}
+	return next(c)
+}
+```
+
+The time an upload waits here counts toward its `ReadTimeout`, which starts when the route is matched, so leave room for the wait.
+
 
 ## The handler
 

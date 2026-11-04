@@ -68,8 +68,34 @@ const ReadTimeout = 5 * time.Minute
 - 请求体超过 `BodyLimit` 时回答 413，方法函数不会运行。限制算的是整个请求体：文件、其他字段和 multipart 的分隔部分。一个略小于限制的文件也可能被拒绝。
 - `ReadTimeout` 从匹配到路由时开始算。时间到了请求体还没传完，回答 408。回答在这之后再有 `server.write_timeout` 的时间。
 - 两者作用于这个 `route.go` 的方法函数回答的请求，页面的 GET 照旧用配置。变量在应用启动时读一次，所以 `--upload-limit 8MiB` 有效。
-- multipart 请求体最多把 32 MiB 的文件内容放在内存里，文本字段和各部分的名字、头另外最多再占 10 MiB。放不下的文件写到临时文件，请求结束时 tifa 会删掉，但写盘之前它最多有 32 MiB 先经过内存里的缓冲区。所以一次上传可能短时间占 40 MiB 左右，不管文件最后落在哪里。请求体限制可以高于这个数：超出的部分进磁盘，不进内存。同时进行的上传各占这么多，小机器上要算一算：同时十个大文件，最多能占 400 MiB 左右。
 - 应用前面的代理或 CDN 有自己的请求体限制和超时。要一起调高，否则访客看到的是它的错误，不是你的。
+
+### 一次上传占多少内存
+
+表单按 Go 的 `mime/multipart` 的预算解析。最多 32 MiB 的文件内容留在内存里，文本字段和各部分的名字、头和它共用一份约 42 MiB 的预算。放不下的文件写进临时文件，请求结束时 tifa 会删掉。请求体限制可以高于这个数：多出来的进磁盘。
+
+预算不是峰值。最后落到磁盘上的文件，先被读进一个最多 32 MiB 的缓冲区，缓冲区边读边扩容，所以一个大文件可能短时间占 64 MiB 左右，同时进行的每个上传各占自己的一份。内存小的机器上，只让少数几个上传同时读表单。`hooks.go` 的其余部分（它还要 import `github.com/liustack/tifa`）：
+
+```go
+// parsing 让同时读表单的上传最多两个。其余的在这里等，等的时候还没读请求体，
+// 所以一阵上传不会同时占着所有上传的内存。
+var parsing = make(chan struct{}, 2)
+
+func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+	if c.Request().Method == "POST" && c.Pattern() == "/photos" {
+		select {
+		case parsing <- struct{}{}:
+			defer func() { <-parsing }()
+		case <-c.Context().Done():
+			return c.Context().Err()
+		}
+	}
+	return next(c)
+}
+```
+
+上传在这里等的时间算在它的 `ReadTimeout` 里（从匹配到路由时就开始算），所以给等待留出时间。
+
 
 ## 方法函数
 
