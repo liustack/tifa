@@ -86,11 +86,15 @@ type committer struct {
 
 func (w *committer) Committed() bool { return w.wrote }
 
+// WriteHeader keeps a 1xx other than 101 from the recorder. On the server such a status goes out
+// before the response and leaves its headers open, but httptest.ResponseRecorder takes any status
+// as the final one and fixes the headers of Result at it.
 func (w *committer) WriteHeader(code int) {
-	w.ResponseWriter.WriteHeader(code)
-	if code >= 200 || code == http.StatusSwitchingProtocols {
-		w.wrote = true
+	if code >= 100 && code <= 199 && code != http.StatusSwitchingProtocols {
+		return
 	}
+	w.ResponseWriter.WriteHeader(code)
+	w.wrote = true
 }
 
 func (w *committer) Write(b []byte) (int, error) {

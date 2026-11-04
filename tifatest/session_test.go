@@ -135,6 +135,24 @@ func TestTestSessionStoreFindsABrokenStore(t *testing.T) {
 	}
 }
 
+// A 1xx answer, such as 103 Early Hints, comes before the response and does not fix its headers,
+// on the server and in the recorder: the session cookie set after it is in the result.
+func TestInformationalStatusLeavesTheHeadersOpen(t *testing.T) {
+	c, w := tifatest.NewCtx(t, httptest.NewRequest("POST", "/login", nil))
+	c.Writer().Header().Set("Link", "</assets/app.css>; rel=preload; as=style")
+	c.Writer().WriteHeader(http.StatusEarlyHints)
+	if err := tifa.SetSession(c, &account{UserID: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.JSON(200, "in"); err != nil {
+		t.Fatal(err)
+	}
+	res := w.Result()
+	if res.StatusCode != 200 || len(res.Cookies()) != 1 || res.Cookies()[0].Name != "__Host-tifa_session" {
+		t.Fatalf("status %d, cookies %v", res.StatusCode, res.Cookies())
+	}
+}
+
 func TestSessionCannotChangeOnceTheResponseIsOut(t *testing.T) {
 	writes := map[string]func(c *tifa.Ctx){
 		"body":   func(c *tifa.Ctx) { c.Text(200, "hi") },
