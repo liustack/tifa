@@ -283,6 +283,16 @@ func TestWithHashes(t *testing.T) {
 		{"default-src 'none'; script-src 'self'", "default-src 'none'; script-src 'self' 'sha256-a' 'sha256-b'"},
 		{"object-src 'none'", "object-src 'none'"},
 		{"style-src-elem 'self'", "style-src-elem 'self' 'sha256-s'"},
+		// 'unsafe-inline' that a hash, a nonce or, for scripts, 'strict-dynamic' already turns off
+		// (CSP3, "Does a source list allow all inline behavior"): the hashes go in.
+		{"script-src 'self' 'unsafe-inline' 'sha256-x'", "script-src 'self' 'unsafe-inline' 'sha256-x' 'sha256-a' 'sha256-b'"},
+		{"script-src 'self' 'unsafe-inline' 'SHA512-x'", "script-src 'self' 'unsafe-inline' 'SHA512-x' 'sha256-a' 'sha256-b'"},
+		{"script-src 'self' 'unsafe-inline' 'nonce-abc'", "script-src 'self' 'unsafe-inline' 'nonce-abc' 'sha256-a' 'sha256-b'"},
+		{"script-src 'unsafe-inline' 'strict-dynamic'", "script-src 'unsafe-inline' 'strict-dynamic' 'sha256-a' 'sha256-b'"},
+		{"script-src 'self' 'strict-dynamic'", "script-src 'self' 'strict-dynamic' 'sha256-a' 'sha256-b'"},
+		{"default-src 'self' 'unsafe-inline' 'nonce-abc'", "default-src 'self' 'unsafe-inline' 'nonce-abc'; script-src 'self' 'unsafe-inline' 'nonce-abc' 'sha256-a' 'sha256-b'; style-src 'self' 'unsafe-inline' 'nonce-abc' 'sha256-s'"},
+		// 'strict-dynamic' does not turn off 'unsafe-inline' for styles.
+		{"style-src 'self' 'unsafe-inline' 'strict-dynamic'", "style-src 'self' 'unsafe-inline' 'strict-dynamic'"},
 		// Directives and their sources are split at ASCII whitespace, as CSP3 parses a policy.
 		{"script-src\t'self';\tobject-src 'none'", "script-src 'self' 'sha256-a' 'sha256-b'; object-src 'none'"},
 		{"default-src\t'self'\t'unsafe-inline'", "default-src 'self' 'unsafe-inline'"},

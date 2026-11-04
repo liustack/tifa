@@ -360,7 +360,9 @@ Content-Security-Policy 告诉浏览器哪些脚本可以运行。策略只放�
 
 每个页面都有 tifa 自己的内联脚本：路由器用一个把 Load 的数据交给浏览器，用另一个恢复滚动位置。tifa 给它写进页面的每个内联脚本和样式算 SHA-256 哈希，加进这个页面响应头里的策略，所以它们能运行。包括构建 head 里的脚本和样式（`tifa dev` 下是 Vite 的 preamble）、会话 head、路由器的脚本、`head` 函数的 `scripts` 和 `styles`，以及 `tifa dev` 自己的错误浮层。同一个页面总是得到同一个头，所以渲染缓存、整页缓存和 ETag 照常工作。其他回答（JSON 和文件）带原样的策略。
 
-哈希加进 `script-src` 和 `script-src-elem`，策略里有 `style-src`、`style-src-elem` 时也加进去。只有 `default-src` 的策略会多出一条 `script-src`，内容是 `default-src` 的来源加上哈希。带 `'unsafe-inline'` 的指令不加哈希，因为指令里一有哈希，浏览器就不理 `'unsafe-inline'` 了。
+哈希加进 `script-src` 和 `script-src-elem`，策略里有 `style-src`、`style-src-elem` 时也加进去。只有 `default-src` 的策略会多出一条 `script-src`，内容是 `default-src` 的来源加上哈希。`'unsafe-inline'` 仍然放行全部内联脚本的指令不加哈希，因为指令里一有哈希，浏览器就不理 `'unsafe-inline'` 了。指令里已有哈希、nonce，或者脚本指令里有 `'strict-dynamic'` 时，浏览器本来就不理它，哈希照加。
+
+脚本指令里不要写 `'strict-dynamic'`。有了它，浏览器不理 `'self'` 和域名来源，会拦下页面的脚本文件（构建的入口和它的预加载），页面无法 hydrate。
 
 自己写策略，加上统计服务的域名和上报地址：
 

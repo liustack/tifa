@@ -119,9 +119,9 @@ func (s *server) holdsBasePolicy(h http.Header, name string) bool {
 //   - without either, default-src, written as a script-src or style-src of its own with the sources
 //     of default-src, which then applies to them as before
 //
-// A directive with 'unsafe-inline' gets none, since a browser ignores 'unsafe-inline' once a
-// directive lists a hash, and the inline elements of the app would stop running. 'none' gets none
-// either. Without any of the directives the policy does not limit them, and stays as it is. The
+// A directive whose 'unsafe-inline' lets every inline element run (allowsAllInline) gets none: a
+// hash would turn 'unsafe-inline' off, and the inline elements of the app would stop running.
+// 'none' gets none either. Without any of the directives the policy does not limit them, and stays as it is. The
 // policy is read as browsers read it (config.PolicyDirectives) and written back with one space
 // between the sources of a directive.
 func withHashes(policy string, scripts, styles []string) string {
@@ -137,7 +137,7 @@ func withHashes(policy string, scripts, styles []string) string {
 		for i, d := range directives {
 			if name := strings.ToLower(d[0]); name == kind.name+"-src" || name == kind.name+"-src-elem" {
 				found = true
-				directives[i] = addSources(d, kind.hashes)
+				directives[i] = addSources(d, kind.name, kind.hashes)
 			}
 		}
 		if found {
@@ -146,7 +146,7 @@ func withHashes(policy string, scripts, styles []string) string {
 		for _, d := range directives {
 			if strings.ToLower(d[0]) == "default-src" {
 				own := append([]string{kind.name + "-src"}, d[1:]...)
-				if added := addSources(own, kind.hashes); len(added) > len(own) {
+				if added := addSources(own, kind.name, kind.hashes); len(added) > len(own) {
 					directives = append(directives, added)
 				}
 				break
@@ -160,13 +160,12 @@ func withHashes(policy string, scripts, styles []string) string {
 	return strings.Join(written, "; ")
 }
 
-// addSources adds the hashes to the directive d, its name and sources, that it does not list,
-// unless it has 'unsafe-inline' or is 'none'.
-func addSources(d []string, hashes []string) []string {
-	for _, f := range d[1:] {
-		if strings.EqualFold(f, "'unsafe-inline'") {
-			return d
-		}
+// addSources adds the hashes to the directive d, its name and sources, for elements of kind
+// (script or style), that it does not list, unless its 'unsafe-inline' lets every inline element
+// run (allowsAllInline) or it is 'none'.
+func addSources(d []string, kind string, hashes []string) []string {
+	if allowsAllInline(d[1:], kind) {
+		return d
 	}
 	if len(d) == 2 && strings.EqualFold(d[1], "'none'") {
 		return d
@@ -178,4 +177,24 @@ func addSources(d []string, hashes []string) []string {
 		}
 	}
 	return d
+}
+
+// allowsAllInline reports whether sources let every inline element of kind (script or style) run,
+// as CSP3 decides it (https://www.w3.org/TR/CSP3/#allow-all-inline): they have 'unsafe-inline' and
+// no hash or nonce, and for scripts no 'strict-dynamic'. Otherwise a browser ignores
+// 'unsafe-inline', and inline elements run only by a hash or a nonce.
+func allowsAllInline(sources []string, kind string) bool {
+	unsafeInline := false
+	for _, s := range sources {
+		s = strings.ToLower(s)
+		switch {
+		case s == "'unsafe-inline'":
+			unsafeInline = true
+		case strings.HasPrefix(s, "'nonce-"), strings.HasPrefix(s, "'sha256-"), strings.HasPrefix(s, "'sha384-"), strings.HasPrefix(s, "'sha512-"):
+			return false
+		case s == "'strict-dynamic'" && kind == "script":
+			return false
+		}
+	}
+	return unsafeInline
 }

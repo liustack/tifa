@@ -360,7 +360,9 @@ Styles are left alone: React writes `style` attributes, and emotion and MUI add 
 
 Every page has inline scripts of tifa's own: the router hands the data of the Loads to the browser in one and restores the scroll position with another. tifa hashes each inline script and style it writes into a page (SHA-256) and adds the hashes to the policy in the header of that page, so they run. These are the scripts and styles of the head of the build (Vite's preamble under `tifa dev`), of the session head, of the router, and of the `scripts` and `styles` of `head` functions, and under `tifa dev` its own error overlay. The same page always gets the same header, so the render cache, the whole-page cache and ETags work as before. Other answers, JSON and files, carry the policy as it is.
 
-The hashes go into `script-src` and `script-src-elem`, and into `style-src` and `style-src-elem` when the policy has them. A policy with only `default-src` gets a `script-src` with the sources of `default-src` and the hashes. A directive with `'unsafe-inline'` gets no hashes, since browsers ignore `'unsafe-inline'` once a directive lists one.
+The hashes go into `script-src` and `script-src-elem`, and into `style-src` and `style-src-elem` when the policy has them. A policy with only `default-src` gets a `script-src` with the sources of `default-src` and the hashes. A directive whose `'unsafe-inline'` still lets every inline script run gets no hashes, since browsers ignore `'unsafe-inline'` once a directive lists one. With a hash, a nonce or, for scripts, `'strict-dynamic'` in the directive, browsers already ignore it, so the hashes go in.
+
+Leave `'strict-dynamic'` out of the script directives. Browsers then ignore `'self'` and host sources, so they block the script files of the pages (the entry of the build and its preloads), and pages do not hydrate.
 
 A policy of your own, with an analytics host and a report address:
 
