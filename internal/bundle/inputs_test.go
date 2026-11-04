@@ -125,3 +125,37 @@ func TestInputsListTheFilesThatStylesheetsImport(t *testing.T) {
 		t.Errorf("inputs.json has no app/page/theme.css: %v", in.Files)
 	}
 }
+
+// Every file a plugin of the Vite config adds with this.addWatchFile is an input, however the
+// plugin is written and however it names the file. The driver reads them from the watchFiles of
+// Rolldown's bundles, which Rolldown marks experimental: when a Rolldown drops it, or stops
+// putting these files in it, or Vite builds without closing a bundle of the rolldown it imports,
+// this test fails, by the error of the driver or by the missing file.
+func TestInputsListTheWatchFilesOfEveryPlugin(t *testing.T) {
+	const file = "path.join(process.cwd(), 'extra/watched.txt')"
+	for name, plugin := range map[string]string{
+		// A hook that a getter returns.
+		"getter": "{ name: 'getter', get buildStart() { return function () { this.addWatchFile(" + file + ") } } }",
+		// A plugin that applyToEnvironment returns in place of its own.
+		"environment": "{ name: 'factory', applyToEnvironment: () => ({ name: 'made', buildStart() { this.addWatchFile(" + file + ") } }) }",
+		// A path relative to the working directory, which Rolldown resolves against it.
+		"relative": "{ name: 'relative', buildStart() { this.addWatchFile('extra/watched.txt') } }",
+		// A helper that the hook puts on its context and calls as a method.
+		"helper": "{ name: 'helper', buildStart() { this.watch = function (id) { this.addWatchFile(id) }; this.watch(" + file + ") } }",
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := fakeApp(t, `["es2022"]`)
+			writeTree(t, root, map[string]string{
+				"extra/watched.txt": "read by a plugin\n",
+				"vite.config.ts": "import path from 'node:path'\nimport tifa from './.tifa/vite.js'\n" +
+					"export default { plugins: [tifa(), " + plugin + "] }\n",
+			})
+			buildApp(t, root)
+			var in inputs
+			readJSON(t, filepath.Join(root, ".tifa", "dist", InputsFile), &in)
+			if _, ok := in.Files["extra/watched.txt"]; !ok {
+				t.Errorf("inputs.json has no extra/watched.txt: %v", in.Files)
+			}
+		})
+	}
+}
