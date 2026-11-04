@@ -291,6 +291,20 @@ func TestWithHashes(t *testing.T) {
 		{"script-src 'unsafe-inline' 'strict-dynamic'", "script-src 'unsafe-inline' 'strict-dynamic' 'sha256-a' 'sha256-b'"},
 		{"script-src 'self' 'strict-dynamic'", "script-src 'self' 'strict-dynamic' 'sha256-a' 'sha256-b'"},
 		{"default-src 'self' 'unsafe-inline' 'nonce-abc'", "default-src 'self' 'unsafe-inline' 'nonce-abc'; script-src 'self' 'unsafe-inline' 'nonce-abc' 'sha256-a' 'sha256-b'; style-src 'self' 'unsafe-inline' 'nonce-abc' 'sha256-s'"},
+		// A nonce or hash that is not one by the grammar of CSP3 is ignored, and 'unsafe-inline'
+		// stays in force: no hashes, or the styles React and emotion write would stop.
+		{"style-src 'self' 'unsafe-inline' 'nonce-'", "style-src 'self' 'unsafe-inline' 'nonce-'"},
+		{"style-src 'self' 'unsafe-inline' 'nonce-a b'", "style-src 'self' 'unsafe-inline' 'nonce-a b'"},
+		{"style-src 'self' 'unsafe-inline' 'nonce-ab=c'", "style-src 'self' 'unsafe-inline' 'nonce-ab=c'"},
+		{"style-src 'self' 'unsafe-inline' 'nonce-abc==='", "style-src 'self' 'unsafe-inline' 'nonce-abc==='"},
+		{"style-src 'self' 'unsafe-inline' 'nonce-a.c'", "style-src 'self' 'unsafe-inline' 'nonce-a.c'"},
+		{"style-src 'self' 'unsafe-inline' 'nonce-abc", "style-src 'self' 'unsafe-inline' 'nonce-abc"},
+		{"style-src 'self' 'unsafe-inline' nonce-abc'", "style-src 'self' 'unsafe-inline' nonce-abc'"},
+		{"style-src 'self' 'unsafe-inline' 'sha256-'", "style-src 'self' 'unsafe-inline' 'sha256-'"},
+		{"style-src 'self' 'unsafe-inline' 'sha1-abc'", "style-src 'self' 'unsafe-inline' 'sha1-abc'"},
+		{"style-src 'self' 'unsafe-inline' 'sha256-a*c'", "style-src 'self' 'unsafe-inline' 'sha256-a*c'"},
+		{"style-src 'self' 'unsafe-inline' 'NONCE-a-b_c+/=='", "style-src 'self' 'unsafe-inline' 'NONCE-a-b_c+/==' 'sha256-s'"},
+		{"style-src 'self' 'unsafe-inline' 'Sha384-abc='", "style-src 'self' 'unsafe-inline' 'Sha384-abc=' 'sha256-s'"},
 		// 'strict-dynamic' does not turn off 'unsafe-inline' for styles.
 		{"style-src 'self' 'unsafe-inline' 'strict-dynamic'", "style-src 'self' 'unsafe-inline' 'strict-dynamic'"},
 		// Directives and their sources are split at ASCII whitespace, as CSP3 parses a policy.

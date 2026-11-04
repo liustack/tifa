@@ -190,11 +190,43 @@ func allowsAllInline(sources []string, kind string) bool {
 		switch {
 		case s == "'unsafe-inline'":
 			unsafeInline = true
-		case strings.HasPrefix(s, "'nonce-"), strings.HasPrefix(s, "'sha256-"), strings.HasPrefix(s, "'sha384-"), strings.HasPrefix(s, "'sha512-"):
+		case isNonceOrHash(s):
 			return false
 		case s == "'strict-dynamic'" && kind == "script":
 			return false
 		}
 	}
 	return unsafeInline
+}
+
+// isNonceOrHash reports whether the source s, in lower case, is a nonce-source or a hash-source by
+// the grammar of CSP3 (https://www.w3.org/TR/CSP3/#grammardef-nonce-source): 'nonce-, or sha256-,
+// sha384- or sha512- after the quote, then a base64-value and the closing quote. Browsers ignore
+// any other source, so it turns no 'unsafe-inline' off.
+func isNonceOrHash(s string) bool {
+	if len(s) < 2 || s[0] != '\'' || s[len(s)-1] != '\'' {
+		return false
+	}
+	inner := s[1 : len(s)-1]
+	for _, prefix := range []string{"nonce-", "sha256-", "sha384-", "sha512-"} {
+		if value, found := strings.CutPrefix(inner, prefix); found {
+			return isBase64Value(value)
+		}
+	}
+	return false
+}
+
+// isBase64Value reports whether v is a base64-value of CSP3: at least one letter, digit, +, /, -
+// or _, then at most two =.
+func isBase64Value(v string) bool {
+	body := strings.TrimRight(v, "=")
+	if body == "" || len(v)-len(body) > 2 {
+		return false
+	}
+	for _, c := range []byte(body) {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '+' || c == '/' || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
 }
