@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/liustack/tifa/internal/analyze"
 	"github.com/liustack/tifa/internal/bundle"
@@ -122,7 +123,8 @@ func checkReact(root string, pages bool) error {
 }
 
 // analyzeApp runs the static analysis and prints each convention violation on its own line, and
-// the warnings about the content, such as entries without a translation.
+// the warnings about the content, such as entries without a translation, and the entries that
+// wait for their date.
 func analyzeApp(cmd *cobra.Command, root string) (*analyze.Manifest, error) {
 	m, err := analyze.Analyze(root)
 	var violations analyze.Errors
@@ -135,6 +137,10 @@ func analyzeApp(cmd *cobra.Command, root string) (*analyze.Manifest, error) {
 	if err == nil && m.Content != nil {
 		for _, w := range m.Content.Warnings {
 			fmt.Fprintf(cmd.ErrOrStderr(), "tifa: content: %s (warning)\n", w)
+		}
+		// Entries whose date is still to come are no mistake, and their dates are worth a look.
+		for _, line := range m.Content.File.Waiting(time.Now()) {
+			fmt.Fprintf(cmd.ErrOrStderr(), "tifa: content: %s\n", line)
 		}
 	}
 	return m, err
