@@ -6,7 +6,7 @@ What changed in tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Changed
 
-- The `tifa new` template uses the SQLite driver `github.com/liustack/sqlite` instead of `modernc.org/sqlite`. It is pure Go and needs Go 1.27 or later, on Linux and macOS (amd64 and arm64). Moving an app over from `modernc.org/sqlite` needs two checks. The driver rejects DSN parameters it does not know, so `_foreign_keys=1` and the like must become `_pragma=foreign_keys(1)`. And double quotes in SQL only name columns and tables, so a string value written as `"text"` must become `'text'`. Both drivers register the name `sqlite`, so remove the old import completely.
+- The `tifa new` template uses the SQLite driver `github.com/liustack/sqlite` instead of `modernc.org/sqlite`. It is pure Go and needs Go 1.27 or later, on Linux and macOS (amd64 and arm64) and Windows (amd64). Moving an app over from `modernc.org/sqlite` needs two checks. The driver rejects DSN parameters it does not know, so `_foreign_keys=1` and the like must become `_pragma=foreign_keys(1)`. And double quotes in SQL only name columns and tables, so a string value written as `"text"` must become `'text'`. Both drivers register the name `sqlite`, so remove the old import completely.
 
 ## [0.0.2] - 2026-11-04
 

@@ -17,7 +17,7 @@ tifa 没有数据库层。应用在 `OnStart` 里打开数据库，用 `database
 
 ## 驱动
 
-用 [`github.com/liustack/sqlite`](https://github.com/liustack/sqlite)。它把 SQLite 当 Go 代码运行，所以应用仍然能用 `CGO_ENABLED=0` 编译成一个文件（见[哲学](../philosophy.zh-CN.md#按-go-的方式)）。cgo 驱动 `github.com/mattn/go-sqlite3` 需要 C 编译器，会破坏这一点。在驱动自己的[评测](https://github.com/liustack/sqlite/blob/main/README.zh-CN.md)里，它读得比 cgo 驱动和其他纯 Go 驱动都快，只在完全在 SQLite 内部完成的工作（比如连接查询）上落后。它支持 amd64 和 arm64 上的 Linux 和 macOS。`tifa new` 已经在 `go.mod` 里固定了一个版本。
+用 [`github.com/liustack/sqlite`](https://github.com/liustack/sqlite)。它把 SQLite 当 Go 代码运行，所以应用仍然能用 `CGO_ENABLED=0` 编译成一个文件（见[哲学](../philosophy.zh-CN.md#按-go-的方式)）。cgo 驱动 `github.com/mattn/go-sqlite3` 需要 C 编译器，会破坏这一点。在驱动自己的[评测](https://github.com/liustack/sqlite/blob/main/README.zh-CN.md)里，它读得比 cgo 驱动和其他纯 Go 驱动都快，只在完全在 SQLite 内部完成的工作（比如连接查询）上落后。它支持 amd64 和 arm64 上的 Linux 和 macOS，以及 amd64 上的 Windows。`tifa new` 已经在 `go.mod` 里固定了一个版本。
 
 有两个习惯和别的驱动不同。DSN 里除了 `_pragma` 和 `_txlock` 的参数都会报错，所以别的驱动那种 `_foreign_keys=1` 的写法不能用。SQL 里的双引号只表示列名和表名，字符串值要写成单引号。同一个程序里不要再导入另一个叫 `sqlite` 的驱动（比如 `modernc.org/sqlite`），两者注册同一个名字，程序启动时会 panic。
 
