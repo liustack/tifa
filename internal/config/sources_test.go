@@ -457,7 +457,10 @@ func TestBadSecretFailsWithoutItsValue(t *testing.T) {
 		{"smtp:\n  password: 12345678\n", []string{"file prod.yaml line 2", "smtp.password", "expected a string value, got number"}},
 		{"smtp:\n  password: true\n", []string{"file prod.yaml line 2", "smtp.password", "expected a string value, got bool"}},
 		{"smtp:\n  password: 9876.5e3\n", []string{"smtp.password", "expected a string value, got number"}},
-		{"smtp:\n  password: !s3cret word\n", []string{"smtp.password", "expected a string value, got a value with a custom tag"}},
+		{"smtp:\n  password: !s3cret word\n", []string{"smtp.password", "expected a string value, got a value with a tag"}},
+		{"smtp:\n  password: !!s3cret\n", []string{"smtp.password", "expected a string value, got a value with a tag"}},
+		{"smtp:\n  password: !!s3cret word\n", []string{"smtp.password", "expected a string value, got a value with a tag"}},
+		{"smtp:\n  password: 2026-11-05\n", []string{"smtp.password", "expected a string value, got timestamp"}},
 	} {
 		src := Read([]string{"-c", writeFile(t, "prod.yaml", tc.file)}, nil, "")
 		r := &registry{}
@@ -471,10 +474,24 @@ func TestBadSecretFailsWithoutItsValue(t *testing.T) {
 				t.Errorf("error lacks %q: %s", want, msg)
 			}
 		}
-		for _, secret := range []string{"12345678", "true", "9876", "s3cret"} {
+		for _, secret := range []string{"12345678", "true", "9876", "s3cret", "2026"} {
 			if strings.Contains(msg, secret) {
 				t.Errorf("error holds the secret: %s", msg)
 			}
+		}
+	}
+	// A setting that is no secret names the type and shows the value, which is what to fix. A
+	// tag of the file's own is named only as a tag, since it is text of the value.
+	for _, tc := range []struct{ file, want string }{
+		{"smtp:\n  host: 12345678\n", `expected a string value, got number "12345678"`},
+		{"smtp:\n  host: !mail word\n", `expected a string value, got a value with a tag "word"`},
+		{"smtp:\n  host: 2026-11-05\n", `expected a string value, got timestamp "2026-11-05"`},
+	} {
+		r := &registry{}
+		var host string
+		r.define(Read([]string{"-c", writeFile(t, "prod.yaml", tc.file)}, nil, ""), "smtp.host", "", optionalValue{&host})
+		if len(r.errs) != 1 || !strings.Contains(r.errs[0].Error(), tc.want) || strings.Contains(r.errs[0].Error(), "!mail") {
+			t.Errorf("%q: %v, want %s", tc.file, r.errs, tc.want)
 		}
 	}
 	// The .env file and the file of -c are read before the app defines its settings, so the

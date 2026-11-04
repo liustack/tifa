@@ -320,6 +320,9 @@ func yamlEntries(data []byte) (map[string]entry, error) {
 	return entries, nil
 }
 
+// yamlType names the type of a scalar by its tag. Only the tags yaml.v3 gives a scalar of
+// itself are named: any other tag, such as !abc or !!abc, is text the file wrote, and an
+// unquoted password may start with one, so it goes into no error.
 func yamlType(tag string) string {
 	switch tag {
 	case "!!str":
@@ -330,12 +333,12 @@ func yamlType(tag string) string {
 		return "bool"
 	case "!!null":
 		return "null"
+	case "!!timestamp":
+		return "timestamp"
+	case "!!binary":
+		return "binary"
 	}
-	if !strings.HasPrefix(tag, "!!") {
-		// A tag of its own, such as !abc, is text of the value: a password may start with one.
-		return "a value with a custom tag"
-	}
-	return tag
+	return "a value with a tag"
 }
 
 var envKey = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
