@@ -18,7 +18,7 @@ read_when:
 
 - 页面整页渲染，不流式输出。推流是 API 路由（有 `route.go`、没有 `page.tsx` 的目录）里的方法函数，自己往 `c.Writer()` 写回答。
 - `http.NewResponseController(c.Writer())` 能把写好的内容立刻推给访客，也能挪动这个请求的期限。它穿过 tifa 自己的各层写入器和压缩层，直达连接。
-- `server.write_timeout` 默认给一个回答 10 秒。推流给自己单独放宽，应用其他部分仍保持短期限。
+- `server.write_timeout` 默认给一个回答 10 秒。推流在它到期之前给自己单独挪开，应用其他部分仍保持短期限。
 - `text/event-stream` 类型的回答不压缩发出：为一条打开着的流留一个压缩器，流开多久就占多久内存，大约 1 MiB。其他推流照常压缩，每次 flush 仍会把写好的内容发出去。
 - 程序停下时 `tifa.ShuttingDown(c.Context())` 会关闭，没有自己终点的流可以立刻返回。
 
@@ -30,7 +30,7 @@ read_when:
 package clock
 
 import (
-	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -40,12 +40,10 @@ import (
 // GET 每秒以 server-sent events 发一次服务器时间，直到访客离开或程序停下。
 func GET(c *tifa.Ctx) error {
 	w := c.Writer()
-	rc := http.NewResponseController(w)
 	c.SetHeader("Content-Type", "text/event-stream")
 	c.SetHeader("X-Accel-Buffering", "no") // 前面的 nginx 收到一条就转发一条
-	// 现在就发出响应头，让浏览器知道流已经打开。
-	w.WriteHeader(http.StatusOK)
-	if err := rc.Flush(); err != nil {
+	// 发一行注释，把响应头现在就发出去，让浏览器知道流已经打开。
+	if err := send(w, ": open\n\n"); err != nil {
 		return err
 	}
 	tick := time.NewTicker(time.Second)
@@ -57,22 +55,33 @@ func GET(c *tifa.Ctx) error {
 		case <-tifa.ShuttingDown(c.Context()): // 程序停下：浏览器会重新连接
 			return nil
 		case now := <-tick.C:
-			// 每条事件各给 10 秒，这样不再读取的访客不会让这个函数永远挂着。
-			// 不放宽的话，server.write_timeout 会在 10 秒后切断这条流。
-			if err := rc.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
-				return err
-			}
-			fmt.Fprintf(w, "data: %s\n\n", now.Format(time.TimeOnly))
-			if err := rc.Flush(); err != nil {
+			if err := send(w, "data: "+now.Format(time.TimeOnly)+"\n\n"); err != nil {
 				return nil // 访客走了
 			}
 		}
 	}
 }
+
+// send 把 s 立刻写给访客，给对方 10 秒收下。两次 send 之间没有期限，
+// 不管流要等多久才有下一条。
+func send(w http.ResponseWriter, s string) error {
+	rc := http.NewResponseController(w)
+	if err := rc.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		return err
+	}
+	if _, err := io.WriteString(w, s); err != nil {
+		return err
+	}
+	if err := rc.Flush(); err != nil {
+		return err
+	}
+	return rc.SetWriteDeadline(time.Time{})
+}
 ```
 
-- 一条事件是几行 `字段: 值` 加一个空行。`data:` 是页面收到的文本，`event:` 给它起个名字，`id:` 让浏览器重新连接时说出自己收到哪了（请求头 `Last-Event-ID`），`retry:` 设置浏览器隔多少毫秒重新连接。
-- 每次写之前设一个期限，比完全不设（`time.Time{}`）好：访客的网络断了却没关连接时，它不再读取，写入在 10 秒后失败，函数随之返回。
+- 一条事件是几行 `字段: 值` 加一个空行。`data:` 是页面收到的文本，`event:` 给它起个名字，`id:` 让浏览器重新连接时说出自己收到哪了（请求头 `Last-Event-ID`），`retry:` 设置浏览器隔多少毫秒重新连接。以 `:` 开头的行是注释，浏览器会忽略。
+- `send` 给每次写 10 秒：访客的网络断了却没关连接时，它不再读取，写入在 10 秒后失败，函数随之返回。不用 `send` 的话，`server.write_timeout` 会在流开始 10 秒后切断它。
+- 两次写之间 `send` 不留期限。流在等待时如果还挂着一个期限，到期后 HTTP/2 会直接结束这条流，之后再挪期限也救不回来。HTTP/1.1 下事后再挪仍然有效，所以这个问题要等开了 [HTTPS](../config.zh-CN.md#https) 才会出现。
 - 长时间没有动静的流，可能被路上的代理关掉。每 15 到 30 秒发一行注释，比如 `: ping\n\n`，浏览器会忽略它。
 
 页面 `app/live/page.tsx` 在浏览器里运行起来之后打开这条流：
@@ -99,14 +108,13 @@ function Clock() {
 
 ## 流式输出的回答
 
-`app/ask/route.go` 一段一段地回答问题。`answer` 代表大模型的客户端：大多数客户端会把回复的每一段交给你的回调，或者给你一个流去读。
+`app/ask/route.go` 一段一段地回答问题。`answer` 代表大模型的客户端：大多数客户端会把回复的每一段交给你的回调，或者给你一个流去读。`send` 就是上面时钟里的那个函数，连同它的 import 复制到 `app/ask/send.go`。
 
 ```go
 package ask
 
 import (
 	"context"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -128,19 +136,16 @@ func POST(c *tifa.Ctx) error {
 		return tifa.Fields{"text": "Ask something."}
 	}
 	w := c.Writer()
-	rc := http.NewResponseController(w)
 	c.SetHeader("Content-Type", "text/plain; charset=utf-8")
 	c.SetHeader("X-Accel-Buffering", "no")
-	err := answer(c.Context(), q.Text, func(piece string) error {
-		// 每一段各给 10 秒，不管整个回答要多久。
-		if err := rc.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
-			return err
-		}
-		if _, err := io.WriteString(w, piece); err != nil {
-			return err
-		}
-		return rc.Flush()
-	})
+	// 模型说出第一句之前可能想得比 server.write_timeout 还久：想的时候不设期限，
+	// 改给它单独的时限。
+	if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(c.Context(), 2*time.Minute)
+	defer cancel()
+	err := answer(ctx, q.Text, func(piece string) error { return send(w, piece) })
 	if c.Context().Err() != nil {
 		return nil // 访客走了：剩下的没人读
 	}
@@ -164,7 +169,8 @@ func answer(ctx context.Context, q string, piece func(string) error) error {
 ```
 
 - 写第一个字节之前先检查输入。一旦写了东西，状态码就发出去了，之后函数返回的错误只会进日志：访客看到的是一个中途停下的回答。这里空问题仍然得到带字段消息的 422。
-- 把 `c.Context()` 交给模型客户端。访客关掉页面时它会被取消，对模型的调用随之停下，也就不再为它付费。
+- 等模型之前，趁写期限还没到，先把它清掉：HTTP/2 下期限在第一句到来前到期，这个回答就结束了。模型另从 `context.WithTimeout` 拿到自己的时限，一直不回答的模型不会让函数永远挂着。
+- 把从 `c.Context()` 派生的 context 交给模型客户端。访客关掉页面时它会被取消，对模型的调用随之停下，也就不再为它付费。
 - 回答是文本，和其他文本一样用 gzip 或 zstd 压缩。每次 flush 都会把写好的内容发出，浏览器边收边解压。每个打开着的压缩回答在结束前占着一个约 1 MiB 的压缩器。如果同时有很多长回答，给它们设上响应头 `No-Gzip-Compression: 1`。
 
 页面边收边读回答：
@@ -239,7 +245,7 @@ function Ask() {
 
 ## 测试
 
-用 `tifatest.NewCtx` 的 `Ctx` 调用处理函数，和其他处理函数一样（见[测试](../app.zh-CN.md#测试)）。它像服务器一样接受 flush 和期限。服务器外 `tifa.ShuttingDown` 是 nil，所以循环会一直跑到请求的 context 结束：给它一个超时。`app/clock/route_test.go`：
+用 `tifatest.NewCtx` 的 `Ctx` 调用处理函数，和其他处理函数一样（见[测试](../app.zh-CN.md#测试)）。它像服务器一样接受 flush 和期限，但期限永远不会到，所以这样的测试抓不到流在等待时还挂着期限的问题。服务器外 `tifa.ShuttingDown` 是 nil，所以循环会一直跑到请求的 context 结束：给它一个超时。`app/clock/route_test.go`：
 
 ```go
 package clock

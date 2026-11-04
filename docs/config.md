@@ -247,7 +247,9 @@ func POST(c *tifa.Ctx) error {
 }
 ```
 
-- The new time counts from the moment of the call and holds for this request only. `time.Time{}` removes the limit. A stream does better to set a new deadline before each write, so a client that stops reading does not keep the handler forever, see [Streaming](guides/streaming.md).
+- The new time counts from the moment of the call and holds for this request only. `time.Time{}` removes the limit.
+- Move a deadline before it passes, at the start of the handler. Over HTTP/2 a write deadline that passed has already ended the answer, and a read deadline that passed has cut off the body: a new one does not bring them back. The same code over HTTP/1.1 works, so the mistake only shows with HTTPS on.
+- A stream that waits between writes, for events or for a language model, clears the write deadline while it waits and sets one around each write, so a client that stops reading does not keep the handler forever, see [Streaming](guides/streaming.md).
 - The write timeout counts from the end of the request header, so a handler that reads a long body lifts both: its answer is written after the body.
 - A handler with a typed input has its body read before it runs, so lift the read deadline in `OnRequest`, as [Uploads](guides/uploads.md#the-settings-and-the-body-limit) does.
 - `c.Writer()` reaches the connection through the writers of tifa and through compression.
@@ -309,6 +311,7 @@ Copying or building the file again drops it, so do it after each deployment. Und
 ### What changes over HTTP/2
 
 - Compression, the `.gz` files of the build, the render cache, the whole-page cache, ETags, redirects and server-sent events work as over HTTP/1.1, and a flush sends what was written at once.
+- Deadlines run out over HTTP/2 even while the handler is not reading or writing: a write deadline that passes ends the answer, and a read deadline that passes makes the rest of the body fail to read. Moving either afterwards does not help. Over HTTP/1.1 a deadline that passed can still be moved before the next read or write. Move deadlines before they pass, see [Long requests](#long-requests).
 - `Hijack` fails with `http.ErrNotSupported` on an HTTP/2 connection, since that connection carries other requests too. Unless `GODEBUG=http2xconnect=1` is set, the server does not offer WebSockets over HTTP/2, so browsers open them over a separate HTTP/1.1 connection, where `Hijack` works.
 - Over HTTPS, read what compression may leak in [Compression](build.md#compression).
 

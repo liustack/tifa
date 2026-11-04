@@ -18,7 +18,7 @@ The code was run as written, in an app made with `tifa new`. The reference docs 
 
 - Pages are rendered whole, without streaming. A stream is a method handler of an API route (a folder with `route.go` and no `page.tsx`) that writes its own answer to `c.Writer()`.
 - `http.NewResponseController(c.Writer())` flushes what was written to the visitor at once, and moves the deadlines of the request. It reaches the connection through the writers of tifa and through compression.
-- `server.write_timeout` gives an answer 10 seconds by default. A stream lifts it for itself and leaves it short for the rest of the app.
+- `server.write_timeout` gives an answer 10 seconds by default. A stream moves it for itself, before it passes, and leaves it short for the rest of the app.
 - Answers of type `text/event-stream` go out uncompressed: a compressor kept for an open stream costs about 1 MiB of memory for as long as it stays open. Other streams are compressed, and each flush still sends what was written.
 - When the program stops, `tifa.ShuttingDown(c.Context())` closes, so a stream that never ends by itself can return at once.
 
@@ -30,7 +30,7 @@ The code was run as written, in an app made with `tifa new`. The reference docs 
 package clock
 
 import (
-	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -41,12 +41,10 @@ import (
 // leaves or the program stops.
 func GET(c *tifa.Ctx) error {
 	w := c.Writer()
-	rc := http.NewResponseController(w)
 	c.SetHeader("Content-Type", "text/event-stream")
 	c.SetHeader("X-Accel-Buffering", "no") // nginx in front passes each event on at once
-	// Send the header now, so the browser knows the stream is open.
-	w.WriteHeader(http.StatusOK)
-	if err := rc.Flush(); err != nil {
+	// A comment line sends the header now, so the browser knows the stream is open.
+	if err := send(w, ": open\n\n"); err != nil {
 		return err
 	}
 	tick := time.NewTicker(time.Second)
@@ -58,22 +56,33 @@ func GET(c *tifa.Ctx) error {
 		case <-tifa.ShuttingDown(c.Context()): // the program stops: the browser connects again
 			return nil
 		case now := <-tick.C:
-			// Each event gets its own 10 seconds, so a visitor who stops reading does not hold
-			// this handler forever. server.write_timeout would end the stream after 10 seconds.
-			if err := rc.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
-				return err
-			}
-			fmt.Fprintf(w, "data: %s\n\n", now.Format(time.TimeOnly))
-			if err := rc.Flush(); err != nil {
+			if err := send(w, "data: "+now.Format(time.TimeOnly)+"\n\n"); err != nil {
 				return nil // the visitor is gone
 			}
 		}
 	}
 }
+
+// send writes s to the visitor at once and gives them 10 seconds to take it. Between two sends
+// there is no deadline, however long the stream waits for the next one.
+func send(w http.ResponseWriter, s string) error {
+	rc := http.NewResponseController(w)
+	if err := rc.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		return err
+	}
+	if _, err := io.WriteString(w, s); err != nil {
+		return err
+	}
+	if err := rc.Flush(); err != nil {
+		return err
+	}
+	return rc.SetWriteDeadline(time.Time{})
+}
 ```
 
-- An event is lines of `field: value` and a blank line. `data:` is the text the page gets, `event:` gives it a name of its own, `id:` lets the browser say where it was when it connects again (the `Last-Event-ID` header), and `retry:` sets how many milliseconds the browser waits before it connects again.
-- A deadline for each write is better than none at all (`time.Time{}`): a visitor whose network went away without closing the connection stops reading, the write fails after 10 seconds, and the handler returns.
+- An event is lines of `field: value` and a blank line. `data:` is the text the page gets, `event:` gives it a name of its own, `id:` lets the browser say where it was when it connects again (the `Last-Event-ID` header), and `retry:` sets how many milliseconds the browser waits before it connects again. A line that starts with `:` is a comment, which the browser ignores.
+- `send` gives each write 10 seconds: a visitor whose network went away without closing the connection stops reading, the write fails after 10 seconds, and the handler returns. Without `send`, `server.write_timeout` would end the stream 10 seconds after it began.
+- Between writes `send` leaves no deadline. A deadline left running while the stream waits ends it over HTTP/2 once it passes, and moving it afterwards does not bring the stream back. Over HTTP/1.1 moving it later still works, so this only shows once [HTTPS](../config.md#https) is on.
 - A stream that is quiet for a long time can be closed by a proxy on the way. Send a comment line, such as `: ping\n\n`, every 15 to 30 seconds. The browser ignores it.
 
 The page, `app/live/page.tsx`, opens the stream once it runs in the browser:
@@ -100,14 +109,13 @@ function Clock() {
 
 ## A streamed answer
 
-`app/ask/route.go` answers a question piece by piece. `answer` stands for the client of a language model: most of them call you with each piece of the reply, or give you a stream to read.
+`app/ask/route.go` answers a question piece by piece. `answer` stands for the client of a language model: most of them call you with each piece of the reply, or give you a stream to read. `send` is the function of the clock above, copied with its imports into `app/ask/send.go`.
 
 ```go
 package ask
 
 import (
 	"context"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -129,19 +137,16 @@ func POST(c *tifa.Ctx) error {
 		return tifa.Fields{"text": "Ask something."}
 	}
 	w := c.Writer()
-	rc := http.NewResponseController(w)
 	c.SetHeader("Content-Type", "text/plain; charset=utf-8")
 	c.SetHeader("X-Accel-Buffering", "no")
-	err := answer(c.Context(), q.Text, func(piece string) error {
-		// Each piece gets its own 10 seconds, however long the whole answer takes.
-		if err := rc.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
-			return err
-		}
-		if _, err := io.WriteString(w, piece); err != nil {
-			return err
-		}
-		return rc.Flush()
-	})
+	// The model may think longer than server.write_timeout before its first words: no deadline
+	// while it does, and a limit of its own instead.
+	if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(c.Context(), 2*time.Minute)
+	defer cancel()
+	err := answer(ctx, q.Text, func(piece string) error { return send(w, piece) })
 	if c.Context().Err() != nil {
 		return nil // the visitor left: nobody reads the rest
 	}
@@ -166,7 +171,8 @@ func answer(ctx context.Context, q string, piece func(string) error) error {
 ```
 
 - Check the input before the first byte. Once something is written the status is sent, and an error the handler returns afterwards only goes to the log: the visitor sees an answer that stops. An empty question here still gets its 422 with the message for the field.
-- Pass `c.Context()` to the model client. When the visitor closes the page, it is canceled and the call to the model stops, which also stops paying for it.
+- Clear the write deadline before waiting for the model, while it has not passed yet: over HTTP/2 a deadline that passes before the first words ends the answer. The model then gets its own limit from `context.WithTimeout`, so one that never answers does not hold the handler forever.
+- Pass a context made from `c.Context()` to the model client. When the visitor closes the page, it is canceled and the call to the model stops, which also stops paying for it.
 - The answer is text and is compressed with gzip or zstd like other text. Each flush sends what was written, and the browser undoes the compression as the bytes come. Each open compressed answer holds a compressor of about 1 MiB until it ends. If many long answers run at once, set the header `No-Gzip-Compression: 1` on them.
 
 The page reads the answer as it comes:
@@ -242,7 +248,7 @@ On SIGTERM or SIGINT the program closes the channel of `tifa.ShuttingDown`, stop
 
 ## Test it
 
-Call the handler with the `Ctx` of `tifatest.NewCtx`, as any handler (see [Testing](../app.md#testing)). It takes the flushes and the deadlines as the server does. `tifa.ShuttingDown` is nil outside a server, so the loop runs until the context of the request ends: give it a timeout. `app/clock/route_test.go`:
+Call the handler with the `Ctx` of `tifatest.NewCtx`, as any handler (see [Testing](../app.md#testing)). It takes the flushes and the deadlines as the server does, but never runs out of time, so such a test does not catch a deadline left running while the stream waits. `tifa.ShuttingDown` is nil outside a server, so the loop runs until the context of the request ends: give it a timeout. `app/clock/route_test.go`:
 
 ```go
 package clock
