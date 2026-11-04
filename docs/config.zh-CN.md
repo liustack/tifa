@@ -231,7 +231,7 @@ if !errors.As(got, &public) || public.Status != 503 || w.Header().Get("Retry-Aft
 
 ## 耗时长的请求
 
-`server.read_timeout` 和 `server.write_timeout` 给每个请求 10 秒传完、10 秒答完，这样发得或读得极慢的客户端没法一直占着连接。保持它们短，在需要更久的处理函数里单独放宽：手机上传文件、导出大文件、推送 server-sent events 或大模型的回答。
+`server.read_timeout` 和 `server.write_timeout` 给每个请求 10 秒传完、10 秒答完，这样发得或读得极慢的客户端没法一直占着连接。保持它们短，在需要更久的处理函数里单独放宽：手机上传文件、导出大文件、推送 server-sent events 或大模型的回答。开了 [HTTPS](#https) 时，`server.http_addr` 的明文 HTTP 地址也按这两个时间回答。
 
 ```go
 func POST(c *tifa.Ctx) error {

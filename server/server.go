@@ -686,6 +686,9 @@ func checkServeMux() error {
 // testHookEntry lets tests pause a request between net/http handing it over and the gate admitting it.
 var testHookEntry func(stage string)
 
+// testHookServer lets tests see each http.Server that serveBoth starts.
+var testHookServer func(*http.Server)
+
 // gate is the one boundary between net/http and handler code. Admitting a request and closing the gate
 // take the same lock, so once close returns no handler code can start, and every handler that did start
 // is counted before anyone waits.
@@ -764,30 +767,25 @@ func (s *server) serveBoth(ctx context.Context, ln net.Listener, tlsConfig *tls.
 	stopping := make(chan struct{})
 	base, cancelRequests := context.WithCancel(core.WithShutdown(context.Background(), stopping))
 	defer cancelRequests()
-	srv := &http.Server{
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if testHookEntry != nil {
-				testHookEntry("before")
-				defer testHookEntry("done")
-			}
-			if s.cfg.HSTS {
-				w.Header().Set("Strict-Transport-Security", "max-age=31536000")
-			}
-			if !g.enter() {
-				w.Header().Set("Connection", "close")
-				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": http.StatusText(http.StatusServiceUnavailable)})
-				return
-			}
-			defer g.leave()
-			root.ServeHTTP(w, r)
-		}),
-		BaseContext: func(net.Listener) context.Context { return base },
-		// A handler that needs longer than the timeouts, an upload or a stream, lifts them for
-		// itself with http.ResponseController, which reaches the connection through Unwrap.
-		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: s.cfg.ReadTimeout, WriteTimeout: s.cfg.WriteTimeout, IdleTimeout: 60 * time.Second,
-		// ServeTLS adds h2 and http/1.1 to NextProtos and turns HTTP/2 on.
-		TLSConfig: tlsConfig,
-	}
+	srv := s.httpServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if testHookEntry != nil {
+			testHookEntry("before")
+			defer testHookEntry("done")
+		}
+		if s.cfg.HSTS {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+		}
+		if !g.enter() {
+			w.Header().Set("Connection", "close")
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": http.StatusText(http.StatusServiceUnavailable)})
+			return
+		}
+		defer g.leave()
+		root.ServeHTTP(w, r)
+	}))
+	srv.BaseContext = func(net.Listener) context.Context { return base }
+	// ServeTLS adds h2 and http/1.1 to NextProtos and turns HTTP/2 on.
+	srv.TLSConfig = tlsConfig
 	served := make(chan error, 2)
 	go func() {
 		if tlsConfig != nil {
@@ -799,10 +797,7 @@ func (s *server) serveBoth(ctx context.Context, ln net.Listener, tlsConfig *tls.
 	running := 1
 	var plainSrv *http.Server
 	if plainLn != nil {
-		plainSrv = &http.Server{
-			Handler:           plain,
-			ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second,
-		}
+		plainSrv = s.httpServer(plain)
 		go func() { served <- plainSrv.Serve(plainLn) }()
 		running++
 	}
@@ -850,6 +845,22 @@ func (s *server) serveBoth(ctx context.Context, ln net.Listener, tlsConfig *tls.
 		}
 	}
 	return err
+}
+
+// httpServer is an http.Server for h with the limits of the settings, the one place they are
+// written: the server of server.addr and the plain one of server.http_addr both read and write
+// under server.read_timeout and server.write_timeout. A handler that needs longer, an upload or
+// a stream, lifts them for itself with http.ResponseController, which reaches the connection
+// through Unwrap.
+func (s *server) httpServer(h http.Handler) *http.Server {
+	srv := &http.Server{
+		Handler:           h,
+		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: s.cfg.ReadTimeout, WriteTimeout: s.cfg.WriteTimeout, IdleTimeout: 60 * time.Second,
+	}
+	if testHookServer != nil {
+		testHookServer(srv)
+	}
+	return srv
 }
 
 // errorBody is the JSON answer for a failed request that is not a page.

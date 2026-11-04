@@ -231,7 +231,7 @@ The limits apply only when a render needs a VM. Cache hits, 304 responses, navig
 
 ## Long requests
 
-`server.read_timeout` and `server.write_timeout` give every request 10 seconds to arrive and 10 seconds to be answered, so a client that sends or reads very slowly cannot hold connections open. Keep them short, and lift them in the handlers that need longer: an upload from a phone, the export of a large file, a stream of server-sent events or of a model's answer.
+`server.read_timeout` and `server.write_timeout` give every request 10 seconds to arrive and 10 seconds to be answered, so a client that sends or reads very slowly cannot hold connections open. Keep them short, and lift them in the handlers that need longer: an upload from a phone, the export of a large file, a stream of server-sent events or of a model's answer. With [HTTPS](#https) on, the plain HTTP address `server.http_addr` answers under the same two limits.
 
 ```go
 func POST(c *tifa.Ctx) error {
