@@ -215,7 +215,7 @@ func htmlLinksInBrowser(t *testing.T, name, base string) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "htmllinks.js"),[]byte(strings.ReplaceAll(string(code), "__BASE__", base)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "htmllinks.js"), []byte(strings.ReplaceAll(string(code), "__BASE__", base)), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	pw := func(args ...string) string {

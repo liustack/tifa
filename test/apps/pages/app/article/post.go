@@ -35,7 +35,7 @@ func Read() Post {
 // to an anchor of itself, to other sites and schemes, and to what Go answers without a page. The
 // public file /guide/notes.txt also matches the page /guide/{lang}.
 func Links() Post {
-	return Post{Title: "Links", Body:`<p>LINKS_START <a href="/article/read">next <em>article</em></a>, ` +
+	return Post{Title: "Links", Body: `<p>LINKS_START <a href="/article/read">next <em>article</em></a>, ` +
 		`<a href="/article/cached#intro">cached intro</a>, <a href="/">home page</a>, <a href="#end">to the end</a>.</p>` +
 		`<p><a href="https://tanstack.com/router">TanStack</a>, <a href="//example.com/x">example</a>, <a href="mailto:a@example.com">write</a>, ` +
 		`<a href="/article/plain" target="_blank">new tab</a>, <a href="/guide/notes.txt" download>download notes</a>, ` +
