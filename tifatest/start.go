@@ -141,9 +141,11 @@ func start(t testing.TB, fn string, app server.App) *httptest.Server {
 		t.Fatalf("tifatest.%s: the app runs in the whole test binary, so a test that starts it cannot run in parallel: remove t.Parallel from this test and its parents", fn)
 		return nil
 	}
+	// The server listens from here on, so every way out closes it.
 	srv := httptest.NewUnstartedServer(nil)
 	stop, err := server.StartTest(t.Context(), app, srv.Config)
 	if err != nil {
+		srv.Close()
 		t.Fatalf("tifatest.%s: %v", fn, err)
 		return nil
 	}
