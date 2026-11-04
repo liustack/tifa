@@ -562,7 +562,7 @@ func (s *server) respondPage(c *tifa.Ctx, got fetched, status string, selected [
 	}
 	now := cacheNow()
 	if got.held {
-		s.setCacheHeaders(c, entry, now)
+		s.setCacheHeaders(c, entry, now, status == "tifa; fwd=stale")
 	}
 	c.SetHeader(renderHeader, got.how)
 	if entry.status != http.StatusOK {
@@ -601,8 +601,9 @@ func (s *server) writeDataAnswer(c *tifa.Ctx, items map[string]routeResult) erro
 // browser revalidates every time (max-age=0) and asks tifa, which answers 304 from the entry.
 // s-maxage is the whole time of the page and Age the seconds since it was made, and a cache in front of
 // tifa subtracts one from the other (RFC 9111), so the two together never keep a page longer than
-// Cache. An old page that stands in for a failed one has an Age past s-maxage and is not fresh there.
-func (s *server) setCacheHeaders(c *tifa.Ctx, entry *wholePage, now time.Time) {
+// Cache. An old page that stands in for a failed one (stale) is not fresh there either: its s-maxage
+// is at most its Age, also when it was expired before its time was over (contentChanged).
+func (s *server) setCacheHeaders(c *tifa.Ctx, entry *wholePage, now time.Time, stale bool) {
 	h := c.Writer().Header()
 	age := max(0, int64(now.Sub(entry.created)/time.Second))
 	h.Set("Age", strconv.FormatInt(age, 10))
@@ -610,5 +611,8 @@ func (s *server) setCacheHeaders(c *tifa.Ctx, entry *wholePage, now time.Time) {
 		return // the app asked for the answer not to be shared
 	}
 	ttl := int64(entry.expires.Sub(entry.created) / time.Second)
+	if stale {
+		ttl = min(ttl, age)
+	}
 	h.Set("Cache-Control", "public, max-age=0, s-maxage="+strconv.FormatInt(ttl, 10)+", stale-if-error="+strconv.FormatInt(int64(staleIfError/time.Second), 10))
 }

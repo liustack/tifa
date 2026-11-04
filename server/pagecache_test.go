@@ -239,12 +239,15 @@ func TestPublishedContentExpiresTheWholePageCache(t *testing.T) {
 	if w := get(e.s, "/news"); w.Header().Get("X-Tifa-Render") != "cache" || e.loads.Load() != 2 {
 		t.Errorf("a page made after: %q, %d Loads", w.Header().Get("X-Tifa-Render"), e.loads.Load())
 	}
-	// A page that expired so still stands in for one that fails.
+	// A page that expired so still stands in for one that fails. Before its time is over, a cache
+	// in front would count it as fresh by s-maxage, so its s-maxage is its Age.
 	e.clock.advance(time.Second)
 	e.s.contentChanged()
 	e.setLoad(func(c *tifa.Ctx, n int64) (any, error) { return nil, errors.New("db down") })
 	if w := get(e.s, "/news"); w.Code != 200 || w.Header().Get("Cache-Status") != "tifa; fwd=stale" {
 		t.Errorf("a failed remake: %d %q", w.Code, w.Header().Get("Cache-Status"))
+	} else if w.Header().Get("Age") != "2" || w.Header().Get("Cache-Control") != "public, max-age=0, s-maxage=2, stale-if-error=86400" {
+		t.Errorf("a failed remake: Age %q, Cache-Control %q", w.Header().Get("Age"), w.Header().Get("Cache-Control"))
 	}
 }
 
