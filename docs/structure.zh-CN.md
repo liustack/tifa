@@ -24,6 +24,8 @@ myapp/
   config.go                 应用的配置：var DBPath = tifa.String(...)
   db.go                     var DB，在 OnStart 里打开，在 OnShutdown 里关闭
   schema.sql                所有领域的表
+  content.go                内容集合：var Blog = content.Define[Post](...)
+  content/                  集合的 Markdown 文件
   app/
     route.go  layout.tsx
     projects/
@@ -64,7 +66,7 @@ myapp/
   ```
 
 - **测试和被测代码放在一起**：`order_test.go` 挨着 `order.go`。
-- **根包**只放钩子和整个应用共享的资源，比如 `db.go`、`mail.go`，不放领域代码。数据库的表结构也留在这里：所有领域的表组成同一个数据库，`OnStart` 在应用开始监听之前建好它们，而按下文的约定，根包不 import `app/` 下的任何包。查询留在各自的领域里。
+- **根包**只放钩子和整个应用共享的资源，比如 `db.go`、`mail.go` 和 `content.go`（内容集合，见[内容](content.zh-CN.md)），不放领域代码。数据库的表结构也留在这里：所有领域的表组成同一个数据库，`OnStart` 在应用开始监听之前建好它们，而按下文的约定，根包不 import `app/` 下的任何包。查询留在各自的领域里。
 - 不属于任何领域、又被好几个领域用到的代码，比如金额格式化，单独放一个按用途命名的包，比如模块根目录下的 `money/`。它能 import 什么，见下文。
 
 ### import 的方向

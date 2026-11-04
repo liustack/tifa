@@ -58,6 +58,8 @@ tifa build [--dir app-root] [-o output-path]
 3. Bundles with the app's own Vite, which runs on Node, and writes the output to `.tifa/dist/`. See "Frontend output" below. tifa runs one Node process for the whole build, with `NODE_ENV=production` whatever the shell sets, so the build always uses the production build of React. It also reads the exports of `page.tsx` and `layout.tsx` with Vite's parser for step 2. An app without pages builds without Node, unless its content collections have entries (see [Content](content.md#markdown-to-html)). The executable never needs Node.
 4. Runs `CGO_ENABLED=0 go build -o <output> -ldflags=-w ./.tifa`. The default output is `bin/<last segment of the module path>`. The generated main embeds `.tifa/dist/` into the executable with `//go:embed all:dist`. `-w` leaves out the debug info, see "Debug info" below.
 
+The analysis also reads `content.go` and the `content/` folder, and prints their problems in the same form (see [Content](content.md#errors)). It prints a warning for each collection and language with entries that have no translation, and lists the entries that wait for their date.
+
 The analysis also checks the session of the app (see [Sessions](app.md#sessions)). `tifa build` and `tifa check` stop on each of these:
 
 - `tifa.SetSession` and `tifa.Session` are called with different types, or with a type parameter inside a generic function. The error names both places. Every call in a package of the module counts, and packages outside the module are not read.

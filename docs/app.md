@@ -9,6 +9,7 @@ read_when:
   - Signing users in and out, reading who is signed in, or keeping sessions in Redis or SQL
   - Showing the name of the signed-in user in a header, `useSession`, `SignedIn`, `data-session`, or a CSP that blocks the script at the start of the head
   - Keeping a public page in memory for a few minutes with `const Cache`, what becomes anonymous on it, or the build error about reading a cookie or the session on such a page
+  - Showing HTML the app made or trusts, such as an article, with `tifa.HTML` and `<HTML>`, or links inside it
   - Adding CSS, Tailwind CSS or shadcn/ui to an app
   - Formatting numbers or dates in a page, or tifa dev warns about an Intl call
   - A visitor keeps a page open while you deploy, and you want to know what the browser does, or a 409 with `X-Tifa-Build` shows up

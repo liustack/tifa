@@ -8,6 +8,7 @@ read_when:
   - 给 Load、Layout 函数、方法函数或 OnRequest 写 Go 测试
   - 让用户登录登出、读谁登录了，或把会话放到 Redis、SQL 里
   - 在页头显示登录用户的名字，`useSession`、`SignedIn`、`data-session`，或者 CSP 拦住了 head 最前面的脚本
+  - 在页面里显示应用自己做出来或信任的 HTML（比如一篇文章），用 `tifa.HTML` 和 `<HTML>`，或者处理其中的链接
   - 给应用加 CSS、Tailwind CSS 或 shadcn/ui
   - 在页面里格式化数字或日期，或者 tifa dev 对某个 Intl 调用报警
   - 访客开着一个页面时你部署了新版本，想知道浏览器会怎么做，或者看到带 `X-Tifa-Build` 的 409
