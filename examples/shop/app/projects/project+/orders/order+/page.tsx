@@ -23,7 +23,7 @@ import { ShipForm } from './ship-form'
 export default function OrderPage() {
   const { order, count } = page.useLoaderData()
   const { timeZone } = project.useLoaderData()
-  const pieces = (order.items ?? []).reduce((n, item) => n + item.quantity, 0)
+  const pieces = order.items.reduce((n, item) => n + item.quantity, 0)
   return (
     <section aria-labelledby="order-title" className="space-y-6">
       <div className="space-y-3">
@@ -44,9 +44,9 @@ export default function OrderPage() {
                 买家有留言
               </Badge>
             )}
-            {(order.notes ?? []).length > 0 && (
+            {order.notes.length > 0 && (
               <Badge variant="outline" className="rounded-none">
-                {(order.notes ?? []).length} 条内部备注
+                {order.notes.length} 条内部备注
               </Badge>
             )}
           </div>
@@ -59,7 +59,7 @@ export default function OrderPage() {
       <dl className="grid grid-cols-2 divide-x border bg-card md:grid-cols-4">
         {[
           ['实付', yuan(order.payment.paidCents)],
-          ['商品', `${(order.items ?? []).length} 种 · ${pieces} 件`],
+          ['商品', `${order.items.length} 种 · ${pieces} 件`],
           ['付款', order.payment.method],
           ['顾客累计', `${count} 单`],
         ].map(([k, v]) => (
@@ -170,7 +170,7 @@ function Progress() {
   const { timeZone } = project.useLoaderData()
   const events = order.shipment?.events ?? []
   const delivered = events.length > 0 && events[events.length - 1].note.startsWith('已签收') ? events[events.length - 1] : undefined
-  const log = order.log ?? []
+  const log = order.log
   const at = (action: string) => log.find((e) => e.action === action)?.at
   const steps = [
     { label: '下单', at: order.placedAt },
@@ -206,11 +206,11 @@ function Others() {
         </CardAction>
       </CardHeader>
       <CardContent>
-        {(others ?? []).length === 0 ? (
+        {others.length === 0 ? (
           <p className="text-sm text-muted-foreground">这是这位顾客的第一单。</p>
         ) : (
           <ul className="divide-y">
-            {(others ?? []).map((o) => (
+            {others.map((o) => (
               <li key={o.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
                 <img src={photo(o.slug, 'main', 160)} alt="" width={40} height={40} loading="lazy" decoding="async" className="size-10 bg-[#d3dbe2] object-cover dark:bg-[#273240]" />
                 <Link to="/projects/$project/orders/$order" params={{ project: order.projectId, order: o.id }} className="font-mono text-sm hover:underline">
@@ -313,7 +313,7 @@ export function Error({ error }: { error: unknown }) {
 function SameProduct() {
   const { order, sameProduct } = page.useLoaderData()
   const { timeZone } = project.useLoaderData()
-  const first = (order.items ?? [])[0]
+  const first = order.items[0]
   return (
     <Card>
       <CardHeader>
@@ -321,11 +321,11 @@ function SameProduct() {
         <CardAction className="text-xs text-muted-foreground">{first?.name}</CardAction>
       </CardHeader>
       <CardContent>
-        {(sameProduct ?? []).length === 0 ? (
+        {sameProduct.length === 0 ? (
           <p className="text-sm text-muted-foreground">这家店里没有别的订单买过它。</p>
         ) : (
           <ul className="divide-y">
-            {(sameProduct ?? []).map((o) => (
+            {sameProduct.map((o) => (
               <li key={o.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
                 <Avatar className="size-8 rounded-none">
                   <AvatarFallback className="rounded-none bg-secondary text-xs text-primary">{o.initials}</AvatarFallback>

@@ -7,7 +7,7 @@ import { photo, type View } from '../../images'
 import { Stars, useMarket } from '../market'
 import { page as mall, type PageData } from './route.gen'
 
-type Card = NonNullable<PageData['together']>[number]
+type Card = PageData['together'][number]
 
 function Heading({ id, children, aside }: { id: string; children: React.ReactNode; aside?: React.ReactNode }) {
   return (
@@ -68,7 +68,7 @@ export function ProductCard({ card, eager }: { card: Card; eager: boolean }) {
 export function Together() {
   const page = mall.useLoaderData()
   const { t, money } = useMarket()
-  const cards = page.together ?? []
+  const cards = page.together
   const total = page.priceFen + cards.slice(0, 2).reduce((s, c) => s + c.priceFen, 0)
   return (
     <section aria-labelledby="together" className="flex flex-col gap-4">
@@ -111,8 +111,8 @@ export function Together() {
 export function Compare() {
   const page = mall.useLoaderData()
   const { t, money } = useMarket()
-  const cards = page.compare ?? []
-  const rows = page.compareRows ?? []
+  const cards = page.compare
+  const rows = page.compareRows
   return (
     <section aria-labelledby="compare" className="flex flex-col gap-4">
       <Heading id="compare">{t('sections.compare')}</Heading>
@@ -136,7 +136,7 @@ export function Compare() {
             </tr>
           </thead>
           <tbody>
-            {(page.compareNames ?? []).map((name, j) => (
+            {page.compareNames.map((name, j) => (
               <tr key={name} className="border-b">
                 <th scope="row" className="p-2 text-left font-heading font-normal whitespace-nowrap text-muted-foreground">
                   {name}
@@ -162,11 +162,11 @@ export function Specs() {
     <section aria-labelledby="specs" className="flex flex-col gap-4">
       <Heading id="specs">{t('sections.specs')}</Heading>
       <div className="grid gap-8 md:grid-cols-2">
-        {(page.specs ?? []).map((g) => (
+        {page.specs.map((g) => (
           <table key={g.title} className="w-full text-[13px]">
             <caption className="mb-2 text-left font-heading text-base">{g.title}</caption>
             <tbody>
-              {(g.rows ?? []).map((r) => (
+              {g.rows.map((r) => (
                 <tr key={r.label} className="border-t">
                   <th scope="row" className="w-2/5 bg-muted/60 px-3 py-2 text-left font-normal text-muted-foreground">
                     {r.label}
@@ -189,7 +189,7 @@ export function BrandStory() {
     <section aria-labelledby="brand" className="flex flex-col gap-6">
       <Heading id="brand">{t('sections.brand')}</Heading>
       <div className="grid gap-6 md:grid-cols-2">
-        {(page.brandModules ?? []).map((m, i) => (
+        {page.brandModules.map((m, i) => (
           <article key={m.title} className={cn('grid grid-cols-2 items-center gap-4 border-b pb-6', i % 2 === 1 && 'md:[&>*:first-child]:order-2')}>
             <div className="aspect-[4/3] overflow-hidden bg-[#d3dbe2]">
               <img src={photo(m.slug, m.view as View, 480)} alt="" width={480} height={360} loading="lazy" className="size-full object-cover" />
@@ -212,17 +212,17 @@ export function Carousels() {
   const page = mall.useLoaderData()
   return (
     <>
-      {(page.carousels ?? []).map((c) => (
+      {page.carousels.map((c) => (
         <Carousel key={c.id} carousel={c} />
       ))}
     </>
   )
 }
 
-function Carousel({ carousel }: { carousel: NonNullable<PageData['carousels']>[number] }) {
+function Carousel({ carousel }: { carousel: PageData['carousels'][number] }) {
   const { t } = useMarket()
   const [page, setPage] = useState(0)
-  const cards = carousel.cards ?? []
+  const cards = carousel.cards
   const pages = Math.ceil(cards.length / shownWithPhoto)
   return (
     <section aria-labelledby={carousel.id} className="flex flex-col gap-3">
@@ -257,10 +257,10 @@ const reviewsShown = 60
 export function Reviews() {
   const page = mall.useLoaderData()
   const { t, count } = useMarket()
-  const all = page.reviews ?? []
-  const histogram = page.histogram ?? []
+  const all = page.reviews
+  const histogram = page.histogram
   const total = histogram.reduce((s, n) => s + n, 0)
-  const withPhotos = all.filter((r) => (r.photos ?? []).length > 0)
+  const withPhotos = all.filter((r) => r.photos.length > 0)
   return (
     <section aria-labelledby="reviews" className="grid gap-10 lg:grid-cols-[280px_1fr]">
       <div className="flex flex-col gap-4">
@@ -294,7 +294,7 @@ export function Reviews() {
             {t('reviews.aspects')}
           </h3>
           <ul className="flex flex-wrap gap-2">
-            {(page.aspects ?? []).map((a) => (
+            {page.aspects.map((a) => (
               <li key={a.label} className="border px-2 py-1 text-xs" title={`${t('reviews.positive', { count: a.positive })} · ${t('reviews.negative', { count: a.negative })}`}>
                 <BadgeCheck className="mr-1 inline size-3 text-[#2f6b3f]" aria-hidden />
                 {a.label}
@@ -315,7 +315,7 @@ export function Reviews() {
           <ul className="flex gap-2 overflow-x-auto">
             {withPhotos.slice(0, 12).map((r) => (
               <li key={r.id} className="size-24 shrink-0 overflow-hidden border bg-[#d3dbe2]">
-                <img src={photo((r.photos ?? [])[0] ?? page.slug, 'scene', 160)} alt="" width={96} height={96} loading="lazy" className="size-full object-cover" />
+                <img src={photo(r.photos[0] ?? page.slug, 'scene', 160)} alt="" width={96} height={96} loading="lazy" className="size-full object-cover" />
               </li>
             ))}
           </ul>
@@ -346,7 +346,7 @@ export function Reviews() {
   )
 }
 
-function Review({ review }: { review: NonNullable<PageData['reviews']>[number] }) {
+function Review({ review }: { review: PageData['reviews'][number] }) {
   const { t, date } = useMarket()
   const [helpful, setHelpful] = useState(false)
   return (
@@ -365,9 +365,9 @@ function Review({ review }: { review: NonNullable<PageData['reviews']>[number] }
         {review.verified && <span className="ml-2 text-[#b3843a]">{t('reviews.verified')}</span>}
       </p>
       <p className="text-[13px] leading-6">{review.body}</p>
-      {(review.photos ?? []).length > 0 && (
+      {review.photos.length > 0 && (
         <ul className="flex gap-2">
-          {(review.photos ?? []).map((p, i) => (
+          {review.photos.map((p, i) => (
             <li key={i} className="size-20 overflow-hidden border bg-[#d3dbe2]">
               <img src={photo(p, 'detail', 160)} alt="" width={80} height={80} loading="lazy" className="size-full object-cover" />
             </li>
@@ -402,7 +402,7 @@ export function Questions() {
         <input placeholder={t('qa.search')} aria-label={t('qa.search')} className="flex-1 bg-transparent outline-none" />
       </label>
       <ol className="grid gap-x-10 md:grid-cols-2">
-        {(page.questions ?? []).map((q) => (
+        {page.questions.map((q) => (
           <li key={q.id} className="flex gap-3 border-b py-3 text-[13px]">
             <span className="flex w-12 shrink-0 flex-col items-center font-mono text-xs text-muted-foreground">
               <ThumbsUp className="size-3.5" aria-hidden />
@@ -442,7 +442,7 @@ export function History() {
         {t('sections.history')}
       </Heading>
       <div className="flex gap-4 overflow-x-auto pb-2">
-        {(page.history ?? []).map((c) => (
+        {page.history.map((c) => (
           <ProductCard key={c.impression} card={c} eager={false} />
         ))}
       </div>

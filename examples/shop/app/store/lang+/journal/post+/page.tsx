@@ -30,7 +30,7 @@ export default function PostPage() {
         </Button>
         <header className="flex flex-col gap-4 border-b border-foreground pb-6">
           <p className="flex flex-wrap gap-x-3 font-mono text-[11px] tracking-wider text-muted-foreground">
-            {(post.tags ?? []).map((tag) => (
+            {post.tags.map((tag) => (
               <span key={tag}>#{tag}</span>
             ))}
           </p>
@@ -50,7 +50,7 @@ export default function PostPage() {
           {t('journal.products')}
         </h2>
         <ProductGrid>
-          {(products ?? []).map((p) => (
+          {products.map((p) => (
             <ProductCard key={p.slug} product={p} lang={lang} />
           ))}
         </ProductGrid>
@@ -60,7 +60,7 @@ export default function PostPage() {
           {t('journal.more')}
         </h2>
         <div className="grid gap-8 sm:grid-cols-2">
-          {(more ?? []).map((p) => (
+          {more.map((p) => (
             <article key={p.slug} className="grid grid-cols-[160px_1fr] gap-4">
               <JournalCover slug={p.slug} alt="" sizes="160px" className="border" />
               <div className="flex flex-col gap-1.5">

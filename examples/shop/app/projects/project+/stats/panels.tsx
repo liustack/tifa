@@ -17,7 +17,7 @@ const head = 'text-xs font-normal text-muted-foreground'
 // ProductTable lists every product the shop sold, with how its pieces went day by day.
 export function ProductTable() {
   const { products } = page.useLoaderData()
-  const list = products ?? []
+  const list = products
   const revenue = list.reduce((n, p) => n + p.revenueCents, 0)
   return (
     <Card>
@@ -61,7 +61,7 @@ export function ProductTable() {
                   </div>
                 </TableCell>
                 <TableCell>
-                  <Spark points={p.daily ?? []} className="h-6 w-24 text-primary" />
+                  <Spark points={p.daily} className="h-6 w-24 text-primary" />
                 </TableCell>
               </TableRow>
             ))}
@@ -77,7 +77,7 @@ const weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '�
 // Heatmap shows when orders are placed: the day of the week against two-hour blocks.
 export function Heatmap() {
   const { heat } = page.useLoaderData()
-  const rows = (heat ?? []).map((r) => r ?? [])
+  const rows = heat.map((r) => r)
   const peak = Math.max(1, ...rows.flat())
   return (
     <Card>
@@ -128,7 +128,7 @@ export function Heatmap() {
 // Carriers is how each carrier did for the shop.
 export function Carriers() {
   const { carriers } = page.useLoaderData()
-  const list = carriers ?? []
+  const list = carriers
   const all = list.reduce((n, c) => n + c.orders, 0)
   return (
     <Card>
@@ -171,7 +171,7 @@ export function Carriers() {
 // Dispatch is how long the shop took to hand an order to the carrier.
 export function Dispatch() {
   const { dispatch, totals } = page.useLoaderData()
-  const list = dispatch ?? []
+  const list = dispatch
   const all = list.reduce((n, b) => n + b.orders, 0)
   return (
     <Card>
@@ -211,7 +211,7 @@ export function Customers() {
       </CardHeader>
       <CardContent>
         <ol className="divide-y">
-          {(customers ?? []).map((c, i) => (
+          {customers.map((c, i) => (
             <li key={c.name} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
               <span className="w-5 font-mono text-xs text-muted-foreground">{String(i + 1).padStart(2, '0')}</span>
               <Avatar className="size-8 rounded-none">
@@ -258,7 +258,7 @@ export function Recent() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {(recent ?? []).map((o) => (
+            {recent.map((o) => (
               <TableRow key={o.id}>
                 <TableCell>
                   <ProjectOrderLink id={o.id} />

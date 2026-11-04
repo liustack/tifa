@@ -28,7 +28,7 @@ export default function StatsPage() {
   // The range is page state, not a query parameter: the cards tween between the two ranges
   // instead of the page loading again.
   const [range, setRange] = useState<Range>('30')
-  if (!allDays?.length) {
+  if (!allDays.length) {
     return (
       <Empty className="min-h-[40vh]">
         <EmptyHeader>
@@ -121,7 +121,7 @@ export default function StatsPage() {
             <CardDescription>近 30 天销量前 5</CardDescription>
           </CardHeader>
           <CardContent>
-            <ProductsChart products={topProducts ?? []} />
+            <ProductsChart products={topProducts} />
           </CardContent>
         </Card>
       </div>
@@ -134,7 +134,7 @@ export default function StatsPage() {
           </CardHeader>
           <CardContent>
             <ol className="divide-y">
-              {(topProducts ?? []).map((p, i) => (
+              {topProducts.map((p, i) => (
                 <li key={p.name} className="flex items-center gap-3 py-2.5 first:pt-0">
                   <span className="w-5 font-mono text-xs text-muted-foreground">{String(i + 1).padStart(2, '0')}</span>
                   <img

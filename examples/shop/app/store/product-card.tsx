@@ -19,13 +19,13 @@ export type Card = {
   compareAtCents: number
   rating: number
   reviews: number
-  colors: { id: string; name: string; hex: string }[] | null
+  colors: { id: string; name: string; hex: string }[]
   badge: string
   inStock: boolean
   number: number
   stock: number
   summary: string
-  materials: string[] | null
+  materials: string[]
   sized?: boolean
 }
 
@@ -113,7 +113,7 @@ export function Price({ priceCents, compareAtCents, className }: { priceCents: n
   )
 }
 
-export function Swatches({ colors }: { colors: NonNullable<Card['colors']> }) {
+export function Swatches({ colors }: { colors: Card['colors'] }) {
   const { t } = useStore()
   return (
     <span className="flex items-center gap-2">
@@ -172,7 +172,7 @@ export function ProductCard({
   layout?: 'grid' | 'list' | 'tile'
 }) {
   const { t, locale } = useStore()
-  const colors = product.colors ?? []
+  const colors = product.colors
   const list = layout === 'list'
   if (layout === 'tile') return <ProductTile product={product} lang={lang} sizes={sizes} />
   return (
@@ -212,7 +212,7 @@ export function ProductCard({
           </Link>
         </h3>
         {list && <p className="max-w-prose text-sm text-muted-foreground">{product.summary}</p>}
-        <p className="text-xs text-muted-foreground">{(product.materials ?? []).join(locale.code === 'zh-CN' ? '、' : ', ')}</p>
+        <p className="text-xs text-muted-foreground">{product.materials.join(locale.code === 'zh-CN' ? '、' : ', ')}</p>
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Stars rating={product.rating} />
           <span>{t('rating.reviews', { count: product.reviews })}</span>
@@ -296,8 +296,8 @@ function QuickView({ product, lang }: { product: Card; lang: string }) {
               <DialogDescription>{product.summary}</DialogDescription>
             </DialogHeader>
             <Price priceCents={product.priceCents} compareAtCents={product.compareAtCents} className="text-lg" />
-            <Swatches colors={product.colors ?? []} />
-            <p className="text-xs text-muted-foreground">{(product.materials ?? []).join(locale.code === 'zh-CN' ? '、' : ', ')}</p>
+            <Swatches colors={product.colors} />
+            <p className="text-xs text-muted-foreground">{product.materials.join(locale.code === 'zh-CN' ? '、' : ', ')}</p>
             <div className="mt-auto flex flex-col gap-2">
               <QuickAdd product={product} lang={lang} />
               <Button variant="ghost" size="sm" asChild>

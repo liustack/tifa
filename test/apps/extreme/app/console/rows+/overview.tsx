@@ -20,7 +20,7 @@ export function Kpis() {
   const f = useFormats()
   return (
     <section aria-label="今日指标" className="grid grid-cols-2 border-t border-l md:grid-cols-4">
-      {(data.kpis ?? []).map((k) => (
+      {data.kpis.map((k) => (
         <Section key={k.label} id={k.label} range="today">
           <article className="flex flex-col gap-2 border-r border-b bg-card p-4">
             <header className="flex items-center justify-between">
@@ -36,7 +36,7 @@ export function Kpis() {
               </Tooltip>
             </header>
             <p className="font-mono text-2xl tabular-nums">{value(f, k.kind, k.value)}</p>
-            <Spark values={k.spark ?? []} />
+            <Spark values={k.spark} />
           </article>
         </Section>
       ))}
@@ -102,22 +102,22 @@ export function Charts() {
   return (
     <section aria-label="经营图表" className="grid gap-4 lg:grid-cols-3">
       <ChartCard title="近 90 天销售额" description="按天，含退款">
-        <Revenue days={data.days ?? []} />
+        <Revenue days={data.days} />
       </ChartCard>
       <ChartCard title="每日订单与退款" description="近 30 天">
-        <Orders days={(data.days ?? []).slice(-30)} />
+        <Orders days={data.days.slice(-30)} />
       </ChartCard>
       <ChartCard title="渠道订单" description="近 30 天，堆叠">
-        <Channels series={data.channels ?? []} />
+        <Channels series={data.channels} />
       </ChartCard>
       <ChartCard title="转化漏斗" description="今日访客到支付">
-        <Funnel stages={data.funnel ?? []} />
+        <Funnel stages={data.funnel} />
       </ChartCard>
       <ChartCard title="品类占比" description="按销售额">
-        <Donut shares={data.categories ?? []} />
+        <Donut shares={data.categories} />
       </ChartCard>
       <ChartCard title="下单时段" description="近 26 周，每格一天">
-        <Heat cells={data.heat ?? []} />
+        <Heat cells={data.heat} />
       </ChartCard>
     </section>
   )
@@ -140,7 +140,7 @@ function YAxis({ y, format }: { y: ReturnType<typeof scaleLinear<number, number>
 
 function Revenue({ days }: { days: PageData['days'] }) {
   const f = useFormats()
-  const list = days ?? []
+  const list = days
   const x = scaleLinear().domain([0, list.length - 1]).range([M.left, W - M.right])
   const y = scaleLinear()
     .domain([0, Math.max(...list.map((d) => d.revenueFen))])
@@ -166,7 +166,7 @@ function Revenue({ days }: { days: PageData['days'] }) {
   )
 }
 
-function Orders({ days }: { days: NonNullable<PageData['days']> }) {
+function Orders({ days }: { days: PageData['days'] }) {
   const f = useFormats()
   const band = scaleBand<number>()
     .domain(days.map((_, i) => i))
@@ -191,8 +191,8 @@ function Orders({ days }: { days: NonNullable<PageData['days']> }) {
   )
 }
 
-function Channels({ series }: { series: NonNullable<PageData['channels']> }) {
-  const n = series[0]?.values?.length ?? 0
+function Channels({ series }: { series: PageData['channels'] }) {
+  const n = series[0]?.values.length ?? 0
   const rows = Array.from({ length: n }, (_, i) => Object.fromEntries(series.map((s) => [s.name, s.values?.[i] ?? 0])))
   const layers = stack<Record<string, number>>().keys(series.map((s) => s.name))(rows)
   const x = scaleLinear().domain([0, n - 1]).range([M.left, W - M.right])
@@ -222,7 +222,7 @@ function Channels({ series }: { series: NonNullable<PageData['channels']> }) {
   )
 }
 
-function Funnel({ stages }: { stages: NonNullable<PageData['funnel']> }) {
+function Funnel({ stages }: { stages: PageData['funnel'] }) {
   const f = useFormats()
   const top = stages[0]?.value ?? 1
   return (
@@ -243,7 +243,7 @@ function Funnel({ stages }: { stages: NonNullable<PageData['funnel']> }) {
   )
 }
 
-function Donut({ shares }: { shares: NonNullable<PageData['categories']> }) {
+function Donut({ shares }: { shares: PageData['categories'] }) {
   const slices = pie<(typeof shares)[number]>().value((s) => s.value)(shares)
   const shape = arc<(typeof slices)[number]>().innerRadius(48).outerRadius(80)
   return (

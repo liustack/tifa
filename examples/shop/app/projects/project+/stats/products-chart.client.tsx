@@ -4,7 +4,7 @@ import type { PageData } from './route.gen'
 
 const config = { quantity: { label: '销量', color: 'var(--chart-2)' } } satisfies ChartConfig
 
-export default function ProductsChart({ products }: { products: NonNullable<PageData['topProducts']> }) {
+export default function ProductsChart({ products }: { products: PageData['topProducts'] }) {
   return (
     <ChartContainer config={config} className="aspect-auto h-64 w-full">
       <BarChart data={products} layout="vertical" margin={{ right: 32 }}>

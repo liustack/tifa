@@ -12,7 +12,7 @@ export const head = ({ loaderData }: { loaderData?: PageData }) => ({
   meta: loaderData
     ? [
         { title: `${loaderData.title} · ${marketI18n(loaderData.lang).t('store.name')}` },
-        { name: 'description', content: (loaderData.bullets ?? [])[0] ?? '' },
+        { name: 'description', content: loaderData.bullets[0] ?? '' },
       ]
     : [],
 })

@@ -47,9 +47,9 @@ function formValues(f: PageData['filter']) {
   return {
     query: f.query,
     category: f.category,
-    colors: f.colors ?? [],
-    materials: f.materials ?? [],
-    badges: f.badges ?? [],
+    colors: f.colors,
+    materials: f.materials,
+    badges: f.badges,
     rating: f.rating > 0 ? String(f.rating) : '',
     min: f.min > 0 ? String(f.min) : '',
     max: f.max > 0 ? String(f.max) : '',
@@ -97,11 +97,11 @@ export default function ProductList() {
   const parsed = filterSchema.safeParse(formValues(results.filter))
   const values: FilterValues = parsed.success ? parsed.data : { ...formValues(results.filter), sort: 'featured' }
   const issues = parsed.success ? [] : parsed.error.issues
-  const products = results.products ?? []
+  const products = results.products
   const page = results.filter.page
   const from = (page - 1) * 24 + 1
   const chosen = chosenFilters(results, values, t)
-  const categoryName = (results.categories ?? []).find((c) => c.id === values.category)?.name
+  const categoryName = results.categories.find((c) => c.id === values.category)?.name
 
   return (
     <div className="flex flex-col gap-8">
@@ -156,7 +156,7 @@ export default function ProductList() {
         >
           {t('filters.allCategories')}
         </a>
-        {(results.categories ?? []).map((c) => (
+        {results.categories.map((c) => (
           <a
             key={c.id}
             href={href(lang, { ...values, category: c.id }, 1)}
@@ -270,7 +270,7 @@ export default function ProductList() {
 
       <Strip id="list-picks" title={t('list.picks')}>
         <ProductGrid className="md:grid-cols-3">
-          {(results.picks ?? []).map((p) => (
+          {results.picks.map((p) => (
             <ProductCard key={p.slug} product={p} lang={lang} />
           ))}
         </ProductGrid>
@@ -278,15 +278,15 @@ export default function ProductList() {
 
       <Strip id="list-categories" title={t('list.categories')}>
         <ol className="grid border-t border-l sm:grid-cols-2 lg:grid-cols-5">
-          {(shell.menu ?? []).map((g) => (
+          {shell.menu.map((g) => (
             <li key={g.id} className="border-r border-b bg-card">
               <Link to="/store/$lang/products" params={{ lang }} search={{ category: g.id }} className="flex h-full flex-col gap-3 p-4 hover:bg-secondary/40">
-                <ProductImage slug={(g.featured ?? [])[0]?.slug ?? ''} view="scene" alt="" sizes="(min-width: 1024px) 18vw, 45vw" />
+                <ProductImage slug={g.featured[0]?.slug ?? ''} view="scene" alt="" sizes="(min-width: 1024px) 18vw, 45vw" />
                 <span className="flex items-baseline justify-between">
                   <span className="font-heading text-lg">{g.name}</span>
                   <span className="font-mono text-[11px] text-muted-foreground">{t('shell.menuCount', { count: g.count })}</span>
                 </span>
-                <span className="text-xs leading-relaxed text-muted-foreground">{(g.kinds ?? []).join(' · ')}</span>
+                <span className="text-xs leading-relaxed text-muted-foreground">{g.kinds.join(' · ')}</span>
               </Link>
             </li>
           ))}
@@ -319,7 +319,7 @@ type Chosen = { key: string; label: string; without: FilterValues }
 // away, so a chip can link there.
 function chosenFilters(results: PageData, values: FilterValues, t: TFunction): Chosen[] {
   const out: Chosen[] = []
-  const name = (list: PageData['colors'], id: string) => (list ?? []).find((f) => f.id === id)?.name ?? id
+  const name = (list: PageData['colors'], id: string) => list.find((f) => f.id === id)?.name ?? id
   if (values.query) out.push({ key: 'q', label: `“${values.query}”`, without: { ...values, query: '' } })
   if (values.category) out.push({ key: 'category', label: name(results.categories, values.category), without: { ...values, category: '' } })
   for (const c of values.colors) out.push({ key: `color-${c}`, label: name(results.colors, c), without: { ...values, colors: values.colors.filter((x) => x !== c) } })
@@ -342,7 +342,7 @@ function bandLabel(t: TFunction, min: number, max: number) {
 function QuickFilters({ results, values }: { results: PageData; values: FilterValues }) {
   const { t, locale } = useStore()
   const lang = locale.code
-  const count = (list: PageData['badges'], id: string) => (list ?? []).find((f) => f.id === id)?.count ?? 0
+  const count = (list: PageData['badges'], id: string) => list.find((f) => f.id === id)?.count ?? 0
   const toggle = (list: string[], id: string) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id])
   const items = [
     { key: 'new', label: t('badge.new'), count: count(results.badges, 'new'), on: values.badges.includes('new'), next: { ...values, badges: toggle(values.badges, 'new') } },
@@ -522,7 +522,7 @@ function FilterForm({ results, values, issues }: { results: PageData; values: Fi
         control={form.control}
         render={({ field }) => (
           <div className="flex flex-col gap-2">
-            {(facets ?? []).map((f) => (
+            {facets.map((f) => (
               <Field key={f.id} orientation="horizontal">
                 <Checkbox
                   id={`filter-${name}-${f.id}`}
@@ -578,7 +578,7 @@ function FilterForm({ results, values, issues }: { results: PageData; values: Fi
                       {t('filters.allCategories')}
                     </FieldLabel>
                   </Field>
-                  {(results.categories ?? []).map((c) => (
+                  {results.categories.map((c) => (
                     <Field key={c.id} orientation="horizontal">
                       <RadioGroupItem value={c.id} id={`filter-category-${c.id}`} disabled={c.count === 0} />
                       <FieldLabel htmlFor={`filter-category-${c.id}`} className="flex-1 justify-between font-normal">
@@ -598,7 +598,7 @@ function FilterForm({ results, values, issues }: { results: PageData; values: Fi
             t('filters.price'),
             <div className="flex flex-col gap-3">
               <ul className="flex flex-col gap-1.5">
-                {(results.bands ?? []).map((b) => {
+                {results.bands.map((b) => {
                   const on = values.min === (b.min ? String(b.min) : '') && values.max === (b.max ? String(b.max) : '')
                   return (
                     <li key={b.min}>
@@ -646,7 +646,7 @@ function FilterForm({ results, values, issues }: { results: PageData; values: Fi
                       {t('filters.anyRating')}
                     </FieldLabel>
                   </Field>
-                  {(results.ratings ?? []).map((r) => (
+                  {results.ratings.map((r) => (
                     <Field key={r.id} orientation="horizontal">
                       <RadioGroupItem value={r.id} id={`filter-rating-${r.id}`} disabled={r.count === 0} />
                       <FieldLabel htmlFor={`filter-rating-${r.id}`} className="flex-1 justify-between font-normal">

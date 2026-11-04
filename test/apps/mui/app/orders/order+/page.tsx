@@ -50,7 +50,7 @@ export default function OrderPage() {
   const [notify, setNotify] = useState(true)
   const [gift, setGift] = useState(false)
   const trackingError = tracking !== '' && !/^[A-Z0-9]{10,20}$/.test(tracking)
-  const items = o.items ?? []
+  const items = o.items
   return (
     <Stack spacing={2}>
       <Breadcrumbs>

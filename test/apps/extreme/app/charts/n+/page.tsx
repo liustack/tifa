@@ -5,7 +5,7 @@ import { page, type PageData } from './route.gen'
 
 export const head = () => ({ meta: [{ title: 'SVG 图表' }] })
 
-type Chart = NonNullable<PageData['charts']>[number]
+type Chart = PageData['charts'][number]
 
 const W = 560
 const H = 260
@@ -19,7 +19,7 @@ export default function ChartsPage() {
   const data = page.useLoaderData()
   const start = Date.parse(`${data.start}T00:00:00Z`)
   const dayLabel = new Intl.DateTimeFormat('zh-CN', { timeZone: data.timeZone, month: 'short', day: 'numeric' })
-  const charts = data.charts ?? []
+  const charts = data.charts
   return (
     <Frame title="SVG 图表" size={data.count} unit="张图">
       <div className="grid gap-4 md:grid-cols-2">
@@ -53,8 +53,8 @@ function Legend({ chart }: { chart: Chart }) {
 }
 
 function Daily({ chart, start, format }: { chart: Chart; start: number; format: (d: Date) => string }) {
-  const series = chart.series ?? []
-  const n = series[0]?.values?.length ?? 0
+  const series = chart.series
+  const n = series[0]?.values.length ?? 0
   const dates = Array.from({ length: n }, (_, i) => new Date(start + i * day))
   const x = scaleUtc()
     .domain([dates[0], dates[n - 1]])
@@ -63,7 +63,7 @@ function Daily({ chart, start, format }: { chart: Chart; start: number; format: 
   if (chart.kind === 'area') {
     for (let i = 0; i < n; i++) top = Math.max(top, series.reduce((s, v) => s + (v.values?.[i] ?? 0), 0))
   } else {
-    for (const s of series) for (const v of s.values ?? []) top = Math.max(top, v)
+    for (const s of series) for (const v of s.values) top = Math.max(top, v)
   }
   const y = scaleLinear().domain([0, top]).nice().range([H - M.bottom, M.top])
   return (
@@ -104,11 +104,11 @@ function Axes({ x, y }: { x: Tick[]; y: Tick[] }) {
 type Scale = (v: number) => number
 type TimeScale = (d: Date) => number
 
-function Lines({ series, dates, x, y }: { series: NonNullable<Chart['series']>; dates: Date[]; x: TimeScale; y: Scale }) {
+function Lines({ series, dates, x, y }: { series: Chart['series']; dates: Date[]; x: TimeScale; y: Scale }) {
   return (
     <g>
       {series.map((s, i) => {
-        const values = s.values ?? []
+        const values = s.values
         const path = line<number>()
           .x((_, j) => x(dates[j]))
           .y((v) => y(v))
@@ -126,7 +126,7 @@ function Lines({ series, dates, x, y }: { series: NonNullable<Chart['series']>; 
   )
 }
 
-function Bars({ series, dates, y }: { series: NonNullable<Chart['series']>; dates: Date[]; y: Scale }) {
+function Bars({ series, dates, y }: { series: Chart['series']; dates: Date[]; y: Scale }) {
   const band = scaleBand<number>()
     .domain(dates.map((_, i) => i))
     .range([M.left, W - M.right])
@@ -137,7 +137,7 @@ function Bars({ series, dates, y }: { series: NonNullable<Chart['series']>; date
   return (
     <g>
       {series.map((s, i) =>
-        (s.values ?? []).map((v, j) => (
+        s.values.map((v, j) => (
           <rect
             key={`${i}-${j}`}
             x={((band(j) ?? 0) + (inner(i) ?? 0)).toFixed(2)}
@@ -152,7 +152,7 @@ function Bars({ series, dates, y }: { series: NonNullable<Chart['series']>; date
   )
 }
 
-function Areas({ series, dates, x, y }: { series: NonNullable<Chart['series']>; dates: Date[]; x: TimeScale; y: Scale }) {
+function Areas({ series, dates, x, y }: { series: Chart['series']; dates: Date[]; x: TimeScale; y: Scale }) {
   const rows = dates.map((_, j) => Object.fromEntries(series.map((s) => [s.name, s.values?.[j] ?? 0])))
   const layers = stack<Record<string, number>>().keys(series.map((s) => s.name))(rows)
   const shape = area<[number, number]>()

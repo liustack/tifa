@@ -9,7 +9,7 @@ import { page } from './route.gen'
 export default function OrderItems() {
   const { order } = page.useLoaderData()
   const pay = order.payment
-  const pieces = (order.items ?? []).reduce((n, item) => n + item.quantity, 0)
+  const pieces = order.items.reduce((n, item) => n + item.quantity, 0)
   return (
     <Card>
       <CardHeader>
@@ -29,7 +29,7 @@ export default function OrderItems() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {(order.items ?? []).map((item) => (
+            {order.items.map((item) => (
               <TableRow key={item.name}>
                 <TableCell>
                   <div className="flex items-center gap-3">
@@ -55,7 +55,7 @@ export default function OrderItems() {
                   </div>
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground">{item.description}</TableCell>
-                <TableCell className="font-mono text-xs">{(order.packing ?? []).find((p) => p.name === item.name)?.bin}</TableCell>
+                <TableCell className="font-mono text-xs">{order.packing.find((p) => p.name === item.name)?.bin}</TableCell>
                 <TableCell className="text-right font-mono text-xs tabular-nums">{item.sold} 件</TableCell>
                 <TableCell className="text-right font-mono tabular-nums">{yuan(item.priceCents)}</TableCell>
                 <TableCell className="text-right font-mono tabular-nums">{item.quantity}</TableCell>

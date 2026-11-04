@@ -88,9 +88,9 @@ function Checkout({ view }: { view: PageData }) {
   const { t, locale, money } = useStore()
   const hydrated = useHydrated()
   const router = useRouter()
-  const saved = view.saved ?? []
-  const lines = view.cart.lines ?? []
-  const deliveries = view.deliveries ?? []
+  const saved = view.saved
+  const lines = view.cart.lines
+  const deliveries = view.deliveries
   // Saved addresses are checked with the rules of the form as the page renders, so one that would
   // not pass shows what it lacks before the visitor picks it.
   const checks = saved.map((a) => addressSchema.safeParse(a))
@@ -235,11 +235,11 @@ function Checkout({ view }: { view: PageData }) {
                       <Select name={field.name} value={field.value} onValueChange={field.onChange}>
                         <SelectTrigger id="address-country" className="w-full" aria-invalid={fieldState.invalid} onBlur={field.onBlur}>
                           <SelectValue placeholder={t('checkout.chooseCountry')}>
-                            {(view.countries ?? []).find((c) => c.code === field.value)?.name}
+                            {view.countries.find((c) => c.code === field.value)?.name}
                           </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
-                          {(view.countries ?? []).map((c) => (
+                          {view.countries.map((c) => (
                             <SelectItem key={c.code} value={c.code}>
                               {c.name}
                             </SelectItem>
@@ -474,7 +474,7 @@ function Extras() {
       <section className="flex flex-col gap-4">
         <h2 className="border-b border-foreground pb-2.5 font-heading text-[22px] font-medium tracking-[0.04em]">{t('checkout.addMore')}</h2>
         <ProductGrid className="md:grid-cols-3">
-          {(suggested ?? []).map((p) => (
+          {suggested.map((p) => (
             <ProductCard key={p.slug} product={p} lang={locale.code} layout="tile" />
           ))}
         </ProductGrid>

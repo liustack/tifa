@@ -12,7 +12,7 @@ export const head = () => ({ meta: [{ title: '今日看板 · 山海工作室后
 
 export default function ConsolePage() {
   const data = page.useLoaderData()
-  const unread = (data.notices ?? []).filter((n) => n.unread).length
+  const unread = data.notices.filter((n) => n.unread).length
   return (
     <AppProviders session={{ user: data.user, login: data.login, shop: data.shop, role: 'owner' }} timeZone={data.timeZone} today={data.today} unread={unread}>
       <TooltipProvider>

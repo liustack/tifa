@@ -81,7 +81,7 @@ function Announcement() {
   )
 }
 
-type Group = NonNullable<LayoutData['menu']>[number]
+type Group = LayoutData['menu'][number]
 
 function StoreHeader() {
   const shell = layout.useLoaderData()
@@ -91,7 +91,7 @@ function StoreHeader() {
   // The same page in the other language: only the language segment of the path changes.
   const other = pathname.replace(`/store/${lang}`, `/store/${locale.other}`)
   const [open, setOpen] = useState<string | null>(null)
-  const menu = shell.menu ?? []
+  const menu = shell.menu
   return (
     <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur" onMouseLeave={() => setOpen(null)}>
       <a
@@ -186,7 +186,7 @@ function MenuPanel({ group, open, onClose }: { group: Group; open: boolean; onCl
         <div>
           <p className="border-b pb-2 font-mono text-[11px] tracking-[0.1em] text-muted-foreground">{t('shell.menuKinds')}</p>
           <ul className="flex flex-col">
-            {(group.kinds ?? []).map((k) => (
+            {group.kinds.map((k) => (
               <li key={k} className="border-b">
                 <Link
                   to="/store/$lang/products"
@@ -205,7 +205,7 @@ function MenuPanel({ group, open, onClose }: { group: Group; open: boolean; onCl
         <div>
           <p className="border-b pb-2 font-mono text-[11px] tracking-[0.1em] text-muted-foreground">{t('shell.menuBest')}</p>
           <ul className="grid grid-cols-2 gap-6 pt-4">
-            {(group.featured ?? []).map((p) => (
+            {group.featured.map((p) => (
               <li key={p.slug}>
                 <Link
                   to="/store/$lang/products/$product"
@@ -233,7 +233,7 @@ function MenuPanel({ group, open, onClose }: { group: Group; open: boolean; onCl
 function SearchBox({ menu }: { menu: Group[] }) {
   const { t, locale } = useStore()
   const [focused, setFocused] = useState(false)
-  const popular = menu.flatMap((g) => (g.featured ?? []).slice(0, 1))
+  const popular = menu.flatMap((g) => g.featured.slice(0, 1))
   return (
     <form
       action={`/store/${locale.code}/products`}
@@ -277,7 +277,7 @@ function CartDrawer() {
   const { t, locale, money } = useStore()
   const lang = locale.code
   const cart = useMine(lang)?.cart ?? { lines: [], count: 0, subtotalCents: 0, discountCents: 0, freeShippingCents: shell.freeShippingCents }
-  const lines = cart.lines ?? []
+  const lines = cart.lines
   const left = cart.freeShippingCents - (cart.subtotalCents - cart.discountCents)
   return (
     <Sheet>
@@ -402,7 +402,7 @@ function StoreFooter() {
         <div className="flex flex-col gap-2">
           <h2 className="text-sm font-medium">{t('nav.products')}</h2>
           <ul className="flex flex-col gap-1.5 text-sm text-muted-foreground">
-            {(shell.menu ?? []).map((g) => (
+            {shell.menu.map((g) => (
               <li key={g.id}>
                 <Link to="/store/$lang/products" params={{ lang }} search={{ category: g.id }} className="hover:text-foreground">
                   {g.name}

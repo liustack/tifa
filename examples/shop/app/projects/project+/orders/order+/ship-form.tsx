@@ -72,7 +72,7 @@ export function ShipForm() {
                       <SelectValue placeholder="选择快递公司" />
                     </SelectTrigger>
                     <SelectContent>
-                      {(carriers ?? []).map((c) => (
+                      {carriers.map((c) => (
                         <SelectItem key={c.code} value={c.code}>
                           {c.name}
                         </SelectItem>

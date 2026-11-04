@@ -7,7 +7,7 @@ export default function PostPage() {
     <article>
       <h1 id="title">{post.title}</h1>
       <nav id="toc">
-        {(headings ?? [])
+        {headings
           .filter((h) => h.depth === 2)
           .map((h) => (
             <a key={h.id} href={`#${h.id}`}>

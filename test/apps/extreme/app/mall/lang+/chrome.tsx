@@ -56,7 +56,7 @@ function SearchBar() {
       <div className="flex h-9 border border-foreground/70 bg-background focus-within:ring-2 focus-within:ring-ring">
         <select aria-label={t('top.all')} className="max-w-28 border-r bg-muted px-2 text-xs" defaultValue="">
           <option value="">{t('top.all')}</option>
-          {(page.departments ?? []).map((d) => (
+          {page.departments.map((d) => (
             <option key={d.name}>{d.name}</option>
           ))}
         </select>
@@ -67,7 +67,7 @@ function SearchBar() {
       </div>
       <p className="hidden gap-2 truncate text-[11px] text-muted-foreground lg:flex">
         {t('top.trending')}
-        {(page.trending ?? []).map((w) => (
+        {page.trending.map((w) => (
           <a key={w} href={`#search-${w}`} className="hover:text-foreground hover:underline">
             {w}
           </a>
@@ -113,18 +113,18 @@ function Departments() {
           <Menu className="size-4" aria-hidden />
           {t('top.all')}
         </li>
-        {(page.departments ?? []).map((d, i) => (
+        {page.departments.map((d, i) => (
           <li key={d.name} className="group">
             <a href={`#dept-${i}`} className="flex h-9 items-center px-2.5 whitespace-nowrap text-muted-foreground group-hover:text-foreground group-hover:shadow-[inset_0_-1px_0_var(--foreground)]">
               {d.name}
             </a>
             <div className="invisible absolute inset-x-0 top-full z-40 border-y bg-card opacity-0 transition-opacity group-hover:visible group-hover:opacity-100">
               <div className="mx-auto grid max-w-[1500px] grid-cols-4 gap-8 px-8 py-6">
-                {(d.groups ?? []).map((g) => (
+                {d.groups.map((g) => (
                   <section key={g.title}>
                     <h3 className="mb-2 font-mono text-[11px] tracking-[0.12em] text-muted-foreground">{g.title}</h3>
                     <ul className="flex flex-col gap-1.5">
-                      {(g.links ?? []).map((l) => (
+                      {g.links.map((l) => (
                         <li key={l}>
                           <a href={`#${encodeURIComponent(l)}`} className="hover:underline">
                             {l}
@@ -153,11 +153,11 @@ export function Footer() {
         {t('sections.backToTop')}
       </a>
       <div className="mx-auto grid max-w-[1500px] grid-cols-2 gap-8 px-6 py-10 md:grid-cols-6">
-        {(page.footer ?? []).map((col) => (
+        {page.footer.map((col) => (
           <section key={col.title}>
             <h3 className="mb-3 font-heading text-base">{col.title}</h3>
             <ul className="flex flex-col gap-2 text-[13px] text-muted-foreground">
-              {(col.links ?? []).map((l) => (
+              {col.links.map((l) => (
                 <li key={l}>
                   <a href={`#${encodeURIComponent(l)}`} className="hover:text-foreground hover:underline">
                     {l}

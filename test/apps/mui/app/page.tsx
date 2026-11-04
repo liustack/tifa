@@ -84,7 +84,7 @@ export default function Dashboard() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {(s.recent ?? []).map((o) => (
+                {s.recent.map((o) => (
                   <TableRow key={o.id} hover>
                     <TableCell>
                       <Link to="/orders/$order" params={{ order: o.id }}>
@@ -109,7 +109,7 @@ export default function Dashboard() {
               <CardHeader title="Sales by channel" />
               <CardContent>
                 <Stack spacing={2}>
-                  {(s.byChannel ?? []).map((c) => (
+                  {s.byChannel.map((c) => (
                     <Box key={c.name}>
                       <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
                         <Typography variant="body2">{c.name}</Typography>
@@ -126,7 +126,7 @@ export default function Dashboard() {
             <Card>
               <CardHeader title="Top products" />
               <List dense>
-                {(s.topProducts ?? []).map((p) => (
+                {s.topProducts.map((p) => (
                   <ListItem key={p.name} secondaryAction={<Typography variant="body2">{p.value} sold</Typography>}>
                     <ListItemAvatar>
                       <Avatar variant="rounded" sx={{ bgcolor: 'grey.200', color: 'text.primary' }}>
