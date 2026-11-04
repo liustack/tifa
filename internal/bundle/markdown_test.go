@@ -280,7 +280,7 @@ func TestMarkdownRewritesRelativeURLs(t *testing.T) {
 // right for the entry does not fail for leading out of the collection from the other place.
 func TestMarkdownFallbackCountsOnlyForAMissingFile(t *testing.T) {
 	root := markdownApp(t, map[string]string{
-		"content/blog/shared.png":           "shared",
+		"content/blog/shared.png":            "shared",
 		"content/blog/zh-CN/deep/post/a.png": "a",
 	})
 	c := convert(t, root, []content.Markdown{
