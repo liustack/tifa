@@ -23,8 +23,9 @@ const testVMs = 2
 // tests is the state StartTest keeps for the whole test binary.
 var tests struct {
 	mu      sync.Mutex
-	running bool                   // a server of StartTest has not stopped
-	pools   map[[32]byte]*ssr.Pool // by the SSR bundle and its settings, kept until the process ends
+	running bool      // a server of StartTest has not stopped
+	pool    *ssr.Pool // the VMs of the last bundle, kept for the next server until another bundle comes
+	poolKey [32]byte  // the SSR bundle and the settings of pool
 }
 
 // StartTest runs app in the process of a test, for tifatest.Start and tifatest.StartPages. Apart from
@@ -34,9 +35,9 @@ var tests struct {
 // with ctx and sets the handler, the timeouts and the base context of srv, which the caller then
 // serves.
 //
-// With app.Dist set, its content becomes the content of the collections, and pages render in VMs
-// that every StartTest of the process with the same bundle shares, at most testVMs of them. Without
-// it, pages answer the results of their Loads as JSON.
+// With app.Dist set, its content becomes the content of the collections, and pages render on at
+// most testVMs VMs, which the process keeps for the next StartTest with the same bundle and
+// replaces for another. Without it, pages answer the results of their Loads as JSON.
 //
 // stop ends what StartTest began: it closes the channel of tifa.ShuttingDown, cancels the
 // contexts of the requests in flight, stops srv and waits up to server.shutdown_timeout for the
@@ -142,8 +143,10 @@ func StartTest(ctx context.Context, app App, srv *http.Server) (stop func(closeS
 	}, nil
 }
 
-// openSharedFront is openFront with the VM pool of the process for the bundle in dist and cfg,
-// made on first use. Closing the front end leaves the pool alone.
+// openSharedFront is openFront with the VM pool of the process, so the next server with the same
+// bundle and cfg renders on VMs that are loaded already. The process keeps one pool: another
+// bundle or other settings close it and make a new one. No server uses the old one then, as one
+// runs at a time. Closing the front end leaves the pool alone.
 func (s *server) openSharedFront(dist fs.FS, cfg config.SSR) error {
 	source, err := fs.ReadFile(dist, "ssr.js")
 	if errors.Is(err, fs.ErrNotExist) {
@@ -155,7 +158,14 @@ func (s *server) openSharedFront(dist fs.FS, cfg config.SSR) error {
 	key := sha256.Sum256(fmt.Appendf([]byte(source), "\x00%+v", cfg))
 	tests.mu.Lock()
 	defer tests.mu.Unlock()
-	pool := tests.pools[key]
+	if tests.pool != nil && tests.poolKey != key {
+		err := tests.pool.Close()
+		tests.pool = nil
+		if err != nil {
+			return fmt.Errorf("closing the VMs of the bundle of an earlier test: %w", err)
+		}
+	}
+	pool := tests.pool
 	if pool == nil {
 		sourceMap, err := fs.ReadFile(dist, "ssr.js.map")
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -164,10 +174,7 @@ func (s *server) openSharedFront(dist fs.FS, cfg config.SSR) error {
 		if pool, err = ssr.NewPool(string(source), sourceMap, cfg, false); err != nil {
 			return err
 		}
-		if tests.pools == nil {
-			tests.pools = map[[32]byte]*ssr.Pool{}
-		}
-		tests.pools[key] = pool
+		tests.pool, tests.poolKey = pool, key
 	}
 	f, err := s.readFront(dist, pool.Render)
 	if err != nil {

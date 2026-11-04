@@ -6,7 +6,7 @@
 
 ### 新增
 
-- `tifatest.Start(t, tifaapp.App)` 在 `go test` 里跑起整个应用，返回一个 `*httptest.Server`，测试可以照浏览器的路子走一遍：打开受保护的页面拿到重定向、登录、看到会话 cookie、读页面。`OnStart`、`OnRequest`、解码、`Validate`、会话、重定向和 `OnError` 都和程序里一样跑，测试结束时跑 `OnShutdown`，client 会记下 cookie，不跟随重定向。没有前端时，页面按路由 ID 以 JSON 回答 Load 的数据。`tifatest.StartPages` 还会用 `tifa build` 或 `tifa dev` 的前端渲染页面，用测试二进制共用的两个 VM，`.tifa/dist` 不存在或构建它用到的文件之后改过时，让测试失败。要在单独的测试包里导入应用，比如 `package login_test`（见[测整个请求](docs/app.zh-CN.md#测整个请求)）。
+- `tifatest.Start(t, tifaapp.App)` 在 `go test` 里跑起整个应用，返回一个 `*httptest.Server`，测试可以照浏览器的路子走一遍：打开受保护的页面拿到重定向、登录、看到会话 cookie、读页面。`OnStart`、`OnRequest`、解码、`Validate`、会话、重定向和 `OnError` 都和程序里一样跑，测试结束时跑 `OnShutdown`，client 会记下 cookie，不跟随重定向。没有前端时，页面按路由 ID 以 JSON 回答 Load 的数据。`tifatest.StartPages` 还会用 `tifa build` 或 `tifa dev` 的前端渲染页面，测试二进制里最多两个 VM，之后同一份构建的测试接着用，`.tifa/dist` 不存在或构建它用到的文件之后改过时，让测试失败。要在单独的测试包里导入应用，比如 `package login_test`（见[测整个请求](docs/app.zh-CN.md#测整个请求)）。
 - `tifa build` 和 `tifa dev` 写出 `.tifa/dist/inputs.json`：构建前端用到的每个文件的哈希，`StartPages` 用它检查。
 
 ### 变更

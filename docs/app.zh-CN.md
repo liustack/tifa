@@ -928,7 +928,7 @@ func TestSignInLeadsBackToTheWorkbench(t *testing.T) {
 - 每次 `Start` 都新建一个服务器，会话也是它自己的，除非 `OnStart` 设了存储。会话存储、`SetHTTPHandler` 和内容都属于进程，所以一个测试二进制同一时间只能跑一个应用，调用 `Start` 的测试不能调用 `t.Parallel`。
 - `.tifa/tifaapp` 是按和现在代码不同的路由生成的，`Start` 就让测试失败。重新跑 `go tool tifa check`，或者开着 `tifa dev`。刚 clone 下来的仓库没有 `.tifa`，在 `tifa check` 写出它之前，`go vet`、`go test` 和 `go mod tidy` 都会因为这个导入失败。`tifa check` 先生成代码再跑 `go vet` 和 `go test`，所以直接跑它就行。
 
-`tifatest.StartPages(t, tifaapp.App)` 还会把页面渲染成 HTML，用的是 `tifa build` 或 `tifa dev` 写到 `.tifa/dist` 的前端，同时提供它的脚本、样式表和公开文件。`tifa check` 不打包，所以这类测试之前要先跑 `tifa build`，或者开着 `tifa dev`。`.tifa/dist` 不存在，或者构建前端用到的文件之后改过，`StartPages` 都让测试失败，并列出改过的文件，比如页面、组件、样式表、`package.json`、锁文件或 Vite 配置。不管 `ssr.vms` 设多少，页面都在两个 VM 上渲染。它们在测试二进制第一次调用 `StartPages` 时启动，要花一点时间，之后的调用都用这两个。
+`tifatest.StartPages(t, tifaapp.App)` 还会把页面渲染成 HTML，用的是 `tifa build` 或 `tifa dev` 写到 `.tifa/dist` 的前端，同时提供它的脚本、样式表和公开文件。`tifa check` 不打包，所以这类测试之前要先跑 `tifa build`，或者开着 `tifa dev`。`.tifa/dist` 不存在，或者构建前端用到的文件之后改过，`StartPages` 都让测试失败，并列出改过的文件，比如页面、组件、样式表、`package.json`、锁文件或 Vite 配置。不管 `ssr.vms` 设多少，页面都在两个 VM 上渲染，测试二进制里最多就这两个。第一次调用 `StartPages` 时启动它们，要花一点时间。之后同一份构建的调用都用这两个，换了构建的调用会关掉它们，再启动两个新的。
 
 ### 渲染时钟
 

@@ -47,8 +47,9 @@ func Start(t testing.TB, app server.App) *httptest.Server {
 
 // StartPages is Start with the front end that tifa build or tifa dev wrote to .tifa/dist: pages
 // render to HTML as in the program, and the files of the bundle and of the public directory are
-// served. The VMs are made once per test binary and shared by every StartPages of it, two of them
-// whatever ssr.vms says. tifa check does not bundle, so run tifa build before the test, or keep tifa
+// served. Pages render on two VMs whatever ssr.vms says. The test binary keeps them for the next
+// StartPages with the same build, and a StartPages with another build replaces them, so the binary
+// never holds more than two. tifa check does not bundle, so run tifa build before the test, or keep tifa
 // dev running.
 //
 // StartPages fails the test when .tifa/dist is missing, and when a file it was built from changed
