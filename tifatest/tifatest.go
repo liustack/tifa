@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/internal/config"
@@ -20,6 +21,8 @@ import (
 // result or error is not written, so the recorder stays an empty 200 unless the function writes. Path
 // parameters are the path values of r, set with r.SetPathValue, and Ctx.Pattern is r.Pattern as it is when NewCtx is called. The
 // body is limited to the default server.body_limit, 1 MiB, unless Ctx.SetBodyLimit changes it.
+// A handler that streams may flush and move its deadlines with http.ResponseController, as on the
+// server.
 //
 // The Ctx has a session store that belongs to the test, in memory, so tifa.SetSession and
 // tifa.ClearSession work and write their Set-Cookie to the recorder. Every Ctx of the same t shares
@@ -101,3 +104,9 @@ func (w *committer) Flush() {
 }
 
 func (w *committer) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+// SetReadDeadline and SetWriteDeadline take the deadlines a handler moves with
+// http.ResponseController, as the server does, so the handler runs here as it runs there. Nothing
+// in a test times out, so they do nothing.
+func (w *committer) SetReadDeadline(time.Time) error  { return nil }
+func (w *committer) SetWriteDeadline(time.Time) error { return nil }
