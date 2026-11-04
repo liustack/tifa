@@ -394,14 +394,14 @@ process.stdout.write(attrs.get("data-session") ?? "")`
 	}
 }
 
-// The CSP hashes in docs/app.md are those of the script and the style the server writes. This
+// The CSP hashes in docs/sessions.md are those of the script and the style the server writes. This
 // fails when either changes, so the docs get the new hashes.
 func TestSessionHeadHashesAreInTheDocs(t *testing.T) {
-	doc, err := os.ReadFile("../docs/app.md")
+	doc, err := os.ReadFile("../docs/sessions.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	zh, err := os.ReadFile("../docs/app.zh-CN.md")
+	zh, err := os.ReadFile("../docs/sessions.zh-CN.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,7 +412,7 @@ func TestSessionHeadHashesAreInTheDocs(t *testing.T) {
 		for _, text := range []string{script, style} {
 			sum := sha256.Sum256([]byte(text))
 			hash := "sha256-" + base64.StdEncoding.EncodeToString(sum[:])
-			for name, d := range map[string][]byte{"app.md": doc, "app.zh-CN.md": zh} {
+			for name, d := range map[string][]byte{"sessions.md": doc, "sessions.zh-CN.md": zh} {
 				if !strings.Contains(string(d), hash) {
 					t.Errorf("docs/%s lacks %s of %.60s", name, hash, text)
 				}
