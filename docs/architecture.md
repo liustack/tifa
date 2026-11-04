@@ -134,7 +134,7 @@ flowchart LR
 ```
 
 1. **Analyze.** `analyze.Analyze` loads the app with `golang.org/x/tools/go/packages`, type checks it, and reads the conventions from the syntax tree and the types: the folders, the `Load`, `Layout` and handler signatures, the constants, the hooks, the session type, `content.go`. It collects every rule violation and prints them all with `file:line`. Static analysis only reads, so a failed analysis leaves no `.tifa/` behind.
-2. **Generate.** `codegen.Generate` turns the manifest into files in `.tifa/`: `main.go` and `routes.go` (the Go side, which calls `server.Main`), and `routes.tsx`, the `route.gen.ts` modules, `server.ts` and `client.ts` (the TypeScript side). The same manifest gives the same bytes, so unchanged files are not rewritten.
+2. **Generate.** `codegen.Generate` turns the manifest into files in `.tifa/`: `main.go`, which calls `server.Main`, and `tifaapp/app.go`, the application table that the main and the tests of the app use (the Go side), and `routes.tsx`, the `route.gen.ts` modules, `server.ts` and `client.ts` (the TypeScript side). The same manifest gives the same bytes, so unchanged files are not rewritten.
 3. **Bundle.** `bundle.App` starts one Node process that runs the app's own Vite with the tifa plugin from `js/vite`. It builds the browser bundle (split per route, content hashed, with `.gz` files) and then the SSR bundle `ssr.js`, which knows the tags of the browser bundle. It also copies `public/` and writes `build.json` with the build ID. An app without pages skips this step and needs no Node.
 4. **go build.** `CGO_ENABLED=0 go build` compiles `.tifa/`, which embeds `dist/` with `//go:embed`.
 

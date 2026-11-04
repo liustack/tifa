@@ -76,6 +76,7 @@ Writing the response is checked when the request runs instead: in `Load` and `La
 
 - Domain code: plain Go tests next to it, such as `app/todos/todo_test.go`. Each test gets a fresh database with `useTestDB(t)`, which replaces `{{.Package}}.DB`, so these tests do not run in parallel.
 - Route code: `tifatest.NewCtx(t, httptest.NewRequest(...))` gives a `*tifa.Ctx`. Set path parameters with `r.SetPathValue`. Run `Load` and `Layout` through `tifa.Use(c, Load)`, call handlers directly, and test `Validate` on its own. These tests check what the function returns, not the HTTP answer. See "Testing" in `docs/app.md`.
+- Whole requests: `tifatest.Start(t, tifaapp.App)` runs the app and returns an `*httptest.Server` whose client keeps cookies and does not follow redirects, for a flow such as posting a form and following the redirect. Import `{{.Module}}/.tifa/tifaapp` from a test in a package of its own (`package app_test`), set `{{.Package}}.DBPath` to a file in `t.TempDir()` before `Start`, and do not call `t.Parallel` in such a test. Pages answer the data of their Loads as JSON. `tifatest.StartPages` renders them, and needs `go tool tifa build` first. See "Testing a whole request" in `docs/app.md`.
 
 ## Settings and data
 

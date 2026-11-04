@@ -72,6 +72,9 @@ type front struct {
 	// headScripts and headStyles are the hashes of the inline scripts and styles of build.Head,
 	// which every document carries (see renderedPolicy).
 	headScripts, headStyles []string
+	// shared is set for the pool of a test server, which the servers of a test binary share: the
+	// front end does not close it.
+	shared bool
 	// pages is set when there are pages to render. Without it pages answer JSON.
 	pages bool
 	// preload holds, by the path of a page or the ID of a Layout (see Server.modules), the module
@@ -241,7 +244,7 @@ func (s *server) closeFront() error {
 }
 
 func (f *front) close() error {
-	if f == nil || f.pool == nil {
+	if f == nil || f.pool == nil || f.shared {
 		return nil
 	}
 	return f.pool.Close()

@@ -1,7 +1,13 @@
-// Package tifatest builds the tifa.Ctx of a test request, so the Load, Layout, method handler and
-// OnRequest functions of an app can be called in a Go test like any other function. It tests the
-// function, not the HTTP answer: input decoding, Validate, turning a result or an error into a
-// response, OnError and the navigation data protocol run only in the server.
+// Package tifatest tests a tifa app in go test, in two ways.
+//
+// NewCtx builds the tifa.Ctx of a test request, so the Load, Layout, method handler and OnRequest
+// functions of an app can be called like any other function. That tests the function, not the HTTP
+// answer: input decoding, Validate, turning a result or an error into a response, OnError and the
+// navigation data protocol run only in the server.
+//
+// Start runs the whole app in the test process, from tifaapp.App, and returns a server to send
+// requests to, so a test can sign in, post a form, follow the redirect and read the page.
+// StartPages also renders the pages with the front end of tifa build.
 package tifatest
 
 import (
@@ -18,7 +24,9 @@ import (
 )
 
 // NewCtx returns the Ctx of r and the recorder that holds what is written through it. A returned
-// result or error is not written, so the recorder stays an empty 200 unless the function writes. Path
+// result or error is not written, so the recorder stays an empty 200 unless the function writes.
+// Read the recorder once the function returned: its Result keeps the headers of the first call, so
+// make one NewCtx per request and do not call the function again on the same Ctx. Path
 // parameters are the path values of r, set with r.SetPathValue, and Ctx.Pattern is r.Pattern as it is when NewCtx is called. The
 // body is limited to the default server.body_limit, 1 MiB, unless Ctx.SetBodyLimit changes it.
 // A handler that streams may flush and move its deadlines with http.ResponseController, as on the
@@ -86,11 +94,15 @@ type committer struct {
 
 func (w *committer) Committed() bool { return w.wrote }
 
+// WriteHeader keeps a 1xx other than 101 from the recorder. On the server such a status goes out
+// before the response and leaves its headers open, but httptest.ResponseRecorder takes any status
+// as the final one and fixes the headers of Result at it.
 func (w *committer) WriteHeader(code int) {
-	w.ResponseWriter.WriteHeader(code)
-	if code >= 200 || code == http.StatusSwitchingProtocols {
-		w.wrote = true
+	if code >= 100 && code <= 199 && code != http.StatusSwitchingProtocols {
+		return
 	}
+	w.ResponseWriter.WriteHeader(code)
+	w.wrote = true
 }
 
 func (w *committer) Write(b []byte) (int, error) {

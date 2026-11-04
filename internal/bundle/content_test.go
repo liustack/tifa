@@ -205,7 +205,7 @@ func TestAppConvertsTheContentWithoutPages(t *testing.T) {
 	for _, e := range entries {
 		names = append(names, e.Name())
 	}
-	if want := []string{"assets", "build.json", "content", "content.json"}; !slices.Equal(names, want) {
+	if want := []string{"assets", "build.json", "content", "content.json", "inputs.json"}; !slices.Equal(names, want) {
 		t.Errorf("dist holds %q, want %q", names, want)
 	}
 }

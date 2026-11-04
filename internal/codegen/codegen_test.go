@@ -154,7 +154,7 @@ func TestDevClientEntryLoadsTheRefreshClient(t *testing.T) {
 // running app. The main of tifa build calls server.Main (see the golden files).
 func TestDevMainCallsDevMain(t *testing.T) {
 	files := generate(t, "shop", true)
-	if !strings.Contains(string(files["main.go"]), "server.DevMain(server.App{") {
+	if !strings.Contains(string(files["main.go"]), "server.DevMain(app)") {
 		t.Errorf("dev main.go:\n%s", files["main.go"])
 	}
 	if prod := generate(t, "shop", false); strings.Contains(string(prod["main.go"]), "DevMain") {
@@ -436,7 +436,7 @@ func TestProjectSettingsGoIntoTheMain(t *testing.T) {
 	if _, ok := files["tifa.yaml"]; ok {
 		t.Error("tifa.yaml is copied into .tifa")
 	}
-	if main := string(files["main.go"]); !strings.Contains(main, `"server.addr": "127.0.0.1:8090",`) || strings.Contains(main, "go:embed tifa") {
+	if main := string(files["tifaapp/app.go"]); !strings.Contains(main, `"server.addr": "127.0.0.1:8090",`) || strings.Contains(main, "go:embed tifa") {
 		t.Errorf("main.go:\n%s", main)
 	}
 	root := t.TempDir()
@@ -490,7 +490,7 @@ func TestInterfaceOnlyAppHasNoTypeScript(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := slices.Sorted(maps.Keys(files)); !slices.Equal(got, []string{"main.go", "routes.go"}) {
+	if got := slices.Sorted(maps.Keys(files)); !slices.Equal(got, []string{"main.go", "tifaapp/app.go"}) {
 		t.Errorf("generated %q", got)
 	}
 }
@@ -511,7 +511,7 @@ func TestAppWithoutPagesWithContentGetsTheVitePlugin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := slices.Sorted(maps.Keys(files)), []string{"main.go", "routes.go", "vite.d.ts", "vite.js", "vite/plugin.js"}; !slices.Equal(got, want) {
+	if got, want := slices.Sorted(maps.Keys(files)), []string{"main.go", "tifaapp/app.go", "vite.d.ts", "vite.js", "vite/plugin.js"}; !slices.Equal(got, want) {
 		t.Errorf("generated %q, want %q", got, want)
 	}
 	if string(files["vite/plugin.js"]) != js.VitePlugin || !strings.Contains(string(files["vite.js"]), "markdown: options.markdown") {
@@ -715,12 +715,12 @@ func TestPublicMayNotHoldTifaPaths(t *testing.T) {
 // The generated main tells the server the session type, so that the pages and answers carry the
 // session. A type the generated code cannot name fails the build.
 func TestMainRegistersTheSessionType(t *testing.T) {
-	main := string(generate(t, "session", false)["main.go"])
-	if !strings.Contains(main, "Session: server.SessionOf[sessiontype.Account],") || !strings.Contains(main, `sessiontype "example.com/session/app/login"`) {
-		t.Errorf("main.go of an app with a session type:\n%s", main)
+	main := string(generate(t, "session", false)["tifaapp/app.go"])
+	if !regexp.MustCompile(`Session: +server.SessionOf\[sessiontype.Account\],`).MatchString(main) || !strings.Contains(main, `sessiontype "example.com/session/app/login"`) {
+		t.Errorf("tifaapp/app.go of an app with a session type:\n%s", main)
 	}
-	if main := string(generate(t, "bare", false)["main.go"]); strings.Contains(main, "Session") {
-		t.Errorf("main.go of an app without sessions:\n%s", main)
+	if main := string(generate(t, "bare", false)["tifaapp/app.go"]); strings.Contains(main, "Session") {
+		t.Errorf("tifaapp/app.go of an app without sessions:\n%s", main)
 	}
 	// A type the generated main cannot name fails the build.
 	_, err := generateGo(&analyze.Manifest{Module: "example.com/m", Session: &analyze.Session{Type: "example.com/m/auth.account"}}, nil, false)
@@ -753,12 +753,12 @@ func TestMainImportsTheRootPackageForItsSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(files["main.go"]), `_ "example.com/m"`) {
-		t.Fatalf("main.go:\n%s", files["main.go"])
+	if !strings.Contains(string(files["tifaapp/app.go"]), `_ "example.com/m"`) {
+		t.Fatalf("tifaapp/app.go:\n%s", files["tifaapp/app.go"])
 	}
 	files, err = generateGo(&analyze.Manifest{Module: "example.com/m", Hooks: []string{"OnStart"}, Settings: []string{"db.url"}}, nil, false)
-	if err != nil || strings.Contains(string(files["main.go"]), `_ "example.com/m"`) {
-		t.Fatalf("with hooks: %v\n%s", err, files["main.go"])
+	if err != nil || strings.Contains(string(files["tifaapp/app.go"]), `_ "example.com/m"`) {
+		t.Fatalf("with hooks: %v\n%s", err, files["tifaapp/app.go"])
 	}
 }
 
@@ -770,8 +770,8 @@ func TestMainImportsTheRootPackageForItsContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(files["main.go"]), `_ "example.com/m"`) {
-		t.Fatalf("main.go:\n%s", files["main.go"])
+	if !strings.Contains(string(files["tifaapp/app.go"]), `_ "example.com/m"`) {
+		t.Fatalf("tifaapp/app.go:\n%s", files["tifaapp/app.go"])
 	}
 }
 
@@ -800,12 +800,12 @@ func TestHTMLMarksTheLoadAndImportsItsType(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	routes := string(files["routes.go"])
+	routes := string(files["tifaapp/app.go"])
 	for _, id := range []string{"app/layout", "app/post/route"} {
 		at := strings.Index(routes, `"`+id+`",`)
 		end := -1
 		if at >= 0 {
-			end = strings.Index(routes[at:], "\n\t},")
+			end = strings.Index(routes[at:], "\n\t\t},")
 		}
 		if end < 0 || !strings.Contains(routes[at:at+end], "HTML: ") {
 			t.Errorf("routes.go does not mark %s:\n%s", id, routes)
@@ -825,5 +825,30 @@ func TestHTMLMarksTheLoadAndImportsItsType(t *testing.T) {
 	}
 	if news := string(files["app/news/route.gen.ts"]); strings.Contains(news, "runtime/html") {
 		t.Errorf("app/news/route.gen.ts imports HTML:\n%s", news)
+	}
+}
+
+// tifaapp/app.go says its own fingerprint, the one AppFingerprint gives for the same manifest and
+// tifa.yaml, and another table has another one.
+func TestAppFingerprint(t *testing.T) {
+	root := filepath.Join("testdata", "shop")
+	m, err := analyze.Analyze(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := Generate(root, m, false, fakeExports)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fp, err := AppFingerprint(root, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(files["tifaapp/app.go"]), `Fingerprint: "`+fp+`",`) {
+		t.Fatalf("tifaapp/app.go does not hold %s:\n%s", fp, files["tifaapp/app.go"])
+	}
+	m.Routes[0].SSR = !m.Routes[0].SSR
+	if other, err := AppFingerprint(root, m); err != nil || other == fp {
+		t.Errorf("a changed route keeps the fingerprint %s, %v", other, err)
 	}
 }

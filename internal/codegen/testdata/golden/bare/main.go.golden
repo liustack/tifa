@@ -7,6 +7,8 @@ import (
 	_ "time/tzdata"
 
 	"github.com/liustack/tifa/server"
+
+	"example.com/bare/.tifa/tifaapp"
 )
 
 // dist holds what tifa build bundles: build.json, the SSR bundle, the browser assets and
@@ -16,9 +18,7 @@ import (
 var dist embed.FS
 
 func main() {
-	server.Main(server.App{
-		Layouts: layouts,
-		Routes:  routes,
-		Dist:    dist,
-	})
+	app := tifaapp.App
+	app.Dist = dist
+	server.Main(app)
 }

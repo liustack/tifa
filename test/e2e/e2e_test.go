@@ -121,13 +121,6 @@ func buildWithOutput(t *testing.T, dir, path string) (exe, output string) {
 	t.Helper()
 	app := filepath.Base(dir)
 	exe = filepath.Join(t.TempDir(), app)
-	// go mod tidy keeps every module the generated main needs, because the app lists
-	// cmd/tifa as a tool, so a tidy go.mod builds with -mod=readonly and stays unchanged.
-	tidy := exec.Command("go", "mod", "tidy", "-diff")
-	tidy.Dir = dir
-	if out, err := tidy.CombinedOutput(); err != nil {
-		t.Fatalf("go mod tidy would change %s: %v\n%s", app, err, out)
-	}
 	before := moduleFiles(t, dir)
 	cmd := exec.Command(cli(t), "build", "--dir", dir, "-o", exe)
 	// The flags of the caller stay.
@@ -138,6 +131,14 @@ func buildWithOutput(t *testing.T, dir, path string) (exe, output string) {
 	}
 	if after := moduleFiles(t, dir); after != before {
 		t.Errorf("tifa build changed go.mod or go.sum of %s", app)
+	}
+	// go mod tidy keeps every module the generated main needs, because the app lists cmd/tifa as
+	// a tool, so a tidy go.mod builds with -mod=readonly and stays unchanged. It runs after the
+	// build, which writes the package .tifa/tifaapp that the request tests of an app import.
+	tidy := exec.Command("go", "mod", "tidy", "-diff")
+	tidy.Dir = dir
+	if out, err := tidy.CombinedOutput(); err != nil {
+		t.Fatalf("go mod tidy would change %s: %v\n%s", app, err, out)
 	}
 	info, err := os.Stat(exe)
 	if err != nil || !info.Mode().IsRegular() {

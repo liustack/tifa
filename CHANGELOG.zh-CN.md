@@ -13,6 +13,8 @@
 - `route.gen` 导出 `PageSearch` 和 `LayoutSearch`，即这个目录的 `Load` 或 `Layout` 读的查询参数，路由也挂上它们，所以 `Link`、`navigate` 和 `useSearch` 知道它们：URL 里一个键可以出现多次，所以读的时候每个值都是 `string` 或 `string[]`（Go 的 `c.Query` 取第一个值），每个键都可以不写，其他键放开。只多了类型：浏览器里不对查询参数运行任何代码（见[Link 和 navigate 里的查询参数](docs/app.zh-CN.md#link-和-navigate-里的查询参数)）。
 - `tifa.Secret("smtp.password", "SMTP password")` 定义应用的密码、token 或密钥配置。它从环境变量、`.env` 或 `-c` 的文件读，用命令行参数给值时程序报错并说明该放在哪里，`./bin/app config` 只写它的来源，不写值。[邮件指南](docs/guides/email.zh-CN.md)改用了它。
 - `server.csp: on` 发出只让本站脚本运行的 Content-Security-Policy。tifa 把它写进页面的内联脚本的哈希加进这个页面的策略，页面照常 hydrate，渲染缓存、整页缓存和 ETag 也照常工作。`server.csp_policy` 改策略，`report-only` 只报告不拦截（见 [Content-Security-Policy](docs/config.zh-CN.md#content-security-policy)）。
+- `tifatest.Start(t, tifaapp.App)` 在 `go test` 里跑起整个应用，返回一个 `*httptest.Server`，测试可以照浏览器的路子走一遍：打开受保护的页面拿到重定向、登录、看到会话 cookie、读页面。`OnStart`、`OnRequest`、解码、`Validate`、会话、重定向和 `OnError` 都和程序里一样跑，测试结束时跑 `OnShutdown`，client 会记下 cookie，不跟随重定向。没有前端时，页面按路由 ID 以 JSON 回答 Load 的数据。`tifatest.StartPages` 还会用 `tifa build` 或 `tifa dev` 的前端渲染页面，测试二进制里最多两个 VM，之后同一份构建的测试接着用，`.tifa/dist` 不存在或构建它用到的文件之后改过时，让测试失败。要在单独的测试包里导入应用，比如 `package login_test`（见[测整个请求](docs/app.zh-CN.md#测整个请求)）。
+- `tifa build` 和 `tifa dev` 写出 `.tifa/dist/inputs.json`：构建前端用到的每个文件的哈希，`StartPages` 用它检查。
 
 ### 变更
 
@@ -20,6 +22,7 @@
 - 给 Go 读的查询参数传字符串以外的值，比如 `search={{ page: 2 }}`，现在是类型错误。写成 `page: String(n)`：路由器本来也会把它写成文本。
 - 每个回答现在都带 `Referrer-Policy: strict-origin-when-cross-origin` 和 `Content-Security-Policy: frame-ancestors 'self'`，加上原有的 `X-Content-Type-Options: nosniff`。别的网站不能再把页面放进 iframe：合作方要放的页面在 `OnRequest` 里改这个头（见[安全头](docs/config.zh-CN.md#安全头)）。
 - `tifa new` 固定 `github.com/liustack/sqlite` v0.1.2，它支持 Go 1.26.6 到 1.27，遇到更新的 Go 会停止编译。升级 Go 之后也要升级驱动。
+- 生成的路由表从 `.tifa/routes.go` 移到包 `.tifa/tifaapp` 里，叫 `tifaapp.App`，测试可以导入它。`.tifa/main.go` 服务的就是 `tifaapp.App`。导入它的测试需要 `.tifa`，所以刚 clone 下来的仓库里，在跑过 `tifa check`、`tifa build` 或 `tifa dev` 之前，`go vet`、`go test` 和 `go mod tidy` 都会失败。
 
 ### 修复
 
@@ -27,6 +30,8 @@
 - 自己用文本读写的切片类型，比如带 `MarshalText` 和 `UnmarshalText` 的 `type Tags []string`，放在 GET、DELETE 入参或带文件的表单入参里，以前能通过构建：TypeScript 把它当一个字符串发出，比如 `"a,b"`，Go 不调用 `UnmarshalText`，把整个字符串放进一个元素，数字切片还会答 400。现在它和元素带这类方法的字段一样，构建报错。`c.BindQuery` 和带文件入参的解码遇到这种字段，不管请求里有什么都返回错误。也收 JSON 的入参收到表单时，这种字段有值就答 400，不再填错（见[带入参和返回值的方法函数](docs/app.zh-CN.md#带入参和返回值的方法函数)）。
 - 用 systemd socket activation 开 HTTPS 时，systemd 交来 `server.addr` 的套接字后可以不设 `server.addr`。之前程序会因为这个它根本不监听的默认地址拒绝启动。
 - 开了 HTTPS 时，`server.http_addr` 的明文 HTTP 地址现在和 `server.addr` 一样按 `server.read_timeout`、`server.write_timeout` 读写。之前不管它们怎么设都是 10 秒。
+- 在 `tifatest.NewCtx` 下，处理函数先写 1xx 状态（比如 `103 Early Hints`）再 `SetSession` 和回答时，recorder 停在 1xx 上，也没有 `Set-Cookie`：`httptest.ResponseRecorder` 把任何状态都当成最终状态。现在 recorder 不收 1xx 状态，和服务器在回答之前发出它们一致。
+- [登录](docs/guides/sign-in.zh-CN.md) 里的测试从一个 recorder 读两次请求，而它的 `Result()` 留下的是第一次调用时的头，所以永远看不到第二次的 cookie。现在每个请求新建一个 `NewCtx`。
 
 ## [0.0.3] - 2026-11-05
 

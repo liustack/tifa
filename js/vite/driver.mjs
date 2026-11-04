@@ -6,13 +6,16 @@
 // Requests:
 //
 //	{op: "exports", files}       the names each TypeScript or JavaScript file exports
-//	{op: "client"}               builds the browser bundle
+//	{op: "client"}               builds the browser bundle, answers with modules, the files
+//	                             the build read outside node_modules, and incomplete, why those
+//	                             are not all of them or '' (see watchedBuilds)
 //	{op: "ssr", assets, minify}  builds the SSR bundle, assets is the value of __TIFA_ASSETS__.
 //	                             The SSR bundle is always a production build: in a process
 //	                             whose NODE_ENV is not production, such as the one of the dev
 //	                             server, it is built on a worker thread with its own NODE_ENV.
 //	                             There it answers with styles, the tags that link the
-//	                             stylesheets the bundle imports from the dev server
+//	                             stylesheets the bundle imports from the dev server. Both
+//	                             answer with modules and incomplete, as client does
 //	{op: "serve", port, pollFiles}
 //	                             starts the dev server on 127.0.0.1:port, answers with the tags
 //	                             that load Vite's client and the React refresh runtime. With
@@ -78,6 +81,9 @@ const realRoot = fs.realpathSync(root)
 let server = null
 let listening = false // server.listen returned
 let ssrWorker = null // builds the SSR bundle when this process is not a production one
+let watched = null // what records returns
+// records returns record of watchedBuilds for the builds of this thread.
+const records = () => (watched ??= watchedBuilds(import.meta.resolve('vite')))
 
 // restarts follows the restarts of the dev server, whoever starts them: Vite after a change to
 // its config or a .env file, the watcher running out of watches, and tifa. A restart creates a
@@ -271,23 +277,25 @@ const ops = {
   },
 
   async client() {
-    const builder = await createBuilder({})
-    await builder.build(builder.environments.client)
-    return {}
+    const modules = new Set()
+    const incomplete = await (await records())('client', modules, async (inputs) => {
+      const builder = await createBuilder({ plugins: [inputs] })
+      await builder.build(builder.environments.client)
+    })
+    return { modules: [...modules].sort(), incomplete }
   },
 
   async ssr({ assets, minify }) {
     if (process.env.NODE_ENV === 'production') {
-      await buildSSR(createBuilder, { assets, minify })
-      return {}
+      return await buildSSR(createBuilder, await records(), { assets, minify })
     }
     ssrWorker ??= startSSRWorker()
     for (;;) {
       await restartsDone()
       const begun = restarts.begun
       try {
-        const { styles } = await ssrWorker.build({ assets, minify })
-        return { styles: styleLinks(styles) }
+        const { styles, modules, incomplete } = await ssrWorker.build({ assets, minify })
+        return { styles: styleLinks(styles), modules, incomplete }
       } catch (err) {
         // A restart came in between: build again once it is done.
         if (restarts.begun === begun && !restarts.running) throw err
@@ -384,17 +392,119 @@ const ops = {
   },
 }
 
+// addInput adds the file of the module ID id to modules, unless it is a virtual module or in
+// node_modules.
+function addInput(modules, id) {
+  if (typeof id !== 'string' || id.startsWith('\0')) return
+  const file = id.split('?')[0]
+  if (!file.split(/[\\/]/).includes('node_modules')) modules.add(file)
+}
+
+// watchedBuilds returns record(env, modules, build) for the builds of one thread with the Vite at
+// the URL vite. It runs build(plugin), which builds the environment named env with plugin added,
+// and adds to modules the files the build read outside node_modules (see addInput), which tifa
+// records so that tifatest can tell a front end older than its sources. It returns why those are
+// not all of them, or '' when they are.
+//
+// The files are the modules of the build, and the watch files of the Rolldown bundles closed
+// while it runs: the files of the modules Rolldown read from disk and every file a plugin added
+// with this.addWatchFile, from any plugin and any context, already resolved against Rolldown's
+// cwd, and the files the Vite config imports, which Vite bundles with Rolldown too. Rolldown gives
+// them only on its bundle object, in the getter watchFiles, which it marks experimental and
+// hidden and which Vite reads for its worker bundles. Vite's build creates the bundle with
+// rolldown() and closes it without handing it out, so watchedBuilds wraps close once on the
+// prototype of the bundles of the rolldown that Vite imports. The list is not complete when that
+// Rolldown cannot be loaded, has no watchFiles or fails to read them, or closes no bundle there
+// once the build of env started. A module whose ID is not an absolute path, such as an external one like node:fs or a
+// virtual one, has no file. The SSR worker thread runs its source text, so it uses only its
+// argument and addInput.
+async function watchedBuilds(vite) {
+  let version = 'of Vite'
+  let bundle = null // the prototype of the bundles
+  let unloaded = ''
+  try {
+    const { createRequire } = await import('node:module')
+    const { pathToFileURL } = await import('node:url')
+    const { rolldown, VERSION } = await import(pathToFileURL(createRequire(vite).resolve('rolldown')).href)
+    version = VERSION
+    const probe = await rolldown({ input: [] })
+    bundle = Object.getPrototypeOf(probe)
+    await probe.close()
+  } catch (err) {
+    unloaded = `the Rolldown of Vite cannot be loaded: ${err instanceof Error ? err.message : err}`
+  }
+  let modules = null // of the build that runs
+  let building = false // the build of env started
+  let closed = 0 // the bundles closed since
+  let missing = '' // why a bundle gave no watch files
+  if (bundle) {
+    const close = bundle.close
+    bundle.close = async function () {
+      try {
+        if (modules && !this.closed) {
+          const into = modules
+          if (building) closed++
+          try {
+            const files = await this.watchFiles
+            if (Array.isArray(files)) for (const file of files) addInput(into, file)
+            else missing = 'has no watchFiles on its bundles'
+          } catch (err) {
+            missing = `cannot read the watchFiles of a bundle: ${err instanceof Error ? err.message : err}`
+          }
+        }
+      } finally {
+        await close.call(this)
+      }
+    }
+  }
+  return async (env, into, build) => {
+    if (modules) throw new Error('two builds ran at once on one thread')
+    modules = into
+    building = false
+    closed = 0
+    missing = ''
+    const plugin = {
+      name: 'tifa:inputs',
+      applyToEnvironment: (environment) => environment.name === env,
+      buildStart() {
+        building = true
+      },
+      async generateBundle() {
+        const { isAbsolute } = await import('node:path')
+        for (const id of this.getModuleIds()) {
+          if (isAbsolute(id)) addInput(into, id)
+        }
+      },
+    }
+    try {
+      await build(plugin)
+    } finally {
+      modules = null
+    }
+    if (unloaded) return unloaded
+    if (missing) return `Rolldown ${version} ${missing}`
+    if (closed === 0) return `Vite's build closed no bundle of Rolldown ${version}`
+    return ''
+  }
+}
+
 // buildSSR builds the SSR bundle with the builder that createBuilder returns, with plugins added
-// to those of the Vite config. The SSR worker thread runs its source text, so it uses only its
-// arguments.
-async function buildSSR(createBuilder, { assets, minify }, plugins = []) {
-  const builder = await createBuilder({
-    plugins,
-    environments: {
-      ssr: { define: { __TIFA_ASSETS__: JSON.stringify(assets) }, build: { minify } },
-    },
+// to those of the Vite config, and returns modules, the files the build read outside node_modules,
+// and incomplete, why those are not all of them (see watchedBuilds, whose record is record). The
+// SSR worker thread runs its source text, so it uses only its arguments, watchedBuilds and
+// addInput.
+async function buildSSR(createBuilder, record, { assets, minify }, plugins = []) {
+  const modules = new Set()
+  const incomplete = await record('ssr', modules, async (inputs) => {
+    const builder = await createBuilder({
+      plugins: [...plugins, inputs],
+      environments: {
+        ssr: { define: { __TIFA_ASSETS__: JSON.stringify(assets) }, build: { minify } },
+      },
+    })
+    await builder.build(builder.environments.ssr)
   })
-  await builder.build(builder.environments.ssr)
+  return { modules: [...modules].sort(), incomplete }
 }
 
 // ssrThread runs on the SSR worker thread, next to buildSSR. Vite reads NODE_ENV once per
@@ -416,6 +526,8 @@ async function ssrThread() {
   }
   const createBuilder = (inline) =>
     vite.createBuilder({ root: workerData.root, logLevel: 'warn', customLogger: logger, ...inline })
+  let watched = null
+  const record = () => (watched ??= watchedBuilds(workerData.vite))
   const loads = new Map() // the loads the main thread has not answered, by ref
   let nextLoad = 0
   const devAssets = {
@@ -463,8 +575,8 @@ async function ssrThread() {
     }
     try {
       const styles = []
-      await buildSSR(createBuilder, request, [devAssets, devStyles(styles)])
-      parentPort.postMessage({ id, styles })
+      const { modules, incomplete } = await buildSSR(createBuilder, await record(), request, [devAssets, devStyles(styles)])
+      parentPort.postMessage({ id, styles, modules, incomplete })
     } catch (err) {
       let text = err instanceof Error ? err.message : String(err)
       if (err?.frame && !text.includes(err.frame)) text += '\n' + err.frame
@@ -477,7 +589,7 @@ async function ssrThread() {
 // bundle, and throws the error of a failed build. Its close returns once the worker has ended and
 // all it printed is in the output of this process.
 function startSSRWorker() {
-  const worker = new Worker(`${buildSSR}\n(${ssrThread})()`, {
+  const worker = new Worker(`${addInput}\n${watchedBuilds}\n${buildSSR}\n(${ssrThread})()`, {
     eval: true,
     env: { ...process.env, NODE_ENV: 'production' },
     workerData: { vite: import.meta.resolve('vite'), root },
