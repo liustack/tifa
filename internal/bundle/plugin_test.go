@@ -657,8 +657,8 @@ func TestPluginGivesPlainValuesInWhatRolldownWrites(t *testing.T) {
 }
 
 // plainNamespaces reads each module once and writes the chunk once, so a chunk of 10,000 CommonJS
-// modules, half of them React's, takes it about as long per module as a small one. tifa dev runs
-// it on every rebuild of the SSR bundle.
+// modules, half of them React's, takes it far less than a second. tifa dev runs it on every
+// rebuild of the SSR bundle.
 func TestPlainNamespacesTakesLinearTime(t *testing.T) {
 	testModules(t)
 	plugin := filepath.Join(t.TempDir(), "plugin.mjs")
@@ -710,11 +710,10 @@ func TestPlainNamespacesTakesLinearTime(t *testing.T) {
 			t.Errorf("%d modules: %d calls get plain values, want %d, warning %q", r.N, r.Plain, r.N/2, r.Warning)
 		}
 	}
-	// Ten times the modules, ten times the time, with room for noise. Reading the modules again for
-	// each one would take a hundred times.
-	small, large := runs[0], runs[1]
-	if large.Ms > 1000 || large.Ms > 30*max(small.Ms, 1) {
-		t.Errorf("%d modules take %.1f ms, %d take %.1f ms", large.N, large.Ms, small.N, small.Ms)
+	// The large chunk takes about 10ms. Reading every module again for each one took 8s, so a busy
+	// machine stays far under the limit and that slip does not.
+	if large := runs[1]; large.Ms > 1000 {
+		t.Errorf("%d modules take %.1f ms, want at most 1000", large.N, large.Ms)
 	}
 }
 
