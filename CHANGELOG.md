@@ -4,6 +4,8 @@ What changed in tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-11-04
+
 ### Added
 
 - `tifa.ExpirePages("/blog/"+slug, "/blog")` has the whole-page cache make those pages again on their next request, for every query string, host and scheme of each path. Call it after a write that changes what pages with `Cache` show. A page made from data read before the call is not kept, and the old page still stands in when making the new one fails. It clears the memory of the program only, not a CDN in front (see [Making a page again after a write](docs/app.md#making-a-page-again-after-a-write)).
