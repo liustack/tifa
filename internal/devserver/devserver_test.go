@@ -45,6 +45,8 @@ type buildPipeline struct {
 	contents    int
 	invalid     bool
 	hasContent  bool
+	// loaded records the number of Contents at each ContentLoaded.
+	loaded []int
 }
 
 func (p *buildPipeline) step(name string) error {
@@ -125,6 +127,12 @@ func (p *buildPipeline) HasContent() bool {
 	return p.hasContent
 }
 func (p *buildPipeline) HasPages() bool { return true }
+func (p *buildPipeline) ContentLoaded() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.loaded = append(p.loaded, p.contents)
+	return nil
+}
 func (p *buildPipeline) PollFiles(context.Context) (bool, error) {
 	return true, p.step("PollFiles")
 }
@@ -549,6 +557,15 @@ func TestRunReloadsTheContentWithoutARestart(t *testing.T) {
 	d.waitStatus(t, func(st status) bool { return st.Render == 4 })
 	expectSteps(t, d.p, "Analyze", "Content", "GoBuild")
 	expectPage(t, d.url+"/content", "content 5")
+
+	// The pipeline hears of each content the app loaded, at a start or in place, and not of the
+	// one it refused.
+	d.p.mu.Lock()
+	loaded := slices.Clone(d.p.loaded)
+	d.p.mu.Unlock()
+	if want := []int{1, 2, 4, 5}; !slices.Equal(loaded, want) {
+		t.Errorf("ContentLoaded after Content %v, want %v", loaded, want)
+	}
 }
 
 // Each answer and the dev client name the version and how many builds have been served. The

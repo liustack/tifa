@@ -177,6 +177,9 @@ func (p *devPipeline) Analyze(context.Context) (string, error) {
 // HasContent says whether the app has content collections, as the last analysis saw it.
 func (p *devPipeline) HasContent() bool { return p.m != nil && p.m.Content != nil }
 
+// ContentLoaded says that the app loaded the last content, see bundle.Dev.ContentLoaded.
+func (p *devPipeline) ContentLoaded() error { return p.front.ContentLoaded() }
+
 // HasPages says whether the app has a page.tsx, as the last analysis saw it.
 func (p *devPipeline) HasPages() bool {
 	_, pages := p.files["client.ts"]

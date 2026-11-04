@@ -65,14 +65,26 @@ func TestDevContent(t *testing.T) {
 	expectBody(t, d.base+"/zh-CN/blog/free-search", `<h1 id="title">免费联网搜索</h1>`)
 	change("fixed front matter", func() { d.edit(t, post, "tag: [DeepSeek]", "tags: [DeepSeek, 联网搜索]") })
 
-	// An entry that fails Validate: the app keeps the content it has.
-	d.edit(t, post, "cover: https://static.example.com/", "cover: https://elsewhere.example.com/")
+	// An entry that fails Validate, in the same edit as its body: the app keeps the content it
+	// has, with the old body.
+	{
+		data, err := os.ReadFile(filepath.Join(dir, post))
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := strings.Replace(string(data), "cover: https://static.example.com/", "cover: https://elsewhere.example.com/", 1)
+		write(t, filepath.Join(dir, post), strings.Replace(text, "模型推理漂亮", "新的开头，模型推理漂亮", 1))
+	}
 	failed = d.waitStatus(t, func(st devStatus) bool { return st.Error != "" })
 	if failed.Title != "The app did not load the content" || !strings.Contains(failed.Error, post+": Validate: cover must start with https://static.example.com/") {
 		t.Fatalf("overlay %q: %s", failed.Title, failed.Error)
 	}
 	expectBody(t, d.base+"/zh-CN/blog/free-search", `<h1 id="title">免费联网搜索</h1>`)
+	if _, _, body := get(t, d.base+"/zh-CN/blog/free-search"); strings.Contains(body, "新的开头") || !strings.Contains(body, "<p>模型推理漂亮") {
+		t.Fatalf("the page shows another body than the content the app kept:\n%.800s", body)
+	}
 	change("valid again", func() { d.edit(t, post, "cover: https://elsewhere.example.com/", "cover: https://static.example.com/") })
+	expectBody(t, d.base+"/zh-CN/blog/free-search", "<p>新的开头，模型推理漂亮")
 
 	// The image of a page bundle, which the English version falls back to: a new one shows on
 	// both pages, a missing one fails both.

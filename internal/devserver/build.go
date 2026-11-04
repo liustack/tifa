@@ -32,6 +32,9 @@ type Pipeline interface {
 	// HasContent reports whether the app has content collections, as the last analysis that worked
 	// saw it. Content then runs after every analysis, which may have changed the collections.
 	HasContent() bool
+	// ContentLoaded says that the app loaded the content the last Content that worked wrote, when
+	// it started or in place. The files of older content, which the app no longer reads, may go.
+	ContentLoaded() error
 	// HasPages reports whether the app has a page.tsx, as the last analysis that worked saw it.
 	// Only then does Vite's dev server run.
 	HasPages() bool

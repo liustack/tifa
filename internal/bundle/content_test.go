@@ -2,6 +2,7 @@ package bundle
 
 import (
 	"context"
+	"encoding/json/v2"
 	"io"
 	"os"
 	"path/filepath"
@@ -35,6 +36,43 @@ func contentApp(t *testing.T) (string, *Content) {
 	}
 	writeTree(t, root, map[string]string{"content/blog/a.md": "---\n---" + md[0].Text, "content/blog/b.md": "---\n---" + md[1].Text})
 	return root, &Content{File: f, Markdown: md}
+}
+
+// readBody reads the body of the entry id of the collection blog, from the file content.json names.
+func readBody(t *testing.T, root, id string) string {
+	t.Helper()
+	return readDist(t, root, bodyFile(t, root, id))
+}
+
+// bodyFile is the file of the body of the entry id of the collection blog that content.json
+// names, relative to .tifa/dist.
+func bodyFile(t *testing.T, root, id string) string {
+	t.Helper()
+	var f content.File
+	if err := json.Unmarshal([]byte(readDist(t, root, content.FileName)), &f); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range f["blog"] {
+		if r.ID == id {
+			return r.File
+		}
+	}
+	t.Fatalf("content.json has no entry %s", id)
+	return ""
+}
+
+// folders lists the folders of .tifa/dist/content.
+func folders(t *testing.T, root string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(root, ".tifa", "dist", "content"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	return names
 }
 
 func readDist(t *testing.T, root, name string) string {
@@ -190,7 +228,7 @@ func TestDevConvertsTheContentWithoutPages(t *testing.T) {
 	if n, err := d.Content(context.Background(), false, c, false, nil); err != nil || n != 2 {
 		t.Fatalf("Content = %d, %v: want both entries converted", n, err)
 	}
-	a := readDist(t, root, "content/blog/a.html")
+	a := readBody(t, root, "a")
 	m := regexp.MustCompile(`<img src="(/assets/x-[A-Za-z0-9_-]{8}\.png)" alt="x">`).FindStringSubmatch(a)
 	if m == nil || !strings.Contains(a, `<hr class="mark">`) {
 		t.Fatalf("a.html:\n%s", a)
@@ -202,7 +240,7 @@ func TestDevConvertsTheContentWithoutPages(t *testing.T) {
 	if n, err := d.Content(context.Background(), false, c, false, nil); err != nil || n != 1 {
 		t.Fatalf("Content = %d, %v: want only a converted", n, err)
 	}
-	if a := readDist(t, root, "content/blog/a.html"); !strings.Contains(a, "<p>more</p>") {
+	if a := readBody(t, root, "a"); !strings.Contains(a, "<p>more</p>") {
 		t.Errorf("a.html:\n%s", a)
 	}
 	if got := readDist(t, root, "content.json"); !strings.Contains(got, `"headings":[{"depth":2,"id":"hello-b","text":"Hello b"}]`) {
@@ -234,7 +272,7 @@ func TestDevConvertsTheContent(t *testing.T) {
 	if n, err := d.Content(context.Background(), true, c, false, nil); err != nil || n != 2 {
 		t.Fatalf("Content = %d, %v: want both entries converted", n, err)
 	}
-	if a := readDist(t, root, "content/blog/a.html"); !strings.Contains(a, `<img src="/__tifa/vite/content/blog/a/x.png" alt="x">`) || !strings.Contains(a, `<hr class="mark">`) {
+	if a := readBody(t, root, "a"); !strings.Contains(a, `<img src="/__tifa/vite/content/blog/a/x.png" alt="x">`) || !strings.Contains(a, `<hr class="mark">`) {
 		t.Errorf("a.html:\n%s", a)
 	}
 	if got := readDist(t, root, "content.json"); !strings.Contains(got, `"headings":[{"depth":2,"id":"hello-b","text":"Hello b"}]`) {
@@ -251,7 +289,7 @@ func TestDevConvertsTheContent(t *testing.T) {
 	if _, err := d.Content(context.Background(), true, c, false, nil); err == nil || !strings.Contains(err.Error(), "content/blog/b.md:7:1: image ./a/missing.png not found") {
 		t.Errorf("Content with a missing image: %v", err)
 	}
-	if b := readDist(t, root, "content/blog/b.html"); strings.Contains(b, "missing") {
+	if b := readBody(t, root, "b"); strings.Contains(b, "missing") {
 		t.Errorf("the failed conversion wrote b.html:\n%s", b)
 	}
 	c.Markdown[1].Text = strings.Replace(c.Markdown[1].Text, "missing", "x", 1)
@@ -265,5 +303,90 @@ func TestDevConvertsTheContent(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(root, name)); !os.IsNotExist(err) {
 			t.Errorf("%s is left: %v", name, err)
 		}
+	}
+}
+
+// Each conversion of tifa dev writes its bodies into a folder of its own, which content.json names,
+// and links there the bodies it did not convert. The bodies the app loaded stay until it loads
+// others: an entry that fails Validate keeps the app on the old content, which must show the old
+// bodies. A conversion that the app did not load goes at the next one.
+func TestDevKeepsTheBodiesTheAppLoaded(t *testing.T) {
+	root, c := contentApp(t)
+	writeTree(t, root, map[string]string{"package.json": `{"type":"module"}`})
+	d, err := NewDev(root, freePort(t), io.Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	ctx := context.Background()
+	if _, err := d.Build(ctx, filepath.Join(root, "public"), false); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if _, err := d.Content(ctx, false, c, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	loadedA, loadedB := bodyFile(t, root, "a"), bodyFile(t, root, "b")
+	if err := d.ContentLoaded(); err != nil {
+		t.Fatal(err)
+	}
+	stat := func(name string) os.FileInfo {
+		t.Helper()
+		info, err := os.Stat(filepath.Join(root, ".tifa", "dist", filepath.FromSlash(name)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return info
+	}
+
+	// A new body of a: content.json names new files, the one of b the same as before.
+	c.Markdown[0].Text += "\nfirst edit\n"
+	if n, err := d.Content(ctx, false, c, false, nil); err != nil || n != 1 {
+		t.Fatalf("Content = %d, %v: want a converted", n, err)
+	}
+	firstA, firstB := bodyFile(t, root, "a"), bodyFile(t, root, "b")
+	if firstA == loadedA || firstB == loadedB {
+		t.Fatalf("content.json names %s and %s again", firstA, firstB)
+	}
+	if !strings.Contains(readDist(t, root, firstA), "first edit") || strings.Contains(readDist(t, root, loadedA), "first edit") {
+		t.Fatal("the new body of a is not in a file of its own")
+	}
+	if !os.SameFile(stat(firstB), stat(loadedB)) {
+		t.Error("the body of b is not linked")
+	}
+
+	// The app did not load it. Another edit: the bodies the app has stay, the ones it never had go.
+	c.Markdown[0].Text += "\nsecond edit\n"
+	if _, err := d.Content(ctx, false, c, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := readDist(t, root, loadedA); strings.Contains(got, "edit") {
+		t.Errorf("the body the app loaded changed:\n%s", got)
+	}
+	if len(folders(t, root)) != 2 {
+		t.Errorf("dist/content holds %q, want the bodies the app loaded and the new ones", folders(t, root))
+	}
+	if _, err := os.Stat(filepath.Join(root, ".tifa", "dist", filepath.FromSlash(firstA))); !os.IsNotExist(err) {
+		t.Errorf("%s is left: %v", firstA, err)
+	}
+
+	// A conversion that fails leaves no folder behind.
+	c.Markdown[1].Text += "\n![y](./a/missing.png)\n"
+	if _, err := d.Content(ctx, false, c, false, nil); err == nil {
+		t.Fatal("Content with a missing image worked")
+	}
+	if len(folders(t, root)) != 2 {
+		t.Errorf("dist/content holds %q after a failure", folders(t, root))
+	}
+	c.Markdown[1].Text = strings.Replace(c.Markdown[1].Text, "\n![y](./a/missing.png)\n", "", 1)
+
+	// Once the app loads the new content, the old bodies go.
+	if err := d.ContentLoaded(); err != nil {
+		t.Fatal(err)
+	}
+	if len(folders(t, root)) != 1 {
+		t.Errorf("dist/content holds %q, want only the bodies the app loaded", folders(t, root))
+	}
+	if got := readBody(t, root, "a"); !strings.Contains(got, "second edit") {
+		t.Errorf("a:\n%s", got)
 	}
 }

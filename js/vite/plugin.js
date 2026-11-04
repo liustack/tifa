@@ -1028,9 +1028,9 @@ export function markdownPlugin(getRoot, markdown) {
       // of the plugins. For tifa dev with pages the bodies load their files from Vite's dev server.
       // alone is for an app without pages, where no bundle is built and no dev server runs: the
       // files go into .tifa/dist/assets as Vite names its assets, <name>-<hash>.<ext>, and
-      // command is the tifa command that converts, for the messages. With partial the entries
-      // are some of the entries, as tifa dev converts the ones that changed: the bodies and files
-      // of the others stay.
+      // command is the tifa command that converts, for the messages. With partial convert removes
+      // nothing: tifa dev converts some of the entries each time, into a folder of its own, and
+      // removes the bodies the app no longer reads itself.
       async convert({ alone = false, command: by = 'tifa dev', partial = false } = {}) {
         const root = getRoot()
         const entries = readContentEntries(root)

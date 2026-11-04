@@ -473,12 +473,16 @@ func (d *dev) rebuild(ctx context.Context, s steps) {
 			d.reloads++
 			d.serving = d.nonce + "-" + strconv.Itoa(d.gen) + "." + strconv.Itoa(d.reloads)
 			d.mu.Unlock()
+			d.contentLoaded()
 		}
 	} else if err := d.restart(ctx, d.version() == "" || ran != steps{bundle: true}); err != nil {
 		if ctx.Err() == nil {
 			d.fail("The app did not start", err)
 		}
 		return
+	} else {
+		// The app read the content when it started.
+		d.contentLoaded()
 	}
 	d.mu.Lock()
 	d.rendered++
@@ -492,6 +496,14 @@ func (d *dev) rebuild(ctx context.Context, s steps) {
 		return
 	}
 	d.log.Printf("ready in %s", took)
+}
+
+// contentLoaded tells the pipeline that the app loaded the last content. Files that stay are no
+// error of the build.
+func (d *dev) contentLoaded() {
+	if err := d.b.p.ContentLoaded(); err != nil {
+		d.log.Printf("removing the files of old content: %v", err)
+	}
 }
 
 // running reports whether an application listens.

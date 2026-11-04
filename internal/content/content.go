@@ -33,7 +33,8 @@ type Record struct {
 	Words int  `json:"words"`
 	// Source is the Markdown file relative to the app root, such as content/blog/en/a/index.md.
 	Source string `json:"source"`
-	// File is the body of the entry in dist, such as content/blog/en/a.html, see BodyFile.
+	// File is the body of the entry in dist, such as content/blog/en/a.html, see BodyFile. Under
+	// tifa dev it is in the folder of the conversion that wrote it, such as content/3/blog/en/a.html.
 	File string `json:"file"`
 	// Headings are the h1 to h6 of the body in the order they come, which the Vite plugin
 	// collects. tifa build adds them, a scan has none.
