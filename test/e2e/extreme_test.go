@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -108,8 +109,10 @@ func TestExtremeApp(t *testing.T) {
 			if took > budget {
 				t.Errorf("%s: failed after %s, want within %s", page.url, took, budget)
 			}
-			// The VM that failed is replaced, and the next page renders.
-			renderedPage(t, base+"/")
+			// The VM that failed is replaced, and the next page renders. The render cache keeps
+			// pages by URL and data (docs/app.md, SSR and cache), so / alone would be a hit:
+			// a query of its own gives each check a URL the cache has not seen.
+			renderedPage(t, base+"/?after="+url.QueryEscape(page.url))
 		default:
 			t.Errorf("%s: %d, want %s:\n%.600s", page.url, status, page.want, body)
 		}
