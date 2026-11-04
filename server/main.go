@@ -86,6 +86,8 @@ func runSources(ctx context.Context, app App, src *config.Sources, stdout, stder
 		if err := content.Load(dist); err != nil {
 			return err
 		}
+		// An entry whose date is still to come is shown at that moment, until the program stops.
+		defer content.Watch(s.contentChanged)()
 		if dist != nil {
 			// openFront reads s.dev to turn on the checks of tifa dev.
 			if dev != nil {

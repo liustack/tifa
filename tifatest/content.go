@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/liustack/tifa/content"
 	internalcontent "github.com/liustack/tifa/internal/content"
@@ -16,10 +17,11 @@ import (
 // LoadContent gives every content collection of the app the entries tifa build would give it.
 // It reads content/ of the app, whose root is the folder of the go.mod found from the current
 // directory up, with the same rules and checks as tifa build: drafts are left out, an entry whose
-// date is still to come is hidden, Words is counted and Validate runs on each entry. Any error
-// fails the test. The collections get back what they had when the test ends. The collections are
-// shared by the whole test binary, so a test that calls LoadContent cannot run in parallel: it
-// fails when the test or one of its parents called t.Parallel, and t.Parallel panics after it.
+// date is still to come is hidden (see SetContentTime), Words is counted and Validate runs on each
+// entry. Any error fails the test. The collections get back what they had when the test ends. The
+// collections are shared by the whole test binary, so a test that calls LoadContent cannot run in
+// parallel: it fails when the test or one of its parents called t.Parallel, and t.Parallel panics
+// after it.
 //
 // The test must import the root package of the app, whose content.go declares the collections.
 func LoadContent(t testing.TB) {
@@ -93,6 +95,16 @@ func SetContent[T any](t testing.TB, c *content.Collection[T], entries ...T) {
 	}
 	t.Cleanup(coll.Save())
 	commit()
+}
+
+// SetContentTime has the content collections judge which entries can be seen at tm instead of
+// now, until the test ends: an entry is shown when its date is not after tm. It works with
+// LoadContent and SetContent, called before or after them, and the time does not move from tm.
+// Like them, it cannot be called from a test that runs in parallel.
+func SetContentTime(t testing.TB, tm time.Time) {
+	t.Helper()
+	notParallel(t, "SetContentTime")
+	t.Cleanup(internalcontent.SetClock(internalcontent.Clock{Now: func() time.Time { return tm }}))
 }
 
 // notParallel fails the test when it or a parent runs in parallel, and keeps it from calling

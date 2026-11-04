@@ -514,6 +514,7 @@ const Cache = 10 * time.Minute
 - **键**是协议、`Host` 请求头（不信 `X-Forwarded-Host`）、路径，以及去掉跟踪参数后的查询串，其余参数按名字排序。`cache.ignore_query` 列出跟踪参数（`utm_*`、`gclid`、`fbclid` 等，见 [config.zh-CN.md](config.zh-CN.md)）。页面链上有 `Load` 读的参数一律保留。页面用同样处理过的 URL 渲染，所以访客看到的内容不会取决于键忽略掉的参数。
 - **存什么。** GET 和 HEAD 共用一份。只存状态码 200、301、302 和 308 的回答。以下情况这次不存，并且这个 URL 的请求两分钟内跳过缓存，免得排队：`Cache-Control` 里有 `private`、`no-store` 或 `no-cache`（由 `OnRequest` 或 `Load` 设的），`Vary` 里有 `Accept-Encoding` 以外的值，以及其他状态码，404 也算。请求里的强制刷新（`Cache-Control: no-cache` 或 `Pragma`）绕不过缓存。
 - **时间到了**以后谁都拿不到旧页。下一个请求重新生成，同时到的请求等它。数据没变时渲染缓存直接命中，不用重新渲染。
+- **内容条目到点发布时**，这一刻之前做好的页面全部算作到时，所以文章列表马上就有新的一篇（见[草稿和日期](content.zh-CN.md#草稿和日期)）。
 - **重新生成失败时**，比如 `Load` 返回错误、渲染失败或超时、所有 VM 都忙，就给旧页，最多到过期后一天。再往后照实返回错误。`Load` 返回 `tifa.ErrNotFound`、重定向或 500 以下的其他 `tifa.Error`，是业务上的回答而不是失败，会取代旧页。
 - **响应头。** `Load` 和 `Layout` 设的响应头（除了 tifa 自己写的 `Set-Cookie`、`Cache-Control`、`Vary`、`Age`、`ETag` 和 `Content-Length`）随条目存下，用这个条目答的每个回答都带上。`Load` 或 `Layout` 设了 `private`、`no-store` 或 `no-cache` 的 `Cache-Control`，或 `Accept-Encoding` 以外的 `Vary`，这个页面就不进缓存，这些头会随回答发出，盖过 `OnRequest` 设的 `public`。存下来的页面带 `Cache-Control: public, max-age=0, s-maxage=<Cache 的秒数>, stale-if-error=86400` 和 `Age`。浏览器每次都来问，ETag 匹配时从条目回 304，所以部署后马上就能看到新版。`Age` 是页面生成后过了几秒，前面的 CDN 会用 `s-maxage` 减去它，两层加起来不会超过 `Cache`。`Cache-Status: tifa; hit`、`tifa; fwd=miss` 或 `tifa; fwd=stale` 说明回答从哪来，`X-Tifa-Render` 照旧。导航数据仍是 `private, no-cache`。CDN 里要怎么设，见 tifa skill 的部署说明。
 - 条目和渲染缓存共用 `cache.size`。`cache.size` 为 0 时什么都不存，同时没命中的请求仍然共用一次生成。

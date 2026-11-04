@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestContentApp builds test/apps/content, a blog and docs in two languages declared in its
@@ -22,6 +23,7 @@ func TestContentApp(t *testing.T) {
 	for _, want := range []string{
 		"tifa: content: 1 entry of blog has no zh-CN version: 202609/second (warning)",
 		"tifa: content: 2 entries of docs have no zh-CN version: guide, guide/routing (warning)",
+		"tifa: content: 2 entries of blog wait for their date: zh-CN/202611/launch and en/202611/release-notes at 2099-11-20 09:00 +08:00\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the build did not print %q:\n%s", want, out)
@@ -308,5 +310,78 @@ func TestContentAppWithoutPages(t *testing.T) {
 	out, err := cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(out), "add vite.config.ts, which uses the tifa plugin") || !strings.Contains(string(out), "pnpm add -D vite unified@11") {
 		t.Errorf("build without vite.config.ts: %v\n%s", err, out)
+	}
+}
+
+// TestContentPublishedAtItsDate builds the content app with a post dated twenty seconds after the
+// build starts. The running program answers 404 for it and leaves it out of the list, which the
+// whole-page cache keeps for ten minutes. At its date the post is on the list and on its own page,
+// without a new build, and the program logs it.
+func TestContentPublishedAtItsDate(t *testing.T) {
+	skipUnlessEnabled(t)
+	dir := copyApp(t, "content")
+	post := filepath.Join(dir, "content", "blog", "en", "202611", "soon", "index.md")
+	if err := os.MkdirAll(filepath.Dir(post), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var exe, out string
+	var date time.Time
+	// The date must still be ahead when the program runs. A slow build takes a second one, which
+	// reuses the caches of the first.
+	for try := 1; ; try++ {
+		date = time.Now().Add(20 * time.Second).Truncate(time.Second).UTC()
+		if date.Second() == 0 {
+			// The build and the log write a date to the minute when it has no seconds, and the
+			// lines below expect the seconds.
+			date = date.Add(time.Second)
+		}
+		text := "---\ntitle: Coming soon\ndescription: A post published while the program runs.\ndate: " + date.Format(time.RFC3339) + "\n---\n\nIt is out.\n"
+		if err := os.WriteFile(post, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		exe, out = buildWithOutput(t, dir, os.Getenv("PATH"))
+		if time.Until(date) > 5*time.Second {
+			break
+		}
+		if try == 2 {
+			t.Fatal("the build took more than 15 seconds twice, so the post was out before the program ran")
+		}
+	}
+	want := "tifa: content: 3 entries of blog wait for their date: en/202611/soon at " + date.Format("2006-01-02 15:04:05") + " +00:00, zh-CN/202611/launch and en/202611/release-notes at 2099-11-20 09:00 +08:00\n"
+	if !strings.Contains(out, want) {
+		t.Errorf("the build did not print %q:\n%s", want, out)
+	}
+
+	base, _, output := start(t, exe)
+	list := func() (string, string) {
+		code, header, body := get(t, base+"/en/blog")
+		if code != 200 {
+			t.Fatalf("GET /en/blog: %d\n%s", code, body)
+		}
+		return header.Get("X-Tifa-Render"), body
+	}
+	if code, _, _ := get(t, base+"/en/blog/soon"); code != 404 {
+		t.Errorf("GET the post before its date: %d", code)
+	}
+	list()
+	if how, body := list(); how != "cache" || strings.Contains(body, "Coming soon") {
+		t.Fatalf("the list before the date: from %q, with the post %v", how, strings.Contains(body, "Coming soon"))
+	}
+	if time.Until(date) <= 0 {
+		t.Fatal("the date passed while the test asked for the pages before it")
+	}
+
+	time.Sleep(time.Until(date))
+	output.waitFor(t, func(s string) bool { return strings.Contains(s, "tifa: content: blog en/202611/soon is published") })
+	how, body := list()
+	if !strings.Contains(body, "Coming soon") {
+		t.Errorf("the list after the date lacks the post (from %q):\n%s", how, body)
+	}
+	if strings.Index(body, "Coming soon") > strings.Index(body, "A second post") {
+		t.Errorf("the newest post does not come first:\n%s", body)
+	}
+	code, _, body := get(t, base+"/en/blog/soon")
+	if code != 200 || !strings.Contains(body, "It is out.") {
+		t.Errorf("GET the post after its date: %d\n%s", code, body)
 	}
 }

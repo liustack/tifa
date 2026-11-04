@@ -1,12 +1,13 @@
 ---
-summary: 'How an app keeps posts, docs and other writing as Markdown files under content/ and reads them in Go: declaring a collection in content.go, which files are entries, IDs, slugs, paths and translations, the front matter keys a schema struct allows, drafts and dates, how the body becomes HTML (the steps, remark and rehype plugins, images and links, headings) and how a page shows it, what tifa build writes, how to read content in tests, and the errors and warnings'
+summary: 'How an app keeps posts, docs and other writing as Markdown files under content/ and reads them in Go: declaring a collection in content.go, which files are entries, IDs, slugs, paths and translations, the front matter keys a schema struct allows, drafts and entries that come out at their date, how the body becomes HTML (the steps, remark and rehype plugins, images and links, headings) and how a page shows it, what tifa build writes, how to read content in tests, and the errors and warnings'
 read_when:
   - Adding a blog, docs or other Markdown content to a tifa app
   - Writing or changing content.go, or a schema type that embeds content.Entry
   - The build reports an error about content.Define, a folder under content/ or the front matter of a file
   - Showing the body of an entry with Body and <HTML>, a table of contents from Headings, or adding remark or rehype plugins to tifa() in vite.config.ts
   - An image or link of a body is not found, or a plugin fails the conversion
-  - Writing Go tests that read a collection, with tifatest.LoadContent or tifatest.SetContent
+  - Publishing an entry at a set time with its date, or an entry did not show up at its date
+  - Writing Go tests that read a collection, with tifatest.LoadContent, tifatest.SetContent or tifatest.SetContentTime
   - Changing the content package, internal/content, the content checks in internal/analyze or the Markdown steps of js/vite/plugin.js
 ---
 
@@ -163,7 +164,32 @@ tifa: content: content/blog/zh-CN/202608/free-search/index.md: Validate: cover m
 ## Drafts and dates
 
 - `draft: true` is a draft. `tifa build` leaves it out, so its text is not in the program.
-- An entry whose `date` is still to come is in the program, but `All`, `In` and `Get` do not return it and other entries' `Translations` do not list it. The program decides which entries can be seen when it reads the content at start.
+- An entry whose `date` is still to come is in the program, but `All`, `In` and `Get` do not return it and other entries' `Translations` do not list it. At that moment it shows up by itself, without a new build or a restart. Entries with the same date come out together.
+- A date alone (`2026-11-20`) is midnight UTC. For an exact time, write RFC 3339 with a zone: `2026-11-20T09:00:00+08:00`.
+- The program goes by the clock of the machine (`time.Now`), not by the render clock of `tifa.WithRenderClock`. When that clock is set, or the machine wakes from sleep, an entry whose date has passed comes out within a minute.
+
+`tifa build` and `tifa check` list the entries that wait for their date, so you can check the dates before you ship:
+
+```text
+tifa: content: 2 entries of blog wait for their date: zh-CN/202611/launch and en/202611/release-notes at 2026-11-20 09:00 +08:00
+```
+
+The running program logs one line when entries come out:
+
+```text
+tifa: content: blog zh-CN/202611/launch and en/202611/release-notes are published (date 2026-11-20 09:00 +08:00)
+```
+
+What else changes at that moment:
+
+| Where | What happens |
+| --- | --- |
+| Pages with `Cache` | Every page the whole-page cache made before that moment counts as expired, and the next request makes it again. A page whose data did not change comes from the render cache, without a new render. |
+| The page of the entry | It answered 404 before, which the whole-page cache does not keep, so it opens at that moment. |
+| A CDN in front of the program | A page with `Cache` goes out with `s-maxage` set to that time, so a CDN may show the old list for up to that long. |
+| RSS, a sitemap and other handlers | They read the collection on each request and have the entry. Something worked out from the content in `OnStart` and kept does not, so work it out in the function that needs it. |
+
+One request that reads a collection several times may see both sides of that moment, as it may with a row just written to a database.
 
 ## Reading a collection
 
@@ -184,7 +210,7 @@ func Published(lang string) []myblog.Post {
 }
 ```
 
-The content is loaded before `OnStart`, so `OnStart` can read it. Reading a collection while packages are initialized panics. Work out what depends on the content in the function that needs it, such as the RSS handler, rather than keeping a copy from `OnStart`.
+The content is loaded before `OnStart`, so `OnStart` can read it. Reading a collection while packages are initialized panics. The entries that can be seen change when a date comes, so work out what depends on the content in the function that needs it, such as the RSS handler, rather than keeping a copy from `OnStart`.
 
 ## Showing the body
 
@@ -317,13 +343,20 @@ func TestTagged(t *testing.T) {
 	)
 	// ...
 }
+
+func TestScheduled(t *testing.T) {
+	tifatest.LoadContent(t)
+	tifatest.SetContentTime(t, time.Date(2026, 11, 20, 1, 0, 0, 0, time.UTC)) // which entries can be seen at this time
+	// ...
+}
 ```
 
 - `tifatest.LoadContent(t)` finds the app by going up from the current folder to `go.mod`, reads `content/` with the same scan and checks as the build, leaves out drafts, hides entries whose date is to come and runs `Validate`. A problem fails the test with the message the build gives.
 - `tifatest.SetContent(t, c, entries...)` makes the given entries the content of one collection. The fields of `content.Entry` are the ones you write, apart from `Translations`, which links entries with the same ID. Entries dated in the future are hidden. `Validate` does not run.
-- Tests have no build, so there is no HTML: `Body()` of an entry of either function returns the placeholder `<p>tifatest: body of blog zh-CN/202608/free-search</p>` (the collection, the language and the ID), and `Headings()` returns nil. An article page's `Load` runs in a test all the same. To check the HTML itself, test the built program.
-- Both put the collections back as they were when the test ends.
-- The collections are shared by the whole test binary, so a test that calls either cannot run in parallel. It fails when the test or one of its parents called `t.Parallel`, and calling `t.Parallel` after it panics.
+- `tifatest.SetContentTime(t, tm)` has the collections decide which entries can be seen at `tm` instead of now: an entry is shown when its date is not after `tm`. Call it before or after `LoadContent` and `SetContent`. The time stays at `tm` for the whole test.
+- Tests have no build, so there is no HTML: `Body()` of an entry of `LoadContent` or `SetContent` returns the placeholder `<p>tifatest: body of blog zh-CN/202608/free-search</p>` (the collection, the language and the ID), and `Headings()` returns nil. An article page's `Load` runs in a test all the same. To check the HTML itself, test the built program.
+- All three put the collections and their time back as they were when the test ends.
+- The collections are shared by the whole test binary, so a test that calls any of them cannot run in parallel. It fails when the test or one of its parents called `t.Parallel`, and calling `t.Parallel` after it panics.
 - Using a collection in a test without either of them panics:
 
 ```text

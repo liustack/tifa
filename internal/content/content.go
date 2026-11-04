@@ -135,6 +135,10 @@ type Collection struct {
 	Set func(values []any) (commit func(), err error)
 	// Save returns a function that gives the collection back the data it has now.
 	Save func() (restore func())
+	// Show makes the entries whose date is not after t the ones the collection shows, and returns
+	// those it did not show before, sorted by ID, and the first date after t, zero without one.
+	// It does nothing for a collection without data.
+	Show func(t time.Time) (shown []Shown, next time.Time)
 }
 
 var (
@@ -182,9 +186,9 @@ func Lookup(v any) *Collection {
 	return nil
 }
 
-// Load reads content.json from dist and makes it the data of every declared collection. Either
-// every collection gets its data, or none does. dist is nil only for an App without the files of
-// tifa build, as in the tests of the server, and then Load does nothing.
+// Load reads content.json from dist and makes it the data of every declared collection with
+// Install. Either every collection gets its data, or none does. dist is nil only for an App
+// without the files of tifa build, as in the tests of the server, and then Load does nothing.
 func Load(dist fs.FS) error {
 	if dist == nil || len(Collections()) == 0 {
 		return nil
@@ -197,25 +201,9 @@ func Load(dist fs.FS) error {
 	if err := json.Unmarshal(data, &f); err != nil {
 		return fmt.Errorf("tifa: content: reading %s of the build: %w", FileName, err)
 	}
-	return load(f, dist)
+	return Install(f, dist)
 }
 
-// LoadFile makes the records of f the data of every declared collection. It runs Validate on every
-// entry first, and changes nothing when one fails. Without the files of a build, the body of each
-// entry is a placeholder, as tifatest gives it.
-func LoadFile(f File) error { return load(f, nil) }
-
-func load(f File, dist fs.FS) error {
-	var commits []func()
-	for _, c := range Collections() {
-		commit, err := c.Decode(f[c.Source.Dir], dist)
-		if err != nil {
-			return fmt.Errorf("tifa: content: %w", err)
-		}
-		commits = append(commits, commit)
-	}
-	for _, commit := range commits {
-		commit()
-	}
-	return nil
-}
+// LoadFile makes the records of f the data of every declared collection, as Install does without
+// the files of a build: the body of each entry is a placeholder, as tifatest gives it.
+func LoadFile(f File) error { return Install(f, nil) }

@@ -22,7 +22,8 @@ import (
 // results of every Load of the page and its HTML, so the HTML and the navigation data of a page
 // come from the same moment. While its time lasts a request gets the entry without a Load or a
 // render. After that the next request makes a new one, the requests that come meanwhile wait for it,
-// and when making it fails the old one stands in for a day.
+// and when making it fails the old one stands in for a day. When content entries come out at their
+// date, every entry made before that moment is over its time (contentChanged).
 
 const (
 	// staleIfError is how long after its time an entry may stand in for a page that fails.
@@ -165,6 +166,12 @@ func (s *server) cachedPageRequest(c *tifa.Ctx, route Route, chain []load, ttl t
 	}
 	return s.respondPage(c, got, status, selected)
 }
+
+// contentChanged is called when entries of the content collections were published or the
+// collections got new entries. Every page of the whole-page cache made before is made again by the
+// next request: its Loads may have read what changed. A page whose data did not change is answered
+// by the render cache, without a render.
+func (s *server) contentChanged() { s.cache.expireMadeBefore(cacheNow()) }
 
 // ownedHeader reports whether the framework writes the header itself on a page of the whole-page
 // cache, so a Load or Layout cannot keep it in an entry.

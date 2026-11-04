@@ -31,6 +31,9 @@ type htmlCache struct {
 	// bodies counts, for the pages that share their HTML and compressed forms (the render cache
 	// and the whole-page cache keep the same render), how many pages use each, so the bytes count once.
 	bodies map[*bodyID]*bodyUse
+	// madeAfter is the moment the content collections last changed: a page of the whole-page
+	// cache made before it is no longer fresh, see expireMadeBefore.
+	madeAfter time.Time
 	// Hooks of the tests, nil otherwise: fetching runs as fetch starts, landing between storing
 	// a render and ending its flight.
 	fetching, landing func()
@@ -130,8 +133,25 @@ func effectsOf(page cachedPage, err error) effects {
 }
 
 // fresh reports whether a page may be served at now: a page of the render cache always may, a
-// page of the whole-page cache until its time is over.
-func (p cachedPage) fresh(now time.Time) bool { return p.whole == nil || now.Before(p.whole.expires) }
+// page of the whole-page cache until its time is over, if it was made after madeAfter.
+func (p cachedPage) fresh(now, madeAfter time.Time) bool {
+	return p.whole == nil || now.Before(p.whole.expires) && p.whole.created.After(madeAfter)
+}
+
+// expireMadeBefore makes every page of the whole-page cache made before t, or at t, no longer
+// fresh: the next request makes it again. Such a page still stands in for one that fails (stale).
+// The makes and renders under way read their data before t, so later requests do not wait for
+// them and start their own: the requests that already wait get the result as before, and a make
+// that is replaced so does not enter the cache (see fly). A render of the render cache that is
+// under way may be done twice, which is rare, since content is published seldom.
+func (c *htmlCache) expireMadeBefore(t time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if t.After(c.madeAfter) {
+		c.madeAfter = t
+	}
+	clear(c.flights)
+}
 
 func newHTMLCache(size int64) *htmlCache {
 	return &htmlCache{size: size, order: list.New(), pages: map[string]*list.Element{}, flights: map[string]*flight{}, bypass: map[string]time.Time{}, bodies: map[*bodyID]*bodyUse{}}
@@ -296,7 +316,7 @@ func (c *htmlCache) fetch(ctx context.Context, key string, unheard func(error), 
 		c.fetching()
 	}
 	c.mu.Lock()
-	if e, ok := c.pages[key]; ok && e.Value.(*cached).page.fresh(cacheNow()) {
+	if e, ok := c.pages[key]; ok && e.Value.(*cached).page.fresh(cacheNow(), c.madeAfter) {
 		c.order.MoveToFront(e)
 		c.mu.Unlock()
 		return fetched{page: e.Value.(*cached).page, held: true, how: "cache"}, nil

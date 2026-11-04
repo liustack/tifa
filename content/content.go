@@ -59,8 +59,8 @@ type Entry struct {
 	Slug string `json:"slug"`
 	// Path is ID with its last segment replaced by Slug.
 	Path string `json:"path"`
-	// Date is the date of the front matter, zero without one. An entry whose date is still to
-	// come is hidden.
+	// Date is the date of the front matter, zero without one: a date alone is midnight UTC. An
+	// entry whose date is still to come is hidden until that moment.
 	Date time.Time `json:"date,omitzero"`
 	// Draft is true for an entry whose front matter has draft: true, which only tifa dev shows.
 	Draft bool `json:"draft,omitzero"`
@@ -159,9 +159,6 @@ type view[T any] struct {
 	index  map[[2]string]int // by language and ID, into all
 }
 
-// now is the time the visibility of entries is judged by.
-var now = time.Now
-
 var dirName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 // Define declares a collection of entries of type T, which must be a struct that embeds Entry. It
@@ -197,6 +194,7 @@ func Define[T any](src Source) *Collection[T] {
 			d := c.data.Load()
 			return func() { c.data.Store(d) }
 		},
+		Show: c.show,
 	})
 	if err != nil {
 		panic("content.Define: " + err.Error())
@@ -312,7 +310,36 @@ func (c *Collection[T]) commit(items []item[T]) func() {
 		return cmp.Or(cmp.Compare(x.ID, y.ID), cmp.Compare(c.langIndex(x.Lang), c.langIndex(y.Lang)))
 	})
 	return func() {
-		c.data.Store(&data[T]{items: items, view: c.makeView(items, now())})
+		c.data.Store(&data[T]{items: items, view: c.makeView(items, content.Now())})
+	}
+}
+
+// show makes the entries that can be seen at t the ones the collection shows, see
+// content.Collection.Show. The data may be replaced meanwhile, and then show judges the new data.
+func (c *Collection[T]) show(t time.Time) ([]content.Shown, time.Time) {
+	for {
+		d := c.data.Load()
+		if d == nil {
+			return nil, time.Time{}
+		}
+		v := c.makeView(d.items, t)
+		if !c.data.CompareAndSwap(d, &data[T]{items: d.items, view: v}) {
+			continue
+		}
+		var shown []content.Shown
+		for _, x := range v.all {
+			e := entryOf(&x)
+			if _, ok := d.view.index[[2]string{e.Lang, e.ID}]; !ok {
+				shown = append(shown, content.Shown{Collection: c.src.Dir, Lang: e.Lang, ID: e.ID, Date: e.Date})
+			}
+		}
+		var next time.Time
+		for _, it := range d.items {
+			if date := entryOf(&it.v).Date; date.After(t) && (next.IsZero() || date.Before(next)) {
+				next = date
+			}
+		}
+		return shown, next
 	}
 }
 
