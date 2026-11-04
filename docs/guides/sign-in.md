@@ -699,7 +699,7 @@ func TestSignIn(t *testing.T) {
 }
 ```
 
-`tifatest.NewCtx` gives the test a session store of its own, so `SetSession` works. The cookie is in the recorder as soon as `SetSession` returns. Make one `NewCtx` per request and read `rec.Result()` after the function returns: the recorder keeps the headers of its first `Result()`, so a recorder used for two requests never shows the cookie of the second. The `Ctx`s of one test share the store, so the cookie of one signs in the next (see [Testing sessions](../sessions.md#testing-sessions)). To test a function that needs a user without signing in, use `tifatest.WithSession` (see [Testing sessions](../sessions.md#testing-sessions)).
+`tifatest.NewCtx` gives the test a session store of its own, so `SetSession` works. The cookie is in the recorder as soon as `SetSession` returns. Make one `NewCtx` per request and read `rec.Result()` after the function returns: the recorder keeps the headers of its first `Result()`, so a recorder used for two requests never shows the cookie of the second. The `Ctx`s of one test share the store, so the cookie of one signs in the next (see [Testing sessions](../sessions.md#testing-sessions)). To test a function that needs a user without signing in, use `tifatest.WithSession` (see [Testing sessions](../sessions.md#testing-sessions)). To walk through the whole sign-in as a browser does, from the protected page through the redirect and the form to the page again, start the app with `tifatest.Start` (see [Testing a whole request](../app.md#testing-a-whole-request)).
 
 ## Decisions
 

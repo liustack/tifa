@@ -1,11 +1,12 @@
 ---
-summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、不套外层的 Layout（layout_.tsx）、hooks.go、404 和错误、多语言网站、SSR 与缓存开关和整页缓存（对所有人一样、保存一段时间的页面）以及写入后让这类页面重新生成、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数、用 tifa.HTML 显示应用信任的 HTML，访客开着旧页面时你部署新版本，浏览器会怎么做，以及数据、入参和结果的 JSON 规则'
+summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、不套外层的 Layout（layout_.tsx）、hooks.go、404 和错误、多语言网站、SSR 与缓存开关和整页缓存（对所有人一样、保存一段时间的页面）以及写入后让这类页面重新生成、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码和用 tifatest.Start 测整个请求，Load 里 Ctx 的用法、带类型入参和结果的方法函数、用 tifa.HTML 显示应用信任的 HTML，访客开着旧页面时你部署新版本，浏览器会怎么做，以及数据、入参和结果的 JSON 规则'
 read_when:
   - 新建一个 tifa 应用，或给应用加页面、Layout、API 路由
   - 构建报 Ctx 用法或 Load 返回类型的错误，想知道怎么改
   - 改 internal/analyze 的规则，需要知道对用户承诺了什么
   - 改 examples/shop 或 test/apps 里的应用
   - 给 Load、Layout 函数、方法函数或 OnRequest 写 Go 测试
+  - 在 go test 里用 tifatest.Start 或 tifatest.StartPages 测整个请求，比如登录后跟着重定向走
   - 用 `const Cache` 把公开页面在内存里保存几分钟，想知道页面上什么变成匿名的，或者遇到在这样的页面上读 cookie 或会话的构建错误
   - 一次写入改了开了 `Cache` 的页面显示的内容，要用 `tifa.ExpirePages` 让页面马上更新
   - 在页面里显示应用自己做出来或信任的 HTML（比如一篇文章），用 `tifa.HTML` 和 `<HTML>`，或者处理其中的链接
@@ -859,7 +860,11 @@ func OnStart(ctx context.Context) error {
 
 ## 测试
 
-`Load`、`Layout`、方法函数和 `OnRequest` 都是普通的 Go 函数，在代码旁边用 `go test` 测。`tifatest.NewCtx(t, r)` 把一个 `httptest` 请求变成函数要的 `*tifa.Ctx`，同时返回记录函数写出内容的 recorder：
+测试用 `go test` 跑，写在代码旁边，有两种测法。测单个函数时，用 `tifatest.NewCtx` 造一个 `Ctx`，直接调用 `Load`、方法函数或 `OnRequest`。测整个请求时，用 `tifatest.Start` 启动应用，向它发 HTTP 请求，这样能登录、提交表单、跟着重定向走、读页面。
+
+### 测单个函数
+
+`Load`、`Layout`、方法函数和 `OnRequest` 都是普通的 Go 函数。`tifatest.NewCtx(t, r)` 把一个 `httptest` 请求变成函数要的 `*tifa.Ctx`，同时返回记录函数写出内容的 recorder：
 
 ```go
 // app/projects/project+/orders/order+/route_test.go
@@ -874,14 +879,56 @@ func TestLoad(t *testing.T) {
 }
 ```
 
-这样测的是函数，不是 HTTP 响应，要检查的是函数的返回值和错误。解码入参、跑 `Validate`、把结果变成 JSON 或 204、把错误变成 404、422、重定向或交给 `OnError`、回答导航数据请求，这些只有服务端做。返回值和错误不会写进 recorder，函数自己没写响应时，recorder 一直是空的 200。要检查 HTTP 响应，就向构建好的应用发请求。
+这样测的是函数，不是 HTTP 响应，要检查的是函数的返回值和错误。解码入参、跑 `Validate`、把结果变成 JSON 或 204、把错误变成 404、422、重定向或交给 `OnError`、回答导航数据请求，这些只有服务端做。返回值和错误不会写进 recorder，函数自己没写响应时，recorder 一直是空的 200。要检查 HTTP 响应，就[测整个请求](#测整个请求)。
 
 - `c.Param` 读的就是路径参数，用 `r.SetPathValue` 设置解码后的值。`c.Pattern()` 是调用 `NewCtx` 时的 `r.Pattern`。
 - `Load` 和 `Layout` 通过 `tifa.Use(c, Load)` 调用，这样跑起来的规则和服务端一样：同一个请求只跑一次，写响应体会失败。`Load` 里 `tifa.Use` 的 Layout 在同一个请求上跑。只有函数用 `tifa.Use` 要的 Layout 才会跑。
 - 方法函数直接调用：`POST(c)`，有入参就是 `POST(c, in)`。入参就是你传的值，所以 `Validate` 单独测。`Validate` 会改入参时，传改过的入参。
 - 测 `OnRequest` 时直接调用它，`next` 传一个闭包：`OnRequest(c, func(c *tifa.Ctx) error { got = c.Context(); return nil })`。闭包代替的是路由，所以不恢复 panic，也不写出结果。
 - 请求体上限是 `server.body_limit` 的默认值 1 MiB，可以用 `c.SetBodyLimit` 改。测试结束时会清理请求的 multipart 临时文件。
+- 等函数返回后再读 recorder，每个请求新建一个 `NewCtx`：`rec.Result()` 留下的是它第一次被调用时看到的响应头。
 - `tifa build` 不读 `_test.go` 文件，所以测试可以放在 `app/` 下任何目录里。
+
+### 测整个请求
+
+`tifatest.Start(t, tifaapp.App)` 在测试里跑起整个应用，返回一个 `*httptest.Server`。`tifaapp` 是 `tifa check`、`tifa build` 和 `tifa dev` 生成的包 `.tifa/tifaapp`：应用的路由、Layout、钩子和设置，和程序里服务的一样。它导入了每个路由包，所以要在单独的测试包里导入它，包名是目录名加 `_test`（`package login_test`）。shop 的 `app/login/request_test.go`：
+
+```go
+package login_test
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/liustack/tifa/examples/shop"
+	"github.com/liustack/tifa/examples/shop/.tifa/tifaapp"
+	"github.com/liustack/tifa/tifatest"
+)
+
+func TestSignInLeadsBackToTheWorkbench(t *testing.T) {
+	srv := tifatest.Start(t, tifaapp.App)
+	client := srv.Client()
+
+	res, _ := client.Get(srv.URL + "/projects/studio/stats")
+	// 302 到 /login?next=%2Fprojects%2Fstudio%2Fstats
+
+	body := `{"email":"` + shop.DemoEmail + `","password":"` + shop.DemoPassword + `","next":"/projects/studio/stats"}`
+	res, _ = client.Post(srv.URL+"/login", "application/json", strings.NewReader(body))
+	// 303 到 /projects/studio/stats，client 记下会话 cookie
+
+	res, _ = client.Get(srv.URL + "/projects/studio/stats")
+	// 200，带页面的数据
+}
+```
+
+- 程序里跑的都会跑：`OnStart`（拿测试的 context）、`OnRequest`、解码入参、`Validate` 和它的 422、会话、重定向和 `OnError`。测试结束时，服务器等进行中的请求做完，再跑 `OnShutdown`。
+- `srv.Client()` 信任服务器的证书，记下服务器设的 cookie，不跟随重定向，所以测试能看到每个 3xx 和它的 `Location`。
+- 服务器在本机上用 HTTPS 监听。tifa 的设置和程序一样，来自默认值和 `tifa.yaml`，只有地址和 HTTPS 不同。应用自己的设置保持默认值，因为命令行参数和环境变量到不了测试里，所以在 `Start` 之前直接设变量：`myapp.DBPath = filepath.Join(t.TempDir(), "test.db")`。
+- 没有前端时，页面把它的 `Load` 和 `Layout` 函数的结果按路由 ID 以 JSON 回答：`{"app/layout": …, "app/projects/project+/stats/route": …}`。方法函数的回答和程序里一样。
+- 每次 `Start` 都新建一个服务器，会话也是它自己的，除非 `OnStart` 设了存储。会话存储、`SetHTTPHandler` 和内容都属于进程，所以一个测试二进制同一时间只能跑一个应用，调用 `Start` 的测试不能调用 `t.Parallel`。
+- `.tifa/tifaapp` 是按和现在代码不同的路由生成的，`Start` 就让测试失败。重新跑 `go tool tifa check`，或者开着 `tifa dev`。刚 clone 下来的仓库没有 `.tifa`，在 `tifa check` 写出它之前，`go vet`、`go test` 和 `go mod tidy` 都会因为这个导入失败。`tifa check` 先生成代码再跑 `go vet` 和 `go test`，所以直接跑它就行。
+
+`tifatest.StartPages(t, tifaapp.App)` 还会把页面渲染成 HTML，用的是 `tifa build` 或 `tifa dev` 写到 `.tifa/dist` 的前端，同时提供它的脚本、样式表和公开文件。`tifa check` 不打包，所以这类测试之前要先跑 `tifa build`，或者开着 `tifa dev`。`.tifa/dist` 不存在，或者构建前端用到的文件之后改过，`StartPages` 都让测试失败，并列出改过的文件，比如页面、组件、样式表、`package.json`、锁文件或 Vite 配置。不管 `ssr.vms` 设多少，页面都在两个 VM 上渲染。它们在测试二进制第一次调用 `StartPages` 时启动，要花一点时间，之后的调用都用这两个。
 
 ### 渲染时钟
 

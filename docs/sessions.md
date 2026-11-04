@@ -318,6 +318,8 @@ tifatest.WithSession(c, &auth.Session{UserID: 1})
 
 `WithSession` only sets the state of the request. It does not check the cookie and store flow, which tifa's own tests cover. To test a store of your own, see [Testing a store](#testing-a-store).
 
+To test signing in as a browser does, from the form through the cookie to the next page, start the app with `tifatest.Start`: its client keeps the cookie, and the store is the one the app sets in `OnStart`, or a memory store of the test server (see [Testing a whole request](app.md#testing-a-whole-request)).
+
 ## Errors
 
 | Message starts with | When | What to do |

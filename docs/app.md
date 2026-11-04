@@ -1,11 +1,12 @@
 ---
-summary: 'How to write a tifa app: folder layout, how folders become URLs, the three files of a folder (route.go, page.tsx, layout.tsx), Layouts, a Layout without the Layouts above (layout_.tsx), hooks.go, 404s and errors, a site in several languages, the SSR and cache switches and the whole-page cache (a page that is the same for everyone, kept for a set time) and making such a page again after a write, what the server render has, which libraries render differently there and which components to load only in the browser, using Intl and Temporal so hydration matches, styles with Tailwind CSS and shadcn/ui, how to test Go route code, how Load may use Ctx, method handlers with typed input and result, showing HTML the app trusts with tifa.HTML, what a page open in a browser does when you deploy a new version, and the JSON rules for data, inputs and results'
+summary: 'How to write a tifa app: folder layout, how folders become URLs, the three files of a folder (route.go, page.tsx, layout.tsx), Layouts, a Layout without the Layouts above (layout_.tsx), hooks.go, 404s and errors, a site in several languages, the SSR and cache switches and the whole-page cache (a page that is the same for everyone, kept for a set time) and making such a page again after a write, what the server render has, which libraries render differently there and which components to load only in the browser, using Intl and Temporal so hydration matches, styles with Tailwind CSS and shadcn/ui, how to test Go route code and whole requests with tifatest.Start, how Load may use Ctx, method handlers with typed input and result, showing HTML the app trusts with tifa.HTML, what a page open in a browser does when you deploy a new version, and the JSON rules for data, inputs and results'
 read_when:
   - Creating a tifa app, or adding pages, Layouts or API routes to one
   - The build reports an error about Ctx usage or a Load return type and you want to fix it
   - Changing the rules in internal/analyze and you need to know what users were promised
   - Changing the apps in examples/shop or test/apps
   - Writing Go tests for a Load, a Layout function, a method handler or OnRequest
+  - Testing a whole request in go test, such as signing in and following the redirect, with tifatest.Start or tifatest.StartPages
   - Keeping a public page in memory for a few minutes with `const Cache`, what becomes anonymous on it, or the build error about reading a cookie or the session on such a page
   - A write changes what a page with `Cache` shows, and the page should show it at once with `tifa.ExpirePages`
   - Showing HTML the app made or trusts, such as an article, with `tifa.HTML` and `<HTML>`, or links inside it
@@ -857,7 +858,11 @@ A session is the record of who is signed in, kept on the server and found by a c
 
 ## Testing
 
-`Load`, `Layout`, the method handlers and `OnRequest` are plain Go functions, so test them with `go test` next to the code. `tifatest.NewCtx(t, r)` turns an `httptest` request into the `*tifa.Ctx` the function takes, and returns the recorder that holds what the function writes:
+Tests run with `go test`, next to the code, in two ways. A test of one function calls `Load`, a method handler or `OnRequest` with a `Ctx` from `tifatest.NewCtx`. A test of a whole request starts the app with `tifatest.Start` and sends it HTTP requests, so it can sign in, post a form, follow the redirect and read the page.
+
+### Testing a function
+
+`Load`, `Layout`, the method handlers and `OnRequest` are plain Go functions. `tifatest.NewCtx(t, r)` turns an `httptest` request into the `*tifa.Ctx` the function takes, and returns the recorder that holds what the function writes:
 
 ```go
 // app/projects/project+/orders/order+/route_test.go
@@ -872,14 +877,56 @@ func TestLoad(t *testing.T) {
 }
 ```
 
-This tests the function, not the HTTP answer. Check what the function returns: the value and the error. Only the server decodes the input, runs `Validate`, turns a result into JSON or 204 and an error into 404, 422, a redirect or a call to `OnError`, and answers navigation data requests. A returned value or error is not written into the recorder: when the function writes nothing itself, the recorder stays an empty 200. To check the HTTP answer, send requests to the built app.
+This tests the function, not the HTTP answer. Check what the function returns: the value and the error. Only the server decodes the input, runs `Validate`, turns a result into JSON or 204 and an error into 404, 422, a redirect or a call to `OnError`, and answers navigation data requests. A returned value or error is not written into the recorder: when the function writes nothing itself, the recorder stays an empty 200. To check the HTTP answer, [test the whole request](#testing-a-whole-request).
 
 - Path parameters are what `c.Param` reads: set the decoded values with `r.SetPathValue`. `c.Pattern()` is `r.Pattern` as it is when `NewCtx` is called.
 - Run `Load` and `Layout` through `tifa.Use(c, Load)`. It runs them under the rules of the server: once per request, and writing the response body fails. A `tifa.Use` of a Layout inside `Load` runs that Layout for the same request. Only the Layouts the function asks for with `tifa.Use` run.
 - Call a method handler directly: `POST(c)`, or `POST(c, in)` with a typed input. The input is the value you pass, so test `Validate` on its own, and if `Validate` changes the input, pass the changed input.
 - Call `OnRequest` directly with a closure for `next`: `OnRequest(c, func(c *tifa.Ctx) error { got = c.Context(); return nil })`. The closure stands in for the route, so it neither recovers a panic nor writes a result.
 - The body limit is the default `server.body_limit`, 1 MiB, unless `c.SetBodyLimit` changes it. The test removes the multipart files of the request when it ends.
+- Read the recorder once the function has returned, and make a new `NewCtx` for each request: `rec.Result()` keeps the headers it saw the first time it was called.
 - `tifa build` reads no `_test.go` files, so tests may sit in any folder under `app/`.
+
+### Testing a whole request
+
+`tifatest.Start(t, tifaapp.App)` runs the app inside the test and returns an `*httptest.Server`. `tifaapp` is the package `.tifa/tifaapp` that `tifa check`, `tifa build` and `tifa dev` generate: the routes, Layouts, hooks and settings of the app, as the program serves them. It imports every route package, so import it from a test in a package of its own, named after the folder with `_test` (`package login_test`). From the shop, `app/login/request_test.go`:
+
+```go
+package login_test
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/liustack/tifa/examples/shop"
+	"github.com/liustack/tifa/examples/shop/.tifa/tifaapp"
+	"github.com/liustack/tifa/tifatest"
+)
+
+func TestSignInLeadsBackToTheWorkbench(t *testing.T) {
+	srv := tifatest.Start(t, tifaapp.App)
+	client := srv.Client()
+
+	res, _ := client.Get(srv.URL + "/projects/studio/stats")
+	// 302 to /login?next=%2Fprojects%2Fstudio%2Fstats
+
+	body := `{"email":"` + shop.DemoEmail + `","password":"` + shop.DemoPassword + `","next":"/projects/studio/stats"}`
+	res, _ = client.Post(srv.URL+"/login", "application/json", strings.NewReader(body))
+	// 303 to /projects/studio/stats, and the client keeps the session cookie
+
+	res, _ = client.Get(srv.URL + "/projects/studio/stats")
+	// 200, with the data of the page
+}
+```
+
+- Everything the program runs takes part: `OnStart` with the context of the test, `OnRequest`, decoding the input, `Validate` and its 422, sessions, redirects and `OnError`. When the test ends, the server waits for the requests in flight and runs `OnShutdown`.
+- `srv.Client()` trusts the certificate of the server, keeps the cookies it sets and does not follow redirects, so the test sees each 3xx with its `Location`.
+- The server listens on HTTPS on this machine. The settings of tifa are those of the program, from the defaults and `tifa.yaml`, apart from the address and HTTPS. Settings of the app keep their defaults, as flags and environment variables do not reach a test, so set the variable before `Start`: `myapp.DBPath = filepath.Join(t.TempDir(), "test.db")`.
+- Without a front end, a page answers the results of its `Load` and `Layout` functions as JSON, by route ID: `{"app/layout": …, "app/projects/project+/stats/route": …}`. Method handlers answer as in the program.
+- Each `Start` makes a new server, with sessions of its own unless `OnStart` sets a store. The app is one per test binary at a time, as the session store, `SetHTTPHandler` and the content belong to the process, so a test that calls `Start` cannot call `t.Parallel`.
+- `Start` fails the test when `.tifa/tifaapp` was made from other routes than the code has now. Run `go tool tifa check` again, or keep `tifa dev` running. In a fresh checkout `.tifa` is missing, and `go vet`, `go test` and `go mod tidy` fail on the import until `tifa check` writes it. `tifa check` generates before it runs `go vet` and `go test`, so it needs nothing first.
+
+`tifatest.StartPages(t, tifaapp.App)` also renders the pages to HTML, with the front end that `tifa build` or `tifa dev` wrote to `.tifa/dist`, and serves its scripts, stylesheets and public files. `tifa check` does not bundle, so run `tifa build` before such tests, or keep `tifa dev` running. `StartPages` fails the test when `.tifa/dist` is missing, and when a file the front end was built from has changed since: it names the files, such as a page, a component, a stylesheet, `package.json`, the lock file or the Vite config. Pages render on two VMs whatever `ssr.vms` says. They start with the first `StartPages` of the test binary, which takes a moment, and every later one uses them.
 
 ### Render clock
 

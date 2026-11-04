@@ -318,6 +318,8 @@ tifatest.WithSession(c, &auth.Session{UserID: 1})
 
 `WithSession` 只设请求的状态，不验证 cookie 和存储的流程，那部分由 tifa 自己的测试覆盖。测试你自己写的存储见[测试存储](#测试存储)。
 
+要像浏览器那样测登录，从表单到 cookie 再到下一个页面，就用 `tifatest.Start` 启动应用：它的 client 会记下 cookie，存储是应用在 `OnStart` 里设的那个，没设就是测试服务器自己的内存存储（见[测整个请求](app.zh-CN.md#测整个请求)）。
+
 ## 错误
 
 | 错误信息开头 | 什么时候 | 怎么办 |

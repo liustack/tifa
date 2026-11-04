@@ -691,7 +691,7 @@ func TestSignIn(t *testing.T) {
 }
 ```
 
-`tifatest.NewCtx` 给测试一个它自己的会话存储，所以 `SetSession` 能用。`SetSession` 一返回，cookie 就在 recorder 里。每个请求用一个新的 `NewCtx`，函数返回后再读 `rec.Result()`：recorder 记下的是第一次调用 `Result()` 时的头，一个 recorder 用于两次请求，第二次的 cookie 永远看不到。同一个测试的 `Ctx` 共用存储，所以前一个请求的 cookie 能让下一个登录（见[测试会话](../sessions.zh-CN.md#测试会话)）。要测试需要用户的函数、又不想真的登录，用 `tifatest.WithSession`（见[测试会话](../sessions.zh-CN.md#测试会话)）。
+`tifatest.NewCtx` 给测试一个它自己的会话存储，所以 `SetSession` 能用。`SetSession` 一返回，cookie 就在 recorder 里。每个请求用一个新的 `NewCtx`，函数返回后再读 `rec.Result()`：recorder 记下的是第一次调用 `Result()` 时的头，一个 recorder 用于两次请求，第二次的 cookie 永远看不到。同一个测试的 `Ctx` 共用存储，所以前一个请求的 cookie 能让下一个登录（见[测试会话](../sessions.zh-CN.md#测试会话)）。要测试需要用户的函数、又不想真的登录，用 `tifatest.WithSession`（见[测试会话](../sessions.zh-CN.md#测试会话)）。要像浏览器那样走完整个登录，从受保护的页面经过重定向和表单再回到页面，就用 `tifatest.Start` 启动应用（见[测整个请求](../app.zh-CN.md#测整个请求)）。
 
 ## 要做的选择
 
