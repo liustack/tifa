@@ -447,6 +447,57 @@ func TestSecretsArePrintedHidden(t *testing.T) {
 	}
 }
 
+// The error of a secret that a source gives in a form it cannot take names the key, the source
+// and what it expects, and holds nothing of the value: the error goes to the terminal and the log.
+func TestBadSecretFailsWithoutItsValue(t *testing.T) {
+	for _, tc := range []struct {
+		file string
+		want []string
+	}{
+		{"smtp:\n  password: 12345678\n", []string{"file prod.yaml line 2", "smtp.password", "expected a string value, got number"}},
+		{"smtp:\n  password: true\n", []string{"file prod.yaml line 2", "smtp.password", "expected a string value, got bool"}},
+		{"smtp:\n  password: 9876.5e3\n", []string{"smtp.password", "expected a string value, got number"}},
+		{"smtp:\n  password: !s3cret word\n", []string{"smtp.password", "expected a string value, got a value with a custom tag"}},
+	} {
+		src := Read([]string{"-c", writeFile(t, "prod.yaml", tc.file)}, nil, "")
+		r := &registry{}
+		var password string
+		if r.define(src, "smtp.password", "", secretValue{&password}) || len(r.errs) != 1 {
+			t.Fatalf("%q: %q, %v", tc.file, password, r.errs)
+		}
+		msg := r.errs[0].Error()
+		for _, want := range tc.want {
+			if !strings.Contains(msg, want) {
+				t.Errorf("error lacks %q: %s", want, msg)
+			}
+		}
+		for _, secret := range []string{"12345678", "true", "9876", "s3cret"} {
+			if strings.Contains(msg, secret) {
+				t.Errorf("error holds the secret: %s", msg)
+			}
+		}
+	}
+	// The .env file and the file of -c are read before the app defines its settings, so the
+	// errors of reading them hold nothing of any value: any of them may be a secret.
+	for _, tc := range []struct {
+		src  *Sources
+		want []string
+	}{
+		{Read(nil, nil, dotenvDir(t, "SMTP_PASSWORD=\"s3cret\"more-s3cret\n")), []string{".env line 1", "SMTP_PASSWORD", "after the closing quote"}},
+		{Read([]string{"-c", writeFile(t, "prod.yaml", "smtp:\n  password: *s3cret\n")}, nil, ""), []string{"file prod.yaml", "starts with *", "quotes"}},
+	} {
+		msg := tc.src.Err().Error()
+		for _, want := range tc.want {
+			if !strings.Contains(msg, want) {
+				t.Errorf("error lacks %q: %s", want, msg)
+			}
+		}
+		if strings.Contains(msg, "s3cret") {
+			t.Errorf("error holds the value: %s", msg)
+		}
+	}
+}
+
 // A flag shows in the process list to every user of the machine, so a secret given as a flag
 // fails and says where to put it instead.
 func TestSecretFromAFlagFails(t *testing.T) {

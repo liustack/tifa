@@ -277,7 +277,7 @@ func Project(data []byte) (Config, map[string]string, error) {
 			continue
 		}
 		where := fmt.Sprintf("tifa.yaml line %d", e.line)
-		if err := e.check(f.value.kind()); err != nil {
+		if err := e.check(f.value.kind(), false); err != nil {
 			errs = append(errs, fmt.Errorf("config: %s: %s: %w", where, f.key, err))
 			continue
 		}

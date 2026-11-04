@@ -529,6 +529,7 @@ func checkQueryName(name string) error {
 // list, and that Print does not write.
 type secretValue struct{ p *string }
 
+// Set takes any text and never fails: its error would carry the secret to the terminal.
 func (v secretValue) Set(s string) error { *v.p = s; return nil }
 func (v secretValue) String() string     { return *v.p }
 func (v secretValue) kind() string       { return "string" }
