@@ -244,22 +244,12 @@ Run performance comparisons on the same machine, alternating between the old and
 
 ### Reading BenchmarkShopParallel
 
-`BenchmarkShopParallel` catches what one VM cannot show: a lock that every VM takes. `BenchmarkShop` stays the same when such a lock comes back. quickjs v0.26.8 is the example: each JS call took a global allocator lock, and with 4 VMs the program rendered less than two thirds of what 4 times one VM would give.
+`BenchmarkShopParallel` catches what one VM cannot show: a lock that every VM takes. `BenchmarkShop` stays the same when such a lock comes back. Several VMs render in one process, so a lock in the engine's allocator or in the host calls would keep the program from using more cores, and only this benchmark shows it.
 
 - Run both sub-benchmarks in one command. `speedup` only shows when `vms-1` ran in the same command. To repeat, run the command again: with `-count` every `speedup` is against the last `vms-1`, and `-cpu` changes `GOMAXPROCS` after the number of VMs is set.
 - On Linux, set `GOMAXPROCS` to a number of physical cores and pin the test to them with `taskset`, one CPU per core. Two VMs on the two threads of one core render only about 20% more than one, so a speedup over hyperthreads says little about locks.
 - Read `speedup` first. A Go mutex spins before it blocks, and spinning shows as CPU time (`runtime.procyield` in a CPU profile) and a lower speedup, not as lock wait. `lock-wait-%` then says whether a lock is the reason.
-- The benchmark does not fail on these numbers, because machine noise moves them as much as the regression does. Compare against main on the same machine, alternating, as above. A speedup more than 10% below main's is worth a look. The runtime samples lock wait, so small values are noisy: v0.26.13 alone ranged from 0.016% to 0.13%. On the machine below, a lock wait above about 0.5% is worth a look. That level holds only for that machine.
-
-Measured on an AMD EPYC 7B13 with 4 physical cores (`GOMAXPROCS=4 taskset -c 4-7`, the other 4 threads idle), 15 seconds for each sub-benchmark:
-
-| Build | `vms-1` renders/s | `vms-4` renders/s | `speedup` | `lock-wait-%` |
-| --- | --- | --- | --- | --- |
-| quickjs v0.26.13, 7 runs | 42.9 to 43.4 | 162 to 168 | 3.76 to 3.89 | 0.016 to 0.13 |
-| quickjs v0.26.8, 7 runs | 31.6 to 32.0 | 47 to 81 | 1.49 to 2.55 | 0.77 to 2.8 |
-| quickjs v0.26.13, two busy threads on the same 4 CPUs | 43.4 | 96 | 2.20 | 0.29 |
-
-v0.26.8 gave a speedup of about 2.5 in one session and about 1.5 in a later one. On a noisy machine the speedup of the good build looks worse than that of the bad build on a good run, though it still renders more per second (96 against 81). On an Apple M4 (4 performance and 6 efficiency cores, `GOMAXPROCS=10`), v0.26.15 gives a speedup of 4.91 to 5.09 with 0.67% to 0.76% lock wait, v0.26.14 3.39 to 3.62 with 4.2% to 4.5%, and v0.26.8 1.51 with 19%. Up to v0.26.14, libc took its allocator lock outside Linux each time the TLS stack of a VM grew past a segment. From v0.26.15 each VM keeps 1 MiB of that stack instead. The cores differ, so compare Mac numbers only with Mac numbers.
+- The benchmark does not fail on these numbers, because machine noise moves them as much as the regression does. Compare against main on the same machine, alternating, as above. A speedup more than 10% below main's is worth a look. The runtime samples lock wait, so small values are noisy. On an AMD EPYC 7B13 with 4 physical cores (`GOMAXPROCS=4 taskset -c 4-7`, the other 4 threads idle), a lock wait above about 0.5% is worth a look. That level holds only for that machine, and Mac numbers compare only with Mac numbers.
 
 To see which lock it is, take a mutex profile. Profiling makes the lock wait larger, so read the profile for where the wait is, not for how much:
 
