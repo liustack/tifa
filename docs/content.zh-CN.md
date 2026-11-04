@@ -298,7 +298,7 @@ export default defineConfig({
 | `dist/content/<集合>/<语言>/<ID>.html` | 每篇的正文，没有语言的集合去掉语言这层。服务端不经 HTTP 提供这些文件，构建也不压缩它们。草稿从不转换，所以它的文字不在程序里 |
 | `dist/assets/<名字>-<哈希>.<扩展名>` | 正文引用的文件 |
 
-正文文件名 go:embed 不收的 ID（比如含 `'`）让构建失败。应用有 `content.go` 时，生成的 `main` 导入根包，并在 `OnStart` 之前读 `content.json`。`tifa dev` 把同样的文件写到 `.tifa/dist/`，应用从那里读。
+正文文件名 go:embed 不收的 ID（比如含 `'`）让构建失败。一篇的正文文件落在另一篇正文文件下面时也失败，比如 `a.md` 旁边的 `a.html/b.md`。应用有 `content.go` 时，生成的 `main` 导入根包，并在 `OnStart` 之前读 `content.json`。`tifa dev` 把同样的文件写到 `.tifa/dist/`，应用从那里读。
 
 ## 测试
 

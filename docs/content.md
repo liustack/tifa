@@ -298,7 +298,7 @@ The relative URLs of a body (not starting with `/`, `#` or a scheme such as `htt
 | `dist/content/<collection>/<lang>/<ID>.html` | The body of each entry, without the language folder for a collection without languages. The server does not serve these files and the build does not compress them. A draft is never converted, so its text is not in the program |
 | `dist/assets/<name>-<hash>.<ext>` | The files the bodies refer to |
 
-An ID whose body file go:embed would refuse, such as one with `'` in it, fails the build. The generated `main` imports the root package when the app has `content.go`, and reads `content.json` before `OnStart`. `tifa dev` writes the same files into `.tifa/dist/` and the app reads them from there.
+An ID whose body file go:embed would refuse, such as one with `'` in it, fails the build, and so does an entry whose body file would sit below the body file of another, such as `a.html/b.md` next to `a.md`. The generated `main` imports the root package when the app has `content.go`, and reads `content.json` before `OnStart`. `tifa dev` writes the same files into `.tifa/dist/` and the app reads them from there.
 
 ## Tests
 

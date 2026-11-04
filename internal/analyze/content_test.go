@@ -113,3 +113,31 @@ func TestBodyFilesMustBeNamesGoEmbeds(t *testing.T) {
 		t.Errorf("errors\n%q\nwant\n%q", got, want)
 	}
 }
+
+// The body of a.md is the file a.html, so the body of a.html/b.md cannot go below it as into a
+// folder. Both IDs are valid, so the check is on the files of the bodies.
+func TestBodyFileCannotBeTheFolderOfAnother(t *testing.T) {
+	f := content.File{
+		"blog": {
+			{ID: "a", Source: "content/blog/a.md", File: "content/blog/a.html"},
+			{ID: "a.html/b", Source: "content/blog/a.html/b.md", File: "content/blog/a.html/b.html"},
+			{ID: "a.html/c/d", Source: "content/blog/a.html/c/d.md", File: "content/blog/a.html/c/d.html"},
+			{ID: "a.htmlx", Source: "content/blog/a.htmlx.md", File: "content/blog/a.htmlx.html"},
+		},
+		"docs": {
+			{ID: "x", Source: "content/docs/en/x.md", File: "content/docs/en/x.html"},
+			{ID: "x.html", Source: "content/docs/en/x.html/index.md", File: "content/docs/en/x.html.html"},
+		},
+	}
+	var got []string
+	for _, e := range bodyFileErrors(f) {
+		got = append(got, e.Error())
+	}
+	want := []string{
+		"content/blog/a.html/b.md: the body of this entry goes into content/blog/a.html/b.html, below content/blog/a.html, which is the body of content/blog/a.md: a file cannot also be a folder. Rename one of the two",
+		"content/blog/a.html/c/d.md: the body of this entry goes into content/blog/a.html/c/d.html, below content/blog/a.html, which is the body of content/blog/a.md: a file cannot also be a folder. Rename one of the two",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("errors\n%q\nwant\n%q", got, want)
+	}
+}

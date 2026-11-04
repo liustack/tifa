@@ -7,6 +7,7 @@ import (
 	"go/types"
 	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -166,13 +167,26 @@ func (a *analyzer) content() *Content {
 }
 
 // bodyFileErrors reports the entries whose body would go into a file of dist that go:embed does
-// not take, which allows the names of module.CheckFilePath only.
+// not take, which allows the names of module.CheckFilePath only, and those whose body would go
+// below the body of another entry, as into a folder: a.html/b.md next to a.md.
 func bodyFileErrors(f content.File) []Error {
+	sources := map[string]string{} // file of a body to the Markdown it comes from
+	for _, recs := range f {
+		for _, r := range recs {
+			sources[r.File] = r.Source
+		}
+	}
 	var errs []Error
 	for _, name := range slices.Sorted(maps.Keys(f)) {
 		for _, r := range f[name] {
 			if err := module.CheckFilePath(r.File); err != nil {
 				errs = append(errs, Error{Pos: token.Position{Filename: r.Source}, Msg: fmt.Sprintf("the body of this entry goes into %s, a name go:embed refuses: %v. Rename the file", r.File, err)})
+			}
+			for dir := path.Dir(r.File); dir != "." && dir != "/"; dir = path.Dir(dir) {
+				if other, ok := sources[dir]; ok {
+					errs = append(errs, Error{Pos: token.Position{Filename: r.Source}, Msg: fmt.Sprintf("the body of this entry goes into %s, below %s, which is the body of %s: a file cannot also be a folder. Rename one of the two", r.File, dir, other)})
+					break
+				}
 			}
 		}
 	}
