@@ -176,6 +176,8 @@ func (d *Dev) Build(ctx context.Context, public string, pages bool) (string, err
 	}
 	sum := sha256.Sum256([]byte(strconv.Quote(files) + d.head))
 	b.ID = hex.EncodeToString(sum[:])[:16]
+	// The browser gets its modules from Vite's dev server and not from dist, so the inputs of what
+	// dist holds are the modules of the SSR bundle.
 	if err := writeInputs(d.root, d.dist, public, modules); err != nil {
 		return "", err
 	}

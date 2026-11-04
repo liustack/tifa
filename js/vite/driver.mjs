@@ -6,7 +6,8 @@
 // Requests:
 //
 //	{op: "exports", files}       the names each TypeScript or JavaScript file exports
-//	{op: "client"}               builds the browser bundle
+//	{op: "client"}               builds the browser bundle, answers with modules, the files of
+//	                             the modules of the bundle outside node_modules
 //	{op: "ssr", assets, minify}  builds the SSR bundle, assets is the value of __TIFA_ASSETS__.
 //	                             The SSR bundle is always a production build: in a process
 //	                             whose NODE_ENV is not production, such as the one of the dev
@@ -273,9 +274,10 @@ const ops = {
   },
 
   async client() {
-    const builder = await createBuilder({})
+    const modules = new Set()
+    const builder = await createBuilder({ plugins: [inputsPlugin('client', modules)] })
     await builder.build(builder.environments.client)
-    return {}
+    return { modules: [...modules].sort() }
   },
 
   async ssr({ assets, minify }) {
@@ -385,15 +387,13 @@ const ops = {
   },
 }
 
-// buildSSR builds the SSR bundle with the builder that createBuilder returns, with plugins added
-// to those of the Vite config, and returns the files of the modules in it outside node_modules,
-// which tifa records so that tifatest can tell a bundle older than its sources. The SSR worker
-// thread runs its source text, so it uses only its arguments.
-async function buildSSR(createBuilder, { assets, minify }, plugins = []) {
-  const modules = new Set()
-  const inputs = {
+// inputsPlugin adds to modules the files of the modules of the build of the environment named env
+// outside node_modules, which tifa records so that tifatest can tell a front end older than its
+// sources. The SSR worker thread runs its source text, so it uses only its arguments.
+function inputsPlugin(env, modules) {
+  return {
     name: 'tifa:inputs',
-    applyToEnvironment: (env) => env.name === 'ssr',
+    applyToEnvironment: (environment) => environment.name === env,
     generateBundle() {
       for (const id of this.getModuleIds()) {
         if (id.startsWith('\0')) continue
@@ -402,8 +402,16 @@ async function buildSSR(createBuilder, { assets, minify }, plugins = []) {
       }
     },
   }
+}
+
+// buildSSR builds the SSR bundle with the builder that createBuilder returns, with plugins added
+// to those of the Vite config, and returns the files of the modules in it outside node_modules
+// (see inputsPlugin). The SSR worker thread runs its source text, so it uses only its arguments
+// and inputsPlugin.
+async function buildSSR(createBuilder, { assets, minify }, plugins = []) {
+  const modules = new Set()
   const builder = await createBuilder({
-    plugins: [...plugins, inputs],
+    plugins: [...plugins, inputsPlugin('ssr', modules)],
     environments: {
       ssr: { define: { __TIFA_ASSETS__: JSON.stringify(assets) }, build: { minify } },
     },
@@ -492,7 +500,7 @@ async function ssrThread() {
 // bundle, and throws the error of a failed build. Its close returns once the worker has ended and
 // all it printed is in the output of this process.
 function startSSRWorker() {
-  const worker = new Worker(`${buildSSR}\n(${ssrThread})()`, {
+  const worker = new Worker(`${inputsPlugin}\n${buildSSR}\n(${ssrThread})()`, {
     eval: true,
     env: { ...process.env, NODE_ENV: 'production' },
     workerData: { vite: import.meta.resolve('vite'), root },

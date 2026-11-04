@@ -80,11 +80,13 @@ func App(n *Node, root, public string, pages bool, c *Content) (string, error) {
 		return "", err
 	}
 	var b Build
-	var ssrOut struct {
+	// The modules of both bundles are inputs: a component that only the browser loads is a stub in
+	// the SSR bundle, and the browser bundle has no module that only the server renders.
+	var clientOut, ssrOut struct {
 		Modules []string `json:"modules"`
 	}
 	if pages {
-		if err := n.call("client", nil, nil); err != nil {
+		if err := n.call("client", nil, &clientOut); err != nil {
 			return "", err
 		}
 		if b.Head, b.Preload, err = readManifest(dist); err != nil {
@@ -119,7 +121,7 @@ func App(n *Node, root, public string, pages bool, c *Content) (string, error) {
 	if b.ID, err = distID(dist, func(name string) bool { return name == InputsFile }); err != nil {
 		return "", err
 	}
-	if err := writeInputs(root, dist, public, ssrOut.Modules); err != nil {
+	if err := writeInputs(root, dist, public, append(clientOut.Modules, ssrOut.Modules...)); err != nil {
 		return "", err
 	}
 	return b.ID, writeBuild(dist, b)

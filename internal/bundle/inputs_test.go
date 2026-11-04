@@ -90,3 +90,22 @@ func TestInputsNameTheFilesAddedSince(t *testing.T) {
 		t.Fatalf("changed %v, %v, want %v", changed, err, want)
 	}
 }
+
+// inputs.json lists the modules of both bundles: a module only the browser loads, such as a
+// component that renders only there, is an input of the build too.
+func TestInputsListTheModulesOfTheBrowserBundle(t *testing.T) {
+	root := fakeApp(t, `["es2022"]`)
+	writeTree(t, root, map[string]string{
+		"app/page/browser.ts": "export const browser = 'only in the browser'\n",
+		".tifa/client.ts": "import { browser } from '../app/page/browser'\n" +
+			"import('../app/page/page').then((m) => console.log(m.default, browser))\n",
+	})
+	buildApp(t, root)
+	var in inputs
+	readJSON(t, filepath.Join(root, ".tifa", "dist", InputsFile), &in)
+	for _, want := range []string{"app/page/browser.ts", "app/page/page.tsx", ".tifa/client.ts", ".tifa/server.ts"} {
+		if _, ok := in.Files[want]; !ok {
+			t.Errorf("inputs.json has no %s: %v", want, in.Files)
+		}
+	}
+}
