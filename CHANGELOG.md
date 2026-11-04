@@ -4,6 +4,10 @@ What changed in tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- `tifa.Secret("smtp.password", "SMTP password")` defines a setting of the app for a password, a token or a key. It comes from the environment, `.env` or the file of `-c`, a flag for it stops the program and says where to put it, and `./bin/app config` writes where it came from and not its value. The [email guide](docs/guides/email.md) uses it.
+
 ### Fixed
 
 - Under systemd socket activation with HTTPS, `server.addr` may stay unset when systemd passes its socket. The program refused to start on the default address, which it does not listen on then.

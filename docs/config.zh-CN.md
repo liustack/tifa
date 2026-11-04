@@ -48,7 +48,7 @@ cache:
   size: 128MiB
 ```
 
-运行 `./bin/app config` 会列出全部配置（tifa 的和应用的）、最终值和值的来源（`default`、`tifa.yaml`、`file prod.yaml`、`.env SSR_VMS`、`env PORT`、`flag --ssr-vms` 等）。输出是带注释的 YAML 文件，可以拿来当部署文件的起点。
+运行 `./bin/app config` 会列出全部配置（tifa 的和应用的）、最终值和值的来源（`default`、`tifa.yaml`、`file prod.yaml`、`.env SSR_VMS`、`env PORT`、`flag --ssr-vms` 等）。输出是带注释的 YAML 文件，可以拿来当部署文件的起点。应用的秘密（[`tifa.Secret`](#应用的配置)）只写来源，不写值。
 
 ### 名字
 
@@ -151,12 +151,14 @@ var (
 	Open    = tifa.Bool("shop.open", false, "Let visitors in without signing in")
 	Idle    = tifa.Duration("db.idle", time.Minute, "How long an idle connection stays open")
 	Upload  = tifa.Size("upload.limit", 8<<20, "Largest upload")
+	APIKey  = tifa.Secret("payments.api_key", "Key of the payment provider")
 )
 ```
 
 - 参数依次是键、默认值和一行说明。返回的是普通值：读就用 `shop.DBURL`，测试里直接赋值 `shop.DBURL = "test.db"`。
 - 值和 tifa 的配置来自同样的来源：参数 `--db-url`、环境变量 `DB_URL`、`.env`、`-c` 的文件，最后是默认值。`tifa.yaml` 只写 tifa 的配置。
 - 类型有 `String`（`string`）、`Strings`（`[]string`）、`Int`（`int`）、`Bool`（`bool`）、`Duration`（`time.Duration`）和 `Size`（`int64`，字节数）。值的写法和 tifa 的配置一样，见[值的写法](#值的写法)。`Strings` 写成逗号分隔的一行，比如 `FEED_HOSTS=a.example,b.example`。
+- `Secret`（`string`）用于密码、token 和密钥。它没有默认值，没有来源设置时为空。它从环境变量、`.env` 或 `-c` 的文件读，不从命令行参数读：参数会出现在进程列表里，这台机器上的每个用户都看得到，所以给了参数程序就报错，并说明该把值放在哪里。`./bin/app config` 只写它的来源，不写值，写成注释 `# api_key: (hidden)`。
 - 值只能是单个值。结构化的数据放进应用自己的文件，配置里放它的路径。
 - 值不合法时变量取默认值，程序把它和别的不合法配置一起列出来，在 `OnStart` 之前退出。
 - `go test` 里配置一律是默认值，不管参数、环境变量和 `.env` 是什么。
@@ -377,6 +379,7 @@ sudo setcap cap_net_bind_service=+ep ./bin/myapp
 `tifa.yaml` 里的值类型或格式写错时，`tifa build` 报错并指出行号。把某项配置写成一节或一个列表（比如 `ssr: {vms: {count: 2}}`）也算类型写错。下面几种情况程序拒绝启动，一次列出全部问题，每条都带来源和键：
 
 - tifa 或应用的某项配置的值类型或格式不对，比如 `ssr.timeout: 3`、`SHOP_OPEN=maybe`，或者 `-c` 的文件里 `ssr.vms` 下面又写了一节。
+- 应用的秘密（`tifa.Secret`）用命令行参数给了值。
 - `-c` 的文件读不了或不是 YAML，或者 `.env` 有读不懂的行。
 
 不认识的命令行参数让程序报 `unknown flag` 退出。不是配置的键和变量不算错，所以拼错的名字（比如 `SERVER_PORT`）什么也不改，用 `./bin/app config` 看每项配置最后是什么值。`build.*` 只从 `tifa.yaml` 读：部署文件、`BUILD_*` 变量和 `--build-*` 参数都改不了它。

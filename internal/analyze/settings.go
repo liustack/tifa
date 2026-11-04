@@ -11,7 +11,7 @@ import (
 )
 
 // settingFuncs are the functions of package tifa that define a setting of the app.
-var settingFuncs = map[string]bool{"String": true, "Strings": true, "Int": true, "Bool": true, "Duration": true, "Size": true}
+var settingFuncs = map[string]bool{"String": true, "Strings": true, "Int": true, "Bool": true, "Duration": true, "Size": true, "Secret": true}
 
 func isSettingFunc(obj types.Object) bool {
 	fn, ok := obj.(*types.Func)

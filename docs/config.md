@@ -48,7 +48,7 @@ cache:
   size: 128MiB
 ```
 
-Run `./bin/app config` to print every setting, of tifa and of the app, with its value and where the value comes from (`default`, `tifa.yaml`, `file prod.yaml`, `.env SSR_VMS`, `env PORT`, `flag --ssr-vms` and so on). The output is a commented YAML file, a good starting point for a deployment file.
+Run `./bin/app config` to print every setting, of tifa and of the app, with its value and where the value comes from (`default`, `tifa.yaml`, `file prod.yaml`, `.env SSR_VMS`, `env PORT`, `flag --ssr-vms` and so on). The output is a commented YAML file, a good starting point for a deployment file. It leaves out the values of the app's secrets ([`tifa.Secret`](#settings-of-the-app)).
 
 ### Names
 
@@ -151,12 +151,14 @@ var (
 	Open    = tifa.Bool("shop.open", false, "Let visitors in without signing in")
 	Idle    = tifa.Duration("db.idle", time.Minute, "How long an idle connection stays open")
 	Upload  = tifa.Size("upload.limit", 8<<20, "Largest upload")
+	APIKey  = tifa.Secret("payments.api_key", "Key of the payment provider")
 )
 ```
 
 - The arguments are the key, the default and a line of help. Each returns a plain value: read `shop.DBURL`, and a test sets `shop.DBURL = "test.db"`.
 - The value comes from the same sources as the settings of tifa: the flag `--db-url`, the variable `DB_URL`, `.env`, the file of `-c`, then the default. `tifa.yaml` holds only settings of tifa.
 - The types: `String` (`string`), `Strings` (`[]string`), `Int` (`int`), `Bool` (`bool`), `Duration` (`time.Duration`) and `Size` (`int64` bytes). Their values are written as for the settings of tifa, see [Value formats](#value-formats). `Strings` is comma-separated text, such as `FEED_HOSTS=a.example,b.example`.
+- `Secret` (`string`) is for a password, a token or a key. It has no default and is empty when no source sets it. It comes from the environment variable, `.env` or the file of `-c`, and not from a flag: a flag shows in the process list to every user of the machine, so the program refuses one and says where to put the value. `./bin/app config` writes where it came from and leaves the value out, as the comment `# api_key: (hidden)`.
 - Values are single values. Structured data goes into a file of the app, and a setting holds its path.
 - An invalid value gives the default, and the program lists it with the other invalid settings and stops before `OnStart`.
 - In `go test` the settings keep their defaults, whatever the flags, variables and `.env` are.
@@ -377,6 +379,7 @@ What a lower depth breaks:
 `tifa build` fails on a value of the wrong type or format in `tifa.yaml`, naming its line. A setting written as a section or a list, such as `ssr: {vms: {count: 2}}`, is a value of the wrong type too. The program refuses to start and lists every problem, each with its source and key, when:
 
 - a value of a setting of tifa or of the app has the wrong type or format, such as `ssr.timeout: 3`, `SHOP_OPEN=maybe` or a section under `ssr.vms` in the file of `-c`,
+- a secret of the app (`tifa.Secret`) is given as a flag,
 - the file of `-c` cannot be read or is not YAML, or a line of `.env` cannot be read.
 
 A flag that is no setting stops the program with `unknown flag`. A key or variable that is no setting is not an error, so a misspelt one such as `SERVER_PORT` changes nothing: `./bin/app config` shows what each setting ended up as. `build.*` settings are read only from `tifa.yaml`: a deployment file, a `BUILD_*` variable or a `--build-*` flag does not change them.

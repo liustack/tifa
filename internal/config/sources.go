@@ -189,8 +189,11 @@ func (s *Sources) apply(key string, v value, settings map[string]string) (from s
 		}
 	}
 	name := FlagName(key)
+	_, secret := v.(secretValue)
 	if raw, ok, err := s.flag(name, v.kind() == "bool"); err != nil {
 		errs = append(errs, err)
+	} else if ok && secret {
+		errs = append(errs, fmt.Errorf("config: flag --%s: %s is a secret, and a flag shows in the process list to every user of the machine: set %s in the environment or in .env, or %s in the file of -c", name, key, EnvName(key), key))
 	} else if ok {
 		set("flag --"+name, "flag --"+name, raw)
 	}

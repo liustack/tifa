@@ -42,3 +42,12 @@ func Duration(key string, def time.Duration, help string) time.Duration {
 // Size defines a setting of the app that is a number of bytes, see String. It is written as a
 // whole number with an optional unit B, KiB, MiB or GiB, such as 512KiB.
 func Size(key string, def int64, help string) int64 { return config.DefineSize(key, def, help) }
+
+// Secret defines a setting of the app that is a secret, such as a password or an API token, and
+// returns its value, empty when no source sets it. It comes from the environment variable, the
+// .env file of the working directory or the file of -c, see String. A flag would show it in the
+// process list to every user of the machine, so the program refuses one and says where to put
+// it. config prints where a secret came from and never its value.
+//
+//	var SMTPPassword = tifa.Secret("smtp.password", "SMTP password")
+func Secret(key, help string) string { return config.DefineSecret(key, help) }

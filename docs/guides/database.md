@@ -342,6 +342,6 @@ func OpenDB(ctx context.Context, url string) (*sql.DB, error) {
 }
 ```
 
-Everything else in this guide keeps its shape: a `DB` variable opened in `OnStart`, a setting for the address (`db.url`, with the password in the environment, see [Sending email](email.md#settings)), queries through `database/sql`. What changes: placeholders are `$1`, `$2`, the pragmas go away, and the migration runner above is SQLite's, so use a library such as goose. Tests then need a real Postgres, so give them one through a setting and skip when it is not set.
+Everything else in this guide keeps its shape: a `DB` variable opened in `OnStart`, a setting for the address (`db.url`, now a `tifa.Secret` since it holds the password, see [Sending email](email.md#settings)), queries through `database/sql`. What changes: placeholders are `$1`, `$2`, the pragmas go away, and the migration runner above is SQLite's, so use a library such as goose. Tests then need a real Postgres, so give them one through a setting and skip when it is not set.
 
 Sessions can live in the same database: [Sessions](../sessions.md#where-to-store-sessions).

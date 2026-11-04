@@ -342,6 +342,6 @@ func OpenDB(ctx context.Context, url string) (*sql.DB, error) {
 }
 ```
 
-这篇其余的部分形状不变：在 `OnStart` 里打开的 `DB` 变量，地址的设置（`db.url`，密码放环境变量，见[发送邮件](email.zh-CN.md#设置)），通过 `database/sql` 查询。会变的是：占位符写成 `$1`、`$2`，pragma 没有了，上面的迁移执行器是为 SQLite 写的，所以改用 goose 这样的库。测试这时需要一个真的 Postgres，用一项设置把它交给测试，没设就跳过。
+这篇其余的部分形状不变：在 `OnStart` 里打开的 `DB` 变量，地址的设置（`db.url`，这时它带着密码，改用 `tifa.Secret`，见[发送邮件](email.zh-CN.md#设置)），通过 `database/sql` 查询。会变的是：占位符写成 `$1`、`$2`，pragma 没有了，上面的迁移执行器是为 SQLite 写的，所以改用 goose 这样的库。测试这时需要一个真的 Postgres，用一项设置把它交给测试，没设就跳过。
 
 会话也可以放在同一个数据库里：见[会话](../sessions.zh-CN.md#会话存在哪)。

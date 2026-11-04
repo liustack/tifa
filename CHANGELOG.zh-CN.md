@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### 新增
+
+- `tifa.Secret("smtp.password", "SMTP password")` 定义应用的密码、token 或密钥配置。它从环境变量、`.env` 或 `-c` 的文件读，用命令行参数给值时程序报错并说明该放在哪里，`./bin/app config` 只写它的来源，不写值。[邮件指南](docs/guides/email.zh-CN.md)改用了它。
+
 ### 修复
 
 - 用 systemd socket activation 开 HTTPS 时，systemd 交来 `server.addr` 的套接字后可以不设 `server.addr`。之前程序会因为这个它根本不监听的默认地址拒绝启动。
