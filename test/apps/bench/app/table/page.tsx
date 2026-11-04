@@ -4,7 +4,7 @@ import { page } from './route.gen'
 // before the render, so there is no Suspense or use().
 export default function App() {
   // A Go slice may be nil, so its TypeScript type includes null.
-  return <Table data={page.useLoaderData() ?? []} />
+  return <Table data={page.useLoaderData()} />
 }
 
 function Table({ data }: { data: { id: string; name: string }[] }) {
