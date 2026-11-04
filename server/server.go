@@ -618,6 +618,17 @@ func (s *server) run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// The sockets of systemd socket activation, which systemd keeps open while the program
+	// restarts: the connections that arrive meanwhile wait for the next one.
+	sockets, err := takeSystemdSockets()
+	if err != nil {
+		return err
+	}
+	defer closeAll(sockets) // those still here when run fails before it listens
+	plainHTTP := tlsConfig != nil && s.cfg.HTTPAddr != "off"
+	if err := unusedSocket(sockets, plainHTTP); err != nil {
+		return err
+	}
 	if s.hooks.OnStart != nil {
 		if err := s.hooks.OnStart(ctx); err != nil {
 			return fmt.Errorf("tifa: OnStart: %w", err)
@@ -628,15 +639,16 @@ func (s *server) run(ctx context.Context) error {
 	defer release()
 	s.root = root
 	defer s.startSessions()()
-	ln, err := net.Listen("tcp", s.cfg.Addr)
+	ln, fromSystemd, err := listen(sockets, socketAddr, s.cfg.Addr)
 	if err != nil {
-		return listenError("server.addr", err)
+		return err
 	}
 	var plainLn net.Listener
-	if tlsConfig != nil && s.cfg.HTTPAddr != "off" {
-		if plainLn, err = net.Listen("tcp", s.cfg.HTTPAddr); err != nil {
+	plainFromSystemd := false
+	if plainHTTP {
+		if plainLn, plainFromSystemd, err = listen(sockets, socketHTTPAddr, s.cfg.HTTPAddr); err != nil {
 			ln.Close()
-			return listenError("server.http_addr", err)
+			return err
 		}
 	}
 	// Under DevMain the app listens on an address only tifa dev talks to, and tifa dev prints
@@ -646,12 +658,12 @@ func (s *server) run(ctx context.Context) error {
 		if tlsConfig != nil {
 			scheme = "https"
 		}
-		core.Logger().Info("tifa: listening on " + scheme + "://" + ln.Addr().String())
+		core.Logger().Info("tifa: listening on "+scheme+"://"+ln.Addr().String(), socketFrom(fromSystemd)...)
 		if tlsConfig != nil {
 			warnLoopback(ln.Addr())
 		}
 		if plainLn != nil {
-			core.Logger().Info("tifa: listening on http://"+plainLn.Addr().String(), "redirects_to", "https")
+			core.Logger().Info("tifa: listening on http://"+plainLn.Addr().String(), append([]any{"redirects_to", "https"}, socketFrom(plainFromSystemd)...)...)
 		}
 	}
 	ready()
