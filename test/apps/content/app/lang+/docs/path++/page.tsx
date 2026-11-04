@@ -7,7 +7,7 @@ export default function DocPage() {
   return (
     <div className="docs">
       <aside id="nav">
-        {(nav ?? []).map((n) => (
+        {nav.map((n) => (
           <Link key={n.id} to="/$lang/docs/$" params={{ lang: doc.lang, _splat: n.id === 'index' ? '' : n.id }}>
             {n.title}
           </Link>
