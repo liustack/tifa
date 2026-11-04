@@ -33,9 +33,11 @@ func (a *analyzer) readHandler(pkg *packages.Package, obj types.Object, method s
 	h := Handler{Method: method}
 	if sig.Params().Len() == 2 {
 		in := sig.Params().At(1).Type()
-		if !a.checkInput(method, in, fieldTypePos(decl.Type.Params, 1)) {
+		valid, form := a.checkInput(method, in, fieldTypePos(decl.Type.Params, 1))
+		if !valid {
 			ok = false
 		}
+		h.Form = form
 		h.Input, h.InputType = typeString(in), in
 	}
 	if sig.Results().Len() == 2 {
@@ -81,46 +83,60 @@ func (a *analyzer) withField(msg string, field *types.Var) string {
 
 // checkInput checks the input type of a method handler. The generated code decodes it from the
 // request body as JSON or a form, or for GET and DELETE from the query string, then calls its
-// Validate method if it has one.
-func (a *analyzer) checkInput(method string, in types.Type, pos token.Pos) bool {
+// Validate method if it has one. form reports whether the input holds files, whose body is a form.
+func (a *analyzer) checkInput(method string, in types.Type, pos token.Pos) (ok, form bool) {
 	label := method + " input"
-	st, ok := in.Underlying().(*types.Struct)
-	if !ok {
+	st, isStruct := in.Underlying().(*types.Struct)
+	if !isStruct || isNamed(in, multipartPath, "FileHeader") {
 		a.errorAt(pos, "%s %s must be a struct: the input is decoded into the fields of a struct", label, typeString(in))
-		return false
+		return false, false
 	}
 	ok = true
-	if problems := checkInputTS(in); len(problems) > 0 {
+	if problems := checkInputTS(in, true); len(problems) > 0 {
 		a.reportTS(pos, label, problems)
 		ok = false
 	}
+	// The files of an upload are fields of the input itself: a form is a flat list of names.
+	files := map[*types.Var]bool{}
+	for i := range st.NumFields() {
+		f := st.Field(i)
+		if f.Exported() && !f.Embedded() && jsonName(st.Tag(i)) != "-" && fileType(f.Type()) {
+			files[f] = true
+			// A type that reads or writes itself as text is a string in TypeScript, so the page
+			// would send text where the server waits for a file.
+			for _, name := range []string{"MarshalText", "UnmarshalText"} {
+				if _, _, found := lookupName(f.Type(), name); found {
+					a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s.%s is a file of type %s, which has %s: a file comes as a part of a form, never as text, so a file type cannot have MarshalText or UnmarshalText. Remove the method, or use *multipart.FileHeader or []*multipart.FileHeader", label, rootLabel(in), f.Name(), types.TypeString(f.Type(), shortQualifier), name), f))
+					ok = false
+					break
+				}
+			}
+		}
+	}
+	form = len(files) > 0
 	root := rootLabel(in)
 	walkFields(in, root, map[types.Type]bool{}, func(path string, f *types.Var, tag string) {
 		if _, has := reflect.StructTag(tag).Lookup("form"); has {
 			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s has a form tag: an input field is named by its json tag only, also in a form body, so remove the form tag", label, path), f))
 			ok = false
 		}
-	})
-	if method == "GET" || method == "DELETE" {
-		for _, name := range []string{"MarshalText", "UnmarshalText"} {
-			if _, _, found := lookupName(in, name); found {
-				a.errorAt(pos, "%s %s has %s: a %s input comes from the query string, which holds an object of fields, not a string", label, types.TypeString(in, shortQualifier), name, method)
-				return false
-			}
+		if !files[f] && holdsFile(f.Type()) {
+			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s holds a file as %s: a file can only be a field of the input itself, of type *multipart.FileHeader or []*multipart.FileHeader", label, path, types.TypeString(f.Type(), shortQualifier)), f))
+			ok = false
 		}
-		for i := range st.NumFields() {
-			f := st.Field(i)
-			path := root + "." + f.Name()
-			name, _, _ := strings.Cut(reflect.StructTag(st.Tag(i)).Get("json"), ",")
-			switch {
-			case f.Embedded():
-				a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s is an embedded field: a %s input comes from the query string, so list its fields directly", label, path, method), f))
-				ok = false
-			case !f.Exported() || name == "-":
-			case !queryType(f.Type()):
-				a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s is %s: a %s input comes from the query string, so its fields are strings, numbers, bools or slices of them", label, path, types.TypeString(f.Type(), shortQualifier), method), f))
-				ok = false
-			}
+	})
+	switch {
+	case method == "GET" || method == "DELETE":
+		for f := range files {
+			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s.%s is a file, which comes in a request body, and a %s input comes from the query string: take files in a POST, PUT or PATCH handler", label, root, f.Name(), method), f))
+			ok = false
+		}
+		if !a.checkFlatInput(label, in, st, files, pos, fmt.Sprintf("a %s input comes from the query string", method)) {
+			ok = false
+		}
+	case form:
+		if !a.checkFlatInput(label, in, st, files, pos, fmt.Sprintf("a %s input that holds a file comes as a form", method)) {
+			ok = false
 		}
 	}
 	if fn, _, _ := types.LookupFieldOrMethod(in, true, nil, "Validate"); fn != nil {
@@ -132,7 +148,80 @@ func (a *analyzer) checkInput(method string, in types.Type, pos token.Pos) bool 
 			}
 		}
 	}
+	return ok, form
+}
+
+// checkFlatInput checks an input whose fields come as a flat list of names and string values: the
+// query string of GET and DELETE, or the form of an input that holds files. why says which. Its
+// fields are strings, numbers, bools or slices of them, and the files.
+func (a *analyzer) checkFlatInput(label string, in types.Type, st *types.Struct, files map[*types.Var]bool, pos token.Pos, why string) bool {
+	for _, name := range []string{"MarshalText", "UnmarshalText"} {
+		if _, _, found := lookupName(in, name); found {
+			a.errorAt(pos, "%s %s has %s: %s, which holds an object of fields, not a string", label, types.TypeString(in, shortQualifier), name, why)
+			return false
+		}
+	}
+	ok := true
+	root := rootLabel(in)
+	for i := range st.NumFields() {
+		f := st.Field(i)
+		path := root + "." + f.Name()
+		switch {
+		case f.Embedded():
+			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s is an embedded field: %s, so list its fields directly", label, path, why), f))
+			ok = false
+		case !f.Exported() || jsonName(st.Tag(i)) == "-" || files[f] || holdsFile(f.Type()):
+		case !queryType(f.Type()):
+			text := queryTypeProblem(f.Type())
+			if text != "" {
+				text += ", which tifa does not call: it decodes each value by its kind"
+			}
+			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s is %s%s: %s, so its fields are strings, numbers, bools or slices of them", label, path, types.TypeString(f.Type(), shortQualifier), text, why), f))
+			ok = false
+		}
+	}
 	return ok
+}
+
+// jsonName is the name of the json tag of a struct field, "" without one.
+func jsonName(tag string) string {
+	name, _, _ := strings.Cut(reflect.StructTag(tag).Get("json"), ",")
+	return name
+}
+
+// fileType reports whether t is a file or a slice of files by filePointer, *multipart.FileHeader or
+// []*multipart.FileHeader by their underlying types: the types of the files of an upload in a field
+// of an input.
+func fileType(t types.Type) bool {
+	if s, ok := t.Underlying().(*types.Slice); ok {
+		t = s.Elem()
+	}
+	return filePointer(t)
+}
+
+// holdsFile reports whether t is a multipart.FileHeader or holds one through pointers, slices,
+// arrays and maps, named or not. The fields of a struct are walked on their own. A type that holds
+// itself, such as type T []T, ends the walk.
+func holdsFile(t types.Type) bool {
+	for seen := map[types.Type]bool{}; !seen[t]; {
+		seen[t] = true
+		if isNamed(t, multipartPath, "FileHeader") || filePointer(t) {
+			return true
+		}
+		switch u := t.Underlying().(type) {
+		case *types.Pointer:
+			t = u.Elem()
+		case *types.Slice:
+			t = u.Elem()
+		case *types.Array:
+			t = u.Elem()
+		case *types.Map:
+			t = u.Elem()
+		default:
+			return false
+		}
+	}
+	return false
 }
 
 // walkFields calls visit for every field of the structs that t holds, through pointers, slices,
@@ -162,26 +251,53 @@ func walkFields(t types.Type, path string, seen map[types.Type]bool, visit func(
 	}
 }
 
-// queryType reports whether a query string value decodes into a field of type t the way its
-// TypeScript type describes it: a bool, number or string kind without text methods, or a slice of
-// one. A byte slice is base64 in JSON, so it is not one.
+// queryType reports whether the values of a query string or form decode into a field of type t the
+// way its TypeScript type describes them: a bool, number or string kind, or a slice of one, with no
+// text methods on t or its element. The values are decoded by kind and text methods are never
+// called, which is the rule of formType in internal/core. A slice that writes itself as text is one
+// string in TypeScript but would get that string as one element, so t is checked before its
+// element. A byte slice is base64 in JSON, so it is not one.
 func queryType(t types.Type) bool {
+	if textMethods(t) != "" {
+		return false
+	}
 	if s, ok := t.Underlying().(*types.Slice); ok {
 		if b, ok := types.Unalias(s.Elem()).(*types.Basic); ok && b.Kind() == types.Byte {
 			return false
 		}
 		t = s.Elem()
-	}
-	b, ok := t.Underlying().(*types.Basic)
-	if !ok || b.Info()&(types.IsBoolean|types.IsInteger|types.IsFloat|types.IsString) == 0 {
-		return false
-	}
-	for _, name := range []string{"MarshalText", "UnmarshalText"} {
-		if _, _, found := lookupName(t, name); found {
+		if textMethods(t) != "" {
 			return false
 		}
 	}
-	return true
+	b, ok := t.Underlying().(*types.Basic)
+	return ok && b.Info()&(types.IsBoolean|types.IsInteger|types.IsFloat|types.IsString) != 0
+}
+
+// textMethods names the text methods t has, also on its pointer, as "MarshalText and
+// UnmarshalText", or returns "".
+func textMethods(t types.Type) string {
+	var names []string
+	for _, name := range []string{"MarshalText", "UnmarshalText"} {
+		if _, _, found := lookupName(t, name); found {
+			names = append(names, name)
+		}
+	}
+	return strings.Join(names, " and ")
+}
+
+// queryTypeProblem tells why t is not a queryType for the message of checkFlatInput: the text
+// methods of t or of its element when it has any.
+func queryTypeProblem(t types.Type) string {
+	if m := textMethods(t); m != "" {
+		return " with " + m
+	}
+	if s, ok := t.Underlying().(*types.Slice); ok {
+		if m := textMethods(s.Elem()); m != "" {
+			return ", whose element has " + m
+		}
+	}
+	return ""
 }
 
 var textUnmarshalSig = types.NewSignatureType(nil, nil, nil,

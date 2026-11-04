@@ -1,8 +1,8 @@
 ---
-summary: 'How to let visitors upload a file in a tifa app: why the generated function cannot send a file and a plain fetch with FormData does, the Go handler that reads the text fields and the file, the size limit, checking the type, where to keep the file and how to serve it back'
+summary: 'How to let visitors upload a file in a tifa app: a file field in the input of a handler, which the generated function sends as a form, the body limit and read time of the upload route, checking the type, where to keep the file, how to serve it back and how to test the handler'
 read_when:
   - Adding a file upload, such as a picture, an avatar or an attachment
-  - An upload fails with 413, 415 or 400, or the handler does not see the file
+  - An upload fails with 400, 408, 413, 415 or 422, or the handler does not see the file
   - Deciding where uploaded files live and how the app serves them
 ---
 
@@ -12,22 +12,22 @@ English · [简体中文](uploads.zh-CN.md)
 
 A page where visitors upload pictures with a title, and see them listed. The handler checks the title, the size and the kind of file, keeps the file in a folder and serves it back.
 
-The code was run as written. The reference docs for the calls used here: [method handlers](../app.md#method-handlers-with-input-and-result), [Ctx](../app.md#ctx), [settings of the app](../config.md#settings-of-the-app).
+The code was run as written: it is the app `test/apps/upload` of the tifa repository, which its end-to-end tests build and drive in a browser. The reference docs for the calls used here: [files in the input](../app.md#files-in-the-input), [body limit and read time of a route](../app.md#body-limit-and-read-time-of-a-route), [settings of the app](../config.md#settings-of-the-app).
 
-## What works today
+## How a file gets to the handler
 
-The generated function of a handler cannot send a file. It sends its input as JSON (or as a query string for GET and DELETE), and a file is not JSON. Sending files through the generated function is not built yet. So an upload takes two parts:
+A field of type `*multipart.FileHeader` in the input of a POST, PUT or PATCH handler holds the file (`[]*multipart.FileHeader` holds several). The rest works as in [Forms](forms.md):
 
-- The Go handler is an ordinary method handler. It accepts a multipart form (`Content-Type: multipart/form-data`), as well as JSON and URL-encoded forms. The text fields fill the input struct by their `json` names, so `Validate`, `tifa.Fields` and the 422 answer work as in [Forms](forms.md). A form value fills only fields that are strings, numbers, bools or slices of them.
-- The page sends the request with `fetch` and a `FormData`. You read the answer yourself, because the `TifaError` of the generated functions is thrown only by them.
-
-The file is not part of the input struct. The handler reads it from the request with `c.Request().FormFile("file")`.
+- The generated function takes the file as a `Blob`, a `File` from a file input included, and sends the input as a multipart form. The page calls it like any other handler function, and a refusal throws a `TifaError` with the message of each field.
+- The text fields fill the input by their `json` names, the file fills its field, and then `Validate` runs. So a missing file is a message under its input, like a missing title.
+- The handler opens the file with `in.File.Open()`.
 
 ## The settings and the body limit
 
 `config.go` in the root package:
 
 ```go
+// Package uploads is the root package of the app: its settings and hooks.
 package uploads
 
 import "github.com/liustack/tifa"
@@ -40,9 +40,7 @@ var (
 )
 ```
 
-They are also the flag `--upload-limit`, the variable `UPLOAD_LIMIT` and so on, like every [setting of the app](../config.md#settings-of-the-app). `4MiB` and `4<<20` mean the same.
-
-Every request body is limited to `server.body_limit`, 1 MiB by default. A bigger one is answered with 413 and the handler does not run. Raise the limit for the upload route only, so the other routes keep the small one. `hooks.go`:
+They are also the flag `--upload-limit`, the variable `UPLOAD_LIMIT` and so on, like every [setting of the app](../config.md#settings-of-the-app). `4MiB` and `4<<20` mean the same. `hooks.go` makes the folder when the app starts:
 
 ```go
 package uploads
@@ -50,45 +48,59 @@ package uploads
 import (
 	"context"
 	"os"
-
-	"github.com/liustack/tifa"
 )
 
 func OnStart(context.Context) error {
 	return os.MkdirAll(UploadDir, 0o755)
 }
+```
 
-// OnRequest gives the upload route a body limit of its own. Set it before anything reads the body.
+Every request body is limited to `server.body_limit`, 1 MiB by default, and every request has the 10 seconds of `server.read_timeout` to arrive. Raise both for the upload route only, so the other routes keep the small ones. At the top of `app/photos/route.go`:
+
+```go
+// BodyLimit lets the requests of this route be as large as upload.limit. The other routes keep
+// server.body_limit.
+var BodyLimit = uploads.UploadLimit
+
+// ReadTimeout gives a phone on a slow line the time to send a large picture.
+const ReadTimeout = 5 * time.Minute
+```
+
+- A body over `BodyLimit` is answered with 413 and the handler does not run. The limit counts the whole body: the file, the other fields and the multipart framing. A file a little under the limit can still be refused.
+- `ReadTimeout` counts from the moment the route is matched. A body still coming when it is over is answered with 408. The answer gets `server.write_timeout` after it.
+- Both hold for the requests the method handlers of this `route.go` answer, and the GET of the page keeps the settings. A variable is read once when the app starts, so `--upload-limit 8MiB` works.
+- A proxy or CDN in front of the app has a body limit and timeouts of its own. Raise them to match, or the visitor gets its error and not yours.
+
+### How much memory an upload takes
+
+The form is parsed with the budget of Go's `mime/multipart`. Up to 32 MiB of file content stays in memory, and the text fields and the names and headers of the parts share one budget of about 42 MiB with it. A file that does not fit goes to a temporary file, which tifa removes when the request ends. A body limit above that is fine: the rest goes to disk.
+
+The budget is not the peak. A file that ends on disk is first read into a buffer of up to 32 MiB, which grows as it fills, so one large file can take about 64 MiB for a moment, and each upload at the same time takes its own. On a machine with little memory, let only a few uploads read their form at once. The rest of `hooks.go`, which also imports `github.com/liustack/tifa`:
+
+```go
+// parsing lets two uploads read their form at a time. The others wait here, before their body is
+// read, so a burst of uploads does not hold the memory of all of them at once.
+var parsing = make(chan struct{}, 2)
+
 func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 	if c.Request().Method == "POST" && c.Pattern() == "/photos" {
-		if err := c.SetBodyLimit(UploadLimit); err != nil {
-			return err
+		select {
+		case parsing <- struct{}{}:
+			defer func() { <-parsing }()
+		case <-c.Context().Done():
+			return c.Context().Err()
 		}
 	}
 	return next(c)
 }
 ```
 
-- The limit counts the whole body: the file, the other fields and the multipart framing. A file a little under the limit can still be refused.
-- With a typed input the framework decodes the body before your handler runs, so the limit has to change earlier, in `OnRequest`. A handler that reads the body itself can call `c.SetBodyLimit` at its top, as long as nothing has read the body yet (see below).
-- A multipart body is read with at most 32 MiB in memory. What is over that goes to temporary files, which tifa removes when the request ends. A limit above that is fine, but a few uploads at once cost memory, so keep it as low as the use needs.
-- A proxy or CDN in front of the app has a body limit of its own. Raise it to match, or the visitor gets its error and not yours.
-- A large file from a phone on a slow line can take longer than the 10 seconds of `server.read_timeout`, and the upload then fails halfway. Lift the deadlines of the upload route in the same `if`, before the body is read, and leave the settings short for the rest (see [Long requests](../config.md#long-requests)):
+The time an upload waits here counts toward its `ReadTimeout`, which starts when the route is matched, so leave room for the wait.
 
-  ```go
-  rc := http.NewResponseController(c.Writer())
-  if err := rc.SetReadDeadline(time.Now().Add(5 * time.Minute)); err != nil {
-  	return err
-  }
-  // The answer is written after the body, so it needs the time too.
-  if err := rc.SetWriteDeadline(time.Now().Add(5 * time.Minute)); err != nil {
-  	return err
-  }
-  ```
 
 ## The handler
 
-`app/photos/route.go`:
+The rest of `app/photos/route.go`:
 
 ```go
 package photos
@@ -97,16 +109,20 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/liustack/tifa"
 
 	"uploads"
 )
+
+// (BodyLimit and ReadTimeout, as above)
 
 // Photo is one stored picture. ID is also its file name.
 type Photo struct {
@@ -136,16 +152,21 @@ func Load(c *tifa.Ctx) ([]Photo, error) {
 	return photos, nil
 }
 
-// UploadInput holds the text fields of the form. The file is read from the request itself.
+// UploadInput is the form: a title and the picture.
 type UploadInput struct {
-	Title string `json:"title"`
+	Title string                `json:"title"`
+	File  *multipart.FileHeader `json:"file"`
 }
 
 func (in UploadInput) Validate() error {
+	fields := tifa.Fields{}
 	if strings.TrimSpace(in.Title) == "" {
-		return tifa.Fields{"title": "Give the picture a title."}
+		fields["title"] = "Give the picture a title."
 	}
-	return nil
+	if in.File == nil {
+		fields["file"] = "Choose a picture."
+	}
+	return fields.Err()
 }
 
 // The kinds of picture the app accepts, by what the bytes say they are.
@@ -156,12 +177,12 @@ var extensions = map[string]string{
 	"image/gif":  ".gif",
 }
 
-// POST stores the file of the "file" part. The framework has read the text fields into in and
-// refused a body over upload.limit with 413 before this runs.
+// POST stores the picture. The framework has refused a body over BodyLimit with 413 and run
+// Validate before this runs.
 func POST(c *tifa.Ctx, in UploadInput) (Photo, error) {
-	file, _, err := c.Request().FormFile("file")
+	file, err := in.File.Open()
 	if err != nil {
-		return Photo{}, tifa.Fields{"file": "Choose a picture."}
+		return Photo{}, err
 	}
 	defer file.Close()
 
@@ -215,52 +236,11 @@ func newID() (string, error) {
 
 The title is kept in a small file next to the picture so the example needs no database. A real app keeps the title, the owner and the file name in a table.
 
-- **Check what the file is, not what it says it is.** `http.DetectContentType` looks at the first 512 bytes. The file name and the `Content-Type` of the part come from the browser, so anyone can write anything there. Accept a short list and refuse the rest. This tells you the kind of the file, not that its content is harmless. It keeps scripts and HTML from being stored and served as pictures.
-- **Make the name yourself.** The example never puts a client's file name in a path, which closes the door on `../` names, names that overwrite another file, and odd characters. If you want to show the original name, keep it in the database.
+- **Check what the file is, not what it says it is.** `http.DetectContentType` looks at the first 512 bytes. The file name and the `Content-Type` of the part (`in.File.Header`) come from the browser, so anyone can write anything there. Accept a short list and refuse the rest. This tells you the kind of the file, not that its content is harmless. It keeps scripts and HTML from being stored and served as pictures.
+- **Make the name yourself.** The example never puts a client's file name (`in.File.Filename`) in a path, which closes the door on `../` names, names that overwrite another file, and odd characters. If you want to show the original name, keep it in the database.
+- **Copy the file before the handler returns.** The temporary file behind `in.File` is removed when the request ends, so a goroutine that outlives the request cannot read it.
 - **Limits on the count and on the person.** The body limit caps one request. How many files one visitor may keep, and who may upload at all, is your rule: read `tifa.Session` (see [Sign in](sign-in.md)) at the top of the handler.
-
-### A handler that writes its own response
-
-If you want to read the form yourself, take only the Ctx. `c.Bind` decodes the text fields (by the `form` tag, then `json`, then the Go name) and reports 413 for a body over the limit, and you write the answer:
-
-```go
-package avatar
-
-import (
-	"io"
-
-	"github.com/liustack/tifa"
-
-	"uploads"
-)
-
-type form struct {
-	Name string `json:"name"`
-}
-
-func POST(c *tifa.Ctx) error {
-	// Nothing has read the body yet, so the limit can still change here.
-	if err := c.SetBodyLimit(uploads.UploadLimit); err != nil {
-		return err
-	}
-	var in form
-	if err := c.Bind(&in); err != nil { // 413 for a body over the limit, 400 for a broken one
-		return err
-	}
-	file, header, err := c.Request().FormFile("file")
-	if err != nil {
-		return tifa.Error{Status: 400, Message: "Choose a file."}
-	}
-	defer file.Close()
-	n, err := io.Copy(io.Discard, file)
-	if err != nil {
-		return err
-	}
-	return c.JSON(200, map[string]any{"name": in.Name, "bytes": n, "filename": header.Filename})
-}
-```
-
-Here there is no `Validate`, so you check the fields yourself. The generated function for it takes no input and gives back the `Response`, so it is no help for a file either.
+- A form field that holds text in place of the file is answered with 400, and a JSON body with 415. The generated function never sends either.
 
 ## Serving the files
 
@@ -321,7 +301,8 @@ func GET(c *tifa.Ctx) error {
 ```tsx
 import { useRouter } from '@tanstack/react-router'
 import { useState, useSyncExternalStore, type FormEvent } from 'react'
-import { page, type POSTOutput } from './route.gen'
+import { TifaError } from 'tifa/client'
+import { page, POST } from './route.gen'
 
 const useHydrated = () =>
   useSyncExternalStore(
@@ -331,17 +312,6 @@ const useHydrated = () =>
   )
 
 type Failure = { fields: Record<string, string>; message?: string }
-
-// The generated POST function sends JSON, so a file goes through fetch with a FormData.
-// Do not set Content-Type: the browser writes it, with the boundary.
-async function upload(form: HTMLFormElement): Promise<POSTOutput | Failure> {
-  const response = await fetch('/photos', { method: 'POST', body: new FormData(form) })
-  if (response.ok) return (await response.json()) as POSTOutput
-  // A handler error is {"error": "...", "fields": {...}}. A proxy may answer with something else.
-  const body = (await response.json().catch(() => ({}))) as { error?: string; fields?: Record<string, string> }
-  const message = response.status === 413 ? 'That file is too large.' : (body.error ?? 'The upload failed.')
-  return { fields: body.fields ?? {}, message: body.fields ? undefined : message }
-}
 
 export default function Photos() {
   const photos = page.useLoaderData()
@@ -353,19 +323,23 @@ export default function Photos() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = event.currentTarget
+    const data = new FormData(form)
+    const file = data.get('file')
     setPending(true)
     try {
-      const result = await upload(form)
-      if ('fields' in result) {
-        setFailure(result)
-        return
-      }
+      // An empty file input gives a File with no name: send no file then, and Validate says so.
+      await POST({ input: { title: String(data.get('title') ?? ''), file: file instanceof File && file.name !== '' ? file : null } })
       setFailure({ fields: {} })
       form.reset()
       // The upload does not reload the page data. Ask for it.
       await router.invalidate({ sync: true })
-    } catch {
-      setFailure({ fields: {}, message: 'Could not reach the server.' })
+    } catch (e) {
+      if (!(e instanceof TifaError)) {
+        setFailure({ fields: {}, message: 'Could not reach the server.' })
+        return
+      }
+      const message = e.status === 413 ? 'That file is too large.' : e.message
+      setFailure({ fields: e.fields, message: Object.keys(e.fields).length === 0 ? message : undefined })
     } finally {
       setPending(false)
     }
@@ -374,7 +348,7 @@ export default function Photos() {
   return (
     <>
       <h1>Photos</h1>
-      <form onSubmit={submit} noValidate>
+      <form id="upload" onSubmit={submit} noValidate>
         <p>
           <label htmlFor="title">Title</label>
           <input id="title" name="title" />
@@ -390,7 +364,7 @@ export default function Photos() {
           {pending ? 'Uploading…' : 'Upload'}
         </button>
       </form>
-      <ul>
+      <ul id="photos">
         {photos.map((p) => (
           <li key={p.id}>
             <img src={`/photos/${p.id}`} alt={p.title} width={160} /> {p.title}
@@ -402,17 +376,63 @@ export default function Photos() {
 }
 ```
 
-- `POSTOutput` is the generated type of the handler's result, so `Photo` stays in step with Go.
-- Do not set the `Content-Type` header yourself. The browser adds the boundary only when it writes the header.
+- `POST` is the generated function of the handler. Its input type has `file: Blob | null`, so a `File` from the input goes in as it is.
+- A file input left empty still gives `FormData` a `File`, with an empty name. The page sends `null` then, and `Validate` asks for a picture.
+- A refusal throws a `TifaError`. `e.fields` holds the messages of `tifa.Fields`, by the `json` names of the input. A 413 has no fields, so the page gives its own message.
 - The browser's own `accept` filter is a hint for the file picker and not a check. The Go side decides.
-- A `fetch` to your own site is a same-origin write, so the [cross-site check](../config.md#cross-site-writes) lets it through. A form on another site is answered with 403.
-- A call you write yourself does not reload the page data, so the page calls `router.invalidate({ sync: true })` after a good answer.
+- A call to your own site is a same-origin write, so the [cross-site check](../config.md#cross-site-writes) lets it through. A form on another site is answered with 403.
+- A call does not reload the page data, so the page calls `router.invalidate({ sync: true })` after a good answer.
+
+## Testing the handler
+
+`tifatest.File` gives the `*multipart.FileHeader` of a file, so a test passes it in the input as the server would. `app/photos/route_test.go`:
+
+```go
+package photos
+
+import (
+	"errors"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/liustack/tifa"
+	"github.com/liustack/tifa/tifatest"
+
+	"uploads"
+)
+
+func TestValidate(t *testing.T) {
+	in := UploadInput{Title: "Sea", File: tifatest.File(t, "sea.png", []byte("\x89PNG\r\n\x1a\n"))}
+	if err := in.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	in.File = nil
+	var fields tifa.Fields
+	if err := in.Validate(); !errors.As(err, &fields) || fields["file"] == "" {
+		t.Fatalf("no file: %v", err)
+	}
+}
+
+func TestPOSTRefusesText(t *testing.T) {
+	uploads.UploadDir = t.TempDir()
+	c, _ := tifatest.NewCtx(t, httptest.NewRequest("POST", "/photos", nil))
+	_, err := POST(c, UploadInput{Title: "Text", File: tifatest.File(t, "a.png", []byte("just text"))})
+	var fields tifa.Fields
+	if !errors.As(err, &fields) || fields["file"] != "Only JPEG, PNG, WebP and GIF pictures." {
+		t.Fatalf("text named a.png: %v", err)
+	}
+}
+```
+
+The test calls the handler directly: `Validate`, the body limit and the read time are the server's part, see [Testing](../app.md#testing).
 
 ## Decisions
 
 **Where files live.** A folder on the machine, as here, is the least to run. It needs a volume that survives deploys, and it is backed up with the rest of the data (see [Deploying](../deploy.md)). One process on one machine is the target of tifa, so that is usually enough. If you have more than one machine, or the files are large, keep them in object storage and let the handler write to it. The checks above stay the same. Serve them from there or redirect to a signed link.
 
 **How big.** Pick the smallest limit that fits the use. A profile picture needs 1 or 2 MiB. Show the limit in the form, and check `file.size` in the browser to give a quick message before sending. The server limit is still the one that counts.
+
+**How long.** `ReadTimeout` is how long the slowest visitor you serve may take to send the largest file you accept. 4 MiB over a line of 1 Mbit/s takes about 34 seconds, so 5 minutes leaves room. A long time lets a slow client hold a connection that long, so do not give it to routes that do not need it.
 
 **What is accepted.** A list of kinds, decided by the bytes. For documents, do the same with their own types and serve them with `Content-Disposition: attachment` so the browser saves them and does not open them.
 

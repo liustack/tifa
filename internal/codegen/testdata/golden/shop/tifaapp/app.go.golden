@@ -15,6 +15,7 @@ import (
 	app_auth_login "example.com/shop/app/auth/login"
 	app_projects_projectId_ "example.com/shop/app/projects/projectId+"
 	app_projects_projectId__orders_orderId_ "example.com/shop/app/projects/projectId+/orders/orderId+"
+	app_projects_projectId__orders_orderId__photos "example.com/shop/app/projects/projectId+/orders/orderId+/photos"
 )
 
 // App is the application as tifa build found it: the hooks of hooks.go, the Layouts and
@@ -98,9 +99,20 @@ var App = server.App{
 			SSR:     true,
 			Layouts: []string{"app/layout", "app/projects/projectId+/layout"},
 		},
+		{
+			ID:          "app/projects/projectId+/orders/orderId+/photos/route",
+			Path:        "/projects/{projectId}/orders/{orderId}/photos",
+			Page:        false,
+			POST:        server.InputOutput(app_projects_projectId__orders_orderId__photos.POST, server.BindForm),
+			PUT:         server.Input(app_projects_projectId__orders_orderId__photos.PUT, server.BindForm),
+			BodyLimit:   int64(app_projects_projectId__orders_orderId__photos.BodyLimit),
+			ReadTimeout: app_projects_projectId__orders_orderId__photos.ReadTimeout,
+			SSR:         true,
+			Layouts:     []string{"app/layout", "app/projects/projectId+/layout"},
+		},
 	},
 	Settings: map[string]string{
 		"server.addr": "127.0.0.1:8090",
 	},
-	Fingerprint: "25cecaca333d240d322c0a491117e802",
+	Fingerprint: "93e9a52c77a0189d34f6897a906702c2",
 }

@@ -6,6 +6,14 @@ type GoEntry = { name: string; children: GoEntry[] }
 // PageData is what the Go Load function of app/files/path++ returns, as JSON.
 export type PageData = GoEntry
 
+// PageSearch is the query parameters the Go Load function of app/files/path++ reads, as the router reads them.
+// A key can come more than once in a URL, so a value is a string or an array of strings:
+// c.Query in Go takes the first. Other parameters may come too.
+export type PageSearch = {
+  "rev"?: string | string[]
+  [key: string]: string | string[] | undefined
+}
+
 export type Params = { _splat: string }
 
 export const page = getRouteApi("/files/$")

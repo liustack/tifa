@@ -113,6 +113,13 @@ func appSource(m *analyze.Manifest, settings map[string]string, fingerprint stri
 		for _, h := range r.Handlers {
 			fmt.Fprintf(&app, "%s: %s,\n", h.Method, imports.handler(r.Package, r.Dir, h))
 		}
+		// A variable set from a setting is read when the program starts.
+		if r.BodyLimit {
+			fmt.Fprintf(&app, "BodyLimit: int64(%s.BodyLimit),\n", imports.alias(r.Package, r.Dir))
+		}
+		if r.ReadTimeout {
+			fmt.Fprintf(&app, "ReadTimeout: %s.ReadTimeout,\n", imports.alias(r.Package, r.Dir))
+		}
 		fmt.Fprintf(&app, "SSR: %t,\n", r.SSR)
 		if !r.RenderCache {
 			app.WriteString("NoRenderCache: true,\n")
@@ -186,12 +193,16 @@ type goImports struct {
 
 // handler refers to the method handler h of the package at path. A handler that takes an input
 // or returns a result goes through the adapter of the server package for its signature, with the
-// input read from the query string for GET and DELETE and from the request body otherwise.
+// input read from the query string for GET and DELETE and from the request body otherwise, a form
+// for an input that holds files.
 func (g *goImports) handler(path, dir string, h analyze.Handler) string {
 	fn := g.alias(path, dir) + "." + h.Method
 	bind := "(*tifa.Ctx).Bind"
-	if h.Method == "GET" || h.Method == "DELETE" {
+	switch {
+	case h.Method == "GET" || h.Method == "DELETE":
 		bind = "(*tifa.Ctx).BindQuery"
+	case h.Form:
+		bind = "server.BindForm"
 	}
 	switch {
 	case h.Input != "" && h.Output != "":

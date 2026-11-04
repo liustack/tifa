@@ -104,7 +104,7 @@ func (a *analyzer) session(pkgs []*packages.Package) *Session {
 		a.errorAt(first.pos, "the session type %s must be a struct: the session is stored as the JSON of its fields", typeString(s))
 		return nil
 	}
-	if problems := checkInputTS(s); len(problems) > 0 {
+	if problems := checkInputTS(s, false); len(problems) > 0 {
 		a.reportTS(first.pos, "session type", problems)
 		ok = false
 	}

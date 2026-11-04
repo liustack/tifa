@@ -76,6 +76,12 @@ type Route struct {
 	// sorted. The whole-page cache keeps them in its key and in the URL it renders for, even
 	// those cache.ignore_query names.
 	Query []string
+	// BodyLimit and ReadTimeout are route.go's BodyLimit and ReadTimeout: the body limit and the read
+	// timeout of the requests the method handlers of the route answer, in place of
+	// server.body_limit and server.read_timeout. The answer then gets server.write_timeout after
+	// ReadTimeout. Zero keeps the setting, so a setting of the app that is 0 means the default.
+	BodyLimit   int64
+	ReadTimeout time.Duration
 	// Layouts lists the IDs of the enclosing Layouts, outermost first.
 	Layouts []string
 	// HTML is true when the result of Load may hold a tifa.HTML value, as Layout.HTML.
@@ -101,6 +107,12 @@ func (s *server) register(layouts []Layout, routes []Route) {
 			panic(fmt.Sprintf("tifa: routes %s and %s share Path %s", other, r.ID, r.Path))
 		}
 		paths[r.Path] = r.ID
+		if r.BodyLimit < 0 || r.ReadTimeout < 0 {
+			panic(fmt.Sprintf("tifa: route %s has a negative BodyLimit or ReadTimeout", r.ID))
+		}
+		if r.BodyLimit > 0 || r.ReadTimeout > 0 {
+			s.limits[r.Path] = routeLimits{body: r.BodyLimit, read: r.ReadTimeout}
+		}
 		var chain []load
 		ssrOn := true
 		for i, id := range r.Layouts {

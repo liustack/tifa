@@ -114,6 +114,18 @@ test('query values stay the strings Go reads', async () => {
   const repeated = await client('/q?q=a&q=b')
   const values = (repeated.router.state.location.search as Record<string, unknown>).q
   assert(JSON.stringify(values) === '["a","b"]', `repeated ${JSON.stringify(values)}`)
+  // The route has the types of the query Go reads and nothing that runs: the router reads every
+  // parameter as parseSearch does, those Go does not read included, and the matched route sees
+  // all of them.
+  const typed = Object.values(router.routesById).find((r: any) => r.fullPath === '/q') as any
+  assert(typed && 'validateSearch' in typed.options && typed.options.validateSearch === undefined, `validateSearch ${typed?.options.validateSearch}`)
+  const open = await client('/q?q=a&tag=x&tag=y&tab=own')
+  const match = open.router.state.matches[open.router.state.matches.length - 1]
+  assert(
+    JSON.stringify(match.search) === '{"q":"a","tag":["x","y"],"tab":"own"}' && JSON.stringify(match.loaderDeps) === '{"q":"a","tag":["x","y"]}',
+    `search ${JSON.stringify(match.search)}, loaderDeps ${JSON.stringify(match.loaderDeps)}`,
+  )
+  assert(open.router.state.location.href === '/q?q=a&tag=x&tag=y&tab=own', `href ${open.router.state.location.href}`)
   // The query of a URL as browsers and forms write it comes back as it is.
   for (const href of ['/q?q=a&q=b', '/q?q=a+b', '/q?q=1,2:3/4', '/q?q=%E4%B8%AD&r=%26%3D%2B%25%23']) {
     const { router } = await client(href)
@@ -1345,6 +1357,32 @@ test('<HTML> holds its markup only in elements of flow or phrasing content', asy
     const want = `tifa: <HTML as="${as}"> cannot hold markup: as takes one of ${allowed.join(', ')}`
     assert(message === want, `as="${as}": the error says: ${message}`)
   }
+})
+
+// remountKey is the key TanStack Router gives the component of a match, from its remountDeps,
+// as Match does: the component keeps its state while the key stays.
+function remountKey(router: any, routeId: string) {
+  const match = router.state.matches.find((m: any) => m.routeId === routeId)
+  const route = router.routesById[routeId]
+  return JSON.stringify(route.options.remountDeps?.({ routeId, loaderDeps: match.loaderDeps, params: match._strictParams, search: match._strictSearch }))
+}
+
+test('a route remounts when a path parameter it reads changes, not a query parameter', async () => {
+  const { router, calls } = await client('/teams/x/one?tab=a')
+  const team = (Object.values(router.routesById) as any[]).find((r) => r.id.endsWith('/teams/$team')).id
+  const first = remountKey(router, team)
+  // Another value of a query parameter the Layout reads loads its data again and keeps the
+  // component, with its state. The router of these tests is the server build, where navigate does
+  // nothing, so the tests move the history.
+  calls.length = 0
+  router.history.push('/teams/x/one?tab=b')
+  await router.load()
+  assert(calls.some(([u, id]) => id === 'app/teams/team+/layout' && u.includes('tab=b')), `no new data for tab=b: ${JSON.stringify(calls)}`)
+  assert(remountKey(router, team) === first, `a query parameter remounted the Layout: ${first} became ${remountKey(router, team)}`)
+  // Another value of a path parameter it reads gives it a new component.
+  router.history.push('/teams/y/one?tab=b')
+  await router.load()
+  assert(remountKey(router, team) !== first, `a path parameter kept the Layout: ${first}`)
 })
 
 let failed = 0

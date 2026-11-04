@@ -84,7 +84,7 @@ export default function ProjectLayout() {
 ```
 
 - `c.Param` in a `Layout` may read only the parameters of its own folder path. `Load` is held to its own path the same way.
-- Moving between pages under one Layout keeps the Layout mounted and its state. When a parameter the Layout function reads changes, it remounts.
+- Moving between pages under one Layout keeps the Layout mounted and its state. When a path parameter the Layout function reads changes, it remounts. A query parameter only loads the data again: state set from `Load` data needs a `key` or an effect to follow it.
 - `tifa.Use(c, project.Layout)` gives a `Load` or `Layout` the result of a Layout above it (same folder or an ancestor), for the current request. It runs once per request however many callers ask. The argument must be a package-level `Layout` function of a Layout that wraps the caller. Anything else fails the build.
 - On browser navigation only the `Load` and `Layout` of routes not already loaded run. A Layout whose data is cached does not run. Never rely on a Layout alone for a permission check. Put it in `OnRequest`, or make the page's `Load` call `tifa.Use` on the checking Layout so the check runs on every request.
 - Name the file `layout_.tsx` to show a section without any Layout above it, for example a storefront inside a site that has an admin shell. Details in [app.md](https://github.com/liustack/tifa/blob/main/docs/app.md#a-layout-without-the-layouts-above).
@@ -98,10 +98,12 @@ func POST(c *tifa.Ctx) (Shipment, error)           // 200 with the result as JSO
 func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 ```
 
-- The input is a struct (not a pointer). POST, PUT and PATCH decode it from the body: JSON, or a URL-encoded or multipart form. GET and DELETE decode it from the query string, so only strings, numbers, bools and slices of them.
+- The input is a struct (not a pointer). POST, PUT and PATCH decode it from the body: JSON, or a URL-encoded or multipart form. GET and DELETE decode it from the query string, so only strings, numbers, bools and slices of them, with no `MarshalText` or `UnmarshalText` on a field type or its element (a form never calls them).
 - Fields are named by their `json` tags. A `form` tag fails the build.
 - If the input type has `Validate() error`, it runs before the handler. Return `tifa.Fields{"carrier": "pick a carrier"}` for a message per field (422). Collect into a `tifa.Fields{}` and end with `return fields.Err()`, which is nil when empty. Any other plain error answers 400 with its text, which the user sees.
-- A body that does not decode answers 400 (413 over the body limit, 415 for another content type). The handler does not run.
+- A field of type `*multipart.FileHeader` or `[]*multipart.FileHeader` in a POST, PUT or PATCH input holds uploaded files (`Blob | null` and `Blob[]` in TypeScript). The generated function then sends a multipart form, and a JSON body gets 415. The other fields of that input follow the GET rules. Files only go in fields of the input itself: anywhere else fails the build. Check the bytes, not the name or Content-Type, and copy the file before the handler returns. Guide: [uploads](https://github.com/liustack/tifa/blob/main/docs/guides/uploads.md).
+- `const BodyLimit = 20 << 20` and `const ReadTimeout = 5 * time.Minute` in a `route.go` replace `server.body_limit` and `server.read_timeout` for its method handlers (not the GET of its page). Either may be a var, such as a `tifa.Size` setting. 408 when the body is too slow.
+- A body that does not decode answers 400 (413 over the body limit, 415 for another content type, 408 when it does not arrive in time). The handler does not run.
 - A handler that writes its own response reads input with `c.Bind(&in)` or `c.BindQuery(&in)`, and answers with `c.JSON`, `c.Text` or `c.NoContent`.
 - A POST, PUT, PATCH or DELETE sent by a browser from another site gets 403 before your code runs. See [build-and-deploy.md](build-and-deploy.md) for letting chosen origins through.
 
@@ -160,8 +162,9 @@ export const head = ({ loaderData }: { loaderData?: PageData }) => ({
 })
 ```
 
-- `./route.gen` is generated for each folder with a page, Layout or method handler. It exports `page` and `layout` (only when the folder has them), `PageData`, `LayoutData`, `Params`, `POSTInput`/`POSTOutput` style types, and one function per method handler. To read a Layout above you, import `layout` from that folder's `route.gen`, such as `'../../route.gen'`. `go tool tifa build` or `tifa dev` writes them, and `tsc` needs them, so run one first.
+- `./route.gen` is generated for each folder with a page, Layout or method handler. It exports `page` and `layout` (only when the folder has them), `PageData`, `LayoutData`, `PageSearch`, `LayoutSearch`, `Params`, `POSTInput`/`POSTOutput` style types, and one function per method handler. To read a Layout above you, import `layout` from that folder's `route.gen`, such as `'../../route.gen'`. `go tool tifa build` or `tifa dev` writes them, and `tsc` needs them, so run one first.
 - Links are typed from the folders: `<Link to="/todos/$todo" params={{ todo: '1' }}>` from `@tanstack/react-router`.
+- The query parameters a `Load` or `Layout` reads are typed on `Link`, `navigate` and `useSearch`: every key is `string | string[]` and optional, since a key can come more than once in a URL (`c.Query` in Go takes the first). Pass strings (`page: String(n)`). To read one value as Go does, take the first: `[search.sort].flat()[0]`. Other keys are open, so a misspelled key is not caught.
 - Pages are UI only. Data comes from `Load`.
 - Exports of `page.tsx`: the default component, `head`, `Error`. See [errors-and-404.md](errors-and-404.md) and [rendering.md](rendering.md).
 - Each `page.tsx` and non-root `layout.tsx` is its own chunk in the browser. Its top-level code runs when its route first loads, not at app start. Put setup every page needs (an i18n instance, say) in the root Layout or a module it imports.
@@ -182,7 +185,7 @@ async function ship() {
 ```
 
 - The function takes one object: `params` (left out when the folder has none, `_splat` for a `name++` folder), `input` (left out when the handler takes none), and `signal`.
-- GET and DELETE send the input in the query string, the others as a JSON body.
+- GET and DELETE send the input in the query string, the others as a JSON body, or as a multipart form when the input holds files.
 - A call never reloads page data. After a write, call `router.invalidate()` (`await router.invalidate({ sync: true })` to wait until the page shows the new data). Revisiting a page shows its cached data and loads it again in the background, the router's default.
 - An error answer throws `TifaError` with `status`, `message` and `fields` (the `tifa.Fields` messages, empty otherwise).
 - When the handler (or `OnRequest`) returns `tifa.Redirect(...)`, the browser follows it, and the promise resolves to `undefined`. So the result type of a handler with a result includes `undefined`: check it before use.
