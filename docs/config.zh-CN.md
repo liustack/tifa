@@ -189,6 +189,41 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 
 原样返回错误会保留默认的 503 和响应头。其他渲染失败不会匹配 `tifa.ErrSSRBusy`。
 
+### 处理被拒绝的渲染
+
+想对过载做自己的处理时用 `tifa.ErrSSRBusy`：计数、报警，或者不用默认的 503 页面而换一种回答。默认的就够用，就什么都不用做，服务器已经替你回答了。
+
+- 错误从 `OnRequest` 里的 `next(c)` 返回。它的文本是 `tifa: render queue busy: queue is full` 或 `tifa: render queue busy: wait exceeded 1s`。用 `errors.Is` 匹配，不要比较文本。
+- 它不会交给 `OnError`。渲染本身失败和超过 `ssr.timeout` 是别的错误：它们不匹配，会交给 `OnError`。
+- 请求自己的截止时间比 `ssr.wait_timeout` 先到时，错误是那个截止时间，不是 `tifa.ErrSSRBusy`。客户端走掉得到的是 `context.Canceled`。
+- 原样返回错误，保留默认回答：503、`Retry-After: 1` 和 `Cache-Control: no-store`。改为返回你自己的 `tifa.Error`，回答就用你的状态码和消息，不再加默认的响应头，要什么用 `c.SetHeader` 自己设。
+
+测试应用 `testdata/overloadapp` 改了回答，并自己设置 `Retry-After`：
+
+```go
+func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+	err := next(c)
+	if errors.Is(err, tifa.ErrSSRBusy) {
+		c.SetHeader("Retry-After", "1")
+		return tifa.Error{Status: 503, Message: "Please try again shortly"}
+	}
+	return err
+}
+```
+
+测试它时，用一个返回该错误的 `next` 调 `OnRequest`。被包装的错误也要能匹配：
+
+```go
+c, w := tifatest.NewCtx(t, httptest.NewRequest("GET", "/", nil))
+got := OnRequest(c, func(*tifa.Ctx) error { return fmt.Errorf("render: %w", tifa.ErrSSRBusy) })
+var public tifa.Error
+if !errors.As(got, &public) || public.Status != 503 || w.Header().Get("Retry-After") != "1" {
+	t.Fatalf("overload: %v, headers %v", got, w.Header())
+}
+```
+
+`tifatest.NewCtx` 不跑 SSR，这样的测试里队列不会真的满，像上面这样手动把错误传进去。
+
 限制只在渲染需要 VM 时生效。缓存命中、304、导航数据、API 和关闭 SSR 的页面都不等 VM。共享同一次缓存未命中的请求只算一次渲染。`Load` 在准入检查前运行，共享渲染的请求仍各自占用 HTTP 状态。队列限制约束渲染任务数量，不是整个进程的内存或全部 HTTP 请求。容量建议和测量见[过载](performance.zh-CN.md#过载)。
 
 ## HTTPS

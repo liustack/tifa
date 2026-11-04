@@ -145,7 +145,16 @@ With Redis or SQL, let the database remove expired records (`EXPIRE` or `SET ...
 
 ### Testing a store
 
-`tifatest.TestSessionStore(t, store)` runs the rules above against your store: a missing key, a replaced record, delete of a missing key, expiry, a copy of the slices, a done `ctx` and many calls at once. Give it an empty store that nothing else uses. It takes about half a second, since it waits for a record to expire, and it deletes what it writes. The memory store passes it in tifa's own tests:
+Write a test for every store you write. `tifatest.TestSessionStore(t, store)` is that test, already written: it checks your store against the rules above, so a mistake shows up in `go test` and not as a user who is signed out at random.
+
+```go
+func TestRedisStoreIsAValidStore(t *testing.T) {
+	store := newRedisStore(testClient(t)) // an empty database that only this test uses
+	tifatest.TestSessionStore(t, store)
+}
+```
+
+(`newRedisStore` and `testClient` stand for your own code.) tifa's own tests call it on the memory store, the same way:
 
 ```go
 func TestMemoryStoreIsAValidStore(t *testing.T) {
@@ -155,7 +164,34 @@ func TestMemoryStoreIsAValidStore(t *testing.T) {
 }
 ```
 
-Call it the same way with your store in place of `m`.
+What it checks, in order:
+
+- A key that was never stored is `found == false` with a nil error.
+- `Put` then `Get` returns the record, and a second `Put` replaces it.
+- `Delete` of a key that does not exist returns nil, and `Delete` removes a record.
+- A record whose expiry has passed is not found, also when it was written already expired. It waits 400 ms for a short-lived record to run out, which is why the test takes about half a second.
+- The store keeps no reference to the slice given to `Put`, and `Get` returns a slice that is safe to change.
+- `Get`, `Put` and `Delete` return an error when `ctx` is done, and a `Put` or `Delete` with a done `ctx` changes nothing.
+- Eight goroutines call `Put`, `Get` and `Delete` on the same key at once. Run the test with `-race` to catch data races.
+
+Rules for the test itself:
+
+- Give it an empty store that nothing else uses. It writes a handful of keys of 43 characters, the form tifa uses, and deletes them at the end. It does not clean up other keys.
+- `t` can be a `*testing.T` or a `*testing.B`. It reports every failed check with `t.Errorf`, so one run lists all the problems. A failed first `Put` stops it with `t.Fatalf`.
+- It tests one process. Whether two servers see the same records, or what happens when the database is down, you test yourself.
+
+Each failure message names the rule. The file store of the test app above keeps sessions in a file and ignores `ctx`. Run through the test, it fails like this:
+
+```
+--- FAIL: TestFileStore (0.45s)
+    Get with a canceled context returned no error
+    Put with a canceled context returned no error
+    Delete with a canceled context returned no error
+    Put with a canceled context stored the record
+    Delete with a canceled context deleted the record
+```
+
+The fix is to return `ctx.Err()` at the top of each method when it is not nil. A store on a database client that takes a `ctx` does this by itself.
 
 ## Where to call what
 
@@ -259,7 +295,7 @@ c, _ := tifatest.NewCtx(t, httptest.NewRequest("GET", "/", nil))
 tifatest.WithSession(c, &auth.Session{UserID: 1})
 ```
 
-`WithSession` only sets the state of the request. It does not check the cookie and store flow, which tifa's own tests cover.
+`WithSession` only sets the state of the request. It does not check the cookie and store flow, which tifa's own tests cover. To test a store of your own, see [Testing a store](#testing-a-store).
 
 ## Errors
 

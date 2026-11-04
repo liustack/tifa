@@ -145,7 +145,16 @@ func (s *fileStore) Delete(ctx context.Context, key string) error {
 
 ### 测试存储
 
-`tifatest.TestSessionStore(t, store)` 对你的存储跑上面的规则：键不存在、记录被覆盖、删除不存在的键、过期、切片的复制、已结束的 `ctx` 和大量同时的调用。给它一个空的、没有别人在用的存储。它要等一条记录过期，所以大约要跑半秒，写进去的东西它会自己删掉。tifa 自己的测试里内存存储就是这样通过它的：
+你写的每个存储都要配一个测试。`tifatest.TestSessionStore(t, store)` 就是现成的这个测试：它按上面的规则检查你的存储，毛病在 `go test` 里就暴露，不会变成用户莫名其妙被登出。
+
+```go
+func TestRedisStoreIsAValidStore(t *testing.T) {
+	store := newRedisStore(testClient(t)) // 只有这个测试在用的空数据库
+	tifatest.TestSessionStore(t, store)
+}
+```
+
+（`newRedisStore` 和 `testClient` 代表你自己的代码。）tifa 自己的测试对内存存储也是这样调用的：
 
 ```go
 func TestMemoryStoreIsAValidStore(t *testing.T) {
@@ -155,7 +164,34 @@ func TestMemoryStoreIsAValidStore(t *testing.T) {
 }
 ```
 
-用你的存储代替 `m`，照样调用。
+它按顺序检查：
+
+- 从没存过的键是 `found == false` 加 nil 错误。
+- `Put` 之后 `Get` 返回记录，第二次 `Put` 替换它。
+- `Delete` 不存在的键返回 nil，`Delete` 会删掉记录。
+- 过期时间已过的记录找不到，写入时就已过期的也一样。它要等 400 毫秒让一条短命记录过期，所以整个测试要跑半秒左右。
+- 存储不保留交给 `Put` 的切片，`Get` 返回的切片可以放心修改。
+- `ctx` 已结束时，`Get`、`Put`、`Delete` 返回错误，而且结束了 `ctx` 的 `Put` 或 `Delete` 不改变任何东西。
+- 八个 goroutine 同时对同一个键调 `Put`、`Get`、`Delete`。加 `-race` 运行可以抓数据竞争。
+
+测试本身的规则：
+
+- 给它一个空的、没有别人在用的存储。它会写几个 43 个字符的键（tifa 用的形式），结束时删掉。别的键它不会清理。
+- `t` 可以是 `*testing.T` 或 `*testing.B`。每项失败的检查它都用 `t.Errorf` 报告，所以一次运行能列出所有问题。第一个 `Put` 失败时用 `t.Fatalf` 停下。
+- 它只测一个进程。两台服务器是否看到同样的记录、数据库挂了会怎样，要你自己测。
+
+每条失败消息都点明了规则。上面测试应用的文件存储把会话放在文件里，并且忽略 `ctx`。让它跑这个测试，会这样失败：
+
+```
+--- FAIL: TestFileStore (0.45s)
+    Get with a canceled context returned no error
+    Put with a canceled context returned no error
+    Delete with a canceled context returned no error
+    Put with a canceled context stored the record
+    Delete with a canceled context deleted the record
+```
+
+修法是每个方法开头在 `ctx.Err()` 不为 nil 时返回它。用接受 `ctx` 的数据库客户端写的存储会自动做到这点。
 
 ## 哪里能调什么
 
@@ -259,7 +295,7 @@ c, _ := tifatest.NewCtx(t, httptest.NewRequest("GET", "/", nil))
 tifatest.WithSession(c, &auth.Session{UserID: 1})
 ```
 
-`WithSession` 只设请求的状态，不验证 cookie 和存储的流程，那部分由 tifa 自己的测试覆盖。
+`WithSession` 只设请求的状态，不验证 cookie 和存储的流程，那部分由 tifa 自己的测试覆盖。测试你自己写的存储见[测试存储](#测试存储)。
 
 ## 错误
 
