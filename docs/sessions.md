@@ -113,9 +113,16 @@ type fileRecord struct {
 }
 
 func (s *fileStore) Get(ctx context.Context, key string) ([]byte, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	r, ok := s.load()[key]
+	records, err := s.load()
+	if err != nil {
+		return nil, false, err
+	}
+	r, ok := records[key]
 	if !ok || !time.Now().Before(r.Expires) {
 		return nil, false, nil
 	}
@@ -123,23 +130,35 @@ func (s *fileStore) Get(ctx context.Context, key string) ([]byte, bool, error) {
 }
 
 func (s *fileStore) Put(ctx context.Context, key string, data []byte, expiry time.Time) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	records := s.load()
+	records, err := s.load()
+	if err != nil {
+		return err
+	}
 	records[key] = fileRecord{Data: append([]byte(nil), data...), Expires: expiry}
 	return s.save(records)
 }
 
 func (s *fileStore) Delete(ctx context.Context, key string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	records := s.load()
+	records, err := s.load()
+	if err != nil {
+		return err
+	}
 	delete(records, key)
 	return s.save(records)
 }
 ```
 
-`load` reads the file into a map and `save` writes the map back. Note what the methods do: a missing or expired key is `found == false` with a nil error, `Put` copies `data`, and a key that is not there is not an error for `Delete`.
+`load` reads the file into a map, with no records while the file does not exist yet, and returns the error when the file cannot be read or decoded. `save` writes the map back. Note what the methods do: each returns `ctx.Err()` first, a missing or expired key is `found == false` with a nil error, a file that cannot be read is an error and not an empty store, `Put` copies `data`, and a key that is not there is not an error for `Delete`.
 
 With Redis or SQL, let the database remove expired records (`EXPIRE` or `SET ... EX` in Redis, a `DELETE` of old rows or an index on the expiry column in SQL), and still check `expiry` in `Get`.
 
@@ -180,10 +199,10 @@ Rules for the test itself:
 - `t` can be a `*testing.T` or a `*testing.B`. It reports every failed check with `t.Errorf`, so one run lists all the problems. A failed first `Put` stops it with `t.Fatalf`.
 - It tests one process. Whether two servers see the same records, or what happens when the database is down, you test yourself.
 
-Each failure message names the rule. The file store of the test app above keeps sessions in a file and ignores `ctx`. Run through the test, it fails like this:
+Each failure message names the rule. The file store above, without the `ctx.Err()` check at the top of each method, fails like this:
 
 ```
---- FAIL: TestFileStore (0.45s)
+--- FAIL: TestFileStoreIsAValidStore (0.45s)
     Get with a canceled context returned no error
     Put with a canceled context returned no error
     Delete with a canceled context returned no error
@@ -191,7 +210,7 @@ Each failure message names the rule. The file store of the test app above keeps 
     Delete with a canceled context deleted the record
 ```
 
-The fix is to return `ctx.Err()` at the top of each method when it is not nil. A store on a database client that takes a `ctx` does this by itself.
+A store on a database client that takes a `ctx` returns these errors by itself. The test app runs this test on its file store in `hooks_test.go`.
 
 ## Where to call what
 

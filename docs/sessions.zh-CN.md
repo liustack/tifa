@@ -113,9 +113,16 @@ type fileRecord struct {
 }
 
 func (s *fileStore) Get(ctx context.Context, key string) ([]byte, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	r, ok := s.load()[key]
+	records, err := s.load()
+	if err != nil {
+		return nil, false, err
+	}
+	r, ok := records[key]
 	if !ok || !time.Now().Before(r.Expires) {
 		return nil, false, nil
 	}
@@ -123,23 +130,35 @@ func (s *fileStore) Get(ctx context.Context, key string) ([]byte, bool, error) {
 }
 
 func (s *fileStore) Put(ctx context.Context, key string, data []byte, expiry time.Time) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	records := s.load()
+	records, err := s.load()
+	if err != nil {
+		return err
+	}
 	records[key] = fileRecord{Data: append([]byte(nil), data...), Expires: expiry}
 	return s.save(records)
 }
 
 func (s *fileStore) Delete(ctx context.Context, key string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	records := s.load()
+	records, err := s.load()
+	if err != nil {
+		return err
+	}
 	delete(records, key)
 	return s.save(records)
 }
 ```
 
-`load` 把文件读进一个 map，`save` 把 map 写回去。注意三个方法做了什么：键不存在或已过期是 `found == false` 加 nil 错误，`Put` 复制了 `data`，`Delete` 遇到不存在的键不报错。
+`load` 把文件读进一个 map，文件还不存在时就是没有记录，文件读不出或解不开时返回错误。`save` 把 map 写回去。注意三个方法做了什么：每个方法先返回 `ctx.Err()`，键不存在或已过期是 `found == false` 加 nil 错误，文件读不出是错误而不是空存储，`Put` 复制了 `data`，`Delete` 遇到不存在的键不报错。
 
 用 Redis 或 SQL 时，让数据库自己清过期记录（Redis 用 `EXPIRE` 或 `SET ... EX`，SQL 定期 `DELETE` 旧行，或在过期列上建索引），`Get` 里仍然要检查 `expiry`。
 
@@ -180,10 +199,10 @@ func TestMemoryStoreIsAValidStore(t *testing.T) {
 - `t` 可以是 `*testing.T` 或 `*testing.B`。每项失败的检查它都用 `t.Errorf` 报告，所以一次运行能列出所有问题。第一个 `Put` 失败时用 `t.Fatalf` 停下。
 - 它只测一个进程。两台服务器是否看到同样的记录、数据库挂了会怎样，要你自己测。
 
-每条失败消息都点明了规则。上面测试应用的文件存储把会话放在文件里，并且忽略 `ctx`。让它跑这个测试，会这样失败：
+每条失败消息都点明了规则。上面的文件存储如果去掉每个方法开头的 `ctx.Err()` 检查，会这样失败：
 
 ```
---- FAIL: TestFileStore (0.45s)
+--- FAIL: TestFileStoreIsAValidStore (0.45s)
     Get with a canceled context returned no error
     Put with a canceled context returned no error
     Delete with a canceled context returned no error
@@ -191,7 +210,7 @@ func TestMemoryStoreIsAValidStore(t *testing.T) {
     Delete with a canceled context deleted the record
 ```
 
-修法是每个方法开头在 `ctx.Err()` 不为 nil 时返回它。用接受 `ctx` 的数据库客户端写的存储会自动做到这点。
+用接受 `ctx` 的数据库客户端写的存储会自己返回这些错误。测试应用在 `hooks_test.go` 里对它的文件存储跑了这个测试。
 
 ## 哪里能调什么
 
