@@ -511,7 +511,7 @@ const Cache = 10 * time.Minute
 - **匿名的边界。** tifa 保证的是请求头：在开了 `Cache` 的页面上，`OnRequest`、`Load` 和 `Layout` 看到的请求只有名单上的头，`tifa.Session` 是 nil。用 `tifa.SetHTTPHandler` 挂的 `net/http` 中间件在 tifa 外面运行，拿到的是原来的请求，它放进请求 context 的值会原样到达 `OnRequest` 和 `Load`。不要在那里认人，认人放在不开 `Cache` 的路由的 `OnRequest` 里。连接地址和 TLS 信息也仍然保留，外层中间件放进 context 的值和白名单里的头（例如 `Origin`）也能区分请求，这些都不得用来生成个性化的共享内容。
 - **构建会检查。** 这类页面的 `Load`、外层 `Layout` 的 `Layout` 函数，或它们调用的函数读了 `c.Cookie`、`c.Header` 或 `tifa.Session`，构建就失败并指出那一行，因为这样的读取只会看到匿名请求。`c.Header` 的报错会写出有哪几个头。需要知道谁登录了的页面不要用 `Cache`。取决于访客的内容放到浏览器里，页面加载后由浏览器去读（见[在浏览器里](#在浏览器里)）。开了 `Cache` 的页面外面那几层 Layout，只放对所有人都一样的数据。
 - **`OnRequest` 能做什么。** 每个请求都跑，命中的也跑，看到的是匿名请求。适合按路径做的事：重定向、安全头、日志、计数、按地址限流。它看不到谁登录了，所以按登录状态重定向的 `OnRequest` 要用在不开 `Cache` 的路由上，在没看到 cookie 时就发一个 cookie 的中间件，会在每次导航时都发。它在 HTML 上设的 cookie 会被去掉。
-- **多语言。** 多语言页面按 URL 缓存，每个语言目录一份条目。按 cookie 或 `Accept-Language` 选语言再跳转的入口，是不开 `Cache` 的路由上的 GET 处理函数（开了 `Cache` 的页面两样都读不到），它跳去的页面把语言写在 URL 里（见[多语言站点](#多语言站点)）。
+- **多语言。** 多语言页面按 URL 缓存，每个语言目录一份条目。按 cookie 或 `Accept-Language` 选语言再跳转的入口，是不开 `Cache` 的路由上的 GET 处理函数（开了 `Cache` 的页面两样都读不到），它跳去的页面把语言写在 URL 里（见[多语言网站](#多语言网站)）。
 - **键**是协议、`Host` 请求头（不信 `X-Forwarded-Host`）、路径，以及去掉跟踪参数后的查询串，其余参数按名字排序。`cache.ignore_query` 列出跟踪参数（`utm_*`、`gclid`、`fbclid` 等，见 [config.zh-CN.md](config.zh-CN.md)）。页面链上有 `Load` 读的参数一律保留。页面用同样处理过的 URL 渲染，所以访客看到的内容不会取决于键忽略掉的参数。
 - **存什么。** GET 和 HEAD 共用一份。只存状态码 200、301、302 和 308 的回答。以下情况这次不存，并且这个 URL 的请求两分钟内跳过缓存，免得排队：`Cache-Control` 里有 `private`、`no-store` 或 `no-cache`（由 `OnRequest` 或 `Load` 设的），`Vary` 里有 `Accept-Encoding` 以外的值，以及其他状态码，404 也算。请求里的强制刷新（`Cache-Control: no-cache` 或 `Pragma`）绕不过缓存。
 - **时间到了**以后谁都拿不到旧页。下一个请求重新生成，同时到的请求等它。数据没变时渲染缓存直接命中，不用重新渲染。

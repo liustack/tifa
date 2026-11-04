@@ -428,6 +428,52 @@ func TestDevPrintsAllTheSSRWorkerPrinted(t *testing.T) {
 	}
 }
 
+// A Vite plugin can add tags to the head with transformIndexHtml. tifa build has no index.html,
+// so it never carries them. tifa dev lets through only the Vite client and the React refresh
+// runtime, and warns once of any other tag, naming it and saying production will not have it.
+func TestDevWarnsOfHeadTagsThatProductionLacks(t *testing.T) {
+	root := devApp(t)
+	writeTree(t, root, map[string]string{"vite.config.ts": "import react from '@vitejs/plugin-react'\n" +
+		"import tifa from './.tifa/vite.js'\n" +
+		"const meta = { name: 'meta', transformIndexHtml: () => [\n" +
+		"  { tag: 'meta', attrs: { name: 'theme-color', content: '#fff' }, injectTo: 'head' },\n" +
+		"  { tag: 'script', children: 'window.tracked = 1', injectTo: 'head' },\n" +
+		"] }\n" +
+		"export default { plugins: [tifa(), react(), meta] }\n"})
+	output := &slowOutput{}
+	d, err := NewDev(root, freePort(t), output, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, buildErr := d.Build(context.Background(), filepath.Join(root, "public"), true)
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Close(); err != nil || buildErr != nil {
+		t.Fatalf("build: %v, close: %v", buildErr, err)
+	}
+	head := readBuild(t, root).Head
+	for _, want := range []string{"/@vite/client", "@react-refresh"} {
+		if !strings.Contains(head, want) {
+			t.Errorf("head %s, want %s in it", head, want)
+		}
+	}
+	for _, left := range []string{"theme-color", "window.tracked"} {
+		if strings.Contains(head, left) {
+			t.Errorf("head %s has %s, which tifa build does not carry", head, left)
+		}
+	}
+	got := output.String()
+	for _, want := range []string{`<meta name="theme-color"`, "window.tracked = 1"} {
+		if n := strings.Count(got, want); n != 1 {
+			t.Errorf("%d warnings name %s, want 1 in %q", n, want, got)
+		}
+	}
+	if !strings.Contains(got, "tifa build") {
+		t.Errorf("output %q does not say tifa build lacks the tags", got)
+	}
+}
+
 // devBuild builds the dev output of root in a dev session of its own, as a start of tifa dev does.
 func devBuild(t *testing.T, root string) {
 	t.Helper()

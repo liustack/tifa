@@ -316,9 +316,18 @@ const ops = {
     if ((poll && !watcherUsesFSEvents()) || devState.pollFiles) await pollFiles()
     // The plugins add the tags a page needs to the head of an empty document, as they would for
     // an index.html: Vite's client, and the React refresh runtime with @vitejs/plugin-react.
+    // tifa build has no index.html and never runs transformIndexHtml, so any other tag would be
+    // in the page of tifa dev and missing from production. Those are left out and warned of.
     const html = await server.transformIndexHtml('/', '<html><head></head><body></body></html>')
     const head = html.slice(html.indexOf('<head>') + 6, html.indexOf('</head>'))
-    return { head: head.trim() }
+    const kept = []
+    for (const [tag] of head.matchAll(/<(script|style|noscript)\b[^>]*>[\s\S]*?<\/\1>|<!--[\s\S]*?-->|<[^>]+>/g)) {
+      if (/^<script\b[^>]*\bsrc="[^"]*\/@vite\/client"/.test(tag) || tag.includes('/@react-refresh"')) kept.push(tag)
+      else if (!tag.startsWith('<!--')) {
+        logger.warn(`A plugin adds ${tag} to the head with transformIndexHtml. tifa dev leaves it out, and tifa build never has it, so production does not either`)
+      }
+    }
+    return { head: kept.join('\n') }
   },
 
   async content({ alone, command, partial }) {

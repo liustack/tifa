@@ -64,6 +64,7 @@ tifa dev 监视应用根目录，跳过 `.git`、`.tifa`、`node_modules` 和放
 - front matter 和 schema 对不上、`content/` 下有没声明的文件夹、插件报错时，浮层显示和 `tifa build` 一样的消息，应用继续用原来的内容。有条目没通过 `Validate` 时，浮层标题是 `The app did not load the content`，应用同样继续用原来的内容和原来的正文。
 - 公共目录里的图片、字体等文件改内容不触发重建，下一次打包时才复制过去。公共目录里新增或删除文件会跑打包这一步，它会重新生成代码，因为生成的路由代码列着公共文件（见[路由树](build.zh-CN.md#路由树)）。日志里像别的改动一样写出文件名。`tifa.yaml` 里的 `build.public` 改了，监视的目录随之换掉，不用重启。
 - 样式表经过 Vite 开发服务器，`@tailwindcss/vite` 编译 Tailwind CSS 的方式和在任何 Vite 应用里一样。
+- 页面 head 里只有 Vite 客户端和 React 刷新运行时，Vite 插件用 `transformIndexHtml` 加的其他标签（统计脚本、manifest 链接、favicon 之类）一概不放。`tifa build` 没有 `index.html`，从不跑这个钩子，这些标签在 tifa dev 里会有、上线后却没有。要放这类标签，写在根 `layout.tsx` 导出的 `head` 里。tifa dev 每省掉一个标签，启动时打印一次警告并写出标签。
 - 页面 head 里链接了服务端渲染导入的样式表，地址指向 Vite 开发服务器，所以脚本跑起来前页面就有样式，和构建出的页面一样。样式表改了，Vite 会更新这些链接。只被 `.client` 模块导入的样式表随它们的脚本一起到。
 - 模块按 URL 导入的图片等文件，在服务端渲染里也用 Vite 开发服务器的 URL，和浏览器模块用的一样，水合不会不一致。`tifa build` 则给它一个 `/assets/` 下带哈希的文件。
 - `build.target` 只对 `tifa build` 生效，Vite 开发服务器发的是现代 JavaScript。
