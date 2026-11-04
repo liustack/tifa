@@ -2,6 +2,7 @@
 package tifa
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/liustack/tifa/internal/core"
@@ -47,6 +48,16 @@ func Use[T any](c *Ctx, load func(*Ctx) (T, error)) (T, error) { return core.Use
 // puts into the context of the request reach OnRequest and Load of such a page, so do not recognize
 // visitors in it, do it in OnRequest.
 func SetHTTPHandler(wrap func(app http.Handler) http.Handler) { core.SetHTTPHandler(wrap) }
+
+// ShuttingDown returns a channel that is closed when the server that took the request starts to
+// shut down: it has stopped taking new connections, and gives the requests in flight
+// server.shutdown_timeout to finish. ctx is the context of the request, c.Context(), or one made
+// from it. A handler that streams with no end of its own, such as server-sent events, returns
+// when the channel is closed, so the program can stop at once. A request that ends by itself,
+// such as a long upload or an answer still being written, can ignore it and finish.
+//
+// For a context that no server made, as in a test, it returns nil, which never fires in a select.
+func ShuttingDown(ctx context.Context) <-chan struct{} { return core.ShuttingDown(ctx) }
 
 // HTML is markup the app trusts, such as an article the build turned from Markdown into HTML or
 // HTML a CMS returns, which a page shows as it is with <HTML value={...}> of tifa/client. It may be

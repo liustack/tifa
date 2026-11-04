@@ -717,7 +717,8 @@ func (g *gate) wait(timeout time.Duration) bool {
 }
 
 // serveListener serves plain HTTP on ln until ctx is done or ln fails, then shuts down the same way in both cases:
-//  1. stop accepting and wait up to shutdown_timeout for connections to finish, as http.Server.Shutdown does
+//  1. close the channel of tifa.ShuttingDown, stop accepting and wait up to shutdown_timeout for connections to
+//     finish, as http.Server.Shutdown does
 //  2. close the gate, so a request net/http hands over from now on gets 503 without running handler code
 //  3. cancel every request context and close the remaining connections, which also reaches hijacked ones
 //  4. wait up to shutdown_timeout for admitted handlers to return
@@ -746,7 +747,10 @@ func (s *server) serveBoth(ctx context.Context, ln net.Listener, tlsConfig *tls.
 	if s.root != nil {
 		root = s.root
 	}
-	base, cancelRequests := context.WithCancel(context.Background())
+	// stopping closes as the shutdown starts, which handlers read with tifa.ShuttingDown: a stream
+	// with no end of its own returns then, instead of holding the stop for shutdown_timeout.
+	stopping := make(chan struct{})
+	base, cancelRequests := context.WithCancel(core.WithShutdown(context.Background(), stopping))
 	defer cancelRequests()
 	srv := &http.Server{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -797,6 +801,7 @@ func (s *server) serveBoth(ctx context.Context, ln net.Listener, tlsConfig *tls.
 		running--
 	case <-ctx.Done():
 	}
+	close(stopping)
 	drain, cancel := context.WithTimeout(context.Background(), s.cfg.ShutdownTimeout)
 	plainDone := make(chan error, 1)
 	if plainSrv != nil {

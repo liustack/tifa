@@ -1,12 +1,14 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -44,6 +46,77 @@ func slowBody(parts []string, pause time.Duration) io.Reader {
 		w.Close()
 	}()
 	return r
+}
+
+// A stream that ends when tifa.ShuttingDown closes lets the program stop at once, where one that
+// waits for its request context holds the stop for server.shutdown_timeout and fails it. Outside
+// a server the channel is nil, which never fires.
+func TestStreamsEndWhenTheServerShutsDown(t *testing.T) {
+	if tifa.ShuttingDown(context.Background()) != nil {
+		t.Fatal("ShuttingDown of a context that no server made is not nil")
+	}
+	const timeout = time.Second
+	for _, watch := range []bool{true, false} {
+		cfg := config.Default()
+		cfg.Server.ShutdownTimeout = timeout
+		var shutdown atomic.Bool
+		s := newServer(cfg, Hooks{OnShutdown: func(context.Context) error { shutdown.Store(true); return nil }})
+		s.handle("GET", "/events", func(c *tifa.Ctx) error {
+			c.SetHeader("Content-Type", "text/event-stream")
+			rc := http.NewResponseController(c.Writer())
+			if err := rc.SetWriteDeadline(time.Time{}); err != nil {
+				return err
+			}
+			stopping := tifa.ShuttingDown(c.Context())
+			if !watch {
+				stopping = nil
+			}
+			tick := time.NewTicker(10 * time.Millisecond)
+			defer tick.Stop()
+			for {
+				select {
+				case <-c.Context().Done():
+					return nil
+				case <-stopping:
+					io.WriteString(c.Writer(), "event: bye\ndata: restarting\n\n")
+					return rc.Flush()
+				case <-tick.C:
+					io.WriteString(c.Writer(), "data: tick\n\n")
+					if err := rc.Flush(); err != nil {
+						return err
+					}
+				}
+			}
+		})
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, stop := context.WithCancel(context.Background())
+		served := make(chan error, 1)
+		go func() { served <- s.serveListener(ctx, ln) }()
+		res, err := http.Get("http://" + ln.Addr().String() + "/events")
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := bufio.NewReader(res.Body)
+		if line, err := body.ReadString('\n'); line != "data: tick\n" {
+			t.Fatalf("first event %q, %v", line, err)
+		}
+		start := time.Now()
+		stop()
+		err = <-served
+		took := time.Since(start)
+		rest, _ := io.ReadAll(body)
+		res.Body.Close()
+		if watch {
+			if err != nil || took > timeout/2 || !shutdown.Load() || !strings.HasSuffix(string(rest), "event: bye\ndata: restarting\n\n") {
+				t.Errorf("stream that watches ShuttingDown: stopped in %v with %v, OnShutdown %v, last events %q", took, err, shutdown.Load(), rest[max(0, len(rest)-40):])
+			}
+		} else if err == nil || took < timeout {
+			t.Errorf("stream that waits for its request: stopped in %v with %v, want the shutdown_timeout and its error", took, err)
+		}
+	}
 }
 
 // server.read_timeout and server.write_timeout limit every request, and a handler that writes its
