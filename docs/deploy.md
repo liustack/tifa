@@ -16,7 +16,7 @@ A tifa app is one executable. The server needs that file, the settings in its en
 
 ## Build for the server
 
-The server render engine runs on linux/amd64 and darwin/arm64 only. Build on your machine for the server with the target set, and copy the file over:
+The server render engine runs on linux and darwin, on amd64 and arm64, and windows/amd64. Build on your machine for the server with the target set, and copy the file over:
 
 ```sh
 GOOS=linux GOARCH=amd64 $(go tool -n tifa) build -o bin/myapp-linux

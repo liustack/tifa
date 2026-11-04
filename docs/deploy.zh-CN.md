@@ -16,7 +16,7 @@ read_when:
 
 ## 为服务器构建
 
-服务端渲染引擎只在 linux/amd64 和 darwin/arm64 上运行。在你自己的机器上设好目标系统来构建，再把文件拷过去：
+服务端渲染引擎支持 linux 和 darwin 的 amd64、arm64，以及 windows/amd64。在你自己的机器上设好目标系统来构建，再把文件拷过去：
 
 ```sh
 GOOS=linux GOARCH=amd64 $(go tool -n tifa) build -o bin/myapp-linux
