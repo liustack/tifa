@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
-	"strconv"
 	"strings"
 )
 
@@ -78,10 +77,5 @@ func (s *server) pageKey(r *http.Request, pattern string, f *front) string {
 	if r.TLS != nil {
 		scheme = "https"
 	}
-	return "page\x00" + strconv.FormatUint(s.pageEpoch.Load(), 10) + "\x00" + f.build.ID + "\x00" + f.build.bundle + "\x00" + scheme + "://" + strings.ToLower(r.Host) + s.pageURI(r, pattern)
+	return "page\x00" + f.build.ID + "\x00" + f.build.bundle + "\x00" + scheme + "://" + strings.ToLower(r.Host) + s.pageURI(r, pattern)
 }
-
-// expirePages makes every page of the whole-page cache expire: requests from now on key their
-// pages by the next epoch, and the entries of the earlier ones are never read again and leave the
-// cache as it fills. tifa dev calls it when the app loads new content or a new SSR bundle.
-func (s *server) expirePages() { s.pageEpoch.Add(1) }
