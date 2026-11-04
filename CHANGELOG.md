@@ -20,6 +20,7 @@ What changed in tifa that apps and their users can see. From v0.0.1 on, changes 
 ### Fixed
 
 - The docs said a page or Layout remounts when a query parameter its `Load` reads changes. It never did, and now the docs and the generated `remountDeps` say what happens: a route remounts for a path parameter it reads, and another query loads the data again and keeps the component and its state, as TanStack Router does by default. State set up from `Load` data follows a new query only through a `key` or an effect of the app.
+- A slice type that reads and writes itself as text, such as `type Tags []string` with `MarshalText` and `UnmarshalText`, in a GET or DELETE input or a form input with files, passed the build: TypeScript sent it as one string such as `"a,b"`, Go put that string in one element without calling `UnmarshalText`, and a slice of numbers got 400. It now fails the build, like a field whose element has those methods. `c.BindQuery` and the decoding of an input with files return an error for such a field whatever the request holds, and a form sent to an input that also takes JSON answers 400 for a value of such a field instead of filling it wrongly (see [Method handlers with input and result](docs/app.md#method-handlers-with-input-and-result)).
 
 ## [0.0.3] - 2026-11-05
 

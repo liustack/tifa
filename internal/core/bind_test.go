@@ -143,6 +143,91 @@ func TestBindRefusesTextForAFile(t *testing.T) {
 	}
 }
 
+// textTags writes itself as one string, so its TypeScript type is a string.
+type textTags []string
+
+func (t textTags) MarshalText() ([]byte, error)  { return []byte(strings.Join(t, ",")), nil }
+func (t *textTags) UnmarshalText(b []byte) error { *t = strings.Split(string(b), ","); return nil }
+
+// textIDs is one string too, for a slice of numbers.
+type textIDs []int
+
+func (ids textIDs) MarshalText() ([]byte, error)  { return nil, nil }
+func (ids *textIDs) UnmarshalText(b []byte) error { return nil }
+
+// textLevel reads itself from text on its pointer.
+type textLevel int
+
+func (l *textLevel) UnmarshalText(b []byte) error { return nil }
+
+// A query string or a form is decoded by kind, and text methods are never called: the analyzer
+// refuses an input field whose type, or its element, has one. The decoder refuses the same fields,
+// as a mistake in the program and not in the request, whether or not the value came: a slice
+// that reads itself as text would otherwise get "a,b" as one element.
+func TestFormDecodingRefusesTextMethods(t *testing.T) {
+	type tags struct {
+		Tags textTags `json:"tags"`
+	}
+	type ids struct {
+		IDs textIDs `json:"ids"`
+	}
+	type levels struct {
+		Levels []textLevel `json:"levels"`
+	}
+	type level struct {
+		Level textLevel `json:"level"`
+	}
+	type raw struct {
+		Raw []byte `json:"raw"`
+	}
+	type nested struct {
+		Inner struct{ A string } `json:"inner"`
+	}
+	for _, in := range []any{&tags{}, &ids{}, &levels{}, &level{}, &raw{}, &nested{}} {
+		for _, query := range []string{"tags=a,b&ids=1,2&levels=1&level=1&raw=1&inner=x", ""} {
+			c, _ := newCtx("GET", "", "", 1<<20)
+			c.r.URL.RawQuery = query
+			var e Error
+			err := c.BindQuery(in)
+			if err == nil || errors.As(err, &e) || !strings.Contains(err.Error(), "query string") {
+				t.Errorf("BindQuery %T from %q: got %v, %+v", in, query, err, in)
+			}
+		}
+		body, contentType := formBody(t, [][2]string{{"tags", "a,b"}, {"ids", "1,2"}}, nil)
+		c, _ := newCtx("POST", body.String(), contentType, 1<<20)
+		var e Error
+		if err := BindForm(c, in); err == nil || errors.As(err, &e) {
+			t.Errorf("BindForm %T: got %v, %+v", in, err, in)
+		}
+	}
+}
+
+// Bind takes a form for an input that also comes as JSON, so its other fields may be anything: a
+// form fills the fields it can and answers 400 for a value of any other one, a field with text
+// methods included, which would otherwise get "a,b" as one element.
+func TestBindFormLeavesFieldsAFormDoesNotFill(t *testing.T) {
+	type input struct {
+		Title string   `json:"title"`
+		Tags  textTags `json:"tags"`
+		Inner struct {
+			A string
+		} `json:"inner"`
+	}
+	c, _ := newCtx("POST", "title=Sea", "application/x-www-form-urlencoded", 1<<20)
+	var in input
+	if err := c.Bind(&in); err != nil || in.Title != "Sea" {
+		t.Fatalf("got %v, %+v", err, in)
+	}
+	for _, body := range []string{"title=Sea&tags=a,b", "title=Sea&inner=x"} {
+		c, _ := newCtx("POST", body, "application/x-www-form-urlencoded", 1<<20)
+		var in input
+		var e Error
+		if err := c.Bind(&in); !errors.As(err, &e) || e.Status != 400 {
+			t.Errorf("%s: got %v, %+v", body, err, in)
+		}
+	}
+}
+
 // BindForm decodes the input of a handler that takes files: a form, and never JSON. A form without
 // a file leaves the file fields empty.
 func TestBindFormTakesFormsOnly(t *testing.T) {

@@ -144,7 +144,7 @@ func POST(c *tifa.Ctx) (Shipment, error)           // 答 200，结果写成 JSO
 func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 ```
 
-- 入参是结构体，不能是指向结构体的指针。POST、PUT、PATCH 从请求体解码：JSON，或 URL 编码、multipart 表单。表单只填字符串、数字、布尔或它们的切片类型的字段，以及文件（见[入参里的文件](#入参里的文件)），表单里出现其他字段的值时答 400。GET、DELETE 从查询字符串解码，所以字段只能是字符串、数字、布尔或它们的切片，不能有嵌入字段，也不能是带 `MarshalText` 或 `UnmarshalText` 的类型，入参类型本身也不行。
+- 入参是结构体，不能是指向结构体的指针。POST、PUT、PATCH 从请求体解码：JSON，或 URL 编码、multipart 表单。表单只填字符串、数字、布尔或它们的切片类型的字段，以及文件（见[入参里的文件](#入参里的文件)），表单里出现其他字段的值时答 400。表单按种类解码每个值，从不调用 `MarshalText` 或 `UnmarshalText`，所以带这两个方法之一的类型、这种类型的切片，以及自己带这类方法的切片类型（比如 `type Tags []string`，TypeScript 会把它当成一个字符串），都算其他字段。GET、DELETE 从查询字符串解码，所以字段只能是字符串、数字、布尔或它们的切片，规则同上，不能有嵌入字段，入参类型本身也不能带 `MarshalText` 或 `UnmarshalText`。构建时会检查，`c.BindQuery` 遇到其他字段时不管查询字符串里有什么都返回错误。
 - 字段按 `json` 标签取名，表单和查询字符串也一样。写 `form` 标签会构建报错。路径参数、请求头、cookie 照旧从 `c` 读。
 - 入参和结果遵守下文的 JSON 规则，和 `Load` 的返回值一样。入参还要能从它的 TypeScript 类型描述的 JSON 读回来：因为 `MarshalText` 成为 string 的类型也要有 `UnmarshalText([]byte) error`，有 `UnmarshalText` 的类型在 TypeScript 里必须是 string（map 键除外，JSON 的键总是字符串），`UnmarshalJSON` 不接受（`time.Time` 除外）。
 - 入参类型有 `Validate` 方法（必须是 `func() error`）时，它在解码之后、处理函数之前执行。返回 `nil` 就继续。返回 `tifa.Error` 或 `tifa.Fields` 时原样回答，想标出具体字段就返回 `tifa.Fields`。先往 `tifa.Fields{}` 里收集，最后写 `return fields.Err()`，没有收集到任何字段时它是 nil（空的 `tifa.Fields` 仍然是一个错误）。其他错误一律答 400，消息是 `err.Error()`，会原样给用户看到。
@@ -193,7 +193,7 @@ await POST({ input: { title, photo: file instanceof File ? file : null, extras: 
 
 - 在 TypeScript 里，`*multipart.FileHeader` 是 `Blob | null`，`[]*multipart.FileHeader` 是 `Blob[]`。`File` 也是 `Blob`，文件名随它一起发出。带 `omitempty` 或 `omitzero` 的字段是可选的。
 - `*multipart.FileHeader` 拿到这个名字的第一个文件，没有文件时是 `nil`。切片拿到这个名字的全部文件，没有时是 `nil`。这个名字的空文本值算没有文件，浏览器给没选文件的文件输入框发的就是它。有内容的文本值答 400。
-- 这样的入参只接受 multipart 表单或 URL 编码表单（后者装不了文件），JSON 请求体答 415。其他字段以文本发来，所以和 GET 入参的规则一样：字符串、数字、布尔或它们的切片，不能有嵌入字段，入参类型上不能有 `MarshalText` 或 `UnmarshalText`。
+- 这样的入参只接受 multipart 表单或 URL 编码表单（后者装不了文件），JSON 请求体答 415。其他字段以文本发来，所以和 GET 入参的规则一样：字符串、数字、布尔或它们的切片，不能有嵌入字段，入参类型、字段和字段的元素上都不能有 `MarshalText` 或 `UnmarshalText`。
 - 文件只能是入参本身的字段。文件放在 GET 或 DELETE 的入参里、嵌套的结构体、map 或数组里、结果里、`Load` 或 `Layout` 的数据里、会话里，都会构建报错。文件类型带 `MarshalText` 或 `UnmarshalText` 方法也会构建报错，因为 TypeScript 会把它当成字符串。
 - 文件的名字、大小和 `Content-Type`（`in.Photo.Header.Get("Content-Type")`）都是客户端发来的。文件是什么要看它的字节，保存用的名字要自己起，见[上传文件](guides/uploads.zh-CN.md)。
 - 表单按 Go 的 `mime/multipart` 的预算解析：最多 32 MiB 的文件内容留在内存里，和文本字段、各部分的名字和头共用约 42 MiB，放不下的文件写进临时文件，请求结束时 tifa 会删掉。峰值可能高于预算：最后落到磁盘上的文件先被读进一个边读边扩容、最多 32 MiB 的缓冲区，所以一个大文件可能短时间占 64 MiB 左右，同时进行的每个上传各占一份。内存小的机器上，在 `OnRequest` 里只让少数几个上传同时解析，见[上传](guides/uploads.zh-CN.md#一次上传占多少内存)。要留的东西在处理函数返回前复制走，也不要把 `*multipart.FileHeader` 交给比请求活得久的 goroutine。

@@ -172,7 +172,11 @@ func (a *analyzer) checkFlatInput(label string, in types.Type, st *types.Struct,
 			ok = false
 		case !f.Exported() || jsonName(st.Tag(i)) == "-" || files[f] || holdsFile(f.Type()):
 		case !queryType(f.Type()):
-			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s is %s: %s, so its fields are strings, numbers, bools or slices of them", label, path, types.TypeString(f.Type(), shortQualifier), why), f))
+			text := queryTypeProblem(f.Type())
+			if text != "" {
+				text += ", which tifa does not call: it decodes each value by its kind"
+			}
+			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s is %s%s: %s, so its fields are strings, numbers, bools or slices of them", label, path, types.TypeString(f.Type(), shortQualifier), text, why), f))
 			ok = false
 		}
 	}
@@ -247,26 +251,53 @@ func walkFields(t types.Type, path string, seen map[types.Type]bool, visit func(
 	}
 }
 
-// queryType reports whether a query string value decodes into a field of type t the way its
-// TypeScript type describes it: a bool, number or string kind without text methods, or a slice of
-// one. A byte slice is base64 in JSON, so it is not one.
+// queryType reports whether the values of a query string or form decode into a field of type t the
+// way its TypeScript type describes them: a bool, number or string kind, or a slice of one, with no
+// text methods on t or its element. The values are decoded by kind and text methods are never
+// called, which is the rule of formType in internal/core. A slice that writes itself as text is one
+// string in TypeScript but would get that string as one element, so t is checked before its
+// element. A byte slice is base64 in JSON, so it is not one.
 func queryType(t types.Type) bool {
+	if textMethods(t) != "" {
+		return false
+	}
 	if s, ok := t.Underlying().(*types.Slice); ok {
 		if b, ok := types.Unalias(s.Elem()).(*types.Basic); ok && b.Kind() == types.Byte {
 			return false
 		}
 		t = s.Elem()
-	}
-	b, ok := t.Underlying().(*types.Basic)
-	if !ok || b.Info()&(types.IsBoolean|types.IsInteger|types.IsFloat|types.IsString) == 0 {
-		return false
-	}
-	for _, name := range []string{"MarshalText", "UnmarshalText"} {
-		if _, _, found := lookupName(t, name); found {
+		if textMethods(t) != "" {
 			return false
 		}
 	}
-	return true
+	b, ok := t.Underlying().(*types.Basic)
+	return ok && b.Info()&(types.IsBoolean|types.IsInteger|types.IsFloat|types.IsString) != 0
+}
+
+// textMethods names the text methods t has, also on its pointer, as "MarshalText and
+// UnmarshalText", or returns "".
+func textMethods(t types.Type) string {
+	var names []string
+	for _, name := range []string{"MarshalText", "UnmarshalText"} {
+		if _, _, found := lookupName(t, name); found {
+			names = append(names, name)
+		}
+	}
+	return strings.Join(names, " and ")
+}
+
+// queryTypeProblem tells why t is not a queryType for the message of checkFlatInput: the text
+// methods of t or of its element when it has any.
+func queryTypeProblem(t types.Type) string {
+	if m := textMethods(t); m != "" {
+		return " with " + m
+	}
+	if s, ok := t.Underlying().(*types.Slice); ok {
+		if m := textMethods(s.Elem()); m != "" {
+			return ", whose element has " + m
+		}
+	}
+	return ""
 }
 
 var textUnmarshalSig = types.NewSignatureType(nil, nil, nil,

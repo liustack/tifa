@@ -314,6 +314,14 @@ func TestViolations(t *testing.T) {
 			{"app/text/route.go:58:", "POST input", "Input.ByID[key]", "UnmarshalText"},
 			{"app/text/route.go:58:", "POST input", "Input.ByDur", "time.Duration"},
 			{"app/text/route.go:98:", "GET input", "text.Word", "MarshalText", "query string"},
+			// A field whose own type, a slice too, or whose element reads or writes itself as text.
+			{"app/textquery/route.go:35:", "GET input", "Query.Tags", "MarshalText", "UnmarshalText", "query string"},
+			{"app/textquery/route.go:35:", "GET input", "Query.IDs", "MarshalText", "UnmarshalText", "query string"},
+			{"app/textquery/route.go:35:", "GET input", "Query.Levels", "MarshalText", "UnmarshalText", "query string"},
+			{"app/textquery/route.go:37:", "DELETE input", "Query.Tags", "MarshalText", "UnmarshalText"},
+			{"app/textquery/route.go:37:", "DELETE input", "Query.IDs", "MarshalText", "UnmarshalText"},
+			{"app/textquery/route.go:37:", "DELETE input", "Query.Levels", "MarshalText", "UnmarshalText"},
+			{"app/textquery/route.go:44:", "POST input", "Upload.Tags", "MarshalText", "UnmarshalText", "form", "does not call"},
 		}},
 		{"badupload", [][]string{
 			{"app/get/route.go:13:", "GET input", "Input.File", "request body", "POST, PUT or PATCH"},
