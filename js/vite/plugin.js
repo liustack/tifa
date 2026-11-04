@@ -2051,7 +2051,7 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
       if (!bundle['ssr.js.map']) fs.rmSync(path.join(options.dir, 'ssr.js.map'), { force: true })
     },
     renderChunk(code, chunk) {
-      const plain = plainNamespaces(code, chunk.moduleIds)
+      const plain = plainNamespaces(code, chunk.modules)
       if (plain.warning) this.warn(notRecognized + plain.warning)
       // Only with a JSX runtime of which every file is known: with another, the elements might differ.
       const elements =
@@ -3513,18 +3513,20 @@ function guardable(node) {
 
 // plainNamespaces returns code, a chunk of the SSR bundle before it is minified, with the ES
 // modules that import a CommonJS module of plainPackages getting a namespace of plain values, and
-// a warning when it cannot do that. ids are the modules of the chunk. rolldown gives an ES module
+// a warning when it cannot do that. modules is chunk.modules, the code rolldown rendered for each
+// module of the chunk by its id. rolldown gives an ES module
 // the exports of a CommonJS module with __toESM(require_x()), a namespace with a getter for each
 // export, so a page that calls React.createElement or a component that calls a hook of React
 // through a namespace calls a getter each time, which takes long in QuickJS. React and React DOM
 // set their exports once, when their modules run, and never change them, so plainESM gives the
 // same namespace with each export's value: the same values, prototype, names and enumerability.
-// It changes only the calls of __toESM whose module rolldown wrote under a region of those
-// packages ("//#region path", from rolldown 1.2.15 "// path"), and finds the helpers and the calls by the form rolldown writes them in: when the form
-// is another, it warns and changes nothing. The calls keep their length and plainESM goes at the
+// It changes only the calls of __toESM whose require function the code of a module of those
+// packages declares (see requireOf), and finds the helpers and the calls by the form rolldown
+// writes them in: when the form is another, or no module declares the require function, it warns
+// and changes nothing. The calls keep their length and plainESM goes at the
 // end of the line of __toESM, which has no source, so every other place stays where it was.
-export function plainNamespaces(code, ids) {
-  const packages = [...new Set(ids.map(packageName).filter((name) => plainPackages.has(name)))].sort()
+export function plainNamespaces(code, modules) {
+  const packages = [...new Set(Object.keys(modules).map(packageName).filter((name) => plainPackages.has(name)))].sort()
   if (packages.length === 0 || !/\b__toESM(?:\$\d+)?\(/.test(code)) return { code }
   const skip = (why) => ({
     code,
@@ -3553,10 +3555,17 @@ export function plainNamespaces(code, ids) {
   const toESM = helpers.get('__toESM')
   const plainName = '__tifaV' + toESM.slice('__toESM'.length)
   if (new RegExp(`\\b${plainName.replace('$', '\\$')}(?![\\w$])`).test(code)) return skip(`the SSR bundle already names ${plainName}`)
-  const regions = new Map() // the name of each module's require function to its package
-  for (const m of code.matchAll(/^\/\/(?:#region)? ([^\n]+)\n[\t ]*var (require_[\w$]+) = \/\* @__PURE__ \*\/ __commonJSMin(?:\$\d+)?\(/gm)) {
-    regions.set(m[2], packageName(m[1]))
+  // The name of each module's require function to its package, from the code rolldown rendered
+  // for the module. A name two packages declare has no package.
+  const regions = new Map()
+  for (const [id, module] of Object.entries(modules)) {
+    // A bundler that gives no code of a module leaves its require function unknown, so it warns.
+    const required = typeof module.code === 'string' ? requireOf(module.code) : undefined
+    if (required === undefined) continue
+    const name = packageName(id)
+    regions.set(required, regions.has(required) && regions.get(required) !== name ? null : name)
   }
+  for (const [required, name] of regions) if (name === null) regions.delete(required)
   const plain = []
   for (const { index: at } of code.matchAll(new RegExp(`(?<![\\w$])${toESM.replace('$', '\\$')}\\(`, 'g'))) {
     const call = code.slice(at + toESM.length + 1, at + toESM.length + 200)
@@ -3569,10 +3578,53 @@ export function plainNamespaces(code, ids) {
     if (plainPackages.has(regions.get(required))) plain.push(at)
   }
   if (plain.length === 0) return { code }
-  let changed = code
-  for (const at of plain) changed = changed.slice(0, at) + plainName + changed.slice(at + plainName.length)
   const helper = plainESM.replace('__tifaV', plainName).replace(/\b__[A-Za-z]+\b/g, (name) => helpers.get(name) ?? name)
-  return { code: changed.slice(0, end) + helper + changed.slice(end) }
+  // One pass over the chunk: each call gets the new name and the helper goes at end.
+  const pieces = []
+  let from = 0
+  const edits = [...plain.map((at) => ({ at })), { at: end, helper: true }].sort((a, b) => a.at - b.at)
+  for (const { at, helper: insert } of edits) {
+    pieces.push(code.slice(from, at))
+    if (insert) {
+      pieces.push(helper)
+      from = at
+    } else {
+      pieces.push(plainName)
+      from = at + plainName.length
+    }
+  }
+  pieces.push(code.slice(from))
+  return { code: pieces.join('') }
+}
+
+const lineRest = /[^\n\r\u2028\u2029]*/y
+const space = /\s*/y
+
+// requireOf returns the name of the require function that rolldown declares first in code, the
+// code it rendered for one module, or undefined when the module starts with something else. Before
+// the declaration come only comments and white space: the line rolldown starts each module with,
+// "//#region path" or from rolldown 1.2.15 "// path", and in a build without minify, such as the
+// one of tifa dev, the comments at the top of the file, such as the license of React, which
+// rolldown moves there. They are read from the start of the module, where no comment is open, so
+// each one ends where JavaScript ends it, and nothing inside a comment counts.
+function requireOf(code) {
+  let at = 0
+  for (;;) {
+    space.lastIndex = at
+    space.test(code)
+    at = space.lastIndex
+    if (code.startsWith('//', at)) {
+      lineRest.lastIndex = at
+      lineRest.test(code)
+      at = lineRest.lastIndex
+    } else if (code.startsWith('/*', at)) {
+      const close = code.indexOf('*/', at + 2)
+      if (close < 0) return undefined
+      at = close + 2
+    } else {
+      return /^var (require_[\w$]+) = \/\* @__PURE__ \*\/ __commonJSMin(?:\$\d+)?\(/.exec(code.slice(at, at + 200))?.[1]
+    }
+  }
 }
 
 // jsxRuntimePieces reads the production file of React's JSX runtime, program parsed from source, and

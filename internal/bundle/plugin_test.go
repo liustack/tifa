@@ -3,6 +3,7 @@ package bundle
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -325,16 +326,23 @@ var cjsExports = []string{
 	"42",
 }
 
-// namespaceChunk is a chunk at renderChunk with a CommonJS module of pkg for each of cjsExports,
-// imported by an ES module with and without Node mode, and at the end the namespaces and the
-// exports in globalThis.
-func namespaceChunk(pkg string) string {
-	var b strings.Builder
-	b.WriteString(rolldownRuntime)
+// chunkPart is a module of a chunk at renderChunk: its id and the code rolldown rendered for it,
+// which is in chunk.modules. The chunk is the code of its modules one after the other.
+type chunkPart struct{ id, code string }
+
+// namespaceParts is a chunk with a CommonJS module of pkg for each of cjsExports, imported by an
+// ES module with and without Node mode, and at the end the namespaces and the exports in
+// globalThis.
+func namespaceParts(pkg string) []chunkPart {
+	parts := []chunkPart{{"\x00rolldown/runtime.js", rolldownRuntime}}
 	for i, e := range cjsExports {
-		fmt.Fprintf(&b, "//#region ../node_modules/.pnpm/%[1]s@1.0.0/node_modules/%[1]s/m%[2]d.js\n"+
-			"var require_m%[2]d = /* @__PURE__ */ __commonJSMin(((exports, module) => {\n\tmodule.exports = %[3]s;\n}));\n\n//#endregion\n", pkg, i, e)
+		parts = append(parts, chunkPart{
+			fmt.Sprintf("/app/node_modules/.pnpm/%[1]s@1.0.0/node_modules/%[1]s/m%[2]d.js", pkg, i),
+			fmt.Sprintf("//#region ../node_modules/.pnpm/%[1]s@1.0.0/node_modules/%[1]s/m%[2]d.js\n"+
+				"var require_m%[2]d = /* @__PURE__ */ __commonJSMin(((exports, module) => {\n\tmodule.exports = %[3]s;\n}));\n\n//#endregion\n", pkg, i, e),
+		})
 	}
+	var b strings.Builder
 	b.WriteString("//#region app/page.tsx\n")
 	for i := range cjsExports {
 		fmt.Fprintf(&b, "var ns%[1]d = /* @__PURE__ */ __toESM(require_m%[1]d());\nvar node%[1]d = /* @__PURE__ */ __toESM(require_m%[1]d(), 1);\n", i)
@@ -344,7 +352,33 @@ func namespaceChunk(pkg string) string {
 		fmt.Fprintf(&b, "[ns%[1]d, node%[1]d, require_m%[1]d()], ", i)
 	}
 	b.WriteString("];\n\n//#endregion\n")
-	return b.String()
+	return append(parts, chunkPart{"/app/app/page.tsx", b.String()})
+}
+
+// edited gives each part of parts the code change gives it.
+func edited(parts []chunkPart, change func(string) string) []chunkPart {
+	out := make([]chunkPart, len(parts))
+	for i, p := range parts {
+		out[i] = chunkPart{p.id, change(p.code)}
+	}
+	return out
+}
+
+// chunkOf returns the code of the chunk of parts and its chunk.modules.
+func chunkOf(parts []chunkPart) (string, map[string]any) {
+	var b strings.Builder
+	modules := map[string]any{}
+	for _, p := range parts {
+		b.WriteString(p.code)
+		modules[p.id] = map[string]any{"code": p.code}
+	}
+	return b.String(), modules
+}
+
+// namespaceChunk is the code of namespaceParts(pkg).
+func namespaceChunk(pkg string) string {
+	code, _ := chunkOf(namespaceParts(pkg))
+	return code
 }
 
 // plain is what plainNamespaces of the tifa Vite plugin does to a chunk, run on Node: the new code,
@@ -355,22 +389,22 @@ type plain struct {
 	Before, After []string
 }
 
-// plainOnNode runs plainNamespaces of the tifa Vite plugin on code, a chunk with the modules ids.
-func plainOnNode(t *testing.T, code string, ids []string) plain {
+// plainOnNode runs plainNamespaces of the tifa Vite plugin on code, a chunk with its chunk.modules.
+func plainOnNode(t *testing.T, code string, modules map[string]any) plain {
 	t.Helper()
 	testModules(t)
 	plugin := filepath.Join(t.TempDir(), "plugin.mjs")
 	if err := os.WriteFile(plugin, []byte(js.VitePlugin), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	input, err := json.Marshal([]any{code, ids})
+	input, err := json.Marshal([]any{code, modules})
 	if err != nil {
 		t.Fatal(err)
 	}
 	// describe gives each own property of a namespace with its value, as the exports of the module
 	// or its own, and whether it is enumerable, and the prototype of the namespace.
 	script := "const plugin = await import(process.argv[1])\n" +
-		"const [code, ids] = JSON.parse(process.argv[2])\n" +
+		"const [code, modules] = JSON.parse(process.argv[2])\n" +
 		"const describe = (ns, exports) => JSON.stringify([Object.getPrototypeOf(ns) === (exports == null ? Object.prototype : Object.getPrototypeOf(Object(exports))),\n" +
 		"  Object.getOwnPropertyNames(ns).map((k) => [k, ns[k] === exports ? 'exports' : typeof ns[k] === 'function' ? 'function' : ns[k], Object.getOwnPropertyDescriptor(ns, k).enumerable])])\n" +
 		"const run = (code) => {\n" +
@@ -381,7 +415,7 @@ func plainOnNode(t *testing.T, code string, ids []string) plain {
 		"  }\n" +
 		"  return globalThis.namespaces.map(([ns, node, exports]) => describe(ns, exports) + ' ' + describe(node, exports))\n" +
 		"}\n" +
-		"const { code: changed, warning = '' } = plugin.plainNamespaces(code, ids)\n" +
+		"const { code: changed, warning = '' } = plugin.plainNamespaces(code, modules)\n" +
 		"process.stdout.write(JSON.stringify({ code: changed, warning, before: run(code), after: run(changed) }))\n"
 	cmd := exec.Command("node", "--input-type=module", "-e", script, plugin, string(input))
 	var stderr strings.Builder
@@ -401,20 +435,39 @@ func plainOnNode(t *testing.T, code string, ids []string) plain {
 // namespace of plain values in place of rolldown's getters, the same values with the same
 // prototype, names and enumerability, and leaves the namespaces of other packages as they are.
 func TestPluginGivesReactNamespacesPlainValues(t *testing.T) {
-	ids := []string{"/app/node_modules/react/index.js", "/app/node_modules/react-dom/index.js", "/app/page.tsx"}
 	// rolldown adds $ and a number to the name of a helper when the bundle has another name like it.
 	renamed := strings.NewReplacer("__defProp", "__defProp$34", "__toESM", "__toESM$1", "__commonJSMin", "__commonJSMin$2")
+	// A build without minify keeps the comment at the top of each file of React before the require
+	// function of the file, as tifa dev builds the SSR bundle: a block on lines of its own, a block
+	// on the line of the require function, line comments. TestPluginGivesPlainValuesInWhatRolldownWrites
+	// has the real ones.
+	forms := map[string]*strings.Replacer{
+		"block":      strings.NewReplacer(".js\nvar require_m", ".js\n/**\n* @license React\n* m.js\n*/\nvar require_m"),
+		"same line":  strings.NewReplacer(".js\nvar require_m", ".js\n/* @license React */ var require_m"),
+		"line":       strings.NewReplacer(".js\nvar require_m", ".js\n// @license React\nvar require_m"),
+		"line block": strings.NewReplacer(".js\nvar require_m", ".js\n// @license React\n/* @license React */\n/* more */ var require_m"),
+	}
+	cases := map[string][]chunkPart{
+		"react":     namespaceParts("react"),
+		"react-dom": namespaceParts("react-dom"),
+		"renamed":   edited(namespaceParts("react"), renamed.Replace),
+	}
+	for name, form := range forms {
+		cases[name] = edited(namespaceParts("react"), form.Replace)
+	}
 	// From 1.2.15 rolldown starts each module with "// path" and no longer ends it.
 	comments := strings.NewReplacer("//#region ", "// ", "//#endregion\n", "")
-	for _, pkg := range []string{"react", "react-dom", "renamed", "comments"} {
-		chunk, plainCall := namespaceChunk(pkg), "__tifaV(require_m"
-		switch pkg {
-		case "renamed":
-			chunk, plainCall = renamed.Replace(namespaceChunk("react")), "__tifaV$1(require_m"
-		case "comments":
-			chunk = comments.Replace(namespaceChunk("react"))
+	for name, parts := range maps.Clone(cases) {
+		cases[name+", 1.2.15"] = edited(parts, comments.Replace)
+	}
+	for name, parts := range cases {
+		plainCall := "__tifaV(require_m"
+		if strings.HasPrefix(name, "renamed") {
+			plainCall = "__tifaV$1(require_m"
 		}
-		got := plainOnNode(t, chunk, ids)
+		pkg := name
+		chunk, modules := chunkOf(parts)
+		got := plainOnNode(t, chunk, modules)
 		if got.Warning != "" {
 			t.Errorf("%s: warning %s", pkg, got.Warning)
 		}
@@ -436,34 +489,231 @@ func TestPluginGivesReactNamespacesPlainValues(t *testing.T) {
 			t.Errorf("%s: the namespaces are\n%s\nwant\n%s", pkg, strings.Join(got.After, "\n"), strings.Join(got.Before, "\n"))
 		}
 	}
-	if got := plainOnNode(t, namespaceChunk("abort-controller"), ids); got.Code != namespaceChunk("abort-controller") || got.Warning != "" {
+	// A module of React with no require function of its own: React is in the bundle.
+	chunk, modules := chunkOf(append(namespaceParts("abort-controller"), chunkPart{"/app/node_modules/react/index.js", ""}))
+	if got := plainOnNode(t, chunk, modules); got.Code != chunk || got.Warning != "" {
 		t.Errorf("the chunk of another package changed to\n%s\nwarning %q", got.Code, got.Warning)
 	}
 	// Without React in the bundle there is nothing to change and nothing to warn of.
 	odd := strings.Replace(namespaceChunk("react"), "get: ((k) => from[k]).bind(null, key)", "get: () => from[key]", 1)
-	if got := plainOnNode(t, odd, ids[2:]); got.Code != odd || got.Warning != "" {
+	if got := plainOnNode(t, odd, map[string]any{"/app/app/page.tsx": map[string]any{"code": ""}}); got.Code != odd || got.Warning != "" {
 		t.Errorf("a bundle without React changed to\n%s\nwarning %q", got.Code, got.Warning)
 	}
 }
 
 // When rolldown writes the namespaces of CommonJS modules in a form the tifa plugin does not know,
-// the build warns, with the packages and why, and the chunk stays as it is.
+// or no module of the chunk declares a require function that __toESM gets, the build warns, with
+// the packages and why, and the chunk stays as it is.
 func TestPluginWarnsWhenItCannotGiveReactNamespacesPlainValues(t *testing.T) {
-	chunk := namespaceChunk("react")
-	for name, c := range map[string]struct{ code, why string }{
-		"getter":     {strings.Replace(chunk, "get: ((k) => from[k]).bind(null, key)", "get: () => from[key]", 1), "writes __toESM"},
-		"no __toESM": {strings.Replace(chunk, "var __toESM = (mod, isNodeMode, target) =>", "var __toESM2 = (mod, isNodeMode, target) =>", 1), "writes __toESM"},
-		"call":       {strings.Replace(chunk, "var ns0 = /* @__PURE__ */ __toESM(require_m0());", "var ns0 = /* @__PURE__ */ __toESM(globalThis.x ? require_m0() : null);", 1), "calls __toESM"},
-		"region":     {strings.Replace(chunk, "//#region ../node_modules/.pnpm/react@1.0.0/node_modules/react/m0.js\n", "", 1), "require_m0"},
-		"name":       {chunk + "var __tifaV = 1;\n", "__tifaV"},
+	react := namespaceParts("react")
+	m0 := react[1].id
+	region := "//#region ../node_modules/.pnpm/react@1.0.0/node_modules/react/m0.js\n"
+	replace := func(old, new string) func(string) string {
+		return func(code string) string { return strings.Replace(code, old, new, 1) }
+	}
+	without := func(parts []chunkPart, id string) map[string]any {
+		_, modules := chunkOf(parts)
+		delete(modules, id)
+		return modules
+	}
+	for name, c := range map[string]struct {
+		parts   []chunkPart
+		modules map[string]any // chunk.modules when not that of parts
+		why     string
+	}{
+		"getter":     {edited(react, replace("get: ((k) => from[k]).bind(null, key)", "get: () => from[key]")), nil, "writes __toESM"},
+		"no __toESM": {edited(react, replace("var __toESM = (mod, isNodeMode, target) =>", "var __toESM2 = (mod, isNodeMode, target) =>")), nil, "writes __toESM"},
+		"call":       {edited(react, replace("var ns0 = /* @__PURE__ */ __toESM(require_m0());", "var ns0 = /* @__PURE__ */ __toESM(globalThis.x ? require_m0() : null);")), nil, "calls __toESM"},
+		// The module starts with code before its require function.
+		"code": {edited(react, replace(region, region+"globalThis.x = 1;\n")), nil, "require_m0"},
+		// A comment that is never closed.
+		"open comment": {edited(react, replace(region, region+"/* never closed\n")), nil, "require_m0"},
+		// No module of the chunk has the code that declares require_m0.
+		"no module": {react, without(react, m0), "require_m0"},
+		"null code": {react, func() map[string]any {
+			modules := without(react, m0)
+			modules[m0] = map[string]any{"code": nil}
+			return modules
+		}(), "require_m0"},
+		// Two modules of two packages declare require_m0.
+		"twice": {append(slices.Clone(react), chunkPart{"/app/node_modules/other/m0.js", react[1].code}), nil, "require_m0"},
+		"name":  {append(slices.Clone(react), chunkPart{"/app/app/extra.js", "var __tifaV = 1;\n"}), nil, "__tifaV"},
 	} {
-		got := plainOnNode(t, c.code, []string{"/app/node_modules/react/index.js", "/app/node_modules/.pnpm/react-dom@1.0.0/node_modules/react-dom/index.js"})
-		if got.Code != c.code {
+		code, modules := chunkOf(c.parts)
+		if c.modules != nil {
+			modules = c.modules
+		}
+		modules["/app/node_modules/.pnpm/react-dom@1.0.0/node_modules/react-dom/index.js"] = map[string]any{"code": ""}
+		got := plainOnNode(t, code, modules)
+		if got.Code != code {
 			t.Errorf("%s: the chunk changed to\n%s", name, got.Code)
 		}
 		if !strings.HasPrefix(got.Warning, "react, react-dom: ") || !strings.Contains(got.Warning, c.why) || !strings.Contains(got.Warning, "plain values") {
 			t.Errorf("%s: warning %q, want one with the packages and %q", name, got.Warning, c.why)
 		}
+	}
+}
+
+// The CommonJS files of React keep the comments at their top in a build without minify, which
+// rolldown writes before the require function of the file in several forms. plainNamespaces reads
+// past each of them in what rolldown writes, with and without minify, with the line of each module
+// as rolldown 1.2.14 writes it and as 1.2.15 does. An ES module before them ends in a line comment,
+// and the comments of a module of another package hold the line of a module of React and the start
+// of a comment, which leave its namespace as it is.
+func TestPluginGivesPlainValuesInWhatRolldownWrites(t *testing.T) {
+	modules := testModules(t)
+	root := t.TempDir()
+	files := map[string]string{
+		// React's own form: a block, an empty line and "use strict".
+		"node_modules/react/block.js":     "/**\n * @license React\n * block.js\n */\n\n'use strict';\nexports.a = 1;\n",
+		"node_modules/react/sameline.js":  "/* @license React */ 'use strict'; exports.b = 2;\n",
+		"node_modules/react/line.js":      "// @license React\n'use strict';\nexports.c = 3;\n",
+		"node_modules/react/two.js":       "// @license React\n/** @license React */\n'use strict';\nexports.d = 4;\n",
+		"node_modules/react/package.json": `{"name":"react"}`,
+		"node_modules/react/index.js":     "'use strict';\nexports.f = 6;\n",
+		"node_modules/other/index.js":     "/* @license other */ 'use strict'; exports.e = 5;\n",
+		"node_modules/other/package.json": `{"name":"other"}`,
+		// Comments of another package that hold the line of a module of React and the start of a
+		// comment. Its exports change, which a namespace of plain values would not show.
+		"node_modules/tricky/index.js": "/* @license example\n// node_modules/react/index.js\n/* example of a comment opener\n*/\n" +
+			"'use strict';\nexports.value = 1;\nexports.change = () => { exports.value = 2 };\n",
+		"node_modules/tricky/package.json": `{"name":"tricky"}`,
+		"tail.js":                          "export const tail = globalThis.x;\n// @license the end of tail.js\n",
+		"entry.js": "import { tail } from './tail.js'\nimport * as block from 'react/block.js'\nimport * as sameline from 'react/sameline.js'\n" +
+			"import * as line from 'react/line.js'\nimport * as two from 'react/two.js'\nimport * as index from 'react'\nimport * as other from 'other'\n" +
+			"import * as tricky from 'tricky'\n" +
+			"globalThis.out = [tail, block, sameline, line, two, index, other, tricky]\n",
+	}
+	writeTree(t, root, files)
+	plugin := filepath.Join(t.TempDir(), "plugin.mjs")
+	if err := os.WriteFile(plugin, []byte(js.VitePlugin), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The comments Vite 8 keeps: { annotation, jsdoc, legal } all without minify, none with it.
+	script := "const fs = await import('node:fs')\nconst { createRequire } = await import('node:module')\n" +
+		"const [plugin, vite, dir] = process.argv.slice(1)\n" +
+		"const root = fs.realpathSync(dir)\n" +
+		"const { rolldown } = await import(createRequire(fs.realpathSync(vite)).resolve('rolldown'))\n" +
+		"const { plainNamespaces } = await import(plugin)\n" +
+		"const out = []\n" +
+		"for (const minify of [false, true]) {\n" +
+		"  let code, modules\n" +
+		"  const bundle = await rolldown({ cwd: root, input: root + '/entry.js', plugins: [{ name: 'see', renderChunk(c, chunk) { code = c; modules = chunk.modules; return null } }] })\n" +
+		"  await bundle.generate({ format: 'esm', minify, comments: { annotation: !minify, jsdoc: !minify, legal: !minify } })\n" +
+		"  for (const from1215 of [false, true]) {\n" +
+		"    const form = (code) => from1215 ? code.replaceAll('//#region ', '// ').replaceAll('//#endregion\\n', '') : code\n" +
+		"    const chunk = form(code)\n" +
+		"    const rendered = Object.fromEntries(Object.entries(modules).map(([id, m]) => [id, { code: m.code === null ? null : form(m.code) }]))\n" +
+		"    const { code: changed, warning = '' } = plainNamespaces(chunk, rendered)\n" +
+		"    new Function(changed)()\n" +
+		"    const tricky = globalThis.out[7]\n" +
+		"    tricky.change()\n" +
+		"    out.push({ minify, from1215, code: chunk, changed, warning, tricky: tricky.value })\n" +
+		"  }\n" +
+		"}\n" +
+		"process.stdout.write(JSON.stringify(out))\n"
+	cmd := exec.Command("node", "--input-type=module", "-e", script, plugin, filepath.Join(modules, "vite", "package.json"), root)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("node: %v\n%s", err, stderr.String())
+	}
+	var results []struct {
+		Minify, From1215       bool
+		Code, Changed, Warning string
+		Tricky                 int
+	}
+	if err := json.Unmarshal(out, &results); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	for _, r := range results {
+		name := fmt.Sprintf("minify %v, 1.2.15 %v", r.Minify, r.From1215)
+		if !r.Minify {
+			// The forms this test is for, as rolldown writes them.
+			for _, form := range []string{"*/\nvar require_block", "/* @license React */ var require_sameline", "// @license React\nvar require_line", "*/\nvar require_two", "// @license the end of tail.js\n"} {
+				if !strings.Contains(r.Code, form) {
+					t.Errorf("%s: rolldown no longer writes %q:\n%s", name, form, r.Code)
+				}
+			}
+		}
+		if r.Warning != "" {
+			t.Errorf("%s: warning %s\n%s", name, r.Warning, r.Code)
+		}
+		for _, module := range []string{"block", "sameline", "line", "two", "react"} {
+			if !strings.Contains(r.Changed, "__tifaV(require_"+module+"()") {
+				t.Errorf("%s: the module %s of react gets no plain values:\n%s", name, module, r.Changed)
+			}
+		}
+		for _, module := range []string{"other", "tricky"} {
+			if !strings.Contains(r.Changed, "__toESM(require_"+module+"()") {
+				t.Errorf("%s: the module of %s changed:\n%s", name, module, r.Changed)
+			}
+		}
+		if r.Tricky != 2 {
+			t.Errorf("%s: the namespace of tricky reads value %d after it changed to 2", name, r.Tricky)
+		}
+	}
+}
+
+// plainNamespaces reads each module once and writes the chunk once, so a chunk of 10,000 CommonJS
+// modules, half of them React's, takes it far less than a second. tifa dev runs it on every
+// rebuild of the SSR bundle.
+func TestPlainNamespacesTakesLinearTime(t *testing.T) {
+	testModules(t)
+	plugin := filepath.Join(t.TempDir(), "plugin.mjs")
+	if err := os.WriteFile(plugin, []byte(js.VitePlugin), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := "const { plainNamespaces } = await import(process.argv[1])\n" +
+		"const runtime = JSON.parse(process.argv[2])\n" +
+		"const time = (n) => {\n" +
+		"  const modules = {}, parts = [runtime], calls = []\n" +
+		"  for (let i = 0; i < n; i++) {\n" +
+		"    const pkg = i % 2 ? 'react' : 'other'\n" +
+		"    const code = `//#region ../node_modules/${pkg}/m${i}.js\\n/** @license ${pkg} */\\nvar require_m${i} = /* @__PURE__ */ __commonJSMin(((exports) => {\\n\\texports.a = ${i};\\n}));\\n\\n//#endregion\\n`\n" +
+		"    modules[`/app/node_modules/${pkg}/m${i}.js`] = { code }\n" +
+		"    parts.push(code)\n" +
+		"    calls.push(`var ns${i} = /* @__PURE__ */ __toESM(require_m${i}());\\n`)\n" +
+		"  }\n" +
+		"  const code = parts.join('') + '//#region app/page.tsx\\n' + calls.join('') + '//#endregion\\n'\n" +
+		"  modules['/app/app/page.tsx'] = { code: '' }\n" +
+		"  let best = Infinity, result\n" +
+		"  for (let round = 0; round < 3; round++) {\n" +
+		"    const start = performance.now()\n" +
+		"    result = plainNamespaces(code, modules)\n" +
+		"    best = Math.min(best, performance.now() - start)\n" +
+		"  }\n" +
+		"  return { n, ms: best, warning: result.warning ?? '', plain: (result.code.match(/__tifaV\\(require_m/g) ?? []).length }\n" +
+		"}\n" +
+		"process.stdout.write(JSON.stringify([time(1000), time(10000)]))\n"
+	runtime, err := json.Marshal(rolldownRuntime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command("node", "--input-type=module", "-e", script, plugin, string(runtime)).CombinedOutput()
+	if err != nil {
+		t.Fatalf("node: %v\n%s", err, out)
+	}
+	var runs []struct {
+		N       int
+		Ms      float64
+		Warning string
+		Plain   int
+	}
+	if err := json.Unmarshal(out, &runs); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	for _, r := range runs {
+		t.Logf("%d modules: %.1f ms", r.N, r.Ms)
+		if r.Warning != "" || r.Plain != r.N/2 {
+			t.Errorf("%d modules: %d calls get plain values, want %d, warning %q", r.N, r.Plain, r.N/2, r.Warning)
+		}
+	}
+	// The large chunk takes about 10ms. Reading every module again for each one took 8s, so a busy
+	// machine stays far under the limit and that slip does not.
+	if large := runs[1]; large.Ms > 1000 {
+		t.Errorf("%d modules take %.1f ms, want at most 1000", large.N, large.Ms)
 	}
 }
 
