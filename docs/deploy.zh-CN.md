@@ -1,11 +1,12 @@
 ---
-summary: '怎么把构建好的 tifa 程序放到服务器上：为 Linux 构建、带着设置和数据目录运行、干净地停掉、容器、端口和 HTTPS、前面有 CDN 或代理时要设什么（Host 和 Origin、压缩、缓存哪些回答），健康检查路由，用 tifa.Stats 给 Prometheus 出指标以及该看哪些数，以及部署时已经打开的页面会怎样'
+summary: '怎么把构建好的 tifa 程序放到服务器上：为 Linux 构建、带着设置和数据目录运行、干净地停掉、在 systemd 下重启时不拒绝连接也不让用户登出、容器、端口和 HTTPS、前面有 CDN 或代理时要设什么（Host 和 Origin、压缩、缓存哪些回答），健康检查路由，用 tifa.Stats 给 Prometheus 出指标以及该看哪些数，以及部署时已经打开的页面会怎样'
 read_when:
   - 第一次把 tifa 应用放到 VPS 或容器里
   - 在 tifa 应用前面放 CDN 或反向代理，比如 nginx、Cloudflare、CloudFront
   - POST 只在代理后面报 403 和 `cross-origin request detected`
   - 部署之后页面显示旧内容，或者缺脚本
   - 想知道 tifa 应用的 systemd unit 或 Dockerfile 需要什么
+  - 每次部署访客都会连不上，或者被登出
   - 给负载均衡器、容器或 Kubernetes 加健康检查
   - 用 Prometheus 或别的监控系统看 VM 池和缓存，或者据此判断机器要不要加 CPU、`cache.size` 要不要调大
 ---
@@ -36,9 +37,85 @@ SERVER_ADDR=0.0.0.0:9527 ./myapp
 - 每个设置都有命令行参数和环境变量，程序还会读工作目录里的 `.env` 和 `-c` 给的文件。[配置](config.zh-CN.md)有完整列表和哪个来源优先。`./myapp config` 打印每个设置的值和它来自哪里，`./myapp version` 打印版本。
 - 用 `PORT` 告诉程序端口的平台（比如 Cloud Run、Fly）不用额外设置（见 [PORT 和 HOST](config.zh-CN.md#port-和-host)）。
 - 在它存数据的目录里运行。`tifa new` 模板里 `app.db` 这样的相对路径（设置 `db.path`）按工作目录解析。备份这个目录，或者在容器里挂载它。
-- SIGINT 和 SIGTERM 会让它优雅退出：不再接新连接，处理中的请求有 `server.shutdown_timeout` 的时间做完，然后运行 `OnShutdown`。systemd unit 或容器只需要可执行文件、环境变量和一个能写的数据目录。
+- SIGINT 和 SIGTERM 会让它优雅退出：不再接新连接，处理中的请求有 `server.shutdown_timeout` 的时间做完，然后运行 `OnShutdown`。没有自己终点的推流（比如 server-sent events）只要看着 `tifa.ShuttingDown`，就会立刻返回（见[流式输出](guides/streaming.zh-CN.md#程序停下时)）。systemd unit 或容器只需要可执行文件、环境变量和一个能写的数据目录。
 - `FROM scratch` 的容器可以用。程序里带着渲染需要的时区数据。
 - 机器大小参考[性能](performance.zh-CN.md#机器怎么配)。`ssr.vms` 在容器里跟着 CPU 限额走。
+
+## 重启时不丢请求
+
+重启会停掉程序，下一个程序先预热好 VM 才监听。中间到达的连接会被拒绝，除非 systemd 拿着套接字：用套接字激活时，systemd 监听端口，把套接字交给程序，程序重启期间它一直开着。这段时间到达的连接由系统接住，下一个程序再回答。访客只是多等一会儿：在 M4 Mac 上，示例商店的程序带 10 个 VM 时启动 0.42 秒后答出第一个页面，`ssr.vms: 1` 时 0.27 秒。构建后第一次启动，文件还不在系统缓存里，用了 0.79 秒。在一台 systemd 261 的 Linux 机器上，`systemctl restart` 期间一个小应用每 10 毫秒收到一个请求，300 个全部答 200，最慢的 0.14 秒。
+
+只有会话存在程序外面，用户才不会因为重启被登出。默认存储放在内存里，所以每次重启都会让所有人登出（见[会话存在哪](sessions.zh-CN.md#会话存在哪)）。`tifa new` 生成的应用把会话存在它的 SQLite 数据库里（`sessions.go`）。
+
+两个 unit，适用于在代理后面、或者用明文 HTTP 提供的应用：
+
+```ini
+# /etc/systemd/system/shop.socket
+[Unit]
+Description=Shop socket
+
+[Socket]
+ListenStream=0.0.0.0:9527
+
+[Install]
+WantedBy=sockets.target
+```
+
+```ini
+# /etc/systemd/system/shop.service
+[Unit]
+Description=Shop
+Requires=shop.socket
+After=shop.socket
+
+[Service]
+User=shop
+WorkingDirectory=/var/lib/shop
+ExecStart=/srv/shop/shop
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl enable --now shop.socket shop.service
+# 每次部署：拷上新程序，然后
+sudo systemctl restart shop.service
+```
+
+- 重启的是服务，不是套接字。重启或停掉 `shop.socket` 会关掉端口。
+- `shop.service` 也要 enable，这样程序开机就启动并预热，不用等第一个访客。
+- 程序从 systemd 设的 `LISTEN_PID`、`LISTEN_FDS` 和 `LISTEN_FDNAMES` 读出套接字，再把它们从自己的环境变量里删掉，这样它启动的程序看不到。此时不再监听 `server.addr`。日志那一行写着 `socket=systemd`。没有这些变量时程序照旧自己监听。
+- 端口由 systemd 以 root 打开，所以 1024 以下的端口不需要 `setcap` 或 `AmbientCapabilities`。
+- 按默认的 `server.shutdown_timeout`，停一次最多大约 30 秒：请求 10 秒，取消后仍在跑的请求再 10 秒，`OnShutdown` 10 秒。systemd 等 90 秒（`TimeoutStopSec`）才杀掉程序。
+
+开了 HTTPS 时程序提供两个地址，每个套接字用名字说明自己是哪个。一个套接字 unit 给它所有的套接字起同一个名字，所以每个地址用一个 unit：
+
+```ini
+# /etc/systemd/system/shop-https.socket
+[Socket]
+ListenStream=443
+FileDescriptorName=server.addr
+Service=shop.service
+
+[Install]
+WantedBy=sockets.target
+```
+
+```ini
+# /etc/systemd/system/shop-http.socket
+[Socket]
+ListenStream=80
+FileDescriptorName=server.http_addr
+Service=shop.service
+
+[Install]
+WantedBy=sockets.target
+```
+
+`shop.service` 的 `Requires=` 和 `After=` 写上这两个 unit，`[Service]` 里加上 `Sockets=shop-https.socket shop-http.socket`。设置里保留 `server.addr: :443`，这是 [HTTPS](config.zh-CN.md#https) 要求的。只有一个套接字时，不管叫什么名字都给 `server.addr`。有多个时必须分别叫 `server.addr` 和 `server.http_addr`，没开 HTTPS 却传了 `server.http_addr` 的套接字，程序报错退出。systemd 没给套接字的地址，程序自己监听。
 
 ## 端口和 HTTPS
 
