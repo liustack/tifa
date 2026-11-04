@@ -8,11 +8,12 @@ import (
 
 	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/internal/config"
+	"github.com/liustack/tifa/internal/core"
 	"github.com/liustack/tifa/internal/ssr"
-	"github.com/liustack/tifa/tifatest"
 )
 
-// Exercise the public helper through middleware, tifatest and an HTTP page.
+// Exercise the public helper through middleware called with a Ctx, and an HTTP page. The Ctx is
+// built with core.New: tifatest imports this package, so its tests cannot import tifatest.
 func TestRenderClockFromMiddleware(t *testing.T) {
 	at := time.Date(2026, 10, 22, 12, 0, 0, 123456789, time.UTC)
 	middleware := func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
@@ -34,7 +35,7 @@ func TestRenderClockFromMiddleware(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	c, _ := tifatest.NewCtx(t, httptest.NewRequest("GET", "/", nil))
+	c := core.New(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil), "", config.Default().Server.BodyLimit)
 	calls := 0
 	err = middleware(c, func(c *tifa.Ctx) error {
 		calls++

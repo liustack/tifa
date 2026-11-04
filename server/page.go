@@ -69,6 +69,9 @@ type front struct {
 	public fs.FS // dist/public, nil without a public directory
 	render func(context.Context, ssr.Input) (string, error)
 	pool   *ssr.Pool // runs render, nil without an SSR bundle or in tests
+	// shared is set for the pool of a test server, which the servers of a test binary share: the
+	// front end does not close it.
+	shared bool
 	// pages is set when there are pages to render. Without it pages answer JSON.
 	pages bool
 	// preload holds, by the path of a page or the ID of a Layout (see Server.modules), the module
@@ -237,7 +240,7 @@ func (s *server) closeFront() error {
 }
 
 func (f *front) close() error {
-	if f == nil || f.pool == nil {
+	if f == nil || f.pool == nil || f.shared {
 		return nil
 	}
 	return f.pool.Close()

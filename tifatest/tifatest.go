@@ -1,7 +1,13 @@
-// Package tifatest builds the tifa.Ctx of a test request, so the Load, Layout, method handler and
-// OnRequest functions of an app can be called in a Go test like any other function. It tests the
-// function, not the HTTP answer: input decoding, Validate, turning a result or an error into a
-// response, OnError and the navigation data protocol run only in the server.
+// Package tifatest tests a tifa app in go test, in two ways.
+//
+// NewCtx builds the tifa.Ctx of a test request, so the Load, Layout, method handler and OnRequest
+// functions of an app can be called like any other function. That tests the function, not the HTTP
+// answer: input decoding, Validate, turning a result or an error into a response, OnError and the
+// navigation data protocol run only in the server.
+//
+// Start runs the whole app in the test process, from tifaapp.App, and returns a server to send
+// requests to, so a test can sign in, post a form, follow the redirect and read the page.
+// StartPages also renders the pages with the front end of tifa build.
 package tifatest
 
 import (
