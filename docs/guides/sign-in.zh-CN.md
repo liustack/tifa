@@ -666,16 +666,17 @@ func TestSignIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	c, rec := tifatest.NewCtx(t, httptest.NewRequest("POST", "/login", nil))
-
 	err := POST(c, Credentials{Email: signin.DemoEmail, Password: "wrong", Next: "/account"})
 	var e tifa.Error
 	if !errors.As(err, &e) || e.Status != 401 {
 		t.Fatalf("a wrong password gave %v", err)
 	}
-	if len(rec.Header().Values("Set-Cookie")) != 0 {
+	if len(rec.Result().Cookies()) != 0 {
 		t.Fatal("a wrong password set a cookie")
 	}
 
+	// 新的请求用新的 Ctx 和 recorder。
+	c, rec = tifatest.NewCtx(t, httptest.NewRequest("POST", "/login", nil))
 	err = POST(c, Credentials{Email: signin.DemoEmail, Password: signin.DemoPassword, Next: "https://evil.example/"})
 	var r *tifa.RedirectError
 	if !errors.As(err, &r) || r.URL != "/account" || r.Status != 303 {
@@ -684,13 +685,13 @@ func TestSignIn(t *testing.T) {
 	if s := tifa.Session[signin.Session](c); s == nil || s.Name != "Ada" {
 		t.Fatalf("session = %+v", s)
 	}
-	if len(rec.Header().Values("Set-Cookie")) != 1 {
-		t.Fatal("no session cookie")
+	if cookies := rec.Result().Cookies(); len(cookies) != 1 {
+		t.Fatalf("cookies %v, want the session cookie", cookies)
 	}
 }
 ```
 
-`tifatest.NewCtx` 给测试一个它自己的会话存储，所以 `SetSession` 能用。方法函数在写出回答之前就返回了，所以 cookie 要从 `rec.Header()` 读。要测试需要用户的函数、又不想真的登录，用 `tifatest.WithSession`（见[测试会话](../sessions.zh-CN.md#测试会话)）。
+`tifatest.NewCtx` 给测试一个它自己的会话存储，所以 `SetSession` 能用。`SetSession` 一返回，cookie 就在 recorder 里。每个请求用一个新的 `NewCtx`，函数返回后再读 `rec.Result()`：recorder 记下的是第一次调用 `Result()` 时的头，一个 recorder 用于两次请求，第二次的 cookie 永远看不到。同一个测试的 `Ctx` 共用存储，所以前一个请求的 cookie 能让下一个登录（见[测试会话](../sessions.zh-CN.md#测试会话)）。要测试需要用户的函数、又不想真的登录，用 `tifatest.WithSession`（见[测试会话](../sessions.zh-CN.md#测试会话)）。
 
 ## 要做的选择
 

@@ -18,7 +18,9 @@ import (
 )
 
 // NewCtx returns the Ctx of r and the recorder that holds what is written through it. A returned
-// result or error is not written, so the recorder stays an empty 200 unless the function writes. Path
+// result or error is not written, so the recorder stays an empty 200 unless the function writes.
+// Read the recorder once the function returned: its Result keeps the headers of the first call, so
+// make one NewCtx per request and do not call the function again on the same Ctx. Path
 // parameters are the path values of r, set with r.SetPathValue, and Ctx.Pattern is r.Pattern as it is when NewCtx is called. The
 // body is limited to the default server.body_limit, 1 MiB, unless Ctx.SetBodyLimit changes it.
 // A handler that streams may flush and move its deadlines with http.ResponseController, as on the

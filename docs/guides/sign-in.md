@@ -674,16 +674,17 @@ func TestSignIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	c, rec := tifatest.NewCtx(t, httptest.NewRequest("POST", "/login", nil))
-
 	err := POST(c, Credentials{Email: signin.DemoEmail, Password: "wrong", Next: "/account"})
 	var e tifa.Error
 	if !errors.As(err, &e) || e.Status != 401 {
 		t.Fatalf("a wrong password gave %v", err)
 	}
-	if len(rec.Header().Values("Set-Cookie")) != 0 {
+	if len(rec.Result().Cookies()) != 0 {
 		t.Fatal("a wrong password set a cookie")
 	}
 
+	// A new request gets a new Ctx and recorder.
+	c, rec = tifatest.NewCtx(t, httptest.NewRequest("POST", "/login", nil))
 	err = POST(c, Credentials{Email: signin.DemoEmail, Password: signin.DemoPassword, Next: "https://evil.example/"})
 	var r *tifa.RedirectError
 	if !errors.As(err, &r) || r.URL != "/account" || r.Status != 303 {
@@ -692,13 +693,13 @@ func TestSignIn(t *testing.T) {
 	if s := tifa.Session[signin.Session](c); s == nil || s.Name != "Ada" {
 		t.Fatalf("session = %+v", s)
 	}
-	if len(rec.Header().Values("Set-Cookie")) != 1 {
-		t.Fatal("no session cookie")
+	if cookies := rec.Result().Cookies(); len(cookies) != 1 {
+		t.Fatalf("cookies %v, want the session cookie", cookies)
 	}
 }
 ```
 
-`tifatest.NewCtx` gives the test a session store of its own, so `SetSession` works. The handler returns before the response is written, so read the cookie from `rec.Header()`. To test a function that needs a user without signing in, use `tifatest.WithSession` (see [Testing sessions](../sessions.md#testing-sessions)).
+`tifatest.NewCtx` gives the test a session store of its own, so `SetSession` works. The cookie is in the recorder as soon as `SetSession` returns. Make one `NewCtx` per request and read `rec.Result()` after the function returns: the recorder keeps the headers of its first `Result()`, so a recorder used for two requests never shows the cookie of the second. The `Ctx`s of one test share the store, so the cookie of one signs in the next (see [Testing sessions](../sessions.md#testing-sessions)). To test a function that needs a user without signing in, use `tifatest.WithSession` (see [Testing sessions](../sessions.md#testing-sessions)).
 
 ## Decisions
 
