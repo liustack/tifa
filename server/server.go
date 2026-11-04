@@ -766,7 +766,9 @@ func (s *server) serveBoth(ctx context.Context, ln net.Listener, tlsConfig *tls.
 			root.ServeHTTP(w, r)
 		}),
 		BaseContext:       func(net.Listener) context.Context { return base },
-		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second,
+		// A handler that needs longer than the timeouts, an upload or a stream, lifts them for
+		// itself with http.ResponseController, which reaches the connection through Unwrap.
+		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: s.cfg.ReadTimeout, WriteTimeout: s.cfg.WriteTimeout, IdleTimeout: 60 * time.Second,
 		// ServeTLS adds h2 and http/1.1 to NextProtos and turns HTTP/2 on.
 		TLSConfig: tlsConfig,
 	}

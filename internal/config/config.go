@@ -43,8 +43,13 @@ type Build struct {
 }
 
 type Server struct {
-	Addr            string
-	BodyLimit       int64
+	Addr      string
+	BodyLimit int64
+	// ReadTimeout limits the time to read a whole request, body included, and WriteTimeout the
+	// time from the end of its header to the end of the answer. A handler that needs longer, an
+	// upload or a stream, lifts them for itself with http.ResponseController.
+	ReadTimeout     time.Duration
+	WriteTimeout    time.Duration
 	ShutdownTimeout time.Duration
 	// Compress sends text answers with gzip or zstd to clients that accept them, and the
 	// browser bundle as the files tifa build compressed.
@@ -149,7 +154,7 @@ const DefaultAddr = "127.0.0.1:9527"
 func Default() Config {
 	return Config{
 		Build:   Build{Target: "es2020", Public: "public", I18nextCache: true},
-		Server:  Server{Addr: DefaultAddr, BodyLimit: 1 << 20, ShutdownTimeout: 10 * time.Second, Compress: true, TLSCA: LetsEncrypt, HTTPAddr: ":80"},
+		Server:  Server{Addr: DefaultAddr, BodyLimit: 1 << 20, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, ShutdownTimeout: 10 * time.Second, Compress: true, TLSCA: LetsEncrypt, HTTPAddr: ":80"},
 		SSR:     SSR{VMs: runtime.GOMAXPROCS(0), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second, QueueLimit: 32, WaitTimeout: time.Second},
 		Cache:   Cache{Size: 64 << 20, IgnoreQuery: slices.Clone(DefaultIgnoreQuery)},
 		Session: Session{Cookie: DefaultSessionCookie, MaxAge: 30 * 24 * time.Hour, MemoryLimit: 64 << 20},
@@ -173,6 +178,8 @@ func fields(c *Config) []field {
 		{"build.i18next_cache", "Keep the strings i18next translates in the SSR bundle and give them again for the same call", boolValue{&c.Build.I18nextCache}},
 		{"server.addr", "HTTP listen address", stringValue{&c.Server.Addr}},
 		{"server.body_limit", "Request body limit", sizeValue{&c.Server.BodyLimit, 1}},
+		{"server.read_timeout", "Time to read a whole request, body included", durationValue{&c.Server.ReadTimeout}},
+		{"server.write_timeout", "Time from the end of a request header to the end of the answer", durationValue{&c.Server.WriteTimeout}},
 		{"server.shutdown_timeout", "Time allowed for in-flight requests, and then for OnShutdown, after a stop signal", durationValue{&c.Server.ShutdownTimeout}},
 		{"server.compress", "Compress text answers and send the compressed browser bundle", boolValue{&c.Server.Compress}},
 		{"server.tls_domains", "Serve HTTPS with Let's Encrypt certificates for these comma-separated domains", domainsValue{&c.Server.TLSDomains}},
