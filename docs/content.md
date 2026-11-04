@@ -331,11 +331,11 @@ An ID whose body file go:embed would refuse, such as one with `'` in it, fails t
 
 `tifa dev` reads the content from `.tifa/dist`, so a change under `content/` needs no go build and no restart (see [What each change triggers](dev.md#what-each-change-triggers)):
 
-- A Markdown file changed, added or removed, its body or its front matter: tifa dev scans `content/` again, converts that entry, writes `.tifa/dist/content/` and `content.json`, and the running app loads them. The app runs `Validate` on every entry and swaps the data of each collection as a whole. `OnStart` does not run again, the whole-page cache expires, and open pages reload.
+- A Markdown file changed, added or removed, its body or its front matter: tifa dev scans `content/` again, converts that entry, writes `.tifa/dist/content/` and `content.json`, and the running app loads them. The app runs `Validate` on every entry and takes the new data, and a page you load after that shows it. `OnStart` does not run again, the whole-page cache expires, and open pages reload.
 - Another file under `content/`, such as an image: the entries in its folder are converted again, and the translations that fall back to that folder.
 - `content.go` or a schema type: the Go steps run, and every entry is converted again.
-- `vite.config.ts` or a plugin it imports: every entry is converted again once Vite's dev server restarted.
-- A front matter that does not fit, an undeclared folder or an error of a plugin shows the message of `tifa build` in the overlay of the page. An entry that fails `Validate` shows `The app did not load the content`. Either way the app keeps the content it had until you fix it.
+- `vite.config.ts` or a plugin it imports: every entry is converted again once Vite's dev server restarted, or at once in an app without pages.
+- A front matter that does not fit, an undeclared folder or an error of a plugin shows the message of `tifa build` in the overlay of the page. An entry that fails `Validate` shows `The app did not load the content`. Either way the app keeps the content it had, bodies included, until you fix it.
 - Drafts and entries whose date is still to come are shown, see [Drafts and dates](#drafts-and-dates).
 
 Work out what depends on the content in the function that needs it, rather than keeping a copy from `OnStart`: under `tifa dev` the content changes while the app runs.

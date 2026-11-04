@@ -331,11 +331,11 @@ export default defineConfig({
 
 `tifa dev` 从 `.tifa/dist` 读内容，所以 `content/` 下的改动不需要 go build，也不用重启（见[改动触发什么](dev.zh-CN.md#改动触发什么)）：
 
-- Markdown 文件的正文或 front matter 改了，或者新增、删除：tifa dev 重新扫描 `content/`，转换这一篇，写 `.tifa/dist/content/` 和 `content.json`，正在运行的应用随即载入。应用对每个条目跑 `Validate`，每个集合整体换成新数据。`OnStart` 不再跑，整页缓存过期，打开着的页面刷新。
+- Markdown 文件的正文或 front matter 改了，或者新增、删除：tifa dev 重新扫描 `content/`，转换这一篇，写 `.tifa/dist/content/` 和 `content.json`，正在运行的应用随即载入。应用对每个条目跑 `Validate`，换上新数据，之后打开的页面显示新内容。`OnStart` 不再跑，整页缓存过期，打开着的页面刷新。
 - `content/` 下的其他文件，比如图片：它所在文件夹里的条目重新转换，回退到这个文件夹的译文也是。
 - `content.go` 或 schema 类型：跑 Go 的那些步骤，全部条目重新转换。
-- `vite.config.ts` 或它导入的插件：Vite 开发服务器重启后全部条目重新转换。
-- front matter 对不上、文件夹没声明、插件报错时，页面的浮层显示和 `tifa build` 一样的消息。有条目没通过 `Validate` 时显示 `The app did not load the content`。两种情况下应用都继续用原来的内容，直到你改好。
+- `vite.config.ts` 或它导入的插件：Vite 开发服务器重启后全部条目重新转换，没有页面的应用马上转换。
+- front matter 对不上、文件夹没声明、插件报错时，页面的浮层显示和 `tifa build` 一样的消息。有条目没通过 `Validate` 时显示 `The app did not load the content`。两种情况下应用都继续用原来的内容（包括正文），直到你改好。
 - 草稿和日期没到的条目都显示，见[草稿和日期](#草稿和日期)。
 
 依赖内容算出来的东西，在要用它的函数里现算，别在 `OnStart` 里存一份：`tifa dev` 下内容会在应用运行时变。
