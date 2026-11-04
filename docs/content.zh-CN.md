@@ -1,12 +1,13 @@
 ---
-summary: '应用怎样把文章、文档等写作内容作为 Markdown 文件放在 content/ 下并在 Go 里读：在 content.go 里声明集合，哪些文件是条目，ID、slug、path 和译文，schema struct 允许哪些 front matter 键，草稿和日期，正文怎样转成 HTML（步骤、remark 和 rehype 插件、图片和链接、标题）以及页面怎样显示它，tifa build 写出什么，测试里怎样读内容，以及报错和提示'
+summary: '应用怎样把文章、文档等写作内容作为 Markdown 文件放在 content/ 下并在 Go 里读：在 content.go 里声明集合，哪些文件是条目，ID、slug、path 和译文，schema struct 允许哪些 front matter 键，草稿和到点发布的条目，正文怎样转成 HTML（步骤、remark 和 rehype 插件、图片和链接、标题）以及页面怎样显示它，tifa build 写出什么，测试里怎样读内容，以及报错和提示'
 read_when:
   - 给 tifa 应用加博客、文档或其他 Markdown 内容
   - 写或改 content.go，或嵌入 content.Entry 的 schema 类型
   - 构建报 content.Define、content/ 下某个文件夹或某个文件 front matter 的错
   - 用 Body 和 <HTML> 显示条目的正文，用 Headings 做目录，或者在 vite.config.ts 的 tifa() 里加 remark、rehype 插件
   - 正文里的图片或链接找不到，或者插件让转换失败
-  - 写读集合的 Go 测试，用 tifatest.LoadContent 或 tifatest.SetContent
+  - 用 date 让条目在设定的时间发布，或者条目到了日期没有出现
+  - 写读集合的 Go 测试，用 tifatest.LoadContent、tifatest.SetContent 或 tifatest.SetContentTime
   - 改 content 包、internal/content、internal/analyze 里的内容检查，或 js/vite/plugin.js 里转换 Markdown 的步骤
 ---
 
@@ -163,7 +164,32 @@ tifa: content: content/blog/zh-CN/202608/free-search/index.md: Validate: cover m
 ## 草稿和日期
 
 - `draft: true` 是草稿。`tifa build` 不收它，所以它的文字不在程序里。
-- `date` 还没到的条目在程序里，但 `All`、`In`、`Get` 不返回它，别的条目的 `Translations` 也不列它。程序在启动读内容时判断哪些条目能看到。
+- `date` 还没到的条目在程序里，但 `All`、`In`、`Get` 不返回它，别的条目的 `Translations` 也不列它。到了那一刻它自己出现，不用重新构建，也不用重启。日期相同的条目一起出现。
+- 只写日期（`2026-11-20`）按 UTC 零点算。要精确到点，写带时区的 RFC 3339：`2026-11-20T09:00:00+08:00`。
+- 程序按机器的时钟（`time.Now`）判断，和 `tifa.WithRenderClock` 的渲染时钟无关。
+
+`tifa build` 和 `tifa check` 列出等待发布的条目，上线前可以核对时间写得对不对：
+
+```text
+tifa: content: 2 entries of blog wait for their date: zh-CN/202611/launch and en/202611/release-notes at 2026-11-20 09:00 +08:00
+```
+
+运行中的程序在条目发布时打一行日志：
+
+```text
+tifa: content: blog zh-CN/202611/launch and en/202611/release-notes are published (date 2026-11-20 09:00 +08:00)
+```
+
+那一刻其他地方的变化：
+
+| 地方 | 会怎样 |
+| --- | --- |
+| 带 `Cache` 的页面 | 整页缓存里在这一刻之前做好的页面全部算作过期，下一个请求重新生成。数据没变的页面由渲染缓存回答，不重新渲染。 |
+| 条目自己的页面 | 之前回答 404，而 404 不进整页缓存，所以到点就能打开。 |
+| 程序前面的 CDN | 带 `Cache` 的页面发出时 `s-maxage` 就是这个时长，CDN 可能在这段时间内还给旧的列表。 |
+| RSS、sitemap 等 handler | 每次请求都读集合，所以有这个条目。在 `OnStart` 里根据内容算好存起来的东西没有，所以要在用到它的函数里现算。 |
+
+一次请求里多次读集合，可能正好跨过这一刻，和数据库里刚写入一行时一样。
 
 ## 读集合
 
@@ -184,7 +210,7 @@ func Published(lang string) []myblog.Post {
 }
 ```
 
-内容在 `OnStart` 之前载入，所以 `OnStart` 里能读。包初始化期间读集合会 panic。依赖内容算出来的东西在用到它的函数里现算，比如 RSS 的 handler，不要在 `OnStart` 里存一份。
+内容在 `OnStart` 之前载入，所以 `OnStart` 里能读。包初始化期间读集合会 panic。到了某个条目的日期，能看到的条目就会变，所以依赖内容算出来的东西在用到它的函数里现算，比如 RSS 的 handler，不要在 `OnStart` 里存一份。
 
 ## 显示正文
 
@@ -317,13 +343,20 @@ func TestTagged(t *testing.T) {
 	)
 	// ...
 }
+
+func TestScheduled(t *testing.T) {
+	tifatest.LoadContent(t)
+	tifatest.SetContentTime(t, time.Date(2026, 11, 20, 1, 0, 0, 0, time.UTC)) // 集合按这个时刻判断哪些条目能看到
+	// ...
+}
 ```
 
 - `tifatest.LoadContent(t)` 从当前文件夹往上找到 `go.mod`，把那里当作应用，用和构建同一套扫描和检查读 `content/`，去掉草稿，隐藏日期还没到的条目，再跑 `Validate`。有问题时测试失败，消息和构建给的一样。
 - `tifatest.SetContent(t, c, entries...)` 让一个集合的内容换成给定的条目。`content.Entry` 的字段就是你写的，只有 `Translations` 按相同 ID 连起来。日期在未来的条目会隐藏。不跑 `Validate`。
-- 测试没有构建，所以没有 HTML：这两个函数给的条目，`Body()` 返回占位 `<p>tifatest: body of blog zh-CN/202608/free-search</p>`（集合、语言和 ID），`Headings()` 返回 nil。文章页的 `Load` 照样能在测试里跑。要检查 HTML 本身，测构建好的程序。
-- 两者都在测试结束时把集合恢复原样。
-- 集合由整个测试程序共用，所以调用它们的测试不能并行。测试本身或它的上层调用过 `t.Parallel` 时，测试失败。调用之后再调 `t.Parallel` 会 panic。
+- `tifatest.SetContentTime(t, tm)` 让集合按 `tm` 而不是现在判断哪些条目能看到：日期不晚于 `tm` 的条目显示。在 `LoadContent` 和 `SetContent` 之前或之后调用都行。整个测试里时间停在 `tm`。
+- 测试没有构建，所以没有 HTML：`LoadContent` 和 `SetContent` 给的条目，`Body()` 返回占位 `<p>tifatest: body of blog zh-CN/202608/free-search</p>`（集合、语言和 ID），`Headings()` 返回 nil。文章页的 `Load` 照样能在测试里跑。要检查 HTML 本身，测构建好的程序。
+- 三者都在测试结束时把集合和它们的时间恢复原样。
+- 集合由整个测试程序共用，所以调用其中任何一个的测试都不能并行。测试本身或它的上层调用过 `t.Parallel` 时，测试失败。调用之后再调 `t.Parallel` 会 panic。
 - 测试里不调用其中一个就用集合会 panic：
 
 ```text
