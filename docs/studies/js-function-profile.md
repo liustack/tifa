@@ -20,11 +20,12 @@ A Go CPU profile of a render shows engine functions such as `JS_CallInternal`, n
 - **The first profile found three rewrites.** Long `switch` statements on strings, a call per chunk with concatenation, and seroval's character loop: together 11% to 14% faster on the shop, 17.5% to 22% on plain text pages and 8% to 11% on small pages. All three are in the Vite plugin.
 - **The second profile found four more.** No component stacks, escapes with `replaceAll`, React namespaces of plain values, and no component names in key paths. All are in the plugin, see [Performance](../performance.md#build).
 - **What is left is the engine's.** React's remaining high ratios come from making objects. The two highest ratios outside React, react-spring's color regular expression (12 to 21 times) and TanStack Table's spread call (19 times), need engine fast paths, not a plugin rewrite tied to two libraries.
-- **The engine closed much of the gap between the two profiles.** QuickJS against `--jitless` went from 4.3 to about 2.7 times on the shop, from 5.3 to 3.8 on the plain text thread and from 3.4 to 2.3 on small pages. The ranking of functions barely changed.
 
 ## How to measure
 
 ### QuickJS side
+
+The profile of 2026-10-20 was taken on the engine before slowjs v0.29, with hooks in its generated Go. The C engine has no such hooks yet, so repeating this needs equivalent hooks in its C code. The steps were:
 
 1. Copy the quickjs module into a scratch clone of tifa and point `go.mod` at it with a `replace`.
 2. Add hooks in the generated Go of the engine:
@@ -159,7 +160,7 @@ The final numbers of each rewrite, measured on the merged code, are in [Performa
 
 ## Why
 
-- **The ratio falls as the engine gets faster in general.** v0.26.12 to v0.26.15 made calls and object literals cheaper, so `pushComponentStack` went from 7.8 to 4.3 times and `getComponentNameFromType` from 3.3 to 1.9 times. `push(chunk)` at 10.1 times is gone, since the plugin joins chunks. `createHook`, which makes an object literal of 3 properties, is still 10 to 12 times, at 0.9%. The shares stayed about the same because all functions got faster together.
+- **The ratio falls as the engine gets faster in general.** Between the two profiles the engine got faster, and the ratios of `pushComponentStack` and `getComponentNameFromType` fell. `push(chunk)` at 10.1 times is gone, since the plugin joins chunks. `createHook`, which makes an object literal of 3 properties, is still 10 to 12 times, at 0.9%. The shares stayed about the same because all functions got faster together.
 - **Inlining a call does not help.** Keeping component stacks but inlining `pushComponentStack`, or inlining `getComponentNameFromType`, stayed within 1%. The cost is in making the objects and strings and in property lookups that miss, not in the call.
 - **React writes nothing it needs from component stacks.** In React 19's production server renderer, the component stack is read only for the second argument of `onError`, and tifa's `onError` passes only the error. Component names in key paths are read only for resuming and for `useActionState` with server actions, which `renderToString` and tifa do not have. So both could go.
 
@@ -168,7 +169,7 @@ The final numbers of each rewrite, measured on the merged code, are in [Performa
 - Done: the seven rewrites above, each with tests that compare HTML against a React DOM the plugin cannot change.
 - Not done in the plugin: react-spring's regular expression and TanStack Table's spread. Rewriting them would tie the plugin to how two libraries are written. Both go to the engine, where every library that writes code this way gains.
 - Not done: inlining helpers, a `Map` lookup before the escape test, `indexOf` or `search` in place of the regular expression. Each measured slower or the same.
-- Use this method again before the next round of rewrites. The current shares are the baseline.
+- Use this method again before the next round of rewrites. The shares above are of the engine before the C engine, so take a new profile first and use that as the baseline.
 
 ## Not measured, or uncertain
 

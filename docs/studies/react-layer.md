@@ -31,7 +31,7 @@ Two changes in the React layer promise faster renders: [React PR 37022](https://
 ## How it was measured
 
 - **Machine:** a Google Cloud VM with 8 vCPUs of an AMD EPYC 7B13, Linux. `taskset -c 0`, `GOMAXPROCS=1`, cpu 4 (its sibling) idle. The load before every run was logged.
-- **Builds:** test binaries built with `-pgo=internal/codegen/engine.pgo`. Their hash differs from a build with PGO off, so the profile was in use.
+- **Builds:** test binaries built with the CPU profile (PGO) that tifa used then. tifa no longer builds with one.
 - **Main measurement:** `BenchmarkShop/render-*` of `test/ssr`, each page warmed with 256 renders and timed over 300, with two environment variables added to read another `ssr.js` and stored inputs. Five bundles in a rotating order per round, 8 rounds. The ratio is the sum of the six pages' P50 against the bundle without the change, in the same round.
 - **Second measurement:** one warm VM per bundle, each input rendered by every bundle in turn, 10 rounds, the median of each page's ratios.
 - **HTML:** every bundle's output compared byte for byte with the router's render time masked, on Mac and Linux. Inputs: the shop's six pages and 133 inputs of a test app of plain text pages (a kitchen-sink page, a landing page, two small pages, 64 inputs of a long thread and 64 unique ones).
@@ -108,4 +108,5 @@ How the SSR mode changes HTML: a page with `<Child onPick={handle} />`, where `h
 - PR 37022 was measured as merged into 19.3.1, not as a React release. A release may differ.
 - No public measurement of React Compiler on server renders was found.
 - The plain text app's kitchen page has BigInt literals, which the Compiler skips in both modes, so its 133 inputs cover only 17 compiled functions.
+- Measured on the engine before slowjs v0.29 (the C engine). On the C engine string joins and object allocation may cost a different amount, so the 1.009 of PR 37022 could move a little. The reasons given above are about React, not the engine.
 - Apps with many more hooks than the shop were not tried. The SSR mode could gain there, but it would still change HTML.
