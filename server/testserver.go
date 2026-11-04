@@ -24,6 +24,7 @@ const testVMs = 2
 var tests struct {
 	mu      sync.Mutex
 	running bool      // a server of StartTest has not stopped
+	held    bool      // running, by a stopped server whose handlers have not returned
 	pool    *ssr.Pool // the VMs of the last bundle, kept for the next server until another bundle comes
 	poolKey [32]byte  // the SSR bundle and the settings of pool
 }
@@ -42,11 +43,17 @@ var tests struct {
 // stop ends what StartTest began: it closes the channel of tifa.ShuttingDown, cancels the
 // contexts of the requests in flight, stops srv and waits up to server.shutdown_timeout for the
 // handlers to return. Then it runs OnShutdown, calls closeServer and puts back what the server
-// changed in the process. A handler still running then skips OnShutdown and closeServer, which
-// would wait for it, and stop reports it. One server runs at a time: StartTest fails while another has
-// not stopped, as the session store, SetHTTPHandler and the content are those of the process.
+// changed in the process. A handler still running then skips OnShutdown, and stop reports it: the
+// server keeps what it holds in the process until the handler returns, and only then calls
+// closeServer, which waits for it, and puts the process back. One server runs at a time:
+// StartTest fails while another has not stopped, or a handler of one still runs, as the session
+// store, SetHTTPHandler and the content are those of the process.
 func StartTest(ctx context.Context, app App, srv *http.Server) (stop func(closeServer func()) error, err error) {
 	tests.mu.Lock()
+	if tests.held {
+		tests.mu.Unlock()
+		return nil, errors.New("a handler of an earlier test is still running: it went on after its request ended and server.shutdown_timeout passed, and the app stays with it until it returns. Make the handler return when c.Context() is done")
+	}
 	if tests.running {
 		tests.mu.Unlock()
 		return nil, errors.New("another test server of this process is still running: tests that start the app cannot run in parallel")
@@ -60,7 +67,7 @@ func StartTest(ctx context.Context, app App, srv *http.Server) (stop func(closeS
 			undo[i]()
 		}
 		tests.mu.Lock()
-		tests.running = false
+		tests.running, tests.held = false, false
 		tests.mu.Unlock()
 	}
 	defer func() {
@@ -134,10 +141,20 @@ func StartTest(ctx context.Context, app App, srv *http.Server) (stop func(closeS
 				return srv.Shutdown(ctx)
 			}
 			err = s.shutdown(stopping, g, cancelRequests, drain, func() { _ = srv.Close() })
-			// closeServer waits for every connection, which a handler that never returns holds.
-			if !errors.Is(err, errHandlersRunning) {
-				closeServer()
+			if errors.Is(err, errHandlersRunning) {
+				// The handlers still use the session store, the content and the rest the process
+				// holds for this server, so it keeps them, and StartTest fails, until they return.
+				tests.mu.Lock()
+				tests.held = true
+				tests.mu.Unlock()
+				go func() {
+					g.running.Wait()
+					closeServer()
+					unwind()
+				}()
+				return
 			}
+			closeServer()
 			unwind()
 		})
 		return err
