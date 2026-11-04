@@ -232,6 +232,8 @@ type watcher struct {
 	embedded atomic.Pointer[func(string) bool] // says which files the Go code embeds, nil before the first analysis
 	reclass  chan reclassify                   // setEmbedded sends here, so run looks at the directories again
 	stopped  chan struct{}                     // closed once run returned
+	syncs    chan chan struct{}                // sync sends here, see watch_sync.go
+	sy       syncer                            // what run keeps for the syncs
 	adopt    func(rel string) bool             // while run looks at the directories again: the files the old rules left out and the new ones take in
 	forget   func(rel string) bool             // and those the old rules took and the new ones leave out. Neither is a change
 }
@@ -286,6 +288,7 @@ func prepareWatcher(root string, ignore []string, warn func(string)) (*watcher, 
 	}
 	w := &watcher{
 		root: abs, rootReal: rootReal, warn: warn, changes: newChanges(), short: make(chan struct{}), reclass: make(chan reclassify), stopped: make(chan struct{}),
+		syncs:  make(chan chan struct{}),
 		budget: watchBudget(), watches: map[string]bool{}, minPoll: minPollInterval,
 		nodes: map[string]*node{}, kids: map[string]map[string]bool{}, owner: map[string]string{},
 		polled: map[string]bool{}, dirty: map[string]bool{}, warned: map[string]bool{},
@@ -322,6 +325,7 @@ func (w *watcher) close() {
 	if w.sys != nil {
 		w.sys.close()
 	}
+	w.closeSync()
 }
 
 // watchCount returns how many system watches the watcher holds.
@@ -387,6 +391,10 @@ func (w *watcher) run(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
+		case done := <-w.syncs:
+			w.addSync(done)
+		case <-w.syncTimeout():
+			w.synced()
 		case <-links.C:
 			if err := w.recover(w.checkLinks()); err != nil {
 				return err
@@ -401,6 +409,10 @@ func (w *watcher) run(ctx context.Context) error {
 			if !ok {
 				return errors.New("file watcher stopped")
 			}
+			if w.isSync(ev.Name) {
+				w.synced()
+				continue
+			}
 			if err := w.recover(w.handle(ev.Name, ev.Op)); err != nil {
 				return err
 			}
@@ -410,10 +422,12 @@ func (w *watcher) run(ctx context.Context) error {
 			}
 			switch {
 			case errors.Is(err, fsnotify.ErrEventOverflow):
-				// Some events were dropped, so compare everything again.
+				// Some events were dropped, so compare everything again. The event of a sync
+				// may be among them, and the rescan saw what it waits for.
 				if err := w.rescan("."); err != nil {
 					return err
 				}
+				w.endSyncs()
 			case outOfWatches(err):
 				// The error does not say which directory misses events.
 				w.pollAll(err)
@@ -933,6 +947,8 @@ func (w *watcher) pollAll(err error) {
 		w.sys.close()
 		w.sys, w.events, w.errs = nil, nil, nil
 	}
+	// No event of a sync comes any more.
+	w.endSyncs()
 	for _, dir := range w.owner {
 		w.polled[dir] = true
 	}

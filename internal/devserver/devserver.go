@@ -144,7 +144,7 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 		mux.Handle(VitePath, viteProxy(o.Vite))
 	}
 	app := proxy(appAddr, o.ProxyWait, d.down, d.timing)
-	pending := w.changes.pending
+	catchUp, pending := w.sync, w.changes.pending
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Before the first build there is no app. A page the browser loads waits for a build that
 		// Go's build cache makes fast, and gets a page that loads the dev client during a slow
@@ -164,8 +164,9 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 		}
 		// A page loaded while the SSR bundle is rebuilt would show the old server render. Wait
 		// until the app with the new one runs. A file saved just before is not in a rebuild yet,
-		// as the files must go quiet first: wait for that rebuild to begin, which holds the page
-		// when it bundles.
+		// as the files must go quiet first: once the watcher saw it, wait for that rebuild to
+		// begin, which holds the page when it bundles.
+		catchUp(r.Context())
 		limit := time.NewTimer(o.ProxyWait)
 		defer limit.Stop()
 	wait:

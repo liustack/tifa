@@ -371,6 +371,19 @@ func TestRunHoldsPagesWhileBundling(t *testing.T) {
 	expectSteps(t, d.p, "Bundle")
 }
 
+// A page requested right after a save, before the files went quiet and the rebuild started, waits
+// for the rebuild too. The browser reloads as soon as Vite sees the save, which can be before
+// tifa dev batches it, and an old server render then fails to hydrate with the new modules.
+func TestRunHoldsPagesRightAfterASave(t *testing.T) {
+	d := startDev(t, "")
+	d.waitVersionAfter(t, "")
+	expectPage(t, d.url+"/bundle", "bundle 1")
+	for i := 2; i <= 4; i++ {
+		writeFile(t, d.dir, "app/list/route.tsx", fmt.Sprintf("export const x = %d", i))
+		expectPage(t, d.url+"/bundle", fmt.Sprintf("bundle %d", i))
+	}
+}
+
 // A Go change whose analysis finds a new route manifest rebuilds the SSR bundle too. Page
 // requests wait for it as soon as the bundle step is known, as they do for a front end change.
 func TestRunHoldsPagesWhileTheAnalysisAddsABundle(t *testing.T) {

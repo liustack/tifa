@@ -263,6 +263,9 @@ func TestDev(t *testing.T) {
 	// TSX only: Vite updates the open pages in place, so the version stays and they do not
 	// reload. tifa rebuilds the SSR bundle and restarts the app, without go build.
 	mark := d.edit(t, "app/page.tsx", "North shop", "North store")
+	// A page requested right after the save, before the files went quiet, waits for the new
+	// server render, as a reload that Vite starts at once does.
+	expectBody(t, d.base+"/", "North store")
 	hmr.waitUpdate(t, "/app/page.tsx")
 	expectSteps(t, "TSX edit", d.waitLog(t, mark, ready), "bundle")
 	r2 := d.waitStatus(t, func(st devStatus) bool { return st.Version == v1 && st.Error == "" }).Render
