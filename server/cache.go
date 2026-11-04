@@ -140,12 +140,17 @@ func (p cachedPage) fresh(now, madeAfter time.Time) bool {
 
 // expireMadeBefore makes every page of the whole-page cache made before t, or at t, no longer
 // fresh: the next request makes it again. Such a page still stands in for one that fails (stale).
+// The makes and renders under way read their data before t, so later requests do not wait for
+// them and start their own: the requests that already wait get the result as before, and a make
+// that is replaced so does not enter the cache (see fly). A render of the render cache that is
+// under way may be done twice, which is rare, since content is published seldom.
 func (c *htmlCache) expireMadeBefore(t time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if t.After(c.madeAfter) {
 		c.madeAfter = t
 	}
+	clear(c.flights)
 }
 
 func newHTMLCache(size int64) *htmlCache {

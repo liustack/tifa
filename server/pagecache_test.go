@@ -248,6 +248,44 @@ func TestPublishedContentExpiresTheWholePageCache(t *testing.T) {
 	}
 }
 
+// A request that comes after content was published does not wait for a page that a request before
+// it is still making, whose Loads read the content as it was. The request before gets its own page,
+// and the new page is the one kept.
+func TestRequestAfterPublishingDoesNotJoinAnOlderMake(t *testing.T) {
+	e := newPageEnv(t)
+	started, release := make(chan struct{}), make(chan struct{})
+	e.setLoad(func(c *tifa.Ctx, n int64) (any, error) {
+		close(started)
+		<-release
+		return map[string]string{"posts": "old"}, nil
+	})
+	before := make(chan *httptest.ResponseRecorder)
+	go func() { before <- get(e.s, "/news") }()
+	<-started
+	e.setLoad(func(c *tifa.Ctx, n int64) (any, error) { return map[string]string{"posts": "new"}, nil })
+	e.s.contentChanged()
+	e.clock.advance(time.Millisecond)
+	after := make(chan *httptest.ResponseRecorder)
+	go func() { after <- get(e.s, "/news") }()
+	var w *httptest.ResponseRecorder
+	select {
+	case w = <-after:
+	case <-time.After(5 * time.Second):
+		close(release)
+		t.Fatal("the request after publishing waits for the make that started before")
+	}
+	if !strings.Contains(w.Body.String(), `"posts":"new"`) || w.Header().Get("X-Tifa-Render") != "vm" {
+		t.Errorf("the request after publishing: %q\n%s", w.Header().Get("X-Tifa-Render"), w.Body.String())
+	}
+	close(release)
+	if w := <-before; !strings.Contains(w.Body.String(), `"posts":"old"`) {
+		t.Errorf("the request before publishing:\n%s", w.Body.String())
+	}
+	if w := get(e.s, "/news"); w.Header().Get("X-Tifa-Render") != "cache" || !strings.Contains(w.Body.String(), `"posts":"new"`) {
+		t.Errorf("the kept page: %q\n%s", w.Header().Get("X-Tifa-Render"), w.Body.String())
+	}
+}
+
 // When making the page fails after its time is over, the old page is served: for a Load that
 // fails, a render that fails, one that runs out of time and an overloaded pool.
 func TestFailedRemakeServesTheOldPage(t *testing.T) {
