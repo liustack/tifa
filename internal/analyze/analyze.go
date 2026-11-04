@@ -52,12 +52,21 @@ var hooks = []struct {
 // The app packages among them and those importing them, directly or through packages outside
 // app/, are skipped. The conventions of all other packages are still checked.
 // Other errors (no app directory, go list failing) are returned as they are.
-func Analyze(dir string) (*Manifest, error) {
+func Analyze(dir string) (*Manifest, error) { return AnalyzeWith(dir, Options{}) }
+
+// Options change what Analyze keeps.
+type Options struct {
+	// Drafts keeps the content entries whose front matter has draft: true, as tifa dev shows them.
+	Drafts bool
+}
+
+// AnalyzeWith is Analyze with opts.
+func AnalyzeWith(dir string, opts Options) (*Manifest, error) {
 	root, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, err
 	}
-	a := &analyzer{root: root, dirs: map[string]*dirInfo{}, used: usedLoads{}, identity: map[*Load][]identityRead{}}
+	a := &analyzer{root: root, opts: opts, dirs: map[string]*dirInfo{}, used: usedLoads{}, identity: map[*Load][]identityRead{}}
 	if a.module, err = modulePath(root); err != nil {
 		return nil, err
 	}
@@ -110,6 +119,7 @@ func modulePath(root string) (string, error) {
 
 type analyzer struct {
 	root           string
+	opts           Options
 	module         string
 	fset           *token.FileSet
 	dirs           map[string]*dirInfo // by ID

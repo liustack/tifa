@@ -1,6 +1,7 @@
 package analyze
 
 import (
+	"encoding/json/v2"
 	"fmt"
 	"go/ast"
 	"go/token"
@@ -25,12 +26,56 @@ const contentPkg = "github.com/liustack/tifa/content"
 type Content struct {
 	// Collections are the collections of content.go, in the order of the file.
 	Collections []Collection
-	// File holds the entries of every collection, drafts left out, as dist/content.json has them.
+	// File holds the entries of every collection as dist/content.json has them, drafts left out
+	// unless Options.Drafts.
 	File content.File
 	// Warnings are problems that do not stop a build, such as entries without a translation.
 	Warnings []string
 	// Markdown lists the entries of File for the Vite plugin to turn into HTML.
 	Markdown []content.Markdown
+
+	// What the scan of content/ was given, for ScanContent: the collections that can be scanned,
+	// the folder of every declared one, and the options.
+	scan     []scan.Collection
+	declared []string
+	opts     scan.Options
+}
+
+// ScanContent reads content/ of the app at root again, for the collections of an earlier analysis
+// c, as tifa dev does after a file under content/ changed, without the analysis of the Go code.
+// It returns the new entries, or the problems as Errors, the same lines as the analysis gives.
+// For an app without collections (c nil) it only checks that content/ holds no folder, and
+// returns nil.
+func ScanContent(root string, c *Content) (*Content, error) {
+	if c == nil {
+		if errs := scanErrors(scan.Scan(root, nil, nil, scan.Options{}).Errors); len(errs) > 0 {
+			return nil, errs
+		}
+		return nil, nil
+	}
+	res := scan.Scan(root, c.scan, c.declared, c.opts)
+	n := &Content{Collections: c.Collections, scan: c.scan, declared: c.declared, opts: c.opts}
+	n.File, n.Warnings, n.Markdown = res.File, res.Warnings, res.Markdown
+	if errs := append(scanErrors(res.Errors), bodyFileErrors(n.File)...); len(errs) > 0 {
+		return nil, errs
+	}
+	return n, nil
+}
+
+// Fingerprint changes whenever the declarations of the collections change: their folders,
+// languages, Match or the fields of their schema types.
+func (c *Content) Fingerprint() string {
+	if c == nil {
+		return ""
+	}
+	data, err := json.Marshal(struct {
+		Scan     []scan.Collection
+		Declared []string
+	}{c.scan, c.declared}, json.Deterministic(true))
+	if err != nil {
+		panic(err) // the fields are plain data
+	}
+	return string(data)
 }
 
 // Collection is one var X = content.Define[T](content.Source{...}) of content.go.
@@ -137,7 +182,7 @@ func (a *analyzer) content() *Content {
 	if len(decls) == 0 {
 		// content/ belongs to tifa even without content.go: each folder in it needs a
 		// collection. Without content/ this is one failed ReadDir.
-		a.scanErrors(scan.Scan(a.root, nil, nil, scan.Options{}).Errors)
+		a.errs = append(a.errs, scanErrors(scan.Scan(a.root, nil, nil, scan.Options{}).Errors)...)
 		return nil
 	}
 	slices.SortFunc(decls, func(x, y declaration) int { return int(x.name.Pos() - y.name.Pos()) })
@@ -159,8 +204,9 @@ func (a *analyzer) content() *Content {
 			Type: shortType(d.pkg.TypesInfo.Types[typeArg(d.call)].Type), LanguagesAt: languagesAt,
 		})
 	}
-	res := scan.Scan(a.root, colls, declared, scan.Options{})
-	a.scanErrors(res.Errors)
+	c.scan, c.declared, c.opts = colls, declared, scan.Options{Drafts: a.opts.Drafts}
+	res := scan.Scan(a.root, colls, declared, c.opts)
+	a.errs = append(a.errs, scanErrors(res.Errors)...)
 	c.File, c.Warnings, c.Markdown = res.File, res.Warnings, res.Markdown
 	a.errs = append(a.errs, bodyFileErrors(c.File)...)
 	return c
@@ -194,10 +240,12 @@ func bodyFileErrors(f content.File) []Error {
 }
 
 // scanErrors reports the errors of a scan of content/.
-func (a *analyzer) scanErrors(errs []scan.Error) {
+func scanErrors(errs []scan.Error) Errors {
+	var out Errors
 	for _, e := range errs {
-		a.errs = append(a.errs, Error{Pos: token.Position{Filename: e.File, Line: e.Line, Column: e.Col}, Msg: e.Msg})
+		out = append(out, Error{Pos: token.Position{Filename: e.File, Line: e.Line, Column: e.Col}, Msg: e.Msg})
 	}
+	return out
 }
 
 func typeArg(call *ast.CallExpr) ast.Expr {
