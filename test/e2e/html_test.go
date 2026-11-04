@@ -108,17 +108,7 @@ func htmlInBrowser(t *testing.T, name, base string, withBroken bool) {
 		t.Log("playwright-cli is not installed: the article pages are not checked in a browser")
 		return
 	}
-	dir := t.TempDir()
-	pw := func(args ...string) string {
-		t.Helper()
-		cmd := exec.Command("playwright-cli", append([]string{"-s=" + name}, args...)...)
-		cmd.Dir = dir
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("playwright-cli %v: %v\n%s", args, err, out)
-		}
-		return string(out)
-	}
+	pw, _ := openBrowser(t, name)
 	// is reports whether js gives true, read from the result and not from the code it echoes.
 	is := func(js string) bool {
 		_, result, _ := strings.Cut(pw("eval", js), "### Result\n")
@@ -150,7 +140,6 @@ func htmlInBrowser(t *testing.T, name, base string, withBroken bool) {
 	}
 
 	pw("open", base+"/article/read")
-	defer exec.Command("playwright-cli", "-s="+name, "close").Run()
 	hydrated("/article/read to hydrate")
 	shows("the article", "/article/read")
 	// The body is the markup the server wrote, which React kept.
@@ -218,22 +207,11 @@ func htmlLinksInBrowser(t *testing.T, name, base string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir := t.TempDir()
+	pw, dir := openBrowser(t, name)
 	if err := os.WriteFile(filepath.Join(dir, "htmllinks.js"), []byte(strings.ReplaceAll(string(code), "__BASE__", base)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	pw := func(args ...string) string {
-		t.Helper()
-		cmd := exec.Command("playwright-cli", append([]string{"-s=" + name}, args...)...)
-		cmd.Dir = dir
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("playwright-cli %v: %v\n%s", args, err, out)
-		}
-		return string(out)
-	}
 	pw("open", "about:blank")
-	defer exec.Command("playwright-cli", "-s="+name, "close").Run()
 	// A path relative to the folder: playwright-cli reads files only below it, as it spells it.
 	out := pw("run-code", "--filename=htmllinks.js")
 	// The result is the string the script returns, written as JSON.

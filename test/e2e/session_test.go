@@ -140,20 +140,8 @@ func sessionInBrowser(t *testing.T, base string) {
 	if _, err := exec.LookPath("playwright-cli"); err != nil {
 		t.Skip("playwright-cli is not installed")
 	}
-	name := "tifa-e2e-session"
-	dir := t.TempDir()
-	pw := func(args ...string) string {
-		t.Helper()
-		cmd := exec.Command("playwright-cli", append([]string{"-s=" + name}, args...)...)
-		cmd.Dir = dir
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("playwright-cli %v: %v\n%s", args, err, out)
-		}
-		return string(out)
-	}
+	pw, _ := openBrowser(t, "tifa-e2e-session")
 	pw("open", base+"/login")
-	t.Cleanup(func() { exec.Command("playwright-cli", "-s="+name, "close").Run() })
 	// eval returns a JSON text of the page's state.
 	state := func() map[string]any {
 		t.Helper()
