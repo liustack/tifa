@@ -185,6 +185,9 @@ func TestMarkdownHeadingIDsAreThoseOfRehypeSlug(t *testing.T) {
 		"Hello, World!", "Hello, World!", "hello world", "Hello World 1", "Hello-World", "  spaced  out  ",
 		"C++ & Go", "Ünïcödé Ⓐ ½ ²", "日本語の見出し", "한국어 제목", "Привет мир", "emoji 🎉 time", "under_score",
 		"`code` and *em*", "[link](https://x.y) text", "a.b/c:d", "---", "", "",
+		// U+0870 came in Unicode 14, after the table of github-slugger: rehype-slug drops it, so
+		// the second heading repeats the first.
+		"Aࡰ", "A",
 	}
 	var body strings.Builder
 	for _, s := range titles {
