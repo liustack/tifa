@@ -24,7 +24,8 @@ type Pipeline interface {
 	Bundle(ctx context.Context) (detail string, err error)
 	// Content scans content/ again and converts the entries that changed into the files the app
 	// reads, without go build: those whose Markdown changed, and those near one of the files of
-	// changed (relative to the application directory with forward slashes). With all it converts
+	// changed (relative to the application directory with forward slashes), which also names the
+	// folders that appeared or went. With all it converts
 	// every entry, as after a change of the Vite config. It runs after Bundle, which starts Vite's
 	// dev server. A detail that is not empty goes at the end of the step's log line.
 	Content(ctx context.Context, all bool, changed []string) (detail string, err error)

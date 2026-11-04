@@ -188,6 +188,26 @@ func TestWatcherFollowsNewDirectories(t *testing.T) {
 	expectBatch(t, dir, w, change{"app/orders/detail/route.go", created})
 }
 
+// A folder under content/ is part of the content even when empty, as the scan reports one that
+// no collection declares: one that appears or goes is a change. Other folders are not.
+func TestWatcherReportsFoldersUnderContent(t *testing.T) {
+	dir := newApp(t)
+	writeFile(t, dir, "content/blog/a.md", "a")
+	w := startWatcher(t, dir)
+	if err := os.MkdirAll(filepath.Join(dir, "content/notes/2026"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	expectBatch(t, dir, w, change{"content/notes", created}, change{"content/notes/2026", created})
+	if err := os.RemoveAll(filepath.Join(dir, "content/notes")); err != nil {
+		t.Fatal(err)
+	}
+	expectBatch(t, dir, w, change{"content/notes", removed}, change{"content/notes/2026", removed})
+	if err := os.MkdirAll(filepath.Join(dir, "app/empty"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	expectBatch(t, dir, w)
+}
+
 func TestWatcherReportsRemovedDirectories(t *testing.T) {
 	dir := newApp(t)
 	w := startWatcher(t, dir)
