@@ -136,6 +136,7 @@ A new app also gets an `AGENTS.md` from `tifa new`. The skill covers the same gr
 | [Content](docs/content.md) | Keeping a blog or docs as Markdown files and reading them in Go |
 | [Build and run](docs/build.md) | You want to know what `tifa build` generates and how the program answers requests |
 | [Dev server](docs/dev.md) | Running `tifa dev` locally, or a change did not reload |
+| [Deploying](docs/deploy.md) | Putting the program on a server or in a container, or behind a CDN or proxy |
 | [Configuration](docs/config.md) | Deploying: the port, HTTPS, body limit, VMs, render timeout and page cache |
 | [Performance](docs/performance.md) | You want to know whether a small VPS can carry your traffic |
 | [Research studies](docs/studies/README.md) | You want the full method and data behind a number, or to see whether an idea was already tried |
