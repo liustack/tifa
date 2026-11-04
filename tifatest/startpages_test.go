@@ -60,7 +60,7 @@ func pageApp() server.App {
 // Pages render to HTML with the bundle of .tifa/dist, also in a later test: the VMs outlive the
 // server of the test that made them.
 func TestStartPagesRendersPages(t *testing.T) {
-	builtApp(t, `{}`)
+	builtApp(t, `{"dirs": ["public", "content"], "files": {}}`)
 	for _, name := range []string{"Ann", "Bo"} {
 		t.Run(name, func(t *testing.T) {
 			srv := tifatest.StartPages(t, pageApp())
@@ -97,7 +97,7 @@ func TestStartPagesWantsTheRecordOfTheInputs(t *testing.T) {
 
 // A file that changed after the build fails the test with its name.
 func TestStartPagesFailsOnAFrontEndOlderThanItsSources(t *testing.T) {
-	builtApp(t, `{"app/page.tsx": "00000000000000000000000000000000", "components/gone.tsx": "00000000000000000000000000000000"}`)
+	builtApp(t, `{"dirs": ["public", "content"], "files": {"app/page.tsx": "00000000000000000000000000000000", "components/gone.tsx": "00000000000000000000000000000000"}}`)
 	f := &fatal{TB: t}
 	srv := tifatest.StartPages(f, pageApp())
 	if srv != nil || !strings.Contains(f.msg, "app/page.tsx, components/gone.tsx") || !strings.Contains(f.msg, "tifa build") {

@@ -67,3 +67,26 @@ func writeFile(t *testing.T, path, data string) {
 		t.Fatal(err)
 	}
 }
+
+// A file that appears after the build is an input too when the build would have read it: a public
+// file, a file of content/, or a project file such as tsconfig.json.
+func TestInputsNameTheFilesAddedSince(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "package.json"), "{}")
+	writeFile(t, filepath.Join(root, "static/logo.svg"), "<svg/>")
+	dist := filepath.Join(root, ".tifa", "dist")
+	if err := os.MkdirAll(dist, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeInputs(root, dist, filepath.Join(root, "static"), nil); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(root, "static/icons/new.svg"), "<svg/>")
+	writeFile(t, filepath.Join(root, "content/blog/a.md"), "# A")
+	writeFile(t, filepath.Join(root, "tsconfig.json"), "{}")
+	writeFile(t, filepath.Join(root, "notes.txt"), "not an input")
+	changed, err := ChangedInputs(root, dist)
+	if want := []string{"content/blog/a.md", "static/icons/new.svg", "tsconfig.json"}; err != nil || !slices.Equal(changed, want) {
+		t.Fatalf("changed %v, %v, want %v", changed, err, want)
+	}
+}
