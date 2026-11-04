@@ -68,6 +68,8 @@ var errOptions = errors.New("tifa dev: incomplete options")
 
 var errFirstBuild = errors.New("tifa dev is building the app for the first time, this page reloads when it is ready")
 
+var errStopping = errors.New("tifa dev is stopping")
+
 // firstBuildWait is how long a browser request waits for the first build before it gets a page
 // that says the build runs. A tifa dev with Go's build cache warm is ready by then.
 var firstBuildWait = 2 * time.Second
@@ -126,6 +128,9 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 		log:     logger,
 		nonce:   strconv.FormatInt(time.Now().UnixNano(), 36),
 	}
+	// Done once Run stops, for whatever reason: page requests stop waiting for rebuilds then.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	mux := http.NewServeMux()
 	mux.Handle("GET "+eventsPath, d.hub)
@@ -189,6 +194,11 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 				}
 			case <-r.Context().Done():
 				return
+			case <-ctx.Done():
+				// tifa dev stops: no rebuild comes, and the server waits for this request.
+				w.Header().Set("Server-Timing", d.timing())
+				unavailable(w, http.StatusServiceUnavailable, errStopping)
+				return
 			case <-limit.C:
 				break wait
 			}
@@ -197,8 +207,6 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 	}))
 	unused := &unusedConns{m: map[net.Conn]struct{}{}}
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second, ConnState: unused.track}
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	served := make(chan error, 1)
 	go func() {
 		err := srv.Serve(ln)

@@ -144,10 +144,19 @@ type devRun struct {
 	out     *syncBuffer
 	events  *eventStream
 	outside *Outside // Options.Outside
+	// stop cancels Run and returns what it returned, or an error when it did not return within
+	// 10s. Later calls return the same.
+	stop func() error
 }
 
 // startDev runs Run on a small app with the fake pipeline and the fake app until the test ends.
 func startDev(t *testing.T, failFirst string, setup ...func(*buildPipeline)) *devRun {
+	t.Helper()
+	return startDevWith(t, failFirst, nil, setup...)
+}
+
+// startDevWith is startDev with options, when not nil, changing the Options of Run.
+func startDevWith(t *testing.T, failFirst string, options func(*Options), setup ...func(*buildPipeline)) *devRun {
 	t.Helper()
 	dir := t.TempDir()
 	writeFile(t, dir, "app/store.go", "package app")
@@ -179,21 +188,31 @@ func startDev(t *testing.T, failFirst string, setup ...func(*buildPipeline)) *de
 		Stdout:      out,
 		Stderr:      out,
 	}
+	if options != nil {
+		options(&o)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- Run(ctx, ln, o) }()
-	t.Cleanup(func() {
-		cancel()
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Errorf("Run: %v", err)
+	var once sync.Once
+	var runErr error
+	stop := func() error {
+		once.Do(func() {
+			cancel()
+			select {
+			case runErr = <-done:
+			case <-time.After(10 * time.Second):
+				runErr = errors.New("Run did not return within 10s after cancel")
 			}
-		case <-time.After(10 * time.Second):
-			t.Error("Run did not return within 10s after cancel")
+		})
+		return runErr
+	}
+	t.Cleanup(func() {
+		if err := stop(); err != nil {
+			t.Errorf("Run: %v", err)
 		}
 	})
-	d := &devRun{dir: dir, url: "http://" + ln.Addr().String(), p: p, out: out, outside: outside}
+	d := &devRun{dir: dir, url: "http://" + ln.Addr().String(), p: p, out: out, outside: outside, stop: stop}
 	d.events = connectEvents(t, d.url+eventsPath)
 	return d
 }
@@ -381,6 +400,44 @@ func TestRunHoldsPagesRightAfterASave(t *testing.T) {
 	for i := 2; i <= 4; i++ {
 		writeFile(t, d.dir, "app/list/route.tsx", fmt.Sprintf("export const x = %d", i))
 		expectPage(t, d.url+"/bundle", fmt.Sprintf("bundle %d", i))
+	}
+}
+
+// A page request that waits for a save to go into a rebuild ends when tifa dev stops, as no
+// rebuild comes, so the stop does not wait for it.
+func TestRunEndsWaitingRequestsWhenItStops(t *testing.T) {
+	d := startDevWith(t, "", func(o *Options) { o.Debounce = time.Hour })
+	d.waitVersionAfter(t, "")
+	writeFile(t, d.dir, "app/list/route.tsx", "export const x = 2")
+	answered := make(chan int, 1)
+	go func() {
+		resp, err := http.Get(d.url + "/bundle")
+		if err != nil {
+			answered <- 0
+			return
+		}
+		resp.Body.Close()
+		answered <- resp.StatusCode
+	}()
+	select {
+	case status := <-answered:
+		t.Fatalf("answered %d before the save went into a rebuild", status)
+	case <-time.After(200 * time.Millisecond):
+	}
+	start := time.Now()
+	if err := d.stop(); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if took := time.Since(start); took > 3*time.Second {
+		t.Fatalf("stopping took %v", took)
+	}
+	select {
+	case status := <-answered:
+		if status != http.StatusServiceUnavailable {
+			t.Fatalf("the waiting request got %d, want 503", status)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the waiting request was not answered after the stop")
 	}
 }
 
