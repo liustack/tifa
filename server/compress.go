@@ -42,9 +42,16 @@ func compressed(h http.Handler) http.Handler {
 // of the default of Caddy's encode, which takes it from Cloudflare. Other images, WOFF fonts,
 // audio, video and archives are compressed already. The files tifa build compresses
 // (precompressed in internal/bundle) follow this list.
+//
+// Server-sent events (text/event-stream) are left out: the stream stays open, and its compressor
+// with it, about 1 MiB with gzip and 0.6 MiB with zstd per open stream, to save a few bytes of
+// small messages.
 func compressible(contentType string) bool {
 	t, _, _ := strings.Cut(contentType, ";")
 	t = strings.ToLower(strings.TrimSpace(t))
+	if t == "text/event-stream" {
+		return false
+	}
 	return strings.HasPrefix(t, "text/") || strings.HasSuffix(t, "+json") || strings.HasSuffix(t, "+xml") ||
 		slices.Contains(compressibleTypes, t)
 }
