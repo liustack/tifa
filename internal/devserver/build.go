@@ -306,11 +306,20 @@ func (b *builder) noteContent(changes []change) {
 	}
 }
 
+// bundlesFirst reports whether a build of s runs the bundle or the content step from its start,
+// the steps a failed rebuild left undone included, without waiting for the analysis.
+func (b *builder) bundlesFirst(s steps) bool {
+	s = s.or(b.pending)
+	return s.bundle || s.content
+}
+
 // build runs s plus the steps a failed rebuild left undone, and returns the steps that ran. An
 // analysis that returns a new fingerprint adds code generation, the bundle and go build, and in
 // an app with content the content step. needBundle, when not nil, is called once it is known that
-// the bundle or the content step runs: at the start, or once the analysis adds one.
+// the bundle or the content step runs: at the start (see bundlesFirst), or once the analysis adds
+// one.
 func (b *builder) build(ctx context.Context, s steps, needBundle func()) (steps, error) {
+	first := b.bundlesFirst(s)
 	s = s.or(b.pending)
 	b.pending = s
 	ran := s
@@ -321,7 +330,7 @@ func (b *builder) build(ctx context.Context, s steps, needBundle func()) (steps,
 			needBundle()
 		}
 	}
-	if s.bundle || s.content {
+	if first {
 		hold()
 	}
 	if s.analyze {

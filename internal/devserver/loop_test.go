@@ -18,7 +18,7 @@ func runLoop(t *testing.T, c *changes, debounce time.Duration, hold func()) <-ch
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		loop(ctx, c, debounce, func(batch []change) {
+		loop(ctx, c, debounce, func(batch []change, _ func()) {
 			if running.Add(1) != 1 {
 				t.Error("two rebuilds ran at the same time")
 			}
@@ -73,6 +73,130 @@ func TestLoopSkipsBatchesThatCancelOut(t *testing.T) {
 	if got := receive(t, batches); !slices.Equal(got, []change{{"app/b.go", modified}}) {
 		t.Fatalf("got %v, want only app/b.go", got)
 	}
+}
+
+// expectOutstanding fails when no change up to mark is outstanding.
+func expectOutstanding(t *testing.T, c *changes, mark int, what string) {
+	t.Helper()
+	if c.outstanding(mark) == nil {
+		t.Fatalf("%s: a request would no longer wait", what)
+	}
+}
+
+// expectInRebuild waits until every change up to mark is in a rebuild that began, for up to 5s.
+func expectInRebuild(t *testing.T, c *changes, mark int, what string) {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for ch := c.outstanding(mark); ch != nil; ch = c.outstanding(mark) {
+		select {
+		case <-ch:
+		case <-deadline:
+			t.Fatalf("%s: a request still waits after 5s", what)
+		}
+	}
+}
+
+// A request waits for the changes recorded before it until the rebuild of their batch began,
+// also once the batch is taken and its rebuild has not begun yet. Changes made during that
+// rebuild hold later requests until the next one began, and not the earlier request.
+func TestLoopEndsTheWaitOnceTheRebuildBegan(t *testing.T) {
+	c := newChanges()
+	if c.outstanding(c.mark()) != nil {
+		t.Fatal("a request waits before any change")
+	}
+	type rebuild struct {
+		batch []change
+		began func()
+		done  chan struct{}
+	}
+	rebuilds := make(chan rebuild)
+	ctx, cancel := context.WithCancel(context.Background())
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		loop(ctx, c, 10*time.Millisecond, func(batch []change, began func()) {
+			r := rebuild{batch, began, make(chan struct{})}
+			select {
+			case rebuilds <- r:
+			case <-ctx.Done():
+				return
+			}
+			select {
+			case <-r.done:
+			case <-ctx.Done():
+			}
+		})
+	}()
+	defer func() {
+		cancel()
+		<-stopped
+	}()
+	next := func() rebuild {
+		t.Helper()
+		select {
+		case r := <-rebuilds:
+			return r
+		case <-time.After(5 * time.Second):
+			t.Fatal("no rebuild within 5s")
+			return rebuild{}
+		}
+	}
+	c.add("app/a.tsx", "s1", "s2")
+	first := c.mark()
+	expectOutstanding(t, c, first, "a change not in a batch")
+	r := next()
+	expectOutstanding(t, c, first, "the batch is taken and its rebuild has not begun")
+	c.add("app/b.tsx", "s1", "s2")
+	second := c.mark()
+	r.began()
+	expectInRebuild(t, c, first, "once the rebuild began")
+	expectOutstanding(t, c, second, "a change made during the rebuild")
+	close(r.done)
+	r = next()
+	if !slices.Equal(r.batch, []change{{"app/b.tsx", modified}}) {
+		t.Fatalf("second rebuild got %v", r.batch)
+	}
+	// A rebuild that never calls began ends the wait when it returns.
+	close(r.done)
+	expectInRebuild(t, c, second, "once the rebuild returned")
+}
+
+// A batch that takes only the files that settled, as one file waited as long as a batch waits at
+// most, does not end the wait of a request that came after the others changed too.
+func TestDueKeepsWaitingForFilesLeftOutOfABatch(t *testing.T) {
+	c := newChanges()
+	now := time.Now()
+	c.add(".env", "s1", "s2")
+	c.add("app/a.tsx", "s1", "s2")
+	mark := c.mark()
+	c.mu.Lock()
+	c.first[".env"], c.last[".env"] = now.Add(-2*time.Second), now.Add(-2*time.Second)
+	c.mu.Unlock()
+	batch, _ := c.due(now, 100*time.Millisecond, time.Second)
+	if !slices.Equal(batch, []change{{".env", modified}}) {
+		t.Fatalf("the batch is %v, want .env alone", batch)
+	}
+	c.begin()
+	expectOutstanding(t, c, mark, "app/a.tsx is in no rebuild yet")
+	batch, _ = c.due(now.Add(time.Second), 100*time.Millisecond, time.Second)
+	if !slices.Equal(batch, []change{{"app/a.tsx", modified}}) {
+		t.Fatalf("the next batch is %v, want app/a.tsx", batch)
+	}
+	expectOutstanding(t, c, mark, "the rebuild of app/a.tsx has not begun")
+	c.begin()
+	expectInRebuild(t, c, mark, "both rebuilds began")
+}
+
+// A batch that cancels out, such as a file saved and put back, or a file that only passed through
+// as an editor saved, starts no rebuild and ends the wait at once.
+func TestLoopEndsTheWaitForABatchThatCancelsOut(t *testing.T) {
+	c := newChanges()
+	runLoop(t, c, 10*time.Millisecond, nil)
+	c.add("app/a.tsx", "s1", "s2")
+	c.add("app/a.tsx", "s2", "s1")
+	c.add("app/page.tsx.tmp.tsx", "", "s3")
+	c.add("app/page.tsx.tmp.tsx", "s3", "")
+	expectInRebuild(t, c, c.mark(), "a batch that cancels out")
 }
 
 func TestLoopRunsAgainForChangesDuringARebuild(t *testing.T) {

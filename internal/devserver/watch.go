@@ -33,12 +33,21 @@ type changes struct {
 	building bool                 // a build runs and may read any file at any moment
 	touched  map[string]bool      // files that changed while a build ran
 	ready    chan struct{}        // receives a value after add, holds at most one
+	// Page requests wait for the changes recorded before them, see outstanding. seq numbers the
+	// changes in the order add records them. gen holds the number of the first change of each
+	// file since it was last taken. taken is the smallest number in the batch taken last, until
+	// its rebuild began, and 0 then. moved is closed and replaced each time changes went into a
+	// rebuild that began.
+	seq   int
+	gen   map[string]int
+	taken int
+	moved chan struct{}
 }
 
 func newChanges() *changes {
 	return &changes{
 		before: map[string]string{}, after: map[string]string{}, first: map[string]time.Time{}, last: map[string]time.Time{},
-		touched: map[string]bool{}, ready: make(chan struct{}, 1),
+		touched: map[string]bool{}, ready: make(chan struct{}, 1), gen: map[string]int{}, moved: make(chan struct{}),
 	}
 }
 
@@ -54,9 +63,11 @@ func (c *changes) setBuilding(b bool) {
 func (c *changes) add(path, before, after string) {
 	now := time.Now()
 	c.mu.Lock()
+	c.seq++
 	if _, ok := c.before[path]; !ok {
 		c.before[path] = before
 		c.first[path] = now
+		c.gen[path] = c.seq
 	}
 	c.after[path] = after
 	c.last[path] = now
@@ -78,19 +89,61 @@ func (c *changes) touch(path string) { c.add(path, "unknown", "changed") }
 // always restarted.
 const viteServer = "Vite's dev server"
 
+// mark returns the number of the last change recorded, for outstanding.
+func (c *changes) mark() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.seq
+}
+
+// outstanding reports whether a change numbered up to mark is in no rebuild that began yet: still
+// waiting to settle, left out of a batch that took others, or in the batch taken last, whose
+// rebuild has not begun. It then returns a channel that is closed once changes go into a rebuild
+// that began, to ask again. Otherwise it returns nil.
+func (c *changes) outstanding(mark int) <-chan struct{} {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.taken != 0 && c.taken <= mark {
+		return c.moved
+	}
+	for _, g := range c.gen {
+		if g <= mark {
+			return c.moved
+		}
+	}
+	return nil
+}
+
+// begin records that the rebuild of the batch taken last began, or that none follows.
+func (c *changes) begin() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.beginLocked()
+}
+
+func (c *changes) beginLocked() {
+	c.taken = 0
+	close(c.moved)
+	c.moved = make(chan struct{})
+}
+
 // take returns every file that changed, as a batch sorted by path. A file whose content ends up
-// as it was when it was last taken is left out, unless it changed while a build ran.
+// as it was when it was last taken is left out, unless it changed while a build ran. No rebuild
+// follows, so outstanding no longer counts these changes.
 func (c *changes) take() []change {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.takeLocked(func(string) bool { return true })
+	batch := c.takeLocked(func(string) bool { return true })
+	c.beginLocked()
+	return batch
 }
 
 // due decides on the next batch at now. A file is settled once it went quiet for quiet, or once it
 // kept changing for limit, such as a log: a file in the middle of a save does not go into a batch,
 // and a file that never stops changing holds back neither itself nor the others for long. When
 // every changed file is settled, or the oldest change waited limit, due takes the settled files as
-// the batch. Otherwise batch is nil and wait says when to look again, 0 when nothing changed.
+// the batch, and the caller calls begin once its rebuild began, also for an empty batch.
+// Otherwise batch is nil and wait says when to look again, 0 when nothing changed.
 func (c *changes) due(now time.Time, quiet, limit time.Duration) (batch []change, wait time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -120,13 +173,18 @@ func (c *changes) due(now time.Time, quiet, limit time.Duration) (batch []change
 	return nil, max(wait, time.Millisecond)
 }
 
-// takeLocked takes the files for which take reports true. Call it with c.mu held.
+// takeLocked takes the files for which take reports true, and records the smallest number of
+// their changes in taken. Call it with c.mu held.
 func (c *changes) takeLocked(take func(path string) bool) []change {
 	batch := []change{}
 	for p, before := range c.before {
 		if !take(p) {
 			continue
 		}
+		if c.taken == 0 || c.gen[p] < c.taken {
+			c.taken = c.gen[p]
+		}
+		delete(c.gen, p)
 		after, touched := c.after[p], c.touched[p]
 		delete(c.before, p)
 		delete(c.after, p)
@@ -204,6 +262,8 @@ type watcher struct {
 	embedded atomic.Pointer[func(string) bool] // says which files the Go code embeds, nil before the first analysis
 	reclass  chan reclassify                   // setEmbedded sends here, so run looks at the directories again
 	stopped  chan struct{}                     // closed once run returned
+	syncs    chan chan struct{}                // sync sends here, see watch_sync.go
+	sy       syncer                            // what run keeps for the syncs
 	adopt    func(rel string) bool             // while run looks at the directories again: the files the old rules left out and the new ones take in
 	forget   func(rel string) bool             // and those the old rules took and the new ones leave out. Neither is a change
 }
@@ -258,6 +318,7 @@ func prepareWatcher(root string, ignore []string, warn func(string)) (*watcher, 
 	}
 	w := &watcher{
 		root: abs, rootReal: rootReal, warn: warn, changes: newChanges(), short: make(chan struct{}), reclass: make(chan reclassify), stopped: make(chan struct{}),
+		syncs:  make(chan chan struct{}),
 		budget: watchBudget(), watches: map[string]bool{}, minPoll: minPollInterval,
 		nodes: map[string]*node{}, kids: map[string]map[string]bool{}, owner: map[string]string{},
 		polled: map[string]bool{}, dirty: map[string]bool{}, warned: map[string]bool{},
@@ -294,6 +355,7 @@ func (w *watcher) close() {
 	if w.sys != nil {
 		w.sys.close()
 	}
+	w.closeSync()
 }
 
 // watchCount returns how many system watches the watcher holds.
@@ -359,6 +421,11 @@ func (w *watcher) run(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
+		case done := <-w.syncs:
+			w.addSync(done)
+		case <-w.syncTimeout():
+			w.dropSync()
+			w.synced()
 		case <-links.C:
 			if err := w.recover(w.checkLinks()); err != nil {
 				return err
@@ -373,6 +440,10 @@ func (w *watcher) run(ctx context.Context) error {
 			if !ok {
 				return errors.New("file watcher stopped")
 			}
+			if w.isSync(ev.Name) {
+				w.synced()
+				continue
+			}
 			if err := w.recover(w.handle(ev.Name, ev.Op)); err != nil {
 				return err
 			}
@@ -382,10 +453,14 @@ func (w *watcher) run(ctx context.Context) error {
 			}
 			switch {
 			case errors.Is(err, fsnotify.ErrEventOverflow):
-				// Some events were dropped, so compare everything again.
+				// Some events were dropped, so compare everything again. The event of a sync
+				// may be among them, or still come: the rescan saw what the syncs wait for, and
+				// the next one writes to a new file.
 				if err := w.rescan("."); err != nil {
 					return err
 				}
+				w.dropSync()
+				w.endSyncs()
 			case outOfWatches(err):
 				// The error does not say which directory misses events.
 				w.pollAll(err)
@@ -905,6 +980,8 @@ func (w *watcher) pollAll(err error) {
 		w.sys.close()
 		w.sys, w.events, w.errs = nil, nil, nil
 	}
+	// No event of a sync comes any more.
+	w.endSyncs()
 	for _, dir := range w.owner {
 		w.polled[dir] = true
 	}
