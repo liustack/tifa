@@ -248,3 +248,37 @@ func configWithShutdown(timeout time.Duration) config.Config {
 	cfg.Server.ShutdownTimeout = timeout
 	return cfg
 }
+
+// HTTPS refuses the default server.addr, which only this machine reaches. A socket systemd passes
+// for server.addr is listened on instead of it, so then the address may stay the default. Without
+// that socket, the default is refused as before, also when systemd passes one for
+// server.http_addr.
+func TestSystemdSocketStandsInForTheHTTPSAddress(t *testing.T) {
+	cfg, _, _, certPEM, _ := certConfig(t)
+	cfg.Server.Addr, cfg.Server.HTTPAddr = config.DefaultAddr, "off"
+	client := h2Client(pool(t, certPEM))
+	client.Timeout = time.Second
+	tlsGet := func(addr string) error {
+		res, err := client.Get("https://" + addr + "/hello")
+		if err == nil {
+			res.Body.Close()
+		}
+		return err
+	}
+	s := newServer(cfg, Hooks{})
+	s.handle("GET", "/hello", hello)
+	stop := startOnSystemdSockets(t, s, "", tlsGet, listenLoopback(t))
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg.Server.HTTPAddr = ":0"
+	listenFDsStart = passSockets(t, listenLoopback(t))
+	t.Setenv("LISTEN_PID", strconv.Itoa(os.Getpid()))
+	t.Setenv("LISTEN_FDS", "1")
+	t.Setenv("LISTEN_FDNAMES", "server.http_addr")
+	err := newServer(cfg, Hooks{OnStart: func(context.Context) error { t.Error("OnStart ran"); return nil }}).run(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "server.addr is 127.0.0.1:9527, the default") {
+		t.Fatalf("HTTPS on the default server.addr with a socket for server.http_addr only: %v", err)
+	}
+}

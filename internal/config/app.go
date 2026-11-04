@@ -17,6 +17,9 @@ type AppSetting struct {
 	Kind string
 	// Value is the value as text, and From where it came from, empty for the default.
 	Value, From string
+	// Secret marks a setting of tifa.Secret, whose Value is always empty: Print writes where it
+	// came from and not what it is.
+	Secret bool
 }
 
 // registry holds the settings of the app, in the order they were defined.
@@ -73,7 +76,12 @@ func (r *registry) define(s *Sources, key, help string, v value) bool {
 		}
 		from = ""
 	}
-	r.settings = append(r.settings, AppSetting{Key: key, Help: help, Kind: v.kind(), Value: v.String(), From: from})
+	setting := AppSetting{Key: key, Help: help, Kind: v.kind(), Value: v.String(), From: from}
+	if _, secret := v.(secretValue); secret {
+		// The value of a secret stays in the variable of the app and nowhere else.
+		setting.Secret, setting.Value = true, ""
+	}
+	r.settings = append(r.settings, setting)
 	return ok
 }
 
@@ -91,6 +99,15 @@ func DefineString(key, def, help string) string {
 	v := def
 	if !app.define(appSources(), key, help, optionalValue{&v}) {
 		return def
+	}
+	return v
+}
+
+// DefineSecret is tifa.Secret.
+func DefineSecret(key, help string) string {
+	var v string
+	if !app.define(appSources(), key, help, secretValue{&v}) {
+		return ""
 	}
 	return v
 }

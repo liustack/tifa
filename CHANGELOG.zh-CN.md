@@ -4,9 +4,20 @@
 
 ## [Unreleased]
 
+### 新增
+
+- `tifa.Secret("smtp.password", "SMTP password")` 定义应用的密码、token 或密钥配置。它从环境变量、`.env` 或 `-c` 的文件读，用命令行参数给值时程序报错并说明该放在哪里，`./bin/app config` 只写它的来源，不写值。[邮件指南](docs/guides/email.zh-CN.md)改用了它。
+- `server.csp: on` 发出只让本站脚本运行的 Content-Security-Policy。tifa 把它写进页面的内联脚本的哈希加进这个页面的策略，页面照常 hydrate，渲染缓存、整页缓存和 ETag 也照常工作。`server.csp_policy` 改策略，`report-only` 只报告不拦截（见 [Content-Security-Policy](docs/config.zh-CN.md#content-security-policy)）。
+
 ### 变更
 
+- 每个回答现在都带 `Referrer-Policy: strict-origin-when-cross-origin` 和 `Content-Security-Policy: frame-ancestors 'self'`，加上原有的 `X-Content-Type-Options: nosniff`。别的网站不能再把页面放进 iframe：合作方要放的页面在 `OnRequest` 里改这个头（见[安全头](docs/config.zh-CN.md#安全头)）。
 - `tifa new` 固定 `github.com/liustack/sqlite` v0.1.2，它支持 Go 1.26.6 到 1.27，遇到更新的 Go 会停止编译。升级 Go 之后也要升级驱动。
+
+### 修复
+
+- 用 systemd socket activation 开 HTTPS 时，systemd 交来 `server.addr` 的套接字后可以不设 `server.addr`。之前程序会因为这个它根本不监听的默认地址拒绝启动。
+- 开了 HTTPS 时，`server.http_addr` 的明文 HTTP 地址现在和 `server.addr` 一样按 `server.read_timeout`、`server.write_timeout` 读写。之前不管它们怎么设都是 10 秒。
 
 ## [0.0.3] - 2026-11-05
 

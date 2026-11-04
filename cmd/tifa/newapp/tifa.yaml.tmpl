@@ -28,6 +28,8 @@
 #   tls_key: ""             # private key file of tls_cert
 #   http_addr: ":80"        # with HTTPS: plain HTTP that answers Let's Encrypt and redirects, off for none
 #   hsts: false             # true tells browsers to keep to HTTPS for a year
+#   csp: "off"              # on lets only the site's own scripts run, report-only only reports
+#   csp_policy: "script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'"
 #   trusted_origins: ""     # origins whose pages may send cross-site writes, such as https://admin.example.com
 #   cross_site_paths: ""    # path patterns that accept cross-site writes, such as POST /auth/apple/callback
 

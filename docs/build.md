@@ -360,7 +360,7 @@ Order of side effects. [tifa dev](dev.md) runs the modules in source order, but 
 - Order: the outermost Layout first and the route last. Within a module, its own chunk first, then the chunks it imports, depth first. Each file comes once.
 - Chunks that a module loads with `import()`, such as a `.client.tsx` component, are not preloaded. They load when their code runs.
 - When a `Load` fails, the router shows the page only down to the outermost level that failed, and the page preloads only those levels. A failed Layout shows the `Error` of the level above, so the Layout's chunk is left out. A failed page shows the first `Error` from the page up, which may be its own, so the page's chunk is kept, also when it exports none. A URL that matches no page preloads the Layouts down to the one its 404 shows inside. A page without SSR gets the links in its document too.
-- The links carry no nonce, like the other tags of `head`.
+- The links carry no nonce, like the other tags of `head`: they load files of the site, which `script-src 'self'` allows.
 - The list is made at build time and read once at startup, so a render does no I/O for it. The links follow from the build and the matched path, so ETags and the render cache work as before.
 - tifa dev writes no list and no links.
 

@@ -704,3 +704,32 @@ func TestListenErrorsNameTheSettingAndTheFix(t *testing.T) {
 		t.Errorf("busy: %v", err)
 	}
 }
+
+// The plain HTTP server of server.http_addr reads and writes under the same limits as the
+// server of server.addr, server.read_timeout and server.write_timeout.
+func TestPlainHTTPTakesTheTimeoutsOfTheSettings(t *testing.T) {
+	cfg, _, _, _, _ := certConfig(t)
+	cfg.Server.ReadTimeout, cfg.Server.WriteTimeout = 3*time.Second, 7*time.Second
+	var mu sync.Mutex
+	var servers []*http.Server
+	testHookServer = func(srv *http.Server) {
+		mu.Lock()
+		defer mu.Unlock()
+		servers = append(servers, srv)
+	}
+	t.Cleanup(func() { testHookServer = nil })
+	s := newServer(cfg, Hooks{})
+	if err := startHTTPS(t, s).stop(); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(servers) != 2 {
+		t.Fatalf("%d servers, want the HTTPS one and the plain one", len(servers))
+	}
+	for _, srv := range servers {
+		if srv.ReadTimeout != 3*time.Second || srv.WriteTimeout != 7*time.Second {
+			t.Errorf("a server reads for %v and writes for %v, want 3s and 7s", srv.ReadTimeout, srv.WriteTimeout)
+		}
+	}
+}

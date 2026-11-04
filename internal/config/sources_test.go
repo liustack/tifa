@@ -406,3 +406,136 @@ func TestDotenvCommentAfterAnEmptyValue(t *testing.T) {
 		}
 	}
 }
+
+// A secret of the app, tifa.Secret, comes from the environment, .env or the file of -c, and
+// config prints where it came from but never its value: the line of the value is a comment, so
+// the output still reads back as a file of -c without setting the secret to a placeholder.
+func TestSecretsArePrintedHidden(t *testing.T) {
+	dir := dotenvDir(t, "SMTP_PASSWORD=dotenv-secret\n")
+	file := writeFile(t, "prod.yaml", "db:\n  token: file-secret\n")
+	src := Read([]string{"-c", file}, []string{"API_KEY=env-secret"}, dir)
+	r := &registry{}
+	var password, token, key, unset string
+	r.define(src, "smtp.password", "SMTP password", secretValue{&password})
+	r.define(src, "db.token", "", secretValue{&token})
+	r.define(src, "api.key", "", secretValue{&key})
+	r.define(src, "api.other", "", secretValue{&unset})
+	if password != "dotenv-secret" || token != "file-secret" || key != "env-secret" || unset != "" || len(r.errs) != 0 {
+		t.Fatalf("%q %q %q %q, %v", password, token, key, unset, r.errs)
+	}
+	out := string(Print(Default(), nil, r.settings))
+	for _, secret := range []string{"dotenv-secret", "file-secret", "env-secret"} {
+		if strings.Contains(out, secret) {
+			t.Errorf("config prints the secret %q:\n%s", secret, out)
+		}
+	}
+	for _, want := range []string{
+		"  # SMTP password. Flag --smtp-password, env SMTP_PASSWORD. From .env SMTP_PASSWORD.\n  # password: (hidden)\n",
+		"  # Flag --db-token, env DB_TOKEN. From file prod.yaml.\n  # token: (hidden)\n",
+		"  # Flag --api-key, env API_KEY. From env API_KEY.\n  # key: (hidden)\n",
+		"  other: \"\"\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("printed settings lack %q:\n%s", want, out)
+		}
+	}
+	back := &registry{}
+	var again string
+	back.define(Read([]string{"-c", writeFile(t, "back.yaml", out)}, nil, ""), "smtp.password", "", secretValue{&again})
+	if again != "" || len(back.errs) != 0 {
+		t.Errorf("read back %q, %v", again, back.errs)
+	}
+}
+
+// The error of a secret that a source gives in a form it cannot take names the key, the source
+// and what it expects, and holds nothing of the value: the error goes to the terminal and the log.
+func TestBadSecretFailsWithoutItsValue(t *testing.T) {
+	for _, tc := range []struct {
+		file string
+		want []string
+	}{
+		{"smtp:\n  password: 12345678\n", []string{"file prod.yaml line 2", "smtp.password", "expected a string value, got number"}},
+		{"smtp:\n  password: true\n", []string{"file prod.yaml line 2", "smtp.password", "expected a string value, got bool"}},
+		{"smtp:\n  password: 9876.5e3\n", []string{"smtp.password", "expected a string value, got number"}},
+		{"smtp:\n  password: !s3cret word\n", []string{"smtp.password", "expected a string value, got a value with a tag"}},
+		{"smtp:\n  password: !!s3cret\n", []string{"smtp.password", "expected a string value, got a value with a tag"}},
+		{"smtp:\n  password: !!s3cret word\n", []string{"smtp.password", "expected a string value, got a value with a tag"}},
+		{"smtp:\n  password: 2026-11-05\n", []string{"smtp.password", "expected a string value, got timestamp"}},
+	} {
+		src := Read([]string{"-c", writeFile(t, "prod.yaml", tc.file)}, nil, "")
+		r := &registry{}
+		var password string
+		if r.define(src, "smtp.password", "", secretValue{&password}) || len(r.errs) != 1 {
+			t.Fatalf("%q: %q, %v", tc.file, password, r.errs)
+		}
+		msg := r.errs[0].Error()
+		for _, want := range tc.want {
+			if !strings.Contains(msg, want) {
+				t.Errorf("error lacks %q: %s", want, msg)
+			}
+		}
+		for _, secret := range []string{"12345678", "true", "9876", "s3cret", "2026"} {
+			if strings.Contains(msg, secret) {
+				t.Errorf("error holds the secret: %s", msg)
+			}
+		}
+	}
+	// A setting that is no secret names the type and shows the value, which is what to fix. A
+	// tag of the file's own is named only as a tag, since it is text of the value.
+	for _, tc := range []struct{ file, want string }{
+		{"smtp:\n  host: 12345678\n", `expected a string value, got number "12345678"`},
+		{"smtp:\n  host: !mail word\n", `expected a string value, got a value with a tag "word"`},
+		{"smtp:\n  host: 2026-11-05\n", `expected a string value, got timestamp "2026-11-05"`},
+	} {
+		r := &registry{}
+		var host string
+		r.define(Read([]string{"-c", writeFile(t, "prod.yaml", tc.file)}, nil, ""), "smtp.host", "", optionalValue{&host})
+		if len(r.errs) != 1 || !strings.Contains(r.errs[0].Error(), tc.want) || strings.Contains(r.errs[0].Error(), "!mail") {
+			t.Errorf("%q: %v, want %s", tc.file, r.errs, tc.want)
+		}
+	}
+	// The .env file and the file of -c are read before the app defines its settings, so the
+	// errors of reading them hold nothing of any value: any of them may be a secret.
+	for _, tc := range []struct {
+		src  *Sources
+		want []string
+	}{
+		{Read(nil, nil, dotenvDir(t, "SMTP_PASSWORD=\"s3cret\"more-s3cret\n")), []string{".env line 1", "SMTP_PASSWORD", "after the closing quote"}},
+		{Read([]string{"-c", writeFile(t, "prod.yaml", "smtp:\n  password: *s3cret\n")}, nil, ""), []string{"file prod.yaml", "starts with *", "quotes"}},
+		{Read([]string{"-c", writeFile(t, "prod.yaml", "smtp:\n  host: mail\n---\nsmtp:\n  password: *s3cret\n")}, nil, ""), []string{"file prod.yaml", "starts with *", "quotes"}},
+		{Read([]string{"-c", writeFile(t, "prod.yaml", "smtp:\n  host: mail\n---\n---\nsmtp:\n  password: *s3cret\n")}, nil, ""), []string{"file prod.yaml", "only one YAML document"}},
+	} {
+		msg := tc.src.Err().Error()
+		for _, want := range tc.want {
+			if !strings.Contains(msg, want) {
+				t.Errorf("error lacks %q: %s", want, msg)
+			}
+		}
+		if strings.Contains(msg, "s3cret") {
+			t.Errorf("error holds the value: %s", msg)
+		}
+	}
+}
+
+// A flag shows in the process list to every user of the machine, so a secret given as a flag
+// fails and says where to put it instead.
+func TestSecretFromAFlagFails(t *testing.T) {
+	src := Read([]string{"--smtp-password", "hunter2"}, nil, "")
+	r := &registry{}
+	var password string
+	if r.define(src, "smtp.password", "", secretValue{&password}) || password != "" {
+		t.Fatalf("password %q from a flag", password)
+	}
+	if len(r.errs) != 1 {
+		t.Fatal(r.errs)
+	}
+	msg := r.errs[0].Error()
+	for _, want := range []string{"flag --smtp-password", "smtp.password", "secret", "process list", "SMTP_PASSWORD", ".env", "-c"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error lacks %q: %s", want, msg)
+		}
+	}
+	if strings.Contains(msg, "hunter2") {
+		t.Errorf("error holds the secret: %s", msg)
+	}
+}

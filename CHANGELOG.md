@@ -4,9 +4,20 @@ What changed in tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- `tifa.Secret("smtp.password", "SMTP password")` defines a setting of the app for a password, a token or a key. It comes from the environment, `.env` or the file of `-c`, a flag for it stops the program and says where to put it, and `./bin/app config` writes where it came from and not its value. The [email guide](docs/guides/email.md) uses it.
+- `server.csp: on` sends a Content-Security-Policy that lets only the site's own scripts run. tifa adds the hashes of the inline scripts it writes into a page to the policy of that page, so pages hydrate, and the render cache, the whole-page cache and ETags work as before. `server.csp_policy` changes the policy, and `report-only` only reports (see [Content-Security-Policy](docs/config.md#content-security-policy)).
+
 ### Changed
 
+- Every answer now carries `Referrer-Policy: strict-origin-when-cross-origin` and `Content-Security-Policy: frame-ancestors 'self'`, next to `X-Content-Type-Options: nosniff`. Another site can no longer show the pages in a frame: change the header in `OnRequest` for pages that a partner shows (see [Security headers](docs/config.md#security-headers)).
 - `tifa new` pins `github.com/liustack/sqlite` v0.1.2, which builds with Go 1.26.6 to 1.27 and stops the build on a newer Go. After upgrading Go, upgrade the driver too.
+
+### Fixed
+
+- Under systemd socket activation with HTTPS, `server.addr` may stay unset when systemd passes its socket. The program refused to start on the default address, which it does not listen on then.
+- With HTTPS on, the plain HTTP address `server.http_addr` now reads and writes under `server.read_timeout` and `server.write_timeout`, like `server.addr`. It kept 10 seconds whatever they said.
 
 ## [0.0.3] - 2026-11-05
 

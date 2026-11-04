@@ -277,7 +277,7 @@ func TestFileMustHoldOneDocument(t *testing.T) {
 }
 
 func TestKeysListEverySetting(t *testing.T) {
-	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout cache.size cache.ignore_query session.cookie session.max_age session.memory_limit"
+	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout cache.size cache.ignore_query session.cookie session.max_age session.memory_limit"
 	if got := strings.Join(Keys(), " "); got != want {
 		t.Fatalf("Keys: %s, want %s", got, want)
 	}
@@ -538,12 +538,17 @@ func TestHTTPAddrIsAnAddressOrOff(t *testing.T) {
 
 // With HTTPS on, server.addr must be set: the default only listens on the loopback, where no
 // browser and no Let's Encrypt reaches it. An address set by hand, loopback or not, is kept.
+// CheckHTTPSAddr says so, apart from CheckHTTPS, since a socket systemd passes for server.addr
+// takes the place of the address and the server then does not ask.
 func TestHTTPSNeedsServerAddr(t *testing.T) {
 	c, err := load(t, nil, []string{"SERVER_TLS_CERT=c.pem", "SERVER_TLS_KEY=k.pem"}, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = c.Server.CheckHTTPS()
+	if err := c.Server.CheckHTTPS(); err != nil {
+		t.Fatalf("CheckHTTPS on the default addr: %v", err)
+	}
+	err = c.Server.CheckHTTPSAddr()
 	if err == nil || !strings.Contains(err.Error(), "server.addr is 127.0.0.1:9527, the default") || !strings.Contains(err.Error(), ":443") {
 		t.Fatalf("default addr: %v", err)
 	}
@@ -552,11 +557,11 @@ func TestHTTPSNeedsServerAddr(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Server.CheckHTTPS(); err == nil || !strings.Contains(err.Error(), "server.addr is 127.0.0.1:9527, the default") {
+	if err := c.Server.CheckHTTPSAddr(); err == nil || !strings.Contains(err.Error(), "server.addr is 127.0.0.1:9527, the default") {
 		t.Fatalf("default addr written out: %v", err)
 	}
 	c.Server.Addr = "127.0.0.1:8443"
-	if err := c.Server.CheckHTTPS(); err != nil {
+	if err := c.Server.CheckHTTPSAddr(); err != nil {
 		t.Fatalf("loopback set by hand: %v", err)
 	}
 }
@@ -775,6 +780,65 @@ func TestCacheIgnoreQueryRefusesBadNames(t *testing.T) {
 		_, err := load(t, []string{"--cache-ignore-query", bad}, nil, "", "")
 		if err == nil || !strings.Contains(err.Error(), "cache.ignore_query") {
 			t.Errorf("%q: got %v", bad, err)
+		}
+	}
+}
+
+// server.csp is off unless a source turns it on, and server.csp_policy holds the policy that
+// only limits scripts. Both are runtime settings, read like the others.
+func TestCSPSettings(t *testing.T) {
+	d := Default().Server
+	if d.CSP != "off" || d.CSPPolicy != DefaultCSPPolicy {
+		t.Fatalf("defaults: csp %q, policy %q", d.CSP, d.CSPPolicy)
+	}
+	if DefaultCSPPolicy != "script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'" {
+		t.Fatalf("default policy %q", DefaultCSPPolicy)
+	}
+	for _, mode := range []string{"on", "report-only", "off"} {
+		c, err := load(t, nil, []string{"SERVER_CSP=" + mode}, "", "")
+		if err != nil || c.Server.CSP != mode {
+			t.Errorf("%s: %q, %v", mode, c.Server.CSP, err)
+		}
+	}
+	c, err := load(t, []string{"--config", writeFile(t, "csp.yaml", "server:\n  csp: on\n  csp_policy: \"script-src 'self' https://js.example.com; report-uri /csp\"\n")}, nil, "", "")
+	if err != nil || c.Server.CSP != "on" || c.Server.CSPPolicy != "script-src 'self' https://js.example.com; report-uri /csp" {
+		t.Fatalf("file: %+v, %v", c.Server, err)
+	}
+}
+
+// A policy splits into directives at semicolons and into a name and sources at any ASCII
+// whitespace, as browsers read it, and a policy with tabs is a valid server.csp_policy.
+func TestPolicyDirectives(t *testing.T) {
+	got := PolicyDirectives(" script-src\t'self'\f'sha256-a' ;;\r\nObject-Src  'none';\t")
+	if want := [][]string{{"script-src", "'self'", "'sha256-a'"}, {"Object-Src", "'none'"}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	var p string
+	if err := (policyValue{&p}).Set("script-src\t'self';\tobject-src\t'none'"); err != nil || p == "" {
+		t.Errorf("a policy with tabs: %v", err)
+	}
+}
+
+// A value of server.csp that reads as a switch fails with the words to write, and a policy
+// that is empty or would not go out as one header fails at start.
+func TestBadCSPValues(t *testing.T) {
+	for _, tc := range []struct{ env, want string }{
+		{"SERVER_CSP=true", "write on"},
+		{"SERVER_CSP=false", "write off"},
+		{"SERVER_CSP=yes", "write on"},
+		{"SERVER_CSP=On", "write on"},
+		{"SERVER_CSP=report", "report-only"},
+		{"SERVER_CSP_POLICY=", "server.csp to off"},
+		{"SERVER_CSP_POLICY= ; ", "server.csp to off"},
+		{"SERVER_CSP_POLICY=script-src 'self', object-src 'none'", "comma"},
+		{"SERVER_CSP_POLICY=script-src 'self'; obj#ect-src 'none'", `"obj#ect-src"`},
+		{"SERVER_CSP_POLICY=script-src 'self' https://ünicode.example", "ASCII"},
+		{"SERVER_CSP_POLICY=script-src 'self'\x01", "ASCII"},
+	} {
+		name, _, _ := strings.Cut(tc.env, "=")
+		_, err := load(t, nil, []string{tc.env}, "", "")
+		if err == nil || !strings.Contains(err.Error(), "env "+name) || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: %v", tc.env, err)
 		}
 	}
 }

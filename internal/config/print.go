@@ -11,13 +11,16 @@ import (
 // tifa as Load returns it. Each comment names the flag, the environment variable and the
 // source of the value.
 func Print(c Config, from map[string]string, appSettings []AppSetting) []byte {
-	type line struct{ key, help, kind, value, from string }
+	type line struct {
+		key, help, kind, value, from string
+		secret                       bool
+	}
 	var lines []line
 	for _, f := range runtimeFields(&c) {
-		lines = append(lines, line{f.key, f.help, f.value.kind(), f.value.String(), from[f.key]})
+		lines = append(lines, line{key: f.key, help: f.help, kind: f.value.kind(), value: f.value.String(), from: from[f.key]})
 	}
 	for _, s := range appSettings {
-		lines = append(lines, line{s.Key, s.Help, s.Kind, s.Value, s.From})
+		lines = append(lines, line{s.Key, s.Help, s.Kind, s.Value, s.From, s.Secret})
 	}
 	// The keys go into a tree that keeps the order in which each part first appears, so keys
 	// that share a part are written under one mapping.
@@ -60,6 +63,12 @@ func Print(c Config, from map[string]string, appSettings []AppSetting) []byte {
 				help += ". "
 			}
 			fmt.Fprintf(&b, "%s# %sFlag --%s, env %s. From %s.\n", indent, help, FlagName(l.key), EnvName(l.key), source)
+			// A secret that a source set is left out as a comment: the output is pasted into
+			// issues and chats, and read back with -c, where a placeholder would become the value.
+			if l.secret && l.from != "" {
+				fmt.Fprintf(&b, "%s# %s: (hidden)\n", indent, n.name)
+				return
+			}
 			value := l.value
 			if l.kind == "string" || l.kind == "strings" {
 				value = strconv.Quote(value)

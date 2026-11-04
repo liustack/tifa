@@ -115,7 +115,7 @@ Service=shop.service
 WantedBy=sockets.target
 ```
 
-`shop.service` 的 `Requires=` 和 `After=` 写上这两个 unit，`[Service]` 里加上 `Sockets=shop-https.socket shop-http.socket`。设置里保留 `server.addr: :443`，这是 [HTTPS](config.zh-CN.md#https) 要求的。叫 `server.addr` 或 `server.http_addr` 的套接字给对应的设置用，只有一个套接字且没有名字或叫别的名字时，给 `server.addr` 用。有多个时必须分别叫 `server.addr` 和 `server.http_addr`，没开 HTTPS 却传了 `server.http_addr` 的套接字，程序报错退出。systemd 没给套接字的地址，程序自己监听。
+`shop.service` 的 `Requires=` 和 `After=` 写上这两个 unit，`[Service]` 里加上 `Sockets=shop-https.socket shop-http.socket`。`server.addr` 可以不设：只有程序自己监听这个地址时，[HTTPS](config.zh-CN.md#https) 才要求设它。叫 `server.addr` 或 `server.http_addr` 的套接字给对应的设置用，只有一个套接字且没有名字或叫别的名字时，给 `server.addr` 用。有多个时必须分别叫 `server.addr` 和 `server.http_addr`，没开 HTTPS 却传了 `server.http_addr` 的套接字，程序报错退出。systemd 没给套接字的地址，程序自己监听。
 
 ## 端口和 HTTPS
 
@@ -137,6 +137,7 @@ WantedBy=sockets.target
 - **别缓存 `/__tifa/session`。** 它按访客回答，是 `private, no-store`。
 - **别自己在其他页面上设 `Cache-Control: public`**，也别在回答页面 URL 的处理函数上设。带用户数据的页面默认就是安全的。
 - **走 HTTPS 时，压缩可能通过回答的长度泄漏秘密**（BREACH）：回答里重复了请求里的东西，同时又带着 CSRF token 之类的秘密。给这样的回答设 `No-Gzip-Compression` 头，或者关掉 `server.compress`。
+- **开了 `server.csp` 时，CDN 写进页面的脚本不会运行。** 它的哈希不在 tifa 随页面发出的策略里。关掉会改动 HTML 的功能，比如 Cloudflare 的 Rocket Loader 和 Email Address Obfuscation。见 [Content-Security-Policy](config.zh-CN.md#content-security-policy)。
 
 ### CDN 设置
 
