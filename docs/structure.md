@@ -11,7 +11,7 @@ English · [简体中文](structure.zh-CN.md)
 
 # Structuring an app
 
-This page says where each file of an app goes. Why it is organized this way is in [Philosophy](philosophy.md).
+This page says where each file of an app goes. Why it is organized this way is in [Philosophy](philosophy.md). How tifa itself works inside is in [Architecture](architecture.md).
 
 ## 1. A domain is a folder under app/
 

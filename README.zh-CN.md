@@ -132,10 +132,13 @@ mkdir -p .claude/skills && cp -r tifa-src/skills/tifa .claude/skills/tifa
 | [哲学](docs/philosophy.zh-CN.md) | 想知道 tifa 应用为什么这样组织 |
 | [应用的代码结构](docs/structure.zh-CN.md) | 决定领域代码、存储和共享资源放在哪，包之间按什么方向 import |
 | [应用怎么写](docs/app.zh-CN.md) | 安排目录、路由、Layout、钩子、404、head 标签和缓存 |
+| [会话](docs/sessions.zh-CN.md) | 让用户登录登出，把会话放到 Redis 或 SQL，或者在页面里显示谁登录了 |
 | [内容](docs/content.zh-CN.md) | 把博客或文档写成 Markdown 文件，在 Go 里读它们 |
 | [构建与运行](docs/build.zh-CN.md) | 想知道 `tifa build` 生成了什么，程序怎么回答请求 |
 | [开发服务器](docs/dev.zh-CN.md) | 在本地跑 `tifa dev`，或者改了代码没有刷新 |
+| [部署](docs/deploy.zh-CN.md) | 把程序放到服务器或容器里，或者放在 CDN 或代理后面 |
 | [配置](docs/config.zh-CN.md) | 部署时改端口、HTTPS、请求体上限、VM 数、渲染超时和页面缓存 |
+| [内部结构](docs/architecture.zh-CN.md) | 想知道请求、`tifa build`、`tifa dev`、VM 池和缓存在内部是怎么工作的 |
 | [性能](docs/performance.zh-CN.md) | 想知道一台小 VPS 扛不扛得住你的流量 |
 | [研究报告](docs/studies/README.md) | 想看某个数字背后完整的方法和数据，或者某个想法有没有人试过（英文） |
 | [测试](docs/testing.md) | 参与 tifa 本身的开发（英文） |

@@ -301,4 +301,4 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 - On a page with `Cache`, `tifa.Session` is nil whoever asks, `SetSession` and `ClearSession` fail (sign-in and OAuth callbacks belong on routes without `Cache`), and the HTML carries no session. The browser gets it after the page has loaded: `useSession`, `<SignedIn>` and `<SignedOut>` follow the copy in `localStorage`, and the navigation data of the page carries the session of that browser. Known limits: the render cache keys a page by its data and the visitor's session, so it never serves one visitor's page to another. Another tab shows the old state until its next answer. A fetch of your own that changes the session needs `router.invalidate()`.
 - The shop in `examples/shop` is a worked example (a demo account, `OnRequest` sending visitors to `/login?next=...`, the header with `SignedIn` and `SignedOut`).
 
-Full docs: [Sessions](https://github.com/liustack/tifa/blob/main/docs/app.md#sessions).
+Full docs: [Sessions](https://github.com/liustack/tifa/blob/main/docs/sessions.md).
