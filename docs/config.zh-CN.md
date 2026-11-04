@@ -379,7 +379,7 @@ sudo setcap cap_net_bind_service=+ep ./bin/myapp
 - tifa 或应用的某项配置的值类型或格式不对，比如 `ssr.timeout: 3`、`SHOP_OPEN=maybe`，或者 `-c` 的文件里 `ssr.vms` 下面又写了一节。
 - `-c` 的文件读不了或不是 YAML，或者 `.env` 有读不懂的行。
 
-不是配置的键、变量和参数不算错，所以拼错的名字（比如 `SERVER_PORT`）什么也不改，用 `./bin/app config` 看每项配置最后是什么值。`build.*` 只从 `tifa.yaml` 读：部署文件、`BUILD_*` 变量和 `--build-*` 参数都改不了它。
+不认识的命令行参数让程序报 `unknown flag` 退出。不是配置的键和变量不算错，所以拼错的名字（比如 `SERVER_PORT`）什么也不改，用 `./bin/app config` 看每项配置最后是什么值。`build.*` 只从 `tifa.yaml` 读：部署文件、`BUILD_*` 变量和 `--build-*` 参数都改不了它。
 
 下面几种情况程序也拒绝启动，在 `OnStart` 之前停下，并指出是哪几项配置：
 

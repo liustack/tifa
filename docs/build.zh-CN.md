@@ -457,7 +457,7 @@ React 和 React DOM 至少要 19.3.0。Vite 插件是按 19.3 的写法改写 Re
 | `config` | 列出全部配置（tifa 的和应用的）、最终值和来源，输出成带注释的 YAML 文件，部署时可以用 `-c` 传进去 |
 | `version` | 输出应用模块、tifa 模块与 Go 的版本 |
 
-配置来源从高到低：命令行参数、环境变量、工作目录的 `.env` 文件、`-c`（或 `--config`）指定的文件、编进程序的 `tifa.yaml` 的值、默认值。程序运行时不读 `tifa.yaml`。不是配置的参数、变量和文件键一律不管。见[配置](config.zh-CN.md#配置从哪来)。
+配置来源从高到低：命令行参数、环境变量、工作目录的 `.env` 文件、`-c`（或 `--config`）指定的文件、编进程序的 `tifa.yaml` 的值、默认值。程序运行时不读 `tifa.yaml`。不认识的参数报错，不是配置的变量和文件键一律不管。见[配置](config.zh-CN.md#配置从哪来)。
 
 不管程序启动时在哪个时区，VM 里 `Date` 的本地时间恒为 UTC，所以同一个页面在每台机器上渲染得一样。进程的时区不受影响：应用 Go 代码里的 `time.Local` 是机器或 `TZ` 指定的时区，和普通 Go 程序一样。VM 里的 Intl 和 Temporal 用 slowjs 内嵌的时区数据，从不读系统的 zoneinfo。生成的 `main.go` 导入了 `time/tzdata`，所以系统没有 zoneinfo 时（比如 `scratch` 容器），应用 Go 代码里的 `time.LoadLocation` 也能找到每个时区。程序因此大约增加 450 KB。
 

@@ -457,7 +457,7 @@ Defined in `js/runtime/data.ts`. The Go side implements it:
 | `config` | Prints every setting, of tifa and of the app, with its value and where the value comes from, as a commented YAML file a deployment can pass with `-c` |
 | `version` | Prints the versions of the app module, the tifa module and Go |
 
-Settings come from, highest first: command-line flags, environment variables, the `.env` file of the working folder, the file given with `-c` (or `--config`), the values of `tifa.yaml` built into the program, and the defaults. The program does not read `tifa.yaml` itself. Flags, variables and file keys that are no setting are left alone. See [Configuration](config.md#where-settings-come-from).
+Settings come from, highest first: command-line flags, environment variables, the `.env` file of the working folder, the file given with `-c` (or `--config`), the values of `tifa.yaml` built into the program, and the defaults. The program does not read `tifa.yaml` itself. A flag that is no setting is an error. Variables and file keys that are no setting are left alone. See [Configuration](config.md#where-settings-come-from).
 
 In the VMs the local time of `Date` is always UTC, whatever zone the program was started in, so a page renders the same on every machine. The process's zone is left alone: `time.Local` in the app's Go code is the zone of the machine or of `TZ`, as in any Go program. Intl and Temporal in the VMs use the time zone data built into slowjs and never read the system's zoneinfo. The generated `main.go` imports `time/tzdata`, so `time.LoadLocation` in the app's Go code finds every time zone even where the system has no zoneinfo, as in a `scratch` container. It makes the program about 450 KB larger.
 
