@@ -38,8 +38,28 @@ var clock atomic.Pointer[Clock]
 
 func init() { clock.Store(&realClock) }
 
-// Now is the time the collections judge their entries by.
+// Now is the time of the clock of the collections.
 func Now() time.Time { return clock.Load().Now() }
+
+// futureShown is set under tifa dev, which shows the entries whose date is still to come.
+var futureShown atomic.Bool
+
+// ShowFuture(true) makes every entry visible from the next Install on, also one whose date is
+// still to come, as tifa dev shows them to the writer: no date is in the future then, so no timer
+// is set. server.DevMain calls it before the content is loaded. A built program never calls it.
+func ShowFuture(on bool) { futureShown.Store(on) }
+
+// endOfTime comes after every date of an entry.
+var endOfTime = time.Unix(1<<62, 0)
+
+// VisibleAt is the time the collections judge their entries by: Now, or under ShowFuture(true) a
+// time after every date.
+func VisibleAt() time.Time {
+	if futureShown.Load() {
+		return endOfTime
+	}
+	return Now()
+}
 
 // The state of the timer, under timerMu. Loading, the timer and a new clock take turns under it.
 var (
@@ -125,7 +145,7 @@ func fire(gen uint64) {
 // refreshLocked shows every entry whose date has come and sets the timer for the next date. When
 // entries were shown and published is set, it logs them and tells the watchers.
 func refreshLocked(published bool) {
-	now := Now()
+	now := VisibleAt()
 	var shown []Shown
 	var next time.Time
 	for _, c := range Collections() {

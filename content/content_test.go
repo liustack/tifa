@@ -221,3 +221,36 @@ func TestDefinePanicsOnWhatItSees(t *testing.T) {
 		}()
 	}
 }
+
+// Under tifa dev every entry can be seen, whatever its date, so no date is to come and no timer
+// waits for one, also with a watcher.
+func TestDevShowsFutureEntriesAndDrafts(t *testing.T) {
+	clock := useClock(t, start)
+	content.ShowFuture(true)
+	t.Cleanup(func() { content.ShowFuture(false) })
+	t.Cleanup(content.Watch(func() {}))
+	future := start.Add(time.Hour)
+	draft := record("202610/wip", "zh-CN", "wip", "202610/wip", time.Time{}, "草稿")
+	draft.Draft = true
+	err := load(t, content.File{"testblog": {
+		record("202611/launch", "zh-CN", "launch", "launch", future, "新版本"),
+		record("202611/release-notes", "en", "release-notes", "launch", future, "Release notes"),
+		draft,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := blog.All(); len(got) != 3 {
+		t.Fatalf("All has %d entries, want the draft and both future ones", len(got))
+	}
+	p, err := blog.Get("zh-CN", "202611/launch")
+	if err != nil || !p.Date.Equal(future) || len(p.Translations) != 2 {
+		t.Fatalf("Get = %+v, %v: want the future entry with both translations", p.Entry, err)
+	}
+	if d, err := blog.Get("zh-CN", "202610/wip"); err != nil || !d.Draft {
+		t.Fatalf("Get draft = %+v, %v: want it with Draft", d.Entry, err)
+	}
+	if got := clock.pending(); len(got) != 0 {
+		t.Errorf("timers %v, want none", got)
+	}
+}
