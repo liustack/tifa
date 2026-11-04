@@ -138,6 +138,7 @@ A new app also gets an `AGENTS.md` from `tifa new`. The skill covers the same gr
 | [Dev server](docs/dev.md) | Running `tifa dev` locally, or a change did not reload |
 | [Deploying](docs/deploy.md) | Putting the program on a server or in a container, or behind a CDN or proxy |
 | [Configuration](docs/config.md) | Deploying: the port, HTTPS, body limit, VMs, render timeout and page cache |
+| [Architecture](docs/architecture.md) | You want to know how a request, `tifa build`, `tifa dev`, the VM pool and the caches work inside |
 | [Performance](docs/performance.md) | You want to know whether a small VPS can carry your traffic |
 | [Research studies](docs/studies/README.md) | You want the full method and data behind a number, or to see whether an idea was already tried |
 | [Testing](docs/testing.md) | Contributing to tifa itself |

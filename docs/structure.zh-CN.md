@@ -11,7 +11,7 @@ read_when:
 
 # 应用的代码结构
 
-这篇讲应用里每个文件放在哪。为什么这样组织，见[哲学](philosophy.zh-CN.md)。
+这篇讲应用里每个文件放在哪。为什么这样组织，见[哲学](philosophy.zh-CN.md)。 tifa 自己内部怎么工作，见[内部结构](architecture.zh-CN.md)。
 
 ## 1. 领域就是 app/ 下的目录
 
