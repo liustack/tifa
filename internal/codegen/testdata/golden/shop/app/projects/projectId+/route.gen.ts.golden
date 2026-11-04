@@ -10,16 +10,18 @@ export type LayoutData = GoProject
 export type PageData = string[]
 
 // LayoutSearch is the query parameters the Go Layout function of app/projects/projectId+ reads, as the router reads them.
-// Other parameters may come too, as strings.
+// A key can come more than once in a URL, so a value is a string or an array of strings:
+// c.Query in Go takes the first. Other parameters may come too.
 export type LayoutSearch = {
-  "currency"?: string
+  "currency"?: string | string[]
   [key: string]: string | string[] | undefined
 }
 
 // PageSearch is the query parameters the Go Load function of app/projects/projectId+ reads, as the router reads them.
-// Other parameters may come too, as strings.
+// A key can come more than once in a URL, so a value is a string or an array of strings:
+// c.Query in Go takes the first. Other parameters may come too.
 export type PageSearch = {
-  "sort"?: string
+  "sort"?: string | string[]
   "tag"?: string | string[]
   [key: string]: string | string[] | undefined
 }

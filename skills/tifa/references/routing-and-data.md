@@ -164,7 +164,7 @@ export const head = ({ loaderData }: { loaderData?: PageData }) => ({
 
 - `./route.gen` is generated for each folder with a page, Layout or method handler. It exports `page` and `layout` (only when the folder has them), `PageData`, `LayoutData`, `PageSearch`, `LayoutSearch`, `Params`, `POSTInput`/`POSTOutput` style types, and one function per method handler. To read a Layout above you, import `layout` from that folder's `route.gen`, such as `'../../route.gen'`. `go tool tifa build` or `tifa dev` writes them, and `tsc` needs them, so run one first.
 - Links are typed from the folders: `<Link to="/todos/$todo" params={{ todo: '1' }}>` from `@tanstack/react-router`.
-- The query parameters a `Load` or `Layout` reads are typed on `Link`, `navigate` and `useSearch`: `c.Query` keys are `string`, `c.QueryValues` keys `string | string[]`, all optional. Pass strings (`page: String(n)`). Other keys are open, so a misspelled key is not caught.
+- The query parameters a `Load` or `Layout` reads are typed on `Link`, `navigate` and `useSearch`: every key is `string | string[]` and optional, since a key can come more than once in a URL (`c.Query` in Go takes the first). Pass strings (`page: String(n)`). To read one value as Go does, take the first: `[search.sort].flat()[0]`. Other keys are open, so a misspelled key is not caught.
 - Pages are UI only. Data comes from `Load`.
 - Exports of `page.tsx`: the default component, `head`, `Error`. See [errors-and-404.md](errors-and-404.md) and [rendering.md](rendering.md).
 - Each `page.tsx` and non-root `layout.tsx` is its own chunk in the browser. Its top-level code runs when its route first loads, not at app start. Put setup every page needs (an i18n instance, say) in the root Layout or a module it imports.

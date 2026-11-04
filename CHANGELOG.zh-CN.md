@@ -10,7 +10,7 @@
 - `route.go` 里的 `BodyLimit` 和 `ReadTimeout`（常量，或者变量，比如应用的配置）对它的方法函数回答的请求代替 `server.body_limit` 和 `server.read_timeout`。读取时间在 `OnRequest` 之前放宽，回答在它之后再有 `server.write_timeout` 的时间（见[路由自己的请求体上限和读取时间](docs/app.zh-CN.md#路由自己的请求体上限和读取时间)）。
 - 请求体在读期限之前没传完时答 408，不再答 400。
 - `tifatest.File(t, name, data)` 给出一个文件的 `*multipart.FileHeader`，给用装文件的入参调用处理函数或 `Validate` 的测试用。
-- `route.gen` 导出 `PageSearch` 和 `LayoutSearch`，即这个目录的 `Load` 或 `Layout` 读的查询参数，路由也挂上它们，所以 `Link`、`navigate` 和 `useSearch` 知道它们：用 `c.Query` 读的键是 `string`，用 `c.QueryValues` 读的是 `string` 或 `string[]`，每个键都可以不写，其他键放开。只多了类型：浏览器里不对查询参数运行任何代码（见[Link 和 navigate 里的查询参数](docs/app.zh-CN.md#link-和-navigate-里的查询参数)）。
+- `route.gen` 导出 `PageSearch` 和 `LayoutSearch`，即这个目录的 `Load` 或 `Layout` 读的查询参数，路由也挂上它们，所以 `Link`、`navigate` 和 `useSearch` 知道它们：URL 里一个键可以出现多次，所以读的时候每个值都是 `string` 或 `string[]`（Go 的 `c.Query` 取第一个值），每个键都可以不写，其他键放开。只多了类型：浏览器里不对查询参数运行任何代码（见[Link 和 navigate 里的查询参数](docs/app.zh-CN.md#link-和-navigate-里的查询参数)）。
 
 ### 变更
 

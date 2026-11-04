@@ -1127,9 +1127,9 @@ func sessionModule(s *analyze.Session) ([]byte, error) {
 }
 
 // searchType writes the type of the query parameters the Load or Layout function of n reads, which
-// routes.tsx gives its route for Link, navigate and useSearch. A value read with c.Query is a
-// string, one read with c.QueryValues a string or an array of strings, as parseSearch of the
-// runtime reads them. Every key may be left out, and other keys are open: the app may use
+// routes.tsx gives its route for Link, navigate and useSearch. A key can come more than once in a
+// URL, so every value is a string or an array of strings, as parseSearch of the runtime reads
+// them, whether Go reads it with c.Query or c.QueryValues. Every key may be left out, and other keys are open: the app may use
 // parameters of its own in the browser, which Go does not read. A function that reads none gets no
 // type.
 func searchType(b *strings.Builder, n *tsNode, name, fn, dir string) {
@@ -1137,14 +1137,11 @@ func searchType(b *strings.Builder, n *tsNode, name, fn, dir string) {
 		return
 	}
 	fmt.Fprintf(b, "// %s is the query parameters the Go %s function of %s reads, as the router reads them.\n", name, fn, dir)
-	b.WriteString("// Other parameters may come too, as strings.\n")
+	b.WriteString("// A key can come more than once in a URL, so a value is a string or an array of strings:\n")
+	b.WriteString("// c.Query in Go takes the first. Other parameters may come too.\n")
 	fmt.Fprintf(b, "export type %s = {\n", name)
 	for _, key := range n.load.Query {
-		value := "string"
-		if slices.Contains(n.load.QueryValues, key) {
-			value = "string | string[]"
-		}
-		fmt.Fprintf(b, "  %s?: %s\n", jsString(key), value)
+		fmt.Fprintf(b, "  %s?: string | string[]\n", jsString(key))
 	}
 	b.WriteString("  [key: string]: string | string[] | undefined\n}\n\n")
 }

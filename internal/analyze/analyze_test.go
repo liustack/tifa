@@ -880,11 +880,6 @@ func TestFollowHelpers(t *testing.T) {
 	if len(m.Layouts) != 1 || !reflect.DeepEqual(m.Layouts[0].Load.Query, []string{"site"}) {
 		t.Errorf("Layouts = %+v", m.Layouts)
 	}
-	// QueryValues lists the names read with c.QueryValues, which may come more than once, through
-	// helpers too. A tifa.Use of a Layout adds none: they belong to the Layout.
-	if len(list.QueryValues) != 0 || !reflect.DeepEqual(other.QueryValues, []string{"tag"}) || !reflect.DeepEqual(m.Layouts[0].Load.QueryValues, []string{"site"}) {
-		t.Errorf("QueryValues: list %v, other %v, Layout %v", list.QueryValues, other.QueryValues, m.Layouts[0].Load.QueryValues)
-	}
 }
 
 // The places the Ctx may go: a method receiver, an argument of a function in the module or in

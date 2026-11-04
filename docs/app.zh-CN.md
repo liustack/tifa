@@ -271,7 +271,7 @@ func Load(c *tifa.Ctx) (Products, error) {
 // route.gen.ts 里
 export type PageSearch = {
   "color"?: string | string[]
-  "sort"?: string
+  "sort"?: string | string[]
   [key: string]: string | string[] | undefined
 }
 ```
@@ -281,12 +281,12 @@ export type PageSearch = {
 <Link to="/products" search={{ sort: 2 }}>…</Link> // 类型错误：值是字符串
 navigate({ to: '/products', search: (prev) => ({ ...prev, sort: 'name' }) })
 const search = page.useSearch() // PageSearch，加上外层 Layout 的参数
+const sort = [search.sort].flat()[0] // 第一个值，和 c.Query 读的一样
 ```
 
-- 用 `c.Query` 读的参数是 `string`，用 `c.QueryValues` 读的是 `string` 或 `string[]`，和路由器读 URL 的结果一样。每个键都可以不写。
+- URL 里一个键可以出现多次，所以读的时候值是 `string` 或 `string[]`，不管 Go 用 `c.Query` 还是 `c.QueryValues` 读。Go 的 `c.Query` 取第一个值。写的时候传一个字符串就行。每个键都可以不写。
 - 其他键放开：页面可以在 URL 里放 Go 不读的自己的参数，比如面板当前打开的标签。它们也是字符串或字符串数组。所以拼错键名不算类型错误，只有 Go 读的键给错了类型才算。
 - 只收字符串。路由器把每个值都写成文本，Go 读的也是文本，所以写 `'2'` 不写 `2`，布尔值写成你的 Go 代码比较的 `'1'` 或 `'true'`。
-- 写进去和读出来用同一个类型，这样 `(prev) => ({ ...prev, page: '2' })` 才能通过类型检查。用 `c.Query` 读的键，手写的 URL `?sort=a&sort=b` 运行时仍然给出数组，类型却说是 `string`（Go 读第一个）。要显示 Go 读到的值，从 `Load` 返回的数据里拿，不从 `useSearch` 拿。
 - 类型来自 Go 读的名字，经过辅助函数和别的包读的也算，每个路由只挂它自己的 `Load` 或 `Layout` 读的。外层 Layout 的由 TanStack 加上。不读查询参数的 `Load` 没有这个类型，它的路由和以前一样什么键都收。
 - 浏览器里不运行任何检查：路由只拿到类型（`searchTypes` 返回 `undefined`，TanStack 就照原样读查询参数）。
 

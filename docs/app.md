@@ -271,7 +271,7 @@ func Load(c *tifa.Ctx) (Products, error) {
 // in route.gen.ts
 export type PageSearch = {
   "color"?: string | string[]
-  "sort"?: string
+  "sort"?: string | string[]
   [key: string]: string | string[] | undefined
 }
 ```
@@ -281,12 +281,12 @@ export type PageSearch = {
 <Link to="/products" search={{ sort: 2 }}>…</Link> // type error: the value is a string
 navigate({ to: '/products', search: (prev) => ({ ...prev, sort: 'name' }) })
 const search = page.useSearch() // PageSearch, with the parameters of the Layouts above
+const sort = [search.sort].flat()[0] // the first value, as c.Query reads it
 ```
 
-- A parameter read with `c.Query` is a `string`, and one read with `c.QueryValues` is a `string` or a `string[]`, the way the router reads the URL. Every key may be left out.
+- A key can come more than once in a URL, so a value is a `string` or a `string[]` when you read it, whether Go reads it with `c.Query` or `c.QueryValues`. `c.Query` in Go takes the first value. Writing one, a single string is enough. Every key may be left out.
 - Other keys are open: a page may keep parameters of its own in the URL that Go does not read, such as the open tab of a panel. They are strings or arrays of strings too. So a misspelled key is not a type error, only a wrong type for a key Go reads is.
 - Only strings go in. The router writes every value as text, and Go reads text, so `'2'`, not `2`, and `'1'` or `'true'` as your Go code compares it.
-- The type is the same for what goes in and what comes out, so that `(prev) => ({ ...prev, page: '2' })` type-checks. For a key read with `c.Query`, a URL written by hand as `?sort=a&sort=b` still gives an array at run time, where the type says `string` (Go reads the first). Show what Go read from the data `Load` returns, not from `useSearch`.
 - The types come from the names Go reads, also through helpers and other packages, and each route has those of its own `Load` or `Layout`. TanStack adds those of the Layouts above. A `Load` that reads none gets no type, and its route takes any keys, as before.
 - Nothing runs in the browser to check the values: the route gets the type only (`searchTypes` returns `undefined`, and TanStack then reads the query as it is).
 

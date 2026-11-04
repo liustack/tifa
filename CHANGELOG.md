@@ -10,7 +10,7 @@ What changed in tifa that apps and their users can see. From v0.0.1 on, changes 
 - `BodyLimit` and `ReadTimeout` in a `route.go`, constants or variables such as a setting of the app, replace `server.body_limit` and `server.read_timeout` for the requests its method handlers answer. The read time is lifted before `OnRequest`, and the answer gets `server.write_timeout` after it (see [Body limit and read time of a route](docs/app.md#body-limit-and-read-time-of-a-route)).
 - A request body that does not arrive before the read deadline is answered with 408, no longer with 400.
 - `tifatest.File(t, name, data)` gives the `*multipart.FileHeader` of a file, for a test that calls a handler or `Validate` with an input that holds one.
-- `route.gen` exports `PageSearch` and `LayoutSearch`, the query parameters the `Load` or `Layout` of the folder reads, and the route gets them, so `Link`, `navigate` and `useSearch` know them: a key read with `c.Query` is a `string`, one read with `c.QueryValues` a `string` or `string[]`, every key optional, and other keys open. Only the types change: nothing runs on the query in the browser (see [Query parameters in Link and navigate](docs/app.md#query-parameters-in-link-and-navigate)).
+- `route.gen` exports `PageSearch` and `LayoutSearch`, the query parameters the `Load` or `Layout` of the folder reads, and the route gets them, so `Link`, `navigate` and `useSearch` know them: every value a `string` or `string[]` when read, since a key can come more than once in a URL (`c.Query` in Go takes the first), every key optional, and other keys open. Only the types change: nothing runs on the query in the browser (see [Query parameters in Link and navigate](docs/app.md#query-parameters-in-link-and-navigate)).
 
 ### Changed
 
