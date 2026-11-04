@@ -223,6 +223,31 @@ func TestExpiredPageIsMadeAgainOnceWhileRequestsWait(t *testing.T) {
 	}
 }
 
+// When content entries are published, every page the whole-page cache made before that moment is
+// made again by the next request, and a page made after it is kept.
+func TestPublishedContentExpiresTheWholePageCache(t *testing.T) {
+	e := newPageEnv(t)
+	get(e.s, "/news")
+	e.clock.advance(time.Second)
+	e.s.contentChanged()
+	// A page made at the same reading of the clock may have read the content before it changed.
+	e.clock.advance(time.Millisecond)
+	if w := get(e.s, "/news"); w.Header().Get("X-Tifa-Render") != "vm" || e.loads.Load() != 2 {
+		t.Fatalf("a page made before: %q, %d Loads", w.Header().Get("X-Tifa-Render"), e.loads.Load())
+	}
+	e.clock.advance(time.Second)
+	if w := get(e.s, "/news"); w.Header().Get("X-Tifa-Render") != "cache" || e.loads.Load() != 2 {
+		t.Errorf("a page made after: %q, %d Loads", w.Header().Get("X-Tifa-Render"), e.loads.Load())
+	}
+	// A page that expired so still stands in for one that fails.
+	e.clock.advance(time.Second)
+	e.s.contentChanged()
+	e.setLoad(func(c *tifa.Ctx, n int64) (any, error) { return nil, errors.New("db down") })
+	if w := get(e.s, "/news"); w.Code != 200 || w.Header().Get("Cache-Status") != "tifa; fwd=stale" {
+		t.Errorf("a failed remake: %d %q", w.Code, w.Header().Get("Cache-Status"))
+	}
+}
+
 // When making the page fails after its time is over, the old page is served: for a Load that
 // fails, a render that fails, one that runs out of time and an overloaded pool.
 func TestFailedRemakeServesTheOldPage(t *testing.T) {
