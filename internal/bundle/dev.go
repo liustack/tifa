@@ -128,6 +128,7 @@ func (d *Dev) Build(ctx context.Context, public string, pages bool) (string, err
 	ssr := filepath.Join(d.dist, "ssr.js")
 	var b Build
 	var modules []string
+	incomplete := ""
 	if pages {
 		d.mu.Lock()
 		if d.head == "" {
@@ -144,14 +145,15 @@ func (d *Dev) Build(ctx context.Context, public string, pages bool) (string, err
 		d.mu.Unlock()
 		for {
 			var result struct {
-				Styles  string   `json:"styles"`
-				Modules []string `json:"modules"`
+				Styles     string   `json:"styles"`
+				Modules    []string `json:"modules"`
+				Incomplete string   `json:"incomplete"`
 			}
 			// Unminified, so that errors in the server render point at readable code.
 			if err := d.node.call("ssr", map[string]any{"assets": d.styles + d.head, "minify": false}, &result); err != nil {
 				return "", err
 			}
-			modules = result.Modules
+			modules, incomplete = result.Modules, result.Incomplete
 			if result.Styles == d.styles {
 				break
 			}
@@ -178,7 +180,7 @@ func (d *Dev) Build(ctx context.Context, public string, pages bool) (string, err
 	b.ID = hex.EncodeToString(sum[:])[:16]
 	// The browser gets its modules from Vite's dev server and not from dist, so the inputs of what
 	// dist holds are the modules of the SSR bundle.
-	if err := writeInputs(d.root, d.dist, public, modules); err != nil {
+	if err := writeInputs(d.root, d.dist, public, modules, incompleteInputs(d.node.output, incomplete)); err != nil {
 		return "", err
 	}
 	return b.ID, writeBuild(d.dist, b)

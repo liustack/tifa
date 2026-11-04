@@ -54,7 +54,8 @@ func Start(t testing.TB, app server.App) *httptest.Server {
 //
 // StartPages fails the test when .tifa/dist is missing, and when a file it was built from changed
 // since: a page, a component, a stylesheet, package.json, the lock file, the Vite config,
-// tifa.yaml, a public file or a file of content/.
+// tifa.yaml, a public file or a file of content/. It also fails when the build could not list
+// every file it read, with the reason.
 func StartPages(t testing.TB, app server.App) *httptest.Server {
 	t.Helper()
 	if !checkTable(t, "StartPages", app) {

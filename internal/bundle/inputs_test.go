@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -35,7 +36,7 @@ func TestInputsNameTheChangedFiles(t *testing.T) {
 	if err := os.MkdirAll(dist, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeInputs(root, dist, filepath.Join(root, "public"), modules); err != nil {
+	if err := writeInputs(root, dist, filepath.Join(root, "public"), modules, ""); err != nil {
 		t.Fatal(err)
 	}
 	if changed, err := ChangedInputs(root, dist); err != nil || len(changed) != 0 {
@@ -78,7 +79,7 @@ func TestInputsNameTheFilesAddedSince(t *testing.T) {
 	if err := os.MkdirAll(dist, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeInputs(root, dist, filepath.Join(root, "static"), nil); err != nil {
+	if err := writeInputs(root, dist, filepath.Join(root, "static"), nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(root, "static/icons/new.svg"), "<svg/>")
@@ -165,7 +166,7 @@ func TestInputsRefuseAModulePathThatIsNotAbsolute(t *testing.T) {
 	root := t.TempDir()
 	dist := filepath.Join(root, "dist")
 	writeTree(t, root, map[string]string{"app/page.tsx": "export default 1\n", "dist/build.json": "{}\n"})
-	err := writeInputs(root, dist, filepath.Join(root, "public"), []string{"app/page.tsx"})
+	err := writeInputs(root, dist, filepath.Join(root, "public"), []string{"app/page.tsx"}, "")
 	if err == nil {
 		t.Fatal("writeInputs took the relative path app/page.tsx")
 	}
@@ -182,7 +183,7 @@ func TestInputsTakeAFileUnderTheLinkToTheRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	dist := filepath.Join(root, "dist")
-	if err := writeInputs(root, dist, filepath.Join(root, "public"), []string{filepath.Join(root, "extra", "watched.txt")}); err != nil {
+	if err := writeInputs(root, dist, filepath.Join(root, "public"), []string{filepath.Join(root, "extra", "watched.txt")}, ""); err != nil {
 		t.Fatal(err)
 	}
 	var in inputs
@@ -191,3 +192,50 @@ func TestInputsTakeAFileUnderTheLinkToTheRoot(t *testing.T) {
 		t.Errorf("inputs.json has no extra/watched.txt: %v", in.Files)
 	}
 }
+
+// probeConfig is a Vite config that runs change on the prototype of the bundles of the rolldown
+// that Vite imports, as bundles, before it returns the tifa plugin.
+func probeConfig(change string) string {
+	return "import { createRequire } from 'node:module'\nimport path from 'node:path'\nimport { pathToFileURL } from 'node:url'\n" +
+		"import tifa from './.tifa/vite.js'\n" +
+		"export default async () => {\n" +
+		"  const vite = createRequire(path.join(process.cwd(), 'vite.config.ts')).resolve('vite')\n" +
+		"  const { rolldown } = await import(pathToFileURL(createRequire(vite).resolve('rolldown')).href)\n" +
+		"  const probe = await rolldown({ input: [] })\n  const bundles = Object.getPrototypeOf(probe)\n  await probe.close()\n" +
+		"  " + change + "\n  return { plugins: [tifa()] }\n}\n"
+}
+
+// When the driver cannot read the watch files of Rolldown, the build still works, warns, and
+// marks inputs.json as incomplete with the reason, which ChangedInputs then fails with.
+func TestInputsMarkTheFilesIncompleteWithoutWatchFiles(t *testing.T) {
+	for name, c := range map[string]struct{ change, reason string }{
+		// A Rolldown whose bundles have no watchFiles.
+		"no watchFiles": {"delete bundles.watchFiles", " has no watchFiles on its bundles"},
+		// A Vite that closes no bundle the driver sees, here because each one reads as closed.
+		"no bundle closed": {"Object.defineProperty(bundles, 'closed', { get: () => true })", "Vite's build closed no bundle of Rolldown "},
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := fakeApp(t, `["es2022"]`)
+			writeTree(t, root, map[string]string{"vite.config.ts": probeConfig(c.change)})
+			var output strings.Builder
+			n := NewNode(root, &output)
+			defer n.Close()
+			if _, err := App(n, root, filepath.Join(root, "public"), true, nil); err != nil {
+				t.Fatalf("App: %v", err)
+			}
+			dist := filepath.Join(root, ".tifa", "dist")
+			var in inputs
+			readJSON(t, filepath.Join(dist, InputsFile), &in)
+			if !strings.Contains(in.Incomplete, c.reason) || !strings.Contains(in.Incomplete, "Rolldown 1.") {
+				t.Errorf("incomplete = %q, want the reason %q and the version of Rolldown", in.Incomplete, c.reason)
+			}
+			if !strings.Contains(output.String(), "warning: inputs.json does not list every file the build read") {
+				t.Errorf("the build gives no warning:\n%s", output.String())
+			}
+			if _, err := ChangedInputs(root, dist); err == nil || !strings.Contains(err.Error(), c.reason) || !strings.Contains(err.Error(), "upgrade tifa") {
+				t.Errorf("ChangedInputs: %v", err)
+			}
+		})
+	}
+}
+

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -25,6 +26,9 @@ type inputs struct {
 	// them since is an input too.
 	Dirs  []string          `json:"dirs"`
 	Files map[string]string `json:"files"` // the hash of each file, see fileHash
+	// Incomplete, when set, says why Files lacks files the build read, such as those Vite plugins
+	// add with this.addWatchFile: ChangedInputs then fails.
+	Incomplete string `json:"incomplete,omitempty"`
 }
 
 // projectFiles are the files at the root that shape a build besides the modules of the bundle:
@@ -38,8 +42,9 @@ var projectFiles = []string{
 
 // writeInputs writes dist/inputs.json for the app at root: modules, the files the builds of the
 // bundles read as the driver lists them, by absolute paths (those outside root are left out), the
-// files of projectFiles, and every file of the public directory and of content/.
-func writeInputs(root, dist, public string, modules []string) error {
+// files of projectFiles, and every file of the public directory and of content/. incomplete says
+// why modules lacks files the builds read, empty when it does not, see incompleteInputs.
+func writeInputs(root, dist, public string, modules []string, incomplete string) error {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return err
@@ -56,7 +61,7 @@ func writeInputs(root, dist, public string, modules []string) error {
 	if err != nil {
 		return err
 	}
-	in := inputs{Dirs: []string{filepath.ToSlash(publicRel), "content"}, Files: map[string]string{}}
+	in := inputs{Dirs: []string{filepath.ToSlash(publicRel), "content"}, Files: map[string]string{}, Incomplete: incomplete}
 	paths, err := scanInputs(root, in.Dirs)
 	if err != nil {
 		return err
@@ -87,6 +92,24 @@ func writeInputs(root, dist, public string, modules []string) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(dist, InputsFile), append(data, '\n'), 0o644)
+}
+
+// incompleteInputs joins the reasons the driver gave for each build why the files it read are not
+// all there, and when there is one, writes a warning to output. It returns the joined reasons, or
+// "" when every build listed all its files.
+func incompleteInputs(output io.Writer, reasons ...string) string {
+	var why []string
+	for _, r := range reasons {
+		if r != "" && !slices.Contains(why, r) {
+			why = append(why, r)
+		}
+	}
+	if len(why) == 0 {
+		return ""
+	}
+	joined := strings.Join(why, ", and ")
+	fmt.Fprintf(output, "warning: %s does not list every file the build read (%s), so tifatest.StartPages fails with this build: upgrade tifa\n", InputsFile, joined)
+	return joined
 }
 
 // under returns the path of file relative to dir, and whether file is in dir. Both are absolute.
@@ -146,6 +169,9 @@ func ChangedInputs(root, dist string) ([]string, error) {
 	}
 	if in.Files == nil {
 		return nil, fmt.Errorf("%s has no files: run tifa build again", InputsFile)
+	}
+	if in.Incomplete != "" {
+		return nil, fmt.Errorf("%s does not list every file the build read (%s), so it cannot tell a front end older than its sources: upgrade tifa, then run tifa build again", filepath.Join(dist, InputsFile), in.Incomplete)
 	}
 	var changed []string
 	for p, want := range in.Files {

@@ -1,6 +1,8 @@
 package tifatest_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"os"
 	"path/filepath"
@@ -92,6 +94,27 @@ func TestStartPagesWantsTheRecordOfTheInputs(t *testing.T) {
 	f := &fatal{TB: t}
 	if srv := tifatest.StartPages(f, pageApp()); srv != nil || !strings.Contains(f.msg, "inputs.json") {
 		t.Errorf("without inputs.json: %v, %q", srv, f.msg)
+	}
+}
+
+// A build that could not list every file it read fails the test with the reason, even when the
+// files it did list are as they were.
+func TestStartPagesFailsOnAnIncompleteRecordOfTheInputs(t *testing.T) {
+	root := builtApp(t, "")
+	data, err := os.ReadFile(filepath.Join(root, "app", "page.tsx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(data)
+	inputs := `{"dirs": ["public", "content"], "files": {"app/page.tsx": "` + hex.EncodeToString(sum[:16]) + `"}, ` +
+		`"incomplete": "Rolldown 9.9.9 has no watchFiles on its bundles"}`
+	if err := os.WriteFile(filepath.Join(root, ".tifa", "dist", "inputs.json"), []byte(inputs), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := &fatal{TB: t}
+	srv := tifatest.StartPages(f, pageApp())
+	if srv != nil || !strings.Contains(f.msg, "Rolldown 9.9.9 has no watchFiles on its bundles") || !strings.Contains(f.msg, "upgrade tifa") {
+		t.Errorf("an incomplete record: %v, %q", srv, f.msg)
 	}
 }
 
