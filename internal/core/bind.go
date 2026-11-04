@@ -97,9 +97,18 @@ func filePointer(t reflect.Type) bool {
 	return t.Kind() == reflect.Pointer && t.Elem() == fileHeaderType
 }
 
-// fileField reports whether a field of type t takes the files of a multipart form.
-func fileField(t reflect.Type) bool {
+// filesKind reports whether t is a file or a slice of files by filePointer.
+func filesKind(t reflect.Type) bool {
 	return filePointer(t) || t.Kind() == reflect.Slice && filePointer(t.Elem())
+}
+
+// fileField reports whether a field of type t takes the files of a multipart form: a file or a
+// slice of files without text methods. One with them is a string in TypeScript, so the page would
+// send text where a file is due. The analyzer refuses such a file field of a handler input, and
+// formTypeProblem refuses it here as any other field a form does not fill. Only a slice type can
+// have them: a named pointer type has no methods.
+func fileField(t reflect.Type) bool {
+	return filesKind(t) && textMethods(t) == ""
 }
 
 var (
@@ -115,6 +124,9 @@ var (
 // internal/analyze has the same rule, and refuses such a field of a handler input at build time.
 func formTypeProblem(t reflect.Type) string {
 	if m := textMethods(t); m != "" {
+		if filesKind(t) {
+			return "is a file type with " + m + ": a file comes as a part of a form, never as text, so remove the method or use []*multipart.FileHeader"
+		}
 		return "has " + m + ", which tifa does not call: it decodes each value by its kind"
 	}
 	if t.Kind() == reflect.Slice {

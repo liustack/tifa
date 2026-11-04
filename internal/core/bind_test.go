@@ -202,6 +202,46 @@ func TestFormDecodingRefusesTextMethods(t *testing.T) {
 	}
 }
 
+// textFiles is a slice of files that reads and writes itself as text, so TypeScript takes it for a
+// string: the analyzer refuses it as a file field.
+type textFiles []*multipart.FileHeader
+
+func (f textFiles) MarshalText() ([]byte, error)  { return nil, nil }
+func (f *textFiles) UnmarshalText(b []byte) error { return nil }
+
+// A file type with text methods is no file field to the decoder either: BindQuery and BindForm
+// refuse it whatever the request holds, and Bind fills no file into it and answers 400 for text.
+func TestFormDecodingRefusesFileTypesWithTextMethods(t *testing.T) {
+	type input struct {
+		Title string    `json:"title"`
+		Files textFiles `json:"files"`
+	}
+	c, _ := newCtx("GET", "", "", 1<<20)
+	var e Error
+	var in input
+	if err := c.BindQuery(&in); err == nil || errors.As(err, &e) || !strings.Contains(err.Error(), "file") {
+		t.Errorf("BindQuery: got %v", err)
+	}
+	body, contentType := formBody(t, [][2]string{{"title", "Sea"}}, [][3]string{{"files", "sea.png", "png"}})
+	c, _ = newCtx("POST", body.String(), contentType, 1<<20)
+	in = input{}
+	if err := BindForm(c, &in); err == nil || errors.As(err, &e) || in.Files != nil {
+		t.Errorf("BindForm: got %v, %+v", err, in)
+	}
+	body, contentType = formBody(t, [][2]string{{"title", "Sea"}}, [][3]string{{"files", "sea.png", "png"}})
+	c, _ = newCtx("POST", body.String(), contentType, 1<<20)
+	in = input{}
+	if err := c.Bind(&in); err != nil || in.Title != "Sea" || in.Files != nil {
+		t.Errorf("Bind with a file: got %v, %+v", err, in)
+	}
+	body, contentType = formBody(t, [][2]string{{"title", "Sea"}, {"files", "a,b"}}, nil)
+	c, _ = newCtx("POST", body.String(), contentType, 1<<20)
+	in = input{}
+	if err := c.Bind(&in); !errors.As(err, &e) || e.Status != 400 {
+		t.Errorf("Bind with text: got %v, %+v", err, in)
+	}
+}
+
 // Bind takes a form for an input that also comes as JSON, so its other fields may be anything: a
 // form fills the fields it can and answers 400 for a value of any other one, a field with text
 // methods included, which would otherwise get "a,b" as one element.
