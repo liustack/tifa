@@ -5,3 +5,11 @@ CREATE TABLE IF NOT EXISTS todos (
   title TEXT    NOT NULL,
   done  INTEGER NOT NULL DEFAULT 0
 );
+
+-- The sessions of tifa.SetSession (sessions.go), so a restart signs nobody out.
+CREATE TABLE IF NOT EXISTS sessions (
+  key    TEXT    PRIMARY KEY,
+  data   BLOB    NOT NULL,
+  expiry INTEGER NOT NULL -- Unix time in milliseconds
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS sessions_by_expiry ON sessions (expiry);
