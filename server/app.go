@@ -27,6 +27,10 @@ type App struct {
 	// Dist is the .tifa directory's embedded dist/ (the FS holds dist/ at its root): build.json,
 	// the SSR bundle, the browser assets and the public files that tifa build writes.
 	Dist fs.FS
+	// Fingerprint is the hash of the generated table this App comes from, which the server does
+	// not read: tifatest compares it with a fresh analysis of the app, to fail a test that would
+	// run routes older than the code. Empty for an App written by hand.
+	Fingerprint string
 }
 
 // Layout is one directory whose route.go declares Layout or LayoutSSR, or that holds layout.tsx, or both.

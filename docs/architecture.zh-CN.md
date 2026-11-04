@@ -134,7 +134,7 @@ flowchart LR
 ```
 
 1. **分析。** `analyze.Analyze` 用 `golang.org/x/tools/go/packages` 加载应用并做类型检查，从语法树和类型里读出约定：目录、`Load`、`Layout` 和处理函数的签名、常量、钩子、会话类型、`content.go`。它收集所有违反规则的地方，带着 `file:line` 一起打印。静态分析只读不写，所以分析失败不会留下 `.tifa/`。
-2. **生成。** `codegen.Generate` 把清单变成 `.tifa/` 里的文件：`main.go` 和 `routes.go`（Go 一侧，调用 `server.Main`），以及 `routes.tsx`、各个 `route.gen.ts` 模块、`server.ts` 和 `client.ts`（TypeScript 一侧）。同样的清单得到同样的字节，所以没变的文件不会重写。
+2. **生成。** `codegen.Generate` 把清单变成 `.tifa/` 里的文件：`main.go`（调用 `server.Main`）和 `tifaapp/app.go`（main 和应用测试共用的应用表），这是 Go 一侧，以及 `routes.tsx`、各个 `route.gen.ts` 模块、`server.ts` 和 `client.ts`（TypeScript 一侧）。同样的清单得到同样的字节，所以没变的文件不会重写。
 3. **打包。** `bundle.App` 启动一个 Node 进程，用 `js/vite` 里的 tifa 插件跑应用自己的 Vite。它先构建浏览器 bundle（按路由拆分，带内容哈希，附 `.gz` 文件），再构建 SSR bundle `ssr.js`，后者知道浏览器 bundle 的标签。它还复制 `public/`，写出带 build ID 的 `build.json`。没有页面的应用跳过这一步，也不需要 Node。
 4. **go build。** `CGO_ENABLED=0 go build` 编译 `.tifa/`，用 `//go:embed` 把 `dist/` 嵌进去。
 

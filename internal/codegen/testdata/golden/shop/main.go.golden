@@ -8,7 +8,7 @@ import (
 
 	"github.com/liustack/tifa/server"
 
-	hooks "example.com/shop"
+	"example.com/shop/.tifa/tifaapp"
 )
 
 // dist holds what tifa build bundles: build.json, the SSR bundle, the browser assets and
@@ -18,16 +18,7 @@ import (
 var dist embed.FS
 
 func main() {
-	server.Main(server.App{
-		Hooks: server.Hooks{
-			OnStart: hooks.OnStart,
-			OnError: hooks.OnError,
-		},
-		Layouts: layouts,
-		Routes:  routes,
-		Dist:    dist,
-		Settings: map[string]string{
-			"server.addr": "127.0.0.1:8090",
-		},
-	})
+	app := tifaapp.App
+	app.Dist = dist
+	server.Main(app)
 }
