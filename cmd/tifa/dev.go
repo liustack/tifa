@@ -140,11 +140,7 @@ type devPipeline struct {
 	files map[string][]byte // the generated files of that analysis, as written last
 	// public is build.public of that analysis, see Public.
 	public string
-	// content is the latest scan of content/: the one of the last analysis, or of Content since.
-	// fresh is set when no Content ran since that analysis. converted is the Fingerprint of the
-	// collections of the last conversion.
-	content   *analyze.Content
-	fresh     bool
+	// converted is the Fingerprint of the collections of the last conversion that worked.
 	converted string
 }
 
@@ -175,7 +171,6 @@ func (p *devPipeline) Analyze(context.Context) (string, error) {
 		return "", err
 	}
 	p.m, p.files, p.public = m, files, publicDir(settings.Public)
-	p.content, p.fresh = m.Content, true
 	return fingerprint(files), nil
 }
 
@@ -183,19 +178,17 @@ func (p *devPipeline) Analyze(context.Context) (string, error) {
 func (p *devPipeline) HasContent() bool { return p.m != nil && p.m.Content != nil }
 
 // Content converts the entries that changed since the last conversion into .tifa/dist and writes
-// content.json, see bundle.Dev.Content. Right after an analysis it uses the scan of the analysis,
-// otherwise it scans content/ again for the collections of the last analysis, which reports the
-// same problems. A change of the collections or their schema types converts every entry.
+// content.json, see bundle.Dev.Content. It scans content/ again for the collections of the last
+// analysis, which reports the same problems as the analysis, also right after one: what the
+// analysis scanned may have changed since, and a conversion that failed must not keep the scan it
+// failed on. A change of the collections or their schema types converts every entry.
 func (p *devPipeline) Content(ctx context.Context, all bool, changed []string) (string, error) {
 	if p.m == nil {
 		return "", errors.New("content before the first successful analysis")
 	}
-	c := p.content
-	if !p.fresh {
-		var err error
-		if c, err = analyze.ScanContent(p.root, p.m.Content); err != nil {
-			return "", err
-		}
+	c, err := analyze.ScanContent(p.root, p.m.Content)
+	if err != nil {
+		return "", err
 	}
 	fp := c.Fingerprint()
 	all = all || fp != p.converted
@@ -204,7 +197,7 @@ func (p *devPipeline) Content(ctx context.Context, all bool, changed []string) (
 	if err != nil {
 		return "", err
 	}
-	p.content, p.fresh, p.converted = c, false, fp
+	p.converted = fp
 	if c == nil {
 		return "", nil
 	}
