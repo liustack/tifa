@@ -167,6 +167,7 @@ tifa: content: content/blog/zh-CN/202608/free-search/index.md: Validate: cover m
 - An entry whose `date` is still to come is in the program, but `All`, `In` and `Get` do not return it and other entries' `Translations` do not list it. At that moment it shows up by itself, without a new build or a restart. Entries with the same date come out together.
 - A date alone (`2026-11-20`) is midnight UTC. For an exact time, write RFC 3339 with a zone: `2026-11-20T09:00:00+08:00`.
 - The program goes by the clock of the machine (`time.Now`), not by the render clock of `tifa.WithRenderClock`. When that clock is set, or the machine wakes from sleep, an entry whose date has passed comes out within a minute.
+- `tifa dev` shows drafts and entries whose date is still to come, so you see a post in its lists and on its page while you write it: a draft has `Draft` true, and an entry whose date is still to come is there with that `Date`. A page can mark them, such as `{post.draft && <span>draft</span>}`.
 
 `tifa build` and `tifa check` list the entries that wait for their date, so you can check the dates before you ship:
 
@@ -301,7 +302,7 @@ export default defineConfig({
 - The vfile of each entry has `file.path`, the full path of the Markdown file, and `file.data.tifa`, which is `{ collection, lang, id, frontmatter }` with the front matter as the JSON of the schema. A plugin that reads a file next to the entry finds it from `file.path`.
 - An error a plugin throws fails the build with the file, the place the plugin gives and the name of the plugin. A warning it adds is printed.
 - MDX is not supported: a body is HTML and cannot hold React components. Put components in the page.
-- `tifa build` converts every entry each time. `tifa dev` converts every entry on each build of the bundle.
+- `tifa build` converts every entry each time. `tifa dev` converts every entry when it starts, and after that only the entries that changed, without go build (see [tifa dev](#tifa-dev)).
 
 ### Images and links
 
@@ -325,6 +326,19 @@ The relative URLs of a body (not starting with `/`, `#` or a scheme such as `htt
 | `dist/assets/<name>-<hash>.<ext>` | The files the bodies refer to |
 
 An ID whose body file go:embed would refuse, such as one with `'` in it, fails the build, and so does an entry whose body file would sit below the body file of another, such as `a.html/b.md` next to `a.md`. The generated `main` imports the root package when the app has `content.go`, and reads `content.json` before `OnStart`. `tifa dev` writes the same files into `.tifa/dist/` and the app reads them from there.
+
+## tifa dev
+
+`tifa dev` reads the content from `.tifa/dist`, so a change under `content/` needs no go build and no restart (see [What each change triggers](dev.md#what-each-change-triggers)):
+
+- A Markdown file changed, added or removed, its body or its front matter: tifa dev scans `content/` again, converts that entry, writes `.tifa/dist/content/` and `content.json`, and the running app loads them. The app runs `Validate` on every entry and swaps the data of each collection as a whole. `OnStart` does not run again, the whole-page cache expires, and open pages reload.
+- Another file under `content/`, such as an image: the entries in its folder are converted again, and the translations that fall back to that folder.
+- `content.go` or a schema type: the Go steps run, and every entry is converted again.
+- `vite.config.ts` or a plugin it imports: every entry is converted again once Vite's dev server restarted.
+- A front matter that does not fit, an undeclared folder or an error of a plugin shows the message of `tifa build` in the overlay of the page. An entry that fails `Validate` shows `The app did not load the content`. Either way the app keeps the content it had until you fix it.
+- Drafts and entries whose date is still to come are shown, see [Drafts and dates](#drafts-and-dates).
+
+Work out what depends on the content in the function that needs it, rather than keeping a copy from `OnStart`: under `tifa dev` the content changes while the app runs.
 
 ## Tests
 

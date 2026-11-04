@@ -167,6 +167,7 @@ tifa: content: content/blog/zh-CN/202608/free-search/index.md: Validate: cover m
 - `date` 还没到的条目在程序里，但 `All`、`In`、`Get` 不返回它，别的条目的 `Translations` 也不列它。到了那一刻它自己出现，不用重新构建，也不用重启。日期相同的条目一起出现。
 - 只写日期（`2026-11-20`）按 UTC 零点算。要精确到点，写带时区的 RFC 3339：`2026-11-20T09:00:00+08:00`。
 - 程序按机器的时钟（`time.Now`）判断，和 `tifa.WithRenderClock` 的渲染时钟无关。机器时钟被调整过，或者机器从睡眠中醒来，日期已过的条目一分钟内出现。
+- `tifa dev` 草稿和日期没到的条目都显示，写作时就能在列表和文章页里看到它：草稿的 `Draft` 为 true，日期没到的条目照常出现，`Date` 就是那个日期。页面可以给它们加标记，比如 `{post.draft && <span>draft</span>}`。
 
 `tifa build` 和 `tifa check` 列出等待发布的条目，上线前可以核对时间写得对不对：
 
@@ -301,7 +302,7 @@ export default defineConfig({
 - 每篇的 vfile 带 `file.path`（Markdown 文件的完整路径）和 `file.data.tifa`，后者是 `{ collection, lang, id, frontmatter }`，front matter 是按 schema 转好的 JSON。要读条目旁边某个文件的插件，从 `file.path` 找。
 - 插件抛错时构建失败，报错带文件、插件给的位置和插件的名字。插件加的警告会打出来。
 - 不支持 MDX：正文是 HTML，放不了 React 组件。组件写在页面里。
-- `tifa build` 每次都转换全部条目。`tifa dev` 每次构建包时都转换全部条目。
+- `tifa build` 每次都转换全部条目。`tifa dev` 启动时全部转换一次，之后只转换变了的条目，不跑 go build（见 [tifa dev](#tifa-dev)）。
 
 ### 图片和链接
 
@@ -325,6 +326,19 @@ export default defineConfig({
 | `dist/assets/<名字>-<哈希>.<扩展名>` | 正文引用的文件 |
 
 正文文件名 go:embed 不收的 ID（比如含 `'`）让构建失败。一篇的正文文件落在另一篇正文文件下面时也失败，比如 `a.md` 旁边的 `a.html/b.md`。应用有 `content.go` 时，生成的 `main` 导入根包，并在 `OnStart` 之前读 `content.json`。`tifa dev` 把同样的文件写到 `.tifa/dist/`，应用从那里读。
+
+## tifa dev
+
+`tifa dev` 从 `.tifa/dist` 读内容，所以 `content/` 下的改动不需要 go build，也不用重启（见[改动触发什么](dev.zh-CN.md#改动触发什么)）：
+
+- Markdown 文件的正文或 front matter 改了，或者新增、删除：tifa dev 重新扫描 `content/`，转换这一篇，写 `.tifa/dist/content/` 和 `content.json`，正在运行的应用随即载入。应用对每个条目跑 `Validate`，每个集合整体换成新数据。`OnStart` 不再跑，整页缓存过期，打开着的页面刷新。
+- `content/` 下的其他文件，比如图片：它所在文件夹里的条目重新转换，回退到这个文件夹的译文也是。
+- `content.go` 或 schema 类型：跑 Go 的那些步骤，全部条目重新转换。
+- `vite.config.ts` 或它导入的插件：Vite 开发服务器重启后全部条目重新转换。
+- front matter 对不上、文件夹没声明、插件报错时，页面的浮层显示和 `tifa build` 一样的消息。有条目没通过 `Validate` 时显示 `The app did not load the content`。两种情况下应用都继续用原来的内容，直到你改好。
+- 草稿和日期没到的条目都显示，见[草稿和日期](#草稿和日期)。
+
+依赖内容算出来的东西，在要用它的函数里现算，别在 `OnStart` 里存一份：`tifa dev` 下内容会在应用运行时变。
 
 ## 测试
 

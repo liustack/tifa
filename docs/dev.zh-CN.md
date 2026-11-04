@@ -46,6 +46,10 @@ tifa dev 监视应用根目录，跳过 `.git`、`.tifa`、`node_modules` 和放
 | 被 Go 代码嵌入的文件新增或删除 | 静态分析、go build | 刷新 |
 | 上一行且路由清单变了（路由、Load 和 Layout 的返回类型、方法函数的入参和结果类型、钩子等） | 静态分析、生成代码、打包、go build | 刷新 |
 | 新增或删除 `page.tsx`、`layout.tsx`、`layout_.tsx`，或改 `tifa.yaml` | 全部步骤 | 刷新 |
+| `content/` 下集合里的 Markdown 文件，改正文或 front matter，也包括新增、删除，或改了 `slug`、`translationKey` | 内容：Go 扫描 `content/`，转换这一篇 | 刷新 |
+| `content/` 下的其他文件，比如页面包里的图片 | 内容：它所在文件夹里的条目，以及回退到这个文件夹的译文 | 刷新 |
+| `content.go` 或 schema 类型 | 静态分析、go build（页面的类型变了时再加生成代码和打包），内容全部转换 | 刷新 |
+| `vite.config.ts` 或它导入的插件文件 | 打包，等 Vite 开发服务器重启后内容全部转换 | 刷新 |
 
 - 前端改动经 Vite 送到打开着的页面：React Fast Refresh 换掉改过的组件并保留它们的状态，新 CSS 替换旧的。模块换不了时（比如除了组件还导出了别的东西），Vite 自己刷新页面。改 `vite.config.ts` 会让 Vite 重启开发服务器，改 `tsconfig.json` 会刷新页面。改了 `paths` 里的某一项后，Vite 开发服务器可能仍导入旧的目标，直到 tifa dev 重启。
 - 同时 tifa dev 重建 SSR 包（不做 go build），运行中的应用从 `.tifa/dist` 读入新包，换掉旧包。应用不重启：`OnStart` 不会再跑，应用放在内存里的东西都还在。重建要产出新 SSR 包时，这期间到达的页面请求会等新包换上（最多等 30 秒），所以刷新看到的是新的服务端渲染。Vite 开发服务器重启期间要构建的 SSR 包会等重启完成，如果重启让这次构建失败，就在新的服务器上再构建一次。从重建开始就等（补做上次失败留下的打包时也一样），Go 改动则从静态分析发现路由清单变了那一刻开始等，早于生成代码。
@@ -54,6 +58,9 @@ tifa dev 监视应用根目录，跳过 `.git`、`.tifa`、`node_modules` 和放
 - 应用根目录以外、被 Vite 开发服务器加载的文件（比如工作区里另一个包的源码，或用 `?raw` 导入的文本文件）由 Vite 监视，不归 tifa dev。它变了时，不论是哪种文件，tifa dev 都会重建 SSR 包，和应用里的前端文件一样，日志里用从应用根目录出发的路径列出它。Vite 开发服务器重启期间这样的文件也可能变，这时旧的监视和新的监视都看不到。所以开发服务器的重启每次结束后（重叠的几次重启算一次），不管是谁发起的、成没成功，tifa dev 都重建一次 SSR 包，日志里写 `Vite's dev server restarted`。新的监视接着盯旧的监视盯过的根目录以外的文件。
 - Vite 重启开发服务器时不会等新的文件监视读完应用根目录，而监视还没读到的文件没有起点，在那之前的修改永远看不到，开发服务器已经给出的模块会一直是旧的，直到这个文件再次改动。所以重启之后，开发服务器要等监视读完文件才回应请求，应用越大等得越久。
 - `go:embed` 嵌进程序的文件是程序的一部分，所以它变了就要重新构建，哪怕它不是 Go 文件。tifa dev 从静态分析得知有哪些：分析向 go 命令要模块里每个包嵌入的文件和模式，之后 tifa dev 就监视它们，也包括 `//go:embed posts` 或 `posts/*.md` 这样的模式新带进来的文件。不带 `all:` 嵌入的目录会跳过以 `.` 或 `_` 开头的名字，和 go 命令一致，带自己 `go.mod` 的目录（另一个模块）也跳过。文件新增或删除时分析会再跑一次，因为这可能改变嵌入了哪些文件，只是编辑则只需要 go build。既是嵌入文件又是前端文件的（比如页面导入的 `.json`）两个步骤都会跑。被 tifa dev 跳过的目录（见上文）里的嵌入文件不被监视。第一次分析成功之前，嵌入的文件还不知道。
+- 内容不需要 go build：开发程序从 `.tifa/dist` 读 `content.json` 和正文（见[内容](content.zh-CN.md)）。内容这一步在 Go 里重新扫描 `content/`，在 Vite 开发服务器的 Node 进程里转换变了的条目，写 `.tifa/dist/content/` 和 `content.json`。正在运行的应用随后重新载入内容，对每个条目跑 `Validate`，每个集合整体换成新数据，所以一个请求看到的一个集合要么全是旧条目，要么全是新条目。应用不重启，`OnStart` 不再跑。整页缓存里的页面全部过期。第一次启动时全部转换一次。有集合的应用改了 Go 代码，内容这一步也会跑，因为集合或 schema 类型可能变了，变了就全部转换。
+- tifa dev 下内容里有草稿（`Draft` 为 true）和日期还没到的条目（带着它的 `Date`），写作时就能在列表和文章页里看到它。页面可以给它们加标记。
+- front matter 和 schema 对不上、`content/` 下有没声明的文件夹、插件报错时，浮层显示和 `tifa build` 一样的消息，应用继续用原来的内容。有条目没通过 `Validate` 时，浮层标题是 `The app did not load the content`，应用同样继续用原来的内容。
 - 公共目录里的图片、字体等文件改内容不触发重建，下一次打包时才复制过去。公共目录里新增或删除文件会跑打包这一步，它会重新生成代码，因为生成的路由代码列着公共文件（见[路由树](build.zh-CN.md#路由树)）。日志里像别的改动一样写出文件名。`tifa.yaml` 里的 `build.public` 改了，监视的目录随之换掉，不用重启。
 - 样式表经过 Vite 开发服务器，`@tailwindcss/vite` 编译 Tailwind CSS 的方式和在任何 Vite 应用里一样。
 - 页面 head 里链接了服务端渲染导入的样式表，地址指向 Vite 开发服务器，所以脚本跑起来前页面就有样式，和构建出的页面一样。样式表改了，Vite 会更新这些链接。只被 `.client` 模块导入的样式表随它们的脚本一起到。
@@ -164,7 +171,7 @@ Hydration mismatch in the browser: http://127.0.0.1:9527/orders (×3)
 | 路径 | 内容 |
 | --- | --- |
 | `.tifa/` | 生成代码，与 `tifa build` 相同 |
-| `.tifa/dist/` | SSR 包、`build.json` 和公共文件。浏览器模块改由 Vite 开发服务器提供 |
+| `.tifa/dist/` | SSR 包、`build.json`、公共文件，有集合的应用还有 `content.json` 和 `content/` 里的正文。浏览器模块改由 Vite 开发服务器提供 |
 | `bin/tifa-dev` | 开发用的可执行文件 |
 
 应用在应用根目录里运行，从别的目录用 `--dir` 启动 tifa dev 时也一样，和在应用根目录里运行 `tifa build` 出的程序一致。应用按相对路径打开的文件，比如 [tifa new](build.zh-CN.md#tifa-new) 模板里的 `app.db`，都落在这里。它读的 `.env` 也在这里（见 [.env](config.zh-CN.md#env)）。tifa dev 用 `SERVER_ADDR` 告诉应用监听哪个地址，它优先于 shell 里的 `PORT` 和 `.env`。
@@ -179,7 +186,7 @@ tifa dev 用系统的文件事件监视目录。应用的目录或文件多到�
 tifa dev: 07:35:36 watching app/assets would use up the system's file watches, so it and the directories found after it are polled for changes
 ```
 
-- 在 macOS、FreeBSD、OpenBSD、NetBSD 和 DragonFly 上，tifa dev 用 kqueue 监视。一个被监视的目录占一个文件描述符，目录里属于上表那几类的文件也各占一个，嵌入的文件也是，之后新出现的也一样。其他文件（比如图片）不占。tifa dev 把这些算进一个进程能打开数量的一半（取打开文件上限和 `kern.maxfilesperproc` 中较小的那个），超出的目录改为轮询，已监视的目录后来文件变多超出时也一样。
+- 在 macOS、FreeBSD、OpenBSD、NetBSD 和 DragonFly 上，tifa dev 用 kqueue 监视。一个被监视的目录占一个文件描述符，目录里属于上表那几类的文件也各占一个，嵌入的文件和 `content/` 下的文件也是，之后新出现的也一样。其他文件（比如 `content/` 以外的图片）不占。tifa dev 把这些算进一个进程能打开数量的一半（取打开文件上限和 `kern.maxfilesperproc` 中较小的那个），超出的目录改为轮询，已监视的目录后来文件变多超出时也一样。
 - Linux 上监视一个目录占用户的一个 inotify watch，编辑器等工具共用这个额度。tifa dev 最多用 `fs.inotify.max_user_watches` 的一半。
 - 系统先用完时（其他程序占了大量 watch 或文件），tifa dev 轮询没能监视的目录，再还回自己占着的一小部分额度，继续工作。运行中才用完时（比如打不开文件），tifa dev 停掉系统事件监视，改为轮询所有目录，并把所有文件重新比对一遍。
 - 每轮轮询列出被轮询的目录，只对大小、修改时间或文件身份变了的文件重新算校验和。两轮之间至少隔一秒，且至少是上一轮耗时的十倍。被监视的目录里有文件增删时，也按同样的规则重新列出（只是没有一秒的下限），所以一个不停变大的目录不会多花开销。轮询和重新列出因此各自最多占大约一个 CPU 核的十分之一，处理文件事件和重建的开销另算。
