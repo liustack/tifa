@@ -3,6 +3,7 @@ package bundle
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -347,6 +348,16 @@ func namespaceChunk(pkg string) string {
 	return b.String()
 }
 
+// namespaceIds is the modules of namespaceChunk(pkg), whose paths namespaceChunk writes from a
+// root in /app.
+func namespaceIds(pkg string) []string {
+	ids := []string{"/app/page.tsx"}
+	for i := range cjsExports {
+		ids = append(ids, fmt.Sprintf("/app/node_modules/.pnpm/%[1]s@1.0.0/node_modules/%[1]s/m%[2]d.js", pkg, i))
+	}
+	return ids
+}
+
 // plain is what plainNamespaces of the tifa Vite plugin does to a chunk, run on Node: the new code,
 // the warning, and for each module of the chunk when it runs, its namespaces with and without Node
 // mode as the original code and the new one give them.
@@ -401,26 +412,41 @@ func plainOnNode(t *testing.T, code string, ids []string) plain {
 // namespace of plain values in place of rolldown's getters, the same values with the same
 // prototype, names and enumerability, and leaves the namespaces of other packages as they are.
 func TestPluginGivesReactNamespacesPlainValues(t *testing.T) {
-	ids := []string{"/app/node_modules/react/index.js", "/app/node_modules/react-dom/index.js", "/app/page.tsx"}
 	// rolldown adds $ and a number to the name of a helper when the bundle has another name like it.
 	renamed := strings.NewReplacer("__defProp", "__defProp$34", "__toESM", "__toESM$1", "__commonJSMin", "__commonJSMin$2")
+	// A build without minify keeps the comment at the top of each file of React before the require
+	// function of the file, as tifa dev builds the SSR bundle: a block on lines of its own, a block
+	// on the line of the require function, a line comment. testPlainOnRolldown has the real ones.
+	forms := map[string]*strings.Replacer{
+		"block":      strings.NewReplacer(".js\nvar require_m", ".js\n/**\n* @license React\n* m.js\n*/\nvar require_m"),
+		"same line":  strings.NewReplacer(".js\nvar require_m", ".js\n/* @license React */ var require_m"),
+		"line":       strings.NewReplacer(".js\nvar require_m", ".js\n// @license React\nvar require_m"),
+		"line block": strings.NewReplacer(".js\nvar require_m", ".js\n// @license React\n/* @license React */\n/* more */ var require_m"),
+		// The module before ends in a line comment, right before the line of the next module.
+		"line after": strings.NewReplacer("}));\n\n//#endregion\n//#region", "}));\n// @license the end\n//#endregion\n//#region", ".js\nvar require_m", ".js\n// @license React\nvar require_m"),
+	}
+	cases := map[string]string{
+		"react":     namespaceChunk("react"),
+		"react-dom": namespaceChunk("react-dom"),
+		"renamed":   renamed.Replace(namespaceChunk("react")),
+	}
+	for name, form := range forms {
+		cases[name] = form.Replace(namespaceChunk("react"))
+	}
 	// From 1.2.15 rolldown starts each module with "// path" and no longer ends it.
 	comments := strings.NewReplacer("//#region ", "// ", "//#endregion\n", "")
-	// A build without minify keeps the comment at the top of each file of React, between the line
-	// of the module and its require function, as tifa dev builds the SSR bundle.
-	license := strings.NewReplacer(".js\nvar require_m", ".js\n/**\n* @license React\n* m.js\n*/\nvar require_m")
-	for _, pkg := range []string{"react", "react-dom", "renamed", "comments", "license", "license comments"} {
-		chunk, plainCall := namespaceChunk(pkg), "__tifaV(require_m"
-		switch pkg {
-		case "renamed":
-			chunk, plainCall = renamed.Replace(namespaceChunk("react")), "__tifaV$1(require_m"
-		case "comments":
-			chunk = comments.Replace(namespaceChunk("react"))
-		case "license":
-			chunk = license.Replace(namespaceChunk("react"))
-		case "license comments":
-			chunk = comments.Replace(license.Replace(namespaceChunk("react")))
+	for name, chunk := range maps.Clone(cases) {
+		cases[name+", 1.2.15"] = comments.Replace(chunk)
+	}
+	for name, chunk := range cases {
+		plainCall, ids := "__tifaV(require_m", namespaceIds("react")
+		if strings.HasPrefix(name, "renamed") {
+			plainCall = "__tifaV$1(require_m"
 		}
+		if strings.HasPrefix(name, "react-dom") {
+			ids = namespaceIds("react-dom")
+		}
+		pkg := name
 		got := plainOnNode(t, chunk, ids)
 		if got.Warning != "" {
 			t.Errorf("%s: warning %s", pkg, got.Warning)
@@ -443,12 +469,13 @@ func TestPluginGivesReactNamespacesPlainValues(t *testing.T) {
 			t.Errorf("%s: the namespaces are\n%s\nwant\n%s", pkg, strings.Join(got.After, "\n"), strings.Join(got.Before, "\n"))
 		}
 	}
-	if got := plainOnNode(t, namespaceChunk("abort-controller"), ids); got.Code != namespaceChunk("abort-controller") || got.Warning != "" {
+	other := append(namespaceIds("abort-controller"), "/app/node_modules/react/index.js")
+	if got := plainOnNode(t, namespaceChunk("abort-controller"), other); got.Code != namespaceChunk("abort-controller") || got.Warning != "" {
 		t.Errorf("the chunk of another package changed to\n%s\nwarning %q", got.Code, got.Warning)
 	}
 	// Without React in the bundle there is nothing to change and nothing to warn of.
 	odd := strings.Replace(namespaceChunk("react"), "get: ((k) => from[k]).bind(null, key)", "get: () => from[key]", 1)
-	if got := plainOnNode(t, odd, ids[2:]); got.Code != odd || got.Warning != "" {
+	if got := plainOnNode(t, odd, []string{"/app/page.tsx"}); got.Code != odd || got.Warning != "" {
 		t.Errorf("a bundle without React changed to\n%s\nwarning %q", got.Code, got.Warning)
 	}
 }
@@ -457,19 +484,110 @@ func TestPluginGivesReactNamespacesPlainValues(t *testing.T) {
 // the build warns, with the packages and why, and the chunk stays as it is.
 func TestPluginWarnsWhenItCannotGiveReactNamespacesPlainValues(t *testing.T) {
 	chunk := namespaceChunk("react")
+	region := "//#region ../node_modules/.pnpm/react@1.0.0/node_modules/react/m0.js\n"
+	// A line comment in the place of the line of the module is no path, in either form.
+	comment := strings.Replace(chunk, region, "// @license React\n", 1)
+	from1215 := strings.NewReplacer("//#region ", "// ", "//#endregion\n", "")
 	for name, c := range map[string]struct{ code, why string }{
-		"getter":     {strings.Replace(chunk, "get: ((k) => from[k]).bind(null, key)", "get: () => from[key]", 1), "writes __toESM"},
-		"no __toESM": {strings.Replace(chunk, "var __toESM = (mod, isNodeMode, target) =>", "var __toESM2 = (mod, isNodeMode, target) =>", 1), "writes __toESM"},
-		"call":       {strings.Replace(chunk, "var ns0 = /* @__PURE__ */ __toESM(require_m0());", "var ns0 = /* @__PURE__ */ __toESM(globalThis.x ? require_m0() : null);", 1), "calls __toESM"},
-		"region":     {strings.Replace(chunk, "//#region ../node_modules/.pnpm/react@1.0.0/node_modules/react/m0.js\n", "", 1), "require_m0"},
-		"name":       {chunk + "var __tifaV = 1;\n", "__tifaV"},
+		"getter":         {strings.Replace(chunk, "get: ((k) => from[k]).bind(null, key)", "get: () => from[key]", 1), "writes __toESM"},
+		"no __toESM":     {strings.Replace(chunk, "var __toESM = (mod, isNodeMode, target) =>", "var __toESM2 = (mod, isNodeMode, target) =>", 1), "writes __toESM"},
+		"call":           {strings.Replace(chunk, "var ns0 = /* @__PURE__ */ __toESM(require_m0());", "var ns0 = /* @__PURE__ */ __toESM(globalThis.x ? require_m0() : null);", 1), "calls __toESM"},
+		"region":         {strings.Replace(chunk, region, "", 1), "require_m0"},
+		"comment":        {comment, "require_m0"},
+		"comment 1.2.15": {from1215.Replace(comment), "require_m0"},
+		// The line names no module of the chunk, so the package is not known.
+		"other module": {strings.Replace(chunk, "/react/m0.js\n", "/react/gone.js\n", 1), "require_m0"},
+		"code":         {strings.Replace(chunk, region, region+"globalThis.x = 1;\n", 1), "require_m0"},
+		"name":         {chunk + "var __tifaV = 1;\n", "__tifaV"},
 	} {
-		got := plainOnNode(t, c.code, []string{"/app/node_modules/react/index.js", "/app/node_modules/.pnpm/react-dom@1.0.0/node_modules/react-dom/index.js"})
+		got := plainOnNode(t, c.code, append(namespaceIds("react"), "/app/node_modules/.pnpm/react-dom@1.0.0/node_modules/react-dom/index.js"))
 		if got.Code != c.code {
 			t.Errorf("%s: the chunk changed to\n%s", name, got.Code)
 		}
 		if !strings.HasPrefix(got.Warning, "react, react-dom: ") || !strings.Contains(got.Warning, c.why) || !strings.Contains(got.Warning, "plain values") {
 			t.Errorf("%s: warning %q, want one with the packages and %q", name, got.Warning, c.why)
+		}
+	}
+}
+
+// The CommonJS files of React keep the comments at their top in a build without minify, which
+// rolldown writes before the require function of the file in several forms. plainNamespaces reads
+// past each of them in what rolldown writes, with and without minify, with the line of each module
+// as rolldown 1.2.14 writes it and as 1.2.15 does. An ES module before them ends in a line comment.
+func TestPluginGivesPlainValuesInWhatRolldownWrites(t *testing.T) {
+	modules := testModules(t)
+	root := t.TempDir()
+	files := map[string]string{
+		// React's own form: a block, an empty line and "use strict".
+		"node_modules/react/block.js":     "/**\n * @license React\n * block.js\n */\n\n'use strict';\nexports.a = 1;\n",
+		"node_modules/react/sameline.js":  "/* @license React */ 'use strict'; exports.b = 2;\n",
+		"node_modules/react/line.js":      "// @license React\n'use strict';\nexports.c = 3;\n",
+		"node_modules/react/two.js":       "// @license React\n/** @license React */\n'use strict';\nexports.d = 4;\n",
+		"node_modules/react/package.json": `{"name":"react"}`,
+		"node_modules/other/index.js":     "/* @license other */ 'use strict'; exports.e = 5;\n",
+		"node_modules/other/package.json": `{"name":"other"}`,
+		"tail.js":                         "export const tail = globalThis.x;\n// @license the end of tail.js\n",
+		"entry.js": "import { tail } from './tail.js'\nimport * as block from 'react/block.js'\nimport * as sameline from 'react/sameline.js'\n" +
+			"import * as line from 'react/line.js'\nimport * as two from 'react/two.js'\nimport * as other from 'other'\n" +
+			"globalThis.out = [tail, block, sameline, line, two, other]\n",
+	}
+	writeTree(t, root, files)
+	plugin := filepath.Join(t.TempDir(), "plugin.mjs")
+	if err := os.WriteFile(plugin, []byte(js.VitePlugin), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The comments Vite 8 keeps: { annotation, jsdoc, legal } all without minify, none with it.
+	script := "const fs = await import('node:fs')\nconst { createRequire } = await import('node:module')\n" +
+		"const [plugin, vite, dir] = process.argv.slice(1)\n" +
+		"const root = fs.realpathSync(dir)\n" +
+		"const { rolldown } = await import(createRequire(fs.realpathSync(vite)).resolve('rolldown'))\n" +
+		"const { plainNamespaces } = await import(plugin)\n" +
+		"const out = []\n" +
+		"for (const minify of [false, true]) {\n" +
+		"  let code, ids\n" +
+		"  const bundle = await rolldown({ cwd: root, input: root + '/entry.js', plugins: [{ name: 'see', renderChunk(c, chunk) { code = c; ids = chunk.moduleIds; return null } }] })\n" +
+		"  await bundle.generate({ format: 'esm', minify, comments: { annotation: !minify, jsdoc: !minify, legal: !minify } })\n" +
+		"  for (const from1215 of [false, true]) {\n" +
+		"    const chunk = from1215 ? code.replaceAll('//#region ', '// ').replaceAll('//#endregion\\n', '') : code\n" +
+		"    const { code: changed, warning = '' } = plainNamespaces(chunk, ids)\n" +
+		"    out.push({ minify, from1215, code: chunk, changed, warning })\n" +
+		"  }\n" +
+		"}\n" +
+		"process.stdout.write(JSON.stringify(out))\n"
+	cmd := exec.Command("node", "--input-type=module", "-e", script, plugin, filepath.Join(modules, "vite", "package.json"), root)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("node: %v\n%s", err, stderr.String())
+	}
+	var results []struct {
+		Minify, From1215       bool
+		Code, Changed, Warning string
+	}
+	if err := json.Unmarshal(out, &results); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	for _, r := range results {
+		name := fmt.Sprintf("minify %v, 1.2.15 %v", r.Minify, r.From1215)
+		if !r.Minify {
+			// The forms this test is for, as rolldown writes them.
+			for _, form := range []string{"*/\nvar require_block", "/* @license React */ var require_sameline", "// @license React\nvar require_line", "*/\nvar require_two", "// @license the end of tail.js\n"} {
+				if !strings.Contains(r.Code, form) {
+					t.Errorf("%s: rolldown no longer writes %q:\n%s", name, form, r.Code)
+				}
+			}
+		}
+		if r.Warning != "" {
+			t.Errorf("%s: warning %s\n%s", name, r.Warning, r.Code)
+		}
+		for _, module := range []string{"block", "sameline", "line", "two"} {
+			if !strings.Contains(r.Changed, "__tifaV(require_"+module+"()") {
+				t.Errorf("%s: react/%s.js gets no plain values:\n%s", name, module, r.Changed)
+			}
+		}
+		if !strings.Contains(r.Changed, "__toESM(require_other()") {
+			t.Errorf("%s: the module of another package changed:\n%s", name, r.Changed)
 		}
 	}
 }

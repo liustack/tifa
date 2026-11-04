@@ -3519,9 +3519,10 @@ function guardable(node) {
 // through a namespace calls a getter each time, which takes long in QuickJS. React and React DOM
 // set their exports once, when their modules run, and never change them, so plainESM gives the
 // same namespace with each export's value: the same values, prototype, names and enumerability.
-// It changes only the calls of __toESM whose module rolldown wrote under a region of those
-// packages ("//#region path", from rolldown 1.2.15 "// path"), and finds the helpers and the calls by the form rolldown writes them in: when the form
-// is another, it warns and changes nothing. The calls keep their length and plainESM goes at the
+// It changes only the calls of __toESM whose module rolldown wrote under the line of a module of
+// those packages (see packageBefore), and finds the helpers and the calls by the form rolldown
+// writes them in: when the form is another, or the package of a module is not known, it warns and
+// changes nothing. The calls keep their length and plainESM goes at the
 // end of the line of __toESM, which has no source, so every other place stays where it was.
 export function plainNamespaces(code, ids) {
   const packages = [...new Set(ids.map(packageName).filter((name) => plainPackages.has(name)))].sort()
@@ -3554,11 +3555,9 @@ export function plainNamespaces(code, ids) {
   const plainName = '__tifaV' + toESM.slice('__toESM'.length)
   if (new RegExp(`\\b${plainName.replace('$', '\\$')}(?![\\w$])`).test(code)) return skip(`the SSR bundle already names ${plainName}`)
   const regions = new Map() // the name of each module's require function to its package
-  // A build without minify, such as the one of tifa dev, keeps the comments at the top of a file,
-  // such as the license of React, between the line of the module and its require function.
-  const declaration = /^\/\/(?:#region)? ([^\n]+)\n(?:[\t ]*\/\*(?:[^*]|\*(?!\/))*\*\/[\t ]*\n)*[\t ]*var (require_[\w$]+) = \/\* @__PURE__ \*\/ __commonJSMin(?:\$\d+)?\(/gm
-  for (const m of code.matchAll(declaration)) {
-    regions.set(m[2], packageName(m[1]))
+  for (const m of code.matchAll(/(?<![\w$.])var (require_[\w$]+) = \/\* @__PURE__ \*\/ __commonJSMin(?:\$\d+)?\(/g)) {
+    const name = packageBefore(code, m.index, ids)
+    if (typeof name === 'string') regions.set(m[1], name)
   }
   const plain = []
   for (const { index: at } of code.matchAll(new RegExp(`(?<![\\w$])${toESM.replace('$', '\\$')}\\(`, 'g'))) {
@@ -3576,6 +3575,46 @@ export function plainNamespaces(code, ids) {
   for (const at of plain) changed = changed.slice(0, at) + plainName + changed.slice(at + plainName.length)
   const helper = plainESM.replace('__tifaV', plainName).replace(/\b__[A-Za-z]+\b/g, (name) => helpers.get(name) ?? name)
   return { code: changed.slice(0, end) + helper + changed.slice(end) }
+}
+
+const blockComment = /^\/\*(?:[^*]|\*(?!\/))*\*\/$/
+
+// packageBefore returns the package of the module whose require function rolldown declares at at
+// in code, a chunk of the modules ids: the package of the module that the nearest line above it
+// names, "//#region path" or from rolldown 1.2.15 "// path", with the path relative to the root.
+// Only white space and comments may come between them: a build without minify, such as the one of
+// tifa dev, keeps the comments at the top of a file, such as the license of React, which rolldown
+// writes on lines of their own or on the line of the require function. A line comment is the line
+// of a module only when its path ends one of ids, so a comment never passes for it. It returns
+// undefined when no such line comes first, and null when the path ends modules of more than one
+// package, so the package is never guessed.
+function packageBefore(code, at, ids) {
+  let end = at
+  for (;;) {
+    while (end > 0 && (code[end - 1] === ' ' || code[end - 1] === '\t')) end--
+    if (end >= 2 && code.startsWith('*/', end - 2)) {
+      const open = code.lastIndexOf('/*', end - 3)
+      if (open < 0 || !blockComment.test(code.slice(open, end))) return undefined
+      end = open
+      continue
+    }
+    if (end === 0 || code[end - 1] !== '\n') return undefined // code, or the start of the chunk
+    const start = code.lastIndexOf('\n', end - 2) + 1
+    const line = code.slice(start, end - 1).trim()
+    if (line.startsWith('//')) {
+      if (line === '//#endregion') return undefined // the end of the module before
+      const path = /^\/\/(?:#region)? (.+)$/.exec(line)?.[1]
+      if (path !== undefined) {
+        const tail = '/' + path.replace(/\\/g, '/').replace(/^(?:\.\.?\/)+/, '')
+        const named = new Set(ids.filter((id) => ('/' + id.replace(/\\/g, '/')).endsWith(tail)).map(packageName))
+        if (named.size === 1) return [...named][0]
+        if (named.size > 1) return null
+      }
+      end = start
+      continue
+    }
+    end-- // the line ends in a block comment, or holds nothing
+  }
 }
 
 // jsxRuntimePieces reads the production file of React's JSX runtime, program parsed from source, and
