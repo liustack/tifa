@@ -168,6 +168,7 @@
 
 ### 修复
 
+- `tifa dev` 下刚保存完就加载的页面，现在拿到的是新的服务端渲染。之前在大约头 100 毫秒里（文件还没安静下来、重建还没开始）到达的请求拿到的是旧的。保存导出了 `head`、`htmlAttributes` 或 `documentHead` 的 `page.tsx` 或 `layout.tsx` 时，Vite 会立刻刷新页面，浏览器因此常常撞上这段时间：页面还是旧文字，React 报 `Hydration failed`。现在这样的请求会等重建完成（见[改动触发什么](docs/dev.zh-CN.md#改动触发什么)）。
 - `tifa new` 写出的应用的页面现在会立刻显示新加的待办和标记完成后的状态。之前不会：注释说写入之后页面数据会重新加载，但 tifa 从不自己重新加载，列表要刷新页面才更新。现在添加表单和完成按钮在写入之后调用 `router.invalidate()`，注释也改成了实际情况（见[在浏览器里调用方法函数](docs/app.zh-CN.md#在浏览器里调用方法函数)）。
 - `tifa dev` 的 head 里不再放 Vite 插件用 `transformIndexHtml` 加的标签，只保留 Vite 客户端和 React 刷新运行时。`tifa build` 从不跑这个钩子，这类标签以前在 `tifa dev` 里有、上线后悄悄消失。现在 tifa dev 会为每个省掉的标签打印警告并写出标签。要在两边都有，把标签写进根 `layout.tsx` 的 `head`。
 - `tifa dev` 的 SSR 包也像 `tifa build` 一样把 React 和 React DOM 命名空间的导出换成直接的值，不再打印 `tifa rewrite not recognized: react, react-dom`。`tifa dev` 的包不压缩，留着 React 的许可注释，改写因此认不出 React 的模块，dev 下页面每读一个导出都要调一次 getter。
