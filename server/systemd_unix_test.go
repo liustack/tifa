@@ -71,7 +71,7 @@ func TestSystemdSocketsFollowTheirNames(t *testing.T) {
 			}
 		}
 	})
-	t.Run("one socket serves server.addr whatever its name", func(t *testing.T) {
+	t.Run("one socket without the name of a setting serves server.addr", func(t *testing.T) {
 		for _, names := range []string{"", "shop.socket"} {
 			ln := listenLoopback(t)
 			got, err := systemdSockets(env("LISTEN_PID", strconv.Itoa(pid), "LISTEN_FDS", "1", "LISTEN_FDNAMES", names), pid, passSockets(t, ln))
@@ -80,6 +80,14 @@ func TestSystemdSocketsFollowTheirNames(t *testing.T) {
 			}
 			got["server.addr"].Close()
 		}
+	})
+	t.Run("one socket named server.http_addr serves it", func(t *testing.T) {
+		ln := listenLoopback(t)
+		got, err := systemdSockets(env("LISTEN_PID", strconv.Itoa(pid), "LISTEN_FDS", "1", "LISTEN_FDNAMES", "server.http_addr"), pid, passSockets(t, ln))
+		if err != nil || len(got) != 1 || got["server.http_addr"].Addr().String() != ln.Addr().String() {
+			t.Fatalf("%v, %v", got, err)
+		}
+		got["server.http_addr"].Close()
 	})
 	t.Run("named sockets", func(t *testing.T) {
 		https, http := listenLoopback(t), listenLoopback(t)

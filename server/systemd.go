@@ -26,9 +26,9 @@ const (
 // holds their names, separated by colons. It returns nil when LISTEN_PID names another process
 // or none, as when no systemd started the program.
 //
-// A single socket serves server.addr whatever its name, which is the name of its unit unless
-// FileDescriptorName says otherwise. Several sockets must be named server.addr and
-// server.http_addr.
+// A socket named server.addr or server.http_addr serves that setting. A single socket with any
+// other name, which is the name of its unit unless FileDescriptorName says otherwise, serves
+// server.addr. Several sockets must be named server.addr and server.http_addr.
 func systemdSockets(getenv func(string) string, pid, first int) (map[string]net.Listener, error) {
 	if getenv("LISTEN_PID") != strconv.Itoa(pid) {
 		return nil, nil

@@ -115,7 +115,7 @@ Service=shop.service
 WantedBy=sockets.target
 ```
 
-In `shop.service`, `Requires=` and `After=` name both units, and `[Service]` adds `Sockets=shop-https.socket shop-http.socket`. Keep `server.addr: :443` in the settings, which [HTTPS](config.md#https) asks for. A single socket serves `server.addr` whatever its name. Several must be named `server.addr` and `server.http_addr`, and a socket for `server.http_addr` without HTTPS on stops the program with an error. The program listens itself on an address systemd passed no socket for.
+In `shop.service`, `Requires=` and `After=` name both units, and `[Service]` adds `Sockets=shop-https.socket shop-http.socket`. Keep `server.addr: :443` in the settings, which [HTTPS](config.md#https) asks for. A socket named `server.addr` or `server.http_addr` serves that setting, and a single socket with any other name, or none, serves `server.addr`. Several must be named `server.addr` and `server.http_addr`, and a socket for `server.http_addr` without HTTPS on stops the program with an error. The program listens itself on an address systemd passed no socket for.
 
 ## Ports and HTTPS
 
