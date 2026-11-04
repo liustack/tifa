@@ -296,7 +296,7 @@ function Header() {
 
 `data-session` 是 tifa 在 `<html>` 上管的属性。根 Layout 的 `htmlAttributes` 设了它，服务器启动时就会停下（VM 预热失败，`tifa dev` 会显示错误）。路由的 `htmlAttributes` 设了它，渲染会失败。
 
-**内容安全策略（CSP）。** 脚本和样式都是内联的，每个页面都一样。CSP 写在 `<meta>` 标签里时它们不受影响，因为它们排在标签前面。CSP 写在响应头里时，放行它们的哈希：
+**内容安全策略（CSP）。** 脚本和样式都是内联的，每个页面都一样。开了 `server.csp` 时，tifa 自己把它们的哈希加进每个页面的策略（见 [Content-Security-Policy](config.zh-CN.md#content-security-policy)）。CSP 写在 `<meta>` 标签里时它们不受影响，因为它们排在标签前面。自己在响应头里写 CSP 时，放行它们的哈希：
 
 ```text
 script-src 'sha256-NWjzg1BGj/5CJBw80xzDV4Gmw6vQUG2ExZLUcX4mWkE='

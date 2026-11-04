@@ -123,6 +123,9 @@ func kindOf(key string) int {
 type cachedPage struct {
 	html       string
 	gzip, zstd []byte
+	// policy is the Content-Security-Policy of the page with the hashes of its inline scripts and
+	// styles, "" with server.csp off (see renderedPolicy).
+	policy string
 	// body is shared by the pages made from one render, see htmlCache.bodies. Nil for a page that
 	// shares nothing.
 	body *bodyID
@@ -131,7 +134,7 @@ type cachedPage struct {
 }
 
 func (p cachedPage) size() int64 {
-	n := p.bodySize()
+	n := p.bodySize() + int64(len(p.policy))
 	if p.whole != nil {
 		n += p.whole.size()
 	}

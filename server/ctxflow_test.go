@@ -40,10 +40,10 @@ func TestErrorPageRendersWithTheContextOfNext(t *testing.T) {
 		return next(c.WithContext(context.WithValue(c.Context(), flowKey{}, "lin")))
 	}, new([]error))
 	s := newAppServer(t, app)
-	err := s.setFront(dist, func(ctx context.Context, in ssr.Input) (string, error) {
+	err := s.setFront(dist, htmlOnly(func(ctx context.Context, in ssr.Input) (string, error) {
 		got = ctx.Value(flowKey{})
 		return "<html>failed</html>", nil
-	})
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}

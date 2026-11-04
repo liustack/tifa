@@ -41,8 +41,8 @@ var (
 	// mail catcher only).
 	SMTPTLS  = tifa.String("smtp.tls", "starttls", "How to secure the connection: starttls, tls or none")
 	SMTPUser = tifa.String("smtp.user", "", "SMTP user name")
-	// SMTPPassword is a secret: put it in the environment or .env, never in a flag.
-	SMTPPassword = tifa.String("smtp.password", "", "SMTP password")
+	// SMTPPassword comes from the environment, .env or the file of -c, never from a flag.
+	SMTPPassword = tifa.Secret("smtp.password", "SMTP password")
 	// MailFrom is the sender address of every mail.
 	MailFrom = tifa.String("mail.from", "notes@example.com", "Sender address of mail")
 )
@@ -58,8 +58,7 @@ SMTP_PASSWORD=...
 MAIL_FROM=notes@example.com
 ```
 
-- **密码不要写进代码，也不要放进命令行参数。** 参数会出现在进程列表里。用环境变量，或工作目录里的 `.env` 文件（见 [.env](../config.zh-CN.md#env)）。`tifa.yaml` 只放 tifa 自己的设置，不是放它的地方。
-- **`./myapp config` 会把密码打印出来。** 它显示每一项设置和它的值，密码也一样。不要把它的输出贴进 issue 或聊天。
+- **密码不要写进代码。** `tifa.Secret` 没有默认值，用命令行参数给它程序会报错，因为参数会出现在进程列表里。用环境变量，或工作目录里的 `.env` 文件（见 [.env](../config.zh-CN.md#env)）。`tifa.yaml` 只放 tifa 自己的设置，不是放它的地方。`./myapp config` 只写密码的来源，不写密码。
 - **`smtp.host` 为空就什么也不发。** 邮件连同正文被写进日志。`tifa dev` 下和第一次部署时这正是你要的，但不要在生产环境留着，否则重置链接会留在日志里。
 - **用邮件服务商的 SMTP 服务**，从你自己域名下的地址发，并设好服务商告诉你的 SPF 和 DKIM 记录。直接从小 VPS 发的邮件常常进垃圾箱，有的主机还封了出站的 25 端口。服务商接受 587 端口（`starttls`）或 465 端口（`tls`）。
 - `smtp.tls` 写错应该让应用在启动时停下，而不是等到第一封邮件。`OnStart` 调用 `clientOptions`（见下）并返回它的错误。

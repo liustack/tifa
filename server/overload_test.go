@@ -104,7 +104,7 @@ func TestSharedRequestsTakeOnePoolWaitSlot(t *testing.T) {
 		app := frontApp()
 		s := newServer(cfg, app.Hooks)
 		s.register(app.Layouts, app.Routes)
-		if err := s.setFront(dist, pool.Render); err != nil {
+		if err := s.setFront(dist, pool.RenderPage); err != nil {
 			t.Fatal(err)
 		}
 		answers := make(chan *httptest.ResponseRecorder, 20)

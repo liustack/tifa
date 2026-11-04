@@ -154,6 +154,9 @@ func (s *Sources) flag(name string, isBool bool) (raw string, ok bool, err error
 // as text, nil for the settings of the app. It returns the source of the value, empty for the
 // default, and the errors of the values that are not valid.
 func (s *Sources) apply(key string, v value, settings map[string]string) (from string, errs []error) {
+	// The value of a secret is in no error, since the errors go to the terminal and the log:
+	// secretValue.Set takes any text, and entry.check leaves the value out.
+	_, secret := v.(secretValue)
 	set := func(label, where, raw string) {
 		if err := v.Set(raw); err != nil {
 			errs = append(errs, fmt.Errorf("config: %s: %s: %w", where, key, err))
@@ -167,7 +170,7 @@ func (s *Sources) apply(key string, v value, settings map[string]string) (from s
 	if e, ok := s.file[key]; ok {
 		label := "file " + s.fileName
 		where := fmt.Sprintf("%s line %d", label, e.line)
-		if err := e.check(v.kind()); err != nil {
+		if err := e.check(v.kind(), secret); err != nil {
 			errs = append(errs, fmt.Errorf("config: %s: %s: %w", where, key, err))
 		} else {
 			set(label, where, e.raw)
@@ -191,6 +194,8 @@ func (s *Sources) apply(key string, v value, settings map[string]string) (from s
 	name := FlagName(key)
 	if raw, ok, err := s.flag(name, v.kind() == "bool"); err != nil {
 		errs = append(errs, err)
+	} else if ok && secret {
+		errs = append(errs, fmt.Errorf("config: flag --%s: %s is a secret, and a flag shows in the process list to every user of the machine: set %s in the environment or in .env, or %s in the file of -c", name, key, EnvName(key), key))
 	} else if ok {
 		set("flag --"+name, "flag --"+name, raw)
 	}
@@ -238,9 +243,9 @@ type entry struct {
 	err      error
 }
 
-// check reports why the entry cannot set a setting of the given kind. Flags and environment
-// variables are text and skip this check.
-func (e entry) check(kind string) error {
+// check reports why the entry cannot set a setting of the given kind, with the value unless the
+// setting is a secret. Flags and environment variables are text and skip this check.
+func (e entry) check(kind string, secret bool) error {
 	if e.err != nil {
 		return e.err
 	}
@@ -256,9 +261,24 @@ func (e entry) check(kind string) error {
 		ok = e.typ == "string"
 	}
 	if !ok {
+		if secret {
+			return fmt.Errorf("expected a %s value, got %s", kind, e.typ)
+		}
 		return fmt.Errorf("expected a %s value, got %s %q", kind, e.typ, e.raw)
 	}
 	return nil
+}
+
+// decodeYAML reads the next document of dec into n. Every document of a file is read with it, so
+// that no error carries text of the file: the errors of the YAML parser hold none, but for the one
+// of an alias that names no anchor, which quotes the name, and an unquoted password may start
+// with *. io.EOF comes back as it is.
+func decodeYAML(dec *yaml.Decoder, n *yaml.Node) error {
+	err := dec.Decode(n)
+	if err != nil && strings.HasPrefix(err.Error(), "yaml: unknown anchor ") {
+		return errors.New("a value starts with *, which YAML reads as an alias of an anchor the file does not have: put the value in quotes")
+	}
+	return err
 }
 
 // yamlEntries reads a YAML file of nested mappings into entries by dotted key: server.addr is
@@ -266,13 +286,13 @@ func (e entry) check(kind string) error {
 func yamlEntries(data []byte) (map[string]entry, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	var doc yaml.Node
-	if err := dec.Decode(&doc); err == io.EOF {
+	if err := decodeYAML(dec, &doc); err == io.EOF {
 		return nil, nil
 	} else if err != nil {
 		return nil, err
 	}
 	var extra yaml.Node
-	if err := dec.Decode(&extra); err != io.EOF {
+	if err := decodeYAML(dec, &extra); err != io.EOF {
 		if err == nil {
 			err = fmt.Errorf("line %d: only one YAML document is allowed", extra.Line)
 		}
@@ -307,6 +327,9 @@ func yamlEntries(data []byte) (map[string]entry, error) {
 	return entries, nil
 }
 
+// yamlType names the type of a scalar by its tag. Only the tags yaml.v3 gives a scalar of
+// itself are named: any other tag, such as !abc or !!abc, is text the file wrote, and an
+// unquoted password may start with one, so it goes into no error.
 func yamlType(tag string) string {
 	switch tag {
 	case "!!str":
@@ -317,8 +340,12 @@ func yamlType(tag string) string {
 		return "bool"
 	case "!!null":
 		return "null"
+	case "!!timestamp":
+		return "timestamp"
+	case "!!binary":
+		return "binary"
 	}
-	return tag
+	return "a value with a tag"
 }
 
 var envKey = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -411,7 +438,7 @@ func doubleQuoted(value string) (string, error) {
 func afterQuote(rest string) error {
 	rest = strings.TrimSpace(rest)
 	if rest != "" && !strings.HasPrefix(rest, "#") {
-		return fmt.Errorf("unexpected %q after the closing quote", rest)
+		return errors.New("unexpected text after the closing quote, end the value there or start a comment with #")
 	}
 	return nil
 }

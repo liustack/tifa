@@ -31,7 +31,7 @@ On SIGINT or SIGTERM (a deploy, Ctrl-C), in this order ([`server.shutdown_timeou
 
 tifa knows nothing of the goroutines you start. Two things follow:
 
-- **Stop them yourself.** Start them with a context of their own and cancel it in `OnShutdown`. The context `OnStart` receives is for the calls `OnStart` makes, and [hooks.go](../app.md#hooksgo) says not to keep it. A goroutine on its own context also keeps working while the last requests finish, and one of those may still queue a job.
+- **Stop them yourself.** Start them with a context of their own and cancel it in `OnShutdown`. The context `OnStart` receives stays valid, but it is done as soon as the stop signal comes, while the last requests are still running (see [hooks.go](../app.md#hooksgo)). A goroutine on its own context keeps working while those requests finish, and one of them may still queue a job.
 - **Catch their panics.** tifa turns a panic in a request into a 500 and goes on. A panic in your own goroutine ends the whole program. Every loop below recovers.
 
 ## The pieces

@@ -41,8 +41,8 @@ var (
 	// mail catcher only).
 	SMTPTLS  = tifa.String("smtp.tls", "starttls", "How to secure the connection: starttls, tls or none")
 	SMTPUser = tifa.String("smtp.user", "", "SMTP user name")
-	// SMTPPassword is a secret: put it in the environment or .env, never in a flag.
-	SMTPPassword = tifa.String("smtp.password", "", "SMTP password")
+	// SMTPPassword comes from the environment, .env or the file of -c, never from a flag.
+	SMTPPassword = tifa.Secret("smtp.password", "SMTP password")
 	// MailFrom is the sender address of every mail.
 	MailFrom = tifa.String("mail.from", "notes@example.com", "Sender address of mail")
 )
@@ -58,8 +58,7 @@ SMTP_PASSWORD=...
 MAIL_FROM=notes@example.com
 ```
 
-- **Keep the password out of the code and out of flags.** A flag shows in the process list. Use the environment or the `.env` file of the working folder ([.env](../config.md#env)). `tifa.yaml` holds only settings of tifa, so it is not a place for it.
-- **`./myapp config` prints the password.** It shows every setting with its value, secrets too. Do not paste its output into an issue or a chat.
+- **Keep the password out of the code.** `tifa.Secret` has no default, and the program refuses it as a flag, which shows in the process list. Use the environment or the `.env` file of the working folder ([.env](../config.md#env)). `tifa.yaml` holds only settings of tifa, so it is not a place for it. `./myapp config` says where the password came from and leaves it out.
 - **An empty `smtp.host` sends nothing.** The mail is written to the log with its text. That is what you want under `tifa dev` and in a first deploy, but do not leave it on in production, since a reset link would sit in the log.
 - **Use the SMTP service of a mail provider** and send from an address on a domain you own, with the SPF and DKIM records the provider tells you to set. Mail sent straight from a small VPS often lands in spam, and some hosts block outgoing port 25. Providers take port 587 (`starttls`) or 465 (`tls`).
 - A wrong `smtp.tls` should stop the app at start, not at the first mail. `OnStart` calls `clientOptions` (below) and returns its error.

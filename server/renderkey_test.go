@@ -20,12 +20,18 @@ func TestRenderKeyCoversEveryFieldOfTheInput(t *testing.T) {
 		"Error":     "set only to render a page again after a failed render, whose answer is never cached or tagged",
 	}
 	base := ssr.Input{BuildID: "b", URL: "/p", Data: []byte(`{}`), Texts: []string{"t"}, Preload: "p", Session: []byte(`{"signedIn":false}`), SessionKey: "k", SessionHead: "h"}
-	want := renderKey(base, "bundle")
-	if got := renderKey(base, "bundle"); got != want {
+	want := renderKey(base, "bundle", "")
+	if got := renderKey(base, "bundle", ""); got != want {
 		t.Fatalf("the key of the same input changes: %s then %s", want, got)
 	}
-	if renderKey(base, "other bundle") == want {
+	if renderKey(base, "other bundle", "") == want {
 		t.Error("another SSR bundle gives the same key")
+	}
+	// The policy of server.csp is no part of the HTML, but the header the page goes out with
+	// follows from it, and a browser keeps the header of the copy a 304 confirms.
+	policy := renderKey(base, "bundle", "Content-Security-Policy: script-src 'self'")
+	if policy == want || renderKey(base, "bundle", "Content-Security-Policy-Report-Only: script-src 'self'") == policy {
+		t.Error("another policy gives the same key")
 	}
 	typ := reflect.TypeOf(base)
 	for i := range typ.NumField() {
@@ -41,6 +47,8 @@ func TestRenderKeyCoversEveryFieldOfTheInput(t *testing.T) {
 		switch v.Kind() {
 		case reflect.String:
 			v.SetString(v.String() + "x")
+		case reflect.Bool:
+			v.SetBool(!v.Bool())
 		case reflect.Slice:
 			switch v.Type().Elem().Kind() {
 			case reflect.Uint8:
@@ -53,14 +61,14 @@ func TestRenderKeyCoversEveryFieldOfTheInput(t *testing.T) {
 		default:
 			t.Fatalf("%s: teach the test to change a %s", field.Name, v.Type())
 		}
-		if renderKey(changed, "bundle") == want {
+		if renderKey(changed, "bundle", "") == want {
 			t.Errorf("a change of %s leaves the key as it was", field.Name)
 		}
 	}
 	// A text moved to the end of the previous one is another page.
 	a, b := base, base
 	a.Texts, b.Texts = []string{"ab", "c"}, []string{"a", "bc"}
-	if renderKey(a, "bundle") == renderKey(b, "bundle") {
+	if renderKey(a, "bundle", "") == renderKey(b, "bundle", "") {
 		t.Error("two splits of the same text give the same key")
 	}
 }

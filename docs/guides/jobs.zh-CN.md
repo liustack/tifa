@@ -31,7 +31,7 @@ tifa 应用是一个程序，所以后台工作就是这个程序里的 goroutin
 
 tifa 不知道你启动的 goroutine。由此得出两点：
 
-- **自己停它们。** 用它们自己的 context 启动，在 `OnShutdown` 里取消。`OnStart` 收到的 context 是给 `OnStart` 自己的调用用的，[hooks.go](../app.zh-CN.md#hooksgo)说了不要保存它。goroutine 用自己的 context，还有个好处：最后几个请求结束前它们继续工作，而这些请求可能还会排入任务。
+- **自己停它们。** 用它们自己的 context 启动，在 `OnShutdown` 里取消。`OnStart` 收到的 context 一直有效，但停止信号一到它就结束，这时最后几个请求还在跑（见 [hooks.go](../app.zh-CN.md#hooksgo)）。goroutine 用自己的 context，在这些请求结束前继续工作，而这些请求可能还会排入任务。
 - **接住它们的 panic。** tifa 把请求里的 panic 变成 500 然后继续运行。你自己 goroutine 里的 panic 会让整个程序退出。下面每个循环都做了 recover。
 
 ## 各个部分
