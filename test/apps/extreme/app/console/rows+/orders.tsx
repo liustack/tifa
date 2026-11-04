@@ -32,7 +32,7 @@ import { photo } from '../../images'
 import { useFormats, usePermissions, useToasts } from './providers'
 import { page, type PageData } from './route.gen'
 
-type Row = NonNullable<PageData['orders']>[number]
+type Row = PageData['orders'][number]
 
 const statusText: Record<string, string> = {
   pending: '待付款',
@@ -131,7 +131,7 @@ function Customer({ order }: { order: Row }) {
 }
 
 function Items({ order }: { order: Row }) {
-  const items = order.items ?? []
+  const items = order.items
   return (
     <span className="flex max-w-44 flex-wrap items-center gap-1">
       {items.map((it) => (
@@ -144,7 +144,7 @@ function Items({ order }: { order: Row }) {
           </TooltipContent>
         </Tooltip>
       ))}
-      {(order.tags ?? []).map((t, i) => (
+      {order.tags.map((t, i) => (
         <Badge key={i} variant="outline" className="rounded-none px-1 text-[10px]">
           {t}
         </Badge>
@@ -229,7 +229,7 @@ const tabText = { all: '全部', paid: '待发货', shipped: '已发货', refund
 
 export function Orders() {
   const data = page.useLoaderData()
-  const all = data.orders ?? []
+  const all = data.orders
   const [tab, setTab] = useState<(typeof tabs)[number]>('all')
   return (
     <section aria-labelledby="orders-title" className="flex flex-col gap-4">

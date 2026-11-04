@@ -3,11 +3,11 @@ import { page, type PageData } from './route.gen'
 
 export const head = () => ({ meta: [{ title: 'DOM 数量' }] })
 
-type File = NonNullable<PageData['files']>[number]
+type File = PageData['files'][number]
 
 export default function DomPage() {
   const diff = page.useLoaderData()
-  const files = diff.files ?? []
+  const files = diff.files
   return (
     <Frame title={diff.title} size={diff.elements} unit="个元素">
       <p className="text-sm text-muted-foreground">
@@ -30,7 +30,7 @@ function FileDiff({ file }: { file: File }) {
       </div>
       <table className="w-full font-mono text-xs leading-5">
         <tbody>
-          {(file.lines ?? []).map((l, i) => (
+          {file.lines.map((l, i) => (
             <tr key={i} className={l.k === '+' ? 'bg-[#e6f1e8]' : l.k === '-' ? 'bg-[#f6e3e0]' : undefined}>
               <td className="w-12 pr-2 text-right text-muted-foreground select-none">{l.o || ''}</td>
               <td className="w-12 pr-2 text-right text-muted-foreground select-none">{l.n || ''}</td>

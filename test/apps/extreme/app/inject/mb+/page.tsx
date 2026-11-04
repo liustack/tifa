@@ -7,7 +7,7 @@ const yuan = new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY'
 
 export default function InjectPage() {
   const { megabytes, items } = page.useLoaderData()
-  const list = items ?? []
+  const list = items
   // A list page counts its facets over the whole result on each render.
   const byCategory = new Map<string, number>()
   let stock = 0

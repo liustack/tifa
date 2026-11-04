@@ -13,8 +13,8 @@ function instanceFor(data: PageData) {
   let instance = instances.get(data.version)
   if (!instance) {
     instance = i18next.createInstance()
-    const resources: Record<string, { translation: Record<string, Record<string, string> | null> }> = {}
-    for (const [lng, groups] of Object.entries(data.messages ?? {})) resources[lng] = { translation: groups ?? {} }
+    const resources: Record<string, { translation: Record<string, Record<string, string>> }> = {}
+    for (const [lng, groups] of Object.entries(data.messages)) resources[lng] = { translation: groups }
     instance.init({ lng: 'zh-CN', fallbackLng: 'en-US', resources, initAsync: false, interpolation: { escapeValue: false } })
     instances.set(data.version, instance)
   }
@@ -36,7 +36,7 @@ export default function I18nPage() {
 function Messages() {
   const data = page.useLoaderData()
   const { t } = useTranslation()
-  const users = data.users ?? []
+  const users = data.users
   const items = []
   for (let i = 0; i < data.keys; i++) {
     const key = `g${String(Math.floor(i / 100)).padStart(3, '0')}.k${i}`
@@ -73,7 +73,7 @@ function Formats() {
     list: new Intl.ListFormat(l, { type: 'conjunction' }),
     compact: new Intl.NumberFormat(l, { notation: 'compact' }),
   }))
-  const users = data.users ?? []
+  const users = data.users
   const items = []
   for (let i = 0; i < data.intlCalls; i++) {
     const at = i % locales.length

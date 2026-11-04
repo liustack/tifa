@@ -10,7 +10,7 @@ import { page as mall } from './route.gen'
 
 export function Breadcrumb() {
   const page = mall.useLoaderData()
-  const crumbs = page.breadcrumb ?? []
+  const crumbs = page.breadcrumb
   return (
     <nav aria-label="breadcrumb" className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
       {crumbs.map((c, i) => (
@@ -29,7 +29,7 @@ export function Breadcrumb() {
 export function Gallery() {
   const page = mall.useLoaderData()
   const { t } = useMarket()
-  const photos = page.gallery ?? []
+  const photos = page.gallery
   const [shown, setShown] = useState(0)
   const main = photos[shown]
   return (
@@ -81,8 +81,8 @@ export function Summary() {
   const { t, money, count } = useMarket()
   const [color, setColor] = useState(page.colors?.[0]?.id ?? '')
   const [size, setSize] = useState(page.sizes?.[2] ?? '')
-  const colors = page.colors ?? []
-  const sku = (page.skus ?? []).find((s) => s.color === color && s.size === size)
+  const colors = page.colors
+  const sku = page.skus.find((s) => s.color === color && s.size === size)
   const save = page.listFen - page.priceFen
   return (
     <div className="flex flex-col gap-4">
@@ -134,7 +134,7 @@ export function Summary() {
           {t('product.promotions')}
         </h2>
         <ul className="flex flex-col gap-1.5 text-[13px]">
-          {(page.promotions ?? []).map((p) => (
+          {page.promotions.map((p) => (
             <li key={p} className="flex items-start gap-2">
               <Gift className="mt-0.5 size-3.5 shrink-0 text-primary" aria-hidden />
               {p}
@@ -167,8 +167,8 @@ export function Summary() {
       <fieldset className="flex flex-col gap-2">
         <legend className="mb-2 text-sm">{t('product.size', { name: size })}</legend>
         <div className="flex flex-wrap gap-2">
-          {(page.sizes ?? []).map((s) => {
-            const variant = (page.skus ?? []).find((k) => k.color === color && k.size === s)
+          {page.sizes.map((s) => {
+            const variant = page.skus.find((k) => k.color === color && k.size === s)
             return (
               <button
                 key={s}
@@ -189,7 +189,7 @@ export function Summary() {
           {t('product.about')}
         </h2>
         <ul className="flex list-disc flex-col gap-1.5 pl-5 text-[13px] leading-6">
-          {(page.bullets ?? []).map((b) => (
+          {page.bullets.map((b) => (
             <li key={b}>{b}</li>
           ))}
         </ul>
@@ -261,7 +261,7 @@ export function BuyBox() {
           <ShieldCheck className="size-3.5" aria-hidden />
           {t('buy.protect')}
         </legend>
-        {(page.plans ?? []).map((p) => (
+        {page.plans.map((p) => (
           <label key={p.label} className="flex items-center gap-2 text-xs">
             <Checkbox className="rounded-none" aria-label={p.label} />
             {p.label}

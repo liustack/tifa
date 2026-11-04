@@ -4,7 +4,7 @@ import { page, type PageData } from './route.gen'
 
 export const head = () => ({ meta: [{ title: '长表格' }] })
 
-type Order = NonNullable<PageData['orders']>[number]
+type Order = PageData['orders'][number]
 
 const statusText: Record<string, string> = {
   pending: '待付款',
@@ -42,7 +42,7 @@ export default function TablePage() {
   const { rows, timeZone, orders } = page.useLoaderData()
   const table = useTable({
     features,
-    data: orders ?? [],
+    data: orders,
     columns: columns(timeZone),
     initialState: { sorting: [{ id: 'createdAt', desc: true }] },
   })

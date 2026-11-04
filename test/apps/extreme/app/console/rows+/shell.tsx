@@ -96,7 +96,7 @@ export function AppSidebar() {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        {(data.nav ?? []).map((group, g) => (
+        {data.nav.map((group, g) => (
           <Collapsible key={group.title} defaultOpen className="group/collapsible">
             <SidebarGroup>
               <SidebarGroupLabel asChild className="text-sidebar-foreground/50">
@@ -108,7 +108,7 @@ export function AppSidebar() {
               <CollapsibleContent>
                 <SidebarGroupContent>
                   <SidebarMenu>
-                    {(group.items ?? []).map((item, i) => {
+                    {group.items.map((item, i) => {
                       const Icon = icons[item.icon] ?? Box
                       return (
                         <SidebarMenuItem key={item.label}>
@@ -198,7 +198,7 @@ function Notifications() {
           </button>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        {(data.notices ?? []).map((n, i) => (
+        {data.notices.map((n, i) => (
           <DropdownMenuItem key={i} className="flex flex-col items-start gap-0.5">
             <span className="text-sm">{n.title}</span>
             <span className="text-xs text-muted-foreground">{n.body}</span>

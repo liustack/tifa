@@ -13,7 +13,7 @@ import { cn } from 'cn'
 import { useFormats, useSession } from './providers'
 import { page, type PageData } from './route.gen'
 
-type Event = NonNullable<PageData['ticket']['events']>[number]
+type Event = PageData['ticket']['events'][number]
 
 const markdown: Components = {
   p: ({ node: _, ...props }) => <p className="my-2 leading-6" {...props} />,
@@ -32,7 +32,7 @@ export function Thread() {
   const data = page.useLoaderData()
   const ticket = data.ticket
   const f = useFormats()
-  const events = ticket.events ?? []
+  const events = ticket.events
   const comments = events.filter((e) => e.kind === 'comment').length
   return (
     <section aria-labelledby="ticket-title" className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_260px]">
@@ -56,7 +56,7 @@ export function Thread() {
       </div>
       <aside className="flex flex-col gap-5 text-sm">
         <SideBlock title="负责人">
-          {(ticket.assignees ?? []).map((a) => (
+          {ticket.assignees.map((a) => (
             <p key={a} className="flex items-center gap-2">
               <Avatar className="size-5 rounded-none">
                 <AvatarFallback className="rounded-none text-[10px]">{a.slice(0, 1)}</AvatarFallback>
@@ -67,7 +67,7 @@ export function Thread() {
         </SideBlock>
         <SideBlock title="标签">
           <span className="flex flex-wrap gap-1.5">
-            {(ticket.labels ?? []).map((l) => (
+            {ticket.labels.map((l) => (
               <Badge key={l.name} variant="outline" className="rounded-none" style={{ borderColor: l.color, color: l.color }}>
                 {l.name}
               </Badge>
@@ -75,9 +75,9 @@ export function Thread() {
           </span>
         </SideBlock>
         <SideBlock title="里程碑">{ticket.milestone}</SideBlock>
-        <SideBlock title={`参与者 ${(ticket.participants ?? []).length}`}>
+        <SideBlock title={`参与者 ${ticket.participants.length}`}>
           <span className="flex flex-wrap gap-1">
-            {(ticket.participants ?? []).map((p, i) => (
+            {ticket.participants.map((p, i) => (
               <Tooltip key={i}>
                 <TooltipTrigger asChild>
                   <Avatar className="size-6 rounded-none">
@@ -91,7 +91,7 @@ export function Thread() {
         </SideBlock>
         <SideBlock title="操作记录">
           <ol className="flex flex-col gap-1.5 text-xs">
-            {(data.audit ?? []).map((a, i) => (
+            {data.audit.map((a, i) => (
               <li key={i}>
                 <span className="font-medium">{a.actor}</span> {a.action} <span className="font-mono">{a.target}</span>
                 <span className="block text-muted-foreground">{f.ago(a.at)}</span>
@@ -160,13 +160,13 @@ function Comment({ event }: { event: Event }) {
             {event.body}
           </Markdown>
         </div>
-        <Reactions reactions={event.reactions ?? []} />
+        <Reactions reactions={event.reactions} />
       </article>
     </li>
   )
 }
 
-function Reactions({ reactions }: { reactions: NonNullable<Event['reactions']> }) {
+function Reactions({ reactions }: { reactions: Event['reactions'] }) {
   const [mine, setMine] = useState<string | null>(null)
   return (
     <footer className="flex flex-wrap items-center gap-1.5 px-3 pb-2">
