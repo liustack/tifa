@@ -1,13 +1,11 @@
 ---
-summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、不套外层的 Layout（layout_.tsx）、hooks.go、会话（存在服务器上的登录状态、它的 cookie、存放位置，以及浏览器怎么显示谁登录了）、404 和错误、多语言网站、SSR 与缓存开关、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数、用 tifa.HTML 显示应用信任的 HTML，访客开着旧页面时你部署新版本，浏览器会怎么做，以及数据、入参和结果的 JSON 规则'
+summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、不套外层的 Layout（layout_.tsx）、hooks.go、404 和错误、多语言网站、SSR 与缓存开关、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数、用 tifa.HTML 显示应用信任的 HTML，访客开着旧页面时你部署新版本，浏览器会怎么做，以及数据、入参和结果的 JSON 规则'
 read_when:
   - 新建一个 tifa 应用，或给应用加页面、Layout、API 路由
   - 构建报 Ctx 用法或 Load 返回类型的错误，想知道怎么改
   - 改 internal/analyze 的规则，需要知道对用户承诺了什么
   - 改 examples/shop 或 test/apps 里的应用
   - 给 Load、Layout 函数、方法函数或 OnRequest 写 Go 测试
-  - 让用户登录登出、读谁登录了，或把会话放到 Redis、SQL 里
-  - 在页头显示登录用户的名字，`useSession`、`SignedIn`、`data-session`，或者 CSP 拦住了 head 最前面的脚本
   - 在页面里显示应用自己做出来或信任的 HTML（比如一篇文章），用 `tifa.HTML` 和 `<HTML>`，或者处理其中的链接
   - 给应用加 CSS、Tailwind CSS 或 shadcn/ui
   - 在页面里格式化数字或日期，或者 tifa dev 对某个 Intl 调用报警
@@ -249,7 +247,7 @@ async function ship() {
 - 调用只发出请求，回答带着会话时应用会话（见下）。它不重新取任何页面的数据，成功失败都一样，任何方法都一样。想让页面显示写操作的结果，在调用之后调用 `router.invalidate()`（见下面的例子）。
 - 错误回答抛出 `TifaError`，带 `status`、`message` 和 `fields`（`tifa.Fields` 的消息，其他情况为空）。网络错误照 `fetch` 的样子抛出。页面的构建比服务器旧时，调用以状态 409 失败，见[部署时还开着的页面](#部署时还开着的页面)。
 - 处理函数或 `OnRequest` 返回 `tifa.Redirect(url, status)` 时，浏览器去那个 URL：本站的 URL 经路由器跳转，页面不重新加载，别的站点整页加载。新页面显示路由器已有的数据，缺的再去取，和任何一次导航一样。重定向到正在显示的页面时，页面留在原处，什么都不取。路径、hash 和查询参数的值都相同就算同一页，查询参数的顺序和编码不论。promise 在导航结束后兑现为 `undefined`，有返回值的处理函数也一样。一次调用是否被重定向，要等回答来了才知道（`OnRequest` 可以重定向任何请求），所以有返回值的处理函数，返回类型都带 `undefined`。自己写响应的处理函数，调用函数拿到这次重定向的 `Response`（`ok` 为真，状态码在 `X-Tifa-Redirect` 里）。相对 URL 按处理函数的 URL 解析，不按页面的 URL。处理函数经 `c.Writer()` 自己写的 3xx，或者代理写的 3xx，浏览器读不到，promise 以 `Error` 失败。
-- 让某人登录或登出的调用，回答里带着新的会话，浏览器里的会话副本随之更新（见[会话在浏览器里](#在浏览器里)）。
+- 让某人登录或登出的调用，回答里带着新的会话，浏览器里的会话副本随之更新（见[会话在浏览器里](sessions.zh-CN.md#在浏览器里)）。
 - 在事件处理函数或 effect 里调用。服务器渲染页面期间调用会抛错。
 - `route.gen` 还为有入参或返回值的处理函数导出 `POSTInput`、`POSTOutput` 等类型。
 
@@ -507,9 +505,9 @@ const Cache = 10 * time.Minute
 
 开了 `Cache` 的页面，在这段时间里所有人拿到同一份回答，直接从内存给出，不跑 `Load`，也不渲染。适合公开、很多人看的页面：文章、文档、商品页和落地页。访客看到改动最多晚 `Cache` 这么久。
 
-- **所有人都是匿名的。** 页面的 GET 和 HEAD，以及浏览器导航到它时为取数据发的请求，在进 `OnRequest` 之前就被去掉除一份短名单以外的所有请求头：`Host`、`Accept-Encoding`、`If-None-Match`、`If-Modified-Since`、`Cache-Control`、`Pragma`、`Content-Length`、`Connection`、`Origin` 和 `Sec-Fetch-*`。`Cookie` 和 `Authorization` 会去掉，`Accept-Language`、`User-Agent`、`Referer`、`Forwarded`、`X-Forwarded-*` 以及代理或登录网关设的 `X-User-ID` 这类头也一样，所以它们没法经 `OnRequest` 和 context 传到 `Load`。`tifa.Session` 返回 nil，`c.Cookie` 找不到东西，`c.Header` 和 `c.Request().Header` 里只有名单上的头，`c.Request()` 拿到的也是这份请求。`tifa.SetSession` 和 `tifa.ClearSession` 返回错误，信息说登录和 OAuth 回调要放在不开 `Cache` 的路由上。页面要共用，说的内容就不能取决于是谁在问。这类页面 HTML 上的 `Set-Cookie` 会被去掉，因为共享回答里的 cookie 会发给每一位访客。导航请求（带 `_tifa` 的）的回答只给一个浏览器，保留 `Set-Cookie`，并带上这个浏览器的会话（见[会话](#在浏览器里)）。同一个 URL 上的方法处理函数，比如 POST，不匿名，也不缓存。
+- **所有人都是匿名的。** 页面的 GET 和 HEAD，以及浏览器导航到它时为取数据发的请求，在进 `OnRequest` 之前就被去掉除一份短名单以外的所有请求头：`Host`、`Accept-Encoding`、`If-None-Match`、`If-Modified-Since`、`Cache-Control`、`Pragma`、`Content-Length`、`Connection`、`Origin` 和 `Sec-Fetch-*`。`Cookie` 和 `Authorization` 会去掉，`Accept-Language`、`User-Agent`、`Referer`、`Forwarded`、`X-Forwarded-*` 以及代理或登录网关设的 `X-User-ID` 这类头也一样，所以它们没法经 `OnRequest` 和 context 传到 `Load`。`tifa.Session` 返回 nil，`c.Cookie` 找不到东西，`c.Header` 和 `c.Request().Header` 里只有名单上的头，`c.Request()` 拿到的也是这份请求。`tifa.SetSession` 和 `tifa.ClearSession` 返回错误，信息说登录和 OAuth 回调要放在不开 `Cache` 的路由上。页面要共用，说的内容就不能取决于是谁在问。这类页面 HTML 上的 `Set-Cookie` 会被去掉，因为共享回答里的 cookie 会发给每一位访客。导航请求（带 `_tifa` 的）的回答只给一个浏览器，保留 `Set-Cookie`，并带上这个浏览器的会话（见[会话](sessions.zh-CN.md#在浏览器里)）。同一个 URL 上的方法处理函数，比如 POST，不匿名，也不缓存。
 - **匿名的边界。** tifa 保证的是请求头：在开了 `Cache` 的页面上，`OnRequest`、`Load` 和 `Layout` 看到的请求只有名单上的头，`tifa.Session` 是 nil。用 `tifa.SetHTTPHandler` 挂的 `net/http` 中间件在 tifa 外面运行，拿到的是原来的请求，它放进请求 context 的值会原样到达 `OnRequest` 和 `Load`。不要在那里认人，认人放在不开 `Cache` 的路由的 `OnRequest` 里。连接地址和 TLS 信息也仍然保留，外层中间件放进 context 的值和白名单里的头（例如 `Origin`）也能区分请求，这些都不得用来生成个性化的共享内容。
-- **构建会检查。** 这类页面的 `Load`、外层 `Layout` 的 `Layout` 函数，或它们调用的函数读了 `c.Cookie`、`c.Header` 或 `tifa.Session`，构建就失败并指出那一行，因为这样的读取只会看到匿名请求。`c.Header` 的报错会写出有哪几个头。需要知道谁登录了的页面不要用 `Cache`。取决于访客的内容放到浏览器里，页面加载后由浏览器去读（见[在浏览器里](#在浏览器里)）。开了 `Cache` 的页面外面那几层 Layout，只放对所有人都一样的数据。
+- **构建会检查。** 这类页面的 `Load`、外层 `Layout` 的 `Layout` 函数，或它们调用的函数读了 `c.Cookie`、`c.Header` 或 `tifa.Session`，构建就失败并指出那一行，因为这样的读取只会看到匿名请求。`c.Header` 的报错会写出有哪几个头。需要知道谁登录了的页面不要用 `Cache`。取决于访客的内容放到浏览器里，页面加载后由浏览器去读（见[在浏览器里](sessions.zh-CN.md#在浏览器里)）。开了 `Cache` 的页面外面那几层 Layout，只放对所有人都一样的数据。
 - **`OnRequest` 能做什么。** 每个请求都跑，命中的也跑，看到的是匿名请求。适合按路径做的事：重定向、安全头、日志、计数、按地址限流。它看不到谁登录了，所以按登录状态重定向的 `OnRequest` 要用在不开 `Cache` 的路由上，在没看到 cookie 时就发一个 cookie 的中间件，会在每次导航时都发。它在 HTML 上设的 cookie 会被去掉。
 - **多语言。** 多语言页面按 URL 缓存，每个语言目录一份条目。按 cookie 或 `Accept-Language` 选语言再跳转的入口，是不开 `Cache` 的路由上的 GET 处理函数（开了 `Cache` 的页面两样都读不到），它跳去的页面把语言写在 URL 里（见[多语言网站](#多语言网站)）。
 - **键**是协议、`Host` 请求头（不信 `X-Forwarded-Host`）、路径，以及去掉跟踪参数后的查询串，其余参数按名字排序。`cache.ignore_query` 列出跟踪参数（`utm_*`、`gclid`、`fbclid` 等，见 [config.zh-CN.md](config.zh-CN.md)）。页面链上有 `Load` 读的参数一律保留。页面用同样处理过的 URL 渲染，所以访客看到的内容不会取决于键忽略掉的参数。
@@ -525,7 +523,7 @@ const Cache = 10 * time.Minute
 一个完整的页面 = 用户无关性页面 + 私有数据。tifa 按数据的种类来分，不按组件分：
 
 - **对所有人相同的数据。** `Load` 和 Layout 看不到用户，所以页面可以放进整页缓存和 CDN。
-- **会话。** 谁登录了，以及会话里很小的 `Exposed` 部分，由会话系统携带（见[会话](#会话)）。它会写进页面，浏览器也保存一份副本。
+- **会话。** 谁登录了，以及会话里很小的 `Exposed` 部分，由会话系统携带（见[会话](sessions.zh-CN.md)）。它会写进页面，浏览器也保存一份副本。
 - **其他私有数据。** 购物车、推荐、未读数。量可以很大，浏览器还可能写它。把它放在应用自己的 API 路由后面，由浏览器去取。
 
 别的系统也是这样分的：HTTP 缓存叫 `public` 和 `private`，Magento 叫 private content，donut caching 则是共用的页面保持完整，再把空洞填上。
@@ -801,7 +799,7 @@ tifa 每条日志现取 `slog.Default()`，所以之后再调 `slog.SetDefault` 
 
 ### 在 OnStart 里装配
 
-`OnStart` 是应用装配整个进程共用的东西的地方：日志 Handler、普通的 `net/http` 中间件和[会话存储](#会话存在哪)。
+`OnStart` 是应用装配整个进程共用的东西的地方：日志 Handler、普通的 `net/http` 中间件和[会话存储](sessions.zh-CN.md#会话存在哪)。
 
 ```go
 import (
@@ -829,178 +827,7 @@ func OnStart(ctx context.Context) error {
 
 ## 会话
 
-会话是「谁登录了」的记录，存在服务器上，靠一个 cookie 找到。tifa 管记录、token、cookie 和过期。验证密码、决定什么时候登录或登出，是你的代码的事。
-
-```go
-// auth/session.go
-type Session struct {
-	UserID int64  `json:"userId"`
-	Name   string `json:"name"`
-}
-
-// app/login/route.go
-func POST(c *tifa.Ctx, in Login) error {
-	u, err := users.CheckPassword(c.Context(), in.Email, in.Password)
-	if err != nil {
-		return tifa.Error{Status: 401, Message: "邮箱或密码不对"}
-	}
-	if err := tifa.SetSession(c, &auth.Session{UserID: u.ID, Name: u.Name}); err != nil {
-		return err
-	}
-	return tifa.Redirect("/", 303)
-}
-
-// 任何拿得到 Ctx 的地方：OnRequest、方法处理函数、Load
-s := tifa.Session[auth.Session](c) // 没登录是 nil
-
-// app/logout/route.go
-err := tifa.ClearSession(c)
-```
-
-- `tifa.SetSession(c, &s)` 让这个请求登录。它生成一个新的随机 token（32 字节，43 个字符），把 `s` 按 JSON 存在 token 的 SHA-256 下面，删掉请求原来带的会话，再设 cookie。每次调用都换新 token，所以登录之后不会沿用攻击者事先塞进来的 token。旧会话删不掉时，登录失败并返回错误，不发 cookie。
-- `tifa.Session[S](c)` 返回本请求的会话，没有就是 nil。服务器在 `OnRequest` 之前就读好了，所以每个钩子、`Load` 和方法处理函数都读得到。第一次调用时解码进 `S`，同时在跑的 `Load` 共用同一个指针，当成只读用。整个应用用同一个类型 `S`，换别的类型调用会 panic。存着的记录对不上 `S` 时，记录被删掉，cookie 被清掉，这个请求按没登录处理。
-- `tifa.ClearSession(c)` 删记录，清 cookie，之后 `Session` 返回 nil。没登录时什么都不做。存储删不掉记录时，cookie 仍然会清，返回的错误会说明记录在过期前仍然有效。
-- 记录加上 tifa 包在外面的信封不能超过 4 KiB。里面放一个 ID 和几个展示用的字段，其余放在你自己的数据库里。能写这个存储的人可以让任何人登录，所以要像保护数据库一样保护它。
-
-### cookie
-
-cookie 叫 `__Host-tifa_session`，带 `HttpOnly`、`Secure`、`SameSite=Lax`、`Path=/`，没有 `Domain`。会话从 `SetSession` 起算 30 天，不续期，所以请求从不写存储。名字和时长用 `session.cookie` 和 `session.max_age` 改（见[配置](config.zh-CN.md#配置项)）。`tifa dev` 下 cookie 叫 `tifa_session`，不带 `Secure`，因为 dev 在 localhost 上跑普通 HTTP。不是 43 个 `A-Z a-z 0-9 - _` 字符的 cookie 会被直接丢掉，不去问存储。存储里已经没有记录的 cookie（过期了，或者用内存存储时进程重启过）也会被丢掉，这个请求按没登录处理。
-
-设置或清除 cookie 的回答，不管应用设了什么，都以 `Cache-Control: no-store` 发出，不带 `ETag` 和 `Last-Modified`，状态码保持原样，永远不会变成 304。
-
-### 会话存在哪
-
-不设存储时，会话放在进程的内存里，上限是 `session.memory_limit`（64 MiB）。满了就先挤掉最早过期的，重启后所有人都要重新登录。服务器启动时会打一行日志说明这一点。`tifa dev` 在你改 Go 代码后会重启，那时你会被登出。如果应用允许没登录的访客开会话，要在入口限流，否则灌满它会把真正的会话挤出去。
-
-想把会话放到别处，比如 Redis 或 SQL，在 `OnStart` 里给它一个存储：
-
-```go
-func OnStart(ctx context.Context) error {
-	tifa.SetSessionStore(redisStore{client})
-	return nil
-}
-```
-
-`tifa.SetSessionStore` 和 `tifa.SetHTTPHandler` 一样，服务开始监听后再调会 panic。存储实现 `tifa.SessionStore`：
-
-```go
-type SessionStore interface {
-	Get(ctx context.Context, token string) (data []byte, found bool, err error)
-	Put(ctx context.Context, token string, data []byte, expiry time.Time) error
-	Delete(ctx context.Context, token string) error
-}
-```
-
-- `token` 是 cookie 里 token 的 SHA-256（base64url），不是 cookie 本身。
-- 键不存在、已过期或无效时，`Get` 返回 `found == false` 和 nil 错误。只有存储自己出了故障才返回错误。这时请求按意外错误走 `OnError`，不会当成没登录继续，那样会把故障藏起来。
-- `Put` 新建或覆盖记录，`expiry` 之后 `Get` 不能再返回它。键不存在时 `Delete` 返回 nil。
-- 三个方法会被很多请求同时调用。`Put` 不能留着 `data` 切片，`Get` 不能返回存储还在用的切片。`ctx` 结束时都要返回错误。
-
-`tifatest.TestSessionStore(t, store)` 对你的存储跑这些检查。
-
-### 哪里能调什么
-
-| 位置 | `Session` | `SetSession`、`ClearSession` |
-| --- | --- | --- |
-| `OnRequest` 里 `next` 之前 | 可以 | 可以 |
-| `OnRequest` 里 `next` 返回之后 | 可以 | 返回错误 |
-| 方法处理函数 | 可以 | 可以 |
-| `Load`、`Layout`、`OnError` | 可以 | 返回错误 |
-| 响应发出之后 | 可以 | 返回错误 |
-
-`Load` 跑在 GET 上，GET 不该改任何东西，所以登录放在方法处理函数或 `OnRequest` 里。
-
-开了 `Cache` 的页面，GET 和 HEAD 请求是匿名的：不管谁来，`Session` 都是 nil，`SetSession` 和 `ClearSession` 返回错误。这个承诺说的是 tifa 交给你的代码的请求头。用 `tifa.SetHTTPHandler` 挂的 `net/http` 中间件放进 context 的值仍会到达，所以认人放在 `OnRequest` 里，不要放在那个中间件里（见[整页缓存](#整页缓存)）。
-
-### 和登录库的分工
-
-tifa 存会话。用户是谁由你的应用或登录库来认：密码哈希（bcrypt、argon2）、OAuth 授权码流程和它的 `state` 校验（`golang.org/x/oauth2`）、两步验证。认证成功后调 `tifa.SetSession`。这类库自带的临时状态，比如 OAuth 的 `state`，放在库自己的短命 cookie 里。鉴权在 Go 里读 `tifa.Session` 来做。
-
-从别的网站发来的写请求会在这一切之前被拒绝（见[跨站写请求](config.zh-CN.md#跨站写请求)），cookie 又是 `SameSite=Lax`，所以别的网站上的表单不能替用户登出或操作。要让这一点成立，GET、HEAD 和 OPTIONS 都不能改任何东西，登出用 POST。
-
-### 构建时的检查
-
-`tifa build` 和 `tifa check` 会读模块里每一处 `tifa.SetSession`、`tifa.Session` 和 `tifa.ClearSession` 的调用，遇到下面的情况就失败：
-
-- 调用用的不是同一个会话类型（错误会写出两处位置），或者在泛型函数里用类型参数调用
-- 有 `Session` 或 `ClearSession` 的调用，却没有任何地方调用 `SetSession`
-- 类型不是 struct，或者不能从 JSON 读回来
-- `Load`、`Layout`，或者它们传下 Ctx 的函数调用了 `SetSession` 或 `ClearSession`
-- 页面或 API 路由的路径以 `/__tifa/` 开头，或者 `public/__tifa/` 下有文件（`/__tifa/session` 是会话回答的路径）
-
-会话类型可以有方法 `Exposed() M`（指针接收者也行）。`Exposed` 返回允许交给浏览器的那部分 session。它会写进页面 HTML，并保存在浏览器的 localStorage 里。放进这里的字段要能接受长期留在访客的设备上。不要放凭据和需要保密的信息。权限判断永远用服务端的 session。`M` 遵守 `Load` 结果的规则，构建把它的 TypeScript 类型写进 `.tifa/session.gen.ts`：
-
-```tsx
-import type { SessionData } from '@/.tifa/session.gen'
-```
-
-同一个文件还导出 `SessionEnabled`：应用调用了 `tifa.SetSession` 时是 `true`，否则是 `false`。类型没有 `Exposed` 方法，或应用没有会话时，`SessionData` 是 `never`。`Exposed` 带参数、有多个返回值，或者返回值不能是 JSON，构建会失败。
-
-### 在浏览器里
-
-浏览器里存着一份「谁登录了」的副本，第一次绘制时就按它显示，那时页面上的脚本还没跑。页面用 `useSession` 读它，用 `SignedIn` 和 `SignedOut` 按它显示或隐藏元素。
-
-```tsx
-import { SignedIn, SignedOut, useSession } from 'tifa/client'
-
-function Header() {
-	const { signedIn, data, ready } = useSession()
-	return (
-		<header>
-			<SignedOut><a href="/login">登录</a></SignedOut>
-			<SignedIn><span>你好，{data?.name}</span></SignedIn>
-		</header>
-	)
-}
-```
-
-- `useSession()` 返回 `{ signedIn, data, ready }`。`data` 是 `Exposed` 方法返回的值（类型是 `SessionData`），类型没有 `Exposed` 或没人登录时是 `undefined`。在从不调用 `tifa.SetSession` 的应用里调用它是类型错误，运行时也会抛错。
-- `SignedIn` 和 `SignedOut` 只在有人登录或没人登录时显示它们的子元素。它们必须正好有一个元素作子节点，自己不产生任何元素。子元素要把收到的 props 传给自己的 DOM 元素，`<a>`、`<div>` 和展开 `...props` 的组件都可以。开发模式下，不这样做的子元素在挂载时会报错并说明原因。tifa 放在 head 最前面的一条样式会从第一次绘制起隐藏不该显示的那个，你不用写 CSS。
-- `ready` 在浏览器知道自己该显示哪个状态之后是 `true`。为访客渲染的页面从第一次渲染起就是 `true`。不带会话的页面见下文。
-- 副本只决定显示什么，不决定谁能做什么。权限在 Go 里检查。
-
-凡是只给一个访客的回答都带会话，形状是 `{ "signedIn": true, "data": ... }`（只有类型有 `Exposed` 才有 `data`，没人登录时是 `{ "signedIn": false }`）：
-
-| 回答 | 带什么 |
-| --- | --- |
-| 页面 | 页面里带着会话，服务器在 `<html>` 上写 `data-session="in"` 或 `data-session="out"`。`SSR = false` 时会话在启动数据里 |
-| 导航数据 | `{ "routes": { ... }, "session": ... }`，点链接就拿到当前的会话 |
-| 让某人登录或登出的处理函数调用 | `{ "result": ..., "session": ... }`。没有结果时是 `{ "session": ... }`，不再是 204。没动会话的调用没有 `session`，仍然是 204。重定向也带，错误不带 |
-| `GET /__tifa/session` | 本次请求的会话，`Cache-Control: private, no-store`。它在 `OnRequest` 里运行，所以让访客先登录才能通过的中间件必须放行它 |
-
-不带 `X-Tifa-Call` 请求头的请求（curl、表单、别的程序）得到的回答和以前一样。
-
-浏览器把会话存在内存里，也存在 `localStorage` 里，键是 cookie 名加 `:v1`，比如 `__Host-tifa_session:v1`。凡是带会话的回答到了，两处副本一起写：登录了就写，登出了就清，回答里没有会话就不动，`<html data-session>` 跟着改。页面自带的会话优先于 `localStorage`。`localStorage` 任何一步失败（比如无痕窗口），就只用内存里的副本，不会出错中断。请求交错时，以最后发出的那个请求的回答为准。
-
-服务器对所有访客回答得一样的页面，比如开了 `Cache` 的页面（见[整页缓存](#整页缓存)），不带会话，也没有 `data-session`。只有这样的页面里，head 最前面的脚本在第一次绘制前按 `localStorage` 设好 `data-session="in"`，`useSession` 在页面水合完成前按未登录渲染，之后切到 `localStorage` 里的副本，并向 `/__tifa/session` 问一次来核对。没有副本就不问。`localStorage` 读不了时也问一次。
-
-在浏览器里调用处理函数，如果这次调用改了会话，副本随之更新。之后导航的数据请求也会带回会话。登录、登出的处理函数要有入参类型或结果类型（`func POST(c *tifa.Ctx, in Login) error`）。自己写响应的处理函数（`func POST(c *tifa.Ctx) error`）没法把会话放进回答里。
-
-带着会话的回答，`Cache-Control` 必须是 `no-store`，或者同时有 `private` 和 `no-cache`，两个都不带字段列表（`private="Set-Cookie"` 不算），也不能有 `must-understand`。不设这个头，它就是 `private, no-cache`。`OnRequest`、`Load` 或处理函数在页面、页面的启动数据或调用的信封上设了别的值，请求按意外错误交给 `OnError`，错误回答是 `no-store`，没有 `ETag` 和 `Last-Modified`。导航重定向和已经在报错的导航回答不再抛一次：服务器记日志、清验证器、改成 `no-store`。`/__tifa/session` 永远是不带验证器的 `private, no-store`，中间件自己回答它时也一样。自己写响应的处理函数不检查。
-
-`data-session` 是 tifa 在 `<html>` 上管的属性。根 Layout 的 `htmlAttributes` 设了它，服务器启动时就会停下（VM 预热失败，`tifa dev` 会显示错误）。路由的 `htmlAttributes` 设了它，渲染会失败。
-
-**内容安全策略（CSP）。** 脚本和样式都是内联的，每个页面都一样。CSP 写在 `<meta>` 标签里时它们不受影响，因为它们排在标签前面。CSP 写在响应头里时，放行它们的哈希：
-
-```text
-script-src 'sha256-NWjzg1BGj/5CJBw80xzDV4Gmw6vQUG2ExZLUcX4mWkE='
-style-src 'sha256-dutb67YDz+meUugqDFx3RsopE/hCQ31NRHukbTNY+OQ='
-```
-
-这是默认 cookie `__Host-tifa_session` 的哈希。脚本里写着 `localStorage` 键的名字，所以设了 `session.cookie` 之后脚本的哈希会变，`tifa dev` 下 cookie 是 `tifa_session`，脚本的哈希是 `sha256-RXrgEYZIzBu7H8LtSsupWFiD5XE/6dvi74b6rHR+nVg=`。从你的构建出的页面里取出脚本再算哈希。
-
-**做不到的事。** 另一个标签页在它下一次带会话的回答到来之前显示旧状态，在那里提交的表单已经用新的 cookie。在别的设备上登出后，从 `localStorage` 出来的页面会先显示旧名字，直到核对的回答回来。在同一个标签页登录成别人之后按后退，浏览器的前进后退缓存里恢复的是原样的旧页面。切换账号时正在进行的预加载，可能带回旧账号的数据。你自己写的 `fetch` 改了会话，tifa 不知道，在它之后调 `router.invalidate()`，路由器留着的页面不该给下一个人看时再调 `router.clearCache()`。`Exposed()` 只放允许留在设备上的东西，比如名字和头像，不要放凭证、邮箱或手机号。
-
-### 测试会话
-
-`tifatest.NewCtx(t, r)` 给 `Ctx` 配了一个只属于这个测试的内存存储，所以 `SetSession` 和 `ClearSession` 能用，recorder 里有 `Set-Cookie`。同一个测试的所有 `Ctx` 共用这个存储，所以一个 `Ctx` 拿到的 cookie 可以让下一个登录：用 `r.AddCookie` 加到请求里。要测一个需要登录状态的函数，不用走 cookie：
-
-```go
-c, _ := tifatest.NewCtx(t, httptest.NewRequest("GET", "/", nil))
-tifatest.WithSession(c, &auth.Session{UserID: 1})
-```
-
-`WithSession` 只设请求的状态，不验证 cookie 和存储的流程，那部分由 tifa 自己的测试覆盖。
+会话是「谁登录了」的记录，存在服务器上，靠一个 cookie 找到。在方法处理函数里用 `tifa.SetSession(c, &s)` 登录，在任何拿得到 Ctx 的地方用 `tifa.Session[S](c)` 读，用 `tifa.ClearSession(c)` 登出。其余的在[会话](sessions.zh-CN.md)里：cookie、用 Redis 或 SQL 自己写存储、每个调用能在哪里调、浏览器里的 `useSession` 和 `SignedIn`、测试和错误。
 
 ## 测试
 
