@@ -12,7 +12,9 @@
 //	                             whose NODE_ENV is not production, such as the one of the dev
 //	                             server, it is built on a worker thread with its own NODE_ENV.
 //	                             There it answers with styles, the tags that link the
-//	                             stylesheets the bundle imports from the dev server
+//	                             stylesheets the bundle imports from the dev server. Both
+//	                             answer with modules, the files of the modules of the
+//	                             bundle outside node_modules
 //	{op: "serve", port, pollFiles}
 //	                             starts the dev server on 127.0.0.1:port, answers with the tags
 //	                             that load Vite's client and the React refresh runtime. With
@@ -278,16 +280,15 @@ const ops = {
 
   async ssr({ assets, minify }) {
     if (process.env.NODE_ENV === 'production') {
-      await buildSSR(createBuilder, { assets, minify })
-      return {}
+      return { modules: await buildSSR(createBuilder, { assets, minify }) }
     }
     ssrWorker ??= startSSRWorker()
     for (;;) {
       await restartsDone()
       const begun = restarts.begun
       try {
-        const { styles } = await ssrWorker.build({ assets, minify })
-        return { styles: styleLinks(styles) }
+        const { styles, modules } = await ssrWorker.build({ assets, minify })
+        return { styles: styleLinks(styles), modules }
       } catch (err) {
         // A restart came in between: build again once it is done.
         if (restarts.begun === begun && !restarts.running) throw err
@@ -385,16 +386,30 @@ const ops = {
 }
 
 // buildSSR builds the SSR bundle with the builder that createBuilder returns, with plugins added
-// to those of the Vite config. The SSR worker thread runs its source text, so it uses only its
-// arguments.
+// to those of the Vite config, and returns the files of the modules in it outside node_modules,
+// which tifa records so that tifatest can tell a bundle older than its sources. The SSR worker
+// thread runs its source text, so it uses only its arguments.
 async function buildSSR(createBuilder, { assets, minify }, plugins = []) {
+  const modules = new Set()
+  const inputs = {
+    name: 'tifa:inputs',
+    applyToEnvironment: (env) => env.name === 'ssr',
+    generateBundle() {
+      for (const id of this.getModuleIds()) {
+        if (id.startsWith('\0')) continue
+        const file = id.split('?')[0]
+        if (!file.split(/[\\/]/).includes('node_modules')) modules.add(file)
+      }
+    },
+  }
   const builder = await createBuilder({
-    plugins,
+    plugins: [...plugins, inputs],
     environments: {
       ssr: { define: { __TIFA_ASSETS__: JSON.stringify(assets) }, build: { minify } },
     },
   })
   await builder.build(builder.environments.ssr)
+  return [...modules].sort()
 }
 
 // ssrThread runs on the SSR worker thread, next to buildSSR. Vite reads NODE_ENV once per
@@ -463,8 +478,8 @@ async function ssrThread() {
     }
     try {
       const styles = []
-      await buildSSR(createBuilder, request, [devAssets, devStyles(styles)])
-      parentPort.postMessage({ id, styles })
+      const modules = await buildSSR(createBuilder, request, [devAssets, devStyles(styles)])
+      parentPort.postMessage({ id, styles, modules })
     } catch (err) {
       let text = err instanceof Error ? err.message : String(err)
       if (err?.frame && !text.includes(err.frame)) text += '\n' + err.frame

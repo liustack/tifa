@@ -80,6 +80,9 @@ func App(n *Node, root, public string, pages bool, c *Content) (string, error) {
 		return "", err
 	}
 	var b Build
+	var ssrOut struct {
+		Modules []string `json:"modules"`
+	}
 	if pages {
 		if err := n.call("client", nil, nil); err != nil {
 			return "", err
@@ -87,7 +90,7 @@ func App(n *Node, root, public string, pages bool, c *Content) (string, error) {
 		if b.Head, b.Preload, err = readManifest(dist); err != nil {
 			return "", err
 		}
-		if err := n.call("ssr", map[string]any{"assets": b.Head, "minify": true}, nil); err != nil {
+		if err := n.call("ssr", map[string]any{"assets": b.Head, "minify": true}, &ssrOut); err != nil {
 			return "", err
 		}
 		if err := checkSSR(dist); err != nil {
@@ -113,7 +116,10 @@ func App(n *Node, root, public string, pages bool, c *Content) (string, error) {
 	if err := finishContent(root, dist, c); err != nil {
 		return "", err
 	}
-	if b.ID, err = distID(dist, nil); err != nil {
+	if b.ID, err = distID(dist, func(name string) bool { return name == InputsFile }); err != nil {
+		return "", err
+	}
+	if err := writeInputs(root, dist, public, ssrOut.Modules); err != nil {
 		return "", err
 	}
 	return b.ID, writeBuild(dist, b)
