@@ -239,3 +239,21 @@ func TestInputsMarkTheFilesIncompleteWithoutWatchFiles(t *testing.T) {
 	}
 }
 
+// A file the Vite config imports is an input: Vite bundles the config with Rolldown too.
+func TestInputsListTheFilesTheViteConfigImports(t *testing.T) {
+	root := fakeApp(t, `["es2022"]`)
+	writeTree(t, root, map[string]string{
+		"config/plugins.ts": "export const plugins = []\n",
+		"vite.config.ts": "import tifa from './.tifa/vite.js'\nimport { plugins } from './config/plugins'\n" +
+			"export default { plugins: [tifa(), ...plugins] }\n",
+	})
+	buildApp(t, root)
+	var in inputs
+	readJSON(t, filepath.Join(root, ".tifa", "dist", InputsFile), &in)
+	if _, ok := in.Files["config/plugins.ts"]; !ok {
+		t.Errorf("inputs.json has no config/plugins.ts: %v", in.Files)
+	}
+	if in.Incomplete != "" {
+		t.Errorf("incomplete = %q", in.Incomplete)
+	}
+}
