@@ -1,10 +1,11 @@
 ---
-summary: 'tifa 应用的全部配置和应用怎样定义自己的配置：每项能在哪设置（参数、环境变量、.env、-c 的文件、tifa.yaml）、谁优先、怎样读 PORT 和 HOST、默认值、参数和环境变量名、值的写法、写错时的报错，怎样用程序自己申请的证书或你自己的证书提供 HTTPS，以及程序怎样拒绝浏览器从别的网站发来的写请求、怎样放行指定的来源或路径'
+summary: 'tifa 应用的全部配置和应用怎样定义自己的配置：每项能在哪设置（参数、环境变量、.env、-c 的文件、tifa.yaml）、谁优先、怎样读 PORT 和 HOST、默认值、参数和环境变量名、值的写法、写错时的报错，需要更久的处理函数怎样放宽读写超时，怎样用程序自己申请的证书或你自己的证书提供 HTTPS，以及程序怎样拒绝浏览器从别的网站发来的写请求、怎样放行指定的来源或路径'
 read_when:
   - 用 tifa.String 等定义应用的配置，或在 OnStart 里读它
   - 写 .env 文件，或部署到会设 PORT 的平台
   - 想改会话能用多久、会话 cookie 的名字，或默认会话存储能用多少内存
-  - 部署 tifa 应用，或要改端口、请求体上限、压缩、VM 数量、VM 栈深度、渲染超时、渲染队列、渲染缓存、整页缓存，或缓存忽略的跟踪参数
+  - 上传、下载或推流大约 10 秒就被切断，或者处理函数需要的时间超过读写超时
+  - 部署 tifa 应用，或要改端口、请求体上限、读写超时、压缩、VM 数量、VM 栈深度、渲染超时、渲染队列、渲染缓存、整页缓存，或缓存忽略的跟踪参数
   - 想让程序自己提供 HTTPS，用 Let's Encrypt 或自己的证书，或者在犹豫要不要这样做
   - 程序监听不了 80 或 443 端口，或者拿不到证书
   - POST、PUT、PATCH 或 DELETE 收到 403 和 `cross-origin request detected`，或者要放行另一个网站的页面或第三方的回调
@@ -103,6 +104,8 @@ Cloud Run、Heroku、Render、Railway、Fly 这类托管平台用 `PORT` 告诉�
 | `build.i18next_cache` | `true` | 只能写在项目文件 | 服务端渲染记住 i18next 翻译出的字符串，同样的键和选项再来时直接给出，于是每次渲染都翻译同样文案的页面更快：shop 的店面页面只用原来 0.798 的时间。设为 `false` 关掉。应用在第一次渲染之后绕开 i18next 的 API 改资源或选项，或者交给 i18next 的函数（格式化函数和后处理器以外）会读请求里的东西时，要关掉它，否则页面可能显示过期的翻译。见 [build.zh-CN.md](build.zh-CN.md#i18next-缓存) |
 | `server.addr` | `127.0.0.1:9527` | `--server-addr`、`SERVER_ADDR` | 监听地址。容器里用 `0.0.0.0:9527`。开了 [HTTPS](#https) 时这里提供 HTTPS，而且必须设置，一般设成 `:443` |
 | `server.body_limit` | `1MiB` | `--server-body-limit`、`SERVER_BODY_LIMIT` | 请求体上限，超过答 413 |
+| `server.read_timeout` | `10s` | `--server-read-timeout`、`SERVER_READ_TIMEOUT` | 从接下连接起，读完整个请求（含请求体）的时间。到时还没传完的请求体读取失败。见[耗时长的请求](#耗时长的请求) |
+| `server.write_timeout` | `10s` | `--server-write-timeout`、`SERVER_WRITE_TIMEOUT` | 从读完请求头到写完回答的时间。到时还没写完的回答被切断。见[耗时长的请求](#耗时长的请求) |
 | `server.shutdown_timeout` | `10s` | `--server-shutdown-timeout`、`SERVER_SHUTDOWN_TIMEOUT` | 收到退出信号后，先给在途请求的时间，再给 `OnShutdown` 的时间。到时仍在运行的请求会被取消，再给它们一个 `shutdown_timeout` 返回。都返回了就执行 `OnShutdown`，没返回就跳过它。两种情况程序都以状态码 1 退出 |
 | `server.compress` | `true` | `--server-compress`、`SERVER_COMPRESS` | 对接受压缩的客户端用 gzip 或 zstd 发文本回答，浏览器包直接发 `tifa build` 写好的 gzip 文件，见[压缩](build.zh-CN.md#压缩)。前面有代理负责压缩时设为 `false`，比如用 brotli 的 nginx |
 | `server.tls_domains` | 无 | `--server-tls-domains`、`SERVER_TLS_DOMAINS` | 开启 [HTTPS](#https)，为这些域名向 Let's Encrypt 申请证书，逗号分隔，比如 `example.com,www.example.com` |
@@ -225,6 +228,30 @@ if !errors.As(got, &public) || public.Status != 503 || w.Header().Get("Retry-Aft
 `tifatest.NewCtx` 不跑 SSR，这样的测试里队列不会真的满，像上面这样手动把错误传进去。
 
 限制只在渲染需要 VM 时生效。缓存命中、304、导航数据、API 和关闭 SSR 的页面都不等 VM。共享同一次缓存未命中的请求只算一次渲染。`Load` 在准入检查前运行，共享渲染的请求仍各自占用 HTTP 状态。队列限制约束渲染任务数量，不是整个进程的内存或全部 HTTP 请求。容量建议和测量见[过载](performance.zh-CN.md#过载)。
+
+## 耗时长的请求
+
+`server.read_timeout` 和 `server.write_timeout` 给每个请求 10 秒传完、10 秒答完，这样发得或读得极慢的客户端没法一直占着连接。保持它们短，在需要更久的处理函数里单独放宽：手机上传文件、导出大文件、推送 server-sent events 或大模型的回答。
+
+```go
+func POST(c *tifa.Ctx) error {
+	rc := http.NewResponseController(c.Writer())
+	// 这个请求可以花 5 分钟传请求体，回答也一样。
+	if err := rc.SetReadDeadline(time.Now().Add(5 * time.Minute)); err != nil {
+		return err
+	}
+	if err := rc.SetWriteDeadline(time.Now().Add(5 * time.Minute)); err != nil {
+		return err
+	}
+	// ...
+}
+```
+
+- 新的期限从调用那一刻算起，只管这一个请求。`time.Time{}` 去掉期限。推流最好每次写之前设一个新期限，这样停止读取的客户端不会让处理函数永远挂着，见[流式输出](guides/streaming.zh-CN.md)。
+- 写期限从读完请求头算起，所以读长请求体的处理函数两个都要放宽：回答在请求体之后才写。
+- 带类型输入的处理函数，请求体在它运行前就读了，所以要在 `OnRequest` 里放宽读期限，做法见[上传](guides/uploads.zh-CN.md#配置和请求体限制)。
+- `c.Writer()` 穿过 tifa 自己的各层写入器和压缩层，直达连接。
+- 前面的代理有自己的超时，比如 nginx 的 `proxy_read_timeout` 默认 60 秒。对同样的路径一并调大。
 
 ## HTTPS
 

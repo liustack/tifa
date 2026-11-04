@@ -73,6 +73,18 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 - With a typed input the framework decodes the body before your handler runs, so the limit has to change earlier, in `OnRequest`. A handler that reads the body itself can call `c.SetBodyLimit` at its top, as long as nothing has read the body yet (see below).
 - A multipart body is read with at most 32 MiB in memory. What is over that goes to temporary files, which tifa removes when the request ends. A limit above that is fine, but a few uploads at once cost memory, so keep it as low as the use needs.
 - A proxy or CDN in front of the app has a body limit of its own. Raise it to match, or the visitor gets its error and not yours.
+- A large file from a phone on a slow line can take longer than the 10 seconds of `server.read_timeout`, and the upload then fails halfway. Lift the deadlines of the upload route in the same `if`, before the body is read, and leave the settings short for the rest (see [Long requests](../config.md#long-requests)):
+
+  ```go
+  rc := http.NewResponseController(c.Writer())
+  if err := rc.SetReadDeadline(time.Now().Add(5 * time.Minute)); err != nil {
+  	return err
+  }
+  // The answer is written after the body, so it needs the time too.
+  if err := rc.SetWriteDeadline(time.Now().Add(5 * time.Minute)); err != nil {
+  	return err
+  }
+  ```
 
 ## The handler
 

@@ -1,10 +1,11 @@
 ---
-summary: 'Every setting of a tifa app and how an app defines its own: where each one can be set (flags, environment variables, .env, the file of -c, tifa.yaml), which source wins, how PORT and HOST are read, the default, the flag and environment variable names, the value formats and the errors a bad value gives, how to serve HTTPS with certificates the program gets itself or with your own, and how the program refuses writes that a browser sends from another site and how to let chosen origins or paths through'
+summary: 'Every setting of a tifa app and how an app defines its own: where each one can be set (flags, environment variables, .env, the file of -c, tifa.yaml), which source wins, how PORT and HOST are read, the default, the flag and environment variable names, the value formats and the errors a bad value gives, how a handler that needs longer lifts the read and write timeouts, how to serve HTTPS with certificates the program gets itself or with your own, and how the program refuses writes that a browser sends from another site and how to let chosen origins or paths through'
 read_when:
   - Defining a setting of the app with tifa.String and the like, or reading one in OnStart
   - Writing a .env file, or deploying on a platform that sets PORT
   - Changing how long a session lasts, the session cookie name, or how much memory the default session store may use
-  - Deploying a tifa app, or changing its port, body limit, compression, VM count, VM stack depth, render timeout, render queue, render cache, whole-page cache or the tracking parameters the cache ignores
+  - An upload, a download or a stream is cut off after about 10 seconds, or a handler needs longer than the read and write timeouts
+  - Deploying a tifa app, or changing its port, body limit, read and write timeouts, compression, VM count, VM stack depth, render timeout, render queue, render cache, whole-page cache or the tracking parameters the cache ignores
   - Serving HTTPS from the program itself, with Let's Encrypt or your own certificate, or deciding whether to
   - The program cannot listen on port 80 or 443, or gets no certificate
   - A POST, PUT, PATCH or DELETE gets 403 with `cross-origin request detected`, or a page of another site or a provider's callback must be allowed to send one
@@ -103,6 +104,8 @@ Hosting platforms such as Cloud Run, Heroku, Render, Railway and Fly tell the pr
 | `build.i18next_cache` | `true` | project file only | The server render keeps the strings i18next translates and gives them again for the same key and options, so pages that translate the same texts on every render take less time: the shop's storefront pages 0.798 of it. `false` turns it off. Turn it off when the app changes i18next's resources or options after the first render without i18next's API, or gives i18next functions other than formatters and post-processors that read something of the request, or pages may show stale translations. See [build.md](build.md#i18next-cache) |
 | `server.addr` | `127.0.0.1:9527` | `--server-addr`, `SERVER_ADDR` | Address to listen on. Use `0.0.0.0:9527` in a container. With [HTTPS](#https) on it serves HTTPS and must be set, usually to `:443` |
 | `server.body_limit` | `1MiB` | `--server-body-limit`, `SERVER_BODY_LIMIT` | Largest request body. A bigger one is answered with 413 |
+| `server.read_timeout` | `10s` | `--server-read-timeout`, `SERVER_READ_TIMEOUT` | Time to read a whole request, its body included, from the moment the connection is taken. A body still coming after it fails to read. See [Long requests](#long-requests) |
+| `server.write_timeout` | `10s` | `--server-write-timeout`, `SERVER_WRITE_TIMEOUT` | Time from the end of a request header to the end of its answer. An answer still being written after it is cut off. See [Long requests](#long-requests) |
 | `server.shutdown_timeout` | `10s` | `--server-shutdown-timeout`, `SERVER_SHUTDOWN_TIMEOUT` | After a stop signal, the time in-flight requests get to finish, and then the time `OnShutdown` gets. Requests still running when it ends are canceled and get one more `shutdown_timeout` to return. `OnShutdown` runs once they have returned and is skipped if they have not. Either way the program exits with status 1 |
 | `server.compress` | `true` | `--server-compress`, `SERVER_COMPRESS` | Sends text answers with gzip or zstd to clients that accept them, and the browser bundle as the gzip files `tifa build` wrote, see [Compression](build.md#compression). Set it to `false` when a proxy in front compresses, such as nginx with brotli |
 | `server.tls_domains` | none | `--server-tls-domains`, `SERVER_TLS_DOMAINS` | Turns on [HTTPS](#https) with certificates from Let's Encrypt for these domains, comma-separated, such as `example.com,www.example.com` |
@@ -225,6 +228,30 @@ if !errors.As(got, &public) || public.Status != 503 || w.Header().Get("Retry-Aft
 `tifatest.NewCtx` does not run SSR, so the queue itself is never full in such a test. Pass the error in by hand as above.
 
 The limits apply only when a render needs a VM. Cache hits, 304 responses, navigation data, API routes and pages with SSR off do not wait for one. Requests sharing a cache miss count as one render. `Load` runs before admission, and shared requests still hold their own HTTP state. A queue limit bounds render jobs, not total process memory or all HTTP requests. See [Overload](performance.md#overload) for sizing and measurements.
+
+## Long requests
+
+`server.read_timeout` and `server.write_timeout` give every request 10 seconds to arrive and 10 seconds to be answered, so a client that sends or reads very slowly cannot hold connections open. Keep them short, and lift them in the handlers that need longer: an upload from a phone, the export of a large file, a stream of server-sent events or of a model's answer.
+
+```go
+func POST(c *tifa.Ctx) error {
+	rc := http.NewResponseController(c.Writer())
+	// This request may take 5 minutes to send its body, and as long for the answer.
+	if err := rc.SetReadDeadline(time.Now().Add(5 * time.Minute)); err != nil {
+		return err
+	}
+	if err := rc.SetWriteDeadline(time.Now().Add(5 * time.Minute)); err != nil {
+		return err
+	}
+	// ...
+}
+```
+
+- The new time counts from the moment of the call and holds for this request only. `time.Time{}` removes the limit. A stream does better to set a new deadline before each write, so a client that stops reading does not keep the handler forever, see [Streaming](guides/streaming.md).
+- The write timeout counts from the end of the request header, so a handler that reads a long body lifts both: its answer is written after the body.
+- A handler with a typed input has its body read before it runs, so lift the read deadline in `OnRequest`, as [Uploads](guides/uploads.md#the-settings-and-the-body-limit) does.
+- `c.Writer()` reaches the connection through the writers of tifa and through compression.
+- A proxy in front has timeouts of its own, such as the 60 seconds of nginx's `proxy_read_timeout`. Raise them for the same paths.
 
 ## HTTPS
 

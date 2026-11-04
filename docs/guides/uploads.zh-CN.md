@@ -73,6 +73,18 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 - 用带类型的入参时，框架在方法函数运行之前就解码了请求体，所以限制要更早改，放在 `OnRequest` 里。自己读请求体的方法函数，只要还没有东西读过请求体，可以在开头调 `c.SetBodyLimit`（见下文）。
 - multipart 请求体最多 32 MiB 放在内存里，超出的部分写到临时文件，请求结束时 tifa 会删掉它们。限制可以高于这个数，但同时来几个上传就很占内存，所以按需要尽量设低。
 - 应用前面的代理或 CDN 有自己的请求体限制。要一起调高，否则访客看到的是它的错误，不是你的。
+- 手机在慢网络上传大文件，可能超过 `server.read_timeout` 的 10 秒，上传就会传到一半失败。在同一个 `if` 里、读请求体之前，给上传路由放宽期限，其他请求的配置保持短（见[耗时长的请求](../config.zh-CN.md#耗时长的请求)）：
+
+  ```go
+  rc := http.NewResponseController(c.Writer())
+  if err := rc.SetReadDeadline(time.Now().Add(5 * time.Minute)); err != nil {
+  	return err
+  }
+  // 回答在请求体之后才写，所以它也需要时间。
+  if err := rc.SetWriteDeadline(time.Now().Add(5 * time.Minute)); err != nil {
+  	return err
+  }
+  ```
 
 ## 方法函数
 
