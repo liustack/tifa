@@ -39,6 +39,9 @@ export interface RouterOptions {
   // carries to the browser. An app without sessions has neither.
   sessionKey?: string
   session?: SessionEnvelope
+  // The nonce of a server render under a Content-Security-Policy, which the router writes on its
+  // hydration scripts and its scroll restoration script (see RenderInput in server.tsx).
+  nonce?: string
   // Receives what the page carried when the browser hydrates it.
   onHydrate?: (dehydrated: Dehydrated) => void
   // The history of a browser router, the browser's own by default. Tests pass a memory history.
@@ -50,7 +53,7 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
   source: Source,
   options: RouterOptions,
 ) {
-  const { buildId, serverURL, onHydrate, sessionKey, session } = options
+  const { buildId, serverURL, onHydrate, sessionKey, session, nonce } = options
   const context: RouterContext = {
     browser: serverURL === undefined,
     source,
@@ -71,6 +74,7 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
     notFoundMode: 'fuzzy',
     defaultPreload: 'intent',
     scrollRestoration: true,
+    ssr: nonce === undefined ? undefined : { nonce },
     dehydrate: (): Dehydrated => {
       if (buildId === undefined) throw new Error('a server render needs the build ID')
       const out: Dehydrated = { buildId }

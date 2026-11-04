@@ -179,6 +179,27 @@ test('head attributes are the ones React DOM writes', async () => {
   })
 })
 
+// Under a Content-Security-Policy the server writes the nonce of the render as the first attribute
+// of a style and of a script that runs, and Go takes it out again. A nonce of the tag with that
+// value goes, so the page without the marks is the page the browser compares its tags with.
+test('under a CSP the head marks its scripts and styles with the nonce of the render', async () => {
+  const n = '0123456789abcdef0123456789abcdef'
+  const tags: Tag[] = [
+    { tag: 'script', attrs: { nonce: n, id: 'a' }, children: 'run()' },
+    { tag: 'script', attrs: { type: 'application/ld+json' }, children: '{}' },
+    { tag: 'style', attrs: { media: 'print' }, children: 'p{}' },
+    { tag: 'link', attrs: { rel: 'icon', href: '/i.svg' } },
+    { tag: 'script', attrs: { src: '/a.js', nonce: 'other' } },
+  ]
+  const html = headHTML(tags, n)
+  const want =
+    `<script nonce="${n}" id="a">run()</script><script type="application/ld+json">{}</script>` +
+    `<style nonce="${n}" media="print">p{}</style><link rel="icon" href="/i.svg"><script nonce="${n}" src="/a.js" nonce="other"></script>`
+  assert(html === want, `${html}\nwant\n${want}`)
+  const unmarked = tags.map((tag) => (tag.attrs.nonce === n ? { ...tag, attrs: { id: 'a' } } : tag))
+  assert(html.split(` nonce="${n}"`).join('') === headHTML(unmarked), 'the head without the marks differs')
+})
+
 test('a style attribute fails with a message that fits <html> too', async () => {
   let message = ''
   try {

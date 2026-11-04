@@ -277,18 +277,37 @@ const scriptEscape = (_: string, prefix: string, s: string, suffix: string) =>
 const styleEscape = (_: string, prefix: string, s: string, suffix: string) =>
   prefix + (s === 's' ? '\\73 ' : '\\53 ') + suffix
 
-export function tagHTML(tag: Tag): string {
-  const open = '<' + tag.tag + attributes(tag.attrs) + '>'
+// tagHTML writes a tag. With the nonce of a server render under a Content-Security-Policy, a style
+// and a script that runs carry it as their first attribute: Go takes it out again and puts the
+// hash of the content into the policy (internal/ssr/csp.go). A nonce attribute of the tag with
+// that value is left out, since the page goes out without it.
+export function tagHTML(tag: Tag, nonce?: string): string {
+  let attrs = tag.attrs
+  let mark = ''
+  if (nonce !== undefined && (tag.tag === 'style' || (tag.tag === 'script' && !jsonType(attrs.type)))) {
+    mark = ' nonce="' + nonce + '"'
+    if (attrs.nonce === nonce) {
+      const { nonce: _, ...rest } = attrs
+      attrs = rest
+    }
+  }
+  const open = '<' + tag.tag + mark + attributes(attrs) + '>'
   if (tag.tag === 'meta' || tag.tag === 'link') return open
   return open + (tag.tag === 'title' ? escapeText(text(tag)) : text(tag)) + '</' + tag.tag + '>'
 }
 
-// headHTML writes the tags, each distinct tag once.
-export function headHTML(tags: Tag[]): string {
+// jsonType reports whether the type of a script says it holds JSON, such as application/ld+json,
+// which never runs.
+function jsonType(type: unknown) {
+  return typeof type === 'string' && type.trim().toLowerCase().endsWith('json')
+}
+
+// headHTML writes the tags, each distinct tag once, with the nonce of tagHTML.
+export function headHTML(tags: Tag[], nonce?: string): string {
   let out = ''
   const seen = new Set<string>()
   for (const tag of tags) {
-    const html = tagHTML(tag)
+    const html = tagHTML(tag, nonce)
     if (seen.has(html)) continue
     seen.add(html)
     out += html
