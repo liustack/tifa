@@ -77,14 +77,23 @@ func TestStartPagesInAnApp(t *testing.T) {
 		t.Fatalf("go test after the build: %v\n%s", err, out)
 	}
 
-	page := filepath.Join(dir, "app", "page.tsx")
-	data, err := os.ReadFile(page)
-	if err != nil {
-		t.Fatal(err)
-	}
-	write(t, page, string(data)+"\nexport const changed = true\n")
-	out, err = goTest()
-	if err == nil || !strings.Contains(out, "app/page.tsx") || !strings.Contains(out, "run tifa build again") {
-		t.Fatalf("go test after a page changed: %v\n%s", err, out)
+	// Each change below makes the front end older than its sources, and the test names the files
+	// changed so far: a component that renders only in the browser, a public file added since the
+	// build, and a page.
+	for _, change := range []struct{ file, add string }{
+		{"app/shops/shop+/items/item+/basket.client.tsx", "\nexport const changed = true\n"},
+		{"public/added.txt", "new\n"},
+		{"app/page.tsx", "\nexport const changed = true\n"},
+	} {
+		path := filepath.Join(dir, filepath.FromSlash(change.file))
+		data, err := os.ReadFile(path)
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		write(t, path, string(data)+change.add)
+		out, err := goTest()
+		if err == nil || !strings.Contains(out, change.file) || !strings.Contains(out, "run tifa build again") {
+			t.Fatalf("go test after a change to %s: %v\n%s", change.file, err, out)
+		}
 	}
 }
