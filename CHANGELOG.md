@@ -4,6 +4,20 @@ What changed in tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- `tifatest.Start(t, tifaapp.App)` runs the whole app in `go test` and returns an `*httptest.Server`, so a test can walk through what a browser does: open a protected page and get the redirect, sign in, see the session cookie, and read the page. `OnStart`, `OnRequest`, decoding, `Validate`, sessions, redirects and `OnError` run as in the program, `OnShutdown` runs when the test ends, and the client keeps cookies and does not follow redirects. Without a front end, pages answer the data of their Loads as JSON by route ID. `tifatest.StartPages` also renders the pages with the front end of `tifa build` or `tifa dev`, on two VMs the test binary shares, and fails the test when `.tifa/dist` is missing or a file it was built from has changed since. Import the app from a test in a package of its own, such as `package login_test` (see [Testing a whole request](docs/app.md#testing-a-whole-request)).
+- `tifa build` and `tifa dev` write `.tifa/dist/inputs.json`: a hash of each file the front end was built from, which `StartPages` checks.
+
+### Changed
+
+- The generated table of routes moved from `.tifa/routes.go` into the package `.tifa/tifaapp`, as `tifaapp.App`, so tests can import it. `.tifa/main.go` serves `tifaapp.App`. A test that imports it needs `.tifa`, so in a fresh checkout `go vet`, `go test` and `go mod tidy` fail until `tifa check`, `tifa build` or `tifa dev` has run.
+
+### Fixed
+
+- A handler under `tifatest.NewCtx` that wrote a 1xx status, such as `103 Early Hints`, before `SetSession` and its answer left the recorder with the 1xx and without the `Set-Cookie`: `httptest.ResponseRecorder` takes any status as the final one. The recorder now keeps 1xx statuses out, as the server sends them before the answer.
+- The test in [Sign-in](docs/guides/sign-in.md) read two requests from one recorder, whose `Result()` keeps the headers of its first call, so it never saw the cookie of the second. It now makes a `NewCtx` per request.
+
 ## [0.0.3] - 2026-11-05
 
 ### Changed
