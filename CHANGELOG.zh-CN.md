@@ -12,6 +12,7 @@
 ### 变更
 
 - 每个回答现在都带 `Referrer-Policy: strict-origin-when-cross-origin` 和 `Content-Security-Policy: frame-ancestors 'self'`，加上原有的 `X-Content-Type-Options: nosniff`。别的网站不能再把页面放进 iframe：合作方要放的页面在 `OnRequest` 里改这个头（见[安全头](docs/config.zh-CN.md#安全头)）。
+- `tifa new` 固定 `github.com/liustack/sqlite` v0.1.2，它支持 Go 1.26.6 到 1.27，遇到更新的 Go 会停止编译。升级 Go 之后也要升级驱动。
 
 ### 修复
 

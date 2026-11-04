@@ -12,6 +12,7 @@ What changed in tifa that apps and their users can see. From v0.0.1 on, changes 
 ### Changed
 
 - Every answer now carries `Referrer-Policy: strict-origin-when-cross-origin` and `Content-Security-Policy: frame-ancestors 'self'`, next to `X-Content-Type-Options: nosniff`. Another site can no longer show the pages in a frame: change the header in `OnRequest` for pages that a partner shows (see [Security headers](docs/config.md#security-headers)).
+- `tifa new` pins `github.com/liustack/sqlite` v0.1.2, which builds with Go 1.26.6 to 1.27 and stops the build on a newer Go. After upgrading Go, upgrade the driver too.
 
 ### Fixed
 
