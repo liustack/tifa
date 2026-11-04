@@ -1642,7 +1642,7 @@ func nodePool(t *testing.T, files map[string]string) (*ssr.Pool, string, error) 
 	writeTree(t, root, files)
 	var output strings.Builder
 	n := NewNode(root, &output)
-	if _, err := App(n, root, filepath.Join(root, "public"), true); err != nil {
+	if _, err := App(n, root, filepath.Join(root, "public"), true, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := n.Close(); err != nil {
@@ -1776,7 +1776,7 @@ func TestSSRBuildFailsOnCodeOnlySloppyModeAllows(t *testing.T) {
 	})
 	n := NewNode(root, io.Discard)
 	defer n.Close()
-	_, err := App(n, root, filepath.Join(root, "public"), true)
+	_, err := App(n, root, filepath.Join(root, "public"), true, nil)
 	want := "vendor/node_modules/old/index.cjs:2:"
 	if err == nil || !strings.Contains(err.Error(), "SyntaxError: invalid keyword: with") ||
 		!strings.Contains(err.Error(), want) {

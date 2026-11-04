@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/liustack/tifa/internal/analyze"
+	"github.com/liustack/tifa/js"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden files under testdata/golden")
@@ -494,6 +495,30 @@ func TestInterfaceOnlyAppHasNoTypeScript(t *testing.T) {
 	}
 }
 
+// An app without pages whose collections Vite converts gets the Vite plugin for its
+// vite.config.ts, and still no other TypeScript.
+func TestAppWithoutPagesWithContentGetsTheVitePlugin(t *testing.T) {
+	m := &analyze.Manifest{
+		Module:  "example.com/x",
+		Routes:  []analyze.Route{{ID: "app/feed/route", Dir: "app/feed", Package: "example.com/x/app/feed", Path: "/feed", Handlers: []analyze.Handler{{Method: "GET"}}, SSR: true}},
+		Content: &analyze.Content{},
+	}
+	noNode := func([]string) (map[string][]string, error) {
+		t.Error("exports read for an application without pages")
+		return nil, nil
+	}
+	files, err := Generate(t.TempDir(), m, false, noNode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := slices.Sorted(maps.Keys(files)), []string{"main.go", "routes.go", "vite.d.ts", "vite.js", "vite/plugin.js"}; !slices.Equal(got, want) {
+		t.Errorf("generated %q, want %q", got, want)
+	}
+	if string(files["vite/plugin.js"]) != js.VitePlugin || !strings.Contains(string(files["vite.js"]), "markdown: options.markdown") {
+		t.Errorf("vite.js:\n%s", files["vite.js"])
+	}
+}
+
 func TestProjectSettingsReadsTheServerSection(t *testing.T) {
 	root := t.TempDir()
 	cfg, err := ProjectSettings(root)
@@ -512,9 +537,9 @@ func TestProjectSettingsReadsTheServerSection(t *testing.T) {
 func TestBuildTargetReachesVite(t *testing.T) {
 	m := &analyze.Manifest{Module: "example.com/x", Routes: []analyze.Route{{ID: "app/page/route", Dir: "app/page", Path: "/page", Page: true, SSR: true}}}
 	for target, want := range map[string]string{
-		"":                           `tifa({ target: ["es2020"], i18nextCache: true })`, // the default
-		"es2020":                     `tifa({ target: ["es2020"], i18nextCache: true })`,
-		" ES2019, chrome90,safari14": `tifa({ target: ["es2019","chrome90","safari14"], i18nextCache: true })`,
+		"":                           `const settings = { target: ["es2020"], i18nextCache: true }`, // the default
+		"es2020":                     `const settings = { target: ["es2020"], i18nextCache: true }`,
+		" ES2019, chrome90,safari14": `const settings = { target: ["es2019","chrome90","safari14"], i18nextCache: true }`,
 	} {
 		root := t.TempDir()
 		writeFile(t, filepath.Join(root, "app/page/page.tsx"), "export default function P() { return null }\n")
@@ -543,9 +568,9 @@ func TestBuildTargetReachesVite(t *testing.T) {
 func TestBuildI18nextCacheReachesVite(t *testing.T) {
 	m := &analyze.Manifest{Module: "example.com/x", Routes: []analyze.Route{{ID: "app/page/route", Dir: "app/page", Path: "/page", Page: true, SSR: true}}}
 	for config, want := range map[string]string{
-		"":                                 `tifa({ target: ["es2020"], i18nextCache: true })`,
-		"build:\n  i18next_cache: true\n":  `tifa({ target: ["es2020"], i18nextCache: true })`,
-		"build:\n  i18next_cache: false\n": `tifa({ target: ["es2020"] })`,
+		"":                                 `const settings = { target: ["es2020"], i18nextCache: true }`,
+		"build:\n  i18next_cache: true\n":  `const settings = { target: ["es2020"], i18nextCache: true }`,
+		"build:\n  i18next_cache: false\n": `const settings = { target: ["es2020"] }`,
 	} {
 		root := t.TempDir()
 		writeFile(t, filepath.Join(root, "app/page/page.tsx"), "export default function P() { return null }\n")

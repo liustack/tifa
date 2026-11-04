@@ -16,7 +16,6 @@ import (
 	"github.com/liustack/tifa/internal/bundle"
 	"github.com/liustack/tifa/internal/codegen"
 	"github.com/liustack/tifa/internal/config"
-	"github.com/liustack/tifa/internal/content"
 	"github.com/spf13/cobra"
 )
 
@@ -68,11 +67,7 @@ Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 			if err := checkReact(root, pages); err != nil {
 				return err
 			}
-			extra, err := contentFiles(m)
-			if err != nil {
-				return err
-			}
-			id, err := bundle.App(node, root, filepath.Join(root, settings.Public), pages, extra...)
+			id, err := bundle.App(node, root, filepath.Join(root, settings.Public), pages, contentOf(m))
 			if err != nil {
 				return err
 			}
@@ -145,17 +140,12 @@ func analyzeApp(cmd *cobra.Command, root string) (*analyze.Manifest, error) {
 	return m, err
 }
 
-// contentFiles returns dist/content.json with the entries of the content collections, none for
-// an app without collections.
-func contentFiles(m *analyze.Manifest) ([]bundle.File, error) {
+// contentOf returns the content collections of the analyzed app for the build, nil without any.
+func contentOf(m *analyze.Manifest) *bundle.Content {
 	if m.Content == nil {
-		return nil, nil
+		return nil
 	}
-	data, err := m.Content.File.Marshal()
-	if err != nil {
-		return nil, err
-	}
-	return []bundle.File{{Name: content.FileName, Data: data}}, nil
+	return &bundle.Content{File: m.Content.File, Markdown: m.Content.Markdown}
 }
 
 // goBuild compiles the generated main of the application at root into output with

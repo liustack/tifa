@@ -63,6 +63,8 @@ type Result struct {
 	Errors []Error
 	// Warnings are problems that do not stop a build, such as missing translations.
 	Warnings []string
+	// Markdown lists the entries of File for the Vite plugin to turn into HTML.
+	Markdown []content.Markdown
 }
 
 // Dir is the folder of an app that holds the collections.
@@ -234,10 +236,11 @@ func (s *scanner) collection(c Collection) {
 	slices.SortStableFunc(cands, func(a, b candidate) int {
 		return cmp.Or(cmp.Compare(slices.Index(c.Languages, a.lang), slices.Index(c.Languages, b.lang)), cmp.Compare(a.rel, b.rel))
 	})
-	recs := s.entries(c, cands)
+	recs, md := s.entries(c, cands)
 	if len(s.res.Errors) > before {
 		return
 	}
+	s.res.Markdown = append(s.res.Markdown, md...)
 	slices.SortStableFunc(recs, func(a, b content.Record) int {
 		return cmp.Or(cmp.Compare(a.ID, b.ID), cmp.Compare(slices.Index(c.Languages, a.Lang), slices.Index(c.Languages, b.Lang)))
 	})
@@ -346,8 +349,9 @@ type seenAt struct {
 
 // entries reads the candidates of c and checks that IDs, paths and translation keys are unique in
 // each language. Drafts take part in the checks and are left out of the result unless Options.Drafts.
-func (s *scanner) entries(c Collection, cands []candidate) []content.Record {
+func (s *scanner) entries(c Collection, cands []candidate) ([]content.Record, []content.Markdown) {
 	var recs []content.Record
+	var md []content.Markdown
 	ids, paths, groups := map[[2]string]seenAt{}, map[[2]string]seenAt{}, map[[2]string]seenAt{}
 	for _, x := range cands {
 		src, err := os.ReadFile(filepath.Join(s.root, filepath.FromSlash(x.file)))
@@ -398,12 +402,29 @@ func (s *scanner) entries(c Collection, cands []candidate) []content.Record {
 		if m.draft && !s.opts.Drafts {
 			continue
 		}
+		out := content.BodyFile(c.Name, x.lang, id)
 		recs = append(recs, content.Record{
 			ID: id, Lang: x.lang, Slug: slug, Path: entryPath, Group: group,
-			Date: m.date, Draft: m.draft, Words: countWords(m.body), Source: x.file, Data: m.data,
+			Date: m.date, Draft: m.draft, Words: countWords(m.body), Source: x.file, File: out, Data: m.data,
+		})
+		md = append(md, content.Markdown{
+			Collection: c.Name, Lang: x.lang, ID: id, Source: x.file, Out: out,
+			Text: strings.Repeat("\n", m.lines) + string(m.body), Frontmatter: m.data,
 		})
 	}
-	return recs
+	// A relative URL of a translation is looked for next to the version in the default language
+	// too, a draft or one still to come included.
+	if len(c.Languages) > 0 {
+		for i := range md {
+			if md[i].Lang == c.Languages[0] {
+				continue
+			}
+			if other, ok := groups[[2]string{c.Languages[0], recs[i].Group}]; ok {
+				md[i].Fallback = path.Dir(other.file)
+			}
+		}
+	}
+	return recs, md
 }
 
 // clash reports that two entries share a path or a translation key. It goes to the one whose

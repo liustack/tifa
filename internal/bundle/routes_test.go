@@ -190,7 +190,7 @@ func TestAppWarnsOfRouteModulesInTheEntryScript(t *testing.T) {
 	})
 	var output strings.Builder
 	n := NewNode(root, &output)
-	if _, err := App(n, root, filepath.Join(root, "public"), true); err != nil {
+	if _, err := App(n, root, filepath.Join(root, "public"), true, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := n.Close(); err != nil {

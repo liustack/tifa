@@ -7,3 +7,13 @@ tags: [search]
 ---
 
 The model reasons well, but it does not know what happened today.
+
+![Architecture](./diagram.png)
+
+## How to install
+
+Read the [install guide](/en/docs/install).
+
+## How to install
+
+The second heading with the same text gets its own id.

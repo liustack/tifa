@@ -1,16 +1,18 @@
 ---
-summary: '应用怎样把文章、文档等写作内容作为 Markdown 文件放在 content/ 下并在 Go 里读：在 content.go 里声明集合，哪些文件是条目，ID、slug、path 和译文，schema struct 允许哪些 front matter 键，草稿和日期，tifa build 写出什么，测试里怎样读内容，以及报错和提示'
+summary: '应用怎样把文章、文档等写作内容作为 Markdown 文件放在 content/ 下并在 Go 里读：在 content.go 里声明集合，哪些文件是条目，ID、slug、path 和译文，schema struct 允许哪些 front matter 键，草稿和日期，正文怎样转成 HTML（步骤、remark 和 rehype 插件、图片和链接、标题）以及页面怎样显示它，tifa build 写出什么，测试里怎样读内容，以及报错和提示'
 read_when:
   - 给 tifa 应用加博客、文档或其他 Markdown 内容
   - 写或改 content.go，或嵌入 content.Entry 的 schema 类型
   - 构建报 content.Define、content/ 下某个文件夹或某个文件 front matter 的错
+  - 用 Body 和 <HTML> 显示条目的正文，用 Headings 做目录，或者在 vite.config.ts 的 tifa() 里加 remark、rehype 插件
+  - 正文里的图片或链接找不到，或者插件让转换失败
   - 写读集合的 Go 测试，用 tifatest.LoadContent 或 tifatest.SetContent
-  - 改 content 包、internal/content 或 internal/analyze 里的内容检查
+  - 改 content 包、internal/content、internal/analyze 里的内容检查，或 js/vite/plugin.js 里转换 Markdown 的步骤
 ---
 
 # 内容
 
-集合是 `content/` 下的一个 Markdown 文件夹，应用在 Go 里把它当作有类型的值来读。构建读这些文件，按一个 Go struct 检查每个 front matter，把条目放进程序。运行时 `Load` 或 handler 像读别的数据一样读它们：不打开文件，也不解析。
+集合是 `content/` 下的一个 Markdown 文件夹，应用在 Go 里把它当作有类型的值来读。构建读这些文件，按一个 Go struct 检查每个 front matter，把每篇正文转成 HTML，全部放进程序。运行时 `Load` 或 handler 像读别的数据一样读条目，不解析任何东西。
 
 ## 声明集合
 
@@ -184,9 +186,119 @@ func Published(lang string) []myblog.Post {
 
 内容在 `OnStart` 之前载入，所以 `OnStart` 里能读。包初始化期间读集合会 panic。依赖内容算出来的东西在用到它的函数里现算，比如 RSS 的 handler，不要在 `OnStart` 里存一份。
 
+## 显示正文
+
+`Body()` 和 `Headings()` 是 `content.Entry` 的方法，不是字段，所以页面数据里放一列条目时不会带上正文。文章页自己把它们放进数据：
+
+```go
+type Page struct {
+	Post     myblog.Post       `json:"post"`
+	Body     tifa.HTML         `json:"body"`
+	Headings []content.Heading `json:"headings"`
+}
+
+func Load(c *tifa.Ctx) (Page, error) {
+	// ...
+	return Page{Post: p, Body: p.Body(), Headings: p.Headings()}, nil
+}
+```
+
+```tsx
+import { HTML } from 'tifa/client'
+
+export default function PostPage() {
+  const { post, body, headings } = page.useLoaderData()
+  return (
+    <article>
+      <h1>{post.title}</h1>
+      <nav>
+        {(headings ?? []).filter((h) => h.depth === 2).map((h) => (
+          <a key={h.id} href={`#${h.id}`}>{h.text}</a>
+        ))}
+      </nav>
+      <HTML value={body} className="prose" />
+    </article>
+  )
+}
+```
+
+- `Body() tifa.HTML` 每次调用都从程序里读这篇的 HTML（`tifa dev` 从 `.tifa/dist` 读），不留副本。页面用 `<HTML>` 显示它，见[显示应用信任的 HTML](app.zh-CN.md#显示应用信任的-html)。
+- `Headings() []content.Heading` 按顺序列出正文里的 `h1` 到 `h6`，每项是 `{Depth, ID, Text}`：级别、它在 HTML 里的 `id` 和文字。
+- `Words` 数的是 Markdown，不用转换。阅读时长由应用自己算，比如 `Math.max(1, Math.ceil(words / 300))` 分钟。
+
+## Markdown 转 HTML
+
+`tifa build` 在 `vite.config.ts` 的 tifa 插件里用 [unified](https://unifiedjs.com/) 把每篇的 Markdown 转成 HTML。有集合的应用要装这几个包，主版本如下：
+
+```sh
+pnpm add -D unified@11 remark-parse@11 remark-gfm@4 remark-rehype@11 rehype-raw@7 rehype-stringify@10
+```
+
+缺了某个包，或者主版本不对，构建失败并给出安装命令。只有声明了集合的应用，tifa 才载入它们。转换在 Vite 里进行，所以集合里有条目的应用即使没有页面，也要有 `package.json` 和用了 tifa 插件的 `vite.config.ts`，比如只有订阅源或接口、在里面写出 `Body()` 的应用。没有页面时，构建用 `vite.config.ts` 里的插件转换，不打包任何东西，正文引用的文件放进 `dist/assets/`，文件名带哈希。`tifa check` 检查 front matter 不需要 Node。
+
+每篇按这个顺序处理：
+
+1. front matter 换成同样行数的空行，所以报错里的行号就是文件里的行号。
+2. `remark-parse` 和 `remark-gfm`（表格、删除线、任务列表、自动链接）。
+3. 应用的 `remarkPlugins`。
+4. `remark-rehype` 和 `rehype-raw`：Markdown 里写的 HTML 原样保留。内容是仓库的一部分，是可信的，不做过滤。
+5. 去掉 HTML 注释，写给作者的笔记不会出现在页面上。
+6. 没有 `id` 的 `h1` 到 `h6` 按 GitHub 的规则生成 `id`，和 `rehype-slug` 一样：文字转小写，去掉标点，空格换成 `-`，重复的加 `-1`、`-2` 等。HTML 里写了 `id` 的不动。
+7. 应用的 `rehypePlugins`。它们在 id 之后运行，所以 `rehype-autolink-headings` 这类插件能直接用。
+8. 改写相对 URL，见下文。
+9. 收集标题给 `Headings()`，用的是最终的 id。
+10. `rehype-stringify`。
+
+应用的插件写在 `vite.config.ts` 的 `tifa()` 里，写法和 unified 一样，一个插件或者 `[插件, 选项]`：
+
+```ts
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import rehypeShiki from '@shikijs/rehype'
+import pangu from 'remark-pangu'
+import tifa from './.tifa/vite.js'
+
+export default defineConfig({
+  plugins: [
+    tifa({
+      markdown: {
+        remarkPlugins: [pangu],
+        rehypePlugins: [[rehypeShiki, { theme: 'github-light' }]],
+      },
+    }),
+    react(),
+  ],
+})
+```
+
+- tifa 的步骤不能关。不想要某个效果（比如 GFM 把裸网址变成链接），用自己的插件改回来。
+- 每篇的 vfile 带 `file.path`（Markdown 文件的完整路径）和 `file.data.tifa`，后者是 `{ collection, lang, id, frontmatter }`，front matter 是按 schema 转好的 JSON。要读条目旁边某个文件的插件，从 `file.path` 找。
+- 插件抛错时构建失败，报错带文件、插件给的位置和插件的名字。插件加的警告会打出来。
+- 不支持 MDX：正文是 HTML，放不了 React 组件。组件写在页面里。
+- `tifa build` 每次都转换全部条目。`tifa dev` 每次构建包时都转换全部条目。
+
+### 图片和链接
+
+正文里的相对 URL（不以 `/`、`#` 或 `https:` 这类协议开头）在这些地方改写：`img`、`video`、`audio`、`source` 的 `src`，`video` 的 `poster`，`a` 的 `href`。
+
+- 先在 Markdown 文件旁边找。没有的话，到这篇在默认语言的版本旁边找。所以图片放一份就够，放在默认语言旁边。译文要换图，就在译文旁边放一张同名的。
+- 找到的文件随浏览器包输出为 `/assets/<名字>-<哈希>.<扩展名>`，和其他资源一样长期缓存。几篇用同一个文件时只有一份。`tifa dev` 下 URL 指向 Vite 开发服务器上的这个文件。
+- 文件必须在集合的文件夹里：带 `..` 的 URL 或符号链接指到外面时，构建失败。
+- 查询串和 `#片段` 留在新 URL 上。
+- 指向 `.md` 文件的相对链接让构建失败。Markdown 文件没有自己的 URL，页面的 URL 由应用的路由决定，所以链接写页面的地址，比如 `/zh-CN/blog/b`。
+- front matter 里的 URL 是普通字符串，不改写。本地图片不加 `width`、`height`、`srcset`，需要时用自己的 rehype 插件加。
+
 ## 构建写出什么
 
-`tifa build` 写出 `dist/content.json`，程序把它和 `dist/` 里别的文件一起嵌入。里面是每个集合中不是草稿的条目：`content.Entry` 的字段、译文键，以及按 schema 转成 JSON 的 front matter。应用有 `content.go` 时，生成的 `main` 导入根包，并在 `OnStart` 之前读这个文件。`tifa dev` 把同样的文件写到 `.tifa/dist/`，应用启动时读它。
+`tifa build` 写出 `dist/content.json` 和 `dist/content/`，程序把它们和 `dist/` 里别的文件一起嵌入：
+
+| 产物 | 内容 |
+| --- | --- |
+| `dist/content.json` | 每个集合中不是草稿的条目：`content.Entry` 的字段、译文键、正文文件、它的标题，以及按 schema 转成 JSON 的 front matter |
+| `dist/content/<集合>/<语言>/<ID>.html` | 每篇的正文，没有语言的集合去掉语言这层。服务端不经 HTTP 提供这些文件，构建也不压缩它们。草稿从不转换，所以它的文字不在程序里 |
+| `dist/assets/<名字>-<哈希>.<扩展名>` | 正文引用的文件 |
+
+正文文件名 go:embed 不收的 ID（比如含 `'`）让构建失败。一篇的正文文件落在另一篇正文文件下面时也失败，比如 `a.md` 旁边的 `a.html/b.md`。应用有 `content.go` 时，生成的 `main` 导入根包，并在 `OnStart` 之前读 `content.json`。`tifa dev` 把同样的文件写到 `.tifa/dist/`，应用从那里读。
 
 ## 测试
 
@@ -209,6 +321,7 @@ func TestTagged(t *testing.T) {
 
 - `tifatest.LoadContent(t)` 从当前文件夹往上找到 `go.mod`，把那里当作应用，用和构建同一套扫描和检查读 `content/`，去掉草稿，隐藏日期还没到的条目，再跑 `Validate`。有问题时测试失败，消息和构建给的一样。
 - `tifatest.SetContent(t, c, entries...)` 让一个集合的内容换成给定的条目。`content.Entry` 的字段就是你写的，只有 `Translations` 按相同 ID 连起来。日期在未来的条目会隐藏。不跑 `Validate`。
+- 测试没有构建，所以没有 HTML：这两个函数给的条目，`Body()` 返回占位 `<p>tifatest: body of blog zh-CN/202608/free-search</p>`（集合、语言和 ID），`Headings()` 返回 nil。文章页的 `Load` 照样能在测试里跑。要检查 HTML 本身，测构建好的程序。
 - 两者都在测试结束时把集合恢复原样。
 - 集合由整个测试程序共用，所以调用它们的测试不能并行。测试本身或它的上层调用过 `t.Parallel` 时，测试失败。调用之后再调 `t.Parallel` 会 panic。
 - 测试里不调用其中一个就用集合会 panic：
@@ -247,6 +360,17 @@ content/blog/zh-CN/202608/free-search/index.md:9:1: "tag" is not a field of mybl
 content/blog/en/202608/free-search/index.md:1:1: front matter has no "title", which myblog.Post.Title needs. Make the field a pointer or add omitempty to make it optional
 content/blog/en/202608/free-search/index.md:2:7: slug: "free/search" is not one URL segment: it holds /
 content/docs/en/guide/index.md: the ID guide is also the ID of content/docs/en/guide.md
+```
+
+转换 Markdown 时（`tifa build` 和 `tifa dev`）：
+
+```text
+the app has content collections, so tifa build turns Markdown into HTML with unified: pnpm add -D unified@11 remark-parse@11 remark-gfm@4 remark-rehype@11 rehype-raw@7 rehype-stringify@10
+remark-gfm 5.0.0 is not a version tifa is tested with: pnpm add -D remark-gfm@4
+content/blog/en/202608/free-search/index.md:43:1: image ./cover.jpg not found: looked at content/blog/en/202608/free-search/cover.jpg and content/blog/zh-CN/202608/free-search/cover.jpg
+content/blog/zh-CN/a/index.md:12:5: ./b.md is a Markdown file and has no URL of its own: link to the page that shows it, such as /zh-CN/blog/b
+content/blog/zh-CN/a/index.md:14:1: image ../../../notes/x.png leads to content/notes/x.png, which is outside content/blog: a collection holds only its own files
+content/blog/zh-CN/a/index.md:18:1: rehype plugin rehypeContentImages: https://static.example.com/assets/0f/0f9c.jpg is not in the assets.yaml of this entry
 ```
 
 程序启动时：

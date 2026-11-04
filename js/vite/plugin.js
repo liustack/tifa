@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { builtinModules, createRequire } from 'node:module'
+import { pathToFileURL } from 'node:url'
 
 // devBase is where the Vite dev server serves modules under tifa dev. tifa dev sends every
 // request under it to Vite and every other one to the application.
@@ -954,7 +955,482 @@ export function tifa(settings = {}) {
       })
     },
   }
-  return [plugin, generated(), lazyRoutes(), ssrPlugin(() => root, () => import('vite'), { i18nextCache: settings.i18nextCache })]
+  return [
+    plugin,
+    generated(),
+    lazyRoutes(),
+    markdownPlugin(() => root, settings.markdown),
+    ssrPlugin(() => root, () => import('vite'), { i18nextCache: settings.i18nextCache }),
+  ]
+}
+
+// markdownPackages are the packages the Markdown of content collections turns into HTML with, and
+// the major version tifa is tested with of each. The app installs them: they are loaded from its
+// root, and only when it has collections.
+export const markdownPackages = [
+  ['unified', 11],
+  ['remark-parse', 11],
+  ['remark-gfm', 4],
+  ['remark-rehype', 11],
+  ['rehype-raw', 7],
+  ['rehype-stringify', 10],
+]
+
+// contentEntries is the file of .tifa where the build lists the entries to convert, contentHeadings
+// the one the plugin writes the headings of each into, by the file of its body (EntriesFile and
+// HeadingsFile of internal/content).
+const contentEntries = 'content/entries.json'
+const contentHeadings = 'content/headings.json'
+
+/**
+ * markdownPlugin turns the Markdown of the content collections into HTML. tifa build lists the
+ * entries in .tifa/content/entries.json, and the plugin writes the body of each into .tifa/dist
+ * and its headings into .tifa/content/headings.json, which tifa build puts into content.json.
+ * Without the list, as for an app without collections, it does nothing and loads no package.
+ *
+ * In tifa build it converts at the end of the browser build, which outputs the files the bodies
+ * refer to as assets. Under tifa dev the driver calls api.convert, and the bodies refer to the
+ * files through Vite's dev server.
+ *
+ * markdown is the markdown option of tifa(): remarkPlugins and rehypePlugins, see markdownProcessor.
+ */
+export function markdownPlugin(getRoot, markdown) {
+  let command = ''
+  return {
+    name: 'tifa:markdown',
+    configResolved(config) {
+      command = config.command
+    },
+    async generateBundle() {
+      if (command !== 'build' || this.environment?.name !== 'client') return
+      const root = getRoot()
+      const entries = readContentEntries(root)
+      if (!entries) return
+      const urls = new Map() // real path of a file to its URL
+      const result = await convertContent(root, entries, {
+        markdown,
+        command: 'tifa build',
+        asset: (file) => {
+          let url = urls.get(file)
+          if (url === undefined) {
+            const ref = this.emitFile({ type: 'asset', name: assetName(path.basename(file)), source: fs.readFileSync(file) })
+            url = '/' + encodePath(this.getFileName(ref))
+            urls.set(file, url)
+          }
+          return url
+        },
+      })
+      for (const w of result.warnings) this.warn(w)
+      writeContent(root, result)
+    },
+    api: {
+      // convert turns the entries of .tifa/content/entries.json into HTML and returns the warnings
+      // of the plugins. For tifa dev with pages the bodies load their files from Vite's dev server.
+      // alone is for an app without pages, where no bundle is built and no dev server runs: the
+      // files go into .tifa/dist/assets as Vite names its assets, <name>-<hash>.<ext>, and
+      // command is the tifa command that converts, for the messages.
+      async convert({ alone = false, command: by = 'tifa dev' } = {}) {
+        const root = getRoot()
+        const entries = readContentEntries(root)
+        if (!entries) return []
+        const real = fs.realpathSync(root)
+        let asset = (file) => devBase + encodePath(path.relative(real, file).split(path.sep).join('/'))
+        const assets = path.join(root, '.tifa', 'dist', 'assets')
+        if (alone) {
+          fs.rmSync(assets, { recursive: true, force: true })
+          asset = (file) => '/assets/' + encodePath(writeAsset(assets, file))
+        }
+        const result = await convertContent(root, entries, { markdown, command: by, asset })
+        writeContent(root, result)
+        return result.warnings
+      },
+    },
+  }
+}
+
+// readContentEntries returns the entries tifa lists in .tifa/content/entries.json, null without
+// the file.
+function readContentEntries(root) {
+  let text
+  try {
+    text = fs.readFileSync(path.join(root, '.tifa', contentEntries), 'utf8')
+  } catch (err) {
+    if (err.code === 'ENOENT') return null
+    throw err
+  }
+  return JSON.parse(text).entries
+}
+
+// writeContent writes the HTML of each entry into .tifa/dist, in place of the bodies there, and
+// the headings into .tifa/content/headings.json.
+function writeContent(root, result) {
+  const dist = path.join(root, '.tifa', 'dist')
+  fs.rmSync(path.join(dist, 'content'), { recursive: true, force: true })
+  for (const [out, html] of Object.entries(result.html)) {
+    const file = path.join(dist, out)
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, html)
+  }
+  fs.writeFileSync(path.join(root, '.tifa', contentHeadings), JSON.stringify(result.headings))
+}
+
+// writeAsset copies the file at the real path file into the folder assets as
+// <name>-<hash>.<ext>, the hash being 8 characters of its SHA-256, and returns that name. The
+// same file is written once.
+function writeAsset(assets, file) {
+  const source = fs.readFileSync(file)
+  const base = assetName(path.basename(file))
+  const ext = path.extname(base)
+  const hash = createHash('sha256').update(source).digest('base64url').slice(0, 8)
+  const name = `${base.slice(0, base.length - ext.length)}-${hash}${ext}`
+  fs.mkdirSync(assets, { recursive: true })
+  fs.writeFileSync(path.join(assets, name), source)
+  return name
+}
+
+// encodePath writes a path with / between its parts as the path of a URL.
+function encodePath(p) {
+  return p.split('/').map(encodeURIComponent).join('/')
+}
+
+// assetName is name with the characters go:embed refuses in a file name replaced by _, so that the
+// program can embed the asset.
+export function assetName(name) {
+  return name.replace(/[^\p{L}0-9._-]/gu, '_')
+}
+
+/**
+ * loadMarkdown loads the packages of markdownPackages from the app at root. It fails, with the
+ * command that installs them, when one is missing or has another major version. command is the
+ * tifa command that converts, for the message.
+ */
+export async function loadMarkdown(root, command) {
+  const require = createRequire(path.join(root, 'package.json'))
+  const missing = []
+  const wrong = []
+  const dirs = []
+  for (const [name, major] of markdownPackages) {
+    const dir = (require.resolve.paths(name) ?? []).map((d) => path.join(d, name)).find((d) => fs.existsSync(path.join(d, 'package.json')))
+    if (!dir) {
+      missing.push(`${name}@${major}`)
+      continue
+    }
+    const { version } = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'))
+    if (Number(String(version).split('.')[0]) !== major) wrong.push(`${name} ${version} is not a version tifa is tested with: pnpm add -D ${name}@${major}`)
+    dirs.push(dir)
+  }
+  const problems = []
+  if (missing.length > 0) {
+    problems.push(`the app has content collections, so ${command} turns Markdown into HTML with unified: pnpm add -D ${missing.join(' ')}`)
+  }
+  if (problems.length + wrong.length > 0) throw new Error([...problems, ...wrong].join('\n'))
+  const load = async (name) => {
+    const module = await import(pathToFileURL(require.resolve(name)).href)
+    return module.default ?? module
+  }
+  const [{ unified }, remarkParse, remarkGfm, remarkRehype, rehypeRaw, rehypeStringify] = await Promise.all([
+    import(pathToFileURL(require.resolve('unified')).href),
+    load('remark-parse'),
+    load('remark-gfm'),
+    load('remark-rehype'),
+    load('rehype-raw'),
+    load('rehype-stringify'),
+  ])
+  return { unified, remarkParse, remarkGfm, remarkRehype, rehypeRaw, rehypeStringify }
+}
+
+// contentFiles holds what the steps of tifa learn about the file they convert, by the data of its
+// vfile.
+const contentFiles = new WeakMap()
+
+/**
+ * markdownProcessor returns the unified processor that turns the Markdown of an entry into HTML,
+ * with the packages p of loadMarkdown. The steps come in this order, and only the plugins of the
+ * app can be left out or changed:
+ *
+ *  1. remark-parse and remark-gfm
+ *  2. markdown.remarkPlugins
+ *  3. remark-rehype with allowDangerousHtml and rehype-raw: HTML in the Markdown stays as written
+ *  4. tifa: HTML comments are removed
+ *  5. tifa: h1 to h6 without an id get the id GitHub gives them
+ *  6. markdown.rehypePlugins
+ *  7. tifa: relative URLs become the URLs of their files, see rewriteURLs
+ *  8. tifa: the headings are collected
+ *  9. rehype-stringify
+ *
+ * A plugin is written as unified takes it: a function, or [function, ...options]. An error a
+ * plugin of the app throws names it.
+ */
+export function markdownProcessor(p, markdown = {}) {
+  const plugins = (kind) => {
+    const list = markdown?.[kind] ?? []
+    if (!Array.isArray(list)) throw new Error(`tifa({ markdown }): ${kind} must be a list of plugins, such as [remarkPangu, [rehypeShiki, { theme: 'github-light' }]]`)
+    return list.map((item) => namedPlugin(kind === 'remarkPlugins' ? 'remark' : 'rehype', item))
+  }
+  return p
+    .unified()
+    .use(p.remarkParse)
+    .use(p.remarkGfm)
+    .use(plugins('remarkPlugins'))
+    .use(p.remarkRehype, { allowDangerousHtml: true })
+    .use(p.rehypeRaw)
+    .use(dropComments)
+    .use(headingIDs)
+    .use(plugins('rehypePlugins'))
+    .use(rewriteURLs)
+    .use(collectHeadings)
+    .use(p.rehypeStringify)
+}
+
+// namedPlugin wraps a plugin of the app so that an error of its transform names it, such as
+// "rehype plugin rehypeShiki".
+function namedPlugin(kind, item) {
+  const [attacher, ...options] = Array.isArray(item) ? item : [item]
+  if (typeof attacher !== 'function') return item // a preset
+  const name = `${kind} plugin ${attacher.name || 'without a name'}`
+  const tag = (err) => {
+    if (err && typeof err === 'object' && !err.tifaPlugin) err.tifaPlugin = name
+    return err
+  }
+  function plugin(...args) {
+    const transform = attacher.apply(this, args)
+    if (typeof transform !== 'function') return transform
+    // unified passes a callback to a transform with three parameters, and this one has three.
+    return function (tree, file, next) {
+      let result
+      try {
+        if (transform.length >= 3) return transform.call(this, tree, file, (err, ...rest) => next(tag(err), ...rest))
+        result = transform.call(this, tree, file)
+      } catch (err) {
+        return next(tag(err))
+      }
+      if (result instanceof Error) return next(tag(result))
+      if (result && typeof result.then === 'function') return result.then((tree) => next(undefined, tree), (err) => next(tag(err)))
+      next(undefined, result)
+    }
+  }
+  Object.defineProperty(plugin, 'name', { value: attacher.name })
+  return [plugin, ...options]
+}
+
+// eachElement calls f for each element below node, parents before their children.
+function eachElement(node, f) {
+  for (const child of node.children ?? []) {
+    if (child.type === 'element') f(child)
+    eachElement(child, f)
+  }
+}
+
+// dropComments removes the HTML comments of the body, such as notes for the author.
+function dropComments() {
+  const drop = (node) => {
+    if (!node.children) return
+    node.children = node.children.filter((child) => child.type !== 'comment')
+    node.children.forEach(drop)
+  }
+  return drop
+}
+
+const headingTag = /^h[1-6]$/
+
+// textOf is the text of node: its text nodes, in order, as hast-util-to-string reads it.
+function textOf(node) {
+  if (node.type === 'text') return node.value
+  return (node.children ?? []).map(textOf).join('')
+}
+
+// slugRemoved is what github-slugger 2.0.0 removes from the text of a heading, copied from its
+// regex.js: everything that is no letter, mark, decimal digit or connector, space or -, as a fixed
+// list of the characters of Unicode 13. A fixed list, not Unicode properties of the regexp of
+// Node, so that the ids are those of rehype-slug whatever Node runs.
+//
+// github-slugger: Copyright (c) 2015, Dan Flettre <fletd01@yahoo.com>. Permission to use, copy,
+// modify, and/or distribute this software for any purpose with or without fee is hereby granted,
+// provided that the above copyright notice and this permission notice appear in all copies (ISC).
+// eslint-disable-next-line no-control-regex, no-misleading-character-class, no-useless-escape
+const slugRemoved = /[\0-\x1F!-,\.\/:-@\[-\^`\{-\xA9\xAB-\xB4\xB6-\xB9\xBB-\xBF\xD7\xF7\u02C2-\u02C5\u02D2-\u02DF\u02E5-\u02EB\u02ED\u02EF-\u02FF\u0375\u0378\u0379\u037E\u0380-\u0385\u0387\u038B\u038D\u03A2\u03F6\u0482\u0530\u0557\u0558\u055A-\u055F\u0589-\u0590\u05BE\u05C0\u05C3\u05C6\u05C8-\u05CF\u05EB-\u05EE\u05F3-\u060F\u061B-\u061F\u066A-\u066D\u06D4\u06DD\u06DE\u06E9\u06FD\u06FE\u0700-\u070F\u074B\u074C\u07B2-\u07BF\u07F6-\u07F9\u07FB\u07FC\u07FE\u07FF\u082E-\u083F\u085C-\u085F\u086B-\u089F\u08B5\u08C8-\u08D2\u08E2\u0964\u0965\u0970\u0984\u098D\u098E\u0991\u0992\u09A9\u09B1\u09B3-\u09B5\u09BA\u09BB\u09C5\u09C6\u09C9\u09CA\u09CF-\u09D6\u09D8-\u09DB\u09DE\u09E4\u09E5\u09F2-\u09FB\u09FD\u09FF\u0A00\u0A04\u0A0B-\u0A0E\u0A11\u0A12\u0A29\u0A31\u0A34\u0A37\u0A3A\u0A3B\u0A3D\u0A43-\u0A46\u0A49\u0A4A\u0A4E-\u0A50\u0A52-\u0A58\u0A5D\u0A5F-\u0A65\u0A76-\u0A80\u0A84\u0A8E\u0A92\u0AA9\u0AB1\u0AB4\u0ABA\u0ABB\u0AC6\u0ACA\u0ACE\u0ACF\u0AD1-\u0ADF\u0AE4\u0AE5\u0AF0-\u0AF8\u0B00\u0B04\u0B0D\u0B0E\u0B11\u0B12\u0B29\u0B31\u0B34\u0B3A\u0B3B\u0B45\u0B46\u0B49\u0B4A\u0B4E-\u0B54\u0B58-\u0B5B\u0B5E\u0B64\u0B65\u0B70\u0B72-\u0B81\u0B84\u0B8B-\u0B8D\u0B91\u0B96-\u0B98\u0B9B\u0B9D\u0BA0-\u0BA2\u0BA5-\u0BA7\u0BAB-\u0BAD\u0BBA-\u0BBD\u0BC3-\u0BC5\u0BC9\u0BCE\u0BCF\u0BD1-\u0BD6\u0BD8-\u0BE5\u0BF0-\u0BFF\u0C0D\u0C11\u0C29\u0C3A-\u0C3C\u0C45\u0C49\u0C4E-\u0C54\u0C57\u0C5B-\u0C5F\u0C64\u0C65\u0C70-\u0C7F\u0C84\u0C8D\u0C91\u0CA9\u0CB4\u0CBA\u0CBB\u0CC5\u0CC9\u0CCE-\u0CD4\u0CD7-\u0CDD\u0CDF\u0CE4\u0CE5\u0CF0\u0CF3-\u0CFF\u0D0D\u0D11\u0D45\u0D49\u0D4F-\u0D53\u0D58-\u0D5E\u0D64\u0D65\u0D70-\u0D79\u0D80\u0D84\u0D97-\u0D99\u0DB2\u0DBC\u0DBE\u0DBF\u0DC7-\u0DC9\u0DCB-\u0DCE\u0DD5\u0DD7\u0DE0-\u0DE5\u0DF0\u0DF1\u0DF4-\u0E00\u0E3B-\u0E3F\u0E4F\u0E5A-\u0E80\u0E83\u0E85\u0E8B\u0EA4\u0EA6\u0EBE\u0EBF\u0EC5\u0EC7\u0ECE\u0ECF\u0EDA\u0EDB\u0EE0-\u0EFF\u0F01-\u0F17\u0F1A-\u0F1F\u0F2A-\u0F34\u0F36\u0F38\u0F3A-\u0F3D\u0F48\u0F6D-\u0F70\u0F85\u0F98\u0FBD-\u0FC5\u0FC7-\u0FFF\u104A-\u104F\u109E\u109F\u10C6\u10C8-\u10CC\u10CE\u10CF\u10FB\u1249\u124E\u124F\u1257\u1259\u125E\u125F\u1289\u128E\u128F\u12B1\u12B6\u12B7\u12BF\u12C1\u12C6\u12C7\u12D7\u1311\u1316\u1317\u135B\u135C\u1360-\u137F\u1390-\u139F\u13F6\u13F7\u13FE-\u1400\u166D\u166E\u1680\u169B-\u169F\u16EB-\u16ED\u16F9-\u16FF\u170D\u1715-\u171F\u1735-\u173F\u1754-\u175F\u176D\u1771\u1774-\u177F\u17D4-\u17D6\u17D8-\u17DB\u17DE\u17DF\u17EA-\u180A\u180E\u180F\u181A-\u181F\u1879-\u187F\u18AB-\u18AF\u18F6-\u18FF\u191F\u192C-\u192F\u193C-\u1945\u196E\u196F\u1975-\u197F\u19AC-\u19AF\u19CA-\u19CF\u19DA-\u19FF\u1A1C-\u1A1F\u1A5F\u1A7D\u1A7E\u1A8A-\u1A8F\u1A9A-\u1AA6\u1AA8-\u1AAF\u1AC1-\u1AFF\u1B4C-\u1B4F\u1B5A-\u1B6A\u1B74-\u1B7F\u1BF4-\u1BFF\u1C38-\u1C3F\u1C4A-\u1C4C\u1C7E\u1C7F\u1C89-\u1C8F\u1CBB\u1CBC\u1CC0-\u1CCF\u1CD3\u1CFB-\u1CFF\u1DFA\u1F16\u1F17\u1F1E\u1F1F\u1F46\u1F47\u1F4E\u1F4F\u1F58\u1F5A\u1F5C\u1F5E\u1F7E\u1F7F\u1FB5\u1FBD\u1FBF-\u1FC1\u1FC5\u1FCD-\u1FCF\u1FD4\u1FD5\u1FDC-\u1FDF\u1FED-\u1FF1\u1FF5\u1FFD-\u203E\u2041-\u2053\u2055-\u2070\u2072-\u207E\u2080-\u208F\u209D-\u20CF\u20F1-\u2101\u2103-\u2106\u2108\u2109\u2114\u2116-\u2118\u211E-\u2123\u2125\u2127\u2129\u212E\u213A\u213B\u2140-\u2144\u214A-\u214D\u214F-\u215F\u2189-\u24B5\u24EA-\u2BFF\u2C2F\u2C5F\u2CE5-\u2CEA\u2CF4-\u2CFF\u2D26\u2D28-\u2D2C\u2D2E\u2D2F\u2D68-\u2D6E\u2D70-\u2D7E\u2D97-\u2D9F\u2DA7\u2DAF\u2DB7\u2DBF\u2DC7\u2DCF\u2DD7\u2DDF\u2E00-\u2E2E\u2E30-\u3004\u3008-\u3020\u3030\u3036\u3037\u303D-\u3040\u3097\u3098\u309B\u309C\u30A0\u30FB\u3100-\u3104\u3130\u318F-\u319F\u31C0-\u31EF\u3200-\u33FF\u4DC0-\u4DFF\u9FFD-\u9FFF\uA48D-\uA4CF\uA4FE\uA4FF\uA60D-\uA60F\uA62C-\uA63F\uA673\uA67E\uA6F2-\uA716\uA720\uA721\uA789\uA78A\uA7C0\uA7C1\uA7CB-\uA7F4\uA828-\uA82B\uA82D-\uA83F\uA874-\uA87F\uA8C6-\uA8CF\uA8DA-\uA8DF\uA8F8-\uA8FA\uA8FC\uA92E\uA92F\uA954-\uA95F\uA97D-\uA97F\uA9C1-\uA9CE\uA9DA-\uA9DF\uA9FF\uAA37-\uAA3F\uAA4E\uAA4F\uAA5A-\uAA5F\uAA77-\uAA79\uAAC3-\uAADA\uAADE\uAADF\uAAF0\uAAF1\uAAF7-\uAB00\uAB07\uAB08\uAB0F\uAB10\uAB17-\uAB1F\uAB27\uAB2F\uAB5B\uAB6A-\uAB6F\uABEB\uABEE\uABEF\uABFA-\uABFF\uD7A4-\uD7AF\uD7C7-\uD7CA\uD7FC-\uD7FF\uE000-\uF8FF\uFA6E\uFA6F\uFADA-\uFAFF\uFB07-\uFB12\uFB18-\uFB1C\uFB29\uFB37\uFB3D\uFB3F\uFB42\uFB45\uFBB2-\uFBD2\uFD3E-\uFD4F\uFD90\uFD91\uFDC8-\uFDEF\uFDFC-\uFDFF\uFE10-\uFE1F\uFE30-\uFE32\uFE35-\uFE4C\uFE50-\uFE6F\uFE75\uFEFD-\uFF0F\uFF1A-\uFF20\uFF3B-\uFF3E\uFF40\uFF5B-\uFF65\uFFBF-\uFFC1\uFFC8\uFFC9\uFFD0\uFFD1\uFFD8\uFFD9\uFFDD-\uFFFF]|\uD800[\uDC0C\uDC27\uDC3B\uDC3E\uDC4E\uDC4F\uDC5E-\uDC7F\uDCFB-\uDD3F\uDD75-\uDDFC\uDDFE-\uDE7F\uDE9D-\uDE9F\uDED1-\uDEDF\uDEE1-\uDEFF\uDF20-\uDF2C\uDF4B-\uDF4F\uDF7B-\uDF7F\uDF9E\uDF9F\uDFC4-\uDFC7\uDFD0\uDFD6-\uDFFF]|\uD801[\uDC9E\uDC9F\uDCAA-\uDCAF\uDCD4-\uDCD7\uDCFC-\uDCFF\uDD28-\uDD2F\uDD64-\uDDFF\uDF37-\uDF3F\uDF56-\uDF5F\uDF68-\uDFFF]|\uD802[\uDC06\uDC07\uDC09\uDC36\uDC39-\uDC3B\uDC3D\uDC3E\uDC56-\uDC5F\uDC77-\uDC7F\uDC9F-\uDCDF\uDCF3\uDCF6-\uDCFF\uDD16-\uDD1F\uDD3A-\uDD7F\uDDB8-\uDDBD\uDDC0-\uDDFF\uDE04\uDE07-\uDE0B\uDE14\uDE18\uDE36\uDE37\uDE3B-\uDE3E\uDE40-\uDE5F\uDE7D-\uDE7F\uDE9D-\uDEBF\uDEC8\uDEE7-\uDEFF\uDF36-\uDF3F\uDF56-\uDF5F\uDF73-\uDF7F\uDF92-\uDFFF]|\uD803[\uDC49-\uDC7F\uDCB3-\uDCBF\uDCF3-\uDCFF\uDD28-\uDD2F\uDD3A-\uDE7F\uDEAA\uDEAD-\uDEAF\uDEB2-\uDEFF\uDF1D-\uDF26\uDF28-\uDF2F\uDF51-\uDFAF\uDFC5-\uDFDF\uDFF7-\uDFFF]|\uD804[\uDC47-\uDC65\uDC70-\uDC7E\uDCBB-\uDCCF\uDCE9-\uDCEF\uDCFA-\uDCFF\uDD35\uDD40-\uDD43\uDD48-\uDD4F\uDD74\uDD75\uDD77-\uDD7F\uDDC5-\uDDC8\uDDCD\uDDDB\uDDDD-\uDDFF\uDE12\uDE38-\uDE3D\uDE3F-\uDE7F\uDE87\uDE89\uDE8E\uDE9E\uDEA9-\uDEAF\uDEEB-\uDEEF\uDEFA-\uDEFF\uDF04\uDF0D\uDF0E\uDF11\uDF12\uDF29\uDF31\uDF34\uDF3A\uDF45\uDF46\uDF49\uDF4A\uDF4E\uDF4F\uDF51-\uDF56\uDF58-\uDF5C\uDF64\uDF65\uDF6D-\uDF6F\uDF75-\uDFFF]|\uD805[\uDC4B-\uDC4F\uDC5A-\uDC5D\uDC62-\uDC7F\uDCC6\uDCC8-\uDCCF\uDCDA-\uDD7F\uDDB6\uDDB7\uDDC1-\uDDD7\uDDDE-\uDDFF\uDE41-\uDE43\uDE45-\uDE4F\uDE5A-\uDE7F\uDEB9-\uDEBF\uDECA-\uDEFF\uDF1B\uDF1C\uDF2C-\uDF2F\uDF3A-\uDFFF]|\uD806[\uDC3B-\uDC9F\uDCEA-\uDCFE\uDD07\uDD08\uDD0A\uDD0B\uDD14\uDD17\uDD36\uDD39\uDD3A\uDD44-\uDD4F\uDD5A-\uDD9F\uDDA8\uDDA9\uDDD8\uDDD9\uDDE2\uDDE5-\uDDFF\uDE3F-\uDE46\uDE48-\uDE4F\uDE9A-\uDE9C\uDE9E-\uDEBF\uDEF9-\uDFFF]|\uD807[\uDC09\uDC37\uDC41-\uDC4F\uDC5A-\uDC71\uDC90\uDC91\uDCA8\uDCB7-\uDCFF\uDD07\uDD0A\uDD37-\uDD39\uDD3B\uDD3E\uDD48-\uDD4F\uDD5A-\uDD5F\uDD66\uDD69\uDD8F\uDD92\uDD99-\uDD9F\uDDAA-\uDEDF\uDEF7-\uDFAF\uDFB1-\uDFFF]|\uD808[\uDF9A-\uDFFF]|\uD809[\uDC6F-\uDC7F\uDD44-\uDFFF]|[\uD80A\uD80B\uD80E-\uD810\uD812-\uD819\uD824-\uD82B\uD82D\uD82E\uD830-\uD833\uD837\uD839\uD83D\uD83F\uD87B-\uD87D\uD87F\uD885-\uDB3F\uDB41-\uDBFF][\uDC00-\uDFFF]|\uD80D[\uDC2F-\uDFFF]|\uD811[\uDE47-\uDFFF]|\uD81A[\uDE39-\uDE3F\uDE5F\uDE6A-\uDECF\uDEEE\uDEEF\uDEF5-\uDEFF\uDF37-\uDF3F\uDF44-\uDF4F\uDF5A-\uDF62\uDF78-\uDF7C\uDF90-\uDFFF]|\uD81B[\uDC00-\uDE3F\uDE80-\uDEFF\uDF4B-\uDF4E\uDF88-\uDF8E\uDFA0-\uDFDF\uDFE2\uDFE5-\uDFEF\uDFF2-\uDFFF]|\uD821[\uDFF8-\uDFFF]|\uD823[\uDCD6-\uDCFF\uDD09-\uDFFF]|\uD82C[\uDD1F-\uDD4F\uDD53-\uDD63\uDD68-\uDD6F\uDEFC-\uDFFF]|\uD82F[\uDC6B-\uDC6F\uDC7D-\uDC7F\uDC89-\uDC8F\uDC9A-\uDC9C\uDC9F-\uDFFF]|\uD834[\uDC00-\uDD64\uDD6A-\uDD6C\uDD73-\uDD7A\uDD83\uDD84\uDD8C-\uDDA9\uDDAE-\uDE41\uDE45-\uDFFF]|\uD835[\uDC55\uDC9D\uDCA0\uDCA1\uDCA3\uDCA4\uDCA7\uDCA8\uDCAD\uDCBA\uDCBC\uDCC4\uDD06\uDD0B\uDD0C\uDD15\uDD1D\uDD3A\uDD3F\uDD45\uDD47-\uDD49\uDD51\uDEA6\uDEA7\uDEC1\uDEDB\uDEFB\uDF15\uDF35\uDF4F\uDF6F\uDF89\uDFA9\uDFC3\uDFCC\uDFCD]|\uD836[\uDC00-\uDDFF\uDE37-\uDE3A\uDE6D-\uDE74\uDE76-\uDE83\uDE85-\uDE9A\uDEA0\uDEB0-\uDFFF]|\uD838[\uDC07\uDC19\uDC1A\uDC22\uDC25\uDC2B-\uDCFF\uDD2D-\uDD2F\uDD3E\uDD3F\uDD4A-\uDD4D\uDD4F-\uDEBF\uDEFA-\uDFFF]|\uD83A[\uDCC5-\uDCCF\uDCD7-\uDCFF\uDD4C-\uDD4F\uDD5A-\uDFFF]|\uD83B[\uDC00-\uDDFF\uDE04\uDE20\uDE23\uDE25\uDE26\uDE28\uDE33\uDE38\uDE3A\uDE3C-\uDE41\uDE43-\uDE46\uDE48\uDE4A\uDE4C\uDE50\uDE53\uDE55\uDE56\uDE58\uDE5A\uDE5C\uDE5E\uDE60\uDE63\uDE65\uDE66\uDE6B\uDE73\uDE78\uDE7D\uDE7F\uDE8A\uDE9C-\uDEA0\uDEA4\uDEAA\uDEBC-\uDFFF]|\uD83C[\uDC00-\uDD2F\uDD4A-\uDD4F\uDD6A-\uDD6F\uDD8A-\uDFFF]|\uD83E[\uDC00-\uDFEF\uDFFA-\uDFFF]|\uD869[\uDEDE-\uDEFF]|\uD86D[\uDF35-\uDF3F]|\uD86E[\uDC1E\uDC1F]|\uD873[\uDEA2-\uDEAF]|\uD87A[\uDFE1-\uDFFF]|\uD87E[\uDE1E-\uDFFF]|\uD884[\uDF4B-\uDFFF]|\uDB40[\uDC00-\uDCFF\uDDF0-\uDFFF]/g
+
+// headingIDs gives each h1 to h6 without an id the id GitHub gives it, as rehype-slug does: the
+// text in lower case without punctuation, spaces as -, and -1, -2 and so on for a repeat.
+function headingIDs() {
+  return (tree) => {
+    const seen = new Map()
+    eachElement(tree, (node) => {
+      if (!headingTag.test(node.tagName) || node.properties?.id) return
+      const base = textOf(node).toLowerCase().replace(slugRemoved, '').replace(/ /g, '-')
+      let id = base
+      while (seen.has(id)) {
+        const n = seen.get(base) + 1
+        seen.set(base, n)
+        id = `${base}-${n}`
+      }
+      seen.set(id, 0)
+      node.properties = { ...node.properties, id }
+    })
+  }
+}
+
+// urlProperties lists the properties of the elements whose relative URLs rewriteURLs rewrites,
+// with what a message calls each.
+const urlProperties = {
+  img: [['src', 'image']],
+  a: [['href', 'link']],
+  video: [
+    ['src', 'video'],
+    ['poster', 'poster'],
+  ],
+  audio: [['src', 'audio']],
+  source: [['src', 'source']],
+}
+
+// notRelative matches a URL that starts with /, # or a scheme, which rewriteURLs leaves alone.
+const notRelative = /^(?:[/#]|[a-zA-Z][a-zA-Z0-9+.-]*:)/
+
+// rewriteURLs replaces the relative URLs of the body with the URLs of their files: a file next to
+// the Markdown, or else next to the version of the entry in the default language. The file must be
+// inside the folder of the collection. A link to a Markdown file is an error: its URL is the one
+// of the page that shows it, which only the app knows.
+function rewriteURLs() {
+  return (tree, file) => {
+    const state = contentFiles.get(file.data)
+    if (!state) return // a processor outside convertContent
+    eachElement(tree, (node) => {
+      for (const [prop, kind] of urlProperties[node.tagName] ?? []) {
+        const value = node.properties?.[prop]
+        if (typeof value !== 'string' || value === '' || notRelative.test(value)) continue
+        const url = state.resolve(value, kind, node.position?.start)
+        if (url !== undefined) node.properties[prop] = url
+      }
+    })
+    if (state.problems.length > 0) {
+      const err = new Error(state.problems.join('\n'))
+      err.tifaLines = state.problems
+      throw err
+    }
+  }
+}
+
+// collectHeadings records the depth, the id and the text of each h1 to h6, in order.
+function collectHeadings() {
+  return (tree, file) => {
+    const state = contentFiles.get(file.data)
+    if (!state) return
+    eachElement(tree, (node) => {
+      if (headingTag.test(node.tagName)) {
+        state.headings.push({ depth: Number(node.tagName[1]), id: String(node.properties?.id ?? ''), text: textOf(node) })
+      }
+    })
+  }
+}
+
+// exists returns the fs.Stats of the file at p with its path, undefined when there is none.
+function exists(p) {
+  try {
+    return Object.assign(fs.statSync(p), { path: p })
+  } catch (err) {
+    if (err.code === 'ENOENT' || err.code === 'ENOTDIR') return undefined
+    throw err
+  }
+}
+
+// within reports whether p is dir or a path below it.
+function within(dir, p) {
+  const rel = path.relative(dir, p)
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
+}
+
+/**
+ * convertContent turns entries, as tifa lists them in .tifa/content/entries.json, into HTML. It
+ * returns the HTML and the headings of each by its out, and the warnings of the plugins. asset
+ * returns the URL of a file a relative URL leads to, given its real path. Every problem of every
+ * entry fails it at once, one line each, as file:line:col: reason.
+ */
+export async function convertContent(root, entries, { markdown, command, asset, packages }) {
+  const processor = markdownProcessor(packages ?? (await loadMarkdown(root, command)), markdown)
+  const realRoot = fs.realpathSync(root)
+  const result = { html: {}, headings: {}, warnings: [] }
+  const problems = []
+  for (const entry of entries) {
+    const collection = path.join(root, 'content', entry.collection)
+    const state = {
+      headings: [],
+      problems: [],
+      resolve(url, kind, at) {
+        const place = at ? `${entry.source}:${at.line}:${at.column}` : entry.source
+        const fail = (msg) => {
+          state.problems.push(`${place}: ${msg}`)
+        }
+        const cut = url.search(/[?#]/)
+        const rest = cut < 0 ? '' : url.slice(cut)
+        let rel
+        try {
+          rel = decodeURIComponent(cut < 0 ? url : url.slice(0, cut))
+        } catch {
+          return fail(`${kind} ${url} is not a valid URL`)
+        }
+        if (/\.md$/i.test(rel)) {
+          let stem = path.posix.basename(rel, path.posix.extname(rel))
+          if (stem === 'index') stem = path.posix.basename(path.posix.dirname(path.posix.normalize(rel))) || stem
+          const page = ['', entry.lang, entry.collection, stem].filter((s, i) => i === 0 || s).join('/')
+          return fail(`${url} is a Markdown file and has no URL of its own: link to the page that shows it, such as ${page}`)
+        }
+        const shown = (p) => path.relative(root, p).split(path.sep).join('/')
+        // The place next to the entry first. The URL is written for it, so leading out of the
+        // collection from there is an error.
+        const near = path.join(root, path.dirname(entry.source), rel)
+        if (!within(collection, near)) return fail(`${kind} ${url} leads to ${shown(near)}, which is outside content/${entry.collection}: a collection holds only its own files`)
+        const looked = [near]
+        let found = exists(near)
+        // Then the place next to the version in the default language, which may sit at another
+        // depth: it counts only when the file next to the entry is missing.
+        let away = ''
+        if (found === undefined && entry.fallback) {
+          const far = path.join(root, entry.fallback, rel)
+          if (within(collection, far)) {
+            looked.push(far)
+            found = exists(far)
+          } else {
+            away = ` (next to the default language it leads to ${shown(far)}, which is outside content/${entry.collection})`
+          }
+        }
+        if (found === undefined) return fail(`${kind} ${url} not found: looked at ${looked.map(shown).join(' and ')}${away}`)
+        if (found.isDirectory()) return fail(`${kind} ${url} is a folder, which has no URL of its own`)
+        const real = fs.realpathSync(found.path)
+        if (!within(fs.realpathSync(collection), real)) {
+          return fail(`${kind} ${url} links to ${real}, which is outside content/${entry.collection}: a collection holds only its own files`)
+        }
+        return asset(real) + rest
+      },
+    }
+    // The vfile unified makes keeps this data object, by which the steps of tifa find state.
+    const data = { tifa: { collection: entry.collection, lang: entry.lang, id: entry.id, frontmatter: entry.frontmatter } }
+    contentFiles.set(data, state)
+    let out
+    try {
+      out = await processor.process({ value: entry.text, path: path.join(realRoot, entry.source), data })
+    } catch (err) {
+      problems.push(...contentError(entry, err))
+      continue
+    }
+    result.html[entry.out] = String(out)
+    result.headings[entry.out] = state.headings
+    for (const m of out.messages) result.warnings.push(`${messagePlace(entry, m)}: ${m.reason ?? m.message}`)
+  }
+  if (problems.length > 0) throw new Error(problems.join('\n'))
+  return result
+}
+
+// messagePlace is file:line:col of a message of unified, file alone when it has no place.
+function messagePlace(entry, m) {
+  const at = m.place?.start ?? m.place ?? (m.line ? { line: m.line, column: m.column } : undefined)
+  return at?.line ? `${entry.source}:${at.line}:${at.column ?? 1}` : entry.source
+}
+
+// contentError returns the lines that say why the conversion of entry failed with err.
+function contentError(entry, err) {
+  if (Array.isArray(err?.tifaLines)) return err.tifaLines
+  const reason = err?.reason ?? err?.message ?? String(err)
+  return [`${messagePlace(entry, err ?? {})}: ${err?.tifaPlugin ? err.tifaPlugin + ': ' : ''}${reason}`]
 }
 
 // lazyRoute is the prefix of the ID of a stand-in for a route module, see lazyRoutes.

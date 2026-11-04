@@ -7,6 +7,7 @@
       "group": "a/one",
       "words": 10,
       "source": "content/notes/a/one/index.md",
+      "file": "content/notes/a/one.html",
       "data": {
         "title": "One"
       }

@@ -26,7 +26,9 @@ type matter struct {
 	groupAt pos // zero without a translationKey
 	data    []byte
 	body    []byte
-	errs    []posError
+	// lines is the number of lines of the front matter, the two --- lines included.
+	lines int
+	errs  []posError
 }
 
 // pos is a line and column of a file, both from 1.
@@ -67,6 +69,7 @@ func parseMatter(src []byte, schema *Node, typeName string) *matter {
 		if string(bytes.TrimRight(line, "\r")) == "---" {
 			found = true
 			m.body = next
+			m.lines = lines
 			break
 		}
 		yamlText = append(yamlText, line...)

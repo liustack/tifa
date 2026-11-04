@@ -18,6 +18,9 @@ import (
 	"cmp"
 	"encoding/json/v2"
 	"fmt"
+	"html"
+	"io/fs"
+	"path"
 	"reflect"
 	"regexp"
 	"slices"
@@ -67,10 +70,61 @@ type Entry struct {
 	// Words is the number of words of the body: each Chinese, Japanese or Korean character is
 	// one, and so is each run of other letters and digits.
 	Words int `json:"words"`
+
+	// body is where the body and the headings of the entry come from, nil for an entry that no
+	// collection holds.
+	body *body
 }
 
 // entry gives the content package the Entry inside any schema type.
 func (e *Entry) entry() *Entry { return e }
+
+// body is what an entry knows of its body.
+type body struct {
+	collection string
+	// dist holds the files of the build, nil in tests.
+	dist     fs.FS
+	file     string
+	headings []Heading
+}
+
+// Body returns the body of the entry, the HTML tifa build made from its Markdown. It reads the file
+// of the build on each call (tifa dev reads it from .tifa/dist) and keeps no copy. A page shows it
+// with <HTML value={...}> of tifa/client.
+//
+// Tests have no build: for an entry of tifatest.LoadContent or tifatest.SetContent, Body returns
+// the placeholder <p>tifatest: body of <collection> <lang>/<ID></p>. Body panics for an entry that
+// no collection holds, such as one made in place.
+func (e Entry) Body() tifa.HTML {
+	b := e.body
+	switch {
+	case b == nil:
+		panic(fmt.Sprintf("content: Body of the entry %q, which no collection holds: read entries from a collection, or in a test from tifatest.SetContent", e.ID))
+	case b.dist == nil:
+		return tifa.HTML("<p>tifatest: body of " + html.EscapeString(b.collection+" "+path.Join(e.Lang, e.ID)) + "</p>")
+	}
+	data, err := fs.ReadFile(b.dist, b.file)
+	if err != nil {
+		panic(fmt.Sprintf("content: the body of %s %s: %v", b.collection, path.Join(e.Lang, e.ID), err))
+	}
+	return tifa.HTML(data)
+}
+
+// Headings returns the h1 to h6 of the body in the order they come, with the id each has in the
+// HTML. In tests they are nil, see Body. The slice is new on each call.
+func (e Entry) Headings() []Heading {
+	if e.body == nil {
+		return nil
+	}
+	return slices.Clone(e.body.headings)
+}
+
+// Heading is one h1 to h6 of a body: its level, its id and its text.
+type Heading struct {
+	Depth int    `json:"depth"`
+	ID    string `json:"id"`
+	Text  string `json:"text"`
+}
 
 // Translation is one version of an entry.
 type Translation struct {
@@ -195,14 +249,14 @@ func entryOf[T any](v *T) *Entry {
 type validator interface{ Validate() error }
 
 // decode turns the records of content.json into entries and checks each with Validate.
-func (c *Collection[T]) decode(recs []content.Record) (func(), error) {
+func (c *Collection[T]) decode(recs []content.Record, dist fs.FS) (func(), error) {
 	items := make([]item[T], 0, len(recs))
 	for _, r := range recs {
 		var v T
 		if err := json.Unmarshal(r.Data, &v); err != nil {
 			return nil, fmt.Errorf("%s: %w", r.Source, err)
 		}
-		*entryOf(&v) = Entry{ID: r.ID, Lang: r.Lang, Slug: r.Slug, Path: r.Path, Date: r.Date, Draft: r.Draft, Words: r.Words}
+		*entryOf(&v) = Entry{ID: r.ID, Lang: r.Lang, Slug: r.Slug, Path: r.Path, Date: r.Date, Draft: r.Draft, Words: r.Words, body: c.body(dist, r)}
 		if val, ok := any(&v).(validator); ok {
 			if err := val.Validate(); err != nil {
 				return nil, fmt.Errorf("%s: Validate: %w", r.Source, err)
@@ -211,6 +265,19 @@ func (c *Collection[T]) decode(recs []content.Record) (func(), error) {
 		items = append(items, item[T]{v: v, group: cmp.Or(r.Group, r.ID)})
 	}
 	return c.commit(items), nil
+}
+
+// body says where the body of the entry of r is, in dist when there is a build.
+func (c *Collection[T]) body(dist fs.FS, r content.Record) *body {
+	b := &body{collection: c.src.Dir}
+	if dist != nil {
+		b.dist, b.file = dist, r.File
+		b.headings = make([]Heading, len(r.Headings))
+		for i, h := range r.Headings {
+			b.headings[i] = Heading(h)
+		}
+	}
+	return b
 }
 
 // set makes values the entries of the collection, each its own translation key by ID.
@@ -231,6 +298,7 @@ func (c *Collection[T]) set(values []any) (func(), error) {
 		case seen[[2]string{e.Lang, e.ID}]:
 			return nil, fmt.Errorf("collection %s has the entry %q of language %q twice", c.src.Dir, e.ID, e.Lang)
 		}
+		e.body = &body{collection: c.src.Dir}
 		seen[[2]string{e.Lang, e.ID}] = true
 		items = append(items, item[T]{v: v, group: e.ID})
 	}

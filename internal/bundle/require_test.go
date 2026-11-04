@@ -143,7 +143,7 @@ func TestSSRRequireCases(t *testing.T) {
 	writeRequireCases(t, root, cases)
 	var output strings.Builder
 	n := NewNode(root, &output)
-	if _, err := App(n, root, filepath.Join(root, "public"), true); err != nil {
+	if _, err := App(n, root, filepath.Join(root, "public"), true, nil); err != nil {
 		t.Fatal(err)
 	}
 	// What Node printed is complete once it exited.
@@ -175,7 +175,7 @@ func TestDevRequireCases(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true, nil); err != nil {
 		t.Fatal(err)
 	}
 	// What Node printed is complete once it exited.
@@ -205,7 +205,7 @@ func TestSSRReportsAnUnmappedRequireInTheBundle(t *testing.T) {
 	})
 	var output strings.Builder
 	n := NewNode(root, &output)
-	if _, err := App(n, root, filepath.Join(root, "public"), true); err != nil {
+	if _, err := App(n, root, filepath.Join(root, "public"), true, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := n.Close(); err != nil {

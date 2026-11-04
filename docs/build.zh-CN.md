@@ -55,7 +55,7 @@ tifa build [--dir 应用根目录] [-o 输出路径]
 
 1. 静态分析 `app/` 与根目录 `hooks.go`，约定不满足时逐条打印 `文件:行号: 原因` 并退出。
 2. 把生成代码写进 `.tifa/`。只改内容变了的文件，删掉不再生成的文件。
-3. 用应用自己装的 Vite 打包，它跑在 Node 上，产物写进 `.tifa/dist/`，见下文「前端产物」。整个构建只起一个 Node 进程，不管 shell 里设了什么，它的 `NODE_ENV` 都是 `production`，所以构建总用 React 的生产版。第 2 步读 `page.tsx`、`layout.tsx` 的导出也用 Vite 的解析器。没有页面的应用构建时不需要 Node。可执行文件始终不需要 Node。
+3. 用应用自己装的 Vite 打包，它跑在 Node 上，产物写进 `.tifa/dist/`，见下文「前端产物」。整个构建只起一个 Node 进程，不管 shell 里设了什么，它的 `NODE_ENV` 都是 `production`，所以构建总用 React 的生产版。第 2 步读 `page.tsx`、`layout.tsx` 的导出也用 Vite 的解析器。没有页面的应用构建时不需要 Node，除非它的内容集合里有条目（见[内容](content.zh-CN.md#markdown-转-html)）。可执行文件始终不需要 Node。
 4. `CGO_ENABLED=0 go build -o <输出> -ldflags=-w ./.tifa`，默认输出 `bin/<模块路径最后一段>`。生成的 main 用 `//go:embed all:dist` 把 `.tifa/dist/` 嵌进可执行文件。`-w` 去掉调试信息，见下文「调试信息」。
 
 静态分析还会检查应用的会话（见[会话](app.zh-CN.md#会话)）。`tifa build` 和 `tifa check` 在下面每一种情况下都会停下：
@@ -224,18 +224,21 @@ go tool tifa build
 | `tsconfig.json` | 见下文 |
 | `vite.js`、`vite.d.ts`、`vite/plugin.js` | 给 `vite.config.ts` 用的 tifa Vite 插件，见下文。`vite/plugin.js` 是仓库 `js/vite/plugin.js` 的原样拷贝 |
 | `runtime/` | 仓库 `js/runtime/` 的原样副本 |
+| `content/` | 有内容集合的应用才有：`entries.json` 是 tifa build 交给 Vite 插件转成 HTML 的条目（front matter 换成空行的 Markdown、正文写到哪里、默认语言版本所在的文件夹），`headings.json` 是插件在每篇正文里找到的标题，会合进 `dist/content.json`。见[内容](content.zh-CN.md#markdown-转-html) |
 | `dist/` | 前端产物，见下文 |
 
-没有页面（没有任何 `page.tsx`）的应用只生成 Go 文件，`dist/` 里只有 `build.json` 和公共文件。
+没有页面（没有任何 `page.tsx`）的应用只生成 Go 文件，`dist/` 里只有 `build.json` 和公共文件。有内容集合时还生成给 `vite.config.ts` 用的 `.tifa/vite.js`，`dist/` 里还有正文和它们引用的文件。
 
 ## 前端产物
 
 | 路径 | 内容 |
 | --- | --- |
-| `dist/assets/` | Vite 打出的浏览器包：入口 `client.ts`（`app-<哈希>.js`）、共享 chunk（`chunk-<哈希>.js`）、装着应用全部 CSS 的一个样式表（`style-<哈希>.css`），以及 CSS 引用的字体和图片，小文件 Vite 会内联成 data URL。语法目标取配置项 `build.target`（默认 `es2020`：一个 ECMAScript 版本加若干带版本的浏览器，如 `es2019,chrome90,safari14`）。按路由拆分：入口里放根 Layout 和每个页面都要加载的其他代码，其他每个 `page.tsx` 和 `layout.tsx` 各自一个 chunk，路由第一次用到时才加载，见[浏览器里的路由模块](#浏览器里的路由模块)。1024 字节及以上的 JavaScript、CSS、HTML、JSON、SVG、XML 和 WebAssembly 文件旁边还有一个按 gzip 最高级别压缩的 `<文件名>.gz`，gzip 压不小的文件没有。服务端用它代替原文件发出，见[压缩](#压缩) |
+| `dist/assets/` | Vite 打出的浏览器包：入口 `client.ts`（`app-<哈希>.js`）、共享 chunk（`chunk-<哈希>.js`）、装着应用全部 CSS 的一个样式表（`style-<哈希>.css`），以及 CSS 引用的字体和图片，小文件 Vite 会内联成 data URL。内容集合的正文引用的图片和其他文件也在这里，名字是 `<名字>-<哈希>.<扩展名>`，从不内联。语法目标取配置项 `build.target`（默认 `es2020`：一个 ECMAScript 版本加若干带版本的浏览器，如 `es2019,chrome90,safari14`）。按路由拆分：入口里放根 Layout 和每个页面都要加载的其他代码，其他每个 `page.tsx` 和 `layout.tsx` 各自一个 chunk，路由第一次用到时才加载，见[浏览器里的路由模块](#浏览器里的路由模块)。1024 字节及以上的 JavaScript、CSS、HTML、JSON、SVG、XML 和 WebAssembly 文件旁边还有一个按 gzip 最高级别压缩的 `<文件名>.gz`，gzip 压不小的文件没有。服务端用它代替原文件发出，见[压缩](#压缩) |
 | `dist/ssr.js` | SSR 包，入口 `server.ts`：一个 ES 模块文件，所有 npm 包都打在里面，不剩 import 和 export。每个虚拟机把它当模块运行，所以它在严格模式下运行，也可以用顶层 `await`（见[顶层 await 和严格模式](app.zh-CN.md#顶层-await-和严格模式)）。构建随后像服务端启动时那样用引擎把它编译一遍，但不运行：服务端编译不了的代码，比如 rolldown 从 CommonJS 文件里保留下来的 `with` 语句，会让构建失败，错误里有源文件中的位置。`examples/shop` 在 Apple M4 上这一步约 0.12 秒。包解析到它的主文件（先 `module` 后 `main`），条件导出 `exports` 按 `worker`、`import`、`module`、`default` 这几个条件取。不用包的浏览器文件：很多浏览器文件直接取浏览器里的东西，比如 `self` 或 `window`，QuickJS 里没有。想在服务端用某个包的浏览器版，按路径引入那个文件。语法目标固定为 ES2022（QuickJS 原样能跑的版本，调低只会让渲染变慢，调高可能写出 QuickJS 不支持的语法）。页面代码引入 Node 模块时构建失败。对 npm 包，构建只给警告：列出包里运行时可能用 `require` 或 `import()` 加载模块的位置，给出源文件、行、列和包名，因为服务端渲染走到那里会在 QuickJS 里失败。它在最终代码的一份压缩副本里找：凡是代码没有自己声明 `require` 的地方，`typeof require` 都当作 `"undefined"`。所以死代码里的 `require`（比如 `if (false)` 分支）和被 `typeof require` 判断守住的 `require`（比如 `typeof require === 'function' ? require(name) : 备用值`）不会有警告：QuickJS 没有 `require`，会走另一条分支。这份清单只是提示。它可能列出渲染走不到的代码，比如包按 `typeof process` 选的分支（debug 就这样做）、`try`/`catch` 里的 `require`、被代码赋值的 `require`。它也可能漏掉写在 `eval` 字符串里的 `require`、先设置 `globalThis.require` 再删掉的代码，以及后面的插件加进来的代码。没有源码对应的位置（比如某个包引入的 Node 模块）给的是 `ssr.js` 里的位置。`define` 把浏览器包的 head 标签写进 `__TIFA_ASSETS__` |
 | `dist/ssr.js.map` | SSR 包的 sourcemap，不带源码副本。服务端加载 SSR 包时读入这个文件，这个包第一次出错时（预热失败也算）才解码，把错误栈里的位置换成源文件里的位置，路径相对于应用根目录。读不全的 map 整个不用，位置留在 `ssr.js` 里。体积看应用，`examples/shop` 约 1.9 MB，不到 `ssr.js` 的两倍。它和 `dist/` 里其他文件一起嵌进可执行文件。不想要它，就在 `vite.config.ts` 里把 `environments.ssr.build.sourcemap` 设为 `false`：`examples/shop` 的可执行文件会小约 1.9 MB，构建警告和渲染错误给的是 `ssr.js` 里的位置。没有写出 `ssr.js.map` 的构建会删掉之前构建留下的那份（`tifa dev` 下 `.tifa/dist` 会保留旧文件，它对应的是别的代码）。服务端只读这个文件，所以设成 `inline` 时写在 `ssr.js` 里的 map 不会被用到 |
 | `dist/public/` | 配置项 `build.public` 指向的目录（默认 `public`）原样复制，不存在就没有。`build.json` 列出其中每个文件的内容哈希，它就是文件的 ETag |
+| `dist/content.json` | 有内容集合的应用才有：每个集合里不是草稿的条目，带 `content.Entry` 的字段、译文键、正文文件和它的标题，以及转成 JSON 的 front matter。程序在 `OnStart` 之前读它，见[内容](content.zh-CN.md) |
+| `dist/content/` | 每篇的正文 HTML，`<集合>/<语言>/<ID>.html`（没有语言的集合去掉语言这层）。`entry.Body()` 读这些文件。服务端不经 HTTP 提供它们，构建也不给它们写 `.gz`。正文引用的文件在 `dist/assets/` |
 | `dist/build.json` | `{buildId, head, preload, public}`。`head` 是加载浏览器包的 HTML，取自 Vite 的 manifest：样式表、入口引入的每个 chunk 一条 `modulepreload`、入口脚本。`preload` 列出每个路由模块在 `head` 之外还要的文件，见[预加载页面的 chunk](#预加载页面的-chunk)。构建 ID 是 `dist/` 里其他所有文件（含文件名）的哈希，文件名与内容各自带长度前缀，不同的文件树不会拼出同一串字节。同样的输入得到同样的 ID。`public` 是 `dist/public/` 里每个文件按相对路径列出的内容哈希，取 SHA-256 的前 16 字节转十六进制，没有公共文件和在 `tifa dev` 下都没有这一项 |
 
 SSR 包开头引入 `runtime/host.js`，它补上 QuickJS 缺的 `URL`、`TextEncoder`/`TextDecoder`、`AbortController`、`Headers`、`Response`、`queueMicrotask`、`atob`、`btoa`、`DOMException`、`structuredClone`、`crypto.getRandomValues`、`crypto.randomUUID`、`AsyncLocalStorage`，以及一个什么也不输出、`error` 时抛错的 `console`，不提供 `crypto.subtle`、`fetch` 与 `Request`。SSR 加载器在执行 bundle 模块前注册两组 Go 函数：一组读取随机字节，一组读写引擎的异步上下文（promise 任务带着走的一个对象，`AsyncLocalStorage` 把 store 放在里面），所以依赖在模块加载时就能用 `crypto` 和 `AsyncLocalStorage`。克隆完全在 JS 内执行，通过内建方法检查类型，用 `Error.isError` 识别错误对象，不读取引擎私有字段。页面在服务端能用到的全部东西见[服务端渲染时有什么](app.zh-CN.md#服务端渲染时有什么)。这份脚本由 `go generate ./js` 从 `js/host/host.ts` 预打包后入库，依赖版本锁在 `js/host/package.json` 与 `pnpm-lock.yaml`。升级时在 `js/host` 里 `pnpm install --frozen-lockfile`（或改版本后 `pnpm install`），再跑 `go generate ./js`。`internal/bundle` 的 `TestHostScriptIsUpToDate` 检查重新生成的结果与入库文件一致，`js/host/node_modules` 不存在时 skip。应用因此不需要安装这些补丁包。`abort-controller` 与它依赖的 `event-target-shim` 打了补丁（`js/host/patches`，登记在 `js/host/pnpm-workspace.yaml`）：每个对象的内部状态改存在对象自己的 symbol 属性上，不用 WeakMap。这个属性在建对象时定义一次，之后不再重新定义，所以应用 seal 或 freeze 了 signal 也照样能取消（`TestHostScriptAbortsFrozenSignals`）。唯一会再变的 signal 取消标记放在一个盒子里，只改盒子里的值。其余状态不装盒子，每个状态都装盒子时 P99 多出约 1.5 ms。QuickJS 回收穿过 WeakMap 值的死环要多轮 GC，有的环一直回收不掉，每次渲染留下的路由、AbortController 与监听器因此要等好几轮 GC，VM 的堆更大。改成属性后一次 GC 就能整体回收，`TestHostScriptFreesDeadAbortSignalsInOneCollection` 守住这一点。
@@ -404,7 +407,7 @@ export default defineConfig({
 - 生成的 tsconfig 设了 `rootDirs: ["..", "."]`：TypeScript 把 `.tifa/app/x/route.gen.ts` 当成 `app/x/route.gen.ts`，源码里的 `import { page } from './route.gen'` 因此能解析，上层目录的模块也一样，比如用 `'../../route.gen'` 读那个目录的 Layout 数据。应用的 `include` 单独写了 `.tifa/**/*`，因为 TypeScript 的通配符会跳过以点开头的目录。生成的 tsconfig 还载入 `vite/client` 的类型，导入图片、样式表和使用 `import.meta.env` 都能通过类型检查。
 - `paths` 写在应用自己的 tsconfig 里，shadcn CLI 这类从这里读的工具看到的就是应用根目录。`@/` 指向应用根目录：`@/components/ui/button` 就是 `components/ui/button.tsx`。`tifa/client` 是页面代码引入 `clientOnly`、`RouteError` 用的固定模块名。两者在第一次构建前就能用。
 - Vite 按同一份 `paths` 解析导入（它的 `resolve.tsconfigPaths`），所以你加的或改的路径，比如 `"@/components/*": ["./src/components/*"]`，类型检查和打包都照它走。Vite 只对 `include` 匹配到的文件用 `paths`，所以 `include` 里要保留 `**/*`。
-- `.tifa/vite.js` 的 `tifa()` 返回 tifa 的 Vite 插件，项目配置的 `build.target` 已经传进去。它们按 TypeScript 的方式解析 `./route.gen`：最后一段是 `route.gen`（可带 `.js` 或 `.ts`）、指向 `app/` 下某个目录的相对导入，不论中间经过几层（`'../../page/route.gen'` 也行），都解析到 `.tifa/` 里对应的文件。目录没有生成的模块时构建报错。它们还设好下文的入口与产物，并构建 SSR 包。
+- `.tifa/vite.js` 的 `tifa()` 返回 tifa 的 Vite 插件，项目配置的 `build.target` 已经传进去。它的选项 `markdown`（`{ remarkPlugins, rehypePlugins }`）给内容集合的转换加上应用自己的插件，见[内容](content.zh-CN.md#markdown-转-html)。它们按 TypeScript 的方式解析 `./route.gen`：最后一段是 `route.gen`（可带 `.js` 或 `.ts`）、指向 `app/` 下某个目录的相对导入，不论中间经过几层（`'../../page/route.gen'` 也行），都解析到 `.tifa/` 里对应的文件。目录没有生成的模块时构建报错。它们还设好下文的入口与产物，并构建 SSR 包。
 - `@vitejs/plugin-react` 编译 JSX，在 `tifa dev` 下加上 React Fast Refresh。别的 Vite 插件加在这两个后面，比如 `@tailwindcss/vite`（见 [app.zh-CN.md](app.zh-CN.md#tailwind-css)）。入口、`base`、产物和 `ssr` 环境交给 tifa。
 - `vite.config.ts` 引入 `./.tifa/vite.js`，所以 tifa 生成 `.tifa/` 之后它才能通过类型检查。`tifa build` 和 `tifa dev` 会在 Vite 读配置前生成它。
 

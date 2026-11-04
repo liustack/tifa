@@ -100,12 +100,18 @@ func (d *Dev) Close() error { return d.node.Close() }
 // or the stylesheets: a change to page code reaches open pages through Vite and leaves them on
 // the same build, so their navigation data requests are not refused.
 //
+// c holds the content collections, nil without any, as for App. Under tifa dev every Build converts
+// all the entries again, and the bodies refer to their files through the dev server.
+//
 // When ctx ends, Build closes the Dev, which ends a build that never would, so that tifa dev can
 // stop.
-func (d *Dev) Build(ctx context.Context, public string, pages bool) (string, error) {
+func (d *Dev) Build(ctx context.Context, public string, pages bool, c *Content) (string, error) {
 	stop := context.AfterFunc(ctx, func() { d.Close() })
 	defer stop()
 	if err := os.MkdirAll(d.dist, 0o755); err != nil {
+		return "", err
+	}
+	if err := prepareContent(d.root, c, pages); err != nil {
 		return "", err
 	}
 	ssr := filepath.Join(d.dist, "ssr.js")
@@ -138,7 +144,25 @@ func (d *Dev) Build(ctx context.Context, public string, pages bool) (string, err
 			d.styles = result.Styles
 		}
 		b.Head = d.styles + d.head
-	} else if err := os.Remove(ssr); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		// The bodies load their files from the dev server, so the plugin of the dev server converts.
+		if c != nil {
+			if err := d.node.call("content", nil, nil); err != nil {
+				return "", err
+			}
+		}
+	} else {
+		if err := os.Remove(ssr); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return "", err
+		}
+		// No dev server runs without pages: the files of the bodies go into .tifa/dist/assets.
+		if err := os.RemoveAll(filepath.Join(d.dist, "assets")); err != nil {
+			return "", err
+		}
+		if err := convertAlone(d.node, c, "tifa dev"); err != nil {
+			return "", err
+		}
+	}
+	if err := finishContent(d.root, d.dist, c); err != nil {
 		return "", err
 	}
 	for _, name := range []string{"public", "build.json"} {

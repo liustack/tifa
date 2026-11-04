@@ -42,13 +42,6 @@ type Build struct {
 	Public map[string]string `json:"public,omitempty"`
 }
 
-// File is a file that App writes into dist next to the bundles.
-type File struct {
-	// Name is the path in dist, such as content.json.
-	Name string
-	Data []byte
-}
-
 // clientEntry is the browser entry tifa generates, as Vite's manifest names it.
 const clientEntry = ".tifa/client.ts"
 
@@ -59,6 +52,8 @@ const clientEntry = ".tifa/client.ts"
 //	              a .gz of each text file worth compressing (see precompress)
 //	dist/ssr.js   the SSR bundle, which knows the tags of the browser bundle as __TIFA_ASSETS__
 //	dist/public/  a copy of the public directory, when it exists
+//	dist/content.json  the entries of the content collections, with the headings of each body
+//	dist/content/  the body of each entry as HTML, which the program reads and never serves
 //	dist/build.json  with the content hash of each public file, see Build.Public
 //
 // Vite builds the two bundles with the application's vite.config.ts, which uses the tifa plugin
@@ -66,8 +61,10 @@ const clientEntry = ".tifa/client.ts"
 // which gets no bundles and needs no Node. The generated entries must exist under .tifa. The same
 // input gives the same files and ID.
 //
-// files are written into dist as they are, such as content.json, and count in the ID.
-func App(n *Node, root, public string, pages bool, files ...File) (string, error) {
+// c holds the content collections, nil without any: dist/content.json with their entries and the
+// bodies in dist/content/, which the tifa plugin converts during the browser build. They count in
+// the ID.
+func App(n *Node, root, public string, pages bool, c *Content) (string, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return "", err
@@ -77,6 +74,9 @@ func App(n *Node, root, public string, pages bool, files ...File) (string, error
 		return "", err
 	}
 	if err := os.MkdirAll(dist, 0o755); err != nil {
+		return "", err
+	}
+	if err := prepareContent(root, c, pages); err != nil {
 		return "", err
 	}
 	var b Build
@@ -96,6 +96,13 @@ func App(n *Node, root, public string, pages bool, files ...File) (string, error
 		if err := precompress(filepath.Join(dist, "assets")); err != nil {
 			return "", err
 		}
+	} else if c != nil && len(c.Markdown) > 0 {
+		if err := convertAlone(n, c, "tifa build"); err != nil {
+			return "", err
+		}
+		if err := precompress(filepath.Join(dist, "assets")); err != nil {
+			return "", err
+		}
 	}
 	if err := copyDir(public, filepath.Join(dist, "public")); err != nil {
 		return "", err
@@ -103,10 +110,8 @@ func App(n *Node, root, public string, pages bool, files ...File) (string, error
 	if b.Public, err = publicHashes(filepath.Join(dist, "public")); err != nil {
 		return "", err
 	}
-	for _, f := range files {
-		if err := os.WriteFile(filepath.Join(dist, f.Name), f.Data, 0o644); err != nil {
-			return "", err
-		}
+	if err := finishContent(root, dist, c); err != nil {
+		return "", err
 	}
 	if b.ID, err = distID(dist, ""); err != nil {
 		return "", err
