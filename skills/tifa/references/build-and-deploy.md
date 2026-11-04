@@ -89,7 +89,7 @@ Cache headers: a page with `const Cache = <duration>` in its `route.go` sends `C
 
 ## Building for Linux and running it
 
-The server render engine runs on linux/amd64 and darwin/arm64 only. Build on your machine for the server:
+The server render engine runs on linux and darwin, on amd64 and arm64, and windows/amd64. Build on your machine for the server:
 
 ```sh
 GOOS=linux GOARCH=amd64 $(go tool -n tifa) build -o bin/myapp-linux

@@ -88,7 +88,7 @@ build:
 
 ### JavaScript 引擎
 
-slowjs 用 C 写的 QuickJS 执行 JavaScript，LLVM 把它编译成 Go 汇编，随模块一起发布。构建不需要 C 编译器，也不用 cgo，`CGO_ENABLED=0` 照旧。引擎只支持 linux/amd64 和 darwin/arm64，为其他目标构建会停在 slowjs 报的错上，错误里写明这两个平台。渲染速度和每个 VM 占多少内存见[性能](performance.zh-CN.md)。
+slowjs 用 C 写的 QuickJS 执行 JavaScript，LLVM 把它编译成 Go 汇编，随模块一起发布。构建不需要 C 编译器，也不用 cgo，`CGO_ENABLED=0` 照旧。引擎支持 linux 和 darwin 的 amd64、arm64，以及 windows/amd64。为其他目标构建会停在 slowjs 报的错上，错误里列出这些平台。渲染速度和每个 VM 占多少内存见[性能](performance.zh-CN.md)。
 
 ### 给别的系统构建
 

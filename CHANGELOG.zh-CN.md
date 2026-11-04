@@ -107,7 +107,7 @@
 - 服务端渲染改用 slowjs v0.29.2，HTML 不变。页面卡在一次很长的 `split`、`padStart`、`padEnd`、`trim`、`isWellFormed`、`toWellFormed`、`encodeURI`、`decodeURI` 一类调用、`Array.from` 或类型化数组构造里，或在拼接、比较用 `+` 拼出的长字符串时，渲染超时（`ssr.timeout`）现在几千个字符或元素之内就能让它停下，以前要跑到这次调用结束。对象展开（`{...o}`）、解构的剩余部分和 `Object.assign` 和 Node 一样，轮到每个键时再查一次：前面的 getter 删掉后面的键或把它改成不可枚举，这个键不再被复制，把后面的键改成可枚举，这个键会被复制。
 - 服务端渲染改用 slowjs v0.29 的 C 引擎，它是唯一的引擎：用 C 写的 QuickJS，编译成随模块发布的 Go 汇编。构建不需要 C 编译器，`CGO_ENABLED=0` 照旧。页面渲染出的 HTML 一样，用的时间更少（见下面的性能）。应用能看到的变化：
 - `tifa dev` 第二次渲染页面时把时钟往后拨 36 小时，显示日期、精确到分钟的时间或「3 小时前」的页面也查得出来，以前连着渲染两次几乎查不出。提示里还按文件和行列出你的代码读时间或随机数（`Date.now()`、`new Date()`、`Date()`、`Math.random()`、`crypto`）的位置，React、TanStack Router 和 tifa 自己的读取不列（见[日志](docs/dev.zh-CN.md#日志)）。
-  - 应用只能为 linux/amd64 和 darwin/arm64 构建。为别的目标构建，比如 windows、darwin/amd64 或 linux/arm64，会停在 slowjs 报的错上，错误里写明这两个平台。
+  - 应用可以为 linux 和 darwin 的 amd64、arm64，以及 windows/amd64 构建。为别的目标构建会停在 slowjs 报的错上，错误里列出这些平台。
   - 一次渲染里 `JSON.parse` 最多嵌套 2000 层，数据嵌套更深的页面原来能渲染，现在会失败，报 `RangeError: JSON nesting too deep`。
   - `ssr.vm_stack_depth` 默认仍是 10000，最大也仍是 10000。它现在数的是调用次数，原来的引擎数的是自己栈上的槽位。渲染里普通递归能到的深度仍和 Node 一样。无限递归的渲染让进程在 linux/amd64 上最多涨 26 MB，在 darwin/arm64 上涨 14 MB，原来最多涨 24 MB 的 goroutine 栈（见[栈深度](docs/config.zh-CN.md#栈深度)）。
   - `ssr.vm_memory` 限制的是引擎自己的分配器持有的内存。同一份堆现在数出来少 13% 到 15%，所以同样的限制能多装这么多。

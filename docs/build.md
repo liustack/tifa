@@ -88,7 +88,7 @@ build:
 
 ### The JavaScript engine
 
-slowjs runs JavaScript in QuickJS written in C, which LLVM compiled to Go assembly that the module ships. Building needs no C compiler and no cgo, and `CGO_ENABLED=0` stays. The engine runs on linux/amd64 and darwin/arm64 only. A build for another target stops with an error from slowjs that names these two. See [Performance](performance.md) for how fast it renders and how much memory a VM holds.
+slowjs runs JavaScript in QuickJS written in C, which LLVM compiled to Go assembly that the module ships. Building needs no C compiler and no cgo, and `CGO_ENABLED=0` stays. The engine runs on linux and darwin, on amd64 and arm64, and windows/amd64. A build for another target stops with an error from slowjs that names them. See [Performance](performance.md) for how fast it renders and how much memory a VM holds.
 
 ### Building for another system
 
