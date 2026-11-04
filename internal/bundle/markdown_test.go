@@ -272,6 +272,40 @@ func TestMarkdownRewritesRelativeURLs(t *testing.T) {
 	}
 }
 
+// A translation may sit at another depth than the version in the default language. The place next
+// to the default language counts only when the file next to the entry is missing, so a URL that is
+// right for the entry does not fail for leading out of the collection from the other place.
+func TestMarkdownFallbackCountsOnlyForAMissingFile(t *testing.T) {
+	root := markdownApp(t, map[string]string{
+		"content/blog/shared.png":           "shared",
+		"content/blog/zh-CN/deep/post/a.png": "a",
+	})
+	c := convert(t, root, []content.Markdown{
+		// Deeper than its default language, content/blog/zh-CN/post.md.
+		markdownEntry("en", "deep/post", "content/blog/en/deep/post/index.md", "content/blog/zh-CN", "![s](../../../shared.png)\n"),
+		// Shallower than its default language, content/blog/zh-CN/deep/post/index.md.
+		markdownEntry("fr", "post", "content/blog/fr/post.md", "content/blog/zh-CN/deep/post", "![s](../shared.png) ![a](a.png)\n"),
+	}, "")
+	if c.Error != "" {
+		t.Fatal(c.Error)
+	}
+	if html := c.HTML["content/blog/en/deep/post.html"]; !strings.Contains(html, `src="asset:content/blog/shared.png"`) {
+		t.Errorf("en:\n%s", html)
+	}
+	if html := c.HTML["content/blog/fr/post.html"]; !strings.Contains(html, `src="asset:content/blog/shared.png"`) || !strings.Contains(html, `src="asset:content/blog/zh-CN/deep/post/a.png"`) {
+		t.Errorf("fr:\n%s", html)
+	}
+	// A missing file names the place next to the default language, which is outside the collection.
+	c = convert(t, root, []content.Markdown{
+		markdownEntry("en", "deep/post", "content/blog/en/deep/post/index.md", "content/blog/zh-CN", "![m](../../../missing.png)\n"),
+	}, "")
+	want := "content/blog/en/deep/post/index.md:4:1: image ../../../missing.png not found: looked at content/blog/missing.png " +
+		"(next to the default language it leads to missing.png, which is outside content/blog)"
+	if c.Error != want {
+		t.Errorf("error\n%s\nwant\n%s", c.Error, want)
+	}
+}
+
 // Every problem of every entry fails the conversion, at its line in the Markdown file, whose front
 // matter takes the first three lines.
 func TestMarkdownURLProblemsFailTheConversion(t *testing.T) {

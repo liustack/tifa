@@ -1298,6 +1298,16 @@ function collectHeadings() {
   }
 }
 
+// exists returns the fs.Stats of the file at p with its path, undefined when there is none.
+function exists(p) {
+  try {
+    return Object.assign(fs.statSync(p), { path: p })
+  } catch (err) {
+    if (err.code === 'ENOENT' || err.code === 'ENOTDIR') return undefined
+    throw err
+  }
+}
+
 // within reports whether p is dir or a path below it.
 function within(dir, p) {
   const rel = path.relative(dir, p)
@@ -1339,27 +1349,32 @@ export async function convertContent(root, entries, { markdown, command, asset, 
           const page = ['', entry.lang, entry.collection, stem].filter((s, i) => i === 0 || s).join('/')
           return fail(`${url} is a Markdown file and has no URL of its own: link to the page that shows it, such as ${page}`)
         }
-        const places = [path.join(root, path.dirname(entry.source), rel)]
-        if (entry.fallback) places.push(path.join(root, entry.fallback, rel))
         const shown = (p) => path.relative(root, p).split(path.sep).join('/')
-        for (const p of places) {
-          if (!within(collection, p)) return fail(`${kind} ${url} leads to ${shown(p)}, which is outside content/${entry.collection}: a collection holds only its own files`)
-        }
-        for (const p of places) {
-          let stat
-          try {
-            stat = fs.statSync(p)
-          } catch {
-            continue
+        // The place next to the entry first. The URL is written for it, so leading out of the
+        // collection from there is an error.
+        const near = path.join(root, path.dirname(entry.source), rel)
+        if (!within(collection, near)) return fail(`${kind} ${url} leads to ${shown(near)}, which is outside content/${entry.collection}: a collection holds only its own files`)
+        const looked = [near]
+        let found = exists(near)
+        // Then the place next to the version in the default language, which may sit at another
+        // depth: it counts only when the file next to the entry is missing.
+        let away = ''
+        if (found === undefined && entry.fallback) {
+          const far = path.join(root, entry.fallback, rel)
+          if (within(collection, far)) {
+            looked.push(far)
+            found = exists(far)
+          } else {
+            away = ` (next to the default language it leads to ${shown(far)}, which is outside content/${entry.collection})`
           }
-          if (stat.isDirectory()) return fail(`${kind} ${url} is a folder, which has no URL of its own`)
-          const real = fs.realpathSync(p)
-          if (!within(fs.realpathSync(collection), real)) {
-            return fail(`${kind} ${url} links to ${real}, which is outside content/${entry.collection}: a collection holds only its own files`)
-          }
-          return asset(real) + rest
         }
-        fail(`${kind} ${url} not found: looked at ${places.map(shown).join(' and ')}`)
+        if (found === undefined) return fail(`${kind} ${url} not found: looked at ${looked.map(shown).join(' and ')}${away}`)
+        if (found.isDirectory()) return fail(`${kind} ${url} is a folder, which has no URL of its own`)
+        const real = fs.realpathSync(found.path)
+        if (!within(fs.realpathSync(collection), real)) {
+          return fail(`${kind} ${url} links to ${real}, which is outside content/${entry.collection}: a collection holds only its own files`)
+        }
+        return asset(real) + rest
       },
     }
     // The vfile unified makes keeps this data object, by which the steps of tifa find state.
