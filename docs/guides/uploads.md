@@ -69,7 +69,7 @@ const ReadTimeout = 5 * time.Minute
 - A body over `BodyLimit` is answered with 413 and the handler does not run. The limit counts the whole body: the file, the other fields and the multipart framing. A file a little under the limit can still be refused.
 - `ReadTimeout` counts from the moment the route is matched. A body still coming when it is over is answered with 408. The answer gets `server.write_timeout` after it.
 - Both hold for the requests the method handlers of this `route.go` answer, and the GET of the page keeps the settings. A variable is read once when the app starts, so `--upload-limit 8MiB` works.
-- A multipart body is read with at most 32 MiB in memory. What is over that goes to temporary files, which tifa removes when the request ends. A limit above that is fine, but a few uploads at once cost memory, so keep it as low as the use needs.
+- A multipart body keeps up to 32 MiB of file content in memory, and up to 10 MiB more for the text fields and the names and headers of the parts. A file that does not fit goes to a temporary file, which tifa removes when the request ends, but up to 32 MiB of it passes through a buffer in memory first. So one upload may hold around 40 MiB for a moment, wherever its files end up. A body limit above that is fine: what is over it goes to disk, not to memory. Uploads at the same time each take that much, so on a small machine count them: ten large ones at once can hold about 400 MiB.
 - A proxy or CDN in front of the app has a body limit and timeouts of its own. Raise them to match, or the visitor gets its error and not yours.
 
 ## The handler

@@ -196,7 +196,7 @@ await POST({ input: { title, photo: file instanceof File ? file : null, extras: 
 - 这样的入参只接受 multipart 表单或 URL 编码表单（后者装不了文件），JSON 请求体答 415。其他字段以文本发来，所以和 GET 入参的规则一样：字符串、数字、布尔或它们的切片，不能有嵌入字段，入参类型上不能有 `MarshalText` 或 `UnmarshalText`。
 - 文件只能是入参本身的字段。文件放在 GET 或 DELETE 的入参里、嵌套的结构体、map 或数组里、结果里、`Load` 或 `Layout` 的数据里、会话里，都会构建报错。
 - 文件的名字、大小和 `Content-Type`（`in.Photo.Header.Get("Content-Type")`）都是客户端发来的。文件是什么要看它的字节，保存用的名字要自己起，见[上传文件](guides/uploads.zh-CN.md)。
-- 表单最多 32 MiB 放在内存里，其余写进临时文件，请求结束时 tifa 会删掉。要留的东西在处理函数返回前复制走，也不要把 `*multipart.FileHeader` 交给比请求活得久的 goroutine。
+- multipart 表单最多把 32 MiB 的文件内容放在内存里，文本字段和各部分的名字、头另外最多再占 10 MiB。剩下的空间放不下的文件写进临时文件，请求结束时 tifa 会删掉，但写盘之前它最多有 32 MiB 先读进内存里的缓冲区。所以一次上传可能短时间占 40 MiB 左右，不管文件最后落在哪里，同时进行的上传各占这么多。要留的东西在处理函数返回前复制走，也不要把 `*multipart.FileHeader` 交给比请求活得久的 goroutine。
 
 ### 路由自己的请求体上限和读取时间
 

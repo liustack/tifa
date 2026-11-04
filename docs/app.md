@@ -196,7 +196,7 @@ await POST({ input: { title, photo: file instanceof File ? file : null, extras: 
 - Such an input comes only as a multipart form or a URL-encoded one (which can hold no file): a JSON body is answered with 415. Its other fields come as text, so they follow the rules of a GET input: strings, numbers, bools or slices of them, no embedded fields, and no `MarshalText` or `UnmarshalText` on the input type.
 - A file can only be a field of the input itself. A file in a GET or DELETE input, in a nested struct, a map or an array, in a result, in the data of `Load` or a `Layout`, or in the session fails the build.
 - The name, the size and the `Content-Type` of a file (`in.Photo.Header.Get("Content-Type")`) are what the client sent. Decide what a file is from its bytes, and make the name you keep it under yourself, see [Uploads](guides/uploads.md).
-- The form is read with at most 32 MiB in memory and the rest in temporary files, which tifa removes when the request ends. Copy what you keep before the handler returns, and do not hand the `*multipart.FileHeader` to a goroutine that outlives the request.
+- A multipart form keeps up to 32 MiB of file content in memory, and up to 10 MiB more for the text fields and the names and headers of the parts. A file that does not fit in what is left goes to a temporary file, which tifa removes when the request ends, but up to 32 MiB of it is read into a buffer in memory first. So one upload may hold around 40 MiB for a moment, wherever its files end up, and uploads at the same time each hold that much. Copy what you keep before the handler returns, and do not hand the `*multipart.FileHeader` to a goroutine that outlives the request.
 
 ### Body limit and read time of a route
 
