@@ -51,7 +51,7 @@ export default function ProductPage() {
   useEffect(() => {
     void rememberProduct(lang, product.slug)
   }, [lang, product.slug])
-  const origin = (product.specs ?? []).find((s) => s.label === t('product.originLabel'))?.value
+  const origin = product.specs.find((s) => s.label === t('product.originLabel'))?.value
   return (
     <div className="flex flex-col gap-14">
       <nav aria-label={t('list.breadcrumb')} className="flex flex-wrap items-center gap-1.5 text-[13px] text-muted-foreground">
@@ -86,7 +86,7 @@ export default function ProductPage() {
             </a>
             <span aria-hidden>·</span>
             <a href="#questions" className="underline underline-offset-3">
-              {t('product.questionsCount', { count: data.questions?.length ?? 0 })}
+              {t('product.questionsCount', { count: data.questions.length })}
             </a>
           </div>
           <Price priceCents={product.priceCents} compareAtCents={product.compareAtCents} className="text-2xl" />
@@ -142,7 +142,7 @@ export default function ProductPage() {
 
       <Row id="related-title" title={t('product.related')}>
         <ProductGrid>
-          {(related ?? []).map((p) => (
+          {related.map((p) => (
             <ProductCard key={p.slug} product={p} lang={lang} />
           ))}
         </ProductGrid>
@@ -285,8 +285,8 @@ function AddToCart() {
   const { product } = page.useLoaderData()
   const { t, locale } = useStore()
   const hydrated = useHydrated()
-  const colors = product.colors ?? []
-  const sizes = product.sizes ?? []
+  const colors = product.colors
+  const sizes = product.sizes
   const [added, setAdded] = useState<number | null>(null)
   const form = useForm<POSTInput>({
     resolver: zodResolver(sizes.length > 0 ? addSchema.extend({ size: z.string().min(1, 'variant') }) : addSchema),
@@ -429,8 +429,8 @@ function Bundle() {
   const { t, locale, money } = useStore()
   const hydrated = useHydrated()
   const [state, setState] = useState<'idle' | 'adding' | 'added' | 'failed'>('idle')
-  const items = [product, ...(bundle ?? [])]
-  if (items.length < 2 || product.stock === 0 || (product.sizes ?? []).length > 0) return null
+  const items = [product, ...bundle]
+  if (items.length < 2 || product.stock === 0 || product.sizes.length > 0) return null
   const total = items.reduce((n, p) => n + p.priceCents, 0)
   const lang = locale.code
 
@@ -512,7 +512,7 @@ function Details() {
           <div className="flex flex-col gap-4 text-[15px] leading-relaxed">
             <p>{product.description}</p>
             <ul className="flex flex-col gap-1.5 text-sm text-muted-foreground">
-              {(product.materials ?? []).map((m) => (
+              {product.materials.map((m) => (
                 <li key={m} className="border-l-2 pl-3">
                   {m}
                 </li>
@@ -545,11 +545,11 @@ function Details() {
           </div>
         </TabsContent>
         <TabsContent value="specs" forceMount className="grid gap-x-10 gap-y-6 data-[state=inactive]:hidden lg:grid-cols-3">
-          {(product.specGroups ?? []).map((g) => (
+          {product.specGroups.map((g) => (
             <table key={g.title} className="h-fit w-full text-sm">
               <caption className="mb-2 border-b border-foreground pb-2 text-left font-heading text-base">{g.title}</caption>
               <tbody>
-                {(g.rows ?? []).map((r) => (
+                {g.rows.map((r) => (
                   <tr key={r.label} className="border-b align-top">
                     <th scope="row" className="w-2/5 py-2 pr-3 text-left font-normal text-muted-foreground">
                       {r.label}
@@ -563,7 +563,7 @@ function Details() {
         </TabsContent>
         <TabsContent value="care" forceMount className="grid gap-10 data-[state=inactive]:hidden lg:grid-cols-2">
           <ol className="flex flex-col">
-            {(product.care ?? []).map((c, i) => (
+            {product.care.map((c, i) => (
               <li key={c} className="flex gap-4 border-b py-3 text-sm">
                 <span className="font-mono text-xs text-muted-foreground">0{i + 1}</span>
                 {c}
@@ -595,15 +595,15 @@ function Compare() {
   const { product, related } = page.useLoaderData()
   const { t, locale, money } = useStore()
   const lang = locale.code
-  const others = (related ?? []).slice(0, 3)
+  const others = related.slice(0, 3)
   const cols = [product, ...others]
   const sep = lang === 'zh-CN' ? '、' : ', '
   const rows: [string, (p: (typeof cols)[number]) => React.ReactNode][] = [
     [t('product.cmpPrice'), (p) => <span className="font-mono">{money(p.priceCents)}</span>],
     [t('product.cmpRating'), (p) => <Stars rating={p.rating} />],
     [t('product.cmpReviews'), (p) => t('rating.reviews', { count: p.reviews })],
-    [t('product.cmpMaterials'), (p) => (p.materials ?? []).join(sep)],
-    [t('product.cmpColors'), (p) => (p.colors ?? []).map((c) => c.name).join(sep)],
+    [t('product.cmpMaterials'), (p) => p.materials.join(sep)],
+    [t('product.cmpColors'), (p) => p.colors.map((c) => c.name).join(sep)],
     [t('product.cmpStock'), (p) => (p.inStock ? (p.stock <= 10 ? t('card.stockLeft', { count: p.stock }) : t('product.inStock')) : t('product.soldOut'))],
   ]
   return (
@@ -652,7 +652,7 @@ function Ranking() {
   return (
     <Row id="ranking-title" title={t('product.ranking', { category: product.category })}>
       <ol className="grid gap-x-10 md:grid-cols-2">
-        {(best ?? []).map((p, i) => (
+        {best.map((p, i) => (
           <li key={p.slug} className="border-b">
             <Link to="/store/$lang/products/$product" params={{ lang, product: p.slug }} className="flex items-center gap-4 py-3 hover:bg-card">
               <span className="w-6 font-mono text-sm text-muted-foreground">{String(i + 1).padStart(2, '0')}</span>
@@ -680,9 +680,9 @@ function Reviews() {
   const { t, locale } = useStore()
   const [filter, setFilter] = useState<'all' | 'photos' | 'five'>('all')
   const [sort, setSort] = useState<Sort>('newest')
-  const list = reviews.reviews ?? []
+  const list = reviews.reviews
   const total = reviews.total
-  const withPhotos = list.filter((r) => (r.photos ?? []).length > 0)
+  const withPhotos = list.filter((r) => r.photos.length > 0)
   const five = list.filter((r) => r.rating === 5)
   const filtered = filter === 'photos' ? withPhotos : filter === 'five' ? five : list
   const shown = [...filtered].sort((a, b) => (sort === 'helpful' ? b.helpful - a.helpful : sort === 'highest' ? b.rating - a.rating : 0))
@@ -704,7 +704,7 @@ function Reviews() {
         </p>
         <Stars rating={product.rating} />
         <ul className="flex flex-col gap-1.5">
-          {(reviews.ratings ?? []).map((r) => (
+          {reviews.ratings.map((r) => (
             <li key={r.stars} className="flex items-center gap-2 text-sm">
               <span className="w-10 shrink-0 font-mono text-xs text-muted-foreground">{t('rating.stars', { count: r.stars })}</span>
               <span className="h-1.5 flex-1 bg-muted">
@@ -717,7 +717,7 @@ function Reviews() {
         <div className="flex flex-col gap-2 border-t pt-3">
           <h3 className="font-mono text-[11px] tracking-[0.1em] text-muted-foreground">{t('product.mentioned')}</h3>
           <ul className="flex flex-wrap gap-1.5">
-            {(reviews.tags ?? []).map((tag) => (
+            {reviews.tags.map((tag) => (
               <li key={tag.name} className="flex items-center gap-1.5 border bg-card px-2 py-0.5 text-xs">
                 {tag.name}
                 <span className="font-mono text-[11px] text-muted-foreground">{tag.count}</span>
@@ -759,7 +759,7 @@ function Reviews() {
         </div>
         {withPhotos.length > 0 && (
           <ul className="flex flex-wrap gap-2 border-b py-4" aria-label={t('product.reviewPhotos')}>
-            {withPhotos.flatMap((r, i) => (r.photos ?? []).map((v) => (
+            {withPhotos.flatMap((r, i) => r.photos.map((v) => (
               <li key={`${i}-${v}`}>
                 <ProductImage slug={product.slug} view={v as View} alt={t('product.reviewPhoto', { name: product.name })} width={160} className="size-16 border" />
               </li>
@@ -787,9 +787,9 @@ function Reviews() {
               <Stars rating={r.rating} />
               <h3 className="font-heading text-base">{r.title}</h3>
               <p className="text-sm text-muted-foreground">{r.body}</p>
-              {(r.photos ?? []).length > 0 && (
+              {r.photos.length > 0 && (
                 <ul className="flex gap-2">
-                  {(r.photos ?? []).map((v) => (
+                  {r.photos.map((v) => (
                     <li key={v}>
                       <ProductImage slug={product.slug} view={v as View} alt={t('product.reviewPhoto', { name: product.name })} width={160} className="size-20 border" />
                     </li>
@@ -852,7 +852,7 @@ function HelpfulButton({ count }: { count: number }) {
 function Questions() {
   const { questions } = page.useLoaderData()
   const { t } = useStore()
-  const list = questions ?? []
+  const list = questions
   return (
     <section id="questions" aria-labelledby="questions-title" className="flex flex-col gap-5">
       <div className="flex items-baseline justify-between border-b border-foreground pb-2.5">

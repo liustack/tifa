@@ -63,7 +63,7 @@ export const documentHead = {
   links: [{ rel: 'icon', href: 'data:,' }],
 }
 
-type Project = NonNullable<LayoutData['projects']>[number]
+type Project = LayoutData['projects'][number]
 
 // where reads the shop, the page and the order a workbench URL is at.
 function where(pathname: string) {
@@ -80,7 +80,7 @@ export default function AppLayout() {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const loading = useRouterState({ select: (state) => state.isLoading })
 
-  const projects = shell.projects ?? []
+  const projects = shell.projects
   const at = where(pathname)
   const current = projects.find((p) => p.id === at.project)
 

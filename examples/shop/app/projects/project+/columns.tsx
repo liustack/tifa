@@ -34,7 +34,7 @@ import { orderTime, yuan } from '../../format'
 import { layout as project, type PageData } from './route.gen'
 import { OrderStatus } from './order-status'
 
-export type Row = NonNullable<PageData['orders']>[number]
+export type Row = PageData['orders'][number]
 
 // The features, columns and helper live at module scope, so the table gets the same inputs on
 // every render.

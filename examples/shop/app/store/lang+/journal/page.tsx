@@ -8,7 +8,7 @@ export const head = ({ params }: { params: { lang: string } }) => ({
 })
 
 export default function JournalPage() {
-  const posts = page.useLoaderData() ?? []
+  const posts = page.useLoaderData()
   const { t, locale } = useStore()
   return (
     <div className="flex flex-col gap-10">
@@ -23,7 +23,7 @@ export default function JournalPage() {
               <JournalCover slug={post.slug} alt="" className="border" />
               <p className="flex flex-wrap gap-x-3 font-mono text-[11px] tracking-wider text-muted-foreground">
                 <span>{String(i + 1).padStart(2, '0')}</span>
-                {(post.tags ?? []).map((tag) => (
+                {post.tags.map((tag) => (
                   <span key={tag}>#{tag}</span>
                 ))}
               </p>

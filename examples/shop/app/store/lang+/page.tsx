@@ -41,7 +41,7 @@ export default function StoreHome() {
           {t('home.categories')}
         </h2>
         <ol>
-          {(shell.menu ?? []).map((g, i) => (
+          {shell.menu.map((g, i) => (
             <li key={g.id}>
               <Link
                 to="/store/$lang/products"
@@ -51,9 +51,9 @@ export default function StoreHome() {
               >
                 <span className="font-mono text-xs text-muted-foreground">0{i + 1}</span>
                 <span className="font-heading text-[22px]">{g.name}</span>
-                <span className="hidden text-sm text-muted-foreground md:block">{(g.kinds ?? []).join(' · ')}</span>
+                <span className="hidden text-sm text-muted-foreground md:block">{g.kinds.join(' · ')}</span>
                 <span className="hidden gap-1.5 md:flex">
-                  {(g.featured ?? []).map((p) => (
+                  {g.featured.map((p) => (
                     <ProductImage key={p.slug} slug={p.slug} alt="" width={160} className="size-11" />
                   ))}
                 </span>
@@ -66,7 +66,7 @@ export default function StoreHome() {
 
       <Row id="home-new" title={t('home.newArrivals')} search={{ sort: 'newest' }}>
         <ProductGrid>
-          {(home.featured ?? []).map((p) => (
+          {home.featured.map((p) => (
             <ProductCard key={p.slug} product={p} lang={lang} />
           ))}
         </ProductGrid>
@@ -74,7 +74,7 @@ export default function StoreHome() {
 
       <Row id="home-picks" title={t('home.picks')} search={{}}>
         <div className="grid border-t border-l md:grid-cols-3">
-          {(home.picks ?? []).map((p) => (
+          {home.picks.map((p) => (
             <article key={p.slug} className="flex flex-col gap-4 border-r border-b bg-card p-5">
               <Link to="/store/$lang/products/$product" params={{ lang, product: p.slug }} className="block">
                 <ProductImage slug={p.slug} view="scene" alt={p.name} sizes="(min-width: 768px) 33vw, 100vw" />
@@ -106,17 +106,17 @@ export default function StoreHome() {
               {t('home.byCategory')}
             </h2>
             <TabsList variant="line" className="h-auto gap-1 bg-transparent p-0">
-              {(home.byCategory ?? []).map((c) => (
+              {home.byCategory.map((c) => (
                 <TabsTrigger key={c.id} value={c.id} className="rounded-none px-2.5 text-[13px]">
                   {c.name}
                 </TabsTrigger>
               ))}
             </TabsList>
           </div>
-          {(home.byCategory ?? []).map((c) => (
+          {home.byCategory.map((c) => (
             <TabsContent key={c.id} value={c.id} forceMount className="data-[state=inactive]:hidden">
               <ProductGrid>
-                {(c.products ?? []).map((p) => (
+                {c.products.map((p) => (
                   <ProductCard key={p.slug} product={p} lang={lang} layout="tile" />
                 ))}
               </ProductGrid>
@@ -125,10 +125,10 @@ export default function StoreHome() {
         </Tabs>
       </section>
 
-      {(home.sale ?? []).length > 0 && (
+      {home.sale.length > 0 && (
         <Row id="home-sale" title={t('home.onSale')} search={{ sort: 'price-desc' }}>
           <ProductGrid>
-            {(home.sale ?? []).map((p) => (
+            {home.sale.map((p) => (
               <ProductCard key={p.slug} product={p} lang={lang} />
             ))}
           </ProductGrid>
@@ -140,7 +140,7 @@ export default function StoreHome() {
           {t('home.reviews')}
         </h2>
         <ul className="grid gap-x-8 gap-y-6 md:grid-cols-2 lg:grid-cols-3">
-          {(home.reviews ?? []).map((r) => (
+          {home.reviews.map((r) => (
             <li key={r.product.slug} className="grid grid-cols-[88px_1fr] gap-4 border-b pb-6">
               <ProductImage slug={r.product.slug} view={(r.photos?.[0] as 'scene' | 'detail' | undefined) ?? 'scene'} alt={t('product.reviewPhoto', { name: r.product.name })} width={160} />
               <div className="flex flex-col gap-1.5">
@@ -170,7 +170,7 @@ export default function StoreHome() {
           </Link>
         </div>
         <div className="grid gap-8 md:grid-cols-3">
-          {(home.posts ?? []).map((post) => (
+          {home.posts.map((post) => (
             <article key={post.slug} className="flex flex-col gap-3">
               <JournalCover slug={post.slug} alt="" />
               <p className="font-mono text-[11px] text-muted-foreground">

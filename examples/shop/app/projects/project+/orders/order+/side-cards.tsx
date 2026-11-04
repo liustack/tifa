@@ -64,7 +64,7 @@ export function Actions() {
 // Packing is the packing list the warehouse picks from, with a box to tick each line.
 export function Packing() {
   const { order } = page.useLoaderData()
-  const lines = order.packing ?? []
+  const lines = order.packing
   const [picked, setPicked] = useState<Record<string, boolean>>({})
   const done = lines.filter((l) => picked[l.name]).length
   return (
@@ -264,7 +264,7 @@ export function CarrierAdvice() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {(carriers ?? []).map((c, i) => (
+            {carriers.map((c, i) => (
               <TableRow key={c.code}>
                 <TableCell className="text-sm">
                   {c.name}
@@ -276,7 +276,7 @@ export function CarrierAdvice() {
                 </TableCell>
                 <TableCell className="text-xs text-muted-foreground">{c.days}</TableCell>
                 <TableCell className="text-right font-mono text-xs tabular-nums">{yuan(c.feeCents)}</TableCell>
-                <TableCell className="text-right font-mono text-xs tabular-nums">{(carrierStats ?? []).find((s) => s.code === c.code)?.orders ?? 0} 单</TableCell>
+                <TableCell className="text-right font-mono text-xs tabular-nums">{carrierStats.find((s) => s.code === c.code)?.orders ?? 0} 单</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -297,7 +297,7 @@ export function StockCheck() {
       </CardHeader>
       <CardContent>
         <ul className="divide-y">
-          {(order.items ?? []).map((item) => {
+          {order.items.map((item) => {
             const left = item.stock - item.demand
             return (
               <li key={item.name} className="space-y-2 py-3 first:pt-0 last:pb-0">
@@ -326,7 +326,7 @@ export function StockCheck() {
 // CarrierTimes sets the carrier of this parcel beside the others, by how long parcels took.
 export function CarrierTimes() {
   const { order, carrierStats } = page.useLoaderData()
-  const list = (carrierStats ?? []).filter((c) => c.orders > 0)
+  const list = carrierStats.filter((c) => c.orders > 0)
   const slowest = Math.max(...list.map((c) => c.avgDispatchHours + c.avgTransitHours), 1)
   return (
     <Card>
@@ -372,7 +372,7 @@ export function Checklist() {
   const shipped = !!order.shipment
   const items = shipped
     ? [
-        ['signed', '确认顾客已签收', (order.log ?? []).some((e) => e.action === '已签收')],
+        ['signed', '确认顾客已签收', order.log.some((e) => e.action === '已签收')],
         ['invoice', '电子发票已发到顾客邮箱', true],
         ['review', '签收三天后邀请顾客写评价', false],
         ['window', '七天退换期结束后结算', false],
@@ -444,7 +444,7 @@ export function Tags() {
 // Margin is what the order earns after what it cost, estimated from the shop's usual costs.
 export function Margin() {
   const { order } = page.useLoaderData()
-  const pieces = (order.items ?? []).reduce((n, i) => n + i.quantity, 0)
+  const pieces = order.items.reduce((n, i) => n + i.quantity, 0)
   const price = order.payment.paidCents
   const goods = Math.round(price * 0.45)
   const packing = pieces * 400

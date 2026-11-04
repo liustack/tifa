@@ -30,11 +30,11 @@ export default function CartPage() {
   const { cart, deliveries, suggested, seen } = page.useLoaderData()
   const { t, locale, money } = useStore()
   const lang = locale.code
-  const lines = cart.lines ?? []
+  const lines = cart.lines
   const net = cart.subtotalCents - cart.discountCents
   // The cheapest delivery to an address. Picking up in store is free, but it is no delivery.
-  const cheapest = Math.min(...(deliveries ?? []).filter((d) => d.id !== 'pickup').map((d) => d.priceCents))
-  const standard = (deliveries ?? []).find((d) => d.id === 'standard')
+  const cheapest = Math.min(...deliveries.filter((d) => d.id !== 'pickup').map((d) => d.priceCents))
+  const standard = deliveries.find((d) => d.id === 'standard')
   const left = cart.freeShippingCents - net
 
   if (lines.length === 0) {
@@ -134,7 +134,7 @@ export default function CartPage() {
             <div className="flex flex-col gap-2">
               <h2 className="font-medium">{t('cart.deliveries')}</h2>
               <ul className="flex flex-col gap-2">
-                {(deliveries ?? []).map((d) => (
+                {deliveries.map((d) => (
                   <li key={d.id} className="flex justify-between gap-2 border px-3 py-2">
                     <span>
                       {d.name}
@@ -162,11 +162,11 @@ export default function CartPage() {
 
       <Promises />
 
-      {(seen ?? []).length > 0 && (
+      {seen.length > 0 && (
         <section className="flex flex-col gap-4">
           <h2 className="border-b border-foreground pb-2.5 font-heading text-[22px] font-medium tracking-[0.04em]">{t('list.seen')}</h2>
           <ProductGrid>
-            {(seen ?? []).slice(0, 4).map((p) => (
+            {seen.slice(0, 4).map((p) => (
               <ProductCard key={p.slug} product={p} lang={lang} />
             ))}
           </ProductGrid>
@@ -176,7 +176,7 @@ export default function CartPage() {
       <section className="flex flex-col gap-4">
         <h2 className="border-b border-foreground pb-2.5 font-heading text-[22px] font-medium tracking-[0.04em]">{t('cart.suggested')}</h2>
         <ProductGrid>
-          {(suggested ?? []).map((p) => (
+          {suggested.map((p) => (
             <ProductCard key={p.slug} product={p} lang={lang} />
           ))}
         </ProductGrid>
@@ -185,7 +185,7 @@ export default function CartPage() {
   )
 }
 
-type Line = NonNullable<PageData['cart']['lines']>[number]
+type Line = PageData['cart']['lines'][number]
 
 function CartLine({ line }: { line: Line }) {
   const { t, locale, money } = useStore()
@@ -332,7 +332,7 @@ function Offers() {
   }
   return (
     <section aria-label={t('cart.offers')} className="grid gap-px border bg-border sm:grid-cols-2">
-      {(offers ?? []).map((o) => (
+      {offers.map((o) => (
         <div key={o.code} className="flex items-center gap-4 bg-card p-4">
           <Tag className="size-5 shrink-0 text-primary" aria-hidden />
           <div className="flex-1">

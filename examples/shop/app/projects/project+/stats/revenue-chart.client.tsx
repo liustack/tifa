@@ -5,7 +5,7 @@ import type { PageData } from './route.gen'
 
 const config = { revenueCents: { label: '销售额', color: 'var(--chart-1)' } } satisfies ChartConfig
 
-export default function RevenueChart({ days }: { days: NonNullable<PageData['days']> }) {
+export default function RevenueChart({ days }: { days: PageData['days'] }) {
   return (
     <ChartContainer config={config} className="aspect-auto h-64 w-full">
       <AreaChart data={days} margin={{ left: 4, right: 12, top: 8 }}>

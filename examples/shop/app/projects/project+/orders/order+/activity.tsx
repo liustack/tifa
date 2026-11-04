@@ -25,7 +25,7 @@ export function Activity() {
   const { order } = page.useLoaderData()
   const { timeZone } = project.useLoaderData()
   const [who, setWho] = useState('all')
-  const all = [...(order.log ?? [])].reverse()
+  const all = [...order.log].reverse()
   const log = all.filter((e) => who === 'all' || (who === 'system' ? e.actor === '系统' : e.actor !== '系统'))
   return (
     <Card>

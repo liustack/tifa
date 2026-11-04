@@ -23,7 +23,7 @@ export function Notes() {
   const hydrated = useHydrated()
   const router = useRouter()
   const form = useForm<PUTInput>({ resolver: zodResolver(noteSchema), defaultValues: { text: '' } })
-  const notes = order.notes ?? []
+  const notes = order.notes
 
   async function onSubmit(input: PUTInput) {
     try {
