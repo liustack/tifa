@@ -9,7 +9,7 @@ tifa is a full-stack framework for Go developers. Go handles routing, data loadi
 
 It fits: sites and apps whose logic and data are already in Go, that want the React ecosystem for pages, and that should run as one process on little hardware (1 CPU and 1 GB is a target).
 
-It does not do: streaming SSR, React Server Components, rendering that waits for timers or network, or Windows for `tifa dev` (use WSL). The server render runs on linux/amd64 and darwin/arm64 only. tifa is early, so APIs can change.
+It does not do: streaming SSR, React Server Components, rendering that waits for timers or network, or Windows for `tifa dev` (use WSL). The server render runs on linux and darwin, on amd64 and arm64, and windows/amd64. tifa is early, so APIs can change.
 
 ## Docs of the installed version
 
