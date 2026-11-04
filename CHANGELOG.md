@@ -4,6 +4,8 @@ What changed in tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.0.4] - 2026-11-05
+
 ### Added
 
 - A field of type `*multipart.FileHeader` or `[]*multipart.FileHeader` in the input of a POST, PUT or PATCH handler holds uploaded files. The generated function takes them as `Blob | null` and `Blob[]` and sends the input as a multipart form, so a page uploads a file as it sends any other input, with `Validate`, `tifa.Fields` and `TifaError` as usual. A JSON body for such an input gets 415 (see [Files in the input](docs/app.md#files-in-the-input) and [Uploads](docs/guides/uploads.md)).

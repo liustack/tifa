@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.0.4] - 2026-11-05
+
 ### 新增
 
 - POST、PUT、PATCH 处理函数的入参里，类型为 `*multipart.FileHeader` 或 `[]*multipart.FileHeader` 的字段装上传的文件。生成的函数把它们当 `Blob | null` 和 `Blob[]` 收下，把入参当 multipart 表单发出，所以页面上传文件和发送别的入参是一个写法，`Validate`、`tifa.Fields` 和 `TifaError` 照旧。这样的入参收到 JSON 请求体答 415（见[入参里的文件](docs/app.zh-CN.md#入参里的文件)和[上传](docs/guides/uploads.zh-CN.md)）。
