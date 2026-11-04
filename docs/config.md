@@ -31,7 +31,7 @@ From highest to lowest priority:
 5. The project file `tifa.yaml` in the app root. `tifa build` reads it and builds its values into the program.
 6. The defaults: those in the table below for the settings of tifa, those in `config.go` for the [settings of the app](#settings-of-the-app).
 
-A source sets only the keys it names, so a deployment file holds just what it changes. The program reads only its own keys: other keys of a file, other environment variables and other flags are left alone.
+A source sets only the keys it names, so a deployment file holds just what it changes. The program reads only its own keys: other keys of a file and other environment variables are left alone. A flag that is neither a setting of tifa nor one of the app, such as `--addr` for `--server-addr`, stops the program with `unknown flag`.
 
 `tifa.yaml` holds values of the settings of tifa. `build.*` settings can only be set here, and `tifa build` fails on a value of the wrong type or format. The program does not read the file: change it and build again.
 

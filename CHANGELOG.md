@@ -22,6 +22,7 @@ What changed in tifa that apps and their users can see. From v0.0.1 on, changes 
 ### Fixed
 
 - A page with `Cache` that a content entry expired early, sent as the old page because making the new one failed, kept the `s-maxage` of its whole time, so a CDN in front counted it as fresh until that time ran out. Its `s-maxage` is now no larger than its `Age`.
+- A built program given a flag it does not know, such as `--addr` for `--server-addr`, started with the defaults as if the flag were not there. It now stops with `unknown flag: --addr`. Flags of the settings of the app still work, and other environment variables and other keys of a file are still left alone.
 
 ## [0.0.1] - 2026-11-04
 
