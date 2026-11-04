@@ -159,7 +159,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // route answers a request of tifa dev, a static file, or a request for a route.
 func (s *server) route(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("X-Content-Type-Options", "nosniff")
+	setDefaultHeaders(w.Header())
 	if err := s.crossSite.Check(r); err != nil {
 		s.refuseCrossSite(w, r, err)
 		return

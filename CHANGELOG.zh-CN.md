@@ -8,6 +8,10 @@
 
 - `tifa.Secret("smtp.password", "SMTP password")` 定义应用的密码、token 或密钥配置。它从环境变量、`.env` 或 `-c` 的文件读，用命令行参数给值时程序报错并说明该放在哪里，`./bin/app config` 只写它的来源，不写值。[邮件指南](docs/guides/email.zh-CN.md)改用了它。
 
+### 变更
+
+- 每个回答现在都带 `Referrer-Policy: strict-origin-when-cross-origin` 和 `Content-Security-Policy: frame-ancestors 'self'`，加上原有的 `X-Content-Type-Options: nosniff`。别的网站不能再把页面放进 iframe：合作方要放的页面在 `OnRequest` 里改这个头（见[安全头](docs/config.zh-CN.md#安全头)）。
+
 ### 修复
 
 - 用 systemd socket activation 开 HTTPS 时，systemd 交来 `server.addr` 的套接字后可以不设 `server.addr`。之前程序会因为这个它根本不监听的默认地址拒绝启动。

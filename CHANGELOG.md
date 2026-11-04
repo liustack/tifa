@@ -8,6 +8,10 @@ What changed in tifa that apps and their users can see. From v0.0.1 on, changes 
 
 - `tifa.Secret("smtp.password", "SMTP password")` defines a setting of the app for a password, a token or a key. It comes from the environment, `.env` or the file of `-c`, a flag for it stops the program and says where to put it, and `./bin/app config` writes where it came from and not its value. The [email guide](docs/guides/email.md) uses it.
 
+### Changed
+
+- Every answer now carries `Referrer-Policy: strict-origin-when-cross-origin` and `Content-Security-Policy: frame-ancestors 'self'`, next to `X-Content-Type-Options: nosniff`. Another site can no longer show the pages in a frame: change the header in `OnRequest` for pages that a partner shows (see [Security headers](docs/config.md#security-headers)).
+
 ### Fixed
 
 - Under systemd socket activation with HTTPS, `server.addr` may stay unset when systemd passes its socket. The program refused to start on the default address, which it does not listen on then.

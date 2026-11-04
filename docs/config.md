@@ -1,5 +1,5 @@
 ---
-summary: 'Every setting of a tifa app and how an app defines its own: where each one can be set (flags, environment variables, .env, the file of -c, tifa.yaml), which source wins, how PORT and HOST are read, the default, the flag and environment variable names, the value formats and the errors a bad value gives, how a handler that needs longer lifts the read and write timeouts, how to serve HTTPS with certificates the program gets itself or with your own, and how the program refuses writes that a browser sends from another site and how to let chosen origins or paths through'
+summary: 'Every setting of a tifa app and how an app defines its own, and the security headers every answer carries: where each one can be set (flags, environment variables, .env, the file of -c, tifa.yaml), which source wins, how PORT and HOST are read, the default, the flag and environment variable names, the value formats and the errors a bad value gives, how a handler that needs longer lifts the read and write timeouts, how to serve HTTPS with certificates the program gets itself or with your own, and how the program refuses writes that a browser sends from another site and how to let chosen origins or paths through'
 read_when:
   - Defining a setting of the app with tifa.String and the like, or reading one in OnStart
   - Writing a .env file, or deploying on a platform that sets PORT
@@ -11,6 +11,7 @@ read_when:
   - A POST, PUT, PATCH or DELETE gets 403 with `cross-origin request detected`, or a page of another site or a provider's callback must be allowed to send one
   - Setting the browser target, or the static files folder of a build
   - The program refuses to start with a config error
+  - A page must be shown in a frame on another site, or a header such as Referrer-Policy or Content-Security-Policy needs another value
   - Changing internal/config
 ---
 
@@ -318,6 +319,29 @@ Copying or building the file again drops it, so do it after each deployment. Und
 - Over HTTPS, read what compression may leak in [Compression](build.md#compression).
 
 `tifa dev` always serves plain HTTP and ignores these settings, also when the project file sets them.
+
+## Security headers
+
+Every answer of the program carries three headers, pages, JSON, errors and public files alike. None of them changes what a page loads or how it works:
+
+| Header | Value | What it does |
+| --- | --- | --- |
+| `X-Content-Type-Options` | `nosniff` | The browser takes the `Content-Type` as it is, so a file that is no script never runs as one |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | A link to another site tells it the origin, not the path and query, which may hold a token. Current browsers do this anyway |
+| `Content-Security-Policy` | `frame-ancestors 'self'` | Only pages of the same origin may show a page in a frame, so another site cannot show it under its own buttons |
+
+They are set before `OnRequest`, so change or remove them there for the paths that need something else, such as pages a partner shows in a frame. Static files do not pass through `OnRequest` and always carry them.
+
+```go
+func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+	if strings.HasPrefix(c.Request().URL.Path, "/embed/") {
+		c.SetHeader("Content-Security-Policy", "frame-ancestors https://partner.example")
+	}
+	return next(c)
+}
+```
+
+`Strict-Transport-Security` is not among them: it is `server.hsts`, see [Port 80 and HSTS](#port-80-and-hsts). A proxy in front passes the headers on, so do not add them there again.
 
 ## Cross-site writes
 

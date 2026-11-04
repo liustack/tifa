@@ -1,5 +1,5 @@
 ---
-summary: 'tifa 应用的全部配置和应用怎样定义自己的配置：每项能在哪设置（参数、环境变量、.env、-c 的文件、tifa.yaml）、谁优先、怎样读 PORT 和 HOST、默认值、参数和环境变量名、值的写法、写错时的报错，需要更久的处理函数怎样放宽读写超时，怎样用程序自己申请的证书或你自己的证书提供 HTTPS，以及程序怎样拒绝浏览器从别的网站发来的写请求、怎样放行指定的来源或路径'
+summary: 'tifa 应用的全部配置、应用怎样定义自己的配置和每个回答都带的安全头：每项能在哪设置（参数、环境变量、.env、-c 的文件、tifa.yaml）、谁优先、怎样读 PORT 和 HOST、默认值、参数和环境变量名、值的写法、写错时的报错，需要更久的处理函数怎样放宽读写超时，怎样用程序自己申请的证书或你自己的证书提供 HTTPS，以及程序怎样拒绝浏览器从别的网站发来的写请求、怎样放行指定的来源或路径'
 read_when:
   - 用 tifa.String 等定义应用的配置，或在 OnStart 里读它
   - 写 .env 文件，或部署到会设 PORT 的平台
@@ -11,6 +11,7 @@ read_when:
   - POST、PUT、PATCH 或 DELETE 收到 403 和 `cross-origin request detected`，或者要放行另一个网站的页面或第三方的回调
   - 设置构建的浏览器目标或静态文件目录
   - 程序因为配置错误起不来
+  - 页面要放进别的网站的 iframe，或 Referrer-Policy、Content-Security-Policy 这类头要换别的值
   - 改 internal/config
 ---
 
@@ -318,6 +319,29 @@ sudo setcap cap_net_bind_service=+ep ./bin/myapp
 - 走 HTTPS 时压缩可能泄露什么，见[压缩](build.zh-CN.md#压缩)。
 
 `tifa dev` 总是提供明文 HTTP，不管这些配置，项目文件里配了也一样。
+
+## 安全头
+
+程序的每个回答都带三个头，页面、JSON、错误和公开文件都一样。它们都不改变页面加载什么、怎么工作：
+
+| 头 | 值 | 作用 |
+| --- | --- | --- |
+| `X-Content-Type-Options` | `nosniff` | 浏览器按 `Content-Type` 原样对待，不是脚本的文件不会被当成脚本运行 |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | 点到别的网站的链接只告诉对方来源站点，不带路径和查询串，那里面可能有 token。现在的浏览器本来就这样做 |
+| `Content-Security-Policy` | `frame-ancestors 'self'` | 只有同源的页面能把页面放进 iframe，别的网站没法把它垫在自己的按钮下面 |
+
+它们在 `OnRequest` 之前设好，需要别的值的路径在 `OnRequest` 里改掉或删掉，比如合作方要放进 iframe 的页面。静态文件不经过 `OnRequest`，总是带着它们。
+
+```go
+func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+	if strings.HasPrefix(c.Request().URL.Path, "/embed/") {
+		c.SetHeader("Content-Security-Policy", "frame-ancestors https://partner.example")
+	}
+	return next(c)
+}
+```
+
+`Strict-Transport-Security` 不在其中，它由 `server.hsts` 控制，见[80 端口与 HSTS](#80-端口与-hsts)。前面的代理会把这些头原样转发，不要在代理上再加一遍。
 
 ## 跨站写请求
 
