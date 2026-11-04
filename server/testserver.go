@@ -100,6 +100,9 @@ func StartTest(ctx context.Context, app App, srv *http.Server) (stop func(closeS
 		}
 		undo = append(undo, func() { _ = s.closeFront() })
 	}
+	// What OnStart sets for the process, such as SetHTTPHandler, goes back when the server stops,
+	// or when it does not start.
+	undo = append(undo, core.SaveWiring())
 	if s.hooks.OnStart != nil {
 		if err := s.hooks.OnStart(ctx); err != nil {
 			return nil, fmt.Errorf("OnStart: %w", err)
