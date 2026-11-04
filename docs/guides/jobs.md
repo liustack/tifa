@@ -25,7 +25,7 @@ The code is from a scratch app made with `tifa new` (module `example.com/notes`)
 
 On SIGINT or SIGTERM (a deploy, Ctrl-C), in this order ([`server.shutdown_timeout`](../config.md#settings) is 10 seconds by default):
 
-1. It stops accepting connections and waits up to `shutdown_timeout` for the requests in flight.
+1. It closes the channel of `tifa.ShuttingDown`, which streams watch to end at once ([Streaming](streaming.md#when-the-program-stops)), stops accepting connections and waits up to `shutdown_timeout` for the requests in flight.
 2. If some are still running, it cancels their contexts and waits up to `shutdown_timeout` again.
 3. It calls `OnShutdown`, which gets a context with its own `shutdown_timeout`. If a request never returned, `OnShutdown` is skipped, and the program exits with an error.
 

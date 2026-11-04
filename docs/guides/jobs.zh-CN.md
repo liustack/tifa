@@ -25,7 +25,7 @@ tifa 应用是一个程序，所以后台工作就是这个程序里的 goroutin
 
 收到 SIGINT 或 SIGTERM（部署、Ctrl-C）后，按这个顺序（[`server.shutdown_timeout`](../config.zh-CN.md#配置项)默认 10 秒）：
 
-1. 停止接受新连接，最多等 `shutdown_timeout` 让处理中的请求结束。
+1. 关闭 `tifa.ShuttingDown` 的通道（推流看着它立刻结束，见[流式输出](streaming.zh-CN.md#程序停下时)），停止接受新连接，最多等 `shutdown_timeout` 让处理中的请求结束。
 2. 如果还有没结束的，取消它们的 context，再等最多一个 `shutdown_timeout`。
 3. 调用 `OnShutdown`，它有自己的 `shutdown_timeout`。如果有请求一直没返回，`OnShutdown` 会被跳过，程序带着错误退出。
 
