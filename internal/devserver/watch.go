@@ -424,6 +424,7 @@ func (w *watcher) run(ctx context.Context) error {
 		case done := <-w.syncs:
 			w.addSync(done)
 		case <-w.syncTimeout():
+			w.dropSync()
 			w.synced()
 		case <-links.C:
 			if err := w.recover(w.checkLinks()); err != nil {
@@ -453,10 +454,12 @@ func (w *watcher) run(ctx context.Context) error {
 			switch {
 			case errors.Is(err, fsnotify.ErrEventOverflow):
 				// Some events were dropped, so compare everything again. The event of a sync
-				// may be among them, and the rescan saw what it waits for.
+				// may be among them, or still come: the rescan saw what the syncs wait for, and
+				// the next one writes to a new file.
 				if err := w.rescan("."); err != nil {
 					return err
 				}
+				w.dropSync()
 				w.endSyncs()
 			case outOfWatches(err):
 				// The error does not say which directory misses events.

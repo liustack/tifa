@@ -17,8 +17,8 @@ import (
 
 // syncWait is how long the watcher waits for the event of its own write. The system never drops it
 // without saying so, and it takes well under a millisecond. Past syncWait the requests go on, so a
-// lost event costs them that long at most.
-const syncWait = time.Second
+// lost event costs them that long at most. Tests shorten it.
+var syncWait = time.Second
 
 // syncer is the watcher's side of sync. Only run touches it.
 type syncer struct {
@@ -150,6 +150,27 @@ func (w *watcher) endSyncs() {
 		close(done)
 	}
 	w.sy.sent, w.sy.next = nil, nil
+}
+
+// dropSync stops using the file once a sync ended without the event of its last write, after
+// syncWait or when events were lost. That event may still come, and it must not count for the
+// next write: the next sync writes to a new file, and the events of this one are ignored.
+func (w *watcher) dropSync() {
+	if w.sy.file == nil {
+		return
+	}
+	watch := w.sy.dir
+	if watchesFiles {
+		watch = w.sy.file.Name()
+	}
+	if w.sys != nil {
+		if err := w.sys.remove(watch); err != nil {
+			w.warnOnce(fmt.Sprintf("removing the watch of %s: %v", watch, err))
+		}
+	}
+	w.sy.file.Close()
+	os.RemoveAll(w.sy.dir)
+	w.sy.file, w.sy.dir = nil, ""
 }
 
 // closeSync removes the file and its directory.
