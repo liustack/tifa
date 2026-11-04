@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"runtime/debug"
 	"strings"
@@ -97,6 +98,9 @@ type bodyUse struct {
 type cached struct {
 	key  string
 	page cachedPage
+	// expired is set by expirePaths, under htmlCache.mu: the page is no longer fresh, but still
+	// stands in for one that fails.
+	expired bool
 }
 
 // Kinds of keys, see kindOf.
@@ -175,6 +179,28 @@ func (c *htmlCache) expireMadeBefore(t time.Time) {
 		c.madeAfter = t
 	}
 	clear(c.flights)
+}
+
+// expirePaths makes the pages of the whole-page cache at paths, decoded, no longer fresh, whatever
+// their host, scheme and query: the next request makes each again. Such a page still stands in for
+// one that fails (stale). The makes of those pages under way may have read their data before the
+// call, so later requests do not wait for them, and their pages do not enter the cache (see fly):
+// the requests that already wait get them as before. Requests that skipped the cache of such a page
+// use it again (see markBypassLocked), since what made the page not for everyone may have changed.
+func (c *htmlCache) expirePaths(paths map[string]bool) {
+	matches := func(key string) bool {
+		path, ok := pagePath(key)
+		return ok && paths[path]
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for key, e := range c.pages {
+		if matches(key) {
+			e.Value.(*cached).expired = true
+		}
+	}
+	maps.DeleteFunc(c.flights, func(key string, _ *flight) bool { return matches(key) })
+	maps.DeleteFunc(c.bypass, func(key string, _ time.Time) bool { return matches(key) })
 }
 
 // stats returns what the render cache and the whole-page cache hold and did, and the bytes they
@@ -353,7 +379,7 @@ func (c *htmlCache) fetch(ctx context.Context, key string, unheard func(error), 
 	}
 	kind := kindOf(key)
 	c.mu.Lock()
-	if e, ok := c.pages[key]; ok && e.Value.(*cached).page.fresh(cacheNow(), c.madeAfter) {
+	if e, ok := c.pages[key]; ok && !e.Value.(*cached).expired && e.Value.(*cached).page.fresh(cacheNow(), c.madeAfter) {
 		c.order.MoveToFront(e)
 		c.mu.Unlock()
 		c.hits[kind].Add(1)

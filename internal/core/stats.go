@@ -1,6 +1,8 @@
 package core
 
 import (
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -39,8 +41,9 @@ type CacheStats struct {
 	Stale uint64
 }
 
-// Server is a server that runs, as ReadStats sees it.
+// Server is a server that runs, as ExpirePages and ReadStats see it.
 type Server interface {
+	ExpirePages(paths []string)
 	Stats() Stats
 }
 
@@ -49,7 +52,7 @@ var running struct {
 	servers []Server
 }
 
-// Running adds s to the servers ReadStats reaches, until the function it returns is
+// Running adds s to the servers ExpirePages and ReadStats reach, until the function it returns is
 // called.
 func Running(s Server) (stop func()) {
 	running.mu.Lock()
@@ -74,6 +77,19 @@ func servers() []Server {
 	running.mu.Lock()
 	defer running.mu.Unlock()
 	return running.servers
+}
+
+// ExpirePages has every running server make the pages of its whole-page cache at paths again. It
+// panics for a path that does not start with a slash.
+func ExpirePages(paths []string) {
+	for _, p := range paths {
+		if !strings.HasPrefix(p, "/") {
+			panic(fmt.Sprintf("tifa: ExpirePages wants paths that start with /, got %q", p))
+		}
+	}
+	for _, s := range servers() {
+		s.ExpirePages(paths)
+	}
 }
 
 // ReadStats returns the stats of the running server, the sum of all of them when a test runs

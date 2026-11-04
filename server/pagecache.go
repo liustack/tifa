@@ -175,6 +175,15 @@ func (s *server) cachedPageRequest(c *tifa.Ctx, route Route, chain []load, ttl t
 // by the render cache, without a render.
 func (s *server) contentChanged() { s.cache.expireMadeBefore(cacheNow()) }
 
+// ExpirePages is tifa.ExpirePages for this server. The paths are decoded and start with a slash.
+func (s *server) ExpirePages(paths []string) {
+	set := make(map[string]bool, len(paths))
+	for _, p := range paths {
+		set[p] = true
+	}
+	s.cache.expirePaths(set)
+}
+
 // Stats is tifa.Stats for this server.
 func (s *server) Stats() core.Stats {
 	var out core.Stats
@@ -616,7 +625,7 @@ func (s *server) writeDataAnswer(c *tifa.Ctx, items map[string]routeResult) erro
 // s-maxage is the whole time of the page and Age the seconds since it was made, and a cache in front of
 // tifa subtracts one from the other (RFC 9111), so the two together never keep a page longer than
 // Cache. An old page that stands in for a failed one (stale) is not fresh there either: its s-maxage
-// is at most its Age, also when it was expired before its time was over (contentChanged).
+// is at most its Age, also when it was expired before its time was over (expirePaths, contentChanged).
 func (s *server) setCacheHeaders(c *tifa.Ctx, entry *wholePage, now time.Time, stale bool) {
 	h := c.Writer().Header()
 	age := max(0, int64(now.Sub(entry.created)/time.Second))

@@ -75,11 +75,29 @@ const pageKeyPrefix = "page\x00"
 // pageKey is the key of the entry of the whole-page cache for the request. It holds what the page
 // can depend on without looking at the visitor: the scheme, the Host header (never
 // X-Forwarded-Host), the path and the cleaned query. The build and the SSR bundle come first,
-// since the page is made by them.
+// since the page is made by them. NUL bytes part the fields, and none of them holds one: an
+// escaped path writes a NUL as %00, and Go refuses a Host with one. pagePath reads the path back.
 func (s *server) pageKey(r *http.Request, pattern string, f *front) string {
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"
 	}
-	return pageKeyPrefix + f.build.ID + "\x00" + f.build.bundle + "\x00" + scheme + "://" + strings.ToLower(r.Host) + s.pageURI(r, pattern)
+	return pageKeyPrefix + f.build.ID + "\x00" + f.build.bundle + "\x00" + scheme + "://" + strings.ToLower(r.Host) + "\x00" + s.pageURI(r, pattern)
+}
+
+// pagePath returns the decoded path of a key of the whole-page cache, as r.URL.Path has it, and
+// false for a key of the render cache.
+func pagePath(key string) (string, bool) {
+	rest, ok := strings.CutPrefix(key, pageKeyPrefix)
+	if !ok {
+		return "", false
+	}
+	fields := strings.SplitN(rest, "\x00", 4)
+	if len(fields) != 4 {
+		return "", false
+	}
+	// The request URI is the escaped path, which writes ? as %3F, then the query.
+	escaped, _, _ := strings.Cut(fields[3], "?")
+	path, err := url.PathUnescape(escaped)
+	return path, err == nil
 }
