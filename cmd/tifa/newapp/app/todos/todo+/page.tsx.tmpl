@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from '@tanstack/react-router'
+import { Link, useRouter } from '@tanstack/react-router'
 import { RouteError, TifaError } from 'tifa/client'
 import { Error as RootError } from '../../layout'
 import { page, POST, type PageData } from './route.gen'
@@ -7,6 +7,7 @@ import { page, POST, type PageData } from './route.gen'
 export default function TodoPage() {
   const todo = page.useLoaderData()
   const params = page.useParams()
+  const router = useRouter()
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
   async function toggle() {
@@ -14,6 +15,7 @@ export default function TodoPage() {
     setError('')
     try {
       await POST({ params, input: { done: !todo.done } })
+      await router.invalidate({ sync: true })
     } catch (cause) {
       setError(cause instanceof TifaError ? cause.message : 'Could not save, try again.')
     } finally {

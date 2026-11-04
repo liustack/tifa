@@ -32,7 +32,8 @@ func (in AddInput) Validate() error {
 	return nil
 }
 
-// POST adds a todo and answers with it. The page data loads again afterwards.
+// POST adds a todo and answers with it. It does not reload the page: AddTodo in page.tsx asks for
+// the data again.
 func POST(c *tifa.Ctx, in AddInput) (todos.Todo, error) {
 	return todos.AddTodo(c.Context(), in.Title)
 }
