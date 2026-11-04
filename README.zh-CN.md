@@ -142,7 +142,13 @@ mkdir -p .claude/skills && cp -r tifa-src/skills/tifa .claude/skills/tifa
 
 ## 联系我们
 
-随时欢迎提 issue：[新建一个](https://github.com/liustack/tifa/issues/new)。用它做了什么、哪里不好用、下一步该做什么，都可以说。也可以在 X 上找我：**[@liustack](https://x.com/liustack)**。
+随时欢迎提 issue：[新建一个](https://github.com/liustack/tifa/issues/new)。用它做了什么、哪里不好用、下一步该做什么，都可以说。推荐你关注公众号 liustack，也欢迎你来 X 上聊：**[@liustack](https://x.com/liustack)**。tifa 有什么变化、接下来做什么，都会在公众号和 X 同步更新。
+
+关注微信公众号「liustack」：AI 创业机会、独立开发见解、AI 实战与工具，第一时间推送。微信扫码，或搜一搜「liustack」：
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/liustack/tifa/main/assets/wechat-qrcode.png" width="420" alt="微信公众号 liustack" />
+</p>
 
 ## 参与贡献
 
