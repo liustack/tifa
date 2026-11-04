@@ -11,6 +11,7 @@ import (
 	"go/types"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"os/exec"
 	"path"
@@ -541,7 +542,7 @@ func (a *analyzer) dirPath(d *dirInfo) ([]segment, bool) {
 
 // routeNames are the names that only route.go declares: the Layout of the directory, the Load of
 // its page, the switches, and the method handlers.
-var routeNames = append([]string{"Layout", "LayoutSSR", "Load", "SSR", "RenderCache", "Cache"}, methods...)
+var routeNames = append([]string{"Layout", "LayoutSSR", "Load", "SSR", "RenderCache", "Cache", "BodyLimit", "ReadTimeout"}, methods...)
 
 // checkPackageNames reports Path, which the directory replaces, and each name of route.go that
 // is declared in another file of the package. The files are read by name, so a Load in
@@ -563,6 +564,9 @@ func (a *analyzer) checkPackageNames(d *dirInfo) {
 		}
 		if _, isConst := obj.(*types.Const); name == "Cache" && !isConst {
 			continue // a type or variable named Cache in another file is the domain code's own
+		}
+		if _, isType := obj.(*types.TypeName); isType && (name == "BodyLimit" || name == "ReadTimeout") {
+			continue // a type of that name is the domain code's own
 		}
 		if file := filepath.Base(a.fset.Position(obj.Pos()).Filename); file != "route.go" {
 			a.errorAt(obj.Pos(), "%s is read from route.go only, move it there from %s", name, file)
@@ -651,6 +655,7 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 			a.errorAt(obj.Pos(), "%s is not allowed without page.tsx: it applies to the page of the folder only (a Layout declares LayoutSSR)", name)
 		}
 	}
+	r.BodyLimit, r.ReadTimeout = a.routeLimits(pkg, declared)
 	if !d.pageTSX && !declared {
 		return nil
 	}
@@ -1365,4 +1370,49 @@ func (a *analyzer) checkCacheIdentity(routes []*route, layouts []*layout) {
 			}
 		}
 	}
+}
+
+// routeLimits reads BodyLimit and ReadTimeout of route.go, which set the body limit and the read
+// timeout of the requests its method handlers answer, in place of server.body_limit and
+// server.read_timeout. Each may be a constant or a package-level variable, such as one set from a
+// setting of the app: the generated code refers to it, and the program reads it when it starts.
+// handlers reports whether route.go declares a method handler. Each result reports a name that is
+// declared and valid.
+func (a *analyzer) routeLimits(pkg *packages.Package, handlers bool) (bodyLimit, readTimeout bool) {
+	check := func(name string, typeOK func(types.Type) bool, want string) bool {
+		obj := pkg.Types.Scope().Lookup(name)
+		if obj == nil {
+			return false
+		}
+		c, isConst := obj.(*types.Const)
+		_, isVar := obj.(*types.Var)
+		switch {
+		case !isConst && !isVar:
+			if _, isType := obj.(*types.TypeName); !isType {
+				a.errorAt(obj.Pos(), "%s must be %s", name, want)
+			}
+			return false
+		case !typeOK(obj.Type()):
+			a.errorAt(obj.Pos(), "%s is %s, but it must be %s", name, types.TypeString(obj.Type(), shortQualifier), want)
+			return false
+		case isConst && constant.Sign(c.Val()) <= 0:
+			a.errorAt(obj.Pos(), "%s must be greater than 0", name)
+			return false
+		case isConst && !constant.Compare(c.Val(), token.LEQ, constant.MakeInt64(math.MaxInt64)):
+			a.errorAt(obj.Pos(), "%s is larger than an int64", name)
+			return false
+		case !handlers:
+			a.errorAt(obj.Pos(), "%s applies to the requests the method handlers of route.go answer, and route.go declares no method handler: a page or a Layout reads no request body", name)
+			return false
+		}
+		return true
+	}
+	bodyLimit = check("BodyLimit", func(t types.Type) bool {
+		b, ok := t.Underlying().(*types.Basic)
+		return ok && b.Info()&types.IsInteger != 0
+	}, "an integer constant or variable of bytes, such as const BodyLimit = 8 << 20, or var BodyLimit = UploadLimit for a setting made with tifa.Size")
+	readTimeout = check("ReadTimeout", func(t types.Type) bool {
+		return isNamed(t, "time", "Duration")
+	}, "a time.Duration constant or variable, such as const ReadTimeout = 5 * time.Minute, or var ReadTimeout = UploadTime for a setting made with tifa.Duration")
+	return bodyLimit, readTimeout
 }

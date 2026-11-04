@@ -228,6 +228,61 @@ func TestTypedHandlers(t *testing.T) {
 	}
 }
 
+// A POST, PUT or PATCH input may hold files as fields of its own. The manifest marks such a
+// handler, whose input is sent as a form, and the routes that set their own body limit and read
+// timeout. In TypeScript a file is a Blob.
+func TestUploadHandlers(t *testing.T) {
+	m, err := analyzeApp(t, "uploads")
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	routes := map[string]Route{}
+	for _, r := range m.Routes {
+		routes[r.ID] = r
+	}
+	forms := func(r Route) map[string]bool {
+		out := map[string]bool{}
+		for _, h := range r.Handlers {
+			out[h.Method] = h.Form
+		}
+		return out
+	}
+	if got, want := forms(routes["app/photos/route"]), map[string]bool{"POST": true, "PUT": true, "PATCH": false}; !reflect.DeepEqual(got, want) {
+		t.Errorf("photos forms = %v, want %v", got, want)
+	}
+	for id, want := range map[string]bool{"app/photos/route": true, "app/files/route": true, "app/plain/route": false} {
+		if r := routes[id]; r.BodyLimit != want || r.ReadTimeout != want {
+			t.Errorf("%s BodyLimit, ReadTimeout = %v, %v, want %v", id, r.BodyLimit, r.ReadTimeout, want)
+		}
+	}
+	var inputs []types.Type
+	for _, h := range routes["app/photos/route"].Handlers {
+		inputs = append(inputs, h.InputType)
+	}
+	shapes, _, _, err := TSShapes(inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"{ title: string; tags: string[]; photo: Blob | null; draft?: boolean }",
+		"{ name: string; photos: Blob[]; cover?: Blob | null }",
+		"{ title: string }",
+	}
+	if !reflect.DeepEqual(shapes, want) {
+		t.Errorf("input shapes =\n%q\nwant\n%q", shapes, want)
+	}
+	// A named type whose underlying type is a file, or a slice of files, is a file too: the input
+	// comes as a form, as its TypeScript type says.
+	named := routes["app/named/route"]
+	if got := forms(named); !reflect.DeepEqual(got, map[string]bool{"POST": true}) {
+		t.Errorf("named forms = %v", got)
+	}
+	shapes, _, _, err = TSShapes([]types.Type{named.Handlers[0].InputType})
+	if err != nil || !reflect.DeepEqual(shapes, []string{"{ title: string; files: Blob[]; cover: Blob | null; extras: Blob[] }"}) {
+		t.Errorf("named input shape = %q, %v", shapes, err)
+	}
+}
+
 // Each violation must be reported with its file and line. want lists, per expected error,
 // substrings that one single error message must all contain.
 func TestViolations(t *testing.T) {
@@ -259,6 +314,31 @@ func TestViolations(t *testing.T) {
 			{"app/text/route.go:58:", "POST input", "Input.ByID[key]", "UnmarshalText"},
 			{"app/text/route.go:58:", "POST input", "Input.ByDur", "time.Duration"},
 			{"app/text/route.go:98:", "GET input", "text.Word", "MarshalText", "query string"},
+			// A field whose own type, a slice too, or whose element reads or writes itself as text.
+			{"app/textquery/route.go:35:", "GET input", "Query.Tags", "MarshalText", "UnmarshalText", "query string"},
+			{"app/textquery/route.go:35:", "GET input", "Query.IDs", "MarshalText", "UnmarshalText", "query string"},
+			{"app/textquery/route.go:35:", "GET input", "Query.Levels", "MarshalText", "UnmarshalText", "query string"},
+			{"app/textquery/route.go:37:", "DELETE input", "Query.Tags", "MarshalText", "UnmarshalText"},
+			{"app/textquery/route.go:37:", "DELETE input", "Query.IDs", "MarshalText", "UnmarshalText"},
+			{"app/textquery/route.go:37:", "DELETE input", "Query.Levels", "MarshalText", "UnmarshalText"},
+			{"app/textquery/route.go:44:", "POST input", "Upload.Tags", "MarshalText", "UnmarshalText", "form", "does not call"},
+		}},
+		{"badupload", [][]string{
+			{"app/get/route.go:13:", "GET input", "Input.File", "request body", "POST, PUT or PATCH"},
+			{"app/get/route.go:15:", "DELETE input", "Input.File", "request body", "POST, PUT or PATCH"},
+			{"app/nested/route.go:25:", "POST input", "Deep.Inner.File", "field of the input itself"},
+			{"app/nested/route.go:27:", "PUT input", "Value.File", "*multipart.FileHeader"},
+			{"app/nested/route.go:29:", "PATCH input", "Mapped.Files", "field of the input itself"},
+			{"app/mixed/route.go:18:", "POST input", "Mixed.Meta", "holds a file", "strings, numbers, bools"},
+			{"app/texted/route.go:19:", "POST input", "Input.Files", "MarshalText", "UnmarshalText", "file"},
+			{"app/result/route.go:13:", "Load result", "Data.File", "multipart.FileHeader", "input"},
+			{"app/result/route.go:15:", "POST result", "multipart.FileHeader", "input"},
+			{"app/limits/route.go:9:", "BodyLimit", "greater than 0"},
+			{"app/limits/route.go:11:", "ReadTimeout", "time.Duration"},
+			{"app/limits2/route.go:5:", "BodyLimit", "integer"},
+			{"app/limits2/route.go:7:", "ReadTimeout", "time.Duration"},
+			{"app/nolimit/route.go:5:", "BodyLimit", "method handler"},
+			{"app/page/route.go:5:", "ReadTimeout", "method handler"},
 		}},
 		{"dirnames", [][]string{
 			{"app/a%b/page.tsx:1:", `"%"`},

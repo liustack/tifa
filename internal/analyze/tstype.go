@@ -49,6 +49,9 @@ import (
 //   - A type whose own MarshalText is exactly MarshalText() ([]byte, error), on the value or the
 //     pointer receiver, is string: json v2 calls it on any value. A MarshalText of another
 //     signature, promoted from an embedded field, or hidden by a field of that name is rejected.
+//   - *multipart.FileHeader is Blob | null and []*multipart.FileHeader is Blob[]: a file of an
+//     upload, which only a field of the input of a method handler holds (checkInput says where).
+//     Anywhere else, the session included, it is rejected.
 //   - Named types keep their names, so recursive types are allowed.
 //
 // Rejected besides: every interface type, wherever it appears, chan, func, complex numbers,
@@ -66,9 +69,10 @@ func checkTSHTML(t types.Type) (problems []tsProblem, html bool) {
 	return c.problems, c.html
 }
 
-// checkInputTS is checkTS for the input of a method handler, which is decoded from that JSON.
-func checkInputTS(t types.Type) []tsProblem {
-	c := tsChecker{active: map[tsKey]bool{}, decode: true}
+// checkInputTS is checkTS for what is decoded from that JSON: the session, and with files the
+// input of a method handler, which may also hold files (see checkInput).
+func checkInputTS(t types.Type, files bool) []tsProblem {
+	c := tsChecker{active: map[tsKey]bool{}, decode: true, files: files}
 	c.encode(t, rootLabel(t), false)
 	return c.problems
 }
@@ -105,6 +109,8 @@ type tsChecker struct {
 	decode bool
 	// html is set once a tifa.HTML is written.
 	html bool
+	// files accepts *multipart.FileHeader, the file of an upload, as Blob.
+	files bool
 }
 
 func (c *tsChecker) fail(path, msg string) string {
@@ -115,6 +121,22 @@ func (c *tsChecker) fail(path, msg string) string {
 // tsHTML is the TypeScript type of tifa.HTML, which the generated module imports from the runtime
 // of tifa/client.
 const tsHTML = "HTML"
+
+// tsBlob is the TypeScript type of a file of an upload, which the generated function sends in a
+// multipart form. A File is a Blob.
+const tsBlob = "Blob"
+
+// multipartPath is the package of multipart.FileHeader, the type of a file of an upload.
+const multipartPath = "mime/multipart"
+
+// filePointer reports whether the underlying type of t is *multipart.FileHeader, a file of an upload.
+// It is the one rule by which the analyzer knows a file, so a named type such as
+// type Photo *multipart.FileHeader is a file in the TypeScript type, in the checks of an input and
+// in how it is decoded alike. A slice of such types is the files of one form field.
+func filePointer(t types.Type) bool {
+	p, ok := t.Underlying().(*types.Pointer)
+	return ok && isNamed(p.Elem(), multipartPath, "FileHeader")
+}
 
 // encoderMethods are the method names that json v2 calls
 // instead of encoding a value by its kind, besides MarshalText.
@@ -183,6 +205,11 @@ func (c *tsChecker) encode(t types.Type, path string, quoted bool) (ts string) {
 		return "number"
 	case isNamed(t, "time", "Duration"):
 		return c.fail(path, "time.Duration has no JSON form in json v2: use an integer of the unit you mean, such as milliseconds, or a string")
+	case isNamed(t, multipartPath, "FileHeader"):
+		if !c.files {
+			return c.fail(path, "multipart.FileHeader is a file of an upload, which only the input of a POST, PUT or PATCH handler holds, as *multipart.FileHeader or []*multipart.FileHeader in a field of the input itself")
+		}
+		return tsBlob
 	case isNamed(t, tifaPath, "HTML"):
 		if c.decode {
 			return c.fail(path, "tifa.HTML is markup the server trusts, which an input or the session never holds: take a string, and convert it to tifa.HTML only after you sanitize it")
@@ -248,6 +275,9 @@ func (c *tsChecker) encode(t types.Type, path string, quoted bool) (ts string) {
 	case *types.Slice:
 		if isByte(u.Elem()) { // base64, and "" for a nil slice
 			return "string"
+		}
+		if c.files && filePointer(u.Elem()) {
+			return arrayOf(tsBlob) // the files of one form field, none of them null
 		}
 		return arrayOf(c.encode(u.Elem(), path+"[]", false))
 	case *types.Array:

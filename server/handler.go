@@ -145,3 +145,8 @@ func isFields(err error) bool {
 	_, ok := fieldsOf(err)
 	return ok
 }
+
+// BindForm decodes the input of a handler that takes files, *multipart.FileHeader or
+// []*multipart.FileHeader fields: the body is a multipart or URL-encoded form, and JSON is
+// answered with 415. The generated routes.go passes it in place of (*tifa.Ctx).Bind.
+func BindForm(c *tifa.Ctx, v any) error { return core.BindForm(c, v) }

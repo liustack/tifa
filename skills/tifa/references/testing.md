@@ -77,6 +77,8 @@ func TestLoadNotFound(t *testing.T) {
 }
 ```
 
+An input that holds a file takes `tifatest.File(t, "sea.png", data)`, the `*multipart.FileHeader` the server would give. Its Content-Type follows the extension, and its temporary files go when the test ends.
+
 ## Middleware
 
 Call `OnRequest` directly and pass a closure as `next`. The closure stands in for the route, so it does not recover a panic or write a result.

@@ -6,16 +6,25 @@ What changed in tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Added
 
+- A field of type `*multipart.FileHeader` or `[]*multipart.FileHeader` in the input of a POST, PUT or PATCH handler holds uploaded files. The generated function takes them as `Blob | null` and `Blob[]` and sends the input as a multipart form, so a page uploads a file as it sends any other input, with `Validate`, `tifa.Fields` and `TifaError` as usual. A JSON body for such an input gets 415 (see [Files in the input](docs/app.md#files-in-the-input) and [Uploads](docs/guides/uploads.md)).
+- `BodyLimit` and `ReadTimeout` in a `route.go`, constants or variables such as a setting of the app, replace `server.body_limit` and `server.read_timeout` for the requests its method handlers answer. The read time is lifted before `OnRequest`, and the answer gets `server.write_timeout` after it (see [Body limit and read time of a route](docs/app.md#body-limit-and-read-time-of-a-route)).
+- A request body that does not arrive before the read deadline is answered with 408, no longer with 400.
+- `tifatest.File(t, name, data)` gives the `*multipart.FileHeader` of a file, for a test that calls a handler or `Validate` with an input that holds one.
+- `route.gen` exports `PageSearch` and `LayoutSearch`, the query parameters the `Load` or `Layout` of the folder reads, and the route gets them, so `Link`, `navigate` and `useSearch` know them: every value a `string` or `string[]` when read, since a key can come more than once in a URL (`c.Query` in Go takes the first), every key optional, and other keys open. Only the types change: nothing runs on the query in the browser (see [Query parameters in Link and navigate](docs/app.md#query-parameters-in-link-and-navigate)).
 - `tifa.Secret("smtp.password", "SMTP password")` defines a setting of the app for a password, a token or a key. It comes from the environment, `.env` or the file of `-c`, a flag for it stops the program and says where to put it, and `./bin/app config` writes where it came from and not its value. The [email guide](docs/guides/email.md) uses it.
 - `server.csp: on` sends a Content-Security-Policy that lets only the site's own scripts run. tifa adds the hashes of the inline scripts it writes into a page to the policy of that page, so pages hydrate, and the render cache, the whole-page cache and ETags work as before. `server.csp_policy` changes the policy, and `report-only` only reports (see [Content-Security-Policy](docs/config.md#content-security-policy)).
 
 ### Changed
 
+- A `multipart.FileHeader` anywhere but in a field of a POST, PUT or PATCH input, such as in a result, the data of `Load` or the session, fails the build. A `route.go` that declares `BodyLimit` or `ReadTimeout` with another meaning, or without a method handler, fails the build too.
+- A value other than a string for a query parameter that Go reads, such as `search={{ page: 2 }}`, is now a type error. Write `page: String(n)`: the router wrote it as text anyway.
 - Every answer now carries `Referrer-Policy: strict-origin-when-cross-origin` and `Content-Security-Policy: frame-ancestors 'self'`, next to `X-Content-Type-Options: nosniff`. Another site can no longer show the pages in a frame: change the header in `OnRequest` for pages that a partner shows (see [Security headers](docs/config.md#security-headers)).
 - `tifa new` pins `github.com/liustack/sqlite` v0.1.2, which builds with Go 1.26.6 to 1.27 and stops the build on a newer Go. After upgrading Go, upgrade the driver too.
 
 ### Fixed
 
+- The docs said a page or Layout remounts when a query parameter its `Load` reads changes. It never did, and now the docs and the generated `remountDeps` say what happens: a route remounts for a path parameter it reads, and another query loads the data again and keeps the component and its state, as TanStack Router does by default. State set up from `Load` data follows a new query only through a `key` or an effect of the app.
+- A slice type that reads and writes itself as text, such as `type Tags []string` with `MarshalText` and `UnmarshalText`, in a GET or DELETE input or a form input with files, passed the build: TypeScript sent it as one string such as `"a,b"`, Go put that string in one element without calling `UnmarshalText`, and a slice of numbers got 400. It now fails the build, like a field whose element has those methods. `c.BindQuery` and the decoding of an input with files return an error for such a field whatever the request holds, and a form sent to an input that also takes JSON answers 400 for a value of such a field instead of filling it wrongly (see [Method handlers with input and result](docs/app.md#method-handlers-with-input-and-result)).
 - Under systemd socket activation with HTTPS, `server.addr` may stay unset when systemd passes its socket. The program refused to start on the default address, which it does not listen on then.
 - With HTTPS on, the plain HTTP address `server.http_addr` now reads and writes under `server.read_timeout` and `server.write_timeout`, like `server.addr`. It kept 10 seconds whatever they said.
 

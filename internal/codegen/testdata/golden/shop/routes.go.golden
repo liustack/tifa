@@ -11,6 +11,7 @@ import (
 	app_auth_login "example.com/shop/app/auth/login"
 	app_projects_projectId_ "example.com/shop/app/projects/projectId+"
 	app_projects_projectId__orders_orderId_ "example.com/shop/app/projects/projectId+/orders/orderId+"
+	app_projects_projectId__orders_orderId__photos "example.com/shop/app/projects/projectId+/orders/orderId+/photos"
 )
 
 var layouts = []server.Layout{
@@ -86,5 +87,16 @@ var routes = []server.Route{
 		POST:    server.InputOutput(app_projects_projectId__orders_orderId_.POST, (*tifa.Ctx).Bind),
 		SSR:     true,
 		Layouts: []string{"app/layout", "app/projects/projectId+/layout"},
+	},
+	{
+		ID:          "app/projects/projectId+/orders/orderId+/photos/route",
+		Path:        "/projects/{projectId}/orders/{orderId}/photos",
+		Page:        false,
+		POST:        server.InputOutput(app_projects_projectId__orders_orderId__photos.POST, server.BindForm),
+		PUT:         server.Input(app_projects_projectId__orders_orderId__photos.PUT, server.BindForm),
+		BodyLimit:   int64(app_projects_projectId__orders_orderId__photos.BodyLimit),
+		ReadTimeout: app_projects_projectId__orders_orderId__photos.ReadTimeout,
+		SSR:         true,
+		Layouts:     []string{"app/layout", "app/projects/projectId+/layout"},
 	},
 }

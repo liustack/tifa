@@ -633,7 +633,11 @@ func routesModule(nodes []*tsNode, public []string) ([]byte, error) {
 			if n.file == "layout" {
 				data = "LayoutData"
 			}
-			fmt.Fprintf(&imports, "import type { %s as D%d } from %s\n", data, i, jsString("./"+n.dir+"/route.gen"))
+			names := fmt.Sprintf("%s as D%d", data, i)
+			if hasSearch(n) {
+				names += fmt.Sprintf(", %s as S%d", strings.Replace(data, "Data", "Search", 1), i)
+			}
+			fmt.Fprintf(&imports, "import type { %s } from %s\n", names, jsString("./"+n.dir+"/route.gen"))
 		}
 	}
 	if app != nil && app.exported("Document") {
@@ -761,6 +765,11 @@ func routesModule(nodes []*tsNode, public []string) ([]byte, error) {
 		}
 		staticData := "staticData: { " + strings.Join(static, ", ") + " }"
 		var query []string
+		// The types of the query parameters the route reads, for Link, navigate and useSearch.
+		if hasSearch(n) {
+			runtime["searchTypes"] = true
+			opts = append(opts, fmt.Sprintf("validateSearch: searchTypes<S%d>()", i))
+		}
 		if n.load != nil {
 			query = n.load.AllQuery
 			runtime["load"] = true
@@ -774,19 +783,15 @@ func routesModule(nodes []*tsNode, public []string) ([]byte, error) {
 		} else if len(static) > 0 {
 			opts = append(opts, staticData)
 		}
-		var args, deps []string
-		if keys := readParams(n, byID); len(keys) > 0 {
-			args = append(args, "params")
-			for _, k := range keys {
-				deps = append(deps, "params."+k)
-			}
-		}
-		if len(query) > 0 {
-			args = append(args, "search")
-			deps = append(deps, fmt.Sprintf("pick(search, %s)", jsStrings(query)))
+		// A route remounts when a path parameter it reads changes. Another value of a query
+		// parameter loads the data again and keeps the component and its state, as TanStack
+		// Router does by default, so a page keeps what its visitor set while a filter changes.
+		var deps []string
+		for _, k := range readParams(n, byID) {
+			deps = append(deps, "params."+k)
 		}
 		if len(deps) > 0 {
-			opts = append(opts, fmt.Sprintf("remountDeps: ({ %s }) => [%s]", strings.Join(args, ", "), strings.Join(deps, ", ")))
+			opts = append(opts, fmt.Sprintf("remountDeps: ({ params }) => [%s]", strings.Join(deps, ", ")))
 		}
 		n.route.opts = append(n.route.opts, opts...)
 	}
@@ -852,7 +857,7 @@ declare module "@tanstack/react-router" {
 	}
 	fmt.Fprintf(&out, `import { %s } from "@tanstack/react-router"`+"\n", router)
 	var names []string
-	for _, name := range []string{"createAppRouter", "DefaultError", "leave", "load", "missing", "outside", "pick", "unmatched"} {
+	for _, name := range []string{"createAppRouter", "DefaultError", "leave", "load", "missing", "outside", "pick", "searchTypes", "unmatched"} {
 		if runtime[name] {
 			names = append(names, name)
 		}
@@ -1001,6 +1006,12 @@ func routeModule(g *routeGen) ([]byte, error) {
 	if g.page != nil {
 		data(g.page, "PageData", "Load")
 	}
+	if g.layout != nil {
+		searchType(&b, g.layout, "LayoutSearch", "Layout", g.dir)
+	}
+	if g.page != nil {
+		searchType(&b, g.page, "PageSearch", "Load", g.dir)
+	}
 	keys := params(g.segs)
 	paramsType := "Record<string, never>"
 	if len(keys) > 0 {
@@ -1044,13 +1055,18 @@ func routeModule(g *routeGen) ([]byte, error) {
 		if answer == "json" {
 			b.WriteString("// It resolves to undefined when the handler or OnRequest redirects.\n")
 		}
+		body := ""
+		if h.Form {
+			b.WriteString("// Its input holds files, so it is sent as a multipart form.\n")
+			body = `, "form"`
+		}
 		param := "options: " + strings.Join(options, " & ")
 		if len(options) == 1 {
 			param = "options: CallOptions = {}"
 		}
 		// async, so that a refused path parameter rejects the promise like any other failure.
 		fmt.Fprintf(&b, "export async function %s(%s): Promise<%s> {\n", h.Method, param, result)
-		fmt.Fprintf(&b, "  return call(%s, %s, options, %s) as Promise<%s>\n}\n", jsString(h.Method), urlTemplate(g.segs), jsString(answer), result)
+		fmt.Fprintf(&b, "  return call(%s, %s, options, %s%s) as Promise<%s>\n}\n", jsString(h.Method), urlTemplate(g.segs), jsString(answer), body, result)
 	}
 	return []byte(b.String()), nil
 }
@@ -1109,3 +1125,27 @@ func sessionModule(s *analyze.Session) ([]byte, error) {
 	fmt.Fprintf(&b, "export type SessionData = %s\n", shape)
 	return []byte(b.String()), nil
 }
+
+// searchType writes the type of the query parameters the Load or Layout function of n reads, which
+// routes.tsx gives its route for Link, navigate and useSearch. A key can come more than once in a
+// URL, so every value is a string or an array of strings, as parseSearch of the runtime reads
+// them, whether Go reads it with c.Query or c.QueryValues. Every key may be left out, and other keys are open: the app may use
+// parameters of its own in the browser, which Go does not read. A function that reads none gets no
+// type.
+func searchType(b *strings.Builder, n *tsNode, name, fn, dir string) {
+	if !hasSearch(n) {
+		return
+	}
+	fmt.Fprintf(b, "// %s is the query parameters the Go %s function of %s reads, as the router reads them.\n", name, fn, dir)
+	b.WriteString("// A key can come more than once in a URL, so a value is a string or an array of strings:\n")
+	b.WriteString("// c.Query in Go takes the first. Other parameters may come too.\n")
+	fmt.Fprintf(b, "export type %s = {\n", name)
+	for _, key := range n.load.Query {
+		fmt.Fprintf(b, "  %s?: string | string[]\n", jsString(key))
+	}
+	b.WriteString("  [key: string]: string | string[] | undefined\n}\n\n")
+}
+
+// hasSearch reports whether the Load or Layout function of n reads query parameters, so that
+// route.gen exports their type and routes.tsx gives it to the route.
+func hasSearch(n *tsNode) bool { return n.load != nil && len(n.load.Query) > 0 }

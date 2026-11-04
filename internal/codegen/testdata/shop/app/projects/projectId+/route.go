@@ -12,7 +12,7 @@ func Load(c *tifa.Ctx) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []string{p.ID, c.Query("sort")}, nil
+	return append([]string{p.ID, c.Query("sort")}, c.QueryValues("tag")...), nil
 }
 
 type Project struct {

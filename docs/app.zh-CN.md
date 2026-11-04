@@ -1,11 +1,13 @@
 ---
-summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、不套外层的 Layout（layout_.tsx）、hooks.go、404 和错误、多语言网站、SSR 与缓存开关和整页缓存（对所有人一样、保存一段时间的页面）以及写入后让这类页面重新生成、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数、用 tifa.HTML 显示应用信任的 HTML，访客开着旧页面时你部署新版本，浏览器会怎么做，以及数据、入参和结果的 JSON 规则'
+summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、不套外层的 Layout（layout_.tsx）、hooks.go、404 和错误、多语言网站、SSR 与缓存开关和整页缓存（对所有人一样、保存一段时间的页面）以及写入后让这类页面重新生成、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、Link 和 navigate 里查询参数的类型、带类型入参和结果的方法函数、入参里的文件和路由自己的请求体上限与读取时间、用 tifa.HTML 显示应用信任的 HTML，访客开着旧页面时你部署新版本，浏览器会怎么做，以及数据、入参和结果的 JSON 规则'
 read_when:
   - 新建一个 tifa 应用，或给应用加页面、Layout、API 路由
   - 构建报 Ctx 用法或 Load 返回类型的错误，想知道怎么改
   - 改 internal/analyze 的规则，需要知道对用户承诺了什么
   - 改 examples/shop 或 test/apps 里的应用
   - 给 Load、Layout 函数、方法函数或 OnRequest 写 Go 测试
+  - 在方法函数里接收文件，或者用 `BodyLimit` 和 `ReadTimeout` 给路由单独的请求体上限和读取时间
+  - 让 `Link`、`navigate` 或 `useSearch` 知道页面读哪些查询参数，或者遇到 `search` 的类型错误
   - 用 `const Cache` 把公开页面在内存里保存几分钟，想知道页面上什么变成匿名的，或者遇到在这样的页面上读 cookie 或会话的构建错误
   - 一次写入改了开了 `Cache` 的页面显示的内容，要用 `tifa.ExpirePages` 让页面马上更新
   - 在页面里显示应用自己做出来或信任的 HTML（比如一篇文章），用 `tifa.HTML` 和 `<HTML>`，或者处理其中的链接
@@ -142,13 +144,69 @@ func POST(c *tifa.Ctx) (Shipment, error)           // 答 200，结果写成 JSO
 func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 ```
 
-- 入参是结构体，不能是指向结构体的指针。POST、PUT、PATCH 从请求体解码：JSON，或 URL 编码、multipart 表单。表单只填字符串、数字、布尔或它们的切片类型的字段，表单里出现其他字段的值时答 400。GET、DELETE 从查询字符串解码，所以字段只能是字符串、数字、布尔或它们的切片，不能有嵌入字段，也不能是带 `MarshalText` 或 `UnmarshalText` 的类型，入参类型本身也不行。
+- 入参是结构体，不能是指向结构体的指针。POST、PUT、PATCH 从请求体解码：JSON，或 URL 编码、multipart 表单。表单只填字符串、数字、布尔或它们的切片类型的字段，以及文件（见[入参里的文件](#入参里的文件)），表单里出现其他字段的值时答 400。表单按种类解码每个值，从不调用 `MarshalText` 或 `UnmarshalText`，所以带这两个方法之一的类型、这种类型的切片，以及自己带这类方法的切片类型（比如 `type Tags []string`，TypeScript 会把它当成一个字符串），都算其他字段。GET、DELETE 从查询字符串解码，所以字段只能是字符串、数字、布尔或它们的切片，规则同上，不能有嵌入字段，入参类型本身也不能带 `MarshalText` 或 `UnmarshalText`。构建时会检查，`c.BindQuery` 遇到其他字段时不管查询字符串里有什么都返回错误。
 - 字段按 `json` 标签取名，表单和查询字符串也一样。写 `form` 标签会构建报错。路径参数、请求头、cookie 照旧从 `c` 读。
 - 入参和结果遵守下文的 JSON 规则，和 `Load` 的返回值一样。入参还要能从它的 TypeScript 类型描述的 JSON 读回来：因为 `MarshalText` 成为 string 的类型也要有 `UnmarshalText([]byte) error`，有 `UnmarshalText` 的类型在 TypeScript 里必须是 string（map 键除外，JSON 的键总是字符串），`UnmarshalJSON` 不接受（`time.Time` 除外）。
 - 入参类型有 `Validate` 方法（必须是 `func() error`）时，它在解码之后、处理函数之前执行。返回 `nil` 就继续。返回 `tifa.Error` 或 `tifa.Fields` 时原样回答，想标出具体字段就返回 `tifa.Fields`。先往 `tifa.Fields{}` 里收集，最后写 `return fields.Err()`，没有收集到任何字段时它是 nil（空的 `tifa.Fields` 仍然是一个错误）。其他错误一律答 400，消息是 `err.Error()`，会原样给用户看到。
 - 浏览器从别的网站发来的 POST、PUT、PATCH 或 DELETE，表单和 multipart 也一样，在处理函数运行之前就答 403，处理函数不用自己再检查。`server.trusted_origins` 和 `server.cross_site_paths` 可以放行指定的来源和路径（见[跨站写请求](config.zh-CN.md#跨站写请求)）。
-- 请求体或查询字符串解码失败时答 400（请求体超过上限答 413，其他内容类型或没有内容类型答 415），处理函数不执行。
-- 自己写响应的方法函数用 `c.Bind(&in)` 解码请求体，用 `c.BindQuery(&in)` 解码查询字符串。它们给字段取名时先看 `form` 标签，再看 `json` 标签，最后用 Go 字段名。
+- 请求体或查询字符串解码失败时答 400（请求体超过上限答 413，其他内容类型或没有内容类型答 415，装文件的入参收到 JSON 也答 415，请求体没按时到答 408），处理函数不执行。
+- 自己写响应的方法函数用 `c.Bind(&in)` 解码请求体，用 `c.BindQuery(&in)` 解码查询字符串。它们给字段取名时先看 `form` 标签，再看 `json` 标签，最后用 Go 字段名。`c.Bind` 也会从 multipart 表单填 `*multipart.FileHeader` 和 `[]*multipart.FileHeader` 字段。
+
+### 入参里的文件
+
+POST、PUT、PATCH 处理函数的入参里，类型为 `*multipart.FileHeader` 或 `[]*multipart.FileHeader` 的字段装的是上传的文件，底层类型是这两者之一的命名类型（比如 `type Photos []*multipart.FileHeader`）也一样。这时生成的调用函数把入参当 multipart 表单发出，页面上传文件和发送其他入参是同一种写法：
+
+```go
+package photos
+
+// BodyLimit 和 ReadTimeout 作用于这个 route.go 的方法函数回答的请求。
+const BodyLimit = 20 << 20          // 20 MiB，代替 server.body_limit
+const ReadTimeout = 5 * time.Minute // 代替 server.read_timeout
+
+type UploadInput struct {
+	Title  string                  `json:"title"`
+	Photo  *multipart.FileHeader   `json:"photo"`
+	Extras []*multipart.FileHeader `json:"extras"`
+}
+
+func (in UploadInput) Validate() error {
+	if in.Photo == nil {
+		return tifa.Fields{"photo": "Choose a picture."}
+	}
+	return nil
+}
+
+func POST(c *tifa.Ctx, in UploadInput) (Photo, error) {
+	f, err := in.Photo.Open()
+	if err != nil {
+		return Photo{}, err
+	}
+	defer f.Close()
+	// 检查字节，把文件复制到保存的地方
+}
+```
+
+```tsx
+const file = form.get('photo') // <input type="file"> 里的 File
+await POST({ input: { title, photo: file instanceof File ? file : null, extras: [] } })
+```
+
+- 在 TypeScript 里，`*multipart.FileHeader` 是 `Blob | null`，`[]*multipart.FileHeader` 是 `Blob[]`。`File` 也是 `Blob`，文件名随它一起发出。带 `omitempty` 或 `omitzero` 的字段是可选的。
+- `*multipart.FileHeader` 拿到这个名字的第一个文件，没有文件时是 `nil`。切片拿到这个名字的全部文件，没有时是 `nil`。这个名字的空文本值算没有文件，浏览器给没选文件的文件输入框发的就是它。有内容的文本值答 400。
+- 这样的入参只接受 multipart 表单或 URL 编码表单（后者装不了文件），JSON 请求体答 415。其他字段以文本发来，所以和 GET 入参的规则一样：字符串、数字、布尔或它们的切片，不能有嵌入字段，入参类型、字段和字段的元素上都不能有 `MarshalText` 或 `UnmarshalText`。
+- 文件只能是入参本身的字段。文件放在 GET 或 DELETE 的入参里、嵌套的结构体、map 或数组里、结果里、`Load` 或 `Layout` 的数据里、会话里，都会构建报错。文件类型带 `MarshalText` 或 `UnmarshalText` 方法也会构建报错，因为 TypeScript 会把它当成字符串。
+- 文件的名字、大小和 `Content-Type`（`in.Photo.Header.Get("Content-Type")`）都是客户端发来的。文件是什么要看它的字节，保存用的名字要自己起，见[上传文件](guides/uploads.zh-CN.md)。
+- 表单按 Go 的 `mime/multipart` 的预算解析：最多 32 MiB 的文件内容留在内存里，和文本字段、各部分的名字和头共用约 42 MiB，放不下的文件写进临时文件，请求结束时 tifa 会删掉。峰值可能高于预算：最后落到磁盘上的文件先被读进一个边读边扩容、最多 32 MiB 的缓冲区，所以一个大文件可能短时间占 64 MiB 左右，同时进行的每个上传各占一份。内存小的机器上，在 `OnRequest` 里只让少数几个上传同时解析，见[上传](guides/uploads.zh-CN.md#一次上传占多少内存)。要留的东西在处理函数返回前复制走，也不要把 `*multipart.FileHeader` 交给比请求活得久的 goroutine。
+
+### 路由自己的请求体上限和读取时间
+
+`route.go` 里的 `BodyLimit` 和 `ReadTimeout`，对它的方法函数回答的请求（任何方法）代替 `server.body_limit` 和 `server.read_timeout`。页面的 GET 和它的导航数据不读请求体，照旧用配置。
+
+- `BodyLimit` 是字节数，任何整数类型都行。请求体超过它时答 413，处理函数不执行。上限算的是整个请求体：文件、其他字段和 multipart 的分隔部分。
+- `ReadTimeout` 是 `time.Duration`。从 tifa 匹配到路由时开始算，在 `OnRequest` 之前，只管这一个请求。回答在这之后再有 `server.write_timeout` 的时间，因为回答要等请求体收完才写。时间到了请求体还没收完，答 408。
+- 两者都可以是常量（必须大于 0），也可以是变量，比如[应用的配置](config.zh-CN.md#应用的配置)：`var BodyLimit = uploads.UploadLimit`，其中 `UploadLimit = tifa.Size("upload.limit", 4<<20, "Largest upload")`。变量在应用启动时读一次。变量为 0 时用配置，为负数时应用启动就停下。
+- 没有方法函数的 `route.go` 声明其中任何一个都会构建报错。页面的 `route.go` 有 POST 时可以声明，它们作用于 POST。
+- `OnRequest` 或处理函数里的 `c.SetBodyLimit` 照旧可以改单个请求的上限。
 
 ## Ctx
 
@@ -166,7 +224,7 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 | `c.SetHeader(key, value)`、`c.SetCookie(cookie)` | 响应头、响应 cookie。`Load` 里也能用 |
 | `c.JSON(code, v)`、`c.Text(code, s)`、`c.NoContent(code)` | 写响应。`Load` 里不能用 |
 | `c.Bind(&v)`、`c.BindQuery(&v)` | 把请求体或查询字符串解码进结构体，见上文。`Load` 里不能用 |
-| `c.SetBodyLimit(n)` | 改这次请求的请求体上限（默认 `server.body_limit`）。要在读请求体之前调用，通常在 `OnRequest` 里。开始读以后调用会返回错误 |
+| `c.SetBodyLimit(n)` | 改这次请求的请求体上限（默认 `server.body_limit`，路由有 `BodyLimit` 时用它，见[路由自己的请求体上限和读取时间](#路由自己的请求体上限和读取时间)）。要在读请求体之前调用，通常在 `OnRequest` 里。开始读以后调用会返回错误 |
 | `c.Request()`、`c.Writer()` | 原始的 `*http.Request` 和 `http.ResponseWriter`，只给方法函数和 `OnRequest` 用 |
 
 ## page.tsx
@@ -184,7 +242,7 @@ export const head = ({ loaderData }: { loaderData?: PageData }) => ({
 })
 ```
 
-- 只放界面，不取数。`./route.gen` 是生成的模块，每个目录一个，导出 `page` 和 `layout`（页面和 Layout 的 TanStack 路由，目录里有才导出）、`PageData` 和 `LayoutData`（`Load` 和 `Layout` 的返回类型）、`Params`，以及每个方法函数一个调用函数。同目录的子组件同样 import `./route.gen`。Layout 的数据来自它所在目录的 `route.gen`：`layout.tsx` 从 `'./route.gen'` import `layout`，页面读项目 Layout 的数据时从比如 `'../../route.gen'` import `layout`。有谁 import 了一个没有生成模块的目录的 `route.gen`，构建就会报错。
+- 只放界面，不取数。`./route.gen` 是生成的模块，每个目录一个，导出 `page` 和 `layout`（页面和 Layout 的 TanStack 路由，目录里有才导出）、`PageData` 和 `LayoutData`（`Load` 和 `Layout` 的返回类型）、`PageSearch` 和 `LayoutSearch`（它们读的查询参数，见[Link 和 navigate 里的查询参数](#link-和-navigate-里的查询参数)）、`Params`，以及每个方法函数一个调用函数。同目录的子组件同样 import `./route.gen`。Layout 的数据来自它所在目录的 `route.gen`：`layout.tsx` 从 `'./route.gen'` import `layout`，页面读项目 Layout 的数据时从比如 `'../../route.gen'` import `layout`。有谁 import 了一个没有生成模块的目录的 `route.gen`，构建就会报错。
 - 默认导出是页面组件。可选导出 `head` 和 `Error`。404 也显示在 `Error` 里（见 [404](#404)），导出 `NotFound` 构建报错。
 - 在浏览器里，每个 `page.tsx`，以及根 Layout 以外的每个 `layout.tsx` 或 `layout_.tsx`，连同它 import 的一切（含 `head`）各自是一个 chunk。路由第一次用到时才加载，路由器等它加载完才显示页面、运行 `head`。页面的 HTML 预加载它的 Layout 和路由的 chunk，所以它们和入口脚本一起到。文件顶层的代码（含只为副作用的 import）在这时运行，而不是应用启动时，所以每个页面都需要的初始化放在根 Layout 里，或放在它 import 的模块里。见[浏览器里的路由模块](build.zh-CN.md#浏览器里的路由模块)。
 - Go 的切片和 map 不会是 `null`：nil 切片到浏览器是 `[]`，nil map 是 `{}`，它们的 TypeScript 类型不带 `| null`（见 [JSON 规则](#json-规则)）。
@@ -198,6 +256,39 @@ const OrderActions = clientOnly(() => import('./actions.client'), <button disabl
 
 - tifa 不会替你重新取页面数据。写操作之后，不管是处理函数还是你自己的 `fetch`，页面在你开口之前都显示原来的内容：调用 TanStack 的 `router.invalidate()`，当前页面和所有 Layout 的数据重新取一次，合并成一个请求。`await router.invalidate({ sync: true })` 在页面显示出新数据后兑现。只写 `await router.invalidate()` 会立刻兑现，页面在后台更新。见[在浏览器里调用方法处理函数](#在浏览器里调用方法函数)。
 - 路由器已经持有的数据遵循 TanStack 的默认值：它立刻算作过期，所以回到访问过的页面时先显示缓存的数据，再在后台重新取一次（`GET <url>?_tifa=…`），鼠标悬停或聚焦时预加载的链接，30 秒内直接使用。
+
+### Link 和 navigate 里的查询参数
+
+`Load` 或 `Layout` 函数读的查询参数，在浏览器里有类型。`route.gen` 把它们导出为 `PageSearch` 和 `LayoutSearch`，路由也挂上它们，所以 TanStack 的 `Link`、`navigate` 和 `useSearch` 会检查：
+
+```go
+func Load(c *tifa.Ctx) (Products, error) {
+	return products.List(c.Query("sort"), c.QueryValues("color"))
+}
+```
+
+```ts
+// route.gen.ts 里
+export type PageSearch = {
+  "color"?: string | string[]
+  "sort"?: string | string[]
+  [key: string]: string | string[] | undefined
+}
+```
+
+```tsx
+<Link to="/products" search={{ sort: 'price', color: ['red', 'blue'] }}>…</Link>
+<Link to="/products" search={{ sort: 2 }}>…</Link> // 类型错误：值是字符串
+navigate({ to: '/products', search: (prev) => ({ ...prev, sort: 'name' }) })
+const search = page.useSearch() // PageSearch，加上外层 Layout 的参数
+const sort = [search.sort].flat()[0] // 第一个值，和 c.Query 读的一样
+```
+
+- URL 里一个键可以出现多次，所以读的时候值是 `string` 或 `string[]`，不管 Go 用 `c.Query` 还是 `c.QueryValues` 读。Go 的 `c.Query` 取第一个值。写的时候传一个字符串就行。每个键都可以不写。
+- 其他键放开：页面可以在 URL 里放 Go 不读的自己的参数，比如面板当前打开的标签。它们也是字符串或字符串数组。所以拼错键名不算类型错误，只有 Go 读的键给错了类型才算。
+- 只收字符串。路由器把每个值都写成文本，Go 读的也是文本，所以写 `'2'` 不写 `2`，布尔值写成你的 Go 代码比较的 `'1'` 或 `'true'`。
+- 类型来自 Go 读的名字，经过辅助函数和别的包读的也算，每个路由只挂它自己的 `Load` 或 `Layout` 读的。外层 Layout 的由 TanStack 加上。不读查询参数的 `Load` 没有这个类型，它的路由和以前一样什么键都收。
+- 浏览器里不运行任何检查：路由只拿到类型（`searchTypes` 返回 `undefined`，TanStack 就照原样读查询参数）。
 
 ### 显示应用信任的 HTML
 
@@ -245,7 +336,7 @@ async function ship() {
 ```
 
 - 函数接收一个对象。`params` 是路径参数，目录没有参数时不写。`name++` 目录的键是 `_splat`。会把请求带到别的路径的值在发请求前就被拒绝，promise 失败：`name+` 参数的空值、`.`、`..`，以及 `_splat` 里的 `.`、`..` 段和末尾以外的空段。`_splat` 为空没问题。`input` 是处理函数的入参，没有入参时不写。`signal` 用来取消请求。
-- GET、DELETE 把入参放进查询字符串，其他方法发 JSON 请求体。返回值的类型来自 Go 的返回值，并为重定向（见下文）加上 `| undefined`：`func(c, in) (Out, error)` 得到 `Promise<POSTOutput | undefined>`。`func(c, in) error` 得到 `void`。`func(c) error` 自己写响应，它的调用函数原样交回 `Response`，错误状态码也一样。
+- GET、DELETE 把入参放进查询字符串，其他方法发 JSON 请求体，入参装着文件时发 multipart 表单（见[入参里的文件](#入参里的文件)）。返回值的类型来自 Go 的返回值，并为重定向（见下文）加上 `| undefined`：`func(c, in) (Out, error)` 得到 `Promise<POSTOutput | undefined>`。`func(c, in) error` 得到 `void`。`func(c) error` 自己写响应，它的调用函数原样交回 `Response`，错误状态码也一样。
 - 调用只发出请求，回答带着会话时应用会话（见下）。它不重新取任何页面的数据，成功失败都一样，任何方法都一样。想让页面显示写操作的结果，在调用之后调用 `router.invalidate()`（见下面的例子）。
 - 错误回答抛出 `TifaError`，带 `status`、`message` 和 `fields`（`tifa.Fields` 的消息，其他情况为空）。网络错误照 `fetch` 的样子抛出。页面的构建比服务器旧时，调用以状态 409 失败，见[部署时还开着的页面](#部署时还开着的页面)。
 - 处理函数或 `OnRequest` 返回 `tifa.Redirect(url, status)` 时，浏览器去那个 URL：本站的 URL 经路由器跳转，页面不重新加载，别的站点整页加载。新页面显示路由器已有的数据，缺的再去取，和任何一次导航一样。重定向到正在显示的页面时，页面留在原处，什么都不取。路径、hash 和查询参数的值都相同就算同一页，查询参数的顺序和编码不论。promise 在导航结束后兑现为 `undefined`，有返回值的处理函数也一样。一次调用是否被重定向，要等回答来了才知道（`OnRequest` 可以重定向任何请求），所以有返回值的处理函数，返回类型都带 `undefined`。自己写响应的处理函数，调用函数拿到这次重定向的 `Response`（`ok` 为真，状态码在 `X-Tifa-Redirect` 里）。相对 URL 按处理函数的 URL 解析，不按页面的 URL。处理函数经 `c.Writer()` 自己写的 3xx，或者代理写的 3xx，浏览器读不到，promise 以 `Error` 失败。
@@ -290,7 +381,7 @@ const LayoutSSR = false // 可选，默认 true
 
 - `Layout` 和 `LayoutSSR` 写在 `route.go`，和同一个目录的 `Load`、`SSR`、`RenderCache` 和方法函数放在一起。写在包里其他文件，比如 `layout.go`，会构建报错。只写了 `Layout` 的 `route.go` 不是 API 路由。
 - Layout 用 `c.Param` 只能读自己目录路径里的参数。`app/projects/project+/route.go` 里的 `Layout` 能读 `project`，不能读 `order`。页面的 `Load` 同样只能读自己路径里的参数。
-- 同一个 Layout 下切换页面时，Layout 组件不重新挂载，它的状态保留。`Layout` 函数读的参数变了（比如换了一个项目），Layout 重新挂载，状态重置。它不读的参数变了，状态保留，页面同理。
+- 同一个 Layout 下切换页面时，Layout 组件不重新挂载，它的状态保留。`Layout` 函数读的路径参数变了（比如换了一个项目），Layout 重新挂载，状态重置。查询参数变了，即使是它读的，Layout 也只是重新取数据并渲染，不重新挂载，状态保留，这和 TanStack Router 的默认一致。所以换筛选条件时，访客选的视图会保留。组件用 `Load` 的数据初始化的状态（比如 `useState(data.x)`）也不会因为新的查询参数而重置：需要跟着变的地方，用这个值给组件一个 `key`，或者在 effect 里更新状态。页面同理。
 - 页面和 Layout 都可以用 `tifa.Use(c, project.Layout)` 拿到套着自己的 Layout（同目录或祖先目录的，中间的 `layout_.tsx` 去掉的除外）本次请求的结果，同一个 `Layout` 每个请求只跑一次。引用别的 Layout 构建报错，传入的不是包级 `Layout` 函数（比如闭包）也报错。`Layout` 函数不能引用自己所在目录的 Layout，直接引用或经辅助函数引用都不行。
 - 浏览器里跳转时，导航数据请求只执行所列路由的 `Load` 和 `Layout` 函数。祖先 Layout 的数据还在缓存里时，它不在列表中，它的 `Layout` 这次不会再跑。所以权限检查不要只写在 Layout 里：放进 `OnRequest`，或者让页面的 `Load` 用 `tifa.Use` 依赖做检查的那个 Layout，这样每次请求都会执行它。
 - 文档外壳（`<html>`、`<head>`、资源与注入数据的脚本）由框架写成字符串，React 只渲染 `<body>` 里的应用根节点，所以任何一层出错或 404 时页面仍是完整文档。根 Layout（`app/layout.tsx`）可以导出两个常量定制外壳：`htmlAttributes` 是每个页面 `<html>` 的初始属性（不导出时为 `{ lang: 'en' }`，路由的 `head` 可以为自己的页面改它们，见下文），`documentHead` 是每个页面都带的 head 标签（没有路由匹配、根 `Layout` 失败时也带），格式同 `head` 的返回值。在这里放网站的默认 `title`，没有路由匹配的 404 页面也有标题，页面自己的 `head` 返回 `title` 时会覆盖它。导出 `Document` 组件会构建报错。
@@ -880,7 +971,8 @@ func TestLoad(t *testing.T) {
 - `Load` 和 `Layout` 通过 `tifa.Use(c, Load)` 调用，这样跑起来的规则和服务端一样：同一个请求只跑一次，写响应体会失败。`Load` 里 `tifa.Use` 的 Layout 在同一个请求上跑。只有函数用 `tifa.Use` 要的 Layout 才会跑。
 - 方法函数直接调用：`POST(c)`，有入参就是 `POST(c, in)`。入参就是你传的值，所以 `Validate` 单独测。`Validate` 会改入参时，传改过的入参。
 - 测 `OnRequest` 时直接调用它，`next` 传一个闭包：`OnRequest(c, func(c *tifa.Ctx) error { got = c.Context(); return nil })`。闭包代替的是路由，所以不恢复 panic，也不写出结果。
-- 请求体上限是 `server.body_limit` 的默认值 1 MiB，可以用 `c.SetBodyLimit` 改。测试结束时会清理请求的 multipart 临时文件。
+- 请求体上限是 `server.body_limit` 的默认值 1 MiB，可以用 `c.SetBodyLimit` 改。`route.go` 的 `BodyLimit` 和 `ReadTimeout` 不生效。测试结束时会清理请求的 multipart 临时文件。
+- `tifatest.File(t, "sea.png", data)` 给出一个上传文件的 `*multipart.FileHeader`，用在传给处理函数或交给 `Validate` 检查的入参里。它的 `Content-Type` 按文件名的扩展名定。它的临时文件在测试结束时删掉。
 - `tifa build` 不读 `_test.go` 文件，所以测试可以放在 `app/` 下任何目录里。
 
 ### 渲染时钟
@@ -937,6 +1029,7 @@ tifa 只检查 `Load` 和 `Layout` 能到达的代码。在 `OnRequest`、方法
 | 整数、浮点数、`json.Number` | `number` |
 | `string`、`time.Time` | `string` |
 | `tifa.HTML` | `tifa/client` 的 `HTML`，见[显示应用信任的 HTML](#显示应用信任的-html)。不能做 map 的键，不能放在入参或会话里，不能是整个结果 |
+| `*multipart.FileHeader`、`[]*multipart.FileHeader` | `Blob \| null`、`Blob[]`。只能是 POST、PUT、PATCH 处理函数入参的字段，见[入参里的文件](#入参里的文件) |
 | 指针 | `T \| null` |
 | 切片 | `T[]`。nil 切片写成 `[]` |
 | `[]byte`、`[N]byte`（元素就是 `byte` 或 `uint8`） | `string`，写成 base64。nil 的 `[]byte` 是 `""`。元素是具名 byte 类型的切片或数组是普通的数字数组 |

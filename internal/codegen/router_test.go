@@ -87,6 +87,22 @@ func TestGeneratedRouterBehaves(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "script.tsx"), []byte(script), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// A query parameter Go reads is a string or an array of strings, since a key can come more than
+	// once in a URL: a read takes it as either.
+	wrongSearch := "import { Link } from '@tanstack/react-router'\nimport { page } from './.tifa/app/q/route.gen'\n" +
+		"export const n = <Link to=\"/q\" search={{ q: 2 }}>n</Link>\n" +
+		"export const t = <Link to=\"/q\" search={{ tag: [1] }}>t</Link>\n" +
+		"export const read = (): number => page.useSearch().q\n" +
+		"export const bare = (): string | undefined => page.useSearch().q\n"
+	if err := os.WriteFile(filepath.Join(root, "wrong-search.tsx"), []byte(wrongSearch), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A file of an upload is a Blob, not its name.
+	named := "import { POST } from './.tifa/app/api/photos/route.gen'\n" +
+		"export const sent = POST({ input: { title: '', tags: [], rating: 0, draft: false, photo: 'sea.png', extras: [] } })\n"
+	if err := os.WriteFile(filepath.Join(root, "named.ts"), []byte(named), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	tsc = exec.Command(node, filepath.Join(modules, "typescript", "bin", "tsc"), "--noEmit", "-p", ".")
 	tsc.Dir = root
 	output, err := tsc.CombinedOutput()
@@ -97,6 +113,14 @@ func TestGeneratedRouterBehaves(t *testing.T) {
 		if !strings.Contains(string(output), want) {
 			t.Errorf("a tifa.HTML value used as a string type-checks (no error at %s):\n%s", want, output)
 		}
+	}
+	for _, want := range []string{"wrong-search.tsx(3,", "wrong-search.tsx(4,", "wrong-search.tsx(5,", "wrong-search.tsx(6,"} {
+		if !strings.Contains(string(output), want) {
+			t.Errorf("a query value of the wrong type type-checks (no error at %s):\n%s", want, output)
+		}
+	}
+	if !strings.Contains(string(output), "named.ts(2,") {
+		t.Errorf("a file name in place of a file type-checks:\n%s", output)
 	}
 	if !strings.Contains(string(output), "script.tsx(3,") {
 		t.Errorf(`<HTML as="script"> type-checks:%s`, output)

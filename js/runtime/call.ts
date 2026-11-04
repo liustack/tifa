@@ -54,13 +54,19 @@ export function setRouter(r: Router, build: () => string) {
   pageBuild = build
 }
 
+// How the input of a POST, PUT or PATCH handler is sent: as JSON, or as a multipart form for an
+// input that holds files.
+export type Body = 'json' | 'form'
+
 // call sends one request to a method handler. url is the path with the parameters in it. GET
-// and DELETE carry the input in the query string, the other methods as a JSON body.
+// and DELETE carry the input in the query string, the other methods as a JSON body, or as a
+// multipart form when body is 'form'.
 export async function call(
   method: string,
   url: string,
   options: CallOptions & { input?: unknown },
   answer: Answer,
+  body: Body = 'json',
 ): Promise<unknown> {
   if (typeof document === 'undefined')
     throw new Error(`${method} ${url} is called outside the browser: call a handler function from an event handler or an effect, not while rendering`)
@@ -76,6 +82,9 @@ export async function call(
     if (method === 'GET' || method === 'DELETE') {
       const query = encodeQuery(options.input as Record<string, unknown>)
       if (query) url += '?' + query
+    } else if (body === 'form') {
+      // No Content-Type: the browser writes it, with the boundary of the form.
+      init.body = encodeForm(options.input as Record<string, unknown>)
     } else {
       headers['Content-Type'] = 'application/json'
       init.body = JSON.stringify(options.input)
@@ -188,4 +197,19 @@ export function rest(value: string) {
 
 function movedPath(value: string) {
   return new Error(`the path parameter ${JSON.stringify(value)} would send the request to another path`)
+}
+
+// encodeForm writes the input of a handler that takes files the way Ctx.Bind reads a multipart
+// form: a file per Blob, the other fields as text, an array as one part per element, and null and
+// undefined left out, as encodeQuery does.
+function encodeForm(input: Record<string, unknown>) {
+  const form = new FormData()
+  for (const [name, value] of Object.entries(input)) {
+    for (const item of Array.isArray(value) ? value : [value]) {
+      if (item === null || item === undefined) continue
+      if (item instanceof Blob) form.append(name, item)
+      else form.append(name, String(item))
+    }
+  }
+  return form
 }
