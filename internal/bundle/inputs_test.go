@@ -1,6 +1,8 @@
 package bundle
 
 import (
+	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -255,5 +257,29 @@ func TestInputsListTheFilesTheViteConfigImports(t *testing.T) {
 	}
 	if in.Incomplete != "" {
 		t.Errorf("incomplete = %q", in.Incomplete)
+	}
+}
+
+// tifa dev builds the SSR bundle on a worker thread, which reads the watch files of Rolldown there:
+// its inputs.json is complete and lists a file a plugin watches.
+func TestDevInputsListTheWatchFiles(t *testing.T) {
+	root := devApp(t)
+	writeTree(t, root, map[string]string{
+		"extra/watched.txt": "read by a plugin\n",
+		"vite.config.ts": "import path from 'node:path'\nimport react from '@vitejs/plugin-react'\nimport tifa from './.tifa/vite.js'\n" +
+			"export default { plugins: [tifa(), react(), { name: 'watch', buildStart() { this.addWatchFile(path.join(process.cwd(), 'extra/watched.txt')) } }] }\n",
+	})
+	d, err := NewDev(root, freePort(t), io.Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	var in inputs
+	readJSON(t, filepath.Join(root, ".tifa", "dist", InputsFile), &in)
+	if _, ok := in.Files["extra/watched.txt"]; !ok || in.Incomplete != "" {
+		t.Errorf("inputs.json has no extra/watched.txt, or is incomplete (%q): %v", in.Incomplete, in.Files)
 	}
 }
