@@ -63,7 +63,7 @@ tifa dev: 19:57:44 ready in 804ms
 | `app/todos/todo.go` | 待办这个域：类型和 SQLite 查询，与用到它们的页面放在一起 |
 | `app/todos/todo+/` | `/todos/{todo}`。以 `+` 结尾的目录是 URL 参数，用 `c.Param("todo")` 读取 |
 | `app/about/page.tsx` | 不需要数据的页面：只有 `page.tsx` |
-| `db.go`、`hooks.go`、`config.go` | 放在根目录：整个应用共用的东西 |
+| `db.go`、`sessions.go`、`hooks.go`、`config.go` | 放在根目录：整个应用共用的东西，比如数据库，以及把会话存进数据库的存储 |
 
 详见[编写应用](app.zh-CN.md#目录)和[应用的代码结构](structure.zh-CN.md)。
 
@@ -492,7 +492,6 @@ go tool tifa build
 
 ```text
 built /path/to/tutorial-app/bin/tutorial-app (build 2e121916557701e0)
-2026/11/04 19:53:48 INFO tifa: sessions are kept in memory: a restart signs everyone out
 2026/11/04 19:53:48 INFO tifa: listening on http://127.0.0.1:9527
 ```
 
@@ -504,7 +503,7 @@ built /path/to/tutorial-app/bin/tutorial-app (build 2e121916557701e0)
 
 - 放到服务器上：[部署](deploy.zh-CN.md)讲了为 Linux 构建、运行程序、容器、端口和 HTTPS，以及放在代理或 CDN 后面要设置什么。
 - 设置、HTTPS、渲染页面的缓存：[配置](config.zh-CN.md)。
-- 让用户登录：[会话](sessions.zh-CN.md)。
+- 让用户登录：[会话](sessions.zh-CN.md)。应用把会话存在 `app.db` 里（`sessions.go`），所以重启不会让任何人登出。
 - 样式、shadcn/ui、多语言站点、缓存页面：[编写应用](app.zh-CN.md)。
 - 一个更大的应用可以读：[examples/shop](../examples/shop)。
 - `tifa dev` 对每种改动怎么反应、日志怎么读：[开发服务器](dev.zh-CN.md)。

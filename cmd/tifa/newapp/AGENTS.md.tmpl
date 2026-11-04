@@ -68,7 +68,7 @@ Writing the response is checked when the request runs instead: in `Load` and `La
 `hooks.go` in the root package, all optional:
 
 - `OnStart(ctx)` runs before the app listens. An error stops the app.
-- `OnShutdown(ctx)` runs after a stop signal, once the requests in flight have finished. Requests still running after `server.shutdown_timeout` are canceled and get one more `shutdown_timeout` to return. `OnShutdown` is skipped if they do not, and either way the app exits with status 1.
+- `OnShutdown(ctx)` runs after a stop signal, once the requests in flight have finished. Requests still running after `server.shutdown_timeout` are canceled and get one more `shutdown_timeout` to return. `OnShutdown` is skipped if they do not, and either way the app exits with status 1. A handler that streams with no end, such as server-sent events, returns when `tifa.ShuttingDown(c.Context())` closes, see `docs/guides/streaming.md`.
 - `OnRequest(c, next)` runs before pages, navigation data requests, API routes and unmatched URLs, not static files. Call `next(c)` to go on, or `next(c.WithContext(ctx))` to pass a request-scoped value.
 - `OnError(c, err)` gets unexpected errors and panics. Writing one replaces the default, which logs and answers 500.
 
@@ -90,7 +90,7 @@ Writing the response is checked when the request runs instead: in `Load` and `La
 
 - Code is grouped by domain, and a domain is a folder under `app/`. Its types, queries and rules sit next to its pages, with their tests. `app/todos/todo.go` (`package todos`) is the todo list. The home page (`app/route.go`) and the page of one todo (`app/todos/todo+/route.go`) import `{{.Module}}/app/todos`.
 - A new domain gets a folder under `app/` and a file named after it, such as `app/notes/note.go` (`package notes`). When it has a list page and a page per item, its code goes in the list folder, not in the `name+` folder of one item.
-- The root package (`package {{.Package}}`, at the module root) holds only the hooks (`hooks.go`), the settings (`config.go`: `var DBPath`) and what the whole app shares (`db.go`: `var DB`, and `schema.sql` with the tables of every domain). Domains import it as `"{{.Module}}"` and write `{{.Package}}.DB`. By convention it imports nothing under `app/`: Go refuses import cycles, so once a domain uses `{{.Package}}.DB`, the root package could not import that domain or a page that imports it.
+- The root package (`package {{.Package}}`, at the module root) holds only the hooks (`hooks.go`), the settings (`config.go`: `var DBPath`) and what the whole app shares (`db.go`: `var DB`, `schema.sql` with the tables of every domain, and `sessions.go`, the session store that keeps sessions in the database, so a restart signs nobody out). Domains import it as `"{{.Module}}"` and write `{{.Package}}.DB`. By convention it imports nothing under `app/`: Go refuses import cycles, so once a domain uses `{{.Package}}.DB`, the root package could not import that domain or a page that imports it.
 - A domain may import another one that does not depend on it: if `notes` imports `todos`, directly or through other packages, `todos` cannot import `notes`. There are no `models/`, `services/` or `handlers/` packages. See `docs/structure.md`.
 - This app wires dependencies by hand: package-level variables such as `DB`, set up in `OnStart`, not in `init()`.
 

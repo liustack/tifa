@@ -1,10 +1,11 @@
 ---
-summary: 'Every setting of a tifa app and how an app defines its own: where each one can be set (flags, environment variables, .env, the file of -c, tifa.yaml), which source wins, how PORT and HOST are read, the default, the flag and environment variable names, the value formats and the errors a bad value gives, how to serve HTTPS with certificates the program gets itself or with your own, and how the program refuses writes that a browser sends from another site and how to let chosen origins or paths through'
+summary: 'Every setting of a tifa app and how an app defines its own: where each one can be set (flags, environment variables, .env, the file of -c, tifa.yaml), which source wins, how PORT and HOST are read, the default, the flag and environment variable names, the value formats and the errors a bad value gives, how a handler that needs longer lifts the read and write timeouts, how to serve HTTPS with certificates the program gets itself or with your own, and how the program refuses writes that a browser sends from another site and how to let chosen origins or paths through'
 read_when:
   - Defining a setting of the app with tifa.String and the like, or reading one in OnStart
   - Writing a .env file, or deploying on a platform that sets PORT
   - Changing how long a session lasts, the session cookie name, or how much memory the default session store may use
-  - Deploying a tifa app, or changing its port, body limit, compression, VM count, VM stack depth, render timeout, render queue, render cache, whole-page cache or the tracking parameters the cache ignores
+  - An upload, a download or a stream is cut off after about 10 seconds, or a handler needs longer than the read and write timeouts
+  - Deploying a tifa app, or changing its port, body limit, read and write timeouts, compression, VM count, VM stack depth, render timeout, render queue, render cache, whole-page cache or the tracking parameters the cache ignores
   - Serving HTTPS from the program itself, with Let's Encrypt or your own certificate, or deciding whether to
   - The program cannot listen on port 80 or 443, or gets no certificate
   - A POST, PUT, PATCH or DELETE gets 403 with `cross-origin request detected`, or a page of another site or a provider's callback must be allowed to send one
@@ -30,7 +31,7 @@ From highest to lowest priority:
 5. The project file `tifa.yaml` in the app root. `tifa build` reads it and builds its values into the program.
 6. The defaults: those in the table below for the settings of tifa, those in `config.go` for the [settings of the app](#settings-of-the-app).
 
-A source sets only the keys it names, so a deployment file holds just what it changes. The program reads only its own keys: other keys of a file, other environment variables and other flags are left alone.
+A source sets only the keys it names, so a deployment file holds just what it changes. The program reads only its own keys: other keys of a file and other environment variables are left alone. A flag that is neither a setting of tifa nor one of the app, such as `--addr` for `--server-addr`, stops the program with `unknown flag`.
 
 `tifa.yaml` holds values of the settings of tifa. `build.*` settings can only be set here, and `tifa build` fails on a value of the wrong type or format. The program does not read the file: change it and build again.
 
@@ -103,6 +104,8 @@ Hosting platforms such as Cloud Run, Heroku, Render, Railway and Fly tell the pr
 | `build.i18next_cache` | `true` | project file only | The server render keeps the strings i18next translates and gives them again for the same key and options, so pages that translate the same texts on every render take less time: the shop's storefront pages 0.798 of it. `false` turns it off. Turn it off when the app changes i18next's resources or options after the first render without i18next's API, or gives i18next functions other than formatters and post-processors that read something of the request, or pages may show stale translations. See [build.md](build.md#i18next-cache) |
 | `server.addr` | `127.0.0.1:9527` | `--server-addr`, `SERVER_ADDR` | Address to listen on. Use `0.0.0.0:9527` in a container. With [HTTPS](#https) on it serves HTTPS and must be set, usually to `:443` |
 | `server.body_limit` | `1MiB` | `--server-body-limit`, `SERVER_BODY_LIMIT` | Largest request body. A bigger one is answered with 413 |
+| `server.read_timeout` | `10s` | `--server-read-timeout`, `SERVER_READ_TIMEOUT` | Time to read a whole request, its body included, from the moment the connection is taken. A body still coming after it fails to read. See [Long requests](#long-requests) |
+| `server.write_timeout` | `10s` | `--server-write-timeout`, `SERVER_WRITE_TIMEOUT` | Time from the end of a request header to the end of its answer. An answer still being written after it is cut off. See [Long requests](#long-requests) |
 | `server.shutdown_timeout` | `10s` | `--server-shutdown-timeout`, `SERVER_SHUTDOWN_TIMEOUT` | After a stop signal, the time in-flight requests get to finish, and then the time `OnShutdown` gets. Requests still running when it ends are canceled and get one more `shutdown_timeout` to return. `OnShutdown` runs once they have returned and is skipped if they have not. Either way the program exits with status 1 |
 | `server.compress` | `true` | `--server-compress`, `SERVER_COMPRESS` | Sends text answers with gzip or zstd to clients that accept them, and the browser bundle as the gzip files `tifa build` wrote, see [Compression](build.md#compression). Set it to `false` when a proxy in front compresses, such as nginx with brotli |
 | `server.tls_domains` | none | `--server-tls-domains`, `SERVER_TLS_DOMAINS` | Turns on [HTTPS](#https) with certificates from Let's Encrypt for these domains, comma-separated, such as `example.com,www.example.com` |
@@ -226,6 +229,32 @@ if !errors.As(got, &public) || public.Status != 503 || w.Header().Get("Retry-Aft
 
 The limits apply only when a render needs a VM. Cache hits, 304 responses, navigation data, API routes and pages with SSR off do not wait for one. Requests sharing a cache miss count as one render. `Load` runs before admission, and shared requests still hold their own HTTP state. A queue limit bounds render jobs, not total process memory or all HTTP requests. See [Overload](performance.md#overload) for sizing and measurements.
 
+## Long requests
+
+`server.read_timeout` and `server.write_timeout` give every request 10 seconds to arrive and 10 seconds to be answered, so a client that sends or reads very slowly cannot hold connections open. Keep them short, and lift them in the handlers that need longer: an upload from a phone, the export of a large file, a stream of server-sent events or of a model's answer.
+
+```go
+func POST(c *tifa.Ctx) error {
+	rc := http.NewResponseController(c.Writer())
+	// This request may take 5 minutes to send its body, and as long for the answer.
+	if err := rc.SetReadDeadline(time.Now().Add(5 * time.Minute)); err != nil {
+		return err
+	}
+	if err := rc.SetWriteDeadline(time.Now().Add(5 * time.Minute)); err != nil {
+		return err
+	}
+	// ...
+}
+```
+
+- The new time counts from the moment of the call and holds for this request only. `time.Time{}` removes the limit.
+- Move a deadline before it passes, at the start of the handler. Over HTTP/2 a write deadline that passed has already ended the answer, and a read deadline that passed has cut off the body: a new one does not bring them back. The same code over HTTP/1.1 works, so the mistake only shows with HTTPS on.
+- A stream that waits between writes, for events or for a language model, clears the write deadline while it waits and sets one around each write, so a client that stops reading does not keep the handler forever, see [Streaming](guides/streaming.md).
+- The write timeout counts from the end of the request header, so a handler that reads a long body lifts both: its answer is written after the body.
+- A handler with a typed input has its body read before it runs, so lift the read deadline in `OnRequest`, as [Uploads](guides/uploads.md#the-settings-and-the-body-limit) does.
+- `c.Writer()` reaches the connection through the writers of tifa and through compression.
+- A proxy in front has timeouts of its own, such as the 60 seconds of nginx's `proxy_read_timeout`. Raise them for the same paths.
+
 ## HTTPS
 
 HTTPS is off by default, and the program serves plain HTTP on `server.addr` as it always did. Leave it off behind a CDN or a proxy that ends TLS, such as Cloudflare, nginx or Caddy: they already speak HTTPS and HTTP/2 to browsers, and they would be the only ones to see a certificate of the program.
@@ -282,6 +311,7 @@ Copying or building the file again drops it, so do it after each deployment. Und
 ### What changes over HTTP/2
 
 - Compression, the `.gz` files of the build, the render cache, the whole-page cache, ETags, redirects and server-sent events work as over HTTP/1.1, and a flush sends what was written at once.
+- Deadlines run out over HTTP/2 even while the handler is not reading or writing: a write deadline that passes ends the answer, and a read deadline that passes makes the rest of the body fail to read. Moving either afterwards does not help. Over HTTP/1.1 a deadline that passed can still be moved before the next read or write. Move deadlines before they pass, see [Long requests](#long-requests).
 - `Hijack` fails with `http.ErrNotSupported` on an HTTP/2 connection, since that connection carries other requests too. Unless `GODEBUG=http2xconnect=1` is set, the server does not offer WebSockets over HTTP/2, so browsers open them over a separate HTTP/1.1 connection, where `Hijack` works.
 - Over HTTPS, read what compression may leak in [Compression](build.md#compression).
 
@@ -349,7 +379,7 @@ What a lower depth breaks:
 - a value of a setting of tifa or of the app has the wrong type or format, such as `ssr.timeout: 3`, `SHOP_OPEN=maybe` or a section under `ssr.vms` in the file of `-c`,
 - the file of `-c` cannot be read or is not YAML, or a line of `.env` cannot be read.
 
-A key, variable or flag that is no setting is not an error, so a misspelt one such as `SERVER_PORT` changes nothing: `./bin/app config` shows what each setting ended up as. `build.*` settings are read only from `tifa.yaml`: a deployment file, a `BUILD_*` variable or a `--build-*` flag does not change them.
+A flag that is no setting stops the program with `unknown flag`. A key or variable that is no setting is not an error, so a misspelt one such as `SERVER_PORT` changes nothing: `./bin/app config` shows what each setting ended up as. `build.*` settings are read only from `tifa.yaml`: a deployment file, a `BUILD_*` variable or a `--build-*` flag does not change them.
 
 It also refuses to start, before `OnStart`, and names the settings when:
 

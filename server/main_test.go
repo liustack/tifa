@@ -17,7 +17,7 @@ func runApp(t *testing.T, ctx context.Context, app App, environ []string, args .
 
 func TestConfigCommandPrintsMergedSettings(t *testing.T) {
 	app := App{Settings: map[string]string{"server.addr": "127.0.0.1:9000", "server.body_limit": "2MiB"}}
-	out, _, err := runApp(t, context.Background(), app, []string{"SERVER_BODY_LIMIT=3MiB", "TIFA_SSR_VMS=9"}, "config", "--ssr-vms", "5", "--app-flag", "x")
+	out, _, err := runApp(t, context.Background(), app, []string{"SERVER_BODY_LIMIT=3MiB", "TIFA_SSR_VMS=9"}, "config", "--ssr-vms", "5")
 	if err != nil {
 		t.Fatalf("config: %v", err)
 	}
@@ -45,6 +45,33 @@ func TestVersionCommand(t *testing.T) {
 	}
 	if !strings.Contains(out, "tifa ") {
 		t.Fatalf("version output %q", out)
+	}
+}
+
+// Every flag the program takes is known before it parses them, the settings of the app
+// included, so a flag it does not know is a mistake, such as --addr for --server-addr.
+func TestUnknownFlagsFail(t *testing.T) {
+	ran := false
+	app := App{Hooks: Hooks{OnStart: func(context.Context) error { ran = true; return nil }}}
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--addr", ":1"}, "unknown flag: --addr"},
+		{[]string{"serve", "--addr=:1"}, "unknown flag: --addr"},
+		{[]string{"config", "--ssr-vm", "2"}, "unknown flag: --ssr-vm"},
+		{[]string{"version", "--verbose"}, "unknown flag: --verbose"},
+	} {
+		// A program that takes the flag serves: the deadline stops it.
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		_, _, err := runApp(t, ctx, app, []string{"SERVER_ADDR=127.0.0.1:0"}, c.args...)
+		cancel()
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%q: %v, want %q", c.args, err, c.want)
+		}
+	}
+	if ran {
+		t.Error("OnStart ran")
 	}
 }
 

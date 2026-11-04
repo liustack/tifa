@@ -284,6 +284,15 @@ func TestCompressionOverTheWire(t *testing.T) {
 		<-flushed
 		return nil
 	})
+	s.handle("GET", "/tokens", func(c *tifa.Ctx) error {
+		c.SetHeader("Content-Type", "text/plain; charset=utf-8")
+		io.WriteString(c.Writer(), "first\n")
+		if err := http.NewResponseController(c.Writer()).Flush(); err != nil {
+			return err
+		}
+		<-flushed
+		return nil
+	})
 	s.handle("GET", "/hijack", func(c *tifa.Ctx) error {
 		conn, rw, err := http.NewResponseController(c.Writer()).Hijack()
 		if err != nil {
@@ -321,17 +330,46 @@ func TestCompressionOverTheWire(t *testing.T) {
 		t.Errorf("HEAD: %d %v, %d bytes", head.StatusCode, head.Header, len(headBody))
 	}
 
+	// Server-sent events go out as they are: a compressor kept for each open stream would cost
+	// about a megabyte of memory for as long as the stream lasts.
 	events := do("GET", "/events")
 	defer events.Body.Close()
-	zr, err := gzip.NewReader(events.Body)
-	if err != nil {
-		t.Fatalf("event stream: %v %v", events.Header, err)
+	if events.Header.Get("Content-Encoding") != "" {
+		t.Errorf("event stream: %v, want it uncompressed", events.Header)
 	}
-	line, err := bufio.NewReader(zr).ReadString('\n')
-	release.Do(func() { close(flushed) })
+	line, err := bufio.NewReader(events.Body).ReadString('\n')
 	if err != nil || line != "data: first\n" {
 		t.Errorf("first event: %q, %v", line, err)
 	}
+	// Another stream is compressed, and a flush still sends what was written.
+	for _, accept := range []string{"gzip", "zstd"} {
+		req, _ := http.NewRequest("GET", srv.URL+"/tokens", nil)
+		req.Header.Set("Accept-Encoding", accept)
+		res, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var body io.Reader
+		switch enc := res.Header.Get("Content-Encoding"); {
+		case enc != accept:
+			t.Fatalf("%s stream: Content-Encoding %q", accept, enc)
+		case accept == "gzip":
+			body, err = gzip.NewReader(res.Body)
+		default:
+			var zr *zstd.Decoder
+			zr, err = zstd.NewReader(res.Body)
+			body = zr
+		}
+		if err != nil {
+			t.Fatalf("%s stream: %v", accept, err)
+		}
+		line, err := bufio.NewReader(body).ReadString('\n')
+		if err != nil || line != "first\n" {
+			t.Errorf("%s stream, first line: %q, %v", accept, line, err)
+		}
+		res.Body.Close()
+	}
+	release.Do(func() { close(flushed) })
 
 	hijacked := do("GET", "/hijack")
 	body, _ := io.ReadAll(hijacked.Body)

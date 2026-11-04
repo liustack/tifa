@@ -1,0 +1,40 @@
+package {{.Package}}
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"time"
+)
+
+// sessionStore keeps the sessions of tifa.SetSession in the sessions table of the database, so a
+// restart or a deploy signs nobody out. OnStart hands it to tifa.SetSessionStore. Its test runs
+// tifatest.TestSessionStore, which checks the rules of a store in docs/sessions.md.
+type sessionStore struct{ db *sql.DB }
+
+// Get returns the record of key. A key that is missing or has expired is not found, with no error.
+func (s sessionStore) Get(ctx context.Context, key string) ([]byte, bool, error) {
+	var data []byte // Scan copies the bytes, so the caller may change them
+	err := s.db.QueryRowContext(ctx, `SELECT data FROM sessions WHERE key = ? AND expiry > ?`, key, time.Now().UnixMilli()).Scan(&data)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	}
+	return data, err == nil, err
+}
+
+// Put stores data under key until expiry. It also removes the records that have expired: a
+// sign-in is rare enough to clean up as it goes.
+func (s sessionStore) Put(ctx context.Context, key string, data []byte, expiry time.Time) error {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE expiry <= ?`, time.Now().UnixMilli()); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO sessions (key, data, expiry) VALUES (?, ?, ?)
+		ON CONFLICT (key) DO UPDATE SET data = excluded.data, expiry = excluded.expiry`, key, data, expiry.UnixMilli())
+	return err
+}
+
+// Delete removes the record of key. A key that is not there is no error.
+func (s sessionStore) Delete(ctx context.Context, key string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE key = ?`, key)
+	return err
+}

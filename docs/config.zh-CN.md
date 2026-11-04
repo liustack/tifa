@@ -1,10 +1,11 @@
 ---
-summary: 'tifa 应用的全部配置和应用怎样定义自己的配置：每项能在哪设置（参数、环境变量、.env、-c 的文件、tifa.yaml）、谁优先、怎样读 PORT 和 HOST、默认值、参数和环境变量名、值的写法、写错时的报错，怎样用程序自己申请的证书或你自己的证书提供 HTTPS，以及程序怎样拒绝浏览器从别的网站发来的写请求、怎样放行指定的来源或路径'
+summary: 'tifa 应用的全部配置和应用怎样定义自己的配置：每项能在哪设置（参数、环境变量、.env、-c 的文件、tifa.yaml）、谁优先、怎样读 PORT 和 HOST、默认值、参数和环境变量名、值的写法、写错时的报错，需要更久的处理函数怎样放宽读写超时，怎样用程序自己申请的证书或你自己的证书提供 HTTPS，以及程序怎样拒绝浏览器从别的网站发来的写请求、怎样放行指定的来源或路径'
 read_when:
   - 用 tifa.String 等定义应用的配置，或在 OnStart 里读它
   - 写 .env 文件，或部署到会设 PORT 的平台
   - 想改会话能用多久、会话 cookie 的名字，或默认会话存储能用多少内存
-  - 部署 tifa 应用，或要改端口、请求体上限、压缩、VM 数量、VM 栈深度、渲染超时、渲染队列、渲染缓存、整页缓存，或缓存忽略的跟踪参数
+  - 上传、下载或推流大约 10 秒就被切断，或者处理函数需要的时间超过读写超时
+  - 部署 tifa 应用，或要改端口、请求体上限、读写超时、压缩、VM 数量、VM 栈深度、渲染超时、渲染队列、渲染缓存、整页缓存，或缓存忽略的跟踪参数
   - 想让程序自己提供 HTTPS，用 Let's Encrypt 或自己的证书，或者在犹豫要不要这样做
   - 程序监听不了 80 或 443 端口，或者拿不到证书
   - POST、PUT、PATCH 或 DELETE 收到 403 和 `cross-origin request detected`，或者要放行另一个网站的页面或第三方的回调
@@ -30,7 +31,7 @@ tifa 应用的默认值按小机器定好了，需要时才改。
 5. 应用根目录的项目文件 `tifa.yaml`。`tifa build` 读它，把里面的值编进程序。
 6. 默认值：tifa 的配置用下表的默认值，[应用的配置](#应用的配置)用 `config.go` 里写的。
 
-每个来源只改它写到的键，所以部署文件只写要改的项。程序只读自己的键：文件里别的键、别的环境变量和别的参数一律不管。
+每个来源只改它写到的键，所以部署文件只写要改的项。程序只读自己的键：文件里别的键和别的环境变量一律不管。既不是 tifa 的设置、也不是应用设置的参数，比如把 `--server-addr` 写成 `--addr`，程序会报 `unknown flag` 并退出。
 
 `tifa.yaml` 写的是 tifa 配置的值。`build.*` 只能写在这里，类型或格式写错时 `tifa build` 报错。程序运行时不读这个文件，改了要重新构建。
 
@@ -103,6 +104,8 @@ Cloud Run、Heroku、Render、Railway、Fly 这类托管平台用 `PORT` 告诉�
 | `build.i18next_cache` | `true` | 只能写在项目文件 | 服务端渲染记住 i18next 翻译出的字符串，同样的键和选项再来时直接给出，于是每次渲染都翻译同样文案的页面更快：shop 的店面页面只用原来 0.798 的时间。设为 `false` 关掉。应用在第一次渲染之后绕开 i18next 的 API 改资源或选项，或者交给 i18next 的函数（格式化函数和后处理器以外）会读请求里的东西时，要关掉它，否则页面可能显示过期的翻译。见 [build.zh-CN.md](build.zh-CN.md#i18next-缓存) |
 | `server.addr` | `127.0.0.1:9527` | `--server-addr`、`SERVER_ADDR` | 监听地址。容器里用 `0.0.0.0:9527`。开了 [HTTPS](#https) 时这里提供 HTTPS，而且必须设置，一般设成 `:443` |
 | `server.body_limit` | `1MiB` | `--server-body-limit`、`SERVER_BODY_LIMIT` | 请求体上限，超过答 413 |
+| `server.read_timeout` | `10s` | `--server-read-timeout`、`SERVER_READ_TIMEOUT` | 从接下连接起，读完整个请求（含请求体）的时间。到时还没传完的请求体读取失败。见[耗时长的请求](#耗时长的请求) |
+| `server.write_timeout` | `10s` | `--server-write-timeout`、`SERVER_WRITE_TIMEOUT` | 从读完请求头到写完回答的时间。到时还没写完的回答被切断。见[耗时长的请求](#耗时长的请求) |
 | `server.shutdown_timeout` | `10s` | `--server-shutdown-timeout`、`SERVER_SHUTDOWN_TIMEOUT` | 收到退出信号后，先给在途请求的时间，再给 `OnShutdown` 的时间。到时仍在运行的请求会被取消，再给它们一个 `shutdown_timeout` 返回。都返回了就执行 `OnShutdown`，没返回就跳过它。两种情况程序都以状态码 1 退出 |
 | `server.compress` | `true` | `--server-compress`、`SERVER_COMPRESS` | 对接受压缩的客户端用 gzip 或 zstd 发文本回答，浏览器包直接发 `tifa build` 写好的 gzip 文件，见[压缩](build.zh-CN.md#压缩)。前面有代理负责压缩时设为 `false`，比如用 brotli 的 nginx |
 | `server.tls_domains` | 无 | `--server-tls-domains`、`SERVER_TLS_DOMAINS` | 开启 [HTTPS](#https)，为这些域名向 Let's Encrypt 申请证书，逗号分隔，比如 `example.com,www.example.com` |
@@ -226,6 +229,32 @@ if !errors.As(got, &public) || public.Status != 503 || w.Header().Get("Retry-Aft
 
 限制只在渲染需要 VM 时生效。缓存命中、304、导航数据、API 和关闭 SSR 的页面都不等 VM。共享同一次缓存未命中的请求只算一次渲染。`Load` 在准入检查前运行，共享渲染的请求仍各自占用 HTTP 状态。队列限制约束渲染任务数量，不是整个进程的内存或全部 HTTP 请求。容量建议和测量见[过载](performance.zh-CN.md#过载)。
 
+## 耗时长的请求
+
+`server.read_timeout` 和 `server.write_timeout` 给每个请求 10 秒传完、10 秒答完，这样发得或读得极慢的客户端没法一直占着连接。保持它们短，在需要更久的处理函数里单独放宽：手机上传文件、导出大文件、推送 server-sent events 或大模型的回答。
+
+```go
+func POST(c *tifa.Ctx) error {
+	rc := http.NewResponseController(c.Writer())
+	// 这个请求可以花 5 分钟传请求体，回答也一样。
+	if err := rc.SetReadDeadline(time.Now().Add(5 * time.Minute)); err != nil {
+		return err
+	}
+	if err := rc.SetWriteDeadline(time.Now().Add(5 * time.Minute)); err != nil {
+		return err
+	}
+	// ...
+}
+```
+
+- 新的期限从调用那一刻算起，只管这一个请求。`time.Time{}` 去掉期限。
+- 在期限到之前挪它，放在处理函数开头。HTTP/2 下写期限一过回答就已经结束了，读期限一过请求体就已经断了，再设新期限也救不回来。同样的代码在 HTTP/1.1 下能用，所以这个错误要开了 HTTPS 才会出现。
+- 两次写之间要等的流，比如等事件或等大模型，在等的时候清掉写期限，每次写的前后再设上和清掉，这样停止读取的客户端不会让处理函数永远挂着，见[流式输出](guides/streaming.zh-CN.md)。
+- 写期限从读完请求头算起，所以读长请求体的处理函数两个都要放宽：回答在请求体之后才写。
+- 带类型输入的处理函数，请求体在它运行前就读了，所以要在 `OnRequest` 里放宽读期限，做法见[上传](guides/uploads.zh-CN.md#配置和请求体限制)。
+- `c.Writer()` 穿过 tifa 自己的各层写入器和压缩层，直达连接。
+- 前面的代理有自己的超时，比如 nginx 的 `proxy_read_timeout` 默认 60 秒。对同样的路径一并调大。
+
 ## HTTPS
 
 HTTPS 默认关闭，程序照旧在 `server.addr` 上提供明文 HTTP。在 CDN 或负责 TLS 的代理（比如 Cloudflare、nginx、Caddy）后面就别开：它们已经用 HTTPS 和 HTTP/2 跟浏览器说话，程序的证书只有它们看得到。
@@ -282,6 +311,7 @@ sudo setcap cap_net_bind_service=+ep ./bin/myapp
 ### HTTP/2 下有什么不同
 
 - 压缩、构建写好的 `.gz` 文件、渲染缓存、整页缓存、ETag、跳转和 server-sent events 都和 HTTP/1.1 下一样，flush 会把写好的内容马上发出去。
+- HTTP/2 下期限到了就生效，哪怕处理函数当时没在读写：写期限一到回答就结束了，读期限一到请求体剩下的部分就读不出来。事后再挪哪个都没用。HTTP/1.1 下期限过了，只要下一次读写之前挪开，仍然有效。要在期限到之前挪，见[耗时长的请求](#耗时长的请求)。
 - 在 HTTP/2 连接上 `Hijack` 返回 `http.ErrNotSupported`，因为这条连接上还有别的请求。除非设了 `GODEBUG=http2xconnect=1`，服务端不在 HTTP/2 上提供 WebSocket，浏览器会另开一条 HTTP/1.1 连接来建 WebSocket，那里 `Hijack` 照常能用。
 - 走 HTTPS 时压缩可能泄露什么，见[压缩](build.zh-CN.md#压缩)。
 
@@ -349,7 +379,7 @@ sudo setcap cap_net_bind_service=+ep ./bin/myapp
 - tifa 或应用的某项配置的值类型或格式不对，比如 `ssr.timeout: 3`、`SHOP_OPEN=maybe`，或者 `-c` 的文件里 `ssr.vms` 下面又写了一节。
 - `-c` 的文件读不了或不是 YAML，或者 `.env` 有读不懂的行。
 
-不是配置的键、变量和参数不算错，所以拼错的名字（比如 `SERVER_PORT`）什么也不改，用 `./bin/app config` 看每项配置最后是什么值。`build.*` 只从 `tifa.yaml` 读：部署文件、`BUILD_*` 变量和 `--build-*` 参数都改不了它。
+不认识的命令行参数让程序报 `unknown flag` 退出。不是配置的键和变量不算错，所以拼错的名字（比如 `SERVER_PORT`）什么也不改，用 `./bin/app config` 看每项配置最后是什么值。`build.*` 只从 `tifa.yaml` 读：部署文件、`BUILD_*` 变量和 `--build-*` 参数都改不了它。
 
 下面几种情况程序也拒绝启动，在 `OnStart` 之前停下，并指出是哪几项配置：
 

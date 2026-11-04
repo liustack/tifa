@@ -1,11 +1,12 @@
 ---
-summary: 'How to put a built tifa program on a server: building for Linux, running it with its settings and data folder, stopping it cleanly, containers, ports and HTTPS, what to set when a CDN or proxy stands in front (Host and Origin, compression, which answers to cache), a health check route, metrics for Prometheus from tifa.Stats and what to read in them, and what happens to open pages when you deploy'
+summary: 'How to put a built tifa program on a server: building for Linux, running it with its settings and data folder, stopping it cleanly, restarting it under systemd without refusing a connection and without signing users out, containers, ports and HTTPS, what to set when a CDN or proxy stands in front (Host and Origin, compression, which answers to cache), a health check route, metrics for Prometheus from tifa.Stats and what to read in them, and what happens to open pages when you deploy'
 read_when:
   - Putting a tifa app on a VPS or in a container for the first time
   - Putting a CDN or a reverse proxy such as nginx, Cloudflare or CloudFront in front of a tifa app
   - A POST gets 403 with `cross-origin request detected` only behind the proxy
   - Pages show old content or a missing script after a deploy
   - Deciding what a systemd unit or a Dockerfile for a tifa app needs
+  - Visitors get refused connections, or are signed out, each time you deploy
   - Adding a health check for a load balancer, a container or Kubernetes
   - Watching the VM pool and the caches with Prometheus or another monitoring system, or deciding from them whether the machine needs more CPU or a larger `cache.size`
 ---
@@ -36,9 +37,85 @@ SERVER_ADDR=0.0.0.0:9527 ./myapp
 - Every setting has a flag and an environment variable, and the program also reads a `.env` file of its working folder and a file given with `-c`. [Configuration](config.md) has the list and which source wins. `./myapp config` prints every setting with its value and where it came from, and `./myapp version` prints the versions.
 - Platforms that tell the program its port in `PORT`, such as Cloud Run or Fly, work without more settings (see [PORT and HOST](config.md#port-and-host)).
 - Run it from the folder it keeps data in. A relative path such as the `app.db` of the `tifa new` template (the setting `db.path`) is resolved against the working directory. Back that folder up, or mount it in a container.
-- SIGINT and SIGTERM stop it gracefully: new connections stop, requests in flight get `server.shutdown_timeout` to finish, then `OnShutdown` runs. A systemd unit or a container needs nothing more than the executable, the environment and a writable data folder.
+- SIGINT and SIGTERM stop it gracefully: new connections stop, requests in flight get `server.shutdown_timeout` to finish, then `OnShutdown` runs. A stream with no end of its own, such as server-sent events, returns at once when it watches `tifa.ShuttingDown` (see [Streaming](guides/streaming.md#when-the-program-stops)). A systemd unit or a container needs nothing more than the executable, the environment and a writable data folder.
 - A `FROM scratch` container works. The program holds the time zone data its renders need.
 - Size the machine with [Performance](performance.md#sizing-a-machine). `ssr.vms` follows the CPU limit of a container.
+
+## Restart without dropping requests
+
+A restart stops the program, and the next one prewarms its VMs before it listens. A connection that arrives in between is refused, unless systemd holds the socket: with socket activation, systemd listens on the port and hands the socket to the program, and keeps it open while the program restarts. The system takes the connections that arrive meanwhile, and the next program answers them. A visitor only waits a little longer: on an M4 Mac, the program of the example shop answers its first page 0.42 seconds after it starts with 10 VMs, and 0.27 seconds with `ssr.vms: 1`. The first start after a build, with the file not yet in the cache of the system, took 0.79 seconds. On a Linux machine with systemd 261, the 300 requests a small app got every 10 ms while `systemctl restart` ran all answered 200, the slowest in 0.14 seconds.
+
+Users stay signed in across the restart only when sessions are kept outside the program. The default store lives in memory, so every restart signs everyone out (see [Where to store sessions](sessions.md#where-to-store-sessions)). An app from `tifa new` keeps them in its SQLite database (`sessions.go`).
+
+Two units, for an app behind a proxy, or served over plain HTTP:
+
+```ini
+# /etc/systemd/system/shop.socket
+[Unit]
+Description=Shop socket
+
+[Socket]
+ListenStream=0.0.0.0:9527
+
+[Install]
+WantedBy=sockets.target
+```
+
+```ini
+# /etc/systemd/system/shop.service
+[Unit]
+Description=Shop
+Requires=shop.socket
+After=shop.socket
+
+[Service]
+User=shop
+WorkingDirectory=/var/lib/shop
+ExecStart=/srv/shop/shop
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl enable --now shop.socket shop.service
+# each deploy: copy the new program, then
+sudo systemctl restart shop.service
+```
+
+- Restart the service, not the socket. Restarting or stopping `shop.socket` closes the port.
+- `shop.service` is enabled too, so the program starts and prewarms at boot instead of on the first visitor.
+- The program reads the socket from `LISTEN_PID`, `LISTEN_FDS` and `LISTEN_FDNAMES`, which systemd sets, and removes them from its environment, so the programs it starts do not see them. `server.addr` is not listened on then. The log line says `socket=systemd`. Without these variables the program listens itself, as before.
+- systemd opens the port as root, so a port below 1024 needs no `setcap` or `AmbientCapabilities`.
+- With the default `server.shutdown_timeout`, a stop takes at most about 30 seconds: 10 for the requests, 10 more for those still running after they are canceled, and 10 for `OnShutdown`. systemd waits 90 seconds (`TimeoutStopSec`) before it kills the program.
+
+With HTTPS on, the program serves two addresses, and each socket says which by its name. One socket unit gives the same name to all its sockets, so use a unit for each:
+
+```ini
+# /etc/systemd/system/shop-https.socket
+[Socket]
+ListenStream=443
+FileDescriptorName=server.addr
+Service=shop.service
+
+[Install]
+WantedBy=sockets.target
+```
+
+```ini
+# /etc/systemd/system/shop-http.socket
+[Socket]
+ListenStream=80
+FileDescriptorName=server.http_addr
+Service=shop.service
+
+[Install]
+WantedBy=sockets.target
+```
+
+In `shop.service`, `Requires=` and `After=` name both units, and `[Service]` adds `Sockets=shop-https.socket shop-http.socket`. Keep `server.addr: :443` in the settings, which [HTTPS](config.md#https) asks for. A socket named `server.addr` or `server.http_addr` serves that setting, and a single socket with any other name, or none, serves `server.addr`. Several must be named `server.addr` and `server.http_addr`, and a socket for `server.http_addr` without HTTPS on stops the program with an error. The program listens itself on an address systemd passed no socket for.
 
 ## Ports and HTTPS
 

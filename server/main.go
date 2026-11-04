@@ -136,10 +136,8 @@ func runSources(ctx context.Context, app App, src *config.Sources, stdout, stder
 			return err
 		},
 	}
-	for _, cmd := range []*cobra.Command{root, serveCmd, configCmd, versionCmd} {
-		// Flags the program does not know belong to someone else, see config.Sources.
-		cmd.FParseErrWhitelist.UnknownFlags = true
-	}
+	// Every flag of the program is known here: those of tifa, and those of the app, which its
+	// config.go defined when its package started. Cobra refuses any other, as a mistyped one.
 	for _, cmd := range []*cobra.Command{root, serveCmd, configCmd} {
 		config.AddFlags(cmd.Flags())
 	}

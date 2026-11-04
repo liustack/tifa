@@ -58,6 +58,8 @@ An answer that sets or drops the cookie goes out as `Cache-Control: no-store` wi
 
 Without a store, sessions live in the memory of the process, up to `session.memory_limit` (64 MiB). A full store drops the sessions that expire first, and a restart signs everyone out. The server logs one line about this at start. `tifa dev` restarts when your Go code changes, so you are signed out then. If your app lets visitors who are not signed in start a session, limit that at the entry, since flooding it pushes real sessions out.
 
+An app made by `tifa new` sets a store in `OnStart` that keeps sessions in its SQLite database (`sessions.go`, with its test on `tifatest.TestSessionStore`), so a restart or a deploy signs nobody out, and `tifa dev` keeps you signed in too.
+
 To keep sessions somewhere else, such as Redis or SQL, give `OnStart` a store:
 
 ```go

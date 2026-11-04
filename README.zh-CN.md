@@ -130,7 +130,7 @@ mkdir -p .claude/skills && cp -r tifa-src/skills/tifa .claude/skills/tifa
 | 文档 | 什么时候读 |
 | :-- | :-- |
 | [教程](docs/tutorial.zh-CN.md) | 第一次用 tifa，想从第一个目录做到一个能跑的小应用 |
-| 做法：[表单](docs/guides/forms.zh-CN.md)、[上传](docs/guides/uploads.zh-CN.md)、[登录](docs/guides/sign-in.zh-CN.md)、[数据库](docs/guides/database.zh-CN.md)、[后台任务](docs/guides/jobs.zh-CN.md)、[邮件](docs/guides/email.zh-CN.md)、[多语言](docs/guides/i18n.zh-CN.md) | 要加一个常见功能，想要一套实测过的写法 |
+| 做法：[表单](docs/guides/forms.zh-CN.md)、[上传](docs/guides/uploads.zh-CN.md)、[登录](docs/guides/sign-in.zh-CN.md)、[数据库](docs/guides/database.zh-CN.md)、[后台任务](docs/guides/jobs.zh-CN.md)、[邮件](docs/guides/email.zh-CN.md)、[多语言](docs/guides/i18n.zh-CN.md)、[流式输出](docs/guides/streaming.zh-CN.md) | 要加一个常见功能，想要一套实测过的写法 |
 | [哲学](docs/philosophy.zh-CN.md) | 想知道 tifa 应用为什么这样组织 |
 | [应用的代码结构](docs/structure.zh-CN.md) | 决定领域代码、存储和共享资源放在哪，包之间按什么方向 import |
 | [应用怎么写](docs/app.zh-CN.md) | 安排目录、路由、Layout、钩子、404、head 标签和缓存 |

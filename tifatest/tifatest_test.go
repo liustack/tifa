@@ -3,11 +3,14 @@ package tifatest_test
 import (
 	"bytes"
 	"errors"
+	"io"
 	"mime/multipart"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/tifatest"
@@ -72,6 +75,22 @@ func TestRecorderHoldsWhatAHandlerWrites(t *testing.T) {
 	}
 	if w.Code != 201 || !strings.Contains(w.Body.String(), `"id":"SH-2"`) {
 		t.Fatalf("recorded %d %s", w.Code, w.Body.String())
+	}
+}
+
+// A handler that streams moves its deadlines and flushes, as it does on the server.
+func TestStreamingHandlerRunsAsOnTheServer(t *testing.T) {
+	c, w := tifatest.NewCtx(t, httptest.NewRequest("GET", "/clock", nil))
+	rc := http.NewResponseController(c.Writer())
+	if err := rc.SetReadDeadline(time.Now().Add(time.Minute)); err != nil {
+		t.Errorf("SetReadDeadline: %v", err)
+	}
+	if err := rc.SetWriteDeadline(time.Time{}); err != nil {
+		t.Errorf("SetWriteDeadline: %v", err)
+	}
+	io.WriteString(c.Writer(), "data: 1\n\n")
+	if err := rc.Flush(); err != nil || !w.Flushed || w.Body.String() != "data: 1\n\n" {
+		t.Fatalf("Flush: %v, flushed %v, %q", err, w.Flushed, w.Body.String())
 	}
 }
 

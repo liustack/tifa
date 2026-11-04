@@ -277,9 +277,27 @@ func TestFileMustHoldOneDocument(t *testing.T) {
 }
 
 func TestKeysListEverySetting(t *testing.T) {
-	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache server.addr server.body_limit server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout cache.size cache.ignore_query session.cookie session.max_age session.memory_limit"
+	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout cache.size cache.ignore_query session.cookie session.max_age session.memory_limit"
 	if got := strings.Join(Keys(), " "); got != want {
 		t.Fatalf("Keys: %s, want %s", got, want)
+	}
+}
+
+// The read and write timeouts of a request are 10 seconds unless a source changes them, and
+// like every duration of tifa they must be positive.
+func TestReadAndWriteTimeouts(t *testing.T) {
+	d := Default().Server
+	if d.ReadTimeout != 10*time.Second || d.WriteTimeout != 10*time.Second {
+		t.Fatalf("defaults: read %v, write %v", d.ReadTimeout, d.WriteTimeout)
+	}
+	c, err := load(t, []string{"--server-write-timeout", "2m"}, []string{"SERVER_READ_TIMEOUT=90s"}, "", "")
+	if err != nil || c.Server.ReadTimeout != 90*time.Second || c.Server.WriteTimeout != 2*time.Minute {
+		t.Fatalf("read %v, write %v, %v", c.Server.ReadTimeout, c.Server.WriteTimeout, err)
+	}
+	for _, env := range []string{"SERVER_READ_TIMEOUT=0s", "SERVER_WRITE_TIMEOUT=-1s", "SERVER_WRITE_TIMEOUT=10"} {
+		if _, err := load(t, nil, []string{env}, "", ""); err == nil {
+			t.Errorf("%s: no error", env)
+		}
 	}
 }
 

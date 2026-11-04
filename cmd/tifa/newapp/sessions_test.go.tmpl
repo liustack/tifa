@@ -1,0 +1,31 @@
+package {{.Package}}
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/liustack/tifa/tifatest"
+)
+
+func TestSessionStoreIsAValidStore(t *testing.T) {
+	useTestDB(t)
+	tifatest.TestSessionStore(t, sessionStore{DB})
+}
+
+// A sign-in removes the records that have expired, so the table does not grow without end.
+func TestPutRemovesExpiredSessions(t *testing.T) {
+	useTestDB(t)
+	ctx := context.Background()
+	store := sessionStore{DB}
+	if err := store.Put(ctx, "old", []byte("x"), time.Now().Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Put(ctx, "new", []byte("y"), time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	var keys int
+	if err := DB.QueryRow("SELECT count(*) FROM sessions").Scan(&keys); err != nil || keys != 1 {
+		t.Fatalf("%d records, %v, want the one that has not expired", keys, err)
+	}
+}

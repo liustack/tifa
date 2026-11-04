@@ -618,6 +618,17 @@ func (s *server) run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// The sockets of systemd socket activation, which systemd keeps open while the program
+	// restarts: the connections that arrive meanwhile wait for the next one.
+	sockets, err := takeSystemdSockets()
+	if err != nil {
+		return err
+	}
+	defer closeAll(sockets) // those still here when run fails before it listens
+	plainHTTP := tlsConfig != nil && s.cfg.HTTPAddr != "off"
+	if err := unusedSocket(sockets, plainHTTP); err != nil {
+		return err
+	}
 	if s.hooks.OnStart != nil {
 		if err := s.hooks.OnStart(ctx); err != nil {
 			return fmt.Errorf("tifa: OnStart: %w", err)
@@ -628,15 +639,16 @@ func (s *server) run(ctx context.Context) error {
 	defer release()
 	s.root = root
 	defer s.startSessions()()
-	ln, err := net.Listen("tcp", s.cfg.Addr)
+	ln, fromSystemd, err := listen(sockets, socketAddr, s.cfg.Addr)
 	if err != nil {
-		return listenError("server.addr", err)
+		return err
 	}
 	var plainLn net.Listener
-	if tlsConfig != nil && s.cfg.HTTPAddr != "off" {
-		if plainLn, err = net.Listen("tcp", s.cfg.HTTPAddr); err != nil {
+	plainFromSystemd := false
+	if plainHTTP {
+		if plainLn, plainFromSystemd, err = listen(sockets, socketHTTPAddr, s.cfg.HTTPAddr); err != nil {
 			ln.Close()
-			return listenError("server.http_addr", err)
+			return err
 		}
 	}
 	// Under DevMain the app listens on an address only tifa dev talks to, and tifa dev prints
@@ -646,12 +658,12 @@ func (s *server) run(ctx context.Context) error {
 		if tlsConfig != nil {
 			scheme = "https"
 		}
-		core.Logger().Info("tifa: listening on " + scheme + "://" + ln.Addr().String())
+		core.Logger().Info("tifa: listening on "+scheme+"://"+ln.Addr().String(), socketFrom(fromSystemd)...)
 		if tlsConfig != nil {
 			warnLoopback(ln.Addr())
 		}
 		if plainLn != nil {
-			core.Logger().Info("tifa: listening on http://"+plainLn.Addr().String(), "redirects_to", "https")
+			core.Logger().Info("tifa: listening on http://"+plainLn.Addr().String(), append([]any{"redirects_to", "https"}, socketFrom(plainFromSystemd)...)...)
 		}
 	}
 	ready()
@@ -717,7 +729,8 @@ func (g *gate) wait(timeout time.Duration) bool {
 }
 
 // serveListener serves plain HTTP on ln until ctx is done or ln fails, then shuts down the same way in both cases:
-//  1. stop accepting and wait up to shutdown_timeout for connections to finish, as http.Server.Shutdown does
+//  1. close the channel of tifa.ShuttingDown, stop accepting and wait up to shutdown_timeout for connections to
+//     finish, as http.Server.Shutdown does
 //  2. close the gate, so a request net/http hands over from now on gets 503 without running handler code
 //  3. cancel every request context and close the remaining connections, which also reaches hijacked ones
 //  4. wait up to shutdown_timeout for admitted handlers to return
@@ -746,7 +759,10 @@ func (s *server) serveBoth(ctx context.Context, ln net.Listener, tlsConfig *tls.
 	if s.root != nil {
 		root = s.root
 	}
-	base, cancelRequests := context.WithCancel(context.Background())
+	// stopping closes as the shutdown starts, which handlers read with tifa.ShuttingDown: a stream
+	// with no end of its own returns then, instead of holding the stop for shutdown_timeout.
+	stopping := make(chan struct{})
+	base, cancelRequests := context.WithCancel(core.WithShutdown(context.Background(), stopping))
 	defer cancelRequests()
 	srv := &http.Server{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -765,8 +781,10 @@ func (s *server) serveBoth(ctx context.Context, ln net.Listener, tlsConfig *tls.
 			defer g.leave()
 			root.ServeHTTP(w, r)
 		}),
-		BaseContext:       func(net.Listener) context.Context { return base },
-		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second,
+		BaseContext: func(net.Listener) context.Context { return base },
+		// A handler that needs longer than the timeouts, an upload or a stream, lifts them for
+		// itself with http.ResponseController, which reaches the connection through Unwrap.
+		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: s.cfg.ReadTimeout, WriteTimeout: s.cfg.WriteTimeout, IdleTimeout: 60 * time.Second,
 		// ServeTLS adds h2 and http/1.1 to NextProtos and turns HTTP/2 on.
 		TLSConfig: tlsConfig,
 	}
@@ -795,6 +813,7 @@ func (s *server) serveBoth(ctx context.Context, ln net.Listener, tlsConfig *tls.
 		running--
 	case <-ctx.Done():
 	}
+	close(stopping)
 	drain, cancel := context.WithTimeout(context.Background(), s.cfg.ShutdownTimeout)
 	plainDone := make(chan error, 1)
 	if plainSrv != nil {

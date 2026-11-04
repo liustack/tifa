@@ -63,7 +63,7 @@ Every folder under `app/` is a URL, and the files in it say what the URL does:
 | `app/todos/todo.go` | The todos domain: the type and the SQLite queries, next to the pages that use it |
 | `app/todos/todo+/` | `/todos/{todo}`. A folder that ends in `+` is a URL parameter, read with `c.Param("todo")` |
 | `app/about/page.tsx` | A page that needs no data: `page.tsx` alone |
-| `db.go`, `hooks.go`, `config.go` | At the root: what the whole app shares |
+| `db.go`, `sessions.go`, `hooks.go`, `config.go` | At the root: what the whole app shares, such as the database and the store that keeps sessions in it |
 
 See [Writing an app](app.md#folders) and [Structuring an app](structure.md).
 
@@ -492,7 +492,6 @@ go tool tifa build
 
 ```text
 built /path/to/tutorial-app/bin/tutorial-app (build 2e121916557701e0)
-2026/11/04 19:53:48 INFO tifa: sessions are kept in memory: a restart signs everyone out
 2026/11/04 19:53:48 INFO tifa: listening on http://127.0.0.1:9527
 ```
 
@@ -504,7 +503,7 @@ The program keeps its data in `app.db` in the folder it runs in, so run from the
 
 - Put it on a server: [Deploying](deploy.md) covers building for Linux, running the program, containers, ports and HTTPS, and what to set behind a proxy or CDN.
 - Settings, HTTPS, the cache of rendered pages: [Configuration](config.md).
-- Sign users in: [Sessions](sessions.md).
+- Sign users in: [Sessions](sessions.md). The app keeps sessions in `app.db` (`sessions.go`), so a restart signs nobody out.
 - Styles, shadcn/ui, a site in several languages, caching a page: [Writing an app](app.md).
 - A bigger app to read: [examples/shop](../examples/shop).
 - How `tifa dev` reacts to each change, and how to read its log: [Dev server](dev.md).

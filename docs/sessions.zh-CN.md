@@ -58,6 +58,8 @@ cookie 叫 `__Host-tifa_session`，带 `HttpOnly`、`Secure`、`SameSite=Lax`、
 
 不设存储时，会话放在进程的内存里，上限是 `session.memory_limit`（64 MiB）。满了就先挤掉最早过期的，重启后所有人都要重新登录。服务器启动时会打一行日志说明这一点。`tifa dev` 在你改 Go 代码后会重启，那时你会被登出。如果应用允许没登录的访客开会话，要在入口限流，否则灌满它会把真正的会话挤出去。
 
+`tifa new` 生成的应用在 `OnStart` 里设了一个存储，把会话存进它的 SQLite 数据库（`sessions.go`，测试用的是 `tifatest.TestSessionStore`），所以重启或部署不会让任何人登出，`tifa dev` 里也不会被登出。
+
 想把会话放到别处，比如 Redis 或 SQL，在 `OnStart` 里给它一个存储：
 
 ```go
