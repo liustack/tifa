@@ -20,7 +20,7 @@ The example app `examples/shop` is a shop written by tifa conventions: an order 
 
 1. Every doc starts with front matter: `summary` (one sentence saying what question the doc answers) and `read_when` (when to read it). See the comment at the top of [scripts/docs-list.sh](scripts/docs-list.sh) for the format.
 2. Before starting work and before creating a doc, run `scripts/docs-list.sh` to see the index, and read the docs whose Read when applies. Before committing, you can run `scripts/docs-list.sh --check`. It fails if a doc has no summary.
-3. `docs/archive/` and `docs/research/` are left out of the index. They hold outdated or exploratory material.
+3. `docs/research/` is left out of the index. It holds exploratory material. Outdated docs are deleted, not archived: git history keeps them.
 4. Docs are written for readers: write conclusions and how to do things, not reasoning or work logs.
 5. Docs are written in English by default. User-facing docs (README, docs/app, docs/build, docs/config, docs/content, docs/dev, docs/performance, docs/structure, examples/shop/README) also have a `*.zh-CN.md` Chinese version. When you change one side, update the other to match. `scripts/docs-list.sh` skips `*.zh-CN.md` files.
 6. English: keep it short and direct, use everyday words, and do not invent terms. Chinese: do not use semicolons, and do not use dashes as punctuation.
