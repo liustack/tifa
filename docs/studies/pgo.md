@@ -10,7 +10,7 @@ versions: 'Go 1.27.2, the example shop, internal/codegen/engine.pgo of each rele
 
 # Profile-guided optimization
 
-[Build](../build.md#profile-guided-optimization) says how `build.pgo` picks a profile. [The engine profile](../testing.md#the-engine-profile) says how to collect it again.
+tifa no longer uses a profile: the engine is Go assembly that PGO does not change, so `build.pgo` and the steps to collect a profile are gone. The numbers below are from the engine before that.
 
 ## Question
 
@@ -28,7 +28,7 @@ How much faster do pages render when `go build` uses a CPU profile of page rende
 - **Pairs:** a test binary of `test/ssr` built without a profile and one built with it, alternating `BenchmarkShop/render-*` and swapping the order each round. B/A is the sum of the six pages' P50 with the profile over without, in the same round.
 - **linux/amd64:** a Google Cloud VM with 8 vCPUs of an AMD EPYC 7B13, one core pinned, its sibling idle, `GOMAXPROCS=1`, 150 renders per page, 8 rounds for v0.26.13 and 6 for v0.26.15.
 - **darwin/arm64:** an Apple M4, `GOMAXPROCS=1`, 100 renders per page, 6 to 8 rounds.
-- **Profiles:** collected as in [The engine profile](../testing.md#the-engine-profile), 500 renders per page on a quiet machine: 108.5 seconds of samples on linux/amd64 for v0.26.13. An arm64 profile was taken on the M4 for the cross-platform check.
+- **Profiles:** collected from 500 renders per page on a quiet machine: 108.5 seconds of samples on linux/amd64 for v0.26.13. An arm64 profile was taken on the M4 for the cross-platform check.
 - **Call site match:** for each profile, the share of its call edge weight whose caller and callee exist at the same line in the code of each target.
 - **HTML:** 32 pages of the built shop with and without the profile, the router's render time masked.
 
@@ -83,11 +83,11 @@ In a separate measurement of the fork against moejs, PGO made v0.26.15 about 1.0
 - `tifa build` compiles apps with pages with the profile by default (`build.pgo: auto`), and `tifa dev` never does.
 - One profile, collected on linux/amd64, ships with tifa. Merging an arm64 profile gained 0.4% on the Mac and was not kept.
 - `TestEngineProfileMatchesTheDependencies` fails when the profile was made with other versions of quickjs or libc, so it is collected again with each engine upgrade.
-- Apps can use a profile of their own traffic, which covers the engine too, or merge it with tifa's (see [Build](../build.md#profile-guided-optimization)).
+- Apps can use a profile of their own traffic, which covers the engine too, or merge it with tifa's.
 
 ## Not measured, or uncertain
 
-- The v0.26.15 profile on darwin/arm64. [Build](../build.md#profile-guided-optimization) gives about 7%, from the v0.26.13 measurement.
+- The v0.26.15 profile on darwin/arm64. The docs gave about 7% then, from the v0.26.13 measurement.
 - Other architectures, such as 386 or riscv64.
 - Tuning PGO's inlining limits with Go's debug flags.
 - Build time with the newer, smaller profile.
