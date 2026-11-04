@@ -1044,13 +1044,18 @@ func routeModule(g *routeGen) ([]byte, error) {
 		if answer == "json" {
 			b.WriteString("// It resolves to undefined when the handler or OnRequest redirects.\n")
 		}
+		body := ""
+		if h.Form {
+			b.WriteString("// Its input holds files, so it is sent as a multipart form.\n")
+			body = `, "form"`
+		}
 		param := "options: " + strings.Join(options, " & ")
 		if len(options) == 1 {
 			param = "options: CallOptions = {}"
 		}
 		// async, so that a refused path parameter rejects the promise like any other failure.
 		fmt.Fprintf(&b, "export async function %s(%s): Promise<%s> {\n", h.Method, param, result)
-		fmt.Fprintf(&b, "  return call(%s, %s, options, %s) as Promise<%s>\n}\n", jsString(h.Method), urlTemplate(g.segs), jsString(answer), result)
+		fmt.Fprintf(&b, "  return call(%s, %s, options, %s%s) as Promise<%s>\n}\n", jsString(h.Method), urlTemplate(g.segs), jsString(answer), body, result)
 	}
 	return []byte(b.String()), nil
 }

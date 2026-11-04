@@ -103,7 +103,7 @@ Cloud Run、Heroku、Render、Railway、Fly 这类托管平台用 `PORT` 告诉�
 | `build.debug_info` | `false` | 只能写在项目文件 | 设为 `true` 时，程序里保留 DWARF 调试信息，给 Delve 这类调试器用。不设的话，`tifa build` 用 `-ldflags=-w` 去掉调试信息，示例商店的程序因此小约 20%。两种情况下 panic 都照样给出每一帧的文件和行号。`tifa dev` 总是保留。见 [build.zh-CN.md](build.zh-CN.md#调试信息) |
 | `build.i18next_cache` | `true` | 只能写在项目文件 | 服务端渲染记住 i18next 翻译出的字符串，同样的键和选项再来时直接给出，于是每次渲染都翻译同样文案的页面更快：shop 的店面页面只用原来 0.798 的时间。设为 `false` 关掉。应用在第一次渲染之后绕开 i18next 的 API 改资源或选项，或者交给 i18next 的函数（格式化函数和后处理器以外）会读请求里的东西时，要关掉它，否则页面可能显示过期的翻译。见 [build.zh-CN.md](build.zh-CN.md#i18next-缓存) |
 | `server.addr` | `127.0.0.1:9527` | `--server-addr`、`SERVER_ADDR` | 监听地址。容器里用 `0.0.0.0:9527`。开了 [HTTPS](#https) 时这里提供 HTTPS，而且必须设置，一般设成 `:443` |
-| `server.body_limit` | `1MiB` | `--server-body-limit`、`SERVER_BODY_LIMIT` | 请求体上限，超过答 413 |
+| `server.body_limit` | `1MiB` | `--server-body-limit`、`SERVER_BODY_LIMIT` | 请求体上限，超过答 413。`route.go` 可以用 `BodyLimit` 设自己的上限，见 [app.zh-CN.md](app.zh-CN.md#路由自己的请求体上限和读取时间) |
 | `server.read_timeout` | `10s` | `--server-read-timeout`、`SERVER_READ_TIMEOUT` | 从接下连接起，读完整个请求（含请求体）的时间。到时还没传完的请求体读取失败。见[耗时长的请求](#耗时长的请求) |
 | `server.write_timeout` | `10s` | `--server-write-timeout`、`SERVER_WRITE_TIMEOUT` | 从读完请求头到写完回答的时间。到时还没写完的回答被切断。见[耗时长的请求](#耗时长的请求) |
 | `server.shutdown_timeout` | `10s` | `--server-shutdown-timeout`、`SERVER_SHUTDOWN_TIMEOUT` | 收到退出信号后，先给在途请求的时间，再给 `OnShutdown` 的时间。到时仍在运行的请求会被取消，再给它们一个 `shutdown_timeout` 返回。都返回了就执行 `OnShutdown`，没返回就跳过它。两种情况程序都以状态码 1 退出 |
@@ -251,7 +251,7 @@ func POST(c *tifa.Ctx) error {
 - 在期限到之前挪它，放在处理函数开头。HTTP/2 下写期限一过回答就已经结束了，读期限一过请求体就已经断了，再设新期限也救不回来。同样的代码在 HTTP/1.1 下能用，所以这个错误要开了 HTTPS 才会出现。
 - 两次写之间要等的流，比如等事件或等大模型，在等的时候清掉写期限，每次写的前后再设上和清掉，这样停止读取的客户端不会让处理函数永远挂着，见[流式输出](guides/streaming.zh-CN.md)。
 - 写期限从读完请求头算起，所以读长请求体的处理函数两个都要放宽：回答在请求体之后才写。
-- 带类型输入的处理函数，请求体在它运行前就读了，所以要在 `OnRequest` 里放宽读期限，做法见[上传](guides/uploads.zh-CN.md#配置和请求体限制)。
+- 带类型输入的处理函数，请求体在它运行前就读了，在处理函数里设期限对请求体来说太晚。改在它的 `route.go` 里写 `ReadTimeout`，它在 `OnRequest` 运行前就放宽两个期限，见[路由自己的请求体上限和读取时间](app.zh-CN.md#路由自己的请求体上限和读取时间)和[上传](guides/uploads.zh-CN.md#配置和请求体限制)。
 - `c.Writer()` 穿过 tifa 自己的各层写入器和压缩层，直达连接。
 - 前面的代理有自己的超时，比如 nginx 的 `proxy_read_timeout` 默认 60 秒。对同样的路径一并调大。
 

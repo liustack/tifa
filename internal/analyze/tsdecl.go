@@ -29,7 +29,8 @@ func TSShapes(ts []types.Type) (shapes, decls []string, html bool, err error) {
 	d := &tsDecls{names: map[tsKey]string{}, declared: map[tsKey]string{}, bodies: map[[2]string]string{}}
 	var errs []error
 	for _, t := range ts {
-		c := tsChecker{active: map[tsKey]bool{}, decls: d}
+		// The checks accepted a file only where an input holds one, so one met here is that.
+		c := tsChecker{active: map[tsKey]bool{}, decls: d, files: true}
 		shapes = append(shapes, c.encode(t, rootLabel(t), false))
 		for _, p := range c.problems {
 			errs = append(errs, errors.New(p.path+": "+p.msg))

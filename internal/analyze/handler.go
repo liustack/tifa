@@ -33,9 +33,11 @@ func (a *analyzer) readHandler(pkg *packages.Package, obj types.Object, method s
 	h := Handler{Method: method}
 	if sig.Params().Len() == 2 {
 		in := sig.Params().At(1).Type()
-		if !a.checkInput(method, in, fieldTypePos(decl.Type.Params, 1)) {
+		valid, form := a.checkInput(method, in, fieldTypePos(decl.Type.Params, 1))
+		if !valid {
 			ok = false
 		}
+		h.Form = form
 		h.Input, h.InputType = typeString(in), in
 	}
 	if sig.Results().Len() == 2 {
@@ -81,46 +83,51 @@ func (a *analyzer) withField(msg string, field *types.Var) string {
 
 // checkInput checks the input type of a method handler. The generated code decodes it from the
 // request body as JSON or a form, or for GET and DELETE from the query string, then calls its
-// Validate method if it has one.
-func (a *analyzer) checkInput(method string, in types.Type, pos token.Pos) bool {
+// Validate method if it has one. form reports whether the input holds files, whose body is a form.
+func (a *analyzer) checkInput(method string, in types.Type, pos token.Pos) (ok, form bool) {
 	label := method + " input"
-	st, ok := in.Underlying().(*types.Struct)
-	if !ok {
+	st, isStruct := in.Underlying().(*types.Struct)
+	if !isStruct || isNamed(in, multipartPath, "FileHeader") {
 		a.errorAt(pos, "%s %s must be a struct: the input is decoded into the fields of a struct", label, typeString(in))
-		return false
+		return false, false
 	}
 	ok = true
-	if problems := checkInputTS(in); len(problems) > 0 {
+	if problems := checkInputTS(in, true); len(problems) > 0 {
 		a.reportTS(pos, label, problems)
 		ok = false
 	}
+	// The files of an upload are fields of the input itself: a form is a flat list of names.
+	files := map[*types.Var]bool{}
+	for i := range st.NumFields() {
+		f := st.Field(i)
+		if f.Exported() && !f.Embedded() && jsonName(st.Tag(i)) != "-" && fileType(f.Type()) {
+			files[f] = true
+		}
+	}
+	form = len(files) > 0
 	root := rootLabel(in)
 	walkFields(in, root, map[types.Type]bool{}, func(path string, f *types.Var, tag string) {
 		if _, has := reflect.StructTag(tag).Lookup("form"); has {
 			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s has a form tag: an input field is named by its json tag only, also in a form body, so remove the form tag", label, path), f))
 			ok = false
 		}
-	})
-	if method == "GET" || method == "DELETE" {
-		for _, name := range []string{"MarshalText", "UnmarshalText"} {
-			if _, _, found := lookupName(in, name); found {
-				a.errorAt(pos, "%s %s has %s: a %s input comes from the query string, which holds an object of fields, not a string", label, types.TypeString(in, shortQualifier), name, method)
-				return false
-			}
+		if !files[f] && holdsFile(f.Type()) {
+			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s holds a file as %s: a file can only be a field of the input itself, of type *multipart.FileHeader or []*multipart.FileHeader", label, path, types.TypeString(f.Type(), shortQualifier)), f))
+			ok = false
 		}
-		for i := range st.NumFields() {
-			f := st.Field(i)
-			path := root + "." + f.Name()
-			name, _, _ := strings.Cut(reflect.StructTag(st.Tag(i)).Get("json"), ",")
-			switch {
-			case f.Embedded():
-				a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s is an embedded field: a %s input comes from the query string, so list its fields directly", label, path, method), f))
-				ok = false
-			case !f.Exported() || name == "-":
-			case !queryType(f.Type()):
-				a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s is %s: a %s input comes from the query string, so its fields are strings, numbers, bools or slices of them", label, path, types.TypeString(f.Type(), shortQualifier), method), f))
-				ok = false
-			}
+	})
+	switch {
+	case method == "GET" || method == "DELETE":
+		for f := range files {
+			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s.%s is a file, which comes in a request body, and a %s input comes from the query string: take files in a POST, PUT or PATCH handler", label, root, f.Name(), method), f))
+			ok = false
+		}
+		if !a.checkFlatInput(label, in, st, files, pos, fmt.Sprintf("a %s input comes from the query string", method)) {
+			ok = false
+		}
+	case form:
+		if !a.checkFlatInput(label, in, st, files, pos, fmt.Sprintf("a %s input that holds a file comes as a form", method)) {
+			ok = false
 		}
 	}
 	if fn, _, _ := types.LookupFieldOrMethod(in, true, nil, "Validate"); fn != nil {
@@ -132,7 +139,73 @@ func (a *analyzer) checkInput(method string, in types.Type, pos token.Pos) bool 
 			}
 		}
 	}
+	return ok, form
+}
+
+// checkFlatInput checks an input whose fields come as a flat list of names and string values: the
+// query string of GET and DELETE, or the form of an input that holds files. why says which. Its
+// fields are strings, numbers, bools or slices of them, and the files.
+func (a *analyzer) checkFlatInput(label string, in types.Type, st *types.Struct, files map[*types.Var]bool, pos token.Pos, why string) bool {
+	for _, name := range []string{"MarshalText", "UnmarshalText"} {
+		if _, _, found := lookupName(in, name); found {
+			a.errorAt(pos, "%s %s has %s: %s, which holds an object of fields, not a string", label, types.TypeString(in, shortQualifier), name, why)
+			return false
+		}
+	}
+	ok := true
+	root := rootLabel(in)
+	for i := range st.NumFields() {
+		f := st.Field(i)
+		path := root + "." + f.Name()
+		switch {
+		case f.Embedded():
+			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s is an embedded field: %s, so list its fields directly", label, path, why), f))
+			ok = false
+		case !f.Exported() || jsonName(st.Tag(i)) == "-" || files[f] || holdsFile(f.Type()):
+		case !queryType(f.Type()):
+			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s is %s: %s, so its fields are strings, numbers, bools or slices of them", label, path, types.TypeString(f.Type(), shortQualifier), why), f))
+			ok = false
+		}
+	}
 	return ok
+}
+
+// jsonName is the name of the json tag of a struct field, "" without one.
+func jsonName(tag string) string {
+	name, _, _ := strings.Cut(reflect.StructTag(tag).Get("json"), ",")
+	return name
+}
+
+// fileType reports whether t is *multipart.FileHeader or []*multipart.FileHeader, the types of the
+// files of an upload in a field of an input.
+func fileType(t types.Type) bool {
+	if s, ok := types.Unalias(t).(*types.Slice); ok {
+		t = s.Elem()
+	}
+	p, ok := types.Unalias(t).(*types.Pointer)
+	return ok && isNamed(p.Elem(), multipartPath, "FileHeader")
+}
+
+// holdsFile reports whether t is a multipart.FileHeader or holds one through pointers, slices,
+// arrays and maps. The fields of a struct are walked on their own.
+func holdsFile(t types.Type) bool {
+	for {
+		if isNamed(t, multipartPath, "FileHeader") {
+			return true
+		}
+		switch u := types.Unalias(t).(type) {
+		case *types.Pointer:
+			t = u.Elem()
+		case *types.Slice:
+			t = u.Elem()
+		case *types.Array:
+			t = u.Elem()
+		case *types.Map:
+			t = u.Elem()
+		default:
+			return false
+		}
+	}
 }
 
 // walkFields calls visit for every field of the structs that t holds, through pointers, slices,

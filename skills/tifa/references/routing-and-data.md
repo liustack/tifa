@@ -101,7 +101,9 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 - The input is a struct (not a pointer). POST, PUT and PATCH decode it from the body: JSON, or a URL-encoded or multipart form. GET and DELETE decode it from the query string, so only strings, numbers, bools and slices of them.
 - Fields are named by their `json` tags. A `form` tag fails the build.
 - If the input type has `Validate() error`, it runs before the handler. Return `tifa.Fields{"carrier": "pick a carrier"}` for a message per field (422). Collect into a `tifa.Fields{}` and end with `return fields.Err()`, which is nil when empty. Any other plain error answers 400 with its text, which the user sees.
-- A body that does not decode answers 400 (413 over the body limit, 415 for another content type). The handler does not run.
+- A field of type `*multipart.FileHeader` or `[]*multipart.FileHeader` in a POST, PUT or PATCH input holds uploaded files (`Blob | null` and `Blob[]` in TypeScript). The generated function then sends a multipart form, and a JSON body gets 415. The other fields of that input follow the GET rules. Files only go in fields of the input itself: anywhere else fails the build. Check the bytes, not the name or Content-Type, and copy the file before the handler returns. Guide: [uploads](https://github.com/liustack/tifa/blob/main/docs/guides/uploads.md).
+- `const BodyLimit = 20 << 20` and `const ReadTimeout = 5 * time.Minute` in a `route.go` replace `server.body_limit` and `server.read_timeout` for its method handlers (not the GET of its page). Either may be a var, such as a `tifa.Size` setting. 408 when the body is too slow.
+- A body that does not decode answers 400 (413 over the body limit, 415 for another content type, 408 when it does not arrive in time). The handler does not run.
 - A handler that writes its own response reads input with `c.Bind(&in)` or `c.BindQuery(&in)`, and answers with `c.JSON`, `c.Text` or `c.NoContent`.
 - A POST, PUT, PATCH or DELETE sent by a browser from another site gets 403 before your code runs. See [build-and-deploy.md](build-and-deploy.md) for letting chosen origins through.
 
@@ -182,7 +184,7 @@ async function ship() {
 ```
 
 - The function takes one object: `params` (left out when the folder has none, `_splat` for a `name++` folder), `input` (left out when the handler takes none), and `signal`.
-- GET and DELETE send the input in the query string, the others as a JSON body.
+- GET and DELETE send the input in the query string, the others as a JSON body, or as a multipart form when the input holds files.
 - A call never reloads page data. After a write, call `router.invalidate()` (`await router.invalidate({ sync: true })` to wait until the page shows the new data). Revisiting a page shows its cached data and loads it again in the background, the router's default.
 - An error answer throws `TifaError` with `status`, `message` and `fields` (the `tifa.Fields` messages, empty otherwise).
 - When the handler (or `OnRequest`) returns `tifa.Redirect(...)`, the browser follows it, and the promise resolves to `undefined`. So the result type of a handler with a result includes `undefined`: check it before use.

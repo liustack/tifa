@@ -87,6 +87,12 @@ func TestGeneratedRouterBehaves(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "script.tsx"), []byte(script), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// A file of an upload is a Blob, not its name.
+	named := "import { POST } from './.tifa/app/api/photos/route.gen'\n" +
+		"export const sent = POST({ input: { title: '', tags: [], rating: 0, draft: false, photo: 'sea.png', extras: [] } })\n"
+	if err := os.WriteFile(filepath.Join(root, "named.ts"), []byte(named), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	tsc = exec.Command(node, filepath.Join(modules, "typescript", "bin", "tsc"), "--noEmit", "-p", ".")
 	tsc.Dir = root
 	output, err := tsc.CombinedOutput()
@@ -97,6 +103,9 @@ func TestGeneratedRouterBehaves(t *testing.T) {
 		if !strings.Contains(string(output), want) {
 			t.Errorf("a tifa.HTML value used as a string type-checks (no error at %s):\n%s", want, output)
 		}
+	}
+	if !strings.Contains(string(output), "named.ts(2,") {
+		t.Errorf("a file name in place of a file type-checks:\n%s", output)
 	}
 	if !strings.Contains(string(output), "script.tsx(3,") {
 		t.Errorf(`<HTML as="script"> type-checks:%s`, output)

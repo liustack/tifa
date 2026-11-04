@@ -4,6 +4,17 @@ What changed in tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- A field of type `*multipart.FileHeader` or `[]*multipart.FileHeader` in the input of a POST, PUT or PATCH handler holds uploaded files. The generated function takes them as `Blob | null` and `Blob[]` and sends the input as a multipart form, so a page uploads a file as it sends any other input, with `Validate`, `tifa.Fields` and `TifaError` as usual. A JSON body for such an input gets 415 (see [Files in the input](docs/app.md#files-in-the-input) and [Uploads](docs/guides/uploads.md)).
+- `BodyLimit` and `ReadTimeout` in a `route.go`, constants or variables such as a setting of the app, replace `server.body_limit` and `server.read_timeout` for the requests its method handlers answer. The read time is lifted before `OnRequest`, and the answer gets `server.write_timeout` after it (see [Body limit and read time of a route](docs/app.md#body-limit-and-read-time-of-a-route)).
+- A request body that does not arrive before the read deadline is answered with 408, no longer with 400.
+- `tifatest.File(t, name, data)` gives the `*multipart.FileHeader` of a file, for a test that calls a handler or `Validate` with an input that holds one.
+
+### Changed
+
+- A `multipart.FileHeader` anywhere but in a field of a POST, PUT or PATCH input, such as in a result, the data of `Load` or the session, fails the build. A `route.go` that declares `BodyLimit` or `ReadTimeout` with another meaning, or without a method handler, fails the build too.
+
 ## [0.0.3] - 2026-11-05
 
 ### Changed

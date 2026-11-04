@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+### 新增
+
+- POST、PUT、PATCH 处理函数的入参里，类型为 `*multipart.FileHeader` 或 `[]*multipart.FileHeader` 的字段装上传的文件。生成的函数把它们当 `Blob | null` 和 `Blob[]` 收下，把入参当 multipart 表单发出，所以页面上传文件和发送别的入参是一个写法，`Validate`、`tifa.Fields` 和 `TifaError` 照旧。这样的入参收到 JSON 请求体答 415（见[入参里的文件](docs/app.zh-CN.md#入参里的文件)和[上传](docs/guides/uploads.zh-CN.md)）。
+- `route.go` 里的 `BodyLimit` 和 `ReadTimeout`（常量，或者变量，比如应用的配置）对它的方法函数回答的请求代替 `server.body_limit` 和 `server.read_timeout`。读取时间在 `OnRequest` 之前放宽，回答在它之后再有 `server.write_timeout` 的时间（见[路由自己的请求体上限和读取时间](docs/app.zh-CN.md#路由自己的请求体上限和读取时间)）。
+- 请求体在读期限之前没传完时答 408，不再答 400。
+- `tifatest.File(t, name, data)` 给出一个文件的 `*multipart.FileHeader`，给用装文件的入参调用处理函数或 `Validate` 的测试用。
+
+### 变更
+
+- `multipart.FileHeader` 只要不在 POST、PUT、PATCH 入参的字段里，比如在结果、`Load` 的数据或会话里，都会构建报错。`route.go` 里把 `BodyLimit` 或 `ReadTimeout` 声明成别的意思，或者没有方法函数却声明了它们，也会构建报错。
+
 ## [0.0.3] - 2026-11-05
 
 ### 变更

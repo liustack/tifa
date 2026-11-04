@@ -2,6 +2,7 @@
 // fetch and a stubbed router.
 import { DELETE, GET, POST, PUT } from './app/api/notes/note+/route.gen'
 import { GET as file } from './app/api/files/path++/route.gen'
+import { POST as upload } from './app/api/photos/route.gen'
 import { setRouter } from './.tifa/runtime/call'
 import { resetReloads } from './.tifa/runtime/skew'
 import { TifaError } from 'tifa/client'
@@ -90,6 +91,27 @@ assert(headers.get('Content-Type') === 'application/json', 'POST content type')
 // Every call asks for a redirect as JSON, and fetch follows no 3xx to the HTML of its target.
 assert(headers.get('X-Tifa-Call') === '1' && last().init.redirect === 'manual', `call headers ${JSON.stringify(last().init)}`)
 assert(saved?.text === 'saved' && invalidated() === 0, `POST result ${JSON.stringify(saved)} ${invalidated()}`)
+
+// An input that holds files goes as a multipart form: a part per file and per value, an array as
+// one part per element, null and undefined left out, and no Content-Type, which the browser writes
+// with the boundary. The answer is read as for JSON.
+answer = () => Response.json({ result: { name: 'sea.png' } })
+const photo = new File(['png bytes'], 'sea.png', { type: 'image/png' })
+const uploaded = await upload({
+  input: { title: 'Sea', tags: ['a', 'b'], rating: 4, draft: false, photo, extras: [new Blob(['x']), photo], cover: undefined },
+})
+const form = last().init.body
+assert(form instanceof FormData, `upload body ${String(form)}`)
+const uploadHeaders = new Headers(last().init.headers)
+assert(!uploadHeaders.has('Content-Type') && uploadHeaders.get('X-Tifa-Call') === '1', `upload headers ${JSON.stringify(last().init.headers)}`)
+const sentForm = [...form.entries()].map(([name, value]) => `${name}=${typeof value === 'string' ? value : `file:${value.name}`}`)
+assert(
+  sentForm.join('&') === 'title=Sea&tags=a&tags=b&rating=4&draft=false&photo=file:sea.png&extras=file:blob&extras=file:sea.png',
+  `upload form ${sentForm.join('&')}`,
+)
+assert(uploaded?.name === 'sea.png', `upload result ${JSON.stringify(uploaded)}`)
+await upload({ input: { title: '', tags: [], rating: 0, draft: true, photo: null, extras: [] } })
+assert([...(last().init.body as FormData).keys()].join() === 'title,rating,draft', 'an upload without files')
 
 // A write sends one request, the call itself. Nothing reloads the data of the page after it.
 const sentBeforeWrite = requests.length

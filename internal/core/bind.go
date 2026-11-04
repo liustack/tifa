@@ -5,39 +5,54 @@ import (
 	"errors"
 	"fmt"
 	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
 )
 
 // Bind decodes the request body into v by Content-Type: JSON, URL-encoded form or multipart form.
-// Client mistakes come back as Error with status 400, 413 or 415.
+// A multipart form also fills the fields of type *multipart.FileHeader and []*multipart.FileHeader
+// with its files. Client mistakes come back as Error with status 400, 408, 413 or 415.
 func (c *Ctx) Bind(v any) error {
 	mediaType, _, _ := mime.ParseMediaType(c.r.Header.Get("Content-Type"))
-	switch mediaType {
-	case "application/json":
+	if mediaType == "application/json" {
 		// UnmarshalRead reads to the end of the body, so trailing data and an oversized body are not
 		// accepted.
 		if err := json.UnmarshalRead(c.r.Body, v); err != nil {
 			return bodyError(err, "invalid JSON body")
 		}
 		return nil
-	case "application/x-www-form-urlencoded", "multipart/form-data":
-		var err error
-		if mediaType == "multipart/form-data" {
-			err = c.r.ParseMultipartForm(32 << 20)
-		} else {
-			err = c.r.ParseForm()
-		}
-		if err != nil {
+	}
+	return c.bindForm(mediaType, v)
+}
+
+// BindForm is Bind for the input of a method handler that takes files: the body must be a form,
+// multipart or URL-encoded, and JSON is answered with 415 like any other content type.
+func BindForm(c *Ctx, v any) error {
+	mediaType, _, _ := mime.ParseMediaType(c.r.Header.Get("Content-Type"))
+	return c.bindForm(mediaType, v)
+}
+
+func (c *Ctx) bindForm(mediaType string, v any) error {
+	var files map[string][]*multipart.FileHeader
+	switch mediaType {
+	case "multipart/form-data":
+		if err := c.r.ParseMultipartForm(32 << 20); err != nil {
 			return bodyError(err, "invalid form body")
 		}
-		return decodeForm(c.r.PostForm, v, "form field")
+		files = c.r.MultipartForm.File
+	case "application/x-www-form-urlencoded":
+		if err := c.r.ParseForm(); err != nil {
+			return bodyError(err, "invalid form body")
+		}
 	default:
 		return publicError(http.StatusUnsupportedMediaType, "")
 	}
+	return decodeForm(c.r.PostForm, files, v, "form field")
 }
 
 // BindQuery decodes the query string into the struct v, with the names and value types of a
@@ -49,20 +64,29 @@ func (c *Ctx) BindQuery(v any) error {
 	if err != nil {
 		return publicError(http.StatusBadRequest, "invalid query string")
 	}
-	return decodeForm(query, v, "query parameter")
+	return decodeForm(query, nil, v, "query parameter")
 }
 
 func bodyError(err error, message string) error {
 	var tooLarge *http.MaxBytesError
-	if errors.As(err, &tooLarge) {
+	switch {
+	case errors.As(err, &tooLarge):
 		return publicError(http.StatusRequestEntityTooLarge, "")
+	case errors.Is(err, os.ErrDeadlineExceeded):
+		// The read deadline passed before the body came: server.read_timeout, or the ReadTimeout of
+		// the route, is too short for it.
+		return publicError(http.StatusRequestTimeout, "")
 	}
 	return publicError(http.StatusBadRequest, message)
 }
 
+var fileHeaderType = reflect.TypeFor[*multipart.FileHeader]()
+
 // decodeForm fills the exported fields of a struct. A field is named by its form tag, then its
-// json tag, then its Go name. what names a value in errors, such as "form field".
-func decodeForm(form url.Values, v any, what string) error {
+// json tag, then its Go name. files are the files of a multipart form, which fill the fields of
+// type *multipart.FileHeader (the first file) and []*multipart.FileHeader. what names a value in
+// errors, such as "form field".
+func decodeForm(form url.Values, files map[string][]*multipart.FileHeader, v any, what string) error {
 	target := reflect.ValueOf(v)
 	if target.Kind() != reflect.Pointer || target.Elem().Kind() != reflect.Struct {
 		return fmt.Errorf("tifa: decoding a %s needs a pointer to a struct, got %T", what, v)
@@ -74,14 +98,43 @@ func decodeForm(form url.Values, v any, what string) error {
 			continue
 		}
 		name := formName(field)
+		if name == "-" {
+			continue
+		}
+		if field.Type == fileHeaderType || field.Type.Kind() == reflect.Slice && field.Type.Elem() == fileHeaderType {
+			if err := setFiles(target.Field(i), files[name], form[name]); err != nil {
+				return publicError(http.StatusBadRequest, fmt.Sprintf("invalid %s %q", what, name))
+			}
+			continue
+		}
 		values, ok := form[name]
-		if name == "-" || !ok {
+		if !ok {
 			continue
 		}
 		if err := setField(target.Field(i), values); err != nil {
 			return publicError(http.StatusBadRequest, fmt.Sprintf("invalid %s %q", what, name))
 		}
 	}
+	return nil
+}
+
+// setFiles fills a file field. A part without a file name is a text value to Go, and a browser
+// sends a file input with no file chosen as an empty one, so an empty text value means no file.
+// Any other text in place of a file is a mistake.
+func setFiles(f reflect.Value, files []*multipart.FileHeader, texts []string) error {
+	for _, s := range texts {
+		if s != "" {
+			return errors.New("text in place of a file")
+		}
+	}
+	if len(files) == 0 {
+		return nil
+	}
+	if f.Kind() == reflect.Slice {
+		f.Set(reflect.ValueOf(files))
+		return nil
+	}
+	f.Set(reflect.ValueOf(files[0]))
 	return nil
 }
 

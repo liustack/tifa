@@ -62,7 +62,7 @@ Common settings (full table in config.md):
 | Key | Default | Flag and env | Notes |
 | --- | --- | --- | --- |
 | `server.addr` | `127.0.0.1:9527` | `--server-addr`, `SERVER_ADDR` | Use `0.0.0.0:9527` in a container |
-| `server.body_limit` | `1MiB` | `--server-body-limit`, `SERVER_BODY_LIMIT` | Larger body gets 413 |
+| `server.body_limit` | `1MiB` | `--server-body-limit`, `SERVER_BODY_LIMIT` | Larger body gets 413. `BodyLimit` in a `route.go` overrides it for that route |
 | `server.compress` | `true` | `--server-compress=false`, `SERVER_COMPRESS` | Set false when a proxy or CDN compresses |
 | `server.shutdown_timeout` | `10s` | `SERVER_SHUTDOWN_TIMEOUT` | Time for in-flight requests after SIGTERM, then for `OnShutdown` |
 | `ssr.vms` | CPU count | `--ssr-vms`, `SSR_VMS` | How many pages render at once. Leave it at the default |

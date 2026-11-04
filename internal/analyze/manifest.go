@@ -87,6 +87,11 @@ type Route struct {
 	// Cache is the whole-page cache time of the page, Cache = 10 * time.Minute in route.go, zero when
 	// absent.
 	Cache time.Duration `json:"cache"`
+	// BodyLimit and ReadTimeout report whether route.go declares them: the body limit and the read
+	// timeout of the requests its method handlers answer, in place of server.body_limit and
+	// server.read_timeout. The generated code refers to them, so a variable set from a setting works.
+	BodyLimit   bool `json:"bodyLimit"`
+	ReadTimeout bool `json:"readTimeout"`
 	// Layouts lists the IDs of the Layouts in Dir and above it, outermost first.
 	Layouts []string `json:"layouts"`
 }
@@ -121,6 +126,9 @@ type Handler struct {
 	Input string `json:"input"`
 	// Output is the Go type of the result, qualified by full import paths, empty when the handler returns only an error.
 	Output string `json:"output"`
+	// Form reports whether the input holds files, *multipart.FileHeader or []*multipart.FileHeader
+	// fields. Its request body is then a form, multipart when it sends a file, and never JSON.
+	Form bool `json:"form"`
 	// InputType and OutputType are Input and Output for code generation inside the same process.
 	// Both satisfy the rules of checkTS.
 	InputType  types.Type `json:"-"`
