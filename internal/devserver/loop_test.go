@@ -18,7 +18,7 @@ func runLoop(t *testing.T, c *changes, debounce time.Duration, hold func()) <-ch
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		loop(ctx, c, debounce, func(batch []change) {
+		loop(ctx, c, debounce, func(batch []change, _ func()) {
 			if running.Add(1) != 1 {
 				t.Error("two rebuilds ran at the same time")
 			}
@@ -73,6 +73,92 @@ func TestLoopSkipsBatchesThatCancelOut(t *testing.T) {
 	if got := receive(t, batches); !slices.Equal(got, []change{{"app/b.go", modified}}) {
 		t.Fatalf("got %v, want only app/b.go", got)
 	}
+}
+
+// expectOpen fails when ch is closed, expectClosed when it stays open for 5s.
+func expectOpen(t *testing.T, ch <-chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-ch:
+		t.Fatalf("%s: pending ended", what)
+	default:
+	}
+}
+
+func expectClosed(t *testing.T, ch <-chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("%s: pending still waits after 5s", what)
+	}
+}
+
+// pending waits for the changes recorded so far until the rebuild of their batch began, and
+// changes made during that rebuild wait for the next one.
+func TestLoopEndsPendingOnceTheRebuildBegan(t *testing.T) {
+	c := newChanges()
+	if c.pending() != nil {
+		t.Fatal("pending waits before any change")
+	}
+	type rebuild struct {
+		batch []change
+		began func()
+		done  chan struct{}
+	}
+	rebuilds := make(chan rebuild)
+	ctx, cancel := context.WithCancel(context.Background())
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		loop(ctx, c, 10*time.Millisecond, func(batch []change, began func()) {
+			r := rebuild{batch, began, make(chan struct{})}
+			rebuilds <- r
+			<-r.done
+		})
+	}()
+	defer func() {
+		cancel()
+		<-stopped
+	}()
+	c.add("app/a.tsx", "s1", "s2")
+	first := c.pending()
+	if first == nil {
+		t.Fatal("pending does not wait for a change")
+	}
+	r := <-rebuilds
+	expectOpen(t, first, "before the rebuild began")
+	c.add("app/b.tsx", "s1", "s2")
+	second := c.pending()
+	if second == nil || second == first {
+		t.Fatal("a change during the rebuild does not wait for the next one")
+	}
+	r.began()
+	expectClosed(t, first, "once the rebuild began")
+	expectOpen(t, second, "a change made during the rebuild")
+	close(r.done)
+	r = <-rebuilds
+	if !slices.Equal(r.batch, []change{{"app/b.tsx", modified}}) {
+		t.Fatalf("second rebuild got %v", r.batch)
+	}
+	// A rebuild that never calls began ends the wait when it returns.
+	close(r.done)
+	expectClosed(t, second, "once the rebuild returned")
+	if c.pending() != nil {
+		t.Fatal("pending waits after every change went into a batch")
+	}
+}
+
+// A batch that cancels out, such as a file saved and put back, or a file that only passed through
+// as an editor saved, starts no rebuild and ends the wait at once.
+func TestLoopEndsPendingForABatchThatCancelsOut(t *testing.T) {
+	c := newChanges()
+	runLoop(t, c, 10*time.Millisecond, nil)
+	c.add("app/a.tsx", "s1", "s2")
+	c.add("app/a.tsx", "s2", "s1")
+	c.add("app/page.tsx.tmp.tsx", "", "s3")
+	c.add("app/page.tsx.tmp.tsx", "s3", "")
+	expectClosed(t, c.pending(), "a batch that cancels out")
 }
 
 func TestLoopRunsAgainForChangesDuringARebuild(t *testing.T) {

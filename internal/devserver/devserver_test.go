@@ -859,7 +859,7 @@ func TestRebuildHoldsPagesOnceABundleIsNeeded(t *testing.T) {
 		{"new manifest", "Generate", func(d *dev, p *blockingPipeline) { p.manifest = "routes 2" }},
 		{"bundle left undone", "Analyze", func(d *dev, p *blockingPipeline) {
 			p.fail = "Bundle"
-			d.rebuild(context.Background(), steps{bundle: true})
+			d.rebuild(context.Background(), steps{bundle: true}, func() {})
 			p.fail = ""
 		}},
 	} {
@@ -872,7 +872,7 @@ func TestRebuildHoldsPagesOnceABundleIsNeeded(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			done := make(chan struct{})
 			go func() {
-				d.rebuild(ctx, steps{analyze: true, goBuild: true})
+				d.rebuild(ctx, steps{analyze: true, goBuild: true}, func() {})
 				close(done)
 			}()
 			<-p.entered

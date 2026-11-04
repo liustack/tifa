@@ -144,6 +144,7 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 		mux.Handle(VitePath, viteProxy(o.Vite))
 	}
 	app := proxy(appAddr, o.ProxyWait, d.down, d.timing)
+	pending := w.changes.pending
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Before the first build there is no app. A page the browser loads waits for a build that
 		// Go's build cache makes fast, and gets a page that loads the dev client during a slow
@@ -162,13 +163,21 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 			}
 		}
 		// A page loaded while the SSR bundle is rebuilt would show the old server render. Wait
-		// until the app with the new one runs.
-		if busy := d.busy(); busy != nil {
-			select {
-			case <-busy:
-			case <-r.Context().Done():
-				return
-			case <-time.After(o.ProxyWait):
+		// until the app with the new one runs. A file saved just before is not in a rebuild yet,
+		// as the files must go quiet first: wait for that rebuild to begin, which holds the page
+		// when it bundles.
+		limit := time.NewTimer(o.ProxyWait)
+		defer limit.Stop()
+	wait:
+		for _, next := range []func() <-chan struct{}{pending, d.busy} {
+			if ch := next(); ch != nil {
+				select {
+				case <-ch:
+				case <-r.Context().Done():
+					return
+				case <-limit.C:
+					break wait
+				}
 			}
 		}
 		app.ServeHTTP(w, r)
@@ -219,15 +228,15 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 		w.setEmbedded(func(rel string) bool { return embedded(rel) || inPublic(public, rel) })
 	}
 	w.changes.setBuilding(true)
-	d.rebuild(ctx, everything)
+	d.rebuild(ctx, everything, func() {})
 	close(d.first)
 	w.changes.setBuilding(false)
-	loop(ctx, w.changes, o.Debounce, func(batch []change) {
+	loop(ctx, w.changes, o.Debounce, func(batch []change, began func()) {
 		for _, c := range batch {
 			d.log.Printf("%s %s", c.path, c.op)
 		}
 		d.b.noteContent(batch)
-		d.rebuild(ctx, planApp(batch, d.isEmbedded, d.publicDir(), o.Pipeline.HasPages()))
+		d.rebuild(ctx, planApp(batch, d.isEmbedded, d.publicDir(), o.Pipeline.HasPages()), began)
 	})
 
 	d.mu.Lock()
@@ -364,7 +373,7 @@ func (d *dev) buildState() (int, chan struct{}) {
 
 // busy returns a channel that is closed once the SSR bundle being rebuilt is served, nil when
 // no rebuild of it runs.
-func (d *dev) busy() chan struct{} {
+func (d *dev) busy() <-chan struct{} {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.bundling
@@ -414,8 +423,10 @@ func (d *dev) fail(title string, err error) {
 //
 // Page requests wait for the end of a rebuild that makes a new SSR bundle, from the moment the
 // bundle is known to be needed: at the start, also for a bundle a failed rebuild left undone, or
-// once the analysis finds a new route manifest, before code generation.
-func (d *dev) rebuild(ctx context.Context, s steps) {
+// once the analysis finds a new route manifest, before code generation. began is called once a
+// rebuild that bundles from the start holds them, before anything else runs: until then they wait
+// for the changes, see changes.pending.
+func (d *dev) rebuild(ctx context.Context, s steps, began func()) {
 	if s == (steps{}) {
 		return
 	}
@@ -431,8 +442,6 @@ func (d *dev) rebuild(ctx context.Context, s steps) {
 		d.mu.Unlock()
 		close(building)
 	}()
-	// What failed before this build may be fixed by it.
-	d.forgetErrors(ctx)
 	var done chan struct{}
 	holdPages := func() {
 		if done == nil {
@@ -450,6 +459,12 @@ func (d *dev) rebuild(ctx context.Context, s steps) {
 			close(done)
 		}
 	}()
+	if d.b.bundlesFirst(s) {
+		holdPages()
+	}
+	began()
+	// What failed before this build may be fixed by it.
+	d.forgetErrors(ctx)
 	ran, err := d.b.build(ctx, s, holdPages)
 	if err != nil {
 		if ctx.Err() == nil {

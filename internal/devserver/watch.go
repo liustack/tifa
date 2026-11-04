@@ -33,6 +33,9 @@ type changes struct {
 	building bool                 // a build runs and may read any file at any moment
 	touched  map[string]bool      // files that changed while a build ran
 	ready    chan struct{}        // receives a value after add, holds at most one
+	// waiting is closed once the changes recorded so far went into a batch and its rebuild began,
+	// see pending. Nil when every change is in a batch.
+	waiting chan struct{}
 }
 
 func newChanges() *changes {
@@ -63,6 +66,9 @@ func (c *changes) add(path, before, after string) {
 	if c.building {
 		c.touched[path] = true
 	}
+	if c.waiting == nil {
+		c.waiting = make(chan struct{})
+	}
 	c.mu.Unlock()
 	select {
 	case c.ready <- struct{}{}:
@@ -78,24 +84,41 @@ func (c *changes) touch(path string) { c.add(path, "unknown", "changed") }
 // always restarted.
 const viteServer = "Vite's dev server"
 
+// pending returns a channel that is closed once the changes recorded so far went into a batch and
+// the rebuild of that batch began, or the batch turned out empty. Nil when no change waits for a
+// batch.
+func (c *changes) pending() <-chan struct{} {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.waiting
+}
+
 // take returns every file that changed, as a batch sorted by path. A file whose content ends up
-// as it was when it was last taken is left out, unless it changed while a build ran.
+// as it was when it was last taken is left out, unless it changed while a build ran. No rebuild
+// follows, so pending no longer waits for these changes.
 func (c *changes) take() []change {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.takeLocked(func(string) bool { return true })
+	batch := c.takeLocked(func(string) bool { return true })
+	if c.waiting != nil {
+		close(c.waiting)
+		c.waiting = nil
+	}
+	return batch
 }
 
 // due decides on the next batch at now. A file is settled once it went quiet for quiet, or once it
 // kept changing for limit, such as a log: a file in the middle of a save does not go into a batch,
 // and a file that never stops changing holds back neither itself nor the others for long. When
 // every changed file is settled, or the oldest change waited limit, due takes the settled files as
-// the batch. Otherwise batch is nil and wait says when to look again, 0 when nothing changed.
-func (c *changes) due(now time.Time, quiet, limit time.Duration) (batch []change, wait time.Duration) {
+// the batch, and began is the channel pending returned until then, for the caller to close once
+// the rebuild of the batch began. Files left out of the batch get a new one. Otherwise batch is
+// nil and wait says when to look again, 0 when nothing changed.
+func (c *changes) due(now time.Time, quiet, limit time.Duration) (batch []change, began chan struct{}, wait time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if len(c.before) == 0 {
-		return nil, 0
+		return nil, nil, 0
 	}
 	settled := func(p string) bool { return now.Sub(c.last[p]) >= quiet || now.Sub(c.first[p]) >= limit }
 	oldest, all, some := now, true, false
@@ -112,12 +135,17 @@ func (c *changes) due(now time.Time, quiet, limit time.Duration) (batch []change
 		wait = min(wait, c.last[p].Add(quiet).Sub(now), c.first[p].Add(limit).Sub(now))
 	}
 	if all || some && now.Sub(oldest) >= limit {
-		return c.takeLocked(settled), 0
+		batch, began = c.takeLocked(settled), c.waiting
+		c.waiting = nil
+		if len(c.before) > 0 {
+			c.waiting = make(chan struct{})
+		}
+		return batch, began, 0
 	}
 	if some {
 		wait = min(wait, oldest.Add(limit).Sub(now))
 	}
-	return nil, max(wait, time.Millisecond)
+	return nil, nil, max(wait, time.Millisecond)
 }
 
 // takeLocked takes the files for which take reports true. Call it with c.mu held.
