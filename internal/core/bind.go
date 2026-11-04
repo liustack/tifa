@@ -4,6 +4,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -42,6 +43,11 @@ func (c *Ctx) bindForm(mediaType string, v any) error {
 	switch mediaType {
 	case "multipart/form-data":
 		if err := c.r.ParseMultipartForm(32 << 20); err != nil {
+			return bodyError(err, "invalid form body")
+		}
+		// The multipart reader stops at the closing boundary. Read what follows through the body
+		// limit too, so a body over the limit is refused before the handler, wherever its bytes are.
+		if _, err := io.Copy(io.Discard, c.r.Body); err != nil {
 			return bodyError(err, "invalid form body")
 		}
 		files = c.r.MultipartForm.File

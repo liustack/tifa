@@ -109,6 +109,30 @@ func TestBindFillsNamedFileTypes(t *testing.T) {
 	}
 }
 
+// The multipart reader stops at the closing boundary, so data sent after it counts toward the
+// body limit too: a body over the limit is 413 before the handler, wherever the bytes are.
+func TestBindCountsDataAfterTheClosingBoundary(t *testing.T) {
+	for _, bind := range []func(*Ctx, any) error{(*Ctx).Bind, BindForm} {
+		body, contentType := formBody(t, [][2]string{{"title", "Sea"}}, [][3]string{{"photo", "sea.png", "png bytes"}})
+		form := body.Len()
+		body.WriteString(strings.Repeat("x", 64<<10))
+		c, _ := newCtx("POST", body.String(), contentType, int64(form+1024))
+		var in upload
+		var e Error
+		if err := bind(c, &in); !errors.As(err, &e) || e.Status != http.StatusRequestEntityTooLarge {
+			t.Fatalf("data after the closing boundary over the limit: %v", err)
+		}
+		// Within the limit, what follows the form is left out and the form is read.
+		body, contentType = formBody(t, [][2]string{{"title", "Sea"}}, nil)
+		body.WriteString("trailing")
+		c, _ = newCtx("POST", body.String(), contentType, 1<<20)
+		in = upload{}
+		if err := bind(c, &in); err != nil || in.Title != "Sea" {
+			t.Fatalf("data after the closing boundary within the limit: %v %+v", err, in)
+		}
+	}
+}
+
 func TestBindRefusesTextForAFile(t *testing.T) {
 	body, contentType := formBody(t, [][2]string{{"title", "Sea"}, {"photo", "not a file"}}, nil)
 	c, _ := newCtx("POST", body.String(), contentType, 1<<20)
