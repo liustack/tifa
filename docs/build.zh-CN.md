@@ -344,6 +344,8 @@ shop 给每种语言建一个实例，并给它配上自己的金额和日期格
 
 每个页面都要加载的代码全在入口脚本里。tifa 插件给 rolldown 一个代码拆分分组，装入口静态 import 的所有模块（标签 `$initial`）。没有它，rolldown 会把入口和路由 chunk、以及路由 chunk 再加载的 chunk 共用的代码（React 就在其中）拆成单独的文件，`examples/shop` 的每个页面要下载四个文件而不是一个，字节数一样。
 
+副作用的顺序。[tifa dev](dev.zh-CN.md) 按源码顺序运行模块，但生产构建会把模块分进不同的 chunk，rolldown 可能让不同 chunk 里模块的顶层代码以另一种顺序运行。`output.strictExecutionOrder` 能保持源码顺序，但它给每个模块加一层包装，在 `examples/shop` 和 `test/apps/mui` 上 gzip 后多约 6%，每个页面的 head 还多 2 个文件，所以 tifa 不开它。不要依赖某个模块的顶层代码先于另一个文件里的模块运行。依赖顺序的初始化放在根 Layout 里，或放在根 Layout import 的模块里。CSS 也不要靠 import 顺序去覆盖同样优先级的规则，提高优先级，或把两条规则放在同一个文件里。
+
 #### 预加载页面的 chunk
 
 `tifa build` 在 `build.json` 的 `preload` 里，给每个自成 chunk 的 Layout 和路由模块列出这个 chunk 和它静态 import 的 chunk，去掉 `head` 已经加载的文件。服务端在 `head` 后面、`<!--tifa-head-->` 前面，给匹配到的 Layout 和路由的每个文件写一条 `<link rel="modulepreload">`。没有这些链接，浏览器要等入口脚本运行后才发现页面的 chunk，import 每深一层就多一轮请求，页面也就晚这么久才响应操作。有了它们，这些 chunk 和入口脚本一起下载。
