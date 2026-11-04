@@ -18,8 +18,11 @@
 //	                             that load Vite's client and the React refresh runtime. With
 //	                             pollFiles it then restarts with a watcher that polls, unless the
 //	                             watcher uses FSEvents
-//	{op: "content"}             converts the Markdown of the content collections with the tifa
-//	                             plugin of the running dev server, see markdownPlugin
+//	{op: "content", alone, command}
+//	                             converts the Markdown of the content collections with the tifa
+//	                             plugin of the running dev server, see markdownPlugin. With alone,
+//	                             for an app without pages, with the plugin of the Vite config and
+//	                             no bundle or server, command naming the tifa command
 //	{op: "pollFiles"}            makes the running dev server's watcher poll, unless it uses
 //	                             FSEvents, and answers with polling and fsEvents
 //	{op: "script", dir, file, plugin, format}
@@ -316,7 +319,21 @@ const ops = {
     return { head: head.trim() }
   },
 
-  async content() {
+  async content({ alone, command }) {
+    if (alone) {
+      // An app without pages: no bundle and no dev server, only the config with its plugins.
+      const config = await vite.resolveConfig({ root, logLevel: 'warn', customLogger: logger }, 'build')
+      const plugin = config.plugins.find((p) => p.name === 'tifa:markdown')
+      if (!config.configFile || !plugin) {
+        const file = config.configFile ? path.relative(root, config.configFile) : 'vite.config.ts'
+        throw new Error(
+          `the app has content collections, and tifa turns their Markdown into HTML with the tifa plugin of Vite, which ${file} does not use: add it\n\n` +
+            "\timport tifa from './.tifa/vite.js'\n\texport default { plugins: [tifa()] }",
+        )
+      }
+      for (const warning of await plugin.api.convert({ alone, command })) logger.warn(warning)
+      return {}
+    }
     if (!server) throw new Error("the content is converted by Vite's dev server, which is not running")
     await restartsDone()
     const plugin = server.config.plugins.find((p) => p.name === 'tifa:markdown')

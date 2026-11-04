@@ -237,3 +237,76 @@ func TestContentApp(t *testing.T) {
 	})
 	typecheck(t, dir)
 }
+
+// feedRoute is the only route of the content app without pages: a GET handler that writes the full
+// text of a post, as a full-text feed does.
+const feedRoute = `package feed
+
+import (
+	"io"
+
+	"github.com/liustack/tifa"
+
+	"example.com/contenttest"
+)
+
+func GET(c *tifa.Ctx) error {
+	p, err := contenttest.Blog.Get("zh-CN", "202608/free-search")
+	if err != nil {
+		return err
+	}
+	w := c.Writer()
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, err = io.WriteString(w, string(p.Body()))
+	return err
+}
+`
+
+// TestContentAppWithoutPages builds the content app with its pages taken out and a GET route in
+// their place. The build still converts the Markdown with the plugins of vite.config.ts, and the
+// image of the body is served under /assets/.
+func TestContentAppWithoutPages(t *testing.T) {
+	skipUnlessEnabled(t)
+	dir := copyApp(t, "content")
+	if err := os.RemoveAll(filepath.Join(dir, "app")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "app", "feed"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "app", "feed", "route.go"), []byte(feedRoute), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	exe, _ := buildWithOutput(t, dir, os.Getenv("PATH"))
+	if _, err := os.Stat(filepath.Join(dir, ".tifa", "dist", "ssr.js")); !os.IsNotExist(err) {
+		t.Errorf("an app without pages has an SSR bundle: %v", err)
+	}
+	base, _, _ := start(t, exe)
+	code, _, body := get(t, base+"/feed")
+	if code != 200 || !strings.Contains(body, `<h2 id="怎么装">怎么装</h2>`) || !strings.Contains(body, "搜索走公开接口") {
+		t.Fatalf("GET /feed: %d\n%s", code, body)
+	}
+	img := regexp.MustCompile(`<img src="(/assets/diagram-[A-Za-z0-9_-]{8}\.png)" alt="架构图" loading="lazy">`).FindStringSubmatch(body)
+	if img == nil {
+		t.Fatalf("the body has no image under /assets/ with a hash and the attribute of the rehype plugin:\n%s", body)
+	}
+	want, err := os.ReadFile(filepath.Join(dir, "content", "blog", "zh-CN", "202608", "free-search", "diagram.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, header, png := get(t, base+img[1])
+	if code != 200 || png != string(want) || header.Get("Content-Type") != "image/png" || !strings.Contains(header.Get("Cache-Control"), "immutable") {
+		t.Errorf("GET %s: %d %q %q, %d bytes", img[1], code, header.Get("Content-Type"), header.Get("Cache-Control"), len(png))
+	}
+
+	// Without vite.config.ts the build says what to add.
+	if err := os.Remove(filepath.Join(dir, "vite.config.ts")); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("go", "tool", "tifa", "build")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "add vite.config.ts, which uses the tifa plugin") || !strings.Contains(string(out), "pnpm add -D vite unified@11") {
+		t.Errorf("build without vite.config.ts: %v\n%s", err, out)
+	}
+}

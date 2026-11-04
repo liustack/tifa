@@ -234,7 +234,7 @@ export default function PostPage() {
 pnpm add -D unified@11 remark-parse@11 remark-gfm@4 remark-rehype@11 rehype-raw@7 rehype-stringify@10
 ```
 
-缺了某个包，或者主版本不对，构建失败并给出安装命令。只有声明了集合的应用，tifa 才载入它们。转换要用 Vite，所以集合里有条目的应用必须有页面。`tifa check` 检查 front matter 不需要 Node。
+缺了某个包，或者主版本不对，构建失败并给出安装命令。只有声明了集合的应用，tifa 才载入它们。转换在 Vite 里进行，所以集合里有条目的应用即使没有页面，也要有 `package.json` 和用了 tifa 插件的 `vite.config.ts`，比如只有订阅源或接口、在里面写出 `Body()` 的应用。没有页面时，构建用 `vite.config.ts` 里的插件转换，不打包任何东西，正文引用的文件放进 `dist/assets/`，文件名带哈希。`tifa check` 检查 front matter 不需要 Node。
 
 每篇按这个顺序处理：
 

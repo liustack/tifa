@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/liustack/tifa/internal/content"
 )
@@ -17,26 +18,28 @@ type Content struct {
 	Markdown []content.Markdown
 }
 
-// errContentWithoutPages is the error of an app whose collections have entries and which has no
-// page, so no Vite runs to turn them into HTML.
-var errContentWithoutPages = errors.New("the app has content collections, whose Markdown tifa turns into HTML with the tifa plugin of vite.config.ts, and no page.tsx, so Vite does not run: add a page to the app")
+// markdownPackages are Vite and the packages of markdownPackages in js/vite/plugin.js, as pnpm
+// add takes them.
+const markdownPackages = "vite unified@11 remark-parse@11 remark-gfm@4 remark-rehype@11 rehype-raw@7 rehype-stringify@10"
+
+// viteConfigs are the names Vite looks for its config under.
+var viteConfigs = []string{"vite.config.ts", "vite.config.js", "vite.config.mjs", "vite.config.mts", "vite.config.cjs", "vite.config.cts"}
 
 // prepareContent lists the entries for the tifa Vite plugin in .tifa/content/entries.json, before
 // Vite runs. Without collections (c nil) it removes the list, so the plugin converts nothing and
-// loads no package.
+// loads no package. An app without pages needs Vite only for entries, see convertAlone.
 func prepareContent(root string, c *Content, pages bool) error {
 	dir := filepath.Join(root, ".tifa", "content")
 	if err := os.RemoveAll(dir); err != nil {
 		return err
 	}
-	if c == nil {
+	if c == nil || (!pages && len(c.Markdown) == 0) {
 		return nil
-	}
-	if !pages && len(c.Markdown) > 0 {
-		return errContentWithoutPages
 	}
 	if !pages {
-		return nil
+		if err := checkViteFiles(root); err != nil {
+			return err
+		}
 	}
 	data, err := json.Marshal(content.Entries{Entries: c.Markdown})
 	if err != nil {
@@ -46,6 +49,44 @@ func prepareContent(root string, c *Content, pages bool) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(root, ".tifa", filepath.FromSlash(content.EntriesFile)), data, 0o644)
+}
+
+// checkViteFiles checks that an app without pages, whose entries the tifa plugin of Vite turns
+// into HTML, has the package.json and the Vite config that takes, before Node starts.
+func checkViteFiles(root string) error {
+	var missing []string
+	if _, err := os.Stat(filepath.Join(root, "package.json")); errors.Is(err, os.ErrNotExist) {
+		missing = append(missing, "package.json")
+	} else if err != nil {
+		return err
+	}
+	config := false
+	for _, name := range viteConfigs {
+		if _, err := os.Stat(filepath.Join(root, name)); err == nil {
+			config = true
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	if !config {
+		missing = append(missing, "vite.config.ts")
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("the app has content collections, and tifa turns their Markdown into HTML with Vite: add %s, which uses the tifa plugin:\n\n"+
+		"\timport tifa from './.tifa/vite.js'\n\texport default { plugins: [tifa()] }\n\n"+
+		"and install the packages:\n\n\tpnpm add -D %s", strings.Join(missing, " and "), markdownPackages)
+}
+
+// convertAlone turns the entries of an app without pages into HTML with the plugin of its Vite
+// config, without bundles: the files of the bodies go into dist/assets. command names the tifa
+// command for the messages.
+func convertAlone(n *Node, c *Content, command string) error {
+	if c == nil || len(c.Markdown) == 0 {
+		return nil
+	}
+	return n.call("content", map[string]any{"alone": true, "command": command}, nil)
 }
 
 // finishContent writes dist/content.json once the plugin has written the bodies, with the

@@ -234,7 +234,7 @@ export default function PostPage() {
 pnpm add -D unified@11 remark-parse@11 remark-gfm@4 remark-rehype@11 rehype-raw@7 rehype-stringify@10
 ```
 
-A missing package, or one of another major version, fails the build with the command that installs it. tifa loads them only for an app with collections. Converting needs Vite, so an app whose collections have entries needs pages. `tifa check` reads the front matter without Node.
+A missing package, or one of another major version, fails the build with the command that installs it. tifa loads them only for an app with collections. Converting runs in Vite, so an app with entries needs `package.json` and `vite.config.ts` with the tifa plugin even without pages, as an app with only a feed or an API that writes `Body()` does. Without pages, the build converts with the plugins of `vite.config.ts` and bundles nothing, and the files the bodies refer to go into `dist/assets/` with a hash in their names. `tifa check` reads the front matter without Node.
 
 Each entry goes through these steps in this order:
 

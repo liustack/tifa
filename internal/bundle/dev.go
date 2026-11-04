@@ -150,8 +150,17 @@ func (d *Dev) Build(ctx context.Context, public string, pages bool, c *Content) 
 				return "", err
 			}
 		}
-	} else if err := os.Remove(ssr); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return "", err
+	} else {
+		if err := os.Remove(ssr); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return "", err
+		}
+		// No dev server runs without pages: the files of the bodies go into .tifa/dist/assets.
+		if err := os.RemoveAll(filepath.Join(d.dist, "assets")); err != nil {
+			return "", err
+		}
+		if err := convertAlone(d.node, c, "tifa dev"); err != nil {
+			return "", err
+		}
 	}
 	if err := finishContent(d.root, d.dist, c); err != nil {
 		return "", err

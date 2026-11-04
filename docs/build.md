@@ -55,7 +55,7 @@ tifa build [--dir app-root] [-o output-path]
 
 1. Statically analyzes `app/` and the root `hooks.go`. If a convention is broken, it prints `file:line: reason` for each problem and exits.
 2. Writes the generated code into `.tifa/`. Only files whose content changed are rewritten, and files no longer generated are deleted.
-3. Bundles with the app's own Vite, which runs on Node, and writes the output to `.tifa/dist/`. See "Frontend output" below. tifa runs one Node process for the whole build, with `NODE_ENV=production` whatever the shell sets, so the build always uses the production build of React. It also reads the exports of `page.tsx` and `layout.tsx` with Vite's parser for step 2. An app without pages builds without Node. The executable never needs Node.
+3. Bundles with the app's own Vite, which runs on Node, and writes the output to `.tifa/dist/`. See "Frontend output" below. tifa runs one Node process for the whole build, with `NODE_ENV=production` whatever the shell sets, so the build always uses the production build of React. It also reads the exports of `page.tsx` and `layout.tsx` with Vite's parser for step 2. An app without pages builds without Node, unless its content collections have entries (see [Content](content.md#markdown-to-html)). The executable never needs Node.
 4. Runs `CGO_ENABLED=0 go build -o <output> -ldflags=-w ./.tifa`. The default output is `bin/<last segment of the module path>`. The generated main embeds `.tifa/dist/` into the executable with `//go:embed all:dist`. `-w` leaves out the debug info, see "Debug info" below.
 
 The analysis also checks the session of the app (see [Sessions](app.md#sessions)). `tifa build` and `tifa check` stop on each of these:
@@ -227,7 +227,7 @@ go tool tifa build
 | `content/` | For an app with content collections: `entries.json`, the entries tifa build hands the Vite plugin to turn into HTML (the Markdown with the front matter left as empty lines, where the body goes, and the folder of the version in the default language), and `headings.json`, the headings the plugin found in each body, which go into `dist/content.json`. See [Content](content.md#markdown-to-html) |
 | `dist/` | Frontend output, see below |
 
-An app without pages (no `page.tsx` at all) generates only Go files, and `dist/` holds only `build.json` and the public files.
+An app without pages (no `page.tsx` at all) generates only Go files, and `dist/` holds only `build.json` and the public files. With content collections it also gets `.tifa/vite.js` for its `vite.config.ts`, and `dist/` the bodies and the files they refer to.
 
 ## Frontend output
 

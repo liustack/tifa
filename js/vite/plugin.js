@@ -1024,18 +1024,23 @@ export function markdownPlugin(getRoot, markdown) {
       writeContent(root, result)
     },
     api: {
-      // convert turns the entries of .tifa/content/entries.json into HTML for tifa dev, whose
-      // bodies load their files from Vite's dev server. It returns the warnings of the plugins.
-      async convert() {
+      // convert turns the entries of .tifa/content/entries.json into HTML and returns the warnings
+      // of the plugins. For tifa dev with pages the bodies load their files from Vite's dev server.
+      // alone is for an app without pages, where no bundle is built and no dev server runs: the
+      // files go into .tifa/dist/assets as Vite names its assets, <name>-<hash>.<ext>, and
+      // command is the tifa command that converts, for the messages.
+      async convert({ alone = false, command: by = 'tifa dev' } = {}) {
         const root = getRoot()
         const entries = readContentEntries(root)
         if (!entries) return []
         const real = fs.realpathSync(root)
-        const result = await convertContent(root, entries, {
-          markdown,
-          command: 'tifa dev',
-          asset: (file) => devBase + encodePath(path.relative(real, file).split(path.sep).join('/')),
-        })
+        let asset = (file) => devBase + encodePath(path.relative(real, file).split(path.sep).join('/'))
+        const assets = path.join(root, '.tifa', 'dist', 'assets')
+        if (alone) {
+          fs.rmSync(assets, { recursive: true, force: true })
+          asset = (file) => '/assets/' + encodePath(writeAsset(assets, file))
+        }
+        const result = await convertContent(root, entries, { markdown, command: by, asset })
         writeContent(root, result)
         return result.warnings
       },
@@ -1067,6 +1072,20 @@ function writeContent(root, result) {
     fs.writeFileSync(file, html)
   }
   fs.writeFileSync(path.join(root, '.tifa', contentHeadings), JSON.stringify(result.headings))
+}
+
+// writeAsset copies the file at the real path file into the folder assets as
+// <name>-<hash>.<ext>, the hash being 8 characters of its SHA-256, and returns that name. The
+// same file is written once.
+function writeAsset(assets, file) {
+  const source = fs.readFileSync(file)
+  const base = assetName(path.basename(file))
+  const ext = path.extname(base)
+  const hash = createHash('sha256').update(source).digest('base64url').slice(0, 8)
+  const name = `${base.slice(0, base.length - ext.length)}-${hash}${ext}`
+  fs.mkdirSync(assets, { recursive: true })
+  fs.writeFileSync(path.join(assets, name), source)
+  return name
 }
 
 // encodePath writes a path with / between its parts as the path of a URL.

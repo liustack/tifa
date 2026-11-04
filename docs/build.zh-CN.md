@@ -55,7 +55,7 @@ tifa build [--dir 应用根目录] [-o 输出路径]
 
 1. 静态分析 `app/` 与根目录 `hooks.go`，约定不满足时逐条打印 `文件:行号: 原因` 并退出。
 2. 把生成代码写进 `.tifa/`。只改内容变了的文件，删掉不再生成的文件。
-3. 用应用自己装的 Vite 打包，它跑在 Node 上，产物写进 `.tifa/dist/`，见下文「前端产物」。整个构建只起一个 Node 进程，不管 shell 里设了什么，它的 `NODE_ENV` 都是 `production`，所以构建总用 React 的生产版。第 2 步读 `page.tsx`、`layout.tsx` 的导出也用 Vite 的解析器。没有页面的应用构建时不需要 Node。可执行文件始终不需要 Node。
+3. 用应用自己装的 Vite 打包，它跑在 Node 上，产物写进 `.tifa/dist/`，见下文「前端产物」。整个构建只起一个 Node 进程，不管 shell 里设了什么，它的 `NODE_ENV` 都是 `production`，所以构建总用 React 的生产版。第 2 步读 `page.tsx`、`layout.tsx` 的导出也用 Vite 的解析器。没有页面的应用构建时不需要 Node，除非它的内容集合里有条目（见[内容](content.zh-CN.md#markdown-转-html)）。可执行文件始终不需要 Node。
 4. `CGO_ENABLED=0 go build -o <输出> -ldflags=-w ./.tifa`，默认输出 `bin/<模块路径最后一段>`。生成的 main 用 `//go:embed all:dist` 把 `.tifa/dist/` 嵌进可执行文件。`-w` 去掉调试信息，见下文「调试信息」。
 
 静态分析还会检查应用的会话（见[会话](app.zh-CN.md#会话)）。`tifa build` 和 `tifa check` 在下面每一种情况下都会停下：
@@ -227,7 +227,7 @@ go tool tifa build
 | `content/` | 有内容集合的应用才有：`entries.json` 是 tifa build 交给 Vite 插件转成 HTML 的条目（front matter 换成空行的 Markdown、正文写到哪里、默认语言版本所在的文件夹），`headings.json` 是插件在每篇正文里找到的标题，会合进 `dist/content.json`。见[内容](content.zh-CN.md#markdown-转-html) |
 | `dist/` | 前端产物，见下文 |
 
-没有页面（没有任何 `page.tsx`）的应用只生成 Go 文件，`dist/` 里只有 `build.json` 和公共文件。
+没有页面（没有任何 `page.tsx`）的应用只生成 Go 文件，`dist/` 里只有 `build.json` 和公共文件。有内容集合时还生成给 `vite.config.ts` 用的 `.tifa/vite.js`，`dist/` 里还有正文和它们引用的文件。
 
 ## 前端产物
 

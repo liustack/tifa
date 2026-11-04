@@ -4,9 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -166,12 +166,39 @@ func TestAppWritesTheContentFile(t *testing.T) {
 	if with == without {
 		t.Error("content.json leaves the build ID as it was")
 	}
-	_, err := App(n, root, filepath.Join(root, "public"), false, &Content{
+	// Entries need Vite even without pages, and the message says what to add.
+	entries := &Content{
 		File:     content.File{"blog": {{ID: "a", File: "content/blog/a.html"}}},
 		Markdown: []content.Markdown{{Collection: "blog", ID: "a", Out: "content/blog/a.html"}},
-	})
-	if !errors.Is(err, errContentWithoutPages) {
-		t.Errorf("entries without pages: %v", err)
+	}
+	_, err := App(n, root, filepath.Join(root, "public"), false, entries)
+	want := "the app has content collections, and tifa turns their Markdown into HTML with Vite: add package.json and vite.config.ts, which uses the tifa plugin:\n\n" +
+		"\timport tifa from './.tifa/vite.js'\n\texport default { plugins: [tifa()] }\n\n" +
+		"and install the packages:\n\n\tpnpm add -D vite unified@11 remark-parse@11 remark-gfm@4 remark-rehype@11 rehype-raw@7 rehype-stringify@10"
+	if err == nil || err.Error() != want {
+		t.Errorf("entries without package.json:\n%v\nwant\n%s", err, want)
+	}
+	writeTree(t, root, map[string]string{"package.json": "{}"})
+	if _, err := App(n, root, filepath.Join(root, "public"), false, entries); err == nil || !strings.Contains(err.Error(), "add vite.config.ts, which uses") {
+		t.Errorf("entries without vite.config.ts: %v", err)
+	}
+}
+
+// The packages the Go message names are those the plugin loads.
+func TestContentPackagesAreThoseOfThePlugin(t *testing.T) {
+	testModules(t)
+	plugin := filepath.Join(t.TempDir(), "plugin.mjs")
+	if err := os.WriteFile(plugin, []byte(js.VitePlugin), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := "const { markdownPackages } = await import(process.argv[1])\n" +
+		"process.stdout.write(['vite', ...markdownPackages.map(([name, major]) => name + '@' + major)].join(' '))\n"
+	out, err := exec.Command("node", "--input-type=module", "-e", script, plugin).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := string(out); want != markdownPackages {
+		t.Errorf("markdownPackages = %q, the plugin has %q", markdownPackages, want)
 	}
 }
 

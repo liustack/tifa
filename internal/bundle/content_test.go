@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -76,6 +77,76 @@ func TestAppConvertsTheContent(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(root, name)); !os.IsNotExist(err) {
 			t.Errorf("%s is left: %v", name, err)
 		}
+	}
+}
+
+// An app without pages, such as one with only a GET route that writes a feed, converts with the
+// plugins of its vite.config.ts and bundles nothing. The files of the bodies go into dist/assets
+// with a hash in their names, as Vite names them.
+func TestAppConvertsTheContentWithoutPages(t *testing.T) {
+	root, c := contentApp(t)
+	writeTree(t, root, map[string]string{"package.json": `{"type":"module"}`})
+	n := NewNode(root, io.Discard)
+	defer n.Close()
+	if _, err := App(n, root, filepath.Join(root, "public"), false, c); err != nil {
+		t.Fatalf("App: %v", err)
+	}
+	a := readDist(t, root, "content/blog/a.html")
+	m := regexp.MustCompile(`^<h2 id="hello-a">Hello a</h2>\n<p><img src="(/assets/x-[A-Za-z0-9_-]{8}\.png)" alt="x"></p><hr class="mark">$`).FindStringSubmatch(a)
+	if m == nil {
+		t.Fatalf("a.html:\n%s", a)
+	}
+	if got := readDist(t, root, strings.TrimPrefix(m[1], "/")); got != "png" {
+		t.Errorf("%s = %q", m[1], got)
+	}
+	if b := readDist(t, root, "content/blog/b.html"); !strings.Contains(b, `src="`+m[1]+`"`) {
+		t.Errorf("b.html does not share the image of a.html:\n%s", b)
+	}
+	if got := readDist(t, root, "content.json"); !strings.Contains(got, `"headings":[{"depth":2,"id":"hello-a","text":"Hello a"}]`) {
+		t.Errorf("content.json:\n%s", got)
+	}
+	entries, err := os.ReadDir(filepath.Join(root, ".tifa", "dist"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	if want := []string{"assets", "build.json", "content", "content.json"}; !slices.Equal(names, want) {
+		t.Errorf("dist holds %q, want %q", names, want)
+	}
+}
+
+// tifa dev converts the content of an app without pages the same way: no dev server of Vite runs
+// for it, so the files of the bodies are in .tifa/dist/assets as in a build.
+func TestDevConvertsTheContentWithoutPages(t *testing.T) {
+	root, c := contentApp(t)
+	writeTree(t, root, map[string]string{"package.json": `{"type":"module"}`})
+	d, err := NewDev(root, freePort(t), io.Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	before, err := d.Build(context.Background(), filepath.Join(root, "public"), false, c)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	a := readDist(t, root, "content/blog/a.html")
+	m := regexp.MustCompile(`<img src="(/assets/x-[A-Za-z0-9_-]{8}\.png)" alt="x">`).FindStringSubmatch(a)
+	if m == nil || !strings.Contains(a, `<hr class="mark">`) {
+		t.Fatalf("a.html:\n%s", a)
+	}
+	if got := readDist(t, root, strings.TrimPrefix(m[1], "/")); got != "png" {
+		t.Errorf("%s = %q", m[1], got)
+	}
+	c.Markdown[0].Text += "\nmore\n"
+	after, err := d.Build(context.Background(), filepath.Join(root, "public"), false, c)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if before == after {
+		t.Error("the build ID stays the same")
 	}
 }
 

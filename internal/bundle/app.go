@@ -96,6 +96,13 @@ func App(n *Node, root, public string, pages bool, c *Content) (string, error) {
 		if err := precompress(filepath.Join(dist, "assets")); err != nil {
 			return "", err
 		}
+	} else if c != nil && len(c.Markdown) > 0 {
+		if err := convertAlone(n, c, "tifa build"); err != nil {
+			return "", err
+		}
+		if err := precompress(filepath.Join(dist, "assets")); err != nil {
+			return "", err
+		}
 	}
 	if err := copyDir(public, filepath.Join(dist, "public")); err != nil {
 		return "", err
