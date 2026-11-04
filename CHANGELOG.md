@@ -8,6 +8,16 @@ What changed in tifa that apps and their users can see. From v0.0.1 on, changes 
 
 - `tifa.ExpirePages("/blog/"+slug, "/blog")` has the whole-page cache make those pages again on their next request, for every query string, host and scheme of each path. Call it after a write that changes what pages with `Cache` show. A page made from data read before the call is not kept, and the old page still stands in when making the new one fails. It clears the memory of the program only, not a CDN in front (see [Making a page again after a write](docs/app.md#making-a-page-again-after-a-write)).
 - `tifa.Stats()` returns the VM pool (VMs loaded, rendering and waited for, renders, failed renders, their time, and renders refused with 503) and the hits, misses, shared makes and entries of the render cache and the whole-page cache, with the bytes they hold. Renders and cache lookups count with atomics and take no new lock. [Deploying](docs/deploy.md#health-checks-and-metrics) shows a health check route and a route that writes the numbers for Prometheus without a library, and what to read in them.
+- `server.read_timeout` and `server.write_timeout` (flags `--server-read-timeout` and `--server-write-timeout`, variables `SERVER_READ_TIMEOUT` and `SERVER_WRITE_TIMEOUT`) set the time to read a whole request and the time to write its answer. Both stay 10s by default. A handler that streams or takes a large upload lifts them for its own request with `http.NewResponseController(w)`, which reaches the connection through tifa and the compression (see [Long requests](docs/config.md#long-requests)).
+- `tifa.ShuttingDown(ctx)` returns a channel that closes when the program starts to stop. A stream with no end of its own, such as server-sent events, returns when it closes, so a stop no longer waits the whole `server.shutdown_timeout` for it.
+- Under systemd socket activation the program serves on the sockets systemd passes it (`LISTEN_FDS`), so a restart keeps the port open and queues new connections instead of refusing them. With HTTPS, the two sockets are told apart by `FileDescriptorName=server.addr` and `FileDescriptorName=server.http_addr`. Without these variables nothing changes. [Deploying](docs/deploy.md#restart-without-dropping-requests) has the `.socket` and `.service` units.
+- The `tifa new` template keeps sessions in its SQLite database (`sessions.go`, set with `tifa.SetSessionStore` in `OnStart`), so a restart no longer signs everyone out.
+- `tifatest.NewCtx` takes the deadlines a streaming handler sets through `http.NewResponseController`.
+- [Streaming](docs/guides/streaming.md) shows server-sent events and an answer streamed piece by piece, with the browser code, the caches, the stop and a test.
+
+### Changed
+
+- Answers with `Content-Type: text/event-stream` are sent uncompressed. A compressed stream held an encoder of about 1 MiB for gzip for as long as it stayed open. Other streamed answers are still compressed and still flush.
 
 ### Fixed
 

@@ -8,6 +8,16 @@
 
 - `tifa.ExpirePages("/blog/"+slug, "/blog")` 让整页缓存在这些页面的下一个请求时重新生成，每个路径的所有查询串、Host 和协议都算。一次写入改了开了 `Cache` 的页面显示的内容，就在写入后调它。用调用之前读到的数据做出来的页面不会存下，重新生成失败时旧页照常顶上。它只清程序内存里的，不清前面的 CDN（见[写入后重新生成页面](docs/app.zh-CN.md#写入后重新生成页面)）。
 - `tifa.Stats()` 返回 VM 池的情况（加载了几个 VM、几个在渲染、几个渲染在等，渲染次数、失败次数、总耗时，以及回了 503 的渲染），还有渲染缓存和整页缓存的命中、未命中、共用生成次数和条目数，以及两者占的字节。渲染和缓存查找用原子计数，不加新锁。[部署](docs/deploy.zh-CN.md#健康检查和指标)里给了健康检查路由，和一个不用库就给 Prometheus 写出这些数的路由，以及该看哪些数。
+- `server.read_timeout` 和 `server.write_timeout`（参数 `--server-read-timeout` 和 `--server-write-timeout`，环境变量 `SERVER_READ_TIMEOUT` 和 `SERVER_WRITE_TIMEOUT`）设读完一个请求的时间和写完回答的时间，默认都还是 10s。流式输出或收大文件的处理函数用 `http.NewResponseController(w)` 只给自己的请求放宽，它能穿过 tifa 和压缩够到连接（见[耗时长的请求](docs/config.zh-CN.md#耗时长的请求)）。
+- `tifa.ShuttingDown(ctx)` 返回一个在程序开始停下时关闭的 channel。没有自己终点的流，比如 server-sent events，看到它关闭就返回，停程序不再为它等满 `server.shutdown_timeout`。
+- 在 systemd 套接字激活下，程序在 systemd 交给它的套接字上服务（`LISTEN_FDS`），重启时端口一直开着，新连接排队而不是被拒。开 HTTPS 时两个套接字用 `FileDescriptorName=server.addr` 和 `FileDescriptorName=server.http_addr` 区分。没有这些变量时什么都不变。[部署](docs/deploy.zh-CN.md#重启时不丢请求)里有 `.socket` 和 `.service` 配置。
+- `tifa new` 模板把会话存进它的 SQLite 数据库（`sessions.go`，在 `OnStart` 里用 `tifa.SetSessionStore` 设上），重启不再让所有人登出。
+- `tifatest.NewCtx` 接受流式输出的处理函数通过 `http.NewResponseController` 设的截止时间。
+- [流式输出](docs/guides/streaming.zh-CN.md)讲 server-sent events 和一段一段推出去的回答，带浏览器端代码、缓存、程序停下时的做法和测试。
+
+### 变更
+
+- `Content-Type: text/event-stream` 的回答不再压缩。压缩的流只要开着就占一个编码器，gzip 约 1 MiB。别的流式回答照旧压缩，也照旧及时发出。
 
 ### 修复
 
