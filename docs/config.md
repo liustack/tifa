@@ -189,6 +189,41 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 
 Returning the original error keeps the default 503 and its headers. Other render failures do not match `tifa.ErrSSRBusy`.
 
+### Handling a rejected render
+
+Use `tifa.ErrSSRBusy` when you want to do something of your own with an overload: count it, alert on it, or answer in another way than the default 503 page. If the default is fine, do nothing. The server already answers for you.
+
+- The error comes out of `next(c)` in `OnRequest`. Its text is `tifa: render queue busy: queue is full` or `tifa: render queue busy: wait exceeded 1s`. Match it with `errors.Is`, not by text.
+- It never reaches `OnError`. A render that fails, and a render that runs past `ssr.timeout`, are different errors: they do not match, and they go to `OnError`.
+- A request whose own deadline comes before `ssr.wait_timeout` fails with that deadline, not with `tifa.ErrSSRBusy`. A client that goes away gives `context.Canceled`.
+- Return the error unchanged to keep the default answer: 503, `Retry-After: 1` and `Cache-Control: no-store`. If you return a `tifa.Error` of your own instead, the answer uses your status and message, and the default headers are not added. Set the ones you want with `c.SetHeader`.
+
+The test app `testdata/overloadapp` changes the answer and sets `Retry-After` itself:
+
+```go
+func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+	err := next(c)
+	if errors.Is(err, tifa.ErrSSRBusy) {
+		c.SetHeader("Retry-After", "1")
+		return tifa.Error{Status: 503, Message: "Please try again shortly"}
+	}
+	return err
+}
+```
+
+To test it, call `OnRequest` with a `next` that returns the error. A wrapped error must match too:
+
+```go
+c, w := tifatest.NewCtx(t, httptest.NewRequest("GET", "/", nil))
+got := OnRequest(c, func(*tifa.Ctx) error { return fmt.Errorf("render: %w", tifa.ErrSSRBusy) })
+var public tifa.Error
+if !errors.As(got, &public) || public.Status != 503 || w.Header().Get("Retry-After") != "1" {
+	t.Fatalf("overload: %v, headers %v", got, w.Header())
+}
+```
+
+`tifatest.NewCtx` does not run SSR, so the queue itself is never full in such a test. Pass the error in by hand as above.
+
 The limits apply only when a render needs a VM. Cache hits, 304 responses, navigation data, API routes and pages with SSR off do not wait for one. Requests sharing a cache miss count as one render. `Load` runs before admission, and shared requests still hold their own HTTP state. A queue limit bounds render jobs, not total process memory or all HTTP requests. See [Overload](performance.md#overload) for sizing and measurements.
 
 ## HTTPS
