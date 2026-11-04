@@ -46,6 +46,7 @@ func (p *fakePipeline) Content(_ context.Context, all bool, changed []string) (s
 	return "", p.step("Content")
 }
 func (p *fakePipeline) HasContent() bool { return p.content }
+func (p *fakePipeline) HasPages() bool   { return true }
 func (p *fakePipeline) GoBuild(context.Context) error {
 	if p.goBuild != nil {
 		<-p.goBuild

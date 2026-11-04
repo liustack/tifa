@@ -124,6 +124,7 @@ func (p *buildPipeline) HasContent() bool {
 	defer p.mu.Unlock()
 	return p.hasContent
 }
+func (p *buildPipeline) HasPages() bool { return true }
 func (p *buildPipeline) PollFiles(context.Context) (bool, error) {
 	return true, p.step("PollFiles")
 }

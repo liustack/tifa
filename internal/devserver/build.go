@@ -32,6 +32,9 @@ type Pipeline interface {
 	// HasContent reports whether the app has content collections, as the last analysis that worked
 	// saw it. Content then runs after every analysis, which may have changed the collections.
 	HasContent() bool
+	// HasPages reports whether the app has a page.tsx, as the last analysis that worked saw it.
+	// Only then does Vite's dev server run.
+	HasPages() bool
 	// GoBuild builds the application executable that Options.App runs.
 	GoBuild(ctx context.Context) error
 	// Embedded reports whether the Go code of the application embeds the file rel with go:embed.
@@ -195,6 +198,23 @@ func planPublic(changes []change, embedded func(rel string) bool, public string)
 	for _, c := range changes {
 		if c.op != modified && inPublic(public, c.path) {
 			s.bundle = true
+		}
+	}
+	return s
+}
+
+// planApp is planPublic for an app that has pages or not. An app without pages runs no dev server
+// of Vite, which would restart on a change of its config: its front end files, outside the public
+// folder, are the Vite config, the plugins that imports and package.json, so a change of one
+// converts every entry of the content.
+func planApp(changes []change, embedded func(rel string) bool, public string, pages bool) steps {
+	s := planPublic(changes, embedded, public)
+	if pages {
+		return s
+	}
+	for _, c := range changes {
+		if kindOf(c.path) == frontend && !inPublic(public, c.path) {
+			s.content, s.contentAll = true, true
 		}
 	}
 	return s

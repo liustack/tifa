@@ -227,7 +227,7 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 			d.log.Printf("%s %s", c.path, c.op)
 		}
 		d.b.noteContent(batch)
-		d.rebuild(ctx, planPublic(batch, d.isEmbedded, d.publicDir()))
+		d.rebuild(ctx, planApp(batch, d.isEmbedded, d.publicDir(), o.Pipeline.HasPages()))
 	})
 
 	d.mu.Lock()

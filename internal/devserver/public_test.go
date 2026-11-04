@@ -91,3 +91,31 @@ func TestPlanPublicFiles(t *testing.T) {
 		})
 	}
 }
+
+// An app without pages runs no dev server of Vite, which would restart on a change of its config:
+// its front end files are the Vite config and what that imports, so a change of one converts every
+// entry. With pages the restart of the dev server does.
+func TestPlanWithoutPages(t *testing.T) {
+	all := steps{bundle: true, content: true, contentAll: true}
+	cases := []struct {
+		name   string
+		pages  bool
+		change change
+		want   steps
+	}{
+		{"vite config", false, change{"vite.config.ts", modified}, all},
+		{"plugin", false, change{"markdown.ts", modified}, all},
+		{"package.json", false, change{"package.json", modified}, all},
+		{"public script", false, change{"public/a.js", modified}, steps{bundle: true}},
+		{"post", false, change{"content/blog/a.md", modified}, steps{content: true}},
+		{"go", false, change{"app/api/route.go", modified}, steps{analyze: true, goBuild: true}},
+		{"vite config with pages", true, change{"vite.config.ts", modified}, steps{bundle: true}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := planApp([]change{tc.change}, nil, "public", tc.pages); got != tc.want {
+				t.Errorf("planned %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}

@@ -177,6 +177,12 @@ func (p *devPipeline) Analyze(context.Context) (string, error) {
 // HasContent says whether the app has content collections, as the last analysis saw it.
 func (p *devPipeline) HasContent() bool { return p.m != nil && p.m.Content != nil }
 
+// HasPages says whether the app has a page.tsx, as the last analysis saw it.
+func (p *devPipeline) HasPages() bool {
+	_, pages := p.files["client.ts"]
+	return pages
+}
+
 // Content converts the entries that changed since the last conversion into .tifa/dist and writes
 // content.json, see bundle.Dev.Content. It scans content/ again for the collections of the last
 // analysis, which reports the same problems as the analysis, also right after one: what the
