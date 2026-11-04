@@ -1,5 +1,5 @@
 ---
-summary: 'Every setting of a tifa app and how an app defines its own, and the security headers every answer carries: where each one can be set (flags, environment variables, .env, the file of -c, tifa.yaml), which source wins, how PORT and HOST are read, the default, the flag and environment variable names, the value formats and the errors a bad value gives, how a handler that needs longer lifts the read and write timeouts, how to serve HTTPS with certificates the program gets itself or with your own, and how the program refuses writes that a browser sends from another site and how to let chosen origins or paths through'
+summary: 'Every setting of a tifa app and how an app defines its own, and the security headers every answer carries, the Content-Security-Policy of server.csp among them: where each one can be set (flags, environment variables, .env, the file of -c, tifa.yaml), which source wins, how PORT and HOST are read, the default, the flag and environment variable names, the value formats and the errors a bad value gives, how a handler that needs longer lifts the read and write timeouts, how to serve HTTPS with certificates the program gets itself or with your own, and how the program refuses writes that a browser sends from another site and how to let chosen origins or paths through'
 read_when:
   - Defining a setting of the app with tifa.String and the like, or reading one in OnStart
   - Writing a .env file, or deploying on a platform that sets PORT
@@ -12,6 +12,7 @@ read_when:
   - Setting the browser target, or the static files folder of a build
   - The program refuses to start with a config error
   - A page must be shown in a frame on another site, or a header such as Referrer-Policy or Content-Security-Policy needs another value
+  - Turning on a Content-Security-Policy, or a script or style of a page is blocked by one
   - Changing internal/config
 ---
 
@@ -117,6 +118,8 @@ Hosting platforms such as Cloud Run, Heroku, Render, Railway and Fly tell the pr
 | `server.tls_key` | none | `--server-tls-key`, `SERVER_TLS_KEY` | Private key file of `tls_cert`, in PEM |
 | `server.http_addr` | `:80` | `--server-http-addr`, `SERVER_HTTP_ADDR` | With HTTPS on, the plain HTTP address that answers the checks of Let's Encrypt and redirects everything else to HTTPS. `off` for none. Not used without HTTPS |
 | `server.hsts` | `false` | `--server-hsts`, `SERVER_HSTS` | Adds `Strict-Transport-Security: max-age=31536000` to the answers of `server.addr`, so browsers keep to HTTPS for a year |
+| `server.csp` | `off` | `--server-csp`, `SERVER_CSP` | `on` sends `server.csp_policy` as the `Content-Security-Policy` of every answer, and of each page with the hashes of the inline scripts tifa writes into it. `report-only` sends it as `Content-Security-Policy-Report-Only`, which only reports. See [Content-Security-Policy](#content-security-policy) |
+| `server.csp_policy` | `script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'` | `--server-csp-policy`, `SERVER_CSP_POLICY` | The policy of `server.csp`: directives separated by semicolons. It is checked only for what keeps it one header: printable ASCII, no comma, directive names of letters, digits and dashes |
 | `server.trusted_origins` | none | `--server-trusted-origins`, `SERVER_TRUSTED_ORIGINS` | Origins whose pages may send writes (POST, PUT, PATCH, DELETE) from another site, comma-separated, such as `https://admin.example.com,http://localhost:3000`. See [Cross-site writes](#cross-site-writes) |
 | `server.cross_site_paths` | none | `--server-cross-site-paths`, `SERVER_CROSS_SITE_PATHS` | Path patterns whose writes are not checked for the site they come from, comma-separated, such as `POST /auth/apple/callback`. See [Cross-site writes](#cross-site-writes) |
 | `ssr.vms` | the CPU count (`GOMAXPROCS`) | `--ssr-vms`, `SSR_VMS` | Prewarmed JavaScript VMs, which is how many pages render at once. In a container it follows the CPU limit. [Sizing a machine](performance.md#sizing-a-machine) says when to change it |
@@ -343,6 +346,34 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 
 `Strict-Transport-Security` is not among them: it is `server.hsts`, see [Port 80 and HSTS](#port-80-and-hsts). A proxy in front passes the headers on, so do not add them there again.
 
+### Content-Security-Policy
+
+A Content-Security-Policy tells the browser which scripts may run. With one that allows only the files of the site, a script that gets into a page through data, such as a comment that carries `<script>`, does not run. Turn it on with `server.csp: on`, or try it first with `server.csp: report-only`, which only reports what it would block in the browser console (and to the address of `report-uri` or `report-to`, when the policy has one).
+
+The default policy, `server.csp_policy`, is `script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'`:
+
+- scripts load only from the site itself, and an inline script runs only when the policy lists its hash
+- no plugins (`<object>`, `<embed>`), and no `<base>` that sends relative URLs elsewhere
+- only pages of the same origin show the pages in a frame
+
+Styles are left alone: React writes `style` attributes, and emotion and MUI add style elements while the page runs.
+
+Every page has inline scripts of tifa's own: the router hands the data of the Loads to the browser in one and restores the scroll position with another. tifa hashes each inline script and style it writes into a page (SHA-256) and adds the hashes to the policy in the header of that page, so they run. These are the scripts and styles of the head of the build (Vite's preamble under `tifa dev`), of the session head, of the router, and of the `scripts` and `styles` of `head` functions, and under `tifa dev` its own error overlay. The same page always gets the same header, so the render cache, the whole-page cache and ETags work as before. Other answers, JSON and files, carry the policy as it is.
+
+The hashes go into `script-src` and `script-src-elem`, and into `style-src` and `style-src-elem` when the policy has them. A policy with only `default-src` gets a `script-src` with the sources of `default-src` and the hashes. A directive with `'unsafe-inline'` gets no hashes, since browsers ignore `'unsafe-inline'` once a directive lists one.
+
+A policy of your own, with an analytics host and a report address:
+
+```yaml
+server:
+  csp: on
+  csp_policy: "script-src 'self' https://plausible.io; object-src 'none'; base-uri 'none'; frame-ancestors 'self'; report-uri /csp-reports"
+```
+
+A policy that `OnRequest`, a `Load` or a `Layout` sets on an answer goes out as they set it, without hashes. The 304 of a page carries no policy: the browser keeps the one that came with its copy, which has the hashes of that copy.
+
+An inline script of `head` that first appears after a navigation in the browser, and one of a page with `SSR = false`, is not in the policy of the document that is open, so the browser blocks it.
+
 ## Cross-site writes
 
 A program refuses a POST, PUT, PATCH or DELETE that a browser sends from another site. A page of `evil.test` can make a browser send a form or a multipart body to your app with the user's cookies, and a handler that trusts the cookie would act for the user. The check runs first, before `OnRequest` and before any route, for pages, API routes and URLs that match nothing. It is on for every app, and no setting turns it off. It is Go's `http.CrossOriginProtection`:
@@ -396,6 +427,7 @@ What a lower depth breaks:
 - `build.skip_tanstack_check`, `build.debug_info`, `build.i18next_cache`, `server.compress` and `server.hsts` are `true` or `false`, without quotes in a file. The flag alone is `true` and takes another value only after `=`: `--server-compress=false`. It never takes the next word.
 - `server.trusted_origins` and `server.cross_site_paths` are comma-separated lists, without brackets or quotes inside, and may be empty. A higher source can empty what a lower one set: `SERVER_TRUSTED_ORIGINS=` clears the origins of the project file. An origin needs `http` or `https`, a host and no path, query or user name, and a bad one fails with what is wrong. A pattern that `http.ServeMux` rejects, or that conflicts with another of the list, fails too.
 - `server.tls_domains` is a comma-separated list of host names, without scheme, port or path. Each needs a dot. `server.tls_ca` is an `https` URL. `server.http_addr` is an address with a port, such as `:80` or `0.0.0.0:80`, or `off` in lower case. Words that read as a switch, such as `OFF`, `false` or `none`, fail with what to write.
+- `server.csp` is `off`, `on` or `report-only`, in lower case. `true`, `false`, `yes` and the like fail with what to write. `server.csp_policy` may not be empty: to send no policy, set `server.csp` to `off`.
 - `server.tls_domains`, `server.tls_email`, `server.tls_cache`, `server.tls_cert` and `server.tls_key` may be empty, which turns off what a lower source set: `SERVER_TLS_DOMAINS=` with `--server-tls-cert` serves your own certificate where the project file asks for Let's Encrypt.
 
 ## Errors

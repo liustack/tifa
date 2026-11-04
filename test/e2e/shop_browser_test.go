@@ -14,7 +14,14 @@ import (
 // hydration mismatch as an error) and with no request that failed or answered 4xx or 5xx. Then a
 // click on a link of the page must show the next page through the router, without loading the
 // document again, with the same two checks.
-func TestShopPagesInBrowser(t *testing.T) {
+func TestShopPagesInBrowser(t *testing.T) { shopPagesInBrowser(t, "e2e-shop-pg") }
+
+// The same with server.csp on: a script or a style the policy blocks is an error in the console.
+func TestShopPagesInBrowserUnderCSP(t *testing.T) {
+	shopPagesInBrowser(t, "e2e-shop-csp", "--server-csp", "on")
+}
+
+func shopPagesInBrowser(t *testing.T, session string, args ...string) {
 	skipUnlessEnabled(t)
 	if _, err := exec.LookPath("playwright-cli"); err != nil {
 		t.Skip("playwright-cli is not installed")
@@ -22,9 +29,9 @@ func TestShopPagesInBrowser(t *testing.T) {
 	dir := shopDir(t)
 	exe := buildAt(t, dir)
 	t.Setenv("SHOP_OPEN", "1")
-	base, _, _ := start(t, exe)
+	base, _, _ := start(t, exe, args...)
 
-	pw, _ := openBrowser(t, "e2e-shop-pg")
+	pw, _ := openBrowser(t, session)
 	// eval runs a function in the page and returns its JSON result.
 	eval := func(fn string) any {
 		t.Helper()

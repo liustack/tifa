@@ -137,6 +137,7 @@ WantedBy=sockets.target
 - **别缓存 `/__tifa/session`。** 它按访客回答，是 `private, no-store`。
 - **别自己在其他页面上设 `Cache-Control: public`**，也别在回答页面 URL 的处理函数上设。带用户数据的页面默认就是安全的。
 - **走 HTTPS 时，压缩可能通过回答的长度泄漏秘密**（BREACH）：回答里重复了请求里的东西，同时又带着 CSRF token 之类的秘密。给这样的回答设 `No-Gzip-Compression` 头，或者关掉 `server.compress`。
+- **开了 `server.csp` 时，CDN 写进页面的脚本不会运行。** 它的哈希不在 tifa 随页面发出的策略里。关掉会改动 HTML 的功能，比如 Cloudflare 的 Rocket Loader 和 Email Address Obfuscation。见 [Content-Security-Policy](config.zh-CN.md#content-security-policy)。
 
 ### CDN 设置
 

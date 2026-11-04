@@ -1,5 +1,5 @@
 ---
-summary: 'tifa 应用的全部配置、应用怎样定义自己的配置和每个回答都带的安全头：每项能在哪设置（参数、环境变量、.env、-c 的文件、tifa.yaml）、谁优先、怎样读 PORT 和 HOST、默认值、参数和环境变量名、值的写法、写错时的报错，需要更久的处理函数怎样放宽读写超时，怎样用程序自己申请的证书或你自己的证书提供 HTTPS，以及程序怎样拒绝浏览器从别的网站发来的写请求、怎样放行指定的来源或路径'
+summary: 'tifa 应用的全部配置、应用怎样定义自己的配置和每个回答都带的安全头（包括 server.csp 的 Content-Security-Policy）：每项能在哪设置（参数、环境变量、.env、-c 的文件、tifa.yaml）、谁优先、怎样读 PORT 和 HOST、默认值、参数和环境变量名、值的写法、写错时的报错，需要更久的处理函数怎样放宽读写超时，怎样用程序自己申请的证书或你自己的证书提供 HTTPS，以及程序怎样拒绝浏览器从别的网站发来的写请求、怎样放行指定的来源或路径'
 read_when:
   - 用 tifa.String 等定义应用的配置，或在 OnStart 里读它
   - 写 .env 文件，或部署到会设 PORT 的平台
@@ -12,6 +12,7 @@ read_when:
   - 设置构建的浏览器目标或静态文件目录
   - 程序因为配置错误起不来
   - 页面要放进别的网站的 iframe，或 Referrer-Policy、Content-Security-Policy 这类头要换别的值
+  - 要打开 Content-Security-Policy，或页面的脚本、样式被它拦下
   - 改 internal/config
 ---
 
@@ -117,6 +118,8 @@ Cloud Run、Heroku、Render、Railway、Fly 这类托管平台用 `PORT` 告诉�
 | `server.tls_key` | 无 | `--server-tls-key`、`SERVER_TLS_KEY` | `tls_cert` 的私钥文件，PEM 格式 |
 | `server.http_addr` | `:80` | `--server-http-addr`、`SERVER_HTTP_ADDR` | 开了 HTTPS 时的明文 HTTP 地址，回应 Let's Encrypt 的验证，其余请求跳转到 HTTPS。`off` 表示不开。没开 HTTPS 时不用 |
 | `server.hsts` | `false` | `--server-hsts`、`SERVER_HSTS` | 给 `server.addr` 的回答加上 `Strict-Transport-Security: max-age=31536000`，浏览器一年内只走 HTTPS |
+| `server.csp` | `off` | `--server-csp`、`SERVER_CSP` | `on` 把 `server.csp_policy` 作为每个回答的 `Content-Security-Policy` 发出，页面的策略还带上 tifa 写进页面的内联脚本的哈希。`report-only` 改用 `Content-Security-Policy-Report-Only` 发出，只报告不拦截。见 [Content-Security-Policy](#content-security-policy) |
+| `server.csp_policy` | `script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'` | `--server-csp-policy`、`SERVER_CSP_POLICY` | `server.csp` 的策略，指令之间用分号隔开。只检查它能不能作为一个头发出：可打印 ASCII、不含逗号、指令名只有字母、数字和连字符 |
 | `server.trusted_origins` | 无 | `--server-trusted-origins`、`SERVER_TRUSTED_ORIGINS` | 这些来源的页面可以从别的网站发写请求（POST、PUT、PATCH、DELETE），逗号分隔，比如 `https://admin.example.com,http://localhost:3000`。见[跨站写请求](#跨站写请求) |
 | `server.cross_site_paths` | 无 | `--server-cross-site-paths`、`SERVER_CROSS_SITE_PATHS` | 这些路径模式的写请求不检查来自哪个网站，逗号分隔，比如 `POST /auth/apple/callback`。见[跨站写请求](#跨站写请求) |
 | `ssr.vms` | CPU 数（`GOMAXPROCS`） | `--ssr-vms`、`SSR_VMS` | 预热的 JavaScript VM 数，也就是同时能渲染几个页面。容器里跟随 CPU 限额。什么时候该改见[机器怎么配](performance.zh-CN.md#机器怎么配) |
@@ -343,6 +346,34 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 
 `Strict-Transport-Security` 不在其中，它由 `server.hsts` 控制，见[80 端口与 HSTS](#80-端口与-hsts)。前面的代理会把这些头原样转发，不要在代理上再加一遍。
 
+### Content-Security-Policy
+
+Content-Security-Policy 告诉浏览器哪些脚本可以运行。策略只放行本站的文件时，经由数据混进页面的脚本（比如一条带 `<script>` 的评论）不会运行。用 `server.csp: on` 打开，也可以先用 `server.csp: report-only` 试，它只把本该拦下的内容报到浏览器控制台（策略里写了 `report-uri` 或 `report-to` 时也报到那个地址）。
+
+默认策略 `server.csp_policy` 是 `script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'`：
+
+- 脚本只从本站加载，内联脚本只有哈希列在策略里才运行
+- 不加载插件（`<object>`、`<embed>`），也不许 `<base>` 把相对 URL 指到别处
+- 只有同源页面能把页面放进 iframe
+
+样式不受限：React 会写 `style` 属性，emotion 和 MUI 在页面运行时还会添加 style 元素。
+
+每个页面都有 tifa 自己的内联脚本：路由器用一个把 Load 的数据交给浏览器，用另一个恢复滚动位置。tifa 给它写进页面的每个内联脚本和样式算 SHA-256 哈希，加进这个页面响应头里的策略，所以它们能运行。包括构建 head 里的脚本和样式（`tifa dev` 下是 Vite 的 preamble）、会话 head、路由器的脚本、`head` 函数的 `scripts` 和 `styles`，以及 `tifa dev` 自己的错误浮层。同一个页面总是得到同一个头，所以渲染缓存、整页缓存和 ETag 照常工作。其他回答（JSON 和文件）带原样的策略。
+
+哈希加进 `script-src` 和 `script-src-elem`，策略里有 `style-src`、`style-src-elem` 时也加进去。只有 `default-src` 的策略会多出一条 `script-src`，内容是 `default-src` 的来源加上哈希。带 `'unsafe-inline'` 的指令不加哈希，因为指令里一有哈希，浏览器就不理 `'unsafe-inline'` 了。
+
+自己写策略，加上统计服务的域名和上报地址：
+
+```yaml
+server:
+  csp: on
+  csp_policy: "script-src 'self' https://plausible.io; object-src 'none'; base-uri 'none'; frame-ancestors 'self'; report-uri /csp-reports"
+```
+
+`OnRequest`、`Load` 或 `Layout` 在回答上设的策略按原样发出，不加哈希。页面的 304 不带策略：浏览器沿用副本自带的那份，那份里正是这份副本的哈希。
+
+在浏览器里导航后才出现的 `head` 内联脚本，以及 `SSR = false` 的页面的 `head` 内联脚本，不在当前文档的策略里，浏览器会拦下它们。
+
 ## 跨站写请求
 
 程序会拒绝浏览器从别的网站发来的 POST、PUT、PATCH 和 DELETE。`evil.test` 的页面能让浏览器带着用户的 cookie 向你的应用发表单或 multipart，信 cookie 的处理函数就会替用户办事。这个检查最先执行，在 `OnRequest` 和任何路由之前，页面、接口、没有匹配到路由的地址都一样。每个应用都开着，没有设置能关掉。它用的是 Go 的 `http.CrossOriginProtection`：
@@ -396,6 +427,7 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 - `build.skip_tanstack_check`、`build.debug_info`、`build.i18next_cache`、`server.compress` 和 `server.hsts` 是 `true` 或 `false`，文件里不加引号。参数单独写就是 `true`，要别的值只能用 `=` 带上：`--server-compress=false`，不会吃掉后面的词。
 - `server.trusted_origins` 和 `server.cross_site_paths` 是逗号分隔的列表，里面不要加括号或引号，可以为空。高优先级的来源可以清空低优先级设的值：`SERVER_TRUSTED_ORIGINS=` 会清掉项目文件里的来源。来源要有 `http` 或 `https` 和主机名，不能带路径、查询串或用户名，写错会报出错在哪。`http.ServeMux` 不接受的模式，或和列表里别的模式冲突的，也会报错。
 - `server.tls_domains` 是逗号分隔的主机名，不带协议、端口和路径，每个都要有点号。`server.tls_ca` 是 `https` 网址。`server.http_addr` 是带端口的地址，比如 `:80` 或 `0.0.0.0:80`，或者小写的 `off`。像开关的词，比如 `OFF`、`false`、`none`，会报错并告诉你该写什么。
+- `server.csp` 是小写的 `off`、`on` 或 `report-only`。写 `true`、`false`、`yes` 这类词会报错并告诉你该写什么。`server.csp_policy` 不能为空，不想发策略就把 `server.csp` 设成 `off`。
 - `server.tls_domains`、`server.tls_email`、`server.tls_cache`、`server.tls_cert` 和 `server.tls_key` 可以为空，表示关掉低优先级来源设的值：项目文件要 Let's Encrypt 时，用 `SERVER_TLS_DOMAINS=` 加 `--server-tls-cert` 就能改用自己的证书。
 
 ## 报错

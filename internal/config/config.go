@@ -69,6 +69,11 @@ type Server struct {
 	HTTPAddr string
 	// HSTS adds Strict-Transport-Security to the answers of Addr.
 	HSTS bool
+	// CSP is off, on or report-only: with on, every answer carries CSPPolicy as its
+	// Content-Security-Policy, and the documents tifa writes carry it with the hashes of their inline
+	// scripts and styles. report-only sends it as Content-Security-Policy-Report-Only instead.
+	CSP       string
+	CSPPolicy string
 
 	// Writes (every method but GET, HEAD and OPTIONS) that a browser sends from another site are
 	// refused with 403, see server.crossSite. TrustedOrigins are the origins that may send
@@ -114,6 +119,12 @@ func (s Server) CheckHTTPSAddr() error {
 
 // LetsEncrypt is the ACME directory of Let's Encrypt, the default server.tls_ca.
 const LetsEncrypt = "https://acme-v02.api.letsencrypt.org/directory"
+
+// DefaultCSPPolicy is the policy of server.csp unless server.csp_policy says another. It limits
+// scripts to the files of the site and the inline scripts tifa writes, whose hashes each page adds,
+// and lets no other site show the pages in a frame. Styles are left alone: React writes style
+// attributes, and emotion and MUI add style elements while the page runs.
+const DefaultCSPPolicy = "script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'"
 
 type SSR struct {
 	VMs      int
@@ -162,7 +173,7 @@ const DefaultAddr = "127.0.0.1:9527"
 func Default() Config {
 	return Config{
 		Build:   Build{Target: "es2020", Public: "public", I18nextCache: true},
-		Server:  Server{Addr: DefaultAddr, BodyLimit: 1 << 20, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, ShutdownTimeout: 10 * time.Second, Compress: true, TLSCA: LetsEncrypt, HTTPAddr: ":80"},
+		Server:  Server{Addr: DefaultAddr, BodyLimit: 1 << 20, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, ShutdownTimeout: 10 * time.Second, Compress: true, TLSCA: LetsEncrypt, HTTPAddr: ":80", CSP: "off", CSPPolicy: DefaultCSPPolicy},
 		SSR:     SSR{VMs: runtime.GOMAXPROCS(0), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second, QueueLimit: 32, WaitTimeout: time.Second},
 		Cache:   Cache{Size: 64 << 20, IgnoreQuery: slices.Clone(DefaultIgnoreQuery)},
 		Session: Session{Cookie: DefaultSessionCookie, MaxAge: 30 * 24 * time.Hour, MemoryLimit: 64 << 20},
@@ -198,6 +209,8 @@ func fields(c *Config) []field {
 		{"server.tls_key", "Private key file (PEM) of tls_cert", optionalValue{&c.Server.TLSKey}},
 		{"server.http_addr", "With HTTPS, plain HTTP address that answers Let's Encrypt and redirects to HTTPS, off for none", httpAddrValue{&c.Server.HTTPAddr}},
 		{"server.hsts", "Send Strict-Transport-Security, so browsers keep to HTTPS for a year", boolValue{&c.Server.HSTS}},
+		{"server.csp", "Send server.csp_policy as the Content-Security-Policy: off, on or report-only", cspValue{&c.Server.CSP}},
+		{"server.csp_policy", "The Content-Security-Policy of server.csp, to which pages add the hashes of their inline scripts", policyValue{&c.Server.CSPPolicy}},
 		{"server.trusted_origins", "Comma-separated origins whose pages may send cross-site writes, such as https://admin.example.com", originsValue{&c.Server.TrustedOrigins}},
 		{"server.cross_site_paths", "Comma-separated path patterns, such as POST /auth/callback, that accept cross-site writes", patternsValue{&c.Server.CrossSitePaths}},
 		{"ssr.vms", "Prewarmed JavaScript VMs, defaults to GOMAXPROCS (the CPU limit in containers)", intValue{p: &c.SSR.VMs, min: 1}},

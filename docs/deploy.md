@@ -137,6 +137,7 @@ In `shop.service`, `Requires=` and `After=` name both units, and `[Service]` add
 - **Do not cache `/__tifa/session`.** It answers per visitor and is `private, no-store`.
 - **Do not set `Cache-Control: public` yourself** on other pages, or on a handler that answers the URL of a page. A page with per-user data is safe by default.
 - **Over HTTPS, compression can leak a secret** through the length of an answer (BREACH) when the answer repeats something from the request and also carries a secret such as a CSRF token. Set the header `No-Gzip-Compression` on such an answer, or turn `server.compress` off.
+- **With `server.csp`, a script the CDN writes into a page does not run.** Its hash is not in the policy tifa sent with the page. Turn off the features that change the HTML, such as Rocket Loader and Email Address Obfuscation of Cloudflare. See [Content-Security-Policy](config.md#content-security-policy).
 
 ### CDN settings
 

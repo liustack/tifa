@@ -7,6 +7,7 @@
 ### 新增
 
 - `tifa.Secret("smtp.password", "SMTP password")` 定义应用的密码、token 或密钥配置。它从环境变量、`.env` 或 `-c` 的文件读，用命令行参数给值时程序报错并说明该放在哪里，`./bin/app config` 只写它的来源，不写值。[邮件指南](docs/guides/email.zh-CN.md)改用了它。
+- `server.csp: on` 发出只让本站脚本运行的 Content-Security-Policy。tifa 把它写进页面的内联脚本的哈希加进这个页面的策略，页面照常 hydrate，渲染缓存、整页缓存和 ETag 也照常工作。`server.csp_policy` 改策略，`report-only` 只报告不拦截（见 [Content-Security-Policy](docs/config.zh-CN.md#content-security-policy)）。
 
 ### 变更
 

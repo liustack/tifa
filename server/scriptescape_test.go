@@ -21,9 +21,10 @@ import (
 const hostile = "</script><script>window.pwned=1</script></SCRIPT><!--\u2028\u2029"
 
 // escapeBundle writes the data of each Load as a slot in the call seroval writes, which the pool
-// fills. /boom fails until the server places the error at a level, as a component that throws
-// does, and its error repeats the data. /doom always fails. /differs reads the time, next to a
-// script of its own.
+// fills, marked for the hashes of a Content-Security-Policy when the input asks for it, as the
+// router's scripts are. /boom fails until the server places the error at a level, as a component
+// that throws does, and its error repeats the data. /doom always fails. /differs reads the time,
+// next to a script of its own, which it does not mark.
 const escapeBundle = `globalThis.startRender = (json, ...texts) => {
   const input = JSON.parse(json)
   const hostile = JSON.parse(texts[0]).x
@@ -32,8 +33,9 @@ const escapeBundle = `globalThis.startRender = (json, ...texts) => {
     return
   }
   let scripts = ''
+  const mark = input.csp ? ' nonce="' + input.nonce + '"' : ''
   for (const r of Object.values(input.data)) {
-    if (r.text !== undefined) scripts += '<script>$_TSR.t.get("tifa.data")("~' + input.nonce + '.' + r.text + '.")</script>'
+    if (r.text !== undefined) scripts += '<script' + mark + '>$_TSR.t.get("tifa.data")("~' + input.nonce + '.' + r.text + '.")</script>'
   }
   const now = input.url.startsWith('/differs') ? '<p>' + Date.now() + '</p><script>run()</script>' : ''
   globalThis.renderResult = '<!DOCTYPE html><html><body>' + now + scripts + '</body></html>'
@@ -54,9 +56,9 @@ func escapeApp() App {
 	}}
 }
 
-// escapeServer serves escapeApp with a real VM pool over escapeBundle, under tifa dev or not, and
-// counts the renders.
-func escapeServer(t *testing.T, dev bool) (*server, *int) {
+// escapeServer serves escapeApp with a real VM pool over escapeBundle, under tifa dev or not, with
+// server.csp set to csp, and counts the renders.
+func escapeServer(t *testing.T, dev bool, csp string) (*server, *int) {
 	t.Helper()
 	dir := t.TempDir()
 	for name, content := range map[string]string{
@@ -68,6 +70,7 @@ func escapeServer(t *testing.T, dev bool) (*server, *int) {
 		}
 	}
 	s := newAppServer(t, escapeApp())
+	s.cfg.CSP = csp
 	if dev {
 		s.dev = http.NotFoundHandler()
 	}
@@ -82,7 +85,7 @@ func escapeServer(t *testing.T, dev bool) (*server, *int) {
 	renders := new(int)
 	f := s.front.Load()
 	render := f.render
-	f.render = func(ctx context.Context, in ssr.Input) (string, error) {
+	f.render = func(ctx context.Context, in ssr.Input) (ssr.Page, error) {
 		*renders++
 		return render(ctx, in)
 	}
@@ -95,8 +98,8 @@ func escapeServer(t *testing.T, dev bool) (*server, *int) {
 // the page, the plain page of a page that fails at every level, and the note that two renders
 // differ).
 func TestNoPathLetsDataEndAScript(t *testing.T) {
-	prod, prodRenders := escapeServer(t, false)
-	dev, _ := escapeServer(t, true)
+	prod, prodRenders := escapeServer(t, false, "off")
+	dev, _ := escapeServer(t, true, "off")
 	cases := []struct {
 		name   string
 		s      *server
@@ -143,6 +146,44 @@ func TestNoPathLetsDataEndAScript(t *testing.T) {
 		if tc.check != nil {
 			tc.check(t, w)
 		}
+	}
+}
+
+// With server.csp on, every inline script tifa writes into a page runs, on every path that writes
+// one, and the script a component wrote unmarked does not: the policy of each page lists the hash
+// of each inline script of the page but that one. The page without SSR has none, its data being
+// JSON.
+func TestThePolicyOfAPageAllowsTheScriptsTifaWrote(t *testing.T) {
+	prod, _ := escapeServer(t, false, "on")
+	dev, _ := escapeServer(t, true, "on")
+	unmarked := hashOf("run()")
+	for _, tc := range []struct {
+		name   string
+		s      *server
+		target string
+	}{
+		{"first render", prod, "/p"}, {"render cache hit", prod, "/p"}, {"error placed at a level", prod, "/boom"},
+		{"whole-page cache miss", prod, "/cached"}, {"whole-page cache hit", prod, "/cached"},
+		{"dev: error over the page", dev, "/boom"}, {"dev: page that fails at every level", dev, "/doom"},
+		{"dev: two renders differ", dev, "/differs"}, {"dev: page", dev, "/p"},
+	} {
+		w := get(tc.s, tc.target)
+		policy := w.Header().Get(cspHeader)
+		scripts, _ := ssr.InlineHashes(w.Body.String())
+		if len(scripts) == 0 {
+			t.Errorf("%s: no inline script in %s", tc.name, w.Body.String())
+		}
+		for _, hash := range scripts {
+			if allowed := strings.Contains(policy, hash); allowed != (hash != unmarked) {
+				t.Errorf("%s: the policy %q allows %s: %v, in %s", tc.name, policy, hash, allowed, w.Body.String())
+			}
+		}
+		if !strings.HasPrefix(policy, "script-src 'self' 'sha256-") {
+			t.Errorf("%s: policy %q", tc.name, policy)
+		}
+	}
+	if policy := get(prod, "/plain").Header().Get(cspHeader); policy != config.DefaultCSPPolicy {
+		t.Errorf("page without SSR: policy %q", policy)
 	}
 }
 

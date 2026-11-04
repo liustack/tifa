@@ -116,7 +116,7 @@ func TestPagePathOfAKey(t *testing.T) {
 			t.Errorf("%s: %q %v, want %q", target, got, ok, want)
 		}
 	}
-	if _, ok := pagePath(renderKey(ssr.Input{BuildID: "b1", URL: "/news"}, f.build.bundle)); ok {
+	if _, ok := pagePath(renderKey(ssr.Input{BuildID: "b1", URL: "/news"}, f.build.bundle, "")); ok {
 		t.Error("a key of the render cache has a path")
 	}
 }

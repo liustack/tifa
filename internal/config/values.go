@@ -285,6 +285,64 @@ func (v httpAddrValue) Set(s string) error {
 func (v httpAddrValue) String() string { return *v.p }
 func (v httpAddrValue) kind() string   { return "string" }
 
+// cspValue is server.csp: off, on or report-only. Words that read as a switch fail with what
+// to write.
+type cspValue struct{ p *string }
+
+func (v cspValue) Set(s string) error {
+	switch s {
+	case "off", "on", "report-only":
+		*v.p = s
+		return nil
+	}
+	switch strings.ToLower(s) {
+	case "false", "no", "none", "disable", "disabled", "0", "off":
+		return fmt.Errorf("%q is not a value, to turn it off, write off", s)
+	case "true", "yes", "enable", "enabled", "1", "on":
+		return fmt.Errorf("%q is not a value, to turn it on, write on", s)
+	}
+	return fmt.Errorf("invalid value %q, use off, on or report-only", s)
+}
+func (v cspValue) String() string { return *v.p }
+func (v cspValue) kind() string   { return "string" }
+
+// policyValue is server.csp_policy: directives separated by semicolons, each a name and its
+// values. It is checked only as far as it must go out as one header that browsers read as one
+// policy: printable ASCII, no comma, which would start a second policy, and names of letters,
+// digits and dashes. What the directives say is the app's to decide.
+type policyValue struct{ p *string }
+
+func (v policyValue) Set(s string) error {
+	for _, c := range []byte(s) {
+		if c < 0x20 && c != '\t' || c > 0x7e {
+			return fmt.Errorf("invalid policy %q: a policy is printable ASCII, write a URL with other characters in its punycode and percent-encoded form", s)
+		}
+	}
+	if strings.Contains(s, ",") {
+		return fmt.Errorf("invalid policy %q: a comma starts a second policy, separate the directives with semicolons", s)
+	}
+	empty := true
+	for _, d := range strings.Split(s, ";") {
+		fields := strings.Fields(d)
+		if len(fields) == 0 {
+			continue
+		}
+		empty = false
+		for _, c := range []byte(fields[0]) {
+			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-') {
+				return fmt.Errorf("invalid policy %q: %q is not the name of a directive", s, fields[0])
+			}
+		}
+	}
+	if empty {
+		return fmt.Errorf("the policy is empty, to send none, set server.csp to off")
+	}
+	*v.p = s
+	return nil
+}
+func (v policyValue) String() string { return *v.p }
+func (v policyValue) kind() string   { return "string" }
+
 // intValue is a whole number of at least min and, when max is not 0, at most max. why says what
 // goes wrong above max.
 type intValue struct {

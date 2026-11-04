@@ -94,7 +94,7 @@ flowchart TD
   S -- "否" --> RP["渲染页面 (renderPage)"]
 ```
 
-`renderPage` 用各个 `Load` 的结果造出 VM 的输入，由它算出 ETag，`If-None-Match` 匹配就回答 304。否则去问渲染缓存，缓存没有再到 VM 池里渲染。数据以文本的形式交给 VM，等 VM 空出来之后由池把它填进页面，所以 VM 不用复制大块的 JSON。
+`renderPage` 用各个 `Load` 的结果造出 VM 的输入，由它算出 ETag，`If-None-Match` 匹配就回答 304。否则去问渲染缓存，缓存没有再到 VM 池里渲染。数据以文本的形式交给 VM，等 VM 空出来之后由池把它填进页面，所以 VM 不用复制大块的 JSON。开了 `server.csp` 时，渲染给自己写的脚本和样式打上这次渲染的 nonce 作记号，池再把记号去掉并给这些元素算哈希，页面带着只放行它们的策略发出（见 [Content-Security-Policy](config.zh-CN.md#content-security-policy)）。
 
 渲染失败时，服务器带着错误再渲染一次，用错误代替页面（`server/page.go` 里的 `rescue`）。再失败，就由 Go 写一个简单的错误页。
 
@@ -212,7 +212,7 @@ flowchart TD
   FL -- "否" --> VMR["在 VM 里渲染 (vm)，保存 HTML"]
 ```
 
-- **渲染缓存。** 键是 build ID、SSR bundle、URL、每个 `Load` 的数据和浏览器拿到的会话的哈希。同一个键总是得到同样的 HTML，所以命中就能跳过 VM。每个请求仍然运行 `OnRequest` 和它的 `Load`，所以数据不会旧。HTML 连同它的 gzip 和 zstd 形式一起保存。
+- **渲染缓存。** 键是 build ID、SSR bundle、URL、每个 `Load` 的数据、浏览器拿到的会话和 `server.csp` 的策略的哈希。同一个键总是得到同样的 HTML，所以命中就能跳过 VM。每个请求仍然运行 `OnRequest` 和它的 `Load`，所以数据不会旧。HTML 连同它的 gzip 和 zstd 形式一起保存。
 - **共享渲染。** 同时没命中同一个键的请求只等一次渲染，`cache.size` 为 0 时也一样。这次渲染跑在一个不属于任何请求的 goroutine 里，所以某个客户端走掉不会取消它。
 - **ETag。** 它是和渲染键同样那些东西的哈希。匹配的 `If-None-Match` 在问缓存之前就得到回答。ETag 省的是发给浏览器的传输，缓存省的是给其他人的渲染。
 - **整页缓存。** 只有写了 `const Cache` 的页面有。请求被变成匿名的，键是协议、host、路径和去掉跟踪参数的查询字符串，条目存活 `Cache` 那么久。命中既不运行 `Load` 也不渲染。没命中时，为所有在等的请求只做一次页面，要经过渲染缓存。做新页面失败时，最多一天内继续给出旧条目。

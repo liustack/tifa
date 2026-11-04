@@ -67,8 +67,11 @@ type front struct {
 	build  frontBuild
 	assets fs.FS // dist/assets, nil without pages
 	public fs.FS // dist/public, nil without a public directory
-	render func(context.Context, ssr.Input) (string, error)
+	render func(context.Context, ssr.Input) (ssr.Page, error)
 	pool   *ssr.Pool // runs render, nil without an SSR bundle or in tests
+	// headScripts and headStyles are the hashes of the inline scripts and styles of build.Head,
+	// which every document carries (see renderedPolicy).
+	headScripts, headStyles []string
 	// pages is set when there are pages to render. Without it pages answer JSON.
 	pages bool
 	// preload holds, by the path of a page or the ID of a Layout (see Server.modules), the module
@@ -81,7 +84,7 @@ type front struct {
 // readFront reads the front end in dist: dist/build.json names the build and its assets,
 // dist/assets and dist/public are served as files. render runs the SSR bundle, nil when the
 // application has no pages.
-func (s *server) readFront(dist fs.FS, render func(context.Context, ssr.Input) (string, error)) (*front, error) {
+func (s *server) readFront(dist fs.FS, render func(context.Context, ssr.Input) (ssr.Page, error)) (*front, error) {
 	data, err := fs.ReadFile(dist, "build.json")
 	if err != nil {
 		return nil, fmt.Errorf("tifa: read the build: %w", err)
@@ -93,6 +96,7 @@ func (s *server) readFront(dist fs.FS, render func(context.Context, ssr.Input) (
 	if f.build.ID == "" {
 		return nil, errors.New("tifa: build.json has no build ID")
 	}
+	f.headScripts, f.headStyles = ssr.InlineHashes(f.build.Head)
 	if render != nil {
 		source, err := fs.ReadFile(dist, "ssr.js")
 		if err != nil {
@@ -184,7 +188,7 @@ func (f *front) preloadOf(key string, items map[string]routeResult) string {
 }
 
 // setFront serves the front end in dist with render, see readFront.
-func (s *server) setFront(dist fs.FS, render func(context.Context, ssr.Input) (string, error)) error {
+func (s *server) setFront(dist fs.FS, render func(context.Context, ssr.Input) (ssr.Page, error)) error {
 	f, err := s.readFront(dist, render)
 	if err != nil {
 		return err
@@ -213,7 +217,7 @@ func (s *server) openFront(dist fs.FS, cfg config.SSR) error {
 	if err != nil {
 		return err
 	}
-	f, err := s.readFront(dist, pool.Render)
+	f, err := s.readFront(dist, pool.RenderPage)
 	if err != nil {
 		return errors.Join(err, pool.Close())
 	}
@@ -668,6 +672,10 @@ type dataRedirect struct {
 //     Data, Texts and URL
 //   - the nonce of the slots that stand for long texts: replaced by the texts before the page
 //     leaves the pool, so none stays in the HTML
+//   - the marks of the elements whose hashes go into the Content-Security-Policy, with CSP:
+//     taken out before the page leaves the pool, so the HTML is that of a render without them.
+//     The header follows from the HTML and policy (see policyKey), which the key covers so that a
+//     browser holding the page under another policy gets it again with this one
 //
 // What the application's own code does is another matter: a component that reads the time or a
 // random number makes its page differ from one render to the next. tifa dev renders each page
@@ -677,9 +685,9 @@ type dataRedirect struct {
 // tracking parameter, make two entries. That costs hits and never serves a wrong page, since the
 // render reads the same URI. Sorting the query and dropping tracking parameters belongs to the
 // whole-page cache, which keys by URL.
-func renderKey(in ssr.Input, bundle string) string {
+func renderKey(in ssr.Input, bundle, policy string) string {
 	sum := sha256.New()
-	for _, part := range []string{in.BuildID, bundle, in.URL, string(in.Data), in.Preload, string(in.Session), in.SessionKey, in.SessionHead} {
+	for _, part := range []string{in.BuildID, bundle, policy, strconv.FormatBool(in.CSP), in.URL, string(in.Data), in.Preload, string(in.Session), in.SessionKey, in.SessionHead} {
 		io.WriteString(sum, part)
 		sum.Write([]byte{0})
 	}
@@ -720,7 +728,7 @@ func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, since tim
 	defer s.rendering.RUnlock()
 	f := s.front.Load()
 	in := ssr.Input{BuildID: f.build.ID, URL: s.renderURI(c), Data: data, Texts: texts, PageTexts: pageTexts, Preload: f.preloadOf(key, items),
-		Session: sess.json, SessionKey: sess.key, SessionHead: sess.head}
+		Session: sess.json, SessionKey: sess.key, SessionHead: sess.head, CSP: s.policyHeader() != ""}
 	failed := &renderError{f: f, in: in, key: key, loads: since}
 	// A render clock makes the HTML depend on a time that is no part of the key, so such a request
 	// neither reads the cache nor writes to it, and shares no render.
@@ -732,7 +740,7 @@ func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, since tim
 	// no ETag and always render: a hash of the input would answer 304 for HTML that has changed.
 	var tag string
 	if status == http.StatusOK && cache {
-		tag = renderKey(in, f.build.bundle)
+		tag = renderKey(in, f.build.bundle, s.policyKey())
 		etag := tag
 		if s.cfg.Compress {
 			etag = "W/" + tag
@@ -743,6 +751,8 @@ func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, since tim
 		if !core.NoStore(c) && etagMatches(c.Header("If-None-Match"), tag) {
 			c.SetHeader(renderHeader, "none")
 			setDataAge(c.Writer().Header(), time.Since(since))
+			// The 304 carries no policy, see dropPagePolicy.
+			s.dropPagePolicy(c.Writer().Header())
 			return c.NoContent(http.StatusNotModified)
 		}
 	}
@@ -756,7 +766,8 @@ func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, since tim
 	}
 	c.SetHeader(renderHeader, "vm")
 	setDataAge(c.Writer().Header(), time.Since(since))
-	return writeHTML(c, status, page)
+	s.setPagePolicy(c.Writer().Header(), s.renderedPolicy(f, in, page))
+	return writeHTML(c, status, page.HTML)
 }
 
 // dataAgeMetric is the Server-Timing metric that says how old the data of a page may be when the
@@ -838,6 +849,7 @@ func (s *server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 	}
 	c.SetHeader(renderHeader, got.how)
 	setDataAge(c.Writer().Header(), time.Since(since))
+	s.setPagePolicy(c.Writer().Header(), got.page.policy)
 	if !got.held {
 		return writeHTML(c, status, got.page.html)
 	}
@@ -848,19 +860,20 @@ func (s *server) renderCached(c *tifa.Ctx, f *front, in ssr.Input, key string, s
 // it. twice has tifa dev render a page the render cache keeps once more to find out whether it
 // reads the time or a random number, see devRenderTwice.
 func (s *server) renderOne(ctx context.Context, f *front, in ssr.Input, twice bool, method, path string) (cachedPage, bool, error) {
-	html, err := f.render(ctx, in)
+	rendered, err := f.render(ctx, in)
 	if err != nil {
-		return cachedPage{html: html}, false, err
+		return cachedPage{html: rendered.HTML}, false, err
 	}
 	if twice && s.dev != nil {
-		if warned, differs := s.devRenderTwice(ctx, f, in, html, method, path); differs {
-			return cachedPage{html: warned}, false, nil
+		if warned, differs := s.devRenderTwice(ctx, f, in, rendered, method, path); differs {
+			return cachedPage{html: warned.HTML, policy: s.renderedPolicy(f, in, warned)}, false, nil
 		}
 	}
+	html, policy := rendered.HTML, s.renderedPolicy(f, in, rendered)
 	if !s.cache.holds(html) {
-		return cachedPage{html: html}, false, nil
+		return cachedPage{html: html, policy: policy}, false, nil
 	}
-	page := cachedPage{html: html, body: new(bodyID)}
+	page := cachedPage{html: html, policy: policy, body: new(bodyID)}
 	if s.cfg.Compress {
 		page.gzip, page.zstd = compressPage(html)
 	}
@@ -879,11 +892,12 @@ const devClockShift = 36*time.Hour + 7*time.Minute + 13*time.Second
 // the terminal gets the warning with the place where the two renders part. The page is not cached,
 // so each request warns until the page is fixed. A second render that fails is left alone: the
 // first one is what the request gets.
-func (s *server) devRenderTwice(ctx context.Context, f *front, in ssr.Input, first, method, path string) (string, bool) {
+func (s *server) devRenderTwice(ctx context.Context, f *front, in ssr.Input, rendered ssr.Page, method, path string) (ssr.Page, bool) {
 	later, reads := ssr.WithReads(core.WithRenderClock(ctx, func() time.Time { return time.Now().Add(devClockShift) }))
-	second, err := f.render(later, in)
+	again, err := f.render(later, in)
+	first, second := rendered.HTML, again.HTML
 	if err != nil || second == first {
-		return "", false
+		return ssr.Page{}, false
 	}
 	i := 0
 	for i < len(first) && i < len(second) && first[i] == second[i] {
@@ -902,11 +916,20 @@ func (s *server) devRenderTwice(ctx context.Context, f *front, in ssr.Input, fir
 		s.devErrors.renders.Add(deverrors.Render{Method: method, URL: in.URL, Text: text})
 	}
 	shown, _ := htmlJSON(map[string]string{"title": "The page renders differently each time", "text": text})
-	script := fmt.Sprintf(`<script>window.__tifaDevPageError = %s</script>`, shown)
-	if j := strings.LastIndex(first, "</body>"); j >= 0 {
-		return first[:j] + script + first[j:], true
+	return beforeBody(rendered, fmt.Sprintf(`<script>window.__tifaDevPageError = %s</script>`, shown)), true
+}
+
+// beforeBody returns page with html, scripts Go wrote, at the end of its body, and the hashes of
+// those scripts with the hashes of the page.
+func beforeBody(page ssr.Page, html string) ssr.Page {
+	scripts, _ := ssr.InlineHashes(html)
+	page.Scripts = append(slices.Clip(page.Scripts), scripts...)
+	if i := strings.LastIndex(page.HTML, "</body>"); i >= 0 {
+		page.HTML = page.HTML[:i] + html + page.HTML[i:]
+	} else {
+		page.HTML += html
 	}
-	return first + script, true
+	return page
 }
 
 // around returns the part of html near byte i, which starts at a rune and ends at one.
@@ -978,6 +1001,7 @@ func (s *server) dataOnly(c *tifa.Ctx, items map[string]routeResult, status int,
 		return err
 	}
 	c.SetHeader(renderHeader, "none")
+	s.setPagePolicy(c.Writer().Header(), s.documentPolicy(doc))
 	return writeHTML(c, status, doc)
 }
 
@@ -1125,7 +1149,8 @@ func (s *server) rescue(c *tifa.Ctx, e tifa.Error, err error, failed *renderErro
 			c.SetHeader("Cache-Control", "no-store")
 			c.SetHeader(renderHeader, "vm")
 			setDataAge(c.Writer().Header(), time.Since(failed.loads))
-			_ = writeHTML(c, e.Status, page)
+			s.setPagePolicy(c.Writer().Header(), s.renderedPolicy(failed.f, in, page))
+			_ = writeHTML(c, e.Status, page.HTML)
 			return
 		}
 		errs = append(errs, fmt.Errorf("show the error at level %d: %w", level, tryErr))
@@ -1151,7 +1176,7 @@ func retriedNot(err error) bool {
 // devPageError adds to the page of a failed render under tifa dev what the plain page of fallback
 // shows, in the overlay of the dev client, and marks it as an error page, which reloads after a
 // rebuild serves a fix.
-func (s *server) devPageError(c *tifa.Ctx, e tifa.Error, err error, page string) string {
+func (s *server) devPageError(c *tifa.Ctx, e tifa.Error, err error, page ssr.Page) ssr.Page {
 	r := c.Request()
 	text := fmt.Sprintf("%s %s failed while rendering on the server.\n", r.Method, r.URL.RequestURI())
 	if e.Message != http.StatusText(e.Status) {
@@ -1160,12 +1185,7 @@ func (s *server) devPageError(c *tifa.Ctx, e tifa.Error, err error, page string)
 	text += "The page shows the Error component for it. It reloads after you save a fix. The built app shows only the status and the public message.\n\n" + err.Error()
 	// htmlJSON escapes <, >, &, U+2028 and U+2029, so the text cannot close the script element.
 	shown, _ := htmlJSON(map[string]string{"title": fmt.Sprintf("%d %s", e.Status, http.StatusText(e.Status)), "text": text})
-	script := fmt.Sprintf(`<script>window.__tifaDevErrorPage = true; window.__tifaDevPageError = %s</script><script src="%s"></script>`, shown, clientPath)
-	i := strings.LastIndex(page, "</body>")
-	if i < 0 {
-		return page + script
-	}
-	return page[:i] + script + page[i:]
+	return beforeBody(page, fmt.Sprintf(`<script>window.__tifaDevErrorPage = true; window.__tifaDevPageError = %s</script><script src="%s"></script>`, shown, clientPath))
 }
 
 // fallback answers with the plain page of e. Under tifa dev the page also names the request
@@ -1193,6 +1213,7 @@ func (s *server) fallback(c *tifa.Ctx, e tifa.Error, err error) {
 	fmt.Fprintf(&b, `<pre style="white-space: pre-wrap">%s</pre>`, html.EscapeString(err.Error()))
 	fmt.Fprintf(&b, `<script>window.__tifaDevErrorPage = true</script><script src="%s"></script></body></html>`, clientPath)
 	w := c.Writer()
+	s.setPagePolicy(w.Header(), s.documentPolicy(b.String()))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Length", strconv.Itoa(b.Len()))
