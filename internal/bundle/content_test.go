@@ -80,6 +80,60 @@ func TestAppConvertsTheContent(t *testing.T) {
 	}
 }
 
+// A change of a body alone gives another build ID, as the program then serves other HTML.
+func TestAppIDFollowsTheBody(t *testing.T) {
+	root, c := contentApp(t)
+	n := NewNode(root, io.Discard)
+	defer n.Close()
+	before, err := App(n, root, filepath.Join(root, "public"), true, c)
+	if err != nil {
+		t.Fatalf("App: %v", err)
+	}
+	c.Markdown[1].Text += "\nmore\n"
+	after, err := App(n, root, filepath.Join(root, "public"), true, c)
+	if err != nil {
+		t.Fatalf("App: %v", err)
+	}
+	if before == after {
+		t.Error("the build ID stays the same")
+	}
+}
+
+// An image that a body and a stylesheet both use is one file of the build.
+func TestAppHasOneFileForAnImageOfABodyAndOfCSS(t *testing.T) {
+	root, c := contentApp(t)
+	// Larger than what Vite inlines into the stylesheet.
+	image := strings.Repeat("png ", 2048)
+	writeTree(t, root, map[string]string{
+		"content/blog/a/x.png": image,
+		"app/page/style.css":   ".cover { background: url(../../content/blog/a/x.png) }\n",
+		".tifa/client.ts":      "import '../app/page/style.css'\nimport View from '../app/page/view'\nconsole.log(View)\n",
+	})
+	n := NewNode(root, io.Discard)
+	defer n.Close()
+	if _, err := App(n, root, filepath.Join(root, "public"), true, c); err != nil {
+		t.Fatalf("App: %v", err)
+	}
+	files, err := filepath.Glob(filepath.Join(root, ".tifa", "dist", "assets", "x-*.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("images %q", files)
+	}
+	url := "/assets/" + filepath.Base(files[0])
+	if a := readDist(t, root, "content/blog/a.html"); !strings.Contains(a, `src="`+url+`"`) {
+		t.Errorf("a.html does not use %s:\n%s", url, a)
+	}
+	css, err := filepath.Glob(filepath.Join(root, ".tifa", "dist", "assets", "*.css"))
+	if err != nil || len(css) != 1 {
+		t.Fatalf("stylesheets %q, %v", css, err)
+	}
+	if data, _ := os.ReadFile(css[0]); !strings.Contains(string(data), url) {
+		t.Errorf("the stylesheet does not use %s:\n%s", url, data)
+	}
+}
+
 // An app without pages, such as one with only a GET route that writes a feed, converts with the
 // plugins of its vite.config.ts and bundles nothing. The files of the bodies go into dist/assets
 // with a hash in their names, as Vite names them.
