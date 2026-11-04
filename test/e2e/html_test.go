@@ -90,6 +90,10 @@ func TestHTMLPagesInDev(t *testing.T) {
 		t.Skip("playwright-cli is not installed")
 	}
 	d := startDev(t, devApp(t))
+	// A page opened during the first build is the one that says the build runs, which reloads once
+	// the app is up. A command of playwright-cli that runs into the reload waits up to 5s for the
+	// requests of the new page, which takes most of the time waitFor gives the hydration.
+	d.waitLog(t, 0, ready)
 	htmlInBrowser(t, "tifa-e2e-html-dev", d.base, false)
 	htmlLinksInBrowser(t, "tifa-links-dev", d.base)
 }
