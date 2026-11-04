@@ -406,13 +406,20 @@ func TestPluginGivesReactNamespacesPlainValues(t *testing.T) {
 	renamed := strings.NewReplacer("__defProp", "__defProp$34", "__toESM", "__toESM$1", "__commonJSMin", "__commonJSMin$2")
 	// From 1.2.15 rolldown starts each module with "// path" and no longer ends it.
 	comments := strings.NewReplacer("//#region ", "// ", "//#endregion\n", "")
-	for _, pkg := range []string{"react", "react-dom", "renamed", "comments"} {
+	// A build without minify keeps the comment at the top of each file of React, between the line
+	// of the module and its require function, as tifa dev builds the SSR bundle.
+	license := strings.NewReplacer(".js\nvar require_m", ".js\n/**\n* @license React\n* m.js\n*/\nvar require_m")
+	for _, pkg := range []string{"react", "react-dom", "renamed", "comments", "license", "license comments"} {
 		chunk, plainCall := namespaceChunk(pkg), "__tifaV(require_m"
 		switch pkg {
 		case "renamed":
 			chunk, plainCall = renamed.Replace(namespaceChunk("react")), "__tifaV$1(require_m"
 		case "comments":
 			chunk = comments.Replace(namespaceChunk("react"))
+		case "license":
+			chunk = license.Replace(namespaceChunk("react"))
+		case "license comments":
+			chunk = comments.Replace(license.Replace(namespaceChunk("react")))
 		}
 		got := plainOnNode(t, chunk, ids)
 		if got.Warning != "" {

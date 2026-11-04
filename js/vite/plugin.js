@@ -3554,7 +3554,10 @@ export function plainNamespaces(code, ids) {
   const plainName = '__tifaV' + toESM.slice('__toESM'.length)
   if (new RegExp(`\\b${plainName.replace('$', '\\$')}(?![\\w$])`).test(code)) return skip(`the SSR bundle already names ${plainName}`)
   const regions = new Map() // the name of each module's require function to its package
-  for (const m of code.matchAll(/^\/\/(?:#region)? ([^\n]+)\n[\t ]*var (require_[\w$]+) = \/\* @__PURE__ \*\/ __commonJSMin(?:\$\d+)?\(/gm)) {
+  // A build without minify, such as the one of tifa dev, keeps the comments at the top of a file,
+  // such as the license of React, between the line of the module and its require function.
+  const declaration = /^\/\/(?:#region)? ([^\n]+)\n(?:[\t ]*\/\*(?:[^*]|\*(?!\/))*\*\/[\t ]*\n)*[\t ]*var (require_[\w$]+) = \/\* @__PURE__ \*\/ __commonJSMin(?:\$\d+)?\(/gm
+  for (const m of code.matchAll(declaration)) {
     regions.set(m[2], packageName(m[1]))
   }
   const plain = []

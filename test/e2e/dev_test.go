@@ -236,6 +236,12 @@ func TestDev(t *testing.T) {
 	// The first start runs every step.
 	out := d.waitLog(t, 0, ready)
 	expectSteps(t, "first build", out, "static analysis", "code generation", "bundle", "go build")
+	// The SSR bundle of tifa dev, built without minify, gets every rewrite of the Vite plugin too.
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, notRecognized) {
+			t.Errorf("the first build prints a rewrite that did not recognize its code:\n%s", line)
+		}
+	}
 	v1 := d.waitStatus(t, func(st devStatus) bool { return st.Version != "" && st.Error == "" }).Version
 	expectBody(t, d.base+"/", "North shop")
 	expectNoErrors(t, dir, "after the first build")
