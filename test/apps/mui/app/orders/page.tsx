@@ -39,7 +39,7 @@ const tabs = ['', 'pending', 'paid', 'shipped', 'refunded']
 
 export default function Orders() {
   const page = ordersPage.useLoaderData()
-  const search = ordersPage.useSearch() as { status?: string }
+  const search = ordersPage.useSearch()
   const navigate = useNavigate()
   const [selected, setSelected] = useState<string[]>([])
   const [query, setQuery] = useState('')
@@ -158,7 +158,7 @@ export default function Orders() {
           page={page.page}
           rowsPerPage={page.size}
           rowsPerPageOptions={[page.size]}
-          onPageChange={(_, p) => navigate({ to: '/orders', search: { ...search, page: p } })}
+          onPageChange={(_, p) => navigate({ to: '/orders', search: { ...search, page: String(p) } })}
         />
       </Paper>
     </Stack>

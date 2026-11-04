@@ -1,5 +1,11 @@
 package query
 
-import "github.com/liustack/tifa"
+import (
+	"strings"
 
-func Load(c *tifa.Ctx) (string, error) { return c.Query("q") + c.Query("__proto__"), nil }
+	"github.com/liustack/tifa"
+)
+
+func Load(c *tifa.Ctx) (string, error) {
+	return c.Query("q") + c.Query("__proto__") + strings.Join(c.QueryValues("tag"), ","), nil
+}

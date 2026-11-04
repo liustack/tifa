@@ -7,6 +7,13 @@ export type LayoutData = { name: string; lang: string }
 // app has no Go Load function.
 export type PageData = undefined
 
+// LayoutSearch is the query parameters the Go Layout function of app reads, as the router reads them.
+// Other parameters may come too, as strings.
+export type LayoutSearch = {
+  "lang"?: string
+  [key: string]: string | string[] | undefined
+}
+
 export type Params = Record<string, never>
 
 export const layout = getRouteApi("/_app")

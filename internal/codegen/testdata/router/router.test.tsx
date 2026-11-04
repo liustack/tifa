@@ -114,6 +114,18 @@ test('query values stay the strings Go reads', async () => {
   const repeated = await client('/q?q=a&q=b')
   const values = (repeated.router.state.location.search as Record<string, unknown>).q
   assert(JSON.stringify(values) === '["a","b"]', `repeated ${JSON.stringify(values)}`)
+  // The route has the types of the query Go reads and nothing that runs: the router reads every
+  // parameter as parseSearch does, those Go does not read included, and the matched route sees
+  // all of them.
+  const typed = Object.values(router.routesById).find((r: any) => r.fullPath === '/q') as any
+  assert(typed && 'validateSearch' in typed.options && typed.options.validateSearch === undefined, `validateSearch ${typed?.options.validateSearch}`)
+  const open = await client('/q?q=a&tag=x&tag=y&tab=own')
+  const match = open.router.state.matches[open.router.state.matches.length - 1]
+  assert(
+    JSON.stringify(match.search) === '{"q":"a","tag":["x","y"],"tab":"own"}' && JSON.stringify(match.loaderDeps) === '{"q":"a","tag":["x","y"]}',
+    `search ${JSON.stringify(match.search)}, loaderDeps ${JSON.stringify(match.loaderDeps)}`,
+  )
+  assert(open.router.state.location.href === '/q?q=a&tag=x&tag=y&tab=own', `href ${open.router.state.location.href}`)
   // The query of a URL as browsers and forms write it comes back as it is.
   for (const href of ['/q?q=a&q=b', '/q?q=a+b', '/q?q=1,2:3/4', '/q?q=%E4%B8%AD&r=%26%3D%2B%25%23']) {
     const { router } = await client(href)

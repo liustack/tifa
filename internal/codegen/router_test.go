@@ -87,6 +87,14 @@ func TestGeneratedRouterBehaves(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "script.tsx"), []byte(script), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// A query parameter Go reads is a string, or for c.QueryValues an array of strings too.
+	wrongSearch := "import { Link } from '@tanstack/react-router'\nimport { page } from './.tifa/app/q/route.gen'\n" +
+		"export const n = <Link to=\"/q\" search={{ q: 2 }}>n</Link>\n" +
+		"export const t = <Link to=\"/q\" search={{ tag: [1] }}>t</Link>\n" +
+		"export const read = (): number => page.useSearch().q\n"
+	if err := os.WriteFile(filepath.Join(root, "wrong-search.tsx"), []byte(wrongSearch), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	// A file of an upload is a Blob, not its name.
 	named := "import { POST } from './.tifa/app/api/photos/route.gen'\n" +
 		"export const sent = POST({ input: { title: '', tags: [], rating: 0, draft: false, photo: 'sea.png', extras: [] } })\n"
@@ -102,6 +110,11 @@ func TestGeneratedRouterBehaves(t *testing.T) {
 	for _, want := range []string{"raw.ts(2,", "raw.ts(3,"} {
 		if !strings.Contains(string(output), want) {
 			t.Errorf("a tifa.HTML value used as a string type-checks (no error at %s):\n%s", want, output)
+		}
+	}
+	for _, want := range []string{"wrong-search.tsx(3,", "wrong-search.tsx(4,", "wrong-search.tsx(5,"} {
+		if !strings.Contains(string(output), want) {
+			t.Errorf("a query value of the wrong type type-checks (no error at %s):\n%s", want, output)
 		}
 	}
 	if !strings.Contains(string(output), "named.ts(2,") {

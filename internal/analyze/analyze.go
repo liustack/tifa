@@ -823,12 +823,17 @@ func (a *analyzer) readLoad(pkg *packages.Package, owner, name string) (*Load, [
 				a.errorAt(u.pos, "the query parameter %q is reserved for tifa: the browser asks for the data of a navigation with it, and the server removes it before any code sees the request. Rename the parameter", u.name)
 			}
 			load.Query = append(load.Query, u.name)
+			if u.method == "QueryValues" {
+				load.QueryValues = append(load.QueryValues, u.name)
+			}
 		}
 	}
 	slices.Sort(load.Params)
 	load.Params = slices.Compact(load.Params)
 	slices.Sort(load.Query)
 	load.Query = slices.Compact(load.Query)
+	slices.Sort(load.QueryValues)
+	load.QueryValues = slices.Compact(load.QueryValues)
 	return load, uses
 }
 

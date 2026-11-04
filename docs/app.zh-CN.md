@@ -1,5 +1,5 @@
 ---
-summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、不套外层的 Layout（layout_.tsx）、hooks.go、404 和错误、多语言网站、SSR 与缓存开关和整页缓存（对所有人一样、保存一段时间的页面）以及写入后让这类页面重新生成、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数、入参里的文件和路由自己的请求体上限与读取时间、用 tifa.HTML 显示应用信任的 HTML，访客开着旧页面时你部署新版本，浏览器会怎么做，以及数据、入参和结果的 JSON 规则'
+summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、不套外层的 Layout（layout_.tsx）、hooks.go、404 和错误、多语言网站、SSR 与缓存开关和整页缓存（对所有人一样、保存一段时间的页面）以及写入后让这类页面重新生成、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、Link 和 navigate 里查询参数的类型、带类型入参和结果的方法函数、入参里的文件和路由自己的请求体上限与读取时间、用 tifa.HTML 显示应用信任的 HTML，访客开着旧页面时你部署新版本，浏览器会怎么做，以及数据、入参和结果的 JSON 规则'
 read_when:
   - 新建一个 tifa 应用，或给应用加页面、Layout、API 路由
   - 构建报 Ctx 用法或 Load 返回类型的错误，想知道怎么改
@@ -7,6 +7,7 @@ read_when:
   - 改 examples/shop 或 test/apps 里的应用
   - 给 Load、Layout 函数、方法函数或 OnRequest 写 Go 测试
   - 在方法函数里接收文件，或者用 `BodyLimit` 和 `ReadTimeout` 给路由单独的请求体上限和读取时间
+  - 让 `Link`、`navigate` 或 `useSearch` 知道页面读哪些查询参数，或者遇到 `search` 的类型错误
   - 用 `const Cache` 把公开页面在内存里保存几分钟，想知道页面上什么变成匿名的，或者遇到在这样的页面上读 cookie 或会话的构建错误
   - 一次写入改了开了 `Cache` 的页面显示的内容，要用 `tifa.ExpirePages` 让页面马上更新
   - 在页面里显示应用自己做出来或信任的 HTML（比如一篇文章），用 `tifa.HTML` 和 `<HTML>`，或者处理其中的链接
@@ -241,7 +242,7 @@ export const head = ({ loaderData }: { loaderData?: PageData }) => ({
 })
 ```
 
-- 只放界面，不取数。`./route.gen` 是生成的模块，每个目录一个，导出 `page` 和 `layout`（页面和 Layout 的 TanStack 路由，目录里有才导出）、`PageData` 和 `LayoutData`（`Load` 和 `Layout` 的返回类型）、`Params`，以及每个方法函数一个调用函数。同目录的子组件同样 import `./route.gen`。Layout 的数据来自它所在目录的 `route.gen`：`layout.tsx` 从 `'./route.gen'` import `layout`，页面读项目 Layout 的数据时从比如 `'../../route.gen'` import `layout`。有谁 import 了一个没有生成模块的目录的 `route.gen`，构建就会报错。
+- 只放界面，不取数。`./route.gen` 是生成的模块，每个目录一个，导出 `page` 和 `layout`（页面和 Layout 的 TanStack 路由，目录里有才导出）、`PageData` 和 `LayoutData`（`Load` 和 `Layout` 的返回类型）、`PageSearch` 和 `LayoutSearch`（它们读的查询参数，见[Link 和 navigate 里的查询参数](#link-和-navigate-里的查询参数)）、`Params`，以及每个方法函数一个调用函数。同目录的子组件同样 import `./route.gen`。Layout 的数据来自它所在目录的 `route.gen`：`layout.tsx` 从 `'./route.gen'` import `layout`，页面读项目 Layout 的数据时从比如 `'../../route.gen'` import `layout`。有谁 import 了一个没有生成模块的目录的 `route.gen`，构建就会报错。
 - 默认导出是页面组件。可选导出 `head` 和 `Error`。404 也显示在 `Error` 里（见 [404](#404)），导出 `NotFound` 构建报错。
 - 在浏览器里，每个 `page.tsx`，以及根 Layout 以外的每个 `layout.tsx` 或 `layout_.tsx`，连同它 import 的一切（含 `head`）各自是一个 chunk。路由第一次用到时才加载，路由器等它加载完才显示页面、运行 `head`。页面的 HTML 预加载它的 Layout 和路由的 chunk，所以它们和入口脚本一起到。文件顶层的代码（含只为副作用的 import）在这时运行，而不是应用启动时，所以每个页面都需要的初始化放在根 Layout 里，或放在它 import 的模块里。见[浏览器里的路由模块](build.zh-CN.md#浏览器里的路由模块)。
 - Go 的切片和 map 不会是 `null`：nil 切片到浏览器是 `[]`，nil map 是 `{}`，它们的 TypeScript 类型不带 `| null`（见 [JSON 规则](#json-规则)）。
@@ -255,6 +256,39 @@ const OrderActions = clientOnly(() => import('./actions.client'), <button disabl
 
 - tifa 不会替你重新取页面数据。写操作之后，不管是处理函数还是你自己的 `fetch`，页面在你开口之前都显示原来的内容：调用 TanStack 的 `router.invalidate()`，当前页面和所有 Layout 的数据重新取一次，合并成一个请求。`await router.invalidate({ sync: true })` 在页面显示出新数据后兑现。只写 `await router.invalidate()` 会立刻兑现，页面在后台更新。见[在浏览器里调用方法处理函数](#在浏览器里调用方法函数)。
 - 路由器已经持有的数据遵循 TanStack 的默认值：它立刻算作过期，所以回到访问过的页面时先显示缓存的数据，再在后台重新取一次（`GET <url>?_tifa=…`），鼠标悬停或聚焦时预加载的链接，30 秒内直接使用。
+
+### Link 和 navigate 里的查询参数
+
+`Load` 或 `Layout` 函数读的查询参数，在浏览器里有类型。`route.gen` 把它们导出为 `PageSearch` 和 `LayoutSearch`，路由也挂上它们，所以 TanStack 的 `Link`、`navigate` 和 `useSearch` 会检查：
+
+```go
+func Load(c *tifa.Ctx) (Products, error) {
+	return products.List(c.Query("sort"), c.QueryValues("color"))
+}
+```
+
+```ts
+// route.gen.ts 里
+export type PageSearch = {
+  "color"?: string | string[]
+  "sort"?: string
+  [key: string]: string | string[] | undefined
+}
+```
+
+```tsx
+<Link to="/products" search={{ sort: 'price', color: ['red', 'blue'] }}>…</Link>
+<Link to="/products" search={{ sort: 2 }}>…</Link> // 类型错误：值是字符串
+navigate({ to: '/products', search: (prev) => ({ ...prev, sort: 'name' }) })
+const search = page.useSearch() // PageSearch，加上外层 Layout 的参数
+```
+
+- 用 `c.Query` 读的参数是 `string`，用 `c.QueryValues` 读的是 `string` 或 `string[]`，和路由器读 URL 的结果一样。每个键都可以不写。
+- 其他键放开：页面可以在 URL 里放 Go 不读的自己的参数，比如面板当前打开的标签。它们也是字符串或字符串数组。所以拼错键名不算类型错误，只有 Go 读的键给错了类型才算。
+- 只收字符串。路由器把每个值都写成文本，Go 读的也是文本，所以写 `'2'` 不写 `2`，布尔值写成你的 Go 代码比较的 `'1'` 或 `'true'`。
+- 写进去和读出来用同一个类型，这样 `(prev) => ({ ...prev, page: '2' })` 才能通过类型检查。用 `c.Query` 读的键，手写的 URL `?sort=a&sort=b` 运行时仍然给出数组，类型却说是 `string`（Go 读第一个）。要显示 Go 读到的值，从 `Load` 返回的数据里拿，不从 `useSearch` 拿。
+- 类型来自 Go 读的名字，经过辅助函数和别的包读的也算，每个路由只挂它自己的 `Load` 或 `Layout` 读的。外层 Layout 的由 TanStack 加上。不读查询参数的 `Load` 没有这个类型，它的路由和以前一样什么键都收。
+- 浏览器里不运行任何检查：路由只拿到类型（`searchTypes` 返回 `undefined`，TanStack 就照原样读查询参数）。
 
 ### 显示应用信任的 HTML
 

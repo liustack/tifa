@@ -104,6 +104,9 @@ type Load struct {
 	Params []string `json:"params"`
 	// Query lists the query parameters read with c.Query in the body of Load, sorted and deduplicated.
 	Query []string `json:"query"`
+	// QueryValues lists the query parameters of Query read with c.QueryValues, which may come more
+	// than once, sorted and deduplicated. The browser reads them as a string or an array of strings.
+	QueryValues []string `json:"queryValues"`
 	// Uses lists the IDs of the Layouts whose Layout function this Load calls through tifa.Use, sorted.
 	Uses []string `json:"uses"`
 	// AllQuery is Query together with the AllQuery of every Load in Uses, sorted and deduplicated.

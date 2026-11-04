@@ -290,6 +290,13 @@ function encodeQueryPart(text: string) {
     .replace(/%20/g, '+')
 }
 
+// searchTypes gives a route the type of the query parameters its Go function reads, for Link,
+// navigate and useSearch. It is a type only: it returns undefined, and TanStack Router runs no
+// validateSearch that is undefined, so the router reads the query exactly as parseSearch does.
+export function searchTypes<T>(): (search: T) => T {
+  return undefined as never
+}
+
 // pick keeps the query parameters a Load reads, for loaderDeps and remountDeps. Other
 // parameters then neither refetch nor remount. Like parseSearch it builds an object without a
 // prototype, so __proto__ is kept as a value instead of being taken as the prototype.
