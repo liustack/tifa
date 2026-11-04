@@ -215,6 +215,8 @@ func TestInputsMarkTheFilesIncompleteWithoutWatchFiles(t *testing.T) {
 		"no watchFiles": {"delete bundles.watchFiles", " has no watchFiles on its bundles"},
 		// A Vite that closes no bundle the driver sees, here because each one reads as closed.
 		"no bundle closed": {"Object.defineProperty(bundles, 'closed', { get: () => true })", "Vite's build closed no bundle of Rolldown "},
+		// A Rolldown whose watchFiles fails.
+		"watchFiles fails": {"Object.defineProperty(bundles, 'watchFiles', { get: () => Promise.reject(new Error('probe')) })", " cannot read the watchFiles of a bundle: probe"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			root := fakeApp(t, `["es2022"]`)

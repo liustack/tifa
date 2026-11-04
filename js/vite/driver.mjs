@@ -414,8 +414,8 @@ function addInput(modules, id) {
 // hidden and which Vite reads for its worker bundles. Vite's build creates the bundle with
 // rolldown() and closes it without handing it out, so watchedBuilds wraps close once on the
 // prototype of the bundles of the rolldown that Vite imports. The list is not complete when that
-// Rolldown cannot be loaded, has no watchFiles, or closes no bundle there once the build of env
-// started. A module whose ID is not an absolute path, such as an external one like node:fs or a
+// Rolldown cannot be loaded, has no watchFiles or fails to read them, or closes no bundle there
+// once the build of env started. A module whose ID is not an absolute path, such as an external one like node:fs or a
 // virtual one, has no file. The SSR worker thread runs its source text, so it uses only its
 // argument and addInput.
 async function watchedBuilds(vite) {
@@ -436,7 +436,7 @@ async function watchedBuilds(vite) {
   let modules = null // of the build that runs
   let building = false // the build of env started
   let closed = 0 // the bundles closed since
-  let missing = false // a bundle had no watchFiles
+  let missing = '' // why a bundle gave no watch files
   if (bundle) {
     const close = bundle.close
     bundle.close = async function () {
@@ -444,9 +444,13 @@ async function watchedBuilds(vite) {
         if (modules && !this.closed) {
           const into = modules
           if (building) closed++
-          const files = await this.watchFiles
-          if (Array.isArray(files)) for (const file of files) addInput(into, file)
-          else missing = true
+          try {
+            const files = await this.watchFiles
+            if (Array.isArray(files)) for (const file of files) addInput(into, file)
+            else missing = 'has no watchFiles on its bundles'
+          } catch (err) {
+            missing = `cannot read the watchFiles of a bundle: ${err instanceof Error ? err.message : err}`
+          }
         }
       } finally {
         await close.call(this)
@@ -458,7 +462,7 @@ async function watchedBuilds(vite) {
     modules = into
     building = false
     closed = 0
-    missing = false
+    missing = ''
     const plugin = {
       name: 'tifa:inputs',
       applyToEnvironment: (environment) => environment.name === env,
@@ -478,7 +482,7 @@ async function watchedBuilds(vite) {
       modules = null
     }
     if (unloaded) return unloaded
-    if (missing) return `Rolldown ${version} has no watchFiles on its bundles`
+    if (missing) return `Rolldown ${version} ${missing}`
     if (closed === 0) return `Vite's build closed no bundle of Rolldown ${version}`
     return ''
   }
