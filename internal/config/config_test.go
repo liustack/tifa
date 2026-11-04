@@ -806,6 +806,19 @@ func TestCSPSettings(t *testing.T) {
 	}
 }
 
+// A policy splits into directives at semicolons and into a name and sources at any ASCII
+// whitespace, as browsers read it, and a policy with tabs is a valid server.csp_policy.
+func TestPolicyDirectives(t *testing.T) {
+	got := PolicyDirectives(" script-src\t'self'\f'sha256-a' ;;\r\nObject-Src  'none';\t")
+	if want := [][]string{{"script-src", "'self'", "'sha256-a'"}, {"Object-Src", "'none'"}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	var p string
+	if err := (policyValue{&p}).Set("script-src\t'self';\tobject-src\t'none'"); err != nil || p == "" {
+		t.Errorf("a policy with tabs: %v", err)
+	}
+}
+
 // A value of server.csp that reads as a switch fails with the words to write, and a policy
 // that is empty or would not go out as one header fails at start.
 func TestBadCSPValues(t *testing.T) {

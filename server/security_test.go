@@ -283,6 +283,11 @@ func TestWithHashes(t *testing.T) {
 		{"default-src 'none'; script-src 'self'", "default-src 'none'; script-src 'self' 'sha256-a' 'sha256-b'"},
 		{"object-src 'none'", "object-src 'none'"},
 		{"style-src-elem 'self'", "style-src-elem 'self' 'sha256-s'"},
+		// Directives and their sources are split at ASCII whitespace, as CSP3 parses a policy.
+		{"script-src\t'self';\tobject-src 'none'", "script-src 'self' 'sha256-a' 'sha256-b'; object-src 'none'"},
+		{"default-src\t'self'\t'unsafe-inline'", "default-src 'self' 'unsafe-inline'"},
+		{"default-src\t'self'", "default-src 'self'; script-src 'self' 'sha256-a' 'sha256-b'; style-src 'self' 'sha256-s'"},
+		{"script-src\f'self'\r\n'unsafe-inline'", "script-src 'self' 'unsafe-inline'"},
 	} {
 		if got := withHashes(tc.policy, scripts, styles); got != tc.want {
 			t.Errorf("%s:\n got %s\nwant %s", tc.policy, got, tc.want)

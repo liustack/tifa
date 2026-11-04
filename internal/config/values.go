@@ -321,24 +321,39 @@ func (v policyValue) Set(s string) error {
 	if strings.Contains(s, ",") {
 		return fmt.Errorf("invalid policy %q: a comma starts a second policy, separate the directives with semicolons", s)
 	}
-	empty := true
-	for _, d := range strings.Split(s, ";") {
-		fields := strings.Fields(d)
-		if len(fields) == 0 {
-			continue
-		}
-		empty = false
-		for _, c := range []byte(fields[0]) {
+	directives := PolicyDirectives(s)
+	for _, d := range directives {
+		for _, c := range []byte(d[0]) {
 			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-') {
-				return fmt.Errorf("invalid policy %q: %q is not the name of a directive", s, fields[0])
+				return fmt.Errorf("invalid policy %q: %q is not the name of a directive", s, d[0])
 			}
 		}
 	}
-	if empty {
+	if len(directives) == 0 {
 		return fmt.Errorf("the policy is empty, to send none, set server.csp to off")
 	}
 	*v.p = s
 	return nil
+}
+
+// PolicyDirectives splits a Content-Security-Policy into its directives the way browsers parse
+// one (https://www.w3.org/TR/CSP3/#parse-serialized-policy): at semicolons, and each directive at
+// ASCII whitespace into its name and its sources, leaving out empty directives. The name keeps its
+// case: browsers compare it in lower case.
+func PolicyDirectives(policy string) [][]string {
+	var directives [][]string
+	for _, d := range strings.Split(policy, ";") {
+		if fields := strings.FieldsFunc(d, isASCIISpace); len(fields) > 0 {
+			directives = append(directives, fields)
+		}
+	}
+	return directives
+}
+
+// isASCIISpace reports whether c is ASCII whitespace as CSP3 and the rest of the web platform
+// count it: tab, line feed, form feed, carriage return and space.
+func isASCIISpace(c rune) bool {
+	return c == '\t' || c == '\n' || c == '\f' || c == '\r' || c == ' '
 }
 func (v policyValue) String() string { return *v.p }
 func (v policyValue) kind() string   { return "string" }

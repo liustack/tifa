@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/liustack/tifa/internal/config"
 	"github.com/liustack/tifa/internal/ssr"
 )
 
@@ -120,13 +121,11 @@ func (s *server) holdsBasePolicy(h http.Header, name string) bool {
 //
 // A directive with 'unsafe-inline' gets none, since a browser ignores 'unsafe-inline' once a
 // directive lists a hash, and the inline elements of the app would stop running. 'none' gets none
-// either. Without any of the directives the policy does not limit them, and stays as it is.
+// either. Without any of the directives the policy does not limit them, and stays as it is. The
+// policy is read as browsers read it (config.PolicyDirectives) and written back with one space
+// between the sources of a directive.
 func withHashes(policy string, scripts, styles []string) string {
-	directives := strings.Split(policy, ";")
-	for i, d := range directives {
-		directives[i] = strings.TrimSpace(d)
-	}
-	directives = slices.DeleteFunc(directives, func(d string) bool { return d == "" })
+	directives := config.PolicyDirectives(policy)
 	for _, kind := range []struct {
 		name   string
 		hashes []string
@@ -136,7 +135,7 @@ func withHashes(policy string, scripts, styles []string) string {
 		}
 		found := false
 		for i, d := range directives {
-			if name := directiveName(d); name == kind.name+"-src" || name == kind.name+"-src-elem" {
+			if name := strings.ToLower(d[0]); name == kind.name+"-src" || name == kind.name+"-src-elem" {
 				found = true
 				directives[i] = addSources(d, kind.hashes)
 			}
@@ -145,43 +144,38 @@ func withHashes(policy string, scripts, styles []string) string {
 			continue
 		}
 		for _, d := range directives {
-			if directiveName(d) == "default-src" {
-				_, sources, _ := strings.Cut(d, " ")
-				own := kind.name + "-src " + strings.TrimSpace(sources)
-				if added := addSources(own, kind.hashes); added != own {
+			if strings.ToLower(d[0]) == "default-src" {
+				own := append([]string{kind.name + "-src"}, d[1:]...)
+				if added := addSources(own, kind.hashes); len(added) > len(own) {
 					directives = append(directives, added)
 				}
 				break
 			}
 		}
 	}
-	return strings.Join(directives, "; ")
+	written := make([]string, len(directives))
+	for i, d := range directives {
+		written[i] = strings.Join(d, " ")
+	}
+	return strings.Join(written, "; ")
 }
 
-func directiveName(d string) string {
-	name, _, _ := strings.Cut(d, " ")
-	return strings.ToLower(name)
-}
-
-// addSources adds the hashes to the directive d that it does not list, unless it has
-// 'unsafe-inline' or is 'none'.
-func addSources(d string, hashes []string) string {
-	fields := strings.Fields(d)
-	for _, f := range fields[1:] {
+// addSources adds the hashes to the directive d, its name and sources, that it does not list,
+// unless it has 'unsafe-inline' or is 'none'.
+func addSources(d []string, hashes []string) []string {
+	for _, f := range d[1:] {
 		if strings.EqualFold(f, "'unsafe-inline'") {
 			return d
 		}
 	}
-	if len(fields) == 2 && strings.EqualFold(fields[1], "'none'") {
+	if len(d) == 2 && strings.EqualFold(d[1], "'none'") {
 		return d
 	}
-	var b strings.Builder
-	b.WriteString(strings.Join(fields, " "))
+	d = slices.Clip(d)
 	for _, h := range hashes {
-		if !slices.Contains(fields, h) {
-			fields = append(fields, h)
-			b.WriteString(" " + h)
+		if !slices.Contains(d, h) {
+			d = append(d, h)
 		}
 	}
-	return b.String()
+	return d
 }
