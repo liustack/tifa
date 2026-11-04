@@ -159,3 +159,35 @@ func TestInputsListTheWatchFilesOfEveryPlugin(t *testing.T) {
 		})
 	}
 }
+
+// A path the driver lists that is not absolute fails the build, rather than leaving the file out.
+func TestInputsRefuseAModulePathThatIsNotAbsolute(t *testing.T) {
+	root := t.TempDir()
+	dist := filepath.Join(root, "dist")
+	writeTree(t, root, map[string]string{"app/page.tsx": "export default 1\n", "dist/build.json": "{}\n"})
+	err := writeInputs(root, dist, filepath.Join(root, "public"), []string{"app/page.tsx"})
+	if err == nil {
+		t.Fatal("writeInputs took the relative path app/page.tsx")
+	}
+}
+
+// A file under the root by the path the root was given, which may be a link, such as a path a
+// plugin builds from Vite's root, is an input like one under the real root.
+func TestInputsTakeAFileUnderTheLinkToTheRoot(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "real")
+	writeTree(t, real, map[string]string{"extra/watched.txt": "read by a plugin\n", "dist/build.json": "{}\n"})
+	root := filepath.Join(dir, "link")
+	if err := os.Symlink(real, root); err != nil {
+		t.Fatal(err)
+	}
+	dist := filepath.Join(root, "dist")
+	if err := writeInputs(root, dist, filepath.Join(root, "public"), []string{filepath.Join(root, "extra", "watched.txt")}); err != nil {
+		t.Fatal(err)
+	}
+	var in inputs
+	readJSON(t, filepath.Join(dist, InputsFile), &in)
+	if _, ok := in.Files["extra/watched.txt"]; !ok {
+		t.Errorf("inputs.json has no extra/watched.txt: %v", in.Files)
+	}
+}

@@ -36,9 +36,9 @@ var projectFiles = []string{
 	"tsconfig.json", "tifa.yaml",
 }
 
-// writeInputs writes dist/inputs.json for the app at root: modules, the files of the modules of
-// the bundles as the driver lists them (those outside root are left out), the files of
-// projectFiles, and every file of the public directory and of content/.
+// writeInputs writes dist/inputs.json for the app at root: modules, the files the builds of the
+// bundles read as the driver lists them, by absolute paths (those outside root are left out), the
+// files of projectFiles, and every file of the public directory and of content/.
 func writeInputs(root, dist, public string, modules []string) error {
 	root, err := filepath.Abs(root)
 	if err != nil {
@@ -62,11 +62,18 @@ func writeInputs(root, dist, public string, modules []string) error {
 		return err
 	}
 	for _, m := range modules {
-		rel, err := filepath.Rel(real, filepath.FromSlash(m))
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			continue
+		file := filepath.FromSlash(m)
+		if !filepath.IsAbs(file) {
+			return fmt.Errorf("the build read %s, which is not an absolute path", m)
 		}
-		if info, err := os.Stat(m); err == nil && info.Mode().IsRegular() {
+		rel, ok := under(real, file)
+		if !ok {
+			if rel, ok = under(root, file); !ok {
+				continue // outside the root
+			}
+		}
+		// Directories, which a plugin may watch, and files gone since have no hash.
+		if info, err := os.Stat(file); err == nil && info.Mode().IsRegular() {
 			paths = append(paths, filepath.ToSlash(rel))
 		}
 	}
@@ -80,6 +87,15 @@ func writeInputs(root, dist, public string, modules []string) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(dist, InputsFile), append(data, '\n'), 0o644)
+}
+
+// under returns the path of file relative to dir, and whether file is in dir. Both are absolute.
+func under(dir, file string) (string, bool) {
+	rel, err := filepath.Rel(dir, file)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return rel, true
 }
 
 // scanInputs returns the inputs of the app at root that are not modules: the files of
