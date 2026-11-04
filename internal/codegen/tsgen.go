@@ -783,19 +783,15 @@ func routesModule(nodes []*tsNode, public []string) ([]byte, error) {
 		} else if len(static) > 0 {
 			opts = append(opts, staticData)
 		}
-		var args, deps []string
-		if keys := readParams(n, byID); len(keys) > 0 {
-			args = append(args, "params")
-			for _, k := range keys {
-				deps = append(deps, "params."+k)
-			}
-		}
-		if len(query) > 0 {
-			args = append(args, "search")
-			deps = append(deps, fmt.Sprintf("pick(search, %s)", jsStrings(query)))
+		// A route remounts when a path parameter it reads changes. Another value of a query
+		// parameter loads the data again and keeps the component and its state, as TanStack
+		// Router does by default, so a page keeps what its visitor set while a filter changes.
+		var deps []string
+		for _, k := range readParams(n, byID) {
+			deps = append(deps, "params."+k)
 		}
 		if len(deps) > 0 {
-			opts = append(opts, fmt.Sprintf("remountDeps: ({ %s }) => [%s]", strings.Join(args, ", "), strings.Join(deps, ", ")))
+			opts = append(opts, fmt.Sprintf("remountDeps: ({ params }) => [%s]", strings.Join(deps, ", ")))
 		}
 		n.route.opts = append(n.route.opts, opts...)
 	}

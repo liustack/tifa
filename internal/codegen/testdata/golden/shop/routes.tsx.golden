@@ -41,7 +41,6 @@ const r1 = createRoute({
   loader: ({ context, location, preload }) => load<D1>(context, "app/layout", location, preload),
   staticData: { load: "app/layout" },
   loaderDeps: ({ search }) => pick(search, ["lang"]),
-  remountDeps: ({ search }) => [pick(search, ["lang"])],
 })
 
 const r2 = createRoute({
@@ -62,7 +61,7 @@ const r3 = createRoute({
   loader: ({ context, location, preload }) => load<D3>(context, "app/projects/projectId+/layout", location, preload),
   staticData: { load: "app/projects/projectId+/layout" },
   loaderDeps: ({ search }) => pick(search, ["currency", "lang"]),
-  remountDeps: ({ params, search }) => [params.projectId, pick(search, ["currency", "lang"])],
+  remountDeps: ({ params }) => [params.projectId],
 })
 
 const r4 = createRoute({
@@ -99,7 +98,7 @@ const r7 = createRoute({
   loader: ({ context, location, preload }) => load<D7>(context, "app/projects/projectId+/route", location, preload),
   staticData: { page: true, load: "app/projects/projectId+/route" },
   loaderDeps: ({ search }) => pick(search, ["currency", "lang", "sort", "tag"]),
-  remountDeps: ({ params, search }) => [params.projectId, pick(search, ["currency", "lang", "sort", "tag"])],
+  remountDeps: ({ params }) => [params.projectId],
 })
 
 const r8 = createRoute({

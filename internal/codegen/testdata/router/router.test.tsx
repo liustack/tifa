@@ -1344,3 +1344,28 @@ for (const [name, fn] of tests) {
   }
 }
 if (failed > 0) throw new Error(`${failed} of ${tests.length} tests failed`)
+
+// remountKey is the key TanStack Router gives the component of a match, from its remountDeps,
+// as Match does: the component keeps its state while the key stays.
+function remountKey(router: any, routeId: string) {
+  const match = router.state.matches.find((m: any) => m.routeId === routeId)
+  const route = router.routesById[routeId]
+  return JSON.stringify(route.options.remountDeps?.({ routeId, loaderDeps: match.loaderDeps, params: match._strictParams, search: match._strictSearch }))
+}
+
+test('a route remounts when a path parameter it reads changes, not a query parameter', async () => {
+  const { router, calls } = await client('/teams/x/one?tab=a')
+  const team = (Object.values(router.routesById) as any[]).find((r) => r.id.endsWith('/teams/$team')).id
+  const first = remountKey(router, team)
+  // Another value of a query parameter the Layout reads loads its data again and keeps the
+  // component, with its state.
+  calls.length = 0
+  await router.navigate({ to: '/teams/$team/one', params: { team: 'x' }, search: { tab: 'b' } })
+  await router.load()
+  assert(calls.some(([u, id]) => id === 'app/teams/team+/layout' && u.includes('tab=b')), `no new data for tab=b: ${JSON.stringify(calls)}`)
+  assert(remountKey(router, team) === first, `a query parameter remounted the Layout: ${first} became ${remountKey(router, team)}`)
+  // Another value of a path parameter it reads gives it a new component.
+  await router.navigate({ to: '/teams/$team/one', params: { team: 'y' }, search: { tab: 'b' } })
+  await router.load()
+  assert(remountKey(router, team) !== first, `a path parameter kept the Layout: ${first}`)
+})

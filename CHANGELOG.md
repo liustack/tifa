@@ -17,6 +17,10 @@ What changed in tifa that apps and their users can see. From v0.0.1 on, changes 
 - A `multipart.FileHeader` anywhere but in a field of a POST, PUT or PATCH input, such as in a result, the data of `Load` or the session, fails the build. A `route.go` that declares `BodyLimit` or `ReadTimeout` with another meaning, or without a method handler, fails the build too.
 - A value other than a string for a query parameter that Go reads, such as `search={{ page: 2 }}`, is now a type error. Write `page: String(n)`: the router wrote it as text anyway.
 
+### Fixed
+
+- The docs said a page or Layout remounts when a query parameter its `Load` reads changes. It never did, and now the docs and the generated `remountDeps` say what happens: a route remounts for a path parameter it reads, and another query loads the data again and keeps the component and its state, as TanStack Router does by default. State set up from `Load` data follows a new query only through a `key` or an effect of the app.
+
 ## [0.0.3] - 2026-11-05
 
 ### Changed

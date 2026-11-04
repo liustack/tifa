@@ -111,7 +111,7 @@ type Load struct {
 	Uses []string `json:"uses"`
 	// AllQuery is Query together with the AllQuery of every Load in Uses, sorted and deduplicated.
 	// A result computed from a used Load changes with that Load's query parameters too, so
-	// loaderDeps and remountDeps are generated from AllQuery.
+	// loaderDeps is generated from AllQuery.
 	AllQuery []string `json:"allQuery"`
 	// HTML reports whether the JSON of the result may hold a tifa.HTML value. A page the server
 	// renders carries the data of such a Load with a marker in place of each one.

@@ -297,8 +297,8 @@ export function searchTypes<T>(): (search: T) => T {
   return undefined as never
 }
 
-// pick keeps the query parameters a Load reads, for loaderDeps and remountDeps. Other
-// parameters then neither refetch nor remount. Like parseSearch it builds an object without a
+// pick keeps the query parameters a Load reads, for loaderDeps. Other parameters then do not
+// refetch. Like parseSearch it builds an object without a
 // prototype, so __proto__ is kept as a value instead of being taken as the prototype.
 export function pick(search: object, keys: string[]): Record<string, unknown> {
   const values = search as Record<string, unknown>
