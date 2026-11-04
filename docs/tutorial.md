@@ -44,7 +44,7 @@ tifa dev: 19:48:20 ready in 2.147s, open http://127.0.0.1:9527
 The first start compiles SQLite and the JavaScript engine, so it takes longer than this. Open http://127.0.0.1:9527 and try four things:
 
 1. Press Add with an empty box. The message "Write what needs doing." appears under the box. Go sent it, see step 4.
-2. Add "Buy milk" and reload. The todo links to its own page, `/todos/1`, where a button marks it done. The list needs the reload for now, the next part fixes it.
+2. Add "Buy milk". It shows up in the list at once. The todo links to its own page, `/todos/1`, where a button marks it done.
 3. Open http://127.0.0.1:9527/nope and http://127.0.0.1:9527/todos/99. Both show a 404 page, the first from the root Layout and the second from the page of one todo.
 4. Change the heading in `app/page.tsx` from `Todos` to `My todos` and save. The terminal shows what `tifa dev` did, and a reload shows the new heading. Change it back.
 
@@ -67,35 +67,16 @@ Every folder under `app/` is a URL, and the files in it say what the URL does:
 
 See [Writing an app](app.md#folders) and [Structuring an app](structure.md).
 
-### Make a write show up
+### A write does not refresh the page
 
-Add a todo and look at the list. The todo is saved, but it does not appear until you reload the page. tifa never reloads page data after a write on its own, so the page has to ask. If `app/page.tsx` already calls `router.invalidate` after `POST`, skip this part. Otherwise change `AddTodo`:
+Look at `AddTodo` in `app/page.tsx`. After `POST` succeeds it calls `router.invalidate`:
 
-```diff
--import { Link } from '@tanstack/react-router'
-+import { Link, useRouter } from '@tanstack/react-router'
+```tsx
+      await POST({ input: { title } })
+      await router.invalidate({ sync: true })
 ```
 
-```diff
- function AddTodo() {
-+  const router = useRouter()
-   const [title, setTitle] = useState('')
-```
-
-```diff
-       await POST({ input: { title } })
-+      await router.invalidate({ sync: true })
-       setTitle('')
-```
-
-Do the same in `app/todos/todo+/page.tsx`, after the `POST` that marks a todo done (`useRouter` joins the same import, and `const router = useRouter()` goes under `const params = page.useParams()`):
-
-```diff
-       await POST({ params, input: { done: !todo.done } })
-+      await router.invalidate({ sync: true })
-```
-
-Now an added todo shows up at once, and so does the new state of a todo you mark done. `router.invalidate` loads the page and its Layouts again in one request. See [Calling method handlers from the browser](app.md#calling-method-handlers-from-the-browser).
+This is the rule to remember: tifa never reloads page data after a write on its own, so the page has to ask. Without that line the todo is saved but the list stays old until you reload. `router.invalidate` loads the page and its Layouts again in one request, and `sync: true` waits until the page shows the new data. The button on `/todos/1` that marks a todo done does the same. Every write you add needs the same line. See [Calling method handlers from the browser](app.md#calling-method-handlers-from-the-browser).
 
 ## 3. Add a page
 

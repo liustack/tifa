@@ -44,7 +44,7 @@ tifa dev: 19:48:20 ready in 2.147s, open http://127.0.0.1:9527
 第一次启动要编译 SQLite 和 JavaScript 引擎，会比这里慢。打开 http://127.0.0.1:9527，试四件事：
 
 1. 输入框留空，点 Add。框下面出现 "Write what needs doing."。这句话是 Go 发来的，见第 4 步。
-2. 添加 "Buy milk" 并刷新页面。这条待办链接到它自己的页面 `/todos/1`，页面上有个按钮可以标记完成。列表目前要刷新才更新，下一小节会修好。
+2. 添加 "Buy milk"。它立刻出现在列表里。这条待办链接到它自己的页面 `/todos/1`，页面上有个按钮可以标记完成。
 3. 打开 http://127.0.0.1:9527/nope 和 http://127.0.0.1:9527/todos/99。两个都显示 404 页面，前者来自根 Layout，后者来自单个待办的页面。
 4. 把 `app/page.tsx` 里的标题从 `Todos` 改成 `My todos` 并保存。终端会显示 `tifa dev` 做了什么，刷新后看到新标题。再改回来。
 
@@ -67,35 +67,16 @@ tifa dev: 19:57:44 ready in 804ms
 
 详见[编写应用](app.zh-CN.md#目录)和[应用的代码结构](structure.zh-CN.md)。
 
-### 让写入后的页面更新
+### 写入不会自动刷新页面
 
-添加一条待办，看看列表。待办已经保存，但要刷新页面才会出现。tifa 在写入之后不会自己重新加载页面数据，要由页面来要求。如果你的 `app/page.tsx` 已经在 `POST` 之后调用了 `router.invalidate`，跳过这一小节。否则修改 `AddTodo`：
+看 `app/page.tsx` 里的 `AddTodo`。`POST` 成功之后它调用了 `router.invalidate`：
 
-```diff
--import { Link } from '@tanstack/react-router'
-+import { Link, useRouter } from '@tanstack/react-router'
+```tsx
+      await POST({ input: { title } })
+      await router.invalidate({ sync: true })
 ```
 
-```diff
- function AddTodo() {
-+  const router = useRouter()
-   const [title, setTitle] = useState('')
-```
-
-```diff
-       await POST({ input: { title } })
-+      await router.invalidate({ sync: true })
-       setTitle('')
-```
-
-在 `app/todos/todo+/page.tsx` 里照做，加在标记完成的那个 `POST` 之后（`useRouter` 并入同一行 import，`const router = useRouter()` 放在 `const params = page.useParams()` 下面）：
-
-```diff
-       await POST({ params, input: { done: !todo.done } })
-+      await router.invalidate({ sync: true })
-```
-
-现在新加的待办立刻出现，标记完成后的新状态也会立刻显示。`router.invalidate` 用一次请求把当前页面和它的各层 Layout 的数据重新加载。详见[在浏览器里调用方法函数](app.zh-CN.md#在浏览器里调用方法函数)。
+这是要记住的规则：tifa 在写入之后不会自己重新加载页面数据，要由页面来要求。没有这一行，待办虽然保存了，列表却要刷新页面才会更新。`router.invalidate` 用一次请求把当前页面和它的各层 Layout 的数据重新加载，`sync: true` 会等到页面显示了新数据再返回。`/todos/1` 上标记完成的按钮也是这样做的。以后你加的每个写入操作都要有同样的一行。详见[在浏览器里调用方法函数](app.zh-CN.md#在浏览器里调用方法函数)。
 
 ## 3. 加一个页面
 
