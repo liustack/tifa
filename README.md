@@ -129,6 +129,8 @@ A new app also gets an `AGENTS.md` from `tifa new`. The skill covers the same gr
 
 | Doc | Read it when |
 | :-- | :-- |
+| [Tutorial](docs/tutorial.md) | You are new to tifa and want to build a small app from the first folder to a running program |
+| Guides: [forms](docs/guides/forms.md), [uploads](docs/guides/uploads.md), [sign-in](docs/guides/sign-in.md), [database](docs/guides/database.md), [background work](docs/guides/jobs.md), [email](docs/guides/email.md), [languages](docs/guides/i18n.md) | Adding a common feature and you want a tested way to do it |
 | [Philosophy](docs/philosophy.md) | You want to know why a tifa app is organized the way it is |
 | [Structuring an app](docs/structure.md) | Deciding where domain code, storage and shared resources go, and which way packages may import each other |
 | [Writing an app](docs/app.md) | Laying out folders, routes, Layouts, hooks, 404 pages, head tags and caching |
