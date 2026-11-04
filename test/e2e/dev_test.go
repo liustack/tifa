@@ -196,7 +196,7 @@ func (d *devRun) edit(t *testing.T, name, old, new string) int {
 var (
 	ready       = regexp.MustCompile(`ready in \S+`)
 	buildFailed = regexp.MustCompile(`build failed: `)
-	stepDone    = regexp.MustCompile(`(static analysis|code generation|bundle|go build) done in (\S+)`)
+	stepDone    = regexp.MustCompile(`(static analysis|code generation|bundle|content|go build) done in (\S+)`)
 )
 
 // steps lists the steps logged in out, and their durations.

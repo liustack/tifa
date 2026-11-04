@@ -45,6 +45,8 @@ type server struct {
 	pages  map[string]bool                             // paths whose GET renders a page
 	// pageCache holds the whole-page cache time of the pages that have one, by path.
 	pageCache map[string]time.Duration
+	// pageEpoch is part of the key of every page of the whole-page cache, see expirePages.
+	pageEpoch atomic.Uint64
 	// pageQuery holds the query parameters the Loads of a page read, by path: the whole-page
 	// cache keeps them even when cache.ignore_query names them.
 	pageQuery map[string][]string

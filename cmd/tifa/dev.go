@@ -140,13 +140,21 @@ type devPipeline struct {
 	files map[string][]byte // the generated files of that analysis, as written last
 	// public is build.public of that analysis, see Public.
 	public string
+	// content is the latest scan of content/: the one of the last analysis, or of Content since.
+	// fresh is set when no Content ran since that analysis. converted is the Fingerprint of the
+	// collections of the last conversion.
+	content   *analyze.Content
+	fresh     bool
+	converted string
 }
 
 // Analyze runs the static analysis and generates the code in memory. The fingerprint covers the
 // generated files: everything a route, a Load type, a hook, an export of page.tsx or layout.tsx
 // or the project configuration changes shows up there.
+//
+// The drafts are kept, as tifa dev shows them.
 func (p *devPipeline) Analyze(context.Context) (string, error) {
-	m, err := analyze.Analyze(p.root)
+	m, err := analyze.AnalyzeWith(p.root, analyze.Options{Drafts: true})
 	var violations analyze.Errors
 	if errors.As(err, &violations) {
 		lines := make([]string, len(violations))
@@ -167,7 +175,43 @@ func (p *devPipeline) Analyze(context.Context) (string, error) {
 		return "", err
 	}
 	p.m, p.files, p.public = m, files, publicDir(settings.Public)
+	p.content, p.fresh = m.Content, true
 	return fingerprint(files), nil
+}
+
+// HasContent says whether the app has content collections, as the last analysis saw it.
+func (p *devPipeline) HasContent() bool { return p.m != nil && p.m.Content != nil }
+
+// Content converts the entries that changed since the last conversion into .tifa/dist and writes
+// content.json, see bundle.Dev.Content. Right after an analysis it uses the scan of the analysis,
+// otherwise it scans content/ again for the collections of the last analysis, which reports the
+// same problems. A change of the collections or their schema types converts every entry.
+func (p *devPipeline) Content(ctx context.Context, all bool, changed []string) (string, error) {
+	if p.m == nil {
+		return "", errors.New("content before the first successful analysis")
+	}
+	c := p.content
+	if !p.fresh {
+		var err error
+		if c, err = analyze.ScanContent(p.root, p.m.Content); err != nil {
+			return "", err
+		}
+	}
+	fp := c.Fingerprint()
+	all = all || fp != p.converted
+	_, pages := p.files["client.ts"]
+	n, err := p.front.Content(ctx, pages, contentOf(c), all, changed)
+	if err != nil {
+		return "", err
+	}
+	p.content, p.fresh, p.converted = c, false, fp
+	if c == nil {
+		return "", nil
+	}
+	if n == 1 {
+		return "1 entry converted", nil
+	}
+	return fmt.Sprintf("%d entries converted", n), nil
 }
 
 // Embedded says which files the Go code embeds, as the last analysis saw them.
@@ -211,7 +255,7 @@ func (p *devPipeline) Bundle(ctx context.Context) (string, error) {
 	if err := checkReact(p.root, pages); err != nil {
 		return "", err
 	}
-	_, err = p.front.Build(ctx, filepath.Join(p.root, settings.Public), pages, contentOf(p.m))
+	_, err = p.front.Build(ctx, filepath.Join(p.root, settings.Public), pages)
 	return "", err
 }
 

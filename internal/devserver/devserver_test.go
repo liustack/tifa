@@ -39,6 +39,12 @@ type buildPipeline struct {
 	embedded func(string) bool
 	// public is what Public returns, guarded by mu.
 	public string
+	// contentFile is the file the fake app reads its content from, which Content writes
+	// "content N" into, or "invalid" with invalid set. hasContent is what HasContent returns.
+	contentFile string
+	contents    int
+	invalid     bool
+	hasContent  bool
 }
 
 func (p *buildPipeline) step(name string) error {
@@ -52,6 +58,13 @@ func (p *buildPipeline) step(name string) error {
 	case "GoBuild":
 		p.builds++
 		return os.WriteFile(p.versionFile, []byte(fmt.Sprintf("build %d", p.builds)), 0o644)
+	case "Content":
+		p.contents++
+		content := fmt.Sprintf("content %d", p.contents)
+		if p.invalid {
+			content = "invalid"
+		}
+		return os.WriteFile(p.contentFile, []byte(content), 0o644)
 	case "Bundle":
 		p.bundles++
 		bundle := fmt.Sprintf("bundle %d", p.bundles)
@@ -103,6 +116,14 @@ func (p *buildPipeline) Bundle(context.Context) (string, error) {
 	return "", p.step("Bundle")
 }
 func (p *buildPipeline) GoBuild(context.Context) error { return p.step("GoBuild") }
+func (p *buildPipeline) Content(context.Context, bool, []string) (string, error) {
+	return "", p.step("Content")
+}
+func (p *buildPipeline) HasContent() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.hasContent
+}
 func (p *buildPipeline) PollFiles(context.Context) (bool, error) {
 	return true, p.step("PollFiles")
 }
@@ -126,7 +147,9 @@ func startDev(t *testing.T, failFirst string, setup ...func(*buildPipeline)) *de
 	t.Setenv("TIFA_FAKE_APP_VERSION", versionFile)
 	bundleFile := filepath.Join(t.TempDir(), "bundle")
 	t.Setenv("TIFA_FAKE_APP_BUNDLE", bundleFile)
-	p := &buildPipeline{versionFile: versionFile, bundleFile: bundleFile, fail: failFirst}
+	contentFile := filepath.Join(t.TempDir(), "content")
+	t.Setenv("TIFA_FAKE_APP_CONTENT", contentFile)
+	p := &buildPipeline{versionFile: versionFile, bundleFile: bundleFile, contentFile: contentFile, fail: failFirst}
 	for _, f := range setup {
 		f(p)
 	}
@@ -479,6 +502,52 @@ func TestRunReloadsTheBundleWithoutARestart(t *testing.T) {
 	if strings.Contains(d.out.String(), "shutdown done") {
 		t.Fatalf("the app was restarted:\n%s", d.out.String())
 	}
+}
+
+// A change under content/ runs the content step alone, and the running app loads the new content
+// in place: no go build and no restart. Open pages reload, as Vite knows nothing of the content.
+// Content the app does not load shows the error, the app keeps the content it has, and a fix
+// clears the error.
+func TestRunReloadsTheContentWithoutARestart(t *testing.T) {
+	d := startDev(t, "", func(p *buildPipeline) { p.hasContent = true })
+	v1 := d.waitVersionAfter(t, "")
+	d.p.took()
+	_, pid := get(t, d.url+"/pid")
+	expectPage(t, d.url+"/content", "content 1")
+
+	writeFile(t, d.dir, "content/blog/en/a.md", "---\ntitle: A\n---\n")
+	v2 := d.waitVersionAfter(t, v1)
+	expectSteps(t, d.p, "Content")
+	expectPage(t, d.url+"/content", "content 2")
+	expectPage(t, d.url+"/pid", pid)
+
+	d.p.mu.Lock()
+	d.p.invalid = true
+	d.p.mu.Unlock()
+	writeFile(t, d.dir, "content/blog/en/a.md", "---\ntitle: \n---\n")
+	failed := d.waitStatus(t, func(st status) bool { return st.Error != "" })
+	if failed.Version != v2 || failed.Title != "The app did not load the content" || !strings.Contains(failed.Error, "Validate: title must not be empty") {
+		t.Fatalf("got %+v", failed)
+	}
+	expectPage(t, d.url+"/content", "content 2")
+
+	d.p.mu.Lock()
+	d.p.invalid = false
+	d.p.mu.Unlock()
+	writeFile(t, d.dir, "content/blog/en/a.md", "---\ntitle: B\n---\n")
+	d.waitVersionAfter(t, v2)
+	expectPage(t, d.url+"/content", "content 4")
+	expectPage(t, d.url+"/pid", pid)
+	if strings.Contains(d.out.String(), "shutdown done") {
+		t.Fatalf("the app was restarted:\n%s", d.out.String())
+	}
+
+	// A Go change analyzes, converts and builds, and the new app reads the content at start.
+	d.p.took()
+	writeFile(t, d.dir, "content.go", "package app")
+	d.waitStatus(t, func(st status) bool { return st.Render == 4 })
+	expectSteps(t, d.p, "Analyze", "Content", "GoBuild")
+	expectPage(t, d.url+"/content", "content 5")
 }
 
 // Each answer and the dev client name the version and how many builds have been served. The

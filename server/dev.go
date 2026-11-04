@@ -7,6 +7,7 @@ import (
 
 	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/internal/config"
+	"github.com/liustack/tifa/internal/content"
 	"github.com/liustack/tifa/internal/deverrors"
 )
 
@@ -18,30 +19,49 @@ const devPrefix = "/__tifa/dev/"
 // error page loads it.
 const clientPath = devPrefix + "client.js"
 
-// reloadPath is where tifa dev asks the app to load the SSR bundle again, after it rebuilt
-// only that bundle. internal/devserver sends the request.
-const reloadPath = devPrefix + "reload"
+// reloadPath is where tifa dev asks the app to load the SSR bundle, the content or both again,
+// after it rebuilt only those. internal/devserver sends the request, and reads reloadFailedHeader
+// of an answer that failed.
+const (
+	reloadPath         = devPrefix + "reload"
+	reloadFailedHeader = "X-Tifa-Reload-Failed"
+)
 
-// DevMain is Main for the main that tifa dev generates. The application also answers
-// POST /__tifa/dev/reload: it loads the front end again from the directory --dist names, with
-// the same openFront that started it, and swaps it in. OnStart does not run again and the
-// state of the application stays. The answer is 204, or 500 with the error, in which case the
-// front end loaded before keeps serving. tifa build generates a main that calls Main, so a
-// production program has no such path.
+// DevMain is Main for the main that tifa dev generates. Every content entry can be seen, also one
+// whose date is still to come, and the application also answers POST /__tifa/dev/reload: with
+// bundle=1 it loads the front end again from the directory --dist names, with the same openFront
+// that started it, and swaps it in. With content=1 it loads content.json of that directory again,
+// runs Validate on every entry and swaps the data of the collections. Either way every page of the
+// whole-page cache expires. OnStart does not run again and the state of the application stays.
+// The answer is 204, or 500 with the error, in which case what was loaded before keeps serving.
+// When the content failed, reloadFailedHeader says content. tifa build generates a main that calls
+// Main, so a production program has no such path.
 func DevMain(app App) {
 	start(app, reloader)
 }
 
-// reloader answers tifa dev's requests to the app for the front end in dist.
+// reloader answers tifa dev's requests to the app for the front end and the content in dist.
 func reloader(s *server, dist fs.FS, cfg config.SSR) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != reloadPath || r.Method != "POST" {
 			http.NotFound(w, r)
 			return
 		}
-		if err := s.openFront(dist, cfg); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+		q := r.URL.Query()
+		if q.Get("bundle") == "1" {
+			if err := s.openFront(dist, cfg); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			s.expirePages()
+		}
+		if q.Get("content") == "1" {
+			if err := content.Load(dist); err != nil {
+				w.Header().Set(reloadFailedHeader, "content")
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			s.expirePages()
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})

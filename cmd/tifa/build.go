@@ -68,7 +68,7 @@ Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 			if err := checkReact(root, pages); err != nil {
 				return err
 			}
-			id, err := bundle.App(node, root, filepath.Join(root, settings.Public), pages, contentOf(m))
+			id, err := bundle.App(node, root, filepath.Join(root, settings.Public), pages, contentOf(m.Content))
 			if err != nil {
 				return err
 			}
@@ -146,12 +146,12 @@ func analyzeApp(cmd *cobra.Command, root string) (*analyze.Manifest, error) {
 	return m, err
 }
 
-// contentOf returns the content collections of the analyzed app for the build, nil without any.
-func contentOf(m *analyze.Manifest) *bundle.Content {
-	if m.Content == nil {
+// contentOf returns the content collections of an analysis for the build, nil without any.
+func contentOf(c *analyze.Content) *bundle.Content {
+	if c == nil {
 		return nil
 	}
-	return &bundle.Content{File: m.Content.File, Markdown: m.Content.Markdown}
+	return &bundle.Content{File: c.File, Markdown: c.Markdown}
 }
 
 // goBuild compiles the generated main of the application at root into output with

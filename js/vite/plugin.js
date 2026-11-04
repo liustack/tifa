@@ -1028,8 +1028,10 @@ export function markdownPlugin(getRoot, markdown) {
       // of the plugins. For tifa dev with pages the bodies load their files from Vite's dev server.
       // alone is for an app without pages, where no bundle is built and no dev server runs: the
       // files go into .tifa/dist/assets as Vite names its assets, <name>-<hash>.<ext>, and
-      // command is the tifa command that converts, for the messages.
-      async convert({ alone = false, command: by = 'tifa dev' } = {}) {
+      // command is the tifa command that converts, for the messages. With partial the entries
+      // are some of the entries, as tifa dev converts the ones that changed: the bodies and files
+      // of the others stay.
+      async convert({ alone = false, command: by = 'tifa dev', partial = false } = {}) {
         const root = getRoot()
         const entries = readContentEntries(root)
         if (!entries) return []
@@ -1037,11 +1039,11 @@ export function markdownPlugin(getRoot, markdown) {
         let asset = (file) => devBase + encodePath(path.relative(real, file).split(path.sep).join('/'))
         const assets = path.join(root, '.tifa', 'dist', 'assets')
         if (alone) {
-          fs.rmSync(assets, { recursive: true, force: true })
+          if (!partial) fs.rmSync(assets, { recursive: true, force: true })
           asset = (file) => '/assets/' + encodePath(writeAsset(assets, file))
         }
         const result = await convertContent(root, entries, { markdown, command: by, asset })
-        writeContent(root, result)
+        writeContent(root, result, partial)
         return result.warnings
       },
     },
@@ -1062,10 +1064,10 @@ function readContentEntries(root) {
 }
 
 // writeContent writes the HTML of each entry into .tifa/dist, in place of the bodies there, and
-// the headings into .tifa/content/headings.json.
-function writeContent(root, result) {
+// the headings into .tifa/content/headings.json. With partial the other bodies stay.
+function writeContent(root, result, partial = false) {
   const dist = path.join(root, '.tifa', 'dist')
-  fs.rmSync(path.join(dist, 'content'), { recursive: true, force: true })
+  if (!partial) fs.rmSync(path.join(dist, 'content'), { recursive: true, force: true })
   for (const [out, html] of Object.entries(result.html)) {
     const file = path.join(dist, out)
     fs.mkdirSync(path.dirname(file), { recursive: true })

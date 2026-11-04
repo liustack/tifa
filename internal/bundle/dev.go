@@ -1,6 +1,7 @@
 package bundle
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,9 +11,13 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
+
+	"github.com/liustack/tifa/internal/content"
 )
 
 // DevBase is where Vite's dev server serves modules under tifa dev, base in js/vite/plugin.js.
@@ -33,6 +38,11 @@ type Dev struct {
 	port   int    // where Vite's dev server listens on 127.0.0.1
 	head   string // the tags pages load the browser modules with, set once the dev server runs
 	styles string // the tags that link the stylesheets of the last SSR bundle
+
+	// converted holds the entries of the last conversion that worked, by the file of their body,
+	// and headings what the plugin found in each. Content compares with them.
+	converted map[string]content.Markdown
+	headings  map[string][]content.Heading
 
 	mu   sync.Mutex
 	poll bool // PollFiles came before the dev server ran
@@ -100,18 +110,14 @@ func (d *Dev) Close() error { return d.node.Close() }
 // or the stylesheets: a change to page code reaches open pages through Vite and leaves them on
 // the same build, so their navigation data requests are not refused.
 //
-// c holds the content collections, nil without any, as for App. Under tifa dev every Build converts
-// all the entries again, and the bodies refer to their files through the dev server.
+// Build leaves the content alone: Content converts it.
 //
 // When ctx ends, Build closes the Dev, which ends a build that never would, so that tifa dev can
 // stop.
-func (d *Dev) Build(ctx context.Context, public string, pages bool, c *Content) (string, error) {
+func (d *Dev) Build(ctx context.Context, public string, pages bool) (string, error) {
 	stop := context.AfterFunc(ctx, func() { d.Close() })
 	defer stop()
 	if err := os.MkdirAll(d.dist, 0o755); err != nil {
-		return "", err
-	}
-	if err := prepareContent(d.root, c, pages); err != nil {
 		return "", err
 	}
 	ssr := filepath.Join(d.dist, "ssr.js")
@@ -144,25 +150,7 @@ func (d *Dev) Build(ctx context.Context, public string, pages bool, c *Content) 
 			d.styles = result.Styles
 		}
 		b.Head = d.styles + d.head
-		// The bodies load their files from the dev server, so the plugin of the dev server converts.
-		if c != nil {
-			if err := d.node.call("content", nil, nil); err != nil {
-				return "", err
-			}
-		}
-	} else {
-		if err := os.Remove(ssr); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return "", err
-		}
-		// No dev server runs without pages: the files of the bodies go into .tifa/dist/assets.
-		if err := os.RemoveAll(filepath.Join(d.dist, "assets")); err != nil {
-			return "", err
-		}
-		if err := convertAlone(d.node, c, "tifa dev"); err != nil {
-			return "", err
-		}
-	}
-	if err := finishContent(d.root, d.dist, c); err != nil {
+	} else if err := os.Remove(ssr); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return "", err
 	}
 	for _, name := range []string{"public", "build.json"} {
@@ -173,11 +161,122 @@ func (d *Dev) Build(ctx context.Context, public string, pages bool, c *Content) 
 	if err := copyDir(public, filepath.Join(d.dist, "public")); err != nil {
 		return "", err
 	}
-	files, err := distID(d.dist, "ssr.js")
+	// Only the public files count: the SSR bundle, the content and its files change under open pages.
+	files, err := distID(d.dist, func(name string) bool { return !strings.HasPrefix(name, "public/") })
 	if err != nil {
 		return "", err
 	}
 	sum := sha256.Sum256([]byte(strconv.Quote(files) + d.head))
 	b.ID = hex.EncodeToString(sum[:])[:16]
 	return b.ID, writeBuild(d.dist, b)
+}
+
+// Content brings the content in .tifa/dist up to date with c, the entries of a scan of content/,
+// nil for an app without collections: it converts the entries that need it into
+// .tifa/dist/content/ and writes .tifa/dist/content.json. It returns how many entries it
+// converted.
+//
+// An entry needs converting when it is new, or its Markdown, its front matter or its place changed
+// since the last conversion that worked, or a file changed in its folder or in the folder of the
+// version in the default language it falls back to. changed lists the files under content/ that
+// changed, relative to the root with forward slashes. With all every entry is converted, as after
+// a change of the Vite config or of the plugins it imports, and the bodies of entries that are
+// gone are removed. Otherwise those stay in .tifa/dist/content/, where nothing reads them.
+//
+// With pages the plugin of Vite's dev server converts, so Build must have started it, and the
+// bodies load their files from the dev server. Without pages the plugin of the Vite config
+// converts, and the files go into .tifa/dist/assets.
+//
+// A failure, such as an error a plugin throws, writes no body and leaves content.json as it was.
+// When ctx ends, Content closes the Dev, as Build does.
+func (d *Dev) Content(ctx context.Context, pages bool, c *Content, all bool, changed []string) (int, error) {
+	stop := context.AfterFunc(ctx, func() { d.Close() })
+	defer stop()
+	if c == nil {
+		d.converted, d.headings = nil, nil
+		if err := os.RemoveAll(filepath.Join(d.root, ".tifa", "content")); err != nil {
+			return 0, err
+		}
+		return 0, finishContent(d.root, d.dist, nil)
+	}
+	if d.converted == nil {
+		all = true
+	}
+	// A changed file that is no entry is a file of the entries near it, such as an image.
+	sources := map[string]bool{}
+	for _, m := range d.converted {
+		sources[m.Source] = true
+	}
+	for _, m := range c.Markdown {
+		sources[m.Source] = true
+	}
+	var files []string
+	for _, f := range changed {
+		if !sources[f] {
+			files = append(files, f)
+		}
+	}
+	var todo []content.Markdown
+	for _, m := range c.Markdown {
+		old, ok := d.converted[m.Out]
+		if all || !ok || !sameMarkdown(old, m) || holdsAny(path.Dir(m.Source), files) || (m.Fallback != "" && holdsAny(m.Fallback, files)) {
+			todo = append(todo, m)
+		}
+	}
+	if err := writeEntries(d.root, todo); err != nil {
+		return 0, err
+	}
+	headings := map[string][]content.Heading{}
+	switch {
+	case len(todo) > 0:
+		req := map[string]any{"partial": !all}
+		if !pages {
+			if err := checkViteFiles(d.root); err != nil {
+				return 0, err
+			}
+			req["alone"], req["command"] = true, "tifa dev"
+		}
+		if err := d.node.call("content", req, nil); err != nil {
+			return 0, err
+		}
+		var err error
+		if headings, err = readHeadings(d.root); err != nil {
+			return 0, err
+		}
+	case all:
+		if err := os.RemoveAll(filepath.Join(d.dist, "content")); err != nil {
+			return 0, err
+		}
+	}
+	converted := make(map[string]content.Markdown, len(c.Markdown))
+	known := make(map[string][]content.Heading, len(c.Markdown))
+	for _, m := range c.Markdown {
+		converted[m.Out] = m
+		if h, ok := headings[m.Out]; ok {
+			known[m.Out] = h
+		} else {
+			known[m.Out] = d.headings[m.Out]
+		}
+	}
+	if err := writeContentFile(d.dist, c.File, known); err != nil {
+		return 0, err
+	}
+	d.converted, d.headings = converted, known
+	return len(todo), nil
+}
+
+// sameMarkdown reports whether a and b turn into the same body.
+func sameMarkdown(a, b content.Markdown) bool {
+	return a.Collection == b.Collection && a.Lang == b.Lang && a.ID == b.ID && a.Source == b.Source &&
+		a.Fallback == b.Fallback && a.Out == b.Out && a.Text == b.Text && bytes.Equal(a.Frontmatter, b.Frontmatter)
+}
+
+// holdsAny reports whether one of files is in the folder dir or below it.
+func holdsAny(dir string, files []string) bool {
+	for _, f := range files {
+		if strings.HasPrefix(f, dir+"/") {
+			return true
+		}
+	}
+	return false
 }

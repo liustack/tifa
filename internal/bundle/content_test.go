@@ -173,7 +173,8 @@ func TestAppConvertsTheContentWithoutPages(t *testing.T) {
 }
 
 // tifa dev converts the content of an app without pages the same way: no dev server of Vite runs
-// for it, so the files of the bodies are in .tifa/dist/assets as in a build.
+// for it, so the files of the bodies are in .tifa/dist/assets as in a build. A later Content
+// converts only the entry that changed.
 func TestDevConvertsTheContentWithoutPages(t *testing.T) {
 	root, c := contentApp(t)
 	writeTree(t, root, map[string]string{"package.json": `{"type":"module"}`})
@@ -182,9 +183,12 @@ func TestDevConvertsTheContentWithoutPages(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	before, err := d.Build(context.Background(), filepath.Join(root, "public"), false, c)
+	before, err := d.Build(context.Background(), filepath.Join(root, "public"), false)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
+	}
+	if n, err := d.Content(context.Background(), false, c, false, nil); err != nil || n != 2 {
+		t.Fatalf("Content = %d, %v: want both entries converted", n, err)
 	}
 	a := readDist(t, root, "content/blog/a.html")
 	m := regexp.MustCompile(`<img src="(/assets/x-[A-Za-z0-9_-]{8}\.png)" alt="x">`).FindStringSubmatch(a)
@@ -195,16 +199,28 @@ func TestDevConvertsTheContentWithoutPages(t *testing.T) {
 		t.Errorf("%s = %q", m[1], got)
 	}
 	c.Markdown[0].Text += "\nmore\n"
-	after, err := d.Build(context.Background(), filepath.Join(root, "public"), false, c)
+	if n, err := d.Content(context.Background(), false, c, false, nil); err != nil || n != 1 {
+		t.Fatalf("Content = %d, %v: want only a converted", n, err)
+	}
+	if a := readDist(t, root, "content/blog/a.html"); !strings.Contains(a, "<p>more</p>") {
+		t.Errorf("a.html:\n%s", a)
+	}
+	if got := readDist(t, root, "content.json"); !strings.Contains(got, `"headings":[{"depth":2,"id":"hello-b","text":"Hello b"}]`) {
+		t.Errorf("content.json lost the headings of b:\n%s", got)
+	}
+	// The body changes under open pages, which keep their build.
+	after, err := d.Build(context.Background(), filepath.Join(root, "public"), false)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if before == after {
-		t.Error("the build ID stays the same")
+	if before != after {
+		t.Error("the build ID changed with the content")
 	}
 }
 
 // Under tifa dev the plugin of the dev server converts, and the bodies load their files from it.
+// Content converts again the entries whose Markdown changed and those next to a file that changed,
+// and a failure leaves the content as it was.
 func TestDevConvertsTheContent(t *testing.T) {
 	root, c := contentApp(t)
 	d, err := NewDev(root, freePort(t), io.Discard, nil)
@@ -212,8 +228,11 @@ func TestDevConvertsTheContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true, c); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
 		t.Fatalf("Build: %v", err)
+	}
+	if n, err := d.Content(context.Background(), true, c, false, nil); err != nil || n != 2 {
+		t.Fatalf("Content = %d, %v: want both entries converted", n, err)
 	}
 	if a := readDist(t, root, "content/blog/a.html"); !strings.Contains(a, `<img src="/__tifa/vite/content/blog/a/x.png" alt="x">`) || !strings.Contains(a, `<hr class="mark">`) {
 		t.Errorf("a.html:\n%s", a)
@@ -221,8 +240,26 @@ func TestDevConvertsTheContent(t *testing.T) {
 	if got := readDist(t, root, "content.json"); !strings.Contains(got, `"headings":[{"depth":2,"id":"hello-b","text":"Hello b"}]`) {
 		t.Errorf("content.json:\n%s", got)
 	}
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true, nil); err != nil {
-		t.Fatalf("Build: %v", err)
+	if n, err := d.Content(context.Background(), true, c, false, nil); err != nil || n != 0 {
+		t.Errorf("Content again = %d, %v: want nothing converted", n, err)
+	}
+	// The image is next to a.md, in content/blog: both entries are in that folder.
+	if n, err := d.Content(context.Background(), true, c, false, []string{"content/blog/a/x.png", "content/blog/a.md"}); err != nil || n != 2 {
+		t.Errorf("Content after the image changed = %d, %v: want both entries converted", n, err)
+	}
+	c.Markdown[1].Text += "\n![y](./a/missing.png)\n"
+	if _, err := d.Content(context.Background(), true, c, false, nil); err == nil || !strings.Contains(err.Error(), "content/blog/b.md:7:1: image ./a/missing.png not found") {
+		t.Errorf("Content with a missing image: %v", err)
+	}
+	if b := readDist(t, root, "content/blog/b.html"); strings.Contains(b, "missing") {
+		t.Errorf("the failed conversion wrote b.html:\n%s", b)
+	}
+	c.Markdown[1].Text = strings.Replace(c.Markdown[1].Text, "missing", "x", 1)
+	if n, err := d.Content(context.Background(), true, c, false, nil); err != nil || n != 1 {
+		t.Errorf("Content after the fix = %d, %v: want b converted", n, err)
+	}
+	if n, err := d.Content(context.Background(), true, nil, false, nil); err != nil || n != 0 {
+		t.Fatalf("Content without collections = %d, %v", n, err)
 	}
 	for _, name := range []string{".tifa/dist/content", ".tifa/dist/content.json"} {
 		if _, err := os.Stat(filepath.Join(root, name)); !os.IsNotExist(err) {

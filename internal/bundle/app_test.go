@@ -208,7 +208,7 @@ func TestDistIDTellsFileTreesApart(t *testing.T) {
 	write := func(files map[string]string) string {
 		dir := t.TempDir()
 		writeTree(t, dir, files)
-		id, err := distID(dir, "")
+		id, err := distID(dir, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

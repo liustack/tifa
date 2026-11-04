@@ -21,6 +21,9 @@ type fakePipeline struct {
 	goBuild chan struct{}
 	// embedded is what Embedded returns, nothing when nil.
 	embedded func(string) bool
+	// content is what HasContent returns. contents records the arguments of each Content.
+	content  bool
+	contents []string
 }
 
 func (p *fakePipeline) step(name string) error {
@@ -38,6 +41,11 @@ func (p *fakePipeline) Generate(context.Context) error { return p.step("Generate
 func (p *fakePipeline) Bundle(context.Context) (string, error) {
 	return p.detail, p.step("Bundle")
 }
+func (p *fakePipeline) Content(_ context.Context, all bool, changed []string) (string, error) {
+	p.contents = append(p.contents, fmt.Sprintf("%v %v", all, changed))
+	return "", p.step("Content")
+}
+func (p *fakePipeline) HasContent() bool { return p.content }
 func (p *fakePipeline) GoBuild(context.Context) error {
 	if p.goBuild != nil {
 		<-p.goBuild
@@ -116,6 +124,66 @@ func TestRebuildMatrix(t *testing.T) {
 				t.Fatalf("build returned %+v, want %+v", ran, want)
 			}
 		})
+	}
+}
+
+// A file under content/ needs the content step alone: no analysis and no go build. In an app with
+// content the step also follows every analysis, and a restart of Vite's dev server converts every
+// entry, as the Vite config or its plugins may have changed.
+func TestRebuildContent(t *testing.T) {
+	cases := []struct {
+		name     string
+		changes  []change
+		content  bool // HasContent
+		want     []string
+		contents []string
+	}{
+		{"post", []change{{"content/blog/en/a/index.md", modified}}, true, []string{"Content"}, []string{"false [content/blog/en/a/index.md]"}},
+		{"new post", []change{{"content/blog/en/b/index.md", created}}, true, []string{"Content"}, []string{"false [content/blog/en/b/index.md]"}},
+		{"image", []change{{"content/blog/zh-CN/a/diagram.png", modified}}, true, []string{"Content"}, []string{"false [content/blog/zh-CN/a/diagram.png]"}},
+		{"new folder without collections", []change{{"content/notes/a.md", created}}, false, []string{"Content"}, []string{"false [content/notes/a.md]"}},
+		{"content.go", []change{{"content.go", modified}}, true, []string{"Analyze", "Content", "GoBuild"}, []string{"false []"}},
+		{"go without content", []change{{"app/a.go", modified}}, false, []string{"Analyze", "GoBuild"}, nil},
+		{"vite restarted", []change{{viteServer, restarted}}, true, []string{"Bundle", "Content"}, []string{"true []"}},
+		{"vite restarted without content", []change{{viteServer, restarted}}, false, []string{"Bundle"}, nil},
+		{"post and tsx", []change{{"content/blog/en/a/index.md", modified}, {"app/a.tsx", modified}}, true, []string{"Bundle", "Content"}, []string{"false [content/blog/en/a/index.md]"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			b, p := built(t)
+			p.content, p.contents = tc.content, nil
+			b.noteContent(tc.changes)
+			ran, err := b.build(context.Background(), plan(tc.changes, nil), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(p.calls, tc.want) || !slices.Equal(p.contents, tc.contents) {
+				t.Fatalf("ran %v with %q, want %v with %q", p.calls, p.contents, tc.want, tc.contents)
+			}
+			if inPlace := !slices.Contains(tc.want, "Analyze"); ran.inPlace() != inPlace {
+				t.Errorf("ran %+v, in place %v, want %v", ran, ran.inPlace(), inPlace)
+			}
+		})
+	}
+}
+
+// A content step that fails runs again with the next rebuild, with the files it had.
+func TestFailedContentCarriesOver(t *testing.T) {
+	b, p := built(t)
+	p.content, p.fail = true, "Content"
+	first := []change{{"content/blog/en/a/index.md", modified}}
+	b.noteContent(first)
+	if _, err := b.build(context.Background(), plan(first, nil), nil); err == nil {
+		t.Fatal("build succeeded, want the error of Content")
+	}
+	p.calls, p.contents, p.fail = nil, nil, ""
+	next := []change{{"app/a.tsx", modified}}
+	b.noteContent(next)
+	if _, err := b.build(context.Background(), plan(next, nil), nil); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"Bundle", "Content"}; !slices.Equal(p.calls, want) || !slices.Equal(p.contents, []string{"false [content/blog/en/a/index.md]"}) {
+		t.Fatalf("next build ran %v with %q", p.calls, p.contents)
 	}
 }
 
