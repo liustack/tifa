@@ -17,7 +17,9 @@ The code is from a scratch app made with `tifa new`, module `example.com/notes`.
 
 ## The driver
 
-Use `modernc.org/sqlite`. It is SQLite translated to Go, so the app still builds with `CGO_ENABLED=0` into one file ([Philosophy](../philosophy.md#do-things-the-go-way)). The cgo driver `github.com/mattn/go-sqlite3` needs a C compiler and breaks that. `tifa new` already pins a version of the pure Go one in `go.mod`.
+Use [`github.com/liustack/sqlite`](https://github.com/liustack/sqlite). It runs SQLite as Go code, so the app still builds with `CGO_ENABLED=0` into one file ([Philosophy](../philosophy.md#do-things-the-go-way)). The cgo driver `github.com/mattn/go-sqlite3` needs a C compiler and breaks that. In the driver's own [benchmarks](https://github.com/liustack/sqlite#benchmarks) it reads faster than the cgo driver and than the other pure Go drivers, and loses on work that stays inside SQLite, such as a join. It supports Linux and macOS on amd64 and arm64. `tifa new` already pins a version in `go.mod`.
+
+Two habits differ from other drivers. Parameters in the DSN other than `_pragma` and `_txlock` are an error, so the `_foreign_keys=1` style of other drivers does not work. And double quotes in SQL only name columns and tables, so write string values in single quotes. Do not import another driver named `sqlite` (such as `modernc.org/sqlite`) in the same program, because the two register the same name and the program panics at start.
 
 ## Open it in OnStart
 
@@ -32,23 +34,23 @@ import (
 	"database/sql"
 	"net/url"
 
-	_ "modernc.org/sqlite"
+	_ "github.com/liustack/sqlite"
 )
 
 // DB is the database of the app. OnStart opens it and OnShutdown closes it.
 var DB *sql.DB
 
 func OpenDB(ctx context.Context, path string) (*sql.DB, error) {
-	// The pragmas apply to every connection of the pool. WAL lets reads go on during a write,
-	// busy_timeout makes a write wait up to 5s for another one instead of failing at once, and
-	// SQLite checks foreign keys only when asked to. A transaction that reads first and then
+	// The pragmas run on every connection of the pool. WAL lets reads go on during a write, and
+	// SQLite checks foreign keys only when asked to. A write waits up to 5s for another one by
+	// default (change it with _pragma=busy_timeout(ms)). A transaction that reads first and then
 	// writes can fail with SQLITE_BUSY even with a timeout, so _txlock=immediate makes every
 	// transaction take the write lock as it starts.
 	q := url.Values{
-		"_pragma": {"journal_mode(WAL)", "busy_timeout(5000)", "foreign_keys(ON)", "synchronous(NORMAL)"},
+		"_pragma": {"journal_mode(WAL)", "synchronous(NORMAL)", "foreign_keys(1)"},
 		"_txlock": {"immediate"},
 	}
-	db, err := sql.Open("sqlite", path+"?"+q.Encode())
+	db, err := sql.Open("sqlite", "file:"+path+"?"+q.Encode())
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +76,7 @@ func OnStart(ctx context.Context) error {
 func OnShutdown(ctx context.Context) error { return DB.Close() }
 ```
 
-The parameters after `?` are read by the driver ([its documentation](https://pkg.go.dev/modernc.org/sqlite#Driver.Open)). `OnShutdown` runs after the requests in flight have finished, so nothing uses `DB` while it closes.
+The parameters after `?` are read by the driver ([its README](https://github.com/liustack/sqlite#readme)). `_pragma=name(value)` runs `PRAGMA name = value` on every new connection. `OnShutdown` runs after the requests in flight have finished, so nothing uses `DB` while it closes.
 
 ## Where the file lives
 
