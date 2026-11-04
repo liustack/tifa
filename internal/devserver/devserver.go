@@ -144,7 +144,7 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 		mux.Handle(VitePath, viteProxy(o.Vite))
 	}
 	app := proxy(appAddr, o.ProxyWait, d.down, d.timing)
-	catchUp, pending := w.sync, w.changes.pending
+	catchUp, changes := w.sync, w.changes
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Before the first build there is no app. A page the browser loads waits for a build that
 		// Go's build cache makes fast, and gets a page that loads the dev client during a slow
@@ -164,21 +164,33 @@ func Run(ctx context.Context, ln net.Listener, o Options) error {
 		}
 		// A page loaded while the SSR bundle is rebuilt would show the old server render. Wait
 		// until the app with the new one runs. A file saved just before is not in a rebuild yet,
-		// as the files must go quiet first: once the watcher saw it, wait for that rebuild to
-		// begin, which holds the page when it bundles.
+		// as the files must go quiet first: once the watcher saw it, wait until every change
+		// recorded before the request is in a rebuild that began, which holds the page when it
+		// bundles. A file that changes again later does not hold the request any longer than the
+		// next batch that takes it.
 		catchUp(r.Context())
+		mark := changes.mark()
 		limit := time.NewTimer(o.ProxyWait)
 		defer limit.Stop()
 	wait:
-		for _, next := range []func() <-chan struct{}{pending, d.busy} {
-			if ch := next(); ch != nil {
-				select {
-				case <-ch:
-				case <-r.Context().Done():
-					return
-				case <-limit.C:
+		for {
+			ch := changes.outstanding(mark)
+			bundling := ch == nil
+			if bundling {
+				ch = d.busy()
+			}
+			if ch == nil {
+				break
+			}
+			select {
+			case <-ch:
+				if bundling {
 					break wait
 				}
+			case <-r.Context().Done():
+				return
+			case <-limit.C:
+				break wait
 			}
 		}
 		app.ServeHTTP(w, r)

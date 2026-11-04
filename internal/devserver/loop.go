@@ -14,17 +14,17 @@ const maxBatchWaits = 10
 // unchanged for debounce, a file that keeps changing does not hold the batch back for longer than
 // maxBatchWaits times debounce, and a file in the middle of a save waits for the next batch.
 // Rebuilds run one at a time on the calling goroutine. Changes that arrive during a rebuild form
-// the next batch. rebuild calls began once the rebuild began, which ends the wait of
-// changes.pending for the batch. A rebuild that does not call it ends that wait when it returns,
-// and so does a batch that turned out empty. loop returns when ctx is done.
+// the next batch. rebuild calls began once the rebuild began, which tells changes.outstanding
+// that the changes of the batch are in a rebuild. A rebuild that does not call it does so when it
+// returns, and so does a batch that turned out empty. loop returns when ctx is done.
 func loop(ctx context.Context, c *changes, debounce time.Duration, rebuild func(batch []change, began func())) {
 	timer := time.NewTimer(time.Hour)
 	timer.Stop()
 	defer timer.Stop()
 	for {
-		batch, waiting, wait := c.due(time.Now(), debounce, maxBatchWaits*debounce)
+		batch, wait := c.due(time.Now(), debounce, maxBatchWaits*debounce)
 		if batch != nil {
-			began := sync.OnceFunc(func() { close(waiting) })
+			began := sync.OnceFunc(c.begin)
 			if len(batch) > 0 {
 				c.setBuilding(true)
 				rebuild(batch, began)

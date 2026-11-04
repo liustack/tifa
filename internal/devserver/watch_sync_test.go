@@ -26,7 +26,7 @@ func TestWatcherSyncSeesASaveMadeBefore(t *testing.T) {
 			}
 		}
 		w.sync(context.Background())
-		if w.changes.pending() == nil {
+		if w.changes.outstanding(w.changes.mark()) == nil {
 			t.Fatalf("save %d: after the sync no change waits for a rebuild", i+1)
 		}
 		w.changes.take()

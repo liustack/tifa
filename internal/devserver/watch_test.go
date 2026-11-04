@@ -66,7 +66,7 @@ func nextBatch(t *testing.T, c *changes) []change {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		batch, _, wait := c.due(time.Now(), DefaultDebounce, maxBatchWaits*DefaultDebounce)
+		batch, wait := c.due(time.Now(), DefaultDebounce, maxBatchWaits*DefaultDebounce)
 		if len(batch) > 0 {
 			return batch
 		}
