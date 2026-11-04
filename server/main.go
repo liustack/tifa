@@ -15,6 +15,7 @@ import (
 
 	"github.com/liustack/tifa/internal/config"
 	"github.com/liustack/tifa/internal/content"
+	"github.com/liustack/tifa/internal/core"
 	"github.com/spf13/cobra"
 )
 
@@ -90,6 +91,8 @@ func runSources(ctx context.Context, app App, src *config.Sources, stdout, stder
 		}
 		// An entry whose date is still to come is shown at that moment, until the program stops.
 		defer content.Watch(s.contentChanged)()
+		// tifa.ExpirePages and tifa.Stats reach the server from OnStart on.
+		defer core.Running(s)()
 		if dist != nil {
 			// openFront reads s.dev to turn on the checks of tifa dev.
 			if dev != nil {

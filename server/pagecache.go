@@ -133,6 +133,7 @@ func (s *server) cachedPageRequest(c *tifa.Ctx, route Route, chain []load, ttl t
 	status := "tifa; hit"
 	switch {
 	case own || s.cache.bypassed(key, cacheNow()):
+		s.cache.misses[pageKind].Add(1)
 		got, err = alone()
 		status = "tifa; fwd=bypass"
 	default:
@@ -162,6 +163,7 @@ func (s *server) cachedPageRequest(c *tifa.Ctx, route Route, chain []load, ttl t
 			return s.pageFailure(c, err, selected)
 		}
 		core.Logger().WarnContext(c.Context(), "tifa: making the page failed, the old page is served", "method", rq.Method, "path", rq.URL.Path, "err", err)
+		s.cache.staleSent.Add(1)
 		got, status = fetched{page: old, held: true, how: "cache"}, "tifa; fwd=stale"
 	}
 	return s.respondPage(c, got, status, selected)
@@ -172,6 +174,27 @@ func (s *server) cachedPageRequest(c *tifa.Ctx, route Route, chain []load, ttl t
 // next request: its Loads may have read what changed. A page whose data did not change is answered
 // by the render cache, without a render.
 func (s *server) contentChanged() { s.cache.expireMadeBefore(cacheNow()) }
+
+// ExpirePages is tifa.ExpirePages for this server. The paths are decoded and start with a slash.
+func (s *server) ExpirePages(paths []string) {
+	set := make(map[string]bool, len(paths))
+	for _, p := range paths {
+		set[p] = true
+	}
+	s.cache.expirePaths(set)
+}
+
+// Stats is tifa.Stats for this server.
+func (s *server) Stats() core.Stats {
+	var out core.Stats
+	out.RenderCache, out.PageCache, out.CacheBytes = s.cache.stats()
+	out.CacheSize = s.cache.size
+	// Only tifa dev replaces the front end, and with it the pool and its counts.
+	if f := s.front.Load(); f != nil && f.pool != nil {
+		out.SSR = f.pool.Stats()
+	}
+	return out
+}
 
 // ownedHeader reports whether the framework writes the header itself on a page of the whole-page
 // cache, so a Load or Layout cannot keep it in an entry.
@@ -562,7 +585,7 @@ func (s *server) respondPage(c *tifa.Ctx, got fetched, status string, selected [
 	}
 	now := cacheNow()
 	if got.held {
-		s.setCacheHeaders(c, entry, now)
+		s.setCacheHeaders(c, entry, now, status == "tifa; fwd=stale")
 	}
 	c.SetHeader(renderHeader, got.how)
 	if entry.status != http.StatusOK {
@@ -601,8 +624,9 @@ func (s *server) writeDataAnswer(c *tifa.Ctx, items map[string]routeResult) erro
 // browser revalidates every time (max-age=0) and asks tifa, which answers 304 from the entry.
 // s-maxage is the whole time of the page and Age the seconds since it was made, and a cache in front of
 // tifa subtracts one from the other (RFC 9111), so the two together never keep a page longer than
-// Cache. An old page that stands in for a failed one has an Age past s-maxage and is not fresh there.
-func (s *server) setCacheHeaders(c *tifa.Ctx, entry *wholePage, now time.Time) {
+// Cache. An old page that stands in for a failed one (stale) is not fresh there either: its s-maxage
+// is at most its Age, also when it was expired before its time was over (expirePaths, contentChanged).
+func (s *server) setCacheHeaders(c *tifa.Ctx, entry *wholePage, now time.Time, stale bool) {
 	h := c.Writer().Header()
 	age := max(0, int64(now.Sub(entry.created)/time.Second))
 	h.Set("Age", strconv.FormatInt(age, 10))
@@ -610,5 +634,8 @@ func (s *server) setCacheHeaders(c *tifa.Ctx, entry *wholePage, now time.Time) {
 		return // the app asked for the answer not to be shared
 	}
 	ttl := int64(entry.expires.Sub(entry.created) / time.Second)
+	if stale {
+		ttl = min(ttl, age)
+	}
 	h.Set("Cache-Control", "public, max-age=0, s-maxage="+strconv.FormatInt(ttl, 10)+", stale-if-error="+strconv.FormatInt(int64(staleIfError/time.Second), 10))
 }

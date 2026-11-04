@@ -1,11 +1,13 @@
 ---
-summary: '怎么把构建好的 tifa 程序放到服务器上：为 Linux 构建、带着设置和数据目录运行、干净地停掉、容器、端口和 HTTPS、前面有 CDN 或代理时要设什么（Host 和 Origin、压缩、缓存哪些回答），以及部署时已经打开的页面会怎样'
+summary: '怎么把构建好的 tifa 程序放到服务器上：为 Linux 构建、带着设置和数据目录运行、干净地停掉、容器、端口和 HTTPS、前面有 CDN 或代理时要设什么（Host 和 Origin、压缩、缓存哪些回答），健康检查路由，用 tifa.Stats 给 Prometheus 出指标以及该看哪些数，以及部署时已经打开的页面会怎样'
 read_when:
   - 第一次把 tifa 应用放到 VPS 或容器里
   - 在 tifa 应用前面放 CDN 或反向代理，比如 nginx、Cloudflare、CloudFront
   - POST 只在代理后面报 403 和 `cross-origin request detected`
   - 部署之后页面显示旧内容，或者缺脚本
   - 想知道 tifa 应用的 systemd unit 或 Dockerfile 需要什么
+  - 给负载均衡器、容器或 Kubernetes 加健康检查
+  - 用 Prometheus 或别的监控系统看 VM 池和缓存，或者据此判断机器要不要加 CPU、`cache.size` 要不要调大
 ---
 
 [English](deploy.md) · 简体中文
@@ -87,6 +89,91 @@ SERVER_ADDR=0.0.0.0:9527 ./myapp
 - **缓存键。** 后端服务的默认键是带查询字符串的完整 URI。别设会漏掉 `_tifa` 的查询字符串包含或排除列表（[缓存](https://docs.cloud.google.com/cdn/docs/caching)）。
 - **Host 和访客地址。** 负载均衡器保留请求的 `Host`。它在 `X-Forwarded-For` 后追加 `<客户端地址>,<负载均衡器地址>`，不检查前面已有的内容（[外部应用负载均衡器](https://docs.cloud.google.com/load-balancing/docs/https)）。
 - **压缩。** 动态压缩默认关闭，要求有 `Content-Length`，已经带 `Content-Encoding` 的回答不压缩（[动态压缩](https://docs.cloud.google.com/cdn/docs/dynamic-compression)）。
+
+## 健康检查和指标
+
+tifa 自己没有健康检查路由，也没有指标路由。需要哪个，就写成 API 路由。
+
+### 健康检查
+
+写一个 `GET`，程序能服务时回 204。检查它离不开的东西，比如[数据库指南](guides/database.zh-CN.md)里的数据库，连不上时回 503：
+
+```go
+// app/healthz/route.go
+package healthz
+
+func GET(c *tifa.Ctx) error {
+	if err := notes.DB.PingContext(c.Context()); err != nil {
+		return tifa.Error{Status: 503, Message: "database unreachable"}
+	}
+	return c.NoContent(204)
+}
+```
+
+- 把负载均衡器、容器的 `HEALTHCHECK` 或 Kubernetes 探针指向 `/healthz`。程序要等 `OnStart` 跑完、VM 加载好才开始监听，所以第一个 204 就说明它能渲染了。程序收到停止信号后，新连接会失败，检查随之变红。
+- 这个路由不渲染，所以渲染队列满了也不会让它失败，程序不会因为忙而被重启。忙不忙看下面指标里的 `tifa_renders_rejected_total`。
+
+### 指标
+
+`tifa.Stats()` 返回 VM 池、渲染缓存和整页缓存现在的状态，以及程序启动以来做了什么。计数是原子的，读条目数和 VM 数时会短暂加锁，每几秒读一次的开销测不出来。`tifa dev` 下每次重建前端，VM 池的计数都从零开始。下面这个路由不用任何库，把它写成 Prometheus 读的文本格式：
+
+```go
+// app/metrics/route.go
+package metrics
+
+import (
+	"fmt"
+	"io"
+	"strings"
+
+	"github.com/liustack/tifa"
+)
+
+func GET(c *tifa.Ctx) error {
+	s := tifa.Stats()
+	var b strings.Builder
+	metric := func(name, kind, help string, value float64) {
+		fmt.Fprintf(&b, "# HELP %s %s\n# TYPE %s %s\n%s %g\n", name, help, name, kind, name, value)
+	}
+	metric("tifa_vms", "gauge", "VMs loaded.", float64(s.SSR.VMs))
+	metric("tifa_vms_busy", "gauge", "VMs rendering.", float64(s.SSR.Busy))
+	metric("tifa_renders_queued", "gauge", "Renders waiting for a VM.", float64(s.SSR.Queued))
+	metric("tifa_renders_total", "counter", "Renders that ran in a VM.", float64(s.SSR.Renders))
+	metric("tifa_renders_failed_total", "counter", "Renders that failed.", float64(s.SSR.Failed))
+	metric("tifa_render_seconds_total", "counter", "Time the renders took.", s.SSR.RenderTime.Seconds())
+	metric("tifa_renders_rejected_total", "counter", "Renders answered 503 as busy.", float64(s.SSR.Rejected))
+	for _, cache := range []struct {
+		name  string
+		stats tifa.CacheStats
+	}{{"render_cache", s.RenderCache}, {"page_cache", s.PageCache}} {
+		metric("tifa_"+cache.name+"_entries", "gauge", "Entries kept.", float64(cache.stats.Entries))
+		metric("tifa_"+cache.name+"_hits_total", "counter", "Answered from an entry.", float64(cache.stats.Hits))
+		metric("tifa_"+cache.name+"_misses_total", "counter", "Made by the request.", float64(cache.stats.Misses))
+		metric("tifa_"+cache.name+"_shared_total", "counter", "Waited for another request.", float64(cache.stats.Shared))
+	}
+	metric("tifa_page_cache_stale_total", "counter", "Old pages sent for a failed one.", float64(s.PageCache.Stale))
+	metric("tifa_cache_bytes", "gauge", "Bytes the caches hold.", float64(s.CacheBytes))
+	metric("tifa_cache_size_bytes", "gauge", "Bytes the caches may hold.", float64(s.CacheSize))
+	c.SetHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	_, err := io.WriteString(c.Writer(), b.String())
+	return err
+}
+```
+
+- 已经在用 `client_golang` 的应用，可以改写一个 `prometheus.Collector`，在它的 `Collect` 里读一次 `tifa.Stats()`，每个值用 `prometheus.MustNewConstMetric` 发出去。
+- 这些数字不涉及访客，但能看出程序的负载有多重。别把这个路由公开：让前面的代理拒绝外面来的 `/metrics`，或者在处理函数里检查一个令牌。
+- 服务启动之前和停下之后，`tifa.Stats()` 返回全零。没有页面的应用没有 VM。每次程序启动，计数都从零开始，Prometheus 会把它当作一次重启。
+
+看什么，改什么：
+
+| 看到的 | 说明 | 怎么办 |
+| --- | --- | --- |
+| `tifa_renders_rejected_total` 在涨 | 渲染遇到队列已满，或等过了 `ssr.wait_timeout`，回了 503 | 加 CPU 和 `ssr.vms`，或者多用缓存（见[机器怎么配](performance.zh-CN.md#机器怎么配)和[渲染队列](config.zh-CN.md#渲染队列)） |
+| `tifa_vms_busy` 大部分时间等于 `tifa_vms`，`tifa_renders_queued` 大于 0 | 每个 VM 都在渲染，还有渲染在等 | 同上：程序到上限了 |
+| `rate(tifa_render_seconds_total[5m]) / rate(tifa_renders_total[5m])` | 一次渲染的平均时间 | 变长时，找出变慢的页面 |
+| `tifa_renders_failed_total` 在涨 | 渲染抛错、超过 `ssr.timeout` 或用完 `ssr.vm_memory` | 日志里有每次失败 |
+| 命中比未命中少很多，`tifa_cache_bytes` 接近 `tifa_cache_size_bytes` | 页面还没被再次请求就被缓存挤掉了 | 调大 `cache.size` |
+| `tifa_page_cache_stale_total` 在涨 | 开了 `Cache` 的页面重新生成失败，发出的是旧页 | 日志里有每次生成失败的错误 |
 
 ## 部署之后
 

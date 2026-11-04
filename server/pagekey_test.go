@@ -10,6 +10,7 @@ import (
 
 	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/internal/config"
+	"github.com/liustack/tifa/internal/ssr"
 )
 
 func TestQueryIsCleanedForTheCache(t *testing.T) {
@@ -95,6 +96,28 @@ func TestPageKeyDependsOnWhatTheRequestIs(t *testing.T) {
 	other.build.ID = "b2"
 	if s.pageKey(cacheRequest("http://example.com/news"), "/news", &other) == s.pageKey(cacheRequest("http://example.com/news"), "/news", f) {
 		t.Error("another build has the same key")
+	}
+}
+
+// pagePath reads the decoded path back out of a key, whatever the escapes, host and query.
+func TestPagePathOfAKey(t *testing.T) {
+	s, _ := newFrontServer(t, frontApp())
+	f := s.front.Load()
+	for target, want := range map[string]string{
+		"http://example.com/news?a=1":          "/news",
+		"http://example.com/w/caf%C3%A9?x=%3F": "/w/café",
+		"http://example.com/w/caf%c3%a9":       "/w/café",
+		"http://example.com/w/a%2Fb":           "/w/a/b",
+		"http://example.com/w/x%3Fy?z":         "/w/x?y",
+		"http://example.com/w/%00":             "/w/\x00",
+		"http://example.com/":                  "/",
+	} {
+		if got, ok := pagePath(s.pageKey(cacheRequest(target), "/news", f)); !ok || got != want {
+			t.Errorf("%s: %q %v, want %q", target, got, ok, want)
+		}
+	}
+	if _, ok := pagePath(renderKey(ssr.Input{BuildID: "b1", URL: "/news"}, f.build.bundle)); ok {
+		t.Error("a key of the render cache has a path")
 	}
 }
 

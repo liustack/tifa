@@ -1,5 +1,5 @@
 ---
-summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、不套外层的 Layout（layout_.tsx）、hooks.go、404 和错误、多语言网站、SSR 与缓存开关和整页缓存（对所有人一样、保存一段时间的页面）、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数、用 tifa.HTML 显示应用信任的 HTML，访客开着旧页面时你部署新版本，浏览器会怎么做，以及数据、入参和结果的 JSON 规则'
+summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、不套外层的 Layout（layout_.tsx）、hooks.go、404 和错误、多语言网站、SSR 与缓存开关和整页缓存（对所有人一样、保存一段时间的页面）以及写入后让这类页面重新生成、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码，Load 里 Ctx 的用法、带类型入参和结果的方法函数、用 tifa.HTML 显示应用信任的 HTML，访客开着旧页面时你部署新版本，浏览器会怎么做，以及数据、入参和结果的 JSON 规则'
 read_when:
   - 新建一个 tifa 应用，或给应用加页面、Layout、API 路由
   - 构建报 Ctx 用法或 Load 返回类型的错误，想知道怎么改
@@ -7,6 +7,7 @@ read_when:
   - 改 examples/shop 或 test/apps 里的应用
   - 给 Load、Layout 函数、方法函数或 OnRequest 写 Go 测试
   - 用 `const Cache` 把公开页面在内存里保存几分钟，想知道页面上什么变成匿名的，或者遇到在这样的页面上读 cookie 或会话的构建错误
+  - 一次写入改了开了 `Cache` 的页面显示的内容，要用 `tifa.ExpirePages` 让页面马上更新
   - 在页面里显示应用自己做出来或信任的 HTML（比如一篇文章），用 `tifa.HTML` 和 `<HTML>`，或者处理其中的链接
   - 给应用加 CSS、Tailwind CSS 或 shadcn/ui
   - 在页面里格式化数字或日期，或者 tifa dev 对某个 Intl 调用报警
@@ -504,7 +505,7 @@ const LayoutSSR = false        // 本目录的 Layout，默认 true
 const Cache = 10 * time.Minute
 ```
 
-开了 `Cache` 的页面，在这段时间里所有人拿到同一份回答，直接从内存给出，不跑 `Load`，也不渲染。适合公开、很多人看的页面：文章、文档、商品页和落地页。访客看到改动最多晚 `Cache` 这么久。
+开了 `Cache` 的页面，在这段时间里所有人拿到同一份回答，直接从内存给出，不跑 `Load`，也不渲染。适合公开、很多人看的页面：文章、文档、商品页和落地页。访客看到改动最多晚 `Cache` 这么久，除非应用在写入后让页面过期（见[写入后重新生成页面](#写入后重新生成页面)）。
 
 - **所有人都是匿名的。** 页面的 GET 和 HEAD，以及浏览器导航到它时为取数据发的请求，在进 `OnRequest` 之前就被去掉除一份短名单以外的所有请求头：`Host`、`Accept-Encoding`、`If-None-Match`、`If-Modified-Since`、`Cache-Control`、`Pragma`、`Content-Length`、`Connection`、`Origin` 和 `Sec-Fetch-*`。`Cookie` 和 `Authorization` 会去掉，`Accept-Language`、`User-Agent`、`Referer`、`Forwarded`、`X-Forwarded-*` 以及代理或登录网关设的 `X-User-ID` 这类头也一样，所以它们没法经 `OnRequest` 和 context 传到 `Load`。`tifa.Session` 返回 nil，`c.Cookie` 找不到东西，`c.Header` 和 `c.Request().Header` 里只有名单上的头，`c.Request()` 拿到的也是这份请求。`tifa.SetSession` 和 `tifa.ClearSession` 返回错误，信息说登录和 OAuth 回调要放在不开 `Cache` 的路由上。页面要共用，说的内容就不能取决于是谁在问。这类页面 HTML 上的 `Set-Cookie` 会被去掉，因为共享回答里的 cookie 会发给每一位访客。导航请求（带 `_tifa` 的）的回答只给一个浏览器，保留 `Set-Cookie`，并带上这个浏览器的会话（见[会话](sessions.zh-CN.md#在浏览器里)）。同一个 URL 上的方法处理函数，比如 POST，不匿名，也不缓存。
 - **匿名的边界。** tifa 保证的是请求头：在开了 `Cache` 的页面上，`OnRequest`、`Load` 和 `Layout` 看到的请求只有名单上的头，`tifa.Session` 是 nil。用 `tifa.SetHTTPHandler` 挂的 `net/http` 中间件在 tifa 外面运行，拿到的是原来的请求，它放进请求 context 的值会原样到达 `OnRequest` 和 `Load`。不要在那里认人，认人放在不开 `Cache` 的路由的 `OnRequest` 里。连接地址和 TLS 信息也仍然保留，外层中间件放进 context 的值和白名单里的头（例如 `Origin`）也能区分请求，这些都不得用来生成个性化的共享内容。
@@ -516,8 +517,32 @@ const Cache = 10 * time.Minute
 - **时间到了**以后谁都拿不到旧页。下一个请求重新生成，同时到的请求等它。数据没变时渲染缓存直接命中，不用重新渲染。
 - **内容条目到点发布时**，这一刻之前做好的页面全部算作到时，所以文章列表马上就有新的一篇（见[草稿和日期](content.zh-CN.md#草稿和日期)）。
 - **重新生成失败时**，比如 `Load` 返回错误、渲染失败或超时、所有 VM 都忙，就给旧页，最多到过期后一天。再往后照实返回错误。`Load` 返回 `tifa.ErrNotFound`、重定向或 500 以下的其他 `tifa.Error`，是业务上的回答而不是失败，会取代旧页。
-- **响应头。** `Load` 和 `Layout` 设的响应头（除了 tifa 自己写的 `Set-Cookie`、`Cache-Control`、`Vary`、`Age`、`ETag` 和 `Content-Length`）随条目存下，用这个条目答的每个回答都带上。`Load` 或 `Layout` 设了 `private`、`no-store` 或 `no-cache` 的 `Cache-Control`，或 `Accept-Encoding` 以外的 `Vary`，这个页面就不进缓存，这些头会随回答发出，盖过 `OnRequest` 设的 `public`。存下来的页面带 `Cache-Control: public, max-age=0, s-maxage=<Cache 的秒数>, stale-if-error=86400` 和 `Age`。浏览器每次都来问，ETag 匹配时从条目回 304，所以部署后马上就能看到新版。`Age` 是页面生成后过了几秒，前面的 CDN 会用 `s-maxage` 减去它，两层加起来不会超过 `Cache`。`Cache-Status: tifa; hit`、`tifa; fwd=miss` 或 `tifa; fwd=stale` 说明回答从哪来，`X-Tifa-Render` 照旧。导航数据仍是 `private, no-cache`。CDN 里要怎么设，见 tifa skill 的部署说明。
+- **响应头。** `Load` 和 `Layout` 设的响应头（除了 tifa 自己写的 `Set-Cookie`、`Cache-Control`、`Vary`、`Age`、`ETag` 和 `Content-Length`）随条目存下，用这个条目答的每个回答都带上。`Load` 或 `Layout` 设了 `private`、`no-store` 或 `no-cache` 的 `Cache-Control`，或 `Accept-Encoding` 以外的 `Vary`，这个页面就不进缓存，这些头会随回答发出，盖过 `OnRequest` 设的 `public`。存下来的页面带 `Cache-Control: public, max-age=0, s-maxage=<Cache 的秒数>, stale-if-error=86400` 和 `Age`。浏览器每次都来问，ETag 匹配时从条目回 304，所以部署后马上就能看到新版。`Age` 是页面生成后过了几秒，前面的 CDN 会用 `s-maxage` 减去它，两层加起来不会超过 `Cache`。因为重新生成失败而发出的旧页，`s-maxage` 不大于它的 `Age`，所以 CDN 不会把它当成新鲜的。`Cache-Status: tifa; hit`、`tifa; fwd=miss` 或 `tifa; fwd=stale` 说明回答从哪来，`X-Tifa-Render` 照旧。导航数据仍是 `private, no-cache`。CDN 里要怎么设，见 tifa skill 的部署说明。
 - 条目和渲染缓存共用 `cache.size`。`cache.size` 为 0 时什么都不存，同时没命中的请求仍然共用一次生成。
+
+#### 写入后重新生成页面
+
+一次写入改了开了 `Cache` 的页面显示的内容时，在写入成功后用这些页面的路径调 `tifa.ExpirePages`。每个页面的下一个请求会跑它的 `Load` 并渲染，和时间到了一样：
+
+```go
+// app/admin/posts/post+/route.go
+func PUT(c *tifa.Ctx, in PostInput) (posts.Post, error) {
+	p, err := posts.Update(c.Context(), c.Param("post"), in)
+	if err != nil {
+		return posts.Post{}, err
+	}
+	tifa.ExpirePages("/blog/"+p.Slug, "/blog", "/")
+	return p, nil
+}
+```
+
+- tifa 不猜一次写入改了什么。显示它的页面要一个个写出来：这里是这篇文章、文章列表和显示最新几篇的首页，多语言网站还要写上每种语言的页面。
+- 路径是 URL 的路径，按 `c.Request().URL.Path` 的样子解码：写 `/blog/café`，不写 `/blog/caf%C3%A9`。它让这个页面的所有查询串、Host 和协议都过期，所以 `/blog` 也会让 `/blog?page=2` 过期。路径要完全相同：`/blog` 和 `/blog/` 是两个页面，两个都不会让下面的页面过期。
+- 调用之前已经开始的请求仍可能拿到旧页。用调用之前读到的数据做出来的页面不会存下，调用之后的请求也不等它。
+- 数据没变时，新页面和旧的一样：渲染缓存直接给出，不用渲染，已经有这个页面的浏览器凭 ETag 拿到 304。
+- 重新生成失败时，旧页照常顶上，和时间到了一样，最多到 `Cache` 时间结束后一天。
+- 程序里哪里都能调：方法处理函数、后台任务、`OnStart`。服务启动之前和停下之后调用什么也不做。路径不以 `/` 开头会 panic。
+- 它只让这个程序内存里的页面过期。前面的 CDN 存的那份要等 `s-maxage` 用完。程序跑了好几份时，每份有自己的缓存，调用只作用于发起调用的那一份。
 
 ### 用户无关性页面与私有数据
 
