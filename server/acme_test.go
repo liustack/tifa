@@ -413,7 +413,8 @@ func TestOtherNamesGetNoCertificate(t *testing.T) {
 func TestCertificatesAreAskedForAtStart(t *testing.T) {
 	ca := newFakeACME(t, "http-01")
 	trustACME(t, ca)
-	s := newServer(autoConfig(ca, t.TempDir()), Hooks{})
+	cache := t.TempDir()
+	s := newServer(autoConfig(ca, cache), Hooks{})
 	tlsConfig, plain, ready, err := s.https()
 	if err != nil {
 		t.Fatal(err)
@@ -429,6 +430,8 @@ func TestCertificatesAreAskedForAtStart(t *testing.T) {
 			t.Fatal("no certificate asked for")
 		}
 	}
+	// The cache file comes after the order: wait for it, or the cleanup of cache can meet it.
+	waitForCachedCertificate(t, filepath.Join(cache, testDomain))
 }
 
 // waitForCachedCertificate waits for the certificate file. autocert lets a handshake that waits
