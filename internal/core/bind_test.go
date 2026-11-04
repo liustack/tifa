@@ -86,6 +86,29 @@ func TestBindFillsTheFilesOfAMultipartForm(t *testing.T) {
 	}
 }
 
+type (
+	namedFiles []*multipart.FileHeader
+	namedPhoto *multipart.FileHeader
+)
+
+// A named type whose underlying type is a file, or a slice of files, is filled as the analyzer
+// takes it: as files.
+func TestBindFillsNamedFileTypes(t *testing.T) {
+	body, contentType := formBody(t, nil, [][3]string{{"files", "a.jpg", "a"}, {"files", "b.jpg", "bb"}, {"cover", "c.png", "c"}, {"extras", "d.png", "d"}})
+	c, _ := newCtx("POST", body.String(), contentType, 1<<20)
+	var in struct {
+		Files  namedFiles   `json:"files"`
+		Cover  namedPhoto   `json:"cover"`
+		Extras []namedPhoto `json:"extras"`
+	}
+	if err := BindForm(c, &in); err != nil {
+		t.Fatal(err)
+	}
+	if len(in.Files) != 2 || content(t, in.Files[1]) != "bb" || in.Cover == nil || content(t, in.Cover) != "c" || len(in.Extras) != 1 || content(t, in.Extras[0]) != "d" {
+		t.Fatalf("named files: %+v", in)
+	}
+}
+
 func TestBindRefusesTextForAFile(t *testing.T) {
 	body, contentType := formBody(t, [][2]string{{"title", "Sea"}, {"photo", "not a file"}}, nil)
 	c, _ := newCtx("POST", body.String(), contentType, 1<<20)

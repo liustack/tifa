@@ -129,6 +129,15 @@ const tsBlob = "Blob"
 // multipartPath is the package of multipart.FileHeader, the type of a file of an upload.
 const multipartPath = "mime/multipart"
 
+// filePointer reports whether the underlying type of t is *multipart.FileHeader, a file of an upload.
+// It is the one rule by which the analyzer knows a file, so a named type such as
+// type Photo *multipart.FileHeader is a file in the TypeScript type, in the checks of an input and
+// in how it is decoded alike. A slice of such types is the files of one form field.
+func filePointer(t types.Type) bool {
+	p, ok := t.Underlying().(*types.Pointer)
+	return ok && isNamed(p.Elem(), multipartPath, "FileHeader")
+}
+
 // encoderMethods are the method names that json v2 calls
 // instead of encoding a value by its kind, besides MarshalText.
 var encoderMethods = []string{"MarshalJSON", "MarshalJSONTo", "AppendText", "AppendJSON"}
@@ -267,7 +276,7 @@ func (c *tsChecker) encode(t types.Type, path string, quoted bool) (ts string) {
 		if isByte(u.Elem()) { // base64, and "" for a nil slice
 			return "string"
 		}
-		if p, ok := types.Unalias(u.Elem()).(*types.Pointer); ok && c.files && isNamed(p.Elem(), multipartPath, "FileHeader") {
+		if c.files && filePointer(u.Elem()) {
 			return arrayOf(tsBlob) // the files of one form field, none of them null
 		}
 		return arrayOf(c.encode(u.Elem(), path+"[]", false))

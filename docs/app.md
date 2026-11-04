@@ -154,7 +154,7 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 
 ### Files in the input
 
-A field of the input of a POST, PUT or PATCH handler of type `*multipart.FileHeader` or `[]*multipart.FileHeader` holds files of an upload. The generated function then sends the input as a multipart form, so a page uploads a file the way it sends any other input:
+A field of the input of a POST, PUT or PATCH handler of type `*multipart.FileHeader` or `[]*multipart.FileHeader` holds files of an upload, and so does a named type whose underlying type is one of them, such as `type Photos []*multipart.FileHeader`. The generated function then sends the input as a multipart form, so a page uploads a file the way it sends any other input:
 
 ```go
 package photos

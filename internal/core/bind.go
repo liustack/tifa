@@ -80,7 +80,13 @@ func bodyError(err error, message string) error {
 	return publicError(http.StatusBadRequest, message)
 }
 
-var fileHeaderType = reflect.TypeFor[*multipart.FileHeader]()
+var fileHeaderType = reflect.TypeFor[multipart.FileHeader]()
+
+// filePointer reports whether t is *multipart.FileHeader by its underlying type, the rule the
+// analyzer knows a file by, so a named type such as type Photo *multipart.FileHeader is one too.
+func filePointer(t reflect.Type) bool {
+	return t.Kind() == reflect.Pointer && t.Elem() == fileHeaderType
+}
 
 // decodeForm fills the exported fields of a struct. A field is named by its form tag, then its
 // json tag, then its Go name. files are the files of a multipart form, which fill the fields of
@@ -101,7 +107,7 @@ func decodeForm(form url.Values, files map[string][]*multipart.FileHeader, v any
 		if name == "-" {
 			continue
 		}
-		if field.Type == fileHeaderType || field.Type.Kind() == reflect.Slice && field.Type.Elem() == fileHeaderType {
+		if filePointer(field.Type) || field.Type.Kind() == reflect.Slice && filePointer(field.Type.Elem()) {
 			if err := setFiles(target.Field(i), files[name], form[name]); err != nil {
 				return publicError(http.StatusBadRequest, fmt.Sprintf("invalid %s %q", what, name))
 			}
@@ -130,11 +136,16 @@ func setFiles(f reflect.Value, files []*multipart.FileHeader, texts []string) er
 	if len(files) == 0 {
 		return nil
 	}
+	// Convert, since the field may have a named type of its own.
 	if f.Kind() == reflect.Slice {
-		f.Set(reflect.ValueOf(files))
+		slice := reflect.MakeSlice(f.Type(), len(files), len(files))
+		for i, file := range files {
+			slice.Index(i).Set(reflect.ValueOf(file).Convert(f.Type().Elem()))
+		}
+		f.Set(slice)
 		return nil
 	}
-	f.Set(reflect.ValueOf(files[0]))
+	f.Set(reflect.ValueOf(files[0]).Convert(f.Type()))
 	return nil
 }
 

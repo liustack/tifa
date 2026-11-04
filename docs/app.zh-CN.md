@@ -154,7 +154,7 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 
 ### 入参里的文件
 
-POST、PUT、PATCH 处理函数的入参里，类型为 `*multipart.FileHeader` 或 `[]*multipart.FileHeader` 的字段装的是上传的文件。这时生成的调用函数把入参当 multipart 表单发出，页面上传文件和发送其他入参是同一种写法：
+POST、PUT、PATCH 处理函数的入参里，类型为 `*multipart.FileHeader` 或 `[]*multipart.FileHeader` 的字段装的是上传的文件，底层类型是这两者之一的命名类型（比如 `type Photos []*multipart.FileHeader`）也一样。这时生成的调用函数把入参当 multipart 表单发出，页面上传文件和发送其他入参是同一种写法：
 
 ```go
 package photos

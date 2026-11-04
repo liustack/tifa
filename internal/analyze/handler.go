@@ -176,24 +176,26 @@ func jsonName(tag string) string {
 	return name
 }
 
-// fileType reports whether t is *multipart.FileHeader or []*multipart.FileHeader, the types of the
-// files of an upload in a field of an input.
+// fileType reports whether t is a file or a slice of files by filePointer, *multipart.FileHeader or
+// []*multipart.FileHeader by their underlying types: the types of the files of an upload in a field
+// of an input.
 func fileType(t types.Type) bool {
-	if s, ok := types.Unalias(t).(*types.Slice); ok {
+	if s, ok := t.Underlying().(*types.Slice); ok {
 		t = s.Elem()
 	}
-	p, ok := types.Unalias(t).(*types.Pointer)
-	return ok && isNamed(p.Elem(), multipartPath, "FileHeader")
+	return filePointer(t)
 }
 
 // holdsFile reports whether t is a multipart.FileHeader or holds one through pointers, slices,
-// arrays and maps. The fields of a struct are walked on their own.
+// arrays and maps, named or not. The fields of a struct are walked on their own. A type that holds
+// itself, such as type T []T, ends the walk.
 func holdsFile(t types.Type) bool {
-	for {
-		if isNamed(t, multipartPath, "FileHeader") {
+	for seen := map[types.Type]bool{}; !seen[t]; {
+		seen[t] = true
+		if isNamed(t, multipartPath, "FileHeader") || filePointer(t) {
 			return true
 		}
-		switch u := types.Unalias(t).(type) {
+		switch u := t.Underlying().(type) {
 		case *types.Pointer:
 			t = u.Elem()
 		case *types.Slice:
@@ -206,6 +208,7 @@ func holdsFile(t types.Type) bool {
 			return false
 		}
 	}
+	return false
 }
 
 // walkFields calls visit for every field of the structs that t holds, through pointers, slices,

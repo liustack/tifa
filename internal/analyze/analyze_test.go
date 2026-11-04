@@ -271,6 +271,16 @@ func TestUploadHandlers(t *testing.T) {
 	if !reflect.DeepEqual(shapes, want) {
 		t.Errorf("input shapes =\n%q\nwant\n%q", shapes, want)
 	}
+	// A named type whose underlying type is a file, or a slice of files, is a file too: the input
+	// comes as a form, as its TypeScript type says.
+	named := routes["app/named/route"]
+	if got := forms(named); !reflect.DeepEqual(got, map[string]bool{"POST": true}) {
+		t.Errorf("named forms = %v", got)
+	}
+	shapes, _, _, err = TSShapes([]types.Type{named.Handlers[0].InputType})
+	if err != nil || !reflect.DeepEqual(shapes, []string{"{ title: string; files: Blob[]; cover: Blob | null; extras: Blob[] }"}) {
+		t.Errorf("named input shape = %q, %v", shapes, err)
+	}
 }
 
 // Each violation must be reported with its file and line. want lists, per expected error,
