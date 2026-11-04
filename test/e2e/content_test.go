@@ -330,6 +330,11 @@ func TestContentPublishedAtItsDate(t *testing.T) {
 	// reuses the caches of the first.
 	for try := 1; ; try++ {
 		date = time.Now().Add(20 * time.Second).Truncate(time.Second).UTC()
+		if date.Second() == 0 {
+			// The build and the log write a date to the minute when it has no seconds, and the
+			// lines below expect the seconds.
+			date = date.Add(time.Second)
+		}
 		text := "---\ntitle: Coming soon\ndescription: A post published while the program runs.\ndate: " + date.Format(time.RFC3339) + "\n---\n\nIt is out.\n"
 		if err := os.WriteFile(post, []byte(text), 0o644); err != nil {
 			t.Fatal(err)
