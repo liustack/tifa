@@ -781,7 +781,7 @@ func (s *server) serveBoth(ctx context.Context, ln net.Listener, tlsConfig *tls.
 			defer g.leave()
 			root.ServeHTTP(w, r)
 		}),
-		BaseContext:       func(net.Listener) context.Context { return base },
+		BaseContext: func(net.Listener) context.Context { return base },
 		// A handler that needs longer than the timeouts, an upload or a stream, lifts them for
 		// itself with http.ResponseController, which reaches the connection through Unwrap.
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: s.cfg.ReadTimeout, WriteTimeout: s.cfg.WriteTimeout, IdleTimeout: 60 * time.Second,
