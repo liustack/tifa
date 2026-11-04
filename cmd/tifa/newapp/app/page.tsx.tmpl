@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Link } from '@tanstack/react-router'
+import { Link, useRouter } from '@tanstack/react-router'
 import { TifaError } from 'tifa/client'
 import { page, POST, type PageData } from './route.gen'
 
@@ -41,6 +41,7 @@ function TodoItem({ todo }: { todo: Todo }) {
 }
 
 function AddTodo() {
+  const router = useRouter()
   const [title, setTitle] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [pending, setPending] = useState(false)
@@ -48,8 +49,10 @@ function AddTodo() {
     event.preventDefault()
     setPending(true)
     try {
-      // POST of ./route.gen calls the POST handler of route.go and then loads the page data again.
+      // POST of ./route.gen calls the POST handler of route.go. It does not reload the page data,
+      // so ask for it: invalidate loads the data of this page and its Layouts again.
       await POST({ input: { title } })
+      await router.invalidate({ sync: true })
       setTitle('')
       setErrors({})
     } catch (error) {
