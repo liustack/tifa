@@ -1,8 +1,10 @@
 # 更新记录
 
-记录 tifa 里应用和应用的用户看得到的变化。tifa 还没有发过版本，所以按进入 `main` 的日期分组。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。每项提速怎么测的见 [性能](docs/performance.zh-CN.md)。
+记录 tifa 里应用和应用的用户看得到的变化。从 v0.0.1 起按版本分组，更早的变化按进入 `main` 的日期分组。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。每项提速怎么测的见 [性能](docs/performance.zh-CN.md)。
 
 ## [Unreleased]
+
+## [0.0.1] - 2026-11-04
 
 ### 新增
 

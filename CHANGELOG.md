@@ -1,8 +1,10 @@
 # Changelog
 
-What changed in tifa that apps and their users can see. tifa has no releases yet, so changes are grouped by the date they reached `main`. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). [Performance](docs/performance.md) has how each speedup was measured.
+What changed in tifa that apps and their users can see. From v0.0.1 on, changes are grouped by release. Older changes are grouped by the date they reached `main`. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). [Performance](docs/performance.md) has how each speedup was measured.
 
 ## [Unreleased]
+
+## [0.0.1] - 2026-11-04
 
 ### Added
 
