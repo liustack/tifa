@@ -18,7 +18,7 @@ A Go CPU profile of a render shows engine functions such as `JS_CallInternal`, n
 
 - **The method: time every JavaScript function in QuickJS and in Node `--jitless`, and compare the two.** A function whose ratio is far above the page's average is a candidate for a rewrite. The ratio matters more than the share: a function that is slow in both is React doing work, a function that is slow only in QuickJS is a way of writing code that QuickJS handles badly.
 - **The first profile found three rewrites.** Long `switch` statements on strings, a call per chunk with concatenation, and seroval's character loop: together 11% to 14% faster on the shop, 17.5% to 22% on plain text pages and 8% to 11% on small pages. All three are in the Vite plugin.
-- **The second profile found four more.** No component stacks, escapes with `replaceAll`, React namespaces of plain values, and no component names in key paths. All are in the plugin, see [Performance](../performance.md#build).
+- **The second profile found four more.** No component stacks, escapes with `replaceAll`, React namespaces of plain values, and no component names in key paths. All are in the plugin, see [Optimizations](optimizations.md#build).
 - **What is left is the engine's.** React's remaining high ratios come from making objects. The two highest ratios outside React, react-spring's color regular expression (12 to 21 times) and TanStack Table's spread call (19 times), need engine fast paths, not a plugin rewrite tied to two libraries.
 
 ## How to measure
@@ -156,7 +156,7 @@ The four rewrites that came out of the second profile, measured in turns, all fo
 | Kitchen sink | 0.908 |
 | Small pages | 0.948 to 0.949 |
 
-The final numbers of each rewrite, measured on the merged code, are in [Performance](../performance.md#build).
+The final numbers of each rewrite, measured on the merged code, are in [Optimizations](optimizations.md#build).
 
 ## Why
 

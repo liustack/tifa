@@ -101,7 +101,7 @@ How the SSR mode changes HTML: a page with `<Child onPick={handle} />`, where `h
 
 - **No patch of React DOM for PR 37022.** If it ships in a React release, the plugin's rewrites still find their anchors in it, so upgrading as usual is enough, and render time should stay about the same.
 - **No React Compiler on the SSR bundle,** in either mode. Apps that want it should turn it on as `@vitejs/plugin-react` describes, which compiles the browser bundle only, as Next.js does.
-- Both results belong in [What was tried and not done](../performance.md#what-was-tried-and-not-done).
+- Both results belong in [What was tried and not done](optimizations.md#what-was-tried-and-not-done).
 
 ## Not measured, or uncertain
 
