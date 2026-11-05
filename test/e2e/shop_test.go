@@ -829,8 +829,8 @@ func checkCompressed(t *testing.T, base, dir, buildID, head string) {
 	if page.Header.Get("Content-Encoding") != "gzip" || !strings.HasPrefix(page.Header.Get("ETag"), `W/"`) || len(body) > len(plain)/4 || !strings.Contains(gunzip(body), ">SH-1042</a>") {
 		t.Errorf("order list with gzip: %v, %d bytes of %d", page.Header, len(body), len(plain))
 	}
-	if page, _ := fetch("/projects/studio", "gzip, deflate, br, zstd"); page.Header.Get("Content-Encoding") != "zstd" {
-		t.Errorf("order list with zstd: %v", page.Header)
+	if page, _ := fetch("/projects/studio", "gzip, deflate, br, zstd"); page.Header.Get("Content-Encoding") != "gzip" {
+		t.Errorf("order list when zstd is offered too: %v", page.Header)
 	}
 	if page, body := fetch("/projects/studio", "identity"); page.Header.Get("Content-Encoding") != "" || page.Header.Get("Content-Length") != strconv.Itoa(len(body)) {
 		t.Errorf("order list without compression: %v, %d bytes", page.Header, len(body))

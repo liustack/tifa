@@ -1,6 +1,9 @@
 package server
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestHTMLCacheEvictsLeastRecentlyUsedByBytes(t *testing.T) {
 	c := newHTMLCache(10)
@@ -39,22 +42,36 @@ func TestHTMLCacheZeroSizeKeepsNothing(t *testing.T) {
 	}
 }
 
-func TestHTMLCacheCountsTheCompressedForms(t *testing.T) {
+// A page that has its gzip form is kept as that alone, and charged for it.
+func TestHTMLCacheKeepsTheGzipFormAlone(t *testing.T) {
 	c := newHTMLCache(10)
-	c.put("a", cachedPage{html: "1234", gzip: []byte("123"), zstd: []byte("123")})
-	if _, ok := c.get("a"); !ok {
-		t.Fatal("a page of 10 bytes in all was not kept")
+	c.put("a", cachedPage{html: "123456789012", gzip: []byte("1234"), n: 12})
+	p, ok := c.get("a")
+	if !ok || p.html != "" || string(p.gzip) != "1234" || p.n != 12 || c.used != 4 {
+		t.Fatalf("kept %+v, %d bytes used", p, c.used)
 	}
-	c.put("b", cachedPage{html: "1"})
-	if _, ok := c.get("a"); ok {
-		t.Error("11 bytes kept in a cache of 10")
+	c.put("b", cachedPage{html: "123456789012", gzip: []byte("1234567"), n: 12})
+	if _, ok := c.get("a"); ok || c.used != 7 {
+		t.Errorf("11 bytes kept in a cache of 10, %d used", c.used)
+	}
+	c.put("c", cachedPage{html: "1", gzip: []byte("12345678901"), n: 1})
+	if _, ok := c.get("c"); ok {
+		t.Error("a gzip form larger than the cache was kept")
 	}
 }
-
-func TestHTMLCacheKeepsTheHTMLWhenItsFormsDoNotFit(t *testing.T) {
-	c := newHTMLCache(10)
-	c.put("a", cachedPage{html: "123456", gzip: []byte("123"), zstd: []byte("123")})
-	if p, ok := c.get("a"); !ok || p.html != "123456" || p.gzip != nil || p.zstd != nil || c.used != 6 {
-		t.Errorf("kept %+v, %d bytes used", p, c.used)
+func TestHTMLCacheChargesThePolicyOfAPage(t *testing.T) {
+	c := newHTMLCache(100)
+	page := cachedPage{html: "1234", policy: "abcdef"}
+	c.put("a", page)
+	if c.used != page.size() || c.used != 10 {
+		t.Errorf("%d used, the page says %d, want 10", c.used, page.size())
+	}
+	c.put("b", cachedPage{html: "12", policy: strings.Repeat("p", 95)})
+	if _, ok := c.get("a"); ok || c.used != 97 {
+		t.Errorf("a stayed with %d used of 100, want 97 with a evicted", c.used)
+	}
+	c.removeLocked("b")
+	if c.used != 0 {
+		t.Errorf("%d used after the page left", c.used)
 	}
 }

@@ -6,8 +6,14 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Changed
 
+- A client that takes both gzip and zstd, as browsers do (`Accept-Encoding: gzip, deflate, br, zstd`), now gets gzip. zstd is sent only to a client that takes no gzip or ranks zstd higher with `q`. This holds for pages, cached pages, navigation data and everything else `server.compress` compresses.
+- The render cache and the whole-page cache keep one form of a page: gzip with `server.compress` on, HTML otherwise. A page was kept as HTML with a gzip and a zstd copy before, and compressed twice on every miss, which cost about 8% of a miss. Now it is compressed once, a page takes about a fifth of its HTML in the cache, and a hit for a client that takes gzip sends the stored bytes. A client that takes no compression gets the HTML unzipped as it is written, with its `Content-Length`, and a client that takes zstd and no gzip, or ranks zstd higher, gets zstd made as it is written.
 - Server rendering runs on `github.com/liustack/quickjs` v0.30.1, the new path of the engine that was `github.com/liustack/slowjs` from v0.28.0 to v0.29.11. The HTML is the same. If an app builds with the engine's build tags, `slowjs_intl_nonames`, `slowjs_intl_nocjdict` and `slowjs_anygo` are now `quickjs_intl_nonames`, `quickjs_intl_nocjdict` and `quickjs_anygo`. Errors of the engine's root package start with `quickjs:` where they started with `slowjs:`. Since v0.30.1 the render timeout (`ssr.timeout`) also stops a page that is flattening a long string, running `String.prototype.repeat`, or compiling a very long regular expression or a very large character class. Compiling a very long regular expression under a timeout could kill the VM before.
 - `tifa new` pins `github.com/liustack/sqlite` v0.1.3, which fixes a nil pointer panic when one commit groups more than 64 different SQL statements, common when values are written into the SQL text. Existing apps: `go get github.com/liustack/sqlite@v0.1.3`.
+
+### Fixed
+
+- The render cache held up to twice the memory of `cache.size` with `server.compress` on: it counted the length of the compressed pages but kept the larger buffers they were made in, and left out the Content-Security-Policy of each page. It now keeps exactly sized copies and counts what it keeps, so the live heap of the cache stays within `cache.size`. The peak memory of a program that fills the cache with writes drops with it.
 
 ## [0.0.4] - 2026-11-05
 

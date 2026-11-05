@@ -212,7 +212,7 @@ flowchart TD
   FL -- "no" --> VMR["Render in a VM (vm), keep the HTML"]
 ```
 
-- **Render cache.** The key is a hash of the build ID, the SSR bundle, the URL, the data of every `Load`, the session the browser gets and the policy of `server.csp`. The same key always gives the same HTML, so a hit skips the VM. Each request still runs `OnRequest` and its `Load`s, so data is never stale. The HTML is kept with its gzip and zstd forms.
+- **Render cache.** The key is a hash of the build ID, the SSR bundle, the URL, the data of every `Load`, the session the browser gets and the policy of `server.csp`. The same key always gives the same HTML, so a hit skips the VM. Each request still runs `OnRequest` and its `Load`s, so data is never stale. The page is kept in one form: gzip with `server.compress` on, HTML otherwise.
 - **Shared renders.** Requests that miss the same key at the same time wait for one render, even when `cache.size` is 0. The render runs in a goroutine that belongs to none of them, so one client leaving does not cancel it.
 - **ETag.** It is a hash of the same things as the render key. A matching `If-None-Match` is answered before the cache is asked. The ETag saves the transfer to a browser, and the cache saves the render for everyone else.
 - **Whole-page cache.** Only a page with `const Cache` has it. The request is made anonymous, the key is the scheme, host, path and the query without tracking parameters, and an entry lives for `Cache`. A hit runs no `Load` and no render. A miss makes the page once for every waiting request, through the render cache. When making it fails, the old entry is served for up to a day.

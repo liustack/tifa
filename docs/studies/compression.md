@@ -1,5 +1,5 @@
 ---
-summary: 'Which codecs and levels Tifa compresses answers with and why: gzip, zstd and brotli measured on the pages, navigation data and bundle files, what each costs per request, and why cached pages keep their compressed forms'
+summary: 'Which codecs and levels Tifa compresses answers with and why: gzip, zstd and brotli measured on the pages, navigation data and bundle files, what each costs per request, and why cached pages keep the gzip form alone'
 read_when:
   - Changing a codec, a level or where answers are compressed
   - Someone proposes brotli, zstd files from the build, or turning compression off by default
@@ -30,7 +30,7 @@ A Tifa program runs with no proxy in front, so it has to compress its own answer
 - **Machine:** a Google Cloud VM with 8 vCPUs of an AMD EPYC 7B13, Linux. cpu n and n+4 share a physical core.
 - **Codecs alone:** the six pages of the example shop and the navigation data of a list, an order and the stats, each compressed in one process with the encoders reused as the server reuses them, the mean of 200 runs, two rounds. The bundle files were compressed once at the best level of each codec, for size only.
 - **Whole requests:** the built shop with `--cache-size 0`, `GOMAXPROCS=2` and 2 VMs pinned to cpus 0 and 4 (one physical core), oha pinned to cpus 1 and 5 with 2 worker threads. Each step warmed up for 3 seconds and ran 15 seconds, two rounds. The server's CPU came from `/proc/<pid>/stat` before and after each step. The other four cpus were 0% to 3% busy during the steps.
-- **Encodings asked for:** `identity`, `gzip, zstd` (which gets zstd) and `gzip`.
+- **Encodings asked for:** `identity`, `gzip, zstd` (which got zstd then, and gets gzip now) and `gzip`.
 - **Cache:** the two order pages, which had `Cache = true` then, in turn from the HTML cache, two rounds before and two after the commit that keeps the compressed forms (f8c3283), on the same machine and setup.
 
 ## Data
@@ -102,7 +102,7 @@ The pages are 38,467 to 38,471 bytes as HTML, 8,607 to 8,610 with zstd and 8,317
 
 ## What it means for Tifa
 
-- Done: `server.compress` is on by default, pages and data go out with gzip or zstd at the default level of each through gzhttp, the bundle as the `.gz` files `tifa build` writes, and cached pages keep their compressed forms. Every answer carries `Vary: Accept-Encoding`, and cached pages carry `Content-Length` in every form.
+- Done: `server.compress` is on by default, pages and data go out with gzip or zstd at the default level of each through gzhttp, gzip unless the client takes no gzip or ranks zstd higher, the bundle as the `.gz` files `tifa build` writes, and cached pages keep the gzip form alone, counted at the bytes it takes: a hit unzips it for a client without gzip and makes zstd from it as it is written. Every answer carries `Vary: Accept-Encoding`, and cached pages carry `Content-Length` in every form.
 - Not done: brotli, for the time it takes. zstd or brotli files from the build, for the size of the program and a gain of 5% to 14% on the main chunk.
 
 ## Not measured, or uncertain

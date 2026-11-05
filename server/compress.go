@@ -17,7 +17,8 @@ import (
 )
 
 // compressed wraps h so that text answers go out with gzip or zstd to clients that accept
-// them, the way gzhttp does by default: zstd when the client takes both alike, gzip at its
+// them, the way gzhttp does by default except for the choice: gzip when the client takes both alike,
+// zstd only when it ranks zstd higher or takes no gzip, gzip at its
 // default level, from 1024 bytes on, every answer marked Vary: Accept-Encoding, and nothing
 // done to HEAD or to an answer that already has a Content-Encoding or a Content-Range. zstd
 // runs at its default level, as in Caddy and Traefik: at gzhttp's fastest, the pages of the
@@ -25,7 +26,7 @@ import (
 // compressed, a strong ETag of a compressed answer turns weak and Vary keeps Accept-Encoding
 // (outgoing), and a Flush before the body sends the answer uncompressed (earlyFlush).
 func compressed(h http.Handler) http.Handler {
-	wrap, err := gzhttp.NewWrapper(gzhttp.ContentTypeFilter(compressible), gzhttp.ZstdCompressionLevel(int(zstd.SpeedDefault)))
+	wrap, err := gzhttp.NewWrapper(gzhttp.ContentTypeFilter(compressible), gzhttp.ZstdCompressionLevel(int(zstd.SpeedDefault)), gzhttp.PreferZstd(false))
 	if err != nil {
 		panic(err) // only options gzhttp rejects fail, and these are fixed
 	}
@@ -84,7 +85,7 @@ func quality(header, coding string) float64 {
 
 // pageEncoding picks the encoding compressed gives an answer to r, with the comparisons of
 // gzhttp's selectEncoding, so a q of NaN goes the same way: none for HEAD, the one of zstd and
-// gzip that is taken, else the higher q, and zstd when they are alike.
+// gzip that is taken, else the higher q, and gzip when they are alike.
 func pageEncoding(r *http.Request) string {
 	if r.Method == http.MethodHead {
 		return ""
@@ -102,43 +103,104 @@ func pageEncoding(r *http.Request) string {
 			return "zstd"
 		}
 		return ""
-	case gz > zs:
-		return "gzip"
+	case zs > gz:
+		return "zstd"
 	}
-	return "zstd"
+	return "gzip"
 }
 
-// The encoders of compressPage, at the levels and window of compressed. The zstd encoder takes
-// several pages at once.
+// The encoders and readers of the page cache, at the levels and window of compressed. The zstd
+// encoders are made for a stream, with one goroutine each.
 var (
 	pageGzip = sync.Pool{New: func() any {
 		w, _ := gzip.NewWriterLevel(nil, gzip.DefaultCompression) // fails only on a bad level
 		return w
 	}}
-	pageZstd = must(zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedDefault), zstd.WithWindowSize(128<<10)))
+	pageZstd = sync.Pool{New: func() any {
+		w, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedDefault), zstd.WithWindowSize(128<<10), zstd.WithEncoderConcurrency(1))
+		if err != nil {
+			panic(err) // only options zstd rejects fail, and these are fixed
+		}
+		return w
+	}}
+	pageGunzip = sync.Pool{New: func() any { return new(gunzip) }}
+	pageCopy   = sync.Pool{New: func() any { b := make([]byte, 32<<10); return &b }}
 )
 
-// compressPage gives the gzip and zstd forms of a page for the HTML cache, so a hit is sent as
-// stored: compressing a cached page again on each hit took more CPU than the hit itself. A page
-// under gzhttp's minimum size gets none, as compressed does not compress it.
-func compressPage(html string) (gz, zs []byte) {
+// onCompressPage is called, when a test sets it, each time compressPage compresses a page.
+var onCompressPage func()
+
+// compressPage gives the gzip form of a page for the HTML cache. The cache keeps this form alone,
+// and a hit sends it as it is, or unzips it for a client that takes no gzip. It returns nil for a
+// page under gzhttp's minimum size, where compressed does not compress, and for one that gzip does
+// not make smaller. The form is copied into a slice of its own size, since the buffer it was made
+// in is larger and the cache counts what it keeps.
+func compressPage(html string) []byte {
 	if len(html) < gzhttp.DefaultMinSize {
-		return nil, nil
+		return nil
+	}
+	if onCompressPage != nil {
+		onCompressPage()
 	}
 	var buf bytes.Buffer
 	w := pageGzip.Get().(*gzip.Writer)
 	w.Reset(&buf)
 	io.WriteString(w, html) // a bytes.Buffer does not fail
 	w.Close()
+	w.Reset(io.Discard) // the pool must not keep buf
 	pageGzip.Put(w)
-	return buf.Bytes(), pageZstd.EncodeAll([]byte(html), nil)
+	if buf.Len() >= len(html) {
+		return nil
+	}
+	out := make([]byte, buf.Len())
+	copy(out, buf.Bytes())
+	return out
 }
 
-func must[T any](v T, err error) T {
-	if err != nil {
-		panic(err)
+// gunzip reads the gzip form of a page. It reads from src, its own, so that release can make it let
+// go of the page: a reader in the pool would otherwise keep a page the cache dropped, uncounted.
+type gunzip struct {
+	gzip.Reader
+	src bytes.Reader
+}
+
+func (z *gunzip) release() {
+	z.src.Reset(nil)
+	pageGunzip.Put(z)
+}
+
+// gunzipper opens the gzip form of a page. The caller gives it back with release.
+func gunzipper(gz []byte) (*gunzip, error) {
+	z := pageGunzip.Get().(*gunzip)
+	z.src.Reset(gz)
+	if err := z.Reader.Reset(&z.src); err != nil {
+		z.release()
+		return nil, err
 	}
-	return v
+	return z, nil
+}
+
+// unzipTo writes the HTML of a page kept as gzip to w, through a pooled buffer, so a hit allocates
+// next to nothing, and gives r back.
+func unzipTo(w io.Writer, r *gunzip) error {
+	buf := pageCopy.Get().(*[]byte)
+	defer pageCopy.Put(buf)
+	_, err := io.CopyBuffer(w, &r.Reader, *buf)
+	r.release()
+	return err
+}
+
+// zstdTo writes the HTML of a page kept as gzip to w as zstd, the way unzipTo writes it as it is.
+func zstdTo(w io.Writer, r *gunzip) error {
+	enc := pageZstd.Get().(*zstd.Encoder)
+	enc.Reset(w)
+	err := unzipTo(enc, r)
+	if cerr := enc.Close(); err == nil {
+		err = cerr
+	}
+	enc.Reset(nil)
+	pageZstd.Put(enc)
+	return err
 }
 
 // earlyFlush sits between the handler and gzhttp. gzhttp picks the encoding from the first bytes

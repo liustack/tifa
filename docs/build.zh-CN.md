@@ -517,9 +517,9 @@ React 和 React DOM 至少要 19.3.0。Vite 插件是按 19.3 的写法改写 Re
 
 [`server.compress`](config.zh-CN.md#配置项) 默认开着，回答按客户端接受的方式压缩后发出，所以 Tifa 程序不需要为此加代理：
 
-- 页面、导航数据、JSON 和其他文本在发出时压缩，用 zstd 或 gzip，各取默认级别，和 Caddy、Traefik 一样，由 [klauspost/compress](https://github.com/klauspost/compress) 的 gzhttp 完成。按客户端的 `Accept-Encoding` 选：`q` 大的优先，相同时用 zstd。回答从 1024 字节起才压缩，而且只压文本类型：`text/*`（server-sent events 的 `text/event-stream` 除外，见[流式输出](guides/streaming.zh-CN.md)）、JavaScript、JSON、XML、`+json` 和 `+xml` 类型、WebAssembly、图标，以及 TTF、OTF、EOT 字体。HEAD、已经带 `Content-Encoding` 的回答和带 `Content-Range` 的回答原样发出。
+- 页面、导航数据、JSON 和其他文本在发出时压缩，用 gzip 或 zstd，各取默认级别，和 Caddy、Traefik 一样，由 [klauspost/compress](https://github.com/klauspost/compress) 的 gzhttp 完成。按客户端的 `Accept-Encoding` 选：客户端接受 gzip 就用 gzip，只有客户端不接受 gzip，或者给 zstd 的 `q` 更高时才用 zstd。浏览器发 `gzip, deflate, br, zstd`，得到 gzip。回答从 1024 字节起才压缩，而且只压文本类型：`text/*`（server-sent events 的 `text/event-stream` 除外，见[流式输出](guides/streaming.zh-CN.md)）、JavaScript、JSON、XML、`+json` 和 `+xml` 类型、WebAssembly、图标，以及 TTF、OTF、EOT 字体。HEAD、已经带 `Content-Encoding` 的回答和带 `Content-Range` 的回答原样发出。
 - 浏览器包里的文件，对接受 gzip 的 GET 直接发构建写好的 `.gz` 文件，类型和缓存头沿用原文件，和 nginx 的 `gzip_static` 一样。Range 请求取的是 `.gz` 文件的一段。没有 `.gz` 的文件，类型在上面的列表里就在发出时压缩。公共目录里的 `.gz` 文件是它自己，不会代替别的文件发出。
-- 渲染缓存和整页缓存里的页面只在存进去时压缩一次：缓存在 HTML 旁边存它的 gzip 和 zstd 版本，存它的那个请求和之后每次命中都直接发存好的版本，带 `Content-Length`。压缩版算进 `cache.size`：加上它们，示例 shop 的一个页面大约占 HTML 的 1.4 倍。存页面的那次渲染总是压出两种版本，发起它的请求不接受压缩（`Accept-Encoding` 里没有 gzip 或 zstd、HEAD、带 `No-Gzip-Compression`）时也一样，因为共用这次渲染的请求可能要其中任何一种。压缩版放不下的页面只存 HTML，HTML 都放不下的页面（比如 `cache.size` 为 0）在发出时压缩。
+- 渲染缓存和整页缓存里的页面在做出来时压缩一次，缓存只存这份 gzip，所以示例 shop 的页面大约只占 HTML 的五分之一，`cache.size` 算的正是存下的字节数。接受 gzip 的客户端命中时，直接发存好的字节，带它们的 `Content-Length`。不接受压缩的客户端（`Accept-Encoding` 里没有 gzip 或 zstd、HEAD、带 `No-Gzip-Compression`）得到 HTML，边解压边写出，`Content-Length` 是 HTML 的长度。不接受 gzip 只接受 zstd、或给 zstd 更高 `q` 的客户端，得到边写边用存好的页面做出的 zstd，分块发出。别的什么都不存，所以命中既不压缩，也不留第二份。小于 1024 字节的页面、gzip 压不小的页面和 `server.compress` 关着时的所有页面存成 HTML。即使这样也放不进 `cache.size` 的页面（比如 `cache.size` 为 0）在发出时压缩。
 - 每个回答都带 `Vary: Accept-Encoding`，没压缩的也带，应用自己设了 `Vary` 也一样。
 - 压缩后的回答（公共文件也算），强 ETag 改成弱 ETag（`W/"…"`），和 nginx 一样，因为强 ETag 承诺的是同样的字节。`If-None-Match` 按弱比较，所以 304 照常有效。页面的 ETag 一开始就是弱的，各种编码和它的 304 都一样，因为 304 在知道编码之前就答了。
 - 不用 brotli。纯 Go 的 brotli 编码器在 4 级和 5 级要花 gzip 的 4 到 6 倍时间，页面只小 3% 到 16%。

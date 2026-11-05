@@ -477,10 +477,7 @@ func (s *server) generate(ctx context.Context, base *http.Request, pattern strin
 		if err != nil {
 			return s.madeFailed(err, headers, effects{})
 		}
-		page, held = cachedPage{html: doc, policy: s.documentPolicy(doc), body: new(bodyID)}, s.cache.holds(doc)
-		if held && s.cfg.Compress {
-			page.gzip, page.zstd = compressPage(doc)
-		}
+		page, held = s.newPage(doc, s.documentPolicy(doc))
 		entry.etag = contentTag(doc, s.policyKey())
 	} else {
 		data, texts, pageTexts, err := renderInput(items)
