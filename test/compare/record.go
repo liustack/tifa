@@ -5,6 +5,7 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"math"
+	"slices"
 )
 
 // Record is what `compare measure` leaves: the runs of every spec in every round, and what is
@@ -21,6 +22,8 @@ type Record struct {
 	// the largest minus the smallest value over the A/A runs, divided by their median. Absent
 	// when the record has no A/A runs.
 	AA map[string]float64 `json:"aa,omitempty"`
+	// Render is the render of each page in a warm VM without HTTP, when measured with -render.
+	Render []RenderResult `json:"render,omitempty"`
 }
 
 // Machine is where it ran.
@@ -54,6 +57,37 @@ type Run struct {
 	// Renders counts the answers by their X-Tifa-Render header ("vm", "cache", "shared") over the
 	// whole run. Only Tifa sets it.
 	Renders map[string]int `json:"renders,omitempty"`
+	// Pages are the steady phase by page.
+	Pages []PageStat `json:"pages,omitempty"`
+}
+
+// PageStat is the steady phase of one page. Requests is the rate that one request in flight gives
+// for the page alone: 1000 over its mean latency in milliseconds.
+type PageStat struct {
+	Page     string  `json:"page"`
+	P50      float64 `json:"p50Ms"`
+	Requests float64 `json:"requestsPerSecond"`
+}
+
+// pageStats splits latencies (ms) by the page of each request, in the order of Pages.
+func pageStats(latencies []float64, pages []int) []PageStat {
+	by := map[int][]float64{}
+	for i, l := range latencies {
+		by[pages[i]] = append(by[pages[i]], l)
+	}
+	var out []PageStat
+	for i, p := range Pages {
+		if len(by[i]) == 0 {
+			continue
+		}
+		sorted := slices.Sorted(slices.Values(by[i]))
+		stat := PageStat{Page: p.Name, P50: Percentile(sorted, 50)}
+		if m := mean(sorted); m > 0 {
+			stat.Requests = 1000 / m
+		}
+		out = append(out, stat)
+	}
+	return out
 }
 
 // SettleNever is what Metrics.Settle holds when latency had not settled within the cold series.

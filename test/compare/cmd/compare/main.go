@@ -85,6 +85,7 @@ func measure(cmd string, args []string) {
 		cold       = flags.Int("cold", 1000, "measure: requests of the cold series, from process start")
 		servers    = flags.String("servers", "", "measure: comma separated spec ids, such as tifa,tifa-nocache,nextjs (default all of the configuration)")
 		aa         = flags.Bool("aa", false, "measure: also run Tifa against Tifa in each round and print the spread (-all does it too)")
+		render     = flags.Bool("render", false, "measure: also run the render benchmark of test/ssr in a warm VM, to split Tifa's request into the render and the rest")
 		jsonPath   = flags.String("json", "", "measure: write the record as JSON to this file")
 	)
 	flags.Parse(args)
@@ -109,7 +110,7 @@ func measure(cmd string, args []string) {
 	}
 	o := compare.Options{
 		ServerCPUs: *serverCPUs, LoadCPUs: *loadCPUs, Rounds: *rounds, Steady: *steady, Cold: *cold,
-		AA: *aa || *all, Log: os.Stderr,
+		AA: *aa || *all, Render: *render, Log: os.Stderr,
 	}
 	switch {
 	case *config != "" && *all:

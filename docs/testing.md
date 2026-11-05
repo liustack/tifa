@@ -316,14 +316,14 @@ go run ./test/compare/cmd/compare diff old.json new.json
 
 1. **Cold part.** The time from process start to the end of the first answer, then the latency of the first 100 and the first 1000 requests (the mean of each), and the request from which latency settles: the first one after which the median of every window of 30 requests stays within 10% of the steady latency of their pages. `>1000` means it had not settled by then.
 2. **Steady part.** `-steady` long (30 seconds by default) right after the cold part: requests per second, P50, P99, P99/P50 and the largest latency.
-3. **Memory.** RSS after the first answer, and the peak RSS over the whole run (the process and its children, sampled every 100 ms and, on Linux, the kernel's high-water marks).
+3. **Memory.** RSS right after the server listens (before any request), and the peak RSS over the whole run (the process and its children, sampled every 100 ms and, on Linux, the kernel's high-water marks).
 
 There are two configurations. `default` is each framework as shipped: Tifa with its render cache at the default `cache.size`, Next.js and Start as they are. `engine` has every cache off: Tifa with `--cache-size 0`, so every request renders, and Node with `--jitless` next to each Node app, marked as a reference in the tables because it explains a gap and is not a contender. Both Tifa servers run `--ssr-vms 1` with `GOMAXPROCS=1`. Compression is off for all. Tifa's hit rate is the share of answers whose `X-Tifa-Render` is `cache` or `shared`, counted over the whole run.
 
 | Subcommand | What it does |
 | --- | --- |
 | `measure` | Builds, measures and prints the tables. `-all` measures both configurations and runs the A/A check. `-config default` or `-config engine` measures one. `-json out.json` saves the record |
-| `report out.json` | Prints the tables again as Markdown: out of the box, engine and memory. Each cell is the median of the rounds, with their range in brackets when they differ. The A/A spread is printed under them |
+| `report out.json` | Prints the tables again as Markdown: out of the box, engine, memory, per page (requests a second with one request in flight and P50 of each page for each server, and each Node server against Tifa) and, when the record has `-render`, the render and the rest. Each cell is the median of the rounds, with their range in brackets when they differ. The A/A spread is printed under them |
 | `diff old.json new.json` | Compares the Tifa servers of two records and prints each metric that got worse by more than max(2%, the A/A spread of either record). It exits with status 1 when any is flagged. Other frameworks are not compared |
 
 | Flag of `measure` | Default | |
@@ -335,6 +335,7 @@ There are two configurations. `default` is each framework as shipped: Tifa with 
 | `-config`, `-all` | `default` | The configuration, or both |
 | `-aa` | off | Runs Tifa against Tifa (two identical servers) before the others in every round, and prints how far apart they were for each metric: the largest minus the smallest over the median. `-all` implies it. `diff` uses this spread as the noise floor |
 | `-servers` | all | A list of spec ids, such as `tifa,tifa-nocache,nextjs` |
+| `-render` | off | Also runs `BenchmarkShop` of `test/ssr` once after the rounds, on `-server-cpus`: it renders the six pages in one warm VM without HTTP, and the report splits Tifa's request (cache off) into the render and the rest. It is a measurement of its own and does not touch the cold runs. Next.js and Start cannot be split like that from outside |
 
 **Placement rule.** On Linux the command reads `/sys/devices/system/cpu/cpuN/topology` and refuses to run when a cpu of the server and a cpu of the client are the same cpu or two threads of one physical core. The client pins itself with `taskset` and the servers are started under it. With hyperthreads, cpus `n` and `n+4` on a 4-core machine usually share a core, and cpus 1 and 2 on the GCP machine do not. Off Linux nothing is pinned, nothing is checked, and the record says `not checked`.
 

@@ -48,6 +48,11 @@ func (r *Record) Markdown() string {
 	r.speedTable(&b, "engine")
 	b.WriteString("\n### Memory\n\n")
 	r.memoryTable(&b)
+	if r.hasPages() {
+		b.WriteString("\n### Per page\n")
+		r.pageTables(&b)
+	}
+	r.renderTable(&b)
 	if len(r.AA) > 0 {
 		b.WriteString("\nA/A, Tifa against Tifa, the spread between two identical servers (largest minus smallest over their median):")
 		var parts []string
@@ -132,4 +137,101 @@ func (r *Record) memoryTable(b *strings.Builder) {
 		runs := by[id]
 		fmt.Fprintf(b, "| %s | %s | %s |\n", label(runs), cell(values(runs, defByKey("rssStart")), defByKey("rssStart")), cell(values(runs, defByKey("rssPeak")), defByKey("rssPeak")))
 	}
+}
+
+// pageValues returns the per-page numbers of the runs of a spec for one page, by round.
+func pageValues(runs []Run, page string) (p50, req []float64) {
+	for _, r := range runs {
+		for _, p := range r.Pages {
+			if p.Page == page {
+				p50, req = append(p50, p.P50), append(req, p.Requests)
+			}
+		}
+	}
+	return p50, req
+}
+
+// pageTables writes, for each configuration, the steady P50 and requests a second of every page
+// for every server, and for the Node servers how many times Tifa's rate that is.
+func (r *Record) pageTables(b *strings.Builder) {
+	for _, config := range Configs {
+		order, by := r.specsOf(config)
+		if len(order) == 0 || len(by[order[0]][0].Pages) == 0 {
+			continue
+		}
+		ref := ""
+		for _, id := range order {
+			if by[id][0].Framework == "tifa" {
+				ref = id
+				break
+			}
+		}
+		fmt.Fprintf(b, "\n%s: requests/s with one request in flight (P50 ms), and for the others how many times Tifa's rate that is:\n\n| page |", config)
+		for _, id := range order {
+			b.WriteString(" " + label(by[id]) + " |")
+		}
+		b.WriteString("\n| --- |" + strings.Repeat(" --- |", len(order)) + "\n")
+		for _, p := range Pages {
+			fmt.Fprintf(b, "| %s |", p.Name)
+			_, refReq := pageValues(by[ref], p.Name)
+			for _, id := range order {
+				p50, req := pageValues(by[id], p.Name)
+				if len(req) == 0 {
+					b.WriteString(" - |")
+					continue
+				}
+				fmt.Fprintf(b, " %.1f (%.2f ms)", Median(req), Median(p50))
+				if id != ref && ref != "" && len(refReq) > 0 && Median(refReq) > 0 {
+					fmt.Fprintf(b, ", %.2fx", Median(req)/Median(refReq))
+				}
+				b.WriteString(" |")
+			}
+			b.WriteString("\n")
+		}
+	}
+}
+
+// renderTable splits a request of Tifa with the cache off into the render and the rest, which is
+// routing, Load, JSON, writing the HTML and net/http.
+func (r *Record) renderTable(b *strings.Builder) {
+	if len(r.Render) != len(Pages) {
+		return
+	}
+	var runs []Run
+	for _, run := range r.Runs {
+		if run.Spec == "tifa-nocache" {
+			runs = append(runs, run)
+		}
+	}
+	if len(runs) == 0 || len(runs[0].Pages) == 0 {
+		return
+	}
+	b.WriteString("\n### Render and the rest\n\nTifa with the cache off, one request at a time: the whole request and the render alone in a warm VM without HTTP (P50 ms), and what the rest costs.\n\n")
+	b.WriteString("| page | request | render | the rest | share of the request |\n| --- | --- | --- | --- | --- |\n")
+	var req, ren float64
+	for _, p := range Pages {
+		p50, _ := pageValues(runs, p.Name)
+		whole := Median(p50)
+		var render float64
+		for _, x := range r.Render {
+			if x.Page == p.Name {
+				render = x.P50
+			}
+		}
+		rest := whole - render
+		fmt.Fprintf(b, "| %s | %.2f | %.2f | %.2f | %.0f%% |\n", p.Name, whole, render, rest, rest/whole*100)
+		req += whole
+		ren += render
+	}
+	n := float64(len(Pages))
+	fmt.Fprintf(b, "| mean of the six | %.2f | %.2f | %.2f | %.0f%% |\n", req/n, ren/n, (req-ren)/n, (req-ren)/req*100)
+}
+
+func (r *Record) hasPages() bool {
+	for _, run := range r.Runs {
+		if len(run.Pages) > 0 {
+			return true
+		}
+	}
+	return false
 }

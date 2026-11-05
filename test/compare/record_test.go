@@ -1,6 +1,7 @@
 package compare
 
 import (
+	"fmt"
 	"encoding/json/v2"
 	"strings"
 	"testing"
@@ -171,5 +172,70 @@ func TestDiffLooksOnlyAtTifaAndNamesTheMetric(t *testing.T) {
 	}
 	if _, flagged := DiffRecords(fixture(), bad); flagged != 0 {
 		t.Errorf("A/A runs were compared: %d flagged", flagged)
+	}
+}
+
+func TestPageStats(t *testing.T) {
+	// two pages in turn: page 0 takes 10 and 20 ms, page 1 takes 40 ms
+	lat := []float64{10, 40, 20, 40, 10, 40}
+	got := pageStats(lat, []int{0, 1, 0, 1, 0, 1})
+	if len(got) != 2 || got[0].Page != Pages[0].Name || got[1].Page != Pages[1].Name {
+		t.Fatalf("pages: %+v", got)
+	}
+	if got[0].P50 != 10 || got[1].P50 != 40 {
+		t.Errorf("P50: %+v", got)
+	}
+	// one request in flight: requests a second is 1000 over the mean latency
+	if want := 1000 / (40.0 / 3); got[0].Requests < want-0.01 || got[0].Requests > want+0.01 {
+		t.Errorf("page 0 requests/s = %v, want %v", got[0].Requests, want)
+	}
+	if got[1].Requests != 25 {
+		t.Errorf("page 1 requests/s = %v, want 25", got[1].Requests)
+	}
+}
+
+func withPages(r *Record) *Record {
+	for i := range r.Runs {
+		m := r.Runs[i].Metrics
+		for _, p := range Pages {
+			r.Runs[i].Pages = append(r.Runs[i].Pages, PageStat{Page: p.Name, P50: m.P50, Requests: m.Requests})
+		}
+	}
+	for _, p := range Pages {
+		r.Render = append(r.Render, RenderResult{Page: p.Name, P50: 25, P99: 30})
+	}
+	return r
+}
+
+func TestMarkdownPerPageAndRender(t *testing.T) {
+	md := roundTrip(t, withPages(fixture())).Markdown()
+	for _, want := range []string{
+		"### Per page",
+		"| list studio |",
+		"81.5 (10.00 ms), 2.82x", // Next.js against Tifa with the cache off, in the engine table
+		"### Render and the rest",
+		"| list studio | 30.00 | 25.00 | 5.00 | 17% |",
+		"| mean of the six |",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("the report lacks %q:\n%s", want, md)
+		}
+	}
+	if plain := fixture().Markdown(); strings.Contains(plain, "### Per page") || strings.Contains(plain, "### Render and the rest") {
+		t.Errorf("a record without pages or render prints their tables:\n%s", plain)
+	}
+}
+
+func TestParseRender(t *testing.T) {
+	var out strings.Builder
+	for i, p := range Pages {
+		fmt.Fprintf(&out, "BenchmarkShop/render%s-8   2000   1000 ns/op   %d.5 p50-ms   %d.9 p99-ms\n", strings.ReplaceAll(p.URL, "/", "-"), i+10, i+20)
+	}
+	got, err := parseRender("goos: linux\n" + out.String() + "PASS\n")
+	if err != nil || len(got) != len(Pages) || got[2].P50 != 12.5 || got[2].P99 != 22.9 || got[2].Page != Pages[2].Name {
+		t.Errorf("parsed %+v, %v", got, err)
+	}
+	if _, err := parseRender("nothing"); err == nil {
+		t.Error("output with no page was accepted")
 	}
 }

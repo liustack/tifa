@@ -53,6 +53,7 @@ type Options struct {
 	Configs    []string      // configurations to measure, both when empty
 	Servers    []string      // spec ids, all of the configurations when empty
 	AA         bool          // also run Tifa against Tifa first in each round
+	Render     bool          // also run the render benchmark of test/ssr once after the rounds, apart from the cold runs
 	Scenario   Scenario      // ReadScenario when it has no steps
 	Log        io.Writer
 }
@@ -127,6 +128,13 @@ func (e Env) Measure(ctx context.Context, o Options) (*Record, error) {
 		}
 	}
 	rec.AA = AASpread(rec.Runs)
+	if o.Render {
+		render, err := e.renderBench(ctx, o.ServerCPUs)
+		if err != nil {
+			return nil, err
+		}
+		rec.Render = render
+	}
 	return rec, nil
 }
 
@@ -141,6 +149,8 @@ func runOnce(ctx context.Context, o Options, spec Spec, round int) (*Run, error)
 	if err := server.WaitListening(ctx); err != nil {
 		return nil, err
 	}
+	// RSS after start: the server listens and has answered nothing.
+	rssStart := float64(server.RSS()) / (1 << 20)
 	c := newClient(server.Base)
 	run := &Run{Spec: spec.Name, Framework: spec.Framework, Label: spec.Label, Configs: spec.Configs, Reference: spec.Reference, AA: slices.Contains(spec.Configs, ConfigAA), Round: round, Scenario: o.Scenario.Name}
 	renders := map[string]int{}
@@ -170,7 +180,6 @@ func runOnce(ctx context.Context, o Options, spec Spec, round int) (*Run, error)
 		}
 		if n == 0 {
 			run.Metrics.FirstAnswer = float64(time.Since(t0)) / float64(time.Millisecond)
-			run.Metrics.RSSStart = float64(server.RSS()) / (1 << 20)
 		}
 	}
 	steadyStart := time.Now()
@@ -184,6 +193,8 @@ func runOnce(ctx context.Context, o Options, spec Spec, round int) (*Run, error)
 	elapsed := time.Since(steadyStart).Seconds()
 
 	m := &run.Metrics
+	m.RSSStart = rssStart
+	run.Pages = pageStats(steady, steadyPage)
 	if len(steady) > 0 {
 		sorted := slices.Sorted(slices.Values(steady))
 		m.Requests = float64(len(steady)) / elapsed
