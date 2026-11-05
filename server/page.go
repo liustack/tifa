@@ -873,14 +873,30 @@ func (s *server) renderOne(ctx context.Context, f *front, in ssr.Input, twice bo
 		}
 	}
 	html, policy := rendered.HTML, s.renderedPolicy(f, in, rendered)
-	if !s.cache.holds(html) {
-		return cachedPage{html: html, policy: policy}, false, nil
+	page, held := s.newPage(html, policy)
+	return page, held, nil
+}
+
+// newPage makes the page of html for the cache, and says whether the cache can keep it. With
+// server.compress a page of at least gzhttp's minimum size is compressed here, once, whatever the
+// request that caused the render takes, since the cache keeps the gzip form alone. The page keeps
+// the HTML too for the requests that wait for the render and for the tag of the whole-page cache:
+// the cache drops it when it stores the page. A page the cache cannot hold is only the HTML, which
+// goes out as it comes.
+func (s *server) newPage(html, policy string) (cachedPage, bool) {
+	page := cachedPage{html: html, n: len(html), policy: policy}
+	if s.cache.size == 0 {
+		return page, false
 	}
-	page := cachedPage{html: html, policy: policy, body: new(bodyID)}
 	if s.cfg.Compress {
-		page.gzip, page.zstd = compressPage(html)
+		page.gzip = compressPage(html)
 	}
-	return page, true, nil
+	if !s.cache.holds(page) {
+		page.gzip = nil
+		return page, false
+	}
+	page.body = new(bodyID)
+	return page, true
 }
 
 // devClockShift is how far tifa dev moves the clock of the second render of a page (see
@@ -1034,26 +1050,55 @@ func dataOnlyDocument(f *front, items map[string]routeResult, key, uri string, s
 	return b.String(), nil
 }
 
-// writeCached writes a page of the HTML cache in its form for encoding (formEncoding), and as
-// HTML when it has none. compressed leaves an answer that has a Content-Encoding as it is.
+// writeCached writes a page of the HTML cache for the encoding formEncoding chose. A page kept as
+// gzip goes out as stored, with its length, to a client that takes gzip. A client that takes no
+// compression gets the HTML with the Content-Length of the page, unzipped as it is written, and one
+// that takes zstd and not gzip, or ranks it higher, gets it as zstd, chunked. Neither is kept. A
+// page that has just been rendered has its HTML in hand and sends that, which compressed
+// compresses for zstd. A page kept as HTML goes out as HTML, and compressed compresses it as it goes.
 func writeCached(c *tifa.Ctx, status int, page cachedPage, encoding string) error {
-	var body []byte
-	switch encoding {
-	case "gzip":
-		body = page.gzip
-	case "zstd":
-		body = page.zstd
-	}
-	if body == nil {
+	if page.gzip == nil {
 		return writeHTML(c, status, page.html)
 	}
 	w := c.Writer()
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Content-Encoding", encoding)
-	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+	h := w.Header()
+	h.Set("Content-Type", "text/html; charset=utf-8")
+	switch {
+	case encoding == "gzip":
+		h.Set("Content-Encoding", "gzip")
+		h.Set("Content-Length", strconv.Itoa(len(page.gzip)))
+		w.WriteHeader(status)
+		_, err := w.Write(page.gzip)
+		return err
+	case page.html != "":
+		return writeHTML(c, status, page.html)
+	}
+	// The page is our own bytes. They are read before the header is written, and once it is out a
+	// failure cannot be told to the client other than by cutting the connection.
+	r, err := gunzipper(page.gzip)
+	if err != nil {
+		return fmt.Errorf("tifa: a cached page does not unzip: %w", err)
+	}
+	if encoding == "zstd" {
+		h.Set("Content-Encoding", "zstd")
+	} else {
+		h.Set("Content-Length", strconv.Itoa(page.n))
+		if c.Request().Method == http.MethodHead {
+			pageGunzip.Put(r)
+			w.WriteHeader(status)
+			return nil
+		}
+	}
 	w.WriteHeader(status)
-	_, err := w.Write(body)
-	return err
+	if encoding == "zstd" {
+		err = zstdTo(w, r)
+	} else {
+		err = unzipTo(w, r)
+	}
+	if err != nil {
+		panic(http.ErrAbortHandler)
+	}
+	return nil
 }
 
 func writeHTML(c *tifa.Ctx, status int, page string) error {

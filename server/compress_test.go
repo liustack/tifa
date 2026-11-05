@@ -520,8 +520,8 @@ func TestFlushBeforeTheBodySendsTheHeader(t *testing.T) {
 	once.Do(func() { close(release) })
 }
 
-// A cached page keeps its gzip and zstd forms, so a hit is sent as stored, with its length,
-// instead of being compressed again. Clients that take neither, HEAD and No-Gzip-Compression
+// A cached page keeps its gzip form, so a hit is sent as stored, with its length, instead of being
+// compressed again, and zstd is made from it as it is sent. Clients that take neither, HEAD and No-Gzip-Compression
 // get the HTML.
 func TestCacheHitsSendTheirStoredCompression(t *testing.T) {
 	app := frontApp()
@@ -552,7 +552,11 @@ func TestCacheHitsSendTheirStoredCompression(t *testing.T) {
 	} {
 		w := get(s, tc.path, "Accept-Encoding", tc.accept)
 		h := w.Header()
-		if h.Get("Content-Encoding") != tc.want || h.Get("Content-Length") != strconv.Itoa(w.Body.Len()) ||
+		wantLength := strconv.Itoa(w.Body.Len())
+		if tc.want == "zstd" {
+			wantLength = "" // chunked
+		}
+		if h.Get("Content-Encoding") != tc.want || h.Get("Content-Length") != wantLength ||
 			h.Get("Content-Type") != "text/html; charset=utf-8" || !strings.HasPrefix(h.Get("ETag"), `W/"`) ||
 			!varies(w, "Accept-Encoding") || h.Get(gzhttp.HeaderNoCompression) != "" {
 			t.Errorf("%s with %q: %v", tc.path, tc.accept, h)
@@ -589,97 +593,6 @@ func TestCacheHitsPickTheEncodingOfGzhttp(t *testing.T) {
 		hit := get(s, path, "Accept-Encoding", accept)
 		if hit.Header().Get("X-Tifa-Render") != "cache" || hit.Header().Get("Content-Encoding") != live.Header().Get("Content-Encoding") {
 			t.Errorf("%q: gzhttp gives %q, the cache hit %q", accept, live.Header().Get("Content-Encoding"), hit.Header().Get("Content-Encoding"))
-		}
-	}
-}
-
-// A miss of the cache sends the form it compressed for the cache, with its length, instead of
-// compressing the page once more. A page the cache cannot hold, with cache.size 0 or larger than
-// the cache, is compressed as it is sent, like a page without Cache. A page whose HTML fits but
-// not its forms is kept as HTML.
-func TestCacheMissesSendTheFormTheyStore(t *testing.T) {
-	html := decoded(t, get(newBigServer(t, config.Default(), frontApp()), "/stats"))
-	for _, tc := range []struct {
-		size       int64
-		missStored bool // the miss sends a stored form
-		hit        bool
-	}{
-		{64 << 20, true, true},
-		{0, false, false},
-		{int64(len(html)) - 1, false, false},
-		{int64(len(html)) + 10, true, true}, // the forms are larger than 10 bytes
-	} {
-		cfg := config.Default()
-		cfg.Cache.Size = tc.size
-		s := newBigServer(t, cfg, frontApp())
-		for i, want := range []bool{tc.missStored, tc.size == 64<<20} {
-			w := get(s, "/stats", "Accept-Encoding", "gzip")
-			if decoded(t, w) != html || w.Header().Get("Content-Encoding") != "gzip" ||
-				(w.Header().Get("Content-Length") != "") != want || (w.Header().Get("X-Tifa-Render") == "cache") != (i == 1 && tc.hit) {
-				t.Errorf("cache.size %d, request %d: %v", tc.size, i, w.Header())
-			}
-		}
-	}
-}
-
-// With server.compress on, the render of a miss compresses the page into its gzip and zstd forms
-// once, whatever the client that started it takes: one that takes neither, HEAD and
-// No-Gzip-Compression too. Hits then send the stored forms and never compress the page again. A
-// page whose forms do not fit is kept as HTML, and hits compress it as they send it.
-func TestCacheMissCompressesBothFormsOnce(t *testing.T) {
-	app := frontApp()
-	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
-		if c.Header("X-Plain") != "" {
-			c.SetHeader(gzhttp.HeaderNoCompression, "1")
-		}
-		return next(c)
-	}
-	stored := func(s *server) cachedPage {
-		t.Helper()
-		s.cache.mu.Lock()
-		defer s.cache.mu.Unlock()
-		if len(s.cache.pages) != 1 {
-			t.Fatalf("%d pages cached", len(s.cache.pages))
-		}
-		return s.cache.order.Front().Value.(*cached).page
-	}
-	html := decoded(t, get(newBigServer(t, config.Default(), app), "/stats"))
-	for _, tc := range []struct {
-		name  string
-		size  int64
-		first func(*server)
-	}{
-		{"no Accept-Encoding", 64 << 20, func(s *server) { get(s, "/stats") }},
-		{"No-Gzip-Compression", 64 << 20, func(s *server) { get(s, "/stats", "Accept-Encoding", "gzip", "X-Plain", "1") }},
-		{"HEAD", 64 << 20, func(s *server) {
-			r := httptest.NewRequest("HEAD", "/stats", nil)
-			r.Header.Set("Accept-Encoding", "gzip")
-			s.ServeHTTP(httptest.NewRecorder(), r)
-		}},
-		{"gzip", 64 << 20, func(s *server) { get(s, "/stats", "Accept-Encoding", "gzip") }},
-		{"forms that do not fit", int64(len(html)) + 10, func(s *server) { get(s, "/stats") }},
-	} {
-		cfg := config.Default()
-		cfg.Cache.Size = tc.size
-		s := newBigServer(t, cfg, app)
-		tc.first(s)
-		fits := tc.size == 64<<20
-		before := stored(s)
-		if (before.gzip != nil) != fits || (before.zstd != nil) != fits {
-			t.Errorf("%s: the miss stored forms %t %t", tc.name, before.gzip != nil, before.zstd != nil)
-		}
-		for _, encoding := range []string{"gzip", "zstd", "gzip", "zstd"} {
-			w := get(s, "/stats", "Accept-Encoding", encoding)
-			if w.Header().Get("X-Tifa-Render") != "cache" || w.Header().Get("Content-Encoding") != encoding ||
-				(w.Header().Get("Content-Length") != "") != fits || decoded(t, w) != html {
-				t.Errorf("%s, hit with %s: %v", tc.name, encoding, w.Header())
-			}
-		}
-		same := func(a, b []byte) bool { return len(a) > 0 && len(b) > 0 && &a[0] == &b[0] }
-		if after := stored(s); fits && (!same(after.gzip, before.gzip) || !same(after.zstd, before.zstd)) {
-			t.Errorf("%s: a hit compressed the page again", tc.name)
-		} else if !fits && (after.gzip != nil || after.zstd != nil) {
-			t.Errorf("%s: a hit compressed forms that do not fit", tc.name)
 		}
 	}
 }

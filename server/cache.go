@@ -20,7 +20,7 @@ import (
 var cacheNow = time.Now
 
 // htmlCache keeps rendered pages by the hash of their render input, up
-// to size bytes of HTML and its compressed forms. It drops the least recently used pages first.
+// to size bytes of pages, each in the one form it keeps. It drops the least recently used pages first.
 // Requests that miss the same page at the same time wait for one render of it (fetch).
 type htmlCache struct {
 	mu    sync.Mutex
@@ -33,7 +33,7 @@ type htmlCache struct {
 	// bypass holds, by page key, until when requests skip the cache of that page: its last result
 	// could not be stored, see markBypass.
 	bypass map[string]time.Time
-	// bodies counts, for the pages that share their HTML and compressed forms (the render cache
+	// bodies counts, for the pages that share their body (the render cache
 	// and the whole-page cache keep the same render), how many pages use each, so the bytes count once.
 	bodies map[*bodyID]*bodyUse
 	// madeAfter is the moment the content collections last changed: a page of the whole-page
@@ -86,7 +86,7 @@ type madeError struct {
 func (e *madeError) Error() string { return e.err.Error() }
 func (e *madeError) Unwrap() error { return e.err }
 
-// bodyID stands for the HTML and compressed forms one render made. It is not empty, because Go may
+// bodyID stands for the body one render made. It is not empty, because Go may
 // give every pointer to an empty value the same address, and the pages would count as one.
 type bodyID struct{ _ byte }
 
@@ -117,12 +117,16 @@ func kindOf(key string) int {
 	return renderKind
 }
 
-// cachedPage is a rendered page as the cache keeps it: the HTML and, with server.compress, its
-// gzip and zstd forms (compressPage), made once by the render, so a hit is not compressed again.
-// A page whose forms do not fit is kept as HTML, and hits compress it as they send it.
+// cachedPage is a rendered page as the cache keeps it: one form of it, never changed after the page
+// is published. With server.compress a page of at least gzhttp's minimum size is kept as gzip
+// (compressPage), made once by the render, and a hit sends it as it is, or unzips it as it sends it
+// to a client that takes no gzip. Otherwise the HTML is kept. A page the render has just made has
+// both, for the requests that waited for it: the cache drops the HTML when it stores the page.
 type cachedPage struct {
-	html       string
-	gzip, zstd []byte
+	html string
+	gzip []byte
+	// n is the length of the HTML, for the Content-Length of a page kept as gzip.
+	n int
 	// policy is the Content-Security-Policy of the page with the hashes of its inline scripts and
 	// styles, "" with server.csp off (see renderedPolicy).
 	policy string
@@ -135,9 +139,15 @@ type cachedPage struct {
 
 func (p cachedPage) size() int64 { return p.bodySize() + p.meta() }
 
-func (p cachedPage) bodySize() int64 { return int64(len(p.html) + len(p.gzip) + len(p.zstd)) }
+// bodySize is what the cache keeps of the page: the gzip form when there is one, else the HTML.
+func (p cachedPage) bodySize() int64 {
+	if p.gzip != nil {
+		return int64(len(p.gzip))
+	}
+	return int64(len(p.html))
+}
 
-// meta is what the page costs besides its HTML and compressed forms: its policy, which every page
+// meta is what the page costs besides its body: its policy, which every page
 // keeps for itself, and what a page of the whole-page cache stands for.
 func (p cachedPage) meta() int64 {
 	n := int64(len(p.policy))
@@ -231,12 +241,19 @@ func (c *htmlCache) get(key string) (cachedPage, bool) {
 	return e.Value.(*cached).page, true
 }
 
-// holds reports whether the cache can keep the HTML of a page. Pages it cannot hold are not
-// compressed for it.
-func (c *htmlCache) holds(html string) bool { return int64(len(html)) <= c.size }
+// kept returns the page as the cache stores it: a page that has its gzip form keeps that alone.
+func (p cachedPage) kept() cachedPage {
+	if p.gzip != nil {
+		p.html = ""
+	}
+	return p
+}
 
-// put stores a page. A page whose compressed forms do not fit in the whole cache is kept without
-// them, and one whose HTML does not fit is not kept.
+// holds reports whether the cache can keep the page, in the form it keeps it. A page it cannot hold
+// is sent as it comes.
+func (c *htmlCache) holds(p cachedPage) bool { return p.kept().size() <= c.size }
+
+// put stores a page in its one form, or does not when that does not fit.
 func (c *htmlCache) put(key string, page cachedPage) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -245,10 +262,7 @@ func (c *htmlCache) put(key string, page cachedPage) {
 
 func (c *htmlCache) putLocked(key string, page cachedPage) {
 	c.removeLocked(key)
-	if page.size() > c.size {
-		// The forms the other pages share are dropped from this one, so it keeps a body of its own.
-		page.gzip, page.zstd, page.body = nil, nil, nil
-	}
+	page = page.kept()
 	if page.size() > c.size {
 		return
 	}
@@ -260,7 +274,7 @@ func (c *htmlCache) putLocked(key string, page cachedPage) {
 	}
 }
 
-// charge counts a page that enters the cache. Its HTML and compressed forms count once for all the
+// charge counts a page that enters the cache. Its body counts once for all the
 // pages that share them.
 func (c *htmlCache) charge(p cachedPage) {
 	c.used += p.meta()
