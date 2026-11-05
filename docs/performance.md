@@ -143,7 +143,7 @@ In the reads-with-writes scenario Tifa's peak is 112 MiB, since the render cache
 
 ### Notes
 
-- **Compression.** TanStack Start sends 146.5 KB a page uncompressed, the others about 25 KB. Next.js answers 16% fewer requests a second with gzip than without (79.8 against 94.9), and Start would likely pay a similar cost if it compressed.
+- **Compression.** TanStack Start sends 146.5 KB a page uncompressed, Tifa and Next.js about 16 KB and React Router about 44 KB with gzip. Next.js answers 16% fewer requests a second with gzip than without (79.8 against 94.9), and Start would likely pay a similar cost if it compressed.
 - **React Router's pages are larger.** With gzip they are 32 to 76 KB, 2 to 5 times the size of Tifa's and Next.js's. `@react-router/node` 8.5.1 flushes the stream after every chunk, and `react-router-serve` compresses with express `compression`, so each flush ends a compressed block. This is its default, measured as it is.
 - **A miss costs nothing measurable.** For every read of an order page right after a write, P50 is 17.72 ms with the render cache and 17.77 ms without.
 - **Not reported.** The request from which latency settles and the slowest request vary too much between identical servers (138% and 26%) to say anything.
