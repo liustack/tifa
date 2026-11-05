@@ -1,4 +1,4 @@
-<h1 align="center">Tifa</h1>
+<h1 align="center"><img src="assets/brand/tifa-banner.png" alt="Tifa"></h1>
 
 <p align="center"><b>The full-stack Go framework for Gophers.</b></p>
 
@@ -175,3 +175,5 @@ Tifa does not accept pull requests. A framework like this touches the compiler, 
 ## License
 
 [MIT](LICENSE). A program built with Tifa embeds locale data and time zones from Unicode CLDR, ICU and go-intl, whose notices go with the program when you distribute it, see [docs/build.md](docs/build.md#notices-to-ship-with-the-program).
+
+The gopher in the banner is a redrawn [Go gopher](https://go.dev/blog/gopher), originally designed by Renee French and used under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
