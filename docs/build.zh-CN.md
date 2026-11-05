@@ -288,7 +288,7 @@ React DOM 19.3.0 和 19.3.1 是插件读过每个函数的版本。新版本里 
 1. 在 `internal/bundle/testdata` 里装上新版本（`pnpm add react@<版本> react-dom@<版本>`），运行 `TIFA_REACT_UNITS=1 go test -run TestListUnreviewedReactDOMUnits -v ./internal/bundle`。它列出表（`js/vite/plugin.js` 末尾的 `reviewedReactDOM`）里没有的部分，标明是 `new` 还是 `changed`，给出它们在文件里的行号和要加进表的行。改动小的版本只列几个部分。
 2. 只读这些部分。对每个问：它有没有读、存、复制、枚举或比较 key path（`task.keyPath`、`contentKeyPath`、存着 key path 的变量、`task` 对象本身），`task.keyPath` 是 `null`、组件名是 `null` 时它还能正常工作吗？插件里 `dropKeyPaths` 和 `dropKeyPathNames` 的注释写了这两处改造的前提。
 3. 确认 `dropKeyPaths` 和 `dropKeyPathNames` 要改的地方仍是它们认的形式，以及插件留作第二道防线的计数（`keyPathUses`、`keyPathReaders`）。不是的话构建会警告。
-4. 把列出的行加进 `reviewedReactDOM`，运行 `go test ./internal/bundle` 和 `TIFA_E2E=1 go test ./test/e2e/`，在本节和上面关于 key path 的条目里写上这个版本。
+4. 把列出的行加进 `reviewedReactDOM`，运行 `go test ./internal/bundle` 和 `TIFA_E2E=1 go test -timeout 30m ./test/e2e/`，在本节和上面关于 key path 的条目里写上这个版本。
 
 每周的 `latest-react` 任务（见[测试](testing.md#ci)）装最新的 React，在日志里的 `parts of react-dom <版本> to read` 下打印同样的列表，审查的人在日志里就能找到要读的部分。`TIFA_REACT_UNITS=all` 会让这个测试列出所有部分，表最初就是这样做出来的。
 

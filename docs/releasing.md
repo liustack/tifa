@@ -17,7 +17,7 @@ Tifa is released as Git tags on `main`, starting at `v0.0.1`. The Go module prox
 ## Steps
 
 1. Make sure `main` is clean and up to date with `origin/main`, and nothing that should ship is still on a branch.
-2. Run the checks of [Testing](testing.md) on `main`: `go test ./...`, `go vet ./...`, `CGO_ENABLED=0 go build ./...` and `TIFA_E2E=1 go test ./test/e2e/`.
+2. Run the checks of [Testing](testing.md) on `main`: `go test ./...`, `go vet ./...`, `CGO_ENABLED=0 go build ./...` and `TIFA_E2E=1 go test -timeout 30m ./test/e2e/`.
 3. In `CHANGELOG.md` and `CHANGELOG.zh-CN.md`, rename `## [Unreleased]` to `## [0.0.N] - YYYY-MM-DD` and put a new empty `## [Unreleased]` above it. Commit both as `chore(release): release v0.0.N`.
 4. Tag that commit and push both:
 
