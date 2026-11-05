@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/liustack/tifa/internal/config"
+	"github.com/liustack/tifa/internal/core"
 	"github.com/liustack/tifa/internal/ssr"
 )
 
@@ -308,5 +309,22 @@ func TestStoredGzipIsTheRender(t *testing.T) {
 	out.ReadFrom(r)
 	if want, _ := bigPage(ssr.Input{URL: "/stats"}); out.String() != want {
 		t.Error("the stored form is not the page")
+	}
+}
+
+// The zstd form of a hit is made as it is sent, so a Content-Length set before it, by the app or
+// a middleware, is dropped: it would give the length of something else.
+func TestAZstdHitDropsAContentLength(t *testing.T) {
+	html, _ := bigPage(ssr.Input{URL: "/stats"})
+	page := cachedPage{gzip: compressPage(html), n: len(html)}
+	r := httptest.NewRequest("GET", "/stats", nil)
+	w := httptest.NewRecorder()
+	c := core.New(w, r, "/stats", config.Default().Server.BodyLimit)
+	w.Header().Set("Content-Length", "12")
+	if err := writeCached(c, 200, page, "zstd"); err != nil {
+		t.Fatal(err)
+	}
+	if got := w.Header().Get("Content-Length"); got != "" {
+		t.Errorf("Content-Length %q on a zstd hit", got)
 	}
 }

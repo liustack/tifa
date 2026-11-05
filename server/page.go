@@ -1053,7 +1053,7 @@ func dataOnlyDocument(f *front, items map[string]routeResult, key, uri string, s
 // writeCached writes a page of the HTML cache for the encoding formEncoding chose. A page kept as
 // gzip goes out as stored, with its length, to a client that takes gzip. A client that takes no
 // compression gets the HTML with the Content-Length of the page, unzipped as it is written, and one
-// that takes zstd and not gzip, or ranks it higher, gets it as zstd, chunked. Neither is kept. A
+// that takes zstd and not gzip, or ranks it higher, gets it as zstd, without a length. Neither is kept. A
 // page that has just been rendered has its HTML in hand and sends that, which compressed
 // compresses for zstd. A page kept as HTML goes out as HTML, and compressed compresses it as it goes.
 func writeCached(c *tifa.Ctx, status int, page cachedPage, encoding string) error {
@@ -1081,6 +1081,7 @@ func writeCached(c *tifa.Ctx, status int, page cachedPage, encoding string) erro
 	}
 	if encoding == "zstd" {
 		h.Set("Content-Encoding", "zstd")
+		h.Del("Content-Length") // the zstd form is made as it goes out, its length unknown
 	} else {
 		h.Set("Content-Length", strconv.Itoa(page.n))
 		if c.Request().Method == http.MethodHead {
