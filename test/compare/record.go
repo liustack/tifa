@@ -41,6 +41,9 @@ type Settings struct {
 	Cold      int      `json:"coldRequests"`
 	Configs   []string `json:"configurations"`
 	Scenarios []string `json:"scenarios"`
+	// AcceptEncoding is what the client asked for in every request, except for the specs that force
+	// their own (the compression pair): gzip or identity.
+	AcceptEncoding string `json:"acceptEncoding"`
 }
 
 // Run is one server started fresh in one round.
@@ -59,6 +62,16 @@ type Run struct {
 	Renders map[string]int `json:"renders,omitempty"`
 	// Pages are the steady phase by page.
 	Pages []PageStat `json:"pages,omitempty"`
+	// Wire is what each page weighed on the wire as the client got it, and how it was encoded.
+	Wire []PageWire `json:"wire,omitempty"`
+}
+
+// PageWire is the body of a page as it came over the connection: its length and Content-Encoding
+// (empty when the server did not compress it).
+type PageWire struct {
+	Page     string `json:"page"`
+	Bytes    int64  `json:"bytes"`
+	Encoding string `json:"encoding,omitempty"`
 }
 
 // PageStat is the steady phase of one page. Requests is the rate that one request in flight gives

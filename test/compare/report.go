@@ -1,6 +1,7 @@
 package compare
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"strings"
@@ -40,10 +41,11 @@ func (r *Record) Markdown() string {
 	if r.Placement.Server != "" {
 		fmt.Fprintf(&b, " (server cpus %s, load cpus %s)", r.Placement.Server, r.Placement.Load)
 	}
-	fmt.Fprintf(&b, ". %d rounds, fresh servers each, %s of steady load after %d cold requests, no warm-up. Each cell is the median of the rounds, with their range in brackets when they differ.\n", r.Settings.Rounds, r.Settings.Steady, r.Settings.Cold)
+	fmt.Fprintf(&b, ". %d rounds, fresh servers each, %s of steady load after %d cold requests, no warm-up. The client sends Accept-Encoding: %s. Each cell is the median of the rounds, with their range in brackets when they differ.\n", r.Settings.Rounds, r.Settings.Steady, r.Settings.Cold, cmp.Or(r.Settings.AcceptEncoding, "identity"))
 
 	b.WriteString("\n### Out of the box\n\nEach framework as shipped: Tifa with its render cache at the default size.\n\n")
 	r.speedTable(&b, "default", ScenarioRead)
+	r.wireNote(&b)
 	if r.hasScenario(ScenarioReadWrite) {
 		b.WriteString("\n### Out of the box, reads with writes\n\nThe same reads, and before the first order page after each 10 reads one write that gives that order a new address, so that the render cache of Tifa misses on it. Only the reads are timed. Lists and stats do not show the address, so writes come before order pages only. The hit rate is Tifa's.\n\n")
 		r.speedTable(&b, "default", ScenarioReadWrite)
@@ -272,4 +274,72 @@ func (r *Record) missOverhead(b *strings.Builder) {
 	}
 	fmt.Fprintf(b, "\nMiss overhead of the render cache, with a write before every read of an order page so that it never hits: P50 %.2f ms with the cache, %.2f ms without, %+.1f%%. %.1f requests/s with the cache, %.1f without, %+.1f%%.\n",
 		onP50, offP50, (onP50-offP50)/offP50*100, onReq, offReq, (onReq-offReq)/offReq*100)
+}
+
+// wireNote writes what the pages weighed on the wire for each framework of the default table, and
+// what gzip costs Next.js when it is measured with and without it. Servers that did not compress
+// are named, so a reader sees why their pages are larger and what compressing would take from them.
+func (r *Record) wireNote(b *strings.Builder) {
+	order, by := r.specsOf(ScenarioRead, ConfigDefault)
+	var plain, packed []string // labels
+	var plainKB, packedKB []float64
+	for _, id := range order {
+		var sum float64
+		var n int
+		compressed := false
+		for _, run := range by[id] {
+			for _, w := range run.Wire {
+				sum += float64(w.Bytes)
+				n++
+				compressed = compressed || w.Encoding != ""
+			}
+		}
+		if n == 0 {
+			continue
+		}
+		kb := sum / float64(n) / 1024
+		if compressed {
+			packed, packedKB = append(packed, by[id][0].Label), append(packedKB, kb)
+		} else {
+			plain, plainKB = append(plain, by[id][0].Label), append(plainKB, kb)
+		}
+	}
+	if len(plain)+len(packed) == 0 {
+		return
+	}
+	b.WriteString("\n")
+	verb := map[bool]string{false: "sends", true: "send"}[len(plain) > 1]
+	switch {
+	case len(plain) > 0 && len(packed) > 0:
+		fmt.Fprintf(b, "%s %s %.1f KB a page uncompressed, the others about %.1f KB.", strings.Join(plain, " and "), verb, mean(plainKB), mean(packedKB))
+	case len(plain) > 0:
+		fmt.Fprintf(b, "Every server sent its pages uncompressed, about %.1f KB a page.", mean(plainKB))
+	default:
+		fmt.Fprintf(b, "Every server compressed its pages, about %.1f KB a page.", mean(packedKB))
+	}
+	var identity, gzip []Run
+	for _, run := range r.Runs {
+		if scenarioOf(run) != ScenarioRead {
+			continue
+		}
+		switch run.Spec {
+		case "nextjs-identity":
+			identity = append(identity, run)
+		case "nextjs-gzip":
+			gzip = append(gzip, run)
+		}
+	}
+	req := defByKey("requests")
+	if i, g := Median(values(identity, req)), Median(values(gzip, req)); i > 0 && g > 0 {
+		change, word := (i-g)/i*100, "fewer"
+		if change < 0 {
+			change, word = -change, "more"
+		}
+		fmt.Fprintf(b, " Next.js answers %.0f%% %s requests a second with gzip than without (%.1f against %.1f)", change, word, g, i)
+		if len(plain) > 0 && change > 0 && word == "fewer" {
+			fmt.Fprintf(b, ", and %s would likely pay a similar cost if it compressed", strings.Join(plain, " and "))
+		}
+		b.WriteString(".")
+	}
+	b.WriteString("\n")
 }

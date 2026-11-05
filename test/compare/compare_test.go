@@ -399,7 +399,7 @@ func TestWriteChangesThePage(t *testing.T) {
 	ctx := context.Background()
 	page := compare.Pages[2]
 	for _, spec := range env.Specs() {
-		if strings.HasSuffix(spec.Name, "-jitless") {
+		if strings.HasSuffix(spec.Name, "-jitless") || spec.AcceptEncoding != "" {
 			continue
 		}
 		t.Run(spec.Name, func(t *testing.T) {

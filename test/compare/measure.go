@@ -21,17 +21,18 @@ import (
 // requests are the cold part. Then comes a steady phase. One client has one request in flight and
 // asks for no compression.
 type Options struct {
-	ServerCPUs string        // for taskset, such as "1". Empty: no pinning, which is all there is off Linux
-	LoadCPUs   string        // for this process, which is the client, such as "2"
-	Rounds     int           // fresh servers each round
-	Steady     time.Duration // length of the steady phase
-	Cold       int           // requests of the cold series, 1000 when 0
-	Configs    []string      // configurations to measure, both when empty
-	Servers    []string      // spec ids, all of the configurations when empty
-	AA         bool          // also run Tifa against Tifa first in each round
-	Render     bool          // also run the render benchmark of test/ssr once after the rounds, apart from the cold runs
-	Scenarios  []Scenario    // ReadScenario only when empty
-	Log        io.Writer
+	ServerCPUs     string        // for taskset, such as "1". Empty: no pinning, which is all there is off Linux
+	LoadCPUs       string        // for this process, which is the client, such as "2"
+	Rounds         int           // fresh servers each round
+	Steady         time.Duration // length of the steady phase
+	Cold           int           // requests of the cold series, 1000 when 0
+	Configs        []string      // configurations to measure, both when empty
+	Servers        []string      // spec ids, all of the configurations when empty
+	AA             bool          // also run Tifa against Tifa first in each round
+	AcceptEncoding string        // gzip when empty, or identity: what the client asks for in every request
+	Render         bool          // also run the render benchmark of test/ssr once after the rounds, apart from the cold runs
+	Scenarios      []Scenario    // ReadScenario only when empty
+	Log            io.Writer
 }
 
 // Measure runs the measurement. Prepare must have run.
@@ -42,11 +43,17 @@ func (e Env) Measure(ctx context.Context, o Options) (*Record, error) {
 	if o.Rounds < 1 {
 		return nil, fmt.Errorf("rounds must be at least 1")
 	}
+	if o.AcceptEncoding == "" {
+		o.AcceptEncoding = "gzip"
+	}
+	if o.AcceptEncoding != "gzip" && o.AcceptEncoding != "identity" {
+		return nil, fmt.Errorf("accept-encoding must be gzip or identity, not %q", o.AcceptEncoding)
+	}
 	if o.Cold == 0 {
 		o.Cold = 1000
 	}
 	if len(o.Configs) == 0 {
-		o.Configs = Configs
+		o.Configs = AllConfigs
 	}
 	if len(o.Scenarios) == 0 {
 		o.Scenarios = []Scenario{ReadScenario}
@@ -78,7 +85,7 @@ func (e Env) Measure(ctx context.Context, o Options) (*Record, error) {
 		Versions:  e.versions(specs),
 		Machine:   machine(),
 		Placement: placement,
-		Settings:  Settings{Rounds: o.Rounds, Steady: o.Steady.String(), Cold: o.Cold, Configs: o.Configs, Scenarios: scenarioNames(o.Scenarios)},
+		Settings:  Settings{Rounds: o.Rounds, Steady: o.Steady.String(), Cold: o.Cold, Configs: o.Configs, Scenarios: scenarioNames(o.Scenarios), AcceptEncoding: o.AcceptEncoding},
 	}
 	fmt.Fprintf(o.Log, "placement: %s\n", placement.Note)
 	for round := 0; round < o.Rounds; round++ {
@@ -135,7 +142,12 @@ func runOnce(ctx context.Context, o Options, spec Spec, sc Scenario, round int) 
 	}
 	// RSS after start: the server listens and has answered nothing.
 	rssStart := float64(server.RSS()) / (1 << 20)
-	c := newClient(server.Base)
+	ae := o.AcceptEncoding
+	if spec.AcceptEncoding != "" {
+		ae = spec.AcceptEncoding
+	}
+	c := newClient(server.Base, ae)
+	wire := map[int]PageWire{}
 	run := &Run{Spec: spec.Name, Framework: spec.Framework, Label: spec.Label, Configs: spec.Configs, Reference: spec.Reference, AA: slices.Contains(spec.Configs, ConfigAA), Round: round, Scenario: sc.Name}
 	renders := map[string]int{}
 
@@ -143,15 +155,18 @@ func runOnce(ctx context.Context, o Options, spec Spec, sc Scenario, round int) 
 	var coldPage, steadyPage []int
 	read := func(n int, lat *[]float64, pages *[]int) error {
 		for _, st := range sc.Steps(spec.Write, n) {
-			d, render, err := c.do(ctx, st)
+			a, err := c.do(ctx, st)
 			if err != nil {
 				return fmt.Errorf("%s: request %d %s %s: %w\n%s", spec.Name, n+1, st.Method, st.Path, err, server.Output())
 			}
 			if st.Timed {
-				*lat = append(*lat, float64(d)/float64(time.Millisecond))
+				*lat = append(*lat, float64(a.Latency)/float64(time.Millisecond))
+				if _, ok := wire[st.Page]; !ok {
+					wire[st.Page] = PageWire{Page: Pages[st.Page].Name, Bytes: a.Bytes, Encoding: a.Encoding}
+				}
 				*pages = append(*pages, st.Page)
-				if render != "" {
-					renders[render]++
+				if a.Render != "" {
+					renders[a.Render]++
 				}
 			}
 		}
@@ -176,6 +191,11 @@ func runOnce(ctx context.Context, o Options, spec Spec, sc Scenario, round int) 
 	}
 	elapsed := time.Since(steadyStart).Seconds()
 
+	for i := range Pages {
+		if w, ok := wire[i]; ok {
+			run.Wire = append(run.Wire, w)
+		}
+	}
 	m := &run.Metrics
 	m.RSSStart = rssStart
 	run.Pages = pageStats(steady, steadyPage)
@@ -228,45 +248,56 @@ func mean(v []float64) float64 {
 type client struct {
 	http *http.Client
 	base string
+	ae   string // the Accept-Encoding of every request
 }
 
-// newClient makes a client with one connection, no compression and no retries.
-func newClient(base string) *client {
-	return &client{base: base, http: &http.Client{Transport: &http.Transport{DisableCompression: true, MaxIdleConnsPerHost: 1, MaxConnsPerHost: 1}}}
+// answer is what a request got: how long it took, X-Tifa-Render, and the body as it came over the
+// connection (not decoded) with its Content-Encoding.
+type answer struct {
+	Latency  time.Duration
+	Render   string
+	Bytes    int64
+	Encoding string
+}
+
+// newClient makes a client with one connection, no retries and no decoding of the body: it asks for
+// acceptEncoding (gzip or identity), reads all of the answer and counts its bytes.
+func newClient(base, acceptEncoding string) *client {
+	return &client{base: base, ae: acceptEncoding, http: &http.Client{Transport: &http.Transport{DisableCompression: true, MaxIdleConnsPerHost: 1, MaxConnsPerHost: 1}}}
 }
 
 // do sends a step and returns how long it took until its body was read, and its X-Tifa-Render.
-func (c *client) do(ctx context.Context, st Step) (time.Duration, string, error) {
+func (c *client) do(ctx context.Context, st Step) (answer, error) {
 	var body io.Reader
 	if st.Body != nil {
 		body = strings.NewReader(string(st.Body))
 	}
 	req, err := http.NewRequestWithContext(ctx, st.Method, c.base+st.Path, body)
 	if err != nil {
-		return 0, "", err
+		return answer{}, err
 	}
-	req.Header.Set("Accept-Encoding", "identity")
+	req.Header.Set("Accept-Encoding", c.ae)
 	if st.Body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	start := time.Now()
 	res, err := c.http.Do(req)
 	if err != nil {
-		return 0, "", err
+		return answer{}, err
 	}
-	_, err = io.Copy(io.Discard, res.Body)
+	n, err := io.Copy(io.Discard, res.Body)
 	res.Body.Close()
-	d := time.Since(start)
+	a := answer{Latency: time.Since(start), Render: res.Header.Get("X-Tifa-Render"), Bytes: n, Encoding: res.Header.Get("Content-Encoding")}
 	if err != nil {
-		return 0, "", err
+		return answer{}, err
 	}
 	if res.StatusCode != 200 {
-		return 0, "", fmt.Errorf("status %d", res.StatusCode)
+		return answer{}, fmt.Errorf("status %d", res.StatusCode)
 	}
-	if enc := res.Header.Get("Content-Encoding"); enc != "" {
-		return 0, "", fmt.Errorf("Content-Encoding %s to Accept-Encoding: identity", enc)
+	if c.ae == "identity" && a.Encoding != "" {
+		return answer{}, fmt.Errorf("Content-Encoding %s to Accept-Encoding: identity", a.Encoding)
 	}
-	return d, res.Header.Get("X-Tifa-Render"), nil
+	return a, nil
 }
 
 // pinSelf puts this process, the client, on cpus (Linux). The client then needs no more threads
@@ -396,6 +427,6 @@ func machine() Machine {
 // Send sends one step to a server and fails unless it answers 200. It is for the writes of the
 // tests, which check that a server takes them.
 func Send(ctx context.Context, base string, st Step) error {
-	_, _, err := newClient(base).do(ctx, st)
+	_, err := newClient(base, "identity").do(ctx, st)
 	return err
 }
