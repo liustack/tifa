@@ -26,7 +26,7 @@ var Configs = []string{ConfigDefault, ConfigEngine}
 // whatever this lists. Name (of the Target) is the id of the spec.
 type Spec struct {
 	Target
-	Framework string   // the app: "tifa", "nextjs", "start"
+	Framework string   // the app: "tifa", "nextjs", "start", "reactrouter"
 	Label     string   // in the tables
 	Configs   []string // the tables it is in
 	Reference bool     // marked reference in the tables: it explains a gap and is not a contender
