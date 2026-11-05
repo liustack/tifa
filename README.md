@@ -93,7 +93,16 @@ Tifa answers 6 times the requests of Next.js on pages whose data changes, from a
 
 A page whose data has not changed is not rendered again. Every request still fetches fresh data, so nobody sees stale content, and the app writes no caching code.
 
-Out of the box, with a write to one order every 10 reads:
+Out of the box, data that does not change (Tifa reuses the render for 99.99% of requests):
+
+| | Requests/s | P50 | P99 | Peak RSS |
+| :-- | --: | --: | --: | --: |
+| Tifa | 3,284 | 0.25 ms | 1.0 ms | 57 MiB |
+| Next.js | 80 | 10.6 ms | 28.3 ms | 435 MiB |
+| TanStack Start | 115 | 6.7 ms | 23.1 ms | 347 MiB |
+| React Router | 75 | 11.1 ms | 29.1 ms | 433 MiB |
+
+Out of the box, with a write to one order every 10 reads (Tifa reuses the render for 90%):
 
 | | Requests/s | P50 | P99 | Peak RSS |
 | :-- | --: | --: | --: | --: |
