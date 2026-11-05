@@ -23,7 +23,7 @@ type PageData map[string]map[string]any
 
 // GoData starts bin/shop and asks it, as the browser router does, for the data of the Layouts and
 // the page of each of the six pages.
-func (e Env) GoData(ctx context.Context) (PageData, error) {
+func (e Env) GoData(ctx context.Context, writes ...Recipient) (PageData, error) {
 	var built struct {
 		BuildID string `json:"buildId"`
 	}
@@ -39,6 +39,11 @@ func (e Env) GoData(ctx context.Context) (PageData, error) {
 		return nil, err
 	}
 	defer shop.Stop()
+	for _, w := range writes {
+		if err := Send(ctx, shop.Base, Step{Method: http.MethodPatch, Path: "/projects/" + w.Project + "/orders/" + w.Order, Body: mustJSON(w)}); err != nil {
+			return nil, err
+		}
+	}
 
 	out := PageData{}
 	for _, page := range Pages {
@@ -99,8 +104,27 @@ func NodeRunsTypeScript() string {
 }
 
 // NodeData runs the ported domain code with Node and returns the data it computes for the six pages.
-func (e Env) NodeData(ctx context.Context) (PageData, error) {
-	cmd := exec.CommandContext(ctx, "node", filepath.Join(e.Root, "test", "compare", "domain", "dump.ts"))
+func (e Env) NodeData(ctx context.Context, writes ...Recipient) (PageData, error) {
+	args := []string{filepath.Join(e.Root, "test", "compare", "domain", "dump.ts")}
+	if len(writes) > 0 {
+		type wire struct {
+			Project  string `json:"project"`
+			Order    string `json:"order"`
+			Customer string `json:"customer"`
+			Phone    string `json:"phone"`
+			Address  string `json:"address"`
+		}
+		var list []wire
+		for _, w := range writes {
+			list = append(list, wire(w))
+		}
+		data, err := json.Marshal(list)
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, string(data))
+	}
+	cmd := exec.CommandContext(ctx, "node", args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -184,4 +208,12 @@ func show(v any) string {
 		return string(data[:80]) + "..."
 	}
 	return string(data)
+}
+
+func mustJSON(v any) []byte {
+	data, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return data
 }

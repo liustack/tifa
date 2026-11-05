@@ -43,9 +43,13 @@ func (r *Record) Markdown() string {
 	fmt.Fprintf(&b, ". %d rounds, fresh servers each, %s of steady load after %d cold requests, no warm-up. Each cell is the median of the rounds, with their range in brackets when they differ.\n", r.Settings.Rounds, r.Settings.Steady, r.Settings.Cold)
 
 	b.WriteString("\n### Out of the box\n\nEach framework as shipped: Tifa with its render cache at the default size.\n\n")
-	r.speedTable(&b, "default")
+	r.speedTable(&b, "default", ScenarioRead)
+	if r.hasScenario(ScenarioReadWrite) {
+		b.WriteString("\n### Out of the box, reads with writes\n\nThe same reads, and before the first order page after each 10 reads one write that gives that order a new address, so that the render cache of Tifa misses on it. Only the reads are timed. Lists and stats do not show the address, so writes come before order pages only. The hit rate is Tifa's.\n\n")
+		r.speedTable(&b, "default", ScenarioReadWrite)
+	}
 	b.WriteString("\n### Engine\n\nEvery cache off: Tifa with `cache.size: 0`. Rows marked reference are Node with `--jitless`, to show what the JIT is worth.\n\n")
-	r.speedTable(&b, "engine")
+	r.speedTable(&b, "engine", ScenarioRead)
 	b.WriteString("\n### Memory\n\n")
 	r.memoryTable(&b)
 	if r.hasPages() {
@@ -53,6 +57,7 @@ func (r *Record) Markdown() string {
 		r.pageTables(&b)
 	}
 	r.renderTable(&b)
+	r.missOverhead(&b)
 	if len(r.AA) > 0 {
 		b.WriteString("\nA/A, Tifa against Tifa, the spread between two identical servers (largest minus smallest over their median):")
 		var parts []string
@@ -75,8 +80,8 @@ func sortedKeys(m map[string]string) []string {
 	return keys
 }
 
-func (r *Record) specsOf(configs ...string) (order []string, by map[string][]Run) {
-	order, all := group(r.Runs)
+func (r *Record) specsOf(scenario string, configs ...string) (order []string, by map[string][]Run) {
+	order, all := group(r.Runs, scenario)
 	by = map[string][]Run{}
 	var keep []string
 	for _, id := range order {
@@ -100,8 +105,8 @@ func label(runs []Run) string {
 
 var speedKeys = []string{"requests", "p50", "p99", "ratio", "max", "rssPeak", "firstAnswer", "first100", "first1000", "settle", "hitRate"}
 
-func (r *Record) speedTable(b *strings.Builder, config string) {
-	order, by := r.specsOf(config)
+func (r *Record) speedTable(b *strings.Builder, config, scenario string) {
+	order, by := r.specsOf(scenario, config)
 	b.WriteString("| | requests/s | against Tifa")
 	for _, k := range speedKeys[1:] {
 		b.WriteString(" | " + defByKey(k).Name)
@@ -131,7 +136,7 @@ func (r *Record) speedTable(b *strings.Builder, config string) {
 }
 
 func (r *Record) memoryTable(b *strings.Builder) {
-	order, by := r.specsOf("default", "engine")
+	order, by := r.specsOf(ScenarioRead, "default", "engine")
 	b.WriteString("| | RSS after start MiB | peak RSS MiB |\n| --- | --- | --- |\n")
 	for _, id := range order {
 		runs := by[id]
@@ -155,7 +160,7 @@ func pageValues(runs []Run, page string) (p50, req []float64) {
 // for every server, and for the Node servers how many times Tifa's rate that is.
 func (r *Record) pageTables(b *strings.Builder) {
 	for _, config := range Configs {
-		order, by := r.specsOf(config)
+		order, by := r.specsOf(ScenarioRead, config)
 		if len(order) == 0 || len(by[order[0]][0].Pages) == 0 {
 			continue
 		}
@@ -199,7 +204,7 @@ func (r *Record) renderTable(b *strings.Builder) {
 	}
 	var runs []Run
 	for _, run := range r.Runs {
-		if run.Spec == "tifa-nocache" {
+		if run.Spec == "tifa-nocache" && scenarioOf(run) == ScenarioRead {
 			runs = append(runs, run)
 		}
 	}
@@ -229,9 +234,42 @@ func (r *Record) renderTable(b *strings.Builder) {
 
 func (r *Record) hasPages() bool {
 	for _, run := range r.Runs {
-		if len(run.Pages) > 0 {
+		if len(run.Pages) > 0 && scenarioOf(run) == ScenarioRead {
 			return true
 		}
 	}
 	return false
+}
+
+func (r *Record) hasScenario(name string) bool {
+	return slices.ContainsFunc(r.Runs, func(run Run) bool { return scenarioOf(run) == name })
+}
+
+// missOverhead writes what the render cache costs a request that misses, from the runs in which
+// every read of an order page follows a write: Tifa with the cache on, which never hits, against
+// Tifa with the cache off.
+func (r *Record) missOverhead(b *strings.Builder) {
+	var on, off []Run
+	for _, run := range r.Runs {
+		if scenarioOf(run) != ScenarioWriteEach {
+			continue
+		}
+		switch run.Spec {
+		case "tifa":
+			on = append(on, run)
+		case "tifa-nocache":
+			off = append(off, run)
+		}
+	}
+	if len(on) == 0 || len(off) == 0 {
+		return
+	}
+	p50, req := defByKey("p50"), defByKey("requests")
+	onP50, offP50 := Median(values(on, p50)), Median(values(off, p50))
+	onReq, offReq := Median(values(on, req)), Median(values(off, req))
+	if offP50 == 0 || offReq == 0 {
+		return
+	}
+	fmt.Fprintf(b, "\nMiss overhead of the render cache, with a write before every read of an order page so that it never hits: P50 %.2f ms with the cache, %.2f ms without, %+.1f%%. %.1f requests/s with the cache, %.1f without, %+.1f%%.\n",
+		onP50, offP50, (onP50-offP50)/offP50*100, onReq, offReq, (onReq-offReq)/offReq*100)
 }

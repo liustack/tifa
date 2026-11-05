@@ -36,11 +36,11 @@ type Machine struct {
 
 // Settings are the flags of the measurement that shape the numbers.
 type Settings struct {
-	Rounds   int      `json:"rounds"`
-	Steady   string   `json:"steady"`
-	Cold     int      `json:"coldRequests"`
-	Configs  []string `json:"configurations"`
-	Scenario string   `json:"scenario"`
+	Rounds    int      `json:"rounds"`
+	Steady    string   `json:"steady"`
+	Cold      int      `json:"coldRequests"`
+	Configs   []string `json:"configurations"`
+	Scenarios []string `json:"scenarios"`
 }
 
 // Run is one server started fresh in one round.
@@ -212,11 +212,19 @@ func ReadRecord(data []byte) (*Record, error) {
 	return &r, nil
 }
 
-// group splits the runs, A/A runs left out, by spec, in the order the specs first appear.
-func group(runs []Run) (order []string, by map[string][]Run) {
+// scenarioOf is the scenario of a run, which older records leave out for reads.
+func scenarioOf(r Run) string {
+	if r.Scenario == "" {
+		return ScenarioRead
+	}
+	return r.Scenario
+}
+
+// group splits the runs of a scenario, A/A runs left out, by spec, in the order the specs first appear.
+func group(runs []Run, scenario string) (order []string, by map[string][]Run) {
 	by = map[string][]Run{}
 	for _, r := range runs {
-		if r.AA {
+		if r.AA || scenarioOf(r) != scenario {
 			continue
 		}
 		if _, ok := by[r.Spec]; !ok {
@@ -231,33 +239,45 @@ func group(runs []Run) (order []string, by map[string][]Run) {
 // by more than max(2%, A/A spread), and how many that are. The spread is the larger one of the
 // two records. Other frameworks are not compared, since a change to Tifa cannot move them.
 func DiffRecords(old, new *Record) (lines []string, flagged int) {
-	_, oldBy := group(old.Runs)
-	order, newBy := group(new.Runs)
-	for _, id := range order {
-		o, ok := oldBy[id]
-		n := newBy[id]
-		if !ok || n[0].Framework != "tifa" {
-			continue
+	var scenarios []string
+	for _, r := range new.Runs {
+		if s := scenarioOf(r); !slices.Contains(scenarios, s) {
+			scenarios = append(scenarios, s)
 		}
-		for i := range metricDefs {
-			d := &metricDefs[i]
-			ov, nv := values(o, d), values(n, d)
-			if len(ov) == 0 || len(nv) == 0 {
+	}
+	for _, scenario := range scenarios {
+		_, oldBy := group(old.Runs, scenario)
+		order, newBy := group(new.Runs, scenario)
+		for _, id := range order {
+			o, ok := oldBy[id]
+			n := newBy[id]
+			if !ok || n[0].Framework != "tifa" {
 				continue
 			}
-			om, nm := Median(ov), Median(nv)
-			if om == 0 {
-				continue
+			name := id
+			if scenario != ScenarioRead {
+				name += " (" + scenario + ")"
 			}
-			limit := max(0.02, old.AA[d.Key], new.AA[d.Key])
-			change := (nm - om) / om
-			worse := change < -limit
-			if !d.Higher {
-				worse = change > limit
-			}
-			if worse {
-				flagged++
-				lines = append(lines, fmt.Sprintf("%s %s: %s -> %s (%+.1f%%, limit %.1f%%)", id, d.Name, d.Format(om), d.Format(nm), change*100, limit*100))
+			for i := range metricDefs {
+				d := &metricDefs[i]
+				ov, nv := values(o, d), values(n, d)
+				if len(ov) == 0 || len(nv) == 0 {
+					continue
+				}
+				om, nm := Median(ov), Median(nv)
+				if om == 0 {
+					continue
+				}
+				limit := max(0.02, old.AA[d.Key], new.AA[d.Key])
+				change := (nm - om) / om
+				worse := change < -limit
+				if !d.Higher {
+					worse = change > limit
+				}
+				if worse {
+					flagged++
+					lines = append(lines, fmt.Sprintf("%s %s: %s -> %s (%+.1f%%, limit %.1f%%)", name, d.Name, d.Format(om), d.Format(nm), change*100, limit*100))
+				}
 			}
 		}
 	}
