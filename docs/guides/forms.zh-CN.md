@@ -1,5 +1,5 @@
 ---
-summary: '在 tifa 应用里怎么写表单：用生成的函数把表单发给 Go 的方法函数，把 tifa.Fields 的字段错误显示在每个输入框旁边，发送时禁用按钮，成功后重新加载页面数据，并在服务器回答之前先显示新的一行（React 19 的 useActionState、useFormStatus 和 useOptimistic）'
+summary: '在 Tifa 应用里怎么写表单：用生成的函数把表单发给 Go 的方法函数，把 tifa.Fields 的字段错误显示在每个输入框旁边，发送时禁用按钮，成功后重新加载页面数据，并在服务器回答之前先显示新的一行（React 19 的 useActionState、useFormStatus 和 useOptimistic）'
 read_when:
   - 加一个新建或修改数据的表单，想看从输入到屏幕上的错误提示的完整做法
   - 表单不显示字段错误、按钮能连点两次，或者表单提交后列表没变
@@ -202,7 +202,7 @@ function Field({ label, name, state }: { label: string; name: 'name' | 'text'; s
 
 ## 要做的选择
 
-**用 React hook 还是表单库。** 三个 hook（`useActionState`、`useFormStatus`、`useOptimistic`，见 [useActionState](https://react.dev/reference/react/useActionState) 和 [useFormStatus](https://react.dev/reference/react-dom/hooks/useFormStatus)）够写字段不多、没有浏览器端规则的表单。字段很多、要边输入边检查、或者有字段数组时，用表单库。`examples/shop` 用的是 react-hook-form 加 Zod schema（`app/projects/project+/orders/order+/ship-form.tsx`），服务端要注意什么见 [app.zh-CN.md](../app.zh-CN.md#在服务端渲染得不一样的库)。tifa 这部分对任何库都一样：捕获 `TifaError`，把 `e.fields` 交给那个库设置错误的办法。react-hook-form 是 `form.setError(name, { message })`。
+**用 React hook 还是表单库。** 三个 hook（`useActionState`、`useFormStatus`、`useOptimistic`，见 [useActionState](https://react.dev/reference/react/useActionState) 和 [useFormStatus](https://react.dev/reference/react-dom/hooks/useFormStatus)）够写字段不多、没有浏览器端规则的表单。字段很多、要边输入边检查、或者有字段数组时，用表单库。`examples/shop` 用的是 react-hook-form 加 Zod schema（`app/projects/project+/orders/order+/ship-form.tsx`），服务端要注意什么见 [app.zh-CN.md](../app.zh-CN.md#在服务端渲染得不一样的库)。Tifa 这部分对任何库都一样：捕获 `TifaError`，把 `e.fields` 交给那个库设置错误的办法。react-hook-form 是 `form.setError(name, { message })`。
 
 **水合之前按钮保持禁用。** 用函数当 `action` 时，服务端写出的是 `action="javascript:throw new Error('React form unexpectedly submitted.')"`。脚本运行之前表单什么也发不出去，在输入框里按回车就会撞上它。`useHydrated` 让按钮在这之前保持禁用，回车也就发不出去了。
 

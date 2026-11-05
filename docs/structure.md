@@ -1,7 +1,7 @@
 ---
-summary: 'Where the files of a tifa app go: each domain in its folder under app/ next to its pages, only hooks and shared resources at the root, which way packages may import each other, how shared resources are set up and used'
+summary: 'Where the files of a Tifa app go: each domain in its folder under app/ next to its pages, only hooks and shared resources at the root, which way packages may import each other, how shared resources are set up and used'
 read_when:
-  - Starting a new tifa app
+  - Starting a new Tifa app
   - Deciding where a type, a query or a shared resource goes
   - A domain has grown, or two domains need to call each other
   - The go command reports an import cycle between packages of an app
@@ -11,7 +11,7 @@ English · [简体中文](structure.zh-CN.md)
 
 # Structuring an app
 
-This page says where each file of an app goes. Why it is organized this way is in [Philosophy](philosophy.md). How tifa itself works inside is in [Architecture](architecture.md).
+This page says where each file of an app goes. Why it is organized this way is in [Philosophy](philosophy.md). How Tifa itself works inside is in [Architecture](architecture.md).
 
 ## 1. A domain is a folder under app/
 
@@ -71,14 +71,14 @@ myapp/
 
 ### Which way imports go
 
-Go's rule: a package cannot depend on itself. If package A imports B, directly or through other packages, then B cannot import A, directly or through other packages. The go command stops with `import cycle not allowed`. Where the packages sit does not matter, only whether an import leads back. In a tifa app this means:
+Go's rule: a package cannot depend on itself. If package A imports B, directly or through other packages, then B cannot import A, directly or through other packages. The go command stops with `import cycle not allowed`. Where the packages sit does not matter, only whether an import leads back. In a Tifa app this means:
 
 - **Pages import domains**: the order page in `order+/` imports `orders` from the folder above, and the project Layout imports `projects`. A page may also import the package of a Layout above it, for `tifa.Use(c, project.Layout)`.
 - **A domain may import another domain that does not depend on it.** In examples/shop, `projects` counts the orders waiting to ship with `orders.CountPending`, so `projects` imports `orders`, and `orders` cannot import `projects`. A folder may import one below it, above it or beside it, as long as nothing leads back.
 - **A domain cannot import a page that imports it.** `order+/` imports `orders`, so `orders` cannot import `order+/`. Keep what both need in the domain.
 - **Tests in a package count as the package.** A test in `package orders` cannot import `projects`, because `projects` imports `orders` (`import cycle not allowed in test`). A test in `package orders_test` is a package of its own and may import `projects`.
 
-Two more rules are conventions of tifa apps, not limits of Go:
+Two more rules are conventions of Tifa apps, not limits of Go:
 
 - **The root package, `hooks.go` and its tests in `package myapp` included, imports nothing under `app/`.** Go would let it import a package under `app/` that does not depend on it. But domains import the root package by its own name for `DB` and the other shared resources (`import "example.com/myapp"`, then `myapp.DB`), and once a domain does, the root package can no longer import that domain or any page that imports it. Keeping the root free of `app/` imports means any domain can start using a shared resource without breaking the build. A test in `package myapp_test` is a package of its own and may import domains.
 - **A shared package such as `money/` imports no domain or page, directly or through other packages.** Then every domain can import it. One that imports no package of the app at all can be imported by every package of the app, the root package too. Each import it adds closes a door: once it imports a domain, that domain and every package the domain depends on, such as the root package, cannot import it. Once it imports the root package, the root package cannot import it. Once it imports another shared package, that one cannot import it back.

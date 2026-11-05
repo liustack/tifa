@@ -1,6 +1,6 @@
 English · [简体中文](README.zh-CN.md)
 
-# Shanhai Workbench (山海工作台): a tifa example app
+# Shanhai Workbench (山海工作台): a Tifa example app
 
 Two sides of one small shop, in one program.
 
@@ -11,7 +11,7 @@ Pages are rendered to complete HTML on the server. After the browser takes over,
 
 The interface looks like a printed catalogue: thin lines, numbered products and their details in plain sight. Every product has three photos, of itself, a close detail and in use, stored as AVIF at 160, 480 and 1200 pixels wide. Latin headings use Newsreader, bundled with the app. Chinese headings and body text use the system fonts. The interface is built with Tailwind CSS and shadcn/ui, the order list with TanStack Table, the forms with react-hook-form and zod, the charts with recharts, and the numbers tween with react-spring. The storefront is translated with i18next, and the journal is rendered with react-markdown, with code highlighted by highlight.js.
 
-It shows what a tifa app looks like: how folders are grouped by business area, how Go prepares data for pages, and how React components read that data.
+It shows what a Tifa app looks like: how folders are grouped by business area, how Go prepares data for pages, and how React components read that data.
 
 ## Run it
 

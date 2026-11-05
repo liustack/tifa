@@ -1,9 +1,9 @@
 ---
-summary: '入门教程：用 tifa new 新建应用，用 tifa dev 运行，再加一个页面、一个带字段错误的表单、Layout 数据和测试，最后构建出一个可执行文件并运行'
+summary: '入门教程：用 `tifa new` 新建应用，用 `tifa dev` 运行，再加一个页面、一个带字段错误的表单、Layout 数据和测试，最后构建出一个可执行文件并运行'
 read_when:
-  - 第一次用 tifa，想找一份带着走一遍应用的入门材料
-  - 编写或核对新用户从 tifa new 到跑起可执行文件的步骤
-  - 改 tifa new 的模板，要确认教程还对得上
+  - 第一次用 Tifa，想找一份带着走一遍应用的入门材料
+  - 编写或核对新用户从 `tifa new` 到跑起可执行文件的步骤
+  - 改 `tifa new` 的模板，要确认教程还对得上
 ---
 
 [English](tutorial.md) · 简体中文
@@ -23,7 +23,7 @@ go mod tidy
 pnpm install
 ```
 
-`tifa new` 只写文件，并打印后续步骤。请保持 `tutorial-app` 这个名字，因为下面的代码会导入 `tutorial-app/app/todos`。目录名就是模块路径，根包叫 `tutorialapp`。像 `todos` 这样的名字会被拒绝，因为应用会导入同名的包。详见 [tifa new](build.zh-CN.md#tifa-new)。
+`tifa new` 只写文件，并打印后续步骤。请保持 `tutorial-app` 这个名字，因为下面的代码会导入 `tutorial-app/app/todos`。目录名就是模块路径，根包叫 `tutorialapp`。像 `todos` 这样的名字会被拒绝，因为应用会导入同名的包。详见 [`tifa new`](build.zh-CN.md#tifa-new)。
 
 ## 2. 运行并四处看看
 
@@ -76,7 +76,7 @@ tifa dev: 19:57:44 ready in 804ms
       await router.invalidate({ sync: true })
 ```
 
-这是要记住的规则：tifa 在写入之后不会自己重新加载页面数据，要由页面来要求。没有这一行，待办虽然保存了，列表却要刷新页面才会更新。`router.invalidate` 用一次请求把当前页面和它的各层 Layout 的数据重新加载，`sync: true` 会等到页面显示了新数据再返回。`/todos/1` 上标记完成的按钮也是这样做的。以后你加的每个写入操作都要有同样的一行。详见[在浏览器里调用方法函数](app.zh-CN.md#在浏览器里调用方法函数)。
+这是要记住的规则：Tifa 在写入之后不会自己重新加载页面数据，要由页面来要求。没有这一行，待办虽然保存了，列表却要刷新页面才会更新。`router.invalidate` 用一次请求把当前页面和它的各层 Layout 的数据重新加载，`sync: true` 会等到页面显示了新数据再返回。`/todos/1` 上标记完成的按钮也是这样做的。以后你加的每个写入操作都要有同样的一行。详见[在浏览器里调用方法函数](app.zh-CN.md#在浏览器里调用方法函数)。
 
 ## 3. 加一个页面
 
@@ -206,7 +206,7 @@ func (in AddInput) Validate() error {
 }
 ```
 
-方法函数在 `Ctx` 之后可以带一个有类型的输入。输入类型有 `Validate` 方法时，tifa 会在处理函数之前运行它，`tifa.Fields` 会变成 422 响应，每个字段一条消息，字段名取自 `json` 标签。在 `app/todos/todo+/route.go` 里加一个 `PATCH`：
+方法函数在 `Ctx` 之后可以带一个有类型的输入。输入类型有 `Validate` 方法时，Tifa 会在处理函数之前运行它，`tifa.Fields` 会变成 422 响应，每个字段一条消息，字段名取自 `json` 标签。在 `app/todos/todo+/route.go` 里加一个 `PATCH`：
 
 ```go
 // RenameInput is the body of PATCH.

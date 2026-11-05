@@ -41,7 +41,7 @@ When a domain grows, split its code into more files in the same folder (`order.g
 
 ## Which way imports go
 
-Go refuses import cycles. In a tifa app:
+Go refuses import cycles. In a Tifa app:
 
 - Pages import domains, and may import the package of a Layout above them for `tifa.Use(c, project.Layout)`.
 - A domain may import another domain that does not depend on it. If `projects` imports `orders`, then `orders` cannot import `projects`.

@@ -1,11 +1,11 @@
 ---
-summary: '怎么把构建好的 tifa 程序放到服务器上：为 Linux 构建、带着设置和数据目录运行、干净地停掉、在 systemd 下重启时不拒绝连接也不让用户登出、容器、端口和 HTTPS、前面有 CDN 或代理时要设什么（Host 和 Origin、压缩、缓存哪些回答），健康检查路由，用 tifa.Stats 给 Prometheus 出指标以及该看哪些数，以及部署时已经打开的页面会怎样'
+summary: '怎么把构建好的 Tifa 程序放到服务器上：为 Linux 构建、带着设置和数据目录运行、干净地停掉、在 systemd 下重启时不拒绝连接也不让用户登出、容器、端口和 HTTPS、前面有 CDN 或代理时要设什么（Host 和 Origin、压缩、缓存哪些回答），健康检查路由，用 tifa.Stats 给 Prometheus 出指标以及该看哪些数，以及部署时已经打开的页面会怎样'
 read_when:
-  - 第一次把 tifa 应用放到 VPS 或容器里
-  - 在 tifa 应用前面放 CDN 或反向代理，比如 nginx、Cloudflare、CloudFront
+  - 第一次把 Tifa 应用放到 VPS 或容器里
+  - 在 Tifa 应用前面放 CDN 或反向代理，比如 nginx、Cloudflare、CloudFront
   - POST 只在代理后面报 403 和 `cross-origin request detected`
   - 部署之后页面显示旧内容，或者缺脚本
-  - 想知道 tifa 应用的 systemd unit 或 Dockerfile 需要什么
+  - 想知道 Tifa 应用的 systemd unit 或 Dockerfile 需要什么
   - 每次部署访客都会连不上，或者被登出
   - 给负载均衡器、容器或 Kubernetes 加健康检查
   - 用 Prometheus 或别的监控系统看 VM 池和缓存，或者据此判断机器要不要加 CPU、`cache.size` 要不要调大
@@ -15,7 +15,7 @@ read_when:
 
 # 部署
 
-一个 tifa 应用就是一个可执行文件。服务器上只需要这个文件、环境变量里的设置，和一个能写数据的目录。不需要 Node，不需要进程管理器，也不需要 Redis。默认的会话存储放在内存里，所以要跑不止一份程序时，给它一个[自己写的存储](sessions.zh-CN.md#会话存在哪)。
+一个 Tifa 应用就是一个可执行文件。服务器上只需要这个文件、环境变量里的设置，和一个能写数据的目录。不需要 Node，不需要进程管理器，也不需要 Redis。默认的会话存储放在内存里，所以要跑不止一份程序时，给它一个[自己写的存储](sessions.zh-CN.md#会话存在哪)。
 
 ## 为服务器构建
 
@@ -126,7 +126,7 @@ WantedBy=sockets.target
 ## 在 CDN 或代理后面
 
 - **Host 和 Origin。** 把 `Host` 和 `Origin` 原样传过去，保持浏览器发来的样子。程序靠比较它们来拒绝浏览器从别的站点发来的写请求，改写 `Host` 的代理会让你自己的表单看起来像外站的（403 和 `cross-origin request detected`）。见[跨站写请求](config.zh-CN.md#跨站写请求)。
-- **访客地址。** tifa 不读 `Forwarded` 和 `X-Forwarded-For`。`c.Request().RemoteAddr` 是代理的地址。`OnRequest` 需要访客地址时，读你自己的代理设的头，并且只在请求确实来自那个代理时才信它。
+- **访客地址。** Tifa 不读 `Forwarded` 和 `X-Forwarded-For`。`c.Request().RemoteAddr` 是代理的地址。`OnRequest` 需要访客地址时，读你自己的代理设的头，并且只在请求确实来自那个代理时才信它。
 - **压缩。** 程序自己压缩文本回答。CDN 或代理也压缩时（比如 brotli），把 `server.compress` 设成 `false`。CloudFront、Cloudflare 和 Google Cloud CDN 都不会动已经带 `Content-Encoding` 的回答。见[压缩](build.zh-CN.md#压缩)。
 - **缓存。** 页面、导航数据和处理函数的回答默认是 `private, no-cache`，所以 CDN 不会存它们。保持这样。让 CDN 缓存这些：
   - `/assets/`：带内容哈希，`public, max-age=31536000, immutable`。
@@ -137,7 +137,7 @@ WantedBy=sockets.target
 - **别缓存 `/__tifa/session`。** 它按访客回答，是 `private, no-store`。
 - **别自己在其他页面上设 `Cache-Control: public`**，也别在回答页面 URL 的处理函数上设。带用户数据的页面默认就是安全的。
 - **走 HTTPS 时，压缩可能通过回答的长度泄漏秘密**（BREACH）：回答里重复了请求里的东西，同时又带着 CSRF token 之类的秘密。给这样的回答设 `No-Gzip-Compression` 头，或者关掉 `server.compress`。
-- **开了 `server.csp` 时，CDN 写进页面的脚本不会运行。** 它的哈希不在 tifa 随页面发出的策略里。关掉会改动 HTML 的功能，比如 Cloudflare 的 Rocket Loader 和 Email Address Obfuscation。见 [Content-Security-Policy](config.zh-CN.md#content-security-policy)。
+- **开了 `server.csp` 时，CDN 写进页面的脚本不会运行。** 它的哈希不在 Tifa 随页面发出的策略里。关掉会改动 HTML 的功能，比如 Cloudflare 的 Rocket Loader 和 Email Address Obfuscation。见 [Content-Security-Policy](config.zh-CN.md#content-security-policy)。
 
 ### CDN 设置
 
@@ -170,7 +170,7 @@ WantedBy=sockets.target
 
 ## 健康检查和指标
 
-tifa 自己没有健康检查路由，也没有指标路由。需要哪个，就写成 API 路由。
+Tifa 自己没有健康检查路由，也没有指标路由。需要哪个，就写成 API 路由。
 
 ### 健康检查
 

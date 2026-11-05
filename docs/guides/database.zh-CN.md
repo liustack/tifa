@@ -1,7 +1,7 @@
 ---
-summary: '怎么在 tifa 应用里用 SQLite 存数据：纯 Go 驱动、在 OnStart 里打开数据库、文件放哪以及怎么设路径、用启动时执行的编号迁移改表、在 Load 和处理函数里使用、事务、备份、用临时数据库测试，以及什么时候换 Postgres'
+summary: '怎么在 Tifa 应用里用 SQLite 存数据：纯 Go 驱动、在 OnStart 里打开数据库、文件放哪以及怎么设路径、用启动时执行的编号迁移改表、在 Load 和处理函数里使用、事务、备份、用临时数据库测试，以及什么时候换 Postgres'
 read_when:
-  - 给 tifa 应用加数据库，或扩展 tifa new 写好的那一个
+  - 给 Tifa 应用加数据库，或扩展 `tifa new` 写好的那一个
   - 要改一个已经在运行的应用的表
   - 在 SQLite 和 Postgres 之间做选择
   - 给读写数据库的代码写 Go 测试
@@ -11,7 +11,7 @@ read_when:
 
 # 用 SQLite 存数据
 
-tifa 没有数据库层。应用在 `OnStart` 里打开数据库，用 `database/sql` 使用它，和任何 Go 程序一样。这篇从 [`tifa new`](../build.zh-CN.md#tifa-new) 写好的 SQLite 配置出发，补上真实应用接下来要用的东西：文件路径的设置、迁移、事务、备份和测试。
+Tifa 没有数据库层。应用在 `OnStart` 里打开数据库，用 `database/sql` 使用它，和任何 Go 程序一样。这篇从 [`tifa new`](../build.zh-CN.md#tifa-new) 写好的 SQLite 配置出发，补上真实应用接下来要用的东西：文件路径的设置、迁移、事务、备份和测试。
 
 代码来自用 `tifa new` 生成的试验应用，模块名 `example.com/notes`。文件该放哪，见[应用的代码结构](../structure.zh-CN.md#2-共享资源和其他依赖)。
 

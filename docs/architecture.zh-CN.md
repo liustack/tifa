@@ -1,22 +1,22 @@
 ---
-summary: 'tifa 的内部怎么工作：每个包管什么、一个请求从 HTTP 到 HTML 的路径和浏览器里一次导航的路径、tifa build 和 tifa dev 一步步做什么、JavaScript VM 池怎么保持健康、渲染缓存和整页缓存怎么配合'
+summary: 'Tifa 的内部怎么工作：每个包管什么、一个请求从 HTTP 到 HTML 的路径和浏览器里一次导航的路径、`tifa build` 和 `tifa dev` 一步步做什么、JavaScript VM 池怎么保持健康、渲染缓存和整页缓存怎么配合'
 read_when:
-  - 开始改 tifa 本身，想找某个行为归哪个包管
+  - 开始改 Tifa 本身，想找某个行为归哪个包管
   - 在代码里追一个请求、一次渲染或一次缓存命中
-  - 改请求、tifa build 或 tifa dev 里步骤的顺序
+  - 改请求、`tifa build` 或 `tifa dev` 里步骤的顺序
   - 改 internal/ssr、渲染缓存或整页缓存
   - 想知道一个页面为什么慢、为什么旧、为什么渲染了两次
 ---
 
 [English](architecture.md) · 简体中文
 
-# tifa 的内部怎么工作
+# Tifa 的内部怎么工作
 
-这一页写给想弄懂 tifa 或者想改它的人。想写应用，先看[应用怎么写](app.zh-CN.md)。图按顺序画出每一步，并写明每一步由哪个包做。
+这一页写给想弄懂 Tifa 或者想改它的人。想写应用，先看[应用怎么写](app.zh-CN.md)。图按顺序画出每一步，并写明每一步由哪个包做。
 
 ## 各个部分
 
-构建好的 tifa 应用是一个可执行文件。里面由 Go 回答每个请求，只有把数据变成 HTML 时才调用 JavaScript。
+构建好的 Tifa 应用是一个可执行文件。里面由 Go 回答每个请求，只有把数据变成 HTML 时才调用 JavaScript。
 
 ```mermaid
 flowchart LR
@@ -118,7 +118,7 @@ sequenceDiagram
 
 数字在 URL 的链上每个 `Load` 或 `Layout` 占一位，`1` 表示要这一个。Router 手里还有的数据不会再要。如果 `_tifa` 里的 build 不是服务器的 build，服务器回答 409，浏览器把页面重载一次。见[数据协议](build.zh-CN.md#数据协议)。
 
-## tifa build 做什么
+## `tifa build` 做什么
 
 `tifa build`（`cmd/tifa/build.go`）跑四步。哪一步都不会运行应用的 Go 代码。
 
@@ -135,12 +135,12 @@ flowchart LR
 
 1. **分析。** `analyze.Analyze` 用 `golang.org/x/tools/go/packages` 加载应用并做类型检查，从语法树和类型里读出约定：目录、`Load`、`Layout` 和处理函数的签名、常量、钩子、会话类型、`content.go`。它收集所有违反规则的地方，带着 `file:line` 一起打印。静态分析只读不写，所以分析失败不会留下 `.tifa/`。
 2. **生成。** `codegen.Generate` 把清单变成 `.tifa/` 里的文件：`main.go`（调用 `server.Main`）和 `tifaapp/app.go`（main 和应用测试共用的应用表），这是 Go 一侧，以及 `routes.tsx`、各个 `route.gen.ts` 模块、`server.ts` 和 `client.ts`（TypeScript 一侧）。同样的清单得到同样的字节，所以没变的文件不会重写。
-3. **打包。** `bundle.App` 启动一个 Node 进程，用 `js/vite` 里的 tifa 插件跑应用自己的 Vite。它先构建浏览器 bundle（按路由拆分，带内容哈希，附 `.gz` 文件），再构建 SSR bundle `ssr.js`，后者知道浏览器 bundle 的标签。它还复制 `public/`，写出带 build ID 的 `build.json`。没有页面的应用跳过这一步，也不需要 Node。
+3. **打包。** `bundle.App` 启动一个 Node 进程，用 `js/vite` 里的 Tifa 插件跑应用自己的 Vite。它先构建浏览器 bundle（按路由拆分，带内容哈希，附 `.gz` 文件），再构建 SSR bundle `ssr.js`，后者知道浏览器 bundle 的标签。它还复制 `public/`，写出带 build ID 的 `build.json`。没有页面的应用跳过这一步，也不需要 Node。
 4. **go build。** `CGO_ENABLED=0 go build` 编译 `.tifa/`，用 `//go:embed` 把 `dist/` 嵌进去。
 
 每个程序启动时把 `ssr.js` 编译成字节码，只做一次，每个 VM 都加载这份字节码（`ssr.NewPool`）。
 
-## tifa dev 做什么
+## `tifa dev` 做什么
 
 `tifa dev` 跑同样的四步，但在两次改动之间让各个部分一直运行。
 
@@ -160,10 +160,10 @@ flowchart TD
 ```
 
 - 浏览器只和代理说话。代理把模块和热更新请求交给 Vite，其余都交给应用。
-- 前端改动通过 Vite 更新已打开的页面。tifa dev 同时重建 `ssr.js`，正在运行的应用原地加载它，不用重启，所以 `OnStart` 不会再运行。
+- 前端改动通过 Vite 更新已打开的页面。`tifa dev` 同时重建 `ssr.js`，正在运行的应用原地加载它，不用重启，所以 `OnStart` 不会再运行。
 - Go 改动或路由变化会跑它需要的那些步骤，然后重启应用。路由清单有没有变，由 `.tifa/` 的内容决定，所以只改函数体会跳过生成和打包。
 - 某一步失败时，正在运行的应用保持不变，错误显示在终端和页面上。`tifa errors` 打印同样的错误。
-- `tifa dev` 里的应用会随 tifa dev 一起结束，因为它在读一个 tifa dev 持有的管道（`--lifeline-fd`）。
+- `tifa dev` 里的应用会随 `tifa dev` 一起结束，因为它在读一个 `tifa dev` 持有的管道（`--lifeline-fd`）。
 
 完整的改动和步骤对照表在[改动触发什么](dev.zh-CN.md#改动触发什么)。
 
@@ -220,4 +220,4 @@ flowchart TD
 - `tifa.ExpirePages` 把它收到的路径的条目标成过期，不管 Host、协议和查询串，并把这些路径正在进行的生成从共享的生成里拿掉，这样它们在调用之前读到的东西不会存下（`expirePaths`）。过期的条目仍可以在生成失败时顶上。
 - `tifa.Stats` 读出 VM 池和两个缓存的计数。渲染和缓存查找用原子计数，不加新锁。
 
-给应用的规则在 [SSR 与缓存](app.zh-CN.md#ssr-与缓存)和[整页缓存](app.zh-CN.md#整页缓存)里。tifa 在每种情况下发出的回答见[页面请求](build.zh-CN.md#页面请求)。
+给应用的规则在 [SSR 与缓存](app.zh-CN.md#ssr-与缓存)和[整页缓存](app.zh-CN.md#整页缓存)里。Tifa 在每种情况下发出的回答见[页面请求](build.zh-CN.md#页面请求)。

@@ -9,7 +9,7 @@ versions: 'quickjs v0.26.16 to v0.27.0 and quickjs v0.28.4, Go 1.27.2, the examp
 
 # Costs of server changes
 
-[Performance](../performance.md) gives the current numbers. This study keeps the measurements made when each change landed, against the build before it, with the versions of that day. All of them are from the engine before quickjs v0.29 (the C engine), so the times differ now, but each section is about tifa's own server code, which still works as measured.
+[Performance](../performance.md) gives the current numbers. This study keeps the measurements made when each change landed, against the build before it, with the versions of that day. All of them are from the engine before quickjs v0.29 (the C engine), so the times differ now, but each section is about Tifa's own server code, which still works as measured.
 
 ## Bounded render queue
 

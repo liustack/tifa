@@ -1,9 +1,9 @@
 ---
-summary: 'How to do work outside a request in a tifa app: goroutines started in OnStart that stop cleanly with OnShutdown, what tifa does when it is told to stop, tasks that run on a timer, a jobs table in SQLite for work that must survive a restart and be retried, and what not to do inside a request'
+summary: 'How to do work outside a request in a Tifa app: goroutines started in OnStart that stop cleanly with OnShutdown, what Tifa does when it is told to stop, tasks that run on a timer, a jobs table in SQLite for work that must survive a restart and be retried, and what not to do inside a request'
 read_when:
   - Sending mail, calling a slow service or doing any work that should not make a visitor wait
-  - Running something every minute, hour or day in a tifa app
-  - Starting a goroutine in a tifa app and wanting it to stop cleanly on deploy
+  - Running something every minute, hour or day in a Tifa app
+  - Starting a goroutine in a Tifa app and wanting it to stop cleanly on deploy
   - Work must not be lost when the program restarts, and a failure must be tried again
 ---
 
@@ -11,7 +11,7 @@ English · [简体中文](jobs.zh-CN.md)
 
 # Background work
 
-A tifa app is one program, so background work is a goroutine of that program. There is no queue service to run. The app starts its goroutines in `OnStart` and stops them in `OnShutdown`, like any other shared resource ([Structuring an app](../structure.md#2-shared-resources-and-other-dependencies)).
+A Tifa app is one program, so background work is a goroutine of that program. There is no queue service to run. The app starts its goroutines in `OnStart` and stops them in `OnShutdown`, like any other shared resource ([Structuring an app](../structure.md#2-shared-resources-and-other-dependencies)).
 
 There are three cases, and each one needs a little more than the one before:
 
@@ -21,7 +21,7 @@ There are three cases, and each one needs a little more than the one before:
 
 The code is from a scratch app made with `tifa new` (module `example.com/notes`) that keeps its data as in [Keeping data in SQLite](database.md). The jobs table is in the same database file, so a job can be saved in the same transaction as the change that needs it.
 
-## What tifa does when it stops
+## What Tifa does when it stops
 
 On SIGINT or SIGTERM (a deploy, Ctrl-C), in this order ([`server.shutdown_timeout`](../config.md#settings) is 10 seconds by default):
 
@@ -29,10 +29,10 @@ On SIGINT or SIGTERM (a deploy, Ctrl-C), in this order ([`server.shutdown_timeou
 2. If some are still running, it cancels their contexts and waits up to `shutdown_timeout` again.
 3. It calls `OnShutdown`, which gets a context with its own `shutdown_timeout`. If a request never returned, `OnShutdown` is skipped, and the program exits with an error.
 
-tifa knows nothing of the goroutines you start. Two things follow:
+Tifa knows nothing of the goroutines you start. Two things follow:
 
 - **Stop them yourself.** Start them with a context of their own and cancel it in `OnShutdown`. The context `OnStart` receives stays valid, but it is done as soon as the stop signal comes, while the last requests are still running (see [hooks.go](../app.md#hooksgo)). A goroutine on its own context keeps working while those requests finish, and one of them may still queue a job.
-- **Catch their panics.** tifa turns a panic in a request into a 500 and goes on. A panic in your own goroutine ends the whole program. Every loop below recovers.
+- **Catch their panics.** Tifa turns a panic in a request into a 500 and goes on. A panic in your own goroutine ends the whole program. Every loop below recovers.
 
 ## The pieces
 

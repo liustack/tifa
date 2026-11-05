@@ -49,7 +49,7 @@ export function Error({ error }: { error: unknown }) {
 | The URL matches no page | The first `Error` going up from the deepest Layout the URL matches, inside that Layout |
 | No route has an `Error` | The framework's default 404 page |
 
-The status is 404 in every case, also after browser navigation. For a URL that matches no page, tifa compares the URL with the Layout and page paths segment by segment. A literal wins over a parameter. A page in a `name++` folder takes every URL below it, so its `Load` decides.
+The status is 404 in every case, also after browser navigation. For a URL that matches no page, Tifa compares the URL with the Layout and page paths segment by segment. A literal wins over a parameter. A page in a `name++` folder takes every URL below it, so its `Load` decides.
 
 A language or tenant segment is checked in the `Layout` of its folder. Returning `tifa.ErrNotFound` there shows the 404 of the Layout above, so unknown languages never look like valid pages (see [i18n.md](i18n.md)).
 

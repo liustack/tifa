@@ -1,8 +1,8 @@
-# Testing a tifa app
+# Testing a Tifa app
 
 Contents: the check command, testing domain code, testing route code with `tifatest`, middleware, signed-in requests, the render clock, checking the real HTML.
 
-Full docs: [app.md](https://github.com/liustack/tifa/blob/main/docs/app.md#testing). The `docs/testing.md` of the tifa repository is about developing tifa itself, not about testing an app.
+Full docs: [app.md](https://github.com/liustack/tifa/blob/main/docs/app.md#testing). The `docs/testing.md` of the Tifa repository is about developing Tifa itself, not about testing an app.
 
 ## The check command
 
@@ -10,7 +10,7 @@ Full docs: [app.md](https://github.com/liustack/tifa/blob/main/docs/app.md#testi
 go tool tifa check
 ```
 
-Run it before you finish. It runs, and stops at the first failure: the tifa analysis, the `.tifa/` generation, `go vet ./...`, `go test ./...` and the TypeScript check (`tsc --noEmit` with the app's own `typescript`). An app without pages skips the TypeScript step. The TypeScript step needs `pnpm install` (or npm) to have been run.
+Run it before you finish. It runs, and stops at the first failure: the Tifa analysis, the `.tifa/` generation, `go vet ./...`, `go test ./...` and the TypeScript check (`tsc --noEmit` with the app's own `typescript`). An app without pages skips the TypeScript step. The TypeScript step needs `pnpm install` (or npm) to have been run.
 
 For a quick Go-only loop, `go test ./...` works on its own. `tifa build` reads no `_test.go` files, so tests may sit in any folder under `app/`.
 

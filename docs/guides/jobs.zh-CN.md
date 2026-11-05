@@ -1,9 +1,9 @@
 ---
-summary: '怎么在 tifa 应用里做请求之外的工作：在 OnStart 里启动、随 OnShutdown 干净停止的 goroutine，tifa 收到停止信号时做什么，按定时器跑的任务，用 SQLite 里的 jobs 表保证重启后不丢并能重试的工作，以及请求里不该做什么'
+summary: '怎么在 Tifa 应用里做请求之外的工作：在 OnStart 里启动、随 OnShutdown 干净停止的 goroutine，Tifa 收到停止信号时做什么，按定时器跑的任务，用 SQLite 里的 jobs 表保证重启后不丢并能重试的工作，以及请求里不该做什么'
 read_when:
   - 发邮件、调用慢服务，或做任何不该让访客等的工作
-  - 在 tifa 应用里每分钟、每小时或每天跑一件事
-  - 在 tifa 应用里启动 goroutine，并希望部署时它能干净地停下
+  - 在 Tifa 应用里每分钟、每小时或每天跑一件事
+  - 在 Tifa 应用里启动 goroutine，并希望部署时它能干净地停下
   - 程序重启时工作不能丢，失败了要重试
 ---
 
@@ -11,7 +11,7 @@ read_when:
 
 # 后台任务
 
-tifa 应用是一个程序，所以后台工作就是这个程序里的 goroutine，不用另外跑队列服务。应用在 `OnStart` 里启动 goroutine，在 `OnShutdown` 里停掉它们，和别的共享资源一样（见[应用的代码结构](../structure.zh-CN.md#2-共享资源和其他依赖)）。
+Tifa 应用是一个程序，所以后台工作就是这个程序里的 goroutine，不用另外跑队列服务。应用在 `OnStart` 里启动 goroutine，在 `OnShutdown` 里停掉它们，和别的共享资源一样（见[应用的代码结构](../structure.zh-CN.md#2-共享资源和其他依赖)）。
 
 有三种情况，每一种比前一种多要一点东西：
 
@@ -21,7 +21,7 @@ tifa 应用是一个程序，所以后台工作就是这个程序里的 goroutin
 
 代码来自用 `tifa new` 生成的试验应用（模块 `example.com/notes`），数据的存法见[用 SQLite 存数据](database.zh-CN.md)。任务表在同一个数据库文件里，所以任务可以和需要它的改动在同一个事务里保存。
 
-## tifa 停止时做什么
+## Tifa 停止时做什么
 
 收到 SIGINT 或 SIGTERM（部署、Ctrl-C）后，按这个顺序（[`server.shutdown_timeout`](../config.zh-CN.md#配置项)默认 10 秒）：
 
@@ -29,10 +29,10 @@ tifa 应用是一个程序，所以后台工作就是这个程序里的 goroutin
 2. 如果还有没结束的，取消它们的 context，再等最多一个 `shutdown_timeout`。
 3. 调用 `OnShutdown`，它有自己的 `shutdown_timeout`。如果有请求一直没返回，`OnShutdown` 会被跳过，程序带着错误退出。
 
-tifa 不知道你启动的 goroutine。由此得出两点：
+Tifa 不知道你启动的 goroutine。由此得出两点：
 
 - **自己停它们。** 用它们自己的 context 启动，在 `OnShutdown` 里取消。`OnStart` 收到的 context 一直有效，但停止信号一到它就结束，这时最后几个请求还在跑（见 [hooks.go](../app.zh-CN.md#hooksgo)）。goroutine 用自己的 context，在这些请求结束前继续工作，而这些请求可能还会排入任务。
-- **接住它们的 panic。** tifa 把请求里的 panic 变成 500 然后继续运行。你自己 goroutine 里的 panic 会让整个程序退出。下面每个循环都做了 recover。
+- **接住它们的 panic。** Tifa 把请求里的 panic 变成 500 然后继续运行。你自己 goroutine 里的 panic 会让整个程序退出。下面每个循环都做了 recover。
 
 ## 各个部分
 

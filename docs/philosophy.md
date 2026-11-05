@@ -1,20 +1,20 @@
 ---
-summary: 'The ideas behind how a tifa app is organized and what each one gives you: group code by domain, wire dependencies by hand, start small, do things the Go way'
+summary: 'The ideas behind how a Tifa app is organized and what each one gives you: group code by domain, wire dependencies by hand, start small, do things the Go way'
 read_when:
-  - Starting a new tifa app and wondering why it is laid out the way it is
-  - Weighing a new layer, package or helper against how tifa apps are meant to look
-  - Changing the conventions of tifa, its docs, examples/shop or the tifa new template
+  - Starting a new Tifa app and wondering why it is laid out the way it is
+  - Weighing a new layer, package or helper against how Tifa apps are meant to look
+  - Changing the conventions of Tifa, its docs, examples/shop or the `tifa new` template
 ---
 
 English · [简体中文](philosophy.zh-CN.md)
 
 # Philosophy
 
-A tifa app is a Go program. Four ideas decide how its code is organized. This page gives the ideas, why, and what you get from each. Where each file goes and how to set things up is in [Structuring an app](structure.md).
+A Tifa app is a Go program. Four ideas decide how its code is organized. This page gives the ideas, why, and what you get from each. Where each file goes and how to set things up is in [Structuring an app](structure.md).
 
 ## Group code by domain
 
-Code is grouped by what it is about (orders, projects, customers), not by what kind of code it is. This follows [organizing by component](https://developer20.com/how-to-structure-go-code/): a component holds everything it needs, its storage, its HTTP handling and its business model. In tifa the folders under `app/` are already the URLs, and the URLs already follow the business, so a domain is a folder under `app/`, with its code next to the pages that show it. No package collects one kind of code from every domain.
+Code is grouped by what it is about (orders, projects, customers), not by what kind of code it is. This follows [organizing by component](https://developer20.com/how-to-structure-go-code/): a component holds everything it needs, its storage, its HTTP handling and its business model. In Tifa the folders under `app/` are already the URLs, and the URLs already follow the business, so a domain is a folder under `app/`, with its code next to the pages that show it. No package collects one kind of code from every domain.
 
 What you get:
 
@@ -44,7 +44,7 @@ What you get:
 
 ## Do things the Go way
 
-- **Little magic.** The conventions are folder names and a few function and constant names. Everything else is plain Go, and the code tifa generates is Go and TypeScript you can read.
+- **Little magic.** The conventions are folder names and a few function and constant names. Everything else is plain Go, and the code Tifa generates is Go and TypeScript you can read.
 - **The build only reads your code.** `tifa build` analyzes the source and never runs it: an `init()` of the app does not run during the build.
 - **Platform differences use Go's build constraints.** The build picks files for the target platform the way the go command does.
 - **Pure Go.** The app builds with `CGO_ENABLED=0` into one executable.

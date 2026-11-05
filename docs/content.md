@@ -1,7 +1,7 @@
 ---
-summary: 'How an app keeps posts, docs and other writing as Markdown files under content/ and reads them in Go: declaring a collection in content.go, which files are entries, IDs, slugs, paths and translations, the front matter keys a schema struct allows, how the body becomes HTML (the steps, remark and rehype plugins, images and links, headings) and how a page shows it, drafts and entries that come out at their date, what tifa dev does, what tifa build writes, how to read content in tests, and the errors and warnings'
+summary: 'How an app keeps posts, docs and other writing as Markdown files under content/ and reads them in Go: declaring a collection in content.go, which files are entries, IDs, slugs, paths and translations, the front matter keys a schema struct allows, how the body becomes HTML (the steps, remark and rehype plugins, images and links, headings) and how a page shows it, drafts and entries that come out at their date, what `tifa dev` does, what `tifa build` writes, how to read content in tests, and the errors and warnings'
 read_when:
-  - Adding a blog, docs or other Markdown content to a tifa app
+  - Adding a blog, docs or other Markdown content to a Tifa app
   - Writing or changing content.go, or a schema type that embeds content.Entry
   - The build reports an error about content.Define, a folder under content/ or the front matter of a file
   - Showing the body of an entry with Body and <HTML>, a table of contents from Headings, or adding remark or rehype plugins to tifa() in vite.config.ts
@@ -148,7 +148,7 @@ Its keys are the `json` names of the fields of the schema struct, and the build 
 - A field is required unless it is a pointer, slice or map, or has `omitempty` or `omitzero`. This is the same rule as for optional fields in the TypeScript types of the page.
 - A key that is not a field fails the build, with the nearest field name when one is close.
 - A `yaml` tag on a field fails the build: the keys are the json names.
-- tifa reads four keys itself. They are not fields of the schema, and writing them is not an error:
+- Tifa reads four keys itself. They are not fields of the schema, and writing them is not an error:
 
 | Key | Meaning |
 | --- | --- |
@@ -157,9 +157,9 @@ Its keys are the `json` names of the fields of the schema struct, and the build 
 | `slug` | The slug, see above. |
 | `translationKey` | Links the versions of an entry in different languages. |
 
-- `id`, `lang`, `path`, `translations` and `words` are set by tifa, and writing them fails the build. A schema field with one of the json names of `content.Entry` or the name `translationKey` fails the build too.
+- `id`, `lang`, `path`, `translations` and `words` are set by Tifa, and writing them fails the build. A schema field with one of the json names of `content.Entry` or the name `translationKey` fails the build too.
 
-`content.Entry` holds what tifa sets:
+`content.Entry` holds what Tifa sets:
 
 ```go
 type Entry struct {
@@ -289,15 +289,15 @@ export default function PostPage() {
 
 ## Markdown to HTML
 
-`tifa build` turns the Markdown of every entry into HTML with [unified](https://unifiedjs.com/), in the tifa plugin of `vite.config.ts`. An app with collections installs these packages, of these major versions:
+`tifa build` turns the Markdown of every entry into HTML with [unified](https://unifiedjs.com/), in the Tifa plugin of `vite.config.ts`. An app with collections installs these packages, of these major versions:
 
 ```sh
 pnpm add -D unified@11 remark-parse@11 remark-gfm@4 remark-rehype@11 rehype-raw@7 rehype-stringify@10
 ```
 
-A missing package, or one of another major version, fails the build with the command that installs it. tifa loads them only for an app with collections.
+A missing package, or one of another major version, fails the build with the command that installs it. Tifa loads them only for an app with collections.
 
-Converting runs in Vite, so an app with entries needs `package.json` and `vite.config.ts` with the tifa plugin even without pages, as an app with only a feed or an API that writes `Body()` does. Without pages, the build converts with the plugins of `vite.config.ts` and bundles nothing. `tifa check` reads the front matter without Node.
+Converting runs in Vite, so an app with entries needs `package.json` and `vite.config.ts` with the Tifa plugin even without pages, as an app with only a feed or an API that writes `Body()` does. Without pages, the build converts with the plugins of `vite.config.ts` and bundles nothing. `tifa check` reads the front matter without Node.
 
 Each entry goes through these steps in this order:
 
@@ -339,7 +339,7 @@ export function rehypeLazyImages() {
 }
 ```
 
-- The steps of tifa cannot be turned off. To undo one, such as the links GFM makes of bare URLs, add a plugin of your own.
+- The steps of Tifa cannot be turned off. To undo one, such as the links GFM makes of bare URLs, add a plugin of your own.
 - The vfile of each entry has `file.path`, the full path of the Markdown file, and `file.data.tifa`, which is `{ collection, lang, id, frontmatter }` with the front matter as the JSON of the schema. A plugin that reads a file next to the entry finds it from `file.path`.
 - An error a plugin throws fails the build with the file, the place the plugin gives and the name of the plugin. A warning it adds is printed.
 - MDX is not supported: a body is HTML and cannot hold React components. Put components in the page.
@@ -385,11 +385,11 @@ What else changes at that moment:
 
 One request that reads a collection several times may see both sides of that moment, as it may with a row just written to a database.
 
-## tifa dev
+## `tifa dev`
 
 `tifa dev` reads the content from `.tifa/dist`, so a change under `content/` needs no go build and no restart (see [What each change triggers](dev.md#what-each-change-triggers)):
 
-- A Markdown file changed, added or removed, its body or its front matter: tifa dev scans `content/` again, converts that entry, writes `.tifa/dist/content/` and `content.json`, and the running app loads them. The app runs `Validate` on every entry and takes the new data, and a page you load after that shows it. `OnStart` does not run again, the whole-page cache expires, and open pages reload.
+- A Markdown file changed, added or removed, its body or its front matter: `tifa dev` scans `content/` again, converts that entry, writes `.tifa/dist/content/` and `content.json`, and the running app loads them. The app runs `Validate` on every entry and takes the new data, and a page you load after that shows it. `OnStart` does not run again, the whole-page cache expires, and open pages reload.
 - Another file under `content/`, such as an image: the entries in its folder are converted again, and the translations that fall back to that folder.
 - `content.go` or a schema type: the Go steps run, and every entry is converted again.
 - `vite.config.ts` or a plugin it imports: every entry is converted again once Vite's dev server restarted, or at once in an app without pages.

@@ -4,7 +4,7 @@ read_when:
   - Looking for the next rewrite of React, React DOM or a library in the Vite plugin
   - Profiling a render by JavaScript function rather than by Go function
   - Asking why a library such as react-spring or TanStack Table is slow in QuickJS
-measured: '2026-10-18 (quickjs v0.26.9, before the rewrites of that day) and 2026-10-20 (tifa 5bc3f03, quickjs v0.26.15)'
+measured: '2026-10-18 (quickjs v0.26.9, before the rewrites of that day) and 2026-10-20 (Tifa 5bc3f03, quickjs v0.26.15)'
 versions: 'React and React DOM 19.3.1 (19.3.0 in the plain text app), Node 24.13.0'
 ---
 
@@ -27,7 +27,7 @@ A Go CPU profile of a render shows engine functions such as `JS_CallInternal`, n
 
 The profile of 2026-10-20 was taken on the engine before quickjs v0.29, with hooks in its generated Go. The C engine has no such hooks yet, so repeating this needs equivalent hooks in its C code. The steps were:
 
-1. Copy the quickjs module into a scratch clone of tifa and point `go.mod` at it with a `replace`.
+1. Copy the quickjs module into a scratch clone of Tifa and point `go.mod` at it with a `replace`.
 2. Add hooks in the generated Go of the engine:
    - in `js_poll_interrupts`, which every jump and call passes through,
    - at the entry and every exit of `JS_CallInternal`,
@@ -162,9 +162,9 @@ The final numbers of each rewrite, measured on the merged code, are in [Performa
 
 - **The ratio falls as the engine gets faster in general.** Between the two profiles the engine got faster, and the ratios of `pushComponentStack` and `getComponentNameFromType` fell. `push(chunk)` at 10.1 times is gone, since the plugin joins chunks. `createHook`, which makes an object literal of 3 properties, is still 10 to 12 times, at 0.9%. The shares stayed about the same because all functions got faster together.
 - **Inlining a call does not help.** Keeping component stacks but inlining `pushComponentStack`, or inlining `getComponentNameFromType`, stayed within 1%. The cost is in making the objects and strings and in property lookups that miss, not in the call.
-- **React writes nothing it needs from component stacks.** In React 19's production server renderer, the component stack is read only for the second argument of `onError`, and tifa's `onError` passes only the error. Component names in key paths are read only for resuming and for `useActionState` with server actions, which `renderToString` and tifa do not have. So both could go.
+- **React writes nothing it needs from component stacks.** In React 19's production server renderer, the component stack is read only for the second argument of `onError`, and Tifa's `onError` passes only the error. Component names in key paths are read only for resuming and for `useActionState` with server actions, which `renderToString` and Tifa do not have. So both could go.
 
-## What it means for tifa
+## What it means for Tifa
 
 - Done: the seven rewrites above, each with tests that compare HTML against a React DOM the plugin cannot change.
 - Not done in the plugin: react-spring's regular expression and TanStack Table's spread. Rewriting them would tie the plugin to how two libraries are written. Both go to the engine, where every library that writes code this way gains.

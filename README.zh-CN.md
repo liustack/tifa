@@ -1,4 +1,4 @@
-<h1 align="center">tifa</h1>
+<h1 align="center">Tifa</h1>
 
 <p align="center"><b>The full-stack framework for Gophers.</b></p>
 
@@ -24,9 +24,9 @@
 
 适合这样的 Go 开发者：业务逻辑和数据都在 Go 里，页面想用 React 生态来写，又不想为了服务端渲染在生产环境多养一个 Node 服务。
 
-> tifa 还在非常早期的阶段，接口会变，很多编译器优化还没做。
+> Tifa 还在非常早期的阶段，接口会变，很多编译器优化还没做。
 
-## 为什么有 tifa
+## 为什么有 Tifa
 
 说真的，我都不知道怎么定义这个东西。叫它没有 Node.js 运行时的 React SSR 框架，还是用 Go 写后端的 React SSR 框架？听起来都挺神经的。它是一个基于 Go、纯 Go 版 QuickJS 和 TanStack Router 实现的全栈框架。
 
@@ -34,9 +34,9 @@
 
 然后发现这些东西根本跑不起来，准确说是卡成狗。
 
-所以我开始糊 tifa 这个轮子。理论上糊完以后，我只需要在 VPS 上部署一个 Go 二进制文件就完了。
+所以我开始糊 Tifa 这个轮子。理论上糊完以后，我只需要在 VPS 上部署一个 Go 二进制文件就完了。
 
-| 在 1 核 1G 的 VPS 上 | 常见的一套 | 用 tifa |
+| 在 1 核 1G 的 VPS 上 | 常见的一套 | 用 Tifa |
 | :-- | :-- | :-- |
 | 反向代理与证书 | nginx + certbot | 程序里的 Go HTTP 服务器，自己申请 Let's Encrypt 证书，支持 HTTP/2 |
 | 运行时与进程管理 | Node.js + PM2 | 一个 Go 可执行文件 |
@@ -116,7 +116,7 @@ go tool tifa build
 
 ## 配合编程 agent 使用
 
-[skills/tifa](skills/tifa) 是给 Claude Code 用的 agent skill。它告诉 agent 一个 tifa 应用怎么组织、哪些写法会被构建或服务端渲染拒绝，以及怎么测试和部署。把这个文件夹复制到项目的 `.claude/skills/` 下（想让所有项目都能用，就复制到 `~/.claude/skills/`）：
+[skills/tifa](skills/tifa) 是给 Claude Code 用的 agent skill。它告诉 agent 一个 Tifa 应用怎么组织、哪些写法会被构建或服务端渲染拒绝，以及怎么测试和部署。把这个文件夹复制到项目的 `.claude/skills/` 下（想让所有项目都能用，就复制到 `~/.claude/skills/`）：
 
 ```sh
 git clone --depth 1 https://github.com/liustack/tifa.git tifa-src
@@ -129,9 +129,9 @@ mkdir -p .claude/skills && cp -r tifa-src/skills/tifa .claude/skills/tifa
 
 | 文档 | 什么时候读 |
 | :-- | :-- |
-| [教程](docs/tutorial.zh-CN.md) | 第一次用 tifa，想从第一个目录做到一个能跑的小应用 |
+| [教程](docs/tutorial.zh-CN.md) | 第一次用 Tifa，想从第一个目录做到一个能跑的小应用 |
 | 做法：[表单](docs/guides/forms.zh-CN.md)、[上传](docs/guides/uploads.zh-CN.md)、[登录](docs/guides/sign-in.zh-CN.md)、[数据库](docs/guides/database.zh-CN.md)、[后台任务](docs/guides/jobs.zh-CN.md)、[邮件](docs/guides/email.zh-CN.md)、[多语言](docs/guides/i18n.zh-CN.md)、[流式输出](docs/guides/streaming.zh-CN.md) | 要加一个常见功能，想要一套实测过的写法 |
-| [哲学](docs/philosophy.zh-CN.md) | 想知道 tifa 应用为什么这样组织 |
+| [哲学](docs/philosophy.zh-CN.md) | 想知道 Tifa 应用为什么这样组织 |
 | [应用的代码结构](docs/structure.zh-CN.md) | 决定领域代码、存储和共享资源放在哪，包之间按什么方向 import |
 | [应用怎么写](docs/app.zh-CN.md) | 安排目录、路由、Layout、钩子、404、head 标签和缓存 |
 | [会话](docs/sessions.zh-CN.md) | 让用户登录登出，把会话放到 Redis 或 SQL，或者在页面里显示谁登录了 |
@@ -143,11 +143,11 @@ mkdir -p .claude/skills && cp -r tifa-src/skills/tifa .claude/skills/tifa
 | [内部结构](docs/architecture.zh-CN.md) | 想知道请求、`tifa build`、`tifa dev`、VM 池和缓存在内部是怎么工作的 |
 | [性能](docs/performance.zh-CN.md) | 想知道一台小 VPS 扛不扛得住你的流量 |
 | [研究报告](docs/studies/README.md) | 想看某个数字背后完整的方法和数据，或者某个想法有没有人试过（英文） |
-| [测试](docs/testing.md) | 参与 tifa 本身的开发（英文） |
+| [测试](docs/testing.md) | 参与 Tifa 本身的开发（英文） |
 
 ## 联系我们
 
-随时欢迎提 issue：[新建一个](https://github.com/liustack/tifa/issues/new)。用它做了什么、哪里不好用、下一步该做什么，都可以说。推荐你关注公众号 liustack，也欢迎你来 X 上聊：**[@liustack](https://x.com/liustack)**。tifa 有什么变化、接下来做什么，都会在公众号和 X 同步更新。
+随时欢迎提 issue：[新建一个](https://github.com/liustack/tifa/issues/new)。用它做了什么、哪里不好用、下一步该做什么，都可以说。推荐你关注公众号 liustack，也欢迎你来 X 上聊：**[@liustack](https://x.com/liustack)**。Tifa 有什么变化、接下来做什么，都会在公众号和 X 同步更新。
 
 关注微信公众号「liustack」：AI 创业机会、独立开发见解、AI 实战与工具，第一时间推送。微信扫码，或搜一搜「liustack」：
 
@@ -157,7 +157,7 @@ mkdir -p .claude/skills && cp -r tifa-src/skills/tifa .claude/skills/tifa
 
 ## 参与贡献
 
-tifa 不接受 pull request。这类框架同时牵动编译器、打包、服务端渲染和开发体验，改一处会牵动别处，做对需要大量上下文，所以每一行都由作者一个人写和审。可以这样帮忙：
+Tifa 不接受 pull request。这类框架同时牵动编译器、打包、服务端渲染和开发体验，改一处会牵动别处，做对需要大量上下文，所以每一行都由作者一个人写和审。可以这样帮忙：
 
 - **[提 issue](https://github.com/liustack/tifa/issues)。** bug、想法、看不懂的报错、写得不清楚的文档。一个带复现步骤的清楚 issue 比一个补丁更有用，issue 决定接下来做什么。
 - **fork 它。** 按 MIT 许可，你的副本随你改、随你发布。
@@ -174,4 +174,4 @@ tifa 不接受 pull request。这类框架同时牵动编译器、打包、服�
 
 ## 许可证
 
-[MIT](LICENSE)。用 tifa 构建的程序嵌入了来自 Unicode CLDR、ICU 和 go-intl 的语言数据和时区数据，分发程序时要附上它们的声明，见 [docs/build.zh-CN.md](docs/build.zh-CN.md#要随程序附带的声明)。
+[MIT](LICENSE)。用 Tifa 构建的程序嵌入了来自 Unicode CLDR、ICU 和 go-intl 的语言数据和时区数据，分发程序时要附上它们的声明，见 [docs/build.zh-CN.md](docs/build.zh-CN.md#要随程序附带的声明)。

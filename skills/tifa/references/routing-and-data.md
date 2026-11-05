@@ -125,12 +125,12 @@ Request-scoped values (the signed-in user) ride on the standard context: `OnRequ
 
 ## What Load and Layout may do with Ctx
 
-At build time tifa reads `Load`, `Layout` and the module functions they call, to find which path parameters, query parameters and Layouts each page depends on. That decides when the browser must fetch data again. So:
+At build time Tifa reads `Load`, `Layout` and the module functions they call, to find which path parameters, query parameters and Layouts each page depends on. That decides when the browser must fetch data again. So:
 
 - Pass `c.Param`, `c.Query` and `c.QueryValues` a constant string: `c.Param("order")`. A variable name fails the build.
 - Call them and `tifa.Use` directly. Storing the method in a variable or passing it as a value fails.
 - Do not call `c.Request()`, `c.Writer()`, `c.Bind` or `c.BindQuery`. Read each query value with `c.Query("name")`. A body does not exist in a page load.
-- `*tifa.Ctx` may be passed to a plain (non-generic) function of this module or of tifa, or used for a direct method call. Converting it, returning it, putting it in a slice, map or channel, assigning to an existing variable, `go` or `defer` with it, passing it to an interface, a function variable, a generic function or a library function all fail the build, and the error names the file and line.
+- `*tifa.Ctx` may be passed to a plain (non-generic) function of this module or of Tifa, or used for a direct method call. Converting it, returning it, putting it in a slice, map or channel, assigning to an existing variable, `go` or `defer` with it, passing it to an interface, a function variable, a generic function or a library function all fail the build, and the error names the file and line.
 - If a helper needs only the context, pass `c.Context()`.
 
 ```go
@@ -206,7 +206,7 @@ func POST(c *tifa.Ctx, in AddInput) error {
 
 ## JSON rules
 
-What `Load`, `Layout` and handlers return or take travels as JSON, and tifa writes TypeScript types from the Go types. Only these types are accepted:
+What `Load`, `Layout` and handlers return or take travels as JSON, and Tifa writes TypeScript types from the Go types. Only these types are accepted:
 
 | Go | TypeScript |
 | --- | --- |
@@ -225,7 +225,7 @@ What `Load`, `Layout` and handlers return or take travels as JSON, and tifa writ
 - Embedded exported structs without a json name are flattened. Unexported embedded fields are not accepted.
 - Tags: `omitempty`, `omitzero` and `string` are the only options. `omitempty` or `omitzero` make the field optional in TypeScript. `omitempty` leaves out only `null`, `""`, `[]` and `{}`, so use `omitzero` for `false` and `0`. `string` works on number fields only.
 - Two fields of one struct may not share a JSON name, and an unexported field may not have a json tag.
-- tifa writes JSON with `encoding/json/v2`: map keys sorted, `<` `>` `&` not escaped (tifa escapes them where data goes into the page). Input is read strictly: exact names, also in case, no duplicate names, valid UTF-8.
+- Tifa writes JSON with `encoding/json/v2`: map keys sorted, `<` `>` `&` not escaped (Tifa escapes them where data goes into the page). Input is read strictly: exact names, also in case, no duplicate names, valid UTF-8.
 
 If the build rejects a type, the error names the file and line. Convert to a plain struct in the route package rather than adding methods.
 
@@ -259,7 +259,7 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 
 ## Sessions
 
-A session is who is signed in, kept on the server and found by a cookie. tifa keeps the record, the token, the cookie and the expiry. Your code checks the password and says when someone signs in or out. It needs no setup:
+A session is who is signed in, kept on the server and found by a cookie. Tifa keeps the record, the token, the cookie and the expiry. Your code checks the password and says when someone signs in or out. It needs no setup:
 
 ```go
 // auth/session.go: one session type for the whole app

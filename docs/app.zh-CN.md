@@ -1,7 +1,7 @@
 ---
-summary: '怎么写一个 tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、不套外层的 Layout（layout_.tsx）、hooks.go、404 和错误、多语言网站、SSR 与缓存开关和整页缓存（对所有人一样、保存一段时间的页面）以及写入后让这类页面重新生成、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码和用 tifatest.Start 测整个请求，Load 里 Ctx 的用法、Link 和 navigate 里查询参数的类型、带类型入参和结果的方法函数、入参里的文件和路由自己的请求体上限与读取时间、用 tifa.HTML 显示应用信任的 HTML，访客开着旧页面时你部署新版本，浏览器会怎么做，以及数据、入参和结果的 JSON 规则'
+summary: '怎么写一个 Tifa 应用：目录结构、目录怎么变成 URL、一个目录的三个文件（route.go、page.tsx、layout.tsx）、Layout、不套外层的 Layout（layout_.tsx）、hooks.go、404 和错误、多语言网站、SSR 与缓存开关和整页缓存（对所有人一样、保存一段时间的页面）以及写入后让这类页面重新生成、服务端渲染时有什么、哪些库在那里渲染得不一样、哪些组件该只在浏览器里加载、怎么用 Intl 和 Temporal 才能水合一致、用 Tailwind CSS 和 shadcn/ui 写样式，怎么测 Go 路由代码和用 tifatest.Start 测整个请求，Load 里 Ctx 的用法、Link 和 navigate 里查询参数的类型、带类型入参和结果的方法函数、入参里的文件和路由自己的请求体上限与读取时间、用 tifa.HTML 显示应用信任的 HTML，访客开着旧页面时你部署新版本，浏览器会怎么做，以及数据、入参和结果的 JSON 规则'
 read_when:
-  - 新建一个 tifa 应用，或给应用加页面、Layout、API 路由
+  - 新建一个 Tifa 应用，或给应用加页面、Layout、API 路由
   - 构建报 Ctx 用法或 Load 返回类型的错误，想知道怎么改
   - 改 internal/analyze 的规则，需要知道对用户承诺了什么
   - 改 examples/shop 或 test/apps 里的应用
@@ -13,7 +13,7 @@ read_when:
   - 一次写入改了开了 `Cache` 的页面显示的内容，要用 `tifa.ExpirePages` 让页面马上更新
   - 在页面里显示应用自己做出来或信任的 HTML（比如一篇文章），用 `tifa.HTML` 和 `<HTML>`，或者处理其中的链接
   - 给应用加 CSS、Tailwind CSS 或 shadcn/ui
-  - 在页面里格式化数字或日期，或者 tifa dev 对某个 Intl 调用报警
+  - 在页面里格式化数字或日期，或者 `tifa dev` 对某个 Intl 调用报警
   - 访客开着一个页面时你部署了新版本，想知道浏览器会怎么做，或者看到带 `X-Tifa-Build` 的 409
   - 页面在服务端渲染失败或水合不一致，想知道服务端有哪些浏览器 API 和库的能力
   - 某个组件要等浏览器画出来才有内容（比如图表、地图），想知道要不要在服务端渲染它
@@ -197,14 +197,14 @@ await POST({ input: { title, photo: file instanceof File ? file : null, extras: 
 - 这样的入参只接受 multipart 表单或 URL 编码表单（后者装不了文件），JSON 请求体答 415。其他字段以文本发来，所以和 GET 入参的规则一样：字符串、数字、布尔或它们的切片，不能有嵌入字段，入参类型、字段和字段的元素上都不能有 `MarshalText` 或 `UnmarshalText`。
 - 文件只能是入参本身的字段。文件放在 GET 或 DELETE 的入参里、嵌套的结构体、map 或数组里、结果里、`Load` 或 `Layout` 的数据里、会话里，都会构建报错。文件类型带 `MarshalText` 或 `UnmarshalText` 方法也会构建报错，因为 TypeScript 会把它当成字符串。
 - 文件的名字、大小和 `Content-Type`（`in.Photo.Header.Get("Content-Type")`）都是客户端发来的。文件是什么要看它的字节，保存用的名字要自己起，见[上传文件](guides/uploads.zh-CN.md)。
-- 表单按 Go 的 `mime/multipart` 的预算解析：最多 32 MiB 的文件内容留在内存里，和文本字段、各部分的名字和头共用约 42 MiB，放不下的文件写进临时文件，请求结束时 tifa 会删掉。峰值可能高于预算：最后落到磁盘上的文件先被读进一个边读边扩容、最多 32 MiB 的缓冲区，所以一个大文件可能短时间占 64 MiB 左右，同时进行的每个上传各占一份。内存小的机器上，在 `OnRequest` 里只让少数几个上传同时解析，见[上传](guides/uploads.zh-CN.md#一次上传占多少内存)。要留的东西在处理函数返回前复制走，也不要把 `*multipart.FileHeader` 交给比请求活得久的 goroutine。
+- 表单按 Go 的 `mime/multipart` 的预算解析：最多 32 MiB 的文件内容留在内存里，和文本字段、各部分的名字和头共用约 42 MiB，放不下的文件写进临时文件，请求结束时 Tifa 会删掉。峰值可能高于预算：最后落到磁盘上的文件先被读进一个边读边扩容、最多 32 MiB 的缓冲区，所以一个大文件可能短时间占 64 MiB 左右，同时进行的每个上传各占一份。内存小的机器上，在 `OnRequest` 里只让少数几个上传同时解析，见[上传](guides/uploads.zh-CN.md#一次上传占多少内存)。要留的东西在处理函数返回前复制走，也不要把 `*multipart.FileHeader` 交给比请求活得久的 goroutine。
 
 ### 路由自己的请求体上限和读取时间
 
 `route.go` 里的 `BodyLimit` 和 `ReadTimeout`，对它的方法函数回答的请求（任何方法）代替 `server.body_limit` 和 `server.read_timeout`。页面的 GET 和它的导航数据不读请求体，照旧用配置。
 
 - `BodyLimit` 是字节数，任何整数类型都行。请求体超过它时答 413，处理函数不执行。上限算的是整个请求体：文件、其他字段和 multipart 的分隔部分。
-- `ReadTimeout` 是 `time.Duration`。从 tifa 匹配到路由时开始算，在 `OnRequest` 之前，只管这一个请求。回答在这之后再有 `server.write_timeout` 的时间，因为回答要等请求体收完才写。时间到了请求体还没收完，答 408。
+- `ReadTimeout` 是 `time.Duration`。从 Tifa 匹配到路由时开始算，在 `OnRequest` 之前，只管这一个请求。回答在这之后再有 `server.write_timeout` 的时间，因为回答要等请求体收完才写。时间到了请求体还没收完，答 408。
 - 两者都可以是常量（必须大于 0），也可以是变量，比如[应用的配置](config.zh-CN.md#应用的配置)：`var BodyLimit = uploads.UploadLimit`，其中 `UploadLimit = tifa.Size("upload.limit", 4<<20, "Largest upload")`。变量在应用启动时读一次。变量为 0 时用配置，为负数时应用启动就停下。
 - 没有方法函数的 `route.go` 声明其中任何一个都会构建报错。页面的 `route.go` 有 POST 时可以声明，它们作用于 POST。
 - `OnRequest` 或处理函数里的 `c.SetBodyLimit` 照旧可以改单个请求的上限。
@@ -255,7 +255,7 @@ import { clientOnly } from 'tifa/client'
 const OrderActions = clientOnly(() => import('./actions.client'), <button disabled>正在准备操作…</button>)
 ```
 
-- tifa 不会替你重新取页面数据。写操作之后，不管是处理函数还是你自己的 `fetch`，页面在你开口之前都显示原来的内容：调用 TanStack 的 `router.invalidate()`，当前页面和所有 Layout 的数据重新取一次，合并成一个请求。`await router.invalidate({ sync: true })` 在页面显示出新数据后兑现。只写 `await router.invalidate()` 会立刻兑现，页面在后台更新。见[在浏览器里调用方法处理函数](#在浏览器里调用方法函数)。
+- Tifa 不会替你重新取页面数据。写操作之后，不管是处理函数还是你自己的 `fetch`，页面在你开口之前都显示原来的内容：调用 TanStack 的 `router.invalidate()`，当前页面和所有 Layout 的数据重新取一次，合并成一个请求。`await router.invalidate({ sync: true })` 在页面显示出新数据后兑现。只写 `await router.invalidate()` 会立刻兑现，页面在后台更新。见[在浏览器里调用方法处理函数](#在浏览器里调用方法函数)。
 - 路由器已经持有的数据遵循 TanStack 的默认值：它立刻算作过期，所以回到访问过的页面时先显示缓存的数据，再在后台重新取一次（`GET <url>?_tifa=…`），鼠标悬停或聚焦时预加载的链接，30 秒内直接使用。
 
 ### Link 和 navigate 里的查询参数
@@ -316,7 +316,7 @@ export default function PostPage() {
 - 在 TypeScript 里它的类型是 `HTML`，不是 `string`：要字符串的地方（比如当文本用、读 `.length`）TypeScript 会报错。只用 `<HTML>` 显示它。放进 `dangerouslySetInnerHTML` 时 TypeScript 拦不住，而服务器渲染的页面里它在那里只是一个标记。`as` 指定装标记的元素，只能是 `div`、`article`、`section`、`main`、`aside`、`header`、`footer`、`nav`、`figure`、`blockquote`、`li`、`td`、`span` 或 `p`（默认 `div`）。这些元素装的是普通内容。内容会被执行或不当作标记的元素，比如 `script`、`style`、`iframe`、`textarea`，会让过滤 HTML 失去作用，所以别的名字 TypeScript 会报错，`<HTML>` 也会抛错。其他属性都给这个元素，`children` 和 `dangerouslySetInnerHTML` 除外，展开对象带进来的也会被去掉。
 - 服务器渲染的页面里每个值只带一份：在标记里。水合用的数据在它的位置放一个小标记，`<HTML>` 从页面读回标记。所以一篇文章不会发两遍。导航数据和 `SSR = false` 的页面带的是字符串。
 - 所以显示页面里的值时，`<HTML value={...}>` 每次都要在服务器上渲染出来：不要等 effect、点击或只有浏览器才有的状态之后才渲染，也不要放在 `.client.tsx` 组件里。否则浏览器会抛出 `tifa: this tifa.HTML value came with the page, which carries it only in the markup the server rendered, and the server rendered no <HTML> for it here`。
-- 标记里的链接和 `Link` 一样：点击指向应用页面的链接，路由直接显示那个页面，不重新加载整个文档。鼠标悬停或获得焦点 50 ms 后，或者手指一碰，就预加载它。以下情况由浏览器自己跳转：按着修饰键或用别的鼠标键点击，链接的 `target` 不是 `_self`，带 `download` 或 `rel="external"`，指向别的网站或 `mailto:` 这类协议，只是当前页面的 `#锚点`，public 文件，`/assets/` 或 `/__tifa/` 下的路径，以及没有页面的路径（比如 API 路由）。站内某个链接要整页跳转（比如同一域名下不是 tifa 的服务），就写 `rel="external"`。`<HTML>` 只管它自己元素里的链接。写在 `<HTML>` 上的 `onClick` 等处理函数先执行，其中调用了 `event.preventDefault()` 就不走路由。
+- 标记里的链接和 `Link` 一样：点击指向应用页面的链接，路由直接显示那个页面，不重新加载整个文档。鼠标悬停或获得焦点 50 ms 后，或者手指一碰，就预加载它。以下情况由浏览器自己跳转：按着修饰键或用别的鼠标键点击，链接的 `target` 不是 `_self`，带 `download` 或 `rel="external"`，指向别的网站或 `mailto:` 这类协议，只是当前页面的 `#锚点`，public 文件，`/assets/` 或 `/__tifa/` 下的路径，以及没有页面的路径（比如 API 路由）。站内某个链接要整页跳转（比如同一域名下不是 Tifa 的服务），就写 `rel="external"`。`<HTML>` 只管它自己元素里的链接。写在 `<HTML>` 上的 `onClick` 等处理函数先执行，其中调用了 `event.preventDefault()` 就不走路由。
 - `tifa.HTML` 不能做 map 的键，不能放在方法函数的入参或会话里。那里用 `string`，过滤之后再转换。`Load` 和 `Layout` 不能直接返回一个 `tifa.HTML`，要放进结构体的字段里。
 
 ### 在浏览器里调用方法函数
@@ -396,7 +396,7 @@ export const documentHead = {
 ```
 
 - 页面的 head 由匹配到的路由的 `head` 返回值决定：`title` 和同名的 meta 取最深的路由，link、style、script 按路由顺序去重。框架默认带 `<meta charset="utf-8">` 和 viewport meta，路由的 `name: 'viewport'` meta 会替换后者。标签的属性按 React DOM 在服务器上的规则写：`className`、`htmlFor`、`httpEquiv`、`crossOrigin` 等改成 HTML 的名字，`on` 开头的事件属性、非法的属性名、`null`、`undefined`、函数不写，`async`、`defer` 这类布尔属性为真时写成空值，其他属性的布尔值只在 `data-`、`aria-` 属性上写成字符串，`javascript:` 链接被替换。head 标签不支持 `style` 属性，写了会让渲染出错。`htmlAttributes` 按同样的规则写。style、script 的内容原样写入，只有其中会结束元素的 `<script`、`</script`（style 里是 `<style`、`</style`）按 React DOM 的方式转义。浏览器里跳转、`router.invalidate()` 之后 head 随新的匹配更新。
-- `head` 还可以返回 `htmlAttributes`，即这些页面 `<html>` 的属性，比如多语言网站每个页面的语言。搜索引擎、读屏软件和浏览器的翻译都从 `lang` 读语言。它们逐个属性合并到根 Layout 的 `htmlAttributes` 上：同一个属性取给出它的最深的路由，`undefined` 交给上层决定，`null` 去掉这个属性。属性按 React DOM 写出的名字对应，所以一个路由的 `className` 和另一个路由的 `class` 是同一个属性。`class` 按整个属性替换，不和别处的值合并。`style` 和 head 标签一样不支持。写法规则和 head 标签相同。浏览器里跳转、`router.invalidate()` 之后它们也随新的匹配更新。在浏览器里，tifa 只在它要给 `<html>` 某个属性的值变了时才写这个属性，也只去掉自己写过的属性。所以页面脚本设的值（比如暗色模式脚本加的 `dark` class，翻译插件改的 `lang`）在 hydration 和跳转之后都还在，只要路由要的这个属性的值没变。这个值变了时，比如某个路由设了另一个 `class`，或者跳出这个路由后根 Layout 的 `class` 又回来，tifa 就会写上新值，脚本加的 class 也就没了。这类主题放在没有路由设的属性上（比如 `data-theme`），或者让脚本再加一次。不走 SSR 的页面在浏览器里得到这些属性。
+- `head` 还可以返回 `htmlAttributes`，即这些页面 `<html>` 的属性，比如多语言网站每个页面的语言。搜索引擎、读屏软件和浏览器的翻译都从 `lang` 读语言。它们逐个属性合并到根 Layout 的 `htmlAttributes` 上：同一个属性取给出它的最深的路由，`undefined` 交给上层决定，`null` 去掉这个属性。属性按 React DOM 写出的名字对应，所以一个路由的 `className` 和另一个路由的 `class` 是同一个属性。`class` 按整个属性替换，不和别处的值合并。`style` 和 head 标签一样不支持。写法规则和 head 标签相同。浏览器里跳转、`router.invalidate()` 之后它们也随新的匹配更新。在浏览器里，Tifa 只在它要给 `<html>` 某个属性的值变了时才写这个属性，也只去掉自己写过的属性。所以页面脚本设的值（比如暗色模式脚本加的 `dark` class，翻译插件改的 `lang`）在 hydration 和跳转之后都还在，只要路由要的这个属性的值没变。这个值变了时，比如某个路由设了另一个 `class`，或者跳出这个路由后根 Layout 的 `class` 又回来，Tifa 就会写上新值，脚本加的 class 也就没了。这类主题放在没有路由设的属性上（比如 `data-theme`），或者让脚本再加一次。不走 SSR 的页面在浏览器里得到这些属性。
 
 ```tsx
 // app/guide/lang+/layout.tsx。route.go 里的 Layout 检查 URL 里的语言并返回它，
@@ -433,7 +433,7 @@ app/
 - 属于文档的照常生效：根 Layout 的 `htmlAttributes` 和 `documentHead`，还有 `OnRequest`。属于上层 Layout 的不生效：它们的 `head`、`Error` 和 `LayoutSSR`。`layout_.tsx` 这一层的 `Layout` 失败或返回 `tifa.ErrNotFound` 时，上面没有 Layout 能显示这个错误，于是显示框架默认页面。它自己的 `Error` 照常显示它下面的失败，和别的 Layout 一样。想在这个 `Layout` 失败时显示自己的页面，就把 `layout_.tsx` 往上放一层，只渲染 `<Outlet />` 并导出 `Error`，shop 的 `app/store` 就是这样。
 - 浏览器里在它下面的页面和外面的页面之间跳转，整个外框跟着换。新页面的 Layout 数据路由器里还没有时才去取。
 - 这些情况构建报错：`app/` 根目录放 `layout_.tsx`（根上面本来就没有 Layout），同一个目录同时有 `layout.tsx` 和 `layout_.tsx`，它下面的页面或 Layout 用 `tifa.Use` 引用被它去掉的 Layout。一个 Layout 的页面全在某个 `layout_.tsx` 下面时也报错，因为它一个页面都没套上。
-- React Router 和 TanStack Router 也用名字结尾的 `_` 让路由不套进某个 Layout，但只跳过前一段的那个 Layout，根路由和更上层的 Layout 照样套着它。tifa 的 `layout_.tsx` 去掉它上面所有的 Layout，根 Layout 也去掉。
+- React Router 和 TanStack Router 也用名字结尾的 `_` 让路由不套进某个 Layout，但只跳过前一段的那个 Layout，根路由和更上层的 Layout 照样套着它。Tifa 的 `layout_.tsx` 去掉它上面所有的 Layout，根 Layout 也去掉。
 
 ## 404
 
@@ -457,7 +457,7 @@ export function Error({ error }: { error: unknown }) {
 
 这几种情况的状态码都是 404，浏览器里跳转后也一样，这时的数据请求回答各层 Layout 的数据和状态码 404。
 
-找没有匹配页面的 URL 落在哪个 Layout 时，tifa 从左往右逐段拿 URL 和每个 Layout、每个页面的路径比：字面段胜过参数，参数胜过路径结束。匹配得最多的路径胜出，页面算作它所在的 Layout。比如有这些目录：
+找没有匹配页面的 URL 落在哪个 Layout 时，Tifa 从左往右逐段拿 URL 和每个 Layout、每个页面的路径比：字面段胜过参数，参数胜过路径结束。匹配得最多的路径胜出，页面算作它所在的 Layout。比如有这些目录：
 
 ```text
 app/layout.tsx
@@ -494,7 +494,7 @@ export function Error({ error }: { error: unknown }) {
 - `Load` 或 `Layout` 失败时，`Error` 收到 `RouteError`，带 `status` 和公开的消息（`tifa.Error` 的消息，或 `OnError` 返回的）。服务器上和 hydration 之后都一样。
 - 自己没导出 `Error` 的路由，用最近的导出了 `Error` 的祖先的，都没有就用框架默认的。祖先找到 `layout_.tsx` 为止。
 - 页面的状态码取最外层失败的那一层。
-- 服务器渲染页面时组件抛错，算意外错误：`OnError` 只看到它一次，由它决定状态码（没定义 `OnError` 时是 500）和公开的消息。接着页面带着这个错误再渲染一次，错误以 `RouteError` 放在页面的位置，于是从页面往上第一个 `Error` 在各层 Layout 里面显示它。这次渲染如果也失败（`Error` 或包着它的 Layout 抛错），错误就往上挪一层，放到页面所在 Layout 的位置，这样一直挪到最外层的 Layout，即根 Layout 或 `layout_.tsx`。错误放在那一层的位置还失败时，浏览器才拿到 Go 写的简单错误页，只有状态码和公开的消息。浏览器按服务器放错误的位置 hydrate，不再运行抛错的那个路由。这种回答不进缓存。错误栈只在 `tifa dev` 下显示，盖在显示 `Error` 的页面上，保存修复后页面自动刷新（见 [tifa dev](dev.zh-CN.md#页面渲染失败)）。
+- 服务器渲染页面时组件抛错，算意外错误：`OnError` 只看到它一次，由它决定状态码（没定义 `OnError` 时是 500）和公开的消息。接着页面带着这个错误再渲染一次，错误以 `RouteError` 放在页面的位置，于是从页面往上第一个 `Error` 在各层 Layout 里面显示它。这次渲染如果也失败（`Error` 或包着它的 Layout 抛错），错误就往上挪一层，放到页面所在 Layout 的位置，这样一直挪到最外层的 Layout，即根 Layout 或 `layout_.tsx`。错误放在那一层的位置还失败时，浏览器才拿到 Go 写的简单错误页，只有状态码和公开的消息。浏览器按服务器放错误的位置 hydrate，不再运行抛错的那个路由。这种回答不进缓存。错误栈只在 `tifa dev` 下显示，盖在显示 `Error` 的页面上，保存修复后页面自动刷新（见 [`tifa dev`](dev.zh-CN.md#页面渲染失败)）。
 - 服务器渲染用完 `ssr.vm_memory` 或超过 `ssr.timeout`（见 [config.zh-CN.md](config.zh-CN.md)）时当场停下。你的代码和库里的 `catch`、`finally`、promise 处理函数都不会为它运行，所以页面接不住它，也没法改成显示别的内容。VM 换成新的。用完 `ssr.vm_memory` 的渲染照上面那样在新的 VM 上带着错误再渲染。超过 `ssr.timeout` 或者遇上所有 VM 都忙的渲染不再重来，Go 立刻回答简单错误页。同一个请求的几次渲染共用一个 `ssr.timeout`，从第一次开始算，带着错误的渲染用完了它就不再往上试。无限递归的代码得到 `RangeError: Maximum call stack size exceeded`，和 Node 一样，`catch` 能接住（见[栈深度](config.zh-CN.md#栈深度)）。没有代码接住时，它和其他错误一样让渲染失败。
 - 显示错误的页面，head 和 `Load` 失败的页面一样。被错误顶替的那个路由在没有数据的情况下运行它的 `head`，它下面的路由不再添加标签，它上面每个路由的 `head` 会在现在的 matches 上重新运行一遍，所以 `status` 能告诉它有路由失败了（见[多语言网站](#多语言网站)）。路由为没渲染出来的页面给出的标签和 `htmlAttributes` 不会出现在错误页上。浏览器 hydrate 时算出的 head 也是同一份。
 - 浏览器接管之后组件抛错，显示最近的 `Error`，和 `Load` 失败一样。
@@ -502,7 +502,7 @@ export function Error({ error }: { error: unknown }) {
 
 ## 多语言网站
 
-tifa 没有语言设置：语言是 URL 的一部分，由应用在 Go 里检查。[examples/shop](../examples/shop) 在 `/store` 下的店面就是这样写的。
+Tifa 没有语言设置：语言是 URL 的一部分，由应用在 Go 里检查。[examples/shop](../examples/shop) 在 `/store` 下的店面就是这样写的。
 
 - 把语言放进 URL 开头的参数目录，比如 `app/store/lang+`。每个 URL 都写明语言，默认语言也写：`/store/zh-CN/products` 和 `/store/en-US/products`。
 - 这个目录的 `Layout` 检查语言，把它放进返回的数据。网站没有的语言返回 `tifa.ErrNotFound`，显示上一层 Layout 的 404，用上一层的语言：
@@ -600,7 +600,7 @@ const Cache = 10 * time.Minute
 开了 `Cache` 的页面，在这段时间里所有人拿到同一份回答，直接从内存给出，不跑 `Load`，也不渲染。适合公开、很多人看的页面：文章、文档、商品页和落地页。访客看到改动最多晚 `Cache` 这么久，除非应用在写入后让页面过期（见[写入后重新生成页面](#写入后重新生成页面)）。
 
 - **所有人都是匿名的。** 页面的 GET 和 HEAD，以及浏览器导航到它时为取数据发的请求，在进 `OnRequest` 之前就被去掉除一份短名单以外的所有请求头：`Host`、`Accept-Encoding`、`If-None-Match`、`If-Modified-Since`、`Cache-Control`、`Pragma`、`Content-Length`、`Connection`、`Origin` 和 `Sec-Fetch-*`。`Cookie` 和 `Authorization` 会去掉，`Accept-Language`、`User-Agent`、`Referer`、`Forwarded`、`X-Forwarded-*` 以及代理或登录网关设的 `X-User-ID` 这类头也一样，所以它们没法经 `OnRequest` 和 context 传到 `Load`。`tifa.Session` 返回 nil，`c.Cookie` 找不到东西，`c.Header` 和 `c.Request().Header` 里只有名单上的头，`c.Request()` 拿到的也是这份请求。`tifa.SetSession` 和 `tifa.ClearSession` 返回错误，信息说登录和 OAuth 回调要放在不开 `Cache` 的路由上。页面要共用，说的内容就不能取决于是谁在问。这类页面 HTML 上的 `Set-Cookie` 会被去掉，因为共享回答里的 cookie 会发给每一位访客。导航请求（带 `_tifa` 的）的回答只给一个浏览器，保留 `Set-Cookie`，并带上这个浏览器的会话（见[会话](sessions.zh-CN.md#在浏览器里)）。同一个 URL 上的方法处理函数，比如 POST，不匿名，也不缓存。
-- **匿名的边界。** tifa 保证的是请求头：在开了 `Cache` 的页面上，`OnRequest`、`Load` 和 `Layout` 看到的请求只有名单上的头，`tifa.Session` 是 nil。用 `tifa.SetHTTPHandler` 挂的 `net/http` 中间件在 tifa 外面运行，拿到的是原来的请求，它放进请求 context 的值会原样到达 `OnRequest` 和 `Load`。不要在那里认人，认人放在不开 `Cache` 的路由的 `OnRequest` 里。连接地址和 TLS 信息也仍然保留，外层中间件放进 context 的值和白名单里的头（例如 `Origin`）也能区分请求，这些都不得用来生成个性化的共享内容。
+- **匿名的边界。** Tifa 保证的是请求头：在开了 `Cache` 的页面上，`OnRequest`、`Load` 和 `Layout` 看到的请求只有名单上的头，`tifa.Session` 是 nil。用 `tifa.SetHTTPHandler` 挂的 `net/http` 中间件在 Tifa 外面运行，拿到的是原来的请求，它放进请求 context 的值会原样到达 `OnRequest` 和 `Load`。不要在那里认人，认人放在不开 `Cache` 的路由的 `OnRequest` 里。连接地址和 TLS 信息也仍然保留，外层中间件放进 context 的值和白名单里的头（例如 `Origin`）也能区分请求，这些都不得用来生成个性化的共享内容。
 - **构建会检查。** 这类页面的 `Load`、外层 `Layout` 的 `Layout` 函数，或它们调用的函数读了 `c.Cookie`、`c.Header` 或 `tifa.Session`，构建就失败并指出那一行，因为这样的读取只会看到匿名请求。`c.Header` 的报错会写出有哪几个头。需要知道谁登录了的页面不要用 `Cache`。取决于访客的内容放到浏览器里，页面加载后由浏览器去读（见[在浏览器里](sessions.zh-CN.md#在浏览器里)）。开了 `Cache` 的页面外面那几层 Layout，只放对所有人都一样的数据。
 - **`OnRequest` 能做什么。** 每个请求都跑，命中的也跑，看到的是匿名请求。适合按路径做的事：重定向、安全头、日志、计数、按地址限流。它看不到谁登录了，所以按登录状态重定向的 `OnRequest` 要用在不开 `Cache` 的路由上，在没看到 cookie 时就发一个 cookie 的中间件，会在每次导航时都发。它在 HTML 上设的 cookie 会被去掉。
 - **多语言。** 多语言页面按 URL 缓存，每个语言目录一份条目。按 cookie 或 `Accept-Language` 选语言再跳转的入口，是不开 `Cache` 的路由上的 GET 处理函数（开了 `Cache` 的页面两样都读不到），它跳去的页面把语言写在 URL 里（见[多语言网站](#多语言网站)）。
@@ -609,7 +609,7 @@ const Cache = 10 * time.Minute
 - **时间到了**以后谁都拿不到旧页。下一个请求重新生成，同时到的请求等它。数据没变时渲染缓存直接命中，不用重新渲染。
 - **内容条目到点发布时**，这一刻之前做好的页面全部算作到时，所以文章列表马上就有新的一篇（见[草稿和日期](content.zh-CN.md#草稿和日期)）。
 - **重新生成失败时**，比如 `Load` 返回错误、渲染失败或超时、所有 VM 都忙，就给旧页，最多到过期后一天。再往后照实返回错误。`Load` 返回 `tifa.ErrNotFound`、重定向或 500 以下的其他 `tifa.Error`，是业务上的回答而不是失败，会取代旧页。
-- **响应头。** `Load` 和 `Layout` 设的响应头（除了 tifa 自己写的 `Set-Cookie`、`Cache-Control`、`Vary`、`Age`、`ETag` 和 `Content-Length`）随条目存下，用这个条目答的每个回答都带上。`Load` 或 `Layout` 设了 `private`、`no-store` 或 `no-cache` 的 `Cache-Control`，或 `Accept-Encoding` 以外的 `Vary`，这个页面就不进缓存，这些头会随回答发出，盖过 `OnRequest` 设的 `public`。存下来的页面带 `Cache-Control: public, max-age=0, s-maxage=<Cache 的秒数>, stale-if-error=86400` 和 `Age`。浏览器每次都来问，ETag 匹配时从条目回 304，所以部署后马上就能看到新版。`Age` 是页面生成后过了几秒，前面的 CDN 会用 `s-maxage` 减去它，两层加起来不会超过 `Cache`。因为重新生成失败而发出的旧页，`s-maxage` 不大于它的 `Age`，所以 CDN 不会把它当成新鲜的。`Cache-Status: tifa; hit`、`tifa; fwd=miss` 或 `tifa; fwd=stale` 说明回答从哪来，`X-Tifa-Render` 照旧。导航数据仍是 `private, no-cache`。CDN 里要怎么设，见 tifa skill 的部署说明。
+- **响应头。** `Load` 和 `Layout` 设的响应头（除了 Tifa 自己写的 `Set-Cookie`、`Cache-Control`、`Vary`、`Age`、`ETag` 和 `Content-Length`）随条目存下，用这个条目答的每个回答都带上。`Load` 或 `Layout` 设了 `private`、`no-store` 或 `no-cache` 的 `Cache-Control`，或 `Accept-Encoding` 以外的 `Vary`，这个页面就不进缓存，这些头会随回答发出，盖过 `OnRequest` 设的 `public`。存下来的页面带 `Cache-Control: public, max-age=0, s-maxage=<Cache 的秒数>, stale-if-error=86400` 和 `Age`。浏览器每次都来问，ETag 匹配时从条目回 304，所以部署后马上就能看到新版。`Age` 是页面生成后过了几秒，前面的 CDN 会用 `s-maxage` 减去它，两层加起来不会超过 `Cache`。因为重新生成失败而发出的旧页，`s-maxage` 不大于它的 `Age`，所以 CDN 不会把它当成新鲜的。`Cache-Status: tifa; hit`、`tifa; fwd=miss` 或 `tifa; fwd=stale` 说明回答从哪来，`X-Tifa-Render` 照旧。导航数据仍是 `private, no-cache`。CDN 里要怎么设，见 Tifa skill 的部署说明。
 - 条目和渲染缓存共用 `cache.size`。`cache.size` 为 0 时什么都不存，同时没命中的请求仍然共用一次生成。
 
 #### 写入后重新生成页面
@@ -628,7 +628,7 @@ func PUT(c *tifa.Ctx, in PostInput) (posts.Post, error) {
 }
 ```
 
-- tifa 不猜一次写入改了什么。显示它的页面要一个个写出来：这里是这篇文章、文章列表和显示最新几篇的首页，多语言网站还要写上每种语言的页面。
+- Tifa 不猜一次写入改了什么。显示它的页面要一个个写出来：这里是这篇文章、文章列表和显示最新几篇的首页，多语言网站还要写上每种语言的页面。
 - 路径是 URL 的路径，按 `c.Request().URL.Path` 的样子解码：写 `/blog/café`，不写 `/blog/caf%C3%A9`。它让这个页面的所有查询串、Host 和协议都过期，所以 `/blog` 也会让 `/blog?page=2` 过期。路径要完全相同：`/blog` 和 `/blog/` 是两个页面，两个都不会让下面的页面过期。
 - 调用之前已经开始的请求仍可能拿到旧页。用调用之前读到的数据做出来的页面不会存下，调用之后的请求也不等它。
 - 数据没变时，新页面和旧的一样：渲染缓存直接给出，不用渲染，已经有这个页面的浏览器凭 ETag 拿到 304。
@@ -638,7 +638,7 @@ func PUT(c *tifa.Ctx, in PostInput) (posts.Post, error) {
 
 ### 用户无关性页面与私有数据
 
-一个完整的页面 = 用户无关性页面 + 私有数据。tifa 按数据的种类来分，不按组件分：
+一个完整的页面 = 用户无关性页面 + 私有数据。Tifa 按数据的种类来分，不按组件分：
 
 - **对所有人相同的数据。** `Load` 和 Layout 看不到用户，所以页面可以放进整页缓存和 CDN。
 - **会话。** 谁登录了，以及会话里很小的 `Exposed` 部分，由会话系统携带（见[会话](sessions.zh-CN.md)）。它会写进页面，浏览器也保存一份副本。
@@ -659,7 +659,7 @@ func PUT(c *tifa.Ctx, in PostInput) (posts.Post, error) {
 
 每个构建只刷新一次。刷新后回来的页面仍然和服务器不一致时（缓存又给了旧页面），它不会再刷新第二次。数据请求带着 409 失败，由路由的 `Error` 显示，调用抛出这个 409，失败的 import 交给路由的 `Error` 或发起 import 的代码。标签页用 `sessionStorage` 记住刷新过的构建。页面写下标记并读回来之后才会刷新。浏览器禁用存储，或者存进去的东西没有留下时，页面不刷新：上面的失败照常显示，消息是「the application was updated, reload the page」，由访客手动刷新。记不住的刷新，会在构建持续不一致时一直重复。
 
-HTML 是旧的、入口脚本已经没有的页面，页面自己救不了：没有任何代码在运行。tifa 发出的页面带 `Cache-Control: private, no-cache`，CDN 不会留着，所以只有你在 `OnRequest` 里让 CDN 缓存页面时才会碰到。那就在部署时清掉 CDN 里的页面。
+HTML 是旧的、入口脚本已经没有的页面，页面自己救不了：没有任何代码在运行。Tifa 发出的页面带 `Cache-Control: private, no-cache`，CDN 不会留着，所以只有你在 `OnRequest` 里让 CDN 缓存页面时才会碰到。那就在部署时清掉 CDN 里的页面。
 
 ## 服务端渲染时有什么
 
@@ -790,7 +790,7 @@ export default function ReceiptPage() {
 
 数据是 `locale: 'zh-CN'`、`timeZone: 'Asia/Shanghai'`、`paidAt: '2025-08-16T20:05:09Z'` 时，服务端和浏览器渲染出的都是 `¥1,234.50` 和 `2025/8/17`。
 
-### tifa dev 下的报警
+### `tifa dev` 下的报警
 
 在 [`tifa dev`](dev.zh-CN.md) 下，渲染时调用 Intl 构造器或 `toLocale*` 方法却没传 locale，或者日期没传 `timeZone`，会打一条警告，带上调用在源码里的位置和调用栈：
 
@@ -800,11 +800,11 @@ export default function ReceiptPage() {
     at ...
 ```
 
-每个位置只打一次，tifa dev 重新加载 SSR 包后再打一次。警告不影响渲染结果。构建出的程序不做这个检查。调用发生在某个包里时，第一行指向包里的文件，你自己的代码在调用栈更下面。
+每个位置只打一次，`tifa dev` 重新加载 SSR 包后再打一次。警告不影响渲染结果。构建出的程序不做这个检查。调用发生在某个包里时，第一行指向包里的文件，你自己的代码在调用栈更下面。
 
 ### 代价
 
-一个 VM 在它的渲染第一次用到 Intl 之前，只带 Intl 的占位，约 10 KB。第一次用到时这个 VM 再多约 30 到 45 KB。示例商店的一个 VM 约 11 MB，这部分不到它的 1%。tifa dev 下每个 VM 一开始就付这份代价，因为报警需要先装好 Intl。每种语言在每个进程里只读进内存一次，100 到 180 KB，另外第一次用到任何语言时还要约 1 MB 所有语言共用的数据。语言数据让程序大约增加 1.7 MB，生成的 `main.go` 嵌入的时区数据库再增加约 450 KB。语言数据带有要随程序附带的许可声明，见[要随程序附带的声明](build.zh-CN.md#要随程序附带的声明)。
+一个 VM 在它的渲染第一次用到 Intl 之前，只带 Intl 的占位，约 10 KB。第一次用到时这个 VM 再多约 30 到 45 KB。示例商店的一个 VM 约 11 MB，这部分不到它的 1%。`tifa dev` 下每个 VM 一开始就付这份代价，因为报警需要先装好 Intl。每种语言在每个进程里只读进内存一次，100 到 180 KB，另外第一次用到任何语言时还要约 1 MB 所有语言共用的数据。语言数据让程序大约增加 1.7 MB，生成的 `main.go` 嵌入的时区数据库再增加约 450 KB。语言数据带有要随程序附带的许可声明，见[要随程序附带的声明](build.zh-CN.md#要随程序附带的声明)。
 
 ## 服务端渲染里的 Temporal
 
@@ -821,7 +821,7 @@ const { day, locale } = page.useLoaderData()
 return <time>{Temporal.PlainDate.from(day).toLocaleString(locale, { dateStyle: 'long' })}</time>
 ```
 
-结果是 `October 22, 2026`。不要把 `Temporal.Now` 的结果放进要水合的 HTML，浏览器运行得更晚，默认时区也可能不同。应在 `Load` 里算好固定值，或者在水合后的 effect 里显示当前时间。浏览器的语言数据也可能不同，见 Intl 一节。tifa 只向服务端 VM 提供 Temporal，不提供浏览器 polyfill 或 TypeScript 类型声明。不支持 Temporal 的浏览器需要在页面代码运行前加载 polyfill，或者让页面在浏览器里避开它。
+结果是 `October 22, 2026`。不要把 `Temporal.Now` 的结果放进要水合的 HTML，浏览器运行得更晚，默认时区也可能不同。应在 `Load` 里算好固定值，或者在水合后的 effect 里显示当前时间。浏览器的语言数据也可能不同，见 Intl 一节。Tifa 只向服务端 VM 提供 Temporal，不提供浏览器 polyfill 或 TypeScript 类型声明。不支持 Temporal 的浏览器需要在页面代码运行前加载 polyfill，或者让页面在浏览器里避开它。
 
 每个 VM 第一次读取 `Temporal` 或调用 `toTemporalInstant` 时才安装完整实现，不使用它的页面只保留占位实现。用来安装它的字节码在进程内只编译一次。程序体积、VM 内存和首次使用成本见[内存](performance.zh-CN.md#内存)。原有的[六份声明文件](build.zh-CN.md#要随程序附带的声明)也已覆盖 Temporal。
 
@@ -906,7 +906,7 @@ func OnError(c *tifa.Ctx, err error) tifa.Error // 意外错误：上报，返�
 
 ### 换日志 Handler
 
-tifa 自己的日志走 `log/slog`，带级别和字段：请求失败是 `ERROR`，带 `method`、`path` 和 `err`，拒绝跨站写请求是 `WARN`，监听的地址是 `INFO`。监听地址这类启动日志在 `OnStart` 返回之后才写，所以在 `OnStart` 里设好的 Handler 能收到它们。要换去处，在 `OnStart` 里设默认 Handler：
+Tifa 自己的日志走 `log/slog`，带级别和字段：请求失败是 `ERROR`，带 `method`、`path` 和 `err`，拒绝跨站写请求是 `WARN`，监听的地址是 `INFO`。监听地址这类启动日志在 `OnStart` 返回之后才写，所以在 `OnStart` 里设好的 Handler 能收到它们。要换去处，在 `OnStart` 里设默认 Handler：
 
 ```go
 func OnStart(ctx context.Context) error {
@@ -915,7 +915,7 @@ func OnStart(ctx context.Context) error {
 }
 ```
 
-tifa 每条日志现取 `slog.Default()`，所以之后再调 `slog.SetDefault` 也生效。
+Tifa 每条日志现取 `slog.Default()`，所以之后再调 `slog.SetDefault` 也生效。
 
 ### 在 OnStart 里装配
 
@@ -943,7 +943,7 @@ func OnStart(ctx context.Context) error {
 }
 ```
 
-`tifa.SetHTTPHandler(wrap)` 拿到 tifa 的 handler，返回要对外服务的 handler。这层包在最外面，静态文件、跨站检查和路由都在它里面。它看得到每个请求，拿到的是原始的 `http.ResponseWriter`，被拒绝的跨站写请求的 403 也看得到。它包着的 handler 返回之后，这个请求的 `r.Pattern` 就是路由模板，和 `c.Pattern()` 相同（如 `/projects/{project}`，没有路由匹配时为空），所以指标中间件可以按路由而不是按 URL 计数。浏览器用 `_tifa` 参数请求一次导航的数据，`.p` 标记预加载。不要用这些请求统计页面浏览量：预加载的结果可以不再发请求就用于导航，重新加载又会多一次。数浏览器完成的客户端导航，加整页请求（见[页面请求](build.zh-CN.md#页面请求)）。挂上去的是普通 `net/http`，所以它自己处理的路径（比如上面的 `/debug/pprof/`）不走 `OnRequest`、`OnError` 和跨站检查，要自己加访问控制，或者放到另一个监听端口上。关停时仍会等它包着的请求。只能在 `OnStart` 里调，服务开始监听后再调会 panic。`tifa.SetHTTPHandler(nil)` 去掉这层包装。它在开了 `Cache` 的页面的匿名请求之外运行（见[整页缓存](#整页缓存)）：它放进请求 context 的值会到达这类页面的 `OnRequest` 和 `Load`，所以不要在这里认人，认人放在 `OnRequest` 里。
+`tifa.SetHTTPHandler(wrap)` 拿到 Tifa 的 handler，返回要对外服务的 handler。这层包在最外面，静态文件、跨站检查和路由都在它里面。它看得到每个请求，拿到的是原始的 `http.ResponseWriter`，被拒绝的跨站写请求的 403 也看得到。它包着的 handler 返回之后，这个请求的 `r.Pattern` 就是路由模板，和 `c.Pattern()` 相同（如 `/projects/{project}`，没有路由匹配时为空），所以指标中间件可以按路由而不是按 URL 计数。浏览器用 `_tifa` 参数请求一次导航的数据，`.p` 标记预加载。不要用这些请求统计页面浏览量：预加载的结果可以不再发请求就用于导航，重新加载又会多一次。数浏览器完成的客户端导航，加整页请求（见[页面请求](build.zh-CN.md#页面请求)）。挂上去的是普通 `net/http`，所以它自己处理的路径（比如上面的 `/debug/pprof/`）不走 `OnRequest`、`OnError` 和跨站检查，要自己加访问控制，或者放到另一个监听端口上。关停时仍会等它包着的请求。只能在 `OnStart` 里调，服务开始监听后再调会 panic。`tifa.SetHTTPHandler(nil)` 去掉这层包装。它在开了 `Cache` 的页面的匿名请求之外运行（见[整页缓存](#整页缓存)）：它放进请求 context 的值会到达这类页面的 `OnRequest` 和 `Load`，所以不要在这里认人，认人放在 `OnRequest` 里。
 
 ## 会话
 
@@ -1015,7 +1015,7 @@ func TestSignInLeadsBackToTheWorkbench(t *testing.T) {
 
 - 程序里跑的都会跑：`OnStart`（拿测试的 context）、`OnRequest`、解码入参、`Validate` 和它的 422、会话、重定向和 `OnError`。测试结束时，服务器等进行中的请求做完，再跑 `OnShutdown`。
 - `srv.Client()` 信任服务器的证书，记下服务器设的 cookie，不跟随重定向，所以测试能看到每个 3xx 和它的 `Location`。
-- 服务器在本机上用 HTTPS 监听。tifa 的设置和程序一样，来自默认值和 `tifa.yaml`，只有地址和 HTTPS 不同。应用自己的设置保持默认值，因为命令行参数和环境变量到不了测试里，所以在 `Start` 之前直接设变量：`myapp.DBPath = filepath.Join(t.TempDir(), "test.db")`。
+- 服务器在本机上用 HTTPS 监听。Tifa 的设置和程序一样，来自默认值和 `tifa.yaml`，只有地址和 HTTPS 不同。应用自己的设置保持默认值，因为命令行参数和环境变量到不了测试里，所以在 `Start` 之前直接设变量：`myapp.DBPath = filepath.Join(t.TempDir(), "test.db")`。
 - 没有前端时，页面把它的 `Load` 和 `Layout` 函数的结果按路由 ID 以 JSON 回答：`{"app/layout": …, "app/projects/project+/stats/route": …}`。方法函数的回答和程序里一样。
 - 每次 `Start` 都新建一个服务器，会话也是它自己的，除非 `OnStart` 设了存储。会话存储、`SetHTTPHandler` 和内容都属于进程，所以一个测试二进制同一时间只能跑一个应用，调用 `Start` 的测试不能调用 `t.Parallel`。
 - `.tifa/tifaapp` 是按和现在代码不同的路由生成的，`Start` 就让测试失败。重新跑 `go tool tifa check`，或者开着 `tifa dev`。刚 clone 下来的仓库没有 `.tifa`，在 `tifa check` 写出它之前，`go vet`、`go test` 和 `go mod tidy` 都会因为这个导入失败。`tifa check` 先生成代码再跑 `go vet` 和 `go test`，所以直接跑它就行。
@@ -1042,33 +1042,33 @@ Date 和 Intl 取向下舍入的毫秒，Temporal 保留纳秒。这个时钟覆
 
 ## Load 里 Ctx 的用法
 
-这一节管 `Load`、`Layout` 和它们调用的函数。构建时，tifa 从每个 `Load` 和 `Layout` 函数出发，找出它读的路由参数（`c.Param`）、查询参数（`c.Query` 和 `c.QueryValues`）和它依赖的 Layout（`tifa.Use`）。`Load` 把 `*tifa.Ctx` 传给本模块里的函数时，tifa 会一层层跟进去，跨包也可以，读到的参数都算在这个 `Load` 名下。一个辅助函数被多个 `Load` 调用时，分别算给每个 `Load`。tifa 自己的函数不跟进。
+这一节管 `Load`、`Layout` 和它们调用的函数。构建时，Tifa 从每个 `Load` 和 `Layout` 函数出发，找出它读的路由参数（`c.Param`）、查询参数（`c.Query` 和 `c.QueryValues`）和它依赖的 Layout（`tifa.Use`）。`Load` 把 `*tifa.Ctx` 传给本模块里的函数时，Tifa 会一层层跟进去，跨包也可以，读到的参数都算在这个 `Load` 名下。一个辅助函数被多个 `Load` 调用时，分别算给每个 `Load`。Tifa 自己的函数不跟进。
 
-为了让 tifa 找全，Ctx 只能用在它看得见的地方。`c.Param`、`c.Query` 和 `c.QueryValues` 的参数写常量字符串，比如 `c.Param("order")`。它们和 `tifa.Use` 都要直接调用，存进变量或当作值传出去都会构建报错。
+为了让 Tifa 找全，Ctx 只能用在它看得见的地方。`c.Param`、`c.Query` 和 `c.QueryValues` 的参数写常量字符串，比如 `c.Param("order")`。它们和 `tifa.Use` 都要直接调用，存进变量或当作值传出去都会构建报错。
 
 能持有 Ctx 的类型只有：`*tifa.Ctx`、`tifa.Ctx`、本模块里声明的非泛型结构体（字段只通过这几种类型持有 Ctx，直接含有、嵌入或间接含有都可以），以及指向这种结构体的指针。
 
 持有 Ctx 的值只能出现在这五个地方：
 
 1. 直接调用方法时的接收者，比如 `c.Query("tab")`、`req.Page()`。
-2. 传给本模块或 tifa 的非泛型函数，对应参数的类型完全相同。就地调用的函数字面量也算。
+2. 传给本模块或 Tifa 的非泛型函数，对应参数的类型完全相同。就地调用的函数字面量也算。
 3. 写进持有 Ctx 的结构体字面量，字段类型完全相同。
 4. 用 `:=` 或 `var x T = ...` 赋给类型完全相同的新局部变量，这个变量同样受这些规则约束。
 5. 取地址，得到的指针仍是能持有 Ctx 的类型。
 
 其他用法都会构建报错，并指出文件和行号，比如：转换成别的类型或接口，赋给已有变量，多个值一起赋值，`return` 它，放进切片、map、数组或通道，`range`，包级变量，`defer`，`go` 语句，传给泛型函数、接口方法、函数变量或模块外的函数（标准库和第三方库）。
 
-`Load`、`Layout` 和它们调用的函数里不能调用 `c.Request()` 和 `c.Writer()`，通过原始请求读的参数 tifa 看不到。改用 `c.Param`、`c.Query`、`c.QueryValues`、`c.Header`、`c.Cookie` 或 `c.Context()`。这两个方法只在方法函数和 `OnRequest` 里用。
+`Load`、`Layout` 和它们调用的函数里不能调用 `c.Request()` 和 `c.Writer()`，通过原始请求读的参数 Tifa 看不到。改用 `c.Param`、`c.Query`、`c.QueryValues`、`c.Header`、`c.Cookie` 或 `c.Context()`。这两个方法只在方法函数和 `OnRequest` 里用。
 
-`c.BindQuery` 和 `c.Bind` 也不能调用。结构体解码了哪些查询参数 tifa 说不出名字，这些参数变了页面不会重新取数据，而页面加载和导航的数据请求都没有请求体。查询参数用 `c.Query("name")` 逐个读，重复的参数用 `c.QueryValues("name")`。
+`c.BindQuery` 和 `c.Bind` 也不能调用。结构体解码了哪些查询参数 Tifa 说不出名字，这些参数变了页面不会重新取数据，而页面加载和导航的数据请求都没有请求体。查询参数用 `c.Query("name")` 逐个读，重复的参数用 `c.QueryValues("name")`。
 
 遇到报错时，直接调用 Ctx 的方法，或者把它传给普通函数。只需要请求上下文时传 `c.Context()`，只调用 `c.Context()` 的辅助函数（比如 `auth.User(c)`）跟进后什么也不收集。
 
-tifa 只检查 `Load` 和 `Layout` 能到达的代码。在 `OnRequest`、方法函数或别处把 Ctx 存进全局变量或其他共享位置，再在 `Load` 或 `Layout` 里取出来用，这条路查不到，不要这样写。
+Tifa 只检查 `Load` 和 `Layout` 能到达的代码。在 `OnRequest`、方法函数或别处把 Ctx 存进全局变量或其他共享位置，再在 `Load` 或 `Layout` 里取出来用，这条路查不到，不要这样写。
 
 ## JSON 规则
 
-`Load` 和 `Layout` 函数的返回值、方法函数的入参和结果都以 JSON 传输，tifa 按它们生成 TypeScript 类型。tifa 用 `encoding/json/v2` 及其默认设置读写这些 JSON，所以构建只接受下面这些类型：json v2 写它们不会出错，写出来的样子和 TypeScript 类型一致。`c.JSON`、`c.Bind` 和会话用同样的规则。
+`Load` 和 `Layout` 函数的返回值、方法函数的入参和结果都以 JSON 传输，Tifa 按它们生成 TypeScript 类型。Tifa 用 `encoding/json/v2` 及其默认设置读写这些 JSON，所以构建只接受下面这些类型：json v2 写它们不会出错，写出来的样子和 TypeScript 类型一致。`c.JSON`、`c.Bind` 和会话用同样的规则。
 
 | Go | TypeScript |
 | --- | --- |
@@ -1092,6 +1092,6 @@ tifa 只检查 `Load` 和 `Layout` 能到达的代码。在 `OnRequest`、方法
 - 类型的值或指针上有名为 `MarshalJSON`、`MarshalJSONTo`、`AppendText` 或 `AppendJSON` 的方法或字段时，不论签名一律拒绝（`time.Time` 和 `json.Number` 除外）。请改名，或换一个不带这些方法的类型返回。
 - 类型自己声明了签名正好是 `MarshalText() ([]byte, error)` 的方法时，不论在值接收者还是指针接收者上，都输出 string。签名不对、从嵌入字段提升而来、或被同名字段遮住时，一律拒绝。
 - 接口出现在任何位置都不接受，包括字段、元素和 map 键。chan、func、复数、`unsafe.Pointer` 和类型参数也不接受。
-- `<`、`>` 和 `&` 原样写出，页面数据里也一样。tifa 把数据放进页面的地方会转义它们，应用的文本不会提前结束 script 元素。
+- `<`、`>` 和 `&` 原样写出，页面数据里也一样。Tifa 把数据放进页面的地方会转义它们，应用的文本不会提前结束 script 元素。
 - 字符串里不是 UTF-8 的字节，每个写成一个 U+FFFD，和浏览器显示的一样，页面不会因此失败。
 - 读入参时很严格：名字必须和 json 名字完全一致（大小写也算），一个对象里同一个名字只能出现一次，字符串必须是 UTF-8，`time.Time` 必须是 RFC 3339，base64 里不能有换行，数组长度必须等于 Go 数组的长度。不符合的回 400。类型里没有的名字会跳过。会话记录按这些规则读不回来时，访客会被登出。
