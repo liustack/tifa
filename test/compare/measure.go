@@ -32,6 +32,9 @@ type Options struct {
 	AcceptEncoding string        // gzip when empty, or identity: what the client asks for in every request
 	Render         bool          // also run the render benchmark of test/ssr once after the rounds, apart from the cold runs
 	Scenarios      []Scenario    // ReadScenario only when empty
+	Procs          int           // VMs and CPUs of Tifa and requests in flight, one connection each. 1 when 0, and only Tifa takes more
+	Conns          int           // requests in flight when not the same as Procs, 0 for Procs
+	UniqueURLs     bool          // add a query to every timed read that no other read has, so that no two requests share a render
 	Log            io.Writer
 }
 
@@ -68,12 +71,18 @@ func (e Env) Measure(ctx context.Context, o Options) (*Record, error) {
 			return nil, err
 		}
 	}
+	if o.Procs < 0 {
+		return nil, fmt.Errorf("procs must be at least 1")
+	}
 	var specs []Spec
 	for _, s := range e.Specs() {
 		if len(o.Servers) > 0 && !slices.Contains(o.Servers, s.Name) {
 			continue
 		}
 		if slices.ContainsFunc(s.Configs, func(c string) bool { return slices.Contains(o.Configs, c) }) {
+			if s, err = s.WithProcs(o.Procs); err != nil {
+				return nil, err
+			}
 			specs = append(specs, s)
 		}
 	}
@@ -85,13 +94,20 @@ func (e Env) Measure(ctx context.Context, o Options) (*Record, error) {
 		Versions:  e.versions(specs),
 		Machine:   machine(),
 		Placement: placement,
-		Settings:  Settings{Rounds: o.Rounds, Steady: o.Steady.String(), Cold: o.Cold, Configs: o.Configs, Scenarios: scenarioNames(o.Scenarios), AcceptEncoding: o.AcceptEncoding},
+		Settings:  Settings{Rounds: o.Rounds, Steady: o.Steady.String(), Cold: o.Cold, Configs: o.Configs, Scenarios: scenarioNames(o.Scenarios), AcceptEncoding: o.AcceptEncoding, Procs: o.Procs, Conns: o.Conns, UniqueURLs: o.UniqueURLs},
 	}
 	fmt.Fprintf(o.Log, "placement: %s\n", placement.Note)
+	if o.Procs > 1 {
+		fmt.Fprintf(o.Log, "tifa: %d VMs\n", o.Procs)
+	}
+	if o.Conns > 0 {
+		fmt.Fprintf(o.Log, "%d requests in flight\n", o.Conns)
+	}
 	for round := 0; round < o.Rounds; round++ {
 		var order []planned
 		if o.AA {
 			for _, s := range Rotate(e.AASpecs(), round) {
+				s, _ = s.WithProcs(o.Procs)
 				order = append(order, planned{s, ReadScenario})
 			}
 		}
@@ -146,71 +162,31 @@ func runOnce(ctx context.Context, o Options, spec Spec, sc Scenario, round int) 
 	if spec.AcceptEncoding != "" {
 		ae = spec.AcceptEncoding
 	}
-	c := newClient(server.Base, ae)
-	wire := map[int]PageWire{}
 	run := &Run{Spec: spec.Name, Framework: spec.Framework, Label: spec.Label, Configs: spec.Configs, Reference: spec.Reference, AA: slices.Contains(spec.Configs, ConfigAA), Round: round, Scenario: sc.Name}
-	renders := map[string]int{}
-
-	var cold, steady []float64
-	var coldPage, steadyPage []int
-	read := func(n int, lat *[]float64, pages *[]int) error {
-		for _, st := range sc.Steps(spec.Write, n) {
-			a, err := c.do(ctx, st)
-			if err != nil {
-				return fmt.Errorf("%s: request %d %s %s: %w\n%s", spec.Name, n+1, st.Method, st.Path, err, server.Output())
-			}
-			if st.Timed {
-				*lat = append(*lat, float64(a.Latency)/float64(time.Millisecond))
-				if _, ok := wire[st.Page]; !ok {
-					wire[st.Page] = PageWire{Page: Pages[st.Page].Name, Bytes: a.Bytes, Encoding: a.Encoding}
-				}
-				*pages = append(*pages, st.Page)
-				if a.Render != "" {
-					renders[a.Render]++
-				}
-			}
-		}
-		return nil
+	d, err := driveConns(ctx, server.Base, ae, spec.Name, server.Output, spec.Write, sc, o, t0)
+	if err != nil {
+		return nil, err
 	}
-	n := 0
-	for ; n < o.Cold; n++ {
-		if err := read(n, &cold, &coldPage); err != nil {
-			return nil, err
-		}
-		if n == 0 {
-			run.Metrics.FirstAnswer = float64(time.Since(t0)) / float64(time.Millisecond)
-		}
-	}
-	steadyStart := time.Now()
-	deadline := steadyStart.Add(o.Steady)
-	for time.Now().Before(deadline) {
-		if err := read(n, &steady, &steadyPage); err != nil {
-			return nil, err
-		}
-		n++
-	}
-	elapsed := time.Since(steadyStart).Seconds()
-
-	for i := range Pages {
-		if w, ok := wire[i]; ok {
-			run.Wire = append(run.Wire, w)
-		}
-	}
+	// The cold series is the first connection's, the steady phase is all of them.
+	first := d.Conns[0]
+	run.Metrics.FirstAnswer = float64(slices.MinFunc(d.Conns, func(a, b *connRun) int { return int(a.First - b.First) }).First) / float64(time.Millisecond)
+	run.Wire = d.Wire
+	steady, steadyPage := d.Steady, d.SteadyPage
 	m := &run.Metrics
 	m.RSSStart = rssStart
 	run.Pages = pageStats(steady, steadyPage)
 	if len(steady) > 0 {
 		sorted := slices.Sorted(slices.Values(steady))
-		m.Requests = float64(len(steady)) / elapsed
+		m.Requests = d.Requests
 		m.P50, m.P99, m.Max = Percentile(sorted, 50), Percentile(sorted, 99), sorted[len(sorted)-1]
 	}
-	m.First100 = mean(cold[:min(100, len(cold))])
-	m.First1000 = mean(cold[:min(1000, len(cold))])
-	m.Settle = settleOf(cold, coldPage, steady, steadyPage)
+	m.First100 = mean(first.Cold[:min(100, len(first.Cold))])
+	m.First1000 = mean(first.Cold[:min(1000, len(first.Cold))])
+	m.Settle = settleOf(first.Cold, first.ColdPage, steady, steadyPage)
 	m.RSSPeak = float64(server.PeakRSS()) / (1 << 20)
-	if hits, total := renders["cache"]+renders["shared"], renders["vm"]+renders["cache"]+renders["shared"]; total > 0 {
+	if hits, total := d.Renders["cache"]+d.Renders["shared"], d.Renders["vm"]+d.Renders["cache"]+d.Renders["shared"]; total > 0 {
 		m.HitRate = float64(hits) / float64(total)
-		run.Renders = renders
+		run.Renders = d.Renders
 	}
 	return run, nil
 }

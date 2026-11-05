@@ -44,6 +44,12 @@ type Settings struct {
 	// AcceptEncoding is what the client asked for in every request, except for the specs that force
 	// their own (the compression pair): gzip or identity.
 	AcceptEncoding string `json:"acceptEncoding"`
+	// Procs is the VMs of Tifa and the requests in flight, absent for 1.
+	Procs int `json:"procs,omitempty"`
+	// Conns is the requests in flight when it is not the same as Procs.
+	Conns int `json:"conns,omitempty"`
+	// UniqueURLs is whether every timed read asked for a URL of its own.
+	UniqueURLs bool `json:"uniqueUrls,omitempty"`
 }
 
 // Run is one server started fresh in one round.

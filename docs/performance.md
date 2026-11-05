@@ -14,20 +14,20 @@ English · [简体中文](performance.zh-CN.md)
 
 Tifa renders pages in quickjs, QuickJS written in C and compiled to Go assembly, which runs on linux and darwin (amd64 and arm64) and on windows/amd64. It has no JIT, so a render is slower than in Node. This doc gives the numbers and how to size a machine for them. How rendering got faster is in [Optimizations](studies/optimizations.md).
 
-quickjs v0.29 replaced the engine that translated QuickJS from C to Go. The C engine renders the pages of the shop, MUI and bench apps in 0.83 to 0.86 of the time of the engine before it ([Engine](studies/optimizations.md#engine)). Most of the render and scaling numbers below were measured on 2026-10-24 with quickjs v0.28.6, the engine before it, so each Tifa time in them is now about 15% lower and the throughput per core about as much higher. [Against Next.js, TanStack Start and React Router](#against-nextjs-tanstack-start-and-react-router) (2026-11-06, quickjs v0.30.1), the redesigned shop, [Memory](#memory), [Extreme pages](studies/optimizations.md#extreme-pages) and the profile were measured with the C engine.
+quickjs v0.29 replaced the engine that translated QuickJS from C to Go. The C engine renders the pages of the shop, MUI and bench apps in 0.83 to 0.86 of the time of the engine before it ([Engine](studies/optimizations.md#engine)). Most of the render numbers below were measured on 2026-10-24 with quickjs v0.28.6, the engine before it, so each Tifa time in them is now about 15% lower. [Against Next.js, TanStack Start and React Router](#against-nextjs-tanstack-start-and-react-router) (2026-11-06, quickjs v0.30.1), [How it scales with cores](#how-it-scales-with-cores) (2026-11-06, quickjs v0.30.1), the redesigned shop, [Memory](#memory), [Extreme pages](studies/optimizations.md#extreme-pages) and the profile were measured with the C engine.
 
 ## At a glance
 
 - **One render** took 0.94 times as long as in C QuickJS on the shop's pages and 1.15 times on pages without `Intl`, with the engine before the C engine. It took about 2 times as long as in Node without its JIT and 6.6 times as long as in Node with it. The C engine takes 0.84 of that time.
 - **Whole requests**, one core, default settings, the six workbench pages: with writes to the data, Tifa answers about 6 times the requests of Next.js, from a quarter of the memory. With every cache off, Next.js answers 1.9 times Tifa's requests, TanStack Start 2.7 times and React Router 1.8 times, and without their JIT they answer 0.6 to 0.7 times. Peak memory is 57 MiB against 347 to 435 MiB. See [the comparison](#against-nextjs-tanstack-start-and-react-router).
-- **Cores**: 4 physical cores answer 3.76 times as many requests as one. A busy hyperthread adds about 30%.
-- **Sizing**: plan on about 73 requests a second per physical core for pages like the shop's workbench, and about 45 MiB plus 12 to 16 MiB per VM.
+- **Cores**: with caches off, 3 physical cores answer 2.94 times as many requests as one, and a busy second hyperthread on each adds about 25%, see [how it scales](#how-it-scales-with-cores).
+- **Sizing**: plan on about 42 requests a second per physical core for pages like the shop's workbench (caches off, so every request renders), and about 40 MiB plus 17 MiB per VM at peak.
 
 The example shop was redesigned on 2026-10-28 and its pages got heavier. Only the comparison below, the render times in [The redesigned shop](studies/optimizations.md#the-redesigned-shop) and the memory numbers use the new pages. Every other number here was measured on the pages from before.
 
 ## How the numbers were measured
 
-The numbers in the sections after the comparison were measured on 2026-10-24, on the same machine, with the same build, except those of [The redesigned shop](studies/optimizations.md#the-redesigned-shop), [Memory](#memory) and [Extreme pages](studies/optimizations.md#extreme-pages), which say when and with what they were measured. The comparison has its own method.
+The numbers in the sections after the comparison were measured on 2026-10-24, on the same machine, with the same build, except those of [How it scales with cores](#how-it-scales-with-cores), [The redesigned shop](studies/optimizations.md#the-redesigned-shop), [Memory](#memory) and [Extreme pages](studies/optimizations.md#extreme-pages), which say when and with what they were measured. The comparison has its own method.
 
 - **Machine**: a Google Cloud VM with 8 vCPUs of an AMD EPYC 7B13 (Zen 3), Linux. The 8 vCPUs are 4 physical cores with 2 hyperthreads each: cpu `n` and cpu `n+4` share a core. Each run took locks on the cores it used and waited for them to be idle for 30 seconds. Other work stayed under 8% of a CPU.
 - **Build**: Tifa c729ad2, quickjs v0.28.6, Go 1.27.2, built by `tifa build` as it ships. quickjs v0.28.6 translated QuickJS from C to Go, with the interpreter loop in Go assembly on linux/amd64. The profile (PGO) that Tifa built with then is gone.
@@ -153,31 +153,31 @@ To measure again, see [Testing](testing.md#comparison-with-nextjs-tanstack-start
 
 ## How it scales with cores
 
-The pages in turn, gzip, as many VMs as cores and as many requests in flight as VMs. Physical cores means one hyperthread of each core, with its sibling idle.
+Measured on 2026-11-06 with Tifa aacb96bf, quickjs v0.30.1 and the machine of [How the numbers were measured](#how-the-numbers-were-measured), on the six workbench pages of the redesigned shop, gzip. This is render capacity: every cache is off (`cache.size` 0), there is one request in flight per VM, and every URL is unique so that no two requests share a render. [Sizing a machine](#sizing-a-machine) sizes with it. The render cache raises what a core serves a lot, and [the comparison](#against-nextjs-tanstack-start-and-react-router) shows it on one core. Only Tifa is here: Next.js, TanStack Start and React Router run one process with their default start command, so they do not scale with cores.
 
-| Pages | CPUs and VMs | Requests/s | Against one core | P50 | P99 | CPU per request | Peak RSS |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Workbench, 6 pages | 1 physical core | 73.0 to 74.4 | 1 | 9.1 ms | 24.9 ms | 13.7 ms | 56 MiB |
-| | 2 physical cores | 141.7 to 145.6 | 1.90 to 1.99 | 9.2 to 9.4 ms | 26.5 to 27.1 ms | 13.5 ms | 70 to 71 MiB |
-| | 4 physical cores | 279.3 to 280.0 | 3.76 | 9.6 ms | 28.5 to 28.8 ms | 13.8 ms | 100 MiB |
-| | 1 core, both hyperthreads | 95.2 | 1.30 | 14.0 ms | 39.8 ms | 20.8 ms | 70 to 71 MiB |
-| | 4 cores, all 8 hyperthreads | 355.0 | 4.8 | 15.5 ms | 48.1 ms | 20.5 ms | 157 to 158 MiB |
-| Storefront, 14 pages | 1 physical core | 34.6 | 1 | 21.7 ms | 81.0 ms | | 66 MiB |
-| | 2 physical cores | 67.2 | 1.94 | 23.2 ms | 82.7 ms | | 88 to 89 MiB |
-| | 4 physical cores | 133.0 | 3.84 | 23.2 ms | 85.2 ms | | 129 to 131 MiB |
+The server ran on the CPUs the row names, with one VM per CPU (`--ssr-vms` and `GOMAXPROCS`). The client ran on cpu 3, the fourth physical core, with its sibling idle. All four core pairs were locked for the whole run. Each cell is the median of three rounds with fresh servers, 30 s steady after 1,000 cold requests per connection, with the range in brackets.
 
-- Up to 4 physical cores throughput grows almost linearly, 3.76 to 3.84 times one core. Throughput follows the time of one render: HTTP, compression and the rest are under 1 ms of a request's 13.7 ms of CPU.
-- A second hyperthread on the same core adds about 30% throughput, but each render gets about 1.5 times slower, because the two threads share one core.
-- The P99 of a mix is its slowest page: the order list on the workbench, the English journal post on the storefront.
+| CPUs and VMs | Requests/s | Against one core | P50 | P99 | RSS after start | Peak RSS |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 physical core | 42.1 (42.0 to 42.3) | 1 | 19.3 ms | 44.8 ms | 47 MiB | 57 MiB |
+| 2 physical cores | 83.7 (83.3 to 84.1) | 1.99 | 19.4 ms | 45.9 ms | 56 MiB | 75 MiB |
+| 3 physical cores | 123.8 (123.5 to 124.1) | 2.94 | 19.7 ms | 46.8 ms | 65 MiB (64 to 65) | 92 MiB |
+| 1 core, both hyperthreads | 52.9 (52.8 to 52.9) | 1.26 | 31.7 ms | 72.6 ms | 56 MiB | 75 MiB |
+| 3 cores, all 6 hyperthreads | 153.3 (152.8 to 154.3) | 3.64 | 32.5 ms | 74.9 ms | 90 MiB | 143 MiB (143 to 145) |
+
+- Throughput follows the cores: 1.99 times one core on two and 2.94 times on three. A request takes about 24 ms of a core, so a physical core answers about 42 requests a second.
+- A second hyperthread on a busy core adds about 25% (1.26 times on one core, 1.24 times on three), but each render takes about 1.65 times as long, because the two threads share one core.
+- One more VM costs 8.7 MiB when the server starts, and 17.5 MiB at peak, from 57 MiB with one VM to 143 MiB with six.
+- Not measured: 4 physical cores, because the client would then have no core of its own, and the storefront.
 
 ## Sizing a machine
 
 ### CPU and `ssr.vms`
 
 - Leave [`ssr.vms`](config.md#settings) at its default, the CPU count Go sees (`GOMAXPROCS`), which follows a container's CPU limit.
-- Plan on about 73 page requests a second per physical core for pages like the shop's workbench, 13.7 ms of CPU each with HTTP, and about 34 for its storefront, about 29 ms each. Pages with a different render time scale with it.
-- A cloud vCPU is usually one hyperthread, so 2 vCPUs are often one physical core. When all hyperthreads are busy, plan on about 0.63 of a physical core per vCPU: 6 busy hyperthreads answered 276 requests a second, 46 per vCPU. Renders are then about 1.5 times slower: a P50 of 14.7 ms against 9.6 ms.
-- More VMs than CPUs adds no throughput and slows every render. On 7 CPUs, 8 VMs answered 338 requests a second at a P50 of 16.6 ms and 7 VMs 334 at 14.7 ms.
+- Plan on about 42 page requests a second per physical core for pages like the shop's workbench, about 24 ms of a core each with HTTP, measured with the render cache off ([how it scales](#how-it-scales-with-cores)). The storefront took about 29 ms a request, so about 34 a second, on 2026-10-24 before the redesign. Pages with a different render time scale with it.
+- A cloud vCPU is usually one hyperthread, so 2 vCPUs are often one physical core. When all hyperthreads are busy, plan on about 0.6 of a physical core per vCPU: 6 busy hyperthreads answered 153 requests a second, 26 per vCPU, against 42 on a physical core. Renders are then about 1.65 times slower: a P50 of 32.5 ms against 19.4 ms.
+- More VMs than CPUs adds no throughput and slows every render. On 7 CPUs, with the shop's pages of 2026-10-24, 8 VMs answered 338 requests a second at a P50 of 16.6 ms and 7 VMs 334 at 14.7 ms.
 - Fewer VMs than CPUs does not help either: on the same 7 CPUs, 4 VMs answered 235 requests a second at a P50 of 11.9 ms, because the system still puts two of them on the hyperthreads of one core. Giving the program as many CPUs as physical cores is better on both counts: 4 VMs on 4 physical cores answered 279 at 9.6 ms.
 - A cpuset, such as Docker's `--cpuset-cpus`, can pin the program to one hyperthread of each core, but cannot keep other programs off the siblings. The static CPU manager policy of Kubernetes hands out whole cores, both hyperthreads, which is the busy hyperthread case above. A plain CPU quota, such as Docker's `--cpus`, does not pin threads. That case was not measured.
 
@@ -233,7 +233,7 @@ Peak RSS (the high-water mark the kernel reports) of the whole program, renderin
 
 The storefront, one VM per physical core, gzip: 66 MiB with 1 VM, 88 to 89 MiB with 2 and 129 to 131 MiB with 4.
 
-So plan on about 45 MiB plus 12 MiB per VM, and for each request being compressed at the same time about 2 MiB more with gzip and 4 MiB with zstd. These numbers were measured when a client that offered both got zstd. Tifa now answers it with gzip, so plan on about 14 MiB per VM, and on 16 MiB if your clients rank zstd higher. The storefront, whose pages are larger, takes about 21 MiB per VM.
+So plan on about 45 MiB plus 12 MiB per VM, and for each request being compressed at the same time about 2 MiB more with gzip and 4 MiB with zstd. These numbers were measured when a client that offered both got zstd. Tifa now answers it with gzip, so plan on about 14 MiB per VM, and on 16 MiB if your clients rank zstd higher. The storefront, whose pages are larger, takes about 21 MiB per VM. The redesigned shop, measured on 2026-11-06 ([how it scales](#how-it-scales-with-cores)): 47 MiB after the start and 8.7 MiB more for each VM, and at peak with caches off about 40 MiB plus 17.5 MiB per VM.
 
 What one VM of the shop holds by the engine's count (quickjs's `MemorySize`, which `ssr.vm_memory` limits), rendering every page in turn 300 times as the pool does: 8.47 MB after loading and 9.09 MB after the renders. The bytecode of the bundle, 4.52 MB, is shared by all VMs. The engine counts what its own allocator holds, 13% to 15% less than the engine before it counted for the same heap, so the same `ssr.vm_memory` leaves that much more room. It takes its memory from the system in chunks, so the VM takes more than it counts: 10.7 MB in 18 chunks after loading and 13.4 MB in 19 chunks after the renders. A full collection after the renders frees nothing more: the young collection after each render already freed what could be freed. The rest of a VM's share of RSS is Go memory and the engine's own stack, 32 MiB of address space for each VM of which the pages touched by rendering the shop's pages are about 1 MiB.
 
