@@ -130,3 +130,32 @@ func TestDriveConnsRunsThemAtOnceAndMergesWhatTheySaw(t *testing.T) {
 		}
 	}
 }
+
+func TestUniqueURLsMakeEveryReadAskForADifferentURL(t *testing.T) {
+	var mu sync.Mutex
+	var gets []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		gets = append(gets, r.URL.RequestURI())
+		mu.Unlock()
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+	for _, unique := range []bool{false, true} {
+		gets = nil
+		o := Options{Procs: 3, Steady: 100 * time.Millisecond, Cold: 20, UniqueURLs: unique}
+		if _, err := driveConns(context.Background(), srv.URL, "identity", "fake", func() string { return "" }, nodePath, ReadScenario, o, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		seen := map[string]bool{}
+		for _, g := range gets {
+			seen[g] = true
+		}
+		if unique && len(seen) != len(gets) {
+			t.Errorf("%d reads asked for %d URLs", len(gets), len(seen))
+		}
+		if !unique && len(seen) > len(Pages) {
+			t.Errorf("without the option the reads asked for %d URLs", len(seen))
+		}
+	}
+}

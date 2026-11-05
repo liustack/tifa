@@ -113,6 +113,9 @@ func runConn(ctx context.Context, c *client, name string, output func() string, 
 	r := &connRun{Wire: map[int]PageWire{}, Renders: map[string]int{}}
 	read := func(n int, lat *[]float64, pages *[]int) error {
 		for _, st := range sc.Steps(w, offset+n) {
+			if o.UniqueURLs && st.Timed {
+				st.Path += "?_=" + strconv.Itoa(offset+n)
+			}
 			a, err := c.do(ctx, st)
 			if err != nil {
 				return fmt.Errorf("%s: request %d %s %s: %w\n%s", name, n+1, st.Method, st.Path, err, output())

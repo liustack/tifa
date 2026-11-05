@@ -33,6 +33,7 @@ type Options struct {
 	Render         bool          // also run the render benchmark of test/ssr once after the rounds, apart from the cold runs
 	Scenarios      []Scenario    // ReadScenario only when empty
 	Procs          int           // VMs and CPUs of Tifa and requests in flight, one connection each. 1 when 0, and only Tifa takes more
+	UniqueURLs     bool          // add a query to every timed read that no other read has, so that no two requests share a render
 	Log            io.Writer
 }
 
@@ -92,7 +93,7 @@ func (e Env) Measure(ctx context.Context, o Options) (*Record, error) {
 		Versions:  e.versions(specs),
 		Machine:   machine(),
 		Placement: placement,
-		Settings:  Settings{Rounds: o.Rounds, Steady: o.Steady.String(), Cold: o.Cold, Configs: o.Configs, Scenarios: scenarioNames(o.Scenarios), AcceptEncoding: o.AcceptEncoding, Procs: o.Procs},
+		Settings:  Settings{Rounds: o.Rounds, Steady: o.Steady.String(), Cold: o.Cold, Configs: o.Configs, Scenarios: scenarioNames(o.Scenarios), AcceptEncoding: o.AcceptEncoding, Procs: o.Procs, UniqueURLs: o.UniqueURLs},
 	}
 	fmt.Fprintf(o.Log, "placement: %s\n", placement.Note)
 	if o.Procs > 1 {

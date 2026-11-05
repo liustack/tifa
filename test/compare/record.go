@@ -46,6 +46,8 @@ type Settings struct {
 	AcceptEncoding string `json:"acceptEncoding"`
 	// Procs is the VMs of Tifa and the requests in flight, absent for 1.
 	Procs int `json:"procs,omitempty"`
+	// UniqueURLs is whether every timed read asked for a URL of its own.
+	UniqueURLs bool `json:"uniqueUrls,omitempty"`
 }
 
 // Run is one server started fresh in one round.
