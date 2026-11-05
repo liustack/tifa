@@ -7,6 +7,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 ### Changed
 
 - Server rendering runs on `github.com/liustack/quickjs` v0.30.0, the new path of the engine that was `github.com/liustack/slowjs` from v0.28.0 to v0.29.11. The HTML is the same. If an app builds with the engine's build tags, `slowjs_intl_nonames`, `slowjs_intl_nocjdict` and `slowjs_anygo` are now `quickjs_intl_nonames`, `quickjs_intl_nocjdict` and `quickjs_anygo`. Errors of the engine's root package start with `quickjs:` where they started with `slowjs:`.
+- `tifa new` pins `github.com/liustack/sqlite` v0.1.3, which fixes a nil pointer panic when one commit groups more than 64 different SQL statements, common when values are written into the SQL text. Existing apps: `go get github.com/liustack/sqlite@v0.1.3`.
 
 ## [0.0.4] - 2026-11-05
 

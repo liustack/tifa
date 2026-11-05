@@ -53,4 +53,4 @@ Tifa 应用就是一个 Go 程序。它的代码怎么组织，由四条理念�
 
 - `go test ./...`、`go vet ./...` 和编辑器对待应用，就像对待任何一个 Go 模块。
 - 构建在哪里跑都安全，CI 也一样，不需要应用运行时才要的数据库或密钥。
-- 应用构建成一个可以直接拷走的文件，目标平台是它用的引擎 quickjs 支持的平台：linux 和 darwin 的 amd64、arm64，以及 windows/amd64。
+- 应用构建成一个可以直接拷走的文件，目标平台是它用的引擎 [quickjs](https://github.com/liustack/quickjs) 支持的平台：linux 和 darwin 的 amd64、arm64，以及 windows/amd64。

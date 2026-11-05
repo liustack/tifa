@@ -38,7 +38,7 @@ flowchart LR
 | `tifa`, `tifatest`, `content` | The public API. `tifa` is thin: it forwards to `internal/core`. `tifatest` makes a `Ctx` for tests |
 | `internal/core` | `Ctx`, errors, the JSON rules, sessions and the session store, the render clock |
 | `server` | The HTTP server: routing, `OnRequest`, page and data requests, both caches, compression, HTTPS, cross-site check, graceful stop |
-| `internal/ssr` | The pool of QuickJS VMs and the render call |
+| `internal/ssr` | The pool of [QuickJS](https://github.com/liustack/quickjs) VMs and the render call |
 | `internal/config` | Settings: sources, flags, values and their errors |
 | `internal/analyze` | Static analysis of the app's Go code into the route manifest |
 | `internal/codegen` | Writes `.tifa/`: the Go main, the route registration, the TypeScript route tree |

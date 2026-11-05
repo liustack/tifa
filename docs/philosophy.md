@@ -53,4 +53,4 @@ What you get:
 
 - `go test ./...`, `go vet ./...` and your editor work on the app as on any Go module.
 - A build is safe to run anywhere, CI included, without the database or the secrets the app needs at run time.
-- An app builds into one file to copy, for each platform its engine, quickjs, supports: linux and darwin, on amd64 and arm64, and windows/amd64.
+- An app builds into one file to copy, for each platform its engine, [quickjs](https://github.com/liustack/quickjs), supports: linux and darwin, on amd64 and arm64, and windows/amd64.
