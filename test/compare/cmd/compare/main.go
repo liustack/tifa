@@ -90,6 +90,7 @@ func measure(cmd string, args []string) {
 		encoding   = flags.String("accept-encoding", "gzip", "measure: what the client asks for in every request, gzip or identity. Every server answers as its default does")
 		procs      = flags.Int("procs", 1, "measure: VMs and CPUs of Tifa, and requests in flight (one connection each, Tifa only). Give -server-cpus as many cpus")
 		unique     = flags.Bool("unique-urls", false, "measure: add a query to every timed read so that no two requests share a render, as with the cache off every request then renders")
+		conns      = flags.Int("conns", 0, "measure: requests in flight, when not the same as -procs")
 		jsonPath   = flags.String("json", "", "measure: write the record as JSON to this file")
 	)
 	flags.Parse(args)
@@ -114,7 +115,7 @@ func measure(cmd string, args []string) {
 	}
 	o := compare.Options{
 		ServerCPUs: *serverCPUs, LoadCPUs: *loadCPUs, Rounds: *rounds, Steady: *steady, Cold: *cold,
-		Procs: *procs, UniqueURLs: *unique, AA: *aa || *all, AcceptEncoding: *encoding, Render: *render, Log: os.Stderr,
+		Procs: *procs, Conns: *conns, UniqueURLs: *unique, AA: *aa || *all, AcceptEncoding: *encoding, Render: *render, Log: os.Stderr,
 	}
 	scenarioNames := strings.Split(*scenarios, ",")
 	if *all {

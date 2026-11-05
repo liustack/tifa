@@ -159,3 +159,24 @@ func TestUniqueURLsMakeEveryReadAskForADifferentURL(t *testing.T) {
 		}
 	}
 }
+
+func TestConnsOverridesTheRequestsInFlight(t *testing.T) {
+	var inflight, peak atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := inflight.Add(1)
+		for p := peak.Load(); n > p && !peak.CompareAndSwap(p, n); p = peak.Load() {
+		}
+		time.Sleep(3 * time.Millisecond)
+		inflight.Add(-1)
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+	o := Options{Procs: 2, Conns: 5, Steady: 100 * time.Millisecond, Cold: 5}
+	res, err := driveConns(context.Background(), srv.URL, "identity", "fake", func() string { return "" }, nodePath, ReadScenario, o, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Conns) != 5 || peak.Load() != 5 {
+		t.Errorf("%d connections, %d in flight at most", len(res.Conns), peak.Load())
+	}
+}

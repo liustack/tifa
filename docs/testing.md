@@ -333,6 +333,7 @@ There are two configurations. `default` is each framework as shipped: Tifa with 
 | `-server-cpus`, `-load-cpus` | empty | The cpus for the server and for the client, as `taskset -c` takes them (`1` or `1,2`). Linux only. Leave them empty elsewhere: the numbers then only show that the command works |
 | `-procs` | 1 | Tifa only. Gives Tifa that many VMs and `GOMAXPROCS`, and sends that many requests at once, each on its own connection. A connection runs the scenario by itself, starting on its own page and writing at its own reads, so the hit rate stays about the same. Requests/s are summed and the latencies merged. Give `-server-cpus` as many cpus, on other physical cores than `-load-cpus`. The cold series is the first connection's |
 | `-unique-urls` | off | Adds `?_=<n>` to every timed read, so that no two requests share a render. With the cache off, requests for the same page that arrive together share one render, which several connections do often, and the run then answers more than the VMs can render. Use it with `-config engine` and `-procs` |
+| `-conns` | `-procs` | Requests in flight, when they should not be as many as the VMs. A Tifa that has idle time because every connection waits for a render it asked for shows more throughput with more connections |
 | `-rounds` | 3 | Rounds. Each round starts every server fresh, and the order of the servers rotates by one place from round to round, so that none is always first |
 | `-steady` | 30s | Length of the steady part |
 | `-cold` | 1000 | Requests of the cold series |

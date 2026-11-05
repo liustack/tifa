@@ -57,11 +57,14 @@ type driven struct {
 	Wire       []PageWire
 }
 
-// driveConns runs the scenario on o.Procs connections (1 when 0), each its own client with its own
+// driveConns runs the scenario on o.Conns connections (o.Procs when 0, and 1 when that is 0), each its own client with its own
 // offset (ConnOffset), each with a cold series and then the steady phase. output is the server's
 // output, for an error.
 func driveConns(ctx context.Context, base, acceptEncoding, name string, output func() string, w Writer, sc Scenario, o Options, t0 time.Time) (*driven, error) {
-	n := max(o.Procs, 1)
+	n := o.Conns
+	if n == 0 {
+		n = max(o.Procs, 1)
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	conns := make([]*connRun, n)
