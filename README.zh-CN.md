@@ -1,6 +1,6 @@
 <h1 align="center">Tifa</h1>
 
-<p align="center"><b>The full-stack framework for Gophers.</b></p>
+<p align="center"><b>The full-stack Go framework for Gophers.</b></p>
 
 <p align="center">
   <a href="./README.md">English</a> ·
