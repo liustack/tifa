@@ -82,7 +82,7 @@ func varies(w *httptest.ResponseRecorder, name string) bool {
 	return false
 }
 
-// A page goes out in the encoding the client prefers, zstd when it takes zstd and gzip alike.
+// A page goes out in the encoding the client prefers, gzip when it takes zstd and gzip alike.
 // One page goes out in several encodings, so its ETag is weak in each of them, and the 304 of
 // If-None-Match carries the same ETag as the 200 (RFC 9110, 15.4.5). The page turns the render
 // cache off, so every encoding is made as the page is sent.
@@ -94,7 +94,9 @@ func TestPagesAreCompressed(t *testing.T) {
 	}
 	for _, tc := range []struct{ accept, want string }{
 		{"gzip", "gzip"},
-		{"gzip, deflate, br, zstd", "zstd"},
+		{"gzip, deflate, br, zstd", "gzip"},
+		{"zstd", "zstd"},
+		{"zstd;q=1, gzip;q=0.5", "zstd"},
 		{"zstd;q=0.5, gzip", "gzip"},
 		{"br", ""},
 		{"gzip;q=0", ""},
@@ -539,7 +541,9 @@ func TestCacheHitsSendTheirStoredCompression(t *testing.T) {
 	html := decoded(t, first)
 	for _, tc := range []struct{ path, accept, want string }{
 		{"/stats", "gzip", "gzip"},
-		{"/stats", "gzip, zstd", "zstd"},
+		{"/stats", "gzip, zstd", "gzip"},
+		{"/stats", "zstd", "zstd"},
+		{"/stats", "zstd;q=1, gzip;q=0.5", "zstd"},
 		{"/stats", "zstd;q=0.5, gzip", "gzip"},
 		{"/stats", "br", ""},
 		{"/stats", "", ""},
@@ -684,4 +688,31 @@ func noCache() config.Config {
 	cfg := config.Default()
 	cfg.Cache.Size = 0
 	return cfg
+}
+
+// gzip is the choice whenever the client takes it and ranks zstd no higher. zstd is the choice for
+// a client that takes no gzip or ranks zstd higher.
+func TestGzipIsPreferredToZstd(t *testing.T) {
+	app := frontApp()
+	app.Routes = append(app.Routes,
+		Route{ID: "app/big", Path: "/big", Page: true, SSR: true, Layouts: []string{"app/layout"},
+			Load: func(c *tifa.Ctx) (any, error) { return strings.Repeat("order ", 400), nil }},
+	)
+	s := newBigServer(t, config.Default(), app)
+	for accept, want := range map[string]string{
+		"gzip, deflate, br, zstd": "gzip", "gzip": "gzip", "zstd, gzip": "gzip", "gzip, zstd": "gzip", "zstd;q=0.5, gzip": "gzip",
+		"gzip;q=1, zstd;q=0.5": "gzip", "gzip;q=0": "", "zstd;q=0, gzip;q=0": "", "br": "",
+		"zstd": "zstd", "gzip;q=0, zstd": "zstd", "zstd;q=1, gzip;q=0.5": "zstd", "gzip;q=0.5, zstd": "zstd",
+	} {
+		for i := range 2 { // the second page request is a hit
+			for _, target := range []string{"/projects/p1", "/stats"} {
+				if got := get(s, target, "Accept-Encoding", accept).Header().Get("Content-Encoding"); got != want {
+					t.Errorf("%s with %q, request %d: Content-Encoding %q, want %q", target, accept, i, got, want)
+				}
+			}
+		}
+		if got := getData(s, "/big", "b1", "01", "Accept-Encoding", accept).Header().Get("Content-Encoding"); got != want {
+			t.Errorf("navigation data with %q: Content-Encoding %q, want %q", accept, got, want)
+		}
+	}
 }

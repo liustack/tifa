@@ -191,7 +191,7 @@ func TestBurstKeepsTheHeadersOfEachRequest(t *testing.T) {
 func TestBurstSendsEachRequestItsEncoding(t *testing.T) {
 	s, g := newHeldServer(t, config.Default(), frontApp())
 	accepts := []string{"", "gzip", "zstd", "br", "gzip, zstd"}
-	wants := []string{"", "gzip", "zstd", "", "zstd"}
+	wants := []string{"", "gzip", "zstd", "", "gzip"}
 	out := burst(t, s, g, 25, "/stats", func(i int) []string { return []string{"Accept-Encoding", accepts[i%len(accepts)]} })
 	if g.renders() != 1 {
 		t.Errorf("%d renders", g.renders())

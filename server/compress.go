@@ -17,7 +17,8 @@ import (
 )
 
 // compressed wraps h so that text answers go out with gzip or zstd to clients that accept
-// them, the way gzhttp does by default: zstd when the client takes both alike, gzip at its
+// them, the way gzhttp does by default except for the choice: gzip when the client takes both alike,
+// zstd only when it ranks zstd higher or takes no gzip, gzip at its
 // default level, from 1024 bytes on, every answer marked Vary: Accept-Encoding, and nothing
 // done to HEAD or to an answer that already has a Content-Encoding or a Content-Range. zstd
 // runs at its default level, as in Caddy and Traefik: at gzhttp's fastest, the pages of the
@@ -25,7 +26,7 @@ import (
 // compressed, a strong ETag of a compressed answer turns weak and Vary keeps Accept-Encoding
 // (outgoing), and a Flush before the body sends the answer uncompressed (earlyFlush).
 func compressed(h http.Handler) http.Handler {
-	wrap, err := gzhttp.NewWrapper(gzhttp.ContentTypeFilter(compressible), gzhttp.ZstdCompressionLevel(int(zstd.SpeedDefault)))
+	wrap, err := gzhttp.NewWrapper(gzhttp.ContentTypeFilter(compressible), gzhttp.ZstdCompressionLevel(int(zstd.SpeedDefault)), gzhttp.PreferZstd(false))
 	if err != nil {
 		panic(err) // only options gzhttp rejects fail, and these are fixed
 	}
@@ -84,7 +85,7 @@ func quality(header, coding string) float64 {
 
 // pageEncoding picks the encoding compressed gives an answer to r, with the comparisons of
 // gzhttp's selectEncoding, so a q of NaN goes the same way: none for HEAD, the one of zstd and
-// gzip that is taken, else the higher q, and zstd when they are alike.
+// gzip that is taken, else the higher q, and gzip when they are alike.
 func pageEncoding(r *http.Request) string {
 	if r.Method == http.MethodHead {
 		return ""
@@ -102,10 +103,10 @@ func pageEncoding(r *http.Request) string {
 			return "zstd"
 		}
 		return ""
-	case gz > zs:
-		return "gzip"
+	case zs > gz:
+		return "zstd"
 	}
-	return "zstd"
+	return "gzip"
 }
 
 // The encoders of compressPage, at the levels and window of compressed. The zstd encoder takes
