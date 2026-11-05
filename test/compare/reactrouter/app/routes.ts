@@ -12,4 +12,5 @@ export default [
     ]),
   ]),
   route('compare-counts', 'routes/compare-counts.ts'),
+  route('compare-write/:project/:order', 'routes/compare-write.ts'),
 ] satisfies RouteConfig

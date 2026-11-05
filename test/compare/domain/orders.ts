@@ -6,7 +6,7 @@
 import { counts } from './counts.ts'
 import { demoOrders } from './demo.ts'
 import { carrierName } from './shipping.ts'
-import { NotFound } from './errors.ts'
+import { Invalid, Locked, NotFound } from './errors.ts'
 import { initials, itemCount, status, total } from './records.ts'
 import type { OrderRecord } from './records.ts'
 import { logOf, packing, payment } from './detail.ts'
@@ -75,8 +75,10 @@ export interface OrderList {
   shipped: number
 }
 
-// The orders, made when the process starts.
-const orders: OrderRecord[] = demoOrders()
+// The orders, made when the process starts. They live on globalThis, like the counters, since Next.js
+// loads this module once for its pages and once for the write endpoint, and both must see the same orders.
+const g = globalThis as typeof globalThis & { __compareOrders?: OrderRecord[] }
+const orders: OrderRecord[] = (g.__compareOrders ??= demoOrders())
 
 // ordersOf returns copies of the orders of a project, newest first.
 export function ordersOf(projectId: string): OrderRecord[] {
@@ -214,4 +216,33 @@ export function ordersWith(projectId: string, slug: string, exceptId: string, n:
     if (rows.length === n) break
   }
   return rows
+}
+
+// normalPhone drops the spaces and dashes people type between the digits of a phone number.
+const normalPhone = (phone: string): string => phone.replace(/[ -]/g, '')
+
+// checkRecipient lists the fields of a recipient that the shop would refuse, as CheckRecipient does
+// in shipping.go: no name, a phone number that is not 11 digits starting 1[3-9], no address or one
+// longer than 100 characters.
+export function checkRecipient(customer: string, phone: string, address: string): string[] {
+  const fields: string[] = []
+  if (customer.trim() === '') fields.push('customer')
+  if (!/^1[3-9][0-9]{9}$/.test(normalPhone(phone))) fields.push('phone')
+  const a = address.trim()
+  if (a === '' || Array.from(a).length > 100) fields.push('address')
+  return fields
+}
+
+// updateRecipient changes who receives the order and where, until it ships, as UpdateRecipient does
+// in shipping.go, and returns the order.
+export function updateRecipient(projectId: string, id: string, customer: string, phone: string, address: string): Order {
+  const fields = checkRecipient(customer, phone, address)
+  if (fields.length > 0) throw new Invalid(fields)
+  const o = orders.find((o) => o.projectId === projectId && o.id === id)
+  if (!o) throw new NotFound(id)
+  if (o.shipment) throw new Locked(id)
+  o.customer = customer.trim()
+  o.phone = normalPhone(phone)
+  o.address = address.trim()
+  return view(o)
 }
