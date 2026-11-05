@@ -1084,7 +1084,7 @@ func writeCached(c *tifa.Ctx, status int, page cachedPage, encoding string) erro
 	} else {
 		h.Set("Content-Length", strconv.Itoa(page.n))
 		if c.Request().Method == http.MethodHead {
-			pageGunzip.Put(r)
+			r.release()
 			w.WriteHeader(status)
 			return nil
 		}

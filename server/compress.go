@@ -123,7 +123,7 @@ var (
 		}
 		return w
 	}}
-	pageGunzip sync.Pool // of *gzip.Reader
+	pageGunzip = sync.Pool{New: func() any { return new(gunzip) }}
 	pageCopy   = sync.Pool{New: func() any { b := make([]byte, 32<<10); return &b }}
 )
 
@@ -147,6 +147,7 @@ func compressPage(html string) []byte {
 	w.Reset(&buf)
 	io.WriteString(w, html) // a bytes.Buffer does not fail
 	w.Close()
+	w.Reset(io.Discard) // the pool must not keep buf
 	pageGzip.Put(w)
 	if buf.Len() >= len(html) {
 		return nil
@@ -156,30 +157,41 @@ func compressPage(html string) []byte {
 	return out
 }
 
-// gunzipper opens the gzip form of a page. The caller closes it with release.
-func gunzipper(gz []byte) (r *gzip.Reader, err error) {
-	if r, _ = pageGunzip.Get().(*gzip.Reader); r == nil {
-		return gzip.NewReader(bytes.NewReader(gz))
-	}
-	if err = r.Reset(bytes.NewReader(gz)); err != nil {
-		pageGunzip.Put(r)
-		return nil, err
-	}
-	return r, nil
+// gunzip reads the gzip form of a page. It reads from src, its own, so that release can make it let
+// go of the page: a reader in the pool would otherwise keep a page the cache dropped, uncounted.
+type gunzip struct {
+	gzip.Reader
+	src bytes.Reader
 }
 
-// unzipTo writes the HTML of a page kept as gzip to w, through a pooled reader and buffer, so a
-// hit allocates next to nothing. Errors that come from w are told apart from the page's own.
-func unzipTo(w io.Writer, r *gzip.Reader) error {
+func (z *gunzip) release() {
+	z.src.Reset(nil)
+	pageGunzip.Put(z)
+}
+
+// gunzipper opens the gzip form of a page. The caller gives it back with release.
+func gunzipper(gz []byte) (*gunzip, error) {
+	z := pageGunzip.Get().(*gunzip)
+	z.src.Reset(gz)
+	if err := z.Reader.Reset(&z.src); err != nil {
+		z.release()
+		return nil, err
+	}
+	return z, nil
+}
+
+// unzipTo writes the HTML of a page kept as gzip to w, through a pooled buffer, so a hit allocates
+// next to nothing, and gives r back.
+func unzipTo(w io.Writer, r *gunzip) error {
 	buf := pageCopy.Get().(*[]byte)
 	defer pageCopy.Put(buf)
-	_, err := io.CopyBuffer(w, r, *buf)
-	pageGunzip.Put(r)
+	_, err := io.CopyBuffer(w, &r.Reader, *buf)
+	r.release()
 	return err
 }
 
 // zstdTo writes the HTML of a page kept as gzip to w as zstd, the way unzipTo writes it as it is.
-func zstdTo(w io.Writer, r *gzip.Reader) error {
+func zstdTo(w io.Writer, r *gunzip) error {
 	enc := pageZstd.Get().(*zstd.Encoder)
 	enc.Reset(w)
 	err := unzipTo(enc, r)
