@@ -143,7 +143,7 @@ Tifa 用 `cache.size` 0，每个请求都渲染，和 Node 应用一样。标了
 
 ### 说明
 
-- **压缩。** TanStack Start 不压缩时每页发 146.5 KB，其他几个约 25 KB。Next.js 开 gzip 比不开每秒少答 16% 的请求（79.8 对 94.9），Start 如果压缩，多半要付相近的代价。
+- **压缩。** TanStack Start 不压缩，每页发 146.5 KB，Tifa 和 Next.js 用 gzip 约 16 KB，React Router 约 44 KB。Next.js 开 gzip 比不开每秒少答 16% 的请求（79.8 对 94.9），Start 如果压缩，多半要付相近的代价。
 - **React Router 的页面更大。** 开 gzip 后每页 32 到 76 KB，是 Tifa 和 Next.js 的 2 到 5 倍。`@react-router/node` 8.5.1 每写一块数据就刷新一次流，`react-router-serve` 又用 express 的 `compression` 压缩，每次刷新都会结束一个压缩块。这是它的默认行为，照原样测。
 - **没命中几乎不花额外时间。** 写入之后紧接着读订单页，每次都没命中，P50 开渲染缓存是 17.72 ms，关掉是 17.77 ms。
 - **没有报的数字。** 延迟从第几个请求起稳定、最慢的一个请求，在两个一模一样的服务之间就差 138% 和 26%，说明不了什么。

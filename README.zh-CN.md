@@ -123,7 +123,11 @@ go tool tifa check   # 分析、vet、测试和 TypeScript 检查一次跑完
 | TanStack Start, `--jitless` | 30 | 30.2 ms | 60.6 ms | 276 MiB |
 | React Router, `--jitless` | 24 | 37.4 ms | 70.5 ms | 355 MiB |
 
-Tifa 没有 JIT。`--jitless` 那几行是把 Node 的 JIT 也关掉，作为参照：每秒处理的请求是 Tifa 的 0.6 到 0.7 倍。每个框架一个核，默认设置，示例商店的六个工作台页面。方法和全部数字见[完整对比](docs/performance.zh-CN.md#和三个-node-框架比)。
+Tifa 没有 JIT。`--jitless` 那几行是把 Node 的 JIT 也关掉，作为参照：每秒处理的请求是 Tifa 的 0.6 到 0.7 倍。
+
+每个请求都要求 gzip。TanStack Start 默认不压缩页面，所以每页发约 146 KB，Tifa 和 Next.js 约 16 KB，React Router 约 44 KB。压缩让 Next.js 每秒少处理 16% 的请求，Start 要是压缩，多半也要付出差不多的代价。
+
+每个框架一个核，默认设置，示例商店的六个工作台页面。方法和全部数字见[完整对比](docs/performance.zh-CN.md#和三个-node-框架比)。
 
 ## 新建应用
 

@@ -123,7 +123,11 @@ With every cache off, so every request renders:
 | TanStack Start, `--jitless` | 30 | 30.2 ms | 60.6 ms | 276 MiB |
 | React Router, `--jitless` | 24 | 37.4 ms | 70.5 ms | 355 MiB |
 
-Tifa has no JIT. The `--jitless` rows run Node without its JIT too, for reference: they answer 0.6 to 0.7 times the requests of Tifa. One core each, default settings, the six workbench pages of the example shop. [The full comparison](docs/performance.md#against-nextjs-tanstack-start-and-react-router) has the method and every number.
+Tifa has no JIT. The `--jitless` rows run Node without its JIT too, for reference: they answer 0.6 to 0.7 times the requests of Tifa.
+
+Every request asks for gzip. TanStack Start does not compress pages by default, so it sends about 146 KB a page, against about 16 KB for Tifa and Next.js and 44 KB for React Router. Compressing costs Next.js 16% of its requests a second, and Start would likely pay about as much if it compressed.
+
+One core each, default settings, the six workbench pages of the example shop. [The full comparison](docs/performance.md#against-nextjs-tanstack-start-and-react-router) has the method and every number.
 
 ## Start an app
 
