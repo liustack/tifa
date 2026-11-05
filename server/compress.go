@@ -132,7 +132,15 @@ func compressPage(html string) (gz, zs []byte) {
 	io.WriteString(w, html) // a bytes.Buffer does not fail
 	w.Close()
 	pageGzip.Put(w)
-	return buf.Bytes(), pageZstd.EncodeAll([]byte(html), nil)
+	return exact(buf.Bytes()), exact(pageZstd.EncodeAll([]byte(html), nil))
+}
+
+// exact copies b into a slice whose capacity is its length. A buffer that grew or an encoder's
+// output is larger than what it holds, and the cache would keep the unused part without counting it.
+func exact(b []byte) []byte {
+	out := make([]byte, len(b))
+	copy(out, b)
+	return out
 }
 
 func must[T any](v T, err error) T {
