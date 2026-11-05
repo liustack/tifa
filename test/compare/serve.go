@@ -27,8 +27,8 @@ type Target struct {
 	Env  []string
 }
 
-// Targets are the four servers, in the order they are measured: tifa, Next.js, Next.js without
-// its JIT and TanStack Start. tifa runs one VM on one OS thread and renders every request
+// Targets are the five servers, in the order they are measured: tifa, Next.js, Next.js without
+// its JIT, TanStack Start and React Router. tifa runs one VM on one OS thread and renders every request
 // (no HTML cache), the Node servers run in production mode.
 func (e Env) Targets() []Target {
 	nextBin := filepath.Join("node_modules", "next", "dist", "bin", "next")
@@ -51,6 +51,11 @@ func (e Env) Targets() []Target {
 		{
 			Name: "start", Dir: e.Start, Prog: "node",
 			Args: []string{filepath.Join(".output", "server", "index.mjs")},
+			Env:  []string{"NODE_ENV=production", "HOST=127.0.0.1", "PORT=%PORT%"},
+		},
+		{
+			Name: "reactrouter", Dir: e.React, Prog: "node",
+			Args: []string{filepath.Join("node_modules", "@react-router", "serve", "bin.cjs"), filepath.Join("build", "server", "index.js")},
 			Env:  []string{"NODE_ENV=production", "HOST=127.0.0.1", "PORT=%PORT%"},
 		},
 	}

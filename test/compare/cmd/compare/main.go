@@ -1,4 +1,4 @@
-// Command compare builds and measures the comparison of tifa with Next.js and TanStack Start, on
+// Command compare builds and measures the comparison of tifa with Next.js, TanStack Start and React Router, on
 // the six workbench pages of examples/shop. Run it from anywhere in the repository:
 //
 //	go run ./test/compare/cmd/compare build
@@ -35,7 +35,7 @@ func main() {
 		rounds       = flags.Int("rounds", 2, "measure: rounds, each with a fresh server")
 		warmup       = flags.Duration("warmup", 10*time.Second, "measure: warm-up before the six pages in turn")
 		duration     = flags.Duration("duration", 15*time.Second, "measure: length of the measured run")
-		servers      = flags.String("servers", "", "measure: comma separated servers out of tifa, nextjs, nextjs-jitless, start (default all)")
+		servers      = flags.String("servers", "", "measure: comma separated servers out of tifa, nextjs, nextjs-jitless, start, reactrouter (default all)")
 		perPage      = flags.Bool("per-page", false, "measure: also run each page alone")
 		pageWarmup   = flags.Duration("page-warmup", 3*time.Second, "measure: warm-up of a page alone")
 		pageDuration = flags.Duration("page-duration", 10*time.Second, "measure: length of the run of a page alone")
