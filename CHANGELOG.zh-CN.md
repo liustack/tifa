@@ -6,7 +6,7 @@
 
 ### 变更
 
-- 服务端渲染改用 `github.com/liustack/quickjs` v0.30.0，也就是引擎的新路径，v0.28.0 到 v0.29.11 它叫 `github.com/liustack/slowjs`。HTML 不变。应用构建时如果用了引擎的构建标签，`slowjs_intl_nonames`、`slowjs_intl_nocjdict`、`slowjs_anygo` 现在是 `quickjs_intl_nonames`、`quickjs_intl_nocjdict`、`quickjs_anygo`。引擎根包的错误信息以 `quickjs:` 开头，原来是 `slowjs:`。
+- 服务端渲染改用 `github.com/liustack/quickjs` v0.30.1，也就是引擎的新路径，v0.28.0 到 v0.29.11 它叫 `github.com/liustack/slowjs`。HTML 不变。应用构建时如果用了引擎的构建标签，`slowjs_intl_nonames`、`slowjs_intl_nocjdict`、`slowjs_anygo` 现在是 `quickjs_intl_nonames`、`quickjs_intl_nocjdict`、`quickjs_anygo`。引擎根包的错误信息以 `quickjs:` 开头，原来是 `slowjs:`。从 v0.30.1 起，渲染超时（`ssr.timeout`）也能停下正在展平很长字符串、执行 `String.prototype.repeat`、编译很长的正则或很大的字符类的页面。以前在超时下编译特别长的正则可能让 VM 崩溃。
 - `tifa new` 固定 `github.com/liustack/sqlite` v0.1.3。它修了一次提交合并超过 64 条不同 SQL 时的空指针崩溃，把值直接拼进 SQL 文本时很常见。已有应用执行 `go get github.com/liustack/sqlite@v0.1.3`。
 
 ## [0.0.4] - 2026-11-05

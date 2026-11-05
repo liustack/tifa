@@ -11,7 +11,7 @@ package ssr_test
 // allocator keep pages that a second pool in the same process would count as its own. Each child prints
 // the VmRSS of its process after loading, after rendering every page with every VM, idle for half a second,
 // and after waiting 1.5 seconds more, which is longer than the pool lets an idle VM keep its free memory, and the
-// highest VmRSS it reached (VmHWM) in a line "vmhwm-kb: N", which `sjdev bench run` reads. The child of 1
+// highest VmRSS it reached (VmHWM) in a line "vmhwm-kb: N", which `go tool measure bench run` reads. The child of 1
 // VM also prints what the engine counts for one VM, rendered the way the pool renders (a young GC after
 // each render, a full one at the end).
 
