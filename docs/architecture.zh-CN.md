@@ -38,7 +38,7 @@ flowchart LR
 | `tifa`、`tifatest`、`content` | 公开的 API。`tifa` 很薄，只转给 `internal/core`。`tifatest` 为测试造 `Ctx` |
 | `internal/core` | `Ctx`、错误、JSON 规则、会话和会话存储、渲染时钟 |
 | `server` | HTTP 服务器：路由、`OnRequest`、页面请求和数据请求、两个缓存、压缩、HTTPS、跨站检查、优雅退出 |
-| `internal/ssr` | QuickJS VM 池和渲染调用 |
+| `internal/ssr` | [QuickJS](https://github.com/liustack/quickjs) VM 池和渲染调用 |
 | `internal/config` | 设置：来源、命令行参数、值和它们的错误 |
 | `internal/analyze` | 把应用的 Go 代码静态分析成路由清单 |
 | `internal/codegen` | 写 `.tifa/`：Go 的 main、路由注册、TypeScript 路由树 |

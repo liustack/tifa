@@ -40,10 +40,10 @@
 | :-- | :-- | :-- |
 | 反向代理与证书 | nginx + certbot | 程序里的 Go HTTP 服务器，自己申请 Let's Encrypt 证书，支持 HTTP/2 |
 | 运行时与进程管理 | Node.js + PM2 | 一个 Go 可执行文件 |
-| React SSR | TanStack Start | TanStack Router，由 Go 进程内的纯 Go QuickJS 渲染 |
+| React SSR | TanStack Start | TanStack Router，由 Go 进程内的[纯 Go QuickJS](https://github.com/liustack/quickjs)渲染 |
 | 缓存 | Redis | 进程内的渲染缓存和整页缓存，以及你放在 Go 内存里的数据 |
 | 队列与定时任务 | BullMQ + cron | 在 `OnStart` 里启动的 goroutine |
-| 数据库 | SQLite | SQLite，用纯 Go 驱动，CGO 保持关闭 |
+| 数据库 | SQLite | SQLite，用[纯 Go 驱动](https://github.com/liustack/sqlite)，CGO 保持关闭 |
 
 ## 写起来是什么样
 
