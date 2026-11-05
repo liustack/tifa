@@ -45,8 +45,8 @@ How B1 could keep hydration: touch only tags that go through `pushStartGenericEl
 | --- | --- |
 | B2, PR 37022 | Measured: about 1% slower. See [React PR 37022 and React Compiler](react-layer.md) |
 | B4, Compiler SSR mode | Measured: no change, and it can change HTML. Same study |
-| B3, namespaces of plain values | Done: a rewrite of the Vite plugin, 0.3% to 3.1% on the shop, see [Performance](../performance.md#build) |
-| B1, static start tags | Built and dropped: only the two bench pages made for it gained (7% to 8%), the shop and MUI pages did not change and the bundle grew 4.9%. See [Performance](../performance.md#build-1) |
+| B3, namespaces of plain values | Done: a rewrite of the Vite plugin, 0.3% to 3.1% on the shop, see [Optimizations](optimizations.md#build) |
+| B1, static start tags | Built and dropped: only the two bench pages made for it gained (7% to 8%), the shop and MUI pages did not change and the bundle grew 4.9%. See [Optimizations](optimizations.md#build-1) |
 | B6 to B9 | Not done, for the reasons in the table |
 
 ## Not found, or uncertain

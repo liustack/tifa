@@ -204,7 +204,7 @@ TIFA_SSR_EXTREME=1 go test -run ExtremeIsolation -v ./test/ssr
 - `BenchmarkExtreme` (3 to 6 minutes, mostly the sizes that fail) renders each size with the default settings, in a VM of its own, and fills the slots of long data texts in Go as the server does. For a size that renders it reports the P50 and P99 of warm renders, `vm-MiB`, the VM's memory right after its first render, and `stack-KiB`, how much the goroutine stack grew during it. The `/inject` sizes also report the data request (`load-ms`), escaping it (`escape-ms`) and parsing it in a VM (`parse-ms`). For a size that fails, it logs how and after how long, and what it takes with 1 GiB and 60 seconds instead, and skips. Run it with `-v` to see these lines.
 - `TestExtremeIsolation` (about 20 seconds with 4 CPUs) renders `/table/25` with three of four VMs while the fourth renders `/markdown/200` again and again: once with time to finish, once with a budget of half a second, so the pool stops and replaces that VM each time. The P99 of the light page must not be more than 1.5 times, or 5 ms, worse when VMs are stopped. It needs 4 CPUs, and with fewer only prints the numbers.
 
-`/json/2001` must fail: the engine of quickjs parses JSON at most 2,000 levels deep, so its render throws and the page is a 500. The numbers of the last run are in [Performance](performance.md#extreme-pages).
+`/json/2001` must fail: the engine of quickjs parses JSON at most 2,000 levels deep, so its render throws and the page is a 500. The numbers of the last run are in [Optimizations](studies/optimizations.md#extreme-pages).
 
 ## Performance comparisons
 

@@ -17,3 +17,4 @@ Each study gives one question its full method, data and limits. [Performance](..
 | [JavaScript function profile](js-function-profile.md) | 2026-10-18, 2026-10-20 | Which JavaScript functions of React and the libraries cost the most in QuickJS, and which cost far more than in another interpreter? |
 | [Compression](compression.md) | 2026-10-19 | Which codecs and levels should a Tifa program compress its answers with, and at what cost? |
 | [Costs of server changes](server-changes.md) | 2026-10-21 to 2026-10-24 | What did the bounded render queue, VM replacement in the background, SharedBytecode, kept shapes, lazy Temporal and the ES module bundle cost or gain when they landed? |
+| [Optimizations](optimizations.md) | 2026-10-21 to 2026-11-03 | How did rendering get faster, by how much, and which ideas were tried and dropped? |

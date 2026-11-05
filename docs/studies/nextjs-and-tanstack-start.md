@@ -290,7 +290,7 @@ The three servers answer the same six pages with the same text, query the orders
 ## What it means for Tifa
 
 - The comparison is in [Performance](../performance.md#at-a-glance), with the gap stated plainly.
-- Tifa does not try to close the gap to Node with JIT: an interpreter cannot. Work goes into render time, which every request pays (see [Where to continue](../performance.md#where-to-continue)), and the numbers here are run again when it changes.
+- Tifa does not try to close the gap to Node with JIT: an interpreter cannot. Work goes into render time, which every request pays (see [Where to continue](optimizations.md#where-to-continue)), and the numbers here are run again when it changes.
 - Memory, start-up, scaling and one file to deploy are where Tifa is ahead, and they are what Tifa is built for.
 
 ## Cache hit against cache hit

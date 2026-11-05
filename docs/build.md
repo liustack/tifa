@@ -333,7 +333,7 @@ On the shop, which makes one instance for each language and gives it formatters 
 | A value of the request, such as a user's name, in the options of every call | 0.956 (0.941 to 0.967) |
 | The same with a value of 400 characters, so the cache fills its 1 MB and starts over | 0.953 (0.933 to 0.965) |
 
-The workbench pages, which do not translate, take 0.997 (0.990 to 1.004). After the storefront pages have rendered again and again, a VM of the shop holds 127 KB more than without the cache, and 636 KB more when every call carries a value of the request. [Performance](performance.md#build) has how these were measured.
+The workbench pages, which do not translate, take 0.997 (0.990 to 1.004). After the storefront pages have rendered again and again, a VM of the shop holds 127 KB more than without the cache, and 636 KB more when every call carries a value of the request. [Optimizations](studies/optimizations.md#build) has how these were measured.
 
 The plugin knows the code of i18next 25.5 to 26.5. For another version, or when a release changes the code the cache needs, the build prints a warning and the bundle is the one without the cache. `build.i18next_cache: false` builds such an app without the warning.
 
