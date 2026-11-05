@@ -1,7 +1,9 @@
 package compare
 
 import (
+	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -81,10 +83,19 @@ func driveConns(ctx context.Context, base, acceptEncoding, name string, output f
 		}()
 	}
 	wg.Wait()
+	// A connection that fails cancels the others, so report the first error that is not a cancel.
+	var first error
 	for _, err := range errs {
-		if err != nil {
+		if err == nil {
+			continue
+		}
+		if !errors.Is(err, context.Canceled) {
 			return nil, err
 		}
+		first = cmp.Or(first, err)
+	}
+	if first != nil {
+		return nil, first
 	}
 	d := &driven{Conns: conns, Renders: map[string]int{}}
 	wire := map[int]PageWire{}

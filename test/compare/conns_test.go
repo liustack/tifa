@@ -180,3 +180,21 @@ func TestConnsOverridesTheRequestsInFlight(t *testing.T) {
 		t.Errorf("%d connections, %d in flight at most", len(res.Conns), peak.Load())
 	}
 }
+
+func TestDriveConnsReportsTheErrorThatStoppedTheOthers(t *testing.T) {
+	var n atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if n.Add(1) == 10 {
+			http.Error(w, "full", http.StatusServiceUnavailable)
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+	o := Options{Procs: 4, Steady: time.Second, Cold: 5}
+	_, err := driveConns(context.Background(), srv.URL, "identity", "fake", func() string { return "" }, nodePath, ReadScenario, o, time.Now())
+	if err == nil || !strings.Contains(err.Error(), "status 503") {
+		t.Fatalf("got %v", err)
+	}
+}
