@@ -20,7 +20,7 @@ quickjs v0.29 replaced the engine that translated QuickJS from C to Go. The C en
 
 - **One render** took 0.94 times as long as in C QuickJS on the shop's pages and 1.15 times on pages without `Intl`, with the engine before the C engine. It took about 2 times as long as in Node without its JIT and 6.6 times as long as in Node with it. The C engine takes 0.84 of that time.
 - **Whole requests**, one core, default settings, the six workbench pages: with writes to the data, Tifa answers about 6 times the requests of Next.js, from a quarter of the memory. With every cache off, Next.js answers 1.9 times Tifa's requests, TanStack Start 2.7 times and React Router 1.8 times, and without their JIT they answer 0.6 to 0.7 times. Peak memory is 57 MiB against 347 to 435 MiB. See [the comparison](#against-nextjs-tanstack-start-and-react-router).
-- **Cores**: with caches off, 3 physical cores answer 2.94 times as many requests as one, and a busy second hyperthread on each adds about 25%. With default settings and writes to the data, one core answers about 800 requests a second and 3 cores about 2,250, see [how it scales](#how-it-scales-with-cores).
+- **Cores**: with caches off, 3 physical cores answer 2.94 times as many requests as one, and a busy second hyperthread on each adds about 25%, see [how it scales](#how-it-scales-with-cores).
 - **Sizing**: plan on about 42 requests a second per physical core for pages like the shop's workbench (caches off, so every request renders), and about 40 MiB plus 17 MiB per VM at peak.
 
 The example shop was redesigned on 2026-10-28 and its pages got heavier. Only the comparison below, the render times in [The redesigned shop](studies/optimizations.md#the-redesigned-shop) and the memory numbers use the new pages. Every other number here was measured on the pages from before.
@@ -153,28 +153,21 @@ To measure again, see [Testing](testing.md#comparison-with-nextjs-tanstack-start
 
 ## How it scales with cores
 
-Measured on 2026-11-05 with Tifa aacb96bf, quickjs v0.30.1 and the machine of [How the numbers were measured](#how-the-numbers-were-measured), on the six workbench pages of the redesigned shop, gzip. The server ran on the CPUs the row names, with one VM per CPU (`--ssr-vms` and `GOMAXPROCS`). The client ran on cpu 3, the fourth physical core, with its sibling idle, and every request in flight had its own connection, each with its own start in the page order. All four core pairs were locked for the whole run. Each cell is the median of three rounds with fresh servers, 30 s steady after 1,000 cold requests per connection, with the range in brackets.
+Measured on 2026-11-05 with Tifa aacb96bf, quickjs v0.30.1 and the machine of [How the numbers were measured](#how-the-numbers-were-measured), on the six workbench pages of the redesigned shop, gzip. This is render capacity: every cache is off (`cache.size` 0), there is one request in flight per VM, and every URL is unique so that no two requests share a render. [Sizing a machine](#sizing-a-machine) sizes with it. The render cache raises what a core serves a lot, and [the comparison](#against-nextjs-tanstack-start-and-react-router) shows it on one core. Only Tifa is here: Next.js, TanStack Start and React Router run one process with their default start command, so they do not scale with cores.
 
-There are two modes. **Default settings** are what users get: the render cache on (64 MiB), `server.compress` on, the six pages in turn, and a write to one order before the first order page after every 10 reads. Only reads are timed. It runs with 16 requests in flight per VM (64 in all on the last row, see below). **Caches off** (`cache.size` 0) renders every request, with one request in flight per VM, and every URL is unique so that no two requests share a render. This is render capacity, and [Sizing a machine](#sizing-a-machine) sizes with it. Only Tifa is here: Next.js, TanStack Start and React Router run one process with their default start command, so they do not scale with cores.
+The server ran on the CPUs the row names, with one VM per CPU (`--ssr-vms` and `GOMAXPROCS`). The client ran on cpu 3, the fourth physical core, with its sibling idle. All four core pairs were locked for the whole run. Each cell is the median of three rounds with fresh servers, 30 s steady after 1,000 cold requests per connection, with the range in brackets.
 
-| CPUs and VMs | Mode | Requests/s | Against one core, same mode | P50 | P99 | RSS after start | Peak RSS |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 physical core | Default settings | 799 (791 to 807) | 1 | 20.1 ms | 76.3 ms | 47 MiB | 146 MiB (145 to 147) |
-| | Caches off | 42.1 (42.0 to 42.3) | 1 | 19.3 ms | 44.8 ms | 47 MiB | 57 MiB |
-| 2 physical cores | Default settings | 1,570 (1,543 to 1,574) | 1.96 | 12.7 ms | 100 ms | 56 MiB | 214 MiB (213 to 216) |
-| | Caches off | 83.7 (83.3 to 84.1) | 1.99 | 19.4 ms | 45.9 ms | 56 MiB | 75 MiB |
-| 3 physical cores | Default settings | 2,249 (2,243 to 2,262) | 2.81 | 11.3 ms | 113 ms | 64 MiB (64 to 65) | 235 MiB (234 to 235) |
-| | Caches off | 123.8 (123.5 to 124.1) | 2.94 | 19.7 ms | 46.8 ms | 65 MiB (64 to 65) | 92 MiB |
-| 1 core, both hyperthreads | Default settings | 940 (935 to 959) | 1.18 | 14.3 ms | 197 ms | 56 MiB | 212 MiB |
-| | Caches off | 52.9 (52.8 to 52.9) | 1.26 | 31.7 ms | 72.6 ms | 56 MiB | 75 MiB |
-| 3 cores, all 6 hyperthreads | Default settings | 2,660 (2,653 to 2,687) | 3.33 | 12.3 ms | 118 ms | 90 MiB (89 to 90) | 291 MiB (291 to 293) |
-| | Caches off | 153.3 (152.8 to 154.3) | 3.64 | 32.5 ms | 74.9 ms | 90 MiB | 143 MiB (143 to 145) |
+| CPUs and VMs | Requests/s | Against one core | P50 | P99 | RSS after start | Peak RSS |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 physical core | 42.1 (42.0 to 42.3) | 1 | 19.3 ms | 44.8 ms | 47 MiB | 57 MiB |
+| 2 physical cores | 83.7 (83.3 to 84.1) | 1.99 | 19.4 ms | 45.9 ms | 56 MiB | 75 MiB |
+| 3 physical cores | 123.8 (123.5 to 124.1) | 2.94 | 19.7 ms | 46.8 ms | 65 MiB (64 to 65) | 92 MiB |
+| 1 core, both hyperthreads | 52.9 (52.8 to 52.9) | 1.26 | 31.7 ms | 72.6 ms | 56 MiB | 75 MiB |
+| 3 cores, all 6 hyperthreads | 153.3 (152.8 to 154.3) | 3.64 | 32.5 ms | 74.9 ms | 90 MiB | 143 MiB (143 to 145) |
 
-- With caches off, throughput follows the cores: 1.99 times one core on two and 2.94 times on three. A request takes about 24 ms of a core, so a physical core answers about 42 requests a second.
-- With default settings, 94% of the requests come from the render cache, and one core answers about 19 times what it renders with the cache off. It grows with the cores almost as the render capacity does: 1.96 times on two cores and 2.81 times on three. P50 and P99 are mostly waiting time here, since 16 requests per VM are always in flight. Read the requests a second, not the latency.
-- Why 16 in flight per VM: on one core with 1, 2, 4, 8 and 16 in flight, default settings answered 461, 516, 570, 702 and 770 requests a second (one round each), so 16 is the smallest number within 3% of the best of these. More still adds some, but only by making requests wait: 32 and 64 in flight answered 904 and 1,004 a second, with a P99 of 124 and 301 ms (80 ms at 16), because requests that ask for the same new version of a page are answered by one render. At 128 in flight the render queue is full and Tifa answers 503 (see [Overload](#overload)). On six VMs 96 in flight were refused too, so that row has 64.
-- A second hyperthread on a busy core adds about 25% with caches off (1.26 times on one core, 1.24 times on three), but each render takes about 1.65 times as long, because the two threads share one core. With default settings it adds 18% on one core (940 against 799).
-- One more VM costs 8.7 MiB when the server starts, and 17.5 MiB at peak with caches off, from 57 MiB with one VM to 143 MiB with six. With default settings the peak also holds the render cache, up to 64 MiB, and is larger the more is answered.
+- Throughput follows the cores: 1.99 times one core on two and 2.94 times on three. A request takes about 24 ms of a core, so a physical core answers about 42 requests a second.
+- A second hyperthread on a busy core adds about 25% (1.26 times on one core, 1.24 times on three), but each render takes about 1.65 times as long, because the two threads share one core.
+- One more VM costs 8.7 MiB when the server starts, and 17.5 MiB at peak, from 57 MiB with one VM to 143 MiB with six.
 - Not measured: 4 physical cores, because the client would then have no core of its own, and the storefront.
 
 ## Sizing a machine
