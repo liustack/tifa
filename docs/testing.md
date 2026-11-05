@@ -243,7 +243,7 @@ The crawl signs in as the demo account of the shop first, since the workbench ne
 
 ### Timing a build of quickjs against another
 
-To time one build of quickjs against another at several code positions, with a `go.work` that uses this repository, `examples/shop` and a quickjs checkout whose engine is generated, use `go tool sjdev bench` in quickjs ([docs/testing.md](https://github.com/liustack/quickjs/blob/main/docs/testing.md#developer-tools-generate-check-time)), which also has the make targets that generate its engine and run its checks, here or on another machine: it builds this package's test binary against each checkout, runs them in turn and reads the `p50-ms` of the pages by the rule of its code positions. A binary that prints a line `vmhwm-kb: N` at the end (the child of `TestShopVMResident` does) also gets its peak memory reported.
+To time one build of quickjs against another at several code positions, with a `go.work` that uses this repository, `examples/shop` and a quickjs checkout whose engine is generated, use `go tool measure bench` in quickjs ([docs/testing.md](https://github.com/liustack/quickjs/blob/main/docs/testing.md#developer-tools-generate-check-time)), which also has the make targets that generate its engine and run its checks, here or on another machine: it builds this package's test binary against each checkout, runs them in turn and reads the `p50-ms` of the pages by the rule of its code positions. A binary that prints a line `vmhwm-kb: N` at the end (the child of `TestShopVMResident` does) also gets its peak memory reported.
 
 The prototype's other experiments (per-stage timing, memory probes) stay in `internal/ssr` at the tag `prototype-baseline`. Check out that tag and build from it when needed.
 
