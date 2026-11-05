@@ -127,6 +127,12 @@ type Metrics struct {
 	RSSStart    float64 `json:"rssAfterStartMiB"` // after the first answer
 	RSSPeak     float64 `json:"peakRssMiB"`
 	HitRate     float64 `json:"hitRate"` // Tifa only: answers with X-Tifa-Render cache or shared
+	// Writes, WriteP50 and WriteP99 are the writes of the steady phase, a request type of their own.
+	// Requests, P50 and P99 are of the reads only, but Requests is reads over the time of the reads
+	// and the writes together.
+	Writes   int     `json:"writes,omitempty"`
+	WriteP50 float64 `json:"writeP50Ms,omitempty"`
+	WriteP99 float64 `json:"writeP99Ms,omitempty"`
 }
 
 // metricDef describes one column of the tables and one line of the diff.

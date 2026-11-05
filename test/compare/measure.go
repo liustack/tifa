@@ -180,6 +180,10 @@ func runOnce(ctx context.Context, o Options, spec Spec, sc Scenario, round int) 
 		m.Requests = d.Requests
 		m.P50, m.P99, m.Max = Percentile(sorted, 50), Percentile(sorted, 99), sorted[len(sorted)-1]
 	}
+	if len(d.Writes) > 0 {
+		sorted := slices.Sorted(slices.Values(d.Writes))
+		m.Writes, m.WriteP50, m.WriteP99 = len(sorted), Percentile(sorted, 50), Percentile(sorted, 99)
+	}
 	m.First100 = mean(first.Cold[:min(100, len(first.Cold))])
 	m.First1000 = mean(first.Cold[:min(1000, len(first.Cold))])
 	m.Settle = settleOf(first.Cold, first.ColdPage, steady, steadyPage)

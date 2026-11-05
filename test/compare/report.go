@@ -49,6 +49,7 @@ func (r *Record) Markdown() string {
 	if r.hasScenario(ScenarioReadWrite) {
 		b.WriteString("\n### Out of the box, reads with writes\n\nThe same reads, and before the first order page after each 10 reads one write that gives that order a new address, so that the render cache of Tifa misses on it. Only the reads are timed. Lists and stats do not show the address, so writes come before order pages only. The hit rate is Tifa's.\n\n")
 		r.speedTable(&b, "default", ScenarioReadWrite)
+		r.writeTable(&b)
 	}
 	b.WriteString("\n### Engine\n\nEvery cache off: Tifa with `cache.size: 0`. Rows marked reference are Node with `--jitless`, to show what the JIT is worth.\n\n")
 	r.speedTable(&b, "engine", ScenarioRead)
@@ -134,6 +135,21 @@ func (r *Record) speedTable(b *strings.Builder, config, scenario string) {
 			b.WriteString(" | " + cell(values(runs, d), d))
 		}
 		b.WriteString(" |\n")
+	}
+}
+
+// writeTable reports the writes of the reads-with-writes runs as a request type of their own. The
+// requests/s of the table above are reads over the time of the reads and the writes together.
+func (r *Record) writeTable(b *strings.Builder) {
+	order, by := r.specsOf(ScenarioReadWrite, "default")
+	b.WriteString("\nWrites, timed apart from the reads. The reads/s are reads over the time of reads and writes together.\n\n| | writes | write P50 ms | write P99 ms |\n| --- | --- | --- | --- |\n")
+	for _, id := range order {
+		runs := by[id]
+		var n, p50, p99 []float64
+		for _, run := range runs {
+			n, p50, p99 = append(n, float64(run.Metrics.Writes)), append(p50, run.Metrics.WriteP50), append(p99, run.Metrics.WriteP99)
+		}
+		fmt.Fprintf(b, "| %s | %.0f | %.2f | %.1f |\n", label(runs), Median(n), Median(p50), Median(p99))
 	}
 }
 

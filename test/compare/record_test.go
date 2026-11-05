@@ -248,6 +248,7 @@ func withWrites(r *Record) *Record {
 		tifa := mkRun("tifa", "tifa", round, 120, 7, ConfigDefault)
 		tifa.Label, tifa.Scenario = "Tifa", ScenarioReadWrite
 		tifa.Renders, tifa.Metrics.HitRate = map[string]int{"vm": 500, "cache": 4500}, 0.9
+		tifa.Metrics.Writes, tifa.Metrics.WriteP50, tifa.Metrics.WriteP99 = 500, 3.5, 9.5
 		next := mkRun("nextjs", "nextjs", round, 80, 10, ConfigDefault, ConfigEngine)
 		next.Label, next.Scenario = "Next.js", ScenarioReadWrite
 		hit := mkRun("tifa", "tifa", round, 30, 31, ConfigDefault)
@@ -265,6 +266,8 @@ func TestMarkdownScenarios(t *testing.T) {
 		"### Out of the box, reads with writes",
 		"| Tifa | 120.0",
 		"90.00%",
+		"| Tifa | 500 | 3.50 | 9.5 |",
+		"reads/s are reads over the time of reads and writes together",
 		"Miss overhead of the render cache",
 		"P50 31.00 ms with the cache, 30.00 ms without, +3.3%",
 		"30.0 requests/s with the cache, 31.0 without, -3.2%",
