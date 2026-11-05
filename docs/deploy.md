@@ -1,11 +1,11 @@
 ---
-summary: 'How to put a built tifa program on a server: building for Linux, running it with its settings and data folder, stopping it cleanly, restarting it under systemd without refusing a connection and without signing users out, containers, ports and HTTPS, what to set when a CDN or proxy stands in front (Host and Origin, compression, which answers to cache), a health check route, metrics for Prometheus from tifa.Stats and what to read in them, and what happens to open pages when you deploy'
+summary: 'How to put a built Tifa program on a server: building for Linux, running it with its settings and data folder, stopping it cleanly, restarting it under systemd without refusing a connection and without signing users out, containers, ports and HTTPS, what to set when a CDN or proxy stands in front (Host and Origin, compression, which answers to cache), a health check route, metrics for Prometheus from tifa.Stats and what to read in them, and what happens to open pages when you deploy'
 read_when:
-  - Putting a tifa app on a VPS or in a container for the first time
-  - Putting a CDN or a reverse proxy such as nginx, Cloudflare or CloudFront in front of a tifa app
+  - Putting a Tifa app on a VPS or in a container for the first time
+  - Putting a CDN or a reverse proxy such as nginx, Cloudflare or CloudFront in front of a Tifa app
   - A POST gets 403 with `cross-origin request detected` only behind the proxy
   - Pages show old content or a missing script after a deploy
-  - Deciding what a systemd unit or a Dockerfile for a tifa app needs
+  - Deciding what a systemd unit or a Dockerfile for a Tifa app needs
   - Visitors get refused connections, or are signed out, each time you deploy
   - Adding a health check for a load balancer, a container or Kubernetes
   - Watching the VM pool and the caches with Prometheus or another monitoring system, or deciding from them whether the machine needs more CPU or a larger `cache.size`
@@ -15,7 +15,7 @@ English · [简体中文](deploy.zh-CN.md)
 
 # Deploying
 
-A tifa app is one executable. The server needs that file, the settings in its environment, and a folder it may write data to. It needs no Node, no process manager and no Redis. The default session store lives in memory, so for more than one copy of the program give it a [store of your own](sessions.md#where-to-store-sessions).
+A Tifa app is one executable. The server needs that file, the settings in its environment, and a folder it may write data to. It needs no Node, no process manager and no Redis. The default session store lives in memory, so for more than one copy of the program give it a [store of your own](sessions.md#where-to-store-sessions).
 
 ## Build for the server
 
@@ -126,7 +126,7 @@ In `shop.service`, `Requires=` and `After=` name both units, and `[Service]` add
 ## Behind a CDN or proxy
 
 - **Host and Origin.** Pass `Host` and `Origin` through as the browser sent them. The program refuses a write that a browser sends from another site by comparing them, and a proxy that rewrites `Host` makes your own forms look foreign (403 with `cross-origin request detected`). See [Cross-site writes](config.md#cross-site-writes).
-- **The client address.** tifa does not read `Forwarded` or `X-Forwarded-For`. `c.Request().RemoteAddr` is the address of the proxy. If `OnRequest` needs the visitor's address, read the header your own proxy sets, and only when the request really comes from that proxy.
+- **The client address.** Tifa does not read `Forwarded` or `X-Forwarded-For`. `c.Request().RemoteAddr` is the address of the proxy. If `OnRequest` needs the visitor's address, read the header your own proxy sets, and only when the request really comes from that proxy.
 - **Compression.** The program compresses text answers itself. When the CDN or proxy compresses (brotli, for example), set `server.compress` to `false`. CloudFront, Cloudflare and Google Cloud CDN all leave an answer that already has a `Content-Encoding` alone. See [Compression](build.md#compression).
 - **Caching.** Pages, navigation data and handler answers are `private, no-cache` by default, so a CDN does not store them. Keep it that way. Let the CDN cache these:
   - `/assets/`: content-hashed, `public, max-age=31536000, immutable`.
@@ -137,7 +137,7 @@ In `shop.service`, `Requires=` and `After=` name both units, and `[Service]` add
 - **Do not cache `/__tifa/session`.** It answers per visitor and is `private, no-store`.
 - **Do not set `Cache-Control: public` yourself** on other pages, or on a handler that answers the URL of a page. A page with per-user data is safe by default.
 - **Over HTTPS, compression can leak a secret** through the length of an answer (BREACH) when the answer repeats something from the request and also carries a secret such as a CSRF token. Set the header `No-Gzip-Compression` on such an answer, or turn `server.compress` off.
-- **With `server.csp`, a script the CDN writes into a page does not run.** Its hash is not in the policy tifa sent with the page. Turn off the features that change the HTML, such as Rocket Loader and Email Address Obfuscation of Cloudflare. See [Content-Security-Policy](config.md#content-security-policy).
+- **With `server.csp`, a script the CDN writes into a page does not run.** Its hash is not in the policy Tifa sent with the page. Turn off the features that change the HTML, such as Rocket Loader and Email Address Obfuscation of Cloudflare. See [Content-Security-Policy](config.md#content-security-policy).
 
 ### CDN settings
 
@@ -170,7 +170,7 @@ Checked against the vendors' own documentation on 2026-11-04. Names and defaults
 
 ## Health checks and metrics
 
-tifa has no health route or metrics route of its own. Add the ones you need as API routes.
+Tifa has no health route or metrics route of its own. Add the ones you need as API routes.
 
 ### Health check
 

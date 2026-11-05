@@ -1,5 +1,5 @@
 ---
-summary: 'How to send an answer while it is being made in a tifa app: server-sent events for live updates, a streamed answer such as the reply of a language model, the Go handler and the deadlines it lifts, how the browser reads each, how they sit with the whole-page cache, compression and proxies, and what happens to an open stream when the program stops'
+summary: 'How to send an answer while it is being made in a Tifa app: server-sent events for live updates, a streamed answer such as the reply of a language model, the Go handler and the deadlines it lifts, how the browser reads each, how they sit with the whole-page cache, compression and proxies, and what happens to an open stream when the program stops'
 read_when:
   - Pushing live updates to open pages, such as a clock, a counter or new orders
   - Showing the reply of a language model word by word as it comes
@@ -14,10 +14,10 @@ A page that shows the time of the server, updated every second, and answers a qu
 
 The code was run as written, in an app made with `tifa new`. The reference docs for the calls used here: [method handlers](../app.md#method-handlers-with-input-and-result), [Long requests](../config.md#long-requests).
 
-## What tifa does for a stream
+## What Tifa does for a stream
 
 - Pages are rendered whole, without streaming. A stream is a method handler of an API route (a folder with `route.go` and no `page.tsx`) that writes its own answer to `c.Writer()`.
-- `http.NewResponseController(c.Writer())` flushes what was written to the visitor at once, and moves the deadlines of the request. It reaches the connection through the writers of tifa and through compression.
+- `http.NewResponseController(c.Writer())` flushes what was written to the visitor at once, and moves the deadlines of the request. It reaches the connection through the writers of Tifa and through compression.
 - `server.write_timeout` gives an answer 10 seconds by default. A stream moves it for itself, before it passes, and leaves it short for the rest of the app.
 - Answers of type `text/event-stream` go out uncompressed: a compressor kept for an open stream costs about 1 MiB of memory for as long as it stays open. Other streams are compressed, and each flush still sends what was written.
 - When the program stops, `tifa.ShuttingDown(c.Context())` closes, so a stream that never ends by itself can return at once.

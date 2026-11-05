@@ -1,9 +1,9 @@
 ---
-summary: 'A getting-started tutorial: start an app with tifa new, run it with tifa dev, add a page, a form with field errors, Layout data and tests, then build one executable and run it'
+summary: 'A getting-started tutorial: start an app with `tifa new`, run it with `tifa dev`, add a page, a form with field errors, Layout data and tests, then build one executable and run it'
 read_when:
-  - Using tifa for the first time and looking for a first walk through an app
-  - Writing or checking the steps a new user follows from tifa new to a running executable
-  - Changing the template of tifa new and checking that the tutorial still matches it
+  - Using Tifa for the first time and looking for a first walk through an app
+  - Writing or checking the steps a new user follows from `tifa new` to a running executable
+  - Changing the template of `tifa new` and checking that the tutorial still matches it
 ---
 
 English · [简体中文](tutorial.zh-CN.md)
@@ -23,7 +23,7 @@ go mod tidy
 pnpm install
 ```
 
-`tifa new` writes files only and prints the next steps. Keep the name `tutorial-app`, because the code below imports `tutorial-app/app/todos`. The folder name is the module path, and the root package is named `tutorialapp`. Names such as `todos` are refused, since the app imports a package of that name. See [tifa new](build.md#tifa-new).
+`tifa new` writes files only and prints the next steps. Keep the name `tutorial-app`, because the code below imports `tutorial-app/app/todos`. The folder name is the module path, and the root package is named `tutorialapp`. Names such as `todos` are refused, since the app imports a package of that name. See [`tifa new`](build.md#tifa-new).
 
 ## 2. Run it and look around
 
@@ -76,7 +76,7 @@ Look at `AddTodo` in `app/page.tsx`. After `POST` succeeds it calls `router.inva
       await router.invalidate({ sync: true })
 ```
 
-This is the rule to remember: tifa never reloads page data after a write on its own, so the page has to ask. Without that line the todo is saved but the list stays old until you reload. `router.invalidate` loads the page and its Layouts again in one request, and `sync: true` waits until the page shows the new data. The button on `/todos/1` that marks a todo done does the same. Every write you add needs the same line. See [Calling method handlers from the browser](app.md#calling-method-handlers-from-the-browser).
+This is the rule to remember: Tifa never reloads page data after a write on its own, so the page has to ask. Without that line the todo is saved but the list stays old until you reload. `router.invalidate` loads the page and its Layouts again in one request, and `sync: true` waits until the page shows the new data. The button on `/todos/1` that marks a todo done does the same. Every write you add needs the same line. See [Calling method handlers from the browser](app.md#calling-method-handlers-from-the-browser).
 
 ## 3. Add a page
 
@@ -206,7 +206,7 @@ func (in AddInput) Validate() error {
 }
 ```
 
-A method handler takes a typed input after the `Ctx`. When the input has a `Validate` method, tifa runs it before the handler, and `tifa.Fields` becomes a 422 answer with one message per field, named by its `json` tag. In `app/todos/todo+/route.go`, add a `PATCH`:
+A method handler takes a typed input after the `Ctx`. When the input has a `Validate` method, Tifa runs it before the handler, and `tifa.Fields` becomes a 422 answer with one message per field, named by its `json` tag. In `app/todos/todo+/route.go`, add a `PATCH`:
 
 ```go
 // RenameInput is the body of PATCH.

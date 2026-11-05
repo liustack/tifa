@@ -1,10 +1,10 @@
 ---
-summary: 'tifa new 怎么新建应用、tifa build 做什么、tifa check 跑哪些步骤、tifa docs 打印什么和 AGENTS.md 里 tifa 管理的块、.tifa/ 里生成了哪些文件和产物、应用的 tsconfig 与 go.mod 怎么配、生成的程序怎么启动和回答页面请求、为什么不带调试信息，以及要随程序附带哪些许可声明'
+summary: '`tifa new` 怎么新建应用、`tifa build` 做什么、`tifa check` 跑哪些步骤、Tifa docs 打印什么和 AGENTS.md 里 Tifa 管理的块、.tifa/ 里生成了哪些文件和产物、应用的 tsconfig 与 go.mod 怎么配、生成的程序怎么启动和回答页面请求、为什么不带调试信息，以及要随程序附带哪些许可声明'
 read_when:
   - 改 internal/codegen、cmd/tifa 的 build 命令或 server.Main
   - 改 `tifa check`，或想知道它跑哪些步骤、需要什么
-  - 改 `tifa docs`、`tifa new` 写出的 `AGENTS.md`，或其中由 tifa 管理的部分
-  - 新建一个 tifa 应用，或给 test/apps 加应用
+  - 改 `tifa docs`、`tifa new` 写出的 `AGENTS.md`，或其中由 Tifa 管理的部分
+  - 新建一个 Tifa 应用，或给 test/apps 加应用
   - 看不懂 .tifa/ 下某个文件从哪来
   - 实现页面渲染、导航数据请求，需要知道路由树与数据协议
   - 改 internal/bundle、js/vite、js/host，或升级 SSR 宿主补丁的依赖
@@ -16,17 +16,17 @@ read_when:
 
 # 构建与生成代码
 
-## tifa new
+## `tifa new`
 
 ```sh
 tifa new <目录> [--module 模块路径]
 ```
 
-在不存在或为空的目录里写一个能跑的小应用：一个存在 SQLite 里的待办清单，用来展示 tifa 应用怎么组织。
+在不存在或为空的目录里写一个能跑的小应用：一个存在 SQLite 里的待办清单，用来展示 Tifa 应用怎么组织。
 
 | 文件 | 内容 |
 | --- | --- |
-| `go.mod` | tifa、登记为工具的 tifa 命令、纯 Go 的 SQLite 驱动 `github.com/liustack/sqlite`，以及 `ignore node_modules` |
+| `go.mod` | Tifa、登记为工具的 Tifa 命令、纯 Go 的 SQLite 驱动 `github.com/liustack/sqlite`，以及 `ignore node_modules` |
 | `db.go`、`schema.sql` | 在根目录：`var DB`、打开 WAL、`busy_timeout` 和外键检查的 `OpenDB`，以及所有领域的表，每次启动都用 `CREATE TABLE IF NOT EXISTS` 建。数据库文件是应用运行目录下的 `app.db`，或者配置 `db.path`（`DB_PATH`、`--db-path`）给的路径 |
 | `config.go` | 在根目录：应用的配置，`var DBPath = tifa.String("db.path", "app.db", ...)`，见[应用的配置](config.zh-CN.md#应用的配置) |
 | `hooks.go` | `OnStart` 打开数据库，`OnShutdown` 关闭它。`OnRequest` 和 `OnError` 只在注释里说明，因为写了 `OnError` 就会替换默认处理 |
@@ -37,17 +37,17 @@ tifa new <目录> [--module 模块路径]
 | `app/about/page.tsx` | 没有 `route.go` 的页面 |
 | `*_test.go` | 测试和被测代码放在一起：待办领域、数据库和钩子的测试，以及用 `tifatest` 写的路由代码测试，每个测试用临时目录里的一个新数据库 |
 | `tifa.yaml` | [config.zh-CN.md](config.zh-CN.md) 里的全部设置，按默认值写好并注释掉。`ssr.vms` 的默认值是 GOMAXPROCS，随机器而变，所以写的是示例值 |
-| `AGENTS.md`、`CLAUDE.md` | 给编程 agent 的说明：tifa 应用怎么运作，让 agent 先运行 `go tool tifa docs`，并把 `go tool tifa check` 作为唯一的检查命令，tifa 管理的部分夹在两行标记之间（见 [AGENTS.md 里 tifa 管理的块](#agentsmd-里-tifa-管理的块)）。`CLAUDE.md` 只指向 `AGENTS.md` |
+| `AGENTS.md`、`CLAUDE.md` | 给编程 agent 的说明：Tifa 应用怎么运作，让 agent 先运行 `go tool tifa docs`，并把 `go tool tifa check` 作为唯一的检查命令，Tifa 管理的部分夹在两行标记之间（见 [AGENTS.md 里 Tifa 管理的块](#agentsmd-里-tifa-管理的块)）。`CLAUDE.md` 只指向 `AGENTS.md` |
 | `package.json`、`tsconfig.json`、`vite.config.ts`、`.gitignore`、`README.md` | npm 包、TypeScript 与 Vite 配置、要忽略的构建产物和数据库文件，以及常用命令 |
 
-- 模块路径默认是目录名，`--module` 可以另给。应用要 import 根目录的包，所以路径必须是 go 命令能 import 的。tifa new 拒绝含 `vendor` 段的路径，也拒绝首段不带点、且（不分大小写）和标准库包或 go 命令包模式的首段相同的路径（比如 `fmt`、`net`、`all`），即使并没有同名的包。改传 `--module example.com/fmt`。
-- 根包以模块路径最后一段命名（不算 `/v2` 这类主版本后缀），转成小写，只留字母和数字。它必须是合法的 Go 标识符，不是关键字，也不是 `main` 或 `init`（Go 不接受以 `init` 作为被 import 包的名字）。`app/` 下的 Go 文件直接用这个名字 import 它，所以在这些文件用到它的地方，这个名字不能另有所指：它们 import 的包，比如领域 `todos` 或 `tifa`，它们用到的预声明名字，比如 `error`，以及在其作用域里用到根包的参数或变量，比如 `db`、`ctx`。tifa new 维护一份这样的名单，遇到就报错，所以 `tifa new todos` 会失败，提示换一个目录名或用 `--module`，而 `--module example.com/todos` 会失败，提示换 `--module` 的最后一段。这些文件里的其他名字，比如 `c`、`rows`，不受影响。`package.json` 里的名字也是它，超过 npm 上限 214 个字符时截断。
-- `go.mod` 要求的 tifa 版本，是 go 命令下载来运行的这个命令的版本：`go run github.com/liustack/tifa/cmd/tifa@<版本> new myapp`，或者在应用里 `go tool tifa new`。在 tifa 源码目录里构建、或被源码目录 replace 的命令写 `v0.0.0`，并多给一步用 `go mod edit -replace` 把 `go.mod` 指向源码目录。
+- 模块路径默认是目录名，`--module` 可以另给。应用要 import 根目录的包，所以路径必须是 go 命令能 import 的。`tifa new` 拒绝含 `vendor` 段的路径，也拒绝首段不带点、且（不分大小写）和标准库包或 go 命令包模式的首段相同的路径（比如 `fmt`、`net`、`all`），即使并没有同名的包。改传 `--module example.com/fmt`。
+- 根包以模块路径最后一段命名（不算 `/v2` 这类主版本后缀），转成小写，只留字母和数字。它必须是合法的 Go 标识符，不是关键字，也不是 `main` 或 `init`（Go 不接受以 `init` 作为被 import 包的名字）。`app/` 下的 Go 文件直接用这个名字 import 它，所以在这些文件用到它的地方，这个名字不能另有所指：它们 import 的包，比如领域 `todos` 或 `tifa`，它们用到的预声明名字，比如 `error`，以及在其作用域里用到根包的参数或变量，比如 `db`、`ctx`。`tifa new` 维护一份这样的名单，遇到就报错，所以 `tifa new todos` 会失败，提示换一个目录名或用 `--module`，而 `--module example.com/todos` 会失败，提示换 `--module` 的最后一段。这些文件里的其他名字，比如 `c`、`rows`，不受影响。`package.json` 里的名字也是它，超过 npm 上限 214 个字符时截断。
+- `go.mod` 要求的 Tifa 版本，是 go 命令下载来运行的这个命令的版本：`go run github.com/liustack/tifa/cmd/tifa@<版本> new myapp`，或者在应用里 `go tool tifa new`。在 Tifa 源码目录里构建、或被源码目录 replace 的命令写 `v0.0.0`，并多给一步用 `go mod edit -replace` 把 `go.mod` 指向源码目录。
 - `go.mod` 固定了一个 `github.com/liustack/sqlite` 版本。这个 SQLite 驱动是纯 Go 的，不需要 C 编译器。
 - `tifa new` 只写文件，不跑 go 或 npm 命令，也不联网。它最后打印接下来的步骤：`cd` 进目录、`go mod tidy`、`pnpm install` 和 `go tool tifa dev`，开发服务在 http://127.0.0.1:9527。
 - 它会在 PATH 里找 `pnpm`，但不运行它。找到时，安装步骤和 `README.md`、`AGENTS.md` 里的命令用 pnpm（`pnpm install`，`README.md` 里还有 `pnpm typecheck`），找不到就用 npm（`npm install`，`README.md` 里还有 `npm run typecheck`）。`package.json` 不写 `packageManager` 字段，所以同一个应用两种都能用。
 
-## tifa build
+## `tifa build`
 
 ```sh
 tifa build [--dir 应用根目录] [-o 输出路径]
@@ -67,13 +67,13 @@ tifa build [--dir 应用根目录] [-o 输出路径]
 - 会话类型不是 struct，或者不能从 JSON 读回来（通道、函数、接口字段，以及 [JSON 规则](app.zh-CN.md#json-规则)拒绝的其他类型）。
 - 会话类型有 `Exposed` 方法，但签名不是 `func() M`，或者 `M` 没有对应的 TypeScript JSON 形式。
 - `Load` 或 `Layout` 能走到 `tifa.SetSession` 或 `tifa.ClearSession`，不论是直接调用，还是经过它们传下 Ctx 的函数。
-- 页面或 API 路由的路径以 `/__tifa/` 开头，或者 `public/__tifa/` 下有文件。这个路径由 tifa 自己回答。
+- 页面或 API 路由的路径以 `/__tifa/` 开头，或者 `public/__tifa/` 下有文件。这个路径由 Tifa 自己回答。
 
 ### 调试信息
 
 `tifa build` 给 `go build` 传 `-ldflags=-w`，程序里不带 DWARF 调试信息。`examples/shop` 在 Apple M4（darwin/arm64）上的程序从 26.4 MB 降到 21.2 MB，小了约 20%。
 
-Go 在每个程序里另有一张函数、文件和行号的表，和 DWARF 无关，所以大多数事照旧。panic 和栈追踪照样给出每一帧的文件和行号，`runtime.Caller` 和 pprof 的剖析读的也是这张表。少了的是 Delve（`dlv`）这类调试器：它们要靠 DWARF，所以没法单步调试构建出的程序，也看不了它的变量。tifa 不传 `-s`，它还会去掉符号表，`go tool nm` 这类读符号表的工具就用不了了。
+Go 在每个程序里另有一张函数、文件和行号的表，和 DWARF 无关，所以大多数事照旧。panic 和栈追踪照样给出每一帧的文件和行号，`runtime.Caller` 和 pprof 的剖析读的也是这张表。少了的是 Delve（`dlv`）这类调试器：它们要靠 DWARF，所以没法单步调试构建出的程序，也看不了它的变量。Tifa 不传 `-s`，它还会去掉符号表，`go tool nm` 这类读符号表的工具就用不了了。
 
 要保留调试信息，在[项目文件](config.zh-CN.md#配置项)里设 `build.debug_info`：
 
@@ -84,7 +84,7 @@ build:
 
 `tifa dev` 总是保留调试信息。
 
-`go build` 可以有多个 `-ldflags`，每个给一个包模式，不写模式就是给命令行上列出的包。每个包用的是最后一个和它匹配的 `-ldflags`，而命令行排在 `GOFLAGS` 后面，所以命令行上的 `-ldflags` 会顶替 `GOFLAGS` 里的。所以 tifa 把 `GOFLAGS`（在环境变量里设的，或用 `go env -w` 写的）里最后一个 `-ldflags` 的参数放在 `-w` 前面：`GOFLAGS=-ldflags=-X=main.version=v1` 时，tifa 传 `-ldflags=-X=main.version=v1 -w`。这些参数里已经有 `-w` 或 `-s` 时，tifa 什么都不加，由它们决定。`GOFLAGS` 里有给包模式的 `-ldflags` 时，比如 `-ldflags=all=-X=main.version=v1`，tifa 也什么都不加，要去掉调试信息就自己在那里写上 `-w`。
+`go build` 可以有多个 `-ldflags`，每个给一个包模式，不写模式就是给命令行上列出的包。每个包用的是最后一个和它匹配的 `-ldflags`，而命令行排在 `GOFLAGS` 后面，所以命令行上的 `-ldflags` 会顶替 `GOFLAGS` 里的。所以 Tifa 把 `GOFLAGS`（在环境变量里设的，或用 `go env -w` 写的）里最后一个 `-ldflags` 的参数放在 `-w` 前面：`GOFLAGS=-ldflags=-X=main.version=v1` 时，Tifa 传 `-ldflags=-X=main.version=v1 -w`。这些参数里已经有 `-w` 或 `-s` 时，Tifa 什么都不加，由它们决定。`GOFLAGS` 里有给包模式的 `-ldflags` 时，比如 `-ldflags=all=-X=main.version=v1`，Tifa 也什么都不加，要去掉调试信息就自己在那里写上 `-w`。
 
 ### JavaScript 引擎
 
@@ -92,17 +92,17 @@ quickjs 用 C 写的 QuickJS 执行 JavaScript，LLVM 把它编译成 Go 汇编�
 
 ### 给别的系统构建
 
-静态分析和 `go build` 都按环境里的 `GOOS`、`GOARCH` 运行，所以它们选的文件和 go 命令为这个目标选的一样，比如 `limit_windows.go`，或者带 `//go:build` 行的文件。用为本机构建的 tifa 命令，再设上目标平台：
+静态分析和 `go build` 都按环境里的 `GOOS`、`GOARCH` 运行，所以它们选的文件和 go 命令为这个目标选的一样，比如 `limit_windows.go`，或者带 `//go:build` 行的文件。用为本机构建的 Tifa 命令，再设上目标平台：
 
 ```sh
 GOOS=linux GOARCH=amd64 $(go tool -n tifa) build -o bin/myapp-linux
 ```
 
-`go tool -n tifa` 只打印本机 tifa 命令的路径，不运行它。`GOOS=linux go tool tifa build` 不行：这时 `GOOS` 也作用于构建 tifa 命令本身，它启动时就报 `exec format error`。
+`go tool -n tifa` 只打印本机 Tifa 命令的路径，不运行它。`GOOS=linux go tool tifa build` 不行：这时 `GOOS` 也作用于构建 Tifa 命令本身，它启动时就报 `exec format error`。
 
 ### 要随程序附带的声明
 
-程序里的代码和数据来自多种许可：tifa（MIT）、Go（BSD-3-Clause）、引擎 quickjs 和它所基于的 QuickJS（MIT 和 BSD-3-Clause）、程序链接的其他 Go 模块、[Intl](app.zh-CN.md#服务端渲染里的-intl) 用的语言和时区数据（Unicode License V3，以及 ICU 和 Chromium 的声明），还有打进包里的 npm 包。这些许可要求程序的每个副本都带上它们的声明，放在文档里或者程序旁边的文件里。把程序交给别人时，把它们一起附上。
+程序里的代码和数据来自多种许可：Tifa（MIT）、Go（BSD-3-Clause）、引擎 quickjs 和它所基于的 QuickJS（MIT 和 BSD-3-Clause）、程序链接的其他 Go 模块、[Intl](app.zh-CN.md#服务端渲染里的-intl) 用的语言和时区数据（Unicode License V3，以及 ICU 和 Chromium 的声明），还有打进包里的 npm 包。这些许可要求程序的每个副本都带上它们的声明，放在文档里或者程序旁边的文件里。把程序交给别人时，把它们一起附上。
 
 Go 这一侧的声明，在 `tifa build` 之后到应用目录里运行下面的命令，`go list` 才会找到应用构建时用的版本。它复制 Go 的许可、程序链接的每个模块（`go version -m` 列出的那些）的许可和声明文件，以及 quickjs 放在子目录里的声明：
 
@@ -125,7 +125,7 @@ cp "$q/intl/LICENSE-DATA" "$q"/internal/gointl/qjsdata/NOTICE-* bin/notices/
 
 Vite 打进 SSR 包和浏览器包的 npm 包是应用自己的依赖，它们的许可（MIT、ISC、BSD、Apache-2.0 等）大多也有同样的要求。浏览器包会发给每个打开页面的人。`tifa build` 不收集这些声明，请用你选的工具收集，比如 Vite 或 Rollup 的许可插件。
 
-## tifa check
+## `tifa check`
 
 ```sh
 tifa check [--dir 应用根目录]
@@ -137,7 +137,7 @@ tifa check [--dir 应用根目录]
 2. `generate`：和 `tifa build` 一样写出 `.tifa/`，让 TypeScript 这一步用到的类型是最新的。只有带页面的应用才会启动 Node。
 3. `go vet ./...`
 4. `go test ./...`
-5. `typescript (tsc --noEmit)`：用应用自己装的 `typescript` 包里的 `tsc`，在应用根目录用 `node` 跑，读应用的 `tsconfig.json`。tifa 按 Node 的方式找这个包：先在应用的 `node_modules`，再往上层目录找，也认 pnpm 的链接，所以 npm 和 pnpm 都行，也不会安装任何东西。没装 `typescript` 的应用在这一步失败，报错会提示运行包管理器的安装命令。没有页面的应用跳过这一步，打印 `typescript: skipped, the app has no pages (no Node needed)`。
+5. `typescript (tsc --noEmit)`：用应用自己装的 `typescript` 包里的 `tsc`，在应用根目录用 `node` 跑，读应用的 `tsconfig.json`。Tifa 按 Node 的方式找这个包：先在应用的 `node_modules`，再往上层目录找，也认 pnpm 的链接，所以 npm 和 pnpm 都行，也不会安装任何东西。没装 `typescript` 的应用在这一步失败，报错会提示运行包管理器的安装命令。没有页面的应用跳过这一步，打印 `typescript: skipped, the app has no pages (no Node needed)`。
 
 每一步先打印一行以 `==> ` 开头的标题，再是它的工具打印的内容。Go 以 `CGO_ENABLED=0` 运行，和 `tifa build` 一致。某一步失败时命令以非零状态退出，报错里写明是哪一步，后面的步骤不再运行。
 
@@ -151,15 +151,15 @@ tifa: check failed at go vet ./...: exit status 1
 
 `tifa new` 把 `go tool tifa check` 写进新应用的 `AGENTS.md`，作为改完之后要跑的唯一检查命令。
 
-## tifa docs
+## Tifa docs
 
 ```sh
 tifa docs [--dir 应用根目录]
 ```
 
-打印应用所用 tifa 版本的文档在哪个目录，再打印这些文档的索引。`tifa new` 写出的 `AGENTS.md` 让编程 agent 先运行它，这样 agent 读到的是应用实际构建所用版本的文档，而不是 GitHub 上 main 分支的。
+打印应用所用 Tifa 版本的文档在哪个目录，再打印这些文档的索引。`tifa new` 写出的 `AGENTS.md` 让编程 agent 先运行它，这样 agent 读到的是应用实际构建所用版本的文档，而不是 GitHub 上 main 分支的。
 
-tifa 在应用根目录问 go 命令（`go list -m -json github.com/liustack/tifa`），所以目录就是 `go.mod` 解析出来的那个：已发布版本在模块缓存里，有 `replace` 时就是 replace 指向的目录。模块还没下载时会失败，并提示要运行 `go mod download github.com/liustack/tifa`。
+Tifa 在应用根目录问 go 命令（`go list -m -json github.com/liustack/tifa`），所以目录就是 `go.mod` 解析出来的那个：已发布版本在模块缓存里，有 `replace` 时就是 replace 指向的目录。模块还没下载时会失败，并提示要运行 `go mod download github.com/liustack/tifa`。
 
 ```text
 github.com/liustack/tifa v0.0.0 (replaced by ../..)
@@ -171,11 +171,11 @@ docs/app.md - How to write a tifa app: folder layout, how folders become URLs, .
 docs/build.md - ...
 ```
 
-索引的格式同 tifa 仓库里的 `scripts/docs-list.sh`：每篇文档一行，写路径和它 front matter 里的 summary，再一行写 `read_when` 各条，用 ` | ` 连接。文档按路径排序。中文版（`*.zh-CN.md`）、`docs/archive/` 和 `docs/research/` 不列，没有 summary 的文档不列，并在 stderr 打一条警告。
+索引的格式同 Tifa 仓库里的 `scripts/docs-list.sh`：每篇文档一行，写路径和它 front matter 里的 summary，再一行写 `read_when` 各条，用 ` | ` 连接。文档按路径排序。中文版（`*.zh-CN.md`）、`docs/archive/` 和 `docs/research/` 不列，没有 summary 的文档不列，并在 stderr 打一条警告。
 
-### AGENTS.md 里 tifa 管理的块
+### AGENTS.md 里 Tifa 管理的块
 
-`AGENTS.md` 中由 tifa 写的部分，夹在两行标记之间：
+`AGENTS.md` 中由 Tifa 写的部分，夹在两行标记之间：
 
 ```md
 # Notes for coding agents
@@ -187,9 +187,9 @@ docs/build.md - ...
 ## This app
 ```
 
-每个标记独占一行，各出现一次，`tifa:begin` 在 `tifa:end` 之前。两者之间都归 tifa：命令、约定和去哪读更多。以后的 tifa 可以只替换这一段，文件其余部分不动，所以应用自己的说明写在标记之外（`tifa new` 用 `## This app` 开头）。不要改两个标记之间的内容，刷新时会丢。`tifa new` 会写出这个块，目前还没有命令去刷新它。
+每个标记独占一行，各出现一次，`tifa:begin` 在 `tifa:end` 之前。两者之间都归 Tifa：命令、约定和去哪读更多。以后的 Tifa 可以只替换这一段，文件其余部分不动，所以应用自己的说明写在标记之外（`tifa new` 用 `## This app` 开头）。不要改两个标记之间的内容，刷新时会丢。`tifa new` 会写出这个块，目前还没有命令去刷新它。
 
-## tifa routes
+## Tifa routes
 
 ```sh
 tifa routes [--dir 应用根目录] [--json]
@@ -199,34 +199,34 @@ tifa routes [--dir 应用根目录] [--json]
 
 ### go.mod
 
-应用把 tifa 命令登记成 Go 工具：
+应用把 Tifa 命令登记成 Go 工具：
 
 ```sh
 go get -tool github.com/liustack/tifa/cmd/tifa
 go tool tifa build
 ```
 
-- `go tool tifa` 用的是 `go.mod` 里那一版 tifa，命令与运行库的版本总是一致。
-- 生成的 main 引用 `github.com/liustack/tifa/server`，`go mod tidy` 跳过 `.tifa/` 看不到这层引用。tifa 命令自己也引用 server，`go mod tidy` 会保留工具需要的全部模块，所以 server 的依赖（cobra、yaml、quickjs 等）一直留在 `go.mod` 与 `go.sum` 里。
+- `go tool tifa` 用的是 `go.mod` 里那一版 Tifa，命令与运行库的版本总是一致。
+- 生成的 main 引用 `github.com/liustack/tifa/server`，`go mod tidy` 跳过 `.tifa/` 看不到这层引用。Tifa 命令自己也引用 server，`go mod tidy` 会保留工具需要的全部模块，所以 server 的依赖（cobra、yaml、quickjs 等）一直留在 `go.mod` 与 `go.sum` 里。
 - `tifa build` 不改 `go.mod` 与 `go.sum`。跑过 `go mod tidy` 的应用直接能构建，`GOFLAGS=-mod=readonly` 的 CI 也一样。
 - 缺依赖时构建失败，并提示执行上面的 `go get -tool` 与 `go mod tidy`。
-- 升级 tifa（`go get -tool github.com/liustack/tifa/cmd/tifa@<版本>`）后跑一次 `go mod tidy`，新版本的命令或运行库多了依赖时，它会补进 `go.mod`。
+- 升级 Tifa（`go get -tool github.com/liustack/tifa/cmd/tifa@<版本>`）后跑一次 `go mod tidy`，新版本的命令或运行库多了依赖时，它会补进 `go.mod`。
 - 有些 npm 包带 `.go` 文件，比如 eslint 间接装上的 `flatted`。`ignore node_modules` 这一行让任何深度的 `node_modules` 目录都不进 `./...`，`go test ./...`、`go vet ./...`、`go mod tidy` 和 `tifa build` 的静态分析都跳过它们。`tifa new` 会写上这一行，旧应用用 `go mod edit -ignore=node_modules` 补上。
 
 ## .tifa/ 里的文件
 
 | 文件 | 内容 |
 | --- | --- |
-| `main.go` | 用 `go:embed` 嵌入前端产物 `dist/`，设为 `tifaapp.App` 的 `Dist`，调用 `server.Main`（[tifa dev](dev.zh-CN.md) 下是 `server.DevMain`） |
+| `main.go` | 用 `go:embed` 嵌入前端产物 `dist/`，设为 `tifaapp.App` 的 `Dist`，调用 `server.Main`（[`tifa dev`](dev.zh-CN.md) 下是 `server.DevMain`） |
 | `tifaapp/app.go` | `tifaapp` 包，只有一个变量 `App`：`tifa build` 看到的应用。只填 `hooks.go` 里实际存在的钩子，把 `tifa.yaml` 里的运行时配置写成 Go 代码（`Settings`），根目录的 `config.go` 定义了配置或 `content.go` 声明了集合而没有 `hooks.go` 时导入根包，并注册会话类型。每个 `Load` 与 `Layout` 函数包成 `func(c *tifa.Ctx) (any, error) { return tifa.Use(c, pkg.Load) }`，Layout 用 `pkg.Layout`。带入参或返回值的方法函数经过 `server.Input`、`server.Output` 或 `server.InputOutput`，它们用 `(*tifa.Ctx).Bind`（GET、DELETE 用 `(*tifa.Ctx).BindQuery`）解码入参，执行 `Validate`，写出结果。`Fingerprint` 是这个文件的哈希，`tifatest.Start` 拿它和代码比对。应用的测试用 `<module>/.tifa/tifaapp` 导入它（见[测试](app.zh-CN.md#测试)） |
 | `routes.tsx` | TanStack 路由树与 `Register` 类型注册 |
 | `session.gen.ts` | `SessionData`：会话类型的 `Exposed` 方法返回的 JSON 的类型。还有 `SessionEnabled`（应用调用了 `tifa.SetSession` 时是 `true`）。应用没有会话，或会话类型没有 `Exposed` 时，`SessionData` 是 `never`。页面用 `@/.tifa/session.gen` 导入（见[会话](sessions.zh-CN.md)） |
 | `app/<目录>/route.gen.ts` | 每个有页面、Layout 或方法函数的目录生成一份。有页面就导出 `page`，有 Layout 就导出 `layout`（都是 TanStack 的路由对象），再导出 `PageData`、`LayoutData`（`Load` 和 `Layout` 的结果类型）、`Params`，并按方法函数各导出一个调用函数和它的 `<METHOD>Input`、`<METHOD>Output` 类型。这些函数调用 `runtime/call.ts` |
 | `server.ts`、`client.ts` | SSR 入口与浏览器入口。`tifa dev` 的浏览器入口另外引入 `runtime/dev-client.js` |
 | `tsconfig.json` | 见下文 |
-| `vite.js`、`vite.d.ts`、`vite/plugin.js` | 给 `vite.config.ts` 用的 tifa Vite 插件，见下文。`vite/plugin.js` 是仓库 `js/vite/plugin.js` 的原样拷贝 |
+| `vite.js`、`vite.d.ts`、`vite/plugin.js` | 给 `vite.config.ts` 用的 Tifa Vite 插件，见下文。`vite/plugin.js` 是仓库 `js/vite/plugin.js` 的原样拷贝 |
 | `runtime/` | 仓库 `js/runtime/` 的原样副本 |
-| `content/` | 有内容集合的应用才有：`entries.json` 是 tifa build 交给 Vite 插件转成 HTML 的条目（front matter 换成空行的 Markdown、正文写到哪里、默认语言版本所在的文件夹），`headings.json` 是插件在每篇正文里找到的标题，会合进 `dist/content.json`。见[内容](content.zh-CN.md#markdown-转-html) |
+| `content/` | 有内容集合的应用才有：`entries.json` 是 `tifa build` 交给 Vite 插件转成 HTML 的条目（front matter 换成空行的 Markdown、正文写到哪里、默认语言版本所在的文件夹），`headings.json` 是插件在每篇正文里找到的标题，会合进 `dist/content.json`。见[内容](content.zh-CN.md#markdown-转-html) |
 | `dist/` | 前端产物，见下文 |
 
 没有页面（没有任何 `page.tsx`）的应用只生成 Go 文件，`dist/` 里只有 `build.json` 和公共文件。有内容集合时还生成给 `vite.config.ts` 用的 `.tifa/vite.js`，`dist/` 里还有正文和它们引用的文件。
@@ -242,19 +242,19 @@ go tool tifa build
 | `dist/content.json` | 有内容集合的应用才有：每个集合里不是草稿的条目，带 `content.Entry` 的字段、译文键、正文文件和它的标题，以及转成 JSON 的 front matter。程序在 `OnStart` 之前读它，见[内容](content.zh-CN.md) |
 | `dist/content/` | 每篇的正文 HTML，`<集合>/<语言>/<ID>.html`（没有语言的集合去掉语言这层）。`entry.Body()` 读这些文件。服务端不经 HTTP 提供它们，构建也不给它们写 `.gz`。正文引用的文件在 `dist/assets/` |
 | `dist/build.json` | `{buildId, head, preload, public}`。`head` 是加载浏览器包的 HTML，取自 Vite 的 manifest：样式表、入口引入的每个 chunk 一条 `modulepreload`、入口脚本。`preload` 列出每个路由模块在 `head` 之外还要的文件，见[预加载页面的 chunk](#预加载页面的-chunk)。构建 ID 是 `dist/` 里除 `inputs.json` 外其他所有文件（含文件名）的哈希，文件名与内容各自带长度前缀，不同的文件树不会拼出同一串字节。同样的输入得到同样的 ID。`public` 是 `dist/public/` 里每个文件按相对路径列出的内容哈希，取 SHA-256 的前 16 字节转十六进制，没有公共文件和在 `tifa dev` 下都没有这一项 |
-| `dist/inputs.json` | 这次构建用到了哪些文件：每个文件内容 SHA-256 的前 16 字节（十六进制），按相对应用根的路径。文件包括 SSR bundle 和浏览器 bundle 里 `node_modules` 之外的模块（页面、Layout、组件，也包括只在浏览器里渲染的组件，样式表和 `.tifa/` 里生成的模块），以及 Vite 插件登记为构建依赖的文件，比如被别的样式表 import 的样式表和 Tailwind 扫描类名的文件，还有 Vite 配置 import 的本地文件。构建从 Rolldown 读不到这份清单时照常成功，打一行警告，`inputs.json` 里写明清单不完整和原因（`incomplete`，带 Rolldown 版本），`tifatest.StartPages` 随后带着这个原因失败，直到升级 tifa。`tifa dev` 下浏览器从 Vite 拿模块，所以只列 SSR bundle 的模块、`package.json`、锁文件、Vite 配置、`tsconfig.json`、`tifa.yaml`、公共目录的文件和 `content/` 下的文件。它还记下公共目录和 `content/` 这两个目录，所以构建之后往里加的文件也算改过，之后才出现的项目文件也一样。`tifa build` 和 `tifa dev` 都写它，构建 ID 不算它，`tifatest.StartPages` 拿它和当前文件比，前端比源码旧时让测试失败（见[测试](app.zh-CN.md#测试)） |
+| `dist/inputs.json` | 这次构建用到了哪些文件：每个文件内容 SHA-256 的前 16 字节（十六进制），按相对应用根的路径。文件包括 SSR bundle 和浏览器 bundle 里 `node_modules` 之外的模块（页面、Layout、组件，也包括只在浏览器里渲染的组件，样式表和 `.tifa/` 里生成的模块），以及 Vite 插件登记为构建依赖的文件，比如被别的样式表 import 的样式表和 Tailwind 扫描类名的文件，还有 Vite 配置 import 的本地文件。构建从 Rolldown 读不到这份清单时照常成功，打一行警告，`inputs.json` 里写明清单不完整和原因（`incomplete`，带 Rolldown 版本），`tifatest.StartPages` 随后带着这个原因失败，直到升级 Tifa。`tifa dev` 下浏览器从 Vite 拿模块，所以只列 SSR bundle 的模块、`package.json`、锁文件、Vite 配置、`tsconfig.json`、`tifa.yaml`、公共目录的文件和 `content/` 下的文件。它还记下公共目录和 `content/` 这两个目录，所以构建之后往里加的文件也算改过，之后才出现的项目文件也一样。`tifa build` 和 `tifa dev` 都写它，构建 ID 不算它，`tifatest.StartPages` 拿它和当前文件比，前端比源码旧时让测试失败（见[测试](app.zh-CN.md#测试)） |
 
 SSR 包开头引入 `runtime/host.js`，它补上 QuickJS 缺的 `URL`、`TextEncoder`/`TextDecoder`、`AbortController`、`Headers`、`Response`、`queueMicrotask`、`atob`、`btoa`、`DOMException`、`structuredClone`、`crypto.getRandomValues`、`crypto.randomUUID`、`AsyncLocalStorage`，以及一个什么也不输出、`error` 时抛错的 `console`，不提供 `crypto.subtle`、`fetch` 与 `Request`。SSR 加载器在执行 bundle 模块前注册两组 Go 函数：一组读取随机字节，一组读写引擎的异步上下文（promise 任务带着走的一个对象，`AsyncLocalStorage` 把 store 放在里面），所以依赖在模块加载时就能用 `crypto` 和 `AsyncLocalStorage`。克隆完全在 JS 内执行，通过内建方法检查类型，用 `Error.isError` 识别错误对象，不读取引擎私有字段。页面在服务端能用到的全部东西见[服务端渲染时有什么](app.zh-CN.md#服务端渲染时有什么)。这份脚本由 `go generate ./js` 从 `js/host/host.ts` 预打包后入库，依赖版本锁在 `js/host/package.json` 与 `pnpm-lock.yaml`。升级时在 `js/host` 里 `pnpm install --frozen-lockfile`（或改版本后 `pnpm install`），再跑 `go generate ./js`。`internal/bundle` 的 `TestHostScriptIsUpToDate` 检查重新生成的结果与入库文件一致，`js/host/node_modules` 不存在时 skip。应用因此不需要安装这些补丁包。`abort-controller` 与它依赖的 `event-target-shim` 打了补丁（`js/host/patches`，登记在 `js/host/pnpm-workspace.yaml`）：每个对象的内部状态改存在对象自己的 symbol 属性上，不用 WeakMap。这个属性在建对象时定义一次，之后不再重新定义，所以应用 seal 或 freeze 了 signal 也照样能取消（`TestHostScriptAbortsFrozenSignals`）。唯一会再变的 signal 取消标记放在一个盒子里，只改盒子里的值。其余状态不装盒子，每个状态都装盒子时 P99 多出约 1.5 ms。QuickJS 回收穿过 WeakMap 值的死环要多轮 GC，有的环一直回收不掉，每次渲染留下的路由、AbortController 与监听器因此要等好几轮 GC，VM 的堆更大。改成属性后一次 GC 就能整体回收，`TestHostScriptFreesDeadAbortSignalsInOneCollection` 守住这一点。
 
-tifa 插件在 SSR 包里改造十一个 npm 包。它按代码的结构或文字找到要改的地方，不看包的版本，所以 `pnpm update` 不会让构建失败。某个版本改了那段代码时，构建打印警告，写明包的版本和文件，那段代码保持原样，页面照常渲染。每条这样的警告都以 `tifa rewrite not recognized: ` 开头，用 `grep` 能一次找全。`internal/bundle` 和 `test/e2e` 遇到它就失败，用最新 React 构建的定时 CI 任务也一样（见[测试](testing.md#ci)）。对 React DOM 的改造让它文件里的每一行都留在原来的行号上，所以渲染错误的调用栈给出的 React DOM 行号和 `node_modules` 里的文件一致。这些改造都不改变 HTML（只有下面说的 server action 的键例外，而 tifa 没有 server action），所以没有关掉它们的设置。
+Tifa 插件在 SSR 包里改造十一个 npm 包。它按代码的结构或文字找到要改的地方，不看包的版本，所以 `pnpm update` 不会让构建失败。某个版本改了那段代码时，构建打印警告，写明包的版本和文件，那段代码保持原样，页面照常渲染。每条这样的警告都以 `tifa rewrite not recognized: ` 开头，用 `grep` 能一次找全。`internal/bundle` 和 `test/e2e` 遇到它就失败，用最新 React 构建的定时 CI 任务也一样（见[测试](testing.md#ci)）。对 React DOM 的改造让它文件里的每一行都留在原来的行号上，所以渲染错误的调用栈给出的 React DOM 行号和 `node_modules` 里的文件一致。这些改造都不改变 HTML（只有下面说的 server action 的键例外，而 Tifa 没有 server action），所以没有关掉它们的设置。
 
 - React DOM 有十三处改造：
-  - `react-dom/server.edge` 会加载 React 的两个服务端渲染器。插件读这个文件的结构，只留 tifa 用的字符串渲染器。在示例应用上，SSR 包因此小 25%，4 个 VM 的池 63 ms 启动完（不裁是 117 ms），单次渲染耗时不变。没有这处改造时，包里保留两个渲染器。
+  - `react-dom/server.edge` 会加载 React 的两个服务端渲染器。插件读这个文件的结构，只留 Tifa 用的字符串渲染器。在示例应用上，SSR 包因此小 25%，4 个 VM 的池 63 ms 启动完（不裁是 117 ms），单次渲染耗时不变。没有这处改造时，包里保留两个渲染器。
   - `renderToString` 会忽略 Suspense 边界里组件抛出的错误。插件给 `renderToString` 和 `renderToStaticMarkup` 加上 React 其他渲染器都有的 `onError` 选项，服务端因此能报出这个错误（见[页面请求](#页面请求)）。没有这处改造时，这样的渲染照样失败，只是错误说不出原因。
   - `renderToString` 跑完第一遍就结束渲染。组件挂起等 promise 自己就能完成的事时（比如模块在包里的 `React.lazy` 组件），它的 Suspense 边界就留给浏览器，这次渲染失败。插件给字符串渲染器加上 `prerenderToString`，服务端用它渲染：渲染方式和 `renderToString` 一样，等到每个边界都完成，给出的 HTML 和 `renderToString` 对去掉等待的同一棵树写出的一样。服务端一直跑虚拟机的任务等它，任务跑完了还没完成，就像 `renderToString` 那样结束渲染，所以永远完成不了的事照样让渲染失败（见[会等待的组件](app.zh-CN.md#会等待的组件)）。不挂起的页面一遍渲染完，和以前一样快。插件按文字找 React DOM 19.3 的 `renderToStringImpl`，某个版本改了它时，构建打印警告，`prerenderToString` 就像 `renderToString` 那样渲染，不等待。
   - React 渲染每个元素时都把它放上组件栈，每个元素一个对象。字符串渲染器只把这个栈交给 `renderToString` 的错误处理函数，即 `errorInfo.componentStack`，而插件给 `renderToString` 的处理函数只往外传错误本身。所以插件让 React 不再建这个栈。它只和那个处理函数一起生效：插件在 React DOM 里找不到 `function onError() {}` 时，栈照建。它还数一数读这个栈的地方，也就是 `getThrownInfo` 的调用和 `componentStack` 的读取，和 React DOM 19.3 的不一样时栈也照建。更新的版本要是在别处也读这个栈，构建会打印警告。错误和它的调用栈都不变。没有这处改造时，页面和以前一样快。
-  - React 渲染每个元素时都要查出它的组件名，放进这个元素的 key path。在 `renderToString` 里只有一处代码读这些名字：action 带 `$$FORM_ACTION` 时（只有 server action 才带），`useActionState` 把 key path 算成状态的键，写进表单。其他读名字的代码用于恢复或预渲染页面，`renderToString` 不做这些。tifa 没有 server action，只用 `renderToString` 渲染，它建请求时不带表单状态，所以插件把名字去掉。只有 React DOM 里每个建请求的地方（`createRequest` 和 `new RequestInstance`）都不传表单状态，而且读名字的地方（用 `JSON.stringify` 算 key path 的哈希，读 key path 里的名字）和 React DOM 19.3 的一样时，它才这样改。更新的版本要是在别处也读这些名字，构建会打印警告，名字照留。包里有 React DOM 以外的模块代码中出现 `$$FORM_ACTION` 时，构建打印警告并写明是哪个模块：这样的表单拿到的键和没有插件时 React 写的不一样。没有这处改造时，页面和以前一样快。
-  - React 渲染每个元素时都要建一个数组，就是它的 key path：父元素的 key path、组件名、元素的 key 或下标。数组的每个子节点位置、每个 Suspense 边界的 fallback 也各建一个。在 `renderToString` 里只有两处代码读它们：action 带 `$$FORM_ACTION` 时的 `useActionState`，以及 Suspense 边界，它把 fallback 的 key path 传下去。恢复或预渲染页面的代码也读，但 `renderToString` 的请求没有 postponed 状态，它的任务也没有 replay。所以只有 React DOM 之外的某个模块代码里有 `$$FORM_ACTION` 时，插件才让 React 建这些数组。这样的包里，插件在代码前面单独加一行 `globalThis.tifaFormActions = true`，`createRequest` 每个请求读它，所以 server action 的键和有 key path 时一样。插件靠模块文本里的 `$$FORM_ACTION` 判断：action 的属性名要是运行时才拼出来，认不出，它的键按空 key path 算哈希。tifa 自己没有 server action。没有这样的模块时 key path 是 `null`：只往下传 key path 的地方照传，边界的 fallback 也用 `null`。插件把去掉组件名和不建数组放在一起决定，要 React DOM 字符串渲染器的每个部分都是它读完了的（见[审查新的 React](#审查新的-react)），而且建 key path 的地方、读 key path 的 `[0]` 和 `[2]` 的地方、给 `trackedPostpones` 赋非 `null` 值的地方、调用 `createReplayTask` 的地方也都和 React DOM 19.3 一样，才这样改。「部分」指文件顶层的一个函数声明、一个变量或另一条语句，文件顶层的顺序也算一个部分。每个部分靠它结构的指纹认：去掉位置、注释、引号和括号的语法树，里面这个部分自己声明的名字写成它第一次出现的序号（所以 React 的编译器给重名变量加的数字 `prevKeyPath$43` 不影响），其他名字原样保留，代码看得到的名字也原样保留：函数和类的名字、被设成匿名函数的变量名（它的 `name`），以及 `catch` 参数和它函数体里的 `var` 共用的名字。模板保留原始文本。所以 `return` 后面换行或者 `returnα` 都不等于 `return α`。插件里有一张 React DOM 19.3.0 和 19.3.1 的指纹表，两个文件只差版本号那一行。新版本只改了注释或空白，照样保留这处改造。新版本改了、加了或挪了任何一个部分，构建只打印一条警告，写明最多 20 个部分的名字再数出其余的个数，React 的组件名和 key path 都保留。要整个文件，而不只是读 key path 的函数，是因为 key path 放在整个渲染器传来传去的 `task` 对象里，代码可以用 `for in`、展开、`Object.assign`、`Reflect.get` 读它，不止按名字读，所以只有每个部分的代码都没变才能证明没有新的读取。shop 工作台页面渲染少执行 1.2% 的指令，店面页面和 MUI 测试应用少 0.7%，bench 应用少 1.8%，HTML 不变。没有这处改造时，页面和以前一样快。
+  - React 渲染每个元素时都要查出它的组件名，放进这个元素的 key path。在 `renderToString` 里只有一处代码读这些名字：action 带 `$$FORM_ACTION` 时（只有 server action 才带），`useActionState` 把 key path 算成状态的键，写进表单。其他读名字的代码用于恢复或预渲染页面，`renderToString` 不做这些。Tifa 没有 server action，只用 `renderToString` 渲染，它建请求时不带表单状态，所以插件把名字去掉。只有 React DOM 里每个建请求的地方（`createRequest` 和 `new RequestInstance`）都不传表单状态，而且读名字的地方（用 `JSON.stringify` 算 key path 的哈希，读 key path 里的名字）和 React DOM 19.3 的一样时，它才这样改。更新的版本要是在别处也读这些名字，构建会打印警告，名字照留。包里有 React DOM 以外的模块代码中出现 `$$FORM_ACTION` 时，构建打印警告并写明是哪个模块：这样的表单拿到的键和没有插件时 React 写的不一样。没有这处改造时，页面和以前一样快。
+  - React 渲染每个元素时都要建一个数组，就是它的 key path：父元素的 key path、组件名、元素的 key 或下标。数组的每个子节点位置、每个 Suspense 边界的 fallback 也各建一个。在 `renderToString` 里只有两处代码读它们：action 带 `$$FORM_ACTION` 时的 `useActionState`，以及 Suspense 边界，它把 fallback 的 key path 传下去。恢复或预渲染页面的代码也读，但 `renderToString` 的请求没有 postponed 状态，它的任务也没有 replay。所以只有 React DOM 之外的某个模块代码里有 `$$FORM_ACTION` 时，插件才让 React 建这些数组。这样的包里，插件在代码前面单独加一行 `globalThis.tifaFormActions = true`，`createRequest` 每个请求读它，所以 server action 的键和有 key path 时一样。插件靠模块文本里的 `$$FORM_ACTION` 判断：action 的属性名要是运行时才拼出来，认不出，它的键按空 key path 算哈希。Tifa 自己没有 server action。没有这样的模块时 key path 是 `null`：只往下传 key path 的地方照传，边界的 fallback 也用 `null`。插件把去掉组件名和不建数组放在一起决定，要 React DOM 字符串渲染器的每个部分都是它读完了的（见[审查新的 React](#审查新的-react)），而且建 key path 的地方、读 key path 的 `[0]` 和 `[2]` 的地方、给 `trackedPostpones` 赋非 `null` 值的地方、调用 `createReplayTask` 的地方也都和 React DOM 19.3 一样，才这样改。「部分」指文件顶层的一个函数声明、一个变量或另一条语句，文件顶层的顺序也算一个部分。每个部分靠它结构的指纹认：去掉位置、注释、引号和括号的语法树，里面这个部分自己声明的名字写成它第一次出现的序号（所以 React 的编译器给重名变量加的数字 `prevKeyPath$43` 不影响），其他名字原样保留，代码看得到的名字也原样保留：函数和类的名字、被设成匿名函数的变量名（它的 `name`），以及 `catch` 参数和它函数体里的 `var` 共用的名字。模板保留原始文本。所以 `return` 后面换行或者 `returnα` 都不等于 `return α`。插件里有一张 React DOM 19.3.0 和 19.3.1 的指纹表，两个文件只差版本号那一行。新版本只改了注释或空白，照样保留这处改造。新版本改了、加了或挪了任何一个部分，构建只打印一条警告，写明最多 20 个部分的名字再数出其余的个数，React 的组件名和 key path 都保留。要整个文件，而不只是读 key path 的函数，是因为 key path 放在整个渲染器传来传去的 `task` 对象里，代码可以用 `for in`、展开、`Object.assign`、`Reflect.get` 读它，不止按名字读，所以只有每个部分的代码都没变才能证明没有新的读取。shop 工作台页面渲染少执行 1.2% 的指令，店面页面和 MUI 测试应用少 0.7%，bench 应用少 1.8%，HTML 不变。没有这处改造时，页面和以前一样快。
   - React 渲染的每个节点都要经过 `renderNodeDestructive`，这个函数看一下任务有没有 replay，再通过任务上的两个字段把节点交给 `retryNode`。在 quickjs 里调用一个 JavaScript 写的函数要几百条指令，比这个函数干的活还多。插件把它的函数体直接写在调用它的地方，条件是调用的前两个参数是名字，后两个是名字、数字或名字的属性，React DOM 19.3 里有 12 处（`renderNode`、Fragment、Context 的 Provider 和 Consumer、类组件等），这样一个节点少一次调用。只改没有人读返回值的调用：单独一条语句、条件表达式的一个分支或逗号表达式的一部分，或者 `return` 的值，这时改成什么都不返回的 `return`，因为这个函数本来就什么都不返回。别的调用仍然调 `renderNodeDestructive`。渲染一次，shop 工作台页面少跑 1.15% 的指令，店面页面少 0.76%，MUI 测试应用少 0.89%，bench 应用少 2.33%，shop 的 20,144 个节点，每个约省 480 条指令。渲染出错时的调用栈里没有 `renderNodeDestructive` 这一帧，`renderNode` 那一帧指向的 `retryNode` 调用在它那一行里更靠右。去掉组件栈之后，`renderNodeDestructive` 必须是插件认识的样子，否则构建打印警告，页面照原样渲染。
   - React 写出的每段文本和每个属性值都要用 `escapeTextForBrowser` 转义。quickjs 里有用 C 写的这个函数（`VM.RegisterEscapeText`），`ssr.Load` 把它以 `__tifa_escape` 的名字给池里的每个 VM。VM 里有它时，插件把字符串渲染器里的 `escapeTextForBrowser` 直接换成这个函数，转义就是进引擎的一次调用：JavaScript 里不再有正则搜索、缓存查找和逐字符循环。不管参数是什么，它给出的文字都和 React 的函数一样：字符串、数字、带自己 `toString` 的对象，或者 symbol（和那里一样会抛错）。没有要转义的字符时，字符串原样返回。测试拿它和 React 的函数比：0 到 0xFFFF 的每个 UTF-16 码元（单独出现和连在一起）、3,000 个随机字符串、长 1 到 100,003 个码元且头尾和中间各有一个要转义字符的文本，以及不是字符串的值。和 React 的函数不同，它不会去调页面换掉的 `charCodeAt`、`slice` 或 `exec`。渲染一次，示例应用 shop 的工作台页面少跑 2.5% 的指令，店面页面少 2.4%，MUI 测试应用少 0.7%，bench 应用少 4.5%，HTML 不变。在 linux/amd64（AMD EPYC 7B13 的一个核，不开 PGO）上按 8 个代码位置计时，shop 的工作台页面渲染只花原来的 0.974，8 个位置都更快，而没改的构建自己各位置之间相差 2.5%。店面页面是 0.975，bench 页面是 0.938。MUI 页面少的指令不到 2%，没有计时。`escapeTextForBrowser` 的声明变成变量，所以只有模块在它之前没有提到这个函数时，插件才这样改。没有 `__tifa_escape` 的 VM 沿用 React 自己的函数，插件不认识的 React DOM 保持原样并打印警告。
   - React 把一页的 HTML 分成若干段，每段是一串片段，片段之间夹着子段，子段来自 Suspense 边界、渲染时挂起的部分和 preamble。React 把片段一个一个交给一个函数接到结果后面。一页有几千个片段，每调用一次在 QuickJS 里都很慢。插件让 React 把一个段里两个子段之间的片段先拼好，一次交过去。HTML 不变：那个函数会跳过 `null` 片段，拼接时它变成空串。在示例应用上，热渲染耗时少 5% 到 7%，纯文本页面少 6% 到 11%。没有这处改造时，页面和以前一样快。
@@ -270,7 +270,7 @@ tifa 插件在 SSR 包里改造十一个 npm 包。它按代码的结构或文�
   - seroval 对短于 64 个 UTF-16 码元的字符串逐个字符转义，更长的用 `JSON.stringify`，除非里面有两种写法结果不同的字符。在 QuickJS 里从 2 个码元起逐字符的循环就比 `JSON.stringify` 慢，所以插件把这个长度降到 2。写出的文字不变：0 到 0xFFFF 的每个码元，单独出现或夹在别的字符中间，以及代理对和孤立代理项，两种写法结果都一样。小页面渲染快 6% 到 10%，大页面最多快 2.5%。seroval 改了这一行时，构建打印警告，页面和以前一样快。
   - seroval 遇到对象时先问它的插件（TanStack 的 serialization adapter 也在其中）要不要接手，遇到数组却不问，直接按数组写。所以数据是数组的路由（比如 `Load` 返回切片）走不到 `tifa.data` adapter（见[数据协议](#数据协议)），seroval 会把里面的值一个个写出来，这在 QuickJS 里要多花几倍时间。插件让 seroval 遇到数组也先问插件，它的每种写法都改（一次写完、异步、流式，TanStack 用的是流式）。页面上别的插件，TanStack 自己的和 `RouteError` 的，只接错误和流，不会接数组，所以写出的内容和以前一样。在一个 1,000 行、每行两个 UUID 的表格上，渲染时间少 39%。浏览器读回的数组不变，嵌套的和空的也一样。seroval 的 `parseObject` 或 `parseObjectAsync` 的第一行换了写法，或者在那里调插件的写法变了，构建打印警告并写明是哪个函数，两处都不改，页面和以前一样快。
 - 应用打包了 `core-js` 时，插件把它的内部状态从 WeakMap 换成属性，因为 QuickJS 永远不回收值又指回键的 WeakMap 条目。core-js 某个版本没有了插件替换的那个模块时，构建打印警告，保留 WeakMap，每个 VM 的内存可能变大。
-- MUI 等组件库用 emotion 写样式，emotion 对它序列化的每段样式都算一次 `@emotion/hash` 的哈希。这个哈希逐个 UTF-16 码元循环，MUI 的样式又长，所以在 MUI 测试应用上这个循环占 QuickJS 里一次渲染约 29% 的时间。插件让 `@emotion/hash` 的 dist 文件里的 `murmur2` 先问 VM，tifa 在 Go 里算出同一个哈希。测试拿 2,011 个字符串（含孤立代理项和 BMP 之外的字符）对比两边的结果。参数不是字符串时，或者页面换掉了 murmur2 要调的 `String.prototype.charCodeAt` 或 `Number.prototype.toString` 时，murmur2 仍在 JavaScript 里算。MUI 测试应用的页面渲染时间少 28% 到 29%，HTML 不变。没用 emotion 的应用和以前一样快。`@emotion/hash` 某个版本改了 murmur2 时，构建打印警告，页面和以前一样快。
+- MUI 等组件库用 emotion 写样式，emotion 对它序列化的每段样式都算一次 `@emotion/hash` 的哈希。这个哈希逐个 UTF-16 码元循环，MUI 的样式又长，所以在 MUI 测试应用上这个循环占 QuickJS 里一次渲染约 29% 的时间。插件让 `@emotion/hash` 的 dist 文件里的 `murmur2` 先问 VM，Tifa 在 Go 里算出同一个哈希。测试拿 2,011 个字符串（含孤立代理项和 BMP 之外的字符）对比两边的结果。参数不是字符串时，或者页面换掉了 murmur2 要调的 `String.prototype.charCodeAt` 或 `Number.prototype.toString` 时，murmur2 仍在 JavaScript 里算。MUI 测试应用的页面渲染时间少 28% 到 29%，HTML 不变。没用 emotion 的应用和以前一样快。`@emotion/hash` 某个版本改了 murmur2 时，构建打印警告，页面和以前一样快。
 - lucide-react 每次渲染都把每个图标重新构建一遍：拼接类名，把默认属性和 props 复制进一个新对象，再给图标的每条路径各建一个元素。在 shop 上这在 QuickJS 里占一次渲染的 5% 到 10%。插件让 lucide-react 的 `Icon` 在每个 VM 里记住它给 props 相同的图标构建出的结果（每个图标保留最近 16 种构建方式），并把图标路径的元素原样再交出去，React 不会改动这些元素。只有 `createLucideIcon` 创建的图标才会被记住（lucide-react 导出的每个图标都是它创建的），而且每个 prop 都得是字符串、数字、布尔值、`null` 或 `undefined`，比较方式和 `Object.is` 相同。带对象或函数 prop（比如 `style`、`onClick`）或者带 symbol 键的图标照旧构建。页面替换了 lucide-react 构建图标要用的内置函数（比如 `Array.prototype.map`、`String.prototype.split`）期间，所有图标也照旧构建。插件假定首次渲染之后没有代码改动图标的数据（`__iconData`）或 lucide-react 的默认属性。shop 的工作台页面渲染时间少 4.3%，店面页面少 5.8%，HTML 不变，渲染完页面后 shop 的一个 VM 多占 45 到 90 KB。插件按文字认得 lucide-react 1.42 到 1.61 的文件。某个版本改了缓存依赖的任一文件时，构建只打印一次警告，所有图标照旧构建。
 - i18next 每次翻译做的事比翻译本身需要的多。`getFixedT` 返回的函数（react-i18next 的 `useTranslation` 交出去的 `t` 就是它）每次调用都把 i18next 的全部选项复制进一个新对象，可是只有写成函数的键或键前缀（`t($ => $.a.b)`）才读这份副本。`looksLikeObjectPath` 每个键要调两次，用来分辨带命名空间的键和一句话，它每次都从分隔符重新拼出同一个正则的源码。插件改了 i18next 的 `dist/esm/i18next.js` 和 `dist/cjs/i18next.js` 里的这两处：`t` 到第一个需要选项的函数那里才复制，`looksLikeObjectPath` 记住最近一对分隔符的正则，同一对再来时直接用。翻译结果不变：测试比较改动前后的结果，页面替换了改动处要调用的内置函数时也比较，这种情况下那段代码照旧执行。只有 i18next 的选项或某次调用的选项是 getter 时页面才看得出区别，这个 getter 会晚一点执行或者不执行，而这些对象都是 i18next 自己用普通值建的。shop 的店面页面渲染时间少 5.2%，HTML 不变。插件认得 i18next 23 到 26.5 的写法。某个版本改了这两个函数之一时，构建打印警告，那个函数保持原样。插件默认还会缓存翻译结果，见 [i18next 缓存](#i18next-缓存)。
 - react-i18next 每次调用 `useTranslation` 都给调用方一份整个 i18n 对象的副本，副本是用它四十来个属性的描述符做出来的。shop 的五个店面页面一共调用 802 次（每页 22 到 299 次），复制占了它们渲染时间的 5% 左右。插件改了 `dist/es/useTranslation.js` 和 `dist/commonjs/useTranslation.js`：第一次复制某个 i18n 对象时，如果它的每个自有属性都是普通的数据属性（字符串键，可写、可枚举、可配置），就记下这个对象的键和原型。之后用这个对象再调用，就用展开语法复制，再设上原型、定义 `__original`，得到的对象和原来一样：键和顺序相同，值是对象此刻的值，原型相同，`__original` 也是自己的一份。每次调用拿到的仍是一个新对象，副本外面的 hook，它的 ref、memo 和对语言的检查，都没有改。每次调用都核对这份记录：对象的键和顺序要相同，原型要相同，还要可扩展。对不上的调用，比如加了键或删了键，走 react-i18next 原来的写法，再重新记一次。有访问器、symbol 键、隐藏、只读或不可配置的属性、键叫 `__original`、原型是 `null` 或 `Object.prototype` 的对象从不记录，记录之后被冻结或封闭的对象也走原来的写法。插件最多同时记 8 个对象，最旧的先丢，这些对象因此一直存活。没核对的有两件：i18n 对象的某个属性在键不变的情况下改了特性或变成访问器，以及 i18n 对象是 Proxy。shop 的店面页面渲染时间是原来的 0.967（8 个代码位置上 0.943 到 1.007，7 个更快），执行的指令少 6.0%，HTML 不变。 某个版本改了 `createI18nWrapper` 时，构建打印警告，那个函数保持原样。
@@ -300,7 +300,7 @@ React DOM 19.3.0 和 19.3.1 是插件读过每个函数的版本。新版本里 
 
 ### i18next 缓存
 
-i18next 做一次翻译在 QuickJS 里要几十微秒，shop 的店面页面每次渲染约翻译 126 次，而且多半是同样的文案配同样的值。所以 tifa 插件在 SSR 包里给 i18next 加了一个缓存。`getFixedT` 返回的 `t`（react-i18next 的 `useTranslation` 交出去的就是它）记住自己给出的每个字符串，之后用同样的键和选项再调用时直接拿回这个字符串，不再翻译一遍。每个 VM 有自己的缓存。缓存默认打开。在项目文件里写上 `build.i18next_cache: false` 就关掉，这时 SSR 包和没有缓存时一个字节都不差。
+i18next 做一次翻译在 QuickJS 里要几十微秒，shop 的店面页面每次渲染约翻译 126 次，而且多半是同样的文案配同样的值。所以 Tifa 插件在 SSR 包里给 i18next 加了一个缓存。`getFixedT` 返回的 `t`（react-i18next 的 `useTranslation` 交出去的就是它）记住自己给出的每个字符串，之后用同样的键和选项再调用时直接拿回这个字符串，不再翻译一遍。每个 VM 有自己的缓存。缓存默认打开。在项目文件里写上 `build.i18next_cache: false` 就关掉，这时 SSR 包和没有缓存时一个字节都不差。
 
 查缓存用的是 i18next 实例、`t` 的语言、命名空间和键前缀、`t` 没有语言时实例的语言、键、实例的 `interpolation.defaultVariables`、`i18nFormat` 模块（比如 i18next-icu）的 `formats`，以及这次调用的选项。只有键和选项都是字符串、数字、布尔值、`null`、`undefined` 或字符串数组，并且选项是普通对象的调用才会被记住。其余的照旧翻译：
 
@@ -347,12 +347,12 @@ shop 给每种语言建一个实例，并给它配上自己的金额和日期格
 - 路由模块顶层的代码（含只为副作用的 import）在它的路由第一次加载时运行一次：在它所在页面第一次渲染之前，而不是应用启动时。每个页面都需要的初始化，比如根 Layout 要读的 i18n 实例，放在根 Layout 里，或放在根 Layout import 的模块里。
 - 入口脚本里的模块 import 了某个路由模块时，这个路由模块留在入口脚本里。构建会打印打包器的 `INEFFECTIVE_DYNAMIC_IMPORT` 警告，写明是谁 import 了它。把两边都要用的东西挪到单独的模块里。
 - 页面的 HTML 会预加载它的路由要的 chunk，见下一节。
-- [tifa dev](dev.zh-CN.md) 逐个模块提供服务，保留这些静态 import。
+- [`tifa dev`](dev.zh-CN.md) 逐个模块提供服务，保留这些静态 import。
 - 插件靠 rolldown（Vite 的打包器）传给插件的 import 种类区分静态 import 和 `import()`。Vite 不传这个信息时，构建打印警告，导出 `head` 的模块留在入口脚本里。
 
-每个页面都要加载的代码全在入口脚本里。tifa 插件给 rolldown 一个代码拆分分组，装入口静态 import 的所有模块（标签 `$initial`）。没有它，rolldown 会把入口和路由 chunk、以及路由 chunk 再加载的 chunk 共用的代码（React 就在其中）拆成单独的文件，`examples/shop` 的每个页面要下载四个文件而不是一个，字节数一样。
+每个页面都要加载的代码全在入口脚本里。Tifa 插件给 rolldown 一个代码拆分分组，装入口静态 import 的所有模块（标签 `$initial`）。没有它，rolldown 会把入口和路由 chunk、以及路由 chunk 再加载的 chunk 共用的代码（React 就在其中）拆成单独的文件，`examples/shop` 的每个页面要下载四个文件而不是一个，字节数一样。
 
-副作用的顺序。[tifa dev](dev.zh-CN.md) 按源码顺序运行模块，但生产构建会把模块分进不同的 chunk，rolldown 可能让不同 chunk 里模块的顶层代码以另一种顺序运行。`output.strictExecutionOrder` 能保持源码顺序，但它给每个模块加一层包装，在 `examples/shop` 和 `test/apps/mui` 上 gzip 后多约 6%，每个页面的 head 还多 2 个文件，所以 tifa 不开它。不要依赖某个模块的顶层代码先于另一个文件里的模块运行。依赖顺序的初始化放在根 Layout 里，或放在根 Layout import 的模块里。CSS 也不要靠 import 顺序去覆盖同样优先级的规则，提高优先级，或把两条规则放在同一个文件里。
+副作用的顺序。[`tifa dev`](dev.zh-CN.md) 按源码顺序运行模块，但生产构建会把模块分进不同的 chunk，rolldown 可能让不同 chunk 里模块的顶层代码以另一种顺序运行。`output.strictExecutionOrder` 能保持源码顺序，但它给每个模块加一层包装，在 `examples/shop` 和 `test/apps/mui` 上 gzip 后多约 6%，每个页面的 head 还多 2 个文件，所以 Tifa 不开它。不要依赖某个模块的顶层代码先于另一个文件里的模块运行。依赖顺序的初始化放在根 Layout 里，或放在根 Layout import 的模块里。CSS 也不要靠 import 顺序去覆盖同样优先级的规则，提高优先级，或把两条规则放在同一个文件里。
 
 #### 预加载页面的 chunk
 
@@ -363,13 +363,13 @@ shop 给每种语言建一个实例，并给它配上自己的金额和日期格
 - `Load` 失败时，路由器只显示到出错的最外一层，页面也只预加载到这一层。Layout 失败时显示上一层的 `Error`，所以不带这个 Layout 的 chunk。页面失败时显示从页面往上第一个 `Error`，可能就是它自己的，所以带上页面的 chunk，它不导出 `Error` 时也带。没有匹配到页面的 URL 预加载到它的 404 所在的那层 Layout。不走 SSR 的页面在 Go 写的文档里同样带这些链接。
 - 这些链接不带 nonce，和 `head` 里其他标签一样：它们加载本站的文件，`script-src 'self'` 本来就放行。
 - 列表在构建时生成，启动时读一次，渲染不为它做 I/O。链接由构建和匹配到的路径决定，所以 ETag 和渲染缓存照旧。
-- tifa dev 不写列表，也不写链接。
+- `tifa dev` 不写列表，也不写链接。
 
-不开 [HTTPS](config.zh-CN.md#https) 时，tifa 在普通 TCP 上只提供 HTTP/1.1，而浏览器只在 TLS 上用 HTTP/2。走 HTTP/1.1 时浏览器对一个主机最多开 6 个连接，页面要的文件每多 6 个，大约多等一个往返。开了 HTTPS，或者前面有和浏览器讲 HTTP/2 的代理或 CDN 时，这些文件共用一个连接，个数的影响小得多。数一数页面的 `modulepreload` 链接，就知道它除入口脚本外还要几个文件。
+不开 [HTTPS](config.zh-CN.md#https) 时，Tifa 在普通 TCP 上只提供 HTTP/1.1，而浏览器只在 TLS 上用 HTTP/2。走 HTTP/1.1 时浏览器对一个主机最多开 6 个连接，页面要的文件每多 6 个，大约多等一个往返。开了 HTTPS，或者前面有和浏览器讲 HTTP/2 的代理或 CDN 时，这些文件共用一个连接，个数的影响小得多。数一数页面的 `modulepreload` 链接，就知道它除入口脚本外还要几个文件。
 
 `examples/shop` 用它自己的程序走 HTTP/1.1 提供服务，在 Chrome 的网络节流下测量：页面完成 hydration 不晚于导出 `head` 的路由模块还在入口脚本里的时候，往返 150 ms、9 Mbit/s 时早 11 到 192 ms，往返 40 ms、20 Mbit/s 时早 4 到 77 ms。首次绘制晚 8 到 24 ms，因为样式表要和更多文件分带宽。经本机的 HTTP/2 代理时，hydration 在晚 3 ms 到早 159 ms 之间，首次绘制晚 8 到 48 ms，因为所有文件一开始就共用一个连接。
 
-路由之间共用代码的组合多的应用，每个页面要的文件也多。在示例 shop 基础上做的一个共 10 个页面的商店里，商品页除入口脚本外要 20 个文件，订单页要 17 个。由 tifa 自己走 HTTP/1.1 提供服务、往返 150 ms 时，这两页完成 hydration 比导出 `head` 的路由模块还在入口脚本里时晚 100 ms 和 58 ms。往返 40 ms 时，以及两档都经 HTTP/2 时，它们更早完成。这样的应用应该走 [HTTPS](config.zh-CN.md#https)，或者在前面放一个和浏览器讲 HTTP/2 的代理或 CDN。
+路由之间共用代码的组合多的应用，每个页面要的文件也多。在示例 shop 基础上做的一个共 10 个页面的商店里，商品页除入口脚本外要 20 个文件，订单页要 17 个。由 Tifa 自己走 HTTP/1.1 提供服务、往返 150 ms 时，这两页完成 hydration 比导出 `head` 的路由模块还在入口脚本里时晚 100 ms 和 58 ms。往返 40 ms 时，以及两档都经 HTTP/2 时，它们更早完成。这样的应用应该走 [HTTPS](config.zh-CN.md#https)，或者在前面放一个和浏览器讲 HTTP/2 的代理或 CDN。
 
 `examples/shop` 自己的页面在 hydration 前只加载 9 个脚本，文件太少，共用一条连接带来的差别显不出来：由它自己的程序走 HTTPS 和 HTTP/2 提供服务时，往返 150 ms 下 hydration 比明文 HTTP/1.1 晚 6 到 32 ms，往返 40 ms 下在早 7 ms 到晚 6 ms 之间。
 
@@ -420,13 +420,13 @@ export default defineConfig({
 - 生成的 tsconfig 设了 `rootDirs: ["..", "."]`：TypeScript 把 `.tifa/app/x/route.gen.ts` 当成 `app/x/route.gen.ts`，源码里的 `import { page } from './route.gen'` 因此能解析，上层目录的模块也一样，比如用 `'../../route.gen'` 读那个目录的 Layout 数据。应用的 `include` 单独写了 `.tifa/**/*`，因为 TypeScript 的通配符会跳过以点开头的目录。生成的 tsconfig 还载入 `vite/client` 的类型，导入图片、样式表和使用 `import.meta.env` 都能通过类型检查。
 - `paths` 写在应用自己的 tsconfig 里，shadcn CLI 这类从这里读的工具看到的就是应用根目录。`@/` 指向应用根目录：`@/components/ui/button` 就是 `components/ui/button.tsx`。`tifa/client` 是页面代码引入 `clientOnly`、`RouteError` 用的固定模块名。两者在第一次构建前就能用。
 - Vite 按同一份 `paths` 解析导入（它的 `resolve.tsconfigPaths`），所以你加的或改的路径，比如 `"@/components/*": ["./src/components/*"]`，类型检查和打包都照它走。Vite 只对 `include` 匹配到的文件用 `paths`，所以 `include` 里要保留 `**/*`。
-- `.tifa/vite.js` 的 `tifa()` 返回 tifa 的 Vite 插件，项目配置的 `build.target` 已经传进去。它的选项 `markdown`（`{ remarkPlugins, rehypePlugins }`）给内容集合的转换加上应用自己的插件，见[内容](content.zh-CN.md#markdown-转-html)。它们按 TypeScript 的方式解析 `./route.gen`：最后一段是 `route.gen`（可带 `.js` 或 `.ts`）、指向 `app/` 下某个目录的相对导入，不论中间经过几层（`'../../page/route.gen'` 也行），都解析到 `.tifa/` 里对应的文件。目录没有生成的模块时构建报错。它们还设好下文的入口与产物，并构建 SSR 包。
-- `@vitejs/plugin-react` 编译 JSX，在 `tifa dev` 下加上 React Fast Refresh。别的 Vite 插件加在这两个后面，比如 `@tailwindcss/vite`（见 [app.zh-CN.md](app.zh-CN.md#tailwind-css)）。入口、`base`、产物和 `ssr` 环境交给 tifa。
-- `vite.config.ts` 引入 `./.tifa/vite.js`，所以 tifa 生成 `.tifa/` 之后它才能通过类型检查。`tifa build` 和 `tifa dev` 会在 Vite 读配置前生成它。
+- `.tifa/vite.js` 的 `tifa()` 返回 Tifa 的 Vite 插件，项目配置的 `build.target` 已经传进去。它的选项 `markdown`（`{ remarkPlugins, rehypePlugins }`）给内容集合的转换加上应用自己的插件，见[内容](content.zh-CN.md#markdown-转-html)。它们按 TypeScript 的方式解析 `./route.gen`：最后一段是 `route.gen`（可带 `.js` 或 `.ts`）、指向 `app/` 下某个目录的相对导入，不论中间经过几层（`'../../page/route.gen'` 也行），都解析到 `.tifa/` 里对应的文件。目录没有生成的模块时构建报错。它们还设好下文的入口与产物，并构建 SSR 包。
+- `@vitejs/plugin-react` 编译 JSX，在 `tifa dev` 下加上 React Fast Refresh。别的 Vite 插件加在这两个后面，比如 `@tailwindcss/vite`（见 [app.zh-CN.md](app.zh-CN.md#tailwind-css)）。入口、`base`、产物和 `ssr` 环境交给 Tifa。
+- `vite.config.ts` 引入 `./.tifa/vite.js`，所以 Tifa 生成 `.tifa/` 之后它才能通过类型检查。`tifa build` 和 `tifa dev` 会在 Vite 读配置前生成它。
 
 应用的 `package.json` 需要 React、React DOM 与 TanStack Router，开发依赖要有 `vite` 和 `@vitejs/plugin-react`。类型检查另需 `typescript`、`@types/react`、`@types/react-dom`。参照 `test/apps/pages/package.json`，用 Tailwind CSS 参照 `test/apps/tailwind/package.json`。
 
-TanStack Router 必须是这个 tifa 测过的版本：`tifa new` 写进 `package.json` 的 `@tanstack/react-router`，以及它装上的 `@tanstack/router-core`。tifa 把页面数据交给浏览器，靠的是 TanStack Router 一个在 TanStack Start 之外没有文档的选项（见[数据协议](#数据协议)），换个版本浏览器端可能就不读它了，这时所有带对象数据的页面都是白屏。所以 `tifa build` 和 `tifa dev` 会按 Node 查找包的方式读出这两个包装上的版本，不一致就报错停下，错误里写出装的版本和测过的版本。要用更新的 TanStack Router，升级 tifa。一定要用别的版本构建（风险自负），在 `tifa.yaml` 里设 `build.skip_tanstack_check: true`（见 [config.zh-CN.md](config.zh-CN.md)）。没有页面的应用不检查。
+TanStack Router 必须是这个 Tifa 测过的版本：`tifa new` 写进 `package.json` 的 `@tanstack/react-router`，以及它装上的 `@tanstack/router-core`。Tifa 把页面数据交给浏览器，靠的是 TanStack Router 一个在 TanStack Start 之外没有文档的选项（见[数据协议](#数据协议)），换个版本浏览器端可能就不读它了，这时所有带对象数据的页面都是白屏。所以 `tifa build` 和 `tifa dev` 会按 Node 查找包的方式读出这两个包装上的版本，不一致就报错停下，错误里写出装的版本和测过的版本。要用更新的 TanStack Router，升级 Tifa。一定要用别的版本构建（风险自负），在 `tifa.yaml` 里设 `build.skip_tanstack_check: true`（见 [config.zh-CN.md](config.zh-CN.md)）。没有页面的应用不检查。
 
 React 和 React DOM 至少要 19.3.0。Vite 插件是按 19.3 的写法改写 React DOM 的字符串渲染器的（见[前端产物](#前端产物)），所以 `tifa build` 和 `tifa dev` 用同样的方式读出装上的 `react` 和 `react-dom` 的版本，低于 19.3.0 就报错停下，错误里写明要装的版本。19.3.0 的预发布版（比如 canary）也算低于 19.3.0。没有页面的应用不检查。
 
@@ -437,7 +437,7 @@ React 和 React DOM 至少要 19.3.0。Vite 插件是按 19.3 的写法改写 Re
 - 每个 `Load` 的结果是 `{status, data?, error?}`：成功为 200 带 `data`，`tifa.ErrNotFound` 为 404，其他错误带状态码与公开消息。
 - 路由 ID 指一个 `Load` 或 `Layout` 函数：页面和 API 路由（目录里的 `page.tsx` 和 `route.go`）是目录加 `/route`，Layout 是目录加 `/layout`，比如 `app/layout`、`app/projects/project+/route`。
 - 整页渲染的 VM 输入是 `{url, buildId, data: {路由 ID: 结果}, preload}`，与 `internal/ssr.Input` 一致。结果里有 `status`、`error` 和 `location`，成功的 `Load` 还有它的 JSON 文本的编号 `text`。文本本身不在输入里，而是 `startRender(json, ...texts)` 里输入之后的参数，按路由 ID 的顺序排列，所以 Go 不用把它们转义进输入的 JSON，VM 也不用再从里面解析出来。
-- 客户端导航时，同一轮事件循环里对同一 URL 的 loader 调用合并成一个 GET：页面 URL 加保留的查询参数 `_tifa=<构建 ID>.<位图>`，例如 `/projects/studio?_tifa=1f3a9c.011`。位图的每一位对应这个 URL 链上的一个 `Load` 或 `Layout`，从根 Layout 到页面（没有函数的 Layout 或页面不占位），`1` 表示要这一层的数据。位数不等于链上 `Load` 的个数时服务器答 400。请求不带 tifa 的请求头，`fetch` 不自动跟随重定向（`redirect: "manual"`）。路由器预加载页面时（链接被鼠标悬停，`defaultPreload: 'intent'`），值以 `.p` 结尾，如 `_tifa=1f3a9c.011.p`。服务器照常回答，只有 URL 能区分（日志里能看出哪些请求是预加载）。这个标记不能让请求数等于页面浏览量：预加载的结果之后可以直接用于导航而不再发请求，数据失效后的重新加载又会多发一次。要准确统计浏览量，数浏览器完成的客户端导航（路由器事件）加整页请求。框架在你的代码运行前就把 `_tifa` 从请求里拿掉：`c.Query`、`c.QueryValues`、`c.Request().URL`、渲染用的 URL、ETag 和渲染缓存键里都没有它，所以 `OnRequest` 看到的页面和它的数据路径相同。`Load` 读名为 `_tifa` 的查询参数会让构建失败。用 `tifa.SetHTTPHandler` 挂的中间件看到的是原样的请求，带着 `_tifa`。回答有三种：
+- 客户端导航时，同一轮事件循环里对同一 URL 的 loader 调用合并成一个 GET：页面 URL 加保留的查询参数 `_tifa=<构建 ID>.<位图>`，例如 `/projects/studio?_tifa=1f3a9c.011`。位图的每一位对应这个 URL 链上的一个 `Load` 或 `Layout`，从根 Layout 到页面（没有函数的 Layout 或页面不占位），`1` 表示要这一层的数据。位数不等于链上 `Load` 的个数时服务器答 400。请求不带 Tifa 的请求头，`fetch` 不自动跟随重定向（`redirect: "manual"`）。路由器预加载页面时（链接被鼠标悬停，`defaultPreload: 'intent'`），值以 `.p` 结尾，如 `_tifa=1f3a9c.011.p`。服务器照常回答，只有 URL 能区分（日志里能看出哪些请求是预加载）。这个标记不能让请求数等于页面浏览量：预加载的结果之后可以直接用于导航而不再发请求，数据失效后的重新加载又会多发一次。要准确统计浏览量，数浏览器完成的客户端导航（路由器事件）加整页请求。框架在你的代码运行前就把 `_tifa` 从请求里拿掉：`c.Query`、`c.QueryValues`、`c.Request().URL`、渲染用的 URL、ETag 和渲染缓存键里都没有它，所以 `OnRequest` 看到的页面和它的数据路径相同。`Load` 读名为 `_tifa` 的查询参数会让构建失败。用 `tifa.SetHTTPHandler` 挂的中间件看到的是原样的请求，带着 `_tifa`。回答有三种：
   - `{"routes": {路由 ID: 结果}, "session": ...}`：不论 HTTP 状态码，浏览器把 `routes` 逐项分发。应用有会话时才有 `session`，见[回答里的会话](#回答里的会话)。
   - `{"redirect": "<URL>", "status": <3xx>}`（应用有会话时带上本次请求的 `session`）：`OnRequest` 返回 `tifa.Redirect`、URL 的写法不规范（ServeMux 的重定向，状态码 308）等整个请求要跳转的情况，HTTP 状态码是 200。请求里每个路由都收到这个重定向，loader 抛出 TanStack 的 `redirect()`。
   - 其他：`OnRequest` 拒绝了整个请求，回答是 `{"error": 消息}` 与错误的状态码，同批 loader 一起以这个状态失败。
@@ -456,14 +456,14 @@ React 和 React DOM 至少要 19.3.0。Vite 插件是按 19.3 的写法改写 Re
 | 命令 | 作用 |
 | --- | --- |
 | `serve`（默认） | 加载配置，开了 [HTTPS](config.zh-CN.md#https) 时先把它准备好，执行 `OnStart`，监听 `server.addr`（开了 HTTPS 时还有 `server.http_addr`），收到 SIGINT 或 SIGTERM 后优雅退出并执行 `OnShutdown`。两个地址一起停止接收新连接，一起把在途请求处理完 |
-| `config` | 列出全部配置（tifa 的和应用的）、最终值和来源，输出成带注释的 YAML 文件，部署时可以用 `-c` 传进去 |
-| `version` | 输出应用模块、tifa 模块与 Go 的版本 |
+| `config` | 列出全部配置（Tifa 的和应用的）、最终值和来源，输出成带注释的 YAML 文件，部署时可以用 `-c` 传进去 |
+| `version` | 输出应用模块、Tifa 模块与 Go 的版本 |
 
 配置来源从高到低：命令行参数、环境变量、工作目录的 `.env` 文件、`-c`（或 `--config`）指定的文件、编进程序的 `tifa.yaml` 的值、默认值。程序运行时不读 `tifa.yaml`。不认识的参数报错，不是配置的变量和文件键一律不管。见[配置](config.zh-CN.md#配置从哪来)。
 
 不管程序启动时在哪个时区，VM 里 `Date` 的本地时间恒为 UTC，所以同一个页面在每台机器上渲染得一样。进程的时区不受影响：应用 Go 代码里的 `time.Local` 是机器或 `TZ` 指定的时区，和普通 Go 程序一样。VM 里的 Intl 和 Temporal 用 quickjs 内嵌的时区数据，从不读系统的 zoneinfo。生成的 `main.go` 导入了 `time/tzdata`，所以系统没有 zoneinfo 时（比如 `scratch` 容器），应用 Go 代码里的 `time.LoadLocation` 也能找到每个时区。程序因此大约增加 450 KB。
 
-`serve` 另有开发开关 `--dist <目录>`：从这个目录读前端产物，替代嵌入的 `dist/`。[`tifa dev`](dev.zh-CN.md) 把它指向 `.tifa/dist`。只重建了 SSR 包时，开发用的程序（`server.DevMain`）从这里重新读包，不重启。其他重建之后 tifa dev 重启它。它不是配置项，也没有环境变量。启动时读 `ssr.js` 编译并预热 VM 池，读 `build.json` 拿到构建 ID 与 head 标签。
+`serve` 另有开发开关 `--dist <目录>`：从这个目录读前端产物，替代嵌入的 `dist/`。[`tifa dev`](dev.zh-CN.md) 把它指向 `.tifa/dist`。只重建了 SSR 包时，开发用的程序（`server.DevMain`）从这里重新读包，不重启。其他重建之后 `tifa dev` 重启它。它不是配置项，也没有环境变量。启动时读 `ssr.js` 编译并预热 VM 池，读 `build.json` 拿到构建 ID 与 head 标签。
 
 ## 页面请求
 
@@ -515,7 +515,7 @@ React 和 React DOM 至少要 19.3.0。Vite 插件是按 19.3 的写法改写 Re
 
 ### 压缩
 
-[`server.compress`](config.zh-CN.md#配置项) 默认开着，回答按客户端接受的方式压缩后发出，所以 tifa 程序不需要为此加代理：
+[`server.compress`](config.zh-CN.md#配置项) 默认开着，回答按客户端接受的方式压缩后发出，所以 Tifa 程序不需要为此加代理：
 
 - 页面、导航数据、JSON 和其他文本在发出时压缩，用 zstd 或 gzip，各取默认级别，和 Caddy、Traefik 一样，由 [klauspost/compress](https://github.com/klauspost/compress) 的 gzhttp 完成。按客户端的 `Accept-Encoding` 选：`q` 大的优先，相同时用 zstd。回答从 1024 字节起才压缩，而且只压文本类型：`text/*`（server-sent events 的 `text/event-stream` 除外，见[流式输出](guides/streaming.zh-CN.md)）、JavaScript、JSON、XML、`+json` 和 `+xml` 类型、WebAssembly、图标，以及 TTF、OTF、EOT 字体。HEAD、已经带 `Content-Encoding` 的回答和带 `Content-Range` 的回答原样发出。
 - 浏览器包里的文件，对接受 gzip 的 GET 直接发构建写好的 `.gz` 文件，类型和缓存头沿用原文件，和 nginx 的 `gzip_static` 一样。Range 请求取的是 `.gz` 文件的一段。没有 `.gz` 的文件，类型在上面的列表里就在发出时压缩。公共目录里的 `.gz` 文件是它自己，不会代替别的文件发出。

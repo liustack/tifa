@@ -1,22 +1,22 @@
 ---
-summary: 'How tifa works inside: which package does what, the path of a request from HTTP to HTML and of a navigation in the browser, what tifa build and tifa dev do step by step, how the pool of JavaScript VMs is kept healthy, and how the render cache and the whole-page cache fit together'
+summary: 'How Tifa works inside: which package does what, the path of a request from HTTP to HTML and of a navigation in the browser, what `tifa build` and `tifa dev` do step by step, how the pool of JavaScript VMs is kept healthy, and how the render cache and the whole-page cache fit together'
 read_when:
-  - Starting to work on tifa itself and looking for the package that owns a behavior
+  - Starting to work on Tifa itself and looking for the package that owns a behavior
   - Tracing a request, a render or a cache hit through the code
-  - Changing the order of steps in a request, in tifa build or in tifa dev
+  - Changing the order of steps in a request, in `tifa build` or in `tifa dev`
   - Changing internal/ssr, the render cache or the whole-page cache
   - Answering why a page is slow, stale or rendered twice
 ---
 
 English · [简体中文](architecture.zh-CN.md)
 
-# How tifa works inside
+# How Tifa works inside
 
-This page is for someone who wants to understand tifa or change it. To write an app, start with [Writing an app](app.md). The diagrams show the steps in order, and each one names the package that does the work.
+This page is for someone who wants to understand Tifa or change it. To write an app, start with [Writing an app](app.md). The diagrams show the steps in order, and each one names the package that does the work.
 
 ## The parts
 
-A built tifa app is one executable. Inside it, Go answers every request and calls JavaScript only to turn data into HTML.
+A built Tifa app is one executable. Inside it, Go answers every request and calls JavaScript only to turn data into HTML.
 
 ```mermaid
 flowchart LR
@@ -118,7 +118,7 @@ sequenceDiagram
 
 The digits have one place per `Load` or `Layout` on the chain of the URL, and a `1` asks for that one. Data the router still holds is not asked for again. If the build in `_tifa` is not the build of the server, the server answers 409 and the browser reloads the page once. See [Data protocol](build.md#data-protocol).
 
-## What tifa build does
+## What `tifa build` does
 
 `tifa build` (`cmd/tifa/build.go`) runs four steps. Nothing in them runs the app's Go code.
 
@@ -135,12 +135,12 @@ flowchart LR
 
 1. **Analyze.** `analyze.Analyze` loads the app with `golang.org/x/tools/go/packages`, type checks it, and reads the conventions from the syntax tree and the types: the folders, the `Load`, `Layout` and handler signatures, the constants, the hooks, the session type, `content.go`. It collects every rule violation and prints them all with `file:line`. Static analysis only reads, so a failed analysis leaves no `.tifa/` behind.
 2. **Generate.** `codegen.Generate` turns the manifest into files in `.tifa/`: `main.go`, which calls `server.Main`, and `tifaapp/app.go`, the application table that the main and the tests of the app use (the Go side), and `routes.tsx`, the `route.gen.ts` modules, `server.ts` and `client.ts` (the TypeScript side). The same manifest gives the same bytes, so unchanged files are not rewritten.
-3. **Bundle.** `bundle.App` starts one Node process that runs the app's own Vite with the tifa plugin from `js/vite`. It builds the browser bundle (split per route, content hashed, with `.gz` files) and then the SSR bundle `ssr.js`, which knows the tags of the browser bundle. It also copies `public/` and writes `build.json` with the build ID. An app without pages skips this step and needs no Node.
+3. **Bundle.** `bundle.App` starts one Node process that runs the app's own Vite with the Tifa plugin from `js/vite`. It builds the browser bundle (split per route, content hashed, with `.gz` files) and then the SSR bundle `ssr.js`, which knows the tags of the browser bundle. It also copies `public/` and writes `build.json` with the build ID. An app without pages skips this step and needs no Node.
 4. **go build.** `CGO_ENABLED=0 go build` compiles `.tifa/`, which embeds `dist/` with `//go:embed`.
 
 Each program compiles `ssr.js` into bytecode once at start, and every VM loads that bytecode (`ssr.NewPool`).
 
-## What tifa dev does
+## What `tifa dev` does
 
 `tifa dev` runs the same four steps, but keeps the pieces running between changes.
 
@@ -160,10 +160,10 @@ flowchart TD
 ```
 
 - The browser talks only to the proxy. It sends module and hot update requests to Vite, and everything else to the app.
-- A front end change updates open pages through Vite. tifa dev also rebuilds `ssr.js`, and the running app loads it in place without a restart, so `OnStart` does not run again.
+- A front end change updates open pages through Vite. `tifa dev` also rebuilds `ssr.js`, and the running app loads it in place without a restart, so `OnStart` does not run again.
 - A Go change, or a change of the routes, runs the steps it needs and restarts the app. `.tifa/` content decides whether the route manifest changed, so a change inside a function body skips generation and bundling.
 - A failed step keeps the running app, and the error shows in the terminal and on the page. `tifa errors` prints the same errors.
-- The app under `tifa dev` stops when tifa dev ends, because it reads a pipe that tifa dev holds (`--lifeline-fd`).
+- The app under `tifa dev` stops when `tifa dev` ends, because it reads a pipe that `tifa dev` holds (`--lifeline-fd`).
 
 The full table of changes and steps is in [What each change triggers](dev.md#what-each-change-triggers).
 
@@ -220,4 +220,4 @@ flowchart TD
 - `tifa.ExpirePages` marks the entries of the paths it gets as expired, whatever their host, scheme and query, and drops the makes of those paths under way from the shared ones, so what they read before the call is not kept (`expirePaths`). An expired entry still stands in for a make that fails.
 - `tifa.Stats` reads the counts of the pool and the two caches. Renders and cache lookups count with atomics, under no new lock.
 
-Rules for apps are in [SSR and cache](app.md#ssr-and-cache) and [The whole-page cache](app.md#the-whole-page-cache). The answers tifa sends for each case are in [Page requests](build.md#page-requests).
+Rules for apps are in [SSR and cache](app.md#ssr-and-cache) and [The whole-page cache](app.md#the-whole-page-cache). The answers Tifa sends for each case are in [Page requests](build.md#page-requests).

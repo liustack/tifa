@@ -2,17 +2,17 @@
 summary: 'Whether React PR 37022 (one push per start tag) or React Compiler, in its normal mode or its experimental SSR mode, makes server renders in QuickJS faster, and why neither does'
 read_when:
   - Upgrading React to a release that contains PR 37022, or someone proposes patching it in early
-  - Someone proposes running React Compiler on the SSR bundle, or asks whether it speeds up tifa's server renders
+  - Someone proposes running React Compiler on the SSR bundle, or asks whether it speeds up Tifa's server renders
   - Planning a rewrite of React DOM in the Vite plugin that cuts the number of chunks or hook objects
 measured: '2026-10-20'
-versions: 'tifa 8695b62, quickjs v0.26.15 with PGO, react and react-dom 19.3.1, babel-plugin-react-compiler 1.0.0 and 0.0.0-experimental-a1856f3-20260507, @babel/core 7.29.7, Node 24.13.0 for reference'
+versions: 'Tifa 8695b62, quickjs v0.26.15 with PGO, react and react-dom 19.3.1, babel-plugin-react-compiler 1.0.0 and 0.0.0-experimental-a1856f3-20260507, @babel/core 7.29.7, Node 24.13.0 for reference'
 ---
 
 # React PR 37022 and React Compiler in server renders
 
 ## Question
 
-Two changes in the React layer promise faster renders: [React PR 37022](https://github.com/react/react/pull/37022), not merged, joins the 3 to 5 pushes per attribute into one push per start tag, and React Compiler memoizes components, with an experimental `outputMode: 'ssr'` meant for server code. Do they make tifa's renders faster?
+Two changes in the React layer promise faster renders: [React PR 37022](https://github.com/react/react/pull/37022), not merged, joins the 3 to 5 pushes per attribute into one push per start tag, and React Compiler memoizes components, with an experimental `outputMode: 'ssr'` meant for server code. Do they make Tifa's renders faster?
 
 ## Conclusions
 
@@ -23,15 +23,15 @@ Two changes in the React layer promise faster renders: [React PR 37022](https://
 | Compiler, experimental build, normal mode | 1.023 | the same |
 | Compiler, experimental build, `outputMode: 'ssr'` | 1.000, no change | the same for the shop, but it can change HTML |
 
-- **PR 37022 cuts chunks 7.6 times and still makes renders slower.** The plugin already joins chunks before handing them over, so the per-chunk cost the PR saves upstream is gone in tifa, and what is left is more string concatenation, which copies short strings in QuickJS.
+- **PR 37022 cuts chunks 7.6 times and still makes renders slower.** The plugin already joins chunks before handing them over, so the per-chunk cost the PR saves upstream is gone in Tifa, and what is left is more string concatenation, which copies short strings in QuickJS.
 - **Compiler's normal mode only adds work on the server.** A server render is always a first mount, so every memo cache is created, filled and missed. Node is 3% slower with it too, and Next.js compiles only browser code.
 - **The SSR mode gains nothing and can break hydration.** It replaces functions it takes for event handlers with `undefined`, also when they are passed to custom components, so a component that renders differently with or without the prop renders differently on the server.
-- **Neither goes into tifa.** No React patch, and no Compiler on the SSR bundle in any mode.
+- **Neither goes into Tifa.** No React patch, and no Compiler on the SSR bundle in any mode.
 
 ## How it was measured
 
 - **Machine:** a Google Cloud VM with 8 vCPUs of an AMD EPYC 7B13, Linux. `taskset -c 0`, `GOMAXPROCS=1`, cpu 4 (its sibling) idle. The load before every run was logged.
-- **Builds:** test binaries built with the CPU profile (PGO) that tifa used then. tifa no longer builds with one.
+- **Builds:** test binaries built with the CPU profile (PGO) that Tifa used then. Tifa no longer builds with one.
 - **Main measurement:** `BenchmarkShop/render-*` of `test/ssr`, each page warmed with 256 renders and timed over 300, with two environment variables added to read another `ssr.js` and stored inputs. Five bundles in a rotating order per round, 8 rounds. The ratio is the sum of the six pages' P50 against the bundle without the change, in the same round.
 - **Second measurement:** one warm VM per bundle, each input rendered by every bundle in turn, 10 rounds, the median of each page's ratios.
 - **HTML:** every bundle's output compared byte for byte with the router's render time masked, on Mac and Linux. Inputs: the shop's six pages and 133 inputs of a test app of plain text pages (a kitchen-sink page, a landing page, two small pages, 64 inputs of a long thread and 64 unique ones).
@@ -90,14 +90,14 @@ SSR mode compiled 143 of 144 functions (one in `sidebar.tsx` hit an internal com
 
 ## Why
 
-- **PR 37022.** Upstream measured 36% to 40% more throughput for Fizz's synchronous render. What it saves is the fixed cost per chunk in the streaming renderer: `writeChunk`, `TextEncoder.encodeInto`, byte counting and flush loops. tifa uses the string renderer, whose chunks are already strings, and the plugin already joins each segment's chunks into one string. What is left to save is about 6200 array pushes, and the PR pays for them with concatenation: in QuickJS, strings under 512 code units do not become ropes, so each `tag += ...` copies, and long Tailwind class names get copied several times. A profile of 1500 renders of the studio list shows `JS_ConcatString` up by about 1.5% of samples and `js_array_push` down by about 0.2%.
+- **PR 37022.** Upstream measured 36% to 40% more throughput for Fizz's synchronous render. What it saves is the fixed cost per chunk in the streaming renderer: `writeChunk`, `TextEncoder.encodeInto`, byte counting and flush loops. Tifa uses the string renderer, whose chunks are already strings, and the plugin already joins each segment's chunks into one string. What is left to save is about 6200 array pushes, and the PR pays for them with concatenation: in QuickJS, strings under 512 code units do not become ropes, so each `tag += ...` copies, and long Tailwind class names get copied several times. A profile of 1500 renders of the studio list shows `JS_ConcatString` up by about 1.5% of samples and `js_array_push` down by about 0.2%.
 - **Compiler, normal mode.** On the server every render is a first mount: `useMemoCache` makes a new array per component, fills every cell with the sentinel, and every comparison misses. Memoization saves only on re-renders, which a server render never has.
 - **Compiler, SSR mode.** It drops memoization, inlines `useState` and removes effects, unused refs and event handlers. Without the Compiler there is no memoization to drop, and the shop has only a dozen hooks, so nothing is left to gain.
 - **Next.js agrees.** [vercel/next.js#65851](https://github.com/vercel/next.js/pull/65851) runs the Compiler only on browser code, per the React team's advice, and the speedups React and Next.js publish are all in the browser. `@vitejs/plugin-react` 6.1.2 also compiles only the `client` environment, in both its Babel preset and its native `compiler` option, so an app that turns on the Compiler as plugin-react's README says gets a browser bundle compiled and an SSR bundle left alone.
 
 How the SSR mode changes HTML: a page with `<Child onPick={handle} />`, where `handle` calls a state setter and `Child` renders "controlled" when it has `onPick` and "plain" without, renders "controlled" normally and "plain" in SSR mode, and the browser then fails to hydrate. In the shop, `onOpenChange` and `onSubmit` of `RecipientDialog` become `undefined` and the HTML happens to stay the same. The pass comes from [react/react#35102](https://github.com/react/react/pull/35102), titled a quick experiment, is only in experimental builds, and Next.js does not use it.
 
-## What it means for tifa
+## What it means for Tifa
 
 - **No patch of React DOM for PR 37022.** If it ships in a React release, the plugin's rewrites still find their anchors in it, so upgrading as usual is enough, and render time should stay about the same.
 - **No React Compiler on the SSR bundle,** in either mode. Apps that want it should turn it on as `@vitejs/plugin-react` describes, which compiles the browser bundle only, as Next.js does.

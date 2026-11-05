@@ -1,5 +1,5 @@
 ---
-summary: 'How to build a form in a tifa app: post it to a Go method handler through the generated function, show the field errors from tifa.Fields next to each input, disable the button while it sends, reload the page data after success and show the new row before the answer comes (React 19 useActionState, useFormStatus and useOptimistic)'
+summary: 'How to build a form in a Tifa app: post it to a Go method handler through the generated function, show the field errors from tifa.Fields next to each input, disable the button while it sends, reload the page data after success and show the new row before the answer comes (React 19 useActionState, useFormStatus and useOptimistic)'
 read_when:
   - Adding a form that creates or changes something, and you want the whole path from the input to the error message on screen
   - A form shows no field errors, the button can be clicked twice, or the list does not change after the form was sent
@@ -203,7 +203,7 @@ What happens when the visitor presses the button:
 
 ## Decisions
 
-**React hooks or a form library.** The three hooks (`useActionState`, `useFormStatus`, `useOptimistic`, see [useActionState](https://react.dev/reference/react/useActionState) and [useFormStatus](https://react.dev/reference/react-dom/hooks/useFormStatus)) cover a form with a few fields and no client-side rules. For many fields, rules that run as the visitor types, or arrays of fields, use a library. `examples/shop` uses react-hook-form with a Zod schema (`app/projects/project+/orders/order+/ship-form.tsx`), and [app.md](../app.md#libraries-that-render-differently-on-the-server) lists what to do for it on the server. The tifa part is the same for any library: catch `TifaError` and give `e.fields` to the library's way of setting errors. For react-hook-form that is `form.setError(name, { message })`.
+**React hooks or a form library.** The three hooks (`useActionState`, `useFormStatus`, `useOptimistic`, see [useActionState](https://react.dev/reference/react/useActionState) and [useFormStatus](https://react.dev/reference/react-dom/hooks/useFormStatus)) cover a form with a few fields and no client-side rules. For many fields, rules that run as the visitor types, or arrays of fields, use a library. `examples/shop` uses react-hook-form with a Zod schema (`app/projects/project+/orders/order+/ship-form.tsx`), and [app.md](../app.md#libraries-that-render-differently-on-the-server) lists what to do for it on the server. The Tifa part is the same for any library: catch `TifaError` and give `e.fields` to the library's way of setting errors. For react-hook-form that is `form.setError(name, { message })`.
 
 **Keep the button disabled until hydration.** With a function as `action`, the server writes `action="javascript:throw new Error('React form unexpectedly submitted.')"`. Until the scripts run, the form cannot send anything, and Enter in a field would hit that. `useHydrated` keeps the button disabled before that, which also stops the Enter key.
 

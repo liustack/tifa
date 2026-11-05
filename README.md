@@ -1,6 +1,6 @@
-<h1 align="center">tifa</h1>
+<h1 align="center">Tifa</h1>
 
-<p align="center"><b>The full-stack framework for Gophers.</b></p>
+<p align="center"><b>The full-stack Go framework for Gophers.</b></p>
 
 <p align="center">
   <a href="./README.zh-CN.md">简体中文</a> ·
@@ -20,11 +20,11 @@
   <img src="https://img.shields.io/badge/users-unknown-lightgrey?style=flat-square" alt="Users unknown">
 </p>
 
-Write the backend in Go and the pages in React. tifa compiles the whole site into one executable that you copy to a small VPS and run. No Node in production, no process manager, no reverse proxy, no Redis.
+Write the backend in Go and the pages in React. Tifa compiles the whole site into one executable that you copy to a small VPS and run. No Node in production, no process manager, no reverse proxy, no Redis.
 
 It is for Go developers whose business logic and data already live in Go, who want to write pages with the React ecosystem, and who do not want to keep a Node service running in production just for server-side rendering.
 
-> tifa is very early. APIs will change, and many compiler optimizations are not done yet.
+> Tifa is very early. APIs will change, and many compiler optimizations are not done yet.
 
 ## Why it exists
 
@@ -32,9 +32,9 @@ I wanted to ship a small product on TanStack Start. My other VPSes were full, Bl
 
 It did not really run. It crawled.
 
-So I started hacking on tifa. Once it is done, deploying should mean copying one Go binary to the VPS, and that is it.
+So I started hacking on Tifa. Once it is done, deploying should mean copying one Go binary to the VPS, and that is it.
 
-| On a 1 CPU / 1 GB VPS | The usual stack | With tifa |
+| On a 1 CPU / 1 GB VPS | The usual stack | With Tifa |
 | :-- | :-- | :-- |
 | Reverse proxy and certificates | nginx + certbot | The Go HTTP server in the binary, which gets its own Let's Encrypt certificate and speaks HTTP/2 |
 | Runtime and process manager | Node.js + PM2 | One Go executable |
@@ -116,7 +116,7 @@ go tool tifa build
 
 ## Use it with a coding agent
 
-[skills/tifa](skills/tifa) is an agent skill for Claude Code. It tells the agent how a tifa app is laid out, which mistakes the build and the server render punish, and how to test and deploy. Copy the folder into your project's `.claude/skills/` (or into `~/.claude/skills/` for all projects):
+[skills/tifa](skills/tifa) is an agent skill for Claude Code. It tells the agent how a Tifa app is laid out, which mistakes the build and the server render punish, and how to test and deploy. Copy the folder into your project's `.claude/skills/` (or into `~/.claude/skills/` for all projects):
 
 ```sh
 git clone --depth 1 https://github.com/liustack/tifa.git tifa-src
@@ -129,9 +129,9 @@ A new app also gets an `AGENTS.md` from `tifa new`. The skill covers the same gr
 
 | Doc | Read it when |
 | :-- | :-- |
-| [Tutorial](docs/tutorial.md) | You are new to tifa and want to build a small app from the first folder to a running program |
+| [Tutorial](docs/tutorial.md) | You are new to Tifa and want to build a small app from the first folder to a running program |
 | Guides: [forms](docs/guides/forms.md), [uploads](docs/guides/uploads.md), [sign-in](docs/guides/sign-in.md), [database](docs/guides/database.md), [background work](docs/guides/jobs.md), [email](docs/guides/email.md), [languages](docs/guides/i18n.md), [streaming](docs/guides/streaming.md) | Adding a common feature and you want a tested way to do it |
-| [Philosophy](docs/philosophy.md) | You want to know why a tifa app is organized the way it is |
+| [Philosophy](docs/philosophy.md) | You want to know why a Tifa app is organized the way it is |
 | [Structuring an app](docs/structure.md) | Deciding where domain code, storage and shared resources go, and which way packages may import each other |
 | [Writing an app](docs/app.md) | Laying out folders, routes, Layouts, hooks, 404 pages, head tags and caching |
 | [Sessions](docs/sessions.md) | Signing users in and out, keeping sessions in Redis or SQL, or showing who is signed in |
@@ -143,11 +143,11 @@ A new app also gets an `AGENTS.md` from `tifa new`. The skill covers the same gr
 | [Architecture](docs/architecture.md) | You want to know how a request, `tifa build`, `tifa dev`, the VM pool and the caches work inside |
 | [Performance](docs/performance.md) | You want to know whether a small VPS can carry your traffic |
 | [Research studies](docs/studies/README.md) | You want the full method and data behind a number, or to see whether an idea was already tried |
-| [Testing](docs/testing.md) | Contributing to tifa itself |
+| [Testing](docs/testing.md) | Contributing to Tifa itself |
 
 ## Talk to us
 
-Issues are welcome any time: [open one](https://github.com/liustack/tifa/issues/new). Tell us what you built, where it hurt, and what should come next. Follow the liustack WeChat official account, and come find me on X: **[@liustack](https://x.com/liustack)**. What changes in tifa and what comes next are shared on WeChat and X.
+Issues are welcome any time: [open one](https://github.com/liustack/tifa/issues/new). Tell us what you built, where it hurt, and what should come next. Follow the liustack WeChat official account, and come find me on X: **[@liustack](https://x.com/liustack)**. What changes in Tifa and what comes next are shared on WeChat and X.
 
 The **liustack** WeChat official account: AI startup opportunities, indie-dev insights, and hands-on AI tooling, delivered as they happen. Scan the QR code in WeChat, or search for "liustack":
 
@@ -157,7 +157,7 @@ The **liustack** WeChat official account: AI startup opportunities, indie-dev in
 
 ## Contributing
 
-tifa does not accept pull requests. A framework like this touches the compiler, the bundler, server rendering and developer experience at once, and a change in one pulls on the others. Getting that right takes a lot of context, so every line is written and reviewed by one author. Two ways to help:
+Tifa does not accept pull requests. A framework like this touches the compiler, the bundler, server rendering and developer experience at once, and a change in one pulls on the others. Getting that right takes a lot of context, so every line is written and reviewed by one author. Two ways to help:
 
 - **[Open an issue](https://github.com/liustack/tifa/issues).** Bugs, ideas, confusing errors, unclear docs. A clear issue with steps to reproduce helps more than a patch, and issues shape what gets built next.
 - **Fork it.** Under MIT your copy is yours to change and publish.
@@ -174,4 +174,4 @@ tifa does not accept pull requests. A framework like this touches the compiler, 
 
 ## License
 
-[MIT](LICENSE). A program built with tifa embeds locale data and time zones from Unicode CLDR, ICU and go-intl, whose notices go with the program when you distribute it, see [docs/build.md](docs/build.md#notices-to-ship-with-the-program).
+[MIT](LICENSE). A program built with Tifa embeds locale data and time zones from Unicode CLDR, ICU and go-intl, whose notices go with the program when you distribute it, see [docs/build.md](docs/build.md#notices-to-ship-with-the-program).

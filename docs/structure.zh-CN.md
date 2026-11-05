@@ -1,7 +1,7 @@
 ---
-summary: 'tifa 应用的文件放在哪：每个领域放在 app/ 下自己的目录里、和页面在一起，根目录只放钩子和共享资源，包之间按什么方向 import，共享资源怎么初始化和使用'
+summary: 'Tifa 应用的文件放在哪：每个领域放在 app/ 下自己的目录里、和页面在一起，根目录只放钩子和共享资源，包之间按什么方向 import，共享资源怎么初始化和使用'
 read_when:
-  - 新建一个 tifa 应用
+  - 新建一个 Tifa 应用
   - 不确定一个类型、一条查询或一个共享资源该放在哪
   - 一个领域做大了，或者两个领域要互相调用
   - go 命令报应用里的包之间有循环引用
@@ -11,7 +11,7 @@ read_when:
 
 # 应用的代码结构
 
-这篇讲应用里每个文件放在哪。为什么这样组织，见[哲学](philosophy.zh-CN.md)。 tifa 自己内部怎么工作，见[内部结构](architecture.zh-CN.md)。
+这篇讲应用里每个文件放在哪。为什么这样组织，见[哲学](philosophy.zh-CN.md)。 Tifa 自己内部怎么工作，见[内部结构](architecture.zh-CN.md)。
 
 ## 1. 领域就是 app/ 下的目录
 
@@ -71,14 +71,14 @@ myapp/
 
 ### import 的方向
 
-Go 的规则：一个包不能依赖它自己。A 包直接或经过别的包 import 了 B，B 就不能再直接或经过别的包 import A，go 命令会报 `import cycle not allowed` 并停下。包放在哪一层不要紧，只看 import 会不会绕回来。放到 tifa 应用里就是：
+Go 的规则：一个包不能依赖它自己。A 包直接或经过别的包 import 了 B，B 就不能再直接或经过别的包 import A，go 命令会报 `import cycle not allowed` 并停下。包放在哪一层不要紧，只看 import 会不会绕回来。放到 Tifa 应用里就是：
 
 - **页面 import 领域**：`order+/` 里的订单页 import 上一层的 `orders`，店铺的 Layout import `projects`。页面也可以 import 上层 Layout 的包，用来写 `tifa.Use(c, project.Layout)`。
 - **领域可以 import 不依赖它的另一个领域。** 在 examples/shop 里，`projects` 用 `orders.CountPending` 统计待发货的订单，所以 `projects` import `orders`，`orders` 就不能 import `projects`。可以 import 下层、上层或旁边的目录，只要不会绕回来。
 - **领域不能 import 一个 import 了它的页面。** `order+/` import 了 `orders`，`orders` 就不能 import `order+/`。两边都要用的东西放进领域。
 - **包内测试算作这个包。** `package orders` 里的测试不能 import `projects`，因为 `projects` import 了 `orders`（报 `import cycle not allowed in test`）。`package orders_test` 里的测试是单独的包，可以 import `projects`。
 
-另有两条是 tifa 应用的约定，不是 Go 的限制：
+另有两条是 Tifa 应用的约定，不是 Go 的限制：
 
 - **根包（包括 `hooks.go` 和 `package myapp` 里的测试）不 import `app/` 下的任何包。** 一个不依赖根包的 `app/` 下的包，Go 允许根包 import 它。但领域会直接用根包自己的包名 import 它，来用 `DB` 和其他共享资源（`import "example.com/myapp"`，然后写 `myapp.DB`）。一个领域这样做了以后，根包就不能再 import 这个领域，也不能 import 任何 import 了这个领域的页面。根包不 import `app/` 下的包，任何领域开始用共享资源时就都不会让构建失败。`package myapp_test` 里的测试是单独的包，可以 import 领域。
 - **`money/` 这样的公共包不直接或间接 import 领域或页面。** 这样每个领域都能 import 它。一个完全不 import 应用里其他包的公共包，应用里的任何包都能 import 它，根包也可以。它每多 import 一个包，就关上一扇门：import 了一个领域，这个领域和这个领域依赖的每个包（比如根包）就不能 import 它。import 了根包，根包就不能 import 它。import 了另一个公共包，那个包就不能反过来 import 它。

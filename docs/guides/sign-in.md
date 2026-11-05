@@ -1,5 +1,5 @@
 ---
-summary: 'How to sign users in and out in a tifa app with tifa sessions: a sign-in form, keeping and checking passwords with argon2id, SetSession, reading the user in Load and handlers, guarding pages, signing out, showing who is signed in in the browser, and one way to slow down password guessing'
+summary: 'How to sign users in and out in a Tifa app with Tifa sessions: a sign-in form, keeping and checking passwords with argon2id, SetSession, reading the user in Load and handlers, guarding pages, signing out, showing who is signed in in the browser, and one way to slow down password guessing'
 read_when:
   - Adding sign-in and sign-out to an app, or putting some pages behind a login
   - Choosing how to store and check passwords
@@ -10,7 +10,7 @@ English · [简体中文](sign-in.zh-CN.md)
 
 # Sign in and sign out
 
-Visitors sign in with an e-mail and a password, see an account page that only they can open, and sign out. tifa keeps the session: the random token, the cookie and the expiry. Your code does three things: keep and check the passwords, say when someone is signed in or out, and decide who may see what.
+Visitors sign in with an e-mail and a password, see an account page that only they can open, and sign out. Tifa keeps the session: the random token, the cookie and the expiry. Your code does three things: keep and check the passwords, say when someone is signed in or out, and decide who may see what.
 
 The code was run as written (with `go tool tifa check` and in a browser). What each session call does, and what the cookie is, is in [Sessions](../sessions.md). This guide does not repeat it.
 
@@ -648,7 +648,7 @@ function Account() {
 - `SignedIn` and `SignedOut` show their one child by the session. The server marks the page, so the first paint is right and nothing flashes.
 - `data` is the `Exposed` part of the session, typed from Go. It is for showing, not for deciding what someone may do. Go decides that.
 - `router.clearCache()` after signing out drops the pages the router kept in memory, so the next person on this browser does not see the last one's data.
-- A `fetch` of your own that signs someone in or out is unknown to tifa. Use the generated function, or call `router.invalidate()` after it (see the end of [the browser side](../sessions.md#in-the-browser)).
+- A `fetch` of your own that signs someone in or out is unknown to Tifa. Use the generated function, or call `router.invalidate()` after it (see the end of [the browser side](../sessions.md#in-the-browser)).
 
 ## Test it
 

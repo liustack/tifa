@@ -1,5 +1,5 @@
 ---
-summary: 'How to let visitors upload a file in a tifa app: a file field in the input of a handler, which the generated function sends as a form, the body limit and read time of the upload route, checking the type, where to keep the file, how to serve it back and how to test the handler'
+summary: 'How to let visitors upload a file in a Tifa app: a file field in the input of a handler, which the generated function sends as a form, the body limit and read time of the upload route, checking the type, where to keep the file, how to serve it back and how to test the handler'
 read_when:
   - Adding a file upload, such as a picture, an avatar or an attachment
   - An upload fails with 400, 408, 413, 415 or 422, or the handler does not see the file
@@ -12,7 +12,7 @@ English · [简体中文](uploads.zh-CN.md)
 
 A page where visitors upload pictures with a title, and see them listed. The handler checks the title, the size and the kind of file, keeps the file in a folder and serves it back.
 
-The code was run as written: it is the app `test/apps/upload` of the tifa repository, which its end-to-end tests build and drive in a browser. The reference docs for the calls used here: [files in the input](../app.md#files-in-the-input), [body limit and read time of a route](../app.md#body-limit-and-read-time-of-a-route), [settings of the app](../config.md#settings-of-the-app).
+The code was run as written: it is the app `test/apps/upload` of the Tifa repository, which its end-to-end tests build and drive in a browser. The reference docs for the calls used here: [files in the input](../app.md#files-in-the-input), [body limit and read time of a route](../app.md#body-limit-and-read-time-of-a-route), [settings of the app](../config.md#settings-of-the-app).
 
 ## How a file gets to the handler
 
@@ -73,7 +73,7 @@ const ReadTimeout = 5 * time.Minute
 
 ### How much memory an upload takes
 
-The form is parsed with the budget of Go's `mime/multipart`. Up to 32 MiB of file content stays in memory, and the text fields and the names and headers of the parts share one budget of about 42 MiB with it. A file that does not fit goes to a temporary file, which tifa removes when the request ends. A body limit above that is fine: the rest goes to disk.
+The form is parsed with the budget of Go's `mime/multipart`. Up to 32 MiB of file content stays in memory, and the text fields and the names and headers of the parts share one budget of about 42 MiB with it. A file that does not fit goes to a temporary file, which Tifa removes when the request ends. A body limit above that is fine: the rest goes to disk.
 
 The budget is not the peak. A file that ends on disk is first read into a buffer of up to 32 MiB, which grows as it fills, so one large file can take about 64 MiB for a moment, and each upload at the same time takes its own. On a machine with little memory, let only a few uploads read their form at once. The rest of `hooks.go`, which also imports `github.com/liustack/tifa`:
 
@@ -428,7 +428,7 @@ The test calls the handler directly: `Validate`, the body limit and the read tim
 
 ## Decisions
 
-**Where files live.** A folder on the machine, as here, is the least to run. It needs a volume that survives deploys, and it is backed up with the rest of the data (see [Deploying](../deploy.md)). One process on one machine is the target of tifa, so that is usually enough. If you have more than one machine, or the files are large, keep them in object storage and let the handler write to it. The checks above stay the same. Serve them from there or redirect to a signed link.
+**Where files live.** A folder on the machine, as here, is the least to run. It needs a volume that survives deploys, and it is backed up with the rest of the data (see [Deploying](../deploy.md)). One process on one machine is the target of Tifa, so that is usually enough. If you have more than one machine, or the files are large, keep them in object storage and let the handler write to it. The checks above stay the same. Serve them from there or redirect to a signed link.
 
 **How big.** Pick the smallest limit that fits the use. A profile picture needs 1 or 2 MiB. Show the limit in the form, and check `file.size` in the browser to give a quick message before sending. The server limit is still the one that counts.
 

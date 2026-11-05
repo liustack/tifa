@@ -1,19 +1,19 @@
 ---
 name: tifa
-description: Build, change, test and deploy apps with tifa, a full-stack Go framework where Go routes requests and loads data, React pages are rendered to HTML inside the Go process by a pure Go QuickJS, and the whole app ships as one executable with no Node at run time. Use this whenever the project imports github.com/liustack/tifa, has an app/ folder with route.go, page.tsx or layout.tsx files, a .tifa/ folder or a tifa.yaml, or the user mentions tifa, `go tool tifa`, tifa dev, tifa build, tifa check, route.gen, or asks for a Go plus React SSR app that deploys as a single binary on a small VPS or container. Read it before writing routes, pages, Layouts, hooks.go, API handlers, tests or deploy config, even for small edits, because the build rejects many ordinary-looking patterns and server rendering has rules that browser-only React does not.
+description: Build, change, test and deploy apps with Tifa, a full-stack Go framework where Go routes requests and loads data, React pages are rendered to HTML inside the Go process by a pure Go QuickJS, and the whole app ships as one executable with no Node at run time. Use this whenever the project imports github.com/liustack/tifa, has an app/ folder with route.go, page.tsx or layout.tsx files, a .tifa/ folder or a tifa.yaml, or the user mentions Tifa, `go tool tifa`, `tifa dev`, `tifa build`, `tifa check`, route.gen, or asks for a Go plus React SSR app that deploys as a single binary on a small VPS or container. Read it before writing routes, pages, Layouts, hooks.go, API handlers, tests or deploy config, even for small edits, because the build rejects many ordinary-looking patterns and server rendering has rules that browser-only React does not.
 ---
 
-# tifa
+# Tifa
 
-tifa is a full-stack framework for Go developers. Go handles routing, data loading, caching and background jobs. React pages are rendered to complete HTML inside the same process, and TanStack Router takes over in the browser. `tifa build` makes one executable that you copy to a small VPS or container and run. A CDN in front is fine, a reverse proxy, Redis or a Node service is not needed.
+Tifa is a full-stack framework for Go developers. Go handles routing, data loading, caching and background jobs. React pages are rendered to complete HTML inside the same process, and TanStack Router takes over in the browser. `tifa build` makes one executable that you copy to a small VPS or container and run. A CDN in front is fine, a reverse proxy, Redis or a Node service is not needed.
 
 It fits: sites and apps whose logic and data are already in Go, that want the React ecosystem for pages, and that should run as one process on little hardware (1 CPU and 1 GB is a target).
 
-It does not do: streaming SSR, React Server Components, rendering that waits for timers or network, or Windows for `tifa dev` (use WSL). The server render runs on linux and darwin, on amd64 and arm64, and windows/amd64. tifa is early, so APIs can change.
+It does not do: streaming SSR, React Server Components, rendering that waits for timers or network, or Windows for `tifa dev` (use WSL). The server render runs on linux and darwin, on amd64 and arm64, and windows/amd64. Tifa is early, so APIs can change.
 
 ## Docs of the installed version
 
-These skill files link to the docs on the `main` branch of GitHub. The app may use another tifa version. When the app has an `AGENTS.md` written by `tifa new`, run `go tool tifa docs` first. It prints the path to the docs that match the version in `go.mod`, with when to read each. If a GitHub doc and the installed docs disagree, the installed docs win.
+These skill files link to the docs on the `main` branch of GitHub. The app may use another Tifa version. When the app has an `AGENTS.md` written by `tifa new`, run `go tool tifa docs` first. It prints the path to the docs that match the version in `go.mod`, with when to read each. If a GitHub doc and the installed docs disagree, the installed docs win.
 
 ## Commands
 
@@ -25,9 +25,9 @@ Run them in the app root (the folder with `go.mod` and `app/`). They need Go 1.2
 | `go tool tifa dev` | Dev server at http://127.0.0.1:9527 (`--addr` changes it). TSX and CSS edits update the open page in place, Go edits rebuild and reload |
 | `go tool tifa errors` | While `tifa dev` runs, print the errors since the last build: a failed build, unexpected request errors with their stack in your sources, browser errors of open pages (hydration mismatches, uncaught errors, unhandled rejections) and pages that render differently each time. Run it after you change code and after you open or reload the pages you changed. Exit status 0 means no error, 1 errors, 2 no `tifa dev`. `--json` prints JSON |
 | `go tool tifa build` | Analyze, generate `.tifa/`, bundle with Vite, build `bin/<app>` with the front end embedded |
-| `go tool tifa check` | The one command to run before you finish. It runs the tifa analysis, generates `.tifa/`, then `go vet ./...`, `go test ./...` and the TypeScript check. It stops at the first step that fails |
+| `go tool tifa check` | The one command to run before you finish. It runs the Tifa analysis, generates `.tifa/`, then `go vet ./...`, `go test ./...` and the TypeScript check. It stops at the first step that fails |
 | `go tool tifa routes` | List the routes. `--json` prints the full manifest with Go types |
-| `go tool tifa docs` | Print where the docs of this tifa version are |
+| `go tool tifa docs` | Print where the docs of this Tifa version are |
 
 An existing app already has the tool in `go.mod` (`go get -tool github.com/liustack/tifa/cmd/tifa` adds it). Use the package manager the app already uses. `tifa new` picks pnpm when it is installed.
 
@@ -93,10 +93,10 @@ Names the build rejects: a `route.tsx` (rename to `page.tsx`), exporting `NotFou
 
 Build and deploy:
 
-14. Forgetting to reload page data after a write. tifa never reloads it for you, not after a `POST`, `PUT`, `PATCH` or `DELETE` function from `route.gen` either. Call TanStack's `router.invalidate()` after the write, with `{ sync: true }` to wait until the page shows the new data.
-15. Cross-compiling with `GOOS=linux go tool tifa build`. That also applies to building the tifa command. Use `GOOS=linux GOARCH=amd64 $(go tool -n tifa) build`.
-16. Changing the React or TanStack Router versions by hand. tifa needs React 19.3 or later and the TanStack Router version it was tested with, and the build stops with the versions when they are wrong.
-17. Setting `Cache-Control: public` on pages or navigation data, or telling a CDN to ignore the origin's cache headers. Every answer is `private, no-cache` by default (`no-store` for error answers), and a CDN that caches a page of one visitor shows it to another. A page that is the same for everyone opts in with `const Cache = 10 * time.Minute` in its `route.go` (a duration of at least a second, never `true`), and tifa then sends the public headers itself, with `Age` and `Cache-Status: tifa; hit` or `fwd=miss`. Navigation data is never public. `RenderCache = false` is the other switch: it only turns the render cache off for a page that shows the time or a random value. See `references/build-and-deploy.md`.
+14. Forgetting to reload page data after a write. Tifa never reloads it for you, not after a `POST`, `PUT`, `PATCH` or `DELETE` function from `route.gen` either. Call TanStack's `router.invalidate()` after the write, with `{ sync: true }` to wait until the page shows the new data.
+15. Cross-compiling with `GOOS=linux go tool tifa build`. That also applies to building the Tifa command. Use `GOOS=linux GOARCH=amd64 $(go tool -n tifa) build`.
+16. Changing the React or TanStack Router versions by hand. Tifa needs React 19.3 or later and the TanStack Router version it was tested with, and the build stops with the versions when they are wrong.
+17. Setting `Cache-Control: public` on pages or navigation data, or telling a CDN to ignore the origin's cache headers. Every answer is `private, no-cache` by default (`no-store` for error answers), and a CDN that caches a page of one visitor shows it to another. A page that is the same for everyone opts in with `const Cache = 10 * time.Minute` in its `route.go` (a duration of at least a second, never `true`), and Tifa then sends the public headers itself, with `Age` and `Cache-Status: tifa; hit` or `fwd=miss`. Navigation data is never public. `RenderCache = false` is the other switch: it only turns the render cache off for a page that shows the time or a random value. See `references/build-and-deploy.md`.
 18. Editing `schema.sql` of a `tifa new` app and expecting `tifa dev` to pick it up. It does not watch that file, so restart it.
 
 ## References

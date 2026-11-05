@@ -1,18 +1,18 @@
 ---
-summary: 'What other SSR frameworks and React renderers do to go faster, which of those ideas fit tifa under its rules, what each might give, and what became of them'
+summary: 'What other SSR frameworks and React renderers do to go faster, which of those ideas fit Tifa under its rules, what each might give, and what became of them'
 read_when:
   - Planning the next round of work on render speed and looking for ideas from elsewhere
   - Someone proposes another React renderer or a build-time rewrite of React
   - Checking whether an idea from another project was already weighed
 measured: '2026-10-20'
-versions: 'Public sources as of 2026-10-20, and tifa profiles of the time'
+versions: 'Public sources as of 2026-10-20, and Tifa profiles of the time'
 ---
 
 # What others do to go faster
 
 ## Question
 
-Which known ways to speed up React server rendering fit tifa (pure Go, the same HTML), and what might each give?
+Which known ways to speed up React server rendering fit Tifa (pure Go, the same HTML), and what might each give?
 
 ## Conclusions
 
@@ -21,16 +21,16 @@ Which known ways to speed up React server rendering fit tifa (pure Go, the same 
 
 ## How it was gathered
 
-- Public sources: the repositories, pull requests, issues and posts linked below, read for dates and published numbers. Estimates for tifa come from those numbers and tifa's own profiles, not from prototypes, unless a line says it was measured.
+- Public sources: the repositories, pull requests, issues and posts linked below, read for dates and published numbers. Estimates for Tifa come from those numbers and Tifa's own profiles, not from prototypes, unless a line says it was measured.
 - A count of the JSX calls in the shop's SSR bundle: of 173 calls that make host elements, 36 (21%) are fully static, and 76 (44%) have a static start tag and only dynamic children. These are call sites, not run counts.
 
 ## Data
 
-| Idea | Source | Published gain | Fits tifa | Estimate for tifa |
+| Idea | Source | Published gain | Fits Tifa | Estimate for Tifa |
 | --- | --- | --- | --- | --- |
 | B1 Pre-render static start tags and static subtrees at build time, with one new node type in React DOM's server renderer | [Rax jsx-to-html](https://github.com/raxjs/rax-scripts/tree/master/packages/babel-plugin-transform-jsx-to-html), Marko, Kita. [ssr-benchmark](https://github.com/eknkc/ssr-benchmark): Marko 6675 and Kita 3074 renders a second against React's 764 | Marko 8.7 times, Kita 4.0 times React, on V8 | yes: the plugin rewrites the compiled `jsx()` calls and React DOM | 3% to 8% on the shop, 10% to 25% on plain text. Weeks of work |
 | B2 One push per start tag ([react/react#37022](https://github.com/react/react/pull/37022)) | open | 36% to 40% for Fizz, 1% to 8% end to end in Next.js | yes | 1% to 4% |
-| B3 Plain values in place of the getters of React's CommonJS namespaces | tifa's profile: 1090 getter calls per render, 1.0%, 3.7 times slower than `--jitless` | none | yes, for React and React DOM only | 1% to 2% |
+| B3 Plain values in place of the getters of React's CommonJS namespaces | Tifa's profile: 1090 getter calls per render, 1.0%, 3.7 times slower than `--jitless` | none | yes, for React and React DOM only | 1% to 2% |
 | B4 React Compiler with `outputMode: 'ssr'` ([react/react#35102](https://github.com/react/react/pull/35102)) | experimental builds only | not found | yes | 0% to 5% |
 | B6 Babel's inline elements transform | Babel | none | no: it writes `Symbol.for("react.element")`, which React 19 does not accept | |
 | B7 preact-render-to-string | [preact-render-to-string#229](https://github.com/preactjs/preact-render-to-string/pull/229) | 1.16 to 1.29 times on V8 | no: different `useId` format and no Suspense or text separator comments, so hydration fails | |
@@ -59,9 +59,9 @@ How B1 could keep hydration: touch only tags that go through `pushStartGenericEl
 
 Four more sources, read after the survey above. None changed the plan.
 
-| Source | Read | What it does | Fits tifa |
+| Source | Read | What it does | Fits Tifa |
 | --- | --- | --- | --- |
-| Astro (main `c75e897`, `@astrojs/react` 7.1.0) | 2026-10-17 | Keeps server cost low by using less React: `.astro` templates compile to strings and React components are islands, rendered one by one, or only in the browser with `client:only`. It does not patch React, and pins only the major version of React (17, 18, 19) because it uses only the public API of `react-dom/server`. | No. Nothing compiles React components to strings, and `client:only` is what `clientOnly` in tifa already does. tifa pins TanStack Router because it uses an option that is not public (`serializationAdapters`), not for the same reason |
+| Astro (main `c75e897`, `@astrojs/react` 7.1.0) | 2026-10-17 | Keeps server cost low by using less React: `.astro` templates compile to strings and React components are islands, rendered one by one, or only in the browser with `client:only`. It does not patch React, and pins only the major version of React (17, 18, 19) because it uses only the public API of `react-dom/server`. | No. Nothing compiles React components to strings, and `client:only` is what `clientOnly` in Tifa already does. Tifa pins TanStack Router because it uses an option that is not public (`serializationAdapters`), not for the same reason |
 | scriptc (Vercel Labs, v0.3.5) | 2026-10-17 | Compiles typed TypeScript to native programs through LLVM, with no JavaScript engine. No JSX, no untyped JavaScript, and no published speed numbers. Users report code 2 to 77 times slower than Node | No. React is untyped JavaScript, and a native program would need cgo or a separate process |
 | goc (`LoyieKing/goc`, `8482979`) | 2026-10-22 | Compiles a C program through a patched Clang 19 and LLVM into Go objects. Works for chosen programs, but full Go GC support for Go heap pointers, general concurrency and `go get` delivery are missing | Not as a library. Building needs the patched LLVM toolchain |
-| jsc2go, goant and go-quickjs | 2026-10-21 | Fast mainly through a JIT and Go's GC memory model: copying a value needs no reference count, and caches are safe from reused addresses | Both are against tifa's design or months of work. Their interpreter-level ideas give about 1% each. |
+| jsc2go, goant and go-quickjs | 2026-10-21 | Fast mainly through a JIT and Go's GC memory model: copying a value needs no reference count, and caches are safe from reused addresses | Both are against Tifa's design or months of work. Their interpreter-level ideas give about 1% each. |

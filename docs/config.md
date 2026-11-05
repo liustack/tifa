@@ -1,11 +1,11 @@
 ---
-summary: 'Every setting of a tifa app and how an app defines its own, and the security headers every answer carries, the Content-Security-Policy of server.csp among them: where each one can be set (flags, environment variables, .env, the file of -c, tifa.yaml), which source wins, how PORT and HOST are read, the default, the flag and environment variable names, the value formats and the errors a bad value gives, how a handler that needs longer lifts the read and write timeouts, how to serve HTTPS with certificates the program gets itself or with your own, and how the program refuses writes that a browser sends from another site and how to let chosen origins or paths through'
+summary: 'Every setting of a Tifa app and how an app defines its own, and the security headers every answer carries, the Content-Security-Policy of server.csp among them: where each one can be set (flags, environment variables, .env, the file of -c, tifa.yaml), which source wins, how PORT and HOST are read, the default, the flag and environment variable names, the value formats and the errors a bad value gives, how a handler that needs longer lifts the read and write timeouts, how to serve HTTPS with certificates the program gets itself or with your own, and how the program refuses writes that a browser sends from another site and how to let chosen origins or paths through'
 read_when:
   - Defining a setting of the app with tifa.String and the like, or reading one in OnStart
   - Writing a .env file, or deploying on a platform that sets PORT
   - Changing how long a session lasts, the session cookie name, or how much memory the default session store may use
   - An upload, a download or a stream is cut off after about 10 seconds, or a handler needs longer than the read and write timeouts
-  - Deploying a tifa app, or changing its port, body limit, read and write timeouts, compression, VM count, VM stack depth, render timeout, render queue, render cache, whole-page cache or the tracking parameters the cache ignores
+  - Deploying a Tifa app, or changing its port, body limit, read and write timeouts, compression, VM count, VM stack depth, render timeout, render queue, render cache, whole-page cache or the tracking parameters the cache ignores
   - Serving HTTPS from the program itself, with Let's Encrypt or your own certificate, or deciding whether to
   - The program cannot listen on port 80 or 443, or gets no certificate
   - A POST, PUT, PATCH or DELETE gets 403 with `cross-origin request detected`, or a page of another site or a provider's callback must be allowed to send one
@@ -20,7 +20,7 @@ English · [简体中文](config.zh-CN.md)
 
 # Configuration
 
-A tifa app runs with sensible defaults for a small machine. Change a setting only when you need to.
+A Tifa app runs with sensible defaults for a small machine. Change a setting only when you need to.
 
 ## Where settings come from
 
@@ -31,11 +31,11 @@ From highest to lowest priority:
 3. The `.env` file in the folder the program runs in.
 4. The deployment file given with `-c path.yaml` (or `--config path.yaml`).
 5. The project file `tifa.yaml` in the app root. `tifa build` reads it and builds its values into the program.
-6. The defaults: those in the table below for the settings of tifa, those in `config.go` for the [settings of the app](#settings-of-the-app).
+6. The defaults: those in the table below for the settings of Tifa, those in `config.go` for the [settings of the app](#settings-of-the-app).
 
-A source sets only the keys it names, so a deployment file holds just what it changes. The program reads only its own keys: other keys of a file and other environment variables are left alone. A flag that is neither a setting of tifa nor one of the app, such as `--addr` for `--server-addr`, stops the program with `unknown flag`.
+A source sets only the keys it names, so a deployment file holds just what it changes. The program reads only its own keys: other keys of a file and other environment variables are left alone. A flag that is neither a setting of Tifa nor one of the app, such as `--addr` for `--server-addr`, stops the program with `unknown flag`.
 
-`tifa.yaml` holds values of the settings of tifa. `build.*` settings can only be set here, and `tifa build` fails on a value of the wrong type or format. The program does not read the file: change it and build again.
+`tifa.yaml` holds values of the settings of Tifa. `build.*` settings can only be set here, and `tifa build` fails on a value of the wrong type or format. The program does not read the file: change it and build again.
 
 ```yaml
 # tifa.yaml
@@ -50,7 +50,7 @@ cache:
   size: 128MiB
 ```
 
-Run `./bin/app config` to print every setting, of tifa and of the app, with its value and where the value comes from (`default`, `tifa.yaml`, `file prod.yaml`, `.env SSR_VMS`, `env PORT`, `flag --ssr-vms` and so on). The output is a commented YAML file, a good starting point for a deployment file. It leaves out the values of the app's secrets ([`tifa.Secret`](#settings-of-the-app)).
+Run `./bin/app config` to print every setting, of Tifa and of the app, with its value and where the value comes from (`default`, `tifa.yaml`, `file prod.yaml`, `.env SSR_VMS`, `env PORT`, `flag --ssr-vms` and so on). The output is a commented YAML file, a good starting point for a deployment file. It leaves out the values of the app's secrets ([`tifa.Secret`](#settings-of-the-app)).
 
 ### Names
 
@@ -101,7 +101,7 @@ Hosting platforms such as Cloud Run, Heroku, Render, Railway and Fly tell the pr
 | --- | --- | --- | --- |
 | `build.target` | `es2020` | project file only | JavaScript target of the browser bundle that Vite builds, a comma-separated list: one ECMAScript version (`es2015` to `es2029`, `esnext`) plus browsers with versions, from chrome, edge, firefox, ios, opera and safari, such as `es2019,chrome90,safari14`. The SSR bundle always targets ES2022 |
 | `build.public` | `public` | project file only | Folder of static files copied into the program as they are and served from `/` |
-| `build.skip_tanstack_check` | `false` | project file only | `true` builds an app whose TanStack Router is not the version tifa is tested with, which may leave pages blank in the browser. See [build.md](build.md#the-apps-tsconfig-and-vite-config) |
+| `build.skip_tanstack_check` | `false` | project file only | `true` builds an app whose TanStack Router is not the version Tifa is tested with, which may leave pages blank in the browser. See [build.md](build.md#the-apps-tsconfig-and-vite-config) |
 | `build.debug_info` | `false` | project file only | `true` keeps the DWARF debug info in the program, for debuggers such as Delve. Without it, `tifa build` leaves the debug info out with `-ldflags=-w`, which makes the example shop's program about 20% smaller. Panics still give the file and line of each frame either way. `tifa dev` always keeps it. See [build.md](build.md#debug-info) |
 | `build.i18next_cache` | `true` | project file only | The server render keeps the strings i18next translates and gives them again for the same key and options, so pages that translate the same texts on every render take less time: the shop's storefront pages 0.798 of it. `false` turns it off. Turn it off when the app changes i18next's resources or options after the first render without i18next's API, or gives i18next functions other than formatters and post-processors that read something of the request, or pages may show stale translations. See [build.md](build.md#i18next-cache) |
 | `server.addr` | `127.0.0.1:9527` | `--server-addr`, `SERVER_ADDR` | Address to listen on. Use `0.0.0.0:9527` in a container. With [HTTPS](#https) on it serves HTTPS and must be set, usually to `:443` |
@@ -118,7 +118,7 @@ Hosting platforms such as Cloud Run, Heroku, Render, Railway and Fly tell the pr
 | `server.tls_key` | none | `--server-tls-key`, `SERVER_TLS_KEY` | Private key file of `tls_cert`, in PEM |
 | `server.http_addr` | `:80` | `--server-http-addr`, `SERVER_HTTP_ADDR` | With HTTPS on, the plain HTTP address that answers the checks of Let's Encrypt and redirects everything else to HTTPS. `off` for none. Not used without HTTPS |
 | `server.hsts` | `false` | `--server-hsts`, `SERVER_HSTS` | Adds `Strict-Transport-Security: max-age=31536000` to the answers of `server.addr`, so browsers keep to HTTPS for a year |
-| `server.csp` | `off` | `--server-csp`, `SERVER_CSP` | `on` sends `server.csp_policy` as the `Content-Security-Policy` of every answer, and of each page with the hashes of the inline scripts tifa writes into it. `report-only` sends it as `Content-Security-Policy-Report-Only`, which only reports. See [Content-Security-Policy](#content-security-policy) |
+| `server.csp` | `off` | `--server-csp`, `SERVER_CSP` | `on` sends `server.csp_policy` as the `Content-Security-Policy` of every answer, and of each page with the hashes of the inline scripts Tifa writes into it. `report-only` sends it as `Content-Security-Policy-Report-Only`, which only reports. See [Content-Security-Policy](#content-security-policy) |
 | `server.csp_policy` | `script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'` | `--server-csp-policy`, `SERVER_CSP_POLICY` | The policy of `server.csp`: directives separated by semicolons. It is checked only for what keeps it one header: printable ASCII, no comma, directive names of letters, digits and dashes |
 | `server.trusted_origins` | none | `--server-trusted-origins`, `SERVER_TRUSTED_ORIGINS` | Origins whose pages may send writes (POST, PUT, PATCH, DELETE) from another site, comma-separated, such as `https://admin.example.com,http://localhost:3000`. See [Cross-site writes](#cross-site-writes) |
 | `server.cross_site_paths` | none | `--server-cross-site-paths`, `SERVER_CROSS_SITE_PATHS` | Path patterns whose writes are not checked for the site they come from, comma-separated, such as `POST /auth/apple/callback`. See [Cross-site writes](#cross-site-writes) |
@@ -160,8 +160,8 @@ var (
 ```
 
 - The arguments are the key, the default and a line of help. Each returns a plain value: read `shop.DBURL`, and a test sets `shop.DBURL = "test.db"`.
-- The value comes from the same sources as the settings of tifa: the flag `--db-url`, the variable `DB_URL`, `.env`, the file of `-c`, then the default. `tifa.yaml` holds only settings of tifa.
-- The types: `String` (`string`), `Strings` (`[]string`), `Int` (`int`), `Bool` (`bool`), `Duration` (`time.Duration`) and `Size` (`int64` bytes). Their values are written as for the settings of tifa, see [Value formats](#value-formats). `Strings` is comma-separated text, such as `FEED_HOSTS=a.example,b.example`.
+- The value comes from the same sources as the settings of Tifa: the flag `--db-url`, the variable `DB_URL`, `.env`, the file of `-c`, then the default. `tifa.yaml` holds only settings of Tifa.
+- The types: `String` (`string`), `Strings` (`[]string`), `Int` (`int`), `Bool` (`bool`), `Duration` (`time.Duration`) and `Size` (`int64` bytes). Their values are written as for the settings of Tifa, see [Value formats](#value-formats). `Strings` is comma-separated text, such as `FEED_HOSTS=a.example,b.example`.
 - `Secret` (`string`) is for a password, a token or a key. It has no default and is empty when no source sets it. It comes from the environment variable, `.env` or the file of `-c`, and not from a flag: a flag shows in the process list to every user of the machine, so the program refuses one and says where to put the value. `./bin/app config` writes where it came from and leaves the value out, as the comment `# api_key: (hidden)`. An error about a secret, such as an unquoted number in the file, names the key and the source but not the value. Put a secret that starts with `*`, `!`, `&` or another YAML sign in quotes.
 - Values are single values. Structured data goes into a file of the app, and a setting holds its path.
 - An invalid value gives the default, and the program lists it with the other invalid settings and stops before `OnStart`.
@@ -169,7 +169,7 @@ var (
 - The packages that the root package imports cannot read these variables (it would be an import cycle): `OnStart` passes the values to them, such as `store.Open(DBURL)`.
 - An app that needs more can run its own configuration in `OnStart`.
 
-`tifa build` fails, naming the file and line, when `tifa.String` and the like are called anywhere but as the value of a package-level `var` in `config.go` at the root, when a key is not a string literal or does not follow the rule of [Names](#names), and when two settings, of the app or of tifa, would have the same flag or environment variable, such as `a.b_c` and `a_b.c`, and when one key is a section of another, such as `db.url` next to `db.url.timeout`, or `server.addr.port` next to `server.addr` of tifa. The program panics on the same mistakes if they get past the build.
+`tifa build` fails, naming the file and line, when `tifa.String` and the like are called anywhere but as the value of a package-level `var` in `config.go` at the root, when a key is not a string literal or does not follow the rule of [Names](#names), and when two settings, of the app or of Tifa, would have the same flag or environment variable, such as `a.b_c` and `a_b.c`, and when one key is a section of another, such as `db.url` next to `db.url.timeout`, or `server.addr.port` next to `server.addr` of Tifa. The program panics on the same mistakes if they get past the build.
 
 ## Render queue
 
@@ -258,7 +258,7 @@ func POST(c *tifa.Ctx) error {
 - A stream that waits between writes, for events or for a language model, clears the write deadline while it waits and sets one around each write, so a client that stops reading does not keep the handler forever, see [Streaming](guides/streaming.md).
 - The write timeout counts from the end of the request header, so a handler that reads a long body lifts both: its answer is written after the body.
 - A handler with a typed input has its body read before it runs, so a deadline set in the handler comes too late for the body. Write `ReadTimeout` in its `route.go` instead, which lifts both deadlines before `OnRequest` runs, see [Body limit and read time of a route](app.md#body-limit-and-read-time-of-a-route) and [Uploads](guides/uploads.md#the-settings-and-the-body-limit).
-- `c.Writer()` reaches the connection through the writers of tifa and through compression.
+- `c.Writer()` reaches the connection through the writers of Tifa and through compression.
 - A proxy in front has timeouts of its own, such as the 60 seconds of nginx's `proxy_read_timeout`. Raise them for the same paths.
 
 ## HTTPS
@@ -358,7 +358,7 @@ The default policy, `server.csp_policy`, is `script-src 'self'; object-src 'none
 
 Styles are left alone: React writes `style` attributes, and emotion and MUI add style elements while the page runs.
 
-Every page has inline scripts of tifa's own: the router hands the data of the Loads to the browser in one and restores the scroll position with another. tifa hashes each inline script and style it writes into a page (SHA-256) and adds the hashes to the policy in the header of that page, so they run. These are the scripts and styles of the head of the build (Vite's preamble under `tifa dev`), of the session head, of the router, and of the `scripts` and `styles` of `head` functions, and under `tifa dev` its own error overlay. The same page always gets the same header, so the render cache, the whole-page cache and ETags work as before. Other answers, JSON and files, carry the policy as it is.
+Every page has inline scripts of Tifa's own: the router hands the data of the Loads to the browser in one and restores the scroll position with another. Tifa hashes each inline script and style it writes into a page (SHA-256) and adds the hashes to the policy in the header of that page, so they run. These are the scripts and styles of the head of the build (Vite's preamble under `tifa dev`), of the session head, of the router, and of the `scripts` and `styles` of `head` functions, and under `tifa dev` its own error overlay. The same page always gets the same header, so the render cache, the whole-page cache and ETags work as before. Other answers, JSON and files, carry the policy as it is.
 
 The hashes go into `script-src` and `script-src-elem`, and into `style-src` and `style-src-elem` when the policy has them. A policy with only `default-src` gets a `script-src` with the sources of `default-src` and the hashes. A directive whose `'unsafe-inline'` still lets every inline script run gets no hashes, since browsers ignore `'unsafe-inline'` once a directive lists one. With a hash, a nonce or, for scripts, `'strict-dynamic'` in the directive, browsers already ignore it, so the hashes go in.
 
@@ -436,7 +436,7 @@ What a lower depth breaks:
 
 `tifa build` fails on a value of the wrong type or format in `tifa.yaml`, naming its line. A setting written as a section or a list, such as `ssr: {vms: {count: 2}}`, is a value of the wrong type too. The program refuses to start and lists every problem, each with its source and key, when:
 
-- a value of a setting of tifa or of the app has the wrong type or format, such as `ssr.timeout: 3`, `SHOP_OPEN=maybe` or a section under `ssr.vms` in the file of `-c`,
+- a value of a setting of Tifa or of the app has the wrong type or format, such as `ssr.timeout: 3`, `SHOP_OPEN=maybe` or a section under `ssr.vms` in the file of `-c`,
 - a secret of the app (`tifa.Secret`) is given as a flag,
 - the file of `-c` cannot be read or is not YAML, or a line of `.env` cannot be read.
 

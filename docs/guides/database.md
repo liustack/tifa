@@ -1,9 +1,9 @@
 ---
-summary: 'How to keep data in a tifa app with SQLite: the pure Go driver, opening the database in OnStart, where the file lives and how to set its path, changing the tables with numbered migrations that run at start, using it in Load and handlers, a transaction, a backup, testing on a temporary database, and when to move to Postgres'
+summary: 'How to keep data in a Tifa app with SQLite: the pure Go driver, opening the database in OnStart, where the file lives and how to set its path, changing the tables with numbered migrations that run at start, using it in Load and handlers, a transaction, a backup, testing on a temporary database, and when to move to Postgres'
 read_when:
-  - Adding a database to a tifa app, or growing the one tifa new wrote
+  - Adding a database to a Tifa app, or growing the one `tifa new` wrote
   - Changing a table of an app that is already running
-  - Deciding between SQLite and Postgres for a tifa app
+  - Deciding between SQLite and Postgres for a Tifa app
   - Writing Go tests for code that reads or writes the database
 ---
 
@@ -11,7 +11,7 @@ English · [简体中文](database.zh-CN.md)
 
 # Keeping data in SQLite
 
-tifa has no database layer. Your app opens a database in `OnStart` and uses it with `database/sql`, like any Go program. This guide takes the SQLite setup that [`tifa new`](../build.md#tifa-new) writes and adds what a real app needs next: a setting for the file, migrations, a transaction, a backup and tests.
+Tifa has no database layer. Your app opens a database in `OnStart` and uses it with `database/sql`, like any Go program. This guide takes the SQLite setup that [`tifa new`](../build.md#tifa-new) writes and adds what a real app needs next: a setting for the file, migrations, a transaction, a backup and tests.
 
 The code is from a scratch app made with `tifa new`, module `example.com/notes`. Where the files go is in [Structuring an app](../structure.md#2-shared-resources-and-other-dependencies).
 

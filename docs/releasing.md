@@ -1,13 +1,13 @@
 ---
-summary: 'How tifa is released: which version number to pick, the checks before a tag, the changelog, the tag and the GitHub release, and the check of the published module'
+summary: 'How Tifa is released: which version number to pick, the checks before a tag, the changelog, the tag and the GitHub release, and the check of the published module'
 read_when:
-  - Releasing a new version of tifa
+  - Releasing a new version of Tifa
   - Deciding whether a change needs a patch or a minor version
 ---
 
 # Releasing
 
-tifa is released as Git tags on `main`, starting at `v0.0.1`. The Go module proxy serves each tag, so `go run github.com/liustack/tifa/cmd/tifa@latest new` and the `go.mod` that `tifa new` writes pick up the release.
+Tifa is released as Git tags on `main`, starting at `v0.0.1`. The Go module proxy serves each tag, so `go run github.com/liustack/tifa/cmd/tifa@latest new` and the `go.mod` that `tifa new` writes pick up the release.
 
 ## Which version
 

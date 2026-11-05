@@ -1,11 +1,11 @@
 ---
-summary: 'Which codecs and levels tifa compresses answers with and why: gzip, zstd and brotli measured on the pages, navigation data and bundle files, what each costs per request, and why cached pages keep their compressed forms'
+summary: 'Which codecs and levels Tifa compresses answers with and why: gzip, zstd and brotli measured on the pages, navigation data and bundle files, what each costs per request, and why cached pages keep their compressed forms'
 read_when:
   - Changing a codec, a level or where answers are compressed
   - Someone proposes brotli, zstd files from the build, or turning compression off by default
   - Asking why a compressed cache hit is cheaper than an uncompressed one
 measured: '2026-10-19'
-versions: 'tifa from 6723300 to f8c3283, quickjs v0.26.14, github.com/klauspost/compress v1.20.3, github.com/andybalholm/brotli, Go 1.27, the example shop'
+versions: 'Tifa from 6723300 to f8c3283, quickjs v0.26.14, github.com/klauspost/compress v1.20.3, github.com/andybalholm/brotli, Go 1.27, the example shop'
 ---
 
 # Compression
@@ -14,7 +14,7 @@ versions: 'tifa from 6723300 to f8c3283, quickjs v0.26.14, github.com/klauspost/
 
 ## Question
 
-A tifa program runs with no proxy in front, so it has to compress its own answers. Which codecs and levels, and at what cost to a render, to navigation data and to the bundle?
+A Tifa program runs with no proxy in front, so it has to compress its own answers. Which codecs and levels, and at what cost to a render, to navigation data and to the bundle?
 
 ## Conclusions
 
@@ -100,7 +100,7 @@ The pages are 38,467 to 38,471 bytes as HTML, 8,607 to 8,610 with zstd and 8,317
 - **A cache hit is bytes written.** An uncompressed hit writes 38 KB. A compressed hit with the stored form writes about 8.5 KB, so it costs less CPU than identity. Compressing on each hit put 0.26 to 0.34 ms of work back onto a 0.19 ms answer.
 - **The bundle is the same for everyone.** gzip at level 9 at build costs nothing at run time. zstd and brotli files would be 5% and 14% smaller for the main chunk, but would need a second and third copy in the program and a choice by `Accept-Encoding`.
 
-## What it means for tifa
+## What it means for Tifa
 
 - Done: `server.compress` is on by default, pages and data go out with gzip or zstd at the default level of each through gzhttp, the bundle as the `.gz` files `tifa build` writes, and cached pages keep their compressed forms. Every answer carries `Vary: Accept-Encoding`, and cached pages carry `Content-Length` in every form.
 - Not done: brotli, for the time it takes. zstd or brotli files from the build, for the size of the program and a gain of 5% to 14% on the main chunk.

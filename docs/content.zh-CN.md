@@ -1,7 +1,7 @@
 ---
-summary: '应用怎样把文章、文档等写作内容作为 Markdown 文件放在 content/ 下并在 Go 里读：在 content.go 里声明集合，哪些文件是条目，ID、slug、path 和译文，schema struct 允许哪些 front matter 键，正文怎样转成 HTML（步骤、remark 和 rehype 插件、图片和链接、标题）以及页面怎样显示它，草稿和到点发布的条目，tifa dev 的行为，tifa build 写出什么，测试里怎样读内容，以及报错和提示'
+summary: '应用怎样把文章、文档等写作内容作为 Markdown 文件放在 content/ 下并在 Go 里读：在 content.go 里声明集合，哪些文件是条目，ID、slug、path 和译文，schema struct 允许哪些 front matter 键，正文怎样转成 HTML（步骤、remark 和 rehype 插件、图片和链接、标题）以及页面怎样显示它，草稿和到点发布的条目，`tifa dev` 的行为，`tifa build` 写出什么，测试里怎样读内容，以及报错和提示'
 read_when:
-  - 给 tifa 应用加博客、文档或其他 Markdown 内容
+  - 给 Tifa 应用加博客、文档或其他 Markdown 内容
   - 写或改 content.go，或嵌入 content.Entry 的 schema 类型
   - 构建报 content.Define、content/ 下某个文件夹或某个文件 front matter 的错
   - 用 Body 和 <HTML> 显示条目的正文，用 Headings 做目录，或者在 vite.config.ts 的 tifa() 里加 remark、rehype 插件
@@ -148,7 +148,7 @@ tags: [search]
 - 不是指针、切片、map，也没有 `omitempty` 或 `omitzero` 的字段是必填。这和页面 TypeScript 类型里的可选字段是同一条规则。
 - 不是字段的键让构建失败，有接近的字段名时报错里会给出。
 - 字段写了 `yaml` tag 构建失败：键就是 json 名。
-- 有四个键由 tifa 自己读。它们不是 schema 的字段，写了也不算错：
+- 有四个键由 Tifa 自己读。它们不是 schema 的字段，写了也不算错：
 
 | 键 | 含义 |
 | --- | --- |
@@ -157,9 +157,9 @@ tags: [search]
 | `slug` | slug，见上文。 |
 | `translationKey` | 把一个条目的各语言版本连起来。 |
 
-- `id`、`lang`、`path`、`translations` 和 `words` 由 tifa 设置，写了构建失败。schema 字段用了 `content.Entry` 的某个 json 名，或者叫 `translationKey`，构建也失败。
+- `id`、`lang`、`path`、`translations` 和 `words` 由 Tifa 设置，写了构建失败。schema 字段用了 `content.Entry` 的某个 json 名，或者叫 `translationKey`，构建也失败。
 
-`content.Entry` 放的是 tifa 设置的东西：
+`content.Entry` 放的是 Tifa 设置的东西：
 
 ```go
 type Entry struct {
@@ -289,15 +289,15 @@ export default function PostPage() {
 
 ## Markdown 转 HTML
 
-`tifa build` 在 `vite.config.ts` 的 tifa 插件里用 [unified](https://unifiedjs.com/) 把每篇的 Markdown 转成 HTML。有集合的应用要装这几个包，主版本如下：
+`tifa build` 在 `vite.config.ts` 的 Tifa 插件里用 [unified](https://unifiedjs.com/) 把每篇的 Markdown 转成 HTML。有集合的应用要装这几个包，主版本如下：
 
 ```sh
 pnpm add -D unified@11 remark-parse@11 remark-gfm@4 remark-rehype@11 rehype-raw@7 rehype-stringify@10
 ```
 
-缺了某个包，或者主版本不对，构建失败并给出安装命令。只有声明了集合的应用，tifa 才载入它们。
+缺了某个包，或者主版本不对，构建失败并给出安装命令。只有声明了集合的应用，Tifa 才载入它们。
 
-转换在 Vite 里进行，所以集合里有条目的应用即使没有页面，也要有 `package.json` 和用了 tifa 插件的 `vite.config.ts`，比如只有订阅源或接口、在里面写出 `Body()` 的应用。没有页面时，构建用 `vite.config.ts` 里的插件转换，不打包任何东西。`tifa check` 读 front matter，不需要 Node。
+转换在 Vite 里进行，所以集合里有条目的应用即使没有页面，也要有 `package.json` 和用了 Tifa 插件的 `vite.config.ts`，比如只有订阅源或接口、在里面写出 `Body()` 的应用。没有页面时，构建用 `vite.config.ts` 里的插件转换，不打包任何东西。`tifa check` 读 front matter，不需要 Node。
 
 每篇按这个顺序处理：
 
@@ -339,7 +339,7 @@ export function rehypeLazyImages() {
 }
 ```
 
-- tifa 的步骤不能关。不想要某个效果（比如 GFM 把裸网址变成链接），用自己的插件改回来。
+- Tifa 的步骤不能关。不想要某个效果（比如 GFM 把裸网址变成链接），用自己的插件改回来。
 - 每篇的 vfile 带 `file.path`（Markdown 文件的完整路径）和 `file.data.tifa`，后者是 `{ collection, lang, id, frontmatter }`，front matter 是按 schema 转好的 JSON。要读条目旁边某个文件的插件，从 `file.path` 找。
 - 插件抛错时构建失败，报错带文件、插件给的位置和插件的名字。插件加的警告会打出来。
 - 不支持 MDX：正文是 HTML，放不了 React 组件。组件写在页面里。
@@ -385,11 +385,11 @@ tifa: content: blog zh-CN/202611/launch and en/202611/release-notes are publishe
 
 一次请求里多次读集合，可能正好跨过这一刻，和数据库里刚写入一行时一样。
 
-## tifa dev
+## `tifa dev`
 
 `tifa dev` 从 `.tifa/dist` 读内容，所以 `content/` 下的改动不需要 go build，也不用重启（见[改动触发什么](dev.zh-CN.md#改动触发什么)）：
 
-- Markdown 文件的正文或 front matter 改了，或者新增、删除：tifa dev 重新扫描 `content/`，转换这一篇，写 `.tifa/dist/content/` 和 `content.json`，正在运行的应用随即载入。应用对每个条目跑 `Validate`，换上新数据，之后打开的页面显示新内容。`OnStart` 不再跑，整页缓存过期，打开着的页面刷新。
+- Markdown 文件的正文或 front matter 改了，或者新增、删除：`tifa dev` 重新扫描 `content/`，转换这一篇，写 `.tifa/dist/content/` 和 `content.json`，正在运行的应用随即载入。应用对每个条目跑 `Validate`，换上新数据，之后打开的页面显示新内容。`OnStart` 不再跑，整页缓存过期，打开着的页面刷新。
 - `content/` 下的其他文件，比如图片：它所在文件夹里的条目重新转换，回退到这个文件夹的译文也是。
 - `content.go` 或 schema 类型：跑 Go 的那些步骤，全部条目重新转换。
 - `vite.config.ts` 或它导入的插件：Vite 开发服务器重启后全部条目重新转换，没有页面的应用马上转换。

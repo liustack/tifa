@@ -1,4 +1,4 @@
-// Package tifa is the API that application code imports: the request context, errors and Layout data reuse.
+// Package tifa is the API of Tifa, the full-stack Go framework, that application code imports: the request context, errors and Layout data reuse.
 package tifa
 
 import (

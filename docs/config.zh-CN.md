@@ -1,11 +1,11 @@
 ---
-summary: 'tifa 应用的全部配置、应用怎样定义自己的配置和每个回答都带的安全头（包括 server.csp 的 Content-Security-Policy）：每项能在哪设置（参数、环境变量、.env、-c 的文件、tifa.yaml）、谁优先、怎样读 PORT 和 HOST、默认值、参数和环境变量名、值的写法、写错时的报错，需要更久的处理函数怎样放宽读写超时，怎样用程序自己申请的证书或你自己的证书提供 HTTPS，以及程序怎样拒绝浏览器从别的网站发来的写请求、怎样放行指定的来源或路径'
+summary: 'Tifa 应用的全部配置、应用怎样定义自己的配置和每个回答都带的安全头（包括 server.csp 的 Content-Security-Policy）：每项能在哪设置（参数、环境变量、.env、-c 的文件、tifa.yaml）、谁优先、怎样读 PORT 和 HOST、默认值、参数和环境变量名、值的写法、写错时的报错，需要更久的处理函数怎样放宽读写超时，怎样用程序自己申请的证书或你自己的证书提供 HTTPS，以及程序怎样拒绝浏览器从别的网站发来的写请求、怎样放行指定的来源或路径'
 read_when:
   - 用 tifa.String 等定义应用的配置，或在 OnStart 里读它
   - 写 .env 文件，或部署到会设 PORT 的平台
   - 想改会话能用多久、会话 cookie 的名字，或默认会话存储能用多少内存
   - 上传、下载或推流大约 10 秒就被切断，或者处理函数需要的时间超过读写超时
-  - 部署 tifa 应用，或要改端口、请求体上限、读写超时、压缩、VM 数量、VM 栈深度、渲染超时、渲染队列、渲染缓存、整页缓存，或缓存忽略的跟踪参数
+  - 部署 Tifa 应用，或要改端口、请求体上限、读写超时、压缩、VM 数量、VM 栈深度、渲染超时、渲染队列、渲染缓存、整页缓存，或缓存忽略的跟踪参数
   - 想让程序自己提供 HTTPS，用 Let's Encrypt 或自己的证书，或者在犹豫要不要这样做
   - 程序监听不了 80 或 443 端口，或者拿不到证书
   - POST、PUT、PATCH 或 DELETE 收到 403 和 `cross-origin request detected`，或者要放行另一个网站的页面或第三方的回调
@@ -20,7 +20,7 @@ read_when:
 
 # 配置
 
-tifa 应用的默认值按小机器定好了，需要时才改。
+Tifa 应用的默认值按小机器定好了，需要时才改。
 
 ## 配置从哪来
 
@@ -31,11 +31,11 @@ tifa 应用的默认值按小机器定好了，需要时才改。
 3. 程序运行目录下的 `.env` 文件。
 4. `-c path.yaml`（或 `--config path.yaml`）指定的部署文件。
 5. 应用根目录的项目文件 `tifa.yaml`。`tifa build` 读它，把里面的值编进程序。
-6. 默认值：tifa 的配置用下表的默认值，[应用的配置](#应用的配置)用 `config.go` 里写的。
+6. 默认值：Tifa 的配置用下表的默认值，[应用的配置](#应用的配置)用 `config.go` 里写的。
 
-每个来源只改它写到的键，所以部署文件只写要改的项。程序只读自己的键：文件里别的键和别的环境变量一律不管。既不是 tifa 的设置、也不是应用设置的参数，比如把 `--server-addr` 写成 `--addr`，程序会报 `unknown flag` 并退出。
+每个来源只改它写到的键，所以部署文件只写要改的项。程序只读自己的键：文件里别的键和别的环境变量一律不管。既不是 Tifa 的设置、也不是应用设置的参数，比如把 `--server-addr` 写成 `--addr`，程序会报 `unknown flag` 并退出。
 
-`tifa.yaml` 写的是 tifa 配置的值。`build.*` 只能写在这里，类型或格式写错时 `tifa build` 报错。程序运行时不读这个文件，改了要重新构建。
+`tifa.yaml` 写的是 Tifa 配置的值。`build.*` 只能写在这里，类型或格式写错时 `tifa build` 报错。程序运行时不读这个文件，改了要重新构建。
 
 ```yaml
 # tifa.yaml
@@ -50,7 +50,7 @@ cache:
   size: 128MiB
 ```
 
-运行 `./bin/app config` 会列出全部配置（tifa 的和应用的）、最终值和值的来源（`default`、`tifa.yaml`、`file prod.yaml`、`.env SSR_VMS`、`env PORT`、`flag --ssr-vms` 等）。输出是带注释的 YAML 文件，可以拿来当部署文件的起点。应用的秘密（[`tifa.Secret`](#应用的配置)）只写来源，不写值。
+运行 `./bin/app config` 会列出全部配置（Tifa 的和应用的）、最终值和值的来源（`default`、`tifa.yaml`、`file prod.yaml`、`.env SSR_VMS`、`env PORT`、`flag --ssr-vms` 等）。输出是带注释的 YAML 文件，可以拿来当部署文件的起点。应用的秘密（[`tifa.Secret`](#应用的配置)）只写来源，不写值。
 
 ### 名字
 
@@ -101,7 +101,7 @@ Cloud Run、Heroku、Render、Railway、Fly 这类托管平台用 `PORT` 告诉�
 | --- | --- | --- | --- |
 | `build.target` | `es2020` | 只能写在项目文件 | Vite 构建的浏览器包的 JavaScript 目标，逗号分隔：一个 ECMAScript 版本（`es2015` 到 `es2029`、`esnext`）加若干带版本的浏览器，浏览器可选 chrome、edge、firefox、ios、opera 和 safari，如 `es2019,chrome90,safari14`。SSR 包固定是 ES2022 |
 | `build.public` | `public` | 只能写在项目文件 | 静态文件目录，原样打进程序，从 `/` 提供 |
-| `build.skip_tanstack_check` | `false` | 只能写在项目文件 | 设为 `true` 时，TanStack Router 不是 tifa 测过的版本也照样构建，页面在浏览器里可能白屏。见 [build.zh-CN.md](build.zh-CN.md#应用的-tsconfig-与-vite-配置) |
+| `build.skip_tanstack_check` | `false` | 只能写在项目文件 | 设为 `true` 时，TanStack Router 不是 Tifa 测过的版本也照样构建，页面在浏览器里可能白屏。见 [build.zh-CN.md](build.zh-CN.md#应用的-tsconfig-与-vite-配置) |
 | `build.debug_info` | `false` | 只能写在项目文件 | 设为 `true` 时，程序里保留 DWARF 调试信息，给 Delve 这类调试器用。不设的话，`tifa build` 用 `-ldflags=-w` 去掉调试信息，示例商店的程序因此小约 20%。两种情况下 panic 都照样给出每一帧的文件和行号。`tifa dev` 总是保留。见 [build.zh-CN.md](build.zh-CN.md#调试信息) |
 | `build.i18next_cache` | `true` | 只能写在项目文件 | 服务端渲染记住 i18next 翻译出的字符串，同样的键和选项再来时直接给出，于是每次渲染都翻译同样文案的页面更快：shop 的店面页面只用原来 0.798 的时间。设为 `false` 关掉。应用在第一次渲染之后绕开 i18next 的 API 改资源或选项，或者交给 i18next 的函数（格式化函数和后处理器以外）会读请求里的东西时，要关掉它，否则页面可能显示过期的翻译。见 [build.zh-CN.md](build.zh-CN.md#i18next-缓存) |
 | `server.addr` | `127.0.0.1:9527` | `--server-addr`、`SERVER_ADDR` | 监听地址。容器里用 `0.0.0.0:9527`。开了 [HTTPS](#https) 时这里提供 HTTPS，而且必须设置，一般设成 `:443` |
@@ -118,7 +118,7 @@ Cloud Run、Heroku、Render、Railway、Fly 这类托管平台用 `PORT` 告诉�
 | `server.tls_key` | 无 | `--server-tls-key`、`SERVER_TLS_KEY` | `tls_cert` 的私钥文件，PEM 格式 |
 | `server.http_addr` | `:80` | `--server-http-addr`、`SERVER_HTTP_ADDR` | 开了 HTTPS 时的明文 HTTP 地址，回应 Let's Encrypt 的验证，其余请求跳转到 HTTPS。`off` 表示不开。没开 HTTPS 时不用 |
 | `server.hsts` | `false` | `--server-hsts`、`SERVER_HSTS` | 给 `server.addr` 的回答加上 `Strict-Transport-Security: max-age=31536000`，浏览器一年内只走 HTTPS |
-| `server.csp` | `off` | `--server-csp`、`SERVER_CSP` | `on` 把 `server.csp_policy` 作为每个回答的 `Content-Security-Policy` 发出，页面的策略还带上 tifa 写进页面的内联脚本的哈希。`report-only` 改用 `Content-Security-Policy-Report-Only` 发出，只报告不拦截。见 [Content-Security-Policy](#content-security-policy) |
+| `server.csp` | `off` | `--server-csp`、`SERVER_CSP` | `on` 把 `server.csp_policy` 作为每个回答的 `Content-Security-Policy` 发出，页面的策略还带上 Tifa 写进页面的内联脚本的哈希。`report-only` 改用 `Content-Security-Policy-Report-Only` 发出，只报告不拦截。见 [Content-Security-Policy](#content-security-policy) |
 | `server.csp_policy` | `script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'` | `--server-csp-policy`、`SERVER_CSP_POLICY` | `server.csp` 的策略，指令之间用分号隔开。只检查它能不能作为一个头发出：可打印 ASCII、不含逗号、指令名只有字母、数字和连字符 |
 | `server.trusted_origins` | 无 | `--server-trusted-origins`、`SERVER_TRUSTED_ORIGINS` | 这些来源的页面可以从别的网站发写请求（POST、PUT、PATCH、DELETE），逗号分隔，比如 `https://admin.example.com,http://localhost:3000`。见[跨站写请求](#跨站写请求) |
 | `server.cross_site_paths` | 无 | `--server-cross-site-paths`、`SERVER_CROSS_SITE_PATHS` | 这些路径模式的写请求不检查来自哪个网站，逗号分隔，比如 `POST /auth/apple/callback`。见[跨站写请求](#跨站写请求) |
@@ -160,8 +160,8 @@ var (
 ```
 
 - 参数依次是键、默认值和一行说明。返回的是普通值：读就用 `shop.DBURL`，测试里直接赋值 `shop.DBURL = "test.db"`。
-- 值和 tifa 的配置来自同样的来源：参数 `--db-url`、环境变量 `DB_URL`、`.env`、`-c` 的文件，最后是默认值。`tifa.yaml` 只写 tifa 的配置。
-- 类型有 `String`（`string`）、`Strings`（`[]string`）、`Int`（`int`）、`Bool`（`bool`）、`Duration`（`time.Duration`）和 `Size`（`int64`，字节数）。值的写法和 tifa 的配置一样，见[值的写法](#值的写法)。`Strings` 写成逗号分隔的一行，比如 `FEED_HOSTS=a.example,b.example`。
+- 值和 Tifa 的配置来自同样的来源：参数 `--db-url`、环境变量 `DB_URL`、`.env`、`-c` 的文件，最后是默认值。`tifa.yaml` 只写 Tifa 的配置。
+- 类型有 `String`（`string`）、`Strings`（`[]string`）、`Int`（`int`）、`Bool`（`bool`）、`Duration`（`time.Duration`）和 `Size`（`int64`，字节数）。值的写法和 Tifa 的配置一样，见[值的写法](#值的写法)。`Strings` 写成逗号分隔的一行，比如 `FEED_HOSTS=a.example,b.example`。
 - `Secret`（`string`）用于密码、token 和密钥。它没有默认值，没有来源设置时为空。它从环境变量、`.env` 或 `-c` 的文件读，不从命令行参数读：参数会出现在进程列表里，这台机器上的每个用户都看得到，所以给了参数程序就报错，并说明该把值放在哪里。`./bin/app config` 只写它的来源，不写值，写成注释 `# api_key: (hidden)`。秘密出错时（比如文件里写了不加引号的数字），错误信息只写键名和来源，不写值。以 `*`、`!`、`&` 等 YAML 符号开头的秘密要加引号。
 - 值只能是单个值。结构化的数据放进应用自己的文件，配置里放它的路径。
 - 值不合法时变量取默认值，程序把它和别的不合法配置一起列出来，在 `OnStart` 之前退出。
@@ -169,7 +169,7 @@ var (
 - 根包导入的包读不到这些变量（会成环），由 `OnStart` 把值传进去，比如 `store.Open(DBURL)`。
 - 应用嫌不够，可以在 `OnStart` 里用自己的配置系统。
 
-以下情况 `tifa build` 报错并指出文件和行：`tifa.String` 等不是写在根目录 `config.go` 的包级 `var` 的值里，键不是字符串字面量或不符合[名字](#名字)的规则，两项配置（应用的或 tifa 的）推出来的参数或环境变量相同，比如 `a.b_c` 和 `a_b.c`，一个键是另一个键所在的那一节，比如 `db.url` 和 `db.url.timeout`，或者 `server.addr.port` 和 tifa 的 `server.addr`。漏过构建的同样错误，程序会在启动时 panic。
+以下情况 `tifa build` 报错并指出文件和行：`tifa.String` 等不是写在根目录 `config.go` 的包级 `var` 的值里，键不是字符串字面量或不符合[名字](#名字)的规则，两项配置（应用的或 Tifa 的）推出来的参数或环境变量相同，比如 `a.b_c` 和 `a_b.c`，一个键是另一个键所在的那一节，比如 `db.url` 和 `db.url.timeout`，或者 `server.addr.port` 和 Tifa 的 `server.addr`。漏过构建的同样错误，程序会在启动时 panic。
 
 ## 渲染队列
 
@@ -258,7 +258,7 @@ func POST(c *tifa.Ctx) error {
 - 两次写之间要等的流，比如等事件或等大模型，在等的时候清掉写期限，每次写的前后再设上和清掉，这样停止读取的客户端不会让处理函数永远挂着，见[流式输出](guides/streaming.zh-CN.md)。
 - 写期限从读完请求头算起，所以读长请求体的处理函数两个都要放宽：回答在请求体之后才写。
 - 带类型输入的处理函数，请求体在它运行前就读了，在处理函数里设期限对请求体来说太晚。改在它的 `route.go` 里写 `ReadTimeout`，它在 `OnRequest` 运行前就放宽两个期限，见[路由自己的请求体上限和读取时间](app.zh-CN.md#路由自己的请求体上限和读取时间)和[上传](guides/uploads.zh-CN.md#配置和请求体限制)。
-- `c.Writer()` 穿过 tifa 自己的各层写入器和压缩层，直达连接。
+- `c.Writer()` 穿过 Tifa 自己的各层写入器和压缩层，直达连接。
 - 前面的代理有自己的超时，比如 nginx 的 `proxy_read_timeout` 默认 60 秒。对同样的路径一并调大。
 
 ## HTTPS
@@ -358,7 +358,7 @@ Content-Security-Policy 告诉浏览器哪些脚本可以运行。策略只放�
 
 样式不受限：React 会写 `style` 属性，emotion 和 MUI 在页面运行时还会添加 style 元素。
 
-每个页面都有 tifa 自己的内联脚本：路由器用一个把 Load 的数据交给浏览器，用另一个恢复滚动位置。tifa 给它写进页面的每个内联脚本和样式算 SHA-256 哈希，加进这个页面响应头里的策略，所以它们能运行。包括构建 head 里的脚本和样式（`tifa dev` 下是 Vite 的 preamble）、会话 head、路由器的脚本、`head` 函数的 `scripts` 和 `styles`，以及 `tifa dev` 自己的错误浮层。同一个页面总是得到同一个头，所以渲染缓存、整页缓存和 ETag 照常工作。其他回答（JSON 和文件）带原样的策略。
+每个页面都有 Tifa 自己的内联脚本：路由器用一个把 Load 的数据交给浏览器，用另一个恢复滚动位置。Tifa 给它写进页面的每个内联脚本和样式算 SHA-256 哈希，加进这个页面响应头里的策略，所以它们能运行。包括构建 head 里的脚本和样式（`tifa dev` 下是 Vite 的 preamble）、会话 head、路由器的脚本、`head` 函数的 `scripts` 和 `styles`，以及 `tifa dev` 自己的错误浮层。同一个页面总是得到同一个头，所以渲染缓存、整页缓存和 ETag 照常工作。其他回答（JSON 和文件）带原样的策略。
 
 哈希加进 `script-src` 和 `script-src-elem`，策略里有 `style-src`、`style-src-elem` 时也加进去。只有 `default-src` 的策略会多出一条 `script-src`，内容是 `default-src` 的来源加上哈希。`'unsafe-inline'` 仍然放行全部内联脚本的指令不加哈希，因为指令里一有哈希，浏览器就不理 `'unsafe-inline'` 了。指令里已有哈希、nonce，或者脚本指令里有 `'strict-dynamic'` 时，浏览器本来就不理它，哈希照加。
 
@@ -436,7 +436,7 @@ server:
 
 `tifa.yaml` 里的值类型或格式写错时，`tifa build` 报错并指出行号。把某项配置写成一节或一个列表（比如 `ssr: {vms: {count: 2}}`）也算类型写错。下面几种情况程序拒绝启动，一次列出全部问题，每条都带来源和键：
 
-- tifa 或应用的某项配置的值类型或格式不对，比如 `ssr.timeout: 3`、`SHOP_OPEN=maybe`，或者 `-c` 的文件里 `ssr.vms` 下面又写了一节。
+- Tifa 或应用的某项配置的值类型或格式不对，比如 `ssr.timeout: 3`、`SHOP_OPEN=maybe`，或者 `-c` 的文件里 `ssr.vms` 下面又写了一节。
 - 应用的秘密（`tifa.Secret`）用命令行参数给了值。
 - `-c` 的文件读不了或不是 YAML，或者 `.env` 有读不懂的行。
 
