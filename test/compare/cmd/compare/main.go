@@ -88,6 +88,7 @@ func measure(cmd string, args []string) {
 		render     = flags.Bool("render", false, "measure: also run the render benchmark of test/ssr in a warm VM, to split Tifa's request into the render and the rest")
 		scenarios  = flags.String("scenarios", "read", "measure: comma separated scenarios out of read, read-write, write-each, or all (-all runs all)")
 		encoding   = flags.String("accept-encoding", "gzip", "measure: what the client asks for in every request, gzip or identity. Every server answers as its default does")
+		procs      = flags.Int("procs", 1, "measure: VMs and CPUs of Tifa, and requests in flight (one connection each, Tifa only). Give -server-cpus as many cpus")
 		jsonPath   = flags.String("json", "", "measure: write the record as JSON to this file")
 	)
 	flags.Parse(args)
@@ -112,7 +113,7 @@ func measure(cmd string, args []string) {
 	}
 	o := compare.Options{
 		ServerCPUs: *serverCPUs, LoadCPUs: *loadCPUs, Rounds: *rounds, Steady: *steady, Cold: *cold,
-		AA: *aa || *all, AcceptEncoding: *encoding, Render: *render, Log: os.Stderr,
+		Procs: *procs, AA: *aa || *all, AcceptEncoding: *encoding, Render: *render, Log: os.Stderr,
 	}
 	scenarioNames := strings.Split(*scenarios, ",")
 	if *all {
