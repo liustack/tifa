@@ -52,8 +52,10 @@ go tool tifa check   # the analysis, go vet ./..., go test ./... and tsc --noEmi
 `test/e2e` builds the `tifa` CLI, runs `tifa build` on the apps in `test/apps/`, on `examples/shop` and on an app that `tifa new` creates, starts the outputs and checks them from outside. Skipped by default. First run `pnpm install --frozen-lockfile` in `test/apps/pages`, `test/apps/tailwind`, `test/apps/mui`, `test/apps/bench`, `test/apps/session`, `test/apps/upload`, `test/apps/pagecache`, `test/apps/content` and `examples/shop`, then turn them on (`test/apps/extreme` also needs `TIFA_EXTREME=1`, see [Extreme pages](#extreme-pages-testappsextreme)):
 
 ```sh
-TIFA_E2E=1 go test ./test/e2e/
+TIFA_E2E=1 go test -timeout 30m ./test/e2e/
 ```
+
+A full run can take more than the default 10 minutes of `go test` on a laptop, hence `-timeout`.
 
 The programs the tests start and leave running, the built apps and `tifa dev`, go through `testproc.Start`, so a killed run leaves none of them behind.
 
