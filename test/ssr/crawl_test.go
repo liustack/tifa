@@ -2,7 +2,7 @@ package ssr_test
 
 // Whether two builds of the shop write the same HTML, byte for byte, for the shop's pages: the page
 // of every URL a crawl of the running program reaches. Build the shop twice (such as
-// a build before and after a change to the bundler or to slowjs), and crawl each:
+// a build before and after a change to the bundler or to quickjs), and crawl each:
 //
 //	TIFA_SSR_CRAWL=write:/tmp/pages-a TIFA_SSR_CRAWL_BIN=$PWD/examples/shop/bin/shop-a go test -run ShopCrawl -v ./test/ssr
 //	TIFA_SSR_CRAWL=compare:/tmp/pages-a TIFA_SSR_CRAWL_BIN=$PWD/examples/shop/bin/shop-b go test -run ShopCrawl -v ./test/ssr

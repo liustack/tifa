@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liustack/slowjs"
+	"github.com/liustack/quickjs"
 	"github.com/liustack/tifa/internal/ssr"
 	"github.com/liustack/tifa/js"
 )
@@ -287,12 +287,12 @@ func TestSSRBoundsTheI18nextCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer vm.Close()
-	if _, err := vm.Eval("fill(0, 10)", slowjs.EvalGlobal); err != nil {
+	if _, err := vm.Eval("fill(0, 10)", quickjs.EvalGlobal); err != nil {
 		t.Fatal(err)
 	}
 	vm.RunGC()
 	before := vm.MemorySize()
-	if _, err := vm.Eval("fill(10, 10000)", slowjs.EvalGlobal); err != nil {
+	if _, err := vm.Eval("fill(10, 10000)", quickjs.EvalGlobal); err != nil {
 		t.Fatal(err)
 	}
 	vm.RunGC()
@@ -575,12 +575,12 @@ func TestSSRI18nextCacheAddsNothingToTheFormattersOfI18next(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer vm.Close()
-		if _, err := vm.Eval("grow(100)", slowjs.EvalGlobal); err != nil {
+		if _, err := vm.Eval("grow(100)", quickjs.EvalGlobal); err != nil {
 			t.Fatal(err)
 		}
 		vm.RunGC()
 		before := vm.MemoryUsage().MemoryUsedSize
-		if _, err := vm.Eval("grow(5000)", slowjs.EvalGlobal); err != nil {
+		if _, err := vm.Eval("grow(5000)", quickjs.EvalGlobal); err != nil {
 			t.Fatal(err)
 		}
 		vm.RunGC()
@@ -623,12 +623,12 @@ func TestSSRI18nextCacheForgetsInstancesThatAreGone(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer vm.Close()
-		if _, err := vm.Eval("serve(10)", slowjs.EvalGlobal); err != nil {
+		if _, err := vm.Eval("serve(10)", quickjs.EvalGlobal); err != nil {
 			t.Fatal(err)
 		}
 		vm.RunGC()
 		before := vm.MemorySize()
-		if _, err := vm.Eval("serve(2000)", slowjs.EvalGlobal); err != nil {
+		if _, err := vm.Eval("serve(2000)", quickjs.EvalGlobal); err != nil {
 			t.Fatal(err)
 		}
 		vm.RunGC()

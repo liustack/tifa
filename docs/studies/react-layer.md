@@ -108,5 +108,5 @@ How the SSR mode changes HTML: a page with `<Child onPick={handle} />`, where `h
 - PR 37022 was measured as merged into 19.3.1, not as a React release. A release may differ.
 - No public measurement of React Compiler on server renders was found.
 - The plain text app's kitchen page has BigInt literals, which the Compiler skips in both modes, so its 133 inputs cover only 17 compiled functions.
-- Measured on the engine before slowjs v0.29 (the C engine). On the C engine string joins and object allocation may cost a different amount, so the 1.009 of PR 37022 could move a little. The reasons given above are about React, not the engine.
+- Measured on the engine before quickjs v0.29 (the C engine). On the C engine string joins and object allocation may cost a different amount, so the 1.009 of PR 37022 could move a little. The reasons given above are about React, not the engine.
 - Apps with many more hooks than the shop were not tried. The SSR mode could gain there, but it would still change HTML.

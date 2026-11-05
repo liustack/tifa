@@ -9,11 +9,11 @@ read_when:
   - Running the end-to-end tests, or changing `internal/codegen`, `test/apps` or `examples/shop`
   - Measuring SSR render time or VM memory, or comparing an SSR change against the baseline
   - Measuring what one VM costs the process, how long the Go GC stops the program while VMs render, or whether two builds write the same HTML
-  - Timing the SSR tests and benchmarks against another build of slowjs
+  - Timing the SSR tests and benchmarks against another build of quickjs
   - Changing `internal/ssr` or `test/ssr`
   - Checking how large a page can get before it fails, or that it fails cleanly
   - Changing something every VM uses, such as how the engine allocates memory, or checking that SSR still speeds up with more cores
-  - Upgrading github.com/liustack/slowjs
+  - Upgrading github.com/liustack/quickjs
   - Changing how the server serves HTTPS or gets its certificates
   - Changing `.github/workflows/`, or a CI run is red and you need to know what it runs
   - Changing the workbench pages of `examples/shop`, which the comparison with Next.js and TanStack Start copies
@@ -156,7 +156,7 @@ The default tests in `internal/ssr` only use small handwritten bundles, `testdat
 TIFA_SSR_SOAK=1 go test -run Soak -v ./internal/ssr
 ```
 
-They run normal reuse (2 VMs, 2 callers, 10,000 renders), OOM recovery (8 failures and replacements), and 16 proactive memory swaps. The OOM fixture fills memory within one render, repeatedly parsing input with long Chinese text, so an idle swap cannot preempt the failure. It exercises the input conversion and allocation cleanup where github.com/liustack/slowjs fixed a leak. If this test fails, first confirm the dependency is github.com/liustack/slowjs. After shutdown, every VM the pool made must have closed without an error. `TestSoakVMMemory` loads every VM the way the pool does. It prints what Intl adds to an empty VM, unused and after formatting, and what the bundle adds after loading, formatting and a render. It fails when Intl adds more than 32 KB to a VM that never formats.
+They run normal reuse (2 VMs, 2 callers, 10,000 renders), OOM recovery (8 failures and replacements), and 16 proactive memory swaps. The OOM fixture fills memory within one render, repeatedly parsing input with long Chinese text, so an idle swap cannot preempt the failure. It exercises the input conversion and allocation cleanup where github.com/liustack/quickjs fixed a leak. If this test fails, first confirm the dependency is github.com/liustack/quickjs. After shutdown, every VM the pool made must have closed without an error. `TestSoakVMMemory` loads every VM the way the pool does. It prints what Intl adds to an empty VM, unused and after formatting, and what the bundle adds after loading, formatting and a render. It fails when Intl adds more than 32 KB to a VM that never formats.
 
 ## SSR tests with the example app (`test/ssr`)
 
@@ -180,7 +180,7 @@ The tests start the program with `testproc.Start` (see [Writing tests](#writing-
 | `/nest/<levels>` | 500, 1,000, 5,000, 10,000 | Components that only pass on children, plain, `memo`, `forwardRef` and context readers in turn: deep JavaScript calls |
 | `/deep/<levels>` | 400, 600 | Nested `div`s. Browsers stop nesting at about 512, so 600 only shows what the server does |
 | `/inject/<MB>` | 1, 5, 20, 40 | A product catalogue of that many MB of JSON in the page |
-| `/json/<levels>` | 1,999, 2,001 | Data nested that deep. The C engine of slowjs parses JSON at most 2,000 levels deep |
+| `/json/<levels>` | 1,999, 2,001 | Data nested that deep. The C engine of quickjs parses JSON at most 2,000 levels deep |
 | `/table/<rows>` | 1,000, 5,000, 10,000 | A TanStack Table of 10 columns |
 | `/providers/<levels>` | 200, 500, 1,000 | That many context providers, each a different context, all read at the bottom |
 | `/charts/12` | 12 | Line, bar, area and scatter charts drawn on the server with d3 |
@@ -202,7 +202,7 @@ TIFA_SSR_EXTREME=1 go test -run ExtremeIsolation -v ./test/ssr
 - `BenchmarkExtreme` (3 to 6 minutes, mostly the sizes that fail) renders each size with the default settings, in a VM of its own, and fills the slots of long data texts in Go as the server does. For a size that renders it reports the P50 and P99 of warm renders, `vm-MiB`, the VM's memory right after its first render, and `stack-KiB`, how much the goroutine stack grew during it. The `/inject` sizes also report the data request (`load-ms`), escaping it (`escape-ms`) and parsing it in a VM (`parse-ms`). For a size that fails, it logs how and after how long, and what it takes with 1 GiB and 60 seconds instead, and skips. Run it with `-v` to see these lines.
 - `TestExtremeIsolation` (about 20 seconds with 4 CPUs) renders `/table/25` with three of four VMs while the fourth renders `/markdown/200` again and again: once with time to finish, once with a budget of half a second, so the pool stops and replaces that VM each time. The P99 of the light page must not be more than 1.5 times, or 5 ms, worse when VMs are stopped. It needs 4 CPUs, and with fewer only prints the numbers.
 
-`/json/2001` must fail: the engine of slowjs parses JSON at most 2,000 levels deep, so its render throws and the page is a 500. The numbers of the last run are in [Performance](performance.md#extreme-pages).
+`/json/2001` must fail: the engine of quickjs parses JSON at most 2,000 levels deep, so its render throws and the page is a 500. The numbers of the last run are in [Performance](performance.md#extreme-pages).
 
 ## Performance comparisons
 
@@ -241,9 +241,9 @@ The crawl signs in as the demo account of the shop first, since the workbench ne
 | `TestShopGCPause` | How long the Go GC stops the program while VMs render. `TIFA_SSR_VMS` (2) VMs render without a pause while a goroutine allocates `TIFA_SSR_ALLOC_MB` (512) megabytes a second, so the GC runs all the time. Reports the number of pauses and their P50, P99 and largest, for the whole stop and for the wait to stop the world (where a VM inside one long operation shows), and the renders a second with their P50 and P99. A few seconds by default, `TIFA_SSR_MEASURE=1` makes it 10 seconds of warm-up and `TIFA_SSR_SECS` (60) of measuring |
 | `TestShopCrawl` | Whether two builds write the same HTML. Crawls the pages of a running shop program, 27 starting URLs and the links they lead to (up to 160 pages), and writes them (`write:DIR`) or compares them byte for byte with a crawl made before (`compare:DIR`). The loaders write some times as RFC 3339 text, so a page that differs only there counts as the same after masking them, and the log counts them. Build the shop twice and crawl each; `TIFA_SSR_CRAWL_BIN` names the program (default `examples/shop/bin/shop`) |
 
-### Timing a build of slowjs against another
+### Timing a build of quickjs against another
 
-To time one build of slowjs against another at several code positions, with a `go.work` that uses this repository, `examples/shop` and a slowjs checkout whose engine is generated, use `go tool sjdev bench` in slowjs ([docs/testing.md](https://github.com/liustack/slowjs/blob/main/docs/testing.md#developer-tools-generate-check-time)), which also has the make targets that generate its engine and run its checks, here or on another machine: it builds this package's test binary against each checkout, runs them in turn and reads the `p50-ms` of the pages by the rule of its code positions. A binary that prints a line `vmhwm-kb: N` at the end (the child of `TestShopVMResident` does) also gets its peak memory reported.
+To time one build of quickjs against another at several code positions, with a `go.work` that uses this repository, `examples/shop` and a quickjs checkout whose engine is generated, use `go tool sjdev bench` in quickjs ([docs/testing.md](https://github.com/liustack/quickjs/blob/main/docs/testing.md#developer-tools-generate-check-time)), which also has the make targets that generate its engine and run its checks, here or on another machine: it builds this package's test binary against each checkout, runs them in turn and reads the `p50-ms` of the pages by the rule of its code positions. A binary that prints a line `vmhwm-kb: N` at the end (the child of `TestShopVMResident` does) also gets its peak memory reported.
 
 The prototype's other experiments (per-stage timing, memory probes) stay in `internal/ssr` at the tag `prototype-baseline`. Check out that tag and build from it when needed.
 

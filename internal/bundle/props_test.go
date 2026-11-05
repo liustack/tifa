@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/liustack/slowjs"
+	"github.com/liustack/quickjs"
 )
 
 // propsPage makes elements with createElement and cloneElement from configs of every kind a
@@ -205,7 +205,7 @@ type propsOutcome struct {
 	Proto      string
 }
 
-func propsRun(t *testing.T, root string, setup func(*slowjs.VM)) ([]propsOutcome, string, string) {
+func propsRun(t *testing.T, root string, setup func(*quickjs.VM)) ([]propsOutcome, string, string) {
 	t.Helper()
 	writeTree(t, root, map[string]string{"props.tsx": propsPage})
 	code, printed := buildPrinting(t, root, "props.tsx")
@@ -218,14 +218,14 @@ func propsRun(t *testing.T, root string, setup func(*slowjs.VM)) ([]propsOutcome
 
 // engineCopyProps gives a VM the function of the engine under the name the bundle asks for, as the
 // pool of internal/ssr does, and counts in globalThis.copied how many calls it answered true to.
-func engineCopyProps(t *testing.T) func(*slowjs.VM) {
-	return func(vm *slowjs.VM) {
+func engineCopyProps(t *testing.T) func(*quickjs.VM) {
+	return func(vm *quickjs.VM) {
 		t.Helper()
 		if err := vm.RegisterCopyProps("__engine_copy_props"); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := vm.Eval("globalThis.copied = 0\n"+
-			"globalThis.__tifa_copy_props = (...args) => { const r = __engine_copy_props(...args); r && globalThis.copied++; return r }", slowjs.EvalGlobal); err != nil {
+			"globalThis.__tifa_copy_props = (...args) => { const r = __engine_copy_props(...args); r && globalThis.copied++; return r }", quickjs.EvalGlobal); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -285,7 +285,7 @@ func TestSSRCopiesPropsLikeReact(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			for _, native := range []bool{false, true} {
-				var setup func(*slowjs.VM)
+				var setup func(*quickjs.VM)
 				if native {
 					setup = engineCopyProps(t)
 				}

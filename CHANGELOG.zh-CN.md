@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### 变更
+
+- 服务端渲染改用 `github.com/liustack/quickjs` v0.30.0，也就是引擎的新路径，v0.28.0 到 v0.29.11 它叫 `github.com/liustack/slowjs`。HTML 不变。应用构建时如果用了引擎的构建标签，`slowjs_intl_nonames`、`slowjs_intl_nocjdict`、`slowjs_anygo` 现在是 `quickjs_intl_nonames`、`quickjs_intl_nocjdict`、`quickjs_anygo`。引擎根包的错误信息以 `quickjs:` 开头，原来是 `slowjs:`。
+
 ## [0.0.4] - 2026-11-05
 
 ### 新增

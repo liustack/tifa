@@ -7,7 +7,7 @@ read_when:
 
 # Research studies
 
-Each study gives one question its full method, data and limits. [Performance](../performance.md) has the conclusions that matter for running tifa. A study keeps the numbers of the versions it measured: later releases can change them. Every study here was measured on the engine before slowjs v0.29 (the C engine) unless its row says otherwise, so read its numbers as ratios between builds of that day.
+Each study gives one question its full method, data and limits. [Performance](../performance.md) has the conclusions that matter for running tifa. A study keeps the numbers of the versions it measured: later releases can change them. Every study here was measured on the engine before quickjs v0.29 (the C engine) unless its row says otherwise, so read its numbers as ratios between builds of that day.
 
 | Study | Measured | Question |
 | --- | --- | --- |

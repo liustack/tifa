@@ -23,7 +23,7 @@ flowchart LR
   B["Browser"]
   subgraph P["The executable"]
     G["Go: routes, hooks, Load, caches (server, internal/core)"]
-    V["VM pool: ssr.js in slowjs (internal/ssr)"]
+    V["VM pool: ssr.js in quickjs (internal/ssr)"]
     S["Embedded files: assets, public, content"]
   end
   B -- "HTTP" --> G

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/liustack/slowjs"
+	"github.com/liustack/quickjs"
 )
 
 // lazyTree renders, with Render, a tree whose components load the ways a page may wait for them:
@@ -87,7 +87,7 @@ func TestSSRPrerenderToStringStopsWhenItsSignalAborts(t *testing.T) {
 		"})\n",
 	})
 	code, _ := buildScript(t, root, "never.tsx")
-	vm, err := slowjs.NewVM()
+	vm, err := quickjs.NewVM()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,16 +98,16 @@ func TestSSRPrerenderToStringStopsWhenItsSignalAborts(t *testing.T) {
 	if _, err := vm.ExecutePendingJobs(); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := vm.Eval("String(globalThis.result)", slowjs.EvalGlobal); err != nil || got != "undefined" {
+	if got, err := vm.Eval("String(globalThis.result)", quickjs.EvalGlobal); err != nil || got != "undefined" {
 		t.Fatalf("result before stop = %v, %v, want none", got, err)
 	}
-	if _, err := vm.Eval("globalThis.stop()", slowjs.EvalGlobal); err != nil {
+	if _, err := vm.Eval("globalThis.stop()", quickjs.EvalGlobal); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := vm.ExecutePendingJobs(); err != nil {
 		t.Fatal(err)
 	}
-	got, err := vm.Eval("String(globalThis.result)", slowjs.EvalGlobal)
+	got, err := vm.Eval("String(globalThis.result)", quickjs.EvalGlobal)
 	if err != nil || !strings.HasPrefix(got.(string), "true 1 true <p><!--$!-->") {
 		t.Errorf("result = %v, %v, want what renderToString writes and its error", got, err)
 	}

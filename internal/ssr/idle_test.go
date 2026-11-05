@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liustack/slowjs"
+	"github.com/liustack/quickjs"
 )
 
 // waitFor polls until cond holds or the time is up, then fails the test with what.
@@ -42,7 +42,7 @@ func renderBig(t *testing.T, p *Pool) {
 func TestIdleVMGivesBackFreeMemory(t *testing.T) {
 	p := newTestPool(t, testSource(t), testConfig(1))
 	renderBig(t, p)
-	var before slowjs.MemoryUsage
+	var before quickjs.MemoryUsage
 	idleVM(p, func(vm *pooledVM) { before = vm.MemoryUsage() })
 	waitFor(t, 5*idleRelease, "no idle VM was released", func() bool { return p.stats().trimmed == 1 })
 	idleVM(p, func(vm *pooledVM) {

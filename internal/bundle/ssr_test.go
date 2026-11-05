@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liustack/slowjs"
+	"github.com/liustack/quickjs"
 
 	"github.com/liustack/tifa/internal/config"
 	"github.com/liustack/tifa/internal/ssr"
@@ -171,14 +171,14 @@ const escapesPage = "import './host'\n" +
 
 // engineEscape makes a VM give a bundle the escape of the engine as the pool of internal/ssr does,
 // under the name __tifa_escape, and count its calls in globalThis.escapeCalls.
-func engineEscape(t *testing.T) func(*slowjs.VM) {
-	return func(vm *slowjs.VM) {
+func engineEscape(t *testing.T) func(*quickjs.VM) {
+	return func(vm *quickjs.VM) {
 		t.Helper()
 		if err := vm.RegisterEscapeText("__engine_escape"); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := vm.Eval("globalThis.escapeCalls = 0\n"+
-			"globalThis.__tifa_escape = (text) => (globalThis.escapeCalls++, __engine_escape(text))", slowjs.EvalGlobal); err != nil {
+			"globalThis.__tifa_escape = (text) => (globalThis.escapeCalls++, __engine_escape(text))", quickjs.EvalGlobal); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1821,7 +1821,7 @@ func TestSSRRunsTheTopLevelAwaitOfADependency(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer vm.Close()
-	if got, err := vm.Eval("globalThis.result", slowjs.EvalGlobal); err != nil || got != "loaded late" {
+	if got, err := vm.Eval("globalThis.result", quickjs.EvalGlobal); err != nil || got != "loaded late" {
 		t.Errorf("result = %v, %v, want what the dependency awaited", got, err)
 	}
 }

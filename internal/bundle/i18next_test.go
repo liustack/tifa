@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liustack/slowjs"
+	"github.com/liustack/quickjs"
 	"github.com/liustack/tifa/internal/ssr"
 )
 
@@ -231,7 +231,7 @@ func evalWithIntl(t *testing.T, code string) string {
 	if _, err := vm.ExecutePendingJobs(); err != nil {
 		t.Fatal(err)
 	}
-	value, err := vm.Eval("String(globalThis.result)", slowjs.EvalGlobal)
+	value, err := vm.Eval("String(globalThis.result)", quickjs.EvalGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}

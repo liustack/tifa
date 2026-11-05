@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liustack/slowjs"
+	"github.com/liustack/quickjs"
 	"github.com/liustack/tifa/internal/config"
 	"github.com/liustack/tifa/internal/core"
 )
@@ -615,13 +615,13 @@ func TestLargestStackDepthIsTheEngines(t *testing.T) {
 	if got := config.Default().SSR.VMStackDepth; got != config.MaxVMStackDepth {
 		t.Fatalf("ssr.vm_stack_depth defaults to %d, its largest value is %d", got, config.MaxVMStackDepth)
 	}
-	vm, err := slowjs.NewVM()
+	vm, err := quickjs.NewVM()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer vm.Close()
 	vm.SetMaxStackSize(1 << 20)
-	got, err := vm.Eval(`var n = 0; function f() { n++; f() } try { f() } catch (e) {} String(n)`, slowjs.EvalGlobal)
+	got, err := vm.Eval(`var n = 0; function f() { n++; f() } try { f() } catch (e) {} String(n)`, quickjs.EvalGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}

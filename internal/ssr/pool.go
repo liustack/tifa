@@ -17,7 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/liustack/slowjs"
+	"github.com/liustack/quickjs"
 	"github.com/liustack/tifa/internal/config"
 	"github.com/liustack/tifa/internal/core"
 )
@@ -85,7 +85,7 @@ var ErrClosed = errors.New("ssr: pool closed")
 // trimIdle). VMs whose live size grows too far are replaced after loading a spare,
 // without taking capacity away from renders.
 type Pool struct {
-	bytecode    *slowjs.SharedBytecode
+	bytecode    *quickjs.SharedBytecode
 	sources     *sources
 	memory      uintptr
 	stack       uintptr // stack slots of each VM, see Load

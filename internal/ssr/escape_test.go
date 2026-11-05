@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liustack/slowjs"
+	"github.com/liustack/quickjs"
 )
 
 // reactEscape is escapeTextForBrowser of React DOM 19 as its string renderer has it, without the
@@ -36,18 +36,18 @@ const reactEscape = `function reactEscape(text) {
 // __tifa_escape is React DOM's escapeTextForBrowser, written in C in the engine: the VMs of the
 // pool have it, and it gives the text React's function gives for strings, numbers and objects.
 func TestEscapeIsReactsEscape(t *testing.T) {
-	vm, err := slowjs.NewVM()
+	vm, err := quickjs.NewVM()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { vm.Close() })
-	if got, err := vm.Eval(`typeof __tifa_escape`, slowjs.EvalGlobal); err != nil || got != "undefined" {
+	if got, err := vm.Eval(`typeof __tifa_escape`, quickjs.EvalGlobal); err != nil || got != "undefined" {
 		t.Fatalf("a new VM has __tifa_escape: %v %v", got, err)
 	}
 	if err := registerEscape(vm); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := vm.Eval(reactEscape, slowjs.EvalGlobal); err != nil {
+	if _, err := vm.Eval(reactEscape, quickjs.EvalGlobal); err != nil {
 		t.Fatal(err)
 	}
 	got, err := vm.Eval(`(() => {
@@ -56,7 +56,7 @@ func TestEscapeIsReactsEscape(t *testing.T) {
   for (let c = 0; c < 0x10000; c++) inputs.push('a' + String.fromCharCode(c) + 'b')
   const wrong = inputs.filter((x) => __tifa_escape(x) !== reactEscape(x))
   return inputs.length + ' ' + wrong.length
-})()`, slowjs.EvalGlobal)
+})()`, quickjs.EvalGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestLoadDefinesEscape(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer vm.Close()
-	got, err := vm.Eval(`globalThis.escaped`, slowjs.EvalGlobal)
+	got, err := vm.Eval(`globalThis.escaped`, quickjs.EvalGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}

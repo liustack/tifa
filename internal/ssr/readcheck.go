@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/liustack/slowjs"
+	"github.com/liustack/quickjs"
 )
 
 // takeReads is what returns, and forgets, the reads readcheck.js wrote down.
@@ -59,11 +59,11 @@ type read struct {
 
 // takeReads takes the reads of the render vm just ran, which leaves the list empty for the next
 // one, and adds those of the app to the Reads of ctx, if it has one.
-func (p *Pool) takeReads(ctx context.Context, vm *slowjs.VM) error {
+func (p *Pool) takeReads(ctx context.Context, vm *quickjs.VM) error {
 	if err := vm.SetEvalTimeout(p.timeout); err != nil {
 		return err
 	}
-	value, err := vm.Eval(takeReads, slowjs.EvalGlobal)
+	value, err := vm.Eval(takeReads, quickjs.EvalGlobal)
 	if err != nil {
 		return err
 	}

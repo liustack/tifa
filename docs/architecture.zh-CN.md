@@ -23,7 +23,7 @@ flowchart LR
   B["浏览器"]
   subgraph P["可执行文件"]
     G["Go：路由、钩子、Load、缓存 (server, internal/core)"]
-    V["VM 池：slowjs 里的 ssr.js (internal/ssr)"]
+    V["VM 池：quickjs 里的 ssr.js (internal/ssr)"]
     S["内嵌文件：assets、public、content"]
   end
   B -- "HTTP" --> G

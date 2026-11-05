@@ -1,6 +1,6 @@
 package ssr
 
-import "github.com/liustack/slowjs"
+import "github.com/liustack/quickjs"
 
 // React DOM escapes every text and attribute value it writes with escapeTextForBrowser. The tifa
 // plugin makes the module of its string renderer use __tifa_escape in its place when a VM has it,
@@ -8,6 +8,6 @@ import "github.com/liustack/slowjs"
 // function gives for any argument, and costs one call.
 
 // registerEscape defines __tifa_escape on vm.
-func registerEscape(vm *slowjs.VM) error {
+func registerEscape(vm *quickjs.VM) error {
 	return vm.RegisterEscapeText("__tifa_escape")
 }

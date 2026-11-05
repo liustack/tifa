@@ -223,7 +223,7 @@ func TestListUnreviewedReactDOMUnits(t *testing.T) {
 	version := installedVersion(t, "react-dom")
 	if len(listed.Emit) > 0 {
 		t.Logf("react-dom %s: the engine does not write the start and end tags, since these parts differ from reviewedEmitPieces: %s. "+
-			"The C functions of slowjs must do what they do before the table takes their new fingerprints (docs/build.md)", version, strings.Join(listed.Emit, ", "))
+			"The C functions of quickjs must do what they do before the table takes their new fingerprints (docs/build.md)", version, strings.Join(listed.Emit, ", "))
 	}
 	var lines []string
 	for _, u := range units {

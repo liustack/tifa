@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/liustack/slowjs"
+	"github.com/liustack/quickjs"
 )
 
 // tagsPage renders elements of many kinds with props of every kind the start tag of React DOM writes:
@@ -47,8 +47,8 @@ const tagsPage = "import './host'\n" +
 // engineTags makes a VM give a bundle the start and end tags of the engine as the pool of
 // internal/ssr does, under the names __tifa_start_tag and __tifa_end_tag, and count the calls of
 // the start tag in globalThis.startCalls and those it leaves to React in globalThis.declined.
-func engineTags(t *testing.T) func(*slowjs.VM) {
-	return func(vm *slowjs.VM) {
+func engineTags(t *testing.T) func(*quickjs.VM) {
+	return func(vm *quickjs.VM) {
 		t.Helper()
 		if err := vm.RegisterStartTag("__engine_start_tag"); err != nil {
 			t.Fatal(err)
@@ -62,7 +62,7 @@ func engineTags(t *testing.T) func(*slowjs.VM) {
 			"  const r = __engine_start_tag(target, props, type, context, has, decline)\n"+
 			"  if (r === decline) declined++\n"+
 			"  return r\n"+
-			"}", slowjs.EvalGlobal); err != nil {
+			"}", quickjs.EvalGlobal); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -150,7 +150,7 @@ func TestSSRChecksTheTagsOfTheEngine(t *testing.T) {
 	if strings.Contains(printed, "start and end tags") || !strings.Contains(code, "__tifa_emit_check") {
 		t.Fatalf("the build of the test hook prints:\n%s", printed)
 	}
-	vm, err := slowjs.NewVM()
+	vm, err := quickjs.NewVM()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,13 +159,13 @@ func TestSSRChecksTheTagsOfTheEngine(t *testing.T) {
 		t.Errorf("the bundle of the test hook loads without __tifa_emit_check: %v", err)
 	}
 	want := evalResult(t, plain)
-	check := func(vm *slowjs.VM) {
+	check := func(vm *quickjs.VM) {
 		engineTags(t)(vm)
 		if _, err := vm.Eval("globalThis.verdicts = { same: 0, declined: 0, differ: 0 }, globalThis.differences = []\n"+
 			"globalThis.__tifa_emit_check = (verdict, tag, props, c, js) => {\n"+
 			"  verdicts[verdict]++\n"+
 			"  if (verdict === 'differ') differences.push(tag + ' ' + props + '\\n  C:     ' + c + '\\n  React: ' + js)\n"+
-			"}", slowjs.EvalGlobal); err != nil {
+			"}", quickjs.EvalGlobal); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liustack/slowjs"
+	"github.com/liustack/quickjs"
 	"github.com/liustack/tifa/internal/config"
 )
 
@@ -129,7 +129,7 @@ func TestSoakVMMemory(t *testing.T) {
 	const memory, timeout = 128 << 20, 10 * time.Second
 	stack := uintptr(config.Default().SSR.VMStackDepth)
 	// measure returns what a VM from open holds, after use when it is set.
-	measure := func(t *testing.T, open func() (*VM, error), use func(*VM)) slowjs.MemoryUsage {
+	measure := func(t *testing.T, open func() (*VM, error), use func(*VM)) quickjs.MemoryUsage {
 		vm, err := open()
 		if err != nil {
 			t.Fatal(err)
@@ -149,19 +149,19 @@ func TestSoakVMMemory(t *testing.T) {
 		return func() (*VM, error) { return Load(bytecode, memory, stack, timeout, false) }
 	}
 	format := func(vm *VM) {
-		if _, err := vm.Eval(formats, slowjs.EvalGlobal); err != nil {
+		if _, err := vm.Eval(formats, quickjs.EvalGlobal); err != nil {
 			t.Fatal(err)
 		}
 	}
 	kb := func(n int64) float64 { return float64(n) / 1024 }
-	show := func(t *testing.T, name string, u, base slowjs.MemoryUsage) {
+	show := func(t *testing.T, name string, u, base quickjs.MemoryUsage) {
 		t.Logf("%-24s malloc %8.1f KB (%+8.1f), used %8.1f KB (%+8.1f)", name,
 			kb(u.MallocSize), kb(u.MallocSize-base.MallocSize),
 			kb(u.MemoryUsedSize), kb(u.MemoryUsedSize-base.MemoryUsedSize))
 	}
 
-	bare := func() slowjs.MemoryUsage {
-		vm, err := slowjs.NewVM()
+	bare := func() quickjs.MemoryUsage {
+		vm, err := quickjs.NewVM()
 		if err != nil {
 			t.Fatal(err)
 		}
