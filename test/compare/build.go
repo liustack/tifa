@@ -11,13 +11,13 @@ import (
 )
 
 // Prepare builds everything the comparison needs, writing the commands and their failures to log:
-// the shop as a tifa program, the sources of the two Node apps copied from the shop, and the two
+// the shop as a tifa program, the sources of the three Node apps copied from the shop, and the three
 // apps.
 func (e Env) Prepare(ctx context.Context, log io.Writer) error {
 	if err := e.BuildShop(ctx, log); err != nil {
 		return err
 	}
-	for _, app := range []struct{ dir, kind string }{{e.Next, "next"}, {e.Start, "start"}} {
+	for _, app := range []struct{ dir, kind string }{{e.Next, "next"}, {e.Start, "start"}, {e.React, "reactrouter"}} {
 		if err := e.Sync(app.dir, app.kind); err != nil {
 			return err
 		}
@@ -46,7 +46,7 @@ func (e Env) BuildApp(ctx context.Context, log io.Writer, dir string) error {
 }
 
 // Sync copies what the workbench pages are made of from the shop into dir/shop, where the app
-// imports it as `@/`. kind is "next" or "start". The folder is made new every time. The data the
+// imports it as `@/`. kind is "next", "start" or "reactrouter". The folder is made new every time. The data the
 // pages show is not copied: the apps compute it from the domain code in test/compare/domain.
 //
 // Copied as they are: the shadcn components, the helpers, the root Layout and its account, the stylesheet, the
@@ -118,9 +118,12 @@ func (e Env) Sync(dir, kind string) error {
 		}
 		to := filepath.Join(dst, "app", rel)
 		var edit func([]byte) []byte
-		if kind == "next" {
+		switch kind {
+		case "next":
 			to += "x" // route.gen.tsx: it holds JSX through the loader context
 			edit = nextRoute
+		case "reactrouter":
+			edit = reactRouterRoute
 		}
 		return copyFile(path, to, edit)
 	})
@@ -198,4 +201,15 @@ func writeImages(path string, files []string) error {
 		return err
 	}
 	return os.WriteFile(path, []byte(b.String()), 0o644)
+}
+
+// reactRouterRoute turns a generated module of the shop into one for React Router: getRouteApi
+// becomes loaderRoute, which finds the data of the route with that id through useRouteLoaderData.
+// The ids of app/routes.ts in test/compare/reactrouter are the ones getRouteApi is given.
+func reactRouterRoute(src []byte) []byte {
+	s := string(src)
+	s = strings.Replace(s, `import { getRouteApi } from "@tanstack/react-router"`, `import { loaderRoute } from "@/runtime/loader"`, 1)
+	s = strings.Replace(s, "layout = getRouteApi(", "layout = loaderRoute<LayoutData>(", 1)
+	s = strings.Replace(s, "page = getRouteApi(", "page = loaderRoute<PageData>(", 1)
+	return []byte(s)
 }

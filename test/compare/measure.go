@@ -1,217 +1,299 @@
 package compare
 
 import (
-	"bytes"
 	"context"
-	"encoding/json/v2"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/mod/modfile"
 )
 
-// Options say how to measure. The method is the one of docs/studies/nextjs-and-tanstack-start.md:
-// each server starts fresh for each round, warms up, then answers the six pages in turn to one
-// client that has one request in flight, asking for no compression.
+// Step is one request of a scenario. Only a timed request counts in the latencies, and Page says
+// which page it asks for, so that it is compared with the steady latency of that page.
+type Step struct {
+	Method string
+	Path   string
+	Body   []byte
+	Timed  bool
+	Page   int
+}
+
+// Scenario says which requests make up the n-th unit of work (n counts from 0). Exactly one of
+// the steps of a unit is timed. Steps that are not timed, such as a write that changes the data
+// of a page before the read, are sent before it and cost nothing in the numbers.
+type Scenario struct {
+	Name  string
+	Steps func(n int) []Step
+}
+
+// ReadScenario asks for the six pages in turn, one at a time.
+var ReadScenario = Scenario{Name: "read", Steps: func(n int) []Step {
+	page := n % len(Pages)
+	return []Step{{Method: http.MethodGet, Path: Pages[page].URL, Timed: true, Page: page}}
+}}
+
+// Options say how to measure. The method: each round starts every server fresh and times it from
+// the start of its process, with no warm-up. The first answer, the first 100 and the first 1000
+// requests are the cold part. Then comes a steady phase. One client has one request in flight and
+// asks for no compression.
 type Options struct {
-	ServerCPUs string        // for taskset, such as "0". Empty: no pinning, which is all there is off Linux
-	LoadCPUs   string        // for oha, such as "4"
-	Rounds     int           // fresh servers per round
-	Warmup     time.Duration // before the measured run
-	Duration   time.Duration // of the measured run
-	Servers    []string      // by name, empty for all four
-
-	// PerPage also runs each page alone.
-	PerPage      bool
-	PageWarmup   time.Duration
-	PageDuration time.Duration
-
-	// Render also runs the render benchmark of test/ssr, which renders the same six pages in one
-	// VM without HTTP, to split a request into the render and the rest. It needs PerPage.
-	Render bool
-
-	Log io.Writer
-}
-
-// Result is one run of oha against one server. Page is empty for the six pages in turn.
-type Result struct {
-	Server    string         `json:"server"`
-	Round     int            `json:"round"`
-	Page      string         `json:"page,omitempty"`
-	Requests  float64        `json:"requestsPerSecond"`
-	P50       float64        `json:"p50Ms"`
-	P99       float64        `json:"p99Ms"`
-	PeakRSS   float64        `json:"peakRssMiB"`
-	BytesEach float64        `json:"bytesPerAnswer"`
-	Status    map[string]int `json:"status"`
-	Errors    map[string]int `json:"errors,omitempty"`
-}
-
-// RenderResult is the render of one page in a warm VM of tifa, without HTTP, in milliseconds.
-type RenderResult struct {
-	Page string  `json:"page"`
-	P50  float64 `json:"p50Ms"`
-	P99  float64 `json:"p99Ms"`
-}
-
-// Report is what a measurement leaves.
-type Report struct {
-	Date    string            `json:"date"`
-	Machine map[string]string `json:"machine"`
-	Options map[string]any    `json:"options"`
-	Results []Result          `json:"results"`
-	Render  []RenderResult    `json:"render,omitempty"`
+	ServerCPUs string        // for taskset, such as "1". Empty: no pinning, which is all there is off Linux
+	LoadCPUs   string        // for this process, which is the client, such as "2"
+	Rounds     int           // fresh servers each round
+	Steady     time.Duration // length of the steady phase
+	Cold       int           // requests of the cold series, 1000 when 0
+	Configs    []string      // configurations to measure, both when empty
+	Servers    []string      // spec ids, all of the configurations when empty
+	AA         bool          // also run Tifa against Tifa first in each round
+	Render     bool          // also run the render benchmark of test/ssr once after the rounds, apart from the cold runs
+	Scenario   Scenario      // ReadScenario when it has no steps
+	Log        io.Writer
 }
 
 // Measure runs the measurement. Prepare must have run.
-func (e Env) Measure(ctx context.Context, o Options) (*Report, error) {
+func (e Env) Measure(ctx context.Context, o Options) (*Record, error) {
 	if o.Log == nil {
 		o.Log = io.Discard
 	}
-	report := &Report{
-		Date:    time.Now().UTC().Format("2006-01-02 15:04:05 UTC"),
-		Machine: machine(),
-		Options: map[string]any{
-			"serverCpus": o.ServerCPUs, "loadCpus": o.LoadCPUs, "rounds": o.Rounds,
-			"warmup": o.Warmup.String(), "duration": o.Duration.String(),
-			"perPage": o.PerPage, "pageWarmup": o.PageWarmup.String(), "pageDuration": o.PageDuration.String(),
-		},
+	if o.Rounds < 1 {
+		return nil, fmt.Errorf("rounds must be at least 1")
 	}
-	var targets []Target
-	for _, t := range e.Targets() {
-		if len(o.Servers) == 0 || slices.Contains(o.Servers, t.Name) {
-			targets = append(targets, t)
+	if o.Cold == 0 {
+		o.Cold = 1000
+	}
+	if len(o.Configs) == 0 {
+		o.Configs = Configs
+	}
+	if o.Scenario.Steps == nil {
+		o.Scenario = ReadScenario
+	}
+	var topology = SysTopology()
+	placement, err := PlacementFor(runtime.GOOS, topology, o.ServerCPUs, o.LoadCPUs)
+	if err != nil {
+		return nil, err
+	}
+	if o.LoadCPUs != "" {
+		if err := pinSelf(o.LoadCPUs); err != nil {
+			return nil, err
 		}
 	}
-	urls := filepath.Join(os.TempDir(), fmt.Sprintf("tifa-compare-%d-urls.txt", os.Getpid()))
-	defer os.Remove(urls)
-
-	for round := 1; round <= o.Rounds; round++ {
-		for _, t := range targets {
+	var specs []Spec
+	for _, s := range e.Specs() {
+		if len(o.Servers) > 0 && !slices.Contains(o.Servers, s.Name) {
+			continue
+		}
+		if slices.ContainsFunc(s.Configs, func(c string) bool { return slices.Contains(o.Configs, c) }) {
+			specs = append(specs, s)
+		}
+	}
+	if len(specs) == 0 {
+		return nil, fmt.Errorf("no server matches configurations %v and servers %v", o.Configs, o.Servers)
+	}
+	rec := &Record{
+		Date:      time.Now().UTC().Format("2006-01-02 15:04:05 UTC"),
+		Versions:  e.versions(specs),
+		Machine:   machine(),
+		Placement: placement,
+		Settings:  Settings{Rounds: o.Rounds, Steady: o.Steady.String(), Cold: o.Cold, Configs: o.Configs, Scenario: o.Scenario.Name},
+	}
+	fmt.Fprintf(o.Log, "placement: %s\n", placement.Note)
+	for round := 0; round < o.Rounds; round++ {
+		order := Rotate(specs, round)
+		if o.AA {
+			order = append(Rotate(e.AASpecs(), round), order...)
+		}
+		for _, spec := range order {
 			if err := waitIdle(ctx, o.Log, o.ServerCPUs+","+o.LoadCPUs); err != nil {
 				return nil, err
 			}
-			server, err := t.Start(ctx, o.ServerCPUs)
+			run, err := runOnce(ctx, o, spec, round+1)
 			if err != nil {
 				return nil, err
 			}
-			err = func() error {
-				defer server.Stop()
-				var lines []string
-				for _, p := range Pages {
-					lines = append(lines, server.Base+p.URL)
-				}
-				if err := os.WriteFile(urls, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
-					return err
-				}
-				if err := warmRun(ctx, o, o.Warmup, "--urls-from-file", urls); err != nil {
-					return err
-				}
-				res, err := measureRun(ctx, o, o.Duration, "--urls-from-file", urls)
-				if err != nil {
-					return err
-				}
-				res.Server, res.Round, res.PeakRSS = t.Name, round, float64(server.PeakRSS())/(1<<20)
-				report.Results = append(report.Results, *res)
-				fmt.Fprintf(o.Log, "round %d %-15s %7.1f requests/s  P50 %6.2f ms  P99 %6.2f ms  peak RSS %5.0f MiB\n", round, t.Name, res.Requests, res.P50, res.P99, res.PeakRSS)
-				if !o.PerPage {
-					return nil
-				}
-				for _, p := range Pages {
-					if err := warmRun(ctx, o, o.PageWarmup, server.Base+p.URL); err != nil {
-						return err
-					}
-					res, err := measureRun(ctx, o, o.PageDuration, server.Base+p.URL)
-					if err != nil {
-						return err
-					}
-					res.Server, res.Round, res.Page, res.PeakRSS = t.Name, round, p.Name, float64(server.PeakRSS())/(1<<20)
-					report.Results = append(report.Results, *res)
-					fmt.Fprintf(o.Log, "round %d %-15s %-14s %7.1f requests/s  P50 %6.2f ms  P99 %6.2f ms\n", round, t.Name, p.Name, res.Requests, res.P50, res.P99)
-				}
-				return nil
-			}()
-			if err != nil {
-				return nil, err
+			rec.Runs = append(rec.Runs, *run)
+			m := run.Metrics
+			fmt.Fprintf(o.Log, "round %d %-15s first answer %5.0f ms  %7.1f req/s  P50 %6.2f  P99 %6.2f  max %6.1f ms  settles at %s  RSS %3.0f/%3.0f MiB", round+1, spec.Name, m.FirstAnswer, m.Requests, m.P50, m.P99, m.Max, defByKey("settle").Format(m.Settle), m.RSSStart, m.RSSPeak)
+			if run.Renders != nil {
+				fmt.Fprintf(o.Log, "  hit rate %.1f%%", m.HitRate*100)
 			}
+			fmt.Fprintln(o.Log)
 		}
 	}
+	rec.AA = AASpread(rec.Runs)
 	if o.Render {
-		render, err := e.renderBench(ctx, o)
+		render, err := e.renderBench(ctx, o.ServerCPUs)
 		if err != nil {
 			return nil, err
 		}
-		report.Render = render
+		rec.Render = render
 	}
-	return report, nil
+	return rec, nil
 }
 
-// pin puts taskset in front of a command when cpus are given.
-func pin(cpus string, name string, args ...string) (string, []string) {
-	if cpus == "" || runtime.GOOS != "linux" {
-		return name, args
-	}
-	return "taskset", append([]string{"-c", cpus, name}, args...)
-}
-
-func ohaArgs(d time.Duration, format string, rest ...string) []string {
-	return append([]string{"--no-tui", "-w", "-z", d.String(), "-c", "1", "--worker-threads", "1", "--output-format", format, "-H", "Accept-Encoding: identity"}, rest...)
-}
-
-// warmRun runs the load tool and drops its answer: a warm-up.
-func warmRun(ctx context.Context, o Options, d time.Duration, target ...string) error {
-	name, args := pin(o.LoadCPUs, "oha", ohaArgs(d, "quiet", target...)...)
-	if out, err := exec.CommandContext(ctx, name, args...).CombinedOutput(); err != nil {
-		return fmt.Errorf("oha: %w\n%s", err, out)
-	}
-	return nil
-}
-
-// measureRun runs the load tool and reads its JSON.
-func measureRun(ctx context.Context, o Options, d time.Duration, target ...string) (*Result, error) {
-	name, args := pin(o.LoadCPUs, "oha", ohaArgs(d, "json", target...)...)
-	var stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+// runOnce starts a server, times it from the start of its process, and stops it.
+func runOnce(ctx context.Context, o Options, spec Spec, round int) (*Run, error) {
+	t0 := time.Now()
+	server, err := spec.Launch(o.ServerCPUs)
 	if err != nil {
-		return nil, fmt.Errorf("oha: %w\n%s", err, stderr.String())
+		return nil, err
 	}
-	var j struct {
-		Summary struct {
-			RequestsPerSec float64  `json:"requestsPerSec"`
-			SizePerRequest *float64 `json:"sizePerRequest"`
-		} `json:"summary"`
-		Latency struct {
-			P50 float64 `json:"p50"`
-			P99 float64 `json:"p99"`
-		} `json:"latencyPercentiles"`
-		Status map[string]int `json:"statusCodeDistribution"`
-		Errors map[string]int `json:"errorDistribution"`
+	defer server.Stop()
+	if err := server.WaitListening(ctx); err != nil {
+		return nil, err
 	}
-	if err := json.Unmarshal(out, &j); err != nil {
-		return nil, fmt.Errorf("oha printed no JSON: %w\n%s", err, out)
+	// RSS after start: the server listens and has answered nothing.
+	rssStart := float64(server.RSS()) / (1 << 20)
+	c := newClient(server.Base)
+	run := &Run{Spec: spec.Name, Framework: spec.Framework, Label: spec.Label, Configs: spec.Configs, Reference: spec.Reference, AA: slices.Contains(spec.Configs, ConfigAA), Round: round, Scenario: o.Scenario.Name}
+	renders := map[string]int{}
+
+	var cold, steady []float64
+	var coldPage, steadyPage []int
+	read := func(n int, lat *[]float64, pages *[]int) error {
+		for _, st := range o.Scenario.Steps(n) {
+			d, render, err := c.do(ctx, st)
+			if err != nil {
+				return fmt.Errorf("%s: request %d %s %s: %w\n%s", spec.Name, n+1, st.Method, st.Path, err, server.Output())
+			}
+			if st.Timed {
+				*lat = append(*lat, float64(d)/float64(time.Millisecond))
+				*pages = append(*pages, st.Page)
+				if render != "" {
+					renders[render]++
+				}
+			}
+		}
+		return nil
 	}
-	r := &Result{Requests: j.Summary.RequestsPerSec, P50: j.Latency.P50 * 1e3, P99: j.Latency.P99 * 1e3, Status: j.Status, Errors: j.Errors}
-	if j.Summary.SizePerRequest != nil {
-		r.BytesEach = *j.Summary.SizePerRequest
-	}
-	for code, n := range j.Status {
-		if code != "200" && n > 0 {
-			return nil, fmt.Errorf("%d answers with status %s", n, code)
+	n := 0
+	for ; n < o.Cold; n++ {
+		if err := read(n, &cold, &coldPage); err != nil {
+			return nil, err
+		}
+		if n == 0 {
+			run.Metrics.FirstAnswer = float64(time.Since(t0)) / float64(time.Millisecond)
 		}
 	}
-	if len(j.Errors) > 0 {
-		return nil, fmt.Errorf("oha errors: %v", j.Errors)
+	steadyStart := time.Now()
+	deadline := steadyStart.Add(o.Steady)
+	for time.Now().Before(deadline) {
+		if err := read(n, &steady, &steadyPage); err != nil {
+			return nil, err
+		}
+		n++
 	}
-	return r, nil
+	elapsed := time.Since(steadyStart).Seconds()
+
+	m := &run.Metrics
+	m.RSSStart = rssStart
+	run.Pages = pageStats(steady, steadyPage)
+	if len(steady) > 0 {
+		sorted := slices.Sorted(slices.Values(steady))
+		m.Requests = float64(len(steady)) / elapsed
+		m.P50, m.P99, m.Max = Percentile(sorted, 50), Percentile(sorted, 99), sorted[len(sorted)-1]
+	}
+	m.First100 = mean(cold[:min(100, len(cold))])
+	m.First1000 = mean(cold[:min(1000, len(cold))])
+	m.Settle = settleOf(cold, coldPage, steady, steadyPage)
+	m.RSSPeak = float64(server.PeakRSS()) / (1 << 20)
+	if hits, total := renders["cache"]+renders["shared"], renders["vm"]+renders["cache"]+renders["shared"]; total > 0 {
+		m.HitRate = float64(hits) / float64(total)
+		run.Renders = renders
+	}
+	return run, nil
+}
+
+// settleOf compares each cold request with the steady latency (the median) of its page.
+func settleOf(cold []float64, coldPage []int, steady []float64, steadyPage []int) float64 {
+	byPage := map[int][]float64{}
+	for i, l := range steady {
+		byPage[steadyPage[i]] = append(byPage[steadyPage[i]], l)
+	}
+	want := make([]float64, len(cold))
+	for i, p := range coldPage {
+		if len(byPage[p]) == 0 {
+			return SettleNever
+		}
+		want[i] = Median(byPage[p])
+	}
+	if at := Settle(cold, want); at > 0 {
+		return float64(at)
+	}
+	return SettleNever
+}
+
+func mean(v []float64) float64 {
+	if len(v) == 0 {
+		return 0
+	}
+	var sum float64
+	for _, x := range v {
+		sum += x
+	}
+	return sum / float64(len(v))
+}
+
+type client struct {
+	http *http.Client
+	base string
+}
+
+// newClient makes a client with one connection, no compression and no retries.
+func newClient(base string) *client {
+	return &client{base: base, http: &http.Client{Transport: &http.Transport{DisableCompression: true, MaxIdleConnsPerHost: 1, MaxConnsPerHost: 1}}}
+}
+
+// do sends a step and returns how long it took until its body was read, and its X-Tifa-Render.
+func (c *client) do(ctx context.Context, st Step) (time.Duration, string, error) {
+	var body io.Reader
+	if st.Body != nil {
+		body = strings.NewReader(string(st.Body))
+	}
+	req, err := http.NewRequestWithContext(ctx, st.Method, c.base+st.Path, body)
+	if err != nil {
+		return 0, "", err
+	}
+	req.Header.Set("Accept-Encoding", "identity")
+	start := time.Now()
+	res, err := c.http.Do(req)
+	if err != nil {
+		return 0, "", err
+	}
+	_, err = io.Copy(io.Discard, res.Body)
+	res.Body.Close()
+	d := time.Since(start)
+	if err != nil {
+		return 0, "", err
+	}
+	if res.StatusCode != 200 {
+		return 0, "", fmt.Errorf("status %d", res.StatusCode)
+	}
+	if enc := res.Header.Get("Content-Encoding"); enc != "" {
+		return 0, "", fmt.Errorf("Content-Encoding %s to Accept-Encoding: identity", enc)
+	}
+	return d, res.Header.Get("X-Tifa-Render"), nil
+}
+
+// pinSelf puts this process, the client, on cpus (Linux). The client then needs no more threads
+// than cpus.
+func pinSelf(cpus string) error {
+	list, err := ParseCPUList(cpus)
+	if err != nil {
+		return err
+	}
+	if out, err := exec.Command("taskset", "-a", "-c", "-p", cpus, strconv.Itoa(os.Getpid())).CombinedOutput(); err != nil {
+		return fmt.Errorf("pin the client to cpus %s: %w\n%s", cpus, err, out)
+	}
+	runtime.GOMAXPROCS(len(list))
+	return nil
 }
 
 // waitIdle waits, on Linux, until the given cpus have used under 0.1 of a CPU for 3 seconds, so
@@ -221,10 +303,9 @@ func waitIdle(ctx context.Context, log io.Writer, cpus string) error {
 		return sleep(ctx, 3*time.Second)
 	}
 	want := map[string]bool{}
-	for _, c := range strings.Split(cpus, ",") {
-		if c != "" {
-			want["cpu"+c] = true
-		}
+	list, _ := ParseCPUList(strings.Trim(cpus, ","))
+	for _, c := range list {
+		want["cpu"+strconv.Itoa(c)] = true
 	}
 	busy := func() int64 {
 		data, _ := os.ReadFile("/proc/stat")
@@ -269,61 +350,58 @@ func sleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// renderBench runs BenchmarkShop of test/ssr, which renders the six pages in a warm VM with their
-// data in hand, and returns the P50 and P99 of a render of each. It is the same engine, bundle and
-// data as the tifa program uses, without the request around it.
-func (e Env) renderBench(ctx context.Context, o Options) ([]RenderResult, error) {
-	name, args := pin(o.ServerCPUs, "go", "test", "-run", "^$", "-bench", "Shop/^render", "-benchtime", "2000x", "-count", "1", "./test/ssr")
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Dir = e.Root
-	cmd.Env = append(os.Environ(), "TIFA_SSR_SHOP=1")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("render benchmark: %w\n%s", err, out)
-	}
-	var results []RenderResult
-	suffix := regexp.MustCompile(`^-\d+$`)
-	for _, line := range strings.Split(string(out), "\n") {
-		f := strings.Fields(line)
-		if len(f) < 4 || !strings.HasPrefix(f[0], "BenchmarkShop/render") {
-			continue
-		}
-		var p50, p99 float64
-		for i := 2; i+1 < len(f); i += 2 {
-			switch f[i+1] {
-			case "p50-ms":
-				p50, _ = strconv.ParseFloat(f[i], 64)
-			case "p99-ms":
-				p99, _ = strconv.ParseFloat(f[i], 64)
-			}
-		}
-		for _, p := range Pages {
-			want := "BenchmarkShop/render" + strings.ReplaceAll(p.URL, "/", "-")
-			if f[0] == want || strings.HasPrefix(f[0], want) && suffix.MatchString(f[0][len(want):]) {
-				results = append(results, RenderResult{Page: p.Name, P50: p50, P99: p99})
+// versions collects what the numbers depend on: the toolchain, the engine, Node, Tifa's commit
+// and the version of each framework package of the specs.
+func (e Env) versions(specs []Spec) map[string]string {
+	v := map[string]string{"go": runtime.Version()}
+	if data, err := os.ReadFile(e.Root + "/go.mod"); err == nil {
+		if f, err := modfile.ParseLax("go.mod", data, nil); err == nil {
+			for _, r := range f.Require {
+				if r.Mod.Path == "github.com/liustack/quickjs" {
+					v["quickjs"] = r.Mod.Version
+				}
 			}
 		}
 	}
-	if len(results) != len(Pages) {
-		return nil, fmt.Errorf("render benchmark printed %d of the %d pages:\n%s", len(results), len(Pages), out)
+	if out, err := exec.Command("node", "--version").Output(); err == nil {
+		v["node"] = strings.TrimSpace(string(out))
 	}
-	return results, nil
+	git := func(args ...string) string {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = e.Root
+		out, _ := cmd.Output()
+		return strings.TrimSpace(string(out))
+	}
+	if rev := git("rev-parse", "--short", "HEAD"); rev != "" {
+		if git("status", "--porcelain", "--untracked-files=no") != "" {
+			rev += "-dirty"
+		}
+		v["tifa"] = rev
+	}
+	for _, s := range specs {
+		if s.Version != "" {
+			if ver := packageVersion(s.Dir + "/" + s.Version); ver != "" {
+				v[s.Framework] = ver
+			}
+		}
+	}
+	return v
 }
 
-func machine() map[string]string {
-	m := map[string]string{"os": runtime.GOOS, "arch": runtime.GOARCH, "go": runtime.Version()}
-	for name, args := range map[string][]string{"node": {"--version"}, "oha": {"--version"}, "pnpm": {"--version"}} {
-		if out, err := exec.Command(name, args...).Output(); err == nil {
-			m[name] = strings.TrimSpace(string(out))
-		}
+func machine() Machine {
+	m := Machine{OS: runtime.GOOS, Arch: runtime.GOARCH}
+	if out, err := exec.Command("uname", "-sr").Output(); err == nil {
+		m.Kernel = strings.TrimSpace(string(out))
 	}
 	if data, err := os.ReadFile("/proc/cpuinfo"); err == nil {
 		for _, line := range strings.Split(string(data), "\n") {
 			if k, v, ok := strings.Cut(line, ":"); ok && strings.TrimSpace(k) == "model name" {
-				m["cpu"] = strings.TrimSpace(v)
+				m.CPU = strings.TrimSpace(v)
 				break
 			}
 		}
+	} else if out, err := exec.Command("sysctl", "-n", "machdep.cpu.brand_string").Output(); err == nil {
+		m.CPU = strings.TrimSpace(string(out))
 	}
 	return m
 }

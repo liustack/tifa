@@ -114,7 +114,7 @@ A second workflow, `.github/workflows/latest-react.yml` (`latest-react`), runs e
 Left out on purpose:
 
 - **Tests that need `TIFA_SSR_SHOP`, `TIFA_SSR_SOAK`, `TIFA_SSR_EXTREME` or `TIFA_EXTREME`**: the shop SSR tests, the soak tests and the extreme pages. They take long, and the benchmarks among them need a quiet machine.
-- **`TIFA_COMPARE`**: the check of [test/compare](#comparison-with-nextjs-and-tanstack-start-testcompare) builds the shop and two more apps with Node, about a minute of work on a warm machine and several on a cold one. Its measurement needs a quiet machine.
+- **`TIFA_COMPARE`**: the check of [test/compare](#comparison-with-nextjs-tanstack-start-and-react-router-testcompare) builds the shop and two more apps with Node, about a minute of work on a warm machine and several on a cold one. Its measurement needs a quiet machine.
 - **The `-race` runs**: they are run on chosen packages by hand (see [Before committing](#before-committing)).
 - **darwin/arm64 for e2e**: it has the same Node and the same tests, so it adds time and no new facts. Add it by putting the job in a matrix.
 
@@ -269,19 +269,19 @@ go tool pprof -top -cum ssr.test mutex.out
 ```
 
 
-## Comparison with Next.js and TanStack Start (`test/compare`)
+## Comparison with Next.js, TanStack Start and React Router (`test/compare`)
 
-`test/compare` builds the six workbench pages of `examples/shop` as a Tifa program, as a Next.js app and as a TanStack Start app. It checks that the three show the same pages and do the same work for each request, and measures how many whole page requests each answers. It builds three apps with Node and the measurement needs a quiet machine, so CI does not run it. The method and the numbers are in [Tifa against Next.js and TanStack Start](studies/nextjs-and-tanstack-start.md).
+`test/compare` builds the six workbench pages of `examples/shop` as a Tifa program, as a Next.js app, as a TanStack Start app and as a React Router v7 app (framework mode, the successor of Remix v2). It checks that the four show the same pages and do the same work for each request, and measures how long whole page requests take from process start and how many each answers. It builds three apps with Node and the measurement needs a quiet machine, so CI does not run it. The method and the numbers are in [Tifa against Next.js and TanStack Start](studies/nextjs-and-tanstack-start.md).
 
 | Where | What it holds |
 | --- | --- |
-| `test/compare/domain` | The domain code of the workbench pages, ported to TypeScript one function at a time from `examples/shop/app` (the Layouts, the three `Load` functions, the orders, the stats, the carriers and the seed data), shared by the two apps. Plain TypeScript with no packages, so Node runs it as it is |
-| `test/compare/nextjs`, `test/compare/start` | The two Node apps: `package.json` with a lockfile, the server components or routes that call the domain code, and a few shims. Git ignores what is built into them: `shop/`, `public/images/`, `node_modules` and the build output |
-| `test/compare/overlay`, `nextjs/overlay` | Files that only exist in Tifa, written for the two apps: `tifa/client`, the module the generated routes call handlers through, and for Next.js the stand-ins for TanStack Router's `Link`, `Outlet` and loader data |
-| `test/compare/*.go` | Builds and copies (`build.go`), starts the servers (`serve.go`, through `testproc.Start`, so a killed run leaves none behind), reads the pages (`parity.go`), compares the port with Go (`domain.go`), counts work (`counted.go`), measures (`measure.go`, `report.go`) |
-| `test/compare/cmd/compare` | The command that builds and measures |
+| `test/compare/domain` | The domain code of the workbench pages, ported to TypeScript one function at a time from `examples/shop/app` (the Layouts, the three `Load` functions, the orders, the stats, the carriers and the seed data), shared by the three apps. Plain TypeScript with no packages, so Node runs it as it is |
+| `test/compare/nextjs`, `test/compare/start`, `test/compare/reactrouter` | The three Node apps: `package.json` with a lockfile, the server components or routes that call the domain code, and a few shims. Git ignores what is built into them: `shop/`, `public/images/`, `node_modules` and the build output (the React Router app is run by `react-router-serve`) |
+| `test/compare/overlay`, `nextjs/overlay`, `reactrouter/overlay` | Files that only exist in Tifa, written for the apps: `tifa/client`, the module the generated routes call handlers through, and for Next.js and React Router the stand-ins for TanStack Router's `Link`, `Outlet` and loader data |
+| `test/compare/*.go` | Builds and copies (`build.go`), starts the servers (`serve.go`, through `testproc.Start`, so a killed run leaves none behind), reads the pages (`parity.go`), compares the port with Go (`domain.go`), counts work (`counted.go`), measures and reports (`measure.go`, `record.go`, `report.go`), reads the CPU topology (`topology.go`), lists the servers (`specs.go`) |
+| `test/compare/cmd/compare` | The command that builds, measures, reports and diffs |
 
-**Where the work is done.** In Tifa, every request runs the Go `Layout` and `Load` functions, which read the orders from memory, copy and sort them and work out the list, the order or the stats. In the two apps, every request runs the same functions in TypeScript on orders that the process builds in memory when it starts, from the same seed code. Nothing is kept from one request to the next. The components, the stylesheet, the root Layout, everything TypeScript under `app/projects`, the 160 pixel photos and the `+layout` and `+route` modules that `tifa build` generates from the Go types are copied from `examples/shop` into `shop/` and `public/images/` when the apps are built, so a change to a page of the shop reaches all three. A change to the Go code that loads the data does not reach the port by itself. The check below fails and names the fields, and you port the change.
+**Where the work is done.** In Tifa, every request runs the Go `Layout` and `Load` functions, which read the orders from memory, copy and sort them and work out the list, the order or the stats. In the three apps, every request runs the same functions in TypeScript on orders that the process builds in memory when it starts, from the same seed code. Nothing is kept from one request to the next. The components, the stylesheet, the root Layout, everything TypeScript under `app/projects`, the 160 pixel photos and the `+layout` and `+route` modules that `tifa build` generates from the Go types are copied from `examples/shop` into `shop/` and `public/images/` when the apps are built, so a change to a page of the shop reaches all four. A change to the Go code that loads the data does not reach the port by itself. The check below fails and names the fields, and you port the change.
 
 The handlers (`POST`, `PUT`, `PATCH`) are not ported: the apps show pages. The forms render, but their calls fail.
 
@@ -291,37 +291,59 @@ The handlers (`POST`, `PUT`, `PATCH`) are not ported: the apps show pages. The f
 TIFA_COMPARE=1 go test -count=1 -v ./test/compare
 ```
 
-The tests build the shop and the two apps (`pnpm install --frozen-lockfile` and the builds, under a minute on a warm machine), start each server and check:
+The tests build the shop and the three apps (`pnpm install --frozen-lockfile` and the builds, under a minute on a warm machine), start each server and check:
 
-- `TestDomainMatchesGo`: for each of the six pages, the JSON that the Go `Layout` and `Load` functions answer, which the test asks the shop's own program for as the browser router does, equals the JSON that Node makes from the port (`node test/compare/domain/dump.ts`), compared as values, field by field. It does not build the two apps, and needs Node 22.18 or later, which runs TypeScript as it is. When it fails, the Go code of the shop changed and the port did not: change `test/compare/domain` to do what the Go code does, and run it again.
+- `TestDomainMatchesGo`: for each of the six pages, the JSON that the Go `Layout` and `Load` functions answer, which the test asks the shop's own program for as the browser router does, equals the JSON that Node makes from the port (`node test/compare/domain/dump.ts`), compared as values, field by field. It does not build the three apps, and needs Node 22.18 or later, which runs TypeScript as it is. When it fails, the Go code of the shop changed and the port did not: change `test/compare/domain` to do what the Go code does, and run it again.
 - `TestPagesShowTheSameText`: the six pages fetched without compression show the same title and text nodes in order, and have the same number of `tr`, `a`, `svg`, `button`, `li`, `time`, `img`, `table`, `h1` to `h3`, `nav` and `input` elements. Script, style and template elements do not count.
 - `TestEveryRequestComputesAndRenders`: each request for a page runs the data code and renders the page again, shown by counting. See below.
 - `TestNoCachingBetweenRequests`: the apps hold nothing that could keep a page between requests.
 
 They work on macOS and Linux and skip when `go`, `node` or `pnpm` is missing. `TIFA_COMPARE_SKIP_BUILD=1` starts what the last run built. The tests of the parser run without the switch.
 
-When a page check fails after a change to the shop, read the difference it prints. A new page needs a route in both apps. A new package the shop's workbench imports needs a line in the `package.json` of both apps, and `pnpm install` in each folder to update the lockfiles.
+When a page check fails after a change to the shop, read the difference it prints. A new page needs a route in all three apps. A new package the shop's workbench imports needs a line in the `package.json` of all three apps, and `pnpm install` in each folder to update the lockfiles.
 
-**What the count test shows.** It builds a second Tifa program with `go build -overlay`, which adds a counter to `ordersOf` (the filter, copy and sort that every query of the orders starts with) and a path `/compare-counts`, without changing a file of the shop. The Node apps count the same calls in the port, and also the runs of the root Layout, the project Layout and the page's `Load`, and the renders of the page on the server, and answer with them at `/compare-counts`. For each page the test asks once and reads what the counters gained, then asks five times more and checks that they gained five times as much. A render in Tifa is read from the header `X-Tifa-Render`, which says `vm` for a page rendered in a VM and `cache` or `shared` for one that was not. Then the calls of `ordersOf` for one request must be the same in all three: 4 for an order list, 6 for an order and 5 for the stats. `TestNoCachingBetweenRequests` adds what the code and the answers say. Neither Next.js nor Start has `cacheComponents`, `use cache`, `unstable_cache`, a `revalidate` setting or a `QueryClient` in its sources or its package lists. Next.js answers a page with `Cache-Control: no-store`, and Start answers with no `Cache-Control`, `ETag`, `Last-Modified`, `Expires` or `Age`.
+**What the count test shows.** It builds a second Tifa program with `go build -overlay`, which adds a counter to `ordersOf` (the filter, copy and sort that every query of the orders starts with) and a path `/compare-counts`, without changing a file of the shop. The Node apps count the same calls in the port (React Router shares the project between its parallel loaders per request, through the Request object), and also the runs of the root Layout, the project Layout and the page's `Load`, and the renders of the page on the server, and answer with them at `/compare-counts`. For each page the test asks once and reads what the counters gained, then asks five times more and checks that they gained five times as much. A render in Tifa is read from the header `X-Tifa-Render`, which says `vm` for a page rendered in a VM and `cache` or `shared` for one that was not. Then the calls of `ordersOf` for one request must be the same in all four: 4 for an order list, 6 for an order and 5 for the stats. `TestNoCachingBetweenRequests` adds what the code and the answers say. None of the three has `cacheComponents`, `use cache`, `unstable_cache`, a `revalidate` setting or a `QueryClient` in its sources or its package lists, and the React Router app has no `clientLoader`, `shouldRevalidate` or `headers` export. Next.js answers a page with `Cache-Control: no-store`, and Start and React Router answer with no `Cache-Control`, `ETag`, `Last-Modified`, `Expires` or `Age`.
 
 ### Measure whole requests
 
 ```sh
-go run ./test/compare/cmd/compare measure -server-cpus 0 -load-cpus 4 -per-page -render -json out.json
+go run ./test/compare/cmd/compare measure -all -server-cpus 1 -load-cpus 2 -json out.json
+go run ./test/compare/cmd/compare report out.json
+go run ./test/compare/cmd/compare diff old.json new.json
 ```
 
-It builds first (add `-skip-build` to use the last build), then starts each of the four servers, Tifa, Next.js, Next.js with `node --jitless` and Start, fresh for each round, and loads it with [oha](https://github.com/hatoo/oha): 10 seconds of warm-up, 15 seconds measured, the six pages in turn with `--urls-from-file`, one request in flight, `Accept-Encoding: identity`. Tifa runs `--ssr-vms 1 --cache-size 0` with `GOMAXPROCS=1`, so every page request renders. The Node servers run `next start` and Nitro's `index.mjs` in production mode. The command prints the tables as Markdown and writes every run as JSON. It needs `oha` too, and quits without it.
+`measure` builds first (add `-skip-build` to use the last build), then starts each server fresh for each round and times it from the start of its process. There is no warm-up for anyone. The client is the command itself, one request in flight, `Accept-Encoding: identity`, the six pages in turn. A round of one server is:
 
-| Flag | Default | |
+1. **Cold part.** The time from process start to the end of the first answer, then the latency of the first 100 and the first 1000 requests (the mean of each), and the request from which latency settles: the first one after which the median of every window of 30 requests stays within 10% of the steady latency of their pages. `>1000` means it had not settled by then.
+2. **Steady part.** `-steady` long (30 seconds by default) right after the cold part: requests per second, P50, P99, P99/P50 and the largest latency.
+3. **Memory.** RSS right after the server listens (before any request), and the peak RSS over the whole run (the process and its children, sampled every 100 ms and, on Linux, the kernel's high-water marks).
+
+There are two configurations. `default` is each framework as shipped: Tifa with its render cache at the default `cache.size`, Next.js, Start and React Router as they are. `engine` has every cache off: Tifa with `--cache-size 0`, so every request renders, and Node with `--jitless` next to each Node app, marked as a reference in the tables because it explains a gap and is not a contender. Both Tifa servers run `--ssr-vms 1` with `GOMAXPROCS=1`. Compression is off for all. Tifa's hit rate is the share of answers whose `X-Tifa-Render` is `cache` or `shared`, counted over the whole run.
+
+| Subcommand | What it does |
+| --- | --- |
+| `measure` | Builds, measures and prints the tables. `-all` measures both configurations and runs the A/A check. `-config default` or `-config engine` measures one. `-json out.json` saves the record |
+| `report out.json` | Prints the tables again as Markdown: out of the box, engine, memory, per page (requests a second with one request in flight and P50 of each page for each server, and each Node server against Tifa) and, when the record has `-render`, the render and the rest. Each cell is the median of the rounds, with their range in brackets when they differ. The A/A spread is printed under them |
+| `diff old.json new.json` | Compares the Tifa servers of two records and prints each metric that got worse by more than max(2%, the A/A spread of either record). It exits with status 1 when any is flagged. Other frameworks are not compared |
+
+| Flag of `measure` | Default | |
 | --- | --- | --- |
-| `-server-cpus`, `-load-cpus` | empty | The cpus for the server and for oha, as `taskset -c` takes them (`0` or `0,1`). Linux only, since macOS has no `taskset`: leave them empty there, and read the numbers as a check that the command works. On a machine with hyperthreads, cpus `n` and `n+4` share a core, which the report should say |
-| `-rounds` | 2 | Rounds, each with fresh servers |
-| `-warmup`, `-duration` | 10s, 15s | Of the six pages in turn |
-| `-servers` | all | A list out of `tifa`, `nextjs`, `nextjs-jitless`, `start` |
-| `-per-page` | off | Also runs each page alone (`-page-warmup` 3s, `-page-duration` 10s) |
-| `-render` | off | Also runs `BenchmarkShop` of `test/ssr` on `-server-cpus`, which renders the same six pages in one warm VM without HTTP, and splits Tifa's request into the render and the rest. Needs `-per-page`. Next.js and Start cannot be split like that from outside: their render happens inside the framework's request handler |
+| `-server-cpus`, `-load-cpus` | empty | The cpus for the server and for the client, as `taskset -c` takes them (`1` or `1,2`). Linux only. Leave them empty elsewhere: the numbers then only show that the command works |
+| `-rounds` | 3 | Rounds. Each round starts every server fresh, and the order of the servers rotates by one place from round to round, so that none is always first |
+| `-steady` | 30s | Length of the steady part |
+| `-cold` | 1000 | Requests of the cold series |
+| `-config`, `-all` | `default` | The configuration, or both |
+| `-aa` | off | Runs Tifa against Tifa (two identical servers) before the others in every round, and prints how far apart they were for each metric: the largest minus the smallest over the median. `-all` implies it. `diff` uses this spread as the noise floor |
+| `-servers` | all | A list of spec ids, such as `tifa,tifa-nocache,nextjs` |
+| `-render` | off | Also runs `BenchmarkShop` of `test/ssr` once after the rounds, on `-server-cpus`: it renders the six pages in one warm VM without HTTP, and the report splits Tifa's request (cache off) into the render and the rest. It is a measurement of its own and does not touch the cold runs. Next.js, Start and React Router cannot be split like that from outside |
 
-Before each server starts, the command waits until the cpus it uses were idle for 3 seconds (Linux). It holds no lock on the cores. When other work shares the machine, take your own lock (`flock`) around the command and keep the whole run in a cgroup with a memory limit, as the study did. Peak RSS is the largest resident size of the server and its child processes, sampled every 100 ms and, on Linux, the kernel's high-water marks.
+**Placement rule.** On Linux the command reads `/sys/devices/system/cpu/cpuN/topology` and refuses to run when a cpu of the server and a cpu of the client are the same cpu or two threads of one physical core. The client pins itself with `taskset` and the servers are started under it. With hyperthreads, cpus `n` and `n+4` on a 4-core machine usually share a core, and cpus 1 and 2 on the GCP machine do not. Off Linux nothing is pinned, nothing is checked, and the record says `not checked`.
+
+The record (`-json`) keeps the Go, quickjs, Node, Next.js and Start versions, the Tifa commit, the CPU model, the kernel, the placement, the settings and every run of every round. Raw records stay out of the repository.
+
+The list of servers is the table `Env.Specs` in `test/compare/specs.go`: a new framework is one more entry there, and the run, the report and the diff take it from the table. What a run asks for is a `Scenario` (`measure.go`): the requests of one unit of work, of which exactly one is timed. The default one reads the six pages in turn, and a scenario can send untimed requests before the timed one.
+
+Before each server starts, the command waits until the cpus it uses were idle for 3 seconds (Linux). It holds no lock on the cores. When other work shares the machine, take your own lock (`flock`) around the command and keep the whole run in a cgroup with a memory limit.
 
 What is still not equal, and which way it leans, is in [the study](studies/nextjs-and-tanstack-start.md#what-is-not-equal).
 

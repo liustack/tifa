@@ -1,10 +1,10 @@
-// Package compare builds the workbench pages of examples/shop three ways, as tifa, as a Next.js
-// app and as a TanStack Start app, checks that the three show the same text, and measures how many
-// whole page requests each answers. Nothing here runs in CI. `go test ./test/compare` (with
-// TIFA_COMPARE=1) checks the pages, and `go run ./test/compare/cmd/compare` measures. docs/testing.md
+// Package compare builds the workbench pages of examples/shop four ways, as tifa, as a Next.js app,
+// as a TanStack Start app and as a React Router app, checks that the four show the same text, and
+// measures how many whole page requests each answers. Nothing here runs in CI. `go test ./test/compare` (with
+// TIFA_COMPARE=1) checks the pages, and `go run ./test/compare/cmd/compare` measures, reports and diffs. docs/testing.md
 // has the steps.
 //
-// The two Node apps hold only what is specific to their framework: the layouts and pages that load
+// The three Node apps hold only what is specific to their framework: the layouts and pages that load
 // data, a few shims, and a package.json with a lockfile. The components, the stylesheet and the
 // photos are copied from examples/shop when the apps are built (build.go), so a change to a
 // component of the shop reaches all three at once. The data of the pages is computed in Node on
@@ -31,6 +31,7 @@ type Env struct {
 	Shop  string // examples/shop
 	Next  string // test/compare/nextjs
 	Start string // test/compare/start
+	React string // test/compare/reactrouter
 }
 
 // NewEnv finds the repository from the location of this source file.
@@ -50,6 +51,7 @@ func NewEnv() (Env, error) {
 		Shop:  filepath.Join(root, "examples", "shop"),
 		Next:  filepath.Join(dir, "nextjs"),
 		Start: filepath.Join(dir, "start"),
+		React: filepath.Join(dir, "reactrouter"),
 	}, nil
 }
 
