@@ -99,7 +99,7 @@ MUI 几行用 C 引擎重新测过（quickjs 0cc6d332，2026-10-29，同类机�
 
 ## 和 Next.js 与 TanStack Start 比
 
-shop 的六个工作台页面做成三个版本：Tifa，Next.js 16.4.2（App Router，每个路由都是动态的，React 组件相同）和 TanStack Start 1.169.3（路由和 loader 相同），跑在 Node 24.13.0 上。三个版本的可见文本相同，由一个测试检查。每个请求里，两个 Node 应用都跑一份用 TypeScript 移植的 Go 数据加载代码，订单是进程启动时在内存里建好的，和 Tifa 跑 Go 代码一样。第二个测试检查移植的代码返回的和 Go 代码返回的一样，第三个测试在三个服务器里数着，证明每个请求都查了订单、重新渲染了页面。应用在 [test/compare](../test/compare)，怎么构建、检查和再测一遍见[测试文档](testing.md#comparison-with-nextjs-and-tanstack-start-testcompare)（英文）。测的是走 HTTP 的完整请求，六个页面轮流，一次一个，`Accept-Encoding: identity`。测法、全部数字和[还有哪些不对等](studies/nextjs-and-tanstack-start.md#what-is-not-equal)见 [Tifa 对比 Next.js 和 TanStack Start](studies/nextjs-and-tanstack-start.md)（英文）。
+shop 的六个工作台页面做成三个版本：Tifa，Next.js 16.4.2（App Router，每个路由都是动态的，React 组件相同）和 TanStack Start 1.169.3（路由和 loader 相同），跑在 Node 24.13.0 上。三个版本的可见文本相同，由一个测试检查。每个请求里，两个 Node 应用都跑一份用 TypeScript 移植的 Go 数据加载代码，订单是进程启动时在内存里建好的，和 Tifa 跑 Go 代码一样。第二个测试检查移植的代码返回的和 Go 代码返回的一样，第三个测试在三个服务器里数着，证明每个请求都查了订单、重新渲染了页面。应用在 [test/compare](../test/compare)，怎么构建、检查和再测一遍见[测试文档](testing.md#comparison-with-nextjs-tanstack-start-and-react-router-testcompare)（英文）。测的是走 HTTP 的完整请求，六个页面轮流，一次一个，`Accept-Encoding: identity`。测法、全部数字和[还有哪些不对等](studies/nextjs-and-tanstack-start.md#what-is-not-equal)见 [Tifa 对比 Next.js 和 TanStack Start](studies/nextjs-and-tanstack-start.md)（英文）。
 
 2026-10-29 用 quickjs v0.29.0 测，页面是改版后的工作台页面，单核：服务钉在 0 号核，oha 钉在 4 号核，它们是同一个物理核的两个线程（2026-10-24 那次用的是 1 号和 6 号核，不共用物理核）。两轮，每轮新起服务器。
 
@@ -522,7 +522,7 @@ key path 那一行用 callgrind 数每个应用所有页面各渲染一遍的指
 
 完整请求：构建 `examples/shop`，用 `taskset` 把环境里有 `SHOP_OPEN=1` 的 `bin/shop --server-addr 127.0.0.1:0 --cache-size 0` 钉在几个核上，从另一个物理核压测，在途请求数等于 VM 数。每次先热几秒，测扩展曲线时服务钉的 CPU 数等于 VM 数。
 
-Next.js 和 TanStack Start：`go run ./test/compare/cmd/compare measure` 构建三个应用并按这个方法测，核位置用参数给（见[测试文档](testing.md#comparison-with-nextjs-and-tanstack-start-testcompare)，英文）。
+Next.js 和 TanStack Start：`go run ./test/compare/cmd/compare measure` 构建三个应用并按这个方法测，核位置用参数给（见[测试文档](testing.md#comparison-with-nextjs-tanstack-start-and-react-router-testcompare)，英文）。
 
 Node：SSR 包是 ES 模块，把同一份 `.tifa/dist/ssr.js` 复制成 `ssr.mjs`，用 `import()` 加载，渲染同样的输入，先热几百次，在 QuickJS 基准用的那个核上各跑一遍有 JIT 和 `--jitless`。导入之前，先把 Node 在 `globalThis` 上的 getter（比如 `crypto` 和 `navigator`）换成普通值，因为包会给它们赋值，再补上 `Iterator.concat`，TanStack Router 会调用它，而 Node 24.13 没有。找下一个该改的地方时，比较每个函数在 QuickJS 和 `--jitless` 的 Node 里各花多少时间：倍数远高于整体的函数就是候选。
 

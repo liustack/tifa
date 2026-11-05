@@ -1,8 +1,8 @@
 package compare
 
 import (
-	"fmt"
 	"encoding/json/v2"
+	"fmt"
 	"strings"
 	"testing"
 )

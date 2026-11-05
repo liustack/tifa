@@ -1,0 +1,7 @@
+# Copied from examples/shop and written when the app is built (see test/compare)
+/shop/
+/public/images/
+
+node_modules
+build
+.react-router

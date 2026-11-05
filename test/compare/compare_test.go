@@ -24,7 +24,7 @@ import (
 func setup(t *testing.T) compare.Env {
 	t.Helper()
 	if os.Getenv("TIFA_COMPARE") != "1" {
-		t.Skip("builds three apps with Node, set TIFA_COMPARE=1 to run it")
+		t.Skip("builds three Node apps, set TIFA_COMPARE=1 to run it")
 	}
 	if why := compare.MissingTools(); why != "" {
 		t.Skip(why)
@@ -54,7 +54,7 @@ func buildShop(t *testing.T, env compare.Env) {
 	}
 }
 
-// buildApps builds the shop and the two Node apps once for all the tests.
+// buildApps builds the shop and the three Node apps once for all the tests.
 func buildApps(t *testing.T, env compare.Env) {
 	t.Helper()
 	if os.Getenv("TIFA_COMPARE_SKIP_BUILD") == "1" {
@@ -114,7 +114,7 @@ func toAny(t *testing.T, v compare.PageData) any {
 	return out
 }
 
-// TestPagesShowTheSameText builds the shop as a tifa program and as a Next.js and a TanStack Start
+// TestPagesShowTheSameText builds the shop as a tifa program and as a Next.js, a TanStack Start and a React Router
 // app, and checks that the six workbench pages show the same title and text, with as many table
 // rows, links, SVGs, buttons, times and photos.
 func TestPagesShowTheSameText(t *testing.T) {
@@ -156,7 +156,7 @@ func TestPagesShowTheSameText(t *testing.T) {
 		}
 	}
 	for i, page := range compare.Pages {
-		t.Logf("%-14s %2d text nodes, tifa %d bytes, Next.js %d, Start %d", page.Name, len(tifa[i].Text), tifa[i].Bytes, views["nextjs"][i].Bytes, views["start"][i].Bytes)
+		t.Logf("%-14s %2d text nodes, tifa %d bytes, Next.js %d, Start %d, React Router %d", page.Name, len(tifa[i].Text), tifa[i].Bytes, views["nextjs"][i].Bytes, views["start"][i].Bytes, views["reactrouter"][i].Bytes)
 	}
 }
 
@@ -192,7 +192,7 @@ func TestEveryRequestComputesAndRenders(t *testing.T) {
 	tifa.Env = append(tifa.Env, "COMPARE_COUNTS_ADDR="+countsAddr)
 
 	perPage := map[string]map[string]int64{} // server -> page -> calls of ordersOf for one request
-	for _, target := range []compare.Target{tifa, mustTarget(t, env, "nextjs"), mustTarget(t, env, "start")} {
+	for _, target := range []compare.Target{tifa, mustTarget(t, env, "nextjs"), mustTarget(t, env, "start"), mustTarget(t, env, "reactrouter")} {
 		server, err := target.Start(ctx, "")
 		if err != nil {
 			t.Fatal(err)
@@ -237,29 +237,29 @@ func TestEveryRequestComputesAndRenders(t *testing.T) {
 		server.Stop()
 	}
 	for _, page := range compare.Pages {
-		a, b, c := perPage["tifa-nocache"][page.Name], perPage["nextjs"][page.Name], perPage["start"][page.Name]
-		if a != b || a != c {
-			t.Errorf("%s: calls of ordersOf for one request: tifa %d, Next.js %d, Start %d", page.Name, a, b, c)
+		a, b, c, d := perPage["tifa-nocache"][page.Name], perPage["nextjs"][page.Name], perPage["start"][page.Name], perPage["reactrouter"][page.Name]
+		if a != b || a != c || a != d {
+			t.Errorf("%s: calls of ordersOf for one request: tifa %d, Next.js %d, Start %d, React Router %d", page.Name, a, b, c, d)
 		}
-		t.Logf("%-14s %d calls of ordersOf for a request in tifa, %d in Next.js, %d in Start", page.Name, a, b, c)
+		t.Logf("%-14s %d calls of ordersOf for a request in tifa, %d in Next.js, %d in Start, %d in React Router", page.Name, a, b, c, d)
 	}
 }
 
-// TestNoCachingBetweenRequests reads what the two Node apps would need to cache a page and finds
-// none of it: no Next.js cacheComponents or "use cache", no cache header on a page of Start, no
-// QueryClient on the server of Start.
+// TestNoCachingBetweenRequests reads what the Node apps would need to cache a page and finds none
+// of it: no Next.js cacheComponents or "use cache", no cache header on a page of Start or React
+// Router, no QueryClient on the server of Start, no headers or clientLoader export in React Router.
 func TestNoCachingBetweenRequests(t *testing.T) {
 	env := setup(t)
 	buildApps(t, env)
 
-	for _, dir := range []string{env.Next, env.Start} {
-		for _, bad := range []string{"cacheComponents", "use cache", "unstable_cache", "revalidate =", "QueryClient", "react-query", "staticGeneration"} {
+	for _, dir := range []string{env.Next, env.Start, env.React} {
+		for _, bad := range []string{"cacheComponents", "use cache", "unstable_cache", "revalidate =", "QueryClient", "react-query", "staticGeneration", "clientLoader", "export const headers", "export function headers", "shouldRevalidate"} {
 			scan(t, dir, bad)
 		}
 	}
-	// A page of Start has no header that lets a cache keep it. Next.js says it must not be kept.
+	// A page of Start or React Router has no header that lets a cache keep it. Next.js says it must not be kept.
 	ctx := context.Background()
-	for _, target := range []compare.Target{mustTarget(t, env, "nextjs"), mustTarget(t, env, "start")} {
+	for _, target := range []compare.Target{mustTarget(t, env, "nextjs"), mustTarget(t, env, "start"), mustTarget(t, env, "reactrouter")} {
 		server, err := target.Start(ctx, "")
 		if err != nil {
 			t.Fatal(err)
@@ -275,10 +275,10 @@ func TestNoCachingBetweenRequests(t *testing.T) {
 			if !strings.Contains(cache, "no-store") {
 				t.Errorf("Next.js answers a page with Cache-Control %q, want no-store", cache)
 			}
-		case "start":
+		case "start", "reactrouter":
 			for _, h := range []string{"Cache-Control", "ETag", "Last-Modified", "Expires", "Age"} {
 				if v := header.Get(h); v != "" {
-					t.Errorf("Start answers a page with %s: %s", h, v)
+					t.Errorf("%s answers a page with %s: %s", target.Name, h, v)
 				}
 			}
 		}
@@ -288,7 +288,7 @@ func TestNoCachingBetweenRequests(t *testing.T) {
 // scan fails when a source of the app, or the file that lists its packages, holds text.
 func scan(t *testing.T, app, text string) {
 	t.Helper()
-	for _, root := range []string{filepath.Join(app, "src"), filepath.Join(app, "shop")} {
+	for _, root := range []string{filepath.Join(app, "src"), filepath.Join(app, "app"), filepath.Join(app, "shop")} {
 		filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !(strings.HasSuffix(path, ".ts") || strings.HasSuffix(path, ".tsx")) {
 				return nil
@@ -299,7 +299,7 @@ func scan(t *testing.T, app, text string) {
 			return nil
 		})
 	}
-	for _, file := range []string{"package.json", "next.config.ts", "vite.config.ts"} {
+	for _, file := range []string{"package.json", "next.config.ts", "vite.config.ts", "react-router.config.ts"} {
 		if data, err := os.ReadFile(filepath.Join(app, file)); err == nil && strings.Contains(string(data), text) {
 			t.Errorf("%s holds %q", filepath.Join(app, file), text)
 		}

@@ -71,6 +71,17 @@ func (e Env) Specs() []Spec {
 	}
 	tifaCacheOff := tifa("tifa-nocache", []string{ConfigEngine}, "--cache-size", "0")
 	tifaCacheOff.Label = "Tifa (cache off)"
+	reactRouter := func(name, label string, reference bool, configs []string, flags ...string) Spec {
+		return Spec{
+			Target: Target{
+				Name: name, Dir: e.React, Prog: "node",
+				Args: append(slices.Clone(flags), filepath.Join("node_modules", "@react-router", "serve", "bin.cjs"), filepath.Join("build", "server", "index.js")),
+				Env:  []string{"NODE_ENV=production", "HOST=127.0.0.1", "PORT=%PORT%"},
+			},
+			Framework: "reactrouter", Label: label, Configs: configs, Reference: reference,
+			Version: filepath.Join("node_modules", "react-router", "package.json"),
+		}
+	}
 	both := []string{ConfigDefault, ConfigEngine}
 	engine := []string{ConfigEngine}
 	return []Spec{
@@ -80,6 +91,8 @@ func (e Env) Specs() []Spec {
 		next("nextjs-jitless", "Next.js --jitless", true, engine, "--jitless"),
 		start("start", "TanStack Start", false, both),
 		start("start-jitless", "TanStack Start --jitless", true, engine, "--jitless"),
+		reactRouter("reactrouter", "React Router", false, both),
+		reactRouter("reactrouter-jitless", "React Router --jitless", true, engine, "--jitless"),
 	}
 }
 

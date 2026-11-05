@@ -1,4 +1,4 @@
-// Command compare builds, measures and reports the comparison of Tifa with Next.js and TanStack
+// Command compare builds, measures and reports the comparison of Tifa with Next.js, TanStack
 // Start, on the six workbench pages of examples/shop. Run it from anywhere in the repository:
 //
 //	go run ./test/compare/cmd/compare build
