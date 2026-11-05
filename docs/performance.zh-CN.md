@@ -1,9 +1,9 @@
 ---
-summary: 'Tifa 渲染页面和 C QuickJS、Node 比有多快，整个请求和 Next.js、TanStack Start 比怎么样，吞吐怎么随核数增长，CPU、ssr.vms 和内存怎么配，过载时会发生什么，压缩花多少，怎么复测'
+summary: 'Tifa 渲染页面和 C QuickJS、Node 比有多快，整个请求和 Next.js、TanStack Start、React Router 比怎么样，吞吐怎么随核数增长，CPU、ssr.vms 和内存怎么配，过载时会发生什么，压缩花多少，怎么复测'
 read_when:
   - 决定 Tifa 应用要几个 CPU、多少内存，或者设置 `ssr.vms`
   - 请求到达速度超过页面渲染速度，或者要设置渲染队列
-  - 想知道 Tifa 渲染一个页面多快，和 C QuickJS、Node、Next.js 或 TanStack Start 比怎么样
+  - 想知道 Tifa 渲染一个页面多快，和 C QuickJS、Node、Next.js、TanStack Start 或 React Router 比怎么样
   - 决定要不要关掉 `server.compress`，或者要改回答的压缩方式
   - 升级 github.com/liustack/quickjs，确认渲染没有变慢
 ---
@@ -14,20 +14,20 @@ read_when:
 
 Tifa 在 quickjs 里渲染页面。quickjs 是用 C 写的 QuickJS，编译成 Go 汇编，跑在 linux 和 darwin（amd64 和 arm64）以及 windows/amd64 上。它没有 JIT，所以一次渲染比 Node 慢。这篇文档给出数字和按这些数字怎么配机器。这些数字背后的优化记录见[优化记录](studies/optimizations.md)。
 
-quickjs v0.29 换掉了把 QuickJS 从 C 翻译成 Go 的那个引擎。C 引擎渲染 shop、MUI 和 bench 应用的页面，耗时是原来引擎的 0.83 到 0.86（见[引擎](studies/optimizations.md#engine)）。2026-10-24 的测量（怎么测的、一个页面渲染多快、和 Next.js、TanStack Start 比里的第二张表、随核数怎么扩展、配机器里除内存以外的部分、压缩）用的是 quickjs v0.28.6，也就是原来的引擎，所以其中 Tifa 的耗时现在大约少 15%，每个核的吞吐大约高同样的比例。改版后的商店、和 Next.js、TanStack Start 比里的第一张表、[内存](#内存)、[极端页面](studies/optimizations.md#extreme-pages)和剖析是用 C 引擎重新测的。
+quickjs v0.29 换掉了把 QuickJS 从 C 翻译成 Go 的那个引擎。C 引擎渲染 shop、MUI 和 bench 应用的页面，耗时是原来引擎的 0.83 到 0.86（见[引擎](studies/optimizations.md#engine)）。下面大部分渲染和扩展的数字是 2026-10-24 用 quickjs v0.28.6，也就是原来的引擎测的，所以其中 Tifa 的耗时现在大约少 15%，每个核的吞吐大约高同样的比例。[和三个 Node 框架比](#和三个-node-框架比)（2026-11-06，quickjs v0.30.1）、改版后的商店、[内存](#内存)、[极端页面](studies/optimizations.md#extreme-pages)和剖析是用 C 引擎测的。
 
 ## 一眼看
 
 - **一次渲染**：用 C 引擎之前的引擎，在 shop 的页面上耗时是 C QuickJS 的 0.94 倍，在不用 `Intl` 的页面上是 1.15 倍，是 Node 关掉 JIT 时的约 2 倍，是 Node 有 JIT 时的 6.6 倍。C 引擎只用其中的 0.84 倍时间。
-- **整个请求**：在改版后的工作台页面上，单核 Tifa 每秒答 29 个页面请求，Next.js 是它的 2.8 倍，TanStack Start 是 3.6 倍。Next.js 关掉 JIT 后是 Tifa 的 0.85 倍。Tifa 的内存峰值是 54 MiB，Next.js 是 466 MiB。Tifa 一个请求里 95% 的时间是渲染。
+- **整个请求**，单核、默认设置、六个工作台页面：数据有写入时，Tifa 每秒处理的请求约是 Next.js 的 6 倍，内存只用四分之一。缓存全关时，Next.js 每秒处理的请求是 Tifa 的 1.9 倍，TanStack Start 是 2.7 倍，React Router 是 1.8 倍，去掉它们的 JIT 后是 0.6 到 0.7 倍。内存峰值 57 MiB 对 347 到 435 MiB。见[对比](#和三个-node-框架比)。
 - **多核**：4 个物理核答的请求是 1 个核的 3.76 倍。同一个核的第二个超线程忙起来，约多 30%。
 - **怎么配**：像 shop 工作台这样的页面，按每个物理核每秒约 73 个请求、约 45 MiB 加每个 VM 12 到 16 MiB 准备。
 
-示例商店在 2026-10-28 改了版，页面变重了。这篇文档里其他数字都是在改版前的页面上测的，只有[改版后的商店](studies/optimizations.md#the-redesigned-shop)里的渲染耗时、内存数字和[和 Next.js 与 TanStack Start 比](#和-nextjs-与-tanstack-start-比)里的第一张表例外。
+示例商店在 2026-10-28 改了版，页面变重了。只有下面的对比、[改版后的商店](studies/optimizations.md#the-redesigned-shop)里的渲染耗时和内存数字用了新页面，这里其他数字都是在改版前的页面上测的。
 
 ## 这些数字怎么测的
 
-这里的数字都是 2026-10-24 在同一台机器上、用同一个构建测的，只有[改版后的商店](studies/optimizations.md#the-redesigned-shop)、[内存](#内存)和[极端页面](studies/optimizations.md#extreme-pages)除外，它们自己写明了什么时候、用什么测的。
+对比之后几节的数字是 2026-10-24 在同一台机器上、用同一个构建测的，只有[改版后的商店](studies/optimizations.md#the-redesigned-shop)、[内存](#内存)和[极端页面](studies/optimizations.md#extreme-pages)除外，它们自己写明了什么时候、用什么测的。对比有自己的测法。
 
 - **机器**：Google Cloud 上一台 8 vCPU 的虚机，AMD EPYC 7B13（Zen 3），Linux。8 个 vCPU 是 4 个物理核，每核 2 个超线程：cpu `n` 和 cpu `n+4` 共用一个核。每次运行先锁住要用的核，等它们空闲 30 秒再开始。别的程序占用不到一个 CPU 的 8%。
 - **构建**：Tifa c729ad2，quickjs v0.28.6，Go 1.27.2，按发布时的样子用 `tifa build` 构建。quickjs v0.28.6 把 QuickJS 从 C 翻译成 Go，解释器循环在 linux/amd64 上是 Go 汇编。当时 Tifa 构建时用的剖析（PGO）已经没有了。
@@ -73,40 +73,83 @@ MUI 几行用 C 引擎重新测过（quickjs 0cc6d332，2026-10-29，同类机�
 - **P99**：Tifa 每个工作台页面的 P99 都在 P50 的 11% 以内，因为池在两次渲染之间、响应发出之后才回收垃圾（见[内存](#内存)）。同样的页面上，Node 有 JIT 时 P99 是 5.3 到 20.5 ms，`--jitless` 时是 9.2 到 26.2 ms。
 - **第一次渲染**：程序启动后，1 个 VM 时 293 ms 开始监听，2 个时 342 ms，4 个时 413 ms，再过 44 到 46 ms 答出第一个页面，这时就已经是稳定速度。新起的 Node 进程第一次渲染订单页要 55 ms。
 
-## 和 Next.js 与 TanStack Start 比
+## 和三个 Node 框架比
 
-shop 的六个工作台页面做成三个版本：Tifa，Next.js 16.4.2（App Router，每个路由都是动态的，React 组件相同）和 TanStack Start 1.169.3（路由和 loader 相同），跑在 Node 24.13.0 上。三个版本的可见文本相同，由一个测试检查。每个请求里，两个 Node 应用都跑一份用 TypeScript 移植的 Go 数据加载代码，订单是进程启动时在内存里建好的，和 Tifa 跑 Go 代码一样。第二个测试检查移植的代码返回的和 Go 代码返回的一样，第三个测试在三个服务器里数着，证明每个请求都查了订单、重新渲染了页面。应用在 [test/compare](../test/compare)，怎么构建、检查和再测一遍见[测试文档](testing.md#comparison-with-nextjs-tanstack-start-and-react-router-testcompare)（英文）。测的是走 HTTP 的完整请求，六个页面轮流，一次一个，`Accept-Encoding: identity`。测法、全部数字和[还有哪些不对等](studies/nextjs-and-tanstack-start.md#what-is-not-equal)见 [Tifa 对比 Next.js 和 TanStack Start](studies/nextjs-and-tanstack-start.md)（英文）。
+shop 的六个工作台页面做成四个版本：Tifa，以及 Next.js 16.4.2、TanStack Start 1.169.3 和 React Router 8.5.1（框架模式）三个应用，React 组件相同，跑在 Node 24.13.0 上。每个请求里，三个 Node 应用都跑一份用 TypeScript 移植的 Go 数据加载代码。测试检查四个版本显示同样的文本，每个请求做同样的事。服务钉在一个物理核上，压测工具是只开一个连接的 Go 客户端，钉在另一个物理核上。它按顺序轮流请求六个页面，每个请求都带 `Accept-Encoding: gzip`，机器是 Google Cloud 上的 AMD EPYC 7B13。数字从进程启动开始算，不预热：先 1,000 个冷请求，再稳定加压 30 秒，3 轮，每轮用新起的服务，取中位数并给出各轮的范围。两个一模一样的 Tifa 服务，每秒请求数差 2.4%，P99 差 4.8%，所以更小的差距当作噪声。2026-11-06 用 Tifa 83644319、quickjs v0.30.1 和 Go 1.27.2 测。
 
-2026-10-29 用 quickjs v0.29.0 测，页面是改版后的工作台页面，单核：服务钉在 0 号核，oha 钉在 4 号核，它们是同一个物理核的两个线程（2026-10-24 那次用的是 1 号和 6 号核，不共用物理核）。两轮，每轮新起服务器。
+> 数据没变的页面不用再渲染一遍。每个请求仍然先取最新数据，所以不会看到旧内容，应用也不用写一行缓存代码。
 
-| | Tifa | Next.js | Next.js `--jitless` | TanStack Start |
-| --- | --- | --- | --- | --- |
-| 每秒请求数 | 28.8 到 29.1 | 80.8 到 82.9 | 24.8 | 102.4 到 105.0 |
-| 是 Tifa 的几倍 | 1 | 2.81 到 2.85 | 0.85 到 0.86 | 3.56 到 3.61 |
-| P50 / P99 | 28.9 到 29.3 / 66 到 70 ms | 10.4 到 10.5 / 30 到 32 ms | 34.9 到 36.8 / 69 到 72 ms | 7.4 到 7.5 / 28 到 29 ms |
-| RSS 峰值 | 54 MiB | 461 到 471 MiB | 301 到 349 MiB | 349 到 356 MiB |
+渲染缓存用构建版本、URL、每个 `Load` 和 Layout 的数据、浏览器拿到的会话来认一个页面，这些都相同才复用（见 [SSR 与缓存](app.zh-CN.md#ssr-与缓存)）。渲染时读了时钟的请求不走缓存。
 
-- **分页面看**：Next.js 每秒答的请求是 Tifa 的 2.82 到 3.33 倍，Start 是 3.62 到 4.24 倍。Tifa 渲染第一个店铺的订单列表（42 个订单，223 KB）要 64 ms，其他页面 22 到 36 ms。
-- **渲染和其余部分**：六个页面单独测，整个请求的 P50 平均 33.2 ms，同一个页面在热 VM 里不走 HTTP 的渲染平均 31.6 ms。路由、`Load`、JSON、写 HTML 和 net/http 共 1.6 ms，占 5%，分页面是 0.4 到 5.1 ms。Next.js 和 Start 从外面拆不开。
-- **数据计算的代价**：当天第一轮里，两个应用是查表拿数据，不自己算，Next.js 每秒 83.5 到 85.0 个，Start 104.7 到 112.0 个。改成自己算以后，它们少了 3% 到 5%。
-- **改版前的页面**，同样用 C 引擎、同样的核位置、2026-10-19 写的那两个应用：Tifa 每秒 87 到 90 个请求，Next.js 是它的 2.05 到 2.06 倍，Start 是 3.1 到 3.2 倍，Next.js 关 JIT 是 0.71 到 0.72 倍。改版后的页面对 Tifa 重了约 3 倍，对 Next.js 重了约 2.2 倍。
-- Node 应用页面里的表单能渲染，但不能提交，因为处理器没有移植。其他不对等的地方，比如 Node 的两个服务器流式发送页面而 Tifa 整页写出，在研究文档里列了。
+### 开箱即用（默认设置）
 
-2026-10-24 用 quickjs v0.28.6、改版前的页面和手写的应用测（那两个应用没有保留，不在仓库里）：
+每个框架按出厂方式启动：
 
-| | Tifa | Next.js | Next.js `--jitless` | TanStack Start |
-| --- | --- | --- | --- | --- |
-| 单核，每秒请求数 | 74 | 185 到 186 | 63 到 64 | 288 |
-| 是 Tifa 的几倍 | 1 | 2.5 | 0.85 | 3.9 |
-| 单核 P50 / P99 | 8.9 / 24.8 ms | 3.9 / 15 ms | 12.3 / 30 ms | 2.2 / 11 ms |
-| 单核 RSS 峰值 | 55 到 56 MiB | 441 到 453 MiB | 332 到 343 MiB | 362 到 368 MiB |
-| 两核 2 个在途，每秒请求数 | 146 到 150 | 308 到 314 | 没测 | 502 到 516 |
-| 两核是单核的 | 2.00 倍 | 1.67 倍 | 没测 | 1.77 倍 |
-| 进程启动到第一次响应 | 337 ms | 662 ms | 698 ms | 294 ms |
-| 从第几个请求起延迟稳定 | 第 1 个 | 第 512 个 | 第 164 个 | 第 310 个 |
+- **Tifa**：`bin/shop --server-addr 127.0.0.1:PORT --ssr-vms 1`，环境里 `GOMAXPROCS=1`。渲染缓存开着，64 MiB，`server.compress` 开着。
+- **Next.js**：`node node_modules/next/dist/bin/next start -H 127.0.0.1 -p PORT`。每个路由都是动态的，gzip 开着。
+- **TanStack Start**：`node .output/server/index.mjs`，它的 Nitro node 服务器。渲染出的页面不压缩。
+- **React Router**：`node node_modules/@react-router/serve/bin.cjs build/server/index.js`。`react-router-serve` 用 gzip 压缩。
 
-- 用 Tifa 和 Next.js 默认发的 gzip 时，单核的 Next.js 每秒少 16% 的请求，Tifa 少 1.6%，Next.js 是 Tifa 的 2.1 倍。Start 不压缩，每页约 53 KB，压缩后约 8.5 KB。
-- 延迟稳定的意思是：从这个请求起，之后每 30 个请求的中位数，都在各自页面稳定延迟的 10% 以内。
+只读：六个页面轮流，数据始终不变。Tifa 的命中率是 99.99%。
+
+| | 每秒请求数 | 是 Tifa 的几倍 | P50 | P99 | RSS 峰值 | 启动后第一次响应 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Tifa | 3,284（3,241 到 3,328） | 1 | 0.25 ms | 1.0 ms（1.0 到 1.1） | 57 MiB | 448 ms（447 到 456） |
+| Next.js | 80.3（79.1 到 80.3） | 0.024 | 10.60 ms（10.59 到 10.72） | 28.3 ms（27.9 到 30.0） | 435 MiB（433 到 440） | 766 ms（737 到 779） |
+| TanStack Start | 114.9（114.9 到 116.0） | 0.035 | 6.73 ms（6.67 到 6.78） | 23.1 ms（22.6 到 23.8） | 347 MiB（339 到 351） | 354 ms（352 到 363） |
+| React Router | 75.0（72.7 到 75.0） | 0.023 | 11.08 ms（11.05 到 11.43） | 29.1 ms（28.9 到 29.1） | 433 MiB（431 到 434） | 2,695 ms（2,668 到 2,700） |
+
+有写入的读：每 10 次读，在其中第一个订单页之前先写一次，给那个订单换一个新地址，所以 Tifa 的渲染缓存在它上面没命中。只给读计时。Tifa 的命中率是 90%。
+
+| | 每秒请求数 | 是 Tifa 的几倍 | P50 | P99 | RSS 峰值 | 启动后第一次响应 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Tifa | 461.9（459.0 到 465.6） | 1 | 0.26 ms（0.26 到 0.27） | 19.2 ms（19.0 到 19.3） | 112 MiB（112 到 113） | 453 ms（451 到 454） |
+| Next.js | 78.4（78.1 到 78.6） | 0.17 | 10.71 ms（10.70 到 10.75） | 29.4 ms（28.1 到 29.5） | 435 MiB（428 到 437） | 748 ms（740 到 750） |
+| TanStack Start | 114.5（110.4 到 114.9） | 0.25 | 6.71 ms（6.69 到 6.99） | 23.0 ms（22.5 到 23.1） | 337 MiB（336 到 347） | 357 ms（350 到 373） |
+| React Router | 73.9（71.9 到 74.0） | 0.16 | 11.19 ms（11.18 到 11.51） | 29.8 ms（28.5 到 30.7） | 431 MiB（429 到 431） | 2,652 ms（2,634 到 2,664） |
+
+有写入时，Tifa 每秒处理的请求是 Next.js 的 5.9 倍。渲染过的页面它不再渲染，但没命中的那 10% 请求要付一次完整渲染，所以它的 P99 是 19.2 ms。
+
+### 引擎（缓存全关）
+
+Tifa 用 `cache.size` 0，每个请求都渲染，和 Node 应用一样。标了参考的行是加了 `--jitless` 的 Node（在同一个脚本前加 `node --jitless`），用来看 JIT 值多少。启动命令和六个页面轮流都和上面一样。
+
+| | 每秒请求数 | 是 Tifa 的几倍 | P50 | P99 | RSS 峰值 | 启动后第一次响应 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Tifa（缓存关） | 42.3（40.0 到 42.6） | 1 | 19.21 ms（19.15 到 20.41） | 44.8 ms（44.7 到 47.3） | 57 MiB（57 到 58） | 450 ms（449 到 457） |
+| Next.js | 80.3（79.1 到 80.3） | 1.90 | 10.60 ms（10.59 到 10.72） | 28.3 ms（27.9 到 30.0） | 435 MiB（433 到 440） | 766 ms（737 到 779） |
+| Next.js `--jitless`（参考） | 25.7（25.4 到 25.8） | 0.61 | 35.61 ms（35.58 到 35.80） | 64.6 ms（64.4 到 65.9） | 337 MiB（323 到 338） | 788 ms（787 到 807） |
+| TanStack Start | 114.9（114.9 到 116.0） | 2.72 | 6.73 ms（6.67 到 6.78） | 23.1 ms（22.6 到 23.8） | 347 MiB（339 到 351） | 354 ms（352 到 363） |
+| TanStack Start `--jitless`（参考） | 29.9（29.7 到 30.1） | 0.71 | 30.24 ms（30.12 到 30.24） | 60.6 ms（59.9 到 61.5） | 276 MiB（269 到 276） | 353 ms（350 到 355） |
+| React Router | 75.0（72.7 到 75.0） | 1.77 | 11.08 ms（11.05 到 11.43） | 29.1 ms（28.9 到 29.1） | 433 MiB（431 到 434） | 2,695 ms（2,668 到 2,700） |
+| React Router `--jitless`（参考） | 24.4（23.6 到 24.4） | 0.58 | 37.37 ms（37.35 到 38.08） | 70.5 ms（70.5 到 72.5） | 355 MiB（355 到 356） | 2,934 ms（2,932 到 2,976） |
+
+没有 JIT 时，这几个 Node 框架每秒处理的请求是 Tifa 的 0.58 到 0.71 倍。studio 店的订单列表对它们都是最慢的页面：一次一个请求时，Tifa 缓存关的 P50 是 44.07 ms，Next.js 是 17.74 ms。
+
+### 四个框架的内存
+
+| | 启动后 RSS | RSS 峰值 |
+| --- | --- | --- |
+| Tifa | 47 MiB | 57 MiB |
+| Tifa（缓存关） | 47 MiB | 57 MiB（57 到 58） |
+| Next.js | 89 MiB | 435 MiB（433 到 440） |
+| Next.js `--jitless`（参考） | 75 MiB（74 到 75） | 337 MiB（323 到 338） |
+| TanStack Start | 56 MiB | 347 MiB（339 到 351） |
+| TanStack Start `--jitless`（参考） | 54 MiB | 276 MiB（269 到 276） |
+| React Router | 289 MiB（245 到 293） | 433 MiB（431 到 434） |
+| React Router `--jitless`（参考） | 227 MiB | 355 MiB（355 到 356） |
+
+有写入的场景里 Tifa 的峰值是 112 MiB，因为渲染缓存里存着被写入改过的页面的新版本。
+
+### 说明
+
+- **压缩。** TanStack Start 不压缩时每页发 146.5 KB，其他几个约 25 KB。Next.js 开 gzip 比不开每秒少答 16% 的请求（79.8 对 94.9），Start 如果压缩，多半要付相近的代价。
+- **React Router 的页面更大。** 开 gzip 后每页 32 到 76 KB，是 Tifa 和 Next.js 的 2 到 5 倍。`@react-router/node` 8.5.1 每写一块数据就刷新一次流，`react-router-serve` 又用 express 的 `compression` 压缩，每次刷新都会结束一个压缩块。这是它的默认行为，照原样测。
+- **没命中几乎不花额外时间。** 写入之后紧接着读订单页，每次都没命中，P50 开渲染缓存是 17.72 ms，关掉是 17.77 ms。
+- **没有报的数字。** 延迟从第几个请求起稳定、最慢的一个请求，在两个一模一样的服务之间就差 138% 和 26%，说明不了什么。
+- Node 应用的表单能渲染但不能提交，Node 的服务器流式发送页面而 Tifa 整页写出。更早几次测量的方法和[还有哪些不对等](studies/nextjs-and-tanstack-start.md#what-is-not-equal)见 [Tifa 对比 Next.js 和 TanStack Start](studies/nextjs-and-tanstack-start.md)（英文）。
+
+怎么复测见[测试文档](testing.md#comparison-with-nextjs-tanstack-start-and-react-router-testcompare)（英文）。
 
 ## 多核怎么扩展
 
@@ -274,6 +317,6 @@ VM 回收后的活大小超过增长上界时，池会在后台替换它。基�
 
 完整请求：构建 `examples/shop`，用 `taskset` 把环境里有 `SHOP_OPEN=1` 的 `bin/shop --server-addr 127.0.0.1:0 --cache-size 0` 钉在几个核上，从另一个物理核压测，在途请求数等于 VM 数。每次先热几秒，测扩展曲线时服务钉的 CPU 数等于 VM 数。
 
-Next.js 和 TanStack Start：`go run ./test/compare/cmd/compare measure` 构建三个应用并按这个方法测，核位置用参数给（见[测试文档](testing.md#comparison-with-nextjs-tanstack-start-and-react-router-testcompare)，英文）。
+Next.js、TanStack Start 和 React Router：`go run ./test/compare/cmd/compare measure` 构建这几个应用并按这个方法测，核位置用参数给（见[测试文档](testing.md#comparison-with-nextjs-tanstack-start-and-react-router-testcompare)，英文）。
 
 Node：SSR 包是 ES 模块，把同一份 `.tifa/dist/ssr.js` 复制成 `ssr.mjs`，用 `import()` 加载，渲染同样的输入，先热几百次，在 QuickJS 基准用的那个核上各跑一遍有 JIT 和 `--jitless`。导入之前，先把 Node 在 `globalThis` 上的 getter（比如 `crypto` 和 `navigator`）换成普通值，因为包会给它们赋值，再补上 `Iterator.concat`，TanStack Router 会调用它，而 Node 24.13 没有。找下一个该改的地方时，比较每个函数在 QuickJS 和 `--jitless` 的 Node 里各花多少时间：倍数远高于整体的函数就是候选。

@@ -87,6 +87,41 @@ go tool tifa check   # 分析、vet、测试和 TypeScript 检查一次跑完
 - **错误在构建时报出。** 路径重复、Layout 读了不属于它的参数、`Load` 返回值不能转成 TypeScript，构建会停下并指出文件和行号。
 - **首屏之后很快。** 浏览器由 TanStack Router 接管。每次跳转只发一个数据请求，已经加载过的 Layout 不会重新取数。
 
+## 一台小服务器就够
+
+在数据会变的页面上，Tifa 每秒处理的请求是 Next.js 的 6 倍，内存只用四分之一。
+
+数据没变的页面不用再渲染一遍。每个请求仍然先取最新数据，所以不会看到旧内容，应用也不用写一行缓存代码。
+
+开箱即用，数据不变（Tifa 99.99% 的请求复用上次的渲染）：
+
+| | 每秒请求数 | P50 | P99 | RSS 峰值 |
+| :-- | --: | --: | --: | --: |
+| Tifa | 3,284 | 0.25 ms | 1.0 ms | 57 MiB |
+| Next.js | 80 | 10.6 ms | 28.3 ms | 435 MiB |
+| TanStack Start | 115 | 6.7 ms | 23.1 ms | 347 MiB |
+| React Router | 75 | 11.1 ms | 29.1 ms | 433 MiB |
+
+开箱即用，每 10 次读写一次订单（Tifa 90% 的请求复用上次的渲染）：
+
+| | 每秒请求数 | P50 | P99 | RSS 峰值 |
+| :-- | --: | --: | --: | --: |
+| Tifa | 462 | 0.26 ms | 19.2 ms | 112 MiB |
+| Next.js | 78 | 10.7 ms | 29.4 ms | 435 MiB |
+| TanStack Start | 115 | 6.7 ms | 23.0 ms | 337 MiB |
+| React Router | 74 | 11.2 ms | 29.8 ms | 431 MiB |
+
+缓存全关，每个请求都渲染：
+
+| | 每秒请求数 | P50 | P99 | RSS 峰值 |
+| :-- | --: | --: | --: | --: |
+| Tifa | 42 | 19.2 ms | 44.8 ms | 57 MiB |
+| Next.js | 80 | 10.6 ms | 28.3 ms | 435 MiB |
+| TanStack Start | 115 | 6.7 ms | 23.1 ms | 347 MiB |
+| React Router | 75 | 11.1 ms | 29.1 ms | 433 MiB |
+
+去掉 JIT 后，Node 每秒处理的请求是 Tifa 的 0.6 到 0.7 倍。每个框架一个核，默认设置，示例商店的六个工作台页面。方法和全部数字见[完整对比](docs/performance.zh-CN.md#和三个-node-框架比)。
+
 ## 新建应用
 
 需要 Go 1.27、Node 20.19 或 22.12 及以上（Vite 8 的要求）和 pnpm（npm 也行）。页面需要 React 19.3 及以上，`tifa new` 装的就是。Node 只用来构建前端，部署出去的程序不需要它。`tifa dev` 暂不支持 Windows，请用 WSL。

@@ -1,9 +1,9 @@
 ---
-summary: 'How fast Tifa renders pages against C QuickJS and Node, how whole requests compare with Next.js and TanStack Start, how throughput grows with cores, how to size CPUs, ssr.vms and memory, what happens under overload, what compression costs and how to measure again'
+summary: 'How fast Tifa renders pages against C QuickJS and Node, how whole requests compare with Next.js, TanStack Start and React Router, how throughput grows with cores, how to size CPUs, ssr.vms and memory, what happens under overload, what compression costs and how to measure again'
 read_when:
   - Deciding how many CPUs and how much memory a Tifa app needs, or setting `ssr.vms`
   - Requests arrive faster than pages render, or you need to size the render queue
-  - Asking how fast Tifa renders a page, or how it compares with C QuickJS, Node, Next.js or TanStack Start
+  - Asking how fast Tifa renders a page, or how it compares with C QuickJS, Node, Next.js, TanStack Start or React Router
   - Deciding whether to turn off `server.compress`, or changing how answers are compressed
   - Upgrading github.com/liustack/quickjs and checking that rendering did not get slower
 ---
@@ -14,20 +14,20 @@ English · [简体中文](performance.zh-CN.md)
 
 Tifa renders pages in quickjs, QuickJS written in C and compiled to Go assembly, which runs on linux and darwin (amd64 and arm64) and on windows/amd64. It has no JIT, so a render is slower than in Node. This doc gives the numbers and how to size a machine for them. How rendering got faster is in [Optimizations](studies/optimizations.md).
 
-quickjs v0.29 replaced the engine that translated QuickJS from C to Go. The C engine renders the pages of the shop, MUI and bench apps in 0.83 to 0.86 of the time of the engine before it ([Engine](studies/optimizations.md#engine)). The measurements of 2026-10-24 (How the numbers were measured, How fast a page renders, the second table of Against Next.js and TanStack Start, How it scales with cores, Sizing a machine, except Memory, and Compression) used quickjs v0.28.6, the engine before it, so each Tifa time in them is now about 15% lower, and the throughput per core about as much higher. The redesigned shop, the first table of Against Next.js and TanStack Start, [Memory](#memory), [Extreme pages](studies/optimizations.md#extreme-pages) and the profile were measured again with the C engine.
+quickjs v0.29 replaced the engine that translated QuickJS from C to Go. The C engine renders the pages of the shop, MUI and bench apps in 0.83 to 0.86 of the time of the engine before it ([Engine](studies/optimizations.md#engine)). Most of the render and scaling numbers below were measured on 2026-10-24 with quickjs v0.28.6, the engine before it, so each Tifa time in them is now about 15% lower and the throughput per core about as much higher. [Against Next.js, TanStack Start and React Router](#against-nextjs-tanstack-start-and-react-router) (2026-11-06, quickjs v0.30.1), the redesigned shop, [Memory](#memory), [Extreme pages](studies/optimizations.md#extreme-pages) and the profile were measured with the C engine.
 
 ## At a glance
 
 - **One render** took 0.94 times as long as in C QuickJS on the shop's pages and 1.15 times on pages without `Intl`, with the engine before the C engine. It took about 2 times as long as in Node without its JIT and 6.6 times as long as in Node with it. The C engine takes 0.84 of that time.
-- **Whole requests**: on the redesigned workbench pages, on one core, Tifa answers 29 page requests a second, Next.js 2.8 times as many and TanStack Start 3.6 times. Next.js without its JIT answers 0.85 times as many. Tifa's peak memory is 54 MiB against 466 MiB for Next.js. 95% of a Tifa request is the render.
+- **Whole requests**, one core, default settings, the six workbench pages: with writes to the data, Tifa answers about 6 times the requests of Next.js, from a quarter of the memory. With every cache off, Next.js answers 1.9 times Tifa's requests, TanStack Start 2.7 times and React Router 1.8 times, and without their JIT they answer 0.6 to 0.7 times. Peak memory is 57 MiB against 347 to 435 MiB. See [the comparison](#against-nextjs-tanstack-start-and-react-router).
 - **Cores**: 4 physical cores answer 3.76 times as many requests as one. A busy hyperthread adds about 30%.
 - **Sizing**: plan on about 73 requests a second per physical core for pages like the shop's workbench, and about 45 MiB plus 12 to 16 MiB per VM.
 
-The example shop was redesigned on 2026-10-28, and its pages got heavier. Every other number in this doc was measured on the pages from before, except the render times in [The redesigned shop](studies/optimizations.md#the-redesigned-shop), the memory numbers and the first table of [Against Next.js and TanStack Start](#against-nextjs-and-tanstack-start).
+The example shop was redesigned on 2026-10-28 and its pages got heavier. Only the comparison below, the render times in [The redesigned shop](studies/optimizations.md#the-redesigned-shop) and the memory numbers use the new pages. Every other number here was measured on the pages from before.
 
 ## How the numbers were measured
 
-All numbers here were measured on 2026-10-24, on the same machine, with the same build, except those of [The redesigned shop](studies/optimizations.md#the-redesigned-shop), [Memory](#memory) and [Extreme pages](studies/optimizations.md#extreme-pages), which say when and with what they were measured.
+The numbers in the sections after the comparison were measured on 2026-10-24, on the same machine, with the same build, except those of [The redesigned shop](studies/optimizations.md#the-redesigned-shop), [Memory](#memory) and [Extreme pages](studies/optimizations.md#extreme-pages), which say when and with what they were measured. The comparison has its own method.
 
 - **Machine**: a Google Cloud VM with 8 vCPUs of an AMD EPYC 7B13 (Zen 3), Linux. The 8 vCPUs are 4 physical cores with 2 hyperthreads each: cpu `n` and cpu `n+4` share a core. Each run took locks on the cores it used and waited for them to be idle for 30 seconds. Other work stayed under 8% of a CPU.
 - **Build**: Tifa c729ad2, quickjs v0.28.6, Go 1.27.2, built by `tifa build` as it ships. quickjs v0.28.6 translated QuickJS from C to Go, with the interpreter loop in Go assembly on linux/amd64. The profile (PGO) that Tifa built with then is gone.
@@ -73,40 +73,83 @@ The MUI rows were measured again with the C engine (quickjs 0cc6d332, 2026-10-29
 - **P99**: Tifa's P99 stays within 11% of its P50 on every workbench page, since the pool collects garbage between renders, after the answer has gone out (see [Memory](#memory)). Node's P99 on the same pages is 5.3 to 20.5 ms with JIT and 9.2 to 26.2 ms with `--jitless`.
 - **First render**: the program listens 293 ms after it starts with 1 VM, 342 ms with 2 and 413 ms with 4, and answers its first page 44 to 46 ms later, at its steady speed. A fresh Node process takes 55 ms for its first order page.
 
-## Against Next.js and TanStack Start
+## Against Next.js, TanStack Start and React Router
 
-The six workbench pages of the shop, built three ways: as Tifa, as a Next.js 16.4.2 app (App Router, every route dynamic, the same React components) and as a TanStack Start 1.169.3 app (the same routes and loaders), on Node 24.13.0. All three show the same visible text, and a test checks it. For every request, the two Node apps run a TypeScript port of the Go code that loads the page's data, on orders they build in memory when they start, as Tifa runs the Go code. A second test checks that the port returns what the Go code returns, and a third counts, in all three servers, that each request queries the orders and renders the page again. The apps are in [test/compare](../test/compare), and [Testing](testing.md#comparison-with-nextjs-tanstack-start-and-react-router-testcompare) says how to build them, check them and measure again. Whole requests over HTTP, the six pages in turn, one at a time, `Accept-Encoding: identity`. [Tifa against Next.js and TanStack Start](studies/nextjs-and-tanstack-start.md) has the method, every number and [what is still not equal](studies/nextjs-and-tanstack-start.md#what-is-not-equal).
+The six workbench pages of the shop, built four ways: as Tifa and as a Next.js 16.4.2, a TanStack Start 1.169.3 and a React Router 8.5.1 app (framework mode), all with the same React components, on Node 24.13.0. The Node apps run a TypeScript port of the Go code that loads each page's data, on every request. Tests check that the four show the same text and do the same work for each request. The server runs on one physical core and the load tool, a Go client with one connection, on another. It asks for the six pages in turn, every request with `Accept-Encoding: gzip`, on a Google Cloud VM with an AMD EPYC 7B13. The numbers are from process start, with no warm-up: 1,000 cold requests, then 30 seconds of steady load, 3 rounds on fresh servers, the median with the range of the rounds. Two identical Tifa servers differ by 2.4% in requests a second and 4.8% in P99, so read smaller gaps as noise. Measured on 2026-11-06 with Tifa 83644319, quickjs v0.30.1 and Go 1.27.2.
 
-Measured on 2026-10-29 with quickjs v0.29.0 on the redesigned workbench pages, one core: the server on cpu 0 and oha on cpu 4, which are the two threads of one physical core (the run of 2026-10-24 used cpus 1 and 6, which share no core). Two rounds, each with fresh servers.
+> A page whose data has not changed is not rendered again. Every request still fetches fresh data, so nobody sees stale content, and the app writes no caching code.
 
-| | Tifa | Next.js | Next.js `--jitless` | TanStack Start |
-| --- | --- | --- | --- | --- |
-| Requests/s | 28.8 to 29.1 | 80.8 to 82.9 | 24.8 | 102.4 to 105.0 |
-| Against Tifa | 1 | 2.81 to 2.85 | 0.85 to 0.86 | 3.56 to 3.61 |
-| P50 / P99 | 28.9 to 29.3 / 66 to 70 ms | 10.4 to 10.5 / 30 to 32 ms | 34.9 to 36.8 / 69 to 72 ms | 7.4 to 7.5 / 28 to 29 ms |
-| Peak RSS | 54 MiB | 461 to 471 MiB | 301 to 349 MiB | 349 to 356 MiB |
+The render cache keys a page by the build, the URL, the data of every `Load` and Layout, and the session the browser gets, so a page is reused only when all of them are the same ([SSR and cache](app.md#ssr-and-cache)). A request that reads the clock while rendering skips the cache.
 
-- **Per page**, Next.js answers 2.82 to 3.33 times as many requests as Tifa and Start 3.62 to 4.24 times. Tifa takes 64 ms for the order list of the first shop (42 orders, 223 KB), 22 to 36 ms for the others.
-- **The render and the rest**: the P50 of the six pages alone averages 33.2 ms for a whole request and 31.6 ms for the render in a warm VM without HTTP. Routing, `Load`, JSON, writing the HTML and net/http take 1.6 ms, 5%, and 0.4 to 5.1 ms by page. Next.js and Start cannot be split like that from outside.
-- **The data work**: in a first run the same day, the apps looked their data up instead of computing it, and Next.js answered 83.5 to 85.0 requests a second, Start 104.7 to 112.0. Computing it costs them 3% to 5%.
-- **On the pages before the redesign**, with the C engine, the same placement and the apps of 2026-10-19: Tifa 87 to 90 requests a second, Next.js 2.05 to 2.06 times as many, Start 3.1 to 3.2 and Next.js without JIT 0.71 to 0.72. The redesigned pages are about 3 times as heavy for Tifa and 2.2 times for Next.js.
-- The forms of the Node apps' pages render but cannot submit, since the handlers are not ported. The study lists the other differences, such as that the Node servers stream their pages and Tifa writes each one whole.
+### Out of the box (default settings)
 
-On 2026-10-24, with quickjs v0.28.6, on the pages before the redesign, with hand-written apps that were not kept and are not in the repository:
+Each framework as it ships, started like this:
 
-| | Tifa | Next.js | Next.js `--jitless` | TanStack Start |
-| --- | --- | --- | --- | --- |
-| Requests/s, one core | 74 | 185 to 186 | 63 to 64 | 288 |
-| Against Tifa | 1 | 2.5 | 0.85 | 3.9 |
-| P50 / P99, one core | 8.9 / 24.8 ms | 3.9 / 15 ms | 12.3 / 30 ms | 2.2 / 11 ms |
-| Peak RSS, one core | 55 to 56 MiB | 441 to 453 MiB | 332 to 343 MiB | 362 to 368 MiB |
-| Requests/s, two cores, 2 in flight | 146 to 150 | 308 to 314 | not measured | 502 to 516 |
-| Two cores against one | 2.00 times | 1.67 times | not measured | 1.77 times |
-| Process start to first answer | 337 ms | 662 ms | 698 ms | 294 ms |
-| Request from which latency settles | 1st | 512th | 164th | 310th |
+- **Tifa**: `bin/shop --server-addr 127.0.0.1:PORT --ssr-vms 1` with `GOMAXPROCS=1`. The render cache is on at 64 MiB and `server.compress` is on.
+- **Next.js**: `node node_modules/next/dist/bin/next start -H 127.0.0.1 -p PORT`. Every route is dynamic, gzip is on.
+- **TanStack Start**: `node .output/server/index.mjs`, its Nitro node server. It does not compress rendered pages.
+- **React Router**: `node node_modules/@react-router/serve/bin.cjs build/server/index.js`. `react-router-serve` compresses with gzip.
 
-- With gzip, which Tifa and Next.js send by default, Next.js loses 16% of its requests on one core and Tifa 1.6%, so Next.js answers 2.1 times as many. Start sends pages uncompressed, about 53 KB against about 8.5 KB.
-- Latency settles from the request after which the median of every 30 requests stays within 10% of the steady latency of their pages.
+Reads: the six pages in turn, the data never changes. Tifa's hit rate is 99.99%.
+
+| | Requests/s | Against Tifa | P50 | P99 | Peak RSS | First answer after start |
+| --- | --- | --- | --- | --- | --- | --- |
+| Tifa | 3,284 (3,241 to 3,328) | 1 | 0.25 ms | 1.0 ms (1.0 to 1.1) | 57 MiB | 448 ms (447 to 456) |
+| Next.js | 80.3 (79.1 to 80.3) | 0.024 | 10.60 ms (10.59 to 10.72) | 28.3 ms (27.9 to 30.0) | 435 MiB (433 to 440) | 766 ms (737 to 779) |
+| TanStack Start | 114.9 (114.9 to 116.0) | 0.035 | 6.73 ms (6.67 to 6.78) | 23.1 ms (22.6 to 23.8) | 347 MiB (339 to 351) | 354 ms (352 to 363) |
+| React Router | 75.0 (72.7 to 75.0) | 0.023 | 11.08 ms (11.05 to 11.43) | 29.1 ms (28.9 to 29.1) | 433 MiB (431 to 434) | 2,695 ms (2,668 to 2,700) |
+
+Reads with writes: before the first order page after every 10 reads, one write gives that order a new address, so Tifa's render cache misses on it. Only the reads are timed. Tifa's hit rate is 90%.
+
+| | Requests/s | Against Tifa | P50 | P99 | Peak RSS | First answer after start |
+| --- | --- | --- | --- | --- | --- | --- |
+| Tifa | 461.9 (459.0 to 465.6) | 1 | 0.26 ms (0.26 to 0.27) | 19.2 ms (19.0 to 19.3) | 112 MiB (112 to 113) | 453 ms (451 to 454) |
+| Next.js | 78.4 (78.1 to 78.6) | 0.17 | 10.71 ms (10.70 to 10.75) | 29.4 ms (28.1 to 29.5) | 435 MiB (428 to 437) | 748 ms (740 to 750) |
+| TanStack Start | 114.5 (110.4 to 114.9) | 0.25 | 6.71 ms (6.69 to 6.99) | 23.0 ms (22.5 to 23.1) | 337 MiB (336 to 347) | 357 ms (350 to 373) |
+| React Router | 73.9 (71.9 to 74.0) | 0.16 | 11.19 ms (11.18 to 11.51) | 29.8 ms (28.5 to 30.7) | 431 MiB (429 to 431) | 2,652 ms (2,634 to 2,664) |
+
+With writes Tifa answers 5.9 times the requests of Next.js. It does not render a page it has already rendered, but the 10% of requests that miss take a full render, which is why its P99 is 19.2 ms.
+
+### Engine (caches off)
+
+Tifa runs with `cache.size` 0, so every request renders, as the Node apps do. The rows marked reference are Node with `--jitless` (`node --jitless` before the same script), to show what the JIT is worth. Same start commands, same six pages in turn.
+
+| | Requests/s | Against Tifa | P50 | P99 | Peak RSS | First answer after start |
+| --- | --- | --- | --- | --- | --- | --- |
+| Tifa (cache off) | 42.3 (40.0 to 42.6) | 1 | 19.21 ms (19.15 to 20.41) | 44.8 ms (44.7 to 47.3) | 57 MiB (57 to 58) | 450 ms (449 to 457) |
+| Next.js | 80.3 (79.1 to 80.3) | 1.90 | 10.60 ms (10.59 to 10.72) | 28.3 ms (27.9 to 30.0) | 435 MiB (433 to 440) | 766 ms (737 to 779) |
+| Next.js `--jitless` (reference) | 25.7 (25.4 to 25.8) | 0.61 | 35.61 ms (35.58 to 35.80) | 64.6 ms (64.4 to 65.9) | 337 MiB (323 to 338) | 788 ms (787 to 807) |
+| TanStack Start | 114.9 (114.9 to 116.0) | 2.72 | 6.73 ms (6.67 to 6.78) | 23.1 ms (22.6 to 23.8) | 347 MiB (339 to 351) | 354 ms (352 to 363) |
+| TanStack Start `--jitless` (reference) | 29.9 (29.7 to 30.1) | 0.71 | 30.24 ms (30.12 to 30.24) | 60.6 ms (59.9 to 61.5) | 276 MiB (269 to 276) | 353 ms (350 to 355) |
+| React Router | 75.0 (72.7 to 75.0) | 1.77 | 11.08 ms (11.05 to 11.43) | 29.1 ms (28.9 to 29.1) | 433 MiB (431 to 434) | 2,695 ms (2,668 to 2,700) |
+| React Router `--jitless` (reference) | 24.4 (23.6 to 24.4) | 0.58 | 37.37 ms (37.35 to 38.08) | 70.5 ms (70.5 to 72.5) | 355 MiB (355 to 356) | 2,934 ms (2,932 to 2,976) |
+
+Without a JIT the Node frameworks answer 0.58 to 0.71 times the requests of Tifa. The order list of the studio shop is the slowest page for all of them: a P50 of 44.07 ms in Tifa with the cache off against 17.74 ms in Next.js, one request at a time.
+
+### Memory of the four
+
+| | RSS after start | Peak RSS |
+| --- | --- | --- |
+| Tifa | 47 MiB | 57 MiB |
+| Tifa (cache off) | 47 MiB | 57 MiB (57 to 58) |
+| Next.js | 89 MiB | 435 MiB (433 to 440) |
+| Next.js `--jitless` (reference) | 75 MiB (74 to 75) | 337 MiB (323 to 338) |
+| TanStack Start | 56 MiB | 347 MiB (339 to 351) |
+| TanStack Start `--jitless` (reference) | 54 MiB | 276 MiB (269 to 276) |
+| React Router | 289 MiB (245 to 293) | 433 MiB (431 to 434) |
+| React Router `--jitless` (reference) | 227 MiB | 355 MiB (355 to 356) |
+
+In the reads-with-writes scenario Tifa's peak is 112 MiB, since the render cache keeps the new versions of the pages that the writes change.
+
+### Notes
+
+- **Compression.** TanStack Start sends 146.5 KB a page uncompressed, the others about 25 KB. Next.js answers 16% fewer requests a second with gzip than without (79.8 against 94.9), and Start would likely pay a similar cost if it compressed.
+- **React Router's pages are larger.** With gzip they are 32 to 76 KB, 2 to 5 times the size of Tifa's and Next.js's. `@react-router/node` 8.5.1 flushes the stream after every chunk, and `react-router-serve` compresses with express `compression`, so each flush ends a compressed block. This is its default, measured as it is.
+- **A miss costs nothing measurable.** For every read of an order page right after a write, P50 is 17.72 ms with the render cache and 17.77 ms without.
+- **Not reported.** The request from which latency settles and the slowest request vary too much between identical servers (138% and 26%) to say anything.
+- The Node apps' forms render but cannot submit, and the Node servers stream their pages while Tifa writes each one whole. [Tifa against Next.js and TanStack Start](studies/nextjs-and-tanstack-start.md) has the method of the earlier runs and [what is still not equal](studies/nextjs-and-tanstack-start.md#what-is-not-equal).
+
+To measure again, see [Testing](testing.md#comparison-with-nextjs-tanstack-start-and-react-router-testcompare).
 
 ## How it scales with cores
 
@@ -274,6 +317,6 @@ How each optimization was found and measured, and what was tried and dropped: [O
 
 Whole requests: build `examples/shop`, start `bin/shop --server-addr 127.0.0.1:0 --cache-size 0` with `SHOP_OPEN=1` in its environment, pinned to some cores with `taskset`, and load it from another physical core with as many requests in flight as VMs. Warm up for a few seconds before each run, and for the scaling curve pin the service to as many CPUs as VMs.
 
-Next.js and TanStack Start: `go run ./test/compare/cmd/compare measure` builds the three apps and runs this method with the cores as flags (see [Testing](testing.md#comparison-with-nextjs-tanstack-start-and-react-router-testcompare)).
+Next.js, TanStack Start and React Router: `go run ./test/compare/cmd/compare measure` builds the apps and runs this method with the cores as flags (see [Testing](testing.md#comparison-with-nextjs-tanstack-start-and-react-router-testcompare)).
 
 Node: copy the same `.tifa/dist/ssr.js` to `ssr.mjs` and load it with `import()`, since the bundle is an ES module, render the same inputs, warm up for several hundred renders, and run once with JIT and once with `--jitless` on the same core as the QuickJS benchmark. Before the import, make the getters Node has on `globalThis`, such as `crypto` and `navigator`, plain values, since the bundle assigns them, and add `Iterator.concat`, which TanStack Router calls and Node 24.13 lacks. To find what to change next, compare the time each function takes in QuickJS with the time it takes in Node with `--jitless`: a function far slower than the average ratio is a candidate.

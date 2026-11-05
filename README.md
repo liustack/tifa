@@ -87,6 +87,41 @@ go tool tifa check   # analysis, vet, tests and the TypeScript check in one go
 - **Mistakes caught at build time.** Duplicate paths, a Layout reading a parameter it does not own, a `Load` result that cannot become TypeScript: the build stops and names the file and line.
 - **Fast after the first page.** TanStack Router takes over in the browser. Each navigation is one request for data, and Layouts that are already loaded are not fetched again.
 
+## One small server is enough
+
+Tifa answers 6 times the requests of Next.js on pages whose data changes, from a quarter of the memory.
+
+A page whose data has not changed is not rendered again. Every request still fetches fresh data, so nobody sees stale content, and the app writes no caching code.
+
+Out of the box, data that does not change (Tifa reuses the render for 99.99% of requests):
+
+| | Requests/s | P50 | P99 | Peak RSS |
+| :-- | --: | --: | --: | --: |
+| Tifa | 3,284 | 0.25 ms | 1.0 ms | 57 MiB |
+| Next.js | 80 | 10.6 ms | 28.3 ms | 435 MiB |
+| TanStack Start | 115 | 6.7 ms | 23.1 ms | 347 MiB |
+| React Router | 75 | 11.1 ms | 29.1 ms | 433 MiB |
+
+Out of the box, with a write to one order every 10 reads (Tifa reuses the render for 90%):
+
+| | Requests/s | P50 | P99 | Peak RSS |
+| :-- | --: | --: | --: | --: |
+| Tifa | 462 | 0.26 ms | 19.2 ms | 112 MiB |
+| Next.js | 78 | 10.7 ms | 29.4 ms | 435 MiB |
+| TanStack Start | 115 | 6.7 ms | 23.0 ms | 337 MiB |
+| React Router | 74 | 11.2 ms | 29.8 ms | 431 MiB |
+
+With every cache off, so every request renders:
+
+| | Requests/s | P50 | P99 | Peak RSS |
+| :-- | --: | --: | --: | --: |
+| Tifa | 42 | 19.2 ms | 44.8 ms | 57 MiB |
+| Next.js | 80 | 10.6 ms | 28.3 ms | 435 MiB |
+| TanStack Start | 115 | 6.7 ms | 23.1 ms | 347 MiB |
+| React Router | 75 | 11.1 ms | 29.1 ms | 433 MiB |
+
+Without a JIT, Node answers 0.6 to 0.7 times the requests of Tifa. One core each, default settings, the six workbench pages of the example shop. [The full comparison](docs/performance.md#against-nextjs-tanstack-start-and-react-router) has the method and every number.
+
 ## Start an app
 
 You need Go 1.27, Node 20.19 or 22.12 and later (what Vite 8 asks for) and pnpm (npm works too). Pages need React 19.3 or later, which `tifa new` installs. Node only builds the front end: the program you deploy never needs it. `tifa dev` does not run on Windows yet, use WSL.

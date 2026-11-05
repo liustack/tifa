@@ -11,7 +11,7 @@ versions: 'Next.js 16.4.2 (App Router, Turbopack build, its bundled React 19.3.0
 
 # Tifa against Next.js and TanStack Start
 
-[Performance](../performance.md#against-nextjs-and-tanstack-start) has the summary. This page has the method and the full numbers.
+[Performance](../performance.md#against-nextjs-tanstack-start-and-react-router) has the summary. This page has the method and the full numbers.
 
 The apps and the commands are in the repository: `test/compare` builds the six workbench pages of `examples/shop` as a Tifa program, a Next.js app and a TanStack Start app, checks that they show the same pages, and measures them. [Testing](../testing.md#comparison-with-nextjs-tanstack-start-and-react-router-testcompare) says how to run it.
 
