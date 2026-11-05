@@ -133,22 +133,18 @@ type cachedPage struct {
 	whole *wholePage
 }
 
-func (p cachedPage) size() int64 {
-	n := p.bodySize() + int64(len(p.policy))
+func (p cachedPage) size() int64 { return p.bodySize() + p.meta() }
+
+func (p cachedPage) bodySize() int64 { return int64(len(p.html) + len(p.gzip) + len(p.zstd)) }
+
+// meta is what the page costs besides its HTML and compressed forms: its policy, which every page
+// keeps for itself, and what a page of the whole-page cache stands for.
+func (p cachedPage) meta() int64 {
+	n := int64(len(p.policy))
 	if p.whole != nil {
 		n += p.whole.size()
 	}
 	return n
-}
-
-func (p cachedPage) bodySize() int64 { return int64(len(p.html) + len(p.gzip) + len(p.zstd)) }
-
-// meta is what the page costs besides its HTML and compressed forms.
-func (p cachedPage) meta() int64 {
-	if p.whole != nil {
-		return p.whole.size()
-	}
-	return 0
 }
 
 // effects returns what the result of a make does to the cache, from its page or its error.

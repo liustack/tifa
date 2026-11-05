@@ -1,6 +1,9 @@
 package server
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestHTMLCacheEvictsLeastRecentlyUsedByBytes(t *testing.T) {
 	c := newHTMLCache(10)
@@ -56,5 +59,24 @@ func TestHTMLCacheKeepsTheHTMLWhenItsFormsDoNotFit(t *testing.T) {
 	c.put("a", cachedPage{html: "123456", gzip: []byte("123"), zstd: []byte("123")})
 	if p, ok := c.get("a"); !ok || p.html != "123456" || p.gzip != nil || p.zstd != nil || c.used != 6 {
 		t.Errorf("kept %+v, %d bytes used", p, c.used)
+	}
+}
+
+// The Content-Security-Policy of a page counts toward the size of the cache, as page.size says, and
+// is given back when the page leaves.
+func TestHTMLCacheChargesThePolicyOfAPage(t *testing.T) {
+	c := newHTMLCache(100)
+	page := cachedPage{html: "1234", policy: "abcdef"}
+	c.put("a", page)
+	if c.used != page.size() || c.used != 10 {
+		t.Errorf("%d used, the page says %d, want 10", c.used, page.size())
+	}
+	c.put("b", cachedPage{html: "12", policy: strings.Repeat("p", 95)})
+	if _, ok := c.get("a"); ok || c.used != 97 {
+		t.Errorf("a stayed with %d used of 100, want 97 with a evicted", c.used)
+	}
+	c.removeLocked("b")
+	if c.used != 0 {
+		t.Errorf("%d used after the page left", c.used)
 	}
 }
