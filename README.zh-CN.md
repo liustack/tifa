@@ -119,8 +119,11 @@ go tool tifa check   # 分析、vet、测试和 TypeScript 检查一次跑完
 | Next.js | 80 | 10.6 ms | 28.3 ms | 435 MiB |
 | TanStack Start | 115 | 6.7 ms | 23.1 ms | 347 MiB |
 | React Router | 75 | 11.1 ms | 29.1 ms | 433 MiB |
+| Next.js, `--jitless` | 26 | 35.6 ms | 64.6 ms | 337 MiB |
+| TanStack Start, `--jitless` | 30 | 30.2 ms | 60.6 ms | 276 MiB |
+| React Router, `--jitless` | 24 | 37.4 ms | 70.5 ms | 355 MiB |
 
-去掉 JIT 后，Node 每秒处理的请求是 Tifa 的 0.6 到 0.7 倍。每个框架一个核，默认设置，示例商店的六个工作台页面。方法和全部数字见[完整对比](docs/performance.zh-CN.md#和三个-node-框架比)。
+Tifa 没有 JIT。`--jitless` 那几行是把 Node 的 JIT 也关掉，作为参照：每秒处理的请求是 Tifa 的 0.6 到 0.7 倍。每个框架一个核，默认设置，示例商店的六个工作台页面。方法和全部数字见[完整对比](docs/performance.zh-CN.md#和三个-node-框架比)。
 
 ## 新建应用
 
