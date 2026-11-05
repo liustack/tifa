@@ -30,6 +30,7 @@ type Spec struct {
 	Label     string   // in the tables
 	Configs   []string // the tables it is in
 	Reference bool     // marked reference in the tables: it explains a gap and is not a contender
+	Write     Writer   // the path of the write that changes the data of an order
 	Version   string   // package.json, from Dir, of the framework package whose version the record keeps
 }
 
@@ -43,7 +44,7 @@ func (e Env) Specs() []Spec {
 				Args: append([]string{"--server-addr", "127.0.0.1:%PORT%", "--ssr-vms", "1"}, extra...),
 				Env:  []string{"GOMAXPROCS=1", "SHOP_OPEN=1"},
 			},
-			Framework: "tifa", Label: "Tifa", Configs: configs,
+			Framework: "tifa", Label: "Tifa", Configs: configs, Write: func(project, order string) string { return "/projects/" + project + "/orders/" + order },
 		}
 	}
 	next := func(name, label string, reference bool, configs []string, flags ...string) Spec {
@@ -54,7 +55,7 @@ func (e Env) Specs() []Spec {
 				Args: append(slices.Clone(flags), nextBin, "start", "-H", "127.0.0.1", "-p", "%PORT%"),
 				Env:  []string{"NODE_ENV=production", "NEXT_TELEMETRY_DISABLED=1"},
 			},
-			Framework: "nextjs", Label: label, Configs: configs, Reference: reference,
+			Framework: "nextjs", Label: label, Configs: configs, Reference: reference, Write: nodeWrite,
 			Version: filepath.Join("node_modules", "next", "package.json"),
 		}
 	}
@@ -65,7 +66,7 @@ func (e Env) Specs() []Spec {
 				Args: append(slices.Clone(flags), filepath.Join(".output", "server", "index.mjs")),
 				Env:  []string{"NODE_ENV=production", "HOST=127.0.0.1", "PORT=%PORT%"},
 			},
-			Framework: "start", Label: label, Configs: configs, Reference: reference,
+			Framework: "start", Label: label, Configs: configs, Reference: reference, Write: nodeWrite,
 			Version: filepath.Join("node_modules", "@tanstack", "react-start", "package.json"),
 		}
 	}
@@ -78,7 +79,7 @@ func (e Env) Specs() []Spec {
 				Args: append(slices.Clone(flags), filepath.Join("node_modules", "@react-router", "serve", "bin.cjs"), filepath.Join("build", "server", "index.js")),
 				Env:  []string{"NODE_ENV=production", "HOST=127.0.0.1", "PORT=%PORT%"},
 			},
-			Framework: "reactrouter", Label: label, Configs: configs, Reference: reference,
+			Framework: "reactrouter", Label: label, Configs: configs, Reference: reference, Write: nodeWrite,
 			Version: filepath.Join("node_modules", "react-router", "package.json"),
 		}
 	}
@@ -143,3 +144,7 @@ func packageVersion(path string) string {
 	}
 	return p.Version
 }
+
+// nodeWrite is the path of the write endpoint of the three Node apps. It is one path for all of
+// them, since Next.js cannot put a route handler next to a page.
+func nodeWrite(project, order string) string { return "/compare-write/" + project + "/" + order }

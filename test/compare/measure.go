@@ -16,30 +16,6 @@ import (
 	"golang.org/x/mod/modfile"
 )
 
-// Step is one request of a scenario. Only a timed request counts in the latencies, and Page says
-// which page it asks for, so that it is compared with the steady latency of that page.
-type Step struct {
-	Method string
-	Path   string
-	Body   []byte
-	Timed  bool
-	Page   int
-}
-
-// Scenario says which requests make up the n-th unit of work (n counts from 0). Exactly one of
-// the steps of a unit is timed. Steps that are not timed, such as a write that changes the data
-// of a page before the read, are sent before it and cost nothing in the numbers.
-type Scenario struct {
-	Name  string
-	Steps func(n int) []Step
-}
-
-// ReadScenario asks for the six pages in turn, one at a time.
-var ReadScenario = Scenario{Name: "read", Steps: func(n int) []Step {
-	page := n % len(Pages)
-	return []Step{{Method: http.MethodGet, Path: Pages[page].URL, Timed: true, Page: page}}
-}}
-
 // Options say how to measure. The method: each round starts every server fresh and times it from
 // the start of its process, with no warm-up. The first answer, the first 100 and the first 1000
 // requests are the cold part. Then comes a steady phase. One client has one request in flight and
@@ -54,7 +30,7 @@ type Options struct {
 	Servers    []string      // spec ids, all of the configurations when empty
 	AA         bool          // also run Tifa against Tifa first in each round
 	Render     bool          // also run the render benchmark of test/ssr once after the rounds, apart from the cold runs
-	Scenario   Scenario      // ReadScenario when it has no steps
+	Scenarios  []Scenario    // ReadScenario only when empty
 	Log        io.Writer
 }
 
@@ -72,8 +48,8 @@ func (e Env) Measure(ctx context.Context, o Options) (*Record, error) {
 	if len(o.Configs) == 0 {
 		o.Configs = Configs
 	}
-	if o.Scenario.Steps == nil {
-		o.Scenario = ReadScenario
+	if len(o.Scenarios) == 0 {
+		o.Scenarios = []Scenario{ReadScenario}
 	}
 	var topology = SysTopology()
 	placement, err := PlacementFor(runtime.GOOS, topology, o.ServerCPUs, o.LoadCPUs)
@@ -102,25 +78,33 @@ func (e Env) Measure(ctx context.Context, o Options) (*Record, error) {
 		Versions:  e.versions(specs),
 		Machine:   machine(),
 		Placement: placement,
-		Settings:  Settings{Rounds: o.Rounds, Steady: o.Steady.String(), Cold: o.Cold, Configs: o.Configs, Scenario: o.Scenario.Name},
+		Settings:  Settings{Rounds: o.Rounds, Steady: o.Steady.String(), Cold: o.Cold, Configs: o.Configs, Scenarios: scenarioNames(o.Scenarios)},
 	}
 	fmt.Fprintf(o.Log, "placement: %s\n", placement.Note)
 	for round := 0; round < o.Rounds; round++ {
-		order := Rotate(specs, round)
+		var order []planned
 		if o.AA {
-			order = append(Rotate(e.AASpecs(), round), order...)
+			for _, s := range Rotate(e.AASpecs(), round) {
+				order = append(order, planned{s, ReadScenario})
+			}
 		}
-		for _, spec := range order {
+		for _, sc := range o.Scenarios {
+			for _, s := range Rotate(sc.pick(specs), round) {
+				order = append(order, planned{s, sc})
+			}
+		}
+		for _, p := range order {
+			spec := p.spec
 			if err := waitIdle(ctx, o.Log, o.ServerCPUs+","+o.LoadCPUs); err != nil {
 				return nil, err
 			}
-			run, err := runOnce(ctx, o, spec, round+1)
+			run, err := runOnce(ctx, o, spec, p.scenario, round+1)
 			if err != nil {
 				return nil, err
 			}
 			rec.Runs = append(rec.Runs, *run)
 			m := run.Metrics
-			fmt.Fprintf(o.Log, "round %d %-15s first answer %5.0f ms  %7.1f req/s  P50 %6.2f  P99 %6.2f  max %6.1f ms  settles at %s  RSS %3.0f/%3.0f MiB", round+1, spec.Name, m.FirstAnswer, m.Requests, m.P50, m.P99, m.Max, defByKey("settle").Format(m.Settle), m.RSSStart, m.RSSPeak)
+			fmt.Fprintf(o.Log, "round %d %-10s %-15s first answer %5.0f ms  %7.1f req/s  P50 %6.2f  P99 %6.2f  max %6.1f ms  settles at %s  RSS %3.0f/%3.0f MiB", round+1, p.scenario.Name, spec.Name, m.FirstAnswer, m.Requests, m.P50, m.P99, m.Max, defByKey("settle").Format(m.Settle), m.RSSStart, m.RSSPeak)
 			if run.Renders != nil {
 				fmt.Fprintf(o.Log, "  hit rate %.1f%%", m.HitRate*100)
 			}
@@ -139,7 +123,7 @@ func (e Env) Measure(ctx context.Context, o Options) (*Record, error) {
 }
 
 // runOnce starts a server, times it from the start of its process, and stops it.
-func runOnce(ctx context.Context, o Options, spec Spec, round int) (*Run, error) {
+func runOnce(ctx context.Context, o Options, spec Spec, sc Scenario, round int) (*Run, error) {
 	t0 := time.Now()
 	server, err := spec.Launch(o.ServerCPUs)
 	if err != nil {
@@ -152,13 +136,13 @@ func runOnce(ctx context.Context, o Options, spec Spec, round int) (*Run, error)
 	// RSS after start: the server listens and has answered nothing.
 	rssStart := float64(server.RSS()) / (1 << 20)
 	c := newClient(server.Base)
-	run := &Run{Spec: spec.Name, Framework: spec.Framework, Label: spec.Label, Configs: spec.Configs, Reference: spec.Reference, AA: slices.Contains(spec.Configs, ConfigAA), Round: round, Scenario: o.Scenario.Name}
+	run := &Run{Spec: spec.Name, Framework: spec.Framework, Label: spec.Label, Configs: spec.Configs, Reference: spec.Reference, AA: slices.Contains(spec.Configs, ConfigAA), Round: round, Scenario: sc.Name}
 	renders := map[string]int{}
 
 	var cold, steady []float64
 	var coldPage, steadyPage []int
 	read := func(n int, lat *[]float64, pages *[]int) error {
-		for _, st := range o.Scenario.Steps(n) {
+		for _, st := range sc.Steps(spec.Write, n) {
 			d, render, err := c.do(ctx, st)
 			if err != nil {
 				return fmt.Errorf("%s: request %d %s %s: %w\n%s", spec.Name, n+1, st.Method, st.Path, err, server.Output())
@@ -262,6 +246,9 @@ func (c *client) do(ctx context.Context, st Step) (time.Duration, string, error)
 		return 0, "", err
 	}
 	req.Header.Set("Accept-Encoding", "identity")
+	if st.Body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	start := time.Now()
 	res, err := c.http.Do(req)
 	if err != nil {
@@ -404,4 +391,11 @@ func machine() Machine {
 		m.CPU = strings.TrimSpace(string(out))
 	}
 	return m
+}
+
+// Send sends one step to a server and fails unless it answers 200. It is for the writes of the
+// tests, which check that a server takes them.
+func Send(ctx context.Context, base string, st Step) error {
+	_, _, err := newClient(base).do(ctx, st)
+	return err
 }

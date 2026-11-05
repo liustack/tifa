@@ -11,7 +11,7 @@ import (
 // them so that the other metrics have values.
 func mkRun(spec, framework string, round int, req, p50 float64, configs ...string) Run {
 	return Run{
-		Spec: spec, Framework: framework, Label: spec, Configs: configs, Round: round,
+		Spec: spec, Framework: framework, Label: spec, Configs: configs, Round: round, Scenario: ScenarioRead,
 		Metrics: Metrics{
 			Requests: req, P50: p50, P99: p50 * 2, Max: p50 * 4, FirstAnswer: 300, First100: p50 * 3, First1000: p50 * 1.5,
 			Settle: 40, RSSStart: 50, RSSPeak: 60, HitRate: 0,
@@ -237,5 +237,68 @@ func TestParseRender(t *testing.T) {
 	}
 	if _, err := parseRender("nothing"); err == nil {
 		t.Error("output with no page was accepted")
+	}
+}
+
+// withWrites adds the runs of the two scenarios with writes: Tifa and Next.js with the cache on
+// and 90% hits in the default configuration, and Tifa alone with and without its cache when every
+// read follows a write.
+func withWrites(r *Record) *Record {
+	for round := 1; round <= 2; round++ {
+		tifa := mkRun("tifa", "tifa", round, 120, 7, ConfigDefault)
+		tifa.Label, tifa.Scenario = "Tifa", ScenarioReadWrite
+		tifa.Renders, tifa.Metrics.HitRate = map[string]int{"vm": 500, "cache": 4500}, 0.9
+		next := mkRun("nextjs", "nextjs", round, 80, 10, ConfigDefault, ConfigEngine)
+		next.Label, next.Scenario = "Next.js", ScenarioReadWrite
+		hit := mkRun("tifa", "tifa", round, 30, 31, ConfigDefault)
+		hit.Label, hit.Scenario, hit.Renders = "Tifa", ScenarioWriteEach, map[string]int{"vm": 5000}
+		miss := mkRun("tifa-nocache", "tifa", round, 31, 30, ConfigEngine)
+		miss.Label, miss.Scenario, miss.Renders = "Tifa (cache off)", ScenarioWriteEach, map[string]int{"vm": 5000}
+		r.Runs = append(r.Runs, tifa, next, hit, miss)
+	}
+	return r
+}
+
+func TestMarkdownScenarios(t *testing.T) {
+	md := roundTrip(t, withWrites(fixture())).Markdown()
+	for _, want := range []string{
+		"### Out of the box, reads with writes",
+		"| Tifa | 120.0",
+		"90.00%",
+		"Miss overhead of the render cache",
+		"P50 31.00 ms with the cache, 30.00 ms without, +3.3%",
+		"30.0 requests/s with the cache, 31.0 without, -3.2%",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("the report lacks %q:\n%s", want, md)
+		}
+	}
+	// The tables of reads hold only the runs of reads.
+	read := md[strings.Index(md, "### Out of the box\n"):strings.Index(md, "### Out of the box, reads with writes")]
+	if strings.Contains(read, "120.0") || strings.Contains(read, "| Tifa | 30.0") {
+		t.Errorf("a run with writes is in the table of reads:\n%s", read)
+	}
+	eng := md[strings.Index(md, "### Engine"):strings.Index(md, "### Memory")]
+	if strings.Contains(eng, "31.0") {
+		t.Errorf("a run with writes is in the engine table:\n%s", eng)
+	}
+	if plain := fixture().Markdown(); strings.Contains(plain, "reads with writes") || strings.Contains(plain, "Miss overhead") {
+		t.Errorf("a record without those scenarios prints their tables:\n%s", plain)
+	}
+}
+
+func TestDiffComparesEveryScenario(t *testing.T) {
+	old, bad := withWrites(fixture()), withWrites(fixture())
+	if _, flagged := DiffRecords(old, bad); flagged != 0 {
+		t.Fatalf("equal records flagged %d", flagged)
+	}
+	for i := range bad.Runs {
+		if bad.Runs[i].Scenario == ScenarioReadWrite && bad.Runs[i].Spec == "tifa" {
+			bad.Runs[i].Metrics.Requests *= 0.9
+		}
+	}
+	lines, flagged := DiffRecords(old, bad)
+	if flagged != 1 || !strings.Contains(strings.Join(lines, "\n"), ScenarioReadWrite) {
+		t.Errorf("flagged %d, want the read-write requests/s:\n%s", flagged, strings.Join(lines, "\n"))
 	}
 }

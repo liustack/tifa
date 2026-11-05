@@ -357,3 +357,83 @@ func mustTarget(t *testing.T, env compare.Env, name string) compare.Target {
 	}
 	return target
 }
+
+// TestDomainMatchesGoAfterWrites sends the first 60 reads' writes of the scenario with writes to
+// the Go shop and applies them in the port, and checks that the data of the six pages is still
+// the same.
+func TestDomainMatchesGoAfterWrites(t *testing.T) {
+	env := setup(t)
+	if why := compare.NodeRunsTypeScript(); why != "" {
+		t.Skip(why)
+	}
+	buildShop(t, env)
+	ctx := context.Background()
+	writes := compare.Writes(compare.ReadWriteScenario, 60)
+	if len(writes) < 5 {
+		t.Fatalf("only %d writes", len(writes))
+	}
+	want, err := env.GoData(ctx, writes...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := env.NodeData(ctx, writes...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range compare.DiffData(toAny(t, want), toAny(t, got), 20) {
+		t.Error(d)
+	}
+	last := writes[len(writes)-1]
+	text, _ := json.Marshal(want)
+	if !strings.Contains(string(text), last.Address) {
+		t.Errorf("the last write %q is not in the data of the shop", last.Address)
+	}
+}
+
+// TestWriteChangesThePage writes the address of an order in each server and checks that the page
+// of the order shows it, and shows a second write after it and not the first. The servers include
+// Tifa with its render cache on, whose cached page must not be served after a write.
+func TestWriteChangesThePage(t *testing.T) {
+	env := setup(t)
+	buildApps(t, env)
+	ctx := context.Background()
+	page := compare.Pages[2]
+	for _, spec := range env.Specs() {
+		if strings.HasSuffix(spec.Name, "-jitless") {
+			continue
+		}
+		t.Run(spec.Name, func(t *testing.T) {
+			server, err := spec.Start(ctx, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer server.Stop()
+			fetch := func() string {
+				body, err := compare.Fetch(server.Base, page)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return string(body)
+			}
+			fetch() // into the cache of Tifa
+			if strings.Contains(fetch(), "演示地址 0000") {
+				t.Fatal("the page shows a written address before any write")
+			}
+			var written []string
+			for _, n := range []int{0, 2} { // reads 0 and 2 write the order SH-1042
+				steps := compare.WriteEachScenario.Steps(spec.Write, n)
+				if err := compare.Send(ctx, server.Base, steps[0]); err != nil {
+					t.Fatal(err)
+				}
+				written = append(written, compare.Address(n))
+				body := fetch()
+				if !strings.Contains(body, written[len(written)-1]) {
+					t.Errorf("after the write of %q the page does not show it", written[len(written)-1])
+				}
+				if len(written) == 2 && strings.Contains(body, written[0]) {
+					t.Errorf("after the second write the page still shows %q", written[0])
+				}
+			}
+		})
+	}
+}

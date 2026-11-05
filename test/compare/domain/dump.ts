@@ -1,7 +1,12 @@
 // Prints the data of the six pages as JSON, for the check that it is what the Go code returns:
-//   node test/compare/domain/dump.ts
+//   node test/compare/domain/dump.ts [writes]
 // Node 22.18 and later run TypeScript as it is, by removing its types, so this needs no build.
 import { loadOrder, loadOrderList, loadProject, loadShell, loadStats } from './loaders.ts'
+import { updateRecipient } from './orders.ts'
+
+// With a JSON list of writes as the argument, each write is made first, so that the data can be
+// compared with the shop after the same writes: [{project, order, customer, phone, address}].
+for (const w of JSON.parse(process.argv[2] ?? '[]')) updateRecipient(w.project, w.order, w.customer, w.phone, w.address)
 
 const out: Record<string, Record<string, unknown>> = {}
 for (const [url, project, order, page] of [
