@@ -1,6 +1,6 @@
 // AsyncLocalStorage and AsyncResource of node:async_hooks, as Cloudflare Workers has them: run,
 // exit, getStore, bind and snapshot, without enterWith and disable. The engine keeps an object
-// across promise jobs (slowjs.GetAsyncContext): a then or an await runs with the object set when
+// across promise jobs (quickjs.GetAsyncContext): a then or an await runs with the object set when
 // it was registered. A context is a Map from each AsyncLocalStorage to its store, never changed
 // once set: run sets a new one and gives the old one back after.
 import { uncurry } from './intrinsics'

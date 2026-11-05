@@ -21,7 +21,7 @@ import (
 	"os/signal"
 	"sync"
 
-	"github.com/liustack/slowjs"
+	"github.com/liustack/quickjs"
 )
 
 func init() {
@@ -50,7 +50,7 @@ func (c *counts) print() {
 		c.same+c.declined+c.differ, c.same, c.declined, c.differ)
 }
 
-func registerEmitCheck(vm *slowjs.VM) error {
+func registerEmitCheck(vm *quickjs.VM) error {
 	return vm.RegisterHostFunc("__tifa_emit_check", func(args []any) (any, error) {
 		if len(args) != 5 {
 			return nil, fmt.Errorf("__tifa_emit_check takes 5 arguments, got %d", len(args))

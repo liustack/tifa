@@ -25,7 +25,7 @@ A Go CPU profile of a render shows engine functions such as `JS_CallInternal`, n
 
 ### QuickJS side
 
-The profile of 2026-10-20 was taken on the engine before slowjs v0.29, with hooks in its generated Go. The C engine has no such hooks yet, so repeating this needs equivalent hooks in its C code. The steps were:
+The profile of 2026-10-20 was taken on the engine before quickjs v0.29, with hooks in its generated Go. The C engine has no such hooks yet, so repeating this needs equivalent hooks in its C code. The steps were:
 
 1. Copy the quickjs module into a scratch clone of tifa and point `go.mod` at it with a `replace`.
 2. Add hooks in the generated Go of the engine:

@@ -4,6 +4,10 @@ What changed in tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Changed
+
+- Server rendering runs on `github.com/liustack/quickjs` v0.30.0, the new path of the engine that was `github.com/liustack/slowjs` from v0.28.0 to v0.29.11. The HTML is the same. If an app builds with the engine's build tags, `slowjs_intl_nonames`, `slowjs_intl_nocjdict` and `slowjs_anygo` are now `quickjs_intl_nonames`, `quickjs_intl_nocjdict` and `quickjs_anygo`. Errors of the engine's root package start with `quickjs:` where they started with `slowjs:`.
+
 ## [0.0.4] - 2026-11-05
 
 ### Added

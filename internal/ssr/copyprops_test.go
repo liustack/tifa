@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liustack/slowjs"
+	"github.com/liustack/quickjs"
 )
 
 // Load gives every VM __tifa_copy_props, which the bundle's React asks for when it loads, and the
@@ -26,7 +26,7 @@ func TestLoadDefinesCopyProps(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer vm.Close()
-	got, err := vm.Eval(`globalThis.copied`, slowjs.EvalGlobal)
+	got, err := vm.Eval(`globalThis.copied`, quickjs.EvalGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}

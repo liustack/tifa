@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"unsafe"
 
-	"github.com/liustack/slowjs"
+	"github.com/liustack/quickjs"
 )
 
 // The hash of @emotion/hash (MurmurHash2 of the low bytes of the UTF-16 code units of a string,
@@ -16,7 +16,7 @@ import (
 // murmur2Builtin hashes a string argument and returns undefined for anything else. It reads the
 // characters where the engine keeps them, and only a rope, a string kept as the pieces it was
 // joined from, as WTF-8.
-var murmur2Builtin = slowjs.NewBuiltin("murmur2", 1, func(a slowjs.Args) (slowjs.Value, error) {
+var murmur2Builtin = quickjs.NewBuiltin("murmur2", 1, func(a quickjs.Args) (quickjs.Value, error) {
 	if b, ok := a.Latin1(0); ok {
 		return a.VM().NewString(murmur2Bytes(b))
 	}
@@ -25,7 +25,7 @@ var murmur2Builtin = slowjs.NewBuiltin("murmur2", 1, func(a slowjs.Args) (slowjs
 	}
 	s, ok := a.WTF8(0)
 	if !ok {
-		return slowjs.Value{}, nil
+		return quickjs.Value{}, nil
 	}
 	return a.VM().NewString(murmur2(s))
 })
@@ -40,8 +40,8 @@ const murmur2Hook = `(hash) => {
   })
 }`
 
-func registerHash(vm *slowjs.VM) error {
-	define, err := vm.EvalValue(murmur2Hook, slowjs.EvalGlobal)
+func registerHash(vm *quickjs.VM) error {
+	define, err := vm.EvalValue(murmur2Hook, quickjs.EvalGlobal)
 	if err != nil {
 		return err
 	}
@@ -51,7 +51,7 @@ func registerHash(vm *slowjs.VM) error {
 		return err
 	}
 	defer b.Free()
-	r, err := define.CallValue(slowjs.UndefinedValue, b)
+	r, err := define.CallValue(quickjs.UndefinedValue, b)
 	if err != nil {
 		return err
 	}

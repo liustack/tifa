@@ -1,6 +1,6 @@
 package ssr
 
-import "github.com/liustack/slowjs"
+import "github.com/liustack/quickjs"
 
 // React DOM writes the start tag of most elements with pushStartGenericElement and the functions it
 // calls for each attribute and style, and the end tag with endChunkForTag. The tifa plugin makes the
@@ -10,7 +10,7 @@ import "github.com/liustack/slowjs"
 // nothing, for any element where it cannot be sure to, which React's own function then writes.
 
 // registerTags defines __tifa_start_tag and __tifa_end_tag on vm.
-func registerTags(vm *slowjs.VM) error {
+func registerTags(vm *quickjs.VM) error {
 	if err := vm.RegisterStartTag("__tifa_start_tag"); err != nil {
 		return err
 	}
@@ -19,4 +19,4 @@ func registerTags(vm *slowjs.VM) error {
 
 // emitCheck, when set, defines on each VM what a bundle built with TIFA_EMIT_CHECK=1 reports its
 // comparisons of the tags to. Only a build with the tag tifa_emit_check sets it, see emitcheck.go.
-var emitCheck func(vm *slowjs.VM) error
+var emitCheck func(vm *quickjs.VM) error

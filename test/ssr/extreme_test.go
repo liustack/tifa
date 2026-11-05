@@ -31,7 +31,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liustack/slowjs"
+	"github.com/liustack/quickjs"
 	"github.com/liustack/tifa/internal/config"
 	"github.com/liustack/tifa/internal/ssr"
 )
@@ -149,7 +149,7 @@ type once struct {
 
 // renderOnce loads a VM from bytecode with the limits of cfg and renders in it on a new
 // goroutine, which starts with a small stack.
-func renderOnce(t testing.TB, bytecode *slowjs.SharedBytecode, cfg config.SSR, in ssr.Input) once {
+func renderOnce(t testing.TB, bytecode *quickjs.SharedBytecode, cfg config.SSR, in ssr.Input) once {
 	t.Helper()
 	vm, err := ssr.Load(bytecode, uintptr(cfg.VMMemory), uintptr(cfg.VMStackDepth), cfg.Timeout, false)
 	if err != nil {
@@ -188,7 +188,7 @@ func goStacks() uint64 {
 
 // failure names how a render failed.
 func failure(err error) string {
-	var e *slowjs.Error
+	var e *quickjs.Error
 	switch {
 	case errors.Is(err, ssr.ErrOutOfMemory):
 		return "out of memory"
@@ -272,13 +272,13 @@ func injection(b *testing.B, p extremePage) (report func()) {
 	begin := time.Now()
 	escaped := ssr.EscapeAboveFFFF(p.answer)
 	escape := time.Since(begin)
-	vm, err := slowjs.NewVM()
+	vm, err := quickjs.NewVM()
 	if err != nil {
 		b.Fatal(err)
 	}
 	defer vm.Close()
 	vm.SetMemoryLimit(1 << 30)
-	if _, err := vm.Eval("globalThis.parse = (text) => JSON.parse(text) && text.length", slowjs.EvalGlobal); err != nil {
+	if _, err := vm.Eval("globalThis.parse = (text) => JSON.parse(text) && text.length", quickjs.EvalGlobal); err != nil {
 		b.Fatal(err)
 	}
 	begin = time.Now()

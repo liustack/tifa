@@ -25,7 +25,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liustack/slowjs"
+	"github.com/liustack/quickjs"
 	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/internal/config"
 	"github.com/liustack/tifa/internal/ssr"
@@ -480,7 +480,7 @@ func TestShopReuseKeepsRequestsApart(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer vm.Close()
-	if _, err := vm.Eval("globalThis.reuseMark = 'the VM of this test'", slowjs.EvalGlobal); err != nil {
+	if _, err := vm.Eval("globalThis.reuseMark = 'the VM of this test'", quickjs.EvalGlobal); err != nil {
 		t.Fatal(err)
 	}
 	previous := ""
@@ -498,7 +498,7 @@ func TestShopReuseKeepsRequestsApart(t *testing.T) {
 		if previous != "" && strings.Contains(html, previous) {
 			t.Fatalf("request %d: previous customer leaked into HTML", i)
 		}
-		if mark, err := vm.Eval("globalThis.reuseMark", slowjs.EvalGlobal); err != nil || mark != "the VM of this test" {
+		if mark, err := vm.Eval("globalThis.reuseMark", quickjs.EvalGlobal); err != nil || mark != "the VM of this test" {
 			t.Fatalf("request %d: the mark is %v, %v", i, mark, err)
 		}
 		previous = name
@@ -520,11 +520,11 @@ func units(s string) int {
 
 // dataLiterals returns the strings that a page passes to the deserializer of the tifa.data adapter,
 // read as JavaScript reads them, which is what the browser parses the data of the router from.
-func dataLiterals(t *testing.T, vm *slowjs.VM, html string) []string {
+func dataLiterals(t *testing.T, vm *quickjs.VM, html string) []string {
 	t.Helper()
 	var out []string
 	for _, m := range regexp.MustCompile(`\$_TSR\.t\.get\("tifa\.data"\)\("((?:[^"\\]|\\.)*)"\)`).FindAllStringSubmatch(html, -1) {
-		v, err := vm.Eval(`"`+m[1]+`"`, slowjs.EvalGlobal)
+		v, err := vm.Eval(`"`+m[1]+`"`, quickjs.EvalGlobal)
 		if err != nil {
 			t.Fatalf("read %.60s: %v", m[1], err)
 		}
@@ -551,7 +551,7 @@ func TestShopSlotsAtTheLengthWhereTheyStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer vm.Close()
-	reader, err := slowjs.NewVM()
+	reader, err := quickjs.NewVM()
 	if err != nil {
 		t.Fatal(err)
 	}

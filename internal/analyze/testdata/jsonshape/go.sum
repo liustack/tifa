@@ -5,8 +5,8 @@ github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
 github.com/klauspost/compress v1.20.3 h1:zWNoFqq/lSuYQRim3dUXlXeA0IqwuZGicdG5ZTfY5j4=
 github.com/klauspost/compress v1.20.3/go.mod h1:LUdAzn7YLVvxLpc7y3V1m40wESHTgc1422pwwBSKYuI=
-github.com/liustack/slowjs v0.29.10 h1:QpnkdtpZyRhP/7cwK2y5Rn9So+ie6yp3UJHsdU2fP2E=
-github.com/liustack/slowjs v0.29.10/go.mod h1:4msddmxUEkz5E28pGezzJPnbTYUEAOVIjUYllbphV6E=
+github.com/liustack/quickjs v0.30.0 h1:FsW2w9EF5BTTRbuKBTwthqb0VwxWlJU5PG7fzQSYWOU=
+github.com/liustack/quickjs v0.30.0/go.mod h1:9Rh4Yu87ijVQiwH/cTUtSkgMTBfTmMVBUOtOP5eFqzQ=
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
 github.com/spf13/cobra v1.10.2 h1:DMTTonx5m65Ic0GOoRY2c16WCbHxOOw6xxezuLaBpcU=
 github.com/spf13/cobra v1.10.2/go.mod h1:7C1pvHqHw5A4vrJfjNwvOdzYu0Gml16OCs2GRiTUUS4=
