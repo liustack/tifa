@@ -111,7 +111,7 @@ go tool tifa check   # 分析、vet、测试和 TypeScript 检查一次跑完
 | TanStack Start | 115 | 23.1 ms | 347 MiB |
 | React Router | 75 | 29.1 ms | 433 MiB |
 
-去掉 JIT 后，Node 每秒处理的请求是 Tifa 的 0.6 到 0.7 倍。每个框架一个核，默认设置，示例商店的六个工作台页面。方法和全部数字见[完整对比](docs/performance.zh-CN.md#和-nextjs-与-tanstack-start-及-react-router-比)。
+去掉 JIT 后，Node 每秒处理的请求是 Tifa 的 0.6 到 0.7 倍。每个框架一个核，默认设置，示例商店的六个工作台页面。方法和全部数字见[完整对比](docs/performance.zh-CN.md#和三个-node-框架比)。
 
 ## 新建应用
 
