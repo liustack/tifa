@@ -283,7 +283,7 @@ go tool pprof -top -cum ssr.test mutex.out
 
 **Where the work is done.** In Tifa, every request runs the Go `Layout` and `Load` functions, which read the orders from memory, copy and sort them and work out the list, the order or the stats. In the three apps, every request runs the same functions in TypeScript on orders that the process builds in memory when it starts, from the same seed code. Nothing is kept from one request to the next. The components, the stylesheet, the root Layout, everything TypeScript under `app/projects`, the 160 pixel photos and the `+layout` and `+route` modules that `tifa build` generates from the Go types are copied from `examples/shop` into `shop/` and `public/images/` when the apps are built, so a change to a page of the shop reaches all four. A change to the Go code that loads the data does not reach the port by itself. The check below fails and names the fields, and you port the change.
 
-The handlers (`POST`, `PUT`, `PATCH`) are not ported: the apps show pages. The forms render, but their calls fail.
+The handlers (`POST`, `PUT`, `PATCH`) are not ported: the apps show pages. The forms render, but their calls fail. The one exception is a write endpoint for the measuring (below): `PATCH /compare-write/<project>/<order>`, which takes the body of the shop's `PATCH` on the order route and calls `updateRecipient` of the port, a copy of `UpdateRecipient` and `CheckRecipient`. It is one path in the three apps, since Next.js cannot put a route handler beside a page.
 
 ### Check that the pages are the same
 
@@ -297,6 +297,8 @@ The tests build the shop and the three apps (`pnpm install --frozen-lockfile` an
 - `TestPagesShowTheSameText`: the six pages fetched without compression show the same title and text nodes in order, and have the same number of `tr`, `a`, `svg`, `button`, `li`, `time`, `img`, `table`, `h1` to `h3`, `nav` and `input` elements. Script, style and template elements do not count.
 - `TestEveryRequestComputesAndRenders`: each request for a page runs the data code and renders the page again, shown by counting. See below.
 - `TestNoCachingBetweenRequests`: the apps hold nothing that could keep a page between requests.
+- `TestDomainMatchesGoAfterWrites`: the same as `TestDomainMatchesGo` after the writes of the first 60 reads of the scenario with writes, sent to the Go shop and applied in the port.
+- `TestWriteChangesThePage`: in each server (Tifa with its render cache on too), a write of the address of an order shows on the page of the order, and a second write shows and the first no longer does. This is the check that the write endpoints of the Node apps work and that a cached page is not served after a write.
 
 They work on macOS and Linux and skip when `go`, `node` or `pnpm` is missing. `TIFA_COMPARE_SKIP_BUILD=1` starts what the last run built. The tests of the parser run without the switch.
 
@@ -333,6 +335,7 @@ There are two configurations. `default` is each framework as shipped: Tifa with 
 | `-steady` | 30s | Length of the steady part |
 | `-cold` | 1000 | Requests of the cold series |
 | `-config`, `-all` | `default` | The configuration, or both |
+| `-scenarios` | `read` | A list out of `read`, `read-write` and `write-each`, or `all`. `-all` runs all three |
 | `-aa` | off | Runs Tifa against Tifa (two identical servers) before the others in every round, and prints how far apart they were for each metric: the largest minus the smallest over the median. `-all` implies it. `diff` uses this spread as the noise floor |
 | `-servers` | all | A list of spec ids, such as `tifa,tifa-nocache,nextjs` |
 | `-render` | off | Also runs `BenchmarkShop` of `test/ssr` once after the rounds, on `-server-cpus`: it renders the six pages in one warm VM without HTTP, and the report splits Tifa's request (cache off) into the render and the rest. It is a measurement of its own and does not touch the cold runs. Next.js, Start and React Router cannot be split like that from outside |
@@ -341,7 +344,9 @@ There are two configurations. `default` is each framework as shipped: Tifa with 
 
 The record (`-json`) keeps the Go, quickjs, Node, Next.js and Start versions, the Tifa commit, the CPU model, the kernel, the placement, the settings and every run of every round. Raw records stay out of the repository.
 
-The list of servers is the table `Env.Specs` in `test/compare/specs.go`: a new framework is one more entry there, and the run, the report and the diff take it from the table. What a run asks for is a `Scenario` (`measure.go`): the requests of one unit of work, of which exactly one is timed. The default one reads the six pages in turn, and a scenario can send untimed requests before the timed one.
+**Scenarios.** `read` is the six pages in turn and is what the engine table, the memory table, the per-page table and the A/A check use. `read-write` has the same timed reads and, before the first order page after each 10 reads, one untimed write: a `PATCH` of the address of that order (the shop's own call on the order route, with the customer and the phone it already has), with an address that carries the number of the read and always has the same length. So the data of the page is new every time, does not grow, and an earlier version cannot be served again, and the render cache of Tifa must miss there. Lists and stats show who an order is for but not where it goes, so a write cannot change them and writes come before order pages only. It runs for the default configuration, and the report has an out of the box table for it with the hit rate. `write-each` is for Tifa only, with the cache on and with `--cache-size 0`: it reads the two order pages in turn and writes the order before every read, so the cache never hits. The report prints the miss overhead of the cache from it: P50 and requests per second with the cache against without. Only reads are timed in all three.
+
+The list of servers is the table `Env.Specs` in `test/compare/specs.go`: a new framework is one more entry there, and the run, the report and the diff take it from the table. What a run asks for is a `Scenario` (`scenario.go`): the requests of one unit of work, of which exactly one is timed and last. A scenario can send untimed requests before it, and says which specs and configurations it runs for.
 
 Before each server starts, the command waits until the cpus it uses were idle for 3 seconds (Linux). It holds no lock on the cores. When other work shares the machine, take your own lock (`flock`) around the command and keep the whole run in a cgroup with a memory limit.
 
