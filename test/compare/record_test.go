@@ -302,3 +302,58 @@ func TestDiffComparesEveryScenario(t *testing.T) {
 		t.Errorf("flagged %d, want the read-write requests/s:\n%s", flagged, strings.Join(lines, "\n"))
 	}
 }
+
+// withWire adds the bytes on the wire (Tifa, Next.js and React Router gzip, Start sends plain
+// HTML) and the two runs of Next.js that tell what gzip costs it.
+func withWire(r *Record) *Record {
+	for i := range r.Runs {
+		run := &r.Runs[i]
+		enc, size := "gzip", int64(10_000)
+		if run.Framework == "start" {
+			enc, size = "", 50_000
+		}
+		for _, p := range Pages {
+			run.Wire = append(run.Wire, PageWire{Page: p.Name, Bytes: size, Encoding: enc})
+		}
+	}
+	r.Settings.AcceptEncoding = "gzip"
+	for round := 1; round <= 2; round++ {
+		id := mkRun("nextjs-identity", "nextjs", round, 100, 10, ConfigCompression)
+		id.Label, id.Reference = "Next.js, identity", true
+		gz := mkRun("nextjs-gzip", "nextjs", round, 80, 12, ConfigCompression)
+		gz.Label, gz.Reference = "Next.js, gzip", true
+		for _, p := range Pages {
+			id.Wire = append(id.Wire, PageWire{Page: p.Name, Bytes: 50_000})
+			gz.Wire = append(gz.Wire, PageWire{Page: p.Name, Bytes: 10_000, Encoding: "gzip"})
+		}
+		r.Runs = append(r.Runs, id, gz)
+	}
+	return r
+}
+
+func TestMarkdownCompressionNote(t *testing.T) {
+	r := withWire(fixture())
+	r.Runs = append(r.Runs, mkRun("start", "start", 1, 300, 3, ConfigDefault, ConfigEngine))
+	r.Runs[len(r.Runs)-1].Label = "TanStack Start"
+	for _, p := range Pages {
+		r.Runs[len(r.Runs)-1].Wire = append(r.Runs[len(r.Runs)-1].Wire, PageWire{Page: p.Name, Bytes: 50_000})
+	}
+	md := roundTrip(t, r).Markdown()
+	for _, want := range []string{
+		"Accept-Encoding: gzip",
+		"TanStack Start sends 48.8 KB a page uncompressed, the others about 9.8 KB",
+		"Next.js answers 20% fewer requests a second with gzip than without",
+		"Start would likely pay a similar cost if it compressed",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("the report lacks %q:\n%s", want, md)
+		}
+	}
+	// The runs of the compression pair are in no table.
+	if strings.Contains(md, "Next.js, gzip |") || strings.Contains(md, "Next.js, identity |") {
+		t.Errorf("a compression run is in a table:\n%s", md)
+	}
+	if plain := fixture().Markdown(); strings.Contains(plain, "a page uncompressed") {
+		t.Errorf("a record without wire sizes prints the note:\n%s", plain)
+	}
+}

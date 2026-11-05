@@ -13,12 +13,18 @@ import (
 // "aa" is the Tifa against Tifa check and belongs to no table.
 const (
 	ConfigDefault = "default"
-	ConfigEngine  = "engine"
-	ConfigAA      = "aa"
+	// ConfigCompression holds Next.js asked for gzip and for no compression, to tell what compressing
+	// costs a server that does it. It belongs to no table.
+	ConfigCompression = "compression"
+	ConfigEngine      = "engine"
+	ConfigAA          = "aa"
 )
 
 // Configs are the configurations that tables are made for, in the order they are measured.
 var Configs = []string{ConfigDefault, ConfigEngine}
+
+// AllConfigs are all the configurations that `measure -all` runs.
+var AllConfigs = []string{ConfigDefault, ConfigEngine, ConfigCompression}
 
 // Spec is one server to measure: a Target, which framework it is, and which configurations it
 // stands for. A server that is the same in two configurations is one Spec in both and runs once
@@ -30,8 +36,10 @@ type Spec struct {
 	Label     string   // in the tables
 	Configs   []string // the tables it is in
 	Reference bool     // marked reference in the tables: it explains a gap and is not a contender
-	Write     Writer   // the path of the write that changes the data of an order
-	Version   string   // package.json, from Dir, of the framework package whose version the record keeps
+	// AcceptEncoding, when set, is what the client asks this spec for, instead of the global setting.
+	AcceptEncoding string
+	Write          Writer // the path of the write that changes the data of an order
+	Version        string // package.json, from Dir, of the framework package whose version the record keeps
 }
 
 // Specs are the servers to measure, in the order of a round before it is rotated. Tifa runs one
@@ -83,6 +91,11 @@ func (e Env) Specs() []Spec {
 			Version: filepath.Join("node_modules", "react-router", "package.json"),
 		}
 	}
+	nextCompression := func(name, label, encoding string) Spec {
+		s := next(name, label, true, []string{ConfigCompression})
+		s.AcceptEncoding = encoding
+		return s
+	}
 	both := []string{ConfigDefault, ConfigEngine}
 	engine := []string{ConfigEngine}
 	return []Spec{
@@ -91,6 +104,8 @@ func (e Env) Specs() []Spec {
 		next("nextjs", "Next.js", false, both),
 		next("nextjs-jitless", "Next.js --jitless", true, engine, "--jitless"),
 		start("start", "TanStack Start", false, both),
+		nextCompression("nextjs-identity", "Next.js, identity", "identity"),
+		nextCompression("nextjs-gzip", "Next.js, gzip", "gzip"),
 		start("start-jitless", "TanStack Start --jitless", true, engine, "--jitless"),
 		reactRouter("reactrouter", "React Router", false, both),
 		reactRouter("reactrouter-jitless", "React Router --jitless", true, engine, "--jitless"),
@@ -101,6 +116,9 @@ func (e Env) Specs() []Spec {
 func (e Env) Targets() []Target {
 	var out []Target
 	for _, s := range e.Specs() {
+		if s.AcceptEncoding != "" {
+			continue // the same server as another spec, asked differently
+		}
 		out = append(out, s.Target)
 	}
 	return out

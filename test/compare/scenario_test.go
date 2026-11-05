@@ -1,6 +1,9 @@
 package compare
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -103,5 +106,38 @@ func TestWriteEachScenario(t *testing.T) {
 			t.Errorf("write %d repeats a body", n)
 		}
 		seen[string(steps[0].Body)] = true
+	}
+}
+
+func TestClientAsksForTheEncodingAndCountsTheBytes(t *testing.T) {
+	var asked string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked = r.Header.Get("Accept-Encoding")
+		if asked == "gzip" {
+			w.Header().Set("Content-Encoding", "gzip")
+		}
+		w.Write([]byte("0123456789"))
+	}))
+	defer srv.Close()
+	for _, ae := range []string{"gzip", "identity"} {
+		res, err := newClient(srv.URL, ae).do(context.Background(), Step{Method: "GET", Path: "/", Timed: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if asked != ae || res.Bytes != 10 {
+			t.Errorf("%s: server saw %q, client counted %d bytes", ae, asked, res.Bytes)
+		}
+		if want := map[string]string{"gzip": "gzip", "identity": ""}[ae]; res.Encoding != want {
+			t.Errorf("%s: encoding %q, want %q", ae, res.Encoding, want)
+		}
+	}
+	// A server that compresses when it was asked for no compression is an error.
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Write([]byte("x"))
+	}))
+	defer bad.Close()
+	if _, err := newClient(bad.URL, "identity").do(context.Background(), Step{Method: "GET", Path: "/"}); err == nil {
+		t.Error("a compressed answer to identity was accepted")
 	}
 }
