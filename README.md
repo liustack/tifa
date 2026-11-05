@@ -147,7 +147,7 @@ A new app also gets an `AGENTS.md` from `tifa new`. The skill covers the same gr
 
 ## Talk to us
 
-Issues are welcome any time: [open one](https://github.com/liustack/tifa/issues/new). Tell us what you built, where it hurt, and what should come next. Follow the liustack WeChat official account, and come find me on X: **[@liustack](https://x.com/liustack)**. What changes in Tifa and what comes next are shared on WeChat and X.
+Issues are welcome any time: [open one](https://github.com/liustack/tifa/issues/new/choose). Tell us what you built, where it hurt, and what should come next. Follow the liustack WeChat official account, and come find me on X: **[@liustack](https://x.com/liustack)**. What changes in Tifa and what comes next are shared on WeChat and X.
 
 The **liustack** WeChat official account: AI startup opportunities, indie-dev insights, and hands-on AI tooling, delivered as they happen. Scan the QR code in WeChat, or search for "liustack":
 
@@ -159,8 +159,8 @@ The **liustack** WeChat official account: AI startup opportunities, indie-dev in
 
 Tifa does not accept pull requests. A framework like this touches the compiler, the bundler, server rendering and developer experience at once, and a change in one pulls on the others. Getting that right takes a lot of context, so every line is written and reviewed by one author. Two ways to help:
 
-- **[Open an issue](https://github.com/liustack/tifa/issues).** Bugs, ideas, confusing errors, unclear docs. A clear issue with steps to reproduce helps more than a patch, and issues shape what gets built next.
-- **Fork it.** Under MIT your copy is yours to change and publish.
+- **[Open an issue](https://github.com/liustack/tifa/issues/new/choose).** Bugs, ideas, confusing errors, unclear docs. A clear issue with steps to reproduce helps more than a patch, and issues shape what gets built next.
+- **Fork it.** Under MIT your copy is yours to change and publish. [CONTRIBUTING.md](CONTRIBUTING.md) has the notes for working on a fork.
 
 ## Star History
 
