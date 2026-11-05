@@ -95,21 +95,21 @@ go tool tifa check   # 分析、vet、测试和 TypeScript 检查一次跑完
 
 开箱即用，每 10 次读写一次订单：
 
-| | 每秒请求数 | P99 | RSS 峰值 |
-| :-- | --: | --: | --: |
-| Tifa | 462 | 19.2 ms | 112 MiB |
-| Next.js | 78 | 29.4 ms | 435 MiB |
-| TanStack Start | 115 | 23.0 ms | 337 MiB |
-| React Router | 74 | 29.8 ms | 431 MiB |
+| | 每秒请求数 | P50 | P99 | RSS 峰值 |
+| :-- | --: | --: | --: | --: |
+| Tifa | 462 | 0.26 ms | 19.2 ms | 112 MiB |
+| Next.js | 78 | 10.7 ms | 29.4 ms | 435 MiB |
+| TanStack Start | 115 | 6.7 ms | 23.0 ms | 337 MiB |
+| React Router | 74 | 11.2 ms | 29.8 ms | 431 MiB |
 
 缓存全关，每个请求都渲染：
 
-| | 每秒请求数 | P99 | RSS 峰值 |
-| :-- | --: | --: | --: |
-| Tifa | 42 | 44.8 ms | 57 MiB |
-| Next.js | 80 | 28.3 ms | 435 MiB |
-| TanStack Start | 115 | 23.1 ms | 347 MiB |
-| React Router | 75 | 29.1 ms | 433 MiB |
+| | 每秒请求数 | P50 | P99 | RSS 峰值 |
+| :-- | --: | --: | --: | --: |
+| Tifa | 42 | 19.2 ms | 44.8 ms | 57 MiB |
+| Next.js | 80 | 10.6 ms | 28.3 ms | 435 MiB |
+| TanStack Start | 115 | 6.7 ms | 23.1 ms | 347 MiB |
+| React Router | 75 | 11.1 ms | 29.1 ms | 433 MiB |
 
 去掉 JIT 后，Node 每秒处理的请求是 Tifa 的 0.6 到 0.7 倍。每个框架一个核，默认设置，示例商店的六个工作台页面。方法和全部数字见[完整对比](docs/performance.zh-CN.md#和三个-node-框架比)。
 

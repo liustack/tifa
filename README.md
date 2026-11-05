@@ -95,21 +95,21 @@ A page whose data has not changed is not rendered again. Every request still fet
 
 Out of the box, with a write to one order every 10 reads:
 
-| | Requests/s | P99 | Peak RSS |
-| :-- | --: | --: | --: |
-| Tifa | 462 | 19.2 ms | 112 MiB |
-| Next.js | 78 | 29.4 ms | 435 MiB |
-| TanStack Start | 115 | 23.0 ms | 337 MiB |
-| React Router | 74 | 29.8 ms | 431 MiB |
+| | Requests/s | P50 | P99 | Peak RSS |
+| :-- | --: | --: | --: | --: |
+| Tifa | 462 | 0.26 ms | 19.2 ms | 112 MiB |
+| Next.js | 78 | 10.7 ms | 29.4 ms | 435 MiB |
+| TanStack Start | 115 | 6.7 ms | 23.0 ms | 337 MiB |
+| React Router | 74 | 11.2 ms | 29.8 ms | 431 MiB |
 
 With every cache off, so every request renders:
 
-| | Requests/s | P99 | Peak RSS |
-| :-- | --: | --: | --: |
-| Tifa | 42 | 44.8 ms | 57 MiB |
-| Next.js | 80 | 28.3 ms | 435 MiB |
-| TanStack Start | 115 | 23.1 ms | 347 MiB |
-| React Router | 75 | 29.1 ms | 433 MiB |
+| | Requests/s | P50 | P99 | Peak RSS |
+| :-- | --: | --: | --: | --: |
+| Tifa | 42 | 19.2 ms | 44.8 ms | 57 MiB |
+| Next.js | 80 | 10.6 ms | 28.3 ms | 435 MiB |
+| TanStack Start | 115 | 6.7 ms | 23.1 ms | 347 MiB |
+| React Router | 75 | 11.1 ms | 29.1 ms | 433 MiB |
 
 Without a JIT, Node answers 0.6 to 0.7 times the requests of Tifa. One core each, default settings, the six workbench pages of the example shop. [The full comparison](docs/performance.md#against-nextjs-tanstack-start-and-react-router) has the method and every number.
 
