@@ -147,7 +147,7 @@ mkdir -p .claude/skills && cp -r tifa-src/skills/tifa .claude/skills/tifa
 
 ## 联系我们
 
-随时欢迎提 issue：[新建一个](https://github.com/liustack/tifa/issues/new)。用它做了什么、哪里不好用、下一步该做什么，都可以说。推荐你关注公众号 liustack，也欢迎你来 X 上聊：**[@liustack](https://x.com/liustack)**。Tifa 有什么变化、接下来做什么，都会在公众号和 X 同步更新。
+随时欢迎提 issue：[新建一个](https://github.com/liustack/tifa/issues/new/choose)。用它做了什么、哪里不好用、下一步该做什么，都可以说。推荐你关注公众号 liustack，也欢迎你来 X 上聊：**[@liustack](https://x.com/liustack)**。Tifa 有什么变化、接下来做什么，都会在公众号和 X 同步更新。
 
 关注微信公众号「liustack」：AI 创业机会、独立开发见解、AI 实战与工具，第一时间推送。微信扫码，或搜一搜「liustack」：
 
@@ -159,8 +159,8 @@ mkdir -p .claude/skills && cp -r tifa-src/skills/tifa .claude/skills/tifa
 
 Tifa 不接受 pull request。这类框架同时牵动编译器、打包、服务端渲染和开发体验，改一处会牵动别处，做对需要大量上下文，所以每一行都由作者一个人写和审。可以这样帮忙：
 
-- **[提 issue](https://github.com/liustack/tifa/issues)。** bug、想法、看不懂的报错、写得不清楚的文档。一个带复现步骤的清楚 issue 比一个补丁更有用，issue 决定接下来做什么。
-- **fork 它。** 按 MIT 许可，你的副本随你改、随你发布。
+- **[提 issue](https://github.com/liustack/tifa/issues/new/choose)。** bug、想法、看不懂的报错、写得不清楚的文档。一个带复现步骤的清楚 issue 比一个补丁更有用，issue 决定接下来做什么。
+- **fork 它。** 按 MIT 许可，你的副本随你改、随你发布。在 fork 上开发的说明见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## Star History
 
