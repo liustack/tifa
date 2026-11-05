@@ -125,8 +125,8 @@ func TestPagesShowTheSameText(t *testing.T) {
 	views := map[string][]compare.View{}
 	var names []string
 	for _, target := range env.Targets() {
-		if target.Name == "nextjs-jitless" {
-			continue // the same app and the same HTML as nextjs
+		if strings.HasSuffix(target.Name, "-jitless") || target.Name == "tifa-nocache" {
+			continue // the same app and the same HTML as the one without --jitless or with the cache
 		}
 		server, err := target.Start(ctx, "")
 		if err != nil {
@@ -186,19 +186,18 @@ func TestEveryRequestComputesAndRenders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	targets := env.Targets()
-	tifa := targets[0]
+	tifa := mustTarget(t, env, "tifa-nocache")
 	tifa.Prog = exe
 	countsAddr := freeAddr(t)
 	tifa.Env = append(tifa.Env, "COMPARE_COUNTS_ADDR="+countsAddr)
 
 	perPage := map[string]map[string]int64{} // server -> page -> calls of ordersOf for one request
-	for _, target := range []compare.Target{tifa, targets[1], targets[3]} {
+	for _, target := range []compare.Target{tifa, mustTarget(t, env, "nextjs"), mustTarget(t, env, "start")} {
 		server, err := target.Start(ctx, "")
 		if err != nil {
 			t.Fatal(err)
 		}
-		node := target.Name != "tifa"
+		node := target.Name != "tifa-nocache"
 		counts := server.Base
 		if !node {
 			counts = "http://" + countsAddr
@@ -238,7 +237,7 @@ func TestEveryRequestComputesAndRenders(t *testing.T) {
 		server.Stop()
 	}
 	for _, page := range compare.Pages {
-		a, b, c := perPage["tifa"][page.Name], perPage["nextjs"][page.Name], perPage["start"][page.Name]
+		a, b, c := perPage["tifa-nocache"][page.Name], perPage["nextjs"][page.Name], perPage["start"][page.Name]
 		if a != b || a != c {
 			t.Errorf("%s: calls of ordersOf for one request: tifa %d, Next.js %d, Start %d", page.Name, a, b, c)
 		}
@@ -260,8 +259,7 @@ func TestNoCachingBetweenRequests(t *testing.T) {
 	}
 	// A page of Start has no header that lets a cache keep it. Next.js says it must not be kept.
 	ctx := context.Background()
-	targets := env.Targets()
-	for _, target := range []compare.Target{targets[1], targets[3]} {
+	for _, target := range []compare.Target{mustTarget(t, env, "nextjs"), mustTarget(t, env, "start")} {
 		server, err := target.Start(ctx, "")
 		if err != nil {
 			t.Fatal(err)
@@ -349,4 +347,13 @@ func freeAddr(t *testing.T) string {
 	}
 	defer ln.Close()
 	return ln.Addr().String()
+}
+
+func mustTarget(t *testing.T, env compare.Env, name string) compare.Target {
+	t.Helper()
+	target, err := env.Target(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return target
 }

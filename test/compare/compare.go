@@ -1,7 +1,7 @@
 // Package compare builds the workbench pages of examples/shop three ways, as tifa, as a Next.js
 // app and as a TanStack Start app, checks that the three show the same text, and measures how many
 // whole page requests each answers. Nothing here runs in CI. `go test ./test/compare` (with
-// TIFA_COMPARE=1) checks the pages, and `go run ./test/compare/cmd/compare` measures. docs/testing.md
+// TIFA_COMPARE=1) checks the pages, and `go run ./test/compare/cmd/compare` measures, reports and diffs. docs/testing.md
 // has the steps.
 //
 // The two Node apps hold only what is specific to their framework: the layouts and pages that load

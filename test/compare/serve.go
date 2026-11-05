@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -25,35 +24,6 @@ type Target struct {
 	Prog string
 	Args []string
 	Env  []string
-}
-
-// Targets are the four servers, in the order they are measured: tifa, Next.js, Next.js without
-// its JIT and TanStack Start. tifa runs one VM on one OS thread and renders every request
-// (no HTML cache), the Node servers run in production mode.
-func (e Env) Targets() []Target {
-	nextBin := filepath.Join("node_modules", "next", "dist", "bin", "next")
-	return []Target{
-		{
-			Name: "tifa", Dir: e.Shop, Prog: filepath.Join(e.Shop, "bin", "shop"),
-			Args: []string{"--server-addr", "127.0.0.1:%PORT%", "--ssr-vms", "1", "--cache-size", "0"},
-			Env:  []string{"GOMAXPROCS=1", "SHOP_OPEN=1"},
-		},
-		{
-			Name: "nextjs", Dir: e.Next, Prog: "node",
-			Args: []string{nextBin, "start", "-H", "127.0.0.1", "-p", "%PORT%"},
-			Env:  []string{"NODE_ENV=production", "NEXT_TELEMETRY_DISABLED=1"},
-		},
-		{
-			Name: "nextjs-jitless", Dir: e.Next, Prog: "node",
-			Args: []string{"--jitless", nextBin, "start", "-H", "127.0.0.1", "-p", "%PORT%"},
-			Env:  []string{"NODE_ENV=production", "NEXT_TELEMETRY_DISABLED=1"},
-		},
-		{
-			Name: "start", Dir: e.Start, Prog: "node",
-			Args: []string{filepath.Join(".output", "server", "index.mjs")},
-			Env:  []string{"NODE_ENV=production", "HOST=127.0.0.1", "PORT=%PORT%"},
-		},
-	}
 }
 
 // Server is a running Target.
@@ -87,9 +57,9 @@ func (l *lockedBuffer) String() string {
 	return l.b.String()
 }
 
-// Start starts the server on a free port, pinned to cpus (a list such as "0" or "0,1" for
-// taskset, on Linux only, empty for no pinning), and returns once it answers the first page.
-func (t Target) Start(ctx context.Context, cpus string) (*Server, error) {
+// Launch starts the server on a free port, pinned to cpus (a list such as "0" or "0,1" for
+// taskset, on Linux only, empty for no pinning), and returns at once, before it listens.
+func (t Target) Launch(cpus string) (*Server, error) {
 	port, err := freePort()
 	if err != nil {
 		return nil, err
@@ -121,17 +91,26 @@ func (t Target) Start(ctx context.Context, cpus string) (*Server, error) {
 	s.exited = exited
 	go func() { cmd.Wait(); close(exited) }()
 	go s.watch()
+	return s, nil
+}
+
+// Start is Launch that returns once the server answers the first page.
+func (t Target) Start(ctx context.Context, cpus string) (*Server, error) {
+	s, err := t.Launch(cpus)
+	if err != nil {
+		return nil, err
+	}
 	deadline := time.Now().Add(60 * time.Second)
 	for {
 		res, err := http.Get(s.Base + Pages[0].URL)
 		if err == nil {
 			res.Body.Close()
 			if res.StatusCode == 200 {
-				break
+				return s, nil
 			}
 		}
 		select {
-		case <-exited:
+		case <-s.exited:
 			return nil, fmt.Errorf("%s exited before it answered:\n%s", t.Name, s.out)
 		case <-ctx.Done():
 			s.Stop()
@@ -143,7 +122,29 @@ func (t Target) Start(ctx context.Context, cpus string) (*Server, error) {
 			return nil, fmt.Errorf("%s did not answer in 60 seconds:\n%s", t.Name, s.out)
 		}
 	}
-	return s, nil
+}
+
+// WaitListening returns once the server accepts connections, polling every 2 ms, without
+// sending a request. A server that exits first or does not listen in 60 seconds is an error.
+func (s *Server) WaitListening(ctx context.Context) error {
+	addr := strings.TrimPrefix(s.Base, "http://")
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		if c, err := net.Dial("tcp", addr); err == nil {
+			c.Close()
+			return nil
+		}
+		select {
+		case <-s.exited:
+			return fmt.Errorf("%s exited before it listened:\n%s", s.Name, s.out)
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(2 * time.Millisecond):
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("%s did not listen in 60 seconds:\n%s", s.Name, s.out)
+		}
+	}
 }
 
 func freePort() (int, error) {
@@ -259,3 +260,9 @@ func (s *Server) Stop() {
 
 // Output is what the server has printed.
 func (s *Server) Output() string { return s.out.String() }
+
+// RSS is the resident size of the server and its children now, in bytes.
+func (s *Server) RSS() int64 {
+	cur, _ := s.rss()
+	return cur
+}
