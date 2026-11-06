@@ -42,9 +42,6 @@ type storeApp struct {
 var storeApps = []storeApp{
 	{
 		name: "start", label: "TanStack Start", write: func(p string) string { return p },
-		except: map[string]string{
-			"slash": "TanStack Router sends a URL with a trailing slash away with a 307, and /store/ is the index route of the storefront, which sends the visitor to a language",
-		},
 	},
 	{
 		name: "nextjs", label: "Next.js", write: nextWrite,
@@ -426,10 +423,6 @@ func (p *pair) redirects(t *testing.T) {
 	}
 	slash := func(name, path string) {
 		t.Helper()
-		if why, ok := p.spec.except["slash"]; ok {
-			t.Logf("exception, %s %s: %s", p.spec.label, path, why)
-			return
-		}
 		if why, ok := p.spec.except["slash body"]; ok {
 			a, b := q.tifa.get(path), q.app.get(path)
 			if a.status != b.status || a.header.Get("Location") != b.header.Get("Location") {
