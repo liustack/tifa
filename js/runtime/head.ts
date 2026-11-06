@@ -470,13 +470,16 @@ export interface Alternate {
 }
 
 export interface PageAlternates {
-  // site.url without a trailing slash. A navigation leaves it out: the page knows it already.
+  // site.url without a trailing slash.
   site?: string
   // The language of x-default, the default language of the site.
   default?: string
   // The path of the page itself, without the query.
   canonical?: string
-  list: Alternate[]
+  // The versions. A server render gets them all, and sets custom when a Load of the page called
+  // c.SetAlternates. The page carries them to the browser only then, which works out the rest.
+  list?: Alternate[]
+  custom?: boolean
 }
 
 // PageLinks gives the tags a page adds after its own head, given those: the links of its versions.
@@ -496,9 +499,10 @@ function isCanonical(tag: Tag) {
 // are full, from site. A page with one version, or a site that does not say where it is served,
 // has none.
 export function alternateTags(own: ReadonlyArray<Tag>, page: PageAlternates | undefined, site: string): Tag[] {
-  if (!page || !site || page.list.length < 2) return []
-  const tags: Tag[] = page.list.map((a) => ({ tag: 'link', attrs: { rel: 'alternate', hreflang: a.language, href: site + a.url } }))
-  const fallback = page.list.find((a) => a.language === page.default)
+  const list = page?.list ?? []
+  if (!page || !site || list.length < 2) return []
+  const tags: Tag[] = list.map((a) => ({ tag: 'link', attrs: { rel: 'alternate', hreflang: a.language, href: site + a.url } }))
+  const fallback = list.find((a) => a.language === page.default)
   if (fallback) tags.push({ tag: 'link', attrs: { rel: 'alternate', hreflang: 'x-default', href: site + fallback.url } })
   if (page.canonical && !own.some(isCanonical)) tags.push({ tag: 'link', attrs: { rel: 'canonical', href: site + page.canonical } })
   return tags

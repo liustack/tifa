@@ -422,49 +422,70 @@ test('what scripts of the page set on <html> stays until a route changes that at
   })
 })
 
-const versionsOf = (path: string) => ({
-  site: 'https://a.example.com',
-  default: 'zh-CN',
-  canonical: '/en-US' + path,
-  list: [
-    { language: 'zh-CN', url: path },
-    { language: 'en-US', url: '/en-US' + path },
-  ],
-})
-
-test('the links of the versions follow the page the router shows', async () => {
+test('the links of the versions follow the page the router shows, computed in the browser', async () => {
   await withDocument(async () => {
+    const wait = async (done: () => boolean) => {
+      for (let i = 0; i < 100 && !done(); i++) await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+    // The routes of the area by their route IDs, as i18n.gen.ts lists them.
+    const ids = async (url: string) => (await client(url, (_, id) => ok(id))).router.state.matches.at(-1)!.routeId
+    const area = ['zh-CN', 'en-US']
+    const table = {
+      default: 'zh-CN',
+      always: false,
+      languages: area,
+      routes: { [await ids('/langs')]: area, [await ids('/hello')]: area, [await ids('/q')]: area },
+    }
     const { router } = await client('/langs', (_, id) => ok(id))
-    startAlternates(versionsOf('/langs'), '/langs')
-    // The data request of a navigation answers without the site, and its URL has a query.
-    const { site: _, ...hello } = versionsOf('/hello')
-    noteAlternates('/hello?x=1', hello)
-    const links = pageLinks(router)
+    // The page of the document carries no list of its own: only the site and the default language.
+    startAlternates({ site: 'https://a.example.com', default: 'zh-CN' }, '/langs', table)
+    const links = pageLinks(router, () => 'en-US')
     followHead(router, defaultHTMLAttributes, () => 'en-US', links)
     syncHead(router.stores.matches.get(), links)
     syncHTMLAttributes(router.stores.matches.get(), defaultHTMLAttributes, 'en-US')
     const hreflangs = () => managed().filter((e) => e.getAttribute('rel') === 'alternate' || e.getAttribute('rel') === 'canonical').map(describe).join('|')
-    assert(
-      hreflangs() ===
-        'link rel=alternate hreflang=zh-CN href=https://a.example.com/langs|link rel=alternate hreflang=en-US href=https://a.example.com/en-US/langs|link rel=alternate hreflang=x-default href=https://a.example.com/langs|link rel=canonical href=https://a.example.com/en-US/langs',
-      `links ${hreflangs()}`,
-    )
+    const links_ = (path: string, canonical: string) =>
+      `link rel=alternate hreflang=zh-CN href=https://a.example.com${path}|link rel=alternate hreflang=en-US href=https://a.example.com/en-US${path}|` +
+      `link rel=alternate hreflang=x-default href=https://a.example.com${path}|link rel=canonical href=https://a.example.com${canonical}`
+    assert(hreflangs() === links_('/langs', '/en-US/langs'), `links ${hreflangs()}`)
     assert(describe(fakeDocument.documentElement) === 'html lang=en-US', `html ${describe(fakeDocument.documentElement)}`)
-    const wait = async (done: () => boolean) => {
-      for (let i = 0; i < 100 && !done(); i++) await new Promise((resolve) => setTimeout(resolve, 0))
-    }
+
+    // /hello has no Load, so no data request tells the browser anything about it.
     await router.navigate({ to: '/hello' })
     await wait(() => hreflangs().includes('/hello'))
-    assert(hreflangs().includes('href=https://a.example.com/hello|') && hreflangs().endsWith('rel=canonical href=https://a.example.com/en-US/hello'), `after navigating ${hreflangs()}`)
-    // A page the browser knows no list for has none, and a list with no versions drops the one held.
+    assert(hreflangs() === links_('/hello', '/en-US/hello'), `a page with no Load: ${hreflangs()}`)
+
+    // A page outside the areas has none.
     await router.navigate({ to: '/a/one' })
     await wait(() => hreflangs() === '')
-    assert(hreflangs() === '', `a page without a list: ${hreflangs()}`)
-    noteAlternates('/hello', { list: [] })
+    assert(hreflangs() === '', `a page outside the areas: ${hreflangs()}`)
+
+    // A page whose Load called SetAlternates gets that list for its path, from the data request.
+    noteAlternates('/q?q=1', {
+      list: [
+        { language: 'zh-CN', url: '/q' },
+        { language: 'en-US', url: '/en-US/anfrage' },
+      ],
+    })
+    await router.navigate({ to: '/q', search: { q: '1' } as never })
+    await wait(() => hreflangs().includes('anfrage'))
+    assert(
+      hreflangs() ===
+        'link rel=alternate hreflang=zh-CN href=https://a.example.com/q|link rel=alternate hreflang=en-US href=https://a.example.com/en-US/anfrage|link rel=alternate hreflang=x-default href=https://a.example.com/q|link rel=canonical href=https://a.example.com/en-US/q',
+      `a page with a list of its own: ${hreflangs()}`,
+    )
+    // A list with one version is a list: the page has no links.
+    noteAlternates('/hello', { list: [{ language: 'zh-CN', url: '/hello' }] })
     await router.navigate({ to: '/hello' })
-    await new Promise((resolve) => setTimeout(resolve, 20))
-    assert(hreflangs() === '', `a page whose list was dropped: ${hreflangs()}`)
-    assert(describe(fakeDocument.documentElement) === 'html lang=en-US', `html after navigating ${describe(fakeDocument.documentElement)}`)
+    await wait(() => hreflangs() === '')
+    assert(hreflangs() === '', `a page with one version: ${hreflangs()}`)
+    // Pages the router shows as not found have none, though their Layout is in the area.
+    await router.navigate({ to: '/langs' })
+    await wait(() => hreflangs() !== '')
+    router.history.push('/zzz/none')
+    await router.load()
+    await wait(() => hreflangs() === '')
+    assert(hreflangs() === '', `a page that is not found: ${hreflangs()}`)
   })
 })
 

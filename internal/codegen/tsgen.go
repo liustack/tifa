@@ -181,11 +181,16 @@ serve(routeTree, htmlAttributes)
 	client := tsHeader + `import { hydrate } from "./runtime/browser"
 import { htmlAttributes, routeTree } from "./routes"
 `
+	hydrate := "hydrate(routeTree, htmlAttributes)"
+	if m.I18n != nil {
+		client += `import { i18n } from "./i18n.gen"` + "\n"
+		hydrate = "hydrate(routeTree, htmlAttributes, i18n)"
+	}
 	if dev {
 		client += `import "./runtime/dev-client.js"` + "\n"
 		files["runtime/dev-client.js"] = []byte(js.DevClient)
 	}
-	files["client.ts"] = []byte(client + "\nhydrate(routeTree, htmlAttributes)\n")
+	files["client.ts"] = []byte(client + "\n" + hydrate + "\n")
 	files["tsconfig.json"] = []byte(tsconfig)
 	if err := viteFiles(files, vite); err != nil {
 		return nil, err

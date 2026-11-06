@@ -130,6 +130,13 @@ function renderSource(input: RenderInput, texts: string[]): Source {
   return injected({ url: input.url, buildId: input.buildId, data })
 }
 
+// carried is what the page hands to the browser of the versions: the site and the default language,
+// and the list only when a Load of the page set it. The browser works the rest out.
+function carried(a: RenderInput['alternates']): RenderInput['alternates'] {
+  if (!a) return undefined
+  return { site: a.site, default: a.default, ...(a.custom ? { list: a.list } : {}) }
+}
+
 // pageHead is the tags of the head: those of the matched routes, then the links of the versions of
 // the page in other languages.
 function pageHead(matches: Parameters<typeof headTags>[0], input: RenderInput) {
@@ -184,7 +191,7 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
       sessionKey: input.sessionKey,
       session: input.session,
       language: input.language,
-      alternates: input.alternates,
+      alternates: carried(input.alternates),
       nonce,
     })
     attachRouterServerSsrUtils({ router, manifest: undefined })

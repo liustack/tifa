@@ -7,7 +7,7 @@ import { bootElementId, collector, injected, RouteError, rootElementId, sameURL,
 import { defaultHTMLAttributes, followHead, noteHTMLAttributes, syncHead, syncHTMLAttributes, type HTMLAttributes } from './head'
 import { setRouter } from './call'
 import { LanguageContext } from './language'
-import { pageLinks, startAlternates } from './alternates'
+import { pageLinks, startAlternates, type I18nTable } from './alternates'
 import { watchChunks } from './skew'
 
 // rootOptions has React report on the console what an error boundary catches, as it does by
@@ -43,7 +43,7 @@ export const rootOptions = {
 // hydrate takes over the application root the server rendered. A page rendered without SSR
 // carries its data instead, and the browser renders it from that data without a request. Either
 // way the head and the attributes of <html> follow the matched routes from then on.
-export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defaultHTMLAttributes) {
+export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defaultHTMLAttributes, i18n?: I18nTable) {
   const root = document.getElementById(rootElementId)
   if (!root) throw new Error(`the page has no element #${rootElementId} to render into`)
   const boot = document.getElementById(bootElementId)
@@ -59,7 +59,7 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
       onHydrate: (dehydrated: Dehydrated) => {
         buildId = dehydrated.buildId
         language = dehydrated.language ?? ''
-        startAlternates(dehydrated.alternates, router.state.location.pathname)
+        startAlternates(dehydrated.alternates, router.state.location.pathname, i18n)
         if (dehydrated.sessionKey !== undefined)
           shown = startSession({ key: dehydrated.sessionKey, injected: dehydrated.session, buildId: () => buildId })
       },
@@ -100,8 +100,8 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
   const source: Source = (url, id, slot) =>
     first && id in input.data && sameURL(url, input.url) ? local(url, id, slot) : live(url, id, slot)
   const router = createAppRouter(routeTree, source, { buildId: input.buildId })
-  startAlternates(input.alternates, router.state.location.pathname)
-  const links = pageLinks(router)
+  startAlternates(input.alternates, router.state.location.pathname, i18n)
+  const links = pageLinks(router, () => language)
   void router.load().then(() => {
     first = false
     followHead(router, htmlAttributes, () => language, links)
@@ -183,7 +183,7 @@ export function takeOver(router: AnyRouter, htmlAttributes: HTMLAttributes, lang
     .finally(() => window.$_TSR!.h())
     .then(() => {
       const matches = router.stores.matches.get()
-      const links = pageLinks(router)
+      const links = pageLinks(router, language)
       dateBeforeLoads(router)
       syncHead(matches, links)
       noteHTMLAttributes(matches, htmlAttributes, language())
