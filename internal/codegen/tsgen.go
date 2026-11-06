@@ -153,12 +153,13 @@ func generateTS(root string, m *analyze.Manifest, dev bool, exportsOf Exports, v
 			moduleOf(n.dir, n.segs).layout = n
 		default:
 			g := moduleOf(n.dir, n.segs)
-			g.page, g.handlers = n, n.handlers
+			g.page, g.handlers, g.languages = n, n.handlers, n.languages
 		}
 	}
 	for _, r := range m.Routes {
 		if !r.Page && len(r.Handlers) > 0 {
-			moduleOf(r.Dir, segments(r.Path)).handlers = r.Handlers
+			g := moduleOf(r.Dir, segments(r.Path))
+			g.handlers, g.languages = r.Handlers, r.Languages
 		}
 	}
 	for _, dir := range slices.Sorted(maps.Keys(modules)) {
@@ -182,16 +183,11 @@ serve(routeTree, htmlAttributes)
 	client := tsHeader + `import { hydrate } from "./runtime/browser"
 import { htmlAttributes, routeTree } from "./routes"
 `
-	hydrate := "hydrate(routeTree, htmlAttributes)"
-	if m.I18n != nil {
-		client += `import { i18n } from "./i18n.gen"` + "\n"
-		hydrate = "hydrate(routeTree, htmlAttributes, i18n)"
-	}
 	if dev {
 		client += `import "./runtime/dev-client.js"` + "\n"
 		files["runtime/dev-client.js"] = []byte(js.DevClient)
 	}
-	files["client.ts"] = []byte(client + "\n" + hydrate + "\n")
+	files["client.ts"] = []byte(client + "\nhydrate(routeTree, htmlAttributes)\n")
 	files["tsconfig.json"] = []byte(tsconfig)
 	if err := viteFiles(files, vite); err != nil {
 		return nil, err
@@ -964,6 +960,9 @@ type routeGen struct {
 	page     *tsNode // nil without page.tsx
 	layout   *tsNode // nil without a Layout
 	handlers []analyze.Handler
+	// languages are those of the area the route is in, nil outside every area. A handler function
+	// of such a route calls the URL with the prefix of the page's language.
+	languages []string
 }
 
 // routeModule writes the route.gen module of a directory: page and layout for the hooks of its
@@ -1008,6 +1007,9 @@ func routeModule(g *routeGen) ([]byte, error) {
 	}
 	if len(g.handlers) > 0 {
 		names := []string{"call"}
+		if len(g.languages) > 0 {
+			names = append(names, "publicPath")
+		}
 		for _, s := range g.segs {
 			if key := paramKey(s); key == "_splat" {
 				names = append(names, "rest")
@@ -1107,7 +1109,11 @@ func routeModule(g *routeGen) ([]byte, error) {
 		}
 		// async, so that a refused path parameter rejects the promise like any other failure.
 		fmt.Fprintf(&b, "export async function %s(%s): Promise<%s> {\n", h.Method, param, result)
-		fmt.Fprintf(&b, "  return call(%s, %s, options, %s%s) as Promise<%s>\n}\n", jsString(h.Method), urlTemplate(g.segs), jsString(answer), body, result)
+		url := urlTemplate(g.segs)
+		if len(g.languages) > 0 {
+			url = "publicPath(" + url + ", " + jsStrings(g.languages) + ")"
+		}
+		fmt.Fprintf(&b, "  return call(%s, %s, options, %s%s) as Promise<%s>\n}\n", jsString(h.Method), url, jsString(answer), body, result)
 	}
 	return []byte(b.String()), nil
 }

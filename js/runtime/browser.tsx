@@ -7,7 +7,9 @@ import { bootElementId, collector, injected, RouteError, rootElementId, sameURL,
 import { defaultHTMLAttributes, followHead, noteHTMLAttributes, syncHead, syncHTMLAttributes, type HTMLAttributes } from './head'
 import { setRouter } from './call'
 import { LanguageContext } from './language'
-import { pageLinks, startAlternates, type I18nTable } from './alternates'
+import { pageLinks, startAlternates } from './alternates'
+import { languageAt, makeRewrite } from './prefix'
+import { i18n } from '../i18n.gen'
 import { watchChunks } from './skew'
 
 // rootOptions has React report on the console what an error boundary catches, as it does by
@@ -43,7 +45,7 @@ export const rootOptions = {
 // hydrate takes over the application root the server rendered. A page rendered without SSR
 // carries its data instead, and the browser renders it from that data without a request. Either
 // way the head and the attributes of <html> follow the matched routes from then on.
-export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defaultHTMLAttributes, i18n?: I18nTable) {
+export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defaultHTMLAttributes) {
   const root = document.getElementById(rootElementId)
   if (!root) throw new Error(`the page has no element #${rootElementId} to render into`)
   const boot = document.getElementById(bootElementId)
@@ -56,6 +58,8 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
   watchChunks(() => buildId)
   if (!boot) {
     const router = createAppRouter(routeTree, collector(() => buildId), {
+      // The language of the page is in its URL: the page carries it only after the router is made.
+      rewrite: i18n && makeRewrite(i18n, languageAt(i18n, window.location.pathname)),
       onHydrate: (dehydrated: Dehydrated) => {
         buildId = dehydrated.buildId
         language = dehydrated.language ?? ''
@@ -99,7 +103,10 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
   // The first load reads the injected data. Later loads, invalidations included, ask the server.
   const source: Source = (url, id, slot) =>
     first && id in input.data && sameURL(url, input.url) ? local(url, id, slot) : live(url, id, slot)
-  const router = createAppRouter(routeTree, source, { buildId: input.buildId })
+  const router = createAppRouter(routeTree, source, {
+    buildId: input.buildId,
+    rewrite: i18n && makeRewrite(i18n, input.language || i18n.default),
+  })
   startAlternates(input.alternates, router.state.location.pathname, i18n)
   const links = pageLinks(router, () => language)
   void router.load().then(() => {

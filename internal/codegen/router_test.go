@@ -222,3 +222,19 @@ func routerApp(t *testing.T, src, build string, extra map[string]string) (node, 
 	}
 	return node, root, modules, run
 }
+
+// langBuild is routerBuild for the tests of testdata/routerlang.
+var langBuild = strings.Replace(routerBuild, "const entries = [['router.test.tsx', 'node', false], ['head.test.tsx', 'browser', false], ['call.test.ts', 'node', false],\n  ['session.test.tsx', 'node', false], ['router.test.tsx', 'node', true], ['head.test.tsx', 'browser', true]]", "const entries = [['lang.test.tsx', 'node', false]]", 1)
+
+// TestGeneratedRouterPrefixesLanguages runs testdata/routerlang/lang.test.tsx against an app with a
+// store in two languages next to a page outside every area.
+func TestGeneratedRouterPrefixesLanguages(t *testing.T) {
+	node, root, modules, run := routerApp(t, filepath.Join("testdata", "routerlang"), langBuild, nil)
+	run("build.mjs")
+	run(filepath.Join("out", "lang.test.mjs"))
+	tsc := exec.Command(node, filepath.Join(modules, "typescript", "bin", "tsc"), "--noEmit", "-p", ".")
+	tsc.Dir = root
+	if output, err := tsc.CombinedOutput(); err != nil {
+		t.Fatalf("tsc: %v\n%s", err, output)
+	}
+}

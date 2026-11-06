@@ -71,7 +71,7 @@ test('navigating to a public file asks for a document load and for no data', asy
   const beforeLoad = (routeTree.options as { beforeLoad: (a: unknown) => void }).beforeLoad
   let thrown: unknown
   try {
-    beforeLoad({ context: { browser: true }, location: { pathname: '/favicon.svg', href: '/favicon.svg?v=1' } })
+    beforeLoad({ context: { browser: true }, location: { pathname: '/favicon.svg', href: '/favicon.svg?v=1', publicHref: '/favicon.svg?v=1' } })
   } catch (error) {
     thrown = error
   }
