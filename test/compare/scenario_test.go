@@ -141,3 +141,25 @@ func TestClientAsksForTheEncodingAndCountsTheBytes(t *testing.T) {
 		t.Error("a compressed answer to identity was accepted")
 	}
 }
+
+func TestAllPagesAreTheSixPagesAndEveryOrder(t *testing.T) {
+	all := AllPages()
+	if len(all) != 6+54-2 {
+		t.Fatalf("%d pages, want the 4 lists and stats pages and 54 order pages", len(all))
+	}
+	seen := map[string]bool{}
+	for i, p := range all {
+		if seen[p.URL] {
+			t.Errorf("%s twice", p.URL)
+		}
+		seen[p.URL] = true
+		if i < len(Pages) && p != Pages[i] {
+			t.Errorf("page %d is %+v, want %+v", i, p, Pages[i])
+		}
+	}
+	for _, url := range []string{"/projects/studio/orders/SH-1001", "/projects/weekend/orders/WK-0190", "/projects/studio/orders/SH-1042"} {
+		if !seen[url] {
+			t.Errorf("no page %s", url)
+		}
+	}
+}

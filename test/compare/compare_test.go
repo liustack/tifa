@@ -94,9 +94,20 @@ func TestDomainMatchesGo(t *testing.T) {
 	if len(diffs) > 0 {
 		t.Error("the TypeScript port in test/compare/domain no longer matches the Go code of examples/shop: port the change")
 	}
-	for _, p := range compare.Pages {
+	for _, p := range compare.AllPages() {
 		if len(want[p.URL]) == 0 || len(got[p.URL]) != len(want[p.URL]) {
 			t.Errorf("%s: Go answered %d routes, Node %d", p.URL, len(want[p.URL]), len(got[p.URL]))
+		}
+	}
+	if len(want) != len(compare.AllPages()) || len(got) != len(want) {
+		t.Errorf("AllPages lists %d pages, Go answered %d, Node %d", len(compare.AllPages()), len(want), len(got))
+	}
+	// The orders AllPages assumes are the orders the shop has: every row of the lists has a page.
+	for _, project := range []string{"studio", "weekend"} {
+		list, _ := want["/projects/"+project]["app/projects/project+/route"].(map[string]any)
+		rows, _ := list["orders"].([]any)
+		if r := compare.OrderIDs[project]; len(rows) != r[1]-r[0]+1 {
+			t.Errorf("%s: the shop has %d orders, AllPages assumes %d", project, len(rows), r[1]-r[0]+1)
 		}
 	}
 }
@@ -132,7 +143,7 @@ func TestPagesShowTheSameText(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, page := range compare.Pages {
+		for _, page := range compare.AllPages() {
 			body, err := compare.Fetch(server.Base, page)
 			if err != nil {
 				t.Errorf("%s: %v", target.Name, err)
@@ -146,7 +157,7 @@ func TestPagesShowTheSameText(t *testing.T) {
 	}
 	tifa := views["tifa"]
 	for _, name := range names[1:] {
-		for i, page := range compare.Pages {
+		for i, page := range compare.AllPages() {
 			if len(views[name]) <= i || len(tifa) <= i {
 				continue
 			}
@@ -203,7 +214,7 @@ func TestEveryRequestComputesAndRenders(t *testing.T) {
 			counts = "http://" + countsAddr
 		}
 		perPage[target.Name] = map[string]int64{}
-		for _, page := range compare.Pages {
+		for _, page := range compare.AllPages() {
 			before := readCounts(t, counts)
 			render := fetchRender(t, server.Base, page)
 			one := diffCounts(before, readCounts(t, counts))
@@ -236,7 +247,7 @@ func TestEveryRequestComputesAndRenders(t *testing.T) {
 		}
 		server.Stop()
 	}
-	for _, page := range compare.Pages {
+	for _, page := range compare.AllPages() {
 		a, b, c, d := perPage["tifa-nocache"][page.Name], perPage["nextjs"][page.Name], perPage["start"][page.Name], perPage["reactrouter"][page.Name]
 		if a != b || a != c || a != d {
 			t.Errorf("%s: calls of ordersOf for one request: tifa %d, Next.js %d, Start %d, React Router %d", page.Name, a, b, c, d)

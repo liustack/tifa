@@ -22,6 +22,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 )
 
@@ -82,6 +83,29 @@ var Pages = []Page{
 	{"order WK-0201", "/projects/weekend/orders/WK-0201", chain(orderRoute)},
 	{"stats studio", "/projects/studio/stats", chain(statsRoute)},
 	{"stats weekend", "/projects/weekend/stats", chain(statsRoute)},
+}
+
+// OrderIDs are the ids of every order of the shop's data, by project: SH-1001 to SH-1042 in studio
+// and WK-0190 to WK-0201 in weekend. TestDomainMatchesGo checks them against the data of the shop.
+var OrderIDs = map[string][2]int{"studio": {1001, 1042}, "weekend": {190, 201}}
+
+var orderPrefix = map[string]string{"studio": "SH-", "weekend": "WK-"}
+
+// AllPages are the workbench pages the apps serve: the six of Pages first, in their order, then
+// the order page of every other order of the shop (54 order pages in all).
+func AllPages() []Page {
+	out := slices.Clone(Pages)
+	for _, project := range []string{"studio", "weekend"} {
+		r := OrderIDs[project]
+		for n := r[1]; n >= r[0]; n-- {
+			id := fmt.Sprintf("%s%04d", orderPrefix[project], n)
+			if slices.ContainsFunc(out, func(p Page) bool { return p.Name == "order "+id }) {
+				continue
+			}
+			out = append(out, Page{"order " + id, "/projects/" + project + "/orders/" + id, chain(orderRoute)})
+		}
+	}
+	return out
 }
 
 // MissingTools returns a reason when something the build needs is not installed, and "" when all
