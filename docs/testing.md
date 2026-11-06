@@ -302,6 +302,12 @@ The tests build the shop and the three apps (`pnpm install --frozen-lockfile` an
 - `TestDomainMatchesGoAfterWrites`: the same as `TestDomainMatchesGo` after the writes of the first 60 reads of the scenario with writes, sent to the Go shop and applied in the port.
 - `TestWriteChangesThePage`: in each server (Tifa with its render cache on too), a write of the address of an order shows on the page of the order, and a second write shows and the first no longer does. This is the check that the write endpoints of the Node apps work and that a cached page is not served after a write.
 
+The TanStack Start app also serves the storefront (`/store/{lang}`, both languages), with the data from `test/compare/domain/store` and the writes of the shop: add to cart, change a quantity, coupon, checkout and mark a product as seen. Building copies everything under `app/store` and its generated `route.gen` modules into `shop/`, as for the workbench. These checks are for Start only for now:
+
+- `TestStoreStartShowsTheSamePagesAsTifa`: every URL of `StorePages()` and `StoreMissing`, some URLs below a page, and the cart and checkout in each of the `StoreStates()`, show the same title, text and elements in Tifa and in Start, with the same status. Each server builds the cart of a state itself, since carts live in the memory of each process.
+- `TestStoreStartWritesDoWhatTifaDoes`: one visit uses every write, the failing ones too, and each step gets the same status, redirect, `Set-Cookie` and body from both servers. The checkout is sent as the browser's call (`X-Tifa-Call`, answered as a 200 with the redirect in the body) and as a plain form post (a 303).
+- `TestStoreStartKeepsTheWorkbench`: the six workbench pages are still the same in Start.
+
 They work on macOS and Linux and skip when `go`, `node` or `pnpm` is missing. `TIFA_COMPARE_SKIP_BUILD=1` starts what the last run built. The tests of the parser run without the switch.
 
 When a page check fails after a change to the shop, read the difference it prints. A new page needs a route in all three apps. A new package the shop's workbench imports needs a line in the `package.json` of all three apps, and `pnpm install` in each folder to update the lockfiles.

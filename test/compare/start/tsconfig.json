@@ -17,6 +17,6 @@
       "tifa/client": ["./shop/runtime/client.tsx"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "../domain/*.ts", "shop/**/*.ts", "shop/**/*.tsx"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "../domain/*.ts", "../domain/store/**/*.ts", "shop/**/*.ts", "shop/**/*.tsx"],
   "exclude": ["node_modules", ".output", "dist"]
 }
