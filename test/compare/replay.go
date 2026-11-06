@@ -163,10 +163,17 @@ var errNotSent = errors.New("cancelled before it was sent")
 func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, cancelAt time.Time) outcome {
 	rctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	responded := false
+	responded, sent := false, false
 	cancelled := func(err error) outcome {
 		// Our own timer cancelled it, and the visit itself is still going.
 		if ctx.Err() == nil && rctx.Err() != nil && !cancelAt.IsZero() {
+			if sent {
+				// The server got it and did what it does until the cancel: count it as a request.
+				a.mu.Lock()
+				a.requests++
+				a.responses[q.Class+" cancelled"]++
+				a.mu.Unlock()
+			}
 			return outcome{end: time.Now(), cancelled: true, responded: responded}
 		}
 		return outcome{end: time.Now(), err: err}
@@ -214,6 +221,7 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, ca
 		defer t.Stop()
 	}
 	start := time.Now()
+	sent = true
 	res, err := v.client.Do(req)
 	if err != nil {
 		return cancelled(err)

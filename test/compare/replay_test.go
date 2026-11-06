@@ -313,7 +313,7 @@ func TestAForegroundRequestCancelledAfterItsAnswerCameIsUsed(t *testing.T) {
 	step := TraceStep{Kind: StepClick, Page: "/p", Reqs: []TraceReq{cancelledAfterAnswer("/stream-1", "nav", 0, 10, 14)}}
 	plans, traces := onePlan(step)
 	round := testRunner(srv, plans, traces, nil).RunClosed(context.Background(), 1, 1, 10*time.Second)
-	if round.PageViews != 1 || round.Failures != 0 || round.Cancelled != 1 {
+	if round.PageViews != 1 || round.Failures != 0 || round.Cancelled != 1 || round.Responses["nav cancelled"] != 1 || round.Requests != 1 {
 		t.Fatalf("%+v", round)
 	}
 	for i := 0; i < 50 && held.Load() != 0; i++ {
