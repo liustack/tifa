@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -115,7 +116,13 @@ func TestI18nApp(t *testing.T) {
 			return h.Get("ETag"), h.Get("Cache-Status"), body
 		}
 		zhTag, zhStatus, zhBody := news("/store/news")
-		enTag, enStatus, _ := news("/en-US/store/news")
+		enTag, enStatus, enBody := news("/en-US/store/news")
+		// The page is the news page of its own language, not a 404 with a status of 200.
+		for body, language := range map[string]string{zhBody: "zh-CN", enBody: "en-US"} {
+			if text := plain(body); !strings.Contains(text, "go="+language+" react="+language) || strings.Contains(text, "Page not found") {
+				t.Errorf("the first %s page: %.400s", language, text)
+			}
+		}
 		if zhStatus != "tifa; fwd=miss" || enStatus != "tifa; fwd=miss" {
 			t.Errorf("first requests: %q and %q, each language makes its own page", zhStatus, enStatus)
 		}
@@ -125,7 +132,7 @@ func TestI18nApp(t *testing.T) {
 		if _, status, body := news("/store/news"); status != "tifa; hit" || body != zhBody {
 			t.Errorf("second zh-CN request: %q", status)
 		}
-		if _, status, _ := news("/en-US/store/news"); status != "tifa; hit" {
+		if _, status, body := news("/en-US/store/news"); status != "tifa; hit" || body != enBody {
 			t.Errorf("second en-US request: %q", status)
 		}
 		// The tag of one language does not answer 304 for the other.
@@ -156,6 +163,34 @@ func TestI18nApp(t *testing.T) {
 		// The page of the cache carries the language of its own entry.
 		if !strings.Contains(zhBody, `language:"zh-CN"`) || strings.Contains(zhBody, `language:"en-US"`) {
 			t.Errorf("the hydration data of the zh-CN page: %.200s", zhBody)
+		}
+	})
+
+	t.Run("a page in each language renders with its own prefix on its links", func(t *testing.T) {
+		for _, tc := range []struct{ path, text, cart string }{
+			{"/store", "store go=zh-CN react=zh-CN path=/store", `href="/store/cart"`},
+			{"/en-US/store", "store go=en-US react=en-US path=/store", `href="/en-US/store/cart"`},
+			{"/en-US/store?q=a", "store go=en-US react=en-US path=/store q=a", `href="/en-US/store/cart"`},
+			{"/en-US/store/cart", "cart go=en-US react=en-US", `href="/en-US/store"`},
+			{"/store/cart", "cart go=zh-CN react=zh-CN", `href="/store"`},
+		} {
+			status, _, body := cacheSend(t, "GET", base+tc.path, "")
+			if status != 200 || !strings.Contains(plain(body), tc.text) || !strings.Contains(body, tc.cart) || strings.Contains(body, "Page not found") {
+				t.Errorf("GET %s: %d %.500s", tc.path, status, plain(body))
+			}
+			// A link to a page outside every area has no prefix, in any language.
+			if tc.path != "/store/cart" && tc.path != "/en-US/store/cart" && !strings.Contains(body, `href="/projects"`) {
+				t.Errorf("GET %s: the link to /projects has a prefix", tc.path)
+			}
+		}
+	})
+
+	t.Run("a page without SSR carries its language, and its data request has the prefix", func(t *testing.T) {
+		for path, language := range map[string]string{"/store/csr": "zh-CN", "/en-US/store/csr": "en-US"} {
+			status, _, body := cacheSend(t, "GET", base+path, "")
+			if status != 200 || !strings.Contains(body, `"language":"`+language+`"`) || !strings.Contains(body, `"url":"`+path+`"`) || strings.Contains(body, "Page not found") {
+				t.Errorf("GET %s: %d %.600s", path, status, body)
+			}
 		}
 	})
 
@@ -240,6 +275,16 @@ func TestI18nPrefixAlways(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &m); err != nil || m.Language != "en-US" {
 		t.Errorf("/en-US/store/mine: %s", body)
 	}
+	// The pages carry the prefix on their links, in the default language too.
+	for path, tc := range map[string][2]string{
+		"/zh-CN/store": {"store go=zh-CN react=zh-CN path=/store", `href="/zh-CN/store/cart"`},
+		"/en-US/store": {"store go=en-US react=en-US path=/store", `href="/en-US/store/cart"`},
+	} {
+		status, _, body := cacheSend(t, "GET", base+path, "")
+		if status != 200 || !strings.Contains(plain(body), tc[0]) || !strings.Contains(body, tc[1]) || !strings.Contains(body, `href="/projects"`) || strings.Contains(body, "Page not found") {
+			t.Errorf("GET %s: %d %.500s", path, status, plain(body))
+		}
+	}
 	// Routes outside every area stay as they are.
 	for path, want := range map[string]int{"/projects": 200, "/api/hook": 200, "/favicon.svg": 200, "/zh-CN/projects": 404, "/zh-CN/api/hook": 404} {
 		if status, _, _ := cacheSend(t, "GET", base+path, ""); status != want {
@@ -318,4 +363,150 @@ func TestDevLocaleFiles(t *testing.T) {
 	if status, _, _ := cacheSend(t, "GET", d.base+"/fr/store/mine", ""); status != 404 {
 		t.Errorf("GET /fr/store/mine after removing fr.json: %d", status)
 	}
+}
+
+// TestI18nInBrowser drives test/apps/i18n in a real browser: which links stay in the document,
+// which load another one, the URLs of the data requests and of a handler call, a redirect and a
+// preload across languages, and back and forward.
+func TestI18nInBrowser(t *testing.T) {
+	skipUnlessEnabled(t)
+	if _, err := exec.LookPath("playwright-cli"); err != nil {
+		t.Skip("playwright-cli is not installed")
+	}
+	dir, exe := build(t, "i18n")
+	base, _, _ := start(t, exe)
+
+	pw, _ := openBrowser(t, "i18n-browser")
+	eval := func(fn string) any {
+		t.Helper()
+		out := pw("eval", fn)
+		_, result, ok := strings.Cut(out, "### Result\n")
+		if !ok {
+			t.Fatalf("no result in %s", out)
+		}
+		var v any
+		if err := json.Unmarshal([]byte(strings.SplitN(result, "\n", 2)[0]), &v); err != nil {
+			t.Fatalf("result %q: %v", result, err)
+		}
+		return v
+	}
+	hydrated := `() => { const root = document.getElementById("tifa-root"); return !!root && Object.keys(root).some((k) => k.startsWith("__reactContainer$")) }`
+	here := `() => location.pathname + location.search`
+	text := `() => document.querySelector("main")?.textContent ?? ""`
+	flagged := `() => window.__sameDocument === true`
+	click := func(id string) {
+		t.Helper()
+		pw("run-code", fmt.Sprintf(`async (page) => { await page.locator('#%s').click() }`, id))
+	}
+	// open loads a page and waits for it to hydrate. check fails on a warning in the console,
+	// which is where React reports a hydration mismatch, and on a failed request.
+	failed := regexp.MustCompile(`=> \[(?:FAILED|[45]\d\d)\]`)
+	check := func(where string) {
+		t.Helper()
+		if out := pw("console", "warning"); !strings.Contains(out, "Total messages: 0 ") {
+			t.Errorf("%s: console:\n%s", where, out)
+		}
+		if out := pw("network"); failed.MatchString(out) {
+			t.Errorf("%s: failed requests:\n%s", where, out)
+		}
+	}
+	first := true
+	open := func(path, want string) {
+		t.Helper()
+		if first {
+			pw("open", base+path)
+			first = false
+		} else {
+			pw("goto", base+path)
+		}
+		waitFor(t, path+" to hydrate", func() bool { return eval(hydrated) == true && strings.Contains(eval(text).(string), want) })
+		check(path)
+		eval(`() => { window.__sameDocument = true; return true }`)
+	}
+	shows := func(path, want string, same bool) {
+		t.Helper()
+		waitFor(t, path+" to show", func() bool { return eval(here) == path && strings.Contains(eval(text).(string), want) })
+		if got := eval(flagged) == true; got != same {
+			t.Errorf("%s: the same document is %v, want %v", path, got, same)
+		}
+	}
+	network := func() string { return pw("network") }
+
+	// First load of each language, with real SSR and without.
+	open("/en-US/store", "store go=en-US react=en-US")
+	open("/store", "store go=zh-CN react=zh-CN")
+	open("/en-US/store/csr", "csr go=en-US react=en-US")
+	open("/store/csr", "csr go=zh-CN react=zh-CN")
+
+	// In en-US: a link to a page of the area stays in the document and gets the prefix, with the
+	// data request of that URL. Back and forward follow.
+	open("/en-US/store", "store go=en-US")
+	click("to-cart")
+	shows("/en-US/store/cart", "cart go=en-US react=en-US", true)
+	if out := network(); !strings.Contains(out, "/en-US/store/cart?_tifa=") {
+		t.Errorf("the data request of the cart has no prefix:\n%s", out)
+	}
+	pw("go-back")
+	shows("/en-US/store", "store go=en-US", true)
+	pw("go-forward")
+	shows("/en-US/store/cart", "cart go=en-US react=en-US", true)
+	click("back")
+	shows("/en-US/store", "store go=en-US", true)
+
+	// A handler of the area is called at the URL of the page's language.
+	click("call")
+	waitFor(t, "the handler to answer", func() bool { return eval(`() => document.getElementById("mine")?.textContent`) == "en-US" })
+	if out := network(); !strings.Contains(out, "/en-US/store/mine") {
+		t.Errorf("the handler call has no prefix:\n%s", out)
+	}
+
+	// A preload of a page of the document's language is asked for with the prefix, one of another
+	// language asks for nothing.
+	pw("run-code", `async (page) => { await page.locator('#to-cart').hover(); await page.waitForTimeout(400) }`)
+	if out := network(); !strings.Contains(out, "/en-US/store/cart?_tifa=") {
+		t.Errorf("no preload of the cart:\n%s", out)
+	}
+	pw("run-code", `async (page) => { await page.locator('#to-projects').hover(); await page.waitForTimeout(400) }`)
+	if out := network(); strings.Contains(out, "/projects?_tifa=") {
+		t.Errorf("a preload of a page outside the language:\n%s", out)
+	}
+
+	// A link to a page outside every area loads a document, without a prefix.
+	click("to-projects")
+	shows("/projects", "projects go=zh-CN react=zh-CN", false)
+	// And from there a link into the default language stays in the document.
+	eval(`() => { window.__sameDocument = true; return true }`)
+	click("to-store")
+	shows("/store", "store go=zh-CN react=zh-CN", true)
+
+	// A redirect of a Load to a page outside the language loads that document. One to a page of the
+	// language stays.
+	open("/en-US/store", "store go=en-US")
+	click("to-stay")
+	shows("/en-US/store/cart", "cart go=en-US react=en-US", true)
+	open("/en-US/store", "store go=en-US")
+	click("to-leave")
+	shows("/projects", "projects go=zh-CN react=zh-CN", false)
+
+	// navigate({ href }) with the prefix of another language loads that document, with the prefix of
+	// this one stays. The default language has no prefix: /store/cart names zh-CN.
+	open("/en-US/store", "store go=en-US")
+	click("nav-default")
+	shows("/store/cart", "cart go=zh-CN react=zh-CN", false)
+	open("/en-US/store", "store go=en-US")
+	click("nav-english")
+	shows("/en-US/store/cart", "cart go=en-US react=en-US", true)
+	open("/store", "store go=zh-CN")
+	click("nav-english")
+	shows("/en-US/store/cart", "cart go=en-US react=en-US", false)
+
+	// A trailing slash is redirected away, with the prefix kept.
+	pw("goto", base+"/en-US/store/")
+	waitFor(t, "the trailing slash to go", func() bool { return eval(here) == "/en-US/store" })
+
+	// The same links in the default language.
+	open("/store", "store go=zh-CN")
+	click("to-cart")
+	shows("/store/cart", "cart go=zh-CN react=zh-CN", true)
+	_ = dir
 }
