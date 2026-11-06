@@ -11,12 +11,12 @@
     "noEmit": true,
     "isolatedModules": true,
     "allowImportingTsExtensions": true,
-    "types": ["vite/client"],
+    "types": ["node", "vite/client"],
     "paths": {
       "@/*": ["./shop/*"],
       "tifa/client": ["./shop/runtime/client.tsx"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "../domain/*.ts", "shop/**/*.ts", "shop/**/*.tsx"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "../domain/*.ts", "../domain/store/**/*.ts", "shop/**/*.ts", "shop/**/*.tsx"],
   "exclude": ["node_modules", ".output", "dist"]
 }

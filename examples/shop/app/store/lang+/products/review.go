@@ -1,6 +1,7 @@
 package products
 
 import (
+	"math"
 	"slices"
 	"time"
 
@@ -67,7 +68,7 @@ func ReviewPage(slug string, page int, l store.Locale) ReviewsPage {
 	for i := (out.Page - 1) * ReviewsPerPage; i < min(out.Page*ReviewsPerPage, total); i++ {
 		out.Reviews = append(out.Reviews, reviewAt(p, i, l))
 	}
-	five := total * int(p.rating*10-40) / 10
+	five := total * (int(math.Round(p.rating*10)) - 40) / 10
 	four := (total - five) * 2 / 3
 	three := (total - five - four) * 2 / 3
 	two := (total - five - four - three) / 2

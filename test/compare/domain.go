@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
@@ -24,14 +23,8 @@ type PageData map[string]map[string]any
 // GoData starts bin/shop and asks it, as the browser router does, for the data of the Layouts and
 // the page of each of every page of AllPages.
 func (e Env) GoData(ctx context.Context, writes ...Recipient) (PageData, error) {
-	var built struct {
-		BuildID string `json:"buildId"`
-	}
-	data, err := os.ReadFile(filepath.Join(e.Shop, ".tifa", "dist", "build.json"))
+	buildID, err := e.ShopBuildID()
 	if err != nil {
-		return nil, fmt.Errorf("build the shop first: %w", err)
-	}
-	if err := json.Unmarshal(data, &built); err != nil {
 		return nil, err
 	}
 	shop, err := e.Targets()[0].Start(ctx, "")
@@ -48,7 +41,7 @@ func (e Env) GoData(ctx context.Context, writes ...Recipient) (PageData, error) 
 	out := PageData{}
 	for _, page := range AllPages() {
 		// Every Load of the chain, which Routes lists: a digit 1 for each.
-		url := shop.Base + page.URL + "?_tifa=" + built.BuildID + "." + strings.Repeat("1", strings.Count(page.Routes, ",")+1)
+		url := shop.Base + page.URL + "?_tifa=" + buildID + "." + strings.Repeat("1", strings.Count(page.Routes, ",")+1)
 		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 		if err != nil {
 			return nil, err

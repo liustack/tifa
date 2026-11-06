@@ -8,8 +8,10 @@ export interface Counts {
   project: number // runs of the project Layout
   page: number // runs of the Load of a page
   renders: number // renders of the page, counted by the apps
+  findLocale: number // calls of findLocale, which every Layout, Load and write of the storefront makes once
+  products: number // products built whole (description, care, specs, spec groups): what GetProduct does
 }
 
 const g = globalThis as typeof globalThis & { __compareCounts?: Counts }
 
-export const counts: Counts = (g.__compareCounts ??= { ordersOf: 0, shell: 0, project: 0, page: 0, renders: 0 })
+export const counts: Counts = (g.__compareCounts ??= { ordersOf: 0, shell: 0, project: 0, page: 0, renders: 0, findLocale: 0, products: 0 })

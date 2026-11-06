@@ -1,0 +1,223 @@
+package language
+
+// This file is added to golang.org/x/text/language by go build's -overlay when the comparison makes
+// its tables (TestLanguageData in test/compare). It writes, from the matcher of the storefront and
+// the tables of the package, everything that acceptlanguage.ts needs to choose among the tags of an
+// Accept-Language header the way the matcher does: the supported tags of each language (haveTag),
+// what a wanted tag is for the matcher (its maximized script and region), and the tables of the
+// tie-breakers (region groups, paradigm locales).
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+
+	"golang.org/x/text/internal/language"
+)
+
+func exportID(s string, zero bool) string {
+	if zero {
+		return ""
+	}
+	return s
+}
+
+func exportLang(l language.Language) string { return exportID(l.String(), l == 0) }
+func exportScript(s language.Script) string  { return exportID(s.String(), s == 0) }
+func exportRegion(r language.Region) string  { return exportID(r.String(), r == 0) }
+
+func ExportStoreMatch(typedLangs, typedScripts, typedRegions []string) string {
+	m := newMatcher([]Tag{MustParse("zh-CN"), MustParse("en-US")}, nil)
+	var b strings.Builder
+
+	// matchHeaders: the supported tags a language has in the index, in order.
+	var langs []string
+	byLang := map[string]*matchHeader{}
+	for l, h := range m.index {
+		s := exportLang(l)
+		byLang[s] = h
+		langs = append(langs, s)
+	}
+	sort.Strings(langs)
+	b.WriteString("// matchHeaders: for a language, its supported tags in the matcher, 'index,lang,script,region,conf,maxScript,maxRegion,altScript,nextMax' for each\n")
+	b.WriteString("// (conf 0 no, 1 low, 2 high, 3 exact). An empty script or region is none.\n")
+	b.WriteString("export const matchHeaders = new Map<string, string>([\n")
+	for _, l := range langs {
+		var parts []string
+		for _, ht := range byLang[l].haveTags {
+			parts = append(parts, fmt.Sprintf("%d,%s,%s,%s,%d,%s,%s,%s,%d", ht.index, exportLang(ht.tag.LangID), exportScript(ht.tag.ScriptID), exportRegion(ht.tag.RegionID), int(ht.conf), exportScript(ht.maxScript), exportRegion(ht.maxRegion), exportScript(ht.altScript), ht.nextMax))
+		}
+		fmt.Fprintf(&b, "  [%q, %q],\n", l, strings.Join(parts, " "))
+	}
+	b.WriteString("])\n\n")
+
+	// regionGroups, matchRegion and paradigm: the tables of the tie-breakers.
+	b.WriteString("// regionGroups: the groups a region is in, as the package keeps them.\nexport const regionGroups = new Map<string, number>([\n")
+	for i, g := range regionToGroups {
+		if g != 0 {
+			fmt.Fprintf(&b, "  [%q, %d],\n", exportRegion(language.Region(i)), g)
+		}
+	}
+	b.WriteString("])\n\n// matchRegion: 'lang script group distance' of the region distances.\nexport const matchRegion = [\n")
+	for _, ri := range matchRegion {
+		fmt.Fprintf(&b, "  %q,\n", fmt.Sprintf("%s %s %d %d", exportLang(language.Language(ri.lang)), exportScript(language.Script(ri.script)), ri.group, ri.distance))
+	}
+	b.WriteString("]\n\n// paradigm: 'lang region region' of the paradigm locales.\nexport const paradigm = [\n")
+	for _, e := range paradigmLocales {
+		fmt.Fprintf(&b, "  %q,\n", fmt.Sprintf("%s %s %s", exportLang(language.Language(e[0])), exportRegion(language.Region(e[1])), exportRegion(language.Region(e[2]))))
+	}
+	b.WriteString("]\n\n")
+
+	// profile is what the matcher makes of a wanted tag before it compares it: the tag with its
+	// region as canonicalization leaves it, its maximized script and region, and the language the
+	// tags it may match are listed under.
+	type profile struct{ lang, script, region, maxScript, maxRegion, header string }
+	profileOf := func(tag string) (profile, bool) {
+		t, err := Parse(tag)
+		if err != nil {
+			return profile{}, false
+		}
+		w := t.tag()
+		var max language.Tag
+		header := w.LangID
+		if w.LangID != 0 {
+			if m.index[w.LangID] == nil {
+				return profile{}, false
+			}
+			max, _ = canonicalize(Legacy|Deprecated|Macro, w)
+			if w.RegionID != max.RegionID {
+				w.RegionID = max.RegionID
+			}
+			max, _ = max.Maximize()
+		} else {
+			if w.ScriptID == 0 && w.RegionID == 0 {
+				return profile{}, false
+			}
+			max, _ = w.Maximize()
+			if m.index[max.LangID] == nil {
+				return profile{}, false
+			}
+			header = max.LangID
+		}
+		return profile{exportLang(w.LangID), exportScript(w.ScriptID), exportRegion(w.RegionID), exportScript(max.ScriptID), exportRegion(max.RegionID), exportLang(header)}, true
+	}
+	// regionCanonical: a region written as another code of it (004 for AF, UK for GB) is that region.
+	canon := func(r string) string {
+		if r == "" {
+			return ""
+		}
+		t, err := Parse("und-" + r)
+		if err != nil {
+			return r
+		}
+		w := t.tag()
+		c, _ := canonicalize(Legacy|Deprecated|Macro, w)
+		return exportRegion(c.RegionID)
+	}
+	b.WriteString("// regionCanonical: a region written as another code of it (004 for AF, UK for GB) is that region.\nexport const regionCanonical = new Map<string, string>(")
+	var canonical []string
+	for _, r := range typedRegions {
+		if c := canon(r); c != r {
+			canonical = append(canonical, r+":"+c)
+		}
+	}
+	fmt.Fprintf(&b, "%q.split(' ').map((e) => e.split(':') as [string, string]))\n\n", strings.Join(canonical, " "))
+	// render writes a profile for a typed script and region. '=' stands for the script or region that
+	// was written, and, against a reference profile (the one of the same tag with no region), '~' for
+	// what it has too and '^' for its maximized region.
+	render := func(p profile, ok bool, script, region string, ref *profile) string {
+		if !ok {
+			return "-"
+		}
+		field := func(v, typed, refValue, refMark string) string {
+			switch {
+			case typed != "" && v == typed:
+				return "="
+			case ref != nil && v == refValue:
+				return refMark
+			}
+			return v
+		}
+		var r profile
+		if ref != nil {
+			r = *ref
+		}
+		return strings.Join([]string{
+			field(p.lang, "", r.lang, "~"), field(p.script, script, "", ""), field(p.region, canon(region), "", ""),
+			field(p.maxScript, script, r.maxScript, "~"), field(p.maxRegion, canon(region), r.maxRegion, "^"), field(p.header, "", r.header, "~"),
+		}, "/")
+	}
+	classes := map[string]int{}
+	var classList []string
+	class := func(c string) int {
+		id, ok := classes[c]
+		if !ok {
+			id = len(classList)
+			classes[c] = id
+			classList = append(classList, c)
+		}
+		return id
+	}
+	// classOf is the class of a language with a typed script: the profile with no region, and the regions
+	// whose profile is not what the no-region profile gives them.
+	classOf := func(lang, script string) int {
+		tag := lang
+		if script != "" {
+			tag += "-" + script
+		}
+		p, ok := profileOf(tag)
+		text := render(p, ok, script, "", nil)
+		for _, r := range typedRegions {
+			pr, okr := profileOf(tag + "-" + r)
+			var ref *profile
+			if ok {
+				ref = &p
+			}
+			got := render(pr, okr, script, r, ref)
+			// What a region with nothing special about it is: the profile with no region, with the region
+			// written as it is.
+			want := "-"
+			if ok {
+				want = render(profile{p.lang, p.script, canon(r), p.maxScript, canon(r), p.header}, true, script, r, ref)
+			}
+			if got != want {
+				text += " " + r + "=" + got
+			}
+		}
+		return class(text)
+	}
+	var entries []string
+	for _, lang := range typedLangs {
+		if t, err := Parse(lang); err != nil || (m.index[t.tag().LangID] == nil && lang != "und") {
+			continue
+		}
+		// The no-script class, the class for most scripts, and the scripts that are not the most.
+		none := classOf(lang, "")
+		perScript := map[string]int{}
+		count := map[int]int{}
+		for _, s := range typedScripts {
+			c := classOf(lang, s)
+			perScript[s] = c
+			count[c]++
+		}
+		def, most := -1, 0
+		for c, n := range count {
+			if n > most || n == most && c < def {
+				def, most = c, n
+			}
+		}
+		entries = append(entries, fmt.Sprintf("%s:%d:%d", lang, none, def))
+		for _, s := range typedScripts {
+			if perScript[s] != def {
+				entries = append(entries, fmt.Sprintf("%s %s:%d", lang, s, perScript[s]))
+			}
+		}
+	}
+	fmt.Fprintf(&b, "// profileClasses: what the matcher makes of a wanted tag. A class is 'lang/script/region/maxScript/maxRegion/header' for the\n")
+	fmt.Fprintf(&b, "// tag with no region ('=' is the script or region that was written, '-' no match), then ' R=<profile>' for the regions\n")
+	fmt.Fprintf(&b, "// that are not what the no-region profile gives them.\n")
+	fmt.Fprintf(&b, "export const profileClasses = %q.split('|')\n\n", strings.Join(classList, "|"))
+	fmt.Fprintf(&b, "// profileEntries: 'lang:noScriptClass:scriptClass' for a language, and 'lang Script:class' for a script that has another class.\n")
+	fmt.Fprintf(&b, "export const profileEntries = %q.split('|')\n", strings.Join(entries, "|"))
+	return b.String()
+}

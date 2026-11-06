@@ -1,16 +1,31 @@
 'use client'
 // What the shop's components use of @tanstack/react-router, on top of the Next.js router, so the
 // components of examples/shop run unchanged. Link writes what TanStack's Link writes for an
-// active link: the class active, data-status="active" and aria-current="page".
+// active link: the class active, data-status="active" and aria-current="page", and the props
+// of activeProps.
 
 import NextLink from 'next/link'
-import { usePathname } from 'next/navigation'
-import { createContext, useContext, type ComponentProps, type ReactNode } from 'react'
+import { usePathname, useRouter as useNextRouter, useSearchParams } from 'next/navigation'
+import { createContext, useContext, useEffect, useRef, useTransition, type ComponentProps, type ReactNode } from 'react'
+import { setNavigate } from './call'
 
 type Params = Record<string, string>
+type Search = Record<string, unknown>
 
 function buildPath(to: string, params: Params = {}) {
   return to.replace(/\$(\w+)/g, (_, key: string) => encodeURIComponent(params[key] ?? ''))
+}
+
+// The query the way tifa writes it: a key per value, a space as +, see stringifySearch of tifa's router.
+function queryOf(search: Search | undefined) {
+  const parts: string[] = []
+  for (const key in search ?? {}) {
+    const value = search![key]
+    if (value === undefined) continue
+    for (const item of Array.isArray(value) ? value : [value])
+      parts.push(new URLSearchParams({ [key]: String(item) }).toString())
+  }
+  return parts.length > 0 ? '?' + parts.join('&') : ''
 }
 
 function isActive(pathname: string, href: string, exact?: boolean) {
@@ -21,16 +36,32 @@ function isActive(pathname: string, href: string, exact?: boolean) {
 type LinkProps = Omit<ComponentProps<typeof NextLink>, 'href'> & {
   to: string
   params?: Params
-  activeOptions?: { exact?: boolean }
+  search?: Search
+  activeOptions?: { exact?: boolean; includeSearch?: boolean }
+  activeProps?: Record<string, unknown>
 }
 
-export function Link({ to, params, activeOptions, className, ...rest }: LinkProps) {
+export function Link({ to, params, search, activeOptions, activeProps, className, ...rest }: LinkProps) {
   const pathname = usePathname()
-  const href = buildPath(to, params)
-  const active = isActive(pathname, href, activeOptions?.exact)
+  // Only a link that names a query reads the current one. Whether it does never changes for a link,
+  // and a page that is built ahead of time (the 404) has links without one.
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const searchParams = search ? useSearchParams() : null
+  const path = buildPath(to, params)
+  const href = path + queryOf(search)
+  let active = isActive(pathname, path, activeOptions?.exact)
+  // Like TanStack's, the link is active only when the query holds what the link names, unless
+  // the options say to leave the query out.
+  if (active && activeOptions?.includeSearch !== false && search) {
+    active = Object.entries(search).every(([key, value]) => {
+      const wanted = Array.isArray(value) ? value.map(String) : [String(value)]
+      return wanted.join(',') === searchParams!.getAll(key).join(',')
+    })
+  }
   return active ? (
     <NextLink
       {...rest}
+      {...activeProps}
       href={href}
       className={className ? `${className} active` : 'active'}
       data-status="active"
@@ -67,8 +98,50 @@ export function useMatchRoute() {
   return ({ to, params }: { to: string; params?: Params }) => (pathname === buildPath(to, params) ? params ?? {} : false)
 }
 
-// The pages ask for the router to load their data again after a write or to forget what it loaded.
-// The comparison apps call no handler, so there is nothing to reload.
+export function useNavigate() {
+  const router = useNextRouter()
+  return ({ to, params, search }: { to: string; params?: Params; search?: Search }) => router.push(buildPath(to, params) + queryOf(search))
+}
+
+// The router of the page. invalidate loads the data of the page again with refresh, which Next.js
+// runs in a transition, so the promise ends when the new page is there. subscribe('onResolved')
+// calls back after each navigation that has settled, not for the first page.
+const resolved = new Set<() => void>()
+
 export function useRouter() {
-  return { invalidate: async (_options?: { sync?: boolean }) => {}, clearCache: () => {} }
+  const router = useNextRouter()
+  const pathname = usePathname()
+  const search = useSearchParams().toString()
+  const first = useRef(true)
+  const [pending, start] = useTransition()
+  const waiting = useRef<Array<() => void>>([])
+  useEffect(() => {
+    setNavigate((href) => router.push(href))
+  }, [router])
+  useEffect(() => {
+    if (first.current) {
+      first.current = false
+      return
+    }
+    resolved.forEach((fn) => fn())
+  }, [pathname, search])
+  useEffect(() => {
+    if (pending) return
+    waiting.current.forEach((fn) => fn())
+    waiting.current = []
+  }, [pending])
+  return {
+    invalidate: (_options?: { sync?: boolean }) =>
+      new Promise<void>((resolve) => {
+        waiting.current.push(resolve)
+        start(() => router.refresh())
+      }),
+    clearCache: () => {},
+    subscribe: (_event: 'onResolved', fn: () => void) => {
+      resolved.add(fn)
+      return () => {
+        resolved.delete(fn)
+      }
+    },
+  }
 }
