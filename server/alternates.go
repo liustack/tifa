@@ -17,17 +17,20 @@ import (
 // boot data of a page without SSR and into the answer to a client navigation. The render writes the
 // hreflang links from it, and the browser's useAlternates reads it for the language switch.
 
-// pageAlternates is the list as the page carries it.
+// pageAlternates is the list as the page of a render gets it.
 type pageAlternates struct {
-	// Site is site.url without a trailing slash, left out of the answer to a navigation, which the
-	// browser sends to the site it already knows.
+	// Site is site.url without a trailing slash.
 	Site string `json:"site,omitempty"`
 	// Default is the default language of the site, whose version x-default stands for.
 	Default string `json:"default"`
 	// Canonical is the path of the page as it was asked for, without the query.
-	Canonical string `json:"canonical"`
+	Canonical string `json:"canonical,omitempty"`
 	// List holds a link per version, the page itself included.
-	List []alternateLink `json:"list"`
+	List []alternateLink `json:"list,omitempty"`
+	// Custom is true when a Load of the page called c.SetAlternates, so List is the list of the
+	// app. Otherwise it is the prefix swap over the languages of the route, which the browser works
+	// out for itself, so only Custom lists travel to it.
+	Custom bool `json:"custom,omitzero"`
 }
 
 type alternateLink struct {
@@ -48,15 +51,17 @@ func (s *server) languagePath(language, rest string) string {
 }
 
 // alternatesOf works out the versions of the page c answers, once its Loads have returned. It
-// returns nil for a page with fewer than two: a site without languages, a page outside every area
-// and a page whose list has one version.
+// returns nil for a site without languages. A page outside every area, a page with one version and
+// a page that is not found have a list of fewer than two versions: the render writes no links for
+// it.
 func (s *server) alternatesOf(c *tifa.Ctx) (*pageAlternates, error) {
 	if s.i18n == nil {
 		return nil, nil
 	}
+	site := &pageAlternates{Site: strings.TrimRight(s.i18n.SiteURL, "/"), Default: s.i18n.Default}
 	langs := s.langs[c.Pattern()]
 	if len(langs) == 0 {
-		return nil, nil
+		return site, nil
 	}
 	language, rest := c.Language(), c.Request().URL.EscapedPath()
 	if prefix := "/" + language; rest == prefix || strings.HasPrefix(rest, prefix+"/") {
@@ -65,7 +70,8 @@ func (s *server) alternatesOf(c *tifa.Ctx) (*pageAlternates, error) {
 		}
 	}
 	var list []alternateLink
-	if given, set := core.AlternatesOf(c); set {
+	given, custom := core.AlternatesOf(c)
+	if custom {
 		seen := map[string]bool{}
 		for _, a := range given {
 			switch {
@@ -84,13 +90,11 @@ func (s *server) alternatesOf(c *tifa.Ctx) (*pageAlternates, error) {
 			list = append(list, alternateLink{Language: l, URL: s.languagePath(l, rest)})
 		}
 	}
-	if len(list) < 2 {
-		return nil, nil
-	}
-	return &pageAlternates{Site: strings.TrimRight(s.i18n.SiteURL, "/"), Default: s.i18n.Default, Canonical: s.languagePath(language, rest), List: list}, nil
+	site.Canonical, site.List, site.Custom = s.languagePath(language, rest), list, custom
+	return site, nil
 }
 
-// alternatesJSON is the list as JSON a script element can hold, nil when the page has none.
+// alternatesJSON is the list as JSON a script element can hold, nil for a site without languages.
 func alternatesJSON(a *pageAlternates) (jsontext.Value, error) {
 	if a == nil {
 		return nil, nil
@@ -98,45 +102,55 @@ func alternatesJSON(a *pageAlternates) (jsontext.Value, error) {
 	return htmlJSON(a)
 }
 
-// navigationJSON is the list as a data answer carries it, without the site. A page without versions
-// says so with an empty list, so the browser drops the list it held for the path. A site without
-// languages carries none.
-func (s *server) navigationJSON(a *pageAlternates) (jsontext.Value, error) {
-	switch {
-	case s.i18n == nil:
+// carriedJSON is what a page without SSR hands to the browser of the list: the site and the default
+// language, and the list when a Load set it. The browser works out the rest.
+func carriedJSON(a *pageAlternates) (jsontext.Value, error) {
+	if a == nil {
 		return nil, nil
-	case a == nil:
-		return jsontext.Value(`{"list":[]}`), nil
 	}
-	b := *a
-	b.Site = ""
+	b := pageAlternates{Site: a.Site, Default: a.Default}
+	if a.Custom {
+		b.List, b.Custom = a.List, true
+		if b.List == nil {
+			b.List = []alternateLink{}
+		}
+	}
 	return htmlJSON(&b)
 }
 
-// pageAlternatesJSON is alternatesJSON for the page c answers with status: only a page that was
-// found has versions, a 404 and an error page have none.
-func (s *server) pageAlternatesJSON(c *tifa.Ctx, status int) (jsontext.Value, error) {
-	if status != http.StatusOK {
+// navigationJSON is the list a data answer carries: the list of a Load that set one, nil for the
+// others, whose list the browser works out.
+func navigationJSON(a *pageAlternates) (jsontext.Value, error) {
+	if a == nil || !a.Custom {
 		return nil, nil
 	}
-	a, err := s.alternatesOf(c)
-	if err != nil {
-		return nil, err
-	}
-	return alternatesJSON(a)
+	return htmlJSON(struct {
+		List []alternateLink `json:"list"`
+	}{append([]alternateLink{}, a.List...)})
 }
 
-// navigationAlternates is the list a data request answers with. It goes out when a Load could have
-// set it: the request runs the Load of the page, the last of the chain. A Load the browser still
-// holds the data of may have set a list the answer does not know, and the browser keeps the list it
-// has for that path then.
-func (s *server) navigationAlternates(c *tifa.Ctx, chain, selected []load) (jsontext.Value, error) {
-	if len(chain) == 0 || !slices.ContainsFunc(selected, func(l load) bool { return l.id == chain[len(chain)-1].id }) {
+// pageAlternatesFor is the list of the page c answers with status. A page that is not found or
+// failed has none.
+func (s *server) pageAlternatesFor(c *tifa.Ctx, status int) (*pageAlternates, error) {
+	if status != http.StatusOK {
+		if s.i18n == nil {
+			return nil, nil
+		}
+		return &pageAlternates{Site: strings.TrimRight(s.i18n.SiteURL, "/"), Default: s.i18n.Default}, nil
+	}
+	return s.alternatesOf(c)
+}
+
+// navigationAlternates is the list a data request answers with: that of a Load that called
+// c.SetAlternates in this request. A Load the browser still holds the data of may have set one this
+// answer does not know, and the browser keeps the list it has for that path.
+func (s *server) navigationAlternates(c *tifa.Ctx) (jsontext.Value, error) {
+	if _, set := core.AlternatesOf(c); !set {
 		return nil, nil
 	}
 	a, err := s.alternatesOf(c)
 	if err != nil {
 		return nil, err
 	}
-	return s.navigationJSON(a)
+	return navigationJSON(a)
 }

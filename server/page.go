@@ -582,7 +582,7 @@ func (s *server) dataRequest(c *tifa.Ctx, chain []load, key string) error {
 			return err
 		}
 	}
-	alternates, err := s.navigationAlternates(c, chain, selected)
+	alternates, err := s.navigationAlternates(c)
 	if err != nil {
 		return err
 	}
@@ -747,7 +747,11 @@ func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, since tim
 	s.rendering.RLock()
 	defer s.rendering.RUnlock()
 	f := s.front.Load()
-	alternates, err := s.pageAlternatesJSON(c, status)
+	versions, err := s.pageAlternatesFor(c, status)
+	if err != nil {
+		return err
+	}
+	alternates, err := alternatesJSON(versions)
 	if err != nil {
 		return err
 	}
@@ -1036,7 +1040,11 @@ func (s *server) dataOnly(c *tifa.Ctx, items map[string]routeResult, status int,
 			return err
 		}
 	}
-	alternates, err := s.pageAlternatesJSON(c, status)
+	versions, err := s.pageAlternatesFor(c, status)
+	if err != nil {
+		return err
+	}
+	alternates, err := carriedJSON(versions)
 	if err != nil {
 		return err
 	}

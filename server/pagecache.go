@@ -43,8 +43,8 @@ type wholePage struct {
 	etag string
 	// routes holds the data of every Load of the page as JSON text, in the order of the chain.
 	routes []wholeRoute
-	// alternates is the list a data request answers with (navigationJSON), nil on a site without
-	// languages.
+	// alternates is the list of its own a data request answers with (navigationJSON), nil when no
+	// Load set one.
 	alternates jsontext.Value
 	// headers are the response headers the Load and Layout functions set, except those the
 	// framework writes itself (ownedHeader). Cache-Control and Vary are here only when they make the
@@ -474,10 +474,14 @@ func (s *server) generate(ctx context.Context, base *http.Request, pattern strin
 	if err != nil {
 		return s.madeFailed(err, headers, effects{})
 	}
-	if entry.alternates, err = s.navigationJSON(alternates); err != nil {
+	if entry.alternates, err = navigationJSON(alternates); err != nil {
 		return s.madeFailed(err, headers, effects{})
 	}
 	pageAlternates, err := alternatesJSON(alternates)
+	if err != nil {
+		return s.madeFailed(err, headers, effects{})
+	}
+	carried, err := carriedJSON(alternates)
 	if err != nil {
 		return s.madeFailed(err, headers, effects{})
 	}
@@ -490,7 +494,7 @@ func (s *server) generate(ctx context.Context, base *http.Request, pattern strin
 		sess = pageSession{key: k, head: sessionHead(k)}
 	}
 	if !route.SSR {
-		doc, err := dataOnlyDocument(f, items, route.Path, s.pageURI(rq, pattern), language, pageAlternates, sess)
+		doc, err := dataOnlyDocument(f, items, route.Path, s.pageURI(rq, pattern), language, carried, sess)
 		if err != nil {
 			return s.madeFailed(err, headers, effects{})
 		}

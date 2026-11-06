@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -106,8 +105,8 @@ func TestPageHasAVersionInEachLanguageOfItsArea(t *testing.T) {
 		// A parameter value keeps the escapes it came with.
 		{"/de/store/items/a%2Fb", `{"site":"https://a.example.com","default":"zh-CN","canonical":"/de/store/items/a%2Fb","list":[{"language":"zh-CN","url":"/store/items/a%2Fb"},{"language":"en-US","url":"/en-US/store/items/a%2Fb"},{"language":"de","url":"/de/store/items/a%2Fb"}]}`},
 		// One language, or no area: one version, nothing to link.
-		{"/only", ""},
-		{"/outside", ""},
+		{"/only", `{"site":"https://a.example.com","default":"zh-CN","canonical":"/only","list":[{"language":"zh-CN","url":"/only"}]}`},
+		{"/outside", `{"site":"https://a.example.com","default":"zh-CN"}`},
 	} {
 		if w := get(e.s, tc.target); w.Code != 200 {
 			t.Fatalf("GET %s: %d %s", tc.target, w.Code, w.Body.String())
@@ -136,13 +135,14 @@ func TestNotFoundAndErrorPagesHaveNoVersions(t *testing.T) {
 	if w := get(e.s, "/store/gone"); w.Code != 404 {
 		t.Fatalf("GET /store/gone: %d", w.Code)
 	}
-	if got := e.lastAlternates(t); got != "" {
+	const siteOnly = `{"site":"https://a.example.com","default":"zh-CN"}`
+	if got := e.lastAlternates(t); got != siteOnly {
 		t.Errorf("the 404 page of a route carries %s", got)
 	}
 	if w := get(e.s, "/en-US/store/nowhere"); w.Code != 404 {
 		t.Fatalf("GET /en-US/store/nowhere: %d", w.Code)
 	}
-	if got := e.lastAlternates(t); got != "" {
+	if got := e.lastAlternates(t); got != siteOnly {
 		t.Errorf("the 404 page of a URL that matches no route carries %s", got)
 	}
 }
@@ -150,7 +150,7 @@ func TestNotFoundAndErrorPagesHaveNoVersions(t *testing.T) {
 func TestSetAlternatesReplacesTheList(t *testing.T) {
 	e := newAltEnv(t, false)
 	get(e.s, "/store/journal/ni-hao")
-	want := `{"site":"https://a.example.com","default":"zh-CN","canonical":"/store/journal/ni-hao","list":[{"language":"zh-CN","url":"/store/journal/ni-hao"},{"language":"en-US","url":"/en-US/store/journal/hello"}]}`
+	want := `{"site":"https://a.example.com","default":"zh-CN","canonical":"/store/journal/ni-hao","list":[{"language":"zh-CN","url":"/store/journal/ni-hao"},{"language":"en-US","url":"/en-US/store/journal/hello"}],"custom":true}`
 	if got := e.lastAlternates(t); got != want {
 		t.Errorf("got %s\nwant %s", got, want)
 	}
@@ -160,7 +160,7 @@ func TestSetAlternatesReplacesTheList(t *testing.T) {
 	e.s.contentChanged()
 	e.clock.advance(time.Millisecond)
 	get(e.s, "/store/journal/ni-hao")
-	if got := e.lastAlternates(t); got != "" {
+	if got := e.lastAlternates(t); !strings.HasSuffix(got, `"list":[{"language":"zh-CN","url":"/store/journal/ni-hao"}],"custom":true}`) {
 		t.Errorf("an entry with one version carries %s", got)
 	}
 }
@@ -196,43 +196,44 @@ func TestPageWithoutSSRCarriesTheVersionsInItsBootData(t *testing.T) {
 	e := newAltEnv(t, false)
 	w := get(e.s, "/en-US/store/plain")
 	body := w.Body.String()
-	if w.Code != 200 || !strings.Contains(body, `"alternates":{"site":"https://a.example.com","default":"zh-CN","canonical":"/en-US/store/plain","list":[`) {
+	if w.Code != 200 || !strings.Contains(body, `"alternates":{"site":"https://a.example.com","default":"zh-CN"}`) {
 		t.Errorf("%d %s", w.Code, body)
 	}
 }
 
-// navigation holds what a data request answers with.
-type navigation struct {
-	Alternates *struct {
-		Site      string `json:"site"`
-		Canonical string `json:"canonical"`
-		List      []struct{ Language, URL string }
-	} `json:"alternates"`
+// The data of a navigation carries the list of a Load that called SetAlternates, and nothing for
+// the others, whose list the browser works out.
+func TestNavigationDataCarriesOnlyTheListsOfTheApp(t *testing.T) {
+	e := newAltEnv(t, false)
+	body := func(target, layers string) string {
+		w := getData(e.s, target, "b1", layers)
+		if w.Code != 200 {
+			t.Fatalf("GET %s: %d %s", target, w.Code, w.Body.String())
+		}
+		return w.Body.String()
+	}
+	want := `"alternates":{"list":[{"language":"zh-CN","url":"/store/journal/ni-hao"},{"language":"en-US","url":"/en-US/store/journal/hello"}]}`
+	if got := body("/en-US/store/journal/hello", "01"); !strings.Contains(got, want) {
+		t.Errorf("a page with a list of its own: %s", got)
+	}
+	// An entry with one version has a list of one, which the browser takes as no links.
+	e.tr.set(content.Translation{Lang: "zh-CN", Slug: "only-zh"})
+	if got := body("/store/journal/only-zh", "01"); !strings.Contains(got, `"alternates":{"list":[{"language":"zh-CN","url":"/store/journal/only-zh"}]}`) {
+		t.Errorf("a page with one version: %s", got)
+	}
+	for _, target := range []string{"/en-US/store/items/7", "/outside"} {
+		if got := body(target, onlyOnes(target)); strings.Contains(got, "alternates") {
+			t.Errorf("%s: %s", target, got)
+		}
+	}
 }
 
-func TestNavigationDataCarriesTheVersions(t *testing.T) {
-	e := newAltEnv(t, false)
-	answer := func(target, layers string) (navigation, string) {
-		w := getData(e.s, target, "b1", layers)
-		var n navigation
-		if err := json.Unmarshal(w.Body.Bytes(), &n); err != nil || w.Code != 200 {
-			t.Fatalf("GET %s: %d %s: %v", target, w.Code, w.Body.String(), err)
-		}
-		return n, w.Body.String()
+// onlyOnes asks for every Load of the chain of the page at target.
+func onlyOnes(target string) string {
+	if target == "/outside" {
+		return "1"
 	}
-	// The chain of the page is the root Layout and the page's own Load: 01 asks for the page's.
-	n, body := answer("/en-US/store/items/7", "01")
-	if n.Alternates == nil || n.Alternates.Site != "" || n.Alternates.Canonical != "/en-US/store/items/7" || len(n.Alternates.List) != 3 {
-		t.Errorf("both Loads: %s", body)
-	}
-	// A request that does not run the Load of the page says nothing: the browser keeps its list.
-	if n, body = answer("/en-US/store/items/7", "10"); n.Alternates != nil {
-		t.Errorf("the Layout alone: %s", body)
-	}
-	// A page with one version says so, which drops the list the browser held.
-	if _, body = answer("/outside", "1"); !strings.Contains(body, `"alternates":{"list":[]}`) {
-		t.Errorf("a page outside every area: %s", body)
-	}
+	return "11"
 }
 
 // A page the whole-page cache holds gets the new list once a translation is published, in the
@@ -245,7 +246,7 @@ func TestCachedPageGetsTheListOfAPublishedTranslation(t *testing.T) {
 	if w := get(e.s, "/store/journal/ni-hao"); w.Header().Get("X-Tifa-Render") != "cache" {
 		t.Fatalf("the second request: %q", w.Header().Get("X-Tifa-Render"))
 	}
-	if got := e.lastAlternates(t); !strings.HasSuffix(got, two+"}") {
+	if got := e.lastAlternates(t); !strings.HasSuffix(got, two+`,"custom":true}`) {
 		t.Fatalf("before: %s", got)
 	}
 	// The data of a navigation from the cached entry has the list too.
@@ -260,7 +261,7 @@ func TestCachedPageGetsTheListOfAPublishedTranslation(t *testing.T) {
 	if w.Header().Get("X-Tifa-Render") != "vm" {
 		t.Fatalf("after publishing: %q", w.Header().Get("X-Tifa-Render"))
 	}
-	if got := e.lastAlternates(t); !strings.HasSuffix(got, three+"}") {
+	if got := e.lastAlternates(t); !strings.HasSuffix(got, three+`,"custom":true}`) {
 		t.Errorf("after: %s", got)
 	}
 	if w := getData(e.s, "/store/journal/ni-hao", "b1", "01"); !strings.Contains(w.Body.String(), three+"}") {
