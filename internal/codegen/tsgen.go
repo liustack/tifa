@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"maps"
 	"net/url"
+	"os"
 	"path"
 	"path/filepath"
 	"slices"
@@ -195,7 +196,13 @@ import { htmlAttributes, routeTree } from "./routes"
 	if err := viteFiles(files, vite); err != nil {
 		return nil, err
 	}
-	locales := m.I18n != nil
+	locales := false
+	if m.I18n != nil {
+		var err error
+		if locales, err = namesReactI18next(root); err != nil {
+			return nil, err
+		}
+	}
 	err = fs.WalkDir(js.Runtime, "runtime", func(name string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
@@ -1235,6 +1242,29 @@ export interface I18n {
 }
 
 // i18nRuntime are the files of the runtime that belong to tifa/i18n. They import i18next and
-// react-i18next, which only an app with translations installs, and TypeScript checks all of
-// .tifa, so an app without languages (no _locales folder) does not get them.
+// react-i18next, and TypeScript checks all of .tifa, so only an app that has languages and uses
+// the adapter gets them: the core takes no translation library.
 var i18nRuntime = []string{"runtime/i18n.tsx", "runtime/locales.d.ts"}
+
+// namesReactI18next reports whether the package.json at root lists react-i18next in its
+// dependencies or devDependencies, the sign that the app translates with the adapter. An app
+// without a package.json has no npm packages.
+func namesReactI18next(root string) (bool, error) {
+	data, err := os.ReadFile(filepath.Join(root, "package.json"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	var pkg struct {
+		Dependencies    map[string]string `json:"dependencies"`
+		DevDependencies map[string]string `json:"devDependencies"`
+	}
+	if err := json.Unmarshal(data, &pkg); err != nil {
+		return false, fmt.Errorf("package.json: %w", err)
+	}
+	_, dep := pkg.Dependencies["react-i18next"]
+	_, dev := pkg.DevDependencies["react-i18next"]
+	return dep || dev, nil
+}
