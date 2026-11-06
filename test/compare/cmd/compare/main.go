@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/signal"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -169,6 +170,7 @@ func browseCmd(cmd string, args []string) {
 		servers    = flags.String("servers", "", "comma separated spec ids (default tifa,nextjs,start,reactrouter)")
 		workers    = flags.Int("workers", 4, "record: browser contexts at once")
 		limit      = flags.Int("limit", 0, "record: play only the first plans")
+		means      = flags.String("means", "4", "record: comma separated visit lengths to record (the browse runs use 4)")
 		skipBuild  = flags.Bool("skip-build", false, "record, browse: use the last build")
 		scenarios  = flags.String("scenarios", "r95w5,r80w20,r50w50", "browse: comma separated scenarios")
 		serverCPUs = flags.String("server-cpus", "", "browse: cpus for the server, as taskset -c takes them (Linux only)")
@@ -212,7 +214,7 @@ func browseCmd(cmd string, args []string) {
 		}
 	}
 	if cmd == "record" {
-		if err := env.Record(ctx, os.Stderr, *dir, list, *workers, *limit); err != nil {
+		if err := env.Record(ctx, os.Stderr, *dir, list, parseMeans(*means), *workers, *limit); err != nil {
 			fatal(err)
 		}
 		return
@@ -275,4 +277,16 @@ func browseCmd(cmd string, args []string) {
 func fatal(err error) {
 	fmt.Fprintln(os.Stderr, err)
 	os.Exit(1)
+}
+
+func parseMeans(s string) []int {
+	var out []int
+	for _, f := range strings.Split(s, ",") {
+		n, err := strconv.Atoi(strings.TrimSpace(f))
+		if err != nil {
+			fatal(fmt.Errorf("-means: %w", err))
+		}
+		out = append(out, n)
+	}
+	return out
 }

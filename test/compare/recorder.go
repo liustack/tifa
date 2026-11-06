@@ -32,7 +32,7 @@ func WritePlans(dir string, seed uint64, visits int) error {
 // Record plays the plans of dir in a real browser against each framework and writes the traces to
 // dir. The recorder is test/compare/recorder (Node with Playwright). Every framework is started
 // fresh for each visit length, unpinned: recording is not timed.
-func (e Env) Record(ctx context.Context, log io.Writer, dir string, servers []string, workers, limit int) error {
+func (e Env) Record(ctx context.Context, log io.Writer, dir string, servers []string, means []int, workers, limit int) error {
 	recorder := filepath.Join(e.Root, "test", "compare", "recorder")
 	if err := run(ctx, log, recorder, nil, "pnpm", "install", "--frozen-lockfile"); err != nil {
 		return err
@@ -43,7 +43,7 @@ func (e Env) Record(ctx context.Context, log io.Writer, dir string, servers []st
 			return fmt.Errorf("no spec named %q", name)
 		}
 		spec := e.Specs()[i]
-		for _, mean := range []int{4, 2} {
+		for _, mean := range means {
 			server, err := spec.Start(ctx, "")
 			if err != nil {
 				return err
