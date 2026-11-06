@@ -1032,6 +1032,12 @@ export function localesPlugin(getRoot) {
         const locales = {}
         for (const { file, language, namespace } of findLocales(path.join(getRoot(), 'app'))) {
           this.addWatchFile(file)
+          if (namespace.includes(':')) {
+            this.error(
+              `${path.relative(getRoot(), path.dirname(file))}: the namespace "${namespace}" has a ":", which i18next reads as ` +
+                'the end of a namespace in a key. Rename the folder',
+            )
+          }
           let strings
           try {
             strings = JSON.parse(fs.readFileSync(file, 'utf8'))

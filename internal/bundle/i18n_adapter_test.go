@@ -2,6 +2,7 @@ package bundle
 
 import (
 	"encoding/json"
+	"io"
 	"io/fs"
 	"strings"
 	"testing"
@@ -171,5 +172,15 @@ func TestI18nAdapterLeavesBundlesThatDoNotImportItAlone(t *testing.T) {
 	after, _ := buildScript(t, root, "render.tsx")
 	if before != after {
 		t.Error("the bundle of a page that does not import the adapter changed with locale files and adapter files around")
+	}
+}
+
+// i18next splits a namespace from a key at ":", so a folder whose path has one cannot be a
+// namespace. The build says which folder.
+func TestI18nAdapterRefusesAFolderNameWithAColon(t *testing.T) {
+	root := i18nAdapterApp(t, map[string]string{"app/shop:eu/_locales/en-US.json": `{"a": "b"}`})
+	_, _, err := script(testdata(t), root, "i18n.tsx", io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "app/shop:eu/_locales") || !strings.Contains(err.Error(), `":"`) {
+		t.Fatalf("got %v, want an error that names the folder and the colon", err)
 	}
 }
