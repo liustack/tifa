@@ -378,7 +378,7 @@ func StoreScenarios() []StoreScenario {
 		)
 	}
 	var redirects []StoreStep
-	for _, accept := range append(StoreAcceptLanguages(), generatedAcceptLanguages(8000)...) {
+	for _, accept := range append(append(StoreAcceptLanguages(), generatedAcceptLanguages(8000)...), tieAcceptLanguages()...) {
 		redirects = append(redirects, StoreStep{Name: "Accept-Language " + accept, Method: "GET", URL: "/store", AcceptLanguage: accept})
 	}
 	out = append(out, StoreScenario{Name: "language redirect", Steps: redirects})
@@ -847,6 +847,69 @@ func generatedAcceptLanguages(n int) []string {
 			header = mutate(header)
 		}
 		out = append(out, header)
+	}
+	return out
+}
+
+// tieAcceptLanguages are headers made to reach the last rules of the matcher, which only decide
+// between tags that the earlier rules rank alike: tags of one language written with other regions
+// and scripts, with another language between them or not (so that the first is not pinned), in
+// both orders and with weights that put them in another order. They are every ordered pair of a
+// small set of tags, and pairs and triples of a larger set from a fixed seed with a language
+// repeated.
+func tieAcceptLanguages() []string {
+	var out []string
+	var small []string
+	for _, l := range []string{"en", "zh"} {
+		for _, s := range []string{"", "Hans", "Hant"} {
+			for _, r := range []string{"", "US", "CN", "SG", "HK", "TW", "GB", "AU", "CA", "001", "150", "419"} {
+				small = append(small, strings.Join(filterEmpty(l, s, r), "-"))
+			}
+		}
+	}
+	for _, a := range small {
+		for _, b := range small {
+			out = append(out, a+","+b)
+		}
+	}
+	var universe []string
+	for _, l := range []string{"en", "zh", "yue", "cmn", "und", "eng", "zho"} {
+		for _, s := range []string{"", "Latn", "Hans", "Hant", "Cyrl"} {
+			for _, r := range []string{"", "US", "CN", "SG", "HK", "TW", "GB", "AU", "CA", "NZ", "MO", "IN", "FR", "001", "150", "419", "UK"} {
+				universe = append(universe, strings.Join(filterEmpty(l, s, r), "-"))
+			}
+		}
+	}
+	seed := uint64(0x2545f4914f6cdd1d)
+	next := func(k int) int {
+		seed = seed*6364136223846793005 + 1442695040888963407
+		return int((seed >> 33) % uint64(k))
+	}
+	weights := []string{"", "", ";q=0.9", ";q=0.8", ";q=0.5", ";q=1"}
+	tag := func() string { return universe[next(len(universe))] + weights[next(len(weights))] }
+	for i := 0; i < 20000; i++ {
+		a, b, c := tag(), tag(), tag()
+		if next(2) == 0 {
+			// The first and the last of one language, with another between them.
+			lang, _, _ := strings.Cut(a, "-")
+			lang, _, _ = strings.Cut(lang, ";")
+			c = lang + c[strings.IndexAny(c+"-", "-;"):]
+		}
+		if next(3) == 0 {
+			out = append(out, a+","+b)
+		} else {
+			out = append(out, a+","+b+","+c)
+		}
+	}
+	return out
+}
+
+func filterEmpty(parts ...string) []string {
+	var out []string
+	for _, p := range parts {
+		if p != "" {
+			out = append(out, p)
+		}
 	}
 	return out
 }

@@ -7,19 +7,13 @@
 //
 // ParseAcceptLanguage reads the header entry by entry. One entry it cannot read (a tag of the
 // package does not know or write well, a weight that is not a number) makes it refuse the whole
-// header, and the answer is the first locale. The matcher is not ported. langdata.gen.ts holds
-// what it answers for a single tag, made from the package by TestLanguageData, and this module
-// picks among the tags of a header the way the matcher does: the best confidence first, then a language
-// written as the locale's (zh for zh-CN), then its region, then the first of the header (the entries
-// are sorted by weight, the first of equal weights first). A tag that matches exactly but for its
-// region stops tags of another language after it from taking the answer. TestStoreDomainMatchesGo
-// compares them with Go on many headers.
-//
-// Not ported: the matcher itself, whose answer for a single tag is read from the table, and its
-// last tie-breakers (the distance between region groups), which no header of the comparisons has
-// needed. About 10,000 headers, most of them generated from the grammar of a tag and of a weight with
-// parts cut and put in at random, keep the port equal to the package (TestStoreDomainMatchesGo).
-import { langCanonical, languages, matchClasses, matching, regionAlpha3, regions, scripts, variants } from './langdata.gen.ts'
+// header, and the answer is the first locale. Then the matcher chooses among the tags (language/match.go:
+// getBest and bestMatch.update, ported here with their tie-breakers). Its data, which the package keeps
+// in tables it does not export, is in langdata.gen.ts, written from the package by TestLanguageData:
+// the supported tags of each language, what the matcher makes of a wanted tag (its maximized script and
+// region), the region groups and the paradigm locales. TestStoreDomainMatchesGo compares the port with
+// Go on about 36,000 headers.
+import { langCanonical, languages, matchHeaders, matchRegion, paradigm, profileClasses, profileEntries, regionAlpha3, regionCanonical, regionGroups, regions, scripts, variants } from './langdata.gen.ts'
 
 // grandfathered are the old tags that the package reads as a tag of today: the language and the region.
 const grandfathered = new Map<string, [string, string]>([
@@ -32,7 +26,7 @@ const grandfathered = new Map<string, [string, string]>([
 ])
 
 // The words ParseAcceptLanguage takes for a language when they are not a tag.
-const acceptFallback: Record<string, string> = { english: 'en', deutsch: 'de', italian: 'it', french: 'fr', '*': 'und' }
+const acceptFallback: Record<string, string> = { english: 'en', deutsch: 'de', italian: 'it', french: 'fr', '*': 'mul' }
 
 const canon = (lang: string) => langCanonical.get(lang) ?? lang
 
@@ -43,6 +37,8 @@ interface Tag {
   written: string
   script: string
   region: string
+  /** variant says the tag has a variant. */
+  variant: boolean
 }
 
 const alnum = /^[a-z0-9]+$/
@@ -85,6 +81,7 @@ function readTagBody(tokens: string[], start: number, tag: Tag, extlang: boolean
   }
   while (i < tokens.length && tokens[i].length >= 4) {
     if (!variants.has(tokens[i])) return { ok: false, next: i }
+    tag.variant = true
     i++
   }
   return { ok: true, next: i }
@@ -120,7 +117,7 @@ function readExtensions(tokens: string[], start: number): boolean {
     } else if (singleton === 't') {
       if (i < tokens.length && (tokens[i].length === 2 || tokens[i].length === 3) && alpha.test(tokens[i][1])) {
         if (!languages.has(tokens[i])) return false
-        const inner: Tag = { lang: canon(tokens[i]), written: tokens[i], script: '', region: '' }
+        const inner: Tag = { lang: canon(tokens[i]), written: tokens[i], script: '', region: '', variant: false }
         const body = readTagBody(tokens, i + 1, inner, false)
         if (!body.ok) return false
         i = body.next
@@ -148,10 +145,10 @@ function readExtensions(tokens: string[], start: number): boolean {
 function parseTag(entry: string): Tag | undefined {
   const s = entry.toLowerCase().replaceAll('_', '-')
   const old = grandfathered.get(s)
-  if (old) return { lang: canon(old[0]), written: old[0], script: '', region: old[1] }
+  if (old) return { lang: canon(old[0]), written: old[0], script: '', region: old[1], variant: false }
   const tokens = s.split('-')
   if (tokens.some((t) => t.length < 1 || t.length > 8 || !alnum.test(t))) return undefined
-  const tag: Tag = { lang: 'und', written: 'und', script: '', region: '' }
+  const tag: Tag = { lang: 'und', written: 'und', script: '', region: '', variant: false }
   if (tokens[0].length === 1) {
     // Only private use may start a tag: x- and at least one more subtag.
     return tokens[0] === 'x' && readExtensions(tokens, 0) ? tag : undefined
@@ -353,7 +350,7 @@ export function parseAcceptLanguage(header: string): Tag[] {
     if (!tag) {
       const lang = Object.hasOwn(acceptFallback, entry) ? acceptFallback[entry] : undefined
       if (!lang) return []
-      tag = { lang: canon(lang), written: lang, script: '', region: '' }
+      tag = { lang: canon(lang), written: lang, script: '', region: '', variant: false }
     }
     let q = 1
     if (weight !== '') {
@@ -371,42 +368,245 @@ export function parseAcceptLanguage(header: string): Tag[] {
   return list.map((e) => e.tag)
 }
 
-const rank: Record<string, number> = { E: 3, H: 2, L: 1 }
+// ---- The matcher (language/match.go): Match, getBest and bestMatch.update, with the data of the
+// package in langdata.gen.ts.
 
-/** matchOne is what the matcher answers for one tag: the index of the locale, its confidence, and
- * whether the language is pinned: the match is exact but for the region, so a tag of another
- * language after it cannot take the answer. It is undefined for no match. */
-function matchOne(t: Tag): { index: number; conf: string; pinned: boolean } | undefined {
-  const id = matching.get(`${t.written} ${t.script}`)
-  if (id === undefined) return undefined
-  const fields = matchClasses[id].split(' ')
-  let answer = fields[0]
-  if (t.region !== '') for (const f of fields.slice(1)) if (f.startsWith(t.region + '=')) answer = f.slice(t.region.length + 1)
-  if (answer === '-') return undefined
-  return { index: Number(answer[0]), conf: answer[1], pinned: answer[2] === 'P' || answer[1] === 'E' }
+// The confidences of the package.
+const No = 0
+const Low = 1
+const High = 2
+const Exact = 3
+
+/** Have is a supported tag in the index of the matcher (haveTag). */
+interface Have {
+  index: number
+  lang: string
+  script: string
+  region: string
+  conf: number
+  maxScript: string
+  maxRegion: string
+  altScript: string
+  nextMax: number
+}
+
+const headers = new Map<string, Have[]>()
+for (const [lang, text] of matchHeaders) {
+  headers.set(
+    lang,
+    text.split(' ').map((entry) => {
+      const f = entry.split(',')
+      return { index: Number(f[0]), lang: f[1], script: f[2], region: f[3], conf: Number(f[4]), maxScript: f[5], maxRegion: f[6], altScript: f[7], nextMax: Number(f[8]) }
+    }),
+  )
+}
+
+const groupOf = (region: string) => regionGroups.get(region) ?? 0
+const regionRows = matchRegion.map((row) => {
+  const f = row.split(' ')
+  return { lang: f[0], script: f[1], group: Number(f[2]), distance: Number(f[3]) }
+})
+const paradigmRows = paradigm.map((row) => row.split(' '))
+
+const defaultDistance = 4
+
+/** regionGroupDist is the distance between two regions by their CLDR groups, and whether it is the default. */
+function regionGroupDist(a: string, b: string, script: string, lang: string): { dist: number; same: boolean } {
+  const aGroup = groupOf(a) << 1
+  const bGroup = groupOf(b) << 1
+  for (const ri of regionRows) {
+    if (ri.lang === lang && (ri.script === '' || ri.script === script)) {
+      const group = 1 << (ri.group & ~0x80)
+      if ((ri.group & 0x80) === 0) {
+        if ((aGroup & bGroup & group) !== 0) return { dist: ri.distance, same: ri.distance === defaultDistance }
+      } else if (((aGroup | bGroup) & group) === 0) {
+        return { dist: ri.distance, same: ri.distance === defaultDistance }
+      }
+    }
+  }
+  return { dist: defaultDistance, same: true }
+}
+
+const isParadigmLocale = (lang: string, region: string) => paradigmRows.some((e) => e[0] === lang && (region === e[1] || region === e[2]))
+
+/** Profile is what the matcher makes of a wanted tag before it compares it (see profileOf). */
+interface Profile {
+  lang: string
+  script: string
+  region: string
+  maxScript: string
+  maxRegion: string
+  header: string
+}
+
+const languageClasses = new Map<string, { none: number; rest: number }>()
+const scriptClasses = new Map<string, number>()
+for (const entry of profileEntries) {
+  const [key, a, b] = entry.split(':')
+  if (b !== undefined) languageClasses.set(key, { none: Number(a), rest: Number(b) })
+  else scriptClasses.set(key, Number(a))
+}
+
+const canonicalRegion = (r: string) => regionCanonical.get(r) ?? r
+
+function expand(fields: string, ref: Profile | undefined, script: string, region: string): Profile | undefined {
+  if (fields === '-') return undefined
+  const f = fields.split('/')
+  const typedRegion = canonicalRegion(region)
+  return {
+    lang: f[0] === '~' ? (ref as Profile).lang : f[0],
+    script: f[1] === '=' ? script : f[1],
+    region: f[2] === '=' ? typedRegion : f[2],
+    maxScript: f[3] === '=' ? script : f[3] === '~' ? (ref as Profile).maxScript : f[3],
+    maxRegion: f[4] === '=' ? typedRegion : f[4] === '^' ? (ref as Profile).maxRegion : f[4],
+    header: f[5] === '~' ? (ref as Profile).header : f[5],
+  }
+}
+
+/**
+ * profileOf is what the matcher does with a wanted tag before comparing it: no profile where it skips
+ * the tag (no supported tag is listed for its language), else the tag with the region as
+ * canonicalization leaves it, its maximized script and region, and the language its supported tags are
+ * listed under.
+ */
+function profileOf(tag: Tag): Profile | undefined {
+  const language = languageClasses.get(tag.written)
+  if (!language) return undefined
+  const id = tag.script === '' ? language.none : (scriptClasses.get(`${tag.written} ${tag.script}`) ?? language.rest)
+  const [baseFields, ...exceptions] = profileClasses[id].split(' ')
+  const base = expand(baseFields, undefined, tag.script, '')
+  if (tag.region === '') return base
+  const exception = exceptions.find((e) => e.startsWith(tag.region + '='))
+  if (exception) return expand(exception.slice(tag.region.length + 1), base, tag.script, tag.region)
+  if (!base) return undefined
+  // A region with nothing special about it: the profile with no region, with the region written.
+  return { ...base, region: canonicalRegion(tag.region), maxRegion: canonicalRegion(tag.region) }
+}
+
+/** Want is a wanted tag as update sees it. */
+interface Want {
+  lang: string
+  script: string
+  region: string
+  variant: boolean
+}
+
+/** Best is the accumulated best match (bestMatch). */
+interface Best {
+  have?: Have
+  want?: Want
+  conf: number
+  pinnedRegion: string
+  pinLanguage: boolean
+  sameRegionGroup: boolean
+  origLang: boolean
+  origReg: boolean
+  paradigmReg: boolean
+  regGroupDist: number
+  origScript: boolean
+}
+
+/** update is bestMatch.update: it makes the new pair the best match if it is a better one. */
+function update(m: Best, have: Have, tag: Want, maxScript: string, maxRegion: string, pin: boolean): void {
+  let c = have.conf
+  if (c < m.conf) return
+  if (m.pinLanguage && tag.lang !== m.want?.lang) return
+  if (tag.lang === m.want?.lang && m.sameRegionGroup) {
+    const { same } = regionGroupDist(m.pinnedRegion, have.maxRegion, have.maxScript, m.want.lang)
+    if (!same) return
+  }
+  if (c === Exact && have.maxScript === maxScript) m.pinLanguage = pin
+  const equalsRest = have.script === tag.script && have.region === tag.region && !tag.variant
+  if (equalsRest) {
+    // nothing
+  } else if (have.maxScript !== maxScript) {
+    if (Low < m.conf || have.altScript !== maxScript) return
+    c = Low
+  } else if (have.maxRegion !== maxRegion) {
+    if (High < c) c = High
+  }
+
+  let beaten = false
+  if (c !== m.conf) {
+    if (c < m.conf) return
+    beaten = true
+  }
+  const origLang = have.lang === tag.lang && tag.lang !== ''
+  if (!beaten && m.origLang !== origLang) {
+    if (m.origLang) return
+    beaten = true
+  }
+  const origReg = have.region === tag.region && tag.region !== ''
+  if (!beaten && m.origReg !== origReg) {
+    if (m.origReg) return
+    beaten = true
+  }
+  const { dist: regGroupDist, same: sameGroup } = regionGroupDist(have.maxRegion, maxRegion, maxScript, tag.lang)
+  if (!beaten && m.regGroupDist !== regGroupDist) {
+    if (regGroupDist > m.regGroupDist) return
+    beaten = true
+  }
+  const paradigmReg = isParadigmLocale(tag.lang, have.maxRegion)
+  if (!beaten && m.paradigmReg !== paradigmReg) {
+    if (!paradigmReg) return
+    beaten = true
+  }
+  const origScript = have.script === tag.script && tag.script !== ''
+  if (!beaten && m.origScript !== origScript) {
+    if (m.origScript) return
+    beaten = true
+  }
+  if (beaten) {
+    m.have = have
+    m.want = tag
+    m.conf = c
+    m.pinnedRegion = maxRegion
+    m.sameRegionGroup = sameGroup
+    m.origLang = origLang
+    m.origReg = origReg
+    m.paradigmReg = paradigmReg
+    m.origScript = origScript
+    m.regGroupDist = regGroupDist
+  }
+}
+
+/** langID is the language of a tag as the package keeps it, '' for none (und). */
+function langID(tag: Tag): string {
+  const profile = profileOf(tag)
+  if (profile) return profile.lang
+  return tag.written === 'und' ? '' : tag.lang
+}
+
+/** getBest is matcher.getBest: the supported tag that matches the tags best, and the confidence. */
+function getBest(tags: Tag[]): { have?: Have; conf: number } {
+  const best: Best = { conf: No, pinnedRegion: '', pinLanguage: false, sameRegionGroup: false, origLang: false, origReg: false, paradigmReg: false, regGroupDist: 0, origScript: false }
+  const ids = tags.map(langID)
+  for (const [i, tag] of tags.entries()) {
+    const profile = profileOf(tag)
+    if (!profile) continue
+    const w: Want = { lang: profile.lang, script: profile.script, region: profile.region, variant: tag.variant }
+    const list = headers.get(profile.header)
+    if (!list) continue
+    // A tag pins its language when no tag after it has the same one.
+    const pin = !ids.slice(i + 1).some((id) => id === w.lang)
+    for (const start of list) {
+      let have = start
+      update(best, have, w, profile.maxScript, profile.maxRegion, pin)
+      if (best.conf === Exact) {
+        while (have.nextMax !== 0) {
+          have = list[have.nextMax]
+          update(best, have, w, profile.maxScript, profile.maxRegion, pin)
+        }
+        return { have: best.have, conf: best.conf }
+      }
+    }
+  }
+  if (best.conf <= No) return { conf: No }
+  return { have: best.have, conf: best.conf }
 }
 
 /** preferredIndex is the index of the locale (0 zh-CN, 1 en-US) the header asks for, 0 for none. */
 export function preferredIndex(acceptLanguage: string): number {
-  const tags = parseAcceptLanguage(acceptLanguage)
-  let best: { index: number; conf: string; origLang: boolean; origReg: boolean } | undefined
-  let pinnedLang: string | undefined
-  for (const [i, tag] of tags.entries()) {
-    if (pinnedLang !== undefined && tag.lang !== pinnedLang) continue
-    const m = matchOne(tag)
-    if (!m) continue
-    // A tag pins its language when no tag after it has the same one.
-    if (m.pinned && !tags.slice(i + 1).some((t) => t.lang === tag.lang)) pinnedLang = tag.lang
-    // Of two answers of the same confidence the matcher keeps the one whose language was written
-    // as the language of the locale (zh for zh-CN), then the one whose region is the locale's.
-    const cand = { index: m.index, conf: m.conf, origLang: tag.lang === (m.index === 0 ? 'zh' : 'en'), origReg: tag.region === (m.index === 0 ? 'CN' : 'US') }
-    const beaten =
-      !best ||
-      rank[cand.conf] > rank[best.conf] ||
-      (rank[cand.conf] === rank[best.conf] && (cand.origLang !== best.origLang ? cand.origLang : cand.origReg !== best.origReg ? cand.origReg : false))
-    if (beaten) best = cand
-    // An exact answer ends the search.
-    if (best!.conf === 'E') break
-  }
-  return best ? best.index : 0
+  const { have, conf } = getBest(parseAcceptLanguage(acceptLanguage))
+  return have && conf > No ? have.index : 0
 }

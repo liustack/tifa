@@ -1,10 +1,13 @@
 package compare_test
 
 import (
+	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -15,7 +18,9 @@ import (
 // The storefront chooses its language from Accept-Language with golang.org/x/text/language. The
 // port in domain/store/store.ts cannot call it, so it reads tables made from it here: which
 // language, script and region subtags the package knows (a tag with any other is refused) and
-// what its matcher answers, for the two languages of the storefront, to a single tag. The test
+// the tables of its matcher for the two languages of the storefront, which exportMatcher has the
+// package itself write (a file added to a copy of it, see
+// internal/langgen). The test
 // fails when the file is out of date, and -update writes it again.
 
 var updateLangData = flag.Bool("update-langdata", false, "write domain/store/langdata.gen.ts")
@@ -94,25 +99,6 @@ func buildLangData() string {
 			canonical = append(canonical, l+":"+base.String())
 		}
 	}
-	// The languages the matcher answers for, with the answer for every script and region.
-	var rows []string
-	for _, l := range langs {
-		if i, _ := storeMatch(language.MustParse(l)); i < 0 {
-			// A language can match only with a script or region, rarely. Check a few.
-			found := false
-			for _, s := range []string{"Hans", "Hant", "Latn"} {
-				if t, err := language.Parse(l + "-" + s); err == nil {
-					if i, _ := storeMatch(t); i >= 0 {
-						found = true
-					}
-				}
-			}
-			if !found {
-				continue
-			}
-		}
-		rows = append(rows, l)
-	}
 	var b strings.Builder
 	b.WriteString("// Written by TestLanguageData in test/compare (go test -run TestLanguageData -update-langdata).\n")
 	b.WriteString("// Do not edit. The subtags golang.org/x/text/language knows and how its matcher answers for the\n")
@@ -142,64 +128,8 @@ func buildLangData() string {
 	}{{"languages", langs}, {"scripts", scripts}, {"regions", regions}, {"variants", variants}} {
 		fmt.Fprintf(&b, "export const %s = new Set('%s'.split(' '))\n\n", kv.name, strings.Join(kv.list, " "))
 	}
-	// A class is the answer of a language and script for no region and the regions that differ ("-"
-	// for no match): "<answer>" or "<answer> R=<answer> R=<answer>". Languages and scripts that share
-	// a class share its number.
-	conf := map[language.Confidence]string{language.Exact: "E", language.High: "H", language.Low: "L"}
-	answer := func(tag string) string {
-		t, err := language.Parse(tag)
-		if err != nil {
-			return "-"
-		}
-		if i, c := storeMatch(t); i >= 0 {
-			// P: a later tag of another language cannot take the answer from this tag, which the matcher
-			// does for a tag that is an exact match but for its region. Found by asking with such a tag.
-			pin := ""
-			if c != language.Exact {
-				other := language.MustParse([]string{"en-US", "zh-CN"}[i])
-				if _, j, _ := storeMatcher.Match(t, other); j == i {
-					pin = "P"
-				}
-			}
-			return fmt.Sprintf("%d%s%s", i, conf[c], pin)
-		}
-		return "-"
-	}
-	classes := map[string]int{}
-	var classList, entries []string
-	for _, l := range rows {
-		for _, s := range append([]string{""}, scripts...) {
-			tag := l
-			if s != "" {
-				tag += "-" + s
-			}
-			base := answer(tag)
-			class := base
-			any := base != "-"
-			for _, r := range regions {
-				if a := answer(tag + "-" + r); a != base {
-					class += " " + r + "=" + a
-					any = true
-				}
-			}
-			if !any {
-				continue
-			}
-			id, ok := classes[class]
-			if !ok {
-				id = len(classList)
-				classes[class] = id
-				classList = append(classList, class)
-			}
-			entries = append(entries, fmt.Sprintf("%s %s=%d", l, s, id))
-		}
-	}
-	b.WriteString("// matching: the answer of the matcher for a language and script (and region). A key is\n")
-	b.WriteString("// 'lang script', its class says what the matcher answers for it: the index of the locale (0\n")
-	b.WriteString("// zh-CN, 1 en-US) and the confidence (E exact, H high, L low) for no region, then the regions that\n")
-	b.WriteString("// answer otherwise, '-' for no match.\n")
-	fmt.Fprintf(&b, "export const matchClasses = %q.split('|')\n\n", strings.Join(classList, "|"))
-	fmt.Fprintf(&b, "export const matching = new Map<string, number>(%q.split('|').map((e) => [e.slice(0, e.lastIndexOf('=')), Number(e.slice(e.lastIndexOf('=') + 1))]))\n", strings.Join(entries, "|"))
+	b.WriteString("\n")
+	b.WriteString(exportMatcher(langs, scripts, regions))
 	return b.String()
 }
 
@@ -215,4 +145,57 @@ func TestLanguageData(t *testing.T) {
 	if err != nil || string(got) != want {
 		t.Fatalf("%s is out of date: go test -run TestLanguageData -update-langdata ./test/compare", langDataFile)
 	}
+}
+
+// exportMatcher runs the exporter in internal/langgen. The tables and the state of the matcher are
+// not exported, so the exporter is a file added to a copy of the package (export.go.txt as
+// language/export_gen.go in a copy of golang.org/x/text that a temporary go.mod replaces the module
+// with), and prints them as TypeScript.
+func exportMatcher(langs, scripts, regions []string) string {
+	dirOut, err := exec.Command("go", "list", "-m", "-f", "{{.Dir}}", "golang.org/x/text").Output()
+	if err != nil {
+		panic(err)
+	}
+	modOut, err := exec.Command("go", "env", "GOMOD").Output()
+	if err != nil {
+		panic(err)
+	}
+	tmp, err := os.MkdirTemp("", "langgen")
+	if err != nil {
+		panic(err)
+	}
+	defer func() {
+		filepath.WalkDir(tmp, func(p string, d os.DirEntry, err error) error { os.Chmod(p, 0o755); return nil })
+		os.RemoveAll(tmp)
+	}()
+	copyOfText := filepath.Join(tmp, "text")
+	if out, err := exec.Command("cp", "-R", strings.TrimSpace(string(dirOut)), copyOfText).CombinedOutput(); err != nil {
+		panic(fmt.Sprintf("cp: %v: %s", err, out))
+	}
+	exporter, err := os.ReadFile("internal/langgen/export.go.txt")
+	if err != nil {
+		panic(err)
+	}
+	os.Chmod(filepath.Join(copyOfText, "language"), 0o755)
+	if err := os.WriteFile(filepath.Join(copyOfText, "language", "export_gen.go"), exporter, 0o644); err != nil {
+		panic(err)
+	}
+	goMod := strings.TrimSpace(string(modOut))
+	mod, err := os.ReadFile(goMod)
+	if err != nil {
+		panic(err)
+	}
+	sum, _ := os.ReadFile(strings.TrimSuffix(goMod, ".mod") + ".sum")
+	tmpMod := filepath.Join(tmp, "go.mod")
+	os.WriteFile(tmpMod, append(mod, []byte("\nreplace golang.org/x/text => "+copyOfText+"\n")...), 0o644)
+	os.WriteFile(filepath.Join(tmp, "go.sum"), sum, 0o644)
+	in, _ := json.Marshal(map[string]any{"Languages": langs, "Scripts": scripts, "Regions": regions})
+	cmd := exec.Command("go", "run", "-modfile="+tmpMod, "-tags", "langgen", "./internal/langgen")
+	cmd.Stdin = bytes.NewReader(in)
+	cmd.Stderr = os.Stderr
+	out, err := cmd.Output()
+	if err != nil {
+		panic(fmt.Sprintf("the exporter: %v", err))
+	}
+	return string(out)
 }
