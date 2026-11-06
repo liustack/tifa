@@ -1003,7 +1003,77 @@ export function tifa(settings = {}) {
     lazyRoutes(),
     markdownPlugin(() => root, settings.markdown),
     ssrPlugin(() => root, () => import('vite'), { i18nextCache: settings.i18nextCache }),
+    localesPlugin(() => root),
   ]
+}
+
+const localesModule = 'virtual:tifa-locales'
+const localesId = '\0tifa-locales'
+
+/**
+ * localesPlugin makes the module virtual:tifa-locales, which tifa/i18n imports: the strings of
+ * every _locales/<language>.json in app/, as {language: {namespace: strings}}. The namespace of a
+ * folder is its path relative to app/, and app/_locales is "translation", the default namespace
+ * of i18next. <language>.draft.json is not published, and nothing else in the folder counts. An
+ * app without _locales folders gets {}. Each file is an input of the build, so a change to one
+ * makes the build stale.
+ */
+export function localesPlugin(getRoot) {
+  return {
+    name: 'tifa:locales',
+    enforce: 'pre',
+    resolveId: {
+      filter: { id: new RegExp('^' + localesModule + '$') },
+      handler: () => localesId,
+    },
+    load: {
+      filter: { id: new RegExp('^' + localesId + '$') },
+      handler() {
+        const locales = {}
+        for (const { file, language, namespace } of findLocales(path.join(getRoot(), 'app'))) {
+          this.addWatchFile(file)
+          let strings
+          try {
+            strings = JSON.parse(fs.readFileSync(file, 'utf8'))
+          } catch (err) {
+            this.error(`${file}: ${err.message}`)
+          }
+          if (strings === null || typeof strings !== 'object' || Array.isArray(strings)) {
+            this.error(`${file} must hold a JSON object`)
+          }
+          ;(locales[language] ??= {})[namespace] = strings
+        }
+        return `export default ${JSON.stringify(locales)}`
+      },
+    },
+  }
+}
+
+// findLocales lists the published locale files below dir, the app folder, in a fixed order. A
+// file is a language tag and .json, so en-US.draft.json is left out.
+function findLocales(dir, rel = '') {
+  const found = []
+  let entries
+  try {
+    entries = fs.readdirSync(path.join(dir, rel), { withFileTypes: true })
+  } catch (err) {
+    if (err.code === 'ENOENT') return found
+    throw err
+  }
+  const byName = (a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
+  for (const entry of entries.sort(byName)) {
+    if (!entry.isDirectory() || entry.name === 'node_modules') continue
+    const name = rel === '' ? entry.name : rel + '/' + entry.name
+    if (entry.name !== '_locales') {
+      found.push(...findLocales(dir, name))
+      continue
+    }
+    for (const file of fs.readdirSync(path.join(dir, name), { withFileTypes: true }).sort(byName)) {
+      const m = /^([A-Za-z0-9-]+)\.json$/.exec(file.name)
+      if (m && file.isFile()) found.push({ file: path.join(dir, name, file.name), language: m[1], namespace: rel === '' ? 'translation' : rel })
+    }
+  }
+  return found
 }
 
 // markdownPackages are the packages the Markdown of content collections turns into HTML with, and
