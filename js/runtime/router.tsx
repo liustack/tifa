@@ -184,8 +184,10 @@ export async function load<T>(
   if (result.status === 200) return result.data as T
   if (result.location !== undefined) {
     // One document holds one language: a redirect to another one loads that document. The loader
-    // stays pending while the browser leaves.
+    // stays pending while the browser leaves. A preload goes nowhere: the router drops a
+    // redirect that asks for a document load.
     if (context.browser && context.prefix && !context.prefix.reaches(result.location)) {
+      if (preload) throw redirect({ href: result.location, reloadDocument: true })
       window.location.assign(result.location)
       return new Promise<never>(() => {})
     }

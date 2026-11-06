@@ -118,6 +118,10 @@ test('a redirect of a Load to another language loads the document, to the same l
     return Promise.race([loading.then(() => 'done', (error) => error), new Promise((resolve) => setTimeout(() => resolve('pending'), 20))])
   }
   const en = await client('/en-US/store', 'en-US')
+  // A preload never leaves the page.
+  const preloading = { ...en.router.options.context, source: async () => ({ status: 302, location: '/projects' }) } as RouterContext
+  const dropped = await load(preloading, 'app/store/route', { pathname: '/store', searchStr: '', publicHref: '/en-US/store' }, true).then(() => undefined, (error) => error)
+  assert(isRedirect(dropped) && en.assigned.length === 0, `preload: ${String(dropped)} ${en.assigned}`)
   assert((await redirectTo(en, '/store/cart')) === 'pending', 'an unprefixed URL is the default language')
   assert(en.assigned.join() === '/store/cart', en.assigned.join())
   en.assigned.length = 0

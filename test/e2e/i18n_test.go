@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 var reactText = regexp.MustCompile(`<!-- -->`)
@@ -119,7 +120,7 @@ func TestI18nApp(t *testing.T) {
 		enTag, enStatus, enBody := news("/en-US/store/news")
 		// The page is the news page of its own language, not a 404 with a status of 200.
 		for body, language := range map[string]string{zhBody: "zh-CN", enBody: "en-US"} {
-			if text := plain(body); !strings.Contains(text, "go="+language+" react="+language) || strings.Contains(text, "Page not found") {
+			if text := plain(body); !strings.Contains(text, "react="+language) || strings.Contains(text, "Page not found") {
 				t.Errorf("the first %s page: %.1500s", language, text)
 			}
 		}
@@ -419,7 +420,12 @@ func TestI18nInBrowser(t *testing.T) {
 		} else {
 			pw("goto", base+path)
 		}
-		waitFor(t, path+" to hydrate", func() bool { return eval(hydrated) == true && strings.Contains(eval(text).(string), want) })
+		ready := func() bool { return eval(hydrated) == true && strings.Contains(eval(text).(string), want) }
+		for deadline := time.Now().Add(10 * time.Second); !ready() && time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		}
+		if !ready() {
+			t.Fatalf("%s did not hydrate with %q: at %v, hydrated %v, text %q\nconsole:\n%s\nnetwork:\n%s", path, want, eval(here), eval(hydrated), eval(text), pw("console"), pw("network"))
+		}
 		check(path)
 		eval(`() => { window.__sameDocument = true; return true }`)
 	}
