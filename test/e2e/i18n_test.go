@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -213,6 +214,39 @@ func checkLinkerFlags(t *testing.T, dir, flag string, v1 bool) {
 	}
 }
 
+// journalLinks are the hrefs in the body of the journal entry the API route at path answers.
+func journalLinks(t *testing.T, base, path string) []string {
+	t.Helper()
+	status, _, body := cacheSend(t, "GET", base+path, "")
+	var out struct{ Body string }
+	if status != 200 || json.Unmarshal([]byte(body), &out) != nil {
+		t.Fatalf("GET %s: %d %.300s", path, status, body)
+	}
+	var links []string
+	for _, m := range regexp.MustCompile(`href="([^"]*)"`).FindAllStringSubmatch(out.Body, -1) {
+		links = append(links, m[1])
+	}
+	return links
+}
+
+// TestI18nContentLinks checks that the root-relative links in the Markdown of a journal entry get
+// the prefix of the entry's language when the route has it, and are left alone otherwise.
+func TestI18nContentLinks(t *testing.T) {
+	skipUnlessEnabled(t)
+	_, exe := build(t, "i18n")
+	base, _, _ := start(t, exe)
+	check := func(path string, want ...string) {
+		t.Helper()
+		if got := journalLinks(t, base, path); !slices.Equal(got, want) {
+			t.Errorf("%s links:\n got %q\nwant %q", path, got, want)
+		}
+	}
+	check("/store/journal",
+		"/store/news", "/projects", "/favicon.svg", "/store?q=a#top", "/en-US/store/news", "https://example.org/store/news")
+	check("/en-US/store/journal",
+		"/en-US/store/news", "/projects", "/favicon.svg", "/en-US/store?q=a#top", "/zh-CN/store/news", "https://example.org/store/news")
+}
+
 // TestI18nPrefixAlways builds the app with i18n.prefix: always.
 func TestI18nPrefixAlways(t *testing.T) {
 	skipUnlessEnabled(t)
@@ -239,6 +273,12 @@ func TestI18nPrefixAlways(t *testing.T) {
 	_, _, body = cacheSend(t, "GET", base+"/en-US/store/mine", "")
 	if err := json.Unmarshal([]byte(body), &m); err != nil || m.Language != "en-US" {
 		t.Errorf("/en-US/store/mine: %s", body)
+	}
+	// The links of an entry get the prefix of its language, the default one too.
+	if got := journalLinks(t, base, "/zh-CN/store/journal"); !slices.Equal(got, []string{
+		"/zh-CN/store/news", "/projects", "/favicon.svg", "/zh-CN/store?q=a#top", "/en-US/store/news", "https://example.org/store/news",
+	}) {
+		t.Errorf("zh-CN journal links: %q", got)
 	}
 	// Routes outside every area stay as they are.
 	for path, want := range map[string]int{"/projects": 200, "/api/hook": 200, "/favicon.svg": 200, "/zh-CN/projects": 404, "/zh-CN/api/hook": 404} {
