@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -43,7 +44,9 @@ type Dev struct {
 	// converted holds the entries of the last conversion that worked, by the file of their body
 	// in a build, and headings what the plugin found in each. Content compares with them.
 	converted map[string]content.Markdown
-	headings  map[string][]content.Heading
+	// links are the route languages the last conversion used. A change converts every entry.
+	links    *content.Links
+	headings map[string][]content.Heading
 	// bodies counts the conversions, each of which writes its bodies into a folder of its own,
 	// see Content. last is the one of the last conversion that worked, loaded the one the app
 	// loaded last, 0 for none.
@@ -213,13 +216,13 @@ func (d *Dev) Content(ctx context.Context, pages bool, c *Content, all bool, cha
 	stop := context.AfterFunc(ctx, func() { d.Close() })
 	defer stop()
 	if c == nil {
-		d.converted, d.headings, d.last, d.loaded = nil, nil, 0, 0
+		d.converted, d.headings, d.last, d.loaded, d.links = nil, nil, 0, 0, nil
 		if err := os.RemoveAll(filepath.Join(d.root, ".tifa", "content")); err != nil {
 			return 0, err
 		}
 		return 0, finishContent(d.root, d.dist, nil)
 	}
-	if d.converted == nil {
+	if d.converted == nil || !reflect.DeepEqual(d.links, c.Links) {
 		all = true
 	}
 	// The folders of earlier tifa dev runs, of conversions that failed and of those the app never
@@ -254,7 +257,7 @@ func (d *Dev) Content(ctx context.Context, pages bool, c *Content, all bool, cha
 			keep[m.Out] = true
 		}
 	}
-	if err := writeEntries(d.root, todo); err != nil {
+	if err := writeEntries(d.root, todo, c.Links); err != nil {
 		return 0, err
 	}
 	headings := map[string][]content.Heading{}
@@ -301,7 +304,7 @@ func (d *Dev) Content(ctx context.Context, pages bool, c *Content, all bool, cha
 	if err := writeContentFile(d.dist, f, byFile); err != nil {
 		return 0, errors.Join(err, d.removeBodies(d.loaded, d.last))
 	}
-	d.converted, d.headings, d.last = converted, known, n
+	d.converted, d.headings, d.last, d.links = converted, known, n, c.Links
 	return len(todo), d.removeBodies(d.loaded, d.last)
 }
 
