@@ -66,14 +66,14 @@ func shopPagesInBrowser(t *testing.T, session string, args ...string) {
 		{"/projects/studio", "/projects/studio/orders/SH-1041"},
 		{"/projects/studio/orders/SH-1041", "/projects/studio/stats"},
 		{"/projects/studio/stats", "/projects/studio"},
-		{"/store/en-US", "/store/en-US/products"},
-		{"/store/en-US/products", "/store/en-US/products/pour-over-kettle"},
-		{"/store/en-US/products/pour-over-kettle", "/store/en-US/journal"},
-		{"/store/en-US/cart", "/store/en-US/products"},
-		{"/store/en-US/checkout", "/store/en-US/journal"},
-		{"/store/en-US/journal", "/store/en-US/journal/kettle-photos"},
-		{"/store/en-US/journal/kettle-photos", "/store/en-US/products"},
-		{"/store/zh-CN/products", "/store/zh-CN"},
+		{"/en-US/store", "/en-US/store/products"},
+		{"/en-US/store/products", "/en-US/store/products/pour-over-kettle"},
+		{"/en-US/store/products/pour-over-kettle", "/en-US/store/journal"},
+		{"/en-US/store/cart", "/en-US/store/products"},
+		{"/en-US/store/checkout", "/en-US/store/journal"},
+		{"/en-US/store/journal", "/en-US/store/journal/kettle-photos"},
+		{"/en-US/store/journal/kettle-photos", "/en-US/store/products"},
+		{"/store/products", "/store"},
 	} {
 		if tc.page == "/login" {
 			pw("open", base+tc.page)
