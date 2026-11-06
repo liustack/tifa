@@ -362,10 +362,10 @@ func TestGrowingTellsALevelSeriesFromARunawayOne(t *testing.T) {
 		climb = append(climb, min(100, float64(i)*10))
 		runaway = append(runaway, 50+float64(i)*10)
 	}
-	if Growing(level) || Growing(climb) {
+	if Growing(level, 10) || Growing(climb, 10) {
 		t.Error("a series that levels off is growing")
 	}
-	if !Growing(runaway) {
+	if !Growing(runaway, 10) {
 		t.Error("a series that keeps growing is not")
 	}
 	// A backlog that grows by one a second for a minute, sampled twice a second: 100 + 0.5 i.
@@ -374,13 +374,13 @@ func TestGrowingTellsALevelSeriesFromARunawayOne(t *testing.T) {
 		slow = append(slow, 100+0.5*float64(i))
 		jitter = append(jitter, 100+float64(i%7)*3-9)
 	}
-	if !Growing(slow) {
+	if !Growing(slow, 24) {
 		t.Error("a steady slow growth of 1 a second over 60 s is not caught")
 	}
-	if Growing(jitter) {
+	if Growing(jitter, 24) {
 		t.Error("jitter around a level is growing")
 	}
-	if Growing([]float64{1, 2, 3}) {
+	if Growing([]float64{1, 2, 3}, 0) || Growing(runaway[:30], 10) {
 		t.Error("too few samples")
 	}
 }

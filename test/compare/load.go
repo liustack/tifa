@@ -246,6 +246,8 @@ func (r *runner) RunOpen(ctx context.Context, rate float64, n int, drain time.Du
 		}
 		last = max(last, acts)
 	}
+	// The visits in flight level off after about the longest visit; the samples before that are left out.
+	ramp := int(time.Duration(last)*ActionSpacing/(500*time.Millisecond)) + 2
 	cpu0, client0 := r.cpu(), selfCPU()
 	start := time.Now()
 	var wg sync.WaitGroup
@@ -302,23 +304,23 @@ func (r *runner) RunOpen(ctx context.Context, rate float64, n int, drain time.Du
 	<-sampled
 	wg.Wait()
 	end := time.Now()
-	round := &Round{Model: "open", Rate: rate, TimedOut: timedOut.Load(), Backlog: Growing(visitsIn) || Growing(requestsIn)}
+	round := &Round{Model: "open", Rate: rate, TimedOut: timedOut.Load(), Backlog: Growing(visitsIn, ramp) || Growing(requestsIn, ramp)}
 	round.LagMs = ms(time.Duration(lag.Load()))
 	a.round(round, cpu0, r.cpu(), client0, selfCPU(), start, end, r.rss())
 	return round
 }
 
 // Growing says whether a series sampled at equal intervals kept growing. It leaves out the first
-// 35% (the climb to a steady state) and fits a straight line to the rest by least squares; the series
-// is growing when that line rises, over the length of what was fitted, by more than 20% of the mean of
+// skip samples (the climb to a steady state: in an open model the visits in flight take as long as
+// the longest visit to level off) and fits a straight line to the rest by least squares; the series is
+// growing when that line rises, over the length of what was fitted, by more than 20% of the mean of
 // what was fitted plus a floor of 5 units. A steady growth that is slow in each sample is caught, and a
-// climb that levels off is not.
-func Growing(series []float64) bool {
-	n := len(series)
-	if n < 8 {
+// climb that levels off is not. With fewer than 24 samples left there is nothing to judge.
+func Growing(series []float64, skip int) bool {
+	if skip < 0 || skip >= len(series) || len(series)-skip < 24 {
 		return false
 	}
-	y := series[n*35/100:]
+	y := series[skip:]
 	m := float64(len(y))
 	var sx, sy, sxx, sxy float64
 	for i, v := range y {

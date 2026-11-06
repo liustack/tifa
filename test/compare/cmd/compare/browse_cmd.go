@@ -33,7 +33,7 @@ func browseFlags(flags *flag.FlagSet) {
 	flags.IntVar(&o.rounds, "rounds", 3, "browse: rounds of every cell, in a rotating order with fresh servers")
 	flags.DurationVar(&o.warm, "warm", 15*time.Second, "browse: warm-up of a closed round, apart from it")
 	flags.DurationVar(&o.target, "target", 75*time.Second, "browse: about how long a closed round should take")
-	flags.DurationVar(&o.trial, "trial-window", 30*time.Second, "browse: an open trial of the search for the sustainable rate")
+	flags.DurationVar(&o.trial, "trial-window", 45*time.Second, "browse: an open trial of the search for the sustainable rate")
 	flags.DurationVar(&o.final, "final-window", 240*time.Second, "browse: an open round of the latency table, at least")
 }
 

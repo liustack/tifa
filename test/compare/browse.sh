@@ -27,7 +27,7 @@
 #   PHASES            closed (throughput at equal users), sustain, latency          closed,sustain,latency
 #   USERS EXTRA_USERS users of every mix; more users for the first mix              32, 8,16
 #   ROUNDS WARM TARGET     rounds per cell; warm-up; about how long a round takes     3 15s 75s
-#   TRIAL_WINDOW FINAL_WINDOW MAX_RATE   open trials; open latency rounds, at least; rate cap   30s 240s 16384
+#   TRIAL_WINDOW FINAL_WINDOW MAX_RATE   open trials; open latency rounds, at least; rate cap   45s 240s 16384
 #   BLOCKS            blocks of 95 visits to record (the plans)                     4
 #   WORKERS           browser contexts at once while recording                      6
 #   FORCE_RECORD=1    record again even if the traces are current
