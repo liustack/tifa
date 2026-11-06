@@ -18,6 +18,6 @@
       "tifa/client": ["./shop/runtime/client.tsx"]
     }
   },
-  "include": ["app/**/*.ts", "app/**/*.tsx", "../domain/*.ts", "shop/**/*.ts", "shop/**/*.tsx"],
+  "include": ["app/**/*.ts", "app/**/*.tsx", "../domain/**/*.ts", "shop/**/*.ts", "shop/**/*.tsx"],
   "exclude": ["node_modules", "build"]
 }
