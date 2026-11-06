@@ -214,15 +214,15 @@ func goEnvFlags(ctx context.Context, root string) (string, error) {
 // which panics, runtime.Caller and pprof read), then x, the flags the program needs, such as the
 // -X of the languages. For each package, go build uses the last -ldflags that matches it, and the
 // command line comes after GOFLAGS, so this one replaces those of goflags and holds the last of
-// them. -w is left out when those flags already have -w or -s, or when an -ldflags of goflags is
-// for a package pattern, which only the go command can match against the main package. A pattern
-// one that matches the main package is replaced all the same, since x must reach it.
+// them. -w is left out when those flags already have -w or -s. A flag for the pattern all counts as
+// a plain one, since it matches the main package. Any other pattern is an error: only the go
+// command can match it against the main package, and dropping its flags would lose them.
 func ldflags(goflags string, drop bool, x string) ([]string, error) {
 	words, err := splitQuoted(goflags)
 	if err != nil {
 		return nil, fmt.Errorf("GOFLAGS: %w", err)
 	}
-	user, pattern := "", false
+	user := ""
 	for _, word := range words {
 		value, ok := strings.CutPrefix(trimDashes(word), "ldflags=")
 		if !ok {
@@ -230,8 +230,12 @@ func ldflags(goflags string, drop bool, x string) ([]string, error) {
 		}
 		value = strings.TrimSpace(value)
 		if value != "" && !strings.HasPrefix(value, "-") {
-			pattern = true // pattern=flags
-			continue
+			// pattern=flags. Only "all" is known to match the main package.
+			name, rest, _ := strings.Cut(value, "=")
+			if name != "all" {
+				return nil, fmt.Errorf("GOFLAGS: -ldflags=%s is for a package pattern, and tifa cannot tell whether it matches the main package, whose flags it must merge with its own: use -ldflags=all=... or a plain -ldflags", value)
+			}
+			value = strings.TrimSpace(rest)
 		}
 		user = value
 	}
@@ -244,9 +248,6 @@ func ldflags(goflags string, drop bool, x string) ([]string, error) {
 		if name == "w" || name == "s" {
 			drop = false
 		}
-	}
-	if pattern {
-		drop = false
 	}
 	if !drop && x == "" {
 		return nil, nil // nothing to add to the flags of GOFLAGS

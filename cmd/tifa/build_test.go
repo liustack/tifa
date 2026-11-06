@@ -125,8 +125,6 @@ func TestLdflagsAddWToThoseOfGOFLAGS(t *testing.T) {
 		{"'-ldflags=-X main.version=v1 --s=true'", nil},
 		{"-ldflags=-w=0", nil},
 		{"-ldflags=-w=false", nil},
-		{"-ldflags=all=-X=main.version=v1", nil},
-		{"-ldflags=-X=main.version=v1 -ldflags=example.com/...=-X=main.version=v2", nil},
 	} {
 		got, err := ldflags(tc.goflags, true, "")
 		if err != nil || !slices.Equal(got, tc.want) {
@@ -264,8 +262,8 @@ func TestLdflagsAlwaysCarryTheExtraFlag(t *testing.T) {
 		{"-ldflags=-X=main.version=v1", false, "-ldflags=-X=main.version=v1 " + x},
 		{"-ldflags=-w", true, "-ldflags=-w " + x},
 		{"-ldflags=-s", true, "-ldflags=-s " + x},
-		{"-ldflags=all=-X=main.version=v1", true, "-ldflags=" + x},
-		{"-ldflags=-X=main.version=v1 -ldflags=example.com/...=-s", true, "-ldflags=-X=main.version=v1 " + x},
+		{"-ldflags=all=-X=main.version=v1", true, "-ldflags=-X=main.version=v1 -w " + x},
+		{"-ldflags=-s -ldflags=all=-X=main.version=v1", true, "-ldflags=-X=main.version=v1 -w " + x},
 	} {
 		got, err := ldflags(tc.goflags, tc.drop, x)
 		if err != nil || len(got) != 1 || got[0] != tc.want {
@@ -281,5 +279,15 @@ func TestLanguagesLDFlag(t *testing.T) {
 	m := &analyze.Manifest{I18n: &analyze.I18n{Languages: []string{"zh-CN", "de", "en-US"}}}
 	if got, want := languagesLDFlag(m), "-X github.com/liustack/tifa.languagesFlag=list:zh-CN,de,en-US"; got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// A pattern other than all cannot be told to match the main package, so it is an error and not
+// a flag that is dropped.
+func TestLdflagsRefuseAPackagePattern(t *testing.T) {
+	for _, goflags := range []string{"-ldflags=example.com/...=-s", "-ldflags=-X=main.version=v1 -ldflags=./...=-X=main.version=v2"} {
+		if _, err := ldflags(goflags, true, "-X a.b=c"); err == nil || !strings.Contains(err.Error(), "package pattern") {
+			t.Errorf("GOFLAGS %s: %v", goflags, err)
+		}
 	}
 }
