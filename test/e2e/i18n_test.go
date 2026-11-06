@@ -155,7 +155,8 @@ func TestI18nApp(t *testing.T) {
 			}
 		}
 		// The page of the cache carries the language of its own entry.
-		if !strings.Contains(zhBody, `language:"zh-CN"`) || strings.Contains(zhBody, `language:"en-US"`) {
+		// (The list of versions names en-US too, so the language of the page is the one in front of it.)
+		if !regexp.MustCompile(`dehydratedData:\$R\[\d+\]=\{buildId:"[^"]*",language:"zh-CN"`).MatchString(zhBody) {
 			t.Errorf("the hydration data of the zh-CN page: %.200s", zhBody)
 		}
 	})
