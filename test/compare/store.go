@@ -555,8 +555,9 @@ const instantPrefix = "@instant "
 // id and order number, and the instants counted from the time of the request. An instant becomes
 // its distance in milliseconds from the request that made it, written "@instant <ms>", for
 // DiffStore to compare within instantTolerance: a run an hour later is the same and a delivery that
-// is off by an hour is not. The time an order was placed is counted from the request that placed it
-// (the 303 of the checkout), not from the request that reads it later. It is applied to the answers
+// is off by an hour is not. The time an order was placed, and its delivery (the keys under "placed"), are
+// counted from the request that placed it (the 303 of the checkout), not from the request that reads
+// it later. A quote for the cart is counted from the request that reads it. It is applied to the answers
 // of the shop and of the port alike.
 func NormalizeStore(results [][]StoreResult) {
 	var from time.Time
@@ -566,26 +567,26 @@ func NormalizeStore(results [][]StoreResult) {
 		}
 		return fmt.Sprintf("%s%d", instantPrefix, t.Sub(from).Milliseconds())
 	}
-	var walk func(v any, orderAt, at time.Time) any
-	walk = func(v any, orderAt, at time.Time) any {
+	var walk func(v any, orderAt, at time.Time, placed bool) any
+	walk = func(v any, orderAt, at time.Time, placed bool) any {
 		switch x := v.(type) {
 		case map[string]any:
 			for k, e := range x {
 				if s, ok := e.(string); ok && (k == "earliest" || k == "latest" || k == "placedAt") {
 					if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
 						from = at
-						if k == "placedAt" && !orderAt.IsZero() {
+						if (k == "placedAt" || placed) && !orderAt.IsZero() {
 							from = orderAt
 						}
 						x[k] = instant(t)
 						continue
 					}
 				}
-				x[k] = walk(e, orderAt, at)
+				x[k] = walk(e, orderAt, at, placed || k == "placed")
 			}
 		case []any:
 			for i := range x {
-				x[i] = walk(x[i], orderAt, at)
+				x[i] = walk(x[i], orderAt, at, placed)
 			}
 		case string:
 			return orderNumber.ReplaceAllString(x, "SS-<order>")
@@ -599,7 +600,7 @@ func NormalizeStore(results [][]StoreResult) {
 			if rs[i].Status == 303 && strings.Contains(rs[i].Location, "placed=") {
 				orderAt = at
 			}
-			rs[i].Body = walk(rs[i].Body, orderAt, at)
+			rs[i].Body = walk(rs[i].Body, orderAt, at, false)
 			rs[i].Location = orderNumber.ReplaceAllString(rs[i].Location, "SS-<order>")
 			for j, c := range rs[i].SetCookies {
 				rs[i].SetCookies[j] = cartIDValue.ReplaceAllString(c, "store_cart=<cart>;")

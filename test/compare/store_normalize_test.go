@@ -88,3 +88,38 @@ func TestStorePlacedAtIsMeasuredFromTheOrder(t *testing.T) {
 		t.Error("an order placed three hours later passed")
 	}
 }
+
+// A placed order is read back with its delivery, which is counted from the time the order was
+// placed like placedAt is, while a quote for the cart that is read at the same time is counted from
+// the request that reads it.
+func TestStorePlacedDeliveryIsMeasuredFromTheOrder(t *testing.T) {
+	order := time.Date(2026, 11, 6, 10, 30, 0, 0, time.UTC)
+	const day = 24 * time.Hour
+	run := func(readAfter time.Duration, quote time.Duration) [][]compare.StoreResult {
+		read := order.Add(readAfter)
+		return [][]compare.StoreResult{{
+			{Status: 303, At: order.UnixMilli(), Location: "/store/zh-CN/checkout?placed=SS-ABCDEFGHIJ"},
+			{Status: 200, At: read.UnixMilli(), Body: map[string]any{
+				"placed": map[string]any{
+					"placedAt": order.Add(30 * time.Millisecond).Format(time.RFC3339Nano),
+					"delivery": map[string]any{"earliest": order.Add(2 * day).Format(time.RFC3339Nano), "latest": order.Add(3 * day).Format(time.RFC3339Nano)},
+				},
+				"deliveries": []any{map[string]any{"earliest": read.Add(quote).Format(time.RFC3339Nano)}},
+			}},
+		}}
+	}
+	scenarios := []compare.StoreScenario{{Name: "s", Steps: []compare.StoreStep{{Method: "POST", URL: "/x"}, {Method: "GET", URL: "/y"}}}}
+	diff := func(want, got [][]compare.StoreResult) []string {
+		compare.NormalizeStore(want)
+		compare.NormalizeStore(got)
+		return compare.DiffStore(scenarios, want, got, 10)
+	}
+	// One server read the order 1 s after it was placed and the other 9 s after: the same order, and the same quote.
+	if d := diff(run(time.Second, 2*day), run(9*time.Second, 2*day)); len(d) > 0 {
+		t.Errorf("the same order differs: %v", d)
+	}
+	// A quote for the cart that is off from the request that read it is not the same.
+	if d := diff(run(time.Second, 2*day), run(9*time.Second, 2*day+time.Hour)); len(d) == 0 {
+		t.Error("a quote that is an hour off passed")
+	}
+}
