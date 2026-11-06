@@ -42,6 +42,7 @@ func (s Spec) WithProcs(n int) (Spec, error) {
 // connRun is what one connection saw.
 type connRun struct {
 	Cold, Steady         []float64 // latencies in ms
+	Writes               []float64 // latencies in ms of the writes of the steady phase
 	ColdPage, SteadyPage []int
 	Wire                 map[int]PageWire
 	Renders              map[string]int
@@ -54,6 +55,7 @@ type driven struct {
 	Conns      []*connRun
 	Steady     []float64
 	SteadyPage []int
+	Writes     []float64
 	Requests   float64
 	Renders    map[string]int
 	Wire       []PageWire
@@ -102,6 +104,7 @@ func driveConns(ctx context.Context, base, acceptEncoding, name string, output f
 	for _, c := range conns {
 		d.Steady = append(d.Steady, c.Steady...)
 		d.SteadyPage = append(d.SteadyPage, c.SteadyPage...)
+		d.Writes = append(d.Writes, c.Writes...)
 		if len(c.Steady) > 0 {
 			d.Requests += float64(len(c.Steady)) / c.Elapsed
 		}
@@ -122,10 +125,11 @@ func driveConns(ctx context.Context, base, acceptEncoding, name string, output f
 	return d, nil
 }
 
-// runConn is one connection: Cold units of work, then units for o.Steady.
+// runConn is one connection: Cold units of work, then units for o.Steady. The steady phase keeps
+// the latency of its writes apart from its timed reads. Its rate counts the time of both.
 func runConn(ctx context.Context, c *client, name string, output func() string, w Writer, sc Scenario, o Options, offset int, t0 time.Time) (*connRun, error) {
 	r := &connRun{Wire: map[int]PageWire{}, Renders: map[string]int{}}
-	read := func(n int, lat *[]float64, pages *[]int) error {
+	read := func(n int, lat *[]float64, pages *[]int, writes *[]float64) error {
 		for _, st := range sc.Steps(w, offset+n) {
 			if o.UniqueURLs && st.Timed {
 				st.Path += "?_=" + strconv.Itoa(offset+n)
@@ -133,6 +137,9 @@ func runConn(ctx context.Context, c *client, name string, output func() string, 
 			a, err := c.do(ctx, st)
 			if err != nil {
 				return fmt.Errorf("%s: request %d %s %s: %w\n%s", name, n+1, st.Method, st.Path, err, output())
+			}
+			if st.Write != nil && writes != nil {
+				*writes = append(*writes, float64(a.Latency)/float64(time.Millisecond))
 			}
 			if st.Timed {
 				*lat = append(*lat, float64(a.Latency)/float64(time.Millisecond))
@@ -149,7 +156,7 @@ func runConn(ctx context.Context, c *client, name string, output func() string, 
 	}
 	n := 0
 	for ; n < o.Cold; n++ {
-		if err := read(n, &r.Cold, &r.ColdPage); err != nil {
+		if err := read(n, &r.Cold, &r.ColdPage, nil); err != nil {
 			return nil, err
 		}
 		if n == 0 {
@@ -159,7 +166,7 @@ func runConn(ctx context.Context, c *client, name string, output func() string, 
 	start := time.Now()
 	deadline := start.Add(o.Steady)
 	for time.Now().Before(deadline) {
-		if err := read(n, &r.Steady, &r.SteadyPage); err != nil {
+		if err := read(n, &r.Steady, &r.SteadyPage, &r.Writes); err != nil {
 			return nil, err
 		}
 		n++

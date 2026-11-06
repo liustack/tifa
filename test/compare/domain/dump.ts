@@ -1,22 +1,21 @@
-// Prints the data of the six pages as JSON, for the check that it is what the Go code returns:
+// Prints the data of every workbench page (the lists, the stats and the order of each order) as JSON, for the check that it is what the Go code returns:
 //   node test/compare/domain/dump.ts [writes]
 // Node 22.18 and later run TypeScript as it is, by removing its types, so this needs no build.
 import { loadOrder, loadOrderList, loadProject, loadShell, loadStats } from './loaders.ts'
-import { updateRecipient } from './orders.ts'
+import { listOrders, updateRecipient } from './orders.ts'
 
 // With a JSON list of writes as the argument, each write is made first, so that the data can be
 // compared with the shop after the same writes: [{project, order, customer, phone, address}].
 for (const w of JSON.parse(process.argv[2] ?? '[]')) updateRecipient(w.project, w.order, w.customer, w.phone, w.address)
 
 const out: Record<string, Record<string, unknown>> = {}
-for (const [url, project, order, page] of [
-  ['/projects/studio', 'studio', '', 'list'],
-  ['/projects/weekend', 'weekend', '', 'list'],
-  ['/projects/studio/orders/SH-1042', 'studio', 'SH-1042', 'order'],
-  ['/projects/weekend/orders/WK-0201', 'weekend', 'WK-0201', 'order'],
-  ['/projects/studio/stats', 'studio', '', 'stats'],
-  ['/projects/weekend/stats', 'weekend', '', 'stats'],
-]) {
+const pages: [string, string, string, string][] = []
+for (const project of ['studio', 'weekend']) {
+  pages.push([`/projects/${project}`, project, '', 'list'])
+  for (const o of listOrders(project).orders) pages.push([`/projects/${project}/orders/${o.id}`, project, o.id, 'order'])
+  pages.push([`/projects/${project}/stats`, project, '', 'stats'])
+}
+for (const [url, project, order, page] of pages) {
   const p = loadProject(project)
   const data: Record<string, unknown> = {
     'app/layout': loadShell(undefined),

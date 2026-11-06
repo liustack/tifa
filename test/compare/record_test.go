@@ -248,6 +248,7 @@ func withWrites(r *Record) *Record {
 		tifa := mkRun("tifa", "tifa", round, 120, 7, ConfigDefault)
 		tifa.Label, tifa.Scenario = "Tifa", ScenarioReadWrite
 		tifa.Renders, tifa.Metrics.HitRate = map[string]int{"vm": 500, "cache": 4500}, 0.9
+		tifa.Metrics.Writes, tifa.Metrics.WriteP50, tifa.Metrics.WriteP99 = 500, 3.5, 9.5
 		next := mkRun("nextjs", "nextjs", round, 80, 10, ConfigDefault, ConfigEngine)
 		next.Label, next.Scenario = "Next.js", ScenarioReadWrite
 		hit := mkRun("tifa", "tifa", round, 30, 31, ConfigDefault)
@@ -265,6 +266,8 @@ func TestMarkdownScenarios(t *testing.T) {
 		"### Out of the box, reads with writes",
 		"| Tifa | 120.0",
 		"90.00%",
+		"| Tifa | 500 | 3.50 | 9.5 |",
+		"reads/s are reads over the time of reads and writes together",
 		"Miss overhead of the render cache",
 		"P50 31.00 ms with the cache, 30.00 ms without, +3.3%",
 		"30.0 requests/s with the cache, 31.0 without, -3.2%",
@@ -355,5 +358,39 @@ func TestMarkdownCompressionNote(t *testing.T) {
 	}
 	if plain := fixture().Markdown(); strings.Contains(plain, "a page uncompressed") {
 		t.Errorf("a record without wire sizes prints the note:\n%s", plain)
+	}
+}
+
+func TestMarkdownBrowse(t *testing.T) {
+	load := func(visits int) *LoadResult {
+		return &LoadResult{Users: 8, Seconds: 30, Visits: visits, Views: visits * 4, Requests: visits * 9, Bytes: int64(visits) * 40960, CPU: float64(visits) / 100, PeakRSS: 90, N304: visits / 10,
+			Renders: map[string]int{"vm": visits / 20, "cache": visits * 2},
+			Types:   map[string]TypeStat{"doc": {N: 300, P50: 4, P99: 30}, "nav": {N: 900, P50: 2, P99: 15}, "reload": {N: 40, P50: 1}, "write": {N: 3, P50: 5}}}
+	}
+	r := fixture()
+	r.Browse = &BrowseData{Scenarios: BrowseScenarios[:1], Warm: "10s", Window: "30s", SearchWindow: "10s", Traces: map[string]int{"tifa-m4.jsonl": 400},
+		Curves: map[string][]CurvePoint{"baseline/tifa": {{Users: 1, VisitsPerS: 10, Pass: true}, {Users: 2, VisitsPerS: 19, Pass: true}}}, Chosen: map[string]int{"baseline/tifa": 2},
+		Runs: []BrowseRun{{Scenario: "baseline", Spec: "tifa", Label: "Tifa", Round: 1, Load: load(600)}, {Scenario: "baseline", Spec: "tifa", Label: "Tifa", Round: 2, Load: load(660)}}}
+	md := roundTrip(t, r).Markdown()
+	for _, want := range []string{"#### baseline: 4 page views a visit on average, a write after about 1 in 500 page views", "| Tifa | 8 | 21.00 (20.00 to 22.00) | 10.", "4.0 / 30 (600)", "1.0 (80)", "Tifa, per visit:", "2*: 19.00", "58 pages that every visitor shares", "Back and forward are not modelled"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("the report lacks %q:\n%s", want, md)
+		}
+	}
+	if strings.Contains(md, "### Out of the box") {
+		t.Error("a browse record prints the tables of the read comparison")
+	}
+}
+
+func TestBrowseP99NeedsEnoughSamplesInEveryRound(t *testing.T) {
+	mk := func(n int) *LoadResult {
+		return &LoadResult{Users: 4, Seconds: 30, Visits: 100, Views: 400, Types: map[string]TypeStat{"doc": {N: n, P50: 4, P99: 30}, "nav": {N: 900, P50: 2, P99: 15}}}
+	}
+	r := fixture()
+	r.Browse = &BrowseData{Scenarios: BrowseScenarios[:1], Warm: "10s", Window: "30s", SearchWindow: "10s", Traces: map[string]int{},
+		Runs: []BrowseRun{{Scenario: "baseline", Spec: "tifa", Label: "Tifa", Round: 1, Load: mk(300)}, {Scenario: "baseline", Spec: "tifa", Label: "Tifa", Round: 2, Load: mk(0)}, {Scenario: "baseline", Spec: "tifa", Label: "Tifa", Round: 3, Load: mk(0)}}}
+	md := r.Markdown()
+	if strings.Contains(md, "| 4.0 / 30 (300)") || !strings.Contains(md, "4.0 / - (300)") {
+		t.Errorf("a P99 over rounds with no samples:\n%s", md)
 	}
 }

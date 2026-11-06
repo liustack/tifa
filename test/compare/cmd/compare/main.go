@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"time"
 
@@ -27,6 +28,9 @@ import (
 const usage = `usage:
   compare build
   compare measure [flags]
+  compare plans [flags]
+  compare record [flags]
+  compare browse [flags]
   compare report out.json
   compare diff old.json new.json`
 
@@ -38,6 +42,8 @@ func main() {
 	switch os.Args[1] {
 	case "build", "measure":
 		measure(os.Args[1], os.Args[2:])
+	case "plans", "record", "browse":
+		browseCmd(os.Args[1], os.Args[2:])
 	case "report":
 		if len(os.Args) != 3 {
 			fatal(fmt.Errorf("%s", usage))
@@ -136,6 +142,106 @@ func measure(cmd string, args []string) {
 		o.Servers = strings.Split(*servers, ",")
 	}
 	rec, err := env.Measure(ctx, o)
+	if err != nil {
+		fatal(err)
+	}
+	if *jsonPath != "" {
+		data, err := rec.JSON()
+		if err == nil {
+			err = os.WriteFile(*jsonPath, data, 0o644)
+		}
+		if err != nil {
+			fatal(err)
+		}
+	}
+	fmt.Println(rec.Markdown())
+}
+
+// browseCmd is plans, record and browse: the comparison of whole visits. plans writes the visit
+// plans, record plays them in a browser against each framework and keeps what the browser sent,
+// and browse replays those traces at load and measures how many visits a second each carries.
+func browseCmd(cmd string, args []string) {
+	flags := flag.NewFlagSet(cmd, flag.ExitOnError)
+	var (
+		dir        = flags.String("dir", "traces", "the folder of the plans and traces")
+		seed       = flags.Uint64("seed", 1, "the seed of the plans and their writes")
+		visits     = flags.Int("visits", 400, "plans: visits of each length. record: see -limit")
+		servers    = flags.String("servers", "", "comma separated spec ids (default tifa,nextjs,start,reactrouter)")
+		workers    = flags.Int("workers", 4, "record: browser contexts at once")
+		limit      = flags.Int("limit", 0, "record: play only the first plans")
+		skipBuild  = flags.Bool("skip-build", false, "record, browse: use the last build")
+		scenarios  = flags.String("scenarios", "baseline,mean2,writes,fanout", "browse: comma separated scenarios")
+		serverCPUs = flags.String("server-cpus", "", "browse: cpus for the server, as taskset -c takes them (Linux only)")
+		loadCPUs   = flags.String("load-cpus", "", "browse: cpus for the client")
+		rounds     = flags.Int("rounds", 3, "browse: rounds at the chosen users, with fresh servers in a rotating order")
+		warm       = flags.Duration("warm", 10*time.Second, "browse: lead-in of a round that is not counted")
+		window     = flags.Duration("window", 30*time.Second, "browse: measuring window of a round")
+		searchWarm = flags.Duration("search-warm", 3*time.Second, "browse: lead-in of a step of the search")
+		searchWin  = flags.Duration("search-window", 10*time.Second, "browse: window of a step of the search")
+		maxUsers   = flags.Int("max-users", 128, "browse: the search stops here")
+		jsonPath   = flags.String("json", "", "browse: write the record as JSON to this file")
+		from       = flags.String("from", "", "browse: a record to continue: its curves and runs are kept")
+		only       = flags.String("only", "", "browse: with -from, the scenario/spec keys whose rounds run again, such as baseline/nextjs")
+		source     = flags.String("source", "run 1", "browse: names this run in the rows it adds")
+		check      = flags.Bool("check", false, "browse: also count what each server answers in one round of the baseline")
+	)
+	flags.Parse(args)
+	env, err := compare.NewEnv()
+	if err != nil {
+		fatal(err)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	list := compare.BrowseFrameworks
+	if *servers != "" {
+		list = strings.Split(*servers, ",")
+	}
+	if cmd == "plans" {
+		if err := compare.WritePlans(*dir, *seed, *visits); err != nil {
+			fatal(err)
+		}
+		return
+	}
+	if why := compare.MissingTools(); why != "" {
+		fatal(fmt.Errorf("%s", why))
+	}
+	if !*skipBuild {
+		if err := env.Prepare(ctx, os.Stderr); err != nil {
+			fatal(err)
+		}
+	}
+	if cmd == "record" {
+		if err := env.Record(ctx, os.Stderr, *dir, list, *workers, *limit); err != nil {
+			fatal(err)
+		}
+		return
+	}
+	o := compare.BrowseOptions{TraceDir: *dir, Seed: *seed, Servers: list, ServerCPUs: *serverCPUs, LoadCPUs: *loadCPUs, Rounds: *rounds,
+		SearchWarm: *searchWarm, SearchWindow: *searchWin, Warm: *warm, Window: *window, MaxUsers: *maxUsers, Log: os.Stderr}
+	o.Source, o.Check = *source, *check
+	if *only != "" {
+		o.Only = strings.Split(*only, ",")
+	}
+	if *from != "" {
+		data, err := os.ReadFile(*from)
+		if err != nil {
+			fatal(err)
+		}
+		if o.From, err = compare.ReadRecord(data); err != nil {
+			fatal(err)
+		}
+		if o.From.Browse == nil {
+			fatal(fmt.Errorf("%s holds no browse record", *from))
+		}
+	}
+	for _, name := range strings.Split(*scenarios, ",") {
+		i := slices.IndexFunc(compare.BrowseScenarios, func(s compare.BrowseScenario) bool { return s.Name == name })
+		if i < 0 {
+			fatal(fmt.Errorf("no scenario %q", name))
+		}
+		o.Scenarios = append(o.Scenarios, compare.BrowseScenarios[i])
+	}
+	rec, err := env.Browse(ctx, o)
 	if err != nil {
 		fatal(err)
 	}

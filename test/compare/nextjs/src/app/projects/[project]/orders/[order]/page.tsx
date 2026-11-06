@@ -3,8 +3,6 @@ import { loadOrder, loadProject } from '../../../../../compare/data'
 import { OrderPage, OrderProvider } from '../../../../../compare/entries'
 import { orNotFound } from '../../../../../compare/load'
 
-export const dynamic = 'force-dynamic'
-
 type Props = { params: Promise<{ project: string; order: string }> }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {

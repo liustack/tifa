@@ -17,12 +17,12 @@ import (
 	"strings"
 )
 
-// PageData is the data of each of the six pages by URL and then by route ID: what the Go Layout
+// PageData is the data of each of every page of AllPages by URL and then by route ID: what the Go Layout
 // and Load functions return.
 type PageData map[string]map[string]any
 
 // GoData starts bin/shop and asks it, as the browser router does, for the data of the Layouts and
-// the page of each of the six pages.
+// the page of each of every page of AllPages.
 func (e Env) GoData(ctx context.Context, writes ...Recipient) (PageData, error) {
 	var built struct {
 		BuildID string `json:"buildId"`
@@ -46,7 +46,7 @@ func (e Env) GoData(ctx context.Context, writes ...Recipient) (PageData, error) 
 	}
 
 	out := PageData{}
-	for _, page := range Pages {
+	for _, page := range AllPages() {
 		// Every Load of the chain, which Routes lists: a digit 1 for each.
 		url := shop.Base + page.URL + "?_tifa=" + built.BuildID + "." + strings.Repeat("1", strings.Count(page.Routes, ",")+1)
 		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -103,7 +103,7 @@ func NodeRunsTypeScript() string {
 	return ""
 }
 
-// NodeData runs the ported domain code with Node and returns the data it computes for the six pages.
+// NodeData runs the ported domain code with Node and returns the data it computes for every page of AllPages.
 func (e Env) NodeData(ctx context.Context, writes ...Recipient) (PageData, error) {
 	args := []string{filepath.Join(e.Root, "test", "compare", "domain", "dump.ts")}
 	if len(writes) > 0 {

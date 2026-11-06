@@ -75,3 +75,9 @@ func Settle(latencies, steady []float64) int {
 	}
 	return settled + 1
 }
+
+func sortedCopy(v []float64) []float64 {
+	out := slices.Clone(v)
+	slices.Sort(out)
+	return out
+}

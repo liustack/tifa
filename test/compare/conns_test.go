@@ -198,3 +198,31 @@ func TestDriveConnsReportsTheErrorThatStoppedTheOthers(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestWritesAreCountedWithTheirOwnLatency(t *testing.T) {
+	var patches atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPatch {
+			patches.Add(1)
+			time.Sleep(4 * time.Millisecond)
+		}
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+	o := Options{Procs: 2, Steady: 300 * time.Millisecond}
+	res, err := driveConns(context.Background(), srv.URL, "identity", "fake", func() string { return "" }, nodePath, ReadWriteScenario, o, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if patches.Load() == 0 || len(res.Writes) != int(patches.Load()) {
+		t.Fatalf("server saw %d writes, result has %d", patches.Load(), len(res.Writes))
+	}
+	for _, l := range res.Writes {
+		if l < 4 {
+			t.Fatalf("a write took %.2f ms, the server held it for 4", l)
+		}
+	}
+	if len(res.Steady) == 0 {
+		t.Fatal("no reads")
+	}
+}

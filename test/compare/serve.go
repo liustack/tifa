@@ -266,3 +266,30 @@ func (s *Server) RSS() int64 {
 	cur, _ := s.rss()
 	return cur
 }
+
+// CPUSeconds is the processor time, user and system, that the server and its children have used so
+// far, in seconds. It reads /proc, so it is 0 off Linux. It includes children that have exited and
+// that the server has waited for.
+func (s *Server) CPUSeconds() float64 {
+	if runtime.GOOS != "linux" {
+		return 0
+	}
+	var ticks float64
+	for _, pid := range tree(s.cmd.Process.Pid) {
+		data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+		if err != nil {
+			continue
+		}
+		// The name is in parentheses and may hold spaces: the fields we want come after the last ")".
+		rest := string(data[strings.LastIndexByte(string(data), ')')+1:])
+		f := strings.Fields(rest)
+		if len(f) < 15 {
+			continue
+		}
+		for _, i := range []int{11, 12, 13, 14} { // utime stime cutime cstime
+			n, _ := strconv.ParseFloat(f[i], 64)
+			ticks += n
+		}
+	}
+	return ticks / 100 // CLK_TCK is 100 on Linux
+}

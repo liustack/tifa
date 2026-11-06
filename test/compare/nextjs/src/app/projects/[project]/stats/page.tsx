@@ -3,8 +3,6 @@ import { loadProject, loadStats } from '../../../../compare/data'
 import { StatsPage, StatsProvider } from '../../../../compare/entries'
 import { orNotFound } from '../../../../compare/load'
 
-export const dynamic = 'force-dynamic'
-
 type Props = { params: Promise<{ project: string }> }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {

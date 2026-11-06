@@ -4,9 +4,6 @@ import type { ReactNode } from 'react'
 import { loadShell } from '../compare/data'
 import { AppLayout, OutletProvider, ShellProvider } from '../compare/entries'
 
-// Every request renders: no static generation, no ISR, no data cache.
-export const dynamic = 'force-dynamic'
-
 export const metadata: Metadata = {
   title: '山海工作台',
   icons: { icon: 'data:,' },
