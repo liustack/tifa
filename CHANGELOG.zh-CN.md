@@ -8,6 +8,7 @@
 
 - 用 `go install github.com/liustack/tifa/cmd/tifa@latest` 装的 `tifa`，在应用里运行时会把命令交给应用锁定的版本，效果和 `go tool tifa` 一样，不会按别的 Tifa 版本生成代码。`go tool tifa` 仍是主要方式（见[全局安装命令](docs/build.zh-CN.md#全局安装命令)）。
 - `tifa gen` 把生成的代码写进 `.tifa/`，不做构建，新克隆的项目在编辑器和 `tsc` 里就能看到类型。`tifa new` 写出的 `package.json` 在 `prepare` 脚本里跑它，所以 `pnpm install` 或 `npm install` 之后就有了。已有的应用：在 `package.json` 的 `scripts` 里加上 `"prepare": "go tool tifa gen"`（见 [`tifa gen`](docs/build.zh-CN.md#tifa-gen)）。
+- 内置多语言。`app/` 里带 `_locales` 目录的目录，只要里面有 `zh-CN.json`、`en-US.json` 这样的文件，它的页面和 API 路由就有这些语言。默认语言由 `tifa.yaml` 的 `i18n.default` 指定，URL 保持原样（`/store/cart`），其他语言放在路径第一段（`/en-US/store/cart`）。`i18n.prefix: always` 让默认语言也带前缀。在 `tifa.yaml` 里写上 `site.url`，Tifa 就会写 `<html lang>`、`hreflang` 和 `x-default` 链接以及 canonical 链接。代码里，`c.Language()` 和 `useLanguage()` 给出语言，`useAlternates()` 给出页面每种语言的 URL，用来做语言切换，页面的 slug 不同时用 `c.SetAlternates` 说明它有哪些版本，`tifa.Languages()` 给内容集合用（`Languages: tifa.Languages()`），新的 `tifa/i18n` 适配器用 i18next 和 react-i18next 翻译。`<Link to="/store/cart">` 这样的链接和 Markdown 里以 `/` 开头的链接会自己加上前缀。见[多语言网站](docs/guides/i18n.zh-CN.md)。原来把语言放在自己的 `lang+` 目录里、又没有 `_locales` 目录的应用照旧能用。要迁过来：把文案放进 `_locales`，用 `lang+` 目录里的内容取代它，删掉检查语言的 `Layout` 和手写的 `hreflang`、`lang`，不再需要的话也删掉 `Accept-Language` 的重定向。`app/` 顶层有目录和网站某种语言同名，以及这样的网站在 `htmlAttributes` 里写 `lang`，现在都会让构建失败。
 
 ### 变更
 
