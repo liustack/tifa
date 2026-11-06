@@ -22,6 +22,8 @@ type pageAlternates struct {
 	// Site is site.url without a trailing slash, left out of the answer to a navigation, which the
 	// browser sends to the site it already knows.
 	Site string `json:"site,omitempty"`
+	// Default is the default language of the site, whose version x-default stands for.
+	Default string `json:"default"`
 	// Canonical is the path of the page as it was asked for, without the query.
 	Canonical string `json:"canonical"`
 	// List holds a link per version, the page itself included.
@@ -85,7 +87,7 @@ func (s *server) alternatesOf(c *tifa.Ctx) (*pageAlternates, error) {
 	if len(list) < 2 {
 		return nil, nil
 	}
-	return &pageAlternates{Site: strings.TrimRight(s.i18n.SiteURL, "/"), Canonical: s.languagePath(language, rest), List: list}, nil
+	return &pageAlternates{Site: strings.TrimRight(s.i18n.SiteURL, "/"), Default: s.i18n.Default, Canonical: s.languagePath(language, rest), List: list}, nil
 }
 
 // alternatesJSON is the list as JSON a script element can hold, nil when the page has none.

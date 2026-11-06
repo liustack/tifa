@@ -100,11 +100,11 @@ func (e *altEnv) lastAlternates(t *testing.T) string {
 func TestPageHasAVersionInEachLanguageOfItsArea(t *testing.T) {
 	e := newAltEnv(t, false)
 	for _, tc := range []struct{ target, want string }{
-		{"/store/items/7", `{"site":"https://a.example.com","canonical":"/store/items/7","list":[{"language":"zh-CN","url":"/store/items/7"},{"language":"en-US","url":"/en-US/store/items/7"},{"language":"de","url":"/de/store/items/7"}]}`},
+		{"/store/items/7", `{"site":"https://a.example.com","default":"zh-CN","canonical":"/store/items/7","list":[{"language":"zh-CN","url":"/store/items/7"},{"language":"en-US","url":"/en-US/store/items/7"},{"language":"de","url":"/de/store/items/7"}]}`},
 		// The query is no part of any URL, and a prefix is swapped, not stacked.
-		{"/en-US/store/items/7?x=1", `{"site":"https://a.example.com","canonical":"/en-US/store/items/7","list":[{"language":"zh-CN","url":"/store/items/7"},{"language":"en-US","url":"/en-US/store/items/7"},{"language":"de","url":"/de/store/items/7"}]}`},
+		{"/en-US/store/items/7?x=1", `{"site":"https://a.example.com","default":"zh-CN","canonical":"/en-US/store/items/7","list":[{"language":"zh-CN","url":"/store/items/7"},{"language":"en-US","url":"/en-US/store/items/7"},{"language":"de","url":"/de/store/items/7"}]}`},
 		// A parameter value keeps the escapes it came with.
-		{"/de/store/items/a%2Fb", `{"site":"https://a.example.com","canonical":"/de/store/items/a%2Fb","list":[{"language":"zh-CN","url":"/store/items/a%2Fb"},{"language":"en-US","url":"/en-US/store/items/a%2Fb"},{"language":"de","url":"/de/store/items/a%2Fb"}]}`},
+		{"/de/store/items/a%2Fb", `{"site":"https://a.example.com","default":"zh-CN","canonical":"/de/store/items/a%2Fb","list":[{"language":"zh-CN","url":"/store/items/a%2Fb"},{"language":"en-US","url":"/en-US/store/items/a%2Fb"},{"language":"de","url":"/de/store/items/a%2Fb"}]}`},
 		// One language, or no area: one version, nothing to link.
 		{"/only", ""},
 		{"/outside", ""},
@@ -121,7 +121,7 @@ func TestPageHasAVersionInEachLanguageOfItsArea(t *testing.T) {
 func TestAlwaysPrefixesTheDefaultLanguageInTheVersions(t *testing.T) {
 	e := newAltEnv(t, true)
 	get(e.s, "/zh-CN/store/items/7")
-	want := `{"site":"https://a.example.com","canonical":"/zh-CN/store/items/7","list":[{"language":"zh-CN","url":"/zh-CN/store/items/7"},{"language":"en-US","url":"/en-US/store/items/7"},{"language":"de","url":"/de/store/items/7"}]}`
+	want := `{"site":"https://a.example.com","default":"zh-CN","canonical":"/zh-CN/store/items/7","list":[{"language":"zh-CN","url":"/zh-CN/store/items/7"},{"language":"en-US","url":"/en-US/store/items/7"},{"language":"de","url":"/de/store/items/7"}]}`
 	if got := e.lastAlternates(t); got != want {
 		t.Errorf("got %s\nwant %s", got, want)
 	}
@@ -150,7 +150,7 @@ func TestNotFoundAndErrorPagesHaveNoVersions(t *testing.T) {
 func TestSetAlternatesReplacesTheList(t *testing.T) {
 	e := newAltEnv(t, false)
 	get(e.s, "/store/journal/ni-hao")
-	want := `{"site":"https://a.example.com","canonical":"/store/journal/ni-hao","list":[{"language":"zh-CN","url":"/store/journal/ni-hao"},{"language":"en-US","url":"/en-US/store/journal/hello"}]}`
+	want := `{"site":"https://a.example.com","default":"zh-CN","canonical":"/store/journal/ni-hao","list":[{"language":"zh-CN","url":"/store/journal/ni-hao"},{"language":"en-US","url":"/en-US/store/journal/hello"}]}`
 	if got := e.lastAlternates(t); got != want {
 		t.Errorf("got %s\nwant %s", got, want)
 	}
@@ -196,7 +196,7 @@ func TestPageWithoutSSRCarriesTheVersionsInItsBootData(t *testing.T) {
 	e := newAltEnv(t, false)
 	w := get(e.s, "/en-US/store/plain")
 	body := w.Body.String()
-	if w.Code != 200 || !strings.Contains(body, `"alternates":{"site":"https://a.example.com","canonical":"/en-US/store/plain","list":[`) {
+	if w.Code != 200 || !strings.Contains(body, `"alternates":{"site":"https://a.example.com","default":"zh-CN","canonical":"/en-US/store/plain","list":[`) {
 		t.Errorf("%d %s", w.Code, body)
 	}
 }
