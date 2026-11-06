@@ -581,7 +581,7 @@ const LayoutSSR = false        // 本目录的 Layout，默认 true
 `SSR`、`RenderCache` 和 `Cache` 只作用于 `page.tsx` 的页面。没有 `page.tsx` 的 `route.go` 里写了它们，构建会报错。`RenderCache` 只能写 `false`：渲染缓存默认就是开的，不用写 `true`。`Cache` 是至少一秒的 `time.Duration` 常量，见[整页缓存](#整页缓存)。名字要照上面的大小写写，包级常量叫 `ssr`、`cache`、`rendercache` 或 `layoutssr` 会构建报错，因为它们会被悄悄跳过。`Cache = true` 是 `Cache` 还是渲染缓存开关时的写法，现在也会构建报错，删掉即可。
 
 - `SSR = false`：中间件和所有 `Load` 照常执行，但跳过 QuickJS，响应是带数据的最小文档，由浏览器渲染。`LayoutSSR = false` 作用于该 Layout 包着的所有页面。
-- 所有页面都开着渲染缓存。每个请求照样跑自己的中间件、`Load` 和 Layout，然后把渲染出的 HTML 按构建版本、SSR 包、URL、每个 `Load` 和 Layout 的数据、浏览器拿到的会话存起来，缓存大小是 `cache.size`（见 [config.zh-CN.md](config.zh-CN.md)）。这些都没变时，不渲染直接返回 HTML。响应头 `X-Tifa-Render` 说明是哪种：`vm` 是这个请求自己渲染，`cache` 是命中，`shared` 是共用了别的请求发起的渲染（见[页面请求](build.zh-CN.md#页面请求)）。`cache.size` 为 0 时缓存关闭，共用渲染照旧。
+- 所有页面都开着渲染缓存（为什么对登录后的页面也安全、它管不到什么，见[渲染缓存](render-cache.zh-CN.md)）。每个请求照样跑自己的中间件、`Load` 和 Layout，然后把渲染出的 HTML 按构建版本、SSR 包、URL、每个 `Load` 和 Layout 的数据、浏览器拿到的会话存起来，缓存大小是 `cache.size`（见 [config.zh-CN.md](config.zh-CN.md)）。这些都没变时，不渲染直接返回 HTML。响应头 `X-Tifa-Render` 说明是哪种：`vm` 是这个请求自己渲染，`cache` 是命中，`shared` 是共用了别的请求发起的渲染（见[页面请求](build.zh-CN.md#页面请求)）。`cache.size` 为 0 时缓存关闭，共用渲染照旧。
 - 组件不能把每次渲染都不同的值写进 HTML，比如 `Date.now()` 或 `Math.random()`。hydration 也要求这样，而且缓存会把这样的值固定下来给之后的访客。`tifa dev` 下每个页面再渲染一次，第二次把时钟往后拨 36 小时，两次不同时终端和 dev 浮层会提示，给出第一处不同的位置，并列出你的代码里读时间或随机数的位置，这个页面在改好之前不进缓存。如果页面就是要显示这样的值，比如服务器时间，就在它的 `route.go` 里写 `const RenderCache = false`，这个页面每个请求都渲染。这个检查在构建出的程序里不做。
 - 带渲染时钟（`tifa.WithRenderClock`）的请求跳过缓存：不读也不存，因为它的 HTML 取决于键里没有的时间。
 - 多个请求同时没命中缓存，并且构建版本、URL 和数据都相同时（比如刚部署完涌进来一批访客），它们共用一次渲染。每个请求照样跑自己的中间件和 `Load`，保留它们设的响应头（比如 `Set-Cookie` 和 `Vary`），拿到自己接受的编码。`cache.size` 为 0、页面大到缓存放不下、在 `tifa dev` 下也都这样。数据或会话不同的请求各自渲染，写了 `RenderCache = false` 的页面每个请求都渲染。
