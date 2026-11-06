@@ -24,18 +24,20 @@ const rootID = "__root__"
 // tsNode is a page, a Layout with pages in scope, or the framework's root. Each becomes one to
 // three TanStack routes (see tanstackRoutes).
 type tsNode struct {
-	id       string // manifest ID, empty for the framework's root
-	dir      string // the directory under the application root
-	file     string // "route" for a page, "layout" for a Layout
-	tsx      bool
-	replace  bool // a Layout in layout_.tsx
-	exports  []string
-	load     *analyze.Load
-	handlers []analyze.Handler // the method handlers of a route, which get handler functions
-	segs     []pathSeg         // ServeMux segments of the full path
-	parent   *tsNode
-	children []*tsNode
-	route    *tsRoute // the route with the component and loader, which getRouteApi names
+	id      string // manifest ID, empty for the framework's root
+	dir     string // the directory under the application root
+	file    string // "route" for a page, "layout" for a Layout
+	tsx     bool
+	replace bool // a Layout in layout_.tsx
+	exports []string
+	// languages are the languages of the area the node is in, nil outside every area.
+	languages []string
+	load      *analyze.Load
+	handlers  []analyze.Handler // the method handlers of a route, which get handler functions
+	segs      []pathSeg         // ServeMux segments of the full path
+	parent    *tsNode
+	children  []*tsNode
+	route     *tsRoute // the route with the component and loader, which getRouteApi names
 }
 
 // tsRoute is one route of the generated TanStack route tree.
@@ -129,11 +131,11 @@ func generateTS(root string, m *analyze.Manifest, dev bool, exportsOf Exports, v
 	if err != nil {
 		return nil, err
 	}
-	routes, err := routesModule(nodes, public)
+	routes, tree, err := routesModule(nodes, public)
 	if err != nil {
 		return nil, err
 	}
-	files := map[string][]byte{"routes.tsx": routes}
+	files := map[string][]byte{"routes.tsx": routes, "i18n.gen.ts": i18nModule(m.I18n, nodes, tree)}
 	// A directory has one module for its page, its Layout and its method handlers. An API route
 	// is no route of the tree: its part of the module holds only the handler functions.
 	modules := map[string]*routeGen{}
@@ -291,13 +293,13 @@ func buildTree(root string, m *analyze.Manifest, exportsOf Exports) (*tsNode, []
 		for p := l.Parent; p != ""; p = parentOf(m, p) {
 			chain = append([]string{p}, chain...)
 		}
-		n := &tsNode{id: l.ID, dir: l.Dir, file: "layout", tsx: l.TSX, replace: l.Replace, load: l.Load, parent: nearest(chain), segs: segments(l.Path)}
+		n := &tsNode{id: l.ID, dir: l.Dir, file: "layout", tsx: l.TSX, replace: l.Replace, languages: l.Languages, load: l.Load, parent: nearest(chain), segs: segments(l.Path)}
 		byID[l.ID] = n
 		nodes = append(nodes, n)
 	}
 	for _, r := range m.Routes {
 		if r.Page {
-			nodes = append(nodes, &tsNode{id: r.ID, dir: r.Dir, file: "route", tsx: true, load: r.Load, handlers: r.Handlers, parent: nearest(r.Layouts), segs: segments(r.Path)})
+			nodes = append(nodes, &tsNode{id: r.ID, dir: r.Dir, file: "route", tsx: true, languages: r.Languages, load: r.Load, handlers: r.Handlers, parent: nearest(r.Layouts), segs: segments(r.Path)})
 		}
 	}
 	var files []string
@@ -594,10 +596,10 @@ func jsStrings(values []string) string {
 // module itself. The browser build loads these head modules lazily too: lazyRoutes in
 // js/vite/plugin.js hands routes.tsx a stand-in for each, so only the root Layout is in the
 // entry script.
-func routesModule(nodes []*tsNode, public []string) ([]byte, error) {
+func routesModule(nodes []*tsNode, public []string) ([]byte, []*tsRoute, error) {
 	routes, err := tanstackRoutes(nodes)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var imports strings.Builder
 	runtime := map[string]bool{"createAppRouter": true}
@@ -641,11 +643,11 @@ func routesModule(nodes []*tsNode, public []string) ([]byte, error) {
 		}
 	}
 	if app != nil && app.exported("Document") {
-		return nil, errors.New("app/layout.tsx: the root Layout exports Document, which tifa no longer renders: export htmlAttributes for the attributes of <html>, and return the head tags from head")
+		return nil, nil, errors.New("app/layout.tsx: the root Layout exports Document, which tifa no longer renders: export htmlAttributes for the attributes of <html>, and return the head tags from head")
 	}
 	for _, n := range nodes {
 		if n.exported("NotFound") {
-			return nil, fmt.Errorf("%s/%s: exports NotFound, which tifa no longer shows: a page that is not found shows the first Error from its route up, so export Error and check error instanceof RouteError && error.status === 404", n.dir, n.tsxFile())
+			return nil, nil, fmt.Errorf("%s/%s: exports NotFound, which tifa no longer shows: a page that is not found shows the first Error from its route up, so export Error and check error instanceof RouteError && error.status === 404", n.dir, n.tsxFile())
 		}
 	}
 
@@ -870,7 +872,7 @@ declare module "@tanstack/react-router" {
 	out.WriteString(imports.String())
 	out.WriteString("\n")
 	out.WriteString(body.String())
-	return []byte(out.String()), nil
+	return []byte(out.String()), routes, nil
 }
 
 // routePrefixes writes the paths a URL may start with to be matched, in full or in part, by a route
@@ -1149,3 +1151,53 @@ func searchType(b *strings.Builder, n *tsNode, name, fn, dir string) {
 // hasSearch reports whether the Load or Layout function of n reads query parameters, so that
 // route.gen exports their type and routes.tsx gives it to the route.
 func hasSearch(n *tsNode) bool { return n.load != nil && len(n.load.Query) > 0 }
+
+// i18nModule writes i18n.gen.ts, the languages of the app for the browser runtime: the default
+// language, whether every URL of an area has a prefix, the languages of the site, and the languages
+// of each route of the route tree that is in an area, by its TanStack route ID. The route of a
+// page or Layout has those of its node, and the route that shows the 404 of a Layout those of that
+// Layout. A route outside every area is left out: it has no language and is never prefixed. An app
+// without languages gets the module with undefined.
+func i18nModule(i *analyze.I18n, nodes []*tsNode, routes []*tsRoute) []byte {
+	var b strings.Builder
+	b.WriteString(tsHeader + "\n")
+	b.WriteString(`// The languages of the app, from its _locales folders and tifa.yaml. routes lists the languages
+// of the routes of the route tree that are in an area, by their TanStack route IDs: a Layout, a
+// page, and the route that shows the 404 of a Layout. A route outside every area has none, is
+// never prefixed, and is not here.
+`)
+	if i == nil {
+		b.WriteString("export const i18n: I18n | undefined = undefined\n")
+	} else {
+		byRoute := map[*tsRoute][]string{}
+		for _, n := range nodes {
+			if n.route != nil && len(n.languages) > 0 {
+				byRoute[n.route] = n.languages
+			}
+		}
+		table := map[string][]string{}
+		for _, r := range routes {
+			langs := byRoute[r]
+			if r.unmatched != nil {
+				langs = r.unmatched.languages
+			}
+			if len(langs) > 0 {
+				table[r.routeID] = langs
+			}
+		}
+		fmt.Fprintf(&b, "export const i18n: I18n | undefined = {\n  default: %s,\n  always: %t,\n  languages: %s,\n  routes: {\n", jsString(i.Default), i.Always, jsStrings(i.Languages))
+		for _, id := range slices.Sorted(maps.Keys(table)) {
+			fmt.Fprintf(&b, "    %s: %s,\n", jsString(id), jsStrings(table[id]))
+		}
+		b.WriteString("  },\n}\n")
+	}
+	b.WriteString(`
+export interface I18n {
+  readonly default: string
+  readonly always: boolean
+  readonly languages: readonly string[]
+  readonly routes: { readonly [routeId: string]: readonly string[] }
+}
+`)
+	return []byte(b.String())
+}

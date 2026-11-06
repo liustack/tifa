@@ -102,7 +102,11 @@ func appSource(m *analyze.Manifest, settings map[string]string, fingerprint stri
 				app.WriteString("HTML: true,\n")
 			}
 		}
-		fmt.Fprintf(&app, "SSR: %t,\n},\n", l.SSR)
+		fmt.Fprintf(&app, "SSR: %t,\n", l.SSR)
+		if len(l.Languages) > 0 {
+			fmt.Fprintf(&app, "Languages: %s,\n", stringSlice(l.Languages))
+		}
+		app.WriteString("},\n")
 	}
 	app.WriteString("},\nRoutes: []server.Route{\n")
 	for _, r := range m.Routes {
@@ -134,6 +138,9 @@ func appSource(m *analyze.Manifest, settings map[string]string, fingerprint stri
 		if r.Load != nil && r.Load.HTML {
 			app.WriteString("HTML: true,\n")
 		}
+		if len(r.Languages) > 0 {
+			fmt.Fprintf(&app, "Languages: %s,\n", stringSlice(r.Languages))
+		}
 		app.WriteString("},\n")
 	}
 	app.WriteString("},\n")
@@ -141,6 +148,17 @@ func appSource(m *analyze.Manifest, settings map[string]string, fingerprint stri
 	// session from before a restart gets its Exposed data too.
 	if m.Session != nil {
 		fmt.Fprintf(&app, "Session: server.SessionOf[sessiontype.%s],\n", m.Session.Name)
+	}
+	if m.I18n != nil {
+		fmt.Fprintf(&app, "I18n: &server.I18n{\nDefault: %q,\n", m.I18n.Default)
+		if m.I18n.Always {
+			app.WriteString("Always: true,\n")
+		}
+		fmt.Fprintf(&app, "Languages: %s,\n", stringSlice(m.I18n.Languages))
+		if m.I18n.SiteURL != "" {
+			fmt.Fprintf(&app, "SiteURL: %q,\n", m.I18n.SiteURL)
+		}
+		app.WriteString("},\n")
 	}
 	if len(settings) > 0 {
 		// The runtime settings of tifa.yaml, which tifa build checked: the program does not read the file.
