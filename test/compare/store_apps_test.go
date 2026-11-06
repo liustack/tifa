@@ -432,6 +432,7 @@ func TestStorefront(t *testing.T) {
 			t.Run("forms", p.forms)
 			t.Run("refused bodies", p.refused)
 			t.Run("cookies", p.cookies)
+			t.Run("deep bodies", p.deep)
 			t.Run("writes with a call", func(t *testing.T) { p.writes(t, true) })
 			t.Run("writes without a call", func(t *testing.T) { p.writes(t, false) })
 		})
@@ -808,4 +809,37 @@ func (p *pair) cookies(t *testing.T) {
 	for _, h := range cookieHeaders {
 		q.both(fmt.Sprintf("cookie %q", h[:min(len(h), 60)]), request{method: "GET", path: zh + "/mine", noJar: true, header: http.Header{"Cookie": {h}}})
 	}
+}
+
+// deepBody is a coupon body with an unknown member nested n levels deep, in arrays or in objects.
+func deepBody(n int, objects bool) string {
+	open, close, inner := "[", "]", "0"
+	if objects {
+		open, close, inner = `{"a":`, "}", "0"
+	}
+	return `{"code":"","x":` + strings.Repeat(open, n) + inner + strings.Repeat(close, n) + `}`
+}
+
+// deep: Go reads 10,000 levels of nesting and refuses more, and ignores the member it does not
+// know. The apps must too, which a reader that recurses on the stack of the language does not.
+func (p *pair) deep(t *testing.T) {
+	q := p.fresh()
+	q.t = t
+	for _, objects := range []bool{false, true} {
+		for _, n := range []int{100, 4999, 9998, 9999, 10000, 10001, 20000} {
+			if objects && n > 9999 {
+				n = n / 2 * 2 // the objects have one level each too
+			}
+			name := fmt.Sprintf("%d levels, objects %v", n, objects)
+			a, _ := q.both(name, request{method: "POST", path: zh + "/cart", body: deepBody(n, objects)})
+			want := 204
+			if n+1 > 10000 {
+				want = 400
+			}
+			if a.status != want {
+				t.Errorf("%s: Tifa answered %d, want %d", name, a.status, want)
+			}
+		}
+	}
+	q.both("a cart that is still empty", request{method: "GET", path: zh + "/mine"})
 }
