@@ -1,8 +1,8 @@
 import type { Metadata } from 'next'
-import { loadCheckoutPage, query } from '../../../../compare/store/data'
-import { CheckoutPage, CheckoutProvider } from '../../../../compare/store/entries'
-import { alternates, message, storeTitle } from '../../../../compare/store/head'
-import { orNotFoundAsync } from '../../../../compare/load'
+import { loadCheckoutPage, query } from '../../../../../compare/store/data'
+import { CheckoutPage, CheckoutProvider } from '../../../../../compare/store/entries'
+import { alternates, message, storeTitle } from '../../../../../compare/store/head'
+import { orNotFoundAsync } from '../../../../../compare/load'
 
 type Props = { params: Promise<{ lang: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }
 

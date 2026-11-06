@@ -4,7 +4,7 @@
 // an error, and follows a redirect.
 //
 // Next.js cannot put a route handler next to the page of the same URL, so a write goes to the same
-// path under /compare-write (see test/compare/nextjs/src/app/compare-write). GET /store/<lang>/mine
+// path under /store/compare-write, so the cookies of the storefront (Path=/store) reach them. GET /store/<lang>/mine
 // has no page, so it stays where it is.
 
 import { TifaError } from './client'
@@ -30,7 +30,7 @@ const redirectHeader = 'X-Tifa-Redirect'
 
 // writePath is the path a call is sent to.
 export function writePath(method: string, path: string) {
-  return method === 'GET' || path.endsWith('/mine') ? path : '/compare-write' + path
+  return method === 'GET' || path.endsWith('/mine') ? path : path.replace('/store/', '/store/compare-write/')
 }
 
 export async function call(method: string, path: string, options: CallOptions & { input?: unknown }, kind: string): Promise<unknown> {

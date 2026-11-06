@@ -1,8 +1,8 @@
 import type { Metadata } from 'next'
-import { loadJournalPage } from '../../../../compare/store/data'
-import { JournalPage, JournalProvider } from '../../../../compare/store/entries'
-import { alternates, message, storeTitle } from '../../../../compare/store/head'
-import { orNotFound } from '../../../../compare/load'
+import { loadJournalPage } from '../../../../../compare/store/data'
+import { JournalPage, JournalProvider } from '../../../../../compare/store/entries'
+import { alternates, message, storeTitle } from '../../../../../compare/store/head'
+import { orNotFound } from '../../../../../compare/load'
 
 type Props = { params: Promise<{ lang: string }> }
 

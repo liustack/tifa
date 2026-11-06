@@ -1,8 +1,8 @@
 import type { Metadata } from 'next'
-import { loadCartPage } from '../../../../compare/store/data'
-import { CartPage, CartProvider } from '../../../../compare/store/entries'
-import { alternates, message, storeTitle } from '../../../../compare/store/head'
-import { orNotFoundAsync } from '../../../../compare/load'
+import { loadCartPage } from '../../../../../compare/store/data'
+import { CartPage, CartProvider } from '../../../../../compare/store/entries'
+import { alternates, message, storeTitle } from '../../../../../compare/store/head'
+import { orNotFoundAsync } from '../../../../../compare/load'
 
 type Props = { params: Promise<{ lang: string }> }
 
