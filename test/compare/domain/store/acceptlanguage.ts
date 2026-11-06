@@ -1,5 +1,5 @@
 // The choice of the storefront's language from Accept-Language, as the Go code makes it with
-// golang.org/x/text/language (examples/shop/app/store/store.go, Preferred):
+// golang.org/x/text/language (examples/shop/app/store/storekit/storekit.go, Preferred):
 //
 //	tags, _, _ := language.ParseAcceptLanguage(acceptLanguage)
 //	_, i, confidence := matcher.Match(tags...)

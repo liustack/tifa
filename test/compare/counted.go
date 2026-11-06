@@ -67,12 +67,12 @@ func (e Env) BuildCounted(ctx context.Context, log io.Writer, dir string) (strin
 			{"\t\"sync\"\n", imports + "\t\"sync\"\n"},
 			{"func ordersOf(projectID string) []orderRecord {\n", countsCode(OrdersCountsEnv, [2]string{"OrdersOfCalls", "ordersOf"}) + "func ordersOf(projectID string) []orderRecord {\n\tOrdersOfCalls.Add(1)\n"},
 		}},
-		{filepath.Join(e.Shop, "app", "store", "store.go"), [][2]string{
+		{filepath.Join(e.Shop, "app", "store", "storekit", "storekit.go"), [][2]string{
 			{"\t\"math\"\n", "\t\"math\"\n" + imports},
 			{"func FindLocale(code string) (Locale, error) {\n", countsCode(StoreCountsEnv, [2]string{"FindLocaleCalls", "findLocale"}, [2]string{"ProductBuilds", "products"}) + "func FindLocale(code string) (Locale, error) {\n\tFindLocaleCalls.Add(1)\n"},
 		}},
 		{filepath.Join(e.Shop, "app", "store", "lang+", "products", "product.go"), [][2]string{
-			{"func (p productRecord) product(l store.Locale) Product {\n", "func (p productRecord) product(l store.Locale) Product {\n\tstore.ProductBuilds.Add(1)\n"},
+			{"func (p productRecord) product(l storekit.Locale) Product {\n", "func (p productRecord) product(l storekit.Locale) Product {\n\tstorekit.ProductBuilds.Add(1)\n"},
 		}},
 	}
 	replace := map[string]string{}

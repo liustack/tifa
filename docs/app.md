@@ -510,7 +510,7 @@ Tifa has no language settings: the language is a part of the URL, and the app ch
 ```go
 // app/store/lang+/route.go
 func Layout(c *tifa.Ctx) (Shell, error) {
-	l, err := store.FindLocale(c.Param("lang")) // tifa.ErrNotFound for a language the store does not have
+	l, err := storekit.FindLocale(c.Param("lang")) // tifa.ErrNotFound for a language the store does not have
 	if err != nil {
 		return Shell{}, err
 	}
