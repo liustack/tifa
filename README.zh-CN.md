@@ -89,27 +89,18 @@ go tool tifa check   # 分析、vet、测试和 TypeScript 检查一次跑完
 
 ## 一台小服务器就够
 
-在数据会变的页面上，Tifa 每秒处理的请求是 Next.js 的 6 倍，内存只用四分之一。
+用户正常浏览、边看边改的时候，一颗 CPU 每秒能接约 3000 次页面浏览，内存约 80 MiB。
 
-数据没变的页面不用再渲染一遍。每个请求仍然先取最新数据，所以不会看到旧内容，应用也不用写一行缓存代码。
+**[渲染缓存](docs/render-cache.zh-CN.md)**对所有页面默认开启，购物车、个人账单这类登录后才能看的页面也一样。每个请求都先取最新数据，数据没变才复用上次渲染的结果，所以页面永远是最新的。只有数据和登录状态完全相同才会复用，一个人的页面不会发给另一个人。应用不用写一行缓存代码。
 
-开箱即用，数据不变（Tifa 99.99% 的请求复用上次的渲染）：
+开箱即用，模拟用户正常浏览：整页加载占 25%，客户端导航占 75%（[Chrome 的统计](https://web.dev/blog/crux-experimental-soft-navs)，[Contentsquare](https://explore.contentsquare.com/2025-digital-experience-benchmark-en)），读写比例取 [TPC-W](https://www.tpc.org/tpcw/) 的三种混合。每次写都改一个客户的名字，订单列表、统计页和这个客户的其他订单都会跟着变。每秒处理的页面浏览数：
 
-| | 每秒请求数 | P50 | P99 | RSS 峰值 |
+| 读写比例 | Tifa | Next.js | TanStack Start | React Router |
 | :-- | --: | --: | --: | --: |
-| Tifa | 3,284 | 0.25 ms | 1.0 ms | 57 MiB |
-| Next.js | 80 | 10.6 ms | 28.3 ms | 435 MiB |
-| TanStack Start | 115 | 6.7 ms | 23.1 ms | 347 MiB |
-| React Router | 75 | 11.1 ms | 29.1 ms | 433 MiB |
-
-开箱即用，每 10 次读写一次订单（Tifa 90% 的请求复用上次的渲染）：
-
-| | 每秒请求数 | P50 | P99 | RSS 峰值 |
-| :-- | --: | --: | --: | --: |
-| Tifa | 462 | 0.26 ms | 19.2 ms | 112 MiB |
-| Next.js | 78 | 10.7 ms | 29.4 ms | 435 MiB |
-| TanStack Start | 115 | 6.7 ms | 23.0 ms | 337 MiB |
-| React Router | 74 | 11.2 ms | 29.8 ms | 431 MiB |
+| 读 95%，写 5% | 3,376 | 63 | 317 | 204 |
+| 读 80%，写 20% | 3,075 | 62 | 313 | 199 |
+| 读 50%，写 50% | 2,693 | 60 | 301 | 183 |
+| RSS 峰值 | 83 MiB | 532 MiB | 356 MiB | 460 MiB |
 
 缓存全关，每个请求都渲染：
 
@@ -127,7 +118,7 @@ Tifa 没有 JIT。`--jitless` 那几行是把 Node 的 JIT 也关掉，作为参
 
 每个请求都要求 gzip。TanStack Start 默认不压缩页面，所以每页发约 146 KB，Tifa 和 Next.js 约 16 KB，React Router 约 44 KB。压缩让 Next.js 每秒少处理 16% 的请求，Start 要是压缩，多半也要付出差不多的代价。
 
-每个框架一个核，默认设置，示例商店的六个工作台页面。方法和全部数字见[完整对比](docs/performance.zh-CN.md#和三个-node-框架比)。
+每个服务器只用 Google Cloud `c2d-standard-8` 虚拟机（AMD EPYC 7B13）的一个核，默认设置，示例商店的订单工作台：浏览那张表用 58 个页面，渲染那张表用 6 个。方法、延迟和全部数字见[完整对比](docs/performance.zh-CN.md#和三个-node-框架比)。
 
 ## 新建应用
 
@@ -183,6 +174,7 @@ mkdir -p .claude/skills && cp -r tifa-src/skills/tifa .claude/skills/tifa
 | [部署](docs/deploy.zh-CN.md) | 把程序放到服务器或容器里，或者放在 CDN 或代理后面 |
 | [配置](docs/config.zh-CN.md) | 部署时改端口、HTTPS、请求体上限、VM 数、渲染超时和页面缓存 |
 | [内部结构](docs/architecture.zh-CN.md) | 想知道请求、`tifa build`、`tifa dev`、VM 池和缓存在内部是怎么工作的 |
+| [渲染缓存](docs/render-cache.zh-CN.md) | 想知道为什么页面（包括登录后的页面）不用任何设置就能安全地缓存 |
 | [性能](docs/performance.zh-CN.md) | 想知道一台小 VPS 扛不扛得住你的流量 |
 | [研究报告](docs/studies/README.md) | 想看某个数字背后完整的方法和数据，或者某个想法有没有人试过（英文） |
 | [测试](docs/testing.md) | 参与 Tifa 本身的开发（英文） |
