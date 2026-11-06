@@ -10,6 +10,14 @@
 
 export class BadJSON extends Error {}
 
+/** Shape names the members of an object that are kept and, for an object in one, its own shape. */
+export interface Shape {
+  [member: string]: unknown
+}
+
+/** stats counts what the reader builds, for the test that unknown members are not built. */
+export const stats = { containers: 0 }
+
 /** A number as written. */
 export class Num {
   readonly text: string
@@ -35,17 +43,17 @@ export function asInt(n: Num): number | undefined {
 }
 
 /** parseBody reads the bytes of a body as one JSON value. */
-export function parseBody(bytes: Uint8Array): Value {
+export function parseBody(bytes: Uint8Array, shape?: Shape): Value {
   let text: string
   try {
     text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)
   } catch {
     throw new BadJSON()
   }
-  return parse(text)
+  return parse(text, shape)
 }
 
-export function parse(text: string): Value {
+export function parse(text: string, rootShape?: Shape): Value {
   let i = 0
   const fail = (): never => {
     throw new BadJSON()
@@ -111,28 +119,58 @@ export function parse(text: string): Value {
   }
   // The value is read with a stack of its own, not the stack of the language: Go reads up to
   // maxDepth levels of arrays and objects, and a call for each level would not get that far.
+  //
+  // A member that the shape does not name is read and checked (its names are not given twice, its
+  // depth is counted) but not kept, as Go reads the value of a member it has no field for and drops it.
   interface Frame {
+    kind: '{' | '['
     obj?: Obj
-    key?: string
+    /** seen are the names of an object, kept or not, to refuse one given twice. */
+    seen?: Set<string>
     list?: Value[]
+    key?: string
+    skip: boolean
+    shape: Shape | undefined
+    /** nextSkip and nextShape are for the value that comes next in this container. */
+    nextSkip: boolean
+    nextShape: Shape | undefined
   }
   const stack: Frame[] = []
   let result: Value = null
   const finish = (v: Value) => {
     const top = stack[stack.length - 1]
     if (!top) result = v
+    else if (top.skip || top.nextSkip) return
     else if (top.obj) top.obj.set(top.key as string, v)
     else (top.list as Value[]).push(v)
   }
-  // key reads the name of a member and its colon. A name given twice is refused.
-  const key = (obj: Obj): string => {
+  // key reads the name of a member and its colon, and decides whether its value is kept.
+  const key = (frame: Frame): void => {
     space()
     if (text[i] !== '"') return fail()
     const name = string()
-    if (obj.has(name)) return fail()
+    const seen = frame.seen as Set<string>
+    if (seen.has(name)) return fail()
+    seen.add(name)
     space()
     if (text[i++] !== ':') return fail()
-    return name
+    frame.key = name
+    const known = frame.shape === undefined || Object.hasOwn(frame.shape, name)
+    frame.nextSkip = frame.skip || !known
+    const sub = frame.shape?.[name]
+    frame.nextShape = sub !== null && typeof sub === 'object' ? (sub as Shape) : undefined
+  }
+  const open = (kind: '{' | '['): Frame => {
+    const parent = stack[stack.length - 1]
+    const skip = parent ? parent.nextSkip : false
+    const shape = parent ? parent.nextShape : rootShape
+    const frame: Frame = { kind, skip, shape, nextSkip: skip, nextShape: undefined }
+    if (kind === '{') {
+      frame.seen = new Set()
+      if (!skip) frame.obj = new Map()
+    } else if (!skip) frame.list = []
+    if (!skip) stats.containers++
+    return frame
   }
   let expectValue = true
   outer: for (;;) {
@@ -144,19 +182,17 @@ export function parse(text: string): Value {
         if (stack.length + 1 > maxDepth) fail()
         i++
         space()
+        const frame = open(c)
         if (c === '{' && text[i] === '}') {
           i++
-          finish(new Map())
+          finish(frame.obj ?? null)
         } else if (c === '[' && text[i] === ']') {
           i++
-          finish([])
-        } else if (c === '{') {
-          const frame: Frame = { obj: new Map() }
-          stack.push(frame)
-          frame.key = key(frame.obj as Obj)
-          continue
+          finish(frame.list ?? null)
         } else {
-          stack.push({ list: [] })
+          stack.push(frame)
+          if (c === '{') key(frame)
+          else frame.nextSkip = frame.skip
           continue
         }
       } else if (c === '"') finish(string())
@@ -171,21 +207,21 @@ export function parse(text: string): Value {
       space()
       const top = stack[stack.length - 1]
       const c = text[i++]
-      if (top.obj) {
-        if (c === '}') {
-          stack.pop()
-          finish(top.obj)
-          continue
-        }
-        if (c !== ',') return fail()
-        top.key = key(top.obj)
-      } else {
+      if (top.kind === '[') {
         if (c === ']') {
           stack.pop()
-          finish(top.list as Value[])
+          finish(top.list ?? null)
           continue
         }
         if (c !== ',') return fail()
+      } else {
+        if (c === '}') {
+          stack.pop()
+          finish(top.obj ?? null)
+          continue
+        }
+        if (c !== ',') return fail()
+        key(top)
       }
       expectValue = true
       break

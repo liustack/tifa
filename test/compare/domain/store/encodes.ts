@@ -2,6 +2,7 @@
 // encodes the answer of a handler once, and so must the shared layer that stands in for it. It
 // prints, for each request, the number of calls of JSON.stringify and Response.json.
 import { callCheckout, callCoupon, callMine, callProduct, callQuantity, callSeen, redirectToPreferred } from './calls.ts'
+import { parseBody, stats } from './json.ts'
 
 let stringify = 0
 let responseJSON = 0
@@ -45,4 +46,8 @@ for (const call of [false, true]) {
   await count('redirect' + k, async () => redirectToPreferred(get(call)))
   await count('checkout' + k, () => callCheckout(post(order, call), { lang: 'zh-CN' }))
 }
+// A body with a member the write does not know: the reader keeps only the object itself and the members it needs.
+stats.containers = 0
+parseBody(new TextEncoder().encode('{"code":"x","unknown":{"a":[1,2,{"b":[[]]}],"c":{}},"more":[[[]]]}'), { code: 'string' })
+out.unknown = { stringify: stats.containers, json: 0, status: 0 }
 process.stdout.write(realStringify(out))

@@ -33,15 +33,14 @@ export function answer(request: Request, o: Outcome): Response {
     res.headers.set('Cache-Control', 'no-store')
     return res
   }
-  const isCall = request.headers.has(callHeader)
-  const headers = new Headers()
-  for (const cookie of o.cookies) headers.append('Set-Cookie', cookie)
-  headers.append('Vary', callHeader)
-  if (!isCall) {
+  if (!request.headers.has(callHeader)) {
     const res = respond(o)
     res.headers.append('Vary', callHeader)
     return res
   }
+  const headers = new Headers()
+  for (const cookie of o.cookies) headers.append('Set-Cookie', cookie)
+  headers.append('Vary', callHeader)
   if (o.status >= 300 && o.status < 400) {
     headers.set('Content-Type', 'application/json')
     headers.set('Cache-Control', 'no-store')

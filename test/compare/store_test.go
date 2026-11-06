@@ -164,6 +164,12 @@ func TestStoreWritesEncodeOnce(t *testing.T) {
 	if err := json.Unmarshal(out, &counts); err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}
+	// The reader of the body keeps the object and the member it needs and nothing of the members it does
+	// not know, as Go reads the value of a member it has no field for and drops it.
+	if c := counts["unknown"].Stringify; c != 1 {
+		t.Errorf("the reader built %d arrays and objects for a body with a member it does not know, want 1", c)
+	}
+	delete(counts, "unknown")
 	if len(counts) != 16 {
 		t.Errorf("%d requests counted, want 16", len(counts))
 	}

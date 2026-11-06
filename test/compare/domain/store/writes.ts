@@ -44,7 +44,7 @@ async function decodeBody<T>(request: Request, shape: Shape): Promise<T> {
   if (type !== 'application/json') throw new HttpError(415, 'Unsupported Media Type')
   let parsed: Value
   try {
-    parsed = parseBody(new Uint8Array(await request.arrayBuffer()))
+    parsed = parseBody(new Uint8Array(await request.arrayBuffer()), shape)
   } catch (e) {
     if (e instanceof BadJSON) throw new BadBody()
     throw e
@@ -59,8 +59,11 @@ async function decodeBody<T>(request: Request, shape: Shape): Promise<T> {
       else if (v === null) out[name] = kind === 'string' ? '' : kind === 'bool' ? false : 0
       else if (kind === 'string' && typeof v === 'string') out[name] = v
       else if (kind === 'bool' && typeof v === 'boolean') out[name] = v
-      else if (kind === 'int' && v instanceof Num && asInt(v) !== undefined) out[name] = asInt(v)
-      else throw new BadBody()
+      else if (kind === 'int' && v instanceof Num) {
+        const n = asInt(v)
+        if (n === undefined) throw new BadBody()
+        out[name] = n
+      } else throw new BadBody()
     }
     return out
   }
