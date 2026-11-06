@@ -176,7 +176,9 @@ interface PlacedRecord {
   at: number
 }
 
-const placed = new Recent<PlacedRecord>(maxPlaced, placedIdle)
+// On globalThis for the same reason as the carts.
+const g = globalThis as typeof globalThis & { __comparePlaced?: Recent<PlacedRecord> }
+const placed = (g.__comparePlaced ??= new Recent<PlacedRecord>(maxPlaced, placedIdle))
 
 // placeOrder places the order of the cart of the request, empties the cart and returns the
 // number of the order. The order must have passed validate. Go calls it PlaceOrder.
