@@ -67,13 +67,14 @@ export function methodNotAllowed(allow: string): Response {
 }
 
 // redirectToPreferred is GET /store: the redirect to the language the browser asks for. It
-// depends on Accept-Language and says so, and on the call header like every route of tifa. The body is the one of Go's http.Redirect.
-export function redirectToPreferred(request: Request): Response {
+// depends on Accept-Language and says so. Like every route of tifa it answers a call (X-Tifa-Call)
+// with a 200 that carries the redirect. The body is the one of Go's http.Redirect.
+export function redirectToPreferred(request: Request): Promise<Response> {
   const r = getStore(request.headers.get('accept-language') ?? '')
-  return new Response(`<a href="${r.location}">Found</a>.\n\n`, {
+  return forCall(request, new Response(`<a href="${r.location}">Found</a>.\n\n`, {
     status: r.status,
-    headers: { Location: r.location, Vary: r.vary + ', ' + callHeader, 'Content-Type': 'text/html; charset=utf-8' },
-  })
+    headers: { Location: r.location, Vary: r.vary, 'Content-Type': 'text/html; charset=utf-8' },
+  }))
 }
 
 // withoutSlash is tifa's answer to a URL with a trailing slash: a 308 to the URL without it. It

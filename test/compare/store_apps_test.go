@@ -413,6 +413,12 @@ func (p *pair) redirects(t *testing.T) {
 	q.t = t
 	for _, accept := range []string{"", "en-US,en;q=0.9", "en-GB", "en;q=0.8,zh;q=0.9", "zh-TW,zh;q=0.8", "fr-FR,fr;q=0.9", "ja", "de"} {
 		q.both("redirect by language "+accept, request{method: "GET", path: "/store", header: http.Header{"Accept-Language": {accept}}})
+		{
+			a, _ := q.both("redirect by language "+accept+" as a call", request{method: "GET", path: "/store", call: true, header: http.Header{"Accept-Language": {accept}}})
+			if a.status != 200 || a.header.Get("X-Tifa-Redirect") != "302" {
+				t.Errorf("Tifa answered a call for /store with %d and X-Tifa-Redirect %q", a.status, a.header.Get("X-Tifa-Redirect"))
+			}
+		}
 	}
 	slash := func(name, path string) {
 		t.Helper()
