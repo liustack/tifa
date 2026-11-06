@@ -42,9 +42,16 @@ async function forCall(plain: Response): Promise<Response> {
   return new Response(plain.body, { status: plain.status, headers })
 }
 
-async function answer(methods: Record<string, Method>, request: Request, params: Params): Promise<Response> {
+// allowed is the Allow header of a 405, as Tifa writes it: GET and HEAD first when the URL has a page
+// or a GET handler, then the other methods.
+function allowed(methods: Record<string, Method>, pages: boolean) {
+  const names = Object.keys(methods).filter((m) => m !== 'GET')
+  return (pages || 'GET' in methods ? ['GET', 'HEAD', ...names] : names).join(', ')
+}
+
+async function answer(methods: Record<string, Method>, request: Request, params: Params, pages: boolean): Promise<Response> {
   const method = methods[request.method]
-  if (!method) return json(405, { error: statusText[405] }, { Allow: Object.keys(methods).join(', '), 'Cache-Control': 'no-store' })
+  if (!method) return json(405, { error: statusText[405] }, { Allow: allowed(methods, pages), 'Cache-Control': 'no-store' })
   const plain = await method(request, params as { lang: string })
   // Tifa keeps a cache from storing an error.
   if (plain.status >= 400) plain.headers.set('Cache-Control', 'no-store')
@@ -57,8 +64,8 @@ async function answer(methods: Record<string, Method>, request: Request, params:
 
 // handlers makes the loader and the action of a resource route: GET goes to the loader and every
 // other method to the action.
-export function handlers(methods: Record<string, Method>) {
-  const run = ({ request, params }: { request: Request; params: Params }) => answer(methods, request, params)
+export function handlers(methods: Record<string, Method>, pages = false) {
+  const run = ({ request, params }: { request: Request; params: Params }) => answer(methods, request, params, pages)
   return { loader: run, action: run }
 }
 

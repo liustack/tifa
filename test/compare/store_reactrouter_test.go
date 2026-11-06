@@ -488,3 +488,32 @@ func reactRouterWrite(p string) string {
 	}
 	return writeURL.ReplaceAllString(p, "$1/_write/")
 }
+
+// TestReactRouterStoreRefusesWrongMethodsAndSlash checks the answers to a method a URL does not
+// take, with its Allow header, and to GET /store/.
+func TestReactRouterStoreRefusesWrongMethodsAndSlash(t *testing.T) {
+	env := setup(t)
+	tifa, react := storeServers(t, env)
+	visitors := storeVisitors(tifa, react)
+	for _, c := range []struct{ method, path string }{
+		{"GET", "/store/"}, {"GET", "/store/zh-CN/cart/"}, {"DELETE", "/store/zh-CN/cart"}, {"PUT", "/store/zh-CN/cart"}, {"GET", "/store/zh-CN/checkout?placed="},
+		{"PATCH", "/store/zh-CN/mine"}, {"DELETE", "/store/zh-CN/mine"}, {"PUT", "/store/zh-CN/checkout"},
+		{"PATCH", "/store/zh-CN/products/ceramic-cup"}, {"DELETE", "/store/zh-CN/products/ceramic-cup"},
+	} {
+		var got [2]string
+		for i, v := range visitors {
+			path := c.path
+			if c.method != "GET" {
+				path = v.write(path)
+			}
+			r, err := v.do(c.method, path, true, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got[i] = fmt.Sprintf("%d Allow=%q Location=%q", r.status, r.header.Get("Allow"), r.header.Get("Location"))
+		}
+		if got[0] != got[1] {
+			t.Errorf("%s %s:\nTifa:         %s\nReact Router: %s", c.method, c.path, got[0], got[1])
+		}
+	}
+}

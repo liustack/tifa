@@ -1,9 +1,18 @@
-import { Links, Meta, Outlet, Scripts, useRouteLoaderData } from 'react-router'
+import { Links, Meta, Outlet, Scripts, redirect, useRouteLoaderData } from 'react-router'
 import type { ReactNode } from 'react'
 import { Error, documentHead, htmlAttributes } from '@/app/layout'
 import type { LayoutData } from '@/app/store/lang+/route.gen'
 import { RouterEvents } from '@/runtime/router'
 import { errorBoundary } from './compare/boundary'
+
+// Tifa sends a URL with a trailing slash to the one without, with 308.
+export function loader({ request }: { request: Request }) {
+  const url = new URL(request.url)
+  if (url.pathname.length > 1 && url.pathname.endsWith('/')) {
+    return redirect(url.pathname.replace(/\/+$/, '') + url.search, 308)
+  }
+  return null
+}
 
 export const links = () => documentHead.links
 
