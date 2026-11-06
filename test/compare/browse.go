@@ -654,3 +654,59 @@ func backfillAttempts(bd *BrowseData) {
 		bd.Attempts[key] = []Attempt{{Users: runs[0].Load.Users, Failed: reason != "", Reason: reason, Source: "run 1"}}
 	}
 }
+
+// MergeBrowse puts the runs of some specs from part into base, replacing what base held for them:
+// their curves, chosen steps, attempts, rounds and trace checks. It is for rerunning a framework
+// without running the others again, and fails if the plans replayed are not the same in both.
+func MergeBrowse(base, part *Record, specs []string) error {
+	b, p := base.Browse, part.Browse
+	if b == nil || p == nil {
+		return fmt.Errorf("both records need a browse part")
+	}
+	for k, n := range p.Common {
+		if b.Common[k] != n {
+			return fmt.Errorf("%s: the new run replays %d plans, the record it goes into %d", k, n, b.Common[k])
+		}
+	}
+	in := func(spec string) bool { return slices.Contains(specs, spec) }
+	keySpec := func(key string) string { _, spec, _ := strings.Cut(key, "/"); return spec }
+	for key := range b.Curves {
+		if in(keySpec(key)) {
+			delete(b.Curves, key)
+			delete(b.Chosen, key)
+			delete(b.Attempts, key)
+		}
+	}
+	for key, v := range p.Curves {
+		b.Curves[key], b.Chosen[key] = v, p.Chosen[key]
+		if a := p.Attempts[key]; len(a) > 0 {
+			if b.Attempts == nil {
+				b.Attempts = map[string][]Attempt{}
+			}
+			b.Attempts[key] = a
+		}
+	}
+	keep := func(runs []BrowseRun) (out []BrowseRun) {
+		for _, r := range runs {
+			if !in(r.Spec) {
+				out = append(out, r)
+			}
+		}
+		return out
+	}
+	b.Runs = append(keep(b.Runs), p.Runs...)
+	b.Rejected = append(keep(b.Rejected), p.Rejected...)
+	for spec, c := range p.TraceCheck {
+		if b.TraceCheck == nil {
+			b.TraceCheck = map[string]*TraceCheck{}
+		}
+		b.TraceCheck[spec] = c
+	}
+	for f, n := range p.Traces {
+		b.Traces[f] = n
+	}
+	for f, n := range p.Dropped {
+		b.Dropped[f] = n
+	}
+	return nil
+}

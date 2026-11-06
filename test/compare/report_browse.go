@@ -29,11 +29,11 @@ func (r *Record) browseMarkdown() string {
 	fmt.Fprintf(&b, ". %d rounds at the chosen users, fresh servers each in a rotating order, %s of lead-in and then one common window of %s for all users. The search for the users took steps of %s.\n\n", r.Settings.Rounds, bd.Warm, bd.Window, bd.SearchWindow)
 	b.WriteString("### Visits\n\n")
 	b.WriteString("Each user plays recorded visits one after another. A visit is a full load of a page, then clicks on links of the page on screen and reloads of it, as a real browser did it against that framework (Chromium, 1280x800, no hover, the browser's own prefetching, caching and route discovery). The traces hold dynamic traffic only: documents and the data requests of the client router, with no scripts, styles, images or fonts. Cookies are kept within a visit and not across visits, and `If-None-Match` carries only the ETag that the visit got for that document. Back and forward are not modelled, since the browser's back/forward cache cannot be measured here.\n\n")
-	b.WriteString("What a visit is made of is assumed, not measured: its length (4 page views on average is 75% soft navigations, 2 is 50%), that 10% of the page views after the first are reloads, and the rate of writes (a write to one of the three orders that accept one, after a page view, with probability 1/500 or 1/20). A write gives an order a new address, and in the fan-out run a new customer name too, which the lists, the stats and the other orders of that customer show. The conditions favor reuse of rendered pages: 58 pages that every visitor shares, almost no personalization and rare writes. Times are when the server's answer reached the client, not when a browser would have shown the page. CPU is the processor time of the whole server process tree, user and system, and includes writes and prefetches.\n\n")
+	b.WriteString("What a visit is made of is assumed, not measured: its length (4 page views on average, so 75% of the page views are soft navigations), that 10% of the page views after the first are reloads, and the mix of reads and writes. The mixes are the shares of the TPC-W browsing, shopping and ordering mixes (https://www.tpc.org/tpcw/): of 100 user actions, a page view or a write, 5, 20 or 50 are writes, so a write follows a page view with probability 1/19, 1/4 or 1. Every write gives one of the three orders that can still change a new customer name, which the lists, the stats and the other orders of that customer show, the harder case for a cache. The conditions favor reuse of rendered pages: 58 pages that every visitor shares, almost no personalization. Times are when the server's answer reached the client, not when a browser would have shown the page. CPU is the processor time of the whole server process tree, user and system, and includes writes and prefetches.\n\n")
 	for _, sc := range bd.Scenarios {
-		fmt.Fprintf(&b, "#### %s: %d page views a visit on average, a write after about %s page views%s\n\n", sc.Name, sc.Mean, fmt.Sprintf("1 in %.0f", 1/sc.WriteRate), map[bool]string{true: ", changing the customer too", false: ""}[sc.FanOut])
-		b.WriteString("| | users | visits/s | CPU ms/visit | page views/s | CPU ms/view | requests/visit | body KB/visit | full load P50 / P99 ms (n) | navigation P50 / P99 ms (n) | reload P50 ms (n) | prefetch P50 / P99 ms (n) | write P50 ms (n) | peak RSS MiB | client cores |\n| --- |")
-		b.WriteString(strings.Repeat(" --- |", 14) + "\n")
+		fmt.Fprintf(&b, "#### %s\n\n", sc.Title)
+		b.WriteString("| | users | page views/s | visits/s | CPU ms/page view | CPU ms/visit | peak RSS MiB | full load P50 / P99 ms (n) | navigation P50 / P99 ms (n) | reload P50 ms (n) | prefetch P50 / P99 ms (n) | write P50 ms (n) | body KB/visit | client cores |\n| --- |")
+		b.WriteString(strings.Repeat(" --- |", 13) + "\n")
 		var specs []string
 		by := map[string][]BrowseRun{}
 		for _, run := range bd.Runs {
@@ -79,16 +79,15 @@ func (r *Record) browseMarkdown() string {
 				}
 				return fmtCell(typ(kind, func(t TypeStat) float64 { return t.P50 }), "%.1f")
 			}
-			fmt.Fprintf(&b, "| %s | %d | %s | %s | %s | %s | %s | %s | %s / %s (%d) | %s / %s (%d) | %s (%d) | %s / %s (%d) | %s (%d) | %s | %s |\n",
+			fmt.Fprintf(&b, "| %s | %d | %s | %s | %s | %s | %s | %s / %s (%d) | %s / %s (%d) | %s (%d) | %s / %s (%d) | %s (%d) | %s | %s |\n",
 				runs[0].Label, runs[0].Load.Users,
-				fmtCell(per(func(l *LoadResult) float64 { return float64(l.Visits) / l.Seconds }), "%.2f"),
-				fmtCell(per(func(l *LoadResult) float64 { return 1000 * l.CPU / visits(l) }), "%.1f"),
 				fmtCell(per(func(l *LoadResult) float64 { return float64(l.Views) / l.Seconds }), "%.2f"),
-				fmtCell(per(func(l *LoadResult) float64 { return 1000 * l.CPU / max(1, float64(l.Views)) }), "%.1f"),
-				fmtCell(per(func(l *LoadResult) float64 { return float64(l.Requests) / visits(l) }), "%.1f"),
-				fmtCell(per(func(l *LoadResult) float64 { return float64(l.Bytes) / 1024 / visits(l) }), "%.1f"),
-				p50("doc"), p99("doc"), n("doc"), p50("nav"), p99("nav"), n("nav"), p50("reload"), n("reload"), p50("prefetch"), p99("prefetch"), n("prefetch"), p50("write"), n("write"),
+				fmtCell(per(func(l *LoadResult) float64 { return float64(l.Visits) / l.Seconds }), "%.2f"),
+				fmtCell(per(func(l *LoadResult) float64 { return 1000 * l.CPU / max(1, float64(l.Views)) }), "%.2f"),
+				fmtCell(per(func(l *LoadResult) float64 { return 1000 * l.CPU / visits(l) }), "%.1f"),
 				fmtCell(per(func(l *LoadResult) float64 { return l.PeakRSS }), "%.0f"),
+				p50("doc"), p99("doc"), n("doc"), p50("nav"), p99("nav"), n("nav"), p50("reload"), n("reload"), p50("prefetch"), p99("prefetch"), n("prefetch"), p50("write"), n("write"),
+				fmtCell(per(func(l *LoadResult) float64 { return float64(l.Bytes) / 1024 / visits(l) }), "%.1f"),
 				fmtCell(per(func(l *LoadResult) float64 { return l.ClientCPU / l.Seconds }), "%.2f"))
 		}
 		for _, spec := range specs {
@@ -106,6 +105,28 @@ func (r *Record) browseMarkdown() string {
 			}
 		}
 		b.WriteString("\n\nP99 is printed where a type has at least 100 samples in every round. The client-cores column is the processor time of the load generator over the window: the client has two cpus, so a value near 2 means the client limits the visits a second.\n")
+		b.WriteString("\nWhat one visit costs the server, as requests per visit:\n\n| | documents answered 200 (full page, HTML) | documents answered 304 | navigation requests (data of a click) | prefetches | writes | all |\n| --- | --- | --- | --- | --- | --- | --- |\n")
+		for _, spec := range specs {
+			runs := by[spec]
+			count := func(prefix string) []float64 {
+				var out []float64
+				for _, run := range runs {
+					n := 0
+					for k, v := range run.Load.Responses {
+						if strings.HasPrefix(k, prefix) {
+							n += v
+						}
+					}
+					out = append(out, float64(n)/max(1, float64(run.Load.Visits)))
+				}
+				return out
+			}
+			var all []float64
+			for _, run := range runs {
+				all = append(all, float64(run.Load.Requests)/max(1, float64(run.Load.Visits)))
+			}
+			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s |\n", runs[0].Label, fmtCell(count("doc 200 "), "%.2f"), fmtCell(count("doc 304 "), "%.2f"), fmtCell(count("nav "), "%.2f"), fmtCell(count("prefetch "), "%.2f"), fmtCell(count("write "), "%.3f"), fmtCell(all, "%.2f"))
+		}
 		if tifa, ok := by["tifa"]; ok {
 			var rows []string
 			for _, kind := range []string{"vm", "cache", "shared"} {
@@ -184,7 +205,7 @@ func (r *Record) browseMarkdown() string {
 			}
 			fmt.Fprintf(&b, "%s: %s", k, strings.Join(sources[k], ", "))
 		}
-		b.WriteString(". A rerun keeps the curve and the first chosen step of the run it follows, runs the rounds again with fresh servers and the same rotation of the order, and the failed rounds are kept in the JSON under `rejected`.\n")
+		b.WriteString(". A rerun of a framework runs its search and its rounds again with fresh servers, and its rows replace the old ones in the record. Rounds that fail the rule are kept in the JSON under `rejected`.\n")
 	}
 	if len(bd.TraceCheck) > 0 {
 		b.WriteString("\n#### Do the traces replay on this machine\n\nThe traces were recorded on another machine. One round of each framework at the users of the baseline, counted by request type, status and content type:\n\n")

@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/signal"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -169,8 +170,9 @@ func browseCmd(cmd string, args []string) {
 		servers    = flags.String("servers", "", "comma separated spec ids (default tifa,nextjs,start,reactrouter)")
 		workers    = flags.Int("workers", 4, "record: browser contexts at once")
 		limit      = flags.Int("limit", 0, "record: play only the first plans")
+		means      = flags.String("means", "4", "record: comma separated visit lengths to record (the browse runs use 4)")
 		skipBuild  = flags.Bool("skip-build", false, "record, browse: use the last build")
-		scenarios  = flags.String("scenarios", "baseline,mean2,writes,fanout", "browse: comma separated scenarios")
+		scenarios  = flags.String("scenarios", "r95w5,r80w20,r50w50", "browse: comma separated scenarios")
 		serverCPUs = flags.String("server-cpus", "", "browse: cpus for the server, as taskset -c takes them (Linux only)")
 		loadCPUs   = flags.String("load-cpus", "", "browse: cpus for the client")
 		rounds     = flags.Int("rounds", 3, "browse: rounds at the chosen users, with fresh servers in a rotating order")
@@ -181,8 +183,9 @@ func browseCmd(cmd string, args []string) {
 		maxUsers   = flags.Int("max-users", 128, "browse: the search stops here")
 		jsonPath   = flags.String("json", "", "browse: write the record as JSON to this file")
 		from       = flags.String("from", "", "browse: a record to continue: its curves and runs are kept")
-		only       = flags.String("only", "", "browse: with -from, the scenario/spec keys whose rounds run again, such as baseline/nextjs")
+		only       = flags.String("only", "", "browse: with -from, the scenario/spec keys whose rounds run again, such as r95w5/nextjs")
 		source     = flags.String("source", "run 1", "browse: names this run in the rows it adds")
+		mergeInto  = flags.String("merge-into", "", "browse: put the runs of -servers into this record, replacing what it held for those servers, and write the result to -json")
 		check      = flags.Bool("check", false, "browse: also count what each server answers in one round of the baseline")
 	)
 	flags.Parse(args)
@@ -211,7 +214,7 @@ func browseCmd(cmd string, args []string) {
 		}
 	}
 	if cmd == "record" {
-		if err := env.Record(ctx, os.Stderr, *dir, list, *workers, *limit); err != nil {
+		if err := env.Record(ctx, os.Stderr, *dir, list, parseMeans(*means), *workers, *limit); err != nil {
 			fatal(err)
 		}
 		return
@@ -245,6 +248,20 @@ func browseCmd(cmd string, args []string) {
 	if err != nil {
 		fatal(err)
 	}
+	if *mergeInto != "" {
+		data, err := os.ReadFile(*mergeInto)
+		if err != nil {
+			fatal(err)
+		}
+		base, err := compare.ReadRecord(data)
+		if err != nil {
+			fatal(err)
+		}
+		if err := compare.MergeBrowse(base, rec, list); err != nil {
+			fatal(err)
+		}
+		rec = base
+	}
 	if *jsonPath != "" {
 		data, err := rec.JSON()
 		if err == nil {
@@ -260,4 +277,16 @@ func browseCmd(cmd string, args []string) {
 func fatal(err error) {
 	fmt.Fprintln(os.Stderr, err)
 	os.Exit(1)
+}
+
+func parseMeans(s string) []int {
+	var out []int
+	for _, f := range strings.Split(s, ",") {
+		n, err := strconv.Atoi(strings.TrimSpace(f))
+		if err != nil {
+			fatal(fmt.Errorf("-means: %w", err))
+		}
+		out = append(out, n)
+	}
+	return out
 }

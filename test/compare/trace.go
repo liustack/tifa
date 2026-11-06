@@ -59,6 +59,9 @@ func ReadTraces(path string) (traces []Trace, dropped int, err error) {
 		}
 		for _, s := range t.Steps {
 			for _, r := range s.Reqs {
+				if err := checkRouterHeaders(r); err != nil {
+					return nil, 0, fmt.Errorf("%s: plan %d: %w", path, t.Plan, err)
+				}
 				if r.Status >= 400 { // status 0 is a request the browser cancelled before it had an answer: it was sent, so it is replayed
 					return nil, 0, fmt.Errorf("%s: plan %d: %s %s answered %d", path, t.Plan, r.Method, r.URL, r.Status)
 				}
@@ -77,4 +80,18 @@ func TracePath(dir, framework string, mean int) string {
 // PlansPath is the file of the plans of a mean length.
 func PlansPath(dir string, mean int) string {
 	return fmt.Sprintf("%s/plans-m%d.json", strings.TrimRight(dir, "/"), mean)
+}
+
+// checkRouterHeaders fails a request that the router of a framework made with a header that the
+// recorded request lacks. Without it the server answers with a whole page, which a browser never
+// gets: Next.js asks for RSC with `rsc: 1` on a URL with `_rsc=`, Start calls a server function with
+// `x-tsr-serverfn`.
+func checkRouterHeaders(r TraceReq) error {
+	switch {
+	case strings.Contains(r.URL, "_rsc=") && r.Headers["rsc"] == "":
+		return fmt.Errorf("%s %s lost its rsc header", r.Method, r.URL)
+	case strings.Contains(r.URL, "/_serverFn/") && r.Headers["x-tsr-serverfn"] == "":
+		return fmt.Errorf("%s %s lost its x-tsr-serverfn header", r.Method, r.URL)
+	}
+	return nil
 }

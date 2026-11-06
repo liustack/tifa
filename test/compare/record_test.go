@@ -369,10 +369,10 @@ func TestMarkdownBrowse(t *testing.T) {
 	}
 	r := fixture()
 	r.Browse = &BrowseData{Scenarios: BrowseScenarios[:1], Warm: "10s", Window: "30s", SearchWindow: "10s", Traces: map[string]int{"tifa-m4.jsonl": 400},
-		Curves: map[string][]CurvePoint{"baseline/tifa": {{Users: 1, VisitsPerS: 10, Pass: true}, {Users: 2, VisitsPerS: 19, Pass: true}}}, Chosen: map[string]int{"baseline/tifa": 2},
-		Runs: []BrowseRun{{Scenario: "baseline", Spec: "tifa", Label: "Tifa", Round: 1, Load: load(600)}, {Scenario: "baseline", Spec: "tifa", Label: "Tifa", Round: 2, Load: load(660)}}}
+		Curves: map[string][]CurvePoint{"r95w5/tifa": {{Users: 1, VisitsPerS: 10, Pass: true}, {Users: 2, VisitsPerS: 19, Pass: true}}}, Chosen: map[string]int{"r95w5/tifa": 2},
+		Runs: []BrowseRun{{Scenario: "r95w5", Spec: "tifa", Label: "Tifa", Round: 1, Load: load(600)}, {Scenario: "r95w5", Spec: "tifa", Label: "Tifa", Round: 2, Load: load(660)}}}
 	md := roundTrip(t, r).Markdown()
-	for _, want := range []string{"#### baseline: 4 page views a visit on average, a write after about 1 in 500 page views", "| Tifa | 8 | 21.00 (20.00 to 22.00) | 10.", "4.0 / 30 (600)", "1.0 (80)", "Tifa, per visit:", "2*: 19.00", "58 pages that every visitor shares", "Back and forward are not modelled"} {
+	for _, want := range []string{"#### reads 95% / writes 5%", "| Tifa | 8 | 84.00 (80.00 to 88.00) | 21.00 (20.00 to 22.00) | 2.50 | 10.0 |", "4.0 / 30 (600)", "1.0 (80)", "Tifa, per visit:", "2*: 19.00", "58 pages that every visitor shares", "Back and forward are not modelled"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("the report lacks %q:\n%s", want, md)
 		}
@@ -388,9 +388,50 @@ func TestBrowseP99NeedsEnoughSamplesInEveryRound(t *testing.T) {
 	}
 	r := fixture()
 	r.Browse = &BrowseData{Scenarios: BrowseScenarios[:1], Warm: "10s", Window: "30s", SearchWindow: "10s", Traces: map[string]int{},
-		Runs: []BrowseRun{{Scenario: "baseline", Spec: "tifa", Label: "Tifa", Round: 1, Load: mk(300)}, {Scenario: "baseline", Spec: "tifa", Label: "Tifa", Round: 2, Load: mk(0)}, {Scenario: "baseline", Spec: "tifa", Label: "Tifa", Round: 3, Load: mk(0)}}}
+		Runs: []BrowseRun{{Scenario: "r95w5", Spec: "tifa", Label: "Tifa", Round: 1, Load: mk(300)}, {Scenario: "r95w5", Spec: "tifa", Label: "Tifa", Round: 2, Load: mk(0)}, {Scenario: "r95w5", Spec: "tifa", Label: "Tifa", Round: 3, Load: mk(0)}}}
 	md := r.Markdown()
 	if strings.Contains(md, "| 4.0 / 30 (300)") || !strings.Contains(md, "4.0 / - (300)") {
 		t.Errorf("a P99 over rounds with no samples:\n%s", md)
+	}
+}
+
+func TestMergeBrowseReplacesOnlyTheSpecsOfTheNewRun(t *testing.T) {
+	run := func(spec string, round int, source string) BrowseRun {
+		return BrowseRun{Scenario: "r95w5", Spec: spec, Round: round, Source: source, Load: &LoadResult{Visits: 1}}
+	}
+	base := &Record{Browse: &BrowseData{Traces: map[string]int{}, Dropped: map[string]int{}, Common: map[string]int{"mean 4": 100},
+		Curves: map[string][]CurvePoint{"r95w5/tifa": {{Users: 8}}, "r95w5/nextjs": {{Users: 4}}}, Chosen: map[string]int{"r95w5/tifa": 8, "r95w5/nextjs": 4},
+		Runs: []BrowseRun{run("tifa", 1, "run 3"), run("nextjs", 1, "run 3")}}}
+	part := &Record{Browse: &BrowseData{Traces: map[string]int{"nextjs-m4.jsonl": 100}, Dropped: map[string]int{}, Common: map[string]int{"mean 4": 100},
+		Curves: map[string][]CurvePoint{"r95w5/nextjs": {{Users: 2}}}, Chosen: map[string]int{"r95w5/nextjs": 2},
+		Runs: []BrowseRun{run("nextjs", 1, "run 4"), run("nextjs", 2, "run 4")}}}
+	if err := MergeBrowse(base, part, []string{"nextjs"}); err != nil {
+		t.Fatal(err)
+	}
+	b := base.Browse
+	if b.Chosen["r95w5/nextjs"] != 2 || b.Chosen["r95w5/tifa"] != 8 || len(b.Runs) != 3 {
+		t.Errorf("chosen %v, %d runs", b.Chosen, len(b.Runs))
+	}
+	for _, r := range b.Runs {
+		if r.Spec == "tifa" && r.Source != "run 3" || r.Spec == "nextjs" && r.Source != "run 4" {
+			t.Errorf("run %+v", r)
+		}
+	}
+	part.Browse.Common["mean 4"] = 99
+	if err := MergeBrowse(base, part, []string{"nextjs"}); err == nil {
+		t.Error("a run that replays other plans was merged")
+	}
+}
+
+func TestBrowseReportSplitsWhatAVisitCostsTheServer(t *testing.T) {
+	r := fixture()
+	r.Browse = &BrowseData{Scenarios: BrowseScenarios[:1], Warm: "10s", Window: "30s", SearchWindow: "10s", Traces: map[string]int{},
+		Runs: []BrowseRun{{Scenario: "r95w5", Spec: "nextjs", Label: "Next.js", Round: 1, Load: &LoadResult{Users: 2, Seconds: 30, Visits: 100, Views: 400, Requests: 2000, Types: map[string]TypeStat{},
+			Responses: map[string]int{"doc 200 text/html": 130, "doc 304 -": 0, "nav 200 text/x-component": 260, "prefetch 200 text/x-component": 1600, "write 200 application/json": 10}}}}}
+	md := r.Markdown()
+	for _, want := range []string{"What one visit costs the server", "| Next.js | 1.30 | 0.00 | 2.60 | 16.00 | 0.100 | 20.00 |"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("the report lacks %q:\n%s", want, md)
+		}
 	}
 }
