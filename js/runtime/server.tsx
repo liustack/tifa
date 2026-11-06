@@ -4,6 +4,7 @@ import { RouterProvider, type AnyRoute } from '@tanstack/react-router'
 import { attachRouterServerSsrUtils } from '@tanstack/react-router/ssr/server'
 import { askedByLoad, createAppRouter } from './router'
 import { initialSnapshot, SessionContext, type SessionEnvelope } from './session'
+import { LanguageContext } from './language'
 import { injected, rootElementId, RouteError, type Injected, type InjectedResult, type Source } from './data'
 import {
   attributes,
@@ -173,6 +174,7 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
       serverURL: input.url,
       sessionKey: input.sessionKey,
       session: input.session,
+      language: input.language,
       nonce,
     })
     attachRouterServerSsrUtils({ router, manifest: undefined })
@@ -198,9 +200,11 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
         globalThis.stopRender = () => stop.abort()
         const rendered = input.sessionKey === undefined ? undefined : initialSnapshot(input.session)
         const root = await prerenderToString(
-          <SessionContext.Provider value={rendered}>
-            <RouterProvider router={router} />
-          </SessionContext.Provider>,
+          <LanguageContext.Provider value={input.language ?? ''}>
+            <SessionContext.Provider value={rendered}>
+              <RouterProvider router={router} />
+            </SessionContext.Provider>
+          </LanguageContext.Provider>,
           {
             onError: (error) => errors.push(error),
             signal: stop.signal,

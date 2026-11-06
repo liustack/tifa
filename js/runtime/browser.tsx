@@ -6,6 +6,7 @@ import { SessionContext, settleSession, startSession, type Snapshot } from './se
 import { bootElementId, collector, injected, RouteError, rootElementId, sameURL, type Boot, type Source } from './data'
 import { defaultHTMLAttributes, followHead, noteHTMLAttributes, syncHead, syncHTMLAttributes, type HTMLAttributes } from './head'
 import { setRouter } from './call'
+import { LanguageContext } from './language'
 import { watchChunks } from './skew'
 
 // rootOptions has React report on the console what an error boundary catches, as it does by
@@ -47,6 +48,8 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
   const boot = document.getElementById(bootElementId)
   // The build ID of the page: its dehydrated data has it, or the data of a page without SSR.
   let buildId = ''
+  // The language of the page, from its dehydrated data or its boot data.
+  let language = ''
   // What the session shows before the browser has settled it, and what the hydration renders.
   let shown: Snapshot | undefined
   watchChunks(() => buildId)
@@ -54,6 +57,7 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
     const router = createAppRouter(routeTree, collector(() => buildId), {
       onHydrate: (dehydrated: Dehydrated) => {
         buildId = dehydrated.buildId
+        language = dehydrated.language ?? ''
         if (dehydrated.sessionKey !== undefined)
           shown = startSession({ key: dehydrated.sessionKey, injected: dehydrated.session, buildId: () => buildId })
       },
@@ -65,9 +69,11 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
       root,
       <Await promise={hydrated}>
         {() => (
-          <SessionContext.Provider value={shown}>
-            <RouterProvider router={router} />
-          </SessionContext.Provider>
+          <LanguageContext.Provider value={language}>
+            <SessionContext.Provider value={shown}>
+              <RouterProvider router={router} />
+            </SessionContext.Provider>
+          </LanguageContext.Provider>
         )}
       </Await>,
       rootOptions,
@@ -82,6 +88,7 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
   syncHTMLAttributes([], htmlAttributes)
   const input: Boot = JSON.parse(boot.textContent ?? '')
   buildId = input.buildId
+  language = input.language ?? ''
   if (input.sessionKey !== undefined)
     shown = startSession({ key: input.sessionKey, injected: input.session, buildId: () => buildId })
   const live = collector(() => buildId)
@@ -98,9 +105,11 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
     syncHead(router.stores.matches.get())
     syncHTMLAttributes(router.stores.matches.get(), htmlAttributes)
     createRoot(root, rootOptions).render(
-      <SessionContext.Provider value={shown}>
-        <RouterProvider router={router} />
-      </SessionContext.Provider>,
+      <LanguageContext.Provider value={language}>
+        <SessionContext.Provider value={shown}>
+          <RouterProvider router={router} />
+        </SessionContext.Provider>
+      </LanguageContext.Provider>,
     )
   })
 }

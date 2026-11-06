@@ -694,6 +694,11 @@ func renderKey(in ssr.Input, bundle, policy string) string {
 		io.WriteString(sum, part)
 		sum.Write([]byte{0})
 	}
+	// A site without languages hashes as it did before they existed.
+	if in.Language != "" {
+		io.WriteString(sum, "language:"+in.Language)
+		sum.Write([]byte{0})
+	}
 	// Each text is written with its length, so moving a character from one text to the next
 	// makes another key.
 	for _, text := range in.Texts {
@@ -730,7 +735,7 @@ func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, since tim
 	s.rendering.RLock()
 	defer s.rendering.RUnlock()
 	f := s.front.Load()
-	in := ssr.Input{BuildID: f.build.ID, URL: s.renderURI(c), Data: data, Texts: texts, PageTexts: pageTexts, Preload: f.preloadOf(key, items),
+	in := ssr.Input{BuildID: f.build.ID, Language: c.Language(), URL: s.renderURI(c), Data: data, Texts: texts, PageTexts: pageTexts, Preload: f.preloadOf(key, items),
 		Session: sess.json, SessionKey: sess.key, SessionHead: sess.head, CSP: s.policyHeader() != ""}
 	failed := &renderError{f: f, in: in, key: key, loads: since}
 	// A render clock makes the HTML depend on a time that is no part of the key, so such a request
@@ -1015,7 +1020,7 @@ func (s *server) dataOnly(c *tifa.Ctx, items map[string]routeResult, status int,
 			return err
 		}
 	}
-	doc, err := dataOnlyDocument(f, items, key, s.renderURI(c), sess)
+	doc, err := dataOnlyDocument(f, items, key, s.renderURI(c), c.Language(), sess)
 	if err != nil {
 		return err
 	}
@@ -1026,12 +1031,15 @@ func (s *server) dataOnly(c *tifa.Ctx, items map[string]routeResult, status int,
 
 // dataOnlyDocument is the document of a page that skips SSR for the page at uri: it loads the
 // browser bundle and carries the results of the Loads and the session of the request.
-func dataOnlyDocument(f *front, items map[string]routeResult, key, uri string, sess pageSession) (string, error) {
+func dataOnlyDocument(f *front, items map[string]routeResult, key, uri, language string, sess pageSession) (string, error) {
 	injected, err := injectedResults(items)
 	if err != nil {
 		return "", err
 	}
 	bootData := map[string]any{"url": uri, "buildId": f.build.ID, "data": injected}
+	if language != "" {
+		bootData["language"] = language
+	}
 	if sess.json != nil {
 		bootData["session"], bootData["sessionKey"] = sess.json, sess.key
 	}

@@ -122,8 +122,9 @@ func (s *server) cachedPageRequest(c *tifa.Ctx, route Route, chain []load, ttl t
 	own := !headersStorable(c.Writer().Header())
 	base := rq.WithContext(rq.Context())
 	pattern := c.Pattern()
+	language := c.Language()
 	generate := func(ctx context.Context) (cachedPage, bool, error) {
-		return s.generate(ctx, base, pattern, route, chain, f, ttl)
+		return s.generate(ctx, base, pattern, route, chain, f, ttl, language)
 	}
 	alone := func() (fetched, error) {
 		page, _, err := generate(rq.Context())
@@ -431,12 +432,13 @@ func (s *server) pageFailure(c *tifa.Ctx, err error, selected []load) error {
 // returns it, and whether the cache keeps it. A result that is not the page, a 404 or another
 // answer of the app, is returned as an error for each request to answer with. Requests skip the
 // cache of key for a while after a result that cannot be stored.
-func (s *server) generate(ctx context.Context, base *http.Request, pattern string, route Route, chain []load, f *front, ttl time.Duration) (cachedPage, bool, error) {
+func (s *server) generate(ctx context.Context, base *http.Request, pattern string, route Route, chain []load, f *front, ttl time.Duration, language string) (cachedPage, bool, error) {
 	rq := base.Clone(ctx)
 	rq.URL.RawQuery = s.ignore.clean(rq.URL.RawQuery, s.pageQuery[pattern])
 	rq.RequestURI = rq.URL.RequestURI()
 	headers := http.Header{}
 	c := core.New(&headerOnly{h: headers}, rq, pattern, s.cfg.BodyLimit)
+	core.SetLanguage(c, language)
 	core.SetAnonymous(c)
 	created := cacheNow()
 	entry := &wholePage{created: created, expires: created.Add(ttl), staleUntil: created.Add(ttl + staleIfError)}
@@ -473,7 +475,7 @@ func (s *server) generate(ctx context.Context, base *http.Request, pattern strin
 		sess = pageSession{key: k, head: sessionHead(k)}
 	}
 	if !route.SSR {
-		doc, err := dataOnlyDocument(f, items, route.Path, s.pageURI(rq, pattern), sess)
+		doc, err := dataOnlyDocument(f, items, route.Path, s.pageURI(rq, pattern), language, sess)
 		if err != nil {
 			return s.madeFailed(err, headers, effects{})
 		}
@@ -486,7 +488,7 @@ func (s *server) generate(ctx context.Context, base *http.Request, pattern strin
 		}
 		s.rendering.RLock()
 		defer s.rendering.RUnlock()
-		in := ssr.Input{BuildID: f.build.ID, URL: s.pageURI(rq, pattern), Data: data, Texts: texts, PageTexts: pageTexts, Preload: f.preloadOf(route.Path, items),
+		in := ssr.Input{BuildID: f.build.ID, Language: language, URL: s.pageURI(rq, pattern), Data: data, Texts: texts, PageTexts: pageTexts, Preload: f.preloadOf(route.Path, items),
 			SessionKey: sess.key, SessionHead: sess.head, CSP: s.policyHeader() != ""}
 		failed := &renderError{f: f, in: in, key: route.Path, start: time.Now(), loads: loads}
 		page, held, err = s.renderEntry(ctx, rq, f, in, route)

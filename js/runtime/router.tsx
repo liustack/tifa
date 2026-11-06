@@ -28,6 +28,7 @@ export interface Dehydrated {
   buildId: string
   sessionKey?: string
   session?: SessionEnvelope
+  language?: string
 }
 
 export interface RouterOptions {
@@ -39,6 +40,8 @@ export interface RouterOptions {
   // carries to the browser. An app without sessions has neither.
   sessionKey?: string
   session?: SessionEnvelope
+  // The language of the page a server render makes, which the page carries to the browser.
+  language?: string
   // The nonce of a server render under a Content-Security-Policy, which the router writes on its
   // hydration scripts and its scroll restoration script (see RenderInput in server.tsx).
   nonce?: string
@@ -53,7 +56,7 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
   source: Source,
   options: RouterOptions,
 ) {
-  const { buildId, serverURL, onHydrate, sessionKey, session, nonce } = options
+  const { buildId, serverURL, onHydrate, sessionKey, session, language, nonce } = options
   const context: RouterContext = {
     browser: serverURL === undefined,
     source,
@@ -80,6 +83,7 @@ export function createAppRouter<TRouteTree extends AnyRoute>(
       const out: Dehydrated = { buildId }
       if (sessionKey !== undefined) out.sessionKey = sessionKey
       if (session !== undefined) out.session = session
+      if (language) out.language = language
       return out
     },
     hydrate: (dehydrated: Dehydrated) => {

@@ -50,6 +50,8 @@ export interface Injected {
   // with sessions sends a key.
   sessionKey?: string
   session?: SessionEnvelope
+  // The language of the page, left out on a site without languages.
+  language?: string
 }
 
 // Boot is what a page rendered without SSR carries in <script id="tifa-data">: the results of
