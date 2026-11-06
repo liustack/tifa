@@ -85,6 +85,7 @@ func StartTest(ctx context.Context, app App, srv *http.Server) (stop func(closeS
 	cfg.Server = withoutHTTPS(cfg.Server)
 	cfg.SSR.VMs = min(cfg.SSR.VMs, testVMs)
 	s := newServer(cfg, app.Hooks)
+	s.setI18n(app.I18n)
 	s.register(app.Layouts, app.Routes)
 	if app.Session != nil {
 		s.enableSessions(app.Session)

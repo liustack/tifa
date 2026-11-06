@@ -93,7 +93,11 @@ func notFoundCandidates(layouts []Layout, routes []Route) []candidate {
 // beats a parameter, and a parameter beats the end of the path.
 func (s *server) notFoundAt(r *http.Request) string {
 	var parts []string
-	for _, p := range strings.Split(strings.TrimPrefix(r.URL.EscapedPath(), "/"), "/") {
+	escaped := r.URL.EscapedPath()
+	if info := langInfoOf(r); info != nil && info.prefixed {
+		escaped = info.rest // the layouts have paths without the language
+	}
+	for _, p := range strings.Split(strings.TrimPrefix(escaped, "/"), "/") {
 		if v, err := url.PathUnescape(p); err == nil {
 			p = v
 		}
@@ -167,6 +171,9 @@ func (s *server) unmatched(c *tifa.Ctx) error {
 		return tifa.ErrNotFound
 	}
 	layout := s.notFoundAt(r)
+	if info := langInfoOf(r); info != nil && !s.hasLanguage(layout, info) {
+		return tifa.ErrNotFound
+	}
 	at := s.layouts[layout]
 	if c.IsData() {
 		selected, err := s.listedLoads(c, at.chain)

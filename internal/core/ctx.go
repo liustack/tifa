@@ -40,6 +40,8 @@ type request struct {
 	// copies made by WithContext. net/http only removes the multipart temp files of the original request.
 	copies []*http.Request
 	sess   sessionState
+	// language is the language of the route the request matched, see Language.
+	language string
 }
 
 // New builds the context for one request. pattern is the matched route pattern, empty when no route matched.
@@ -190,3 +192,11 @@ func (b *watchedBody) Read(p []byte) (int, error) {
 	b.started = true
 	return b.ReadCloser.Read(p)
 }
+
+// Language returns the language of the route the request is for: the language in the URL, the
+// default language when the URL has none, and so for a route outside every area of a site with
+// languages. It is empty on a site without languages.
+func (c *Ctx) Language() string { return c.req.language }
+
+// SetLanguage sets what Language returns. The server sets it before the request reaches OnRequest.
+func SetLanguage(c *Ctx, language string) { c.req.language = language }

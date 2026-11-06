@@ -55,6 +55,12 @@ type server struct {
 	// modules holds, by the path of a page, the IDs of its Layouts and route, outermost first,
 	// and by the ID of a Layout, the IDs of the Layouts from the root down to it.
 	modules map[string][]string
+	// i18n is the languages of the app, nil without any. known holds its languages. langs holds the
+	// languages of each route by path, layoutLangs those of each Layout by ID, see language.go.
+	i18n        *I18n
+	known       map[string]bool
+	langs       map[string][]string
+	layoutLangs map[string][]string
 	// layouts holds the Loads of each Layout's chain by its ID, for a URL that matches no page
 	// and shows its 404 inside that Layout. candidates are what notFoundAt picks that Layout from.
 	layouts    map[string]layoutChain
@@ -86,6 +92,7 @@ func newServer(cfg config.Config, hooks Hooks) *server {
 		cfg: cfg.Server, hooks: hooks, mux: http.NewServeMux(),
 		routes: map[string]map[string]func(*tifa.Ctx) error{}, pages: map[string]bool{}, pageCache: map[string]time.Duration{}, pageQuery: map[string][]string{}, limits: map[string]routeLimits{}, ignore: newQueryFilter(cfg.Cache.IgnoreQuery),
 		modules: map[string][]string{}, layouts: map[string]layoutChain{}, cache: newHTMLCache(cfg.Cache.Size),
+		langs: map[string][]string{}, layoutLangs: map[string][]string{},
 	}
 	s.crossSite = crossSiteProtection(cfg.Server)
 	s.sess.cfg = cfg.Session
@@ -136,6 +143,12 @@ type routeHandler struct {
 }
 
 func (h routeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// ServeMux matched the path without its language prefix. From here on the URL is the one the
+	// visitor asked for.
+	restorePublic(r)
+	if h.methods != nil && h.s.answerLanguage(w, r, h.s.langs[h.pattern]) {
+		return
+	}
 	// The limits of route.go hold for the requests its method handlers answer, not for the GET of
 	// a page and its navigation data, which read no body.
 	var limits routeLimits
@@ -181,6 +194,7 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		s.serve(w, r, sessionPath, false, s.sessionHandler)
 		return
 	}
+	r = s.splitLanguage(r)
 	h, _ := s.mux.Handler(r)
 	if _, ok := h.(routeHandler); ok {
 		s.mux.ServeHTTP(w, r)
@@ -197,6 +211,11 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 	switch probe.code {
 	case http.StatusMovedPermanently, http.StatusFound, http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
 		if location != "" {
+			// The paths of the redirect are those ServeMux saw, without the prefix.
+			if info := langInfoOf(r); info != nil && info.prefixed && strings.HasPrefix(location, "/") {
+				location = "/" + info.lang + location
+			}
+			restorePublic(r)
 			redirect := &core.RedirectError{URL: location, Status: http.StatusPermanentRedirect}
 			s.serve(w, r, "", false, func(*tifa.Ctx) error { return redirect })
 			return
@@ -263,6 +282,9 @@ func (s *server) serveLimited(w http.ResponseWriter, r *http.Request, pattern st
 		r, anonErr = s.anonymize(r)
 	}
 	c := core.New(tw, r, pattern, bodyLimit)
+	if info := langInfoOf(r); info != nil {
+		core.SetLanguage(c, info.lang)
+	}
 	tw.noStore = func() bool { return core.NoStore(c) }
 	tw.data = func() bool { return core.DataOf(r) != nil }
 	tw.session = pattern == sessionPath

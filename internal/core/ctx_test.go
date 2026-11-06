@@ -432,3 +432,14 @@ func TestWithContextRacesWithSetBodyLimit(t *testing.T) {
 		}
 	}
 }
+
+func TestLanguageIsWhatTheServerSet(t *testing.T) {
+	c := New(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil), "/", 1<<20)
+	if c.Language() != "" {
+		t.Errorf("Language = %q before it is set", c.Language())
+	}
+	SetLanguage(c, "en-US")
+	if got := c.WithContext(c.Context()).Language(); got != "en-US" {
+		t.Errorf("a copy of the Ctx has Language %q", got)
+	}
+}

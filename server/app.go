@@ -122,6 +122,9 @@ func (s *server) register(layouts []Layout, routes []Route) {
 			panic(fmt.Sprintf("tifa: Layout %s has no Path", l.ID))
 		}
 		byID[l.ID] = l
+		if len(l.Languages) > 0 {
+			s.layoutLangs[l.ID] = l.Languages
+		}
 	}
 	paths := map[string]string{}
 	for _, r := range routes {
@@ -129,6 +132,9 @@ func (s *server) register(layouts []Layout, routes []Route) {
 			panic(fmt.Sprintf("tifa: routes %s and %s share Path %s", other, r.ID, r.Path))
 		}
 		paths[r.Path] = r.ID
+		if len(r.Languages) > 0 {
+			s.langs[r.Path] = r.Languages
+		}
 		if r.BodyLimit < 0 || r.ReadTimeout < 0 {
 			panic(fmt.Sprintf("tifa: route %s has a negative BodyLimit or ReadTimeout", r.ID))
 		}
