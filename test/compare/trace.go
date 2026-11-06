@@ -1,0 +1,80 @@
+package compare
+
+import (
+	"bufio"
+	"bytes"
+	"encoding/json/v2"
+	"fmt"
+	"os"
+	"strings"
+)
+
+// TraceReq is one request the browser sent to the server. Start and End are milliseconds from the
+// start of its step. Class is "doc" (a document), "nav" (the data a client navigation fetches, and
+// route discovery) or "prefetch" (what the framework fetches ahead of a click). INM says that the
+// browser sent If-None-Match, whose value the replay takes from the answers of its own visit.
+type TraceReq struct {
+	Method  string            `json:"method"`
+	URL     string            `json:"url"`
+	Headers map[string]string `json:"headers"`
+	INM     bool              `json:"inm"`
+	Start   float64           `json:"s"`
+	End     float64           `json:"e"`
+	Status  int               `json:"status"`
+	Class   string            `json:"class"`
+}
+
+// TraceStep is one page view of a visit and the requests it made.
+type TraceStep struct {
+	Kind string     `json:"kind"`
+	Page string     `json:"page"`
+	Reqs []TraceReq `json:"reqs"`
+}
+
+// Trace is what a browser sent in one visit of a plan. Error is set when the browser could not play
+// the plan, and such a trace is left out.
+type Trace struct {
+	Plan  int         `json:"plan"`
+	Steps []TraceStep `json:"steps"`
+	Error string      `json:"error,omitempty"`
+}
+
+// ReadTraces reads the file the recorder wrote (one JSON line a visit) and drops the visits that
+// failed. It also returns how many it dropped.
+func ReadTraces(path string) (traces []Trace, dropped int, err error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	sc := bufio.NewScanner(bytes.NewReader(data))
+	sc.Buffer(make([]byte, 1<<20), 1<<26)
+	for sc.Scan() {
+		var t Trace
+		if err := json.Unmarshal(sc.Bytes(), &t); err != nil {
+			return nil, 0, fmt.Errorf("%s: %w", path, err)
+		}
+		if t.Error != "" {
+			dropped++
+			continue
+		}
+		for _, s := range t.Steps {
+			for _, r := range s.Reqs {
+				if r.Status >= 400 || r.Status == 0 && r.Class != "prefetch" {
+					return nil, 0, fmt.Errorf("%s: plan %d: %s %s answered %d", path, t.Plan, r.Method, r.URL, r.Status)
+				}
+			}
+		}
+		traces = append(traces, t)
+	}
+	return traces, dropped, sc.Err()
+}
+
+// TracePath is the file of the traces of one framework for plans of a mean length.
+func TracePath(dir, framework string, mean int) string {
+	return fmt.Sprintf("%s/%s-m%d.jsonl", strings.TrimRight(dir, "/"), framework, mean)
+}
+
+// PlansPath is the file of the plans of a mean length.
+func PlansPath(dir string, mean int) string {
+	return fmt.Sprintf("%s/plans-m%d.json", strings.TrimRight(dir, "/"), mean)
+}
