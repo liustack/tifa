@@ -92,8 +92,8 @@ func checkStep(s TraceStep) error {
 		if r.End < r.Start {
 			return fmt.Errorf("%s %s ends before it starts", r.Method, r.URL)
 		}
-		if r.Class != "prefetch" && r.Cancel == "" {
-			foreground++
+		if r.Class != "prefetch" && (r.Cancel == "" || r.Responded > 0 && r.Responded <= r.End) {
+			foreground++ // finished, or cancelled after its answer had arrived
 		}
 	}
 	if foreground == 0 {

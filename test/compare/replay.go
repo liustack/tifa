@@ -150,7 +150,8 @@ func (v *visitState) failure() error {
 // outcome of one request.
 type outcome struct {
 	end       time.Time
-	cancelled bool // the browser cancelled it, and the replay did at the same offset
+	cancelled bool // the browser cancelled it, and the replay did too
+	responded bool // the headers of the answer had arrived: a request cancelled after that was used
 	err       error
 }
 
@@ -162,10 +163,11 @@ var errNotSent = errors.New("cancelled before it was sent")
 func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, cancelAt time.Time) outcome {
 	rctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	responded := false
 	cancelled := func(err error) outcome {
 		// Our own timer cancelled it, and the visit itself is still going.
 		if ctx.Err() == nil && rctx.Err() != nil && !cancelAt.IsZero() {
-			return outcome{end: time.Now(), cancelled: true}
+			return outcome{end: time.Now(), cancelled: true, responded: responded}
 		}
 		return outcome{end: time.Now(), err: err}
 	}
@@ -197,10 +199,14 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, ca
 	if rctx.Err() != nil {
 		return cancelled(errNotSent)
 	}
-	if !cancelAt.IsZero() {
-		// The cancel comes at the recorded offset from the start of the page view, but never sooner
-		// than the request lived in the browser after it was sent: a replay that is late (a slow
-		// server) still sends what the browser sent, and so does the work.
+	// A request the browser cancelled after the headers of its answer had arrived (Next.js does it to
+	// its prefetches and to many of its clicks, once its router has what it needs) is cancelled the
+	// same time after the headers arrive. One it cancelled before any answer is cancelled at the
+	// recorded offset from the start of the page view, but never sooner than it lived in the browser
+	// after it was sent: a replay that is late (a slow server) still sends what the browser sent, and
+	// so does the work.
+	afterAnswer := !cancelAt.IsZero() && q.Responded > 0 && q.Responded <= q.End
+	if !cancelAt.IsZero() && !afterAnswer {
 		if least := time.Now().Add(time.Duration((q.End - q.Start) * float64(time.Millisecond))); cancelAt.Before(least) {
 			cancelAt = least
 		}
@@ -211,6 +217,11 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, ca
 	res, err := v.client.Do(req)
 	if err != nil {
 		return cancelled(err)
+	}
+	responded = true
+	if afterAnswer {
+		t := time.AfterFunc(time.Duration((q.End-q.Responded)*float64(time.Millisecond)), cancel)
+		defer t.Stop()
 	}
 	n, err := io.Copy(io.Discard, res.Body)
 	res.Body.Close()
@@ -240,7 +251,7 @@ func (r *runner) send(ctx context.Context, v *visitState, a *acc, q TraceReq, ca
 		a.lat["prefetch"] = append(a.lat["prefetch"], ms(end.Sub(start)))
 	}
 	a.mu.Unlock()
-	return outcome{end: end}
+	return outcome{end: end, responded: true}
 }
 
 // runStep plays the requests of one page view with the order and the parallelism the browser had: a
@@ -307,9 +318,10 @@ func (r *runner) runStep(ctx context.Context, v *visitState, a *acc, s TraceStep
 		if o.err != nil {
 			return time.Time{}, o.err
 		}
-		if !o.cancelled {
+		if !o.cancelled || o.responded {
 			finished++
-		} else {
+		}
+		if o.cancelled {
 			a.mu.Lock()
 			a.cancelled++
 			a.mu.Unlock()

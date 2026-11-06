@@ -26,6 +26,17 @@ func fakeServer(t *testing.T) (*httptest.Server, *atomic.Int64) {
 			case <-time.After(5 * time.Second):
 			}
 			held.Add(-1)
+		case strings.HasPrefix(r.URL.Path, "/stream-"):
+			// The headers and the start of the answer go out at once, and the rest is held.
+			w.Write([]byte("start"))
+			w.(http.Flusher).Flush()
+			held.Add(1)
+			select {
+			case <-r.Context().Done():
+			case <-time.After(5 * time.Second):
+			}
+			held.Add(-1)
+			return
 		case strings.HasPrefix(r.URL.Path, "/slow-"):
 			time.Sleep(30 * time.Millisecond)
 		case strings.HasPrefix(r.URL.Path, "/fail-"):
@@ -292,4 +303,29 @@ func TestACancelledRequestIsSentEvenWhenItsOffsetHasPassedAndLivesItsRecordedTim
 	if held.Load() != 0 {
 		t.Error("the prefetch was not released")
 	}
+}
+
+func TestAForegroundRequestCancelledAfterItsAnswerCameIsUsed(t *testing.T) {
+	srv, held := fakeServer(t)
+	// Next.js's router aborts the fetch of a click once it has what it needs: the answer began at
+	// 10 ms and the cancel came at 14 ms. The page view is successful and the cancel comes 4 ms after the
+	// answer begins to arrive, however late that is.
+	step := TraceStep{Kind: StepClick, Page: "/p", Reqs: []TraceReq{cancelledAfterAnswer("/stream-1", "nav", 0, 10, 14)}}
+	plans, traces := onePlan(step)
+	round := testRunner(srv, plans, traces, nil).RunClosed(context.Background(), 1, 1, 10*time.Second)
+	if round.PageViews != 1 || round.Failures != 0 || round.Cancelled != 1 {
+		t.Fatalf("%+v", round)
+	}
+	for i := 0; i < 50 && held.Load() != 0; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if held.Load() != 0 {
+		t.Error("the request was not released")
+	}
+}
+
+func cancelledAfterAnswer(url, class string, s, responded, e float64) TraceReq {
+	r := cancelled(url, class, s, e)
+	r.Responded = responded
+	return r
 }
