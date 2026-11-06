@@ -55,7 +55,7 @@ build_tool() { go build -o "$compare" ./test/compare/cmd/compare; }
 # "dirty" when any of it has uncommitted changes), the framework versions that were installed, the
 # recorder's browser, and the plans.
 trace_stamp() {
-  local paths="examples/shop test/compare/nextjs test/compare/start test/compare/reactrouter test/compare/domain test/compare/overlay test/compare/recorder test/compare/plan.go test/compare/trace.go go.mod go.sum"
+  local paths="examples/shop test/compare/nextjs test/compare/start test/compare/reactrouter test/compare/domain test/compare/overlay test/compare/recorder test/compare/plan.go go.mod go.sum"
   local p
   for p in $paths; do echo "tree $p $(git rev-parse HEAD:"$p")"; done
   if [ -n "$(git status --porcelain --untracked-files=no -- $paths)" ]; then echo "dirty"; fi
