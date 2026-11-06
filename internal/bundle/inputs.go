@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/liustack/tifa/internal/langs"
 	"io"
 	"io/fs"
 	"os"
@@ -139,7 +140,8 @@ func scanInputs(root string, dirs []string) ([]string, error) {
 			}
 			return err
 		}
-		if d.IsDir() && d.Name() == "node_modules" {
+		// The folders that hold no area for tifa build hold none here either.
+		if d.IsDir() && path != locales && d.Name() != "_locales" && langs.SkippedName(d.Name()) {
 			return fs.SkipDir
 		}
 		if d.Type().IsRegular() && filepath.Base(filepath.Dir(path)) == "_locales" {

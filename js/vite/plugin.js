@@ -1068,7 +1068,8 @@ function findLocales(dir, rel = '') {
   }
   const byName = (a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
   for (const entry of entries.sort(byName)) {
-    if (!entry.isDirectory() || entry.name === 'node_modules') continue
+    // The folders the go command skips, and node_modules, hold no area, as in tifa build (internal/langs).
+    if (!entry.isDirectory() || entry.name === 'node_modules' || (entry.name !== '_locales' && /^[._]/.test(entry.name))) continue
     const name = rel === '' ? entry.name : rel + '/' + entry.name
     if (entry.name !== '_locales') {
       found.push(...findLocales(dir, name))
