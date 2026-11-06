@@ -1,6 +1,6 @@
 import type { MetaArgs } from 'react-router'
-import PostPage, { head } from '@/app/store/lang+/journal/post+/page'
-import { Error } from '@/app/store/lang+/layout'
+import PostPage, { head } from '@/app/store/journal/post+/page'
+import { Error } from '@/app/store/layout_'
 import { storeBoundary } from '../compare/store-boundary'
 import { loadPost } from '../compare/store-load'
 import { storeMeta } from '../compare/store-meta'

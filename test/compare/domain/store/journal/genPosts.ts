@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const source = join(here, '..', '..', '..', '..', '..', 'examples', 'shop', 'app', 'store', 'lang+', 'journal', 'posts')
+const source = join(here, '..', '..', '..', '..', '..', 'examples', 'shop', 'app', 'store', 'journal', 'posts')
 const bodies: Record<string, string> = {}
 for (const name of readdirSync(source).sort()) {
   if (name.endsWith('.md')) bodies[name.slice(0, -'.md'.length)] = readFileSync(join(source, name), 'utf8')

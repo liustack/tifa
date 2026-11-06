@@ -1,5 +1,5 @@
 import type { MetaArgs } from 'react-router'
-import StoreLayout from '@/app/store/lang+/layout'
+import StoreLayout from '@/app/store/layout_'
 import { Error } from '@/app/store/layout_'
 import { counts } from '../../../domain/counts.ts'
 import { storeBoundary } from '../compare/store-boundary'

@@ -31,5 +31,5 @@ export function handlers(methods: Record<string, Method>, pages = false) {
   return { loader: run, action: run }
 }
 
-// mine is the GET of app/store/lang+/mine.
+// mine is the GET of app/store/mine.
 export const mine = callMine

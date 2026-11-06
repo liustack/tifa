@@ -19,14 +19,14 @@ const loader =
     }
   }
 
-export const loadLang = loader('app/store/lang+/layout')
-export const loadHome = loader('app/store/lang+/route')
-export const loadProducts = loader('app/store/lang+/products/route')
-export const loadProduct = loader('app/store/lang+/products/product+/route')
-export const loadCart = loader('app/store/lang+/cart/route')
-export const loadCheckout = loader('app/store/lang+/checkout/route')
-export const loadJournal = loader('app/store/lang+/journal/route')
-export const loadPost = loader('app/store/lang+/journal/post+/route')
+export const loadLang = loader('app/store/layout')
+export const loadHome = loader('app/store/route')
+export const loadProducts = loader('app/store/products/route')
+export const loadProduct = loader('app/store/products/product+/route')
+export const loadCart = loader('app/store/cart/route')
+export const loadCheckout = loader('app/store/checkout/route')
+export const loadJournal = loader('app/store/journal/route')
+export const loadPost = loader('app/store/journal/post+/route')
 
 // loadUnknown is the loader of the splat: a URL of the language that no page has.
 export const loadUnknown = () => {

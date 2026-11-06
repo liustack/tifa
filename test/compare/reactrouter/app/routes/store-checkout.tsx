@@ -1,6 +1,6 @@
 import type { MetaArgs } from 'react-router'
-import CheckoutPage, { head } from '@/app/store/lang+/checkout/page'
-import { Error } from '@/app/store/lang+/layout'
+import CheckoutPage, { head } from '@/app/store/checkout/page'
+import { Error } from '@/app/store/layout_'
 import { storeBoundary } from '../compare/store-boundary'
 import { loadCheckout } from '../compare/store-load'
 import { storeMeta } from '../compare/store-meta'

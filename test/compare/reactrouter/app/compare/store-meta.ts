@@ -1,8 +1,8 @@
 import type { MetaArgs, MetaDescriptor } from 'react-router'
 import { documentHead } from '@/app/layout'
 import { head as storeHead } from '@/app/store/layout_'
-import { head as langHead } from '@/app/store/lang+/layout'
-import type { LayoutData } from '@/app/store/lang+/route.gen'
+import { head as langHead } from '@/app/store/layout_'
+import type { LayoutData } from '@/app/store/route.gen'
 
 // React Router takes the meta of the deepest route only, where TanStack Router merges the head of
 // every route on the way. So each route of the storefront writes the whole head: the theme colors

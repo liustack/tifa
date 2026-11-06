@@ -1,7 +1,7 @@
 import { Links, Meta, Outlet, Scripts, useRouteLoaderData } from 'react-router'
 import type { ReactNode } from 'react'
 import { Error, documentHead, htmlAttributes } from '@/app/layout'
-import type { LayoutData } from '@/app/store/lang+/route.gen'
+import type { LayoutData } from '@/app/store/route.gen'
 import { RouterEvents } from '@/runtime/router'
 import { withoutSlash } from '../../domain/store/calls.ts'
 import { errorBoundary } from './compare/boundary'

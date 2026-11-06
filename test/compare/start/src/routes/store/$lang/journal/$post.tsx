@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
-import PostPage, { head } from '@/app/store/lang+/journal/post+/page'
-import { Error } from '@/app/store/lang+/layout'
+import PostPage, { head } from '@/app/store/journal/post+/page'
+import { Error } from '@/app/store/layout_'
 import { notFoundWith } from '../../../../compare/not-found'
 import { postFn } from '../../../../compare/store-fns'
 

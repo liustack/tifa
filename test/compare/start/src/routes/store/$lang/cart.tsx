@@ -1,12 +1,12 @@
 import { notFoundWith } from '../../../compare/not-found'
 import { createFileRoute } from '@tanstack/react-router'
-import CartPage, { head } from '@/app/store/lang+/cart/page'
-import { Error } from '@/app/store/lang+/layout'
+import CartPage, { head } from '@/app/store/cart/page'
+import { Error } from '@/app/store/layout_'
 import { cartFn } from '../../../compare/store-fns'
 import { applyCoupon, changeQuantity, refusing } from '../../../compare/store-handlers'
 
 // The cart. PATCH changes the quantity of a line and POST puts on a coupon, as the handlers of
-// app/store/lang+/cart/route.go do.
+// app/store/cart/route.go do.
 export const Route = createFileRoute('/store/$lang/cart')({
   component: CartPage,
   head,

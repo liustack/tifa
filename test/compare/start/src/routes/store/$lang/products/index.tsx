@@ -1,7 +1,7 @@
 import { notFoundWith } from '../../../../compare/not-found'
 import { createFileRoute } from '@tanstack/react-router'
-import ProductList, { head } from '@/app/store/lang+/products/page'
-import { Error } from '@/app/store/lang+/layout'
+import ProductList, { head } from '@/app/store/products/page'
+import { Error } from '@/app/store/layout_'
 import { pick } from '../../../../compare/search'
 import { productsFn } from '../../../../compare/store-fns'
 

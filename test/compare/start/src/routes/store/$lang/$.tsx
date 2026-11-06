@@ -1,5 +1,5 @@
 import { createFileRoute, notFound } from '@tanstack/react-router'
-import { Error } from '@/app/store/lang+/layout'
+import { Error } from '@/app/store/layout_'
 import { notFoundWith } from '../../../compare/not-found'
 
 // Every URL below a language that no page has, such as /store/zh-CN/cart/extra, which fails as not

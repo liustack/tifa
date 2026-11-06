@@ -20,7 +20,7 @@ export const Route = createRootRoute({
 
 function RootDocument({ children }: { children: ReactNode }) {
   // The storefront writes its language on <html>, from the locale its Layout loaded (the head
-  // of app/store/lang+/layout.tsx does the same through htmlAttributes in the shop). A page whose
+  // of app/store/layout_.tsx does the same through htmlAttributes in the shop). A page whose
   // Layout failed keeps the language of the root Layout.
   const lang = useRouterState({
     select: (state) => (state.matches.find((match) => match.routeId === '/store/$lang')?.loaderData as { locale: { code: string } } | undefined)?.locale.code,

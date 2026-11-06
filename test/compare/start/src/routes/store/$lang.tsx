@@ -1,5 +1,5 @@
 import { createFileRoute, isNotFound, notFound } from '@tanstack/react-router'
-import StoreLayout, { Error, head } from '@/app/store/lang+/layout'
+import StoreLayout, { Error, head } from '@/app/store/layout_'
 import { Error as StoreError } from '@/app/store/layout_'
 import { notFoundWith } from '../../compare/not-found'
 import { shellFn } from '../../compare/store-fns'

@@ -2,8 +2,8 @@
 // head functions read (shop/app/store/i18n.ts). The shop's pages cannot be imported on the
 // server, since they are client components, so the few lines that build a title are here.
 import type { Metadata } from 'next'
-import en from '../../../shop/app/store/locales/en-US.json'
-import zh from '../../../shop/app/store/locales/zh-CN.json'
+import en from '../../../shop/app/store/_locales/en-US.json'
+import zh from '../../../shop/app/store/_locales/zh-CN.json'
 
 const messages = { 'en-US': en, 'zh-CN': zh }
 type Lang = keyof typeof messages

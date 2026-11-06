@@ -1,7 +1,7 @@
 import { notFoundWith } from '../../../compare/not-found'
 import { createFileRoute } from '@tanstack/react-router'
-import StoreHome from '@/app/store/lang+/page'
-import { Error } from '@/app/store/lang+/layout'
+import StoreHome from '@/app/store/page'
+import { Error } from '@/app/store/layout_'
 import { homeFn } from '../../../compare/store-fns'
 
 export const Route = createFileRoute('/store/$lang/')({
