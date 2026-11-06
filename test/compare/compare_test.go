@@ -448,3 +448,61 @@ func TestWriteChangesThePage(t *testing.T) {
 		})
 	}
 }
+
+// TestFanOutWriteChangesListsStatsAndOtherOrders gives SH-1042 a new customer name in each server
+// and checks that the list of its shop, the stats of its shop and the page of another order of the
+// old customer (SH-1032, which lists SH-1042 among the orders of that customer) all show something
+// new, and that the four apps show the same text after the same write.
+func TestFanOutWriteChangesListsStatsAndOtherOrders(t *testing.T) {
+	env := setup(t)
+	buildApps(t, env)
+	ctx := context.Background()
+	pages := []compare.Page{
+		{Name: "list studio", URL: "/projects/studio"},
+		{Name: "stats studio", URL: "/projects/studio/stats"},
+		{Name: "order SH-1032", URL: "/projects/studio/orders/SH-1032"},
+	}
+	after := map[string][]compare.View{}
+	for _, spec := range env.Specs() {
+		if strings.HasSuffix(spec.Name, "-jitless") || spec.AcceptEncoding != "" || spec.Name == "tifa-nocache" {
+			continue
+		}
+		server, err := spec.Start(ctx, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var before []compare.View
+		for _, p := range pages {
+			body, err := compare.Fetch(server.Base, p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			before = append(before, compare.ParseView(body)) // also puts the page into Tifa's render cache
+		}
+		if err := compare.Send(ctx, server.Base, compare.WriteStep(spec.Write, compare.WritableOrders[0], 1, true)); err != nil {
+			t.Fatal(err)
+		}
+		for i, p := range pages {
+			body, err := compare.Fetch(server.Base, p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			v := compare.ParseView(body)
+			if compare.Diff(before[i], v) == "" {
+				t.Errorf("%s: %s did not change after a fan-out write", spec.Name, p.Name)
+			}
+			after[spec.Name] = append(after[spec.Name], v)
+		}
+		server.Stop()
+	}
+	for name, views := range after {
+		for i, p := range pages {
+			if d := compare.Diff(after["tifa"][i], views[i]); d != "" {
+				t.Errorf("%s, %s differs from tifa after the write:\n%s", p.Name, name, d)
+			}
+		}
+	}
+	if len(after) < 4 {
+		t.Errorf("only %d servers were checked", len(after))
+	}
+}
