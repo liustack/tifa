@@ -89,18 +89,7 @@ go tool tifa check   # analysis, vet, tests and the TypeScript check in one go
 
 ## One small server is enough
 
-While people browse and edit, one core serves about 3,000 page views a second in about 80 MiB of memory.
-
 The **[render cache](docs/render-cache.md)** is on for every page, signed-in ones like a cart or a bill included. Every request fetches fresh data first and reuses the last render only when nothing changed, so a page is never stale. A render is reused only for the same data and the same session, so one person's page never reaches another. The app writes no caching code.
-
-Out of the box, as people browse: 25% of page views are full page loads and 75% are client-side navigations ([Chrome's data](https://web.dev/blog/crux-experimental-soft-navs), [Contentsquare](https://explore.contentsquare.com/2025-digital-experience-benchmark-en)), and reads and writes are mixed as in [TPC-W](https://www.tpc.org/tpcw/). Each write renames a customer, which changes the order lists, the stats and that customer's other orders. Page views a second:
-
-| Reads / writes | Tifa | Next.js | TanStack Start | React Router |
-| :-- | --: | --: | --: | --: |
-| 95% / 5% | 3,376 | 63 | 317 | 204 |
-| 80% / 20% | 3,075 | 62 | 313 | 199 |
-| 50% / 50% | 2,693 | 60 | 301 | 183 |
-| Peak RSS | 83 MiB | 532 MiB | 356 MiB | 460 MiB |
 
 With every cache off, so every request renders:
 
@@ -118,7 +107,7 @@ Tifa has no JIT. The `--jitless` rows run Node without its JIT too, for referenc
 
 Every request asks for gzip. TanStack Start does not compress pages by default, so it sends about 146 KB a page, against about 16 KB for Tifa and Next.js and 44 KB for React Router. Compressing costs Next.js 16% of its requests a second, and Start would likely pay about as much if it compressed.
 
-Each server on one core of a Google Cloud `c2d-standard-8` VM (AMD EPYC 7B13), default settings, the order workbench of the example shop: 58 pages for the browsing table, six for the render table. [The full comparison](docs/performance.md#against-nextjs-tanstack-start-and-react-router) has the method, the latencies and every number.
+Each server on one core of a Google Cloud `c2d-standard-8` VM (AMD EPYC 7B13), default settings, the six workbench pages of the example shop. [The full comparison](docs/performance.md#against-nextjs-tanstack-start-and-react-router) has the method and every number.
 
 ## Start an app
 
