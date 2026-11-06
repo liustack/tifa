@@ -396,3 +396,25 @@ func TestBuilderLearnsEmbeddedFilesFromTheAnalysis(t *testing.T) {
 }
 
 func (p *fakePipeline) Public() string { return "public" }
+
+// A language appears when its file does and goes when it goes, which changes the routes, the
+// generated code, the program and the languages of the content, so a locale file that is added,
+// removed or renamed (a draft too) plans everything. Editing the strings of one only needs a bundle.
+func TestPlanLocaleFiles(t *testing.T) {
+	for _, p := range []string{"app/store/_locales/fr.json", "app/_locales/fr.json", "app/admin/store/_locales/fr.draft.json"} {
+		for _, op := range []op{created, removed} {
+			if got := plan([]change{{p, op}}, nil); got != everything {
+				t.Errorf("%s %v planned %+v, want everything", p, op, got)
+			}
+		}
+		if got, want := plan([]change{{p, modified}}, nil), (steps{bundle: true}); got != want {
+			t.Errorf("edited %s planned %+v, want %+v", p, got, want)
+		}
+	}
+	// Only a file of a _locales folder under app/ is one.
+	for _, p := range []string{"app/store/locales/fr.json", "app/store/fr.json", "content/_locales/fr.json", "_locales/fr.json", "app/store/_locales/deep/fr.json"} {
+		if got := plan([]change{{p, created}}, nil); got == everything {
+			t.Errorf("%s planned everything", p)
+		}
+	}
+}

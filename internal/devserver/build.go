@@ -143,7 +143,9 @@ func kindOf(p string) kind {
 //   - Go needs a new analysis and a go build. The builder adds code generation and a bundle
 //     when the analysis returns a new route manifest.
 //   - A page.tsx, layout.tsx or layout_.tsx that appears or disappears changes the manifest, so
-//     does tifa.yaml.
+//     does tifa.yaml. A language file in a
+//     _locales folder that appears, disappears or is renamed does too, and it changes the languages
+//     of the content, which are converted again.
 //   - A file the Go code embeds is part of the program, whatever its kind, so it needs a go build.
 //     A file that appears or disappears may change which files are embedded, so it needs the
 //     analysis too. An embedded front end file needs the bundle as well.
@@ -179,12 +181,25 @@ func plan(changes []change, embedded func(rel string) bool) steps {
 		case frontend:
 			s.bundle = true
 			base := path.Base(c.path)
+			if c.op != modified && isLocaleFile(c.path) {
+				s = s.or(everything)
+			}
 			if c.op != modified && (base == "page.tsx" || base == "layout.tsx" || base == "layout_.tsx") {
 				s = s.or(everything)
 			}
 		}
 	}
 	return s
+}
+
+// isLocaleFile reports whether rel, relative to the application directory, is a file of a _locales
+// folder under app/: the file of a language, or of its draft.
+func isLocaleFile(rel string) bool {
+	dir, name := path.Split(rel)
+	if !strings.HasPrefix(dir, "app/") || !strings.HasSuffix(name, ".json") {
+		return false
+	}
+	return path.Base(path.Clean(dir)) == "_locales"
 }
 
 // inPublic reports whether rel is a file in the public folder, given relative to the application
