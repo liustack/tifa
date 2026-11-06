@@ -132,3 +132,23 @@ func TestOnRequestSeesThePublicURLAndLanguage(t *testing.T) {
 		t.Errorf("OnRequest saw %q, want %q", seen, want)
 	}
 }
+
+// The document of a page without SSR carries the language in its boot data, and only a site with
+// languages has one.
+func TestBootDataCarriesTheLanguage(t *testing.T) {
+	f := &front{build: frontBuild{ID: "b1"}}
+	doc, err := dataOnlyDocument(f, nil, "app/page/route", "/en-US/store", "en-US", pageSession{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(doc, `"language":"en-US"`) || !strings.Contains(doc, `"url":"/en-US/store"`) {
+		t.Errorf("boot data of a page in en-US: %s", doc)
+	}
+	doc, err = dataOnlyDocument(f, nil, "app/page/route", "/store", "", pageSession{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(doc, "language") {
+		t.Errorf("boot data of a page on a site without languages: %s", doc)
+	}
+}
