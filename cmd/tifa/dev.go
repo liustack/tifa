@@ -264,7 +264,12 @@ func (p *devPipeline) Bundle(ctx context.Context) (string, error) {
 // GoBuild builds the executable that tifa dev runs. Its compiler messages go into the error, which
 // devserver prints and shows in the page.
 func (p *devPipeline) GoBuild(ctx context.Context) error {
-	printed, err := goBuild(ctx, p.root, p.exe, nil, io.Discard, io.Discard)
+	// The program of tifa dev keeps its debug info, and needs the languages of the last analysis.
+	flags, err := buildFlags(ctx, p.root, config.Build{DebugInfo: true}, languagesLDFlag(p.m))
+	if err != nil {
+		return err
+	}
+	printed, err := goBuild(ctx, p.root, p.exe, flags, io.Discard, io.Discard)
 	if err != nil {
 		return fmt.Errorf("%s\n%w", strings.TrimSpace(printed), err)
 	}
