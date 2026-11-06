@@ -59,22 +59,10 @@ type Workload struct {
 	Traces map[int]Trace // by plan ID
 	Writes map[[2]int]WriteOrder
 	Mix    Mix
-	// Interleave plays the plans of the blocks in turn (visit 0 of block 0, visit 0 of block 1, ...)
-	// instead of one block after another, so that any prefix of the sequence has the page mix of all
-	// the blocks. The open trials use it, as they may play fewer visits than the plans.
-	Interleave bool
 }
 
-// planFor is the plan that visit seq of the global sequence plays.
-func (w *Workload) planFor(seq int) Plan {
-	n := len(w.Plans)
-	seq %= n
-	if !w.Interleave {
-		return w.Plans[seq]
-	}
-	blocks := n / BlockVisits
-	return w.Plans[seq%blocks*BlockVisits+seq/blocks]
-}
+// planFor is the plan that visit seq of the global sequence plays: the plans in order, over and over.
+func (w *Workload) planFor(seq int) Plan { return w.Plans[seq%len(w.Plans)] }
 
 // NewWorkload puts the writes of a mix into the plans, block by block, and fails if a plan has no
 // trace.

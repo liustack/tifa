@@ -238,7 +238,7 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*BrowseResult, error)
 
 // with starts a fresh server of a framework, checks that a write shows in its pages, and calls f
 // with a runner for the workload of a mix. The server is stopped after.
-func (b *browse) with(ctx context.Context, name string, mix Mix, interleave bool, f func(*runner) error) error {
+func (b *browse) with(ctx context.Context, name string, mix Mix, f func(*runner) error) error {
 	if err := waitIdle(ctx, b.o.Log, b.o.ServerCPUs+","+b.o.LoadCPUs); err != nil {
 		return err
 	}
@@ -255,7 +255,6 @@ func (b *browse) with(ctx context.Context, name string, mix Mix, interleave bool
 	if err != nil {
 		return err
 	}
-	wl.Interleave = interleave
 	r := &runner{base: server.Base, write: spec.Write, wl: wl, cpu: server.CPUSeconds, rss: server.PeakRSS}
 	if spec.Framework == "tifa" {
 		r.buildID = b.bid
@@ -325,7 +324,7 @@ func (b *browse) closedRound(ctx context.Context, fw string, mix Mix, users, rou
 	key := fmt.Sprintf("%s/%d/%s", mix.Name, users, fw)
 	for attempt := 1; ; attempt++ {
 		var out *Round
-		err := b.with(ctx, fw, mix, false, func(r *runner) error {
+		err := b.with(ctx, fw, mix, func(r *runner) error {
 			rate := r.Warm(ctx, users, b.o.Warm)
 			blocks, ok := b.res.Blocks[key]
 			if !ok {
@@ -358,26 +357,21 @@ func (b *browse) closedRound(ctx context.Context, fw string, mix Mix, users, rou
 	}
 }
 
-// visitsFor is the number of visits that last about window at rate visits a second. With whole it
-// is rounded up to whole cycles of all the plans, so that the page mix and the writes come out as
-// the mix says; without it it is any number (at least a block), for the trials of a search.
-func visitsFor(rate float64, window time.Duration, cycle int, whole bool) int {
+// visitsFor is the number of visits that last about window at rate visits a second, rounded up to
+// whole cycles of all the plans, so that the page mix and the writes come out as the mix says: a
+// part of a cycle has another number of page views a visit and another share of writes.
+func visitsFor(rate float64, window time.Duration, cycle int) int {
 	n := int(math.Ceil(rate * window.Seconds()))
-	if !whole {
-		return max(n, BlockVisits)
-	}
 	return max(1, int(math.Ceil(float64(n)/float64(cycle)))) * cycle
 }
 
-// openRound runs the open model on a fresh server: a warm-up at the same rate, apart, then the
-// visits. A trial plays the plans in an interleaved order, so that however few visits it plays it
-// has the page mix of all the blocks, and a round that counts (whole) plays whole cycles of all
-// the plans.
-func (b *browse) openRound(ctx context.Context, fw string, mix Mix, rate float64, window time.Duration, warm time.Duration, whole bool) (*Round, error) {
+// openRound runs the open model on a fresh server: a warm-up at the same rate, apart, then whole
+// cycles of all the plans.
+func (b *browse) openRound(ctx context.Context, fw string, mix Mix, rate float64, window time.Duration, warm time.Duration) (*Round, error) {
 	var out *Round
-	err := b.with(ctx, fw, mix, true, func(r *runner) error {
+	err := b.with(ctx, fw, mix, func(r *runner) error {
 		r.RunOpen(ctx, rate, max(1, int(rate*warm.Seconds())), 20*time.Second, 0) // discarded
-		n := visitsFor(rate, window, len(b.set.Plans), whole)
+		n := visitsFor(rate, window, len(b.set.Plans))
 		out = r.RunOpen(ctx, rate, n, 30*time.Second, 0)
 		return nil
 	})
@@ -386,9 +380,6 @@ func (b *browse) openRound(ctx context.Context, fw string, mix Mix, rate float64
 	}
 	out.Framework, out.Mix = fw, mix.Name
 	out.Judge(mix)
-	if !whole {
-		out.Valid, out.WhyInvalid = true, "" // a trial plays some of the visits: its mix is not what it is judged on
-	}
 	// The load generator is checked first, so that a generator that cannot keep up is never reported
 	// as a limit of the server: visits must start on time and it must have processor time to spare.
 	why := ""
@@ -417,7 +408,7 @@ func (b *browse) sustain(ctx context.Context) error {
 		s = &Sustain{}
 		b.res.Sustain[fw] = s
 		trial := func(rate float64) (bool, error) {
-			r, err := b.openRound(ctx, fw, mix, rate, b.o.TrialWindow, b.o.TrialWindow/3, false)
+			r, err := b.openRound(ctx, fw, mix, rate, b.o.TrialWindow, b.o.TrialWindow/3)
 			if err != nil {
 				return false, err
 			}
@@ -467,7 +458,7 @@ func (b *browse) sustain(ctx context.Context) error {
 		}
 		// Only a rate that passed all its confirmation rounds is published. Every round stays in the record.
 		confirmed, rounds, err := ConfirmRate(lo, 4, b.o.Rounds, func(rate float64, round int) (*Round, error) {
-			r, err := b.openRound(ctx, fw, mix, rate, b.o.TrialWindow*2, b.o.TrialWindow/3, true)
+			r, err := b.openRound(ctx, fw, mix, rate, b.o.TrialWindow*2, b.o.TrialWindow/3)
 			if err != nil {
 				return nil, err
 			}
@@ -525,7 +516,7 @@ func (b *browse) latency(ctx context.Context) error {
 			if slices.ContainsFunc(b.res.Latency, func(r Round) bool { return r.Framework == fw && r.Round == round }) {
 				continue
 			}
-			r, err := b.openRound(ctx, fw, mix, rate, window, b.o.TrialWindow/3, true)
+			r, err := b.openRound(ctx, fw, mix, rate, window, b.o.TrialWindow/3)
 			if err != nil {
 				return err
 			}
@@ -657,25 +648,40 @@ func raiseFileLimit() {
 // ConfirmRate looks for a rate at which the rule holds in all the rounds, starting at start and
 // stepping down 10% for up to attempts tries. run plays one round at a rate. It returns the rate that
 // passed all its rounds, or 0 if none did in range, and every round it ran, in order: a failing round
-// ends its try, and the rounds of the failed tries are kept.
+// ends its try, and the rounds of the failed tries are kept. If the first try passes, one step 10%
+// above it is tried too, since the search can underestimate and nothing else would correct that: the
+// rate above is published if it passes all its rounds, and the first one otherwise.
 func ConfirmRate(start float64, attempts, rounds int, run func(rate float64, round int) (*Round, error)) (float64, []Round, error) {
 	var all []Round
-	rate := start
-	for try := 1; try <= attempts; try++ {
-		pass := true
+	try := func(n int, rate float64) (bool, error) {
 		for round := 1; round <= rounds; round++ {
 			r, err := run(rate, round)
 			if err != nil {
-				return 0, all, err
+				return false, err
 			}
-			r.Round, r.Attempt = round, try
+			r.Round, r.Attempt = round, n
 			all = append(all, *r)
 			if !r.Pass {
-				pass = false
-				break
+				return false, nil
 			}
 		}
-		if pass {
+		return true, nil
+	}
+	rate := start
+	for n := 1; n <= attempts; n++ {
+		ok, err := try(n, rate)
+		if err != nil {
+			return 0, all, err
+		}
+		if ok {
+			if n == 1 {
+				up := math.Round(rate*1.1*100) / 100
+				if ok, err := try(n+1, up); err != nil {
+					return 0, all, err
+				} else if ok {
+					return up, all, nil
+				}
+			}
 			return rate, all, nil
 		}
 		rate = math.Round(rate*0.9*100) / 100

@@ -1,6 +1,9 @@
 package compare
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -67,5 +70,37 @@ func TestLatencyTableLeavesFailedRoundsOutAndSaysSo(t *testing.T) {
 	}
 	if strings.Contains(md, "3000") {
 		t.Error("a failed round's percentiles are in the table")
+	}
+}
+
+// TestBrowseStampBindsWhatItShould checks that the lines of the stamps that browse.sh prints name the
+// sources, the executables that run, the replayer and the trace files: a stamp that leaves one out
+// lets a stale trace or result be used.
+func TestBrowseStampBindsWhatItShould(t *testing.T) {
+	env, err := NewEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := func(arg string) string {
+		cmd := exec.Command("bash", filepath.Join(env.Root, "test", "compare", "browse.sh"), arg)
+		cmd.Dir = env.Root
+		cmd.Env = append(os.Environ(), "BROWSE_OUT="+t.TempDir())
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("browse.sh %s: %v\n%s", arg, err, out)
+		}
+		return string(out)
+	}
+	trace := run("stamp")
+	for _, want := range []string{"tree js ", "tree internal ", "tree server ", "tree cmd ", "tree root-go ", "tree test/compare/recorder ", "tree test/compare/plan.go ", "tree examples/shop ", "tree test/compare/nextjs ", "tree test/compare/start ", "tree test/compare/reactrouter ", "playwright ", "plans "} {
+		if !strings.Contains(trace, want) {
+			t.Errorf("the trace stamp lacks %q:\n%s", want, trace)
+		}
+	}
+	results := run("runstamp")
+	for _, want := range []string{"traces ", "trace-files ", "replayer ", "replayer-cmd ", "shop-binary ", "next-output ", "start-output ", "reactrouter-output ", "tifa-build ", "settings ", "go ", "node "} {
+		if !strings.Contains(results, want) {
+			t.Errorf("the result stamp lacks %q:\n%s", want, results)
+		}
 	}
 }

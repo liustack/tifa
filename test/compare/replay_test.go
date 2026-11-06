@@ -272,38 +272,40 @@ func TestBlocksAndVisitsAreWholeBlocks(t *testing.T) {
 	if got := BlocksFor(0.5, 75*time.Second, 4); got != 4 {
 		t.Errorf("a slow framework still plays whole passes of the plans: %d", got)
 	}
-	// A round that counts plays whole cycles of all 380 plans; a trial any number, at least a block.
-	if n := visitsFor(8, 30*time.Second, 380, true); n%380 != 0 || n < 240 {
+	// Every open run plays whole cycles of all 380 plans: a part of a cycle has another page mix.
+	if n := visitsFor(8, 30*time.Second, 380); n%380 != 0 || n < 240 {
 		t.Errorf("visits for 8 visits/s: %d", n)
 	}
-	if n := visitsFor(8, 30*time.Second, 380, false); n != 240 {
-		t.Errorf("a trial at 8 visits/s plays %d visits", n)
-	}
-	if visitsFor(0.1, time.Second, 380, true) != 380 || visitsFor(0.1, time.Second, 380, false) != BlockVisits {
-		t.Error("a short round is a whole cycle, a short trial a block")
+	if visitsFor(0.1, time.Second, 380) != 380 || visitsFor(2000, time.Minute, 380)%380 != 0 {
+		t.Error("an open run is whole cycles")
 	}
 }
 
-func TestInterleavedPrefixesHaveThePageMixOfAllTheBlocks(t *testing.T) {
+func TestWholeCyclesHaveTheMixAndPartsOfOneDoNot(t *testing.T) {
 	set := GeneratePlanSet(1, 4)
-	w := &Workload{Plans: set.Plans, Interleave: true}
-	blocks := map[int]int{}
-	seen := map[int]bool{}
-	for s := 0; s < 100; s++ {
-		p := w.planFor(s)
-		blocks[p.Block]++
-		seen[p.ID] = true
+	w := &Workload{Plans: set.Plans}
+	views := func(n int) float64 {
+		v := 0
+		for s := 0; s < n; s++ {
+			v += len(w.planFor(s).Steps)
+		}
+		return float64(v) / float64(n)
 	}
-	for b := 0; b < 4; b++ {
-		if blocks[b] != 25 {
-			t.Errorf("block %d has %d of the first 100 visits", b, blocks[b])
+	if got := views(380); got != 4 {
+		t.Errorf("a cycle has %v page views a visit", got)
+	}
+	if got := views(760); got != 4 {
+		t.Errorf("two cycles have %v page views a visit", got)
+	}
+	// Parts of a cycle stray from 4 by more than the 1% a round may: the reason trials play whole cycles.
+	strays := 0
+	for _, n := range []int{95, 120, 190, 240, 285} {
+		if g := views(n); g < 3.96 || g > 4.04 {
+			strays++
 		}
 	}
-	for s := 0; s < 380; s++ {
-		seen[w.planFor(s).ID] = true
-	}
-	if len(seen) != 380 {
-		t.Errorf("a cycle plays %d plans", len(seen))
+	if strays == 0 {
+		t.Error("every part of a cycle has 4 page views a visit within 1%: the test shows nothing")
 	}
 	if w.planFor(380).ID != w.planFor(0).ID {
 		t.Error("the sequence does not wrap")
@@ -332,6 +334,15 @@ func TestConfirmRatePublishesOnlyARateThatPassedAllItsRoundsAndKeepsEveryRound(t
 	if len(rounds) != 1+2+3 || rounds[0].Attempt != 1 || rounds[5].Attempt != 3 || rounds[5].Round != 3 {
 		t.Errorf("%d rounds kept: %+v", len(rounds), rounds)
 	}
+	// The first try passes: one step 10% above it is tried, and published if it passes too.
+	rate, rounds, _ = ConfirmRate(100, 4, 3, run(func(r float64, _ int) bool { return r <= 110 }))
+	if rate != 110 || len(rounds) != 6 || rounds[3].Attempt != 2 {
+		t.Errorf("a passing step up: rate %v, %d rounds", rate, len(rounds))
+	}
+	rate, rounds, _ = ConfirmRate(100, 4, 3, run(func(r float64, _ int) bool { return r <= 100 }))
+	if rate != 100 || len(rounds) != 4 {
+		t.Errorf("a failing step up leaves the first rate: %v, %d rounds", rate, len(rounds))
+	}
 	// Four tries that all fail: no rate, and no untested rate is made up.
 	rate, rounds, _ = ConfirmRate(100, 4, 3, run(func(float64, int) bool { return false }))
 	if rate != 0 || len(rounds) != 4 {
@@ -356,6 +367,18 @@ func TestGrowingTellsALevelSeriesFromARunawayOne(t *testing.T) {
 	}
 	if !Growing(runaway) {
 		t.Error("a series that keeps growing is not")
+	}
+	// A backlog that grows by one a second for a minute, sampled twice a second: 100 + 0.5 i.
+	slow, jitter := []float64{}, []float64{}
+	for i := 0; i < 120; i++ {
+		slow = append(slow, 100+0.5*float64(i))
+		jitter = append(jitter, 100+float64(i%7)*3-9)
+	}
+	if !Growing(slow) {
+		t.Error("a steady slow growth of 1 a second over 60 s is not caught")
+	}
+	if Growing(jitter) {
+		t.Error("jitter around a level is growing")
 	}
 	if Growing([]float64{1, 2, 3}) {
 		t.Error("too few samples")

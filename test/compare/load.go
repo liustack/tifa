@@ -308,24 +308,23 @@ func (r *runner) RunOpen(ctx context.Context, rate float64, n int, drain time.Du
 	return round
 }
 
-// Growing says whether a series sampled at equal intervals kept growing: the mean of its last 30%
-// is well above the mean of its middle (35% to 65%), by more than 30% and 8 units. A series that
-// has levelled off, even after a climb, is not growing.
+// Growing says whether a series sampled at equal intervals kept growing. It leaves out the first
+// 35% (the climb to a steady state) and fits a straight line to the rest by least squares; the series
+// is growing when that line rises, over the length of what was fitted, by more than 20% of the mean of
+// what was fitted plus a floor of 5 units. A steady growth that is slow in each sample is caught, and a
+// climb that levels off is not.
 func Growing(series []float64) bool {
 	n := len(series)
 	if n < 8 {
 		return false
 	}
-	mean := func(v []float64) float64 {
-		if len(v) == 0 {
-			return 0
-		}
-		var sum float64
-		for _, x := range v {
-			sum += x
-		}
-		return sum / float64(len(v))
+	y := series[n*35/100:]
+	m := float64(len(y))
+	var sx, sy, sxx, sxy float64
+	for i, v := range y {
+		x := float64(i)
+		sx, sy, sxx, sxy = sx+x, sy+v, sxx+x*x, sxy+x*v
 	}
-	mid, last := mean(series[n*35/100:n*65/100]), mean(series[n*70/100:])
-	return last > 1.3*mid+8
+	slope := (m*sxy - sx*sy) / (m*sxx - sx*sx)
+	return slope*m > 0.2*(sy/m)+5
 }

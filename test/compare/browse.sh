@@ -7,7 +7,7 @@
 #   test/compare/browse.sh record    record the traces in a real browser (needs a working Chromium)
 #   test/compare/browse.sh run       replay the traces at load and write the JSON and the report
 #   test/compare/browse.sh report    write the report again from the JSON
-#   test/compare/browse.sh stamp     print what the traces and the results are bound to
+#   test/compare/browse.sh stamp     print what the traces are bound to (runstamp: the results)
 #
 # Recording and running can be done on two machines: `record` where Chromium works, copy the folder
 # $BROWSE_TRACES to the machine that runs the load, and `run` there from the same commit. `run`
@@ -43,6 +43,10 @@ mkdir -p "$out" "$traces"
 compare=$out/compare
 
 sha() { if command -v sha256sum >/dev/null; then sha256sum | cut -c1-16; else shasum -a 256 | cut -c1-16; fi; }
+dirsha() { # a hash of the files under a folder, by path and content, without caches
+  [ -d "$1" ] || { echo none; return; }
+  (cd "$1" && find . -type f -not -path '*/cache/*' | LC_ALL=C sort | while read -r f; do echo "$f"; cat "$f"; done | sha)
+}
 pkgver() { # version of a package in an app's node_modules
   local f=$1/node_modules/$2/package.json
   [ -f "$f" ] && sed -n 's/^  "version": "\(.*\)",$/\1/p' "$f" | head -1 || echo none
@@ -76,14 +80,18 @@ run_stamp() {
   # What is replayed: the contents of the trace files, and the replayer, the report and this script.
   echo "trace-files $(cat "$traces"/*.jsonl 2>/dev/null | sha)"
   echo "replayer $(git ls-tree HEAD test/compare/ | awk '$4 ~ /\.go$|browse\.sh$/' | sha)"
+  echo "replayer-cmd $(git rev-parse HEAD:test/compare/cmd)"
   if [ -n "$(git status --porcelain --untracked-files=no -- test/compare/*.go test/compare/cmd test/compare/browse.sh)" ]; then echo "replayer-dirty"; fi
   echo "go $(go version | cut -d' ' -f3)"
   echo "node $(node --version)"
   echo "pnpm $(pnpm --version 2>/dev/null || echo none)"
+  # The executables that run, not only their build ids: the shop's binary and the built output of the
+  # three Node apps (without caches, which a server may write).
   echo "tifa-build $(sed -n 's/.*"buildId": *"\([^"]*\)".*/\1/p' examples/shop/.tifa/dist/build.json 2>/dev/null | head -1)"
-  echo "next-build $(cat test/compare/nextjs/.next/BUILD_ID 2>/dev/null || echo none)"
-  echo "start-build $(sha <test/compare/start/.output/server/index.mjs 2>/dev/null || echo none)"
-  echo "reactrouter-build $(sha <test/compare/reactrouter/build/server/index.js 2>/dev/null || echo none)"
+  echo "shop-binary $(sha <examples/shop/bin/shop 2>/dev/null || echo none)"
+  echo "next-output $(dirsha test/compare/nextjs/.next)"
+  echo "start-output $(dirsha test/compare/start/.output)"
+  echo "reactrouter-output $(dirsha test/compare/reactrouter/build)"
   echo "settings servers=$servers mixes=${MIXES:-} phases=${PHASES:-} users=${USERS:-} extra=${EXTRA_USERS:-} rounds=${ROUNDS:-} warm=${WARM:-} target=${TARGET:-} trial=${TRIAL_WINDOW:-} final=${FINAL_WINDOW:-} maxrate=${MAX_RATE:-} server=${SERVER_CPUS:-} load=${LOAD_CPUS:-}"
 }
 
@@ -170,5 +178,6 @@ case "${1:-}" in
   run) do_run ;;
   report) do_report ;;
   stamp) trace_stamp ;;
+  runstamp) run_stamp ;;
   *) sed -n '2,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//; /^set -euo/d'; exit 2 ;;
 esac
