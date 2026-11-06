@@ -257,6 +257,7 @@ go tool tifa build
 | `tifaapp/app.go` | `tifaapp` 包，只有一个变量 `App`：`tifa build` 看到的应用。只填 `hooks.go` 里实际存在的钩子，把 `tifa.yaml` 里的运行时配置写成 Go 代码（`Settings`），根目录的 `config.go` 定义了配置或 `content.go` 声明了集合而没有 `hooks.go` 时导入根包，并注册会话类型。每个 `Load` 与 `Layout` 函数包成 `func(c *tifa.Ctx) (any, error) { return tifa.Use(c, pkg.Load) }`，Layout 用 `pkg.Layout`。带入参或返回值的方法函数经过 `server.Input`、`server.Output` 或 `server.InputOutput`，它们用 `(*tifa.Ctx).Bind`（GET、DELETE 用 `(*tifa.Ctx).BindQuery`）解码入参，执行 `Validate`，写出结果。`Fingerprint` 是这个文件的哈希，`tifatest.Start` 拿它和代码比对。应用的测试用 `<module>/.tifa/tifaapp` 导入它（见[测试](app.zh-CN.md#测试)） |
 | `routes.tsx` | TanStack 路由树与 `Register` 类型注册 |
 | `session.gen.ts` | `SessionData`：会话类型的 `Exposed` 方法返回的 JSON 的类型。还有 `SessionEnabled`（应用调用了 `tifa.SetSession` 时是 `true`）。应用没有会话，或会话类型没有 `Exposed` 时，`SessionData` 是 `never`。页面用 `@/.tifa/session.gen` 导入（见[会话](sessions.zh-CN.md)） |
+| `i18n.gen.ts` | `i18n`：给浏览器运行时用的应用语言信息，没有任何 `_locales` 目录时是 `undefined`。内容有默认语言、`i18n.prefix` 是否为 `always`、站点的语言列表，以及 `routes`：路由树里每个在区域内的路由的语言，用 TanStack 路由 ID 作键（Layout、页面，和显示某个 Layout 的 404 的那条路由）。不在任何区域里的路由不在 `routes` 里：它没有语言，也没有前缀 |
 | `app/<目录>/route.gen.ts` | 每个有页面、Layout 或方法函数的目录生成一份。有页面就导出 `page`，有 Layout 就导出 `layout`（都是 TanStack 的路由对象），再导出 `PageData`、`LayoutData`（`Load` 和 `Layout` 的结果类型）、`Params`，并按方法函数各导出一个调用函数和它的 `<METHOD>Input`、`<METHOD>Output` 类型。这些函数调用 `runtime/call.ts` |
 | `server.ts`、`client.ts` | SSR 入口与浏览器入口。`tifa dev` 的浏览器入口另外引入 `runtime/dev-client.js` |
 | `tsconfig.json` | 见下文 |
