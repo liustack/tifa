@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/liustack/tifa/internal/langs"
 	"golang.org/x/mod/module"
 	"golang.org/x/tools/go/packages"
 )
@@ -174,7 +175,7 @@ func (a *analyzer) scan() error {
 			return err
 		}
 		name := d.Name()
-		if d.IsDir() && name == LocalesDir {
+		if d.IsDir() && name == langs.Dir {
 			if err := a.readLocales(path, a.id(path)); err != nil {
 				return err
 			}

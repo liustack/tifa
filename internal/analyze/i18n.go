@@ -4,16 +4,15 @@ import (
 	"errors"
 	"go/token"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/liustack/tifa/internal/config"
+	"github.com/liustack/tifa/internal/langs"
 )
-
-// LocalesDir is the folder of an area that holds its <language>.json files.
-const LocalesDir = "_locales"
 
 // Area is a folder of app/ with a _locales folder: the routes in it and below it have the
 // languages of its files, until a folder below holds another area.
@@ -46,42 +45,22 @@ type I18n struct {
 // (its own ID, ending in /_locales). <lang>.draft.json and files that are not .json are not
 // languages. A name that is not a language tag is reported.
 func (a *analyzer) readLocales(dir, id string) error {
-	entries, err := os.ReadDir(dir)
+	found, invalid, err := langs.Read(dir)
 	if err != nil {
 		return err
 	}
-	area := areaOf(id)
-	var langs []string
-	for _, e := range entries {
-		name, ok := strings.CutSuffix(e.Name(), ".json")
-		if !ok || e.IsDir() || strings.HasSuffix(name, ".draft") {
-			continue
-		}
-		if err := config.CheckLanguage(name); err != nil {
-			a.errs = append(a.errs, Error{Pos: token.Position{Filename: id + "/" + e.Name()}, Msg: err.Error()})
-			continue
-		}
-		langs = append(langs, name)
+	for _, name := range slices.Sorted(maps.Keys(invalid)) {
+		a.errs = append(a.errs, Error{Pos: token.Position{Filename: id + "/" + name}, Msg: invalid[name].Error()})
 	}
 	if a.locales == nil {
 		a.locales = map[string][]string{}
 	}
-	a.locales[area] = langs
+	a.locales[areaOf(id)] = found
 	return nil
 }
 
 // areaOf returns the folder part of a _locales folder ID: app/store/_locales is the area app/store.
-func areaOf(id string) string { return strings.TrimSuffix(id, "/"+LocalesDir) }
-
-// orderLanguages puts def first and the rest in byte order.
-func orderLanguages(langs []string, def string) []string {
-	out := slices.Clone(langs)
-	slices.Sort(out)
-	if i := slices.Index(out, def); i > 0 {
-		out = slices.Concat([]string{def}, out[:i], out[i+1:])
-	}
-	return out
-}
+func areaOf(id string) string { return strings.TrimSuffix(id, "/"+langs.Dir) }
 
 // i18n works out the areas, the languages of the site and the language of each route and Layout
 // from the _locales folders and tifa.yaml, and reports what does not go together. It returns nil
@@ -102,11 +81,11 @@ func (a *analyzer) i18n(routes []*route, layouts []*layout) *I18n {
 		return nil
 	}
 	site := map[string]bool{}
-	for dir, langs := range a.locales {
-		if len(langs) == 0 {
-			a.errs = append(a.errs, Error{Pos: token.Position{Filename: dir + "/" + LocalesDir}, Msg: "the area has no language: add a file named after a language tag, such as zh-CN.json"})
+	for dir, ls := range a.locales {
+		if len(ls) == 0 {
+			a.errs = append(a.errs, Error{Pos: token.Position{Filename: dir + "/" + langs.Dir}, Msg: "the area has no language: add a file named after a language tag, such as zh-CN.json"})
 		}
-		for _, l := range langs {
+		for _, l := range ls {
 			site[l] = true
 		}
 	}
@@ -124,7 +103,7 @@ func (a *analyzer) i18n(routes []*route, layouts []*layout) *I18n {
 	case def != "" && len(all) > 0 && !site[def]:
 		a.errs = append(a.errs, Error{Pos: token.Position{Filename: "tifa.yaml"}, Msg: "i18n.default is \"" + def + "\", which no _locales folder has a file for (" + strings.Join(all, ", ") + ")"})
 	}
-	m := &I18n{Default: def, Always: cfg.I18n.Prefix == "always", Languages: orderLanguages(all, def), SiteURL: cfg.Site.URL}
+	m := &I18n{Default: def, Always: cfg.I18n.Prefix == "always", Languages: langs.Order(all, def), SiteURL: cfg.Site.URL}
 	if len(all) > 1 && cfg.Site.URL == "" {
 		a.errs = append(a.errs, Error{Pos: token.Position{Filename: "tifa.yaml"}, Msg: "the app has several languages, so site.url must name the scheme and host it is served at, such as https://shop.example.com, which the alternate links to each language need"})
 	}
@@ -135,11 +114,11 @@ func (a *analyzer) i18n(routes []*route, layouts []*layout) *I18n {
 	slices.Sort(dirs)
 	areas := map[string]Area{}
 	for _, dir := range dirs {
-		langs := orderLanguages(a.locales[dir], def)
-		if def != "" && len(langs) > 0 && !slices.Contains(langs, def) {
-			a.errs = append(a.errs, Error{Pos: token.Position{Filename: dir + "/" + LocalesDir}, Msg: "the default language " + def + " has no file here: every area has a file for the default language"})
+		ls := langs.Order(a.locales[dir], def)
+		if def != "" && len(ls) > 0 && !slices.Contains(ls, def) {
+			a.errs = append(a.errs, Error{Pos: token.Position{Filename: dir + "/" + langs.Dir}, Msg: "the default language " + def + " has no file here: every area has a file for the default language"})
 		}
-		area := Area{Dir: dir, Languages: langs}
+		area := Area{Dir: dir, Languages: ls}
 		areas[dir] = area
 		m.Areas = append(m.Areas, area)
 	}
