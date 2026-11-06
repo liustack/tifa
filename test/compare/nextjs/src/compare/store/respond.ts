@@ -37,3 +37,8 @@ export async function getMineRoute(request: Request, params: { lang: string }): 
   }
   return forCall(request, Response.json(mine))
 }
+
+// notAllowed is the answer of tifa to a method a route has no handler for.
+export function notAllowed(allow: string) {
+  return () => Response.json({ error: 'Method Not Allowed' }, { status: 405, headers: { Allow: allow } })
+}

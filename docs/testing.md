@@ -319,7 +319,7 @@ TIFA_COMPARE=1 go test -count=1 -v -run TestStore ./test/compare
 - `TestStorePagesShowTheSameText`: every page of `StorePages` shows the same title, text and element counts in Tifa and in Next.js.
 - `TestStoreStatesShowTheSameText`: the same for the cart and checkout pages in each cart state of `StoreStates`, built on each server by its own writes.
 - `TestStoreWritesMatchTifa`: the same writes in the same order to both, each with a visitor that keeps cookies: status, `Location`, cookies, type and body of each answer (with and without `X-Tifa-Call`), and the cart and checkout pages after each.
-- `TestStoreMissingPagesAnswer404` and `TestStoreRedirectsToTheLanguage`: the 404 status and title, and `GET /store` with several `Accept-Language` values.
+- `TestStoreMissingPagesAnswer404`, `TestStoreRedirectsToTheLanguage` and `TestStoreAnswersWhatTifaAnswersToOtherRequests`: the 404 status and title, `GET /store` with several `Accept-Language` values, `GET /store/` (308) and the 405 with `Allow` for a method that `/store` and `/store/<lang>/mine` do not take.
 
 Not equal: Next.js answers a 404 below `/store/<lang>` with its error document and draws the not-found page in the browser (Next.js does not write it into the HTML under a root layout with a dynamic segment), and the writes take JSON only, where Tifa also reads forms.
 

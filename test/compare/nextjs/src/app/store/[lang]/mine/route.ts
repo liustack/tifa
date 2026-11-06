@@ -1,5 +1,5 @@
 import { postMineRoute } from '../../../../../../domain/store/writes.ts'
-import { forCall, getMineRoute } from '../../../../compare/store/respond'
+import { forCall, getMineRoute, notAllowed } from '../../../../compare/store/respond'
 
 type Context = { params: Promise<{ lang: string }> }
 
@@ -12,3 +12,7 @@ export async function GET(request: Request, { params }: Context) {
 export async function POST(request: Request, { params }: Context) {
   return forCall(request, await postMineRoute(request, await params))
 }
+
+export const PUT = notAllowed('GET, HEAD, POST')
+export const PATCH = notAllowed('GET, HEAD, POST')
+export const DELETE = notAllowed('GET, HEAD, POST')

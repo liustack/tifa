@@ -430,3 +430,31 @@ func TestStoreStatesShowTheSameText(t *testing.T) {
 		}
 	}
 }
+
+// TestStoreAnswersWhatTifaAnswersToOtherRequests checks /store/ (a permanent redirect to /store) and the
+// methods the routes at their own URL do not take (405 with Allow, as Tifa answers). Next.js answers a
+// method that a page does not take with the page, so the pages are not in this check.
+func TestStoreAnswersWhatTifaAnswersToOtherRequests(t *testing.T) {
+	env := setup(t)
+	buildApps(t, env)
+	ctx := context.Background()
+	requests := [][2]string{{"GET", "/store/"}, {"POST", "/store"}, {"PUT", "/store"}, {"DELETE", "/store"}, {"PUT", "/store/zh-CN/mine"}, {"DELETE", "/store/en-US/mine"}, {"PATCH", "/store/zh-CN/mine"}}
+	got := map[string][]map[string]any{}
+	for _, target := range storeNextTargets(t, env) {
+		server, err := target.Start(ctx, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		v := newStoreVisitor(t, server.Base, target.Name != "tifa")
+		for _, r := range requests {
+			a := v.do(r[0], r[1], "", nil)
+			got[target.Name] = append(got[target.Name], map[string]any{"status": a.Status, "allow": a.Header.Get("Allow"), "location": a.Header.Get("Location")})
+		}
+		server.Stop()
+	}
+	for i, r := range requests {
+		if !reflect.DeepEqual(got["tifa"][i], got["nextjs"][i]) {
+			t.Errorf("%s %s\n tifa:    %s\n Next.js: %s", r[0], r[1], storeJSON(got["tifa"][i]), storeJSON(got["nextjs"][i]))
+		}
+	}
+}
