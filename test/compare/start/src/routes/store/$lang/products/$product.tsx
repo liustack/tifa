@@ -4,7 +4,7 @@ import { Error } from '@/app/store/lang+/layout'
 import { notFoundWith } from '../../../../compare/not-found'
 import { pick } from '../../../../compare/search'
 import { productFn } from '../../../../compare/store-fns'
-import { addToCart } from '../../../../compare/store-handlers'
+import { addToCart, refusing } from '../../../../compare/store-handlers'
 
 // The page of a product. Its POST puts the product into the cart, as the handler of
 // app/store/lang+/products/product+/route.go does.
@@ -19,7 +19,8 @@ export const Route = createFileRoute('/store/$lang/products/$product')({
   remountDeps: ({ params }) => [params.lang, params.product],
   server: {
     handlers: {
-      POST: ({ request, params }) => addToCart(request, params.product, params.lang),
+      POST: ({ request, params }) => addToCart(request, params),
+      ...refusing('GET, HEAD, POST', 'PUT', 'PATCH', 'DELETE'),
     },
   },
 })

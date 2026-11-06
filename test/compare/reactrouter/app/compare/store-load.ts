@@ -4,7 +4,7 @@
 // functions of the storefront do not use each other's results).
 
 import { data } from 'react-router'
-import { Ctx, NotFound, getStore, loadRoute } from '../../../domain/store/index.ts'
+import { Ctx, NotFound, loadRoute } from '../../../domain/store/index.ts'
 
 // loader makes the loader of the route with a Tifa route id. A page that has no data answers 404,
 // as tifa does for tifa.ErrNotFound.
@@ -33,12 +33,3 @@ export const loadUnknown = () => {
   throw data(null, { status: 404 })
 }
 
-// redirectByLanguage is GET /store: the storefront in the language the browser prefers.
-export function redirectByLanguage(request: Request) {
-  const r = getStore(request.headers.get('accept-language') ?? '')
-  // The body is the one of Go's http.Redirect.
-  return new Response(`<a href="${r.location}">Found</a>.\n\n`, {
-    status: r.status,
-    headers: { Location: r.location, Vary: r.vary, 'Content-Type': 'text/html; charset=utf-8' },
-  })
-}

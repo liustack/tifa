@@ -12,7 +12,6 @@ import { loadProduct } from '../../../../domain/store/product.ts'
 import { loadCart } from '../../../../domain/store/cart/route.ts'
 import { loadCheckout } from '../../../../domain/store/checkout.ts'
 import { loadJournal, loadPost } from '../../../../domain/store/journal/route.ts'
-import { preferred } from '../../../../domain/store/store.ts'
 
 export { NotFound } from '../../../../domain/errors.ts'
 
@@ -38,6 +37,3 @@ export const loadJournalPage = cache((lang: string) => loadJournal({ lang }))
 export const loadPostPage = cache((lang: string, post: string) => loadPost({ lang, post }))
 export const loadCartPage = async (lang: string) => loadCart(await ctx(), { lang })
 export const loadCheckoutPage = async (lang: string, q: string) => loadCheckout(await ctx(), { lang }, new URLSearchParams(q))
-
-// preferredLang is the language /store sends a visitor to, from their Accept-Language.
-export const preferredLang = (acceptLanguage: string) => preferred(acceptLanguage).code
