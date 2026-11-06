@@ -43,27 +43,6 @@ export interface ReviewsPage {
   pages: number
 }
 
-// ratingAbove4 is Go's p.rating*10-40, which is a different number on arm64 than on amd64. The Go
-// compiler turns a multiply that feeds an add or subtract into one fused instruction on arm64
-// (and on amd64 built for GOAMD64=v3 or higher), which rounds once. The default amd64 build rounds
-// the product first. So 4.8*10-40 is 8 on amd64 and 7.999... on arm64, and the bars of the
-// ratings differ by a review or two. The port gives each machine what the Go shop gives it, so
-// the check against Go and the comparison of the apps hold on both.
-function ratingAbove4(rating: number): number {
-  const product = rating * 10
-  if (process.arch !== 'arm64') return product - 40
-  // The exact rounding error of the product (Dekker's split), so that the sum is rounded once.
-  const split = 134217729 // 2^27 + 1
-  const a = rating * split
-  const aHigh = a - (a - rating)
-  const aLow = rating - aHigh
-  const b = 10 * split
-  const bHigh = b - (b - 10)
-  const bLow = 10 - bHigh
-  const error = aHigh * bHigh - product + aHigh * bLow + aLow * bHigh + aLow * bLow
-  return product - 40 + error
-}
-
 const recordOf = (slug: string): ProductRecord => productBySlug(slug) as ProductRecord
 
 // reviewPage returns page of the reviews of a product, from 1. A page past the last shows the last.
@@ -75,7 +54,7 @@ export function reviewPage(slug: string, page: number, l: Locale): ReviewsPage {
   const list: Review[] = []
   for (let i = (out.page - 1) * reviewsPerPage; i < Math.min(out.page * reviewsPerPage, total); i++) list.push(reviewAt(p, i, l))
   out.reviews = list
-  const five = Math.trunc((total * Math.trunc(ratingAbove4(p.rating))) / 10)
+  const five = Math.trunc((total * (Math.round(p.rating * 10) - 40)) / 10)
   const four = Math.trunc(((total - five) * 2) / 3)
   const three = Math.trunc(((total - five - four) * 2) / 3)
   const two = Math.trunc((total - five - four - three) / 2)
