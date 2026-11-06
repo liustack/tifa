@@ -13,6 +13,13 @@
 #   debug_info: false       # true keeps the DWARF debug info in the program, for debuggers such as Delve
 #   i18next_cache: true     # false stops the server render from keeping the strings i18next translates
 
+# i18n:
+#   default: ""             # default language of an app with _locales folders, such as zh-CN, needed when it has several
+#   prefix: off             # always puts the language in the URL of every route that has languages, the default one too
+
+# site:
+#   url: ""                 # scheme and host the site is served at, such as https://shop.example.com, needed with several languages
+
 # server:
 #   addr: 127.0.0.1:9527    # address to listen on, 0.0.0.0:9527 in a container
 #   body_limit: 1MiB        # largest request body, a bigger one gets 413

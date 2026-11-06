@@ -879,4 +879,8 @@ func TestI18nAndSiteAreProjectFileSettings(t *testing.T) {
 	if _, _, err := Project([]byte("i18n:\n  prefix: off\n")); err != nil {
 		t.Errorf("off: %v", err)
 	}
+	// Empty is not set, as the example file of tifa new shows them.
+	if c, _, err := Project([]byte("i18n:\n  default: \"\"\nsite:\n  url: \"\"\n")); err != nil || c.I18n.Default != "" || c.Site.URL != "" {
+		t.Errorf("empty: %+v %+v, %v", c.I18n, c.Site, err)
+	}
 }

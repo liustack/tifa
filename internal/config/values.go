@@ -556,6 +556,10 @@ func (v secretValue) kind() string       { return "string" }
 type languageValue struct{ p *string }
 
 func (v languageValue) Set(s string) error {
+	if s == "" {
+		*v.p = "" // not set
+		return nil
+	}
 	if err := CheckLanguage(s); err != nil {
 		return err
 	}
@@ -597,6 +601,10 @@ func (v prefixValue) kind() string   { return "string" }
 type siteURLValue struct{ p *string }
 
 func (v siteURLValue) Set(s string) error {
+	if s == "" {
+		*v.p = "" // not set
+		return nil
+	}
 	u, err := url.Parse(s)
 	switch {
 	case err != nil:
