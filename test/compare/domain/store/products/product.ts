@@ -1,4 +1,5 @@
 // Ported from products/product.go: the products, their search and the cards that lists show.
+import { counts } from '../../counts.ts'
 import { NotFound } from '../errors.ts'
 import { inLocale, price } from '../store.ts'
 import type { Locale } from '../store.ts'
@@ -241,6 +242,7 @@ export function card(p: ProductRecord, l: Locale): Card {
 }
 
 export function product(p: ProductRecord, l: Locale): Product {
+  counts.products++
   const c = card(p, l)
   return {
     ...c, categoryId: p.category, description: inLocale(p.description, l),
@@ -272,9 +274,10 @@ export function getProductOrNull(slug: string, l: Locale): Product | null {
   return p ? product(p, l) : null
 }
 
-// getProductCard is the Card of the product slug, which Go reaches as GetProduct(slug).Card.
+// getProductCard is the Card of the product slug, which Go reaches as GetProduct(slug).Card. The
+// product is built whole, since that is the work Go does for it.
 export function getProductCard(slug: string, l: Locale): Card {
-  const p = productBySlug(slug)
-  if (!p) throw new NotFound()
-  return card(p, l)
+  // The whole product is built first, as Go does, then only its Card is kept.
+  const { categoryId, description, sizes, care, specs, specGroups, addedAt, ...kept } = getProduct(slug, l)
+  return kept
 }

@@ -266,9 +266,9 @@ func TestEveryRequestComputesAndRenders(t *testing.T) {
 	for label, a := range perStore["tifa-nocache"] {
 		b, c, d := perStore["nextjs"][label], perStore["start"][label], perStore["reactrouter"][label]
 		if a != b || a != c || a != d {
-			t.Errorf("%s: calls of FindLocale for one request: tifa %d, Next.js %d, Start %d, React Router %d", label, a, b, c, d)
+			t.Errorf("%s: calls for one request: tifa %d, Next.js %d, Start %d, React Router %d", label, a, b, c, d)
 		}
-		t.Logf("%-52s %d calls of FindLocale in tifa, %d in Next.js, %d in Start, %d in React Router", label, a, b, c, d)
+		t.Logf("%-52s %d calls in tifa, %d in Next.js, %d in Start, %d in React Router", label, a, b, c, d)
 	}
 }
 

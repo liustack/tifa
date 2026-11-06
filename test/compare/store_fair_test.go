@@ -63,7 +63,8 @@ func storeComputes(t *testing.T, name, base string, countBases []string, node bo
 		if isPage && one["findLocale"] <= 0 {
 			t.Errorf("%s, %s: one request never looked up the language: %v", name, label, one)
 		}
-		perCase[label] = one["findLocale"]
+		perCase[label+" (findLocale)"] = one["findLocale"]
+		perCase[label+" (products built)"] = one["products"]
 		if node && isPage {
 			for key, want := range map[string]int64{"shell": 1, "project": 0, "page": 1, "renders": 1} {
 				if one[key] != want {
