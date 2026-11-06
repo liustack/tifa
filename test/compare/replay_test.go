@@ -378,3 +378,25 @@ func TestOnlyPlansWithATraceForEveryServerAreReplayed(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadingTracesFailsWhenARouterRequestLostItsHeaders(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, headers, url string) string {
+		path := filepath.Join(dir, name)
+		line := `{"plan":0,"steps":[{"kind":"click","page":"/p","reqs":[{"method":"GET","url":"` + url + `","headers":` + headers + `,"s":0,"e":5,"status":200,"class":"nav"}]}]}` + "\n"
+		os.WriteFile(path, []byte(line), 0o644)
+		return path
+	}
+	if _, _, err := ReadTraces(write("ok.jsonl", `{"rsc":"1"}`, "/projects/studio?_rsc=abc")); err != nil {
+		t.Errorf("a request with its header: %v", err)
+	}
+	if _, _, err := ReadTraces(write("lost.jsonl", `{}`, "/projects/studio?_rsc=abc")); err == nil || !strings.Contains(err.Error(), "rsc") {
+		t.Errorf("a _rsc request without rsc: %v", err)
+	}
+	if _, _, err := ReadTraces(write("fn.jsonl", `{"accept":"x"}`, "/_serverFn/abc?payload=1")); err == nil || !strings.Contains(err.Error(), "x-tsr-serverfn") {
+		t.Errorf("a server function call without its header: %v", err)
+	}
+	if _, _, err := ReadTraces(write("tifa.jsonl", `{}`, "/projects/studio?_tifa=ab.001")); err != nil {
+		t.Errorf("a Tifa request needs no router header: %v", err)
+	}
+}

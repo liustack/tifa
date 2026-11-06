@@ -79,7 +79,9 @@ async function visit(browser, plan) {
       const res = await finish
       done(0) // does nothing when the browser has finished it; else it was cancelled
       const all = (await within(3000, req.allHeaders().catch(() => ({})))) ?? {}
-      rec.headers = Object.fromEntries(Object.entries(all).filter(([k]) => keepHeader.test(k)))
+      // Add to the headers seen when the request was made: when the browser's own list cannot be had
+      // (it times out for a request the browser cancelled), the router headers must not be lost.
+      Object.assign(rec.headers, Object.fromEntries(Object.entries(all).filter(([k]) => keepHeader.test(k))))
       rec.inm = 'if-none-match' in all
       if (res && res.status() === 0) rec.failed = true
       if (all['next-router-prefetch'] || /prefetch/i.test(all['sec-purpose'] ?? '')) rec.class = 'prefetch'
