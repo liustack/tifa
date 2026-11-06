@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -65,7 +66,10 @@ type LoadResult struct {
 	Reloads  int     `json:"reloads"`
 	CPU      float64 `json:"cpuSeconds"`
 	PeakRSS  float64 `json:"peakRssMiB"`
-	N304     int     `json:"notModified"`
+	// ClientCPU is the processor time of the load generator itself in the window, in seconds. When it
+	// is close to the cpus given to the client, the client is what limits the visits a second.
+	ClientCPU float64 `json:"clientCpuSeconds"`
+	N304      int     `json:"notModified"`
 	// Renders counts the answers to documents by X-Tifa-Render (Tifa only).
 	Renders  map[string]int `json:"renders,omitempty"`
 	FirstErr string         `json:"firstError,omitempty"`
@@ -358,7 +362,7 @@ func (r *replayer) RunLoad(ctx context.Context, users int, warm, window time.Dur
 	if err := sleep(ctx, warm); err != nil {
 		return nil, err
 	}
-	cpu0 := r.cpu()
+	cpu0, client0 := r.cpu(), selfCPU()
 	start := time.Now()
 	r.t0.Store(start.UnixNano())
 	if err := sleep(ctx, window); err != nil {
@@ -366,7 +370,7 @@ func (r *replayer) RunLoad(ctx context.Context, users int, warm, window time.Dur
 	}
 	end := time.Now()
 	r.t1.Store(end.UnixNano())
-	cpu1 := r.cpu()
+	cpu1, client1 := r.cpu(), selfCPU()
 	cancel()
 	wg.Wait()
 	r.mu.Lock()
@@ -374,10 +378,20 @@ func (r *replayer) RunLoad(ctx context.Context, users int, warm, window time.Dur
 	res := &r.res
 	res.Seconds = end.Sub(start).Seconds()
 	res.CPU = cpu1 - cpu0
+	res.ClientCPU = client1 - client0
 	res.PeakRSS = float64(r.rss()) / (1 << 20)
 	for kind, l := range res.lat {
 		sorted := sortedCopy(l)
 		res.Types[kind] = TypeStat{N: len(l), P50: Percentile(sorted, 50), P99: Percentile(sorted, 99)}
 	}
 	return res, nil
+}
+
+// selfCPU is the processor time this process has used, in seconds.
+func selfCPU() float64 {
+	var ru syscall.Rusage
+	if syscall.Getrusage(syscall.RUSAGE_SELF, &ru) != nil {
+		return 0
+	}
+	return float64(ru.Utime.Sec+ru.Stime.Sec) + float64(ru.Utime.Usec+ru.Stime.Usec)/1e6
 }

@@ -32,8 +32,8 @@ func (r *Record) browseMarkdown() string {
 	b.WriteString("What a visit is made of is assumed, not measured: its length (4 page views on average is 75% soft navigations, 2 is 50%), that 10% of the page views after the first are reloads, and the rate of writes (a write to one of the three orders that accept one, after a page view, with probability 1/500 or 1/20). A write gives an order a new address, and in the fan-out run a new customer name too, which the lists, the stats and the other orders of that customer show. The conditions favor reuse of rendered pages: 58 pages that every visitor shares, almost no personalization and rare writes. Times are when the server's answer reached the client, not when a browser would have shown the page. CPU is the processor time of the whole server process tree, user and system, and includes writes and prefetches.\n\n")
 	for _, sc := range bd.Scenarios {
 		fmt.Fprintf(&b, "#### %s: %d page views a visit on average, a write after about %s page views%s\n\n", sc.Name, sc.Mean, fmt.Sprintf("1 in %.0f", 1/sc.WriteRate), map[bool]string{true: ", changing the customer too", false: ""}[sc.FanOut])
-		b.WriteString("| | users | visits/s | CPU ms/visit | page views/s | CPU ms/view | requests/visit | body KB/visit | full load P50 / P99 ms (n) | navigation P50 / P99 ms (n) | reload P50 ms (n) | prefetch P50 / P99 ms (n) | write P50 ms (n) | peak RSS MiB |\n| --- |")
-		b.WriteString(strings.Repeat(" --- |", 13) + "\n")
+		b.WriteString("| | users | visits/s | CPU ms/visit | page views/s | CPU ms/view | requests/visit | body KB/visit | full load P50 / P99 ms (n) | navigation P50 / P99 ms (n) | reload P50 ms (n) | prefetch P50 / P99 ms (n) | write P50 ms (n) | peak RSS MiB | client cores |\n| --- |")
+		b.WriteString(strings.Repeat(" --- |", 14) + "\n")
 		var specs []string
 		by := map[string][]BrowseRun{}
 		for _, run := range bd.Runs {
@@ -77,7 +77,7 @@ func (r *Record) browseMarkdown() string {
 				}
 				return fmtCell(typ(kind, func(t TypeStat) float64 { return t.P50 }), "%.1f")
 			}
-			fmt.Fprintf(&b, "| %s | %d | %s | %s | %s | %s | %s | %s | %s / %s (%d) | %s / %s (%d) | %s (%d) | %s / %s (%d) | %s (%d) | %s |\n",
+			fmt.Fprintf(&b, "| %s | %d | %s | %s | %s | %s | %s | %s | %s / %s (%d) | %s / %s (%d) | %s (%d) | %s / %s (%d) | %s (%d) | %s | %s |\n",
 				runs[0].Label, runs[0].Load.Users,
 				fmtCell(per(func(l *LoadResult) float64 { return float64(l.Visits) / l.Seconds }), "%.2f"),
 				fmtCell(per(func(l *LoadResult) float64 { return 1000 * l.CPU / visits(l) }), "%.1f"),
@@ -86,9 +86,10 @@ func (r *Record) browseMarkdown() string {
 				fmtCell(per(func(l *LoadResult) float64 { return float64(l.Requests) / visits(l) }), "%.1f"),
 				fmtCell(per(func(l *LoadResult) float64 { return float64(l.Bytes) / 1024 / visits(l) }), "%.1f"),
 				p50("doc"), p99("doc"), n("doc"), p50("nav"), p99("nav"), n("nav"), p50("reload"), n("reload"), p50("prefetch"), p99("prefetch"), n("prefetch"), p50("write"), n("write"),
-				fmtCell(per(func(l *LoadResult) float64 { return l.PeakRSS }), "%.0f"))
+				fmtCell(per(func(l *LoadResult) float64 { return l.PeakRSS }), "%.0f"),
+				fmtCell(per(func(l *LoadResult) float64 { return l.ClientCPU / l.Seconds }), "%.2f"))
 		}
-		b.WriteString("\nP99 is printed where a type has at least 100 samples in each round.\n")
+		b.WriteString("\nP99 is printed where a type has at least 100 samples in each round. The client-cores column is the processor time of the load generator over the window: the client has two cpus, so a value near 2 means the client limits the visits a second.\n")
 		if tifa, ok := by["tifa"]; ok {
 			var rows []string
 			for _, kind := range []string{"vm", "cache", "shared"} {
