@@ -14,11 +14,11 @@ English · [简体中文](render-cache.zh-CN.md)
 
 A page whose data has not changed is not rendered again. Every request still runs its middleware and `Load`s, so a page is always current, and the app writes no caching code.
 
-Three things make it worth having:
+It has three things going for it:
 
 - **Nothing to think about.** It is on for every page. There are no keys, tags or invalidation to write, and a page is never old, because every request runs its `Load`s. See [Against the whole-page cache](#against-the-whole-page-cache).
 - **It cannot leak.** The key covers every input of the render, the render reads no cookies, headers or I/O, the cache stays in the process, and the default `Cache-Control` keeps CDNs out. See [Why it is safe on every page](#why-it-is-safe-on-every-page).
-- **Signed-in pages are cached too.** A cart or a bill is reused for the same data and session, and a page never goes to the wrong person. See [Signed-in and private pages](#signed-in-and-private-pages).
+- **Signed-in pages are cached too.** A cart or a bill is reused for the same data and session, and one person's page never goes to another. See [Signed-in and private pages](#signed-in-and-private-pages).
 
 ## Against the whole-page cache
 
