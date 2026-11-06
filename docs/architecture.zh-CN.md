@@ -212,7 +212,7 @@ flowchart TD
   FL -- "否" --> VMR["在 VM 里渲染 (vm)，保存 HTML"]
 ```
 
-- **渲染缓存。** 键是 build ID、SSR bundle、URL、每个 `Load` 的数据、浏览器拿到的会话和 `server.csp` 的策略的哈希。同一个键总是得到同样的 HTML，所以命中就能跳过 VM。每个请求仍然运行 `OnRequest` 和它的 `Load`，所以数据不会旧。页面只存一种形式：`server.compress` 开着时存 gzip，否则存 HTML。
+- **渲染缓存**（[详情](render-cache.zh-CN.md)）。键是 build ID、SSR bundle、URL、每个 `Load` 的数据、浏览器拿到的会话和 `server.csp` 的策略的哈希。同一个键总是得到同样的 HTML，所以命中就能跳过 VM。每个请求仍然运行 `OnRequest` 和它的 `Load`，所以数据不会旧。页面只存一种形式：`server.compress` 开着时存 gzip，否则存 HTML。
 - **共享渲染。** 同时没命中同一个键的请求只等一次渲染，`cache.size` 为 0 时也一样。这次渲染跑在一个不属于任何请求的 goroutine 里，所以某个客户端走掉不会取消它。
 - **ETag。** 它是和渲染键同样那些东西的哈希。匹配的 `If-None-Match` 在问缓存之前就得到回答。ETag 省的是发给浏览器的传输，缓存省的是给其他人的渲染。
 - **整页缓存。** 只有写了 `const Cache` 的页面有。请求被变成匿名的，键是协议、host、路径和去掉跟踪参数的查询字符串，条目存活 `Cache` 那么久。命中既不运行 `Load` 也不渲染。没命中时，为所有在等的请求只做一次页面，要经过渲染缓存。做新页面失败时，最多一天内继续给出旧条目。
