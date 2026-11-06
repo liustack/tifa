@@ -383,12 +383,11 @@ func (e Env) Browse(ctx context.Context, o BrowseOptions) (*Record, error) {
 	return rec, nil
 }
 
-// search raises the users 1, 2, 4, ... until visits/s rises by under 3% twice in a row (a plateau, confirmed by one more step) or falls,
-// or a step has errors or a P99 over a second, or o.MaxUsers is reached. It returns the whole curve
-// and the highest step that passes.
+// search raises the users 1, 2, 4, ... until a step fails, or visits/s rose by under 3% in two steps
+// in a row (PlateauAfter: a fall counts as a rise under 3%), or o.MaxUsers is reached. It returns the
+// whole curve and the step the rounds run at (ChooseStep).
 func (r *replayer) search(ctx context.Context, o BrowseOptions) ([]CurvePoint, int, error) {
 	var curve []CurvePoint
-	prev, flat := 0.0, 0
 	for users := 1; users <= max(o.MaxUsers, 1); users *= 2 {
 		res, err := r.RunLoad(ctx, users, o.SearchWarm, o.SearchWindow)
 		if err != nil {
@@ -399,31 +398,46 @@ func (r *replayer) search(ctx context.Context, o BrowseOptions) ([]CurvePoint, i
 		p.Pass = p.Why == ""
 		curve = append(curve, p)
 		fmt.Fprintf(o.Log, "  %2d users: %7.2f visits/s, %d errors, full load P99 %.0f ms, navigation P99 %.0f ms %s\n", users, p.VisitsPerS, p.Errors, p.DocP99, p.NavP99, res.FirstErr)
-		if !p.Pass {
+		if !p.Pass || PlateauAfter(curve) {
 			break
 		}
-		if prev > 0 && p.VisitsPerS < prev {
-			flat = 2 // a drop is a plateau: more users did not bring more visits
-		} else if prev > 0 && p.VisitsPerS < prev*1.03 {
-			flat++
-		} else {
-			flat = 0
-		}
-		if flat >= 2 {
-			break
-		}
-		prev = p.VisitsPerS
 	}
-	chosen := 0
-	for _, p := range curve {
-		if p.Pass {
-			chosen = p.Users
-		}
-	}
+	chosen := ChooseStep(curve)
 	if chosen == 0 {
 		return curve, 0, fmt.Errorf("not even one user passes: %+v", curve)
 	}
 	return curve, chosen, nil
+}
+
+// PlateauAfter says whether the last two steps of the curve each brought less than 3% more visits/s
+// than the best step before them. A fall is no more than that, so one dip does not end the search.
+func PlateauAfter(curve []CurvePoint) bool {
+	if len(curve) < 3 {
+		return false
+	}
+	best := 0.0
+	flat := 0
+	for i, p := range curve {
+		if i > 0 && p.VisitsPerS < best*1.03 {
+			flat++
+		} else {
+			flat = 0
+		}
+		best = max(best, p.VisitsPerS)
+	}
+	return flat >= 2
+}
+
+// ChooseStep is the passing step with the most visits/s, the one with fewer users when two are
+// equal. It is 0 when no step passes.
+func ChooseStep(curve []CurvePoint) int {
+	chosen, best := 0, 0.0
+	for _, p := range curve {
+		if p.Pass && p.VisitsPerS > best {
+			chosen, best = p.Users, p.VisitsPerS
+		}
+	}
+	return chosen
 }
 
 func (e Env) tifaBuildID() (string, error) {
@@ -591,24 +605,34 @@ func moveRuns(runs, rejected []BrowseRun, scenario, spec string) (keep, rej []Br
 	return keep, rejected
 }
 
-// CurveEnd says why the search stopped.
+// CurveEnd says why the search stopped and which step the rounds started at.
 func CurveEnd(curve []CurvePoint, maxUsers int) string {
 	if len(curve) == 0 {
 		return ""
 	}
 	last := curve[len(curve)-1]
 	if maxUsers == 0 {
-		maxUsers = 64
+		maxUsers = 128
 	}
+	var why string
 	switch {
 	case !last.Pass:
-		return fmt.Sprintf("stopped at %d users: %s", last.Users, last.Why)
-	case len(curve) > 1 && last.VisitsPerS < curve[len(curve)-2].VisitsPerS:
-		return fmt.Sprintf("plateau: visits/s fell from %.0f to %.0f at %d users", curve[len(curve)-2].VisitsPerS, last.VisitsPerS, last.Users)
+		why = fmt.Sprintf("the step at %d users fails (%s)", last.Users, last.Why)
+	case PlateauAfter(curve):
+		why = "visits/s rose under 3% in two steps in a row"
 	case last.Users >= maxUsers:
-		return fmt.Sprintf("cap reached at %d users", last.Users)
+		why = fmt.Sprintf("cap reached at %d users", last.Users)
+	default:
+		why = "ended"
 	}
-	return fmt.Sprintf("plateau at %d users", last.Users)
+	chosen := ChooseStep(curve)
+	var at float64
+	for _, p := range curve {
+		if p.Users == chosen {
+			at = p.VisitsPerS
+		}
+	}
+	return fmt.Sprintf("stopped: %s. Chosen: %d users, the passing step with the most visits/s (%.0f)", why, chosen, at)
 }
 
 // backfillAttempts gives the runs and the keys of a record that was made before attempts were kept

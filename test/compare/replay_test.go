@@ -146,7 +146,7 @@ func TestReplayWritesAreTheirOwnRequestTypeAndTheTifaBuildIsSubstituted(t *testi
 	}
 }
 
-func TestSearchStopsAtAPlateauAndKeepsTheHighestStepThatPasses(t *testing.T) {
+func TestSearchStopsAtAPlateauAndChoosesTheBestStepThatPasses(t *testing.T) {
 	// A server that answers at the same speed however many ask: visits/s rises with the users until
 	// they all wait on one lock.
 	var mu sync.Mutex
@@ -170,7 +170,7 @@ func TestSearchStopsAtAPlateauAndKeepsTheHighestStepThatPasses(t *testing.T) {
 	if len(curve) < 3 || len(curve) >= 7 {
 		t.Errorf("%d steps: %+v", len(curve), curve)
 	}
-	if chosen != curve[len(curve)-1].Users {
+	if chosen != ChooseStep(curve) {
 		t.Errorf("chose %d out of %+v", chosen, curve)
 	}
 }
@@ -215,16 +215,53 @@ func TestRoundsFailByTheRuleOfTheSearchAndStepDownToTheNextPassingStep(t *testin
 	}
 }
 
-func TestCurveEndSaysCapDropOrPlateau(t *testing.T) {
-	up := []CurvePoint{{Users: 32, VisitsPerS: 100, Pass: true}, {Users: 64, VisitsPerS: 150, Pass: true}}
-	if got := CurveEnd(up, 64); !strings.Contains(got, "cap reached") {
+func curveOf(v ...float64) []CurvePoint {
+	var c []CurvePoint
+	for i, x := range v {
+		c = append(c, CurvePoint{Users: 1 << i, VisitsPerS: x, Pass: true})
+	}
+	return c
+}
+
+func TestOneDipDoesNotStopTheSearchButTwoSlowStepsDo(t *testing.T) {
+	// 1: 639, 2: 892, 4: 853 is a dip: the search goes on to 8.
+	if PlateauAfter(curveOf(639, 892, 853)) {
+		t.Fatal("a single dip stopped the search")
+	}
+	// 8 is also under 3% above 892 (918.8): it stops, and the rounds run at 2 users, the best step.
+	c := curveOf(639, 892, 853, 880)
+	if !PlateauAfter(c) || ChooseStep(c) != 2 {
+		t.Errorf("plateau %v, chosen %d", PlateauAfter(c), ChooseStep(c))
+	}
+	// 8 brings 950: the search goes on and the rounds would run at 8.
+	c = curveOf(639, 892, 853, 950)
+	if PlateauAfter(c) || ChooseStep(c) != 8 {
+		t.Errorf("plateau %v, chosen %d", PlateauAfter(c), ChooseStep(c))
+	}
+	// Two falls in a row stop it too.
+	if !PlateauAfter(curveOf(100, 200, 190, 180)) {
+		t.Error("two falls did not stop the search")
+	}
+	if got := CurveEnd(curveOf(639, 892, 853, 880), 128); !strings.Contains(got, "Chosen: 2 users") || !strings.Contains(got, "under 3%") {
 		t.Errorf("%q", got)
 	}
-	down := []CurvePoint{{Users: 32, VisitsPerS: 1066, Pass: true}, {Users: 64, VisitsPerS: 1052, Pass: true}}
-	if got := CurveEnd(down, 64); !strings.Contains(got, "fell") || strings.Contains(got, "cap") {
+}
+
+func TestChooseStepTakesTheMostVisitsAndTiesGoToFewerUsers(t *testing.T) {
+	c := curveOf(100, 200, 200, 150)
+	if ChooseStep(c) != 2 {
+		t.Errorf("chose %d", ChooseStep(c))
+	}
+	c[1].Pass = false
+	if ChooseStep(c) != 4 {
+		t.Errorf("a failing step was chosen: %d", ChooseStep(c))
+	}
+	if got := CurveEnd(curveOf(10, 20, 40), 4); !strings.Contains(got, "cap reached") || !strings.Contains(got, "Chosen: 4") {
 		t.Errorf("%q", got)
 	}
-	if got := CurveEnd([]CurvePoint{{Users: 4, VisitsPerS: 1, Pass: true}, {Users: 8, VisitsPerS: 1.01, Pass: true}}, 64); !strings.Contains(got, "plateau at 8") {
+	failing := curveOf(10, 20)
+	failing = append(failing, CurvePoint{Users: 4, VisitsPerS: 1, Why: "no visit completed"})
+	if got := CurveEnd(failing, 128); !strings.Contains(got, "fails (no visit completed)") || !strings.Contains(got, "Chosen: 2") {
 		t.Errorf("%q", got)
 	}
 }

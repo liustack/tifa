@@ -178,7 +178,7 @@ func browseCmd(cmd string, args []string) {
 		window     = flags.Duration("window", 30*time.Second, "browse: measuring window of a round")
 		searchWarm = flags.Duration("search-warm", 3*time.Second, "browse: lead-in of a step of the search")
 		searchWin  = flags.Duration("search-window", 10*time.Second, "browse: window of a step of the search")
-		maxUsers   = flags.Int("max-users", 64, "browse: the search stops here")
+		maxUsers   = flags.Int("max-users", 128, "browse: the search stops here")
 		jsonPath   = flags.String("json", "", "browse: write the record as JSON to this file")
 		from       = flags.String("from", "", "browse: a record to continue: its curves and runs are kept")
 		only       = flags.String("only", "", "browse: with -from, the scenario/spec keys whose rounds run again, such as baseline/nextjs")
