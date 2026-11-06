@@ -3,7 +3,8 @@
   "compilerOptions": {
     "paths": {
       "@/*": ["./*"],
-      "tifa/client": ["./.tifa/runtime/client.ts"]
+      "tifa/client": ["./.tifa/runtime/client.ts"],
+      "tifa/i18n": ["./.tifa/runtime/i18n.tsx"]
     }
   },
   "include": ["**/*", ".tifa/**/*"]

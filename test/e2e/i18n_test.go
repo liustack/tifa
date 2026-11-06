@@ -56,7 +56,7 @@ func TestI18nApp(t *testing.T) {
 		if status, _, body := cacheSend(t, "GET", base+"/projects", ""); status != 200 || !strings.Contains(plain(body), "projects go=zh-CN react=zh-CN") {
 			t.Errorf("/projects: %d %.300s", status, body)
 		}
-		if status, _, body := cacheSend(t, "GET", base+"/store?q=a", ""); status != 200 || !strings.Contains(plain(body), "store go=zh-CN react=zh-CN path=/store q=a") {
+		if status, _, body := cacheSend(t, "GET", base+"/store?q=a", ""); status != 200 || !strings.Contains(plain(body), "store go=zh-CN react=zh-CN path=/store q=a title=商店") {
 			t.Errorf("/store: %d %.300s", status, body)
 		}
 	})
@@ -450,9 +450,10 @@ func TestDevLocaleFiles(t *testing.T) {
 	}
 	mark := len(d.log.String())
 	// The area needs the new language only for its own routes, and the site gets it.
+	// The content is converted again too: the links of its Markdown follow the languages of the routes.
 	write(t, filepath.Join(dir, "app/store/_locales/fr.json"), `{"title": "Magasin"}`)
 	v = d.waitStatus(t, func(st devStatus) bool { return st.Version != v && st.Error == "" }).Version
-	expectSteps(t, "added fr.json", d.waitLog(t, mark, ready), "static analysis", "code generation", "bundle", "go build")
+	expectSteps(t, "added fr.json", d.waitLog(t, mark, ready), "static analysis", "code generation", "bundle", "content", "go build")
 	var m struct{ Language, URL string }
 	status, _, body := cacheSend(t, "GET", d.base+"/fr/store/mine", "")
 	if err := json.Unmarshal([]byte(body), &m); status != 200 || err != nil || m.Language != "fr" || m.URL != "/fr/store/mine" {
