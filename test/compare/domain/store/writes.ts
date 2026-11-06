@@ -10,6 +10,8 @@
 // Only JSON bodies are taken, which is all the storefront's pages send. Every cookie the write
 // sets is added to the answer as a Set-Cookie header.
 import { Ctx } from './ctx.ts'
+import { BadJSON, Num, asInt, parseBody } from './json.ts'
+import type { Obj, Value } from './json.ts'
 import { Fields, HttpError, NotFound } from './errors.ts'
 import { patchCart, postCoupon } from './cart/route.ts'
 import { postCheckout } from './checkout.ts'
@@ -36,24 +38,24 @@ class BadBody extends Error {}
 async function decodeBody<T>(request: Request, shape: Shape): Promise<T> {
   const type = (request.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase()
   if (type !== 'application/json') throw new HttpError(415, 'Unsupported Media Type')
-  let parsed: unknown
+  let parsed: Value
   try {
-    parsed = JSON.parse(await request.text())
-  } catch {
-    throw new BadBody()
+    parsed = parseBody(new Uint8Array(await request.arrayBuffer()))
+  } catch (e) {
+    if (e instanceof BadJSON) throw new BadBody()
+    throw e
   }
-  const fill = (value: unknown, s: Shape): Record<string, unknown> => {
-    if (value === null) value = {}
-    if (typeof value !== 'object' || Array.isArray(value)) throw new BadBody()
-    const src = value as Record<string, unknown>
+  const fill = (value: Value, s: Shape): Record<string, unknown> => {
+    if (value === null) value = new Map() as Obj
+    if (!(value instanceof Map)) throw new BadBody()
     const out: Record<string, unknown> = {}
     for (const [name, kind] of Object.entries(s)) {
-      const v = Object.hasOwn(src, name) ? src[name] : null
+      const v = value.has(name) ? value.get(name)! : null
       if (typeof kind === 'object') out[name] = fill(v, kind)
       else if (v === null) out[name] = kind === 'string' ? '' : kind === 'bool' ? false : 0
       else if (kind === 'string' && typeof v === 'string') out[name] = v
       else if (kind === 'bool' && typeof v === 'boolean') out[name] = v
-      else if (kind === 'int' && typeof v === 'number' && Number.isInteger(v)) out[name] = v
+      else if (kind === 'int' && v instanceof Num && asInt(v) !== undefined) out[name] = asInt(v)
       else throw new BadBody()
     }
     return out

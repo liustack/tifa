@@ -320,6 +320,7 @@ func TestStorefront(t *testing.T) {
 			t.Run("redirects", p.redirects)
 			t.Run("other requests", p.otherRequests)
 			t.Run("forms", p.forms)
+			t.Run("refused bodies", p.refused)
 			t.Run("writes with a call", func(t *testing.T) { p.writes(t, true) })
 			t.Run("writes without a call", func(t *testing.T) { p.writes(t, false) })
 		})
@@ -607,4 +608,51 @@ func (p *pair) forms(t *testing.T) {
 		t.Errorf("%s answered %d to a coupon sent as a form, want 415: %s", p.spec.label, b.status, b.body)
 	}
 	t.Logf("exception, %s: Tifa reads a form body (204), the port reads JSON only (415)", p.spec.label)
+}
+
+// refusedBodies are bodies that Go's JSON decoder (encoding/json/v2, which tifa binds with) refuses
+// with a 400, though a looser reader takes them: a number that is not written as an integer or
+// does not fit, a name given twice, text after the value, bytes that are not UTF-8. The path is
+// the one of the write in Tifa.
+var refusedBodies = []step{
+	w("quantity 1.0", "POST", zh+"/products/pour-over-kettle", `{"color":"mist","size":"","quantity":1.0}`),
+	w("quantity 1e0", "POST", zh+"/products/pour-over-kettle", `{"color":"mist","size":"","quantity":1e0}`),
+	w("quantity written twice", "POST", zh+"/products/pour-over-kettle", `{"color":"mist","size":"","quantity":1,"quantity":2}`),
+	w("quantity out of int64", "POST", zh+"/products/pour-over-kettle", `{"color":"mist","size":"","quantity":9223372036854775808}`),
+	w("quantity below int64", "PATCH", zh+"/cart", `{"line":"pour-over-kettle.mist","quantity":-9223372036854775809}`),
+	w("quantity with a fraction", "PATCH", zh+"/cart", `{"line":"pour-over-kettle.mist","quantity":2.5}`),
+	w("colour written twice", "POST", zh+"/products/pour-over-kettle", `{"color":"mist","color":"moss","size":"","quantity":1}`),
+	w("coupon written twice", "POST", zh+"/cart", `{"code":"SHANHAI10","code":"WELCOME30"}`),
+	w("text after the value", "POST", zh+"/cart", `{"code":"SHANHAI10"} x`),
+	w("two values", "POST", zh+"/cart", `{"code":"SHANHAI10"}{"code":"WELCOME30"}`),
+	w("bytes that are not UTF-8", "POST", zh+"/cart", "{\"code\":\"\xff\"}"),
+	w("lone surrogate", "POST", zh+"/cart", `{"code":"\ud800"}`),
+	w("leading zero", "POST", zh+"/products/pour-over-kettle", `{"color":"mist","size":"","quantity":01}`),
+	w("a name written twice inside the address", "POST", zh+"/checkout", strings.Replace(cardOrder, `"city":"Shanghai"`, `"city":"Shanghai","city":"Beijing"`, 1)),
+	w("an unknown name written twice", "POST", zh+"/cart", `{"x":1,"x":2,"code":"SHANHAI10"}`),
+}
+
+// refused: each of the bodies is a 400 in Tifa and in the apps, and leaves the cart and the cookies
+// as they were.
+func (p *pair) refused(t *testing.T) {
+	q := p.fresh()
+	q.t = t
+	add := request{method: "POST", path: zh + "/products/pour-over-kettle", body: `{"color":"mist","size":"","quantity":2}`}
+	q.both("a cart to keep", add)
+	cart := func(v *visitor) string { return v.do(request{method: "GET", path: zh + "/mine"}).describe() }
+	before := [2]string{cart(q.tifa), cart(q.app)}
+	for _, s := range refusedBodies {
+		for _, call := range []bool{true, false} {
+			a, b := q.both(s.name, request{method: s.method, path: s.path, body: s.body, call: call})
+			if a.status != 400 {
+				t.Errorf("%s: Tifa answered %d, want 400: %s", s.name, a.status, a.body)
+			}
+			if len(a.header.Values("Set-Cookie")) != len(b.header.Values("Set-Cookie")) {
+				t.Errorf("%s: Set-Cookie differs", s.name)
+			}
+			if after := [2]string{cart(q.tifa), cart(q.app)}; after != before {
+				t.Fatalf("%s: a refused write changed the cart.\nTifa before:\n%s\nafter:\n%s\n%s before:\n%s\nafter:\n%s", s.name, before[0], after[0], p.spec.label, before[1], after[1])
+			}
+		}
+	}
 }
