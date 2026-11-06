@@ -63,7 +63,7 @@ go install github.com/liustack/tifa/cmd/tifa@latest
 - 正在使用 `go.work`（`GOWORK`，或应用上层有一个）时一律转交，因为它可能改变应用用到的 Tifa，而 `go tool` 会遵循工作区。
 - `tifa new` 从不转交。它写的是新应用，没有可问的版本。
 - 由 go 命令运行的 `tifa`（`go tool tifa` 或 `go run`）从不转交：它放在 go 命令的构建缓存（`GOCACHE`）里，本来就是 `go.mod` 选定的版本。
-- 转交的命令在应用根目录运行，输入、输出、退出状态和 Ctrl-C 都和直接运行一样。它自己不打印任何内容，并设置 `TIFA_FORWARDED=1` 防止再次转交。`go tool tifa` 启动不了时，`tifa` 会说明该改运行什么。
+- 转交的命令在应用根目录运行，输入、输出、退出状态和信号都和直接运行一样：在 Linux 和 macOS 上 `go tool tifa` 直接替换当前进程，所以只发给 `tifa` 的信号也能送到它。它自己不打印任何内容，并设置 `TIFA_FORWARDED=1` 防止再次转交。`go tool tifa` 启动不了时，`tifa` 会说明该改运行什么。
 
 ## `tifa build`
 
