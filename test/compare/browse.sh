@@ -62,7 +62,7 @@ trace_stamp() {
   echo "next $(pkgver test/compare/nextjs next)"
   echo "start $(pkgver test/compare/start @tanstack/react-start)"
   echo "reactrouter $(pkgver test/compare/reactrouter react-router)"
-  echo "playwright $(pkgver test/compare/recorder playwright)"
+  echo "playwright $(sed -n 's/^    "playwright": "\(.*\)"$/\1/p' test/compare/recorder/package.json)"
   echo "plans $( [ -f "$traces/plans.json" ] && sha <"$traces/plans.json" || echo none)"
 }
 

@@ -253,3 +253,18 @@ func TestLoadTracesRejectsAnIncompleteSet(t *testing.T) {
 		t.Errorf("a set with a failed visit: %v", err)
 	}
 }
+
+func TestBlocksAndVisitsAreWholeBlocks(t *testing.T) {
+	if got := BlocksFor(800, 75*time.Second, 4); got%4 != 0 || got < 4 || float64(got*BlockVisits)/800 < 70 {
+		t.Errorf("blocks for 800 visits/s: %d", got)
+	}
+	if got := BlocksFor(0.5, 75*time.Second, 4); got != 4 {
+		t.Errorf("a slow framework still plays whole passes of the plans: %d", got)
+	}
+	if n := visitsFor(8, 30*time.Second); n%BlockVisits != 0 || n < 240 {
+		t.Errorf("visits for 8 visits/s: %d", n)
+	}
+	if visitsFor(0.1, time.Second) != BlockVisits {
+		t.Error("an open round is at least a block")
+	}
+}
