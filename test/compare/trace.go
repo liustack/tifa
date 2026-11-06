@@ -59,7 +59,7 @@ func ReadTraces(path string) (traces []Trace, dropped int, err error) {
 		}
 		for _, s := range t.Steps {
 			for _, r := range s.Reqs {
-				if r.Status >= 400 || r.Status == 0 && r.Class != "prefetch" {
+				if r.Status >= 400 { // status 0 is a request the browser cancelled before it had an answer: it was sent, so it is replayed
 					return nil, 0, fmt.Errorf("%s: plan %d: %s %s answered %d", path, t.Plan, r.Method, r.URL, r.Status)
 				}
 			}
